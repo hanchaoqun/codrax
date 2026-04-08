@@ -225,6 +225,59 @@ type Message struct {
 	Content string
 }
 
+// BuildSubAgentContext builds a read-only AgentContext for a SubAgent from the shared BusContext.
+// Unlike BuildAgentContext, the objective/scope/constraints come from the SubAgentRequest,
+// not from the stage config.
+func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *types.AgentContext {
+	ac := &types.AgentContext{
+		AgentName:    types.AgentName(req.SubAgent),
+		Stage:        bus.PipelineStage,
+		Objective:    req.Objective,
+		Constraints:  req.Constraints,
+		MissingPiece: bus.TaskState.Missing,
+		RepoRoot:     bus.RepoRoot,
+		Branch:       bus.Branch,
+		Commit:       bus.Commit,
+	}
+
+	// Shared read from BusContext
+	ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
+	ac.RelevantFiles = filterFilesByScope(bus.RepoFacts, req.Scope)
+	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
+	ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
+
+	if bus.Signals.HasPlan {
+		ac.PlanSummary = findSummaryFromResults(bus.ToolResults, "plan")
+	}
+	if bus.Signals.HasPatch {
+		ac.PatchSummary = findSummaryFromResults(bus.ToolResults, "patch")
+	}
+
+	return ac
+}
+
+// filterFilesByScope returns only files whose source path matches one of the scope prefixes.
+func filterFilesByScope(facts []types.RepoFact, scope []string) []string {
+	if len(scope) == 0 {
+		return extractRelevantFiles(facts)
+	}
+	seen := make(map[string]bool)
+	var files []string
+	for _, f := range facts {
+		if f.Source == "" || seen[f.Source] {
+			continue
+		}
+		for _, s := range scope {
+			if strings.HasPrefix(f.Source, s) {
+				seen[f.Source] = true
+				files = append(files, f.Source)
+				break
+			}
+		}
+	}
+	return files
+}
+
 // --- helpers ---
 
 func extractRelevantFacts(facts []types.RepoFact) []string {

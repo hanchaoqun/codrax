@@ -47,9 +47,10 @@ type Agent interface {
 
 // Dependencies bundles the external dependencies an Agent needs.
 type Dependencies struct {
-	LLM          llm.Adapter
-	Tools        *tool.Registry
-	MCPServers   *mcp.Registry
+	LLM           llm.Adapter
+	Tools         *tool.Registry
+	MCPServers    *mcp.Registry
+	SubAgents     *SubAgentRegistry
 	MaxIterations int
 }
 
@@ -205,7 +206,60 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
 		}
 	}
 
+	// Add propose_sub_agents tool if SubAgentRegistry is available
+	if b.deps.SubAgents != nil {
+		schemas = append(schemas, b.buildProposeSubAgentsSchema())
+	}
+
 	return schemas
+}
+
+// buildProposeSubAgentsSchema generates the propose_sub_agents tool schema
+// with the sub_agent enum dynamically populated from the SubAgentRegistry.
+func (b *BaseAgent) buildProposeSubAgentsSchema() llm.ToolSchema {
+	// Build enum from registered SubAgent names
+	names := b.deps.SubAgents.Names()
+	namesJSON, _ := json.Marshal(names)
+
+	params := json.RawMessage(fmt.Sprintf(`{
+		"type": "object",
+		"properties": {
+			"reason": {
+				"type": "string",
+				"description": "Why decomposing into sub-agents is beneficial for this task"
+			},
+			"goal": {
+				"type": "string",
+				"description": "Expected outcome after all sub-tasks complete"
+			},
+			"sub_tasks": {
+				"type": "array",
+				"items": {
+					"type": "object",
+					"properties": {
+						"id":          {"type": "string", "description": "Unique ID within this proposal (e.g. st-1)"},
+						"title":       {"type": "string", "description": "Short description of the sub-task"},
+						"sub_agent":   {"type": "string", "enum": %s, "description": "Which SubAgent to run"},
+						"objective":   {"type": "string", "description": "What this sub-task should accomplish"},
+						"scope":       {"type": "array", "items": {"type": "string"}, "description": "File/directory paths to constrain the sub-agent"},
+						"constraints": {"type": "array", "items": {"type": "string"}, "description": "Additional constraints"}
+					},
+					"required": ["id", "title", "sub_agent", "objective", "scope"]
+				}
+			},
+			"reduce_hint": {
+				"type": "string",
+				"description": "Hint for how to merge results from all sub-tasks"
+			}
+		},
+		"required": ["reason", "goal", "sub_tasks"]
+	}`, string(namesJSON)))
+
+	return llm.ToolSchema{
+		Name:        "propose_sub_agents",
+		Description: "Propose splitting the current task into parallel sub-tasks, each executed by a SubAgent. Use when the task can be decomposed into independent sub-tasks that benefit from parallel execution.",
+		Parameters:  params,
+	}
 }
 
 func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Config) []llm.Message {

@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -16,20 +17,24 @@ import (
 // It reads configuration from YAML, manages BusContext, dispatches agents,
 // and evaluates transitions between stages.
 type Orchestrator struct {
-	config   *config.ResolvedConfig
-	agents   *agent.Registry
-	skills   *skill.Registry
-	busCtx   *types.BusContext
-	maxSteps int
+	config       *config.ResolvedConfig
+	agents       *agent.Registry
+	skills       *skill.Registry
+	busCtx       *types.BusContext
+	maxSteps     int
+	subValidator *agent.SubAgentValidator
+	subRuntime   *agent.SubAgentRuntime
 }
 
 // New creates a new Orchestrator.
-func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Registry) *Orchestrator {
+func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
 	return &Orchestrator{
-		config:   cfg,
-		agents:   agents,
-		skills:   skills,
-		maxSteps: 50,
+		config:       cfg,
+		agents:       agents,
+		skills:       skills,
+		maxSteps:     50,
+		subValidator: agent.NewSubAgentValidator(subAgents),
+		subRuntime:   agent.NewSubAgentRuntime(subAgents),
 	}
 }
 
@@ -145,7 +150,29 @@ func (o *Orchestrator) executeStage(stageConfig *types.StageConfig) error {
 		return fmt.Errorf("agent %s execution: %w", agentName, err)
 	}
 
-	// Update BusContext with agent output
+	// Check if the agent proposed SubAgent decomposition
+	if proposal := extractSubAgentProposal(output); proposal != nil {
+		log.Printf("[orchestrator] sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
+
+		requests, vErr := o.subValidator.Validate(o.busCtx, proposal)
+		if vErr != nil {
+			log.Printf("[orchestrator] proposal rejected: %v, using original output", vErr)
+		} else {
+			results, execErr := o.subRuntime.Execute(requests)
+			if execErr != nil {
+				log.Printf("[orchestrator] subagent partial failure: %v", execErr)
+			}
+
+			reducer := &agent.SubAgentReducer{}
+			merged := reducer.Reduce(results)
+
+			o.applyStageOutput(merged)
+			o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stageConfig.Name))
+			return nil
+		}
+	}
+
+	// No sub-agent decomposition — use original output
 	o.applyStageOutput(output)
 
 	// Record stage completion
@@ -349,4 +376,20 @@ func (o *Orchestrator) isTransitionValidBySignals(t types.Transition, signals ty
 // BusContext returns the current bus context (for inspection/testing).
 func (o *Orchestrator) BusContext() *types.BusContext {
 	return o.busCtx
+}
+
+// extractSubAgentProposal checks if the agent output contains a SubAgentProposal
+// (from a propose_sub_agents tool call). Returns nil if not found.
+func extractSubAgentProposal(output *agent.StageOutput) *types.SubAgentProposal {
+	if output == nil || output.Data == nil {
+		return nil
+	}
+	var proposal types.SubAgentProposal
+	if err := json.Unmarshal(output.Data, &proposal); err != nil {
+		return nil
+	}
+	if len(proposal.SubTasks) == 0 {
+		return nil
+	}
+	return &proposal
 }

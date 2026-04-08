@@ -139,7 +139,7 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 
 // buildRegistries creates agent and skill registries with mock entries matching
 // the default config. agentFns lets callers override the Execute function per agent.
-func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)) (*agent.Registry, *skill.Registry) {
+func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)) (*agent.Registry, *skill.Registry, *agent.SubAgentRegistry) {
 	ar := agent.NewRegistry()
 	names := []types.AgentName{
 		types.AgentPlanner, types.AgentExplorer, types.AgentImplementer,
@@ -164,7 +164,9 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		sr.Register(&skill.Config{Name: s, Goal: s + " goal"})
 	}
 
-	return ar, sr
+	sar := agent.NewSubAgentRegistry()
+
+	return ar, sr, sar
 }
 
 // ---------------------------------------------------------------------------
@@ -174,8 +176,8 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 func TestDecideNextStage_AnalyzeToExplore(t *testing.T) {
 	t.Run("after analyze with MissingFacts should transition to explore", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
-		ar, sr := buildRegistries(nil)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(nil)
+		o := New(cfg, ar, sr, sar)
 
 		o.busCtx = &types.BusContext{
 			PipelineStage: types.StageAnalyze,
@@ -196,8 +198,8 @@ func TestDecideNextStage_AnalyzeToExplore(t *testing.T) {
 func TestDecideNextStage_ExploreToPlain(t *testing.T) {
 	t.Run("after explore with HasEnoughFacts should transition to plan", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
-		ar, sr := buildRegistries(nil)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(nil)
+		o := New(cfg, ar, sr, sar)
 
 		o.busCtx = &types.BusContext{
 			PipelineStage: types.StageExplore,
@@ -221,8 +223,8 @@ func TestDecideNextStage_ExploreToPlain(t *testing.T) {
 func TestDecideNextStage_PlanToDesignReview(t *testing.T) {
 	t.Run("after plan with HasPlan and RequireReview should transition to design_review", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
-		ar, sr := buildRegistries(nil)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(nil)
+		o := New(cfg, ar, sr, sar)
 
 		o.busCtx = &types.BusContext{
 			PipelineStage: types.StagePlan,
@@ -247,8 +249,8 @@ func TestDecideNextStage_PlanToDesignReview(t *testing.T) {
 func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 	t.Run("after implement with HasPatch and RequireReview should transition to code_review", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
-		ar, sr := buildRegistries(nil)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(nil)
+		o := New(cfg, ar, sr, sar)
 
 		o.busCtx = &types.BusContext{
 			PipelineStage: types.StageImplement,
@@ -273,8 +275,8 @@ func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 	t.Run("analysis policy filters out plan and implement so explore goes to finalize", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
-		ar, sr := buildRegistries(nil)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(nil)
+		o := New(cfg, ar, sr, sar)
 
 		// Set up an analysis task so the "analysis" policy is active.
 		o.busCtx = &types.BusContext{
@@ -308,8 +310,8 @@ func TestDecideNextStage_FallbackToFinalize(t *testing.T) {
 		cfg := defaultResolvedConfig()
 		// Remove all transitions from verify stage
 		cfg.Transitions[types.StageVerify] = nil
-		ar, sr := buildRegistries(nil)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(nil)
+		o := New(cfg, ar, sr, sar)
 
 		o.busCtx = &types.BusContext{
 			PipelineStage: types.StageVerify,
@@ -398,8 +400,8 @@ func TestRun_SimplePipeline(t *testing.T) {
 			},
 		}
 
-		ar, sr := buildRegistries(agentFns)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(agentFns)
+		o := New(cfg, ar, sr, sar)
 		o.SetMaxSteps(20)
 
 		busCtx, err := o.Run("implement a widget", "/tmp/repo", "main")
@@ -488,8 +490,8 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 			},
 		}
 
-		ar, sr := buildRegistries(agentFns)
-		o := New(cfg, ar, sr)
+		ar, sr, sar := buildRegistries(agentFns)
+		o := New(cfg, ar, sr, sar)
 
 		// Manually construct busCtx with RequireReview to activate high_risk_implementation policy,
 		// instead of adding test-only API surface to Orchestrator.

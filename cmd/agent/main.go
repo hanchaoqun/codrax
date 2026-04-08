@@ -61,19 +61,27 @@ func main() {
 	// For now, we use a placeholder that returns structured responses.
 	llmAdapter := createLLMAdapter()
 
+	// Create SubAgent registry
+	subAgentRegistry := agent.NewSubAgentRegistry()
+
 	// Create agent registry
 	deps := &agent.Dependencies{
-		LLM:          llmAdapter,
-		Tools:        toolRegistry,
-		MCPServers:   mcpRegistry,
+		LLM:           llmAdapter,
+		Tools:         toolRegistry,
+		MCPServers:    mcpRegistry,
+		SubAgents:     subAgentRegistry,
 		MaxIterations: 20,
 	}
 	agentRegistry := agent.NewRegistry()
 	agent.RegisterDefaults(agentRegistry, deps)
 	log.Printf("registered %d agents", len(agentRegistry.List()))
 
+	// Register default SubAgents (after deps are created)
+	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
+	log.Printf("registered %d sub-agents", len(subAgentRegistry.Names()))
+
 	// Create and run orchestrator
-	orch := orchestrator.New(cfg, agentRegistry, skillRegistry)
+	orch := orchestrator.New(cfg, agentRegistry, skillRegistry, subAgentRegistry)
 	orch.SetMaxSteps(*maxSteps)
 
 	log.Printf("starting pipeline for request: %s", *request)
