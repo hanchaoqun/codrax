@@ -4,13 +4,14 @@ package types
 type PipelineStage string
 
 const (
-	StageAnalyze   PipelineStage = "analyze"
-	StageExplore   PipelineStage = "explore"
-	StagePlan      PipelineStage = "plan"
-	StageReview    PipelineStage = "review"
-	StageImplement PipelineStage = "implement"
-	StageVerify    PipelineStage = "verify"
-	StageFinalize  PipelineStage = "finalize"
+	StageAnalyze      PipelineStage = "analyze"
+	StageExplore      PipelineStage = "explore"
+	StagePlan         PipelineStage = "plan"
+	StageDesignReview PipelineStage = "design_review"
+	StageImplement    PipelineStage = "implement"
+	StageCodeReview   PipelineStage = "code_review"
+	StageVerify       PipelineStage = "verify"
+	StageFinalize     PipelineStage = "finalize"
 )
 
 // IsTerminal returns true only for the finalize stage.
@@ -29,8 +30,9 @@ func AllStages() []PipelineStage {
 		StageAnalyze,
 		StageExplore,
 		StagePlan,
-		StageReview,
+		StageDesignReview,
 		StageImplement,
+		StageCodeReview,
 		StageVerify,
 		StageFinalize,
 	}
@@ -40,12 +42,13 @@ func AllStages() []PipelineStage {
 type AgentName string
 
 const (
-	AgentPlanner     AgentName = "planner"
-	AgentExplorer    AgentName = "explorer"
-	AgentReviewer    AgentName = "reviewer"
-	AgentImplementer AgentName = "implementer"
-	AgentVerifier    AgentName = "verifier"
-	AgentFinalizer   AgentName = "finalizer"
+	AgentPlanner        AgentName = "planner"
+	AgentExplorer       AgentName = "explorer"
+	AgentDesignReviewer AgentName = "design_reviewer"
+	AgentCodeReviewer   AgentName = "code_reviewer"
+	AgentImplementer    AgentName = "implementer"
+	AgentVerifier       AgentName = "verifier"
+	AgentFinalizer      AgentName = "finalizer"
 )
 
 // String returns the string representation of the AgentName.
@@ -58,7 +61,8 @@ func AllAgentNames() []AgentName {
 	return []AgentName{
 		AgentPlanner,
 		AgentExplorer,
-		AgentReviewer,
+		AgentDesignReviewer,
+		AgentCodeReviewer,
 		AgentImplementer,
 		AgentVerifier,
 		AgentFinalizer,

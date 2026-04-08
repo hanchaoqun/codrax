@@ -598,23 +598,25 @@ Defined in the Go `runtime` package:
 ```go
 type PipelineStage string
 const (
-    StageAnalyze   PipelineStage = "analyze"
-    StageExplore   PipelineStage = "explore"
-    StagePlan      PipelineStage = "plan"
-    StageReview    PipelineStage = "review"
-    StageImplement PipelineStage = "implement"
-    StageVerify    PipelineStage = "verify"
-    StageFinalize  PipelineStage = "finalize"
+    StageAnalyze      PipelineStage = "analyze"
+    StageExplore      PipelineStage = "explore"
+    StagePlan         PipelineStage = "plan"
+    StageDesignReview PipelineStage = "design_review"
+    StageImplement    PipelineStage = "implement"
+    StageCodeReview   PipelineStage = "code_review"
+    StageVerify       PipelineStage = "verify"
+    StageFinalize     PipelineStage = "finalize"
 )
 
 type AgentName string
 const (
-    AgentPlanner   AgentName = "planner"
-    AgentExplorer  AgentName = "explorer"
-    AgentReviewer  AgentName = "reviewer"
-    AgentImplement AgentName = "implementer"
-    AgentVerifier  AgentName = "verifier"
-    AgentFinalizer AgentName = "finalizer"
+    AgentPlanner        AgentName = "planner"
+    AgentExplorer       AgentName = "explorer"
+    AgentDesignReviewer AgentName = "design_reviewer"
+    AgentCodeReviewer   AgentName = "code_reviewer"
+    AgentImplementer    AgentName = "implementer"
+    AgentVerifier       AgentName = "verifier"
+    AgentFinalizer      AgentName = "finalizer"
 )
 
 type TaskStatus string

@@ -29,9 +29,9 @@ stages:
     default_skill: implementation-plan-skill
     terminal: false
 
-  review:
-    default_agent: reviewer
-    default_skill: design-review-skill   # after plan; overridden to code-review-skill after implement
+  design_review:
+    default_agent: design_reviewer
+    default_skill: design-review-skill
     terminal: false
 
   implement:
@@ -39,6 +39,11 @@ stages:
     default_skill: code-implement-skill
     terminal: false
     requires_write: true
+
+  code_review:
+    default_agent: code_reviewer
+    default_skill: code-review-skill
+    terminal: false
 
   verify:
     default_agent: verifier
@@ -76,20 +81,36 @@ transitions:
       priority: 30
 
   plan:
-    - to: implement
+    - to: design_review
       priority: 100
-    - to: review
-      priority: 70
+    - to: implement
+      priority: 80
     - to: explore        # backtrack: need more facts
       priority: 60
 
-  implement:
-    - to: verify
+  design_review:
+    - to: implement
       priority: 100
-    - to: review
+    - to: plan           # backtrack: plan needs revision
       priority: 70
+    - to: finalize
+      priority: 20
+
+  implement:
+    - to: code_review
+      priority: 100
+    - to: verify
+      priority: 80
     - to: plan           # backtrack: plan needs revision
       priority: 50
+
+  code_review:
+    - to: verify
+      priority: 100
+    - to: implement      # backtrack: fix issues found in review
+      priority: 70
+    - to: finalize
+      priority: 20
 
   verify:
     - to: finalize
@@ -124,9 +145,9 @@ task_policies:
       - analyze
       - explore
       - plan
-      - review          # design review after plan
+      - design_review
       - implement
-      - review          # code review after implement
+      - code_review
       - verify
       - finalize
 
@@ -137,7 +158,7 @@ task_policies:
 # These are evaluated during transition filtering.
 
 feature_flags:
-  enable_review: true                    # enable/disable the review stage globally
+  enable_review: true                    # enable/disable design_review and code_review stages globally
   enable_verify: true                    # enable/disable the verify stage globally
   allow_skip_plan_for_small_change: false # when true, small changes can jump from explore to implement
 
@@ -155,8 +176,10 @@ agents:
   - name: implementer
     stages: [implement]
     requires_write: true
-  - name: reviewer
-    stages: [review]
+  - name: design_reviewer
+    stages: [design_review]
+  - name: code_reviewer
+    stages: [code_review]
   - name: verifier
     stages: [verify]
   - name: finalizer
@@ -166,9 +189,7 @@ agents:
 # Skills
 # ---------------------------------------------------------------------------
 # Each skill defines a strategy for a specific type of work.
-# Skills are bound to stages via the `stages` section above, but can be
-# overridden at runtime (e.g., review stage switches between
-# design-review-skill and code-review-skill based on the preceding stage).
+# Skills are bound to stages via the `stages` section above.
 
 skills:
   - name: task-analysis-skill

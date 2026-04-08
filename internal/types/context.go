@@ -31,14 +31,15 @@ type MCPResponse struct {
 
 // ExecutionSignals tracks boolean signals used for stage transitions.
 type ExecutionSignals struct {
-	HasEnoughFacts     bool   `json:"has_enough_facts"`
-	HasPlan            bool   `json:"has_plan"`
-	HasPatch           bool   `json:"has_patch"`
-	ReviewPassed       bool   `json:"review_passed"`
-	VerificationPassed bool   `json:"verification_passed"`
-	LastStageFailed    bool   `json:"last_stage_failed"`
-	LastFailureReason  string `json:"last_failure_reason,omitempty"`
-	RetryCount         int    `json:"retry_count"`
+	HasEnoughFacts       bool   `json:"has_enough_facts"`
+	HasPlan              bool   `json:"has_plan"`
+	HasPatch             bool   `json:"has_patch"`
+	DesignReviewPassed   bool   `json:"design_review_passed"`
+	CodeReviewPassed     bool   `json:"code_review_passed"`
+	VerificationPassed   bool   `json:"verification_passed"`
+	LastStageFailed      bool   `json:"last_stage_failed"`
+	LastFailureReason    string `json:"last_failure_reason,omitempty"`
+	RetryCount           int    `json:"retry_count"`
 }
 
 // PolicyContext holds policy flags governing pipeline behavior.

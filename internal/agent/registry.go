@@ -47,12 +47,13 @@ func (r *Registry) List() []types.AgentName {
 	return names
 }
 
-// RegisterDefaults registers all 6 agent types with the given dependencies.
+// RegisterDefaults registers all 7 agent types with the given dependencies.
 func RegisterDefaults(r *Registry, deps *Dependencies) {
 	r.Register(NewPlannerAgent(deps))
 	r.Register(NewExplorerAgent(deps))
 	r.Register(NewImplementerAgent(deps))
-	r.Register(NewReviewerAgent(deps))
+	r.Register(NewDesignReviewerAgent(deps))
+	r.Register(NewCodeReviewerAgent(deps))
 	r.Register(NewVerifierAgent(deps))
 	r.Register(NewFinalizerAgent(deps))
 }

@@ -49,8 +49,11 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	if bus.Signals.HasPatch {
 		ac.PatchSummary = findSummaryFromResults(bus.ToolResults, "patch")
 	}
-	if bus.Signals.ReviewPassed {
-		ac.ReviewSummary = "Review passed"
+	if bus.Signals.DesignReviewPassed {
+		ac.ReviewSummary = "Design review passed"
+	}
+	if bus.Signals.CodeReviewPassed {
+		ac.ReviewSummary = "Code review passed"
 	}
 	if bus.Signals.VerificationPassed {
 		ac.VerificationSummary = "Verification passed"

@@ -118,7 +118,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 // executeStage dispatches the appropriate agent for the current stage.
 func (o *Orchestrator) executeStage(stageConfig *types.StageConfig) error {
 	agentName := stageConfig.DefaultAgent
-	skillName := o.resolveSkillName(stageConfig)
+	skillName := stageConfig.DefaultSkill
 
 	// Get the agent
 	ag, err := o.agents.Get(agentName)
@@ -153,24 +153,6 @@ func (o *Orchestrator) executeStage(stageConfig *types.StageConfig) error {
 	return nil
 }
 
-// resolveSkillName determines the correct skill for the current stage.
-// The review stage is special: it uses design-review-skill after plan,
-// and code-review-skill after implement.
-func (o *Orchestrator) resolveSkillName(stageConfig *types.StageConfig) string {
-	if stageConfig.Name == types.StageReview {
-		// Check what the last completed stage was
-		completed := o.busCtx.TaskState.Completed
-		if len(completed) > 0 {
-			lastCompleted := types.PipelineStage(completed[len(completed)-1])
-			if lastCompleted == types.StageImplement {
-				return "code-review-skill"
-			}
-		}
-		return "design-review-skill"
-	}
-	return stageConfig.DefaultSkill
-}
-
 // applyStageOutput updates BusContext with the results from an agent execution.
 func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	if output == nil {
@@ -198,8 +180,11 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		if s.HasPatch {
 			o.busCtx.Signals.HasPatch = true
 		}
-		if s.ReviewPassed {
-			o.busCtx.Signals.ReviewPassed = true
+		if s.DesignReviewPassed {
+			o.busCtx.Signals.DesignReviewPassed = true
+		}
+		if s.CodeReviewPassed {
+			o.busCtx.Signals.CodeReviewPassed = true
 		}
 		if s.VerificationPassed {
 			o.busCtx.Signals.VerificationPassed = true
@@ -299,7 +284,7 @@ func (o *Orchestrator) filterByFeatureFlags(transitions []types.Transition) []ty
 	var filtered []types.Transition
 	for _, t := range transitions {
 		switch t.To {
-		case types.StageReview:
+		case types.StageDesignReview, types.StageCodeReview:
 			if !flags.EnableReview {
 				continue
 			}
@@ -345,9 +330,12 @@ func (o *Orchestrator) isTransitionValidBySignals(t types.Transition, signals ty
 	case types.StageImplement:
 		// Go to implement if we have a plan
 		return signals.HasPlan || missing == types.MissingCode
-	case types.StageReview:
-		// Go to review if there's something to review
-		return signals.HasPlan || signals.HasPatch
+	case types.StageDesignReview:
+		// Go to design review if there's a plan to review
+		return signals.HasPlan
+	case types.StageCodeReview:
+		// Go to code review if there's a patch to review
+		return signals.HasPatch
 	case types.StageVerify:
 		// Go to verify if we have a patch
 		return signals.HasPatch || missing == types.MissingVerification

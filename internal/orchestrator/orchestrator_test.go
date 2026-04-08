@@ -14,8 +14,8 @@ import (
 // ---------------------------------------------------------------------------
 
 type mockAgent struct {
-	name    types.AgentName
-	execFn  func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error)
+	name   types.AgentName
+	execFn func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error)
 }
 
 func (m *mockAgent) Name() types.AgentName { return m.name }
@@ -36,7 +36,7 @@ func newMockAgent(name types.AgentName, fn func(*types.AgentContext, *skill.Conf
 // ---------------------------------------------------------------------------
 
 // defaultResolvedConfig builds a full pipeline config suitable for most tests.
-// Stages: analyze -> explore -> plan -> implement -> review -> verify -> finalize
+// Stages: analyze -> explore -> plan -> design_review -> implement -> code_review -> verify -> finalize
 func defaultResolvedConfig() *config.ResolvedConfig {
 	return &config.ResolvedConfig{
 		Stages: map[types.PipelineStage]*types.StageConfig{
@@ -52,13 +52,17 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 				Name: types.StagePlan, DefaultAgent: types.AgentPlanner,
 				DefaultSkill: "plan-skill",
 			},
+			types.StageDesignReview: {
+				Name: types.StageDesignReview, DefaultAgent: types.AgentDesignReviewer,
+				DefaultSkill: "design-review-skill",
+			},
 			types.StageImplement: {
 				Name: types.StageImplement, DefaultAgent: types.AgentImplementer,
 				DefaultSkill: "implement-skill", RequiresWrite: true,
 			},
-			types.StageReview: {
-				Name: types.StageReview, DefaultAgent: types.AgentReviewer,
-				DefaultSkill: "design-review-skill",
+			types.StageCodeReview: {
+				Name: types.StageCodeReview, DefaultAgent: types.AgentCodeReviewer,
+				DefaultSkill: "code-review-skill",
 			},
 			types.StageVerify: {
 				Name: types.StageVerify, DefaultAgent: types.AgentVerifier,
@@ -80,18 +84,22 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 				{From: types.StageExplore, To: types.StageFinalize, Priority: 10},
 			},
 			types.StagePlan: {
-				{From: types.StagePlan, To: types.StageImplement, Priority: 100},
-				{From: types.StagePlan, To: types.StageReview, Priority: 90},
+				{From: types.StagePlan, To: types.StageDesignReview, Priority: 100},
+				{From: types.StagePlan, To: types.StageImplement, Priority: 80},
 				{From: types.StagePlan, To: types.StageFinalize, Priority: 10},
 			},
+			types.StageDesignReview: {
+				{From: types.StageDesignReview, To: types.StageImplement, Priority: 100},
+				{From: types.StageDesignReview, To: types.StageFinalize, Priority: 10},
+			},
 			types.StageImplement: {
-				{From: types.StageImplement, To: types.StageReview, Priority: 100},
+				{From: types.StageImplement, To: types.StageCodeReview, Priority: 100},
 				{From: types.StageImplement, To: types.StageVerify, Priority: 90},
 				{From: types.StageImplement, To: types.StageFinalize, Priority: 10},
 			},
-			types.StageReview: {
-				{From: types.StageReview, To: types.StageVerify, Priority: 100},
-				{From: types.StageReview, To: types.StageFinalize, Priority: 10},
+			types.StageCodeReview: {
+				{From: types.StageCodeReview, To: types.StageVerify, Priority: 100},
+				{From: types.StageCodeReview, To: types.StageFinalize, Priority: 10},
 			},
 			types.StageVerify: {
 				{From: types.StageVerify, To: types.StageFinalize, Priority: 100},
@@ -102,8 +110,16 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 				Name: "implementation",
 				AllowedStages: []types.PipelineStage{
 					types.StageAnalyze, types.StageExplore, types.StagePlan,
-					types.StageImplement, types.StageReview, types.StageVerify,
+					types.StageImplement, types.StageVerify,
 					types.StageFinalize,
+				},
+			},
+			"high_risk_implementation": {
+				Name: "high_risk_implementation",
+				AllowedStages: []types.PipelineStage{
+					types.StageAnalyze, types.StageExplore, types.StagePlan,
+					types.StageDesignReview, types.StageImplement, types.StageCodeReview,
+					types.StageVerify, types.StageFinalize,
 				},
 			},
 			"analysis": {
@@ -128,7 +144,8 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 	ar := agent.NewRegistry()
 	names := []types.AgentName{
 		types.AgentPlanner, types.AgentExplorer, types.AgentImplementer,
-		types.AgentReviewer, types.AgentVerifier, types.AgentFinalizer,
+		types.AgentDesignReviewer, types.AgentCodeReviewer,
+		types.AgentVerifier, types.AgentFinalizer,
 	}
 	for _, n := range names {
 		var fn func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)
@@ -202,6 +219,58 @@ func TestDecideNextStage_ExploreToPlain(t *testing.T) {
 	})
 }
 
+func TestDecideNextStage_PlanToDesignReview(t *testing.T) {
+	t.Run("after plan with HasPlan and RequireReview should transition to design_review", func(t *testing.T) {
+		cfg := defaultResolvedConfig()
+		ar, sr := buildRegistries(nil)
+		o := New(cfg, ar, sr)
+
+		o.busCtx = &types.BusContext{
+			PipelineStage: types.StagePlan,
+			Signals: types.ExecutionSignals{
+				HasEnoughFacts: true,
+				HasPlan:        true,
+			},
+			TaskState: types.TaskState{
+				Stage:   types.StagePlan,
+				Missing: types.MissingCode,
+			},
+			Policy: types.PolicyContext{RequireReview: true},
+		}
+
+		next := o.decideNextStage()
+		if next != types.StageDesignReview {
+			t.Errorf("expected design_review, got %s", next)
+		}
+	})
+}
+
+func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
+	t.Run("after implement with HasPatch and RequireReview should transition to code_review", func(t *testing.T) {
+		cfg := defaultResolvedConfig()
+		ar, sr := buildRegistries(nil)
+		o := New(cfg, ar, sr)
+
+		o.busCtx = &types.BusContext{
+			PipelineStage: types.StageImplement,
+			Signals: types.ExecutionSignals{
+				HasPlan:  true,
+				HasPatch: true,
+			},
+			TaskState: types.TaskState{
+				Stage:   types.StageImplement,
+				Missing: types.MissingVerification,
+			},
+			Policy: types.PolicyContext{RequireReview: true},
+		}
+
+		next := o.decideNextStage()
+		if next != types.StageCodeReview {
+			t.Errorf("expected code_review, got %s", next)
+		}
+	})
+}
+
 func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 	t.Run("analysis policy filters out plan and implement so explore goes to finalize", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
@@ -236,13 +305,13 @@ func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 }
 
 func TestDecideNextStage_FeatureFlagDisablesReview(t *testing.T) {
-	t.Run("enable_review=false filters review transitions", func(t *testing.T) {
+	t.Run("enable_review=false filters both design_review and code_review transitions", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
 		cfg.FeatureFlags.EnableReview = false
 		ar, sr := buildRegistries(nil)
 		o := New(cfg, ar, sr)
 
-		// After implement, the highest priority transition is review (100),
+		// After implement, the highest priority transition is code_review (100),
 		// but with review disabled, it should go to verify (90).
 		o.busCtx = &types.BusContext{
 			PipelineStage: types.StageImplement,
@@ -293,45 +362,6 @@ func TestDecideNextStage_FallbackToFinalize(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// resolveSkillName tests
-// ---------------------------------------------------------------------------
-
-func TestResolveSkillName_ReviewDualRole(t *testing.T) {
-	cfg := defaultResolvedConfig()
-	ar, sr := buildRegistries(nil)
-	o := New(cfg, ar, sr)
-
-	reviewStageConfig := cfg.Stages[types.StageReview]
-
-	t.Run("after plan completion review uses design-review-skill", func(t *testing.T) {
-		o.busCtx = &types.BusContext{
-			TaskState: types.TaskState{
-				Completed: []string{string(types.StageAnalyze), string(types.StageExplore), string(types.StagePlan)},
-			},
-		}
-		got := o.resolveSkillName(reviewStageConfig)
-		if got != "design-review-skill" {
-			t.Errorf("expected design-review-skill, got %s", got)
-		}
-	})
-
-	t.Run("after implement completion review uses code-review-skill", func(t *testing.T) {
-		o.busCtx = &types.BusContext{
-			TaskState: types.TaskState{
-				Completed: []string{
-					string(types.StageAnalyze), string(types.StageExplore),
-					string(types.StagePlan), string(types.StageImplement),
-				},
-			},
-		}
-		got := o.resolveSkillName(reviewStageConfig)
-		if got != "code-review-skill" {
-			t.Errorf("expected code-review-skill, got %s", got)
-		}
-	})
-}
-
-// ---------------------------------------------------------------------------
 // Full pipeline test
 // ---------------------------------------------------------------------------
 
@@ -377,8 +407,10 @@ func TestRun_SimplePipeline(t *testing.T) {
 					},
 				}, nil
 			},
-			// reviewer: not used in this test (review disabled)
-			types.AgentReviewer: nil,
+			// design reviewer: not used in this test (review disabled)
+			types.AgentDesignReviewer: nil,
+			// code reviewer: not used in this test (review disabled)
+			types.AgentCodeReviewer: nil,
 			// verify: reports VerificationPassed and MissingNone
 			types.AgentVerifier: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				return &agent.StageOutput{
@@ -430,6 +462,137 @@ func TestRun_SimplePipeline(t *testing.T) {
 			if got != want {
 				t.Errorf("completed[%d] = %s, want %s", i, got, want)
 			}
+		}
+	})
+}
+
+func TestRun_PipelineWithBothReviews(t *testing.T) {
+	t.Run("pipeline with reviews: analyze->explore->plan->design_review->implement->code_review->verify->finalize", func(t *testing.T) {
+		cfg := defaultResolvedConfig()
+
+		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+			types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				switch ctx.Stage {
+				case types.StageAnalyze:
+					return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+				case types.StagePlan:
+					return &agent.StageOutput{
+						MissingPiece:  types.MissingReview,
+						SignalUpdates: &types.ExecutionSignals{HasPlan: true},
+					}, nil
+				}
+				return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+			},
+			types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingPlan,
+					SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				}, nil
+			},
+			types.AgentDesignReviewer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingCode,
+					SignalUpdates: &types.ExecutionSignals{DesignReviewPassed: true},
+				}, nil
+			},
+			types.AgentImplementer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingReview,
+					SignalUpdates: &types.ExecutionSignals{HasPatch: true},
+				}, nil
+			},
+			types.AgentCodeReviewer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingVerification,
+					SignalUpdates: &types.ExecutionSignals{CodeReviewPassed: true},
+				}, nil
+			},
+			types.AgentVerifier: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingNone,
+					SignalUpdates: &types.ExecutionSignals{VerificationPassed: true},
+				}, nil
+			},
+			types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+			},
+		}
+
+		ar, sr := buildRegistries(agentFns)
+		o := New(cfg, ar, sr)
+
+		// Manually construct busCtx with RequireReview to activate high_risk_implementation policy,
+		// instead of adding test-only API surface to Orchestrator.
+		o.busCtx = &types.BusContext{
+			PipelineStage: types.StageAnalyze,
+			RepoRoot:      "/tmp/repo",
+			Branch:        "main",
+			TraceID:       "trace-test-reviews",
+			TaskList:      types.TaskList{Objective: "implement a risky feature"},
+			TaskState: types.TaskState{
+				Stage:   types.StageAnalyze,
+				Missing: types.MissingUnderstanding,
+			},
+			Policy: types.PolicyContext{
+				RequireReview:      true,
+				MaxRetriesPerStage: 3,
+			},
+		}
+
+		// Drive the pipeline loop manually
+		for step := 0; step < 20; step++ {
+			stageConfig, err := cfg.GetStageConfig(o.busCtx.PipelineStage)
+			if err != nil {
+				t.Fatalf("step %d: unknown stage %s: %v", step, o.busCtx.PipelineStage, err)
+			}
+
+			if err := o.executeStage(stageConfig); err != nil {
+				t.Fatalf("step %d: stage %s failed: %v", step, o.busCtx.PipelineStage, err)
+			}
+
+			if stageConfig.Terminal {
+				o.busCtx.TaskState.IsTerminal = true
+				break
+			}
+
+			nextStage := o.decideNextStage()
+			o.busCtx.PipelineStage = nextStage
+			o.busCtx.TaskState.Stage = nextStage
+		}
+
+		if !o.busCtx.TaskState.IsTerminal {
+			t.Error("expected pipeline to reach terminal state")
+		}
+
+		completed := o.busCtx.TaskState.Completed
+		expected := []types.PipelineStage{
+			types.StageAnalyze,
+			types.StageExplore,
+			types.StagePlan,
+			types.StageDesignReview,
+			types.StageImplement,
+			types.StageCodeReview,
+			types.StageVerify,
+			types.StageFinalize,
+		}
+
+		if len(completed) != len(expected) {
+			t.Fatalf("expected %d completed stages, got %d: %v", len(expected), len(completed), completed)
+		}
+
+		for i, want := range expected {
+			got := types.PipelineStage(completed[i])
+			if got != want {
+				t.Errorf("completed[%d] = %s, want %s", i, got, want)
+			}
+		}
+
+		// Verify both review signals were set
+		if !o.busCtx.Signals.DesignReviewPassed {
+			t.Error("expected DesignReviewPassed to be true")
+		}
+		if !o.busCtx.Signals.CodeReviewPassed {
+			t.Error("expected CodeReviewPassed to be true")
 		}
 	})
 }

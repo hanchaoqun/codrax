@@ -484,9 +484,9 @@ func TestLoadAndResolve(t *testing.T) {
 		t.Fatalf("LoadAndResolve(%q): %v", configPath, err)
 	}
 
-	t.Run("7 stages loaded", func(t *testing.T) {
-		if got := len(rc.Stages); got != 7 {
-			t.Fatalf("expected 7 stages, got %d", got)
+	t.Run("8 stages loaded", func(t *testing.T) {
+		if got := len(rc.Stages); got != 8 {
+			t.Fatalf("expected 8 stages, got %d", got)
 		}
 		for _, s := range types.AllStages() {
 			if _, ok := rc.Stages[s]; !ok {
@@ -508,7 +508,7 @@ func TestLoadAndResolve(t *testing.T) {
 	t.Run("non-terminal stages are not terminal", func(t *testing.T) {
 		for _, s := range []types.PipelineStage{
 			types.StageAnalyze, types.StageExplore, types.StagePlan,
-			types.StageReview, types.StageImplement, types.StageVerify,
+			types.StageDesignReview, types.StageImplement, types.StageCodeReview, types.StageVerify,
 		} {
 			sc, err := rc.GetStageConfig(s)
 			if err != nil {
@@ -592,9 +592,9 @@ func TestLoadAndResolve(t *testing.T) {
 		}
 	})
 
-	t.Run("6 agents loaded", func(t *testing.T) {
-		if got := len(rc.Agents); got != 6 {
-			t.Fatalf("expected 6 agents, got %d", got)
+	t.Run("7 agents loaded", func(t *testing.T) {
+		if got := len(rc.Agents); got != 7 {
+			t.Fatalf("expected 7 agents, got %d", got)
 		}
 	})
 
