@@ -1,0 +1,367 @@
+package orchestrator
+
+import (
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/hanchaoqun/design/internal/agent"
+	"github.com/hanchaoqun/design/internal/config"
+	ctxbuilder "github.com/hanchaoqun/design/internal/context"
+	"github.com/hanchaoqun/design/internal/skill"
+	"github.com/hanchaoqun/design/internal/types"
+)
+
+// Orchestrator is the Layer 1 component that drives the pipeline state machine.
+// It reads configuration from YAML, manages BusContext, dispatches agents,
+// and evaluates transitions between stages.
+type Orchestrator struct {
+	config   *config.ResolvedConfig
+	agents   *agent.Registry
+	skills   *skill.Registry
+	busCtx   *types.BusContext
+	maxSteps int
+}
+
+// New creates a new Orchestrator.
+func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Registry) *Orchestrator {
+	return &Orchestrator{
+		config:   cfg,
+		agents:   agents,
+		skills:   skills,
+		maxSteps: 50,
+	}
+}
+
+// SetMaxSteps overrides the maximum number of pipeline steps (default 50).
+func (o *Orchestrator) SetMaxSteps(n int) {
+	o.maxSteps = n
+}
+
+// Run executes the full pipeline for a user request.
+// It initializes the BusContext, then loops through stages until a terminal stage is reached.
+func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*types.BusContext, error) {
+	// Initialize BusContext
+	o.busCtx = &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		RepoRoot:      repoRoot,
+		Branch:        branch,
+		TraceID:       fmt.Sprintf("trace-%d", time.Now().UnixNano()),
+		TaskList: types.TaskList{
+			Objective: request,
+		},
+		TaskState: types.TaskState{
+			Stage:   types.StageAnalyze,
+			Missing: types.MissingUnderstanding,
+		},
+		Policy: types.PolicyContext{
+			MaxRetriesPerStage: 3,
+		},
+	}
+
+	log.Printf("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
+
+	// Pipeline loop
+	for step := 0; step < o.maxSteps; step++ {
+		stage := o.busCtx.PipelineStage
+
+		log.Printf("[orchestrator] step %d: stage=%s, missing=%s",
+			step, stage, o.busCtx.TaskState.Missing)
+
+		// Check terminal condition
+		stageConfig, err := o.config.GetStageConfig(stage)
+		if err != nil {
+			return o.busCtx, fmt.Errorf("unknown stage %s: %w", stage, err)
+		}
+
+		// Dispatch agent for current stage
+		if err := o.executeStage(stageConfig); err != nil {
+			log.Printf("[orchestrator] stage %s failed: %v", stage, err)
+			o.busCtx.Signals.LastStageFailed = true
+			o.busCtx.Signals.LastFailureReason = err.Error()
+			o.busCtx.Signals.RetryCount++
+
+			if o.busCtx.Signals.RetryCount > o.busCtx.Policy.MaxRetriesPerStage {
+				log.Printf("[orchestrator] max retries exceeded for stage %s, forcing finalize", stage)
+				o.busCtx.PipelineStage = types.StageFinalize
+				o.busCtx.TaskState.Stage = types.StageFinalize
+				continue
+			}
+		}
+
+		// Check if we've reached a terminal stage after execution
+		if stageConfig.Terminal {
+			log.Printf("[orchestrator] reached terminal stage: %s", stage)
+			o.busCtx.TaskState.IsTerminal = true
+			break
+		}
+
+		// Decide next stage
+		nextStage := o.decideNextStage()
+		log.Printf("[orchestrator] transition: %s -> %s", stage, nextStage)
+
+		o.busCtx.LastTransitionReason = fmt.Sprintf("%s -> %s (missing: %s)",
+			stage, nextStage, o.busCtx.TaskState.Missing)
+		o.busCtx.PipelineStage = nextStage
+		o.busCtx.TaskState.Stage = nextStage
+
+		// Reset retry count on successful transition to a new stage
+		if nextStage != stage {
+			o.busCtx.Signals.RetryCount = 0
+			o.busCtx.Signals.LastStageFailed = false
+		}
+	}
+
+	return o.busCtx, nil
+}
+
+// executeStage dispatches the appropriate agent for the current stage.
+func (o *Orchestrator) executeStage(stageConfig *types.StageConfig) error {
+	agentName := stageConfig.DefaultAgent
+	skillName := o.resolveSkillName(stageConfig)
+
+	// Get the agent
+	ag, err := o.agents.Get(agentName)
+	if err != nil {
+		return fmt.Errorf("get agent %s: %w", agentName, err)
+	}
+
+	// Get the skill
+	sk, err := o.skills.Get(skillName)
+	if err != nil {
+		return fmt.Errorf("get skill %s: %w", skillName, err)
+	}
+
+	// Build agent context
+	o.busCtx.ActiveAgent = agentName
+	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stageConfig.Name)
+
+	log.Printf("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
+
+	// Execute the agent
+	output, err := ag.Execute(agentCtx, sk)
+	if err != nil {
+		return fmt.Errorf("agent %s execution: %w", agentName, err)
+	}
+
+	// Update BusContext with agent output
+	o.applyStageOutput(output)
+
+	// Record stage completion
+	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stageConfig.Name))
+
+	return nil
+}
+
+// resolveSkillName determines the correct skill for the current stage.
+// The review stage is special: it uses design-review-skill after plan,
+// and code-review-skill after implement.
+func (o *Orchestrator) resolveSkillName(stageConfig *types.StageConfig) string {
+	if stageConfig.Name == types.StageReview {
+		// Check what the last completed stage was
+		completed := o.busCtx.TaskState.Completed
+		if len(completed) > 0 {
+			lastCompleted := types.PipelineStage(completed[len(completed)-1])
+			if lastCompleted == types.StageImplement {
+				return "code-review-skill"
+			}
+		}
+		return "design-review-skill"
+	}
+	return stageConfig.DefaultSkill
+}
+
+// applyStageOutput updates BusContext with the results from an agent execution.
+func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
+	if output == nil {
+		return
+	}
+
+	// Append tool results
+	o.busCtx.ToolResults = append(o.busCtx.ToolResults, output.ToolResults...)
+
+	// Append MCP responses
+	o.busCtx.MCPResponses = append(o.busCtx.MCPResponses, output.MCPResponses...)
+
+	// Append new facts
+	o.busCtx.RepoFacts = append(o.busCtx.RepoFacts, output.NewFacts...)
+
+	// Update signals
+	if output.SignalUpdates != nil {
+		s := output.SignalUpdates
+		if s.HasEnoughFacts {
+			o.busCtx.Signals.HasEnoughFacts = true
+		}
+		if s.HasPlan {
+			o.busCtx.Signals.HasPlan = true
+		}
+		if s.HasPatch {
+			o.busCtx.Signals.HasPatch = true
+		}
+		if s.ReviewPassed {
+			o.busCtx.Signals.ReviewPassed = true
+		}
+		if s.VerificationPassed {
+			o.busCtx.Signals.VerificationPassed = true
+		}
+	}
+
+	// Update missing piece
+	o.busCtx.TaskState.Missing = output.MissingPiece
+
+	// Record error if any
+	if output.Error != "" {
+		o.busCtx.TaskState.LastError = output.Error
+	}
+}
+
+// decideNextStage evaluates transitions and selects the highest-priority valid next stage.
+// This implements the core decision function described in the architecture doc.
+func (o *Orchestrator) decideNextStage() types.PipelineStage {
+	current := o.busCtx.PipelineStage
+
+	// Get all transitions from current stage (already sorted by priority desc)
+	transitions := o.config.GetTransitions(current)
+
+	// Determine active task policy
+	policyName := o.determineActivePolicy()
+
+	// Filter by policy
+	transitions = o.filterByPolicy(transitions, policyName)
+
+	// Filter by feature flags
+	transitions = o.filterByFeatureFlags(transitions)
+
+	// Filter by runtime signals
+	transitions = o.filterBySignals(transitions)
+
+	// Select highest priority (first after filtering, since they're sorted)
+	if len(transitions) > 0 {
+		o.busCtx.TaskState.LastDecision = fmt.Sprintf(
+			"selected %s (priority %d, policy=%s)",
+			transitions[0].To, transitions[0].Priority, policyName,
+		)
+		return transitions[0].To
+	}
+
+	// Fallback: finalize
+	o.busCtx.TaskState.LastDecision = "fallback to finalize (no valid transitions)"
+	return types.StageFinalize
+}
+
+// determineActivePolicy determines which task policy applies based on the task type.
+func (o *Orchestrator) determineActivePolicy() string {
+	task := o.busCtx.TaskList.CurrentTask()
+	if task != nil {
+		switch task.Type {
+		case types.TaskTypeAnalysis:
+			return "analysis"
+		case types.TaskTypeImplementation:
+			if o.busCtx.Policy.RequireReview {
+				return "high_risk_implementation"
+			}
+			return "implementation"
+		}
+	}
+
+	// Default: check signals for complexity
+	if o.busCtx.Policy.RequireReview {
+		return "high_risk_implementation"
+	}
+	return "implementation"
+}
+
+// filterByPolicy removes transitions to stages not allowed by the active policy.
+func (o *Orchestrator) filterByPolicy(transitions []types.Transition, policyName string) []types.Transition {
+	policy, err := o.config.GetTaskPolicy(policyName)
+	if err != nil {
+		return transitions // no policy = all stages allowed
+	}
+
+	allowed := make(map[types.PipelineStage]bool)
+	for _, s := range policy.AllowedStages {
+		allowed[s] = true
+	}
+
+	var filtered []types.Transition
+	for _, t := range transitions {
+		if allowed[t.To] {
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// filterByFeatureFlags removes transitions to stages disabled by feature flags.
+func (o *Orchestrator) filterByFeatureFlags(transitions []types.Transition) []types.Transition {
+	flags := o.config.FeatureFlags
+
+	var filtered []types.Transition
+	for _, t := range transitions {
+		switch t.To {
+		case types.StageReview:
+			if !flags.EnableReview {
+				continue
+			}
+		case types.StageVerify:
+			if !flags.EnableVerify {
+				continue
+			}
+		}
+		filtered = append(filtered, t)
+	}
+	return filtered
+}
+
+// filterBySignals applies runtime signal-based filtering to transitions.
+func (o *Orchestrator) filterBySignals(transitions []types.Transition) []types.Transition {
+	signals := o.busCtx.Signals
+	missing := o.busCtx.TaskState.Missing
+
+	var filtered []types.Transition
+	for _, t := range transitions {
+		if o.isTransitionValidBySignals(t, signals, missing) {
+			filtered = append(filtered, t)
+		}
+	}
+
+	// If filtering removed everything, return the original list
+	// to avoid getting stuck (the priority ordering will handle selection)
+	if len(filtered) == 0 {
+		return transitions
+	}
+	return filtered
+}
+
+// isTransitionValidBySignals checks if a transition makes sense given the current signals.
+func (o *Orchestrator) isTransitionValidBySignals(t types.Transition, signals types.ExecutionSignals, missing types.MissingPiece) bool {
+	switch t.To {
+	case types.StageExplore:
+		// Go to explore if we need facts
+		return missing == types.MissingFacts || missing == types.MissingUnderstanding || !signals.HasEnoughFacts
+	case types.StagePlan:
+		// Go to plan if we have facts but need a plan
+		return signals.HasEnoughFacts || missing == types.MissingPlan
+	case types.StageImplement:
+		// Go to implement if we have a plan
+		return signals.HasPlan || missing == types.MissingCode
+	case types.StageReview:
+		// Go to review if there's something to review
+		return signals.HasPlan || signals.HasPatch
+	case types.StageVerify:
+		// Go to verify if we have a patch
+		return signals.HasPatch || missing == types.MissingVerification
+	case types.StageFinalize:
+		// Can always finalize
+		return true
+	case types.StageAnalyze:
+		// Backtrack to analyze only if fundamentally confused
+		return missing == types.MissingUnderstanding
+	}
+	return true
+}
+
+// BusContext returns the current bus context (for inspection/testing).
+func (o *Orchestrator) BusContext() *types.BusContext {
+	return o.busCtx
+}
