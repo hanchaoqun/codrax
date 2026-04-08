@@ -1,0 +1,199 @@
+# =============================================================================
+# Orchestrator Configuration
+# =============================================================================
+# This YAML drives the Orchestrator state machine at runtime.
+# It defines pipeline stages, priority-weighted transitions, task policies,
+# and feature flags that control the execution flow.
+# =============================================================================
+
+# ---------------------------------------------------------------------------
+# Pipeline Stages
+# ---------------------------------------------------------------------------
+# Each stage maps to a default Agent and a default Skill.
+# `terminal: true` means reaching this stage ends the pipeline.
+# `requires_write: true` means the Agent needs filesystem write permission.
+
+stages:
+  analyze:
+    default_agent: planner
+    default_skill: task-analysis-skill
+    terminal: false
+
+  explore:
+    default_agent: explorer
+    default_skill: repo-explore-skill
+    terminal: false
+
+  plan:
+    default_agent: planner
+    default_skill: implementation-plan-skill
+    terminal: false
+
+  review:
+    default_agent: reviewer
+    default_skill: design-review-skill   # after plan; overridden to code-review-skill after implement
+    terminal: false
+
+  implement:
+    default_agent: implementer
+    default_skill: code-implement-skill
+    terminal: false
+    requires_write: true
+
+  verify:
+    default_agent: verifier
+    default_skill: verification-skill
+    terminal: false
+
+  finalize:
+    default_agent: finalizer
+    default_skill: final-answer-skill
+    terminal: true
+
+# ---------------------------------------------------------------------------
+# Stage Transitions (priority-weighted directed edges)
+# ---------------------------------------------------------------------------
+# Higher priority number = preferred transition.
+# The Orchestrator evaluates all outgoing edges from the current stage,
+# filters by task policy and feature flags, then picks the highest-priority
+# valid transition.
+
+transitions:
+  analyze:
+    - to: explore
+      priority: 100
+    - to: plan
+      priority: 80
+    - to: finalize
+      priority: 20
+
+  explore:
+    - to: plan
+      priority: 100
+    - to: finalize
+      priority: 40
+    - to: explore        # self-loop: gather more facts
+      priority: 30
+
+  plan:
+    - to: implement
+      priority: 100
+    - to: review
+      priority: 70
+    - to: explore        # backtrack: need more facts
+      priority: 60
+
+  implement:
+    - to: verify
+      priority: 100
+    - to: review
+      priority: 70
+    - to: plan           # backtrack: plan needs revision
+      priority: 50
+
+  verify:
+    - to: finalize
+      priority: 100
+    - to: implement      # backtrack: fix and re-implement
+      priority: 80
+
+# ---------------------------------------------------------------------------
+# Task Policies
+# ---------------------------------------------------------------------------
+# Each policy defines the subset of stages allowed for a given task type.
+# Stages not listed are skipped during transition evaluation.
+
+task_policies:
+  analysis:
+    allowed_stages:
+      - analyze
+      - explore
+      - finalize
+
+  implementation:
+    allowed_stages:
+      - analyze
+      - explore
+      - plan
+      - implement
+      - verify
+      - finalize
+
+  high_risk_implementation:
+    allowed_stages:
+      - analyze
+      - explore
+      - plan
+      - review          # design review after plan
+      - implement
+      - review          # code review after implement
+      - verify
+      - finalize
+
+# ---------------------------------------------------------------------------
+# Feature Flags
+# ---------------------------------------------------------------------------
+# Runtime toggles that modify pipeline behavior.
+# These are evaluated during transition filtering.
+
+feature_flags:
+  enable_review: true                    # enable/disable the review stage globally
+  enable_verify: true                    # enable/disable the verify stage globally
+  allow_skip_plan_for_small_change: false # when true, small changes can jump from explore to implement
+
+# ---------------------------------------------------------------------------
+# Agent Types
+# ---------------------------------------------------------------------------
+# Declarative list of available agent types. Each agent is specialized for
+# one or more pipeline stages.
+
+agents:
+  - name: planner
+    stages: [analyze, plan]
+  - name: explorer
+    stages: [explore]
+  - name: implementer
+    stages: [implement]
+    requires_write: true
+  - name: reviewer
+    stages: [review]
+  - name: verifier
+    stages: [verify]
+  - name: finalizer
+    stages: [finalize]
+
+# ---------------------------------------------------------------------------
+# Skills
+# ---------------------------------------------------------------------------
+# Each skill defines a strategy for a specific type of work.
+# Skills are bound to stages via the `stages` section above, but can be
+# overridden at runtime (e.g., review stage switches between
+# design-review-skill and code-review-skill based on the preceding stage).
+
+skills:
+  - name: task-analysis-skill
+    description: Structurize and classify the user task into actionable items
+
+  - name: repo-explore-skill
+    description: Browse codebase, collect facts, build module map
+
+  - name: cli-analysis-skill
+    description: Alternative explore skill for CLI-based analysis
+
+  - name: implementation-plan-skill
+    description: Design step-by-step implementation plan with file targets
+
+  - name: code-implement-skill
+    description: Write or modify code, generate patches
+
+  - name: design-review-skill
+    description: Review plan feasibility, architecture impact, risks
+
+  - name: code-review-skill
+    description: Review code correctness, bugs, style, side effects
+
+  - name: verification-skill
+    description: Run tests, lint, build, verify correctness
+
+  - name: final-answer-skill
+    description: Produce final user-facing output with summary and instructions
