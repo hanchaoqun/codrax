@@ -17,24 +17,22 @@ import (
 // It reads configuration from YAML, manages BusContext, dispatches agents,
 // and evaluates transitions between stages.
 type Orchestrator struct {
-	config       *config.ResolvedConfig
-	agents       *agent.Registry
-	skills       *skill.Registry
-	busCtx       *types.BusContext
-	maxSteps     int
-	subValidator *agent.SubAgentValidator
-	subRuntime   *agent.SubAgentRuntime
+	config     *config.ResolvedConfig
+	agents     *agent.Registry
+	skills     *skill.Registry
+	busCtx     *types.BusContext
+	maxSteps   int
+	subRuntime *agent.SubAgentRuntime
 }
 
 // New creates a new Orchestrator.
 func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
 	return &Orchestrator{
-		config:       cfg,
-		agents:       agents,
-		skills:       skills,
-		maxSteps:     50,
-		subValidator: agent.NewSubAgentValidator(subAgents),
-		subRuntime:   agent.NewSubAgentRuntime(subAgents),
+		config:     cfg,
+		agents:     agents,
+		skills:     skills,
+		maxSteps:   50,
+		subRuntime: agent.NewSubAgentRuntime(subAgents),
 	}
 }
 
@@ -154,18 +152,10 @@ func (o *Orchestrator) executeStage(stageConfig *types.StageConfig) error {
 	if proposal := extractSubAgentProposal(output); proposal != nil {
 		log.Printf("[orchestrator] sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
 
-		requests, vErr := o.subValidator.Validate(o.busCtx, proposal)
-		if vErr != nil {
-			log.Printf("[orchestrator] proposal rejected: %v, using original output", vErr)
+		merged, runErr := o.subRuntime.Run(o.busCtx, proposal)
+		if runErr != nil {
+			log.Printf("[orchestrator] sub-agent run failed: %v, using original output", runErr)
 		} else {
-			results, execErr := o.subRuntime.Execute(requests)
-			if execErr != nil {
-				log.Printf("[orchestrator] subagent partial failure: %v", execErr)
-			}
-
-			reducer := &agent.SubAgentReducer{}
-			merged := reducer.Reduce(results)
-
 			o.applyStageOutput(merged)
 			o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stageConfig.Name))
 			return nil

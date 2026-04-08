@@ -81,19 +81,43 @@ func (v *SubAgentValidator) Validate(bus *types.BusContext, proposal *types.SubA
 
 // --- SubAgentRuntime ---
 
-// SubAgentRuntime executes validated SubAgentRequests in parallel.
-// Each SubAgent reads from the shared BusContext and writes to its own SubAgentResult.
+// SubAgentRuntime validates, executes, and reduces SubAgent proposals.
+// Orchestrator calls Run() with a proposal; Runtime handles the rest internally.
 type SubAgentRuntime struct {
-	registry *SubAgentRegistry
+	registry  *SubAgentRegistry
+	validator *SubAgentValidator
+	reducer   *SubAgentReducer
 }
 
-// NewSubAgentRuntime creates a new runtime.
+// NewSubAgentRuntime creates a new runtime with built-in validator and reducer.
 func NewSubAgentRuntime(registry *SubAgentRegistry) *SubAgentRuntime {
-	return &SubAgentRuntime{registry: registry}
+	return &SubAgentRuntime{
+		registry:  registry,
+		validator: NewSubAgentValidator(registry),
+		reducer:   &SubAgentReducer{},
+	}
 }
 
-// Execute runs all requests in parallel and returns results in the same order.
-func (r *SubAgentRuntime) Execute(requests []*types.SubAgentRequest) ([]*types.SubAgentResult, error) {
+// Run is the single entry point for the Orchestrator.
+// It validates the proposal, executes SubAgents in parallel, and reduces results.
+func (r *SubAgentRuntime) Run(bus *types.BusContext, proposal *types.SubAgentProposal) (*StageOutput, error) {
+	// 1. Validate
+	requests, err := r.validator.Validate(bus, proposal)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Execute parallel
+	results, execErr := r.execute(requests)
+
+	// 3. Reduce
+	merged := r.reducer.Reduce(results)
+
+	return merged, execErr
+}
+
+// execute runs all requests in parallel and returns results in the same order.
+func (r *SubAgentRuntime) execute(requests []*types.SubAgentRequest) ([]*types.SubAgentResult, error) {
 	results := make([]*types.SubAgentResult, len(requests))
 	errs := make([]error, len(requests))
 	var wg sync.WaitGroup
