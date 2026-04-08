@@ -47,9 +47,9 @@ task_policies:
       - implement
       - finalize
 
-feature_flags:
-  enable_review: false
+pipeline_settings:
   enable_verify: true
+  require_review: false
   allow_skip_plan_for_small_change: true
 
 agents:
@@ -145,9 +145,9 @@ func TestParse(t *testing.T) {
 	})
 
 	t.Run("feature flags", func(t *testing.T) {
-		ff := cfg.FeatureFlags
-		if ff.EnableReview {
-			t.Error("enable_review should be false")
+		ff := cfg.PipelineSettings
+		if ff.RequireReview {
+			t.Error("require_review should be false")
 		}
 		if !ff.EnableVerify {
 			t.Error("enable_verify should be true")
@@ -262,13 +262,13 @@ func TestResolve(t *testing.T) {
 	})
 
 	t.Run("feature flags preserved", func(t *testing.T) {
-		if rc.FeatureFlags.EnableReview {
-			t.Error("enable_review should be false")
+		if rc.PipelineSettings.RequireReview {
+			t.Error("require_review should be false")
 		}
-		if !rc.FeatureFlags.EnableVerify {
+		if !rc.PipelineSettings.EnableVerify {
 			t.Error("enable_verify should be true")
 		}
-		if !rc.FeatureFlags.AllowSkipPlanForSmallChange {
+		if !rc.PipelineSettings.AllowSkipPlanForSmallChange {
 			t.Error("allow_skip_plan_for_small_change should be true")
 		}
 	})
@@ -580,9 +580,9 @@ func TestLoadAndResolve(t *testing.T) {
 	})
 
 	t.Run("feature flags have correct defaults", func(t *testing.T) {
-		ff := rc.FeatureFlags
-		if !ff.EnableReview {
-			t.Error("enable_review should be true")
+		ff := rc.PipelineSettings
+		if !ff.RequireReview {
+			t.Error("require_review should be true")
 		}
 		if !ff.EnableVerify {
 			t.Error("enable_verify should be true")

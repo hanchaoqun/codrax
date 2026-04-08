@@ -55,7 +55,8 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			Missing: types.MissingUnderstanding,
 		},
 		Policy: types.PolicyContext{
-			MaxRetriesPerStage: 3,
+			RequireReview:      o.config.PipelineSettings.RequireReview,
+			MaxRetriesPerStage: o.config.PipelineSettings.MaxRetriesPerStage,
 		},
 	}
 
@@ -215,7 +216,7 @@ func (o *Orchestrator) decideNextStage() types.PipelineStage {
 	transitions = o.filterByPolicy(transitions, policyName)
 
 	// Filter by feature flags
-	transitions = o.filterByFeatureFlags(transitions)
+	transitions = o.filterByPipelineSettings(transitions)
 
 	// Filter by runtime signals
 	transitions = o.filterBySignals(transitions)
@@ -277,17 +278,13 @@ func (o *Orchestrator) filterByPolicy(transitions []types.Transition, policyName
 	return filtered
 }
 
-// filterByFeatureFlags removes transitions to stages disabled by feature flags.
-func (o *Orchestrator) filterByFeatureFlags(transitions []types.Transition) []types.Transition {
-	flags := o.config.FeatureFlags
+// filterByPipelineSettings removes transitions to stages disabled by pipeline settings.
+func (o *Orchestrator) filterByPipelineSettings(transitions []types.Transition) []types.Transition {
+	flags := o.config.PipelineSettings
 
 	var filtered []types.Transition
 	for _, t := range transitions {
 		switch t.To {
-		case types.StageDesignReview, types.StageCodeReview:
-			if !flags.EnableReview {
-				continue
-			}
 		case types.StageVerify:
 			if !flags.EnableVerify {
 				continue

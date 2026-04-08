@@ -165,7 +165,7 @@ The transition engine follows a deterministic evaluation process:
 
 1. **Enumerate** all outgoing transitions from the current stage
 2. **Filter** by task policy — remove transitions to stages not allowed by the active policy
-3. **Filter** by feature flags — remove transitions to disabled stages (e.g., `review` when `enable_review: false`)
+3. **Filter** by feature flags — remove transitions to disabled stages (e.g., `verify` when `enable_verify: false`)
 4. **Evaluate** runtime conditions — check `TaskState.Missing`, `ExecutionSignals`, and stage results
 5. **Select** the highest-priority valid transition
 
@@ -177,14 +177,14 @@ Task policies define stage subsets for different task types:
 |--------|----------------|
 | `analysis` | analyze → explore → finalize |
 | `implementation` | analyze → explore → plan → implement → verify → finalize |
-| `high_risk_implementation` | analyze → explore → plan → **review** → implement → **review** → verify → finalize |
+| `high_risk_implementation` | analyze → explore → plan → **design_review** → implement → **code_review** → verify → finalize |
 
 #### Feature Flags
 
 | Flag | Default | Effect |
 |------|---------|--------|
-| `enable_review` | `true` | Enable/disable the review stage globally |
 | `enable_verify` | `true` | Enable/disable the verify stage globally |
+| `require_review` | `true` | When true, use high_risk_implementation policy with review stages |
 | `allow_skip_plan_for_small_change` | `false` | Allow small changes to jump from explore → implement |
 
 #### Termination Detection

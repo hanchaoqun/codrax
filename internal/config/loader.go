@@ -32,7 +32,7 @@ type ResolvedConfig struct {
 	Stages       map[types.PipelineStage]*types.StageConfig
 	Transitions  map[types.PipelineStage][]types.Transition
 	TaskPolicies map[string]*types.TaskPolicyConfig
-	FeatureFlags types.FeatureFlags
+	PipelineSettings types.PipelineSettings
 	Agents       map[types.AgentName]*types.AgentConfig
 	Skills       map[string]*types.SkillConfigYAML
 }
@@ -44,7 +44,7 @@ func Resolve(raw *types.OrchestratorConfig) (*ResolvedConfig, error) {
 		Stages:       make(map[types.PipelineStage]*types.StageConfig),
 		Transitions:  make(map[types.PipelineStage][]types.Transition),
 		TaskPolicies: make(map[string]*types.TaskPolicyConfig),
-		FeatureFlags: raw.FeatureFlags,
+		PipelineSettings: raw.PipelineSettings,
 		Agents:       make(map[types.AgentName]*types.AgentConfig),
 		Skills:       make(map[string]*types.SkillConfigYAML),
 	}

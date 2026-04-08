@@ -22,10 +22,11 @@ type TaskPolicyConfig struct {
 	AllowedStages []PipelineStage `yaml:"allowed_stages"`
 }
 
-// FeatureFlags controls optional pipeline features.
-type FeatureFlags struct {
-	EnableReview                bool `yaml:"enable_review"`
+// PipelineSettings controls optional pipeline features.
+type PipelineSettings struct {
 	EnableVerify                bool `yaml:"enable_verify"`
+	RequireReview               bool `yaml:"require_review"`
+	MaxRetriesPerStage          int  `yaml:"max_retries_per_stage"`
 	AllowSkipPlanForSmallChange bool `yaml:"allow_skip_plan_for_small_change"`
 }
 
@@ -55,7 +56,7 @@ type OrchestratorConfig struct {
 	Stages       map[string]StageConfigYAML  `yaml:"stages"`
 	Transitions  map[string][]Transition     `yaml:"transitions"`
 	TaskPolicies map[string]TaskPolicyConfig `yaml:"task_policies"`
-	FeatureFlags FeatureFlags                `yaml:"feature_flags"`
+	PipelineSettings PipelineSettings                `yaml:"pipeline_settings"`
 	Agents       []AgentConfig               `yaml:"agents"`
 	Skills       []SkillConfigYAML           `yaml:"skills"`
 }

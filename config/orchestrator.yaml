@@ -152,14 +152,15 @@ task_policies:
       - finalize
 
 # ---------------------------------------------------------------------------
-# Feature Flags
+# Pipeline Settings
 # ---------------------------------------------------------------------------
-# Runtime toggles that modify pipeline behavior.
-# These are evaluated during transition filtering.
+# Runtime settings that control pipeline behavior.
+# These are evaluated during transition filtering and stage execution.
 
-feature_flags:
-  enable_review: true                    # enable/disable design_review and code_review stages globally
+pipeline_settings:
   enable_verify: true                    # enable/disable the verify stage globally
+  require_review: true                   # when true, use high_risk_implementation policy with review stages
+  max_retries_per_stage: 3               # max consecutive failures per stage before forcing finalize
   allow_skip_plan_for_small_change: false # when true, small changes can jump from explore to implement
 
 # ---------------------------------------------------------------------------

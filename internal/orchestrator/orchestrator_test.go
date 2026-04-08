@@ -129,8 +129,7 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 				},
 			},
 		},
-		FeatureFlags: types.FeatureFlags{
-			EnableReview: true,
+		PipelineSettings: types.PipelineSettings{
 			EnableVerify: true,
 		},
 		Agents: map[types.AgentName]*types.AgentConfig{},
@@ -304,35 +303,6 @@ func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 	})
 }
 
-func TestDecideNextStage_FeatureFlagDisablesReview(t *testing.T) {
-	t.Run("enable_review=false filters both design_review and code_review transitions", func(t *testing.T) {
-		cfg := defaultResolvedConfig()
-		cfg.FeatureFlags.EnableReview = false
-		ar, sr := buildRegistries(nil)
-		o := New(cfg, ar, sr)
-
-		// After implement, the highest priority transition is code_review (100),
-		// but with review disabled, it should go to verify (90).
-		o.busCtx = &types.BusContext{
-			PipelineStage: types.StageImplement,
-			Signals: types.ExecutionSignals{
-				HasPlan:  true,
-				HasPatch: true,
-			},
-			TaskState: types.TaskState{
-				Stage:   types.StageImplement,
-				Missing: types.MissingVerification,
-			},
-			Policy: types.PolicyContext{},
-		}
-
-		next := o.decideNextStage()
-		if next != types.StageVerify {
-			t.Errorf("expected verify (review disabled), got %s", next)
-		}
-	})
-}
-
 func TestDecideNextStage_FallbackToFinalize(t *testing.T) {
 	t.Run("when no valid transitions remain, should fall back to finalize", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
@@ -368,8 +338,8 @@ func TestDecideNextStage_FallbackToFinalize(t *testing.T) {
 func TestRun_SimplePipeline(t *testing.T) {
 	t.Run("pipeline progresses through analyze->explore->plan->implement->verify->finalize", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
-		// Disable review so the pipeline goes straight implement -> verify.
-		cfg.FeatureFlags.EnableReview = false
+		// RequireReview defaults to false, so implementation policy is used
+		// and review stages are not in allowed_stages — pipeline skips reviews.
 
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 			// analyze: reports MissingFacts so orchestrator transitions to explore
