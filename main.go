@@ -115,21 +115,32 @@ func main() {
 		fmt.Printf("Last Error:  %s\n", busCtx.TaskState.LastError)
 	}
 
-	// Working todolist (populated by analyzer + any agent that called todo_write).
+	// Working todolist (populated by analyzer + any agent that called
+	// todo_write). Each task carries its own Result, written by the
+	// per-task finalize stage.
 	if busCtx.Mutable != nil {
-		if tl := busCtx.Mutable.TaskList(); len(tl.Tasks) > 0 {
+		tl := busCtx.Mutable.TaskList()
+		if len(tl.Tasks) > 0 {
 			fmt.Printf("\n=== Todolist ===\n")
 			for _, item := range tl.Tasks {
 				fmt.Printf("  %s %s\n", todoStatusIcon(item.Status), item.Title)
 			}
-		}
-	}
 
-	// User-facing final answer (populated by the finalizer agent).
-	if busCtx.FinalAnswer != "" {
-		fmt.Printf("\n=== Final Answer ===\n%s\n", busCtx.FinalAnswer)
-	} else {
-		fmt.Printf("\n(no final answer was produced)\n")
+			// Render per-task answers in order. Tasks with no Result
+			// (skipped or failed before finalize) are still listed
+			// with a placeholder so the user sees the full picture.
+			fmt.Printf("\n=== Task Results ===\n")
+			for _, item := range tl.Tasks {
+				fmt.Printf("\n--- %s %s ---\n", todoStatusIcon(item.Status), item.Title)
+				if item.Result != "" {
+					fmt.Println(item.Result)
+				} else {
+					fmt.Println("(no result)")
+				}
+			}
+		} else {
+			fmt.Printf("\n(no tasks were produced)\n")
+		}
 	}
 }
 

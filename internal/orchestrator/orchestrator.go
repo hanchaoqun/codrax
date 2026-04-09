@@ -43,7 +43,22 @@ func (o *Orchestrator) SetMaxSteps(n int) {
 }
 
 // Run executes the full pipeline for a user request.
-// It initializes the BusContext, then loops through stages until a terminal stage is reached.
+//
+// The pipeline runs in two phases:
+//
+//   - Phase 1 — analyze: dispatch StageAnalyze once. The analyzer
+//     populates BusContext.Mutable.TaskList (typically by calling
+//     todo_write) so the orchestrator knows what work to do.
+//
+//   - Phase 2 — per-task: iterate over pending tasks, running a
+//     mini-pipeline (explore → … → finalize) for each one. Per-task
+//     state (Signals, MissingPiece, PipelineStage, oscillation
+//     counter) resets between tasks; shared state (RepoFacts,
+//     ToolResults, MCPResponses, Mutable) accumulates across tasks.
+//     Each task's finalize call writes its result onto the task
+//     itself via Mutable.UpdateTaskResult.
+//
+// The maxSteps budget is enforced globally across both phases.
 func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*types.BusContext, error) {
 	// Initialize BusContext
 	o.busCtx = &types.BusContext{
@@ -64,170 +79,262 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		},
 	}
 
-	// Reset the per-Run stage visit counter (used by the oscillation
-	// guard below).
-	o.stageVisits = make(map[types.PipelineStage]int)
-
 	log.Printf("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 
-	// Pipeline loop
-	for step := 0; step < o.maxSteps; step++ {
+	stepsUsed := 0
+
+	// Phase 1: analyze.
+	if used, err := o.runAnalyzePhase(); err != nil {
+		log.Printf("[orchestrator] analyze phase failed: %v", err)
+		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
+	} else {
+		stepsUsed += used
+	}
+
+	// Phase 2: per-task execution.
+	if err := o.runTaskPhase(&stepsUsed); err != nil {
+		log.Printf("[orchestrator] task phase error: %v", err)
+		if o.busCtx.TaskState.LastError == "" {
+			o.busCtx.TaskState.LastError = err.Error()
+		}
+	}
+
+	o.busCtx.TaskState.IsTerminal = true
+	return o.busCtx, nil
+}
+
+// runAnalyzePhase dispatches the analyze stage once and applies its
+// output. It does not iterate; the orchestrator does not evaluate
+// transitions out of analyze. The analyzer is expected to populate
+// the task list via todo_write (or its fail-safe path) before
+// returning so the per-task phase has work to do.
+func (o *Orchestrator) runAnalyzePhase() (int, error) {
+	stageConfig, err := o.config.GetStageConfig(types.StageAnalyze)
+	if err != nil {
+		return 0, fmt.Errorf("get analyze stage: %w", err)
+	}
+
+	o.busCtx.PipelineStage = types.StageAnalyze
+	o.busCtx.TaskState.Stage = types.StageAnalyze
+	o.busCtx.TaskState.Missing = types.MissingUnderstanding
+
+	if _, err := o.dispatchStage(stageConfig); err != nil {
+		return 1, err
+	}
+	return 1, nil
+}
+
+// runTaskPhase iterates over pending tasks and runs each through its
+// own mini stage pipeline. Failed tasks do not abort the phase — the
+// loop moves on to the next pending task. The total step budget
+// (o.maxSteps) is enforced across all tasks; when it is exhausted
+// any remaining pending tasks are marked failed.
+func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
+	for {
+		next := o.nextPendingTask()
+		if next == nil {
+			return nil
+		}
+		if *stepsUsed >= o.maxSteps {
+			log.Printf("[orchestrator] global max-steps (%d) exhausted; marking remaining tasks failed",
+				o.maxSteps)
+			o.busCtx.Mutable.UpdateTaskResult(next.ID, "", types.TaskFailed)
+			continue
+		}
+
+		o.busCtx.Mutable.SetCurrentTask(next.ID)
+		o.busCtx.Mutable.UpdateTaskStatus(next.ID, types.TaskInProgress)
+
+		used := o.runTaskPipeline(next.ID, o.maxSteps-*stepsUsed)
+		*stepsUsed += used
+	}
+}
+
+// runTaskPipeline runs the per-task stage loop for a single task.
+// It resets per-task state (Signals, MissingPiece, PipelineStage,
+// stage visit counter) on entry, runs explore → … → finalize, and
+// always marks the task as Done or Failed before returning so the
+// outer loop's nextPendingTask cannot pick it up again.
+func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
+	// Reset per-task state.
+	o.busCtx.Signals = types.ExecutionSignals{}
+	o.busCtx.TaskState.Missing = types.MissingFacts
+	o.busCtx.PipelineStage = types.StageExplore
+	o.busCtx.TaskState.Stage = types.StageExplore
+	o.stageVisits = make(map[types.PipelineStage]int)
+
+	visitCap := o.config.PipelineSettings.MaxStageVisits
+	if visitCap <= 0 {
+		visitCap = types.DefaultMaxStageVisits
+	}
+
+	stepsUsed := 0
+	reachedFinalize := false
+
+	for stepsUsed < stepBudget {
 		stage := o.busCtx.PipelineStage
 
-		log.Printf("[orchestrator] step %d: stage=%s, missing=%s",
-			step, stage, o.busCtx.TaskState.Missing)
+		log.Printf("[orchestrator] task=%s step=%d stage=%s missing=%s",
+			taskID, stepsUsed, stage, o.busCtx.TaskState.Missing)
 
-		// Oscillation guard: if we are about to enter the same stage
-		// for more than MaxStageVisits times, treat it as stuck and
-		// break out so the post-loop force-finalize block runs. This
-		// catches bouncing patterns (plan ↔ implement, or self-loops)
-		// much earlier than max-steps would.
-		cap := o.config.PipelineSettings.MaxStageVisits
-		if cap <= 0 {
-			cap = types.DefaultMaxStageVisits
-		}
+		// Oscillation guard, scoped per task.
 		o.stageVisits[stage]++
-		if o.stageVisits[stage] > cap {
-			log.Printf("[orchestrator] stage %s visited %d times (cap %d); breaking out as stuck",
-				stage, o.stageVisits[stage], cap)
+		if o.stageVisits[stage] > visitCap {
+			log.Printf("[orchestrator] task %s stage %s visited %d times (cap %d); oscillation guard tripped",
+				taskID, stage, o.stageVisits[stage], visitCap)
 			o.busCtx.TaskState.LastError = fmt.Sprintf(
-				"stage %s revisited %d times without progress; oscillation guard tripped",
-				stage, o.stageVisits[stage])
+				"task %s stuck at stage %s after %d visits", taskID, stage, o.stageVisits[stage])
 			break
 		}
 
-		// Check terminal condition
 		stageConfig, err := o.config.GetStageConfig(stage)
 		if err != nil {
-			return o.busCtx, fmt.Errorf("unknown stage %s: %w", stage, err)
+			o.busCtx.TaskState.LastError = fmt.Sprintf("unknown stage %s: %v", stage, err)
+			break
 		}
 
-		// Dispatch agent for current stage
-		if err := o.executeStage(stageConfig); err != nil {
-			log.Printf("[orchestrator] stage %s failed: %v", stage, err)
+		stepsUsed++
+
+		out, err := o.dispatchStage(stageConfig)
+		if err != nil {
+			log.Printf("[orchestrator] task %s stage %s failed: %v", taskID, stage, err)
 			o.busCtx.Signals.LastStageFailed = true
 			o.busCtx.Signals.LastFailureReason = err.Error()
 			o.busCtx.Signals.RetryCount++
-
 			if o.busCtx.Signals.RetryCount > o.busCtx.Policy.MaxRetriesPerStage {
-				log.Printf("[orchestrator] max retries exceeded for stage %s, forcing finalize", stage)
+				log.Printf("[orchestrator] task %s max retries exceeded at %s, jumping to finalize",
+					taskID, stage)
 				o.busCtx.PipelineStage = types.StageFinalize
 				o.busCtx.TaskState.Stage = types.StageFinalize
 				continue
 			}
 		}
 
-		// Check if we've reached a terminal stage after execution
 		if stageConfig.Terminal {
-			log.Printf("[orchestrator] reached terminal stage: %s", stage)
-			o.busCtx.TaskState.IsTerminal = true
+			log.Printf("[orchestrator] task %s reached terminal stage %s", taskID, stage)
+			o.recordTaskFinalize(taskID, out)
+			reachedFinalize = true
 			break
 		}
 
-		// Decide next stage
 		nextStage := o.decideNextStage()
-		log.Printf("[orchestrator] transition: %s -> %s", stage, nextStage)
-
-		o.busCtx.LastTransitionReason = fmt.Sprintf("%s -> %s (missing: %s)",
-			stage, nextStage, o.busCtx.TaskState.Missing)
+		log.Printf("[orchestrator] task %s transition: %s -> %s", taskID, stage, nextStage)
+		o.busCtx.LastTransitionReason = fmt.Sprintf("%s -> %s (task %s, missing %s)",
+			stage, nextStage, taskID, o.busCtx.TaskState.Missing)
 		o.busCtx.PipelineStage = nextStage
 		o.busCtx.TaskState.Stage = nextStage
 
-		// Reset retry count on successful transition to a new stage
 		if nextStage != stage {
 			o.busCtx.Signals.RetryCount = 0
 			o.busCtx.Signals.LastStageFailed = false
 		}
 	}
 
-	// Loop exited without reaching a terminal stage — either max-steps
-	// was exhausted or the oscillation guard tripped. Force one
-	// finalize run so the user always gets an answer (or at least a
-	// clearly-marked failure summary). The forced finalizer runs
-	// outside the transition loop: its output is applied via the
-	// normal applyStageOutput path, but we do not re-enter
-	// decideNextStage afterwards.
-	if !o.busCtx.TaskState.IsTerminal {
-		// LastError was either set by the oscillation guard above or
-		// is empty (meaning max-steps was the cause).
+	// If we exited the loop without naturally reaching finalize, force
+	// one finalize call so the task gets a Result (or at least a clear
+	// failure marker).
+	if !reachedFinalize {
 		if o.busCtx.TaskState.LastError == "" {
 			o.busCtx.TaskState.LastError = fmt.Sprintf(
-				"pipeline did not reach terminal stage within %d steps; forced finalize",
-				o.maxSteps,
-			)
+				"task %s did not reach terminal within budget", taskID)
 		}
-		log.Printf("[orchestrator] forcing finalize from stage %s: %s",
-			o.busCtx.PipelineStage, o.busCtx.TaskState.LastError)
-		o.busCtx.LastTransitionReason = fmt.Sprintf(
-			"%s -> finalize (forced: %s)",
-			o.busCtx.PipelineStage, o.busCtx.TaskState.LastError,
-		)
+		log.Printf("[orchestrator] task %s forcing finalize: %s", taskID, o.busCtx.TaskState.LastError)
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
 
-		finalStageConfig, err := o.config.GetStageConfig(types.StageFinalize)
+		finalConfig, err := o.config.GetStageConfig(types.StageFinalize)
 		if err != nil {
-			return o.busCtx, fmt.Errorf("force finalize: %w", err)
+			log.Printf("[orchestrator] task %s force finalize lookup failed: %v", taskID, err)
+			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
+			return stepsUsed
 		}
-		if err := o.executeStage(finalStageConfig); err != nil {
-			log.Printf("[orchestrator] forced finalize failed: %v", err)
+		stepsUsed++
+		out, err := o.dispatchStage(finalConfig)
+		if err != nil {
+			log.Printf("[orchestrator] task %s forced finalize failed: %v", taskID, err)
+			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
+			return stepsUsed
 		}
-		o.busCtx.TaskState.IsTerminal = true
+		o.recordTaskFinalize(taskID, out)
 	}
 
-	return o.busCtx, nil
+	return stepsUsed
 }
 
-// executeStage dispatches the appropriate agent for the current stage.
-func (o *Orchestrator) executeStage(stageConfig *types.StageConfig) error {
+// recordTaskFinalize copies the finalizer's FinalAnswer into the
+// task's Result field via Mutable, and marks the task done. Empty
+// answers still mark Done — the per-task loop's contract is that
+// every task it runs ends with a definitive status.
+func (o *Orchestrator) recordTaskFinalize(taskID string, out *agent.StageOutput) {
+	answer := ""
+	if out != nil {
+		answer = out.FinalAnswer
+	}
+	o.busCtx.Mutable.UpdateTaskResult(taskID, answer, types.TaskDone)
+}
+
+// nextPendingTask returns a pointer to a copy of the next pending
+// task, or nil if no pending tasks remain. The pointer is for
+// convenience; do not mutate it directly — go through Mutable.
+func (o *Orchestrator) nextPendingTask() *types.TaskItem {
+	tl := o.busCtx.Mutable.TaskList()
+	for i := range tl.Tasks {
+		if tl.Tasks[i].Status == types.TaskPending {
+			t := tl.Tasks[i]
+			return &t
+		}
+	}
+	return nil
+}
+
+// dispatchStage runs the agent bound to the given stage and returns
+// the StageOutput it produced. The output has already been routed
+// through applyStageOutput by the time this function returns, so
+// callers don't need to apply it again — they can just inspect
+// fields like FinalAnswer that are useful for per-stage reactions.
+//
+// Note: this used to be named executeStage and returned only error.
+// runTaskPipeline needs to read the finalizer's FinalAnswer to write
+// it onto the task's Result, hence the return value.
+func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.StageOutput, error) {
 	agentName := stageConfig.DefaultAgent
 	skillName := stageConfig.DefaultSkill
 
-	// Get the agent
 	ag, err := o.agents.Get(agentName)
 	if err != nil {
-		return fmt.Errorf("get agent %s: %w", agentName, err)
+		return nil, fmt.Errorf("get agent %s: %w", agentName, err)
 	}
 
-	// Get the skill
 	sk, err := o.skills.Get(skillName)
 	if err != nil {
-		return fmt.Errorf("get skill %s: %w", skillName, err)
+		return nil, fmt.Errorf("get skill %s: %w", skillName, err)
 	}
 
-	// Build agent context
 	o.busCtx.ActiveAgent = agentName
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stageConfig.Name)
 
 	log.Printf("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
 
-	// Execute the agent
 	output, err := ag.Execute(agentCtx, sk)
 	if err != nil {
-		return fmt.Errorf("agent %s execution: %w", agentName, err)
+		return nil, fmt.Errorf("agent %s execution: %w", agentName, err)
 	}
 
-	// Check if the agent proposed SubAgent decomposition
+	// SubAgent decomposition path: replace the original output with
+	// the merged sub-agent output for the rest of the pipeline.
 	if proposal := extractSubAgentProposal(output, agentName); proposal != nil {
 		log.Printf("[orchestrator] sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
-
 		merged, runErr := o.subRuntime.Run(o.busCtx, proposal)
 		if runErr != nil {
 			log.Printf("[orchestrator] sub-agent run failed: %v, using original output", runErr)
 		} else {
-			o.applyStageOutput(merged)
-			o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stageConfig.Name))
-			return nil
+			output = merged
 		}
 	}
 
-	// No sub-agent decomposition — use original output
 	o.applyStageOutput(output)
-
-	// Record stage completion
 	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stageConfig.Name))
-
-	return nil
+	return output, nil
 }
 
 // applyStageOutput updates BusContext with the results from an agent execution.
@@ -268,10 +375,10 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		}
 	}
 
-	// Capture final answer (currently produced by finalizer)
-	if output.FinalAnswer != "" {
-		o.busCtx.FinalAnswer = output.FinalAnswer
-	}
+	// FinalAnswer is no longer captured here. The per-task loop in
+	// runTaskPipeline reads it directly from the StageOutput returned
+	// by dispatchStage and writes it onto the task's Result field
+	// via Mutable.UpdateTaskResult.
 
 	// Update missing piece
 	o.busCtx.TaskState.Missing = output.MissingPiece

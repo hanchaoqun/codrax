@@ -50,6 +50,53 @@ func (m *MutableState) SetTaskList(tl TaskList) {
 	m.taskList = tl
 }
 
+// UpdateTaskStatus marks a task by ID with the given status. No-op
+// if the task is missing. Used by the orchestrator to transition
+// individual tasks through the per-task execution loop.
+func (m *MutableState) UpdateTaskStatus(id string, status TaskStatus) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.taskList.Tasks {
+		if m.taskList.Tasks[i].ID == id {
+			m.taskList.Tasks[i].Status = status
+			return
+		}
+	}
+}
+
+// UpdateTaskResult records the per-task final answer (and a final
+// status). Used by the orchestrator after a per-task finalize stage
+// runs, so each task's contribution is preserved on the task itself
+// rather than overwriting a single global FinalAnswer.
+func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i := range m.taskList.Tasks {
+		if m.taskList.Tasks[i].ID == id {
+			m.taskList.Tasks[i].Result = result
+			m.taskList.Tasks[i].Status = status
+			return
+		}
+	}
+}
+
+// SetCurrentTask updates which task drives routing. The orchestrator
+// calls this when it advances to the next task in the per-task loop.
+func (m *MutableState) SetCurrentTask(id string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.taskList.CurrentTaskID = id
+}
+
 // RepoFact is a single discovered fact about the repository.
 type RepoFact struct {
 	Key        string  `json:"key"`
@@ -133,11 +180,6 @@ type BusContext struct {
 
 	LastTransitionReason string `json:"last_transition_reason,omitempty"`
 	TraceID              string `json:"trace_id"`
-
-	// FinalAnswer is the user-facing answer produced by the finalizer
-	// agent. The orchestrator populates it from StageOutput.FinalAnswer
-	// during applyStageOutput. Empty means "no answer was produced".
-	FinalAnswer string `json:"final_answer,omitempty"`
 }
 
 // AgentContext provides the narrowed view of BusContext for a single agent.

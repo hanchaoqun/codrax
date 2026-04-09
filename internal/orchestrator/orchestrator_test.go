@@ -537,7 +537,7 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 				t.Fatalf("step %d: unknown stage %s: %v", step, o.busCtx.PipelineStage, err)
 			}
 
-			if err := o.executeStage(stageConfig); err != nil {
+			if _, err := o.dispatchStage(stageConfig); err != nil {
 				t.Fatalf("step %d: stage %s failed: %v", step, o.busCtx.PipelineStage, err)
 			}
 
@@ -654,9 +654,10 @@ func TestRun_AnalysisPolicyFromMutable(t *testing.T) {
 		}
 	}
 
-	// FinalAnswer set by the finalizer must reach BusContext.
-	if busCtx.FinalAnswer != "this project is a 5-layer agent system" {
-		t.Errorf("BusContext.FinalAnswer = %q, want propagated value", busCtx.FinalAnswer)
+	// The finalizer's answer must land on the task's Result field
+	// (per-task storage replaced the global FinalAnswer in D2).
+	if current.Result != "this project is a 5-layer agent system" {
+		t.Errorf("task.Result = %q, want propagated finalizer answer", current.Result)
 	}
 }
 
@@ -713,11 +714,138 @@ func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 	if finalizerCalled != 1 {
 		t.Errorf("finalizer call count = %d, want exactly 1", finalizerCalled)
 	}
-	if busCtx.FinalAnswer != "forced summary after max-steps" {
-		t.Errorf("FinalAnswer = %q, want forced summary", busCtx.FinalAnswer)
+	tl := busCtx.Mutable.TaskList()
+	if len(tl.Tasks) == 0 {
+		t.Fatal("expected at least one task on the list")
+	}
+	if got := tl.Tasks[0].Result; got != "forced summary after max-steps" {
+		t.Errorf("task.Result = %q, want forced summary", got)
+	}
+	if tl.Tasks[0].Status != types.TaskDone {
+		t.Errorf("task.Status = %s, want done after forced finalize", tl.Tasks[0].Status)
 	}
 	if busCtx.TaskState.LastError == "" {
 		t.Error("expected LastError to record max-steps exhaustion")
+	}
+}
+
+// TestRun_MultiTaskExecution verifies the D2 execution model: when
+// the analyzer produces N tasks, each task runs through its own
+// per-task pipeline, ends with its own finalize call, and writes its
+// own Result onto the task. The orchestrator iterates over pending
+// tasks until none remain.
+func TestRun_MultiTaskExecution(t *testing.T) {
+	cfg := defaultResolvedConfig()
+
+	exploreCount := 0
+	planCount := 0
+	implementCount := 0
+	verifyCount := 0
+	finalizerCount := 0
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		// Analyzer plants three tasks: one read-only, two writing.
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetTaskList(types.TaskList{
+				Objective: "two-part request",
+				Tasks: []types.TaskItem{
+					{ID: "ta", Title: "explain X", Writing: false, Status: types.TaskPending},
+					{ID: "tb", Title: "implement Y", Writing: true, Status: types.TaskPending},
+					{ID: "tc", Title: "implement Z", Writing: true, Status: types.TaskPending},
+				},
+				CurrentTaskID: "ta",
+			})
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			exploreCount++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingPlan,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+			}, nil
+		},
+		types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			planCount++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingCode,
+				SignalUpdates: &types.ExecutionSignals{HasPlan: true},
+			}, nil
+		},
+		types.AgentImplementer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			implementCount++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingVerification,
+				SignalUpdates: &types.ExecutionSignals{HasPatch: true},
+			}, nil
+		},
+		types.AgentVerifier: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			verifyCount++
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{VerificationPassed: true},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizerCount++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "answer for " + ctx.CurrentTaskID,
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(60)
+
+	busCtx, err := o.Run("two-part request", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !busCtx.TaskState.IsTerminal {
+		t.Error("expected pipeline to terminate")
+	}
+
+	tl := busCtx.Mutable.TaskList()
+	if len(tl.Tasks) != 3 {
+		t.Fatalf("expected 3 tasks, got %d", len(tl.Tasks))
+	}
+
+	// Each task should have its own answer and be marked done.
+	expectedAnswers := map[string]string{
+		"ta": "answer for ta",
+		"tb": "answer for tb",
+		"tc": "answer for tc",
+	}
+	for _, task := range tl.Tasks {
+		if task.Status != types.TaskDone {
+			t.Errorf("task %s status = %s, want done", task.ID, task.Status)
+		}
+		if want, ok := expectedAnswers[task.ID]; ok && task.Result != want {
+			t.Errorf("task %s result = %q, want %q", task.ID, task.Result, want)
+		}
+	}
+
+	// Finalizer must have run once per task.
+	if finalizerCount != 3 {
+		t.Errorf("finalizer call count = %d, want 3 (once per task)", finalizerCount)
+	}
+
+	// The read-only task (ta) should have skipped plan/implement/verify
+	// because the analysis policy filters them out, while the two
+	// writing tasks (tb, tc) should have visited all of them.
+	if exploreCount != 3 {
+		t.Errorf("explore count = %d, want 3 (once per task)", exploreCount)
+	}
+	if planCount != 2 {
+		t.Errorf("plan count = %d, want 2 (writing tasks only)", planCount)
+	}
+	if implementCount != 2 {
+		t.Errorf("implement count = %d, want 2 (writing tasks only)", implementCount)
+	}
+	if verifyCount != 2 {
+		t.Errorf("verify count = %d, want 2 (writing tasks only)", verifyCount)
 	}
 }
 
@@ -776,8 +904,12 @@ func TestRun_OscillationGuardTripsBeforeMaxSteps(t *testing.T) {
 	if finalizerCalled != 1 {
 		t.Errorf("finalizer call count = %d, want exactly 1", finalizerCalled)
 	}
-	if busCtx.FinalAnswer != "stuck — forced finalize" {
-		t.Errorf("FinalAnswer = %q, want forced summary", busCtx.FinalAnswer)
+	tl := busCtx.Mutable.TaskList()
+	if len(tl.Tasks) == 0 {
+		t.Fatal("expected at least one task on the list")
+	}
+	if got := tl.Tasks[0].Result; got != "stuck — forced finalize" {
+		t.Errorf("task.Result = %q, want forced summary", got)
 	}
 	if busCtx.TaskState.LastError == "" {
 		t.Error("expected LastError to record oscillation")

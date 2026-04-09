@@ -133,10 +133,31 @@ graph LR
 
 - **Agent 选择** — 根据当前流水线阶段选择要调度的 Agent
 - **流水线阶段控制** — 管理状态机中的阶段推进
-- **技能选择** — 为 Agent 分配适当的技能（YAML 默认值，可在运行时覆盖）
+- **技能选择** — 为 Agent 分配适当的技能（YAML 默认值，可在运行时覆盖)
 - **子 Agent 派生** — 在并行有益时派生并发子 Agent
 - **执行状态管理** — 维护 BusContext 和 TaskList 作为共享状态
-- **终止决策** — 检测何时到达 `finalize` 阶段（唯一的终止阶段）
+- **终止决策** — 任务循环穷尽 + 全局 max-steps 守护
+
+#### 两阶段执行模型
+
+`Run()` 分两个阶段:
+
+1. **Phase 1 — analyze 阶段**: 调度 `analyze` 一次。analyzer 通过 `todo_write` 工具(或 fail-safe 路径)向 `BusContext.Mutable.TaskList` 写入分解后的任务列表
+2. **Phase 2 — 任务循环**: 遍历所有 pending 的 task,为每个 task 跑一次 mini-pipeline(`explore → plan → implement → verify → finalize`),由该 task 的 `Writing`/`HighRisk` 决定走哪条 policy
+
+每个 task 进入循环时**重置 per-task state**:
+- `Signals` 清空
+- `MissingPiece` 重置为 `MissingFacts`
+- `PipelineStage` 重置为 `StageExplore`
+- `stageVisits` 计数器清零
+
+每个 task **共享的状态**(跨 task 累积):
+- `RepoFacts / ToolResults / MCPResponses` — 探索成果可被后续 task 利用
+- `Mutable.TaskList` — 工作面板,工具更新对所有 task 可见
+
+每个 task 的 `finalize` stage 把它的答案写入该 task 的 `Result` 字段(通过 `Mutable.UpdateTaskResult`),并标记 `Status = TaskDone`。`main.go` 渲染时遍历 `Tasks` 展示每个任务的独立结果。
+
+`maxSteps` 是**全 Run 的总预算**,跨 phase 1 和 phase 2;`MaxStageVisits` 振荡守卫是 **per-task 计数**——每进入一个新 task 就清零。
 
 #### YAML 驱动的状态机
 
