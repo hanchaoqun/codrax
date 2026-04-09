@@ -42,7 +42,12 @@ func TestReadFile(t *testing.T) {
 		}
 	})
 
-	t.Run("read with offset and limit", func(t *testing.T) {
+	t.Run("small file ignores offset and limit", func(t *testing.T) {
+		// Regression: read_file used to honor offset/limit on tiny files,
+		// so the LLM passing limit=20 on a 66-line source file would
+		// silently miss the answer past line 20. Now small files (<=
+		// MaxInlineBytes) always return the whole content with a banner
+		// announcing the override.
 		tmpFile := filepath.Join(t.TempDir(), "testoffset.txt")
 		content := "line0\nline1\nline2\nline3\nline4\n"
 		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
@@ -58,13 +63,51 @@ func TestReadFile(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("expected success, got: %s", result.Summary)
 		}
-		if !strings.Contains(result.Summary, "showing lines 2-3 of 6") {
-			t.Fatalf("expected banner with sliced range, got %q", result.Summary)
+		if !strings.Contains(result.Summary, "offset/limit ignored because the file fits inline") {
+			t.Fatalf("expected passthrough banner, got %q", result.Summary)
 		}
-		if !strings.Contains(result.Summary, "line1\nline2") {
-			t.Fatalf("expected body to contain sliced content, got %q", result.Summary)
+		// All lines must be present, not just the sliced two.
+		for _, line := range []string{"line0", "line1", "line2", "line3", "line4"} {
+			if !strings.Contains(result.Summary, line) {
+				t.Fatalf("expected full content to contain %q, got %q", line, result.Summary)
+			}
 		}
 	})
+
+	t.Run("large file honors offset and limit", func(t *testing.T) {
+		// Files larger than MaxInlineBytes still page via offset/limit
+		// because they cannot be returned whole.
+		var b strings.Builder
+		// Each line is 100 bytes; 400 lines ≈ 40 KB > MaxInlineBytes (32 KB).
+		for i := 0; i < 400; i++ {
+			b.WriteString(strings.Repeat("x", 99))
+			b.WriteString("\n")
+		}
+		tmpFile := filepath.Join(t.TempDir(), "big.txt")
+		if err := os.WriteFile(tmpFile, []byte(b.String()), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: tmpFile, Offset: 10, Limit: 5})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "showing lines 11-15 of 401") {
+			t.Fatalf("expected sliced banner for large file, got first 200 chars: %q", result.Summary[:min(200, len(result.Summary))])
+		}
+	})
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func TestListFiles(t *testing.T) {
@@ -133,6 +176,91 @@ func TestGrepTool(t *testing.T) {
 		}
 		if !strings.Contains(result.Summary, "gamma") {
 			t.Fatalf("expected output to contain 'gamma', got: %s", result.Summary)
+		}
+	})
+
+	t.Run("smart-case lowercase pattern matches CamelCase", func(t *testing.T) {
+		// Regression: a grep for "subagent" used to silently miss
+		// SubAgent / SubAgentRegistry / RegisterDefaultSubAgents because
+		// the tool ran case-sensitive grep with no -i. Now an all-lowercase
+		// pattern is treated as case-blind (ripgrep -S behavior).
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "code.go")
+		content := "type SubAgent interface{}\nfunc RegisterDefaultSubAgents() {}\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "subagent", Path: tmpDir})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "SubAgent") {
+			t.Fatalf("expected smart-case to match SubAgent, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "RegisterDefaultSubAgents") {
+			t.Fatalf("expected smart-case to match RegisterDefaultSubAgents, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("smart-case uppercase pattern is exact", func(t *testing.T) {
+		// Pattern containing any uppercase character keeps the original
+		// case-sensitive behavior, so the LLM can still pin a specific
+		// casing when it needs to.
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "code.go")
+		content := "lowercase subagent here\nupper SubAgent here\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "SubAgent", Path: tmpDir})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "upper SubAgent here") {
+			t.Fatalf("expected exact-case match, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "lowercase subagent here") {
+			t.Fatalf("uppercase pattern should NOT match lowercase, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("explicit ignore_case false overrides smart-case", func(t *testing.T) {
+		// The LLM can force exact-case matching even on a lowercase
+		// pattern by passing ignore_case=false explicitly.
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "code.go")
+		content := "lowercase subagent here\nupper SubAgent here\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		falseVal := false
+		params, _ := json.Marshal(grepToolParams{Pattern: "subagent", Path: tmpDir, IgnoreCase: &falseVal})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "lowercase subagent here") {
+			t.Fatalf("expected lowercase match, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "SubAgent here") {
+			t.Fatalf("ignore_case=false should NOT match SubAgent, got: %s", result.Summary)
 		}
 	})
 
