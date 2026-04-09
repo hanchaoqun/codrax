@@ -3,9 +3,9 @@ package types
 // TaskItem represents a single task in the task list.
 //
 // The two boolean capability fields (Writing, HighRisk) jointly
-// determine which task policy the orchestrator selects for this task.
-// They replaced the earlier TaskType enum: Writing=false maps to the
-// old Analysis, Writing=true to Implementation, and HighRisk=true
+// determine which task policy the orchestrator selects for this
+// task. Writing=false picks the analysis policy (read-only answer),
+// Writing=true picks the implementation policy, and HighRisk=true
 // escalates an implementation task to the high_risk_implementation
 // policy with review stages.
 type TaskItem struct {

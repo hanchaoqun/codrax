@@ -654,8 +654,7 @@ func TestRun_AnalysisPolicyFromMutable(t *testing.T) {
 		}
 	}
 
-	// The finalizer's answer must land on the task's Result field
-	// (per-task storage replaced the global FinalAnswer in D2).
+	// The finalizer's answer must land on the task's Result field.
 	if current.Result != "this project is a 5-layer agent system" {
 		t.Errorf("task.Result = %q, want propagated finalizer answer", current.Result)
 	}
@@ -729,8 +728,8 @@ func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 	}
 }
 
-// TestRun_MultiTaskExecution verifies the D2 execution model: when
-// the analyzer produces N tasks, each task runs through its own
+// TestRun_MultiTaskExecution verifies the multi-task execution model:
+// when the analyzer produces N tasks, each task runs through its own
 // per-task pipeline, ends with its own finalize call, and writes its
 // own Result onto the task. The orchestrator iterates over pending
 // tasks until none remain.

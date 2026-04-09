@@ -29,9 +29,8 @@ func (e *implementerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 	}
 
 	// HasPatch tracks whether the implementer actually mutated the
-	// workspace. apply_patch is the single canonical write tool — the
-	// stale "write_file" name from before commit a52ae5a is gone, and
-	// exec_command is dual-use so it does not count as patch evidence.
+	// workspace. apply_patch is the single canonical write tool;
+	// exec_command is dual-use and does not count as patch evidence.
 	hasPatch := false
 	for _, r := range toolResults {
 		if r.Success && r.ToolName == "apply_patch" {

@@ -10,9 +10,7 @@ import (
 )
 
 // plannerEvaluator customizes the ReAct loop for the planner agent,
-// which serves only the plan stage. The analyze stage was previously
-// handled here as well; it now lives in analyzerEvaluator so each stage
-// maps to a single agent.
+// which serves the plan stage.
 type plannerEvaluator struct{}
 
 func (e *plannerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {

@@ -660,11 +660,11 @@ const (
     TaskFailed     TaskStatus = "failed"
 )
 
-// TaskItem 的能力/风险通过两个正交布尔表达,取代了早期的 TaskType 枚举
-// - Writing=false 对应旧 Analysis(只读,走 analysis policy)
-// - Writing=true  对应旧 Implementation(可写)
-// - HighRisk=true 让 Writing 任务升级到 high_risk_implementation policy
-//   (要求 design_review + code_review)
+// TaskItem 的能力/风险通过两个正交布尔表达:
+// - Writing=false: 只读任务,走 analysis policy
+// - Writing=true:  可写任务,走 implementation policy
+// - HighRisk=true: Writing 任务进一步升级到 high_risk_implementation
+//                  policy(要求 design_review + code_review)
 ```
 
 ### 三层上下文模型
@@ -809,12 +809,12 @@ type TaskItem struct {
     Title       string
     Description string
 
-    // 能力/风险 — 两个正交布尔,取代原 TaskType 枚举
+    // 能力/风险 — 两个正交布尔
     Writing  bool  // 是否可能修改文件(对应 requires_write 层级)
     HighRisk bool  // 是否需要 design/code review
 
     Status TaskStatus
-    Result string  // per-task 的执行结果(D2 中由 finalize 填充)
+    Result string  // 每个 task 由其 finalize 阶段填充
 }
 
 type TaskList struct {

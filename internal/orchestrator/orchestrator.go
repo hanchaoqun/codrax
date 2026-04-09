@@ -291,11 +291,9 @@ func (o *Orchestrator) nextPendingTask() *types.TaskItem {
 // the StageOutput it produced. The output has already been routed
 // through applyStageOutput by the time this function returns, so
 // callers don't need to apply it again — they can just inspect
-// fields like FinalAnswer that are useful for per-stage reactions.
-//
-// Note: this used to be named executeStage and returned only error.
-// runTaskPipeline needs to read the finalizer's FinalAnswer to write
-// it onto the task's Result, hence the return value.
+// fields like FinalAnswer that are useful for per-stage reactions
+// (runTaskPipeline uses this to write the finalizer's answer onto
+// the task's Result).
 func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.StageOutput, error) {
 	agentName := stageConfig.DefaultAgent
 	skillName := stageConfig.DefaultSkill
