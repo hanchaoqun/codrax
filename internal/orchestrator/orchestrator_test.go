@@ -720,3 +720,71 @@ func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 		t.Error("expected LastError to record max-steps exhaustion")
 	}
 }
+
+// TestRun_OscillationGuardTripsBeforeMaxSteps verifies that when a
+// stage re-enters itself repeatedly without making progress, the
+// per-stage visit counter trips well before max-steps would, leading
+// to a forced finalize with a stuck-error message. The default
+// config has an explore → explore self-loop transition; combined
+// with an analysis-typed task and an explorer that never reports
+// HasEnoughFacts, the orchestrator naturally bounces inside explore.
+func TestRun_OscillationGuardTripsBeforeMaxSteps(t *testing.T) {
+	cfg := defaultResolvedConfig()
+
+	finalizerCalled := 0
+	exploreCalled := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetTaskList(types.TaskList{
+				Objective: "explain it",
+				Tasks: []types.TaskItem{{
+					ID: "t1", Title: "explain", Type: types.TaskTypeAnalysis, Status: types.TaskPending,
+				}},
+				CurrentTaskID: "t1",
+			})
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		// explorer never reports HasEnoughFacts, so the explore → explore
+		// self-loop keeps firing until the guard trips.
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			exploreCalled++
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizerCalled++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "stuck — forced finalize",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	// Generous max-steps so this test fails clearly if the guard is
+	// not the thing that breaks the loop.
+	o.SetMaxSteps(50)
+
+	busCtx, err := o.Run("explain something", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !busCtx.TaskState.IsTerminal {
+		t.Error("expected pipeline to terminate via forced finalize")
+	}
+	if finalizerCalled != 1 {
+		t.Errorf("finalizer call count = %d, want exactly 1", finalizerCalled)
+	}
+	if busCtx.FinalAnswer != "stuck — forced finalize" {
+		t.Errorf("FinalAnswer = %q, want forced summary", busCtx.FinalAnswer)
+	}
+	if busCtx.TaskState.LastError == "" {
+		t.Error("expected LastError to record oscillation")
+	}
+	// Explorer should have run at most maxStageVisits times before
+	// the guard tripped — definitely far fewer than the 50-step cap.
+	if exploreCalled > 10 {
+		t.Errorf("expected guard to fire fast; explorer ran %d times", exploreCalled)
+	}
+}

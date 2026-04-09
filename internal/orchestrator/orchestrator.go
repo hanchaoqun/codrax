@@ -17,13 +17,22 @@ import (
 // It reads configuration from YAML, manages BusContext, dispatches agents,
 // and evaluates transitions between stages.
 type Orchestrator struct {
-	config     *config.ResolvedConfig
-	agents     *agent.Registry
-	skills     *skill.Registry
-	busCtx     *types.BusContext
-	maxSteps   int
-	subRuntime *agent.SubAgentRuntime
+	config      *config.ResolvedConfig
+	agents      *agent.Registry
+	skills      *skill.Registry
+	busCtx      *types.BusContext
+	maxSteps    int
+	subRuntime  *agent.SubAgentRuntime
+	stageVisits map[types.PipelineStage]int
 }
+
+// maxStageVisits caps how many times any single stage may be entered
+// during one Run before the orchestrator gives up and forces finalize.
+// This is the second guard against runaway loops, in addition to
+// max-steps: it fires earlier when the pipeline is bouncing between
+// the same two or three stages without making progress, instead of
+// burning through the full max-steps budget.
+const maxStageVisits = 4
 
 // New creates a new Orchestrator.
 func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
@@ -63,6 +72,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		},
 	}
 
+	// Reset the per-Run stage visit counter (used by the oscillation
+	// guard below).
+	o.stageVisits = make(map[types.PipelineStage]int)
+
 	log.Printf("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 
 	// Pipeline loop
@@ -71,6 +84,21 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 		log.Printf("[orchestrator] step %d: stage=%s, missing=%s",
 			step, stage, o.busCtx.TaskState.Missing)
+
+		// Oscillation guard: if we are about to enter the same stage
+		// for more than maxStageVisits times, treat it as stuck and
+		// break out so the post-loop force-finalize block runs. This
+		// catches plan ↔ implement bouncing patterns much earlier
+		// than max-steps would.
+		o.stageVisits[stage]++
+		if o.stageVisits[stage] > maxStageVisits {
+			log.Printf("[orchestrator] stage %s visited %d times (cap %d); breaking out as stuck",
+				stage, o.stageVisits[stage], maxStageVisits)
+			o.busCtx.TaskState.LastError = fmt.Sprintf(
+				"stage %s revisited %d times without progress; oscillation guard tripped",
+				stage, o.stageVisits[stage])
+			break
+		}
 
 		// Check terminal condition
 		stageConfig, err := o.config.GetStageConfig(stage)
@@ -116,21 +144,27 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		}
 	}
 
-	// Loop exited without reaching a terminal stage — max-steps was
-	// exhausted. Force one finalize run so the user always gets an
-	// answer (or at least a clearly-marked failure summary). The
-	// forced finalizer runs outside the transition loop: its output is
-	// applied via the normal applyStageOutput path, but we do not
-	// re-enter decideNextStage afterwards.
+	// Loop exited without reaching a terminal stage — either max-steps
+	// was exhausted or the oscillation guard tripped. Force one
+	// finalize run so the user always gets an answer (or at least a
+	// clearly-marked failure summary). The forced finalizer runs
+	// outside the transition loop: its output is applied via the
+	// normal applyStageOutput path, but we do not re-enter
+	// decideNextStage afterwards.
 	if !o.busCtx.TaskState.IsTerminal {
-		log.Printf("[orchestrator] max-steps (%d) exhausted at stage %s, forcing finalize",
-			o.maxSteps, o.busCtx.PipelineStage)
-		o.busCtx.TaskState.LastError = fmt.Sprintf(
-			"pipeline did not reach terminal stage within %d steps; forced finalize",
-			o.maxSteps,
-		)
+		// LastError was either set by the oscillation guard above or
+		// is empty (meaning max-steps was the cause).
+		if o.busCtx.TaskState.LastError == "" {
+			o.busCtx.TaskState.LastError = fmt.Sprintf(
+				"pipeline did not reach terminal stage within %d steps; forced finalize",
+				o.maxSteps,
+			)
+		}
+		log.Printf("[orchestrator] forcing finalize from stage %s: %s",
+			o.busCtx.PipelineStage, o.busCtx.TaskState.LastError)
 		o.busCtx.LastTransitionReason = fmt.Sprintf(
-			"%s -> finalize (max-steps exhausted)", o.busCtx.PipelineStage,
+			"%s -> finalize (forced: %s)",
+			o.busCtx.PipelineStage, o.busCtx.TaskState.LastError,
 		)
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
