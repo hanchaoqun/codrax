@@ -273,10 +273,16 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	// Try local tool first
 	if b.deps.Tools != nil {
 		if _, err := b.deps.Tools.Get(tc.Name); err == nil {
+			// The busCtx handed to a tool is intentionally narrow:
+			// only RepoRoot/Branch/Commit (read-only env info) plus
+			// Mutable (the shared, tool-writable region) are populated.
+			// All other BusContext fields are zero-valued, so tools
+			// physically cannot mutate stage-output state.
 			busCtx := &types.BusContext{
 				RepoRoot: ctx.RepoRoot,
 				Branch:   ctx.Branch,
 				Commit:   ctx.Commit,
+				Mutable:  ctx.Mutable,
 			}
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if execErr != nil {

@@ -42,6 +42,7 @@ func RegisterDefaults(r *Registry) {
 			"list_files",
 			"repo_map",
 			"exec_command",
+			"todo_write",
 		},
 		OutputFormat: "JSON with repo_facts, entrypoints, call_chains, relevant_files",
 		Prohibitions: []string{
@@ -108,6 +109,7 @@ func RegisterDefaults(r *Registry) {
 			"apply_patch",
 			"exec_command",
 			"grep",
+			"todo_write",
 		},
 		OutputFormat: "JSON with patch, modified_files, implementation_notes",
 		Prohibitions: []string{

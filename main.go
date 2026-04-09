@@ -115,11 +115,36 @@ func main() {
 		fmt.Printf("Last Error:  %s\n", busCtx.TaskState.LastError)
 	}
 
+	// Working todolist (populated by analyzer + any agent that called todo_write).
+	if busCtx.Mutable != nil {
+		if tl := busCtx.Mutable.TaskList(); len(tl.Tasks) > 0 {
+			fmt.Printf("\n=== Todolist ===\n")
+			for _, item := range tl.Tasks {
+				fmt.Printf("  %s %s\n", todoStatusIcon(item.Status), item.Title)
+			}
+		}
+	}
+
 	// User-facing final answer (populated by the finalizer agent).
 	if busCtx.FinalAnswer != "" {
 		fmt.Printf("\n=== Final Answer ===\n%s\n", busCtx.FinalAnswer)
 	} else {
 		fmt.Printf("\n(no final answer was produced)\n")
+	}
+}
+
+func todoStatusIcon(s types.TaskStatus) string {
+	switch s {
+	case types.TaskInProgress:
+		return "[~]"
+	case types.TaskDone:
+		return "[x]"
+	case types.TaskBlocked:
+		return "[!]"
+	case types.TaskFailed:
+		return "[F]"
+	default:
+		return "[ ]"
 	}
 }
 

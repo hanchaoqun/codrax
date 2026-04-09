@@ -228,7 +228,7 @@ func TestDecideNextStage_ExploreToPlain(t *testing.T) {
 				Missing: types.MissingPlan,
 			},
 			Policy:   types.PolicyContext{},
-			TaskList: *implementationTaskList(),
+			Mutable: types.NewMutableState(*implementationTaskList()),
 		}
 
 		next := o.decideNextStage()
@@ -255,7 +255,7 @@ func TestDecideNextStage_PlanToDesignReview(t *testing.T) {
 				Missing: types.MissingCode,
 			},
 			Policy:   types.PolicyContext{RequireReview: true},
-			TaskList: *implementationTaskList(),
+			Mutable: types.NewMutableState(*implementationTaskList()),
 		}
 
 		next := o.decideNextStage()
@@ -282,7 +282,7 @@ func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 				Missing: types.MissingVerification,
 			},
 			Policy:   types.PolicyContext{RequireReview: true},
-			TaskList: *implementationTaskList(),
+			Mutable: types.NewMutableState(*implementationTaskList()),
 		}
 
 		next := o.decideNextStage()
@@ -301,13 +301,13 @@ func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 		// Set up an analysis task so the "analysis" policy is active.
 		o.busCtx = &types.BusContext{
 			PipelineStage: types.StageExplore,
-			TaskList: types.TaskList{
+			Mutable: types.NewMutableState(types.TaskList{
 				Objective:     "analyze something",
 				CurrentTaskID: "t1",
 				Tasks: []types.TaskItem{
 					{ID: "t1", Title: "analysis task", Type: types.TaskTypeAnalysis, Status: types.TaskInProgress},
 				},
-			},
+			}),
 			Signals: types.ExecutionSignals{
 				HasEnoughFacts: true,
 			},
@@ -520,7 +520,7 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 			RepoRoot:      "/tmp/repo",
 			Branch:        "main",
 			TraceID:       "trace-test-reviews",
-			TaskList:      types.TaskList{Objective: "implement a risky feature"},
+			Mutable:       types.NewMutableState(types.TaskList{Objective: "implement a risky feature"}),
 			TaskState: types.TaskState{
 				Stage:   types.StageAnalyze,
 				Missing: types.MissingUnderstanding,
@@ -637,10 +637,11 @@ func TestRun_AnalysisPolicyFromTaskListUpdate(t *testing.T) {
 		t.Error("expected pipeline to reach terminal state")
 	}
 
-	// busCtx.TaskList must reflect the analyzer's update.
-	current := busCtx.TaskList.CurrentTask()
+	// busCtx.Mutable.TaskList must reflect the analyzer's update.
+	tl := busCtx.Mutable.TaskList()
+	current := tl.CurrentTask()
 	if current == nil {
-		t.Fatal("expected BusContext.TaskList to be populated from TaskListUpdate")
+		t.Fatal("expected BusContext.Mutable.TaskList to be populated from TaskListUpdate")
 	}
 	if current.Type != types.TaskTypeAnalysis {
 		t.Errorf("current task type = %s, want analysis", current.Type)

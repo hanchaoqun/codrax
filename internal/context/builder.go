@@ -11,20 +11,23 @@ import (
 // BuildAgentContext trims a full BusContext into an Agent-scoped view.
 // It selects only the facts, tools, and summaries relevant to the given agent and stage.
 func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage types.PipelineStage) *types.AgentContext {
+	tl := bus.Mutable.TaskList()
+
 	ac := &types.AgentContext{
 		AgentName:    agentName,
 		Stage:        stage,
-		Objective:    bus.TaskList.Objective,
+		Objective:    tl.Objective,
 		MissingPiece: bus.TaskState.Missing,
 		Constraints:  bus.Constraints,
 		Preferences:  bus.Preferences,
 		RepoRoot:     bus.RepoRoot,
 		Branch:       bus.Branch,
 		Commit:       bus.Commit,
+		Mutable:      bus.Mutable, // shared pointer; tools mutate through this
 	}
 
 	// Set current task info
-	if task := bus.TaskList.CurrentTask(); task != nil {
+	if task := tl.CurrentTask(); task != nil {
 		ac.CurrentTaskID = task.ID
 		ac.CurrentTask = task.Title
 		ac.CurrentTaskType = task.Type

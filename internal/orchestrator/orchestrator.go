@@ -50,9 +50,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		RepoRoot:      repoRoot,
 		Branch:        branch,
 		TraceID:       fmt.Sprintf("trace-%d", time.Now().UnixNano()),
-		TaskList: types.TaskList{
+		Mutable: types.NewMutableState(types.TaskList{
 			Objective: request,
-		},
+		}),
 		TaskState: types.TaskState{
 			Stage:   types.StageAnalyze,
 			Missing: types.MissingUnderstanding,
@@ -240,7 +240,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 
 	// Apply task list update (currently produced by analyzer)
 	if output.TaskListUpdate != nil {
-		o.busCtx.TaskList = *output.TaskListUpdate
+		o.busCtx.Mutable.SetTaskList(*output.TaskListUpdate)
 	}
 
 	// Capture final answer (currently produced by finalizer)
@@ -299,7 +299,8 @@ func (o *Orchestrator) decideNextStage() types.PipelineStage {
 // pipeline that produces nothing is a much smaller failure mode than a
 // write pipeline that mutates the wrong thing.
 func (o *Orchestrator) determineActivePolicy() string {
-	task := o.busCtx.TaskList.CurrentTask()
+	tl := o.busCtx.Mutable.TaskList()
+	task := tl.CurrentTask()
 	if task != nil {
 		switch task.Type {
 		case types.TaskTypeAnalysis:

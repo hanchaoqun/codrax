@@ -1,6 +1,54 @@
 package types
 
-import "time"
+import (
+	"sync"
+	"time"
+)
+
+// MutableState is the tool-mutable region of pipeline state. Tools
+// invoked during the ReAct loop receive a *BusContext whose Mutable
+// pointer aliases the orchestrator's, so updates to the contained
+// task list are visible to subsequent tool calls and to the next
+// stage's prompt rebuild without going through applyStageOutput.
+//
+// Everything outside MutableState in BusContext remains agent-output
+// only — mutations are funneled through StageOutput → applyStageOutput
+// as before. Concurrent access (e.g. parallel SubAgent runtime) is
+// guarded by an internal RWMutex; callers go through TaskList() and
+// SetTaskList() instead of touching fields directly.
+type MutableState struct {
+	mu       sync.RWMutex
+	taskList TaskList
+}
+
+// NewMutableState constructs a MutableState seeded with the given
+// task list. Use this instead of zero-value literals so the internal
+// mutex is paired correctly with its data.
+func NewMutableState(tl TaskList) *MutableState {
+	return &MutableState{taskList: tl}
+}
+
+// TaskList returns a snapshot of the current task list. The returned
+// value shares its slice headers with the underlying state — callers
+// must not append to or otherwise mutate the slices in place.
+func (m *MutableState) TaskList() TaskList {
+	if m == nil {
+		return TaskList{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.taskList
+}
+
+// SetTaskList atomically replaces the task list.
+func (m *MutableState) SetTaskList(tl TaskList) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.taskList = tl
+}
 
 // RepoFact is a single discovered fact about the repository.
 type RepoFact struct {
@@ -51,8 +99,18 @@ type PolicyContext struct {
 }
 
 // BusContext is the central data structure passed through the pipeline.
+//
+// The Mutable region is the only part of BusContext that tools may
+// write to during the ReAct loop. Everything else is mutated only
+// via Orchestrator.applyStageOutput so the orchestrator stays the
+// single point of stage-level state changes.
 type BusContext struct {
-	TaskList  TaskList  `json:"task_list"`
+	// Mutable holds the tool-writable region (currently the working
+	// task list). Tools see this pointer through the narrowed busCtx
+	// constructed in BaseAgent.executeTool, so direct mutations are
+	// visible immediately to subsequent tool calls and prompt rebuilds.
+	Mutable *MutableState `json:"mutable,omitempty"`
+
 	TaskState TaskState `json:"task_state"`
 
 	PipelineStage PipelineStage `json:"pipeline_stage"`
@@ -110,6 +168,13 @@ type AgentContext struct {
 	RepoRoot string `json:"repo_root"`
 	Branch   string `json:"branch"`
 	Commit   string `json:"commit"`
+
+	// Mutable aliases the orchestrator's BusContext.Mutable so that
+	// tools dispatched from this agent (via BaseAgent.executeTool)
+	// can write to the shared region. This breaks the strict
+	// "AgentContext is a value-only narrow view" rule for one specific
+	// pointer field by design — see MutableState's doc.
+	Mutable *MutableState `json:"-"`
 }
 
 // PromptSection is a titled block of content used in prompt construction.

@@ -14,13 +14,13 @@ func TestBuildAgentContext(t *testing.T) {
 		RepoRoot:      "/tmp/repo",
 		Branch:        "main",
 		Commit:        "abc123",
-		TaskList: types.TaskList{
+		Mutable: types.NewMutableState(types.TaskList{
 			Objective:     "Fix the bug",
 			CurrentTaskID: "t1",
 			Tasks: []types.TaskItem{
 				{ID: "t1", Title: "Investigate root cause", Type: types.TaskTypeAnalysis, Status: types.TaskInProgress},
 			},
-		},
+		}),
 		TaskState: types.TaskState{
 			Stage:   types.StageExplore,
 			Missing: types.MissingFacts,

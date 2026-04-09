@@ -656,8 +656,11 @@ LLM
 
 ```go
 type BusContext struct {
-    // 顶层任务进度
-    TaskList  TaskList
+    // 工具可写域 — 唯一可被工具直接 mutate 的区域
+    // 通过指针共享，包含工作中的 task list
+    Mutable *MutableState
+
+    // 顶层任务状态
     TaskState TaskState
 
     // 当前运行时状态
@@ -686,6 +689,17 @@ type BusContext struct {
     // 故障/恢复信息
     LastTransitionReason string
     TraceID              string
+
+    // 用户最终答案 — finalizer 填充
+    FinalAnswer string
+}
+
+// MutableState 是 BusContext 中唯一允许工具直接 mutate 的子区域
+// 内置 RWMutex 保护并发访问；调用方必须通过 TaskList()/SetTaskList()
+// 而非直接访问私有字段
+type MutableState struct {
+    // 受 mu 保护
+    taskList TaskList
 }
 ```
 
