@@ -172,7 +172,7 @@ graph LR
 
 | 阶段 | 默认 Agent | 默认技能 | 是否终止 | 需要写权限 |
 |------|-----------|----------|----------|-----------|
-| `analyze` | 规划器 | task-analysis-skill | 否 | 否 |
+| `analyze` | 分析器 | task-analysis-skill | 否 | 否 |
 | `explore` | 探索器 | repo-explore-skill | 否 | 否 |
 | `plan` | 规划器 | implementation-plan-skill | 否 | 否 |
 | `design_review` | 设计审查器 | design-review-skill | 否 | 否 |
@@ -213,9 +213,11 @@ graph LR
 
 #### 终止检测
 
-流水线**仅**在到达 `finalize` 阶段（`terminal: true`）时终止。所有其他阶段都会循环回编排器进行重新评估。
+整个 `Run()` 在任务队列被清空(所有 task 进入 `Done` / `Failed`)或全局 `maxSteps` 预算用尽时终止。**单个 task 的 mini-pipeline** 在到达 `finalize` 阶段(`terminal: true`)时自然结束——finalize 只是 per-task terminal,不是整个 Run 的 terminal。如果 per-task 循环在到达 finalize 之前就耗尽了预算或被振荡守卫打断,orchestrator 会强制跑一次 finalize 兜底,把 LastError 写到 `task.Result` 里,然后继续处理下一个 task。
 
-#### 决策函数（伪代码）
+#### 决策函数(伪代码)
+
+以下是 per-task mini-pipeline 内部的 stage 转移逻辑,`runTaskPipeline` 在每一步调用:
 
 ```
 function decide_next_stage(bus_context):
@@ -714,18 +716,24 @@ type BusContext struct {
     // 故障/恢复信息
     LastTransitionReason string
     TraceID              string
-
-    // 用户最终答案 — finalizer 填充
-    FinalAnswer string
 }
 
-// MutableState 是 BusContext 中唯一允许工具直接 mutate 的子区域
-// 内置 RWMutex 保护并发访问；调用方必须通过 TaskList()/SetTaskList()
-// 而非直接访问私有字段
+// MutableState 是 BusContext 中唯一允许工具(如 todo_write)直接
+// mutate 的子区域。Sub-agent 不共享这个区域 —— BuildSubAgentContext
+// 故意把 ac.Mutable 留成 nil,todo_write 在 sub-agent 环境下会拒绝调用。
+// 内置 RWMutex 保护并发访问;调用方必须通过下面这组公开方法而非
+// 直接访问私有字段。
 type MutableState struct {
     // 受 mu 保护
     taskList TaskList
 }
+
+// 公开 API(都是 goroutine-safe):
+//   TaskList() TaskList                              // 读取快照
+//   SetTaskList(TaskList)                            // 整体替换
+//   UpdateTaskStatus(id, status)                     // 单个任务状态
+//   UpdateTaskResult(id, result, status)             // 单个任务的 Result + Status
+//   SetCurrentTask(id)                               // 切换 current 指针
 ```
 
 #### 第 2 层：AgentContext — Agent 范围视图
@@ -957,37 +965,44 @@ sequenceDiagram
     participant LLM
 
     User->>Orch: 用户请求
-    Note over Orch: 初始化 BusContext<br/>设置 stage = analyze
+    Note over Orch: 初始化 BusContext<br/>Mutable = NewMutableState(Objective=request)
 
-    loop 流水线循环（直到终止阶段）
-        Orch->>Orch: 读取 TaskState，检查 Missing
-        Orch->>Orch: 评估转换<br/>按策略 + 开关过滤<br/>选择最高优先级
-        Orch->>Agent: 调度 Agent<br/>（AgentContext + 技能）
+    Note over Orch: Phase 1: analyze(一次)
+    Orch->>Agent: 调度 analyzer + task-analysis-skill
+    Agent->>Tool: 调用 todo_write 写入 TaskList
+    Tool-->>Agent: 更新成功
+    Agent-->>Orch: StageOutput
 
-        Agent->>Skill: 加载技能配置<br/>（工作流、工具、格式）
-
-        loop ReAct 循环
-            Agent->>LLM: 发送 PromptContext
-            LLM-->>Agent: 推理 + 工具调用
-            Agent->>Tool: 调用工具 / MCP
-            Tool-->>Agent: ToolResult / MCPResponse
-            Agent->>Agent: 观察，更新状态
+    Note over Orch: Phase 2: 遍历 pending tasks
+    loop 每个 pending task
+        Orch->>Orch: 重置 per-task state<br/>(Signals / Missing / stage / 振荡计数)
+        loop per-task stage 循环(explore→...→finalize)
+            Orch->>Orch: 振荡守卫 + decide_next_stage
+            Orch->>Agent: 调度当前 stage 的 agent
+            Agent->>Skill: 加载技能配置
+            loop ReAct 循环
+                Agent->>LLM: 发送 PromptContext
+                LLM-->>Agent: 推理 + 工具调用
+                Agent->>Tool: 调用工具 / MCP
+                Tool-->>Agent: ToolResult / MCPResponse
+            end
+            Agent-->>Orch: StageOutput
+            Orch->>Orch: applyStageOutput
         end
-
-        Agent-->>Orch: 阶段输出
-        Orch->>Orch: 更新 BusContext<br/>更新 TaskState
+        Orch->>Orch: 本 task 的 finalize.FinalAnswer<br/>→ Mutable.UpdateTaskResult(task, Done)
     end
 
-    Note over Orch: Stage = finalize（终止）
-    Orch->>Agent: 调度终结器
-    Agent-->>User: 最终回答
+    Note over Orch: 所有 task 完成,Run 返回
+    Orch-->>User: BusContext(每个 task 自带 Result)
 ```
 
 ### 逐步状态机演练
 
-1. **用户请求到达** → 编排器创建初始 BusContext
-2. **`analyze`** — 规划器 Agent + task-analysis-skill：解析意图，分类任务类型，生成 TaskList，识别约束和缺失部分
-3. **编排器重新评估** — 读取 `TaskState.Missing`：
+下面的演练针对**单个 task**(即 Phase 2 里的一次 per-task 循环)。多任务 Run 把 step 2 执行一次,然后重复 step 3–14 每个 task 一次,最后每个 task 各自落一份 Result 到 `Mutable.TaskList.Tasks[i].Result`。
+
+1. **用户请求到达** → 编排器创建初始 BusContext,`Mutable = NewMutableState(Objective=request)`
+2. **`analyze`**(Phase 1,只跑一次) — analyzer + task-analysis-skill:解析意图,通过 `todo_write` 工具在 Mutable 中产出 TaskList,每个 task 带 `Writing` / `HighRisk` 两个布尔
+3. **编排器重新评估**(进入 Phase 2 per-task 循环) — 读取当前 task 的 `MissingFacts`:
    - `MissingFacts` → 路由到 `explore`（优先级 100）
    - `MissingPlan` → 路由到 `plan`（优先级 80）
    - `MissingNone` → 路由到 `finalize`（优先级 20）
