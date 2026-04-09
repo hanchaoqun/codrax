@@ -14,11 +14,14 @@ func RegisterDefaults(r *Registry) {
 			"extract constraints",
 			"identify missing pieces",
 		},
-		ToolSuggestions: []string{},
-		OutputFormat: `JSON: {"objective": string, "tasks": [{"id": string, "title": string, ` +
-			`"description": string, "type": "analysis|implementation"}]}. ` +
-			`The first task's type drives pipeline policy: ` +
-			`"analysis" answers the user; "implementation" modifies code.`,
+		ToolSuggestions: []string{
+			"todo_write",
+		},
+		OutputFormat: `Call the todo_write tool with the decomposed task list. Each task ` +
+			`needs a title and a type ("analysis" answers the user without code changes; ` +
+			`"implementation" requires modifying code). The first task's type drives ` +
+			`pipeline policy. After todo_write succeeds, summarize the classification ` +
+			`in plain text so the user sees what you decided.`,
 		Prohibitions: []string{
 			"do not make assumptions about code structure",
 			"do not start implementation",

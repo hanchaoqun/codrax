@@ -36,12 +36,6 @@ type StageOutput struct {
 	// Error if the stage failed
 	Error string `json:"error,omitempty"`
 
-	// Task list constructed by the agent during ParseOutput. The
-	// orchestrator copies this into BusContext.TaskList during
-	// applyStageOutput. nil means "do not update". Currently only the
-	// analyzer fills this in; other agents leave it nil.
-	TaskListUpdate *types.TaskList `json:"task_list_update,omitempty"`
-
 	// FinalAnswer is the user-facing text the finalizer agent produces.
 	// applyStageOutput copies it to BusContext.FinalAnswer when non-empty
 	// so the CLI (and any other caller of Run) can render it. Other

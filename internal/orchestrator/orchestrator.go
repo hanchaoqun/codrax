@@ -238,11 +238,6 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		}
 	}
 
-	// Apply task list update (currently produced by analyzer)
-	if output.TaskListUpdate != nil {
-		o.busCtx.Mutable.SetTaskList(*output.TaskListUpdate)
-	}
-
 	// Capture final answer (currently produced by finalizer)
 	if output.FinalAnswer != "" {
 		o.busCtx.FinalAnswer = output.FinalAnswer

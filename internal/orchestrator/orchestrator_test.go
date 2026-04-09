@@ -364,12 +364,13 @@ func TestRun_SimplePipeline(t *testing.T) {
 		// and review stages are not in allowed_stages — pipeline skips reviews.
 
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-			// analyze: classifies the request as implementation and reports
-			// MissingFacts so orchestrator transitions to explore.
+			// analyze: classifies the request as implementation by writing
+			// directly to the shared mutable state, mirroring how a real
+			// analyzer would mutate it via the todo_write tool.
 			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				ctx.Mutable.SetTaskList(*implementationTaskList())
 				return &agent.StageOutput{
-					MissingPiece:   types.MissingFacts,
-					TaskListUpdate: implementationTaskList(),
+					MissingPiece: types.MissingFacts,
 				}, nil
 			},
 			// plan: reports HasPlan and MissingCode
@@ -464,10 +465,8 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-				return &agent.StageOutput{
-					MissingPiece:   types.MissingFacts,
-					TaskListUpdate: implementationTaskList(),
-				}, nil
+				ctx.Mutable.SetTaskList(*implementationTaskList())
+				return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
 			},
 			types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				return &agent.StageOutput{
@@ -589,24 +588,24 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 	})
 }
 
-// TestRun_AnalysisPolicyFromTaskListUpdate verifies the wiring added in
-// commit 2: an analyzer that returns StageOutput.TaskListUpdate with a
-// task of type Analysis must drive the orchestrator into the analysis
-// policy, so the pipeline avoids the implement / verify stages.
-func TestRun_AnalysisPolicyFromTaskListUpdate(t *testing.T) {
+// TestRun_AnalysisPolicyFromMutable verifies that an analyzer that
+// writes an Analysis-typed task into the shared mutable state drives
+// the orchestrator into the analysis policy, so the pipeline avoids
+// the implement / verify stages.
+func TestRun_AnalysisPolicyFromMutable(t *testing.T) {
 	cfg := defaultResolvedConfig()
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetTaskList(types.TaskList{
+				Objective: "explain the project",
+				Tasks: []types.TaskItem{{
+					ID: "t1", Title: "explain", Type: types.TaskTypeAnalysis, Status: types.TaskPending,
+				}},
+				CurrentTaskID: "t1",
+			})
 			return &agent.StageOutput{
 				MissingPiece: types.MissingFacts,
-				TaskListUpdate: &types.TaskList{
-					Objective: "explain the project",
-					Tasks: []types.TaskItem{{
-						ID: "t1", Title: "explain", Type: types.TaskTypeAnalysis, Status: types.TaskPending,
-					}},
-					CurrentTaskID: "t1",
-				},
 			}, nil
 		},
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
@@ -680,10 +679,8 @@ func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 	finalizerCalled := 0
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-			return &agent.StageOutput{
-				MissingPiece:   types.MissingFacts,
-				TaskListUpdate: implementationTaskList(),
-			}, nil
+			ctx.Mutable.SetTaskList(*implementationTaskList())
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
 		},
 		types.AgentExplorer:    noProgress(types.MissingPlan),
 		types.AgentPlanner:     noProgress(types.MissingCode),
