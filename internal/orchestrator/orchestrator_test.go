@@ -616,7 +616,10 @@ func TestRun_AnalysisPolicyFromTaskListUpdate(t *testing.T) {
 			}, nil
 		},
 		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "this project is a 5-layer agent system",
+			}, nil
 		},
 	}
 
@@ -649,5 +652,10 @@ func TestRun_AnalysisPolicyFromTaskListUpdate(t *testing.T) {
 		if stage == types.StageImplement || stage == types.StageVerify {
 			t.Errorf("analysis pipeline should not reach %s, completed = %v", stage, busCtx.TaskState.Completed)
 		}
+	}
+
+	// FinalAnswer set by the finalizer must reach BusContext.
+	if busCtx.FinalAnswer != "this project is a 5-layer agent system" {
+		t.Errorf("BusContext.FinalAnswer = %q, want propagated value", busCtx.FinalAnswer)
 	}
 }

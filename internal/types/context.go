@@ -75,6 +75,11 @@ type BusContext struct {
 
 	LastTransitionReason string `json:"last_transition_reason,omitempty"`
 	TraceID              string `json:"trace_id"`
+
+	// FinalAnswer is the user-facing answer produced by the finalizer
+	// agent. The orchestrator populates it from StageOutput.FinalAnswer
+	// during applyStageOutput. Empty means "no answer was produced".
+	FinalAnswer string `json:"final_answer,omitempty"`
 }
 
 // AgentContext provides the narrowed view of BusContext for a single agent.

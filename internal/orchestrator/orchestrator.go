@@ -214,6 +214,11 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		o.busCtx.TaskList = *output.TaskListUpdate
 	}
 
+	// Capture final answer (currently produced by finalizer)
+	if output.FinalAnswer != "" {
+		o.busCtx.FinalAnswer = output.FinalAnswer
+	}
+
 	// Update missing piece
 	o.busCtx.TaskState.Missing = output.MissingPiece
 

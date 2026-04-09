@@ -29,7 +29,8 @@ func (e *finalizerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm
 		}
 	}
 	return &StageOutput{
-		Data: json.RawMessage(fmt.Sprintf(`{"final_answer": %q}`, lastContent)),
+		Data:        json.RawMessage(fmt.Sprintf(`{"final_answer": %q}`, lastContent)),
+		FinalAnswer: lastContent,
 	}, nil
 }
 

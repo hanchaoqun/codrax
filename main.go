@@ -114,6 +114,13 @@ func main() {
 	if busCtx.TaskState.LastError != "" {
 		fmt.Printf("Last Error:  %s\n", busCtx.TaskState.LastError)
 	}
+
+	// User-facing final answer (populated by the finalizer agent).
+	if busCtx.FinalAnswer != "" {
+		fmt.Printf("\n=== Final Answer ===\n%s\n", busCtx.FinalAnswer)
+	} else {
+		fmt.Printf("\n(no final answer was produced)\n")
+	}
 }
 
 // createDefaultAdapter builds the default LLM adapter from providers config.
