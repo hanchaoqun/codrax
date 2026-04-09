@@ -145,10 +145,10 @@ func implementationTaskList() *types.TaskList {
 	return &types.TaskList{
 		Objective: "implement a widget",
 		Tasks: []types.TaskItem{{
-			ID:     "t1",
-			Title:  "implement",
-			Type:   types.TaskTypeImplementation,
-			Status: types.TaskPending,
+			ID:      "t1",
+			Title:   "implement",
+			Writing: true,
+			Status:  types.TaskPending,
 		}},
 		CurrentTaskID: "t1",
 	}
@@ -305,7 +305,7 @@ func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 				Objective:     "analyze something",
 				CurrentTaskID: "t1",
 				Tasks: []types.TaskItem{
-					{ID: "t1", Title: "analysis task", Type: types.TaskTypeAnalysis, Status: types.TaskInProgress},
+					{ID: "t1", Title: "analysis task", Writing: false, Status: types.TaskInProgress},
 				},
 			}),
 			Signals: types.ExecutionSignals{
@@ -600,7 +600,7 @@ func TestRun_AnalysisPolicyFromMutable(t *testing.T) {
 			ctx.Mutable.SetTaskList(types.TaskList{
 				Objective: "explain the project",
 				Tasks: []types.TaskItem{{
-					ID: "t1", Title: "explain", Type: types.TaskTypeAnalysis, Status: types.TaskPending,
+					ID: "t1", Title: "explain", Writing: false, Status: types.TaskPending,
 				}},
 				CurrentTaskID: "t1",
 			})
@@ -640,10 +640,10 @@ func TestRun_AnalysisPolicyFromMutable(t *testing.T) {
 	tl := busCtx.Mutable.TaskList()
 	current := tl.CurrentTask()
 	if current == nil {
-		t.Fatal("expected BusContext.Mutable.TaskList to be populated from TaskListUpdate")
+		t.Fatal("expected BusContext.Mutable.TaskList to be populated from analyzer")
 	}
-	if current.Type != types.TaskTypeAnalysis {
-		t.Errorf("current task type = %s, want analysis", current.Type)
+	if current.Writing {
+		t.Errorf("current task should be read-only (Writing=false), got Writing=true")
 	}
 
 	// Pipeline must NOT visit implement / verify under analysis policy.
@@ -738,7 +738,7 @@ func TestRun_OscillationGuardTripsBeforeMaxSteps(t *testing.T) {
 			ctx.Mutable.SetTaskList(types.TaskList{
 				Objective: "explain it",
 				Tasks: []types.TaskItem{{
-					ID: "t1", Title: "explain", Type: types.TaskTypeAnalysis, Status: types.TaskPending,
+					ID: "t1", Title: "explain", Writing: false, Status: types.TaskPending,
 				}},
 				CurrentTaskID: "t1",
 			})

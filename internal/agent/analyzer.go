@@ -47,11 +47,16 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// channel a tool call would.
 	if ctx.Mutable != nil {
 		if tl := ctx.Mutable.TaskList(); len(tl.Tasks) == 0 {
+			// Fail-safe default: the user request as a single
+			// non-writing, non-risky task. Picks the analysis policy
+			// so the pipeline answers the user instead of guessing
+			// code changes.
 			tl.Tasks = []types.TaskItem{{
-				ID:     "task-1",
-				Title:  tl.Objective,
-				Type:   types.TaskTypeAnalysis,
-				Status: types.TaskPending,
+				ID:       "task-1",
+				Title:    tl.Objective,
+				Writing:  false,
+				HighRisk: false,
+				Status:   types.TaskPending,
 			}}
 			tl.CurrentTaskID = "task-1"
 			ctx.Mutable.SetTaskList(tl)

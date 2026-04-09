@@ -31,7 +31,8 @@ type todoWriteTaskParam struct {
 	ID          string `json:"id"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
-	Type        string `json:"type,omitempty"`
+	Writing     bool   `json:"writing,omitempty"`
+	HighRisk    bool   `json:"high_risk,omitempty"`
 	Status      string `json:"status,omitempty"`
 }
 
@@ -57,7 +58,8 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "id":          {"type": "string", "description": "Stable identifier; auto-assigned if missing"},
           "title":       {"type": "string", "description": "Short user-facing label"},
           "description": {"type": "string", "description": "Optional details"},
-          "type":        {"type": "string", "enum": ["analysis", "implementation"], "description": "Drives pipeline policy when this is the current task"},
+          "writing":     {"type": "boolean", "description": "True if this task may mutate files (picks an implementation-class policy)"},
+          "high_risk":   {"type": "boolean", "description": "True if this task needs design/code review (only meaningful when writing is true)"},
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
@@ -151,7 +153,8 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 			ID:          id,
 			Title:       title,
 			Description: strings.TrimSpace(r.Description),
-			Type:        normalizeTodoType(r.Type),
+			Writing:     r.Writing,
+			HighRisk:    r.HighRisk,
 			Status:      normalizeTodoStatus(r.Status),
 		})
 	}
@@ -176,17 +179,6 @@ func pickCurrentTaskID(items []types.TaskItem) string {
 		}
 	}
 	return items[0].ID
-}
-
-// normalizeTodoType maps LLM-produced type strings to canonical
-// TaskType values. Unknown values fall back to Analysis (fail-safe).
-func normalizeTodoType(s string) types.TaskType {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "implementation", "implement", "code", "feature", "fix", "bug":
-		return types.TaskTypeImplementation
-	default:
-		return types.TaskTypeAnalysis
-	}
 }
 
 // normalizeTodoStatus maps LLM-produced status strings to canonical

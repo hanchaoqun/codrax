@@ -18,7 +18,7 @@ func TestBuildAgentContext(t *testing.T) {
 			Objective:     "Fix the bug",
 			CurrentTaskID: "t1",
 			Tasks: []types.TaskItem{
-				{ID: "t1", Title: "Investigate root cause", Type: types.TaskTypeAnalysis, Status: types.TaskInProgress},
+				{ID: "t1", Title: "Investigate root cause", Writing: false, Status: types.TaskInProgress},
 			},
 		}),
 		TaskState: types.TaskState{

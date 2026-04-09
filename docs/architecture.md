@@ -242,7 +242,7 @@ init → receive_prompt → execute_loop → complete
 
 | Agent | 阶段 | 能力 | 描述 |
 |-------|------|------|------|
-| `analyzer`（分析器） | analyze | 只读 | 结构化任务并分类 task_type |
+| `analyzer`（分析器） | analyze | 只读 | 结构化任务并通过 todo_write 标记 writing / high_risk |
 | `planner`（规划器） | plan | 只读 | 设计实现方案 |
 | `explorer`（探索器） | explore | 只读 | 浏览代码库，收集事实，构建模块映射 |
 | `implementer`（实现器） | implement | **读 + 写** | 编写代码，修改文件，生成补丁 |
@@ -495,11 +495,11 @@ PromptContext 的组装具有 token 预算意识：
 
 | 方面 | 详情 |
 |------|------|
-| **Agent** | 规划器 |
+| **Agent** | analyzer |
 | **技能** | task-analysis-skill |
 | **输入** | 用户原始输入、当前 BusContext（可能为空）、对话历史（可选） |
-| **工作** | 意图识别（分析/实现/修复/审查）、任务类型分类、生成目标、初步任务分解（产出 TaskList）、提取约束（只读？必须验证？高风险？） |
-| **输出** | `{ task_type, objective, task_list, constraints, missing_piece }` |
+| **工作** | 意图识别、任务分解、通过 `todo_write` 工具产出任务列表(每个任务携带 Writing / HighRisk 两个布尔),提取约束 |
+| **输出** | 调用 `todo_write` 写入 `BusContext.Mutable.TaskList`;并返回自然语言分类说明 |
 
 ### 4.2 explore — 事实收集
 
@@ -633,11 +633,11 @@ const (
     TaskFailed     TaskStatus = "failed"
 )
 
-type TaskType string
-const (
-    TaskTypeAnalysis       TaskType = "analysis"
-    TaskTypeImplementation TaskType = "implementation"
-)
+// TaskItem 的能力/风险通过两个正交布尔表达,取代了早期的 TaskType 枚举
+// - Writing=false 对应旧 Analysis(只读,走 analysis policy)
+// - Writing=true  对应旧 Implementation(可写)
+// - HighRisk=true 让 Writing 任务升级到 high_risk_implementation policy
+//   (要求 design_review + code_review)
 ```
 
 ### 三层上下文模型
@@ -711,10 +711,11 @@ type AgentContext struct {
     Stage     PipelineStage
 
     // 任务视图
-    Objective       string
-    CurrentTaskID   string
-    CurrentTask     string
-    CurrentTaskType TaskType
+    Objective           string
+    CurrentTaskID       string
+    CurrentTask         string
+    CurrentTaskWriting  bool
+    CurrentTaskHighRisk bool
 
     // 与此 Agent 相关的裁剪结果
     RelevantFacts         []string
@@ -774,10 +775,14 @@ type TaskItem struct {
     ID          string
     Title       string
     Description string
-    Type        TaskType
-    Status      TaskStatus
-    DependsOn   []string
-    Result      string
+
+    // 能力/风险 — 两个正交布尔,取代原 TaskType 枚举
+    Writing  bool  // 是否可能修改文件(对应 requires_write 层级)
+    HighRisk bool  // 是否需要 design/code review
+
+    Status    TaskStatus
+    DependsOn []string
+    Result    string  // per-task 的执行结果(D2 中由 finalize 填充)
 }
 
 type TaskList struct {

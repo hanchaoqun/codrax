@@ -87,22 +87,6 @@ func (s TaskStatus) String() string {
 	return string(s)
 }
 
-// TaskType represents the category of a task. Only the values consumed
-// by determineActivePolicy are declared; collapsing the enum keeps the
-// LLM-facing classification space minimal and forces any future task
-// category to be added deliberately.
-type TaskType string
-
-const (
-	TaskTypeAnalysis       TaskType = "analysis"
-	TaskTypeImplementation TaskType = "implementation"
-)
-
-// String returns the string representation of the TaskType.
-func (s TaskType) String() string {
-	return string(s)
-}
-
 // MissingPiece indicates what the pipeline still needs.
 type MissingPiece string
 

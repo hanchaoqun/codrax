@@ -17,11 +17,11 @@ func RegisterDefaults(r *Registry) {
 		ToolSuggestions: []string{
 			"todo_write",
 		},
-		OutputFormat: `Call the todo_write tool with the decomposed task list. Each task ` +
-			`needs a title and a type ("analysis" answers the user without code changes; ` +
-			`"implementation" requires modifying code). The first task's type drives ` +
-			`pipeline policy. After todo_write succeeds, summarize the classification ` +
-			`in plain text so the user sees what you decided.`,
+		OutputFormat: `Call the todo_write tool with the decomposed task list. For each task set: ` +
+			`title (short user-facing label), writing (true if the task may modify files, ` +
+			`false for read-only / question-answering work), and high_risk (true only for ` +
+			`writing tasks that touch security-sensitive code, schemas, or irreversible ops). ` +
+			`After todo_write succeeds, briefly explain your classification in plain text.`,
 		Prohibitions: []string{
 			"do not make assumptions about code structure",
 			"do not start implementation",

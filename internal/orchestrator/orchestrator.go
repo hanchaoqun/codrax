@@ -326,20 +326,19 @@ func (o *Orchestrator) decideNextStage() types.PipelineStage {
 func (o *Orchestrator) determineActivePolicy() string {
 	tl := o.busCtx.Mutable.TaskList()
 	task := tl.CurrentTask()
-	if task != nil {
-		switch task.Type {
-		case types.TaskTypeAnalysis:
-			return "analysis"
-		case types.TaskTypeImplementation:
-			if o.busCtx.Policy.RequireReview {
-				return "high_risk_implementation"
-			}
-			return "implementation"
-		}
+	if task == nil {
+		// Fail-safe default: no task → answer the user, do not mutate.
+		return "analysis"
 	}
-
-	// Fail-safe default: no classification → answer the user, do not mutate.
-	return "analysis"
+	if !task.Writing {
+		return "analysis"
+	}
+	// Writing task. Escalate to high-risk if the task itself says so
+	// OR if the Policy flag forces review globally.
+	if task.HighRisk || o.busCtx.Policy.RequireReview {
+		return "high_risk_implementation"
+	}
+	return "implementation"
 }
 
 // filterByPolicy removes transitions to stages not allowed by the active policy.

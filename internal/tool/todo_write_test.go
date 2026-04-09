@@ -150,15 +150,48 @@ func TestNormalizeTodoStatus(t *testing.T) {
 	}
 }
 
-func TestNormalizeTodoType(t *testing.T) {
-	if got := normalizeTodoType("implementation"); got != types.TaskTypeImplementation {
-		t.Errorf("implementation classified as %s", got)
+// TestTodoWrite_BoolFieldsPropagate verifies that the writing and
+// high_risk flags from the tool params land verbatim on TaskItem,
+// replacing the old TaskType enum-based classification.
+func TestTodoWrite_BoolFieldsPropagate(t *testing.T) {
+	tw := &TodoWrite{}
+	bus := newMutableBus()
+
+	params := []byte(`{
+		"tasks": [
+			{"id": "t1", "title": "read code", "writing": false, "high_risk": false},
+			{"id": "t2", "title": "edit file", "writing": true,  "high_risk": false},
+			{"id": "t3", "title": "rm -rf schema", "writing": true, "high_risk": true}
+		]
+	}`)
+	res, err := tw.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
-	if got := normalizeTodoType("analysis"); got != types.TaskTypeAnalysis {
-		t.Errorf("analysis classified as %s", got)
+	if !res.Success {
+		t.Fatalf("expected success: %s", res.Summary)
 	}
-	if got := normalizeTodoType("wat"); got != types.TaskTypeAnalysis {
-		t.Errorf("unknown classified as %s, want analysis (fail-safe)", got)
+
+	tl := bus.Mutable.TaskList()
+	cases := []struct {
+		id       string
+		writing  bool
+		highRisk bool
+	}{
+		{"t1", false, false},
+		{"t2", true, false},
+		{"t3", true, true},
+	}
+	for i, c := range cases {
+		if tl.Tasks[i].ID != c.id {
+			t.Errorf("tasks[%d].ID = %q, want %q", i, tl.Tasks[i].ID, c.id)
+		}
+		if tl.Tasks[i].Writing != c.writing {
+			t.Errorf("tasks[%d].Writing = %v, want %v", i, tl.Tasks[i].Writing, c.writing)
+		}
+		if tl.Tasks[i].HighRisk != c.highRisk {
+			t.Errorf("tasks[%d].HighRisk = %v, want %v", i, tl.Tasks[i].HighRisk, c.highRisk)
+		}
 	}
 }
 

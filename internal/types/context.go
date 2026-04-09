@@ -145,10 +145,11 @@ type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
 
-	Objective       string   `json:"objective"`
-	CurrentTaskID   string   `json:"current_task_id"`
-	CurrentTask     string   `json:"current_task"`
-	CurrentTaskType TaskType `json:"current_task_type"`
+	Objective          string `json:"objective"`
+	CurrentTaskID      string `json:"current_task_id"`
+	CurrentTask        string `json:"current_task"`
+	CurrentTaskWriting bool   `json:"current_task_writing"`
+	CurrentTaskHighRisk bool  `json:"current_task_high_risk"`
 
 	RelevantFacts         []string `json:"relevant_facts,omitempty"`
 	RelevantFiles         []string `json:"relevant_files,omitempty"`

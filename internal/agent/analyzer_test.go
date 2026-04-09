@@ -21,7 +21,7 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 		Objective:     "explain the project",
 		CurrentTaskID: "t1",
 		Tasks: []types.TaskItem{{
-			ID: "t1", Title: "explain", Type: types.TaskTypeAnalysis, Status: types.TaskInProgress,
+			ID: "t1", Title: "explain", Writing: false, Status: types.TaskInProgress,
 		}},
 	})
 
@@ -86,8 +86,11 @@ func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 	if len(tl.Tasks) != 1 {
 		t.Fatalf("fail-safe should install exactly 1 task, got %d", len(tl.Tasks))
 	}
-	if tl.Tasks[0].Type != types.TaskTypeAnalysis {
-		t.Errorf("fail-safe task type = %s, want analysis", tl.Tasks[0].Type)
+	if tl.Tasks[0].Writing {
+		t.Errorf("fail-safe task should be read-only (Writing=false), got Writing=true")
+	}
+	if tl.Tasks[0].HighRisk {
+		t.Errorf("fail-safe task should not be high-risk")
 	}
 	if tl.CurrentTask() == nil {
 		t.Error("CurrentTaskID and Tasks must agree")
