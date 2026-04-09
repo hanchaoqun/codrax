@@ -28,10 +28,13 @@ func (e *implementerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 		}
 	}
 
-	// Check if any write operations succeeded
+	// HasPatch tracks whether the implementer actually mutated the
+	// workspace. apply_patch is the single canonical write tool — the
+	// stale "write_file" name from before commit a52ae5a is gone, and
+	// exec_command is dual-use so it does not count as patch evidence.
 	hasPatch := false
 	for _, r := range toolResults {
-		if r.Success && (r.ToolName == "write_file" || r.ToolName == "exec_command") {
+		if r.Success && r.ToolName == "apply_patch" {
 			hasPatch = true
 			break
 		}
