@@ -156,6 +156,27 @@ func TestBuildPromptContext(t *testing.T) {
 		}
 	})
 
+	t.Run("user sections include user request first", func(t *testing.T) {
+		if len(pc.UserSections) == 0 {
+			t.Fatal("expected user sections to be populated")
+		}
+		first := pc.UserSections[0]
+		if first.Title != "User Request" {
+			t.Errorf("first user section = %q, want User Request", first.Title)
+		}
+		if first.Content != "Add logging" {
+			t.Errorf("user request content = %q, want Add logging", first.Content)
+		}
+	})
+
+	t.Run("system sections do not duplicate objective", func(t *testing.T) {
+		for _, s := range pc.SystemSections {
+			if s.Title == "Objective" {
+				t.Error("Objective should live in user sections, not system sections")
+			}
+		}
+	})
+
 	t.Run("enabled tools from skill", func(t *testing.T) {
 		if len(pc.EnabledTools) != 2 {
 			t.Errorf("got %d enabled tools, want 2", len(pc.EnabledTools))

@@ -73,16 +73,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		SkillName: sk.Name,
 	}
 
-	// System sections — identity and constraints
+	// System sections — identity and constraints. The Objective lives in
+	// UserSections instead (see below) so the LLM sees the user request
+	// as a real user-role message rather than buried in the system role.
 	pc.SystemSections = []types.PromptSection{
 		{
 			Title: "Agent Identity",
 			Content: fmt.Sprintf("You are the %s agent operating in the %s stage.",
 				ac.AgentName, ac.Stage),
-		},
-		{
-			Title: "Objective",
-			Content: ac.Objective,
 		},
 	}
 
@@ -116,7 +114,16 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	// User sections — task-specific context
+	// User sections — task-specific context. Objective comes first so
+	// the user request is the most prominent thing the LLM sees in the
+	// user role.
+	if ac.Objective != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "User Request",
+			Content: ac.Objective,
+		})
+	}
+
 	if ac.CurrentTask != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Current Task",
