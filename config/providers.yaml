@@ -1,0 +1,6 @@
+llm:
+  default:
+    provider: openai
+    api_key: "sk-bRmf2JAYf0J8A9PXe57NYGS2mU8H8k4Oo2WR02kfCDlOgPBb"
+    base_url: "http://192.204.35.116:3000/v1"
+    model: "gpt-4o"
