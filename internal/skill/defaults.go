@@ -15,7 +15,10 @@ func RegisterDefaults(r *Registry) {
 			"identify missing pieces",
 		},
 		ToolSuggestions: []string{},
-		OutputFormat:    "JSON with task_type, objective, task_list, constraints, missing_piece",
+		OutputFormat: `JSON: {"objective": string, "tasks": [{"id": string, "title": string, ` +
+			`"description": string, "type": "analysis|implementation"}]}. ` +
+			`The first task's type drives pipeline policy: ` +
+			`"analysis" answers the user; "implementation" modifies code.`,
 		Prohibitions: []string{
 			"do not make assumptions about code structure",
 			"do not start implementation",

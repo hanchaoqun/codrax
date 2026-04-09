@@ -137,6 +137,23 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 	}
 }
 
+// implementationTaskList builds a TaskList that classifies the user
+// request as an implementation task. Used by tests whose analyzer mock
+// needs to drive the orchestrator into the implementation policy now
+// that the default fallback is analysis.
+func implementationTaskList() *types.TaskList {
+	return &types.TaskList{
+		Objective: "implement a widget",
+		Tasks: []types.TaskItem{{
+			ID:     "t1",
+			Title:  "implement",
+			Type:   types.TaskTypeImplementation,
+			Status: types.TaskPending,
+		}},
+		CurrentTaskID: "t1",
+	}
+}
+
 // buildRegistries creates agent and skill registries with mock entries matching
 // the default config. agentFns lets callers override the Execute function per agent.
 func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)) (*agent.Registry, *skill.Registry, *agent.SubAgentRegistry) {
@@ -210,7 +227,8 @@ func TestDecideNextStage_ExploreToPlain(t *testing.T) {
 				Stage:   types.StageExplore,
 				Missing: types.MissingPlan,
 			},
-			Policy: types.PolicyContext{},
+			Policy:   types.PolicyContext{},
+			TaskList: *implementationTaskList(),
 		}
 
 		next := o.decideNextStage()
@@ -236,7 +254,8 @@ func TestDecideNextStage_PlanToDesignReview(t *testing.T) {
 				Stage:   types.StagePlan,
 				Missing: types.MissingCode,
 			},
-			Policy: types.PolicyContext{RequireReview: true},
+			Policy:   types.PolicyContext{RequireReview: true},
+			TaskList: *implementationTaskList(),
 		}
 
 		next := o.decideNextStage()
@@ -262,7 +281,8 @@ func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 				Stage:   types.StageImplement,
 				Missing: types.MissingVerification,
 			},
-			Policy: types.PolicyContext{RequireReview: true},
+			Policy:   types.PolicyContext{RequireReview: true},
+			TaskList: *implementationTaskList(),
 		}
 
 		next := o.decideNextStage()
@@ -344,10 +364,12 @@ func TestRun_SimplePipeline(t *testing.T) {
 		// and review stages are not in allowed_stages — pipeline skips reviews.
 
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-			// analyze: reports MissingFacts so orchestrator transitions to explore
+			// analyze: classifies the request as implementation and reports
+			// MissingFacts so orchestrator transitions to explore.
 			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				return &agent.StageOutput{
-					MissingPiece: types.MissingFacts,
+					MissingPiece:   types.MissingFacts,
+					TaskListUpdate: implementationTaskList(),
 				}, nil
 			},
 			// plan: reports HasPlan and MissingCode
@@ -442,7 +464,10 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-				return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+				return &agent.StageOutput{
+					MissingPiece:   types.MissingFacts,
+					TaskListUpdate: implementationTaskList(),
+				}, nil
 			},
 			types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				return &agent.StageOutput{
@@ -562,4 +587,67 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 			t.Error("expected CodeReviewPassed to be true")
 		}
 	})
+}
+
+// TestRun_AnalysisPolicyFromTaskListUpdate verifies the wiring added in
+// commit 2: an analyzer that returns StageOutput.TaskListUpdate with a
+// task of type Analysis must drive the orchestrator into the analysis
+// policy, so the pipeline avoids the implement / verify stages.
+func TestRun_AnalysisPolicyFromTaskListUpdate(t *testing.T) {
+	cfg := defaultResolvedConfig()
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				TaskListUpdate: &types.TaskList{
+					Objective: "explain the project",
+					Tasks: []types.TaskItem{{
+						ID: "t1", Title: "explain", Type: types.TaskTypeAnalysis, Status: types.TaskPending,
+					}},
+					CurrentTaskID: "t1",
+				},
+			}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain what this project does", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	// Pipeline must reach a terminal state.
+	if !busCtx.TaskState.IsTerminal {
+		t.Error("expected pipeline to reach terminal state")
+	}
+
+	// busCtx.TaskList must reflect the analyzer's update.
+	current := busCtx.TaskList.CurrentTask()
+	if current == nil {
+		t.Fatal("expected BusContext.TaskList to be populated from TaskListUpdate")
+	}
+	if current.Type != types.TaskTypeAnalysis {
+		t.Errorf("current task type = %s, want analysis", current.Type)
+	}
+
+	// Pipeline must NOT visit implement / verify under analysis policy.
+	for _, s := range busCtx.TaskState.Completed {
+		stage := types.PipelineStage(s)
+		if stage == types.StageImplement || stage == types.StageVerify {
+			t.Errorf("analysis pipeline should not reach %s, completed = %v", stage, busCtx.TaskState.Completed)
+		}
+	}
 }

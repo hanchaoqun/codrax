@@ -209,6 +209,11 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		}
 	}
 
+	// Apply task list update (currently produced by analyzer)
+	if output.TaskListUpdate != nil {
+		o.busCtx.TaskList = *output.TaskListUpdate
+	}
+
 	// Update missing piece
 	o.busCtx.TaskState.Missing = output.MissingPiece
 
@@ -253,6 +258,12 @@ func (o *Orchestrator) decideNextStage() types.PipelineStage {
 }
 
 // determineActivePolicy determines which task policy applies based on the task type.
+//
+// When the task type is unknown (analyzer hasn't run, parse failed, or
+// TaskList is empty) the fallback direction is "analysis" — fail-safe
+// means "answer the user" rather than "start mutating code". A read-only
+// pipeline that produces nothing is a much smaller failure mode than a
+// write pipeline that mutates the wrong thing.
 func (o *Orchestrator) determineActivePolicy() string {
 	task := o.busCtx.TaskList.CurrentTask()
 	if task != nil {
@@ -267,11 +278,8 @@ func (o *Orchestrator) determineActivePolicy() string {
 		}
 	}
 
-	// Default: check signals for complexity
-	if o.busCtx.Policy.RequireReview {
-		return "high_risk_implementation"
-	}
-	return "implementation"
+	// Fail-safe default: no classification → answer the user, do not mutate.
+	return "analysis"
 }
 
 // filterByPolicy removes transitions to stages not allowed by the active policy.

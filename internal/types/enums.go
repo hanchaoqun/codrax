@@ -87,16 +87,15 @@ func (s TaskStatus) String() string {
 	return string(s)
 }
 
-// TaskType represents the category of a task.
+// TaskType represents the category of a task. Only the values consumed
+// by determineActivePolicy are declared; collapsing the enum keeps the
+// LLM-facing classification space minimal and forces any future task
+// category to be added deliberately.
 type TaskType string
 
 const (
-	TaskTypeUnknown        TaskType = "unknown"
 	TaskTypeAnalysis       TaskType = "analysis"
-	TaskTypePlanning       TaskType = "planning"
 	TaskTypeImplementation TaskType = "implementation"
-	TaskTypeReview         TaskType = "review"
-	TaskTypeVerification   TaskType = "verification"
 )
 
 // String returns the string representation of the TaskType.

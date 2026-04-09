@@ -635,12 +635,8 @@ const (
 
 type TaskType string
 const (
-    TaskTypeUnknown        TaskType = "unknown"
     TaskTypeAnalysis       TaskType = "analysis"
-    TaskTypePlanning       TaskType = "planning"
     TaskTypeImplementation TaskType = "implementation"
-    TaskTypeReview         TaskType = "review"
-    TaskTypeVerification   TaskType = "verification"
 )
 ```
 
