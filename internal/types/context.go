@@ -110,6 +110,20 @@ func (m *MutableState) SetCurrentTask(id string) {
 	m.taskList.CurrentTaskID = id
 }
 
+// StageReport is the synthesized narrative an agent leaves behind
+// at the end of its ReAct loop. It carries the LLM's own summary of
+// what it discovered or decided so downstream stages can read prior
+// reasoning instead of reverse-engineering it from raw tool dumps.
+//
+// Reports are append-only and accumulate across the whole pipeline
+// run. Each stage dispatch produces at most one report (the last
+// non-empty assistant message of that ReAct loop).
+type StageReport struct {
+	Stage    PipelineStage `json:"stage"`
+	Agent    AgentName     `json:"agent"`
+	Findings string        `json:"findings"`
+}
+
 // RepoFact is a single discovered fact about the repository.
 type RepoFact struct {
 	Key        string  `json:"key"`
@@ -191,6 +205,7 @@ type BusContext struct {
 	RepoFacts    []RepoFact    `json:"repo_facts,omitempty"`
 	ToolResults  []ToolResult  `json:"tool_results,omitempty"`
 	MCPResponses []MCPResponse `json:"mcp_responses,omitempty"`
+	StageReports []StageReport `json:"stage_reports,omitempty"`
 
 	Signals ExecutionSignals `json:"signals"`
 	Policy  PolicyContext    `json:"policy"`
@@ -213,10 +228,11 @@ type AgentContext struct {
 	CurrentTaskWriting bool   `json:"current_task_writing"`
 	CurrentTaskHighRisk bool  `json:"current_task_high_risk"`
 
-	RelevantFacts         []string `json:"relevant_facts,omitempty"`
-	RelevantFiles         []string `json:"relevant_files,omitempty"`
-	RelevantToolSummaries []string `json:"relevant_tool_summaries,omitempty"`
-	RelevantMCPNotes      []string `json:"relevant_mcp_notes,omitempty"`
+	RelevantFacts         []string      `json:"relevant_facts,omitempty"`
+	RelevantFiles         []string      `json:"relevant_files,omitempty"`
+	RelevantToolSummaries []string      `json:"relevant_tool_summaries,omitempty"`
+	RelevantMCPNotes      []string      `json:"relevant_mcp_notes,omitempty"`
+	PriorReports          []StageReport `json:"prior_reports,omitempty"`
 
 	PlanSummary         string `json:"plan_summary,omitempty"`
 	PatchSummary        string `json:"patch_summary,omitempty"`
@@ -227,6 +243,13 @@ type AgentContext struct {
 	Preferences []string `json:"preferences,omitempty"`
 
 	MissingPiece MissingPiece `json:"missing_piece"`
+
+	// RetryHint is propagated from TaskState.RetryHint when the
+	// previous dispatch of this same stage flagged itself as
+	// insufficient. The prompt builder renders it as the most
+	// prominent user section to override the agent's instinct to
+	// repeat the same approach.
+	RetryHint string `json:"retry_hint,omitempty"`
 
 	RepoRoot string `json:"repo_root"`
 	Branch   string `json:"branch"`

@@ -11,19 +11,26 @@ import (
 )
 
 // MaxInlineBytes is the threshold above which a tool result is
-// offloaded to a blob file and replaced with a head/tail preview in
-// Summary. Below this size, output flows through inline so small
-// results (the common case in tests and quick lookups) stay byte-for-
-// byte unchanged.
-const MaxInlineBytes = 4096
+// offloaded to a blob file and replaced with a preview in Summary.
+// Below this size, output flows through inline so small results stay
+// byte-for-byte unchanged.
+//
+// 32 KB comfortably fits the vast majority of source files in a Go
+// repository (this repo's biggest files are ~20 KB), so a typical
+// `read_file` returns the whole thing and the LLM never has to guess
+// what was hidden in the middle. The previous 4 KB threshold was a
+// silent footgun: any file over ~88 lines lost its middle to
+// head+tail truncation, which is exactly where most source files put
+// the interesting logic.
+const MaxInlineBytes = 32 * 1024
 
-// previewHeadBytes / previewTailBytes split the truncation budget.
-// Head dominates because tool output is typically front-loaded with
-// the most useful information (file headers, first matches, command
-// banners). Tail catches trailing errors and stack traces.
+// previewHeadBytes / previewTailBytes split the truncation budget for
+// the head+tail preview mode (used by exec_command-style tools where
+// startup banner + trailing error are both useful). read_file uses a
+// head-only preview instead via StoreBlobHeadOnly — see its docs.
 const (
-	previewHeadBytes = 3072
-	previewTailBytes = 512
+	previewHeadBytes = 24 * 1024
+	previewTailBytes = 4 * 1024
 )
 
 // StoreBlob conditionally offloads large tool output to disk and
@@ -69,6 +76,92 @@ func StoreBlob(ctx *types.BusContext, toolName string, output string) (summary, 
 	}
 
 	return buildPreview(data, path), path
+}
+
+// StoreBlobHeadOnly is the file-aware variant used by tools like
+// read_file where the content is line-structured and a hidden middle
+// would silently lose information the LLM cannot recover. Instead of
+// the head+tail preview StoreBlob produces, this returns ONLY the
+// head plus an explicit line-aware notice telling the LLM exactly
+// how many lines it saw out of how many total, and how to page the
+// remainder via offset/limit.
+//
+// Behavior mirrors StoreBlob for the small/no-workdir cases.
+func StoreBlobHeadOnly(ctx *types.BusContext, toolName string, output string) (summary, ref string) {
+	if len(output) <= MaxInlineBytes {
+		return output, ""
+	}
+
+	data := []byte(output)
+
+	if ctx == nil || ctx.WorkDir == "" {
+		return buildHeadPreview(data, "", ""), ""
+	}
+
+	if err := os.MkdirAll(ctx.WorkDir, 0o755); err != nil {
+		return buildHeadPreview(data, "", ""), ""
+	}
+
+	sum := sha256.Sum256(data)
+	name := fmt.Sprintf("%s-%s.txt", sanitizeToolName(toolName), hex.EncodeToString(sum[:4]))
+	path := filepath.Join(ctx.WorkDir, name)
+
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return buildHeadPreview(data, "", ""), ""
+	}
+
+	return buildHeadPreview(data, path, toolName), path
+}
+
+// buildHeadPreview returns the leading slice of data with a line-aware
+// truncation notice. It deliberately omits the tail because hiding a
+// middle of source code without flagging it has caused real failures
+// (the LLM sees what looks like a complete snippet and misses the
+// section relevant to its question).
+func buildHeadPreview(data []byte, ref, toolName string) string {
+	total := len(data)
+
+	headEnd := previewHeadBytes
+	if headEnd > total {
+		headEnd = total
+	}
+	head := string(data[:headEnd])
+
+	totalLines := countLines(data)
+	headLines := countLines(data[:headEnd])
+
+	hint := ""
+	if ref != "" && toolName == "read_file" {
+		hint = fmt.Sprintf(
+			"\n\n…[showing lines 1-%d of %d. The remaining %d lines were NOT returned. Call read_file again with offset=%d (and an appropriate limit) to read further, or grep this same path for specific patterns. Full content also saved to %s.]",
+			headLines, totalLines, totalLines-headLines, headLines, ref,
+		)
+	} else if ref != "" {
+		hint = fmt.Sprintf(
+			"\n\n…[showing first %d of %d bytes (%d of %d lines). Full content saved to %s — call read_file with that path (use offset/limit to page) or grep it for specific patterns.]",
+			headEnd, total, headLines, totalLines, ref,
+		)
+	} else {
+		hint = fmt.Sprintf(
+			"\n\n…[showing first %d of %d bytes (%d of %d lines). Remaining content unavailable.]",
+			headEnd, total, headLines, totalLines,
+		)
+	}
+
+	return head + hint
+}
+
+func countLines(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	n := 1
+	for _, b := range data {
+		if b == '\n' {
+			n++
+		}
+	}
+	return n
 }
 
 // buildPreview assembles a head + tail snippet annotated with retrieval

@@ -34,6 +34,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 
 	// Extract facts from tool results
 	var facts []types.RepoFact
+	sources := make(map[string]struct{})
 	for _, r := range toolResults {
 		if r.Success {
 			facts = append(facts, types.RepoFact{
@@ -42,16 +43,36 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 				Source:     r.ToolName,
 				Confidence: 0.8,
 			})
+			sources[r.ToolName] = struct{}{}
 		}
 	}
 
-	signals := &types.ExecutionSignals{HasEnoughFacts: len(facts) > 0}
+	// HasEnoughFacts is a necessary-condition floor: at least two
+	// distinct tool sources must have been used. This blocks the
+	// trivial "ran one command, declared done" failure mode without
+	// taking a position on which tools are appropriate for which
+	// kind of question — that judgment is left to the LLM, since a
+	// hard-coded preference (e.g. "must read_file") would be wrong
+	// for tasks that legitimately need only navigation or only
+	// command execution.
+	signals := &types.ExecutionSignals{HasEnoughFacts: len(sources) >= 2}
 
-	return &StageOutput{
+	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
 		SignalUpdates: signals,
-	}, nil
+	}
+
+	// Retry hint states the failed condition only. It deliberately
+	// does not prescribe which tool to use next or what to call it
+	// on; that depends on the question and is the LLM's job. The
+	// hint exists so a self-looped attempt knows what changed
+	// between dispatches, not so it gets a recipe.
+	if !signals.HasEnoughFacts {
+		out.RetryHint = "Previous attempt used fewer than 2 distinct tool types. The next attempt must use at least 2 different tools — choose them based on what the question actually needs."
+	}
+
+	return out, nil
 }
 
 func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece {

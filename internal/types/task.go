@@ -55,4 +55,13 @@ type TaskState struct {
 	LastDecision string        `json:"last_decision"`
 	LastError    string        `json:"last_error,omitempty"`
 	IsTerminal   bool          `json:"is_terminal"`
+
+	// RetryHint is set when a stage self-loops (orchestrator picks
+	// the same stage as next). It carries the previous dispatch's own
+	// diagnosis of why it could not progress, so the next dispatch
+	// sees concrete "do this differently" guidance instead of being
+	// re-run with an unchanged prompt. The orchestrator clears it on
+	// any forward transition. The prompt builder renders it as the
+	// most prominent user section.
+	RetryHint string `json:"retry_hint,omitempty"`
 }

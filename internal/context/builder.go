@@ -47,6 +47,16 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// Collect MCP notes
 	ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
 
+	// Carry forward all prior stage reports so this agent can read
+	// what earlier stages concluded instead of re-deriving it from
+	// raw tool dumps. Append-only; the prompt builder formats them.
+	ac.PriorReports = bus.StageReports
+
+	// Propagate any pending retry hint from the previous self-looped
+	// dispatch. Forward transitions clear this on the BusContext side,
+	// so an agent only sees a hint that was meant for itself.
+	ac.RetryHint = bus.TaskState.RetryHint
+
 	// Build summaries from signals
 	if bus.Signals.HasPlan {
 		ac.PlanSummary = findSummaryFromResults(bus.ToolResults, "plan")
@@ -133,9 +143,18 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	// User sections — task-specific context. Objective comes first so
-	// the user request is the most prominent thing the LLM sees in the
-	// user role.
+	// User sections — task-specific context. RetryHint comes first
+	// so the LLM cannot ignore it; if the previous dispatch of this
+	// same stage flagged itself as insufficient, the corrective
+	// directive must override the model's instinct to repeat the
+	// same approach.
+	if ac.RetryHint != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Retry Directive (READ FIRST)",
+			Content: ac.RetryHint,
+		})
+	}
+
 	if ac.Objective != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "User Request",
@@ -147,6 +166,13 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Current Task",
 			Content: fmt.Sprintf("[%s] %s", ac.CurrentTaskID, ac.CurrentTask),
+		})
+	}
+
+	if len(ac.PriorReports) > 0 {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Prior Stage Findings",
+			Content: formatStageReports(ac.PriorReports),
 		})
 	}
 
@@ -366,6 +392,17 @@ func formatNumberedList(items []string) string {
 	var b strings.Builder
 	for i, item := range items {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
+	}
+	return b.String()
+}
+
+func formatStageReports(reports []types.StageReport) string {
+	var b strings.Builder
+	for i, r := range reports {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		fmt.Fprintf(&b, "### [%s / %s]\n%s", r.Stage, r.Agent, r.Findings)
 	}
 	return b.String()
 }

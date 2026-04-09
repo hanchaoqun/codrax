@@ -237,7 +237,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		content = strings.Join(lines[start:end], "\n")
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), content)
+	summary, ref := StoreBlobHeadOnly(ctx, t.Name(), content)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,

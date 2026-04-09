@@ -41,6 +41,22 @@ type StageOutput struct {
 	// so the CLI (and any other caller of Run) can render it. Other
 	// agents leave this empty.
 	FinalAnswer string `json:"final_answer,omitempty"`
+
+	// RetryHint is the agent's own diagnosis of why it could not
+	// progress this turn. When the orchestrator self-loops the same
+	// stage, it copies this into TaskState.RetryHint so the next
+	// dispatch's prompt includes a concrete "do this differently"
+	// directive. Forward transitions clear it.
+	RetryHint string `json:"retry_hint,omitempty"`
+
+	// StageReport is the LLM's own synthesis of what this stage
+	// discovered or decided — typically the last assistant message of
+	// the ReAct loop. BaseAgent.Execute auto-populates it from the
+	// message history if the evaluator did not set it explicitly, so
+	// downstream stages can read prior reasoning instead of trying to
+	// reverse-engineer it from raw tool dumps. applyStageOutput
+	// appends it to BusContext.StageReports.
+	StageReport string `json:"stage_report,omitempty"`
 }
 
 // Agent defines the interface for all agent types.
@@ -183,6 +199,19 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	output.ToolResults = allToolResults
 	output.MCPResponses = allMCPResponses
 	output.MissingPiece = b.eval.DetermineMissingPiece(ctx, output)
+
+	// Auto-capture the LLM's synthesized narrative for downstream
+	// stages. We walk the message history once for the last non-empty
+	// assistant message; the evaluator may have already populated
+	// StageReport itself, in which case we leave it alone.
+	if output.StageReport == "" {
+		for i := len(messages) - 1; i >= 0; i-- {
+			if messages[i].Role == "assistant" && messages[i].Content != "" {
+				output.StageReport = messages[i].Content
+				break
+			}
+		}
+	}
 
 	return output, nil
 }

@@ -245,6 +245,11 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 		if nextStage != stage {
 			o.busCtx.Signals.RetryCount = 0
 			o.busCtx.Signals.LastStageFailed = false
+			// A retry hint only makes sense within the same stage's
+			// self-loop. Forward transitions discard it so the next
+			// agent does not inherit a stale "do this differently"
+			// directive aimed at the previous stage.
+			o.busCtx.TaskState.RetryHint = ""
 		}
 	}
 
@@ -367,6 +372,22 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 
 	// Append new facts
 	o.busCtx.RepoFacts = append(o.busCtx.RepoFacts, output.NewFacts...)
+
+	// Append the stage's synthesized narrative so downstream stages
+	// can read prior reasoning. The active agent/stage at this point
+	// is whatever just executed.
+	if output.StageReport != "" {
+		o.busCtx.StageReports = append(o.busCtx.StageReports, types.StageReport{
+			Stage:    o.busCtx.PipelineStage,
+			Agent:    o.busCtx.ActiveAgent,
+			Findings: output.StageReport,
+		})
+	}
+
+	// Carry the agent's own retry diagnosis through to the next
+	// dispatch. runTaskPipeline clears this on any forward transition
+	// so a hint from explore never leaks into plan.
+	o.busCtx.TaskState.RetryHint = output.RetryHint
 
 	// Update signals
 	if output.SignalUpdates != nil {
@@ -544,7 +565,15 @@ func (o *Orchestrator) isTransitionValidBySignals(t types.Transition, signals ty
 		// Go to verify if we have a patch
 		return signals.HasPatch || missing == types.MissingVerification
 	case types.StageFinalize:
-		// Can always finalize
+		// Finalizing directly out of explore is only valid if the
+		// explorer reported enough facts. Otherwise we'd let a thin
+		// single-tool exploration short-circuit into a final answer.
+		// Blocking this edge here lets the lower-priority explore →
+		// explore self-loop fire instead, with the oscillation guard
+		// as the ultimate bound.
+		if o.busCtx.PipelineStage == types.StageExplore {
+			return signals.HasEnoughFacts
+		}
 		return true
 	case types.StageAnalyze:
 		// Backtrack to analyze only if fundamentally confused
