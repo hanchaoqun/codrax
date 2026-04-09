@@ -60,20 +60,22 @@ func main() {
 	skill.RegisterDefaults(skillRegistry)
 	log.Printf("registered %d skills", len(skillRegistry.List()))
 
-	// SubAgent registry → register sub-agents → register propose_sub_agents tool
-	subAgentRegistry := agent.NewSubAgentRegistry()
+	// Tool + SubAgent registries
 	toolRegistry := tool.NewRegistry()
 	tool.RegisterDefaults(toolRegistry)
+	toolRegistry.Register(tool.NewProposeSubAgents())
+
+	subAgentRegistry := agent.NewSubAgentRegistry()
 
 	deps := &agent.Dependencies{
 		LLM:           defaultLLM,
 		Tools:         toolRegistry,
 		MCPServers:    mcpRegistry,
+		SubAgents:     subAgentRegistry,
 		MaxIterations: 20,
 	}
 
 	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
-	toolRegistry.Register(tool.NewProposeSubAgents(subAgentRegistry.Names()))
 	log.Printf("registered %d tools, %d sub-agents", len(toolRegistry.List()), len(subAgentRegistry.Names()))
 
 	// Create agent registry with per-agent LLM resolution

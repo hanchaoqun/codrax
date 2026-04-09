@@ -39,7 +39,6 @@ func RegisterDefaults(r *Registry) {
 			"list_files",
 			"repo_map",
 			"exec_command",
-			"propose_sub_agents",
 		},
 		OutputFormat: "JSON with repo_facts, entrypoints, call_chains, relevant_files",
 		Prohibitions: []string{

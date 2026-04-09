@@ -51,6 +51,7 @@ type Dependencies struct {
 	LLM           llm.Adapter
 	Tools         *tool.Registry
 	MCPServers    *mcp.Registry
+	SubAgents     *SubAgentRegistry
 	MaxIterations int
 }
 
@@ -86,9 +87,10 @@ func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *Bas
 	return &BaseAgent{
 		name: name,
 		deps: &Dependencies{
-			LLM:          deps.LLM,
-			Tools:        deps.Tools,
-			MCPServers:   deps.MCPServers,
+			LLM:           deps.LLM,
+			Tools:         deps.Tools,
+			MCPServers:    deps.MCPServers,
+			SubAgents:     deps.SubAgents,
 			MaxIterations: maxIter,
 		},
 		eval: eval,
@@ -205,6 +207,25 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
 				Description: ts.Description,
 				Parameters:  ts.Parameters,
 			})
+		}
+	}
+
+	// Auto-inject propose_sub_agents if a sub-agent with the same name as this
+	// agent is registered. The schema's sub_agent enum is scoped to [self name],
+	// so the agent can only propose sub-tasks for its own kind.
+	if b.deps.SubAgents != nil && b.deps.Tools != nil {
+		if _, err := b.deps.SubAgents.Get(string(b.name)); err == nil {
+			if t, err := b.deps.Tools.Get("propose_sub_agents"); err == nil {
+				params := t.Parameters()
+				if psa, ok := t.(*tool.ProposeSubAgents); ok {
+					params = psa.SchemaFor(string(b.name))
+				}
+				schemas = append(schemas, llm.ToolSchema{
+					Name:        t.Name(),
+					Description: t.Description(),
+					Parameters:  params,
+				})
+			}
 		}
 	}
 

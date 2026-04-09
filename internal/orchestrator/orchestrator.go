@@ -149,7 +149,7 @@ func (o *Orchestrator) executeStage(stageConfig *types.StageConfig) error {
 	}
 
 	// Check if the agent proposed SubAgent decomposition
-	if proposal := extractSubAgentProposal(output); proposal != nil {
+	if proposal := extractSubAgentProposal(output, agentName); proposal != nil {
 		log.Printf("[orchestrator] sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
 
 		merged, runErr := o.subRuntime.Run(o.busCtx, proposal)
@@ -369,8 +369,10 @@ func (o *Orchestrator) BusContext() *types.BusContext {
 }
 
 // extractSubAgentProposal scans tool results for a propose_sub_agents call
-// and parses the proposal. Returns nil if not found.
-func extractSubAgentProposal(output *agent.StageOutput) *types.SubAgentProposal {
+// and parses the proposal. Each sub_task is routed to a SubAgent of the same
+// name as the calling Agent, so sub_agent is filled in from agentName here
+// (the LLM-visible schema omits this field entirely).
+func extractSubAgentProposal(output *agent.StageOutput, agentName types.AgentName) *types.SubAgentProposal {
 	if output == nil {
 		return nil
 	}
@@ -380,9 +382,13 @@ func extractSubAgentProposal(output *agent.StageOutput) *types.SubAgentProposal 
 			if err := json.Unmarshal([]byte(r.Summary), &proposal); err != nil {
 				continue
 			}
-			if len(proposal.SubTasks) > 0 {
-				return &proposal
+			if len(proposal.SubTasks) == 0 {
+				continue
 			}
+			for i := range proposal.SubTasks {
+				proposal.SubTasks[i].SubAgent = string(agentName)
+			}
+			return &proposal
 		}
 	}
 	return nil
