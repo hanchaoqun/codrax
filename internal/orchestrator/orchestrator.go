@@ -321,6 +321,22 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	agentName := stageConfig.DefaultAgent
 	skillName := stageConfig.DefaultSkill
 
+	// Per-policy skill override at the finalize stage. The default
+	// final-answer-skill is shaped for implementation tasks (its
+	// workflow is "summarize all changes, compile patch information,
+	// write usage instructions, list action steps, mark tasks
+	// complete"), and forcing an analysis answer through that template
+	// produces verbose templated prose with invented Action Steps and
+	// dilutes precise quantitative answers into mush. For analysis
+	// pipelines we route to a Q&A-shaped skill instead. Only the
+	// finalize stage gets this routing today; other stages have a
+	// single shape that fits both modes.
+	if stageConfig.Name == types.StageFinalize && o.determineActivePolicy() == "analysis" {
+		if _, err := o.skills.Get("analysis-final-answer-skill"); err == nil {
+			skillName = "analysis-final-answer-skill"
+		}
+	}
+
 	ag, err := o.agents.Get(agentName)
 	if err != nil {
 		return nil, fmt.Errorf("get agent %s: %w", agentName, err)

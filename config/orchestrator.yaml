@@ -218,4 +218,7 @@ skills:
     description: Run tests, lint, build, verify correctness
 
   - name: final-answer-skill
-    description: Produce final user-facing output with summary and instructions
+    description: Produce final user-facing output with summary and instructions (implementation tasks)
+
+  - name: analysis-final-answer-skill
+    description: Answer the user's question directly with evidence (analysis tasks)

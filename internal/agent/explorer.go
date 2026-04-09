@@ -31,20 +31,35 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // failure mode that motivated this hook: the LLM articulates the
 // next investigative step ("I'll check function X next") and then
 // stops without doing it, because the BaseAgent's default soft-stop
-// rule treats any content-only turn as completion. The continuation
-// prompt below pushes back exactly once per stage dispatch — the
-// budget is intentionally small so a stage that genuinely has
-// nothing left to do still terminates promptly.
+// rule treats any content-only turn as completion.
 //
-// The text deliberately does NOT prescribe which tool to use or
-// what to look at; that depends on the question and is the LLM's
-// job. It states the principle ("don't summarize without acting")
-// and lets the LLM choose its next move.
+// Budget = 2 with differentiated prompts:
+//
+//   - First push: "do it now". This catches the common case where
+//     the LLM thought aloud about the next step but did not act.
+//
+//   - Second push: "if your last action did not answer it, try a
+//     *different* approach — or honestly say you don't know". This
+//     catches the case where the recovery action from the first
+//     push was itself wrong (e.g. read_file at the wrong offset)
+//     and the LLM is about to settle for a confident-but-wrong
+//     summary. The "honest weakness > dishonest confidence" exit
+//     is explicit in the prompt.
+//
+// The third soft-stop is accepted unconditionally — at that point
+// the loop has had two corrective opportunities and another push
+// would just be churn. The text deliberately does NOT prescribe
+// which tool to use or what to look at; that depends on the
+// question and is the LLM's job.
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
-	if continuationCount >= 1 {
+	switch continuationCount {
+	case 0:
+		return "Your previous turn produced a summary without calling any tool. If you genuinely have a defensible answer, restate it in one sentence and stop. Otherwise, take the next concrete investigative step now — do not describe what you would do next, do it.", true
+	case 1:
+		return "Your previous turn still did not produce a defensible answer. If your last action did not get you closer, try a *different* approach — a different tool, a different file, a different query. If after this turn you still do not have a real answer, say so honestly in one sentence (an honest 'I do not know which X' is better than a confident wrong answer). Do not loop on the same approach.", true
+	default:
 		return "", false
 	}
-	return "Your previous turn produced a summary without calling any tool. If you genuinely have a defensible answer, restate it in one sentence and stop. Otherwise, take the next concrete investigative step now — do not describe what you would do next, do it.", true
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
