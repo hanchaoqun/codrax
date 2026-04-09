@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	agentctx "github.com/hanchaoqun/design/internal/context"
 	"github.com/hanchaoqun/design/internal/llm"
 	"github.com/hanchaoqun/design/internal/mcp"
 	"github.com/hanchaoqun/design/internal/skill"
@@ -265,20 +266,28 @@ func (b *BaseAgent) buildProposeSubAgentsSchema() llm.ToolSchema {
 }
 
 func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Config) []llm.Message {
-	prompt := b.eval.BuildInitialPrompt(ctx, sk)
-	return []llm.Message{
-		{
-			Role: "system",
-			Content: fmt.Sprintf(
-				"You are the %s agent in the %s stage.\nGoal: %s\nObjective: %s",
-				ctx.AgentName, ctx.Stage, sk.Goal, ctx.Objective,
-			),
-		},
-		{
-			Role:    "user",
-			Content: prompt,
-		},
+	// Build full prompt context from agent context + skill config
+	pc := agentctx.BuildPromptContext(ctx, sk)
+	ctxMsgs := agentctx.ToMessages(pc)
+
+	// Convert context.Message to llm.Message
+	var messages []llm.Message
+	for _, m := range ctxMsgs {
+		messages = append(messages, llm.Message{
+			Role:    m.Role,
+			Content: m.Content,
+		})
 	}
+
+	// Append evaluator-specific instruction if provided
+	if instruction := b.eval.BuildInitialPrompt(ctx, sk); instruction != "" {
+		messages = append(messages, llm.Message{
+			Role:    "user",
+			Content: instruction,
+		})
+	}
+
+	return messages
 }
 
 func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*types.ToolResult, *types.MCPResponse) {

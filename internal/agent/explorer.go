@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/hanchaoqun/design/internal/llm"
 	"github.com/hanchaoqun/design/internal/skill"
@@ -13,21 +12,7 @@ import (
 type explorerEvaluator struct{}
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Objective: %s\n", ctx.Objective)
-	fmt.Fprintf(&b, "Repository: %s (branch: %s)\n", ctx.RepoRoot, ctx.Branch)
-	if ctx.CurrentTask != "" {
-		fmt.Fprintf(&b, "Current Task: %s\n", ctx.CurrentTask)
-	}
-	if len(ctx.RelevantFacts) > 0 {
-		b.WriteString("\nAlready known:\n")
-		for _, f := range ctx.RelevantFacts {
-			fmt.Fprintf(&b, "- %s\n", f)
-		}
-	}
-	b.WriteString("\nExplore the codebase to build a trusted factual foundation. ")
-	b.WriteString("Use the available tools to find entry points, understand module structure, and identify relevant files.\n")
-	return b.String()
+	return "Explore the codebase to build a trusted factual foundation. Use the available tools to find entry points, understand module structure, and identify relevant files."
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {

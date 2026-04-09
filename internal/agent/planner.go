@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/hanchaoqun/design/internal/llm"
 	"github.com/hanchaoqun/design/internal/skill"
@@ -14,19 +13,7 @@ import (
 type plannerEvaluator struct{}
 
 func (e *plannerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Task: %s\n", ctx.CurrentTask)
-	if len(ctx.RelevantFacts) > 0 {
-		b.WriteString("\nKnown Facts:\n")
-		for _, f := range ctx.RelevantFacts {
-			fmt.Fprintf(&b, "- %s\n", f)
-		}
-	}
-	if ctx.MissingPiece != types.MissingNone {
-		fmt.Fprintf(&b, "\nCurrently missing: %s\n", ctx.MissingPiece)
-	}
-	fmt.Fprintf(&b, "\nPlease follow the workflow steps and produce output in the specified format.\n")
-	return b.String()
+	return "Please follow the workflow steps and produce output in the specified format."
 }
 
 func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {

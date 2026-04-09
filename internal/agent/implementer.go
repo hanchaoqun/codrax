@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/hanchaoqun/design/internal/llm"
 	"github.com/hanchaoqun/design/internal/skill"
@@ -13,25 +12,7 @@ import (
 type implementerEvaluator struct{}
 
 func (e *implementerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Objective: %s\n", ctx.Objective)
-	if ctx.PlanSummary != "" {
-		fmt.Fprintf(&b, "\nImplementation Plan:\n%s\n", ctx.PlanSummary)
-	}
-	if len(ctx.RelevantFiles) > 0 {
-		fmt.Fprintf(&b, "\nRelevant Files:\n")
-		for _, f := range ctx.RelevantFiles {
-			fmt.Fprintf(&b, "- %s\n", f)
-		}
-	}
-	if len(ctx.Constraints) > 0 {
-		fmt.Fprintf(&b, "\nConstraints:\n")
-		for _, c := range ctx.Constraints {
-			fmt.Fprintf(&b, "- %s\n", c)
-		}
-	}
-	b.WriteString("\nImplement the changes according to the plan. Write code, modify files, and generate patches.\n")
-	return b.String()
+	return "Implement the changes according to the plan. Write code, modify files, and generate patches."
 }
 
 func (e *implementerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {

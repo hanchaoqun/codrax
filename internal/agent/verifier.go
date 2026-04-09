@@ -3,7 +3,6 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/hanchaoqun/design/internal/llm"
 	"github.com/hanchaoqun/design/internal/skill"
@@ -13,14 +12,7 @@ import (
 type verifierEvaluator struct{}
 
 func (e *verifierEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Objective: %s\n", ctx.Objective)
-	if ctx.PatchSummary != "" {
-		fmt.Fprintf(&b, "\nChanges to Verify:\n%s\n", ctx.PatchSummary)
-	}
-	fmt.Fprintf(&b, "Repository: %s (branch: %s)\n", ctx.RepoRoot, ctx.Branch)
-	b.WriteString("\nVerify the implementation: compile, run tests, lint, and check for correctness.\n")
-	return b.String()
+	return "Verify the implementation: compile, run tests, lint, and check for correctness."
 }
 
 func (e *verifierEvaluator) ShouldStop(resp llm.Response, iteration int) bool {

@@ -73,34 +73,7 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 type subExplorerEvaluator struct{}
 
 func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Objective: %s\n", ctx.Objective)
-	fmt.Fprintf(&b, "Repository: %s (branch: %s)\n", ctx.RepoRoot, ctx.Branch)
-
-	if len(ctx.RelevantFiles) > 0 {
-		b.WriteString("\nScope (files to explore):\n")
-		for _, f := range ctx.RelevantFiles {
-			fmt.Fprintf(&b, "- %s\n", f)
-		}
-	}
-
-	if len(ctx.Constraints) > 0 {
-		b.WriteString("\nConstraints:\n")
-		for _, c := range ctx.Constraints {
-			fmt.Fprintf(&b, "- %s\n", c)
-		}
-	}
-
-	if len(ctx.RelevantFacts) > 0 {
-		b.WriteString("\nAlready known:\n")
-		for _, f := range ctx.RelevantFacts {
-			fmt.Fprintf(&b, "- %s\n", f)
-		}
-	}
-
-	b.WriteString("\nScan the files in scope. Discover key types, functions, interfaces, and dependencies. ")
-	b.WriteString("Report your findings as structured facts.\n")
-	return b.String()
+	return "Scan the files in scope. Discover key types, functions, interfaces, and dependencies. Report your findings as structured facts."
 }
 
 func (e *subExplorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
