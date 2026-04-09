@@ -300,6 +300,69 @@ func TestResolve(t *testing.T) {
 	})
 }
 
+func TestResolveRequiresWriteInvariant(t *testing.T) {
+	t.Run("rejects read-only agent on write stage", func(t *testing.T) {
+		const badYAML = `
+stages:
+  implement:
+    default_agent: planner
+    default_skill: code-implement-skill
+    terminal: false
+    requires_write: true
+  finalize:
+    default_agent: finalizer
+    default_skill: final-answer-skill
+    terminal: true
+
+agents:
+  - name: planner
+    stages: [implement]
+  - name: finalizer
+    stages: [finalize]
+`
+		cfg, err := Parse([]byte(badYAML))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if _, err := Resolve(cfg); err == nil {
+			t.Fatal("expected Resolve to reject read-only agent on write-required stage")
+		}
+	})
+
+	t.Run("rejects unknown default agent on write stage", func(t *testing.T) {
+		const badYAML = `
+stages:
+  implement:
+    default_agent: ghost
+    default_skill: code-implement-skill
+    terminal: false
+    requires_write: true
+
+agents:
+  - name: planner
+    stages: [implement]
+`
+		cfg, err := Parse([]byte(badYAML))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if _, err := Resolve(cfg); err == nil {
+			t.Fatal("expected Resolve to reject unknown default agent on write-required stage")
+		}
+	})
+
+	t.Run("accepts matching write agent and stage", func(t *testing.T) {
+		// minimalYAML already pairs implement (write) with implementer (write).
+		cfg, err := Parse([]byte(minimalYAML))
+		if err != nil {
+			t.Fatalf("Parse: %v", err)
+		}
+		if _, err := Resolve(cfg); err != nil {
+			t.Fatalf("Resolve unexpectedly failed: %v", err)
+		}
+	})
+}
+
 func TestGetTransitions(t *testing.T) {
 	cfg, err := Parse([]byte(minimalYAML))
 	if err != nil {

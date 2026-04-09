@@ -94,6 +94,22 @@ func Resolve(raw *types.OrchestratorConfig) (*ResolvedConfig, error) {
 		rc.Skills[skill.Name] = &skill
 	}
 
+	// Invariant: any stage that requires write permission must be served by a
+	// default agent that also declares requires_write. This catches misconfigured
+	// pipelines where a read-only agent is bound to a write-capable stage.
+	for _, stage := range rc.Stages {
+		if !stage.RequiresWrite {
+			continue
+		}
+		agent, ok := rc.Agents[stage.DefaultAgent]
+		if !ok {
+			return nil, fmt.Errorf("stage %q requires write but its default agent %q is not declared", stage.Name, stage.DefaultAgent)
+		}
+		if !agent.RequiresWrite {
+			return nil, fmt.Errorf("stage %q requires write but default agent %q does not declare requires_write", stage.Name, stage.DefaultAgent)
+		}
+	}
+
 	return rc, nil
 }
 
