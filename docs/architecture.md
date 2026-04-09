@@ -801,9 +801,8 @@ type TaskItem struct {
     Writing  bool  // 是否可能修改文件(对应 requires_write 层级)
     HighRisk bool  // 是否需要 design/code review
 
-    Status    TaskStatus
-    DependsOn []string
-    Result    string  // per-task 的执行结果(D2 中由 finalize 填充)
+    Status TaskStatus
+    Result string  // per-task 的执行结果(D2 中由 finalize 填充)
 }
 
 type TaskList struct {

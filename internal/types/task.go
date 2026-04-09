@@ -25,9 +25,8 @@ type TaskItem struct {
 	// this flag, so operators can force review for an entire Run.
 	HighRisk bool `json:"high_risk" yaml:"high_risk"`
 
-	Status    TaskStatus `json:"status" yaml:"status"`
-	DependsOn []string   `json:"depends_on,omitempty" yaml:"depends_on,omitempty"`
-	Result    string     `json:"result,omitempty" yaml:"result,omitempty"`
+	Status TaskStatus `json:"status" yaml:"status"`
+	Result string     `json:"result,omitempty" yaml:"result,omitempty"`
 }
 
 // TaskList holds the objective and all tasks for a pipeline run.
@@ -45,38 +44,6 @@ func (tl *TaskList) CurrentTask() *TaskItem {
 		}
 	}
 	return nil
-}
-
-// UpdateTask updates the status and result of a task by ID.
-func (tl *TaskList) UpdateTask(id string, status TaskStatus, result string) {
-	for i := range tl.Tasks {
-		if tl.Tasks[i].ID == id {
-			tl.Tasks[i].Status = status
-			tl.Tasks[i].Result = result
-			return
-		}
-	}
-}
-
-// NextPendingTask returns a pointer to the first task with pending status, or nil.
-func (tl *TaskList) NextPendingTask() *TaskItem {
-	for i := range tl.Tasks {
-		if tl.Tasks[i].Status == TaskPending {
-			return &tl.Tasks[i]
-		}
-	}
-	return nil
-}
-
-// AllDone returns true if every task is either done or failed.
-func (tl *TaskList) AllDone() bool {
-	for i := range tl.Tasks {
-		s := tl.Tasks[i].Status
-		if s != TaskDone && s != TaskFailed {
-			return false
-		}
-	}
-	return true
 }
 
 // TaskState captures the current pipeline execution state.
