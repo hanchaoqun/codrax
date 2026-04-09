@@ -20,7 +20,12 @@ import (
 // ---------------------------------------------------------------------------
 
 // ExecCommand runs a shell command with a configurable timeout.
-type ExecCommand struct{}
+//
+// Classified as read-only by intent so that explorer/planner/verifier
+// skills can keep using it. A shell can of course mutate the filesystem
+// (`cat > foo`, `rm`, `mv`); restricting that requires a separate
+// command allowlist or sandbox, not the requires_write boundary.
+type ExecCommand struct{ ReadOnly }
 
 type execCommandParams struct {
 	Command   string `json:"command"`
@@ -96,7 +101,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 // ---------------------------------------------------------------------------
 
 // GrepTool searches file contents by pattern using grep.
-type GrepTool struct{}
+type GrepTool struct{ ReadOnly }
 
 type grepToolParams struct {
 	Pattern string `json:"pattern"`
@@ -175,7 +180,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // ---------------------------------------------------------------------------
 
 // ReadFile reads file contents with optional line-based offset and limit.
-type ReadFile struct{}
+type ReadFile struct{ ReadOnly }
 
 type readFileParams struct {
 	Path   string `json:"path"`
@@ -237,7 +242,7 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // ---------------------------------------------------------------------------
 
 // ListFiles lists files in a directory, optionally recursively.
-type ListFiles struct{}
+type ListFiles struct{ ReadOnly }
 
 type listFilesParams struct {
 	Path      string `json:"path"`
@@ -300,7 +305,7 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 // ---------------------------------------------------------------------------
 
 // RepoMap generates a repository structure tree.
-type RepoMap struct{}
+type RepoMap struct{ ReadOnly }
 
 type repoMapParams struct {
 	Path     string `json:"path"`
@@ -383,7 +388,12 @@ func (t *RepoMap) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 // ---------------------------------------------------------------------------
 
 // RunTests runs test commands (default: go test ./...).
-type RunTests struct{}
+//
+// Classified as read-only by intent: its purpose is observation, not
+// mutation. The verifier (a read-only agent) depends on it. Test code
+// could in principle write files, but that risk is shared with any
+// language runtime and is out of scope for this boundary.
+type RunTests struct{ ReadOnly }
 
 type runTestsParams struct {
 	Command string `json:"command,omitempty"`
@@ -449,7 +459,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // ---------------------------------------------------------------------------
 
 // GitDiff runs git diff with optional staging and ref options.
-type GitDiff struct{}
+type GitDiff struct{ ReadOnly }
 
 type gitDiffParams struct {
 	Path   string `json:"path,omitempty"`
@@ -516,7 +526,7 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 // ---------------------------------------------------------------------------
 
 // GitLog runs git log with configurable count and format.
-type GitLog struct{}
+type GitLog struct{ ReadOnly }
 
 type gitLogParams struct {
 	Path   string `json:"path,omitempty"`

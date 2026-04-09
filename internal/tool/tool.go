@@ -9,12 +9,33 @@ import (
 )
 
 // Tool defines the interface for all local tools.
+//
+// IsWrite reports whether the tool's primary purpose is to mutate the
+// filesystem. It backs the requires_write permission boundary: read-only
+// agents must not be granted access to tools that return true here.
+// Implementations should embed ReadOnly or WriteCapable to satisfy this
+// method without boilerplate.
 type Tool interface {
 	Name() string
 	Description() string
 	Parameters() json.RawMessage
 	Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error)
+	IsWrite() bool
 }
+
+// ReadOnly is an embeddable mixin that marks a Tool as non-mutating.
+// Embed it in a tool struct to satisfy IsWrite() with a constant false.
+type ReadOnly struct{}
+
+// IsWrite returns false. ReadOnly tools never touch the filesystem.
+func (ReadOnly) IsWrite() bool { return false }
+
+// WriteCapable is an embeddable mixin that marks a Tool as filesystem-mutating.
+// Embed it in a tool struct to satisfy IsWrite() with a constant true.
+type WriteCapable struct{}
+
+// IsWrite returns true. WriteCapable tools require write permission.
+func (WriteCapable) IsWrite() bool { return true }
 
 // Registry manages available tools.
 type Registry struct {
@@ -63,4 +84,15 @@ func (r *Registry) Execute(ctx *types.BusContext, name string, params json.RawMe
 		return types.ToolResult{ToolName: name, Success: false, Summary: err.Error()}, err
 	}
 	return t.Execute(ctx, params)
+}
+
+// IsWrite reports whether the named tool is filesystem-mutating. Unknown
+// tool names return false: callers that need a strict allow/deny decision
+// should first check Get() to distinguish "missing" from "read-only".
+func (r *Registry) IsWrite(name string) bool {
+	t, err := r.Get(name)
+	if err != nil {
+		return false
+	}
+	return t.IsWrite()
 }

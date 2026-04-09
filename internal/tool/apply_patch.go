@@ -13,7 +13,7 @@ import (
 // ApplyPatch wraps the patcher package as a Tool. It replaces write_file
 // with a safer, targeted API that supports four operation modes, preserves
 // line endings, enforces workspace root safety, and returns a diff preview.
-type ApplyPatch struct{}
+type ApplyPatch struct{ WriteCapable }
 
 type applyPatchParams struct {
 	Path      string `json:"path"`
