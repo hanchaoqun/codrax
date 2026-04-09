@@ -659,3 +659,66 @@ func TestRun_AnalysisPolicyFromTaskListUpdate(t *testing.T) {
 		t.Errorf("BusContext.FinalAnswer = %q, want propagated value", busCtx.FinalAnswer)
 	}
 }
+
+// TestRun_ForcesFinalizeWhenMaxStepsExhausted verifies that when the
+// pipeline runs out of steps before reaching a terminal stage, the
+// orchestrator forces one finalizer call so the caller always sees a
+// terminal state and the FinalAnswer plumbing still gets exercised.
+func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
+	cfg := defaultResolvedConfig()
+
+	// Build a pipeline where every non-finalize agent reports
+	// "make no progress" so transitions oscillate and the loop runs
+	// out of steps without naturally hitting finalize.
+	noProgress := func(missing types.MissingPiece) func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
+		return func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: missing}, nil
+		}
+	}
+
+	finalizerCalled := 0
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:   types.MissingFacts,
+				TaskListUpdate: implementationTaskList(),
+			}, nil
+		},
+		types.AgentExplorer:    noProgress(types.MissingPlan),
+		types.AgentPlanner:     noProgress(types.MissingCode),
+		types.AgentImplementer: noProgress(types.MissingCode), // never reports HasPatch
+		types.AgentVerifier:    noProgress(types.MissingVerification),
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizerCalled++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "forced summary after max-steps",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(3) // intentionally small so we can't possibly reach finalize naturally
+
+	busCtx, err := o.Run("implement a thing", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !busCtx.TaskState.IsTerminal {
+		t.Error("expected pipeline to be marked terminal after forced finalize")
+	}
+	if busCtx.PipelineStage != types.StageFinalize {
+		t.Errorf("PipelineStage = %s, want finalize", busCtx.PipelineStage)
+	}
+	if finalizerCalled != 1 {
+		t.Errorf("finalizer call count = %d, want exactly 1", finalizerCalled)
+	}
+	if busCtx.FinalAnswer != "forced summary after max-steps" {
+		t.Errorf("FinalAnswer = %q, want forced summary", busCtx.FinalAnswer)
+	}
+	if busCtx.TaskState.LastError == "" {
+		t.Error("expected LastError to record max-steps exhaustion")
+	}
+}

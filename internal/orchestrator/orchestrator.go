@@ -116,6 +116,35 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		}
 	}
 
+	// Loop exited without reaching a terminal stage — max-steps was
+	// exhausted. Force one finalize run so the user always gets an
+	// answer (or at least a clearly-marked failure summary). The
+	// forced finalizer runs outside the transition loop: its output is
+	// applied via the normal applyStageOutput path, but we do not
+	// re-enter decideNextStage afterwards.
+	if !o.busCtx.TaskState.IsTerminal {
+		log.Printf("[orchestrator] max-steps (%d) exhausted at stage %s, forcing finalize",
+			o.maxSteps, o.busCtx.PipelineStage)
+		o.busCtx.TaskState.LastError = fmt.Sprintf(
+			"pipeline did not reach terminal stage within %d steps; forced finalize",
+			o.maxSteps,
+		)
+		o.busCtx.LastTransitionReason = fmt.Sprintf(
+			"%s -> finalize (max-steps exhausted)", o.busCtx.PipelineStage,
+		)
+		o.busCtx.PipelineStage = types.StageFinalize
+		o.busCtx.TaskState.Stage = types.StageFinalize
+
+		finalStageConfig, err := o.config.GetStageConfig(types.StageFinalize)
+		if err != nil {
+			return o.busCtx, fmt.Errorf("force finalize: %w", err)
+		}
+		if err := o.executeStage(finalStageConfig); err != nil {
+			log.Printf("[orchestrator] forced finalize failed: %v", err)
+		}
+		o.busCtx.TaskState.IsTerminal = true
+	}
+
 	return o.busCtx, nil
 }
 
