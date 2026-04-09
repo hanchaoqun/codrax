@@ -209,19 +209,106 @@ Path B is the more conservative alternative if preserving the current explorer c
 - **Is `RepoFact.Source = r.ToolName` worth fixing?** It is a latent bug (downstream code uses Source as if it were a file path). Not blocking anything we observed, but the schema lies and someone will trip on it. Worth a small follow-up commit.
 - **Should `read_file` of a known location be encouraged via prompt, or should we add an introspection tool** (`list_subagents`) so the explorer can query the registry directly? The latter is a Layer 4 capability addition rather than a fix; in the long run it is the right answer for "questions about runtime topology".
 
-## 7. What is in the tree right now
+## 7. Resolution — Path A landed, plus two more layers found
 
-**Committed (`2f99b8b`):**
-- A: `HasEnoughFacts` requires ≥2 distinct tool sources
-- B: `explore→finalize` requires `HasEnoughFacts`
-- C: `StageReport` channel end-to-end
-- D-1: `MaxInlineBytes` 4 KB → 32 KB
-- D-2: `read_file` head-only line-aware preview
-- E: `RetryHint` channel end-to-end
-- F (mechanism): cumulative hint principle, principle-only text
+We took **Path A** and ran the trigger query. The skill change moved the LLM's intent in the right direction but did not produce a correct answer, because two additional structural layers were hiding underneath:
 
-**Not committed:**
-- Diagnostic logging in `BaseAgent.Execute` (`[diag ...]` lines and `truncForLog` helper) — left in place for any follow-up runs; should be removed before the next commit.
+### Layer 2 — `BaseAgent.Execute` hardcoded "soft stop"
 
-**Not yet implemented:**
-- Path A or Path B from §5.
+Trace dump showed the explorer's iter=5 message saying:
+
+> "I'll check for registrations that employ subagent capabilities next. Let's explore the `RegisterDefaultSubAgents` method for details."
+
+…and then the loop broke. The cause was this clause in `internal/agent/agent.go`:
+
+```go
+if b.eval.ShouldStop(resp, i) || (len(resp.ToolCalls) == 0 && resp.Content != "") {
+    break
+}
+```
+
+The hardcoded `(len(toolCalls) == 0 && content != "")` rule treats any "thinking aloud" turn as completion. The skill says "investigate to an answer", but the loop overrides that contract whenever the LLM produces narration without acting. The skill drives the LLM's intent; the loop short-circuits its execution.
+
+**Fix G — `ContinuingEvaluator` interface (committed).** A new optional interface:
+
+```go
+type ContinuingEvaluator interface {
+    ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (prompt string, shouldContinue bool)
+}
+```
+
+`BaseAgent.Execute` now splits the stop logic into two paths:
+
+1. **Hard stop** (`eval.ShouldStop` returns true) — finalizer's `return true` keeps its current "stop on iter=0" behavior.
+2. **Soft stop** (no tool calls + content) — the loop checks whether the evaluator implements `ContinuingEvaluator`. If so, it asks for a continuation prompt; if returned, the prompt is appended as a user message and the loop runs another LLM turn instead of breaking.
+
+`explorerEvaluator` implements the interface with a budget of one continuation per stage and a principle-stating prompt:
+
+> "Your previous turn produced a summary without calling any tool. If you genuinely have a defensible answer, restate it in one sentence and stop. Otherwise, take the next concrete investigative step now — do not describe what you would do next, do it."
+
+The prompt deliberately does not name a tool or a target. It states the principle ("don't summarize without acting"); the LLM picks the next move.
+
+After Fix G, the explorer started actually reading files. But it read the wrong slices: `read_file agent.go offset=0 limit=40` returned the head of the file, the LLM saw the imports + type definitions + start of `Execute`, and concluded "I have enough" — without realizing that `agent.go` is 330 lines and the auto-inject logic is at line 219. It then asserted "all 8 agents can create subagents" (confidently wrong).
+
+### Layer 3 — `read_file` returned slices with no metadata
+
+`read_file path=X offset=0 limit=40` returned 40 lines of content with no indication that the file was 330 lines long. The LLM had no way to distinguish "this is a 40-line file" from "this is the head of a 330-line file". My earlier Fix D-2 (line-aware truncation) only fired when the file exceeded `MaxInlineBytes` (32 KB); files smaller than that, sliced via offset/limit, returned bare content.
+
+**Fix H — line range banner (committed).** `internal/tool/builtin.go:ReadFile.Execute` now always prepends a banner:
+
+```
+[<path>: showing lines X-Y of N total]
+<content>
+```
+
+Always present, regardless of slice or full read, blob or inline. Plain text, no advice. Just metadata the LLM cannot ignore.
+
+### Final outcome
+
+After Path A + Fix G + Fix H, the trigger query produced:
+
+```
+iter=0: repo_map
+iter=1: list_files internal/agent
+iter=2: grep "create subagent"           → 0 hits
+iter=3: grep "SubAgent"                  → 6.4 KB (function name surfaces)
+iter=4: grep "RegisterDefaultSubAgents"  → 216 bytes (file:line citations)
+iter=5: read_file subagent.go offset=63 limit=20  ← targeted read at right line
+iter=6: thinking-aloud summary → CONTINUE injected
+iter=7: short final answer → soft stop accepted
+```
+
+Final answer:
+
+> "There is currently one implemented subagent named `SubExplorer`, which is registered via `RegisterDefaultSubAgents` at lines 63-66 in `subagent.go` by adding `NewSubExplorer(deps)` to the registry."
+
+Correct, precise, with file:line citations. The LLM used the line numbers from `grep`'s output (Fix H made these meaningful by training the model to expect line-addressed reads) to do a targeted `read_file` at the right offset, instead of starting at offset 0 and missing the relevant section.
+
+### Three layers, three fixes
+
+| Layer | Symptom | Fix |
+|---|---|---|
+| 1 — skill contract | LLM cataloged instead of investigating | Path A: reframe `repo-explore-skill` as investigation |
+| 2 — agent loop | LLM said "I'll do X next" then was force-stopped | Fix G: `ContinuingEvaluator` interface + soft-stop split |
+| 3 — tool metadata | LLM read 40 lines and assumed file complete | Fix H: `read_file` line range banner |
+
+Each fix is generalizable beyond the trigger query:
+- Path A's contract change benefits any analysis-pipeline question.
+- Fix G's continuation hook benefits any agent whose LLM "thinks aloud" mid-investigation.
+- Fix H's banner benefits any tool that returns sliced content.
+
+### Audit of new code for over-fitting
+
+| Item | Verdict |
+|---|---|
+| Path A skill text | "if you surface a load-bearing name, open it before drawing conclusions" — borderline (reactive to observed failure) but defensible as a principle ("a name is a hypothesis, not an answer"). Kept. |
+| Path A prohibition | "do not stop at 'the answer would require checking X'" — quotes a phrase the LLM literally produced. Borderline. Kept because the principle (don't punt to the user) is general; the wording just makes it concrete. |
+| Fix G continuation prompt | Principle-stating; no tool name, no target; provides an explicit escape hatch ("if you have a defensible answer, restate it and stop"). Clean. |
+| Fix G budget = 1 | Magic number bounded by `MaxIterations`. Acceptable. |
+| Fix H banner format | Pure metadata, no prescription. Clean. |
+
+## 8. Open questions (carried over from §6)
+
+- **Should `RepoFact.Source = r.ToolName` be fixed?** Still a latent bug. Worth a small follow-up.
+- **Should we add an introspection tool** (`list_subagents`, `list_agents`) for "questions about runtime topology"? Long-term right answer for this class of question; would short-circuit the multi-grep dance.
+- **Diagnostic logging in `BaseAgent.Execute`** has now been removed (the next commit). It was useful for the Layer 2 / Layer 3 discoveries; a future investigation could re-add a similar dump on demand via a `-debug` flag instead of an unconditional stderr stream.

@@ -223,19 +223,31 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 
 	content := string(data)
+	allLines := strings.Split(content, "\n")
+	totalLines := len(allLines)
 
+	sliceStart := 0
+	sliceEnd := totalLines
 	if p.Offset > 0 || p.Limit > 0 {
-		lines := strings.Split(content, "\n")
-		start := p.Offset
-		if start > len(lines) {
-			start = len(lines)
+		sliceStart = p.Offset
+		if sliceStart > totalLines {
+			sliceStart = totalLines
 		}
-		end := len(lines)
-		if p.Limit > 0 && start+p.Limit < end {
-			end = start + p.Limit
+		sliceEnd = totalLines
+		if p.Limit > 0 && sliceStart+p.Limit < sliceEnd {
+			sliceEnd = sliceStart + p.Limit
 		}
-		content = strings.Join(lines[start:end], "\n")
+		content = strings.Join(allLines[sliceStart:sliceEnd], "\n")
 	}
+
+	// Always prepend a slice/total banner so the LLM cannot mistake
+	// a partial read for the whole file. The previous design returned
+	// the requested slice with no metadata, so a 40-line read of a
+	// 330-line file looked identical to a 40-line read of a 40-line
+	// file — and the model would routinely conclude after the head
+	// that it had seen everything. Banner is plain text, no prescription.
+	banner := fmt.Sprintf("[%s: showing lines %d-%d of %d total]\n", p.Path, sliceStart+1, sliceEnd, totalLines)
+	content = banner + content
 
 	summary, ref := StoreBlobHeadOnly(ctx, t.Name(), content)
 	return types.ToolResult{

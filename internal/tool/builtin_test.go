@@ -31,8 +31,14 @@ func TestReadFile(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("expected success, got: %s", result.Summary)
 		}
-		if result.Summary != content {
-			t.Fatalf("expected %q, got %q", content, result.Summary)
+		// Summary now carries a "showing lines X-Y of N" banner so the
+		// LLM cannot mistake a slice for the whole file. The trailing
+		// newline in the source content makes Split produce 3 elements.
+		if !strings.Contains(result.Summary, "showing lines 1-3 of 3") {
+			t.Fatalf("expected banner with line range, got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, content) {
+			t.Fatalf("expected body to contain original content, got %q", result.Summary)
 		}
 	})
 
@@ -52,8 +58,11 @@ func TestReadFile(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("expected success, got: %s", result.Summary)
 		}
-		if result.Summary != "line1\nline2" {
-			t.Fatalf("expected %q, got %q", "line1\nline2", result.Summary)
+		if !strings.Contains(result.Summary, "showing lines 2-3 of 6") {
+			t.Fatalf("expected banner with sliced range, got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "line1\nline2") {
+			t.Fatalf("expected body to contain sliced content, got %q", result.Summary)
 		}
 	})
 }

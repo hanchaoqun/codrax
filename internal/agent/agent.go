@@ -100,6 +100,21 @@ type Evaluator interface {
 	DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece
 }
 
+// ContinuingEvaluator is an optional interface for agents that want to
+// reject the BaseAgent's default "no tool calls + content = stop" rule.
+// When the LLM produces a content-only response, BaseAgent.Execute
+// checks whether the evaluator implements this interface and, if so,
+// asks it for a continuation prompt. Returning shouldContinue=true
+// causes the loop to inject the prompt as a user message and run
+// another LLM turn, instead of breaking.
+//
+// The continuationCount parameter is the number of continuation prompts
+// already injected for this Execute call, so the evaluator can bound
+// its own retry budget. MaxIterations remains the hard upper bound.
+type ContinuingEvaluator interface {
+	ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (prompt string, shouldContinue bool)
+}
+
 // NewBaseAgent creates a new BaseAgent.
 func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *BaseAgent {
 	maxIter := deps.MaxIterations
@@ -146,6 +161,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	var allToolResults []types.ToolResult
 	var allMCPResponses []types.MCPResponse
+	continuationsUsed := 0
 
 	// ReAct loop
 	for i := 0; i < b.deps.MaxIterations; i++ {
@@ -167,15 +183,47 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			log.Printf("[diag %s] iter=%d call[%d] tool=%s params=%s", b.name, i, j, tc.Name, string(tc.Params))
 		}
 
-		// Check if we should stop
-		if b.eval.ShouldStop(resp, i) || (len(resp.ToolCalls) == 0 && resp.Content != "") {
-			// Add final assistant message
+		// Hard stop from the evaluator (e.g., finalizer always stops at iter=0).
+		if b.eval.ShouldStop(resp, i) {
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
 				Content:   resp.Content,
 				ToolCalls: resp.ToolCalls,
 			})
-			log.Printf("[diag %s] STOP at iter=%d", b.name, i)
+			log.Printf("[diag %s] STOP at iter=%d (eval)", b.name, i)
+			break
+		}
+
+		// Soft stop: LLM produced content but called no tools. By
+		// default this is treated as voluntary completion. Agents that
+		// implement ContinuingEvaluator can override and inject a
+		// continuation prompt instead — this exists because the LLM
+		// often "thinks aloud" mid-investigation ("I'll check X next")
+		// without acting, and the default break would silently accept
+		// that as the final answer.
+		if len(resp.ToolCalls) == 0 && resp.Content != "" {
+			if c, ok := b.eval.(ContinuingEvaluator); ok {
+				if prompt, cont := c.ContinuationPrompt(resp, i, continuationsUsed, allToolResults); cont {
+					continuationsUsed++
+					messages = append(messages, llm.Message{
+						Role:      "assistant",
+						Content:   resp.Content,
+						ToolCalls: resp.ToolCalls,
+					})
+					messages = append(messages, llm.Message{
+						Role:    "user",
+						Content: prompt,
+					})
+					log.Printf("[diag %s] CONTINUE at iter=%d (continuationsUsed=%d)", b.name, i, continuationsUsed)
+					continue
+				}
+			}
+			messages = append(messages, llm.Message{
+				Role:      "assistant",
+				Content:   resp.Content,
+				ToolCalls: resp.ToolCalls,
+			})
+			log.Printf("[diag %s] STOP at iter=%d (soft)", b.name, i)
 			break
 		}
 

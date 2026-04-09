@@ -30,14 +30,13 @@ func RegisterDefaults(r *Registry) {
 
 	r.Register(&Config{
 		Name: "repo-explore-skill",
-		Goal: "Build a trusted factual foundation about the codebase.",
+		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
 		Workflow: []string{
-			"find entry points",
-			"grep for key functions",
-			"build module map",
-			"analyze call chains",
-			"identify relevant files",
-			"document findings as RepoFacts",
+			"form a hypothesis about where the answer lives",
+			"read the code or run the commands needed to verify it",
+			"if you surface a name that looks load-bearing (a function, type, symbol, config key), open it before drawing conclusions — a name is a hypothesis to verify, not an answer",
+			"iterate until you have a specific answer, not a description of where someone else could find it",
+			"record the answer alongside the evidence (file:line) that supports it",
 		},
 		ToolSuggestions: []string{
 			"grep",
@@ -47,10 +46,11 @@ func RegisterDefaults(r *Registry) {
 			"exec_command",
 			"todo_write",
 		},
-		OutputFormat: "JSON with repo_facts, entrypoints, call_chains, relevant_files",
+		OutputFormat: "Direct answer to the user's question, plus the file:line citations that establish it. If part of the question is unanswered, say which part and why — do not substitute 'further analysis required' for an answer.",
 		Prohibitions: []string{
 			"do not modify any files",
 			"do not make assumptions without evidence",
+			"do not stop at 'the answer would require checking X' — go check X yourself",
 		},
 	})
 

@@ -20,7 +20,31 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	return len(resp.ToolCalls) == 0
+	// Never hard-stop. Voluntary stops (no tool calls + content) are
+	// routed through ContinuationPrompt below so the evaluator can
+	// override the BaseAgent default and push for actual investigation
+	// instead of accepting a thinking-only summary.
+	return false
+}
+
+// ContinuationPrompt implements ContinuingEvaluator. The explorer's
+// failure mode that motivated this hook: the LLM articulates the
+// next investigative step ("I'll check function X next") and then
+// stops without doing it, because the BaseAgent's default soft-stop
+// rule treats any content-only turn as completion. The continuation
+// prompt below pushes back exactly once per stage dispatch — the
+// budget is intentionally small so a stage that genuinely has
+// nothing left to do still terminates promptly.
+//
+// The text deliberately does NOT prescribe which tool to use or
+// what to look at; that depends on the question and is the LLM's
+// job. It states the principle ("don't summarize without acting")
+// and lets the LLM choose its next move.
+func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
+	if continuationCount >= 1 {
+		return "", false
+	}
+	return "Your previous turn produced a summary without calling any tool. If you genuinely have a defensible answer, restate it in one sentence and stop. Otherwise, take the next concrete investigative step now — do not describe what you would do next, do it.", true
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
