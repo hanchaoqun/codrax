@@ -308,7 +308,6 @@ graph TD
 |------|------|------|
 | `task-analysis-skill` | analyze | 结构化和分类用户任务 |
 | `repo-explore-skill` | explore | 浏览代码库，收集事实，构建模块映射 |
-| `cli-analysis-skill` | explore | 替代方案：基于 CLI 的分析 |
 | `implementation-plan-skill` | plan | 设计分步实现方案 |
 | `code-implement-skill` | implement | 编写/修改代码，生成补丁 |
 | `design-review-skill` | design_review | 审查方案可行性、架构影响、风险 |
@@ -529,7 +528,7 @@ PromptContext 的组装具有 token 预算意识：
 | 方面 | 详情 |
 |------|------|
 | **Agent** | 探索器 |
-| **技能** | repo-explore-skill 或 cli-analysis-skill |
+| **技能** | repo-explore-skill |
 | **输入** | 当前 TaskList / 活动任务、仓库路径 / 分支、已知事实（可能为空） |
 | **工作** | 查找代码入口点（main / cmd / router）、搜索函数和配置、构建模块映射、分析调用链、查询文档 / MCP（GitHub / Docs / DB） |
 | **输出** | `{ repo_facts, entrypoints, call_chains, relevant_files }` |

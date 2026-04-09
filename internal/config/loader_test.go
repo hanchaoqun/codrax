@@ -664,9 +664,9 @@ func TestLoadAndResolve(t *testing.T) {
 		}
 	})
 
-	t.Run("9 skills loaded", func(t *testing.T) {
-		if got := len(rc.Skills); got != 9 {
-			t.Fatalf("expected 9 skills, got %d", got)
+	t.Run("8 skills loaded", func(t *testing.T) {
+		if got := len(rc.Skills); got != 8 {
+			t.Fatalf("expected 8 skills, got %d", got)
 		}
 	})
 }

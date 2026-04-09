@@ -55,26 +55,6 @@ func RegisterDefaults(r *Registry) {
 	})
 
 	r.Register(&Config{
-		Name: "cli-analysis-skill",
-		Goal: "Analyze CLI structure and commands.",
-		Workflow: []string{
-			"identify CLI framework",
-			"map commands and subcommands",
-			"trace command handlers",
-			"document flags and options",
-		},
-		ToolSuggestions: []string{
-			"grep",
-			"read_file",
-			"exec_command",
-		},
-		OutputFormat: "JSON with cli_structure, commands, handlers",
-		Prohibitions: []string{
-			"do not execute destructive commands",
-		},
-	})
-
-	r.Register(&Config{
 		Name: "implementation-plan-skill",
 		Goal: "Design a step-by-step implementation plan.",
 		Workflow: []string{

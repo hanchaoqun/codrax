@@ -202,9 +202,6 @@ skills:
   - name: repo-explore-skill
     description: Browse codebase, collect facts, build module map
 
-  - name: cli-analysis-skill
-    description: Alternative explore skill for CLI-based analysis
-
   - name: implementation-plan-skill
     description: Design step-by-step implementation plan with file targets
 
