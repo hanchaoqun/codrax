@@ -1,0 +1,16 @@
+llm:
+  # Default provider used by all agents unless overridden below.
+  default:
+    provider: openai
+    api_key: "sk-xxx"
+    model: "gpt-4o"
+    base_url: ""              # empty = https://api.openai.com/v1
+
+  # Per-agent overrides. Only set fields you want to change;
+  # unset fields inherit from default, then from env vars.
+  agents:
+    planner:
+      model: "o3"             # use a stronger model for planning
+    # implementer:
+    #   base_url: "http://localhost:11434/v1"
+    #   model: "deepseek-coder"

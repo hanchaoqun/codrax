@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/hanchaoqun/design/internal/llm"
 	"github.com/hanchaoqun/design/internal/types"
 )
 
@@ -47,13 +48,44 @@ func (r *Registry) List() []types.AgentName {
 	return names
 }
 
-// RegisterDefaults registers all 7 agent types with the given dependencies.
-func RegisterDefaults(r *Registry, deps *Dependencies) {
-	r.Register(NewPlannerAgent(deps))
-	r.Register(NewExplorerAgent(deps))
-	r.Register(NewImplementerAgent(deps))
-	r.Register(NewDesignReviewerAgent(deps))
-	r.Register(NewCodeReviewerAgent(deps))
-	r.Register(NewVerifierAgent(deps))
-	r.Register(NewFinalizerAgent(deps))
+// LLMResolver returns an LLM adapter for the given agent name.
+// If it returns nil, the default adapter from Dependencies is used.
+type LLMResolver func(name types.AgentName) llm.Adapter
+
+// RegisterDefaults registers all 7 agent types.
+// If resolver is non-nil, each agent gets its own LLM adapter;
+// otherwise all agents share deps.LLM.
+func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver) {
+	agents := []types.AgentName{
+		types.AgentPlanner,
+		types.AgentExplorer,
+		types.AgentImplementer,
+		types.AgentDesignReviewer,
+		types.AgentCodeReviewer,
+		types.AgentVerifier,
+		types.AgentFinalizer,
+	}
+
+	constructors := map[types.AgentName]func(*Dependencies) Agent{
+		types.AgentPlanner:        func(d *Dependencies) Agent { return NewPlannerAgent(d) },
+		types.AgentExplorer:       func(d *Dependencies) Agent { return NewExplorerAgent(d) },
+		types.AgentImplementer:    func(d *Dependencies) Agent { return NewImplementerAgent(d) },
+		types.AgentDesignReviewer: func(d *Dependencies) Agent { return NewDesignReviewerAgent(d) },
+		types.AgentCodeReviewer:   func(d *Dependencies) Agent { return NewCodeReviewerAgent(d) },
+		types.AgentVerifier:       func(d *Dependencies) Agent { return NewVerifierAgent(d) },
+		types.AgentFinalizer:      func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
+	}
+
+	for _, name := range agents {
+		d := deps
+		if resolver != nil {
+			if adapter := resolver(name); adapter != nil {
+				// Create a copy of deps with the agent-specific adapter
+				agentDeps := *deps
+				agentDeps.LLM = adapter
+				d = &agentDeps
+			}
+		}
+		r.Register(constructors[name](d))
+	}
 }

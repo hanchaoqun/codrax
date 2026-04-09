@@ -13,10 +13,12 @@ import (
 	"github.com/hanchaoqun/design/internal/orchestrator"
 	"github.com/hanchaoqun/design/internal/skill"
 	"github.com/hanchaoqun/design/internal/tool"
+	"github.com/hanchaoqun/design/internal/types"
 )
 
 func main() {
 	configPath := flag.String("config", "config/orchestrator.yaml", "path to orchestrator config")
+	providersPath := flag.String("providers", "config/providers.yaml", "path to providers config")
 	repoRoot := flag.String("repo", ".", "repository root path")
 	branch := flag.String("branch", "main", "git branch")
 	request := flag.String("request", "", "user request to process")
@@ -56,24 +58,37 @@ func main() {
 	skill.RegisterDefaults(skillRegistry)
 	log.Printf("registered %d skills", len(skillRegistry.List()))
 
-	// Create LLM adapter
-	// In production, this would be configured with API keys and model selection.
-	// For now, we use a placeholder that returns structured responses.
-	llmAdapter := createLLMAdapter()
+	// Load providers config
+	providersCfg, err := config.LoadProviders(*providersPath)
+	if err != nil {
+		log.Fatalf("failed to load providers config: %v", err)
+	}
+
+	// Create default LLM adapter
+	defaultLLM := createDefaultAdapter(providersCfg)
 
 	// Create SubAgent registry
 	subAgentRegistry := agent.NewSubAgentRegistry()
 
-	// Create agent registry
+	// Create agent registry with per-agent LLM resolution
 	deps := &agent.Dependencies{
-		LLM:           llmAdapter,
+		LLM:           defaultLLM,
 		Tools:         toolRegistry,
 		MCPServers:    mcpRegistry,
 		SubAgents:     subAgentRegistry,
 		MaxIterations: 20,
 	}
+
+	resolver := func(name types.AgentName) llm.Adapter {
+		resolved := config.ResolveProvider(providersCfg, string(name))
+		if adapter := llm.NewFromConfig(resolved); adapter != nil {
+			return adapter
+		}
+		return nil // use default from deps
+	}
+
 	agentRegistry := agent.NewRegistry()
-	agent.RegisterDefaults(agentRegistry, deps)
+	agent.RegisterDefaults(agentRegistry, deps, resolver)
 	log.Printf("registered %d agents", len(agentRegistry.List()))
 
 	// Register default SubAgents (after deps are created)
@@ -105,15 +120,11 @@ func main() {
 	}
 }
 
-// createLLMAdapter creates the LLM adapter chain.
-func createLLMAdapter() llm.Adapter {
-	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
-		model := os.Getenv("OPENAI_MODEL")
-		if model == "" {
-			model = "gpt-4o"
-		}
-		baseURL := os.Getenv("OPENAI_BASE_URL")
-		return llm.NewOpenAIAdapter(key, model, baseURL)
+// createDefaultAdapter builds the default LLM adapter from providers config.
+func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
+	resolved := config.ResolveProvider(cfg, "")
+	if adapter := llm.NewFromConfig(resolved); adapter != nil {
+		return adapter
 	}
 	return &placeholderAdapter{}
 }
