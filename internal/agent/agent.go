@@ -125,16 +125,18 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if b.eval.ShouldStop(resp, i) || (len(resp.ToolCalls) == 0 && resp.Content != "") {
 			// Add final assistant message
 			messages = append(messages, llm.Message{
-				Role:    "assistant",
-				Content: resp.Content,
+				Role:      "assistant",
+				Content:   resp.Content,
+				ToolCalls: resp.ToolCalls,
 			})
 			break
 		}
 
-		// Record assistant message
+		// Record assistant message with tool calls
 		messages = append(messages, llm.Message{
-			Role:    "assistant",
-			Content: resp.Content,
+			Role:      "assistant",
+			Content:   resp.Content,
+			ToolCalls: resp.ToolCalls,
 		})
 
 		// Act — execute tool calls

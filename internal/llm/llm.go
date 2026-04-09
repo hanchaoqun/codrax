@@ -26,9 +26,10 @@ type TokenUsage struct {
 
 // Message represents a conversation message.
 type Message struct {
-	Role       string `json:"role"`                      // system, developer, user, assistant, tool
-	Content    string `json:"content"`
-	ToolCallID string `json:"tool_call_id,omitempty"`    // for tool role messages
+	Role       string     `json:"role"`                   // system, user, assistant, tool
+	Content    string     `json:"content"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // assistant messages carry tool calls
+	ToolCallID string     `json:"tool_call_id,omitempty"` // tool messages reference the call
 }
 
 // Response is what the LLM returns.

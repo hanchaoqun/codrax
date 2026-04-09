@@ -90,24 +90,24 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	// Developer sections — skill instructions
-	pc.DeveloperSections = []types.PromptSection{
-		{
+	// Skill instructions — merged into system sections
+	pc.SystemSections = append(pc.SystemSections,
+		types.PromptSection{
 			Title:   "Skill Goal",
 			Content: sk.Goal,
 		},
-		{
+		types.PromptSection{
 			Title:   "Workflow",
 			Content: formatNumberedList(sk.Workflow),
 		},
-		{
+		types.PromptSection{
 			Title:   "Output Format",
 			Content: sk.OutputFormat,
 		},
-	}
+	)
 
 	if len(sk.Prohibitions) > 0 {
-		pc.DeveloperSections = append(pc.DeveloperSections, types.PromptSection{
+		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
 			Title:   "Prohibitions",
 			Content: formatBulletList(sk.Prohibitions),
 		})
@@ -189,18 +189,6 @@ func ToMessages(pc *types.PromptContext) []Message {
 		messages = append(messages, Message{
 			Role:    "system",
 			Content: strings.Join(systemParts, "\n\n"),
-		})
-	}
-
-	// Developer message
-	var devParts []string
-	for _, s := range pc.DeveloperSections {
-		devParts = append(devParts, fmt.Sprintf("## %s\n%s", s.Title, s.Content))
-	}
-	if len(devParts) > 0 {
-		messages = append(messages, Message{
-			Role:    "developer",
-			Content: strings.Join(devParts, "\n\n"),
 		})
 	}
 

@@ -106,11 +106,15 @@ func main() {
 }
 
 // createLLMAdapter creates the LLM adapter chain.
-// In production, configure with real API credentials.
 func createLLMAdapter() llm.Adapter {
-	// The placeholder adapter enables running the pipeline structure
-	// without requiring an actual LLM API key. Replace with a real
-	// adapter (e.g., Claude API) for production use.
+	if key := os.Getenv("OPENAI_API_KEY"); key != "" {
+		model := os.Getenv("OPENAI_MODEL")
+		if model == "" {
+			model = "gpt-4o"
+		}
+		baseURL := os.Getenv("OPENAI_BASE_URL")
+		return llm.NewOpenAIAdapter(key, model, baseURL)
+	}
 	return &placeholderAdapter{}
 }
 

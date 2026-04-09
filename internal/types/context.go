@@ -115,9 +115,8 @@ type PromptSection struct {
 
 // PromptContext holds the assembled prompt for an agent invocation.
 type PromptContext struct {
-	SystemSections    []PromptSection `json:"system_sections"`
-	DeveloperSections []PromptSection `json:"developer_sections"`
-	UserSections      []PromptSection `json:"user_sections"`
+	SystemSections []PromptSection `json:"system_sections"`
+	UserSections   []PromptSection `json:"user_sections"`
 
 	EnabledTools []string `json:"enabled_tools"`
 

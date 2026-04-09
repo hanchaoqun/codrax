@@ -117,29 +117,29 @@ func TestBuildPromptContext(t *testing.T) {
 		}
 	})
 
-	t.Run("developer sections include workflow", func(t *testing.T) {
+	t.Run("system sections include workflow", func(t *testing.T) {
 		found := false
-		for _, s := range pc.DeveloperSections {
+		for _, s := range pc.SystemSections {
 			if s.Title == "Workflow" {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Error("developer sections missing Workflow")
+			t.Error("system sections missing Workflow")
 		}
 	})
 
-	t.Run("developer sections include prohibitions", func(t *testing.T) {
+	t.Run("system sections include prohibitions", func(t *testing.T) {
 		found := false
-		for _, s := range pc.DeveloperSections {
+		for _, s := range pc.SystemSections {
 			if s.Title == "Prohibitions" {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Error("developer sections missing Prohibitions")
+			t.Error("system sections missing Prohibitions")
 		}
 	})
 
@@ -167,8 +167,6 @@ func TestToMessages(t *testing.T) {
 	pc := &types.PromptContext{
 		SystemSections: []types.PromptSection{
 			{Title: "Identity", Content: "You are planner"},
-		},
-		DeveloperSections: []types.PromptSection{
 			{Title: "Goal", Content: "Analyze task"},
 		},
 		UserSections: []types.PromptSection{
@@ -178,16 +176,13 @@ func TestToMessages(t *testing.T) {
 
 	msgs := ToMessages(pc)
 
-	if len(msgs) != 3 {
-		t.Fatalf("got %d messages, want 3", len(msgs))
+	if len(msgs) != 2 {
+		t.Fatalf("got %d messages, want 2", len(msgs))
 	}
 	if msgs[0].Role != "system" {
 		t.Errorf("msg[0] role = %q, want system", msgs[0].Role)
 	}
-	if msgs[1].Role != "developer" {
-		t.Errorf("msg[1] role = %q, want developer", msgs[1].Role)
-	}
-	if msgs[2].Role != "user" {
-		t.Errorf("msg[2] role = %q, want user", msgs[2].Role)
+	if msgs[1].Role != "user" {
+		t.Errorf("msg[1] role = %q, want user", msgs[1].Role)
 	}
 }
