@@ -181,6 +181,13 @@ type BusContext struct {
 	Commit    string   `json:"commit"`
 	ModuleMap []string `json:"module_map,omitempty"`
 
+	// WorkDir is a per-trace temporary directory used by tools to
+	// offload large outputs to disk (see internal/tool/blob.go). The
+	// orchestrator creates and tears it down around Run(). When empty
+	// (e.g. unit tests with a zero-value BusContext) tools degrade to
+	// inline previews without persisting full content.
+	WorkDir string `json:"work_dir,omitempty"`
+
 	RepoFacts    []RepoFact    `json:"repo_facts,omitempty"`
 	ToolResults  []ToolResult  `json:"tool_results,omitempty"`
 	MCPResponses []MCPResponse `json:"mcp_responses,omitempty"`
@@ -224,6 +231,7 @@ type AgentContext struct {
 	RepoRoot string `json:"repo_root"`
 	Branch   string `json:"branch"`
 	Commit   string `json:"commit"`
+	WorkDir  string `json:"work_dir,omitempty"`
 
 	// Mutable aliases the orchestrator's BusContext.Mutable so that
 	// tools dispatched from this agent (via BaseAgent.executeTool)

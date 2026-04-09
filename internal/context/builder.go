@@ -23,6 +23,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		RepoRoot:     bus.RepoRoot,
 		Branch:       bus.Branch,
 		Commit:       bus.Commit,
+		WorkDir:      bus.WorkDir,
 		Mutable:      bus.Mutable, // shared pointer; tools mutate through this
 	}
 
@@ -247,6 +248,7 @@ func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *ty
 		RepoRoot:     bus.RepoRoot,
 		Branch:       bus.Branch,
 		Commit:       bus.Commit,
+		WorkDir:      bus.WorkDir,
 	}
 
 	// Shared read from BusContext

@@ -69,29 +69,33 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	output := buf.String()
 
 	if execCtx.Err() == context.DeadlineExceeded {
+		preview, ref := StoreBlob(ctx, t.Name()+"-timeout", output)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("command timed out after %v", timeout),
-			RawRef:    output,
+			Summary:   fmt.Sprintf("command timed out after %v\n%s", timeout, preview),
+			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, fmt.Errorf("command timed out after %v", timeout)
 	}
 
 	if err != nil {
+		preview, ref := StoreBlob(ctx, t.Name()+"-fail", output)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("command failed: %v", err),
-			RawRef:    output,
+			Summary:   fmt.Sprintf("command failed: %v\n%s", err, preview),
+			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, nil
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), output)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   output,
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -167,10 +171,12 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}, nil
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), output)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   output,
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -229,10 +235,12 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		content = strings.Join(lines[start:end], "\n")
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), content)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   content,
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -276,6 +284,15 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			if err != nil {
 				return err
 			}
+			// Skip well-known noise directories that explode the walk
+			// without yielding useful entries (VCS metadata, dependency
+			// caches, hidden tooling). Mirrors RepoMap's behavior.
+			if d.IsDir() && path != p.Path {
+				name := d.Name()
+				if name == ".git" || name == "node_modules" || name == "vendor" || name == ".venv" || strings.HasPrefix(name, ".") {
+					return filepath.SkipDir
+				}
+			}
 			files = append(files, path)
 			return nil
 		})
@@ -292,10 +309,12 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		}
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), strings.Join(files, "\n"))
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   strings.Join(files, "\n"),
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -375,10 +394,12 @@ func (t *RepoMap) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("walk failed: %v", err), Timestamp: time.Now()}, nil
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), buf.String())
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   buf.String(),
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -437,19 +458,22 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	output := buf.String()
 
 	if err != nil {
+		preview, ref := StoreBlob(ctx, t.Name()+"-fail", output)
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("tests failed: %v", err),
-			RawRef:    output,
+			Summary:   fmt.Sprintf("tests failed: %v\n%s", err, preview),
+			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, nil
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), output)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   output,
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -513,10 +537,12 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		}, nil
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), stdout.String())
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   stdout.String(),
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -583,10 +609,12 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		}, nil
 	}
 
+	summary, ref := StoreBlob(ctx, t.Name(), stdout.String())
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   stdout.String(),
+		Summary:   summary,
+		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
 }

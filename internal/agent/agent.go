@@ -276,6 +276,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 				RepoRoot: ctx.RepoRoot,
 				Branch:   ctx.Branch,
 				Commit:   ctx.Commit,
+				WorkDir:  ctx.WorkDir,
 				Mutable:  ctx.Mutable,
 			}
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)

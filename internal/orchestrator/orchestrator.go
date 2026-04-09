@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -80,6 +81,23 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	}
 
 	log.Printf("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
+
+	// Per-trace working directory for tool blob storage. Tools that
+	// produce large outputs offload to this dir and return a path in
+	// ToolResult.RawRef so the LLM can re-read slices on demand instead
+	// of carrying full content through the message history. Cleanup is
+	// best-effort; failures are logged but do not abort the pipeline.
+	if workDir, err := os.MkdirTemp("", "codrax-"+o.busCtx.TraceID+"-"); err != nil {
+		log.Printf("[orchestrator] could not create work dir: %v (blob storage disabled)", err)
+	} else {
+		o.busCtx.WorkDir = workDir
+		log.Printf("[orchestrator] work dir: %s", workDir)
+		defer func() {
+			if rmErr := os.RemoveAll(workDir); rmErr != nil {
+				log.Printf("[orchestrator] work dir cleanup failed: %v", rmErr)
+			}
+		}()
+	}
 
 	stepsUsed := 0
 
