@@ -13,9 +13,22 @@ import (
 //
 // Everything outside MutableState in BusContext remains agent-output
 // only — mutations are funneled through StageOutput → applyStageOutput
-// as before. Concurrent access (e.g. parallel SubAgent runtime) is
-// guarded by an internal RWMutex; callers go through TaskList() and
-// SetTaskList() instead of touching fields directly.
+// as before. The internal RWMutex protects against data races for
+// top-level agents that may run concurrent tool dispatches in
+// future refactors; today's single-agent loop does not exercise it.
+//
+// SubAgents do NOT share this region. SubAgentRuntime spawns
+// isolated workers whose AgentContext is built by
+// BuildSubAgentContext, which deliberately leaves Mutable nil. Any
+// tool that requires Mutable (e.g. todo_write) will reject calls
+// from a sub-agent with a clear error. Sub-agents return their
+// findings via SubAgentResult and the reducer merges them back at
+// the orchestrator boundary — that is the single point at which
+// sub-agent output re-enters the parent's working state.
+//
+// Callers go through TaskList() / SetTaskList() / UpdateTaskStatus /
+// UpdateTaskResult / SetCurrentTask instead of touching fields
+// directly, so locking stays correct.
 type MutableState struct {
 	mu       sync.RWMutex
 	taskList TaskList

@@ -224,9 +224,19 @@ type Message struct {
 	Content string
 }
 
-// BuildSubAgentContext builds a read-only AgentContext for a SubAgent from the shared BusContext.
-// Unlike BuildAgentContext, the objective/scope/constraints come from the SubAgentRequest,
-// not from the stage config.
+// BuildSubAgentContext builds a read-only AgentContext for a SubAgent
+// from the shared BusContext. Unlike BuildAgentContext, the
+// objective/scope/constraints come from the SubAgentRequest, not
+// from the stage config.
+//
+// Intentionally omits BusContext.Mutable: SubAgents are isolated
+// workers that report results via SubAgentResult, not by mutating
+// the parent's working state. Leaving ac.Mutable nil here means any
+// tool that requires it (currently todo_write) will fail-stop with
+// a clear error rather than silently racing against parallel
+// sub-agents over the shared task list. The SubAgentReducer is the
+// single point at which sub-agent results re-enter the parent's
+// state, keeping the per-task aggregation boundary explicit.
 func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *types.AgentContext {
 	ac := &types.AgentContext{
 		AgentName:    types.AgentName(req.SubAgent),
