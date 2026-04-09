@@ -348,23 +348,28 @@ type Tool interface {
     Name()        string
     Description() string
     Parameters()  json.RawMessage  // JSON Schema
-    Execute(params json.RawMessage) (ToolResult, error)
+    Execute(ctx *types.BusContext, params json.RawMessage) (ToolResult, error)
+    IsWrite()     bool  // 是否需要文件系统写权限(对齐 requires_write 边界)
 }
 ```
 
+工具通过嵌入 `tool.ReadOnly` 或 `tool.WriteCapable` mixin 来满足 `IsWrite()`。Execute 收到的 `*BusContext` 是窄视图:只有 `RepoRoot`/`Branch`/`Commit` 和 `Mutable` 区域被填充,其他字段为零值,从而物理上隔离工具只能改可变域。
+
 #### 内置工具
 
-| 工具 | 描述 |
-|------|------|
-| `exec_command` | 执行 shell 命令 |
-| `grep` | 按模式搜索文件内容 |
-| `read_file` | 读取文件内容 |
-| `write_file` | 将内容写入文件 |
-| `repo_map` | 生成仓库结构映射 |
-| `run_tests` | 执行测试套件 |
-| `list_files` | 列出目录中的文件 |
-| `git_diff` | 显示 git diff 输出 |
-| `git_log` | 显示 git 提交历史 |
+| 工具 | 读/写 | 描述 |
+|------|------|------|
+| `exec_command` | 读 | 执行 shell 命令(dual-use,当前按 read-only 处理,shell 级的写限制靠外部沙箱) |
+| `grep` | 读 | 按模式搜索文件内容 |
+| `read_file` | 读 | 读取文件内容 |
+| `list_files` | 读 | 列出目录中的文件 |
+| `repo_map` | 读 | 生成仓库结构映射 |
+| `run_tests` | 读 | 执行测试套件(按意图分类,verifier 依赖) |
+| `git_diff` | 读 | 显示 git diff 输出 |
+| `git_log` | 读 | 显示 git 提交历史 |
+| `apply_patch` | **写** | 对文件做目标化改动(write/edit/insert_before/insert_after 四种模式),保留行尾,限定在 workspace 根内,返回 diff 预览 |
+| `todo_write` | 读(逻辑上写 `Mutable`) | 在 `BusContext.Mutable.TaskList` 上做**全量替换**式更新,analyzer / explorer / implementer 的 skill 推荐它。sub-agent 不共享 `Mutable`,调用会被拒 |
+| `propose_sub_agents` | 读 | **自动注入**给名字匹配已注册 sub-agent 的主 agent,用于在 ReAct 循环里申请派生并行 sub-agent,schema 的 `sub_agent` enum 会被收窄到该主 agent 对应的唯一名字 |
 
 #### ToolResult 格式
 
