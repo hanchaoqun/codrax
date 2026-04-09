@@ -113,8 +113,10 @@ type grepToolParams struct {
 	Include string `json:"include,omitempty"`
 }
 
-func (t *GrepTool) Name() string        { return "grep" }
-func (t *GrepTool) Description() string { return "Search file contents by regex pattern" }
+func (t *GrepTool) Name() string { return "grep" }
+func (t *GrepTool) Description() string {
+	return "Search file contents by regex pattern. Use this to find where a symbol or string appears. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+}
 
 func (t *GrepTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
@@ -257,8 +259,10 @@ type listFilesParams struct {
 	Recursive bool   `json:"recursive,omitempty"`
 }
 
-func (t *ListFiles) Name() string        { return "list_files" }
-func (t *ListFiles) Description() string { return "List files in a directory" }
+func (t *ListFiles) Name() string { return "list_files" }
+func (t *ListFiles) Description() string {
+	return "List files in a directory. Use this for navigation and discovery only. Do NOT use the result to count files, filter by extension, or sort — for any of those, run a shell pipeline through exec_command (e.g. `find . -name '*.go' | wc -l`) and trust its output."
+}
 
 func (t *ListFiles) Parameters() json.RawMessage {
 	return json.RawMessage(`{

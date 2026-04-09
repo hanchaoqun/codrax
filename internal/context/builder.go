@@ -67,6 +67,19 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	return ac
 }
 
+// reasoningHygiene is a meta-rule injected into every agent's system
+// prompt. It encodes one principle: when the answer is the result of
+// a deterministic computation over data, run a tool that produces it
+// directly — do not derive it by inspection. Language models reliably
+// miscount, missort, and misaggregate even on small lists, so any
+// quantitative or structural claim should come from a tool's output,
+// not from the model's own reading of an upstream tool result.
+//
+// Kept here (not in any one agent or skill) so the rule applies to
+// the entire pipeline: analyzer routing, explorer fact-gathering,
+// planner estimates, verifier counts of failures, etc.
+const reasoningHygiene = "Whenever the answer is the result of a deterministic computation over data — counting, summing, sorting, finding extremes, diffing, hashing, filtering by exact criteria — run a tool that produces it directly (e.g. a shell pipeline through exec_command such as `find ... | wc -l`, `grep -c`, `sort | uniq`) and treat the tool's output as authoritative. Never derive such answers by reading a list_files / grep / read_file output yourself; language models miscount and miscompute even on short lists. The same rule applies to facts you intend to record: if a fact has a number, sort order, or set membership in it, that number/order/set must come from a tool, not from your inspection."
+
 // BuildPromptContext assembles the final prompt payload from an AgentContext and Skill config.
 func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptContext {
 	pc := &types.PromptContext{
@@ -83,6 +96,10 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Title: "Agent Identity",
 			Content: fmt.Sprintf("You are the %s agent operating in the %s stage.",
 				ac.AgentName, ac.Stage),
+		},
+		{
+			Title:   "Reasoning Hygiene",
+			Content: reasoningHygiene,
 		},
 	}
 
