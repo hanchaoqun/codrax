@@ -28,7 +28,19 @@ type PipelineSettings struct {
 	RequireReview               bool `yaml:"require_review"`
 	MaxRetriesPerStage          int  `yaml:"max_retries_per_stage"`
 	AllowSkipPlanForSmallChange bool `yaml:"allow_skip_plan_for_small_change"`
+
+	// MaxStageVisits caps how many times any single stage may be
+	// entered during one Run before the orchestrator gives up and
+	// forces finalize. A value <= 0 falls back to DefaultMaxStageVisits.
+	// This is the second guard against runaway loops (in addition to
+	// max-steps) and fires earlier when the pipeline is bouncing
+	// between the same stages without making progress.
+	MaxStageVisits int `yaml:"max_stage_visits"`
 }
+
+// DefaultMaxStageVisits is the fallback value used when
+// PipelineSettings.MaxStageVisits is zero or negative.
+const DefaultMaxStageVisits = 4
 
 // AgentConfig is the YAML configuration for a single agent.
 type AgentConfig struct {

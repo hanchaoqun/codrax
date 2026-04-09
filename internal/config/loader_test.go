@@ -653,6 +653,9 @@ func TestLoadAndResolve(t *testing.T) {
 		if ff.AllowSkipPlanForSmallChange {
 			t.Error("allow_skip_plan_for_small_change should be false")
 		}
+		if ff.MaxStageVisits != 4 {
+			t.Errorf("max_stage_visits = %d, want 4", ff.MaxStageVisits)
+		}
 	})
 
 	t.Run("8 agents loaded", func(t *testing.T) {

@@ -26,14 +26,6 @@ type Orchestrator struct {
 	stageVisits map[types.PipelineStage]int
 }
 
-// maxStageVisits caps how many times any single stage may be entered
-// during one Run before the orchestrator gives up and forces finalize.
-// This is the second guard against runaway loops, in addition to
-// max-steps: it fires earlier when the pipeline is bouncing between
-// the same two or three stages without making progress, instead of
-// burning through the full max-steps budget.
-const maxStageVisits = 4
-
 // New creates a new Orchestrator.
 func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
 	return &Orchestrator{
@@ -86,14 +78,18 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			step, stage, o.busCtx.TaskState.Missing)
 
 		// Oscillation guard: if we are about to enter the same stage
-		// for more than maxStageVisits times, treat it as stuck and
+		// for more than MaxStageVisits times, treat it as stuck and
 		// break out so the post-loop force-finalize block runs. This
-		// catches plan ↔ implement bouncing patterns much earlier
-		// than max-steps would.
+		// catches bouncing patterns (plan ↔ implement, or self-loops)
+		// much earlier than max-steps would.
+		cap := o.config.PipelineSettings.MaxStageVisits
+		if cap <= 0 {
+			cap = types.DefaultMaxStageVisits
+		}
 		o.stageVisits[stage]++
-		if o.stageVisits[stage] > maxStageVisits {
+		if o.stageVisits[stage] > cap {
 			log.Printf("[orchestrator] stage %s visited %d times (cap %d); breaking out as stuck",
-				stage, o.stageVisits[stage], maxStageVisits)
+				stage, o.stageVisits[stage], cap)
 			o.busCtx.TaskState.LastError = fmt.Sprintf(
 				"stage %s revisited %d times without progress; oscillation guard tripped",
 				stage, o.stageVisits[stage])
