@@ -123,6 +123,14 @@ func (b *BaseAgent) Name() types.AgentName {
 	return b.name
 }
 
+// truncForLog clips a string for diagnostic logging.
+func truncForLog(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "...[truncated " + fmt.Sprintf("%d", len(s)-max) + " bytes]"
+}
+
 // Execute implements the ReAct (Reason → Act → Observe) loop.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
 	// Build tool schemas for LLM
@@ -130,6 +138,11 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	// Initialize message history
 	messages := b.buildInitialMessages(ctx, sk)
+
+	// TEMP DIAGNOSTIC — dump initial prompt
+	for _, m := range messages {
+		log.Printf("[diag %s] INIT msg role=%s len=%d\n%s\n---", b.name, m.Role, len(m.Content), truncForLog(m.Content, 4000))
+	}
 
 	var allToolResults []types.ToolResult
 	var allMCPResponses []types.MCPResponse
@@ -145,6 +158,15 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}, err
 		}
 
+		// TEMP DIAGNOSTIC — dump assistant response
+		log.Printf("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d", b.name, i, len(resp.Content), len(resp.ToolCalls))
+		if resp.Content != "" {
+			log.Printf("[diag %s] iter=%d ASSISTANT content:\n%s\n---", b.name, i, truncForLog(resp.Content, 2000))
+		}
+		for j, tc := range resp.ToolCalls {
+			log.Printf("[diag %s] iter=%d call[%d] tool=%s params=%s", b.name, i, j, tc.Name, string(tc.Params))
+		}
+
 		// Check if we should stop
 		if b.eval.ShouldStop(resp, i) || (len(resp.ToolCalls) == 0 && resp.Content != "") {
 			// Add final assistant message
@@ -153,6 +175,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Content:   resp.Content,
 				ToolCalls: resp.ToolCalls,
 			})
+			log.Printf("[diag %s] STOP at iter=%d", b.name, i)
 			break
 		}
 
@@ -173,6 +196,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Content:    result.Summary,
 					ToolCallID: tc.ID,
 				})
+				// TEMP DIAGNOSTIC — dump tool result
+				log.Printf("[diag %s] iter=%d TOOLRESULT %s ok=%v len=%d:\n%s\n---", b.name, i, result.ToolName, result.Success, len(result.Summary), truncForLog(result.Summary, 2000))
 			}
 			if mcpResp != nil {
 				allMCPResponses = append(allMCPResponses, *mcpResp)
