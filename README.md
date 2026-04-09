@@ -1,21 +1,21 @@
-# AI Agent System Architecture
+# AI Agent 系统架构
 
-A 5-layer AI Agent system built around a YAML-driven Orchestrator state machine. The Orchestrator routes tasks through up to 7 pipeline stages, dispatching specialized Agents equipped with Skills, Tools, and MCP integrations, all powered by LLM reasoning.
+一个围绕 YAML 驱动的编排器状态机构建的 5 层 AI Agent 系统。编排器将任务路由到最多 7 个流水线阶段，调度配备了技能、工具和 MCP 集成的专业 Agent，所有这些都由 LLM 推理驱动。
 
-> **Orchestrator** decides *who does what* | **Agent** *executes* | **Skill** defines *how* | **Tool/MCP** provides *capabilities* | **LLM** is the *brain*
+> **编排器**决定*谁做什么* | **Agent** *执行* | **技能**定义*怎么做* | **工具/MCP**提供*能力* | **LLM**是*大脑*
 
-## Quick Reference
+## 快速参考
 
-| Layer | Name | Components | Responsibility |
-|-------|------|------------|----------------|
-| 1 | Orchestration | Orchestrator | Agent selection, pipeline control, state management, termination |
-| 2 | Execution | Agent (6 types) | Receive prompt, call LLM, use tools, produce output |
-| 3 | Strategy | Skill (9 skills) | Workflow steps, tool suggestions, output format, constraints |
-| 4a | Capability | Tool | Local operations (file, exec, grep, test) |
-| 4b | Capability | MCP | External system integration (GitHub, DB, Notion, etc.) |
-| 5 | Intelligence | LLM | Reasoning, decision-making, text generation |
+| 层级 | 名称 | 组件 | 职责 |
+|------|------|------|------|
+| 1 | 编排层 | 编排器 | Agent 选择、流水线控制、状态管理、终止决策 |
+| 2 | 执行层 | Agent（6 种类型） | 接收提示词、调用 LLM、使用工具、产出输出 |
+| 3 | 策略层 | 技能（9 种技能） | 工作流步骤、工具建议、输出格式、约束条件 |
+| 4a | 能力层 | 工具 | 本地操作（文件、执行、搜索、测试） |
+| 4b | 能力层 | MCP | 外部系统集成（GitHub、数据库、Notion 等） |
+| 5 | 智能层 | LLM | 推理、决策、文本生成 |
 
-## Documentation
+## 文档
 
-- **[Architecture Design Document](docs/architecture.md)** — Full system specification including component details, data structures, state machine, and lifecycle
-- **[Orchestrator Configuration](config/orchestrator.yaml)** — Reference YAML configuration with stage definitions, transitions, task policies, and feature flags
+- **[架构设计文档](docs/architecture.md)** — 完整的系统规范，包括组件详情、数据结构、状态机和生命周期
+- **[编排器配置](config/orchestrator.yaml)** — 参考 YAML 配置，包含阶段定义、转换规则、任务策略和功能开关
