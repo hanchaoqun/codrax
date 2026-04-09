@@ -49,9 +49,10 @@ graph TB
         A1[规划器]
         A2[探索器]
         A3[实现器]
-        A4[审查器]
-        A5[验证器]
-        A6[终结器]
+        A4[设计审查器]
+        A5[代码审查器]
+        A6[验证器]
+        A7[终结器]
     end
 
     subgraph "第 3 层 — 策略层"
@@ -76,15 +77,16 @@ graph TB
     end
 
     User --> Orch
-    Orch -->|调度| A1 & A2 & A3 & A4 & A5 & A6
+    Orch -->|调度| A1 & A2 & A3 & A4 & A5 & A6 & A7
     A1 ---|配备| S1 & S4
     A2 ---|配备| S2 & S3
     A3 ---|配备| S5
-    A4 ---|配备| S6 & S7
-    A5 ---|配备| S8
-    A6 ---|配备| S9
-    A1 & A2 & A3 & A4 & A5 & A6 -->|调用| T & M
-    A1 & A2 & A3 & A4 & A5 & A6 -->|调用| LLM
+    A4 ---|配备| S6
+    A5 ---|配备| S7
+    A6 ---|配备| S8
+    A7 ---|配备| S9
+    A1 & A2 & A3 & A4 & A5 & A6 & A7 -->|调用| T & M
+    A1 & A2 & A3 & A4 & A5 & A6 & A7 -->|调用| LLM
 ```
 
 ---
@@ -96,7 +98,7 @@ graph TB
 ```mermaid
 graph LR
     L1["[1] 编排层<br/>编排器"]
-    L2["[2] 执行层<br/>Agent × 6"]
+    L2["[2] 执行层<br/>Agent × 7"]
     L3["[3] 策略层<br/>技能 × 9"]
     L4["[4] 能力层<br/>工具 + MCP"]
     L5["[5] 智能层<br/>LLM"]
@@ -140,7 +142,7 @@ graph LR
 
 编排器完全通过 [`config/orchestrator.yaml`](../config/orchestrator.yaml) 配置。配置定义了：
 
-- **7 个阶段**，带有默认 Agent 和技能绑定
+- **8 个阶段**，带有默认 Agent 和技能绑定
 - **优先级加权的转换规则**
 - **3 种任务策略**，约束哪些阶段处于活动状态
 - **功能开关**，用于运行时行为切换
@@ -152,12 +154,13 @@ graph LR
 | `analyze` | 规划器 | task-analysis-skill | 否 | 否 |
 | `explore` | 探索器 | repo-explore-skill | 否 | 否 |
 | `plan` | 规划器 | implementation-plan-skill | 否 | 否 |
-| `review` | 审查器 | design-review-skill / code-review-skill | 否 | 否 |
+| `design_review` | 设计审查器 | design-review-skill | 否 | 否 |
 | `implement` | 实现器 | code-implement-skill | 否 | 是 |
+| `code_review` | 代码审查器 | code-review-skill | 否 | 否 |
 | `verify` | 验证器 | verification-skill | 否 | 否 |
 | `finalize` | 终结器 | final-answer-skill | **是** | 否 |
 
-> **注意：** `review` 阶段有双重角色 — 在 `plan` 之后使用 `design-review-skill`（方案审查），在 `implement` 之后使用 `code-review-skill`（代码审查）。编排器根据前一个阶段选择技能。
+> **注意：** `design_review` 和 `code_review` 是两个独立的阶段，分别由独立的 Agent 负责。`design_review` 在 `plan` 之后审查方案可行性，`code_review` 在 `implement` 之后审查代码正确性。每个阶段产出独立的通过/失败信号（`DesignReviewPassed` / `CodeReviewPassed`）。
 
 #### 转换引擎
 
@@ -184,7 +187,7 @@ graph LR
 | 开关 | 默认值 | 效果 |
 |------|--------|------|
 | `enable_verify` | `true` | 全局启用/禁用验证阶段 |
-| `require_review` | `true` | 为 true 时使用包含审查阶段的 high_risk_implementation 策略 |
+| `require_review` | `true` | 为 true 时使用包含 design_review 和 code_review 阶段的 high_risk_implementation 策略 |
 | `allow_skip_plan_for_small_change` | `false` | 允许小改动从 explore 直接跳到 implement |
 
 #### 终止检测
@@ -242,7 +245,8 @@ init → receive_prompt → execute_loop → complete
 | `planner`（规划器） | analyze, plan | 只读 | 结构化任务和设计实现方案 |
 | `explorer`（探索器） | explore | 只读 | 浏览代码库，收集事实，构建模块映射 |
 | `implementer`（实现器） | implement | **读 + 写** | 编写代码，修改文件，生成补丁 |
-| `reviewer`（审查器） | review | 只读 | 审查方案（设计）和代码（正确性） |
+| `design_reviewer`（设计审查器） | design_review | 只读 | 审查方案可行性、架构影响、风险 |
+| `code_reviewer`（代码审查器） | code_review | 只读 | 审查代码正确性、缺陷、风格、副作用 |
 | `verifier`（验证器） | verify | 只读 | 运行测试、lint、构建检查 |
 | `finalizer`（终结器） | finalize | 只读 | 汇总结果，产出最终输出 |
 
@@ -285,8 +289,8 @@ graph TD
 | `cli-analysis-skill` | explore | 替代方案：基于 CLI 的分析 |
 | `implementation-plan-skill` | plan | 设计分步实现方案 |
 | `code-implement-skill` | implement | 编写/修改代码，生成补丁 |
-| `design-review-skill` | review（方案后） | 审查方案可行性、架构影响、风险 |
-| `code-review-skill` | review（实现后） | 审查代码正确性、缺陷、风格、副作用 |
+| `design-review-skill` | design_review | 审查方案可行性、架构影响、风险 |
+| `code-review-skill` | code_review | 审查代码正确性、缺陷、风格、副作用 |
 | `verification-skill` | verify | 运行测试、lint、构建、验证正确性 |
 | `final-answer-skill` | finalize | 产出面向用户的最终输出 |
 
@@ -305,9 +309,8 @@ type SkillConfig struct {
 
 #### 技能选择逻辑
 
-1. **默认**：每个阶段在 YAML 配置中有一个 `default_skill`
-2. **上下文覆盖**：`review` 阶段根据前一个阶段在 `design-review-skill` 和 `code-review-skill` 之间切换
-3. **运行时覆盖**：编排器可以根据任务特定信号覆盖技能
+1. **默认**：每个阶段在 YAML 配置中有一个 `default_skill`（如 `design_review` 阶段默认使用 `design-review-skill`，`code_review` 阶段默认使用 `code-review-skill`）
+2. **运行时覆盖**：编排器可以根据任务特定信号覆盖技能
 
 ---
 
@@ -521,17 +524,17 @@ PromptContext 的组装具有 token 预算意识：
 | **工作** | 设计修改方案、确定需要更改的文件、定义补丁结构、评估影响范围、定义验证方法 |
 | **输出** | `{ plan: { files_to_modify, steps, risks, validation } }` |
 
-### 4.4 review（方案后） — 设计审查
+### 4.4 design_review — 设计审查
 
 > **核心：** 判定方案"是否可行且合理"
 
 | 方面 | 详情 |
 |------|------|
-| **Agent** | 审查器 |
+| **Agent** | 设计审查器（design_reviewer） |
 | **技能** | design-review-skill |
 | **输入** | 方案、仓库事实、约束条件 |
 | **工作** | 检查需求对齐、检查架构完整性、检查边界情况、检查安全/性能风险、检查遗漏步骤 |
-| **输出** | `{ review_result: pass/fail, issues, must_fix, suggestions }` |
+| **输出** | `{ review_result: pass/fail, issues, must_fix, suggestions }`；设置信号 `DesignReviewPassed` |
 
 ### 4.5 implement — 实现
 
@@ -545,17 +548,17 @@ PromptContext 的组装具有 token 预算意识：
 | **工作** | 编写代码、修改配置、生成补丁/diff、调用工具（exec / file write / MCP） |
 | **输出** | `{ patch, modified_files, implementation_notes }` |
 
-### 4.6 review（实现后） — 代码审查
+### 4.6 code_review — 代码审查
 
 > **核心：** 判定代码"是否正确且无隐患"
 
 | 方面 | 详情 |
 |------|------|
-| **Agent** | 审查器 |
+| **Agent** | 代码审查器（code_reviewer） |
 | **技能** | code-review-skill |
 | **输入** | 补丁、原始方案、仓库事实 |
 | **工作** | 检查方案符合度、检查缺陷/边界情况、检查代码风格、检查副作用、检查兼容性 |
-| **输出** | `{ review_result: pass/fail, code_issues, must_fix }` |
+| **输出** | `{ review_result: pass/fail, code_issues, must_fix }`；设置信号 `CodeReviewPassed` |
 
 ### 4.7 verify — 验证
 
@@ -841,14 +844,15 @@ BusContext 中的布尔标志，驱动编排器决策。
 
 ```go
 type ExecutionSignals struct {
-    HasEnoughFacts     bool
-    HasPlan            bool
-    HasPatch           bool
-    ReviewPassed       bool
-    VerificationPassed bool
-    LastStageFailed    bool
-    LastFailureReason  string
-    RetryCount         int
+    HasEnoughFacts       bool
+    HasPlan              bool
+    HasPatch             bool
+    DesignReviewPassed   bool   // 由 design_reviewer Agent 设置
+    CodeReviewPassed     bool   // 由 code_reviewer Agent 设置
+    VerificationPassed   bool
+    LastStageFailed      bool
+    LastFailureReason    string
+    RetryCount           int
 }
 ```
 
@@ -952,15 +956,19 @@ sequenceDiagram
    - 或自循环 `explore`（如需更多事实，优先级 30）
 6. **`plan`** — 规划器 Agent + implementation-plan-skill：设计实现方案
 7. **编排器重新评估** — 方案已存在：
-   - 路由到 `implement`（优先级 100）
-   - 或路由到 `review`（高风险时，优先级 70）
+   - 路由到 `design_review`（优先级 100）
+   - 或路由到 `implement`（优先级 80，跳过设计审查）
    - 或回退到 `explore`（事实不足时，优先级 60）
-8. **`review`（设计）** — 审查器 Agent + design-review-skill：审查方案可行性 *（仅限 high_risk_implementation 策略）*
+8. **`design_review`** — 设计审查器 Agent + design-review-skill：审查方案可行性 *（仅限 high_risk_implementation 策略）*
+   - 通过 → 设置 `DesignReviewPassed = true`，路由到 `implement`
+   - 不通过 → 回退到 `plan` 修订方案
 9. **`implement`** — 实现器 Agent + code-implement-skill：编写代码，生成补丁
 10. **编排器重新评估** — 补丁已存在：
-    - 路由到 `verify`（优先级 100）
-    - 或路由到 `review` 进行代码审查（优先级 70）
-11. **`review`（代码）** — 审查器 Agent + code-review-skill：审查代码正确性 *（仅限 high_risk_implementation 策略）*
+    - 路由到 `code_review`（优先级 100）
+    - 或路由到 `verify`（优先级 80，跳过代码审查）
+11. **`code_review`** — 代码审查器 Agent + code-review-skill：审查代码正确性 *（仅限 high_risk_implementation 策略）*
+    - 通过 → 设置 `CodeReviewPassed = true`，路由到 `verify`
+    - 不通过 → 回退到 `implement` 修复问题
 12. **`verify`** — 验证器 Agent + verification-skill：运行测试、lint、构建
 13. **编排器重新评估** — 验证结果：
     - 通过 → 路由到 `finalize`（优先级 100）
@@ -985,20 +993,26 @@ stateDiagram-v2
     explore --> finalize : 优先级 40
     explore --> explore : 优先级 30（自循环）
 
-    plan --> implement : 优先级 100
-    plan --> review : 优先级 70
+    plan --> design_review : 优先级 100
+    plan --> implement : 优先级 80
     plan --> explore : 优先级 60（回退）
 
-    implement --> verify : 优先级 100
-    implement --> review : 优先级 70
+    design_review --> implement : 优先级 100
+    design_review --> plan : 优先级 70（回退修订）
+    design_review --> finalize : 优先级 20
+
+    implement --> code_review : 优先级 100
+    implement --> verify : 优先级 80
     implement --> plan : 优先级 50（回退）
+
+    code_review --> verify : 优先级 100
+    code_review --> implement : 优先级 70（回退修复）
+    code_review --> finalize : 优先级 20
 
     verify --> finalize : 优先级 100
     verify --> implement : 优先级 80（修复并重试）
 
     finalize --> [*]
-
-    note right of review : 双重角色：<br/>方案后 = design-review-skill<br/>实现后 = code-review-skill
 ```
 
 ### 任务策略叠加
@@ -1020,7 +1034,7 @@ graph LR
 ```mermaid
 graph LR
     subgraph "high_risk_implementation 策略"
-        C1[analyze] --> C2[explore] --> C3[plan] --> C4[review<br/>设计] --> C5[implement] --> C6[review<br/>代码] --> C7[verify] --> C8[finalize]
+        C1[analyze] --> C2[explore] --> C3[plan] --> C4[design_review] --> C5[implement] --> C6[code_review] --> C7[verify] --> C8[finalize]
     end
 ```
 
@@ -1035,7 +1049,7 @@ graph LR
 ### 状态机模式（编排器）
 
 编排器实现了一个**有限状态机**，其中：
-- **状态** = 流水线阶段（analyze, explore, plan, review, implement, verify, finalize）
+- **状态** = 流水线阶段（analyze, explore, plan, design_review, implement, code_review, verify, finalize）
 - **转换** = 阶段间优先级加权的有向边
 - **守卫** = 任务策略、功能开关和运行时条件过滤转换
 - **动作** = 调度适当的 Agent 及正确的技能
@@ -1054,7 +1068,7 @@ graph LR
 
 ### 策略模式（技能）
 
-技能实现了**策略模式** — 同一个 Agent 可以通过更换技能配置表现出不同的行为。例如，`reviewer` Agent 根据上下文使用 `design-review-skill` 或 `code-review-skill`，无需任何代码更改。
+技能实现了**策略模式** — 同一个 Agent 可以通过更换技能配置表现出不同的行为。例如，`planner` Agent 在 `analyze` 阶段使用 `task-analysis-skill`，在 `plan` 阶段使用 `implementation-plan-skill`，无需任何代码更改。
 
 ### 适配器模式（工具 / MCP）
 
