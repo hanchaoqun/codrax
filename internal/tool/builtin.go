@@ -233,55 +233,6 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 }
 
 // ---------------------------------------------------------------------------
-// WriteFile
-// ---------------------------------------------------------------------------
-
-// WriteFile writes content to a file, creating parent directories if needed.
-type WriteFile struct{}
-
-type writeFileParams struct {
-	Path    string `json:"path"`
-	Content string `json:"content"`
-}
-
-func (t *WriteFile) Name() string        { return "write_file" }
-func (t *WriteFile) Description() string { return "Write content to a file, creating parent dirs if needed" }
-
-func (t *WriteFile) Parameters() json.RawMessage {
-	return json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "path":    {"type": "string", "description": "Path to the file to write"},
-    "content": {"type": "string", "description": "Content to write"}
-  },
-  "required": ["path", "content"]
-}`)
-}
-
-func (t *WriteFile) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
-	var p writeFileParams
-	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
-	}
-
-	dir := filepath.Dir(p.Path)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("mkdir failed: %v", err), Timestamp: time.Now()}, nil
-	}
-
-	if err := os.WriteFile(p.Path, []byte(p.Content), 0o644); err != nil {
-		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("write failed: %v", err), Timestamp: time.Now()}, nil
-	}
-
-	return types.ToolResult{
-		ToolName:  t.Name(),
-		Success:   true,
-		Summary:   fmt.Sprintf("wrote %d bytes to %s", len(p.Content), p.Path),
-		Timestamp: time.Now(),
-	}, nil
-}
-
-// ---------------------------------------------------------------------------
 // ListFiles
 // ---------------------------------------------------------------------------
 

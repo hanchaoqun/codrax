@@ -58,32 +58,6 @@ func TestReadFile(t *testing.T) {
 	})
 }
 
-func TestWriteFile(t *testing.T) {
-	t.Run("write to temp file", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		tmpFile := filepath.Join(tmpDir, "subdir", "testwrite.txt")
-		content := "written content here"
-
-		tool := &WriteFile{}
-		params, _ := json.Marshal(writeFileParams{Path: tmpFile, Content: content})
-		result, err := tool.Execute(newBusContext(), params)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.Success {
-			t.Fatalf("expected success, got: %s", result.Summary)
-		}
-
-		data, err := os.ReadFile(tmpFile)
-		if err != nil {
-			t.Fatalf("failed to read written file: %v", err)
-		}
-		if string(data) != content {
-			t.Fatalf("expected %q, got %q", content, string(data))
-		}
-	})
-}
-
 func TestListFiles(t *testing.T) {
 	t.Run("list files in directory", func(t *testing.T) {
 		tmpDir := t.TempDir()

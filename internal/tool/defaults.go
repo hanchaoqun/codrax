@@ -5,7 +5,7 @@ func RegisterDefaults(r *Registry) {
 	r.Register(&ExecCommand{})
 	r.Register(&GrepTool{})
 	r.Register(&ReadFile{})
-	r.Register(&WriteFile{})
+	r.Register(&ApplyPatch{})
 	r.Register(&ListFiles{})
 	r.Register(&RepoMap{})
 	r.Register(&RunTests{})

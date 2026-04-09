@@ -102,7 +102,7 @@ func RegisterDefaults(r *Registry) {
 		},
 		ToolSuggestions: []string{
 			"read_file",
-			"write_file",
+			"apply_patch",
 			"exec_command",
 			"grep",
 		},
