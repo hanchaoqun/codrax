@@ -41,7 +41,7 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 	return &config.ResolvedConfig{
 		Stages: map[types.PipelineStage]*types.StageConfig{
 			types.StageAnalyze: {
-				Name: types.StageAnalyze, DefaultAgent: types.AgentPlanner,
+				Name: types.StageAnalyze, DefaultAgent: types.AgentAnalyzer,
 				DefaultSkill: "analyze-skill",
 			},
 			types.StageExplore: {
@@ -142,7 +142,7 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)) (*agent.Registry, *skill.Registry, *agent.SubAgentRegistry) {
 	ar := agent.NewRegistry()
 	names := []types.AgentName{
-		types.AgentPlanner, types.AgentExplorer, types.AgentImplementer,
+		types.AgentAnalyzer, types.AgentPlanner, types.AgentExplorer, types.AgentImplementer,
 		types.AgentDesignReviewer, types.AgentCodeReviewer,
 		types.AgentVerifier, types.AgentFinalizer,
 	}
@@ -345,21 +345,19 @@ func TestRun_SimplePipeline(t *testing.T) {
 
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 			// analyze: reports MissingFacts so orchestrator transitions to explore
+			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{
+					MissingPiece: types.MissingFacts,
+				}, nil
+			},
+			// plan: reports HasPlan and MissingCode
 			types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-				switch ctx.Stage {
-				case types.StageAnalyze:
-					return &agent.StageOutput{
-						MissingPiece: types.MissingFacts,
-					}, nil
-				case types.StagePlan:
-					return &agent.StageOutput{
-						MissingPiece: types.MissingCode,
-						SignalUpdates: &types.ExecutionSignals{
-							HasPlan: true,
-						},
-					}, nil
-				}
-				return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+				return &agent.StageOutput{
+					MissingPiece: types.MissingCode,
+					SignalUpdates: &types.ExecutionSignals{
+						HasPlan: true,
+					},
+				}, nil
 			},
 			// explore: reports HasEnoughFacts and MissingPlan
 			types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
@@ -443,17 +441,14 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 		cfg := defaultResolvedConfig()
 
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+				return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+			},
 			types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-				switch ctx.Stage {
-				case types.StageAnalyze:
-					return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
-				case types.StagePlan:
-					return &agent.StageOutput{
-						MissingPiece:  types.MissingReview,
-						SignalUpdates: &types.ExecutionSignals{HasPlan: true},
-					}, nil
-				}
-				return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+				return &agent.StageOutput{
+					MissingPiece:  types.MissingReview,
+					SignalUpdates: &types.ExecutionSignals{HasPlan: true},
+				}, nil
 			},
 			types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				return &agent.StageOutput{

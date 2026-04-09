@@ -9,7 +9,10 @@ import (
 	"github.com/hanchaoqun/design/internal/types"
 )
 
-// plannerEvaluator customizes the ReAct loop for the planner agent.
+// plannerEvaluator customizes the ReAct loop for the planner agent,
+// which serves only the plan stage. The analyze stage was previously
+// handled here as well; it now lives in analyzerEvaluator so each stage
+// maps to a single agent.
 type plannerEvaluator struct{}
 
 func (e *plannerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -35,17 +38,10 @@ func (e *plannerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.M
 }
 
 func (e *plannerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *StageOutput) types.MissingPiece {
-	switch ctx.Stage {
-	case types.StageAnalyze:
-		return types.MissingFacts
-	case types.StagePlan:
-		return types.MissingCode
-	default:
-		return types.MissingNone
-	}
+	return types.MissingCode
 }
 
-// NewPlannerAgent creates the planner agent (used in analyze and plan stages).
+// NewPlannerAgent creates the planner agent (used in the plan stage).
 func NewPlannerAgent(deps *Dependencies) Agent {
 	eval := &plannerEvaluator{}
 	return NewBaseAgent(types.AgentPlanner, deps, eval)

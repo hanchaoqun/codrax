@@ -52,11 +52,12 @@ func (r *Registry) List() []types.AgentName {
 // If it returns nil, the default adapter from Dependencies is used.
 type LLMResolver func(name types.AgentName) llm.Adapter
 
-// RegisterDefaults registers all 7 agent types.
+// RegisterDefaults registers all 8 agent types.
 // If resolver is non-nil, each agent gets its own LLM adapter;
 // otherwise all agents share deps.LLM.
 func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver) {
 	agents := []types.AgentName{
+		types.AgentAnalyzer,
 		types.AgentPlanner,
 		types.AgentExplorer,
 		types.AgentImplementer,
@@ -67,6 +68,7 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver) {
 	}
 
 	constructors := map[types.AgentName]func(*Dependencies) Agent{
+		types.AgentAnalyzer:       func(d *Dependencies) Agent { return NewAnalyzerAgent(d) },
 		types.AgentPlanner:        func(d *Dependencies) Agent { return NewPlannerAgent(d) },
 		types.AgentExplorer:       func(d *Dependencies) Agent { return NewExplorerAgent(d) },
 		types.AgentImplementer:    func(d *Dependencies) Agent { return NewImplementerAgent(d) },

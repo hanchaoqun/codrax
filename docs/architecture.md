@@ -242,7 +242,8 @@ init → receive_prompt → execute_loop → complete
 
 | Agent | 阶段 | 能力 | 描述 |
 |-------|------|------|------|
-| `planner`（规划器） | analyze, plan | 只读 | 结构化任务和设计实现方案 |
+| `analyzer`（分析器） | analyze | 只读 | 结构化任务并分类 task_type |
+| `planner`（规划器） | plan | 只读 | 设计实现方案 |
 | `explorer`（探索器） | explore | 只读 | 浏览代码库，收集事实，构建模块映射 |
 | `implementer`（实现器） | implement | **读 + 写** | 编写代码，修改文件，生成补丁 |
 | `design_reviewer`（设计审查器） | design_review | 只读 | 审查方案可行性、架构影响、风险 |
@@ -613,6 +614,7 @@ const (
 
 type AgentName string
 const (
+    AgentAnalyzer       AgentName = "analyzer"
     AgentPlanner        AgentName = "planner"
     AgentExplorer       AgentName = "explorer"
     AgentDesignReviewer AgentName = "design_reviewer"
@@ -1068,7 +1070,7 @@ graph LR
 
 ### 策略模式（技能）
 
-技能实现了**策略模式** — 同一个 Agent 可以通过更换技能配置表现出不同的行为。例如，`planner` Agent 在 `analyze` 阶段使用 `task-analysis-skill`，在 `plan` 阶段使用 `implementation-plan-skill`，无需任何代码更改。
+技能实现了**策略模式** — Agent 的行为完全由它绑定的技能配置决定，更换技能即可改变工作流、提示词和工具偏好，无需修改 Agent 代码。例如 `analyzer` 通过 `task-analysis-skill` 完成任务分类，而 `planner` 通过 `implementation-plan-skill` 设计实现方案——两者都是 BaseAgent 的薄包装，差异完全来自技能配置。
 
 ### 适配器模式（工具 / MCP）
 

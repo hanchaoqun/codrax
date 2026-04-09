@@ -42,6 +42,7 @@ func AllStages() []PipelineStage {
 type AgentName string
 
 const (
+	AgentAnalyzer       AgentName = "analyzer"
 	AgentPlanner        AgentName = "planner"
 	AgentExplorer       AgentName = "explorer"
 	AgentDesignReviewer AgentName = "design_reviewer"
@@ -59,6 +60,7 @@ func (a AgentName) String() string {
 // AllAgentNames returns all agent names.
 func AllAgentNames() []AgentName {
 	return []AgentName{
+		AgentAnalyzer,
 		AgentPlanner,
 		AgentExplorer,
 		AgentDesignReviewer,

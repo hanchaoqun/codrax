@@ -655,9 +655,9 @@ func TestLoadAndResolve(t *testing.T) {
 		}
 	})
 
-	t.Run("7 agents loaded", func(t *testing.T) {
-		if got := len(rc.Agents); got != 7 {
-			t.Fatalf("expected 7 agents, got %d", got)
+	t.Run("8 agents loaded", func(t *testing.T) {
+		if got := len(rc.Agents); got != 8 {
+			t.Fatalf("expected 8 agents, got %d", got)
 		}
 	})
 

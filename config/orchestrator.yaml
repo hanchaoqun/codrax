@@ -15,7 +15,7 @@
 
 stages:
   analyze:
-    default_agent: planner
+    default_agent: analyzer
     default_skill: task-analysis-skill
     terminal: false
 
@@ -170,8 +170,10 @@ pipeline_settings:
 # one or more pipeline stages.
 
 agents:
+  - name: analyzer
+    stages: [analyze]
   - name: planner
-    stages: [analyze, plan]
+    stages: [plan]
   - name: explorer
     stages: [explore]
   - name: implementer
