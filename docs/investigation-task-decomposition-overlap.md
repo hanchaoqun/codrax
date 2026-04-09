@@ -116,3 +116,73 @@ What is **not** a trigger for revisiting:
 **The layer-by-layer breakdown is itself the artifact worth keeping.** Even without a fix, the analysis above pinpoints which propagation channels would matter if this pattern recurs. Future-me reading this doc on the N=2 trigger will not have to re-derive that `Objective` is load-bearing or that `PriorReports` filtering is a cosmetic fix at the wrong layer.
 
 **Honest reliability transparency, again.** The prior session's lesson — "a system that is honestly 33% reliable on a hard query is better than a system that appears 100% reliable because the answer is leaked into the prompt" — has a sibling here: a system that produces honestly redundant output on an over-decomposed question is better than a system that hides the redundancy with a cosmetic filter while the underlying over-decomposition continues to burn LLM turns. Fix the cause if and when N=2 arrives; do not paper over the symptom.
+
+## 6. Companion observation — `MissingPlan` leaks under `analysis` policy
+
+A second N=1 finding from the same trace, recorded here because it surfaced from re-reading the same orchestrator log lines and shares the "harmless now, may matter later" character.
+
+### What the log shows
+
+```
+task=1 step=0 stage=explore  missing=facts
+task 1 transition: explore -> finalize
+task=1 step=1 stage=finalize missing=plan          ← here
+```
+
+`missing=plan` appears at the `finalize` step under an `analysis` policy that does not allow the `plan` stage at all. Both tasks in this run produced the same line.
+
+### Reconstruction
+
+1. `explore` finished with `HasEnoughFacts == true`.
+2. `internal/agent/explorer.go:117-122 DetermineMissingPiece` returned `MissingPlan` unconditionally on that signal:
+   ```go
+   if output.SignalUpdates != nil && output.SignalUpdates.HasEnoughFacts {
+       return types.MissingPlan
+   }
+   ```
+   This is **policy-blind** — it does not consult `determineActivePolicy()`.
+3. `decideNextStage` (orchestrator.go:447) evaluated explore's out-edges:
+   - `GetTransitions(explore)` returned `[explore→plan(100), explore→finalize(40), explore→explore(30)]`.
+   - `filterByPolicy` (line 505) removed `explore→plan` because `plan` is not in the `analysis` policy's `AllowedStages`. **Plan was eliminated before signal evaluation ever ran.**
+   - `filterBySignals` accepted `explore→finalize` (HasEnoughFacts) and `explore→explore` (fallback).
+   - Selected `explore→finalize` at priority 40.
+4. The transition log shows `explore -> finalize` directly. **Routing did not "try to enter plan"** in any actionable sense — `plan` was the highest-priority candidate from `GetTransitions` but was filtered out at the first policy gate, not the signal gate.
+
+`missing=plan` is therefore **dead state**: written by the explorer, carried forward, but unable to influence routing because the only stage that could consume it is unreachable under this policy.
+
+### Why it is not purely cosmetic
+
+`internal/context/builder.go:221-226` renders `MissingPiece` into the agent prompt unconditionally:
+
+```go
+if ac.MissingPiece != types.MissingNone {
+    pc.UserSections = append(pc.UserSections, types.PromptSection{
+        Title:   "Missing Piece",
+        Content: fmt.Sprintf("Currently missing: %s", ac.MissingPiece),
+    })
+}
+```
+
+So under `analysis` policy, the `finalize`-stage prompt to the LLM contains:
+
+```
+## Missing Piece
+Currently missing: plan
+```
+
+The finalizer is the terminal stage. There is no future stage that can satisfy "missing: plan" under analysis policy. The line is at best ignored, at worst nudges the finalizer toward a "plan still pending" caveat that is structurally impossible to act on. This run produced the right answer in both tasks, so the leak did not cause visible damage — but it is observable noise in the prompt, not just in the log.
+
+### Audit on candidate fixes
+
+- **Make `explorer.DetermineMissingPiece` policy-aware** (return `MissingNone` if plan is forbidden): conceptually right but punches through the layer boundary — the explorer agent currently does not need to know about task policies, and adding the dependency for one return value is an over-fit at N=1. **Defer.**
+- **Filter `MissingPiece` in `BuildPromptContext` against the active policy** (don't render a Missing Piece pointing to a forbidden stage): narrower, no layer-crossing on the agent side, but requires `AgentContext` to carry policy info it currently doesn't. Also N=1. **Defer.**
+- **Suppress the rendered "Missing Piece" line at the `finalize` stage specifically** (terminal stages have nothing left to be missing): smallest change but is exactly the kind of stage-name-specific carve-out the over-fitting audit warns against. **Reject.**
+
+### N=1 verdict
+
+This is **the same trace, the same run, a second observation** — not an independent N=2. Both findings are recorded together and both deferred. Triggers for revisiting the missing-piece leak:
+
+- **A finalizer output that visibly references the dead "missing: plan" state** (e.g. "no plan yet, more work needed" in an analysis answer). That would upgrade this from "noise in the prompt" to "noise in the user-visible output", which is a different impact tier.
+- **Any second site where a `MissingPiece` is set but the corresponding stage is unreachable under the active policy.** A second instance of the same class makes the policy-blind `DetermineMissingPiece` design (not just the explorer's specific case) the right thing to fix.
+
+The two findings in this doc are linked: the duplication in §1-§5 and the missing-piece leak here both stem from the same underlying shape — **per-stage agent decisions made without policy context, trusted to be filtered downstream**. If one of them recurs under N=2, the right fix may turn out to address both at once.
