@@ -368,18 +368,22 @@ func (o *Orchestrator) BusContext() *types.BusContext {
 	return o.busCtx
 }
 
-// extractSubAgentProposal checks if the agent output contains a SubAgentProposal
-// (from a propose_sub_agents tool call). Returns nil if not found.
+// extractSubAgentProposal scans tool results for a propose_sub_agents call
+// and parses the proposal. Returns nil if not found.
 func extractSubAgentProposal(output *agent.StageOutput) *types.SubAgentProposal {
-	if output == nil || output.Data == nil {
+	if output == nil {
 		return nil
 	}
-	var proposal types.SubAgentProposal
-	if err := json.Unmarshal(output.Data, &proposal); err != nil {
-		return nil
+	for _, r := range output.ToolResults {
+		if r.ToolName == "propose_sub_agents" && r.Success {
+			var proposal types.SubAgentProposal
+			if err := json.Unmarshal([]byte(r.Summary), &proposal); err != nil {
+				continue
+			}
+			if len(proposal.SubTasks) > 0 {
+				return &proposal
+			}
+		}
 	}
-	if len(proposal.SubTasks) == 0 {
-		return nil
-	}
-	return &proposal
+	return nil
 }

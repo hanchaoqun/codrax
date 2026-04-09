@@ -45,55 +45,49 @@ func main() {
 	log.Printf("loaded config: %d stages, %d policies",
 		len(cfg.Stages), len(cfg.TaskPolicies))
 
-	// Initialize registries
-	toolRegistry := tool.NewRegistry()
-	tool.RegisterDefaults(toolRegistry)
-	log.Printf("registered %d tools", len(toolRegistry.List()))
+	// Load providers config
+	providersCfg, err := config.LoadProviders(*providersPath)
+	if err != nil {
+		log.Fatalf("failed to load providers config: %v", err)
+	}
+	defaultLLM := createDefaultAdapter(providersCfg)
 
+	// Initialize registries
 	mcpRegistry := mcp.NewRegistry()
-	// MCP servers would be configured here based on environment
 	log.Printf("registered %d MCP servers", len(mcpRegistry.List()))
 
 	skillRegistry := skill.NewRegistry()
 	skill.RegisterDefaults(skillRegistry)
 	log.Printf("registered %d skills", len(skillRegistry.List()))
 
-	// Load providers config
-	providersCfg, err := config.LoadProviders(*providersPath)
-	if err != nil {
-		log.Fatalf("failed to load providers config: %v", err)
-	}
-
-	// Create default LLM adapter
-	defaultLLM := createDefaultAdapter(providersCfg)
-
-	// Create SubAgent registry
+	// SubAgent registry → register sub-agents → register propose_sub_agents tool
 	subAgentRegistry := agent.NewSubAgentRegistry()
+	toolRegistry := tool.NewRegistry()
+	tool.RegisterDefaults(toolRegistry)
 
-	// Create agent registry with per-agent LLM resolution
 	deps := &agent.Dependencies{
 		LLM:           defaultLLM,
 		Tools:         toolRegistry,
 		MCPServers:    mcpRegistry,
-		SubAgents:     subAgentRegistry,
 		MaxIterations: 20,
 	}
 
+	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
+	toolRegistry.Register(tool.NewProposeSubAgents(subAgentRegistry.Names()))
+	log.Printf("registered %d tools, %d sub-agents", len(toolRegistry.List()), len(subAgentRegistry.Names()))
+
+	// Create agent registry with per-agent LLM resolution
 	resolver := func(name types.AgentName) llm.Adapter {
 		resolved := config.ResolveProvider(providersCfg, string(name))
 		if adapter := llm.NewFromConfig(resolved); adapter != nil {
 			return adapter
 		}
-		return nil // use default from deps
+		return nil
 	}
 
 	agentRegistry := agent.NewRegistry()
 	agent.RegisterDefaults(agentRegistry, deps, resolver)
 	log.Printf("registered %d agents", len(agentRegistry.List()))
-
-	// Register default SubAgents (after deps are created)
-	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
-	log.Printf("registered %d sub-agents", len(subAgentRegistry.Names()))
 
 	// Create and run orchestrator
 	orch := orchestrator.New(cfg, agentRegistry, skillRegistry, subAgentRegistry)
