@@ -3,8 +3,8 @@ package context
 import (
 	"testing"
 
-	"github.com/hanchaoqun/design/internal/skill"
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestBuildAgentContext(t *testing.T) {

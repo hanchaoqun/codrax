@@ -1,4 +1,4 @@
 config/providers.yaml
 
 # Build output (binary name comes from module path)
-/design
+/codrax

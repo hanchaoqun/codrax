@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hanchaoqun/design/internal/llm"
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Registry manages available agents.

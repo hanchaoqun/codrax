@@ -5,7 +5,7 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // minimalYAML is a focused config for unit tests that exercises all parsed

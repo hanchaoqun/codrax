@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // ProposeSubAgents is a built-in tool that allows an Agent to propose sub-agent

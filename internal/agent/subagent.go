@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // SubAgent is a focused worker that executes a sub-task in parallel with other SubAgents.

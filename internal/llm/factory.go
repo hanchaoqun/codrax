@@ -1,6 +1,6 @@
 package llm
 
-import "github.com/hanchaoqun/design/internal/types"
+import "github.com/hanchaoqun/codrax/internal/types"
 
 // NewFromConfig creates an Adapter from a resolved provider config.
 // Returns nil if no provider is configured (no api_key, no provider).

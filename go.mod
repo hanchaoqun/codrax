@@ -1,4 +1,4 @@
-module github.com/hanchaoqun/design
+module github.com/hanchaoqun/codrax
 
 go 1.22.5
 

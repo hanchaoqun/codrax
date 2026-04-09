@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"strings"
 
-	ctxbuilder "github.com/hanchaoqun/design/internal/context"
-	"github.com/hanchaoqun/design/internal/llm"
-	"github.com/hanchaoqun/design/internal/skill"
-	"github.com/hanchaoqun/design/internal/types"
+	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // SubExplorer is a SubAgent that scans files within a given scope

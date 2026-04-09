@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/hanchaoqun/design/internal/llm"
-	"github.com/hanchaoqun/design/internal/skill"
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 type designReviewerEvaluator struct{}

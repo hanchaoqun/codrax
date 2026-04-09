@@ -6,11 +6,11 @@ import (
 	"log"
 	"time"
 
-	"github.com/hanchaoqun/design/internal/agent"
-	"github.com/hanchaoqun/design/internal/config"
-	ctxbuilder "github.com/hanchaoqun/design/internal/context"
-	"github.com/hanchaoqun/design/internal/skill"
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/config"
+	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Orchestrator is the Layer 1 component that drives the pipeline state machine.

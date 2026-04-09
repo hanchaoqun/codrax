@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func newBusContext() *types.BusContext {

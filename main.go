@@ -6,14 +6,14 @@ import (
 	"log"
 	"os"
 
-	"github.com/hanchaoqun/design/internal/agent"
-	"github.com/hanchaoqun/design/internal/config"
-	"github.com/hanchaoqun/design/internal/llm"
-	"github.com/hanchaoqun/design/internal/mcp"
-	"github.com/hanchaoqun/design/internal/orchestrator"
-	"github.com/hanchaoqun/design/internal/skill"
-	"github.com/hanchaoqun/design/internal/tool"
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/config"
+	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/orchestrator"
+	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func main() {

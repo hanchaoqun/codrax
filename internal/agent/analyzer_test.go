@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/hanchaoqun/design/internal/llm"
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestAnalyzerParseOutputCapturesSummary verifies that the analyzer's

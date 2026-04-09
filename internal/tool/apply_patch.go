@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/hanchaoqun/design/internal/tool/patcher"
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/tool/patcher"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // ApplyPatch wraps the patcher package as a Tool. It replaces write_file

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // ---------------------------------------------------------------------------

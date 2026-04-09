@@ -6,7 +6,7 @@ import (
 	"log"
 	"sync"
 
-	"github.com/hanchaoqun/design/internal/types"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // --- SubAgentValidator ---

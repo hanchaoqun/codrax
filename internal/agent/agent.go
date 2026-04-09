@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"log"
 
-	agentctx "github.com/hanchaoqun/design/internal/context"
-	"github.com/hanchaoqun/design/internal/llm"
-	"github.com/hanchaoqun/design/internal/mcp"
-	"github.com/hanchaoqun/design/internal/skill"
-	"github.com/hanchaoqun/design/internal/tool"
-	"github.com/hanchaoqun/design/internal/types"
+	agentctx "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // StageOutput is the structured result an Agent returns to the Orchestrator.
