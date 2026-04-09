@@ -46,29 +46,62 @@ func RegisterDefaults(r *Registry) {
 			"exec_command",
 			"todo_write",
 		},
-		// Few-shot OutputFormat. The previous abstract description ("Direct
-		// answer ... plus file:line citations") was insufficient to bind the
-		// LLM away from its training-distribution default of "Key Components
-		// / Files Involved / Usage Instructions" cataloger sections. A
-		// concrete example is much stickier than an abstract requirement.
-		OutputFormat: `Output the answer in this exact shape (no Key Components / Files Involved / Usage Instructions sections):
+		// OutputFormat is shape-by-example, not shape-by-rule. The previous
+		// abstract description ("Direct answer ... plus file:line citations")
+		// failed to bind the LLM away from its training-distribution default
+		// of cataloger sections. A single concrete example fixed that, but
+		// over-fit in two ways: (1) the example was the trigger query's
+		// answer verbatim, contaminating the very query it was supposed to
+		// validate, and (2) it pinned the answer length at "one or two
+		// sentences", which compresses any genuine multi-paragraph
+		// explanation request into a degenerate two-sentence summary plus
+		// file list.
+		//
+		// The fix is three concrete examples covering three answer scales
+		// (lookup, count, multi-paragraph explanation), all using content
+		// completely unrelated to this codebase. The principle "scale the
+		// answer to the question" is stated above the examples in plain
+		// English. The examples teach format flexibility (the Answer block
+		// scales) without teaching specific content (the LLM can't copy any
+		// of these because none of them are about this repo).
+		OutputFormat: `The shape of your answer must match the shape of the question. Lead with the direct answer at the right level of detail — one sentence for a count, name, or yes/no question; multiple paragraphs for an explanation, walkthrough, or comparison. Match the answer's depth to the question's depth: do not pad a one-sentence answer into prose, and do not compress a multi-paragraph explanation into two sentences. Always ground load-bearing claims in a file:line citation.
 
-Answer: <one or two sentences directly answering the question>
+Use this shape — Answer first, then Evidence:
+
+Answer: <direct answer at the right depth>
 Evidence:
-- <file:line> — <what this line establishes>
-- <file:line> — <what this line establishes>
+- <file:line> — <what this establishes>
+- <file:line> — <what this establishes>
 
-If part of the question genuinely cannot be answered from the code you read, name the missing piece in one extra sentence — do not substitute "further analysis required" for an answer.
+If part of the question genuinely cannot be answered from the code you read, add one short sentence naming the missing piece — do not substitute "further analysis required" for an answer the evidence supports.
 
-Example:
-Answer: There is one SubAgent implementation in the project, SubExplorer.
+Below are three illustrative examples drawn from a hypothetical, unrelated codebase. They show how the Answer block scales — DO NOT copy their content, only their shape:
+
+Example A — lookup question (one short sentence is the right depth):
+Answer: The project is written in Go 1.22.
 Evidence:
-- internal/agent/subagent.go:63-66 — RegisterDefaultSubAgents adds NewSubExplorer(deps) to the registry
-- internal/agent/sub_explorer.go:14 — SubExplorer type definition`,
+- go.mod:3 — go 1.22.5
+
+Example B — count question (one sentence + several pieces of evidence):
+Answer: There are 4 HTTP handlers registered on the public router.
+Evidence:
+- cmd/server/router.go:18-21 — Mount calls for /health, /api/v1/users, /api/v1/orders, /metrics
+- cmd/server/router.go:42 — no Mount calls after line 21
+
+Example C — explanation question (multi-paragraph is the right depth):
+Answer: The cache is a write-through layer between the API handlers and the database. On every write the handler updates the database first and then invalidates the corresponding cache key; the next read repopulates the cache from the database. There is no read-through-on-miss path: a cache miss is served directly from the database without writing back, which is intentional so that stale data from a misbehaving writer cannot persist beyond one request.
+
+The cache key format is "<resource>:<id>" and the default TTL is 5 minutes. Eviction is purely LRU; there is no manual flush API.
+
+Evidence:
+- internal/cache/cache.go:42-58 — Set() invalidates the key after the DB write returns
+- internal/cache/cache.go:78-91 — Get() falls through to the DB on miss but does not write back
+- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute`,
 		Prohibitions: []string{
 			"do not modify any files",
 			"do not make assumptions without evidence",
 			"do not stop at 'the answer would require checking X' — go check X yourself",
+			"do not write about what would be done next or what the user should do — answer only what was asked",
 		},
 	})
 
@@ -220,40 +253,58 @@ Evidence:
 	// returns "analysis".
 	r.Register(&Config{
 		Name: "analysis-final-answer-skill",
-		Goal: "Answer the user's question directly using the evidence the prior stages collected.",
+		Goal: "Answer the user's question directly using the evidence the prior stages collected, at the right level of detail for what was asked.",
 		Workflow: []string{
-			"read the user's original question",
+			"read the user's original question and identify whether it asks for a fact (count/name/yes-no), an explanation (how/why/walkthrough), or a comparison",
 			"read the prior stage findings (especially the explorer's stage report) and identify the specific answer the evidence supports",
-			"state that answer in one sentence",
-			"cite the evidence (file:line where applicable) that establishes it",
-			"if part of the question is unanswered, say which part and why — do not substitute templated 'further analysis required' boilerplate for an answer",
+			"state that answer at the right depth — one sentence for a fact, multiple paragraphs for an explanation",
+			"ground load-bearing claims in file:line citations from the prior stages",
+			"if part of the question is unanswered, say which part and why — do not substitute templated boilerplate for an answer the evidence supports",
 		},
 		ToolSuggestions: []string{},
-		// This is a few-shot OutputFormat, not an abstract description. LLMs
-		// bind much more tightly to a concrete example than to a list of
-		// requirements, and the failure mode this is fixing is precisely the
-		// LLM defaulting to its training-distribution template instead of
-		// the requested shape.
-		OutputFormat: `Output exactly the following structure (no extra sections, no Summary/Changes/Conclusion/Action Steps headers):
+		// OutputFormat shares the same shape-by-example design as
+		// repo-explore-skill above. See the comment there for the rationale
+		// and the over-fitting failure mode that motivated three examples
+		// instead of one. The two skills use the same Answer/Evidence
+		// shape so that the explorer's stage_report can flow through the
+		// finalizer with minimal rewriting.
+		OutputFormat: `The shape of your answer must match the shape of the question. Lead with the direct answer at the right level of detail — one sentence for a count, name, or yes/no question; multiple paragraphs for an explanation, walkthrough, or comparison. Match the answer's depth to the question's depth: do not pad a one-sentence answer into prose, and do not compress a multi-paragraph explanation into two sentences. Always ground load-bearing claims in a file:line citation.
 
-**Answer:** <one or two sentences directly answering the user's question>
+Use this shape — Answer first, then Evidence:
 
-**Evidence:**
-- <file:line> — <what this evidence establishes>
-- <file:line> — <what this evidence establishes>
-
-(Optional) **Caveat:** <only if part of the question genuinely cannot be answered from the gathered evidence — name the missing piece, do not pad>
-
-Example:
-**Answer:** There is one SubAgent implementation in the project, ` + "`SubExplorer`" + `, registered as the default subagent.
+**Answer:** <direct answer at the right depth>
 
 **Evidence:**
-- internal/agent/subagent.go:63-66 — RegisterDefaultSubAgents adds NewSubExplorer(deps) to the registry
-- internal/agent/sub_explorer.go:14 — SubExplorer type definition`,
+- <file:line> — <what this establishes>
+- <file:line> — <what this establishes>
+
+(Optional) **Caveat:** <only if part of the question genuinely cannot be answered from the gathered evidence — name the missing piece in one short sentence, do not pad>
+
+Below are three illustrative examples drawn from a hypothetical, unrelated codebase. They show how the Answer block scales — DO NOT copy their content, only their shape:
+
+Example A — lookup question (one short sentence is the right depth):
+**Answer:** The project is written in Go 1.22.
+**Evidence:**
+- go.mod:3 — go 1.22.5
+
+Example B — count question (one sentence + several pieces of evidence):
+**Answer:** There are 4 HTTP handlers registered on the public router.
+**Evidence:**
+- cmd/server/router.go:18-21 — Mount calls for /health, /api/v1/users, /api/v1/orders, /metrics
+- cmd/server/router.go:42 — no Mount calls after line 21
+
+Example C — explanation question (multi-paragraph is the right depth):
+**Answer:** The cache is a write-through layer between the API handlers and the database. On every write the handler updates the database first and then invalidates the corresponding cache key; the next read repopulates the cache from the database. There is no read-through-on-miss path: a cache miss is served directly from the database without writing back, which is intentional so that stale data from a misbehaving writer cannot persist beyond one request.
+
+The cache key format is "<resource>:<id>" and the default TTL is 5 minutes. Eviction is purely LRU; there is no manual flush API.
+
+**Evidence:**
+- internal/cache/cache.go:42-58 — Set() invalidates the key after the DB write returns
+- internal/cache/cache.go:78-91 — Get() falls through to the DB on miss but does not write back
+- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute`,
 		Prohibitions: []string{
-			"do not produce a Summary / Changes / Conclusion / Action Steps / Instructions template",
 			"do not invent next steps the user did not ask for",
-			"do not list project components when the question asked for a count or a name",
+			"do not write 'usage instructions' or 'action steps' for a question that asked for an answer rather than for changes",
 			"do not substitute 'further investigation needed' for an answer the prior stages already established",
 		},
 	})
