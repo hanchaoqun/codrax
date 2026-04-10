@@ -36,11 +36,11 @@ func RegisterDefaults(r *Registry) {
 		Name: "repo-explore-skill",
 		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
 		Workflow: []string{
-			"PHASE 1 — Breadth scan: use repo_map and grep to map ALL relevant files. Do not read files in full yet. Output a prioritized list of 3-6 source files to investigate, with what you expect to learn from each",
+			"PHASE 1 — Breadth scan: use repo_map and grep (with files_only=true) to discover ALL relevant files. Do not read files in full yet. Classify each file by role (type definitions, core logic, configuration/rules, entry point). Output a prioritized list of 3-6 files to investigate",
 			"PHASE 2 — Depth read: read each file from your list in full (no offset/limit for <500 lines). For each file extract: (a) key data structures and fields, (b) control flow and branching logic, (c) configuration-driven behavior, (d) cross-component interactions",
 			"if you surface a name that looks load-bearing (a function, type, symbol, config key), open it before drawing conclusions — a name is a hypothesis to verify, not an answer",
-			"cross-reference: when file A references file B, read file B too — don't assume, verify. Read config files (YAML) when the code loads configuration that drives behavior",
-			"never read test files (*_test.go) — they are derivative, not authoritative. Never read utility files (logging, tool registration) unless the question is about them",
+			"cross-reference: when file A references file B, read file B too — don't assume, verify",
+			"never read test files — they are derivative, not authoritative. Never read utility/infrastructure files unless the question is about them",
 		},
 		ToolSuggestions: []string{
 			"repo_map",
