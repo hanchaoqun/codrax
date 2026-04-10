@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -44,19 +45,36 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			b.WriteString(formatKeywordResults(results))
 			// Save files with repo_map structural relevance for coverage
 			// tracking in Phase 2, along with their symbol tables.
+			// Sort by repo_map score (structural importance) rather than
+			// combined score, so structurally important files like
+			// subagent.go (high repo_map, low grep) aren't crowded out.
 			// Cap at 8 files to stay within iteration budget.
-			e.fileSymbols = make(map[string][]string)
-			count := 0
+			type coverageCandidate struct {
+				path         string
+				repoMapScore float64
+				symbols      []string
+			}
+			var candidates []coverageCandidate
 			for _, r := range results {
-				if count >= 8 {
+				if r.RepoMapScore > 0 {
+					candidates = append(candidates, coverageCandidate{
+						path:         r.Path,
+						repoMapScore: r.RepoMapScore,
+						symbols:      r.Symbols,
+					})
+				}
+			}
+			sort.Slice(candidates, func(i, j int) bool {
+				return candidates[i].repoMapScore > candidates[j].repoMapScore
+			})
+			e.fileSymbols = make(map[string][]string)
+			for i, c := range candidates {
+				if i >= 8 {
 					break
 				}
-				if r.Hits["repo_map"] != "" {
-					e.preScannedFiles = append(e.preScannedFiles, r.Path)
-					if len(r.Symbols) > 0 {
-						e.fileSymbols[r.Path] = r.Symbols
-					}
-					count++
+				e.preScannedFiles = append(e.preScannedFiles, c.path)
+				if len(c.symbols) > 0 {
+					e.fileSymbols[c.path] = c.symbols
 				}
 			}
 		} else {
@@ -135,18 +153,14 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		return "## Phase 2: Depth Read\n\n" +
 			"Good — you have mapped the relevant territory. Now switch to deep investigation.\n\n" +
 			"**User question: " + e.userQuestion + "**\n\n" +
-			"Read the key source files you identified. For EACH file you read, write a brief analysis:\n" +
-			"1. What does this file reveal about the user's question?\n" +
-			"2. What specific code (function name, line) is the evidence?\n" +
-			"3. Does this file reference another file that you need to read?\n\n" +
-			"**Important:** Read ONE file at a time, then analyze it before reading the next. " +
-			"Do not read multiple large files in one batch — you will lose detail. " +
-			"Small files (<100 lines) can be read in the same batch.\n\n" +
-			"**Read implementations, not just signatures.** Type definitions and interface declarations tell you WHAT exists. " +
-			"But function bodies tell you WHICH specific instances exist and HOW they connect. " +
-			"The answer to 'which', 'how many', or 'what calls what' is almost always inside a function body, not in a type definition.\n\n" +
-			"**Condition chase:** when you find 'only if X matches Y', don't stop at the condition — trace through the code to find what X and Y are concretely. " +
-			"Do NOT just catalog structures — answer the question.\n\n" +
+			"Read the key source files you identified. After EACH file, write:\n" +
+			"1. **Current best answer:** state your running answer to the question RIGHT NOW. " +
+			"If your previous answer was conditional (e.g. 'any X that satisfies Y'), check if this file resolves the condition.\n" +
+			"2. **Evidence from this file:** specific function/line that supports or changes the answer.\n" +
+			"3. **Open questions:** what do you still need to find out? What conditions are unresolved?\n\n" +
+			"**Important:** Read ONE file at a time, then update your answer before reading the next.\n\n" +
+			"**Read implementations, not just signatures.** Function bodies tell you WHICH specific instances exist. " +
+			"The answer to 'which', 'how many', or 'what calls what' is inside function bodies, not type definitions.\n\n" +
 			"Start by reading the most important file now.", true
 	}
 

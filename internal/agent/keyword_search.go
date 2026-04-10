@@ -15,10 +15,11 @@ import (
 
 // keywordFileScore records how a file scored across multi-level keyword matching.
 type keywordFileScore struct {
-	Path    string
-	Score   float64
-	Hits    map[string]string // keyword → best match level for debugging
-	Symbols []string          // symbol summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
+	Path         string
+	Score        float64
+	RepoMapScore float64           // raw repo_map structural score (for coverage selection)
+	Hits         map[string]string // keyword → best match level for debugging
+	Symbols      []string          // symbol summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
 }
 
 // Directories excluded from keyword search (same as grep tool defaults).
@@ -91,7 +92,11 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 		// Extract symbol summaries from repo_map graph.
 		var syms []string
 		if graph != nil {
-			if fi, ok := graph.FileIndex[f]; ok {
+			fi, ok := graph.FileIndex[f]
+			if !ok {
+				logging.Debug("[keyword_search] symbols: %s not in FileIndex", f)
+			}
+			if ok {
 				for _, sym := range fi.Symbols {
 					if sym.Exported || sym.Kind == "function" || sym.Kind == "method" {
 						summary := fmt.Sprintf("%s %s:%d", sym.Name, sym.Kind, sym.Line)
@@ -105,10 +110,11 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 		}
 
 		results = append(results, keywordFileScore{
-			Path:    f,
-			Score:   combined,
-			Hits:    hits,
-			Symbols: syms,
+			Path:         f,
+			Score:        combined,
+			RepoMapScore: repoMapScores[f],
+			Hits:         hits,
+			Symbols:      syms,
 		})
 	}
 
