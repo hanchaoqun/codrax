@@ -25,7 +25,10 @@ import (
 // skills can keep using it. A shell can of course mutate the filesystem
 // (`cat > foo`, `rm`, `mv`); restricting that requires a separate
 // command allowlist or sandbox, not the requires_write boundary.
-type ExecCommand struct{ ReadOnly }
+type ExecCommand struct {
+	ReadOnly
+	EvidenceTool
+}
 
 type execCommandParams struct {
 	Command   string `json:"command"`
@@ -105,7 +108,10 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 // ---------------------------------------------------------------------------
 
 // GrepTool searches file contents by pattern using grep.
-type GrepTool struct{ ReadOnly }
+type GrepTool struct {
+	ReadOnly
+	EvidenceTool
+}
 
 type grepToolParams struct {
 	Pattern    string `json:"pattern"`
@@ -212,7 +218,10 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // ---------------------------------------------------------------------------
 
 // ReadFile reads file contents with optional line-based offset and limit.
-type ReadFile struct{ ReadOnly }
+type ReadFile struct {
+	ReadOnly
+	EvidenceTool
+}
 
 type readFileParams struct {
 	Path   string `json:"path"`
@@ -308,7 +317,10 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // ---------------------------------------------------------------------------
 
 // ListFiles lists files in a directory, optionally recursively.
-type ListFiles struct{ ReadOnly }
+type ListFiles struct {
+	ReadOnly
+	EvidenceTool
+}
 
 type listFilesParams struct {
 	Path      string `json:"path"`
@@ -397,7 +409,10 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 // mutation. The verifier (a read-only agent) depends on it. Test code
 // could in principle write files, but that risk is shared with any
 // language runtime and is out of scope for this boundary.
-type RunTests struct{ ReadOnly }
+type RunTests struct {
+	ReadOnly
+	EvidenceTool
+}
 
 type runTestsParams struct {
 	Command string `json:"command,omitempty"`
@@ -477,7 +492,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // ---------------------------------------------------------------------------
 
 // GitDiff runs git diff with optional staging and ref options.
-type GitDiff struct{ ReadOnly }
+type GitDiff struct {
+	ReadOnly
+	EvidenceTool
+}
 
 type gitDiffParams struct {
 	Path   string `json:"path,omitempty"`
@@ -546,7 +564,10 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 // ---------------------------------------------------------------------------
 
 // GitLog runs git log with configurable count and format.
-type GitLog struct{ ReadOnly }
+type GitLog struct {
+	ReadOnly
+	EvidenceTool
+}
 
 type gitLogParams struct {
 	Path   string `json:"path,omitempty"`

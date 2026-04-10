@@ -29,6 +29,7 @@ func GenerateView(g *Graph, viewType string, params ViewParams) string {
 func viewOverview(g *Graph, params ViewParams) string {
 	var b strings.Builder
 	b.WriteString("# Repository Overview\n\n")
+	b.WriteString("> **This is a navigation index, not evidence.** Use it to decide which files to read or grep next. Do not cite repo_map output as a source of truth — always verify by reading the actual file.\n\n")
 
 	// Language distribution
 	b.WriteString("## Languages\n\n")
@@ -110,6 +111,7 @@ func viewOverview(g *Graph, params ViewParams) string {
 func viewFileMap(g *Graph, params ViewParams) string {
 	var b strings.Builder
 	b.WriteString("# File Map\n\n")
+	b.WriteString("> **Navigation index only.** Verify symbols and line numbers by reading the actual files.\n\n")
 
 	topN := params.TopN
 	if topN <= 0 {
@@ -174,6 +176,7 @@ func viewTaskMap(g *Graph, params ViewParams) string {
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("# Task Map: %s\n\n", params.Query))
+	b.WriteString("> **Navigation index only.** Use these results to decide which files to read or grep — do not treat them as evidence.\n\n")
 
 	// Re-rank with query
 	RankGraph(g, params.Query)
@@ -247,6 +250,7 @@ func viewCallPath(g *Graph, params ViewParams) string {
 	}
 
 	b.WriteString(fmt.Sprintf("# Call Path from %s\n\n", entry))
+	b.WriteString("> **Navigation index only.** Verify call chains by reading the actual source files.\n\n")
 
 	// BFS through import graph
 	visited := make(map[string]bool)
@@ -305,6 +309,7 @@ func viewEditImpact(g *Graph, params ViewParams) string {
 
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("# Edit Impact: %s\n\n", target))
+	b.WriteString("> **Navigation index only.** Verify impact by reading the dependent files.\n\n")
 
 	fi := g.FileIndex[target]
 	if fi == nil {

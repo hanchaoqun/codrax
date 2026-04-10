@@ -21,7 +21,10 @@ import (
 //
 // Classified ReadOnly because IsWrite() is the filesystem-write
 // boundary; mutating BusContext is not a filesystem write.
-type TodoWrite struct{ ReadOnly }
+type TodoWrite struct {
+	ReadOnly
+	NonEvidenceTool
+}
 
 type todoWriteParams struct {
 	Tasks []todoWriteTaskParam `json:"tasks"`

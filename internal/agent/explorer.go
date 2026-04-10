@@ -6,16 +6,20 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-type explorerEvaluator struct{}
+type explorerEvaluator struct {
+	tools *tool.Registry
+}
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	return "Explore the codebase to build a trusted factual foundation. Use the available tools to find entry points, understand module structure, and identify relevant files.\n\n" +
 		"Strategy hints:\n" +
 		"- Prefer targeted tools (grep with --include, read_file with offset/limit) over broad listings.\n" +
-		"- Use repo_map with a small max_depth for structural overview; avoid recursive list_files on the repository root.\n" +
+		"- repo_map is a NAVIGATION INDEX only — use it to learn which files and symbols exist so you know where to look, but NEVER cite its output as evidence. After consulting repo_map, you MUST read_file or grep the actual source files to establish facts. An answer grounded only in repo_map output is an answer grounded in nothing.\n" +
+		"- Avoid recursive list_files on the repository root.\n" +
 		"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command."
 }
 
@@ -71,29 +75,36 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// Extract facts from tool results
+	// Extract facts from tool results. Each tool declares its own
+	// Confidence via the Tool interface: evidence tools (grep,
+	// read_file, …) return 0.8, navigation indexes (repo_map) return
+	// 0.3, and orchestration tools (todo_write, propose_sub_agents)
+	// return 0.0. Only tools with Confidence > 0.5 count toward the
+	// evidence-source floor below.
 	var facts []types.RepoFact
 	sources := make(map[string]struct{})
 	for _, r := range toolResults {
 		if r.Success {
+			confidence := e.toolConfidence(r.ToolName)
 			facts = append(facts, types.RepoFact{
 				Key:        r.ToolName,
 				Value:      r.Summary,
 				Source:     r.ToolName,
-				Confidence: 0.8,
+				Confidence: confidence,
 			})
-			sources[r.ToolName] = struct{}{}
+			// Only evidence-bearing tools (Confidence > 0.5) count
+			// toward the "enough facts" floor. Navigation indexes and
+			// orchestration tools are excluded so the explorer cannot
+			// satisfy this by mapping the repo without actually reading
+			// or grepping the code.
+			if confidence > 0.5 {
+				sources[r.ToolName] = struct{}{}
+			}
 		}
 	}
 
 	// HasEnoughFacts is a necessary-condition floor: at least two
-	// distinct tool sources must have been used. This blocks the
-	// trivial "ran one command, declared done" failure mode without
-	// taking a position on which tools are appropriate for which
-	// kind of question — that judgment is left to the LLM, since a
-	// hard-coded preference (e.g. "must read_file") would be wrong
-	// for tasks that legitimately need only navigation or only
-	// command execution.
+	// distinct evidence-bearing tool sources must have been used.
 	signals := &types.ExecutionSignals{HasEnoughFacts: len(sources) >= 2}
 
 	out := &StageOutput{
@@ -121,7 +132,22 @@ func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, outpu
 	return types.MissingFacts
 }
 
+// toolConfidence returns the Confidence declared by the named tool.
+// Falls back to 0.8 (evidence-level) for unknown tools so that MCP
+// tools or future additions are not silently excluded from the
+// evidence-source count.
+func (e *explorerEvaluator) toolConfidence(name string) float64 {
+	if e.tools == nil {
+		return 0.8
+	}
+	t, err := e.tools.Get(name)
+	if err != nil {
+		return 0.8
+	}
+	return t.Confidence()
+}
+
 // NewExplorerAgent creates the explorer agent (used in explore stage).
 func NewExplorerAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentExplorer, deps, &explorerEvaluator{})
+	return NewBaseAgent(types.AgentExplorer, deps, &explorerEvaluator{tools: deps.Tools})
 }

@@ -31,6 +31,36 @@ func TestBuiltinIsWriteClassification(t *testing.T) {
 	}
 }
 
+// TestBuiltinConfidenceClassification locks in the confidence classification
+// for every builtin tool. Adding a new tool that doesn't compile here forces
+// a deliberate evidence/navigation/non-evidence decision.
+func TestBuiltinConfidenceClassification(t *testing.T) {
+	cases := []struct {
+		name       string
+		tool       Tool
+		confidence float64
+	}{
+		{"apply_patch", &ApplyPatch{}, 0.8},
+		{"exec_command", &ExecCommand{}, 0.8},
+		{"grep", &GrepTool{}, 0.8},
+		{"read_file", &ReadFile{}, 0.8},
+		{"list_files", &ListFiles{}, 0.8},
+		{"run_tests", &RunTests{}, 0.8},
+		{"git_diff", &GitDiff{}, 0.8},
+		{"git_log", &GitLog{}, 0.8},
+		{"propose_sub_agents", &ProposeSubAgents{}, 0.0},
+		{"todo_write", &TodoWrite{}, 0.0},
+		// repo_map is in internal/tool/repomap/ — tested separately there
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := c.tool.Confidence(); got != c.confidence {
+				t.Errorf("%s.Confidence() = %v, want %v", c.name, got, c.confidence)
+			}
+		})
+	}
+}
+
 func TestRegistryIsWrite(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)

@@ -13,6 +13,7 @@ import (
 // RepoMapV2 is the tree-sitter-powered repo map tool.
 type RepoMapV2 struct {
 	tool.ReadOnly
+	tool.NavigationTool
 }
 
 type repoMapParams struct {
@@ -26,8 +27,10 @@ type repoMapParams struct {
 
 func (t *RepoMapV2) Name() string { return "repo_map" }
 func (t *RepoMapV2) Description() string {
-	return "Generate a rich repository map with symbols, relations, and importance ranking. " +
-		"Supports multiple views: overview (module summary), file_map (symbols per file), " +
+	return "Navigation index for the repository — shows which files, packages, and symbols exist and where they are. " +
+		"Use this ONLY to decide where to look next; it is NOT a source of evidence. " +
+		"After consulting the map, you MUST read or grep the actual files to obtain facts. " +
+		"Supports views: overview (module summary), file_map (symbols per file), " +
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
 		"edit_impact (what changes to a file would affect)."
 }

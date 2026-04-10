@@ -15,7 +15,10 @@ import (
 // This tool is name-scoped: the Agent layer auto-injects it only for agents
 // whose name matches a registered sub-agent, and the schema's sub_agent enum
 // is restricted to that single name.
-type ProposeSubAgents struct{ ReadOnly }
+type ProposeSubAgents struct {
+	ReadOnly
+	NonEvidenceTool
+}
 
 // NewProposeSubAgents creates the tool.
 func NewProposeSubAgents() *ProposeSubAgents {

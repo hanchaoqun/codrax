@@ -102,6 +102,7 @@ Evidence:
 			"do not make assumptions without evidence",
 			"do not stop at 'the answer would require checking X' — go check X yourself",
 			"do not write about what would be done next or what the user should do — answer only what was asked",
+			"do not treat repo_map output as evidence — it is a cached navigation index that tells you where to look, not what is true. After consulting repo_map, always read_file or grep the actual source files to establish facts. list_files is fine as evidence since it reads the real directory",
 		},
 	})
 

@@ -8,6 +8,7 @@ import (
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -19,7 +20,7 @@ type SubExplorer struct {
 
 // NewSubExplorer creates a SubExplorer backed by a BaseAgent with its own evaluator.
 func NewSubExplorer(deps *Dependencies) *SubExplorer {
-	eval := &subExplorerEvaluator{}
+	eval := &subExplorerEvaluator{tools: deps.Tools}
 	base := NewBaseAgent("sub_explorer", deps, eval)
 	return &SubExplorer{base: base}
 }
@@ -70,7 +71,9 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 }
 
 // subExplorerEvaluator implements Evaluator for the SubExplorer's BaseAgent.
-type subExplorerEvaluator struct{}
+type subExplorerEvaluator struct {
+	tools *tool.Registry
+}
 
 func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	return "Scan the files in scope. Discover key types, functions, interfaces, and dependencies. Report your findings as structured facts."
@@ -89,7 +92,8 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 		}
 	}
 
-	// Extract facts from successful tool results
+	// Extract facts from successful tool results, using each tool's
+	// declared Confidence.
 	var facts []types.RepoFact
 	for _, r := range toolResults {
 		if r.Success {
@@ -97,7 +101,7 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 				Key:        r.ToolName,
 				Value:      r.Summary,
 				Source:     r.RawRef,
-				Confidence: 0.8,
+				Confidence: e.toolConfidence(r.ToolName),
 			})
 		}
 	}
@@ -109,6 +113,17 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 		NewFacts:      facts,
 		SignalUpdates: signals,
 	}, nil
+}
+
+func (e *subExplorerEvaluator) toolConfidence(name string) float64 {
+	if e.tools == nil {
+		return 0.8
+	}
+	t, err := e.tools.Get(name)
+	if err != nil {
+		return 0.8
+	}
+	return t.Confidence()
 }
 
 func (e *subExplorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece {
