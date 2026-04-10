@@ -3,6 +3,7 @@ package repomap
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -52,13 +53,15 @@ func CacheDir(repoRoot string) string {
 }
 
 const (
-	cacheSymbolsFile   = "symbols.md"
-	cacheRelationsFile = "relations.md"
-	cacheMetaFile      = "meta.md"
-	cacheHashesFile    = "hashes.md"
+	cacheSymbolsFile    = "symbols.md"
+	cacheRelationsFile  = "relations.md"
+	cacheMetaFile       = "meta.md"
+	cacheHashesFile     = "hashes.md"
+	cacheFileInfosFile  = "fileinfos.json"
 )
 
-// SaveCache writes the graph index to markdown files in the cache directory.
+// SaveCache writes the graph index to markdown files and a JSON snapshot
+// of FileInfo data (for incremental reload) in the cache directory.
 func SaveCache(dir string, g *Graph) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -69,18 +72,45 @@ func SaveCache(dir string, g *Graph) error {
 		return err
 	}
 
-	// Save symbols
+	// Save FileInfo JSON for incremental reload
+	if err := saveFileInfos(dir, g.Files); err != nil {
+		return err
+	}
+
+	// Save symbols (markdown, for grep)
 	if err := saveSymbols(dir, g); err != nil {
 		return err
 	}
 
-	// Save relations
+	// Save relations (markdown, for grep)
 	if err := saveRelations(dir, g); err != nil {
 		return err
 	}
 
 	// Save metadata
 	return saveMeta(dir, g)
+}
+
+func saveFileInfos(dir string, files []*FileInfo) error {
+	data, err := json.Marshal(files)
+	if err != nil {
+		return fmt.Errorf("marshal fileinfos: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, cacheFileInfosFile), data, 0o644)
+}
+
+// LoadFileInfos reads the cached FileInfo data from a previous scan.
+// Returns nil if the cache file is missing or corrupt.
+func LoadFileInfos(dir string) []*FileInfo {
+	data, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
+	if err != nil {
+		return nil
+	}
+	var files []*FileInfo
+	if err := json.Unmarshal(data, &files); err != nil {
+		return nil
+	}
+	return files
 }
 
 func saveHashes(dir string, g *Graph) error {

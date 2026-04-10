@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -128,28 +129,123 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 		return nil, fmt.Errorf("no source files found in %s", repoRoot)
 	}
 
-	// Check if we need a full rescan or incremental
+	// No cache at all → full scan
 	if NeedsFullRescan(cacheDir) {
+		logging.Info("repo_map: full scan (%d files, no cache)", len(entries))
 		return fullScan(repoRoot, cacheDir, entries, query)
 	}
 
-	// Check which files changed
+	// Detect which files changed
 	changed := ChangedFiles(repoRoot, cacheDir, entries)
+
+	// Nothing changed → load from cache directly
 	if len(changed) == 0 {
-		// nothing changed — but we still need to rebuild the in-memory graph
-		// because our cache is markdown (not serialized Go structs)
-		return fullScan(repoRoot, cacheDir, entries, query)
+		logging.Info("repo_map: cache hit (%d files, 0 changed)", len(entries))
+		return loadFromCache(repoRoot, cacheDir, query)
 	}
 
-	// For simplicity, if >30% of files changed, do a full rescan
+	// >30% changed → full rescan is faster than incremental
 	if float64(len(changed))/float64(len(entries)) > 0.3 {
+		logging.Info("repo_map: full rescan (%d files, %d changed >30%%)", len(entries), len(changed))
 		return fullScan(repoRoot, cacheDir, entries, query)
 	}
 
-	// Incremental: only reparse changed files, merge with cached data
-	// For now, do a full rescan since we don't serialize the graph
-	// TODO: implement true incremental by parsing only changed files
-	return fullScan(repoRoot, cacheDir, entries, query)
+	// Incremental: reparse only changed files, merge with cached data
+	logging.Info("repo_map: incremental (%d files, %d changed)", len(entries), len(changed))
+	return incrementalScan(repoRoot, cacheDir, entries, changed, query)
+}
+
+func loadFromCache(repoRoot, cacheDir, query string) (*Graph, error) {
+	cached := LoadFileInfos(cacheDir)
+	if cached == nil {
+		// Cache corrupt or missing JSON → fall back to full scan
+		entries, err := ScanFiles(repoRoot)
+		if err != nil {
+			return nil, fmt.Errorf("file scan: %w", err)
+		}
+		return fullScan(repoRoot, cacheDir, entries, query)
+	}
+
+	graph := BuildGraph(repoRoot, cached)
+	RankGraph(graph, query)
+	return graph, nil
+}
+
+func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []string, query string) (*Graph, error) {
+	cached := LoadFileInfos(cacheDir)
+	if cached == nil {
+		return fullScan(repoRoot, cacheDir, entries, query)
+	}
+
+	// Build lookup of cached files by path
+	cachedByPath := make(map[string]*FileInfo, len(cached))
+	for _, fi := range cached {
+		cachedByPath[fi.RelPath] = fi
+	}
+
+	// Build set of changed files for fast lookup
+	changedSet := make(map[string]bool, len(changed))
+	for _, c := range changed {
+		changedSet[c] = true
+	}
+
+	// Split entries into changed (need reparse) and unchanged (keep cached)
+	var toReparse []FileEntry
+	currentPaths := make(map[string]bool, len(entries))
+	for _, e := range entries {
+		currentPaths[e.RelPath] = true
+		if changedSet[e.RelPath] {
+			toReparse = append(toReparse, e)
+		}
+	}
+
+	// Parse only changed files in parallel
+	var parseable []FileEntry
+	var unparseable []FileEntry
+	for _, e := range toReparse {
+		if e.Language != "" {
+			parseable = append(parseable, e)
+		} else {
+			unparseable = append(unparseable, e)
+		}
+	}
+
+	freshInfos := ParseFiles(parseable, repoRoot)
+	for _, e := range unparseable {
+		fi := &FileInfo{
+			RelPath:  e.RelPath,
+			Language: "",
+			Size:     e.Size,
+		}
+		if ok, stype := IsSpecialFile(e.RelPath); ok {
+			fi.IsSpecial = true
+			fi.SpecialType = stype
+		}
+		freshInfos = append(freshInfos, fi)
+	}
+
+	// Build fresh lookup
+	freshByPath := make(map[string]*FileInfo, len(freshInfos))
+	for _, fi := range freshInfos {
+		freshByPath[fi.RelPath] = fi
+	}
+
+	// Merge: for each current file, use fresh if changed, cached otherwise
+	merged := make([]*FileInfo, 0, len(entries))
+	for _, e := range entries {
+		if fi, ok := freshByPath[e.RelPath]; ok {
+			merged = append(merged, fi)
+		} else if fi, ok := cachedByPath[e.RelPath]; ok {
+			merged = append(merged, fi)
+		}
+		// else: file disappeared between scan and merge, skip
+	}
+
+	// Build graph, rank, save
+	graph := BuildGraph(repoRoot, merged)
+	RankGraph(graph, query)
+	_ = SaveCache(cacheDir, graph)
+	return graph, nil
 }
 
 func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string) (*Graph, error) {
