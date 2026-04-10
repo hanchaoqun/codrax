@@ -15,27 +15,53 @@
 | 4b | 能力层 | MCP | 外部系统集成（GitHub、数据库、Notion 等） |
 | 5 | 智能层 | LLM | 推理、决策、文本生成 |
 
+## 构建
+
+Tree-sitter 语法解析需要 CGO，构建前需安装 C 编译器：
+
+```bash
+# Linux (Debian/Ubuntu)
+sudo apt-get install gcc musl-tools
+
+# macOS
+xcode-select --install
+
+# Windows
+# 安装 mingw-w64（通过 MSYS2 或 scoop）
+```
+
+```bash
+# 编译（输出 ./codrax）
+make
+
+# 全静态 musl 链接（仅 Linux）
+make static
+
+# 交叉编译全平台到 dist/
+make release
+
+# 运行测试
+make test
+```
+
 ## 运行
 
 ```bash
-# 构建
-go build .
-
 # 交互模式（默认，无 -request 即进入）
-go run .
+./codrax
 #   进入后使用 You> 提示符，支持 /exit /clear /history /compact /help 斜杠命令
 #   多轮对话自动保存到 memory/<repo-slug>/MEMORY.md + .../turns/，重启续接
 #   /clear 会显示当前还有几个其它实例在用同一份 memory，并要求确认
 
 # 单次运行
-go run . -request "your task description"
+./codrax -request "your task description"
 
 # 诊断模式（debug 级别 ReAct trace 写入 logs/ 同时镜像到 stdout）
-go run . -log-level debug -log-stdout -request "your task"
+./codrax -log-level debug -log-stdout -request "your task"
 
 # 多目标仓使用：日志和 memory 自动按 -repo 路径生成 hash slug 隔离
-go run . -repo /path/to/repoA -request "..."
-go run . -repo /path/to/repoB -request "..."   # 不会和 repoA 混在一起
+./codrax -repo /path/to/repoA -request "..."
+./codrax -repo /path/to/repoB -request "..."   # 不会和 repoA 混在一起
 ```
 
 ## 配置

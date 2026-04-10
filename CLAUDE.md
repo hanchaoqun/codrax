@@ -9,29 +9,32 @@ A 5-layer multi-agent AI system in Go that decomposes software engineering tasks
 ## Build & Run Commands
 
 ```bash
-# Build
-go build .
+# Build (requires CGO for tree-sitter; outputs ./codrax)
+make
+
+# Static build (Linux only, musl)
+make static
 
 # Single-shot run (explicit flags; any omitted flag falls back to
 # config/codrax.yaml then to the code default)
-go run . -config config/orchestrator.yaml -repo . -branch main -request "task" -pipeline-max-steps 50
+./codrax -config config/orchestrator.yaml -repo . -branch main -request "task" -pipeline-max-steps 50
 
 # Interactive REPL (no -request → enters multi-turn mode with
 # /exit /clear /history /compact /help slash commands, memory
 # persisted under memory/)
-go run .
+./codrax
 
 # Debug mode: full ReAct trace written to logs/ and mirrored to stdout
-go run . -log-level debug -log-stdout -request "task"
+./codrax -log-level debug -log-stdout -request "task"
 
 # Run all tests
-go test ./...
+make test
 
 # Run a single test
 go test ./internal/orchestrator/ -run TestOrchestratorRun
 
 # Run tests with verbose output
-go test -v ./internal/...
+make test-v
 ```
 
 ## Architecture
