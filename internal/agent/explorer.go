@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -20,6 +21,7 @@ type explorerEvaluator struct {
 	lastToolResultCount int // tool result count at last continuation check
 	preScannedFiles    []string            // top files from keyword search, for coverage tracking
 	fileSymbols        map[string][]string // path → symbol summaries from repo_map
+	searchResult       *keywordSearchResult // full search result for cross-reference lookups
 	investigationNotes []string            // assistant analysis messages from ReAct loop
 	userQuestion       string              // original user question, for focus alignment
 }
@@ -40,7 +42,9 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		// Run graduated keyword search before Phase 1 starts.
 		// This gives the LLM a pre-ranked file list instead of
 		// making it guess which grep patterns to use.
-		results := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
+		sr := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
+		e.searchResult = sr
+		results := sr.Files
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
 			// Save files with repo_map structural relevance for coverage
@@ -129,6 +133,11 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// it read — essential for synthesis, where raw files get truncated.
 	if resp.Content != "" && e.phase == 1 {
 		e.investigationNotes = append(e.investigationNotes, resp.Content)
+		// Cross-reference tracking: scan the note for symbol names
+		// that are defined in other files. If the LLM mentions
+		// "NewSubExplorer" and repo_map knows it's defined in
+		// sub_explorer.go, add that file to coverage tracking.
+		e.trackCrossReferences(resp.Content)
 	}
 
 	if e.phase == 0 {
@@ -201,17 +210,34 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
-	// Check which read files were NOT analyzed in investigation notes.
-	var unanalyzed []string
+	// Check which read files have UNanalyzed symbols — symbols that
+	// the LLM didn't mention in its investigation notes. This catches
+	// the case where the LLM read a file but only analyzed the first
+	// few type definitions, skipping key functions at the end.
+	type unanalyzedFile struct {
+		path           string
+		missedSymbols  []string
+	}
+	var unanalyzed []unanalyzedFile
 	notesJoined := strings.Join(e.investigationNotes, "\n")
 	for f := range readSet {
-		// Check if the file was mentioned in any analysis note.
-		base := f
-		if idx := strings.LastIndex(f, "/"); idx >= 0 {
-			base = f[idx+1:]
+		syms := e.fileSymbols[f]
+		if len(syms) == 0 {
+			continue
 		}
-		if !strings.Contains(notesJoined, base) {
-			unanalyzed = append(unanalyzed, f)
+		var missed []string
+		for _, sym := range syms {
+			// Extract symbol name (first word before space).
+			name := sym
+			if idx := strings.Index(sym, " "); idx > 0 {
+				name = sym[:idx]
+			}
+			if len(name) >= 8 && !strings.Contains(notesJoined, name) {
+				missed = append(missed, sym)
+			}
+		}
+		if len(missed) > 0 {
+			unanalyzed = append(unanalyzed, unanalyzedFile{path: f, missedSymbols: missed})
 		}
 	}
 
@@ -235,22 +261,21 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		return hint.String(), true
 	}
 
-	// If files were read but not analyzed, push for analysis.
+	// If files were read but have symbols the LLM didn't analyze,
+	// push for analysis of those specific symbols.
 	if len(unanalyzed) > 0 {
 		e.idleStreakInDepth = 0
 		var hint strings.Builder
 		fmt.Fprintf(&hint, "Reminder — user question: %s\n\n", e.userQuestion)
-		hint.WriteString("You read these files but did NOT analyze them in relation to the question:\n")
-		for _, f := range unanalyzed {
-			hint.WriteString("- " + f)
-			if syms := e.fileSymbols[f]; len(syms) > 0 {
-				hint.WriteString(" — defines: ")
-				hint.WriteString(strings.Join(syms, "; "))
+		hint.WriteString("You read these files but SKIPPED some symbols that may be relevant:\n\n")
+		for _, ua := range unanalyzed {
+			fmt.Fprintf(&hint, "**%s** — missed symbols:\n", ua.path)
+			for _, sym := range ua.missedSymbols {
+				hint.WriteString("  - " + sym + "\n")
 			}
-			hint.WriteString("\n")
 		}
-		hint.WriteString("\nFor each file above, analyze EVERY listed symbol — read function bodies, not just signatures. " +
-			"The answer to 'which' or 'how many' questions is inside function bodies.")
+		hint.WriteString("\nFor each missed symbol, QUOTE its complete implementation (not just the signature). " +
+			"Then explain what the implementation tells you about the user's question.")
 		return hint.String(), true
 	}
 
@@ -523,6 +548,64 @@ func isNoisePath(path string) bool {
 		return true
 	}
 	return false
+}
+
+// trackCrossReferences scans an investigation note for symbol names
+// that are defined in files not yet in the coverage list. When the
+// LLM mentions e.g. "NewSubExplorer" in its analysis, this method
+// looks up where that symbol is defined (sub_explorer.go) and adds
+// that file to preScannedFiles so the coverage prompt ensures it
+// gets read.
+func (e *explorerEvaluator) trackCrossReferences(note string) {
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return
+	}
+	graph := e.searchResult.Graph
+
+	// Build set of already-tracked files.
+	tracked := make(map[string]bool, len(e.preScannedFiles))
+	for _, f := range e.preScannedFiles {
+		tracked[f] = true
+	}
+
+	// Check each symbol definition in the graph.
+	// Only track specific symbols (8+ chars, not common names) to
+	// avoid noise from generic names like "New", "Run", "Execute".
+	for symName, defs := range graph.SymbolDefs {
+		if len(symName) < 8 {
+			continue
+		}
+		// Only exported symbols (starts with uppercase in Go).
+		if len(symName) > 0 && symName[0] >= 'a' && symName[0] <= 'z' {
+			continue
+		}
+		// Skip overly common symbol names that appear in many files.
+		if len(defs) > 3 {
+			continue
+		}
+		if !strings.Contains(note, symName) {
+			continue
+		}
+		// The note mentions this symbol. Add its defining file(s)
+		// to coverage if not already tracked.
+		for _, def := range defs {
+			if def.File != "" && !tracked[def.File] && !isNoisePath(def.File) {
+				e.preScannedFiles = append(e.preScannedFiles, def.File)
+				tracked[def.File] = true
+				// Also store symbols for the continuation prompt.
+				if fi, ok := graph.FileIndex[def.File]; ok && e.fileSymbols != nil {
+					var syms []string
+					for _, s := range fi.Symbols {
+						if s.Exported || s.Kind == "function" || s.Kind == "method" {
+							syms = append(syms, fmt.Sprintf("%s %s:%d", s.Name, s.Kind, s.Line))
+						}
+					}
+					e.fileSymbols[def.File] = syms
+				}
+				logging.Debug("[explorer] cross-ref: note mentions %q → added %s to coverage", symName, def.File)
+			}
+		}
+	}
 }
 
 // NewExplorerAgent creates the explorer agent (used in explore stage).

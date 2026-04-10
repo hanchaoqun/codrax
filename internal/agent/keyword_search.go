@@ -22,6 +22,13 @@ type keywordFileScore struct {
 	Symbols      []string          // symbol summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
 }
 
+// keywordSearchResult wraps the scored files plus the repo_map graph
+// for downstream use (symbol lookups, cross-reference tracking).
+type keywordSearchResult struct {
+	Files []keywordFileScore
+	Graph *repomap.Graph // may be nil if repo_map is unavailable
+}
+
 // Directories excluded from keyword search (same as grep tool defaults).
 var searchExcludeDirs = []string{".git", ".hg", ".svn", "node_modules", "vendor", "__pycache__", ".tox"}
 
@@ -38,7 +45,7 @@ var searchExcludeDirs = []string{".git", ".hg", ".svn", "node_modules", "vendor"
 //  3. Merge: repo_map score (normalized) + grep IDF score, with repo_map
 //     weighted higher because structural definitions are more reliable
 //     than text mentions.
-func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
+func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 	if len(keywords) == 0 || repoRoot == "" {
 		return nil
 	}
@@ -126,7 +133,7 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 	}
 
 	logging.Debug("[keyword_search] %d keywords → %d files scored (repo_map + grep IDF)", len(keywords), len(results))
-	return results
+	return &keywordSearchResult{Files: results, Graph: graph}
 }
 
 // repoMapRank uses the repo_map graph to rank files by structural relevance.
