@@ -25,11 +25,11 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			"Investigation depth for this task: %s (minimum %d distinct evidence tool types, %d evidence tool calls).\n\n"+
 			"Strategy hints:\n"+
 			"- Prefer [high-confidence evidence] tools (grep, read_file, exec_command, …) — they read the real codebase and their results count as citable evidence.\n"+
-			"- Navigation tools (repo_map) are useful for orientation but do NOT count as evidence — always follow up with an evidence tool to verify.\n"+
-			"- Prefer targeted tools (grep with --include, read_file with offset/limit) over broad listings.\n"+
+			"- Navigation tools (repo_map) give a rough overview but their relevance ranking is unreliable — do NOT trust the file order repo_map returns. Instead, use grep to find where the core keywords actually appear, and prioritize those files. repo_map does NOT count as evidence.\n"+
+			"- For source files (<500 lines), call read_file WITHOUT offset/limit to get the full file — small-file reads are cheap and you see the complete picture. Only use offset/limit for large files (>500 lines) or when a tool result tells you the output was truncated.\n"+
 			"- Avoid recursive list_files on the repository root.\n"+
 			"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command.\n"+
-			"- For architecture or explanation questions, make sure to read all the key files involved — a shallow peek at one file is not enough.",
+			"- Prioritize reading source files over test files — tests show usage examples but the actual logic lives in the source. Read config files (YAML, etc.) when the question involves system topology or behavior settings.",
 		complexityLabel(ctx.CurrentTaskComplexity), minTypes, minCalls)
 }
 
@@ -96,25 +96,50 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// Evidence gate met — graduated continuation budget.
 	switch continuationCount {
 	case 0:
-		// 方向 4: structured gap analysis — force the LLM to enumerate
-		// uncovered aspects before it may stop.
-		return "Before concluding, perform a gap analysis: (1) list every distinct aspect/sub-question the user asked about, (2) next to each, note whether you have tool-verified evidence for it or not, (3) if any aspect is marked 'no', investigate it now. Do not stop until every aspect has evidence.", true
+		// Structured gap analysis: force the LLM to audit coverage
+		// against concrete dimensions, not just vague "all aspects".
+		return "Before concluding, perform a structured gap analysis. " +
+			"For the question asked, check your answer against these dimensions:\n" +
+			"- WHAT: did you name every key component/concept involved?\n" +
+			"- HOW: did you explain the mechanism (not just list names)?\n" +
+			"- WHEN/WHY: did you explain conditions, triggers, or branching logic?\n" +
+			"- WHERE: did you cite specific file:line for each claim?\n" +
+			"List which dimensions are still weak, then investigate the weakest one now — " +
+			"read the specific file that would fill that gap. Do NOT re-read files you already saw; " +
+			"find the file you haven't read yet that contains the missing piece.", true
 	case 1:
 		return "Pick the most important claim in your answer that you have NOT yet verified with a tool call. Verify it now — read the relevant file or grep for the relevant symbol. If it holds, good; if not, correct your answer.", true
 	case 2:
-		return "Final check. If your answer is genuinely complete and every key claim is backed by evidence, state your final answer now. If your last action revealed something that changes your answer, incorporate it. If you still cannot answer part of the question, say so honestly — an honest gap is better than a confident wrong answer.", true
+		return "This is your final turn. Write your COMPLETE answer now — it must incorporate ALL findings from your entire investigation, not just the last thing you checked. " +
+			"Restate the full answer from scratch, integrating everything you learned across all tool calls. " +
+			"This final message will be passed to downstream stages as your stage report, so it must be self-contained and comprehensive.", true
 	default:
 		return "", false
 	}
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
-	var lastContent string
+	// Find both the last assistant message and the longest one.
+	// The continuation mechanism can push the explorer to investigate
+	// further after an initial comprehensive answer. When that happens,
+	// the last message is often a brief note about the final check,
+	// while the best answer is an earlier, longer message. If the last
+	// message is less than half the length of the longest, use the
+	// longest — it's almost certainly the comprehensive synthesis.
+	var lastContent, longestContent string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "assistant" && messages[i].Content != "" {
-			lastContent = messages[i].Content
-			break
+			if lastContent == "" {
+				lastContent = messages[i].Content
+			}
+			if len(messages[i].Content) > len(longestContent) {
+				longestContent = messages[i].Content
+			}
 		}
+	}
+	// Prefer the longest message if the last one is a fragment.
+	if len(longestContent) > 0 && len(lastContent) < len(longestContent)/2 {
+		lastContent = longestContent
 	}
 
 	// Extract facts from tool results. Each tool declares its own
