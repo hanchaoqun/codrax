@@ -3,10 +3,10 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 
 	agentctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -356,7 +356,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			}
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if execErr != nil {
-				log.Printf("tool %s execution error: %v", tc.Name, execErr)
+				logging.Error("tool %s execution error: %v", tc.Name, execErr)
 			}
 			return &result, nil
 		}
@@ -370,7 +370,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 				if t.Name == tc.Name {
 					resp, err := server.CallTool(tc.Name, tc.Params)
 					if err != nil {
-						log.Printf("mcp %s.%s error: %v", serverName, tc.Name, err)
+						logging.Error("mcp %s.%s error: %v", serverName, tc.Name, err)
 					}
 					return nil, &resp
 				}
@@ -378,6 +378,6 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 		}
 	}
 
-	log.Printf("tool not found: %s", tc.Name)
+	logging.Warning("tool not found: %s", tc.Name)
 	return nil, nil
 }

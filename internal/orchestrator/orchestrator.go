@@ -3,13 +3,13 @@ package orchestrator
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/config"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -80,7 +80,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		},
 	}
 
-	log.Printf("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
+	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 
 	// Per-trace working directory for tool blob storage. Tools that
 	// produce large outputs offload to this dir and return a path in
@@ -88,13 +88,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// of carrying full content through the message history. Cleanup is
 	// best-effort; failures are logged but do not abort the pipeline.
 	if workDir, err := os.MkdirTemp("", "codrax-"+o.busCtx.TraceID+"-"); err != nil {
-		log.Printf("[orchestrator] could not create work dir: %v (blob storage disabled)", err)
+		logging.Warning("[orchestrator] could not create work dir: %v (blob storage disabled)", err)
 	} else {
 		o.busCtx.WorkDir = workDir
-		log.Printf("[orchestrator] work dir: %s", workDir)
+		logging.Info("[orchestrator] work dir: %s", workDir)
 		defer func() {
 			if rmErr := os.RemoveAll(workDir); rmErr != nil {
-				log.Printf("[orchestrator] work dir cleanup failed: %v", rmErr)
+				logging.Warning("[orchestrator] work dir cleanup failed: %v", rmErr)
 			}
 		}()
 	}
@@ -103,7 +103,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	// Phase 1: analyze.
 	if used, err := o.runAnalyzePhase(); err != nil {
-		log.Printf("[orchestrator] analyze phase failed: %v", err)
+		logging.Error("[orchestrator] analyze phase failed: %v", err)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
 	} else {
 		stepsUsed += used
@@ -111,7 +111,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	// Phase 2: per-task execution.
 	if err := o.runTaskPhase(&stepsUsed); err != nil {
-		log.Printf("[orchestrator] task phase error: %v", err)
+		logging.Error("[orchestrator] task phase error: %v", err)
 		if o.busCtx.TaskState.LastError == "" {
 			o.busCtx.TaskState.LastError = err.Error()
 		}
@@ -154,7 +154,7 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 			return nil
 		}
 		if *stepsUsed >= o.maxSteps {
-			log.Printf("[orchestrator] global max-steps (%d) exhausted; marking remaining tasks failed",
+			logging.Error("[orchestrator] global max-steps (%d) exhausted; marking remaining tasks failed",
 				o.maxSteps)
 			o.busCtx.Mutable.UpdateTaskResult(next.ID, "", types.TaskFailed)
 			continue
@@ -192,13 +192,13 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 	for stepsUsed < stepBudget {
 		stage := o.busCtx.PipelineStage
 
-		log.Printf("[orchestrator] task=%s step=%d stage=%s missing=%s",
+		logging.Debug("[orchestrator] task=%s step=%d stage=%s missing=%s",
 			taskID, stepsUsed, stage, o.busCtx.TaskState.Missing)
 
 		// Oscillation guard, scoped per task.
 		o.stageVisits[stage]++
 		if o.stageVisits[stage] > visitCap {
-			log.Printf("[orchestrator] task %s stage %s visited %d times (cap %d); oscillation guard tripped",
+			logging.Warning("[orchestrator] task %s stage %s visited %d times (cap %d); oscillation guard tripped",
 				taskID, stage, o.stageVisits[stage], visitCap)
 			o.busCtx.TaskState.LastError = fmt.Sprintf(
 				"task %s stuck at stage %s after %d visits", taskID, stage, o.stageVisits[stage])
@@ -215,12 +215,12 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 
 		out, err := o.dispatchStage(stageConfig)
 		if err != nil {
-			log.Printf("[orchestrator] task %s stage %s failed: %v", taskID, stage, err)
+			logging.Error("[orchestrator] task %s stage %s failed: %v", taskID, stage, err)
 			o.busCtx.Signals.LastStageFailed = true
 			o.busCtx.Signals.LastFailureReason = err.Error()
 			o.busCtx.Signals.RetryCount++
 			if o.busCtx.Signals.RetryCount > o.busCtx.Policy.MaxRetriesPerStage {
-				log.Printf("[orchestrator] task %s max retries exceeded at %s, jumping to finalize",
+				logging.Error("[orchestrator] task %s max retries exceeded at %s, jumping to finalize",
 					taskID, stage)
 				o.busCtx.PipelineStage = types.StageFinalize
 				o.busCtx.TaskState.Stage = types.StageFinalize
@@ -229,14 +229,14 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 		}
 
 		if stageConfig.Terminal {
-			log.Printf("[orchestrator] task %s reached terminal stage %s", taskID, stage)
+			logging.Info("[orchestrator] task %s reached terminal stage %s", taskID, stage)
 			o.recordTaskFinalize(taskID, out)
 			reachedFinalize = true
 			break
 		}
 
 		nextStage := o.decideNextStage()
-		log.Printf("[orchestrator] task %s transition: %s -> %s", taskID, stage, nextStage)
+		logging.Info("[orchestrator] task %s transition: %s -> %s", taskID, stage, nextStage)
 		o.busCtx.LastTransitionReason = fmt.Sprintf("%s -> %s (task %s, missing %s)",
 			stage, nextStage, taskID, o.busCtx.TaskState.Missing)
 		o.busCtx.PipelineStage = nextStage
@@ -261,20 +261,20 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 			o.busCtx.TaskState.LastError = fmt.Sprintf(
 				"task %s did not reach terminal within budget", taskID)
 		}
-		log.Printf("[orchestrator] task %s forcing finalize: %s", taskID, o.busCtx.TaskState.LastError)
+		logging.Warning("[orchestrator] task %s forcing finalize: %s", taskID, o.busCtx.TaskState.LastError)
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
 
 		finalConfig, err := o.config.GetStageConfig(types.StageFinalize)
 		if err != nil {
-			log.Printf("[orchestrator] task %s force finalize lookup failed: %v", taskID, err)
+			logging.Error("[orchestrator] task %s force finalize lookup failed: %v", taskID, err)
 			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
 			return stepsUsed
 		}
 		stepsUsed++
 		out, err := o.dispatchStage(finalConfig)
 		if err != nil {
-			log.Printf("[orchestrator] task %s forced finalize failed: %v", taskID, err)
+			logging.Error("[orchestrator] task %s forced finalize failed: %v", taskID, err)
 			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
 			return stepsUsed
 		}
@@ -350,7 +350,7 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	o.busCtx.ActiveAgent = agentName
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stageConfig.Name)
 
-	log.Printf("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
+	logging.Info("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
 
 	output, err := ag.Execute(agentCtx, sk)
 	if err != nil {
@@ -360,10 +360,10 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	// SubAgent decomposition path: replace the original output with
 	// the merged sub-agent output for the rest of the pipeline.
 	if proposal := extractSubAgentProposal(output, agentName); proposal != nil {
-		log.Printf("[orchestrator] sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
+		logging.Info("[orchestrator] sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
 		merged, runErr := o.subRuntime.Run(o.busCtx, proposal)
 		if runErr != nil {
-			log.Printf("[orchestrator] sub-agent run failed: %v, using original output", runErr)
+			logging.Error("[orchestrator] sub-agent run failed: %v, using original output", runErr)
 		} else {
 			output = merged
 		}

@@ -1,16 +1,22 @@
 package main
 
 import (
+	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
+	"github.com/hanchaoqun/codrax/internal/repl"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -21,46 +27,60 @@ func main() {
 	providersPath := flag.String("providers", "config/providers.yaml", "path to providers config")
 	repoRoot := flag.String("repo", ".", "repository root path")
 	branch := flag.String("branch", "main", "git branch")
-	request := flag.String("request", "", "user request to process")
+	request := flag.String("request", "", "user request to process (empty enters interactive mode)")
 	maxSteps := flag.Int("max-steps", 50, "maximum pipeline steps")
+	logDir := flag.String("log-dir", "logs", "directory for log files")
+	logLevel := flag.String("log-level", "info", "log level: error|warning|info|debug")
+	logStdout := flag.Bool("log-stdout", false, "also mirror logs to stdout")
+	memoryDir := flag.String("memory-dir", "memory", "directory for conversation memory")
 	flag.Parse()
 
+	// Initialize the leveled logger first so every subsequent message
+	// flows through it. Failures here surface to stderr because there
+	// is no logger yet to record them.
+	logger, err := logging.NewFromFlags(*logDir, *logLevel, *logStdout)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "logging init failed: %v\n", err)
+		os.Exit(1)
+	}
+	logging.SetDefault(logger)
+	defer logger.Close()
+	// Safety net: any third-party code (or stragglers we missed)
+	// using stdlib log will land in the same file.
+	log.SetOutput(logger.InfoWriter())
+	log.SetFlags(0)
+
+	// Resolve the request: -request flag wins, otherwise positional
+	// arg, otherwise empty (which triggers interactive mode below).
 	if *request == "" {
-		// Read from remaining args
-		args := flag.Args()
-		if len(args) > 0 {
+		if args := flag.Args(); len(args) > 0 {
 			*request = args[0]
-		} else {
-			fmt.Fprintln(os.Stderr, "usage: agent -request 'your task description'")
-			fmt.Fprintln(os.Stderr, "       agent 'your task description'")
-			os.Exit(1)
 		}
 	}
 
-	// Load and resolve configuration
+	// Load configuration.
 	cfg, err := config.LoadAndResolve(*configPath)
 	if err != nil {
-		log.Fatalf("failed to load config: %v", err)
+		logging.Error("failed to load config: %v", err)
+		os.Exit(1)
 	}
-	log.Printf("loaded config: %d stages, %d policies",
-		len(cfg.Stages), len(cfg.TaskPolicies))
+	logging.Info("loaded config: %d stages, %d policies", len(cfg.Stages), len(cfg.TaskPolicies))
 
-	// Load providers config
 	providersCfg, err := config.LoadProviders(*providersPath)
 	if err != nil {
-		log.Fatalf("failed to load providers config: %v", err)
+		logging.Error("failed to load providers config: %v", err)
+		os.Exit(1)
 	}
 	defaultLLM := createDefaultAdapter(providersCfg)
 
-	// Initialize registries
+	// Initialize registries.
 	mcpRegistry := mcp.NewRegistry()
-	log.Printf("registered %d MCP servers", len(mcpRegistry.List()))
+	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
 
 	skillRegistry := skill.NewRegistry()
 	skill.RegisterDefaults(skillRegistry)
-	log.Printf("registered %d skills", len(skillRegistry.List()))
+	logging.Info("registered %d skills", len(skillRegistry.List()))
 
-	// Tool + SubAgent registries
 	toolRegistry := tool.NewRegistry()
 	tool.RegisterDefaults(toolRegistry)
 	toolRegistry.Register(tool.NewProposeSubAgents())
@@ -76,9 +96,8 @@ func main() {
 	}
 
 	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
-	log.Printf("registered %d tools, %d sub-agents", len(toolRegistry.List()), len(subAgentRegistry.Names()))
+	logging.Info("registered %d tools, %d sub-agents", len(toolRegistry.List()), len(subAgentRegistry.Names()))
 
-	// Create agent registry with per-agent LLM resolution
 	resolver := func(name types.AgentName) llm.Adapter {
 		resolved := config.ResolveProvider(providersCfg, string(name))
 		if adapter := llm.NewFromConfig(resolved); adapter != nil {
@@ -89,59 +108,76 @@ func main() {
 
 	agentRegistry := agent.NewRegistry()
 	agent.RegisterDefaults(agentRegistry, deps, resolver)
-	log.Printf("registered %d agents", len(agentRegistry.List()))
+	logging.Info("registered %d agents", len(agentRegistry.List()))
 
-	// Create and run orchestrator
 	orch := orchestrator.New(cfg, agentRegistry, skillRegistry, subAgentRegistry)
 	orch.SetMaxSteps(*maxSteps)
 
-	log.Printf("starting pipeline for request: %s", *request)
+	// Branch: interactive REPL vs single-shot.
+	if *request == "" {
+		summarizer := newLLMSummarizer(defaultLLM)
+		store, err := memory.NewStore(*memoryDir, summarizer)
+		if err != nil {
+			logging.Error("memory store init failed: %v", err)
+			os.Exit(1)
+		}
+		r := repl.New(orch, store, renderResult, *repoRoot, *branch, os.Stdin, os.Stdout)
+		if err := r.Loop(); err != nil {
+			logging.Error("repl exited with error: %v", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	logging.Info("starting pipeline for request: %s", *request)
 	busCtx, err := orch.Run(*request, *repoRoot, *branch)
 	if err != nil {
-		log.Fatalf("pipeline failed: %v", err)
+		logging.Error("pipeline failed: %v", err)
+		os.Exit(1)
 	}
+	fmt.Print(renderResult(busCtx))
+}
 
-	// Output results
-	fmt.Printf("\n=== Pipeline Complete ===\n")
-	fmt.Printf("Trace ID:   %s\n", busCtx.TraceID)
-	fmt.Printf("Final Stage: %s\n", busCtx.PipelineStage)
-	fmt.Printf("Terminal:    %v\n", busCtx.TaskState.IsTerminal)
-	fmt.Printf("Completed:   %v\n", busCtx.TaskState.Completed)
-	fmt.Printf("Facts:       %d\n", len(busCtx.RepoFacts))
-	fmt.Printf("Tool Calls:  %d\n", len(busCtx.ToolResults))
-	fmt.Printf("MCP Calls:   %d\n", len(busCtx.MCPResponses))
-
+// renderResult formats a finished BusContext for the user. Shared
+// between the single-shot path and the REPL so the two stay aligned.
+func renderResult(busCtx *types.BusContext) string {
+	if busCtx == nil {
+		return "(no result)\n"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "\n=== Pipeline Complete ===\n")
+	fmt.Fprintf(&b, "Trace ID:    %s\n", busCtx.TraceID)
+	fmt.Fprintf(&b, "Final Stage: %s\n", busCtx.PipelineStage)
+	fmt.Fprintf(&b, "Terminal:    %v\n", busCtx.TaskState.IsTerminal)
+	fmt.Fprintf(&b, "Completed:   %v\n", busCtx.TaskState.Completed)
+	fmt.Fprintf(&b, "Facts:       %d\n", len(busCtx.RepoFacts))
+	fmt.Fprintf(&b, "Tool Calls:  %d\n", len(busCtx.ToolResults))
+	fmt.Fprintf(&b, "MCP Calls:   %d\n", len(busCtx.MCPResponses))
 	if busCtx.TaskState.LastError != "" {
-		fmt.Printf("Last Error:  %s\n", busCtx.TaskState.LastError)
+		fmt.Fprintf(&b, "Last Error:  %s\n", busCtx.TaskState.LastError)
 	}
 
-	// Working todolist (populated by analyzer + any agent that called
-	// todo_write). Each task carries its own Result, written by the
-	// per-task finalize stage.
 	if busCtx.Mutable != nil {
 		tl := busCtx.Mutable.TaskList()
 		if len(tl.Tasks) > 0 {
-			fmt.Printf("\n=== Todolist ===\n")
+			fmt.Fprintf(&b, "\n=== Todolist ===\n")
 			for _, item := range tl.Tasks {
-				fmt.Printf("  %s %s\n", todoStatusIcon(item.Status), item.Title)
+				fmt.Fprintf(&b, "  %s %s\n", todoStatusIcon(item.Status), item.Title)
 			}
-
-			// Render per-task answers in order. Tasks with no Result
-			// (skipped or failed before finalize) are still listed
-			// with a placeholder so the user sees the full picture.
-			fmt.Printf("\n=== Task Results ===\n")
+			fmt.Fprintf(&b, "\n=== Task Results ===\n")
 			for _, item := range tl.Tasks {
-				fmt.Printf("\n--- %s %s ---\n", todoStatusIcon(item.Status), item.Title)
+				fmt.Fprintf(&b, "\n--- %s %s ---\n", todoStatusIcon(item.Status), item.Title)
 				if item.Result != "" {
-					fmt.Println(item.Result)
+					fmt.Fprintln(&b, item.Result)
 				} else {
-					fmt.Println("(no result)")
+					fmt.Fprintln(&b, "(no result)")
 				}
 			}
 		} else {
-			fmt.Printf("\n(no tasks were produced)\n")
+			fmt.Fprintf(&b, "\n(no tasks were produced)\n")
 		}
 	}
+	return b.String()
 }
 
 func todoStatusIcon(s types.TaskStatus) string {
@@ -173,7 +209,6 @@ func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
 type placeholderAdapter struct{}
 
 func (p *placeholderAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema) (llm.Response, error) {
-	// Extract the last user/system message to understand context
 	var lastMsg string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" || messages[i].Role == "system" {
@@ -181,7 +216,6 @@ func (p *placeholderAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema
 			break
 		}
 	}
-
 	return llm.Response{
 		Content:    fmt.Sprintf("Processed: %s", truncate(lastMsg, 200)),
 		StopReason: "end_turn",
@@ -192,12 +226,104 @@ func (p *placeholderAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema
 	}, nil
 }
 
-func (p *placeholderAdapter) ModelID() string          { return "placeholder-v1" }
-func (p *placeholderAdapter) MaxContextTokens() int    { return 200000 }
+func (p *placeholderAdapter) ModelID() string       { return "placeholder-v1" }
+func (p *placeholderAdapter) MaxContextTokens() int { return 200000 }
 
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// llmSummarizer adapts the default LLM into a memory.Summarizer. It
+// asks the model for a compact JSON object describing the turn so the
+// store can append a structured IndexEntry to MEMORY.md. On any failure
+// — model error, malformed JSON — it falls back to a deterministic
+// truncation so compaction never blocks the REPL.
+type llmSummarizer struct {
+	adapter llm.Adapter
+}
+
+func newLLMSummarizer(adapter llm.Adapter) *llmSummarizer {
+	return &llmSummarizer{adapter: adapter}
+}
+
+func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.IndexEntry, error) {
+	prompt := strings.Builder{}
+	prompt.WriteString("Summarize the following conversation turn into a compact JSON object with fields: ")
+	prompt.WriteString(`{"topic":"<short phrase>","keywords":["k1","k2"],"summary":"<~150 word recap>"}.`)
+	prompt.WriteString(" Reply with ONLY the JSON object — no prose, no fences.\n\n")
+	prompt.WriteString("USER REQUEST:\n")
+	prompt.WriteString(turn.Request)
+	prompt.WriteString("\n\nASSISTANT RESPONSE:\n")
+	prompt.WriteString(turn.Response)
+	prompt.WriteString("\n")
+
+	fallback := memory.IndexEntry{
+		ID:       turn.ID,
+		Topic:    truncate(strings.ReplaceAll(turn.Request, "\n", " "), 80),
+		Keywords: extractKeywords(turn.Request),
+		Summary:  truncate(strings.ReplaceAll(turn.Response, "\n", " "), 400),
+	}
+	if s.adapter == nil {
+		return fallback, nil
+	}
+	resp, err := s.adapter.Chat([]llm.Message{
+		{Role: "user", Content: prompt.String()},
+	}, nil)
+	if err != nil {
+		logging.Warning("[memory] summarizer LLM error, using fallback: %v", err)
+		return fallback, nil
+	}
+
+	content := strings.TrimSpace(resp.Content)
+	// Strip code fences if the model added any.
+	content = strings.TrimPrefix(content, "```json")
+	content = strings.TrimPrefix(content, "```")
+	content = strings.TrimSuffix(content, "```")
+	content = strings.TrimSpace(content)
+
+	var parsed struct {
+		Topic    string   `json:"topic"`
+		Keywords []string `json:"keywords"`
+		Summary  string   `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+		logging.Warning("[memory] summarizer JSON parse error, using fallback: %v", err)
+		return fallback, nil
+	}
+	return memory.IndexEntry{
+		ID:       turn.ID,
+		Topic:    parsed.Topic,
+		Keywords: parsed.Keywords,
+		Summary:  parsed.Summary,
+	}, nil
+}
+
+// extractKeywords pulls a handful of distinctive words out of text as a
+// fallback when the LLM summarizer fails. Stop words are filtered.
+func extractKeywords(text string) []string {
+	stop := map[string]bool{
+		"the": true, "a": true, "an": true, "and": true, "or": true, "is": true,
+		"are": true, "was": true, "were": true, "to": true, "of": true, "in": true,
+		"on": true, "for": true, "with": true, "this": true, "that": true, "it": true,
+		"as": true, "be": true, "by": true, "at": true, "from": true,
+	}
+	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	})
+	seen := map[string]bool{}
+	var out []string
+	for _, w := range words {
+		if len(w) < 3 || stop[w] || seen[w] {
+			continue
+		}
+		seen[w] = true
+		out = append(out, w)
+		if len(out) >= 8 {
+			break
+		}
+	}
+	return out
 }

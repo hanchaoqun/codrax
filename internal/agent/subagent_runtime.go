@@ -3,9 +3,9 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"sync"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -133,9 +133,9 @@ func (r *SubAgentRuntime) execute(requests []*types.SubAgentRequest) ([]*types.S
 				return
 			}
 
-			log.Printf("[subagent-runtime] start[%d] %s: %s", i, req.SubAgent, req.Objective)
+			logging.Info("[subagent-runtime] start[%d] %s: %s", i, req.SubAgent, req.Objective)
 			results[i], errs[i] = sub.Run(req)
-			log.Printf("[subagent-runtime] done[%d] %s: err=%v", i, req.SubAgent, errs[i])
+			logging.Info("[subagent-runtime] done[%d] %s: err=%v", i, req.SubAgent, errs[i])
 		}(i, req)
 	}
 	wg.Wait()
