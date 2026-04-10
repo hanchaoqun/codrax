@@ -11,15 +11,20 @@
 package repl
 
 import (
-	"bufio"
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/huh"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/pterm/pterm"
+
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -34,157 +39,179 @@ type Runner interface {
 // response text. main.go owns the canonical implementation.
 type ResultRenderer func(*types.BusContext) string
 
-// Config holds all REPL construction parameters.
-type Config struct {
-	Runner       Runner
-	Store        *memory.Store
-	Render       ResultRenderer
-	RepoRoot     string
-	Branch       string
-	In           io.Reader
-	Out          io.Writer
-	Prompt       string // styled input prompt (e.g. "❯")
-	PromptCont   string // styled continuation prompt (e.g. "…")
-	Banner       string // styled welcome banner
-	BorderTop    string // styled top border for input box
-	BorderBottom string // styled bottom border for input box
-}
-
 // REPL drives the interactive prompt.
 type REPL struct {
-	runner       Runner
-	store        *memory.Store
-	render       ResultRenderer
-	repoRoot     string
-	branch       string
-	in           *bufio.Reader
-	out          io.Writer
-	prompt       string
-	promptCont   string
-	banner       string
-	borderTop    string
-	borderBottom string
+	runner   Runner
+	store    *memory.Store
+	render   ResultRenderer
+	renderer *render.Renderer
+	repoRoot string
+	branch   string
+	out      io.Writer
 }
 
-// New constructs a REPL from the given Config.
-func New(cfg Config) *REPL {
+// New constructs a REPL.
+func New(runner Runner, store *memory.Store, renderFn ResultRenderer, renderer *render.Renderer, repoRoot, branch string, out io.Writer) *REPL {
 	return &REPL{
-		runner:       cfg.Runner,
-		store:        cfg.Store,
-		render:       cfg.Render,
-		repoRoot:     cfg.RepoRoot,
-		branch:       cfg.Branch,
-		in:           bufio.NewReader(cfg.In),
-		out:          cfg.Out,
-		prompt:       cfg.Prompt,
-		promptCont:   cfg.PromptCont,
-		banner:       cfg.Banner,
-		borderTop:    cfg.BorderTop,
-		borderBottom: cfg.BorderBottom,
+		runner:   runner,
+		store:    store,
+		render:   renderFn,
+		renderer: renderer,
+		repoRoot: repoRoot,
+		branch:   branch,
+		out:      out,
 	}
 }
 
 // Loop runs the prompt until /exit, /quit, or EOF.
 func (r *REPL) Loop() error {
-	r.printBanner()
+	r.banner()
 	for {
-		input, err := r.readInput()
-		if errors.Is(err, io.EOF) {
+		line, err := r.readInput("❯❯")
+		if err != nil {
 			fmt.Fprintln(r.out)
-			fmt.Fprintf(r.out, "  Goodbye!\n")
+			fmt.Fprintln(r.out, "  Goodbye!")
 			return nil
 		}
-		if err != nil {
-			return err
-		}
-		if input == "" {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		if strings.HasPrefix(input, "/") {
-			if quit := r.handleSlash(input); quit {
+		// Echo user input so it's visible after huh clears.
+		pterm.FgLightCyan.Printf("  > %s\n", line)
+		pterm.FgDarkGray.Println("  ─────────────────────────────────────")
+		if strings.HasPrefix(line, "/") {
+			if quit := r.handleSlash(line); quit {
 				return nil
 			}
 			continue
 		}
-		r.dispatch(input)
+		r.dispatch(line)
 	}
 }
 
-func (r *REPL) printBanner() {
-	fmt.Fprintf(r.out, "%s\n", r.banner)
+func (r *REPL) banner() {
+	badge := pterm.NewStyle(pterm.BgBlue, pterm.FgWhite, pterm.Bold).Sprint(" CODRAX ")
+	hint := pterm.FgDarkGray.Sprint("/help · /exit")
+	fmt.Fprintf(r.out, "\n  %s  %s\n\n", badge, hint)
 }
 
-// readInput reads one (possibly multi-line) user input, enclosed in
-// a ╭───╮ / ╰───╯ input box.
-func (r *REPL) readInput() (string, error) {
-	// Print top border + prompt.
-	fmt.Fprintf(r.out, "\n%s\n  %s ", r.borderTop, r.prompt)
+// inputTheme returns a minimal huh theme — no borders, no decorations,
+// just a clean prompt and cursor.
+func inputTheme() *huh.Theme {
+	t := huh.ThemeBase()
 
-	line, err := r.in.ReadString('\n')
-	if errors.Is(err, io.EOF) {
-		line = strings.TrimRight(line, "\r\n")
-		if line != "" {
-			fmt.Fprintf(r.out, "%s\n", r.borderBottom)
-			return strings.TrimSpace(line), nil
-		}
-		return "", err
-	}
-	if err != nil {
-		return "", err
-	}
-	line = strings.TrimRight(line, "\r\n")
+	// Clean cursor and prompt styling.
+	t.Focused.TextInput.Cursor = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("51")) // bright cyan
+	t.Focused.TextInput.Prompt = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("51")).Bold(true) // bright cyan bold
+	t.Focused.TextInput.Text = lipgloss.NewStyle()
+	t.Focused.TextInput.Placeholder = lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")) // dim gray
 
-	if !strings.HasSuffix(line, "\\") {
-		fmt.Fprintf(r.out, "%s\n", r.borderBottom)
-		return strings.TrimSpace(line), nil
-	}
+	// Remove all borders and decorations.
+	t.Focused.Base = lipgloss.NewStyle().PaddingLeft(1)
+	t.Focused.Title = lipgloss.NewStyle().Width(0).MaxWidth(0)
+	t.Focused.Description = lipgloss.NewStyle().Width(0).MaxWidth(0)
 
-	// Multi-line continuation: collect lines ending with \.
+	t.Blurred = t.Focused
+	return t
+}
+
+// readInput uses charmbracelet/huh for interactive input. Handles
+// multi-line continuation when a line ends with \.
+func (r *REPL) readInput(prompt string) (string, error) {
+	theme := inputTheme()
 	var parts []string
-	for strings.HasSuffix(line, "\\") {
-		parts = append(parts, strings.TrimSuffix(line, "\\"))
-		fmt.Fprintf(r.out, "  %s ", r.promptCont)
-		line, err = r.in.ReadString('\n')
-		if errors.Is(err, io.EOF) {
-			line = strings.TrimRight(line, "\r\n")
-			parts = append(parts, line)
-			fmt.Fprintf(r.out, "%s\n", r.borderBottom)
-			return strings.TrimSpace(strings.Join(parts, "\n")), nil
-		}
+	cur := prompt
+	for {
+		var val string
+		err := huh.NewInput().
+			Prompt(cur + " ").
+			Value(&val).
+			WithTheme(theme).
+			Run()
 		if err != nil {
 			return "", err
 		}
-		line = strings.TrimRight(line, "\r\n")
+		if !strings.HasSuffix(val, "\\") {
+			parts = append(parts, val)
+			return strings.TrimSpace(strings.Join(parts, "\n")), nil
+		}
+		parts = append(parts, strings.TrimSuffix(val, "\\"))
+		cur = "…"
 	}
-	parts = append(parts, line)
-	fmt.Fprintf(r.out, "%s\n", r.borderBottom)
-	return strings.TrimSpace(strings.Join(parts, "\n")), nil
 }
 
 // dispatch runs one user request through the orchestrator and prints
 // the result, then records the turn in memory.
-func (r *REPL) dispatch(input string) {
-	prior := r.store.BuildContext(input)
-	effective := input
+func (r *REPL) dispatch(line string) {
+	prior := r.store.BuildContext(line)
+	effective := line
 	if prior != "" {
-		effective = "## Prior conversation\n" + prior + "\n\n## Current request\n" + input
+		effective = "## Prior conversation\n" + prior + "\n\n## Current request\n" + line
 	}
 
-	logging.Info("[repl] dispatching request: %s", oneLine(input))
+	logging.Info("[repl] dispatching request: %s", oneLine(line))
+
+	r.renderer.StartSpinner()
+
 	busCtx, err := r.runner.Run(effective, r.repoRoot, r.branch)
+
+	// Stop spinner BEFORE printing response so task list comes first.
+	r.renderer.StopSpinner()
+
 	if err != nil {
 		logging.Error("[repl] orchestrator error: %v", err)
-		fmt.Fprintf(r.out, "\n  error: %v\n", err)
+		pterm.Error.Printf("error: %v\n", err)
 		return
 	}
 
 	response := strings.TrimSpace(r.render(busCtx))
 	logging.Info("[repl] final answer:\n%s", response)
-	fmt.Fprintf(r.out, "\n%s\n", response)
 
+	// Skip rendering if no meaningful content.
+	if response == "" || response == "(no result)" {
+		pterm.FgDarkGray.Println("  ??")
+		r.recordTurn(line, response)
+		return
+	}
+
+	// Render model output with a continuous left border. Strip trailing
+	// ANSI escapes and whitespace so the bar aligns cleanly.
+	raw := strings.Split(response, "\n")
+	var lines []string
+	prevBlank := false
+	for _, ln := range raw {
+		clean := stripTrailing(ln)
+		blank := stripANSI(clean) == ""
+		if blank && prevBlank {
+			continue
+		}
+		prevBlank = blank
+		lines = append(lines, clean)
+	}
+	for len(lines) > 0 && stripANSI(lines[0]) == "" {
+		lines = lines[1:]
+	}
+	for len(lines) > 0 && stripANSI(lines[len(lines)-1]) == "" {
+		lines = lines[:len(lines)-1]
+	}
+	bar := pterm.FgWhite.Sprint("│")
+	fmt.Fprintf(r.out, "  %s\n", bar)
+	for _, ln := range lines {
+		fmt.Fprintf(r.out, "  %s %s\n", bar, ln)
+	}
+	fmt.Fprintf(r.out, "  %s\n\n", bar)
+
+	r.recordTurn(line, response)
+}
+
+func (r *REPL) recordTurn(request, response string) {
 	turn := memory.Turn{
 		ID:        fmt.Sprintf("turn-%d", time.Now().UnixNano()),
-		Request:   input,
+		Request:   request,
 		Response:  response,
 		Timestamp: time.Now(),
 	}
@@ -198,68 +225,80 @@ func (r *REPL) handleSlash(line string) bool {
 	cmd := strings.Fields(line)[0]
 	switch cmd {
 	case "/exit", "/quit":
-		fmt.Fprintf(r.out, "  Goodbye!\n")
+		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
 	case "/clear":
 		peers, perr := r.store.LivePeerCount()
 		if perr != nil {
 			logging.Warning("[repl] live peer count failed: %v", perr)
 		}
-		switch {
-		case peers == 0:
-			fmt.Fprintf(r.out, "  /clear wipes this conversation memory (MEMORY.md + turns/). Confirm? [y/N]: ")
-		case peers == 1:
-			fmt.Fprintf(r.out, "  /clear wipes shared memory (MEMORY.md + turns/) — 1 other live codrax instance is also using this directory and will see the wipe on its next read. Confirm? [y/N]: ")
-		default:
-			fmt.Fprintf(r.out, "  /clear wipes shared memory (MEMORY.md + turns/) — %d other live codrax instances are also using this directory and will see the wipe on their next read. Confirm? [y/N]: ", peers)
+		msg := "/clear wipes this conversation memory (MEMORY.md + turns/)."
+		if peers == 1 {
+			msg += " 1 other live codrax instance shares this directory."
+		} else if peers > 1 {
+			msg += fmt.Sprintf(" %d other live codrax instances share this directory.", peers)
 		}
-		answer, err := r.in.ReadString('\n')
-		if err != nil {
-			fmt.Fprintf(r.out, "  clear cancelled\n")
-			break
-		}
-		answer = strings.TrimSpace(strings.ToLower(answer))
-		if answer != "y" && answer != "yes" {
-			fmt.Fprintf(r.out, "  clear cancelled\n")
+		var confirmed bool
+		err := huh.NewConfirm().
+			Title(msg).
+			Affirmative("Yes").
+			Negative("No").
+			Value(&confirmed).
+			Run()
+		if err != nil || !confirmed {
+			pterm.Info.Println("clear cancelled")
 			break
 		}
 		if err := r.store.Clear(); err != nil {
-			fmt.Fprintf(r.out, "  clear failed: %v\n", err)
+			pterm.Error.Printf("clear failed: %v\n", err)
 		} else {
-			fmt.Fprintf(r.out, "  conversation memory cleared.\n")
+			pterm.Success.Println("conversation memory cleared.")
 		}
 	case "/history":
 		recent := r.store.Recent()
 		idx := r.store.Index()
 		if len(recent) == 0 && len(idx) == 0 {
-			fmt.Fprintf(r.out, "  (empty)\n")
+			pterm.Info.Println("(empty)")
 			return false
 		}
 		if len(idx) > 0 {
-			fmt.Fprintf(r.out, "  compacted index:\n")
+			fmt.Fprintln(r.out, "  compacted index:")
 			for _, e := range idx {
 				fmt.Fprintf(r.out, "    - [%s] %s — keywords: %s\n", e.ID, e.Topic, strings.Join(e.Keywords, ", "))
 			}
 		}
 		if len(recent) > 0 {
-			fmt.Fprintf(r.out, "  recent turns:\n")
+			fmt.Fprintln(r.out, "  recent turns:")
 			for _, t := range recent {
 				fmt.Fprintf(r.out, "    - [%s] %s\n", t.Timestamp.Format("15:04:05"), oneLine(t.Request))
 			}
 		}
 	case "/compact":
 		if err := r.store.Compact(); err != nil {
-			fmt.Fprintf(r.out, "  compact failed: %v\n", err)
+			pterm.Error.Printf("compact failed: %v\n", err)
 		} else {
-			fmt.Fprintf(r.out, "  compaction done. recent=%d index=%d\n", len(r.store.Recent()), len(r.store.Index()))
+			pterm.Success.Printf("compaction done. recent=%d index=%d\n", len(r.store.Recent()), len(r.store.Index()))
 		}
 	case "/help":
-		fmt.Fprintf(r.out, "  commands: /exit /quit /clear /history /compact /help\n")
-		fmt.Fprintf(r.out, "  tip: end a line with \\ for multi-line input\n")
+		pterm.Info.Println("commands: /exit /quit /clear /history /compact /help")
+		pterm.Info.Println("tip: end a line with \\ for multi-line input")
 	default:
-		fmt.Fprintf(r.out, "  unknown command %q — try /help\n", cmd)
+		pterm.Warning.Printf("unknown command %q — try /help\n", cmd)
 	}
 	return false
+}
+
+var reANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+var reTrailing = regexp.MustCompile(`(\s|\x1b\[[0-9;]*m)+$`)
+
+// stripTrailing removes all trailing whitespace and ANSI sequences.
+func stripTrailing(s string) string {
+	return reTrailing.ReplaceAllString(s, "")
+}
+
+// stripANSI removes all ANSI escape sequences to get plain text.
+func stripANSI(s string) string {
+	return strings.TrimSpace(reANSI.ReplaceAllString(s, ""))
 }
 
 func oneLine(s string) string {
@@ -268,4 +307,9 @@ func oneLine(s string) string {
 		return s[:120] + "…"
 	}
 	return s
+}
+
+// ensure huh.ErrUserAborted is treated as EOF for graceful shutdown.
+func init() {
+	_ = errors.Is(huh.ErrUserAborted, io.EOF) // compile-time check that the type exists
 }
