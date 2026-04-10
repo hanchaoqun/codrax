@@ -15,9 +15,10 @@ import (
 
 // keywordFileScore records how a file scored across multi-level keyword matching.
 type keywordFileScore struct {
-	Path  string
-	Score float64
-	Hits  map[string]string // keyword → best match level for debugging
+	Path    string
+	Score   float64
+	Hits    map[string]string // keyword → best match level for debugging
+	Symbols []string          // symbol summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
 }
 
 // Directories excluded from keyword search (same as grep tool defaults).
@@ -44,7 +45,7 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 	keywords = expandKeywords(keywords)
 
 	// --- Phase 1: repo_map structural ranking ---
-	repoMapScores := repoMapRank(keywords, repoRoot)
+	repoMapScores, graph := repoMapRank(keywords, repoRoot)
 
 	// --- Phase 2: grep IDF-weighted scoring ---
 	grepScores, grepHits := grepIDFSearch(keywords, repoRoot)
@@ -87,10 +88,27 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 			hits["repo_map"] = fmt.Sprintf("%.0f", repoMapScores[f])
 		}
 
+		// Extract symbol summaries from repo_map graph.
+		var syms []string
+		if graph != nil {
+			if fi, ok := graph.FileIndex[f]; ok {
+				for _, sym := range fi.Symbols {
+					if sym.Exported || sym.Kind == "function" || sym.Kind == "method" {
+						summary := fmt.Sprintf("%s %s:%d", sym.Name, sym.Kind, sym.Line)
+						if sym.Signature != "" {
+							summary += " " + sym.Signature
+						}
+						syms = append(syms, summary)
+					}
+				}
+			}
+		}
+
 		results = append(results, keywordFileScore{
-			Path:  f,
-			Score: combined,
-			Hits:  hits,
+			Path:    f,
+			Score:   combined,
+			Hits:    hits,
+			Symbols: syms,
 		})
 	}
 
@@ -108,24 +126,25 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 // repoMapRank uses the repo_map graph to rank files by structural relevance.
 // Only returns files that matched the query (QueryScores > 0), so
 // infrastructure files with high structural scores but no query relevance
-// are excluded.
-func repoMapRank(keywords []string, repoRoot string) map[string]float64 {
+// are excluded. Also returns the graph for symbol extraction.
+func repoMapRank(keywords []string, repoRoot string) (scores map[string]float64, graph *repomap.Graph) {
 	query := strings.Join(keywords, " ")
-	graph, err := repomap.BuildOrLoadGraph(repoRoot, query)
+	var err error
+	graph, err = repomap.BuildOrLoadGraph(repoRoot, query)
 	if err != nil {
 		logging.Debug("[keyword_search] repo_map unavailable: %v", err)
-		return nil
+		return nil, nil
 	}
 
 	// Only include files that actually matched the query.
-	scores := make(map[string]float64)
+	scores = make(map[string]float64)
 	for path, qScore := range graph.QueryScores {
 		if qScore > 0 {
 			scores[path] = graph.Scores[path]
 		}
 	}
 	logging.Debug("[keyword_search] repo_map: %d files matched query (of %d total)", len(scores), len(graph.Scores))
-	return scores
+	return scores, graph
 }
 
 // grepIDFSearch runs grep for each keyword and weights matches by IDF

@@ -17,9 +17,10 @@ type explorerEvaluator struct {
 	broadenAttempts    int // times we pushed for broader grep in Phase 0
 	idleStreakInDepth   int // consecutive no-tool-call rounds in Phase 2
 	lastToolResultCount int // tool result count at last continuation check
-	preScannedFiles    []string // top files from keyword search, for coverage tracking
-	investigationNotes []string // assistant analysis messages from ReAct loop
-	userQuestion       string   // original user question, for focus alignment
+	preScannedFiles    []string            // top files from keyword search, for coverage tracking
+	fileSymbols        map[string][]string // path → symbol summaries from repo_map
+	investigationNotes []string            // assistant analysis messages from ReAct loop
+	userQuestion       string              // original user question, for focus alignment
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -42,11 +43,9 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
 			// Save files with repo_map structural relevance for coverage
-			// tracking in Phase 2. Only files that matched the query in
-			// repo_map (not just grep text hits) are tracked — this
-			// filters out infrastructure files. Cap at 8 files to stay
-			// within the iteration budget (20 iters / 2 per file = 10,
-			// minus Phase 1 overhead).
+			// tracking in Phase 2, along with their symbol tables.
+			// Cap at 8 files to stay within iteration budget.
+			e.fileSymbols = make(map[string][]string)
 			count := 0
 			for _, r := range results {
 				if count >= 8 {
@@ -54,6 +53,9 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 				}
 				if r.Hits["repo_map"] != "" {
 					e.preScannedFiles = append(e.preScannedFiles, r.Path)
+					if len(r.Symbols) > 0 {
+						e.fileSymbols[r.Path] = r.Symbols
+					}
 					count++
 				}
 			}
@@ -140,7 +142,10 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"**Important:** Read ONE file at a time, then analyze it before reading the next. " +
 			"Do not read multiple large files in one batch — you will lose detail. " +
 			"Small files (<100 lines) can be read in the same batch.\n\n" +
-			"**Condition chase:** when you find 'only if X matches Y', don't stop at the condition — find what X and Y are concretely in the code (registrations, initializations, config values). " +
+			"**Read implementations, not just signatures.** Type definitions and interface declarations tell you WHAT exists. " +
+			"But function bodies tell you WHICH specific instances exist and HOW they connect. " +
+			"The answer to 'which', 'how many', or 'what calls what' is almost always inside a function body, not in a type definition.\n\n" +
+			"**Condition chase:** when you find 'only if X matches Y', don't stop at the condition — trace through the code to find what X and Y are concretely. " +
 			"Do NOT just catalog structures — answer the question.\n\n" +
 			"Start by reading the most important file now.", true
 	}
@@ -203,12 +208,16 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		fmt.Fprintf(&hint,
 			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
 		fmt.Fprintf(&hint, "\nReminder — user question: %s\n\n", e.userQuestion)
-		hint.WriteString("The following HIGH-PRIORITY files from the pre-scan ranking have NOT been read yet. ")
-		hint.WriteString("Read them now — they scored highly for keyword + structural relevance:\n")
+		hint.WriteString("The following HIGH-PRIORITY files have NOT been read yet:\n")
 		for _, f := range preScannedUnread {
-			hint.WriteString("- " + f + "\n")
+			hint.WriteString("- " + f)
+			if syms := e.fileSymbols[f]; len(syms) > 0 {
+				hint.WriteString(" — defines: ")
+				hint.WriteString(strings.Join(syms, "; "))
+			}
+			hint.WriteString("\n")
 		}
-		hint.WriteString("\nRead the most important unread file now.")
+		hint.WriteString("\nRead the most important unread file. For each symbol listed, check if it's part of the evidence chain for the question.")
 		return hint.String(), true
 	}
 
@@ -219,10 +228,15 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		fmt.Fprintf(&hint, "Reminder — user question: %s\n\n", e.userQuestion)
 		hint.WriteString("You read these files but did NOT analyze them in relation to the question:\n")
 		for _, f := range unanalyzed {
-			hint.WriteString("- " + f + "\n")
+			hint.WriteString("- " + f)
+			if syms := e.fileSymbols[f]; len(syms) > 0 {
+				hint.WriteString(" — defines: ")
+				hint.WriteString(strings.Join(syms, "; "))
+			}
+			hint.WriteString("\n")
 		}
-		hint.WriteString("\nFor each file above, write what it reveals about the user's question. " +
-			"Do not skip files — the answer may depend on connecting evidence across multiple files.")
+		hint.WriteString("\nFor each file above, analyze EVERY listed symbol — read function bodies, not just signatures. " +
+			"The answer to 'which' or 'how many' questions is inside function bodies.")
 		return hint.String(), true
 	}
 
