@@ -155,6 +155,9 @@ func RankGraph(g *Graph, query string) {
 		// query match: additive bonus + multiplicative boost
 		if query != "" {
 			qScore := queryMatchScore(fi, query)
+			if qScore > 0 {
+				g.QueryScores[fi.RelPath] = qScore
+			}
 			score += qScore * wQueryMatch
 			if qScore > 0 {
 				// Multiplicative boost: files matching the query get

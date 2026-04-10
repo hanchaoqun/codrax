@@ -16,6 +16,7 @@ func BuildGraph(repoRoot string, files []*FileInfo) *Graph {
 		ImportGraph:    make(map[string][]string),
 		ReverseImports: make(map[string][]string),
 		Scores:         make(map[string]float64),
+		QueryScores:    make(map[string]float64),
 	}
 
 	langs := make(map[string]int)

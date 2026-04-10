@@ -57,6 +57,7 @@ type Graph struct {
 	ImportGraph map[string][]string   `json:"-"` // file → imported file paths
 	ReverseImports map[string][]string `json:"-"` // file → files that import it
 	Scores      map[string]float64    `json:"-"` // key → importance score
+	QueryScores map[string]float64    `json:"-"` // key → query match score (>0 only for files matching the query)
 	Metadata    Metadata              `json:"metadata"`
 }
 

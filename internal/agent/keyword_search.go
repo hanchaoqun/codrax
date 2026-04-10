@@ -3,12 +3,14 @@ package agent
 import (
 	"bytes"
 	"fmt"
+	"math"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 )
 
 // keywordFileScore records how a file scored across multi-level keyword matching.
@@ -18,109 +20,192 @@ type keywordFileScore struct {
 	Hits  map[string]string // keyword → best match level for debugging
 }
 
-// searchLevel defines one tier of the graduated keyword search.
-type searchLevel struct {
-	Name   string  // human-readable label
-	Score  float64 // points per hit at this level
-	Search func(keyword, repoRoot string) []string // returns matching file paths
-}
-
 // Directories excluded from keyword search (same as grep tool defaults).
 var searchExcludeDirs = []string{".git", ".hg", ".svn", "node_modules", "vendor", "__pycache__", ".tox"}
 
-// keywordSearch runs a graduated multi-level search for the given keywords
-// against the repository, returning files ranked by weighted score.
+// keywordSearch combines repo_map's structural ranking with grep-based
+// keyword matching to produce a scored file list.
 //
-// Levels (highest confidence first):
-//  1. Exact filename match   (score 10) — file basename contains keyword exactly
-//  2. Exact content match    (score  6) — grep -l case-sensitive
-//  3. Case-insensitive filename (score 4) — file basename contains keyword (case-blind)
-//  4. Case-insensitive content  (score 3) — grep -li
-//  5. Prefix/stem match      (score  1) — grep -li with keyword truncated to stem
-//
-// Each file's total score is the sum across all keywords × levels. A file
-// that matches keyword A exactly in content (6) and keyword B in filename (10)
-// scores 16. Files already matched at a higher level for the same keyword
-// are not double-counted at lower levels.
+// Strategy:
+//  1. Build/load the repo_map graph (cached, fast) and rank files using
+//     the keywords as query. This gives structural signal: files that
+//     DEFINE matching symbols score higher than files that merely mention
+//     them in comments.
+//  2. Run grep for each expanded keyword and compute IDF-weighted scores.
+//     Keywords matching fewer files are more informative (IDF = log(N/df)).
+//  3. Merge: repo_map score (normalized) + grep IDF score, with repo_map
+//     weighted higher because structural definitions are more reliable
+//     than text mentions.
 func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 	if len(keywords) == 0 || repoRoot == "" {
 		return nil
 	}
 
-	// Expand each keyword into identifier-format variants so the
-	// search covers CamelCase, snake_case, concatenated, etc.
-	// regardless of which format the analyzer happened to produce.
 	keywords = expandKeywords(keywords)
 
-	levels := []searchLevel{
-		{Name: "filename-exact", Score: 10, Search: func(kw, root string) []string {
-			return findFilesByName(kw, root, false)
-		}},
-		{Name: "content-exact", Score: 6, Search: func(kw, root string) []string {
-			return grepFiles(kw, root, false)
-		}},
-		{Name: "filename-icase", Score: 4, Search: func(kw, root string) []string {
-			return findFilesByName(kw, root, true)
-		}},
-		{Name: "content-icase", Score: 3, Search: func(kw, root string) []string {
-			return grepFiles(kw, root, true)
-		}},
-		{Name: "stem-icase", Score: 1, Search: func(kw, root string) []string {
-			stem := keywordStem(kw)
-			if stem == kw || len(stem) < 3 {
-				return nil // no useful stem or too short
-			}
-			return grepFiles(stem, root, true)
-		}},
-	}
+	// --- Phase 1: repo_map structural ranking ---
+	repoMapScores := repoMapRank(keywords, repoRoot)
 
-	// scores[path][keyword] = best level name (to prevent double-counting)
-	bestLevel := make(map[string]map[string]string)
-	fileScores := make(map[string]float64)
+	// --- Phase 2: grep IDF-weighted scoring ---
+	grepScores, grepHits := grepIDFSearch(keywords, repoRoot)
 
-	for _, kw := range keywords {
-		for _, level := range levels {
-			paths := level.Search(kw, repoRoot)
-			if len(paths) > 0 {
-				logging.Debug("[keyword_search] %s %q → %d hits", level.Name, kw, len(paths))
-			}
-			for _, p := range paths {
-				p = normalizeSearchPath(p, repoRoot)
-				if isNoisePath(p) {
-					continue
-				}
-				if bestLevel[p] == nil {
-					bestLevel[p] = make(map[string]string)
-				}
-				if _, already := bestLevel[p][kw]; already {
-					continue // this keyword already matched at a higher level
-				}
-				bestLevel[p][kw] = level.Name
-				fileScores[p] += level.Score
-			}
+	// --- Phase 3: merge ---
+	// Only score files that grep found (keyword-relevant). Repo_map
+	// provides a structural boost but doesn't introduce new files —
+	// this prevents infrastructure files with high structural scores
+	// (logger.go, parser.go) from dominating when they don't match
+	// any domain keywords.
+
+	// Normalize repo_map scores to 0-1 range for boost calculation.
+	maxRM := 0.0
+	for _, s := range repoMapScores {
+		if s > maxRM {
+			maxRM = s
 		}
 	}
 
-	// Convert to sorted slice.
-	results := make([]keywordFileScore, 0, len(fileScores))
-	for path, score := range fileScores {
+	results := make([]keywordFileScore, 0, len(grepScores))
+	for f, grepScore := range grepScores {
+		if isNoisePath(f) {
+			continue
+		}
+
+		// Repo_map boost: files with higher structural importance
+		// get a multiplier on their grep score. The boost ranges
+		// from 1.0 (no structural signal) to 2.0 (top structural).
+		boost := 1.0
+		if maxRM > 0 && repoMapScores[f] > 0 {
+			boost = 1.0 + (repoMapScores[f]/maxRM)*1.0
+		}
+		combined := grepScore * boost
+
+		hits := grepHits[f]
+		if hits == nil {
+			hits = make(map[string]string)
+		}
+		if repoMapScores[f] > 0 {
+			hits["repo_map"] = fmt.Sprintf("%.0f", repoMapScores[f])
+		}
+
 		results = append(results, keywordFileScore{
-			Path:  path,
-			Score: score,
-			Hits:  bestLevel[path],
+			Path:  f,
+			Score: combined,
+			Hits:  hits,
 		})
 	}
+
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
-
-	// Cap at top 20 to keep the prompt reasonable.
 	if len(results) > 20 {
 		results = results[:20]
 	}
 
-	logging.Debug("[keyword_search] %d keywords → %d files scored", len(keywords), len(results))
+	logging.Debug("[keyword_search] %d keywords → %d files scored (repo_map + grep IDF)", len(keywords), len(results))
 	return results
+}
+
+// repoMapRank uses the repo_map graph to rank files by structural relevance.
+// Only returns files that matched the query (QueryScores > 0), so
+// infrastructure files with high structural scores but no query relevance
+// are excluded.
+func repoMapRank(keywords []string, repoRoot string) map[string]float64 {
+	query := strings.Join(keywords, " ")
+	graph, err := repomap.BuildOrLoadGraph(repoRoot, query)
+	if err != nil {
+		logging.Debug("[keyword_search] repo_map unavailable: %v", err)
+		return nil
+	}
+
+	// Only include files that actually matched the query.
+	scores := make(map[string]float64)
+	for path, qScore := range graph.QueryScores {
+		if qScore > 0 {
+			scores[path] = graph.Scores[path]
+		}
+	}
+	logging.Debug("[keyword_search] repo_map: %d files matched query (of %d total)", len(scores), len(graph.Scores))
+	return scores
+}
+
+// grepIDFSearch runs grep for each keyword and weights matches by IDF
+// (inverse document frequency). Keywords matching fewer files are more
+// informative and contribute more to a file's score.
+func grepIDFSearch(keywords []string, repoRoot string) (scores map[string]float64, hits map[string]map[string]string) {
+	scores = make(map[string]float64)
+	hits = make(map[string]map[string]string)
+
+	// Count total source files for IDF denominator.
+	totalFiles := countSourceFiles(repoRoot)
+	if totalFiles < 1 {
+		totalFiles = 100 // fallback
+	}
+
+	for _, kw := range keywords {
+		// Case-sensitive grep first.
+		paths := grepFiles(kw, repoRoot, false)
+		matchType := "exact"
+		if len(paths) == 0 {
+			// Fall back to case-insensitive.
+			paths = grepFiles(kw, repoRoot, true)
+			matchType = "icase"
+		}
+
+		if len(paths) == 0 {
+			continue
+		}
+
+		// IDF: keywords matching fewer files score higher.
+		df := float64(len(paths))
+		idf := math.Log2(float64(totalFiles)/df) + 1.0
+
+		// Filename matches get a bonus on top of IDF.
+		kwLower := strings.ToLower(kw)
+
+		for _, p := range paths {
+			p = normalizeSearchPath(p, repoRoot)
+			if isNoisePath(p) {
+				continue
+			}
+
+			fileScore := idf * fileTypeWeight(p)
+
+			// Filename match bonus: file that contains the keyword in
+			// its name is more likely to be the defining file.
+			baseLower := strings.ToLower(filepath.Base(p))
+			if strings.Contains(baseLower, kwLower) {
+				fileScore *= 2.0
+				matchType = "filename+" + matchType
+			}
+
+			scores[p] += fileScore
+			if hits[p] == nil {
+				hits[p] = make(map[string]string)
+			}
+			hits[p][kw] = matchType
+		}
+	}
+
+	return scores, hits
+}
+
+// countSourceFiles returns an approximate count of source files in the repo.
+func countSourceFiles(repoRoot string) int {
+	args := []string{repoRoot, "-type", "f"}
+	for _, dir := range searchExcludeDirs {
+		args = append([]string{repoRoot, "-path", "*/" + dir, "-prune", "-o"}, args[1:]...)
+	}
+	// Simplified: just count all files
+	cmd := exec.Command("find", repoRoot, "-type", "f",
+		"-not", "-path", "*/.git/*",
+		"-not", "-path", "*/node_modules/*",
+		"-not", "-path", "*/vendor/*")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return 100
+	}
+	return len(splitLines(stdout.String()))
 }
 
 // formatKeywordResults renders scored files for injection into the Phase 1 prompt.
@@ -145,6 +230,39 @@ func formatKeywordResults(results []keywordFileScore) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// fileTypeWeight returns a multiplier based on the file's likely role.
+// Source code files get full weight; documentation, config, and other
+// non-source files are down-weighted because they are secondary evidence
+// when investigating code behavior.
+func fileTypeWeight(path string) float64 {
+	ext := strings.ToLower(filepath.Ext(path))
+
+	// Source code — full weight.
+	switch ext {
+	case ".go", ".py", ".js", ".ts", ".tsx", ".jsx",
+		".java", ".kt", ".rs", ".rb", ".c", ".cpp", ".h",
+		".cs", ".swift", ".scala", ".ex", ".exs", ".erl",
+		".php", ".lua", ".zig", ".nim", ".sh", ".bash":
+		return 1.0
+	}
+
+	// Config/build files — slightly reduced.
+	switch ext {
+	case ".yaml", ".yml", ".toml", ".json", ".xml",
+		".ini", ".cfg", ".conf", ".env", ".properties":
+		return 0.7
+	}
+
+	// Documentation/prose — significantly reduced.
+	switch ext {
+	case ".md", ".txt", ".rst", ".adoc", ".org":
+		return 0.3
+	}
+
+	// Unknown extension — moderate default.
+	return 0.5
 }
 
 // --- low-level search helpers ---

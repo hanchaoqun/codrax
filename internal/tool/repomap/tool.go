@@ -119,6 +119,13 @@ func (t *RepoMapV2) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	}, nil
 }
 
+// BuildOrLoadGraph builds or loads a cached repo graph, ranks files by
+// the given query, and returns the result. Exported for use by the
+// keyword search system in the agent package.
+func BuildOrLoadGraph(repoRoot, query string) (*Graph, error) {
+	return buildOrLoadGraph(repoRoot, query)
+}
+
 func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	cacheDir := CacheDir(repoRoot)
 

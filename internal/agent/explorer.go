@@ -365,7 +365,10 @@ func isNoisePath(path string) bool {
 		return true
 	}
 	// Common dependency/vendor directories (cross-ecosystem)
-	for _, dir := range []string{"node_modules/", "vendor/", "__pycache__/", ".tox/", "target/debug/", "target/release/"} {
+	for _, dir := range []string{
+		"node_modules/", "vendor/", "__pycache__/", ".tox/",
+		"target/debug/", "target/release/",
+	} {
 		if strings.HasPrefix(path, dir) || strings.Contains(path, "/"+dir) {
 			return true
 		}
