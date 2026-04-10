@@ -131,6 +131,37 @@ func (r *REPL) handleSlash(line string) bool {
 		fmt.Fprintln(r.out, "Codrax> bye")
 		return true
 	case "/clear":
+		// /clear wipes MEMORY.md and turns/, which are *shared* with
+		// any sibling codrax instances pointed at the same memory
+		// directory (per-target-repo namespacing means "same target
+		// repo" by default). Surface the impact before doing it.
+		// LivePeerCount looks at sidecar marker files dropped by each
+		// Store at NewStore time; the count excludes us and any
+		// crashed peers whose PID is no longer alive.
+		peers, perr := r.store.LivePeerCount()
+		if perr != nil {
+			logging.Warning("[repl] live peer count failed: %v", perr)
+		}
+		switch {
+		case peers == 0:
+			fmt.Fprint(r.out, "Codrax> /clear wipes this conversation memory (MEMORY.md + turns/). Confirm? [y/N]: ")
+		case peers == 1:
+			fmt.Fprint(r.out, "Codrax> /clear wipes shared memory (MEMORY.md + turns/) — 1 other live codrax instance is also using this directory and will see the wipe on its next read. Confirm? [y/N]: ")
+		default:
+			fmt.Fprintf(r.out, "Codrax> /clear wipes shared memory (MEMORY.md + turns/) — %d other live codrax instances are also using this directory and will see the wipe on their next read. Confirm? [y/N]: ", peers)
+		}
+		answer, err := r.in.ReadString('\n')
+		if err != nil {
+			// EOF or read error → treat as "no" so a stray /clear at
+			// end-of-input never silently nukes memory.
+			fmt.Fprintln(r.out, "Codrax> clear cancelled")
+			break
+		}
+		answer = strings.TrimSpace(strings.ToLower(answer))
+		if answer != "y" && answer != "yes" {
+			fmt.Fprintln(r.out, "Codrax> clear cancelled")
+			break
+		}
 		if err := r.store.Clear(); err != nil {
 			fmt.Fprintf(r.out, "Codrax> clear failed: %v\n", err)
 		} else {

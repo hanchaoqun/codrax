@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // readAllLogs returns the concatenated contents of every codrax-*.log
@@ -105,9 +106,12 @@ func TestFilenameFormat(t *testing.T) {
 	if !strings.HasPrefix(name, "codrax-") || !strings.HasSuffix(name, ".log") {
 		t.Errorf("unexpected filename format: %s", name)
 	}
-	// codrax-YYYYMMDD-HHMMSS-mmm.log → 7 + 19 + 4 = 30 chars exactly.
-	if len(name) != len("codrax-")+len("20060102-150405-000")+len(".log") {
-		t.Errorf("filename %s does not match codrax-YYYYMMDD-HHMMSS-mmm.log", name)
+	// Format: codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log. The structural
+	// check is "the embedded PID equals our PID"; that proves both
+	// the suffix is present and that pidFromLogFilename can recover
+	// it, which is the property the prune sweeper relies on.
+	if got := pidFromLogFilename(name); got != os.Getpid() {
+		t.Errorf("pidFromLogFilename(%s) = %d, want %d", name, got, os.Getpid())
 	}
 }
 
@@ -143,10 +147,16 @@ func TestRotation(t *testing.T) {
 	}
 }
 
-func TestRestartAppendsToExistingFile(t *testing.T) {
+func TestRestartAlwaysCreatesNewFile(t *testing.T) {
+	// With per-PID log filenames, every NewFromFlags call opens a
+	// fresh file rather than appending to an existing one. This is
+	// what makes the multi-instance scenario safe (no two writers
+	// share an fd) and is the documented replacement for the old
+	// "resume into existing file" behavior. Both files must contain
+	// only their own session's records, and listLogFiles must show
+	// both, so a tail-of-history reader can still recover everything.
 	dir := t.TempDir()
 
-	// First session: write a small amount, well under 4MB.
 	lg1, err := NewFromFlags(dir, "info", false)
 	if err != nil {
 		t.Fatalf("first NewFromFlags: %v", err)
@@ -163,17 +173,15 @@ func TestRestartAppendsToExistingFile(t *testing.T) {
 		t.Fatalf("expected 1 file after first session, got %d", len(filesAfterFirst))
 	}
 	firstPath := filesAfterFirst[0]
-	first, err := os.ReadFile(firstPath)
-	if err != nil {
-		t.Fatalf("read after first session: %v", err)
-	}
-	firstLen := len(first)
-	if firstLen == 0 {
-		t.Fatalf("first session wrote nothing")
-	}
 
-	// Second session: must reuse the same file (it's well under 4MB)
-	// rather than creating a fresh timestamped one.
+	// Sleep just long enough for the millisecond-resolution timestamp
+	// in the filename to advance, so the two sessions don't collide
+	// on the (timestamp, pid) tuple. Within one process the same PID
+	// is reused, so without a timestamp gap openNew would fall through
+	// to its numeric collision-counter suffix — which is correct, but
+	// makes the assertion below noisier than it needs to be.
+	time.Sleep(2 * time.Millisecond)
+
 	lg2, err := NewFromFlags(dir, "info", false)
 	if err != nil {
 		t.Fatalf("second NewFromFlags: %v", err)
@@ -186,29 +194,45 @@ func TestRestartAppendsToExistingFile(t *testing.T) {
 	}
 
 	filesAfterSecond, _ := listLogFiles(dir)
-	if len(filesAfterSecond) != 1 {
-		t.Errorf("expected still 1 file after restart, got %d (%v)", len(filesAfterSecond), filesAfterSecond)
-	}
-	if filesAfterSecond[0] != firstPath {
-		t.Errorf("restart should resume into %s, got %s", firstPath, filesAfterSecond[0])
+	if len(filesAfterSecond) != 2 {
+		t.Fatalf("expected 2 files after restart, got %d (%v)", len(filesAfterSecond), filesAfterSecond)
 	}
 
-	second, err := os.ReadFile(firstPath)
+	// Each file holds exactly its own session's records — no leakage.
+	first, err := os.ReadFile(firstPath)
 	if err != nil {
-		t.Fatalf("read after second session: %v", err)
+		t.Fatalf("read first: %v", err)
 	}
-	if len(second) <= firstLen {
-		t.Errorf("second session did not append: firstLen=%d, secondLen=%d", firstLen, len(second))
-	}
-	if !strings.HasPrefix(string(second), string(first)) {
-		t.Errorf("second session truncated/overwrote earlier content")
+	if strings.Contains(string(first), "second session") {
+		t.Errorf("first file contains second-session content")
 	}
 	for i := 0; i < 5; i++ {
-		if !strings.Contains(string(second), fmt.Sprintf("first session line %d", i)) {
-			t.Errorf("missing first-session record %d after restart", i)
+		if !strings.Contains(string(first), fmt.Sprintf("first session line %d", i)) {
+			t.Errorf("missing first-session record %d in first file", i)
 		}
+	}
+
+	// The other file (whichever it is) must hold the second session.
+	var secondPath string
+	for _, p := range filesAfterSecond {
+		if p != firstPath {
+			secondPath = p
+			break
+		}
+	}
+	if secondPath == "" {
+		t.Fatalf("could not identify second-session file in %v", filesAfterSecond)
+	}
+	second, err := os.ReadFile(secondPath)
+	if err != nil {
+		t.Fatalf("read second: %v", err)
+	}
+	if strings.Contains(string(second), "first session") {
+		t.Errorf("second file contains first-session content")
+	}
+	for i := 0; i < 5; i++ {
 		if !strings.Contains(string(second), fmt.Sprintf("second session line %d", i)) {
-			t.Errorf("missing second-session record %d", i)
+			t.Errorf("missing second-session record %d in second file", i)
 		}
 	}
 }
@@ -236,6 +260,105 @@ func TestRestartCreatesNewFileWhenExistingIsFull(t *testing.T) {
 	// The new file must be different from the seeded one.
 	if files[len(files)-1] == fullName {
 		t.Errorf("new session reused full file: %s", fullName)
+	}
+}
+
+func TestConcurrentLoggersDoNotShareFile(t *testing.T) {
+	// The whole point of per-PID filenames is that two writers
+	// pointed at the same dir never touch the same file. We can't
+	// fork a real process from a unit test, so we simulate by
+	// constructing two Loggers with the same PID-of-this-process
+	// (which is what would happen on the rare millisecond-collision
+	// path) and verifying the openNew collision counter still gives
+	// each writer its own file. The records of one must not appear
+	// in the file of the other.
+	dir := t.TempDir()
+	lg1, err := NewFromFlags(dir, "info", false)
+	if err != nil {
+		t.Fatalf("lg1: %v", err)
+	}
+	lg2, err := NewFromFlags(dir, "info", false)
+	if err != nil {
+		t.Fatalf("lg2: %v", err)
+	}
+	for i := 0; i < 20; i++ {
+		lg1.Info("from-one %d", i)
+		lg2.Info("from-two %d", i)
+	}
+	lg1.Close()
+	lg2.Close()
+
+	files, _ := listLogFiles(dir)
+	if len(files) != 2 {
+		t.Fatalf("expected 2 distinct files, got %d (%v)", len(files), files)
+	}
+	for _, f := range files {
+		data, _ := os.ReadFile(f)
+		hasOne := strings.Contains(string(data), "from-one")
+		hasTwo := strings.Contains(string(data), "from-two")
+		if hasOne && hasTwo {
+			t.Errorf("file %s mixes records from both writers", filepath.Base(f))
+		}
+		if !hasOne && !hasTwo {
+			t.Errorf("file %s contains records from neither writer", filepath.Base(f))
+		}
+	}
+}
+
+func TestPruneSkipsLivePeerFiles(t *testing.T) {
+	// pruneOldFiles must not delete a file whose embedded PID still
+	// belongs to a running process — that would be a multi-instance
+	// rotation race tearing a peer's active log out from under it.
+	// We seed the dir with eight files: seven owned by an obviously
+	// dead PID (1, init/systemd, but the bytes are stale fakes) and
+	// one owned by THIS test process. After prune the live-owner file
+	// must survive even though it's not the newest by name.
+	dir := t.TempDir()
+	mkfile := func(name string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte("x"), 0o644); err != nil {
+			t.Fatalf("seed %s: %v", name, err)
+		}
+		return path
+	}
+	// Use a PID we are confident is dead: a deliberately huge number
+	// that no kernel will hand out for years. isPidAlive returns false.
+	deadPid := 9999999
+	for i := 0; i < 7; i++ {
+		mkfile(fmt.Sprintf("codrax-2020010%d-000000-000-%d.log", i, deadPid))
+	}
+	live := mkfile(fmt.Sprintf("codrax-20200101-000000-000-%d.log", os.Getpid()))
+
+	pruneOldFiles(dir)
+
+	files, _ := listLogFiles(dir)
+	if len(files) > maxTotalFiles {
+		t.Errorf("after prune expected at most %d files, got %d", maxTotalFiles, len(files))
+	}
+	stillThere := false
+	for _, f := range files {
+		if f == live {
+			stillThere = true
+			break
+		}
+	}
+	if !stillThere {
+		t.Errorf("live-owner file was incorrectly pruned: %s", live)
+	}
+}
+
+func TestPidFromLogFilename(t *testing.T) {
+	cases := map[string]int{
+		"codrax-20260410-024410-000-12345.log":    12345,
+		"codrax-20260410-024410-000-12345-1.log":  12345, // collision counter
+		"codrax-20200101-000000-000.log":          0,     // legacy, no PID
+		"unrelated.log":                           0,
+		"codrax-20260410-024410-000-notapid.log":  0,
+	}
+	for name, want := range cases {
+		if got := pidFromLogFilename(name); got != want {
+			t.Errorf("pidFromLogFilename(%q) = %d, want %d", name, got, want)
+		}
 	}
 }
 

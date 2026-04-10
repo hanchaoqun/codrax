@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,13 +56,46 @@ type Summarizer interface {
 }
 
 // Store holds in-memory recent turns and a parsed view of MEMORY.md.
-// It is safe for concurrent use.
+// It is safe for concurrent use both within one process (via mu) and
+// across processes that share the same directory.
+//
+// Two file locks govern the cross-process behavior:
+//
+//   - flock (MEMORY.md.lock) — taken briefly per memory operation.
+//     Shared for reads, exclusive for writes. Serializes mutations
+//     and ensures readers see a consistent on-disk index.
+//
+//   - instanceLock (.instance.lock) — held SHARED for the entire
+//     lifetime of the Store. Multiple peer Stores can hold it
+//     simultaneously. Its only purpose is presence detection: at
+//     NewStore time we briefly try to acquire EXCLUSIVE on it
+//     non-blocking. Success means no peers are alive in this
+//     directory and we may safely run loadOrphanRecent to recover
+//     the tail of a previously-crashed session. Failure (would
+//     block) means peers exist and orphan recovery is skipped —
+//     those un-compacted turn files belong to active peer Stores'
+//     recent buffers, not to a crashed previous lifetime.
+//
+// In-process s.index is reloaded from disk after acquiring either
+// flock so it never lags behind a peer's writes.
 type Store struct {
 	mu sync.Mutex
 
 	dir       string
 	turnsDir  string
 	indexPath string
+	lockPath  string
+
+	flock        *fileLock
+	instanceLock *fileLock
+
+	// sidecarPath is a per-Store marker file under <dir>/.instance-*
+	// created at NewStore and removed at Close. LivePeerCount lists
+	// sidecars whose embedded PID is still alive (and is not our
+	// own) to answer "are there other codrax instances active in
+	// this directory right now?" — used by REPL /clear to warn the
+	// user that the wipe affects shared state.
+	sidecarPath string
 
 	recent []Turn
 	index  []IndexEntry
@@ -70,6 +104,13 @@ type Store struct {
 	maxBytes   int
 	summarizer Summarizer
 }
+
+// sidecarPrefix is the filename prefix for per-Store presence
+// markers under the memory directory. Format:
+// .instance-<pid>-<unix-nano>. The nano disambiguates two Stores in
+// the same process (test scenario, mostly), and the PID lets a peer
+// recover from a crash by skipping markers whose owner is dead.
+const sidecarPrefix = ".instance-"
 
 // NewStore creates (or opens) a Store rooted at dir. The directory and
 // its turns/ subdir are created if missing. Existing MEMORY.md entries
@@ -90,21 +131,206 @@ func NewStore(dir string, summarizer Summarizer) (*Store, error) {
 	if err := os.MkdirAll(turnsDir, 0o755); err != nil {
 		return nil, fmt.Errorf("create memory dir: %w", err)
 	}
+	lockPath := filepath.Join(dir, "MEMORY.md.lock")
+	flock, err := newFileLock(lockPath)
+	if err != nil {
+		return nil, err
+	}
+	instanceLock, err := newFileLock(filepath.Join(dir, ".instance.lock"))
+	if err != nil {
+		_ = flock.close()
+		return nil, err
+	}
+	sidecar := filepath.Join(dir, fmt.Sprintf("%s%d-%d", sidecarPrefix, os.Getpid(), time.Now().UnixNano()))
+	if f, err := os.OpenFile(sidecar, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644); err == nil {
+		_ = f.Close()
+	} else if !errors.Is(err, os.ErrExist) {
+		_ = instanceLock.close()
+		_ = flock.close()
+		return nil, fmt.Errorf("create instance sidecar: %w", err)
+	}
 	s := &Store{
-		dir:        dir,
-		turnsDir:   turnsDir,
-		indexPath:  filepath.Join(dir, "MEMORY.md"),
-		maxRecent:  6,
-		maxBytes:   20 * 1024,
-		summarizer: summarizer,
+		dir:          dir,
+		turnsDir:     turnsDir,
+		indexPath:    filepath.Join(dir, "MEMORY.md"),
+		lockPath:     lockPath,
+		flock:        flock,
+		instanceLock: instanceLock,
+		sidecarPath:  sidecar,
+		maxRecent:    6,
+		maxBytes:     20 * 1024,
+		summarizer:   summarizer,
 	}
-	if err := s.loadIndex(); err != nil {
+
+	// Presence detection: try to grab an EXCLUSIVE lock on
+	// .instance.lock without blocking. Success means no peer Store is
+	// currently holding the lifetime shared lock — i.e. we are the
+	// only Store on this directory right now and may recover the
+	// tail of any prior crashed session as our own. Failure (would
+	// block) means at least one peer Store is alive; the un-compacted
+	// turn files in turns/ belong to its recent buffer and pulling
+	// them into ours would double-count.
+	//
+	// We hold the EXCLUSIVE lock across loadOrphanRecent so no peer
+	// can sneak in mid-recovery and start writing turn files we'd
+	// then misinterpret as orphans of our own crashed session. Only
+	// after recovery completes do we downgrade to SHARED, which is
+	// the lock state held for the lifetime of the Store and is what
+	// later peers' tryLock will observe.
+	alone := false
+	got, err := s.instanceLock.tryLock()
+	if err != nil {
+		_ = s.instanceLock.close()
+		_ = s.flock.close()
+		return nil, fmt.Errorf("acquire instance lock: %w", err)
+	}
+	alone = got
+
+	// Initial index load runs under the shared MEMORY.md lock — a
+	// separate file from .instance.lock — so it composes with our
+	// instance-lock state regardless of which mode we're in.
+	if err := s.withSharedLock(s.loadIndexLocked); err != nil {
+		_ = s.Close()
 		return nil, err
 	}
-	if err := s.loadOrphanRecent(); err != nil {
-		return nil, err
+
+	if alone {
+		if err := s.loadOrphanRecent(); err != nil {
+			_ = s.Close()
+			return nil, err
+		}
+		// Atomic on Unix (flock(LOCK_SH) downgrades in place).
+		// Brief window on Windows, harmless because no Append has
+		// started yet at NewStore time.
+		if err := s.instanceLock.downgradeToShared(); err != nil {
+			_ = s.Close()
+			return nil, fmt.Errorf("downgrade instance lock: %w", err)
+		}
+	} else {
+		// We never had exclusive; just take shared and join the
+		// pool of live peer Stores.
+		if err := s.instanceLock.rlock(); err != nil {
+			_ = s.Close()
+			return nil, fmt.Errorf("hold instance lock: %w", err)
+		}
 	}
 	return s, nil
+}
+
+// Close releases both file locks and their underlying fds. Calling
+// Close on a nil receiver is safe. Currently optional in production
+// — main.go relies on process exit for cleanup — but exposed for
+// tests and for callers that want deterministic teardown. The
+// instance lock release is what lets a subsequent NewStore detect
+// "I am alone" and recover orphan turns; without an explicit Close,
+// the OS releases on process exit, which is functionally equivalent
+// for the multi-instance scenario.
+func (s *Store) Close() error {
+	if s == nil {
+		return nil
+	}
+	var firstErr error
+	if s.sidecarPath != "" {
+		if err := os.Remove(s.sidecarPath); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+			firstErr = err
+		}
+	}
+	if err := s.instanceLock.close(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	if err := s.flock.close(); err != nil && firstErr == nil {
+		firstErr = err
+	}
+	return firstErr
+}
+
+// LivePeerCount returns the number of OTHER codrax Store instances
+// that currently have this memory directory open. The count is
+// derived from sidecar marker files written by NewStore: every
+// sidecar that is not ours and whose embedded PID is still a live
+// process counts as one peer. Stale sidecars left by crashed
+// processes are silently ignored.
+//
+// Used by REPL /clear to format an honest warning before wiping
+// shared state. The result is best-effort: a peer that starts
+// between the call and the wipe will not be reflected, and a peer
+// that crashed without removing its sidecar will not be counted
+// (its PID is dead). Neither inaccuracy is harmful — the worst
+// case is a slightly misleading prompt, and the underlying Clear
+// is still safely serialized via the cross-process lock.
+func (s *Store) LivePeerCount() (int, error) {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return 0, fmt.Errorf("scan memory dir: %w", err)
+	}
+	selfBase := filepath.Base(s.sidecarPath)
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasPrefix(name, sidecarPrefix) {
+			continue
+		}
+		if name == selfBase {
+			continue
+		}
+		pid := pidFromSidecar(name)
+		if pid <= 0 {
+			continue
+		}
+		if pidAlive(pid) {
+			count++
+		}
+	}
+	return count, nil
+}
+
+// pidFromSidecar parses the PID out of a sidecar filename. Format
+// is .instance-<pid>-<nano>, so we look at the segment between the
+// first '-' after the prefix and the next '-'. Returns 0 on parse
+// failure, which causes LivePeerCount to skip the file (treating
+// it as alien).
+func pidFromSidecar(name string) int {
+	core := strings.TrimPrefix(name, sidecarPrefix)
+	dash := strings.Index(core, "-")
+	if dash <= 0 {
+		return 0
+	}
+	pid, err := strconv.Atoi(core[:dash])
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
+}
+
+// withExclusiveLock takes the cross-process exclusive lock, refreshes
+// s.index from disk so the closure sees any writes a peer made since
+// last call, runs the closure, then releases the lock. The mutation
+// closure is responsible for keeping s.index in sync with whatever it
+// writes to disk inside the critical section.
+func (s *Store) withExclusiveLock(fn func() error) error {
+	if err := s.flock.lock(); err != nil {
+		return fmt.Errorf("acquire memory lock: %w", err)
+	}
+	defer func() { _ = s.flock.unlock() }()
+	if err := s.loadIndexLocked(); err != nil {
+		return err
+	}
+	return fn()
+}
+
+// withSharedLock is the read-side counterpart to withExclusiveLock.
+// Multiple processes may hold the shared lock concurrently, but no
+// exclusive holder can interleave. We still reload s.index here so
+// the read sees the latest committed state from any peer.
+func (s *Store) withSharedLock(fn func() error) error {
+	if err := s.flock.rlock(); err != nil {
+		return fmt.Errorf("acquire memory rlock: %w", err)
+	}
+	defer func() { _ = s.flock.unlock() }()
+	return fn()
 }
 
 // loadOrphanRecent scans turns/ for files that are not referenced by
@@ -216,9 +442,15 @@ func (s *Store) readTurnFile(id string) (Turn, error) {
 // Append records a new turn. The full text is written to turns/<id>.md
 // immediately. If the recent buffer is over budget, the oldest turn is
 // compacted into MEMORY.md via the summarizer.
+//
+// Turn IDs embed the process PID alongside the wall-clock timestamp
+// so two codrax instances can append into the same memory directory
+// without ever colliding on a turn filename. Lexicographic sort still
+// approximates chronological order: timestamps come first, the PID
+// only disambiguates within the same nanosecond.
 func (s *Store) Append(turn Turn) error {
 	if turn.ID == "" {
-		turn.ID = fmt.Sprintf("turn-%d", time.Now().UnixNano())
+		turn.ID = fmt.Sprintf("turn-%d-%d", time.Now().UnixNano(), os.Getpid())
 	}
 	if turn.Timestamp.IsZero() {
 		turn.Timestamp = time.Now()
@@ -250,23 +482,30 @@ func (s *Store) Compact() error {
 }
 
 // Clear wipes recent turns, the on-disk index, and the turns directory.
-// Used by /clear.
+// Used by /clear. In the multi-instance case the wipe is shared:
+// peers will see an empty MEMORY.md on their next read because Clear
+// runs under the cross-process exclusive lock. Their per-process
+// recent buffers are unaffected — Clear has no way to reach into
+// another process's memory — so a peer will continue its current
+// conversation thread until its own next /clear or restart.
 func (s *Store) Clear() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.recent = nil
-	s.index = nil
-	if err := os.Remove(s.indexPath); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	entries, err := os.ReadDir(s.turnsDir)
-	if err != nil {
+	return s.withExclusiveLock(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.recent = nil
+		s.index = nil
+		if err := os.Remove(s.indexPath); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		entries, err := os.ReadDir(s.turnsDir)
+		if err != nil {
+			return nil
+		}
+		for _, e := range entries {
+			_ = os.Remove(filepath.Join(s.turnsDir, e.Name()))
+		}
 		return nil
-	}
-	for _, e := range entries {
-		_ = os.Remove(filepath.Join(s.turnsDir, e.Name()))
-	}
-	return nil
+	})
 }
 
 // Recent returns a copy of the recent turn buffer.
@@ -278,8 +517,11 @@ func (s *Store) Recent() []Turn {
 	return out
 }
 
-// Index returns a copy of the parsed MEMORY.md entries.
+// Index returns a copy of the parsed MEMORY.md entries. The on-disk
+// state is reloaded under the shared cross-process lock so callers
+// see any entries written by sibling instances since the last call.
 func (s *Store) Index() []IndexEntry {
+	_ = s.withSharedLock(s.loadIndexLocked)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	out := make([]IndexEntry, len(s.index))
@@ -296,7 +538,13 @@ func (s *Store) Index() []IndexEntry {
 //     so the model can recover the original detail.
 //
 // The empty string is returned when there is no prior context.
+//
+// The compacted-index portion is reloaded from disk under the shared
+// cross-process lock so a peer instance's compactions become visible
+// to this instance immediately. Recent turns stay per-process — each
+// REPL is its own conversation thread.
 func (s *Store) BuildContext(currentRequest string) string {
+	_ = s.withSharedLock(s.loadIndexLocked)
 	s.mu.Lock()
 	recent := append([]Turn(nil), s.recent...)
 	idx := append([]IndexEntry(nil), s.index...)
@@ -359,8 +607,17 @@ func (s *Store) recentBytesLocked() int {
 }
 
 // compactOldest pops recent[0], summarizes it, and appends the result
-// to MEMORY.md. The summarizer is called outside the lock so a slow LLM
-// call does not block other store operations.
+// to MEMORY.md. The summarizer is called outside any lock so a slow
+// LLM call does not block other store operations or block peers in
+// the multi-instance scenario.
+//
+// The disk write and the in-memory index update are paired under the
+// cross-process exclusive lock. We deliberately mutate s.index AFTER
+// the disk append succeeds so a failed write does not leave the
+// in-memory cache claiming an entry that was never persisted. The
+// reload-on-acquire inside withExclusiveLock ensures s.index reflects
+// any peer's writes that committed since this process last ran a
+// memory operation, so the local append never silently shadows them.
 func (s *Store) compactOldest() error {
 	s.mu.Lock()
 	if len(s.recent) == 0 {
@@ -384,12 +641,23 @@ func (s *Store) compactOldest() error {
 		entry.FullRef = filepath.Join("turns", oldest.ID+".md")
 	}
 
-	s.mu.Lock()
-	s.recent = s.recent[1:]
-	s.index = append(s.index, entry)
-	s.mu.Unlock()
-
-	return s.appendIndexEntry(entry)
+	return s.withExclusiveLock(func() error {
+		if err := s.appendIndexEntry(entry); err != nil {
+			return err
+		}
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.index = append(s.index, entry)
+		// Pop the compacted turn from recent. We re-check the head
+		// instead of blindly slicing because another goroutine in
+		// the same process could (in theory) have already trimmed
+		// it; in practice maybeCompact serializes via this same
+		// flock, but defensiveness here is cheap.
+		if len(s.recent) > 0 && s.recent[0].ID == oldest.ID {
+			s.recent = s.recent[1:]
+		}
+		return nil
+	})
 }
 
 // writeTurnFile dumps a turn to turns/<id>.md.
@@ -426,17 +694,28 @@ func (s *Store) appendIndexEntry(e IndexEntry) error {
 	return w.Flush()
 }
 
-// loadIndex parses an existing MEMORY.md back into s.index. Missing
-// file is not an error.
-func (s *Store) loadIndex() error {
+// loadIndexLocked parses MEMORY.md from disk into s.index. The
+// "Locked" suffix is a contract reminder: callers must already hold
+// the cross-process flock (shared or exclusive) so the file is not
+// being mutated mid-read. Missing file is not an error — a fresh
+// memory dir simply has no entries yet. The in-process s.mu is taken
+// briefly to publish the parsed slice without tearing concurrent
+// readers in the same process.
+func (s *Store) loadIndexLocked() error {
 	data, err := os.ReadFile(s.indexPath)
 	if errors.Is(err, os.ErrNotExist) {
+		s.mu.Lock()
+		s.index = nil
+		s.mu.Unlock()
 		return nil
 	}
 	if err != nil {
 		return err
 	}
-	s.index = parseIndex(string(data))
+	parsed := parseIndex(string(data))
+	s.mu.Lock()
+	s.index = parsed
+	s.mu.Unlock()
 	return nil
 }
 

@@ -16,6 +16,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -71,6 +72,15 @@ const (
 	// to find the newest/oldest files.
 	fileTimeLayout = "20060102-150405-000"
 )
+
+// Filename format: codrax-<timestamp>-<pid>.log. The PID suffix is
+// what makes the multi-instance scenario safe: each running codrax
+// owns a disjoint set of log files, so two instances pointed at the
+// same -log-dir never share an fd, never race on rotation, and the
+// retention sweeper can tell from the filename alone whether a file
+// belongs to a process that is still running. Within one instance,
+// rotation produces multiple files all carrying the same PID and a
+// later timestamp, which still sort chronologically.
 
 // Logger is a leveled writer with optional stdout mirroring.
 //
@@ -187,15 +197,21 @@ func Info(format string, args ...interface{})    { Default.Info(format, args...)
 func Debug(format string, args ...interface{})   { Default.Debug(format, args...) }
 
 // rotatingWriter is a size-bounded file writer that names each file
-// after its creation timestamp:
+// after its creation timestamp and the owning process's PID:
 //
-//	codrax-YYYYMMDD-HHMMSS-mmm.log
+//	codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log
 //
-// On startup the newest existing file is reused (appended to) if it
-// is still under the size cap; otherwise a fresh file is created with
-// the current timestamp. When a write would push the active file past
-// the cap, it closes the file, opens a new one, and prunes the
-// directory back to maxTotalFiles entries by deleting the oldest.
+// Every writer always opens a fresh file at startup. Resuming into a
+// pre-existing file is intentionally NOT supported because the PID
+// suffix already isolates this process from any other writer in the
+// same directory; resume would defeat that property by sharing an fd
+// with a previous (now exited) PID's last file. Slightly more files
+// on disk in exchange for zero cross-instance write races.
+//
+// When a write would push the active file past the cap, the writer
+// closes the file, opens a new one (same PID, new timestamp), and
+// asks pruneOldFiles to enforce the retention cap — skipping any
+// files whose embedded PID still belongs to a running process.
 type rotatingWriter struct {
 	dir  string
 	f    *os.File
@@ -203,28 +219,14 @@ type rotatingWriter struct {
 }
 
 func newRotatingWriter(dir string) (*rotatingWriter, error) {
-	files, err := listLogFiles(dir)
-	if err != nil {
-		return nil, err
-	}
-
-	// Try to resume into the newest existing file if it has room.
-	if len(files) > 0 {
-		newest := files[len(files)-1]
-		stat, err := os.Stat(newest)
-		if err == nil && stat.Size() < maxFileBytes {
-			f, err := os.OpenFile(newest, os.O_WRONLY|os.O_APPEND, 0o644)
-			if err == nil {
-				return &rotatingWriter{dir: dir, f: f, size: stat.Size()}, nil
-			}
-		}
-	}
-
-	// Otherwise open a fresh timestamped file.
 	w := &rotatingWriter{dir: dir}
 	if err := w.openNew(); err != nil {
 		return nil, err
 	}
+	// Sweep stale files left behind by previous (exited) instances on
+	// startup so a freshly-launched binary doesn't inherit a hoard of
+	// orphan logs from earlier crashes.
+	pruneOldFiles(dir)
 	return w, nil
 }
 
@@ -254,12 +256,14 @@ func (w *rotatingWriter) rotate() error {
 	return nil
 }
 
-// openNew creates a new log file using the current timestamp. If a
-// file with that exact name already exists (e.g. two rotations within
-// the same millisecond), it appends a numeric suffix to make the name
-// unique.
+// openNew creates a new log file using the current timestamp and the
+// owning process's PID. The PID suffix means two processes can never
+// pick the same name; the time+counter loop only protects against the
+// (vanishingly unlikely) case of a single process rotating twice
+// within the same millisecond.
 func (w *rotatingWriter) openNew() error {
-	base := filePrefix + time.Now().Format(fileTimeLayout)
+	pid := os.Getpid()
+	base := fmt.Sprintf("%s%s-%d", filePrefix, time.Now().Format(fileTimeLayout), pid)
 	path := filepath.Join(w.dir, base+fileSuffix)
 	for i := 1; ; i++ {
 		if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -274,6 +278,41 @@ func (w *rotatingWriter) openNew() error {
 	w.f = f
 	w.size = 0
 	return nil
+}
+
+// pidFromLogFilename extracts the PID embedded in a log filename. The
+// canonical format is codrax-<timestamp>-<pid>.log; rotation
+// collisions add a "-<n>" suffix before .log, which we strip first.
+// Returns 0 when the filename does not match (e.g. legacy files from
+// before per-PID naming, or unrelated files dropped into the dir),
+// and 0 is treated by callers as "owner unknown, eligible to prune".
+func pidFromLogFilename(name string) int {
+	if !strings.HasPrefix(name, filePrefix) || !strings.HasSuffix(name, fileSuffix) {
+		return 0
+	}
+	core := strings.TrimSuffix(strings.TrimPrefix(name, filePrefix), fileSuffix)
+	// core is now <timestamp>-<pid> or <timestamp>-<pid>-<n>.
+	// Split from the right: the PID is the rightmost numeric segment
+	// that is not a small collision counter. We try the last segment
+	// first, then the second-to-last if the last looks like a small
+	// collision counter (i.e. when there are at least 4 segments:
+	// date, time, ms, pid, [collision]).
+	parts := strings.Split(core, "-")
+	if len(parts) < 4 {
+		return 0 // legacy filename, no PID encoded
+	}
+	// Try last segment as PID first (the common case).
+	if pid, err := strconv.Atoi(parts[len(parts)-1]); err == nil && pid > 0 {
+		// If there are 5+ segments AND the last looks small (< 10000)
+		// AND the second-to-last is a plausible PID, prefer that one.
+		if len(parts) >= 5 && pid < 10000 {
+			if maybePid, err := strconv.Atoi(parts[len(parts)-2]); err == nil && maybePid > 0 {
+				return maybePid
+			}
+		}
+		return pid
+	}
+	return 0
 }
 
 // listLogFiles returns absolute paths of all codrax-*.log files in dir,
@@ -303,15 +342,43 @@ func listLogFiles(dir string) ([]string, error) {
 }
 
 // pruneOldFiles deletes the oldest log files until at most
-// maxTotalFiles remain in dir.
+// maxTotalFiles remain in dir, while never deleting a file that
+// belongs to a process that is still running. The PID-liveness check
+// is what makes the multi-instance scenario safe: instance A's
+// rotation must not delete instance B's active file out from under
+// it. Files whose PID we cannot determine (legacy names, third-party
+// drops) are treated as owner-unknown and pruned normally — they
+// can't be active codrax logs by definition.
+//
+// Best-effort: filesystem errors abort the sweep silently, on the
+// theory that retention is a hygiene concern, not a correctness one.
 func pruneOldFiles(dir string) {
 	files, err := listLogFiles(dir)
 	if err != nil {
 		return
 	}
+	selfPid := os.Getpid()
 	for len(files) > maxTotalFiles {
-		_ = os.Remove(files[0])
-		files = files[1:]
+		// Walk from oldest forward, deleting the first file that is
+		// safe to remove. If we make it through the whole slice
+		// without deleting anything, every remaining file is owned
+		// by a live peer and we have to leave the dir over-cap until
+		// one of those peers exits.
+		removed := false
+		for i, path := range files {
+			pid := pidFromLogFilename(filepath.Base(path))
+			if pid != 0 && pid != selfPid && isPidAlive(pid) {
+				continue // owned by a live peer, leave it alone
+			}
+			if err := os.Remove(path); err == nil {
+				files = append(files[:i], files[i+1:]...)
+				removed = true
+				break
+			}
+		}
+		if !removed {
+			return
+		}
 	}
 }
 
