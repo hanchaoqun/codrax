@@ -1,4 +1,5 @@
 config/providers.yaml
+config/codrax.yaml
 
 # Build output (binary name comes from module path)
 /codrax

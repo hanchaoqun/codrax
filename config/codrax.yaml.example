@@ -1,0 +1,33 @@
+# codrax runtime settings — copy to config/codrax.yaml to activate.
+#
+# Every key is optional. Omitted keys fall back to the code defaults
+# shown in the comments. Keys set here are overridden on a per-invocation
+# basis by matching command-line flags, so the precedence chain is:
+#
+#   code default  <  config/codrax.yaml  <  command-line flag
+#
+# The binary silently falls back to code defaults when this file is
+# missing, so checking in an example while leaving the real file out
+# of version control (see .gitignore) is the expected workflow.
+#
+# To point at a different runtime settings file without editing this
+# path, set the CODRAX_SETTINGS environment variable.
+
+# Directory for rotating log files. Created on first run.
+# log_dir: logs
+
+# Minimum level written to the log file. One of: error, warning, info, debug.
+# log_level: info
+
+# Mirror every log record to stdout in addition to the file.
+# Useful for foreground debugging; keep off for clean REPL UX.
+# log_stdout: false
+
+# Directory for multi-turn conversation memory (MEMORY.md + turns/).
+# memory_dir: memory
+
+# Default response language for the model's final answer.
+# Supported shorthands: zh, zh-CN, en. Any other string is passed
+# through verbatim as a preference directive. Set to "off" or "none"
+# to disable the feature entirely (model picks its own language).
+# lang: zh

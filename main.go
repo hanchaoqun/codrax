@@ -22,18 +22,76 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Code defaults for runtime settings. Kept as named constants so the
+// precedence chain (code default → config file → command line) is
+// easy to read and test.
+const (
+	defaultLogDir    = "logs"
+	defaultLogLevel  = "info"
+	defaultLogStdout = false
+	defaultMemoryDir = "memory"
+	defaultLang      = "zh"
+)
+
 func main() {
+	// --- Phase 1: load the runtime settings file so the values inside
+	// it can serve as flag defaults. The file path is fixed at
+	// config/codrax.yaml, overridable via the CODRAX_SETTINGS env var
+	// for scripted/multi-environment setups. Picking this up *before*
+	// flag registration avoids a two-pass flag.Parse.
+	settingsPath := "config/codrax.yaml"
+	settingsExplicit := false
+	if p := os.Getenv("CODRAX_SETTINGS"); p != "" {
+		settingsPath = p
+		settingsExplicit = true
+	}
+
+	// Start with pure code defaults.
+	mergedLogDir := defaultLogDir
+	mergedLogLevel := defaultLogLevel
+	mergedLogStdout := defaultLogStdout
+	mergedMemoryDir := defaultMemoryDir
+	mergedLang := defaultLang
+
+	// Overlay config file values. Missing default file = silent skip;
+	// explicit path via env var must exist. Logger is not up yet, so
+	// diagnostics go to stderr.
+	if rs, err := config.LoadRuntimeSettings(settingsPath); err == nil {
+		if rs.LogDir != nil {
+			mergedLogDir = *rs.LogDir
+		}
+		if rs.LogLevel != nil {
+			mergedLogLevel = *rs.LogLevel
+		}
+		if rs.LogStdout != nil {
+			mergedLogStdout = *rs.LogStdout
+		}
+		if rs.MemoryDir != nil {
+			mergedMemoryDir = *rs.MemoryDir
+		}
+		if rs.Lang != nil {
+			mergedLang = *rs.Lang
+		}
+	} else if !config.IsNotExist(err) || settingsExplicit {
+		fmt.Fprintf(os.Stderr, "failed to load runtime settings from %s: %v\n", settingsPath, err)
+		os.Exit(1)
+	}
+
+	// --- Phase 2: register flags using the merged values as defaults.
+	// When the user omits a flag, the merged value wins; when they pass
+	// one, the command line wins. That gives the
+	// code < config file < command line precedence the task called for.
 	configPath := flag.String("config", "config/orchestrator.yaml", "path to orchestrator config")
 	providersPath := flag.String("providers", "config/providers.yaml", "path to providers config")
 	repoRoot := flag.String("repo", ".", "repository root path")
 	branch := flag.String("branch", "main", "git branch")
 	request := flag.String("request", "", "user request to process (empty enters interactive mode)")
 	maxSteps := flag.Int("max-steps", 50, "maximum pipeline steps")
-	logDir := flag.String("log-dir", "logs", "directory for log files")
-	logLevel := flag.String("log-level", "info", "log level: error|warning|info|debug")
-	logStdout := flag.Bool("log-stdout", false, "also mirror logs to stdout")
-	memoryDir := flag.String("memory-dir", "memory", "directory for conversation memory")
-	lang := flag.String("lang", "zh", "default response language (zh/en/...); 'off' to disable")
+	logDir := flag.String("log-dir", mergedLogDir, "directory for log files")
+	logLevel := flag.String("log-level", mergedLogLevel, "log level: error|warning|info|debug")
+	logStdout := flag.Bool("log-stdout", mergedLogStdout, "also mirror logs to stdout")
+	memoryDir := flag.String("memory-dir", mergedMemoryDir, "directory for conversation memory")
+	lang := flag.String("lang", mergedLang, "default response language (zh/en/...); 'off' to disable")
 	flag.Parse()
 
 	// Initialize the leveled logger first so every subsequent message
