@@ -16,6 +16,10 @@
 - [6. 请求生命周期](#6-请求生命周期)
 - [7. 编排器状态机](#7-编排器状态机)
 - [8. 关键设计模式](#8-关键设计模式)
+  - [调查与综合分离](#调查与综合分离探索器)
+  - [两阶段探索](#两阶段探索广读--深读)
+  - [runtime file coverage](#runtime-file-coverage)
+  - [反过拟合设计原则](#反过拟合设计原则)
 - [9. 错误处理与容错](#9-错误处理与容错)
 - [10. 可扩展性](#10-可扩展性)
 
@@ -290,9 +294,25 @@ graph TD
     Act --> Observe[处理<br/>工具结果]
     Observe --> Update[更新工作<br/>状态]
     Update --> Think
-    Decide -->|否，目标达成| Output[产出<br/>结构化输出]
+    Decide -->|否| SoftStop{ContinuingEvaluator<br/>是否继续？}
+    SoftStop -->|是| Think
+    SoftStop -->|否| Synth{SynthesizingEvaluator?}
+    Synth -->|是| SynthCall[干净上下文<br/>综合调用]
+    SynthCall --> Output
+    Synth -->|否| Output[产出<br/>结构化输出]
     Output --> Done([返回编排器])
 ```
+
+#### 可选接口
+
+BaseAgent 提供三个可选接口，Evaluator 可选择性实现以定制 ReAct 循环行为：
+
+| 接口 | 用途 | 实现者 |
+|------|------|--------|
+| `ContinuingEvaluator` | 当 LLM 产出纯文本（无工具调用）时拦截 soft-stop，注入 continuation prompt 推动继续调查 | 探索器 |
+| `SynthesizingEvaluator` | ReAct 循环结束后，用干净上下文做一次专门的综合调用，将所有 tool results 综合为最终回答 | 探索器 |
+
+**调查与综合分离**（SynthesizingEvaluator 的设计动机）：ReAct 循环混合了调查（工具调用）和综合（文本输出）。continuation push 后，最后一条 assistant 消息往往是关于最后一次检查的碎片笔记，而不是综合性回答。SynthesizingEvaluator 将两者彻底分离——ReAct 循环只负责调查和收集证据，综合步骤在循环结束后用全部 evidence digest 做一次干净的 LLM 调用，产出最终 StageReport。
 
 #### 子 Agent 并发
 
@@ -531,8 +551,22 @@ PromptContext 的组装具有 token 预算意识：
 | **Agent** | analyzer |
 | **技能** | task-analysis-skill |
 | **输入** | 用户原始输入、当前 BusContext（可能为空）、对话历史（可选） |
-| **工作** | 意图识别、任务分解、通过 `todo_write` 工具产出任务列表(每个任务携带 Writing / HighRisk 两个布尔),提取约束 |
+| **工作** | 意图识别、任务分解、通过 `todo_write` 工具产出任务列表(每个任务携带 Writing / HighRisk / Complexity 三个属性),提取约束 |
 | **输出** | 调用 `todo_write` 写入 `BusContext.Mutable.TaskList`;并返回自然语言分类说明 |
+
+#### 任务属性
+
+每个 TaskItem 通过三个属性驱动策略选择：
+
+| 属性 | 类型 | 说明 |
+|------|------|------|
+| `Writing` | bool | 任务是否可能修改文件。false → analysis policy；true → implementation policy |
+| `HighRisk` | bool | 是否需要 design/code review。true + Writing → high_risk_implementation policy |
+| `Complexity` | string | 调查深度提示：`simple`（查找类）/ `moderate`（单组件）/ `complex`（跨组件架构） |
+
+#### 防过度拆分
+
+技能的 workflow 和 prohibitions 约束 analyzer 不要将单一问题拆成多个重叠任务。例如"解释 X 并画流程图"应保持为一个任务——流程图是回答的一部分，不是独立工作。拆分仅在请求包含真正独立的工作项时进行（如"修复 bug A 并添加功能 B"）。
 
 ### 4.2 explore — 事实收集
 
@@ -543,8 +577,57 @@ PromptContext 的组装具有 token 预算意识：
 | **Agent** | 探索器 |
 | **技能** | repo-explore-skill |
 | **输入** | 当前 TaskList / 活动任务、仓库路径 / 分支、已知事实（可能为空） |
-| **工作** | 查找代码入口点（main / cmd / router）、搜索函数和配置、构建模块映射、分析调用链、查询文档 / MCP（GitHub / Docs / DB） |
-| **输出** | `{ repo_facts, entrypoints, call_chains, relevant_files }` |
+| **工作** | 两阶段探索（见下）+ 综合步骤 |
+| **输出** | `{ repo_facts, entrypoints, call_chains, relevant_files }` + 综合后的 StageReport |
+
+#### 两阶段探索模型
+
+探索器将调查分为两个显式阶段，通过 `ContinuingEvaluator` 的 phase 状态机控制：
+
+```
+Phase 1: 广读（Breadth Scan）          Phase 2: 深读（Depth Read）
+┌─────────────────────────┐          ┌─────────────────────────┐
+│ repo_map → 全局概览      │          │ read_file（全文深读）     │
+│ grep files_only → 定位   │   转换    │ 提取数据结构/控制流      │
+│ list_files → 目录结构     │ ──────→  │ 提取配置行为/交叉引用    │
+│                         │          │                         │
+│ 输出：按角色分类的文件清单 │          │ runtime file coverage   │
+│  (a) 类型定义            │          │ 跟踪已读/未读文件        │
+│  (b) 核心逻辑            │          │                         │
+│  (c) 配置/规则声明       │          │                         │
+│  (d) 配置加载器          │          └─────────────────────────┘
+│  (e) 入口点              │                      │
+└─────────────────────────┘                      ▼
+  只用轻量工具，不读文件内容          Synthesis Step（综合）
+  目标：发现所有相关文件              ┌─────────────────────┐
+                                    │ 结构化 evidence digest │
+                                    │ → 干净上下文 LLM 调用   │
+                                    │ → 最终 StageReport     │
+                                    └─────────────────────┘
+```
+
+**Phase 1（广读）**：使用 `repo_map`（task_map 视图）和 `grep`（`files_only=true`，不限文件类型）快速定位所有与问题相关的文件。LLM 按角色对发现的文件分类，产出 3-6 个文件的优先读取清单。Phase 1 不读文件全文。
+
+**Phase 转换**：当 LLM 第一次尝试 soft-stop 时，`ContinuingEvaluator` 检测到 `phase=0`，注入 Phase 2 指令并切换到 `phase=1`。
+
+**Phase 2（深读）**：LLM 按清单逐个全文读取关键文件，提取数据结构、控制流、配置行为和交叉引用。`ContinuingEvaluator` 通过 **runtime file coverage**（从 tool history 中提取已读文件和已发现文件的覆盖率）引导 LLM 读取未覆盖的重要文件，同时列出已读文件防止重复读取。
+
+**Synthesis**：ReAct 循环结束后，`SynthesizingEvaluator` 构建所有 evidence tool results 的结构化摘要，做一次干净的 LLM 调用产出最终综合回答。该回答成为 StageReport，传递给下游的 Finalizer。
+
+#### grep files_only 模式
+
+探索器的 Phase 1 使用 grep 工具的 `files_only` 参数（对应 `grep -rl`），只返回匹配文件的路径列表而非每一行匹配。这避免了大量匹配行被 blob 截断（原始 grep 结果可达数十 KB，截断后只显示第一个文件的匹配），确保 LLM 能看到所有相关文件。
+
+#### runtime file coverage
+
+深读阶段的 continuation 决策基于 runtime 数据而非固定阈值：
+
+1. 从 tool history 中提取 grep files_only 的结果 → **discovered files**
+2. 从 tool history 中提取 read_file 的路径 → **read files**
+3. 过滤噪音路径（VCS、依赖目录、测试文件、日志文件等）
+4. 向 LLM 展示 coverage 状态和未读文件清单，由 LLM 判断哪些值得继续读
+
+这替代了之前基于固定 call count 的 evidence gate，使调查深度自适应于问题的实际复杂度。
 
 ### 4.3 plan — 方案设计
 
@@ -613,10 +696,17 @@ PromptContext 的组装具有 token 预算意识：
 | 方面 | 详情 |
 |------|------|
 | **Agent** | 终结器 |
-| **技能** | final-answer-skill |
-| **输入** | 所有阶段产物、TaskList、验证结果 |
+| **技能** | final-answer-skill（implementation）/ analysis-final-answer-skill（analysis） |
+| **输入** | 所有阶段产物（特别是 explorer 的 StageReport）、TaskList、验证结果 |
 | **工作** | 总结变更、生成最终描述、输出补丁/使用说明、更新 BusContext、标记任务完成 |
 | **输出** | 最终回答（代码 + 描述 + 操作步骤） |
+
+#### 双技能路由
+
+Finalizer 根据任务策略自动选择技能：
+
+- **`final-answer-skill`**（implementation 策略）：面向代码变更任务，workflow 包含"总结变更、编译补丁信息、编写使用说明"
+- **`analysis-final-answer-skill`**（analysis 策略）：面向问答任务，workflow 要求直接采用 explorer 的 StageReport（如已完整），仅做格式对齐（Answer/Evidence 格式），不重写内容
 
 ---
 
@@ -666,11 +756,12 @@ const (
     TaskFailed     TaskStatus = "failed"
 )
 
-// TaskItem 的能力/风险通过两个正交布尔表达:
+// TaskItem 的属性驱动策略选择:
 // - Writing=false: 只读任务,走 analysis policy
 // - Writing=true:  可写任务,走 implementation policy
 // - HighRisk=true: Writing 任务进一步升级到 high_risk_implementation
 //                  policy(要求 design_review + code_review)
+// - Complexity: simple/moderate/complex,提示探索器调查深度
 ```
 
 ### 三层上下文模型
@@ -1136,6 +1227,25 @@ graph LR
 
 工具和 MCP 服务器都实现了统一接口（`Execute` / `CallTool`），允许 Agent 互换调用它们。适配器模式将本地执行和远程 MCP 调用的差异隐藏在通用抽象之后。
 
+### 调查与综合分离（探索器）
+
+探索器的 ReAct 循环混合了两个本质不同的活动——调查（调用工具收集事实）和综合（将事实组织为回答）。这导致了一个系统性问题：continuation push 推动更深调查后，最后一条 assistant 消息往往是碎片笔记而非综合回答，而 StageReport 默认取最后一条消息。
+
+**解法：** `SynthesizingEvaluator` 接口将两者彻底分离。ReAct 循环结束后，BaseAgent 检查 evaluator 是否实现此接口；若是，则用所有 tool results 构建结构化 evidence digest，在**全新的消息序列**（不追加到调查对话）中做一次专门的 LLM 调用。synthesis 结果成为 StageReport，传递给下游阶段。
+
+### 两阶段探索（广读 + 深读）
+
+探索器内部实现了两阶段调查模型，通过 evaluator 的 phase 状态机控制：
+
+- **Phase 1（广读）**：只用轻量工具（grep files_only、repo_map、list_files）扫描全局，产出按角色分类的文件清单
+- **Phase 2（深读）**：全文读取清单中的关键文件，提取详细信息
+
+两阶段分离防止了常见失败模式：LLM 读了一个源文件后被 continuation 推动继续，去读测试文件或无关文件（因为"还没读过"），而不是深入已有的关键文件。
+
+### runtime file coverage
+
+深读阶段的 continuation 决策基于从 tool history 中提取的实际文件覆盖率（已读/已发现），而非固定的 tool call 计数阈值。这使调查深度自适应于问题的实际范围——简单问题发现 3 个文件、全部读完后自然停止；复杂问题发现 15 个文件、读完关键的 5-7 个后由 LLM 判断是否继续。
+
 ### 带回退的流水线
 
 与线性流水线不同，本系统支持**非线性流程**：
@@ -1143,6 +1253,15 @@ graph LR
 - **回退** — 当新信息使先前工作失效时返回较早的阶段（如 `implement → plan`，方案需要修订时）
 - **自循环** — 需要更多工作时重复某个阶段（如 `explore → explore`）
 - **跳过路径** — 不需要时跳过某些阶段（如 `analyze → finalize`，用于简单问题）
+
+### 反过拟合设计原则
+
+所有 LLM-facing 的提示文本遵循**角色优先、格式无关**的原则：
+
+- 用**角色**描述文件（类型定义、核心逻辑、配置/规则声明、入口点），不用文件格式（*.yaml、*.go）
+- 用**通用模式**过滤噪音（VCS 目录、依赖目录、测试文件），不用项目特定路径
+- OutputFormat 示例使用**混合语言**（Python/Ruby/TypeScript）的文件路径，强化"只学格式，不学语言"
+- 不在提示中硬编码任何特定项目的目录结构、工具名或配置格式
 
 ---
 
