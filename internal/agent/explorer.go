@@ -14,6 +14,7 @@ import (
 type explorerEvaluator struct {
 	tools              *tool.Registry
 	phase              int // 0 = breadth scan, 1 = depth read
+	broadenAttempts    int // times we pushed for broader grep in Phase 0
 	idleStreakInDepth   int // consecutive no-tool-call rounds in Phase 2
 	lastToolResultCount int // tool result count at last continuation check
 }
@@ -21,19 +22,42 @@ type explorerEvaluator struct {
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	e.phase = 0 // start in breadth-scan phase
 
-	return "## Phase 1: Breadth Scan\n\n" +
-		"Your goal in this phase is to MAP the relevant territory — find ALL files related to the question. " +
-		"Do NOT read files in full yet. Use lightweight tools:\n" +
-		"- repo_map (task_map view) to get an overview of relevant files\n" +
-		"- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Do not use --include so you discover all file types\n" +
-		"- list_files to understand directory structure\n\n" +
-		"At the end of this phase, produce a FILE LIST of 3-6 files to read in depth. " +
-		"For each file, note its ROLE and what you expect to learn from it.\n\n" +
-		"Strategy:\n" +
-		"- Search broadly: grep the core keyword without filtering by file type\n" +
-		"- Classify each discovered file by role: (a) defines types/structures, (b) implements core logic, (c) declares configuration/topology/rules, (d) loads/parses configuration, (e) entry point. Prioritize roles a-d over e\n" +
-		"- Exclude: test files, utility/infrastructure files (logging, tool wrappers), generated code\n" +
-		"- Files that DECLARE rules or topology are as important as files that IMPLEMENT logic — include both in your list"
+	var b strings.Builder
+	b.WriteString("## Phase 1: Breadth Scan\n\n")
+	b.WriteString("Your goal in this phase is to MAP the relevant territory — find ALL files related to the question. ")
+	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
+	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
+	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Do not use --include so you discover all file types\n")
+	b.WriteString("- list_files to understand directory structure\n\n")
+
+	if len(ctx.CurrentTaskKeywords) > 0 {
+		// Run graduated keyword search before Phase 1 starts.
+		// This gives the LLM a pre-ranked file list instead of
+		// making it guess which grep patterns to use.
+		results := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
+		if len(results) > 0 {
+			b.WriteString(formatKeywordResults(results))
+		} else {
+			// No hits at any level — list the keywords so the LLM
+			// can try its own grep strategies.
+			b.WriteString("### Search Keywords (no pre-scan hits)\n\n")
+			b.WriteString("The analyzer provided these keywords but none matched. Try broader patterns:\n")
+			for _, kw := range ctx.CurrentTaskKeywords {
+				fmt.Fprintf(&b, "- `%s`\n", kw)
+			}
+			b.WriteString("\n")
+		}
+	}
+
+	b.WriteString("At the end of this phase, produce a FILE LIST of 3-6 files to read in depth. ")
+	b.WriteString("For each file, note its ROLE and what you expect to learn from it.\n\n")
+	b.WriteString("Strategy:\n")
+	b.WriteString("- Search broadly: grep the core keyword without filtering by file type\n")
+	b.WriteString("- Classify each discovered file by role: (a) defines types/structures, (b) implements core logic, (c) declares configuration/topology/rules, (d) loads/parses configuration, (e) entry point. Prioritize roles a-d over e\n")
+	b.WriteString("- Exclude: test files, utility/infrastructure files (logging, tool wrappers), generated code\n")
+	b.WriteString("- Files that DECLARE rules or topology are as important as files that IMPLEMENT logic — include both in your list")
+
+	return b.String()
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -61,6 +85,21 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // reading test files because "it hasn't read them yet."
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
 	if e.phase == 0 {
+		// Before transitioning to Phase 2, check if Phase 1 actually
+		// discovered any files. If all greps returned zero results,
+		// push the LLM to retry with broader patterns before moving on.
+		discovered, _ := extractFileCoverage(history)
+		if len(discovered) == 0 && e.broadenAttempts < 2 {
+			e.broadenAttempts++
+			return "Your grep searches returned no file matches. Before moving to depth reading, " +
+				"try broader search strategies:\n" +
+				"- Drop any --include filter (search ALL file types)\n" +
+				"- Use shorter or partial keywords (prefixes, stems) — e.g. instead of 'SubAgentRuntime' try 'SubAgent' or 'subagent'\n" +
+				"- Use single common terms rather than compound phrases\n" +
+				"- Try conceptual synonyms for the same idea\n\n" +
+				"Run at least 2-3 new grep calls with files_only=true before producing your file list.", true
+		}
+
 		// Phase 0 → Phase 1 transition: the LLM produced a breadth
 		// scan summary. Now switch to depth reading.
 		e.phase = 1

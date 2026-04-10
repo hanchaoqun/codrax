@@ -33,6 +33,12 @@ type TaskItem struct {
 	// Empty string is treated as "moderate" (the default).
 	Complexity string `json:"complexity,omitempty" yaml:"complexity,omitempty"`
 
+	// Keywords are search terms extracted by the analyzer for the
+	// explorer's Phase 1 breadth scan. Should include both domain
+	// terms (CamelCase symbols, snake_case identifiers) and conceptual
+	// synonyms so grep casts a wide net.
+	Keywords []string `json:"keywords,omitempty" yaml:"keywords,omitempty"`
+
 	Status TaskStatus `json:"status" yaml:"status"`
 	Result string     `json:"result,omitempty" yaml:"result,omitempty"`
 }

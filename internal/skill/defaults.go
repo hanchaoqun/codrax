@@ -21,9 +21,14 @@ func RegisterDefaults(r *Registry) {
 			`title (short user-facing label), writing (true if the task may modify files, ` +
 			`false for read-only / question-answering work), high_risk (true only for ` +
 			`writing tasks that touch security-sensitive code, schemas, or irreversible ops), ` +
-			`and complexity — one of: "simple" (lookup, count, yes/no — answer lives in 1-2 files), ` +
+			`complexity — one of: "simple" (lookup, count, yes/no — answer lives in 1-2 files), ` +
 			`"moderate" (single-component explanation — needs 3-5 files), or ` +
-			`"complex" (cross-component architecture, flow walkthrough, comparison — needs 6+ files). ` +
+			`"complex" (cross-component architecture, flow walkthrough, comparison — needs 6+ files), ` +
+			`and keywords — an array of at least 8 search terms the explorer should grep for. ` +
+			`Include: (a) exact identifiers the user mentioned or implied (CamelCase, snake_case), ` +
+			`(b) plausible type/function/variable names derived from the domain, ` +
+			`(c) conceptual synonyms that widen the search net. ` +
+			`The explorer will grep each keyword independently and rank files by hit count, so cast a wide net. ` +
 			`After todo_write succeeds, briefly explain your classification in plain text.`,
 		Prohibitions: []string{
 			"do not make assumptions about code structure",

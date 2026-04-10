@@ -31,13 +31,14 @@ type todoWriteParams struct {
 }
 
 type todoWriteTaskParam struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Description string `json:"description,omitempty"`
-	Writing     bool   `json:"writing,omitempty"`
-	HighRisk    bool   `json:"high_risk,omitempty"`
-	Complexity  string `json:"complexity,omitempty"`
-	Status      string `json:"status,omitempty"`
+	ID          string   `json:"id"`
+	Title       string   `json:"title"`
+	Description string   `json:"description,omitempty"`
+	Writing     bool     `json:"writing,omitempty"`
+	HighRisk    bool     `json:"high_risk,omitempty"`
+	Complexity  string   `json:"complexity,omitempty"`
+	Keywords    []string `json:"keywords,omitempty"`
+	Status      string   `json:"status,omitempty"`
 }
 
 func (t *TodoWrite) Name() string { return "todo_write" }
@@ -65,6 +66,7 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "writing":     {"type": "boolean", "description": "True if this task may mutate files (picks an implementation-class policy)"},
           "high_risk":   {"type": "boolean", "description": "True if this task needs design/code review (only meaningful when writing is true)"},
           "complexity":  {"type": "string", "enum": ["simple", "moderate", "complex"], "description": "Investigation depth: simple (lookup/count), moderate (single-component), complex (cross-component architecture). Defaults to moderate if omitted."},
+          "keywords":    {"type": "array", "items": {"type": "string"}, "description": "Search terms for the explorer to grep. Include CamelCase symbols, snake_case identifiers, and conceptual synonyms. Minimum 8 keywords."},
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
@@ -161,6 +163,7 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 			Writing:     r.Writing,
 			HighRisk:    r.HighRisk,
 			Complexity:  normalizeComplexity(r.Complexity),
+			Keywords:    r.Keywords,
 			Status:      normalizeTodoStatus(r.Status),
 		})
 	}
