@@ -17,11 +17,13 @@ type explorerEvaluator struct {
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	return "Explore the codebase to build a trusted factual foundation. Use the available tools to find entry points, understand module structure, and identify relevant files.\n\n" +
 		"Strategy hints:\n" +
-		"- Prefer [high-confidence evidence] tools (grep, read_file, exec_command, …) — they read the real codebase and their results count as citable evidence. Use at least 2 distinct evidence tools before concluding.\n" +
+		"- Prefer [high-confidence evidence] tools (grep, read_file, exec_command, …) — they read the real codebase and their results count as citable evidence.\n" +
+		"- You must use at least 2 distinct evidence tool types AND make at least 4 evidence tool calls before concluding. Investigate thoroughly — read multiple files, cross-reference findings.\n" +
 		"- Navigation tools (repo_map) are useful for orientation but do NOT count as evidence — always follow up with an evidence tool to verify.\n" +
 		"- Prefer targeted tools (grep with --include, read_file with offset/limit) over broad listings.\n" +
 		"- Avoid recursive list_files on the repository root.\n" +
-		"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command."
+		"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command.\n" +
+		"- For architecture or explanation questions, make sure to read all the key files involved — a shallow peek at one file is not enough."
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -38,54 +40,70 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // stops without doing it, because the BaseAgent's default soft-stop
 // rule treats any content-only turn as completion.
 //
-// Budget = 2 with differentiated prompts:
+// Evidence gate: the explorer must cross two floors before it may
+// stop — at least 2 distinct evidence-tool types AND at least 4
+// total evidence-tool calls. Until both are met, every soft-stop is
+// rejected unconditionally. The type floor prevents trivial
+// satisfaction (one grep and done); the call-count floor prevents
+// shallow sweeps (one grep + one read_file on the same spot).
 //
-//   - First push: "do it now". This catches the common case where
-//     the LLM thought aloud about the next step but did not act.
+// Once the evidence gate is passed, a budget of 3 differentiated
+// pushes applies:
 //
-//   - Second push: "if your last action did not answer it, try a
-//     *different* approach — or honestly say you don't know". This
-//     catches the case where the recovery action from the first
-//     push was itself wrong (e.g. read_file at the wrong offset)
-//     and the LLM is about to settle for a confident-but-wrong
-//     summary. The "honest weakness > dishonest confidence" exit
-//     is explicit in the prompt.
+//   - Push 0 — self-audit: "review your own answer against the
+//     original question — are all aspects covered?" This catches
+//     premature conclusions where the LLM answered part of the
+//     question and forgot the rest.
 //
-// The third soft-stop is accepted unconditionally — at that point
-// the loop has had two corrective opportunities and another push
-// would just be churn. The text deliberately does NOT prescribe
-// which tool to use or what to look at; that depends on the
-// question and is the LLM's job.
+//   - Push 1 — verify: "check at least one claim you haven't
+//     verified with a tool yet." This catches confident-but-wrong
+//     assertions that were inferred rather than observed.
+//
+//   - Push 2 — final escape: "if after all this you still believe
+//     your answer is complete, state it. Otherwise try a different
+//     approach or honestly say you don't know."
+//
+// The fourth soft-stop is accepted unconditionally. The prompts
+// deliberately do NOT prescribe which tool to use; that depends on
+// the question and is the LLM's job.
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
-	// Count distinct evidence-bearing tool sources already used.
-	// If the explorer has not yet crossed the minimum evidence
-	// threshold, we keep pushing regardless of how many continuation
-	// prompts have been sent — the "easy out" is only offered once
-	// the evidence floor is met.
+	// Count evidence-bearing tool calls and distinct source types.
 	evidenceSources := make(map[string]struct{})
+	evidenceCalls := 0
 	for _, r := range history {
 		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
 			evidenceSources[r.ToolName] = struct{}{}
+			evidenceCalls++
 		}
 	}
-	hasEnoughEvidence := len(evidenceSources) >= 2
+
+	minTypes := 2
+	minCalls := 4
+	hasEnoughEvidence := len(evidenceSources) >= minTypes && evidenceCalls >= minCalls
 
 	if !hasEnoughEvidence {
-		// Evidence floor not met — push unconditionally. No escape
-		// hatch: the explorer must call more tools before it may stop.
+		// Evidence gate not met — push unconditionally. No escape.
+		var reason string
+		if len(evidenceSources) < minTypes {
+			reason = fmt.Sprintf("only %d distinct evidence tool type(s) (need %d)", len(evidenceSources), minTypes)
+		} else {
+			reason = fmt.Sprintf("only %d evidence tool call(s) (need %d)", evidenceCalls, minCalls)
+		}
 		return fmt.Sprintf(
-			"You have only used %d distinct evidence tool type(s) so far. "+
-				"You need at least 2 (e.g. grep + read_file) before you can conclude. "+
-				"Take the next investigative step now — do not summarize, do not conclude, call a tool.",
-			len(evidenceSources)), true
+			"You have %s. "+
+				"Take the next investigative step now — do not summarize, do not conclude, call a tool. "+
+				"Read more files, grep for more patterns, or verify claims you have not checked yet.",
+			reason), true
 	}
 
-	// Evidence floor met — normal continuation budget.
+	// Evidence gate met — graduated continuation budget.
 	switch continuationCount {
 	case 0:
-		return "Your previous turn produced a summary without calling any tool. If you genuinely have a defensible answer, restate it in one sentence and stop. Otherwise, take the next concrete investigative step now — do not describe what you would do next, do it.", true
+		return "Before concluding, self-audit: re-read the original question and check whether your answer covers ALL aspects it asked about. If any part is unaddressed or only superficially covered, investigate that part now. Do not stop until every aspect of the question has evidence behind it.", true
 	case 1:
-		return "Your previous turn still did not produce a defensible answer. If your last action did not get you closer, try a *different* approach — a different tool, a different file, a different query. If after this turn you still do not have a real answer, say so honestly in one sentence (an honest 'I do not know which X' is better than a confident wrong answer). Do not loop on the same approach.", true
+		return "Pick the most important claim in your answer that you have NOT yet verified with a tool call. Verify it now — read the relevant file or grep for the relevant symbol. If it holds, good; if not, correct your answer.", true
+	case 2:
+		return "Final check. If your answer is genuinely complete and every key claim is backed by evidence, state your final answer now. If your last action revealed something that changes your answer, incorporate it. If you still cannot answer part of the question, say so honestly — an honest gap is better than a confident wrong answer.", true
 	default:
 		return "", false
 	}
@@ -128,9 +146,18 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// HasEnoughFacts is a necessary-condition floor: at least two
-	// distinct evidence-bearing tool sources must have been used.
-	signals := &types.ExecutionSignals{HasEnoughFacts: len(sources) >= 2}
+	// HasEnoughFacts requires two conditions: at least 2 distinct
+	// evidence-bearing tool types AND at least 4 total evidence
+	// tool calls. The type floor ensures breadth (grep + read_file,
+	// not just one tool repeated); the call-count floor ensures
+	// depth (actually reading multiple locations, not one peek).
+	evidenceCalls := 0
+	for _, r := range toolResults {
+		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
+			evidenceCalls++
+		}
+	}
+	signals := &types.ExecutionSignals{HasEnoughFacts: len(sources) >= 2 && evidenceCalls >= 4}
 
 	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
@@ -144,7 +171,11 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// hint exists so a self-looped attempt knows what changed
 	// between dispatches, not so it gets a recipe.
 	if !signals.HasEnoughFacts {
-		out.RetryHint = "Previous attempt used fewer than 2 distinct tool types. The next attempt must use at least 2 different tools — choose them based on what the question actually needs."
+		if len(sources) < 2 {
+			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. The next attempt must use at least 2 different tools — choose them based on what the question actually needs."
+		} else {
+			out.RetryHint = fmt.Sprintf("Previous attempt made only %d evidence tool call(s) (need at least 4). The next attempt must investigate more thoroughly — read more files, grep for more patterns.", evidenceCalls)
+		}
 	}
 
 	return out, nil
