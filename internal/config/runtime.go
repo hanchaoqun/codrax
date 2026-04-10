@@ -9,9 +9,22 @@ import (
 )
 
 // RuntimeSettings holds the per-process knobs that the codrax binary
-// exposes on the command line: where to write logs, what level to
-// emit, where to persist conversation memory, and which language the
-// model should default to.
+// exposes on the command line. The division of responsibility across
+// the three YAML files in config/ is:
+//
+//   - orchestrator.yaml — pipeline topology (stages, transitions,
+//     policies, agents, skills, per-stage limits). Shared across users.
+//   - providers.yaml    — LLM provider credentials and per-agent model
+//     routing. Per-user secrets, never committed.
+//   - codrax.yaml       — this file. Runtime knobs that describe how
+//     the binary should run on this machine/in this invocation: log
+//     sink, memory sink, language, per-run step budget, target repo,
+//     and pointers to the two files above.
+//
+// Nothing in this struct should duplicate orchestrator.yaml or
+// providers.yaml keys: OrchestratorConfig and ProvidersConfig are
+// paths, not contents; MaxSteps is a global Run() budget, not a
+// per-stage limit like pipeline_settings.max_stage_visits.
 //
 // Every field is a pointer so the merge logic in main.go can tell
 // "user omitted this key in the YAML file" (nil) from "user set it
@@ -20,11 +33,23 @@ import (
 // with `log_stdout: false` must both be allowed to override each
 // other based on precedence.
 type RuntimeSettings struct {
+	// Log + memory + language (per-process UX).
 	LogDir    *string `yaml:"log_dir"`
 	LogLevel  *string `yaml:"log_level"`
 	LogStdout *bool   `yaml:"log_stdout"`
 	MemoryDir *string `yaml:"memory_dir"`
 	Lang      *string `yaml:"lang"`
+
+	// Per-invocation defaults.
+	Repo     *string `yaml:"repo"`
+	Branch   *string `yaml:"branch"`
+	MaxSteps *int    `yaml:"max_steps"`
+
+	// Pointers to the other two config files. Nested here so a single
+	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
+	// environment (dev, staging, prod) from one entry point.
+	OrchestratorConfig *string `yaml:"orchestrator_config"`
+	ProvidersConfig    *string `yaml:"providers_config"`
 }
 
 // LoadRuntimeSettings reads path as a YAML document into a

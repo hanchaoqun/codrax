@@ -24,13 +24,19 @@ import (
 
 // Code defaults for runtime settings. Kept as named constants so the
 // precedence chain (code default → config file → command line) is
-// easy to read and test.
+// easy to read and test. These mirror the fields of
+// config.RuntimeSettings exactly.
 const (
-	defaultLogDir    = "logs"
-	defaultLogLevel  = "info"
-	defaultLogStdout = false
-	defaultMemoryDir = "memory"
-	defaultLang      = "zh"
+	defaultLogDir             = "logs"
+	defaultLogLevel           = "info"
+	defaultLogStdout          = false
+	defaultMemoryDir          = "memory"
+	defaultLang               = "zh"
+	defaultRepo               = "."
+	defaultBranch             = "main"
+	defaultMaxSteps           = 50
+	defaultOrchestratorConfig = "config/orchestrator.yaml"
+	defaultProvidersConfig    = "config/providers.yaml"
 )
 
 func main() {
@@ -52,6 +58,11 @@ func main() {
 	mergedLogStdout := defaultLogStdout
 	mergedMemoryDir := defaultMemoryDir
 	mergedLang := defaultLang
+	mergedRepo := defaultRepo
+	mergedBranch := defaultBranch
+	mergedMaxSteps := defaultMaxSteps
+	mergedOrchestratorConfig := defaultOrchestratorConfig
+	mergedProvidersConfig := defaultProvidersConfig
 
 	// Overlay config file values. Missing default file = silent skip;
 	// explicit path via env var must exist. Logger is not up yet, so
@@ -72,6 +83,21 @@ func main() {
 		if rs.Lang != nil {
 			mergedLang = *rs.Lang
 		}
+		if rs.Repo != nil {
+			mergedRepo = *rs.Repo
+		}
+		if rs.Branch != nil {
+			mergedBranch = *rs.Branch
+		}
+		if rs.MaxSteps != nil {
+			mergedMaxSteps = *rs.MaxSteps
+		}
+		if rs.OrchestratorConfig != nil {
+			mergedOrchestratorConfig = *rs.OrchestratorConfig
+		}
+		if rs.ProvidersConfig != nil {
+			mergedProvidersConfig = *rs.ProvidersConfig
+		}
 	} else if !config.IsNotExist(err) || settingsExplicit {
 		fmt.Fprintf(os.Stderr, "failed to load runtime settings from %s: %v\n", settingsPath, err)
 		os.Exit(1)
@@ -81,12 +107,12 @@ func main() {
 	// When the user omits a flag, the merged value wins; when they pass
 	// one, the command line wins. That gives the
 	// code < config file < command line precedence the task called for.
-	configPath := flag.String("config", "config/orchestrator.yaml", "path to orchestrator config")
-	providersPath := flag.String("providers", "config/providers.yaml", "path to providers config")
-	repoRoot := flag.String("repo", ".", "repository root path")
-	branch := flag.String("branch", "main", "git branch")
+	configPath := flag.String("config", mergedOrchestratorConfig, "path to orchestrator config")
+	providersPath := flag.String("providers", mergedProvidersConfig, "path to providers config")
+	repoRoot := flag.String("repo", mergedRepo, "repository root path")
+	branch := flag.String("branch", mergedBranch, "git branch")
 	request := flag.String("request", "", "user request to process (empty enters interactive mode)")
-	maxSteps := flag.Int("max-steps", 50, "maximum pipeline steps")
+	maxSteps := flag.Int("max-steps", mergedMaxSteps, "maximum pipeline steps")
 	logDir := flag.String("log-dir", mergedLogDir, "directory for log files")
 	logLevel := flag.String("log-level", mergedLogLevel, "log level: error|warning|info|debug")
 	logStdout := flag.Bool("log-stdout", mergedLogStdout, "also mirror logs to stdout")

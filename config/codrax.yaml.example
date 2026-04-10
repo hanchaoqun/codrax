@@ -1,17 +1,38 @@
+# =============================================================================
 # codrax runtime settings — copy to config/codrax.yaml to activate.
+# =============================================================================
 #
-# Every key is optional. Omitted keys fall back to the code defaults
-# shown in the comments. Keys set here are overridden on a per-invocation
-# basis by matching command-line flags, so the precedence chain is:
+# There are three YAML files under config/, each with a distinct role.
+# Do not duplicate keys across them:
 #
-#   code default  <  config/codrax.yaml  <  command-line flag
+#   orchestrator.yaml — Pipeline topology. stages, transitions, task
+#                       policies, agent/skill bindings, per-stage limits
+#                       (max_retries_per_stage, max_stage_visits,
+#                       require_review). Shared across users.
 #
-# The binary silently falls back to code defaults when this file is
-# missing, so checking in an example while leaving the real file out
-# of version control (see .gitignore) is the expected workflow.
+#   providers.yaml    — LLM provider credentials and per-agent model
+#                       routing. Per-user secrets, never committed.
+#
+#   codrax.yaml       — THIS FILE. Per-process runtime knobs: where to
+#                       write logs and memory, default response language,
+#                       per-invocation targets (repo, branch), global
+#                       step budget, and pointers to the other two files.
+#
+# Precedence (lowest wins last):
+#
+#   code defaults  <  config/codrax.yaml  <  command-line flags
+#
+# Every key is optional — omitted keys fall through to the code default.
+# The binary silently falls back to defaults when this file is missing,
+# so checking in an example while leaving the real file out of version
+# control is the expected workflow.
 #
 # To point at a different runtime settings file without editing this
 # path, set the CODRAX_SETTINGS environment variable.
+
+# ---------------------------------------------------------------------------
+# Log sink
+# ---------------------------------------------------------------------------
 
 # Directory for rotating log files. Created on first run.
 # log_dir: logs
@@ -23,11 +44,47 @@
 # Useful for foreground debugging; keep off for clean REPL UX.
 # log_stdout: false
 
+# ---------------------------------------------------------------------------
+# Conversation memory
+# ---------------------------------------------------------------------------
+
 # Directory for multi-turn conversation memory (MEMORY.md + turns/).
 # memory_dir: memory
+
+# ---------------------------------------------------------------------------
+# Response language
+# ---------------------------------------------------------------------------
 
 # Default response language for the model's final answer.
 # Supported shorthands: zh, zh-CN, en. Any other string is passed
 # through verbatim as a preference directive. Set to "off" or "none"
 # to disable the feature entirely (model picks its own language).
 # lang: zh
+
+# ---------------------------------------------------------------------------
+# Per-invocation defaults
+# ---------------------------------------------------------------------------
+# These describe the repository and budget for one pipeline run. They
+# are distinct from orchestrator.yaml's pipeline_settings, which
+# describe per-stage limits inside the pipeline's own state machine.
+#   - max_steps here       = global Run() budget across all stages.
+#   - max_stage_visits in orchestrator.yaml = oscillation guard per stage.
+
+# Target repository the agents operate on.
+# repo: .
+
+# Default git branch for the working context.
+# branch: main
+
+# Maximum total pipeline steps per Run() call. Acts as a hard budget
+# cap independent of per-stage retries and oscillation guards.
+# max_steps: 50
+
+# ---------------------------------------------------------------------------
+# Paths to the other two config files
+# ---------------------------------------------------------------------------
+# Keeping these here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
+# bootstraps an entire environment from a single entry point.
+
+# orchestrator_config: config/orchestrator.yaml
+# providers_config: config/providers.yaml

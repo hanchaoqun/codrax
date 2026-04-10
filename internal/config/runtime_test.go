@@ -15,6 +15,11 @@ log_level: debug
 log_stdout: true
 memory_dir: custom_memory
 lang: en
+repo: /tmp/project
+branch: develop
+max_steps: 100
+orchestrator_config: /etc/codrax/orchestrator.yaml
+providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatalf("write: %v", err)
@@ -37,6 +42,21 @@ lang: en
 	}
 	if s.Lang == nil || *s.Lang != "en" {
 		t.Errorf("Lang = %v", s.Lang)
+	}
+	if s.Repo == nil || *s.Repo != "/tmp/project" {
+		t.Errorf("Repo = %v", s.Repo)
+	}
+	if s.Branch == nil || *s.Branch != "develop" {
+		t.Errorf("Branch = %v", s.Branch)
+	}
+	if s.MaxSteps == nil || *s.MaxSteps != 100 {
+		t.Errorf("MaxSteps = %v", s.MaxSteps)
+	}
+	if s.OrchestratorConfig == nil || *s.OrchestratorConfig != "/etc/codrax/orchestrator.yaml" {
+		t.Errorf("OrchestratorConfig = %v", s.OrchestratorConfig)
+	}
+	if s.ProvidersConfig == nil || *s.ProvidersConfig != "/etc/codrax/providers.yaml" {
+		t.Errorf("ProvidersConfig = %v", s.ProvidersConfig)
 	}
 }
 
@@ -111,7 +131,10 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		t.Fatalf("load: %v", err)
 	}
 	// All fields must be nil — an empty file means "inherit defaults".
-	if s.LogDir != nil || s.LogLevel != nil || s.LogStdout != nil || s.MemoryDir != nil || s.Lang != nil {
+	if s.LogDir != nil || s.LogLevel != nil || s.LogStdout != nil ||
+		s.MemoryDir != nil || s.Lang != nil ||
+		s.Repo != nil || s.Branch != nil || s.MaxSteps != nil ||
+		s.OrchestratorConfig != nil || s.ProvidersConfig != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }
