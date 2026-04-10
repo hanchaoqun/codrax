@@ -12,15 +12,11 @@ import (
 )
 
 type explorerEvaluator struct {
-	tools      *tool.Registry
-	complexity string // set from AgentContext.CurrentTaskComplexity at dispatch time
-	phase      int    // 0 = breadth scan, 1 = depth read
+	tools *tool.Registry
+	phase int // 0 = breadth scan, 1 = depth read
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	// Capture complexity for use in ContinuationPrompt and ParseOutput,
-	// which don't receive the AgentContext.
-	e.complexity = ctx.CurrentTaskComplexity
 	e.phase = 0 // start in breadth-scan phase
 
 	return "## Phase 1: Breadth Scan\n\n" +
@@ -79,75 +75,48 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"Start by reading the most important file now.", true
 	}
 
-	// Phase 1: depth read — evidence-gated continuation.
-	evidenceSources := make(map[string]struct{})
-	evidenceCalls := 0
-	for _, r := range history {
-		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
-			evidenceSources[r.ToolName] = struct{}{}
-			evidenceCalls++
+	// Phase 1 (depth read): use runtime file coverage as guidance.
+	// Extract discovered files (grep files_only) and read files
+	// (read_file) to show the LLM what it hasn't read yet.
+	discovered, readSet := extractFileCoverage(history)
+	var unread []string
+	for _, f := range discovered {
+		if !readSet[f] {
+			unread = append(unread, f)
 		}
 	}
 
-	// Build a list of files already read so we can warn against re-reads.
-	readFiles := make(map[string]bool)
-	for _, r := range history {
-		if r.Success && r.ToolName == "read_file" {
-			readFiles[r.Summary] = true // Summary might not be the path; fallback below
-		}
-	}
-	var alreadyRead []string
-	for _, r := range history {
-		if r.Success && r.ToolName == "read_file" {
-			// Extract path from summary (first line often has the path).
-			lines := strings.SplitN(r.Summary, "\n", 2)
-			if len(lines) > 0 {
-				alreadyRead = append(alreadyRead, lines[0])
+	// Hard budget: phase transition used count 0, depth starts at 1.
+	// Cap at 3 pushes to prevent empty loops.
+	depthBudget := continuationCount - 1
+
+	if depthBudget < 3 {
+		// Show coverage status and unread files. Let the LLM decide
+		// which (if any) are worth reading — not all discovered files
+		// are equally important.
+		var hint strings.Builder
+		fmt.Fprintf(&hint,
+			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
+		if len(unread) > 0 {
+			hint.WriteString("Unread files that matched the query (may or may not be relevant):\n")
+			for _, f := range unread {
+				hint.WriteString("- " + f + "\n")
 			}
-		}
-	}
-
-	minTypes, minCalls := evidenceThresholds(e.complexity)
-	hasEnoughEvidence := len(evidenceSources) >= minTypes && evidenceCalls >= minCalls
-
-	// Depth-phase continuation budget: phase transition used count 0,
-	// so depth budget starts at count 1. Cap at 4 total pushes in
-	// depth phase (counts 1-4) to prevent infinite loops when the
-	// LLM produces text without calling tools.
-	depthBudget := continuationCount - 1 // subtract the phase transition
-
-	if !hasEnoughEvidence && depthBudget < 3 {
-		var reason string
-		if len(evidenceSources) < minTypes {
-			reason = fmt.Sprintf("only %d distinct evidence tool type(s) (need %d)", len(evidenceSources), minTypes)
+			hint.WriteString("\nIf any of these files are likely to contain key information for the question, read them now. ")
+			hint.WriteString("Skip files that are clearly secondary (utilities, documentation, tangential modules). ")
+			hint.WriteString("Do NOT re-read files you have already seen.")
 		} else {
-			reason = fmt.Sprintf("only %d evidence tool call(s) (need %d)", evidenceCalls, minCalls)
+			hint.WriteString("All discovered files have been read. You may stop if your investigation is complete.")
 		}
-
-		// Include already-read files to prevent re-reads.
-		alreadyReadHint := ""
-		if len(alreadyRead) > 0 {
-			alreadyReadHint = "\nFiles you have ALREADY read (do NOT re-read these): " + strings.Join(alreadyRead, ", ")
-		}
-
-		return fmt.Sprintf(
-			"You have %s. "+
-				"Read a NEW file from your Phase 1 list that you have NOT read yet. "+
-				"Call read_file now — do not summarize or discuss.%s",
-			reason, alreadyReadHint), true
+		return hint.String(), true
 	}
 
-	// Evidence gate met or depth budget exhausted.
-	switch depthBudget {
-	case 3:
-		return "Before concluding, check: have you read ALL the key files from your breadth scan? " +
-			"If any important file is still unread, read it now. Otherwise you may stop.", true
-	case 4:
-		return "Final verification. If your investigation is complete, you may stop. " +
+	// Budget exhausted.
+	if depthBudget == 3 {
+		return "Final check. If your investigation is complete, you may stop. " +
 			"The synthesis step will produce the final answer from your evidence.", true
-	default:
-		return "", false
 	}
+	return "", false
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
@@ -191,16 +160,17 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// HasEnoughFacts is complexity-adaptive: thresholds scale with
-	// the task's declared complexity (simple/moderate/complex).
-	evidenceCalls := 0
-	for _, r := range toolResults {
-		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
-			evidenceCalls++
-		}
+	// HasEnoughFacts: check file coverage — have we read a reasonable
+	// fraction of the files discovered in Phase 1? Also require at
+	// least 2 distinct evidence tool types (grep + read_file).
+	discovered, readSet := extractFileCoverage(toolResults)
+	coverage := 0.0
+	if len(discovered) > 0 {
+		coverage = float64(len(readSet)) / float64(len(discovered))
 	}
-	minTypes, minCalls := evidenceThresholds(e.complexity)
-	signals := &types.ExecutionSignals{HasEnoughFacts: len(sources) >= minTypes && evidenceCalls >= minCalls}
+	hasEnough := len(sources) >= 2 && (coverage >= 0.5 || len(readSet) >= 3)
+
+	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
 
 	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
@@ -208,12 +178,11 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		SignalUpdates: signals,
 	}
 
-	// Retry hint states the failed condition only.
 	if !signals.HasEnoughFacts {
-		if len(sources) < minTypes {
-			out.RetryHint = fmt.Sprintf("Previous attempt used only %d distinct evidence tool type(s) (need %d). The next attempt must use more different tools.", len(sources), minTypes)
+		if len(sources) < 2 {
+			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
 		} else {
-			out.RetryHint = fmt.Sprintf("Previous attempt made only %d evidence tool call(s) (need %d for %s complexity). The next attempt must investigate more thoroughly — read more files, grep for more patterns.", evidenceCalls, minCalls, complexityLabel(e.complexity))
+			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage). Read more of the discovered files.", len(readSet), len(discovered), coverage*100)
 		}
 	}
 
@@ -286,41 +255,93 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	return digest.String(), true
 }
 
-// evidenceThresholds returns the minimum distinct evidence tool types
-// and minimum total evidence tool calls for a given complexity level.
-// These thresholds gate both ContinuationPrompt (ReAct-loop level)
-// and HasEnoughFacts (stage-level retry signal).
-func evidenceThresholds(complexity string) (minTypes, minCalls int) {
-	// Now that synthesis is separated from investigation (via
-	// SynthesizingEvaluator), tool calls are pure investigation —
-	// none are wasted on producing intermediate answers. This means
-	// we can set higher floors without impacting response time
-	// disproportionately.
-	//
-	// The gap between moderate and complex is kept small (1 call)
-	// so that instability in the analyzer's complexity judgment
-	// has minimal impact on investigation depth.
-	switch complexity {
-	case "simple":
-		return 2, 3
-	case "complex":
-		return 2, 7
-	default: // "moderate" or empty
-		return 2, 6
+// extractFileCoverage analyzes tool history to determine which files
+// were discovered (via grep files_only) and which were actually read
+// (via read_file). Returns:
+//   - discovered: relevant source files from grep results (filtered to
+//     exclude noise like logs, binary, .git, test files)
+//   - readSet: set of file paths that were read via read_file
+//
+// File path extraction is format-agnostic: it parses grep's one-path-
+// per-line output and read_file's "[path: ...]" summary banner. No
+// assumptions about language or project structure.
+func extractFileCoverage(history []types.ToolResult) (discovered []string, readSet map[string]bool) {
+	readSet = make(map[string]bool)
+	discoveredSet := make(map[string]bool)
+
+	for _, r := range history {
+		if !r.Success {
+			continue
+		}
+		switch r.ToolName {
+		case "grep":
+			// grep files_only returns one path per line.
+			for _, line := range strings.Split(r.Summary, "\n") {
+				path := strings.TrimSpace(line)
+				if path == "" {
+					continue
+				}
+				// Normalize: strip leading ./
+				path = strings.TrimPrefix(path, "./")
+				// Filter noise: skip non-source files.
+				if isNoisePath(path) {
+					continue
+				}
+				if !discoveredSet[path] {
+					discoveredSet[path] = true
+					discovered = append(discovered, path)
+				}
+			}
+		case "read_file":
+			// read_file summary starts with "[path: ...]" banner.
+			first := strings.SplitN(r.Summary, "\n", 2)[0]
+			if strings.HasPrefix(first, "[") {
+				// Extract path from "[path: showing ...]"
+				if idx := strings.Index(first, ":"); idx > 1 {
+					path := strings.TrimSpace(first[1:idx])
+					readSet[path] = true
+				}
+			}
+		}
 	}
+	return
 }
 
-// complexityLabel returns a human-readable label for logging and
-// prompt messages. Empty string defaults to "moderate".
-func complexityLabel(complexity string) string {
-	switch complexity {
-	case "simple":
-		return "simple"
-	case "complex":
-		return "complex"
-	default:
-		return "moderate"
+// isNoisePath returns true for paths that should be excluded from the
+// discovered-files list: binary outputs, logs, VCS metadata, test
+// files, and documentation investigation notes. The checks are based
+// on path patterns, not file extensions, so they work across languages.
+func isNoisePath(path string) bool {
+	// No extension + no directory = likely a binary output
+	if !strings.Contains(path, ".") && !strings.Contains(path, "/") {
+		return true
 	}
+	// Dot-prefixed paths: VCS (.git/), hidden dirs (.cache/), dotfiles
+	if strings.HasPrefix(path, ".") {
+		return true
+	}
+	// Common dependency/vendor directories (cross-ecosystem)
+	for _, dir := range []string{"node_modules/", "vendor/", "__pycache__/", ".tox/", "target/debug/", "target/release/"} {
+		if strings.HasPrefix(path, dir) || strings.Contains(path, "/"+dir) {
+			return true
+		}
+	}
+	// Test files (cross-language naming conventions)
+	base := path
+	if idx := strings.LastIndex(path, "/"); idx >= 0 {
+		base = path[idx+1:]
+	}
+	if strings.HasSuffix(base, "_test.go") || strings.HasPrefix(base, "test_") ||
+		strings.HasSuffix(base, ".test.js") || strings.HasSuffix(base, ".test.ts") ||
+		strings.HasSuffix(base, "_test.py") || strings.HasSuffix(base, ".spec.js") ||
+		strings.HasSuffix(base, ".spec.ts") || strings.HasSuffix(base, "_spec.rb") {
+		return true
+	}
+	// Log files
+	if strings.HasSuffix(base, ".log") {
+		return true
+	}
+	return false
 }
 
 // NewExplorerAgent creates the explorer agent (used in explore stage).
