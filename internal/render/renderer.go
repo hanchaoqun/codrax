@@ -29,6 +29,9 @@ type Renderer struct {
 	subRunning int    // number of currently running sub-agents
 	detail        string // tool/sub-agent name for status line
 	detailDone    bool   // true if the detail refers to a completed call
+	detailStart   time.Time // when current detail phase began
+	toolsDone     int    // tools completed in current stage
+	lastTool      string // last completed tool name for brief display
 	tasks         []taskEntry // tracked tasks
 	animFrame     int
 	animStop      chan struct{}
@@ -76,6 +79,9 @@ func (r *Renderer) StartSpinner() {
 	r.subRunning = 0
 	r.detail = ""
 	r.detailDone = false
+	r.detailStart = time.Time{}
+	r.toolsDone = 0
+	r.lastTool = ""
 	r.startTime = time.Now()
 	r.animFrame = 0
 
@@ -136,6 +142,8 @@ func (r *Renderer) StopSpinner() {
 	r.agentName = ""
 	r.subRunning = 0
 	r.detail = ""
+	r.toolsDone = 0
+	r.lastTool = ""
 }
 
 // Emitter returns an EventEmitter callback bound to this renderer.
@@ -155,12 +163,16 @@ func (r *Renderer) Emitter() EventEmitter {
 				r.detail = fmt.Sprintf("thinking (round %d)", ev.Iteration+1)
 			}
 			r.detailDone = false
+			r.detailStart = ev.Timestamp
 
 		case EventStageStart:
 			r.agentName = string(ev.Agent)
 			r.subRunning = 0
 			r.detail = ""
 			r.detailDone = false
+			r.detailStart = ev.Timestamp
+			r.toolsDone = 0
+			r.lastTool = ""
 
 		case EventToolCallStart:
 			r.detail = ev.ToolName
@@ -168,8 +180,11 @@ func (r *Renderer) Emitter() EventEmitter {
 				r.detail += " " + ev.ToolDetail
 			}
 			r.detailDone = false
+			r.detailStart = ev.Timestamp
 
 		case EventToolCallEnd:
+			r.toolsDone++
+			r.lastTool = ev.ToolName
 			r.detail = ev.ToolName
 			if ev.ToolDetail != "" {
 				r.detail += " " + ev.ToolDetail
@@ -179,11 +194,13 @@ func (r *Renderer) Emitter() EventEmitter {
 		case EventTransition:
 			r.detail = ""
 			r.detailDone = false
+			r.detailStart = ev.Timestamp
 
 		case EventSubAgentStart:
 			r.subRunning++
 			r.detail = ev.SubTaskTitle
 			r.detailDone = false
+			r.detailStart = ev.Timestamp
 
 		case EventSubAgentEnd:
 			if r.subRunning > 0 {
@@ -240,9 +257,20 @@ func (r *Renderer) redraw() {
 			statusParts = append(statusParts,
 				pterm.FgGreen.Sprint("✓")+" "+pterm.FgDarkGray.Sprint(r.detail))
 		} else {
-			statusParts = append(statusParts,
-				pterm.FgCyan.Sprint("►")+" "+pterm.FgGray.Sprint(r.detail))
+			phaseElapsed := time.Since(r.detailStart).Truncate(time.Second)
+			detailStr := pterm.FgCyan.Sprint("►") + " " + pterm.FgGray.Sprint(r.detail) +
+				" " + pterm.FgDarkGray.Sprint(phaseElapsed)
+			statusParts = append(statusParts, detailStr)
 		}
+	}
+	// Show cumulative tool count so fast tool calls aren't invisible.
+	if r.toolsDone > 0 {
+		toolSummary := fmt.Sprintf("%d calls", r.toolsDone)
+		if r.lastTool != "" {
+			toolSummary += ", last: " + r.lastTool
+		}
+		statusParts = append(statusParts,
+			pterm.FgDarkGray.Sprint(toolSummary))
 	}
 	status := strings.Join(statusParts, pterm.FgDarkGray.Sprint(" · "))
 	fmt.Fprintf(&b, "  %s %s %s %s",
