@@ -76,9 +76,12 @@ type Store struct {
 // are parsed back into the in-memory index so the next run carries over
 // prior compacted history.
 //
-// Recent uncompacted turns are NOT reloaded — they live in memory only
-// for the duration of a REPL session. This keeps the index file as the
-// single source of long-lived truth.
+// "Orphan" turns — files under turns/ that have no matching entry in
+// MEMORY.md, i.e. turns from a previous session that were never
+// compacted — are recovered into the recent buffer (up to maxRecent),
+// so a restart does not silently drop the tail of the last conversation.
+// This is the only place that reads turn files back; the rest of the
+// store treats turns/ as write-once history.
 func NewStore(dir string, summarizer Summarizer) (*Store, error) {
 	if dir == "" {
 		dir = "memory"
@@ -98,7 +101,116 @@ func NewStore(dir string, summarizer Summarizer) (*Store, error) {
 	if err := s.loadIndex(); err != nil {
 		return nil, err
 	}
+	if err := s.loadOrphanRecent(); err != nil {
+		return nil, err
+	}
 	return s, nil
+}
+
+// loadOrphanRecent scans turns/ for files that are not referenced by
+// any MEMORY.md entry and resurrects the most recent maxRecent of them
+// into s.recent. Filenames are <id>.md where id is "turn-<unix-nano>"
+// in production (so lexicographic sort = chronological); for synthetic
+// IDs the test stub uses zero-padded numbers, which also sort correctly.
+//
+// Failures parsing an individual file are logged via fmt.Fprintf to
+// stderr but do not abort startup — a single corrupt turn file should
+// not block the REPL from coming up.
+func (s *Store) loadOrphanRecent() error {
+	entries, err := os.ReadDir(s.turnsDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("scan turns dir: %w", err)
+	}
+
+	// Build the set of IDs already represented in the compacted index
+	// so we don't double-count them in recent.
+	compacted := make(map[string]struct{}, len(s.index))
+	for _, e := range s.index {
+		compacted[e.ID] = struct{}{}
+	}
+
+	// Collect candidate filenames (without .md suffix == turn ID).
+	var ids []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		id := strings.TrimSuffix(name, ".md")
+		if _, alreadyCompacted := compacted[id]; alreadyCompacted {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	// Take the newest maxRecent.
+	if len(ids) > s.maxRecent {
+		ids = ids[len(ids)-s.maxRecent:]
+	}
+
+	for _, id := range ids {
+		turn, err := s.readTurnFile(id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "memory: skipping unreadable turn %s: %v\n", id, err)
+			continue
+		}
+		s.recent = append(s.recent, turn)
+	}
+	return nil
+}
+
+// readTurnFile parses a turn file produced by writeTurnFile back into
+// a Turn. The format is fixed by writeTurnFile so the parser is a
+// simple split on the section markers; if either marker is missing
+// the file is treated as corrupt.
+func (s *Store) readTurnFile(id string) (Turn, error) {
+	path := filepath.Join(s.turnsDir, id+".md")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return Turn{}, err
+	}
+	text := string(data)
+
+	const (
+		reqMarker  = "## Request\n\n"
+		respMarker = "\n\n## Response\n\n"
+	)
+	reqStart := strings.Index(text, reqMarker)
+	if reqStart < 0 {
+		return Turn{}, errors.New("missing Request marker")
+	}
+	bodyStart := reqStart + len(reqMarker)
+	respStart := strings.Index(text[bodyStart:], respMarker)
+	if respStart < 0 {
+		return Turn{}, errors.New("missing Response marker")
+	}
+	request := text[bodyStart : bodyStart+respStart]
+	response := strings.TrimRight(text[bodyStart+respStart+len(respMarker):], "\n")
+
+	// Best-effort timestamp recovery from the "_<RFC3339>_" header line.
+	ts := time.Time{}
+	if i := strings.Index(text, "\n_"); i >= 0 {
+		end := strings.Index(text[i+2:], "_")
+		if end > 0 {
+			if parsed, perr := time.Parse(time.RFC3339, text[i+2:i+2+end]); perr == nil {
+				ts = parsed
+			}
+		}
+	}
+
+	return Turn{
+		ID:        id,
+		Request:   request,
+		Response:  response,
+		Timestamp: ts,
+	}, nil
 }
 
 // Append records a new turn. The full text is written to turns/<id>.md

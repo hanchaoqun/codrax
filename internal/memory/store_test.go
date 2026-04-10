@@ -136,3 +136,98 @@ func TestParseIndexRoundTrip(t *testing.T) {
 		t.Errorf("reopened index len = %d, want 2", got)
 	}
 }
+
+// TestRecentSurvivesRestart locks the orphan-recovery contract: after
+// 8 appends and a simulated restart, the new store must show 6 recent
+// turns (the uncompacted tail of the previous session) plus the 2
+// compacted index entries — i.e. nothing is lost across restart.
+func TestRecentSurvivesRestart(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	for i := 0; i < 8; i++ {
+		ts := time.Date(2026, 1, 1, 12, 0, i, 0, time.UTC)
+		if err := s.Append(Turn{
+			ID:        fmt.Sprintf("turn-%02d", i),
+			Request:   fmt.Sprintf("kw%d question", i),
+			Response:  fmt.Sprintf("answer %d", i),
+			Timestamp: ts,
+		}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	// Simulated restart: drop s, open a fresh store on the same dir.
+	s2, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+
+	if got := len(s2.Index()); got != 2 {
+		t.Errorf("reopened index len = %d, want 2", got)
+	}
+	recent := s2.Recent()
+	if len(recent) != 6 {
+		t.Fatalf("reopened recent len = %d, want 6", len(recent))
+	}
+	// Recent must be the LAST 6 turns (turn-02 .. turn-07), in order.
+	for i, want := 0, 2; i < 6; i, want = i+1, want+1 {
+		if recent[i].ID != fmt.Sprintf("turn-%02d", want) {
+			t.Errorf("recent[%d].ID = %s, want turn-%02d", i, recent[i].ID, want)
+		}
+		if recent[i].Request != fmt.Sprintf("kw%d question", want) {
+			t.Errorf("recent[%d] request not preserved: %q", i, recent[i].Request)
+		}
+		if recent[i].Response != fmt.Sprintf("answer %d", want) {
+			t.Errorf("recent[%d] response not preserved: %q", i, recent[i].Response)
+		}
+		if recent[i].Timestamp.IsZero() {
+			t.Errorf("recent[%d] timestamp not recovered", i)
+		}
+	}
+
+	// Crucially: BuildContext on the reopened store must include the
+	// recovered recent turns, so the next conversation does not start
+	// blind to what just happened in the previous session.
+	ctx := s2.BuildContext("kw5 follow up")
+	if !strings.Contains(ctx, "kw5 question") {
+		t.Errorf("BuildContext should surface recovered recent turn; got %q", ctx)
+	}
+}
+
+// TestOrphanRecoveryRespectsCap ensures we never resurrect more than
+// maxRecent turns, even when turns/ holds many uncompacted files
+// (simulating a legacy directory or a manually-seeded scenario).
+func TestOrphanRecoveryRespectsCap(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	// Disable compaction by raising the cap, then dump 12 turns.
+	s.maxRecent = 100
+	for i := 0; i < 12; i++ {
+		_ = s.Append(Turn{
+			ID:       fmt.Sprintf("turn-%02d", i),
+			Request:  fmt.Sprintf("kw%d", i),
+			Response: "ok",
+		})
+	}
+
+	// Reopen with the default cap of 6 — only the newest 6 must come back.
+	s2, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if got := len(s2.Recent()); got != 6 {
+		t.Errorf("reopened recent len = %d, want 6", got)
+	}
+	if got := s2.Recent()[0].ID; got != "turn-06" {
+		t.Errorf("oldest recovered turn = %s, want turn-06", got)
+	}
+	if got := s2.Recent()[5].ID; got != "turn-11" {
+		t.Errorf("newest recovered turn = %s, want turn-11", got)
+	}
+}
