@@ -14,24 +14,29 @@ import (
 type explorerEvaluator struct {
 	tools      *tool.Registry
 	complexity string // set from AgentContext.CurrentTaskComplexity at dispatch time
+	phase      int    // 0 = breadth scan, 1 = depth read
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	// Capture complexity for use in ContinuationPrompt and ParseOutput,
 	// which don't receive the AgentContext.
 	e.complexity = ctx.CurrentTaskComplexity
-	minTypes, minCalls := evidenceThresholds(e.complexity)
-	return fmt.Sprintf(
-		"Explore the codebase to build a trusted factual foundation. Use the available tools to find entry points, understand module structure, and identify relevant files.\n\n"+
-			"Investigation depth for this task: %s (minimum %d distinct evidence tool types, %d evidence tool calls).\n\n"+
-			"Strategy hints:\n"+
-			"- Prefer [high-confidence evidence] tools (grep, read_file, exec_command, …) — they read the real codebase and their results count as citable evidence.\n"+
-			"- Navigation tools (repo_map) are useful for orientation — they show which files and symbols exist and rank them by relevance. Use repo_map to get a starting map, then verify with evidence tools. repo_map does NOT count as evidence.\n"+
-			"- For source files (<500 lines), call read_file WITHOUT offset/limit to get the full file — small-file reads are cheap and you see the complete picture. Only use offset/limit for large files (>500 lines) or when a tool result tells you the output was truncated.\n"+
-			"- Avoid recursive list_files on the repository root.\n"+
-			"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command.\n"+
-			"- Prioritize reading source files over test files — tests show usage examples but the actual logic lives in the source. Read config files (YAML, etc.) when the question involves system topology or behavior settings.",
-		complexityLabel(ctx.CurrentTaskComplexity), minTypes, minCalls)
+	e.phase = 0 // start in breadth-scan phase
+
+	return "## Phase 1: Breadth Scan\n\n" +
+		"Your goal in this phase is to MAP the relevant territory — find ALL files and components related to the question. " +
+		"Do NOT read files in full yet. Use lightweight tools:\n" +
+		"- repo_map (task_map view) to get an overview of relevant files\n" +
+		"- grep to find where key terms appear across the codebase\n" +
+		"- list_files to understand directory structure\n\n" +
+		"At the end of this phase, you will produce a FILE LIST — the 3-6 most important source files " +
+		"(not test files) that you need to read in depth to answer the question. " +
+		"For each file, note what you expect to learn from it.\n\n" +
+		"Strategy:\n" +
+		"- Search broadly: grep the core keyword across the whole codebase\n" +
+		"- Identify the primary logic file, the type definitions file, and the config file\n" +
+		"- Ignore test files (*_test.go), utility files (logging, tool registration), and generated code\n" +
+		"- If repo_map shows a file is highly ranked, note it but don't read it yet"
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -42,31 +47,40 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	return false
 }
 
-// ContinuationPrompt implements ContinuingEvaluator. The explorer's
-// failure mode that motivated this hook: the LLM articulates the
-// next investigative step ("I'll check function X next") and then
-// stops without doing it, because the BaseAgent's default soft-stop
-// rule treats any content-only turn as completion.
+// ContinuationPrompt implements ContinuingEvaluator with a two-phase
+// exploration model:
 //
-// Evidence gate: complexity-adaptive. The thresholds scale with the
-// task's declared complexity (simple/moderate/complex). Until both
-// the type floor and call-count floor are met, every soft-stop is
-// rejected unconditionally.
+// Phase 0 — Breadth Scan: lightweight tools only (grep, repo_map,
+// list_files). The LLM maps the territory and identifies key files.
+// When the LLM first tries to soft-stop in this phase, the prompt
+// transitions to Phase 1 with a "now read these files" instruction.
 //
-// Once the evidence gate is passed, a budget of 3 differentiated
-// pushes applies:
+// Phase 1 — Depth Read: the LLM reads the identified files in full,
+// extracts detailed information, and cross-references. Continuation
+// pushes in this phase focus on gap analysis and verification.
 //
-//   - Push 0 — gap analysis: list what aspects of the question are
-//     NOT yet covered, then investigate the biggest gap.
-//
-//   - Push 1 — verify: check the most important unverified claim.
-//
-//   - Push 2 — final escape: state the answer or honestly say what
-//     is missing.
-//
-// The fourth soft-stop is accepted unconditionally.
+// This separation prevents the common failure mode where the LLM
+// reads one file, concludes prematurely, then gets pushed into
+// reading test files because "it hasn't read them yet."
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
-	// Count evidence-bearing tool calls and distinct source types.
+	if e.phase == 0 {
+		// Phase 0 → Phase 1 transition: the LLM produced a breadth
+		// scan summary. Now switch to depth reading.
+		e.phase = 1
+		return "## Phase 2: Depth Read\n\n" +
+			"Good — you have mapped the relevant territory. Now switch to deep investigation.\n\n" +
+			"Read the key source files you identified IN FULL (no offset/limit for files <500 lines). " +
+			"For each file, extract:\n" +
+			"- Key data structures, their fields, and what they control\n" +
+			"- Control flow: conditionals, branches, state transitions\n" +
+			"- Configuration-driven behavior: what changes based on config/policy\n" +
+			"- Cross-references: when this file uses types/functions from another file\n\n" +
+			"Do NOT read test files. Do NOT read utility/infrastructure files (logging, tool registration). " +
+			"Focus on the source files that contain the actual logic you need to answer the question.\n\n" +
+			"Start by reading the most important file now.", true
+	}
+
+	// Phase 1: depth read — evidence-gated continuation.
 	evidenceSources := make(map[string]struct{})
 	evidenceCalls := 0
 	for _, r := range history {
@@ -80,7 +94,6 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	hasEnoughEvidence := len(evidenceSources) >= minTypes && evidenceCalls >= minCalls
 
 	if !hasEnoughEvidence {
-		// Evidence gate not met — push unconditionally. No escape.
 		var reason string
 		if len(evidenceSources) < minTypes {
 			reason = fmt.Sprintf("only %d distinct evidence tool type(s) (need %d)", len(evidenceSources), minTypes)
@@ -89,30 +102,20 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 		return fmt.Sprintf(
 			"You have %s. "+
-				"Take the next investigative step now — do not summarize, do not conclude, call a tool. "+
-				"Read more files, grep for more patterns, or verify claims you have not checked yet.",
+				"Continue reading the key files from your scan. "+
+				"Read source files in full, extract the details listed in the Phase 2 instructions.",
 			reason), true
 	}
 
-	// Evidence gate met — graduated continuation budget.
+	// Evidence gate met — graduated depth-phase budget.
 	switch continuationCount {
-	case 0:
-		// Structured gap analysis: force the LLM to audit coverage
-		// against concrete dimensions, not just vague "all aspects".
-		return "Before concluding, perform a structured gap analysis. " +
-			"For the question asked, check your answer against these dimensions:\n" +
-			"- WHAT: did you name every key component/concept involved?\n" +
-			"- HOW: did you explain the mechanism (not just list names)?\n" +
-			"- WHEN/WHY: did you explain conditions, triggers, or branching logic?\n" +
-			"- WHERE: did you cite specific file:line for each claim?\n" +
-			"List which dimensions are still weak, then investigate the weakest one now. " +
-			"Prioritize reading source files that define the missing concepts (types, config, logic files). " +
-			"Do NOT read test files (*_test.go) — they show usage examples but not definitions. " +
-			"If you already read a file partially, read deeper into it rather than switching to a different file.", true
-	case 1:
-		return "Pick the most important claim in your answer that you have NOT yet verified with a tool call. Verify it now — read the relevant file or grep for the relevant symbol. If it holds, good; if not, correct your answer.", true
+	case 1: // continuationCount 0 was the phase transition
+		return "Before concluding, check: have you read ALL the key files from your breadth scan? " +
+			"If any important source file is still unread, read it now. " +
+			"If you read a file but missed a critical section (e.g. a function you saw referenced but didn't read), go read that section.", true
 	case 2:
-		return "Final check. If your answer is genuinely complete and every key claim is backed by evidence, you may stop. If your last action revealed something that changes your answer, investigate further. If you still cannot answer part of the question, say so honestly.", true
+		return "Final verification. If your investigation is complete, you may stop. " +
+			"The synthesis step will produce the final answer from your evidence.", true
 	default:
 		return "", false
 	}
