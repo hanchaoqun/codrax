@@ -21,6 +21,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/repl"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -91,6 +92,7 @@ func main() {
 	mergedLogLevel := defaultLogLevel
 	mergedLogStdout := defaultLogStdout
 	mergedMemoryDir := defaultMemoryDir
+	mergedCacheDir := "" // empty = os.UserCacheDir()/codrax
 	mergedLang := defaultLang
 	mergedRepo := defaultRepo
 	mergedBranch := defaultBranch
@@ -129,6 +131,9 @@ func main() {
 		if rs.MemoryDir != nil {
 			mergedMemoryDir = *rs.MemoryDir
 		}
+		if rs.CacheDir != nil {
+			mergedCacheDir = *rs.CacheDir
+		}
 		if rs.Lang != nil {
 			mergedLang = *rs.Lang
 		}
@@ -161,6 +166,9 @@ func main() {
 	// I'm currently sitting in", which is a CWD concept by design.
 	mergedLogDir = anchorPath(anchorDir, mergedLogDir)
 	mergedMemoryDir = anchorPath(anchorDir, mergedMemoryDir)
+	if mergedCacheDir != "" {
+		mergedCacheDir = anchorPath(anchorDir, mergedCacheDir)
+	}
 	mergedOrchestratorConfig = anchorPath(anchorDir, mergedOrchestratorConfig)
 	mergedProvidersConfig = anchorPath(anchorDir, mergedProvidersConfig)
 
@@ -195,6 +203,7 @@ func main() {
 	logLevel := flag.String("log-level", mergedLogLevel, "log level: error|warning|info|debug")
 	logStdout := flag.Bool("log-stdout", mergedLogStdout, "also mirror logs to stdout")
 	memoryDir := flag.String("memory-dir", mergedMemoryDir, "directory for conversation memory")
+	cacheDir := flag.String("cache-dir", mergedCacheDir, "base directory for repo map caches (empty = ~/.cache/codrax or platform equivalent)")
 	lang := flag.String("lang", mergedLang, "default response language (zh/en/...); 'off' to disable")
 	// Pipeline budget knobs. Defaults are 0 sentinels — flag.Visit
 	// after Parse tells us whether the user actually passed them, and
@@ -240,7 +249,9 @@ func main() {
 	// using stdlib log will land in the same file.
 	log.SetOutput(logger.InfoWriter())
 	log.SetFlags(0)
-	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s", *repoRoot, *logDir, *memoryDir)
+	// Apply cache-dir override for repo map. Empty = default (os.UserCacheDir).
+	repomap.SetCacheDir(*cacheDir)
+	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s", *repoRoot, *logDir, *memoryDir, *cacheDir)
 
 	// Resolve the request: -request flag wins, otherwise positional
 	// arg, otherwise empty (which triggers interactive mode below).
@@ -341,6 +352,7 @@ func main() {
 
 	toolRegistry := tool.NewRegistry()
 	tool.RegisterDefaults(toolRegistry)
+	toolRegistry.Register(&repomap.RepoMapV2{})
 	toolRegistry.Register(tool.NewProposeSubAgents())
 
 	subAgentRegistry := agent.NewSubAgentRegistry()

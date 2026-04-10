@@ -55,6 +55,12 @@
 # Directory for multi-turn conversation memory (MEMORY.md + turns/).
 # memory_dir: memory
 
+# Base directory for repo map caches (symbol index, relations, etc.).
+# Each target repo gets its own subdirectory under <cache_dir>/repomap/.
+# Default (when omitted): platform cache dir — ~/.cache/codrax (Linux),
+# ~/Library/Caches/codrax (macOS), %LocalAppData%\codrax (Windows).
+# cache_dir:
+
 # ---------------------------------------------------------------------------
 # Response language
 # ---------------------------------------------------------------------------

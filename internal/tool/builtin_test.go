@@ -286,40 +286,7 @@ func TestGrepTool(t *testing.T) {
 	})
 }
 
-func TestRepoMap(t *testing.T) {
-	t.Run("generate tree for temp dir", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		subDir := filepath.Join(tmpDir, "src")
-		if err := os.MkdirAll(subDir, 0o755); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(tmpDir, "README.md"), []byte("hi"), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-		if err := os.WriteFile(filepath.Join(subDir, "main.go"), []byte("package main"), 0o644); err != nil {
-			t.Fatalf("setup: %v", err)
-		}
-
-		tool := &RepoMap{}
-		params, _ := json.Marshal(repoMapParams{Path: tmpDir})
-		result, err := tool.Execute(newBusContext(), params)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-		if !result.Success {
-			t.Fatalf("expected success, got: %s", result.Summary)
-		}
-		if !strings.Contains(result.Summary, "src/") {
-			t.Errorf("expected 'src/' in tree output, got: %s", result.Summary)
-		}
-		if !strings.Contains(result.Summary, "main.go") {
-			t.Errorf("expected 'main.go' in tree output, got: %s", result.Summary)
-		}
-		if !strings.Contains(result.Summary, "README.md") {
-			t.Errorf("expected 'README.md' in tree output, got: %s", result.Summary)
-		}
-	})
-}
+// TestRepoMap moved to internal/tool/repomap/ package (tree-sitter powered).
 
 func TestGitDiff(t *testing.T) {
 	t.Run("skip if not in git repo", func(t *testing.T) {

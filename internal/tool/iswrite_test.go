@@ -16,7 +16,7 @@ func TestBuiltinIsWriteClassification(t *testing.T) {
 		{"grep", &GrepTool{}, false},
 		{"read_file", &ReadFile{}, false},
 		{"list_files", &ListFiles{}, false},
-		{"repo_map", &RepoMap{}, false},
+		// repo_map moved to internal/tool/repomap/ (tree-sitter powered, registered from main.go)
 		{"run_tests", &RunTests{}, false},
 		{"git_diff", &GitDiff{}, false},
 		{"git_log", &GitLog{}, false},

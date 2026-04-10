@@ -41,8 +41,9 @@ type RuntimeSettings struct {
 	Lang      *string `yaml:"lang"`
 
 	// Per-invocation defaults.
-	Repo   *string `yaml:"repo"`
-	Branch *string `yaml:"branch"`
+	Repo     *string `yaml:"repo"`
+	Branch   *string `yaml:"branch"`
+	CacheDir *string `yaml:"cache_dir"`
 
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All three accept any
