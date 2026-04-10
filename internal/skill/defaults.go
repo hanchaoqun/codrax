@@ -37,7 +37,7 @@ func RegisterDefaults(r *Registry) {
 		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
 		Workflow: []string{
 			"orient first: use repo_map (task_map view with your query) or grep to find the 2-3 most relevant source files — these are your primary targets. Prefer source files over test files (*_test.go) at this stage",
-			"read primary targets in full (no offset/limit for files <500 lines): start with type definitions and config structures, then read the main logic file that uses them",
+			"read primary targets in full (no offset/limit for files <500 lines): start with type definitions and config structures, then read the main logic file that uses them. Depth over breadth: it is better to fully read 3 key source files than to skim 6 files. Never read test files (*_test.go) during investigation — they are derivative, not authoritative",
 			"extract, don't just read: after reading each file, identify (a) key data structures and their fields, (b) control flow and branching logic, (c) configuration-driven behavior, (d) interactions with other components. If the question is about architecture, pay special attention to conditional paths, policy/strategy patterns, and state machines",
 			"if you surface a name that looks load-bearing (a function, type, symbol, config key), open it before drawing conclusions — a name is a hypothesis to verify, not an answer",
 			"cross-reference: when file A references file B, read file B too — don't assume, verify. Read config files (YAML) when the code loads configuration that drives behavior",

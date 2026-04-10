@@ -105,9 +105,10 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"- HOW: did you explain the mechanism (not just list names)?\n" +
 			"- WHEN/WHY: did you explain conditions, triggers, or branching logic?\n" +
 			"- WHERE: did you cite specific file:line for each claim?\n" +
-			"List which dimensions are still weak, then investigate the weakest one now — " +
-			"read the specific file that would fill that gap. Do NOT re-read files you already saw; " +
-			"find the file you haven't read yet that contains the missing piece.", true
+			"List which dimensions are still weak, then investigate the weakest one now. " +
+			"Prioritize reading source files that define the missing concepts (types, config, logic files). " +
+			"Do NOT read test files (*_test.go) — they show usage examples but not definitions. " +
+			"If you already read a file partially, read deeper into it rather than switching to a different file.", true
 	case 1:
 		return "Pick the most important claim in your answer that you have NOT yet verified with a tool call. Verify it now — read the relevant file or grep for the relevant symbol. If it holds, good; if not, correct your answer.", true
 	case 2:
