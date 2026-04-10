@@ -221,7 +221,12 @@ func main() {
 		logging.Error("pipeline failed: %v", err)
 		os.Exit(1)
 	}
-	fmt.Print(renderResult(busCtx))
+	rendered := renderResult(busCtx)
+	// Mirror the final user-visible output into the log file so the
+	// answer is recoverable from logs alone after the terminal session
+	// is gone. Single Info call so multi-line content stays one record.
+	logging.Info("final answer:\n%s", rendered)
+	fmt.Print(rendered)
 }
 
 // renderResult formats a finished BusContext for the user. Shared

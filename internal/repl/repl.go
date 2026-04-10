@@ -106,6 +106,10 @@ func (r *REPL) dispatch(line string) {
 	}
 
 	response := strings.TrimSpace(r.render(busCtx))
+	// Record the final user-visible answer in the log file so audits
+	// and post-mortems do not have to scrape stdout. Info level so it
+	// survives the default log level without needing -log-level debug.
+	logging.Info("[repl] final answer:\n%s", response)
 	fmt.Fprintf(r.out, "\nCodrax> %s\n\n", response)
 
 	turn := memory.Turn{
