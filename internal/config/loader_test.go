@@ -47,11 +47,6 @@ task_policies:
       - implement
       - finalize
 
-pipeline_settings:
-  enable_verify: true
-  require_review: false
-  allow_skip_plan_for_small_change: true
-
 agents:
   - name: planner
     stages: [analyze]
@@ -141,19 +136,6 @@ func TestParse(t *testing.T) {
 		p := cfg.TaskPolicies["analysis"]
 		if got := len(p.AllowedStages); got != 2 {
 			t.Fatalf("analysis policy: expected 2 allowed stages, got %d", got)
-		}
-	})
-
-	t.Run("feature flags", func(t *testing.T) {
-		ff := cfg.PipelineSettings
-		if ff.RequireReview {
-			t.Error("require_review should be false")
-		}
-		if !ff.EnableVerify {
-			t.Error("enable_verify should be true")
-		}
-		if !ff.AllowSkipPlanForSmallChange {
-			t.Error("allow_skip_plan_for_small_change should be true")
 		}
 	})
 
@@ -258,18 +240,6 @@ func TestResolve(t *testing.T) {
 		}
 		if got := len(p.AllowedStages); got != 3 {
 			t.Fatalf("expected 3 allowed stages, got %d", got)
-		}
-	})
-
-	t.Run("feature flags preserved", func(t *testing.T) {
-		if rc.PipelineSettings.RequireReview {
-			t.Error("require_review should be false")
-		}
-		if !rc.PipelineSettings.EnableVerify {
-			t.Error("enable_verify should be true")
-		}
-		if !rc.PipelineSettings.AllowSkipPlanForSmallChange {
-			t.Error("allow_skip_plan_for_small_change should be true")
 		}
 	})
 
@@ -639,34 +609,6 @@ func TestLoadAndResolve(t *testing.T) {
 		p, _ := rc.GetTaskPolicy("analysis")
 		if got := len(p.AllowedStages); got != 3 {
 			t.Errorf("analysis policy: expected 3 allowed stages, got %d", got)
-		}
-	})
-
-	t.Run("pipeline_settings migrated to codrax.yaml", func(t *testing.T) {
-		// pipeline_settings used to live in orchestrator.yaml. It has
-		// moved to codrax.yaml under the pipeline_* prefixed keys.
-		// The example config/orchestrator.yaml no longer carries the
-		// block, so the loader returns zero values for these fields
-		// — that's the signal main.go uses to know it should layer
-		// the code defaults and codrax.yaml on top. The loader is
-		// still TOLERANT of an old pipeline_settings: block being
-		// present (TestParse covers that backward-compat path with
-		// minimalYAML), but the canonical example no longer has one.
-		ff := rc.PipelineSettings
-		if ff.RequireReview {
-			t.Error("require_review should be zero (false) — the value belongs in codrax.yaml now")
-		}
-		if ff.EnableVerify {
-			t.Error("enable_verify should be zero (false) — the value belongs in codrax.yaml now")
-		}
-		if ff.AllowSkipPlanForSmallChange {
-			t.Error("allow_skip_plan_for_small_change should be zero (false) — the value belongs in codrax.yaml now")
-		}
-		if ff.MaxStageVisits != 0 {
-			t.Errorf("max_stage_visits = %d, want 0 (the value belongs in codrax.yaml now)", ff.MaxStageVisits)
-		}
-		if ff.MaxRetriesPerStage != 0 {
-			t.Errorf("max_retries_per_stage = %d, want 0 (the value belongs in codrax.yaml now)", ff.MaxRetriesPerStage)
 		}
 	})
 

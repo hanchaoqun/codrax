@@ -6,12 +6,7 @@
 # Do not duplicate keys across them:
 #
 #   orchestrator.yaml — Pipeline topology only: stages, transitions,
-#                       task policies, agent/skill bindings. The
-#                       pipeline_settings: block that used to live
-#                       here has moved to this file under the
-#                       pipeline_* keys (see below). The old block is
-#                       still parsed for backward compatibility but
-#                       new configurations should use codrax.yaml.
+#                       task policies, agent/skill bindings.
 #
 #   providers.yaml    — LLM provider credentials and per-agent model
 #                       routing. Per-user secrets, never committed.
@@ -105,24 +100,12 @@
 # ---------------------------------------------------------------------------
 # Pipeline behavior
 # ---------------------------------------------------------------------------
-# These keys used to live in orchestrator.yaml under pipeline_settings:.
-# They have moved here because they are runtime operator knobs
-# (retry budgets, behavior toggles, step budget), not pipeline
-# topology (which stages exist and how they connect).
-# orchestrator.yaml's old pipeline_settings: block is still parsed
-# as a fallback layer beneath these for one-release backward compat
-# — but it only covers the FIVE keys that originally lived there
-# (enable_verify, require_review, max_retries_per_stage,
-# max_stage_visits, allow_skip_plan_for_small_change).
-# pipeline_max_steps never lived in orchestrator.yaml. It used to
-# be a top-level `max_steps:` key in this file, but that flat key
-# was removed and the only accepted spelling is now the
-# pipeline_-prefixed name below. The matching CLI flag is
-# `-pipeline-max-steps` (the legacy `-max-steps` is also gone).
+# Runtime operator knobs (retry budgets, behavior toggles, step budget).
+# Pipeline topology (stages, transitions, policies) lives in
+# orchestrator.yaml; these keys control *how* the pipeline runs.
 #
 # Precedence (lowest wins last):
 #   code default
-#     → orchestrator.yaml pipeline_settings (legacy, the 5 keys above)
 #     → these keys
 #     → command-line flags (-pipeline-max-steps, -pipeline-max-retries,
 #       -pipeline-max-stage-visits have CLI overrides; the three

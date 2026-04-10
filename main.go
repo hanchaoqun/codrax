@@ -208,9 +208,9 @@ func main() {
 	// Pipeline budget knobs. Defaults are 0 sentinels — flag.Visit
 	// after Parse tells us whether the user actually passed them, and
 	// we apply only those into cfg.PipelineSettings (which already
-	// holds the orchestrator.yaml + codrax.yaml merged values by then).
-	// 0 means "leave whatever the YAML layers produced". Non-zero
-	// means "operator override, beats both YAMLs".
+	// holds the codrax.yaml merged values by then).
+	// 0 means "leave whatever codrax.yaml produced". Non-zero means
+	// "operator override, beats YAML".
 	pipelineMaxRetries := flag.Int("pipeline-max-retries", 0, "override pipeline_max_retries_per_stage (max consecutive failures per stage before forcing finalize); 0 = inherit from yaml")
 	pipelineMaxStageVisits := flag.Int("pipeline-max-stage-visits", 0, "override pipeline_max_stage_visits (oscillation guard: max entries per stage per Run); 0 = inherit from yaml")
 	flag.Parse()
@@ -269,17 +269,10 @@ func main() {
 	}
 	logging.Info("loaded config: %d stages, %d policies", len(cfg.Stages), len(cfg.TaskPolicies))
 
-	// Apply runtime overrides from codrax.yaml on top of what
-	// orchestrator.yaml + code defaults already produced.
+	// Apply runtime overrides from codrax.yaml.
 	//
 	// Precedence chain (lowest wins last):
-	//   code default → orchestrator.yaml pipeline_settings → codrax.yaml
-	//   pipeline_* keys → CLI flags (only the two budget params)
-	//
-	// orchestrator.yaml's pipeline_settings: block is still parsed for
-	// backward compatibility (old configs in the wild) and acts as the
-	// fallback layer beneath codrax.yaml. The example config in
-	// config/orchestrator.yaml no longer ships with that block.
+	//   code default → codrax.yaml pipeline_* keys → CLI flags
 	if rs != nil {
 		// Tool blob sizing knobs. SetBlobLimits ignores non-positive
 		// values, so any field the user omitted leaves the historical
@@ -297,8 +290,7 @@ func main() {
 			blobTail = *rs.BlobPreviewTailBytes
 		}
 		tool.SetBlobLimits(blobMax, blobHead, blobTail)
-		// Pipeline behavior overrides — codrax.yaml beats
-		// orchestrator.yaml's legacy pipeline_settings block.
+		// Pipeline behavior from codrax.yaml.
 		if rs.PipelineMaxRetriesPerStage != nil {
 			cfg.PipelineSettings.MaxRetriesPerStage = *rs.PipelineMaxRetriesPerStage
 		}
@@ -315,10 +307,7 @@ func main() {
 			cfg.PipelineSettings.AllowSkipPlanForSmallChange = *rs.PipelineAllowSkipPlanForSmall
 		}
 	}
-	// CLI flag overrides for the two pipeline budget params. We use
-	// flag.Visit (rather than checking for non-zero) so a user who
-	// genuinely wants 0 can pass it — though for these particular
-	// fields 0 is meaningless. Belt and suspenders.
+	// CLI flag overrides for the two pipeline budget params.
 	if explicitFlags["pipeline-max-retries"] && *pipelineMaxRetries > 0 {
 		cfg.PipelineSettings.MaxRetriesPerStage = *pipelineMaxRetries
 	}

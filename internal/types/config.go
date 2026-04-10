@@ -68,7 +68,6 @@ type OrchestratorConfig struct {
 	Stages       map[string]StageConfigYAML  `yaml:"stages"`
 	Transitions  map[string][]Transition     `yaml:"transitions"`
 	TaskPolicies map[string]TaskPolicyConfig `yaml:"task_policies"`
-	PipelineSettings PipelineSettings                `yaml:"pipeline_settings"`
 	Agents       []AgentConfig               `yaml:"agents"`
 	Skills       []SkillConfigYAML           `yaml:"skills"`
 }

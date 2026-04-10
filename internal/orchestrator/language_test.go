@@ -42,5 +42,10 @@ func TestLanguageDirective(t *testing.T) {
 		if !strings.Contains(strings.ToLower(got), "another language") {
 			t.Errorf("languageDirective(%q) missing fallback clause: %q", c.in, got)
 		}
+		// Every non-empty directive must tell the model to keep technical
+		// terms and proper nouns in their original form.
+		if !strings.Contains(strings.ToLower(got), "technical terms") {
+			t.Errorf("languageDirective(%q) missing term-preservation clause: %q", c.in, got)
+		}
 	}
 }

@@ -161,7 +161,7 @@ graph LR
 
 #### YAML 驱动的状态机
 
-编排器**拓扑**完全通过 [`config/orchestrator.yaml`](../config/orchestrator.yaml) 配置——stages、transitions、policies、agent/skill 绑定。**运行时行为**（步数预算、振荡守卫、verify/review 开关）则在 [`config/codrax.yaml`](../config/codrax.yaml.example) 的 `pipeline_*` 键里配置；旧版的 `pipeline_settings:` 块仍被向后兼容地读取，但新配置应该都写在 codrax.yaml。
+编排器**拓扑**完全通过 [`config/orchestrator.yaml`](../config/orchestrator.yaml) 配置——stages、transitions、policies、agent/skill 绑定。**运行时行为**（步数预算、振荡守卫、verify/review 开关）则在 [`config/codrax.yaml`](../config/codrax.yaml.example) 的 `pipeline_*` 键里配置。
 
 orchestrator.yaml 定义了：
 
@@ -206,7 +206,7 @@ orchestrator.yaml 定义了：
 
 #### 功能开关
 
-这些开关都在 `config/codrax.yaml` 中以 `pipeline_*` 前缀配置（旧版的 `orchestrator.yaml` `pipeline_settings:` 块仍被向后兼容地读取，作为 codrax.yaml 之下的 fallback 层）：
+这些开关都在 `config/codrax.yaml` 中以 `pipeline_*` 前缀配置：
 
 | 开关 | 默认值 | 效果 |
 |------|--------|------|

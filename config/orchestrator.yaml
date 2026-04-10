@@ -152,19 +152,6 @@ task_policies:
       - finalize
 
 # ---------------------------------------------------------------------------
-# Pipeline Settings — moved to codrax.yaml
-# ---------------------------------------------------------------------------
-# The five pipeline_settings keys used to live here. They have moved
-# to config/codrax.yaml under the pipeline_* prefixed keys, since
-# they are runtime/operator knobs (retry budgets, behavior toggles),
-# not pipeline topology. The loader still parses a pipeline_settings:
-# block here for backward compatibility — codrax.yaml's pipeline_*
-# keys override anything in such a block — but new configurations
-# should put these settings in codrax.yaml only.
-#
-# See config/codrax.yaml.example for the new key names and defaults.
-
-# ---------------------------------------------------------------------------
 # Agent Types
 # ---------------------------------------------------------------------------
 # Declarative list of available agent types. Each agent is specialized for

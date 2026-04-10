@@ -74,7 +74,7 @@ make test
 | [`config/providers.yaml`](config/providers.yaml.example) | **LLM 凭证与路由** — 每个 agent 用哪个 provider | API key, model ID |
 | [`config/codrax.yaml`](config/codrax.yaml.example) | **本次运行怎么跑** — 日志 / memory / 语言 / 目标 repo / 流水线预算与行为 / 工具 blob 大小 / 指向上面两个文件的路径 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_*`, `blob_*` |
 
-优先级（低到高）：**代码默认 < `config/orchestrator.yaml` 中的 `pipeline_settings:` 旧块（仅 pipeline_* 适用，向后兼容） < `config/codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=envs/prod/codrax.yaml` 环境变量可以一键切换整套环境（因为 `orchestrator_config` 和 `providers_config` 路径也可以写在 codrax.yaml 里）。
+优先级（低到高）：**代码默认 < `config/codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=envs/prod/codrax.yaml` 环境变量可以一键切换整套环境（因为 `orchestrator_config` 和 `providers_config` 路径也可以写在 codrax.yaml 里）。
 
 `config/codrax.yaml` 的查找顺序：`$CODRAX_SETTINGS` → `<CWD>/config/codrax.yaml` → `<exeDir>/config/codrax.yaml` → `<exeDir>/../config/codrax.yaml`（覆盖 `bin/<exe>` 安装布局）。命中后，文件所在的 `config/` 父目录成为「锚点」，所有相对默认路径（`log_dir`、`memory_dir`、`orchestrator_config`、`providers_config`）都基于锚点解析，所以二进制扔到任何 CWD 都能找到自己的配置和写日志。
 

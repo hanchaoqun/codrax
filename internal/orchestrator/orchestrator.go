@@ -64,16 +64,21 @@ func languageDirective(lang string) string {
 		return ""
 	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
 		return "Respond to the user in Simplified Chinese (简体中文) by default. " +
+			"Keep technical terms, proper nouns, project-specific names, code identifiers, " +
+			"file paths, and command names in their original form — do not translate them. " +
 			"If the user's most recent request is clearly written in another language " +
 			"(for example English or Japanese), match that language instead so the reply " +
 			"is in the same language as the question."
 	case "en", "en-US", "english":
 		return "Respond to the user in English by default. " +
+			"Keep technical terms, proper nouns, and project-specific names in their original form. " +
 			"If the user's most recent request is clearly written in another language, " +
 			"match that language instead."
 	default:
 		return fmt.Sprintf(
 			"Respond to the user in %s by default. "+
+				"Keep technical terms, proper nouns, project-specific names, code identifiers, "+
+				"file paths, and command names in their original form — do not translate them. "+
 				"If the user's most recent request is clearly written in another language, "+
 				"match that language instead.", lang)
 	}

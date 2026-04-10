@@ -53,16 +53,11 @@ type RuntimeSettings struct {
 	BlobPreviewHeadBytes *int `yaml:"blob_preview_head_bytes"`
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
 
-	// Pipeline behavior. Flat-prefixed `pipeline_*`. The toggles and
-	// per-stage budgets used to live in orchestrator.yaml's
-	// `pipeline_settings:` block; they have moved here because they
-	// are runtime/operator concerns, not pipeline topology. The
-	// orchestrator.yaml block is still loaded for backward
-	// compatibility and acts as a fallback layer beneath these — see
-	// main.go for the precedence merge. PipelineMaxSteps is the
-	// global Run() step budget; it never lived in orchestrator.yaml,
-	// so its precedence chain is just code default → codrax.yaml →
-	// CLI flag.
+	// Pipeline behavior. Flat-prefixed `pipeline_*`. These are
+	// runtime/operator concerns (retry budgets, behavior toggles,
+	// step budget), not pipeline topology. PipelineMaxSteps is the
+	// global Run() step budget. Precedence: code default → codrax.yaml
+	// → CLI flag.
 	PipelineMaxSteps              *int  `yaml:"pipeline_max_steps"`
 	PipelineMaxRetriesPerStage    *int  `yaml:"pipeline_max_retries_per_stage"`
 	PipelineMaxStageVisits        *int  `yaml:"pipeline_max_stage_visits"`

@@ -44,7 +44,6 @@ func Resolve(raw *types.OrchestratorConfig) (*ResolvedConfig, error) {
 		Stages:       make(map[types.PipelineStage]*types.StageConfig),
 		Transitions:  make(map[types.PipelineStage][]types.Transition),
 		TaskPolicies: make(map[string]*types.TaskPolicyConfig),
-		PipelineSettings: raw.PipelineSettings,
 		Agents:       make(map[types.AgentName]*types.AgentConfig),
 		Skills:       make(map[string]*types.SkillConfigYAML),
 	}
