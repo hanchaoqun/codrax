@@ -138,13 +138,39 @@ func (b *BaseAgent) Name() types.AgentName {
 	return b.name
 }
 
+// truncForLog clips a string for diagnostic logging. Used by the debug
+// trace lines in Execute so a single iteration dump never floods the
+// log file with multi-megabyte LLM bodies. The "...[truncated N bytes]"
+// suffix preserves the total length so the reader can spot truncation.
+func truncForLog(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + fmt.Sprintf("...[truncated %d bytes]", len(s)-max)
+}
+
 // Execute implements the ReAct (Reason → Act → Observe) loop.
+//
+// Debug-level trace logging dumps the initial prompt, every assistant
+// turn (content + tool calls), every tool result, and the reason for
+// loop termination. This was originally added during the explorer
+// knowledge-flow investigation (docs/investigation-explorer-knowledge-
+// flow.md) to localize Layer-2 soft-stop and Layer-3 read_file slice
+// issues, then removed because it was noisy on stderr. It is back as
+// debug-gated logging so the same trace can be reproduced on demand by
+// running with `-log-level debug` without polluting normal runs.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {
 	// Build tool schemas for LLM
 	toolSchemas := b.buildToolSchemas(sk)
 
 	// Initialize message history
 	messages := b.buildInitialMessages(ctx, sk)
+
+	// DIAGNOSTIC — dump initial prompt (debug only).
+	for _, m := range messages {
+		logging.Debug("[diag %s] INIT msg role=%s len=%d\n%s\n---",
+			b.name, m.Role, len(m.Content), truncForLog(m.Content, 4000))
+	}
 
 	var allToolResults []types.ToolResult
 	var allMCPResponses []types.MCPResponse
@@ -161,6 +187,18 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}, err
 		}
 
+		// DIAGNOSTIC — dump assistant response (debug only).
+		logging.Debug("[diag %s] iter=%d ASSISTANT content_len=%d tool_calls=%d",
+			b.name, i, len(resp.Content), len(resp.ToolCalls))
+		if resp.Content != "" {
+			logging.Debug("[diag %s] iter=%d ASSISTANT content:\n%s\n---",
+				b.name, i, truncForLog(resp.Content, 2000))
+		}
+		for j, tc := range resp.ToolCalls {
+			logging.Debug("[diag %s] iter=%d call[%d] tool=%s params=%s",
+				b.name, i, j, tc.Name, string(tc.Params))
+		}
+
 		// Hard stop from the evaluator (e.g., finalizer always stops at iter=0).
 		if b.eval.ShouldStop(resp, i) {
 			messages = append(messages, llm.Message{
@@ -168,6 +206,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Content:   resp.Content,
 				ToolCalls: resp.ToolCalls,
 			})
+			logging.Debug("[diag %s] STOP at iter=%d (eval)", b.name, i)
 			break
 		}
 
@@ -191,6 +230,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						Role:    "user",
 						Content: prompt,
 					})
+					logging.Debug("[diag %s] CONTINUE at iter=%d (continuationsUsed=%d)",
+						b.name, i, continuationsUsed)
 					continue
 				}
 			}
@@ -199,6 +240,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Content:   resp.Content,
 				ToolCalls: resp.ToolCalls,
 			})
+			logging.Debug("[diag %s] STOP at iter=%d (soft)", b.name, i)
 			break
 		}
 
@@ -219,6 +261,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Content:    result.Summary,
 					ToolCallID: tc.ID,
 				})
+				// DIAGNOSTIC — dump tool result (debug only).
+				logging.Debug("[diag %s] iter=%d TOOLRESULT %s ok=%v len=%d:\n%s\n---",
+					b.name, i, result.ToolName, result.Success, len(result.Summary),
+					truncForLog(result.Summary, 2000))
 			}
 			if mcpResp != nil {
 				allMCPResponses = append(allMCPResponses, *mcpResp)
