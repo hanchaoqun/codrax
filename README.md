@@ -39,9 +39,9 @@ go run . -log-level debug -log-stdout -request "your task"
 
 | 文件 | 负责 | 典型键 |
 |---|---|---|
-| [`config/orchestrator.yaml`](config/orchestrator.yaml) | **流水线形状** — stages / transitions / policies / agents / skills / 每阶段限额 | `max_retries_per_stage`, `max_stage_visits`, `require_review` |
+| [`config/orchestrator.yaml`](config/orchestrator.yaml) | **流水线形状** — stages / transitions / policies / agents / skills | stage / transition / policy 的拓扑定义 |
 | [`config/providers.yaml`](config/providers.yaml.example) | **LLM 凭证与路由** — 每个 agent 用哪个 provider | API key, model ID |
-| [`config/codrax.yaml`](config/codrax.yaml.example) | **本次运行怎么跑** — 日志 / memory / 语言 / 每次运行步数预算 / 目标 repo / 指向上面两个文件的路径 | `log_level`, `memory_dir`, `lang`, `max_steps`, `repo`, `branch` |
+| [`config/codrax.yaml`](config/codrax.yaml.example) | **本次运行怎么跑** — 日志 / memory / 语言 / 目标 repo / 流水线预算与行为 / 工具 blob 大小 / 指向上面两个文件的路径 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_*`, `blob_*` |
 
 三层优先级（低到高）：**代码默认 < `config/codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=envs/prod/codrax.yaml` 环境变量可以一键切换整套环境（因为 `orchestrator_config` 和 `providers_config` 路径也可以写在 codrax.yaml 里）。
 

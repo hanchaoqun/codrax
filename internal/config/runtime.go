@@ -23,8 +23,8 @@ import (
 //
 // Nothing in this struct should duplicate orchestrator.yaml or
 // providers.yaml keys: OrchestratorConfig and ProvidersConfig are
-// paths, not contents; MaxSteps is a global Run() budget, not a
-// per-stage limit like pipeline_settings.max_stage_visits.
+// paths, not contents; PipelineMaxSteps is a global Run() budget,
+// not a per-stage limit like pipeline_max_stage_visits.
 //
 // Every field is a pointer so the merge logic in main.go can tell
 // "user omitted this key in the YAML file" (nil) from "user set it
@@ -41,9 +41,17 @@ type RuntimeSettings struct {
 	Lang      *string `yaml:"lang"`
 
 	// Per-invocation defaults.
-	Repo     *string `yaml:"repo"`
-	Branch   *string `yaml:"branch"`
-	MaxSteps *int    `yaml:"max_steps"`
+	Repo   *string `yaml:"repo"`
+	Branch *string `yaml:"branch"`
+
+	// MaxSteps is the legacy yaml key for the global Run() step
+	// budget. It has been renamed to pipeline_max_steps so it sits
+	// alongside the other pipeline_* budgets in the file. Loaders
+	// still accept the old name as a fallback layer beneath the new
+	// one — see main.go for the precedence merge. New configurations
+	// should use PipelineMaxSteps only.
+	MaxSteps         *int `yaml:"max_steps"`
+	PipelineMaxSteps *int `yaml:"pipeline_max_steps"`
 
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All three accept any

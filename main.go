@@ -138,8 +138,16 @@ func main() {
 		if rs.Branch != nil {
 			mergedBranch = *rs.Branch
 		}
-		if rs.MaxSteps != nil {
+		// max_steps was renamed to pipeline_max_steps so it joins the
+		// pipeline_* group. Both keys are still parsed; the new name
+		// wins if both are present, otherwise the old name still
+		// works for one release. Drop this fallback in a future
+		// cleanup once existing codrax.yaml files have migrated.
+		if rs.PipelineMaxSteps != nil {
+			mergedMaxSteps = *rs.PipelineMaxSteps
+		} else if rs.MaxSteps != nil {
 			mergedMaxSteps = *rs.MaxSteps
+			fmt.Fprintln(os.Stderr, "codrax.yaml: 'max_steps' is deprecated; rename it to 'pipeline_max_steps' to silence this warning")
 		}
 		if rs.OrchestratorConfig != nil {
 			mergedOrchestratorConfig = *rs.OrchestratorConfig
@@ -188,7 +196,14 @@ func main() {
 	repoRoot := flag.String("repo", mergedRepo, "repository root path")
 	branch := flag.String("branch", mergedBranch, "git branch")
 	request := flag.String("request", "", "user request to process (empty enters interactive mode)")
-	maxSteps := flag.Int("max-steps", mergedMaxSteps, "maximum pipeline steps")
+	// -max-steps was renamed to -pipeline-max-steps so it sits with
+	// the other -pipeline-* flags. Both names are accepted for one
+	// release; the new flag wins if both are passed. The legacy flag
+	// still defaults to mergedMaxSteps so existing scripts behave
+	// unchanged. The new flag defaults to a 0 sentinel so we can
+	// detect "user didn't set the new one explicitly" via flag.Visit.
+	maxSteps := flag.Int("max-steps", mergedMaxSteps, "DEPRECATED — use -pipeline-max-steps. Maximum total pipeline steps per Run().")
+	pipelineMaxSteps := flag.Int("pipeline-max-steps", 0, "maximum total pipeline steps per Run() (replaces -max-steps); 0 = inherit from yaml")
 	logDir := flag.String("log-dir", mergedLogDir, "directory for log files")
 	logLevel := flag.String("log-level", mergedLogLevel, "log level: error|warning|info|debug")
 	logStdout := flag.Bool("log-stdout", mergedLogStdout, "also mirror logs to stdout")
@@ -312,7 +327,18 @@ func main() {
 	if explicitFlags["pipeline-max-stage-visits"] && *pipelineMaxStageVisits > 0 {
 		cfg.PipelineSettings.MaxStageVisits = *pipelineMaxStageVisits
 	}
-	logging.Info("pipeline_settings: enable_verify=%v require_review=%v max_retries_per_stage=%d max_stage_visits=%d allow_skip_plan_for_small_change=%v",
+	// -pipeline-max-steps wins over -max-steps when both are passed.
+	// When only -pipeline-max-steps is set, copy it into *maxSteps so
+	// the existing orch.SetMaxSteps call below picks it up. This way
+	// the rest of main.go does not need to know about the new flag
+	// at all.
+	if explicitFlags["pipeline-max-steps"] && *pipelineMaxSteps > 0 {
+		*maxSteps = *pipelineMaxSteps
+	} else if explicitFlags["max-steps"] {
+		fmt.Fprintln(os.Stderr, "-max-steps is deprecated; use -pipeline-max-steps instead")
+	}
+	logging.Info("pipeline_settings: max_steps=%d enable_verify=%v require_review=%v max_retries_per_stage=%d max_stage_visits=%d allow_skip_plan_for_small_change=%v",
+		*maxSteps,
 		cfg.PipelineSettings.EnableVerify,
 		cfg.PipelineSettings.RequireReview,
 		cfg.PipelineSettings.MaxRetriesPerStage,
