@@ -145,6 +145,10 @@ func (r *Renderer) Emitter() EventEmitter {
 		}
 
 		switch ev.Kind {
+		case EventAgentThinking:
+			r.detail = "thinking"
+			r.detailDone = false
+
 		case EventStageStart:
 			r.stage = string(ev.Stage)
 			r.detail = ""
