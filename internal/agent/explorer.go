@@ -18,7 +18,6 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	return "Explore the codebase to build a trusted factual foundation. Use the available tools to find entry points, understand module structure, and identify relevant files.\n\n" +
 		"Strategy hints:\n" +
 		"- Prefer targeted tools (grep with --include, read_file with offset/limit) over broad listings.\n" +
-		"- repo_map is a NAVIGATION INDEX only — use it to learn which files and symbols exist so you know where to look, but NEVER cite its output as evidence. After consulting repo_map, you MUST read_file or grep the actual source files to establish facts. An answer grounded only in repo_map output is an answer grounded in nothing.\n" +
 		"- Avoid recursive list_files on the repository root.\n" +
 		"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command."
 }
