@@ -417,6 +417,90 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	// Noise exclusion tests: grep should skip directories that produce
+	// noise without useful signal (.git, logs, memory, node_modules, etc.)
+
+	t.Run("excludes .git directory", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "main.go")
+		os.WriteFile(srcFile, []byte("SubAgent code\n"), 0o644)
+		gitDir := filepath.Join(tmpDir, ".git")
+		os.MkdirAll(gitDir, 0o755)
+		os.WriteFile(filepath.Join(gitDir, "COMMIT_EDITMSG"), []byte("SubAgent commit\n"), 0o644)
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "SubAgent", Path: tmpDir, FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "main.go") {
+			t.Fatalf("expected main.go in results, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "COMMIT_EDITMSG") {
+			t.Fatalf(".git/ files should be excluded, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("excludes node_modules and vendor", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "app.js")
+		os.WriteFile(srcFile, []byte("import foo\n"), 0o644)
+		nmDir := filepath.Join(tmpDir, "node_modules", "pkg")
+		os.MkdirAll(nmDir, 0o755)
+		os.WriteFile(filepath.Join(nmDir, "index.js"), []byte("import foo\n"), 0o644)
+		vendorDir := filepath.Join(tmpDir, "vendor", "lib")
+		os.MkdirAll(vendorDir, 0o755)
+		os.WriteFile(filepath.Join(vendorDir, "dep.go"), []byte("import foo\n"), 0o644)
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "import", Path: tmpDir, FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "app.js") {
+			t.Fatalf("expected app.js in results, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "index.js") {
+			t.Fatalf("node_modules/ files should be excluded, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "dep.go") {
+			t.Fatalf("vendor/ files should be excluded, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("skips binary files", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		srcFile := filepath.Join(tmpDir, "code.go")
+		os.WriteFile(srcFile, []byte("SubAgent code\n"), 0o644)
+		// Binary file with null bytes
+		binFile := filepath.Join(tmpDir, "output.bin")
+		os.WriteFile(binFile, []byte("SubAgent\x00\x01\x02data\n"), 0o644)
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "SubAgent", Path: tmpDir, FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "code.go") {
+			t.Fatalf("expected code.go in results, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "output.bin") {
+			t.Fatalf("binary file should be excluded by -I, got: %s", result.Summary)
+		}
+	})
+
 	t.Run("grep no match", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		tmpFile := filepath.Join(tmpDir, "empty_match.txt")

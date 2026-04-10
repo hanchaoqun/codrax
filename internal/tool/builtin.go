@@ -15,6 +15,21 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// defaultExcludeDirs lists directories that grep skips by default.
+// These produce noise without useful signal: VCS internals, build
+// artifacts, runtime state (logs, memory), and dependency trees.
+// Matches the categories in explorer.go's isNoisePath but enforced at
+// the grep command level so excluded files are never scanned.
+var defaultExcludeDirs = []string{
+	".git",
+	".hg",
+	".svn",
+	"node_modules",
+	"vendor",
+	"__pycache__",
+	".tox",
+}
+
 // ---------------------------------------------------------------------------
 // ExecCommand
 // ---------------------------------------------------------------------------
@@ -174,13 +189,24 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// literal characters, causing patterns like "sub[-]?agent" to match
 	// "sub-?agent" instead of "subagent" or "sub-agent". LLMs
 	// universally write ERE/PCRE-style patterns; BRE is never intended.
-	args := []string{"-rnE"}
+	//
+	// -I skips binary files (codrax binary, .git/index, etc.) which
+	// match keywords but produce unreadable output.
+	args := []string{"-rnEI"}
 	if p.FilesOnly {
-		args = []string{"-rlE"}
+		args = []string{"-rlEI"}
 	}
 	if caseInsensitive {
 		args = append(args, "-i")
 	}
+
+	// Exclude directories that produce noise without useful signal.
+	// These match the categories in explorer.go's isNoisePath but are
+	// enforced at the grep level so the LLM never sees them.
+	for _, dir := range defaultExcludeDirs {
+		args = append(args, "--exclude-dir="+dir)
+	}
+
 	args = append(args, p.Pattern)
 	if p.Include != "" {
 		args = append(args, "--include="+p.Include)
