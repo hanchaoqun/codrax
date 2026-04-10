@@ -2,3 +2,9 @@ config/providers.yaml
 
 # Build output (binary name comes from module path)
 /codrax
+
+# Runtime artifacts produced by the binary itself. Both directories are
+# created on first run by the logger and REPL; they hold per-session
+# state that must never be committed.
+/logs/
+/memory/
