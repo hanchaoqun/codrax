@@ -44,15 +44,6 @@ type RuntimeSettings struct {
 	Repo   *string `yaml:"repo"`
 	Branch *string `yaml:"branch"`
 
-	// MaxSteps is the legacy yaml key for the global Run() step
-	// budget. It has been renamed to pipeline_max_steps so it sits
-	// alongside the other pipeline_* budgets in the file. Loaders
-	// still accept the old name as a fallback layer beneath the new
-	// one — see main.go for the precedence merge. New configurations
-	// should use PipelineMaxSteps only.
-	MaxSteps         *int `yaml:"max_steps"`
-	PipelineMaxSteps *int `yaml:"pipeline_max_steps"`
-
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
 	// namespace obvious without nesting. All three accept any
 	// positive integer; non-positive (or omitted) means "use the
@@ -61,17 +52,22 @@ type RuntimeSettings struct {
 	BlobPreviewHeadBytes *int `yaml:"blob_preview_head_bytes"`
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
 
-	// Pipeline behavior. Flat-prefixed `pipeline_*`. These five used
-	// to live in orchestrator.yaml's `pipeline_settings:` block; they
-	// have moved here because they are runtime/operator concerns, not
-	// pipeline topology. The orchestrator.yaml block is still loaded
-	// for backward compatibility and acts as a fallback layer beneath
-	// these — see main.go for the precedence merge.
-	PipelineMaxRetriesPerStage      *int  `yaml:"pipeline_max_retries_per_stage"`
-	PipelineMaxStageVisits          *int  `yaml:"pipeline_max_stage_visits"`
-	PipelineEnableVerify            *bool `yaml:"pipeline_enable_verify"`
-	PipelineRequireReview           *bool `yaml:"pipeline_require_review"`
-	PipelineAllowSkipPlanForSmall   *bool `yaml:"pipeline_allow_skip_plan_for_small_change"`
+	// Pipeline behavior. Flat-prefixed `pipeline_*`. The toggles and
+	// per-stage budgets used to live in orchestrator.yaml's
+	// `pipeline_settings:` block; they have moved here because they
+	// are runtime/operator concerns, not pipeline topology. The
+	// orchestrator.yaml block is still loaded for backward
+	// compatibility and acts as a fallback layer beneath these — see
+	// main.go for the precedence merge. PipelineMaxSteps is the
+	// global Run() step budget; it never lived in orchestrator.yaml,
+	// so its precedence chain is just code default → codrax.yaml →
+	// CLI flag.
+	PipelineMaxSteps              *int  `yaml:"pipeline_max_steps"`
+	PipelineMaxRetriesPerStage    *int  `yaml:"pipeline_max_retries_per_stage"`
+	PipelineMaxStageVisits        *int  `yaml:"pipeline_max_stage_visits"`
+	PipelineEnableVerify          *bool `yaml:"pipeline_enable_verify"`
+	PipelineRequireReview         *bool `yaml:"pipeline_require_review"`
+	PipelineAllowSkipPlanForSmall *bool `yaml:"pipeline_allow_skip_plan_for_small_change"`
 
 	// Pointers to the other two config files. Nested here so a single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire

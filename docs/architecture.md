@@ -136,7 +136,7 @@ graph LR
 - **技能选择** — 为 Agent 分配适当的技能（YAML 默认值，可在运行时覆盖)
 - **子 Agent 派生** — 在并行有益时派生并发子 Agent
 - **执行状态管理** — 维护 BusContext 和 TaskList 作为共享状态
-- **终止决策** — 任务循环穷尽 + 全局 max-steps 守护
+- **终止决策** — 任务循环穷尽 + 全局 `pipeline_max_steps` 守护
 
 #### 两阶段执行模型
 
@@ -157,16 +157,17 @@ graph LR
 
 每个 task 的 `finalize` stage 把它的答案写入该 task 的 `Result` 字段(通过 `Mutable.UpdateTaskResult`),并标记 `Status = TaskDone`。`main.go` 渲染时遍历 `Tasks` 展示每个任务的独立结果。
 
-`maxSteps` 是**全 Run 的总预算**,跨 phase 1 和 phase 2;`MaxStageVisits` 振荡守卫是 **per-task 计数**——每进入一个新 task 就清零。
+`pipeline_max_steps` 是**全 Run 的总预算**,跨 phase 1 和 phase 2;`pipeline_max_stage_visits` 振荡守卫是 **per-task 计数**——每进入一个新 task 就清零。两者都在 `config/codrax.yaml` 配置。
 
 #### YAML 驱动的状态机
 
-编排器完全通过 [`config/orchestrator.yaml`](../config/orchestrator.yaml) 配置。配置定义了：
+编排器**拓扑**完全通过 [`config/orchestrator.yaml`](../config/orchestrator.yaml) 配置——stages、transitions、policies、agent/skill 绑定。**运行时行为**（步数预算、振荡守卫、verify/review 开关）则在 [`config/codrax.yaml`](../config/codrax.yaml.example) 的 `pipeline_*` 键里配置；旧版的 `pipeline_settings:` 块仍被向后兼容地读取，但新配置应该都写在 codrax.yaml。
+
+orchestrator.yaml 定义了：
 
 - **8 个阶段**，带有默认 Agent 和技能绑定
 - **优先级加权的转换规则**
 - **3 种任务策略**，约束哪些阶段处于活动状态
-- **功能开关**，用于运行时行为切换
 
 #### 阶段定义
 
@@ -205,15 +206,20 @@ graph LR
 
 #### 功能开关
 
+这些开关都在 `config/codrax.yaml` 中以 `pipeline_*` 前缀配置（旧版的 `orchestrator.yaml` `pipeline_settings:` 块仍被向后兼容地读取，作为 codrax.yaml 之下的 fallback 层）：
+
 | 开关 | 默认值 | 效果 |
 |------|--------|------|
-| `enable_verify` | `true` | 全局启用/禁用验证阶段 |
-| `require_review` | `true` | 为 true 时使用包含 design_review 和 code_review 阶段的 high_risk_implementation 策略 |
-| `allow_skip_plan_for_small_change` | `false` | 允许小改动从 explore 直接跳到 implement |
+| `pipeline_enable_verify` | `true` | 全局启用/禁用验证阶段 |
+| `pipeline_require_review` | `true` | 为 true 时使用包含 design_review 和 code_review 阶段的 high_risk_implementation 策略 |
+| `pipeline_allow_skip_plan_for_small_change` | `false` | 允许小改动从 explore 直接跳到 implement |
+| `pipeline_max_retries_per_stage` | `3` | 单个阶段连续失败多少次后强制跳到 finalize |
+| `pipeline_max_stage_visits` | `4` | 振荡守卫：单 task 内单一阶段最多被进入几次 |
+| `pipeline_max_steps` | `50` | 全局 Run() 步数预算，超过则强制 finalize 兜底 |
 
 #### 终止检测
 
-整个 `Run()` 在任务队列被清空(所有 task 进入 `Done` / `Failed`)或全局 `maxSteps` 预算用尽时终止。**单个 task 的 mini-pipeline** 在到达 `finalize` 阶段(`terminal: true`)时自然结束——finalize 只是 per-task terminal,不是整个 Run 的 terminal。如果 per-task 循环在到达 finalize 之前就耗尽了预算或被振荡守卫打断,orchestrator 会强制跑一次 finalize 兜底,把 LastError 写到 `task.Result` 里,然后继续处理下一个 task。
+整个 `Run()` 在任务队列被清空(所有 task 进入 `Done` / `Failed`)或全局 `pipeline_max_steps` 预算用尽时终止。**单个 task 的 mini-pipeline** 在到达 `finalize` 阶段(`terminal: true`)时自然结束——finalize 只是 per-task terminal,不是整个 Run 的 terminal。如果 per-task 循环在到达 finalize 之前就耗尽了预算或被振荡守卫(`pipeline_max_stage_visits`)打断,orchestrator 会强制跑一次 finalize 兜底,把 LastError 写到 `task.Result` 里,然后继续处理下一个 task。
 
 #### 决策函数(伪代码)
 
@@ -1096,7 +1102,7 @@ graph LR
 
 ### YAML 配置参考
 
-完整的编排器配置维护在 [`config/orchestrator.yaml`](../config/orchestrator.yaml) 中。该文件是阶段定义、转换规则、任务策略和功能开关的权威来源。
+完整的编排器**拓扑**配置维护在 [`config/orchestrator.yaml`](../config/orchestrator.yaml) 中——阶段定义、转换规则、任务策略、agent/skill 绑定。**运行时行为**（功能开关、步数预算、振荡守卫、blob 大小、log/memory 路径等）则在 [`config/codrax.yaml`](../config/codrax.yaml.example) 中按 `pipeline_*` / `blob_*` / 裸键三组前缀配置。
 
 ---
 

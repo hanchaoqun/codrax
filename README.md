@@ -24,13 +24,18 @@ go build .
 # 交互模式（默认，无 -request 即进入）
 go run .
 #   进入后使用 You> 提示符，支持 /exit /clear /history /compact /help 斜杠命令
-#   多轮对话自动保存到 memory/MEMORY.md + memory/turns/，重启续接
+#   多轮对话自动保存到 memory/<repo-slug>/MEMORY.md + .../turns/，重启续接
+#   /clear 会显示当前还有几个其它实例在用同一份 memory，并要求确认
 
 # 单次运行
 go run . -request "your task description"
 
 # 诊断模式（debug 级别 ReAct trace 写入 logs/ 同时镜像到 stdout）
 go run . -log-level debug -log-stdout -request "your task"
+
+# 多目标仓使用：日志和 memory 自动按 -repo 路径生成 hash slug 隔离
+go run . -repo /path/to/repoA -request "..."
+go run . -repo /path/to/repoB -request "..."   # 不会和 repoA 混在一起
 ```
 
 ## 配置
@@ -43,13 +48,18 @@ go run . -log-level debug -log-stdout -request "your task"
 | [`config/providers.yaml`](config/providers.yaml.example) | **LLM 凭证与路由** — 每个 agent 用哪个 provider | API key, model ID |
 | [`config/codrax.yaml`](config/codrax.yaml.example) | **本次运行怎么跑** — 日志 / memory / 语言 / 目标 repo / 流水线预算与行为 / 工具 blob 大小 / 指向上面两个文件的路径 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_*`, `blob_*` |
 
-三层优先级（低到高）：**代码默认 < `config/codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=envs/prod/codrax.yaml` 环境变量可以一键切换整套环境（因为 `orchestrator_config` 和 `providers_config` 路径也可以写在 codrax.yaml 里）。
+优先级（低到高）：**代码默认 < `config/orchestrator.yaml` 中的 `pipeline_settings:` 旧块（仅 pipeline_* 适用，向后兼容） < `config/codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=envs/prod/codrax.yaml` 环境变量可以一键切换整套环境（因为 `orchestrator_config` 和 `providers_config` 路径也可以写在 codrax.yaml 里）。
+
+`config/codrax.yaml` 的查找顺序：`$CODRAX_SETTINGS` → `<CWD>/config/codrax.yaml` → `<exeDir>/config/codrax.yaml` → `<exeDir>/../config/codrax.yaml`（覆盖 `bin/<exe>` 安装布局）。命中后，文件所在的 `config/` 父目录成为「锚点」，所有相对默认路径（`log_dir`、`memory_dir`、`orchestrator_config`、`providers_config`）都基于锚点解析，所以二进制扔到任何 CWD 都能找到自己的配置和写日志。
 
 ## 功能亮点
 
-- **分级日志**：error / warning / info / debug 四档，文件按 4MB 滚动、保留 7 份、文件名带时间戳（`logs/codrax-YYYYMMDD-HHMMSS-mmm.log`），重启自动续写未满的最新文件
+- **分级日志**：error / warning / info / debug 四档，按 4MB 滚动、保留 7 份；文件名 `logs/<repo-slug>/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`，每个 codrax 进程独占自己的文件，多实例并发也不会撕日志
 - **交互多轮**：REPL 模式下每一轮自动带前轮上下文；超过 6 轮或 20KB 触发 LLM 摘要压缩成 `MEMORY.md` 索引条目，下次问到相关话题可按关键词召回原文
-- **跨重启恢复**：进程退出后 `memory/turns/` 里未压缩的最近 6 轮会在下次启动时回灌到 recent，不依赖优雅退出
+- **跨重启恢复**：单实例从崩溃中恢复时，`memory/<repo-slug>/turns/` 里未压缩的最近 6 轮会自动回灌到 recent；多实例并发场景下检测到 peer 时跳过这一步，避免双方互相把对方的对话挪到自己头上
+- **多目标仓隔离**：log 和 memory 默认按 `-repo` 绝对路径的 hash slug 自动分目录（`logs/foo-a3f9c2b1/...`），同一 codrax 安装可以服务多个目标仓而互不污染
+- **多实例并发安全**：同一目标仓多开 codrax 时，日志按 PID 隔离、`MEMORY.md` 周期写入由 `flock` 串行化、`/clear` 会提示当前还有几个 peer 在用、retention sweep 跳过仍存活进程的活跃文件
+- **跨平台**：Linux / macOS 用 `flock(2)`，Windows 通过 `kernel32.dll!LockFileEx` 实现等价语义，全程零非 stdlib 依赖
 - **默认语言**：`-lang=zh` 默认简体中文作答；`-lang=off` 关闭；任一非空值都会保留"用户若用其他语言提问则跟随"的兜底
 
 ## 文档

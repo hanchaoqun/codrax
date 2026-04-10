@@ -60,9 +60,6 @@ providers_config: /etc/codrax/providers.yaml
 	if s.PipelineMaxSteps == nil || *s.PipelineMaxSteps != 100 {
 		t.Errorf("PipelineMaxSteps = %v", s.PipelineMaxSteps)
 	}
-	if s.MaxSteps != nil {
-		t.Errorf("MaxSteps should be nil when only the new key is set, got %v", s.MaxSteps)
-	}
 	if s.OrchestratorConfig == nil || *s.OrchestratorConfig != "/etc/codrax/orchestrator.yaml" {
 		t.Errorf("OrchestratorConfig = %v", s.OrchestratorConfig)
 	}
@@ -207,7 +204,7 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 	if s.LogDir != nil || s.LogLevel != nil || s.LogStdout != nil ||
 		s.MemoryDir != nil || s.Lang != nil ||
 		s.Repo != nil || s.Branch != nil ||
-		s.MaxSteps != nil || s.PipelineMaxSteps != nil ||
+		s.PipelineMaxSteps != nil ||
 		s.OrchestratorConfig != nil || s.ProvidersConfig != nil ||
 		s.BlobMaxInlineBytes != nil || s.BlobPreviewHeadBytes != nil || s.BlobPreviewTailBytes != nil ||
 		s.PipelineMaxRetriesPerStage != nil || s.PipelineMaxStageVisits != nil ||
@@ -217,51 +214,3 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 	}
 }
 
-// TestLoadRuntimeSettings_LegacyMaxSteps locks the backward-compat
-// path for the renamed key. An old codrax.yaml carrying the bare
-// `max_steps:` (without `pipeline_max_steps:`) must still be parsed
-// into the legacy MaxSteps field so main.go can fall back to it.
-// New configs use pipeline_max_steps; this guard exists so existing
-// production codrax.yaml files don't silently lose their step
-// budget on upgrade.
-func TestLoadRuntimeSettings_LegacyMaxSteps(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "codrax.yaml")
-	if err := os.WriteFile(path, []byte("max_steps: 77\n"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	s, err := LoadRuntimeSettings(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if s.MaxSteps == nil || *s.MaxSteps != 77 {
-		t.Errorf("MaxSteps = %v, want 77", s.MaxSteps)
-	}
-	if s.PipelineMaxSteps != nil {
-		t.Errorf("PipelineMaxSteps should be nil when only legacy key is set, got %v", s.PipelineMaxSteps)
-	}
-}
-
-// TestLoadRuntimeSettings_BothMaxStepsKeys verifies that when an
-// upgrading user has BOTH the old and new keys (typical mid-migration
-// state), the loader populates both fields and leaves the precedence
-// resolution to main.go. The contract is "loader is dumb, main is
-// smart" — keeping precedence in one place avoids the loader silently
-// dropping a key the caller may have wanted.
-func TestLoadRuntimeSettings_BothMaxStepsKeys(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "codrax.yaml")
-	if err := os.WriteFile(path, []byte("max_steps: 11\npipeline_max_steps: 22\n"), 0o644); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	s, err := LoadRuntimeSettings(path)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if s.MaxSteps == nil || *s.MaxSteps != 11 {
-		t.Errorf("MaxSteps = %v, want 11", s.MaxSteps)
-	}
-	if s.PipelineMaxSteps == nil || *s.PipelineMaxSteps != 22 {
-		t.Errorf("PipelineMaxSteps = %v, want 22", s.PipelineMaxSteps)
-	}
-}
