@@ -347,11 +347,22 @@ func filterFilesByScope(facts []types.RepoFact, scope []string) []string {
 
 // --- helpers ---
 
+// maxFactValueLen caps the Value field in Known Facts to prevent
+// multi-KB tool outputs (full file reads, large grep results) from
+// flooding downstream agent prompts. The explorer's synthesis already
+// distills these into Prior Stage Findings; Known Facts only need
+// enough context for the downstream agent to verify provenance.
+const maxFactValueLen = 512
+
 func extractRelevantFacts(facts []types.RepoFact) []string {
 	result := make([]string, 0, len(facts))
 	for _, f := range facts {
+		val := f.Value
+		if len(val) > maxFactValueLen {
+			val = val[:maxFactValueLen] + "... [truncated]"
+		}
 		result = append(result, fmt.Sprintf("[%s] %s = %s (source: %s, confidence: %.2f)",
-			f.Key, f.Key, f.Value, f.Source, f.Confidence))
+			f.Key, f.Key, val, f.Source, f.Confidence))
 	}
 	return result
 }
