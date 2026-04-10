@@ -258,13 +258,22 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 // These thresholds gate both ContinuationPrompt (ReAct-loop level)
 // and HasEnoughFacts (stage-level retry signal).
 func evidenceThresholds(complexity string) (minTypes, minCalls int) {
+	// Now that synthesis is separated from investigation (via
+	// SynthesizingEvaluator), tool calls are pure investigation —
+	// none are wasted on producing intermediate answers. This means
+	// we can set higher floors without impacting response time
+	// disproportionately.
+	//
+	// The gap between moderate and complex is kept small (1 call)
+	// so that instability in the analyzer's complexity judgment
+	// has minimal impact on investigation depth.
 	switch complexity {
 	case "simple":
-		return 2, 2
+		return 2, 3
 	case "complex":
-		return 2, 8
+		return 2, 7
 	default: // "moderate" or empty
-		return 2, 4
+		return 2, 6
 	}
 }
 
