@@ -3,11 +3,13 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"time"
 
 	agentctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -75,6 +77,7 @@ type Dependencies struct {
 	MCPServers    *mcp.Registry
 	SubAgents     *SubAgentRegistry
 	MaxIterations int
+	Emit          render.EventEmitter
 }
 
 // BaseAgent provides the common ReAct loop implementation.
@@ -148,6 +151,10 @@ func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *Bas
 	if maxIter <= 0 {
 		maxIter = 20
 	}
+	emit := deps.Emit
+	if emit == nil {
+		emit = render.NopEmitter
+	}
 	return &BaseAgent{
 		name: name,
 		deps: &Dependencies{
@@ -156,6 +163,7 @@ func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *Bas
 			MCPServers:    deps.MCPServers,
 			SubAgents:     deps.SubAgents,
 			MaxIterations: maxIter,
+			Emit:          emit,
 		},
 		eval: eval,
 	}
@@ -206,6 +214,12 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	// ReAct loop
 	for i := 0; i < b.deps.MaxIterations; i++ {
 		// Reason — call LLM
+		b.deps.Emit(render.Event{
+			Kind:      render.EventAgentThinking,
+			Timestamp: time.Now(),
+			Agent:     b.name,
+			Stage:     ctx.Stage,
+		})
 		resp, err := b.deps.LLM.Chat(messages, toolSchemas)
 		if err != nil {
 			return &StageOutput{
@@ -280,8 +294,21 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 		// Act — execute tool calls
 		for _, tc := range resp.ToolCalls {
+			toolStart := time.Now()
+			b.deps.Emit(render.Event{
+				Kind:       render.EventToolCallStart,
+				Timestamp:  toolStart,
+				Agent:      b.name,
+				Stage:      ctx.Stage,
+				ToolName:   tc.Name,
+				ToolCallID: tc.ID,
+			})
+
 			result, mcpResp := b.executeTool(ctx, tc)
+
+			toolOK := false
 			if result != nil {
+				toolOK = result.Success
 				allToolResults = append(allToolResults, *result)
 				messages = append(messages, llm.Message{
 					Role:       "tool",
@@ -294,6 +321,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					truncForLog(result.Summary, 2000))
 			}
 			if mcpResp != nil {
+				toolOK = mcpResp.Success
 				allMCPResponses = append(allMCPResponses, *mcpResp)
 				messages = append(messages, llm.Message{
 					Role:       "tool",
@@ -301,6 +329,17 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					ToolCallID: tc.ID,
 				})
 			}
+
+			b.deps.Emit(render.Event{
+				Kind:       render.EventToolCallEnd,
+				Timestamp:  time.Now(),
+				Agent:      b.name,
+				Stage:      ctx.Stage,
+				ToolName:   tc.Name,
+				ToolCallID: tc.ID,
+				ToolOK:     toolOK,
+				ToolTime:   time.Since(toolStart),
+			})
 		}
 	}
 

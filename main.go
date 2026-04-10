@@ -18,6 +18,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/mcp"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/orchestrator"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/repl"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
@@ -339,6 +340,9 @@ func main() {
 	skill.RegisterDefaults(skillRegistry)
 	logging.Info("registered %d skills", len(skillRegistry.List()))
 
+	// Initialize CLI renderer. Color is auto-detected from stdout TTY.
+	renderer := render.New(os.Stdout, false)
+
 	toolRegistry := tool.NewRegistry()
 	tool.RegisterDefaults(toolRegistry)
 	toolRegistry.Register(&repomap.RepoMapV2{})
@@ -352,6 +356,7 @@ func main() {
 		MCPServers:    mcpRegistry,
 		SubAgents:     subAgentRegistry,
 		MaxIterations: 20,
+		Emit:          renderer.Emitter(),
 	}
 
 	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
@@ -372,6 +377,7 @@ func main() {
 	orch := orchestrator.New(cfg, agentRegistry, skillRegistry, subAgentRegistry)
 	orch.SetMaxSteps(*pipelineMaxSteps)
 	orch.SetLanguage(*lang)
+	orch.SetEmitter(renderer.Emitter())
 
 	// Branch: interactive REPL vs single-shot.
 	if *request == "" {
@@ -381,7 +387,10 @@ func main() {
 			logging.Error("memory store init failed: %v", err)
 			os.Exit(1)
 		}
-		r := repl.New(orch, store, renderResult, *repoRoot, *branch, os.Stdin, os.Stdout)
+		renderFn := func(busCtx *types.BusContext) string {
+			return renderer.RenderResult(busCtx)
+		}
+		r := repl.New(orch, store, renderFn, *repoRoot, *branch, os.Stdin, os.Stdout)
 		if err := r.Loop(); err != nil {
 			logging.Error("repl exited with error: %v", err)
 			os.Exit(1)
@@ -395,7 +404,7 @@ func main() {
 		logging.Error("pipeline failed: %v", err)
 		os.Exit(1)
 	}
-	rendered := renderResult(busCtx)
+	rendered := renderer.RenderResult(busCtx)
 	// Mirror the final user-visible output into the log file so the
 	// answer is recoverable from logs alone after the terminal session
 	// is gone. Single Info call so multi-line content stays one record.
@@ -510,9 +519,10 @@ func computeAnchorDir(settingsPath string) string {
 	return ""
 }
 
-// renderResult formats a finished BusContext for the user. Shared
-// between the single-shot path and the REPL so the two stay aligned.
-func renderResult(busCtx *types.BusContext) string {
+// renderResultPlain is a fallback plain-text renderer for environments
+// without the rich renderer (e.g. tests). It is no longer used in
+// main.go but kept for reference and testing.
+func renderResultPlain(busCtx *types.BusContext) string {
 	if busCtx == nil {
 		return "(no result)\n"
 	}

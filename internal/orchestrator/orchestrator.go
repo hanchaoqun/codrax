@@ -10,6 +10,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/config"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -26,6 +27,7 @@ type Orchestrator struct {
 	subRuntime  *agent.SubAgentRuntime
 	stageVisits map[types.PipelineStage]int
 	language    string
+	emit        render.EventEmitter
 }
 
 // New creates a new Orchestrator.
@@ -36,7 +38,17 @@ func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Regis
 		skills:     skills,
 		maxSteps:   50,
 		subRuntime: agent.NewSubAgentRuntime(subAgents),
+		emit:       render.NopEmitter,
 	}
+}
+
+// SetEmitter attaches an event emitter for real-time CLI rendering.
+// Must be called before Run(). Passing nil restores the no-op default.
+func (o *Orchestrator) SetEmitter(emit render.EventEmitter) {
+	if emit == nil {
+		emit = render.NopEmitter
+	}
+	o.emit = emit
 }
 
 // SetMaxSteps overrides the maximum number of pipeline steps (default 50).
@@ -139,6 +151,12 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 
+	o.emit(render.Event{
+		Kind:      render.EventPipelineStart,
+		Timestamp: time.Now(),
+		TraceID:   o.busCtx.TraceID,
+	})
+
 	// Per-trace working directory for tool blob storage. Tools that
 	// produce large outputs offload to this dir and return a path in
 	// ToolResult.RawRef so the LLM can re-read slices on demand instead
@@ -175,6 +193,21 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	}
 
 	o.busCtx.TaskState.IsTerminal = true
+
+	errMsg := ""
+	if o.busCtx.TaskState.LastError != "" {
+		errMsg = o.busCtx.TaskState.LastError
+	}
+	o.emit(render.Event{
+		Kind:          render.EventPipelineEnd,
+		Timestamp:     time.Now(),
+		TraceID:       o.busCtx.TraceID,
+		ToolCallCount: len(o.busCtx.ToolResults),
+		MCPCallCount:  len(o.busCtx.MCPResponses),
+		FactCount:     len(o.busCtx.RepoFacts),
+		Error:         errMsg,
+	})
+
 	return o.busCtx, nil
 }
 
@@ -219,6 +252,14 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 
 		o.busCtx.Mutable.SetCurrentTask(next.ID)
 		o.busCtx.Mutable.UpdateTaskStatus(next.ID, types.TaskInProgress)
+
+		o.emit(render.Event{
+			Kind:       render.EventTaskStatusChanged,
+			Timestamp:  time.Now(),
+			TaskID:     next.ID,
+			TaskTitle:  next.Title,
+			TaskStatus: types.TaskInProgress,
+		})
 
 		used := o.runTaskPipeline(next.ID, o.maxSteps-*stepsUsed)
 		*stepsUsed += used
@@ -294,6 +335,13 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 
 		nextStage := o.decideNextStage()
 		logging.Info("[orchestrator] task %s transition: %s -> %s", taskID, stage, nextStage)
+
+		o.emit(render.Event{
+			Kind:      render.EventTransition,
+			Timestamp: time.Now(),
+			FromStage: stage,
+			ToStage:   nextStage,
+		})
 		o.busCtx.LastTransitionReason = fmt.Sprintf("%s -> %s (task %s, missing %s)",
 			stage, nextStage, taskID, o.busCtx.TaskState.Missing)
 		o.busCtx.PipelineStage = nextStage
@@ -351,6 +399,23 @@ func (o *Orchestrator) recordTaskFinalize(taskID string, out *agent.StageOutput)
 		answer = out.FinalAnswer
 	}
 	o.busCtx.Mutable.UpdateTaskResult(taskID, answer, types.TaskDone)
+
+	// Find the task title for the event.
+	taskTitle := taskID
+	tl := o.busCtx.Mutable.TaskList()
+	for _, t := range tl.Tasks {
+		if t.ID == taskID {
+			taskTitle = t.Title
+			break
+		}
+	}
+	o.emit(render.Event{
+		Kind:       render.EventTaskStatusChanged,
+		Timestamp:  time.Now(),
+		TaskID:     taskID,
+		TaskTitle:  taskTitle,
+		TaskStatus: types.TaskDone,
+	})
 }
 
 // nextPendingTask returns a pointer to a copy of the next pending
@@ -409,8 +474,31 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 
 	logging.Info("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
 
+	stageStart := time.Now()
+	o.emit(render.Event{
+		Kind:      render.EventStageStart,
+		Timestamp: stageStart,
+		Stage:     stageConfig.Name,
+		Agent:     agentName,
+		Skill:     skillName,
+	})
+	o.emit(render.Event{
+		Kind:      render.EventSkillBound,
+		Timestamp: stageStart,
+		Stage:     stageConfig.Name,
+		Agent:     agentName,
+		Skill:     skillName,
+	})
+
 	output, err := ag.Execute(agentCtx, sk)
 	if err != nil {
+		o.emit(render.Event{
+			Kind:      render.EventStageEnd,
+			Timestamp: time.Now(),
+			Stage:     stageConfig.Name,
+			Agent:     agentName,
+			Error:     err.Error(),
+		})
 		return nil, fmt.Errorf("agent %s execution: %w", agentName, err)
 	}
 
@@ -418,16 +506,74 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	// the merged sub-agent output for the rest of the pipeline.
 	if proposal := extractSubAgentProposal(output, agentName); proposal != nil {
 		logging.Info("[orchestrator] sub-agent proposal: %s (%d sub_tasks)", proposal.Reason, len(proposal.SubTasks))
+
+		subTitle := ""
+		if len(proposal.SubTasks) > 0 {
+			subTitle = proposal.SubTasks[0].Title
+		}
+		o.emit(render.Event{
+			Kind:         render.EventSubAgentStart,
+			Timestamp:    time.Now(),
+			Stage:        stageConfig.Name,
+			SubAgentName: string(agentName),
+			SubAgentID:   o.busCtx.TraceID + "-subagent",
+			SubTaskTitle: subTitle,
+			SubTaskCount: len(proposal.SubTasks),
+		})
+
 		merged, runErr := o.subRuntime.Run(o.busCtx, proposal)
+
+		subErr := ""
+		subTools := 0
+		subFacts := 0
 		if runErr != nil {
 			logging.Error("[orchestrator] sub-agent run failed: %v, using original output", runErr)
+			subErr = runErr.Error()
 		} else {
+			subTools = len(merged.ToolResults)
+			subFacts = len(merged.NewFacts)
 			output = merged
 		}
+
+		o.emit(render.Event{
+			Kind:          render.EventSubAgentEnd,
+			Timestamp:     time.Now(),
+			Stage:         stageConfig.Name,
+			SubAgentName:  string(agentName),
+			SubAgentID:    o.busCtx.TraceID + "-subagent",
+			ToolCallCount: subTools,
+			FactCount:     subFacts,
+			Error:         subErr,
+		})
 	}
 
 	o.applyStageOutput(output)
 	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stageConfig.Name))
+
+	// Emit task list update if analyzer populated it.
+	if stageConfig.Name == types.StageAnalyze && o.busCtx.Mutable != nil {
+		tl := o.busCtx.Mutable.TaskList()
+		if len(tl.Tasks) > 0 {
+			o.emit(render.Event{
+				Kind:      render.EventTaskListUpdated,
+				Timestamp: time.Now(),
+				TaskList:  &tl,
+			})
+		}
+	}
+
+	stageErr := ""
+	if output.Error != "" {
+		stageErr = output.Error
+	}
+	o.emit(render.Event{
+		Kind:      render.EventStageEnd,
+		Timestamp: time.Now(),
+		Stage:     stageConfig.Name,
+		Agent:     agentName,
+		Error:     stageErr,
+	})
+
 	return output, nil
 }
 
