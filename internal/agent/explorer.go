@@ -17,6 +17,7 @@ type explorerEvaluator struct {
 	broadenAttempts    int // times we pushed for broader grep in Phase 0
 	idleStreakInDepth   int // consecutive no-tool-call rounds in Phase 2
 	lastToolResultCount int // tool result count at last continuation check
+	preScannedFiles    []string // top files from keyword search, for coverage tracking
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -37,6 +38,16 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		results := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
+			// Save top files for coverage tracking in Phase 2.
+			// The continuation prompt will flag these as unread if
+			// the LLM skips them.
+			top := 10
+			if top > len(results) {
+				top = len(results)
+			}
+			for _, r := range results[:top] {
+				e.preScannedFiles = append(e.preScannedFiles, r.Path)
+			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
 			// can try its own grep strategies.
@@ -117,9 +128,20 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	}
 
 	// Phase 1 (depth read): use runtime file coverage as guidance.
-	// Extract discovered files (grep files_only) and read files
-	// (read_file) to show the LLM what it hasn't read yet.
+	// Merge grep-discovered files with pre-scanned top files so the
+	// coverage check catches high-scoring files the LLM didn't grep.
 	discovered, readSet := extractFileCoverage(history)
+	// Inject pre-scanned files that aren't already in discovered.
+	seen := make(map[string]bool, len(discovered))
+	for _, f := range discovered {
+		seen[f] = true
+	}
+	for _, f := range e.preScannedFiles {
+		if !seen[f] && !isNoisePath(f) {
+			discovered = append(discovered, f)
+			seen[f] = true
+		}
+	}
 	var unread []string
 	for _, f := range discovered {
 		if !readSet[f] {
@@ -127,25 +149,44 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
-	// Track consecutive no-tool-call rounds in Phase 2. Each call to
-	// ContinuationPrompt means the LLM produced content without tool
-	// calls. If it does this twice in a row without any intervening
-	// tool use, it has nothing left to investigate — continuing just
-	// wastes LLM calls on "调查已完成" style responses.
+	// Track consecutive no-tool-call rounds in Phase 2.
 	if len(history) > e.lastToolResultCount {
-		// New tool results appeared since last check — the LLM did
-		// productive work in between. Reset the idle streak.
 		e.idleStreakInDepth = 0
 	}
 	e.lastToolResultCount = len(history)
 	e.idleStreakInDepth++
+
+	// Check which pre-scanned high-priority files are still unread.
+	var preScannedUnread []string
+	for _, f := range e.preScannedFiles {
+		if !readSet[f] && !isNoisePath(f) {
+			preScannedUnread = append(preScannedUnread, f)
+		}
+	}
+
+	// If there are unread high-priority files from pre-scan, do NOT
+	// let idle streak stop the exploration — these files were ranked
+	// highly by structural + keyword analysis and should be read.
+	if len(preScannedUnread) > 0 {
+		e.idleStreakInDepth = 0 // reset — there's still work to do
+		var hint strings.Builder
+		fmt.Fprintf(&hint,
+			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
+		hint.WriteString("The following HIGH-PRIORITY files from the pre-scan ranking have NOT been read yet. ")
+		hint.WriteString("Read them now — they scored highly for keyword + structural relevance:\n")
+		for _, f := range preScannedUnread {
+			hint.WriteString("- " + f + "\n")
+		}
+		hint.WriteString("\nRead the most important unread file now.")
+		return hint.String(), true
+	}
+
+	// No unread high-priority files. Apply idle streak detection.
 	if e.idleStreakInDepth >= 2 {
 		return "", false
 	}
 
-	// Show coverage status and unread files. Let the LLM decide
-	// which (if any) are worth reading — not all discovered files
-	// are equally important.
+	// Show remaining coverage for grep-discovered files.
 	var hint strings.Builder
 	fmt.Fprintf(&hint,
 		"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
