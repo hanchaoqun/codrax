@@ -16,13 +16,35 @@ const (
 	wEntrypoint = 3.0
 	wRecent     = 2.0
 	wQueryMatch = 4.0
+
+	// queryBoostMultiplier is applied to the entire score of files
+	// that match the query. Without this, utility files with high
+	// structural scores (builtin.go, logger.go) always dominate even
+	// when the query clearly targets specific domain files.
+	queryBoostMultiplier = 3.0
 )
 
 // RankGraph scores every file in the graph by importance.
 // If query is non-empty, symbols/files matching the query get a bonus.
+//
+// The ranking uses two mechanisms to prevent utility files (tool
+// registries, loggers, etc.) from drowning out domain-relevant files:
+//
+//  1. Fan-out dampening: files whose symbols are referenced by many
+//     other files have their structural score dampened. A file
+//     referenced by 30% or more of all files is clearly infrastructure,
+//     not domain logic. The dampener uses a sqrt-based curve so
+//     moderate fan-out is barely affected.
+//
+//  2. Query boost: when a query is provided, files that match the
+//     query receive a multiplicative boost to their total score, not
+//     just an additive bonus. This lets a domain file with modest
+//     structural importance overtake a utility file with high
+//     structural importance when the query clearly targets the domain.
 func RankGraph(g *Graph, query string) {
 	recentFiles := getRecentlyChanged(g.Root, 50)
 	entrypoints := detectEntrypoints(g)
+	totalFiles := float64(len(g.Files))
 
 	// count how many files reference each symbol name
 	refCount := make(map[string]int)
@@ -38,14 +60,67 @@ func RankGraph(g *Graph, query string) {
 		}
 	}
 
+	// Symbol name ambiguity: count how many files define the same
+	// symbol name. Common interface methods (Name, Execute, String,
+	// Error, etc.) are defined in many files. When a symbol name has
+	// N definitions across N files, each file's credit for that
+	// symbol's refs/calls should be divided by N — otherwise a file
+	// with 7 tools implementing Name() gets 7× the global call count
+	// for "Name", which is meaningless noise.
+	symDefCount := make(map[string]int)
+	for _, fi := range g.Files {
+		localNames := make(map[string]bool)
+		for _, sym := range fi.Symbols {
+			if !localNames[sym.Name] {
+				symDefCount[sym.Name]++
+				localNames[sym.Name] = true
+			}
+		}
+	}
+
+	// Compute per-file fan-out: count how many distinct files
+	// reference ANY symbol defined in this file. This is broader
+	// than import fan-in because it captures call-site and type-usage
+	// references, not just import statements. High fan-out (>0.15)
+	// strongly suggests infrastructure, not domain code.
+	symbolToFile := make(map[string]string, len(g.Files)*10)
+	for _, fi := range g.Files {
+		for _, sym := range fi.Symbols {
+			symbolToFile[sym.Name] = fi.RelPath
+		}
+	}
+	// Count distinct files that reference each file's symbols.
+	fileReferrers := make(map[string]map[string]bool)
+	for _, fi := range g.Files {
+		for _, rel := range fi.Relations {
+			if defFile, ok := symbolToFile[rel.To]; ok && defFile != fi.RelPath {
+				if fileReferrers[defFile] == nil {
+					fileReferrers[defFile] = make(map[string]bool)
+				}
+				fileReferrers[defFile][fi.RelPath] = true
+			}
+		}
+	}
+	fileFanout := make(map[string]float64, len(g.Files))
+	for path, refs := range fileReferrers {
+		if totalFiles > 0 {
+			fileFanout[path] = float64(len(refs)) / totalFiles
+		}
+	}
+
 	// score each file
 	for _, fi := range g.Files {
 		score := 0.0
 
-		// sum reference/call counts for symbols defined in this file
+		// sum reference/call counts for symbols defined in this file,
+		// divided by the number of files that define the same name.
 		for _, sym := range fi.Symbols {
-			score += float64(refCount[sym.Name]) * wReference
-			score += float64(callCount[sym.Name]) * wInbound
+			ambiguity := float64(symDefCount[sym.Name])
+			if ambiguity < 1 {
+				ambiguity = 1
+			}
+			score += float64(refCount[sym.Name]) * wReference / ambiguity
+			score += float64(callCount[sym.Name]) * wInbound / ambiguity
 			if sym.Exported {
 				score += wExported
 			}
@@ -64,9 +139,30 @@ func RankGraph(g *Graph, query string) {
 			score += wRecent * 3
 		}
 
-		// query match bonus
+		// Fan-out dampening: files imported by a large fraction of the
+		// codebase are utility/infrastructure. Dampen their structural
+		// score so they don't dominate query results. The curve is:
+		//   fanout < 0.15 → no dampening (factor ≈ 1.0)
+		//   fanout = 0.30 → factor ≈ 0.55
+		//   fanout = 0.50 → factor ≈ 0.32
+		//   fanout ≥ 0.80 → factor ≈ 0.15
+		fanout := fileFanout[fi.RelPath]
+		if fanout > 0.15 {
+			dampener := math.Sqrt(0.15 / fanout)
+			score *= dampener
+		}
+
+		// query match: additive bonus + multiplicative boost
 		if query != "" {
-			score += queryMatchScore(fi, query) * wQueryMatch
+			qScore := queryMatchScore(fi, query)
+			score += qScore * wQueryMatch
+			if qScore > 0 {
+				// Multiplicative boost: files matching the query get
+				// their total score amplified. This ensures that a
+				// query-relevant file with moderate structural score
+				// can overtake a query-irrelevant utility file.
+				score *= queryBoostMultiplier
+			}
 		}
 
 		g.Scores[fi.RelPath] = score
