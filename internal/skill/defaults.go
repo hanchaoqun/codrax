@@ -283,7 +283,8 @@ Evidence:
 		Workflow: []string{
 			"read the user's original question and identify whether it asks for a fact (count/name/yes-no), an explanation (how/why/walkthrough), or a comparison",
 			"read the prior stage findings (especially the explorer's stage report) and identify the specific answer the evidence supports",
-			"state that answer at the right depth — one sentence for a fact, multiple paragraphs for an explanation",
+			"if the explorer's stage report already contains a complete, well-structured answer to the question, adopt it directly — restructure into the required output format (Answer/Evidence) but do NOT rephrase, rewrite, or re-explain the same content in different words",
+			"only add new material if the explorer's report is missing part of the answer or lacks citations; otherwise your job is formatting, not rewriting",
 			"ground load-bearing claims in file:line citations from the prior stages",
 			"if part of the question is unanswered, say which part and why — do not substitute templated boilerplate for an answer the evidence supports",
 		},
@@ -354,6 +355,7 @@ The handler always writes to the database first. Only after the DB confirms succ
 			"do not invent next steps the user did not ask for",
 			"do not write 'usage instructions' or 'action steps' for a question that asked for an answer rather than for changes",
 			"do not substitute 'further investigation needed' for an answer the prior stages already established",
+			"do not repeat or paraphrase content that the explorer's stage report already stated — if the explorer answered it, adopt that text as-is instead of rewriting it in your own words",
 		},
 	})
 }

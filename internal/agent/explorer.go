@@ -57,6 +57,30 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // which tool to use or what to look at; that depends on the
 // question and is the LLM's job.
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
+	// Count distinct evidence-bearing tool sources already used.
+	// If the explorer has not yet crossed the minimum evidence
+	// threshold, we keep pushing regardless of how many continuation
+	// prompts have been sent — the "easy out" is only offered once
+	// the evidence floor is met.
+	evidenceSources := make(map[string]struct{})
+	for _, r := range history {
+		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
+			evidenceSources[r.ToolName] = struct{}{}
+		}
+	}
+	hasEnoughEvidence := len(evidenceSources) >= 2
+
+	if !hasEnoughEvidence {
+		// Evidence floor not met — push unconditionally. No escape
+		// hatch: the explorer must call more tools before it may stop.
+		return fmt.Sprintf(
+			"You have only used %d distinct evidence tool type(s) so far. "+
+				"You need at least 2 (e.g. grep + read_file) before you can conclude. "+
+				"Take the next investigative step now — do not summarize, do not conclude, call a tool.",
+			len(evidenceSources)), true
+	}
+
+	// Evidence floor met — normal continuation budget.
 	switch continuationCount {
 	case 0:
 		return "Your previous turn produced a summary without calling any tool. If you genuinely have a defensible answer, restate it in one sentence and stop. Otherwise, take the next concrete investigative step now — do not describe what you would do next, do it.", true
