@@ -61,9 +61,13 @@ type Event struct {
 	Agent types.AgentName
 	Skill string
 
+	// ReAct iteration (0-based, carried on EventAgentThinking)
+	Iteration int
+
 	// Tool call
 	ToolName   string
 	ToolCallID string
+	ToolDetail string // short arg summary, e.g. file path or command
 	ToolOK     bool
 	ToolTime   time.Duration
 

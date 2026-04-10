@@ -219,6 +219,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			Timestamp: time.Now(),
 			Agent:     b.name,
 			Stage:     ctx.Stage,
+			Iteration: i,
 		})
 		resp, err := b.deps.LLM.Chat(messages, toolSchemas)
 		if err != nil {
@@ -308,6 +309,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Stage:      ctx.Stage,
 				ToolName:   tc.Name,
 				ToolCallID: tc.ID,
+				ToolDetail: toolDetail(tc.Params),
 			})
 
 			result, mcpResp := b.executeTool(ctx, tc)
@@ -343,6 +345,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				Stage:      ctx.Stage,
 				ToolName:   tc.Name,
 				ToolCallID: tc.ID,
+				ToolDetail: toolDetail(tc.Params),
 				ToolOK:     toolOK,
 				ToolTime:   time.Since(toolStart),
 			})
@@ -538,4 +541,33 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 
 	logging.Warning("tool not found: %s", tc.Name)
 	return nil, nil
+}
+
+// toolDetail extracts a short human-readable detail from tool parameters
+// (e.g. file path or command) for display in the status line.
+func toolDetail(params json.RawMessage) string {
+	if len(params) == 0 {
+		return ""
+	}
+	var m map[string]json.RawMessage
+	if json.Unmarshal(params, &m) != nil {
+		return ""
+	}
+	// Try common keys in priority order.
+	for _, key := range []string{"path", "command", "query", "pattern"} {
+		raw, ok := m[key]
+		if !ok {
+			continue
+		}
+		var s string
+		if json.Unmarshal(raw, &s) != nil || s == "" {
+			continue
+		}
+		// Truncate long values (commands can be very long).
+		if len(s) > 60 {
+			s = s[:57] + "..."
+		}
+		return s
+	}
+	return ""
 }

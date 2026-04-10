@@ -17,6 +17,11 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"os"
+	"unicode/utf8"
+
+	"github.com/mattn/go-runewidth"
+	"golang.org/x/term"
 
 	"github.com/charmbracelet/huh"
 	"github.com/charmbracelet/lipgloss"
@@ -135,6 +140,10 @@ func (r *REPL) readInput(prompt string) (string, error) {
 		if err != nil {
 			return "", err
 		}
+		// Empty input on first line → return empty so Loop skips it.
+		if val == "" && len(parts) == 0 {
+			return "", nil
+		}
 		if !strings.HasSuffix(val, "\\") {
 			parts = append(parts, val)
 			return strings.TrimSpace(strings.Join(parts, "\n")), nil
@@ -199,9 +208,18 @@ func (r *REPL) dispatch(line string) {
 		lines = lines[:len(lines)-1]
 	}
 	bar := pterm.FgWhite.Sprint("│")
+	// Wrap each line to fit the terminal, accounting for the
+	// "  │ " prefix (4 display cols + 2 margin).
+	maxContent := 60
+	if w, _, werr := term.GetSize(int(os.Stdout.Fd())); werr == nil && w > 10 {
+		maxContent = w - 6
+	}
 	fmt.Fprintf(r.out, "  %s\n", bar)
 	for _, ln := range lines {
-		fmt.Fprintf(r.out, "  %s %s\n", bar, ln)
+		wrapped := wrapByWidth(ln, maxContent)
+		for _, wl := range wrapped {
+			fmt.Fprintf(r.out, "  %s %s\n", bar, wl)
+		}
 	}
 	fmt.Fprintf(r.out, "  %s\n\n", bar)
 
@@ -299,6 +317,77 @@ func stripTrailing(s string) string {
 // stripANSI removes all ANSI escape sequences to get plain text.
 func stripANSI(s string) string {
 	return strings.TrimSpace(reANSI.ReplaceAllString(s, ""))
+}
+
+// wrapByWidth breaks a line into multiple lines that each fit within
+// maxCols display columns. ANSI escape sequences are preserved: they
+// are skipped for width calculation, and active SGR styles are replayed
+// at the start of each continuation line so colours/bold survive wraps.
+func wrapByWidth(s string, maxCols int) []string {
+	if s == "" {
+		return []string{""}
+	}
+	var result []string
+	var activeSeqs []string // SGR sequences active at current position
+
+	for len(s) > 0 {
+		var buf strings.Builder
+		// Replay active styles on continuation lines.
+		if len(result) > 0 {
+			for _, seq := range activeSeqs {
+				buf.WriteString(seq)
+			}
+		}
+
+		w := 0
+		i := 0
+		hasVisible := false
+
+		for i < len(s) {
+			// Detect ANSI CSI sequence: ESC [ <params> <final byte>
+			if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+				j := i + 2
+				for j < len(s) && ((s[j] >= '0' && s[j] <= '9') || s[j] == ';' || s[j] == ':') {
+					j++
+				}
+				if j < len(s) {
+					j++ // final byte (m, H, K, …)
+				}
+				seq := s[i:j]
+				buf.WriteString(seq)
+				// Track SGR (Select Graphic Rendition) sequences for
+				// style continuation across wrapped lines.
+				if len(seq) > 0 && seq[len(seq)-1] == 'm' {
+					if seq == "\x1b[0m" || seq == "\x1b[m" {
+						activeSeqs = nil
+					} else {
+						activeSeqs = append(activeSeqs, seq)
+					}
+				}
+				i = j
+				continue
+			}
+
+			ch, size := utf8.DecodeRuneInString(s[i:])
+			rw := runewidth.RuneWidth(ch)
+			if w+rw > maxCols && hasVisible {
+				break
+			}
+			buf.WriteString(s[i : i+size])
+			w += rw
+			i += size
+			hasVisible = true
+		}
+
+		s = s[i:]
+		// Reset styles at end of wrapped line so they don't bleed
+		// into the "│" prefix on the next line.
+		if len(s) > 0 && len(activeSeqs) > 0 {
+			buf.WriteString("\x1b[0m")
+		}
+		result = append(result, buf.String())
+	}
+	return result
 }
 
 func oneLine(s string) string {

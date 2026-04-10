@@ -22,15 +22,16 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 type Renderer struct {
 	glamour *glamour.TermRenderer
 
-	mu        sync.Mutex
-	area      *pterm.AreaPrinter
-	startTime time.Time
-	stage      string // current pipeline stage
-	detail     string // tool/sub-agent name for status line
-	detailDone bool   // true if the detail refers to a completed call
-	tasks     []taskEntry // tracked tasks
-	animFrame int
-	animStop  chan struct{}
+	mu            sync.Mutex
+	area          *pterm.AreaPrinter
+	startTime     time.Time
+	agentName  string // current agent name, e.g. "analyzer"
+	subRunning int    // number of currently running sub-agents
+	detail        string // tool/sub-agent name for status line
+	detailDone    bool   // true if the detail refers to a completed call
+	tasks         []taskEntry // tracked tasks
+	animFrame     int
+	animStop      chan struct{}
 }
 
 type taskEntry struct {
@@ -52,12 +53,12 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 		pterm.DisableColor()
 	}
 
-	// Word wrap at 56 chars so that with the "  │ " prefix (4 cells)
-	// the total stays under 60 columns — safe for CJK text (2 cells
-	// per char) on 80-wide terminals without terminal-level wrapping.
+	// Disable glamour word wrap — it counts runes, not display
+	// columns, so CJK text overflows. The REPL does its own
+	// ANSI-aware, display-width wrapping after rendering.
 	gr, _ := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(56),
+		glamour.WithWordWrap(0),
 	)
 
 	return &Renderer{glamour: gr}
@@ -71,7 +72,8 @@ func (r *Renderer) StartSpinner() {
 		return
 	}
 	r.tasks = nil
-	r.stage = "thinking"
+	r.agentName = ""
+	r.subRunning = 0
 	r.detail = ""
 	r.detailDone = false
 	r.startTime = time.Now()
@@ -131,7 +133,8 @@ func (r *Renderer) StopSpinner() {
 	}
 
 	r.tasks = nil
-	r.stage = ""
+	r.agentName = ""
+	r.subRunning = 0
 	r.detail = ""
 }
 
@@ -146,32 +149,46 @@ func (r *Renderer) Emitter() EventEmitter {
 
 		switch ev.Kind {
 		case EventAgentThinking:
-			r.detail = "thinking"
+			if ev.Iteration == 0 {
+				r.detail = "thinking"
+			} else {
+				r.detail = fmt.Sprintf("thinking (round %d)", ev.Iteration+1)
+			}
 			r.detailDone = false
 
 		case EventStageStart:
-			r.stage = string(ev.Stage)
+			r.agentName = string(ev.Agent)
+			r.subRunning = 0
 			r.detail = ""
 			r.detailDone = false
 
 		case EventToolCallStart:
 			r.detail = ev.ToolName
+			if ev.ToolDetail != "" {
+				r.detail += " " + ev.ToolDetail
+			}
 			r.detailDone = false
 
 		case EventToolCallEnd:
 			r.detail = ev.ToolName
+			if ev.ToolDetail != "" {
+				r.detail += " " + ev.ToolDetail
+			}
 			r.detailDone = true
 
 		case EventTransition:
-			r.stage = string(ev.ToStage)
 			r.detail = ""
 			r.detailDone = false
 
 		case EventSubAgentStart:
+			r.subRunning++
 			r.detail = ev.SubTaskTitle
 			r.detailDone = false
 
 		case EventSubAgentEnd:
+			if r.subRunning > 0 {
+				r.subRunning--
+			}
 			r.detail = ev.SubTaskTitle
 			r.detailDone = true
 
@@ -216,7 +233,8 @@ func (r *Renderer) redraw() {
 	// Status line: ⠋ stage · detail · 12s
 	// Each element has a distinct color for easy scanning.
 	var statusParts []string
-	statusParts = append(statusParts, pterm.FgWhite.Sprint(r.stage))
+	running := 1 + r.subRunning // 1 main agent + sub-agents
+	statusParts = append(statusParts, pterm.FgWhite.Sprint(formatAgent(types.AgentName(r.agentName), running)))
 	if r.detail != "" {
 		if r.detailDone {
 			statusParts = append(statusParts,
@@ -281,7 +299,12 @@ func stripAgentLabels(s string) string {
 	s = reAgentLabels.ReplaceAllString(s, "")
 	// Remove inline label prefix (e.g. "Answer: some text").
 	s = reAgentLabelInline.ReplaceAllString(s, "")
-	return strings.TrimSpace(s)
+	s = strings.TrimSpace(s)
+	// Clean up residual bold markers at start/end (e.g. "** text **").
+	s = strings.TrimLeft(s, "* ")
+	s = strings.TrimRight(s, "* ")
+	s = strings.TrimSpace(s)
+	return s
 }
 
 func (r *Renderer) renderMarkdown(text string) string {
@@ -292,6 +315,18 @@ func (r *Renderer) renderMarkdown(text string) string {
 		}
 	}
 	return text
+}
+
+// formatAgent formats an agent name with call count, e.g. "AnalyzerAgent(2)".
+// The count is the total number of agent calls (main + sub) so far.
+func formatAgent(name types.AgentName, count int) string {
+	s := string(name)
+	if s == "" {
+		s = "agent"
+	}
+	// Capitalize first letter + append "Agent" suffix.
+	s = strings.ToUpper(s[:1]) + s[1:] + "Agent"
+	return fmt.Sprintf("%s(%d)", s, count)
 }
 
 func statusIcon(s types.TaskStatus) string {
