@@ -311,16 +311,26 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
 	var schemas []llm.ToolSchema
 
-	// Add suggested tools from skill
+	// Add suggested tools from skill. Tools with high confidence
+	// (evidence-bearing: grep, read_file, exec_command, …) get a
+	// "[high-confidence]" tag appended to their description so the
+	// LLM can see at schema-selection time which tools produce
+	// citable evidence vs. navigation hints or side-effects.
 	if b.deps.Tools != nil {
 		for _, toolName := range sk.ToolSuggestions {
 			t, err := b.deps.Tools.Get(toolName)
 			if err != nil {
 				continue
 			}
+			desc := t.Description()
+			if c := t.Confidence(); c >= 0.8 {
+				desc += " [high-confidence evidence]"
+			} else if c >= 0.3 {
+				desc += " [navigation index — verify with evidence tools]"
+			}
 			schemas = append(schemas, llm.ToolSchema{
 				Name:        t.Name(),
-				Description: t.Description(),
+				Description: desc,
 				Parameters:  t.Parameters(),
 			})
 		}
