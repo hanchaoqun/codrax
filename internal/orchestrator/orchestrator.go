@@ -25,6 +25,7 @@ type Orchestrator struct {
 	maxSteps    int
 	subRuntime  *agent.SubAgentRuntime
 	stageVisits map[types.PipelineStage]int
+	language    string
 }
 
 // New creates a new Orchestrator.
@@ -41,6 +42,41 @@ func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Regis
 // SetMaxSteps overrides the maximum number of pipeline steps (default 50).
 func (o *Orchestrator) SetMaxSteps(n int) {
 	o.maxSteps = n
+}
+
+// SetLanguage configures the default response language injected into
+// every agent's system prompt via BusContext.Preferences. The empty
+// string, "off", and "none" disable the injection so the pipeline
+// behaves exactly as before. Any other value is passed through to
+// languageDirective which maps well-known codes to explicit wording.
+func (o *Orchestrator) SetLanguage(lang string) {
+	o.language = lang
+}
+
+// languageDirective returns the preference sentence to insert into
+// BusContext.Preferences, or "" to disable the feature. The directive
+// is phrased so the model keeps the user's language if it is clearly
+// different from the default — this preserves the "ask in English,
+// get English" behavior without forcing a single locale.
+func languageDirective(lang string) string {
+	switch lang {
+	case "", "off", "none":
+		return ""
+	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
+		return "Respond to the user in Simplified Chinese (简体中文) by default. " +
+			"If the user's most recent request is clearly written in another language " +
+			"(for example English or Japanese), match that language instead so the reply " +
+			"is in the same language as the question."
+	case "en", "en-US", "english":
+		return "Respond to the user in English by default. " +
+			"If the user's most recent request is clearly written in another language, " +
+			"match that language instead."
+	default:
+		return fmt.Sprintf(
+			"Respond to the user in %s by default. "+
+				"If the user's most recent request is clearly written in another language, "+
+				"match that language instead.", lang)
+	}
 }
 
 // Run executes the full pipeline for a user request.
@@ -78,6 +114,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			RequireReview:      o.config.PipelineSettings.RequireReview,
 			MaxRetriesPerStage: o.config.PipelineSettings.MaxRetriesPerStage,
 		},
+	}
+
+	if pref := languageDirective(o.language); pref != "" {
+		o.busCtx.Preferences = append(o.busCtx.Preferences, pref)
 	}
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)

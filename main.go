@@ -33,6 +33,7 @@ func main() {
 	logLevel := flag.String("log-level", "info", "log level: error|warning|info|debug")
 	logStdout := flag.Bool("log-stdout", false, "also mirror logs to stdout")
 	memoryDir := flag.String("memory-dir", "memory", "directory for conversation memory")
+	lang := flag.String("lang", "zh", "default response language (zh/en/...); 'off' to disable")
 	flag.Parse()
 
 	// Initialize the leveled logger first so every subsequent message
@@ -112,6 +113,7 @@ func main() {
 
 	orch := orchestrator.New(cfg, agentRegistry, skillRegistry, subAgentRegistry)
 	orch.SetMaxSteps(*maxSteps)
+	orch.SetLanguage(*lang)
 
 	// Branch: interactive REPL vs single-shot.
 	if *request == "" {

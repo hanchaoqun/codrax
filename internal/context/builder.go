@@ -120,6 +120,18 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	// User preferences (e.g. default response language) flow from
+	// BusContext.Preferences → AgentContext.Preferences and are rendered
+	// as a system section so every agent's final answer honors them.
+	// Empty preferences leave the prompt untouched, keeping the old
+	// zero-config behavior when the feature is disabled.
+	if len(ac.Preferences) > 0 {
+		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
+			Title:   "User Preferences",
+			Content: strings.Join(ac.Preferences, "\n"),
+		})
+	}
+
 	// Skill instructions — merged into system sections
 	pc.SystemSections = append(pc.SystemSections,
 		types.PromptSection{
