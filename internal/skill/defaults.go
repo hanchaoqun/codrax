@@ -82,15 +82,15 @@ If part of the question genuinely cannot be answered from the code you read, add
 Below are three illustrative examples drawn from a hypothetical, unrelated codebase. They show how the Answer block scales — DO NOT copy their content, only their shape:
 
 Example A — lookup question (one short sentence is the right depth):
-Answer: The project is written in Go 1.22.
+Answer: The project uses version 3.12 of the language runtime.
 Evidence:
-- go.mod:3 — go 1.22.5
+- pyproject.toml:7 — python = "^3.12"
 
 Example B — count question (one sentence + several pieces of evidence):
 Answer: There are 4 HTTP handlers registered on the public router.
 Evidence:
-- cmd/server/router.go:18-21 — Mount calls for /health, /api/v1/users, /api/v1/orders, /metrics
-- cmd/server/router.go:42 — no Mount calls after line 21
+- src/routes.py:18-21 — route registrations for /health, /users, /orders, /metrics
+- src/routes.py:42 — no registrations after line 21
 
 Example C — explanation question (multi-paragraph is the right depth):
 Answer: The cache is a write-through layer between the API handlers and the database. On every write the handler updates the database first and then invalidates the corresponding cache key; the next read repopulates the cache from the database. There is no read-through-on-miss path: a cache miss is served directly from the database without writing back, which is intentional so that stale data from a misbehaving writer cannot persist beyond one request.
@@ -98,9 +98,9 @@ Answer: The cache is a write-through layer between the API handlers and the data
 The cache key format is "<resource>:<id>" and the default TTL is 5 minutes. Eviction is purely LRU; there is no manual flush API.
 
 Evidence:
-- internal/cache/cache.go:42-58 — Set() invalidates the key after the DB write returns
-- internal/cache/cache.go:78-91 — Get() falls through to the DB on miss but does not write back
-- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute
+- lib/cache.rb:42-58 — set() invalidates the key after the DB write returns
+- lib/cache.rb:78-91 — get() falls through to the DB on miss but does not write back
+- lib/cache.rb:14 — DEFAULT_TTL = 300
 
 Example D — architecture/flow question (use a Mermaid diagram when a visual clarifies relationships or sequences):
 Answer: A write request flows through three layers before reaching the database:
@@ -121,8 +121,8 @@ sequenceDiagram
 The handler always writes to the database first. Only after the DB confirms success does it invalidate the cache key.
 
 Evidence:
-- internal/handler/user.go:87-102 — UpdateUser calls repo.Save then cache.Invalidate
-- internal/cache/cache.go:42-58 — Invalidate deletes the key, next Get repopulates from DB`,
+- app/handlers/user_handler.ts:87-102 — updateUser calls repo.save then cache.invalidate
+- app/cache/store.ts:42-58 — invalidate deletes the key, next get repopulates from DB`,
 		Prohibitions: []string{
 			"do not modify any files",
 			"do not make assumptions without evidence",
@@ -314,15 +314,15 @@ Use this shape — Answer first, then Evidence:
 Below are three illustrative examples drawn from a hypothetical, unrelated codebase. They show how the Answer block scales — DO NOT copy their content, only their shape:
 
 Example A — lookup question (one short sentence is the right depth):
-**Answer:** The project is written in Go 1.22.
+**Answer:** The project uses version 3.12 of the language runtime.
 **Evidence:**
-- go.mod:3 — go 1.22.5
+- pyproject.toml:7 — python = "^3.12"
 
 Example B — count question (one sentence + several pieces of evidence):
 **Answer:** There are 4 HTTP handlers registered on the public router.
 **Evidence:**
-- cmd/server/router.go:18-21 — Mount calls for /health, /api/v1/users, /api/v1/orders, /metrics
-- cmd/server/router.go:42 — no Mount calls after line 21
+- src/routes.py:18-21 — route registrations for /health, /users, /orders, /metrics
+- src/routes.py:42 — no registrations after line 21
 
 Example C — explanation question (multi-paragraph is the right depth):
 **Answer:** The cache is a write-through layer between the API handlers and the database. On every write the handler updates the database first and then invalidates the corresponding cache key; the next read repopulates the cache from the database. There is no read-through-on-miss path: a cache miss is served directly from the database without writing back, which is intentional so that stale data from a misbehaving writer cannot persist beyond one request.
@@ -330,9 +330,9 @@ Example C — explanation question (multi-paragraph is the right depth):
 The cache key format is "<resource>:<id>" and the default TTL is 5 minutes. Eviction is purely LRU; there is no manual flush API.
 
 **Evidence:**
-- internal/cache/cache.go:42-58 — Set() invalidates the key after the DB write returns
-- internal/cache/cache.go:78-91 — Get() falls through to the DB on miss but does not write back
-- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute
+- lib/cache.rb:42-58 — set() invalidates the key after the DB write returns
+- lib/cache.rb:78-91 — get() falls through to the DB on miss but does not write back
+- lib/cache.rb:14 — DEFAULT_TTL = 300
 
 Example D — architecture/flow question (use a Mermaid diagram when a visual clarifies relationships or sequences):
 **Answer:** A write request flows through three layers before reaching the database:
@@ -353,8 +353,8 @@ sequenceDiagram
 The handler always writes to the database first. Only after the DB confirms success does it invalidate the cache key. This guarantees that a crash between the two steps leaves stale-but-safe data in the cache rather than new data in the cache with an uncommitted DB row.
 
 **Evidence:**
-- internal/handler/user.go:87-102 — UpdateUser calls repo.Save then cache.Invalidate
-- internal/cache/cache.go:42-58 — Invalidate deletes the key, next Get repopulates from DB`,
+- app/handlers/user_handler.ts:87-102 — updateUser calls repo.save then cache.invalidate
+- app/cache/store.ts:42-58 — invalidate deletes the key, next get repopulates from DB`,
 		Prohibitions: []string{
 			"do not invent next steps the user did not ask for",
 			"do not write 'usage instructions' or 'action steps' for a question that asked for an answer rather than for changes",
