@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -51,12 +52,12 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 		pterm.DisableColor()
 	}
 
-	// Word wrap at 68 chars so that with the "  │ " prefix (4 cells)
-	// the total stays under 72 columns — safe for 80-wide terminals
-	// and avoids terminal-level wrapping that breaks the left border.
+	// Word wrap at 56 chars so that with the "  │ " prefix (4 cells)
+	// the total stays under 60 columns — safe for CJK text (2 cells
+	// per char) on 80-wide terminals without terminal-level wrapping.
 	gr, _ := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(68),
+		glamour.WithWordWrap(56),
 	)
 
 	return &Renderer{glamour: gr}
@@ -246,7 +247,11 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 		tl := busCtx.Mutable.TaskList()
 		for _, item := range tl.Tasks {
 			if item.Result != "" {
-				rendered := r.renderMarkdown(item.Result)
+				clean := stripAgentLabels(item.Result)
+				if clean == "" {
+					continue
+				}
+				rendered := r.renderMarkdown(clean)
 				b.WriteString(rendered)
 				b.WriteString("\n")
 			}
@@ -260,6 +265,20 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 }
 
 // ---------- helpers ----------
+
+// Patterns to strip agent-internal labels from user-facing output.
+var reAgentLabels = regexp.MustCompile(`(?m)^(\*\*)?(Answer|Evidence|Caveat)(\*\*)?:\s*$`)
+var reAgentLabelInline = regexp.MustCompile(`(?m)^(\*\*)?(Answer|Evidence|Caveat)(\*\*)?:\s*`)
+
+// stripAgentLabels removes "Answer:", "Evidence:", "Caveat:" labels
+// (plain or **bold** markdown) from agent output.
+func stripAgentLabels(s string) string {
+	// Remove standalone label lines first (e.g. "Evidence:\n").
+	s = reAgentLabels.ReplaceAllString(s, "")
+	// Remove inline label prefix (e.g. "Answer: some text").
+	s = reAgentLabelInline.ReplaceAllString(s, "")
+	return strings.TrimSpace(s)
+}
 
 func (r *Renderer) renderMarkdown(text string) string {
 	if r.glamour != nil {
