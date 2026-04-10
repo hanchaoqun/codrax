@@ -89,30 +89,60 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
+	// Build a list of files already read so we can warn against re-reads.
+	readFiles := make(map[string]bool)
+	for _, r := range history {
+		if r.Success && r.ToolName == "read_file" {
+			readFiles[r.Summary] = true // Summary might not be the path; fallback below
+		}
+	}
+	var alreadyRead []string
+	for _, r := range history {
+		if r.Success && r.ToolName == "read_file" {
+			// Extract path from summary (first line often has the path).
+			lines := strings.SplitN(r.Summary, "\n", 2)
+			if len(lines) > 0 {
+				alreadyRead = append(alreadyRead, lines[0])
+			}
+		}
+	}
+
 	minTypes, minCalls := evidenceThresholds(e.complexity)
 	hasEnoughEvidence := len(evidenceSources) >= minTypes && evidenceCalls >= minCalls
 
-	if !hasEnoughEvidence {
+	// Depth-phase continuation budget: phase transition used count 0,
+	// so depth budget starts at count 1. Cap at 4 total pushes in
+	// depth phase (counts 1-4) to prevent infinite loops when the
+	// LLM produces text without calling tools.
+	depthBudget := continuationCount - 1 // subtract the phase transition
+
+	if !hasEnoughEvidence && depthBudget < 3 {
 		var reason string
 		if len(evidenceSources) < minTypes {
 			reason = fmt.Sprintf("only %d distinct evidence tool type(s) (need %d)", len(evidenceSources), minTypes)
 		} else {
 			reason = fmt.Sprintf("only %d evidence tool call(s) (need %d)", evidenceCalls, minCalls)
 		}
+
+		// Include already-read files to prevent re-reads.
+		alreadyReadHint := ""
+		if len(alreadyRead) > 0 {
+			alreadyReadHint = "\nFiles you have ALREADY read (do NOT re-read these): " + strings.Join(alreadyRead, ", ")
+		}
+
 		return fmt.Sprintf(
 			"You have %s. "+
-				"Continue reading the key files from your scan. "+
-				"Read source files in full, extract the details listed in the Phase 2 instructions.",
-			reason), true
+				"Read a NEW file from your Phase 1 list that you have NOT read yet. "+
+				"Call read_file now — do not summarize or discuss.%s",
+			reason, alreadyReadHint), true
 	}
 
-	// Evidence gate met — graduated depth-phase budget.
-	switch continuationCount {
-	case 1: // continuationCount 0 was the phase transition
+	// Evidence gate met or depth budget exhausted.
+	switch depthBudget {
+	case 3:
 		return "Before concluding, check: have you read ALL the key files from your breadth scan? " +
-			"If any important source file is still unread, read it now. " +
-			"If you read a file but missed a critical section (e.g. a function you saw referenced but didn't read), go read that section.", true
-	case 2:
+			"If any important file is still unread, read it now. Otherwise you may stop.", true
+	case 4:
 		return "Final verification. If your investigation is complete, you may stop. " +
 			"The synthesis step will produce the final answer from your evidence.", true
 	default:
