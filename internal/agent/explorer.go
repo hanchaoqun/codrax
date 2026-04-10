@@ -27,16 +27,16 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		"Your goal in this phase is to MAP the relevant territory — find ALL files and components related to the question. " +
 		"Do NOT read files in full yet. Use lightweight tools:\n" +
 		"- repo_map (task_map view) to get an overview of relevant files\n" +
-		"- grep to find where key terms appear across the codebase\n" +
-		"- list_files to understand directory structure\n\n" +
-		"At the end of this phase, you will produce a FILE LIST — the 3-6 most important source files " +
-		"(not test files) that you need to read in depth to answer the question. " +
+		"- grep with files_only=true to find WHICH FILES contain key terms (not the lines — just the filenames). Search without --include to cover both source and config files\n" +
+		"- list_files to understand directory structure, especially config/ and the relevant internal/ subdirectories\n\n" +
+		"At the end of this phase, you will produce a FILE LIST — the 3-6 most important files " +
+		"that you need to read in depth. Include source files (.go), config files (.yaml), and type definition files. " +
 		"For each file, note what you expect to learn from it.\n\n" +
 		"Strategy:\n" +
-		"- Search broadly: grep the core keyword across the whole codebase\n" +
-		"- Identify the primary logic file, the type definitions file, and the config file\n" +
+		"- Search broadly: grep the core keyword across the whole codebase, including config files\n" +
+		"- Identify: (1) the primary logic file, (2) the type definitions file, (3) the config/YAML file that drives behavior, (4) the config loader that parses it\n" +
 		"- Ignore test files (*_test.go), utility files (logging, tool registration), and generated code\n" +
-		"- If repo_map shows a file is highly ranked, note it but don't read it yet"
+		"- IMPORTANT: config/YAML files often define the topology, policies, and rules that source code implements — always include them in your file list when the question is about architecture or behavior"
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {

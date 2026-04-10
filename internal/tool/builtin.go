@@ -118,6 +118,7 @@ type grepToolParams struct {
 	Path       string `json:"path,omitempty"`
 	Include    string `json:"include,omitempty"`
 	IgnoreCase *bool  `json:"ignore_case,omitempty"`
+	FilesOnly  bool   `json:"files_only,omitempty"`
 }
 
 func (t *GrepTool) Name() string { return "grep" }
@@ -132,7 +133,8 @@ func (t *GrepTool) Parameters() json.RawMessage {
     "pattern":     {"type": "string",  "description": "Regex pattern to search for"},
     "path":        {"type": "string",  "description": "Directory or file to search (default: current directory)"},
     "include":     {"type": "string",  "description": "File glob filter, e.g. *.go"},
-    "ignore_case": {"type": "boolean", "description": "Case-insensitive match. Omit for smart-case (insensitive iff pattern has no uppercase). Set true/false to force."}
+    "ignore_case": {"type": "boolean", "description": "Case-insensitive match. Omit for smart-case (insensitive iff pattern has no uppercase). Set true/false to force."},
+    "files_only":  {"type": "boolean", "description": "If true, return only file paths that contain matches (like grep -l), not the matching lines. Useful for breadth scans to discover which files are relevant without flooding the output."}
   },
   "required": ["pattern"]
 }`)
@@ -168,6 +170,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}
 
 	args := []string{"-rn"}
+	if p.FilesOnly {
+		args = []string{"-rl"}
+	}
 	if caseInsensitive {
 		args = append(args, "-i")
 	}
