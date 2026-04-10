@@ -138,8 +138,13 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 	// Prefer the longest message if the last one is a fragment.
+	// Also set StageReport here (instead of relying on BaseAgent's
+	// auto-capture which always picks the last message) so that the
+	// best comprehensive answer flows to downstream stages.
+	bestReport := lastContent
 	if len(longestContent) > 0 && len(lastContent) < len(longestContent)/2 {
 		lastContent = longestContent
+		bestReport = longestContent
 	}
 
 	// Extract facts from tool results. Each tool declares its own
@@ -185,6 +190,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
 		SignalUpdates: signals,
+		StageReport:   bestReport, // pre-set so BaseAgent.Execute skips auto-capture
 	}
 
 	// Retry hint states the failed condition only.
