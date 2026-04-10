@@ -25,10 +25,11 @@ func RegisterDefaults(r *Registry) {
 			`"moderate" (single-component explanation — needs 3-5 files), or ` +
 			`"complex" (cross-component architecture, flow walkthrough, comparison — needs 6+ files), ` +
 			`and keywords — an array of at least 8 search terms the explorer should grep for. ` +
-			`Include: (a) exact identifiers the user mentioned or implied (CamelCase, snake_case), ` +
-			`(b) plausible type/function/variable names derived from the domain, ` +
-			`(c) conceptual synonyms that widen the search net. ` +
-			`The explorer will grep each keyword independently and rank files by hit count, so cast a wide net. ` +
+			`Generate keywords in three rounds: ` +
+			`(1) Core terms: extract every domain noun and verb from the user's question in both its original form and common code identifier forms (CamelCase, snake_case). ` +
+			`(2) Compound identifiers: cross-combine the core terms into plausible multi-word identifiers — e.g. from core terms "create" and "user" produce "CreateUser", "user_factory"; from "cache" and "store" and "config" produce "CacheStore", "store_config". Think about what types, functions, or variables a developer would name. ` +
+			`(3) Action synonyms: for each verb in the question, add 2-3 programming synonyms (e.g. "send" → "emit", "dispatch", "publish"). ` +
+			`The system will auto-expand each keyword into CamelCase/snake_case/concatenated variants, so focus on producing diverse STEMS rather than repeating the same word in different cases. ` +
 			`After todo_write succeeds, briefly explain your classification in plain text.`,
 		Prohibitions: []string{
 			"do not make assumptions about code structure",

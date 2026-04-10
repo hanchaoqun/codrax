@@ -47,6 +47,11 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 		return nil
 	}
 
+	// Expand each keyword into identifier-format variants so the
+	// search covers CamelCase, snake_case, concatenated, etc.
+	// regardless of which format the analyzer happened to produce.
+	keywords = expandKeywords(keywords)
+
 	levels := []searchLevel{
 		{Name: "filename-exact", Score: 10, Search: func(kw, root string) []string {
 			return findFilesByName(kw, root, false)
@@ -76,6 +81,9 @@ func keywordSearch(keywords []string, repoRoot string) []keywordFileScore {
 	for _, kw := range keywords {
 		for _, level := range levels {
 			paths := level.Search(kw, repoRoot)
+			if len(paths) > 0 {
+				logging.Debug("[keyword_search] %s %q → %d hits", level.Name, kw, len(paths))
+			}
 			for _, p := range paths {
 				p = normalizeSearchPath(p, repoRoot)
 				if isNoisePath(p) {
@@ -211,6 +219,140 @@ func keywordStem(kw string) string {
 	}
 
 	return strings.ToLower(kw)
+}
+
+// expandKeywords takes the analyzer's keywords and generates identifier-
+// format variants for each multi-word keyword. Single generic words
+// (e.g. "call", "invoke") are kept as-is. Multi-part keywords get
+// expanded into CamelCase, snake_case, concatenated, and hyphenated
+// forms so the search covers all common naming conventions.
+//
+// Example: "sub_agent" → ["sub_agent", "SubAgent", "subagent", "sub-agent"]
+func expandKeywords(keywords []string) []string {
+	seen := make(map[string]bool, len(keywords)*4)
+	var expanded []string
+
+	add := func(kw string) {
+		if kw == "" || len(kw) < 2 {
+			return
+		}
+		lower := strings.ToLower(kw)
+		if seen[lower] {
+			return
+		}
+		seen[lower] = true
+		expanded = append(expanded, kw)
+	}
+
+	for _, kw := range keywords {
+		kw = strings.TrimSpace(kw)
+		if kw == "" {
+			continue
+		}
+
+		// Always keep the original.
+		add(kw)
+
+		// Split into word parts using any of: underscore, hyphen, CamelCase.
+		parts := splitIntoParts(kw)
+		if len(parts) <= 1 {
+			// No separators or CamelCase — try splitting using other
+			// keywords as a dictionary (e.g. "subagent" + known "agent"
+			// → ["sub", "agent"]).
+			if split := trySplitConcatenated(kw, keywords); split != nil {
+				parts = split
+			} else {
+				continue
+			}
+		}
+
+		// Generate all common identifier formats from the parts.
+		// CamelCase: SubAgent
+		var camel strings.Builder
+		for _, p := range parts {
+			if len(p) > 0 {
+				camel.WriteString(strings.ToUpper(p[:1]) + strings.ToLower(p[1:]))
+			}
+		}
+		add(camel.String())
+
+		// snake_case: sub_agent
+		lowerParts := make([]string, len(parts))
+		for i, p := range parts {
+			lowerParts[i] = strings.ToLower(p)
+		}
+		add(strings.Join(lowerParts, "_"))
+
+		// concatenated: subagent
+		add(strings.Join(lowerParts, ""))
+
+		// hyphenated: sub-agent
+		add(strings.Join(lowerParts, "-"))
+	}
+
+	logging.Debug("[keyword_search] expanded %d → %d keywords", len(keywords), len(expanded))
+	return expanded
+}
+
+// splitIntoParts splits a keyword into word parts by underscore, hyphen,
+// or CamelCase boundaries. For concatenated lowercase words (e.g.
+// "subagent"), it tries to split using other keywords as known words.
+func splitIntoParts(kw string) []string {
+	// First try explicit separators.
+	if strings.Contains(kw, "_") {
+		return nonEmpty(strings.Split(kw, "_"))
+	}
+	if strings.Contains(kw, "-") {
+		return nonEmpty(strings.Split(kw, "-"))
+	}
+	// Try CamelCase.
+	parts := splitCamelCase(kw)
+	if len(parts) > 1 {
+		return parts
+	}
+	return []string{kw}
+}
+
+// trySplitConcatenated attempts to split a concatenated lowercase word
+// like "subagent" into parts using other keywords as a dictionary.
+// Returns the parts if a valid split is found, otherwise nil.
+func trySplitConcatenated(kw string, allKeywords []string) []string {
+	lower := strings.ToLower(kw)
+	if len(lower) < 4 {
+		return nil
+	}
+	// Try each other keyword as a suffix or prefix.
+	for _, other := range allKeywords {
+		ol := strings.ToLower(other)
+		if ol == lower || len(ol) < 2 {
+			continue
+		}
+		// Check if kw = prefix + other
+		if strings.HasSuffix(lower, ol) {
+			prefix := lower[:len(lower)-len(ol)]
+			if len(prefix) >= 2 {
+				return []string{prefix, ol}
+			}
+		}
+		// Check if kw = other + suffix
+		if strings.HasPrefix(lower, ol) {
+			suffix := lower[len(ol):]
+			if len(suffix) >= 2 {
+				return []string{ol, suffix}
+			}
+		}
+	}
+	return nil
+}
+
+func nonEmpty(parts []string) []string {
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }
 
 // splitCamelCase splits "SubAgentRuntime" into ["Sub", "Agent", "Runtime"].
