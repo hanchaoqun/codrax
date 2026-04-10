@@ -35,6 +35,21 @@ func (stubSummarizer) Summarize(_ context.Context, t memory.Turn) (memory.IndexE
 
 func renderNothing(*types.BusContext) string { return "" }
 
+func newTestREPL(store *memory.Store, in *strings.Reader, out *bytes.Buffer) *REPL {
+	return New(Config{
+		Runner:     stubRunner{},
+		Store:      store,
+		Render:     renderNothing,
+		RepoRoot:   ".",
+		Branch:     "main",
+		In:         in,
+		Out:        out,
+		Prompt:     ">",
+		PromptCont: ".",
+		Banner:     "test-banner",
+	})
+}
+
 // TestClearPromptDeclined verifies that /clear's confirmation step
 // actually blocks the wipe when the user does not type 'y'. We
 // scripted "/clear\nn\n/exit\n" through stdin and check that the
@@ -53,7 +68,7 @@ func TestClearPromptDeclined(t *testing.T) {
 
 	in := strings.NewReader("/clear\nn\n/exit\n")
 	out := &bytes.Buffer{}
-	r := New(stubRunner{}, store, renderNothing, ".", "main", in, out)
+	r := newTestREPL(store, in, out)
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
@@ -82,7 +97,7 @@ func TestClearPromptAccepted(t *testing.T) {
 
 	in := strings.NewReader("/clear\ny\n/exit\n")
 	out := &bytes.Buffer{}
-	r := New(stubRunner{}, store, renderNothing, ".", "main", in, out)
+	r := newTestREPL(store, in, out)
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
@@ -117,12 +132,75 @@ func TestClearPromptShowsPeerCount(t *testing.T) {
 
 	in := strings.NewReader("/clear\nn\n/exit\n")
 	out := &bytes.Buffer{}
-	r := New(stubRunner{}, store, renderNothing, ".", "main", in, out)
+	r := newTestREPL(store, in, out)
 	if err := r.Loop(); err != nil {
 		t.Fatalf("Loop: %v", err)
 	}
 
 	if !strings.Contains(out.String(), "1 other live codrax instance") {
 		t.Errorf("expected peer-count warning, got:\n%s", out.String())
+	}
+}
+
+// TestMultilineInput verifies that lines ending with \ are joined
+// into a single multi-line request.
+func TestMultilineInput(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("hello \\\nworld\n/exit\n")
+	out := &bytes.Buffer{}
+	r := newTestREPL(store, in, out)
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	recent := store.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(recent))
+	}
+	if !strings.Contains(recent[0].Request, "hello") || !strings.Contains(recent[0].Request, "world") {
+		t.Errorf("expected multiline request with both parts, got: %q", recent[0].Request)
+	}
+	if !strings.Contains(recent[0].Request, "\n") {
+		t.Errorf("expected newline in multiline request, got: %q", recent[0].Request)
+	}
+	// Continuation prompt should appear in output.
+	if !strings.Contains(out.String(), ".") {
+		t.Errorf("expected continuation prompt in output")
+	}
+}
+
+// TestMultilineThreeLines verifies continuation across three lines.
+func TestMultilineThreeLines(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("aaa \\\nbbb \\\nccc\n/exit\n")
+	out := &bytes.Buffer{}
+	r := newTestREPL(store, in, out)
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	recent := store.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("expected 1 turn, got %d", len(recent))
+	}
+	req := recent[0].Request
+	if !strings.Contains(req, "aaa") || !strings.Contains(req, "bbb") || !strings.Contains(req, "ccc") {
+		t.Errorf("expected all three parts in request, got: %q", req)
+	}
+	// Should have exactly 2 newlines (3 lines joined).
+	if strings.Count(req, "\n") != 2 {
+		t.Errorf("expected 2 newlines in request, got %d in: %q", strings.Count(req, "\n"), req)
 	}
 }

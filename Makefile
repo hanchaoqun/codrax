@@ -24,7 +24,7 @@ GOFLAGS    ?=
 LDFLAGS    ?=
 VERSION    ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
-LD_VERSION := -X main.version=$(VERSION) -X main.buildTime=$(BUILD_TIME)
+LD_VERSION := -X github.com/hanchaoqun/codrax/cmd.version=$(VERSION) -X github.com/hanchaoqun/codrax/cmd.buildTime=$(BUILD_TIME)
 
 # Platform detection
 GOOS       ?= $(shell $(GO) env GOOS)
