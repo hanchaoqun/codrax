@@ -15,6 +15,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -61,8 +62,14 @@ func (l Level) String() string {
 
 const (
 	maxFileBytes  = 4 * 1024 * 1024 // 4 MiB per file before rotation
-	maxKeptFiles  = 6               // historical files kept (current + 6 = 7 total)
-	defaultName   = "codrax.log"
+	maxTotalFiles = 7               // total files kept in the log dir
+	filePrefix    = "codrax-"
+	fileSuffix    = ".log"
+	// fileTimeLayout is the timestamp embedded in each log filename.
+	// The layout sorts lexicographically the same way it sorts
+	// chronologically, so plain os.ReadDir + sort.Strings is enough
+	// to find the newest/oldest files.
+	fileTimeLayout = "20060102-150405-000"
 )
 
 // Logger is a leveled writer with optional stdout mirroring.
@@ -78,9 +85,14 @@ type Logger struct {
 	closed  bool
 }
 
-// NewFromFlags constructs a Logger writing to <dir>/codrax.log at the
-// given level. If mirrorStdout is true, every record is also written to
-// os.Stdout. The directory is created if missing.
+// NewFromFlags constructs a Logger writing to a timestamped file inside
+// dir at the given level. If mirrorStdout is true, every record is also
+// written to os.Stdout. The directory is created if missing.
+//
+// Filenames are of the form codrax-YYYYMMDD-HHMMSS-mmm.log. On startup
+// the newest existing file is reused if it is still under the size cap;
+// otherwise a fresh file is created. Old files are pruned so the
+// directory never holds more than maxTotalFiles entries.
 func NewFromFlags(dir, level string, mirrorStdout bool) (*Logger, error) {
 	if dir == "" {
 		dir = "logs"
@@ -88,7 +100,7 @@ func NewFromFlags(dir, level string, mirrorStdout bool) (*Logger, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create log dir: %w", err)
 	}
-	rw, err := newRotatingWriter(filepath.Join(dir, defaultName))
+	rw, err := newRotatingWriter(dir)
 	if err != nil {
 		return nil, err
 	}
@@ -174,27 +186,46 @@ func Warning(format string, args ...interface{}) { Default.Warning(format, args.
 func Info(format string, args ...interface{})    { Default.Info(format, args...) }
 func Debug(format string, args ...interface{})   { Default.Debug(format, args...) }
 
-// rotatingWriter is a size-bounded file writer. It tracks the current
-// file size and rotates by renaming the active file to .1, shifting
-// existing .1..N suffixes outward, and dropping anything beyond
-// maxKeptFiles. The current file is always at base path (no suffix).
+// rotatingWriter is a size-bounded file writer that names each file
+// after its creation timestamp:
+//
+//	codrax-YYYYMMDD-HHMMSS-mmm.log
+//
+// On startup the newest existing file is reused (appended to) if it
+// is still under the size cap; otherwise a fresh file is created with
+// the current timestamp. When a write would push the active file past
+// the cap, it closes the file, opens a new one, and prunes the
+// directory back to maxTotalFiles entries by deleting the oldest.
 type rotatingWriter struct {
-	path string
+	dir  string
 	f    *os.File
 	size int64
 }
 
-func newRotatingWriter(path string) (*rotatingWriter, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+func newRotatingWriter(dir string) (*rotatingWriter, error) {
+	files, err := listLogFiles(dir)
 	if err != nil {
-		return nil, fmt.Errorf("open log file: %w", err)
+		return nil, err
 	}
-	stat, err := f.Stat()
-	if err != nil {
-		_ = f.Close()
-		return nil, fmt.Errorf("stat log file: %w", err)
+
+	// Try to resume into the newest existing file if it has room.
+	if len(files) > 0 {
+		newest := files[len(files)-1]
+		stat, err := os.Stat(newest)
+		if err == nil && stat.Size() < maxFileBytes {
+			f, err := os.OpenFile(newest, os.O_WRONLY|os.O_APPEND, 0o644)
+			if err == nil {
+				return &rotatingWriter{dir: dir, f: f, size: stat.Size()}, nil
+			}
+		}
 	}
-	return &rotatingWriter{path: path, f: f, size: stat.Size()}, nil
+
+	// Otherwise open a fresh timestamped file.
+	w := &rotatingWriter{dir: dir}
+	if err := w.openNew(); err != nil {
+		return nil, err
+	}
+	return w, nil
 }
 
 func (w *rotatingWriter) Write(p []byte) (int, error) {
@@ -210,34 +241,78 @@ func (w *rotatingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
-// rotate closes the current file, shifts historical files outward by
-// one suffix, drops the oldest beyond maxKeptFiles, and reopens a fresh
-// file at the base path.
+// rotate closes the current file, opens a new timestamped one, and
+// prunes the directory back to the retention window.
 func (w *rotatingWriter) rotate() error {
 	if err := w.f.Close(); err != nil {
 		return err
 	}
-	// Remove the file that would fall off the retention window.
-	oldest := fmt.Sprintf("%s.%d", w.path, maxKeptFiles)
-	_ = os.Remove(oldest)
-	// Shift .N-1 -> .N, ..., .1 -> .2.
-	for i := maxKeptFiles - 1; i >= 1; i-- {
-		from := fmt.Sprintf("%s.%d", w.path, i)
-		to := fmt.Sprintf("%s.%d", w.path, i+1)
-		if _, err := os.Stat(from); err == nil {
-			_ = os.Rename(from, to)
-		}
-	}
-	// Active -> .1
-	_ = os.Rename(w.path, w.path+".1")
-
-	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
+	if err := w.openNew(); err != nil {
 		return err
+	}
+	pruneOldFiles(w.dir)
+	return nil
+}
+
+// openNew creates a new log file using the current timestamp. If a
+// file with that exact name already exists (e.g. two rotations within
+// the same millisecond), it appends a numeric suffix to make the name
+// unique.
+func (w *rotatingWriter) openNew() error {
+	base := filePrefix + time.Now().Format(fileTimeLayout)
+	path := filepath.Join(w.dir, base+fileSuffix)
+	for i := 1; ; i++ {
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			break
+		}
+		path = filepath.Join(w.dir, fmt.Sprintf("%s-%d%s", base, i, fileSuffix))
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return fmt.Errorf("open log file: %w", err)
 	}
 	w.f = f
 	w.size = 0
 	return nil
+}
+
+// listLogFiles returns absolute paths of all codrax-*.log files in dir,
+// sorted ascending so the newest is at the end. Non-matching entries
+// are ignored.
+func listLogFiles(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, fmt.Errorf("list log dir: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if strings.HasPrefix(name, filePrefix) && strings.HasSuffix(name, fileSuffix) {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	out := make([]string, len(names))
+	for i, n := range names {
+		out[i] = filepath.Join(dir, n)
+	}
+	return out, nil
+}
+
+// pruneOldFiles deletes the oldest log files until at most
+// maxTotalFiles remain in dir.
+func pruneOldFiles(dir string) {
+	files, err := listLogFiles(dir)
+	if err != nil {
+		return
+	}
+	for len(files) > maxTotalFiles {
+		_ = os.Remove(files[0])
+		files = files[1:]
+	}
 }
 
 func (w *rotatingWriter) Close() error {
