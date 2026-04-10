@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -110,41 +111,23 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	case 1:
 		return "Pick the most important claim in your answer that you have NOT yet verified with a tool call. Verify it now — read the relevant file or grep for the relevant symbol. If it holds, good; if not, correct your answer.", true
 	case 2:
-		return "This is your final turn. Write your COMPLETE answer now — it must incorporate ALL findings from your entire investigation, not just the last thing you checked. " +
-			"Restate the full answer from scratch, integrating everything you learned across all tool calls. " +
-			"This final message will be passed to downstream stages as your stage report, so it must be self-contained and comprehensive.", true
+		return "Final check. If your answer is genuinely complete and every key claim is backed by evidence, you may stop. If your last action revealed something that changes your answer, investigate further. If you still cannot answer part of the question, say so honestly.", true
 	default:
 		return "", false
 	}
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
-	// Find both the last assistant message and the longest one.
-	// The continuation mechanism can push the explorer to investigate
-	// further after an initial comprehensive answer. When that happens,
-	// the last message is often a brief note about the final check,
-	// while the best answer is an earlier, longer message. If the last
-	// message is less than half the length of the longest, use the
-	// longest — it's almost certainly the comprehensive synthesis.
-	var lastContent, longestContent string
+	// The last assistant message is always the synthesis response
+	// (produced by the SynthesizingEvaluator step in BaseAgent.Execute
+	// after the ReAct loop). If synthesis didn't run, fall back to the
+	// last assistant message from the investigation loop.
+	var lastContent string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "assistant" && messages[i].Content != "" {
-			if lastContent == "" {
-				lastContent = messages[i].Content
-			}
-			if len(messages[i].Content) > len(longestContent) {
-				longestContent = messages[i].Content
-			}
+			lastContent = messages[i].Content
+			break
 		}
-	}
-	// Prefer the longest message if the last one is a fragment.
-	// Also set StageReport here (instead of relying on BaseAgent's
-	// auto-capture which always picks the last message) so that the
-	// best comprehensive answer flows to downstream stages.
-	bestReport := lastContent
-	if len(longestContent) > 0 && len(lastContent) < len(longestContent)/2 {
-		lastContent = longestContent
-		bestReport = longestContent
 	}
 
 	// Extract facts from tool results. Each tool declares its own
@@ -190,7 +173,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
 		SignalUpdates: signals,
-		StageReport:   bestReport, // pre-set so BaseAgent.Execute skips auto-capture
 	}
 
 	// Retry hint states the failed condition only.
@@ -225,6 +207,50 @@ func (e *explorerEvaluator) toolConfidence(name string) float64 {
 		return 0.8
 	}
 	return t.Confidence()
+}
+
+// SynthesisPrompt implements SynthesizingEvaluator. After the ReAct
+// investigation loop ends, BaseAgent calls this to get a synthesis
+// prompt. The prompt includes a structured digest of all tool results
+// so the LLM can produce a comprehensive answer in clean context,
+// without the noise of intermediate summaries and continuation pushes.
+func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (string, bool) {
+	// Only synthesize if we have evidence-bearing results.
+	var evidenceResults []types.ToolResult
+	for _, r := range toolResults {
+		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
+			evidenceResults = append(evidenceResults, r)
+		}
+	}
+	if len(evidenceResults) == 0 {
+		return "", false
+	}
+
+	// Build a structured digest of all evidence tool results.
+	var digest strings.Builder
+	digest.WriteString("You have completed your investigation. Below is a structured digest of ALL evidence you collected.\n\n")
+	digest.WriteString("## User Question\n")
+	digest.WriteString(ctx.CurrentTask)
+	digest.WriteString("\n\n## Evidence Collected\n\n")
+
+	for i, r := range evidenceResults {
+		// Truncate very long results to keep the synthesis prompt focused.
+		summary := r.Summary
+		if len(summary) > 3000 {
+			summary = summary[:3000] + "\n... [truncated]"
+		}
+		fmt.Fprintf(&digest, "### [%d] %s\n```\n%s\n```\n\n", i+1, r.ToolName, summary)
+	}
+
+	digest.WriteString("## Instructions\n\n")
+	digest.WriteString("Based on ALL the evidence above, write a comprehensive answer to the user's question. Requirements:\n")
+	digest.WriteString("- Synthesize from the evidence, do not just list files\n")
+	digest.WriteString("- For architecture/flow questions: explain the mechanism, conditions, and branching logic — not just component names\n")
+	digest.WriteString("- Include a Mermaid diagram if the question asks for a flowchart or if a visual would clarify the answer\n")
+	digest.WriteString("- Ground every key claim in a file:line citation from the evidence\n")
+	digest.WriteString("- Match the answer depth to the question depth\n")
+
+	return digest.String(), true
 }
 
 // evidenceThresholds returns the minimum distinct evidence tool types

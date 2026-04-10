@@ -115,6 +115,33 @@ type ContinuingEvaluator interface {
 	ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (prompt string, shouldContinue bool)
 }
 
+// SynthesizingEvaluator is an optional interface for agents that need
+// a dedicated synthesis step after the ReAct investigation loop. When
+// the loop ends, BaseAgent.Execute checks whether the evaluator
+// implements this interface and, if so, makes one final LLM call with
+// a synthesis prompt to produce a clean, comprehensive StageReport.
+//
+// This cleanly separates investigation (the ReAct loop, where the LLM
+// alternates between tool calls and thinking-aloud text) from synthesis
+// (one focused call that reads all tool results and produces the final
+// answer). Without this separation, the StageReport is whichever
+// assistant message happened to be last — which after continuation
+// pushes is often a brief fragment, not the comprehensive answer.
+//
+// The synthesis prompt receives all tool results so it can build a
+// structured digest. The returned prompt is injected as a user message
+// in a fresh two-message sequence (system + user) — NOT appended to
+// the investigation conversation — so the LLM gets a clean context
+// without the noise of intermediate summaries and continuation pushes.
+type SynthesizingEvaluator interface {
+	// SynthesisPrompt returns the prompt for the final synthesis call.
+	// toolResults contains every successful tool result from the ReAct
+	// loop. The bool return indicates whether synthesis should run;
+	// returning false skips it (e.g., when the agent already produced
+	// a satisfactory answer during the loop).
+	SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (prompt string, shouldSynthesize bool)
+}
+
 // NewBaseAgent creates a new BaseAgent.
 func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *BaseAgent {
 	maxIter := deps.MaxIterations
@@ -272,6 +299,36 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Role:       "tool",
 					Content:    mcpResp.Summary,
 					ToolCallID: tc.ID,
+				})
+			}
+		}
+	}
+
+	// Synthesis step: if the evaluator separates investigation from
+	// synthesis, make one clean LLM call to produce the final answer.
+	// This runs BEFORE ParseOutput so the synthesis response is part
+	// of the message history that ParseOutput processes.
+	if s, ok := b.eval.(SynthesizingEvaluator); ok {
+		if prompt, shouldSynthesize := s.SynthesisPrompt(ctx, allToolResults); shouldSynthesize {
+			logging.Debug("[diag %s] SYNTHESIS prompt len=%d", b.name, len(prompt))
+
+			// Build a fresh two-message sequence: reuse the system
+			// prompt from the investigation but replace the conversation
+			// with a focused synthesis prompt. This gives the LLM clean
+			// context without the noise of intermediate summaries.
+			synthMessages := []llm.Message{
+				messages[0], // system prompt
+				{Role: "user", Content: prompt},
+			}
+
+			synthResp, err := b.deps.LLM.Chat(synthMessages, nil)
+			if err != nil {
+				logging.Debug("[diag %s] SYNTHESIS failed: %v", b.name, err)
+			} else if synthResp.Content != "" {
+				logging.Debug("[diag %s] SYNTHESIS result len=%d", b.name, len(synthResp.Content))
+				messages = append(messages, llm.Message{
+					Role:    "assistant",
+					Content: synthResp.Content,
 				})
 			}
 		}
