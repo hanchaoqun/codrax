@@ -264,6 +264,159 @@ func TestGrepTool(t *testing.T) {
 		}
 	})
 
+	// ERE regex tests: LLMs write ERE/PCRE patterns naturally.
+	// Without -E, grep uses BRE where ?, +, {}, () are literal.
+
+	t.Run("ERE question-mark quantifier", func(t *testing.T) {
+		// Regression: "sub[-]?agent" matched literal "sub-?agent" in BRE
+		// instead of "subagent" or "sub-agent" as the LLM intended.
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "code.go")
+		content := "type SubAgent struct{}\nfunc NewSub_Agent() {}\nvar sub_agent = 1\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "sub[-_]?agent", Path: tmpDir})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "SubAgent") {
+			t.Fatalf("expected ? quantifier to match SubAgent (zero separator), got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "sub_agent") {
+			t.Fatalf("expected ? quantifier to match sub_agent (underscore separator), got: %s", result.Summary)
+		}
+	})
+
+	t.Run("ERE plus quantifier", func(t *testing.T) {
+		// LLMs use + for "one or more", e.g. "func\\s+\\w+"
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "code.go")
+		content := "func Run() {}\nfunc  Execute() {}\nfuncNope() {}\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: `func +[A-Z]`, Path: tmpDir})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		// + means one or more spaces: "func Run" and "func  Execute" match
+		if !strings.Contains(result.Summary, "func Run") {
+			t.Fatalf("expected + to match 'func Run', got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "func  Execute") {
+			t.Fatalf("expected + to match 'func  Execute', got: %s", result.Summary)
+		}
+		// "funcNope" has zero spaces — should NOT match
+		if strings.Contains(result.Summary, "funcNope") {
+			t.Fatalf("+ should require at least one space, but matched funcNope: %s", result.Summary)
+		}
+	})
+
+	t.Run("ERE alternation with parentheses", func(t *testing.T) {
+		// LLMs use (a|b) for alternation
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "code.go")
+		content := "var ErrorNotFound = 1\nvar ErrorTimeout = 2\nvar WarningDeprecated = 3\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: `(NotFound|Timeout)`, Path: tmpDir})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "ErrorNotFound") {
+			t.Fatalf("expected alternation to match ErrorNotFound, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "ErrorTimeout") {
+			t.Fatalf("expected alternation to match ErrorTimeout, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "WarningDeprecated") {
+			t.Fatalf("alternation should not match WarningDeprecated, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("ERE brace repetition", func(t *testing.T) {
+		// LLMs use {n,m} for bounded repetition, e.g. "[0-9]{2,4}"
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "data.txt")
+		content := "id: 1\nid: 42\nid: 123\nid: 9999\nid: 55555\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: `[0-9]{2,4}`, Path: tmpDir})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		// {2,4} should match 2-4 digit numbers
+		if !strings.Contains(result.Summary, "42") {
+			t.Fatalf("expected {2,4} to match 42, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "123") {
+			t.Fatalf("expected {2,4} to match 123, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "9999") {
+			t.Fatalf("expected {2,4} to match 9999, got: %s", result.Summary)
+		}
+		// "1" is only 1 digit — should NOT match
+		if strings.Contains(result.Summary, "id: 1\n") {
+			t.Fatalf("{2,4} should not match single digit, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("ERE works with files_only mode", func(t *testing.T) {
+		// Verify ERE is active in -rl mode too (Phase 1 breadth scan)
+		tmpDir := t.TempDir()
+		f1 := filepath.Join(tmpDir, "match.go")
+		f2 := filepath.Join(tmpDir, "nomatch.go")
+		if err := os.WriteFile(f1, []byte("type SubAgent struct{}\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(f2, []byte("type Config struct{}\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "sub[-_]?agent", Path: tmpDir, FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "match.go") {
+			t.Fatalf("expected files_only + ERE to list match.go, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "nomatch.go") {
+			t.Fatalf("files_only should not list nomatch.go, got: %s", result.Summary)
+		}
+	})
+
 	t.Run("grep no match", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		tmpFile := filepath.Join(tmpDir, "empty_match.txt")

@@ -169,9 +169,14 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		caseInsensitive = !strings.ContainsAny(p.Pattern, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	}
 
-	args := []string{"-rn"}
+	// Use -E (extended regex) so ERE quantifiers (?, +, {n,m}) work as
+	// the LLM expects. Without -E, grep runs BRE where ? and + are
+	// literal characters, causing patterns like "sub[-]?agent" to match
+	// "sub-?agent" instead of "subagent" or "sub-agent". LLMs
+	// universally write ERE/PCRE-style patterns; BRE is never intended.
+	args := []string{"-rnE"}
 	if p.FilesOnly {
-		args = []string{"-rl"}
+		args = []string{"-rlE"}
 	}
 	if caseInsensitive {
 		args = append(args, "-i")
