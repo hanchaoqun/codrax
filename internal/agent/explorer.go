@@ -41,15 +41,20 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		results := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
-			// Save high-scoring files for coverage tracking in Phase 2.
-			// Use a score threshold (40% of max) instead of a fixed top-N
-			// to adapt to different score distributions.
-			if len(results) > 0 {
-				threshold := results[0].Score * 0.4
-				for _, r := range results {
-					if r.Score >= threshold {
-						e.preScannedFiles = append(e.preScannedFiles, r.Path)
-					}
+			// Save files with repo_map structural relevance for coverage
+			// tracking in Phase 2. Only files that matched the query in
+			// repo_map (not just grep text hits) are tracked — this
+			// filters out infrastructure files. Cap at 8 files to stay
+			// within the iteration budget (20 iters / 2 per file = 10,
+			// minus Phase 1 overhead).
+			count := 0
+			for _, r := range results {
+				if count >= 8 {
+					break
+				}
+				if r.Hits["repo_map"] != "" {
+					e.preScannedFiles = append(e.preScannedFiles, r.Path)
+					count++
 				}
 			}
 		} else {
@@ -135,7 +140,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"**Important:** Read ONE file at a time, then analyze it before reading the next. " +
 			"Do not read multiple large files in one batch — you will lose detail. " +
 			"Small files (<100 lines) can be read in the same batch.\n\n" +
-			"Trace through conditionals: when you find 'only if X matches Y', identify what X and Y are concretely. " +
+			"**Condition chase:** when you find 'only if X matches Y', don't stop at the condition — find what X and Y are concretely in the code (registrations, initializations, config values). " +
 			"Do NOT just catalog structures — answer the question.\n\n" +
 			"Start by reading the most important file now.", true
 	}
@@ -392,6 +397,8 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	digest.WriteString("- Synthesize from your analysis, do not just list files or component names\n")
 	digest.WriteString("- For architecture/flow questions: explain the mechanism, conditions, and branching logic\n")
 	digest.WriteString("- Trace through the code to identify SPECIFIC answers (e.g. which exact agent, not 'any agent that meets conditions')\n")
+	digest.WriteString("- **Condition chase:** when your notes say 'X happens if condition Y is met', find the concrete value of Y in your notes. " +
+		"Do not stop at 'any component that satisfies the condition' — trace through registrations, initializations, and config to identify WHICH specific components actually satisfy it right now\n")
 	digest.WriteString("- Ground every key claim in a file:line citation\n")
 	digest.WriteString("- Match the answer depth to the question depth\n")
 
