@@ -84,6 +84,17 @@ func languageDirective(lang string) string {
 	}
 }
 
+// diagramDirective is a global preference injected into every agent's
+// prompt. It teaches agents to use Mermaid fenced code blocks for
+// visual representations when the answer benefits from them.
+const diagramDirective = `When a visual representation would clarify your answer, use Mermaid diagrams inside fenced code blocks (` + "```mermaid" + ` ... ` + "```" + `). Choose the diagram type that best fits the content:
+- Flowchart (graph TD/LR) for control flow, decision trees, pipeline stages
+- Sequence diagram (sequenceDiagram) for call chains, request/response flows, multi-component interactions
+- Class diagram (classDiagram) for type hierarchies, struct relationships, interface implementations
+- State diagram (stateDiagram-v2) for state machines, lifecycle transitions
+- Standard Markdown tables for structured comparisons, field listings, configuration summaries
+Use diagrams only when they add clarity — not every answer needs one. Keep diagrams concise: collapse trivial nodes, omit boilerplate, and label edges.`
+
 // Run executes the full pipeline for a user request.
 //
 // The pipeline runs in two phases:
@@ -124,6 +135,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	if pref := languageDirective(o.language); pref != "" {
 		o.busCtx.Preferences = append(o.busCtx.Preferences, pref)
 	}
+	o.busCtx.Preferences = append(o.busCtx.Preferences, diagramDirective)
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 

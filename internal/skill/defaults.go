@@ -96,7 +96,29 @@ The cache key format is "<resource>:<id>" and the default TTL is 5 minutes. Evic
 Evidence:
 - internal/cache/cache.go:42-58 — Set() invalidates the key after the DB write returns
 - internal/cache/cache.go:78-91 — Get() falls through to the DB on miss but does not write back
-- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute`,
+- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute
+
+Example D — architecture/flow question (use a Mermaid diagram when a visual clarifies relationships or sequences):
+Answer: A write request flows through three layers before reaching the database:
+
+` + "```mermaid" + `
+sequenceDiagram
+    participant C as Client
+    participant H as Handler
+    participant CA as Cache
+    participant DB as Database
+    C->>H: PUT /api/v1/users/42
+    H->>DB: UPDATE users SET ...
+    DB-->>H: ok
+    H->>CA: invalidate("users:42")
+    H-->>C: 200 OK
+` + "```" + `
+
+The handler always writes to the database first. Only after the DB confirms success does it invalidate the cache key.
+
+Evidence:
+- internal/handler/user.go:87-102 — UpdateUser calls repo.Save then cache.Invalidate
+- internal/cache/cache.go:42-58 — Invalidate deletes the key, next Get repopulates from DB`,
 		Prohibitions: []string{
 			"do not modify any files",
 			"do not make assumptions without evidence",
@@ -233,7 +255,10 @@ Evidence:
 			"mark tasks complete",
 		},
 		ToolSuggestions: []string{},
-		OutputFormat:    "Markdown with summary, changes, instructions",
+		OutputFormat: "Markdown with summary, changes, and instructions. " +
+			"Use tables for structured data (file lists, config comparisons). " +
+			"Use Mermaid diagrams (```mermaid) when a visual would clarify architecture, " +
+			"data flow, or sequence of operations.",
 		Prohibitions: []string{
 			"do not introduce new changes",
 			"do not omit failures or warnings",
@@ -302,7 +327,29 @@ The cache key format is "<resource>:<id>" and the default TTL is 5 minutes. Evic
 **Evidence:**
 - internal/cache/cache.go:42-58 — Set() invalidates the key after the DB write returns
 - internal/cache/cache.go:78-91 — Get() falls through to the DB on miss but does not write back
-- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute`,
+- internal/cache/cache.go:14 — DefaultTTL = 5*time.Minute
+
+Example D — architecture/flow question (use a Mermaid diagram when a visual clarifies relationships or sequences):
+**Answer:** A write request flows through three layers before reaching the database:
+
+` + "```mermaid" + `
+sequenceDiagram
+    participant C as Client
+    participant H as Handler
+    participant CA as Cache
+    participant DB as Database
+    C->>H: PUT /api/v1/users/42
+    H->>DB: UPDATE users SET ...
+    DB-->>H: ok
+    H->>CA: invalidate("users:42")
+    H-->>C: 200 OK
+` + "```" + `
+
+The handler always writes to the database first. Only after the DB confirms success does it invalidate the cache key. This guarantees that a crash between the two steps leaves stale-but-safe data in the cache rather than new data in the cache with an uncommitted DB row.
+
+**Evidence:**
+- internal/handler/user.go:87-102 — UpdateUser calls repo.Save then cache.Invalidate
+- internal/cache/cache.go:42-58 — Invalidate deletes the key, next Get repopulates from DB`,
 		Prohibitions: []string{
 			"do not invent next steps the user did not ask for",
 			"do not write 'usage instructions' or 'action steps' for a question that asked for an answer rather than for changes",
