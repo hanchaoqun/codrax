@@ -41,15 +41,16 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		results := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
-			// Save top files for coverage tracking in Phase 2.
-			// The continuation prompt will flag these as unread if
-			// the LLM skips them.
-			top := 10
-			if top > len(results) {
-				top = len(results)
-			}
-			for _, r := range results[:top] {
-				e.preScannedFiles = append(e.preScannedFiles, r.Path)
+			// Save high-scoring files for coverage tracking in Phase 2.
+			// Use a score threshold (40% of max) instead of a fixed top-N
+			// to adapt to different score distributions.
+			if len(results) > 0 {
+				threshold := results[0].Score * 0.4
+				for _, r := range results {
+					if r.Score >= threshold {
+						e.preScannedFiles = append(e.preScannedFiles, r.Path)
+					}
+				}
 			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
