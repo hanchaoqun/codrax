@@ -25,6 +25,14 @@ type TaskItem struct {
 	// this flag, so operators can force review for an entire Run.
 	HighRisk bool `json:"high_risk" yaml:"high_risk"`
 
+	// Complexity indicates the investigation depth the task requires.
+	// Set by the analyzer to guide the explorer's evidence thresholds:
+	//   "simple"  — lookup / yes-no / count (low threshold)
+	//   "moderate" — single-component explanation (medium threshold)
+	//   "complex" — cross-component architecture / flow (high threshold)
+	// Empty string is treated as "moderate" (the default).
+	Complexity string `json:"complexity,omitempty" yaml:"complexity,omitempty"`
+
 	Status TaskStatus `json:"status" yaml:"status"`
 	Result string     `json:"result,omitempty" yaml:"result,omitempty"`
 }

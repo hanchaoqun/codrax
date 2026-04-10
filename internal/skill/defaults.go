@@ -19,8 +19,11 @@ func RegisterDefaults(r *Registry) {
 		},
 		OutputFormat: `Call the todo_write tool with the decomposed task list. For each task set: ` +
 			`title (short user-facing label), writing (true if the task may modify files, ` +
-			`false for read-only / question-answering work), and high_risk (true only for ` +
-			`writing tasks that touch security-sensitive code, schemas, or irreversible ops). ` +
+			`false for read-only / question-answering work), high_risk (true only for ` +
+			`writing tasks that touch security-sensitive code, schemas, or irreversible ops), ` +
+			`and complexity — one of: "simple" (lookup, count, yes/no — answer lives in 1-2 files), ` +
+			`"moderate" (single-component explanation — needs 3-5 files), or ` +
+			`"complex" (cross-component architecture, flow walkthrough, comparison — needs 6+ files). ` +
 			`After todo_write succeeds, briefly explain your classification in plain text.`,
 		Prohibitions: []string{
 			"do not make assumptions about code structure",
@@ -33,10 +36,11 @@ func RegisterDefaults(r *Registry) {
 		Name: "repo-explore-skill",
 		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
 		Workflow: []string{
-			"form a hypothesis about where the answer lives",
-			"read the code or run the commands needed to verify it",
+			"orient first: use repo_map or list_files to get a high-level view of the relevant modules, then form a specific investigation plan — list which files you need to read and what you expect to learn from each",
+			"execute the plan systematically: read the files in dependency order (config/types first, then logic, then callers), don't skip ahead to the answer",
 			"if you surface a name that looks load-bearing (a function, type, symbol, config key), open it before drawing conclusions — a name is a hypothesis to verify, not an answer",
-			"iterate until you have a specific answer, not a description of where someone else could find it",
+			"cross-reference: when file A references file B, read file B too — don't assume, verify",
+			"iterate until you have a specific answer with evidence from every key file involved, not a description of where someone else could find it",
 			"record the answer alongside the evidence (file:line) that supports it",
 		},
 		ToolSuggestions: []string{

@@ -33,6 +33,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ac.CurrentTask = task.Title
 		ac.CurrentTaskWriting = task.Writing
 		ac.CurrentTaskHighRisk = task.HighRisk
+		ac.CurrentTaskComplexity = task.Complexity
 	}
 
 	// Collect relevant facts

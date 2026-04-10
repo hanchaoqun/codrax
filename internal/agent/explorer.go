@@ -11,19 +11,26 @@ import (
 )
 
 type explorerEvaluator struct {
-	tools *tool.Registry
+	tools      *tool.Registry
+	complexity string // set from AgentContext.CurrentTaskComplexity at dispatch time
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	return "Explore the codebase to build a trusted factual foundation. Use the available tools to find entry points, understand module structure, and identify relevant files.\n\n" +
-		"Strategy hints:\n" +
-		"- Prefer [high-confidence evidence] tools (grep, read_file, exec_command, …) — they read the real codebase and their results count as citable evidence.\n" +
-		"- You must use at least 2 distinct evidence tool types AND make at least 4 evidence tool calls before concluding. Investigate thoroughly — read multiple files, cross-reference findings.\n" +
-		"- Navigation tools (repo_map) are useful for orientation but do NOT count as evidence — always follow up with an evidence tool to verify.\n" +
-		"- Prefer targeted tools (grep with --include, read_file with offset/limit) over broad listings.\n" +
-		"- Avoid recursive list_files on the repository root.\n" +
-		"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command.\n" +
-		"- For architecture or explanation questions, make sure to read all the key files involved — a shallow peek at one file is not enough."
+	// Capture complexity for use in ContinuationPrompt and ParseOutput,
+	// which don't receive the AgentContext.
+	e.complexity = ctx.CurrentTaskComplexity
+	minTypes, minCalls := evidenceThresholds(e.complexity)
+	return fmt.Sprintf(
+		"Explore the codebase to build a trusted factual foundation. Use the available tools to find entry points, understand module structure, and identify relevant files.\n\n"+
+			"Investigation depth for this task: %s (minimum %d distinct evidence tool types, %d evidence tool calls).\n\n"+
+			"Strategy hints:\n"+
+			"- Prefer [high-confidence evidence] tools (grep, read_file, exec_command, …) — they read the real codebase and their results count as citable evidence.\n"+
+			"- Navigation tools (repo_map) are useful for orientation but do NOT count as evidence — always follow up with an evidence tool to verify.\n"+
+			"- Prefer targeted tools (grep with --include, read_file with offset/limit) over broad listings.\n"+
+			"- Avoid recursive list_files on the repository root.\n"+
+			"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command.\n"+
+			"- For architecture or explanation questions, make sure to read all the key files involved — a shallow peek at one file is not enough.",
+		complexityLabel(ctx.CurrentTaskComplexity), minTypes, minCalls)
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -40,32 +47,23 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // stops without doing it, because the BaseAgent's default soft-stop
 // rule treats any content-only turn as completion.
 //
-// Evidence gate: the explorer must cross two floors before it may
-// stop — at least 2 distinct evidence-tool types AND at least 4
-// total evidence-tool calls. Until both are met, every soft-stop is
-// rejected unconditionally. The type floor prevents trivial
-// satisfaction (one grep and done); the call-count floor prevents
-// shallow sweeps (one grep + one read_file on the same spot).
+// Evidence gate: complexity-adaptive. The thresholds scale with the
+// task's declared complexity (simple/moderate/complex). Until both
+// the type floor and call-count floor are met, every soft-stop is
+// rejected unconditionally.
 //
 // Once the evidence gate is passed, a budget of 3 differentiated
 // pushes applies:
 //
-//   - Push 0 — self-audit: "review your own answer against the
-//     original question — are all aspects covered?" This catches
-//     premature conclusions where the LLM answered part of the
-//     question and forgot the rest.
+//   - Push 0 — gap analysis: list what aspects of the question are
+//     NOT yet covered, then investigate the biggest gap.
 //
-//   - Push 1 — verify: "check at least one claim you haven't
-//     verified with a tool yet." This catches confident-but-wrong
-//     assertions that were inferred rather than observed.
+//   - Push 1 — verify: check the most important unverified claim.
 //
-//   - Push 2 — final escape: "if after all this you still believe
-//     your answer is complete, state it. Otherwise try a different
-//     approach or honestly say you don't know."
+//   - Push 2 — final escape: state the answer or honestly say what
+//     is missing.
 //
-// The fourth soft-stop is accepted unconditionally. The prompts
-// deliberately do NOT prescribe which tool to use; that depends on
-// the question and is the LLM's job.
+// The fourth soft-stop is accepted unconditionally.
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
 	// Count evidence-bearing tool calls and distinct source types.
 	evidenceSources := make(map[string]struct{})
@@ -77,8 +75,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
-	minTypes := 2
-	minCalls := 4
+	minTypes, minCalls := evidenceThresholds(e.complexity)
 	hasEnoughEvidence := len(evidenceSources) >= minTypes && evidenceCalls >= minCalls
 
 	if !hasEnoughEvidence {
@@ -99,7 +96,9 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// Evidence gate met — graduated continuation budget.
 	switch continuationCount {
 	case 0:
-		return "Before concluding, self-audit: re-read the original question and check whether your answer covers ALL aspects it asked about. If any part is unaddressed or only superficially covered, investigate that part now. Do not stop until every aspect of the question has evidence behind it.", true
+		// 方向 4: structured gap analysis — force the LLM to enumerate
+		// uncovered aspects before it may stop.
+		return "Before concluding, perform a gap analysis: (1) list every distinct aspect/sub-question the user asked about, (2) next to each, note whether you have tool-verified evidence for it or not, (3) if any aspect is marked 'no', investigate it now. Do not stop until every aspect has evidence.", true
 	case 1:
 		return "Pick the most important claim in your answer that you have NOT yet verified with a tool call. Verify it now — read the relevant file or grep for the relevant symbol. If it holds, good; if not, correct your answer.", true
 	case 2:
@@ -146,18 +145,16 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// HasEnoughFacts requires two conditions: at least 2 distinct
-	// evidence-bearing tool types AND at least 4 total evidence
-	// tool calls. The type floor ensures breadth (grep + read_file,
-	// not just one tool repeated); the call-count floor ensures
-	// depth (actually reading multiple locations, not one peek).
+	// HasEnoughFacts is complexity-adaptive: thresholds scale with
+	// the task's declared complexity (simple/moderate/complex).
 	evidenceCalls := 0
 	for _, r := range toolResults {
 		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
 			evidenceCalls++
 		}
 	}
-	signals := &types.ExecutionSignals{HasEnoughFacts: len(sources) >= 2 && evidenceCalls >= 4}
+	minTypes, minCalls := evidenceThresholds(e.complexity)
+	signals := &types.ExecutionSignals{HasEnoughFacts: len(sources) >= minTypes && evidenceCalls >= minCalls}
 
 	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
@@ -165,16 +162,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		SignalUpdates: signals,
 	}
 
-	// Retry hint states the failed condition only. It deliberately
-	// does not prescribe which tool to use next or what to call it
-	// on; that depends on the question and is the LLM's job. The
-	// hint exists so a self-looped attempt knows what changed
-	// between dispatches, not so it gets a recipe.
+	// Retry hint states the failed condition only.
 	if !signals.HasEnoughFacts {
-		if len(sources) < 2 {
-			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. The next attempt must use at least 2 different tools — choose them based on what the question actually needs."
+		if len(sources) < minTypes {
+			out.RetryHint = fmt.Sprintf("Previous attempt used only %d distinct evidence tool type(s) (need %d). The next attempt must use more different tools.", len(sources), minTypes)
 		} else {
-			out.RetryHint = fmt.Sprintf("Previous attempt made only %d evidence tool call(s) (need at least 4). The next attempt must investigate more thoroughly — read more files, grep for more patterns.", evidenceCalls)
+			out.RetryHint = fmt.Sprintf("Previous attempt made only %d evidence tool call(s) (need %d for %s complexity). The next attempt must investigate more thoroughly — read more files, grep for more patterns.", evidenceCalls, minCalls, complexityLabel(e.complexity))
 		}
 	}
 
@@ -201,6 +194,34 @@ func (e *explorerEvaluator) toolConfidence(name string) float64 {
 		return 0.8
 	}
 	return t.Confidence()
+}
+
+// evidenceThresholds returns the minimum distinct evidence tool types
+// and minimum total evidence tool calls for a given complexity level.
+// These thresholds gate both ContinuationPrompt (ReAct-loop level)
+// and HasEnoughFacts (stage-level retry signal).
+func evidenceThresholds(complexity string) (minTypes, minCalls int) {
+	switch complexity {
+	case "simple":
+		return 2, 2
+	case "complex":
+		return 2, 8
+	default: // "moderate" or empty
+		return 2, 4
+	}
+}
+
+// complexityLabel returns a human-readable label for logging and
+// prompt messages. Empty string defaults to "moderate".
+func complexityLabel(complexity string) string {
+	switch complexity {
+	case "simple":
+		return "simple"
+	case "complex":
+		return "complex"
+	default:
+		return "moderate"
+	}
 }
 
 // NewExplorerAgent creates the explorer agent (used in explore stage).

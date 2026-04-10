@@ -36,6 +36,7 @@ type todoWriteTaskParam struct {
 	Description string `json:"description,omitempty"`
 	Writing     bool   `json:"writing,omitempty"`
 	HighRisk    bool   `json:"high_risk,omitempty"`
+	Complexity  string `json:"complexity,omitempty"`
 	Status      string `json:"status,omitempty"`
 }
 
@@ -63,6 +64,7 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "description": {"type": "string", "description": "Optional details"},
           "writing":     {"type": "boolean", "description": "True if this task may mutate files (picks an implementation-class policy)"},
           "high_risk":   {"type": "boolean", "description": "True if this task needs design/code review (only meaningful when writing is true)"},
+          "complexity":  {"type": "string", "enum": ["simple", "moderate", "complex"], "description": "Investigation depth: simple (lookup/count), moderate (single-component), complex (cross-component architecture). Defaults to moderate if omitted."},
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
@@ -158,6 +160,7 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 			Description: strings.TrimSpace(r.Description),
 			Writing:     r.Writing,
 			HighRisk:    r.HighRisk,
+			Complexity:  normalizeComplexity(r.Complexity),
 			Status:      normalizeTodoStatus(r.Status),
 		})
 	}
@@ -198,6 +201,19 @@ func normalizeTodoStatus(s string) types.TaskStatus {
 		return types.TaskFailed
 	default:
 		return types.TaskPending
+	}
+}
+
+// normalizeComplexity maps LLM-produced complexity strings to canonical
+// values. Unknown values fall back to "moderate".
+func normalizeComplexity(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "simple", "easy", "trivial":
+		return "simple"
+	case "complex", "hard", "deep":
+		return "complex"
+	default:
+		return "moderate"
 	}
 }
 
