@@ -289,8 +289,9 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 // ---------- helpers ----------
 
 // Patterns to strip agent-internal labels from user-facing output.
-var reAgentLabels = regexp.MustCompile(`(?m)^(\*\*)?(Answer|Evidence|Caveat)(\*\*)?:\s*$`)
-var reAgentLabelInline = regexp.MustCompile(`(?m)^(\*\*)?(Answer|Evidence|Caveat)(\*\*)?:\s*`)
+// Handles all bold/colon arrangements: "Answer:", "**Answer:**", "**Answer**:"
+var reAgentLabels = regexp.MustCompile(`(?m)^(\*\*)?(Answer|Evidence|Caveat)(:\*\*|\*\*:|:)\s*$`)
+var reAgentLabelInline = regexp.MustCompile(`(?m)^(\*\*)?(Answer|Evidence|Caveat)(:\*\*|\*\*:|:)\s*`)
 
 // stripAgentLabels removes "Answer:", "Evidence:", "Caveat:" labels
 // (plain or **bold** markdown) from agent output.
