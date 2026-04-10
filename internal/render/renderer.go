@@ -231,6 +231,8 @@ func (r *Renderer) onToolCallStart(ev Event) {
 }
 
 func (r *Renderer) onToolCallEnd(ev Event) {
+	r.spinner.Stop()
+
 	rec := toolCallRecord{
 		Name:     ev.ToolName,
 		OK:       ev.ToolOK,
@@ -340,17 +342,23 @@ func (r *Renderer) onTaskListUpdated(ev Event) {
 }
 
 func (r *Renderer) onTaskStatusChanged(ev Event) {
+	r.spinner.Stop()
+
 	icon := r.s.TaskIcon(ev.TaskStatus)
 	r.writef("  %s %s %s %s\n",
 		r.s.Bullet(),
 		icon,
 		ev.TaskTitle,
 		r.s.Dim(fmt.Sprintf("[%s]", ev.TaskStatus)))
+
+	r.spinner.Start("working...")
 }
 
 // --- Transition ---
 
 func (r *Renderer) onTransition(ev Event) {
+	r.spinner.Stop()
+
 	r.writef("  %s %s %s %s\n",
 		r.s.Dim("  "),
 		r.s.Stage(ev.FromStage),
@@ -361,6 +369,8 @@ func (r *Renderer) onTransition(ev Event) {
 // --- Skill ---
 
 func (r *Renderer) onSkillBound(ev Event) {
+	r.spinner.Stop()
+
 	r.writef("  %s skill: %s\n", r.s.Bullet(), r.s.BrightBlue(ev.Skill))
 }
 
@@ -461,8 +471,8 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 				icon := s.TaskIcon(item.Status)
 				b.WriteString(fmt.Sprintf("\n  %s %s\n", icon, s.Bold(item.Title)))
 				if item.Result != "" {
-					// Indent each line of result.
-					for _, line := range strings.Split(strings.TrimRight(item.Result, "\n"), "\n") {
+					rendered := s.renderMarkdown(strings.TrimRight(item.Result, "\n"))
+					for _, line := range strings.Split(rendered, "\n") {
 						b.WriteString(fmt.Sprintf("    %s\n", line))
 					}
 				} else {
@@ -537,11 +547,15 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 // --- helpers ---
 
 func (r *Renderer) writef(format string, args ...interface{}) {
+	r.spinner.writeMu.Lock()
 	fmt.Fprintf(r.out, format, args...)
+	r.spinner.writeMu.Unlock()
 }
 
 func (r *Renderer) writeln(s string) {
+	r.spinner.writeMu.Lock()
 	fmt.Fprintln(r.out, s)
+	r.spinner.writeMu.Unlock()
 }
 
 func truncMsg(s string, n int) string {

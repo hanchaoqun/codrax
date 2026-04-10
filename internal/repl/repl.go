@@ -59,11 +59,11 @@ func New(runner Runner, store *memory.Store, render ResultRenderer, repoRoot, br
 func (r *REPL) Loop() error {
 	r.banner()
 	for {
-		fmt.Fprint(r.out, "You> ")
+		fmt.Fprint(r.out, "INPUT> ")
 		line, err := r.in.ReadString('\n')
 		if errors.Is(err, io.EOF) {
 			fmt.Fprintln(r.out)
-			fmt.Fprintln(r.out, "Codrax> bye")
+			fmt.Fprintln(r.out, "CODRAX> bye")
 			return nil
 		}
 		if err != nil {
@@ -85,7 +85,7 @@ func (r *REPL) Loop() error {
 }
 
 func (r *REPL) banner() {
-	fmt.Fprintln(r.out, "codrax interactive mode — type /help for commands, /exit to quit.")
+	fmt.Fprintln(r.out, "CODRAX interactive mode — type /help for commands, /exit to quit.")
 }
 
 // dispatch runs one user request through the orchestrator and prints
@@ -101,7 +101,7 @@ func (r *REPL) dispatch(line string) {
 	busCtx, err := r.runner.Run(effective, r.repoRoot, r.branch)
 	if err != nil {
 		logging.Error("[repl] orchestrator error: %v", err)
-		fmt.Fprintf(r.out, "\nCodrax> error: %v\n\n", err)
+		fmt.Fprintf(r.out, "\nCODRAX> error: %v\n\n", err)
 		return
 	}
 
@@ -110,7 +110,7 @@ func (r *REPL) dispatch(line string) {
 	// and post-mortems do not have to scrape stdout. Info level so it
 	// survives the default log level without needing -log-level debug.
 	logging.Info("[repl] final answer:\n%s", response)
-	fmt.Fprintf(r.out, "\nCodrax> %s\n\n", response)
+	fmt.Fprintf(r.out, "\nCODRAX> %s\n\n", response)
 
 	turn := memory.Turn{
 		ID:        fmt.Sprintf("turn-%d", time.Now().UnixNano()),
@@ -128,7 +128,7 @@ func (r *REPL) handleSlash(line string) bool {
 	cmd := strings.Fields(line)[0]
 	switch cmd {
 	case "/exit", "/quit":
-		fmt.Fprintln(r.out, "Codrax> bye")
+		fmt.Fprintln(r.out, "CODRAX> bye")
 		return true
 	case "/clear":
 		// /clear wipes MEMORY.md and turns/, which are *shared* with
@@ -144,58 +144,58 @@ func (r *REPL) handleSlash(line string) bool {
 		}
 		switch {
 		case peers == 0:
-			fmt.Fprint(r.out, "Codrax> /clear wipes this conversation memory (MEMORY.md + turns/). Confirm? [y/N]: ")
+			fmt.Fprint(r.out, "CODRAX> /clear wipes this conversation memory (MEMORY.md + turns/). Confirm? [y/N]: ")
 		case peers == 1:
-			fmt.Fprint(r.out, "Codrax> /clear wipes shared memory (MEMORY.md + turns/) — 1 other live codrax instance is also using this directory and will see the wipe on its next read. Confirm? [y/N]: ")
+			fmt.Fprint(r.out, "CODRAX> /clear wipes shared memory (MEMORY.md + turns/) — 1 other live codrax instance is also using this directory and will see the wipe on its next read. Confirm? [y/N]: ")
 		default:
-			fmt.Fprintf(r.out, "Codrax> /clear wipes shared memory (MEMORY.md + turns/) — %d other live codrax instances are also using this directory and will see the wipe on their next read. Confirm? [y/N]: ", peers)
+			fmt.Fprintf(r.out, "CODRAX> /clear wipes shared memory (MEMORY.md + turns/) — %d other live codrax instances are also using this directory and will see the wipe on their next read. Confirm? [y/N]: ", peers)
 		}
 		answer, err := r.in.ReadString('\n')
 		if err != nil {
 			// EOF or read error → treat as "no" so a stray /clear at
 			// end-of-input never silently nukes memory.
-			fmt.Fprintln(r.out, "Codrax> clear cancelled")
+			fmt.Fprintln(r.out, "CODRAX> clear cancelled")
 			break
 		}
 		answer = strings.TrimSpace(strings.ToLower(answer))
 		if answer != "y" && answer != "yes" {
-			fmt.Fprintln(r.out, "Codrax> clear cancelled")
+			fmt.Fprintln(r.out, "CODRAX> clear cancelled")
 			break
 		}
 		if err := r.store.Clear(); err != nil {
-			fmt.Fprintf(r.out, "Codrax> clear failed: %v\n", err)
+			fmt.Fprintf(r.out, "CODRAX> clear failed: %v\n", err)
 		} else {
-			fmt.Fprintln(r.out, "Codrax> conversation memory cleared.")
+			fmt.Fprintln(r.out, "CODRAX> conversation memory cleared.")
 		}
 	case "/history":
 		recent := r.store.Recent()
 		idx := r.store.Index()
 		if len(recent) == 0 && len(idx) == 0 {
-			fmt.Fprintln(r.out, "Codrax> (empty)")
+			fmt.Fprintln(r.out, "CODRAX> (empty)")
 			return false
 		}
 		if len(idx) > 0 {
-			fmt.Fprintln(r.out, "Codrax> compacted index:")
+			fmt.Fprintln(r.out, "CODRAX> compacted index:")
 			for _, e := range idx {
 				fmt.Fprintf(r.out, "  - [%s] %s — keywords: %s\n", e.ID, e.Topic, strings.Join(e.Keywords, ", "))
 			}
 		}
 		if len(recent) > 0 {
-			fmt.Fprintln(r.out, "Codrax> recent turns:")
+			fmt.Fprintln(r.out, "CODRAX> recent turns:")
 			for _, t := range recent {
 				fmt.Fprintf(r.out, "  - [%s] %s\n", t.Timestamp.Format("15:04:05"), oneLine(t.Request))
 			}
 		}
 	case "/compact":
 		if err := r.store.Compact(); err != nil {
-			fmt.Fprintf(r.out, "Codrax> compact failed: %v\n", err)
+			fmt.Fprintf(r.out, "CODRAX> compact failed: %v\n", err)
 		} else {
-			fmt.Fprintf(r.out, "Codrax> compaction done. recent=%d index=%d\n", len(r.store.Recent()), len(r.store.Index()))
+			fmt.Fprintf(r.out, "CODRAX> compaction done. recent=%d index=%d\n", len(r.store.Recent()), len(r.store.Index()))
 		}
 	case "/help":
-		fmt.Fprintln(r.out, "Codrax> commands: /exit /quit /clear /history /compact /help")
+		fmt.Fprintln(r.out, "CODRAX> commands: /exit /quit /clear /history /compact /help")
 	default:
-		fmt.Fprintf(r.out, "Codrax> unknown command %q. Try /help.\n", cmd)
+		fmt.Fprintf(r.out, "CODRAX> unknown command %q. Try /help.\n", cmd)
 	}
 	return false
 }

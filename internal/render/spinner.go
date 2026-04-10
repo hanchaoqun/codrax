@@ -14,6 +14,7 @@ import (
 // final status line written by the caller.
 type Spinner struct {
 	mu      sync.Mutex
+	writeMu sync.Mutex // guards all writes to out, shared with Renderer
 	out     io.Writer
 	msg     string
 	detail  string
@@ -71,7 +72,9 @@ func (sp *Spinner) Stop() {
 	sp.mu.Unlock()
 	<-sp.done
 	// Clear spinner line.
+	sp.writeMu.Lock()
 	fmt.Fprintf(sp.out, "\r%s\r", strings.Repeat(" ", 80))
+	sp.writeMu.Unlock()
 }
 
 func (sp *Spinner) loop() {
@@ -96,7 +99,9 @@ func (sp *Spinner) loop() {
 		}
 		// Pad to clear previous content, then write.
 		padded := line + strings.Repeat(" ", max(0, 80-visibleLen(line)))
+		sp.writeMu.Lock()
 		fmt.Fprint(sp.out, padded)
+		sp.writeMu.Unlock()
 
 		frame++
 		<-tick.C

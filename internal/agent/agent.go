@@ -258,7 +258,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// often "thinks aloud" mid-investigation ("I'll check X next")
 		// without acting, and the default break would silently accept
 		// that as the final answer.
-		if len(resp.ToolCalls) == 0 && resp.Content != "" {
+		if len(resp.ToolCalls) == 0 {
+			// Empty response (no content, no tools) — treat as
+			// voluntary stop to avoid an infinite thinking loop.
+			if resp.Content == "" {
+				logging.Debug("[diag %s] STOP at iter=%d (empty response)", b.name, i)
+				break
+			}
 			if c, ok := b.eval.(ContinuingEvaluator); ok {
 				if prompt, cont := c.ContinuationPrompt(resp, i, continuationsUsed, allToolResults); cont {
 					continuationsUsed++
