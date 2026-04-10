@@ -12,8 +12,10 @@ import (
 )
 
 type explorerEvaluator struct {
-	tools *tool.Registry
-	phase int // 0 = breadth scan, 1 = depth read
+	tools              *tool.Registry
+	phase              int // 0 = breadth scan, 1 = depth read
+	idleStreakInDepth   int // consecutive no-tool-call rounds in Phase 2
+	lastToolResultCount int // tool result count at last continuation check
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -86,37 +88,40 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
-	// Hard budget: phase transition used count 0, depth starts at 1.
-	// Cap at 3 pushes to prevent empty loops.
-	depthBudget := continuationCount - 1
+	// Track consecutive no-tool-call rounds in Phase 2. Each call to
+	// ContinuationPrompt means the LLM produced content without tool
+	// calls. If it does this twice in a row without any intervening
+	// tool use, it has nothing left to investigate — continuing just
+	// wastes LLM calls on "调查已完成" style responses.
+	if len(history) > e.lastToolResultCount {
+		// New tool results appeared since last check — the LLM did
+		// productive work in between. Reset the idle streak.
+		e.idleStreakInDepth = 0
+	}
+	e.lastToolResultCount = len(history)
+	e.idleStreakInDepth++
+	if e.idleStreakInDepth >= 2 {
+		return "", false
+	}
 
-	if depthBudget < 3 {
-		// Show coverage status and unread files. Let the LLM decide
-		// which (if any) are worth reading — not all discovered files
-		// are equally important.
-		var hint strings.Builder
-		fmt.Fprintf(&hint,
-			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
-		if len(unread) > 0 {
-			hint.WriteString("Unread files that matched the query (may or may not be relevant):\n")
-			for _, f := range unread {
-				hint.WriteString("- " + f + "\n")
-			}
-			hint.WriteString("\nIf any of these files are likely to contain key information for the question, read them now. ")
-			hint.WriteString("Skip files that are clearly secondary (utilities, documentation, tangential modules). ")
-			hint.WriteString("Do NOT re-read files you have already seen.")
-		} else {
-			hint.WriteString("All discovered files have been read. You may stop if your investigation is complete.")
+	// Show coverage status and unread files. Let the LLM decide
+	// which (if any) are worth reading — not all discovered files
+	// are equally important.
+	var hint strings.Builder
+	fmt.Fprintf(&hint,
+		"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
+	if len(unread) > 0 {
+		hint.WriteString("Unread files that matched the query (may or may not be relevant):\n")
+		for _, f := range unread {
+			hint.WriteString("- " + f + "\n")
 		}
-		return hint.String(), true
+		hint.WriteString("\nIf any of these files are likely to contain key information for the question, read them now. ")
+		hint.WriteString("Skip files that are clearly secondary (utilities, documentation, tangential modules). ")
+		hint.WriteString("Do NOT re-read files you have already seen.")
+	} else {
+		hint.WriteString("All discovered files have been read. You may stop if your investigation is complete.")
 	}
-
-	// Budget exhausted.
-	if depthBudget == 3 {
-		return "Final check. If your investigation is complete, you may stop. " +
-			"The synthesis step will produce the final answer from your evidence.", true
-	}
-	return "", false
+	return hint.String(), true
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
