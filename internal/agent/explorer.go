@@ -25,7 +25,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			"Investigation depth for this task: %s (minimum %d distinct evidence tool types, %d evidence tool calls).\n\n"+
 			"Strategy hints:\n"+
 			"- Prefer [high-confidence evidence] tools (grep, read_file, exec_command, …) — they read the real codebase and their results count as citable evidence.\n"+
-			"- Navigation tools (repo_map) give a rough overview but their relevance ranking is unreliable — do NOT trust the file order repo_map returns. Instead, use grep to find where the core keywords actually appear, and prioritize those files. repo_map does NOT count as evidence.\n"+
+			"- Navigation tools (repo_map) are useful for orientation — they show which files and symbols exist and rank them by relevance. Use repo_map to get a starting map, then verify with evidence tools. repo_map does NOT count as evidence.\n"+
 			"- For source files (<500 lines), call read_file WITHOUT offset/limit to get the full file — small-file reads are cheap and you see the complete picture. Only use offset/limit for large files (>500 lines) or when a tool result tells you the output was truncated.\n"+
 			"- Avoid recursive list_files on the repository root.\n"+
 			"- If a tool result was truncated, the message will name a path (the raw_ref) where the full output is stored. Re-read slices of it with read_file (offset/limit) or grep it for specific patterns instead of re-running the original command.\n"+
