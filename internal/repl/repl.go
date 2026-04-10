@@ -36,45 +36,51 @@ type ResultRenderer func(*types.BusContext) string
 
 // Config holds all REPL construction parameters.
 type Config struct {
-	Runner     Runner
-	Store      *memory.Store
-	Render     ResultRenderer
-	RepoRoot   string
-	Branch     string
-	In         io.Reader
-	Out        io.Writer
-	Prompt     string // styled input prompt (e.g. "❯")
-	PromptCont string // styled continuation prompt (e.g. "…")
-	Banner     string // styled welcome banner
+	Runner       Runner
+	Store        *memory.Store
+	Render       ResultRenderer
+	RepoRoot     string
+	Branch       string
+	In           io.Reader
+	Out          io.Writer
+	Prompt       string // styled input prompt (e.g. "❯")
+	PromptCont   string // styled continuation prompt (e.g. "…")
+	Banner       string // styled welcome banner
+	BorderTop    string // styled top border for input box
+	BorderBottom string // styled bottom border for input box
 }
 
 // REPL drives the interactive prompt.
 type REPL struct {
-	runner     Runner
-	store      *memory.Store
-	render     ResultRenderer
-	repoRoot   string
-	branch     string
-	in         *bufio.Reader
-	out        io.Writer
-	prompt     string
-	promptCont string
-	banner     string
+	runner       Runner
+	store        *memory.Store
+	render       ResultRenderer
+	repoRoot     string
+	branch       string
+	in           *bufio.Reader
+	out          io.Writer
+	prompt       string
+	promptCont   string
+	banner       string
+	borderTop    string
+	borderBottom string
 }
 
 // New constructs a REPL from the given Config.
 func New(cfg Config) *REPL {
 	return &REPL{
-		runner:     cfg.Runner,
-		store:      cfg.Store,
-		render:     cfg.Render,
-		repoRoot:   cfg.RepoRoot,
-		branch:     cfg.Branch,
-		in:         bufio.NewReader(cfg.In),
-		out:        cfg.Out,
-		prompt:     cfg.Prompt,
-		promptCont: cfg.PromptCont,
-		banner:     cfg.Banner,
+		runner:       cfg.Runner,
+		store:        cfg.Store,
+		render:       cfg.Render,
+		repoRoot:     cfg.RepoRoot,
+		branch:       cfg.Branch,
+		in:           bufio.NewReader(cfg.In),
+		out:          cfg.Out,
+		prompt:       cfg.Prompt,
+		promptCont:   cfg.PromptCont,
+		banner:       cfg.Banner,
+		borderTop:    cfg.BorderTop,
+		borderBottom: cfg.BorderBottom,
 	}
 }
 
@@ -108,14 +114,17 @@ func (r *REPL) printBanner() {
 	fmt.Fprintf(r.out, "%s\n", r.banner)
 }
 
-// readInput reads one (possibly multi-line) user input. Lines ending
-// with \ are joined with the following line via newlines.
+// readInput reads one (possibly multi-line) user input, enclosed in
+// a ╭───╮ / ╰───╯ input box.
 func (r *REPL) readInput() (string, error) {
-	fmt.Fprintf(r.out, "\n%s ", r.prompt)
+	// Print top border + prompt.
+	fmt.Fprintf(r.out, "\n%s\n  %s ", r.borderTop, r.prompt)
+
 	line, err := r.in.ReadString('\n')
 	if errors.Is(err, io.EOF) {
 		line = strings.TrimRight(line, "\r\n")
 		if line != "" {
+			fmt.Fprintf(r.out, "%s\n", r.borderBottom)
 			return strings.TrimSpace(line), nil
 		}
 		return "", err
@@ -126,6 +135,7 @@ func (r *REPL) readInput() (string, error) {
 	line = strings.TrimRight(line, "\r\n")
 
 	if !strings.HasSuffix(line, "\\") {
+		fmt.Fprintf(r.out, "%s\n", r.borderBottom)
 		return strings.TrimSpace(line), nil
 	}
 
@@ -133,11 +143,12 @@ func (r *REPL) readInput() (string, error) {
 	var parts []string
 	for strings.HasSuffix(line, "\\") {
 		parts = append(parts, strings.TrimSuffix(line, "\\"))
-		fmt.Fprintf(r.out, "%s ", r.promptCont)
+		fmt.Fprintf(r.out, "  %s ", r.promptCont)
 		line, err = r.in.ReadString('\n')
 		if errors.Is(err, io.EOF) {
 			line = strings.TrimRight(line, "\r\n")
 			parts = append(parts, line)
+			fmt.Fprintf(r.out, "%s\n", r.borderBottom)
 			return strings.TrimSpace(strings.Join(parts, "\n")), nil
 		}
 		if err != nil {
@@ -146,6 +157,7 @@ func (r *REPL) readInput() (string, error) {
 		line = strings.TrimRight(line, "\r\n")
 	}
 	parts = append(parts, line)
+	fmt.Fprintf(r.out, "%s\n", r.borderBottom)
 	return strings.TrimSpace(strings.Join(parts, "\n")), nil
 }
 

@@ -13,56 +13,36 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Spinner frames for in-progress animation.
+var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
+
 // Renderer consumes pipeline events and produces styled terminal output.
 // It is safe for concurrent use — the orchestrator and agents emit events
 // from various goroutines (e.g. sub-agent workers).
 type Renderer struct {
 	mu      sync.Mutex
-	spinner *pterm.SpinnerPrinter
 	glamour *glamour.TermRenderer
 
-	// Accumulated state for the current run.
-	traceID      string
-	toolCalls    []toolCallRecord
-	subAgents    []subAgentRecord
-	stageHistory []stageRecord
-	taskSnapshot *types.TaskList
-
 	startTime time.Time
-}
 
-type toolCallRecord struct {
-	Name     string
-	OK       bool
-	Duration time.Duration
-	Stage    types.PipelineStage
-	Agent    types.AgentName
-}
+	// Task list state (becomes persistent at pipeline end).
+	tasks     []types.TaskItem
+	treeLines int
 
-type subAgentRecord struct {
-	Name      string
-	ID        string
-	TaskTitle string
-	TaskCount int
-	Error     string
-	Duration  time.Duration
-	startTime time.Time
-}
+	// Pipeline status state (ephemeral).
+	currentStage types.PipelineStage
+	activeTools  map[string]string // toolCallID → toolName
+	statusLines  int
 
-type stageRecord struct {
-	Stage    types.PipelineStage
-	Agent    types.AgentName
-	Skill    string
-	Duration time.Duration
-	Tools    int
-	Error    string
-	start    time.Time
+	// Animation goroutine.
+	animFrame   int
+	animStop    chan struct{}
+	animRunning bool
 }
 
 // New creates a Renderer that writes styled output. Color output is
 // auto-detected from os.Stdout; pass forceColor=true to override.
 func New(_ /* out */ interface{}, forceColor bool) *Renderer {
-	// Detect color support.
 	color := forceColor
 	if !color {
 		info, err := os.Stdout.Stat()
@@ -74,19 +54,18 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 		pterm.DisableColor()
 	}
 
-	// Pre-create Glamour renderer.
 	gr, _ := glamour.NewTermRenderer(
 		glamour.WithAutoStyle(),
 		glamour.WithWordWrap(100),
 	)
 
 	return &Renderer{
-		glamour: gr,
+		glamour:     gr,
+		activeTools: make(map[string]string),
 	}
 }
 
 // Emitter returns an EventEmitter callback bound to this renderer.
-// Pass this to the orchestrator and agents.
 func (r *Renderer) Emitter() EventEmitter {
 	return r.handleEvent
 }
@@ -102,21 +81,28 @@ func (r *Renderer) PromptContinue() string {
 	return pterm.NewStyle(pterm.FgDarkGray).Sprint("…")
 }
 
+// InputBorderTop returns the top border for the input box.
+func (r *Renderer) InputBorderTop() string {
+	return pterm.FgDarkGray.Sprint("╭" + strings.Repeat("─", 58) + "╮")
+}
+
+// InputBorderBottom returns the bottom border for the input box.
+func (r *Renderer) InputBorderBottom() string {
+	return pterm.FgDarkGray.Sprint("╰" + strings.Repeat("─", 58) + "╯")
+}
+
 // Banner returns the styled welcome box for the REPL.
 func (r *Renderer) Banner() string {
-	title := pterm.NewStyle(pterm.Bold, pterm.FgLightCyan).Sprint("✦ CODRAX")
 	hints := pterm.FgDarkGray.Sprint("/help for commands · /exit to quit · \\ for multi-line")
-
-	content := title + "\n" + hints
-
 	return pterm.DefaultBox.
 		WithBoxStyle(pterm.NewStyle(pterm.FgDarkGray)).
 		WithLeftPadding(2).
 		WithRightPadding(2).
-		Sprint(content)
+		Sprint(hints)
 }
 
-// handleEvent is the EventEmitter callback dispatched per event kind.
+// ---------- event dispatch ----------
+
 func (r *Renderer) handleEvent(ev Event) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -128,12 +114,8 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.onPipelineEnd(ev)
 	case EventStageStart:
 		r.onStageStart(ev)
-	case EventStageEnd:
-		r.onStageEnd(ev)
 	case EventAgentThinking:
 		r.onAgentThinking(ev)
-	case EventAgentResponse:
-		// spinner continues
 	case EventToolCallStart:
 		r.onToolCallStart(ev)
 	case EventToolCallEnd:
@@ -146,437 +128,281 @@ func (r *Renderer) handleEvent(ev Event) {
 		r.onTaskListUpdated(ev)
 	case EventTaskStatusChanged:
 		r.onTaskStatusChanged(ev)
-	case EventTransition:
-		r.onTransition(ev)
-	case EventSkillBound:
-		r.onSkillBound(ev)
 	}
 }
 
-// --- Pipeline ---
+// ---------- pipeline lifecycle ----------
 
 func (r *Renderer) onPipelineStart(ev Event) {
-	r.traceID = ev.TraceID
 	r.startTime = ev.Timestamp
-	r.toolCalls = nil
-	r.subAgents = nil
-	r.stageHistory = nil
-	r.taskSnapshot = nil
-
-	// Header
-	fmt.Println()
-	pterm.DefaultHeader.
-		WithBackgroundStyle(pterm.NewStyle(pterm.BgDarkGray)).
-		WithTextStyle(pterm.NewStyle(pterm.Bold, pterm.FgLightCyan)).
-		WithFullWidth().
-		Println("CODRAX")
-
-	pterm.FgDarkGray.Printf("  trace: %s\n\n", ev.TraceID)
+	r.tasks = nil
+	r.treeLines = 0
+	r.statusLines = 0
+	r.currentStage = ""
+	r.activeTools = make(map[string]string)
+	r.animFrame = 0
+	r.redraw()
+	r.startAnimation()
 }
 
 func (r *Renderer) onPipelineEnd(ev Event) {
-	r.stopSpinner()
-	elapsed := ev.Timestamp.Sub(r.startTime)
+	r.stopAnimation()
 
-	fmt.Println()
-	if ev.Error != "" {
-		pterm.Error.Printf("Pipeline Failed (%s) %s\n",
-			elapsed.Truncate(time.Millisecond), ev.Error)
-	} else {
-		pterm.Success.Printf("Pipeline Complete (%s)\n",
-			elapsed.Truncate(time.Millisecond))
+	// Clear entire dynamic area.
+	up := r.treeLines + r.statusLines
+	if up > 0 {
+		fmt.Printf("\033[%dA", up)
 	}
+	fmt.Print("\033[J")
+
+	// Reprint tree with final statuses — permanent.
+	r.treeLines = 0
+	r.statusLines = 0
+	if len(r.tasks) > 0 {
+		r.printTree()
+	}
+
+	// Release tracking.
+	r.treeLines = 0
+	r.statusLines = 0
+	r.tasks = nil
+	r.currentStage = ""
+	r.activeTools = make(map[string]string)
 }
 
-// --- Stages ---
+// ---------- stage ----------
 
 func (r *Renderer) onStageStart(ev Event) {
-	r.stopSpinner()
-
-	rec := stageRecord{
-		Stage: ev.Stage,
-		Agent: ev.Agent,
-		Skill: ev.Skill,
-		start: ev.Timestamp,
-	}
-	r.stageHistory = append(r.stageHistory, rec)
-
-	fmt.Println()
-	stageStr := stageStyle(ev.Stage).Sprint(string(ev.Stage))
-	agentStr := pterm.NewStyle(pterm.Bold, pterm.FgLightCyan).Sprint(string(ev.Agent))
-	pterm.FgDarkGray.Print("  ┌ ")
-	fmt.Printf("%s %s %s\n", stageStr, pterm.FgDarkGray.Sprint("→"), agentStr)
-
-	r.startSpinner(fmt.Sprintf("%s: thinking...", ev.Agent))
+	r.currentStage = ev.Stage
+	r.activeTools = make(map[string]string)
+	r.redraw()
 }
 
-func (r *Renderer) onStageEnd(ev Event) {
-	r.stopSpinner()
-
-	if len(r.stageHistory) > 0 {
-		rec := &r.stageHistory[len(r.stageHistory)-1]
-		rec.Duration = ev.Timestamp.Sub(rec.start)
-		rec.Error = ev.Error
-	}
-
-	stageTools := 0
-	for _, tc := range r.toolCalls {
-		if tc.Stage == ev.Stage {
-			stageTools++
-		}
-	}
-	if len(r.stageHistory) > 0 {
-		r.stageHistory[len(r.stageHistory)-1].Tools = stageTools
-	}
-
-	dur := time.Duration(0)
-	if len(r.stageHistory) > 0 {
-		dur = r.stageHistory[len(r.stageHistory)-1].Duration
-	}
-
-	stageStr := stageStyle(ev.Stage).Sprint(string(ev.Stage))
-	durStr := pterm.FgDarkGray.Sprintf("(%s, %d tools)", dur.Truncate(time.Millisecond), stageTools)
-	if ev.Error != "" {
-		pterm.FgDarkGray.Print("  └ ")
-		fmt.Printf("%s %s ", stageStr, durStr)
-		pterm.FgRed.Printf("error: %s\n", truncMsg(ev.Error, 60))
-	} else {
-		pterm.FgDarkGray.Print("  └ ")
-		fmt.Printf("%s %s\n", stageStr, durStr)
-	}
-}
-
-// --- Agent thinking ---
+// ---------- agent / tool ----------
 
 func (r *Renderer) onAgentThinking(ev Event) {
-	r.updateSpinner(fmt.Sprintf("%s: thinking...", ev.Agent))
+	// No-op: animation goroutine handles visual updates.
 }
 
-// --- Tool calls ---
-
 func (r *Renderer) onToolCallStart(ev Event) {
-	r.updateSpinner(fmt.Sprintf("%s: %s", ev.Agent, ev.ToolName))
+	r.activeTools[ev.ToolCallID] = ev.ToolName
+	r.redraw()
 }
 
 func (r *Renderer) onToolCallEnd(ev Event) {
-	r.stopSpinner()
-
-	rec := toolCallRecord{
-		Name:     ev.ToolName,
-		OK:       ev.ToolOK,
-		Duration: ev.ToolTime,
-		Stage:    ev.Stage,
-		Agent:    ev.Agent,
-	}
-	r.toolCalls = append(r.toolCalls, rec)
-
-	icon := pterm.FgGreen.Sprint("✓")
-	if !ev.ToolOK {
-		icon = pterm.FgRed.Sprint("✗")
-	}
-	toolStr := pterm.FgYellow.Sprint(ev.ToolName)
-	durStr := pterm.FgDarkGray.Sprintf("(%s)", ev.ToolTime.Truncate(time.Millisecond))
-	fmt.Printf("  %s %s %s %s\n", pterm.FgDarkGray.Sprint("│"), icon, toolStr, durStr)
-
-	r.startSpinner(fmt.Sprintf("%s: thinking...", ev.Agent))
+	delete(r.activeTools, ev.ToolCallID)
+	r.redraw()
 }
 
-// --- Sub-agents ---
+// ---------- sub-agents ----------
 
 func (r *Renderer) onSubAgentStart(ev Event) {
-	r.stopSpinner()
-
-	rec := subAgentRecord{
-		Name:      ev.SubAgentName,
-		ID:        ev.SubAgentID,
-		TaskTitle: ev.SubTaskTitle,
-		TaskCount: ev.SubTaskCount,
-		startTime: ev.Timestamp,
-	}
-	r.subAgents = append(r.subAgents, rec)
-
-	fmt.Printf("  %s %s %s %s\n",
-		pterm.FgDarkGray.Sprint("│"),
-		pterm.NewStyle(pterm.Bold, pterm.FgMagenta).Sprint("⊕ sub-agent"),
-		pterm.FgMagenta.Sprint(ev.SubAgentName),
-		pterm.FgDarkGray.Sprintf("(%d sub-tasks)", ev.SubTaskCount))
-
-	if ev.SubTaskTitle != "" {
-		fmt.Printf("  %s   %s %s\n",
-			pterm.FgDarkGray.Sprint("│"),
-			pterm.FgDarkGray.Sprint("└"),
-			pterm.FgDarkGray.Sprint(ev.SubTaskTitle))
-	}
-
-	r.startSpinner(fmt.Sprintf("sub-agent %s: running %d tasks...", ev.SubAgentName, ev.SubTaskCount))
+	r.redraw()
 }
 
 func (r *Renderer) onSubAgentEnd(ev Event) {
-	r.stopSpinner()
-
-	for i := len(r.subAgents) - 1; i >= 0; i-- {
-		if r.subAgents[i].ID == ev.SubAgentID {
-			r.subAgents[i].Duration = ev.Timestamp.Sub(r.subAgents[i].startTime)
-			r.subAgents[i].Error = ev.Error
-			break
-		}
-	}
-
-	if ev.Error != "" {
-		fmt.Printf("  %s %s %s %s\n",
-			pterm.FgDarkGray.Sprint("│"),
-			pterm.NewStyle(pterm.Bold, pterm.FgRed).Sprint("⊖ sub-agent"),
-			pterm.FgMagenta.Sprint(ev.SubAgentName),
-			pterm.FgRed.Sprint("error: "+truncMsg(ev.Error, 50)))
-	} else {
-		fmt.Printf("  %s %s %s %s\n",
-			pterm.FgDarkGray.Sprint("│"),
-			pterm.NewStyle(pterm.FgLightMagenta).Sprint("⊕ sub-agent done"),
-			pterm.FgMagenta.Sprint(ev.SubAgentName),
-			pterm.FgDarkGray.Sprintf("(%d tools, %d facts)", ev.ToolCallCount, ev.FactCount))
-	}
+	r.redraw()
 }
 
-// --- Task list ---
+// ---------- task tree ----------
 
 func (r *Renderer) onTaskListUpdated(ev Event) {
-	r.stopSpinner()
 	if ev.TaskList == nil {
 		return
 	}
-	r.taskSnapshot = ev.TaskList
-
-	fmt.Println()
-	pterm.DefaultSection.WithLevel(2).Println("Tasks")
-	items := make([]pterm.BulletListItem, 0, len(ev.TaskList.Tasks))
-	for _, item := range ev.TaskList.Tasks {
-		icon := taskIcon(item.Status)
-		title := item.Title
-		if item.HighRisk {
-			title += pterm.FgDarkGray.Sprint(" [high-risk]")
-		}
-		items = append(items, pterm.BulletListItem{
-			Level:       0,
-			Text:        icon + " " + title,
-			Bullet:      "",
-			BulletStyle: pterm.NewStyle(),
-		})
-	}
-	pterm.DefaultBulletList.WithItems(items).Render()
-	fmt.Println()
-	r.startSpinner("working...")
+	r.tasks = make([]types.TaskItem, len(ev.TaskList.Tasks))
+	copy(r.tasks, ev.TaskList.Tasks)
+	r.redraw()
 }
 
 func (r *Renderer) onTaskStatusChanged(ev Event) {
-	r.stopSpinner()
-
-	icon := taskIcon(ev.TaskStatus)
-	statusStr := pterm.FgDarkGray.Sprintf("[%s]", ev.TaskStatus)
-	fmt.Printf("  %s %s %s %s\n",
-		pterm.FgDarkGray.Sprint("│"), icon, ev.TaskTitle, statusStr)
-
-	r.startSpinner("working...")
+	for i := range r.tasks {
+		if r.tasks[i].ID == ev.TaskID {
+			r.tasks[i].Status = ev.TaskStatus
+			break
+		}
+	}
+	r.redraw()
 }
 
-// --- Transition ---
+// ---------- drawing ----------
 
-func (r *Renderer) onTransition(ev Event) {
-	r.stopSpinner()
+// redraw clears the dynamic area and reprints task list + status line.
+// Must be called with r.mu held.
+func (r *Renderer) redraw() {
+	// Erase dynamic area.
+	up := r.treeLines + r.statusLines
+	if up > 0 {
+		fmt.Printf("\033[%dA", up)
+	}
+	fmt.Print("\033[J")
+	r.treeLines = 0
+	r.statusLines = 0
 
-	fromStr := stageStyle(ev.FromStage).Sprint(string(ev.FromStage))
-	toStr := stageStyle(ev.ToStage).Sprint(string(ev.ToStage))
-	fmt.Printf("    %s %s %s\n", fromStr, pterm.FgDarkGray.Sprint("→"), toStr)
+	// Print task tree.
+	r.printTree()
+
+	// Print pipeline status line.
+	r.printStatusLine()
 }
 
-// --- Skill ---
+// printTree renders the task list with status icons. Sets r.treeLines.
+func (r *Renderer) printTree() {
+	if len(r.tasks) == 0 {
+		return
+	}
 
-func (r *Renderer) onSkillBound(ev Event) {
-	r.stopSpinner()
-
-	fmt.Printf("  %s skill: %s\n",
-		pterm.FgDarkGray.Sprint("│"),
-		pterm.FgLightBlue.Sprint(ev.Skill))
+	fmt.Println() // blank before
+	n := 1
+	for _, item := range r.tasks {
+		icon := r.taskIcon(item.Status)
+		fmt.Printf("  %s %s\n", icon, item.Title)
+		n++
+	}
+	fmt.Println() // blank after
+	n++
+	r.treeLines = n
 }
 
-// --- Final result rendering ---
+// printStatusLine renders the pipeline status: stage(tool1, tool2)...
+// Sets r.statusLines.
+func (r *Renderer) printStatusLine() {
+	line := r.buildPipelineStatus()
+	if line != "" {
+		fmt.Println(line)
+		r.statusLines = 1
+	}
+}
+
+// buildPipelineStatus formats: ⠋ stage(tool1, tool2)...
+// When no tasks exist, the spinner prefix is always shown.
+// When tasks exist, the spinner prefix is omitted (task lines carry the animation).
+func (r *Renderer) buildPipelineStatus() string {
+	stage := string(r.currentStage)
+	if stage == "" {
+		stage = "thinking"
+	}
+
+	// Collect unique active tool names.
+	var tools []string
+	seen := map[string]bool{}
+	for _, name := range r.activeTools {
+		if !seen[name] {
+			seen[name] = true
+			tools = append(tools, name)
+		}
+	}
+
+	var content string
+	if len(tools) > 0 {
+		content = fmt.Sprintf("%s(%s)", stage, strings.Join(tools, ", "))
+	} else {
+		content = stage
+	}
+
+	if len(r.tasks) == 0 {
+		// No tasks yet — show animated spinner prefix.
+		frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
+		return pterm.FgDarkGray.Sprintf("  %s %s...",
+			pterm.FgCyan.Sprint(frame), content)
+	}
+
+	// Tasks visible — static status line, no spinner prefix.
+	return pterm.FgDarkGray.Sprintf("  %s...", content)
+}
+
+// taskIcon returns a colored icon for task status. In-progress tasks
+// use the current animation frame.
+func (r *Renderer) taskIcon(status types.TaskStatus) string {
+	switch status {
+	case types.TaskDone:
+		return pterm.FgGreen.Sprint("✓")
+	case types.TaskInProgress:
+		frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
+		return pterm.FgCyan.Sprint(frame)
+	case types.TaskFailed:
+		return pterm.FgRed.Sprint("✗")
+	case types.TaskBlocked:
+		return pterm.FgYellow.Sprint("⊘")
+	default: // pending
+		return pterm.FgDarkGray.Sprint("−")
+	}
+}
+
+// ---------- animation goroutine ----------
+
+func (r *Renderer) startAnimation() {
+	// Must be called with r.mu held.
+	if r.animRunning {
+		return
+	}
+	r.animStop = make(chan struct{})
+	r.animRunning = true
+
+	go func() {
+		ticker := time.NewTicker(80 * time.Millisecond)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-r.animStop:
+				return
+			case <-ticker.C:
+				r.mu.Lock()
+				if !r.animRunning {
+					r.mu.Unlock()
+					return
+				}
+				r.animFrame = (r.animFrame + 1) % len(spinnerFrames)
+				r.redraw()
+				r.mu.Unlock()
+			}
+		}
+	}()
+}
+
+func (r *Renderer) stopAnimation() {
+	// Must be called with r.mu held.
+	if !r.animRunning {
+		return
+	}
+	r.animRunning = false
+	close(r.animStop)
+}
+
+// ---------- final result rendering ----------
 
 // RenderResult formats a completed BusContext into styled terminal output.
+// The task tree is already visible on screen, so this only renders the
+// markdown answer text.
 func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 	if busCtx == nil {
 		return "(no result)\n"
 	}
 	var b strings.Builder
 
-	// ── Pipeline Summary ──
-	b.WriteString("\n")
-	b.WriteString(sectionHeader("Pipeline Summary"))
-
-	b.WriteString(fmt.Sprintf("    Trace:    %s\n", pterm.FgDarkGray.Sprint(busCtx.TraceID)))
-	b.WriteString(fmt.Sprintf("    Stage:    %s\n", stageStyle(busCtx.PipelineStage).Sprint(string(busCtx.PipelineStage))))
-
-	if busCtx.TaskState.IsTerminal {
-		b.WriteString(fmt.Sprintf("    Status:   %s\n", pterm.NewStyle(pterm.Bold, pterm.FgGreen).Sprint("completed")))
-	} else {
-		b.WriteString(fmt.Sprintf("    Status:   %s\n", pterm.NewStyle(pterm.Bold, pterm.FgYellow).Sprint("incomplete")))
-	}
-
-	// Stage history.
-	if len(r.stageHistory) > 0 {
-		b.WriteString("    Stages:   ")
-		for i, sr := range r.stageHistory {
-			if i > 0 {
-				b.WriteString(pterm.FgDarkGray.Sprint(" → "))
-			}
-			b.WriteString(stageStyle(sr.Stage).Sprint(string(sr.Stage)))
-		}
-		b.WriteString("\n")
-	} else if len(busCtx.TaskState.Completed) > 0 {
-		b.WriteString(fmt.Sprintf("    Stages:   %s\n", pterm.FgDarkGray.Sprint(strings.Join(busCtx.TaskState.Completed, " → "))))
-	}
-
-	// Statistics.
-	b.WriteString(fmt.Sprintf("    Facts:    %s\n", pterm.FgCyan.Sprintf("%d", len(busCtx.RepoFacts))))
-
-	toolOK, toolFail := 0, 0
-	for _, tc := range r.toolCalls {
-		if tc.OK {
-			toolOK++
-		} else {
-			toolFail++
-		}
-	}
-	totalTools := len(busCtx.ToolResults)
-	if totalTools == 0 {
-		totalTools = toolOK + toolFail
-	}
-	toolStr := fmt.Sprintf("%d", totalTools)
-	if toolFail > 0 {
-		toolStr += pterm.FgRed.Sprintf(" (%d failed)", toolFail)
-	}
-	b.WriteString(fmt.Sprintf("    Tools:    %s\n", toolStr))
-
-	if len(busCtx.MCPResponses) > 0 {
-		b.WriteString(fmt.Sprintf("    MCP:      %s\n", pterm.FgCyan.Sprintf("%d", len(busCtx.MCPResponses))))
-	}
-	if len(r.subAgents) > 0 {
-		b.WriteString(fmt.Sprintf("    SubAgents: %s\n", pterm.FgMagenta.Sprintf("%d", len(r.subAgents))))
-	}
-
 	if busCtx.TaskState.LastError != "" {
-		b.WriteString(fmt.Sprintf("    Error:    %s\n", pterm.FgRed.Sprint(truncMsg(busCtx.TaskState.LastError, 80))))
+		b.WriteString(fmt.Sprintf("\n  %s %s\n",
+			pterm.FgRed.Sprint("error:"), busCtx.TaskState.LastError))
 	}
 
-	// Task list + Tool calls + Results.
 	if busCtx.Mutable != nil {
 		tl := busCtx.Mutable.TaskList()
-		if len(tl.Tasks) > 0 {
-			// ── Tasks ──
-			b.WriteString("\n")
-			b.WriteString(sectionHeader("Tasks"))
-			for _, item := range tl.Tasks {
-				icon := taskIcon(item.Status)
-				title := item.Title
-				if item.HighRisk {
-					title += pterm.FgDarkGray.Sprint(" [high-risk]")
-				}
-				complexity := ""
-				if item.Complexity != "" && item.Complexity != "simple" {
-					complexity = pterm.FgDarkGray.Sprintf(" (%s)", item.Complexity)
-				}
-				b.WriteString(fmt.Sprintf("    %s %s%s\n", icon, title, complexity))
-			}
-
-			// ── Tool Calls ── (before Results)
-			if len(r.toolCalls) > 0 {
+		for _, item := range tl.Tasks {
+			if item.Result != "" {
+				rendered := r.renderMarkdown(item.Result)
+				b.WriteString(rendered)
 				b.WriteString("\n")
-				b.WriteString(sectionHeader("Tool Calls"))
-				r.writeToolCalls(&b)
 			}
-
-			// ── Results ── (Glamour-rendered markdown)
-			b.WriteString("\n")
-			b.WriteString(sectionHeader("Results"))
-			for _, item := range tl.Tasks {
-				icon := taskIcon(item.Status)
-				b.WriteString(fmt.Sprintf("\n  %s %s\n", icon, pterm.Bold.Sprint(item.Title)))
-				if item.Result != "" {
-					rendered := r.renderMarkdown(item.Result)
-					for _, line := range strings.Split(strings.TrimRight(rendered, "\n"), "\n") {
-						b.WriteString(fmt.Sprintf("    %s\n", line))
-					}
-				} else {
-					b.WriteString(fmt.Sprintf("    %s\n", pterm.FgDarkGray.Sprint("(no result)")))
-				}
-			}
-		}
-	} else if len(r.toolCalls) > 0 {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Tool Calls"))
-		r.writeToolCalls(&b)
-	}
-
-	// Sub-agent details.
-	if len(r.subAgents) > 0 {
-		b.WriteString("\n")
-		b.WriteString(sectionHeader("Sub-Agents"))
-		for _, sa := range r.subAgents {
-			icon := pterm.FgGreen.Sprint("✓")
-			if sa.Error != "" {
-				icon = pterm.FgRed.Sprint("✗")
-			}
-			b.WriteString(fmt.Sprintf("    %s %s %s\n",
-				icon,
-				pterm.FgMagenta.Sprint(sa.Name),
-				pterm.FgDarkGray.Sprintf("(%d tasks, %s)",
-					sa.TaskCount, sa.Duration.Truncate(time.Millisecond))))
 		}
 	}
 
-	// Footer hint.
-	b.WriteString("\n")
-	b.WriteString(fmt.Sprintf("  %s\n", pterm.FgDarkGray.Sprint("Use `codrax -request \"...\"` for single-shot mode")))
-	b.WriteString("\n")
+	if b.Len() == 0 {
+		b.WriteString("(no result)\n")
+	}
 	return b.String()
 }
 
-// --- helpers ---
-
-func (r *Renderer) writeToolCalls(b *strings.Builder) {
-	stageTools := make(map[types.PipelineStage][]toolCallRecord)
-	var stageOrder []types.PipelineStage
-	for _, tc := range r.toolCalls {
-		if _, seen := stageTools[tc.Stage]; !seen {
-			stageOrder = append(stageOrder, tc.Stage)
-		}
-		stageTools[tc.Stage] = append(stageTools[tc.Stage], tc)
-	}
-	for _, stage := range stageOrder {
-		tcs := stageTools[stage]
-		b.WriteString(fmt.Sprintf("    %s (%d calls)\n",
-			stageStyle(stage).Sprint(string(stage)), len(tcs)))
-		nameCount := make(map[string]int)
-		nameOK := make(map[string]int)
-		var nameOrder []string
-		for _, tc := range tcs {
-			if nameCount[tc.Name] == 0 {
-				nameOrder = append(nameOrder, tc.Name)
-			}
-			nameCount[tc.Name]++
-			if tc.OK {
-				nameOK[tc.Name]++
-			}
-		}
-		for _, name := range nameOrder {
-			cnt := nameCount[name]
-			ok := nameOK[name]
-			icon := pterm.FgGreen.Sprint("✓")
-			if ok < cnt {
-				icon = pterm.FgRed.Sprint("✗")
-			}
-			b.WriteString(fmt.Sprintf("      %s %s ×%d\n", icon, pterm.FgYellow.Sprint(name), cnt))
-		}
-	}
-}
+// ---------- helpers ----------
 
 func (r *Renderer) renderMarkdown(text string) string {
 	if r.glamour != nil {
@@ -586,94 +412,4 @@ func (r *Renderer) renderMarkdown(text string) string {
 		}
 	}
 	return text
-}
-
-func (r *Renderer) startSpinner(msg string) {
-	if r.spinner != nil && r.spinner.IsActive {
-		r.spinner.UpdateText(msg)
-		return
-	}
-	sp, _ := pterm.DefaultSpinner.
-		WithRemoveWhenDone(true).
-		WithText(msg).
-		Start()
-	r.spinner = sp
-}
-
-func (r *Renderer) updateSpinner(msg string) {
-	if r.spinner != nil && r.spinner.IsActive {
-		r.spinner.UpdateText(msg)
-	} else {
-		r.startSpinner(msg)
-	}
-}
-
-func (r *Renderer) stopSpinner() {
-	if r.spinner != nil && r.spinner.IsActive {
-		r.spinner.Stop()
-	}
-}
-
-// stageStyle returns a PTerm style for a given pipeline stage.
-func stageStyle(stage types.PipelineStage) *pterm.Style {
-	switch stage {
-	case types.StageAnalyze:
-		return pterm.NewStyle(pterm.Bold, pterm.FgCyan)
-	case types.StageExplore:
-		return pterm.NewStyle(pterm.Bold, pterm.FgBlue)
-	case types.StagePlan:
-		return pterm.NewStyle(pterm.Bold, pterm.FgMagenta)
-	case types.StageDesignReview:
-		return pterm.NewStyle(pterm.Bold, pterm.FgYellow)
-	case types.StageImplement:
-		return pterm.NewStyle(pterm.Bold, pterm.FgGreen)
-	case types.StageCodeReview:
-		return pterm.NewStyle(pterm.Bold, pterm.FgYellow)
-	case types.StageVerify:
-		return pterm.NewStyle(pterm.Bold, pterm.FgLightCyan)
-	case types.StageFinalize:
-		return pterm.NewStyle(pterm.Bold, pterm.FgLightGreen)
-	default:
-		return pterm.NewStyle(pterm.Bold, pterm.FgWhite)
-	}
-}
-
-// taskIcon returns a colored icon for task status.
-func taskIcon(status types.TaskStatus) string {
-	switch status {
-	case types.TaskDone:
-		return pterm.FgGreen.Sprint("✓")
-	case types.TaskInProgress:
-		return pterm.FgCyan.Sprint("●")
-	case types.TaskFailed:
-		return pterm.FgRed.Sprint("✗")
-	case types.TaskBlocked:
-		return pterm.FgYellow.Sprint("⊘")
-	default:
-		return pterm.FgDarkGray.Sprint("○")
-	}
-}
-
-// sectionHeader draws a section header with a decorative line.
-func sectionHeader(title string) string {
-	line := strings.Repeat("─", max(0, 48-len(title)))
-	return fmt.Sprintf("  %s %s %s\n",
-		pterm.FgDarkGray.Sprint("─"),
-		pterm.Bold.Sprint(title),
-		pterm.FgDarkGray.Sprint(line))
-}
-
-func truncMsg(s string, n int) string {
-	s = strings.ReplaceAll(s, "\n", " ")
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "..."
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
