@@ -18,10 +18,13 @@ type explorerEvaluator struct {
 	idleStreakInDepth   int // consecutive no-tool-call rounds in Phase 2
 	lastToolResultCount int // tool result count at last continuation check
 	preScannedFiles    []string // top files from keyword search, for coverage tracking
+	investigationNotes []string // assistant analysis messages from ReAct loop
+	userQuestion       string   // original user question, for focus alignment
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	e.phase = 0 // start in breadth-scan phase
+	e.userQuestion = ctx.CurrentTask
 
 	var b strings.Builder
 	b.WriteString("## Phase 1: Breadth Scan\n\n")
@@ -95,6 +98,13 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // reads one file, concludes prematurely, then gets pushed into
 // reading test files because "it hasn't read them yet."
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
+	// Capture assistant analysis messages from the ReAct loop.
+	// These contain the LLM's processed understanding of the files
+	// it read — essential for synthesis, where raw files get truncated.
+	if resp.Content != "" && e.phase == 1 {
+		e.investigationNotes = append(e.investigationNotes, resp.Content)
+	}
+
 	if e.phase == 0 {
 		// Before transitioning to Phase 2, check if Phase 1 actually
 		// discovered any files. If all greps returned zero results,
@@ -116,14 +126,16 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		e.phase = 1
 		return "## Phase 2: Depth Read\n\n" +
 			"Good — you have mapped the relevant territory. Now switch to deep investigation.\n\n" +
-			"Read the key source files you identified IN FULL (no offset/limit for files <500 lines). " +
-			"For each file, extract:\n" +
-			"- Key data structures, their fields, and what they control\n" +
-			"- Control flow: conditionals, branches, state transitions\n" +
-			"- Configuration-driven behavior: what changes based on config/policy\n" +
-			"- Cross-references: when this file uses types/functions from another file\n\n" +
-			"Do NOT read test files. Do NOT read utility/infrastructure files (logging, tool registration). " +
-			"Focus on the source files that contain the actual logic you need to answer the question.\n\n" +
+			"**User question: " + e.userQuestion + "**\n\n" +
+			"Read the key source files you identified. For EACH file you read, write a brief analysis:\n" +
+			"1. What does this file reveal about the user's question?\n" +
+			"2. What specific code (function name, line) is the evidence?\n" +
+			"3. Does this file reference another file that you need to read?\n\n" +
+			"**Important:** Read ONE file at a time, then analyze it before reading the next. " +
+			"Do not read multiple large files in one batch — you will lose detail. " +
+			"Small files (<100 lines) can be read in the same batch.\n\n" +
+			"Trace through conditionals: when you find 'only if X matches Y', identify what X and Y are concretely. " +
+			"Do NOT just catalog structures — answer the question.\n\n" +
 			"Start by reading the most important file now.", true
 	}
 
@@ -164,20 +176,47 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
-	// If there are unread high-priority files from pre-scan, do NOT
-	// let idle streak stop the exploration — these files were ranked
-	// highly by structural + keyword analysis and should be read.
+	// Check which read files were NOT analyzed in investigation notes.
+	var unanalyzed []string
+	notesJoined := strings.Join(e.investigationNotes, "\n")
+	for f := range readSet {
+		// Check if the file was mentioned in any analysis note.
+		base := f
+		if idx := strings.LastIndex(f, "/"); idx >= 0 {
+			base = f[idx+1:]
+		}
+		if !strings.Contains(notesJoined, base) {
+			unanalyzed = append(unanalyzed, f)
+		}
+	}
+
+	// If there are unread high-priority files, force reading.
 	if len(preScannedUnread) > 0 {
-		e.idleStreakInDepth = 0 // reset — there's still work to do
+		e.idleStreakInDepth = 0
 		var hint strings.Builder
 		fmt.Fprintf(&hint,
 			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
+		fmt.Fprintf(&hint, "\nReminder — user question: %s\n\n", e.userQuestion)
 		hint.WriteString("The following HIGH-PRIORITY files from the pre-scan ranking have NOT been read yet. ")
 		hint.WriteString("Read them now — they scored highly for keyword + structural relevance:\n")
 		for _, f := range preScannedUnread {
 			hint.WriteString("- " + f + "\n")
 		}
 		hint.WriteString("\nRead the most important unread file now.")
+		return hint.String(), true
+	}
+
+	// If files were read but not analyzed, push for analysis.
+	if len(unanalyzed) > 0 {
+		e.idleStreakInDepth = 0
+		var hint strings.Builder
+		fmt.Fprintf(&hint, "Reminder — user question: %s\n\n", e.userQuestion)
+		hint.WriteString("You read these files but did NOT analyze them in relation to the question:\n")
+		for _, f := range unanalyzed {
+			hint.WriteString("- " + f + "\n")
+		}
+		hint.WriteString("\nFor each file above, write what it reveals about the user's question. " +
+			"Do not skip files — the answer may depend on connecting evidence across multiple files.")
 		return hint.String(), true
 	}
 
@@ -303,38 +342,56 @@ func (e *explorerEvaluator) toolConfidence(name string) float64 {
 // without the noise of intermediate summaries and continuation pushes.
 func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (string, bool) {
 	// Only synthesize if we have evidence-bearing results.
-	var evidenceResults []types.ToolResult
+	hasEvidence := false
 	for _, r := range toolResults {
 		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
-			evidenceResults = append(evidenceResults, r)
+			hasEvidence = true
+			break
 		}
 	}
-	if len(evidenceResults) == 0 {
+	if !hasEvidence {
 		return "", false
 	}
 
-	// Build a structured digest of all evidence tool results.
 	var digest strings.Builder
-	digest.WriteString("You have completed your investigation. Below is a structured digest of ALL evidence you collected.\n\n")
+	digest.WriteString("You have completed your investigation. Below is your analysis from the investigation phase.\n\n")
 	digest.WriteString("## User Question\n")
 	digest.WriteString(ctx.CurrentTask)
-	digest.WriteString("\n\n## Evidence Collected\n\n")
+	digest.WriteString("\n\n")
 
-	for i, r := range evidenceResults {
-		// Truncate very long results to keep the synthesis prompt focused.
-		summary := r.Summary
-		if len(summary) > 3000 {
-			summary = summary[:3000] + "\n... [truncated]"
+	// Include the LLM's own intermediate analysis from the ReAct loop.
+	// These are the assistant messages where it summarized each file's
+	// key findings — much more valuable than truncated raw file contents,
+	// because the LLM already processed the full files and extracted
+	// the relevant details.
+	if len(e.investigationNotes) > 0 {
+		digest.WriteString("## Your Investigation Notes\n\n")
+		digest.WriteString("These are YOUR OWN analyses from reading the source files during investigation:\n\n")
+		for i, note := range e.investigationNotes {
+			if len(note) > 2000 {
+				note = note[:2000] + "\n... [truncated]"
+			}
+			fmt.Fprintf(&digest, "### Analysis %d\n%s\n\n", i+1, note)
 		}
-		fmt.Fprintf(&digest, "### [%d] %s\n```\n%s\n```\n\n", i+1, r.ToolName, summary)
 	}
 
+	// Include a compact file list (not full contents) so the LLM
+	// knows which files it read.
+	digest.WriteString("## Files Read\n\n")
+	for _, r := range toolResults {
+		if r.Success && r.ToolName == "read_file" {
+			first := strings.SplitN(r.Summary, "\n", 2)[0]
+			digest.WriteString("- " + first + "\n")
+		}
+	}
+	digest.WriteString("\n")
+
 	digest.WriteString("## Instructions\n\n")
-	digest.WriteString("Based on ALL the evidence above, write a comprehensive answer to the user's question. Requirements:\n")
-	digest.WriteString("- Synthesize from the evidence, do not just list files\n")
-	digest.WriteString("- For architecture/flow questions: explain the mechanism, conditions, and branching logic — not just component names\n")
-	digest.WriteString("- Include a Mermaid diagram if the question asks for a flowchart or if a visual would clarify the answer\n")
-	digest.WriteString("- Ground every key claim in a file:line citation from the evidence\n")
+	digest.WriteString("Based on your investigation notes above, write a comprehensive answer to the user's question. Requirements:\n")
+	digest.WriteString("- Synthesize from your analysis, do not just list files or component names\n")
+	digest.WriteString("- For architecture/flow questions: explain the mechanism, conditions, and branching logic\n")
+	digest.WriteString("- Trace through the code to identify SPECIFIC answers (e.g. which exact agent, not 'any agent that meets conditions')\n")
+	digest.WriteString("- Ground every key claim in a file:line citation\n")
 	digest.WriteString("- Match the answer depth to the question depth\n")
 
 	return digest.String(), true
