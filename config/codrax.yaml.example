@@ -5,10 +5,13 @@
 # There are three YAML files under config/, each with a distinct role.
 # Do not duplicate keys across them:
 #
-#   orchestrator.yaml — Pipeline topology. stages, transitions, task
-#                       policies, agent/skill bindings, per-stage limits
-#                       (max_retries_per_stage, max_stage_visits,
-#                       require_review). Shared across users.
+#   orchestrator.yaml — Pipeline topology only: stages, transitions,
+#                       task policies, agent/skill bindings. The
+#                       pipeline_settings: block that used to live
+#                       here has moved to this file under the
+#                       pipeline_* keys (see below). The old block is
+#                       still parsed for backward compatibility but
+#                       new configurations should use codrax.yaml.
 #
 #   providers.yaml    — LLM provider credentials and per-agent model
 #                       routing. Per-user secrets, never committed.
@@ -16,7 +19,8 @@
 #   codrax.yaml       — THIS FILE. Per-process runtime knobs: where to
 #                       write logs and memory, default response language,
 #                       per-invocation targets (repo, branch), global
-#                       step budget, and pointers to the other two files.
+#                       step budget, tool blob sizing, pipeline
+#                       behavior, and pointers to the other two files.
 #
 # Precedence (lowest wins last):
 #
@@ -64,11 +68,12 @@
 # ---------------------------------------------------------------------------
 # Per-invocation defaults
 # ---------------------------------------------------------------------------
-# These describe the repository and budget for one pipeline run. They
-# are distinct from orchestrator.yaml's pipeline_settings, which
-# describe per-stage limits inside the pipeline's own state machine.
-#   - max_steps here       = global Run() budget across all stages.
-#   - max_stage_visits in orchestrator.yaml = oscillation guard per stage.
+# These describe the repository and global step budget for one
+# pipeline run. They are distinct from the per-stage budgets and
+# oscillation guards under "Pipeline behavior" below:
+#   - max_steps here              = global Run() budget across all stages.
+#   - pipeline_max_stage_visits   = per-stage oscillation guard.
+#   - pipeline_max_retries_per_stage = consecutive failures per stage.
 
 # Target repository the agents operate on.
 # repo: .
@@ -79,6 +84,57 @@
 # Maximum total pipeline steps per Run() call. Acts as a hard budget
 # cap independent of per-stage retries and oscillation guards.
 # max_steps: 50
+
+# ---------------------------------------------------------------------------
+# Tool output blob sizing
+# ---------------------------------------------------------------------------
+# Tool results larger than blob_max_inline_bytes are offloaded to a
+# blob file under the work dir; only a head+tail preview is inlined
+# into the LLM context. The head/tail split controls how much of the
+# original output the model can still see in the preview.
+#
+# Defaults are tuned for typical Go repositories where most source
+# files fit comfortably in 32 KB. Lower the threshold if you are
+# working with a token-budget-constrained model and want more
+# aggressive truncation; raise it (and grow the head budget to match)
+# if you are routinely dealing with files in the 30-60 KB range.
+
+# blob_max_inline_bytes: 32768
+# blob_preview_head_bytes: 24576
+# blob_preview_tail_bytes: 4096
+
+# ---------------------------------------------------------------------------
+# Pipeline behavior
+# ---------------------------------------------------------------------------
+# These five keys used to live in orchestrator.yaml under
+# pipeline_settings:. They have moved here because they are runtime
+# operator knobs (which retry budgets to use, whether to run review
+# stages), not pipeline topology (which stages exist and how they
+# connect). orchestrator.yaml's old block is still parsed as a
+# fallback layer beneath these for one-release backward compat.
+#
+# Precedence (lowest wins last):
+#   code default → orchestrator.yaml pipeline_settings → these keys →
+#   command-line flags (only -pipeline-max-retries and
+#   -pipeline-max-stage-visits have CLI overrides).
+
+# Enable / disable the verify stage globally.
+# pipeline_enable_verify: true
+
+# When true, use the high_risk_implementation policy that includes
+# design_review and code_review stages.
+# pipeline_require_review: true
+
+# Max consecutive failures per stage before forcing finalize.
+# pipeline_max_retries_per_stage: 3
+
+# Oscillation guard: cap per-stage entries per Run before forced
+# finalize. Values <= 0 fall back to the code default (4).
+# pipeline_max_stage_visits: 4
+
+# When true, small changes can jump from explore to implement,
+# skipping plan.
+# pipeline_allow_skip_plan_for_small_change: false
 
 # ---------------------------------------------------------------------------
 # Paths to the other two config files

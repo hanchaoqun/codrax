@@ -10,6 +10,19 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Blob sizing knobs. These are package-level vars (not consts) so
+// main.go can override them at startup from config/codrax.yaml's
+// blob_max_inline_bytes / blob_preview_head_bytes /
+// blob_preview_tail_bytes keys. The defaults below are the historical
+// constants and remain in effect when codrax.yaml leaves them unset.
+//
+// Why vars and not a struct passed through ctx: blob.go is called
+// from every tool's Execute, and threading a config object through
+// every call site would be a noisy refactor for a value that does
+// not change after startup. The vars are written exactly once from
+// main.go before any tool runs, and read-only thereafter, so the
+// data race window is empty in practice.
+
 // MaxInlineBytes is the threshold above which a tool result is
 // offloaded to a blob file and replaced with a preview in Summary.
 // Below this size, output flows through inline so small results stay
@@ -22,16 +35,41 @@ import (
 // silent footgun: any file over ~88 lines lost its middle to
 // head+tail truncation, which is exactly where most source files put
 // the interesting logic.
-const MaxInlineBytes = 32 * 1024
+var MaxInlineBytes = 32 * 1024
 
 // previewHeadBytes / previewTailBytes split the truncation budget for
 // the head+tail preview mode (used by exec_command-style tools where
 // startup banner + trailing error are both useful). read_file uses a
 // head-only preview instead via StoreBlobHeadOnly — see its docs.
-const (
+var (
 	previewHeadBytes = 24 * 1024
 	previewTailBytes = 4 * 1024
 )
+
+// SetBlobLimits is the controlled entry point for overriding the
+// blob sizing knobs at startup. main.go calls it once after loading
+// codrax.yaml; tests call it via t.Cleanup to restore defaults. A
+// non-positive value means "leave the current value alone", so a
+// caller can override one knob without touching the others.
+func SetBlobLimits(maxInline, previewHead, previewTail int) {
+	if maxInline > 0 {
+		MaxInlineBytes = maxInline
+	}
+	if previewHead > 0 {
+		previewHeadBytes = previewHead
+	}
+	if previewTail > 0 {
+		previewTailBytes = previewTail
+	}
+}
+
+// PreviewHeadBytesValue / PreviewTailBytesValue expose the (otherwise
+// package-private) preview-window vars to other packages that need
+// to log or display the resolved values. Used by main.go's startup
+// banner. Kept as functions instead of exported vars so we don't
+// invite mutation from outside this package.
+func PreviewHeadBytesValue() int { return previewHeadBytes }
+func PreviewTailBytesValue() int { return previewTailBytes }
 
 // StoreBlob conditionally offloads large tool output to disk and
 // returns the (summary, ref) pair a ToolResult should carry.

@@ -468,7 +468,12 @@ func (t *RepoMap) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 // RunTests
 // ---------------------------------------------------------------------------
 
-// RunTests runs test commands (default: go test ./...).
+// RunTests runs an explicit test command. There is no language- or
+// build-system default: the caller must always pass a command. The
+// previous design fell back to "go test ./..." on empty input, which
+// quietly produced confusing failures in non-Go repositories and gave
+// the LLM a free pass to skip thinking about which tests are
+// actually relevant. Forcing the command makes both errors loud.
 //
 // Classified as read-only by intent: its purpose is observation, not
 // mutation. The verifier (a read-only agent) depends on it. Test code
@@ -481,16 +486,19 @@ type runTestsParams struct {
 	Path    string `json:"path,omitempty"`
 }
 
-func (t *RunTests) Name() string        { return "run_tests" }
-func (t *RunTests) Description() string { return "Run tests (default: go test ./...)" }
+func (t *RunTests) Name() string { return "run_tests" }
+func (t *RunTests) Description() string {
+	return "Run a test command. The command parameter is required — pick the test invocation that matches the project's build system (e.g. 'go test ./...', 'pytest', 'npm test'). Working directory is optional."
+}
 
 func (t *RunTests) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "command": {"type": "string", "description": "Test command to run (default: go test ./...)"},
-    "path":    {"type": "string", "description": "Working directory for the command"}
-  }
+    "command": {"type": "string", "description": "Test command to run, e.g. 'go test ./...', 'pytest -q', 'npm test'. Required."},
+    "path":    {"type": "string", "description": "Working directory for the command (optional)."}
+  },
+  "required": ["command"]
 }`)
 }
 
@@ -500,9 +508,17 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
-	command := p.Command
+	command := strings.TrimSpace(p.Command)
 	if command == "" {
-		command = "go test ./..."
+		// Surface as a tool failure rather than a hard error so the
+		// agent receives an actionable message in the next observation
+		// step and can retry with a real command.
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "run_tests requires the 'command' parameter — there is no default. Pass the test invocation for this project (e.g. 'go test ./...', 'pytest -q', 'npm test').",
+			Timestamp: time.Now(),
+		}, nil
 	}
 
 	cmd := exec.Command("sh", "-c", command)

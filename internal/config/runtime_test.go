@@ -18,6 +18,14 @@ lang: en
 repo: /tmp/project
 branch: develop
 max_steps: 100
+blob_max_inline_bytes: 65536
+blob_preview_head_bytes: 49152
+blob_preview_tail_bytes: 8192
+pipeline_max_retries_per_stage: 5
+pipeline_max_stage_visits: 6
+pipeline_enable_verify: false
+pipeline_require_review: false
+pipeline_allow_skip_plan_for_small_change: true
 orchestrator_config: /etc/codrax/orchestrator.yaml
 providers_config: /etc/codrax/providers.yaml
 `
@@ -57,6 +65,68 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.ProvidersConfig == nil || *s.ProvidersConfig != "/etc/codrax/providers.yaml" {
 		t.Errorf("ProvidersConfig = %v", s.ProvidersConfig)
+	}
+	// blob_*
+	if s.BlobMaxInlineBytes == nil || *s.BlobMaxInlineBytes != 65536 {
+		t.Errorf("BlobMaxInlineBytes = %v", s.BlobMaxInlineBytes)
+	}
+	if s.BlobPreviewHeadBytes == nil || *s.BlobPreviewHeadBytes != 49152 {
+		t.Errorf("BlobPreviewHeadBytes = %v", s.BlobPreviewHeadBytes)
+	}
+	if s.BlobPreviewTailBytes == nil || *s.BlobPreviewTailBytes != 8192 {
+		t.Errorf("BlobPreviewTailBytes = %v", s.BlobPreviewTailBytes)
+	}
+	// pipeline_*
+	if s.PipelineMaxRetriesPerStage == nil || *s.PipelineMaxRetriesPerStage != 5 {
+		t.Errorf("PipelineMaxRetriesPerStage = %v", s.PipelineMaxRetriesPerStage)
+	}
+	if s.PipelineMaxStageVisits == nil || *s.PipelineMaxStageVisits != 6 {
+		t.Errorf("PipelineMaxStageVisits = %v", s.PipelineMaxStageVisits)
+	}
+	if s.PipelineEnableVerify == nil || *s.PipelineEnableVerify != false {
+		t.Errorf("PipelineEnableVerify = %v", s.PipelineEnableVerify)
+	}
+	if s.PipelineRequireReview == nil || *s.PipelineRequireReview != false {
+		t.Errorf("PipelineRequireReview = %v", s.PipelineRequireReview)
+	}
+	if s.PipelineAllowSkipPlanForSmall == nil || *s.PipelineAllowSkipPlanForSmall != true {
+		t.Errorf("PipelineAllowSkipPlanForSmall = %v", s.PipelineAllowSkipPlanForSmall)
+	}
+}
+
+// TestLoadRuntimeSettings_PipelineFalse pins the pointer-vs-value
+// distinction for the new boolean pipeline keys: an explicit `false`
+// in YAML must be distinguishable from "absent". This is the same
+// regression guard as TestLoadRuntimeSettings_FalseIsNotAbsence but
+// for the new fields, since each new bool field that gets added is
+// another opportunity to accidentally use a value type.
+func TestLoadRuntimeSettings_PipelineFalse(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "codrax.yaml")
+	body := `
+pipeline_enable_verify: false
+pipeline_require_review: false
+pipeline_allow_skip_plan_for_small_change: false
+`
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	s, err := LoadRuntimeSettings(path)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	for name, p := range map[string]*bool{
+		"PipelineEnableVerify":          s.PipelineEnableVerify,
+		"PipelineRequireReview":         s.PipelineRequireReview,
+		"PipelineAllowSkipPlanForSmall": s.PipelineAllowSkipPlanForSmall,
+	} {
+		if p == nil {
+			t.Errorf("%s should be non-nil when explicitly set to false", name)
+			continue
+		}
+		if *p != false {
+			t.Errorf("%s = %v, want false", name, *p)
+		}
 	}
 }
 
@@ -134,7 +204,11 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 	if s.LogDir != nil || s.LogLevel != nil || s.LogStdout != nil ||
 		s.MemoryDir != nil || s.Lang != nil ||
 		s.Repo != nil || s.Branch != nil || s.MaxSteps != nil ||
-		s.OrchestratorConfig != nil || s.ProvidersConfig != nil {
+		s.OrchestratorConfig != nil || s.ProvidersConfig != nil ||
+		s.BlobMaxInlineBytes != nil || s.BlobPreviewHeadBytes != nil || s.BlobPreviewTailBytes != nil ||
+		s.PipelineMaxRetriesPerStage != nil || s.PipelineMaxStageVisits != nil ||
+		s.PipelineEnableVerify != nil || s.PipelineRequireReview != nil ||
+		s.PipelineAllowSkipPlanForSmall != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }

@@ -101,13 +101,22 @@ func main() {
 	// Overlay config file values. Missing default file = silent skip
 	// (settingsPath == ""); explicit path via env var must exist.
 	// Logger is not up yet, so diagnostics go to stderr.
-	loadSettings := func() (*config.RuntimeSettings, error) {
-		if settingsPath == "" {
-			return nil, os.ErrNotExist
+	//
+	// rs is hoisted outside the load block so the blob and pipeline
+	// fields stay reachable after orchestrator config is loaded — they
+	// are applied later in the startup sequence, once we know what
+	// orchestrator.yaml provided as the base layer.
+	var rs *config.RuntimeSettings
+	if settingsPath != "" {
+		loaded, err := config.LoadRuntimeSettings(settingsPath)
+		if err == nil {
+			rs = loaded
+		} else if !config.IsNotExist(err) || settingsExplicit {
+			fmt.Fprintf(os.Stderr, "failed to load runtime settings from %s: %v\n", settingsPath, err)
+			os.Exit(1)
 		}
-		return config.LoadRuntimeSettings(settingsPath)
 	}
-	if rs, err := loadSettings(); err == nil {
+	if rs != nil {
 		if rs.LogDir != nil {
 			mergedLogDir = *rs.LogDir
 		}
@@ -138,9 +147,6 @@ func main() {
 		if rs.ProvidersConfig != nil {
 			mergedProvidersConfig = *rs.ProvidersConfig
 		}
-	} else if !config.IsNotExist(err) || settingsExplicit {
-		fmt.Fprintf(os.Stderr, "failed to load runtime settings from %s: %v\n", settingsPath, err)
-		os.Exit(1)
 	}
 
 	// Anchor relative *default* path values to anchorDir, before they
@@ -188,6 +194,14 @@ func main() {
 	logStdout := flag.Bool("log-stdout", mergedLogStdout, "also mirror logs to stdout")
 	memoryDir := flag.String("memory-dir", mergedMemoryDir, "directory for conversation memory")
 	lang := flag.String("lang", mergedLang, "default response language (zh/en/...); 'off' to disable")
+	// Pipeline budget knobs. Defaults are 0 sentinels — flag.Visit
+	// after Parse tells us whether the user actually passed them, and
+	// we apply only those into cfg.PipelineSettings (which already
+	// holds the orchestrator.yaml + codrax.yaml merged values by then).
+	// 0 means "leave whatever the YAML layers produced". Non-zero
+	// means "operator override, beats both YAMLs".
+	pipelineMaxRetries := flag.Int("pipeline-max-retries", 0, "override pipeline_max_retries_per_stage (max consecutive failures per stage before forcing finalize); 0 = inherit from yaml")
+	pipelineMaxStageVisits := flag.Int("pipeline-max-stage-visits", 0, "override pipeline_max_stage_visits (oscillation guard: max entries per stage per Run); 0 = inherit from yaml")
 	flag.Parse()
 
 	// Re-slug log/memory dirs if -repo was overridden on the command
@@ -241,6 +255,71 @@ func main() {
 		os.Exit(1)
 	}
 	logging.Info("loaded config: %d stages, %d policies", len(cfg.Stages), len(cfg.TaskPolicies))
+
+	// Apply runtime overrides from codrax.yaml on top of what
+	// orchestrator.yaml + code defaults already produced.
+	//
+	// Precedence chain (lowest wins last):
+	//   code default → orchestrator.yaml pipeline_settings → codrax.yaml
+	//   pipeline_* keys → CLI flags (only the two budget params)
+	//
+	// orchestrator.yaml's pipeline_settings: block is still parsed for
+	// backward compatibility (old configs in the wild) and acts as the
+	// fallback layer beneath codrax.yaml. The example config in
+	// config/orchestrator.yaml no longer ships with that block.
+	if rs != nil {
+		// Tool blob sizing knobs. SetBlobLimits ignores non-positive
+		// values, so any field the user omitted leaves the historical
+		// default in place.
+		blobMax := 0
+		blobHead := 0
+		blobTail := 0
+		if rs.BlobMaxInlineBytes != nil {
+			blobMax = *rs.BlobMaxInlineBytes
+		}
+		if rs.BlobPreviewHeadBytes != nil {
+			blobHead = *rs.BlobPreviewHeadBytes
+		}
+		if rs.BlobPreviewTailBytes != nil {
+			blobTail = *rs.BlobPreviewTailBytes
+		}
+		tool.SetBlobLimits(blobMax, blobHead, blobTail)
+		// Pipeline behavior overrides — codrax.yaml beats
+		// orchestrator.yaml's legacy pipeline_settings block.
+		if rs.PipelineMaxRetriesPerStage != nil {
+			cfg.PipelineSettings.MaxRetriesPerStage = *rs.PipelineMaxRetriesPerStage
+		}
+		if rs.PipelineMaxStageVisits != nil {
+			cfg.PipelineSettings.MaxStageVisits = *rs.PipelineMaxStageVisits
+		}
+		if rs.PipelineEnableVerify != nil {
+			cfg.PipelineSettings.EnableVerify = *rs.PipelineEnableVerify
+		}
+		if rs.PipelineRequireReview != nil {
+			cfg.PipelineSettings.RequireReview = *rs.PipelineRequireReview
+		}
+		if rs.PipelineAllowSkipPlanForSmall != nil {
+			cfg.PipelineSettings.AllowSkipPlanForSmallChange = *rs.PipelineAllowSkipPlanForSmall
+		}
+	}
+	// CLI flag overrides for the two pipeline budget params. We use
+	// flag.Visit (rather than checking for non-zero) so a user who
+	// genuinely wants 0 can pass it — though for these particular
+	// fields 0 is meaningless. Belt and suspenders.
+	if explicitFlags["pipeline-max-retries"] && *pipelineMaxRetries > 0 {
+		cfg.PipelineSettings.MaxRetriesPerStage = *pipelineMaxRetries
+	}
+	if explicitFlags["pipeline-max-stage-visits"] && *pipelineMaxStageVisits > 0 {
+		cfg.PipelineSettings.MaxStageVisits = *pipelineMaxStageVisits
+	}
+	logging.Info("pipeline_settings: enable_verify=%v require_review=%v max_retries_per_stage=%d max_stage_visits=%d allow_skip_plan_for_small_change=%v",
+		cfg.PipelineSettings.EnableVerify,
+		cfg.PipelineSettings.RequireReview,
+		cfg.PipelineSettings.MaxRetriesPerStage,
+		cfg.PipelineSettings.MaxStageVisits,
+		cfg.PipelineSettings.AllowSkipPlanForSmallChange)
+	logging.Info("blob_limits: max_inline_bytes=%d preview_head_bytes=%d preview_tail_bytes=%d",
+		tool.MaxInlineBytes, tool.PreviewHeadBytesValue(), tool.PreviewTailBytesValue())
 
 	providersCfg, err := config.LoadProviders(*providersPath)
 	if err != nil {

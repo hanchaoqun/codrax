@@ -642,19 +642,31 @@ func TestLoadAndResolve(t *testing.T) {
 		}
 	})
 
-	t.Run("feature flags have correct defaults", func(t *testing.T) {
+	t.Run("pipeline_settings migrated to codrax.yaml", func(t *testing.T) {
+		// pipeline_settings used to live in orchestrator.yaml. It has
+		// moved to codrax.yaml under the pipeline_* prefixed keys.
+		// The example config/orchestrator.yaml no longer carries the
+		// block, so the loader returns zero values for these fields
+		// — that's the signal main.go uses to know it should layer
+		// the code defaults and codrax.yaml on top. The loader is
+		// still TOLERANT of an old pipeline_settings: block being
+		// present (TestParse covers that backward-compat path with
+		// minimalYAML), but the canonical example no longer has one.
 		ff := rc.PipelineSettings
-		if !ff.RequireReview {
-			t.Error("require_review should be true")
+		if ff.RequireReview {
+			t.Error("require_review should be zero (false) — the value belongs in codrax.yaml now")
 		}
-		if !ff.EnableVerify {
-			t.Error("enable_verify should be true")
+		if ff.EnableVerify {
+			t.Error("enable_verify should be zero (false) — the value belongs in codrax.yaml now")
 		}
 		if ff.AllowSkipPlanForSmallChange {
-			t.Error("allow_skip_plan_for_small_change should be false")
+			t.Error("allow_skip_plan_for_small_change should be zero (false) — the value belongs in codrax.yaml now")
 		}
-		if ff.MaxStageVisits != 4 {
-			t.Errorf("max_stage_visits = %d, want 4", ff.MaxStageVisits)
+		if ff.MaxStageVisits != 0 {
+			t.Errorf("max_stage_visits = %d, want 0 (the value belongs in codrax.yaml now)", ff.MaxStageVisits)
+		}
+		if ff.MaxRetriesPerStage != 0 {
+			t.Errorf("max_retries_per_stage = %d, want 0 (the value belongs in codrax.yaml now)", ff.MaxRetriesPerStage)
 		}
 	})
 

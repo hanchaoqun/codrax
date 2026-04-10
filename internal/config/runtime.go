@@ -45,6 +45,26 @@ type RuntimeSettings struct {
 	Branch   *string `yaml:"branch"`
 	MaxSteps *int    `yaml:"max_steps"`
 
+	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
+	// namespace obvious without nesting. All three accept any
+	// positive integer; non-positive (or omitted) means "use the
+	// code default in internal/tool/blob.go".
+	BlobMaxInlineBytes   *int `yaml:"blob_max_inline_bytes"`
+	BlobPreviewHeadBytes *int `yaml:"blob_preview_head_bytes"`
+	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
+
+	// Pipeline behavior. Flat-prefixed `pipeline_*`. These five used
+	// to live in orchestrator.yaml's `pipeline_settings:` block; they
+	// have moved here because they are runtime/operator concerns, not
+	// pipeline topology. The orchestrator.yaml block is still loaded
+	// for backward compatibility and acts as a fallback layer beneath
+	// these — see main.go for the precedence merge.
+	PipelineMaxRetriesPerStage      *int  `yaml:"pipeline_max_retries_per_stage"`
+	PipelineMaxStageVisits          *int  `yaml:"pipeline_max_stage_visits"`
+	PipelineEnableVerify            *bool `yaml:"pipeline_enable_verify"`
+	PipelineRequireReview           *bool `yaml:"pipeline_require_review"`
+	PipelineAllowSkipPlanForSmall   *bool `yaml:"pipeline_allow_skip_plan_for_small_change"`
+
 	// Pointers to the other two config files. Nested here so a single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.
