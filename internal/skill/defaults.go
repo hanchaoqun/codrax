@@ -10,7 +10,7 @@ func RegisterDefaults(r *Registry) {
 			"identify intent type",
 			"classify task type",
 			"generate objective",
-			"decompose into subtasks",
+			"decompose into subtasks only when the request contains genuinely independent work items (e.g. 'fix bug A and add feature B'); if the request is a single question with multiple facets (e.g. 'explain X and draw a diagram'), keep it as ONE task — the diagram is part of the answer, not a separate task",
 			"extract constraints",
 			"identify missing pieces",
 		},
@@ -25,6 +25,7 @@ func RegisterDefaults(r *Registry) {
 		Prohibitions: []string{
 			"do not make assumptions about code structure",
 			"do not start implementation",
+			"do not split a single question into multiple tasks just because it mentions multiple output forms (e.g. 'explain X and generate a diagram' is one task, not two)",
 		},
 	})
 
