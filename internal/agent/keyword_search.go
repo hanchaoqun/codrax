@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 )
 
@@ -160,9 +162,12 @@ func repoMapRank(keywords []string, repoRoot string) (scores map[string]float64,
 	return scores, graph
 }
 
-// grepIDFSearch runs grep for each keyword and weights matches by IDF
+// grepIDFSearch runs grep/rg for each keyword and weights matches by IDF
 // (inverse document frequency). Keywords matching fewer files are more
 // informative and contribute more to a file's score.
+//
+// When ripgrep is available, all keywords are searched in a single rg
+// call using multiple -e patterns, reducing process spawns from N*2 to 1.
 func grepIDFSearch(keywords []string, repoRoot string) (scores map[string]float64, hits map[string]map[string]string) {
 	scores = make(map[string]float64)
 	hits = make(map[string]map[string]string)
@@ -173,37 +178,66 @@ func grepIDFSearch(keywords []string, repoRoot string) (scores map[string]float6
 		totalFiles = 100 // fallback
 	}
 
-	for _, kw := range keywords {
-		// Case-sensitive grep first.
-		paths := grepFiles(kw, repoRoot, false)
-		matchType := "exact"
-		if len(paths) == 0 {
-			// Fall back to case-insensitive.
-			paths = grepFiles(kw, repoRoot, true)
-			matchType = "icase"
-		}
+	// Build per-keyword file lists. When rg is available, batch all
+	// keywords into a single call.
+	type kwResult struct {
+		paths     []string
+		matchType string
+	}
+	kwResults := make(map[string]kwResult, len(keywords))
 
-		if len(paths) == 0 {
+	if tool.UseRipgrep() {
+		// Batch: one rg call with multiple -e patterns using smart-case.
+		// Smart-case handles the exact-first/icase-fallback automatically:
+		// patterns with uppercase → case-sensitive; all-lowercase → insensitive.
+		filesByKw := rgBatchFiles(keywords, repoRoot)
+		for _, kw := range keywords {
+			paths := filesByKw[kw]
+			if len(paths) > 0 {
+				// Determine match type: if keyword has uppercase it was
+				// exact; otherwise smart-case made it case-insensitive.
+				mt := "exact"
+				if !strings.ContainsAny(kw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+					mt = "icase"
+				}
+				kwResults[kw] = kwResult{paths: paths, matchType: mt}
+			}
+		}
+	} else {
+		// Sequential: one grep call per keyword.
+		for _, kw := range keywords {
+			paths := grepFiles(kw, repoRoot, false)
+			matchType := "exact"
+			if len(paths) == 0 {
+				paths = grepFiles(kw, repoRoot, true)
+				matchType = "icase"
+			}
+			if len(paths) > 0 {
+				kwResults[kw] = kwResult{paths: paths, matchType: matchType}
+			}
+		}
+	}
+
+	// Score files by IDF.
+	for _, kw := range keywords {
+		kr, ok := kwResults[kw]
+		if !ok {
 			continue
 		}
 
-		// IDF: keywords matching fewer files score higher.
-		df := float64(len(paths))
+		df := float64(len(kr.paths))
 		idf := math.Log2(float64(totalFiles)/df) + 1.0
-
-		// Filename matches get a bonus on top of IDF.
 		kwLower := strings.ToLower(kw)
 
-		for _, p := range paths {
+		for _, p := range kr.paths {
 			p = normalizeSearchPath(p, repoRoot)
 			if isNoisePath(p) {
 				continue
 			}
 
 			fileScore := idf * fileTypeWeight(p)
+			matchType := kr.matchType
 
-			// Filename match bonus: file that contains the keyword in
-			// its name is more likely to be the defining file.
 			baseLower := strings.ToLower(filepath.Base(p))
 			if strings.Contains(baseLower, kwLower) {
 				fileScore *= 2.0
@@ -299,24 +333,104 @@ func fileTypeWeight(path string) float64 {
 
 // --- low-level search helpers ---
 
-// grepFiles runs grep -rlEI on the repo and returns matching paths.
+// grepFiles runs grep/rg on the repo and returns matching file paths.
 func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
-	args := []string{"-rlEI"}
-	if ignoreCase {
-		args = []string{"-rlEIi"}
-	}
-	for _, dir := range searchExcludeDirs {
-		args = append(args, "--exclude-dir="+dir)
-	}
-	args = append(args, pattern, repoRoot)
+	var cmd *exec.Cmd
 
-	cmd := exec.Command("grep", args...)
+	if tool.UseRipgrep() {
+		args := []string{"-l"}
+		if ignoreCase {
+			args = append(args, "-i")
+		} else {
+			args = append(args, "--case-sensitive")
+		}
+		for _, dir := range searchExcludeDirs {
+			args = append(args, "--glob", "!"+dir+"/")
+		}
+		args = append(args, pattern, repoRoot)
+		cmd = exec.Command("rg", args...)
+	} else {
+		args := []string{"-rlEI"}
+		if ignoreCase {
+			args = []string{"-rlEIi"}
+		}
+		for _, dir := range searchExcludeDirs {
+			args = append(args, "--exclude-dir="+dir)
+		}
+		args = append(args, pattern, repoRoot)
+		cmd = exec.Command("grep", args...)
+	}
+
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
 		return nil // exit 1 = no matches, or error — either way no results
 	}
 	return splitLines(stdout.String())
+}
+
+// rgBatchFiles runs a single rg call with multiple -e patterns and
+// returns per-keyword file lists. This reduces N keyword searches from
+// N process spawns to 1, which matters when rg has startup overhead
+// (e.g. snap-installed). Uses rg's --smart-case: all-lowercase patterns
+// match case-insensitively, patterns with uppercase match exactly.
+func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
+	args := []string{"-l", "--smart-case"}
+	for _, dir := range searchExcludeDirs {
+		args = append(args, "--glob", "!"+dir+"/")
+	}
+	for _, kw := range keywords {
+		args = append(args, "-e", kw)
+	}
+	args = append(args, repoRoot)
+
+	cmd := exec.Command("rg", args...)
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
+	if err := cmd.Run(); err != nil {
+		return nil
+	}
+
+	// rg -l with multiple -e returns files matching ANY pattern.
+	// We need per-keyword file lists for IDF. Re-check each file
+	// against each keyword using simple string matching — much
+	// cheaper than N separate rg calls since we already know the
+	// candidate set.
+	allFiles := splitLines(stdout.String())
+
+	result := make(map[string][]string, len(keywords))
+	for _, f := range allFiles {
+		content := readFileHead(f, 64*1024) // read first 64KB for matching
+		if content == "" {
+			continue
+		}
+		for _, kw := range keywords {
+			// Match using same smart-case rule as rg.
+			hasUpper := strings.ContainsAny(kw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
+			if hasUpper {
+				if strings.Contains(content, kw) {
+					result[kw] = append(result[kw], f)
+				}
+			} else {
+				if strings.Contains(strings.ToLower(content), strings.ToLower(kw)) {
+					result[kw] = append(result[kw], f)
+				}
+			}
+		}
+	}
+	return result
+}
+
+// readFileHead reads the first maxBytes of a file for keyword matching.
+func readFileHead(path string, maxBytes int) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	buf := make([]byte, maxBytes)
+	n, _ := f.Read(buf)
+	return string(buf[:n])
 }
 
 // findFilesByName uses find to locate files whose basename contains the keyword.

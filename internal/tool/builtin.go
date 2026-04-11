@@ -184,36 +184,48 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		caseInsensitive = !strings.ContainsAny(p.Pattern, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	}
 
-	// Use -E (extended regex) so ERE quantifiers (?, +, {n,m}) work as
-	// the LLM expects. Without -E, grep runs BRE where ? and + are
-	// literal characters, causing patterns like "sub[-]?agent" to match
-	// "sub-?agent" instead of "subagent" or "sub-agent". LLMs
-	// universally write ERE/PCRE-style patterns; BRE is never intended.
-	//
-	// -I skips binary files (codrax binary, .git/index, etc.) which
-	// match keywords but produce unreadable output.
-	args := []string{"-rnEI"}
-	if p.FilesOnly {
-		args = []string{"-rlEI"}
-	}
-	if caseInsensitive {
-		args = append(args, "-i")
-	}
+	var cmd *exec.Cmd
 
-	// Exclude directories that produce noise without useful signal.
-	// These match the categories in explorer.go's isNoisePath but are
-	// enforced at the grep level so the LLM never sees them.
-	for _, dir := range defaultExcludeDirs {
-		args = append(args, "--exclude-dir="+dir)
+	if UseRipgrep() {
+		// ripgrep: ERE-compatible by default, auto-skips binary files,
+		// respects .gitignore (auto-excludes logs/, memory/, etc.).
+		args := []string{"-n"}
+		if p.FilesOnly {
+			args = []string{"-l"}
+		}
+		if caseInsensitive {
+			args = append(args, "-i")
+		} else {
+			args = append(args, "--case-sensitive")
+		}
+		// Add manual exclusions for dirs not in .gitignore.
+		for _, dir := range defaultExcludeDirs {
+			args = append(args, "--glob", "!"+dir+"/")
+		}
+		if p.Include != "" {
+			args = append(args, "--glob", p.Include)
+		}
+		args = append(args, p.Pattern, searchPath)
+		cmd = exec.Command("rg", args...)
+	} else {
+		// GNU grep fallback: -E for ERE, -I to skip binary files.
+		args := []string{"-rnEI"}
+		if p.FilesOnly {
+			args = []string{"-rlEI"}
+		}
+		if caseInsensitive {
+			args = append(args, "-i")
+		}
+		for _, dir := range defaultExcludeDirs {
+			args = append(args, "--exclude-dir="+dir)
+		}
+		args = append(args, p.Pattern)
+		if p.Include != "" {
+			args = append(args, "--include="+p.Include)
+		}
+		args = append(args, searchPath)
+		cmd = exec.Command("grep", args...)
 	}
-
-	args = append(args, p.Pattern)
-	if p.Include != "" {
-		args = append(args, "--include="+p.Include)
-	}
-	args = append(args, searchPath)
-
-	cmd := exec.Command("grep", args...)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
