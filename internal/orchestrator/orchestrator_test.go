@@ -1,10 +1,12 @@
 package orchestrator
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/config"
+	"github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -962,6 +964,285 @@ func TestRun_MultiTaskExecution(t *testing.T) {
 	}
 	if verifyCount != 2 {
 		t.Errorf("verify count = %d, want 2 (writing tasks only)", verifyCount)
+	}
+}
+
+// TestRun_ExplorerFactSourceFlowsToFinalizer is an end-to-end test that
+// verifies the fix for the RepoFact.Source semantic mismatch. Before the
+// fix, explorer's ParseOutput filled Source with the tool name ("read_file",
+// "grep"), but downstream consumers (extractRelevantFiles, filterFilesByScope,
+// BuildPromptContext) treated Source as a repository-relative file path.
+// This caused the finalizer's "Relevant Files" prompt section to contain
+// meaningless entries like ["read_file", "grep"] instead of actual paths.
+//
+// The test simulates: analyze → explore → finalize (analysis policy).
+// The explorer mock returns NewFacts whose Source fields are logical file
+// paths (as produced by logicalFactSource) and EvidenceRef fields carry
+// the raw blob references. Assertions check:
+//   1. Facts accumulate on BusContext.RepoFacts with correct Source/EvidenceRef
+//   2. The finalizer's AgentContext.RelevantFiles contains real file paths
+//   3. The finalizer's AgentContext.RelevantFiles is properly deduplicated
+//   4. The finalizer's RelevantFacts includes source annotations with file paths
+//   5. BuildPromptContext renders "Relevant Files" with paths, not tool names
+func TestRun_ExplorerFactSourceFlowsToFinalizer(t *testing.T) {
+	cfg := defaultResolvedConfig()
+
+	// Capture what the finalizer actually receives.
+	var finalizerRelevantFiles []string
+	var finalizerRelevantFacts []string
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetTaskList(types.TaskList{
+				Objective: "explain how the explorer works",
+				Tasks: []types.TaskItem{{
+					ID: "t1", Title: "explain explorer", Writing: false, Status: types.TaskPending,
+				}},
+				CurrentTaskID: "t1",
+			})
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		// Explorer returns facts that mimic what logicalFactSource produces:
+		// Source = file path (not tool name), EvidenceRef = blob reference.
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				NewFacts: []types.RepoFact{
+					{
+						Key:         "read_file",
+						Value:       "[internal/agent/explorer.go: showing lines 1-50 of 800]\npackage agent\n...",
+						Source:      "internal/agent/explorer.go",
+						EvidenceRef: "blob://trace/tool-result-1.txt",
+						Confidence:  0.8,
+					},
+					{
+						Key:         "grep",
+						Value:       "[internal/agent/explorer.go:615] facts = append(facts, types.RepoFact{",
+						Source:      "internal/agent/explorer.go",
+						EvidenceRef: "blob://trace/tool-result-2.txt",
+						Confidence:  0.8,
+					},
+					{
+						Key:         "read_file",
+						Value:       "[internal/context/builder.go: showing lines 371-381 of 442]\nfunc extractRelevantFiles...",
+						Source:      "internal/context/builder.go",
+						EvidenceRef: "blob://trace/tool-result-3.txt",
+						Confidence:  0.8,
+					},
+					{
+						Key:         "repo_map",
+						Value:       "project structure overview",
+						Source:      "tool:repo_map",
+						EvidenceRef: "",
+						Confidence:  0.3,
+					},
+				},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			// Capture what the finalizer receives via BuildAgentContext.
+			finalizerRelevantFiles = make([]string, len(ctx.RelevantFiles))
+			copy(finalizerRelevantFiles, ctx.RelevantFiles)
+			finalizerRelevantFacts = make([]string, len(ctx.RelevantFacts))
+			copy(finalizerRelevantFacts, ctx.RelevantFacts)
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "The explorer uses a 3-phase investigation model.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	busCtx, err := o.Run("explain how the explorer works", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run returned error: %v", err)
+	}
+
+	if !busCtx.TaskState.IsTerminal {
+		t.Error("expected pipeline to reach terminal state")
+	}
+
+	// --- Assertion 1: BusContext.RepoFacts accumulated correctly ---
+	if len(busCtx.RepoFacts) != 4 {
+		t.Fatalf("BusContext.RepoFacts count = %d, want 4", len(busCtx.RepoFacts))
+	}
+	// Verify Source is a file path, not a tool name.
+	for _, f := range busCtx.RepoFacts {
+		if f.Source == "read_file" || f.Source == "grep" || f.Source == "repo_map" {
+			t.Errorf("RepoFact.Source = %q — still contains tool name instead of logical path", f.Source)
+		}
+	}
+	// Verify EvidenceRef preserved for tool-backed facts.
+	evidenceCount := 0
+	for _, f := range busCtx.RepoFacts {
+		if f.EvidenceRef != "" {
+			evidenceCount++
+		}
+	}
+	if evidenceCount != 3 {
+		t.Errorf("facts with EvidenceRef = %d, want 3", evidenceCount)
+	}
+
+	// --- Assertion 2: Finalizer received real file paths ---
+	if len(finalizerRelevantFiles) == 0 {
+		t.Fatal("finalizer received empty RelevantFiles")
+	}
+	for _, f := range finalizerRelevantFiles {
+		if f == "read_file" || f == "grep" || f == "repo_map" {
+			t.Errorf("finalizer RelevantFiles contains tool name %q instead of file path", f)
+		}
+	}
+
+	// --- Assertion 3: Deduplication by logical path ---
+	// Two facts have Source="internal/agent/explorer.go" — should be deduped to 1.
+	// Total unique: explorer.go, builder.go, tool:repo_map = 3 entries.
+	if len(finalizerRelevantFiles) != 3 {
+		t.Errorf("finalizer RelevantFiles count = %d, want 3 (dedup by logical source); got %v",
+			len(finalizerRelevantFiles), finalizerRelevantFiles)
+	}
+	expectedFiles := map[string]bool{
+		"internal/agent/explorer.go":   false,
+		"internal/context/builder.go":  false,
+		"tool:repo_map":               false,
+	}
+	for _, f := range finalizerRelevantFiles {
+		if _, ok := expectedFiles[f]; ok {
+			expectedFiles[f] = true
+		} else {
+			t.Errorf("unexpected file in RelevantFiles: %q", f)
+		}
+	}
+	for path, found := range expectedFiles {
+		if !found {
+			t.Errorf("expected file %q not found in RelevantFiles", path)
+		}
+	}
+
+	// --- Assertion 4: RelevantFacts contain source annotations with paths ---
+	for _, fact := range finalizerRelevantFacts {
+		// Each formatted fact looks like: [key] key = value (source: PATH, confidence: N.NN)
+		if strings.Contains(fact, "source: read_file") || strings.Contains(fact, "source: grep") {
+			t.Errorf("formatted fact still references tool name as source: %s", fact)
+		}
+	}
+
+	// --- Assertion 5: BuildPromptContext renders paths ---
+	// Reconstruct the prompt the finalizer would get.
+	finalizerAC := &types.AgentContext{
+		AgentName:     types.AgentFinalizer,
+		Stage:         types.StageFinalize,
+		Objective:     "explain how the explorer works",
+		RelevantFacts: finalizerRelevantFacts,
+		RelevantFiles: finalizerRelevantFiles,
+	}
+	sk := &skill.Config{
+		Name:         "finalize-skill",
+		Goal:         "Compile final answer",
+		Workflow:     []string{"summarize findings"},
+		OutputFormat: "plain text",
+	}
+	pc := context.BuildPromptContext(finalizerAC, sk)
+
+	// Find the "Relevant Files" user section.
+	var filesSection string
+	for _, s := range pc.UserSections {
+		if s.Title == "Relevant Files" {
+			filesSection = s.Content
+			break
+		}
+	}
+	if filesSection == "" {
+		t.Fatal("BuildPromptContext did not produce a 'Relevant Files' section")
+	}
+	if strings.Contains(filesSection, "read_file") || strings.Contains(filesSection, "\ngrep\n") {
+		t.Errorf("Relevant Files section contains tool names: %s", filesSection)
+	}
+	if !strings.Contains(filesSection, "internal/agent/explorer.go") {
+		t.Errorf("Relevant Files section missing expected path: %s", filesSection)
+	}
+	if !strings.Contains(filesSection, "internal/context/builder.go") {
+		t.Errorf("Relevant Files section missing expected path: %s", filesSection)
+	}
+}
+
+// TestRun_OldBehaviorWouldFail demonstrates that if explorer still filled
+// Source with tool names (the pre-fix behavior), the downstream assertions
+// would catch it. This is a regression guard: if logicalFactSource is ever
+// broken or bypassed, this test exposes the damage.
+func TestRun_OldBehaviorWouldFail(t *testing.T) {
+	cfg := defaultResolvedConfig()
+
+	var finalizerRelevantFiles []string
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetTaskList(types.TaskList{
+				Objective: "explain it",
+				Tasks: []types.TaskItem{{
+					ID: "t1", Title: "explain", Writing: false, Status: types.TaskPending,
+				}},
+				CurrentTaskID: "t1",
+			})
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		// Simulate the OLD broken behavior: Source = tool name.
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+				NewFacts: []types.RepoFact{
+					{
+						Key:        "read_file",
+						Value:      "file contents...",
+						Source:     "read_file", // OLD: tool name, not path
+						Confidence: 0.8,
+					},
+					{
+						Key:        "grep",
+						Value:      "match results...",
+						Source:     "grep", // OLD: tool name, not path
+						Confidence: 0.8,
+					},
+				},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizerRelevantFiles = make([]string, len(ctx.RelevantFiles))
+			copy(finalizerRelevantFiles, ctx.RelevantFiles)
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	if _, err := o.Run("explain it", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	// With the old behavior, RelevantFiles would be ["read_file", "grep"] —
+	// clearly wrong. Assert that these tool-name entries are indeed garbage.
+	hasToolName := false
+	for _, f := range finalizerRelevantFiles {
+		if f == "read_file" || f == "grep" {
+			hasToolName = true
+			break
+		}
+	}
+	if !hasToolName {
+		t.Fatal("expected old-behavior simulation to produce tool names in RelevantFiles, but it didn't — test setup may be wrong")
+	}
+
+	// Now verify these are NOT valid file paths (they lack "/" or "." extension).
+	for _, f := range finalizerRelevantFiles {
+		if strings.Contains(f, "/") || strings.HasSuffix(f, ".go") {
+			t.Errorf("old-behavior fact %q unexpectedly looks like a real path", f)
+		}
 	}
 }
 

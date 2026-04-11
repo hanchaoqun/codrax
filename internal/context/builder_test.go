@@ -1,6 +1,7 @@
 package context
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -239,6 +240,97 @@ func TestRelevantFilesUseLogicalSourceOnly(t *testing.T) {
 	}
 	if files[0] != "internal/agent/explorer.go" || files[1] != "internal/context/builder.go" {
 		t.Fatalf("extractRelevantFiles = %v", files)
+	}
+}
+
+// TestE2E_PromptRelevantFilesContainsPaths verifies the full chain:
+// RepoFacts with logical Source → BuildAgentContext → BuildPromptContext →
+// ToMessages. The "Relevant Files" section in the final user message must
+// contain real file paths, not tool names like "read_file" or "grep".
+func TestE2E_PromptRelevantFilesContainsPaths(t *testing.T) {
+	// Simulate facts as produced by a real explorer run after the fix:
+	// - read_file facts: Source = logical file path, EvidenceRef = blob ref
+	// - grep facts: Source = "tool:grep" (no single file path to extract)
+	// - repo_map fact: Source = "tool:repo_map"
+	facts := []types.RepoFact{
+		{Key: "grep", Value: "[grep: 5 matching files]\n./a.go\n./b.go", Source: "tool:grep", EvidenceRef: "blob://t/1.txt", Confidence: 0.8},
+		{Key: "repo_map", Value: "# Task Map\n\n## Relevant Files\n\n### a.go (score: 100)", Source: "tool:repo_map", Confidence: 0.3},
+		{Key: "read_file", Value: "[internal/agent/explorer.go: showing lines 1-60 of 800]", Source: "internal/agent/explorer.go", EvidenceRef: "blob://t/2.txt", Confidence: 0.8},
+		{Key: "grep", Value: "[grep: 1 matching lines]", Source: "tool:grep", Confidence: 0.8},
+		{Key: "read_file", Value: "[internal/agent/fact_source.go: showing all 30 lines]", Source: "internal/agent/fact_source.go", EvidenceRef: "blob://t/3.txt", Confidence: 0.8},
+		{Key: "read_file", Value: "[internal/agent/explorer.go: showing lines 600-700 of 800]", Source: "internal/agent/explorer.go", EvidenceRef: "blob://t/4.txt", Confidence: 0.8},
+	}
+
+	bus := &types.BusContext{
+		PipelineStage: types.StageFinalize,
+		RepoRoot:      "/tmp/repo",
+		RepoFacts:     facts,
+		Mutable: types.NewMutableState(types.TaskList{
+			Objective:     "test",
+			CurrentTaskID: "t1",
+			Tasks:         []types.TaskItem{{ID: "t1", Title: "test task", Status: types.TaskInProgress}},
+		}),
+	}
+
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+
+	// RelevantFiles should be 4 unique sources, no tool names like "read_file"
+	for _, f := range ac.RelevantFiles {
+		if f == "read_file" || f == "grep" || f == "repo_map" {
+			t.Errorf("RelevantFiles contains bare tool name %q — fix regression", f)
+		}
+	}
+	// Should contain real paths (deduped)
+	pathCount := 0
+	for _, f := range ac.RelevantFiles {
+		if strings.Contains(f, "/") {
+			pathCount++
+		}
+	}
+	if pathCount < 2 {
+		t.Errorf("expected at least 2 real file paths in RelevantFiles, got %d: %v", pathCount, ac.RelevantFiles)
+	}
+
+	// Build the prompt and verify the user message
+	sk := &skill.Config{Name: "finalize-skill", Goal: "test", Workflow: []string{"step"}, OutputFormat: "text"}
+	pc := BuildPromptContext(ac, sk)
+
+	msgs := ToMessages(pc)
+	if len(msgs) < 2 {
+		t.Fatal("expected at least 2 messages (system + user)")
+	}
+
+	userMsg := msgs[1].Content
+
+	// The BuildPromptContext-generated "## Relevant Files" section must exist
+	// and must contain actual paths, not tool names.
+	if !strings.Contains(userMsg, "## Relevant Files") {
+		t.Fatal("user message missing '## Relevant Files' section")
+	}
+	if !strings.Contains(userMsg, "internal/agent/explorer.go") {
+		t.Error("user message Relevant Files missing 'internal/agent/explorer.go'")
+	}
+	if !strings.Contains(userMsg, "internal/agent/fact_source.go") {
+		t.Error("user message Relevant Files missing 'internal/agent/fact_source.go'")
+	}
+
+	// Negative: the old broken behavior would have "read_file" and "grep"
+	// as standalone lines in the Relevant Files section.
+	// Extract text between the last "## Relevant Files" and the next "##" or end.
+	idx := strings.LastIndex(userMsg, "## Relevant Files")
+	if idx < 0 {
+		t.Fatal("cannot find ## Relevant Files")
+	}
+	rfSection := userMsg[idx:]
+	if nextSec := strings.Index(rfSection[3:], "\n## "); nextSec > 0 {
+		rfSection = rfSection[:nextSec+3]
+	}
+	// In this section, "read_file" should NOT appear as a path entry
+	for _, line := range strings.Split(rfSection, "\n") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "read_file" || trimmed == "grep" || trimmed == "repo_map" {
+			t.Errorf("Relevant Files section contains bare tool name line: %q", trimmed)
+		}
 	}
 }
 
