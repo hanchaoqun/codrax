@@ -1,8 +1,11 @@
 package agent
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -20,10 +23,13 @@ type explorerEvaluator struct {
 	idleStreakInDepth   int // consecutive no-tool-call rounds in Phase 2
 	lastToolResultCount int // tool result count at last continuation check
 	preScannedFiles    []string            // top files from keyword search, for coverage tracking
+	allScoredFiles     []string            // ALL files from keyword search (not just top 8), for supplementary evidence
 	fileSymbols        map[string][]string // path → symbol summaries from repo_map
 	searchResult       *keywordSearchResult // full search result for cross-reference lookups
 	investigationNotes []string            // assistant analysis messages from ReAct loop
 	userQuestion       string              // original user question, for focus alignment
+	preScannedPushCount int  // times we pushed for unread pre-scanned files without progress
+	lastPreScannedUnreadCount int // count of unread pre-scanned files at last push
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -73,10 +79,10 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			})
 			e.fileSymbols = make(map[string][]string)
 			for i, c := range candidates {
-				if i >= 8 {
-					break
+				e.allScoredFiles = append(e.allScoredFiles, c.path)
+				if i < 8 {
+					e.preScannedFiles = append(e.preScannedFiles, c.path)
 				}
-				e.preScannedFiles = append(e.preScannedFiles, c.path)
 				if len(c.symbols) > 0 {
 					e.fileSymbols[c.path] = c.symbols
 				}
@@ -157,19 +163,34 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 
 		// Phase 0 → Phase 1 transition: the LLM produced a breadth
-		// scan summary. Now switch to depth reading.
+		// scan summary. Now switch to depth reading with evidence
+		// catalog mode: collect ALL facts, defer reasoning to synthesis.
 		e.phase = 1
-		return "## Phase 2: Depth Read\n\n" +
-			"Good — you have mapped the relevant territory. Now switch to deep investigation.\n\n" +
+		return "## Phase 2: Evidence Collection\n\n" +
+			"Good — you have mapped the relevant territory. Now switch to deep evidence collection.\n\n" +
 			"**User question: " + e.userQuestion + "**\n\n" +
-			"Read the key source files you identified. After EACH file, write:\n" +
-			"1. **Current best answer:** state your running answer to the question RIGHT NOW. " +
-			"If your previous answer was conditional (e.g. 'any X that satisfies Y'), check if this file resolves the condition.\n" +
-			"2. **Evidence from this file:** specific function/line that supports or changes the answer.\n" +
-			"3. **Open questions:** what do you still need to find out? What conditions are unresolved?\n\n" +
-			"**Important:** Read ONE file at a time, then update your answer before reading the next.\n\n" +
-			"**Read implementations, not just signatures.** Function bodies tell you WHICH specific instances exist. " +
-			"The answer to 'which', 'how many', or 'what calls what' is inside function bodies, not type definitions.\n\n" +
+			"**Your job is to collect evidence, NOT to answer the question.** " +
+			"Do not form hypotheses or draw conclusions during this phase. " +
+			"Reasoning happens later in synthesis — right now, be a thorough investigator.\n\n" +
+			"Read the key source files you identified. After EACH file, extract ALL relevant facts as structured evidence:\n\n" +
+			"```\n" +
+			"## Evidence from [filename]\n" +
+			"- [DIRECT] `functionName` line N: <what this code establishes>\n" +
+			"- [CONDITIONAL] `functionName` line N: <what happens> IF <condition>\n" +
+			"- [REGISTRATION] `functionName` line N: <what is registered/configured, with EXACT values>\n" +
+			"- [MECHANISM] `functionName` line N: <how something works>\n" +
+			"- [RELATIONSHIP] `symbolA` → `symbolB`: <nature of the link>\n" +
+			"```\n\n" +
+			"**Rules:**\n" +
+			"- Extract EVERY fact that MIGHT be relevant, even if you're unsure — err on the side of over-collecting\n" +
+			"- For [REGISTRATION] entries: always note the EXACT concrete values (which specific items are registered, what strings are returned). " +
+			"If a function registers exactly 1 item, say 'registers ONLY X' — 'including X' is ambiguous and insufficient\n" +
+			"- For [CONDITIONAL] entries: note the exact condition — do NOT summarize conditions as 'when configured' or 'if applicable'\n" +
+			"- **NEVER skip simple methods.** Short methods like `Name() string { return \"x\" }` or `Type() int { return 3 }` are CRITICAL " +
+			"because they establish concrete values that resolve conditions. Always record them as [REGISTRATION] with the exact return value\n" +
+			"- For interface implementations: note WHICH concrete type implements WHICH interface, and what each method returns\n" +
+			"- Read function BODIES, not just signatures — the specific values, registrations, and return values inside bodies are critical evidence\n" +
+			"- Read ONE file at a time\n\n" +
 			"Start by reading the most important file now.", true
 	}
 
@@ -214,6 +235,11 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// the LLM didn't mention in its investigation notes. This catches
 	// the case where the LLM read a file but only analyzed the first
 	// few type definitions, skipping key functions at the end.
+	//
+	// We use different thresholds: short names (3+ chars) for methods
+	// and functions (which often return critical values like Name()),
+	// and longer names (8+ chars) for types/constants (to avoid noise
+	// from generic names like "New", "Run").
 	type unanalyzedFile struct {
 		path           string
 		missedSymbols  []string
@@ -227,12 +253,23 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 		var missed []string
 		for _, sym := range syms {
-			// Extract symbol name (first word before space).
+			// Extract symbol name and kind from "Name kind:line" format.
 			name := sym
+			kind := ""
 			if idx := strings.Index(sym, " "); idx > 0 {
 				name = sym[:idx]
+				rest := sym[idx+1:]
+				if kidx := strings.Index(rest, ":"); kidx > 0 {
+					kind = rest[:kidx]
+				}
 			}
-			if len(name) >= 8 && !strings.Contains(notesJoined, name) {
+			// Methods and functions: 3+ chars (catches Name, Run, Get).
+			// Other symbols: 8+ chars (avoids noise from generic names).
+			minLen := 8
+			if kind == "method" || kind == "function" {
+				minLen = 3
+			}
+			if len(name) >= minLen && !strings.Contains(notesJoined, name) {
 				missed = append(missed, sym)
 			}
 		}
@@ -241,23 +278,64 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
-	// If there are unread high-priority files, force reading.
+	// If there are unread high-priority files, push for reading.
+	// Track push attempts: if the LLM ignores file-reading requests
+	// repeatedly (same unread count), escalate then give up.
 	if len(preScannedUnread) > 0 {
-		e.idleStreakInDepth = 0
+		// Check whether the LLM made progress since the last push.
+		if len(preScannedUnread) >= e.lastPreScannedUnreadCount && e.lastPreScannedUnreadCount > 0 {
+			e.preScannedPushCount++
+		} else {
+			e.preScannedPushCount = 1
+		}
+		e.lastPreScannedUnreadCount = len(preScannedUnread)
+
+		// After 3 failed pushes, stop resetting idle streak so the
+		// loop terminates naturally. The LLM is clearly not going to
+		// read these files — wasting more rounds won't help.
+		if e.preScannedPushCount <= 3 {
+			e.idleStreakInDepth = 0
+		}
+
 		var hint strings.Builder
 		fmt.Fprintf(&hint,
 			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
 		fmt.Fprintf(&hint, "\nReminder — user question: %s\n\n", e.userQuestion)
-		hint.WriteString("The following HIGH-PRIORITY files have NOT been read yet:\n")
-		for _, f := range preScannedUnread {
-			hint.WriteString("- " + f)
-			if syms := e.fileSymbols[f]; len(syms) > 0 {
-				hint.WriteString(" — defines: ")
-				hint.WriteString(strings.Join(syms, "; "))
+
+		if e.preScannedPushCount >= 3 {
+			// Final forceful push: name the single most important file.
+			fmt.Fprintf(&hint, "STOP ANALYZING. You have NOT read %d critical files. Call read_file on this file RIGHT NOW:\n", len(preScannedUnread))
+			hint.WriteString("  " + preScannedUnread[0])
+			if syms := e.fileSymbols[preScannedUnread[0]]; len(syms) > 0 {
+				hint.WriteString(" — defines: " + strings.Join(syms, "; "))
 			}
-			hint.WriteString("\n")
+			hint.WriteString("\n\nDo NOT write any analysis. Your ONLY action should be a read_file tool call.")
+		} else if e.preScannedPushCount >= 2 {
+			// Escalated push: more forceful language.
+			hint.WriteString("You keep writing analysis without reading the critical files. STOP and call read_file.\n\n")
+			hint.WriteString("Unread HIGH-PRIORITY files:\n")
+			for _, f := range preScannedUnread {
+				hint.WriteString("- " + f)
+				if syms := e.fileSymbols[f]; len(syms) > 0 {
+					hint.WriteString(" — defines: " + strings.Join(syms, "; "))
+				}
+				hint.WriteString("\n")
+			}
+			hint.WriteString("\nCall read_file on the most important one. Do NOT respond with analysis text — use the tool.")
+		} else {
+			// First push: gentle.
+			hint.WriteString("The following HIGH-PRIORITY files have NOT been read yet:\n")
+			for _, f := range preScannedUnread {
+				hint.WriteString("- " + f)
+				if syms := e.fileSymbols[f]; len(syms) > 0 {
+					hint.WriteString(" — defines: ")
+					hint.WriteString(strings.Join(syms, "; "))
+				}
+				hint.WriteString("\n")
+			}
+			hint.WriteString("\nRead the most important unread file and extract ALL evidence entries from it. " +
+				"Remember: collect facts, do not answer the question yet.")
 		}
-		hint.WriteString("\nRead the most important unread file. For each symbol listed, check if it's part of the evidence chain for the question.")
 		return hint.String(), true
 	}
 
@@ -275,7 +353,8 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			}
 		}
 		hint.WriteString("\nFor each missed symbol, QUOTE its complete implementation (not just the signature). " +
-			"Then explain what the implementation tells you about the user's question.")
+			"Then extract evidence entries: what does this implementation register, configure, or establish? " +
+			"Include [REGISTRATION] entries with EXACT values.")
 		return hint.String(), true
 	}
 
@@ -413,29 +492,39 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	}
 
 	var digest strings.Builder
-	digest.WriteString("You have completed your investigation. Below is your analysis from the investigation phase.\n\n")
+	digest.WriteString("You have completed your evidence collection. Below is the evidence catalog from your investigation.\n\n")
 	digest.WriteString("## User Question\n")
 	digest.WriteString(ctx.CurrentTask)
 	digest.WriteString("\n\n")
 
-	// Include the LLM's own intermediate analysis from the ReAct loop.
-	// These are the assistant messages where it summarized each file's
-	// key findings — much more valuable than truncated raw file contents,
-	// because the LLM already processed the full files and extracted
-	// the relevant details.
+	// Include the LLM's evidence entries from the ReAct loop.
+	// These contain structured facts extracted from each file.
 	if len(e.investigationNotes) > 0 {
-		digest.WriteString("## Your Investigation Notes\n\n")
-		digest.WriteString("These are YOUR OWN analyses from reading the source files during investigation:\n\n")
+		digest.WriteString("## Evidence Catalog\n\n")
+		digest.WriteString("These are the evidence entries YOU collected during investigation:\n\n")
 		for i, note := range e.investigationNotes {
-			if len(note) > 2000 {
-				note = note[:2000] + "\n... [truncated]"
+			if len(note) > 1200 {
+				note = note[:1200] + "\n... [truncated]"
 			}
-			fmt.Fprintf(&digest, "### Analysis %d\n%s\n\n", i+1, note)
+			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
 		}
 	}
 
-	// Include a compact file list (not full contents) so the LLM
-	// knows which files it read.
+	// Build cross-reference map: identify symbols that appear in 2+
+	// evidence sets. These are the links in the evidence chain.
+	if crossRefs := e.buildCrossReferenceMap(); crossRefs != "" {
+		digest.WriteString(crossRefs)
+	}
+
+	// Include a compact file list so the LLM knows what was read.
+	_, readSet := extractFileCoverage(toolResults)
+
+	// Inject concrete values extracted from short methods/functions
+	// across all relevant files (pre-scanned, read, and scored).
+	// Also builds resolution chains that trace through symbol references.
+	if cv := e.buildConcreteValuesSection(ctx.RepoRoot, readSet); cv != "" {
+		digest.WriteString(cv)
+	}
 	digest.WriteString("## Files Read\n\n")
 	for _, r := range toolResults {
 		if r.Success && r.ToolName == "read_file" {
@@ -445,17 +534,464 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	}
 	digest.WriteString("\n")
 
-	digest.WriteString("## Instructions\n\n")
-	digest.WriteString("Based on your investigation notes above, write a comprehensive answer to the user's question. Requirements:\n")
-	digest.WriteString("- Synthesize from your analysis, do not just list files or component names\n")
-	digest.WriteString("- For architecture/flow questions: explain the mechanism, conditions, and branching logic\n")
-	digest.WriteString("- Trace through the code to identify SPECIFIC answers (e.g. which exact agent, not 'any agent that meets conditions')\n")
-	digest.WriteString("- **Condition chase:** when your notes say 'X happens if condition Y is met', find the concrete value of Y in your notes. " +
-		"Do not stop at 'any component that satisfies the condition' — trace through registrations, initializations, and config to identify WHICH specific components actually satisfy it right now\n")
+	// Flag pre-scanned files that were never read.
+	var unreadImportant []string
+	for _, f := range e.preScannedFiles {
+		if !readSet[f] && !isNoisePath(f) {
+			unreadImportant = append(unreadImportant, f)
+		}
+	}
+	if len(unreadImportant) > 0 {
+		digest.WriteString("## WARNING: Unread Important Files\n\n")
+		digest.WriteString("These structurally important files were identified but NEVER READ. ")
+		digest.WriteString("Your answer may be incomplete:\n\n")
+		for _, f := range unreadImportant {
+			digest.WriteString("- " + f)
+			if syms := e.fileSymbols[f]; len(syms) > 0 {
+				digest.WriteString(" — defines: " + strings.Join(syms, "; "))
+			}
+			digest.WriteString("\n")
+		}
+		digest.WriteString("\n")
+	}
+
+	digest.WriteString("## Reasoning Instructions\n\n")
+	digest.WriteString("Answer the user's question by following these steps:\n\n")
+	digest.WriteString("**Step 1 — Read the Resolution Chains section above.** These chains have ALREADY traced through " +
+		"the code to resolve conditional logic. Use them as given — they are programmatically verified.\n\n")
+	digest.WriteString("**Step 2 — Read the Concrete Values table.** Each row is an EXACT fact from source code.\n\n")
+	digest.WriteString("**Step 3 — Answer the question.** Requirements:\n")
+	digest.WriteString("- Name SPECIFIC components, not categories\n")
+	digest.WriteString("- Start from the resolution chains and concrete values to determine the specific answer\n")
 	digest.WriteString("- Ground every key claim in a file:line citation\n")
-	digest.WriteString("- Match the answer depth to the question depth\n")
+	digest.WriteString("- If no resolution chain exists, fall back to your evidence catalog\n")
 
 	return digest.String(), true
+}
+
+// buildCrossReferenceMap scans investigation notes for symbol names
+// from the repo_map graph and identifies symbols that appear in 2+
+// different notes. These "bridge entities" are the connective tissue
+// for multi-hop reasoning — they tell the LLM which analyses to
+// chain together.
+func (e *explorerEvaluator) buildCrossReferenceMap() string {
+	if e.searchResult == nil || e.searchResult.Graph == nil || len(e.investigationNotes) < 2 {
+		return ""
+	}
+
+	// For each symbol in the graph, check which notes mention it.
+	type symbolRef struct {
+		name      string
+		noteIdxs  []int // 0-based indices into investigationNotes
+	}
+	var bridges []symbolRef
+
+	for symName := range e.searchResult.Graph.SymbolDefs {
+		// Skip short/generic names that would produce noise.
+		if len(symName) < 6 {
+			continue
+		}
+		var mentioned []int
+		for i, note := range e.investigationNotes {
+			if strings.Contains(note, symName) {
+				mentioned = append(mentioned, i)
+			}
+		}
+		if len(mentioned) >= 2 {
+			bridges = append(bridges, symbolRef{name: symName, noteIdxs: mentioned})
+		}
+	}
+
+	if len(bridges) == 0 {
+		return ""
+	}
+
+	// Sort bridges by number of notes they span (most connected first),
+	// then alphabetically for stability.
+	sort.Slice(bridges, func(i, j int) bool {
+		if len(bridges[i].noteIdxs) != len(bridges[j].noteIdxs) {
+			return len(bridges[i].noteIdxs) > len(bridges[j].noteIdxs)
+		}
+		return bridges[i].name < bridges[j].name
+	})
+
+	// Cap to avoid overwhelming the synthesis prompt.
+	if len(bridges) > 15 {
+		bridges = bridges[:15]
+	}
+
+	var b strings.Builder
+	b.WriteString("## Cross-References Between Evidence Sets\n\n")
+	b.WriteString("These symbols appear in MULTIPLE evidence sets — they are the links in your evidence chain. ")
+	b.WriteString("Trace each chain to connect facts across files:\n\n")
+	for _, br := range bridges {
+		refs := make([]string, len(br.noteIdxs))
+		for i, idx := range br.noteIdxs {
+			refs[i] = fmt.Sprintf("Evidence Set %d", idx+1)
+		}
+		fmt.Fprintf(&b, "- **%s** → %s\n", br.name, strings.Join(refs, ", "))
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// buildConcreteValuesSection scans all files from the keyword search
+// and investigation for short methods/functions (≤3 lines), extracts
+// concrete values (return values, registrations), and builds a table
+// for the synthesis prompt. Unlike LLM-generated evidence, this is
+// deterministic — it doesn't depend on which files the LLM chose to
+// read or what it extracted.
+//
+// The function also builds resolution chains: when one concrete value
+// references a symbol that has its own concrete value, the chain is
+// made explicit (e.g., RegisterX registers NewFoo → Foo.Name returns "bar").
+func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool) string {
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return ""
+	}
+	graph := e.searchResult.Graph
+	notesJoined := strings.Join(e.investigationNotes, "\n")
+
+	type concreteValue struct {
+		file     string
+		receiver string
+		method   string // qualified: Receiver.Name or Name
+		kind     string // "returns", "registers ONLY", etc.
+		value    string
+		line     int
+	}
+	var allValues []concreteValue
+
+	// Build the set of files to scan: all scored files + all read files +
+	// files that define symbols mentioned in investigation notes.
+	filesToScan := make(map[string]bool)
+	for file := range readSet {
+		filesToScan[file] = true
+	}
+	for _, f := range e.allScoredFiles {
+		filesToScan[f] = true
+	}
+	for _, f := range e.preScannedFiles {
+		filesToScan[f] = true
+	}
+	for symName, defs := range graph.SymbolDefs {
+		if len(symName) >= 6 && strings.Contains(notesJoined, symName) {
+			for _, def := range defs {
+				filesToScan[def.File] = true
+			}
+		}
+	}
+
+	// Extract concrete values from every short method/function.
+	logging.Debug("[explorer] concrete values: scanning %d files", len(filesToScan))
+	for file := range filesToScan {
+		fi, ok := graph.FileIndex[file]
+		if !ok {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			if sym.Kind != "method" && sym.Kind != "function" {
+				continue
+			}
+			if sym.EndLine == 0 || sym.EndLine-sym.Line > 3 {
+				continue
+			}
+			src := readSourceLines(filepath.Join(repoRoot, sym.File), sym.Line, sym.EndLine)
+			if src == "" {
+				continue
+			}
+			// Use Receiver (Go methods) or Parent (Java/Python/JS/Rust
+			// methods inside classes) for the qualified name.
+			owner := sym.Receiver
+			if owner == "" {
+				owner = sym.Parent
+			}
+			qualName := sym.Name
+			if owner != "" {
+				qualName = owner + "." + sym.Name
+			}
+			for _, cv := range extractConcreteValues(src) {
+				allValues = append(allValues, concreteValue{
+					file:     file,
+					receiver: owner,
+					method:   qualName,
+					kind:     cv.kind,
+					value:    cv.value,
+					line:     sym.Line,
+				})
+			}
+		}
+	}
+
+	logging.Debug("[explorer] concrete values: extracted %d total values", len(allValues))
+	if len(allValues) == 0 {
+		return ""
+	}
+
+	// Filter to keep only values relevant to the investigation:
+	// 1. String literal returns (always useful for Name/Type methods)
+	// 2. Registrations (always useful)
+	// 3. Values referencing symbols from the investigation notes
+	var relevant []concreteValue
+	for _, v := range allValues {
+		if strings.Contains(v.kind, "registers") {
+			relevant = append(relevant, v)
+			continue
+		}
+		if v.kind == "returns" && len(v.value) >= 2 && v.value[0] == '"' {
+			// Skip long description strings (> 80 chars) — they add
+			// noise without useful concrete values.
+			if len(v.value) > 80 {
+				continue
+			}
+			// Keep if receiver or method is related to investigation
+			if strings.Contains(notesJoined, v.receiver) ||
+				strings.Contains(notesJoined, v.method) {
+				relevant = append(relevant, v)
+				continue
+			}
+			// Also keep if from a pre-scanned or read file
+			if readSet[v.file] {
+				relevant = append(relevant, v)
+				continue
+			}
+		}
+		// Keep values referencing noted symbols
+		for _, word := range strings.Fields(v.value) {
+			cleaned := strings.Trim(word, "(){}[]&*,;")
+			if len(cleaned) >= 6 && strings.Contains(notesJoined, cleaned) {
+				relevant = append(relevant, v)
+				break
+			}
+		}
+	}
+
+	logging.Debug("[explorer] concrete values: %d relevant (of %d total) after filtering", len(relevant), len(allValues))
+
+	// Pass 2: trace references in relevant values to find more values.
+	// E.g., RegisterDefaultSubAgents registers NewSubExplorer → add
+	// SubExplorer.Name() which returns "explorer".
+	seen := make(map[string]bool)
+	for _, v := range relevant {
+		seen[v.method] = true
+	}
+	for _, v := range relevant {
+		// Scan value for symbol names that have their own concrete values.
+		for _, av := range allValues {
+			if seen[av.method] {
+				continue
+			}
+			// Check if any word in v.value matches av's receiver type
+			if av.receiver != "" && len(av.receiver) >= 6 &&
+				strings.Contains(v.value, av.receiver) {
+				logging.Debug("[explorer] concrete values pass2: %s references %s → adding %s", v.method, av.receiver, av.method)
+				relevant = append(relevant, av)
+				seen[av.method] = true
+			}
+		}
+	}
+
+	if len(relevant) == 0 {
+		return ""
+	}
+
+	// Cap to prevent bloating.
+	if len(relevant) > 15 {
+		relevant = relevant[:15]
+	}
+
+	var b strings.Builder
+	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
+	b.WriteString("These are EXACT values from source code — ground truth, not summaries.\n\n")
+	b.WriteString("| File:Line | Method | Fact |\n")
+	b.WriteString("|-----------|--------|------|\n")
+	for _, v := range relevant {
+		fmt.Fprintf(&b, "| %s:%d | `%s()` | %s %s |\n",
+			v.file, v.line, v.method, v.kind, v.value)
+	}
+	b.WriteString("\n")
+
+	// Build resolution chains: when value A mentions type T, and
+	// there's a value from T.SomeMethod, chain them.
+	var chains []string
+	for _, v := range relevant {
+		if !strings.Contains(v.kind, "registers") {
+			continue
+		}
+		// Find values from the registered type
+		for _, rv := range relevant {
+			if rv.receiver != "" && strings.Contains(v.value, rv.receiver) {
+				chains = append(chains, fmt.Sprintf(
+					"`%s()` %s %s → `%s()` %s %s",
+					v.method, v.kind, v.value,
+					rv.method, rv.kind, rv.value))
+			}
+		}
+	}
+	if len(chains) > 0 {
+		b.WriteString("### Resolution Chains\n\n")
+		b.WriteString("These chains trace through the concrete values to resolve conditions:\n\n")
+		for _, c := range chains {
+			b.WriteString("- " + c + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	return b.String()
+}
+
+// readSourceLines reads lines [startLine, endLine] (1-based, inclusive)
+// from the given file path. Returns empty string on any error.
+func readSourceLines(path string, startLine, endLine int) string {
+	f, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+
+	var lines []string
+	scanner := bufio.NewScanner(f)
+	lineNum := 0
+	for scanner.Scan() {
+		lineNum++
+		if lineNum >= startLine && lineNum <= endLine {
+			lines = append(lines, scanner.Text())
+		}
+		if lineNum > endLine {
+			break
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n")
+}
+
+// concreteValueEntry holds a single extracted concrete value from source code.
+type concreteValueEntry struct {
+	kind  string // "returns", "registers ONLY", "assigns"
+	value string // the concrete value
+}
+
+// extractConcreteValues parses a short source code snippet for patterns
+// that establish concrete values. These patterns are language-agnostic
+// enough to work across Go, Python, Java, TypeScript, etc.
+//
+// Recognized patterns:
+//   - return "literal" or 'literal' → returns "literal"
+//   - return number             → returns number
+//   - return true/false/nil     → returns true/false/nil
+//   - x.Register(NewFoo(...))   → registers ONLY NewFoo
+//   - return TypeName{...}      → returns TypeName{...}
+func extractConcreteValues(source string) []concreteValueEntry {
+	var results []concreteValueEntry
+	lines := strings.Split(source, "\n")
+
+	// Count non-blank, non-brace-only lines to detect "single-statement" bodies.
+	var registerCalls []string
+
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+
+		// Pattern: return "string literal"
+		if strings.HasPrefix(trimmed, "return ") {
+			rest := strings.TrimPrefix(trimmed, "return ")
+			rest = strings.TrimRight(rest, ";") // for non-Go langs
+			// String literal (double or single quotes)
+			if len(rest) >= 2 &&
+				((rest[0] == '"' && rest[len(rest)-1] == '"') ||
+					(rest[0] == '\'' && rest[len(rest)-1] == '\'')) {
+				results = append(results, concreteValueEntry{
+					kind:  "returns",
+					value: rest,
+				})
+				continue
+			}
+			// Boolean / nil / null / none
+			lower := strings.ToLower(rest)
+			if lower == "true" || lower == "false" || lower == "nil" ||
+				lower == "null" || lower == "none" {
+				results = append(results, concreteValueEntry{
+					kind:  "returns",
+					value: rest,
+				})
+				continue
+			}
+			// Number
+			isNum := true
+			for _, c := range rest {
+				if !((c >= '0' && c <= '9') || c == '.' || c == '-') {
+					isNum = false
+					break
+				}
+			}
+			if isNum && len(rest) > 0 {
+				results = append(results, concreteValueEntry{
+					kind:  "returns",
+					value: rest,
+				})
+				continue
+			}
+			// Type literal: return Type{...} or return &Type{...}
+			if strings.Contains(rest, "{") {
+				results = append(results, concreteValueEntry{
+					kind:  "returns",
+					value: rest,
+				})
+				continue
+			}
+			// Simple expression: return string(x), return x
+			if !strings.Contains(rest, "\n") && len(rest) < 40 {
+				results = append(results, concreteValueEntry{
+					kind:  "returns",
+					value: rest,
+				})
+			}
+		}
+
+		// Pattern: .Register(NewFoo(...)) or Register(NewFoo(...))
+		if strings.Contains(trimmed, "Register(") || strings.Contains(trimmed, "register(") {
+			// Extract the argument to Register()
+			idx := strings.Index(trimmed, "Register(")
+			if idx < 0 {
+				idx = strings.Index(trimmed, "register(")
+			}
+			if idx >= 0 {
+				arg := trimmed[idx+len("Register("):]
+				// Find matching paren
+				depth := 1
+				end := 0
+				for i, c := range arg {
+					if c == '(' {
+						depth++
+					} else if c == ')' {
+						depth--
+						if depth == 0 {
+							end = i
+							break
+						}
+					}
+				}
+				if end > 0 {
+					registerCalls = append(registerCalls, arg[:end])
+				}
+			}
+		}
+	}
+
+	// If there are register calls, summarize them
+	if len(registerCalls) > 0 {
+		qualifier := "registers ONLY"
+		if len(registerCalls) > 1 {
+			qualifier = "registers"
+		}
+		results = append(results, concreteValueEntry{
+			kind:  qualifier,
+			value: strings.Join(registerCalls, ", "),
+		})
+	}
+
+	return results
 }
 
 // extractFileCoverage analyzes tool history to determine which files
