@@ -1,6 +1,10 @@
 package agent
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 func TestContainsIdentifier(t *testing.T) {
 	tests := []struct {
@@ -209,6 +213,135 @@ func TestResolveConditionsChainTarget(t *testing.T) {
 	if len(unresolved) != 0 {
 		t.Errorf("expected 0 unresolved (chain target match), got %d: %v", len(unresolved), unresolved)
 	}
+}
+
+func TestDetectTruncatedUngrepped(t *testing.T) {
+	t.Run("detects truncated read with no grep", func(t *testing.T) {
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[internal/agent/explorer.go: showing lines 1-500 of 2383 total]\npackage agent\n...",
+			},
+		}
+		truncated, grepped := detectTruncatedUngrepped(history)
+		if len(truncated) != 1 {
+			t.Fatalf("expected 1 truncated file, got %d", len(truncated))
+		}
+		if truncated[0].path != "internal/agent/explorer.go" {
+			t.Fatalf("expected path internal/agent/explorer.go, got %q", truncated[0].path)
+		}
+		if truncated[0].linesRead != 500 {
+			t.Fatalf("expected linesRead=500, got %d", truncated[0].linesRead)
+		}
+		if truncated[0].totalLines != 2383 {
+			t.Fatalf("expected totalLines=2383, got %d", truncated[0].totalLines)
+		}
+		if grepped["internal/agent/explorer.go"] {
+			t.Fatalf("file should not be marked as grepped")
+		}
+	})
+
+	t.Run("small file not flagged", func(t *testing.T) {
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[internal/agent/subagent.go: showing lines 1-66 of 66 total]\npackage agent\n...",
+			},
+		}
+		truncated, _ := detectTruncatedUngrepped(history)
+		if len(truncated) != 0 {
+			t.Fatalf("expected 0 truncated (small file fully read), got %d", len(truncated))
+		}
+	})
+
+	t.Run("file under 500 lines not flagged", func(t *testing.T) {
+		// Even if partially read, files ≤500 lines are not flagged.
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[small.go: showing lines 1-200 of 400 total]\npackage x\n...",
+			},
+		}
+		truncated, _ := detectTruncatedUngrepped(history)
+		if len(truncated) != 0 {
+			t.Fatalf("expected 0 truncated (file ≤500 lines), got %d", len(truncated))
+		}
+	})
+
+	t.Run("fully read large file not flagged", func(t *testing.T) {
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[big.go: showing lines 1-800 of 800 total]\npackage x\n...",
+			},
+		}
+		truncated, _ := detectTruncatedUngrepped(history)
+		if len(truncated) != 0 {
+			t.Fatalf("expected 0 truncated (fully read), got %d", len(truncated))
+		}
+	})
+
+	t.Run("line-level grep marks file as grepped", func(t *testing.T) {
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[internal/agent/explorer.go: showing lines 1-500 of 2383 total]\npackage agent\n...",
+			},
+			{
+				ToolName: "grep",
+				Success:  true,
+				Summary:  "[grep: 3 matching lines]\ninternal/agent/explorer.go:65: // subagent\ninternal/agent/explorer.go:120: SubAgent\ninternal/agent/explorer.go:450: sub_agent",
+			},
+		}
+		truncated, grepped := detectTruncatedUngrepped(history)
+		if len(truncated) != 1 {
+			t.Fatalf("expected 1 truncated file, got %d", len(truncated))
+		}
+		if !grepped["internal/agent/explorer.go"] {
+			t.Fatalf("explorer.go should be marked as line-grepped")
+		}
+	})
+
+	t.Run("failed results ignored", func(t *testing.T) {
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  false,
+				Summary:  "[missing.go: showing lines 1-100 of 2000 total]\n...",
+			},
+		}
+		truncated, _ := detectTruncatedUngrepped(history)
+		if len(truncated) != 0 {
+			t.Fatalf("expected 0 truncated (failed result), got %d", len(truncated))
+		}
+	})
+
+	t.Run("multiple reads track max end line", func(t *testing.T) {
+		history := []types.ToolResult{
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[big.go: showing lines 1-200 of 1000 total]\npackage x",
+			},
+			{
+				ToolName: "read_file",
+				Success:  true,
+				Summary:  "[big.go: showing lines 201-500 of 1000 total]\nfunc foo()",
+			},
+		}
+		truncated, _ := detectTruncatedUngrepped(history)
+		if len(truncated) != 1 {
+			t.Fatalf("expected 1 truncated file, got %d", len(truncated))
+		}
+		if truncated[0].linesRead != 500 {
+			t.Fatalf("expected max linesRead=500, got %d", truncated[0].linesRead)
+		}
+	})
 }
 
 func contains(s, sub string) bool {

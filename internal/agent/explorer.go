@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -32,6 +33,7 @@ type explorerEvaluator struct {
 	repoRoot           string              // repository root path, cached from BuildInitialPrompt
 	preScannedPushCount int  // times we pushed for unread pre-scanned files without progress
 	lastPreScannedUnreadCount int // count of unread pre-scanned files at last push
+	grepRedirectGiven  bool // whether we already injected a large-file grep redirect
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -196,8 +198,12 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"  This is critical for exclusion reasoning (e.g., \"class X does NOT implement method Y because it is absent from the source\")\n" +
 			"- For interface implementations: note WHICH concrete type implements WHICH interface, and what each method returns\n" +
 			"- Read function BODIES, not just signatures — the specific values, registrations, and return values inside bodies are critical evidence\n" +
-			"- Read ONE file at a time\n\n" +
-			"Start by reading the most important file now.", true
+			"- Read ONE file at a time\n" +
+			"- **Large file strategy (MANDATORY for files >500 lines):** Do NOT read large files with offset=0. " +
+			"Instead, FIRST grep the file for the key identifiers from the user's question (field names, function names, string literals), " +
+			"THEN read only the specific line ranges where grep found matches. " +
+			"Sequential paging through a 2000-line file wastes steps and misses content — targeted grep + read is both faster and more thorough\n\n" +
+			"Start investigating now. For each file: grep first, then read the matched sections.", true
 	}
 
 	// Phase 1 (depth read): use runtime file coverage as guidance.
@@ -219,6 +225,36 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	for _, f := range discovered {
 		if !readSet[f] {
 			unread = append(unread, f)
+		}
+	}
+
+	// Large-file grep redirect: when the LLM reads a large file but
+	// only sees a truncated portion, it tends to page through blindly,
+	// producing shallow evidence. Detect truncated read_file results
+	// where the LLM has NOT already grepped that file (with line-level
+	// results), and redirect to a grep-then-read strategy.
+	if !e.grepRedirectGiven {
+		truncated, grepped := detectTruncatedUngrepped(history)
+		if len(truncated) > 0 {
+			e.grepRedirectGiven = true
+			var hint strings.Builder
+			hint.WriteString("**Strategy redirect — large files detected.**\n\n")
+			hint.WriteString("You are reading large files that don't fit in a single read_file result. ")
+			hint.WriteString("Paging through them sequentially will miss details and waste steps.\n\n")
+			hint.WriteString("**For each truncated file below, grep for the specific pattern from the user's question WITHIN that file**, ")
+			hint.WriteString("then read only the matched line ranges:\n\n")
+			for _, tf := range truncated {
+				fmt.Fprintf(&hint, "- `%s` (read %d of %d lines) — ",
+					tf.path, tf.linesRead, tf.totalLines)
+				if grepped[tf.path] {
+					hint.WriteString("already grepped with files_only, but **re-grep with files_only=false** to get LINE NUMBERS\n")
+				} else {
+					hint.WriteString("not yet grepped — **grep for the key pattern now**\n")
+				}
+			}
+			hint.WriteString("\nThe user question is: " + e.userQuestion + "\n")
+			hint.WriteString("Identify the key identifier (field name, constant, function) and grep for it within these files.")
+			return hint.String(), true
 		}
 	}
 
@@ -1869,6 +1905,110 @@ func isNoisePath(path string) bool {
 		return true
 	}
 	return false
+}
+
+// truncatedFileInfo describes a file whose read_file result was truncated.
+type truncatedFileInfo struct {
+	path       string
+	linesRead  int // lines actually shown
+	totalLines int // total lines in file
+}
+
+// detectTruncatedUngrepped scans tool history for read_file results
+// that were truncated (showing only a portion of a large file) and
+// checks whether the LLM has already grepped those files with line-level
+// output (files_only=false). Returns truncated files and a set of
+// files that have been line-grepped.
+func detectTruncatedUngrepped(history []types.ToolResult) ([]truncatedFileInfo, map[string]bool) {
+	// Track the max lines read and total lines for each file.
+	type fileRead struct {
+		maxLineRead int
+		totalLines  int
+	}
+	reads := make(map[string]*fileRead)
+
+	// Track files grepped with line-level output.
+	grepped := make(map[string]bool)
+
+	for _, r := range history {
+		if !r.Success {
+			continue
+		}
+		switch r.ToolName {
+		case "read_file":
+			first := strings.SplitN(r.Summary, "\n", 2)[0]
+			// Parse "[path: showing lines X-Y of Z total]"
+			if !strings.HasPrefix(first, "[") {
+				continue
+			}
+			colonIdx := strings.Index(first, ": showing lines ")
+			if colonIdx < 1 {
+				continue
+			}
+			path := first[1:colonIdx]
+			rest := first[colonIdx+len(": showing lines "):]
+			dashIdx := strings.Index(rest, "-")
+			ofIdx := strings.Index(rest, " of ")
+			if dashIdx < 0 || ofIdx < 0 {
+				continue
+			}
+			endLine, err1 := strconv.Atoi(rest[dashIdx+1 : ofIdx])
+			totalStr := strings.TrimSuffix(strings.TrimSuffix(rest[ofIdx+4:], "]"), " total")
+			total, err2 := strconv.Atoi(strings.TrimSpace(totalStr))
+			if err1 != nil || err2 != nil {
+				continue
+			}
+			fr, ok := reads[path]
+			if !ok {
+				fr = &fileRead{}
+				reads[path] = fr
+			}
+			if endLine > fr.maxLineRead {
+				fr.maxLineRead = endLine
+			}
+			if total > fr.totalLines {
+				fr.totalLines = total
+			}
+
+		case "grep":
+			// Check if this grep targeted a specific file (path param)
+			// and returned line-level results (not files_only).
+			if !strings.HasPrefix(r.Summary, "[grep:") {
+				continue
+			}
+			// Line-level grep results contain "matching lines" not "matching files".
+			if strings.Contains(r.Summary, "matching lines") {
+				// Extract the file path from the grep result lines.
+				// When grep targets a single file, lines look like "NNN: content".
+				// When grep targets a directory, lines look like "path:NNN: content".
+				for _, line := range strings.Split(r.Summary, "\n") {
+					line = strings.TrimSpace(line)
+					if len(line) == 0 || line[0] == '[' {
+						continue
+					}
+					if colonIdx := strings.Index(line, ":"); colonIdx > 0 {
+						maybePath := line[:colonIdx]
+						if strings.Contains(maybePath, "/") || strings.Contains(maybePath, ".") {
+							grepped[maybePath] = true
+						}
+					}
+				}
+			}
+		}
+	}
+
+	var result []truncatedFileInfo
+	for path, fr := range reads {
+		// File was truncated if the LLM didn't read to the end.
+		if fr.totalLines > 500 && fr.maxLineRead < fr.totalLines {
+			result = append(result, truncatedFileInfo{
+				path:       path,
+				linesRead:  fr.maxLineRead,
+				totalLines: fr.totalLines,
+			})
+		}
+	}
+	return result, grepped
 }
 
 // trackCrossReferences scans an investigation note for symbol names
