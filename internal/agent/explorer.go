@@ -682,7 +682,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 	}
 
-	// Extract concrete values from every short method/function.
+	// Extract concrete values from short methods/functions (≤3 lines)
+	// and from longer registration functions (any length, but only
+	// extracting Register() calls from those).
 	logging.Debug("[explorer] concrete values: scanning %d files", len(filesToScan))
 	for file := range filesToScan {
 		fi, ok := graph.FileIndex[file]
@@ -693,7 +695,19 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if sym.Kind != "method" && sym.Kind != "function" {
 				continue
 			}
-			if sym.EndLine == 0 || sym.EndLine-sym.Line > 3 {
+			if sym.EndLine == 0 {
+				continue
+			}
+			bodyLines := sym.EndLine - sym.Line
+			isShort := bodyLines <= 3
+			// For longer functions, only scan if the name suggests
+			// registration (contains "Register", "Defaults", "Init").
+			isRegistrationFunc := !isShort &&
+				bodyLines <= 30 &&
+				(strings.Contains(sym.Name, "Register") ||
+					strings.Contains(sym.Name, "Defaults") ||
+					strings.Contains(sym.Name, "register"))
+			if !isShort && !isRegistrationFunc {
 				continue
 			}
 			src := readSourceLines(filepath.Join(repoRoot, sym.File), sym.Line, sym.EndLine)
@@ -711,6 +725,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				qualName = owner + "." + sym.Name
 			}
 			for _, cv := range extractConcreteValues(src) {
+				// For longer functions, only keep registration values.
+				if !isShort && !strings.Contains(cv.kind, "registers") {
+					continue
+				}
 				allValues = append(allValues, concreteValue{
 					file:     file,
 					receiver: owner,
@@ -728,30 +746,38 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		return ""
 	}
 
+	// Build pre-scanned set for filtering.
+	preScannedSet := make(map[string]bool, len(e.preScannedFiles))
+	for _, f := range e.preScannedFiles {
+		preScannedSet[f] = true
+	}
+
 	// Filter to keep only values relevant to the investigation:
-	// 1. String literal returns (always useful for Name/Type methods)
-	// 2. Registrations (always useful)
-	// 3. Values referencing symbols from the investigation notes
+	// 1. Registrations — always kept
+	// 2. Short string returns from pre-scanned/read files — always kept
+	// 3. Short string returns from other files — only if receiver is in notes
+	// 4. Values referencing symbols from the investigation notes
 	var relevant []concreteValue
 	for _, v := range allValues {
 		if strings.Contains(v.kind, "registers") {
 			relevant = append(relevant, v)
 			continue
 		}
-		if v.kind == "returns" && len(v.value) >= 2 && v.value[0] == '"' {
-			// Skip long description strings (> 80 chars) — they add
-			// noise without useful concrete values.
+		if v.kind == "returns" && len(v.value) >= 2 &&
+			(v.value[0] == '"' || v.value[0] == '\'') {
+			// Skip long description strings (> 80 chars).
 			if len(v.value) > 80 {
 				continue
 			}
-			// Keep if receiver or method is related to investigation
-			if strings.Contains(notesJoined, v.receiver) ||
-				strings.Contains(notesJoined, v.method) {
+			// Always keep from pre-scanned or read files — these are
+			// the files the system identified as most relevant.
+			if readSet[v.file] || preScannedSet[v.file] {
 				relevant = append(relevant, v)
 				continue
 			}
-			// Also keep if from a pre-scanned or read file
-			if readSet[v.file] {
+			// For other files, require receiver/method in notes.
+			if strings.Contains(notesJoined, v.receiver) ||
+				strings.Contains(notesJoined, v.method) {
 				relevant = append(relevant, v)
 				continue
 			}
@@ -812,21 +838,31 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	b.WriteString("\n")
 
 	// Build resolution chains: when value A mentions type T, and
-	// there's a value from T.SomeMethod, chain them.
+	// there's a value from T.SomeMethod, chain them. This covers:
+	//   - Register(NewFoo) → Foo.Name() returns "bar"
+	//   - returns NewFoo() → Foo.Name() returns "bar"
+	//   - returns &Foo{} → Foo.Name() returns "bar"
 	var chains []string
 	for _, v := range relevant {
-		if !strings.Contains(v.kind, "registers") {
+		// Skip values that don't reference other types.
+		if v.kind != "returns" && !strings.Contains(v.kind, "registers") {
 			continue
 		}
-		// Find values from the registered type
 		for _, rv := range relevant {
-			if rv.receiver != "" && strings.Contains(v.value, rv.receiver) {
+			if rv.receiver == "" || rv.receiver == v.receiver {
+				continue
+			}
+			if strings.Contains(v.value, rv.receiver) {
 				chains = append(chains, fmt.Sprintf(
 					"`%s()` %s %s → `%s()` %s %s",
 					v.method, v.kind, v.value,
 					rv.method, rv.kind, rv.value))
 			}
 		}
+	}
+	// Deduplicate chains (same source can chain to multiple targets).
+	if len(chains) > 10 {
+		chains = chains[:10]
 	}
 	if len(chains) > 0 {
 		b.WriteString("### Resolution Chains\n\n")
