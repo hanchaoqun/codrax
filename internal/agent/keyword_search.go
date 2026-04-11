@@ -693,6 +693,44 @@ func expandKeywords(keywords []string) []string {
 		add(strings.Join(lowerParts, "-"))
 	}
 
+	// Abbreviation expansion: add common short↔long pairs so searching
+	// "auth" also tries "authentication" and vice versa.
+	abbrevPairs := [][2]string{
+		{"auth", "authentication"},
+		{"config", "configuration"},
+		{"init", "initialization"},
+		{"impl", "implementation"},
+		{"msg", "message"},
+		{"req", "request"},
+		{"resp", "response"},
+		{"err", "error"},
+		{"ctx", "context"},
+		{"conn", "connection"},
+		{"cmd", "command"},
+		{"mgr", "manager"},
+		{"svc", "service"},
+		{"repo", "repository"},
+		{"env", "environment"},
+		{"exec", "execute"},
+		{"eval", "evaluate"},
+		{"reg", "register"},
+		{"sig", "signal"},
+		{"param", "parameter"},
+	}
+	// Work on a snapshot of current expanded list to avoid infinite loop.
+	snapshot := make([]string, len(expanded))
+	copy(snapshot, expanded)
+	for _, kw := range snapshot {
+		kwLower := strings.ToLower(kw)
+		for _, pair := range abbrevPairs {
+			if kwLower == pair[0] {
+				add(pair[1])
+			} else if kwLower == pair[1] {
+				add(pair[0])
+			}
+		}
+	}
+
 	logging.Debug("[keyword_search] expanded %d → %d keywords", len(keywords), len(expanded))
 	return expanded
 }

@@ -29,6 +29,7 @@ type explorerEvaluator struct {
 	searchResult       *keywordSearchResult // full search result for cross-reference lookups
 	investigationNotes []string            // assistant analysis messages from ReAct loop
 	userQuestion       string              // original user question, for focus alignment
+	repoRoot           string              // repository root path, cached from BuildInitialPrompt
 	preScannedPushCount int  // times we pushed for unread pre-scanned files without progress
 	lastPreScannedUnreadCount int // count of unread pre-scanned files at last push
 }
@@ -36,6 +37,7 @@ type explorerEvaluator struct {
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	e.phase = 0 // start in breadth-scan phase
 	e.userQuestion = ctx.CurrentTask
+	e.repoRoot = ctx.RepoRoot
 
 	var b strings.Builder
 	b.WriteString("## Phase 1: Breadth Scan\n\n")
@@ -189,6 +191,9 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"- For [CONDITIONAL] entries: note the exact condition — do NOT summarize conditions as 'when configured' or 'if applicable'\n" +
 			"- **NEVER skip simple methods.** Short methods like `Name() string { return \"x\" }` or `Type() int { return 3 }` are CRITICAL " +
 			"because they establish concrete values that resolve conditions. Always record them as [REGISTRATION] with the exact return value\n" +
+			"- **Negative evidence matters.** If you expected to find a pattern/method/registration but it is ABSENT, record:\n" +
+			"  `- [ABSENT] Expected <what> in <where> but NOT found`\n" +
+			"  This is critical for exclusion reasoning (e.g., \"agent X does NOT support retry because retry logic is absent\")\n" +
 			"- For interface implementations: note WHICH concrete type implements WHICH interface, and what each method returns\n" +
 			"- Read function BODIES, not just signatures — the specific values, registrations, and return values inside bodies are critical evidence\n" +
 			"- Read ONE file at a time\n\n" +
@@ -364,6 +369,17 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		return "", false
 	}
 
+	// When the LLM is slowing down (idle ≥ 1), inject a preview of
+	// programmatically extracted concrete values. This breaks the
+	// information asymmetry between collection and synthesis phases:
+	// the LLM can see what the programmatic layer already knows and
+	// focus its remaining reads on gaps only it can fill (semantic
+	// relationships, complex conditions, cross-file reasoning).
+	var cvPreview string
+	if e.idleStreakInDepth >= 1 && len(e.investigationNotes) >= 2 && e.searchResult != nil {
+		cvPreview = e.buildConcreteValuesSection(e.repoRoot, readSet)
+	}
+
 	// Show remaining coverage for grep-discovered files.
 	var hint strings.Builder
 	fmt.Fprintf(&hint,
@@ -379,6 +395,26 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	} else {
 		hint.WriteString("All discovered files have been read. You may stop if your investigation is complete.")
 	}
+
+	// Inject concrete values preview so the LLM knows what the
+	// programmatic layer can already extract and focuses its remaining
+	// investigation on gaps: semantic relationships, complex conditions,
+	// multi-hop reasoning that only the LLM can do.
+	if cvPreview != "" {
+		hint.WriteString("\n\n---\n## Programmatic Evidence Preview\n\n")
+		hint.WriteString("The system has ALREADY extracted the following concrete values from source code. " +
+			"You do NOT need to re-investigate these — they will be provided as ground truth in synthesis.\n\n")
+		// Truncate to keep the continuation prompt from bloating.
+		if len(cvPreview) > 1500 {
+			cvPreview = cvPreview[:1500] + "\n... [preview truncated]\n"
+		}
+		hint.WriteString(cvPreview)
+		hint.WriteString("\n**Focus your remaining investigation on:**\n")
+		hint.WriteString("- Cross-file relationships that the table above does NOT show\n")
+		hint.WriteString("- Conditions whose resolution requires reading function bodies\n")
+		hint.WriteString("- Semantic intent behind registrations (WHY something is registered, not just WHAT)\n")
+	}
+
 	return hint.String(), true
 }
 
@@ -423,15 +459,51 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// HasEnoughFacts: check file coverage — have we read a reasonable
-	// fraction of the files discovered in Phase 1? Also require at
-	// least 2 distinct evidence tool types (grep + read_file).
+	// HasEnoughFacts: multi-dimensional quality check.
+	// 1. Tool diversity: at least 2 distinct evidence tools (grep + read_file).
+	// 2. File coverage: ≥50% of discovered files read, or ≥3 files.
+	// 3. Evidence quality: count structured evidence tags in notes.
+	//    Require at least 2 [DIRECT]/[REGISTRATION] entries (ground-truth facts).
+	// 4. File relevance: weight read files by their keyword search rank.
 	discovered, readSet := extractFileCoverage(toolResults)
 	coverage := 0.0
 	if len(discovered) > 0 {
 		coverage = float64(len(readSet)) / float64(len(discovered))
 	}
-	hasEnough := len(sources) >= 2 && (coverage >= 0.5 || len(readSet) >= 3)
+
+	// Count evidence tags in investigation notes.
+	directCount := 0
+	conditionalCount := 0
+	for _, note := range e.investigationNotes {
+		for _, line := range strings.Split(note, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- [DIRECT]") || strings.HasPrefix(trimmed, "- [REGISTRATION]") {
+				directCount++
+			} else if strings.HasPrefix(trimmed, "- [CONDITIONAL]") {
+				conditionalCount++
+			}
+		}
+	}
+
+	// Compute relevance-weighted coverage: files in allScoredFiles
+	// (top keyword-search hits) count more than random grep results.
+	relevantRead := 0
+	if len(e.allScoredFiles) > 0 {
+		scoredSet := make(map[string]bool, len(e.allScoredFiles))
+		for _, f := range e.allScoredFiles {
+			scoredSet[f] = true
+		}
+		for f := range readSet {
+			if scoredSet[f] {
+				relevantRead++
+			}
+		}
+	}
+
+	toolDiversity := len(sources) >= 2
+	fileCoverage := coverage >= 0.5 || len(readSet) >= 3
+	evidenceQuality := directCount >= 2
+	hasEnough := toolDiversity && fileCoverage && evidenceQuality
 
 	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
 
@@ -442,10 +514,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	if !signals.HasEnoughFacts {
-		if len(sources) < 2 {
+		if !toolDiversity {
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
+		} else if !evidenceQuality {
+			out.RetryHint = fmt.Sprintf("Previous attempt collected only %d [DIRECT]/[REGISTRATION] evidence entries (need ≥2). Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", directCount)
 		} else {
-			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage). Read more of the discovered files.", len(readSet), len(discovered), coverage*100)
+			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", len(readSet), len(discovered), coverage*100, relevantRead)
 		}
 	}
 
@@ -561,42 +635,39 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	}
 
 	// Detect unresolved conditions: evidence entries tagged [CONDITIONAL]
-	// whose conditions are not resolved by any concrete value. This warns
-	// the LLM that its answer may be incomplete without further tracing.
+	// whose IF clauses cannot be structurally matched against any method
+	// in the Concrete Values table or Resolution Chains.
 	if len(e.investigationNotes) > 0 && hasConcreteValues {
-		var unresolvedConditions []string
-		for _, note := range e.investigationNotes {
-			for _, line := range strings.Split(note, "\n") {
-				trimmed := strings.TrimSpace(line)
-				if !strings.HasPrefix(trimmed, "- [CONDITIONAL]") {
-					continue
-				}
-				// Check if any concrete value's method or receiver appears
-				// in this condition. If not, the condition is unresolved.
-				resolved := false
-				if cv != "" {
-					// Simple heuristic: if any word from the concrete values
-					// section appears in the condition, consider it potentially
-					// resolved. The LLM will do the actual resolution.
-					for _, word := range strings.Fields(trimmed) {
-						cleaned := strings.Trim(word, "`(){}[],:;")
-						if len(cleaned) >= 6 && strings.Contains(cv, cleaned) {
-							resolved = true
-							break
-						}
-					}
-				}
-				if !resolved {
-					unresolvedConditions = append(unresolvedConditions, trimmed)
-				}
-			}
-		}
+		unresolvedConditions := resolveConditions(e.investigationNotes, cv)
 		if len(unresolvedConditions) > 0 {
 			digest.WriteString("## Unresolved Conditions\n\n")
 			digest.WriteString("These conditions from your evidence could NOT be resolved by the Concrete Values table. " +
 				"Your answer should acknowledge this uncertainty:\n\n")
 			for _, c := range unresolvedConditions {
 				digest.WriteString(c + "\n")
+			}
+			digest.WriteString("\n")
+		}
+	}
+
+	// Surface negative evidence: [ABSENT] entries that the LLM recorded
+	// during investigation. These are critical for exclusion reasoning.
+	if len(e.investigationNotes) > 0 {
+		var absentEntries []string
+		for _, note := range e.investigationNotes {
+			for _, line := range strings.Split(note, "\n") {
+				trimmed := strings.TrimSpace(line)
+				if strings.HasPrefix(trimmed, "- [ABSENT]") {
+					absentEntries = append(absentEntries, trimmed)
+				}
+			}
+		}
+		if len(absentEntries) > 0 {
+			digest.WriteString("## Negative Evidence (Absent Patterns)\n\n")
+			digest.WriteString("These patterns were EXPECTED but NOT FOUND during investigation. " +
+				"Use them for exclusion reasoning:\n\n")
+			for _, e := range absentEntries {
+				digest.WriteString(e + "\n")
 			}
 			digest.WriteString("\n")
 		}
@@ -632,15 +703,17 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 	if e.searchResult == nil || e.searchResult.Graph == nil || len(e.investigationNotes) < 2 {
 		return ""
 	}
+	graph := e.searchResult.Graph
 
 	// For each symbol in the graph, check which notes mention it.
 	type symbolRef struct {
 		name      string
 		noteIdxs  []int // 0-based indices into investigationNotes
+		relKinds  []string // relation kinds connecting this symbol across files
 	}
-	var bridges []symbolRef
+	bridgeMap := make(map[string]*symbolRef)
 
-	for symName := range e.searchResult.Graph.SymbolDefs {
+	for symName := range graph.SymbolDefs {
 		// Skip short/generic names that would produce noise.
 		if len(symName) < 6 {
 			continue
@@ -652,12 +725,83 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 			}
 		}
 		if len(mentioned) >= 2 {
-			bridges = append(bridges, symbolRef{name: symName, noteIdxs: mentioned})
+			bridgeMap[symName] = &symbolRef{name: symName, noteIdxs: mentioned}
 		}
 	}
 
-	if len(bridges) == 0 {
+	// Augment with relation graph: when a call/reference/type_usage
+	// relation links a symbol mentioned in one note to a symbol
+	// mentioned in a different note, that pair is a cross-reference
+	// even if neither symbol individually spans 2+ notes.
+	noteSymbolIndex := make(map[string]int) // symbol → note index (first mention)
+	for i, note := range e.investigationNotes {
+		for symName := range graph.SymbolDefs {
+			if len(symName) < 6 {
+				continue
+			}
+			if strings.Contains(note, symName) {
+				if _, exists := noteSymbolIndex[symName]; !exists {
+					noteSymbolIndex[symName] = i
+				}
+			}
+		}
+	}
+
+	for _, fi := range graph.Files {
+		for _, rel := range fi.Relations {
+			if rel.Kind != "call" && rel.Kind != "reference" && rel.Kind != "type_usage" {
+				continue
+			}
+			// Extract symbol names from relation endpoints (format: "file:Symbol" or "Symbol").
+			fromSym := rel.From
+			if idx := strings.LastIndex(fromSym, ":"); idx >= 0 {
+				fromSym = fromSym[idx+1:]
+			}
+			toSym := rel.To
+			if idx := strings.LastIndex(toSym, ":"); idx >= 0 {
+				toSym = toSym[idx+1:]
+			}
+			if len(fromSym) < 6 || len(toSym) < 6 || fromSym == toSym {
+				continue
+			}
+			fromNote, fromOK := noteSymbolIndex[fromSym]
+			toNote, toOK := noteSymbolIndex[toSym]
+			if !fromOK || !toOK || fromNote == toNote {
+				continue
+			}
+			// Create a bridge named "FromSym → ToSym" with the relation kind.
+			key := fromSym + "→" + toSym
+			if br, ok := bridgeMap[key]; ok {
+				// Add relation kind if not already present.
+				hasKind := false
+				for _, k := range br.relKinds {
+					if k == rel.Kind {
+						hasKind = true
+						break
+					}
+				}
+				if !hasKind {
+					br.relKinds = append(br.relKinds, rel.Kind)
+				}
+			} else {
+				noteIdxs := []int{fromNote, toNote}
+				sort.Ints(noteIdxs)
+				bridgeMap[key] = &symbolRef{
+					name:     fromSym + " → " + toSym,
+					noteIdxs: noteIdxs,
+					relKinds: []string{rel.Kind},
+				}
+			}
+		}
+	}
+
+	if len(bridgeMap) == 0 {
 		return ""
+	}
+
+	var bridges []symbolRef
+	for _, br := range bridgeMap {
+		bridges = append(bridges, *br)
 	}
 
 	// Sort bridges by number of notes they span (most connected first),
@@ -669,9 +813,13 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 		return bridges[i].name < bridges[j].name
 	})
 
-	// Cap to avoid overwhelming the synthesis prompt.
-	if len(bridges) > 15 {
-		bridges = bridges[:15]
+	// Adaptive cap: scale with investigation complexity.
+	cap := 15
+	if len(e.allScoredFiles) > 10 {
+		cap = 20
+	}
+	if len(bridges) > cap {
+		bridges = bridges[:cap]
 	}
 
 	var b strings.Builder
@@ -679,11 +827,24 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 	b.WriteString("These symbols appear in MULTIPLE evidence sets — they are the links in your evidence chain. ")
 	b.WriteString("Trace each chain to connect facts across files:\n\n")
 	for _, br := range bridges {
-		refs := make([]string, len(br.noteIdxs))
-		for i, idx := range br.noteIdxs {
+		// Deduplicate note indices.
+		seen := make(map[int]bool)
+		var unique []int
+		for _, idx := range br.noteIdxs {
+			if !seen[idx] {
+				seen[idx] = true
+				unique = append(unique, idx)
+			}
+		}
+		refs := make([]string, len(unique))
+		for i, idx := range unique {
 			refs[i] = fmt.Sprintf("Evidence Set %d", idx+1)
 		}
-		fmt.Fprintf(&b, "- **%s** → %s\n", br.name, strings.Join(refs, ", "))
+		entry := fmt.Sprintf("- **%s** → %s", br.name, strings.Join(refs, ", "))
+		if len(br.relKinds) > 0 {
+			entry += " (" + strings.Join(br.relKinds, ", ") + ")"
+		}
+		b.WriteString(entry + "\n")
 	}
 	b.WriteString("\n")
 	return b.String()
@@ -764,9 +925,15 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		return strings.Join(lines[startLine-1:endLine], "\n")
 	}
 
-	// Extract concrete values from short methods/functions (≤3 lines)
-	// and from longer registration functions (any length, but only
-	// extracting Register() calls from those).
+	// Extract concrete values from source code functions. Three tiers:
+	//
+	// 1. Short methods (≤3 lines): full extraction of all patterns.
+	// 2. Registration functions (≤30 lines, name contains Register/Config/...):
+	//    full extraction but only bindings/maps kept.
+	// 3. Medium functions (4-100 lines): local line scan — only lines
+	//    containing return/map/register patterns are extracted with ±1
+	//    line of context. This recovers concrete values from longer
+	//    functions without reading them entirely.
 	logging.Debug("[explorer] concrete values: scanning %d files", len(filesToScan))
 	for file := range filesToScan {
 		fi, ok := graph.FileIndex[file]
@@ -795,13 +962,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					strings.Contains(sym.Name, "Config") ||
 					strings.Contains(sym.Name, "Map") ||
 					strings.Contains(sym.Name, "Init"))
-			if !isShort && !isRegistrationFunc {
+			// Medium functions: not short, not registration-named, but
+			// ≤100 lines — scan specific lines for return/binding patterns.
+			isMediumFunc := !isShort && !isRegistrationFunc && bodyLines <= 100
+
+			if !isShort && !isRegistrationFunc && !isMediumFunc {
 				continue
 			}
-			src := getLinesRange(filepath.Join(repoRoot, sym.File), sym.Line, sym.EndLine)
-			if src == "" {
-				continue
-			}
+
 			// Use Receiver (Go methods) or Parent (Java/Python/JS/Rust
 			// methods inside classes) for the qualified name.
 			owner := sym.Receiver
@@ -811,6 +979,56 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			qualName := sym.Name
 			if owner != "" {
 				qualName = owner + "." + sym.Name
+			}
+
+			if isMediumFunc {
+				// Local line scan: extract only lines matching evidence
+				// patterns (return, register, map entries) with ±1 context.
+				absPath := filepath.Join(repoRoot, sym.File)
+				allLines := loadFileLines(absPath)
+				if allLines == nil {
+					continue
+				}
+				start := sym.Line - 1
+				end := sym.EndLine
+				if start < 0 {
+					start = 0
+				}
+				if end > len(allLines) {
+					end = len(allLines)
+				}
+				for li := start; li < end; li++ {
+					trimmed := strings.TrimSpace(allLines[li])
+					if !isEvidenceLine(trimmed) {
+						continue
+					}
+					// Grab ±1 line of context for the extractor.
+					ctxStart := li
+					if ctxStart > start {
+						ctxStart--
+					}
+					ctxEnd := li + 2
+					if ctxEnd > end {
+						ctxEnd = end
+					}
+					snippet := strings.Join(allLines[ctxStart:ctxEnd], "\n")
+					for _, cv := range extractConcreteValues(snippet) {
+						allValues = append(allValues, concreteValue{
+							file:     file,
+							receiver: owner,
+							method:   qualName,
+							kind:     cv.kind,
+							value:    cv.value,
+							line:     li + 1,
+						})
+					}
+				}
+				continue
+			}
+
+			src := getLinesRange(filepath.Join(repoRoot, sym.File), sym.Line, sym.EndLine)
+			if src == "" {
+				continue
 			}
 			for _, cv := range extractConcreteValues(src) {
 				// For longer functions, only keep binding/registration values.
@@ -931,8 +1149,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				if seen[av.method] {
 					continue
 				}
-				if av.receiver != "" && len(av.receiver) >= 6 &&
-					strings.Contains(v.value, av.receiver) {
+				if av.receiver != "" && len(av.receiver) >= 4 &&
+					containsIdentifier(v.value, av.receiver) {
 					relevant = append(relevant, av)
 					seen[av.method] = true
 					added++
@@ -965,9 +1183,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		return scoreVal(relevant[i]) > scoreVal(relevant[j])
 	})
-	// Cap to prevent bloating.
-	if len(relevant) > 15 {
-		relevant = relevant[:15]
+	// Adaptive cap: scale with investigation complexity.
+	// More scored files = more complex investigation = need more values.
+	valueCap := 15
+	if len(e.allScoredFiles) > 10 {
+		valueCap = 25
+	}
+	if valueCap > 40 {
+		valueCap = 40
+	}
+	if len(relevant) > valueCap {
+		relevant = relevant[:valueCap]
 	}
 
 	var b strings.Builder
@@ -996,7 +1222,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if rv.receiver == "" || rv.receiver == v.receiver {
 				continue
 			}
-			if strings.Contains(v.value, rv.receiver) {
+			if containsIdentifier(v.value, rv.receiver) {
 				chains = append(chains, fmt.Sprintf(
 					"`%s()` %s %s → `%s()` %s %s",
 					v.method, v.kind, v.value,
@@ -1004,9 +1230,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			}
 		}
 	}
-	// Deduplicate chains (same source can chain to multiple targets).
-	if len(chains) > 10 {
-		chains = chains[:10]
+	// Adaptive cap for resolution chains.
+	chainCap := 10
+	if len(e.allScoredFiles) > 10 {
+		chainCap = 18
+	}
+	if len(chains) > chainCap {
+		chains = chains[:chainCap]
 	}
 	if len(chains) > 0 {
 		b.WriteString("### Resolution Chains\n\n")
@@ -1037,7 +1267,15 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			valuesByReceiver[v.receiver] = append(valuesByReceiver[v.receiver], v)
 		}
 	}
-	// Scan embedding + inheritance relations in all scanned files.
+
+	// Build a parent→children map and collect all embedding/inheritance
+	// relations across scanned files.
+	type hierRelation struct {
+		childType  string
+		parentType string
+		verb       string // "embeds" or "extends"
+	}
+	var allRelations []hierRelation
 	for file := range filesToScan {
 		fi, ok := graph.FileIndex[file]
 		if !ok {
@@ -1047,29 +1285,70 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if rel.Kind != "embedding" && rel.Kind != "inheritance" {
 				continue
 			}
-			// rel.From = "file:ChildType", rel.To = "ParentType"
-			parentType := rel.To
-			if vals, ok := valuesByReceiver[parentType]; ok {
-				childType := rel.From
-				if idx := strings.LastIndex(childType, ":"); idx >= 0 {
-					childType = childType[idx+1:]
+			childType := rel.From
+			if idx := strings.LastIndex(childType, ":"); idx >= 0 {
+				childType = childType[idx+1:]
+			}
+			verb := "embeds"
+			if rel.Kind == "inheritance" {
+				verb = "extends"
+			}
+			allRelations = append(allRelations, hierRelation{
+				childType: childType, parentType: rel.To, verb: verb,
+			})
+		}
+	}
+
+	// Multi-pass: propagate concrete values through inheritance chains.
+	// Pass 1: direct parent values. Pass 2+: grandparent values etc.
+	// A embeds B, B embeds C → A inherits C's concrete values.
+	// Cap at 3 passes to prevent runaway in deep hierarchies.
+	chainSet := make(map[string]bool) // deduplicate chains
+	for pass := 0; pass < 3; pass++ {
+		added := 0
+		for _, rel := range allRelations {
+			vals, ok := valuesByReceiver[rel.parentType]
+			if !ok {
+				continue
+			}
+			for _, v := range vals {
+				chain := fmt.Sprintf(
+					"`%s` %s `%s` → `%s()` %s %s applies to `%s`",
+					rel.childType, rel.verb, rel.parentType,
+					v.method, v.kind, v.value, rel.childType)
+				if !chainSet[chain] {
+					chainSet[chain] = true
+					hierarchyChains = append(hierarchyChains, chain)
+					added++
 				}
-				verb := "embeds"
-				if rel.Kind == "inheritance" {
-					verb = "extends"
+			}
+			// Propagate: child now inherits parent's values for next pass.
+			if _, ok := valuesByReceiver[rel.childType]; !ok {
+				valuesByReceiver[rel.childType] = vals
+			} else {
+				// Merge, avoiding duplicates.
+				existing := make(map[string]bool)
+				for _, ev := range valuesByReceiver[rel.childType] {
+					existing[ev.method] = true
 				}
 				for _, v := range vals {
-					hierarchyChains = append(hierarchyChains, fmt.Sprintf(
-						"`%s` %s `%s` → `%s()` %s %s applies to `%s`",
-						childType, verb, parentType,
-						v.method, v.kind, v.value, childType))
+					if !existing[v.method] {
+						valuesByReceiver[rel.childType] = append(valuesByReceiver[rel.childType], v)
+					}
 				}
 			}
 		}
+		if added == 0 {
+			break
+		}
 	}
 	if len(hierarchyChains) > 0 {
-		if len(hierarchyChains) > 20 {
-			hierarchyChains = hierarchyChains[:20]
+		hierCap := 20
+		if len(e.allScoredFiles) > 10 {
+			hierCap = 30
+		}
+		if len(hierarchyChains) > hierCap {
+			hierarchyChains = hierarchyChains[:hierCap]
 		}
 		b.WriteString("### Type Hierarchy Chains\n\n")
 		b.WriteString("These types inherit behavior via embedding (Go) or inheritance (Java/Python/JS/Rust):\n\n")
@@ -1640,6 +1919,267 @@ func (e *explorerEvaluator) trackCrossReferences(note string) {
 			}
 		}
 	}
+}
+
+// isEvidenceLine returns true if a trimmed source line is likely to
+// contain a concrete value pattern (return statement, map entry,
+// registration call, or constructor binding). Used by the medium-function
+// local line scanner to skip irrelevant lines cheaply.
+func isEvidenceLine(trimmed string) bool {
+	if strings.HasPrefix(trimmed, "return ") || strings.HasPrefix(trimmed, "return\t") {
+		return true
+	}
+	if strings.Contains(trimmed, " return ") {
+		return true // inline return: func() { return X }
+	}
+	if strings.Contains(trimmed, "=>") {
+		return true // arrow function
+	}
+	// Map/dict entries: "key": value or key: value,
+	if (strings.Contains(trimmed, ":") || strings.Contains(trimmed, "=>")) &&
+		strings.Contains(trimmed, ",") {
+		return true
+	}
+	// Registration/binding calls
+	for _, kw := range []string{"Register", "register", "append(", "Add(", "add(", "Handle(", "Map(", "Route("} {
+		if strings.Contains(trimmed, kw) {
+			return true
+		}
+	}
+	// Constructor patterns: New...(, &...{, new ...(
+	if strings.Contains(trimmed, "New") || strings.Contains(trimmed, "&") ||
+		strings.Contains(trimmed, "new ") {
+		return true
+	}
+	return false
+}
+
+// containsIdentifier checks whether text contains name as a whole
+// identifier — not just a substring. A match requires that the character
+// immediately before and after the name (if any) is NOT a letter, digit,
+// or underscore. This prevents "Handler" from matching "ErrorHandler" or
+// "HandlerFunc", while still matching "&Handler{}", "Handler.Name", etc.
+//
+// Special case: "New" + name is also accepted (e.g., "NewFoo" matches
+// "Foo") because NewTypeName is the universal constructor convention in
+// Go (and common in Java/Python). The same applies for "new" (Java/JS).
+func containsIdentifier(text, name string) bool {
+	if name == "" {
+		return false
+	}
+	start := 0
+	for {
+		idx := strings.Index(text[start:], name)
+		if idx < 0 {
+			return false
+		}
+		pos := start + idx
+		// Check character after the match — must be a boundary.
+		end := pos + len(name)
+		if end < len(text) && isIdentChar(text[end]) {
+			start = pos + 1
+			continue
+		}
+		// Check character before the match.
+		if pos == 0 {
+			return true // start of string
+		}
+		before := text[pos-1]
+		if !isIdentChar(before) {
+			return true // clean boundary
+		}
+		// Allow "New" or "new" prefix: "NewFoo" matches "Foo".
+		if pos >= 3 && !isIdentChar(safeCharAt(text, pos-4)) {
+			prefix := text[pos-3 : pos]
+			if prefix == "New" || prefix == "new" {
+				return true
+			}
+		}
+		start = pos + 1
+	}
+}
+
+// safeCharAt returns the byte at position i, or 0 if out of bounds.
+func safeCharAt(s string, i int) byte {
+	if i < 0 || i >= len(s) {
+		return 0
+	}
+	return s[i]
+}
+
+func isIdentChar(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+// resolveConditions checks [CONDITIONAL] evidence entries against the
+// Concrete Values section. Instead of a shallow word-presence check, it
+// parses the IF clause to extract the variable/method being tested and
+// the expected value, then matches structurally against concrete values.
+//
+// Returns the list of conditions that could NOT be resolved.
+func resolveConditions(notes []string, concreteValuesSection string) []string {
+	if concreteValuesSection == "" {
+		return nil
+	}
+
+	// Parse the concrete values table into a lookup: method → fact.
+	// Table format: | file:line | `Method()` | kind value |
+	cvMethods := make(map[string]string) // lowercase method → fact line
+	for _, line := range strings.Split(concreteValuesSection, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") || strings.HasPrefix(line, "| File") || strings.HasPrefix(line, "|---") {
+			continue
+		}
+		cols := strings.SplitN(line, "|", 5)
+		if len(cols) < 4 {
+			continue
+		}
+		method := strings.TrimSpace(cols[2])
+		method = strings.Trim(method, "`()")
+		fact := strings.TrimSpace(cols[3])
+		if method != "" {
+			cvMethods[strings.ToLower(method)] = fact
+		}
+	}
+
+	// Also extract resolution chains: "A() kind val → B() kind val"
+	var chainTargets []string // lowercase method names from chain right-hand sides
+	for _, line := range strings.Split(concreteValuesSection, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "- `") {
+			continue
+		}
+		if idx := strings.Index(line, "→"); idx >= 0 {
+			rhs := line[idx:]
+			// Extract method name between backticks: `Method()`
+			if s := strings.Index(rhs, "`"); s >= 0 {
+				if e := strings.Index(rhs[s+1:], "`"); e >= 0 {
+					m := strings.Trim(rhs[s+1:s+1+e], "()")
+					chainTargets = append(chainTargets, strings.ToLower(m))
+				}
+			}
+		}
+	}
+
+	var unresolved []string
+	for _, note := range notes {
+		for _, line := range strings.Split(note, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if !strings.HasPrefix(trimmed, "- [CONDITIONAL]") {
+				continue
+			}
+
+			// Extract the IF clause: everything after " IF " or " if "
+			ifIdx := strings.Index(trimmed, " IF ")
+			if ifIdx < 0 {
+				ifIdx = strings.Index(trimmed, " if ")
+			}
+			if ifIdx < 0 {
+				// No parseable IF clause — mark as unresolved.
+				unresolved = append(unresolved, trimmed)
+				continue
+			}
+			condition := trimmed[ifIdx+4:]
+
+			// Strategy: extract identifiers from the condition and check
+			// if any of them appear as a method in the concrete values
+			// table or resolution chain targets. This is structural: we
+			// check that the *tested variable/method* has a concrete value,
+			// not just any random word overlap.
+			condTokens := extractIdentifiers(condition)
+			resolved := false
+			for _, tok := range condTokens {
+				tokLower := strings.ToLower(tok)
+				if _, ok := cvMethods[tokLower]; ok {
+					resolved = true
+					break
+				}
+				// Check if token is a type.Method pattern
+				for method := range cvMethods {
+					if strings.HasSuffix(method, "."+tokLower) || strings.HasPrefix(method, tokLower+".") {
+						resolved = true
+						break
+					}
+				}
+				if resolved {
+					break
+				}
+				// Check resolution chain targets
+				for _, ct := range chainTargets {
+					if ct == tokLower || strings.HasSuffix(ct, "."+tokLower) {
+						resolved = true
+						break
+					}
+				}
+				if resolved {
+					break
+				}
+			}
+			if !resolved {
+				unresolved = append(unresolved, trimmed)
+			}
+		}
+	}
+	return unresolved
+}
+
+// extractIdentifiers pulls identifier-like tokens from a condition string.
+// Recognizes dotted names (foo.Bar), plain identifiers, and backtick-quoted
+// symbols. Filters out common noise words and very short tokens.
+func extractIdentifiers(s string) []string {
+	var result []string
+	seen := make(map[string]bool)
+
+	// First extract backtick-quoted symbols: `symbolName`
+	for {
+		start := strings.Index(s, "`")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(s[start+1:], "`")
+		if end < 0 {
+			break
+		}
+		sym := s[start+1 : start+1+end]
+		sym = strings.Trim(sym, "()")
+		if len(sym) >= 3 && !seen[sym] {
+			seen[sym] = true
+			result = append(result, sym)
+		}
+		s = s[:start] + " " + s[start+1+end+1:]
+	}
+
+	// Then extract bare identifiers (alphanumeric + underscore + dot).
+	token := ""
+	for i := 0; i <= len(s); i++ {
+		var c byte
+		if i < len(s) {
+			c = s[i]
+		}
+		if isIdentChar(c) || c == '.' {
+			token += string(c)
+		} else {
+			token = strings.Trim(token, ".")
+			if len(token) >= 3 && !seen[token] && !isConditionNoise(token) {
+				seen[token] = true
+				result = append(result, token)
+			}
+			token = ""
+		}
+	}
+	return result
+}
+
+// isConditionNoise filters out common English words that appear in
+// conditions but are not code identifiers.
+func isConditionNoise(s string) bool {
+	switch strings.ToLower(s) {
+	case "the", "and", "for", "not", "this", "that", "when", "then",
+		"true", "false", "nil", "null", "none", "with", "from",
+		"has", "was", "are", "were", "been", "does", "any", "all":
+		return true
+	}
+	return false
 }
 
 // NewExplorerAgent creates the explorer agent (used in explore stage).
