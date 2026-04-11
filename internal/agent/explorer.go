@@ -828,6 +828,75 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 	}
 
+	// Also scan config files (YAML/JSON) for key-value mappings.
+	// These establish config-driven behavior: stage→agent, route→handler, etc.
+	// Only scan config files that are in the filesToScan set (relevant
+	// to the investigation). Uses text pattern matching, not YAML parsing.
+	for file := range filesToScan {
+		fi, ok := graph.FileIndex[file]
+		if !ok {
+			continue
+		}
+		isConfig := fi.IsSpecial ||
+			strings.HasSuffix(file, ".yaml") || strings.HasSuffix(file, ".yml") ||
+			strings.HasSuffix(file, ".json") || strings.HasSuffix(file, ".toml")
+		if !isConfig {
+			continue
+		}
+		lines := loadFileLines(filepath.Join(repoRoot, file))
+		if lines == nil {
+			continue
+		}
+		var configEntries []string
+		for _, line := range lines {
+			trimmed := strings.TrimSpace(line)
+			// Skip comments and empty lines.
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+				continue
+			}
+			// YAML/TOML: "key: value" where value is a simple scalar
+			if colonIdx := strings.Index(trimmed, ": "); colonIdx > 0 {
+				key := strings.TrimSpace(trimmed[:colonIdx])
+				val := strings.TrimSpace(trimmed[colonIdx+2:])
+				// Skip non-leaf nodes (value is empty or starts list/map)
+				if val == "" || val == "|" || val == ">" || strings.HasPrefix(val, "-") ||
+					strings.HasPrefix(val, "{") || strings.HasPrefix(val, "[") {
+					continue
+				}
+				// Only keep entries where key or value references noted symbols
+				if strings.Contains(notesJoined, key) || strings.Contains(notesJoined, val) {
+					configEntries = append(configEntries, key+" = "+val)
+				}
+			}
+			// JSON: "key": "value"
+			if strings.Contains(trimmed, "\": \"") || strings.Contains(trimmed, "\": ") {
+				cleaned := strings.Trim(trimmed, " ,{}")
+				if strings.HasPrefix(cleaned, "\"") {
+					parts := strings.SplitN(cleaned, "\": ", 2)
+					if len(parts) == 2 {
+						key := strings.Trim(parts[0], "\"")
+						val := strings.Trim(parts[1], "\",")
+						if strings.Contains(notesJoined, key) || strings.Contains(notesJoined, val) {
+							configEntries = append(configEntries, key+" = "+val)
+						}
+					}
+				}
+			}
+		}
+		if len(configEntries) > 0 {
+			if len(configEntries) > 10 {
+				configEntries = configEntries[:10]
+			}
+			allValues = append(allValues, concreteValue{
+				file:   file,
+				method: filepath.Base(file),
+				kind:   "config",
+				value:  strings.Join(configEntries, "; "),
+				line:   1,
+			})
+		}
+	}
+
 	logging.Debug("[explorer] concrete values: extracted %d total values", len(allValues))
 	if len(allValues) == 0 {
 		return ""
@@ -846,7 +915,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// 4. Values referencing symbols from the investigation notes
 	var relevant []concreteValue
 	for _, v := range allValues {
-		if strings.Contains(v.kind, "binds") || v.kind == "maps" {
+		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" {
 			relevant = append(relevant, v)
 			continue
 		}
@@ -920,7 +989,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// short string returns (Name/Type), then booleans, then longer values.
 	sort.Slice(relevant, func(i, j int) bool {
 		scoreVal := func(v concreteValue) int {
-			if strings.Contains(v.kind, "binds") || v.kind == "maps" {
+			if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" {
 				return 100
 			}
 			if v.kind == "returns" && len(v.value) <= 20 {
@@ -957,7 +1026,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	var chains []string
 	for _, v := range relevant {
 		// Skip values that don't reference other types.
-		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" {
+		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" && v.kind != "config" {
 			continue
 		}
 		for _, rv := range relevant {
