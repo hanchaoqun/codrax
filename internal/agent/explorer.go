@@ -782,12 +782,18 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			bodyLines := sym.EndLine - sym.Line
 			isShort := bodyLines <= 3
 			// For longer functions, only scan if the name suggests
-			// registration (contains "Register", "Defaults", "Init").
+			// registration, mapping, or configuration.
 			isRegistrationFunc := !isShort &&
 				bodyLines <= 30 &&
 				(strings.Contains(sym.Name, "Register") ||
 					strings.Contains(sym.Name, "Defaults") ||
-					strings.Contains(sym.Name, "register"))
+					strings.Contains(sym.Name, "register") ||
+					strings.Contains(sym.Name, "Routes") ||
+					strings.Contains(sym.Name, "routes") ||
+					strings.Contains(sym.Name, "Handlers") ||
+					strings.Contains(sym.Name, "Config") ||
+					strings.Contains(sym.Name, "Map") ||
+					strings.Contains(sym.Name, "Init"))
 			if !isShort && !isRegistrationFunc {
 				continue
 			}
@@ -807,7 +813,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			}
 			for _, cv := range extractConcreteValues(src) {
 				// For longer functions, only keep binding/registration values.
-				if !isShort && !strings.Contains(cv.kind, "binds") {
+				if !isShort && !strings.Contains(cv.kind, "binds") && cv.kind != "maps" {
 					continue
 				}
 				allValues = append(allValues, concreteValue{
@@ -840,7 +846,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// 4. Values referencing symbols from the investigation notes
 	var relevant []concreteValue
 	for _, v := range allValues {
-		if strings.Contains(v.kind, "binds") {
+		if strings.Contains(v.kind, "binds") || v.kind == "maps" {
 			relevant = append(relevant, v)
 			continue
 		}
@@ -877,26 +883,32 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 
 	logging.Debug("[explorer] concrete values: %d relevant (of %d total) after filtering", len(relevant), len(allValues))
 
-	// Pass 2: trace references in relevant values to find more values.
-	// E.g., RegisterDefaultSubAgents binds NewSubExplorer → add
-	// SubExplorer.Name() which returns "explorer".
+	// Multi-pass reference tracing: follow type references in values
+	// to discover more concrete values. Repeats until no new values
+	// are found, supporting chains of arbitrary depth:
+	//   RegisterX binds NewFoo → Foo returns NewBar → Bar.Name returns "baz"
+	// Capped at 5 iterations to prevent runaway in circular references.
 	seen := make(map[string]bool)
 	for _, v := range relevant {
 		seen[v.method] = true
 	}
-	for _, v := range relevant {
-		// Scan value for symbol names that have their own concrete values.
-		for _, av := range allValues {
-			if seen[av.method] {
-				continue
+	for pass := 0; pass < 5; pass++ {
+		added := 0
+		for _, v := range relevant {
+			for _, av := range allValues {
+				if seen[av.method] {
+					continue
+				}
+				if av.receiver != "" && len(av.receiver) >= 6 &&
+					strings.Contains(v.value, av.receiver) {
+					relevant = append(relevant, av)
+					seen[av.method] = true
+					added++
+				}
 			}
-			// Check if any word in v.value matches av's receiver type
-			if av.receiver != "" && len(av.receiver) >= 6 &&
-				strings.Contains(v.value, av.receiver) {
-				logging.Debug("[explorer] concrete values pass2: %s references %s → adding %s", v.method, av.receiver, av.method)
-				relevant = append(relevant, av)
-				seen[av.method] = true
-			}
+		}
+		if added == 0 {
+			break
 		}
 	}
 
@@ -908,7 +920,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// short string returns (Name/Type), then booleans, then longer values.
 	sort.Slice(relevant, func(i, j int) bool {
 		scoreVal := func(v concreteValue) int {
-			if strings.Contains(v.kind, "binds") {
+			if strings.Contains(v.kind, "binds") || v.kind == "maps" {
 				return 100
 			}
 			if v.kind == "returns" && len(v.value) <= 20 {
@@ -945,7 +957,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	var chains []string
 	for _, v := range relevant {
 		// Skip values that don't reference other types.
-		if v.kind != "returns" && !strings.Contains(v.kind, "binds") {
+		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" {
 			continue
 		}
 		for _, rv := range relevant {
@@ -1242,6 +1254,61 @@ func extractConcreteValues(source string) []concreteValueEntry {
 		results = append(results, concreteValueEntry{
 			kind:  qualifier,
 			value: strings.Join(registerCalls, ", "),
+		})
+	}
+
+	// Pattern: map/dict literal entries — "key: value," lines.
+	// Extracts key→value mappings from map literals, routing tables,
+	// dispatch tables, etc. Works across Go (map[K]V{...}),
+	// Python (dict), JS/TS (object literals), Java (Map.of(...)).
+	//
+	//   types.AgentExplorer: func(d) { return NewExplorerAgent(d) },
+	//   "/api/users": NewUserHandler(),
+	//   "explore": "explorer",
+	var mapEntries []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Look for "key: value" pattern with trailing comma.
+		// Skip lines that are struct field declarations (have type names
+		// after the colon, not values).
+		colonIdx := strings.Index(trimmed, ":")
+		if colonIdx < 1 {
+			continue
+		}
+		key := strings.TrimSpace(trimmed[:colonIdx])
+		val := strings.TrimSpace(trimmed[colonIdx+1:])
+		val = strings.TrimRight(val, ",")
+		val = strings.TrimSpace(val)
+		if val == "" || val == "{" || val == "}" {
+			continue
+		}
+		// Key must be a string literal, identifier, or enum constant.
+		isMapKey := false
+		if len(key) >= 2 && (key[0] == '"' || key[0] == '\'') {
+			isMapKey = true // string literal key
+		} else if strings.Contains(key, ".") && !strings.HasPrefix(key, "//") {
+			isMapKey = true // qualified name like types.AgentExplorer
+		}
+		// Value must contain a constructor, function, or string literal.
+		hasMapping := false
+		if isMapKey {
+			if strings.Contains(val, "New") || strings.Contains(val, "new ") ||
+				(len(val) >= 2 && (val[0] == '"' || val[0] == '\'')) {
+				hasMapping = true
+			}
+			// Lambda/closure: func(...) { ... } or () => ...
+			if strings.Contains(val, "func") || strings.Contains(val, "=>") {
+				hasMapping = true
+			}
+		}
+		if hasMapping {
+			mapEntries = append(mapEntries, key+" → "+val)
+		}
+	}
+	if len(mapEntries) > 0 {
+		results = append(results, concreteValueEntry{
+			kind:  "maps",
+			value: strings.Join(mapEntries, "; "),
 		})
 	}
 
