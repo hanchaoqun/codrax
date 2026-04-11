@@ -644,7 +644,7 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 //
 // The function also builds resolution chains: when one concrete value
 // references a symbol that has its own concrete value, the chain is
-// made explicit (e.g., RegisterX registers NewFoo → Foo.Name returns "bar").
+// made explicit (e.g., RegisterX binds NewFoo → Foo.Name returns "bar").
 func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool) string {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return ""
@@ -656,7 +656,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		file     string
 		receiver string
 		method   string // qualified: Receiver.Name or Name
-		kind     string // "returns", "registers ONLY", etc.
+		kind     string // "returns", "binds ONLY", etc.
 		value    string
 		line     int
 	}
@@ -725,8 +725,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				qualName = owner + "." + sym.Name
 			}
 			for _, cv := range extractConcreteValues(src) {
-				// For longer functions, only keep registration values.
-				if !isShort && !strings.Contains(cv.kind, "registers") {
+				// For longer functions, only keep binding/registration values.
+				if !isShort && !strings.Contains(cv.kind, "binds") {
 					continue
 				}
 				allValues = append(allValues, concreteValue{
@@ -759,25 +759,27 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// 4. Values referencing symbols from the investigation notes
 	var relevant []concreteValue
 	for _, v := range allValues {
-		if strings.Contains(v.kind, "registers") {
+		if strings.Contains(v.kind, "binds") {
 			relevant = append(relevant, v)
 			continue
 		}
-		if v.kind == "returns" && len(v.value) >= 2 &&
-			(v.value[0] == '"' || v.value[0] == '\'') {
+		if v.kind == "returns" {
+			isStringLit := len(v.value) >= 2 && (v.value[0] == '"' || v.value[0] == '\'')
+			isBoolOrNil := v.value == "true" || v.value == "false" || v.value == "nil" || v.value == "null"
 			// Skip long description strings (> 80 chars).
-			if len(v.value) > 80 {
+			if isStringLit && len(v.value) > 80 {
 				continue
 			}
-			// Always keep from pre-scanned or read files — these are
-			// the files the system identified as most relevant.
-			if readSet[v.file] || preScannedSet[v.file] {
+			// Always keep short string/bool returns from pre-scanned or
+			// read files — these are the most relevant files.
+			if (isStringLit || isBoolOrNil) && (readSet[v.file] || preScannedSet[v.file]) {
 				relevant = append(relevant, v)
 				continue
 			}
 			// For other files, require receiver/method in notes.
-			if strings.Contains(notesJoined, v.receiver) ||
-				strings.Contains(notesJoined, v.method) {
+			if (isStringLit || isBoolOrNil) &&
+				(strings.Contains(notesJoined, v.receiver) ||
+					strings.Contains(notesJoined, v.method)) {
 				relevant = append(relevant, v)
 				continue
 			}
@@ -795,7 +797,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	logging.Debug("[explorer] concrete values: %d relevant (of %d total) after filtering", len(relevant), len(allValues))
 
 	// Pass 2: trace references in relevant values to find more values.
-	// E.g., RegisterDefaultSubAgents registers NewSubExplorer → add
+	// E.g., RegisterDefaultSubAgents binds NewSubExplorer → add
 	// SubExplorer.Name() which returns "explorer".
 	seen := make(map[string]bool)
 	for _, v := range relevant {
@@ -845,7 +847,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	var chains []string
 	for _, v := range relevant {
 		// Skip values that don't reference other types.
-		if v.kind != "returns" && !strings.Contains(v.kind, "registers") {
+		if v.kind != "returns" && !strings.Contains(v.kind, "binds") {
 			continue
 		}
 		for _, rv := range relevant {
@@ -869,6 +871,57 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		b.WriteString("These chains trace through the concrete values to resolve conditions:\n\n")
 		for _, c := range chains {
 			b.WriteString("- " + c + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Build embedding chains: when type A embeds type B, and B has a
+	// concrete value (e.g., ReadOnly.IsWrite() returns false), then
+	// A inherits that value (A.IsWrite() returns false via ReadOnly).
+	// Uses the graph's embedding relations extracted by tree-sitter.
+	var embeddings []string
+	// Collect all concrete values indexed by receiver for fast lookup.
+	valuesByReceiver := make(map[string][]concreteValue)
+	for _, v := range relevant {
+		if v.receiver != "" {
+			valuesByReceiver[v.receiver] = append(valuesByReceiver[v.receiver], v)
+		}
+	}
+	// Scan embedding relations in all scanned files.
+	for file := range filesToScan {
+		fi, ok := graph.FileIndex[file]
+		if !ok {
+			continue
+		}
+		for _, rel := range fi.Relations {
+			if rel.Kind != "embedding" {
+				continue
+			}
+			// rel.From = "file:HostType", rel.To = "EmbeddedType"
+			embeddedType := rel.To
+			if vals, ok := valuesByReceiver[embeddedType]; ok {
+				// Extract host type name from "file:HostType"
+				hostType := rel.From
+				if idx := strings.LastIndex(hostType, ":"); idx >= 0 {
+					hostType = hostType[idx+1:]
+				}
+				for _, v := range vals {
+					embeddings = append(embeddings, fmt.Sprintf(
+						"`%s` embeds `%s` → `%s()` %s %s applies to `%s`",
+						hostType, embeddedType,
+						v.method, v.kind, v.value, hostType))
+				}
+			}
+		}
+	}
+	if len(embeddings) > 0 {
+		if len(embeddings) > 15 {
+			embeddings = embeddings[:15]
+		}
+		b.WriteString("### Embedding Chains\n\n")
+		b.WriteString("These types inherit behavior from embedded types:\n\n")
+		for _, e := range embeddings {
+			b.WriteString("- " + e + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -905,7 +958,7 @@ func readSourceLines(path string, startLine, endLine int) string {
 
 // concreteValueEntry holds a single extracted concrete value from source code.
 type concreteValueEntry struct {
-	kind  string // "returns", "registers ONLY", "assigns"
+	kind  string // "returns", "binds ONLY", "binds"
 	value string // the concrete value
 }
 
@@ -917,7 +970,7 @@ type concreteValueEntry struct {
 //   - return "literal" or 'literal' → returns "literal"
 //   - return number             → returns number
 //   - return true/false/nil     → returns true/false/nil
-//   - x.Register(NewFoo(...))   → registers ONLY NewFoo
+//   - x.Verb(NewFoo(...))       → binds ONLY NewFoo (any method passing a constructor)
 //   - return TypeName{...}      → returns TypeName{...}
 func extractConcreteValues(source string) []concreteValueEntry {
 	var results []concreteValueEntry
@@ -930,8 +983,19 @@ func extractConcreteValues(source string) []concreteValueEntry {
 		trimmed := strings.TrimSpace(line)
 
 		// Pattern: return "string literal"
+		// Handle both standalone "return X" and inline "func() { return X }"
+		returnIdx := -1
 		if strings.HasPrefix(trimmed, "return ") {
-			rest := strings.TrimPrefix(trimmed, "return ")
+			returnIdx = 0
+		} else if idx := strings.Index(trimmed, " return "); idx >= 0 {
+			// Inline return inside single-line function body
+			returnIdx = idx + 1
+		}
+		if returnIdx >= 0 {
+			rest := trimmed[returnIdx+len("return "):]
+			// Strip trailing "}" and whitespace for inline functions
+			rest = strings.TrimRight(rest, " \t}")
+			rest = strings.TrimSpace(rest)
 			rest = strings.TrimRight(rest, ";") // for non-Go langs
 			// String literal (double or single quotes)
 			if len(rest) >= 2 &&
@@ -985,41 +1049,44 @@ func extractConcreteValues(source string) []concreteValueEntry {
 			}
 		}
 
-		// Pattern: .Register(NewFoo(...)) or Register(NewFoo(...))
-		if strings.Contains(trimmed, "Register(") || strings.Contains(trimmed, "register(") {
-			// Extract the argument to Register()
-			idx := strings.Index(trimmed, "Register(")
-			if idx < 0 {
-				idx = strings.Index(trimmed, "register(")
-			}
-			if idx >= 0 {
-				arg := trimmed[idx+len("Register("):]
-				// Find matching paren
-				depth := 1
-				end := 0
-				for i, c := range arg {
-					if c == '(' {
-						depth++
-					} else if c == ')' {
-						depth--
-						if depth == 0 {
-							end = i
-							break
-						}
+		// Pattern: method call passing a constructor or instance as argument.
+		// Matches Register(), Handle(), Subscribe(), Add(), etc. — any
+		// call whose argument is NewXxx(...) or &Xxx{...}.
+		if parenIdx := strings.Index(trimmed, "("); parenIdx > 0 {
+			arg := trimmed[parenIdx+1:]
+			// Find matching close paren.
+			depth := 1
+			end := 0
+			for i, c := range arg {
+				if c == '(' {
+					depth++
+				} else if c == ')' {
+					depth--
+					if depth == 0 {
+						end = i
+						break
 					}
 				}
-				if end > 0 {
-					registerCalls = append(registerCalls, arg[:end])
+			}
+			if end > 0 {
+				inner := strings.TrimSpace(arg[:end])
+				// Check if the argument contains a constructor pattern:
+				// NewXxx(...), &Xxx{...}, or Xxx{...}
+				hasConstructor := strings.Contains(inner, "New") ||
+					strings.Contains(inner, "&") ||
+					strings.Contains(inner, "{")
+				if hasConstructor && len(inner) > 0 {
+					registerCalls = append(registerCalls, inner)
 				}
 			}
 		}
 	}
 
-	// If there are register calls, summarize them
+	// If there are constructor-passing calls, summarize them.
 	if len(registerCalls) > 0 {
-		qualifier := "registers ONLY"
+		qualifier := "binds ONLY"
 		if len(registerCalls) > 1 {
-			qualifier = "registers"
+			qualifier = "binds"
 		}
 		results = append(results, concreteValueEntry{
 			kind:  qualifier,
