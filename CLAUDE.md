@@ -66,6 +66,51 @@ Transitions between stages are priority-weighted and filtered by task policy, pi
 
 All 8 agent types embed `BaseAgent` which provides the ReAct loop (Reason → Act → Observe). Each agent implements the `Evaluator` interface: `BuildInitialPrompt`, `ShouldStop`, `ParseOutput`, `DetermineMissingPiece`.
 
+### Evidence Chain System (`internal/agent/explorer.go`)
+
+The explorer agent includes a programmatic evidence extraction pipeline that supplements LLM investigation with deterministic, source-code-derived facts. This addresses a systemic LLM weakness: the ability to read code files and extract individual facts, but the inability to chain those facts across files to reach specific conclusions (multi-hop reasoning).
+
+**Three-phase investigation model:**
+
+1. **Phase 0 — Breadth Scan.** Keyword search (`keywordSearch` in `keyword_search.go`) combines repo_map structural ranking with grep IDF scoring. Produces a ranked file list with symbol tables. Uses ripgrep when available (auto-detected at startup via `tool.SearchCommand()`), falling back to GNU grep.
+
+2. **Phase 1 — Evidence Collection.** LLM reads files and extracts structured evidence entries tagged `[DIRECT]`, `[CONDITIONAL]`, `[REGISTRATION]`, `[MECHANISM]`, `[RELATIONSHIP]`. The evaluator tracks investigation notes, cross-references, and file coverage with escalating read prompts (3-level: gentle → forceful → final).
+
+3. **Synthesis.** `SynthesisPrompt` assembles a prompt with five programmatic layers, each independent — when upper layers produce no output, lower layers still function:
+
+| Layer | Source | Deterministic? | What it provides |
+|-------|--------|:-:|---|
+| Concrete Values table | `buildConcreteValuesSection` | Yes | Return values, registrations, config entries from source code |
+| Resolution Chains | same function | Yes | `RegisterX binds NewFoo → Foo.Name() returns "bar"` |
+| Type Hierarchy Chains | graph `embedding`+`inheritance` relations | Yes | `ExecCommand embeds ReadOnly → IsWrite() returns false` |
+| Cross-reference map | `buildCrossReferenceMap` | Yes | Symbols spanning 2+ evidence sets |
+| Unresolved Conditions | notes scan | Semi | `[CONDITIONAL]` entries with no matching concrete value |
+| Evidence Catalog | LLM investigation notes | No | Structured facts the LLM extracted from files |
+
+**Concrete value extraction (`extractConcreteValues`)** scans source code for patterns that establish ground-truth facts. Recognized patterns, cross-language:
+
+| Pattern | Languages | Example |
+|---------|-----------|---------|
+| `return "literal"` / `return 'literal'` | All | `Name() → "explorer"` |
+| `return true/false/nil/null` | All | `IsWrite() → false` |
+| Inline return: `func() { return X }` | Go, Java | single-line methods |
+| Arrow function: `() => "value"` | JS/TS | `getName = () => "explorer"` |
+| Implicit return (last expression) | Rust, Ruby | `"explorer"` as bare string |
+| Constructor-passing call: `verb(NewFoo())` | Go, Java, Python, JS | `Register(NewHandler())` |
+| `new Xxx(...)` | Java, JS | `add(new UserController())` |
+| Capitalized class instantiation | Python, JS | `register(UserHandler)` |
+| Map/dict literal entries: `key: value,` | Go, Python, JS | `AgentExplorer: NewExplorerAgent` |
+| Decorator/annotation: `@route("/path")` | Python, Java | `@app.get("/api") → handler` |
+| YAML/JSON config leaf values | Config files | `default_agent = explorer` |
+
+**File scanning scope:** all keyword-search scored files + all LLM-read files + files defining symbols mentioned in investigation notes. Short methods (≤3 lines) are fully extracted; longer functions (≤30 lines) are scanned only for registrations/mappings when their name contains `Register`, `Defaults`, `Routes`, `Handlers`, `Config`, `Map`, or `Init`. Config files (YAML/JSON/TOML) are parsed with `yaml.v3`/`encoding/json` and flattened to dotted key paths.
+
+**Resolution chain tracing** is multi-pass (up to 5 iterations): when a concrete value mentions a type name T, all of T's concrete values are pulled into the relevant set and linked. This supports chains of arbitrary depth: `RegisterX binds NewFoo → Foo returns NewBar → Bar.Name returns "baz"`.
+
+**Search backend (`internal/tool/search.go`).** At first use, `SearchCommand()` probes for `rg` via `exec.LookPath` and caches the result. When ripgrep is available: `.gitignore` auto-exclusion (logs, memory, build artifacts), binary skip, smart-case, and batch keyword search via `rg --json` with multi-pattern (`-e kw1 -e kw2 ...`). JSON match output is parsed with lightweight string scanning to build per-keyword file lists for IDF scoring — no file reads, no truncation, large-repo safe. Falls back to GNU grep with manual `--exclude-dir` flags from the shared `tool.ExcludeDirs` list.
+
+**Shared exclude list (`tool.ExcludeDirs`).** Single authoritative directory exclusion list used by GrepTool, keyword search, and `isNoisePath`: `.git`, `.hg`, `.svn`, `node_modules`, `vendor`, `__pycache__`, `.tox`, `logs`, `memory`, `target`, `dist`, `build`.
+
 ### Configuration
 
 Three YAML files under `config/`, strictly non-overlapping:
