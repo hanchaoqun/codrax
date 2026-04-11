@@ -1828,13 +1828,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	//   - Register(NewFoo) → Foo.Name() returns "bar"
 	//   - returns NewFoo() → Foo.Name() returns "bar"
 	//   - returns &Foo{} → Foo.Name() returns "bar"
+	// Build resolution chains from the FULL relevant set (pre-cap)
+	// so that chains like "RegisterDefaultSubAgents binds NewSubExplorer
+	// → SubExplorer.Name returns explorer" are discovered even when
+	// SubExplorer.Name is outside the top-25 markdown cap.
 	var chains []string
-	for _, v := range relevant {
+	for _, v := range allRelevantForEvidence {
 		// Skip values that don't reference other types.
 		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" && v.kind != "config" && v.kind != "decorates" {
 			continue
 		}
-		for _, rv := range relevant {
+		for _, rv := range allRelevantForEvidence {
 			if rv.receiver == "" || rv.receiver == v.receiver {
 				continue
 			}
@@ -1878,7 +1882,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	var hierarchyChains []string
 	// Collect all concrete values indexed by receiver for fast lookup.
 	valuesByReceiver := make(map[string][]concreteValue)
-	for _, v := range relevant {
+	for _, v := range allRelevantForEvidence {
 		if v.receiver != "" {
 			valuesByReceiver[v.receiver] = append(valuesByReceiver[v.receiver], v)
 		}
