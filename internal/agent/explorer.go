@@ -735,6 +735,34 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 	}
 
+	// Cache file contents to avoid re-opening the same file for each symbol.
+	fileLines := make(map[string][]string)
+	loadFileLines := func(absPath string) []string {
+		if lines, ok := fileLines[absPath]; ok {
+			return lines
+		}
+		f, err := os.Open(absPath)
+		if err != nil {
+			fileLines[absPath] = nil
+			return nil
+		}
+		defer f.Close()
+		var lines []string
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			lines = append(lines, scanner.Text())
+		}
+		fileLines[absPath] = lines
+		return lines
+	}
+	getLinesRange := func(absPath string, startLine, endLine int) string {
+		lines := loadFileLines(absPath)
+		if lines == nil || startLine < 1 || endLine > len(lines) {
+			return ""
+		}
+		return strings.Join(lines[startLine-1:endLine], "\n")
+	}
+
 	// Extract concrete values from short methods/functions (≤3 lines)
 	// and from longer registration functions (any length, but only
 	// extracting Register() calls from those).
@@ -763,7 +791,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if !isShort && !isRegistrationFunc {
 				continue
 			}
-			src := readSourceLines(filepath.Join(repoRoot, sym.File), sym.Line, sym.EndLine)
+			src := getLinesRange(filepath.Join(repoRoot, sym.File), sym.Line, sym.EndLine)
 			if src == "" {
 				continue
 			}
@@ -876,6 +904,23 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		return ""
 	}
 
+	// Sort by usefulness: bindings first (they anchor chains), then
+	// short string returns (Name/Type), then booleans, then longer values.
+	sort.Slice(relevant, func(i, j int) bool {
+		scoreVal := func(v concreteValue) int {
+			if strings.Contains(v.kind, "binds") {
+				return 100
+			}
+			if v.kind == "returns" && len(v.value) <= 20 {
+				return 80 // short Name/Type returns
+			}
+			if v.kind == "returns" && (v.value == "true" || v.value == "false") {
+				return 60
+			}
+			return 10
+		}
+		return scoreVal(relevant[i]) > scoreVal(relevant[j])
+	})
 	// Cap to prevent bloating.
 	if len(relevant) > 15 {
 		relevant = relevant[:15]
@@ -1035,21 +1080,52 @@ func extractConcreteValues(source string) []concreteValueEntry {
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 
-		// Pattern: return "string literal"
-		// Handle both standalone "return X" and inline "func() { return X }"
-		returnIdx := -1
+		// Extract the "value expression" from return statements, arrow
+		// functions, or implicit returns (Rust: last expression in block).
+		var rest string
+		hasValue := false
+
 		if strings.HasPrefix(trimmed, "return ") {
-			returnIdx = 0
+			rest = strings.TrimPrefix(trimmed, "return ")
+			hasValue = true
 		} else if idx := strings.Index(trimmed, " return "); idx >= 0 {
-			// Inline return inside single-line function body
-			returnIdx = idx + 1
+			// Inline return: func() { return X }
+			rest = trimmed[idx+len(" return "):]
+			hasValue = true
+		} else if strings.Contains(trimmed, "=>") {
+			// Arrow function: () => "value" or () => value
+			if idx := strings.Index(trimmed, "=>"); idx >= 0 {
+				rest = strings.TrimSpace(trimmed[idx+2:])
+				hasValue = rest != "" && rest != "{"
+			}
+		} else if !strings.HasPrefix(trimmed, "func ") &&
+			!strings.HasPrefix(trimmed, "fn ") &&
+			!strings.HasPrefix(trimmed, "def ") &&
+			!strings.HasPrefix(trimmed, "//") &&
+			!strings.HasPrefix(trimmed, "#") &&
+			!strings.HasPrefix(trimmed, "}") &&
+			!strings.HasPrefix(trimmed, "{") &&
+			!strings.HasPrefix(trimmed, "type ") &&
+			!strings.HasPrefix(trimmed, "pub ") &&
+			!strings.HasPrefix(trimmed, "if ") &&
+			len(trimmed) > 0 {
+			// Rust/Ruby implicit return: last line of block is the value.
+			// Only treat as implicit return if it looks like a simple
+			// expression (quoted string or bare identifier), not a statement.
+			candidate := strings.TrimRight(trimmed, " \t};")
+			if len(candidate) >= 2 &&
+				((candidate[0] == '"' && candidate[len(candidate)-1] == '"') ||
+					(candidate[0] == '\'' && candidate[len(candidate)-1] == '\'')) {
+				rest = candidate
+				hasValue = true
+			}
 		}
-		if returnIdx >= 0 {
-			rest := trimmed[returnIdx+len("return "):]
+
+		if hasValue {
 			// Strip trailing "}" and whitespace for inline functions
 			rest = strings.TrimRight(rest, " \t}")
 			rest = strings.TrimSpace(rest)
-			rest = strings.TrimRight(rest, ";") // for non-Go langs
+			rest = strings.TrimRight(rest, ";") // for non-Go/Java/JS
 			// String literal (double or single quotes)
 			if len(rest) >= 2 &&
 				((rest[0] == '"' && rest[len(rest)-1] == '"') ||
@@ -1105,31 +1181,69 @@ func extractConcreteValues(source string) []concreteValueEntry {
 		// Pattern: method call passing a constructor or instance as argument.
 		// Matches Register(), Handle(), Subscribe(), Add(), etc. — any
 		// call whose argument is NewXxx(...) or &Xxx{...}.
+		// Skip common non-binding functions that frequently contain
+		// "New" or "&" inside string literals or as non-binding args.
 		if parenIdx := strings.Index(trimmed, "("); parenIdx > 0 {
-			arg := trimmed[parenIdx+1:]
-			// Find matching close paren.
-			depth := 1
-			end := 0
-			for i, c := range arg {
-				if c == '(' {
-					depth++
-				} else if c == ')' {
-					depth--
-					if depth == 0 {
-						end = i
-						break
+			funcName := trimmed[:parenIdx]
+			// Skip formatting/logging/utility calls — these never bind.
+			isUtility := strings.HasSuffix(funcName, "rintf") || // Printf, Sprintf, Fprintf, Errorf
+				strings.HasSuffix(funcName, "Println") ||
+				strings.HasPrefix(funcName, "log.") ||
+				strings.HasPrefix(funcName, "fmt.") ||
+				funcName == "append" || funcName == "make" ||
+				funcName == "len" || funcName == "cap" ||
+				strings.HasPrefix(funcName, "logging.")
+			if !isUtility {
+				arg := trimmed[parenIdx+1:]
+				// Find matching close paren.
+				depth := 1
+				end := 0
+				for i, c := range arg {
+					if c == '(' {
+						depth++
+					} else if c == ')' {
+						depth--
+						if depth == 0 {
+							end = i
+							break
+						}
 					}
 				}
-			}
-			if end > 0 {
-				inner := strings.TrimSpace(arg[:end])
-				// Check if the argument contains a constructor pattern:
-				// NewXxx(...), &Xxx{...}, or Xxx{...}
-				hasConstructor := strings.Contains(inner, "New") ||
-					strings.Contains(inner, "&") ||
-					strings.Contains(inner, "{")
-				if hasConstructor && len(inner) > 0 {
-					registerCalls = append(registerCalls, inner)
+				if end > 0 {
+					inner := strings.TrimSpace(arg[:end])
+					// Require an actual constructor or type reference:
+				//   Go:     NewXxx(...) or &Xxx{...}
+				//   Java:   new Xxx(...)
+				//   Python: Xxx() where Xxx is capitalized (class instantiation)
+					hasConstructor := false
+					for _, token := range strings.Fields(inner) {
+						clean := strings.Trim(token, ",()")
+						// Go: NewXxx or newXxx factory
+						if strings.HasPrefix(clean, "New") && len(clean) > 3 {
+							hasConstructor = true
+							break
+						}
+						// Go: &Xxx{...} pointer to struct literal
+						if strings.HasPrefix(clean, "&") && len(clean) > 1 && clean[1] >= 'A' && clean[1] <= 'Z' {
+							hasConstructor = true
+							break
+						}
+						// Java: new Xxx(...)
+						if clean == "new" {
+							hasConstructor = true
+							break
+						}
+						// Python/JS: CapitalizedClass() — bare class instantiation
+						// Only if the token is a standalone capitalized identifier
+						if len(clean) > 1 && clean[0] >= 'A' && clean[0] <= 'Z' &&
+							!strings.ContainsAny(clean, "\"'`=") {
+							hasConstructor = true
+							break
+						}
+					}
+					if hasConstructor {
+						registerCalls = append(registerCalls, inner)
+					}
 				}
 			}
 		}
