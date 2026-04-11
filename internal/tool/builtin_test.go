@@ -568,6 +568,172 @@ func TestGrepTool(t *testing.T) {
 			t.Fatalf("expected 'no matches found', got %q", result.Summary)
 		}
 	})
+
+	t.Run("context_lines shows surrounding code", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "ctx.go")
+		// 7 lines: match is on line 4 ("target"), context=2 should show lines 2-6
+		content := "line1\nline2\nline3\ntarget\nline5\nline6\nline7\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		ctx2 := 2
+		params, _ := json.Marshal(grepToolParams{Pattern: "target", Path: tmpDir, ContextLines: &ctx2})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		// With -C 2, should see line3 (before) and line5 (after) in addition to target
+		if !strings.Contains(result.Summary, "line3") {
+			t.Errorf("expected context before match (line3), got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "target") {
+			t.Errorf("expected match line (target), got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "line5") {
+			t.Errorf("expected context after match (line5), got: %s", result.Summary)
+		}
+	})
+
+	t.Run("context_lines ignored for files_only", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "ctx.go")
+		if err := os.WriteFile(tmpFile, []byte("target here\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		ctx5 := 5
+		params, _ := json.Marshal(grepToolParams{Pattern: "target", Path: tmpDir, ContextLines: &ctx5, FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		// files_only should still work; context_lines is silently ignored
+		if !strings.Contains(result.Summary, "matching files") {
+			t.Errorf("expected files_only output, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("context_lines clamped to 20", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		tmpFile := filepath.Join(tmpDir, "ctx.go")
+		content := "target\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		ctx999 := 999
+		params, _ := json.Marshal(grepToolParams{Pattern: "target", Path: tmpDir, ContextLines: &ctx999})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		// Should not error — just clamp silently
+		if !result.Success {
+			t.Fatalf("expected success with clamped context, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("file_type filters by language", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		goFile := filepath.Join(tmpDir, "code.go")
+		pyFile := filepath.Join(tmpDir, "code.py")
+		if err := os.WriteFile(goFile, []byte("target in go\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(pyFile, []byte("target in python\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "target", Path: tmpDir, FileType: "go"})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "target in go") {
+			t.Errorf("expected go file match, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "target in python") {
+			t.Errorf("file_type=go should exclude .py file, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("file_type with files_only", func(t *testing.T) {
+		tmpDir := t.TempDir()
+		goFile := filepath.Join(tmpDir, "main.go")
+		txtFile := filepath.Join(tmpDir, "notes.txt")
+		if err := os.WriteFile(goFile, []byte("func main() {}\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+		if err := os.WriteFile(txtFile, []byte("func main() {}\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "func", Path: tmpDir, FileType: "go", FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "main.go") {
+			t.Errorf("expected main.go in results, got: %s", result.Summary)
+		}
+		if strings.Contains(result.Summary, "notes.txt") {
+			t.Errorf("file_type=go should exclude .txt, got: %s", result.Summary)
+		}
+	})
+}
+
+func TestFileTypeToGlobs(t *testing.T) {
+	tests := []struct {
+		input    string
+		wantLen  int
+		wantGlob string // at least one glob must match this
+	}{
+		{"go", 1, "*.go"},
+		{"py", 1, "*.py"},
+		{"python", 1, "*.py"},
+		{"js", 3, "*.jsx"},
+		{"ts", 2, "*.tsx"},
+		{"java", 3, "*.java"},
+		{"yaml", 2, "*.yml"},
+		{"config", 4, "*.ini"},
+		{"unknown_lang", 1, "*.unknown_lang"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			globs := fileTypeToGlobs(tt.input)
+			if len(globs) != tt.wantLen {
+				t.Errorf("fileTypeToGlobs(%q) returned %d globs, want %d: %v", tt.input, len(globs), tt.wantLen, globs)
+			}
+			found := false
+			for _, g := range globs {
+				if g == tt.wantGlob {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("fileTypeToGlobs(%q) = %v, missing expected %q", tt.input, globs, tt.wantGlob)
+			}
+		})
+	}
 }
 
 // TestRepoMap moved to internal/tool/repomap/ package (tree-sitter powered).

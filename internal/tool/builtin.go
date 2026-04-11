@@ -118,27 +118,31 @@ type GrepTool struct {
 }
 
 type grepToolParams struct {
-	Pattern    string `json:"pattern"`
-	Path       string `json:"path,omitempty"`
-	Include    string `json:"include,omitempty"`
-	IgnoreCase *bool  `json:"ignore_case,omitempty"`
-	FilesOnly  bool   `json:"files_only,omitempty"`
+	Pattern      string `json:"pattern"`
+	Path         string `json:"path,omitempty"`
+	Include      string `json:"include,omitempty"`
+	FileType     string `json:"file_type,omitempty"`
+	ContextLines *int   `json:"context_lines,omitempty"`
+	IgnoreCase   *bool  `json:"ignore_case,omitempty"`
+	FilesOnly    bool   `json:"files_only,omitempty"`
 }
 
 func (t *GrepTool) Name() string { return "grep" }
 func (t *GrepTool) Description() string {
-	return "Search file contents by regex pattern. Use this to find where a symbol or string appears. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
+	return "Search file contents by regex pattern. Use this to find where a symbol or string appears. Case handling is smart by default: if the pattern contains no uppercase characters it is matched case-insensitively (so `subagent` finds `SubAgent`, `SUBAGENT`, etc.); if the pattern contains any uppercase character it is matched exactly. Pass ignore_case explicitly to override. Use file_type to filter by language (e.g. \"go\", \"py\", \"js\", \"ts\", \"java\", \"yaml\") — this is preferred over include because it covers all relevant extensions (e.g. type \"ts\" matches both *.ts and *.tsx). Use context_lines to include surrounding lines around each match, which saves a follow-up read_file call. Do NOT use the result to count matches by eye — pipe `grep -c` or `grep ... | wc -l` through exec_command instead, and treat that number as authoritative."
 }
 
 func (t *GrepTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
   "properties": {
-    "pattern":     {"type": "string",  "description": "Regex pattern to search for"},
-    "path":        {"type": "string",  "description": "Directory or file to search (default: current directory)"},
-    "include":     {"type": "string",  "description": "File glob filter, e.g. *.go"},
-    "ignore_case": {"type": "boolean", "description": "Case-insensitive match. Omit for smart-case (insensitive iff pattern has no uppercase). Set true/false to force."},
-    "files_only":  {"type": "boolean", "description": "If true, return only file paths that contain matches (like grep -l), not the matching lines. Useful for breadth scans to discover which files are relevant without flooding the output."}
+    "pattern":       {"type": "string",  "description": "Regex pattern to search for"},
+    "path":          {"type": "string",  "description": "Directory or file to search (default: current directory)"},
+    "include":       {"type": "string",  "description": "File glob filter, e.g. *.go. Prefer file_type when filtering by language."},
+    "file_type":     {"type": "string",  "description": "Language/file type filter: go, py, js, ts, java, rust, ruby, c, cpp, yaml, json, toml, markdown, config, etc. Covers all relevant extensions (e.g. ts matches *.ts and *.tsx). Preferred over include for language filtering."},
+    "context_lines": {"type": "integer", "description": "Number of lines to show before and after each match (like grep -C). Use this to see surrounding code without a separate read_file call. Ignored when files_only is true."},
+    "ignore_case":   {"type": "boolean", "description": "Case-insensitive match. Omit for smart-case (insensitive iff pattern has no uppercase). Set true/false to force."},
+    "files_only":    {"type": "boolean", "description": "If true, return only file paths that contain matches (like grep -l), not the matching lines. Useful for breadth scans to discover which files are relevant without flooding the output."}
   },
   "required": ["pattern"]
 }`)
@@ -180,12 +184,26 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 	var cmd *exec.Cmd
 
+	// Resolve context_lines: only meaningful for content mode, clamped to [0,20].
+	contextLines := 0
+	if p.ContextLines != nil && !p.FilesOnly {
+		contextLines = *p.ContextLines
+		if contextLines < 0 {
+			contextLines = 0
+		} else if contextLines > 20 {
+			contextLines = 20
+		}
+	}
+
 	if UseRipgrep() {
 		// ripgrep: ERE-compatible by default, auto-skips binary files,
 		// respects .gitignore (auto-excludes logs/, memory/, etc.).
 		args := []string{"-n"}
 		if p.FilesOnly {
 			args = []string{"-l"}
+		}
+		if contextLines > 0 {
+			args = append(args, "-C", fmt.Sprintf("%d", contextLines))
 		}
 		if caseInsensitive {
 			args = append(args, "-i")
@@ -195,6 +213,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// Add manual exclusions for dirs not in .gitignore.
 		for _, dir := range defaultExcludeDirs {
 			args = append(args, "--glob", "!"+dir+"/")
+		}
+		if p.FileType != "" {
+			args = append(args, "--type", p.FileType)
 		}
 		if p.Include != "" {
 			args = append(args, "--glob", p.Include)
@@ -207,6 +228,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if p.FilesOnly {
 			args = []string{"-rlEI"}
 		}
+		if contextLines > 0 {
+			args = append(args, fmt.Sprintf("-C%d", contextLines))
+		}
 		if caseInsensitive {
 			args = append(args, "-i")
 		}
@@ -214,6 +238,12 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			args = append(args, "--exclude-dir="+dir)
 		}
 		args = append(args, p.Pattern)
+		// file_type → --include globs for GNU grep (no --type support).
+		if p.FileType != "" {
+			for _, glob := range fileTypeToGlobs(p.FileType) {
+				args = append(args, "--include="+glob)
+			}
+		}
 		if p.Include != "" {
 			args = append(args, "--include="+p.Include)
 		}
@@ -278,6 +308,55 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// fileTypeToGlobs maps a language/file type name to glob patterns,
+// mirroring ripgrep's built-in --type definitions for the GNU grep
+// fallback. Only the most commonly used types are listed; unknown
+// types fall back to a best-effort "*.type" glob.
+func fileTypeToGlobs(ft string) []string {
+	switch strings.ToLower(ft) {
+	case "go":
+		return []string{"*.go"}
+	case "py", "python":
+		return []string{"*.py"}
+	case "js", "javascript":
+		return []string{"*.js", "*.jsx", "*.vue"}
+	case "ts", "typescript":
+		return []string{"*.ts", "*.tsx"}
+	case "java":
+		return []string{"*.java", "*.jsp", "*.properties"}
+	case "rust", "rs":
+		return []string{"*.rs"}
+	case "ruby", "rb":
+		return []string{"*.rb", "*.gemspec"}
+	case "c":
+		return []string{"*.[ch]"}
+	case "cpp":
+		return []string{"*.cpp", "*.hpp", "*.cc", "*.hh", "*.cxx", "*.hxx"}
+	case "yaml":
+		return []string{"*.yaml", "*.yml"}
+	case "json":
+		return []string{"*.json"}
+	case "toml":
+		return []string{"*.toml"}
+	case "markdown", "md":
+		return []string{"*.md", "*.markdown"}
+	case "config":
+		return []string{"*.cfg", "*.conf", "*.config", "*.ini"}
+	case "css":
+		return []string{"*.css", "*.scss"}
+	case "html":
+		return []string{"*.html", "*.htm"}
+	case "sh", "shell", "bash":
+		return []string{"*.sh", "*.bash"}
+	case "sql":
+		return []string{"*.sql"}
+	case "proto", "protobuf":
+		return []string{"*.proto"}
+	default:
+		return []string{"*." + ft}
+	}
 }
 
 // ---------------------------------------------------------------------------
