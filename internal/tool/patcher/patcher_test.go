@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -363,6 +364,10 @@ func TestDryRun_DoesNotWrite(t *testing.T) {
 }
 
 func TestWrite_PreservesMode(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not preserve POSIX executable bits via os.Chmod")
+	}
+
 	p, root := newTestPatcher(t)
 	path := filepath.Join(root, "a.sh")
 	writeFile(t, path, "old")

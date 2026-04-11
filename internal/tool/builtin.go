@@ -67,7 +67,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(execCtx, "sh", "-c", p.Command)
+	cmd := NewShellCommandContext(execCtx, p.Command)
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -221,7 +221,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			args = append(args, "--glob", p.Include)
 		}
 		args = append(args, p.Pattern, searchPath)
-		cmd = exec.CommandContext(searchCtx, "rg", args...)
+		cmd = exec.CommandContext(searchCtx, SearchExecutable(), args...)
 	} else {
 		// GNU grep fallback: -E for ERE, -I to skip binary files.
 		args := []string{"-rnEI"}
@@ -248,7 +248,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			args = append(args, "--include="+p.Include)
 		}
 		args = append(args, searchPath)
-		cmd = exec.CommandContext(searchCtx, "grep", args...)
+		cmd = exec.CommandContext(searchCtx, SearchExecutable(), args...)
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -619,7 +619,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}, nil
 	}
 
-	cmd := exec.Command("sh", "-c", command)
+	cmd := NewShellCommandContext(context.Background(), command)
 	if p.Path != "" {
 		cmd.Dir = p.Path
 	}

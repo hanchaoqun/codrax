@@ -187,6 +187,8 @@ func (r *SubAgentReducer) Reduce(results []*types.SubAgentResult) *StageOutput {
 
 		// Accumulate
 		merged.NewFacts = append(merged.NewFacts, res.Facts...)
+		merged.EvidenceItems = append(merged.EvidenceItems, res.EvidenceItems...)
+		merged.FlowFindings = append(merged.FlowFindings, res.FlowFindings...)
 		merged.ToolResults = append(merged.ToolResults, res.Tools...)
 		merged.MCPResponses = append(merged.MCPResponses, res.MCPResps...)
 

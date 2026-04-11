@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"os/exec"
 	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -12,21 +11,40 @@ import (
 var (
 	searchOnce    sync.Once
 	searchCommand string // "rg" or "grep"
+	searchPath    string // actual executable path used for the backend
 )
 
 // SearchCommand returns "rg" if ripgrep is available, "grep" otherwise.
 // The result is cached after the first call.
 func SearchCommand() string {
 	searchOnce.Do(func() {
-		if path, err := exec.LookPath("rg"); err == nil && path != "" {
+		if path := firstRunnablePath("rg", []string{"--version"}, windowsExtraCommandCandidates("rg")...); path != "" {
 			searchCommand = "rg"
+			searchPath = path
 			logging.Info("search backend: ripgrep (%s)", path)
 		} else {
 			searchCommand = "grep"
-			logging.Info("search backend: grep (ripgrep not found)")
+			searchPath = firstRunnablePath("grep", []string{"--version"}, windowsExtraCommandCandidates("grep")...)
+			if searchPath == "" {
+				searchPath = "grep"
+				logging.Info("search backend: grep (ripgrep not found)")
+			} else {
+				logging.Info("search backend: grep (%s)", searchPath)
+			}
 		}
 	})
 	return searchCommand
+}
+
+// SearchExecutable returns the actual executable path selected for the
+// current search backend. When no validated path is available, it falls
+// back to the backend name so Unix behavior stays unchanged.
+func SearchExecutable() string {
+	backend := SearchCommand()
+	if searchPath != "" {
+		return searchPath
+	}
+	return backend
 }
 
 // UseRipgrep returns true if ripgrep was detected as available.

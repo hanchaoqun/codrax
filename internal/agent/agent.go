@@ -26,6 +26,12 @@ type StageOutput struct {
 	// Facts discovered during execution
 	NewFacts []types.RepoFact `json:"new_facts,omitempty"`
 
+	// Structured evidence items discovered during execution.
+	EvidenceItems []types.EvidenceItem `json:"evidence_items,omitempty"`
+
+	// Compact dataflow findings discovered during execution.
+	FlowFindings []types.FlowFindingDigest `json:"flow_findings,omitempty"`
+
 	// Tool results collected during execution
 	ToolResults []types.ToolResult `json:"tool_results,omitempty"`
 

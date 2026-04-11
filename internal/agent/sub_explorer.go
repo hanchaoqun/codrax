@@ -3,12 +3,15 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -60,13 +63,15 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 
 	// Convert StageOutput to SubAgentResult (private write buffer)
 	return &types.SubAgentResult{
-		RequestID: req.ID,
-		SubAgent:  req.SubAgent,
-		Output:    output.Data,
-		Facts:     output.NewFacts,
-		Tools:     output.ToolResults,
-		MCPResps:  output.MCPResponses,
-		Signals:   output.SignalUpdates,
+		RequestID:     req.ID,
+		SubAgent:      req.SubAgent,
+		Output:        output.Data,
+		Facts:         output.NewFacts,
+		EvidenceItems: output.EvidenceItems,
+		FlowFindings:  output.FlowFindings,
+		Tools:         output.ToolResults,
+		MCPResps:      output.MCPResponses,
+		Signals:       output.SignalUpdates,
 	}, nil
 }
 
@@ -81,11 +86,15 @@ type subExplorerEvaluator struct {
 	investigationNotes []string // assistant analysis messages
 	idleStreak         int      // consecutive no-tool-call rounds
 	lastToolCount      int      // tool result count at last check
+	structuredEvidence []types.EvidenceItem
+	flowFindings       []types.FlowFindingDigest
 }
 
 func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	e.objective = ctx.Objective
 	e.scope = ctx.Constraints // scope passed as constraints in sub-agent context
+	e.structuredEvidence = nil
+	e.flowFindings = nil
 
 	var b strings.Builder
 	b.WriteString("## Scoped Investigation\n\n")
@@ -101,8 +110,8 @@ func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *s
 
 	b.WriteString("**Strategy:**\n")
 	b.WriteString("1. List files in scope to understand what's available\n")
-	b.WriteString("2. Grep for key terms related to the objective (files_only=true first)\n")
-	b.WriteString("3. Read the most relevant files and extract structured evidence\n\n")
+	b.WriteString("2. Grep for key terms related to the objective (files_only=true first; use file_type when the language is obvious)\n")
+	b.WriteString("3. Read the most relevant files and extract structured evidence; for line-level grep prefer context_lines=3 before a larger read_file\n\n")
 
 	b.WriteString("**Evidence format** — after each file, extract facts as:\n\n")
 	b.WriteString("```\n")
@@ -118,7 +127,7 @@ func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *s
 	b.WriteString("- Extract EVERY fact that might be relevant — err on over-collecting\n")
 	b.WriteString("- For short methods (getName, isEnabled, etc.): ALWAYS record the exact return value as [DIRECT]\n")
 	b.WriteString("- For [REGISTRATION]: note EXACT concrete values, not summaries\n")
-	b.WriteString("- **Large file strategy:** grep first for key identifiers, then read only matched line ranges\n")
+	b.WriteString("- **Large file strategy:** grep first for key identifiers, prefer context_lines=3, then read only matched line ranges\n")
 	b.WriteString("- Stay within scope — do not read files outside the specified directories\n")
 
 	return b.String()
@@ -203,6 +212,8 @@ func (e *subExplorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResu
 		return "", false
 	}
 
+	e.ensureStructuredEvidence(ctx, toolResults)
+
 	var digest strings.Builder
 	digest.WriteString("Synthesize your findings from the scoped investigation.\n\n")
 	fmt.Fprintf(&digest, "## Objective\n%s\n\n", e.objective)
@@ -215,6 +226,19 @@ func (e *subExplorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResu
 			}
 			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
 		}
+	}
+
+	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConcrete, "Structured Concrete Evidence", 12); section != "" {
+		digest.WriteString(section)
+	}
+	if section := formatFlowFindingsSection(e.flowFindings, "Resolved Dataflow Paths", 8, false); section != "" {
+		digest.WriteString(section)
+	}
+	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConditional, "Condition Guards", 8); section != "" {
+		digest.WriteString(section)
+	}
+	if section := formatFlowFindingsSection(e.flowFindings, "Conflicts / Unknowns", 6, true); section != "" {
+		digest.WriteString(section)
 	}
 
 	// Compact file list.
@@ -265,6 +289,8 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 		}
 	}
 
+	e.ensureStructuredEvidence(ctx, toolResults)
+
 	// Multi-dimensional quality check (same criteria as main explorer,
 	// but with relaxed thresholds for scoped sub-tasks).
 	_, readSet := extractFileCoverage(toolResults)
@@ -288,6 +314,8 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 	return &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
+		EvidenceItems: e.structuredEvidence,
+		FlowFindings:  e.flowFindings,
 		SignalUpdates: signals,
 	}, nil
 }
@@ -308,4 +336,69 @@ func (e *subExplorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, ou
 		return types.MissingPlan
 	}
 	return types.MissingFacts
+}
+
+func (e *subExplorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, toolResults []types.ToolResult) {
+	if len(e.structuredEvidence) > 0 || len(e.flowFindings) > 0 {
+		return
+	}
+
+	parsed := parseEvidenceItems(e.investigationNotes, "sub_explorer.llm")
+	graph, candidates := buildScopedSearchGraph(ctx, toolResults, e.scope)
+	if graph == nil || !needsDataflowAnalysis(e.objective, parsed) {
+		e.structuredEvidence = parsed
+		return
+	}
+
+	result := dataflow.Analyze(graph, dataflow.Options{
+		RepoRoot:        ctx.RepoRoot,
+		Question:        e.objective,
+		Scope:           e.scope,
+		CandidateFiles:  candidates,
+		WorkDir:         ctx.WorkDir,
+		MaxFiles:        40,
+		MaxIterations:   6,
+		MaxNodesPerFunc: 400,
+	})
+	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence)
+	e.flowFindings = mergeFlowFindings(result.Findings)
+}
+
+func buildScopedSearchGraph(ctx *types.AgentContext, toolResults []types.ToolResult, scope []string) (*repomap.Graph, []string) {
+	if ctx.RepoRoot == "" {
+		return nil, nil
+	}
+	graph, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, egrepQueryFromObjective(ctx.Objective))
+	if err != nil || graph == nil {
+		return nil, nil
+	}
+	_, readSet := extractFileCoverage(toolResults)
+	candidateSet := make(map[string]bool)
+	for file := range readSet {
+		candidateSet[file] = true
+	}
+	for file := range graph.FileIndex {
+		for _, prefix := range scope {
+			if !looksLikePath(prefix) {
+				continue
+			}
+			if strings.HasPrefix(file, prefix) {
+				candidateSet[file] = true
+			}
+		}
+	}
+	var candidates []string
+	for file := range candidateSet {
+		candidates = append(candidates, file)
+	}
+	sort.Strings(candidates)
+	return graph, candidates
+}
+
+func egrepQueryFromObjective(objective string) string {
+	fields := strings.Fields(objective)
+	if len(fields) > 12 {
+		fields = fields[:12]
+	}
+	return strings.Join(fields, " ")
 }

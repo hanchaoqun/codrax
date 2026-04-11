@@ -30,6 +30,7 @@ func TestAppendCompactsOldest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	defer s.Close()
 
 	// Append 8 turns; with maxRecent=6, the oldest 2 must compact.
 	for i := 0; i < 8; i++ {
@@ -78,6 +79,7 @@ func TestBuildContextInlinesMatchingTurn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	defer s.Close()
 	for i := 0; i < 8; i++ {
 		_ = s.Append(Turn{
 			ID:       fmt.Sprintf("t%d", i),
@@ -105,6 +107,7 @@ func TestClearRemovesEverything(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	defer s.Close()
 	for i := 0; i < 8; i++ {
 		_ = s.Append(Turn{ID: fmt.Sprintf("t%d", i), Request: fmt.Sprintf("kw%d q", i)})
 	}
@@ -125,6 +128,7 @@ func TestParseIndexRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
+	defer s.Close()
 	for i := 0; i < 8; i++ {
 		_ = s.Append(Turn{ID: fmt.Sprintf("t%d", i), Request: fmt.Sprintf("kw%d q", i)})
 	}
@@ -133,6 +137,7 @@ func TestParseIndexRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
+	defer s2.Close()
 	if got := len(s2.Index()); got != 2 {
 		t.Errorf("reopened index len = %d, want 2", got)
 	}
@@ -170,6 +175,7 @@ func TestRecentSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
+	defer s2.Close()
 
 	if got := len(s2.Index()); got != 2 {
 		t.Errorf("reopened index len = %d, want 2", got)
@@ -230,6 +236,7 @@ func TestOrphanRecoveryRespectsCap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
+	defer s2.Close()
 	if got := len(s2.Recent()); got != 6 {
 		t.Errorf("reopened recent len = %d, want 6", got)
 	}
@@ -450,4 +457,3 @@ func TestConcurrentStoresShareMemoryMd(t *testing.T) {
 		t.Errorf("compacted count %d outside [%d, %d]", len(idx), minCompacted, maxCompacted)
 	}
 }
-

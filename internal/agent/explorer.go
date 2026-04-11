@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -37,12 +38,16 @@ type explorerEvaluator struct {
 	grepRedirectedFiles       map[string]bool      // files that already received a large-file grep redirect
 	isEnumerationQuery        bool                 // true if user question asks to list/enumerate all items
 	phase0ExtraRound          bool                 // whether we already gave one extra Phase 0 round for quality gate
+	structuredEvidence        []types.EvidenceItem
+	flowFindings              []types.FlowFindingDigest
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	e.userQuestion = ctx.CurrentTask
 	e.repoRoot = ctx.RepoRoot
 	e.isEnumerationQuery = detectEnumerationIntent(ctx.CurrentTask)
+	e.structuredEvidence = nil
+	e.flowFindings = nil
 
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
@@ -73,7 +78,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		b.WriteString("- [DIRECT] `functionName` line N: <what this code establishes>\n")
 		b.WriteString("- [CONDITIONAL] `functionName` line N: <what happens> IF <condition>\n")
 		b.WriteString("- [REGISTRATION] `functionName` line N: <what is registered, EXACT values>\n\n")
-		b.WriteString("**Large file strategy:** grep for key identifiers first, then read only matched line ranges.\n")
+		b.WriteString("**Large file strategy:** grep for key identifiers first, prefer `context_lines=3`, then read only matched line ranges when you need the full body.\n")
 		b.WriteString("**User question:** " + e.userQuestion)
 		return b.String()
 	}
@@ -85,7 +90,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	b.WriteString("Your goal in this phase is to MAP the relevant territory — find ALL files related to the question. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
-	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Do not use --include so you discover all file types\n")
+	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 
 	if len(ctx.CurrentTaskKeywords) > 0 {
@@ -203,7 +208,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 				"- Use shorter or partial keywords (prefixes, stems) — e.g. instead of 'UserAuthenticationService' try 'UserAuth' or 'authentication'\n" +
 				"- Use single common terms rather than compound phrases\n" +
 				"- Try conceptual synonyms for the same idea\n\n" +
-				"Run at least 2-3 new grep calls with files_only=true before producing your file list.", true
+				"Run at least 2-3 new grep calls with files_only=true before producing your file list. If the repo is polyglot, use grep `file_type` to narrow by language.", true
 		}
 
 		// Quality gate: before transitioning to Phase 1, verify the
@@ -273,7 +278,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"- Read function BODIES, not just signatures — the specific values, registrations, and return values inside bodies are critical evidence\n" +
 			"- Read ONE file at a time\n" +
 			"- **Large file strategy (MANDATORY for files >500 lines):** Do NOT read large files with offset=0. " +
-			"Instead, FIRST grep the file for the key identifiers from the user's question (field names, function names, string literals), " +
+			"Instead, FIRST grep the file for the key identifiers from the user's question (field names, function names, string literals), using `context_lines=3` where helpful, " +
 			"THEN read only the specific line ranges where grep found matches. " +
 			"Sequential paging through a 2000-line file wastes steps and misses content — targeted grep + read is both faster and more thorough\n\n" +
 			"Start investigating now. For each file: grep first, then read the matched sections.", true
@@ -632,6 +637,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
+	e.ensureStructuredEvidence(ctx, toolResults)
+
 	// HasEnoughFacts: multi-dimensional quality check.
 	// 1. Tool diversity: at least 2 distinct evidence tools (grep + read_file).
 	// 2. File coverage: ≥50% of discovered files read, or ≥3 files.
@@ -693,6 +700,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
+		EvidenceItems: e.structuredEvidence,
+		FlowFindings:  e.flowFindings,
 		SignalUpdates: signals,
 	}
 
@@ -714,6 +723,47 @@ func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, outpu
 		return types.MissingPlan
 	}
 	return types.MissingFacts
+}
+
+func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, toolResults []types.ToolResult) {
+	if len(e.structuredEvidence) > 0 || len(e.flowFindings) > 0 {
+		return
+	}
+
+	parsed := parseEvidenceItems(e.investigationNotes, "explorer.llm")
+	if e.searchResult == nil || e.searchResult.Graph == nil || !needsDataflowAnalysis(e.userQuestion, parsed) {
+		e.structuredEvidence = parsed
+		return
+	}
+
+	_, readSet := extractFileCoverage(toolResults)
+	candidateSet := make(map[string]bool)
+	for file := range readSet {
+		candidateSet[file] = true
+	}
+	for _, file := range e.preScannedFiles {
+		candidateSet[file] = true
+	}
+	for _, file := range e.allScoredFiles {
+		candidateSet[file] = true
+	}
+	var candidates []string
+	for file := range candidateSet {
+		candidates = append(candidates, file)
+	}
+	sort.Strings(candidates)
+
+	result := dataflow.Analyze(e.searchResult.Graph, dataflow.Options{
+		RepoRoot:        ctx.RepoRoot,
+		Question:        e.userQuestion,
+		CandidateFiles:  candidates,
+		WorkDir:         ctx.WorkDir,
+		MaxFiles:        40,
+		MaxIterations:   6,
+		MaxNodesPerFunc: 400,
+	})
+	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence)
+	e.flowFindings = mergeFlowFindings(result.Findings)
 }
 
 // toolConfidence returns the Confidence declared by the named tool.
@@ -749,6 +799,8 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 		return "", false
 	}
 
+	e.ensureStructuredEvidence(ctx, toolResults)
+
 	var digest strings.Builder
 	digest.WriteString("You have completed your evidence collection. Below is the evidence catalog from your investigation.\n\n")
 	digest.WriteString("## User Question\n")
@@ -775,6 +827,22 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 			}
 			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
 		}
+	}
+
+	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConcrete, "Structured Concrete Evidence", 18); section != "" {
+		digest.WriteString(section)
+	}
+	if section := formatFlowFindingsSection(e.flowFindings, "Resolved Dataflow Paths", 10, false); section != "" {
+		digest.WriteString(section)
+	}
+	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConditional, "Condition Guards", 12); section != "" {
+		digest.WriteString(section)
+	}
+	if section := formatFlowFindingsSection(e.flowFindings, "Conflicts / Unknowns", 8, true); section != "" {
+		digest.WriteString(section)
+	}
+	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceAbsent, "Negative Evidence", 10); section != "" {
+		digest.WriteString(section)
 	}
 
 	// Focus alignment: detect if the LLM's evidence primarily discusses
@@ -995,6 +1063,9 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 // uses_type). This lets synthesis trace chains in the right direction
 // instead of guessing which end is the source.
 func (e *explorerEvaluator) buildCrossReferenceMap() string {
+	if crossRefs := buildCrossReferenceMapFromEvidence(e.structuredEvidence, e.flowFindings); crossRefs != "" {
+		return crossRefs
+	}
 	if e.searchResult == nil || e.searchResult.Graph == nil || len(e.investigationNotes) < 2 {
 		return ""
 	}

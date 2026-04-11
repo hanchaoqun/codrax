@@ -84,6 +84,12 @@ type SubAgentResult struct {
 	// Discovered facts
 	Facts []RepoFact `json:"facts,omitempty"`
 
+	// Structured evidence emitted by the sub-agent.
+	EvidenceItems []EvidenceItem `json:"evidence_items,omitempty"`
+
+	// Compact dataflow findings emitted by the sub-agent.
+	FlowFindings []FlowFindingDigest `json:"flow_findings,omitempty"`
+
 	// Tool invocation results
 	Tools []ToolResult `json:"tool_results,omitempty"`
 

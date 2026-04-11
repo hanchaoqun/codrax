@@ -592,6 +592,10 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// Append new facts
 	o.busCtx.RepoFacts = append(o.busCtx.RepoFacts, output.NewFacts...)
 
+	// Append structured evidence and compact dataflow findings.
+	o.busCtx.EvidenceItems = append(o.busCtx.EvidenceItems, output.EvidenceItems...)
+	o.busCtx.FlowFindings = append(o.busCtx.FlowFindings, output.FlowFindings...)
+
 	// Append the stage's synthesized narrative so downstream stages
 	// can read prior reasoning. The active agent/stage at this point
 	// is whatever just executed.

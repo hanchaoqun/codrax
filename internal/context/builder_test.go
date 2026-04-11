@@ -370,3 +370,137 @@ func TestBuildSubAgentContextFilterScopeUsesLogicalSource(t *testing.T) {
 		t.Fatalf("relevant files = %v", ac.RelevantFiles)
 	}
 }
+
+func TestBuildPromptContextIncludesStructuredEvidenceAndDataflow(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName:     types.AgentExplorer,
+		Stage:         types.StageExplore,
+		Objective:     "Trace which config value reaches the handler",
+		CurrentTaskID: "t1",
+		CurrentTask:   "Investigate registration flow",
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:        "ev-1",
+				Kind:      types.EvidenceConcrete,
+				Subject:   "Handler.Name",
+				Predicate: "returns",
+				Object:    "\"explorer\"",
+				Summary:   "`Handler.Name` line 18 returns \"explorer\"",
+				Source:    "internal/agent/explorer.go",
+				LineStart: 18,
+				LineEnd:   18,
+			},
+			{
+				ID:        "ev-2",
+				Kind:      types.EvidenceConditional,
+				Subject:   "Register",
+				Predicate: "guards",
+				Object:    "dispatch",
+				Summary:   "`Register` line 40 dispatches IF handler is enabled",
+				Source:    "internal/agent/explorer.go",
+				LineStart: 40,
+				LineEnd:   40,
+			},
+		},
+		FlowFindings: []types.FlowFindingDigest{
+			{
+				ID:         "flow-1",
+				Path:       []string{"config.handlers.explorer", "NewExplorer", "Register"},
+				Conditions: []string{"handler is enabled"},
+				Sources:    []string{"config/orchestrator.yaml"},
+				Sinks:      []string{"Register"},
+				Hops:       []string{"reads_config", "calls"},
+				Confidence: 0.84,
+			},
+		},
+	}
+
+	sk := &skill.Config{Name: "explore", Goal: "investigate", Workflow: []string{"read", "analyze"}, OutputFormat: "text"}
+	pc := BuildPromptContext(ac, sk)
+	msgs := ToMessages(pc)
+	if len(msgs) < 2 {
+		t.Fatalf("expected system + user messages, got %d", len(msgs))
+	}
+
+	userMsg := msgs[1].Content
+	if !strings.Contains(userMsg, "## Structured Evidence") {
+		t.Fatalf("user prompt missing structured evidence section:\n%s", userMsg)
+	}
+	if !strings.Contains(userMsg, "Handler.Name") {
+		t.Fatalf("user prompt missing evidence content:\n%s", userMsg)
+	}
+	if !strings.Contains(userMsg, "## Dataflow Findings") {
+		t.Fatalf("user prompt missing dataflow findings section:\n%s", userMsg)
+	}
+	if !strings.Contains(userMsg, "config.handlers.explorer -> NewExplorer -> Register") {
+		t.Fatalf("user prompt missing flow path:\n%s", userMsg)
+	}
+}
+
+func TestBuildSubAgentContextFiltersEvidenceItemsByScope(t *testing.T) {
+	bus := &types.BusContext{
+		PipelineStage: types.StageExplore,
+		RepoRoot:      "/tmp/repo",
+		EvidenceItems: []types.EvidenceItem{
+			{
+				ID:        "ev-1",
+				Kind:      types.EvidenceConcrete,
+				Subject:   "Builder.Name",
+				Predicate: "returns",
+				Object:    "\"builder\"",
+				Source:    "internal/context/builder.go",
+				LineStart: 12,
+				LineEnd:   12,
+			},
+			{
+				ID:        "ev-2",
+				Kind:      types.EvidenceConcrete,
+				Subject:   "Explorer.Name",
+				Predicate: "returns",
+				Object:    "\"explorer\"",
+				Source:    "internal/agent/explorer.go",
+				LineStart: 20,
+				LineEnd:   20,
+			},
+		},
+		FlowFindings: []types.FlowFindingDigest{
+			{
+				ID:          "flow-1",
+				Path:        []string{"internal/context/builder.go", "BuildPromptContext"},
+				Sources:     []string{"internal/context/builder.go"},
+				Sinks:       []string{"BuildPromptContext"},
+				EvidenceIDs: []string{"ev-1"},
+				Confidence:  0.8,
+			},
+			{
+				ID:          "flow-2",
+				Path:        []string{"internal/agent/explorer.go", "Register"},
+				Sources:     []string{"internal/agent/explorer.go"},
+				Sinks:       []string{"Register"},
+				EvidenceIDs: []string{"ev-2"},
+				Confidence:  0.8,
+			},
+		},
+	}
+
+	req := &types.SubAgentRequest{
+		ID:        "sa-2",
+		SubAgent:  "sub_explorer",
+		Objective: "focus on context",
+		Scope:     []string{"internal/context"},
+	}
+
+	ac := BuildSubAgentContext(bus, req)
+	if len(ac.EvidenceItems) != 1 {
+		t.Fatalf("filtered evidence count = %d, want 1", len(ac.EvidenceItems))
+	}
+	if ac.EvidenceItems[0].Source != "internal/context/builder.go" {
+		t.Fatalf("filtered evidence = %+v", ac.EvidenceItems)
+	}
+	if len(ac.FlowFindings) != 1 {
+		t.Fatalf("filtered flow findings count = %d, want 1", len(ac.FlowFindings))
+	}
+	if ac.FlowFindings[0].ID != "flow-1" {
+		t.Fatalf("filtered flow findings = %+v", ac.FlowFindings)
+	}
+}

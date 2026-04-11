@@ -305,7 +305,7 @@ func countSourceFilesOnce(repoRoot string) int {
 			args = append(args, "--glob", "!"+dir+"/")
 		}
 		args = append(args, repoRoot)
-		cmd := exec.CommandContext(ctx, "rg", args...)
+		cmd := exec.CommandContext(ctx, tool.SearchExecutable(), args...)
 		var stdout bytes.Buffer
 		cmd.Stdout = &stdout
 		if err := cmd.Run(); err == nil {
@@ -411,7 +411,7 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 			args = append(args, "--glob", "!"+dir+"/")
 		}
 		args = append(args, pattern, repoRoot)
-		cmd = exec.CommandContext(ctx, "rg", args...)
+		cmd = exec.CommandContext(ctx, tool.SearchExecutable(), args...)
 	} else {
 		args := []string{"-rlEI"}
 		if ignoreCase {
@@ -421,7 +421,7 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 			args = append(args, "--exclude-dir="+dir)
 		}
 		args = append(args, pattern, repoRoot)
-		cmd = exec.CommandContext(ctx, "grep", args...)
+		cmd = exec.CommandContext(ctx, tool.SearchExecutable(), args...)
 	}
 
 	var stdout bytes.Buffer
@@ -452,7 +452,7 @@ func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
 	}
 	args = append(args, repoRoot)
 
-	cmd := exec.CommandContext(ctx, "rg", args...)
+	cmd := exec.CommandContext(ctx, tool.SearchExecutable(), args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {

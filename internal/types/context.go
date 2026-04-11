@@ -203,10 +203,12 @@ type BusContext struct {
 	// inline previews without persisting full content.
 	WorkDir string `json:"work_dir,omitempty"`
 
-	RepoFacts    []RepoFact    `json:"repo_facts,omitempty"`
-	ToolResults  []ToolResult  `json:"tool_results,omitempty"`
-	MCPResponses []MCPResponse `json:"mcp_responses,omitempty"`
-	StageReports []StageReport `json:"stage_reports,omitempty"`
+	RepoFacts     []RepoFact          `json:"repo_facts,omitempty"`
+	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
+	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
+	ToolResults   []ToolResult        `json:"tool_results,omitempty"`
+	MCPResponses  []MCPResponse       `json:"mcp_responses,omitempty"`
+	StageReports  []StageReport       `json:"stage_reports,omitempty"`
 
 	Signals ExecutionSignals `json:"signals"`
 	Policy  PolicyContext    `json:"policy"`
@@ -231,11 +233,13 @@ type AgentContext struct {
 	CurrentTaskComplexity string   `json:"current_task_complexity,omitempty"`
 	CurrentTaskKeywords   []string `json:"current_task_keywords,omitempty"`
 
-	RelevantFacts         []string      `json:"relevant_facts,omitempty"`
-	RelevantFiles         []string      `json:"relevant_files,omitempty"`
-	RelevantToolSummaries []string      `json:"relevant_tool_summaries,omitempty"`
-	RelevantMCPNotes      []string      `json:"relevant_mcp_notes,omitempty"`
-	PriorReports          []StageReport `json:"prior_reports,omitempty"`
+	RelevantFacts         []string            `json:"relevant_facts,omitempty"`
+	RelevantFiles         []string            `json:"relevant_files,omitempty"`
+	EvidenceItems         []EvidenceItem      `json:"evidence_items,omitempty"`
+	FlowFindings          []FlowFindingDigest `json:"flow_findings,omitempty"`
+	RelevantToolSummaries []string            `json:"relevant_tool_summaries,omitempty"`
+	RelevantMCPNotes      []string            `json:"relevant_mcp_notes,omitempty"`
+	PriorReports          []StageReport       `json:"prior_reports,omitempty"`
 
 	PlanSummary         string `json:"plan_summary,omitempty"`
 	PatchSummary        string `json:"patch_summary,omitempty"`

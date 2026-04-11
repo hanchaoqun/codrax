@@ -42,6 +42,8 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 
 	// Collect relevant files from facts
 	ac.RelevantFiles = extractRelevantFiles(bus.RepoFacts)
+	ac.EvidenceItems = append([]types.EvidenceItem(nil), bus.EvidenceItems...)
+	ac.FlowFindings = append([]types.FlowFindingDigest(nil), bus.FlowFindings...)
 
 	// Collect tool summaries
 	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
@@ -197,6 +199,20 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	if evidence := formatEvidenceItems(ac.EvidenceItems, 18); evidence != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Structured Evidence",
+			Content: evidence,
+		})
+	}
+
+	if findings := formatFlowFindings(ac.FlowFindings, 10); findings != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Dataflow Findings",
+			Content: findings,
+		})
+	}
+
 	if len(ac.RelevantFiles) > 0 {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Relevant Files",
@@ -300,7 +316,7 @@ func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *ty
 		AgentName:    types.AgentName(req.SubAgent),
 		Stage:        bus.PipelineStage,
 		Objective:    req.Objective,
-		Constraints:  req.Constraints,
+		Constraints:  append(append([]string{}, req.Scope...), req.Constraints...),
 		MissingPiece: bus.TaskState.Missing,
 		RepoRoot:     bus.RepoRoot,
 		Branch:       bus.Branch,
@@ -311,6 +327,8 @@ func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *ty
 	// Shared read from BusContext
 	ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
 	ac.RelevantFiles = filterFilesByScope(bus.RepoFacts, req.Scope)
+	ac.EvidenceItems = filterEvidenceItemsByScope(bus.EvidenceItems, req.Scope)
+	ac.FlowFindings = filterFlowFindingsByEvidence(ac.EvidenceItems, bus.FlowFindings)
 	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
 	ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
 
@@ -378,6 +396,152 @@ func extractRelevantFiles(facts []types.RepoFact) []string {
 		}
 	}
 	return files
+}
+
+func filterEvidenceItemsByScope(items []types.EvidenceItem, scope []string) []types.EvidenceItem {
+	if len(scope) == 0 {
+		return append([]types.EvidenceItem(nil), items...)
+	}
+	var filtered []types.EvidenceItem
+	for _, item := range items {
+		if item.Source == "" {
+			continue
+		}
+		for _, prefix := range scope {
+			if strings.HasPrefix(item.Source, prefix) {
+				filtered = append(filtered, item)
+				break
+			}
+		}
+	}
+	return filtered
+}
+
+func filterFlowFindingsByEvidence(items []types.EvidenceItem, findings []types.FlowFindingDigest) []types.FlowFindingDigest {
+	if len(items) == 0 {
+		return append([]types.FlowFindingDigest(nil), findings...)
+	}
+	evidenceSet := make(map[string]bool, len(items))
+	sourceSet := make(map[string]bool, len(items))
+	for _, item := range items {
+		evidenceSet[item.ID] = true
+		if item.Source != "" {
+			sourceSet[item.Source] = true
+		}
+	}
+	var filtered []types.FlowFindingDigest
+	for _, finding := range findings {
+		matched := false
+		for _, id := range finding.EvidenceIDs {
+			if evidenceSet[id] {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			for _, source := range finding.Sources {
+				if sourceSet[source] {
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched {
+			for _, sink := range finding.Sinks {
+				if sourceSet[sink] {
+					matched = true
+					break
+				}
+			}
+		}
+		if matched {
+			filtered = append(filtered, finding)
+		}
+	}
+	return filtered
+}
+
+func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
+	if len(items) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(items) {
+		limit = len(items)
+	}
+	var b strings.Builder
+	for i, item := range items {
+		if i >= limit {
+			break
+		}
+		line := item.Summary
+		if line == "" {
+			parts := []string{fmt.Sprintf("[%s]", item.Kind)}
+			if item.Subject != "" {
+				parts = append(parts, item.Subject)
+			}
+			if item.Predicate != "" {
+				parts = append(parts, item.Predicate)
+			}
+			if item.Object != "" {
+				parts = append(parts, item.Object)
+			}
+			line = strings.Join(parts, " ")
+			if item.Condition != "" {
+				line += " IF " + item.Condition
+			}
+		}
+		if item.Source != "" {
+			line += fmt.Sprintf(" (%s", item.Source)
+			if item.LineStart > 0 {
+				line += fmt.Sprintf(":%d", item.LineStart)
+				if item.LineEnd > item.LineStart {
+					line += fmt.Sprintf("-%d", item.LineEnd)
+				}
+			}
+			line += ")"
+		}
+		b.WriteString("- " + line + "\n")
+	}
+	if len(items) > limit {
+		fmt.Fprintf(&b, "... and %d more evidence items\n", len(items)-limit)
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func formatFlowFindings(findings []types.FlowFindingDigest, limit int) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(findings) {
+		limit = len(findings)
+	}
+	var b strings.Builder
+	for i, finding := range findings {
+		if i >= limit {
+			break
+		}
+		line := strings.Join(finding.Path, " -> ")
+		if line == "" {
+			line = strings.Join(finding.Hops, " -> ")
+		}
+		if line == "" {
+			line = strings.Join(append(append([]string{}, finding.Sources...), finding.Sinks...), " -> ")
+		}
+		if line == "" {
+			line = finding.ID
+		}
+		if len(finding.Conditions) > 0 {
+			line += " IF " + strings.Join(finding.Conditions, " AND ")
+		}
+		if finding.UnsupportedReason != "" {
+			line += " [uncertain: " + finding.UnsupportedReason + "]"
+		}
+		b.WriteString("- " + line + "\n")
+	}
+	if len(findings) > limit {
+		fmt.Fprintf(&b, "... and %d more dataflow findings\n", len(findings)-limit)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 func extractToolSummaries(results []types.ToolResult) []string {
