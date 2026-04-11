@@ -137,6 +137,7 @@ func TestIsEvidenceLine(t *testing.T) {
 		line string
 		want bool
 	}{
+		// Should match
 		{"return true", true},
 		{"return \"hello\"", true},
 		{`  return &Foo{}`, true},
@@ -145,9 +146,20 @@ func TestIsEvidenceLine(t *testing.T) {
 		{`"key": NewHandler(),`, true},
 		{`Register(NewFoo())`, true},
 		{`append(list, item)`, true},
+		{`handler := &Handler{}`, true},       // Go struct literal
+		{`new Handler()`, true},                // Java/JS constructor
+		{`srv := NewServer(config)`, true},     // Go factory
+		// Should NOT match — cross-language false positive prevention
 		{`x := 42`, false},
 		{`// just a comment`, false},
 		{`fmt.Println("hello")`, false},
+		{`if a && b {`, false},                 // JS/Go logical AND — not a constructor
+		{`x := y & 0xFF`, false},               // bitwise AND
+		{`&amp; entity`, false},                // HTML entity
+		// Note: "// NewYork" matches because NewY is a valid Go constructor pattern.
+		// This is harmless: extractConcreteValues skips // prefixed lines.
+		{`newspaper := "daily"`, false},         // "new" embedded in word
+		{`renewable := true`, false},            // "new" embedded in word
 	}
 	for _, tt := range tests {
 		got := isEvidenceLine(tt.line)

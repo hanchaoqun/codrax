@@ -1323,8 +1323,11 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				}
 			}
 			// Propagate: child now inherits parent's values for next pass.
+			// Copy the slice to avoid shared backing array mutations.
 			if _, ok := valuesByReceiver[rel.childType]; !ok {
-				valuesByReceiver[rel.childType] = vals
+				cp := make([]concreteValue, len(vals))
+				copy(cp, vals)
+				valuesByReceiver[rel.childType] = cp
 			} else {
 				// Merge, avoiding duplicates.
 				existing := make(map[string]bool)
@@ -1946,10 +1949,27 @@ func isEvidenceLine(trimmed string) bool {
 			return true
 		}
 	}
-	// Constructor patterns: New...(, &...{, new ...(
-	if strings.Contains(trimmed, "New") || strings.Contains(trimmed, "&") ||
-		strings.Contains(trimmed, "new ") {
+	// Constructor patterns — tightened to avoid cross-language false positives:
+	//   Go:     &Foo{ (address-of struct literal)
+	//   Go:     NewFoo( (constructor by convention)
+	//   Java/JS: new Foo( (keyword)
+	// Deliberately does NOT match bare "&" (would hit &&, &x, &amp; etc.)
+	// or bare "New" (would hit comments, strings, variable names).
+	if strings.Contains(trimmed, "new ") || strings.Contains(trimmed, "new\t") {
 		return true
+	}
+	// &UpperCase{ — Go struct literal pattern
+	for i := 0; i < len(trimmed)-2; i++ {
+		if trimmed[i] == '&' && trimmed[i+1] >= 'A' && trimmed[i+1] <= 'Z' {
+			return true
+		}
+	}
+	// NewUpperCase( — Go constructor pattern
+	for i := 0; i < len(trimmed)-4; i++ {
+		if trimmed[i] == 'N' && trimmed[i+1] == 'e' && trimmed[i+2] == 'w' &&
+			trimmed[i+3] >= 'A' && trimmed[i+3] <= 'Z' {
+			return true
+		}
 	}
 	return false
 }
