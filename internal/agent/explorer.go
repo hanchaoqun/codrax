@@ -20,23 +20,23 @@ import (
 )
 
 type explorerEvaluator struct {
-	tools              *tool.Registry
-	phase              int // 0 = breadth scan, 1 = depth read
-	broadenAttempts    int // times we pushed for broader grep in Phase 0
-	idleStreakInDepth   int // consecutive no-tool-call rounds in Phase 2
-	lastToolResultCount int // tool result count at last continuation check
-	preScannedFiles    []string            // top files from keyword search, for coverage tracking
-	allScoredFiles     []string            // ALL files from keyword search (not just top 8), for supplementary evidence
-	fileSymbols        map[string][]string // path → symbol summaries from repo_map
-	searchResult       *keywordSearchResult // full search result for cross-reference lookups
-	investigationNotes []string            // assistant analysis messages from ReAct loop
-	userQuestion       string              // original user question, for focus alignment
-	repoRoot           string              // repository root path, cached from BuildInitialPrompt
-	preScannedPushCount int  // times we pushed for unread pre-scanned files without progress
-	lastPreScannedUnreadCount int // count of unread pre-scanned files at last push
-	grepRedirectedFiles map[string]bool // files that already received a large-file grep redirect
-	isEnumerationQuery  bool // true if user question asks to list/enumerate all items
-	phase0ExtraRound    bool // whether we already gave one extra Phase 0 round for quality gate
+	tools                     *tool.Registry
+	phase                     int                  // 0 = breadth scan, 1 = depth read
+	broadenAttempts           int                  // times we pushed for broader grep in Phase 0
+	idleStreakInDepth         int                  // consecutive no-tool-call rounds in Phase 2
+	lastToolResultCount       int                  // tool result count at last continuation check
+	preScannedFiles           []string             // top files from keyword search, for coverage tracking
+	allScoredFiles            []string             // ALL files from keyword search (not just top 8), for supplementary evidence
+	fileSymbols               map[string][]string  // path → symbol summaries from repo_map
+	searchResult              *keywordSearchResult // full search result for cross-reference lookups
+	investigationNotes        []string             // assistant analysis messages from ReAct loop
+	userQuestion              string               // original user question, for focus alignment
+	repoRoot                  string               // repository root path, cached from BuildInitialPrompt
+	preScannedPushCount       int                  // times we pushed for unread pre-scanned files without progress
+	lastPreScannedUnreadCount int                  // count of unread pre-scanned files at last push
+	grepRedirectedFiles       map[string]bool      // files that already received a large-file grep redirect
+	isEnumerationQuery        bool                 // true if user question asks to list/enumerate all items
+	phase0ExtraRound          bool                 // whether we already gave one extra Phase 0 round for quality gate
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -419,8 +419,8 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// and longer names (8+ chars) for types/constants (to avoid noise
 	// from generic names like "New", "Run").
 	type unanalyzedFile struct {
-		path           string
-		missedSymbols  []string
+		path          string
+		missedSymbols []string
 	}
 	var unanalyzed []unanalyzedFile
 	notesJoined := strings.Join(e.investigationNotes, "\n")
@@ -615,10 +615,11 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		if r.Success {
 			confidence := e.toolConfidence(r.ToolName)
 			facts = append(facts, types.RepoFact{
-				Key:        r.ToolName,
-				Value:      r.Summary,
-				Source:     r.ToolName,
-				Confidence: confidence,
+				Key:         r.ToolName,
+				Value:       r.Summary,
+				Source:      logicalFactSource(r.Summary, r.ToolName),
+				EvidenceRef: r.RawRef,
+				Confidence:  confidence,
 			})
 			// Only evidence-bearing tools (Confidence > 0.5) count
 			// toward the "enough facts" floor. Navigation indexes and
@@ -1001,11 +1002,11 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 
 	// For each symbol in the graph, check which notes mention it.
 	type symbolRef struct {
-		name      string
-		noteIdxs  []int    // 0-based indices into investigationNotes
-		relKinds  []string // relation kinds connecting this symbol across files
-		defFile   string   // file where the symbol is defined (for single-symbol bridges)
-		directed  bool     // true for relation-based bridges (From→To)
+		name     string
+		noteIdxs []int    // 0-based indices into investigationNotes
+		relKinds []string // relation kinds connecting this symbol across files
+		defFile  string   // file where the symbol is defined (for single-symbol bridges)
+		directed bool     // true for relation-based bridges (From→To)
 	}
 	bridgeMap := make(map[string]*symbolRef)
 
@@ -1884,9 +1885,9 @@ func extractConcreteValues(source string) []concreteValueEntry {
 				if end > 0 {
 					inner := strings.TrimSpace(arg[:end])
 					// Require an actual constructor or type reference:
-				//   Go:     NewXxx(...) or &Xxx{...}
-				//   Java:   new Xxx(...)
-				//   Python: Xxx() where Xxx is capitalized (class instantiation)
+					//   Go:     NewXxx(...) or &Xxx{...}
+					//   Java:   new Xxx(...)
+					//   Python: Xxx() where Xxx is capitalized (class instantiation)
 					hasConstructor := false
 					for _, token := range strings.Fields(inner) {
 						clean := strings.Trim(token, ",()")
@@ -2941,7 +2942,7 @@ func crossValidateEvidence(notes []string, concreteValuesSection string) string 
 				method:     strings.ToLower(method),
 				methodOrig: method,
 				fact:       fact,
-				original: trimmed,
+				original:   trimmed,
 			})
 		}
 	}

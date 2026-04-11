@@ -207,3 +207,74 @@ func TestToMessages(t *testing.T) {
 		t.Errorf("msg[1] role = %q, want user", msgs[1].Role)
 	}
 }
+
+func TestRelevantFilesUseLogicalSourceOnly(t *testing.T) {
+	facts := []types.RepoFact{
+		{
+			Key:         "read_file",
+			Value:       "x",
+			Source:      "internal/agent/explorer.go",
+			EvidenceRef: "blob://trace/raw-main.txt",
+			Confidence:  0.8,
+		},
+		{
+			Key:         "read_file",
+			Value:       "y",
+			Source:      "internal/agent/explorer.go",
+			EvidenceRef: "blob://trace/raw-sub.txt",
+			Confidence:  0.8,
+		},
+		{
+			Key:         "grep",
+			Value:       "z",
+			Source:      "internal/context/builder.go",
+			EvidenceRef: "blob://trace/raw-grep.txt",
+			Confidence:  0.8,
+		},
+	}
+
+	files := extractRelevantFiles(facts)
+	if len(files) != 2 {
+		t.Fatalf("extractRelevantFiles count = %d, want 2 (dedup by logical source)", len(files))
+	}
+	if files[0] != "internal/agent/explorer.go" || files[1] != "internal/context/builder.go" {
+		t.Fatalf("extractRelevantFiles = %v", files)
+	}
+}
+
+func TestBuildSubAgentContextFilterScopeUsesLogicalSource(t *testing.T) {
+	bus := &types.BusContext{
+		PipelineStage: types.StageExplore,
+		RepoRoot:      "/tmp/repo",
+		RepoFacts: []types.RepoFact{
+			{
+				Key:         "read_file",
+				Value:       "main",
+				Source:      "internal/agent/explorer.go",
+				EvidenceRef: "blob://trace/main.txt",
+				Confidence:  0.8,
+			},
+			{
+				Key:         "read_file",
+				Value:       "sub",
+				Source:      "internal/context/builder.go",
+				EvidenceRef: "blob://trace/sub.txt",
+				Confidence:  0.8,
+			},
+		},
+	}
+	req := &types.SubAgentRequest{
+		ID:        "sa-1",
+		SubAgent:  "sub_explorer",
+		Objective: "focus on context package",
+		Scope:     []string{"internal/context"},
+	}
+
+	ac := BuildSubAgentContext(bus, req)
+	if len(ac.RelevantFiles) != 1 {
+		t.Fatalf("relevant files = %d, want 1", len(ac.RelevantFiles))
+	}
+	if ac.RelevantFiles[0] != "internal/context/builder.go" {
+		t.Fatalf("relevant files = %v", ac.RelevantFiles)
+	}
+}

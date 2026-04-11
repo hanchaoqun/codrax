@@ -126,10 +126,11 @@ type StageReport struct {
 
 // RepoFact is a single discovered fact about the repository.
 type RepoFact struct {
-	Key        string  `json:"key"`
-	Value      string  `json:"value"`
-	Source     string  `json:"source"`
-	Confidence float64 `json:"confidence"`
+	Key         string  `json:"key"`
+	Value       string  `json:"value"`
+	Source      string  `json:"source"`
+	EvidenceRef string  `json:"evidence_ref,omitempty"`
+	Confidence  float64 `json:"confidence"`
 }
 
 // ToolResult records the outcome of a tool invocation.
@@ -153,15 +154,15 @@ type MCPResponse struct {
 
 // ExecutionSignals tracks boolean signals used for stage transitions.
 type ExecutionSignals struct {
-	HasEnoughFacts       bool   `json:"has_enough_facts"`
-	HasPlan              bool   `json:"has_plan"`
-	HasPatch             bool   `json:"has_patch"`
-	DesignReviewPassed   bool   `json:"design_review_passed"`
-	CodeReviewPassed     bool   `json:"code_review_passed"`
-	VerificationPassed   bool   `json:"verification_passed"`
-	LastStageFailed      bool   `json:"last_stage_failed"`
-	LastFailureReason    string `json:"last_failure_reason,omitempty"`
-	RetryCount           int    `json:"retry_count"`
+	HasEnoughFacts     bool   `json:"has_enough_facts"`
+	HasPlan            bool   `json:"has_plan"`
+	HasPatch           bool   `json:"has_patch"`
+	DesignReviewPassed bool   `json:"design_review_passed"`
+	CodeReviewPassed   bool   `json:"code_review_passed"`
+	VerificationPassed bool   `json:"verification_passed"`
+	LastStageFailed    bool   `json:"last_stage_failed"`
+	LastFailureReason  string `json:"last_failure_reason,omitempty"`
+	RetryCount         int    `json:"retry_count"`
 }
 
 // PolicyContext holds policy flags governing pipeline behavior.
@@ -222,13 +223,13 @@ type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
 
-	Objective          string `json:"objective"`
-	CurrentTaskID      string `json:"current_task_id"`
-	CurrentTask        string `json:"current_task"`
+	Objective             string   `json:"objective"`
+	CurrentTaskID         string   `json:"current_task_id"`
+	CurrentTask           string   `json:"current_task"`
 	CurrentTaskWriting    bool     `json:"current_task_writing"`
-	CurrentTaskHighRisk  bool     `json:"current_task_high_risk"`
-	CurrentTaskComplexity string  `json:"current_task_complexity,omitempty"`
-	CurrentTaskKeywords  []string `json:"current_task_keywords,omitempty"`
+	CurrentTaskHighRisk   bool     `json:"current_task_high_risk"`
+	CurrentTaskComplexity string   `json:"current_task_complexity,omitempty"`
+	CurrentTaskKeywords   []string `json:"current_task_keywords,omitempty"`
 
 	RelevantFacts         []string      `json:"relevant_facts,omitempty"`
 	RelevantFiles         []string      `json:"relevant_files,omitempty"`
