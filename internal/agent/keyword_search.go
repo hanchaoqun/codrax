@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"sort"
@@ -31,8 +30,8 @@ type keywordSearchResult struct {
 	Graph *repomap.Graph // may be nil if repo_map is unavailable
 }
 
-// Directories excluded from keyword search (same as grep tool defaults).
-var searchExcludeDirs = []string{".git", ".hg", ".svn", "node_modules", "vendor", "__pycache__", ".tox"}
+// searchExcludeDirs is the shared exclude list from tool.ExcludeDirs.
+var searchExcludeDirs = tool.ExcludeDirs
 
 // keywordSearch combines repo_map's structural ranking with grep-based
 // keyword matching to produce a scored file list.
@@ -369,13 +368,15 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 	return splitLines(stdout.String())
 }
 
-// rgBatchFiles runs a single rg call with multiple -e patterns and
-// returns per-keyword file lists. This reduces N keyword searches from
-// N process spawns to 1, which matters when rg has startup overhead
-// (e.g. snap-installed). Uses rg's --smart-case: all-lowercase patterns
-// match case-insensitively, patterns with uppercase match exactly.
+// rgBatchFiles runs a single rg --json call with multiple -e patterns
+// and returns per-keyword file lists by parsing which pattern matched
+// in each file. This reduces N keyword searches to 1 process spawn
+// and avoids reading file contents entirely — rg does all the matching.
+//
+// Large-repo safe: no file size limits, no truncation, no memory-mapped
+// file reads. rg handles binary detection and .gitignore automatically.
 func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
-	args := []string{"-l", "--smart-case"}
+	args := []string{"--json", "--smart-case"}
 	for _, dir := range searchExcludeDirs {
 		args = append(args, "--glob", "!"+dir+"/")
 	}
@@ -391,46 +392,90 @@ func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
 		return nil
 	}
 
-	// rg -l with multiple -e returns files matching ANY pattern.
-	// We need per-keyword file lists for IDF. Re-check each file
-	// against each keyword using simple string matching — much
-	// cheaper than N separate rg calls since we already know the
-	// candidate set.
-	allFiles := splitLines(stdout.String())
+	// Parse rg JSON output to build per-keyword file lists.
+	// Each "match" line contains the file path and submatch texts,
+	// which we map back to the original keywords.
+	//
+	// Build lowercase keyword index for smart-case matching:
+	// keywords with uppercase are exact; all-lowercase are insensitive.
+	kwLower := make(map[string]string, len(keywords)) // lowercase → original
+	kwExact := make(map[string]string, len(keywords)) // exact → original
+	for _, kw := range keywords {
+		if strings.ContainsAny(kw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
+			kwExact[kw] = kw
+		} else {
+			kwLower[strings.ToLower(kw)] = kw
+		}
+	}
 
+	// Track which keywords matched which files (deduplicate).
+	type fileKw struct {
+		file, kw string
+	}
+	seen := make(map[fileKw]bool)
 	result := make(map[string][]string, len(keywords))
-	for _, f := range allFiles {
-		content := readFileHead(f, 64*1024) // read first 64KB for matching
-		if content == "" {
+
+	for _, line := range splitLines(stdout.String()) {
+		// Fast pre-filter: only parse lines containing "match".
+		if !strings.Contains(line, `"type":"match"`) {
 			continue
 		}
-		for _, kw := range keywords {
-			// Match using same smart-case rule as rg.
-			hasUpper := strings.ContainsAny(kw, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
-			if hasUpper {
-				if strings.Contains(content, kw) {
-					result[kw] = append(result[kw], f)
-				}
-			} else {
-				if strings.Contains(strings.ToLower(content), strings.ToLower(kw)) {
-					result[kw] = append(result[kw], f)
-				}
+		// Extract path and submatch texts from JSON.
+		filePath, matchTexts := parseRgMatchLine(line)
+		if filePath == "" {
+			continue
+		}
+		for _, mt := range matchTexts {
+			// Map matched text back to original keyword.
+			var origKw string
+			if kw, ok := kwExact[mt]; ok {
+				origKw = kw
+			} else if kw, ok := kwLower[strings.ToLower(mt)]; ok {
+				origKw = kw
+			}
+			if origKw == "" {
+				continue
+			}
+			key := fileKw{filePath, origKw}
+			if !seen[key] {
+				seen[key] = true
+				result[origKw] = append(result[origKw], filePath)
 			}
 		}
 	}
+
 	return result
 }
 
-// readFileHead reads the first maxBytes of a file for keyword matching.
-func readFileHead(path string, maxBytes int) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
+// parseRgMatchLine extracts the file path and submatch texts from a
+// single rg --json "match" line. Uses lightweight string scanning
+// instead of json.Unmarshal to avoid allocating full structs for
+// thousands of match lines in large repos.
+func parseRgMatchLine(line string) (filePath string, matchTexts []string) {
+	// Extract path: "path":{"text":"FILE"}
+	const pathKey = `"path":{"text":"`
+	if idx := strings.Index(line, pathKey); idx >= 0 {
+		start := idx + len(pathKey)
+		if end := strings.Index(line[start:], `"`); end >= 0 {
+			filePath = line[start : start+end]
+		}
 	}
-	defer f.Close()
-	buf := make([]byte, maxBytes)
-	n, _ := f.Read(buf)
-	return string(buf[:n])
+	// Extract submatches: "match":{"text":"MATCHED"}
+	const matchKey = `"match":{"text":"`
+	rest := line
+	for {
+		idx := strings.Index(rest, matchKey)
+		if idx < 0 {
+			break
+		}
+		start := idx + len(matchKey)
+		rest = rest[start:]
+		if end := strings.Index(rest, `"`); end >= 0 {
+			matchTexts = append(matchTexts, rest[:end])
+			rest = rest[end:]
+		}
+	}
+	return
 }
 
 // findFilesByName uses find to locate files whose basename contains the keyword.

@@ -15,20 +15,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// defaultExcludeDirs lists directories that grep skips by default.
-// These produce noise without useful signal: VCS internals, build
-// artifacts, runtime state (logs, memory), and dependency trees.
-// Matches the categories in explorer.go's isNoisePath but enforced at
-// the grep command level so excluded files are never scanned.
-var defaultExcludeDirs = []string{
-	".git",
-	".hg",
-	".svn",
-	"node_modules",
-	"vendor",
-	"__pycache__",
-	".tox",
-}
+// defaultExcludeDirs is an alias for the shared ExcludeDirs list in
+// search.go, used by the grep tool and keyword search.
+var defaultExcludeDirs = ExcludeDirs
 
 // ---------------------------------------------------------------------------
 // ExecCommand

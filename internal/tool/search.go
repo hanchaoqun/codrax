@@ -33,3 +33,19 @@ func SearchCommand() string {
 func UseRipgrep() bool {
 	return SearchCommand() == "rg"
 }
+
+// ExcludeDirs is the single authoritative list of directories that all
+// search operations (grep tool, keyword search, file coverage analysis)
+// skip. Centralised here so the three call sites stay in sync.
+//
+// Categories:
+//   - VCS internals: .git, .hg, .svn
+//   - Dependency trees: node_modules, vendor, __pycache__, .tox
+//   - Runtime artifacts: logs, memory (codrax's own output dirs)
+//   - Build output: target (Rust/Java), dist, build
+var ExcludeDirs = []string{
+	".git", ".hg", ".svn",
+	"node_modules", "vendor", "__pycache__", ".tox",
+	"logs", "memory",
+	"target", "dist", "build",
+}
