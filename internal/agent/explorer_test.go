@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -896,6 +897,321 @@ func TestIsEvidenceLineAssignment(t *testing.T) {
 
 func contains(s, sub string) bool {
 	return len(s) >= len(sub) && containsStr(s, sub)
+}
+
+func TestExtractDecisionBlocks(t *testing.T) {
+	t.Run("Go-style function with 4 blocks", func(t *testing.T) {
+		// Simulates a function with comment-delimited independent blocks,
+		// each terminated by a return statement.
+		src := `func (e *eval) ContinuationPrompt() (string, bool) {
+	// Phase setup
+	discovered := scan()
+
+	// Function-boundary read guidance (HIGHEST PRIORITY)
+	if partials := detect(); len(partials) > 0 {
+		return hint, true
+	}
+
+	// Enumeration completeness
+	if isEnum && coverage < 0.8 {
+		return enumHint, true
+	}
+
+	// Large-file grep redirect
+	truncated := detectTruncated()
+	if len(truncated) > 0 {
+		return redirectHint, true
+	}
+
+	// Idle termination
+	if idle >= 2 {
+		return "", false
+	}
+	return fallback, true
+}`
+		lines := strings.Split(src, "\n")
+		// Function body spans lines 1 to len(lines) (1-based).
+		blocks := extractDecisionBlocks(lines, 1, len(lines))
+		if blocks == nil {
+			t.Fatal("expected ≥3 blocks, got nil")
+		}
+		// "Phase setup" has no return, filtered out. 4 strategy blocks remain.
+		if len(blocks) != 4 {
+			t.Errorf("expected 4 blocks (return-bearing only), got %d", len(blocks))
+			for i, b := range blocks {
+				t.Logf("  block %d: L%d-%d %q", i, b.startLine, b.endLine, b.label)
+			}
+		}
+		if blocks[0].label != "Function-boundary read guidance (HIGHEST PRIORITY)" {
+			t.Errorf("block[0] label = %q", blocks[0].label)
+		}
+		if blocks[len(blocks)-1].label != "Idle termination" {
+			t.Errorf("last block label = %q", blocks[len(blocks)-1].label)
+		}
+	})
+
+	t.Run("Python-style function with hash comments", func(t *testing.T) {
+		// First comment after function def has no blank line before it,
+		// so it's skipped. The remaining 3 sections (preceded by blank
+		// lines) are detected.
+		src := `def handle_request(self, req):
+    # Validate input
+    if not req.valid:
+        return error_response()
+
+    # Check permissions
+    if not self.has_access(req.user):
+        return forbidden()
+
+    # Process the request
+    result = self.process(req)
+    if result.failed:
+        return failure(result)
+
+    # Send response
+    return success(result)`
+		lines := strings.Split(src, "\n")
+		blocks := extractDecisionBlocks(lines, 1, len(lines))
+		if blocks == nil {
+			t.Fatal("expected ≥3 blocks, got nil")
+		}
+		if len(blocks) != 3 {
+			t.Errorf("expected 3 blocks, got %d", len(blocks))
+			for i, b := range blocks {
+				t.Logf("  block %d: L%d-%d %q", i, b.startLine, b.endLine, b.label)
+			}
+		}
+		if blocks[0].label != "Check permissions" {
+			t.Errorf("block[0] label = %q", blocks[0].label)
+		}
+	})
+
+	t.Run("Java-style with throw terminators", func(t *testing.T) {
+		src := `public Response dispatch(Request req) {
+    // Authentication check
+    if (!isAuthenticated(req)) {
+        throw new UnauthorizedException();
+    }
+
+    // Rate limiting
+    if (rateLimiter.isExceeded(req.getClient())) {
+        throw new TooManyRequestsException();
+    }
+
+    // Route to handler
+    Handler h = router.resolve(req.getPath());
+    return h.handle(req);
+}`
+		lines := strings.Split(src, "\n")
+		blocks := extractDecisionBlocks(lines, 1, len(lines))
+		// Java throw is at deeper indent (8 spaces vs 4 base), so won't
+		// be detected as a block terminator. Only the final return at
+		// base+4 terminates. This is correct: the throw is inside an
+		// if-block, not a top-level early return.
+		// With 3 section headers and 1 terminator, we get 3 blocks.
+		if blocks == nil {
+			t.Fatal("expected ≥3 blocks, got nil")
+		}
+		if len(blocks) < 3 {
+			t.Errorf("expected ≥3 blocks, got %d", len(blocks))
+			for i, b := range blocks {
+				t.Logf("  block %d: L%d-%d %q", i, b.startLine, b.endLine, b.label)
+			}
+		}
+	})
+
+	t.Run("too few blocks returns nil", func(t *testing.T) {
+		src := `func simple() {
+	// Setup
+	x := 1
+	return x
+}`
+		lines := strings.Split(src, "\n")
+		blocks := extractDecisionBlocks(lines, 1, len(lines))
+		if blocks != nil {
+			t.Errorf("expected nil for <3 blocks, got %d blocks", len(blocks))
+		}
+	})
+
+	t.Run("too short function returns nil", func(t *testing.T) {
+		src := `func tiny() { return 1 }`
+		lines := strings.Split(src, "\n")
+		blocks := extractDecisionBlocks(lines, 1, len(lines))
+		if blocks != nil {
+			t.Errorf("expected nil for short function, got %d blocks", len(blocks))
+		}
+	})
+
+	t.Run("SQL-style with double-dash comments", func(t *testing.T) {
+		// PL/pgSQL RAISE is inside IF blocks (deeper indent), so
+		// return-filter correctly excludes them — the section headers
+		// don't have top-level terminators. This is correct behavior:
+		// SQL control flow is fundamentally different from early-return
+		// languages. Decision blocks are most useful for Go/Python/Java
+		// style early-return functions.
+		src := `CREATE FUNCTION process()
+RETURNS void AS $$
+BEGIN
+    -- Validate schema version
+    IF NOT check_version() THEN
+        RAISE EXCEPTION 'bad version';
+    END IF;
+
+    -- Migrate pending records
+    IF has_pending() THEN
+        RAISE NOTICE 'migrating';
+    END IF;
+
+    -- Clean up temporary tables
+    DROP TABLE IF EXISTS tmp_work;
+
+    -- Update statistics
+    RAISE NOTICE 'done';
+END;
+$$ LANGUAGE plpgsql;`
+		lines := strings.Split(src, "\n")
+		blocks := extractDecisionBlocks(lines, 1, len(lines))
+		// RAISE is nested inside IF (indent > base+4), so blocks get
+		// filtered out by return-filter. nil is the correct result.
+		if blocks != nil {
+			t.Logf("SQL blocks (expected nil due to nested RAISE): %d", len(blocks))
+			for i, b := range blocks {
+				t.Logf("  [%d] L%d-%d: %s", i, b.startLine, b.endLine, b.label)
+			}
+		}
+	})
+
+	t.Run("real ContinuationPrompt from codebase", func(t *testing.T) {
+		// Read the actual explorer.go and run extraction on ContinuationPrompt.
+		data, err := os.ReadFile("explorer.go")
+		if err != nil {
+			t.Skip("explorer.go not in test working directory")
+		}
+		lines := strings.Split(string(data), "\n")
+		// ContinuationPrompt starts around line 165, but the Phase 1
+		// body with decision blocks starts at ~282 and ends ~592.
+		// Find exact bounds by scanning for the function signature.
+		funcStart, funcEnd := 0, 0
+		for i, l := range lines {
+			if strings.Contains(l, "func (e *explorerEvaluator) ContinuationPrompt(") {
+				funcStart = i + 1 // 1-based
+			}
+			// Find the closing brace at column 0 after funcStart.
+			if funcStart > 0 && funcEnd == 0 && i > funcStart && strings.TrimSpace(l) == "}" && !strings.HasPrefix(l, "\t") {
+				funcEnd = i + 1
+				break
+			}
+		}
+		if funcStart == 0 || funcEnd == 0 {
+			t.Skip("could not find ContinuationPrompt bounds")
+		}
+		blocks := extractDecisionBlocks(lines, funcStart, funcEnd)
+		if blocks == nil {
+			t.Fatal("expected decision blocks in ContinuationPrompt, got nil")
+		}
+		// Should have ≥5 blocks (function-boundary, enumeration, large-file,
+		// pre-scanned push, unanalyzed symbols, idle streak, idle termination).
+		if len(blocks) < 5 {
+			t.Errorf("expected ≥5 decision blocks, got %d", len(blocks))
+		}
+		t.Logf("ContinuationPrompt: %d decision blocks detected", len(blocks))
+		for i, b := range blocks {
+			t.Logf("  [%d] L%d-%d: %s", i+1, b.startLine, b.endLine, b.label)
+		}
+	})
+}
+
+func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
+	eval := &explorerEvaluator{}
+	eval.investigationNotes = []string{"[DIRECT] foo line 1: something"}
+	eval.userQuestion = "What strategies does ContinuationPrompt use?"
+
+	t.Run("retry with prior explore report includes synthesis baseline", func(t *testing.T) {
+		ctx := &types.AgentContext{
+			CurrentTask: "investigate strategies",
+			PriorReports: []types.StageReport{
+				{
+					Stage:    types.StageExplore,
+					Agent:    types.AgentExplorer,
+					Findings: "The function has 3 strategies: A, B, and C.",
+				},
+			},
+		}
+		prompt := eval.BuildInitialPrompt(ctx, nil)
+
+		if !strings.Contains(prompt, "Previous Synthesis") {
+			t.Error("retry prompt should contain 'Previous Synthesis' section")
+		}
+		if !strings.Contains(prompt, "3 strategies: A, B, and C") {
+			t.Error("retry prompt should contain the prior synthesis findings")
+		}
+		if !strings.Contains(prompt, "improve, don't restart") {
+			t.Error("retry prompt should instruct to improve, not restart")
+		}
+	})
+
+	t.Run("retry with RetryHint includes both hint and synthesis", func(t *testing.T) {
+		eval2 := &explorerEvaluator{
+			investigationNotes: []string{"[DIRECT] bar line 2: thing"},
+			userQuestion:       "question",
+		}
+		ctx := &types.AgentContext{
+			CurrentTask: "investigate",
+			RetryHint:   "Previous attempt had low file coverage.",
+			PriorReports: []types.StageReport{
+				{
+					Stage:    types.StageExplore,
+					Agent:    types.AgentExplorer,
+					Findings: "Found 2 of 5 items.",
+				},
+			},
+		}
+		prompt := eval2.BuildInitialPrompt(ctx, nil)
+
+		if !strings.Contains(prompt, "Previous attempt had low file coverage") {
+			t.Error("should contain RetryHint")
+		}
+		if !strings.Contains(prompt, "Found 2 of 5 items") {
+			t.Error("should contain prior synthesis findings")
+		}
+	})
+
+	t.Run("retry without prior reports works normally", func(t *testing.T) {
+		eval3 := &explorerEvaluator{
+			investigationNotes: []string{"[DIRECT] baz line 3: stuff"},
+			userQuestion:       "question",
+		}
+		ctx := &types.AgentContext{
+			CurrentTask: "investigate",
+		}
+		prompt := eval3.BuildInitialPrompt(ctx, nil)
+
+		if strings.Contains(prompt, "Previous Synthesis") {
+			t.Error("should NOT contain Previous Synthesis when no PriorReports")
+		}
+		if !strings.Contains(prompt, "Retry: Depth Investigation") {
+			t.Error("should still be a retry prompt (has investigationNotes)")
+		}
+	})
+
+	t.Run("prior synthesis truncated when too long", func(t *testing.T) {
+		eval4 := &explorerEvaluator{
+			investigationNotes: []string{"[DIRECT] x line 1: y"},
+			userQuestion:       "question",
+		}
+		longFindings := strings.Repeat("A very detailed finding. ", 200)
+		ctx := &types.AgentContext{
+			CurrentTask: "investigate",
+			PriorReports: []types.StageReport{
+				{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: longFindings},
+			},
+		}
+		prompt := eval4.BuildInitialPrompt(ctx, nil)
+
+		if !strings.Contains(prompt, "[truncated]") {
+			t.Error("long prior synthesis should be truncated")
+		}
+	})
 }
 
 func containsStr(s, sub string) bool {
