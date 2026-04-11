@@ -101,6 +101,53 @@ func TestReadFile(t *testing.T) {
 			t.Fatalf("expected sliced banner for large file, got first 200 chars: %q", result.Summary[:min(200, len(result.Summary))])
 		}
 	})
+
+	t.Run("large slice banner clamped to visible lines", func(t *testing.T) {
+		// When a slice exceeds MaxInlineBytes, StoreBlobHeadOnly truncates
+		// to previewHeadBytes. The banner must reflect the clamped line
+		// count so the LLM pages from the right offset — without this fix,
+		// the banner claims "showing lines 1-400" but only ~245 lines are
+		// visible, and the LLM skips lines 246-400 when paging.
+		var b strings.Builder
+		// 400 lines × 100 bytes = 40 KB > MaxInlineBytes (32 KB).
+		for i := 0; i < 400; i++ {
+			b.WriteString(strings.Repeat("x", 99))
+			b.WriteString("\n")
+		}
+		tmpFile := filepath.Join(t.TempDir(), "big_clamp.txt")
+		if err := os.WriteFile(tmpFile, []byte(b.String()), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &ReadFile{}
+		// Request all 400 lines — the 40 KB slice exceeds MaxInlineBytes,
+		// so the clamping logic should reduce sliceEnd to match what
+		// StoreBlobHeadOnly will actually show (~245 lines at 24 KB head).
+		params, _ := json.Marshal(readFileParams{Path: tmpFile, Offset: 0, Limit: 400})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+
+		// The banner must NOT say "showing lines 1-400" — that would be
+		// the unclamped value. It should say "showing lines 1-N" where
+		// N < 400, matching the head budget.
+		if strings.Contains(result.Summary, "showing lines 1-400") {
+			t.Fatalf("banner was NOT clamped — still shows 1-400; clamping logic did not fire")
+		}
+		// Verify the banner is present and the end line is reasonable:
+		// previewHeadBytes (24 KB) / 100 bytes per line ≈ 245 lines.
+		if !strings.Contains(result.Summary, "of 401 total") {
+			t.Fatalf("expected total=401 in banner, got first 200 chars: %q", result.Summary[:min(200, len(result.Summary))])
+		}
+		// The clamped content should fit inline (no blob truncation hint).
+		if strings.Contains(result.Summary, "remaining") || strings.Contains(result.Summary, "NOT returned") {
+			t.Fatalf("clamped content should fit inline without blob truncation, but got truncation hint")
+		}
+	})
 }
 
 func min(a, b int) int {

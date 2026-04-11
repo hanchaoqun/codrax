@@ -350,6 +350,25 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			sliceEnd = sliceStart + p.Limit
 		}
 		content = strings.Join(allLines[sliceStart:sliceEnd], "\n")
+		// Clamp sliceEnd so the banner matches what StoreBlobHeadOnly
+		// will actually show. Without this, the banner claims "showing
+		// lines X-Y" but blob truncation silently drops lines past the
+		// head budget, and the LLM pages from Y+1 — skipping the
+		// truncated lines entirely.
+		if len(content) > MaxInlineBytes {
+			headBudget := PreviewHeadBytesValue()
+			clamped := content
+			if len(clamped) > headBudget {
+				clamped = clamped[:headBudget]
+			}
+			// Walk back to the last complete line.
+			if idx := strings.LastIndex(clamped, "\n"); idx > 0 {
+				clamped = clamped[:idx]
+			}
+			visibleLines := strings.Count(clamped, "\n") + 1
+			sliceEnd = sliceStart + visibleLines
+			content = strings.Join(allLines[sliceStart:sliceEnd], "\n")
+		}
 	} else if p.Offset > 0 || p.Limit > 0 {
 		overrode = true
 	}
