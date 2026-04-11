@@ -208,9 +208,10 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	messages := b.buildInitialMessages(ctx, sk)
 
 	// DIAGNOSTIC — dump initial prompt (debug only).
+	// Full content goes to the log file (unlimited); stdout mirror gets truncated.
 	for _, m := range messages {
 		logging.Debug("[diag %s] INIT msg role=%s len=%d\n%s\n---",
-			b.name, m.Role, len(m.Content), truncForLog(m.Content, 4000))
+			b.name, m.Role, len(m.Content), m.Content)
 	}
 
 	var allToolResults []types.ToolResult

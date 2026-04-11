@@ -366,12 +366,244 @@ func max(a, b float64) float64 {
 	return b
 }
 
+// rankEvidenceByRelevance scores and sorts evidence items by their
+// relevance to the user's question. The ranking is question-aware,
+// using entity overlap, evidence kind weight, source weight, and
+// bridge detection. A diversity constraint limits items from the
+// same (source, subject) to avoid redundancy.
+func rankEvidenceByRelevance(question string, items []types.EvidenceItem, readFiles map[string]bool) []types.EvidenceItem {
+	if len(items) == 0 {
+		return items
+	}
+	entities := extractRankingEntities(question)
+	if len(entities) == 0 {
+		return items // no entities to rank by — preserve original order
+	}
+
+	type scored struct {
+		item  types.EvidenceItem
+		score float64
+	}
+	scored_items := make([]scored, 0, len(items))
+	for _, item := range items {
+		s := evidenceRelevanceScore(item, entities, readFiles)
+		scored_items = append(scored_items, scored{item: item, score: s})
+	}
+	sort.SliceStable(scored_items, func(i, j int) bool {
+		return scored_items[i].score > scored_items[j].score
+	})
+
+	// Diversity: same (source_file, subject) max 2 entries.
+	type dedupKey struct{ source, subject string }
+	counts := make(map[dedupKey]int)
+	result := make([]types.EvidenceItem, 0, len(items))
+	for _, si := range scored_items {
+		key := dedupKey{si.item.Source, si.item.Subject}
+		if counts[key] >= 2 {
+			continue
+		}
+		counts[key]++
+		result = append(result, si.item)
+	}
+	return result
+}
+
+func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFiles map[string]bool) float64 {
+	// 1. Entity overlap: how many question entities appear in item fields.
+	text := strings.ToLower(item.Subject + " " + item.Object + " " + item.Summary + " " + item.Predicate)
+	overlap := 0
+	for _, ent := range entities {
+		if strings.Contains(text, ent) {
+			overlap++
+		}
+	}
+	entityScore := float64(overlap) / float64(len(entities))
+
+	// 2. Kind weight: concrete facts are most valuable.
+	kindWeight := 0.5
+	switch item.Kind {
+	case types.EvidenceConcrete:
+		kindWeight = 1.0
+	case types.EvidenceRegistration:
+		kindWeight = 0.95
+	case types.EvidenceRelationship:
+		kindWeight = 0.8
+	case types.EvidenceMechanism:
+		kindWeight = 0.7
+	case types.EvidenceConditional:
+		kindWeight = 0.6
+	case types.EvidenceAbsent:
+		kindWeight = 0.55
+	case types.EvidenceDataflowPath:
+		kindWeight = 0.75
+	case types.EvidenceUnresolved:
+		kindWeight = 0.3
+	case types.EvidenceTruncated:
+		kindWeight = 0.1
+	}
+
+	// 3. Source weight: files the explorer read are more relevant.
+	sourceWeight := 0.5
+	if readFiles != nil && readFiles[item.Source] {
+		sourceWeight = 1.0
+	}
+
+	// 4. Bridge bonus: if subject and object match different entities.
+	bridgeBonus := 1.0
+	if item.Subject != "" && item.Object != "" {
+		subjectLower := strings.ToLower(item.Subject)
+		objectLower := strings.ToLower(item.Object)
+		subjectHit, objectHit := false, false
+		for _, ent := range entities {
+			if strings.Contains(subjectLower, ent) {
+				subjectHit = true
+			}
+			if strings.Contains(objectLower, ent) {
+				objectHit = true
+			}
+		}
+		if subjectHit && objectHit {
+			bridgeBonus = 2.0
+		}
+	}
+
+	return entityScore * kindWeight * sourceWeight * bridgeBonus
+}
+
+// rankFindingsByRelevance scores and sorts dataflow findings by
+// relevance to the user's question, preferring findings whose path
+// nodes overlap with question entities and shorter, more specific chains.
+func rankFindingsByRelevance(question string, findings []types.FlowFindingDigest) []types.FlowFindingDigest {
+	if len(findings) == 0 {
+		return findings
+	}
+	entities := extractRankingEntities(question)
+	if len(entities) == 0 {
+		return findings
+	}
+
+	type scored struct {
+		finding types.FlowFindingDigest
+		score   float64
+	}
+	scored_items := make([]scored, 0, len(findings))
+	for _, f := range findings {
+		s := findingRelevanceScore(f, entities)
+		scored_items = append(scored_items, scored{finding: f, score: s})
+	}
+	sort.SliceStable(scored_items, func(i, j int) bool {
+		return scored_items[i].score > scored_items[j].score
+	})
+
+	result := make([]types.FlowFindingDigest, 0, len(findings))
+	for _, si := range scored_items {
+		result = append(result, si.finding)
+	}
+	return result
+}
+
+func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64 {
+	// 1. Path entity overlap.
+	allText := strings.ToLower(strings.Join(f.Path, " ") + " " +
+		strings.Join(f.Sources, " ") + " " + strings.Join(f.Sinks, " "))
+	overlap := 0
+	for _, ent := range entities {
+		if strings.Contains(allText, ent) {
+			overlap++
+		}
+	}
+	if overlap == 0 {
+		return 0.0 // completely irrelevant finding
+	}
+	entityScore := float64(overlap) / float64(len(entities))
+
+	// 2. Chain brevity: shorter chains are more precise.
+	brevity := 1.0
+	if len(f.Path) > 1 {
+		brevity = 1.0 / float64(len(f.Path))
+	}
+
+	// 3. Original confidence as a multiplier.
+	confidence := f.Confidence
+	if confidence <= 0 {
+		confidence = 0.5
+	}
+
+	return entityScore * brevity * confidence
+}
+
+// extractRankingEntities extracts question entities for relevance
+// scoring. More aggressive than extractQuestionEntities: also extracts
+// plain alphanumeric words ≥4 chars (lowercased) to handle questions
+// like "有多少个agent可以调用subagent?" where there are no CamelCase tokens.
+func extractRankingEntities(question string) []string {
+	seen := make(map[string]bool)
+	var entities []string
+	add := func(s string) {
+		s = strings.ToLower(strings.Trim(s, "(){}[]?!.,;:'\""))
+		if len(s) < 4 || seen[s] {
+			return
+		}
+		seen[s] = true
+		entities = append(entities, s)
+	}
+
+	// Backtick-quoted identifiers.
+	rest := question
+	for {
+		start := strings.Index(rest, "`")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(rest[start+1:], "`")
+		if end < 0 {
+			break
+		}
+		add(rest[start+1 : start+1+end])
+		rest = rest[start+1+end+1:]
+	}
+
+	// All runs of [A-Za-z0-9_.] ≥ 4 chars — captures both CamelCase
+	// and lowercase identifiers like "agent", "subagent".
+	inIdent := false
+	identStart := 0
+	for i := 0; i <= len(question); i++ {
+		var c byte
+		if i < len(question) {
+			c = question[i]
+		}
+		isIdent := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '.'
+		if isIdent && !inIdent {
+			identStart = i
+			inIdent = true
+		} else if !isIdent && inIdent {
+			token := question[identStart:i]
+			add(token)
+			// Also add dotted parts: "Foo.Bar" → "Foo", "Bar"
+			if strings.Contains(token, ".") {
+				for _, part := range strings.Split(token, ".") {
+					add(part)
+				}
+			}
+			inIdent = false
+		}
+	}
+	return entities
+}
+
 func needsDataflowAnalysis(question string, items []types.EvidenceItem) bool {
 	lower := strings.ToLower(question)
 	for _, needle := range []string{
+		// English — dataflow / value tracing
 		"flow", "flows", "path", "propagate", "through", "trigger",
 		"which value", "what value", "where does", "who gets", "who is",
 		"condition", "configured", "config", "registered", "route", "handler",
+		"invoke", "dispatch", "call chain", "how many",
+		// Chinese — equivalent dataflow / registration / invocation concepts
+		"调用", "注册", "触发", "配置", "流向", "传播", "条件",
+		"路由", "处理器", "绑定", "分发", "哪些", "多少", "列出",
+		"哪个", "谁会", "谁能", "怎么",
 	} {
 		if strings.Contains(lower, needle) {
 			return true

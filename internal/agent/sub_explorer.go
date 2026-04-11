@@ -311,11 +311,14 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 
 	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
 
+	rankedEvidence := rankEvidenceByRelevance(e.objective, e.structuredEvidence, readSet)
+	rankedFindings := rankFindingsByRelevance(e.objective, e.flowFindings)
+
 	return &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
-		EvidenceItems: e.structuredEvidence,
-		FlowFindings:  e.flowFindings,
+		EvidenceItems: rankedEvidence,
+		FlowFindings:  rankedFindings,
 		SignalUpdates: signals,
 	}, nil
 }

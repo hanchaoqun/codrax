@@ -697,11 +697,16 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 
 	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
 
+	// Rank evidence and findings by relevance to the user's question
+	// so downstream consumers (finalizer) get the most useful items first.
+	rankedEvidence := rankEvidenceByRelevance(e.userQuestion, e.structuredEvidence, readSet)
+	rankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
+
 	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
-		EvidenceItems: e.structuredEvidence,
-		FlowFindings:  e.flowFindings,
+		EvidenceItems: rankedEvidence,
+		FlowFindings:  rankedFindings,
 		SignalUpdates: signals,
 	}
 
@@ -731,7 +736,10 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 
 	parsed := parseEvidenceItems(e.investigationNotes, "explorer.llm")
-	if e.searchResult == nil || e.searchResult.Graph == nil || !needsDataflowAnalysis(e.userQuestion, parsed) {
+	needsDF := needsDataflowAnalysis(e.userQuestion, parsed)
+	hasGraph := e.searchResult != nil && e.searchResult.Graph != nil
+	logging.Debug("[explorer] ensureStructuredEvidence: parsed=%d needsDataflow=%v hasGraph=%v", len(parsed), needsDF, hasGraph)
+	if !hasGraph || !needsDF {
 		e.structuredEvidence = parsed
 		return
 	}
@@ -762,6 +770,8 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		MaxIterations:   6,
 		MaxNodesPerFunc: 400,
 	})
+	logging.Debug("[explorer] dataflow.Analyze: %d evidence, %d findings from %d candidates",
+		len(result.Evidence), len(result.Findings), len(candidates))
 	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence)
 	e.flowFindings = mergeFlowFindings(result.Findings)
 }
@@ -800,6 +810,9 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	}
 
 	e.ensureStructuredEvidence(ctx, toolResults)
+	// Pre-rank evidence so structured sections show the most relevant items.
+	e.structuredEvidence = rankEvidenceByRelevance(e.userQuestion, e.structuredEvidence, nil)
+	e.flowFindings = rankFindingsByRelevance(e.userQuestion, e.flowFindings)
 
 	var digest strings.Builder
 	digest.WriteString("You have completed your evidence collection. Below is the evidence catalog from your investigation.\n\n")
@@ -1048,7 +1061,94 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 			"If there are 6 strategies, list all 6 separately — not 3 categories of 2.\n")
 	}
 
-	return digest.String(), true
+	// Global budget: cap the synthesis prompt to avoid exceeding LLM
+	// context windows. gpt-4o ≈ 128K tokens ≈ 400KB; allow ~120KB for
+	// the synthesis user message (the system prompt and overhead take the
+	// rest). If over budget, progressively truncate lower-priority
+	// sections from the bottom of the digest.
+	const synthBudgetBytes = 120_000
+	result := digest.String()
+	if len(result) > synthBudgetBytes {
+		logging.Debug("[explorer] synthesis prompt %d bytes exceeds budget %d, truncating", len(result), synthBudgetBytes)
+		result = truncateSynthesisPrompt(result, synthBudgetBytes)
+	}
+	return result, true
+}
+
+// truncateSynthesisPrompt progressively removes lower-priority sections
+// from the synthesis prompt to fit within the byte budget. Sections are
+// removed from lowest to highest priority.
+func truncateSynthesisPrompt(prompt string, budget int) string {
+	if len(prompt) <= budget {
+		return prompt
+	}
+	// Sections to remove, in order of lowest to highest priority.
+	// Each entry is the markdown heading that starts the section.
+	lowPrioritySections := []string{
+		"## WARNING: Unread Important Files",
+		"## Unresolved Conditions",
+		"## Negative Evidence (Absent Patterns)",
+		"## WARNING: Potential Focus Misalignment",
+		"## Enumeration Completeness",
+		"## Cross-References Between Evidence Sets",
+		"### Type Hierarchy Chains",
+		"### Resolution Chains",
+	}
+	for _, heading := range lowPrioritySections {
+		if len(prompt) <= budget {
+			break
+		}
+		prompt = removeMarkdownSection(prompt, heading)
+	}
+	// If still over budget, hard-truncate the evidence catalog notes.
+	if len(prompt) > budget {
+		prompt = prompt[:budget] + "\n\n... [synthesis prompt truncated to fit context window]\n"
+	}
+	return prompt
+}
+
+// removeMarkdownSection removes a markdown section (heading + content up to
+// the next heading of equal or higher level) from text.
+func removeMarkdownSection(text, heading string) string {
+	idx := strings.Index(text, heading)
+	if idx < 0 {
+		return text
+	}
+	// Determine the heading level (count leading #).
+	level := 0
+	for _, ch := range heading {
+		if ch == '#' {
+			level++
+		} else {
+			break
+		}
+	}
+	// Find the end of this section: next heading of same or higher level.
+	rest := text[idx+len(heading):]
+	endMarker := strings.Repeat("#", level) + " "
+	// Also stop at headings with fewer # (higher level).
+	endIdx := -1
+	for i := 0; i < len(rest); i++ {
+		if i == 0 || (i > 0 && rest[i-1] == '\n') {
+			remaining := rest[i:]
+			for l := 1; l <= level; l++ {
+				prefix := strings.Repeat("#", l) + " "
+				if strings.HasPrefix(remaining, prefix) {
+					endIdx = i
+					break
+				}
+			}
+			if endIdx >= 0 {
+				break
+			}
+			_ = endMarker // suppress unused
+		}
+	}
+	if endIdx < 0 {
+		// Section runs to end of text.
+		return text[:idx]
+	}
+	return text[:idx] + rest[endIdx:]
 }
 
 // buildCrossReferenceMap scans investigation notes for symbol names

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -199,14 +200,18 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	if evidence := formatEvidenceItems(ac.EvidenceItems, 18); evidence != "" {
+	logging.Debug("[builder] %s/%s: EvidenceItems=%d FlowFindings=%d", ac.AgentName, ac.Stage, len(ac.EvidenceItems), len(ac.FlowFindings))
+	evidence := formatEvidenceItems(ac.EvidenceItems, 18)
+	findings := formatFlowFindings(ac.FlowFindings, 10)
+	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
+	if evidence != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Structured Evidence",
 			Content: evidence,
 		})
 	}
 
-	if findings := formatFlowFindings(ac.FlowFindings, 10); findings != "" {
+	if findings != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Dataflow Findings",
 			Content: findings,
