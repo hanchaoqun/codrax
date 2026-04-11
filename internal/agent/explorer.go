@@ -600,7 +600,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// relationships, complex conditions, cross-file reasoning).
 	var cvPreview string
 	if e.idleStreakInDepth >= 1 && len(e.investigationNotes) >= 2 && e.searchResult != nil {
-		cvPreview = e.buildConcreteValuesSection(e.repoRoot, readSet)
+		cvPreview = e.buildConcreteValuesSection(e.repoRoot, readSet).markdown
 	}
 
 	// Show remaining coverage for grep-discovered files.
@@ -1021,10 +1021,16 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	// Also builds resolution chains that trace through symbol references.
 	// Track what programmatic layers fired for adaptive instructions.
 	hasConcreteValues := false
-	cv := e.buildConcreteValuesSection(ctx.RepoRoot, readSet)
+	cvResult := e.buildConcreteValuesSection(ctx.RepoRoot, readSet)
+	cv := cvResult.markdown
 	if cv != "" {
 		hasConcreteValues = true
 		digest.WriteString(cv)
+	}
+	// Merge concrete values evidence into structured evidence so it
+	// flows to finalizer regardless of synthesis success.
+	if len(cvResult.evidence) > 0 {
+		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)
 	}
 	digest.WriteString("## Files Read\n\n")
 	for _, r := range toolResults {
@@ -1441,9 +1447,16 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 // The function also builds resolution chains: when one concrete value
 // references a symbol that has its own concrete value, the chain is
 // made explicit (e.g., RegisterX binds NewFoo → Foo.Name returns "bar").
-func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool) string {
+// concreteValuesResult holds both the markdown for synthesis prompt and
+// structured evidence items for downstream stages.
+type concreteValuesResult struct {
+	markdown string
+	evidence []types.EvidenceItem
+}
+
+func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool) concreteValuesResult {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
-		return ""
+		return concreteValuesResult{}
 	}
 	graph := e.searchResult.Graph
 	notesJoined := strings.Join(e.investigationNotes, "\n")
@@ -1515,7 +1528,16 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	//    containing return/map/register patterns are extracted with ±1
 	//    line of context. This recovers concrete values from longer
 	//    functions without reading them entirely.
-	logging.Debug("[explorer] concrete values: scanning %d files", len(filesToScan))
+	logging.Debug("[explorer] concrete values: scanning %d files (preScanned=%d, scored=%d, readSet=%d)",
+		len(filesToScan), len(e.preScannedFiles), len(e.allScoredFiles), len(readSet))
+	// Log which high-value files are in the scan set
+	for _, key := range []string{"sub_explorer", "subagent.go"} {
+		for f := range filesToScan {
+			if strings.Contains(f, key) {
+				logging.Debug("[explorer] concrete values: %s in filesToScan", f)
+			}
+		}
+	}
 	for file := range filesToScan {
 		fi, ok := graph.FileIndex[file]
 		if !ok {
@@ -1666,7 +1688,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 
 	logging.Debug("[explorer] concrete values: extracted %d total values", len(allValues))
 	if len(allValues) == 0 {
-		return ""
+		return concreteValuesResult{}
 	}
 
 	// Build pre-scanned set for filtering.
@@ -1717,7 +1739,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 	}
 
-	logging.Debug("[explorer] concrete values: %d relevant (of %d total) after filtering", len(relevant), len(allValues))
+	logging.Debug("[explorer] concrete values: %d relevant (of %d total) after initial filter", len(relevant), len(allValues))
 
 	// Multi-pass reference tracing: follow type references in values
 	// to discover more concrete values. Repeats until no new values
@@ -1748,8 +1770,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 	}
 
+	logging.Debug("[explorer] concrete values: %d relevant after multi-pass tracing", len(relevant))
+
 	if len(relevant) == 0 {
-		return ""
+		return concreteValuesResult{}
 	}
 
 	// Sort by usefulness: bindings first (they anchor chains), then
@@ -1947,7 +1971,40 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		b.WriteString("\n")
 	}
 
-	return b.String()
+	// Build structured evidence items from concrete values and chains.
+	// These flow to StageOutput → BusContext → finalizer, independent
+	// of whether synthesis succeeds.
+	var cvEvidence []types.EvidenceItem
+	for _, v := range relevant {
+		kind := types.EvidenceConcrete
+		predicate := v.kind
+		cvEvidence = append(cvEvidence, types.EvidenceItem{
+			ID: types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
+			Kind:      kind,
+			Subject:   v.method,
+			Predicate: predicate,
+			Object:    v.value,
+			Source:    v.file,
+			LineStart: v.line,
+			LineEnd:   v.line,
+			Confidence: 0.95,
+			Producer:  "concrete_values",
+			Summary:   fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
+		})
+	}
+	for _, c := range chains {
+		cvEvidence = append(cvEvidence, types.EvidenceItem{
+			ID:         types.StableEvidenceID(types.EvidenceDataflowPath, c, "resolution_chain", "", "", "", 0, 0),
+			Kind:       types.EvidenceDataflowPath,
+			Subject:    c,
+			Predicate:  "resolution_chain",
+			Confidence: 0.9,
+			Producer:   "concrete_values",
+			Summary:    c,
+		})
+	}
+
+	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence}
 }
 
 // concreteValueEntry holds a single extracted concrete value from source code.
