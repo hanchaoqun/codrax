@@ -159,7 +159,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			return "Your grep searches returned no file matches. Before moving to depth reading, " +
 				"try broader search strategies:\n" +
 				"- Drop any --include filter (search ALL file types)\n" +
-				"- Use shorter or partial keywords (prefixes, stems) — e.g. instead of 'SubAgentRuntime' try 'SubAgent' or 'subagent'\n" +
+				"- Use shorter or partial keywords (prefixes, stems) — e.g. instead of 'UserAuthenticationService' try 'UserAuth' or 'authentication'\n" +
 				"- Use single common terms rather than compound phrases\n" +
 				"- Try conceptual synonyms for the same idea\n\n" +
 				"Run at least 2-3 new grep calls with files_only=true before producing your file list.", true
@@ -189,11 +189,11 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"- For [REGISTRATION] entries: always note the EXACT concrete values (which specific items are registered, what strings are returned). " +
 			"If a function registers exactly 1 item, say 'registers ONLY X' — 'including X' is ambiguous and insufficient\n" +
 			"- For [CONDITIONAL] entries: note the exact condition — do NOT summarize conditions as 'when configured' or 'if applicable'\n" +
-			"- **NEVER skip simple methods.** Short methods like `Name() string { return \"x\" }` or `Type() int { return 3 }` are CRITICAL " +
+			"- **NEVER skip simple methods/functions.** Short ones like `getName() { return \"x\" }` or `isEnabled() { return true }` are CRITICAL " +
 			"because they establish concrete values that resolve conditions. Always record them as [REGISTRATION] with the exact return value\n" +
 			"- **Negative evidence matters.** If you expected to find a pattern/method/registration but it is ABSENT, record:\n" +
 			"  `- [ABSENT] Expected <what> in <where> but NOT found`\n" +
-			"  This is critical for exclusion reasoning (e.g., \"agent X does NOT support retry because retry logic is absent\")\n" +
+			"  This is critical for exclusion reasoning (e.g., \"class X does NOT implement method Y because it is absent from the source\")\n" +
 			"- For interface implementations: note WHICH concrete type implements WHICH interface, and what each method returns\n" +
 			"- Read function BODIES, not just signatures — the specific values, registrations, and return values inside bodies are critical evidence\n" +
 			"- Read ONE file at a time\n\n" +
@@ -950,18 +950,23 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			bodyLines := sym.EndLine - sym.Line
 			isShort := bodyLines <= 3
 			// For longer functions, only scan if the name suggests
-			// registration, mapping, or configuration.
+			// registration, mapping, or configuration. Uses cross-language
+			// verb patterns (case-insensitive where needed).
+			nameLower := strings.ToLower(sym.Name)
 			isRegistrationFunc := !isShort &&
 				bodyLines <= 30 &&
-				(strings.Contains(sym.Name, "Register") ||
-					strings.Contains(sym.Name, "Defaults") ||
-					strings.Contains(sym.Name, "register") ||
-					strings.Contains(sym.Name, "Routes") ||
-					strings.Contains(sym.Name, "routes") ||
-					strings.Contains(sym.Name, "Handlers") ||
-					strings.Contains(sym.Name, "Config") ||
-					strings.Contains(sym.Name, "Map") ||
-					strings.Contains(sym.Name, "Init"))
+				(strings.Contains(nameLower, "register") ||
+					strings.Contains(nameLower, "defaults") ||
+					strings.Contains(nameLower, "route") ||
+					strings.Contains(nameLower, "handler") ||
+					strings.Contains(nameLower, "config") ||
+					strings.Contains(nameLower, "setup") ||
+					strings.Contains(nameLower, "init") ||
+					strings.Contains(nameLower, "bind") ||
+					strings.Contains(nameLower, "subscribe") ||
+					strings.Contains(nameLower, "provide") ||
+					strings.Contains(nameLower, "module") ||
+					strings.Contains(sym.Name, "Map"))
 			// Medium functions: not short, not registration-named, but
 			// ≤100 lines — scan specific lines for return/binding patterns.
 			isMediumFunc := !isShort && !isRegistrationFunc && bodyLines <= 100
@@ -1928,47 +1933,68 @@ func (e *explorerEvaluator) trackCrossReferences(note string) {
 // contain a concrete value pattern (return statement, map entry,
 // registration call, or constructor binding). Used by the medium-function
 // local line scanner to skip irrelevant lines cheaply.
+//
+// Patterns are cross-language:
+//
+//	return/yield   — Go, Python, Java, JS, Rust, Ruby
+//	=>             — JS/TS arrow functions, Ruby hash rockets
+//	key: value,    — Go maps, Python dicts, JS/TS objects, YAML
+//	registration   — Register/Add/Handle/Route/Subscribe/Bind (English naming)
+//	constructors   — new Foo (Java/JS), &Foo{ (Go), NewFoo/CreateFoo (Go/Python)
 func isEvidenceLine(trimmed string) bool {
-	if strings.HasPrefix(trimmed, "return ") || strings.HasPrefix(trimmed, "return\t") {
+	// Return/yield statements (all languages).
+	if strings.HasPrefix(trimmed, "return ") || strings.HasPrefix(trimmed, "return\t") ||
+		strings.HasPrefix(trimmed, "yield ") {
 		return true
 	}
 	if strings.Contains(trimmed, " return ") {
 		return true // inline return: func() { return X }
 	}
+	// Arrow functions (JS/TS/Rust closures).
 	if strings.Contains(trimmed, "=>") {
-		return true // arrow function
+		return true
 	}
-	// Map/dict entries: "key": value or key: value,
+	// Map/dict entries: "key": value, or key => value,
 	if (strings.Contains(trimmed, ":") || strings.Contains(trimmed, "=>")) &&
 		strings.Contains(trimmed, ",") {
 		return true
 	}
-	// Registration/binding calls
-	for _, kw := range []string{"Register", "register", "append(", "Add(", "add(", "Handle(", "Map(", "Route("} {
+	// Registration/binding calls — common cross-language verb patterns.
+	for _, kw := range []string{
+		"Register", "register", "Subscribe", "subscribe",
+		"Bind", "bind", "Handle", "handle",
+		"Route", "route", "Map(", "map(",
+		"Add(", "add(", "Set(", "set(",
+		"append(", "push(", "insert(",
+		"provide(", "Provide(",
+	} {
 		if strings.Contains(trimmed, kw) {
 			return true
 		}
 	}
-	// Constructor patterns — tightened to avoid cross-language false positives:
-	//   Go:     &Foo{ (address-of struct literal)
-	//   Go:     NewFoo( (constructor by convention)
-	//   Java/JS: new Foo( (keyword)
-	// Deliberately does NOT match bare "&" (would hit &&, &x, &amp; etc.)
-	// or bare "New" (would hit comments, strings, variable names).
+	// Constructor patterns — cross-language, tightened to avoid false positives.
+	//   Java/JS/TS:  new Foo(...)
+	//   Go:          &Foo{...}  (address-of struct literal)
+	//   Multi-lang:  FactoryPrefix + UpperCase (NewFoo, CreateFoo, MakeFoo, BuildFoo)
 	if strings.Contains(trimmed, "new ") || strings.Contains(trimmed, "new\t") {
 		return true
 	}
-	// &UpperCase{ — Go struct literal pattern
+	// &UpperCase{ — Go struct literal, also Rust &Type
 	for i := 0; i < len(trimmed)-2; i++ {
 		if trimmed[i] == '&' && trimmed[i+1] >= 'A' && trimmed[i+1] <= 'Z' {
 			return true
 		}
 	}
-	// NewUpperCase( — Go constructor pattern
-	for i := 0; i < len(trimmed)-4; i++ {
-		if trimmed[i] == 'N' && trimmed[i+1] == 'e' && trimmed[i+2] == 'w' &&
-			trimmed[i+3] >= 'A' && trimmed[i+3] <= 'Z' {
-			return true
+	// FactoryPrefix + UpperCase — matches NewFoo, CreateFoo, MakeFoo, BuildFoo, GetFoo.
+	for _, prefix := range []string{"New", "Create", "Make", "Build", "Get"} {
+		plen := len(prefix)
+		for i := 0; i <= len(trimmed)-plen-1; i++ {
+			if trimmed[i:i+plen] == prefix && trimmed[i+plen] >= 'A' && trimmed[i+plen] <= 'Z' {
+				// Ensure prefix starts at word boundary.
+				if i == 0 || !isIdentChar(trimmed[i-1]) {
+					return true
+				}
+			}
 		}
 	}
 	return false
@@ -1980,9 +2006,16 @@ func isEvidenceLine(trimmed string) bool {
 // or underscore. This prevents "Handler" from matching "ErrorHandler" or
 // "HandlerFunc", while still matching "&Handler{}", "Handler.Name", etc.
 //
-// Special case: "New" + name is also accepted (e.g., "NewFoo" matches
-// "Foo") because NewTypeName is the universal constructor convention in
-// Go (and common in Java/Python). The same applies for "new" (Java/JS).
+// Factory prefix allowlist: common cross-language factory/constructor
+// prefixes are accepted before the name. For example, "NewFoo" and
+// "createFoo" both match "Foo". Supported prefixes:
+//
+//	Go/Java/C#:  New (NewHandler)
+//	Java/JS:     new (new Handler — but typically space-separated)
+//	Python/Ruby: create, make, build (create_handler, make_handler)
+//	General:     get (getFoo — factory accessor pattern)
+var factoryPrefixes = []string{"New", "new", "create", "Create", "make", "Make", "build", "Build", "get", "Get"}
+
 func containsIdentifier(text, name string) bool {
 	if name == "" {
 		return false
@@ -2008,10 +2041,11 @@ func containsIdentifier(text, name string) bool {
 		if !isIdentChar(before) {
 			return true // clean boundary
 		}
-		// Allow "New" or "new" prefix: "NewFoo" matches "Foo".
-		if pos >= 3 && !isIdentChar(safeCharAt(text, pos-4)) {
-			prefix := text[pos-3 : pos]
-			if prefix == "New" || prefix == "new" {
+		// Allow factory prefixes: "NewFoo", "createFoo", etc. match "Foo".
+		for _, prefix := range factoryPrefixes {
+			plen := len(prefix)
+			if pos >= plen && text[pos-plen:pos] == prefix &&
+				!isIdentChar(safeCharAt(text, pos-plen-1)) {
 				return true
 			}
 		}

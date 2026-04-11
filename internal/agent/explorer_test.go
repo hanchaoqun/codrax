@@ -41,6 +41,18 @@ func TestContainsIdentifier(t *testing.T) {
 		{"my_handler", "handler", false}, // preceded by _
 		{"handler_test", "handler", false}, // followed by _
 		{"my handler test", "handler", true},
+
+		// Cross-language factory prefixes
+		{"createHandler()", "Handler", true},   // Python/JS factory
+		{"CreateHandler()", "Handler", true},    // C#/Go factory
+		{"makeHandler()", "Handler", true},      // Ruby/functional style
+		{"MakeHandler()", "Handler", true},      // Go alternate factory
+		{"buildHandler()", "Handler", true},     // Builder pattern
+		{"BuildHandler()", "Handler", true},
+		{"getHandler()", "Handler", true},       // Accessor factory
+		{"GetHandler()", "Handler", true},
+		{"destroyHandler()", "Handler", false},  // Not a factory prefix
+		{"useHandler()", "Handler", false},      // Not a factory prefix
 	}
 
 	for _, tt := range tests {
@@ -149,17 +161,25 @@ func TestIsEvidenceLine(t *testing.T) {
 		{`handler := &Handler{}`, true},       // Go struct literal
 		{`new Handler()`, true},                // Java/JS constructor
 		{`srv := NewServer(config)`, true},     // Go factory
+		// Cross-language constructor patterns
+		{`handler := &Handler{}`, true},           // Go struct literal
+		{`new Handler()`, true},                   // Java/JS constructor
+		{`srv := NewServer(config)`, true},        // Go factory
+		{`handler = CreateHandler()`, true},       // Python/JS factory
+		{`obj = MakeWidget()`, true},              // Ruby/functional factory
+		{`svc := BuildService(deps)`, true},       // Builder pattern
+		{`yield some_value`, true},                // Python generator
+		{`subscribe(handler)`, true},              // Event subscription
+		{`provide(ServiceToken, factory)`, true},  // Angular DI
 		// Should NOT match — cross-language false positive prevention
 		{`x := 42`, false},
 		{`// just a comment`, false},
 		{`fmt.Println("hello")`, false},
-		{`if a && b {`, false},                 // JS/Go logical AND — not a constructor
-		{`x := y & 0xFF`, false},               // bitwise AND
-		{`&amp; entity`, false},                // HTML entity
-		// Note: "// NewYork" matches because NewY is a valid Go constructor pattern.
-		// This is harmless: extractConcreteValues skips // prefixed lines.
-		{`newspaper := "daily"`, false},         // "new" embedded in word
-		{`renewable := true`, false},            // "new" embedded in word
+		{`if a && b {`, false},                    // JS/Go logical AND — not a constructor
+		{`x := y & 0xFF`, false},                  // bitwise AND
+		{`&amp; entity`, false},                   // HTML entity
+		{`newspaper := "daily"`, false},           // "new" embedded in word
+		{`renewable := true`, false},              // "new" embedded in word
 	}
 	for _, tt := range tests {
 		got := isEvidenceLine(tt.line)
