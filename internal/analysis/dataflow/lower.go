@@ -152,11 +152,39 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 		for _, field := range detectFieldWrites(line) {
 			if !contains(summary.WrittenFields, field) {
 				summary.WrittenFields = append(summary.WrittenFields, field)
+				summary.ProducerEvidence = append(summary.ProducerEvidence, newEvidenceItem(
+					types.EvidenceRelationship,
+					symbolKey,
+					"writes_field",
+					field,
+					"",
+					file.RelPath,
+					"",
+					lineNo,
+					lineNo,
+					0.78,
+					"dataflow.lowerer."+file.Language,
+					fmt.Sprintf("`%s` line %d writes field `%s`", symbolKey, lineNo, field),
+				))
 			}
 		}
 		for _, field := range detectFieldReads(line) {
 			if !contains(summary.ReadFields, field) {
 				summary.ReadFields = append(summary.ReadFields, field)
+				summary.ProducerEvidence = append(summary.ProducerEvidence, newEvidenceItem(
+					types.EvidenceRelationship,
+					symbolKey,
+					"reads_field",
+					field,
+					"",
+					file.RelPath,
+					"",
+					lineNo,
+					lineNo,
+					0.75,
+					"dataflow.lowerer."+file.Language,
+					fmt.Sprintf("`%s` line %d reads field `%s`", symbolKey, lineNo, field),
+				))
 			}
 		}
 		for _, alias := range detectAliases(line) {
@@ -281,7 +309,7 @@ func detectConfigKeys(line string) []string {
 	var keys []string
 	patterns := []*regexp.Regexp{
 		regexp.MustCompile(`(?i)(?:getenv|lookupenv|env::var)\(\s*["']([^"']+)["']\s*\)`),
-		regexp.MustCompile(`(?i)(?:config(?:\.get)?|viper\.get(?:string|bool|int)?|settings(?:\.get)?)\(\s*["']([^"']+)["']\s*\)`),
+		regexp.MustCompile(`(?i)(?:config(?:\.get\w*)?|viper\.get(?:string|bool|int)?|settings(?:\.get\w*)?)\(\s*["']([^"']+)["']\s*\)`),
 		regexp.MustCompile(`(?i)(?:\[\s*["']([^"']+)["']\s*\])`),
 	}
 	for _, re := range patterns {
