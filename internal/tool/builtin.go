@@ -173,6 +173,11 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		caseInsensitive = !strings.ContainsAny(p.Pattern, "ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 	}
 
+	// All search commands are guarded by a 60 s timeout to prevent
+	// hangs on large repos or pathological regex patterns.
+	searchCtx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
 	var cmd *exec.Cmd
 
 	if UseRipgrep() {
@@ -195,7 +200,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			args = append(args, "--glob", p.Include)
 		}
 		args = append(args, p.Pattern, searchPath)
-		cmd = exec.Command("rg", args...)
+		cmd = exec.CommandContext(searchCtx, "rg", args...)
 	} else {
 		// GNU grep fallback: -E for ERE, -I to skip binary files.
 		args := []string{"-rnEI"}
@@ -213,7 +218,7 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			args = append(args, "--include="+p.Include)
 		}
 		args = append(args, searchPath)
-		cmd = exec.Command("grep", args...)
+		cmd = exec.CommandContext(searchCtx, "grep", args...)
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -221,6 +226,16 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 
 	err := cmd.Run()
 	output := stdout.String()
+
+	// Timeout produces a context.DeadlineExceeded — surface it clearly.
+	if searchCtx.Err() == context.DeadlineExceeded {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "grep timed out after 60s — pattern may be too broad or repo too large",
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// grep returns exit code 1 when no matches found — not a real error.
 	if err != nil {
@@ -238,6 +253,21 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			Summary:   fmt.Sprintf("grep failed: %v: %s", err, stderr.String()),
 			Timestamp: time.Now(),
 		}, nil
+	}
+
+	// Prepend a count banner so the LLM knows whether the blob was
+	// truncated. Without this, a blob-trimmed result looks identical
+	// to a short result and the model cannot judge completeness.
+	lines := strings.Count(output, "\n")
+	if output != "" && !strings.HasSuffix(output, "\n") {
+		lines++ // last line has no trailing newline
+	}
+	if lines > 0 {
+		unit := "matching lines"
+		if p.FilesOnly {
+			unit = "matching files"
+		}
+		output = fmt.Sprintf("[grep: %d %s]\n%s", lines, unit, output)
 	}
 
 	summary, ref := StoreBlob(ctx, t.Name(), output)

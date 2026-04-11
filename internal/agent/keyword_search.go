@@ -2,17 +2,26 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io/fs"
 	"math"
 	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 )
+
+// searchTimeout is the maximum wall-clock time for any single search
+// command (rg, grep, find). Prevents hangs on large repos or
+// pathological regex patterns.
+const searchTimeout = 60 * time.Second
 
 // keywordFileScore records how a file scored across multi-level keyword matching.
 type keywordFileScore struct {
@@ -203,18 +212,28 @@ func grepIDFSearch(keywords []string, repoRoot string) (scores map[string]float6
 			}
 		}
 	} else {
-		// Sequential: one grep call per keyword.
+		// Parallel: grep calls run concurrently to reduce wall-clock
+		// time from 2N sequential spawns to ~2 (limited by I/O, not CPU).
+		var mu sync.Mutex
+		var wg sync.WaitGroup
 		for _, kw := range keywords {
-			paths := grepFiles(kw, repoRoot, false)
-			matchType := "exact"
-			if len(paths) == 0 {
-				paths = grepFiles(kw, repoRoot, true)
-				matchType = "icase"
-			}
-			if len(paths) > 0 {
-				kwResults[kw] = kwResult{paths: paths, matchType: matchType}
-			}
+			wg.Add(1)
+			go func(kw string) {
+				defer wg.Done()
+				paths := grepFiles(kw, repoRoot, false)
+				matchType := "exact"
+				if len(paths) == 0 {
+					paths = grepFiles(kw, repoRoot, true)
+					matchType = "icase"
+				}
+				if len(paths) > 0 {
+					mu.Lock()
+					kwResults[kw] = kwResult{paths: paths, matchType: matchType}
+					mu.Unlock()
+				}
+			}(kw)
 		}
+		wg.Wait()
 	}
 
 	// Score files by IDF.
@@ -254,23 +273,64 @@ func grepIDFSearch(keywords []string, repoRoot string) (scores map[string]float6
 	return scores, hits
 }
 
+// sourceFileCount caches the result of countSourceFiles so the IDF
+// denominator is computed at most once per process. The count is
+// approximate and does not need to track real-time mutations.
+var (
+	sourceCountOnce  sync.Once
+	sourceCountCache int
+)
+
 // countSourceFiles returns an approximate count of source files in the repo.
+// Uses rg --files when available (fast, respects .gitignore), falls back to
+// Go-native filepath.WalkDir with the unified ExcludeDirs list.
+// Result is cached for the process lifetime.
 func countSourceFiles(repoRoot string) int {
-	args := []string{repoRoot, "-type", "f"}
-	for _, dir := range searchExcludeDirs {
-		args = append([]string{repoRoot, "-path", "*/" + dir, "-prune", "-o"}, args[1:]...)
+	sourceCountOnce.Do(func() {
+		sourceCountCache = countSourceFilesOnce(repoRoot)
+	})
+	if sourceCountCache < 1 {
+		return 100 // fallback
 	}
-	// Simplified: just count all files
-	cmd := exec.Command("find", repoRoot, "-type", "f",
-		"-not", "-path", "*/.git/*",
-		"-not", "-path", "*/node_modules/*",
-		"-not", "-path", "*/vendor/*")
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return 100
+	return sourceCountCache
+}
+
+func countSourceFilesOnce(repoRoot string) int {
+	// Prefer rg --files: fast, auto-excludes .gitignore entries.
+	if tool.UseRipgrep() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		args := []string{"--files"}
+		for _, dir := range searchExcludeDirs {
+			args = append(args, "--glob", "!"+dir+"/")
+		}
+		args = append(args, repoRoot)
+		cmd := exec.CommandContext(ctx, "rg", args...)
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		if err := cmd.Run(); err == nil {
+			return len(splitLines(stdout.String()))
+		}
 	}
-	return len(splitLines(stdout.String()))
+	// Go-native fallback using the unified exclude list.
+	excludeSet := make(map[string]bool, len(searchExcludeDirs))
+	for _, d := range searchExcludeDirs {
+		excludeSet[d] = true
+	}
+	count := 0
+	filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if d.IsDir() && excludeSet[d.Name()] {
+			return filepath.SkipDir
+		}
+		if !d.IsDir() {
+			count++
+		}
+		return nil
+	})
+	return count
 }
 
 // formatKeywordResults renders scored files for injection into the Phase 1 prompt.
@@ -333,7 +393,11 @@ func fileTypeWeight(path string) float64 {
 // --- low-level search helpers ---
 
 // grepFiles runs grep/rg on the repo and returns matching file paths.
+// All commands are guarded by searchTimeout to prevent hangs.
 func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
 	var cmd *exec.Cmd
 
 	if tool.UseRipgrep() {
@@ -347,7 +411,7 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 			args = append(args, "--glob", "!"+dir+"/")
 		}
 		args = append(args, pattern, repoRoot)
-		cmd = exec.Command("rg", args...)
+		cmd = exec.CommandContext(ctx, "rg", args...)
 	} else {
 		args := []string{"-rlEI"}
 		if ignoreCase {
@@ -357,13 +421,13 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 			args = append(args, "--exclude-dir="+dir)
 		}
 		args = append(args, pattern, repoRoot)
-		cmd = exec.Command("grep", args...)
+		cmd = exec.CommandContext(ctx, "grep", args...)
 	}
 
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
-		return nil // exit 1 = no matches, or error — either way no results
+		return nil // exit 1 = no matches, timeout, or error — either way no results
 	}
 	return splitLines(stdout.String())
 }
@@ -376,6 +440,9 @@ func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 // Large-repo safe: no file size limits, no truncation, no memory-mapped
 // file reads. rg handles binary detection and .gitignore automatically.
 func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
 	args := []string{"--json", "--smart-case"}
 	for _, dir := range searchExcludeDirs {
 		args = append(args, "--glob", "!"+dir+"/")
@@ -385,7 +452,7 @@ func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
 	}
 	args = append(args, repoRoot)
 
-	cmd := exec.Command("rg", args...)
+	cmd := exec.CommandContext(ctx, "rg", args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -447,17 +514,40 @@ func rgBatchFiles(keywords []string, repoRoot string) map[string][]string {
 	return result
 }
 
+// findClosingQuote returns the index of the next unescaped '"' in s.
+// This handles JSON string escaping (\" and \\) correctly, unlike a
+// plain strings.Index which breaks on filenames or match texts that
+// contain escaped quotes.
+func findClosingQuote(s string) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == '\\' {
+			i++ // skip the escaped character
+			continue
+		}
+		if s[i] == '"' {
+			return i
+		}
+	}
+	return -1
+}
+
+// unescapeJSON handles the two most common JSON string escapes that
+// affect file paths and match texts. Full JSON unescaping is not
+// needed because rg only escapes these two in practice.
+var jsonUnescaper = strings.NewReplacer(`\"`, `"`, `\\`, `\`)
+
 // parseRgMatchLine extracts the file path and submatch texts from a
 // single rg --json "match" line. Uses lightweight string scanning
 // instead of json.Unmarshal to avoid allocating full structs for
-// thousands of match lines in large repos.
+// thousands of match lines in large repos. Handles JSON-escaped
+// quotes in file paths and match texts.
 func parseRgMatchLine(line string) (filePath string, matchTexts []string) {
 	// Extract path: "path":{"text":"FILE"}
 	const pathKey = `"path":{"text":"`
 	if idx := strings.Index(line, pathKey); idx >= 0 {
 		start := idx + len(pathKey)
-		if end := strings.Index(line[start:], `"`); end >= 0 {
-			filePath = line[start : start+end]
+		if end := findClosingQuote(line[start:]); end >= 0 {
+			filePath = jsonUnescaper.Replace(line[start : start+end])
 		}
 	}
 	// Extract submatches: "match":{"text":"MATCHED"}
@@ -470,7 +560,7 @@ func parseRgMatchLine(line string) (filePath string, matchTexts []string) {
 		}
 		start := idx + len(matchKey)
 		rest = rest[start:]
-		if end := strings.Index(rest, `"`); end >= 0 {
+		if end := findClosingQuote(rest); end >= 0 {
 			matchTexts = append(matchTexts, rest[:end])
 			rest = rest[end:]
 		}
@@ -479,7 +569,11 @@ func parseRgMatchLine(line string) (filePath string, matchTexts []string) {
 }
 
 // findFilesByName uses find to locate files whose basename contains the keyword.
+// Guarded by searchTimeout to prevent hangs on large directory trees.
 func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
+	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
+	defer cancel()
+
 	// Build find command with directory exclusions.
 	args := []string{repoRoot}
 	for _, dir := range searchExcludeDirs {
@@ -491,7 +585,7 @@ func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 	}
 	args = append(args, nameFlag, "*"+keyword+"*", "-type", "f", "-print")
 
-	cmd := exec.Command("find", args...)
+	cmd := exec.CommandContext(ctx, "find", args...)
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
