@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"gopkg.in/yaml.v3"
 )
 
 type explorerEvaluator struct {
@@ -831,7 +832,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// Also scan config files (YAML/JSON) for key-value mappings.
 	// These establish config-driven behavior: stage→agent, route→handler, etc.
 	// Only scan config files that are in the filesToScan set (relevant
-	// to the investigation). Uses text pattern matching, not YAML parsing.
+	// to the investigation).
 	for file := range filesToScan {
 		fi, ok := graph.FileIndex[file]
 		if !ok {
@@ -843,55 +844,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		if !isConfig {
 			continue
 		}
-		lines := loadFileLines(filepath.Join(repoRoot, file))
-		if lines == nil {
-			continue
-		}
-		var configEntries []string
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			// Skip comments and empty lines.
-			if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
-				continue
-			}
-			// YAML/TOML: "key: value" where value is a simple scalar
-			if colonIdx := strings.Index(trimmed, ": "); colonIdx > 0 {
-				key := strings.TrimSpace(trimmed[:colonIdx])
-				val := strings.TrimSpace(trimmed[colonIdx+2:])
-				// Skip non-leaf nodes (value is empty or starts list/map)
-				if val == "" || val == "|" || val == ">" || strings.HasPrefix(val, "-") ||
-					strings.HasPrefix(val, "{") || strings.HasPrefix(val, "[") {
-					continue
-				}
-				// Only keep entries where key or value references noted symbols
-				if strings.Contains(notesJoined, key) || strings.Contains(notesJoined, val) {
-					configEntries = append(configEntries, key+" = "+val)
-				}
-			}
-			// JSON: "key": "value"
-			if strings.Contains(trimmed, "\": \"") || strings.Contains(trimmed, "\": ") {
-				cleaned := strings.Trim(trimmed, " ,{}")
-				if strings.HasPrefix(cleaned, "\"") {
-					parts := strings.SplitN(cleaned, "\": ", 2)
-					if len(parts) == 2 {
-						key := strings.Trim(parts[0], "\"")
-						val := strings.Trim(parts[1], "\",")
-						if strings.Contains(notesJoined, key) || strings.Contains(notesJoined, val) {
-							configEntries = append(configEntries, key+" = "+val)
-						}
-					}
-				}
-			}
-		}
-		if len(configEntries) > 0 {
-			if len(configEntries) > 10 {
-				configEntries = configEntries[:10]
+		absPath := filepath.Join(repoRoot, file)
+		entries := extractConfigValues(absPath, notesJoined)
+		if len(entries) > 0 {
+			if len(entries) > 10 {
+				entries = entries[:10]
 			}
 			allValues = append(allValues, concreteValue{
 				file:   file,
 				method: filepath.Base(file),
 				kind:   "config",
-				value:  strings.Join(configEntries, "; "),
+				value:  strings.Join(entries, "; "),
 				line:   1,
 			})
 		}
@@ -915,7 +878,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// 4. Values referencing symbols from the investigation notes
 	var relevant []concreteValue
 	for _, v := range allValues {
-		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" {
+		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" {
 			relevant = append(relevant, v)
 			continue
 		}
@@ -989,7 +952,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// short string returns (Name/Type), then booleans, then longer values.
 	sort.Slice(relevant, func(i, j int) bool {
 		scoreVal := func(v concreteValue) int {
-			if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" {
+			if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" {
 				return 100
 			}
 			if v.kind == "returns" && len(v.value) <= 20 {
@@ -1026,7 +989,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	var chains []string
 	for _, v := range relevant {
 		// Skip values that don't reference other types.
-		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" && v.kind != "config" {
+		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" && v.kind != "config" && v.kind != "decorates" {
 			continue
 		}
 		for _, rv := range relevant {
@@ -1314,6 +1277,54 @@ func extractConcreteValues(source string) []concreteValueEntry {
 		}
 	}
 
+	// Pattern: decorators / annotations.
+	//   Python: @app.route("/path"), @app.get("/api"), @login_required
+	//   Java:   @GetMapping("/path"), @RequestMapping(value="/path")
+	// Detect @decorator(args) lines and pair with the next function/class.
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, "@") {
+			continue
+		}
+		// Extract decorator name and arguments.
+		decorator := trimmed[1:] // strip @
+		var decoratorArgs string
+		if parenIdx := strings.Index(decorator, "("); parenIdx > 0 {
+			rest := decorator[parenIdx+1:]
+			decorator = decorator[:parenIdx]
+			if endIdx := strings.LastIndex(rest, ")"); endIdx >= 0 {
+				decoratorArgs = rest[:endIdx]
+			}
+		}
+		// Find the decorated function/class on the next non-decorator line.
+		target := ""
+		for j := i + 1; j < len(lines); j++ {
+			nextTrimmed := strings.TrimSpace(lines[j])
+			if strings.HasPrefix(nextTrimmed, "@") {
+				continue // skip stacked decorators
+			}
+			// Extract function/class name.
+			for _, prefix := range []string{"def ", "class ", "public ", "private ", "protected ", "func ", "async def ", "async "} {
+				if strings.HasPrefix(nextTrimmed, prefix) {
+					rest := strings.TrimPrefix(nextTrimmed, prefix)
+					// Take identifier up to ( or : or {
+					endIdx := strings.IndexAny(rest, "({: ")
+					if endIdx > 0 {
+						target = strings.TrimSpace(rest[:endIdx])
+					}
+					break
+				}
+			}
+			break
+		}
+		if target != "" && decoratorArgs != "" {
+			results = append(results, concreteValueEntry{
+				kind:  "decorates",
+				value: fmt.Sprintf("@%s(%s) → %s", decorator, decoratorArgs, target),
+			})
+		}
+	}
+
 	// If there are constructor-passing calls, summarize them.
 	if len(registerCalls) > 0 {
 		qualifier := "binds ONLY"
@@ -1394,6 +1405,105 @@ func extractConcreteValues(source string) []concreteValueEntry {
 // File path extraction is format-agnostic: it parses grep's one-path-
 // per-line output and read_file's "[path: ...]" summary banner. No
 // assumptions about language or project structure.
+// extractConfigValues reads a YAML/JSON config file and returns
+// key=value entries where the key or value references symbols from
+// the investigation notes. For YAML, uses yaml.v3 to properly
+// handle nested structures with dotted key paths (e.g.,
+// "stages.explore.default_agent = explorer"). For JSON, uses the
+// encoding/json decoder. For TOML, falls back to text matching.
+func extractConfigValues(path string, notesJoined string) []string {
+	data, err := os.ReadFile(path)
+	if err != nil || len(data) == 0 {
+		return nil
+	}
+
+	var entries []string
+
+	if strings.HasSuffix(path, ".yaml") || strings.HasSuffix(path, ".yml") {
+		// Parse YAML and flatten to dotted key paths.
+		var root interface{}
+		if err := yaml.Unmarshal(data, &root); err != nil {
+			return nil
+		}
+		flattenYAML("", root, notesJoined, &entries)
+	} else if strings.HasSuffix(path, ".json") {
+		// Parse JSON and flatten.
+		var root interface{}
+		if err := json.Unmarshal(data, &root); err != nil {
+			return nil
+		}
+		flattenYAML("", root, notesJoined, &entries) // same flattening logic
+	} else {
+		// TOML or unknown: text-based fallback.
+		for _, line := range strings.Split(string(data), "\n") {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") || strings.HasPrefix(trimmed, "//") {
+				continue
+			}
+			if colonIdx := strings.Index(trimmed, " = "); colonIdx > 0 {
+				key := trimmed[:colonIdx]
+				val := trimmed[colonIdx+3:]
+				if strings.Contains(notesJoined, key) || strings.Contains(notesJoined, val) {
+					entries = append(entries, key+" = "+val)
+				}
+			}
+		}
+	}
+	return entries
+}
+
+// flattenYAML recursively flattens a parsed YAML/JSON tree into
+// "dotted.key.path = value" entries, keeping only leaf scalars whose
+// key or value appears in the investigation notes.
+func flattenYAML(prefix string, node interface{}, notesJoined string, entries *[]string) {
+	switch v := node.(type) {
+	case map[string]interface{}:
+		for key, val := range v {
+			childPrefix := key
+			if prefix != "" {
+				childPrefix = prefix + "." + key
+			}
+			flattenYAML(childPrefix, val, notesJoined, entries)
+		}
+	case map[interface{}]interface{}:
+		// yaml.v3 sometimes produces this type for map keys
+		for key, val := range v {
+			keyStr := fmt.Sprintf("%v", key)
+			childPrefix := keyStr
+			if prefix != "" {
+				childPrefix = prefix + "." + keyStr
+			}
+			flattenYAML(childPrefix, val, notesJoined, entries)
+		}
+	case []interface{}:
+		for i, item := range v {
+			childPrefix := fmt.Sprintf("%s[%d]", prefix, i)
+			flattenYAML(childPrefix, item, notesJoined, entries)
+		}
+	default:
+		// Leaf scalar: string, number, bool
+		valStr := fmt.Sprintf("%v", v)
+		if valStr == "<nil>" || valStr == "" {
+			return
+		}
+		// Only keep if key path or value references investigation symbols.
+		// Split the dotted prefix into parts and check each.
+		relevant := false
+		for _, part := range strings.Split(prefix, ".") {
+			if len(part) >= 3 && strings.Contains(notesJoined, part) {
+				relevant = true
+				break
+			}
+		}
+		if !relevant && len(valStr) >= 3 {
+			relevant = strings.Contains(notesJoined, valStr)
+		}
+		if relevant {
+			*entries = append(*entries, prefix+" = "+valStr)
+		}
+	}
+}
+
 func extractFileCoverage(history []types.ToolResult) (discovered []string, readSet map[string]bool) {
 	readSet = make(map[string]bool)
 	discoveredSet := make(map[string]bool)
