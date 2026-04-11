@@ -1,0 +1,523 @@
+package agent
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// EvidenceRequirement represents a specific type of evidence needed to
+// answer the user's question. The explorer tracks which requirements
+// are satisfied during investigation and directs file reads to fill gaps.
+type EvidenceRequirement struct {
+	Kind     string   // "enumeration", "call_chain", "registration", "return_value", "config_mapping", "conditional"
+	Entities []string // key entities from the question this requirement relates to
+	Reason   string   // human-readable reason for this requirement
+	Status   string   // "unsatisfied", "partial", "satisfied"
+}
+
+// extractEvidenceRequirements analyzes the user's question and produces
+// a set of evidence requirements. This is deterministic (no LLM call)
+// and drives the entire investigation: file prioritization, continuation
+// prompts, quality gates, and dataflow candidate selection.
+func extractEvidenceRequirements(question string) []EvidenceRequirement {
+	entities := extractRankingEntities(question)
+	lower := strings.ToLower(question)
+
+	var reqs []EvidenceRequirement
+	seen := make(map[string]bool)
+	add := func(kind, reason string, ents ...string) {
+		key := kind + ":" + strings.Join(ents, ",")
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		reqs = append(reqs, EvidenceRequirement{
+			Kind:     kind,
+			Entities: ents,
+			Reason:   reason,
+			Status:   "unsatisfied",
+		})
+	}
+
+	// --- Enumeration: "how many", "list all", "哪些", "多少", "列出" ---
+	for _, kw := range []string{"how many", "list all", "list each", "what are the"} {
+		if strings.Contains(lower, kw) {
+			add("enumeration", fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
+			break
+		}
+	}
+	for _, kw := range []string{"哪些", "多少", "列出", "哪几", "有几个", "分别"} {
+		if strings.Contains(question, kw) {
+			add("enumeration", fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
+			break
+		}
+	}
+
+	// --- Call chain: "calls", "invoke", "调用", "dispatch" ---
+	isCallChain := false
+	for _, kw := range []string{"call", "invoke", "dispatch", "calls"} {
+		if strings.Contains(lower, kw) {
+			isCallChain = true
+			break
+		}
+	}
+	for _, kw := range []string{"调用", "分发", "触发"} {
+		if strings.Contains(question, kw) {
+			isCallChain = true
+			break
+		}
+	}
+	if isCallChain && len(entities) >= 2 {
+		add("call_chain",
+			fmt.Sprintf("need to trace how %s invokes/calls %s", entities[0], entities[1]),
+			entities...)
+	} else if isCallChain && len(entities) >= 1 {
+		add("call_chain",
+			fmt.Sprintf("need to trace call relationships of %s", entities[0]),
+			entities...)
+	}
+
+	// --- Registration: "registered", "注册", or call_chain implies it ---
+	isRegistration := false
+	for _, kw := range []string{"register", "registered", "registry"} {
+		if strings.Contains(lower, kw) {
+			isRegistration = true
+			break
+		}
+	}
+	for _, kw := range []string{"注册", "绑定"} {
+		if strings.Contains(question, kw) {
+			isRegistration = true
+			break
+		}
+	}
+	// Call chains imply registration: "which X can call Y?" requires knowing what Y is registered
+	if isCallChain || isRegistration {
+		for _, ent := range entities {
+			add("registration",
+				fmt.Sprintf("need to find where %s is registered/bound", ent),
+				ent)
+		}
+	}
+
+	// --- Return value: for each entity, we may need its concrete value ---
+	// Triggered when question asks about matching, identity, or naming
+	for _, kw := range []string{"name", "type", "which", "what", "名称", "类型", "哪个", "什么"} {
+		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
+			for _, ent := range entities {
+				add("return_value",
+					fmt.Sprintf("need concrete return values from %s (for matching/identity)", ent),
+					ent)
+			}
+			break
+		}
+	}
+
+	// --- Config mapping: "config", "configured", "配置" ---
+	for _, kw := range []string{"config", "configured", "configuration", "配置", "yaml", "json"} {
+		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
+			add("config_mapping", "need to trace config keys to runtime behavior", entities...)
+			break
+		}
+	}
+
+	// --- Conditional: "when", "if", "condition", "条件", "什么时候" ---
+	for _, kw := range []string{"when", "condition", "under what", "条件", "什么时候", "何时"} {
+		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
+			add("conditional", "need to resolve conditions under which behavior occurs", entities...)
+			break
+		}
+	}
+
+	return reqs
+}
+
+// checkRequirementSatisfaction scans investigation notes and structured
+// evidence against ERM requirements. Returns the updated requirements
+// with status set to "satisfied", "partial", or "unsatisfied".
+func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, evidence []types.EvidenceItem) []EvidenceRequirement {
+	if len(reqs) == 0 {
+		return reqs
+	}
+	notesJoined := normalizeForMatch(strings.Join(notes, "\n"))
+
+	for i := range reqs {
+		req := &reqs[i]
+		if req.Status == "satisfied" {
+			continue
+		}
+		switch req.Kind {
+		case "enumeration":
+			// Satisfied if notes contain a list of items (multiple [DIRECT]/[REGISTRATION] tags)
+			count := countEvidenceTags(notesJoined, []string{"[direct]", "[registration]"})
+			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceDirect, types.EvidenceRegistration)
+			if count >= 3 {
+				req.Status = "satisfied"
+			} else if count >= 1 {
+				req.Status = "partial"
+			}
+
+		case "call_chain":
+			// Satisfied if notes describe call relationships between entities
+			hasRelationship := countEvidenceTags(notesJoined, []string{"[relationship]", "[mechanism]"}) > 0
+			hasRelationship = hasRelationship || countEvidenceByKinds(evidence, req.Entities, types.EvidenceRelationship) > 0
+			// Also check if entities appear together in a call context
+			entitiesInNotes := 0
+			for _, ent := range req.Entities {
+				if strings.Contains(notesJoined, strings.ToLower(ent)) {
+					entitiesInNotes++
+				}
+			}
+			if hasRelationship && entitiesInNotes >= 2 {
+				req.Status = "satisfied"
+			} else if hasRelationship || entitiesInNotes >= 1 {
+				req.Status = "partial"
+			}
+
+		case "registration":
+			// Satisfied if notes contain a [REGISTRATION] tag mentioning the entity,
+			// AND the registration mentions a SPECIFIC value (not just the interface).
+			for _, ent := range req.Entities {
+				entLower := normalizeForMatch(ent)
+				// Look for "[registration]" lines that mention this entity with specific values
+				for _, line := range strings.Split(notesJoined, "\n") {
+					if strings.Contains(line, "[registration]") && strings.Contains(line, entLower) {
+						// Check if it mentions a specific value (NewXxx, "xxx", etc.)
+						if strings.Contains(line, "new") || strings.Contains(line, "\"") ||
+							strings.Contains(line, "only") || strings.Contains(line, "default") {
+							req.Status = "satisfied"
+						} else if req.Status != "satisfied" {
+							req.Status = "partial"
+						}
+					}
+				}
+				// Also check structured evidence
+				for _, ev := range evidence {
+					if ev.Kind == types.EvidenceRegistration &&
+						strings.Contains(normalizeForMatch(ev.Subject+ev.Object+ev.Summary), entLower) {
+						if strings.Contains(normalizeForMatch(ev.Object+ev.Summary), "new") ||
+							strings.Contains(ev.Object, "\"") {
+							req.Status = "satisfied"
+						} else if req.Status != "satisfied" {
+							req.Status = "partial"
+						}
+					}
+				}
+			}
+
+		case "return_value":
+			// Satisfied if concrete values exist for the entity
+			for _, ent := range req.Entities {
+				entLower := normalizeForMatch(ent)
+				for _, ev := range evidence {
+					if ev.Kind == types.EvidenceConcrete &&
+						strings.Contains(normalizeForMatch(ev.Subject), entLower) &&
+						ev.Object != "" {
+						req.Status = "satisfied"
+						break
+					}
+				}
+				if req.Status == "satisfied" {
+					break
+				}
+				// Check notes for return patterns
+				if strings.Contains(notesJoined, normalizeForMatch(ent)) &&
+					(strings.Contains(notesJoined, "returns") || strings.Contains(notesJoined, "return")) {
+					if req.Status != "satisfied" {
+						req.Status = "partial"
+					}
+				}
+			}
+
+		case "config_mapping":
+			count := countEvidenceByKinds(evidence, req.Entities, types.EvidenceConcrete, types.EvidenceMechanism)
+			if count >= 2 {
+				req.Status = "satisfied"
+			} else if count >= 1 {
+				req.Status = "partial"
+			}
+
+		case "conditional":
+			count := countEvidenceTags(notesJoined, []string{"[conditional]"})
+			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceConditional)
+			if count >= 1 {
+				req.Status = "satisfied"
+			}
+		}
+	}
+	return reqs
+}
+
+// normalizeForMatch lowercases and strips hyphens/underscores so that
+// "sub-agent", "sub_agent", and "subagent" all match.
+func normalizeForMatch(s string) string {
+	s = strings.ToLower(s)
+	s = strings.ReplaceAll(s, "-", "")
+	s = strings.ReplaceAll(s, "_", "")
+	return s
+}
+
+func countEvidenceTags(text string, tags []string) int {
+	count := 0
+	for _, tag := range tags {
+		count += strings.Count(text, tag)
+	}
+	return count
+}
+
+func countEvidenceByKinds(evidence []types.EvidenceItem, entities []string, kinds ...types.EvidenceKind) int {
+	count := 0
+	for _, ev := range evidence {
+		kindMatch := false
+		for _, k := range kinds {
+			if ev.Kind == k {
+				kindMatch = true
+				break
+			}
+		}
+		if !kindMatch {
+			continue
+		}
+		if len(entities) == 0 {
+			count++
+			continue
+		}
+		text := normalizeForMatch(ev.Subject + " " + ev.Object + " " + ev.Summary)
+		for _, ent := range entities {
+			if strings.Contains(text, normalizeForMatch(ent)) {
+				count++
+				break
+			}
+		}
+	}
+	return count
+}
+
+// ermUnsatisfiedGaps returns a human-readable prompt section describing
+// which evidence requirements are still unsatisfied, suitable for
+// injection into ContinuationPrompt.
+func ermUnsatisfiedGaps(reqs []EvidenceRequirement) string {
+	var gaps []string
+	for _, req := range reqs {
+		if req.Status == "satisfied" {
+			continue
+		}
+		prefix := "MISSING"
+		if req.Status == "partial" {
+			prefix = "INCOMPLETE"
+		}
+		gaps = append(gaps, fmt.Sprintf("- [%s] %s: %s (entities: %s)",
+			prefix, req.Kind, req.Reason, strings.Join(req.Entities, ", ")))
+	}
+	if len(gaps) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Evidence Gaps (from question analysis)\n\n")
+	b.WriteString("The following evidence requirements are NOT YET satisfied. ")
+	b.WriteString("Prioritize reading files and extracting evidence that fills these gaps:\n\n")
+	for _, g := range gaps {
+		b.WriteString(g + "\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// ermFileScore scores a file by how well its symbols match ERM requirements.
+// Higher score = file more likely to contain evidence that fills gaps.
+func ermFileScore(fi *repomap.FileInfo, reqs []EvidenceRequirement) float64 {
+	if fi == nil || len(reqs) == 0 {
+		return 0
+	}
+	score := 0.0
+	// Build a set of all entity names from unsatisfied requirements
+	var unsatisfiedEntities []string
+	for _, req := range reqs {
+		if req.Status == "satisfied" {
+			continue
+		}
+		unsatisfiedEntities = append(unsatisfiedEntities, req.Entities...)
+	}
+	if len(unsatisfiedEntities) == 0 {
+		return 0
+	}
+
+	// Check file path for entity mentions
+	pathLower := strings.ToLower(fi.RelPath)
+	for _, ent := range unsatisfiedEntities {
+		if strings.Contains(pathLower, strings.ToLower(ent)) {
+			score += 2.0
+		}
+	}
+
+	// Check symbol names for entity mentions
+	for _, sym := range fi.Symbols {
+		symLower := strings.ToLower(sym.Name)
+		for _, ent := range unsatisfiedEntities {
+			entLower := strings.ToLower(ent)
+			if strings.Contains(symLower, entLower) || strings.Contains(entLower, symLower) {
+				score += 1.0
+				// Bonus for registration-like function names
+				if isRegistrationLikeName(sym.Name) {
+					score += 2.0
+				}
+				// Bonus for Name()/String() methods (return_value requirement)
+				if sym.Kind == "method" && (sym.Name == "Name" || sym.Name == "String" || sym.Name == "Type") {
+					score += 1.5
+				}
+			}
+		}
+	}
+
+	return score
+}
+
+func isRegistrationLikeName(name string) bool {
+	lower := strings.ToLower(name)
+	for _, prefix := range []string{"register", "bind", "setup", "init", "default", "provide", "subscribe"} {
+		if strings.Contains(lower, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// ermSuggestFiles returns files the ERM thinks should be read to fill
+// evidence gaps, based on symbol table matching. Returns up to maxFiles
+// suggestions with reasons.
+func ermSuggestFiles(graph *repomap.Graph, reqs []EvidenceRequirement, readSet map[string]bool, maxFiles int) []ermFileSuggestion {
+	if graph == nil || len(reqs) == 0 {
+		return nil
+	}
+
+	type scored struct {
+		path   string
+		score  float64
+		reason string
+	}
+	var candidates []scored
+
+	for _, fi := range graph.Files {
+		if readSet[fi.RelPath] {
+			continue // already read
+		}
+		s := ermFileScore(fi, reqs)
+		if s <= 0 {
+			continue
+		}
+		// Build reason from matching symbols
+		var matchedSyms []string
+		for _, sym := range fi.Symbols {
+			for _, req := range reqs {
+				if req.Status == "satisfied" {
+					continue
+				}
+				for _, ent := range req.Entities {
+					if strings.Contains(strings.ToLower(sym.Name), strings.ToLower(ent)) {
+						matchedSyms = append(matchedSyms, sym.Name)
+						break
+					}
+				}
+			}
+		}
+		reason := fmt.Sprintf("contains symbols: %s", strings.Join(matchedSyms, ", "))
+		candidates = append(candidates, scored{path: fi.RelPath, score: s, reason: reason})
+	}
+
+	// Sort by score descending
+	for i := 0; i < len(candidates); i++ {
+		for j := i + 1; j < len(candidates); j++ {
+			if candidates[j].score > candidates[i].score {
+				candidates[i], candidates[j] = candidates[j], candidates[i]
+			}
+		}
+	}
+
+	if len(candidates) > maxFiles {
+		candidates = candidates[:maxFiles]
+	}
+
+	result := make([]ermFileSuggestion, len(candidates))
+	for i, c := range candidates {
+		result[i] = ermFileSuggestion{Path: c.path, Score: c.score, Reason: c.reason}
+	}
+	return result
+}
+
+type ermFileSuggestion struct {
+	Path   string
+	Score  float64
+	Reason string
+}
+
+// ermAutoSatisfyUnresolvable marks requirements as "satisfied" when none
+// of their entities match any symbol in the codebase. This prevents
+// generic English words (from analyzer-rewritten tasks) from creating
+// unsatisfiable requirements that block the pipeline indefinitely.
+// This is a data-driven filter (checked against the repo's symbol table),
+// not a hardcoded stopword list.
+func ermAutoSatisfyUnresolvable(reqs []EvidenceRequirement, graph *repomap.Graph) []EvidenceRequirement {
+	if graph == nil || len(reqs) == 0 {
+		return reqs
+	}
+	for i := range reqs {
+		req := &reqs[i]
+		if req.Status == "satisfied" {
+			continue
+		}
+		// Check if ANY entity in this requirement matches ANY symbol in the repo.
+		hasCodeMatch := false
+		for _, ent := range req.Entities {
+			entLower := strings.ToLower(ent)
+			// Check symbol definitions
+			for symName := range graph.SymbolDefs {
+				if strings.Contains(strings.ToLower(symName), entLower) {
+					hasCodeMatch = true
+					break
+				}
+			}
+			if hasCodeMatch {
+				break
+			}
+			// Check file paths
+			for _, fi := range graph.Files {
+				if strings.Contains(strings.ToLower(fi.RelPath), entLower) {
+					hasCodeMatch = true
+					break
+				}
+			}
+			if hasCodeMatch {
+				break
+			}
+		}
+		if !hasCodeMatch {
+			req.Status = "satisfied" // not applicable — entity doesn't exist in codebase
+		}
+	}
+	return reqs
+}
+
+// ermAllSatisfied returns true if all requirements are satisfied.
+func ermAllSatisfied(reqs []EvidenceRequirement) bool {
+	for _, req := range reqs {
+		if req.Status != "satisfied" {
+			return false
+		}
+	}
+	return true
+}
+
+// logERM logs the current ERM state at debug level.
+func logERM(reqs []EvidenceRequirement) {
+	if len(reqs) == 0 {
+		return
+	}
+	for _, req := range reqs {
+		logging.Debug("[erm] %s(%s) = %s — %s",
+			req.Kind, strings.Join(req.Entities, ","), req.Status, req.Reason)
+	}
+}

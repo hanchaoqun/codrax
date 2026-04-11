@@ -40,6 +40,7 @@ type explorerEvaluator struct {
 	phase0ExtraRound          bool                 // whether we already gave one extra Phase 0 round for quality gate
 	structuredEvidence        []types.EvidenceItem
 	flowFindings              []types.FlowFindingDigest
+	ermRequirements           []EvidenceRequirement // evidence requirement model
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -123,8 +124,27 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 					})
 				}
 			}
+			// Extract ERM requirements and use them to boost file priority.
+			e.ermRequirements = extractEvidenceRequirements(ctx.CurrentTask)
+			// Auto-satisfy requirements whose entities don't match any
+			// symbol in the codebase — prevents generic English words from
+			// creating unsatisfiable requirements that block the pipeline.
+			if sr.Graph != nil {
+				e.ermRequirements = ermAutoSatisfyUnresolvable(e.ermRequirements, sr.Graph)
+			}
+			logERM(e.ermRequirements)
+
 			sort.Slice(candidates, func(i, j int) bool {
-				return candidates[i].repoMapScore > candidates[j].repoMapScore
+				// Primary: ERM score (question-relevant files first)
+				// Secondary: repo_map structural importance
+				var ermI, ermJ float64
+				if sr.Graph != nil {
+					ermI = ermFileScore(sr.Graph.FileIndex[candidates[i].path], e.ermRequirements)
+					ermJ = ermFileScore(sr.Graph.FileIndex[candidates[j].path], e.ermRequirements)
+				}
+				scoreI := candidates[i].repoMapScore + ermI*200 // ERM boost
+				scoreJ := candidates[j].repoMapScore + ermJ*200
+				return scoreI > scoreJ
 			})
 			e.fileSymbols = make(map[string][]string)
 			for i, c := range candidates {
@@ -405,6 +425,32 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	}
 	e.lastToolResultCount = len(history)
 	e.idleStreakInDepth++
+
+	// --- ERM gap-directed file suggestions ---
+	// Check which evidence requirements are still unsatisfied and suggest
+	// specific files to read. This is higher priority than generic coverage
+	// pushes because it's semantically directed by the question.
+	if len(e.ermRequirements) > 0 && e.searchResult != nil && e.searchResult.Graph != nil {
+		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
+		logERM(e.ermRequirements)
+		if !ermAllSatisfied(e.ermRequirements) {
+			suggestions := ermSuggestFiles(e.searchResult.Graph, e.ermRequirements, readSet, 3)
+			if len(suggestions) > 0 {
+				var hint strings.Builder
+				hint.WriteString(ermUnsatisfiedGaps(e.ermRequirements))
+				hint.WriteString("**Suggested files to fill these gaps** (read them NOW):\n\n")
+				for _, s := range suggestions {
+					hint.WriteString(fmt.Sprintf("- `%s` (score=%.1f) — %s\n", s.Path, s.Score, s.Reason))
+				}
+				hint.WriteString("\nCall `read_file` on the top suggestion immediately. ")
+				hint.WriteString("Extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.\n")
+				if e.idleStreakInDepth >= 1 {
+					e.idleStreakInDepth = 0 // reset: we have directed work to do
+				}
+				return hint.String(), true
+			}
+		}
+	}
 
 	// Check which pre-scanned high-priority files are still unread.
 	var preScannedUnread []string
@@ -695,6 +741,26 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	hasEnough := toolDiversity && fileCoverage && evidenceQuality
 
+	// ERM quality gate: if we have evidence requirements that are still
+	// unsatisfied, demote hasEnough to trigger a retry that fills gaps.
+	if hasEnough && len(e.ermRequirements) > 0 {
+		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
+		if !ermAllSatisfied(e.ermRequirements) {
+			unsatCount := 0
+			for _, r := range e.ermRequirements {
+				if r.Status == "unsatisfied" {
+					unsatCount++
+				}
+			}
+			// Only block if there are fully unsatisfied requirements.
+			// Partial requirements are tolerable.
+			if unsatCount > 0 {
+				logging.Debug("[explorer] ERM gate: %d unsatisfied requirements, demoting hasEnough", unsatCount)
+				hasEnough = false
+			}
+		}
+	}
+
 	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
 
 	// Rank evidence and findings by relevance to the user's question
@@ -715,6 +781,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
 		} else if !evidenceQuality {
 			out.RetryHint = fmt.Sprintf("Previous attempt collected only %d [DIRECT]/[REGISTRATION] evidence entries (need ≥2). Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", directCount)
+		} else if len(e.ermRequirements) > 0 && !ermAllSatisfied(e.ermRequirements) {
+			out.RetryHint = "Previous attempt left evidence requirements unsatisfied. " + ermUnsatisfiedGaps(e.ermRequirements)
 		} else {
 			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", len(readSet), len(discovered), coverage*100, relevantRead)
 		}
@@ -754,6 +822,13 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 	for _, file := range e.allScoredFiles {
 		candidateSet[file] = true
+	}
+	// Expand candidates with ERM-directed files that may have been
+	// missed by keyword search ranking but contain gap-filling evidence.
+	if len(e.ermRequirements) > 0 {
+		for _, s := range ermSuggestFiles(e.searchResult.Graph, e.ermRequirements, readSet, 5) {
+			candidateSet[s.Path] = true
+		}
 	}
 	var candidates []string
 	for file := range candidateSet {
