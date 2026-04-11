@@ -973,11 +973,19 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		b.WriteString("\n")
 	}
 
-	// Build embedding chains: when type A embeds type B, and B has a
-	// concrete value (e.g., ReadOnly.IsWrite() returns false), then
-	// A inherits that value (A.IsWrite() returns false via ReadOnly).
-	// Uses the graph's embedding relations extracted by tree-sitter.
-	var embeddings []string
+	// Build type hierarchy chains: when type A embeds/extends type B,
+	// and B has a concrete value (e.g., ReadOnly.IsWrite() returns false),
+	// then A inherits that value. Uses the graph's embedding and
+	// inheritance relations extracted by tree-sitter.
+	//
+	// Covers:
+	//   Go:     struct embedding (ReadOnly in ExecCommand)
+	//   Go:     interface embedding (Reader in ReadCloser)
+	//   Java:   extends, implements
+	//   Python: class inheritance (superclasses)
+	//   JS/TS:  extends
+	//   Rust:   trait implementations
+	var hierarchyChains []string
 	// Collect all concrete values indexed by receiver for fast lookup.
 	valuesByReceiver := make(map[string][]concreteValue)
 	for _, v := range relevant {
@@ -985,73 +993,49 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			valuesByReceiver[v.receiver] = append(valuesByReceiver[v.receiver], v)
 		}
 	}
-	// Scan embedding relations in all scanned files.
+	// Scan embedding + inheritance relations in all scanned files.
 	for file := range filesToScan {
 		fi, ok := graph.FileIndex[file]
 		if !ok {
 			continue
 		}
 		for _, rel := range fi.Relations {
-			if rel.Kind != "embedding" {
+			if rel.Kind != "embedding" && rel.Kind != "inheritance" {
 				continue
 			}
-			// rel.From = "file:HostType", rel.To = "EmbeddedType"
-			embeddedType := rel.To
-			if vals, ok := valuesByReceiver[embeddedType]; ok {
-				// Extract host type name from "file:HostType"
-				hostType := rel.From
-				if idx := strings.LastIndex(hostType, ":"); idx >= 0 {
-					hostType = hostType[idx+1:]
+			// rel.From = "file:ChildType", rel.To = "ParentType"
+			parentType := rel.To
+			if vals, ok := valuesByReceiver[parentType]; ok {
+				childType := rel.From
+				if idx := strings.LastIndex(childType, ":"); idx >= 0 {
+					childType = childType[idx+1:]
+				}
+				verb := "embeds"
+				if rel.Kind == "inheritance" {
+					verb = "extends"
 				}
 				for _, v := range vals {
-					embeddings = append(embeddings, fmt.Sprintf(
-						"`%s` embeds `%s` → `%s()` %s %s applies to `%s`",
-						hostType, embeddedType,
-						v.method, v.kind, v.value, hostType))
+					hierarchyChains = append(hierarchyChains, fmt.Sprintf(
+						"`%s` %s `%s` → `%s()` %s %s applies to `%s`",
+						childType, verb, parentType,
+						v.method, v.kind, v.value, childType))
 				}
 			}
 		}
 	}
-	if len(embeddings) > 0 {
-		if len(embeddings) > 15 {
-			embeddings = embeddings[:15]
+	if len(hierarchyChains) > 0 {
+		if len(hierarchyChains) > 20 {
+			hierarchyChains = hierarchyChains[:20]
 		}
-		b.WriteString("### Embedding Chains\n\n")
-		b.WriteString("These types inherit behavior from embedded types:\n\n")
-		for _, e := range embeddings {
+		b.WriteString("### Type Hierarchy Chains\n\n")
+		b.WriteString("These types inherit behavior via embedding (Go) or inheritance (Java/Python/JS/Rust):\n\n")
+		for _, e := range hierarchyChains {
 			b.WriteString("- " + e + "\n")
 		}
 		b.WriteString("\n")
 	}
 
 	return b.String()
-}
-
-// readSourceLines reads lines [startLine, endLine] (1-based, inclusive)
-// from the given file path. Returns empty string on any error.
-func readSourceLines(path string, startLine, endLine int) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(f)
-	lineNum := 0
-	for scanner.Scan() {
-		lineNum++
-		if lineNum >= startLine && lineNum <= endLine {
-			lines = append(lines, scanner.Text())
-		}
-		if lineNum > endLine {
-			break
-		}
-	}
-	if len(lines) == 0 {
-		return ""
-	}
-	return strings.Join(lines, "\n")
 }
 
 // concreteValueEntry holds a single extracted concrete value from source code.
