@@ -522,7 +522,11 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	// Inject concrete values extracted from short methods/functions
 	// across all relevant files (pre-scanned, read, and scored).
 	// Also builds resolution chains that trace through symbol references.
-	if cv := e.buildConcreteValuesSection(ctx.RepoRoot, readSet); cv != "" {
+	// Track what programmatic layers fired for adaptive instructions.
+	hasConcreteValues := false
+	cv := e.buildConcreteValuesSection(ctx.RepoRoot, readSet)
+	if cv != "" {
+		hasConcreteValues = true
 		digest.WriteString(cv)
 	}
 	digest.WriteString("## Files Read\n\n")
@@ -555,16 +559,65 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 		digest.WriteString("\n")
 	}
 
+	// Detect unresolved conditions: evidence entries tagged [CONDITIONAL]
+	// whose conditions are not resolved by any concrete value. This warns
+	// the LLM that its answer may be incomplete without further tracing.
+	if len(e.investigationNotes) > 0 && hasConcreteValues {
+		var unresolvedConditions []string
+		for _, note := range e.investigationNotes {
+			for _, line := range strings.Split(note, "\n") {
+				trimmed := strings.TrimSpace(line)
+				if !strings.HasPrefix(trimmed, "- [CONDITIONAL]") {
+					continue
+				}
+				// Check if any concrete value's method or receiver appears
+				// in this condition. If not, the condition is unresolved.
+				resolved := false
+				if cv != "" {
+					// Simple heuristic: if any word from the concrete values
+					// section appears in the condition, consider it potentially
+					// resolved. The LLM will do the actual resolution.
+					for _, word := range strings.Fields(trimmed) {
+						cleaned := strings.Trim(word, "`(){}[],:;")
+						if len(cleaned) >= 6 && strings.Contains(cv, cleaned) {
+							resolved = true
+							break
+						}
+					}
+				}
+				if !resolved {
+					unresolvedConditions = append(unresolvedConditions, trimmed)
+				}
+			}
+		}
+		if len(unresolvedConditions) > 0 {
+			digest.WriteString("## Unresolved Conditions\n\n")
+			digest.WriteString("These conditions from your evidence could NOT be resolved by the Concrete Values table. " +
+				"Your answer should acknowledge this uncertainty:\n\n")
+			for _, c := range unresolvedConditions {
+				digest.WriteString(c + "\n")
+			}
+			digest.WriteString("\n")
+		}
+	}
+
+	// Adaptive reasoning instructions: guide the LLM based on which
+	// programmatic layers actually produced output.
 	digest.WriteString("## Reasoning Instructions\n\n")
 	digest.WriteString("Answer the user's question by following these steps:\n\n")
-	digest.WriteString("**Step 1 — Read the Resolution Chains section above.** These chains have ALREADY traced through " +
-		"the code to resolve conditional logic. Use them as given — they are programmatically verified.\n\n")
-	digest.WriteString("**Step 2 — Read the Concrete Values table.** Each row is an EXACT fact from source code.\n\n")
+	if hasConcreteValues {
+		digest.WriteString("**Step 1 — Use programmatic evidence.** The Concrete Values table, " +
+			"Resolution Chains, and Embedding Chains above are extracted directly from source code " +
+			"and are ground truth. Start your reasoning from these.\n\n")
+	}
+	digest.WriteString("**Step 2 — Resolve conditions.** When your evidence says 'X happens if Y', " +
+		"find the concrete value of Y. Do not stop at 'any component that satisfies the condition' — " +
+		"trace through to identify WHICH specific components satisfy it right now.\n\n")
 	digest.WriteString("**Step 3 — Answer the question.** Requirements:\n")
 	digest.WriteString("- Name SPECIFIC components, not categories\n")
-	digest.WriteString("- Start from the resolution chains and concrete values to determine the specific answer\n")
 	digest.WriteString("- Ground every key claim in a file:line citation\n")
-	digest.WriteString("- If no resolution chain exists, fall back to your evidence catalog\n")
+	digest.WriteString("- If a condition cannot be resolved (no concrete value found), say so explicitly " +
+		"rather than guessing\n")
 
 	return digest.String(), true
 }
