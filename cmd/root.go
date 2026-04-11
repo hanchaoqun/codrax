@@ -165,7 +165,15 @@ func runREPL(_ *cobra.Command) error {
 	renderFn := func(busCtx *types.BusContext) string {
 		return app.renderer.RenderResult(busCtx)
 	}
-	r := repl.New(app.orch, store, renderFn, app.renderer, flagRepo, flagBranch, os.Stdout)
+	r := repl.New(repl.Config{
+		Runner:   app.orch,
+		Store:    store,
+		Render:   renderFn,
+		Renderer: app.renderer,
+		RepoRoot: flagRepo,
+		Branch:   flagBranch,
+		Out:      os.Stdout,
+	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
 		return err

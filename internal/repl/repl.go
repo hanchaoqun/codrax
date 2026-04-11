@@ -11,13 +11,14 @@
 package repl
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strings"
 	"time"
-	"os"
 	"unicode/utf8"
 
 	"github.com/mattn/go-runewidth"
@@ -44,27 +45,98 @@ type Runner interface {
 // response text. main.go owns the canonical implementation.
 type ResultRenderer func(*types.BusContext) string
 
-// REPL drives the interactive prompt.
-type REPL struct {
-	runner   Runner
-	store    *memory.Store
-	render   ResultRenderer
-	renderer *render.Renderer
-	repoRoot string
-	branch   string
-	out      io.Writer
+// Config holds all dependencies for constructing a REPL. Using a
+// struct keeps the constructor readable as the field count grows and
+// lets tests inject an io.Reader for scripted input.
+type Config struct {
+	Runner   Runner
+	Store    *memory.Store
+	Render   ResultRenderer
+	Renderer *render.Renderer
+	RepoRoot string
+	Branch   string
+	In       io.Reader // nil → interactive (huh); non-nil → line-oriented
+	Out      io.Writer
+
+	// UI customization (used by line-oriented mode; ignored for huh).
+	Prompt     string // primary prompt, e.g. ">"
+	PromptCont string // continuation prompt, e.g. "."
+	Banner     string // printed once at start; empty → default badge
 }
 
-// New constructs a REPL.
-func New(runner Runner, store *memory.Store, renderFn ResultRenderer, renderer *render.Renderer, repoRoot, branch string, out io.Writer) *REPL {
+// REPL drives the interactive prompt.
+type REPL struct {
+	runner     Runner
+	store      *memory.Store
+	render     ResultRenderer
+	renderer   *render.Renderer
+	repoRoot   string
+	branch     string
+	in         io.Reader
+	out        io.Writer
+	prompt     string
+	promptCont string
+	bannerText string
+	scanner    *bufio.Scanner // lazy-init for line-oriented mode
+}
+
+// New constructs a REPL from a Config.
+func New(cfg Config) *REPL {
 	return &REPL{
-		runner:   runner,
-		store:    store,
-		render:   renderFn,
-		renderer: renderer,
-		repoRoot: repoRoot,
-		branch:   branch,
-		out:      out,
+		runner:     cfg.Runner,
+		store:      cfg.Store,
+		render:     cfg.Render,
+		renderer:   cfg.Renderer,
+		repoRoot:   cfg.RepoRoot,
+		branch:     cfg.Branch,
+		in:         cfg.In,
+		out:        cfg.Out,
+		prompt:     cfg.Prompt,
+		promptCont: cfg.PromptCont,
+		bannerText: cfg.Banner,
+	}
+}
+
+// interactive returns true when the REPL is attached to an
+// interactive terminal (huh-based input), false when driven by a
+// scripted io.Reader.
+func (r *REPL) interactive() bool { return r.in == nil }
+
+// info prints an informational message. In interactive mode it uses
+// pterm styling; in line-oriented mode it writes plain text to r.out
+// so tests can capture it.
+func (r *REPL) info(msg string) {
+	if r.interactive() {
+		pterm.Info.Println(msg)
+	} else {
+		fmt.Fprintln(r.out, msg)
+	}
+}
+
+// success prints a success message.
+func (r *REPL) success(msg string) {
+	if r.interactive() {
+		pterm.Success.Println(msg)
+	} else {
+		fmt.Fprintln(r.out, msg)
+	}
+}
+
+// errorf prints an error message.
+func (r *REPL) errorf(format string, args ...interface{}) {
+	if r.interactive() {
+		pterm.Error.Printf(format, args...)
+	} else {
+		fmt.Fprintf(r.out, format, args...)
+	}
+}
+
+// warn prints a warning message.
+func (r *REPL) warn(format string, args ...interface{}) {
+	if r.interactive() {
+		pterm.Warning.Printf(format, args...)
+	} else {
+		fmt.Fprintf(r.out, format, args...)
 	}
 }
 
@@ -82,9 +154,11 @@ func (r *REPL) Loop() error {
 		if line == "" {
 			continue
 		}
-		// Echo user input so it's visible after huh clears.
-		pterm.FgLightCyan.Printf("  > %s\n", line)
-		pterm.FgDarkGray.Println("  ─────────────────────────────────────")
+		if r.interactive() {
+			// Echo user input so it's visible after huh clears.
+			pterm.FgLightCyan.Printf("  > %s\n", line)
+			pterm.FgDarkGray.Println("  ─────────────────────────────────────")
+		}
 		if strings.HasPrefix(line, "/") {
 			if quit := r.handleSlash(line); quit {
 				return nil
@@ -96,6 +170,10 @@ func (r *REPL) Loop() error {
 }
 
 func (r *REPL) banner() {
+	if r.bannerText != "" {
+		fmt.Fprintln(r.out, r.bannerText)
+		return
+	}
 	badge := pterm.NewStyle(pterm.BgBlue, pterm.FgWhite, pterm.Bold).Sprint(" CODRAX ")
 	hint := pterm.FgDarkGray.Sprint("/help · /exit")
 	fmt.Fprintf(r.out, "\n  %s  %s\n\n", badge, hint)
@@ -124,9 +202,18 @@ func inputTheme() *huh.Theme {
 	return t
 }
 
-// readInput uses charmbracelet/huh for interactive input. Handles
-// multi-line continuation when a line ends with \.
+// readInput reads a (possibly multi-line) request from the user.
+// In interactive mode it delegates to charmbracelet/huh; when driven
+// by an io.Reader (tests, pipes) it reads lines via bufio.Scanner.
 func (r *REPL) readInput(prompt string) (string, error) {
+	if r.interactive() {
+		return r.readInputHuh(prompt)
+	}
+	return r.readInputLines()
+}
+
+// readInputHuh uses charmbracelet/huh for interactive terminal input.
+func (r *REPL) readInputHuh(prompt string) (string, error) {
 	theme := inputTheme()
 	var parts []string
 	cur := prompt
@@ -153,6 +240,37 @@ func (r *REPL) readInput(prompt string) (string, error) {
 	}
 }
 
+// readInputLines reads from r.in using a scanner. Supports multi-line
+// continuation (trailing \) and prints prompt/promptCont to r.out so
+// test assertions can verify continuation behavior.
+func (r *REPL) readInputLines() (string, error) {
+	if r.scanner == nil {
+		r.scanner = bufio.NewScanner(r.in)
+	}
+	prompt := r.prompt
+	if prompt != "" {
+		fmt.Fprint(r.out, prompt)
+	}
+	var parts []string
+	for r.scanner.Scan() {
+		line := r.scanner.Text()
+		if strings.HasSuffix(line, "\\") {
+			parts = append(parts, strings.TrimSuffix(line, "\\"))
+			// Print continuation prompt.
+			if r.promptCont != "" {
+				fmt.Fprint(r.out, r.promptCont)
+			}
+			continue
+		}
+		parts = append(parts, line)
+		return strings.TrimSpace(strings.Join(parts, "\n")), nil
+	}
+	if err := r.scanner.Err(); err != nil {
+		return "", err
+	}
+	return "", io.EOF
+}
+
 // dispatch runs one user request through the orchestrator and prints
 // the result, then records the turn in memory.
 func (r *REPL) dispatch(line string) {
@@ -164,16 +282,20 @@ func (r *REPL) dispatch(line string) {
 
 	logging.Info("[repl] dispatching request: %s", oneLine(line))
 
-	r.renderer.StartSpinner()
+	if r.renderer != nil {
+		r.renderer.StartSpinner()
+	}
 
 	busCtx, err := r.runner.Run(effective, r.repoRoot, r.branch)
 
-	// Stop spinner BEFORE printing response so task list comes first.
-	r.renderer.StopSpinner()
+	if r.renderer != nil {
+		// Stop spinner BEFORE printing response so task list comes first.
+		r.renderer.StopSpinner()
+	}
 
 	if err != nil {
 		logging.Error("[repl] orchestrator error: %v", err)
-		pterm.Error.Printf("error: %v\n", err)
+		r.errorf("error: %v\n", err)
 		return
 	}
 
@@ -182,7 +304,7 @@ func (r *REPL) dispatch(line string) {
 
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
-		pterm.FgDarkGray.Println("  ??")
+		fmt.Fprintln(r.out, "  ??")
 		r.recordTurn(line, response)
 		return
 	}
@@ -256,27 +378,39 @@ func (r *REPL) handleSlash(line string) bool {
 		} else if peers > 1 {
 			msg += fmt.Sprintf(" %d other live codrax instances share this directory.", peers)
 		}
-		var confirmed bool
-		err := huh.NewConfirm().
-			Title(msg).
-			Affirmative("Yes").
-			Negative("No").
-			Value(&confirmed).
-			Run()
-		if err != nil || !confirmed {
-			pterm.Info.Println("clear cancelled")
+		confirmed := false
+		if r.interactive() {
+			err := huh.NewConfirm().
+				Title(msg).
+				Affirmative("Yes").
+				Negative("No").
+				Value(&confirmed).
+				Run()
+			if err != nil {
+				confirmed = false
+			}
+		} else {
+			// Line-oriented mode: print message and read y/n.
+			fmt.Fprintln(r.out, msg)
+			line, err := r.readInputLines()
+			if err == nil {
+				confirmed = strings.TrimSpace(strings.ToLower(line)) == "y"
+			}
+		}
+		if !confirmed {
+			r.info("clear cancelled")
 			break
 		}
 		if err := r.store.Clear(); err != nil {
-			pterm.Error.Printf("clear failed: %v\n", err)
+			r.errorf("clear failed: %v\n", err)
 		} else {
-			pterm.Success.Println("conversation memory cleared.")
+			r.success("conversation memory cleared.")
 		}
 	case "/history":
 		recent := r.store.Recent()
 		idx := r.store.Index()
 		if len(recent) == 0 && len(idx) == 0 {
-			pterm.Info.Println("(empty)")
+			r.info("(empty)")
 			return false
 		}
 		if len(idx) > 0 {
@@ -293,15 +427,15 @@ func (r *REPL) handleSlash(line string) bool {
 		}
 	case "/compact":
 		if err := r.store.Compact(); err != nil {
-			pterm.Error.Printf("compact failed: %v\n", err)
+			r.errorf("compact failed: %v\n", err)
 		} else {
-			pterm.Success.Printf("compaction done. recent=%d index=%d\n", len(r.store.Recent()), len(r.store.Index()))
+			r.success(fmt.Sprintf("compaction done. recent=%d index=%d", len(r.store.Recent()), len(r.store.Index())))
 		}
 	case "/help":
-		pterm.Info.Println("commands: /exit /quit /clear /history /compact /help")
-		pterm.Info.Println("tip: end a line with \\ for multi-line input")
+		r.info("commands: /exit /quit /clear /history /compact /help")
+		r.info("tip: end a line with \\ for multi-line input")
 	default:
-		pterm.Warning.Printf("unknown command %q — try /help\n", cmd)
+		r.warn("unknown command %q — try /help\n", cmd)
 	}
 	return false
 }
