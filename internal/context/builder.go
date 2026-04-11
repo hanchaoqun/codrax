@@ -45,6 +45,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	ac.RelevantFiles = extractRelevantFiles(bus.RepoFacts)
 	ac.EvidenceItems = append([]types.EvidenceItem(nil), bus.EvidenceItems...)
 	ac.FlowFindings = append([]types.FlowFindingDigest(nil), bus.FlowFindings...)
+	ac.AnswerChains = append([]string(nil), bus.AnswerChains...)
 
 	// Collect tool summaries
 	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
@@ -200,7 +201,26 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	logging.Debug("[builder] %s/%s: EvidenceItems=%d FlowFindings=%d", ac.AgentName, ac.Stage, len(ac.EvidenceItems), len(ac.FlowFindings))
+	logging.Debug("[builder] %s/%s: EvidenceItems=%d FlowFindings=%d AnswerChains=%d",
+		ac.AgentName, ac.Stage, len(ac.EvidenceItems), len(ac.FlowFindings), len(ac.AnswerChains))
+
+	// Answer chains get the highest priority — these are deterministic
+	// resolution chains that the system has identified as directly
+	// answering the user's question. The finalizer should use these
+	// as the answer skeleton, not re-derive from raw evidence.
+	if len(ac.AnswerChains) > 0 {
+		var chainContent strings.Builder
+		chainContent.WriteString("The following facts were extracted deterministically from source code and directly answer the question. " +
+			"Use them as the primary basis for your answer — do NOT contradict or ignore them:\n\n")
+		for _, chain := range ac.AnswerChains {
+			chainContent.WriteString("- " + chain + "\n")
+		}
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Ground Truth (deterministic, verified from source code)",
+			Content: chainContent.String(),
+		})
+	}
+
 	evidence := formatEvidenceItems(ac.EvidenceItems, 18)
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))

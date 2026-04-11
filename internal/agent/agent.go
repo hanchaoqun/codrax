@@ -32,6 +32,11 @@ type StageOutput struct {
 	// Compact dataflow findings discovered during execution.
 	FlowFindings []types.FlowFindingDigest `json:"flow_findings,omitempty"`
 
+	// Answer chains: deterministic resolution chains identified as
+	// directly answering the user's question. These get priority
+	// presentation in the finalizer prompt.
+	AnswerChains []string `json:"answer_chains,omitempty"`
+
 	// Tool results collected during execution
 	ToolResults []types.ToolResult `json:"tool_results,omitempty"`
 

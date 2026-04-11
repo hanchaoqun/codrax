@@ -768,11 +768,21 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	rankedEvidence := rankEvidenceByRelevance(e.userQuestion, e.structuredEvidence, readSet)
 	rankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
 
+	// Identify answer chains: deterministic resolution chains that
+	// directly answer the user's question. These get a dedicated
+	// section in the finalizer prompt with higher priority than
+	// generic evidence items.
+	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5)
+	if len(answerChains) > 0 {
+		logging.Debug("[explorer] identified %d answer chains", len(answerChains))
+	}
+
 	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
 		EvidenceItems: rankedEvidence,
 		FlowFindings:  rankedFindings,
+		AnswerChains:  answerChains,
 		SignalUpdates: signals,
 	}
 

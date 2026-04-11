@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -509,6 +510,96 @@ func ermAllSatisfied(reqs []EvidenceRequirement) bool {
 		}
 	}
 	return true
+}
+
+// identifyAnswerChains scores resolution chains and concrete values
+// against the user's question and returns the ones that most directly
+// answer it. These are deterministic ground-truth facts that should be
+// presented to the finalizer with priority, not mixed into the general
+// evidence pool.
+//
+// A chain is "answer-relevant" if its text mentions entities from the
+// question. The score is the fraction of question entities matched.
+// Returns up to maxChains formatted strings, sorted by relevance.
+func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int) []string {
+	entities := extractRankingEntities(question)
+	if len(entities) == 0 || len(evidence) == 0 {
+		return nil
+	}
+
+	type scored struct {
+		text  string
+		score float64
+	}
+	var candidates []scored
+
+	for _, ev := range evidence {
+		// Only consider resolution chains and concrete registrations
+		isChain := ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain"
+		isRegistration := ev.Kind == types.EvidenceConcrete && strings.Contains(ev.Predicate, "binds")
+		isConcreteReturn := ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns"
+		if !isChain && !isRegistration && !isConcreteReturn {
+			continue
+		}
+
+		text := normalizeForMatch(ev.Summary + " " + ev.Subject + " " + ev.Object)
+		overlap := 0
+		for _, ent := range entities {
+			if strings.Contains(text, normalizeForMatch(ent)) {
+				overlap++
+			}
+		}
+		if overlap == 0 {
+			continue
+		}
+
+		display := ev.Summary
+		if display == "" {
+			display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
+		}
+		if ev.Source != "" {
+			display += fmt.Sprintf(" (%s", ev.Source)
+			if ev.LineStart > 0 {
+				display += fmt.Sprintf(":%d", ev.LineStart)
+			}
+			display += ")"
+		}
+
+		// Chains get a bonus because they contain multi-hop reasoning
+		bonus := 1.0
+		if isChain {
+			bonus = 2.0
+		}
+
+		candidates = append(candidates, scored{
+			text:  display,
+			score: float64(overlap) / float64(len(entities)) * bonus,
+		})
+	}
+
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// Sort by score descending
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].score > candidates[j].score
+	})
+
+	// Dedup by text content
+	seen := make(map[string]bool)
+	var result []string
+	for _, c := range candidates {
+		if seen[c.text] {
+			continue
+		}
+		seen[c.text] = true
+		result = append(result, c.text)
+		if len(result) >= maxChains {
+			break
+		}
+	}
+	return result
 }
 
 // logERM logs the current ERM state at debug level.

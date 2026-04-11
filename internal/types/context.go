@@ -206,6 +206,7 @@ type BusContext struct {
 	RepoFacts     []RepoFact          `json:"repo_facts,omitempty"`
 	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
+	AnswerChains  []string            `json:"answer_chains,omitempty"` // deterministic chains that directly answer the question
 	ToolResults   []ToolResult        `json:"tool_results,omitempty"`
 	MCPResponses  []MCPResponse       `json:"mcp_responses,omitempty"`
 	StageReports  []StageReport       `json:"stage_reports,omitempty"`
@@ -237,6 +238,7 @@ type AgentContext struct {
 	RelevantFiles         []string            `json:"relevant_files,omitempty"`
 	EvidenceItems         []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings          []FlowFindingDigest `json:"flow_findings,omitempty"`
+	AnswerChains          []string            `json:"answer_chains,omitempty"`
 	RelevantToolSummaries []string            `json:"relevant_tool_summaries,omitempty"`
 	RelevantMCPNotes      []string            `json:"relevant_mcp_notes,omitempty"`
 	PriorReports          []StageReport       `json:"prior_reports,omitempty"`
