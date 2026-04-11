@@ -706,3 +706,89 @@ Run 2 和 3 的 Ground Truth 包含完整三跳 chain。Run 1 因该次运行的
 3. **ranking entity overlap 精度**：`SubExplorer` 不包含 `agent` 或 `subagent`（substring 不匹配），导致其独立 evidence item 的 ranking score = 0。answer chain 机制通过整条 chain 匹配缓解了此问题，但对于没有 chain 的独立关键事实，ranking 仍可能失效。
 
 4. **LLM 指令遵循**：Ground Truth section 明确标注 "do NOT contradict or ignore"，但 gpt-4o 有时仍不严格遵循。这是模型层面的指令遵循问题，不是管道问题——确定性事实已准确送达，模型选择是否采纳。
+
+---
+
+## 六、后续优化方案（按优先级排序）
+
+### 不稳定性传播链分析
+
+当前剩余不稳定性的根因是确定性输出仍部分依赖非确定性输入：
+
+```
+LLM 读哪些文件（非确定性）
+    ↓
+notesJoined 内容变化（哪些 symbol 被 LLM 在 notes 中提到）
+    ↓
+concrete values initial filter 第 3/4 条规则（line ~1734: "receiver in notes"）
+    ↓
+哪些 return values 进入 relevant
+    ↓
+multi-pass tracing 的起点集合不同
+    ↓
+resolution chains 能否形成
+    ↓
+Ground Truth section 内容不同
+```
+
+核心矛盾：**`buildConcreteValuesSection` 的 initial filter 使用 `notesJoined`（LLM notes 中提到的 symbol names）来决定非 preScanned 文件的 return values 是否保留。这使确定性输出依赖了非确定性的 LLM 行为。**
+
+### P1（最高优先级）：扩展 filter 覆盖到 allScoredFiles
+
+**位置**：`explorer.go` `buildConcreteValuesSection` line ~1730
+
+**现状**：`readSet[v.file] || preScannedSet[v.file]` — 只有 LLM 读过或 top-8 预扫描的文件的 short returns 无条件保留。
+
+**修改**：扩展为 `readSet[v.file] || preScannedSet[v.file] || allScoredSet[v.file]`。
+
+**原理**：keyword search 命中的全部文件（~20 个）都是问题相关的。它们的短方法返回值（如 `SubExplorer.Name() returns "explorer"`）是确定性事实，不应该需要 LLM notes 中提到 receiver 才保留。
+
+**预期收益**：消除对 `notesJoined` 的依赖。`sub_explorer.go` 在 `allScoredFiles` 中（keyword search score=9），其 `Name() returns "explorer"` 无条件保留 → 稳定进入 relevant → tracing → chain → Ground Truth。
+
+**变更范围**：1 行代码 + 构建 `allScoredSet` map。
+
+### P2：ERM 需求实体驱动 concrete values filter
+
+**位置**：`explorer.go` `buildConcreteValuesSection` initial filter
+
+**修改**：新增第 5 条 filter 规则：
+```go
+// 5. Values whose receiver/method matches an unsatisfied ERM requirement entity
+for _, req := range e.ermRequirements {
+    if req.Status == "satisfied" { continue }
+    for _, ent := range req.Entities {
+        if normalizeForMatch(v.receiver) contains normalizeForMatch(ent) ||
+           normalizeForMatch(v.method) contains normalizeForMatch(ent) {
+            relevant = append(relevant, v)
+        }
+    }
+}
+```
+
+**原理**：ERM 需求是确定性的（从问题文本提取），用它来驱动 filter 使 question-relevant 值的保留不再依赖 LLM notes。
+
+**预期收益**：即使 allScoredFiles 覆盖不全（某些文件通过 cross-ref 加入 filesToScan 但不在 allScoredFiles 中），ERM 仍能确保相关值被保留。
+
+### P3：preScannedFiles 扩展到 ERM 高分文件
+
+**位置**：`explorer.go` `BuildInitialPrompt` preScannedFiles 构建
+
+**修改**：除 top-8 by repoMap+ERM 外，额外加入所有 `ermFileScore > 0` 的 allScoredFiles 文件进入 preScannedFiles。
+
+**原理**：preScannedFiles 享有两项优先权——concrete values filter 无条件保留 + ContinuationPrompt 3 级催读。ERM 认为相关的文件应该都享有这些优先权。
+
+**权衡**：preScannedFiles 从 8 个增到可能 15+ 个，ContinuationPrompt 催读列表变长，LLM 可能忽略。可以通过 ERM 分数排序只催读 top-3。
+
+### P4：binding 引用类型批量预加载
+
+**位置**：`explorer.go` `buildConcreteValuesSection` multi-pass tracing 之前
+
+**修改**：在 initial filter 后，扫描所有 bindings 类型的 relevant 值，提取引用的类型名（`NewFoo(...)` → `Foo`，`&Bar{...}` → `Bar`），一次性将这些类型在 allValues 中的所有方法值加入 relevant。
+
+**原理**：bindings 无条件保留（filter 第 1 条），所以它们的存在是确定性的。通过 bindings 引用的类型也应该确定性地被包含，不需要等 multi-pass tracing 的多轮迭代（迭代依赖输入集合完整性）。
+
+**与 multi-pass tracing 的关系**：不替代 tracing（tracing 处理更深层的链），而是确保 tracing 的第一跳（binding → referenced type）总是发生。
+
+### 实施建议
+
+先实施 P1（一行改动），验证 3 次运行稳定性。如果 Ground Truth 在全部 3 次中都包含完整三跳 chain，则 P2-P4 可以推迟。如果仍有不稳定，叠加 P2。
