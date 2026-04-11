@@ -1793,8 +1793,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		return scoreVal(relevant[i]) > scoreVal(relevant[j])
 	})
-	// Adaptive cap: scale with investigation complexity.
-	// More scored files = more complex investigation = need more values.
+
+	// Save the full relevant set for evidence generation BEFORE capping.
+	// The cap controls synthesis markdown size, but evidence items flow
+	// through a separate pipeline (StageOutput → finalizer) with its own
+	// ranking and limit, and must not be truncated by the markdown budget.
+	allRelevantForEvidence := relevant
+
+	// Adaptive cap: controls markdown table size in synthesis prompt.
 	valueCap := 15
 	if len(e.allScoredFiles) > 10 {
 		valueCap = 25
@@ -1971,11 +1977,12 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		b.WriteString("\n")
 	}
 
-	// Build structured evidence items from concrete values and chains.
+	// Build structured evidence items from the FULL relevant set (pre-cap).
 	// These flow to StageOutput → BusContext → finalizer, independent
-	// of whether synthesis succeeds.
+	// of whether synthesis succeeds. The downstream rankEvidenceByRelevance
+	// + formatEvidenceItems(limit=18) handles its own selection.
 	var cvEvidence []types.EvidenceItem
-	for _, v := range relevant {
+	for _, v := range allRelevantForEvidence {
 		kind := types.EvidenceConcrete
 		predicate := v.kind
 		cvEvidence = append(cvEvidence, types.EvidenceItem{
