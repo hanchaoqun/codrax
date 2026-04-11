@@ -70,17 +70,170 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 	}, nil
 }
 
-// subExplorerEvaluator implements Evaluator for the SubExplorer's BaseAgent.
+// subExplorerEvaluator implements Evaluator, ContinuingEvaluator, and
+// SynthesizingEvaluator for the SubExplorer's BaseAgent. Unlike the
+// main explorer, it operates within a scoped directory set and has a
+// simpler two-phase model: discover files → read and extract evidence.
 type subExplorerEvaluator struct {
-	tools *tool.Registry
+	tools              *tool.Registry
+	objective          string   // user objective, cached for prompts
+	scope              []string // scoped directories
+	investigationNotes []string // assistant analysis messages
+	idleStreak         int      // consecutive no-tool-call rounds
+	lastToolCount      int      // tool result count at last check
 }
 
 func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	return "Scan the files in scope. Discover key types, functions, interfaces, and dependencies. Report your findings as structured facts."
+	e.objective = ctx.Objective
+	e.scope = ctx.Constraints // scope passed as constraints in sub-agent context
+
+	var b strings.Builder
+	b.WriteString("## Scoped Investigation\n\n")
+	fmt.Fprintf(&b, "**Objective:** %s\n\n", ctx.Objective)
+
+	if len(ctx.Constraints) > 0 {
+		b.WriteString("**Scope:** Limit your investigation to these directories/files:\n")
+		for _, s := range ctx.Constraints {
+			fmt.Fprintf(&b, "- `%s`\n", s)
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("**Strategy:**\n")
+	b.WriteString("1. List files in scope to understand what's available\n")
+	b.WriteString("2. Grep for key terms related to the objective (files_only=true first)\n")
+	b.WriteString("3. Read the most relevant files and extract structured evidence\n\n")
+
+	b.WriteString("**Evidence format** — after each file, extract facts as:\n\n")
+	b.WriteString("```\n")
+	b.WriteString("## Evidence from [filename]\n")
+	b.WriteString("- [DIRECT] `functionName` line N: <what this code establishes>\n")
+	b.WriteString("- [CONDITIONAL] `functionName` line N: <what happens> IF <condition>\n")
+	b.WriteString("- [REGISTRATION] `functionName` line N: <what is registered, EXACT values>\n")
+	b.WriteString("- [MECHANISM] `functionName` line N: <how something works>\n")
+	b.WriteString("- [RELATIONSHIP] `symbolA` → `symbolB`: <nature of link>\n")
+	b.WriteString("```\n\n")
+
+	b.WriteString("**Rules:**\n")
+	b.WriteString("- Extract EVERY fact that might be relevant — err on over-collecting\n")
+	b.WriteString("- For short methods (getName, isEnabled, etc.): ALWAYS record the exact return value as [DIRECT]\n")
+	b.WriteString("- For [REGISTRATION]: note EXACT concrete values, not summaries\n")
+	b.WriteString("- **Large file strategy:** grep first for key identifiers, then read only matched line ranges\n")
+	b.WriteString("- Stay within scope — do not read files outside the specified directories\n")
+
+	return b.String()
 }
 
 func (e *subExplorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	return len(resp.ToolCalls) == 0
+	// Never hard-stop; use ContinuationPrompt for soft-stop control.
+	return false
+}
+
+// ContinuationPrompt implements ContinuingEvaluator. Tracks investigation
+// progress and pushes for more coverage when the LLM stops too early.
+func (e *subExplorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
+	// Capture investigation notes from content-only responses.
+	if resp.Content != "" {
+		e.investigationNotes = append(e.investigationNotes, resp.Content)
+	}
+
+	// Track idle streak (consecutive rounds with no new tool results).
+	if len(history) > e.lastToolCount {
+		e.idleStreak = 0
+	}
+	e.lastToolCount = len(history)
+	e.idleStreak++
+
+	// After 2 idle rounds, let the loop terminate.
+	if e.idleStreak >= 2 {
+		return "", false
+	}
+
+	// Check file coverage within scope.
+	_, readSet := extractFileCoverage(history)
+
+	// If we haven't read any files yet, push harder.
+	if len(readSet) == 0 && continuationCount < 3 {
+		return "You have not read any files yet. Use list_files to discover files in scope, " +
+			"then read the most relevant ones and extract evidence entries.", true
+	}
+
+	// Count evidence quality.
+	directCount := 0
+	for _, note := range e.investigationNotes {
+		for _, line := range strings.Split(note, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- [DIRECT]") || strings.HasPrefix(trimmed, "- [REGISTRATION]") {
+				directCount++
+			}
+		}
+	}
+
+	// If we have files but weak evidence, push for more extraction.
+	if directCount < 2 && continuationCount < 3 {
+		var hint strings.Builder
+		fmt.Fprintf(&hint, "File coverage: %d files read.\n", len(readSet))
+		hint.WriteString("You need at least 2 [DIRECT] or [REGISTRATION] evidence entries. ")
+		hint.WriteString("Read more files in scope or re-examine the files you already read — ")
+		hint.WriteString("look for return values, registrations, and concrete configurations.")
+		return hint.String(), true
+	}
+
+	// Gentle coverage reminder if there are still things to explore.
+	if len(readSet) < 3 && continuationCount < 4 {
+		return fmt.Sprintf("File coverage: %d files read. If there are more relevant files "+
+			"in scope, read them now. Otherwise you may stop.", len(readSet)), true
+	}
+
+	return "", false
+}
+
+// SynthesisPrompt implements SynthesizingEvaluator. Produces a clean
+// synthesis call with all collected evidence.
+func (e *subExplorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (string, bool) {
+	// Only synthesize if we have evidence-bearing results.
+	hasEvidence := false
+	for _, r := range toolResults {
+		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
+			hasEvidence = true
+			break
+		}
+	}
+	if !hasEvidence {
+		return "", false
+	}
+
+	var digest strings.Builder
+	digest.WriteString("Synthesize your findings from the scoped investigation.\n\n")
+	fmt.Fprintf(&digest, "## Objective\n%s\n\n", e.objective)
+
+	if len(e.investigationNotes) > 0 {
+		digest.WriteString("## Evidence Collected\n\n")
+		for i, note := range e.investigationNotes {
+			if len(note) > 1200 {
+				note = note[:1200] + "\n... [truncated]"
+			}
+			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
+		}
+	}
+
+	// Compact file list.
+	digest.WriteString("## Files Read\n\n")
+	for _, r := range toolResults {
+		if r.Success && r.ToolName == "read_file" {
+			first := strings.SplitN(r.Summary, "\n", 2)[0]
+			digest.WriteString("- " + first + "\n")
+		}
+	}
+	digest.WriteString("\n")
+
+	digest.WriteString("## Instructions\n\n")
+	digest.WriteString("Provide a comprehensive summary of what you found:\n")
+	digest.WriteString("- Name SPECIFIC types, functions, and values — not categories\n")
+	digest.WriteString("- Ground claims in file:line citations\n")
+	digest.WriteString("- If evidence is incomplete or uncertain, say so explicitly\n")
+
+	return digest.String(), true
 }
 
 func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
@@ -95,18 +248,41 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 	// Extract facts from successful tool results, using each tool's
 	// declared Confidence.
 	var facts []types.RepoFact
+	sources := make(map[string]struct{})
 	for _, r := range toolResults {
 		if r.Success {
+			confidence := e.toolConfidence(r.ToolName)
 			facts = append(facts, types.RepoFact{
 				Key:        r.ToolName,
 				Value:      r.Summary,
 				Source:     r.RawRef,
-				Confidence: e.toolConfidence(r.ToolName),
+				Confidence: confidence,
 			})
+			if confidence > 0.5 {
+				sources[r.ToolName] = struct{}{}
+			}
 		}
 	}
 
-	signals := &types.ExecutionSignals{HasEnoughFacts: len(facts) > 0}
+	// Multi-dimensional quality check (same criteria as main explorer,
+	// but with relaxed thresholds for scoped sub-tasks).
+	_, readSet := extractFileCoverage(toolResults)
+	directCount := 0
+	for _, note := range e.investigationNotes {
+		for _, line := range strings.Split(note, "\n") {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "- [DIRECT]") || strings.HasPrefix(trimmed, "- [REGISTRATION]") {
+				directCount++
+			}
+		}
+	}
+
+	toolDiversity := len(sources) >= 2
+	fileCoverage := len(readSet) >= 1
+	evidenceQuality := directCount >= 1
+	hasEnough := toolDiversity && fileCoverage && evidenceQuality
+
+	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
 
 	return &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),

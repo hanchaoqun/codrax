@@ -14,6 +14,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"gopkg.in/yaml.v3"
 )
@@ -33,13 +34,51 @@ type explorerEvaluator struct {
 	repoRoot           string              // repository root path, cached from BuildInitialPrompt
 	preScannedPushCount int  // times we pushed for unread pre-scanned files without progress
 	lastPreScannedUnreadCount int // count of unread pre-scanned files at last push
-	grepRedirectGiven  bool // whether we already injected a large-file grep redirect
+	grepRedirectedFiles map[string]bool // files that already received a large-file grep redirect
+	isEnumerationQuery  bool // true if user question asks to list/enumerate all items
+	phase0ExtraRound    bool // whether we already gave one extra Phase 0 round for quality gate
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
-	e.phase = 0 // start in breadth-scan phase
 	e.userQuestion = ctx.CurrentTask
 	e.repoRoot = ctx.RepoRoot
+	e.isEnumerationQuery = detectEnumerationIntent(ctx.CurrentTask)
+
+	// Self-loop detection: if we already have investigation notes from
+	// a prior run, this is a retry (explore → explore self-loop). Skip
+	// Phase 0 breadth scan and go directly to Phase 1 depth read with
+	// a retry-specific prompt. The agent is a singleton so evaluator
+	// state (investigationNotes, searchResult, preScannedFiles) survives
+	// across dispatches.
+	if len(e.investigationNotes) > 0 {
+		e.phase = 1
+		// Reset per-run counters but preserve accumulated evidence.
+		e.idleStreakInDepth = 0
+		e.lastToolResultCount = 0
+		e.preScannedPushCount = 0
+		e.lastPreScannedUnreadCount = 0
+		e.broadenAttempts = 0
+		e.grepRedirectedFiles = nil // re-detect large files in retry
+
+		var b strings.Builder
+		b.WriteString("## Retry: Depth Investigation (continued)\n\n")
+		b.WriteString("Your previous investigation of this question was insufficient.\n\n")
+		if ctx.RetryHint != "" {
+			fmt.Fprintf(&b, "**Retry directive:** %s\n\n", ctx.RetryHint)
+		}
+		fmt.Fprintf(&b, "You already collected %d evidence sets. ",
+			len(e.investigationNotes))
+		b.WriteString("Focus on the gaps identified above. Do NOT re-read files you already analyzed.\n\n")
+		b.WriteString("Continue using the evidence collection format:\n")
+		b.WriteString("- [DIRECT] `functionName` line N: <what this code establishes>\n")
+		b.WriteString("- [CONDITIONAL] `functionName` line N: <what happens> IF <condition>\n")
+		b.WriteString("- [REGISTRATION] `functionName` line N: <what is registered, EXACT values>\n\n")
+		b.WriteString("**Large file strategy:** grep for key identifiers first, then read only matched line ranges.\n")
+		b.WriteString("**User question:** " + e.userQuestion)
+		return b.String()
+	}
+
+	e.phase = 0 // start in breadth-scan phase
 
 	var b strings.Builder
 	b.WriteString("## Phase 1: Breadth Scan\n\n")
@@ -167,6 +206,40 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 				"Run at least 2-3 new grep calls with files_only=true before producing your file list.", true
 		}
 
+		// Quality gate: before transitioning to Phase 1, verify the
+		// breadth scan used enough discovery tools and found enough files.
+		// At most 1 extra round (phase0ExtraRound prevents infinite loop).
+		if !e.phase0ExtraRound {
+			discovered, _ = extractFileCoverage(history)
+			usedGrep := false
+			usedOtherDiscovery := false
+			for _, r := range history {
+				if r.Success {
+					switch r.ToolName {
+					case "grep":
+						usedGrep = true
+					case "repo_map", "list_files":
+						usedOtherDiscovery = true
+					}
+				}
+			}
+			if (!usedGrep || !usedOtherDiscovery) || len(discovered) < 3 {
+				e.phase0ExtraRound = true
+				var gate strings.Builder
+				gate.WriteString("Before moving to depth reading, broaden your search:\n")
+				if !usedGrep {
+					gate.WriteString("- You haven't used grep yet. Search for key terms from the question with files_only=true.\n")
+				}
+				if !usedOtherDiscovery {
+					gate.WriteString("- Use repo_map (task_map view) to see structurally relevant files.\n")
+				}
+				if len(discovered) < 3 {
+					fmt.Fprintf(&gate, "- You only discovered %d files. Use broader search patterns to find at least 3.\n", len(discovered))
+				}
+				return gate.String(), true
+			}
+		}
+
 		// Phase 0 → Phase 1 transition: the LLM produced a breadth
 		// scan summary. Now switch to depth reading with evidence
 		// catalog mode: collect ALL facts, defer reasoning to synthesis.
@@ -228,34 +301,97 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 	}
 
+	// Function-boundary read guidance (HIGHEST PRIORITY): when the LLM
+	// reads part of a function but stops before the end, inject exact
+	// read ranges. This is the #1 cause of answer quality failures —
+	// the LLM reads 40 lines of a 300-line function and misses critical
+	// logic at the end. Must fire before all other checks.
+	if e.searchResult != nil && e.searchResult.Graph != nil {
+		partialHints := detectPartiallyReadSymbols(history, e.searchResult.Graph)
+		if len(partialHints) > 0 {
+			e.idleStreakInDepth = 0 // reset to keep loop alive
+			var hint strings.Builder
+			hint.WriteString("**CRITICAL: Incomplete function reads.** You MUST finish reading these functions before doing anything else:\n\n")
+			for _, ph := range partialHints {
+				unreadLines := ph.symEnd - ph.readEnd
+				if ph.coverage < 0.3 {
+					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d, %d lines): you read only %.0f%% of this function. "+
+						"Call `read_file` with offset=%d limit=%d to see the FULL implementation\n",
+						ph.symbolName, ph.file, ph.symStart, ph.symEnd, ph.symEnd-ph.symStart+1,
+						ph.coverage*100, ph.symStart, ph.symEnd-ph.symStart+1)
+				} else {
+					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%). "+
+						"Call `read_file` with offset=%d limit=%d to see the remaining %d lines\n",
+						ph.symbolName, ph.file, ph.symStart, ph.symEnd,
+						ph.readEnd, ph.coverage*100,
+						ph.readEnd, unreadLines+1, unreadLines)
+				}
+			}
+			hint.WriteString("\nDo NOT read other files or draw conclusions until you have read the complete function bodies listed above. " +
+				"The unread portions often contain the answer to the question.")
+			return hint.String(), true
+		}
+	}
+
+	// Enumeration completeness: when the question asks to "list all X",
+	// verify that the LLM has analyzed enough of the discovered files.
+	// A coverage gap here means the enumeration will be incomplete.
+	if e.isEnumerationQuery && len(discovered) > 0 {
+		enumCoverage := float64(len(readSet)) / float64(len(discovered))
+		if enumCoverage < 0.8 && len(unread) > 0 {
+			var hint strings.Builder
+			fmt.Fprintf(&hint, "**Enumeration completeness check:** This question asks to list ALL items. "+
+				"You found %d matching files but only read %d (%.0f%% coverage). "+
+				"For enumeration queries you must achieve ≥80%% coverage.\n\n"+
+				"Unread files:\n", len(discovered), len(readSet), enumCoverage*100)
+			for _, f := range unread {
+				hint.WriteString("- " + f + "\n")
+			}
+			hint.WriteString("\nRead these files to ensure your enumeration is complete. " +
+				"Skip only files that are clearly unrelated (test helpers, documentation).")
+			e.idleStreakInDepth = 0
+			return hint.String(), true
+		}
+	}
+
 	// Large-file grep redirect: when the LLM reads a large file but
 	// only sees a truncated portion, it tends to page through blindly,
 	// producing shallow evidence. Detect truncated read_file results
 	// where the LLM has NOT already grepped that file (with line-level
 	// results), and redirect to a grep-then-read strategy.
-	if !e.grepRedirectGiven {
-		truncated, grepped := detectTruncatedUngrepped(history)
-		if len(truncated) > 0 {
-			e.grepRedirectGiven = true
-			var hint strings.Builder
-			hint.WriteString("**Strategy redirect — large files detected.**\n\n")
-			hint.WriteString("You are reading large files that don't fit in a single read_file result. ")
-			hint.WriteString("Paging through them sequentially will miss details and waste steps.\n\n")
-			hint.WriteString("**For each truncated file below, grep for the specific pattern from the user's question WITHIN that file**, ")
-			hint.WriteString("then read only the matched line ranges:\n\n")
-			for _, tf := range truncated {
-				fmt.Fprintf(&hint, "- `%s` (read %d of %d lines) — ",
-					tf.path, tf.linesRead, tf.totalLines)
-				if grepped[tf.path] {
-					hint.WriteString("already grepped with files_only, but **re-grep with files_only=false** to get LINE NUMBERS\n")
-				} else {
-					hint.WriteString("not yet grepped — **grep for the key pattern now**\n")
-				}
-			}
-			hint.WriteString("\nThe user question is: " + e.userQuestion + "\n")
-			hint.WriteString("Identify the key identifier (field name, constant, function) and grep for it within these files.")
-			return hint.String(), true
+	// Tracked per-file so each new large file gets its own redirect.
+	if e.grepRedirectedFiles == nil {
+		e.grepRedirectedFiles = make(map[string]bool)
+	}
+	truncated, grepped := detectTruncatedUngrepped(history)
+	var newTruncated []truncatedFileInfo
+	for _, tf := range truncated {
+		if !e.grepRedirectedFiles[tf.path] {
+			newTruncated = append(newTruncated, tf)
 		}
+	}
+	if len(newTruncated) > 0 {
+		for _, tf := range newTruncated {
+			e.grepRedirectedFiles[tf.path] = true
+		}
+		var hint strings.Builder
+		hint.WriteString("**Strategy redirect — large files detected.**\n\n")
+		hint.WriteString("You are reading large files that don't fit in a single read_file result. ")
+		hint.WriteString("Paging through them sequentially will miss details and waste steps.\n\n")
+		hint.WriteString("**For each truncated file below, grep for the specific pattern from the user's question WITHIN that file**, ")
+		hint.WriteString("then read only the matched line ranges:\n\n")
+		for _, tf := range newTruncated {
+			fmt.Fprintf(&hint, "- `%s` (read %d of %d lines) — ",
+				tf.path, tf.linesRead, tf.totalLines)
+			if grepped[tf.path] {
+				hint.WriteString("already grepped with files_only, but **re-grep with files_only=false** to get LINE NUMBERS\n")
+			} else {
+				hint.WriteString("not yet grepped — **grep for the key pattern now**\n")
+			}
+		}
+		hint.WriteString("\nThe user question is: " + e.userQuestion + "\n")
+		hint.WriteString("Identify the key identifier (field name, constant, function) and grep for it within these files.")
+		return hint.String(), true
 	}
 
 	// Track consecutive no-tool-call rounds in Phase 2.
@@ -539,6 +675,16 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	toolDiversity := len(sources) >= 2
 	fileCoverage := coverage >= 0.5 || len(readSet) >= 3
 	evidenceQuality := directCount >= 2
+	// Enumeration queries need stricter thresholds: higher file coverage
+	// and more evidence entries to ensure exhaustive listing.
+	if e.isEnumerationQuery {
+		fileCoverage = coverage >= 0.8 || len(readSet) >= len(discovered)
+		minDirect := len(discovered) / 3
+		if minDirect < 2 {
+			minDirect = 2
+		}
+		evidenceQuality = directCount >= minDirect
+	}
 	hasEnough := toolDiversity && fileCoverage && evidenceQuality
 
 	signals := &types.ExecutionSignals{HasEnoughFacts: hasEnough}
@@ -614,10 +760,65 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 		digest.WriteString("## Evidence Catalog\n\n")
 		digest.WriteString("These are the evidence entries YOU collected during investigation:\n\n")
 		for i, note := range e.investigationNotes {
-			if len(note) > 1200 {
-				note = note[:1200] + "\n... [truncated]"
+			// Adaptive truncation: scale limit with investigation complexity.
+			// More notes = more complex investigation = each note needs more space.
+			truncLimit := 1200
+			if noteCount := len(e.investigationNotes); noteCount > 3 {
+				truncLimit = 1200 + 400*(noteCount-3)
+			}
+			if truncLimit > 3000 {
+				truncLimit = 3000
+			}
+			if len(note) > truncLimit {
+				note = note[:truncLimit] + "\n... [truncated]"
 			}
 			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
+		}
+	}
+
+	// Focus alignment: detect if the LLM's evidence primarily discusses
+	// a different entity than what the question asks about.
+	questionEntities := extractQuestionEntities(e.userQuestion)
+	if len(questionEntities) > 0 && len(e.investigationNotes) > 0 {
+		notesJoined := strings.Join(e.investigationNotes, "\n")
+		targetEntity := questionEntities[0]
+		targetCount := strings.Count(notesJoined, targetEntity)
+
+		// Find the most-mentioned entity across all entities we know about.
+		bestEntity := targetEntity
+		bestCount := targetCount
+		// Also check entities from the graph that appear in notes.
+		if e.searchResult != nil && e.searchResult.Graph != nil {
+			for symName := range e.searchResult.Graph.SymbolDefs {
+				if len(symName) < 6 {
+					continue
+				}
+				// Skip if it's already one of the question entities.
+				isQuestionEntity := false
+				for _, qe := range questionEntities {
+					if symName == qe || strings.Contains(qe, symName) || strings.Contains(symName, qe) {
+						isQuestionEntity = true
+						break
+					}
+				}
+				if isQuestionEntity {
+					continue
+				}
+				cnt := strings.Count(notesJoined, symName)
+				if cnt > bestCount {
+					bestEntity = symName
+					bestCount = cnt
+				}
+			}
+		}
+
+		if bestEntity != targetEntity && bestCount > targetCount*2 && bestCount >= 3 {
+			digest.WriteString("## WARNING: Potential Focus Misalignment\n\n")
+			fmt.Fprintf(&digest, "Your question asks about **`%s`** but your evidence primarily discusses "+
+				"**`%s`** (%d mentions vs %d mentions for the target). "+
+				"Ensure your answer focuses on `%s`, not `%s`.\n\n",
+				targetEntity, bestEntity, bestCount, targetCount,
+				targetEntity, bestEntity)
 		}
 	}
 
@@ -625,6 +826,34 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	// evidence sets. These are the links in the evidence chain.
 	if crossRefs := e.buildCrossReferenceMap(); crossRefs != "" {
 		digest.WriteString(crossRefs)
+	}
+
+	// Enumeration completeness: show the LLM how many files were found
+	// vs analyzed, so it can assess whether its list is exhaustive.
+	if e.isEnumerationQuery {
+		allDiscovered, allReadSet := extractFileCoverage(toolResults)
+		enumCov := 0.0
+		if len(allDiscovered) > 0 {
+			enumCov = float64(len(allReadSet)) / float64(len(allDiscovered)) * 100
+		}
+		digest.WriteString("## Enumeration Completeness\n\n")
+		fmt.Fprintf(&digest, "This is an enumeration query. Files found: %d, analyzed: %d (%.0f%% coverage).\n",
+			len(allDiscovered), len(allReadSet), enumCov)
+		var enumUnread []string
+		for _, f := range allDiscovered {
+			if !allReadSet[f] {
+				enumUnread = append(enumUnread, f)
+			}
+		}
+		if len(enumUnread) > 0 {
+			digest.WriteString("**UNREAD files (your answer may be incomplete):**\n")
+			for _, f := range enumUnread {
+				digest.WriteString("- " + f + "\n")
+			}
+		} else {
+			digest.WriteString("All discovered files were analyzed — good coverage.\n")
+		}
+		digest.WriteString("\nEnsure your answer explicitly states the total count of items found.\n\n")
 	}
 
 	// Include a compact file list so the LLM knows what was read.
@@ -668,6 +897,15 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 			digest.WriteString("\n")
 		}
 		digest.WriteString("\n")
+	}
+
+	// Cross-validate LLM evidence against programmatic concrete values.
+	// Surface conflicts where the LLM's claims contradict ground truth
+	// extracted directly from source code.
+	if len(e.investigationNotes) > 0 && hasConcreteValues {
+		if conflicts := crossValidateEvidence(e.investigationNotes, cv); conflicts != "" {
+			digest.WriteString(conflicts)
+		}
 	}
 
 	// Detect unresolved conditions: evidence entries tagged [CONDITIONAL]
@@ -727,6 +965,20 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	digest.WriteString("- If a condition cannot be resolved (no concrete value found), say so explicitly " +
 		"rather than guessing\n")
 
+	// When the question asks for an itemized listing ("哪几种", "具体有哪些",
+	// "what strategies", "what are the"), add instruction to list each item
+	// individually with its exact trigger condition. This prevents the LLM
+	// from over-summarizing multiple distinct items into vague categories.
+	if detectDetailListingIntent(e.userQuestion) {
+		digest.WriteString("\n**Step 4 — Itemize your answer.** The question asks for specific items. " +
+			"List EACH distinct item as a numbered entry with:\n")
+		digest.WriteString("- Its exact name or identifier\n")
+		digest.WriteString("- Its trigger condition or defining characteristic\n")
+		digest.WriteString("- A file:line citation\n")
+		digest.WriteString("Do NOT merge multiple distinct items into one broad category. " +
+			"If there are 6 strategies, list all 6 separately — not 3 categories of 2.\n")
+	}
+
 	return digest.String(), true
 }
 
@@ -735,6 +987,12 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 // different notes. These "bridge entities" are the connective tissue
 // for multi-hop reasoning — they tell the LLM which analyses to
 // chain together.
+//
+// Each bridge carries directional information: where the symbol is
+// defined, which evidence sets define vs. use it, and for relation-
+// based bridges, the exact relationship verb (calls, references,
+// uses_type). This lets synthesis trace chains in the right direction
+// instead of guessing which end is the source.
 func (e *explorerEvaluator) buildCrossReferenceMap() string {
 	if e.searchResult == nil || e.searchResult.Graph == nil || len(e.investigationNotes) < 2 {
 		return ""
@@ -744,10 +1002,20 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 	// For each symbol in the graph, check which notes mention it.
 	type symbolRef struct {
 		name      string
-		noteIdxs  []int // 0-based indices into investigationNotes
+		noteIdxs  []int    // 0-based indices into investigationNotes
 		relKinds  []string // relation kinds connecting this symbol across files
+		defFile   string   // file where the symbol is defined (for single-symbol bridges)
+		directed  bool     // true for relation-based bridges (From→To)
 	}
 	bridgeMap := make(map[string]*symbolRef)
+
+	// Build symbol → definition file index for directionality annotation.
+	symDefFile := make(map[string]string) // symbol name → defining file
+	for symName, defs := range graph.SymbolDefs {
+		if len(defs) > 0 {
+			symDefFile[symName] = defs[0].File
+		}
+	}
 
 	for symName := range graph.SymbolDefs {
 		// Skip short/generic names that would produce noise.
@@ -761,7 +1029,11 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 			}
 		}
 		if len(mentioned) >= 2 {
-			bridgeMap[symName] = &symbolRef{name: symName, noteIdxs: mentioned}
+			bridgeMap[symName] = &symbolRef{
+				name:     symName,
+				noteIdxs: mentioned,
+				defFile:  symDefFile[symName],
+			}
 		}
 	}
 
@@ -781,6 +1053,13 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 				}
 			}
 		}
+	}
+
+	// Relation kind → human-readable directional verb.
+	relVerb := map[string]string{
+		"call":       "calls",
+		"reference":  "references",
+		"type_usage": "uses type",
 	}
 
 	for _, fi := range graph.Files {
@@ -805,19 +1084,23 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 			if !fromOK || !toOK || fromNote == toNote {
 				continue
 			}
-			// Create a bridge named "FromSym → ToSym" with the relation kind.
+			// Create a directed bridge with the relationship verb.
+			verb := relVerb[rel.Kind]
+			if verb == "" {
+				verb = rel.Kind
+			}
 			key := fromSym + "→" + toSym
 			if br, ok := bridgeMap[key]; ok {
 				// Add relation kind if not already present.
 				hasKind := false
 				for _, k := range br.relKinds {
-					if k == rel.Kind {
+					if k == verb {
 						hasKind = true
 						break
 					}
 				}
 				if !hasKind {
-					br.relKinds = append(br.relKinds, rel.Kind)
+					br.relKinds = append(br.relKinds, verb)
 				}
 			} else {
 				noteIdxs := []int{fromNote, toNote}
@@ -825,7 +1108,8 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 				bridgeMap[key] = &symbolRef{
 					name:     fromSym + " → " + toSym,
 					noteIdxs: noteIdxs,
-					relKinds: []string{rel.Kind},
+					relKinds: []string{verb},
+					directed: true,
 				}
 			}
 		}
@@ -840,9 +1124,13 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 		bridges = append(bridges, *br)
 	}
 
-	// Sort bridges by number of notes they span (most connected first),
-	// then alphabetically for stability.
+	// Sort bridges: directed relations first (more actionable), then by
+	// number of notes they span (most connected first), then alphabetically.
 	sort.Slice(bridges, func(i, j int) bool {
+		// Directed bridges before single-symbol bridges.
+		if bridges[i].directed != bridges[j].directed {
+			return bridges[i].directed
+		}
 		if len(bridges[i].noteIdxs) != len(bridges[j].noteIdxs) {
 			return len(bridges[i].noteIdxs) > len(bridges[j].noteIdxs)
 		}
@@ -850,18 +1138,18 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 	})
 
 	// Adaptive cap: scale with investigation complexity.
-	cap := 15
+	bridgeCap := 15
 	if len(e.allScoredFiles) > 10 {
-		cap = 20
+		bridgeCap = 20
 	}
-	if len(bridges) > cap {
-		bridges = bridges[:cap]
+	if len(bridges) > bridgeCap {
+		bridges = bridges[:bridgeCap]
 	}
 
 	var b strings.Builder
 	b.WriteString("## Cross-References Between Evidence Sets\n\n")
-	b.WriteString("These symbols appear in MULTIPLE evidence sets — they are the links in your evidence chain. ")
-	b.WriteString("Trace each chain to connect facts across files:\n\n")
+	b.WriteString("These symbols link your evidence sets. Directed entries (A —[verb]→ B) show ")
+	b.WriteString("the code-level relationship; trace them to connect facts across files:\n\n")
 	for _, br := range bridges {
 		// Deduplicate note indices.
 		seen := make(map[int]bool)
@@ -876,9 +1164,19 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 		for i, idx := range unique {
 			refs[i] = fmt.Sprintf("Evidence Set %d", idx+1)
 		}
-		entry := fmt.Sprintf("- **%s** → %s", br.name, strings.Join(refs, ", "))
-		if len(br.relKinds) > 0 {
-			entry += " (" + strings.Join(br.relKinds, ", ") + ")"
+
+		var entry string
+		if br.directed && len(br.relKinds) > 0 {
+			// Directed bridge: "SymA —[calls]→ SymB"
+			entry = fmt.Sprintf("- **%s** —[%s]→ %s",
+				br.name, strings.Join(br.relKinds, ", "),
+				strings.Join(refs, ", "))
+		} else {
+			// Single-symbol bridge: "SymName" with definition site.
+			entry = fmt.Sprintf("- **%s** — %s", br.name, strings.Join(refs, ", "))
+			if br.defFile != "" {
+				entry += fmt.Sprintf(" (defined in %s)", br.defFile)
+			}
 		}
 		b.WriteString(entry + "\n")
 	}
@@ -1137,7 +1435,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// 4. Values referencing symbols from the investigation notes
 	var relevant []concreteValue
 	for _, v := range allValues {
-		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" {
+		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" || v.kind == "assigns" {
 			relevant = append(relevant, v)
 			continue
 		}
@@ -1211,7 +1509,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// short string returns (Name/Type), then booleans, then longer values.
 	sort.Slice(relevant, func(i, j int) bool {
 		scoreVal := func(v concreteValue) int {
-			if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" {
+			if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" || v.kind == "assigns" {
 				return 100
 			}
 			if v.kind == "returns" && len(v.value) <= 20 {
@@ -1529,6 +1827,29 @@ func extractConcreteValues(source string) []concreteValueEntry {
 			}
 		}
 
+		// Pattern: variable assignment creating a new composite value.
+		// Captures "varName := []Type{elem, ...}" and "varName := Type{...}"
+		// which establish what a variable IS (important for control flow
+		// reasoning — e.g., synthMessages is a NEW slice, not accumulated).
+		if strings.Contains(trimmed, ":=") {
+			if idx := strings.Index(trimmed, ":="); idx > 0 {
+				lhs := strings.TrimSpace(trimmed[:idx])
+				rhs := strings.TrimSpace(trimmed[idx+2:])
+				// Only capture composite literals (struct/slice/map/array).
+				if len(rhs) > 0 && (strings.Contains(rhs, "{") || strings.HasPrefix(rhs, "[]")) {
+					// Extract the variable name (last identifier on LHS).
+					parts := strings.Fields(lhs)
+					varName := parts[len(parts)-1]
+					if len(varName) >= 2 && len(rhs) < 80 {
+						results = append(results, concreteValueEntry{
+							kind:  "assigns",
+							value: varName + " := " + rhs,
+						})
+					}
+				}
+			}
+		}
+
 		// Pattern: method call passing a constructor or instance as argument.
 		// Matches Register(), Handle(), Subscribe(), Add(), etc. — any
 		// call whose argument is NewXxx(...) or &Xxx{...}.
@@ -1837,14 +2158,38 @@ func extractFileCoverage(history []types.ToolResult) (discovered []string, readS
 		}
 		switch r.ToolName {
 		case "grep":
-			// grep files_only returns one path per line.
+			// grep results come in two formats:
+			//   files_only=true:  one path per line ("internal/agent/explorer.go")
+			//   files_only=false: "path:linenum: content" per line
+			// Both formats are parsed to extract the file path. The
+			// first line may be a summary header like "[grep: N matching ...]".
 			for _, line := range strings.Split(r.Summary, "\n") {
 				path := strings.TrimSpace(line)
-				if path == "" {
+				if path == "" || path[0] == '[' {
 					continue
 				}
 				// Normalize: strip leading ./
 				path = strings.TrimPrefix(path, "./")
+				// Detect "path:linenum: content" format from files_only=false.
+				// A line like "internal/agent/explorer.go:157: func ..." should
+				// extract just "internal/agent/explorer.go". We look for ":digits:"
+				// pattern which distinguishes line-level output from plain paths.
+				if colonIdx := strings.Index(path, ":"); colonIdx > 0 {
+					afterColon := path[colonIdx+1:]
+					// Check if what follows the first colon starts with digits
+					// (line number), indicating files_only=false format.
+					isLineLevel := false
+					for j := 0; j < len(afterColon); j++ {
+						if afterColon[j] >= '0' && afterColon[j] <= '9' {
+							isLineLevel = true
+						} else {
+							break
+						}
+					}
+					if isLineLevel {
+						path = path[:colonIdx]
+					}
+				}
 				// Filter noise: skip non-source files.
 				if isNoisePath(path) {
 					continue
@@ -2011,6 +2356,279 @@ func detectTruncatedUngrepped(history []types.ToolResult) ([]truncatedFileInfo, 
 	return result, grepped
 }
 
+// extractQuestionEntities pulls code identifiers from a user question.
+// Returns backtick-quoted identifiers first (most explicit), then
+// CamelCase identifiers, then dotted identifiers. Used by focus
+// alignment to detect when the LLM's evidence discusses a different
+// entity than what the question asks about.
+func extractQuestionEntities(question string) []string {
+	seen := make(map[string]bool)
+	var entities []string
+	add := func(s string) {
+		s = strings.Trim(s, "(){}[]")
+		if len(s) < 3 || seen[s] {
+			return
+		}
+		seen[s] = true
+		entities = append(entities, s)
+	}
+
+	// 1. Backtick-quoted identifiers: `MyClass.doThing`
+	rest := question
+	for {
+		start := strings.Index(rest, "`")
+		if start < 0 {
+			break
+		}
+		end := strings.Index(rest[start+1:], "`")
+		if end < 0 {
+			break
+		}
+		sym := rest[start+1 : start+1+end]
+		add(sym)
+		rest = rest[start+1+end+1:]
+	}
+
+	// 2. CamelCase identifiers (2+ uppercase-initial segments): SubAgent, BaseAgent
+	inIdent := false
+	identStart := 0
+	for i := 0; i <= len(question); i++ {
+		var c byte
+		if i < len(question) {
+			c = question[i]
+		}
+		isIdent := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+			(c >= '0' && c <= '9') || c == '_' || c == '.'
+		if isIdent && !inIdent {
+			identStart = i
+			inIdent = true
+		} else if !isIdent && inIdent {
+			token := question[identStart:i]
+			// Count uppercase-initial segments (CamelCase detection).
+			segments := 0
+			for j := 0; j < len(token); j++ {
+				if token[j] >= 'A' && token[j] <= 'Z' {
+					if j == 0 || (token[j-1] >= 'a' && token[j-1] <= 'z') {
+						segments++
+					}
+				}
+			}
+			if segments >= 2 && len(token) >= 6 {
+				add(token)
+			}
+			// Dotted identifiers: Foo.Bar
+			if strings.Contains(token, ".") && len(token) >= 5 {
+				add(token)
+			}
+			inIdent = false
+		}
+	}
+	return entities
+}
+
+// detectDetailListingIntent checks if a question asks for an itemized
+// listing where each item should be described individually. This is
+// broader than enumeration — it also covers "what strategies", "what
+// are the steps", "哪几种" etc. where the answer should be a numbered
+// list, not a prose summary.
+func detectDetailListingIntent(question string) bool {
+	lower := strings.ToLower(question)
+	// Chinese patterns requesting itemized detail.
+	for _, kw := range []string{"哪几种", "具体有哪些", "分别", "逐个", "排列", "每种"} {
+		if strings.Contains(question, kw) {
+			return true
+		}
+	}
+	// English patterns.
+	for _, kw := range []string{
+		"what strategies", "what are the", "what steps",
+		"how many different", "list each", "describe each",
+		"what types of", "what kinds of",
+	} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	// Enumeration queries are always detail-listing queries.
+	return detectEnumerationIntent(question)
+}
+
+// detectEnumerationIntent checks if a question asks to list or enumerate
+// all items of a certain type. This triggers stricter file coverage
+// thresholds and enumeration completeness verification in synthesis.
+//
+// Supports Chinese and English enumeration patterns. The heuristic
+// requires the enumeration keyword to appear in a context that suggests
+// exhaustive listing (not just incidental use of "all").
+func detectEnumerationIntent(question string) bool {
+	lower := strings.ToLower(question)
+
+	// Chinese enumeration keywords (high confidence).
+	for _, kw := range []string{"所有", "每个", "全部", "哪些", "有哪些", "列出", "列举"} {
+		if strings.Contains(question, kw) {
+			return true
+		}
+	}
+
+	// English enumeration patterns.
+	// Direct enumeration verbs.
+	for _, kw := range []string{"list all", "find all", "enumerate", "how many"} {
+		if strings.Contains(lower, kw) {
+			return true
+		}
+	}
+	// "all X" where X is a noun — "all implementations", "all types"
+	// Require "all" followed by a word, not "all errors are handled" pattern.
+	for _, prefix := range []string{"all the ", "every ", "each "} {
+		if strings.Contains(lower, prefix) {
+			return true
+		}
+	}
+	// "what are the Xs" — plural noun query
+	if strings.Contains(lower, "what are") || strings.Contains(lower, "which ") {
+		return true
+	}
+	return false
+}
+
+// partialReadHint describes a function/method that was partially read.
+type partialReadHint struct {
+	file       string
+	symbolName string
+	symbolKind string
+	symStart   int     // symbol.Line (1-based)
+	symEnd     int     // symbol.EndLine (1-based)
+	readEnd    int     // max line the LLM read in this file
+	coverage   float64 // fraction of function body covered (0.0-1.0)
+}
+
+// detectPartiallyReadSymbols checks whether any function/method in the
+// read files was only partially covered by the LLM's read_file calls.
+// It cross-references the read ranges (from banner parsing) against the
+// symbol boundaries from the repo_map graph. Returns hints for functions
+// where the LLM missed >20 lines and covered <80% of the body.
+//
+// This catches the common failure mode where the LLM reads a 40-line
+// slice of a 300-line function and misses critical logic at the end.
+func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph) []partialReadHint {
+	if graph == nil {
+		return nil
+	}
+
+	// Build per-file read ranges: track the max end line across all reads.
+	type readRange struct {
+		minStart int
+		maxEnd   int
+	}
+	fileReads := make(map[string]*readRange)
+
+	for _, r := range history {
+		if !r.Success || r.ToolName != "read_file" {
+			continue
+		}
+		first := strings.SplitN(r.Summary, "\n", 2)[0]
+		if !strings.HasPrefix(first, "[") {
+			continue
+		}
+		colonIdx := strings.Index(first, ": showing lines ")
+		if colonIdx < 1 {
+			continue
+		}
+		path := first[1:colonIdx]
+		rest := first[colonIdx+len(": showing lines "):]
+		dashIdx := strings.Index(rest, "-")
+		ofIdx := strings.Index(rest, " of ")
+		if dashIdx < 0 || ofIdx < 0 {
+			continue
+		}
+		startLine, err1 := strconv.Atoi(rest[:dashIdx])
+		endLine, err2 := strconv.Atoi(rest[dashIdx+1 : ofIdx])
+		if err1 != nil || err2 != nil {
+			continue
+		}
+		if rr, ok := fileReads[path]; ok {
+			if startLine < rr.minStart {
+				rr.minStart = startLine
+			}
+			if endLine > rr.maxEnd {
+				rr.maxEnd = endLine
+			}
+		} else {
+			fileReads[path] = &readRange{minStart: startLine, maxEnd: endLine}
+		}
+	}
+
+	if len(fileReads) == 0 {
+		return nil
+	}
+
+	var hints []partialReadHint
+	for path, rr := range fileReads {
+		fi, ok := graph.FileIndex[path]
+		if !ok {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			if sym.Kind != "function" && sym.Kind != "method" {
+				continue
+			}
+			if sym.EndLine == 0 || sym.EndLine-sym.Line < 10 {
+				continue // skip trivial functions
+			}
+			// Check if this symbol overlaps with the read range but was
+			// not fully covered.
+			if sym.Line > rr.maxEnd || sym.EndLine <= rr.maxEnd {
+				continue // entirely outside read range, or fully covered
+			}
+			// Symbol was partially read: sym.Line <= rr.maxEnd < sym.EndLine
+			bodyLines := sym.EndLine - sym.Line + 1
+			overlapStart := sym.Line
+			if rr.minStart > overlapStart {
+				overlapStart = rr.minStart
+			}
+			overlapEnd := rr.maxEnd
+			if overlapEnd > sym.EndLine {
+				overlapEnd = sym.EndLine
+			}
+			overlapLines := overlapEnd - overlapStart + 1
+			if overlapLines < 0 {
+				overlapLines = 0
+			}
+			cov := float64(overlapLines) / float64(bodyLines)
+
+			// Only report if coverage < 80% AND missing > 20 lines.
+			unreadLines := sym.EndLine - rr.maxEnd
+			if cov < 0.8 && unreadLines > 20 {
+				qualName := sym.Name
+				if sym.Receiver != "" {
+					qualName = sym.Receiver + "." + sym.Name
+				} else if sym.Parent != "" {
+					qualName = sym.Parent + "." + sym.Name
+				}
+				hints = append(hints, partialReadHint{
+					file:       path,
+					symbolName: qualName,
+					symbolKind: sym.Kind,
+					symStart:   sym.Line,
+					symEnd:     sym.EndLine,
+					readEnd:    rr.maxEnd,
+					coverage:   cov,
+				})
+			}
+		}
+	}
+
+	// Sort by coverage ascending (worst coverage first).
+	sort.Slice(hints, func(i, j int) bool {
+		return hints[i].coverage < hints[j].coverage
+	})
+	// Cap at 5 hints to avoid overwhelming the LLM.
+	if len(hints) > 5 {
+		hints = hints[:5]
+	}
+	return hints
+}
+
 // trackCrossReferences scans an investigation note for symbol names
 // that are defined in files not yet in the coverage list. When the
 // LLM mentions e.g. "NewSubExplorer" in its analysis, this method
@@ -2137,6 +2755,25 @@ func isEvidenceLine(trimmed string) bool {
 			}
 		}
 	}
+	// Variable assignment creating new composite values:
+	//   Go:     varName := Type{...} or varName := []Type{...}
+	//   JS/TS:  const x = { ... } or const x = [ ... ]
+	//   Python: x = ClassName(...)
+	// These are evidence because they establish what a variable IS
+	// (e.g., synthMessages is a NEW slice, not accumulated messages).
+	if strings.Contains(trimmed, ":=") || strings.Contains(trimmed, " = ") {
+		rhs := trimmed
+		if idx := strings.Index(trimmed, ":="); idx >= 0 {
+			rhs = strings.TrimSpace(trimmed[idx+2:])
+		} else if idx := strings.Index(trimmed, " = "); idx >= 0 {
+			rhs = strings.TrimSpace(trimmed[idx+3:])
+		}
+		// RHS creates a new composite value (struct/slice/map/array literal).
+		if strings.Contains(rhs, "{") || strings.HasPrefix(rhs, "[") ||
+			strings.HasPrefix(rhs, "[]") {
+			return true
+		}
+	}
 	return false
 }
 
@@ -2203,6 +2840,222 @@ func safeCharAt(s string, i int) byte {
 
 func isIdentChar(c byte) bool {
 	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_'
+}
+
+// crossValidateEvidence compares LLM-generated [DIRECT] and [REGISTRATION]
+// evidence against the programmatically extracted Concrete Values table.
+// When the same method appears in both with contradictory facts, a conflict
+// is surfaced so the synthesis LLM can resolve it using source code as
+// ground truth.
+//
+// This addresses a systemic weakness: the LLM can misread code (e.g.,
+// reporting "returns true" when the code says "returns false"), and without
+// cross-validation these errors propagate silently into the final answer.
+//
+// The comparison is language-agnostic: it extracts method names and core
+// value assertions from both sources and compares them structurally.
+func crossValidateEvidence(notes []string, concreteValuesSection string) string {
+	if concreteValuesSection == "" {
+		return ""
+	}
+
+	// Parse concrete values table: method → fact.
+	// Table format: | file:line | `Method()` | kind value |
+	type cvEntry struct {
+		method string // lowercase, without parens
+		fact   string // the full "kind value" column
+	}
+	var cvEntries []cvEntry
+	cvByMethod := make(map[string]string) // lowercase method → fact
+	for _, line := range strings.Split(concreteValuesSection, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "|") || strings.HasPrefix(line, "| File") || strings.HasPrefix(line, "|---") {
+			continue
+		}
+		cols := strings.SplitN(line, "|", 5)
+		if len(cols) < 4 {
+			continue
+		}
+		method := strings.TrimSpace(cols[2])
+		method = strings.Trim(method, "`()")
+		fact := strings.TrimSpace(cols[3])
+		if method != "" && fact != "" {
+			key := strings.ToLower(method)
+			cvByMethod[key] = fact
+			cvEntries = append(cvEntries, cvEntry{method: key, fact: fact})
+		}
+	}
+	if len(cvEntries) == 0 {
+		return ""
+	}
+
+	// Parse LLM claims from [DIRECT] and [REGISTRATION] lines.
+	// Format: - [DIRECT] `methodName` line N: <fact>
+	// Format: - [REGISTRATION] `methodName` line N: <fact>
+	type llmClaim struct {
+		tag        string // "DIRECT" or "REGISTRATION"
+		method     string // extracted method name, lowercase (for matching)
+		methodOrig string // original case method name (for display)
+		fact       string // the claim after "line N:"
+		original   string // full original line for display
+	}
+	var claims []llmClaim
+	for _, note := range notes {
+		for _, line := range strings.Split(note, "\n") {
+			trimmed := strings.TrimSpace(line)
+			var tag string
+			if strings.HasPrefix(trimmed, "- [DIRECT]") {
+				tag = "DIRECT"
+			} else if strings.HasPrefix(trimmed, "- [REGISTRATION]") {
+				tag = "REGISTRATION"
+			} else {
+				continue
+			}
+
+			// Extract method name between backticks.
+			btStart := strings.Index(trimmed, "`")
+			if btStart < 0 {
+				continue
+			}
+			btEnd := strings.Index(trimmed[btStart+1:], "`")
+			if btEnd < 0 {
+				continue
+			}
+			method := trimmed[btStart+1 : btStart+1+btEnd]
+			method = strings.Trim(method, "()")
+
+			// Extract fact: everything after "line N:" or the colon
+			// following the method name.
+			fact := ""
+			afterMethod := trimmed[btStart+1+btEnd+1:]
+			// Try "line N:" pattern first.
+			if idx := strings.Index(afterMethod, ":"); idx >= 0 {
+				fact = strings.TrimSpace(afterMethod[idx+1:])
+			}
+			if fact == "" {
+				continue
+			}
+
+			claims = append(claims, llmClaim{
+				tag:        tag,
+				method:     strings.ToLower(method),
+				methodOrig: method,
+				fact:       fact,
+				original: trimmed,
+			})
+		}
+	}
+	if len(claims) == 0 {
+		return ""
+	}
+
+	// Cross-validate: find claims where the same method has a concrete
+	// value and check whether the facts agree or conflict.
+	var conflicts []string
+	seen := make(map[string]bool) // deduplicate by method
+	for _, claim := range claims {
+		if seen[claim.method] {
+			continue
+		}
+		// Try exact match, then Type.Method partial matches.
+		cvFact := ""
+		if f, ok := cvByMethod[claim.method]; ok {
+			cvFact = f
+		} else {
+			// Try matching just the method name part (e.g., claim has
+			// "Name" and CV has "Foo.Name").
+			for cvMethod, f := range cvByMethod {
+				if strings.HasSuffix(cvMethod, "."+claim.method) ||
+					claim.method == cvMethod {
+					cvFact = f
+					break
+				}
+			}
+			if cvFact == "" {
+				// Try the reverse: claim has "Foo.Name", CV has "Name".
+				parts := strings.SplitN(claim.method, ".", 2)
+				if len(parts) == 2 {
+					if f, ok := cvByMethod[parts[1]]; ok {
+						cvFact = f
+					}
+				}
+			}
+		}
+		if cvFact == "" {
+			continue // no matching concrete value to compare
+		}
+		seen[claim.method] = true
+
+		// Compare the core assertions. Extract the value part from both.
+		claimCore := normalizeValueAssertion(claim.fact)
+		cvCore := normalizeValueAssertion(cvFact)
+		if claimCore == "" || cvCore == "" {
+			continue
+		}
+		if !valueAssertionsAgree(claimCore, cvCore) {
+			conflicts = append(conflicts, fmt.Sprintf(
+				"- **`%s`**: LLM claims \"%s\" but source code shows **%s**",
+				claim.methodOrig, claim.fact, cvFact))
+		}
+	}
+
+	if len(conflicts) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("## Evidence Conflicts (LLM vs. Source Code)\n\n")
+	b.WriteString("The following claims from your investigation CONTRADICT the programmatic ")
+	b.WriteString("evidence extracted directly from source code. The Concrete Values table is ")
+	b.WriteString("ground truth — adjust your reasoning accordingly:\n\n")
+	for _, c := range conflicts {
+		b.WriteString(c + "\n")
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+// normalizeValueAssertion extracts the core value from a fact string.
+// Handles patterns like "returns true", "returns \"explorer\"",
+// "binds NewFoo", "registers NewFoo and NewBar".
+// Returns the normalized value for comparison, or "" if unparseable.
+func normalizeValueAssertion(fact string) string {
+	fact = strings.TrimSpace(fact)
+	lower := strings.ToLower(fact)
+
+	// Strip common prefixes to get to the value.
+	for _, prefix := range []string{
+		"returns ", "return ", "binds only ", "binds ",
+		"maps ", "registers only ", "registers ",
+		"decorates ", "config ",
+	} {
+		if strings.HasPrefix(lower, prefix) {
+			return strings.TrimSpace(fact[len(prefix):])
+		}
+	}
+	return fact
+}
+
+// valueAssertionsAgree checks if two normalized value assertions refer
+// to the same thing. Handles quote style differences, whitespace, and
+// simple boolean/nil equivalences.
+func valueAssertionsAgree(a, b string) bool {
+	// Normalize for comparison: lowercase, strip quotes, trim.
+	normalize := func(s string) string {
+		s = strings.ToLower(strings.TrimSpace(s))
+		s = strings.Trim(s, "\"'`")
+		s = strings.TrimSpace(s)
+		return s
+	}
+	na, nb := normalize(a), normalize(b)
+	if na == nb {
+		return true
+	}
+	// One contains the other (handles "true" vs "true (always)")
+	if strings.Contains(na, nb) || strings.Contains(nb, na) {
+		return true
+	}
+	return false
 }
 
 // resolveConditions checks [CONDITIONAL] evidence entries against the
