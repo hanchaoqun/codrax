@@ -134,6 +134,38 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 		}
 	}
 
+	// --- Mechanism (T2.1): "how does X work", "process", "原理", "机制", "怎么" ---
+	// English keyword set is intentionally broad enough to survive the
+	// analyzer's question rewriting (which often turns "X 怎么工作?" into
+	// "Explain how X works" or "Describe the process of X"). The Chinese
+	// set covers direct user phrasing.
+	//
+	// Detection avoids overlap with conditional ("when") and call_chain
+	// ("call/invoke") by requiring an explicit mechanism marker — we
+	// don't trigger on bare "how" because the analyzer uses "how" loosely.
+	for _, kw := range []string{
+		// English (analyzer-rewrite friendly)
+		"how does", "how is", "how do", "how the",
+		"explain how", "describe how", "describe the process",
+		"step by step", "steps involved", "mechanism of", "process of", "flow of",
+		"walk through", "walkthrough",
+	} {
+		if strings.Contains(lower, kw) {
+			add("mechanism", fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
+			break
+		}
+	}
+	for _, kw := range []string{
+		// Chinese (direct user phrasing)
+		"怎么工作", "怎么实现", "如何实现", "如何工作", "如何处理",
+		"原理", "机制", "工作流程", "步骤", "过程",
+	} {
+		if strings.Contains(question, kw) {
+			add("mechanism", fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
+			break
+		}
+	}
+
 	return reqs
 }
 
@@ -269,6 +301,30 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceConditional)
 			if count >= 1 {
 				req.Status = "satisfied"
+			}
+
+		case "mechanism":
+			// Mechanism requirements need either LLM-tagged [MECHANISM]
+			// notes or structured EvidenceMechanism items mentioning the
+			// requirement entities. Reuses the same per-Kind counter as
+			// conditional/config_mapping for consistency. Two evidence
+			// items are required for "satisfied" because mechanism
+			// answers usually need at least an entry point + a step
+			// inside the function body — one isolated [MECHANISM] tag
+			// is rarely enough for a usable explanation. Falls through
+			// to "partial" with one item.
+			count := countEvidenceTags(notesJoined, []string{"[mechanism]"})
+			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceMechanism)
+			// Also accept relationship items mentioning the entity —
+			// "calls / writes_field / reads_field" are mechanism-shaped
+			// when they appear together. T2.2 (mechanism scan pipeline)
+			// will produce richer EvidenceMechanism directly; until then
+			// the dataflow lowering's relationships fill the gap.
+			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceRelationship)
+			if count >= 2 {
+				req.Status = "satisfied"
+			} else if count >= 1 {
+				req.Status = "partial"
 			}
 		}
 	}

@@ -352,6 +352,110 @@ func TestIdentifyAnswerChains_RefactorParity(t *testing.T) {
 	}
 }
 
+// --- T2.1 mechanism Kind tests ----------------------------------------
+//
+// Cover Chinese + English-rewrite-friendly trigger detection,
+// satisfaction via EvidenceMechanism + EvidenceRelationship, and the
+// "no spurious mechanism Kind on unrelated questions" reverse case.
+
+func TestExtractEvidenceRequirements_MechanismChinese(t *testing.T) {
+	cases := []string{
+		"explorer 怎么实现 ContinuationPrompt 的?",
+		"dataflow.Analyze 的工作流程是什么?",
+		"keyword_search 的原理是什么?",
+		"BaseAgent.Execute 的步骤?",
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		hasMechanism := false
+		for _, r := range reqs {
+			if r.Kind == "mechanism" {
+				hasMechanism = true
+				break
+			}
+		}
+		if !hasMechanism {
+			t.Errorf("question %q: no mechanism Kind extracted; reqs=%v", q, reqs)
+		}
+	}
+}
+
+func TestExtractEvidenceRequirements_MechanismEnglish(t *testing.T) {
+	// These are the analyzer's typical English rewrites of Chinese
+	// mechanism questions. They MUST trigger mechanism Kind so the
+	// satisfaction check can fire when the question reaches the
+	// explorer.
+	cases := []string{
+		"Explain how ContinuationPrompt works in the explorer agent.",
+		"Describe the process of dataflow.Analyze.",
+		"How does keyword_search rank files?",
+		"Walk through the steps of BaseAgent.Execute.",
+		"How is the answer chain built from concrete values?",
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		hasMechanism := false
+		for _, r := range reqs {
+			if r.Kind == "mechanism" {
+				hasMechanism = true
+				break
+			}
+		}
+		if !hasMechanism {
+			t.Errorf("question %q: no mechanism Kind extracted; reqs=%v", q, reqs)
+		}
+	}
+}
+
+func TestExtractEvidenceRequirements_MechanismNotTriggered(t *testing.T) {
+	// Reverse safety: questions that contain "how" but not as a
+	// mechanism marker must NOT trigger the mechanism Kind. The
+	// trigger is "how does / how is / how the" — bare "how many"
+	// is enumeration, not mechanism.
+	cases := []string{
+		"how many agents are registered?",
+		"which file defines the Explorer struct?",
+		"what type does FileInfo.Path have?",
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		for _, r := range reqs {
+			if r.Kind == "mechanism" {
+				t.Errorf("question %q: spurious mechanism Kind extracted; reqs=%v", q, reqs)
+			}
+		}
+	}
+}
+
+func TestCheckRequirementSatisfaction_MechanismFromEvidence(t *testing.T) {
+	// Two EvidenceMechanism items → satisfied.
+	reqs := []EvidenceRequirement{
+		{Kind: "mechanism", Entities: []string{"explorer"}, Status: "unsatisfied"},
+	}
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceMechanism, Predicate: "reads_config", Subject: "explorer", Summary: "explorer reads_config"},
+		{Kind: types.EvidenceMechanism, Predicate: "iterates", Subject: "explorer", Summary: "explorer iterates files"},
+	}
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	if reqs[0].Status != "satisfied" {
+		t.Errorf("mechanism satisfaction: status = %q, want satisfied", reqs[0].Status)
+	}
+}
+
+func TestCheckRequirementSatisfaction_MechanismPartial(t *testing.T) {
+	// One mechanism evidence item → partial (need ≥2 for full).
+	reqs := []EvidenceRequirement{
+		{Kind: "mechanism", Entities: []string{"explorer"}, Status: "unsatisfied"},
+	}
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceMechanism, Predicate: "reads_config", Subject: "explorer", Summary: "explorer reads_config"},
+	}
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	if reqs[0].Status != "partial" {
+		t.Errorf("mechanism partial: status = %q, want partial", reqs[0].Status)
+	}
+}
+
 func TestCheckRequirementSatisfaction_RegistrationFallthroughLLMNotes(t *testing.T) {
 	// Coexistence check: the new binds-Concrete branch must not displace
 	// the existing LLM-notes [REGISTRATION] branch. When evidence is empty
