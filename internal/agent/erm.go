@@ -13,6 +13,15 @@ import (
 // EvidenceRequirement represents a specific type of evidence needed to
 // answer the user's question. The explorer tracks which requirements
 // are satisfied during investigation and directs file reads to fill gaps.
+//
+// noSourceLineSentinel is used by identifyAnswerChains' multi-key
+// sort when an EvidenceItem has no LineStart. Sorted ascending,
+// items with real line numbers (small positive integers) come
+// first and items without come last. Using a large but bounded
+// integer (not math.MaxInt) keeps the key inside int32 range so
+// the comparator stays well-defined on 32-bit platforms.
+const noSourceLineSentinel = 1 << 30
+
 type EvidenceRequirement struct {
 	Kind     string   // "enumeration", "call_chain", "registration", "return_value", "config_mapping", "conditional"
 	Entities []string // key entities from the question this requirement relates to
@@ -834,11 +843,30 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	// the underlying EvidenceItem (strict, only items passing ALL
 	// applicable predicates). Both paths share the same scoring so
 	// callers can treat them as two views of one ranked list.
+	//
+	// Sort keys for multi-key stable ordering (2026-04-12 user-
+	// requested ordering discipline, see memory/project_answer_chain_stable_sort.md):
+	//   1. score         — descending (primary relevance)
+	//   2. strictOK      — true first (L0-1 predicate-passing items
+	//                      win ties against demoted ones)
+	//   3. confidence    — descending (from ev.Confidence)
+	//   4. chainLength   — ascending (shorter chains are more
+	//                      precise / less indirection)
+	//   5. sourceLine    — ascending (earlier code wins ties, with
+	//                      a sentinel for items without a line)
+	//   6. summary       — lexicographic tie-break final key,
+	//                      guarantees a total order so results are
+	//                      deterministic across Go runtime hash seeds
+	//                      and call orderings.
 	type scored struct {
-		text     string
-		score    float64
-		src      types.EvidenceItem // untouched source item
-		strictOK bool               // passed all applicable predicates
+		text        string
+		score       float64
+		src         types.EvidenceItem // untouched source item
+		strictOK    bool               // passed all applicable predicates
+		confidence  float64            // mirror of src.Confidence, cached for sort
+		chainLength int                // hop count: arrow count + 1, min 1
+		sourceLine  int                // src.LineStart, or noSourceLine sentinel
+		summary     string             // lex tie-break final key
 	}
 	var candidates []scored
 
@@ -943,11 +971,36 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 			}
 		}
 
+		// Chain length: number of hops. Counted as (→ arrows + 1).
+		// An arrow-less Summary is 1 hop (a bare Subject-predicate-
+		// Object triple), a 1-arrow chain is 2 hops, etc. Items with
+		// empty Summary get chainLength=1 since the {Subject, Object}
+		// pair functions as a single hop. Lower is more precise —
+		// fewer intermediate indirections between the question entity
+		// and the terminal answer.
+		chainLen := strings.Count(ev.Summary, "→") + 1
+		if chainLen < 1 {
+			chainLen = 1
+		}
+
+		// Source line sentinel: items without a line number sort
+		// AFTER items with a line number, so a chain anchored at a
+		// concrete source location wins ties against a floating
+		// chain built from LLM notes that never resolved a line.
+		srcLine := ev.LineStart
+		if srcLine <= 0 {
+			srcLine = noSourceLineSentinel
+		}
+
 		candidates = append(candidates, scored{
-			text:     display,
-			score:    float64(overlap) / float64(len(entities)) * bonus,
-			src:      ev,
-			strictOK: strictOK,
+			text:        display,
+			score:       float64(overlap) / float64(len(entities)) * bonus,
+			src:         ev,
+			strictOK:    strictOK,
+			confidence:  ev.Confidence,
+			chainLength: chainLen,
+			sourceLine:  srcLine,
+			summary:     ev.Summary,
 		})
 	}
 
@@ -955,9 +1008,37 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		return nil, nil
 	}
 
-	// Sort by score descending.
-	sort.Slice(candidates, func(i, j int) bool {
-		return candidates[i].score > candidates[j].score
+	// Stable multi-key sort. SliceStable (not Slice) keeps equal-
+	// keyed candidates in their original insertion order, so the
+	// final tie-break defaults to "came from evidence[] first" —
+	// relevant when two items share ALL sort keys including the
+	// lex-ordered summary. See memory/project_answer_chain_stable_sort.md.
+	sort.SliceStable(candidates, func(i, j int) bool {
+		ci, cj := candidates[i], candidates[j]
+		// 1. score descending
+		if ci.score != cj.score {
+			return ci.score > cj.score
+		}
+		// 2. strictOK=true first (L0-1 passing items beat demoted)
+		if ci.strictOK != cj.strictOK {
+			return ci.strictOK
+		}
+		// 3. confidence descending
+		if ci.confidence != cj.confidence {
+			return ci.confidence > cj.confidence
+		}
+		// 4. chainLength ascending (shorter = more precise)
+		if ci.chainLength != cj.chainLength {
+			return ci.chainLength < cj.chainLength
+		}
+		// 5. sourceLine ascending (earlier code wins)
+		if ci.sourceLine != cj.sourceLine {
+			return ci.sourceLine < cj.sourceLine
+		}
+		// 6. summary lexicographic — deterministic final tie-break
+		//    so the result is stable across Go runtime hash seeds
+		//    and iteration-order noise.
+		return ci.summary < cj.summary
 	})
 
 	// Build two aligned outputs:

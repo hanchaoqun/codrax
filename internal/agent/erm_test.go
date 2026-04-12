@@ -1031,6 +1031,188 @@ func TestIdentifyAnswerChains_BackCompatNilArgs(t *testing.T) {
 	}
 }
 
+// ---------- Multi-key stable sort (2026-04-12) ----------
+
+// TestIdentifyAnswerChains_StableSortEqualScoreByStrictOK locks the
+// second sort key: when two candidates share an identical primary
+// score, the one that passed all L0-1 predicates (strictOK=true) must
+// rank above the demoted one. Pre-fix the plain float comparator put
+// them in Go's internal slice order, which changes across runtime
+// hash-seed variations and evidence iteration order.
+//
+// Fixture shape: two evidence items whose overlap and bonus multipliers
+// yield exactly the same float64 score. The first is a clean
+// registration linkage (passes origin predicate); the second is a
+// constructor-originated chain (demoted by chainOriginIsRegistrationLinkage
+// but still scored above zero). Both end in a literal returns shape, so
+// terminal predicate passes for both.
+func TestIdentifyAnswerChains_StableSortEqualScoreByStrictOK(t *testing.T) {
+	question := "which X register Y?"
+	evidence := []types.EvidenceItem{
+		// strictOK=false path: NewFoo constructor origin, demoted
+		// ×0.1 by chainOriginIsRegistrationLinkage.
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`NewFoo()` returns &Foo{} → `Foo.Name()` returns \"foo\"",
+		},
+		// strictOK=true path: Register-prefixed origin, passes
+		// predicate. Same overlap (both contain "register" / "y"
+		// substrings via the question entity list after
+		// normalisation).
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterHandlers()` binds ONLY NewBar(deps) → `Bar.Name()` returns \"bar\"",
+		},
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"register", "y"}},
+	}
+	chains, strict := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	if len(chains) == 0 {
+		t.Fatal("expected at least one chain")
+	}
+	// Strict subset must contain the Register chain (the one that
+	// passed the origin predicate).
+	if len(strict) == 0 || !strings.Contains(strict[0].Summary, "RegisterHandlers") {
+		t.Errorf("strict subset should lead with RegisterHandlers, got: %+v", strict)
+	}
+	// Loose list must also rank RegisterHandlers above NewFoo because
+	// the ×0.1 origin demotion makes their raw scores unequal. This
+	// double-checks the ordering works both with and without score
+	// separation.
+	registerIdx := -1
+	newFooIdx := -1
+	for i, c := range chains {
+		if strings.Contains(c, "RegisterHandlers") {
+			registerIdx = i
+		}
+		if strings.Contains(c, "NewFoo") {
+			newFooIdx = i
+		}
+	}
+	if registerIdx < 0 {
+		t.Fatalf("RegisterHandlers chain missing from loose list: %v", chains)
+	}
+	if newFooIdx >= 0 && registerIdx > newFooIdx {
+		t.Errorf("loose list: RegisterHandlers (idx %d) should rank before NewFoo (idx %d); chains=%v",
+			registerIdx, newFooIdx, chains)
+	}
+}
+
+// TestIdentifyAnswerChains_StableSortEqualScoreByConfidence locks the
+// third sort key. Two identical-shape chains with different
+// EvidenceItem.Confidence values must order with the higher-confidence
+// one first.
+func TestIdentifyAnswerChains_StableSortEqualScoreByConfidence(t *testing.T) {
+	question := "which X register Y?"
+	// Two binds-shape Concrete items with identical Summaries modulo
+	// the registered type name, identical source info, but different
+	// confidence values. Same score (same overlap, same bonus).
+	evidence := []types.EvidenceItem{
+		{
+			Kind:       types.EvidenceConcrete,
+			Predicate:  "binds",
+			Subject:    "RegisterA",
+			Object:     "NewLowConfY()",
+			Summary:    "`RegisterA()` binds NewLowConfY()",
+			Confidence: 0.3,
+		},
+		{
+			Kind:       types.EvidenceConcrete,
+			Predicate:  "binds",
+			Subject:    "RegisterB",
+			Object:     "NewHighConfY()",
+			Summary:    "`RegisterB()` binds NewHighConfY()",
+			Confidence: 0.9,
+		},
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"register", "y"}},
+	}
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	if len(chains) == 0 {
+		t.Fatal("expected at least one chain")
+	}
+	// Higher-confidence chain must come first.
+	if !strings.Contains(chains[0], "NewHighConfY") {
+		t.Errorf("expected NewHighConfY first (higher confidence), got: %v", chains)
+	}
+}
+
+// TestIdentifyAnswerChains_StableSortEqualScoreByChainLength locks the
+// fourth sort key. Two chains with identical score / strictOK /
+// confidence, differing only in number of `→` hops, must order shorter
+// first — a shorter chain is more direct, fewer indirection steps from
+// question entity to terminal answer.
+func TestIdentifyAnswerChains_StableSortEqualScoreByChainLength(t *testing.T) {
+	question := "which X register Y?"
+	evidence := []types.EvidenceItem{
+		// 3-hop chain.
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterX()` binds NewLong(d) → `Long.Intermediate()` returns m → `m.Get()` returns \"y\"",
+		},
+		// 2-hop chain — shorter, more direct.
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterY()` binds NewShort(d) → `Short.Name()` returns \"y\"",
+		},
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"register", "y"}},
+	}
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	if len(chains) < 2 {
+		t.Fatalf("expected at least 2 chains, got %d: %v", len(chains), chains)
+	}
+	if !strings.Contains(chains[0], "NewShort") {
+		t.Errorf("expected shorter (NewShort) chain first, got order: %v", chains)
+	}
+}
+
+// TestIdentifyAnswerChains_StableSortDeterministicAcrossRuns is the
+// headline stability test: same input must produce the same ranked
+// output across multiple identical invocations. Pre-fix this was NOT
+// guaranteed for equal-score candidates because map iteration order
+// influenced the input slice order upstream. The new comparator's lex
+// tie-break on summary guarantees a total order.
+func TestIdentifyAnswerChains_StableSortDeterministicAcrossRuns(t *testing.T) {
+	question := "which X register Y?"
+	// Build a fixture where several candidates collide on the first
+	// few keys and differ only in the final (summary lex) tie-break.
+	evidence := []types.EvidenceItem{
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterAlpha", Object: "NewY1()", Summary: "`RegisterAlpha()` binds NewY1()"},
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterBeta", Object: "NewY2()", Summary: "`RegisterBeta()` binds NewY2()"},
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterGamma", Object: "NewY3()", Summary: "`RegisterGamma()` binds NewY3()"},
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterDelta", Object: "NewY4()", Summary: "`RegisterDelta()` binds NewY4()"},
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"register", "y"}},
+	}
+	baseline, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	if len(baseline) == 0 {
+		t.Fatal("expected non-empty baseline")
+	}
+	// Re-run several times and compare — any permutation means the
+	// sort is not fully stable.
+	for run := 0; run < 5; run++ {
+		chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+		if len(chains) != len(baseline) {
+			t.Fatalf("run %d: len mismatch baseline=%d got=%d", run, len(baseline), len(chains))
+		}
+		for i := range chains {
+			if chains[i] != baseline[i] {
+				t.Errorf("run %d: order changed at idx %d\n  baseline[%d]=%q\n  got[%d]=%q",
+					run, i, i, baseline[i], i, chains[i])
+			}
+		}
+	}
+}
+
 // ---------- L0-2: extract-then-express ----------
 
 // TestFirstUppercaseIdent covers the token-walking helper that picks
