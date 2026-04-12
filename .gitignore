@@ -9,3 +9,9 @@ config/codrax.yaml
 # state that must never be committed.
 /logs/
 /memory/
+
+# Eval harness output. Per-run transcripts + per-run log dirs under
+# eval/results/ are large, machine-specific, and contain the test
+# question verbatim — committing them would also re-introduce the
+# keyword-search contamination that ExcludeDirs already guards against.
+/eval/results/

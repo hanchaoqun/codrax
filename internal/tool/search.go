@@ -61,9 +61,13 @@ func UseRipgrep() bool {
 //   - Dependency trees: node_modules, vendor, __pycache__, .tox
 //   - Runtime artifacts: logs, memory (codrax's own output dirs)
 //   - Build output: target (Rust/Java), dist, build
+//   - Eval artifacts: eval/results/* full transcripts contain the
+//     test question verbatim and would contaminate keyword search
+//     for the very test they're produced from. Excluding the whole
+//     `eval` tree is safe because case files use a separate runtime.
 var ExcludeDirs = []string{
 	".git", ".hg", ".svn",
 	"node_modules", "vendor", "__pycache__", ".tox",
-	"logs", "memory",
+	"logs", "memory", "eval",
 	"target", "dist", "build",
 }
