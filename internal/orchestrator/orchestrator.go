@@ -599,11 +599,25 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// Append new facts
 	o.busCtx.RepoFacts = append(o.busCtx.RepoFacts, output.NewFacts...)
 
-	// Append structured evidence, dataflow findings, and answer chains.
-	o.busCtx.EvidenceItems = append(o.busCtx.EvidenceItems, output.EvidenceItems...)
-	o.busCtx.FlowFindings = append(o.busCtx.FlowFindings, output.FlowFindings...)
-	o.busCtx.AnswerChains = append(o.busCtx.AnswerChains, output.AnswerChains...)
-	o.busCtx.AnswerSymbols = append(o.busCtx.AnswerSymbols, output.AnswerSymbols...)
+	// Merge-deduplicate structured evidence, dataflow findings, and
+	// answer chains/symbols. These four slices are "truth sets" that
+	// downstream prompt builders render verbatim; without dedup a
+	// stage self-loop (explore → explore) would accumulate the same
+	// items N times, because the explorer's ParseOutput re-emits the
+	// full snapshot of its cumulative investigation on every entry.
+	// See memory/project_applystage_dedup.md for the full rationale
+	// and the stability lock tests in
+	// internal/orchestrator/apply_stage_output_dedup_test.go.
+	//
+	// Tool results, MCP responses, and repo facts are LEFT appending
+	// because they are per-call history logs, not dedupable truth
+	// items — each entry corresponds to a distinct tool invocation
+	// and the downstream consumers (e.g. ReAct history pruning,
+	// debug logs) rely on that per-call granularity.
+	o.busCtx.EvidenceItems = agent.MergeEvidenceItems(o.busCtx.EvidenceItems, output.EvidenceItems)
+	o.busCtx.FlowFindings = agent.MergeFlowFindings(o.busCtx.FlowFindings, output.FlowFindings)
+	o.busCtx.AnswerChains = types.MergeAnswerChains(o.busCtx.AnswerChains, output.AnswerChains)
+	o.busCtx.AnswerSymbols = types.MergeAnswerSymbols(o.busCtx.AnswerSymbols, output.AnswerSymbols)
 
 	// Append the stage's synthesized narrative so downstream stages
 	// can read prior reasoning. The active agent/stage at this point

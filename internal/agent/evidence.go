@@ -169,6 +169,14 @@ func evidenceKindFromTag(tag string) types.EvidenceKind {
 	}
 }
 
+// MergeEvidenceItems is the exported variant of the internal merger,
+// added so the orchestrator can deduplicate BusContext.EvidenceItems
+// on stage self-loops without duplicating the ID-based merge logic.
+// See memory/project_applystage_dedup.md for context.
+func MergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
+	return mergeEvidenceItems(groups...)
+}
+
 func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 	merged := make(map[string]types.EvidenceItem)
 	for _, group := range groups {
@@ -211,6 +219,13 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 		return result[i].ID < result[j].ID
 	})
 	return result
+}
+
+// MergeFlowFindings is the exported variant of the internal merger,
+// symmetric with MergeEvidenceItems — used by the orchestrator for
+// BusContext dedup on stage self-loops.
+func MergeFlowFindings(groups ...[]types.FlowFindingDigest) []types.FlowFindingDigest {
+	return mergeFlowFindings(groups...)
 }
 
 func mergeFlowFindings(groups ...[]types.FlowFindingDigest) []types.FlowFindingDigest {

@@ -97,6 +97,73 @@ type AnswerSymbol struct {
 	Rationale string `json:"rationale,omitempty"` // optional: why this terminal was picked
 }
 
+// MergeAnswerChains combines multiple answer-chain slices into one,
+// preserving first-seen order and dropping exact duplicates. Used by
+// the orchestrator to deduplicate BusContext.AnswerChains on stage
+// self-loops where the explorer's ParseOutput re-emits the full
+// snapshot each run. See memory/project_applystage_dedup.md.
+func MergeAnswerChains(groups ...[]string) []string {
+	seen := make(map[string]struct{})
+	var out []string
+	for _, g := range groups {
+		for _, c := range g {
+			if _, ok := seen[c]; ok {
+				continue
+			}
+			seen[c] = struct{}{}
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// MergeAnswerSymbols combines multiple AnswerSymbol slices into one,
+// preserving first-seen order. Dedup key is a composite of Name +
+// File + Line — identity fields the finalizer's translation-mode
+// renderer uses to emit a unique bullet. Chain / Kind / Rationale
+// are treated as metadata that may vary run-to-run without implying
+// a different symbol.
+func MergeAnswerSymbols(groups ...[]AnswerSymbol) []AnswerSymbol {
+	seen := make(map[string]struct{})
+	var out []AnswerSymbol
+	for _, g := range groups {
+		for _, s := range g {
+			key := s.Name + "\x1f" + s.File + "\x1f" + itoa(s.Line)
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// itoa is a tiny in-package int-to-string to avoid importing strconv
+// in this file just for the dedup key builder.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := false
+	if n < 0 {
+		neg = true
+		n = -n
+	}
+	var buf [20]byte
+	i := len(buf)
+	for n > 0 {
+		i--
+		buf[i] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		i--
+		buf[i] = '-'
+	}
+	return string(buf[i:])
+}
+
 // StableFlowFindingID returns a deterministic ID for a compact
 // dataflow finding based on its path/condition shape.
 func StableFlowFindingID(path, conditions, sources, sinks []string) string {
