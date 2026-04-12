@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -152,36 +151,18 @@ func evidencePythonDecoratorRoute() types.EvidenceItem {
 	}
 }
 
-func TestAudit_ReverseDecoratorPython_CurrentBroken(t *testing.T) {
-	// None of the switch cases match (Predicate="decorates" is neither
-	// "binds", "returns", "calls", nor "resolution_chain"). The
-	// function returns an empty symbol and extractAnswerSymbols drops
-	// it — output is an empty slice.
+func TestAudit_ReverseDecoratorPython_Phase3Fixed(t *testing.T) {
+	// Phase 3: `decorates` predicate is now routed. hasTerminalEvidence
+	// admits it; pickTerminalLegacy splits the Object on `→` and picks
+	// firstIdent of the right-hand side — the decorated function name.
+	// `list_users` is a snake_case identifier, so firstIdent (not
+	// firstUppercaseIdent) does the picking.
 	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", "", nil)
-	if len(syms) != 0 {
-		t.Errorf("characterization: decorates shape is unrouted, expected empty extraction, got %+v", syms)
+	if len(syms) != 1 {
+		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-}
-
-func TestAudit_ReverseDecoratorPython_TargetCorrect(t *testing.T) {
-	t.Skip("Phase 3 target: adding a `decorates` case to the shape switch plus a structural " +
-		"Python identifier picker (after `def `) should surface `list_users` (RoleTerminal) " +
-		"or `\"/api/users\"` (RoleAnchor), depending on question framing.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", "", nil)
-	if len(syms) == 0 {
-		t.Fatal("expected at least 1 symbol")
-	}
-	var hasHandler, hasRoute bool
-	for _, s := range syms {
-		if s.Name == "list_users" {
-			hasHandler = true
-		}
-		if strings.Contains(s.Name, "/api/users") {
-			hasRoute = true
-		}
-	}
-	if !hasHandler && !hasRoute {
-		t.Errorf("expected list_users (handler) or \"/api/users\" (route key) in extracted symbols, got %+v", syms)
+	if syms[0].Name != "list_users" {
+		t.Errorf("Phase 3: expected %q (handler function from decorator), got %q", "list_users", syms[0].Name)
 	}
 }
 
@@ -205,28 +186,16 @@ func evidenceJavaAnnotationRoute() types.EvidenceItem {
 	}
 }
 
-func TestAudit_ReverseAnnotationJava_CurrentBroken(t *testing.T) {
+func TestAudit_ReverseAnnotationJava_Phase3Fixed(t *testing.T) {
+	// Same decorates-case routing as the Python test, proving the
+	// fix is language-agnostic: lowercase-first camelCase (`getFoo`)
+	// is accepted by firstIdent just like snake_case.
 	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", "", nil)
-	if len(syms) != 0 {
-		t.Errorf("characterization: decorates shape unrouted, want empty, got %+v", syms)
+	if len(syms) != 1 {
+		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-}
-
-func TestAudit_ReverseAnnotationJava_TargetCorrect(t *testing.T) {
-	t.Skip("Phase 3 target: Java annotation routing should produce `getFoo` (lowercase-start " +
-		"camelCase) as the handler symbol for a `who handles /api/foo` question.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", "", nil)
-	if len(syms) == 0 {
-		t.Fatal("expected at least 1 symbol")
-	}
-	var found bool
-	for _, s := range syms {
-		if s.Name == "getFoo" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected \"getFoo\" handler in symbols, got %+v", syms)
+	if syms[0].Name != "getFoo" {
+		t.Errorf("Phase 3: expected %q (Spring @GetMapping handler), got %q", "getFoo", syms[0].Name)
 	}
 }
 
@@ -250,29 +219,17 @@ func evidenceGoMapDispatchTable() types.EvidenceItem {
 	}
 }
 
-func TestAudit_ForwardMapDispatchGo_CurrentBroken(t *testing.T) {
+func TestAudit_ForwardMapDispatchGo_Phase3Fixed(t *testing.T) {
+	// Phase 3: `maps` predicate is now routed. Rightmost-arrow hop
+	// is `NewUserHandler()`; firstUppercaseIdent picks `NewUserHandler`
+	// and stripNewPrefix strips the constructor prefix. Any map entry
+	// whose value is a Go constructor follows this path.
 	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", "", nil)
-	if len(syms) != 0 {
-		t.Errorf("characterization: maps shape unrouted, want empty, got %+v", syms)
+	if len(syms) != 1 {
+		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-}
-
-func TestAudit_ForwardMapDispatchGo_TargetCorrect(t *testing.T) {
-	t.Skip("Phase 3 target: `maps` case should route to pickHop. For a forward question " +
-		"`what handles /api/users` the terminal hop is `NewUserHandler()` → stripNewPrefix " +
-		"→ `UserHandler`.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", "", nil)
-	if len(syms) == 0 {
-		t.Fatal("expected at least 1 symbol")
-	}
-	var found bool
-	for _, s := range syms {
-		if s.Name == "UserHandler" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected \"UserHandler\" in symbols, got %+v", syms)
+	if syms[0].Name != "UserHandler" {
+		t.Errorf("Phase 3: expected %q (constructor with New- stripped), got %q", "UserHandler", syms[0].Name)
 	}
 }
 
@@ -337,32 +294,19 @@ func evidencePythonMethodReturnsLiteral() types.EvidenceItem {
 	}
 }
 
-func TestAudit_IdentityReturnsPython_CurrentBroken(t *testing.T) {
-	// Current behavior: the returns case splits Subject on `.`,
-	// takes "list_users", then firstUppercaseIdent rejects it (no
-	// uppercase letters), returning "". The symbol is dropped by
-	// extractAnswerSymbols. Final output is an empty slice.
+func TestAudit_IdentityReturnsPython_Phase3Fixed(t *testing.T) {
+	// Phase 3: the returns case in pickTerminalLegacy now falls back
+	// to firstIdent when firstUppercaseIdent draws a blank. For
+	// Subject="list_users.name" the Go-strict picker returns "";
+	// firstIdent accepts `list_users` as a snake_case identifier
+	// (≥3 chars, isIdentStart-passing). This keeps legacy Go tests
+	// unchanged and adds Python/Ruby receiver-type coverage.
 	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", "", nil)
-	if len(syms) != 0 {
-		t.Errorf("characterization: lowercase Subject is invisible to firstUppercaseIdent, want empty, got %+v", syms)
+	if len(syms) != 1 {
+		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-}
-
-func TestAudit_IdentityReturnsPython_TargetCorrect(t *testing.T) {
-	t.Skip("Phase 3 target: language-aware identifier picker should recognise `list_users` " +
-		"as a valid snake_case identifier, or pickHop should prefer the Object literal \"users\".")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", "", nil)
-	if len(syms) == 0 {
-		t.Fatal("expected at least 1 symbol")
-	}
-	var ok bool
-	for _, s := range syms {
-		if s.Name == "list_users" || strings.Contains(s.Name, "users") {
-			ok = true
-		}
-	}
-	if !ok {
-		t.Errorf("expected snake_case identifier or literal anchor, got %+v", syms)
+	if syms[0].Name != "list_users" {
+		t.Errorf("Phase 3: expected %q (snake_case receiver), got %q", "list_users", syms[0].Name)
 	}
 }
 

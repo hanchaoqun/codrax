@@ -1271,10 +1271,63 @@ func pickHop(ev types.EvidenceItem, role AnswerRole, graph *repomap.Graph) strin
 	}
 }
 
-// pickTerminalLegacy is the pre-Phase-2 extraction routed by
-// evidence shape. Preserved as the RoleTerminal default so that
-// forward-reference questions and all existing unit tests continue
-// to produce the same symbol they produced before the audit.
+// firstIdent returns the first identifier-shaped token in seg,
+// accepting both CamelCase/PascalCase (Go/Java) and snake_case or
+// lowercase-first camelCase (Python/Ruby/JS/YAML). Structural
+// filter: token must be [A-Za-z_][A-Za-z0-9_]{2,} — minimum 3
+// characters to keep noise (single-letter receivers, 2-char Go
+// idioms like `io`) out of the picker.
+//
+// This is the Phase 3 complement to firstUppercaseIdent. The
+// legacy picker stays in the Go-specific extraction paths
+// (registration, resolution chains with Go symbols) where
+// uppercase-only is the right safety net. firstIdent is only
+// used where the producing evidence shape is language-agnostic:
+// the decorator case (Python / Java / JS annotations), the map
+// case (any language's key→value literal), and the returns-case
+// fallback (snake_case receiver types for Python / Ruby).
+func firstIdent(seg string) string {
+	n := len(seg)
+	for i := 0; i < n; i++ {
+		c := seg[i]
+		if i > 0 && isIdentChar(seg[i-1]) {
+			continue
+		}
+		if !isIdentStart(c) {
+			continue
+		}
+		j := i
+		for j < n && isIdentChar(seg[j]) {
+			j++
+		}
+		if j-i >= 3 {
+			return seg[i:j]
+		}
+		i = j - 1
+	}
+	return ""
+}
+
+// rightmostArrowHop returns the trimmed substring after the last
+// U+2192 ("→") in s. Used by the decorator / map cases to pull the
+// "target" side of a `key → value` or `@decorator(args) → target`
+// expression when the hop list is embedded in a single Object
+// field rather than in Summary.
+func rightmostArrowHop(s string) string {
+	const arrow = "→"
+	if idx := strings.LastIndex(s, arrow); idx >= 0 {
+		return strings.TrimSpace(s[idx+len(arrow):])
+	}
+	return strings.TrimSpace(s)
+}
+
+// pickTerminalLegacy is the per-shape extraction routed by
+// evidence Predicate/Kind. Preserved as the RoleTerminal default
+// so forward-reference questions and all existing unit tests
+// continue to produce the same symbol they produced before the
+// audit. Phase 3 additions: `decorates` and `maps` predicates
+// (previously unrouted), plus a snake_case fallback on the
+// returns branch for Python/Ruby lowercase receivers.
 func pickTerminalLegacy(ev types.EvidenceItem, graph *repomap.Graph) string {
 	switch {
 	case isRegistrationShape(ev):
@@ -1284,7 +1337,39 @@ func pickTerminalLegacy(ev types.EvidenceItem, graph *repomap.Graph) string {
 		if dot := strings.Index(sub, "."); dot > 0 {
 			sub = sub[:dot]
 		}
-		return firstUppercaseIdent(sub)
+		// Try the strict Go-style picker first (back-compat with
+		// TestAnswerSymbolFromEvidence_ReturnsMethod and every other
+		// existing Go-returns test). Fall back to language-agnostic
+		// firstIdent only when the strict picker draws a blank —
+		// that's the "list_users.name" snake_case path that Phase 3
+		// added coverage for.
+		if name := firstUppercaseIdent(sub); name != "" {
+			return name
+		}
+		return firstIdent(sub)
+	case ev.Kind == types.EvidenceConcrete && ev.Predicate == "decorates":
+		// `@app.route("/api/users") → list_users`
+		// `@GetMapping("/api/foo") → getFoo`
+		// The concrete-values extractor puts the whole hop-pair
+		// into Object. Rightmost-arrow hop is the decorated
+		// function, which is language-agnostic so it gets
+		// firstIdent (handles both snake_case list_users and
+		// lowercase-first camelCase getFoo).
+		target := rightmostArrowHop(ev.Object)
+		return firstIdent(target)
+	case ev.Kind == types.EvidenceConcrete && ev.Predicate == "maps":
+		// `"/api/users" → NewUserHandler()`
+		// `types.AgentExplorer → NewExplorerAgent`
+		// `"/foo" → getFoo`
+		// Rightmost-arrow hop is the map value. Try
+		// firstUppercaseIdent first (matches Go constructors
+		// like NewUserHandler → UserHandler), fall back to
+		// firstIdent for snake_case / lowercase-first handlers.
+		val := rightmostArrowHop(ev.Object)
+		if name := firstUppercaseIdent(val); name != "" {
+			return stripNewPrefix(name)
+		}
+		return firstIdent(val)
 	case ev.Kind == types.EvidenceRegistration:
 		return stripNewPrefix(firstUppercaseIdent(ev.Object))
 	case ev.Kind == types.EvidenceRelationship && ev.Predicate == "calls":
@@ -1350,12 +1435,24 @@ func extractAnswerSymbols(items []types.EvidenceItem, questionKind, question str
 // carries a structurally single-symbol shape that answerSymbolFrom-
 // Evidence can extract. Used by extractAnswerSymbols as the S2
 // evidence-driven gate replacing the old question_kind whitelist.
+//
+// Phase 3 additions (2026-04-12): `decorates` and `maps` Concrete
+// evidence are now recognised as terminal shapes. Both carry an
+// `X → Y` hop pair where the terminal Y is a handler/value the
+// pipeline can surface as an AnswerSymbol. See
+// memory/project_answer_symbol_extraction_audit.md.
 func hasTerminalEvidence(items []types.EvidenceItem) bool {
 	for _, ev := range items {
 		if isRegistrationShape(ev) {
 			return true
 		}
 		if ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns" {
+			return true
+		}
+		if ev.Kind == types.EvidenceConcrete && ev.Predicate == "decorates" {
+			return true
+		}
+		if ev.Kind == types.EvidenceConcrete && ev.Predicate == "maps" {
 			return true
 		}
 		if ev.Kind == types.EvidenceRegistration {
