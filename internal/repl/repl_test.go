@@ -20,6 +20,17 @@ func (stubRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return &types.BusContext{}, nil
 }
 
+// errorRunner simulates a pipeline that failed with a LastError
+// — used to verify the REPL sanitizes what it persists to memory.
+type errorRunner struct{ errText string }
+
+func (r errorRunner) Run(_, _, _ string) (*types.BusContext, error) {
+	bc := &types.BusContext{}
+	bc.TaskState.LastError = r.errText
+	bc.Mutable = types.NewMutableState(types.TaskList{Objective: "probe"})
+	return bc, nil
+}
+
 // stubSummarizer mirrors the one in internal/memory's tests but is
 // duplicated here so the repl package's tests do not have to import
 // internal test helpers from a sibling package (Go forbids that).
@@ -140,6 +151,70 @@ func TestClearPromptShowsPeerCount(t *testing.T) {
 	if !strings.Contains(out.String(), "1 other live codrax instance") {
 		t.Errorf("expected peer-count warning, got:\n%s", out.String())
 	}
+}
+
+// TestErrorResponseNotPersistedToMemory is the write-side lock for
+// the 2026-04-12 REPL memory-pollution fix. When the pipeline ends
+// with a non-empty TaskState.LastError, the REPL must NOT persist
+// the full error-laden render into memory — it must persist a
+// clean placeholder so subsequent turns' prior-conversation block
+// doesn't leak historical failure text into the LLM's context.
+func TestErrorResponseNotPersistedToMemory(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("some broken question\n/exit\n")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:     errorRunner{errText: "task deadbeef stuck at stage explore after 5 visits"},
+		Store:      store,
+		Render:     renderErrorFromBus,
+		RepoRoot:   ".",
+		Branch:     "main",
+		In:         in,
+		Out:        out,
+		Prompt:     ">",
+		PromptCont: ".",
+		Banner:     "test-banner",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	recent := store.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("expected 1 turn persisted, got %d", len(recent))
+	}
+	stored := recent[0].Response
+	// The raw error details must not leak into the stored response.
+	if strings.Contains(stored, "deadbeef") {
+		t.Errorf("task UUID leaked into memory: %q", stored)
+	}
+	if strings.Contains(stored, "stuck at stage") {
+		t.Errorf("raw error phrase leaked into memory: %q", stored)
+	}
+	// The clean placeholder should be what got stored.
+	if !strings.Contains(stored, "previous attempt ended in error") {
+		t.Errorf("expected placeholder in stored response, got: %q", stored)
+	}
+}
+
+// renderErrorFromBus mimics the real renderer's behavior for an
+// errored BusContext: prepends "error: <LastError>" to whatever
+// answer text exists. Kept separate from renderNothing so the
+// error-response test can exercise the render→recordTurn path.
+func renderErrorFromBus(bc *types.BusContext) string {
+	if bc == nil {
+		return ""
+	}
+	if bc.TaskState.LastError != "" {
+		return "\n  error: " + bc.TaskState.LastError + "\n"
+	}
+	return ""
 }
 
 // TestMultilineInput verifies that lines ending with \ are joined

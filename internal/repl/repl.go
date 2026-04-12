@@ -302,10 +302,28 @@ func (r *REPL) dispatch(line string) {
 	response := strings.TrimSpace(r.render(busCtx))
 	logging.Info("[repl] final answer:\n%s", response)
 
+	// Decide what to persist in memory. When the pipeline ended with
+	// a TaskState.LastError, the rendered response includes an
+	// "error: ..." prefix carrying the internal error text (task UUIDs,
+	// oscillation guard messages, OpenAI 400 payloads, etc.). Persisting
+	// that verbatim pollutes every subsequent REPL turn's
+	// "### Recent conversation" block — the LLM sees historical errors
+	// in its prior-conversation context and may be swayed into thinking
+	// those failures are current state. The user still sees the full
+	// error in their terminal via the rendering below; only what
+	// reaches memory is sanitized.
+	//
+	// See memory/project_repl_memory_error_pollution.md for the
+	// diagnostic trail.
+	memResponse := response
+	if busCtx != nil && busCtx.TaskState.LastError != "" {
+		memResponse = "(previous attempt ended in error — details omitted from memory)"
+	}
+
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
 		fmt.Fprintln(r.out, "  ??")
-		r.recordTurn(line, response)
+		r.recordTurn(line, memResponse)
 		return
 	}
 
@@ -345,7 +363,7 @@ func (r *REPL) dispatch(line string) {
 	}
 	fmt.Fprintf(r.out, "  %s\n\n", bar)
 
-	r.recordTurn(line, response)
+	r.recordTurn(line, memResponse)
 }
 
 func (r *REPL) recordTurn(request, response string) {

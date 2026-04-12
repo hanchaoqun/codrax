@@ -1168,14 +1168,167 @@ $$ LANGUAGE plpgsql;`
 	})
 }
 
+// TestStripConversationPrefix locks the parse for REPL's
+// "## Prior conversation ... ## Current request\n<raw>" wrapper. The
+// helper must return only the raw current request when the marker is
+// present, and pass through unchanged otherwise (single-shot mode).
+func TestStripConversationPrefix(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "single-shot passes through",
+			in:   "how many agents can invoke subagent",
+			want: "how many agents can invoke subagent",
+		},
+		{
+			name: "REPL with memory prefix returns current request only",
+			in: "## Prior conversation\n### Relevant compacted memory\n" +
+				"- **Project Agents and Subagents** (turn-xxx) — SubExplorer, NewSubExplorer ...\n" +
+				"  Full turn:\n" +
+				"  (long content)\n\n" +
+				"## Current request\n" +
+				"how many agents can invoke subagent",
+			want: "how many agents can invoke subagent",
+		},
+		{
+			name: "REPL with trailing whitespace is trimmed",
+			in: "## Prior conversation\n(something)\n\n" +
+				"## Current request\n" +
+				"what does Foo.Bar return\n\n",
+			want: "what does Foo.Bar return",
+		},
+		{
+			name: "empty input",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "marker without trailing newline not matched (single-shot form wins)",
+			in:   "## Current request",
+			want: "## Current request",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := stripConversationPrefix(c.in); got != c.want {
+				t.Errorf("stripConversationPrefix(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestBuildInitialPrompt_CrossRunResetOnQuestionChange is the REPL-
+// turn-boundary fix lock. When the explorer evaluator's cached
+// userQuestion differs from the new ctx.CurrentTask, every cross-
+// Run field must be reset so the retry branch below does NOT treat
+// the new question as a continuation of a prior one.
+//
+// The 2026-04-12 audit (see memory/project_repl_equivalence_audit.md)
+// showed that without this reset, a fresh REPL turn would inherit the
+// previous turn's investigationNotes, preScannedFiles, searchResult,
+// and ermRequirements — polluting S1/S2 decisions for the new
+// question.
+func TestBuildInitialPrompt_CrossRunResetOnQuestionChange(t *testing.T) {
+	eval := &explorerEvaluator{
+		userQuestion:              "how many agents can invoke subagent",
+		investigationNotes:        []string{"[DIRECT] prior turn note"},
+		preScannedFiles:           []string{"internal/agent/explorer.go"},
+		allScoredFiles:            []string{"internal/agent/explorer.go"},
+		searchResult:              &keywordSearchResult{}, // non-nil stale pointer
+		ermRequirements:           []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent"}}},
+		fileSymbols:               map[string][]string{"stale.go": {"Foo"}},
+		phase0ExtraRound:          true,
+		grepRedirectedFiles:       map[string]bool{"stale.go": true},
+		idleStreakInDepth:         5,
+		lastToolResultCount:       10,
+		preScannedPushCount:       3,
+		lastPreScannedUnreadCount: 2,
+		broadenAttempts:           1,
+	}
+
+	// Simulate next REPL turn with a completely different question.
+	// ctx.CurrentTaskKeywords is empty so BuildInitialPrompt's
+	// keywordSearch gate doesn't run — we only care that the reset
+	// wipes prior state BEFORE the retry check.
+	ctx := &types.AgentContext{
+		CurrentTask: "how does BuildContext cap turn file size",
+	}
+	prompt := eval.BuildInitialPrompt(ctx, nil)
+
+	// The retry branch must NOT activate — prior notes should be gone.
+	if strings.Contains(prompt, "Retry: Depth Investigation") {
+		t.Errorf("cross-run reset failed: retry branch fired on question change")
+	}
+	// All cross-run fields must be reset.
+	if len(eval.investigationNotes) != 0 {
+		t.Errorf("investigationNotes not reset: %v", eval.investigationNotes)
+	}
+	if len(eval.preScannedFiles) != 0 {
+		t.Errorf("preScannedFiles not reset: %v", eval.preScannedFiles)
+	}
+	if len(eval.allScoredFiles) != 0 {
+		t.Errorf("allScoredFiles not reset: %v", eval.allScoredFiles)
+	}
+	if eval.searchResult != nil {
+		t.Errorf("searchResult not reset")
+	}
+	if len(eval.ermRequirements) != 0 {
+		t.Errorf("ermRequirements not reset: %v", eval.ermRequirements)
+	}
+	if len(eval.fileSymbols) != 0 {
+		t.Errorf("fileSymbols not reset: %v", eval.fileSymbols)
+	}
+	if eval.phase0ExtraRound {
+		t.Error("phase0ExtraRound not reset")
+	}
+	if eval.idleStreakInDepth != 0 || eval.lastToolResultCount != 0 ||
+		eval.preScannedPushCount != 0 || eval.lastPreScannedUnreadCount != 0 ||
+		eval.broadenAttempts != 0 {
+		t.Error("per-run counters not reset")
+	}
+	// New userQuestion should reflect the new task.
+	if eval.userQuestion != "how does BuildContext cap turn file size" {
+		t.Errorf("userQuestion not updated to new question: %q", eval.userQuestion)
+	}
+}
+
+// TestBuildInitialPrompt_SameQuestionKeepsRetryState is the
+// complementary test: when ctx.CurrentTask equals e.userQuestion
+// (intra-Run self-loop), the cross-run reset must NOT fire and the
+// retry branch below must activate as before.
+func TestBuildInitialPrompt_SameQuestionKeepsRetryState(t *testing.T) {
+	eval := &explorerEvaluator{
+		userQuestion:       "investigate strategies",
+		investigationNotes: []string{"[DIRECT] strategy A from iter 1"},
+	}
+	ctx := &types.AgentContext{CurrentTask: "investigate strategies"}
+	prompt := eval.BuildInitialPrompt(ctx, nil)
+
+	if !strings.Contains(prompt, "Retry: Depth Investigation") {
+		t.Error("same-question retry branch did not fire")
+	}
+	if len(eval.investigationNotes) != 1 {
+		t.Errorf("investigationNotes wiped on same-question retry: %v", eval.investigationNotes)
+	}
+}
+
 func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
+	// All sub-tests simulate an intra-Run explore → explore self-loop
+	// where the SAME question is retried. The 2026-04-12 REPL audit
+	// added a cross-run reset that fires when `ctx.CurrentTask !=
+	// e.userQuestion`, so intra-Run retry fixtures MUST keep the two
+	// fields equal for the retry branch to activate.
+	const taskTitle = "investigate strategies"
 	eval := &explorerEvaluator{}
 	eval.investigationNotes = []string{"[DIRECT] foo line 1: something"}
-	eval.userQuestion = "What strategies does ContinuationPrompt use?"
+	eval.userQuestion = taskTitle
 
 	t.Run("retry with prior explore report includes synthesis baseline", func(t *testing.T) {
 		ctx := &types.AgentContext{
-			CurrentTask: "investigate strategies",
+			CurrentTask: taskTitle,
 			PriorReports: []types.StageReport{
 				{
 					Stage:    types.StageExplore,
@@ -1200,7 +1353,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 	t.Run("retry with RetryHint includes both hint and synthesis", func(t *testing.T) {
 		eval2 := &explorerEvaluator{
 			investigationNotes: []string{"[DIRECT] bar line 2: thing"},
-			userQuestion:       "question",
+			userQuestion:       "investigate",
 		}
 		ctx := &types.AgentContext{
 			CurrentTask: "investigate",
@@ -1226,7 +1379,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 	t.Run("retry without prior reports works normally", func(t *testing.T) {
 		eval3 := &explorerEvaluator{
 			investigationNotes: []string{"[DIRECT] baz line 3: stuff"},
-			userQuestion:       "question",
+			userQuestion:       "investigate",
 		}
 		ctx := &types.AgentContext{
 			CurrentTask: "investigate",
@@ -1244,7 +1397,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 	t.Run("prior synthesis truncated when too long", func(t *testing.T) {
 		eval4 := &explorerEvaluator{
 			investigationNotes: []string{"[DIRECT] x line 1: y"},
-			userQuestion:       "question",
+			userQuestion:       "investigate",
 		}
 		longFindings := strings.Repeat("A very detailed finding. ", 200)
 		ctx := &types.AgentContext{

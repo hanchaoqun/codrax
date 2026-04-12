@@ -101,6 +101,115 @@ func TestBuildContextInlinesMatchingTurn(t *testing.T) {
 	}
 }
 
+// TestSanitizeErrorResponse covers the structural detector that
+// replaces error-laden turn responses with a clean placeholder
+// before they leak into the LLM's prior-conversation context.
+//
+// Locks the 2026-04-12 REPL memory-pollution fix: historical
+// pipeline errors ("error: task X stuck at stage explore after
+// 5 visits", OpenAI 400 context_length_exceeded payloads, etc.)
+// used to be persisted verbatim by `repl.recordTurn` and then
+// re-rendered into every subsequent analyzer prompt. Structural
+// detection means even pre-fix legacy turn files on disk get
+// sanitized at read time.
+func TestSanitizeErrorResponse(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "normal answer passes through",
+			in:   "The agent that can invoke a subagent is explorer.",
+			want: "The agent that can invoke a subagent is explorer.",
+		},
+		{
+			name: "empty passes through",
+			in:   "",
+			want: "",
+		},
+		{
+			name: "already-sanitized placeholder is idempotent",
+			in:   errorResponsePlaceholder,
+			want: errorResponsePlaceholder,
+		},
+		{
+			name: "leading error: prefix replaced",
+			in:   "error: task abc123 stuck at stage explore after 5 visits",
+			want: errorResponsePlaceholder,
+		},
+		{
+			name: "error: prefix with leading whitespace (oneLine collapse)",
+			in:   "  error: analyze: something failed",
+			want: errorResponsePlaceholder,
+		},
+		{
+			name: "oscillation phrase in body",
+			in:   "Codrax ran into trouble; stuck at stage explore while trying to satisfy ERM.",
+			want: errorResponsePlaceholder,
+		},
+		{
+			name: "oscillation guard log phrase",
+			in:   "explorer retry limit: oscillation guard tripped at visit 5",
+			want: errorResponsePlaceholder,
+		},
+		{
+			name: "OpenAI context_length_exceeded payload",
+			in:   "error: analyze: OpenAI API error: {\"error\":{\"code\":\"context_length_exceeded\",\"message\":\"...\"}}",
+			want: errorResponsePlaceholder,
+		},
+		{
+			name: "legitimate answer mentioning error handling NOT flagged",
+			in:   "Error handling lives in internal/orchestrator/orchestrator.go at line 587.",
+			want: "Error handling lives in internal/orchestrator/orchestrator.go at line 587.",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := sanitizeErrorResponse(c.in); got != c.want {
+				t.Errorf("sanitizeErrorResponse(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestBuildContextSanitizesLegacyErrorTurn verifies the read-side
+// integration: a legacy error-laden turn file already on disk must
+// appear as the clean placeholder in the assembled BuildContext
+// output, without requiring re-writing the turn file.
+func TestBuildContextSanitizesLegacyErrorTurn(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+
+	// Simulate a pre-fix turn file: the REPL persisted the full
+	// rendered error response verbatim.
+	if err := s.Append(Turn{
+		ID:       "legacy-err",
+		Request:  "how does some broken thing work",
+		Response: "error: task 3e5d94c4 stuck at stage explore after 5 visits. The pipeline includes the ListFiles tool twice.",
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	out := s.BuildContext("unrelated next question")
+	if !strings.Contains(out, "### Recent conversation") {
+		t.Fatalf("expected recent conversation section, got %q", out)
+	}
+	if !strings.Contains(out, errorResponsePlaceholder) {
+		t.Errorf("legacy error turn should be replaced with placeholder; got %q", out)
+	}
+	if strings.Contains(out, "stuck at stage explore") {
+		t.Errorf("raw error text should not leak into BuildContext output; got %q", out)
+	}
+	if strings.Contains(out, "3e5d94c4") {
+		t.Errorf("historical task UUID should not leak into BuildContext output; got %q", out)
+	}
+}
+
 // TestSanitizeStripsANSIAndCapsSize locks the write-side contract:
 // glamour-style ANSI escapes must not survive to disk, and a
 // pathologically large Response must be truncated at maxTurnBodyBytes.

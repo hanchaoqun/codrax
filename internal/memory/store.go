@@ -655,7 +655,19 @@ func (s *Store) BuildContext(currentRequest string) string {
 		b.WriteString("### Recent conversation\n")
 		for _, t := range recent {
 			fmt.Fprintf(&b, "- You (%s): %s\n", t.Timestamp.Format("15:04:05"), oneLine(t.Request))
-			fmt.Fprintf(&b, "  Codrax: %s\n", oneLine(t.Response))
+			// Read-side heuristic: sanitize error-ladenresponses from
+			// legacy turn files written before the write-side fix
+			// (repl.recordTurn memResponse) landed. Pre-fix turn files
+			// captured full "error: task X stuck at stage explore after
+			// 5 visits" text and full OpenAI 400 payloads; leaving them
+			// in the Recent conversation block leaks historical failure
+			// text into every subsequent analyzer prompt. Detection is
+			// structural — a leading "error:" prefix (the format
+			// RenderResult emits when `busCtx.TaskState.LastError != ""`)
+			// and a short list of well-known failure phrases. Matches
+			// are replaced with the same placeholder the write-side
+			// emits, so old and new turn files present the same shape.
+			fmt.Fprintf(&b, "  Codrax: %s\n", sanitizeErrorResponse(oneLine(t.Response)))
 		}
 	}
 	return b.String()
@@ -922,6 +934,61 @@ func oneLine(s string) string {
 	s = strings.ReplaceAll(s, "\r", " ")
 	if len(s) > 200 {
 		return s[:200] + "…"
+	}
+	return s
+}
+
+// errorResponsePlaceholder is the identical replacement emitted by
+// both the write-side (repl.recordTurn) and the read-side
+// (BuildContext's Recent conversation section) for error-laden
+// pipeline outputs. Keeping the two sides in lock-step means
+// legacy turn files on disk (pre-fix) and new turn files
+// (post-fix) both render the same way in memory prompts.
+const errorResponsePlaceholder = "(previous attempt ended in error — details omitted from memory)"
+
+// sanitizeErrorResponse returns a clean placeholder when the input
+// looks like an error-laden pipeline response, otherwise passes it
+// through unchanged. The detection is purely structural:
+//
+//  1. Already-sanitized placeholder → passes through (idempotent).
+//  2. Leading "error:" prefix — the format that
+//     internal/render.RenderResult emits when
+//     busCtx.TaskState.LastError is non-empty.
+//  3. Any line containing specific internal-failure phrases:
+//     - "stuck at stage ... after N visits" (oscillation guard)
+//     - "context_length_exceeded" (OpenAI 400 on context window)
+//     - `{"error":{"code":` (raw OpenAI error payload)
+//
+// The phrase list is intentionally short and concrete — each entry
+// names an internal failure mode that has no business leaking into
+// the LLM's prior-conversation context. Legitimate answers that
+// legitimately mention the word "error" (e.g. "the error-handling
+// code lives at ...") do NOT match any of these patterns.
+func sanitizeErrorResponse(s string) string {
+	if s == "" {
+		return s
+	}
+	if s == errorResponsePlaceholder {
+		return s
+	}
+	// The render layer emits "\n  error: <LastError>\n" which oneLine
+	// collapses to "error: <LastError>" with possible leading spaces.
+	trimmed := strings.TrimLeft(s, " \t")
+	if strings.HasPrefix(trimmed, "error:") {
+		return errorResponsePlaceholder
+	}
+	// Defense in depth: signature phrases that identify specific
+	// internal failure text anywhere in the response, even if the
+	// "error:" prefix was stripped by upstream formatting.
+	for _, sig := range []string{
+		"stuck at stage",
+		"oscillation guard tripped",
+		"context_length_exceeded",
+		`{"error":{"code":`,
+	} {
+		if strings.Contains(s, sig) {
+			return errorResponsePlaceholder
+		}
 	}
 	return s
 }

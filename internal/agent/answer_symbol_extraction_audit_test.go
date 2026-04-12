@@ -348,6 +348,64 @@ func TestClassifyAnswerRole_ReverseReferenceChinese(t *testing.T) {
 	}
 }
 
+// TestClassifyAnswerRole_DeclaredKindShortcut locks the
+// question_kind="enumeration" + relationship-verb fast path added
+// 2026-04-12 for REPL-mode analyzer-rewrite robustness. The
+// analyzer often rewrites "how many X can Y" into "List X that Y"
+// or "Identify which X can Y", losing the count cue the keyword
+// classifier depends on. Using the declared kind as a hint side-
+// steps the rewrite fragility entirely.
+func TestClassifyAnswerRole_DeclaredKindShortcut(t *testing.T) {
+	cases := []struct {
+		name    string
+		q       string
+		kind    string
+		want    AnswerRole
+	}{
+		{
+			name: "List + invoke + enumeration → Anchor",
+			q:    "List agents that can invoke a subagent",
+			kind: "enumeration",
+			want: RoleAnchor,
+		},
+		{
+			name: "Identify + call + enumeration → Anchor",
+			q:    "Identify which components call TaskRunner",
+			kind: "enumeration",
+			want: RoleAnchor,
+		},
+		{
+			name: "Enumerate + use + enumeration → Anchor",
+			q:    "Enumerate the handlers that use the cache",
+			kind: "enumeration",
+			want: RoleAnchor,
+		},
+		{
+			name: "no relationship verb → fall through to default",
+			q:    "List all tasks",
+			kind: "enumeration",
+			// "list all" matches countEn but no relationship verb
+			// ("tasks" isn't one), so relVerbEn is false and we
+			// fall through to RoleTerminal.
+			want: RoleTerminal,
+		},
+		{
+			name: "declaredKind != enumeration → shortcut skipped",
+			q:    "call UserHandler",
+			kind: "mechanism",
+			want: RoleTerminal,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := classifyAnswerRole(c.q, c.kind)
+			if got != c.want {
+				t.Errorf("classifyAnswerRole(%q, %q) = %v, want %v", c.q, c.kind, got, c.want)
+			}
+		})
+	}
+}
+
 func TestClassifyAnswerRole_ReverseReferenceEnglish(t *testing.T) {
 	cases := []struct {
 		name string

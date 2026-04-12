@@ -1116,11 +1116,36 @@ const (
 // eval case does not weaken or strengthen any rule. Removing a
 // single rule loses a class of questions, not one eval case, which
 // is the definition of structural coverage.
-func classifyAnswerRole(question, _ string) AnswerRole {
+func classifyAnswerRole(question, declaredKind string) AnswerRole {
 	if question == "" {
 		return RoleTerminal
 	}
 	lower := strings.ToLower(question)
+
+	// Declared-kind fast path (2026-04-12 REPL audit finding): the
+	// analyzer sets `question_kind="enumeration"` for "how many X can
+	// Y" / "哪些 X 能 Y" questions regardless of how it rewrites the
+	// title. When the analyzer classified enumeration AND the question
+	// text contains a relationship verb, route directly to RoleAnchor
+	// — the literal bridging the two entities is the answer.
+	//
+	// Real-scenario trigger: "how many agents can invoke subagent"
+	// got rewritten to title="List agents that can invoke a subagent".
+	// The title's "List agents" doesn't match my count-cue list
+	// ("list the", "list all"), so countEn stayed false and the
+	// classifier defaulted to RoleTerminal — picking the callee
+	// class `SubExplorer` instead of the caller literal `explorer`.
+	// The declaredKind hint short-circuits this: enumeration +
+	// relationship verb ⇒ RoleAnchor, bypassing keyword fragility.
+	if declaredKind == "enumeration" {
+		relVerbs := []string{"call", "invoke", "use", "read", "write",
+			"register", "handle", "dispatch", "bind", "consume"}
+		for _, v := range relVerbs {
+			if strings.Contains(lower, v) {
+				return RoleAnchor
+			}
+		}
+	}
 
 	// RoleOrigin cues (English): reverse-reference verb patterns.
 	// Pattern: "who/which <noun>? <reverse-verb>".

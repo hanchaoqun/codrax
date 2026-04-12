@@ -45,7 +45,62 @@ type explorerEvaluator struct {
 	midLoopLastInjectIter     int                   // #34: throttle MidLoopCheck cadence
 }
 
+// stripConversationPrefix returns only the "current request" portion
+// of a REPL-assembled Objective string, stripping the conversation-
+// memory prefix injected by `internal/repl/repl.go:dispatch`. When no
+// marker is found (single-shot mode, or an empty-conversation REPL
+// turn), returns the input unchanged.
+//
+// Added 2026-04-12 as part of the REPL-mode equivalence audit. The
+// main explorer's entity regex (`extractRankingEntities(ctx.Objective)`)
+// previously ran over the whole blob, pulling every CamelCase /
+// snake_case / file-path token from the memory section as a bogus
+// ERM entity. See memory/project_repl_equivalence_audit.md for the
+// full diagnostic.
+func stripConversationPrefix(s string) string {
+	const marker = "## Current request\n"
+	if idx := strings.Index(s, marker); idx >= 0 {
+		return strings.TrimSpace(s[idx+len(marker):])
+	}
+	return s
+}
+
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+	// CROSS-RUN STATE RESET (REPL turn boundary fix).
+	//
+	// The explorer evaluator is a process-lifetime singleton — state
+	// fields like `investigationNotes`, `preScannedFiles`, `searchResult`,
+	// `ermRequirements`, `fileSymbols`, `allScoredFiles` survive across
+	// `Run()` calls. Within ONE Run() that's legitimate (intra-pipeline
+	// explore → explore self-loop uses the `retry` branch below). But
+	// across Run() calls — specifically REPL turn N+1 — these fields
+	// carry previous-turn state into a completely unrelated question,
+	// and the retry branch then treats the new question as a
+	// continuation of the old one.
+	//
+	// Detection: compare the incoming CurrentTask to the cached one.
+	// Within a single Run, CurrentTask is constant across all explore
+	// dispatches (same task.Title). Across Run()s it's different (new
+	// REPL turn → new analyzer output → new task title). When they
+	// differ, reset every cross-Run field so the fresh-start branch
+	// below fires cleanly.
+	if ctx.CurrentTask != "" && ctx.CurrentTask != e.userQuestion {
+		logging.Debug("[explorer] cross-run reset: current=%q != cached=%q", ctx.CurrentTask, e.userQuestion)
+		e.investigationNotes = nil
+		e.preScannedFiles = nil
+		e.allScoredFiles = nil
+		e.searchResult = nil
+		e.ermRequirements = nil
+		e.fileSymbols = nil
+		e.phase0ExtraRound = false
+		e.grepRedirectedFiles = nil
+		e.idleStreakInDepth = 0
+		e.lastToolResultCount = 0
+		e.preScannedPushCount = 0
+		e.lastPreScannedUnreadCount = 0
+		e.broadenAttempts = 0
+	}
+
 	e.userQuestion = ctx.CurrentTask
 	e.repoRoot = ctx.RepoRoot
 	e.isEnumerationQuery = detectEnumerationIntent(ctx.CurrentTask)
@@ -59,7 +114,8 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	// Phase 0 breadth scan and go directly to Phase 1 depth read with
 	// a retry-specific prompt. The agent is a singleton so evaluator
 	// state (investigationNotes, searchResult, preScannedFiles) survives
-	// across dispatches.
+	// across dispatches — the cross-run reset above ensures this only
+	// triggers for legitimate intra-Run self-loops.
 	if len(e.investigationNotes) > 0 {
 		e.phase = 1
 		// Reset per-run counters but preserve accumulated evidence.
@@ -202,7 +258,24 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 					seen[ent] = true
 				}
 			}
-			regexEntities := extractRankingEntities(ctx.Objective)
+			// REPL-mode entity pollution fix.
+			//
+			// In REPL mode ctx.Objective is the REPL's `effective` string:
+			//   "## Prior conversation\n<memory dump>\n\n## Current request\n<raw>"
+			// Running regex entity extraction over this blob pulls every
+			// CamelCase / snake_case / file-path token from the memory
+			// section into `regexEntities` — on a typical codrax session
+			// that's 20+ bogus "entities" including internal symbol
+			// names, file paths, and line-number fragments. They then
+			// become ERM requirements that can never be satisfied,
+			// S1 semantic early-stop never fires (because ermAllSatisfied
+			// stays false forever), and the answer quality degrades.
+			//
+			// `stripConversationPrefix` returns only the raw current
+			// request portion (unchanged in single-shot mode where no
+			// marker is present).
+			cleanObjective := stripConversationPrefix(ctx.Objective)
+			regexEntities := extractRankingEntities(cleanObjective)
 			if len(regexEntities) == 0 {
 				regexEntities = extractRankingEntities(ctx.CurrentTask)
 			}
@@ -212,9 +285,13 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 					seen[ent] = true
 				}
 			}
+			// Keyword trigger source also uses the clean current
+			// request. A memory blob containing a prior "如何 / how
+			// does" question would otherwise over-trigger the
+			// mechanism classifier on a fresh enumeration question.
 			ermKeywordSource := ctx.CurrentTask
-			if ctx.Objective != "" && ctx.Objective != ctx.CurrentTask {
-				ermKeywordSource = ctx.Objective + " | " + ctx.CurrentTask
+			if cleanObjective != "" && cleanObjective != ctx.CurrentTask {
+				ermKeywordSource = cleanObjective + " | " + ctx.CurrentTask
 			}
 			// Pass the analyzer's declared question_kind (may be empty or
 			// "unknown"; the hint-aware path handles both by falling
