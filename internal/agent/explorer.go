@@ -129,7 +129,23 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 				}
 			}
 			// Extract ERM requirements and use them to boost file priority.
-			e.ermRequirements = extractEvidenceRequirements(ctx.CurrentTask)
+			//
+			// Pass the original user request (`ctx.Objective`) joined with
+			// the analyzer-rewritten task description (`ctx.CurrentTask`).
+			// The original almost always contains the precise CamelCase
+			// identifiers and direct trigger words ("怎么"/"多少") that
+			// power Kind detection AND entity extraction; the rewrite
+			// supplies the analyzer's English idioms ("Determine the
+			// number of...") that the keyword expansion now recognizes.
+			// Joining gives the union of both signal sets without
+			// changing what the LLM sees in its prompts. The pipe
+			// separator avoids accidentally fusing the tail of one half
+			// with the head of the other into a spurious phrase.
+			ermInput := ctx.CurrentTask
+			if ctx.Objective != "" && ctx.Objective != ctx.CurrentTask {
+				ermInput = ctx.Objective + " | " + ctx.CurrentTask
+			}
+			e.ermRequirements = extractEvidenceRequirements(ermInput)
 			// Auto-satisfy requirements whose entities don't match any
 			// symbol in the codebase — prevents generic English words from
 			// creating unsatisfiable requirements that block the pipeline.
