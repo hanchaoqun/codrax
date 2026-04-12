@@ -276,11 +276,94 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	// Never hard-stop. Voluntary stops (no tool calls + content) are
-	// routed through ContinuationPrompt below so the evaluator can
-	// override the BaseAgent default and push for actual investigation
-	// instead of accepting a thinking-only summary.
-	return false
+	// Semantic early stop (S1 of the early-stop audit, see
+	// memory/project_explorer_early_stop_audit.md): when the LLM
+	// has just produced a content-only response (no tool calls) AND
+	//  1. Phase 1 (depth read) is active,
+	//  2. ERM requirements are ALL satisfied,
+	//  3. the structured evidence set already carries at least one
+	//     answer-shaped (terminal) item,
+	// the investigation has everything it needs. Keep running past
+	// this point only burns iterations on cross-reference self-
+	// recursion (LLM writes notes mentioning internal symbols like
+	// `ContinuationPrompt`, those symbol files get added to
+	// preScannedFiles, and the loop chases its own tail).
+	//
+	// Runtime evidence: the 2026-04-12 `有多少个agent可以调用subagent`
+	// re-test reached this state at iter=13 but the loop burned 6
+	// more iterations reading internal/agent/explorer.go — entirely
+	// useless for the user question. See
+	// /tmp/earlystop_run.log for the full per-iteration trace.
+	//
+	// Why stop here instead of in ContinuationPrompt: the existing
+	// ContinuationPrompt branches (partial-read hints, preScanned
+	// unread, unanalyzed symbols) have HIGHER priority than the
+	// terminal `idleStreakInDepth >= 2` escape hatch, and they each
+	// reset the idle counter so it never actually trips. ShouldStop
+	// runs BEFORE ContinuationPrompt in BaseAgent.Execute, so
+	// returning true here bypasses all those self-feeding branches
+	// cleanly.
+	if len(resp.ToolCalls) > 0 {
+		return false
+	}
+	if e.phase != 1 {
+		return false
+	}
+	if len(e.ermRequirements) == 0 {
+		return false
+	}
+	// Refresh ERM satisfaction from the latest investigation
+	// notes. Pre-Phase-2, ERM state was only updated inside
+	// ContinuationPrompt — which runs AFTER ShouldStop in
+	// BaseAgent.Execute. That meant the first soft-stop AFTER an
+	// iteration that satisfied the requirements would still see
+	// stale (unsatisfied) state and push through to
+	// ContinuationPrompt, burning one extra iteration. Running
+	// the check here is cheap (pure note parsing + tag counting;
+	// no file reads, no dataflow) and makes S1 fire at the
+	// earliest possible soft-stop.
+	//
+	// Important: the check must also parse the current soft-stop
+	// content into notes before running the ERM check, because
+	// ContinuationPrompt is what normally appends. Without this,
+	// ShouldStop always sees stale notes (missing the iteration
+	// that just produced the satisfying evidence).
+	var notesForCheck []string
+	if resp.Content != "" {
+		notesForCheck = append(notesForCheck, e.investigationNotes...)
+		notesForCheck = append(notesForCheck, resp.Content)
+	} else {
+		notesForCheck = e.investigationNotes
+	}
+	e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, notesForCheck, e.structuredEvidence)
+	logging.Debug("[explorer] S1 check iter=%d: %d notes (+1 fresh=%v), ERM statuses:",
+		iteration, len(e.investigationNotes), resp.Content != "")
+	for _, r := range e.ermRequirements {
+		logging.Debug("[explorer]   S1 erm: %s(%v) = %s", r.Kind, r.Entities, r.Status)
+	}
+	if !ermAllSatisfied(e.ermRequirements) {
+		return false
+	}
+	// During the ReAct loop, `e.structuredEvidence` is only
+	// populated at ParseOutput time (ensureStructuredEvidence is
+	// the end-of-stage hook), so it is nil here and
+	// hasTerminalEvidence would always return false. Parse the
+	// live investigation notes on-the-fly instead — this covers
+	// [REGISTRATION] and [DIRECT] tags the LLM has already
+	// written, which is what hasTerminalEvidence needs to see.
+	// The parse is a pure string walk (parseEvidenceItems), no
+	// file reads, no dataflow — cheap enough to run every
+	// soft-stop check.
+	if len(e.investigationNotes) == 0 {
+		return false
+	}
+	noteEvidence := parseEvidenceItems(e.investigationNotes, "explorer.s1check")
+	if !hasTerminalEvidence(noteEvidence) {
+		return false
+	}
+	logging.Debug("[explorer] S1 semantic early-stop at iter=%d: ERM all satisfied + terminal evidence in notes (%d items)",
+		iteration, len(noteEvidence))
+	return true
 }
 
 // ContinuationPrompt implements ContinuingEvaluator with a two-phase
@@ -935,9 +1018,25 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 
 	// ERM quality gate: if we have evidence requirements that are still
 	// unsatisfied, demote hasEnough to trigger a retry that fills gaps.
-	if hasEnough && len(e.ermRequirements) > 0 {
+	// Conversely (S1 alignment, see memory/project_explorer_early_stop_audit.md):
+	// if all ERM requirements ARE satisfied, PROMOTE hasEnough to true
+	// regardless of the quantitative toolDiversity / fileCoverage /
+	// evidenceQuality thresholds. Those thresholds are heuristic
+	// proxies for "enough evidence"; when ERM is fully satisfied we
+	// know semantically that the required evidence exists, so blocking
+	// on a coverage ratio would re-enter the stage uselessly and
+	// eventually hit the oscillation guard (5-visit cap).
+	//
+	// Concrete trigger: 2026-04-12 `有多少个agent可以调用subagent` real-
+	// scenario re-test. S1 stopped the ReAct loop at iter=11 with ERM
+	// fully satisfied, but ParseOutput still computed hasEnough=false
+	// because enumeration-mode fileCoverage needed ≥80% of discovered
+	// files read (the explorer stopped earlier than that). HasEnough=false
+	// → MissingFacts → orchestrator re-dispatched explore → 5 visits → oscillation error.
+	if len(e.ermRequirements) > 0 {
 		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
-		if !ermAllSatisfied(e.ermRequirements) {
+		allSat := ermAllSatisfied(e.ermRequirements)
+		if hasEnough && !allSat {
 			unsatCount := 0
 			for _, r := range e.ermRequirements {
 				if r.Status == "unsatisfied" {
@@ -950,6 +1049,13 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 				logging.Debug("[explorer] ERM gate: %d unsatisfied requirements, demoting hasEnough", unsatCount)
 				hasEnough = false
 			}
+		} else if !hasEnough && allSat {
+			// S1 alignment: ERM fully satisfied overrides quantitative
+			// floors. Record which floor originally failed so the retry
+			// hint (if any downstream code still builds one) is accurate.
+			logging.Debug("[explorer] ERM all-satisfied promote: hasEnough=true (quantitative floors: toolDiv=%v fileCov=%v evQual=%v)",
+				toolDiversity, fileCoverage, evidenceQuality)
+			hasEnough = true
 		}
 	}
 
@@ -3703,11 +3809,42 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 // looks up where that symbol is defined (sub_explorer.go) and adds
 // that file to preScannedFiles so the coverage prompt ensures it
 // gets read.
+//
+// S2 (2026-04-12 early-stop audit): the symbol name must overlap
+// with an ERM entity (the question's actual subjects) before the
+// file is added. Pre-audit this was unfiltered, so when the LLM
+// wrote meta-commentary like "handled in ContinuationPrompt" or
+// "injected into ToolSchema", the enclosing files (explorer.go,
+// llm.go, mcp.go) were pushed into preScannedFiles and the LLM
+// was then chased to read its own source code. Evidence:
+// /tmp/earlystop_run.log lines 1486-87 and 1601-02 where
+// "ToolSchema" and "ContinuationPrompt" triggered self-feeding
+// cross-refs that burned iters 14-19.
+//
+// The filter is structural: any overlap (substring, case-
+// insensitive) between the cross-ref symbol and ANY ERM entity
+// passes. When the question is about `subagent` / `agent`, symbols
+// like `NewSubExplorer`, `SubAgentRegistry`, `AgentName` pass (all
+// contain "agent" as a substring). Meta-symbols like
+// `ContinuationPrompt`, `ToolSchema`, `BuildToolSchemas` do not.
+// When `ermRequirements` is empty (no entities extracted) the
+// filter is bypassed so we keep legacy behavior for
+// non-entity-oriented questions.
 func (e *explorerEvaluator) trackCrossReferences(note string) {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return
 	}
 	graph := e.searchResult.Graph
+
+	// Collect ERM entities once, lowercased, for S2 filtering.
+	var ermEntities []string
+	for _, req := range e.ermRequirements {
+		for _, ent := range req.Entities {
+			if ent != "" {
+				ermEntities = append(ermEntities, strings.ToLower(ent))
+			}
+		}
+	}
 
 	// Build set of already-tracked files.
 	tracked := make(map[string]bool, len(e.preScannedFiles))
@@ -3732,6 +3869,23 @@ func (e *explorerEvaluator) trackCrossReferences(note string) {
 		}
 		if !strings.Contains(note, symName) {
 			continue
+		}
+		// S2 filter: require entity overlap before pulling the
+		// symbol's file into preScannedFiles. Empty ermEntities
+		// bypass the filter (legacy behavior for non-entity
+		// questions).
+		if len(ermEntities) > 0 {
+			symLower := strings.ToLower(symName)
+			match := false
+			for _, ent := range ermEntities {
+				if strings.Contains(symLower, ent) {
+					match = true
+					break
+				}
+			}
+			if !match {
+				continue
+			}
 		}
 		// The note mentions this symbol. Add its defining file(s)
 		// to coverage if not already tracked.
