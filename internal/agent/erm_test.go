@@ -1083,7 +1083,7 @@ func TestAnswerSymbolFromEvidence_RegistrationBinds(t *testing.T) {
 		Source:    "internal/agent/subagent.go",
 		LineStart: 63,
 	}
-	sym := answerSymbolFromEvidence(ev, "registration", nil)
+	sym := answerSymbolFromEvidence(ev, "registration", RoleTerminal, nil)
 	if sym.Name != "SubExplorer" {
 		t.Errorf("Name = %q, want SubExplorer", sym.Name)
 	}
@@ -1110,7 +1110,7 @@ func TestAnswerSymbolFromEvidence_ReturnsMethod(t *testing.T) {
 		Source:    "internal/agent/sub_explorer.go",
 		LineStart: 20,
 	}
-	sym := answerSymbolFromEvidence(ev, "return_value", nil)
+	sym := answerSymbolFromEvidence(ev, "return_value", RoleTerminal, nil)
 	if sym.Name != "SubExplorer" {
 		t.Errorf("Name = %q, want SubExplorer (receiver type)", sym.Name)
 	}
@@ -1127,7 +1127,7 @@ func TestAnswerSymbolFromEvidence_DataflowPath(t *testing.T) {
 		Predicate: "resolution_chain",
 		Summary:   "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
 	}
-	sym := answerSymbolFromEvidence(ev, "registration", nil)
+	sym := answerSymbolFromEvidence(ev, "registration", RoleTerminal, nil)
 	if sym.Name != "SubExplorer" {
 		t.Errorf("Name = %q, want SubExplorer", sym.Name)
 	}
@@ -1141,7 +1141,7 @@ func TestExtractAnswerSymbols_Dedup(t *testing.T) {
 		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterB", Object: "NewSubExplorer(d)"}, // dup object → dup symbol
 		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterC", Object: "NewExplorer(d)"},
 	}
-	syms := extractAnswerSymbols(items, "registration", nil)
+	syms := extractAnswerSymbols(items, "registration", "", nil)
 	if len(syms) != 2 {
 		t.Fatalf("expected 2 unique symbols, got %d: %+v", len(syms), syms)
 	}
@@ -1169,7 +1169,7 @@ func TestExtractAnswerSymbols_MechanismOnlyEvidenceNil(t *testing.T) {
 		{Kind: types.EvidenceConditional, Subject: "step label"},
 	}
 	for _, kind := range []string{"mechanism", "enumeration", "conditional"} {
-		if syms := extractAnswerSymbols(items, kind, nil); syms != nil {
+		if syms := extractAnswerSymbols(items, kind, "", nil); syms != nil {
 			t.Errorf("kind=%s with non-terminal evidence should return nil, got %+v", kind, syms)
 		}
 	}
@@ -1193,7 +1193,7 @@ func TestExtractAnswerSymbols_EvidenceDrivenGate(t *testing.T) {
 	// All of these should now extract SubExplorer — question_kind is
 	// reported but does NOT gate.
 	for _, kind := range []string{"registration", "call_chain", "enumeration", "mechanism", "unknown", ""} {
-		syms := extractAnswerSymbols(items, kind, nil)
+		syms := extractAnswerSymbols(items, kind, "", nil)
 		if len(syms) != 1 || syms[0].Name != "SubExplorer" {
 			t.Errorf("kind=%s: expected [SubExplorer], got %+v", kind, syms)
 		}
@@ -1206,10 +1206,10 @@ func TestExtractAnswerSymbols_EvidenceDrivenGate(t *testing.T) {
 // TestExtractAnswerSymbols_EmptyItemsReturnsNil verifies the edge
 // case: no items at all → nil, no panic.
 func TestExtractAnswerSymbols_EmptyItemsReturnsNil(t *testing.T) {
-	if syms := extractAnswerSymbols(nil, "registration", nil); syms != nil {
+	if syms := extractAnswerSymbols(nil, "registration", "", nil); syms != nil {
 		t.Errorf("nil items → want nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols([]types.EvidenceItem{}, "registration", nil); syms != nil {
+	if syms := extractAnswerSymbols([]types.EvidenceItem{}, "registration", "", nil); syms != nil {
 		t.Errorf("empty items → want nil, got %+v", syms)
 	}
 }
@@ -1231,7 +1231,7 @@ func TestExtractAnswerSymbols_ArrowlessConcreteValue(t *testing.T) {
 			LineStart: 63,
 		},
 	}
-	syms := extractAnswerSymbols(items, "registration", nil)
+	syms := extractAnswerSymbols(items, "registration", "", nil)
 	if len(syms) != 1 || syms[0].Name != "SubExplorer" {
 		t.Errorf("arrow-less concrete value should extract SubExplorer, got %+v", syms)
 	}

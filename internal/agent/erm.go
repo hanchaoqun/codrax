@@ -991,6 +991,316 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	return chains, strictItems
 }
 
+// AnswerRole classifies which hop of an evidence chain should be
+// extracted as the answer. Added 2026-04-12 (Phase 2 of the
+// extractAnswerSymbols audit; see
+// memory/project_answer_symbol_extraction_audit.md). Pre-audit code
+// always extracted the same role by evidence shape, silently giving
+// the wrong symbol for reverse-reference and link-identity questions.
+type AnswerRole int
+
+const (
+	// RoleTerminal is the legacy default. The answer is at the
+	// rightmost/terminal position, extracted per evidence shape:
+	// the registered class for `binds`, the receiver type for
+	// `returns`, the callee for `calls`, the rightmost hop for
+	// `resolution_chain`. This matches pre-Phase-2 behavior and is
+	// correct for forward-reference questions ("what does X
+	// register / return / call").
+	RoleTerminal AnswerRole = iota
+	// RoleOrigin points to the leftmost hop's caller. Used for
+	// reverse-reference questions ("who calls X", "who registers
+	// Y", "谁调用 X", "which component initializes Z").
+	RoleOrigin
+	// RoleAnchor prefers a string literal found anywhere in the
+	// chain, walking right-to-left. Used when the answer IS the
+	// bridging literal: return-value questions ("what does X
+	// return"), name-of questions ("X 的名称是什么"), and reverse
+	// enumeration over a relationship ("how many agents can call
+	// sub-agents" — answer is the name literal that bridges caller
+	// and registry).
+	RoleAnchor
+)
+
+// classifyAnswerRole reads the user's original question (and the
+// analyzer-declared kind for completeness) to decide which part of
+// the evidence chain the answer lives in. Keyword-based, covering
+// both English and Chinese. Empty question → RoleTerminal (legacy
+// compatibility — unit tests that don't supply a question still
+// exercise the pre-Phase-2 extraction).
+//
+// Over-fit audit: all rules are structural (verb / pronoun
+// patterns). No eval case's specific entities (SubExplorer,
+// propose_sub_agents, etc.) appear in the rules — deleting any one
+// eval case does not weaken or strengthen any rule. Removing a
+// single rule loses a class of questions, not one eval case, which
+// is the definition of structural coverage.
+func classifyAnswerRole(question, _ string) AnswerRole {
+	if question == "" {
+		return RoleTerminal
+	}
+	lower := strings.ToLower(question)
+
+	// RoleOrigin cues (English): reverse-reference verb patterns.
+	// Pattern: "who/which <noun>? <reverse-verb>".
+	reverseVerbs := []string{
+		"calls", "call ", "calling",
+		"invokes", "invoke ", "invoking",
+		"uses", "use ", "using",
+		"reads", "read ", "reading",
+		"writes", "write ", "writing",
+		"registers", "register ", "registering",
+		"imports", "import ", "importing",
+		"references", "referencing",
+		"creates", "create ", "creating",
+		"initializes", "initialize", "initializing",
+		"instantiates", "instantiate",
+		"binds", "bind ", "binding",
+		"handles", "handle ", "handling",
+		"dispatches", "dispatch ",
+	}
+	if strings.HasPrefix(lower, "who ") || strings.HasPrefix(lower, "which ") || strings.Contains(lower, "where is ") {
+		for _, v := range reverseVerbs {
+			if strings.Contains(lower, v) {
+				return RoleOrigin
+			}
+		}
+	}
+	// RoleOrigin cues (Chinese): 谁 + verb.
+	if strings.Contains(question, "谁") {
+		return RoleOrigin
+	}
+
+	// RoleAnchor cues: return-value + name-of questions.
+	// English: "what does X return/yield", "what is the name of X".
+	if strings.Contains(lower, "what does") && (strings.Contains(lower, "return") || strings.Contains(lower, "yield")) {
+		return RoleAnchor
+	}
+	if strings.Contains(lower, "what is the name") || strings.Contains(lower, "what's the name") {
+		return RoleAnchor
+	}
+	// Chinese: 返回什么, X 的名称, X 返回的值
+	if strings.Contains(question, "返回") || strings.Contains(question, "的名称") || strings.Contains(question, "名字是") {
+		return RoleAnchor
+	}
+
+	// RoleAnchor cues: reverse enumeration over a relationship.
+	// The answer is the shared identity that makes the relationship
+	// hold — "how many X can call Y" / "多少 X 可以调用 Y".
+	// English count/enumeration cues. Broadened to match the
+	// analyzer's typical rewrites of 多少/哪些 questions into formal
+	// English ("Determine the number of X", "Count the X", "List
+	// the X"), mirroring the Chinese list above.
+	countEn := strings.Contains(lower, "how many") ||
+		strings.Contains(lower, "count of") ||
+		strings.Contains(lower, "count the") ||
+		strings.Contains(lower, "determine the number") ||
+		strings.Contains(lower, "the number of") ||
+		strings.Contains(lower, "list the") ||
+		strings.Contains(lower, "list all") ||
+		strings.Contains(lower, "find all") ||
+		strings.Contains(lower, "enumerate")
+	relVerbEn := false
+	for _, v := range []string{"call", "invoke", "use", "read", "register", "handle", "dispatch"} {
+		if strings.Contains(lower, v) {
+			relVerbEn = true
+			break
+		}
+	}
+	if countEn && relVerbEn {
+		return RoleAnchor
+	}
+	// Chinese count/enumeration cues. The list must cover BOTH the
+	// raw user phrasing (多少, 几个, 哪些) AND the analyzer's typical
+	// rewrite into more formal Chinese (数量, 统计, 计算, 列出, 哪几).
+	// The real-scenario re-test on 2026-04-12 hit this: the user
+	// typed "有多少个agent可以调用subagent" but the analyzer task title
+	// was "统计可以调用subagent的agent数量" — 数量/统计 had to be in the
+	// list or classifyAnswerRole would silently fall through to
+	// RoleTerminal.
+	countZh := strings.Contains(question, "多少") ||
+		strings.Contains(question, "几个") ||
+		strings.Contains(question, "有几") ||
+		strings.Contains(question, "数量") ||
+		strings.Contains(question, "统计") ||
+		strings.Contains(question, "计算") ||
+		strings.Contains(question, "列出") ||
+		strings.Contains(question, "哪几") ||
+		strings.Contains(question, "哪些")
+	relVerbZh := strings.Contains(question, "调用") || strings.Contains(question, "使用") ||
+		strings.Contains(question, "注册") || strings.Contains(question, "可以") ||
+		strings.Contains(question, "能够") || strings.Contains(question, "处理")
+	if countZh && relVerbZh {
+		return RoleAnchor
+	}
+
+	// Default: forward-reference, preserves legacy behavior.
+	return RoleTerminal
+}
+
+// splitHops splits an evidence's chain representation into an
+// ordered list of hop segments. If Summary contains `→` (U+2192),
+// split by it. Otherwise synthesize a 2-hop list from Subject +
+// Object (the natural interpretation of a Subject→Object triple).
+// Empty segments are dropped.
+func splitHops(ev types.EvidenceItem) []string {
+	const arrow = "→"
+	if strings.Contains(ev.Summary, arrow) {
+		parts := strings.Split(ev.Summary, arrow)
+		out := make([]string, 0, len(parts))
+		for _, p := range parts {
+			if s := strings.TrimSpace(p); s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	var out []string
+	if ev.Subject != "" {
+		out = append(out, ev.Subject)
+	}
+	if ev.Object != "" {
+		out = append(out, ev.Object)
+	}
+	return out
+}
+
+// extractCallerName scans a chain hop for the first "<Ident>(" call
+// expression and returns the identifier, stripped of a leading
+// "New" prefix for Go constructors. Treats backticks as non-ident
+// so that hop text like "`NewOrchestrator()` binds ..." picks up
+// NewOrchestrator correctly. Minimum length 3 to avoid noise.
+func extractCallerName(hop string) string {
+	start := -1
+	for i := 0; i < len(hop); i++ {
+		c := hop[i]
+		if start < 0 {
+			if isIdentStart(c) {
+				start = i
+			}
+			continue
+		}
+		if isIdentChar(c) {
+			continue
+		}
+		if c == '(' {
+			name := hop[start:i]
+			if len(name) >= 3 {
+				return stripNewPrefix(name)
+			}
+		}
+		start = -1
+	}
+	return ""
+}
+
+// extractQuotedLiteral returns the first string literal found in a
+// hop, stripped of surrounding quotes. Prefers a literal following
+// an explicit `returns ` anchor (to avoid picking up unrelated
+// literals in the hop prose); falls back to the first quoted run
+// anywhere in the hop. Accepts both " and ' to cover Python / JS /
+// Ruby single-quoted strings.
+func extractQuotedLiteral(hop string) string {
+	if idx := strings.Index(hop, "returns "); idx >= 0 {
+		rest := strings.TrimSpace(hop[idx+len("returns "):])
+		if len(rest) >= 2 {
+			q := rest[0]
+			if q == '"' || q == '\'' {
+				if end := strings.IndexByte(rest[1:], q); end >= 0 {
+					return rest[1 : 1+end]
+				}
+			}
+		}
+	}
+	for i := 0; i < len(hop); i++ {
+		q := hop[i]
+		if q != '"' && q != '\'' {
+			continue
+		}
+		if end := strings.IndexByte(hop[i+1:], q); end >= 0 {
+			lit := hop[i+1 : i+1+end]
+			if lit != "" {
+				return lit
+			}
+		}
+	}
+	return ""
+}
+
+// pickHop walks an evidence chain according to role and returns
+// the extracted symbol/literal. See memory/project_answer_symbol_extraction_audit.md
+// for the design rationale. Returns "" when no symbol can be
+// determined so the caller can drop the item.
+func pickHop(ev types.EvidenceItem, role AnswerRole, graph *repomap.Graph) string {
+	switch role {
+	case RoleOrigin:
+		for _, hop := range splitHops(ev) {
+			if name := extractCallerName(hop); name != "" {
+				return name
+			}
+		}
+		return ""
+	case RoleAnchor:
+		// Walk right-to-left for a string literal. Strict: if no
+		// literal is found we return "" (the caller drops this
+		// item) rather than falling through to pickTerminalLegacy.
+		//
+		// Why strict: for an anchor question, the answer IS a
+		// literal (a name, a path, an ID). An evidence item with no
+		// literal in any hop doesn't carry an answer-shaped fact —
+		// falling back to the legacy class-name pick would re-
+		// introduce the bug the audit was opened to fix. Concretely,
+		// the 2026-04-12 real-scenario repro had two evidence items
+		// for the same registration: one WITH the `returns "explorer"`
+		// trailing hop (literal present, correctly yields "explorer"),
+		// and one WITHOUT it (literal absent; legacy would pick
+		// "SubExplorer", re-polluting the answer set with the
+		// callee class). Dropping the second item produces a clean
+		// single-symbol result.
+		hops := splitHops(ev)
+		for i := len(hops) - 1; i >= 0; i-- {
+			if lit := extractQuotedLiteral(hops[i]); lit != "" {
+				return lit
+			}
+		}
+		return ""
+	case RoleTerminal:
+		fallthrough
+	default:
+		return pickTerminalLegacy(ev, graph)
+	}
+}
+
+// pickTerminalLegacy is the pre-Phase-2 extraction routed by
+// evidence shape. Preserved as the RoleTerminal default so that
+// forward-reference questions and all existing unit tests continue
+// to produce the same symbol they produced before the audit.
+func pickTerminalLegacy(ev types.EvidenceItem, graph *repomap.Graph) string {
+	switch {
+	case isRegistrationShape(ev):
+		return stripNewPrefix(firstUppercaseIdent(ev.Object))
+	case ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns":
+		sub := ev.Subject
+		if dot := strings.Index(sub, "."); dot > 0 {
+			sub = sub[:dot]
+		}
+		return firstUppercaseIdent(sub)
+	case ev.Kind == types.EvidenceRegistration:
+		return stripNewPrefix(firstUppercaseIdent(ev.Object))
+	case ev.Kind == types.EvidenceRelationship && ev.Predicate == "calls":
+		return firstUppercaseIdent(ev.Object)
+	case ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain":
+		terminal := extractTerminalSegment(ev.Summary)
+		if p := strings.LastIndex(terminal, " ("); p >= 0 && strings.HasSuffix(terminal, ")") {
+			terminal = strings.TrimSpace(terminal[:p])
+		}
+		return firstUppercaseIdent(terminal)
+	case ev.Kind == types.EvidenceMechanism:
+		return firstUppercaseIdent(ev.Subject)
+	}
+	return ""
+}
+
 // extractAnswerSymbols translates a pre-filtered slice of EvidenceItems
 // into a structured AnswerSymbol list. The L0-2 translation step:
 // runs AFTER identifyAnswerChains has produced the strict subset
@@ -998,55 +1308,35 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 // caller is expected to pass only items that passed all applicable
 // L0-1 predicates; this function does NOT re-apply them.
 //
-// S2 trigger change: L0-2 no longer gates on analyzer-declared
-// questionKind. Instead, the gate is EVIDENCE-DRIVEN — if the strict
-// subset contains at least one item whose shape carries a single-
-// symbol terminal (concrete registration, concrete returns, an
-// explicit Registration/Relationship-calls item), extraction runs.
-// The analyzer's classification is stored as sym.Kind for reporting
-// but no longer controls whether extraction happens.
+// Phase 2 (2026-04-12, this change): classify the answer role from
+// the user's question once, pass it into answerSymbolFromEvidence so
+// reverse-reference and link-identity questions can pick the correct
+// hop. Legacy (empty question / RoleTerminal) path is untouched.
+// See memory/project_answer_symbol_extraction_audit.md.
 //
-// Motivation (df1 run 2, eval/results/df1-20260412-100204):
-//   analyzer classified "有多少个agent可以调用subagent?" as
-//   question_kind=enumeration. The previous gate skipped extraction
-//   entirely, leaving the finalizer with only soft shape constraints,
-//   which gpt-4o ignored. With the evidence-driven gate, the strict
-//   subset's RegisterDefaultSubAgents → SubExplorer chain surfaces
-//   SubExplorer into AnswerSymbols regardless of analyzer kind.
+// S2 trigger (unchanged): L0-2 no longer gates on analyzer-declared
+// questionKind. The gate is EVIDENCE-DRIVEN — extract only if at
+// least one item carries a single-symbol terminal shape.
 //
 // Extraction reads STRUCTURED fields (Subject / Object / Source /
-// LineStart) directly rather than parsing display strings. Per-kind
-// strategy inside answerSymbolFromEvidence:
-//
-//   EvidenceConcrete + "binds*" → Object is the registered instance
-//     (e.g. "NewSubExplorer(deps)"). Strip the constructor `New`
-//     prefix to get the bare type name.
-//   EvidenceConcrete + "returns" → Subject is the returning method
-//     full name. Take the receiver type (part before the first `.`).
-//   EvidenceRegistration → Object is the registered name directly.
-//   EvidenceRelationship + "calls" → Object is the callee.
-//   EvidenceDataflowPath + "resolution_chain" → parse Summary's
-//     rightmost hop to find the terminal symbol.
-//   EvidenceMechanism → Subject is the step label, taken as-is.
-//
-// See project_S1_S2_S3_three_layer_fixes.md and
-// project_L0_2_extract_then_express_design.md.
-func extractAnswerSymbols(items []types.EvidenceItem, questionKind string, graph *repomap.Graph) []types.AnswerSymbol {
+// LineStart) or parses the chain via splitHops/pickHop. The
+// pre-Phase-2 per-shape behaviour is preserved under RoleTerminal
+// so forward-reference questions and all pre-existing unit tests
+// continue to produce the same symbol.
+func extractAnswerSymbols(items []types.EvidenceItem, questionKind, question string, graph *repomap.Graph) []types.AnswerSymbol {
 	if len(items) == 0 {
 		return nil
 	}
-	// S2: evidence-driven gate. Extract only if at least one item
-	// carries a single-symbol terminal shape. This catches the
-	// enumeration-classified registration case (df1 run 2) while
-	// still returning nil for mechanism/step-only evidence (df3).
 	if !hasTerminalEvidence(items) {
 		return nil
 	}
 
+	role := classifyAnswerRole(question, questionKind)
+
 	var out []types.AnswerSymbol
 	seen := make(map[string]bool)
 	for _, ev := range items {
-		sym := answerSymbolFromEvidence(ev, questionKind, graph)
+		sym := answerSymbolFromEvidence(ev, questionKind, role, graph)
 		if sym.Name == "" || seen[sym.Name] {
 			continue
 		}
@@ -1086,52 +1376,22 @@ func hasTerminalEvidence(items []types.EvidenceItem) bool {
 }
 
 // answerSymbolFromEvidence extracts a single AnswerSymbol from one
-// EvidenceItem, using structured Subject/Object fields where possible
-// and falling back to Summary parsing for multi-hop dataflow paths.
-// Returns an empty AnswerSymbol (Name=="") when no symbol can be
-// determined so the caller can skip it.
-func answerSymbolFromEvidence(ev types.EvidenceItem, questionKind string, graph *repomap.Graph) types.AnswerSymbol {
+// EvidenceItem via pickHop(role). Returns an empty AnswerSymbol
+// (Name=="") when no symbol can be determined so the caller can
+// skip it.
+//
+// Phase 2: all per-shape routing moved into pickTerminalLegacy
+// (which is what RoleTerminal falls back to). RoleOrigin and
+// RoleAnchor override this with direction-aware hop selection; see
+// pickHop's doc and memory/project_answer_symbol_extraction_audit.md.
+func answerSymbolFromEvidence(ev types.EvidenceItem, questionKind string, role AnswerRole, graph *repomap.Graph) types.AnswerSymbol {
 	sym := types.AnswerSymbol{
 		File:  ev.Source,
 		Line:  ev.LineStart,
 		Kind:  questionKind,
 		Chain: ev.Summary,
 	}
-
-	switch {
-	case isRegistrationShape(ev):
-		// Concrete binds linkage: Object is a call like "NewSubExplorer(deps)"
-		// or a bare type name. Extract the first uppercase ≥3-char
-		// identifier, stripping a leading "New" prefix for constructors.
-		sym.Name = stripNewPrefix(firstUppercaseIdent(ev.Object))
-	case ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns":
-		// "SubExplorer.Name" → receiver is SubExplorer. If Subject has
-		// no dot, use the whole thing.
-		sub := ev.Subject
-		if dot := strings.Index(sub, "."); dot > 0 {
-			sub = sub[:dot]
-		}
-		sym.Name = firstUppercaseIdent(sub)
-	case ev.Kind == types.EvidenceRegistration:
-		sym.Name = stripNewPrefix(firstUppercaseIdent(ev.Object))
-	case ev.Kind == types.EvidenceRelationship && ev.Predicate == "calls":
-		sym.Name = firstUppercaseIdent(ev.Object)
-	case ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain":
-		// Multi-hop chain: the terminal symbol lives at the right-hand
-		// side of the last arrow in Summary. Keep the legacy string
-		// extraction path because the chain text carries more
-		// information than any single Subject/Object field.
-		terminal := extractTerminalSegment(ev.Summary)
-		// Strip trailing " (file:line)" so firstUppercaseIdent doesn't
-		// trip on the locator.
-		if p := strings.LastIndex(terminal, " ("); p >= 0 && strings.HasSuffix(terminal, ")") {
-			terminal = strings.TrimSpace(terminal[:p])
-		}
-		sym.Name = firstUppercaseIdent(terminal)
-	case ev.Kind == types.EvidenceMechanism:
-		// Mechanism step label is already a clean name.
-		sym.Name = firstUppercaseIdent(ev.Subject)
-	}
+	sym.Name = pickHop(ev, role, graph)
 
 	// Graph-anchored fallback for source locator when EvidenceItem
 	// didn't carry Source.

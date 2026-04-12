@@ -272,6 +272,7 @@ type AgentContext struct {
 	Objective               string   `json:"objective"`
 	CurrentTaskID           string   `json:"current_task_id"`
 	CurrentTask             string   `json:"current_task"`
+	CurrentTaskDescription  string   `json:"current_task_description,omitempty"`
 	CurrentTaskWriting      bool     `json:"current_task_writing"`
 	CurrentTaskHighRisk     bool     `json:"current_task_high_risk"`
 	CurrentTaskComplexity   string   `json:"current_task_complexity,omitempty"`

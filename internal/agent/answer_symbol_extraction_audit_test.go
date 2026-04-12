@@ -71,33 +71,19 @@ func evidenceGoRegistrationHopLiteral() types.EvidenceItem {
 	}
 }
 
-func TestAudit_ReverseBindsGo_CurrentBroken(t *testing.T) {
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "enumeration", nil)
+func TestAudit_ReverseBindsGo_Phase2Fixed(t *testing.T) {
+	// Reverse-enumeration question — "how many handlers can serve
+	// the users endpoint" — triggers classifyAnswerRole → RoleAnchor
+	// (count + relationship verb), which walks the chain right-to-left
+	// for a string literal and finds "users" in the terminal hop.
+	question := "how many handlers can serve users"
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "enumeration", question, nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-	if syms[0].Name != "UserHandler" {
-		t.Errorf("characterization: current broken extraction picks class name; want %q, got %q", "UserHandler", syms[0].Name)
-	}
-}
-
-func TestAudit_ReverseBindsGo_TargetCorrect(t *testing.T) {
-	t.Skip("Phase 2 target: direction-aware pickHop should return the terminal literal \"users\" " +
-		"for a reverse-reference enumeration when the chain ends in a returns-literal hop.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "enumeration", nil)
-	if len(syms) == 0 {
-		t.Fatal("expected at least 1 symbol")
-	}
-	// Post-fix: the literal "users" (or the caller identity that
-	// matches it) must be extractable, not the class name.
-	var hasLiteralAnchor bool
-	for _, s := range syms {
-		if s.Name == "users" || s.Name == "\"users\"" {
-			hasLiteralAnchor = true
-		}
-	}
-	if !hasLiteralAnchor {
-		t.Errorf("expected literal anchor \"users\" in extracted symbols, got %+v", syms)
+	if syms[0].Name != "users" {
+		t.Errorf("Phase 2: RoleAnchor should extract the terminal literal %q, got %q",
+			"users", syms[0].Name)
 	}
 }
 
@@ -124,35 +110,20 @@ func evidenceGoReturnsLiteral() types.EvidenceItem {
 	}
 }
 
-func TestAudit_IdentityReturnsGo_CurrentBroken(t *testing.T) {
-	// Question kind "return_value": "what does UserHandler.Name return?"
-	// Current behavior: the returns case in answerSymbolFromEvidence
-	// splits Subject on `.` and picks the receiver TYPE. So it returns
-	// "UserHandler", not the literal "users".
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoReturnsLiteral()}, "return_value", nil)
+func TestAudit_IdentityReturnsGo_Phase2Fixed(t *testing.T) {
+	// "what does X return?" matches the RoleAnchor cue
+	// ("what does" + "return"), so pickHop walks for a string
+	// literal. The evidence is arrow-less so splitHops falls back
+	// to [Subject, Object] = ["UserHandler.Name", "\"users\""];
+	// the Object hop contains a quoted literal, extractQuotedLiteral
+	// returns "users".
+	question := "what does UserHandler.Name return?"
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoReturnsLiteral()}, "return_value", question, nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-	if syms[0].Name != "UserHandler" {
-		t.Errorf("characterization: current broken extraction picks receiver type; want %q, got %q", "UserHandler", syms[0].Name)
-	}
-}
-
-func TestAudit_IdentityReturnsGo_TargetCorrect(t *testing.T) {
-	t.Skip("Phase 2 target: for return_value questions the pickHop should return the literal " +
-		"from the Object (\"users\") rather than the receiver type from Subject.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoReturnsLiteral()}, "return_value", nil)
-	if len(syms) == 0 {
-		t.Fatal("expected at least 1 symbol")
-	}
-	var found bool
-	for _, s := range syms {
-		if strings.Contains(s.Name, "users") {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("expected literal \"users\" anchor in extracted symbols, got %+v", syms)
+	if syms[0].Name != "users" {
+		t.Errorf("Phase 2: return-value question should yield literal %q, got %q", "users", syms[0].Name)
 	}
 }
 
@@ -186,7 +157,7 @@ func TestAudit_ReverseDecoratorPython_CurrentBroken(t *testing.T) {
 	// "binds", "returns", "calls", nor "resolution_chain"). The
 	// function returns an empty symbol and extractAnswerSymbols drops
 	// it — output is an empty slice.
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", "", nil)
 	if len(syms) != 0 {
 		t.Errorf("characterization: decorates shape is unrouted, expected empty extraction, got %+v", syms)
 	}
@@ -196,7 +167,7 @@ func TestAudit_ReverseDecoratorPython_TargetCorrect(t *testing.T) {
 	t.Skip("Phase 3 target: adding a `decorates` case to the shape switch plus a structural " +
 		"Python identifier picker (after `def `) should surface `list_users` (RoleTerminal) " +
 		"or `\"/api/users\"` (RoleAnchor), depending on question framing.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", "", nil)
 	if len(syms) == 0 {
 		t.Fatal("expected at least 1 symbol")
 	}
@@ -235,7 +206,7 @@ func evidenceJavaAnnotationRoute() types.EvidenceItem {
 }
 
 func TestAudit_ReverseAnnotationJava_CurrentBroken(t *testing.T) {
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", "", nil)
 	if len(syms) != 0 {
 		t.Errorf("characterization: decorates shape unrouted, want empty, got %+v", syms)
 	}
@@ -244,7 +215,7 @@ func TestAudit_ReverseAnnotationJava_CurrentBroken(t *testing.T) {
 func TestAudit_ReverseAnnotationJava_TargetCorrect(t *testing.T) {
 	t.Skip("Phase 3 target: Java annotation routing should produce `getFoo` (lowercase-start " +
 		"camelCase) as the handler symbol for a `who handles /api/foo` question.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", "", nil)
 	if len(syms) == 0 {
 		t.Fatal("expected at least 1 symbol")
 	}
@@ -280,7 +251,7 @@ func evidenceGoMapDispatchTable() types.EvidenceItem {
 }
 
 func TestAudit_ForwardMapDispatchGo_CurrentBroken(t *testing.T) {
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", "", nil)
 	if len(syms) != 0 {
 		t.Errorf("characterization: maps shape unrouted, want empty, got %+v", syms)
 	}
@@ -290,7 +261,7 @@ func TestAudit_ForwardMapDispatchGo_TargetCorrect(t *testing.T) {
 	t.Skip("Phase 3 target: `maps` case should route to pickHop. For a forward question " +
 		"`what handles /api/users` the terminal hop is `NewUserHandler()` → stripNewPrefix " +
 		"→ `UserHandler`.")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", "", nil)
 	if len(syms) == 0 {
 		t.Fatal("expected at least 1 symbol")
 	}
@@ -323,38 +294,20 @@ func evidenceGoResolutionChainMultihop() types.EvidenceItem {
 	}
 }
 
-func TestAudit_ReverseChainGo_CurrentBroken(t *testing.T) {
-	// Current: case 5 always takes the rightmost hop. After walking
-	// past the " (file:line)" stripper the terminal text is
-	// "`RunnerRegistry.Add()` assigns r[name] := runner". firstUppercaseIdent
-	// then picks "RunnerRegistry" — the *rightmost* component, which
-	// for a reverse question about "who initializes TaskRunner" is the
-	// WRONG anchor. The correct origin is `NewOrchestrator`.
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoResolutionChainMultihop()}, "call_chain", nil)
+func TestAudit_ReverseChainGo_Phase2Fixed(t *testing.T) {
+	// "who initializes X" matches classifyAnswerRole → RoleOrigin
+	// (via the reverse-verb "initialize"), which takes the leftmost
+	// hop of the resolution chain and pulls the caller name out of
+	// the first "<Ident>(" pattern — NewOrchestrator, stripped of
+	// its New prefix to "Orchestrator".
+	question := "who initializes TaskRunner"
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoResolutionChainMultihop()}, "call_chain", question, nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-	if syms[0].Name != "RunnerRegistry" {
-		t.Errorf("characterization: current extraction should return the rightmost-hop ident %q, got %q",
-			"RunnerRegistry", syms[0].Name)
-	}
-}
-
-func TestAudit_ReverseChainGo_TargetCorrect(t *testing.T) {
-	t.Skip("Phase 2 target: for a reverse-reference call_chain question the walker " +
-		"should take the leftmost hop's caller — `Orchestrator` (via stripNewPrefix on NewOrchestrator).")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoResolutionChainMultihop()}, "call_chain", nil)
-	if len(syms) == 0 {
-		t.Fatal("expected at least 1 symbol")
-	}
-	var hasOrigin bool
-	for _, s := range syms {
-		if s.Name == "Orchestrator" || s.Name == "NewOrchestrator" {
-			hasOrigin = true
-		}
-	}
-	if !hasOrigin {
-		t.Errorf("expected leftmost-hop origin anchor (Orchestrator) in symbols, got %+v", syms)
+	if syms[0].Name != "Orchestrator" {
+		t.Errorf("Phase 2: RoleOrigin should extract leftmost-hop caller %q, got %q",
+			"Orchestrator", syms[0].Name)
 	}
 }
 
@@ -389,7 +342,7 @@ func TestAudit_IdentityReturnsPython_CurrentBroken(t *testing.T) {
 	// takes "list_users", then firstUppercaseIdent rejects it (no
 	// uppercase letters), returning "". The symbol is dropped by
 	// extractAnswerSymbols. Final output is an empty slice.
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", "", nil)
 	if len(syms) != 0 {
 		t.Errorf("characterization: lowercase Subject is invisible to firstUppercaseIdent, want empty, got %+v", syms)
 	}
@@ -398,7 +351,7 @@ func TestAudit_IdentityReturnsPython_CurrentBroken(t *testing.T) {
 func TestAudit_IdentityReturnsPython_TargetCorrect(t *testing.T) {
 	t.Skip("Phase 3 target: language-aware identifier picker should recognise `list_users` " +
 		"as a valid snake_case identifier, or pickHop should prefer the Object literal \"users\".")
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", "", nil)
 	if len(syms) == 0 {
 		t.Fatal("expected at least 1 symbol")
 	}
@@ -414,6 +367,69 @@ func TestAudit_IdentityReturnsPython_TargetCorrect(t *testing.T) {
 }
 
 // ============================================================
+// classifyAnswerRole: language + rewrite coverage
+// ============================================================
+// Direct tests on the classifier. These lock the Chinese + English
+// keyword sets so a future edit that accidentally drops a synonym
+// (or adds one that over-triggers) is visible immediately.
+//
+// The fixtures mix raw user phrasings and analyzer-rewritten forms
+// because the classifier runs on whatever text the call site hands
+// it, which in production is the analyzer task title (rewritten),
+// NOT the raw user question. A classifier that only understood
+// the raw form would silently fail the end-to-end repro — see the
+// "统计...数量" case below, which is exactly what the 2026-04-12
+// re-test surfaced when only the raw list was covered.
+
+func TestClassifyAnswerRole_ReverseReferenceChinese(t *testing.T) {
+	cases := []struct {
+		name string
+		q    string
+		want AnswerRole
+	}{
+		{"raw 多少 + 调用", "有多少个agent可以调用subagent", RoleAnchor},
+		{"analyzer 统计 + 数量", "统计可以调用subagent的agent数量", RoleAnchor},
+		{"几个 + 使用", "有几个模块使用cache", RoleAnchor},
+		{"谁 + verb → RoleOrigin", "谁调用了这个方法", RoleOrigin},
+		{"哪些 + 注册", "哪些组件注册了handler", RoleAnchor},
+		{"返回什么 → RoleAnchor", "这个方法返回什么", RoleAnchor},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := classifyAnswerRole(c.q, "")
+			if got != c.want {
+				t.Errorf("classifyAnswerRole(%q) = %v, want %v", c.q, got, c.want)
+			}
+		})
+	}
+}
+
+func TestClassifyAnswerRole_ReverseReferenceEnglish(t *testing.T) {
+	cases := []struct {
+		name string
+		q    string
+		want AnswerRole
+	}{
+		{"raw how many + call", "How many agents can call subagents?", RoleAnchor},
+		{"analyzer rewrite count the", "Count the agents that invoke sub-agents", RoleAnchor},
+		{"determine the number of", "Determine the number of handlers that register routes", RoleAnchor},
+		{"who + verb → Origin", "Who calls UserHandler.Name", RoleOrigin},
+		{"which component + initializes → Origin", "Which component initializes TaskRunner", RoleOrigin},
+		{"what does X return → Anchor", "What does SubExplorer.Name return", RoleAnchor},
+		{"empty → Terminal (legacy)", "", RoleTerminal},
+		{"forward property → Terminal default", "Show me the definition of Foo", RoleTerminal},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := classifyAnswerRole(c.q, "")
+			if got != c.want {
+				t.Errorf("classifyAnswerRole(%q) = %v, want %v", c.q, got, c.want)
+			}
+		})
+	}
+}
+
+// ============================================================
 // Sanity non-regression: cell (F, binds, Go) — currently-working case
 // ============================================================
 // This is NOT a gap. It's here to make sure Phase 2/3 fixes don't
@@ -421,7 +437,7 @@ func TestAudit_IdentityReturnsPython_TargetCorrect(t *testing.T) {
 // does RegisterHandlers register?" → UserHandler ✓.
 
 func TestAudit_ForwardBindsGo_SanityNonRegression(t *testing.T) {
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "registration", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "registration", "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}

@@ -89,81 +89,51 @@ func evidenceFromFailingRun() types.EvidenceItem {
 	}
 }
 
-// TestReverseRefExtraction_CurrentBrokenOutput characterizes the
-// current extractAnswerSymbols behavior on the failing fixture.
-// Passes today; failing this test means the extraction changed and
-// the change needs to be reviewed (ideally toward the correct output
-// documented in TestReverseRefExtraction_TargetCorrectOutput below).
-func TestReverseRefExtraction_CurrentBrokenOutput(t *testing.T) {
+// TestReverseRefExtraction_Phase2Fixed verifies the 2026-04-12 repro
+// is fixed by the Phase 2 direction-aware extraction.
+//
+// The question "有多少个agent可以调用subagent" contains 多少 + 调用,
+// so classifyAnswerRole routes it to RoleAnchor. pickHop then walks
+// the evidence chain right-to-left looking for a string literal and
+// finds "explorer" in the terminal `returns "explorer"` hop.
+//
+// Before Phase 2 this returned "SubExplorer" (the callee class name
+// at the registration site); the pre-flip characterization text is
+// preserved in git history if needed for archaeology.
+func TestReverseRefExtraction_Phase2Fixed(t *testing.T) {
 	items := []types.EvidenceItem{evidenceFromFailingRun()}
+	question := "有多少个agent可以调用subagent"
 
-	syms := extractAnswerSymbols(items, "enumeration", nil)
+	syms := extractAnswerSymbols(items, "enumeration", question, nil)
 
 	if len(syms) != 1 {
-		t.Fatalf("expected exactly 1 extracted symbol in current (broken) behavior, got %d: %+v", len(syms), syms)
+		t.Fatalf("expected 1 extracted symbol, got %d: %+v", len(syms), syms)
 	}
 	got := syms[0].Name
-	if got != "SubExplorer" {
-		t.Errorf("characterization: current broken extraction should yield %q, got %q — if this is now %q the fix has landed, remove t.Skip in the target-behavior test",
-			"SubExplorer", got, "explorer")
+	if got != "explorer" {
+		t.Errorf("Phase 2: RoleAnchor should surface the terminal literal %q, got %q", "explorer", got)
 	}
-	// Belt-and-braces: SubExplorer is the CALLEE symbol. The correct
-	// answer for a "who can call" question should not even look like
-	// a sub-agent class name. This assertion is redundant with the
-	// one above but documents the semantic gap for readers.
-	if got == "explorer" || got == "ExplorerAgent" {
-		t.Errorf("unexpected improvement: extraction now returns %q — flip this characterization test and un-skip the target test", got)
+	if got == "SubExplorer" {
+		t.Errorf("regression: extraction still returns the callee class name — classifier or pickHop broken")
 	}
 }
 
-// TestReverseRefExtraction_TargetCorrectOutput documents the
-// assertion the fix must satisfy. SKIPPED today because the fix has
-// not landed. When unskipped, it must pass on the same fixture.
-//
-// The target behavior: for a registration-shape evidence item whose
-// Summary chains forward to a `returns "literal"` terminal, and where
-// the question is a reverse-reference enumeration (`who can call X`
-// / `who uses X`), extraction should prefer the terminal literal as
-// the caller-name anchor instead of the registered class name.
-//
-// Concretely, from
-//
-//     `RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps)
-//     → `SubExplorer.Name()` returns "explorer"
-//
-// the caller identity the question asks for is "explorer" — the name
-// under which the SubAgent is registered, which is also the agent
-// name any BaseAgent must have for SubAgents.Get(b.name) to succeed
-// at internal/agent/agent.go:601.
-func TestReverseRefExtraction_TargetCorrectOutput(t *testing.T) {
-	t.Skip("reproducer for known bug: reverse-reference enumeration mis-extraction. " +
-		"Un-skip when internal/agent/erm.go:extractAnswerSymbols learns to prefer " +
-		"the terminal `returns \"literal\"` hop for reverse-ref question kinds.")
-
+// TestReverseRefExtraction_NoQuestionStaysLegacy verifies that when
+// the caller supplies an empty question string (the code path
+// existing unit tests in erm_test.go exercise), the classifier
+// defaults to RoleTerminal and pickHop falls through to the legacy
+// pickTerminalLegacy. This is the backward-compat guarantee: Phase 2
+// does not change any output that was correct before.
+func TestReverseRefExtraction_NoQuestionStaysLegacy(t *testing.T) {
 	items := []types.EvidenceItem{evidenceFromFailingRun()}
 
-	syms := extractAnswerSymbols(items, "enumeration", nil)
+	syms := extractAnswerSymbols(items, "enumeration", "", nil)
 
-	// Must produce at least one symbol; the first one must anchor on
-	// the caller identity, not the callee class name.
-	if len(syms) == 0 {
-		t.Fatalf("expected at least one extracted symbol, got 0")
+	if len(syms) != 1 {
+		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
-
-	var hasExplorerAnchor bool
-	var hasCalleeClassName bool
-	for _, s := range syms {
-		switch s.Name {
-		case "explorer", "ExplorerAgent", "Explorer":
-			hasExplorerAnchor = true
-		case "SubExplorer":
-			hasCalleeClassName = true
-		}
-	}
-	if !hasExplorerAnchor {
-		t.Errorf("extraction should include the caller-side anchor (explorer / ExplorerAgent), got symbols: %+v", syms)
-	}
-	if hasCalleeClassName {
-		t.Errorf("extraction should NOT include the callee class name SubExplorer as the primary answer for a reverse-reference question, got: %+v", syms)
+	if syms[0].Name != "SubExplorer" {
+		t.Errorf("empty question should follow the legacy RoleTerminal path and produce %q, got %q",
+			"SubExplorer", syms[0].Name)
 	}
 }

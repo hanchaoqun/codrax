@@ -983,7 +983,14 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// single-hop concrete-value edge case and removes fragile
 	// trailing-locator parsing. Input is the strict subset already
 	// pre-filtered by L0-1 predicates inside identifyAnswerChains.
-	answerSymbols := extractAnswerSymbols(strictAnswerItems, ctx.CurrentTaskQuestionKind, ermGraph)
+	// Feed the classifier BOTH the task title and description because
+	// the analyzer's rewrite varies run-to-run: one run's title may be
+	// "统计 X 数量", another's may be "识别可以 X 的 Y"; the description
+	// is usually the fuller rephrase. Concatenating ensures the
+	// classifier sees at least one cue regardless of which knob the
+	// LLM turned this run. See memory/project_answer_symbol_extraction_audit.md.
+	questionText := strings.TrimSpace(ctx.CurrentTask + " " + ctx.CurrentTaskDescription)
+	answerSymbols := extractAnswerSymbols(strictAnswerItems, ctx.CurrentTaskQuestionKind, questionText, ermGraph)
 	if len(answerSymbols) > 0 {
 		logging.Debug("[explorer] L0-2 extracted %d answer symbols", len(answerSymbols))
 		for i, s := range answerSymbols {

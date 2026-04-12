@@ -32,6 +32,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	if task := tl.CurrentTask(); task != nil {
 		ac.CurrentTaskID = task.ID
 		ac.CurrentTask = task.Title
+		ac.CurrentTaskDescription = task.Description
 		ac.CurrentTaskWriting = task.Writing
 		ac.CurrentTaskHighRisk = task.HighRisk
 		ac.CurrentTaskComplexity = task.Complexity
