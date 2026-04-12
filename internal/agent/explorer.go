@@ -775,6 +775,9 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5)
 	if len(answerChains) > 0 {
 		logging.Debug("[explorer] identified %d answer chains", len(answerChains))
+		for i, ac := range answerChains {
+			logging.Debug("[explorer]   answer_chain[%d]: %s", i, ac)
+		}
 	}
 
 	out := &StageOutput{
@@ -1548,16 +1551,34 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			}
 		}
 	}
+	// Per-file diagnostic counters to distinguish extraction misses
+	// (graph lookup failure, no symbols, all skipped by filter) from
+	// filter drops later in the pipeline.
+	type scanStats struct {
+		graphMiss    bool
+		symTotal     int
+		symWrongKind int
+		symNoEndLine int
+		symOversize  int
+		symScanned   int
+	}
+	fileStats := make(map[string]*scanStats)
 	for file := range filesToScan {
+		st := &scanStats{}
+		fileStats[file] = st
 		fi, ok := graph.FileIndex[file]
 		if !ok {
+			st.graphMiss = true
 			continue
 		}
+		st.symTotal = len(fi.Symbols)
 		for _, sym := range fi.Symbols {
 			if sym.Kind != "method" && sym.Kind != "function" {
+				st.symWrongKind++
 				continue
 			}
 			if sym.EndLine == 0 {
+				st.symNoEndLine++
 				continue
 			}
 			bodyLines := sym.EndLine - sym.Line
@@ -1585,8 +1606,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			isMediumFunc := !isShort && !isRegistrationFunc && bodyLines <= 100
 
 			if !isShort && !isRegistrationFunc && !isMediumFunc {
+				st.symOversize++
 				continue
 			}
+			st.symScanned++
 
 			// Use Receiver (Go methods) or Parent (Java/Python/JS/Rust
 			// methods inside classes) for the qualified name.
@@ -1697,6 +1720,47 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	}
 
 	logging.Debug("[explorer] concrete values: extracted %d total values", len(allValues))
+	// Dump per-file scan stats for the top-scored files. This surfaces
+	// Bug A: when a file is in filesToScan but the graph either doesn't
+	// index it (graphMiss), reports zero symbols, or all symbols are
+	// filtered out as wrong-kind / no-endline / oversize, no concrete
+	// values will flow downstream regardless of the filter.
+	for i, f := range e.allScoredFiles {
+		if i >= 15 {
+			break
+		}
+		st := fileStats[f]
+		if st == nil {
+			logging.Debug("[explorer]   scan-stats[%02d] %s → NOT in filesToScan", i, f)
+			continue
+		}
+		logging.Debug("[explorer]   scan-stats[%02d] %s → graphMiss=%v symTotal=%d wrongKind=%d noEndLine=%d oversize=%d scanned=%d",
+			i, f, st.graphMiss, st.symTotal, st.symWrongKind, st.symNoEndLine, st.symOversize, st.symScanned)
+	}
+	// Per-file count of ALL extracted values (pre-filter). Pair this
+	// with the post-filter per-file count below to distinguish
+	// extraction misses from filter drops.
+	{
+		perFileAll := make(map[string]int, len(allValues))
+		for _, v := range allValues {
+			perFileAll[v.file]++
+		}
+		type fc2 struct {
+			file  string
+			count int
+		}
+		var fcAll []fc2
+		for f, c := range perFileAll {
+			fcAll = append(fcAll, fc2{f, c})
+		}
+		sort.Slice(fcAll, func(i, j int) bool { return fcAll[i].count > fcAll[j].count })
+		for i, x := range fcAll {
+			if i >= 15 {
+				break
+			}
+			logging.Debug("[explorer]   allValues-by-file[%02d] %s → %d values", i, x.file, x.count)
+		}
+	}
 	if len(allValues) == 0 {
 		return concreteValuesResult{}
 	}
@@ -1706,16 +1770,28 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	for _, f := range e.preScannedFiles {
 		preScannedSet[f] = true
 	}
+	// All keyword-search-scored files are question-relevant by
+	// construction; their short returns are deterministic facts and
+	// must not be gated on whether the LLM happened to mention the
+	// receiver in its investigation notes.
+	allScoredSet := make(map[string]bool, len(e.allScoredFiles))
+	for _, f := range e.allScoredFiles {
+		allScoredSet[f] = true
+	}
 
 	// Filter to keep only values relevant to the investigation:
-	// 1. Registrations — always kept
-	// 2. Short string returns from pre-scanned/read files — always kept
-	// 3. Short string returns from other files — only if receiver is in notes
-	// 4. Values referencing symbols from the investigation notes
+	// 1. Registrations — always kept (rule A)
+	// 2. Short string returns from pre-scanned/read/scored files — always kept (rule B1)
+	// 3. Short string returns from other files — only if receiver is in notes (rule B2)
+	// 4. Values referencing symbols from the investigation notes (rule C)
 	var relevant []concreteValue
+	// Per-rule counters for observability: split B1 by which file-set
+	// triggered retention so P1 (allScoredSet path) impact is visible.
+	var cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip int
 	for _, v := range allValues {
 		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" || v.kind == "assigns" {
 			relevant = append(relevant, v)
+			cntA++
 			continue
 		}
 		if v.kind == "returns" {
@@ -1723,20 +1799,36 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			isBoolOrNil := v.value == "true" || v.value == "false" || v.value == "nil" || v.value == "null"
 			// Skip long description strings (> 80 chars).
 			if isStringLit && len(v.value) > 80 {
+				cntLongSkip++
 				continue
 			}
-			// Always keep short string/bool returns from pre-scanned or
-			// read files — these are the most relevant files.
-			if (isStringLit || isBoolOrNil) && (readSet[v.file] || preScannedSet[v.file]) {
-				relevant = append(relevant, v)
-				continue
-			}
-			// For other files, require receiver/method in notes.
-			if (isStringLit || isBoolOrNil) &&
-				(strings.Contains(notesJoined, v.receiver) ||
-					strings.Contains(notesJoined, v.method)) {
-				relevant = append(relevant, v)
-				continue
+			// Always keep short string/bool returns from any
+			// question-relevant file (read, pre-scanned, or
+			// keyword-search-scored). These are deterministic facts
+			// and must not depend on LLM notes content.
+			if isStringLit || isBoolOrNil {
+				if readSet[v.file] {
+					relevant = append(relevant, v)
+					cntB1Read++
+					continue
+				}
+				if preScannedSet[v.file] {
+					relevant = append(relevant, v)
+					cntB1PreScan++
+					continue
+				}
+				if allScoredSet[v.file] {
+					relevant = append(relevant, v)
+					cntB1Scored++
+					continue
+				}
+				// For other files, require receiver/method in notes.
+				if strings.Contains(notesJoined, v.receiver) ||
+					strings.Contains(notesJoined, v.method) {
+					relevant = append(relevant, v)
+					cntB2++
+					continue
+				}
 			}
 		}
 		// Keep values referencing noted symbols
@@ -1744,12 +1836,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			cleaned := strings.Trim(word, "(){}[]&*,;")
 			if len(cleaned) >= 6 && strings.Contains(notesJoined, cleaned) {
 				relevant = append(relevant, v)
+				cntC++
 				break
 			}
 		}
 	}
 
-	logging.Debug("[explorer] concrete values: %d relevant (of %d total) after initial filter", len(relevant), len(allValues))
+	logging.Debug("[explorer] concrete values filter: total=%d relevant=%d (A/reg=%d, B1/read=%d, B1/preScan=%d, B1/scored=%d, B2/notes-recv=%d, C/notes-word=%d, longSkip=%d)",
+		len(allValues), len(relevant), cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip)
 
 	// Multi-pass reference tracing: follow type references in values
 	// to discover more concrete values. Repeats until no new values
@@ -1775,6 +1869,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				}
 			}
 		}
+		logging.Debug("[explorer] concrete values tracing pass %d: +%d values (total=%d)", pass+1, added, len(relevant))
 		if added == 0 {
 			break
 		}
@@ -1803,6 +1898,39 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		return scoreVal(relevant[i]) > scoreVal(relevant[j])
 	})
+
+	// Dump a sample of the sorted relevant set so that we can verify
+	// which concrete values made it through the filter (independent of
+	// the markdown cap, which truncates the synthesis table but not this
+	// log).
+	for i, v := range relevant {
+		if i >= 40 {
+			break
+		}
+		logging.Debug("[explorer]   relevant[%02d] %s:%d %s %s %s", i, v.file, v.line, v.method, v.kind, v.value)
+	}
+	// Per-file count of relevant values — helps diagnose cases where a
+	// file is in filesToScan but its concrete values never make it into
+	// the relevant set (extraction miss vs. filter drop).
+	perFile := make(map[string]int, len(relevant))
+	for _, v := range relevant {
+		perFile[v.file]++
+	}
+	type fc struct {
+		file  string
+		count int
+	}
+	var fcList []fc
+	for f, c := range perFile {
+		fcList = append(fcList, fc{f, c})
+	}
+	sort.Slice(fcList, func(i, j int) bool { return fcList[i].count > fcList[j].count })
+	for i, x := range fcList {
+		if i >= 15 {
+			break
+		}
+		logging.Debug("[explorer]   relevant-by-file[%02d] %s → %d values", i, x.file, x.count)
+	}
 
 	// Save the full relevant set for evidence generation BEFORE capping.
 	// The cap controls synthesis markdown size, but evidence items flow
@@ -1860,7 +1988,22 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			}
 		}
 	}
-	// Adaptive cap for resolution chains.
+	logging.Debug("[explorer] concrete values: built %d resolution chains (before cap)", len(chains))
+	for i, c := range chains {
+		if i >= 10 {
+			break
+		}
+		logging.Debug("[explorer]   chain[%02d] %s", i, c)
+	}
+	// Save the full chain list for evidence generation BEFORE capping.
+	// The cap controls the synthesis markdown table size; the evidence
+	// pipeline (StageOutput → finalizer) has its own ranking/top-K and
+	// must see every chain so that cross-boundary chains like
+	// `RegisterDefaultSubAgents → SubExplorer.Name returns "explorer"`
+	// can reach the answer identification layer even when the markdown
+	// table is dominated by higher-scoring noise.
+	allChainsForEvidence := chains
+	// Adaptive cap for resolution chains (markdown table only).
 	chainCap := 10
 	if len(e.allScoredFiles) > 10 {
 		chainCap = 18
@@ -2013,7 +2156,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			Summary:   fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
 		})
 	}
-	for _, c := range chains {
+	for _, c := range allChainsForEvidence {
 		cvEvidence = append(cvEvidence, types.EvidenceItem{
 			ID:         types.StableEvidenceID(types.EvidenceDataflowPath, c, "resolution_chain", "", "", "", 0, 0),
 			Kind:       types.EvidenceDataflowPath,
@@ -2024,6 +2167,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			Summary:    c,
 		})
 	}
+	logging.Debug("[explorer] concrete values: %d chain evidence items (from %d uncapped chains)", len(allChainsForEvidence), len(allChainsForEvidence))
 
 	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence}
 }
