@@ -1,0 +1,9 @@
+# Openai dataflow pipeline validation case
+# Format: shell-sourceable. Used by eval/run.sh.
+ID="df1"
+NAME="openai dataflow validation — sub-agent caller count"
+QUESTION="有多少个agent可以调用subagent?"
+# Substrings the answer MUST contain (space-separated, AND).
+EXPECT_CONTAINS="Explorer SubExplorer"
+# Substrings the answer MUST NOT contain (space-separated, all banned).
+EXPECT_NOT_CONTAINS="Orchestrator BaseAgent SubAgentRuntime"
