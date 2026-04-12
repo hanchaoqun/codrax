@@ -530,7 +530,7 @@ func TestIdentifyAnswerChains_RefactorParity(t *testing.T) {
 		},
 	}
 	whitelist := answerPredicateWhitelist{}
-	chains := identifyAnswerChains(question, evidence, 5, whitelist, nil, nil)
+	chains, _ := identifyAnswerChains(question, evidence, 5, whitelist, nil, nil)
 	if len(chains) == 0 {
 		t.Fatalf("identifyAnswerChains returned no chains; expected at least the binds-Concrete to land")
 	}
@@ -938,7 +938,7 @@ func TestIdentifyAnswerChains_ConstructorOriginDemoted(t *testing.T) {
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"subagent", "agent"}},
 	}
-	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 	if len(chains) == 0 {
 		t.Fatal("expected at least one chain")
 	}
@@ -970,7 +970,7 @@ func TestIdentifyAnswerChains_TerminalRangeDemoted(t *testing.T) {
 		{Kind: "registration", Entities: []string{"subagent", "agents"}},
 		{Kind: "call_chain", Entities: []string{"subagent", "agents"}},
 	}
-	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 	if len(chains) == 0 {
 		t.Fatal("expected at least one chain returned")
 	}
@@ -1004,7 +1004,7 @@ func TestIdentifyAnswerChains_NoPredicateForMechanism(t *testing.T) {
 		},
 	}
 	reqs := []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}}}
-	chains := identifyAnswerChains(question, evidence, 5, buildAnswerWhitelist(reqs), reqs, nil)
+	chains, _ := identifyAnswerChains(question, evidence, 5, buildAnswerWhitelist(reqs), reqs, nil)
 	// Mechanism kind has no predicate; chain containing `range` must
 	// still be ranked as-is, not demoted.
 	if len(chains) == 0 {
@@ -1025,7 +1025,7 @@ func TestIdentifyAnswerChains_BackCompatNilArgs(t *testing.T) {
 			Object:    "Foo",
 		},
 	}
-	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, nil)
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, nil)
 	if len(chains) == 0 {
 		t.Error("nil reqs + nil graph should preserve legacy behaviour; got no chains")
 	}
@@ -1052,139 +1052,194 @@ func TestFirstUppercaseIdent(t *testing.T) {
 	}
 }
 
-// TestExtractSymbolFromChain_RegistrationTerminal verifies the happy
-// path: a chain with a method-call + literal terminal yields an
-// AnswerSymbol whose Name is the receiver type.
-func TestExtractSymbolFromChain_RegistrationTerminal(t *testing.T) {
-	chain := "`RegisterDefaultSubAgents()` binds NewSubExplorer → `SubExplorer.Name()` returns \"explorer\""
-	sym := extractSymbolFromChain(chain, "registration", nil)
+// TestStripNewPrefix covers the constructor-name cleanup helper.
+func TestStripNewPrefix(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"NewSubExplorer", "SubExplorer"},
+		{"NewFoo", "Foo"},
+		{"New", "New"},        // too short
+		{"Newt", "Newt"},      // 4 chars but 4th is lowercase
+		{"newHandler", "newHandler"}, // lowercase n, not a New-prefix
+		{"SubExplorer", "SubExplorer"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := stripNewPrefix(c.in); got != c.want {
+			t.Errorf("stripNewPrefix(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestAnswerSymbolFromEvidence_RegistrationBinds verifies the happy
+// path for registration-shape concrete values: the Object field
+// contains the constructor call, stripNewPrefix yields the bare type.
+func TestAnswerSymbolFromEvidence_RegistrationBinds(t *testing.T) {
+	ev := types.EvidenceItem{
+		Kind:      types.EvidenceConcrete,
+		Predicate: "binds ONLY",
+		Subject:   "RegisterDefaultSubAgents",
+		Object:    "NewSubExplorer(deps)",
+		Summary:   "RegisterDefaultSubAgents() binds ONLY NewSubExplorer(deps)",
+		Source:    "internal/agent/subagent.go",
+		LineStart: 63,
+	}
+	sym := answerSymbolFromEvidence(ev, "registration", nil)
 	if sym.Name != "SubExplorer" {
 		t.Errorf("Name = %q, want SubExplorer", sym.Name)
+	}
+	if sym.File != "internal/agent/subagent.go" {
+		t.Errorf("File = %q, want internal/agent/subagent.go", sym.File)
+	}
+	if sym.Line != 63 {
+		t.Errorf("Line = %d, want 63", sym.Line)
 	}
 	if sym.Kind != "registration" {
 		t.Errorf("Kind = %q, want registration", sym.Kind)
 	}
-	if sym.Chain != chain {
-		t.Errorf("Chain not preserved")
+}
+
+// TestAnswerSymbolFromEvidence_ReturnsMethod verifies that a concrete
+// returns evidence uses the receiver type (part before dot) as the
+// extracted symbol, not the literal value.
+func TestAnswerSymbolFromEvidence_ReturnsMethod(t *testing.T) {
+	ev := types.EvidenceItem{
+		Kind:      types.EvidenceConcrete,
+		Predicate: "returns",
+		Subject:   "SubExplorer.Name",
+		Object:    `"explorer"`,
+		Source:    "internal/agent/sub_explorer.go",
+		LineStart: 20,
+	}
+	sym := answerSymbolFromEvidence(ev, "return_value", nil)
+	if sym.Name != "SubExplorer" {
+		t.Errorf("Name = %q, want SubExplorer (receiver type)", sym.Name)
 	}
 }
 
-// TestExtractSymbolFromChain_SourceLocator verifies that a trailing
-// `(file:line)` is parsed into AnswerSymbol.File and .Line.
-func TestExtractSymbolFromChain_SourceLocator(t *testing.T) {
-	chain := "`Register(NewFoo)` binds Foo → `Foo.Name()` returns \"foo\" (internal/foo.go:42)"
-	sym := extractSymbolFromChain(chain, "registration", nil)
-	if sym.Name != "Foo" {
-		t.Errorf("Name = %q, want Foo", sym.Name)
+// TestAnswerSymbolFromEvidence_DataflowPath verifies that a
+// resolution_chain evidence item parses the terminal of Summary to
+// find the answer symbol. This is the one case where the extractor
+// still parses a string (the chain text carries more than any
+// single Subject/Object pair).
+func TestAnswerSymbolFromEvidence_DataflowPath(t *testing.T) {
+	ev := types.EvidenceItem{
+		Kind:      types.EvidenceDataflowPath,
+		Predicate: "resolution_chain",
+		Summary:   "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
 	}
-	if sym.File != "internal/foo.go" {
-		t.Errorf("File = %q, want internal/foo.go", sym.File)
-	}
-	if sym.Line != 42 {
-		t.Errorf("Line = %d, want 42", sym.Line)
+	sym := answerSymbolFromEvidence(ev, "registration", nil)
+	if sym.Name != "SubExplorer" {
+		t.Errorf("Name = %q, want SubExplorer", sym.Name)
 	}
 }
 
-// TestExtractAnswerSymbols_Dedup verifies that multiple chains
-// terminating at the same symbol coalesce to a single entry.
-// Uses nil reqs so no predicates are applied (legacy permissive mode).
+// TestExtractAnswerSymbols_Dedup verifies that multiple items with
+// the same extracted symbol coalesce to a single entry.
 func TestExtractAnswerSymbols_Dedup(t *testing.T) {
-	chains := []string{
-		"A → `SubExplorer.Name()` returns \"explorer\"",
-		"B → `SubExplorer.Name()` returns \"explorer\"",
-		"C → `Explorer.Name()` returns \"main\"",
+	items := []types.EvidenceItem{
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterA", Object: "NewSubExplorer(d)"},
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterB", Object: "NewSubExplorer(d)"}, // dup object → dup symbol
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Subject: "RegisterC", Object: "NewExplorer(d)"},
 	}
-	syms := extractAnswerSymbols(chains, "registration", nil, nil)
+	syms := extractAnswerSymbols(items, "registration", nil)
 	if len(syms) != 2 {
 		t.Fatalf("expected 2 unique symbols, got %d: %+v", len(syms), syms)
 	}
-	gotNames := map[string]bool{}
+	got := map[string]bool{}
 	for _, s := range syms {
-		gotNames[s.Name] = true
+		got[s.Name] = true
 	}
-	if !gotNames["SubExplorer"] || !gotNames["Explorer"] {
-		t.Errorf("missing expected symbols: got %v", gotNames)
+	if !got["SubExplorer"] || !got["Explorer"] {
+		t.Errorf("missing expected symbols: %v", got)
 	}
 }
 
 // TestExtractAnswerSymbols_MechanismKindNil verifies mechanism kind
 // returns nil (extraction is no-op for non-terminal kinds).
 func TestExtractAnswerSymbols_MechanismKindNil(t *testing.T) {
-	chains := []string{"A → `Foo.Bar()` returns \"x\""}
-	if syms := extractAnswerSymbols(chains, "mechanism", nil, nil); syms != nil {
+	items := []types.EvidenceItem{
+		{Kind: types.EvidenceConcrete, Predicate: "binds", Object: "NewFoo(d)"},
+	}
+	if syms := extractAnswerSymbols(items, "mechanism", nil); syms != nil {
 		t.Errorf("mechanism kind should return nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols(chains, "enumeration", nil, nil); syms != nil {
+	if syms := extractAnswerSymbols(items, "enumeration", nil); syms != nil {
 		t.Errorf("enumeration kind should return nil, got %+v", syms)
 	}
 }
 
-// TestExtractAnswerSymbols_UnknownKindSafe verifies edge cases: empty
-// chains, empty kind, nil — all must return nil without panic.
+// TestExtractAnswerSymbols_UnknownKindSafe verifies edge cases:
+// empty items, empty kind, nil — all must return nil without panic.
 func TestExtractAnswerSymbols_UnknownKindSafe(t *testing.T) {
-	if syms := extractAnswerSymbols(nil, "registration", nil, nil); syms != nil {
-		t.Errorf("nil chains → want nil, got %+v", syms)
+	if syms := extractAnswerSymbols(nil, "registration", nil); syms != nil {
+		t.Errorf("nil items → want nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols([]string{}, "registration", nil, nil); syms != nil {
-		t.Errorf("empty chains → want nil, got %+v", syms)
-	}
-	if syms := extractAnswerSymbols([]string{"foo"}, "unknown", nil, nil); syms != nil {
+	one := []types.EvidenceItem{{Kind: types.EvidenceConcrete, Predicate: "binds", Object: "NewFoo(d)"}}
+	if syms := extractAnswerSymbols(one, "unknown", nil); syms != nil {
 		t.Errorf("unknown kind → want nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols([]string{"foo"}, "", nil, nil); syms != nil {
+	if syms := extractAnswerSymbols(one, "", nil); syms != nil {
 		t.Errorf("empty kind → want nil, got %+v", syms)
 	}
 }
 
-// TestExtractAnswerSymbols_SkipsUnparseable verifies chains without
-// any extractable uppercase identifier are skipped silently, not
-// crashing the extractor. Uses nil reqs (no predicate filtering).
-func TestExtractAnswerSymbols_SkipsUnparseable(t *testing.T) {
-	chains := []string{
-		"A → range r.tools",              // no uppercase ident
-		"A → `Foo.Name()` returns \"x\"", // valid
-		"A → ",                           // empty terminal
+// TestExtractAnswerSymbols_ArrowlessConcreteValue verifies the key
+// benefit of the EvidenceItem refactor: an arrow-less single-hop
+// concrete value (previously skipped by the string extractor because
+// it would have extracted the subject instead of the object) now
+// yields the correct symbol via the Object field.
+func TestExtractAnswerSymbols_ArrowlessConcreteValue(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceConcrete,
+			Predicate: "binds ONLY",
+			Subject:   "RegisterDefaultSubAgents",
+			Object:    "NewSubExplorer(deps)",
+			Summary:   "RegisterDefaultSubAgents() binds ONLY NewSubExplorer(deps)",
+			Source:    "internal/agent/subagent.go",
+			LineStart: 63,
+		},
 	}
-	syms := extractAnswerSymbols(chains, "registration", nil, nil)
-	if len(syms) != 1 || syms[0].Name != "Foo" {
-		t.Errorf("expected [Foo], got %+v", syms)
+	syms := extractAnswerSymbols(items, "registration", nil)
+	if len(syms) != 1 || syms[0].Name != "SubExplorer" {
+		t.Errorf("arrow-less concrete value should extract SubExplorer, got %+v", syms)
+	}
+	if syms[0].File != "internal/agent/subagent.go" || syms[0].Line != 63 {
+		t.Errorf("source locator lost: %+v", syms[0])
 	}
 }
 
-// TestExtractAnswerSymbols_StrictOriginFilter verifies that when reqs
-// includes registration, chains whose origin is NOT a Register-named
-// function are excluded from the extracted symbol list — even if
-// they have a structurally valid method-call terminal. This is the
-// L0-2 v2 strict invariant: the symbol list is pure, never padded
-// with fallback-ranked demoted chains.
-//
-// This reproduces the df1-20260412-093913 run-3 failure mode in a
-// unit test: a constructor-originated chain with valid terminal
-// shape must not leak `ProposeSubAgents` or `BaseAgent` into the
-// symbol list.
-func TestExtractAnswerSymbols_StrictOriginFilter(t *testing.T) {
-	chains := []string{
-		"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
-		"`NewProposeSubAgents()` returns &ProposeSubAgents{ → `ProposeSubAgents.Name()` returns \"propose_sub_agents\"",
-		"`NewBaseAgent()` returns &BaseAgent{ → `BaseAgent.Name()` returns b.name",
+// TestIdentifyAnswerChains_StrictSubsetExcludesDemoted reproduces the
+// df1 run-3 failure mode end-to-end: the constructor-originated
+// NewProposeSubAgents chain must appear in the loose chain list (for
+// Ground Truth display) but NOT in the strict EvidenceItem subset
+// (which feeds L0-2). This is the invariant the refactor establishes.
+func TestIdentifyAnswerChains_StrictSubsetExcludesDemoted(t *testing.T) {
+	question := "which agent can call subagent?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
+		},
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`NewProposeSubAgents()` returns &ProposeSubAgents{ → `ProposeSubAgents.Name()` returns \"propose_sub_agents\"",
+		},
 	}
 	reqs := []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent", "agent"}}}
-	syms := extractAnswerSymbols(chains, "registration", reqs, nil)
-	if len(syms) != 1 || syms[0].Name != "SubExplorer" {
-		t.Errorf("expected only SubExplorer, got %+v", syms)
-	}
-}
+	chains, strict := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 
-// TestExtractAnswerSymbols_SkipsArrowless verifies the invariant that
-// single-hop chains (no arrow) are skipped — they would otherwise
-// yield the subject (registrar) instead of the object (registered).
-func TestExtractAnswerSymbols_SkipsArrowless(t *testing.T) {
-	chains := []string{
-		"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps)", // no arrow
-		"A → `SubExplorer.Name()` returns \"explorer\"",                  // arrow, valid
+	// Loose list includes both for Ground Truth display.
+	if len(chains) != 2 {
+		t.Errorf("loose chains: expected 2, got %d", len(chains))
 	}
-	syms := extractAnswerSymbols(chains, "registration", nil, nil)
-	if len(syms) != 1 || syms[0].Name != "SubExplorer" {
-		t.Errorf("expected only SubExplorer (arrowless skipped), got %+v", syms)
+	// Strict subset includes only the RegisterDefaultSubAgents chain.
+	if len(strict) != 1 {
+		t.Fatalf("strict subset: expected 1 item, got %d: %+v", len(strict), strict)
+	}
+	if !strings.Contains(strict[0].Summary, "RegisterDefaultSubAgents") {
+		t.Errorf("strict subset should be the Register chain, got: %s", strict[0].Summary)
 	}
 }

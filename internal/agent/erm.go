@@ -817,10 +817,10 @@ func buildAnswerWhitelist(reqs []EvidenceRequirement) answerPredicateWhitelist {
 // a fallback safety net; they simply never outrank a passing chain.
 // Callers may pass nil for both to opt out and preserve legacy
 // ranking behaviour (used by older tests).
-func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist, reqs []EvidenceRequirement, graph *repomap.Graph) []string {
+func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist, reqs []EvidenceRequirement, graph *repomap.Graph) ([]string, []types.EvidenceItem) {
 	entities := extractRankingEntities(question)
 	if len(entities) == 0 || len(evidence) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// L0-1: pre-compute terminal + origin predicates once per call.
@@ -829,9 +829,16 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	terminalPreds := terminalPredicatesFor(reqs)
 	originPreds := originPredicatesFor(reqs)
 
+	// Candidates are scored into two aligned fields: `text` for the
+	// display-rendered chain (loose, demote-not-drop) and `src` for
+	// the underlying EvidenceItem (strict, only items passing ALL
+	// applicable predicates). Both paths share the same scoring so
+	// callers can treat them as two views of one ranked list.
 	type scored struct {
-		text  string
-		score float64
+		text     string
+		score    float64
+		src      types.EvidenceItem // untouched source item
+		strictOK bool               // passed all applicable predicates
 	}
 	var candidates []scored
 
@@ -901,122 +908,125 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 			bonus *= 1.3
 		}
 
-		// L0-1: terminal verification. For kinds whose answer is a
-		// concrete symbol or literal (registration / call_chain /
-		// return_value), demote chains whose terminal segment fails
-		// the Kind-specific predicate. Demotion factor 0.2 means a
-		// passing candidate outscores a failing one by 5× at equal
-		// entity overlap, but failing candidates are still returned
-		// when no passing candidate exists (fallback safety).
+		// L0-1: predicate checks. strictOK tracks whether the item
+		// passed ALL applicable predicates; used later to build the
+		// strict subset for L0-2 consumption. Failing items are
+		// still kept in the loose list (demote-not-drop) for the
+		// Ground Truth display.
+		strictOK := true
 		if len(terminalPreds) > 0 {
-			terminalOK := true
 			for _, p := range terminalPreds {
 				if !p(ev.Summary, graph) {
-					terminalOK = false
+					bonus *= 0.2
+					strictOK = false
+					preview := ev.Summary
+					if len(preview) > 120 {
+						preview = preview[:120] + "..."
+					}
+					logging.Debug("[erm] L0-1 terminal predicate demoted chain: %s", preview)
 					break
 				}
-			}
-			if !terminalOK {
-				bonus *= 0.2
-				preview := ev.Summary
-				if len(preview) > 120 {
-					preview = preview[:120] + "..."
-				}
-				logging.Debug("[erm] L0-1 terminal predicate demoted chain: %s", preview)
 			}
 		}
-
-		// L0-1 origin check: for registration kind, demote chains
-		// whose origin (leftmost segment) is not a registration verb.
-		// Constructor-originated chains like
-		// `NewFoo() returns &Foo{} → Foo.Name() returns "x"` pass
-		// the terminal check (valid method call) but are NOT
-		// registration chains. Demotion factor 0.1 (10×) — stronger
-		// than the terminal demotion because the origin is a more
-		// definitive signal: "started at a constructor" cannot be
-		// a registration chain no matter what the terminal looks
-		// like. Demote-not-drop still preserves fallback safety.
-		if len(originPreds) > 0 {
-			originOK := true
+		if strictOK && len(originPreds) > 0 {
 			for _, p := range originPreds {
 				if !p(ev.Summary, graph) {
-					originOK = false
+					bonus *= 0.1
+					strictOK = false
+					preview := ev.Summary
+					if len(preview) > 120 {
+						preview = preview[:120] + "..."
+					}
+					logging.Debug("[erm] L0-1 origin predicate demoted chain: %s", preview)
 					break
 				}
-			}
-			if !originOK {
-				bonus *= 0.1
-				preview := ev.Summary
-				if len(preview) > 120 {
-					preview = preview[:120] + "..."
-				}
-				logging.Debug("[erm] L0-1 origin predicate demoted chain: %s", preview)
 			}
 		}
 
 		candidates = append(candidates, scored{
-			text:  display,
-			score: float64(overlap) / float64(len(entities)) * bonus,
+			text:     display,
+			score:    float64(overlap) / float64(len(entities)) * bonus,
+			src:      ev,
+			strictOK: strictOK,
 		})
 	}
 
 	if len(candidates) == 0 {
-		return nil
+		return nil, nil
 	}
 
-	// Sort by score descending
+	// Sort by score descending.
 	sort.Slice(candidates, func(i, j int) bool {
 		return candidates[i].score > candidates[j].score
 	})
 
-	// Dedup by text content
-	seen := make(map[string]bool)
-	var result []string
+	// Build two aligned outputs:
+	//  - chains: loose list of display strings (includes demoted
+	//    candidates for Ground Truth fallback safety)
+	//  - strictItems: filtered list of EvidenceItems that passed
+	//    all applicable predicates, for L0-2 structured extraction
+	// Both are deduplicated independently: chains by text, strictItems
+	// by (Subject, Predicate, Object, Source, LineStart).
+	seenText := make(map[string]bool)
+	var chains []string
+	seenEv := make(map[string]bool)
+	var strictItems []types.EvidenceItem
 	for _, c := range candidates {
-		if seen[c.text] {
-			continue
+		if !seenText[c.text] {
+			seenText[c.text] = true
+			if len(chains) < maxChains {
+				chains = append(chains, c.text)
+			}
 		}
-		seen[c.text] = true
-		result = append(result, c.text)
-		if len(result) >= maxChains {
-			break
+		if c.strictOK {
+			key := fmt.Sprintf("%s|%s|%s|%s|%d", c.src.Subject, c.src.Predicate, c.src.Object, c.src.Source, c.src.LineStart)
+			if !seenEv[key] {
+				seenEv[key] = true
+				if len(strictItems) < maxChains {
+					strictItems = append(strictItems, c.src)
+				}
+			}
 		}
 	}
-	return result
+	return chains, strictItems
 }
 
-// extractAnswerSymbols translates answer chain strings into a
-// structured AnswerSymbol list. No-op for kinds without a well-defined
-// single-symbol terminal (mechanism, enumeration, conditional,
-// config_mapping) — those keep the legacy prose-generation path
-// through the finalizer.
+// extractAnswerSymbols translates a pre-filtered slice of EvidenceItems
+// into a structured AnswerSymbol list. No-op for kinds without a
+// well-defined single-symbol terminal (mechanism, enumeration,
+// conditional, config_mapping) — those keep the legacy prose-generation
+// path through the finalizer.
 //
 // This is the L0-2 translation step: it runs AFTER identifyAnswerChains
-// has filtered and ranked candidates (including L0-1 terminal
-// demotion) and BEFORE the finalizer is invoked. The finalizer is
-// then constrained to prose over this symbol list and cannot add or
-// remove names.
+// has produced the strict subset (the second return value) and BEFORE
+// the finalizer is invoked. The caller is expected to pass only items
+// that passed all applicable L0-1 predicates; this function does NOT
+// re-apply them.
 //
-// Extraction is STRICT: unlike identifyAnswerChains (which demote-
-// not-drops failing chains for fallback safety), extractAnswerSymbols
-// silently skips any chain that fails a Kind-applicable terminal or
-// origin predicate. A demoted chain can still appear in the Ground
-// Truth prompt section, but its terminal will NOT feed the authoritative
-// symbol list. This is the L0-2 invariant: the finalizer's symbol
-// constraint is "exactly these names, no others" — so the symbol
-// list must be pure, not fallback-padded.
+// Extraction reads STRUCTURED fields (Subject / Object / Source /
+// LineStart) directly rather than parsing display strings, because
+// the string path had two known failure modes: arrow-less single-hop
+// concrete values (subject was picked instead of object) and
+// fragile trailing-locator parsing. Per-kind extraction strategy:
 //
-// Additionally, chains without an arrow (single-hop concrete values)
-// are skipped: their "terminal" is the whole chain and
-// firstUppercaseIdent would pick the subject (registrar) instead of
-// the object (registered symbol). Multi-hop chains containing the
-// same object already surface it as a terminal symbol, so the
-// skipped single-hop chains lose no coverage.
+//   EvidenceConcrete + "binds*" → Object is the registered instance
+//     (e.g. "NewSubExplorer(deps)"). Strip the constructor `New`
+//     prefix and the argument list to get the bare type name.
+//   EvidenceConcrete + "returns" → Subject is the returning method
+//     full name (e.g. "SubExplorer.Name"). Take the receiver type
+//     (part before the first `.`).
+//   EvidenceRegistration → Object is the registered name directly.
+//   EvidenceRelationship + "calls" → Object is the callee.
+//   EvidenceDataflowPath + "resolution_chain" → parse Summary's
+//     rightmost hop (legacy string path) to find the terminal
+//     symbol. Still the right strategy for multi-hop chains because
+//     the chain text is richer than any single Subject/Object pair.
+//   EvidenceMechanism → Subject is the step label, taken as-is.
 //
 // See project_L0_2_extract_then_express_design.md and the
-// df1-20260412-093913 post-fix analysis.
-func extractAnswerSymbols(chains []string, questionKind string, reqs []EvidenceRequirement, graph *repomap.Graph) []types.AnswerSymbol {
-	if len(chains) == 0 {
+// df1-20260412-093913 post-fix analysis that motivated the rewrite.
+func extractAnswerSymbols(items []types.EvidenceItem, questionKind string, graph *repomap.Graph) []types.AnswerSymbol {
+	if len(items) == 0 {
 		return nil
 	}
 	// Only these kinds have a single-symbol answer; others return
@@ -1030,43 +1040,11 @@ func extractAnswerSymbols(chains []string, questionKind string, reqs []EvidenceR
 		return nil
 	}
 
-	// L0-1 predicates, applied strictly inside extraction so demoted
-	// chains do not contribute symbols even when they survived into
-	// the top-N.
-	terminalPreds := terminalPredicatesFor(reqs)
-	originPreds := originPredicatesFor(reqs)
-
 	var out []types.AnswerSymbol
 	seen := make(map[string]bool)
-	for _, chain := range chains {
-		// Strict: require an arrow so the terminal is unambiguous.
-		if !strings.Contains(chain, "→") {
-			continue
-		}
-		// Strict: require all applicable predicates to pass.
-		ok := true
-		for _, p := range terminalPreds {
-			if !p(chain, graph) {
-				ok = false
-				break
-			}
-		}
-		if ok {
-			for _, p := range originPreds {
-				if !p(chain, graph) {
-					ok = false
-					break
-				}
-			}
-		}
-		if !ok {
-			continue
-		}
-		sym := extractSymbolFromChain(chain, questionKind, graph)
-		if sym.Name == "" {
-			continue
-		}
-		if seen[sym.Name] {
+	for _, ev := range items {
+		sym := answerSymbolFromEvidence(ev, questionKind, graph)
+		if sym.Name == "" || seen[sym.Name] {
 			continue
 		}
 		seen[sym.Name] = true
@@ -1075,59 +1053,76 @@ func extractAnswerSymbols(chains []string, questionKind string, reqs []EvidenceR
 	return out
 }
 
-// extractSymbolFromChain parses a chain string and returns the
-// canonical terminal symbol. Strategy:
-//  1. Take the rightmost hop (extractTerminalSegment).
-//  2. Strip any trailing "(file:line)" source locator — but capture
-//     it so the AnswerSymbol can cite source location.
-//  3. Find the leftmost CamelCase-looking token whose first char is
-//     uppercase and which has at least 3 chars. That is the symbol.
-//  4. If none found, return an empty AnswerSymbol (caller filters).
-func extractSymbolFromChain(chain, kind string, graph *repomap.Graph) types.AnswerSymbol {
-	terminal := extractTerminalSegment(chain)
-	if terminal == "" {
-		return types.AnswerSymbol{}
+// answerSymbolFromEvidence extracts a single AnswerSymbol from one
+// EvidenceItem, using structured Subject/Object fields where possible
+// and falling back to Summary parsing for multi-hop dataflow paths.
+// Returns an empty AnswerSymbol (Name=="") when no symbol can be
+// determined so the caller can skip it.
+func answerSymbolFromEvidence(ev types.EvidenceItem, questionKind string, graph *repomap.Graph) types.AnswerSymbol {
+	sym := types.AnswerSymbol{
+		File:  ev.Source,
+		Line:  ev.LineStart,
+		Kind:  questionKind,
+		Chain: ev.Summary,
 	}
 
-	// Capture trailing ` (file:line)` if present, then strip it.
-	var file string
-	var line int
-	if p := strings.LastIndex(terminal, " ("); p >= 0 && strings.HasSuffix(terminal, ")") {
-		locator := terminal[p+2 : len(terminal)-1]
-		if colon := strings.LastIndex(locator, ":"); colon >= 0 {
-			file = locator[:colon]
-			fmt.Sscanf(locator[colon+1:], "%d", &line)
-		} else {
-			file = locator
+	switch {
+	case isRegistrationShape(ev):
+		// Concrete binds linkage: Object is a call like "NewSubExplorer(deps)"
+		// or a bare type name. Extract the first uppercase ≥3-char
+		// identifier, stripping a leading "New" prefix for constructors.
+		sym.Name = stripNewPrefix(firstUppercaseIdent(ev.Object))
+	case ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns":
+		// "SubExplorer.Name" → receiver is SubExplorer. If Subject has
+		// no dot, use the whole thing.
+		sub := ev.Subject
+		if dot := strings.Index(sub, "."); dot > 0 {
+			sub = sub[:dot]
 		}
-		terminal = strings.TrimSpace(terminal[:p])
+		sym.Name = firstUppercaseIdent(sub)
+	case ev.Kind == types.EvidenceRegistration:
+		sym.Name = stripNewPrefix(firstUppercaseIdent(ev.Object))
+	case ev.Kind == types.EvidenceRelationship && ev.Predicate == "calls":
+		sym.Name = firstUppercaseIdent(ev.Object)
+	case ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain":
+		// Multi-hop chain: the terminal symbol lives at the right-hand
+		// side of the last arrow in Summary. Keep the legacy string
+		// extraction path because the chain text carries more
+		// information than any single Subject/Object field.
+		terminal := extractTerminalSegment(ev.Summary)
+		// Strip trailing " (file:line)" so firstUppercaseIdent doesn't
+		// trip on the locator.
+		if p := strings.LastIndex(terminal, " ("); p >= 0 && strings.HasSuffix(terminal, ")") {
+			terminal = strings.TrimSpace(terminal[:p])
+		}
+		sym.Name = firstUppercaseIdent(terminal)
+	case ev.Kind == types.EvidenceMechanism:
+		// Mechanism step label is already a clean name.
+		sym.Name = firstUppercaseIdent(ev.Subject)
 	}
 
-	// Find the first uppercase identifier in the terminal. Walk the
-	// string one byte at a time, marking token starts at any
-	// non-identifier → identifier boundary, and returning the first
-	// token that begins with an uppercase letter and has ≥3 chars.
-	name := firstUppercaseIdent(terminal)
-	if name == "" {
-		return types.AnswerSymbol{}
-	}
-
-	// Prefer graph-anchored source location when the literal locator
-	// above was absent and the symbol exists in the repo graph.
-	if file == "" && graph != nil {
-		if defs, ok := graph.SymbolDefs[name]; ok && len(defs) > 0 {
-			file = defs[0].File
-			line = defs[0].Line
+	// Graph-anchored fallback for source locator when EvidenceItem
+	// didn't carry Source.
+	if sym.File == "" && graph != nil && sym.Name != "" {
+		if defs, ok := graph.SymbolDefs[sym.Name]; ok && len(defs) > 0 {
+			sym.File = defs[0].File
+			sym.Line = defs[0].Line
 		}
 	}
+	return sym
+}
 
-	return types.AnswerSymbol{
-		Name:  name,
-		File:  file,
-		Line:  line,
-		Chain: chain,
-		Kind:  kind,
+// stripNewPrefix removes a leading "New" from a constructor-style
+// identifier. "NewSubExplorer" → "SubExplorer"; "Foo" → "Foo".
+// Requires the character after "New" to be uppercase so we don't
+// mangle legitimate names starting with "new" lowercase.
+func stripNewPrefix(name string) string {
+	if len(name) > 3 && strings.HasPrefix(name, "New") {
+		if c := name[3]; c >= 'A' && c <= 'Z' {
+			return name[3:]
+		}
 	}
+	return name
 }
 
 // firstUppercaseIdent returns the first capitalised identifier token

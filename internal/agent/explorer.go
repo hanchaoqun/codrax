@@ -968,21 +968,22 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if e.searchResult != nil {
 		ermGraph = e.searchResult.Graph
 	}
-	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
+	answerChains, strictAnswerItems := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
 		buildAnswerWhitelist(e.ermRequirements), e.ermRequirements, ermGraph)
 	if len(answerChains) > 0 {
-		logging.Debug("[explorer] identified %d answer chains", len(answerChains))
+		logging.Debug("[explorer] identified %d answer chains (%d strict)", len(answerChains), len(strictAnswerItems))
 		for i, ac := range answerChains {
 			logging.Debug("[explorer]   answer_chain[%d]: %s", i, ac)
 		}
 	}
 
-	// L0-2: structured translation. For registration / call_chain /
-	// return_value kinds, extract canonical terminal symbols from the
-	// chains so the finalizer can be constrained to prose over this
-	// exact list. For other kinds, returns nil and the finalizer
-	// falls back to the legacy prose path.
-	answerSymbols := extractAnswerSymbols(answerChains, ctx.CurrentTaskQuestionKind, e.ermRequirements, ermGraph)
+	// L0-2: structured translation. extractAnswerSymbols now reads
+	// EvidenceItem fields directly (Subject/Object/Source/LineStart)
+	// instead of parsing display strings, which fixes the arrow-less
+	// single-hop concrete-value edge case and removes fragile
+	// trailing-locator parsing. Input is the strict subset already
+	// pre-filtered by L0-1 predicates inside identifyAnswerChains.
+	answerSymbols := extractAnswerSymbols(strictAnswerItems, ctx.CurrentTaskQuestionKind, ermGraph)
 	if len(answerSymbols) > 0 {
 		logging.Debug("[explorer] L0-2 extracted %d answer symbols", len(answerSymbols))
 		for i, s := range answerSymbols {
