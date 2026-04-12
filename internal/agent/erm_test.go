@@ -338,22 +338,30 @@ func TestExtractEvidenceRequirements_ConditionalEnglishRewrites(t *testing.T) {
 }
 
 func TestExtractEvidenceRequirements_OriginalRequestPreserved(t *testing.T) {
-	// ERM Part 2: when the original Chinese question and the
-	// analyzer-rewritten English task description are joined, the
-	// extractor must produce BOTH the Chinese-trigger Kind (from the
-	// original) AND keep the original CamelCase identifiers as entities
-	// (so ermAutoSatisfyUnresolvable doesn't strip them as not-in-graph
-	// generic English words like "count"/"agents"/"that").
+	// ERM Part 2 (corrected): the explorer must extract entities ONLY
+	// from the original user request and run keyword detection over
+	// the joined original+rewrite. The original commit c04298f ran
+	// BOTH over the joined string and was caught by integration testing
+	// — it polluted the entity set with generic English from the
+	// rewrite ("count","agents","that","call") and flipped
+	// answer_chain[0] to a spurious chain.
 	//
-	// This test guards the join logic in explorer.go BuildInitialPrompt:
-	// `ctx.Objective + " | " + ctx.CurrentTask`.
+	// This test mirrors the production split in explorer.go
+	// BuildInitialPrompt and verifies:
+	//  1. Keyword detection over the join produces the right Kind
+	//     (return_value triggered by "什么" in the original AND
+	//     "return value" in the rewrite — either is sufficient).
+	//  2. Entities are derived from the original ONLY, so the
+	//     CamelCase identifiers survive AND the generic English from
+	//     the rewrite is excluded.
 	original := "explorerEvaluator 的 ShouldStop 方法返回什么值?"
 	rewritten := "Identify the return value of the ShouldStop method in explorerEvaluator."
 	joined := original + " | " + rewritten
+	entities := extractRankingEntities(original)
 
-	reqs := extractEvidenceRequirements(joined)
+	reqs := extractEvidenceRequirementsWithEntities(joined, entities)
 	if len(reqs) == 0 {
-		t.Fatalf("joined input produced 0 reqs; need ≥1 return_value Kind")
+		t.Fatalf("split inputs produced 0 reqs; need ≥1 return_value Kind")
 	}
 	hasReturnValue := false
 	for _, r := range reqs {
@@ -362,25 +370,32 @@ func TestExtractEvidenceRequirements_OriginalRequestPreserved(t *testing.T) {
 		}
 	}
 	if !hasReturnValue {
-		t.Errorf("joined input should produce return_value Kind; got reqs=%v", reqs)
+		t.Errorf("split inputs should produce return_value Kind; got reqs=%v", reqs)
 	}
 
-	// Entities must contain the precise CamelCase identifiers from the
-	// original request — generic English words from the rewrite
-	// ("identify", "method") may also appear, but the originals MUST
-	// be present.
-	ents := extractRankingEntities(joined)
+	// Entities MUST contain the original CamelCase identifiers.
 	wantOriginals := []string{"explorerevaluator", "shouldstop"}
 	for _, want := range wantOriginals {
 		found := false
-		for _, e := range ents {
+		for _, e := range entities {
 			if e == want {
 				found = true
 				break
 			}
 		}
 		if !found {
-			t.Errorf("entity %q from original request missing after join; got entities=%v", want, ents)
+			t.Errorf("entity %q from original missing; got entities=%v", want, entities)
+		}
+	}
+
+	// Entities MUST NOT contain generic English from the rewrite.
+	// "identify", "method", "value" are the analyzer's noise.
+	bannedFromRewrite := []string{"identify", "method"}
+	for _, banned := range bannedFromRewrite {
+		for _, e := range entities {
+			if e == banned {
+				t.Errorf("entity %q leaked from rewrite into split entity set; got entities=%v", banned, entities)
+			}
 		}
 	}
 }

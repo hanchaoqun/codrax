@@ -128,24 +128,36 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 					})
 				}
 			}
-			// Extract ERM requirements and use them to boost file priority.
+			// Extract ERM requirements with separate entity and keyword
+			// sources:
 			//
-			// Pass the original user request (`ctx.Objective`) joined with
-			// the analyzer-rewritten task description (`ctx.CurrentTask`).
-			// The original almost always contains the precise CamelCase
-			// identifiers and direct trigger words ("怎么"/"多少") that
-			// power Kind detection AND entity extraction; the rewrite
-			// supplies the analyzer's English idioms ("Determine the
-			// number of...") that the keyword expansion now recognizes.
-			// Joining gives the union of both signal sets without
-			// changing what the LLM sees in its prompts. The pipe
-			// separator avoids accidentally fusing the tail of one half
-			// with the head of the other into a spurious phrase.
-			ermInput := ctx.CurrentTask
-			if ctx.Objective != "" && ctx.Objective != ctx.CurrentTask {
-				ermInput = ctx.Objective + " | " + ctx.CurrentTask
+			//  - Entities come from `ctx.Objective` ONLY (the original
+			//    user request), so the precise CamelCase identifiers
+			//    survive. Falls back to `ctx.CurrentTask` only when
+			//    Objective is empty (e.g. analyze stage stub state).
+			//  - Keyword detection runs over the union `Objective | CurrentTask`,
+			//    so Chinese trigger words ("怎么"/"多少") AND the analyzer's
+			//    English idioms ("Determine the number of...") both fire.
+			//
+			// Earlier (commit c04298f) ran both extractions over the
+			// joined string. The integration test (df1 5x, 063536) caught
+			// a regression: the analyzer's rewrite contributed generic
+			// English nouns ("count","agents","that","call") to the
+			// entity set, inflating registration req count from 2 to 8
+			// and flipping answer_chain[0] from the canonical
+			// `RegisterDefaultSubAgents → SubExplorer` chain to the
+			// spurious `RegisterDefaults → GrepTool.Description` chain
+			// (the tool registry matched MORE polluted entities than the
+			// correct answer). Splitting the sources isolates the noise.
+			ermEntities := extractRankingEntities(ctx.Objective)
+			if len(ermEntities) == 0 {
+				ermEntities = extractRankingEntities(ctx.CurrentTask)
 			}
-			e.ermRequirements = extractEvidenceRequirements(ermInput)
+			ermKeywordSource := ctx.CurrentTask
+			if ctx.Objective != "" && ctx.Objective != ctx.CurrentTask {
+				ermKeywordSource = ctx.Objective + " | " + ctx.CurrentTask
+			}
+			e.ermRequirements = extractEvidenceRequirementsWithEntities(ermKeywordSource, ermEntities)
 			// Auto-satisfy requirements whose entities don't match any
 			// symbol in the codebase — prevents generic English words from
 			// creating unsatisfiable requirements that block the pipeline.

@@ -24,8 +24,36 @@ type EvidenceRequirement struct {
 // a set of evidence requirements. This is deterministic (no LLM call)
 // and drives the entire investigation: file prioritization, continuation
 // prompts, quality gates, and dataflow candidate selection.
+// extractEvidenceRequirements is the convenience entry point that
+// derives entities from the same string used for keyword detection.
+// Callers that want entities and keyword source to differ (e.g. the
+// explorer needs CamelCase identifiers from the original user request
+// but English idioms from the analyzer's rewrite) should use
+// extractEvidenceRequirementsWithEntities directly.
 func extractEvidenceRequirements(question string) []EvidenceRequirement {
-	entities := extractRankingEntities(question)
+	return extractEvidenceRequirementsWithEntities(question, extractRankingEntities(question))
+}
+
+// extractEvidenceRequirementsWithEntities lets the caller supply the
+// entity list separately from the keyword-detection text. This is the
+// primary entry point for the explorer, which needs to:
+//
+//   - run keyword detection over the union of the original Chinese
+//     question (for Chinese trigger words like 怎么/多少) and the
+//     analyzer's English rewrite (for "Determine the number of..."
+//     idioms)
+//   - extract entities from the original ONLY, because the analyzer's
+//     rewrite tends to add generic English nouns ("count", "agents",
+//     "that") that pollute the entity set, inflate the requirement
+//     count, and degrade answer-chain ranking
+//
+// This separation was added after an integration test (df1 5x, commit
+// c04298f) caught a regression where joining the two strings before
+// entity extraction made answer_chain[0] flip from the canonical
+// `RegisterDefaultSubAgents → SubExplorer` to the spurious `RegisterDefaults → GrepTool.Description`
+// chain — the tool registry matched MORE of the polluted entity set
+// than the correct answer.
+func extractEvidenceRequirementsWithEntities(question string, entities []string) []EvidenceRequirement {
 	lower := strings.ToLower(question)
 
 	var reqs []EvidenceRequirement
