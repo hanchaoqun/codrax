@@ -819,10 +819,10 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 
 	parsed := parseEvidenceItems(e.investigationNotes, "explorer.llm")
-	needsDF := needsDataflowAnalysis(e.userQuestion, parsed)
+	intent := dataflowIntent(e.userQuestion, parsed)
 	hasGraph := e.searchResult != nil && e.searchResult.Graph != nil
-	logging.Debug("[explorer] ensureStructuredEvidence: parsed=%d needsDataflow=%v hasGraph=%v", len(parsed), needsDF, hasGraph)
-	if !hasGraph || !needsDF {
+	logging.Debug("[explorer] ensureStructuredEvidence: parsed=%d dataflowIntent=%s hasGraph=%v", len(parsed), intent, hasGraph)
+	if !hasGraph || intent == IntentNone {
 		e.structuredEvidence = parsed
 		return
 	}
@@ -887,9 +887,10 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		MaxFiles:        40,
 		MaxIterations:   6,
 		MaxNodesPerFunc: 400,
+		SkipFindings:    intent == IntentLookup,
 	})
-	logging.Debug("[explorer] dataflow.Analyze: %d evidence, %d findings from %d candidates",
-		len(result.Evidence), len(result.Findings), len(candidates))
+	logging.Debug("[explorer] dataflow.Analyze(intent=%s): %d evidence, %d findings from %d candidates",
+		intent, len(result.Evidence), len(result.Findings), len(candidates))
 	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence)
 	e.flowFindings = mergeFlowFindings(result.Findings)
 }

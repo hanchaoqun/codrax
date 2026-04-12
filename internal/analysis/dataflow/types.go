@@ -127,6 +127,11 @@ type Options struct {
 	MaxFiles        int
 	MaxIterations   int
 	MaxNodesPerFunc int
+	// SkipFindings disables the multi-hop buildFindings pass. Lowering
+	// and per-file evidence are still produced. Used for "Lookup"-intent
+	// questions where single-hop evidence is enough and the cross-file
+	// propagation pass would be wasted compute.
+	SkipFindings bool
 }
 
 // Result is the compact output consumed by explorer/sub-explorer.

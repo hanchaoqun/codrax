@@ -77,6 +77,12 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 	}
 
 	evidence = mergeEvidenceItems(evidence)
+	if opts.SkipFindings {
+		return Result{
+			Evidence: evidence,
+			Findings: nil,
+		}
+	}
 	findings := buildFindings(graph, lowered, evidence, opts)
 	evidence = append(evidence, evidenceFromFindings(findings)...)
 	evidence = mergeEvidenceItems(evidence)

@@ -592,28 +592,97 @@ func extractRankingEntities(question string) []string {
 	return entities
 }
 
-func needsDataflowAnalysis(question string, items []types.EvidenceItem) bool {
+// DataflowIntent encodes how much dataflow analysis a question needs.
+//
+//   - IntentNone: no dataflow at all (current bool=false case).
+//   - IntentLookup: single-hop / identity / enumeration. Lowering and
+//     per-file evidence are useful, but the multi-hop buildFindings pass
+//     would be wasted compute. Maps to dataflow.Options{SkipFindings:true}.
+//   - IntentPropagate: multi-hop, "X flows to Y" / "value propagates
+//     across files". Full pipeline.
+//
+// Three-level enum (T1.2) replaces the bool needsDataflowAnalysis. Avoids
+// the high-recall low-precision trap of `strings.Contains` keyword
+// matching against a single boolean. The resolution rule is structural,
+// not query-specific:
+//
+//  1. Explicit propagation phrases ("propagate" / "flow" / "传播" /
+//     "流向") → Propagate.
+//  2. Otherwise, any keyword or evidence kind that the original
+//     needsDataflowAnalysis would have triggered on → Lookup.
+//  3. No triggers → None.
+type DataflowIntent int
+
+const (
+	IntentNone DataflowIntent = iota
+	IntentLookup
+	IntentPropagate
+)
+
+func (d DataflowIntent) String() string {
+	switch d {
+	case IntentNone:
+		return "none"
+	case IntentLookup:
+		return "lookup"
+	case IntentPropagate:
+		return "propagate"
+	}
+	return "unknown"
+}
+
+// propagateKeywords are phrases that explicitly indicate the user is
+// asking about cross-file value propagation, not single-hop identity or
+// enumeration. Kept tight on purpose: anything not on this list falls
+// through to Lookup.
+var propagateKeywords = []string{
+	// English
+	"flow", "flows", "propagate", "propagates", "through",
+	"where does", "call chain",
+	// Chinese
+	"传播", "流向", "怎么到", "如何到", "如何传",
+}
+
+// lookupKeywords are phrases that the original needsDataflowAnalysis
+// triggered on but are single-hop in nature (registration, identity,
+// enumeration, configuration lookup). Listed verbatim from the legacy
+// table minus the propagate items above.
+var lookupKeywords = []string{
+	// English
+	"path", "trigger",
+	"which value", "what value", "who gets", "who is",
+	"condition", "configured", "config", "registered", "route", "handler",
+	"invoke", "dispatch", "how many",
+	// Chinese
+	"调用", "注册", "触发", "配置", "条件",
+	"路由", "处理器", "绑定", "分发", "哪些", "多少", "列出",
+	"哪个", "谁会", "谁能", "怎么",
+}
+
+func dataflowIntent(question string, items []types.EvidenceItem) DataflowIntent {
 	lower := strings.ToLower(question)
-	for _, needle := range []string{
-		// English — dataflow / value tracing
-		"flow", "flows", "path", "propagate", "through", "trigger",
-		"which value", "what value", "where does", "who gets", "who is",
-		"condition", "configured", "config", "registered", "route", "handler",
-		"invoke", "dispatch", "call chain", "how many",
-		// Chinese — equivalent dataflow / registration / invocation concepts
-		"调用", "注册", "触发", "配置", "流向", "传播", "条件",
-		"路由", "处理器", "绑定", "分发", "哪些", "多少", "列出",
-		"哪个", "谁会", "谁能", "怎么",
-	} {
+	for _, needle := range propagateKeywords {
 		if strings.Contains(lower, needle) {
-			return true
+			return IntentPropagate
+		}
+	}
+	for _, needle := range lookupKeywords {
+		if strings.Contains(lower, needle) {
+			return IntentLookup
 		}
 	}
 	for _, item := range items {
 		switch item.Kind {
 		case types.EvidenceConditional, types.EvidenceRelationship, types.EvidenceMechanism, types.EvidenceRegistration:
-			return true
+			return IntentLookup
 		}
 	}
-	return false
+	return IntentNone
+}
+
+// needsDataflowAnalysis is a backward-compatible wrapper around
+// dataflowIntent. Returns true for both Lookup and Propagate. Kept so
+// sub_explorer and existing tests don't have to change.
+func needsDataflowAnalysis(question string, items []types.EvidenceItem) bool {
+	return dataflowIntent(question, items) != IntentNone
 }
