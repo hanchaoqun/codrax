@@ -34,6 +34,88 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 	return extractEvidenceRequirementsWithEntities(question, extractRankingEntities(question))
 }
 
+// extractEvidenceRequirementsWithHint is the analyzer-aware entry
+// point used by the explorer. When the analyzer declared a concrete
+// question_kind via todo_write (analyzer.go contract), we trust it
+// directly and emit the matching EvidenceRequirement without running
+// keyword inference — the analyzer has strictly more context than a
+// post-hoc regex over the same string. Empty or "unknown" kind falls
+// through to the legacy keyword-based path.
+//
+// This closes the regression loop documented in
+// project_erm_english_keyword_gap: the keyword tables existed because
+// the analyzer's output was opaque. With a typed kind, we no longer
+// need to reverse-engineer it from the rewritten English.
+//
+// The keyword path is still run as a SUPPLEMENT when the declared
+// kind is present — it may surface additional requirements (e.g. a
+// mechanism question that also needs a registration lookup) that the
+// analyzer did not think to declare. The declared kind is always
+// represented at least once in the output.
+func extractEvidenceRequirementsWithHint(question string, entities []string, declaredKind string) []EvidenceRequirement {
+	declaredKind = strings.ToLower(strings.TrimSpace(declaredKind))
+	if declaredKind == "" || declaredKind == "unknown" {
+		return extractEvidenceRequirementsWithEntities(question, entities)
+	}
+
+	// Build the keyword-inferred set first so we can merge.
+	reqs := extractEvidenceRequirementsWithEntities(question, entities)
+
+	// Check whether the declared kind already appears. If so, the
+	// keyword path has already covered it; nothing more to do.
+	for _, r := range reqs {
+		if r.Kind == declaredKind {
+			return reqs
+		}
+	}
+
+	// The declared kind was missed by keyword inference — add it
+	// explicitly. This is the "analyzer saves us" path: e.g. a
+	// Chinese mechanism question whose English rewrite used idioms
+	// the keyword tables don't cover.
+	reason := fmt.Sprintf("analyzer declared question_kind=%s", declaredKind)
+	switch declaredKind {
+	case "registration":
+		// Registration requirements are per-entity in the keyword
+		// path; match that convention so downstream
+		// checkRequirementSatisfaction works uniformly.
+		if len(entities) == 0 {
+			reqs = append(reqs, EvidenceRequirement{
+				Kind: declaredKind, Reason: reason, Status: "unsatisfied",
+			})
+		} else {
+			for _, ent := range entities {
+				reqs = append(reqs, EvidenceRequirement{
+					Kind: declaredKind, Entities: []string{ent},
+					Reason: reason + " (per-entity)", Status: "unsatisfied",
+				})
+			}
+		}
+	case "return_value":
+		if len(entities) == 0 {
+			reqs = append(reqs, EvidenceRequirement{
+				Kind: declaredKind, Reason: reason, Status: "unsatisfied",
+			})
+		} else {
+			for _, ent := range entities {
+				reqs = append(reqs, EvidenceRequirement{
+					Kind: declaredKind, Entities: []string{ent},
+					Reason: reason + " (per-entity)", Status: "unsatisfied",
+				})
+			}
+		}
+	default:
+		// mechanism / conditional / config_mapping / enumeration /
+		// call_chain all take the entity set as a single group.
+		reqs = append(reqs, EvidenceRequirement{
+			Kind: declaredKind, Entities: append([]string(nil), entities...),
+			Reason: reason, Status: "unsatisfied",
+		})
+	}
+
+	return reqs
+}
+
 // extractEvidenceRequirementsWithEntities lets the caller supply the
 // entity list separately from the keyword-detection text. This is the
 // primary entry point for the explorer, which needs to:

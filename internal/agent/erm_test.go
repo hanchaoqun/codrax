@@ -668,3 +668,71 @@ func TestCheckRequirementSatisfaction_RegistrationFallthroughLLMNotes(t *testing
 		t.Errorf("LLM-notes [REGISTRATION] path: status = %q, want satisfied (legacy branch must still work)", reqs[0].Status)
 	}
 }
+
+// TestExtractEvidenceRequirementsWithHint_DeclaredKindHonoured verifies
+// that when the analyzer declares a question_kind, the resulting
+// requirement set always contains at least one entry of that kind —
+// even when the keyword path would have missed it.
+func TestExtractEvidenceRequirementsWithHint_DeclaredKindHonoured(t *testing.T) {
+	// A question with no mechanism keywords that the analyzer still
+	// classifies as mechanism. Without the hint the keyword path would
+	// produce no mechanism requirement.
+	reqs := extractEvidenceRequirementsWithHint(
+		"the XMLParser thing",
+		[]string{"XMLParser"},
+		"mechanism",
+	)
+	seen := false
+	for _, r := range reqs {
+		if r.Kind == "mechanism" {
+			seen = true
+			break
+		}
+	}
+	if !seen {
+		t.Errorf("declared mechanism kind should be in output, got: %+v", reqs)
+	}
+}
+
+// TestExtractEvidenceRequirementsWithHint_UnknownFallsBack verifies
+// that question_kind="unknown" goes through the legacy keyword path
+// unchanged — the hint is advisory, not mandatory.
+func TestExtractEvidenceRequirementsWithHint_UnknownFallsBack(t *testing.T) {
+	reqs := extractEvidenceRequirementsWithHint(
+		"how does the ContinuationPrompt mechanism work?",
+		[]string{"ContinuationPrompt"},
+		"unknown",
+	)
+	// Keyword path should still detect mechanism via "how does" / "mechanism".
+	seen := false
+	for _, r := range reqs {
+		if r.Kind == "mechanism" {
+			seen = true
+			break
+		}
+	}
+	if !seen {
+		t.Errorf("unknown kind should fall back to keyword inference; got: %+v", reqs)
+	}
+}
+
+// TestExtractEvidenceRequirementsWithHint_RegistrationPerEntity verifies
+// that a declared registration kind is expanded per-entity (matching
+// the keyword path's convention), so checkRequirementSatisfaction
+// handles it uniformly downstream.
+func TestExtractEvidenceRequirementsWithHint_RegistrationPerEntity(t *testing.T) {
+	reqs := extractEvidenceRequirementsWithHint(
+		"just show me Foo and Bar",
+		[]string{"Foo", "Bar"},
+		"registration",
+	)
+	perEntityCount := 0
+	for _, r := range reqs {
+		if r.Kind == "registration" && len(r.Entities) == 1 {
+			perEntityCount++
+		}
+	}
+	if perEntityCount < 2 {
+		t.Errorf("declared registration kind should expand per-entity; got %+v", reqs)
+	}
+}

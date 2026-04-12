@@ -9,19 +9,29 @@ import (
 )
 
 // TestAnalyzerParseOutputCapturesSummary verifies that the analyzer's
-// ParseOutput packs the LLM's free-form text into Data so the trace
-// retains the human-readable classification rationale, and that it
-// does not touch a non-empty Mutable.TaskList (i.e. respects whatever
-// todo_write set during the ReAct loop).
+// ParseOutput packs the LLM's free-form text into Data (under "result")
+// alongside the structured classification fields (question_kind,
+// answer_shape, etc), and that it does not touch a non-empty
+// Mutable.TaskList (i.e. respects whatever todo_write set during the
+// ReAct loop).
 func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	e := &analyzerEvaluator{}
 
-	// Pretend a previous todo_write call already populated the list.
+	// Pretend a previous todo_write call already populated the list
+	// with a full analyzer classification.
 	mut := types.NewMutableState(types.TaskList{
 		Objective:     "explain the project",
 		CurrentTaskID: "t1",
 		Tasks: []types.TaskItem{{
-			ID: "t1", Title: "explain", Writing: false, Status: types.TaskInProgress,
+			ID:           "t1",
+			Title:        "explain",
+			Writing:      false,
+			Status:       types.TaskInProgress,
+			QuestionKind: "mechanism",
+			AnswerShape:  "step_list",
+			Complexity:   "moderate",
+			Entities:     []string{"Orchestrator", "BaseAgent"},
+			Keywords:     []string{"orchestrator", "agent", "pipeline"},
 		}},
 	})
 
@@ -30,7 +40,7 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 		Mutable: mut,
 	}
 	msgs := []llm.Message{
-		{Role: "assistant", Content: "Classified as analysis: pure question."},
+		{Role: "assistant", Content: "Classified as mechanism: ordered steps."},
 	}
 
 	out, err := e.ParseOutput(ctx, msgs, nil, nil)
@@ -38,13 +48,28 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Data should still capture the LLM's natural-language summary.
-	var data map[string]string
+	// Data should capture both the natural-language summary and the
+	// structured classification. Use map[string]any to accommodate
+	// the mixed string/int value types.
+	var data map[string]any
 	if err := json.Unmarshal(out.Data, &data); err != nil {
 		t.Fatalf("Data not valid JSON: %v", err)
 	}
-	if data["result"] == "" {
+	if s, _ := data["result"].(string); s == "" {
 		t.Error("Data.result should contain the assistant's summary")
+	}
+	if got, _ := data["question_kind"].(string); got != "mechanism" {
+		t.Errorf("Data.question_kind = %q, want mechanism", got)
+	}
+	if got, _ := data["answer_shape"].(string); got != "step_list" {
+		t.Errorf("Data.answer_shape = %q, want step_list", got)
+	}
+	// JSON numbers decode as float64 in map[string]any.
+	if got, _ := data["entity_count"].(float64); got != 2 {
+		t.Errorf("Data.entity_count = %v, want 2", got)
+	}
+	if got, _ := data["keyword_count"].(float64); got != 3 {
+		t.Errorf("Data.keyword_count = %v, want 3", got)
 	}
 
 	// Mutable.TaskList must be unchanged — analyzer should not clobber
@@ -52,6 +77,9 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	tl := mut.TaskList()
 	if len(tl.Tasks) != 1 || tl.Tasks[0].ID != "t1" {
 		t.Errorf("Mutable.TaskList was clobbered, got %+v", tl.Tasks)
+	}
+	if tl.Tasks[0].QuestionKind != "mechanism" {
+		t.Errorf("QuestionKind was clobbered, got %q", tl.Tasks[0].QuestionKind)
 	}
 }
 

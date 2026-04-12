@@ -31,14 +31,17 @@ type todoWriteParams struct {
 }
 
 type todoWriteTaskParam struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
-	Description string   `json:"description,omitempty"`
-	Writing     bool     `json:"writing,omitempty"`
-	HighRisk    bool     `json:"high_risk,omitempty"`
-	Complexity  string   `json:"complexity,omitempty"`
-	Keywords    []string `json:"keywords,omitempty"`
-	Status      string   `json:"status,omitempty"`
+	ID           string   `json:"id"`
+	Title        string   `json:"title"`
+	Description  string   `json:"description,omitempty"`
+	Writing      bool     `json:"writing,omitempty"`
+	HighRisk     bool     `json:"high_risk,omitempty"`
+	Complexity   string   `json:"complexity,omitempty"`
+	Keywords     []string `json:"keywords,omitempty"`
+	Entities     []string `json:"entities,omitempty"`
+	QuestionKind string   `json:"question_kind,omitempty"`
+	AnswerShape  string   `json:"answer_shape,omitempty"`
+	Status       string   `json:"status,omitempty"`
 }
 
 func (t *TodoWrite) Name() string { return "todo_write" }
@@ -67,6 +70,9 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "high_risk":   {"type": "boolean", "description": "True if this task needs design/code review (only meaningful when writing is true)"},
           "complexity":  {"type": "string", "enum": ["simple", "moderate", "complex"], "description": "Investigation depth: simple (lookup/count), moderate (single-component), complex (cross-component architecture). Defaults to moderate if omitted."},
           "keywords":    {"type": "array", "items": {"type": "string"}, "description": "Search terms for the explorer to grep. Include CamelCase symbols, snake_case identifiers, and conceptual synonyms. Minimum 8 keywords."},
+          "entities":    {"type": "array", "items": {"type": "string"}, "description": "CamelCase/snake_case symbol names copied VERBATIM from the user's original wording. Do NOT translate, re-case, or paraphrase. These drive ERM entity extraction for the explorer; adding generic English nouns (e.g. 'count','that','function') has caused ranking regressions. Leave empty only if the user's question contains no identifier-looking tokens."},
+          "question_kind": {"type": "string", "enum": ["registration","mechanism","return_value","conditional","config_mapping","enumeration","call_chain","unknown"], "description": "Evidence-requirement shape. registration = 'which/how many X register/bind Y'. mechanism = 'how does X work / explain process'. return_value = 'what does X return / X's name/type'. conditional = 'when/under what condition'. config_mapping = 'what does config key K do'. enumeration = 'list/count all X'. call_chain = 'which X calls Y'. Use 'unknown' only if genuinely ambiguous — ERM will fall back to keyword inference. Picking the right kind here directly drives which evidence predicates the downstream pipeline opens."},
+          "answer_shape":  {"type": "string", "enum": ["list_of_symbols","step_list","value","boolean","config_value","none"], "description": "Expected final-answer structure. list_of_symbols = answer is a set of identifier names (the finalizer will forbid out-of-evidence symbols). step_list = ordered steps of a mechanism. value = a single literal/return. boolean = yes/no. config_value = a config key's resolved value. none = no structured shape applies."},
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
@@ -157,14 +163,17 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 		seen[id] = true
 
 		items = append(items, types.TaskItem{
-			ID:          id,
-			Title:       title,
-			Description: strings.TrimSpace(r.Description),
-			Writing:     r.Writing,
-			HighRisk:    r.HighRisk,
-			Complexity:  normalizeComplexity(r.Complexity),
-			Keywords:    r.Keywords,
-			Status:      normalizeTodoStatus(r.Status),
+			ID:           id,
+			Title:        title,
+			Description:  strings.TrimSpace(r.Description),
+			Writing:      r.Writing,
+			HighRisk:     r.HighRisk,
+			Complexity:   normalizeComplexity(r.Complexity),
+			Keywords:     r.Keywords,
+			Entities:     trimStringSlice(r.Entities),
+			QuestionKind: normalizeQuestionKind(r.QuestionKind),
+			AnswerShape:  normalizeAnswerShape(r.AnswerShape),
+			Status:       normalizeTodoStatus(r.Status),
 		})
 	}
 	return items, nil
@@ -205,6 +214,74 @@ func normalizeTodoStatus(s string) types.TaskStatus {
 	default:
 		return types.TaskPending
 	}
+}
+
+// normalizeQuestionKind maps LLM-produced question_kind strings to the
+// canonical set used by ERM (EvidenceRequirement.Kind). Unknown and
+// empty values both fall back to "unknown" so downstream callers can
+// cleanly distinguish "analyzer did not classify" from a valid Kind.
+// The analyzer's prompt is the primary enforcement of the enum; this
+// function is a defensive normalizer only.
+func normalizeQuestionKind(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "registration", "register":
+		return "registration"
+	case "mechanism", "process", "flow":
+		return "mechanism"
+	case "return_value", "return-value", "return", "value_of":
+		return "return_value"
+	case "conditional", "condition":
+		return "conditional"
+	case "config_mapping", "config-mapping", "config":
+		return "config_mapping"
+	case "enumeration", "enumerate", "list", "count":
+		return "enumeration"
+	case "call_chain", "call-chain", "callchain", "calls":
+		return "call_chain"
+	case "", "unknown", "other":
+		return "unknown"
+	default:
+		return "unknown"
+	}
+}
+
+// normalizeAnswerShape maps LLM-produced answer_shape strings to the
+// canonical set consumed by the finalizer. Empty maps to "none" so the
+// finalizer can early-return its shape switch.
+func normalizeAnswerShape(s string) string {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "list_of_symbols", "symbol_list", "list-of-symbols":
+		return "list_of_symbols"
+	case "step_list", "steps", "step-list":
+		return "step_list"
+	case "value", "literal", "return_value":
+		return "value"
+	case "boolean", "yes_no", "yes/no":
+		return "boolean"
+	case "config_value", "config-value":
+		return "config_value"
+	default:
+		return "none"
+	}
+}
+
+// trimStringSlice drops empty/whitespace-only entries and trims each
+// remaining element. Returns nil for an empty input so the field stays
+// omitempty-friendly.
+func trimStringSlice(in []string) []string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if t := strings.TrimSpace(s); t != "" {
+			out = append(out, t)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // normalizeComplexity maps LLM-produced complexity strings to canonical

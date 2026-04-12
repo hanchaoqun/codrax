@@ -171,15 +171,32 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// spurious `RegisterDefaults → GrepTool.Description` chain
 			// (the tool registry matched MORE polluted entities than the
 			// correct answer). Splitting the sources isolates the noise.
-			ermEntities := extractRankingEntities(ctx.Objective)
-			if len(ermEntities) == 0 {
-				ermEntities = extractRankingEntities(ctx.CurrentTask)
+			// Entity source preference order:
+			//   1. Analyzer-declared ctx.CurrentTaskEntities (verbatim from
+			//      user wording, per analyzer contract). This is the most
+			//      reliable source because the analyzer saw the raw request
+			//      and was instructed not to paraphrase.
+			//   2. Regex extraction over ctx.Objective (original request).
+			//   3. Regex extraction over ctx.CurrentTask as last resort.
+			var ermEntities []string
+			if len(ctx.CurrentTaskEntities) > 0 {
+				ermEntities = append(ermEntities, ctx.CurrentTaskEntities...)
+			} else {
+				ermEntities = extractRankingEntities(ctx.Objective)
+				if len(ermEntities) == 0 {
+					ermEntities = extractRankingEntities(ctx.CurrentTask)
+				}
 			}
 			ermKeywordSource := ctx.CurrentTask
 			if ctx.Objective != "" && ctx.Objective != ctx.CurrentTask {
 				ermKeywordSource = ctx.Objective + " | " + ctx.CurrentTask
 			}
-			e.ermRequirements = extractEvidenceRequirementsWithEntities(ermKeywordSource, ermEntities)
+			// Pass the analyzer's declared question_kind (may be empty or
+			// "unknown"; the hint-aware path handles both by falling
+			// back to pure keyword inference).
+			e.ermRequirements = extractEvidenceRequirementsWithHint(
+				ermKeywordSource, ermEntities, ctx.CurrentTaskQuestionKind,
+			)
 			// Auto-satisfy requirements whose entities don't match any
 			// symbol in the codebase — prevents generic English words from
 			// creating unsatisfiable requirements that block the pipeline.

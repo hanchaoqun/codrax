@@ -226,13 +226,16 @@ type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
 
-	Objective             string   `json:"objective"`
-	CurrentTaskID         string   `json:"current_task_id"`
-	CurrentTask           string   `json:"current_task"`
-	CurrentTaskWriting    bool     `json:"current_task_writing"`
-	CurrentTaskHighRisk   bool     `json:"current_task_high_risk"`
-	CurrentTaskComplexity string   `json:"current_task_complexity,omitempty"`
-	CurrentTaskKeywords   []string `json:"current_task_keywords,omitempty"`
+	Objective               string   `json:"objective"`
+	CurrentTaskID           string   `json:"current_task_id"`
+	CurrentTask             string   `json:"current_task"`
+	CurrentTaskWriting      bool     `json:"current_task_writing"`
+	CurrentTaskHighRisk     bool     `json:"current_task_high_risk"`
+	CurrentTaskComplexity   string   `json:"current_task_complexity,omitempty"`
+	CurrentTaskKeywords     []string `json:"current_task_keywords,omitempty"`
+	CurrentTaskEntities     []string `json:"current_task_entities,omitempty"`
+	CurrentTaskQuestionKind string   `json:"current_task_question_kind,omitempty"`
+	CurrentTaskAnswerShape  string   `json:"current_task_answer_shape,omitempty"`
 
 	RelevantFacts         []string            `json:"relevant_facts,omitempty"`
 	RelevantFiles         []string            `json:"relevant_files,omitempty"`

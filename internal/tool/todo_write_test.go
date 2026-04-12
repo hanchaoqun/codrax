@@ -226,6 +226,105 @@ func TestPickCurrentTaskID_FallbackToFirst(t *testing.T) {
 	}
 }
 
+// TestTodoWrite_AnalyzerContractFields verifies that the new fields
+// feeding the deterministic pipeline (entities, question_kind,
+// answer_shape) round-trip from JSON params into TaskItem exactly as
+// the analyzer contract declares.
+func TestTodoWrite_AnalyzerContractFields(t *testing.T) {
+	tw := &TodoWrite{}
+	bus := newMutableBus()
+
+	params := []byte(`{
+		"tasks": [{
+			"id": "t1",
+			"title": "explain ContinuationPrompt",
+			"entities": ["ContinuationPrompt", "explorerEvaluator"],
+			"question_kind": "mechanism",
+			"answer_shape": "step_list",
+			"keywords": ["ContinuationPrompt", "explorer", "prompt"]
+		}]
+	}`)
+	res, err := tw.Execute(bus, params)
+	if err != nil || !res.Success {
+		t.Fatalf("execute failed: err=%v summary=%s", err, res.Summary)
+	}
+	item := bus.Mutable.TaskList().Tasks[0]
+	if len(item.Entities) != 2 || item.Entities[0] != "ContinuationPrompt" {
+		t.Errorf("Entities roundtrip failed: %v", item.Entities)
+	}
+	if item.QuestionKind != "mechanism" {
+		t.Errorf("QuestionKind = %q, want mechanism", item.QuestionKind)
+	}
+	if item.AnswerShape != "step_list" {
+		t.Errorf("AnswerShape = %q, want step_list", item.AnswerShape)
+	}
+}
+
+// TestTodoWrite_EntitiesTrimEmpty verifies that whitespace-only
+// entities are dropped, so a sloppy analyzer can't pollute the entity
+// set with empty strings that would match any ERM check.
+func TestTodoWrite_EntitiesTrimEmpty(t *testing.T) {
+	tw := &TodoWrite{}
+	bus := newMutableBus()
+	params := []byte(`{"tasks":[{"title":"x","entities":["Foo","  ","","Bar"]}]}`)
+	if _, err := tw.Execute(bus, params); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	got := bus.Mutable.TaskList().Tasks[0].Entities
+	if len(got) != 2 || got[0] != "Foo" || got[1] != "Bar" {
+		t.Errorf("Entities = %v, want [Foo Bar]", got)
+	}
+}
+
+// TestNormalizeQuestionKind_AllPaths verifies every branch of the
+// normalizer including fallbacks for unknown/empty inputs.
+func TestNormalizeQuestionKind_AllPaths(t *testing.T) {
+	cases := map[string]string{
+		"registration":   "registration",
+		"REGISTER":       "registration",
+		"mechanism":      "mechanism",
+		"process":        "mechanism",
+		"return_value":   "return_value",
+		"return":         "return_value",
+		"conditional":    "conditional",
+		"config_mapping": "config_mapping",
+		"config":         "config_mapping",
+		"enumeration":    "enumeration",
+		"count":          "enumeration",
+		"call_chain":     "call_chain",
+		"calls":          "call_chain",
+		"":               "unknown",
+		"unknown":        "unknown",
+		"gibberish":      "unknown",
+	}
+	for in, want := range cases {
+		if got := normalizeQuestionKind(in); got != want {
+			t.Errorf("normalizeQuestionKind(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestNormalizeAnswerShape_AllPaths(t *testing.T) {
+	cases := map[string]string{
+		"list_of_symbols": "list_of_symbols",
+		"symbol_list":     "list_of_symbols",
+		"step_list":       "step_list",
+		"steps":           "step_list",
+		"value":           "value",
+		"literal":         "value",
+		"boolean":         "boolean",
+		"yes_no":          "boolean",
+		"config_value":    "config_value",
+		"":                "none",
+		"whatever":        "none",
+	}
+	for in, want := range cases {
+		if got := normalizeAnswerShape(in); got != want {
+			t.Errorf("normalizeAnswerShape(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // TestTodoWrite_ParamsRoundTrip just sanity-checks that the schema's
 // declared fields match what the tool actually consumes; if a field
 // gets renamed in the schema string, this test catches the divergence.
