@@ -416,7 +416,128 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 - 每次多花 `O(files × avg_func_size)` 的 lowering
 - 候选文件选择是 graph-structural 的（`dataflow/engine.go:89-143`），**没做 entity 过滤**，很容易把整个仓库的 handler 类文件拉进来
 
-**修法**：two-phase router —— 先跑便宜的 ERM + concrete values，如果 ERM 已 satisfied 就 skip dataflow；或者 `needsDataflow` 区分"single-hop 查值" vs "multi-hop 传播"（已在 [memory 记录](../../.claude/projects/-home-chatpp-codrax/memory/project_dataflow_trigger_issues.md)）。
+**修法**：问题本质是这个检查是一个**关键词 OR 匹配的单阶段决策**，**高召回低精度**——几乎所有技术问题都会命中某个关键词。它既不区分"需要单跳查值" vs "需要多跳传播"，也无法在 ERM 已经把需求满足之后及时止损。下面三条方案按实施成本从小到大列出，**推荐叠加使用**：
+
+**5.1.a 两阶段决策：先看 ERM 能否满足**
+
+在 `needsDataflowAnalysis` 被调用之前，先让 `checkRequirementSatisfaction`（`erm.go:143-253`）跑一次。如果所有 ERM 需求都已 `satisfied`，则 skip dataflow。伪代码（放在 `explorer.go:820` 附近）：
+
+```go
+// Before calling needsDataflowAnalysis:
+e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, parsedEvidence)
+allSatisfied := true
+for _, req := range e.ermRequirements {
+    if req.Status != "satisfied" {
+        allSatisfied = false
+        break
+    }
+}
+if allSatisfied {
+    // ERM says we already have everything; skip the expensive dataflow lowering.
+    logging.Debug("[explorer] skipping dataflow: all ERM requirements satisfied")
+    return // or: goto synthesis
+}
+// Otherwise fall through to the current needsDataflowAnalysis check.
+```
+
+**收益**：对"有多少个 agent 能调用 subagent?"这类问题——ERM enumeration+return_value+registration+call_chain 四个需求在 concrete values 跑完后通常已经 `satisfied`——直接跳过 dataflow 的整个 lowering 阶段。
+
+**风险**：`checkRequirementSatisfaction` 本身的满足度阈值（enumeration 需 ≥3 条、call_chain 需 ≥2 entity 共现等）要校准；阈值过松会漏掉真正需要 dataflow 的问题。建议先以 info 级日志记录"本来会跳过，但继续跑了 dataflow 的问题"，观察一段时间再真正 skip。
+
+**5.1.b 按 intent 分级：区分"single-hop 查值" vs "multi-hop 传播"**
+
+给 `needsDataflowAnalysis` 加一个返回值 `intent`，把当前粗粒度 bool 升级为三级：
+
+```go
+type DataflowIntent int
+
+const (
+    DataflowNone    DataflowIntent = iota // 不需要
+    DataflowLookup                         // 单跳查值：config key 读到了谁；注册表里有什么
+    DataflowPropagate                      // 多跳传播：一个值从哪里流到哪里
+)
+
+func classifyDataflowIntent(question string, items []types.EvidenceItem) DataflowIntent {
+    lower := strings.ToLower(question)
+
+    // Multi-hop propagation: explicit flow/path vocabulary
+    for _, kw := range []string{
+        "flow", "flows", "propagate", "path through", "trace through",
+        "流向", "传播", "一路", "最终到",
+    } {
+        if strings.Contains(lower, kw) || strings.Contains(question, kw) {
+            return DataflowPropagate
+        }
+    }
+
+    // Single-hop lookup: registration / config / handler lookup
+    for _, kw := range []string{
+        "registered", "route", "handler", "config", "configured",
+        "注册", "路由", "处理器", "配置", "绑定",
+    } {
+        if strings.Contains(lower, kw) || strings.Contains(question, kw) {
+            return DataflowLookup
+        }
+    }
+
+    // Evidence-kind fallback (existing logic): treat as Lookup unless
+    // Relationship/Mechanism suggests propagation.
+    for _, item := range items {
+        switch item.Kind {
+        case types.EvidenceRelationship, types.EvidenceMechanism:
+            return DataflowPropagate
+        case types.EvidenceConditional, types.EvidenceRegistration:
+            return DataflowLookup
+        }
+    }
+    return DataflowNone
+}
+```
+
+下游按 intent 分别走不同路径：
+- `DataflowNone`：skip dataflow engine 完全
+- `DataflowLookup`：只跑 config lowering（`lowerConfigFile`），不跑 `buildFindings` 的多跳调用图扩展
+- `DataflowPropagate`：完整 `dataflow.Analyze`
+
+**收益**：对 enumeration/identity 问题（Lookup 或 None），跳过 `dataflow/engine.go:80` 的 `buildFindings`——这是 dataflow 最贵的阶段，因为它做 O(N×M) 的候选→找点对匹配。
+
+**风险**：关键词分类本身还是 pattern matching，仍有误分的尾部。但错分的后果是"跑得太多"或"跑得太少"，不会出错，可以渐进调。
+
+**5.1.c 缩小候选文件集：让 dataflow 候选也过 ERM**
+
+即使 dataflow 被触发了，`selectCandidateFiles`（`dataflow/engine.go:89-143`）目前完全按 graph 结构扩展（import、imported-by、符号关系），**没有看 ERM entity**。结果是问题问 "谁调用 SubAgent" 时它会把所有 handler 文件拉进候选——和问题毫无关系。
+
+修法：在 `Analyze` 的 `opts` 里加一个 `EntityBias []string` 字段，`selectCandidateFiles` 在图扩展之后做一次 re-rank：
+
+```go
+// In selectCandidateFiles, after the structural expansion:
+if len(opts.EntityBias) > 0 {
+    // Sort candidates by (structural score + ERM-entity overlap bonus).
+    // Files whose path/symbols contain any EntityBias entity get +100.
+    sort.SliceStable(candidates, func(i, j int) bool {
+        return ermBiasScore(candidates[i], opts.EntityBias) >
+               ermBiasScore(candidates[j], opts.EntityBias)
+    })
+    // Only take top opts.MaxFiles (existing truncation logic).
+}
+```
+
+调用端（`explorer.go:820` 附近）：
+
+```go
+opts := dataflow.Options{
+    RepoRoot:    ctx.RepoRoot,
+    MaxFiles:    50,
+    EntityBias:  collectERMEntities(e.ermRequirements),
+}
+result := dataflow.Analyze(graph, opts)
+```
+
+**收益**：同样的预算下，候选更集中于问题相关文件，`buildFindings` 的 O(N×M) 实际工作量下降。
+
+**风险**：如果 ERM 实体抽取不准（例如中文被 analyzer 改写成泛词 `agent`、`call`），bias 反而可能压低正确文件。可以先只做 bonus、不做截断——即"在现有候选里按 bias 排序，top 优先跑"，而不是"把 bias 之外的文件全丢掉"。
+
+**组合建议**：5.1.a 先上（零风险、直接省一整阶段）；再上 5.1.b（把粗决策拆细）；5.1.c 是对残余 dataflow 调用的优化，最后做。
 
 ### 5.2 `identifyAnswerChains` predicate 白名单太窄
 
