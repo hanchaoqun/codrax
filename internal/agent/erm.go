@@ -208,6 +208,28 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 						}
 					}
 				}
+				// T1.1 follow-up: also accept binds-shape Concrete Values
+				// produced by the deterministic extractor. The
+				// `RegisterDefaultSubAgents binds ONLY NewSubExplorer` chain
+				// surfaces here as EvidenceConcrete{Predicate: "binds ONLY"},
+				// not as EvidenceRegistration. Without this branch the
+				// satisfaction check is blind to the strongest deterministic
+				// evidence the system already produces.
+				//
+				// Entity matching uses the same normalizeForMatch logic as
+				// the [REGISTRATION] branch above so precision is identical.
+				for _, ev := range evidence {
+					if !isRegistrationShape(ev) {
+						continue
+					}
+					if strings.Contains(normalizeForMatch(ev.Subject+" "+ev.Object+" "+ev.Summary), entLower) {
+						req.Status = "satisfied"
+						break
+					}
+				}
+				if req.Status == "satisfied" {
+					break
+				}
 			}
 
 		case "return_value":
@@ -512,6 +534,21 @@ func ermAllSatisfied(reqs []EvidenceRequirement) bool {
 	return true
 }
 
+// isRegistrationShape reports whether an EvidenceItem matches the
+// canonical "registration linkage" shape — an EvidenceConcrete whose
+// predicate contains "binds" (e.g. "binds ONLY", "binds first").
+//
+// Single source of truth used by both `identifyAnswerChains` (which
+// classifies these as candidate Ground Truth answer chains) and the
+// `case "registration"` branch of `checkRequirementSatisfaction` (which
+// uses them to satisfy registration requirements without depending on
+// LLM-tagged [REGISTRATION] notes). Keeping the predicate in one helper
+// prevents the two consumers from drifting apart as the Concrete Values
+// extractor evolves.
+func isRegistrationShape(ev types.EvidenceItem) bool {
+	return ev.Kind == types.EvidenceConcrete && strings.Contains(ev.Predicate, "binds")
+}
+
 // answerPredicateWhitelist controls which evidence kinds/predicates
 // `identifyAnswerChains` will consider as candidate answers. The base
 // set (chains + binds + returns) is always on. ERM-Kind-specific slots
@@ -580,7 +617,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	for _, ev := range evidence {
 		// Base set: resolution chains and concrete registrations/returns.
 		isChain := ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain"
-		isRegistration := ev.Kind == types.EvidenceConcrete && strings.Contains(ev.Predicate, "binds")
+		isRegistration := isRegistrationShape(ev)
 		isConcreteReturn := ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns"
 		// ERM-Kind-opened slots (T1.3).
 		isCondition := whitelist.allowConditional && ev.Kind == types.EvidenceConditional

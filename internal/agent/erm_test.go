@@ -203,3 +203,168 @@ func TestErmFileScore(t *testing.T) {
 		t.Logf("note: subagent.go scored lower than sub_explorer.go (both relevant, order acceptable)")
 	}
 }
+
+// --- T1.1 satisfaction-helper fix audit tests ----------------------------
+//
+// These tests guard the over-fitting audit conclusions for the registration
+// satisfaction branch added on top of T1.1: the new branch must accept
+// binds-shape Concrete Values (positive case) without leaking into
+// unrelated Kinds or matching the wrong entity (negative cases).
+
+func TestIsRegistrationShape_PositiveBinds(t *testing.T) {
+	cases := []types.EvidenceItem{
+		{Kind: types.EvidenceConcrete, Predicate: "binds"},
+		{Kind: types.EvidenceConcrete, Predicate: "binds ONLY"},
+		{Kind: types.EvidenceConcrete, Predicate: "binds first"},
+	}
+	for _, ev := range cases {
+		if !isRegistrationShape(ev) {
+			t.Errorf("isRegistrationShape(%+v) = false, want true", ev)
+		}
+	}
+}
+
+func TestIsRegistrationShape_NegativeOtherShapes(t *testing.T) {
+	cases := []types.EvidenceItem{
+		{Kind: types.EvidenceConcrete, Predicate: "returns"},
+		{Kind: types.EvidenceConcrete, Predicate: "maps to"},
+		{Kind: types.EvidenceConditional, Predicate: "binds"}, // wrong Kind
+		{Kind: types.EvidenceRelationship, Predicate: "calls"},
+		{Kind: types.EvidenceMechanism, Predicate: "reads_config"},
+		{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain"},
+	}
+	for _, ev := range cases {
+		if isRegistrationShape(ev) {
+			t.Errorf("isRegistrationShape(%+v) = true, want false", ev)
+		}
+	}
+}
+
+func TestCheckRequirementSatisfaction_RegistrationFromConcreteBinds(t *testing.T) {
+	// Positive case: registration requirement on entity "subexplorer" with
+	// a binds-shape Concrete Value mentioning that exact entity. The new
+	// branch in case "registration" must mark it satisfied.
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"subexplorer"}, Status: "unsatisfied",
+			Reason: "need to find where subexplorer is registered"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceConcrete,
+			Predicate: "binds ONLY",
+			Subject:   "RegisterDefaultSubAgents",
+			Object:    "NewSubExplorer(deps)",
+			Summary:   "RegisterDefaultSubAgents() binds ONLY NewSubExplorer(deps)",
+		},
+	}
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	if reqs[0].Status != "satisfied" {
+		t.Errorf("registration via binds-Concrete: status = %q, want satisfied", reqs[0].Status)
+	}
+}
+
+func TestCheckRequirementSatisfaction_RegistrationFromConcreteBinds_WrongEntity(t *testing.T) {
+	// Reverse safety case: registration requirement on entity "subexplorer"
+	// with a binds-Concrete that mentions an UNRELATED entity. Must NOT be
+	// satisfied — entity match must remain strict.
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"subexplorer"}, Status: "unsatisfied"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceConcrete,
+			Predicate: "binds ONLY",
+			Subject:   "RegisterDefaultTools",
+			Object:    "NewGrepTool",
+			Summary:   "RegisterDefaultTools() binds ONLY NewGrepTool",
+		},
+	}
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	if reqs[0].Status == "satisfied" {
+		t.Errorf("registration with non-matching entity: status = satisfied, want unsatisfied (entity precision must be preserved)")
+	}
+}
+
+func TestCheckRequirementSatisfaction_ReturnValueUnaffectedByBinds(t *testing.T) {
+	// Cross-Kind safety: a return_value requirement is checked by the
+	// case "return_value" branch, which already accepts EvidenceConcrete
+	// with predicate "returns". The new "registration" branch is added
+	// only inside `case "registration"` so a return_value req on entity
+	// X with a binds-Concrete X must NOT be satisfied via the new path —
+	// it would only be satisfied if the return_value branch's own check
+	// matches, which it does not for binds-shape predicates.
+	reqs := []EvidenceRequirement{
+		{Kind: "return_value", Entities: []string{"subexplorer"}, Status: "unsatisfied"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceConcrete,
+			Predicate: "binds ONLY",
+			Subject:   "RegisterDefaultSubAgents",
+			Object:    "NewSubExplorer(deps)",
+			Summary:   "binds NewSubExplorer",
+		},
+	}
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	if reqs[0].Status == "satisfied" {
+		t.Errorf("return_value satisfied by binds-Concrete: cross-Kind leak detected; want unsatisfied")
+	}
+}
+
+func TestIdentifyAnswerChains_RefactorParity(t *testing.T) {
+	// Regression check: refactoring identifyAnswerChains to call
+	// isRegistrationShape must not change its output for inputs the
+	// helper covers. The base inputs use binds-shape Concrete Values
+	// — exactly the path that now goes through the helper.
+	question := "which subagent does Explorer register?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceConcrete,
+			Predicate: "binds ONLY",
+			Subject:   "Explorer",
+			Object:    "SubExplorer",
+			Summary:   "Explorer binds ONLY SubExplorer",
+		},
+		{
+			Kind:      types.EvidenceConcrete,
+			Predicate: "returns",
+			Subject:   "SubExplorer.Name",
+			Object:    "explorer",
+			Summary:   "SubExplorer.Name() returns explorer",
+		},
+	}
+	whitelist := answerPredicateWhitelist{}
+	chains := identifyAnswerChains(question, evidence, 5, whitelist)
+	if len(chains) == 0 {
+		t.Fatalf("identifyAnswerChains returned no chains; expected at least the binds-Concrete to land")
+	}
+	// The binds-Concrete must appear in the output — that's the path
+	// touched by the helper.
+	found := false
+	for _, c := range chains {
+		if strings.Contains(c, "binds ONLY SubExplorer") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("binds-Concrete missing from answer chains: %v", chains)
+	}
+}
+
+func TestCheckRequirementSatisfaction_RegistrationFallthroughLLMNotes(t *testing.T) {
+	// Coexistence check: the new binds-Concrete branch must not displace
+	// the existing LLM-notes [REGISTRATION] branch. When evidence is empty
+	// but notes contain a [REGISTRATION] line for the entity with a
+	// specific value, the legacy branch must still satisfy.
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"subagent"}, Status: "unsatisfied"},
+	}
+	notes := []string{
+		"## Evidence\n- [REGISTRATION] `RegisterDefaultSubAgents` line 62: registers NewSubExplorer as the only subagent",
+	}
+	reqs = checkRequirementSatisfaction(reqs, notes, nil)
+	if reqs[0].Status != "satisfied" {
+		t.Errorf("LLM-notes [REGISTRATION] path: status = %q, want satisfied (legacy branch must still work)", reqs[0].Status)
+	}
+}
