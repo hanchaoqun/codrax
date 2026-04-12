@@ -43,10 +43,10 @@ EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-if [[ ! -x ./codrax ]]; then
-  echo "building codrax..." >&2
-  make >/dev/null || { echo "build failed" >&2; exit 1; }
-fi
+# Always rebuild — a stale binary silently invalidates every metric in
+# the summary, and we already learned that lesson once.
+echo "building codrax..." >&2
+make >/dev/null || { echo "build failed" >&2; exit 1; }
 
 TS="$(date +%Y%m%d-%H%M%S)"
 OUTDIR="eval/results/${ID}-${TS}"
@@ -58,38 +58,52 @@ echo "runs: $N" >&2
 echo "outdir: $OUTDIR" >&2
 echo >&2
 
+count_pattern() {
+  # Robust grep -c that returns "0" cleanly on no-match (grep exits 1).
+  local pat="$1" file="$2" n
+  if [[ -z "$file" || ! -f "$file" ]]; then
+    echo 0
+    return
+  fi
+  n=$(grep -c "$pat" "$file" 2>/dev/null) || n=0
+  echo "${n:-0}"
+}
+
 run_one() {
   local i="$1"
   local out="$OUTDIR/run-$i.out"
   local metrics="$OUTDIR/run-$i.metrics.txt"
   local verdict="$OUTDIR/run-$i.verdict"
+  # Per-run log dir so we don't accidentally pick up an unrelated log.
+  local logdir="$OUTDIR/run-$i.logs"
+  mkdir -p "$logdir"
 
-  ./codrax -repo . -branch main -pipeline-max-steps 15 \
-    -log-level debug \
-    -request "$QUESTION" \
+  ./codrax --repo . --branch main --pipeline-max-steps 15 \
+    --log-level debug \
+    --log-dir "$logdir" \
+    --request "$QUESTION" \
     >"$out" 2>&1
   local rc=$?
 
-  # Find the most recent log file (per-PID, freshly created by this run).
+  # Pick the most recent log file in this run's dedicated logdir.
   local log
-  log="$(ls -t logs/codrax-*.log 2>/dev/null | head -1)"
+  log="$(ls -t "$logdir"/codrax-*.log 2>/dev/null | head -1)"
 
   {
     echo "exit_code=$rc"
     echo "log_file=$log"
-    if [[ -n "$log" && -f "$log" ]]; then
-      echo "tool_read_file=$(grep -c 'tool=read_file' "$log" 2>/dev/null || echo 0)"
-      echo "concrete_values=$(grep -c 'concrete values' "$log" 2>/dev/null || echo 0)"
-      echo "synthesis_runs=$(grep -c 'SYNTHESIS prompt' "$log" 2>/dev/null || echo 0)"
-      echo "function_boundary_push=$(grep -c 'CRITICAL.*Incomplete' "$log" 2>/dev/null || echo 0)"
-      echo "enumeration_push=$(grep -c 'Enumeration completeness' "$log" 2>/dev/null || echo 0)"
-      echo "focus_warning=$(grep -c 'Potential Focus' "$log" 2>/dev/null || echo 0)"
-      echo "t11_gate_skip=$(grep -c 'T1.1 gate.*skipping' "$log" 2>/dev/null || echo 0)"
-      echo "t11_gate_run=$(grep -c 'T1.1 gate.*running' "$log" 2>/dev/null || echo 0)"
-      echo "dataflow_intent_lookup=$(grep -c 'dataflowIntent=lookup' "$log" 2>/dev/null || echo 0)"
-      echo "dataflow_intent_propagate=$(grep -c 'dataflowIntent=propagate' "$log" 2>/dev/null || echo 0)"
-      echo "answer_chain_lines=$(grep -c 'answer_chain' "$log" 2>/dev/null || echo 0)"
-    fi
+    echo "tool_read_file=$(count_pattern 'tool=read_file' "$log")"
+    echo "concrete_values=$(count_pattern 'concrete values' "$log")"
+    echo "synthesis_runs=$(count_pattern 'SYNTHESIS prompt' "$log")"
+    echo "function_boundary_push=$(count_pattern 'CRITICAL.*Incomplete' "$log")"
+    echo "enumeration_push=$(count_pattern 'Enumeration completeness' "$log")"
+    echo "focus_warning=$(count_pattern 'Potential Focus' "$log")"
+    echo "t11_gate_skip=$(count_pattern 'T1.1 gate.*skipping' "$log")"
+    echo "t11_gate_run=$(count_pattern 'T1.1 gate.*running' "$log")"
+    echo "dataflow_intent_lookup=$(count_pattern 'dataflowIntent=lookup' "$log")"
+    echo "dataflow_intent_propagate=$(count_pattern 'dataflowIntent=propagate' "$log")"
+    echo "midloop_inject=$(count_pattern 'MIDLOOP inject' "$log")"
+    echo "answer_chain_lines=$(count_pattern 'answer_chain' "$log")"
   } >"$metrics"
 
   # Verdict: check expectation substrings against the stdout. Strip ANSI
@@ -159,7 +173,7 @@ SUMMARY="$OUTDIR/summary.md"
   echo
   echo "| metric | $(seq 1 "$N" | sed 's|^|run |' | tr '\n' '|' | sed 's/|$//') | median |"
   echo "|--------|$(printf '%.0s---|' $(seq 1 "$N"))------|"
-  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate answer_chain_lines"
+  metric_keys="tool_read_file concrete_values synthesis_runs function_boundary_push enumeration_push focus_warning t11_gate_skip t11_gate_run dataflow_intent_lookup dataflow_intent_propagate midloop_inject answer_chain_lines"
   for key in $metric_keys; do
     row="| $key |"
     vals=()
