@@ -339,6 +339,28 @@ func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolRe
 	}
 
 	// Check 2: enumeration completeness.
+	//
+	// Two coverage tiers work together to push enumeration questions
+	// toward "list ALL" correctness without overshooting on the easy
+	// cases:
+	//
+	//   0.6 (here, mid-loop)  — early warning: fire when the LLM has
+	//      read less than 60% AND there are at least 2 files still
+	//      unread. This is a "you're falling behind" nudge, not a
+	//      hard gate; if coverage is already above 60% we trust the
+	//      LLM to finish on its own.
+	//
+	//   0.8 (line ~536, pre-stop) — hard gate: fire on the LLM's
+	//      soft-stop attempt when coverage is below 80%. Blocks
+	//      finalization of any enumeration that hasn't cleared the
+	//      "read almost all discovered files" bar.
+	//
+	// The two-tier split matters because a single 0.8 gate would
+	// only push at soft-stop time, burning iterations; a single 0.6
+	// gate would let questions with 75%-80% coverage slip through.
+	// Both numbers encode "list ALL" semantics, not case-specific
+	// tuning — they are tied to the enumeration question class, not
+	// df1.
 	if e.isEnumerationQuery {
 		discovered, readSet := extractFileCoverage(allResults)
 		if len(discovered) > 0 {
