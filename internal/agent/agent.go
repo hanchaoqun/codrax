@@ -156,6 +156,26 @@ type SynthesizingEvaluator interface {
 	SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (prompt string, shouldSynthesize bool)
 }
 
+// MidLoopEvaluator is an optional interface for agents that need to
+// inject corrective hints WHILE the LLM is still actively calling
+// tools. ContinuationPrompt only fires on soft-stop (LLM produced
+// content with no tool calls); when the LLM keeps calling tools but
+// in the wrong direction (reading wrong files, missing the question's
+// focus), every ContinuationPrompt-based check is blind. MidLoopCheck
+// fills that gap: BaseAgent.Execute calls it after each tool-execution
+// batch and, if inject=true, appends the returned hint as a fresh
+// user message before the next LLM Chat call.
+//
+// Implementations should:
+//   - Throttle internally (e.g., fire at most every 3 iterations) to
+//     avoid over-steering the LLM.
+//   - Keep hints short and surgical — this runs every iteration, not
+//     just at termination.
+//   - Return inject=false when there is nothing actionable to say.
+type MidLoopEvaluator interface {
+	MidLoopCheck(iteration int, lastResult *types.ToolResult, allResults []types.ToolResult) (hint string, inject bool)
+}
+
 // NewBaseAgent creates a new BaseAgent.
 func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *BaseAgent {
 	maxIter := deps.MaxIterations
@@ -312,6 +332,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		})
 
 		// Act — execute tool calls
+		var lastToolResultPtr *types.ToolResult
 		for _, tc := range resp.ToolCalls {
 			toolStart := time.Now()
 			b.deps.Emit(render.Event{
@@ -330,6 +351,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			if result != nil {
 				toolOK = result.Success
 				allToolResults = append(allToolResults, *result)
+				lastToolResultPtr = &allToolResults[len(allToolResults)-1]
 				messages = append(messages, llm.Message{
 					Role:       "tool",
 					Content:    result.Summary,
@@ -361,6 +383,23 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				ToolOK:     toolOK,
 				ToolTime:   time.Since(toolStart),
 			})
+		}
+
+		// Mid-loop check (#34): give the evaluator a chance to inject a
+		// corrective hint between tool batches. Unlike ContinuationPrompt
+		// (which only fires on soft-stop), this fires on every iteration
+		// where the LLM is still actively calling tools — closing the
+		// blind spot where the LLM keeps tool-calling in the wrong
+		// direction. The evaluator is responsible for throttling.
+		if m, ok := b.eval.(MidLoopEvaluator); ok {
+			if hint, inject := m.MidLoopCheck(i, lastToolResultPtr, allToolResults); inject {
+				messages = append(messages, llm.Message{
+					Role:    "user",
+					Content: hint,
+				})
+				logging.Debug("[diag %s] iter=%d MIDLOOP inject len=%d:\n%s\n---",
+					b.name, i, len(hint), truncForLog(hint, 1000))
+			}
 		}
 	}
 

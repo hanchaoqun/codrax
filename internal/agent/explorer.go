@@ -42,6 +42,7 @@ type explorerEvaluator struct {
 	flowFindings              []types.FlowFindingDigest
 	ermRequirements           []EvidenceRequirement // evidence requirement model
 	cachedConcreteValues      *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
+	midLoopLastInjectIter     int                   // #34: throttle MidLoopCheck cadence
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -51,6 +52,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
+	e.midLoopLastInjectIter = -10
 
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
@@ -204,6 +206,80 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // This separation prevents the common failure mode where the LLM
 // reads one file, concludes prematurely, then gets pushed into
 // reading test files because "it hasn't read them yet."
+// MidLoopCheck (#34) fires after every tool batch. Unlike
+// ContinuationPrompt — which only runs on soft-stop — this is the only
+// channel that can redirect the LLM while it is still actively calling
+// tools but in the wrong direction. The check is throttled to fire at
+// most once every 3 iterations and only after iter ≥ 3 so the LLM has
+// at least one productive cycle of tool reads to evaluate against.
+//
+// Two invariants are checked, both reusing helpers that already exist
+// for ContinuationPrompt but were blind to the active-tool-calling
+// case:
+//
+//  1. Function-boundary coverage — `detectPartiallyReadSymbols` finds
+//     read_file slices that left a long function partially read. The
+//     LLM gets a one-line nudge with exact offset/limit.
+//  2. Enumeration completeness — when the question asks to list all X
+//     and the LLM has read fewer files than the discovered set, push
+//     the unread tail into the conversation.
+//
+// Hints are kept short on purpose — this runs every iteration and
+// would otherwise blow up the message budget.
+func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolResult, allResults []types.ToolResult) (string, bool) {
+	// Throttle: fire at most every 3 iters, and not before iter 3.
+	if iteration < 3 || iteration-e.midLoopLastInjectIter < 3 {
+		return "", false
+	}
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return "", false
+	}
+
+	var b strings.Builder
+
+	// Check 1: function-boundary coverage.
+	if hints := detectPartiallyReadSymbols(allResults, e.searchResult.Graph); len(hints) > 0 {
+		h := hints[0] // worst-coverage offender
+		fmt.Fprintf(&b, "MID-LOOP CHECK: you started reading `%s` at lines %d-%d but the function spans %d-%d (%.0f%% covered). "+
+			"Finish reading this function before moving on — call read_file with offset=%d limit=%d.\n",
+			h.symbolName, h.symStart, h.readEnd, h.symStart, h.symEnd, h.coverage*100,
+			h.readEnd+1, h.symEnd-h.readEnd)
+	}
+
+	// Check 2: enumeration completeness.
+	if e.isEnumerationQuery {
+		discovered, readSet := extractFileCoverage(allResults)
+		if len(discovered) > 0 {
+			coverage := float64(len(readSet)) / float64(len(discovered))
+			if coverage < 0.6 && len(discovered)-len(readSet) >= 2 {
+				var unread []string
+				for _, f := range discovered {
+					if !readSet[f] && !isNoisePath(f) {
+						unread = append(unread, f)
+					}
+					if len(unread) >= 5 {
+						break
+					}
+				}
+				if len(unread) > 0 {
+					if b.Len() > 0 {
+						b.WriteString("\n")
+					}
+					fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d discovered files (%.0f%%). "+
+						"Read these next: %s\n",
+						len(readSet), len(discovered), coverage*100, strings.Join(unread, ", "))
+				}
+			}
+		}
+	}
+
+	if b.Len() == 0 {
+		return "", false
+	}
+	e.midLoopLastInjectIter = iteration
+	return b.String(), true
+}
+
 func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
 	// Capture assistant analysis messages from the ReAct loop.
 	// These contain the LLM's processed understanding of the files
