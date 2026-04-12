@@ -24,12 +24,56 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
+
+// Hard caps that bound how much historical turn content ever reaches
+// an LLM prompt. Two independent layers:
+//
+//   - maxTurnBodyBytes caps what we ever persist (and what readTurnFile
+//     surfaces back from pre-existing oversized files). Set at ~one
+//     glamour-rendered explorer answer so normal REPL sessions never
+//     trip it; when a tool floods the response buffer the tail is
+//     dropped instead of poisoning every subsequent BuildContext call.
+//
+//   - maxBuildContext* caps the size of the inlined "Relevant compacted
+//     memory" block itself. Even if turn files happen to be within
+//     maxTurnBodyBytes, a pathological request that matches many
+//     entries would still blow the model window. Top-K + per-entry +
+//     total-budget gives three independent brakes.
+const (
+	maxTurnBodyBytes          = 64 * 1024
+	maxBuildContextMatches    = 3
+	maxInlinedTurnBytes       = 8 * 1024
+	maxBuildContextTotalBytes = 32 * 1024
+)
+
+// ansiEscapeRE matches the CSI ("ESC[…letter") sequences that leak into
+// turn.Response via glamour's markdown rendering. They have no semantic
+// value once stored in memory and they inflate file sizes dramatically
+// when the response contains lots of colored tokens.
+var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
+
+// sanitizeTurnText strips ANSI escape sequences and truncates to
+// maxTurnBodyBytes. Truncation walks back to a UTF-8 rune boundary so
+// we never emit half a multibyte character (the REPL history is
+// overwhelmingly CJK).
+func sanitizeTurnText(s string) string {
+	s = ansiEscapeRE.ReplaceAllString(s, "")
+	if len(s) <= maxTurnBodyBytes {
+		return s
+	}
+	cut := maxTurnBodyBytes
+	for cut > 0 && (s[cut]&0xC0) == 0x80 {
+		cut--
+	}
+	return s[:cut] + "\n…[truncated]"
+}
 
 // Turn is one user request + assembled assistant response.
 type Turn struct {
@@ -431,10 +475,14 @@ func (s *Store) readTurnFile(id string) (Turn, error) {
 		}
 	}
 
+	// Sanitize on read so a legacy oversized turn file (written before
+	// Append learned to cap) cannot smuggle multi-megabyte content into
+	// s.recent and from there into the summarizer. This is the
+	// remediation path for pre-existing directories.
 	return Turn{
 		ID:        id,
-		Request:   request,
-		Response:  response,
+		Request:   sanitizeTurnText(request),
+		Response:  sanitizeTurnText(response),
 		Timestamp: ts,
 	}, nil
 }
@@ -455,6 +503,12 @@ func (s *Store) Append(turn Turn) error {
 	if turn.Timestamp.IsZero() {
 		turn.Timestamp = time.Now()
 	}
+	// Scrub ANSI and enforce the per-turn byte cap once, up front, so
+	// the same bounded value lands on disk AND in the in-process recent
+	// buffer. Downstream consumers (writeTurnFile, recentBytesLocked,
+	// compactOldest → Summarize) never see the raw glamour output.
+	turn.Request = sanitizeTurnText(turn.Request)
+	turn.Response = sanitizeTurnText(turn.Response)
 	if err := s.writeTurnFile(turn); err != nil {
 		return err
 	}
@@ -557,15 +611,42 @@ func (s *Store) BuildContext(currentRequest string) string {
 	var b strings.Builder
 	if len(idx) > 0 {
 		matches := matchIndex(idx, currentRequest)
+		// Top-K by score. matchIndex already returns score-sorted, so
+		// this is the cheapest of the three brakes and runs first.
+		if len(matches) > maxBuildContextMatches {
+			matches = matches[:maxBuildContextMatches]
+		}
 		if len(matches) > 0 {
 			b.WriteString("### Relevant compacted memory\n")
+			inlined := 0
 			for _, e := range matches {
 				fmt.Fprintf(&b, "- **%s** (%s) — %s\n", e.Topic, e.ID, e.Summary)
-				if full, err := os.ReadFile(filepath.Join(s.dir, e.FullRef)); err == nil {
-					b.WriteString("  Full turn:\n  ")
-					b.WriteString(strings.ReplaceAll(string(full), "\n", "\n  "))
-					b.WriteString("\n")
+				// Total-budget brake: once we're over the overall cap,
+				// stop inlining full turns but keep emitting the bullet
+				// line so the model at least knows the topic existed.
+				if inlined >= maxBuildContextTotalBytes {
+					b.WriteString("  (full turn elided: context budget exhausted)\n")
+					continue
 				}
+				full, err := os.ReadFile(filepath.Join(s.dir, e.FullRef))
+				if err != nil {
+					continue
+				}
+				// Per-entry brake: cap one turn file's contribution
+				// regardless of its on-disk size. Cuts on a rune
+				// boundary so we never split a multibyte character.
+				text := string(full)
+				if len(text) > maxInlinedTurnBytes {
+					cut := maxInlinedTurnBytes
+					for cut > 0 && (text[cut]&0xC0) == 0x80 {
+						cut--
+					}
+					text = text[:cut] + "\n…[truncated]"
+				}
+				b.WriteString("  Full turn:\n  ")
+				b.WriteString(strings.ReplaceAll(text, "\n", "\n  "))
+				b.WriteString("\n")
+				inlined += len(text)
 			}
 			b.WriteString("\n")
 		}

@@ -101,6 +101,150 @@ func TestBuildContextInlinesMatchingTurn(t *testing.T) {
 	}
 }
 
+// TestSanitizeStripsANSIAndCapsSize locks the write-side contract:
+// glamour-style ANSI escapes must not survive to disk, and a
+// pathologically large Response must be truncated at maxTurnBodyBytes.
+// Regression guard for the 2026-04-12 incident where a 2.8 MB turn file
+// blew the analyzer's context window.
+func TestSanitizeStripsANSIAndCapsSize(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+
+	huge := strings.Repeat("\x1b[38;5;252mA\x1b[0m", 200*1024) // ~3.4 MB pre-strip
+	if err := s.Append(Turn{
+		ID:       "big",
+		Request:  "q",
+		Response: huge,
+	}); err != nil {
+		t.Fatalf("Append: %v", err)
+	}
+
+	// On-disk file must be clean and bounded.
+	raw, err := os.ReadFile(filepath.Join(dir, "turns", "big.md"))
+	if err != nil {
+		t.Fatalf("read turn file: %v", err)
+	}
+	if strings.Contains(string(raw), "\x1b[") {
+		t.Errorf("ANSI escape leaked to disk")
+	}
+	// Header adds ~100 bytes; cap is 64 KB body + truncation marker.
+	if len(raw) > maxTurnBodyBytes+512 {
+		t.Errorf("turn file size %d exceeds cap %d", len(raw), maxTurnBodyBytes)
+	}
+	if !strings.Contains(string(raw), "[truncated]") {
+		t.Errorf("expected truncation marker in oversized turn")
+	}
+
+	// In-memory recent buffer must mirror the sanitized form.
+	recent := s.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("recent len = %d, want 1", len(recent))
+	}
+	if strings.Contains(recent[0].Response, "\x1b[") {
+		t.Errorf("ANSI escape leaked into recent buffer")
+	}
+	if len(recent[0].Response) > maxTurnBodyBytes+32 {
+		t.Errorf("recent[0].Response size %d exceeds cap", len(recent[0].Response))
+	}
+}
+
+// TestReadTurnFileSanitizesLegacyFile locks the read-side contract:
+// a pre-existing oversized turn file (written by a version of codrax
+// that didn't sanitize on write) must be truncated when loadOrphanRecent
+// resurrects it, so it cannot be re-fed to the summarizer at full size.
+func TestReadTurnFileSanitizesLegacyFile(t *testing.T) {
+	dir := t.TempDir()
+	turnsDir := filepath.Join(dir, "turns")
+	if err := os.MkdirAll(turnsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Hand-craft a legacy oversized file bypassing Append's sanitizer.
+	// Exercises the path loadOrphanRecent → readTurnFile takes for an
+	// orphan from a crashed previous session.
+	body := strings.Repeat("\x1b[38;5;252mX\x1b[0m", 200*1024)
+	content := "# legacy\n\n_2026-04-12T00:00:00Z_\n\n## Request\n\nq\n\n## Response\n\n" + body + "\n"
+	if err := os.WriteFile(filepath.Join(turnsDir, "legacy.md"), []byte(content), 0o644); err != nil {
+		t.Fatalf("write legacy file: %v", err)
+	}
+
+	s, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+
+	recent := s.Recent()
+	if len(recent) != 1 {
+		t.Fatalf("recent len = %d, want 1", len(recent))
+	}
+	if strings.Contains(recent[0].Response, "\x1b[") {
+		t.Errorf("legacy ANSI escape survived readTurnFile")
+	}
+	if len(recent[0].Response) > maxTurnBodyBytes+32 {
+		t.Errorf("legacy Response size %d exceeds cap %d", len(recent[0].Response), maxTurnBodyBytes)
+	}
+}
+
+// TestBuildContextCapsInlinedFullRef locks the BuildContext contract
+// for pre-existing oversized turn files that matchIndex surfaces. Even
+// if ten compacted entries match a common keyword and each full_ref
+// file is 1 MB, the assembled context must stay within the three
+// brakes: top-3 matches, 8 KB per entry, 32 KB total.
+func TestBuildContextCapsInlinedFullRef(t *testing.T) {
+	dir := t.TempDir()
+	turnsDir := filepath.Join(dir, "turns")
+	if err := os.MkdirAll(turnsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Hand-craft a MEMORY.md with 10 entries all keyed on "pipeline".
+	var idx strings.Builder
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&idx, "---\nid: legacy-%d\ntopic: %q\nkeywords: [pipeline]\nfull_ref: turns/legacy-%d.md\nsummary: s\n---\n%s\n\n",
+			i, fmt.Sprintf("topic %d", i), i, "short summary")
+		// Hand-write a 1 MB turn file, bypassing sanitizer so we
+		// exercise the BuildContext-side cap in isolation.
+		big := strings.Repeat("Z", 1024*1024)
+		content := fmt.Sprintf("# legacy-%d\n\n_2026-04-12T00:00:00Z_\n\n## Request\n\nq\n\n## Response\n\n%s\n", i, big)
+		if err := os.WriteFile(filepath.Join(turnsDir, fmt.Sprintf("legacy-%d.md", i)), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "MEMORY.md"), []byte(idx.String()), 0o644); err != nil {
+		t.Fatalf("write MEMORY.md: %v", err)
+	}
+
+	s, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+	if got := len(s.Index()); got != 10 {
+		t.Fatalf("index len = %d, want 10", got)
+	}
+
+	ctx := s.BuildContext("how many pipeline stages are there")
+	// Total size must be well under the model-context-window pain
+	// point. Header + 3 × (bullet + ≤8 KB) + recent-turns header
+	// fits comfortably under 40 KB.
+	if len(ctx) > 40*1024 {
+		t.Errorf("BuildContext output size %d exceeds total budget", len(ctx))
+	}
+	// Must include exactly 3 matches, not 10.
+	if n := strings.Count(ctx, "Full turn:"); n > 3 {
+		t.Errorf("inlined %d full turns, want ≤ 3", n)
+	}
+	// Must include a truncation marker since each file is 1 MB.
+	if !strings.Contains(ctx, "[truncated]") {
+		t.Errorf("expected per-entry truncation marker")
+	}
+}
+
 func TestClearRemovesEverything(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(dir, stubSummarizer{})
