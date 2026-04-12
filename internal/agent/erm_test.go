@@ -841,6 +841,71 @@ func TestTerminalPredicatesFor_KindDedup(t *testing.T) {
 	}
 }
 
+// TestChainOriginIsRegistrationLinkage covers the L0-1 origin predicate.
+// Constructor-originated chains (`NewFoo → Foo.Method`) must fail; chains
+// starting with `binds` or a `Register*` function must pass.
+func TestChainOriginIsRegistrationLinkage(t *testing.T) {
+	good := []string{
+		"`RegisterDefaults()` binds ONLY x → `Foo.Name()` returns \"foo\"",
+		"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer → `SubExplorer.Name()` returns \"explorer\"",
+		"`Register(NewHandler())` binds Handler → `Handler.ID()` returns 42",
+	}
+	for _, g := range good {
+		if !chainOriginIsRegistrationLinkage(g, nil) {
+			t.Errorf("expected PASS for %q", g)
+		}
+	}
+	bad := []string{
+		"`NewProposeSubAgents()` returns &ProposeSubAgents{ → `ProposeSubAgents.Name()` returns \"x\"",
+		"`NewBaseAgent()` returns &BaseAgent{ → `BaseAgent.buildToolSchemas()` returns ts",
+		"`NewFoo()` returns &Foo{ → `Foo.Bar()` returns nil",
+	}
+	for _, b := range bad {
+		if chainOriginIsRegistrationLinkage(b, nil) {
+			t.Errorf("expected FAIL for %q", b)
+		}
+	}
+}
+
+// TestIdentifyAnswerChains_ConstructorOriginDemoted verifies the L0-1
+// origin check in the live scoring loop. Given a constructor-originated
+// chain and a register-originated chain with DOUBLE the entity overlap
+// on the wrong chain, the register chain must still rank first thanks
+// to the origin demotion.
+//
+// This exactly reproduces the df1 post-L0-1 regression:
+//   - wrong chain matches "subagent" + "agent" substrings in
+//     `ProposeSubAgents.Name() returns "propose_sub_agents"` (overlap 2/2)
+//   - right chain matches only "subagent" substring in
+//     `RegisterDefaultSubAgents → SubExplorer` (overlap 1/2)
+//   - without origin check, wrong chain would score 3.0 vs right 1.95
+//   - with origin check, wrong chain gets ×0.1 and scores 0.3
+func TestIdentifyAnswerChains_ConstructorOriginDemoted(t *testing.T) {
+	question := "which agent can call subagent?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`NewProposeSubAgents()` returns &ProposeSubAgents{ → `ProposeSubAgents.Name()` returns \"propose_sub_agents\"",
+		},
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer → `SubExplorer.Name()` returns \"explorer\"",
+		},
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"subagent", "agent"}},
+	}
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	if len(chains) == 0 {
+		t.Fatal("expected at least one chain")
+	}
+	if !strings.Contains(chains[0], "RegisterDefaultSubAgents") {
+		t.Errorf("expected RegisterDefaultSubAgents chain at top, got: %s", chains[0])
+	}
+}
+
 // TestIdentifyAnswerChains_TerminalRangeDemoted is the headline test for
 // L0-1: given two chains, one ending at a loop iterator and one ending
 // at a concrete symbol/literal, the concrete one must rank first even

@@ -823,10 +823,11 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		return nil
 	}
 
-	// L0-1: pre-compute terminal predicates once per call. Empty slice
-	// when no active kind has a predicate (mechanism/enumeration/etc),
-	// in which case the per-candidate check below becomes a no-op.
-	predicates := terminalPredicatesFor(reqs)
+	// L0-1: pre-compute terminal + origin predicates once per call.
+	// Empty slices when no active kind has a predicate, in which case
+	// the per-candidate checks below become no-ops.
+	terminalPreds := terminalPredicatesFor(reqs)
+	originPreds := originPredicatesFor(reqs)
 
 	type scored struct {
 		text  string
@@ -907,9 +908,9 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		// passing candidate outscores a failing one by 5× at equal
 		// entity overlap, but failing candidates are still returned
 		// when no passing candidate exists (fallback safety).
-		if len(predicates) > 0 {
+		if len(terminalPreds) > 0 {
 			terminalOK := true
-			for _, p := range predicates {
+			for _, p := range terminalPreds {
 				if !p(ev.Summary, graph) {
 					terminalOK = false
 					break
@@ -922,6 +923,34 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 					preview = preview[:120] + "..."
 				}
 				logging.Debug("[erm] L0-1 terminal predicate demoted chain: %s", preview)
+			}
+		}
+
+		// L0-1 origin check: for registration kind, demote chains
+		// whose origin (leftmost segment) is not a registration verb.
+		// Constructor-originated chains like
+		// `NewFoo() returns &Foo{} → Foo.Name() returns "x"` pass
+		// the terminal check (valid method call) but are NOT
+		// registration chains. Demotion factor 0.1 (10×) — stronger
+		// than the terminal demotion because the origin is a more
+		// definitive signal: "started at a constructor" cannot be
+		// a registration chain no matter what the terminal looks
+		// like. Demote-not-drop still preserves fallback safety.
+		if len(originPreds) > 0 {
+			originOK := true
+			for _, p := range originPreds {
+				if !p(ev.Summary, graph) {
+					originOK = false
+					break
+				}
+			}
+			if !originOK {
+				bonus *= 0.1
+				preview := ev.Summary
+				if len(preview) > 120 {
+					preview = preview[:120] + "..."
+				}
+				logging.Debug("[erm] L0-1 origin predicate demoted chain: %s", preview)
 			}
 		}
 
@@ -1107,6 +1136,57 @@ var terminalPredicateByKind = map[string]terminalPredicate{
 	"return_value": terminalIsConcreteLiteral,
 }
 
+// originPredicateByKind maps ERM Kind to an ORIGIN predicate on the
+// chain's leftmost segment. This is the complement of the terminal
+// predicate — together they bracket a chain at both ends to verify
+// it structurally represents the kind of resolution the question
+// asks about. Only registration currently has one: a registration
+// chain must start at a binding verb (`binds`) or a function whose
+// name contains `Register`. Constructor-originated chains like
+// `NewFoo() returns &Foo{} → Foo.Name()` are NOT registration chains
+// even though their terminal looks valid.
+//
+// This closes the df1 post-L0-1 regression where chains like
+// `NewProposeSubAgents() → ProposeSubAgents.Name() returns "..."`
+// and `NewBaseAgent() → BaseAgent.buildToolSchemas()` passed the
+// terminal predicate (valid method call shape), outscored the correct
+// chain on question-entity overlap (because `propose_sub_agents`
+// contains both "subagent" and "agent" as substrings, giving 2/2
+// overlap while the correct `RegisterDefaultSubAgents → SubExplorer`
+// chain only matches once), and fed BaseAgent / ProposeSubAgents
+// into L0-2's AnswerSymbols list.
+var originPredicateByKind = map[string]terminalPredicate{
+	"registration": chainOriginIsRegistrationLinkage,
+}
+
+// chainOriginIsRegistrationLinkage reports whether a chain's leftmost
+// segment represents a registration verb — either literal `binds`
+// (canonical shape from concrete-values extraction when a Register
+// function passes constructed instances to a setter) or a function
+// name containing `Register` (the Go naming convention for
+// registration points). Graph argument is unused but kept for
+// signature uniformity with terminalPredicate.
+func chainOriginIsRegistrationLinkage(chainText string, _ *repomap.Graph) bool {
+	const arrow = "→"
+	first := chainText
+	if idx := strings.Index(chainText, arrow); idx >= 0 {
+		first = chainText[:idx]
+	}
+	// Literal `binds` verb (produced by the concrete-values extractor
+	// for linkage patterns like `Register(NewFoo())` → `binds ONLY ...`).
+	if strings.Contains(first, " binds ") {
+		return true
+	}
+	// Function name containing `Register` (case-sensitive — Go
+	// convention). Matches `RegisterDefaultSubAgents()`,
+	// `RegisterHandlers`, etc. without false positives on
+	// `registered` in free text.
+	if strings.Contains(first, "Register") {
+		return true
+	}
+	return false
+}
+
 // terminalPredicatesFor returns the set of predicates applicable to the
 // active ERM requirements, deduped so a single Kind's predicate is only
 // evaluated once even when the requirement set contains multiple
@@ -1114,16 +1194,28 @@ var terminalPredicateByKind = map[string]terminalPredicate{
 // predicate, which is the signal for identifyAnswerChains to skip
 // terminal verification entirely.
 func terminalPredicatesFor(reqs []EvidenceRequirement) []terminalPredicate {
-	if len(reqs) == 0 {
+	return predicatesFor(reqs, terminalPredicateByKind)
+}
+
+// originPredicatesFor returns the origin predicates applicable to the
+// active ERM requirements. Same dedup semantics as terminalPredicatesFor.
+func originPredicatesFor(reqs []EvidenceRequirement) []terminalPredicate {
+	return predicatesFor(reqs, originPredicateByKind)
+}
+
+// predicatesFor is the shared lookup helper for any Kind → predicate
+// table.
+func predicatesFor(reqs []EvidenceRequirement, table map[string]terminalPredicate) []terminalPredicate {
+	if len(reqs) == 0 || len(table) == 0 {
 		return nil
 	}
-	seen := make(map[string]bool, len(terminalPredicateByKind))
+	seen := make(map[string]bool, len(table))
 	var out []terminalPredicate
 	for _, r := range reqs {
 		if seen[r.Kind] {
 			continue
 		}
-		if p, ok := terminalPredicateByKind[r.Kind]; ok {
+		if p, ok := table[r.Kind]; ok {
 			out = append(out, p)
 			seen[r.Kind] = true
 		}
