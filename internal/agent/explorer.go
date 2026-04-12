@@ -76,6 +76,28 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		if ctx.RetryHint != "" {
 			fmt.Fprintf(&b, "**Retry directive:** %s\n\n", ctx.RetryHint)
 		}
+
+		// Inject the previous synthesis conclusion so the retry builds on
+		// it rather than starting from scratch. Without this, the second
+		// explore round drifts — producing a different (often worse)
+		// answer instead of improving the first one.
+		if len(ctx.PriorReports) > 0 {
+			for i := len(ctx.PriorReports) - 1; i >= 0; i-- {
+				if ctx.PriorReports[i].Stage == types.StageExplore {
+					findings := ctx.PriorReports[i].Findings
+					if len(findings) > 3000 {
+						findings = findings[:3000] + "\n... [truncated]"
+					}
+					b.WriteString("## Previous Synthesis (baseline — improve, don't restart)\n\n")
+					b.WriteString(findings)
+					b.WriteString("\n\n")
+					b.WriteString("The answer above was judged insufficient. Identify its specific gaps " +
+						"and fill them — do NOT discard it and start over.\n\n")
+					break
+				}
+			}
+		}
+
 		fmt.Fprintf(&b, "You already collected %d evidence sets. ",
 			len(e.investigationNotes))
 		b.WriteString("Focus on the gaps identified above. Do NOT re-read files you already analyzed.\n\n")
@@ -2110,6 +2132,74 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	}
 	b.WriteString("\n")
 
+	// Decision block extraction: for long functions the LLM has read,
+	// detect independent logic blocks (comment-header + return-terminated).
+	// This tells synthesis exactly how many distinct strategies/cases/steps
+	// a function contains, preventing the LLM from merging N items into
+	// fewer categories. Only fires for functions with ≥3 blocks — below
+	// that threshold the structure is simple enough for the LLM to handle.
+	var blockSections []string
+	for file := range readSet {
+		// Normalize path: readSet may contain "./path" while graph uses "path".
+		normalizedFile := strings.TrimPrefix(file, "./")
+		fi, ok := graph.FileIndex[normalizedFile]
+		if !ok {
+			continue
+		}
+		absPath := filepath.Join(repoRoot, normalizedFile)
+		allLines := loadFileLines(absPath)
+		if allLines == nil {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			if sym.Kind != "method" && sym.Kind != "function" {
+				continue
+			}
+			bodyLines := sym.EndLine - sym.Line
+			if bodyLines < 50 || sym.EndLine == 0 {
+				continue
+			}
+			blocks := extractDecisionBlocks(allLines, sym.Line, sym.EndLine)
+			if blocks == nil {
+				if bodyLines >= 100 {
+					logging.Debug("[explorer] decision blocks: %s.%s (%d lines, L%d-%d) → nil blocks",
+						sym.Receiver, sym.Name, bodyLines, sym.Line, sym.EndLine)
+				}
+				continue
+			}
+			logging.Debug("[explorer] decision blocks: %s.%s → %d blocks detected",
+				sym.Receiver, sym.Name, len(blocks))
+			owner := sym.Receiver
+			if owner == "" {
+				owner = sym.Parent
+			}
+			qualName := sym.Name
+			if owner != "" {
+				qualName = owner + "." + sym.Name
+			}
+			var entry strings.Builder
+			fmt.Fprintf(&entry, "**`%s`** (%s:%d-%d) — %d independent blocks:\n\n",
+				qualName, normalizedFile, sym.Line, sym.EndLine, len(blocks))
+			entry.WriteString("| # | Lines | Label |\n")
+			entry.WriteString("|---|-------|-------|\n")
+			for i, blk := range blocks {
+				fmt.Fprintf(&entry, "| %d | %d-%d | %s |\n",
+					i+1, blk.startLine, blk.endLine, blk.label)
+			}
+			blockSections = append(blockSections, entry.String())
+		}
+	}
+	if len(blockSections) > 0 {
+		logging.Debug("[explorer] decision blocks: emitting %d function entries to synthesis", len(blockSections))
+		b.WriteString("### Decision Blocks (programmatically detected)\n\n")
+		b.WriteString("These functions contain multiple INDEPENDENT logic blocks. " +
+			"Each block is a separate strategy/case/step — do NOT merge them.\n\n")
+		for _, sec := range blockSections {
+			b.WriteString(sec)
+			b.WriteString("\n")
+		}
+	}
+
 	// Build resolution chains: when value A mentions type T, and
 	// there's a value from T.SomeMethod, chain them. This covers:
 	//   - Register(NewFoo) → Foo.Name() returns "bar"
@@ -2319,6 +2409,184 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	logging.Debug("[explorer] concrete values: %d chain evidence items (from %d uncapped chains)", len(allChainsForEvidence), len(allChainsForEvidence))
 
 	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence}
+}
+
+// decisionBlock represents one independent logic block inside a long function,
+// delimited by a section-header comment and terminated by a return/break or
+// the next section header. Used by the synthesis prompt to show the LLM how
+// many distinct blocks a function contains, preventing over-summarization.
+type decisionBlock struct {
+	label     string // cleaned text from the section-header comment
+	startLine int    // 1-based, line of the section-header comment
+	endLine   int    // 1-based, line of the terminating return/break (or next header - 1)
+}
+
+// extractDecisionBlocks scans a function body for independent decision blocks.
+// A block starts at a section-header comment (a comment line whose text begins
+// with an uppercase letter, signaling a new logical section) and ends at the
+// next early return/break at the same or shallower indent, or at the next
+// section header.
+//
+// This is a cross-language heuristic: section-header comments are universal
+// developer practice (Go //, Python #, Java //, Rust //, shell #, SQL --),
+// and early return is the universal block terminator.
+//
+// Parameters:
+//   - lines: the raw source lines of the file (0-indexed)
+//   - funcStart, funcEnd: 1-based inclusive line range of the function body
+//   - baseIndent: the indentation level of the function body's top-level
+//     statements (auto-detected from the first non-blank line after funcStart)
+//
+// Returns nil if fewer than 3 blocks are found (not worth surfacing).
+func extractDecisionBlocks(lines []string, funcStart, funcEnd int) []decisionBlock {
+	if funcStart < 1 || funcEnd > len(lines) || funcEnd-funcStart < 10 {
+		return nil
+	}
+
+	// Auto-detect base indent from the first non-blank body line.
+	// Accept both tabs and spaces; use raw character count as indent depth.
+	baseIndentLen := -1
+	for i := funcStart; i < funcEnd && i < len(lines); i++ {
+		trimmed := strings.TrimSpace(lines[i])
+		if trimmed == "" || trimmed == "{" || trimmed == "}" || trimmed == "BEGIN" || trimmed == "END;" {
+			continue
+		}
+		raw := lines[i]
+		baseIndentLen = len(raw) - len(strings.TrimLeft(raw, " \t"))
+		break
+	}
+	if baseIndentLen < 0 {
+		return nil
+	}
+
+	// Cross-language comment prefixes.
+	commentPrefixes := []string{"//", "#", "--", "/*", "*"}
+
+	lineIndentLen := func(line string) int {
+		return len(line) - len(strings.TrimLeft(line, " \t"))
+	}
+
+	extractHeaderLabel := func(line string) (string, bool) {
+		trimmed := strings.TrimSpace(line)
+		for _, pfx := range commentPrefixes {
+			if !strings.HasPrefix(trimmed, pfx) {
+				continue
+			}
+			text := strings.TrimSpace(trimmed[len(pfx):])
+			if len(text) > 0 && text[0] >= 'A' && text[0] <= 'Z' {
+				label := text
+				for _, sep := range []string{". ", ": ", " — ", " - "} {
+					if idx := strings.Index(label, sep); idx > 0 && idx < 80 {
+						label = label[:idx]
+						break
+					}
+				}
+				if len(label) > 80 {
+					label = label[:80]
+				}
+				return label, true
+			}
+		}
+		return "", false
+	}
+
+	// Detect section-header comments: a comment line starting with an
+	// uppercase letter, preceded by a blank line (or closing brace or
+	// function start). This is the strongest cross-language signal for
+	// "new logical section" — developers universally leave a blank line
+	// before a new section header but NOT before continuation comments.
+	isSectionHeader := func(idx int) (string, bool) {
+		line := lines[idx]
+		indent := lineIndentLen(line)
+		if indent < baseIndentLen || indent > baseIndentLen+4 {
+			return "", false
+		}
+		label, ok := extractHeaderLabel(line)
+		if !ok {
+			return "", false
+		}
+		// Must be preceded by a blank line, closing brace, or function start.
+		if idx > funcStart-1 {
+			prevTrimmed := strings.TrimSpace(lines[idx-1])
+			prevIndent := lineIndentLen(lines[idx-1])
+			isStructuralBoundary := prevTrimmed == "" ||
+				prevTrimmed == "}" || prevTrimmed == "};" ||
+				prevTrimmed == "{" ||
+				prevTrimmed == "BEGIN" || prevTrimmed == "END;" || prevTrimmed == "end" ||
+				// Function opening line (at indent 0 or less than base): `func ... {`
+				(strings.HasSuffix(prevTrimmed, "{") && prevIndent < baseIndentLen)
+			if !isStructuralBoundary {
+				return "", false
+			}
+		}
+		return label, true
+	}
+
+	// An early-return line at the function body's indent level (or one deeper).
+	isBlockTerminator := func(line string) bool {
+		trimmed := strings.TrimSpace(line)
+		indent := lineIndentLen(line)
+		if indent < baseIndentLen || indent > baseIndentLen+4 {
+			return false
+		}
+		for _, kw := range []string{"return ", "return\t", "break", "raise ", "throw ", "RAISE ", "THROW "} {
+			if strings.HasPrefix(trimmed, kw) {
+				return true
+			}
+		}
+		if trimmed == "return" || trimmed == "return;" {
+			return true
+		}
+		return false
+	}
+
+	var blocks []decisionBlock
+	var current *decisionBlock
+
+	for i := funcStart - 1; i < funcEnd && i < len(lines); i++ {
+		lineNo := i + 1
+
+		if label, ok := isSectionHeader(i); ok {
+			if current != nil {
+				current.endLine = lineNo - 1
+				blocks = append(blocks, *current)
+			}
+			current = &decisionBlock{label: label, startLine: lineNo}
+			continue
+		}
+
+		if current != nil && isBlockTerminator(lines[i]) {
+			current.endLine = lineNo
+			blocks = append(blocks, *current)
+			current = nil
+		}
+	}
+	if current != nil {
+		current.endLine = funcEnd
+		blocks = append(blocks, *current)
+	}
+
+	// Filter: keep only blocks that contain a return/break/throw/raise
+	// terminator within their line range. Blocks without a terminator
+	// are setup/bookkeeping code, not independent decision paths.
+	var filtered []decisionBlock
+	for _, blk := range blocks {
+		hasTerminator := false
+		for li := blk.startLine - 1; li < blk.endLine && li < len(lines); li++ {
+			if isBlockTerminator(lines[li]) {
+				hasTerminator = true
+				break
+			}
+		}
+		if hasTerminator {
+			filtered = append(filtered, blk)
+		}
+	}
+
+	if len(filtered) < 3 {
+		return nil
+	}
+	return filtered
 }
 
 // concreteValueEntry holds a single extracted concrete value from source code.
