@@ -7,12 +7,19 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/mattn/go-runewidth"
 	"github.com/pterm/pterm"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// reAnsi matches ANSI CSI sequences (`ESC [ … final-byte`). Used by
+// truncByDisplayWidth to step over style escapes without counting
+// them as visible columns.
+var reAnsi = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -27,12 +34,10 @@ type Renderer struct {
 	startTime     time.Time
 	agentName  string // current agent name, e.g. "analyzer"
 	subRunning int    // number of currently running sub-agents
-	detail        string // tool/sub-agent name for status line
-	detailDone    bool   // true if the detail refers to a completed call
-	detailStart   time.Time // when current detail phase began
-	toolsDone     int    // tools completed in current stage
-	lastTool      string // last completed tool name for brief display
-	tasks         []taskEntry // tracked tasks
+	detail      string    // tool/sub-agent name for status line
+	detailDone  bool      // true if the detail refers to a completed call
+	detailStart time.Time // when current detail phase began
+	tasks       []taskEntry // tracked tasks
 	animFrame     int
 	animStop      chan struct{}
 }
@@ -80,8 +85,6 @@ func (r *Renderer) StartSpinner() {
 	r.detail = ""
 	r.detailDone = false
 	r.detailStart = time.Time{}
-	r.toolsDone = 0
-	r.lastTool = ""
 	r.startTime = time.Now()
 	r.animFrame = 0
 
@@ -142,8 +145,6 @@ func (r *Renderer) StopSpinner() {
 	r.agentName = ""
 	r.subRunning = 0
 	r.detail = ""
-	r.toolsDone = 0
-	r.lastTool = ""
 }
 
 // Emitter returns an EventEmitter callback bound to this renderer.
@@ -171,8 +172,6 @@ func (r *Renderer) Emitter() EventEmitter {
 			r.detail = ""
 			r.detailDone = false
 			r.detailStart = ev.Timestamp
-			r.toolsDone = 0
-			r.lastTool = ""
 
 		case EventToolCallStart:
 			r.detail = ev.ToolName
@@ -183,8 +182,6 @@ func (r *Renderer) Emitter() EventEmitter {
 			r.detailStart = ev.Timestamp
 
 		case EventToolCallEnd:
-			r.toolsDone++
-			r.lastTool = ev.ToolName
 			r.detail = ev.ToolName
 			if ev.ToolDetail != "" {
 				r.detail += " " + ev.ToolDetail
@@ -232,23 +229,49 @@ func (r *Renderer) Emitter() EventEmitter {
 
 // redraw rebuilds the area content from current state. Must be called
 // with r.mu held.
+//
+// Every line written here is hard-truncated to the terminal's display
+// width before being handed to pterm.Area. The reason: pterm.Area
+// tracks how many rows to overwrite by counting the `\n`s it wrote
+// last frame, NOT by asking the terminal how many rows the previous
+// content actually occupied. If a line was longer than the terminal
+// width and the terminal wrapped it onto a second visual row,
+// pterm.Area's cursor-up arithmetic is off by one and each new frame
+// lands BELOW the old one — visible to the user as the task list and
+// spinner "刷屏" / scrolling forever down the screen. The fix is to
+// guarantee no line ever wraps, by clamping every emitted line to
+// (terminal_width - small margin) display columns.
 func (r *Renderer) redraw() {
 	var b strings.Builder
 	elapsed := time.Since(r.startTime).Truncate(time.Second)
 	frame := spinnerFrames[r.animFrame%len(spinnerFrames)]
+
+	// 4 = 2-col left margin + 2-col safety pad. Below 20 we just give
+	// up on truncation; the user has bigger problems.
+	maxCols := pterm.GetTerminalWidth() - 4
+	if maxCols < 20 {
+		maxCols = 20
+	}
 
 	// Task list.
 	if len(r.tasks) > 0 {
 		for _, t := range r.tasks {
 			icon := statusIcon(t.status)
 			color := statusColor(t.status)
-			fmt.Fprintf(&b, "  %s %s\n", color.Sprint(icon), t.title)
+			line := fmt.Sprintf("  %s %s", color.Sprint(icon), t.title)
+			b.WriteString(truncByDisplayWidth(line, maxCols))
+			b.WriteByte('\n')
 		}
 		b.WriteString("\n")
 	}
 
 	// Status line: ⠋ stage · detail · 12s
-	// Each element has a distinct color for easy scanning.
+	// Each element has a distinct color for easy scanning. The
+	// previously-shown "N calls, last: TOOL" tail was removed because
+	// `detail` already names the most recent tool and the count made
+	// the line ~30 cols longer for almost no information value — and
+	// in 80-col terminals it was the difference between fitting on one
+	// row and wrapping, which triggered the刷屏 bug above.
 	var statusParts []string
 	running := 1 + r.subRunning // 1 main agent + sub-agents
 	statusParts = append(statusParts, pterm.FgWhite.Sprint(formatAgent(types.AgentName(r.agentName), running)))
@@ -263,23 +286,73 @@ func (r *Renderer) redraw() {
 			statusParts = append(statusParts, detailStr)
 		}
 	}
-	// Show cumulative tool count so fast tool calls aren't invisible.
-	if r.toolsDone > 0 {
-		toolSummary := fmt.Sprintf("%d calls", r.toolsDone)
-		if r.lastTool != "" {
-			toolSummary += ", last: " + r.lastTool
-		}
-		statusParts = append(statusParts,
-			pterm.FgDarkGray.Sprint(toolSummary))
-	}
 	status := strings.Join(statusParts, pterm.FgDarkGray.Sprint(" · "))
-	fmt.Fprintf(&b, "  %s %s %s %s",
+	statusLine := fmt.Sprintf("  %s %s %s %s",
 		pterm.FgCyan.Sprint(frame),
 		status,
 		pterm.FgDarkGray.Sprint("·"),
 		pterm.FgWhite.Sprint(elapsed))
+	b.WriteString(truncByDisplayWidth(statusLine, maxCols))
 
 	r.area.Update(b.String())
+}
+
+// truncByDisplayWidth clamps a styled (ANSI-CSI-bearing) line to at
+// most maxCols display columns. ANSI escapes are passed through
+// without consuming columns, runes count via runewidth (so CJK takes
+// 2 cols and ambient combining marks take 0). When truncation
+// happens, the result ends with a "…" marker followed by an SGR
+// reset so any active colour doesn't bleed into the next line.
+func truncByDisplayWidth(s string, maxCols int) string {
+	if maxCols <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	w := 0
+	i := 0
+	truncated := false
+	for i < len(s) {
+		if s[i] == 0x1b {
+			loc := reAnsi.FindStringIndex(s[i:])
+			if loc != nil && loc[0] == 0 {
+				b.WriteString(s[i : i+loc[1]])
+				i += loc[1]
+				continue
+			}
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		rw := runewidth.RuneWidth(r)
+		// Reserve 1 col for the ellipsis if we're about to overflow
+		// AND there's still more content after this rune.
+		if w+rw > maxCols {
+			truncated = true
+			break
+		}
+		b.WriteRune(r)
+		w += rw
+		i += size
+	}
+	if truncated {
+		// Walk back until we have room for "…" plus reset.
+		out := b.String()
+		// Strip trailing partial cells if we're now at the cap.
+		for runewidth.StringWidth(stripAnsiEscapes(out)) > maxCols-1 && len(out) > 0 {
+			// Drop one trailing rune (skip ANSI sequences while
+			// walking back is overkill; truncByDisplayWidth never
+			// places escapes after content without a rune in
+			// between, so trimming runes only is safe in practice).
+			_, size := utf8.DecodeLastRuneInString(out)
+			out = out[:len(out)-size]
+		}
+		return out + "…\x1b[0m"
+	}
+	return b.String()
+}
+
+// stripAnsiEscapes removes CSI sequences from s. Used by
+// truncByDisplayWidth's tail-shrink loop.
+func stripAnsiEscapes(s string) string {
+	return reAnsi.ReplaceAllString(s, "")
 }
 
 // RenderResult formats a completed BusContext into styled terminal output.
