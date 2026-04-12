@@ -84,9 +84,25 @@ func (m *MutableState) UpdateTaskStatus(id string, status TaskStatus) {
 // status). Used by the orchestrator after a per-task finalize stage
 // runs, so each task's contribution is preserved on the task itself
 // rather than overwriting a single global FinalAnswer.
-func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) {
+//
+// Returns the actual task ID that was updated, which differs from
+// the supplied id ONLY when the supplied id is stale and the
+// fallback path below runs. Empty return means the task list was
+// empty (nothing could be updated).
+//
+// Task identity fallback (S1): if the supplied ID is not found in
+// the current task list, the result is written to the first in-
+// progress task, failing that the first pending task, failing that
+// the first task overall. This prevents silent data loss when the
+// task list was replaced mid-pipeline by a second todo_write call
+// (see project_S1_S2_S3_three_layer_fixes). Without the fallback,
+// the finalizer's output is dropped and the CLI renders "(no
+// result)" — df3 run 3 on eval/results/df3-20260412-100207 is the
+// exact case that surfaced this bug. Callers can compare the
+// returned ID against the supplied id to detect and log fallback.
+func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) string {
 	if m == nil {
-		return
+		return ""
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -94,9 +110,35 @@ func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) {
 		if m.taskList.Tasks[i].ID == id {
 			m.taskList.Tasks[i].Result = result
 			m.taskList.Tasks[i].Status = status
-			return
+			return id
 		}
 	}
+	// Fallback: supplied ID is stale. Find a sensible target task to
+	// avoid silent data loss. Preference: in_progress → pending → first.
+	idx := -1
+	for i := range m.taskList.Tasks {
+		if m.taskList.Tasks[i].Status == TaskInProgress {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		for i := range m.taskList.Tasks {
+			if m.taskList.Tasks[i].Status == TaskPending {
+				idx = i
+				break
+			}
+		}
+	}
+	if idx < 0 && len(m.taskList.Tasks) > 0 {
+		idx = 0
+	}
+	if idx >= 0 {
+		m.taskList.Tasks[idx].Result = result
+		m.taskList.Tasks[idx].Status = status
+		return m.taskList.Tasks[idx].ID
+	}
+	return ""
 }
 
 // SetCurrentTask updates which task drives routing. The orchestrator

@@ -398,7 +398,14 @@ func (o *Orchestrator) recordTaskFinalize(taskID string, out *agent.StageOutput)
 	if out != nil {
 		answer = out.FinalAnswer
 	}
-	o.busCtx.Mutable.UpdateTaskResult(taskID, answer, types.TaskDone)
+	actual := o.busCtx.Mutable.UpdateTaskResult(taskID, answer, types.TaskDone)
+	if actual == "" {
+		logging.Warning("[orchestrator] recordTaskFinalize: task list was empty; finalizer answer (%d bytes) dropped",
+			len(answer))
+	} else if actual != taskID {
+		logging.Warning("[orchestrator] recordTaskFinalize: task ID %q not found, fell back to %q (likely a mid-pipeline todo_write replacement)",
+			taskID, actual)
+	}
 
 	// Find the task title for the event.
 	taskTitle := taskID
