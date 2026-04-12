@@ -982,7 +982,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// chains so the finalizer can be constrained to prose over this
 	// exact list. For other kinds, returns nil and the finalizer
 	// falls back to the legacy prose path.
-	answerSymbols := extractAnswerSymbols(answerChains, ctx.CurrentTaskQuestionKind, ermGraph)
+	answerSymbols := extractAnswerSymbols(answerChains, ctx.CurrentTaskQuestionKind, e.ermRequirements, ermGraph)
 	if len(answerSymbols) > 0 {
 		logging.Debug("[explorer] L0-2 extracted %d answer symbols", len(answerSymbols))
 		for i, s := range answerSymbols {

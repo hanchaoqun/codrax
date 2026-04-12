@@ -842,13 +842,22 @@ func TestTerminalPredicatesFor_KindDedup(t *testing.T) {
 }
 
 // TestChainOriginIsRegistrationLinkage covers the L0-1 origin predicate.
-// Constructor-originated chains (`NewFoo → Foo.Method`) must fail; chains
-// starting with `binds` or a `Register*` function must pass.
+// Two acceptance paths exist: function name contains `Register`, OR
+// first segment has `binds ONLY` followed by a call expression.
+// Constructor-originated chains (`NewFoo → Foo.Method`) whose signature
+// line appears after "binds ONLY" must fail the compound check —
+// this is the df1 post-L0-1 regression fix.
 func TestChainOriginIsRegistrationLinkage(t *testing.T) {
 	good := []string{
+		// Path 1: Register in function name.
 		"`RegisterDefaults()` binds ONLY x → `Foo.Name()` returns \"foo\"",
-		"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer → `SubExplorer.Name()` returns \"explorer\"",
+		"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
 		"`Register(NewHandler())` binds Handler → `Handler.ID()` returns 42",
+		// Path 2: non-Register name but `binds ONLY <Call>` structural
+		// match. Covers hypothetical codebases using `BindHandlers()`,
+		// `InstallRoutes()`, etc. without the Register convention.
+		"`BindHandlers()` binds ONLY NewUserHandler(deps) → `UserHandler.ID()` returns \"user\"",
+		"`InstallRoutes()` binds ONLY NewRouter(cfg) → `Router.Path()` returns \"/api\"",
 	}
 	for _, g := range good {
 		if !chainOriginIsRegistrationLinkage(g, nil) {
@@ -856,13 +865,45 @@ func TestChainOriginIsRegistrationLinkage(t *testing.T) {
 		}
 	}
 	bad := []string{
+		// Constructor chains with `returns &X{}` — no binds, no Register.
 		"`NewProposeSubAgents()` returns &ProposeSubAgents{ → `ProposeSubAgents.Name()` returns \"x\"",
 		"`NewBaseAgent()` returns &BaseAgent{ → `BaseAgent.buildToolSchemas()` returns ts",
 		"`NewFoo()` returns &Foo{ → `Foo.Bar()` returns nil",
+		// The critical regression case: `NewFoo() binds ONLY <paramlist>`.
+		// The concrete-values extractor emits this for EVERY function's
+		// signature. Must be rejected because `name` (lowercase param)
+		// is not a call expression.
+		"`NewBaseAgent()` binds ONLY name types.AgentName, deps *Dependencies, eval Evaluator → `BaseAgent.Name()` returns b.name",
+		// Lowercase binds target (not an exported call).
+		"`NewProposeSubAgents()` binds ONLY ctx *Context → `ProposeSubAgents.Name()` returns \"x\"",
 	}
 	for _, b := range bad {
 		if chainOriginIsRegistrationLinkage(b, nil) {
 			t.Errorf("expected FAIL for %q", b)
+		}
+	}
+}
+
+// TestFirstTokenIsCallExpression covers the helper that distinguishes
+// "constructor call after binds ONLY" from "parameter list".
+func TestFirstTokenIsCallExpression(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"NewFoo(deps)", true},
+		{"  NewFoo(deps)", true}, // leading whitespace OK
+		{"Register(Handler)", true},
+		{"name types.AgentName", false}, // lowercase param
+		{"ctx *Context", false},         // lowercase param
+		{"NewFoo", false},               // no paren
+		{"", false},
+		{"(deps)", false}, // starts with paren, not ident
+		{"NEW(x)", true},  // all-caps also accepted
+	}
+	for _, c := range cases {
+		if got := firstTokenIsCallExpression(c.in); got != c.want {
+			t.Errorf("firstTokenIsCallExpression(%q) = %v, want %v", c.in, got, c.want)
 		}
 	}
 }
@@ -1046,13 +1087,14 @@ func TestExtractSymbolFromChain_SourceLocator(t *testing.T) {
 
 // TestExtractAnswerSymbols_Dedup verifies that multiple chains
 // terminating at the same symbol coalesce to a single entry.
+// Uses nil reqs so no predicates are applied (legacy permissive mode).
 func TestExtractAnswerSymbols_Dedup(t *testing.T) {
 	chains := []string{
 		"A → `SubExplorer.Name()` returns \"explorer\"",
 		"B → `SubExplorer.Name()` returns \"explorer\"",
 		"C → `Explorer.Name()` returns \"main\"",
 	}
-	syms := extractAnswerSymbols(chains, "registration", nil)
+	syms := extractAnswerSymbols(chains, "registration", nil, nil)
 	if len(syms) != 2 {
 		t.Fatalf("expected 2 unique symbols, got %d: %+v", len(syms), syms)
 	}
@@ -1069,10 +1111,10 @@ func TestExtractAnswerSymbols_Dedup(t *testing.T) {
 // returns nil (extraction is no-op for non-terminal kinds).
 func TestExtractAnswerSymbols_MechanismKindNil(t *testing.T) {
 	chains := []string{"A → `Foo.Bar()` returns \"x\""}
-	if syms := extractAnswerSymbols(chains, "mechanism", nil); syms != nil {
+	if syms := extractAnswerSymbols(chains, "mechanism", nil, nil); syms != nil {
 		t.Errorf("mechanism kind should return nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols(chains, "enumeration", nil); syms != nil {
+	if syms := extractAnswerSymbols(chains, "enumeration", nil, nil); syms != nil {
 		t.Errorf("enumeration kind should return nil, got %+v", syms)
 	}
 }
@@ -1080,31 +1122,69 @@ func TestExtractAnswerSymbols_MechanismKindNil(t *testing.T) {
 // TestExtractAnswerSymbols_UnknownKindSafe verifies edge cases: empty
 // chains, empty kind, nil — all must return nil without panic.
 func TestExtractAnswerSymbols_UnknownKindSafe(t *testing.T) {
-	if syms := extractAnswerSymbols(nil, "registration", nil); syms != nil {
+	if syms := extractAnswerSymbols(nil, "registration", nil, nil); syms != nil {
 		t.Errorf("nil chains → want nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols([]string{}, "registration", nil); syms != nil {
+	if syms := extractAnswerSymbols([]string{}, "registration", nil, nil); syms != nil {
 		t.Errorf("empty chains → want nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols([]string{"foo"}, "unknown", nil); syms != nil {
+	if syms := extractAnswerSymbols([]string{"foo"}, "unknown", nil, nil); syms != nil {
 		t.Errorf("unknown kind → want nil, got %+v", syms)
 	}
-	if syms := extractAnswerSymbols([]string{"foo"}, "", nil); syms != nil {
+	if syms := extractAnswerSymbols([]string{"foo"}, "", nil, nil); syms != nil {
 		t.Errorf("empty kind → want nil, got %+v", syms)
 	}
 }
 
 // TestExtractAnswerSymbols_SkipsUnparseable verifies chains without
 // any extractable uppercase identifier are skipped silently, not
-// crashing the extractor.
+// crashing the extractor. Uses nil reqs (no predicate filtering).
 func TestExtractAnswerSymbols_SkipsUnparseable(t *testing.T) {
 	chains := []string{
 		"A → range r.tools",              // no uppercase ident
 		"A → `Foo.Name()` returns \"x\"", // valid
 		"A → ",                           // empty terminal
 	}
-	syms := extractAnswerSymbols(chains, "registration", nil)
+	syms := extractAnswerSymbols(chains, "registration", nil, nil)
 	if len(syms) != 1 || syms[0].Name != "Foo" {
 		t.Errorf("expected [Foo], got %+v", syms)
+	}
+}
+
+// TestExtractAnswerSymbols_StrictOriginFilter verifies that when reqs
+// includes registration, chains whose origin is NOT a Register-named
+// function are excluded from the extracted symbol list — even if
+// they have a structurally valid method-call terminal. This is the
+// L0-2 v2 strict invariant: the symbol list is pure, never padded
+// with fallback-ranked demoted chains.
+//
+// This reproduces the df1-20260412-093913 run-3 failure mode in a
+// unit test: a constructor-originated chain with valid terminal
+// shape must not leak `ProposeSubAgents` or `BaseAgent` into the
+// symbol list.
+func TestExtractAnswerSymbols_StrictOriginFilter(t *testing.T) {
+	chains := []string{
+		"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
+		"`NewProposeSubAgents()` returns &ProposeSubAgents{ → `ProposeSubAgents.Name()` returns \"propose_sub_agents\"",
+		"`NewBaseAgent()` returns &BaseAgent{ → `BaseAgent.Name()` returns b.name",
+	}
+	reqs := []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent", "agent"}}}
+	syms := extractAnswerSymbols(chains, "registration", reqs, nil)
+	if len(syms) != 1 || syms[0].Name != "SubExplorer" {
+		t.Errorf("expected only SubExplorer, got %+v", syms)
+	}
+}
+
+// TestExtractAnswerSymbols_SkipsArrowless verifies the invariant that
+// single-hop chains (no arrow) are skipped — they would otherwise
+// yield the subject (registrar) instead of the object (registered).
+func TestExtractAnswerSymbols_SkipsArrowless(t *testing.T) {
+	chains := []string{
+		"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps)", // no arrow
+		"A → `SubExplorer.Name()` returns \"explorer\"",                  // arrow, valid
+	}
+	syms := extractAnswerSymbols(chains, "registration", nil, nil)
+	if len(syms) != 1 || syms[0].Name != "SubExplorer" {
+		t.Errorf("expected only SubExplorer (arrowless skipped), got %+v", syms)
 	}
 }

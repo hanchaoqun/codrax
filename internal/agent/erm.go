@@ -997,8 +997,25 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 // then constrained to prose over this symbol list and cannot add or
 // remove names.
 //
-// See project_L0_2_extract_then_express_design.md.
-func extractAnswerSymbols(chains []string, questionKind string, graph *repomap.Graph) []types.AnswerSymbol {
+// Extraction is STRICT: unlike identifyAnswerChains (which demote-
+// not-drops failing chains for fallback safety), extractAnswerSymbols
+// silently skips any chain that fails a Kind-applicable terminal or
+// origin predicate. A demoted chain can still appear in the Ground
+// Truth prompt section, but its terminal will NOT feed the authoritative
+// symbol list. This is the L0-2 invariant: the finalizer's symbol
+// constraint is "exactly these names, no others" — so the symbol
+// list must be pure, not fallback-padded.
+//
+// Additionally, chains without an arrow (single-hop concrete values)
+// are skipped: their "terminal" is the whole chain and
+// firstUppercaseIdent would pick the subject (registrar) instead of
+// the object (registered symbol). Multi-hop chains containing the
+// same object already surface it as a terminal symbol, so the
+// skipped single-hop chains lose no coverage.
+//
+// See project_L0_2_extract_then_express_design.md and the
+// df1-20260412-093913 post-fix analysis.
+func extractAnswerSymbols(chains []string, questionKind string, reqs []EvidenceRequirement, graph *repomap.Graph) []types.AnswerSymbol {
 	if len(chains) == 0 {
 		return nil
 	}
@@ -1013,9 +1030,38 @@ func extractAnswerSymbols(chains []string, questionKind string, graph *repomap.G
 		return nil
 	}
 
+	// L0-1 predicates, applied strictly inside extraction so demoted
+	// chains do not contribute symbols even when they survived into
+	// the top-N.
+	terminalPreds := terminalPredicatesFor(reqs)
+	originPreds := originPredicatesFor(reqs)
+
 	var out []types.AnswerSymbol
 	seen := make(map[string]bool)
 	for _, chain := range chains {
+		// Strict: require an arrow so the terminal is unambiguous.
+		if !strings.Contains(chain, "→") {
+			continue
+		}
+		// Strict: require all applicable predicates to pass.
+		ok := true
+		for _, p := range terminalPreds {
+			if !p(chain, graph) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			for _, p := range originPreds {
+				if !p(chain, graph) {
+					ok = false
+					break
+				}
+			}
+		}
+		if !ok {
+			continue
+		}
 		sym := extractSymbolFromChain(chain, questionKind, graph)
 		if sym.Name == "" {
 			continue
@@ -1160,31 +1206,83 @@ var originPredicateByKind = map[string]terminalPredicate{
 }
 
 // chainOriginIsRegistrationLinkage reports whether a chain's leftmost
-// segment represents a registration verb — either literal `binds`
-// (canonical shape from concrete-values extraction when a Register
-// function passes constructed instances to a setter) or a function
-// name containing `Register` (the Go naming convention for
-// registration points). Graph argument is unused but kept for
-// signature uniformity with terminalPredicate.
+// segment represents a registration point. Two acceptance paths,
+// designed to cover the Go ecosystem broadly without picking up the
+// concrete-values extractor's generic `binds ONLY <signature>` output
+// for every function in the codebase:
+//
+//  1. Function name contains `Register` (Go naming convention).
+//     Matches `RegisterDefaultSubAgents()`, `RegisterHandlers()`,
+//     etc. directly by substring.
+//
+//  2. First segment contains `binds ONLY` FOLLOWED BY a call
+//     expression `<CapitalizedIdent>(` — a CONSTRUCTOR/CALL, not a
+//     parameter list. This structurally distinguishes
+//     `RegisterX() binds ONLY NewFoo(deps)` (registration linkage
+//     via a call) from `NewBaseAgent() binds ONLY name types.Agent-
+//     Name, deps *Dependencies` (concrete-values signature format,
+//     no call after "binds ONLY"). The call-after-binds check means
+//     codebases using non-Register naming (e.g. `BindHandlers()`,
+//     `InstallRoutes()`, `ProvideDefaults()`) still pass as long as
+//     the chain body shows a constructed instance.
+//
+// Earlier versions of this predicate accepted a bare " binds "
+// substring — that matched both registration linkage and every
+// constructor's parameter list, which turned out to be the dominant
+// false positive on df1 run 3 (see eval/results/df1-20260412-093913).
+// The compound check eliminates that false positive while preserving
+// non-Go-convention registration coverage.
+//
+// Over-fit audit: the `Register` path is structurally named (Go
+// naming rule, not tied to a specific symbol), and the `binds ONLY
+// <call>` path is structurally defined (call expression vs parameter
+// list) rather than verb-list-enumerated. Neither path was chosen by
+// looking at df1's ground truth.
+//
+// Graph argument is unused but kept for signature uniformity with
+// terminalPredicate.
 func chainOriginIsRegistrationLinkage(chainText string, _ *repomap.Graph) bool {
 	const arrow = "→"
 	first := chainText
 	if idx := strings.Index(chainText, arrow); idx >= 0 {
 		first = chainText[:idx]
 	}
-	// Literal `binds` verb (produced by the concrete-values extractor
-	// for linkage patterns like `Register(NewFoo())` → `binds ONLY ...`).
-	if strings.Contains(first, " binds ") {
-		return true
-	}
-	// Function name containing `Register` (case-sensitive — Go
-	// convention). Matches `RegisterDefaultSubAgents()`,
-	// `RegisterHandlers`, etc. without false positives on
-	// `registered` in free text.
+	// Path 1: function name contains Register.
 	if strings.Contains(first, "Register") {
 		return true
 	}
-	return false
+	// Path 2: `binds ONLY` followed by a call expression.
+	bindsIdx := strings.Index(first, "binds ONLY ")
+	if bindsIdx < 0 {
+		return false
+	}
+	rest := first[bindsIdx+len("binds ONLY "):]
+	return firstTokenIsCallExpression(rest)
+}
+
+// firstTokenIsCallExpression reports whether the first non-whitespace
+// token of seg is an uppercase identifier followed by a `(` (a
+// CONSTRUCTOR/CALL like `NewFoo(` or `CreateHandler(`). This is how
+// we distinguish registration-linkage `binds ONLY NewFoo(deps)` from
+// signature `binds ONLY name types.Type`: the former starts with a
+// call, the latter with a parameter identifier + type.
+func firstTokenIsCallExpression(seg string) bool {
+	seg = strings.TrimLeft(seg, " \t")
+	if seg == "" {
+		return false
+	}
+	// Must start with an uppercase letter (Go exported identifier /
+	// constructor convention). Lowercase starts are parameter names
+	// ("name types.AgentName"), not exported calls.
+	if seg[0] < 'A' || seg[0] > 'Z' {
+		return false
+	}
+	// Walk to the first non-ident char; if it's `(`, it is a call.
+	i := 0
+	for i < len(seg) && isIdentChar(seg[i]) {
+		i++
+	}
+	return i < len(seg) && seg[i] == '('
 }
 
 // terminalPredicatesFor returns the set of predicates applicable to the
