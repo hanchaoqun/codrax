@@ -204,6 +204,139 @@ func TestErmFileScore(t *testing.T) {
 	}
 }
 
+// --- ERM English keyword expansion tests --------------------------------
+//
+// These guard the expansion that closes the gap between user-direct
+// Chinese phrasing and the analyzer's English rewrites. Each Kind
+// gets a positive set covering analyzer-style rewrites and a
+// negative set covering false-positive risks.
+
+func TestExtractEvidenceRequirements_EnumerationEnglishRewrites(t *testing.T) {
+	cases := []string{
+		"Determine the number of agents that can call subagent.",
+		"Count the agents in the system.",
+		"Find all instances of read_file usage.",
+		"Identify all evaluators in the agent package.",
+		"List the registered tools.",
+		"Enumerate the available skills.",
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		hasEnum := false
+		for _, r := range reqs {
+			if r.Kind == "enumeration" {
+				hasEnum = true
+				break
+			}
+		}
+		if !hasEnum {
+			t.Errorf("question %q: no enumeration Kind extracted; reqs=%v", q, reqs)
+		}
+	}
+}
+
+func TestExtractEvidenceRequirements_EnumerationNegative(t *testing.T) {
+	// These contain enumeration-flavored words but are not enumeration
+	// questions. The expansion must not over-trigger on bare "list" /
+	// "all" / "find" / "count".
+	cases := []string{
+		"Find the file containing the Explorer struct.", // no "all" / "every"
+		"What is the count field used for?",             // bare "count" not enough
+		"Show me the list of dependencies.",             // "the list of" is not enumerate
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		for _, r := range reqs {
+			if r.Kind == "enumeration" {
+				t.Errorf("question %q: spurious enumeration Kind; reqs=%v", q, reqs)
+			}
+		}
+	}
+}
+
+func TestExtractEvidenceRequirements_ReturnValueEnglishRewrites(t *testing.T) {
+	cases := []string{
+		"Identify the return value of the ShouldStop method in explorerEvaluator.",
+		"What is returned by SubExplorer.Name()?",
+		"Determine the return value of BaseAgent.Execute on hard stop.",
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		hasRV := false
+		for _, r := range reqs {
+			if r.Kind == "return_value" {
+				hasRV = true
+				break
+			}
+		}
+		if !hasRV {
+			t.Errorf("question %q: no return_value Kind extracted; reqs=%v", q, reqs)
+		}
+	}
+}
+
+func TestExtractEvidenceRequirements_ReturnValueNegative(t *testing.T) {
+	// "return" alone must NOT trigger return_value — it would match
+	// every code-flow question that mentions early returns / return
+	// statements without being about a return value at all.
+	cases := []string{
+		"Where does the function return early?", // bare "return" + "early"
+		"Show the return statement on line 42.", // bare "return statement"
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		for _, r := range reqs {
+			if r.Kind == "return_value" {
+				t.Errorf("question %q: spurious return_value Kind; reqs=%v", q, reqs)
+			}
+		}
+	}
+}
+
+func TestExtractEvidenceRequirements_RegistrationBindRewrites(t *testing.T) {
+	// Analyzer rewrites of 注册/绑定 questions often use "bound to" /
+	// "binding". The expansion must catch these without depending on
+	// the bare "register" stem.
+	cases := []string{
+		"Where is the explorer agent bound to its sub-agents?",
+		"Find the binding for the propose_sub_agents tool.",
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		hasReg := false
+		for _, r := range reqs {
+			if r.Kind == "registration" {
+				hasReg = true
+				break
+			}
+		}
+		if !hasReg {
+			t.Errorf("question %q: no registration Kind extracted; reqs=%v", q, reqs)
+		}
+	}
+}
+
+func TestExtractEvidenceRequirements_ConditionalEnglishRewrites(t *testing.T) {
+	cases := []string{
+		"Identify the conditions under which the explorer stops.",
+		"Determine when ShouldStop fires.",
+		"What is triggered when the cache misses?",
+	}
+	for _, q := range cases {
+		reqs := extractEvidenceRequirements(q)
+		hasCond := false
+		for _, r := range reqs {
+			if r.Kind == "conditional" {
+				hasCond = true
+				break
+			}
+		}
+		if !hasCond {
+			t.Errorf("question %q: no conditional Kind extracted; reqs=%v", q, reqs)
+		}
+	}
+}
+
 // --- T1.1 satisfaction-helper fix audit tests ----------------------------
 //
 // These tests guard the over-fitting audit conclusions for the registration

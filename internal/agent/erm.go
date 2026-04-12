@@ -45,7 +45,21 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 	}
 
 	// --- Enumeration: "how many", "list all", "哪些", "多少", "列出" ---
-	for _, kw := range []string{"how many", "list all", "list each", "what are the"} {
+	//
+	// English set is broad enough to survive the analyzer's question
+	// rewriting. Original Chinese "有多少 / 哪些" gets rewritten by the
+	// analyzer to phrases like "Determine the number of X", "Count
+	// all X", "Find all instances of X", "List the X" — none of which
+	// the original {"how many", "list all", ...} set caught. All
+	// additions are multi-word phrases to keep false-positive risk
+	// low (bare "count" / "all" / "list" would over-trigger).
+	for _, kw := range []string{
+		"how many", "list all", "list each", "list the", "what are the",
+		"the number of", "count the", "count of",
+		"determine the number", "determine all",
+		"find all", "find every", "identify all",
+		"all instances of", "enumerate",
+	} {
 		if strings.Contains(lower, kw) {
 			add("enumeration", fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
 			break
@@ -83,8 +97,13 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 	}
 
 	// --- Registration: "registered", "注册", or call_chain implies it ---
+	//
+	// "register" is a stem that already covers "registers/registered/
+	// registering/registry" via strings.Contains. Adding "bind"-family
+	// terms catches the analyzer's other common rewrite for 注册/绑定
+	// ("X is bound to Y", "binding for X").
 	isRegistration := false
-	for _, kw := range []string{"register", "registered", "registry"} {
+	for _, kw := range []string{"register", "registered", "registry", "bound to", "binding"} {
 		if strings.Contains(lower, kw) {
 			isRegistration = true
 			break
@@ -106,8 +125,19 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 	}
 
 	// --- Return value: for each entity, we may need its concrete value ---
-	// Triggered when question asks about matching, identity, or naming
-	for _, kw := range []string{"name", "type", "which", "what", "名称", "类型", "哪个", "什么"} {
+	// Triggered when question asks about matching, identity, or naming.
+	//
+	// "return value" / "returned by" added because the analyzer rewrites
+	// "X 的方法返回什么?" → "Identify the return value of X" — and the
+	// original {name,type,which,what} set missed it (no name/type/which/
+	// what in that phrasing). Both additions are 2+ word phrases to
+	// avoid the false-positive trap of bare "return" (matches "early
+	// return", "return statement", code-structure questions).
+	for _, kw := range []string{
+		"name", "type", "which", "what",
+		"return value", "returned by",
+		"名称", "类型", "哪个", "什么",
+	} {
 		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
 			for _, ent := range entities {
 				add("return_value",
@@ -127,7 +157,17 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 	}
 
 	// --- Conditional: "when", "if", "condition", "条件", "什么时候" ---
-	for _, kw := range []string{"when", "condition", "under what", "条件", "什么时候", "何时"} {
+	//
+	// "triggered when" / "fires when" added to catch the analyzer's
+	// typical rewrite of "什么时候 X 触发?" → "Identify when X is
+	// triggered" / "Determine the conditions under which X fires".
+	// Bare "if" / "triggered" are NOT added because they over-trigger
+	// (every conditional code question contains "if").
+	for _, kw := range []string{
+		"when", "condition", "under what",
+		"triggered when", "fires when", "conditions under",
+		"条件", "什么时候", "何时",
+	} {
 		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
 			add("conditional", "need to resolve conditions under which behavior occurs", entities...)
 			break
