@@ -41,6 +41,7 @@ type explorerEvaluator struct {
 	structuredEvidence        []types.EvidenceItem
 	flowFindings              []types.FlowFindingDigest
 	ermRequirements           []EvidenceRequirement // evidence requirement model
+	cachedConcreteValues      *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
 }
 
 func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
@@ -49,6 +50,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	e.isEnumerationQuery = detectEnumerationIntent(ctx.CurrentTask)
 	e.structuredEvidence = nil
 	e.flowFindings = nil
+	e.cachedConcreteValues = nil
 
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
@@ -600,7 +602,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// relationships, complex conditions, cross-file reasoning).
 	var cvPreview string
 	if e.idleStreakInDepth >= 1 && len(e.investigationNotes) >= 2 && e.searchResult != nil {
-		cvPreview = e.buildConcreteValuesSection(e.repoRoot, readSet).markdown
+		cvPreview = e.getConcreteValuesCached(e.repoRoot, readSet).markdown
 	}
 
 	// Show remaining coverage for grep-discovered files.
@@ -826,6 +828,34 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 
 	_, readSet := extractFileCoverage(toolResults)
+
+	// T1.1: two-phase dataflow decision. Build concrete values + chains
+	// early, merge with parsed LLM evidence, run ERM satisfaction check on
+	// a *copy* of requirements (so the live state updated later is
+	// unaffected). When all ERM requirements are satisfied by the
+	// deterministic layers, skip the heavy dataflow.Analyze pass — the
+	// question is already answered by Concrete Values + Chains.
+	if len(e.ermRequirements) > 0 {
+		cv := e.getConcreteValuesCached(ctx.RepoRoot, readSet)
+		trial := mergeEvidenceItems(parsed, cv.evidence)
+		reqsCopy := make([]EvidenceRequirement, len(e.ermRequirements))
+		copy(reqsCopy, e.ermRequirements)
+		reqsCopy = checkRequirementSatisfaction(reqsCopy, e.investigationNotes, trial)
+		if ermAllSatisfied(reqsCopy) {
+			logging.Debug("[explorer] T1.1 gate: ERM all satisfied by parsed(%d)+concreteValues(%d) — skipping dataflow.Analyze",
+				len(parsed), len(cv.evidence))
+			e.structuredEvidence = parsed
+			return
+		}
+		var unsat []string
+		for _, r := range reqsCopy {
+			if r.Status != "satisfied" {
+				unsat = append(unsat, fmt.Sprintf("%s/%s", r.Kind, r.Status))
+			}
+		}
+		logging.Debug("[explorer] T1.1 gate: ERM unsatisfied (%d/%d) — running dataflow.Analyze: %s",
+			len(unsat), len(reqsCopy), strings.Join(unsat, ","))
+	}
 	candidateSet := make(map[string]bool)
 	for file := range readSet {
 		candidateSet[file] = true
@@ -1034,7 +1064,7 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	// Also builds resolution chains that trace through symbol references.
 	// Track what programmatic layers fired for adaptive instructions.
 	hasConcreteValues := false
-	cvResult := e.buildConcreteValuesSection(ctx.RepoRoot, readSet)
+	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, readSet)
 	cv := cvResult.markdown
 	if cv != "" {
 		hasConcreteValues = true
@@ -1465,6 +1495,20 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 type concreteValuesResult struct {
 	markdown string
 	evidence []types.EvidenceItem
+}
+
+// getConcreteValuesCached builds concrete values once per Execute and
+// caches the result for reuse by both the dataflow-skip gate (T1.1) and
+// the SynthesisPrompt section. Subsequent calls return the cached value
+// regardless of readSet drift; this is safe because both call sites run
+// near the end of the loop with effectively the same toolResults.
+func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map[string]bool) concreteValuesResult {
+	if e.cachedConcreteValues != nil {
+		return *e.cachedConcreteValues
+	}
+	r := e.buildConcreteValuesSection(repoRoot, readSet)
+	e.cachedConcreteValues = &r
+	return r
 }
 
 func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool) concreteValuesResult {
