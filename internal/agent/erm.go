@@ -570,6 +570,27 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		if isChain {
 			bonus = 2.0
 		}
+		// Shape-based bonus: chains whose rightmost segment ends in a
+		// short literal `returns "x"` (Name/Type/Kind-style identity
+		// returns) are canonical resolved answers — as opposed to
+		// chains ending in long description strings, constructor
+		// returns, or assignments. This breaks ties between chains
+		// with equal entity overlap deterministically, without
+		// depending on chain iteration order.
+		if isChain && endsWithShortLiteralReturn(ev.Summary) {
+			bonus *= 1.5
+		}
+		// Additional shape-based bonus: chains whose first segment is
+		// a `binds` verb (registration linkage) are stronger answers
+		// to "which X does Y?" questions than chains starting with a
+		// constructor (`returns &Foo{`). Combined with the short-literal
+		// bonus, this disambiguates `Register(NewFoo) → Foo.Name() returns "x"`
+		// from `NewFoo() returns &Foo{} → Foo.Name() returns "x"` — both
+		// end in a short literal but the register-linked one is the
+		// canonical registration-driven answer shape.
+		if isChain && firstSegmentIsBinds(ev.Summary) {
+			bonus *= 1.3
+		}
 
 		candidates = append(candidates, scored{
 			text:  display,
@@ -600,6 +621,71 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		}
 	}
 	return result
+}
+
+// firstSegmentIsBinds reports whether a resolution-chain text's
+// leftmost segment uses a `binds` verb, i.e. the chain starts with a
+// registration linkage rather than a constructor or generic return.
+// This is a canonical shape for registration-driven answers.
+func firstSegmentIsBinds(chain string) bool {
+	const arrow = "→"
+	seg := chain
+	if idx := strings.Index(chain, arrow); idx >= 0 {
+		seg = chain[:idx]
+	}
+	return strings.Contains(seg, " binds ")
+}
+
+// endsWithShortLiteralReturn reports whether a resolution-chain text's
+// rightmost segment ends with `returns "x"` or `returns 'x'` where x is
+// a short literal (≤ 20 chars). This is the canonical shape of a
+// resolved identity answer (Name/Type/Kind methods), as opposed to
+// descriptions (long strings), constructors (`returns &Foo{`), or
+// assignments. The caller uses this as a deterministic tie-breaker
+// bonus when ranking answer chains.
+func endsWithShortLiteralReturn(chain string) bool {
+	// Take the last segment after the last arrow (U+2192). If there is
+	// no arrow (single-item chain, shouldn't happen for isChain but be
+	// defensive), consider the whole text.
+	const arrow = "→"
+	idx := strings.LastIndex(chain, arrow)
+	seg := chain
+	if idx >= 0 {
+		seg = chain[idx+len(arrow):]
+	}
+	seg = strings.TrimSpace(seg)
+	// Drop a trailing source locator like ` (file:line)` so it doesn't
+	// push the literal away from the end of the string.
+	if p := strings.LastIndex(seg, " ("); p >= 0 && strings.HasSuffix(seg, ")") {
+		seg = strings.TrimSpace(seg[:p])
+	}
+	// Require `returns ` somewhere in the segment.
+	rIdx := strings.Index(seg, "returns ")
+	if rIdx < 0 {
+		return false
+	}
+	after := strings.TrimSpace(seg[rIdx+len("returns "):])
+	if len(after) < 2 {
+		return false
+	}
+	q := after[0]
+	if q != '"' && q != '\'' {
+		return false
+	}
+	// Find the matching closing quote.
+	end := strings.IndexByte(after[1:], q)
+	if end < 0 {
+		return false
+	}
+	// Short literal: 0..20 chars between quotes. Also require the
+	// literal to be the TAIL of the segment — nothing meaningful after
+	// it — otherwise we may have matched a `returns "x" + something`.
+	closeIdx := 1 + end
+	tail := strings.TrimSpace(after[closeIdx+1:])
+	if tail != "" {
+		return false
+	}
+	return end <= 20
 }
 
 // logERM logs the current ERM state at debug level.
