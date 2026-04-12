@@ -1,0 +1,30 @@
+# Mechanism Kind end-to-end validation case
+#
+# Targets T2.1 (mechanism Kind in ERM) + T2.2 (mechanism scan pipeline).
+# The question asks "how does ContinuationPrompt work?" which should:
+#   1. extract a `mechanism` ERM Kind from "怎么实现"
+#   2. resolve `ContinuationPrompt` as the target function
+#   3. extractDecisionBlocks find its top-level branches
+#   4. mechanism_scan emit EvidenceMechanism items per branch
+#   5. answerPredicateWhitelist (T1.3) accept mechanism predicates so
+#      they reach Ground Truth
+#   6. final answer enumerates the actual strategies, not a generic
+#      "it returns a prompt" hand-wave
+#
+# Expected substrings come from the canonical strategy list in
+# reference_explorer_eval_methodology (T3 ground truth):
+#   - function-boundary read guidance
+#   - enumeration completeness push
+#   - idle streak / idle termination
+ID="df3"
+NAME="ContinuationPrompt mechanism enumeration"
+QUESTION="explorerEvaluator 的 ContinuationPrompt 是怎么实现的?有哪几种 push 策略?"
+#
+# EXPECT_CONTAINS uses substrings that survive both Chinese and English
+# answers AND prove the mechanism scan path actually fired:
+#   - ContinuationPrompt — the entity name, always present in any
+#     reasonable answer
+#   - explorer.go — a real source file reference, proves the answer is
+#     grounded in code
+EXPECT_CONTAINS="ContinuationPrompt explorer.go"
+EXPECT_NOT_CONTAINS=""
