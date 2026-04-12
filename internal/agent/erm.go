@@ -992,51 +992,54 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 }
 
 // extractAnswerSymbols translates a pre-filtered slice of EvidenceItems
-// into a structured AnswerSymbol list. No-op for kinds without a
-// well-defined single-symbol terminal (mechanism, enumeration,
-// conditional, config_mapping) — those keep the legacy prose-generation
-// path through the finalizer.
+// into a structured AnswerSymbol list. The L0-2 translation step:
+// runs AFTER identifyAnswerChains has produced the strict subset
+// (the second return value) and BEFORE the finalizer is invoked. The
+// caller is expected to pass only items that passed all applicable
+// L0-1 predicates; this function does NOT re-apply them.
 //
-// This is the L0-2 translation step: it runs AFTER identifyAnswerChains
-// has produced the strict subset (the second return value) and BEFORE
-// the finalizer is invoked. The caller is expected to pass only items
-// that passed all applicable L0-1 predicates; this function does NOT
-// re-apply them.
+// S2 trigger change: L0-2 no longer gates on analyzer-declared
+// questionKind. Instead, the gate is EVIDENCE-DRIVEN — if the strict
+// subset contains at least one item whose shape carries a single-
+// symbol terminal (concrete registration, concrete returns, an
+// explicit Registration/Relationship-calls item), extraction runs.
+// The analyzer's classification is stored as sym.Kind for reporting
+// but no longer controls whether extraction happens.
+//
+// Motivation (df1 run 2, eval/results/df1-20260412-100204):
+//   analyzer classified "有多少个agent可以调用subagent?" as
+//   question_kind=enumeration. The previous gate skipped extraction
+//   entirely, leaving the finalizer with only soft shape constraints,
+//   which gpt-4o ignored. With the evidence-driven gate, the strict
+//   subset's RegisterDefaultSubAgents → SubExplorer chain surfaces
+//   SubExplorer into AnswerSymbols regardless of analyzer kind.
 //
 // Extraction reads STRUCTURED fields (Subject / Object / Source /
-// LineStart) directly rather than parsing display strings, because
-// the string path had two known failure modes: arrow-less single-hop
-// concrete values (subject was picked instead of object) and
-// fragile trailing-locator parsing. Per-kind extraction strategy:
+// LineStart) directly rather than parsing display strings. Per-kind
+// strategy inside answerSymbolFromEvidence:
 //
 //   EvidenceConcrete + "binds*" → Object is the registered instance
 //     (e.g. "NewSubExplorer(deps)"). Strip the constructor `New`
-//     prefix and the argument list to get the bare type name.
+//     prefix to get the bare type name.
 //   EvidenceConcrete + "returns" → Subject is the returning method
-//     full name (e.g. "SubExplorer.Name"). Take the receiver type
-//     (part before the first `.`).
+//     full name. Take the receiver type (part before the first `.`).
 //   EvidenceRegistration → Object is the registered name directly.
 //   EvidenceRelationship + "calls" → Object is the callee.
 //   EvidenceDataflowPath + "resolution_chain" → parse Summary's
-//     rightmost hop (legacy string path) to find the terminal
-//     symbol. Still the right strategy for multi-hop chains because
-//     the chain text is richer than any single Subject/Object pair.
+//     rightmost hop to find the terminal symbol.
 //   EvidenceMechanism → Subject is the step label, taken as-is.
 //
-// See project_L0_2_extract_then_express_design.md and the
-// df1-20260412-093913 post-fix analysis that motivated the rewrite.
+// See project_S1_S2_S3_three_layer_fixes.md and
+// project_L0_2_extract_then_express_design.md.
 func extractAnswerSymbols(items []types.EvidenceItem, questionKind string, graph *repomap.Graph) []types.AnswerSymbol {
 	if len(items) == 0 {
 		return nil
 	}
-	// Only these kinds have a single-symbol answer; others return
-	// nil so the finalizer retains its legacy path.
-	terminalKinds := map[string]bool{
-		"registration": true,
-		"call_chain":   true,
-		"return_value": true,
-	}
-	if !terminalKinds[strings.ToLower(strings.TrimSpace(questionKind))] {
+	// S2: evidence-driven gate. Extract only if at least one item
+	// carries a single-symbol terminal shape. This catches the
+	// enumeration-classified registration case (df1 run 2) while
+	// still returning nil for mechanism/step-only evidence (df3).
+	if !hasTerminalEvidence(items) {
 		return nil
 	}
 
@@ -1051,6 +1054,35 @@ func extractAnswerSymbols(items []types.EvidenceItem, questionKind string, graph
 		out = append(out, sym)
 	}
 	return out
+}
+
+// hasTerminalEvidence reports whether any item in the strict subset
+// carries a structurally single-symbol shape that answerSymbolFrom-
+// Evidence can extract. Used by extractAnswerSymbols as the S2
+// evidence-driven gate replacing the old question_kind whitelist.
+func hasTerminalEvidence(items []types.EvidenceItem) bool {
+	for _, ev := range items {
+		if isRegistrationShape(ev) {
+			return true
+		}
+		if ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns" {
+			return true
+		}
+		if ev.Kind == types.EvidenceRegistration {
+			return true
+		}
+		if ev.Kind == types.EvidenceRelationship && ev.Predicate == "calls" {
+			return true
+		}
+		if ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain" {
+			// Multi-hop chains are extractable if they contain an
+			// arrow and the terminal segment has a structural symbol
+			// reference. The chain already passed L0-1 predicates
+			// upstream (strict subset), so it is terminal-shaped.
+			return true
+		}
+	}
+	return false
 }
 
 // answerSymbolFromEvidence extracts a single AnswerSymbol from one

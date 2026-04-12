@@ -1154,32 +1154,63 @@ func TestExtractAnswerSymbols_Dedup(t *testing.T) {
 	}
 }
 
-// TestExtractAnswerSymbols_MechanismKindNil verifies mechanism kind
-// returns nil (extraction is no-op for non-terminal kinds).
-func TestExtractAnswerSymbols_MechanismKindNil(t *testing.T) {
+// TestExtractAnswerSymbols_MechanismOnlyEvidenceNil verifies that
+// when the strict subset contains ONLY mechanism step evidence (no
+// concrete registration / returns / relationship calls), extraction
+// returns nil — the evidence-driven gate (S2) recognises there is
+// no single-symbol terminal to pick out.
+func TestExtractAnswerSymbols_MechanismOnlyEvidenceNil(t *testing.T) {
 	items := []types.EvidenceItem{
-		{Kind: types.EvidenceConcrete, Predicate: "binds", Object: "NewFoo(d)"},
+		// Pure mechanism step — no single-symbol terminal shape.
+		// Note: under S2, extractAnswerSymbols reads evidence SHAPES
+		// not kinds. A bare EvidenceMechanism without the specific
+		// predicates handled in answerSymbolFromEvidence's switch
+		// should NOT trigger the gate.
+		{Kind: types.EvidenceConditional, Subject: "step label"},
 	}
-	if syms := extractAnswerSymbols(items, "mechanism", nil); syms != nil {
-		t.Errorf("mechanism kind should return nil, got %+v", syms)
-	}
-	if syms := extractAnswerSymbols(items, "enumeration", nil); syms != nil {
-		t.Errorf("enumeration kind should return nil, got %+v", syms)
+	for _, kind := range []string{"mechanism", "enumeration", "conditional"} {
+		if syms := extractAnswerSymbols(items, kind, nil); syms != nil {
+			t.Errorf("kind=%s with non-terminal evidence should return nil, got %+v", kind, syms)
+		}
 	}
 }
 
-// TestExtractAnswerSymbols_UnknownKindSafe verifies edge cases:
-// empty items, empty kind, nil — all must return nil without panic.
-func TestExtractAnswerSymbols_UnknownKindSafe(t *testing.T) {
+// TestExtractAnswerSymbols_EvidenceDrivenGate is the headline S2 test:
+// evidence that CARRIES a registration shape triggers extraction
+// regardless of analyzer-declared kind. This is the fix for df1 run 2
+// (eval/results/df1-20260412-100204) where the analyzer classified
+// as enumeration and L0-2 was skipped even though the strict subset
+// had the canonical RegisterDefaultSubAgents → SubExplorer chain.
+func TestExtractAnswerSymbols_EvidenceDrivenGate(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceConcrete, Predicate: "binds ONLY",
+			Subject: "RegisterDefaultSubAgents", Object: "NewSubExplorer(deps)",
+			Summary: "RegisterDefaultSubAgents() binds ONLY NewSubExplorer(deps)",
+			Source:  "internal/agent/subagent.go", LineStart: 63,
+		},
+	}
+	// All of these should now extract SubExplorer — question_kind is
+	// reported but does NOT gate.
+	for _, kind := range []string{"registration", "call_chain", "enumeration", "mechanism", "unknown", ""} {
+		syms := extractAnswerSymbols(items, kind, nil)
+		if len(syms) != 1 || syms[0].Name != "SubExplorer" {
+			t.Errorf("kind=%s: expected [SubExplorer], got %+v", kind, syms)
+		}
+		if syms[0].Kind != kind {
+			t.Errorf("kind=%s: AnswerSymbol.Kind should mirror supplied kind, got %q", kind, syms[0].Kind)
+		}
+	}
+}
+
+// TestExtractAnswerSymbols_EmptyItemsReturnsNil verifies the edge
+// case: no items at all → nil, no panic.
+func TestExtractAnswerSymbols_EmptyItemsReturnsNil(t *testing.T) {
 	if syms := extractAnswerSymbols(nil, "registration", nil); syms != nil {
 		t.Errorf("nil items → want nil, got %+v", syms)
 	}
-	one := []types.EvidenceItem{{Kind: types.EvidenceConcrete, Predicate: "binds", Object: "NewFoo(d)"}}
-	if syms := extractAnswerSymbols(one, "unknown", nil); syms != nil {
-		t.Errorf("unknown kind → want nil, got %+v", syms)
-	}
-	if syms := extractAnswerSymbols(one, "", nil); syms != nil {
-		t.Errorf("empty kind → want nil, got %+v", syms)
+	if syms := extractAnswerSymbols([]types.EvidenceItem{}, "registration", nil); syms != nil {
+		t.Errorf("empty items → want nil, got %+v", syms)
 	}
 }
 
