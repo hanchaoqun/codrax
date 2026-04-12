@@ -198,7 +198,13 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if UseRipgrep() {
 		// ripgrep: ERE-compatible by default, auto-skips binary files,
 		// respects .gitignore (auto-excludes logs/, memory/, etc.).
-		args := []string{"-n"}
+		// -H forces filename prefix on every line — required because
+		// ripgrep otherwise DROPS filenames when the search path is a
+		// single file, producing `158:content` instead of
+		// `file.go:158:content`. Downstream extractFileCoverage then
+		// parses the lineno as if it were a path, inflating discovered
+		// files with dozens of bogus entries per grep call.
+		args := []string{"-n", "-H"}
 		if p.FilesOnly {
 			args = []string{"-l"}
 		}
@@ -223,8 +229,10 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		args = append(args, p.Pattern, searchPath)
 		cmd = exec.CommandContext(searchCtx, SearchExecutable(), args...)
 	} else {
-		// GNU grep fallback: -E for ERE, -I to skip binary files.
-		args := []string{"-rnEI"}
+		// GNU grep fallback: -E for ERE, -I to skip binary files,
+		// -H forces filename prefix (see ripgrep comment above for why
+		// single-file paths break extractFileCoverage without it).
+		args := []string{"-rnEIH"}
 		if p.FilesOnly {
 			args = []string{"-rlEI"}
 		}

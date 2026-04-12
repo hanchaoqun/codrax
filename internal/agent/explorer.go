@@ -3152,6 +3152,55 @@ func flattenYAML(prefix string, node interface{}, notesJoined string, entries *[
 	}
 }
 
+// firstSeparatorBeforeLineno returns the index of the first `:` or `-`
+// that sits immediately before a run of digits — matching ripgrep's
+// "path:lineno:content" match format and "path-lineno-content" context
+// format. Returns -1 if no separator-before-lineno is found.
+func firstSeparatorBeforeLineno(s string) int {
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c != ':' && c != '-' {
+			continue
+		}
+		// Next char must be a digit for this separator to count as
+		// "start of lineno". Otherwise it's a colon/dash inside the
+		// path or content, keep scanning.
+		if i+1 >= len(s) || s[i+1] < '0' || s[i+1] > '9' {
+			continue
+		}
+		return i
+	}
+	return -1
+}
+
+// isValidFilePath is a cheap sanity check: a real repo-relative file
+// path contains either a directory separator or an extension dot after
+// any base name. Rejects garbage like "158" (lineno-only), "  // blah"
+// (code comment), or "--" (grep group separator) so they don't inflate
+// the discovered-files list.
+func isValidFilePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	// A directory separator is the strongest signal.
+	if strings.Contains(p, "/") {
+		// But reject paths that contain whitespace or tabs — those are
+		// code content, not paths.
+		if strings.ContainsAny(p, " \t") {
+			return false
+		}
+		return true
+	}
+	// Bare filename: must have an extension dot and no whitespace.
+	if strings.ContainsAny(p, " \t") {
+		return false
+	}
+	if dot := strings.LastIndex(p, "."); dot > 0 && dot < len(p)-1 {
+		return true
+	}
+	return false
+}
+
 func extractFileCoverage(history []types.ToolResult) (discovered []string, readSet map[string]bool) {
 	readSet = make(map[string]bool)
 	discoveredSet := make(map[string]bool)
@@ -3162,37 +3211,45 @@ func extractFileCoverage(history []types.ToolResult) (discovered []string, readS
 		}
 		switch r.ToolName {
 		case "grep":
-			// grep results come in two formats:
+			// grep results come in these formats:
 			//   files_only=true:  one path per line ("internal/agent/explorer.go")
-			//   files_only=false: "path:linenum: content" per line
-			// Both formats are parsed to extract the file path. The
-			// first line may be a summary header like "[grep: N matching ...]".
+			//   files_only=false: "path:linenum:content" per match line
+			//   with context lines: "path-linenum-content" (dash separator)
+			//   group separator:    "--" between context groups
+			//
+			// Both dash and colon separators must be handled: a context
+			// line like "file.go-101-\t// blah" has no colon before the
+			// lineno, and without recognizing the dash form the whole
+			// line gets treated as a "discovered file", inflating the
+			// coverage denominator with dozens of bogus entries per
+			// grep call. (Headline fix that made this necessary: prior
+			// to the GrepTool -H flag, single-file searches dropped
+			// filenames entirely, producing lines like "158-content";
+			// isValidFilePath below is the defense-in-depth guard.)
+			//
+			// The first line may be a summary header "[grep: N matching ...]".
 			for _, line := range strings.Split(r.Summary, "\n") {
 				path := strings.TrimSpace(line)
-				if path == "" || path[0] == '[' {
+				if path == "" || path[0] == '[' || path == "--" {
 					continue
 				}
 				// Normalize: strip leading ./
 				path = strings.TrimPrefix(path, "./")
-				// Detect "path:linenum: content" format from files_only=false.
-				// A line like "internal/agent/explorer.go:157: func ..." should
-				// extract just "internal/agent/explorer.go". We look for ":digits:"
-				// pattern which distinguishes line-level output from plain paths.
-				if colonIdx := strings.Index(path, ":"); colonIdx > 0 {
-					afterColon := path[colonIdx+1:]
-					// Check if what follows the first colon starts with digits
-					// (line number), indicating files_only=false format.
-					isLineLevel := false
-					for j := 0; j < len(afterColon); j++ {
-						if afterColon[j] >= '0' && afterColon[j] <= '9' {
-							isLineLevel = true
-						} else {
-							break
-						}
-					}
-					if isLineLevel {
-						path = path[:colonIdx]
-					}
+				// Detect "path:linenum:content" (match line) or
+				// "path-linenum-content" (context line). For both
+				// separators we look for the first occurrence, verify
+				// the next token is a run of digits (the lineno), and
+				// slice off everything after that.
+				if idx := firstSeparatorBeforeLineno(path); idx > 0 {
+					path = path[:idx]
+				}
+				// Defense-in-depth: reject anything that doesn't look
+				// like a real file path. A real path has either a
+				// directory separator or a file extension (a `.` after
+				// the last `/`). Rejects stray lineno-only lines and
+				// garbage like "some random string".
+				if !isValidFilePath(path) {
+					continue
 				}
 				// Filter noise: skip non-source files.
 				if isNoisePath(path) {

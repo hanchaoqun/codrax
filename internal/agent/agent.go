@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	agentctx "github.com/hanchaoqun/codrax/internal/context"
@@ -222,6 +223,79 @@ func truncForLog(s string, max int) string {
 	return s[:max] + fmt.Sprintf("...[truncated %d bytes]", len(s)-max)
 }
 
+// maxToolHistoryBytes caps the cumulative size of "tool" role messages
+// kept verbatim in the ReAct conversation. Individual tool results are
+// already bounded by tool.MaxInlineBytes (~32 KB), but a 15-iteration
+// explorer loop with multiple read_file calls per iteration can still
+// pile up 400+ KB of tool output and blow the model's context window.
+//
+// 150 KB is chosen to:
+//   - comfortably fit ~5 full-size (32 KB) tool results in the "hot"
+//     window, enough for the LLM to correlate the most recent step
+//     with the 2-3 before it;
+//   - leave substantial headroom for the system prompt, assistant
+//     messages, and the model's own response on a typical 128k-token
+//     context window;
+//   - stay well below the 256 KB range where even permissive models
+//     start to slow down.
+//
+// Tuneable by future config if needed; hard-coded for now because the
+// failure mode is acute and any value in [100 KB, 200 KB] would fix it.
+const maxToolHistoryBytes = 150 * 1024
+
+// pruneToolHistory stubs out older "tool" role messages in-place when
+// their cumulative content size exceeds maxToolHistoryBytes. Walks
+// newest-to-oldest, keeping the hot window intact, and replaces every
+// older tool message's content with a short placeholder.
+//
+// The ToolCallID is preserved on every stubbed message so OpenAI's
+// tool_call ↔ tool response pairing stays valid — dropping the message
+// entirely would produce a 400 "tool_call_id without matching response"
+// from the API. Assistant messages are never touched: they carry the
+// LLM's own reasoning and tool-call plans, are tiny by comparison, and
+// removing them would erase the thread the model is working with.
+//
+// Returns true when at least one message was stubbed, so the caller
+// can log the event.
+func pruneToolHistory(messages []llm.Message) bool {
+	total := 0
+	cutoff := -1
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "tool" {
+			continue
+		}
+		total += len(messages[i].Content)
+		if total > maxToolHistoryBytes {
+			cutoff = i
+			break
+		}
+	}
+	if cutoff < 0 {
+		return false
+	}
+	pruned := false
+	for i := 0; i <= cutoff; i++ {
+		if messages[i].Role != "tool" {
+			continue
+		}
+		orig := len(messages[i].Content)
+		if orig == 0 {
+			continue
+		}
+		// Already stubbed? Skip so we don't keep shrinking the
+		// placeholder on subsequent iterations.
+		if strings.HasPrefix(messages[i].Content, "[earlier tool result elided") {
+			continue
+		}
+		messages[i].Content = fmt.Sprintf(
+			"[earlier tool result elided — %d bytes. Re-invoke the tool if you need this content again.]",
+			orig,
+		)
+		pruned = true
+	}
+	return pruned
+}
+
 // Execute implements the ReAct (Reason → Act → Observe) loop.
 //
 // Debug-level trace logging dumps the initial prompt, every assistant
@@ -252,6 +326,16 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	// ReAct loop
 	for i := 0; i < b.deps.MaxIterations; i++ {
+		// Prune older "tool" role messages in-place so cumulative tool
+		// output never blows the model's context window on long
+		// investigations. Runs every iteration because a single late
+		// read_file batch can push us over the budget; the stub is
+		// idempotent so already-pruned messages are skipped.
+		if pruneToolHistory(messages) {
+			logging.Debug("[diag %s] iter=%d TOOL HISTORY PRUNED (budget=%d bytes)",
+				b.name, i, maxToolHistoryBytes)
+		}
+
 		// Reason — call LLM
 		b.deps.Emit(render.Event{
 			Kind:      render.EventAgentThinking,

@@ -846,6 +846,53 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 			t.Errorf("expected internal/agent/explorer.go, got %s", discovered[0])
 		}
 	})
+
+	// Regression guard for the 2026-04-12 explorer context blowup:
+	// when ripgrep was run on a single-file path without -H, output
+	// lines looked like "158-	// content" or "200:	func Foo". The
+	// extractor used to parse these as "discovered files", inflating
+	// the coverage denominator with dozens of bogus entries per grep
+	// call. Now: dash/colon-before-lineno is recognized, and
+	// isValidFilePath rejects anything that isn't a plausible path.
+	t.Run("single-file grep without filename prefix is rejected", func(t *testing.T) {
+		history := []types.ToolResult{
+			{ToolName: "grep", Success: true, Summary: "[grep: 5 matching lines]\n" +
+				"158-\t// early return\n" +
+				"159-\t// when condition holds\n" +
+				"200:\tfunc PipelineStage\n" +
+				"--\n" +
+				"242-\t// context line with no path\n"},
+		}
+		discovered, _ := extractFileCoverage(history)
+		if len(discovered) != 0 {
+			t.Errorf("expected 0 discovered from unprefixed grep output, got %d: %v", len(discovered), discovered)
+		}
+	})
+
+	// Context-line format with proper filename prefix (dash separator):
+	// ripgrep -C emits "file.go-101-content" for context lines. The
+	// extractor must recognize the dash-before-lineno form and still
+	// extract just the filename.
+	t.Run("grep context lines with dash separator", func(t *testing.T) {
+		history := []types.ToolResult{
+			{ToolName: "grep", Success: true, Summary: "[grep: 4 matching lines]\n" +
+				"internal/agent/explorer.go-100-\t// context\n" +
+				"internal/agent/explorer.go:101:\tfunc Pipeline\n" +
+				"internal/agent/explorer.go-102-\t// more context\n" +
+				"internal/agent/agent.go:50:\ttype Evaluator\n"},
+		}
+		discovered, _ := extractFileCoverage(history)
+		if len(discovered) != 2 {
+			t.Fatalf("expected 2 discovered (deduped), got %d: %v", len(discovered), discovered)
+		}
+		has := make(map[string]bool)
+		for _, d := range discovered {
+			has[d] = true
+		}
+		if !has["internal/agent/explorer.go"] || !has["internal/agent/agent.go"] {
+			t.Errorf("expected both paths, got %v", discovered)
+		}
+	})
 }
 
 func TestDetectDetailListingIntent(t *testing.T) {
