@@ -49,6 +49,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	ac.EvidenceItems = append([]types.EvidenceItem(nil), bus.EvidenceItems...)
 	ac.FlowFindings = append([]types.FlowFindingDigest(nil), bus.FlowFindings...)
 	ac.AnswerChains = append([]string(nil), bus.AnswerChains...)
+	ac.AnswerSymbols = append([]types.AnswerSymbol(nil), bus.AnswerSymbols...)
 
 	// Collect tool summaries
 	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
@@ -206,6 +207,35 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 
 	logging.Debug("[builder] %s/%s: EvidenceItems=%d FlowFindings=%d AnswerChains=%d",
 		ac.AgentName, ac.Stage, len(ac.EvidenceItems), len(ac.FlowFindings), len(ac.AnswerChains))
+
+	// L0-2: Extracted Answer Symbols — the deterministic translation
+	// of answer chains into a structured symbol list. When populated,
+	// this section takes priority over the raw Ground Truth chains:
+	// the finalizer is constrained to prose over exactly these symbols,
+	// no others. Empty for kinds without a single-symbol terminal
+	// (mechanism / enumeration / conditional / config_mapping), in
+	// which case the Ground Truth section below remains primary.
+	if len(ac.AnswerSymbols) > 0 {
+		var symContent strings.Builder
+		symContent.WriteString("The deterministic pipeline has already identified the answer to this question. " +
+			"Your task is to render these symbols as prose. You MUST NOT add or remove symbols; your " +
+			"training-data recall is irrelevant here.\n\n")
+		for _, s := range ac.AnswerSymbols {
+			if s.File != "" {
+				fmt.Fprintf(&symContent, "- **%s** (%s:%d)\n", s.Name, s.File, s.Line)
+			} else {
+				fmt.Fprintf(&symContent, "- **%s**\n", s.Name)
+			}
+		}
+		symContent.WriteString("\nStrict rules:\n")
+		symContent.WriteString("1. Your answer lists EXACTLY these symbols, no others.\n")
+		symContent.WriteString("2. For each symbol, cite its file:line if provided.\n")
+		symContent.WriteString("3. If a plausible-looking name is not in the list above, it is NOT part of the answer.\n")
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Extracted Answer Symbols (deterministic, authoritative)",
+			Content: symContent.String(),
+		})
+	}
 
 	// Answer chains get the highest priority — these are deterministic
 	// resolution chains that the system has identified as directly

@@ -37,6 +37,13 @@ type StageOutput struct {
 	// presentation in the finalizer prompt.
 	AnswerChains []string `json:"answer_chains,omitempty"`
 
+	// Answer symbols: L0-2 structured terminals extracted from
+	// AnswerChains. For registration / call_chain / return_value
+	// kinds, these are the canonical names the finalizer must list
+	// verbatim (no add, no drop). For other kinds, empty; the
+	// finalizer falls back to the legacy prose path.
+	AnswerSymbols []types.AnswerSymbol `json:"answer_symbols,omitempty"`
+
 	// Tool results collected during execution
 	ToolResults []types.ToolResult `json:"tool_results,omitempty"`
 

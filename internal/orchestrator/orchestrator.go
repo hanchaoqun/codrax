@@ -596,6 +596,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	o.busCtx.EvidenceItems = append(o.busCtx.EvidenceItems, output.EvidenceItems...)
 	o.busCtx.FlowFindings = append(o.busCtx.FlowFindings, output.FlowFindings...)
 	o.busCtx.AnswerChains = append(o.busCtx.AnswerChains, output.AnswerChains...)
+	o.busCtx.AnswerSymbols = append(o.busCtx.AnswerSymbols, output.AnswerSymbols...)
 
 	// Append the stage's synthesized narrative so downstream stages
 	// can read prior reasoning. The active agent/stage at this point

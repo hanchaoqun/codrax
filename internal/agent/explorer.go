@@ -977,12 +977,30 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
+	// L0-2: structured translation. For registration / call_chain /
+	// return_value kinds, extract canonical terminal symbols from the
+	// chains so the finalizer can be constrained to prose over this
+	// exact list. For other kinds, returns nil and the finalizer
+	// falls back to the legacy prose path.
+	answerSymbols := extractAnswerSymbols(answerChains, ctx.CurrentTaskQuestionKind, ermGraph)
+	if len(answerSymbols) > 0 {
+		logging.Debug("[explorer] L0-2 extracted %d answer symbols", len(answerSymbols))
+		for i, s := range answerSymbols {
+			if s.File != "" {
+				logging.Debug("[explorer]   answer_symbol[%d]: %s (%s:%d)", i, s.Name, s.File, s.Line)
+			} else {
+				logging.Debug("[explorer]   answer_symbol[%d]: %s", i, s.Name)
+			}
+		}
+	}
+
 	out := &StageOutput{
 		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
 		NewFacts:      facts,
 		EvidenceItems: rankedEvidence,
 		FlowFindings:  rankedFindings,
 		AnswerChains:  answerChains,
+		AnswerSymbols: answerSymbols,
 		SignalUpdates: signals,
 	}
 

@@ -956,6 +956,136 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	return result
 }
 
+// extractAnswerSymbols translates answer chain strings into a
+// structured AnswerSymbol list. No-op for kinds without a well-defined
+// single-symbol terminal (mechanism, enumeration, conditional,
+// config_mapping) — those keep the legacy prose-generation path
+// through the finalizer.
+//
+// This is the L0-2 translation step: it runs AFTER identifyAnswerChains
+// has filtered and ranked candidates (including L0-1 terminal
+// demotion) and BEFORE the finalizer is invoked. The finalizer is
+// then constrained to prose over this symbol list and cannot add or
+// remove names.
+//
+// See project_L0_2_extract_then_express_design.md.
+func extractAnswerSymbols(chains []string, questionKind string, graph *repomap.Graph) []types.AnswerSymbol {
+	if len(chains) == 0 {
+		return nil
+	}
+	// Only these kinds have a single-symbol answer; others return
+	// nil so the finalizer retains its legacy path.
+	terminalKinds := map[string]bool{
+		"registration": true,
+		"call_chain":   true,
+		"return_value": true,
+	}
+	if !terminalKinds[strings.ToLower(strings.TrimSpace(questionKind))] {
+		return nil
+	}
+
+	var out []types.AnswerSymbol
+	seen := make(map[string]bool)
+	for _, chain := range chains {
+		sym := extractSymbolFromChain(chain, questionKind, graph)
+		if sym.Name == "" {
+			continue
+		}
+		if seen[sym.Name] {
+			continue
+		}
+		seen[sym.Name] = true
+		out = append(out, sym)
+	}
+	return out
+}
+
+// extractSymbolFromChain parses a chain string and returns the
+// canonical terminal symbol. Strategy:
+//  1. Take the rightmost hop (extractTerminalSegment).
+//  2. Strip any trailing "(file:line)" source locator — but capture
+//     it so the AnswerSymbol can cite source location.
+//  3. Find the leftmost CamelCase-looking token whose first char is
+//     uppercase and which has at least 3 chars. That is the symbol.
+//  4. If none found, return an empty AnswerSymbol (caller filters).
+func extractSymbolFromChain(chain, kind string, graph *repomap.Graph) types.AnswerSymbol {
+	terminal := extractTerminalSegment(chain)
+	if terminal == "" {
+		return types.AnswerSymbol{}
+	}
+
+	// Capture trailing ` (file:line)` if present, then strip it.
+	var file string
+	var line int
+	if p := strings.LastIndex(terminal, " ("); p >= 0 && strings.HasSuffix(terminal, ")") {
+		locator := terminal[p+2 : len(terminal)-1]
+		if colon := strings.LastIndex(locator, ":"); colon >= 0 {
+			file = locator[:colon]
+			fmt.Sscanf(locator[colon+1:], "%d", &line)
+		} else {
+			file = locator
+		}
+		terminal = strings.TrimSpace(terminal[:p])
+	}
+
+	// Find the first uppercase identifier in the terminal. Walk the
+	// string one byte at a time, marking token starts at any
+	// non-identifier → identifier boundary, and returning the first
+	// token that begins with an uppercase letter and has ≥3 chars.
+	name := firstUppercaseIdent(terminal)
+	if name == "" {
+		return types.AnswerSymbol{}
+	}
+
+	// Prefer graph-anchored source location when the literal locator
+	// above was absent and the symbol exists in the repo graph.
+	if file == "" && graph != nil {
+		if defs, ok := graph.SymbolDefs[name]; ok && len(defs) > 0 {
+			file = defs[0].File
+			line = defs[0].Line
+		}
+	}
+
+	return types.AnswerSymbol{
+		Name:  name,
+		File:  file,
+		Line:  line,
+		Chain: chain,
+		Kind:  kind,
+	}
+}
+
+// firstUppercaseIdent returns the first capitalised identifier token
+// in the segment, where "identifier" is [A-Za-z_][A-Za-z0-9_]* and
+// "capitalised" means first byte in [A-Z]. Tokens must be at least
+// 3 characters long — shorter tokens are usually primitives or
+// single-letter receivers (e.g. `r.tools` where `r` is noise).
+func firstUppercaseIdent(seg string) string {
+	n := len(seg)
+	for i := 0; i < n; i++ {
+		c := seg[i]
+		// Token boundary: start of string or previous char was not an
+		// identifier character.
+		if i > 0 && isIdentChar(seg[i-1]) {
+			continue
+		}
+		if c < 'A' || c > 'Z' {
+			continue
+		}
+		// Scan forward while we have identifier chars.
+		j := i
+		for j < n && isIdentChar(seg[j]) {
+			j++
+		}
+		if j-i >= 3 {
+			return seg[i:j]
+		}
+		// Advance past this short token so we don't retry its chars.
+		i = j - 1
+	}
+	return ""
+}
+
 // terminalPredicate reports whether a candidate answer chain's terminal
 // segment (the right-hand side of its last hop) is structurally
 // compatible with the question kind's answer shape. Used by

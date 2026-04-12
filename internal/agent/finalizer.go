@@ -16,6 +16,35 @@ func (e *finalizerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 	var b strings.Builder
 	b.WriteString("Compile all results into a clear, actionable final answer for the user.")
 
+	// L0-2: when the deterministic pipeline has extracted a structured
+	// answer symbol list (ctx.AnswerSymbols populated), the finalizer's
+	// job collapses to pure translation — render exactly those symbols
+	// as prose. No shape switch is needed; the symbol list is the
+	// authoritative constraint. The Extracted Answer Symbols prompt
+	// section built by context/builder.go contains the list itself;
+	// here we just re-state the contract at the top of the prompt so
+	// the LLM sees it in both places.
+	if len(ctx.AnswerSymbols) > 0 {
+		b.WriteString("\n\n## Translation mode: symbols are already chosen\n\n")
+		b.WriteString("The deterministic pipeline has produced a structured Answer Symbols\n")
+		b.WriteString("list (see the 'Extracted Answer Symbols' section below). Your task\n")
+		b.WriteString("is to write a brief prose answer that mentions EXACTLY the symbols\n")
+		b.WriteString("in that list — no more, no less.\n\n")
+		b.WriteString("Do NOT:\n")
+		b.WriteString("- Add symbol names from your memory of the codebase\n")
+		b.WriteString("- Omit any symbol from the list\n")
+		b.WriteString("- Generalise (e.g. 'all sub-agents') when the list names specific ones\n")
+		b.WriteString("- Interpret or paraphrase the names\n\n")
+		b.WriteString("If the list has one symbol, the answer names that one symbol. If the list has five, the answer names all five.\n")
+		return b.String()
+	}
+
+	// Legacy path (no structured symbol list): fall back to the
+	// shape-based soft constraints. These apply when AnswerSymbols
+	// is empty — either because the kind has no single-symbol
+	// terminal (mechanism, enumeration, conditional, config_mapping)
+	// or because identifyAnswerChains returned nothing.
+	//
 	// The deterministic pipeline upstream (ERM, evidence, dataflow,
 	// mechanism_scan) has already produced Ground Truth candidates in
 	// ctx.AnswerChains and ctx.EvidenceItems. The residual failure

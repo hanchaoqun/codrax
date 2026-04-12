@@ -77,6 +77,26 @@ func StableEvidenceID(kind EvidenceKind, subject, predicate, object, condition, 
 	return fmt.Sprintf("ev-%x", h.Sum64())
 }
 
+// AnswerSymbol is the structured, deterministic form of a single
+// answer. Produced by extractAnswerSymbols from the chain strings
+// identifyAnswerChains returns, it is the bridge between the
+// deterministic pipeline (which identifies the correct symbol) and
+// the finalizer (which must render it as prose without adding or
+// removing names).
+//
+// L0-2 design: the finalizer receives a list of AnswerSymbol, not
+// raw chain text, so the LLM's answer-translation step is reduced to
+// a structural enumeration it cannot hallucinate around. See
+// project_L0_2_extract_then_express_design.md.
+type AnswerSymbol struct {
+	Name      string `json:"name"`
+	File      string `json:"file,omitempty"`
+	Line      int    `json:"line,omitempty"`
+	Chain     string `json:"chain"`             // full chain text that yielded this symbol
+	Kind      string `json:"kind"`              // question_kind at extraction time
+	Rationale string `json:"rationale,omitempty"` // optional: why this terminal was picked
+}
+
 // StableFlowFindingID returns a deterministic ID for a compact
 // dataflow finding based on its path/condition shape.
 func StableFlowFindingID(path, conditions, sources, sinks []string) string {

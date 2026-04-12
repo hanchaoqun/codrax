@@ -924,3 +924,122 @@ func TestIdentifyAnswerChains_BackCompatNilArgs(t *testing.T) {
 		t.Error("nil reqs + nil graph should preserve legacy behaviour; got no chains")
 	}
 }
+
+// ---------- L0-2: extract-then-express ----------
+
+// TestFirstUppercaseIdent covers the token-walking helper that picks
+// out the first capitalised, ≥3-char identifier in a terminal segment.
+func TestFirstUppercaseIdent(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"`SubExplorer.Name()` returns \"explorer\"", "SubExplorer"},
+		{"r.agents assigns name", ""},       // all tokens lowercase → no match
+		{"", ""},
+		{"nothing capitalised here", ""},
+		{"Foo", "Foo"},
+		{"ab Xx", ""},         // Xx is only 2 chars → too short
+		{"hello World foo", "World"},
+	}
+	for _, c := range cases {
+		if got := firstUppercaseIdent(c.in); got != c.want {
+			t.Errorf("firstUppercaseIdent(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestExtractSymbolFromChain_RegistrationTerminal verifies the happy
+// path: a chain with a method-call + literal terminal yields an
+// AnswerSymbol whose Name is the receiver type.
+func TestExtractSymbolFromChain_RegistrationTerminal(t *testing.T) {
+	chain := "`RegisterDefaultSubAgents()` binds NewSubExplorer → `SubExplorer.Name()` returns \"explorer\""
+	sym := extractSymbolFromChain(chain, "registration", nil)
+	if sym.Name != "SubExplorer" {
+		t.Errorf("Name = %q, want SubExplorer", sym.Name)
+	}
+	if sym.Kind != "registration" {
+		t.Errorf("Kind = %q, want registration", sym.Kind)
+	}
+	if sym.Chain != chain {
+		t.Errorf("Chain not preserved")
+	}
+}
+
+// TestExtractSymbolFromChain_SourceLocator verifies that a trailing
+// `(file:line)` is parsed into AnswerSymbol.File and .Line.
+func TestExtractSymbolFromChain_SourceLocator(t *testing.T) {
+	chain := "`Register(NewFoo)` binds Foo → `Foo.Name()` returns \"foo\" (internal/foo.go:42)"
+	sym := extractSymbolFromChain(chain, "registration", nil)
+	if sym.Name != "Foo" {
+		t.Errorf("Name = %q, want Foo", sym.Name)
+	}
+	if sym.File != "internal/foo.go" {
+		t.Errorf("File = %q, want internal/foo.go", sym.File)
+	}
+	if sym.Line != 42 {
+		t.Errorf("Line = %d, want 42", sym.Line)
+	}
+}
+
+// TestExtractAnswerSymbols_Dedup verifies that multiple chains
+// terminating at the same symbol coalesce to a single entry.
+func TestExtractAnswerSymbols_Dedup(t *testing.T) {
+	chains := []string{
+		"A → `SubExplorer.Name()` returns \"explorer\"",
+		"B → `SubExplorer.Name()` returns \"explorer\"",
+		"C → `Explorer.Name()` returns \"main\"",
+	}
+	syms := extractAnswerSymbols(chains, "registration", nil)
+	if len(syms) != 2 {
+		t.Fatalf("expected 2 unique symbols, got %d: %+v", len(syms), syms)
+	}
+	gotNames := map[string]bool{}
+	for _, s := range syms {
+		gotNames[s.Name] = true
+	}
+	if !gotNames["SubExplorer"] || !gotNames["Explorer"] {
+		t.Errorf("missing expected symbols: got %v", gotNames)
+	}
+}
+
+// TestExtractAnswerSymbols_MechanismKindNil verifies mechanism kind
+// returns nil (extraction is no-op for non-terminal kinds).
+func TestExtractAnswerSymbols_MechanismKindNil(t *testing.T) {
+	chains := []string{"A → `Foo.Bar()` returns \"x\""}
+	if syms := extractAnswerSymbols(chains, "mechanism", nil); syms != nil {
+		t.Errorf("mechanism kind should return nil, got %+v", syms)
+	}
+	if syms := extractAnswerSymbols(chains, "enumeration", nil); syms != nil {
+		t.Errorf("enumeration kind should return nil, got %+v", syms)
+	}
+}
+
+// TestExtractAnswerSymbols_UnknownKindSafe verifies edge cases: empty
+// chains, empty kind, nil — all must return nil without panic.
+func TestExtractAnswerSymbols_UnknownKindSafe(t *testing.T) {
+	if syms := extractAnswerSymbols(nil, "registration", nil); syms != nil {
+		t.Errorf("nil chains → want nil, got %+v", syms)
+	}
+	if syms := extractAnswerSymbols([]string{}, "registration", nil); syms != nil {
+		t.Errorf("empty chains → want nil, got %+v", syms)
+	}
+	if syms := extractAnswerSymbols([]string{"foo"}, "unknown", nil); syms != nil {
+		t.Errorf("unknown kind → want nil, got %+v", syms)
+	}
+	if syms := extractAnswerSymbols([]string{"foo"}, "", nil); syms != nil {
+		t.Errorf("empty kind → want nil, got %+v", syms)
+	}
+}
+
+// TestExtractAnswerSymbols_SkipsUnparseable verifies chains without
+// any extractable uppercase identifier are skipped silently, not
+// crashing the extractor.
+func TestExtractAnswerSymbols_SkipsUnparseable(t *testing.T) {
+	chains := []string{
+		"A → range r.tools",              // no uppercase ident
+		"A → `Foo.Name()` returns \"x\"", // valid
+		"A → ",                           // empty terminal
+	}
+	syms := extractAnswerSymbols(chains, "registration", nil)
+	if len(syms) != 1 || syms[0].Name != "Foo" {
+		t.Errorf("expected [Foo], got %+v", syms)
+	}
+}

@@ -207,6 +207,7 @@ type BusContext struct {
 	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
 	AnswerChains  []string            `json:"answer_chains,omitempty"` // deterministic chains that directly answer the question
+	AnswerSymbols []AnswerSymbol      `json:"answer_symbols,omitempty"` // L0-2: structured terminal symbols extracted from AnswerChains
 	ToolResults   []ToolResult        `json:"tool_results,omitempty"`
 	MCPResponses  []MCPResponse       `json:"mcp_responses,omitempty"`
 	StageReports  []StageReport       `json:"stage_reports,omitempty"`
@@ -242,6 +243,7 @@ type AgentContext struct {
 	EvidenceItems         []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings          []FlowFindingDigest `json:"flow_findings,omitempty"`
 	AnswerChains          []string            `json:"answer_chains,omitempty"`
+	AnswerSymbols         []AnswerSymbol      `json:"answer_symbols,omitempty"`
 	RelevantToolSummaries []string            `json:"relevant_tool_summaries,omitempty"`
 	RelevantMCPNotes      []string            `json:"relevant_mcp_notes,omitempty"`
 	PriorReports          []StageReport       `json:"prior_reports,omitempty"`
