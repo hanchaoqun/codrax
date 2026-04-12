@@ -512,6 +512,46 @@ func ermAllSatisfied(reqs []EvidenceRequirement) bool {
 	return true
 }
 
+// answerPredicateWhitelist controls which evidence kinds/predicates
+// `identifyAnswerChains` will consider as candidate answers. The base
+// set (chains + binds + returns) is always on. ERM-Kind-specific slots
+// are opened by buildAnswerWhitelist so questions about conditions,
+// call chains, config mappings, etc. can land structured evidence into
+// Ground Truth instead of being filtered out.
+type answerPredicateWhitelist struct {
+	allowConditional      bool // EvidenceConditional (any predicate)
+	allowRelationshipCall bool // EvidenceRelationship + predicate "calls"
+	allowMechanismConfig  bool // EvidenceMechanism + predicate "reads_config"
+	allowMechanismAny     bool // EvidenceMechanism (any predicate)
+	allowRelationshipAny  bool // EvidenceRelationship (any predicate)
+}
+
+// buildAnswerWhitelist derives predicate-opening flags from the ERM
+// requirements active for the current question. Mapping is one-way:
+// each ERM Kind opens the predicates it can be answered by. Kinds with
+// no mapping leave the whitelist at the base set.
+func buildAnswerWhitelist(reqs []EvidenceRequirement) answerPredicateWhitelist {
+	var w answerPredicateWhitelist
+	for _, r := range reqs {
+		switch r.Kind {
+		case "conditional":
+			w.allowConditional = true
+		case "call_chain":
+			w.allowRelationshipCall = true
+		case "config_mapping":
+			w.allowMechanismConfig = true
+			w.allowConditional = true
+		case "mechanism":
+			// Reserved for T2.1 (mechanism Kind). Opens broad mechanism
+			// + relationship slots so the future mechanism scanner has
+			// a delivery channel into Ground Truth.
+			w.allowMechanismAny = true
+			w.allowRelationshipAny = true
+		}
+	}
+	return w
+}
+
 // identifyAnswerChains scores resolution chains and concrete values
 // against the user's question and returns the ones that most directly
 // answer it. These are deterministic ground-truth facts that should be
@@ -521,7 +561,11 @@ func ermAllSatisfied(reqs []EvidenceRequirement) bool {
 // A chain is "answer-relevant" if its text mentions entities from the
 // question. The score is the fraction of question entities matched.
 // Returns up to maxChains formatted strings, sorted by relevance.
-func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int) []string {
+//
+// `whitelist` opens additional evidence kinds/predicates beyond the base
+// set (resolution_chain + binds + returns) per ERM Kind. See
+// buildAnswerWhitelist.
+func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist) []string {
 	entities := extractRankingEntities(question)
 	if len(entities) == 0 || len(evidence) == 0 {
 		return nil
@@ -534,11 +578,18 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	var candidates []scored
 
 	for _, ev := range evidence {
-		// Only consider resolution chains and concrete registrations
+		// Base set: resolution chains and concrete registrations/returns.
 		isChain := ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain"
 		isRegistration := ev.Kind == types.EvidenceConcrete && strings.Contains(ev.Predicate, "binds")
 		isConcreteReturn := ev.Kind == types.EvidenceConcrete && ev.Predicate == "returns"
-		if !isChain && !isRegistration && !isConcreteReturn {
+		// ERM-Kind-opened slots (T1.3).
+		isCondition := whitelist.allowConditional && ev.Kind == types.EvidenceConditional
+		isCallRel := whitelist.allowRelationshipCall && ev.Kind == types.EvidenceRelationship && ev.Predicate == "calls"
+		isConfigMech := whitelist.allowMechanismConfig && ev.Kind == types.EvidenceMechanism && ev.Predicate == "reads_config"
+		isMechAny := whitelist.allowMechanismAny && ev.Kind == types.EvidenceMechanism
+		isRelAny := whitelist.allowRelationshipAny && ev.Kind == types.EvidenceRelationship
+		if !isChain && !isRegistration && !isConcreteReturn &&
+			!isCondition && !isCallRel && !isConfigMech && !isMechAny && !isRelAny {
 			continue
 		}
 
