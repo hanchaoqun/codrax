@@ -171,20 +171,45 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// spurious `RegisterDefaults → GrepTool.Description` chain
 			// (the tool registry matched MORE polluted entities than the
 			// correct answer). Splitting the sources isolates the noise.
-			// Entity source preference order:
-			//   1. Analyzer-declared ctx.CurrentTaskEntities (verbatim from
-			//      user wording, per analyzer contract). This is the most
-			//      reliable source because the analyzer saw the raw request
-			//      and was instructed not to paraphrase.
-			//   2. Regex extraction over ctx.Objective (original request).
-			//   3. Regex extraction over ctx.CurrentTask as last resort.
+			// Entity source strategy: UNION of the analyzer's declared
+			// entities (verbatim from user wording per analyzer contract)
+			// and the regex extraction over ctx.Objective. Deduplicated,
+			// analyzer entries first so they dominate any ordering-based
+			// downstream logic.
+			//
+			// Union, not preference, because:
+			//  - Analyzer alone is not sufficient: df1 revealed the analyzer
+			//    can legitimately produce only 1 entity ("subagent") when
+			//    the user's phrasing has a single CamelCase-looking token.
+			//    ERM's call_chain requirement demands 2+ entities to reach
+			//    "satisfied", so the T1.1 gate never skipped and dataflow
+			//    ran on every run (eval/results/df1-20260412-081619).
+			//  - Regex alone is the pre-analyzer-contract behaviour: it
+			//    works but misses user-intent signal (the analyzer saw the
+			//    raw request and chose symbols deliberately).
+			//
+			// The c04298f regression this change must NOT re-introduce was
+			// joining the original Chinese question and the analyzer's
+			// English rewrite into a single STRING and then running regex
+			// extraction over the noise. That is a different failure mode:
+			// here we keep the extraction sources SEPARATE (analyzer field
+			// + regex over Objective only) and merge two clean lists.
 			var ermEntities []string
-			if len(ctx.CurrentTaskEntities) > 0 {
-				ermEntities = append(ermEntities, ctx.CurrentTaskEntities...)
-			} else {
-				ermEntities = extractRankingEntities(ctx.Objective)
-				if len(ermEntities) == 0 {
-					ermEntities = extractRankingEntities(ctx.CurrentTask)
+			seen := make(map[string]bool)
+			for _, ent := range ctx.CurrentTaskEntities {
+				if ent = strings.TrimSpace(ent); ent != "" && !seen[ent] {
+					ermEntities = append(ermEntities, ent)
+					seen[ent] = true
+				}
+			}
+			regexEntities := extractRankingEntities(ctx.Objective)
+			if len(regexEntities) == 0 {
+				regexEntities = extractRankingEntities(ctx.CurrentTask)
+			}
+			for _, ent := range regexEntities {
+				if !seen[ent] {
+					ermEntities = append(ermEntities, ent)
+					seen[ent] = true
 				}
 			}
 			ermKeywordSource := ctx.CurrentTask
