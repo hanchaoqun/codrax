@@ -530,7 +530,7 @@ func TestIdentifyAnswerChains_RefactorParity(t *testing.T) {
 		},
 	}
 	whitelist := answerPredicateWhitelist{}
-	chains := identifyAnswerChains(question, evidence, 5, whitelist)
+	chains := identifyAnswerChains(question, evidence, 5, whitelist, nil, nil)
 	if len(chains) == 0 {
 		t.Fatalf("identifyAnswerChains returned no chains; expected at least the binds-Concrete to land")
 	}
@@ -734,5 +734,193 @@ func TestExtractEvidenceRequirementsWithHint_RegistrationPerEntity(t *testing.T)
 	}
 	if perEntityCount < 2 {
 		t.Errorf("declared registration kind should expand per-entity; got %+v", reqs)
+	}
+}
+
+// ---------- L0-1: answer chain terminal verification ----------
+
+// TestExtractTerminalSegment covers the arrow-splitting helper that
+// feeds every terminal predicate. It must handle multi-hop chains,
+// single-hop fallback, and whitespace.
+func TestExtractTerminalSegment(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"A → B → C", "C"},
+		{"A → B", "B"},
+		{"no arrow here", "no arrow here"},
+		{"  A → B  ", "B"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := extractTerminalSegment(c.in); got != c.want {
+			t.Errorf("extractTerminalSegment(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestTerminalIsConcreteSymbolRef covers the bad-pattern rejection
+// list and the good-shape acceptance paths. Each entry is a terminal
+// string (not a full chain) passed through a single-segment chain.
+func TestTerminalIsConcreteSymbolRef(t *testing.T) {
+	type row struct {
+		chain string
+		want  bool
+		why   string
+	}
+	cases := []row{
+		// Bad: Go control-flow / builtin terminals.
+		{"A → range r.tools", false, "range r.X is a loop iterator"},
+		{"A → assigns name := range r.agents {", false, "internal iteration marker"},
+		{"A → for _, x := range y", false, "for _, iteration"},
+		{"A → make(map[string]int)", false, "builtin make"},
+		{"A → append(xs, y)", false, "builtin append"},
+		// Good: method-call and literal-return shapes.
+		{"A → SubExplorer.Name() returns \"explorer\"", true, "method call + literal"},
+		{"Register(NewFoo) → Foo.Type() returns \"tool\"", true, "Name/Type identity method"},
+		{"A → returns nil", true, "nil literal return"},
+		{"A → returns true", true, "bool literal return"},
+		{"A → returns 42", true, "numeric literal return"},
+	}
+	for _, c := range cases {
+		if got := terminalIsConcreteSymbolRef(c.chain, nil); got != c.want {
+			t.Errorf("terminalIsConcreteSymbolRef(%q) = %v, want %v (%s)",
+				c.chain, got, c.want, c.why)
+		}
+	}
+}
+
+// TestTerminalIsConcreteLiteral verifies the return_value predicate
+// accepts literals and rejects non-returns.
+func TestTerminalIsConcreteLiteral(t *testing.T) {
+	good := []string{
+		"A → returns \"x\"",
+		"A → returns 'y'",
+		"A → returns true",
+		"A → returns nil",
+		"A → returns 0",
+	}
+	bad := []string{
+		"A → range r.tools",
+		"A → Foo.Name() // no returns keyword",
+		"A → make(map[string]bool)",
+	}
+	for _, s := range good {
+		if !terminalIsConcreteLiteral(s, nil) {
+			t.Errorf("terminalIsConcreteLiteral(%q) = false, want true", s)
+		}
+	}
+	for _, s := range bad {
+		if terminalIsConcreteLiteral(s, nil) {
+			t.Errorf("terminalIsConcreteLiteral(%q) = true, want false", s)
+		}
+	}
+}
+
+// TestTerminalPredicatesFor_KindDedup verifies that duplicate Kinds in
+// the requirement list only produce one predicate entry — a common
+// case because ERM emits one per-entity requirement for registration.
+func TestTerminalPredicatesFor_KindDedup(t *testing.T) {
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"A"}},
+		{Kind: "registration", Entities: []string{"B"}},
+		{Kind: "call_chain", Entities: []string{"A", "B"}},
+	}
+	got := terminalPredicatesFor(reqs)
+	if len(got) != 2 {
+		t.Errorf("expected 2 predicates (registration + call_chain), got %d", len(got))
+	}
+
+	// Mechanism has no predicate — should produce empty.
+	mech := []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"X"}}}
+	if got := terminalPredicatesFor(mech); len(got) != 0 {
+		t.Errorf("mechanism kind should produce no predicates, got %d", len(got))
+	}
+
+	// Empty reqs → nil.
+	if got := terminalPredicatesFor(nil); got != nil {
+		t.Errorf("nil reqs should produce nil predicates, got %v", got)
+	}
+}
+
+// TestIdentifyAnswerChains_TerminalRangeDemoted is the headline test for
+// L0-1: given two chains, one ending at a loop iterator and one ending
+// at a concrete symbol/literal, the concrete one must rank first even
+// when it has equal or lower entity overlap. This reproduces the df1
+// run-3 failure mode in a unit test.
+func TestIdentifyAnswerChains_TerminalRangeDemoted(t *testing.T) {
+	question := "which agents can call subagent?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterDefaults()` binds ONLY r *Registry → `Registry.List()` assigns name := range r.agents {",
+		},
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterDefaultSubAgents()` binds NewSubExplorer → `SubExplorer.Name()` returns \"explorer\"",
+		},
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"subagent", "agents"}},
+		{Kind: "call_chain", Entities: []string{"subagent", "agents"}},
+	}
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	if len(chains) == 0 {
+		t.Fatal("expected at least one chain returned")
+	}
+	// The SubExplorer chain must rank first.
+	if !strings.Contains(chains[0], "SubExplorer") {
+		t.Errorf("expected SubExplorer chain at top, got: %s", chains[0])
+	}
+	// The range chain must still appear somewhere (demote, not drop).
+	foundRange := false
+	for _, c := range chains {
+		if strings.Contains(c, "range r.agents") {
+			foundRange = true
+			break
+		}
+	}
+	if !foundRange {
+		t.Error("demoted chain should still be present as fallback safety")
+	}
+}
+
+// TestIdentifyAnswerChains_NoPredicateForMechanism verifies mechanism
+// kind leaves ranking untouched (no demotion applied) — important
+// because df3 is a mechanism case and must not regress.
+func TestIdentifyAnswerChains_NoPredicateForMechanism(t *testing.T) {
+	question := "how does ContinuationPrompt work?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "ContinuationPrompt → range ph.contextualHints { push strategy X }",
+		},
+	}
+	reqs := []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}}}
+	chains := identifyAnswerChains(question, evidence, 5, buildAnswerWhitelist(reqs), reqs, nil)
+	// Mechanism kind has no predicate; chain containing `range` must
+	// still be ranked as-is, not demoted.
+	if len(chains) == 0 {
+		t.Fatal("mechanism chain should survive (no predicate applied)")
+	}
+}
+
+// TestIdentifyAnswerChains_BackCompatNilArgs verifies legacy callers
+// that pass nil reqs + nil graph get pre-L0-1 ranking behaviour.
+func TestIdentifyAnswerChains_BackCompatNilArgs(t *testing.T) {
+	question := "which X register Y?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceConcrete,
+			Predicate: "binds",
+			Summary:   "Register(NewFoo) binds Foo",
+			Subject:   "Register",
+			Object:    "Foo",
+		},
+	}
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, nil)
+	if len(chains) == 0 {
+		t.Error("nil reqs + nil graph should preserve legacy behaviour; got no chains")
 	}
 }

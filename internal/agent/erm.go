@@ -808,11 +808,25 @@ func buildAnswerWhitelist(reqs []EvidenceRequirement) answerPredicateWhitelist {
 // `whitelist` opens additional evidence kinds/predicates beyond the base
 // set (resolution_chain + binds + returns) per ERM Kind. See
 // buildAnswerWhitelist.
-func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist) []string {
+//
+// `reqs` and `graph` enable L0-1 terminal verification: a post-rank
+// discriminative check that demotes (×0.2) chains whose terminal
+// segment is structurally incompatible with the question's Kind —
+// e.g. chains ending at a Go `range` loop header when the question
+// asks for a registered symbol. Demoted chains are still returned as
+// a fallback safety net; they simply never outrank a passing chain.
+// Callers may pass nil for both to opt out and preserve legacy
+// ranking behaviour (used by older tests).
+func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist, reqs []EvidenceRequirement, graph *repomap.Graph) []string {
 	entities := extractRankingEntities(question)
 	if len(entities) == 0 || len(evidence) == 0 {
 		return nil
 	}
+
+	// L0-1: pre-compute terminal predicates once per call. Empty slice
+	// when no active kind has a predicate (mechanism/enumeration/etc),
+	// in which case the per-candidate check below becomes a no-op.
+	predicates := terminalPredicatesFor(reqs)
 
 	type scored struct {
 		text  string
@@ -886,6 +900,31 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 			bonus *= 1.3
 		}
 
+		// L0-1: terminal verification. For kinds whose answer is a
+		// concrete symbol or literal (registration / call_chain /
+		// return_value), demote chains whose terminal segment fails
+		// the Kind-specific predicate. Demotion factor 0.2 means a
+		// passing candidate outscores a failing one by 5× at equal
+		// entity overlap, but failing candidates are still returned
+		// when no passing candidate exists (fallback safety).
+		if len(predicates) > 0 {
+			terminalOK := true
+			for _, p := range predicates {
+				if !p(ev.Summary, graph) {
+					terminalOK = false
+					break
+				}
+			}
+			if !terminalOK {
+				bonus *= 0.2
+				preview := ev.Summary
+				if len(preview) > 120 {
+					preview = preview[:120] + "..."
+				}
+				logging.Debug("[erm] L0-1 terminal predicate demoted chain: %s", preview)
+			}
+		}
+
 		candidates = append(candidates, scored{
 			text:  display,
 			score: float64(overlap) / float64(len(entities)) * bonus,
@@ -915,6 +954,219 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		}
 	}
 	return result
+}
+
+// terminalPredicate reports whether a candidate answer chain's terminal
+// segment (the right-hand side of its last hop) is structurally
+// compatible with the question kind's answer shape. Used by
+// identifyAnswerChains as a post-rank discriminative filter to demote
+// chains whose terminal cannot possibly be a concrete answer (e.g. a
+// Go `range` loop header when the question asks for a registered
+// symbol). See project_L0_1_terminal_verification_design.md.
+type terminalPredicate func(chainText string, graph *repomap.Graph) bool
+
+// terminalPredicateByKind maps ERM Kind to the predicate its candidate
+// chains must satisfy. Kinds without an entry (mechanism, enumeration,
+// conditional, config_mapping) have no terminal requirement — they are
+// verified by other means. Keeping this map small is deliberate:
+// predicates are only for kinds whose answer is a SINGLE concrete
+// symbol or literal.
+var terminalPredicateByKind = map[string]terminalPredicate{
+	"registration": terminalIsConcreteSymbolRef,
+	"call_chain":   terminalIsConcreteSymbolRef,
+	"return_value": terminalIsConcreteLiteral,
+}
+
+// terminalPredicatesFor returns the set of predicates applicable to the
+// active ERM requirements, deduped so a single Kind's predicate is only
+// evaluated once even when the requirement set contains multiple
+// entries of that Kind. Returns nil when no active kind has a
+// predicate, which is the signal for identifyAnswerChains to skip
+// terminal verification entirely.
+func terminalPredicatesFor(reqs []EvidenceRequirement) []terminalPredicate {
+	if len(reqs) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(terminalPredicateByKind))
+	var out []terminalPredicate
+	for _, r := range reqs {
+		if seen[r.Kind] {
+			continue
+		}
+		if p, ok := terminalPredicateByKind[r.Kind]; ok {
+			out = append(out, p)
+			seen[r.Kind] = true
+		}
+	}
+	return out
+}
+
+// extractTerminalSegment returns the substring after the last U+2192
+// ("→") arrow in a resolution chain text. This is the chain's
+// rightmost hop — the terminal symbol that ends up being the answer.
+// Chains with no arrow return the entire string (defensive; chains
+// should always contain at least one hop).
+func extractTerminalSegment(chainText string) string {
+	const arrow = "→"
+	if idx := strings.LastIndex(chainText, arrow); idx >= 0 {
+		return strings.TrimSpace(chainText[idx+len(arrow):])
+	}
+	return strings.TrimSpace(chainText)
+}
+
+// terminalIsConcreteSymbolRef reports whether a chain's terminal
+// segment names a concrete symbol (function call, method receiver,
+// type reference) rather than a Go-language control-flow construct.
+// Used by registration and call_chain kinds.
+//
+// The rejection list is structural: Go keywords and builtins that
+// cannot be an "answer" under any registration or call-chain question,
+// regardless of the specific entities involved. The list is derived
+// from Go semantics, not from any eval case's ground truth — reversing
+// it would break an entire class of questions, not just df1.
+func terminalIsConcreteSymbolRef(chainText string, graph *repomap.Graph) bool {
+	terminal := extractTerminalSegment(chainText)
+	// Strip a trailing source locator like ` (file:line)` so the
+	// literal shape matchers see the raw expression.
+	if p := strings.LastIndex(terminal, " ("); p >= 0 && strings.HasSuffix(terminal, ")") {
+		terminal = strings.TrimSpace(terminal[:p])
+	}
+	if terminal == "" {
+		return false
+	}
+	badPatterns := []string{
+		"range ",       // loop header: `range r.tools`, `range m`
+		"for _, ",      // generic iteration
+		"for k, v :=",  // generic iteration
+		"make(",        // builtin constructor for generic containers
+		"append(",      // builtin slice op
+		"len(", "cap(", // builtin size queries
+		"assigns name :=", // internal marker from concrete-values loop scan
+	}
+	for _, bad := range badPatterns {
+		if strings.Contains(terminal, bad) {
+			return false
+		}
+	}
+	if hasMethodCallShape(terminal) {
+		return true
+	}
+	if hasReturnsLiteralShape(terminal) {
+		return true
+	}
+	if graph != nil && containsGraphSymbol(terminal, graph) {
+		return true
+	}
+	return false
+}
+
+// terminalIsConcreteLiteral reports whether a chain's terminal segment
+// ends at a concrete literal value (string, number, bool, nil). Used
+// by the return_value kind, whose answer is a single literal rather
+// than a symbol reference.
+func terminalIsConcreteLiteral(chainText string, graph *repomap.Graph) bool {
+	return hasReturnsLiteralShape(extractTerminalSegment(chainText))
+}
+
+// hasMethodCallShape reports whether the segment contains a method-call
+// pattern like `X.Y(` — a capitalised (or at least identifier-like)
+// receiver followed by a dotted call. This is the canonical shape of a
+// concrete symbol reference in a chain terminal.
+func hasMethodCallShape(seg string) bool {
+	// Find the first '.' that is followed by an identifier and '(',
+	// with an identifier character just before the dot. This is a
+	// cheap structural check, not a full Go parser.
+	for i := 1; i < len(seg)-2; i++ {
+		if seg[i] != '.' {
+			continue
+		}
+		prev := seg[i-1]
+		next := seg[i+1]
+		if !isIdentChar(prev) || !isIdentStart(next) {
+			continue
+		}
+		// Scan forward for an opening paren within ~40 chars.
+		end := i + 40
+		if end > len(seg) {
+			end = len(seg)
+		}
+		for j := i + 1; j < end; j++ {
+			if seg[j] == '(' {
+				return true
+			}
+			if !isIdentChar(seg[j]) {
+				break
+			}
+		}
+	}
+	return false
+}
+
+// hasReturnsLiteralShape reports whether the segment contains a
+// `returns "x"` / `returns 'x'` pattern, the canonical concrete-return
+// shape produced by the concrete-values extractor. This is a subset of
+// endsWithShortLiteralReturn (which additionally enforces a length
+// cap); here we accept any length because the predicate's role is
+// "is there a literal at all", not "is it a short identity return".
+func hasReturnsLiteralShape(seg string) bool {
+	idx := strings.Index(seg, "returns ")
+	if idx < 0 {
+		return false
+	}
+	after := strings.TrimSpace(seg[idx+len("returns "):])
+	if after == "" {
+		return false
+	}
+	q := after[0]
+	if q == '"' || q == '\'' {
+		// Quoted: require a closing quote. Len >= 2 enforced implicitly
+		// by IndexByte over the suffix — a missing close yields -1.
+		return len(after) >= 2 && strings.IndexByte(after[1:], q) >= 0
+	}
+	// Non-quoted literals: true/false/nil and numeric prefixes. A
+	// bare digit is already a valid literal ("returns 0").
+	for _, lit := range []string{"true", "false", "nil"} {
+		if strings.HasPrefix(after, lit) {
+			return true
+		}
+	}
+	if after[0] >= '0' && after[0] <= '9' {
+		return true
+	}
+	return false
+}
+
+// containsGraphSymbol reports whether the segment mentions the name of
+// any symbol defined in the repo graph. This is the fallback path for
+// terminalIsConcreteSymbolRef when the method-call and literal shape
+// checks both miss — the terminal might be a bare type reference like
+// `SubExplorer` with no dotted access.
+func containsGraphSymbol(seg string, graph *repomap.Graph) bool {
+	if graph == nil || len(graph.SymbolDefs) == 0 {
+		return false
+	}
+	// Only check symbols at least 4 chars to avoid trivial matches.
+	// Uppercase-first symbols are the overwhelming majority of Go
+	// exported identifiers; skipping lowercase ones keeps this cheap.
+	for name := range graph.SymbolDefs {
+		if len(name) < 4 || !isIdentStart(name[0]) {
+			continue
+		}
+		if name[0] < 'A' || name[0] > 'Z' {
+			continue
+		}
+		if strings.Contains(seg, name) {
+			return true
+		}
+	}
+	return false
+}
+
+// isIdentStart is a local helper for the terminal-predicate shape
+// checks. isIdentChar already exists in explorer.go and is reused as
+// the "ident continuation" predicate.
+func isIdentStart(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
 }
 
 // firstSegmentIsBinds reports whether a resolution-chain text's

@@ -964,7 +964,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// directly answer the user's question. These get a dedicated
 	// section in the finalizer prompt with higher priority than
 	// generic evidence items.
-	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5, buildAnswerWhitelist(e.ermRequirements))
+	var ermGraph *repomap.Graph
+	if e.searchResult != nil {
+		ermGraph = e.searchResult.Graph
+	}
+	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
+		buildAnswerWhitelist(e.ermRequirements), e.ermRequirements, ermGraph)
 	if len(answerChains) > 0 {
 		logging.Debug("[explorer] identified %d answer chains", len(answerChains))
 		for i, ac := range answerChains {
