@@ -132,6 +132,13 @@ type Options struct {
 	// questions where single-hop evidence is enough and the cross-file
 	// propagation pass would be wasted compute.
 	SkipFindings bool
+	// EntityBias (T2.3) is a list of question-relevant entity names
+	// (typically derived from ERM). When non-empty, selectCandidateFiles
+	// scores each candidate by the number of biased entities that appear
+	// in the file path OR in the file's symbol names, then sorts by
+	// score descending before truncating to MaxFiles. Files with no
+	// match still survive — the bias only re-ranks; it does not filter.
+	EntityBias []string
 }
 
 // Result is the compact output consumed by explorer/sub-explorer.

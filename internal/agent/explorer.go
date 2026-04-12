@@ -1024,6 +1024,13 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 	sort.Strings(candidates)
 
+	// T2.3: thread ERM entities into dataflow as a re-ranking bias so
+	// the engine focuses on question-relevant files when truncating to
+	// MaxFiles.
+	var entityBias []string
+	for _, r := range e.ermRequirements {
+		entityBias = append(entityBias, r.Entities...)
+	}
 	result := dataflow.Analyze(e.searchResult.Graph, dataflow.Options{
 		RepoRoot:        ctx.RepoRoot,
 		Question:        e.userQuestion,
@@ -1033,6 +1040,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		MaxIterations:   6,
 		MaxNodesPerFunc: 400,
 		SkipFindings:    intent == IntentLookup,
+		EntityBias:      entityBias,
 	})
 	logging.Debug("[explorer] dataflow.Analyze(intent=%s): %d evidence, %d findings from %d candidates",
 		intent, len(result.Evidence), len(result.Findings), len(candidates))

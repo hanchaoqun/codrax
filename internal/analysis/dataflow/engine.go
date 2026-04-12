@@ -139,13 +139,88 @@ func selectCandidateFiles(graph *repomap.Graph, opts Options) ([]string, bool) {
 		}
 	}
 
-	sort.Strings(ordered)
+	// T2.3: re-rank by EntityBias before truncating. The legacy ordering
+	// is alphabetical, which means files containing the question's
+	// entities are arbitrarily sorted relative to unrelated files of the
+	// same name prefix and may be evicted by MaxFiles. With bias, files
+	// whose path or symbol names mention any biased entity float to the
+	// top so they survive truncation.
+	if len(opts.EntityBias) > 0 {
+		ordered = sortByEntityBias(ordered, graph, opts.EntityBias)
+	} else {
+		sort.Strings(ordered)
+	}
 	truncated := false
 	if len(ordered) > opts.MaxFiles {
 		ordered = ordered[:opts.MaxFiles]
 		truncated = true
 	}
 	return ordered, truncated
+}
+
+// sortByEntityBias re-orders the candidate file list so that files
+// matching any biased entity (in path or symbol names) come first.
+// Files with equal scores fall back to alphabetical order so the
+// result is deterministic across runs.
+//
+// Scoring is structural and query-independent: the function does NOT
+// peek at file contents or query the LLM — it only uses the entity
+// strings (already extracted by ERM) and the static graph index.
+func sortByEntityBias(files []string, graph *repomap.Graph, entities []string) []string {
+	if len(entities) == 0 || len(files) == 0 {
+		return files
+	}
+	lowerEntities := make([]string, 0, len(entities))
+	for _, e := range entities {
+		if e == "" {
+			continue
+		}
+		lowerEntities = append(lowerEntities, strings.ToLower(e))
+	}
+	if len(lowerEntities) == 0 {
+		return files
+	}
+
+	type scored struct {
+		path  string
+		score int
+	}
+	out := make([]scored, 0, len(files))
+	for _, p := range files {
+		lp := strings.ToLower(p)
+		score := 0
+		for _, ent := range lowerEntities {
+			if strings.Contains(lp, ent) {
+				score += 2 // path match — high signal
+			}
+		}
+		if graph != nil {
+			if fi := graph.FileIndex[p]; fi != nil {
+				for _, sym := range fi.Symbols {
+					ls := strings.ToLower(sym.Name)
+					for _, ent := range lowerEntities {
+						if strings.Contains(ls, ent) {
+							score++
+						}
+					}
+				}
+			}
+		}
+		out = append(out, scored{path: p, score: score})
+	}
+
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].score != out[j].score {
+			return out[i].score > out[j].score
+		}
+		return out[i].path < out[j].path
+	})
+
+	result := make([]string, len(out))
+	for i, s := range out {
+		result[i] = s.path
+	}
+	return result
 }
 
 func readFileLines(path string) ([]string, error) {
