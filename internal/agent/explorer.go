@@ -961,16 +961,35 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	// unaffected). When all ERM requirements are satisfied by the
 	// deterministic layers, skip the heavy dataflow.Analyze pass — the
 	// question is already answered by Concrete Values + Chains.
+	//
+	// mechEvidence is declared at the outer scope so the dataflow path
+	// (when the gate falls through) can also merge it into the final
+	// structuredEvidence.
+	var mechEvidence []types.EvidenceItem
 	if len(e.ermRequirements) > 0 {
 		cv := e.getConcreteValuesCached(ctx.RepoRoot, readSet)
+		// T2.2: produce structured EvidenceMechanism items for ERM
+		// mechanism requirements. No-op for non-mechanism questions.
+		mechEvidence = scanMechanismEvidence(e.ermRequirements, e.searchResult.Graph, ctx.RepoRoot)
 		trial := mergeEvidenceItems(parsed, cv.evidence)
+		if len(mechEvidence) > 0 {
+			trial = mergeEvidenceItems(trial, mechEvidence)
+		}
 		reqsCopy := make([]EvidenceRequirement, len(e.ermRequirements))
 		copy(reqsCopy, e.ermRequirements)
 		reqsCopy = checkRequirementSatisfaction(reqsCopy, e.investigationNotes, trial)
 		if ermAllSatisfied(reqsCopy) {
-			logging.Debug("[explorer] T1.1 gate: ERM all satisfied by parsed(%d)+concreteValues(%d) — skipping dataflow.Analyze",
-				len(parsed), len(cv.evidence))
-			e.structuredEvidence = parsed
+			logging.Debug("[explorer] T1.1 gate: ERM all satisfied by parsed(%d)+concreteValues(%d)+mechanism(%d) — skipping dataflow.Analyze",
+				len(parsed), len(cv.evidence), len(mechEvidence))
+			// Merge mechanism evidence into structuredEvidence so it
+			// reaches the finalizer regardless of whether dataflow runs.
+			// Concrete Values are merged later in SynthesisPrompt via
+			// the existing path (line ~1192).
+			if len(mechEvidence) > 0 {
+				e.structuredEvidence = mergeEvidenceItems(parsed, mechEvidence)
+			} else {
+				e.structuredEvidence = parsed
+			}
 			return
 		}
 		var unsat []string
@@ -1018,6 +1037,9 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	logging.Debug("[explorer] dataflow.Analyze(intent=%s): %d evidence, %d findings from %d candidates",
 		intent, len(result.Evidence), len(result.Findings), len(candidates))
 	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence)
+	if len(mechEvidence) > 0 {
+		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, mechEvidence)
+	}
 	e.flowFindings = mergeFlowFindings(result.Findings)
 }
 
