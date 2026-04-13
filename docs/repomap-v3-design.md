@@ -1,12 +1,13 @@
 # Repomap v3 Design
 
-Status: **Phase 0 + Phase 1 P1.0-P1.2b shipped** (HEAD `04b54f1`).
-Next step: P1.3 — migrate ~20 `internal/agent/` consumer sites.
+Status: **Phase 0 + Phase 1 COMPLETE** (HEAD `04b54f1`).
+Next step: **Phase 2 — per-language ImportResolver + multilingual
+QueryParser** (plan items 3 + 6).
 
 This document is the architectural spec for the repomap refactor.
-For session-to-session resumption notes and the shipped-commit
-ledger, see `memory/project_repomap_refactor_plan.md`. For the
-day-to-day eval harness usage, see `eval/repomap_v3/README.md`.
+For the day-to-day eval harness usage, see `eval/repomap_v3/README.md`.
+For session-to-session resumption notes see
+`memory/project_repomap_refactor_plan.md`.
 
 ## Motivation
 
@@ -42,19 +43,25 @@ roadmap.
 
 ```
 Phase 0  eval framework first           ─ SHIPPED  fe91203
-Phase 1  SymbolID data model             ─ IN PROGRESS  7560d3f..04b54f1
+Phase 1  SymbolID data model             ─ SHIPPED  7560d3f..04b54f1
   P1.0  fix goExtractImports             ─ shipped  7560d3f
   P1.1  SymbolID additive                ─ shipped  5916e7d
   P1.2a receiver capture + RelationEndpoint ─ shipped  9eb4f32
   P1.2b scope resolver + drift KPI       ─ shipped  04b54f1
-  P1.3  migrate internal/agent consumers ─ NEXT
-  P1.4  delete legacy string-keyed paths ─ pending
-  P1.5  freeze baseline_phase1.json      ─ pending
-Phase 2  ImportResolver split + QueryParser
+Phase 2  ImportResolver split + QueryParser ─ NEXT
 Phase 3  Cache protocol + structured output
 Phase 4  Three-layer split (index/retrieve/render)
 Phase 5  Language plugins + dir unification + semantic subgraphs
 ```
+
+Phase 1 closed out at P1.2b. The data-model work the user's refactor
+plan listed under item 2 is complete end-to-end: double index,
+receiver-aware call resolution, rewritten rank / CallersOf, and a
+regression test (`symbol_id_test.go:TestCallersOfIDReceiverAware`)
+that locks same-name method drift. There is no `P1.3 consumer
+migration` phase — see the "No `P1.3` consumer migration" section
+below for the audit that concluded there is nothing valuable to
+migrate under the user's explicit no-backwards-compat rule.
 
 ## Phase 0 — Eval harness (shipped)
 
@@ -104,12 +111,13 @@ produces the same numbers.
   the local type set. Explains why the drift KPI hits a local
   ceiling at ~7%.
 
-## Phase 1 — SymbolID data model (in progress)
+## Phase 1 — SymbolID data model (shipped)
 
 The core insight: every symbol needs a drift-proof canonical
 identity, AND every call site needs enough information to resolve
-to that identity. The data-model work is done; the remaining Phase
-1 scope is migrating consumers.
+to that identity. Phase 1 delivers both, locked by a regression
+test that asserts same-name methods across files do not
+cross-pollinate.
 
 ### SymbolID
 
@@ -147,7 +155,10 @@ schema is unchanged. Two unit tests lock the format:
 ### RelationEndpoint
 
 Every `Relation` now carries a structured endpoint alongside its
-legacy `From/To` strings (which will be deleted in P1.4):
+legacy `From/To` strings. The legacy strings remain because
+rank.go's name-keyed fallback bucket still consumes them for
+unresolved external targets; they are candidates for removal in
+Phase 4 when the retrieval layer owns relation semantics.
 
 ```go
 type RelationEndpoint struct {
@@ -264,9 +275,9 @@ resolved edges and `symbolToFile` for fallback. The file a symbol
 belongs to is now identified by ID, so receiver-drift doesn't
 mis-attribute referrers.
 
-## Measured Phase 1 progress
+## Measured Phase 1 delivery
 
-First deterministic gate run at HEAD `04b54f1`:
+Final deterministic gate run at HEAD `04b54f1` (Phase 1 closeout):
 
 | metric | baseline (7a60dd4) | P1.2b (04b54f1) | delta |
 |---|--:|--:|--:|
@@ -291,64 +302,122 @@ Latency grew from 0.18 s to 0.87 s due to the extra
 walker in `goExtractCalls`. Still under the 1 s budget for a fresh
 scan; cached scans remain near-zero. Not a bottleneck.
 
-## Next step: P1.3
+## No `P1.3` consumer migration phase
 
-Migrate `internal/agent/` consumers from the legacy name-keyed APIs
-(`SymbolDefs[name]`, `Graph.CallersOf(name)`, `Graph.SymbolsInFile(file)`)
-to the Phase 1 canonical APIs (`Graph.SymbolByID`, `Graph.MethodIndex`,
-`Graph.CallersOfID(id)`).
+An earlier iteration of this design called for a P1.3 phase
+migrating ~20 `internal/agent/` consumer call sites from
+`SymbolDefs[name]` / `Graph.CallersOf(name)` to `SymbolByID` /
+`MethodIndex` / `CallersOfID`. That phase is **not part of the
+user's refactor plan** and has been removed after a direct audit
+against `internal/agent/`:
 
-The original plan enumerated ~20 sites. Actual audit is the first
-P1.3 task: grep `internal/agent/` for `SymbolDefs[`, `.CallersOf(`,
-and `.SymbolsInFile` usages, classify each by the underlying intent,
-then migrate one consumer at a time. See `memory/project_repomap_refactor_plan.md`
-§"Next action: P1.3" for the full list and resumption protocol.
+- **Zero** direct `CallersOf(name)` callers exist in
+  `internal/agent/`. The drift fix propagates to the downstream
+  evidence pipeline through `rank.go`'s receiver-aware scoring
+  feeding `QueryScores`, which `keyword_search` already consumes.
+  Agent consumers benefit transitively with no source-level change.
 
-P1.3 does NOT directly affect the harness's `drift_resolved_ratio`
-— that number is extractor/resolver driven. Its effect lands in
-the downstream evidence pipeline's answer quality. Because the
-user has explicitly told us the LLM eval grid is untrustworthy
-("上次session有假绿, 不可信"), the only gate during P1.3 is the
-deterministic harness: symbol recall must stay at 1.000 and no
-other metric may regress. End-to-end eval grid runs are deferred
-until Phase 0's gate coverage is proven correct for enough changes.
+- **12 production `SymbolDefs` sites**, split into three buckets:
 
-## P1.4 — delete legacy string-keyed paths
+  - **A — name-set iteration for prose matching** (5 sites:
+    `erm.go:800 ermAutoSatisfyUnresolvable`, `erm.go:2217
+    containsGraphSymbol`, `evidence.go:606
+    extractRankingEntitiesWithGraph`, `explorer.go:1892 bestEntity`,
+    `explorer.go:2216/2242 cross-reference bridge`). These iterate
+    every distinct symbol name to match against free text.
+    `SymbolDefs` is the correct data structure; `SymbolByID`
+    iteration is equivalent but offers no benefit.
 
-After every P1.3 consumer has migrated:
+  - **B — first-wins `defs[0]` drift** (2 sites: `erm.go:1858
+    answerSymbolFromEvidence`, `explorer.go:2210 symDefFile`). Both
+    pick `defs[0].File` when a name has multiple definitions.
+    These are real latent drift bugs, but the call sites have no
+    receiver context to disambiguate with. Fixing them requires
+    threading receiver context from upstream (`EvidenceItem.Subject`
+    parsing or `Relation.ToEP.ID` propagation), which is a
+    downstream agent-code refactor, not Phase 1 data-model work.
+    Filed as a standalone follow-up outside Phase 1 scope.
 
-- Delete `Relation.From` and `Relation.To` (keep `ToEP`).
-- Delete `Graph.CallersOf(name string)` (keep `CallersOfID`).
-- Delete `Symbol.Receiver` and `Symbol.Parent` string fields ONLY
-  if their data is redundant with `SymbolID` decomposition — they
-  may stay if they are load-bearing for rendering paths.
-- Delete `Graph.SymbolDefs[name]` ONLY if the name-keyed fallback
-  in rank.go can be removed cleanly. If it stays, rename it
-  `LegacyNameIndex` with a deprecation comment.
+  - **C — iterate-and-filter by kind/receiver** (7 sites:
+    `primaryEntityFiles`, `buildPrimaryTargetBanner`,
+    `hasConcreteRegistrationTarget`, `mechanism_scan.go:204
+    selectMechanismFunctions`, `explorer.go:2443/4947`,
+    `hasConcreteRegistrationTarget`). Migration to `SymbolByID` would
+    be semantically equivalent for Go (which disallows overloading,
+    so the canonical index fully covers the name index) but *lossy*
+    for languages that allow overloading, where `SymbolByID` is
+    first-wins on collision while `SymbolDefs` keeps every def.
+    Until Phase 5 ships the language-plugin work with overload
+    handling, `SymbolDefs` is the correct index for these
+    consumers.
 
-## Roadmap — Phases 2 through 5
+The two drift-sensitive B-bucket sites are tracked as standalone
+agent-code issues outside Phase 1 and will be picked up
+opportunistically when Phase 2 touches the query/rank path or as
+part of the Phase 4 three-layer split.
 
-Phase 2 — ImportResolver split + QueryParser. Per-language
-`resolver_*.go` files replacing the flat switch in
-`graph.go:resolveImport`. CJK-aware QueryParser tokenizer in
-`rank.go:queryMatchScore` to close the 0% CJK hit@k gap surfaced
-by Phase 0. Target metric: task_map hit@k ≥ 0.85.
+## Next step — Phase 2
+
+**2a — per-language ImportResolver (plan item 3).** Replace the
+flat switch in `graph.go:resolveImport` with `resolver_*.go`
+plugins, one per language:
+
+- `resolver_go.go` — parse `go.mod` for module path, map imports
+  to directories by module suffix
+- `resolver_java.go` — exact package-declaration match (replaces
+  the current `strings.Contains` heuristic)
+- `resolver_python.go` — namespace packages, package roots,
+  `src/` layouts
+- `resolver_js.go` — `tsconfig.json` path aliases, package
+  `exports` field
+- `resolver_rust.go` — `Cargo.toml` workspace members + mod tree
+- `resolver_cpp.go` — include paths + basename matching
+
+Emit an `unresolved_imports` list into `Metadata` for diagnostic
+grepping. Add per-language golden-edge tests.
+
+**Gate**: `harness.import_edge_accuracy` must rise from the current
+0.797 toward ≥ 0.95. Symbol recall must stay at 1.000.
+
+**2b — multilingual QueryParser (plan item 6).** Replace
+`strings.Fields`-based `queryMatchScore` in `rank.go`:
+
+- Unicode tokenizer with CJK bi-gram + Latin word split
+- CamelCase / snake_case / kebab-case identifier splitter
+- BM25-like scoring combining text relevance + structural
+  centrality + task context
+- Optional synonym expansion for common code terms
+
+**Gate**: `harness.task_map.mean_hit@k` must rise from 0.729
+toward ≥ 0.85. The seven CJK / underscore-token / compound queries
+currently at 0.0 must land above 0.
+
+**Sequencing**: do 2a first. It is narrower, has deterministic
+golden-edge tests per language, and does not touch the query/rank
+path so rank/view output is unaffected. 2b follows and is best
+isolated from data-model churn.
+
+## Roadmap — Phases 3 through 5
 
 Phase 3 — Cache protocol + structured output. Versioned cache
 metadata (`schema_version`, `extractor_versions`, `repo_head`,
 `checksum`). Dual-channel output: JSON primary for programmatic
 consumers, markdown render for human inspection. Stability +
-observability work.
+observability work. Covers plan items 4 (unified exclude dirs),
+7 (cache versioning), and 9 (dual-channel output).
 
 Phase 4 — Three-layer split. Refactor `internal/tool/repomap/` into
 `index/` (extraction + graph build), `retrieve/` (query + scoring),
-`render/` (view generation). Churn-heavy but architecturally clean;
-done after the data model and cache are stable.
+`render/` (view generation). Covers plan item 1. Churn-heavy but
+architecturally clean; done after the data model and cache are
+stable. This is the natural point to revisit the drift-sensitive
+B-bucket agent consumers because the retrieval layer will own the
+`Relation.ToEP.ID` propagation contract.
 
-Phase 5 — Language plugins + directory exclude unification +
-semantic subgraphs. Extensibility work: C#/PHP/Ruby/Kotlin plugins,
-unify `tool.ExcludeDirs` with the scanner, optional subgraph
-emission (chains/hubs/bridges). After the core is solid.
+Phase 5 — Language plugins + semantic subgraphs. Covers plan items
+5 (C#/PHP/Ruby/Kotlin plugins + `LanguageExtractor` interface)
+and 8 (semantic subgraph output: chains / hubs / bridges). After
+the core is solid.
 
 ## References
 
