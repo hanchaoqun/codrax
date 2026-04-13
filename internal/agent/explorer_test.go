@@ -1677,6 +1677,80 @@ func TestShouldStop_PrimaryFileReadGate_SkippedWhenNoGraphSymbol(t *testing.T) {
 	}
 }
 
+// TestPrimaryEntityFiles_ReceiverDisambiguation pins the df3
+// root-cause fix: when the entity set contains both a type name
+// (struct/class/interface) and a method name that has MULTIPLE
+// sibling definitions across different receivers, the type acts
+// as a receiver hint and only the method definition whose Receiver
+// matches the hint survives.
+//
+// df3 repro: entities = [explorerEvaluator, ContinuationPrompt];
+// graph has three ContinuationPrompt methods (on explorerEvaluator,
+// subExplorerEvaluator, finalizerEvaluator) each in a different
+// file. Without receiver disambiguation, the filter keeps all three
+// primary files and provides no actual scoping — the finalizer sees
+// evidence from all three evaluators' methods.
+func TestPrimaryEntityFiles_ReceiverDisambiguation(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"explorerEvaluator": {{
+				Name: "explorerEvaluator", Kind: "struct",
+				File: "internal/agent/explorer.go", Line: 23,
+			}},
+			"ContinuationPrompt": {
+				// Three sibling methods, same name, different receivers.
+				{Name: "ContinuationPrompt", Kind: "method", Receiver: "explorerEvaluator",
+					File: "internal/agent/explorer.go", Line: 774},
+				{Name: "ContinuationPrompt", Kind: "method", Receiver: "subExplorerEvaluator",
+					File: "internal/agent/sub_explorer.go", Line: 154},
+				{Name: "ContinuationPrompt", Kind: "method", Receiver: "finalizerEvaluator",
+					File: "internal/agent/finalizer.go", Line: 161},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: graph},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: "mechanism", Entities: []string{"explorerEvaluator", "ContinuationPrompt"}, Status: "unsatisfied"},
+		},
+	}
+	files := eval.primaryEntityFiles()
+	if len(files) != 1 {
+		t.Fatalf("expected 1 primary file after receiver disambiguation, got %d: %v", len(files), files)
+	}
+	if files[0] != "internal/agent/explorer.go" {
+		t.Errorf("receiver hint explorerEvaluator should select explorer.go, got %q", files[0])
+	}
+}
+
+// TestPrimaryEntityFiles_NoReceiverHint verifies the fallback: when
+// only method-kind entities are in the set (no type qualifier), all
+// method definitions contribute their file. The old permissive
+// behaviour is preserved so questions like "where is Execute called"
+// (no type qualifier) still get a broad primary-file set.
+func TestPrimaryEntityFiles_NoReceiverHint(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Execute": {
+				{Name: "Execute", Kind: "method", Receiver: "BaseAgent",
+					File: "internal/agent/agent.go", Line: 317},
+				{Name: "Execute", Kind: "method", Receiver: "Planner",
+					File: "internal/agent/planner.go", Line: 100},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: graph},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: "call_chain", Entities: []string{"Execute"}, Status: "unsatisfied"},
+		},
+	}
+	files := eval.primaryEntityFiles()
+	if len(files) != 2 {
+		t.Fatalf("no receiver hint → all method defs should contribute, got %d: %v", len(files), files)
+	}
+}
+
 // TestFilterEvidenceByPrimaryFiles pins the df3 drift-fix filter
 // contract: items from primary-entity files are kept, items from
 // other files are dropped, and items with no Source are kept

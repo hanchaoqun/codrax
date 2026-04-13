@@ -20,25 +20,29 @@ ID="df3"
 NAME="ContinuationPrompt mechanism enumeration"
 QUESTION="explorerEvaluator 的 ContinuationPrompt 是怎么实现的?有哪几种 push 策略?"
 #
-# EXPECT_CONTAINS substring set must catch semantic correctness, not
-# just "file name appears somewhere in the output." Previous version
-# (ContinuationPrompt + explorer.go) allowed 15/15 grid runs to green
-# while the actual answers pointed at subExplorerEvaluator.Continuation-
-# Prompt (the trivial `return "", false` in sub_explorer.go) instead of
-# listing explorerEvaluator's real push strategies. See
-# memory/project_df3_semantic_drift_2026_04_13.md.
+# Verdict strategy: positive substrings verify the answer is anchored
+# on the right entity; negative substrings forbid the specific failure
+# mode (drifting into sibling evaluators' same-named methods).
 #
-# Tightened set, rationale per substring:
-#   - ContinuationPrompt       entity name — always expected
+# Previous attempt used `partial` / `enumeration` as positive substrings
+# to verify strategy enumeration, but those failed on correct Chinese
+# answers where the LLM paraphrased into `函数边界` / `枚举完整性`
+# instead of keeping the English terms. Structural anchors that survive
+# bilingual paraphrase are the only reliable positive signal.
+#
+# Positive substrings (AND, all required):
+#   - ContinuationPrompt       entity name — always kept as code identifier
 #   - explorer.go              grounded in the right source file
-#   - explorerEvaluator        disambiguates from subExplorerEvaluator
-#                              so an answer pointing at sub_explorer.go
-#                              no longer green-washes
-# The two T3 ground-truth push strategies the answer must mention:
-#   - partial                  the partial-read / function-boundary push
-#   - enumeration              the enumeration-completeness push
-# Both are short enough to appear in either Chinese or English answers
-# (Chinese rewrite typically keeps the English term for "partial" and
-# "enumeration").
-EXPECT_CONTAINS="ContinuationPrompt explorer.go explorerEvaluator partial enumeration"
-EXPECT_NOT_CONTAINS=""
+#   - explorerEvaluator        the receiver type, disambiguates from
+#                              subExplorerEvaluator / finalizerEvaluator
+#
+# Negative substrings (none may appear): the three sibling evaluators
+# that all have a ContinuationPrompt method but are NOT the target.
+# A correct answer that is scoped to explorerEvaluator will never need
+# to mention these sibling names. Their presence is dispositive evidence
+# of the "polymorphic method drift" failure mode (see the 15-run audit
+# on df3-{151444,173231,181104} where every "PASS" green-washed an
+# answer citing subExplorerEvaluator.ContinuationPrompt's trivial
+# `return "", false`).
+EXPECT_CONTAINS="ContinuationPrompt explorer.go explorerEvaluator"
+EXPECT_NOT_CONTAINS="subExplorerEvaluator finalizerEvaluator"

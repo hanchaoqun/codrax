@@ -389,7 +389,19 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 // Entity-to-file lookup uses exact-name match (case-insensitive) on
 // `Graph.SymbolDefs`. Entities that have no graph symbol (concept
 // words, generic English nouns) contribute nothing — for those the
-// gate is skipped, and the existing ERM/evidence checks govern.
+// gate is skipped and the existing ERM/evidence checks govern.
+//
+// Receiver-aware disambiguation: when the entity set contains a
+// type-shaped symbol (struct / class / interface / type kind), that
+// symbol's name is treated as a "receiver hint". Method-kind entities
+// in the same set are then filtered to definitions whose Receiver is
+// in the hint set. This makes "explorerEvaluator 的 ContinuationPrompt"
+// resolve to the SINGLE explorer.go definition instead of the three
+// sibling methods (explorerEvaluator / subExplorerEvaluator /
+// finalizerEvaluator) all named ContinuationPrompt — the df3 drift
+// root cause. When no receiver hint exists (question has only method
+// entities with no type qualifier), the old behaviour is preserved:
+// all method definitions contribute their file.
 //
 // The function is called each time MidLoopCheck and ShouldStop need
 // the set. It is cheap (hash lookups per entity) and re-computing
@@ -399,26 +411,63 @@ func (e *explorerEvaluator) primaryEntityFiles() []string {
 		return nil
 	}
 	graph := e.searchResult.Graph
-	seen := make(map[string]bool)
-	var files []string
+
+	// Flatten all ERM entities into a set.
+	entities := make(map[string]string) // lower → original case
 	for _, req := range e.ermRequirements {
 		for _, ent := range req.Entities {
 			if ent == "" {
 				continue
 			}
-			entLower := strings.ToLower(ent)
-			for symName, defs := range graph.SymbolDefs {
-				if strings.ToLower(symName) != entLower {
+			entities[strings.ToLower(ent)] = ent
+		}
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+
+	// Build receiver hint set: entities that resolve to a type-shaped
+	// symbol (struct / class / interface / type / enum). Use the
+	// canonical symbol name from the graph (original case) since
+	// Symbol.Receiver strings also preserve case.
+	receiverHint := make(map[string]bool)
+	for entLower := range entities {
+		for symName, defs := range graph.SymbolDefs {
+			if strings.ToLower(symName) != entLower {
+				continue
+			}
+			for _, d := range defs {
+				if d == nil {
 					continue
 				}
-				for _, d := range defs {
-					if d == nil || d.File == "" {
+				switch strings.ToLower(d.Kind) {
+				case "struct", "class", "interface", "type", "enum":
+					receiverHint[symName] = true
+				}
+			}
+		}
+	}
+
+	seen := make(map[string]bool)
+	var files []string
+	for entLower := range entities {
+		for symName, defs := range graph.SymbolDefs {
+			if strings.ToLower(symName) != entLower {
+				continue
+			}
+			for _, d := range defs {
+				if d == nil || d.File == "" {
+					continue
+				}
+				// Receiver-aware disambiguation for methods.
+				if strings.ToLower(d.Kind) == "method" && len(receiverHint) > 0 {
+					if !receiverHint[d.Receiver] {
 						continue
 					}
-					if !seen[d.File] {
-						seen[d.File] = true
-						files = append(files, d.File)
-					}
+				}
+				if !seen[d.File] {
+					seen[d.File] = true
+					files = append(files, d.File)
 				}
 			}
 		}
