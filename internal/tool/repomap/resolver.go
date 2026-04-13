@@ -102,13 +102,17 @@ func (r *legacyResolver) Resolve(g *Graph, fi *FileInfo, imp Import, ctx *Resolv
 // defaultResolvers returns the Phase 2a dispatcher map. Languages
 // that have a dedicated resolver are wired here; the rest still fall
 // back to legacyResolver until their per-language commit lands.
+//
+// JS and TS share a single jsImportResolver instance so tsconfig
+// parsing only runs once per BuildGraph.
 func defaultResolvers() map[string]ImportResolver {
+	js := &jsImportResolver{}
 	return map[string]ImportResolver{
 		LangGo:         &goImportResolver{},
 		LangJava:       &javaImportResolver{},
 		LangPython:     &pythonImportResolver{},
-		LangJavaScript: &legacyResolver{lang: LangJavaScript},
-		LangTypeScript: &legacyResolver{lang: LangTypeScript},
+		LangJavaScript: js,
+		LangTypeScript: js,
 		LangRust:       &legacyResolver{lang: LangRust},
 		LangC:          &legacyResolver{lang: LangC},
 		LangCpp:        &legacyResolver{lang: LangCpp},

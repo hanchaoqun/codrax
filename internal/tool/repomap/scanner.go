@@ -37,6 +37,8 @@ var specialFiles = map[string]string{
 	"go.mod":         "build_config",
 	"go.sum":         "build_config",
 	"package.json":   "build_config",
+	"tsconfig.json":  "build_config",
+	"jsconfig.json":  "build_config",
 	"pom.xml":        "build_config",
 	"build.gradle":   "build_config",
 	"Cargo.toml":     "build_config",
