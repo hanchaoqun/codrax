@@ -1,0 +1,9 @@
+# Precision grid T3 — condition resolution, itemized listing.
+# Ground truth: 7 continuation push strategies in Phase 1
+# (function-boundary, enumeration, large-file grep, preScanned,
+#  unanalyzed symbols, idle streak, idle termination).
+ID="t3"
+NAME="condition resolution — Phase 1 continuation push strategies"
+QUESTION="explorerEvaluator的ContinuationPrompt在Phase 1阶段，具体有哪几种continuation push策略？每种策略的触发条件是什么？按优先级从高到低排列。"
+EXPECT_CONTAINS=""
+EXPECT_NOT_CONTAINS=""

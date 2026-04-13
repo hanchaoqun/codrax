@@ -1,0 +1,9 @@
+# Precision grid T1 — multi-hop reasoning (control flow).
+# See memory/reference_explorer_eval_methodology.md for ground truth
+# and scoring rubric. Pass/fail gates intentionally empty so eval/run.sh
+# captures logs + stdout without blocking on EXPECT_CONTAINS.
+ID="t1"
+NAME="multi-hop — BaseAgent.Execute continuation vs synthesis context"
+QUESTION="BaseAgent的Execute方法中，当evaluator同时实现了ContinuingEvaluator和SynthesizingEvaluator时，执行流程是怎样的？synthesis调用是否会看到continuation注入的消息？"
+EXPECT_CONTAINS=""
+EXPECT_NOT_CONTAINS=""

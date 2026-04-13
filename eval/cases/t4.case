@@ -1,0 +1,8 @@
+# Precision grid T4 — config-driven behavior tracing.
+# Ground truth: stage → policy filter → dispatchStage → decideNextStage
+# chain, with transition priority and signal validation.
+ID="t4"
+NAME="config tracing — stage definition to agent dispatch"
+QUESTION="从orchestrator.yaml中的stage定义到实际agent dispatch，中间经过哪些关键步骤？stage的transition priority是如何影响下一个stage选择的？"
+EXPECT_CONTAINS=""
+EXPECT_NOT_CONTAINS=""

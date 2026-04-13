@@ -1,0 +1,7 @@
+# Precision grid T2 — enumeration completeness.
+# Ground truth: 9 Evaluator implementations in internal/agent/.
+ID="t2"
+NAME="enumeration — all Evaluator types and their ShouldStop conditions"
+QUESTION="项目中所有实现了Evaluator接口的具体类型有哪些？每个类型的ShouldStop分别在什么条件下返回true？"
+EXPECT_CONTAINS=""
+EXPECT_NOT_CONTAINS=""
