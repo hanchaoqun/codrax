@@ -1,0 +1,178 @@
+package hdp
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+func rm(intent types.Intent, symbols ...string) types.RequestModel {
+	out := types.RequestModel{Intent: intent}
+	for _, s := range symbols {
+		out.TermGraph.Canonical = append(out.TermGraph.Canonical, types.CanonicalTerm{
+			ID: "code:" + strings.ToLower(s), Surface: s,
+			Kind: types.TermSymbol, Confidence: 0.9,
+		})
+	}
+	return out
+}
+
+func findByStatement(hs []types.Hypothesis, needle string) *types.Hypothesis {
+	for i := range hs {
+		if strings.Contains(hs[i].Statement, needle) {
+			return &hs[i]
+		}
+	}
+	return nil
+}
+
+func TestPlan_RootCause_PrioritizesTopSymbol(t *testing.T) {
+	hs := Plan(rm(types.IntentRootCause, "Explorer", "ShouldStop"))
+	if len(hs) == 0 {
+		t.Fatal("expected at least one hypothesis")
+	}
+	h := findByStatement(hs, "Explorer")
+	if h == nil {
+		t.Fatalf("expected hypothesis mentioning Explorer; got %+v", hs)
+	}
+	if h.Priority < 80 {
+		t.Fatalf("root_cause seed hypothesis should have priority ≥80; got %d", h.Priority)
+	}
+	if h.Status != types.HypUnknown {
+		t.Fatalf("fresh hypotheses must be unknown; got %q", h.Status)
+	}
+}
+
+func TestPlan_SecurityAudit_StandardHypothesis(t *testing.T) {
+	hs := Plan(rm(types.IntentSecurityAudit))
+	if len(hs) == 0 {
+		t.Fatal("expected at least one hypothesis")
+	}
+	if hs[0].FalsificationCondition.Kind != "all_surfaces_validated" {
+		t.Fatalf("security audit falsification mismatched: %+v", hs[0].FalsificationCondition)
+	}
+}
+
+func TestPlan_Ambiguity_ProducesHypothesisPerClause(t *testing.T) {
+	input := rm(types.IntentExplain, "Foo")
+	input.Ambiguities = []types.Ambiguity{
+		{Clause: "stop", Options: []string{"soft", "hard"}, Resolution: "both"},
+		{Clause: "cache", Options: []string{"memory", "disk"}},
+	}
+	hs := Plan(input)
+	clauseHits := 0
+	for _, h := range hs {
+		if strings.Contains(h.Statement, `"stop"`) || strings.Contains(h.Statement, `"cache"`) {
+			clauseHits++
+		}
+	}
+	if clauseHits != 2 {
+		t.Fatalf("expected 2 clause-driven hypotheses; got %d (full=%+v)", clauseHits, hs)
+	}
+}
+
+func TestPlan_HighSecurity_AddsUntrustedPathHypothesis(t *testing.T) {
+	input := rm(types.IntentRefactor, "Auth")
+	input.RiskMatrix.Security.Level = 4
+	hs := Plan(input)
+	if findByStatement(hs, "un-sanitized") == nil {
+		t.Fatalf("security≥3 must add untrusted-path hypothesis; got %+v", hs)
+	}
+}
+
+func TestPlan_HighDataIntegrity_AddsInvariantHypothesis(t *testing.T) {
+	input := rm(types.IntentBugfix, "Migration")
+	input.RiskMatrix.DataIntegrity.Level = 5
+	hs := Plan(input)
+	if findByStatement(hs, "data invariants") == nil {
+		t.Fatalf("data_integrity≥3 must add invariant hypothesis; got %+v", hs)
+	}
+}
+
+func TestPlan_NeverEmpty(t *testing.T) {
+	// No terms, no intent, no ambiguities — should still produce a
+	// baseline hypothesis so Bind has something to attach.
+	hs := Plan(types.RequestModel{})
+	if len(hs) == 0 {
+		t.Fatalf("Plan must never return an empty hypothesis set")
+	}
+}
+
+func TestBind_AttachesToEvidenceAndValidate(t *testing.T) {
+	tg := types.TaskGraph{Nodes: []types.TaskNode{
+		{ID: "n0", Type: types.NodeProbe},
+		{ID: "n1", Type: types.NodeEvidence},
+		{ID: "n2", Type: types.NodeValidate},
+		{ID: "n3", Type: types.NodeFinalize},
+	}}
+	hs := []types.Hypothesis{{ID: "h1"}, {ID: "h2"}}
+	Bind(&tg, hs)
+	if len(tg.Nodes[0].Hypotheses) != 0 {
+		t.Fatalf("probe nodes must not be bound; got %+v", tg.Nodes[0].Hypotheses)
+	}
+	if len(tg.Nodes[1].Hypotheses) == 0 || len(tg.Nodes[2].Hypotheses) == 0 || len(tg.Nodes[3].Hypotheses) == 0 {
+		t.Fatalf("evidence/validate/finalize must be bound; got %+v", tg.Nodes)
+	}
+	// Round-robin: n1 → h1, n2 → h2, n3 → h1
+	if tg.Nodes[1].Hypotheses[0] != "h1" || tg.Nodes[3].Hypotheses[0] != "h1" {
+		t.Fatalf("round-robin binding broken: %+v", tg.Nodes)
+	}
+}
+
+func TestBind_PreservesExistingBindings(t *testing.T) {
+	tg := types.TaskGraph{Nodes: []types.TaskNode{
+		{ID: "n1", Type: types.NodeEvidence, Hypotheses: []string{"h_preexisting"}},
+		{ID: "n2", Type: types.NodeValidate},
+	}}
+	Bind(&tg, []types.Hypothesis{{ID: "h1"}})
+	if tg.Nodes[0].Hypotheses[0] != "h_preexisting" {
+		t.Fatalf("Bind must not overwrite existing hypothesis list; got %+v", tg.Nodes[0].Hypotheses)
+	}
+	if tg.Nodes[1].Hypotheses[0] != "h1" {
+		t.Fatalf("Bind must attach to unbound nodes; got %+v", tg.Nodes[1].Hypotheses)
+	}
+}
+
+func TestValidate_FlagsUnboundNodes(t *testing.T) {
+	tg := types.TaskGraph{Nodes: []types.TaskNode{
+		{ID: "probe", Type: types.NodeProbe},
+		{ID: "ev", Type: types.NodeEvidence},
+		{ID: "val", Type: types.NodeValidate, Hypotheses: []string{"h1"}},
+		{ID: "fin", Type: types.NodeFinalize},
+	}}
+	missing := Validate(tg)
+	if len(missing) != 2 {
+		t.Fatalf("expected 2 missing bindings (ev, fin); got %v", missing)
+	}
+	wantSet := map[string]bool{"ev": true, "fin": true}
+	for _, id := range missing {
+		if !wantSet[id] {
+			t.Fatalf("unexpected missing node %q", id)
+		}
+	}
+}
+
+func TestValidate_AllBoundPassesEmpty(t *testing.T) {
+	tg := types.TaskGraph{Nodes: []types.TaskNode{
+		{ID: "probe", Type: types.NodeProbe},
+		{ID: "ev", Type: types.NodeEvidence, Hypotheses: []string{"h1"}},
+		{ID: "fin", Type: types.NodeFinalize, Hypotheses: []string{"h1"}},
+	}}
+	if len(Validate(tg)) != 0 {
+		t.Fatalf("fully bound graph should pass; got %+v", Validate(tg))
+	}
+}
+
+func TestPlan_Deterministic(t *testing.T) {
+	a := Plan(rm(types.IntentRootCause, "Foo", "Bar"))
+	b := Plan(rm(types.IntentRootCause, "Foo", "Bar"))
+	if len(a) != len(b) {
+		t.Fatalf("non-deterministic length: %d vs %d", len(a), len(b))
+	}
+	for i := range a {
+		if a[i].ID != b[i].ID || a[i].Statement != b[i].Statement {
+			t.Fatalf("non-deterministic hypothesis at %d: %+v vs %+v", i, a[i], b[i])
+		}
+	}
+}
