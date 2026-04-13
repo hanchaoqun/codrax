@@ -635,6 +635,14 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// so a hint from explore never leaks into plan.
 	o.busCtx.TaskState.RetryHint = output.RetryHint
 
+	// Store the Analyzer v3 structured output on the first non-nil
+	// value and never overwrite it. Subsequent re-dispatches of
+	// analyze (rare but possible under retry budget) preserve the
+	// frozen RunPolicy contract.
+	if output.AnalysisIR != nil && o.busCtx.AnalysisIR == nil {
+		o.busCtx.AnalysisIR = output.AnalysisIR
+	}
+
 	// Update signals
 	if output.SignalUpdates != nil {
 		s := output.SignalUpdates

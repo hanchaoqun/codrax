@@ -78,6 +78,14 @@ type StageOutput struct {
 	// reverse-engineer it from raw tool dumps. applyStageOutput
 	// appends it to BusContext.StageReports.
 	StageReport string `json:"stage_report,omitempty"`
+
+	// AnalysisIR is the Analyzer v3 structured output. Only the
+	// analyzer stage sets this; other stages leave it nil.
+	// applyStageOutput copies it onto BusContext.AnalysisIR on the
+	// first non-nil value and leaves it alone afterwards, so the
+	// "RunPolicy frozen for the rest of the run" invariant holds even
+	// when a rogue re-dispatch reaches the analyzer a second time.
+	AnalysisIR *types.AnalysisIR `json:"analysis_ir,omitempty"`
 }
 
 // Agent defines the interface for all agent types.

@@ -3,25 +3,59 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
+	"unicode"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/compiler"
+	"github.com/hanchaoqun/codrax/internal/analysis/counterfactual"
+	"github.com/hanchaoqun/codrax/internal/analysis/gate"
+	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
+	"github.com/hanchaoqun/codrax/internal/analysis/risk"
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // analyzerEvaluator customizes the ReAct loop for the analyzer agent,
 // which is responsible only for the analyze stage: classify the user
-// request and produce the initial task list.
+// request and produce both the legacy task list AND the Analyzer v3
+// structured AnalysisIR.
 //
-// The analyzer drives task list creation through the todo_write tool
-// (see internal/tool/todo_write.go) — it does not parse the LLM's
-// free-form output anymore. The tool mutates BusContext.Mutable
-// directly, so by the time ParseOutput runs the working task list is
-// already in place. ParseOutput's only remaining job is to capture
-// the assistant's natural-language summary of what it decided.
+// Under Analyzer v3 (batch B5) the analyzer now runs a deterministic
+// post-processing pipeline after the LLM has called todo_write:
+//
+//   1. LLM produces a legacy TaskItem via todo_write (unchanged prompt
+//      contract; preserves the 35/35 baseline on df1/df3/t1-t5).
+//   2. ParseOutput builds a RequestModel from the TaskItem + the raw
+//      user objective. Language is auto-detected from Han characters,
+//      intent is mapped from the legacy question_kind, and the term
+//      graph comes from running the normalizer over the raw objective.
+//   3. compiler.Compile produces the scenario-templated TaskGraph,
+//      EvidencePlan, and AnswerContract. The AnswerContract's
+//      required_answer_shape is overridden by the legacy answer_shape
+//      field when the LLM supplied one, so classifier improvements
+//      survive.
+//   4. risk.Evaluate + risk.DerivePolicy freeze the RunPolicy.
+//   5. hdp.Plan + hdp.Bind attach falsifiable hypotheses to every
+//      non-probe node.
+//   6. counterfactual.Expand runs only when ShouldExpand says the
+//      request is complex, multi-option-ambiguous, and explain/root-
+//      cause/security. Default policy keeps it off until batch B9.
+//   7. gate.Run reports quality-gate findings. A rejected gate does
+//      NOT block the run in B5 — it is logged and surfaced on the IR
+//      so downstream analytics can diff failures. B5b will wire this
+//      to the retry budget once we have eval coverage.
+//
+// The downstream consumers (explorer, finalizer, ERM, orchestrator)
+// continue to read the legacy TaskItem fields in B5. Batch B5b
+// switches them to the IR and deletes the legacy fields.
 type analyzerEvaluator struct{}
 
 func (e *analyzerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+	_ = ctx
+	_ = sk
 	// The analyzer is the first LLM in the pipeline to see the raw
 	// user request, so it has strictly more context than any downstream
 	// post-hoc extractor. Every field it writes via todo_write feeds a
@@ -96,6 +130,7 @@ answer_shape — pick one:
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
+	_ = iteration
 	return len(resp.ToolCalls) == 0
 }
 
@@ -132,6 +167,13 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
+	// Build the Analyzer v3 IR deterministically from the current
+	// TaskItem + raw objective. Every sub-component runs even when
+	// parts of the TaskItem are empty — the compiler's generic
+	// template + a zero risk matrix + a single baseline hypothesis
+	// are still a valid starting point for downstream consumers.
+	ir := buildAnalysisIR(ctx)
+
 	// Assemble a structured StageOutput.Data so the trace records the
 	// analyzer's classification machine-readably (in addition to the
 	// natural-language rationale). Downstream consumers and post-run
@@ -150,6 +192,20 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			data["keyword_count"] = len(current.Keywords)
 		}
 	}
+	if ir != nil {
+		data["ir_version"] = ir.Version
+		data["ir_scenario"] = string(ir.RequestModel.Scenario)
+		data["ir_intent"] = string(ir.RequestModel.Intent)
+		data["ir_nodes"] = len(ir.TaskGraph.Nodes)
+		data["ir_hypotheses"] = len(ir.HypothesisSet)
+		data["ir_gate_passed"] = ir.QualityGate.Passed
+		if !ir.QualityGate.Passed {
+			// Log gate failures at debug so B5 eval can diff them
+			// without the trace getting noisy on the happy path.
+			logging.Debug("[analyzer-v3] gate rejected: retryable=%v checks=%+v",
+				ir.QualityGate.Retryable, ir.QualityGate.Checks)
+		}
+	}
 	raw, err := json.Marshal(data)
 	if err != nil {
 		// Marshal of a map[string]any with string/int values can only
@@ -158,11 +214,13 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	return &StageOutput{
-		Data: raw,
+		Data:       raw,
+		AnalysisIR: ir,
 	}, nil
 }
 
 func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *StageOutput) types.MissingPiece {
+	_ = ctx
 	return types.MissingFacts
 }
 
@@ -170,4 +228,204 @@ func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *St
 func NewAnalyzerAgent(deps *Dependencies) Agent {
 	eval := &analyzerEvaluator{}
 	return NewBaseAgent(types.AgentAnalyzer, deps, eval)
+}
+
+// ── Analyzer v3 IR builder ───────────────────────────────────────────
+
+// buildAnalysisIR composes a full AnalysisIR by running the deterministic
+// pipeline (normalizer → compiler → risk → hdp → counterfactual → gate)
+// over a RequestModel synthesized from the current TaskItem and the
+// raw user objective. It is tolerant of missing fields: every sub-step
+// has a sensible zero-value fallback.
+func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
+	if ctx == nil {
+		return nil
+	}
+	var task *types.TaskItem
+	if ctx.Mutable != nil {
+		tl := ctx.Mutable.TaskList()
+		task = tl.CurrentTask()
+	}
+
+	// 1. RequestModel from TaskItem + Objective.
+	rm := buildRequestModel(ctx, task)
+
+	// 2. Scenario compilation.
+	out := compiler.Compile(rm)
+
+	// 3. AnswerShape override from the legacy TaskItem when set — the
+	// LLM's explicit shape choice should trump the scenario template's
+	// default shape (e.g. the analyzer decided a particular mechanism
+	// question is list_of_symbols rather than step_list).
+	if task != nil && task.AnswerShape != "" {
+		shape := mapAnswerShape(task.AnswerShape)
+		if shape != "" {
+			out.AnswerContract.RequiredAnswerShape = shape
+		}
+	}
+
+	// 4. Risk matrix + run policy.
+	rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)
+	writing := false
+	if task != nil {
+		writing = task.Writing
+	}
+	runPolicy := risk.DerivePolicy(rm.RiskMatrix, writing)
+	// HighRisk on the legacy TaskItem is an OR of all the review
+	// switches — honor it for backward compatibility.
+	if task != nil && task.HighRisk {
+		runPolicy.RequireDesignReview = true
+		runPolicy.RequireCodeReview = true
+	}
+
+	// 5. Hypothesis planning and binding.
+	hypotheses := hdp.Plan(rm)
+	hdp.Bind(&out.TaskGraph, hypotheses)
+
+	// 6. Optional counterfactual expansion.
+	if counterfactual.ShouldExpand(rm) {
+		expanded, newIDs := counterfactual.Expand(
+			out.TaskGraph, rm,
+			counterfactual.Options{Enabled: true, MaxBranches: 1},
+		)
+		out.TaskGraph = expanded
+		if len(newIDs) > 0 {
+			// Bind hypotheses to any new counterfactual nodes the
+			// expander added, so the quality gate's coverage check
+			// still passes.
+			hdp.Bind(&out.TaskGraph, hypotheses)
+		}
+	}
+
+	ir := &types.AnalysisIR{
+		Version:        types.AnalysisIRVersion,
+		RequestModel:   rm,
+		TaskGraph:      out.TaskGraph,
+		EvidencePlan:   out.EvidencePlan,
+		AnswerContract: out.AnswerContract,
+		HypothesisSet:  hypotheses,
+		RunPolicy:      runPolicy,
+		TraceID:        ctx.CurrentTaskID,
+	}
+
+	// 7. Quality gate — reported, not enforced in B5.
+	ir.QualityGate = gate.Run(ir, gate.Thresholds{})
+
+	return ir
+}
+
+// buildRequestModel turns the raw objective + legacy TaskItem into a
+// RequestModel. The normalizer produces the canonical TermGraph from
+// the raw text (always), and the TaskItem-supplied intent/complexity/
+// ambiguity-free classification is honored when present.
+func buildRequestModel(ctx *types.AgentContext, task *types.TaskItem) types.RequestModel {
+	raw := ctx.Objective
+	// Normalize the raw objective to populate the term graph. We run
+	// this unconditionally — it's cheap and deterministic.
+	termGraph := normalizer.Normalize(raw, normalizer.Options{})
+
+	rm := types.RequestModel{
+		RawRequest: raw,
+		Language:   detectLanguage(raw, ctx.Preferences),
+		TermGraph:  termGraph,
+		Complexity: types.ComplexityModerate,
+	}
+
+	if task != nil {
+		if task.Complexity != "" {
+			if c := mapComplexity(task.Complexity); c != "" {
+				rm.Complexity = c
+			}
+		}
+		rm.Intent = mapIntent(task.QuestionKind)
+	} else {
+		rm.Intent = types.IntentUnknown
+	}
+
+	// Scenario is derived from Intent + TermGraph. The compiler's
+	// templates already honor ScenarioGeneric as the fallback so
+	// InferScenario's output is always safe.
+	rm.Scenario = compiler.InferScenario(rm)
+
+	return rm
+}
+
+// mapIntent translates the legacy question_kind enum (analyzer prompt
+// contract) into the v3 Intent enum. Unknown maps to IntentUnknown
+// rather than an empty string so compiler.InferScenario gets a
+// consistent shape.
+func mapIntent(qk string) types.Intent {
+	switch strings.ToLower(strings.TrimSpace(qk)) {
+	case "registration":
+		return types.IntentEnumerate // "X registers Y" is a set question
+	case "mechanism":
+		return types.IntentExplain
+	case "return_value":
+		return types.IntentReturnValue
+	case "conditional":
+		return types.IntentTrace
+	case "config_mapping":
+		return types.IntentConfigQuery
+	case "enumeration":
+		return types.IntentEnumerate
+	case "call_chain":
+		return types.IntentTrace
+	}
+	return types.IntentUnknown
+}
+
+// mapComplexity coerces the legacy complexity string into the typed
+// Complexity enum. Empty or unrecognized → "" so the caller can apply
+// its own default.
+func mapComplexity(s string) types.Complexity {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "simple":
+		return types.ComplexitySimple
+	case "moderate", "":
+		return types.ComplexityModerate
+	case "complex":
+		return types.ComplexityComplex
+	}
+	return ""
+}
+
+// mapAnswerShape coerces the legacy answer_shape string into the typed
+// AnswerShape enum. Unknown values return "" so the compiler's default
+// stays in place.
+func mapAnswerShape(s string) types.AnswerShape {
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "list_of_symbols":
+		return types.ShapeListOfSymbols
+	case "step_list":
+		return types.ShapeStepList
+	case "value":
+		return types.ShapeValue
+	case "boolean":
+		return types.ShapeBoolean
+	case "config_value":
+		return types.ShapeConfigValue
+	case "none":
+		return types.ShapeNone
+	}
+	return ""
+}
+
+// detectLanguage picks "zh" when the raw request contains Han
+// characters, "en" otherwise. Falls back to Preferences-declared
+// language when the request is entirely non-alphabetic (edge case).
+func detectLanguage(raw string, prefs []string) string {
+	for _, r := range raw {
+		if unicode.Is(unicode.Han, r) {
+			return "zh"
+		}
+	}
+	// If the raw request is Latin-only, honor a preference override
+	// so -lang=zh still produces an IR with zh language tag.
+	for _, p := range prefs {
+		lp := strings.ToLower(p)
+		if strings.Contains(lp, "chinese") || strings.Contains(lp, "zh") || strings.Contains(lp, "简体中文") {
+			return "zh"
+		}
+	}
+	return "en"
 }

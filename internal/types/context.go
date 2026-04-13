@@ -262,6 +262,21 @@ type BusContext struct {
 
 	LastTransitionReason string `json:"last_transition_reason,omitempty"`
 	TraceID              string `json:"trace_id"`
+
+	// AnalysisIR is the Analyzer v3 structured output. Set once by the
+	// analyze stage via StageOutput.AnalysisIR → applyStageOutput and
+	// never rewritten thereafter — the v3 contract says the analyzer
+	// is the sole writer and RunPolicy is frozen for the rest of the
+	// run. Downstream stages may still write hypothesis status or
+	// per-node execution state through dedicated APIs that are added
+	// later batches; the top-level pointer itself stays read-only.
+	//
+	// TaskItem's legacy analyzer-populated fields
+	// (Writing/HighRisk/Complexity/Keywords/Entities/QuestionKind/
+	// AnswerShape) remain populated in parallel as a compatibility
+	// layer so pre-v3 consumers (explorer/finalizer/orchestrator)
+	// keep reading the same surfaces until batch B5b deletes them.
+	AnalysisIR *AnalysisIR `json:"analysis_ir,omitempty"`
 }
 
 // AgentContext provides the narrowed view of BusContext for a single agent.
@@ -280,6 +295,13 @@ type AgentContext struct {
 	CurrentTaskEntities     []string `json:"current_task_entities,omitempty"`
 	CurrentTaskQuestionKind string   `json:"current_task_question_kind,omitempty"`
 	CurrentTaskAnswerShape  string   `json:"current_task_answer_shape,omitempty"`
+
+	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
+	// opted into the v3 pipeline. Still nil for legacy call paths —
+	// consumers MUST nil-check before reading. Batch B5 wires this
+	// through; B5b removes the legacy CurrentTask* fields above once
+	// every consumer has migrated.
+	AnalysisIR *AnalysisIR `json:"-"`
 
 	RelevantFacts         []string            `json:"relevant_facts,omitempty"`
 	RelevantFiles         []string            `json:"relevant_files,omitempty"`

@@ -26,6 +26,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		Commit:       bus.Commit,
 		WorkDir:      bus.WorkDir,
 		Mutable:      bus.Mutable, // shared pointer; tools mutate through this
+		AnalysisIR:   bus.AnalysisIR,
 	}
 
 	// Set current task info
