@@ -6,6 +6,45 @@ import (
 	"testing"
 )
 
+// TestIsTestFile locks the test-vs-impl classifier used by
+// queryMatchScore to damp _test.go siblings. Positive cases must
+// catch every language convention repomap supports; negative cases
+// must avoid false positives on implementation files that happen
+// to contain "test" in their path or name.
+func TestIsTestFile(t *testing.T) {
+	positive := []string{
+		"internal/agent/finalizer_test.go",
+		"tool/repomap/resolver_go_test.go",
+		"tests/foo.rs",
+		"crates/app/tests/integration.rs",
+		"foo/test_something.py",
+		"foo/module_test.py",
+		"com/acme/MyClassTest.java",
+		"com/acme/MyClassTests.java",
+		"src/components/Button.test.tsx",
+		"src/app.spec.ts",
+		"src/app.test.js",
+	}
+	for _, p := range positive {
+		if !isTestFile(p) {
+			t.Errorf("isTestFile(%q) = false, want true", p)
+		}
+	}
+	negative := []string{
+		"internal/agent/tester.go",            // substring "test" but not a test file
+		"internal/analysis/gate/gate.go",      // no test
+		"src/testimonial/page.tsx",            // substring "test" in dir
+		"internal/tool/repomap/extract_go.go", // contains "_" + "go"
+		"com/acme/Tester.java",                // not *Test.java
+		"foo/testing.py",                      // not test_* / *_test
+	}
+	for _, p := range negative {
+		if isTestFile(p) {
+			t.Errorf("isTestFile(%q) = true, want false", p)
+		}
+	}
+}
+
 // TestTokenizeQuery locks the core behaviors expected by the
 // multilingual rewrite of queryMatchScore: primary + CamelCase /
 // snake / kebab / dotted decomposition, CJK bi-gram, dedup, digit

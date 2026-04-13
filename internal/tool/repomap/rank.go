@@ -285,6 +285,15 @@ func hasMainMethod(fi *FileInfo) bool {
 // primary-weight bi-grams. Each token hit contributes its weight
 // times the field multiplier (path=3, symbol=2, doc=1); total is
 // capped at 20 to prevent a single file from dominating rank.
+//
+// Test files receive a 0.5 multiplier on the final score. They
+// tend to share every symbol name with their target plus extra
+// test helpers, so without the penalty a query like
+// "finalizer answer shape translation" ranks finalizer_test.go
+// ahead of finalizer.go. The penalty is applied as a final
+// adjustment so path/symbol/doc matches still contribute and test
+// files can still be selected when no implementation match
+// exists.
 func queryMatchScore(fi *FileInfo, query string) float64 {
 	tokens := TokenizeQuery(query)
 	if len(tokens) == 0 {
@@ -316,7 +325,51 @@ func queryMatchScore(fi *FileInfo, query string) float64 {
 		}
 	}
 
+	if isTestFile(fi.RelPath) {
+		score *= 0.5
+	}
+
 	return math.Min(score, 20.0)
+}
+
+// isTestFile reports whether the RelPath looks like a test / spec
+// file under the conventions of the languages repomap covers:
+// Go (`_test.go`), Python (`test_*.py`, `*_test.py`), Rust
+// (`tests/*.rs`), Java (`*Test.java`, `*Tests.java`), JS/TS
+// (`*.test.{js,ts,tsx,jsx}`, `*.spec.{js,ts,tsx,jsx}`). The match
+// is deliberately conservative — only unambiguous test-file shapes
+// qualify, so files that happen to contain "test" as a substring
+// are unaffected.
+func isTestFile(relPath string) bool {
+	lower := strings.ToLower(relPath)
+	base := lower
+	if slash := strings.LastIndex(base, "/"); slash != -1 {
+		base = base[slash+1:]
+	}
+	// Go
+	if strings.HasSuffix(base, "_test.go") {
+		return true
+	}
+	// Python
+	if strings.HasSuffix(base, "_test.py") || strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py") {
+		return true
+	}
+	// Rust: crates put unit tests inline and integration tests under tests/
+	if strings.HasSuffix(base, ".rs") &&
+		(strings.Contains(lower, "/tests/") || strings.HasPrefix(lower, "tests/")) {
+		return true
+	}
+	// Java: FooTest.java, FooTests.java
+	if strings.HasSuffix(base, "test.java") || strings.HasSuffix(base, "tests.java") {
+		return true
+	}
+	// JS/TS: *.test.* and *.spec.*
+	for _, ext := range []string{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"} {
+		if strings.HasSuffix(base, ".test"+ext) || strings.HasSuffix(base, ".spec"+ext) {
+			return true
+		}
+	}
+	return false
 }
 
 func itoa(n int) string {
