@@ -182,17 +182,13 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	data := map[string]any{
 		"result": lastContent,
 	}
-	if ctx.Mutable != nil {
-		tl := ctx.Mutable.TaskList()
-		if current := tl.CurrentTask(); current != nil {
-			data["question_kind"] = current.QuestionKind
-			data["answer_shape"] = current.AnswerShape
-			data["complexity"] = current.Complexity
-			data["entity_count"] = len(current.Entities)
-			data["keyword_count"] = len(current.Keywords)
-		}
-	}
 	if ir != nil {
+		hints := ir.RequestModel.AnalyzerHints
+		data["question_kind"] = hints.Kind
+		data["answer_shape"] = hints.Shape
+		data["complexity"] = string(ir.RequestModel.Complexity)
+		data["entity_count"] = len(hints.Entities)
+		data["keyword_count"] = len(hints.Keywords)
 		data["ir_version"] = ir.Version
 		data["ir_scenario"] = string(ir.RequestModel.Scenario)
 		data["ir_intent"] = string(ir.RequestModel.Intent)
