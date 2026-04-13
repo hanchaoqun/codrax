@@ -107,6 +107,7 @@ func goExtractFunc(node *sitter.Node, src []byte, file string) (Symbol, bool) {
 		EndLine:   nodeEndLine(node),
 		Exported:  unicode.IsUpper(rune(name[0])),
 		Signature: sig,
+		Arity:     goFuncArity(node),
 		Doc:       prevSiblingComment(node, src),
 	}, true
 }
@@ -142,8 +143,44 @@ func goExtractMethod(node *sitter.Node, src []byte, file string) (Symbol, bool) 
 		Exported:  unicode.IsUpper(rune(name[0])),
 		Receiver:  receiver,
 		Signature: sig,
+		Arity:     goFuncArity(node),
 		Doc:       prevSiblingComment(node, src),
 	}, true
+}
+
+// goFuncArity counts the number of parameters in a function or
+// method declaration. tree-sitter-go exposes the parameters as a
+// `parameter_list` under the `parameters` field, containing
+// `parameter_declaration` nodes. A single parameter_declaration can
+// bind multiple names (`func f(a, b int)`) — we count each name,
+// not each declaration, so the arity matches the positional call
+// arity the Go runtime uses.
+func goFuncArity(node *sitter.Node) int {
+	params := node.ChildByFieldName("parameters")
+	if params == nil {
+		return 0
+	}
+	count := 0
+	for i := 0; i < int(params.NamedChildCount()); i++ {
+		decl := params.NamedChild(i)
+		if decl.Type() != "parameter_declaration" && decl.Type() != "variadic_parameter_declaration" {
+			continue
+		}
+		// Count names under this declaration; fall back to 1 for
+		// anonymous params (`func f(int)`).
+		names := 0
+		for j := 0; j < int(decl.NamedChildCount()); j++ {
+			ch := decl.NamedChild(j)
+			if ch.Type() == "identifier" {
+				names++
+			}
+		}
+		if names == 0 {
+			names = 1
+		}
+		count += names
+	}
+	return count
 }
 
 func goExtractTypes(node *sitter.Node, src []byte, file string) []Symbol {

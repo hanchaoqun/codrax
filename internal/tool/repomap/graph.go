@@ -13,6 +13,7 @@ func BuildGraph(repoRoot string, files []*FileInfo) *Graph {
 		Files:          files,
 		FileIndex:      make(map[string]*FileInfo, len(files)),
 		SymbolDefs:     make(map[string][]*Symbol),
+		SymbolByID:     make(map[SymbolID]*Symbol),
 		ImportGraph:    make(map[string][]string),
 		ReverseImports: make(map[string][]string),
 		Scores:         make(map[string]float64),
@@ -35,10 +36,26 @@ func BuildGraph(repoRoot string, files []*FileInfo) *Graph {
 		symCount += len(fi.Symbols)
 		relCount += len(fi.Relations)
 
-		// index symbols by name
+		// index symbols by name AND by canonical SymbolID. The ID is
+		// re-derived on every BuildGraph call from the containing
+		// FileInfo's language/package + the symbol's Receiver/Parent/
+		// Arity, so cached JSON that predates the ID field still
+		// produces correct indices on load without a cache version
+		// bump.
 		for idx := range fi.Symbols {
 			s := &fi.Symbols[idx]
 			g.SymbolDefs[s.Name] = append(g.SymbolDefs[s.Name], s)
+			s.ID = deriveSymbolID(fi, s)
+			if s.ID != "" {
+				// Collision policy: first-wins. Two symbols with the
+				// same canonical ID in the same package indicate
+				// either a genuine duplicate (valid Go program would
+				// not compile) or an extractor bug. Keep the first
+				// and track the rest via SymbolDefs for diagnosis.
+				if _, exists := g.SymbolByID[s.ID]; !exists {
+					g.SymbolByID[s.ID] = s
+				}
+			}
 		}
 	}
 
@@ -176,6 +193,39 @@ func resolveImport(g *Graph, fi *FileInfo, imp Import, pkgToFiles map[string][]s
 
 	// JS/TS non-relative: node_modules, skip
 	return nil
+}
+
+// deriveSymbolID rebuilds a Symbol's canonical SymbolID from the
+// containing FileInfo plus the symbol's own fields. Called from
+// BuildGraph so cache-loaded symbols (which have no persisted ID)
+// get identical IDs on every rebuild.
+//
+// Rules:
+//   - lang: fi.Language, unless empty in which case the ID is empty
+//     (we cannot uniquely identify symbols in un-parsed files).
+//   - pkg: fi.Package for Go/Java; for languages without a declared
+//     package concept (JS, Python file-scoped, C), we substitute
+//     filepath.Dir(fi.RelPath) so two functions with the same name
+//     in different directories still get distinct IDs.
+//   - receiver: Symbol.Receiver when set (Go methods), falling back
+//     to Symbol.Parent (Java/Python class members).
+//   - name: Symbol.Name.
+//   - arity: Symbol.Arity (0 for types/consts/vars/fields).
+//
+// Returns "" if lang is unknown so callers can skip indexing.
+func deriveSymbolID(fi *FileInfo, s *Symbol) SymbolID {
+	if fi == nil || s == nil || fi.Language == "" || s.Name == "" {
+		return ""
+	}
+	pkg := fi.Package
+	if pkg == "" {
+		pkg = filepath.Dir(fi.RelPath)
+	}
+	receiver := s.Receiver
+	if receiver == "" {
+		receiver = s.Parent
+	}
+	return MakeSymbolID(fi.Language, pkg, receiver, s.Name, s.Arity)
 }
 
 func appendUnique(slice []string, item string) []string {

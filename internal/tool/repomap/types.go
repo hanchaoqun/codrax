@@ -1,6 +1,54 @@
 package repomap
 
-import "time"
+import (
+	"strconv"
+	"strings"
+	"time"
+)
+
+// SymbolID is the canonical, drift-proof identity for a symbol. Format:
+//
+//	<lang>::<pkg>::<receiver>::<name>::<arity>
+//
+// Every segment uses the ASCII `::` separator. Empty segments are
+// rendered as the empty string; a bare function in package "agent"
+// called `buildAnalysisIR` with 1 param is `go::agent::::buildAnalysisIR::1`.
+//
+// Arity is the parameter count for functions/methods and 0 for types,
+// consts, vars, and fields. Go disallows overloading so package +
+// receiver + name is already unique for Go; arity is kept for
+// consistency across languages that allow overloading (Java, C++)
+// and so the format is self-describing.
+//
+// SymbolID is a string alias rather than a struct so it can be used
+// as a map key directly, JSON-serialized trivially, and compared
+// with ==. Callers should not construct IDs by string concatenation;
+// use MakeSymbolID.
+type SymbolID string
+
+// MakeSymbolID builds a canonical SymbolID. `lang` is the repomap
+// language tag ("go", "python", "java", ...). `pkg` is the containing
+// package/module; empty for single-file scripts. `receiver` is the
+// containing type for methods; empty for bare functions and types.
+// `arity` is the parameter count; pass 0 for non-callable symbols.
+//
+// Input strings are NOT sanitized — the caller is responsible for
+// passing clean segments. Tree-sitter extractors satisfy this by
+// construction; external callers should not build IDs manually.
+func MakeSymbolID(lang, pkg, receiver, name string, arity int) SymbolID {
+	var b strings.Builder
+	b.Grow(len(lang) + len(pkg) + len(receiver) + len(name) + 10)
+	b.WriteString(lang)
+	b.WriteString("::")
+	b.WriteString(pkg)
+	b.WriteString("::")
+	b.WriteString(receiver)
+	b.WriteString("::")
+	b.WriteString(name)
+	b.WriteString("::")
+	b.WriteString(strconv.Itoa(arity))
+	return SymbolID(b.String())
+}
 
 // Symbol represents an extracted code symbol.
 type Symbol struct {
@@ -14,6 +62,14 @@ type Symbol struct {
 	Signature string `json:"signature,omitempty"`
 	Doc      string `json:"doc,omitempty"` // first line of doc comment
 	Parent   string `json:"parent,omitempty"` // containing type/class
+	Arity    int    `json:"arity,omitempty"` // param count for functions/methods, 0 otherwise
+
+	// ID is the canonical drift-proof identity. Re-derived at
+	// BuildGraph time from Name/Receiver/Parent/Arity + the containing
+	// FileInfo.Language and FileInfo.Package, so it is NOT persisted
+	// in the cache — omitted from JSON to keep the cache schema
+	// stable across versions that introduce the ID format.
+	ID SymbolID `json:"-"`
 }
 
 // Import represents an import/include/require statement.
@@ -53,7 +109,8 @@ type Graph struct {
 	Root        string                `json:"root"`
 	Files       []*FileInfo           `json:"-"`
 	FileIndex   map[string]*FileInfo  `json:"-"` // rel path → FileInfo
-	SymbolDefs  map[string][]*Symbol  `json:"-"` // symbol name → all definitions
+	SymbolDefs  map[string][]*Symbol  `json:"-"` // symbol name → all definitions (legacy; kept while consumers migrate)
+	SymbolByID  map[SymbolID]*Symbol  `json:"-"` // canonical drift-proof index: one SymbolID → one definition
 	ImportGraph map[string][]string   `json:"-"` // file → imported file paths
 	ReverseImports map[string][]string `json:"-"` // file → files that import it
 	Scores      map[string]float64    `json:"-"` // key → importance score
