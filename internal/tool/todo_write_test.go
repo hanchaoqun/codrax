@@ -150,48 +150,83 @@ func TestNormalizeTodoStatus(t *testing.T) {
 	}
 }
 
-// TestTodoWrite_BoolFieldsPropagate verifies that the writing and
-// high_risk flags from the tool params land verbatim on TaskItem,
-// replacing the old TaskType enum-based classification.
-func TestTodoWrite_BoolFieldsPropagate(t *testing.T) {
+// TestTodoWrite_ClassificationPromoted verifies that the LLM
+// classification fields (writing, high_risk, complexity, keywords,
+// entities, question_kind, answer_shape) from the current task in
+// the tool params land on MutableState.Classification(), NOT on
+// TaskItem. B5b-β moved the carrier off TaskItem so the legacy
+// fields could be deleted; todo_write now promotes the hints from
+// whichever task pickCurrentTaskID elected.
+func TestTodoWrite_ClassificationPromoted(t *testing.T) {
 	tw := &TodoWrite{}
 	bus := newMutableBus()
 
+	// t2 is the only in_progress task → pickCurrentTaskID elects it.
+	// t2's classification must land on Classification(); t1 and t3
+	// must be ignored so per-task hint promotion stays deterministic.
 	params := []byte(`{
 		"tasks": [
-			{"id": "t1", "title": "read code", "writing": false, "high_risk": false},
-			{"id": "t2", "title": "edit file", "writing": true,  "high_risk": false},
-			{"id": "t3", "title": "rm -rf schema", "writing": true, "high_risk": true}
+			{"id": "t1", "title": "t1", "writing": false, "question_kind": "enumeration"},
+			{"id": "t2", "title": "t2", "writing": true,  "high_risk": true,
+			 "complexity": "complex", "question_kind": "mechanism",
+			 "answer_shape": "step_list",
+			 "keywords": ["a","b"], "entities": ["Foo","Bar"],
+			 "status": "in_progress"},
+			{"id": "t3", "title": "t3", "writing": false, "question_kind": "return_value"}
 		]
 	}`)
 	res, err := tw.Execute(bus, params)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if !res.Success {
-		t.Fatalf("expected success: %s", res.Summary)
+	if err != nil || !res.Success {
+		t.Fatalf("execute failed: err=%v summary=%s", err, res.Summary)
 	}
 
-	tl := bus.Mutable.TaskList()
-	cases := []struct {
-		id       string
-		writing  bool
-		highRisk bool
-	}{
-		{"t1", false, false},
-		{"t2", true, false},
-		{"t3", true, true},
+	if got := bus.Mutable.TaskList().CurrentTaskID; got != "t2" {
+		t.Fatalf("CurrentTaskID = %q, want t2", got)
 	}
-	for i, c := range cases {
-		if tl.Tasks[i].ID != c.id {
-			t.Errorf("tasks[%d].ID = %q, want %q", i, tl.Tasks[i].ID, c.id)
-		}
-		if tl.Tasks[i].Writing != c.writing {
-			t.Errorf("tasks[%d].Writing = %v, want %v", i, tl.Tasks[i].Writing, c.writing)
-		}
-		if tl.Tasks[i].HighRisk != c.highRisk {
-			t.Errorf("tasks[%d].HighRisk = %v, want %v", i, tl.Tasks[i].HighRisk, c.highRisk)
-		}
+	c := bus.Mutable.Classification()
+	if !c.Writing {
+		t.Error("Classification.Writing = false, want true")
+	}
+	if !c.HighRisk {
+		t.Error("Classification.HighRisk = false, want true")
+	}
+	if c.Complexity != "complex" {
+		t.Errorf("Classification.Complexity = %q, want complex", c.Complexity)
+	}
+	if c.QuestionKind != "mechanism" {
+		t.Errorf("Classification.QuestionKind = %q, want mechanism", c.QuestionKind)
+	}
+	if c.AnswerShape != "step_list" {
+		t.Errorf("Classification.AnswerShape = %q, want step_list", c.AnswerShape)
+	}
+	if len(c.Keywords) != 2 || c.Keywords[0] != "a" {
+		t.Errorf("Classification.Keywords = %v, want [a b]", c.Keywords)
+	}
+	if len(c.Entities) != 2 || c.Entities[0] != "Foo" {
+		t.Errorf("Classification.Entities = %v, want [Foo Bar]", c.Entities)
+	}
+}
+
+// TestTodoWrite_StatusOnlyCallPreservesClassification verifies that a
+// status-only todo_write (e.g. from the explorer marking a task done)
+// does not wipe the analyzer's previously frozen classification.
+func TestTodoWrite_StatusOnlyCallPreservesClassification(t *testing.T) {
+	tw := &TodoWrite{}
+	bus := newMutableBus()
+	bus.Mutable.SetClassification(types.AnalyzerClassification{
+		QuestionKind: "mechanism",
+		AnswerShape:  "step_list",
+		Keywords:     []string{"foo"},
+	})
+	// Explorer marks the task as done; no classification fields in
+	// the payload. Classification must survive.
+	params := []byte(`{"tasks":[{"id":"t1","title":"x","status":"done"}]}`)
+	if _, err := tw.Execute(bus, params); err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	c := bus.Mutable.Classification()
+	if c.QuestionKind != "mechanism" || c.AnswerShape != "step_list" {
+		t.Errorf("Classification wiped by status-only call: %+v", c)
 	}
 }
 
@@ -226,43 +261,11 @@ func TestPickCurrentTaskID_FallbackToFirst(t *testing.T) {
 	}
 }
 
-// TestTodoWrite_AnalyzerContractFields verifies that the new fields
-// feeding the deterministic pipeline (entities, question_kind,
-// answer_shape) round-trip from JSON params into TaskItem exactly as
-// the analyzer contract declares.
-func TestTodoWrite_AnalyzerContractFields(t *testing.T) {
-	tw := &TodoWrite{}
-	bus := newMutableBus()
-
-	params := []byte(`{
-		"tasks": [{
-			"id": "t1",
-			"title": "explain ContinuationPrompt",
-			"entities": ["ContinuationPrompt", "explorerEvaluator"],
-			"question_kind": "mechanism",
-			"answer_shape": "step_list",
-			"keywords": ["ContinuationPrompt", "explorer", "prompt"]
-		}]
-	}`)
-	res, err := tw.Execute(bus, params)
-	if err != nil || !res.Success {
-		t.Fatalf("execute failed: err=%v summary=%s", err, res.Summary)
-	}
-	item := bus.Mutable.TaskList().Tasks[0]
-	if len(item.Entities) != 2 || item.Entities[0] != "ContinuationPrompt" {
-		t.Errorf("Entities roundtrip failed: %v", item.Entities)
-	}
-	if item.QuestionKind != "mechanism" {
-		t.Errorf("QuestionKind = %q, want mechanism", item.QuestionKind)
-	}
-	if item.AnswerShape != "step_list" {
-		t.Errorf("AnswerShape = %q, want step_list", item.AnswerShape)
-	}
-}
-
 // TestTodoWrite_EntitiesTrimEmpty verifies that whitespace-only
 // entities are dropped, so a sloppy analyzer can't pollute the entity
-// set with empty strings that would match any ERM check.
+// set with empty strings that would match any ERM check. Post-B5b-β
+// the trimmed entities land on MutableState.Classification() instead
+// of the (deleted) TaskItem.Entities field.
 func TestTodoWrite_EntitiesTrimEmpty(t *testing.T) {
 	tw := &TodoWrite{}
 	bus := newMutableBus()
@@ -270,7 +273,7 @@ func TestTodoWrite_EntitiesTrimEmpty(t *testing.T) {
 	if _, err := tw.Execute(bus, params); err != nil {
 		t.Fatalf("execute failed: %v", err)
 	}
-	got := bus.Mutable.TaskList().Tasks[0].Entities
+	got := bus.Mutable.Classification().Entities
 	if len(got) != 2 || got[0] != "Foo" || got[1] != "Bar" {
 		t.Errorf("Entities = %v, want [Foo Bar]", got)
 	}

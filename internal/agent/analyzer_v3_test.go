@@ -16,18 +16,18 @@ func TestAnalyzerV3_IRIsBuiltFromTaskItem(t *testing.T) {
 	mut := types.NewMutableState(types.TaskList{
 		Objective: "请解释 explorer 是如何决定 ShouldStop 的",
 		Tasks: []types.TaskItem{{
-			ID:           "task-1",
-			Title:        "解释 explorer 停止逻辑",
-			Writing:      false,
-			HighRisk:     false,
-			Complexity:   "moderate",
-			Keywords:     []string{"explorer", "ShouldStop", "explore"},
-			Entities:     []string{"Explorer", "ShouldStop"},
-			QuestionKind: "mechanism",
-			AnswerShape:  "step_list",
-			Status:       types.TaskPending,
+			ID:     "task-1",
+			Title:  "解释 explorer 停止逻辑",
+			Status: types.TaskPending,
 		}},
 		CurrentTaskID: "task-1",
+	})
+	mut.SetClassification(types.AnalyzerClassification{
+		Complexity:   "moderate",
+		Keywords:     []string{"explorer", "ShouldStop", "explore"},
+		Entities:     []string{"Explorer", "ShouldStop"},
+		QuestionKind: "mechanism",
+		AnswerShape:  "step_list",
 	})
 	ctx := &types.AgentContext{
 		Objective:     "请解释 explorer 是如何决定 ShouldStop 的",
@@ -140,13 +140,15 @@ func TestAnalyzerV3_WritingTaskDerivesPolicy(t *testing.T) {
 	mut := types.NewMutableState(types.TaskList{
 		Objective: "refactor the auth middleware to use new session storage",
 		Tasks: []types.TaskItem{{
-			ID:       "task-1",
-			Title:    "refactor auth middleware",
-			Writing:  true,
-			HighRisk: true,
-			Status:   types.TaskPending,
+			ID:     "task-1",
+			Title:  "refactor auth middleware",
+			Status: types.TaskPending,
 		}},
 		CurrentTaskID: "task-1",
+	})
+	mut.SetClassification(types.AnalyzerClassification{
+		Writing:  true,
+		HighRisk: true,
 	})
 	ctx := &types.AgentContext{
 		Objective: "refactor the auth middleware to use new session storage",

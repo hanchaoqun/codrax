@@ -18,21 +18,23 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	e := &analyzerEvaluator{}
 
 	// Pretend a previous todo_write call already populated the list
-	// with a full analyzer classification.
+	// with a full analyzer classification. Under B5b-β the LLM hints
+	// live on MutableState.Classification(), not on TaskItem.
 	mut := types.NewMutableState(types.TaskList{
 		Objective:     "explain the project",
 		CurrentTaskID: "t1",
 		Tasks: []types.TaskItem{{
-			ID:           "t1",
-			Title:        "explain",
-			Writing:      false,
-			Status:       types.TaskInProgress,
-			QuestionKind: "mechanism",
-			AnswerShape:  "step_list",
-			Complexity:   "moderate",
-			Entities:     []string{"Orchestrator", "BaseAgent"},
-			Keywords:     []string{"orchestrator", "agent", "pipeline"},
+			ID:     "t1",
+			Title:  "explain",
+			Status: types.TaskInProgress,
 		}},
+	})
+	mut.SetClassification(types.AnalyzerClassification{
+		QuestionKind: "mechanism",
+		AnswerShape:  "step_list",
+		Complexity:   "moderate",
+		Entities:     []string{"Orchestrator", "BaseAgent"},
+		Keywords:     []string{"orchestrator", "agent", "pipeline"},
 	})
 
 	ctx := &types.AgentContext{
@@ -78,8 +80,8 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	if len(tl.Tasks) != 1 || tl.Tasks[0].ID != "t1" {
 		t.Errorf("Mutable.TaskList was clobbered, got %+v", tl.Tasks)
 	}
-	if tl.Tasks[0].QuestionKind != "mechanism" {
-		t.Errorf("QuestionKind was clobbered, got %q", tl.Tasks[0].QuestionKind)
+	if mut.Classification().QuestionKind != "mechanism" {
+		t.Errorf("Classification was clobbered, got %q", mut.Classification().QuestionKind)
 	}
 }
 
@@ -114,17 +116,22 @@ func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 	if len(tl.Tasks) != 1 {
 		t.Fatalf("fail-safe should install exactly 1 task, got %d", len(tl.Tasks))
 	}
-	if tl.Tasks[0].Writing {
-		t.Errorf("fail-safe task should be read-only (Writing=false), got Writing=true")
-	}
-	if tl.Tasks[0].HighRisk {
-		t.Errorf("fail-safe task should not be high-risk")
-	}
 	if tl.CurrentTask() == nil {
 		t.Error("CurrentTaskID and Tasks must agree")
 	}
 	if tl.Objective != "what does this do?" {
 		t.Errorf("Objective should be preserved, got %q", tl.Objective)
+	}
+	// Failsafe path: no todo_write → Classification stays zero →
+	// buildAnalysisIR derives a read-only RunPolicy.
+	if out.AnalysisIR == nil {
+		t.Fatal("failsafe must still produce an IR")
+	}
+	if out.AnalysisIR.RunPolicy.Writing {
+		t.Error("fail-safe RunPolicy should be read-only")
+	}
+	if out.AnalysisIR.RunPolicy.RequireDesignReview || out.AnalysisIR.RunPolicy.RequireCodeReview {
+		t.Error("fail-safe RunPolicy should not force reviews")
 	}
 }
 

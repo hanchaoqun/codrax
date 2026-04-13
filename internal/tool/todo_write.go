@@ -133,6 +133,12 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	}
 	ctx.Mutable.SetTaskList(newList)
 
+	// Stash the LLM classification on Mutable so buildAnalysisIR can
+	// read it after the ReAct loop exits. B5b-β moved this carrier off
+	// TaskItem; we pick fields from the task that pickCurrentTaskID
+	// selected so semantics match the pre-β `CurrentTask().X` reads.
+	ctx.Mutable.SetClassification(pickClassification(p.Tasks, items, newList.CurrentTaskID))
+
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -163,9 +169,27 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 		seen[id] = true
 
 		items = append(items, types.TaskItem{
-			ID:           id,
-			Title:        title,
-			Description:  strings.TrimSpace(r.Description),
+			ID:          id,
+			Title:       title,
+			Description: strings.TrimSpace(r.Description),
+			Status:      normalizeTodoStatus(r.Status),
+		})
+	}
+	return items, nil
+}
+
+// pickClassification selects the classification carrier to promote to
+// MutableState from a batch of todo_write params. Rule: use whichever
+// task pickCurrentTaskID elected as current (matched positionally
+// against the parallel items slice since params may omit ID); if
+// that task carries no hints (e.g. a status-only update), fall back
+// to the first task in the batch that has any hint content. Returns
+// a zero AnalyzerClassification when nothing in the batch has hints
+// — in that case SetClassification is a no-op and the previously
+// stored hints survive.
+func pickClassification(raw []todoWriteTaskParam, items []types.TaskItem, currentID string) types.AnalyzerClassification {
+	classify := func(r todoWriteTaskParam) types.AnalyzerClassification {
+		return types.AnalyzerClassification{
 			Writing:      r.Writing,
 			HighRisk:     r.HighRisk,
 			Complexity:   normalizeComplexity(r.Complexity),
@@ -173,10 +197,30 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 			Entities:     trimStringSlice(r.Entities),
 			QuestionKind: normalizeQuestionKind(r.QuestionKind),
 			AnswerShape:  normalizeAnswerShape(r.AnswerShape),
-			Status:       normalizeTodoStatus(r.Status),
-		})
+		}
 	}
-	return items, nil
+	// normalizeComplexity defaults to "moderate" — which is non-zero
+	// but semantically empty for a status-only update. Track whether
+	// the raw input actually carried classification bits before
+	// deciding whether to promote.
+	hasContent := func(r todoWriteTaskParam) bool {
+		return r.Writing || r.HighRisk ||
+			strings.TrimSpace(r.Complexity) != "" ||
+			len(r.Keywords) > 0 || len(r.Entities) > 0 ||
+			strings.TrimSpace(r.QuestionKind) != "" ||
+			strings.TrimSpace(r.AnswerShape) != ""
+	}
+	for i, r := range raw {
+		if i < len(items) && items[i].ID == currentID && hasContent(r) {
+			return classify(r)
+		}
+	}
+	for _, r := range raw {
+		if hasContent(r) {
+			return classify(r)
+		}
+	}
+	return types.AnalyzerClassification{}
 }
 
 // pickCurrentTaskID selects the task that should drive routing for

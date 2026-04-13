@@ -230,46 +230,46 @@ func NewAnalyzerAgent(deps *Dependencies) Agent {
 
 // buildAnalysisIR composes a full AnalysisIR by running the deterministic
 // pipeline (normalizer → compiler → risk → hdp → counterfactual → gate)
-// over a RequestModel synthesized from the current TaskItem and the
-// raw user objective. It is tolerant of missing fields: every sub-step
-// has a sensible zero-value fallback.
+// over a RequestModel synthesized from the classification carrier
+// (populated by todo_write during the analyze ReAct loop) and the raw
+// user objective. It is tolerant of missing fields: every sub-step has
+// a sensible zero-value fallback.
+//
+// Pre-B5b-β this function read its hints from the current TaskItem
+// (ctx.Mutable.TaskList().CurrentTask()); B5b-β moved the carrier off
+// TaskItem onto MutableState.Classification() so the legacy fields
+// could be deleted.
 func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 	if ctx == nil {
 		return nil
 	}
-	var task *types.TaskItem
+	var hints types.AnalyzerClassification
 	if ctx.Mutable != nil {
-		tl := ctx.Mutable.TaskList()
-		task = tl.CurrentTask()
+		hints = ctx.Mutable.Classification()
 	}
 
-	// 1. RequestModel from TaskItem + Objective.
-	rm := buildRequestModel(ctx, task)
+	// 1. RequestModel from classification + Objective.
+	rm := buildRequestModel(ctx, hints)
 
 	// 2. Scenario compilation.
 	out := compiler.Compile(rm)
 
-	// 3. AnswerShape override from the legacy TaskItem when set — the
-	// LLM's explicit shape choice should trump the scenario template's
-	// default shape (e.g. the analyzer decided a particular mechanism
-	// question is list_of_symbols rather than step_list).
-	if task != nil && task.AnswerShape != "" {
-		shape := mapAnswerShape(task.AnswerShape)
-		if shape != "" {
+	// 3. AnswerShape override from the LLM classification when set —
+	// the LLM's explicit shape choice should trump the scenario
+	// template's default shape (e.g. the analyzer decided a particular
+	// mechanism question is list_of_symbols rather than step_list).
+	if hints.AnswerShape != "" {
+		if shape := mapAnswerShape(hints.AnswerShape); shape != "" {
 			out.AnswerContract.RequiredAnswerShape = shape
 		}
 	}
 
 	// 4. Risk matrix + run policy.
 	rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)
-	writing := false
-	if task != nil {
-		writing = task.Writing
-	}
-	runPolicy := risk.DerivePolicy(rm.RiskMatrix, writing)
-	// HighRisk on the legacy TaskItem is an OR of all the review
-	// switches — honor it for backward compatibility.
-	if task != nil && task.HighRisk {
+	runPolicy := risk.DerivePolicy(rm.RiskMatrix, hints.Writing)
+	// HighRisk from the LLM classification is an OR of all the review
+	// switches — honor it so analyzer-declared risk always escalates.
+	if hints.HighRisk {
 		runPolicy.RequireDesignReview = true
 		runPolicy.RequireCodeReview = true
 	}
@@ -310,11 +310,11 @@ func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 	return ir
 }
 
-// buildRequestModel turns the raw objective + legacy TaskItem into a
-// RequestModel. The normalizer produces the canonical TermGraph from
-// the raw text (always), and the TaskItem-supplied intent/complexity/
-// ambiguity-free classification is honored when present.
-func buildRequestModel(ctx *types.AgentContext, task *types.TaskItem) types.RequestModel {
+// buildRequestModel turns the raw objective + LLM classification
+// carrier into a RequestModel. The normalizer produces the canonical
+// TermGraph from the raw text (always), and the carrier-supplied
+// intent/complexity classification is honored when present.
+func buildRequestModel(ctx *types.AgentContext, hints types.AnalyzerClassification) types.RequestModel {
 	raw := ctx.Objective
 	// Normalize the raw objective to populate the term graph. We run
 	// this unconditionally — it's cheap and deterministic.
@@ -327,21 +327,21 @@ func buildRequestModel(ctx *types.AgentContext, task *types.TaskItem) types.Requ
 		Complexity: types.ComplexityModerate,
 	}
 
-	if task != nil {
-		if task.Complexity != "" {
-			if c := mapComplexity(task.Complexity); c != "" {
-				rm.Complexity = c
-			}
+	if hints.Complexity != "" {
+		if c := mapComplexity(hints.Complexity); c != "" {
+			rm.Complexity = c
 		}
-		rm.Intent = mapIntent(task.QuestionKind)
-		rm.AnalyzerHints = types.AnalyzerHints{
-			Keywords: append([]string(nil), task.Keywords...),
-			Entities: append([]string(nil), task.Entities...),
-			Kind:     task.QuestionKind,
-			Shape:    task.AnswerShape,
-		}
+	}
+	if hints.QuestionKind != "" {
+		rm.Intent = mapIntent(hints.QuestionKind)
 	} else {
 		rm.Intent = types.IntentUnknown
+	}
+	rm.AnalyzerHints = types.AnalyzerHints{
+		Keywords: append([]string(nil), hints.Keywords...),
+		Entities: append([]string(nil), hints.Entities...),
+		Kind:     hints.QuestionKind,
+		Shape:    hints.AnswerShape,
 	}
 
 	// Scenario is derived from Intent + TermGraph. The compiler's

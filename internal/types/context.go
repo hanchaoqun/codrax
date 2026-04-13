@@ -30,8 +30,46 @@ import (
 // UpdateTaskResult / SetCurrentTask instead of touching fields
 // directly, so locking stays correct.
 type MutableState struct {
-	mu       sync.RWMutex
-	taskList TaskList
+	mu             sync.RWMutex
+	taskList       TaskList
+	classification AnalyzerClassification
+}
+
+// AnalyzerClassification is the raw LLM-emitted classification of the
+// user request. It is the carrier between the analyze stage's
+// todo_write tool call (inside the ReAct loop) and buildAnalysisIR
+// (run synchronously in ParseOutput after the loop exits). Every
+// field maps into a specific slot on AnalysisIR downstream:
+//
+//	Writing      → RunPolicy.Writing
+//	HighRisk     → RunPolicy.{RequireDesignReview,RequireCodeReview}
+//	Complexity   → RequestModel.Complexity
+//	Keywords     → RequestModel.AnalyzerHints.Keywords
+//	Entities     → RequestModel.AnalyzerHints.Entities
+//	QuestionKind → RequestModel.AnalyzerHints.Kind (+ Intent mapping)
+//	AnswerShape  → RequestModel.AnalyzerHints.Shape (+ AnswerContract override)
+//
+// Before batch B5b-β this carrier was the 7 legacy TaskItem fields.
+// Moving the carrier off TaskItem lets B5b-β delete those fields
+// without breaking the analyze-stage contract.
+type AnalyzerClassification struct {
+	Writing      bool
+	HighRisk     bool
+	Complexity   string
+	Keywords     []string
+	Entities     []string
+	QuestionKind string
+	AnswerShape  string
+}
+
+// IsZero reports whether the classification carries any non-default
+// content. Used by todo_write to decide whether a given call should
+// overwrite the carrier — a status-only todo_write from explorer/
+// implementer must not wipe the analyzer's classification.
+func (c AnalyzerClassification) IsZero() bool {
+	return !c.Writing && !c.HighRisk && c.Complexity == "" &&
+		len(c.Keywords) == 0 && len(c.Entities) == 0 &&
+		c.QuestionKind == "" && c.AnswerShape == ""
 }
 
 // NewMutableState constructs a MutableState seeded with the given
@@ -39,6 +77,31 @@ type MutableState struct {
 // mutex is paired correctly with its data.
 func NewMutableState(tl TaskList) *MutableState {
 	return &MutableState{taskList: tl}
+}
+
+// Classification returns a snapshot of the analyzer classification
+// carrier. Read by buildAnalysisIR in the analyze stage's ParseOutput.
+func (m *MutableState) Classification() AnalyzerClassification {
+	if m == nil {
+		return AnalyzerClassification{}
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.classification
+}
+
+// SetClassification stores the analyzer classification carrier.
+// Written by todo_write when its params contain non-empty
+// classification fields. No-op for zero-valued input so status-only
+// todo_write calls from downstream agents cannot wipe the analyzer's
+// classification after the analyze stage has frozen it.
+func (m *MutableState) SetClassification(c AnalyzerClassification) {
+	if m == nil || c.IsZero() {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.classification = c
 }
 
 // TaskList returns a snapshot of the current task list. The returned
