@@ -36,20 +36,32 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		ExitArtifacts: []string{"evidence_items", "answer_chains"},
 		MaxRetries: 2,
 	}
+	// validate node (review P2-1): when B5 removes the finalizer's
+	// S3 in-loop symbol validation, the DAG must carry the check so
+	// the answer chain's symbols stay closed under evidence.
+	val := types.TaskNode{
+		ID: nodeID(2, "validate"), Type: types.NodeValidate,
+		Objective: "Check that every claimed symbol is backed by evidence and that answer chains terminate cleanly.",
+	}
 	reconcile := types.TaskNode{
-		ID: nodeID(2, "reconcile"), Type: types.NodeReconcile,
+		ID: nodeID(3, "reconcile"), Type: types.NodeReconcile,
 		Objective: "Reconcile evidence into a coherent architectural explanation.",
 		EntryConditions: []string{"has_enough_facts"},
 	}
 	final := types.TaskNode{
-		ID: nodeID(3, "finalize"), Type: types.NodeFinalize,
+		ID: nodeID(4, "finalize"), Type: types.NodeFinalize,
 		Objective: "Render the explanation with citations.",
 	}
+	edges := chain(probe.ID, ev.ID, val.ID, reconcile.ID, final.ID)
+	edges = append(edges, types.TaskEdge{
+		From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
+		Guard: "symbol_not_covered",
+	})
 	graph := types.TaskGraph{
-		Nodes: []types.TaskNode{probe, ev, reconcile, final},
-		Edges: chain(probe.ID, ev.ID, reconcile.ID, final.ID),
+		Nodes: []types.TaskNode{probe, ev, val, reconcile, final},
+		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{MaxParallelism: 1, RetryBudget: 3,
-			CriticalPath: []string{probe.ID, ev.ID, final.ID}},
+			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID}},
 	}
 	plan := types.EvidencePlan{
 		Budget:    defaultBudget(rm, 40, 20),
@@ -214,13 +226,15 @@ func templateRefactorDesign(rm types.RequestModel) Output {
 			{Kind: "budget_exhausted"},
 		},
 	}
+	// No hardcoded acceptance test (review P2-3): not every refactor
+	// requires a rollback — rename-only refactors or deliberate
+	// no-back-compat rewrites (like Analyzer v3 itself) are legal
+	// answers too. Acceptance tests must come from the LLM's own
+	// RequestModel when warranted.
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
-		AcceptanceTests: []types.Acceptance{
-			{Kind: "contains_symbol", Expr: "rollback"},
-		},
-		Language: rm.Language,
+		Language:            rm.Language,
 	}
 	return Output{TaskGraph: graph, EvidencePlan: plan, AnswerContract: contract}
 }
@@ -247,9 +261,17 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		ID: nodeID(3, "finalize"), Type: types.NodeFinalize,
 		Objective: "Report the concrete value with key path and file:line.",
 	}
+	// validation_feedback (review P2-2): a broken resolution chain
+	// should send us back to collect more evidence, not straight to
+	// finalize with a gap.
+	edges := chain(probe.ID, ev.ID, val.ID, final.ID)
+	edges = append(edges, types.TaskEdge{
+		From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
+		Guard: "chain_incomplete",
+	})
 	graph := types.TaskGraph{
 		Nodes: []types.TaskNode{probe, ev, val, final},
-		Edges: chain(probe.ID, ev.ID, val.ID, final.ID),
+		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{MaxParallelism: 1, RetryBudget: 2,
 			CriticalPath: []string{probe.ID, ev.ID, final.ID}},
 	}

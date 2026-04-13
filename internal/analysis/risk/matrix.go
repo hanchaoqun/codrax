@@ -63,6 +63,22 @@ type dimHit struct {
 // map to dimension bumps. Keys are lowercased canonical-term IDs.
 // This list is intentionally short — broader coverage should come
 // from LLM-side risk reasoning, not from a hand-maintained table.
+//
+// Review-driven edits (analyzer-v3 B4c):
+//   - en:migration: 4→2. The word collides with "migration batches"
+//     of this refactor itself, which carry zero data risk; a real
+//     schema migration still gets bumped when en:schema is present.
+//   - en:delete: 3→1. "delete" is high-frequency vocabulary in this
+//     codebase (Delete RPCs, delete methods); the true destructive
+//     signal is en:drop / en:truncate / en:purge.
+//   - en:audit: 2→1. More often refers to "audit trail" / "audit the
+//     explorer" usage than to a compliance requirement.
+//   - en:api: 2→1. Most API mentions are "how does this API work",
+//     not "I'm changing the API surface".
+//   - en:backup: removed. Backup is a *mitigation*, not a risk.
+//   - Added Chinese parity for compatibility / performance / ops /
+//     compliance dimensions so a zh-only request gets the same
+//     treatment as its en equivalent.
 var riskTerms = map[string][]dimHit{
 	// security
 	"en:auth":       {{dim: "security", level: 3}, {dim: "compliance", level: 2}},
@@ -78,20 +94,21 @@ var riskTerms = map[string][]dimHit{
 	"zh:令牌":         {{dim: "security", level: 3}},
 
 	// data integrity
-	"en:migration": {{dim: "data_integrity", level: 4}, {dim: "compatibility", level: 3}},
+	"en:migration": {{dim: "data_integrity", level: 2}},
 	"en:schema":    {{dim: "data_integrity", level: 3}, {dim: "compatibility", level: 3}},
 	"en:database":  {{dim: "data_integrity", level: 2}},
-	"en:backup":    {{dim: "data_integrity", level: 3}, {dim: "ops", level: 2}},
-	"en:delete":    {{dim: "data_integrity", level: 3}},
+	"en:delete":    {{dim: "data_integrity", level: 1}},
 	"en:drop":      {{dim: "data_integrity", level: 4}},
-	"zh:迁移":        {{dim: "data_integrity", level: 4}, {dim: "compatibility", level: 3}},
-	"zh:删除":        {{dim: "data_integrity", level: 3}},
+	"zh:迁移":        {{dim: "data_integrity", level: 2}},
+	"zh:删除":        {{dim: "data_integrity", level: 1}},
 
 	// compatibility
-	"en:api":     {{dim: "compatibility", level: 2}},
-	"en:version": {{dim: "compatibility", level: 2}},
-	"en:upgrade": {{dim: "compatibility", level: 3}},
+	"en:api":      {{dim: "compatibility", level: 1}},
+	"en:version":  {{dim: "compatibility", level: 2}},
+	"en:upgrade":  {{dim: "compatibility", level: 3}},
 	"en:breaking": {{dim: "compatibility", level: 4}},
+	"zh:兼容":       {{dim: "compatibility", level: 2}},
+	"zh:升级":       {{dim: "compatibility", level: 3}},
 
 	// performance
 	"en:performance": {{dim: "performance", level: 2}},
@@ -101,16 +118,21 @@ var riskTerms = map[string][]dimHit{
 	"en:slow":        {{dim: "performance", level: 2}},
 	"zh:性能":          {{dim: "performance", level: 2}},
 	"zh:瓶颈":          {{dim: "performance", level: 3}},
+	"zh:延迟":          {{dim: "performance", level: 3}},
 
 	// ops
 	"en:deploy":   {{dim: "ops", level: 2}},
 	"en:rollback": {{dim: "ops", level: 3}},
 	"en:monitor":  {{dim: "ops", level: 2}},
+	"zh:回滚":       {{dim: "ops", level: 3}},
+	"zh:监控":       {{dim: "ops", level: 2}},
 
 	// compliance
-	"en:gdpr":     {{dim: "compliance", level: 5}, {dim: "security", level: 3}},
-	"en:pii":      {{dim: "compliance", level: 4}, {dim: "security", level: 3}},
-	"en:audit":    {{dim: "compliance", level: 2}},
+	"en:gdpr":  {{dim: "compliance", level: 5}, {dim: "security", level: 3}},
+	"en:pii":   {{dim: "compliance", level: 4}, {dim: "security", level: 3}},
+	"en:audit": {{dim: "compliance", level: 1}},
+	"zh:合规":    {{dim: "compliance", level: 2}},
+	"zh:审计":    {{dim: "compliance", level: 1}},
 }
 
 // scanTerms returns a map of "reason text" → []dimHit for every

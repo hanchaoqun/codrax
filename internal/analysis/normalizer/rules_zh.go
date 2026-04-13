@@ -20,51 +20,74 @@ func isChineseStopwordRune(r rune) bool { return zhStopwordRunes[r] }
 // come from repo-grounded symbol lookups, not from a hand-maintained
 // dictionary. Add entries only when they are load-bearing for a real
 // regression case.
+//
+// Review-driven edits (analyzer-v3 B4c):
+//   - Removed 解释/停止/验证 — they are concept words that don't help
+//     as search keywords and were leaking into explorer hints.
+//   - Removed 锁 — a single Han character that extractHanRuns would
+//     have filtered anyway (min length 2), so the entry was dead.
+//   - Renamed 数据完整 → 数据完整性 so the extractor's maximal-Han
+//     run can actually match a naturally-written phrase.
+//   - Added探测/证据链/跳数/打分/门控/召回/兜底/线程/幂等 —
+//     high-frequency terms that recur throughout this repo's memory
+//     index and would otherwise force explorer to re-derive them.
 var zhToEn = map[string]string{
-	"探索器":  "explorer",
-	"分析器":  "analyzer",
-	"协调器":  "orchestrator",
-	"终结器":  "finalizer",
-	"执行器":  "executor",
-	"规划器":  "planner",
-	"评审器":  "reviewer",
-	"实施器":  "implementer",
-	"验证器":  "verifier",
-	"证据":   "evidence",
-	"假设":   "hypothesis",
-	"任务":   "task",
-	"计划":   "plan",
-	"风险":   "risk",
-	"合同":   "contract",
-	"终结":   "finalize",
-	"实施":   "implement",
-	"验证":   "verify",
-	"解释":   "explain",
-	"停止":   "stop",
-	"配置":   "config",
-	"注册":   "register",
-	"返回":   "return",
-	"调用":   "call",
-	"链路":   "chain",
-	"流水线":  "pipeline",
-	"阶段":   "stage",
-	"工具":   "tool",
-	"记忆":   "memory",
-	"会话":   "session",
-	"错误":   "error",
-	"日志":   "log",
-	"重试":   "retry",
-	"超时":   "timeout",
-	"缓存":   "cache",
-	"并发":   "concurrency",
-	"锁":    "lock",
-	"模板":   "template",
-	"场景":   "scenario",
+	// agent / role
+	"探索器": "explorer",
+	"分析器": "analyzer",
+	"协调器": "orchestrator",
+	"终结器": "finalizer",
+	"执行器": "executor",
+	"规划器": "planner",
+	"评审器": "reviewer",
+	"实施器": "implementer",
+	"验证器": "verifier",
+
+	// process / structure
+	"证据":  "evidence",
+	"证据链": "evidence_chain",
+	"假设":  "hypothesis",
+	"任务":  "task",
+	"计划":  "plan",
+	"风险":  "risk",
+	"合同":  "contract",
+	"终结":  "finalize",
+	"实施":  "implement",
+	"链路":  "chain",
+	"流水线": "pipeline",
+	"阶段":  "stage",
+	"场景":  "scenario",
+	"模板":  "template",
+	"探测":  "probe",
+	"门控":  "gate",
+	"跳数":  "hop",
+	"打分":  "rank",
+	"召回":  "recall",
+	"兜底":  "fallback",
+
+	// runtime / plumbing
+	"配置":  "config",
+	"注册":  "register",
+	"返回":  "return",
+	"调用":  "call",
+	"工具":  "tool",
+	"记忆":  "memory",
+	"会话":  "session",
+	"错误":  "error",
+	"日志":  "log",
+	"重试":  "retry",
+	"超时":  "timeout",
+	"缓存":  "cache",
+	"并发":  "concurrency",
+	"线程":  "thread",
+	"幂等":  "idempotent",
+
+	// risk dimensions
 	"合规":   "compliance",
 	"安全":   "security",
 	"性能":   "performance",
 	"兼容":   "compatibility",
-	"数据完整": "data_integrity",
+	"数据完整性": "data_integrity",
 	"运维":   "ops",
 }
 

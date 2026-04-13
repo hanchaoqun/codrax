@@ -114,10 +114,13 @@ func defaultBudget(rm types.RequestModel, maxFiles, maxIters int) types.Evidence
 	case types.ComplexityComplex:
 		mult = 1.6
 	}
+	// MaxToolCalls is MaxReactIters × 4: each ReAct iteration may
+	// dispatch 1-3 tool calls and the ×2 ratio used in the b3 draft
+	// was too tight on complex questions (review item P2-4).
 	return types.EvidenceBudget{
 		MaxFiles:      int(float64(maxFiles) * mult),
 		MaxBytes:      200_000,
 		MaxReactIters: int(float64(maxIters) * mult),
-		MaxToolCalls:  int(float64(maxIters*2) * mult),
+		MaxToolCalls:  int(float64(maxIters*4) * mult),
 	}
 }

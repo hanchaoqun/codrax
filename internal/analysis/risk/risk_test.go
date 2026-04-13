@@ -52,10 +52,19 @@ func TestEvaluate_Compliance_GDPR(t *testing.T) {
 }
 
 func TestEvaluate_ChineseTerms(t *testing.T) {
-	rm := types.RequestModel{TermGraph: termGraph("zh:迁移")}
+	// After B4c review: bare 迁移/migration is a weak signal because
+	// this refactor itself uses "migration batches" — real schema
+	// migration still trips data_integrity via the schema term.
+	rm := types.RequestModel{TermGraph: termGraph("zh:迁移", "en:schema")}
 	got := Evaluate(rm, types.RiskMatrix{})
-	if got.DataIntegrity.Level < 4 {
-		t.Fatalf("zh:迁移 → data_integrity≥4; got %d", got.DataIntegrity.Level)
+	if got.DataIntegrity.Level < 3 {
+		t.Fatalf("zh:迁移 + en:schema → data_integrity≥3; got %d", got.DataIntegrity.Level)
+	}
+
+	// Bare 迁移 alone must only yield a weak bump (≤2).
+	bare := Evaluate(types.RequestModel{TermGraph: termGraph("zh:迁移")}, types.RiskMatrix{})
+	if bare.DataIntegrity.Level > 2 {
+		t.Fatalf("bare zh:迁移 must not exceed weak signal; got %d", bare.DataIntegrity.Level)
 	}
 }
 
