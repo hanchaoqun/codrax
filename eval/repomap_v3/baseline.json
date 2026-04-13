@@ -1,0 +1,697 @@
+{
+  "timestamp": "2026-04-13T20:30:26Z",
+  "repo_root": "/home/chatpp/codrax",
+  "symbol_precision": {
+    "total_checked": 500,
+    "line_present": 500,
+    "name_on_line": 500,
+    "precision": 1
+  },
+  "symbol_recall": {
+    "total_expected": 125,
+    "found": 125,
+    "found_by_name": 125,
+    "recall": 1,
+    "name_then_file_recall": 1
+  },
+  "import_accuracy": {
+    "total_relations": 21,
+    "resolved": 7,
+    "accuracy": 0.3333333333333333,
+    "per_language": {
+      "go": {
+        "total": 21,
+        "resolved": 7,
+        "accuracy": 0.3333333333333333
+      }
+    }
+  },
+  "call_edge_ambiguity": {
+    "total_call_edges": 10836,
+    "unambiguous_edges": 2381,
+    "unambiguous_ratio": 0.21973052787006275,
+    "ambiguity_histogram": {
+      "0": 7442,
+      "1": 2381,
+      "11": 5,
+      "15": 112,
+      "2": 239,
+      "3": 162,
+      "4": 49,
+      "5": 98,
+      "6": 310,
+      "9": 38
+    },
+    "top_ambiguous": [
+      {
+        "symbol_name": "Run",
+        "count": 220
+      },
+      {
+        "symbol_name": "Error",
+        "count": 131
+      },
+      {
+        "symbol_name": "String",
+        "count": 90
+      },
+      {
+        "symbol_name": "Debug",
+        "count": 75
+      },
+      {
+        "symbol_name": "Name",
+        "count": 68
+      },
+      {
+        "symbol_name": "Close",
+        "count": 59
+      },
+      {
+        "symbol_name": "Execute",
+        "count": 44
+      },
+      {
+        "symbol_name": "Info",
+        "count": 36
+      },
+      {
+        "symbol_name": "New",
+        "count": 36
+      },
+      {
+        "symbol_name": "Register",
+        "count": 24
+      },
+      {
+        "symbol_name": "TaskList",
+        "count": 21
+      },
+      {
+        "symbol_name": "BuildInitialPrompt",
+        "count": 18
+      },
+      {
+        "symbol_name": "Get",
+        "count": 15
+      },
+      {
+        "symbol_name": "contains",
+        "count": 14
+      },
+      {
+        "symbol_name": "Warning",
+        "count": 13
+      },
+      {
+        "symbol_name": "ParseOutput",
+        "count": 12
+      },
+      {
+        "symbol_name": "mergeEvidenceItems",
+        "count": 12
+      },
+      {
+        "symbol_name": "mergeStrings",
+        "count": 12
+      },
+      {
+        "symbol_name": "ContinuationPrompt",
+        "count": 10
+      },
+      {
+        "symbol_name": "Resolve",
+        "count": 10
+      }
+    ]
+  },
+  "task_map_hit_at_k": {
+    "total_queries": 35,
+    "mean_hit_at_k": 0.7285714285714285,
+    "perfect_hits": 23,
+    "per_query": [
+      {
+        "query": "determineActivePolicy run policy",
+        "expected_files": [
+          "internal/orchestrator/orchestrator.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/analysis/gate/gate_test.go",
+          "internal/orchestrator/orchestrator_test.go",
+          "internal/orchestrator/orchestrator.go",
+          "internal/config/runtime_test.go",
+          "internal/analysis/risk/risk_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "AnalysisIR RunPolicy",
+        "expected_files": [
+          "internal/types/analysis_ir.go",
+          "internal/analysis/risk/policy.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/types/analysis_ir_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/agent/analyzer.go",
+          "internal/agent/analyzer_v3_test.go",
+          "internal/orchestrator/orchestrator_test.go"
+        ],
+        "hit": 0.5,
+        "missing": [
+          "internal/analysis/risk/policy.go"
+        ]
+      },
+      {
+        "query": "AnalyzerClassification MutableState",
+        "expected_files": [
+          "internal/types/context.go",
+          "internal/tool/todo_write.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/types/context.go"
+        ],
+        "hit": 0.5,
+        "missing": [
+          "internal/tool/todo_write.go"
+        ]
+      },
+      {
+        "query": "todo_write analyzer classification",
+        "expected_files": [
+          "internal/tool/todo_write.go",
+          "internal/agent/analyzer.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/analyzer_v3_test.go",
+          "internal/types/context.go",
+          "internal/agent/analyzer.go",
+          "internal/agent/analyzer_test.go",
+          "internal/tool/todo_write_test.go"
+        ],
+        "hit": 0.5,
+        "missing": [
+          "internal/tool/todo_write.go"
+        ]
+      },
+      {
+        "query": "buildAnalysisIR buildRequestModel",
+        "expected_files": [
+          "internal/agent/analyzer.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/analyzer.go",
+          "internal/types/context.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "ir_accessor irKeywords irEntities",
+        "expected_files": [
+          "internal/agent/ir_accessor.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/ir_accessor.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "propose_sub_agents tool",
+        "expected_files": [
+          "internal/tool/propose_sub_agents.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/tool.go",
+          "internal/agent/agent.go",
+          "internal/agent/agent_test.go",
+          "internal/tool/builtin.go",
+          "internal/mcp/mcp.go"
+        ],
+        "hit": 0,
+        "missing": [
+          "internal/tool/propose_sub_agents.go"
+        ]
+      },
+      {
+        "query": "subagent register default SubExplorer",
+        "expected_files": [
+          "internal/agent/subagent.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "cmd/root.go",
+          "internal/agent/subagent.go",
+          "internal/agent/subagent_runtime.go",
+          "internal/types/subagent.go",
+          "internal/agent/registry.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "extractSubAgentProposal orchestrator",
+        "expected_files": [
+          "internal/orchestrator/orchestrator.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/orchestrator/orchestrator.go",
+          "internal/orchestrator/orchestrator_test.go",
+          "config/orchestrator.yaml",
+          "internal/orchestrator/apply_stage_output_dedup_test.go",
+          "internal/orchestrator/language_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "explorer ShouldStop BaseAgent",
+        "expected_files": [
+          "internal/agent/explorer.go",
+          "internal/agent/agent.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/sub_explorer.go",
+          "internal/agent/explorer_test.go",
+          "internal/agent/explorer.go",
+          "internal/agent/sub_explorer_test.go",
+          "internal/agent/agent.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "ContinuationPrompt explorer evaluator",
+        "expected_files": [
+          "internal/agent/explorer.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/sub_explorer.go",
+          "internal/agent/explorer.go",
+          "internal/agent/agent.go",
+          "internal/agent/finalizer_test.go",
+          "internal/agent/sub_explorer_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "keyword search IDF ranking",
+        "expected_files": [
+          "internal/agent/keyword_search.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/keyword_search.go",
+          "internal/agent/keyword_search_test.go",
+          "internal/agent/evidence.go",
+          "internal/agent/evidence_test.go",
+          "internal/tool/search.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "extractConcreteValues evidence",
+        "expected_files": [
+          "internal/agent/explorer.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/erm_test.go",
+          "internal/agent/evidence.go",
+          "internal/types/evidence.go",
+          "internal/agent/erm.go",
+          "internal/agent/answer_symbol_extraction_audit_test.go"
+        ],
+        "hit": 0,
+        "missing": [
+          "internal/agent/explorer.go"
+        ]
+      },
+      {
+        "query": "EvidenceRequirement ERM",
+        "expected_files": [
+          "internal/agent/erm.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/erm.go",
+          "internal/agent/erm_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/agent/answer_shape_gate_test.go",
+          "internal/analysis/risk/risk_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "risk matrix derive policy",
+        "expected_files": [
+          "internal/analysis/risk/policy.go",
+          "internal/analysis/risk/matrix.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/analysis/risk/risk_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/orchestrator/orchestrator_test.go",
+          "internal/analysis/risk/policy.go",
+          "internal/analysis/risk/matrix.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "hypothesis planner Plan Bind",
+        "expected_files": [
+          "internal/analysis/hdp/planner.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/analysis/hdp/hdp_test.go",
+          "internal/agent/planner.go",
+          "internal/agent/erm_test.go",
+          "internal/analysis/hdp/planner.go",
+          "internal/types/analysis_ir.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "counterfactual expand ShouldExpand",
+        "expected_files": [
+          "internal/analysis/counterfactual/expander.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/analysis/counterfactual/counterfactual_test.go",
+          "internal/analysis/counterfactual/expander.go",
+          "internal/agent/keyword_search_test.go",
+          "internal/agent/keyword_search.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "quality gate report checks",
+        "expected_files": [
+          "internal/analysis/gate/gate.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/explorer_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/agent/answer_shape_gate_test.go",
+          "internal/analysis/gate/gate.go",
+          "internal/agent/evidence.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "normalizer term graph canonical",
+        "expected_files": [
+          "internal/analysis/normalizer/normalizer.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/erm.go",
+          "internal/agent/erm_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/analysis/normalizer/normalizer_test.go",
+          "internal/analysis/risk/risk_test.go"
+        ],
+        "hit": 0,
+        "missing": [
+          "internal/analysis/normalizer/normalizer.go"
+        ]
+      },
+      {
+        "query": "compiler scenario compile",
+        "expected_files": [
+          "internal/analysis/compiler/compile.go",
+          "internal/analysis/compiler/scenario.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/analysis/compiler/compile_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/analysis/compiler/scenario.go",
+          "internal/analysis/compiler/compile.go",
+          "internal/analysis/compiler/templates.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "BuildGraph FileInfo Symbol Relation",
+        "expected_files": [
+          "internal/tool/repomap/graph.go",
+          "internal/tool/repomap/types.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/erm_test.go",
+          "eval/repomap_v3/harness/main.go",
+          "internal/agent/erm.go",
+          "internal/tool/repomap/cache.go",
+          "internal/tool/repomap/graph.go"
+        ],
+        "hit": 0.5,
+        "missing": [
+          "internal/tool/repomap/types.go"
+        ]
+      },
+      {
+        "query": "RankGraph query score fan-out",
+        "expected_files": [
+          "internal/tool/repomap/rank.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/rank.go",
+          "internal/agent/erm_test.go",
+          "eval/repomap_v3/harness/main.go",
+          "internal/agent/keyword_search.go",
+          "internal/agent/evidence.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "repomap cache SaveCache LoadFileInfos",
+        "expected_files": [
+          "internal/tool/repomap/cache.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/cache.go",
+          "internal/analysis/dataflow/engine.go",
+          "internal/tool/repomap/tool.go",
+          "eval/repomap_v3/fixtures/queries.json",
+          "eval/repomap_v3/fixtures/symbols.json"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "ScanFiles FileEntry special file",
+        "expected_files": [
+          "internal/tool/repomap/scanner.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/explorer_test.go",
+          "internal/tool/repomap/scanner.go",
+          "internal/logging/logger.go",
+          "internal/agent/keyword_search.go",
+          "internal/tool/repomap/cache.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "GenerateView task_map call_path",
+        "expected_files": [
+          "internal/tool/repomap/views.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/views.go",
+          "eval/repomap_v3/harness/main.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "tree-sitter extractor go",
+        "expected_files": [
+          "internal/tool/repomap/extract_go.go",
+          "internal/tool/repomap/parser.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/answer_symbol_extraction_audit_test.go",
+          "internal/tool/repomap/extract_go.go",
+          "internal/analysis/dataflow/engine_test.go",
+          "internal/agent/bridge_literal_chain_test.go",
+          "internal/analysis/gate/gate_test.go"
+        ],
+        "hit": 0.5,
+        "missing": [
+          "internal/tool/repomap/parser.go"
+        ]
+      },
+      {
+        "query": "BuildAgentContext narrowed view",
+        "expected_files": [
+          "internal/context/builder.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/repomap/views.go",
+          "internal/types/enums.go",
+          "internal/agent/code_reviewer.go",
+          "internal/agent/design_reviewer.go",
+          "internal/tool/blob.go"
+        ],
+        "hit": 0,
+        "missing": [
+          "internal/context/builder.go"
+        ]
+      },
+      {
+        "query": "MutableState TaskList lock concurrency",
+        "expected_files": [
+          "internal/types/context.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/memory/lock_windows.go",
+          "internal/memory/lock_unix.go",
+          "internal/memory/store.go",
+          "internal/types/context.go",
+          "internal/memory/lock.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "GrepTool ReadFile tool builtin",
+        "expected_files": [
+          "internal/tool/builtin.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/tool/builtin.go",
+          "internal/tool/tool.go",
+          "internal/tool/builtin_test.go",
+          "internal/agent/agent.go",
+          "internal/agent/agent_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "logging rotation PID retention",
+        "expected_files": [
+          "internal/logging/logger.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/logging/logger.go",
+          "internal/logging/pid_unix.go",
+          "internal/logging/pid_windows.go",
+          "internal/logging/logger_test.go",
+          "internal/memory/pid_unix.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "memory store compact turn index",
+        "expected_files": [
+          "internal/memory/store.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/memory/store.go",
+          "internal/memory/store_test.go",
+          "internal/agent/erm_test.go",
+          "internal/agent/erm.go",
+          "internal/agent/answer_symbol_extraction_audit_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "REPL slash command history",
+        "expected_files": [
+          "internal/repl/repl.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/repl/repl.go",
+          "cmd/root.go",
+          "internal/tool/command_detect.go",
+          "internal/agent/agent_test.go",
+          "internal/repl/repl_test.go"
+        ],
+        "hit": 1
+      },
+      {
+        "query": "finalizer answer shape translation",
+        "expected_files": [
+          "internal/agent/finalizer.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/agent/erm.go",
+          "internal/agent/erm_test.go",
+          "internal/agent/finalizer_test.go",
+          "internal/types/analysis_ir.go",
+          "internal/agent/answer_shape_gate_test.go"
+        ],
+        "hit": 0,
+        "missing": [
+          "internal/agent/finalizer.go"
+        ]
+      },
+      {
+        "query": "有多少个agent可以调用subagent",
+        "expected_files": [
+          "internal/agent/subagent.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/logging/logger.go",
+          "internal/tool/repomap/parser.go",
+          "internal/agent/erm.go",
+          "internal/memory/store.go",
+          "internal/agent/explorer.go"
+        ],
+        "hit": 0,
+        "missing": [
+          "internal/agent/subagent.go"
+        ]
+      },
+      {
+        "query": "分析器如何派生 run policy",
+        "expected_files": [
+          "internal/analysis/risk/policy.go",
+          "internal/agent/analyzer.go"
+        ],
+        "top_k": 5,
+        "ranked_top": [
+          "internal/analysis/gate/gate_test.go",
+          "internal/orchestrator/orchestrator_test.go",
+          "internal/orchestrator/orchestrator.go",
+          "internal/config/runtime_test.go",
+          "internal/analysis/risk/risk_test.go"
+        ],
+        "hit": 0,
+        "missing": [
+          "internal/analysis/risk/policy.go",
+          "internal/agent/analyzer.go"
+        ]
+      }
+    ]
+  },
+  "scan_latency": {
+    "full_scan_seconds": 0.181978577,
+    "file_count": 186,
+    "symbol_count": 1828,
+    "relation_count": 12399
+  }
+}

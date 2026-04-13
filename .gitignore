@@ -3,6 +3,8 @@ config/codrax.yaml
 
 # Build output (binary name comes from module path)
 /codrax
+# `go build ./eval/repomap_v3/harness/` drops a binary at the repo root.
+/harness
 
 # Runtime artifacts produced by the binary itself. Both directories are
 # created on first run by the logger and REPL; they hold per-session
