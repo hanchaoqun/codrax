@@ -27,21 +27,30 @@ type TodoWrite struct {
 }
 
 type todoWriteParams struct {
-	Tasks []todoWriteTaskParam `json:"tasks"`
+	Tasks           []todoWriteTaskParam       `json:"tasks"`
+	Edges           []types.TaskGraphEdge      `json:"edges,omitempty"`
+	ExecutionPolicy *types.TaskExecutionPolicy `json:"execution_policy,omitempty"`
 }
 
 type todoWriteTaskParam struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Description  string   `json:"description,omitempty"`
-	Writing      bool     `json:"writing,omitempty"`
-	HighRisk     bool     `json:"high_risk,omitempty"`
-	Complexity   string   `json:"complexity,omitempty"`
-	Keywords     []string `json:"keywords,omitempty"`
-	Entities     []string `json:"entities,omitempty"`
-	QuestionKind string   `json:"question_kind,omitempty"`
-	AnswerShape  string   `json:"answer_shape,omitempty"`
-	Status       string   `json:"status,omitempty"`
+	ID              string   `json:"id"`
+	Title           string   `json:"title"`
+	Description     string   `json:"description,omitempty"`
+	Writing         bool     `json:"writing,omitempty"`
+	HighRisk        bool     `json:"high_risk,omitempty"`
+	Complexity      string   `json:"complexity,omitempty"`
+	Keywords        []string `json:"keywords,omitempty"`
+	Entities        []string `json:"entities,omitempty"`
+	QuestionKind    string   `json:"question_kind,omitempty"`
+	AnswerShape     string   `json:"answer_shape,omitempty"`
+	NodeType        string   `json:"type,omitempty"`
+	Objective       string   `json:"objective,omitempty"`
+	Inputs          []string `json:"inputs,omitempty"`
+	Outputs         []string `json:"outputs,omitempty"`
+	SuccessCriteria []string `json:"success_criteria,omitempty"`
+	EntryConditions []string `json:"entry_conditions,omitempty"`
+	ExitArtifacts   []string `json:"exit_artifacts,omitempty"`
+	Status          string   `json:"status,omitempty"`
 }
 
 func (t *TodoWrite) Name() string { return "todo_write" }
@@ -73,9 +82,36 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "entities":    {"type": "array", "items": {"type": "string"}, "description": "CamelCase/snake_case symbol names copied VERBATIM from the user's original wording. Do NOT translate, re-case, or paraphrase. These drive ERM entity extraction for the explorer; adding generic English nouns (e.g. 'count','that','function') has caused ranking regressions. Leave empty only if the user's question contains no identifier-looking tokens."},
           "question_kind": {"type": "string", "enum": ["registration","mechanism","return_value","conditional","config_mapping","enumeration","call_chain","unknown"], "description": "Evidence-requirement shape. registration = 'which/how many X register/bind Y'. mechanism = 'how does X work / explain process'. return_value = 'what does X return / X's name/type'. conditional = 'when/under what condition'. config_mapping = 'what does config key K do'. enumeration = 'list/count all X'. call_chain = 'which X calls Y'. Use 'unknown' only if genuinely ambiguous — ERM will fall back to keyword inference. Picking the right kind here directly drives which evidence predicates the downstream pipeline opens."},
           "answer_shape":  {"type": "string", "enum": ["list_of_symbols","step_list","value","boolean","config_value","none"], "description": "Expected final-answer structure. list_of_symbols = answer is a set of identifier names (the finalizer will forbid out-of-evidence symbols). step_list = ordered steps of a mechanism. value = a single literal/return. boolean = yes/no. config_value = a config key's resolved value. none = no structured shape applies."},
+          "objective":   {"type": "string", "description": "Node-level objective for AnalysisIR.TaskGraph.nodes[].objective. Defaults to title when omitted."},
+          "inputs":      {"type": "array", "items": {"type": "string"}, "description": "Node-level required inputs consumed by this task."},
+          "outputs":     {"type": "array", "items": {"type": "string"}, "description": "Node-level outputs produced by this task."},
+          "success_criteria": {"type": "array", "items": {"type": "string"}, "description": "Concrete conditions that define successful completion."},
+          "entry_conditions": {"type": "array", "items": {"type": "string"}, "description": "Required preconditions for scheduling this node. Must not be empty."},
+          "exit_artifacts": {"type": "array", "items": {"type": "string"}, "description": "Artifacts that must exist when this node exits. Must not be empty."},
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
+      }
+    },
+    "edges": {
+      "type": "array",
+      "description": "TaskGraph edges. edge_type must be one of hard_dependency|soft_dependency|validation_feedback.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "edge_type": {"type": "string", "enum": ["hard_dependency", "soft_dependency", "validation_feedback"]}
+        },
+        "required": ["from", "to", "edge_type"]
+      }
+    },
+    "execution_policy": {
+      "type": "object",
+      "properties": {
+        "max_parallelism": {"type": "integer"},
+        "critical_path": {"type": "array", "items": {"type": "string"}},
+        "retry_budget": {"type": "integer"}
       }
     }
   },
@@ -132,7 +168,7 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		CurrentTaskID: pickCurrentTaskID(items),
 	}
 	ctx.Mutable.SetTaskList(newList)
-	ctx.AnalysisIR = buildAnalysisIR(p.Tasks, newList)
+	ctx.AnalysisIR = buildAnalysisIR(p, newList)
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -142,20 +178,20 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	}, nil
 }
 
-func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.AnalysisIR {
+func buildAnalysisIR(p todoWriteParams, tl types.TaskList) *types.AnalysisIR {
 	var current *todoWriteTaskParam
-	for i := range raw {
-		id := strings.TrimSpace(raw[i].ID)
+	for i := range p.Tasks {
+		id := strings.TrimSpace(p.Tasks[i].ID)
 		if id == "" {
 			id = fmt.Sprintf("task-%d", i+1)
 		}
 		if id == tl.CurrentTaskID {
-			current = &raw[i]
+			current = &p.Tasks[i]
 			break
 		}
 	}
-	if current == nil && len(raw) > 0 {
-		current = &raw[0]
+	if current == nil && len(p.Tasks) > 0 {
+		current = &p.Tasks[0]
 	}
 	ir := &types.AnalysisIR{
 		RequestModel: types.RequestModel{
@@ -169,10 +205,39 @@ func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.Analysi
 		},
 	}
 	for _, task := range tl.Tasks {
+		rawNode := findRawNodeByID(p.Tasks, task.ID)
+		objective := task.Title
+		var inputs, outputs, successCriteria, entryConditions, exitArtifacts []string
+		if rawNode != nil && strings.TrimSpace(rawNode.Objective) != "" {
+			objective = strings.TrimSpace(rawNode.Objective)
+		}
+		if rawNode != nil {
+			inputs = trimStringSlice(rawNode.Inputs)
+			outputs = trimStringSlice(rawNode.Outputs)
+			successCriteria = trimStringSlice(rawNode.SuccessCriteria)
+			entryConditions = trimStringSlice(rawNode.EntryConditions)
+			exitArtifacts = trimStringSlice(rawNode.ExitArtifacts)
+		}
 		ir.TaskGraph.Nodes = append(ir.TaskGraph.Nodes, types.TaskGraphNode{
-			ID:    task.ID,
-			Title: task.Title,
+			ID:              task.ID,
+			Type:            normalizeNodeType(rawNode, task),
+			Objective:       objective,
+			Inputs:          inputs,
+			Outputs:         outputs,
+			SuccessCriteria: successCriteria,
+			EntryConditions: ensureNonEmpty(entryConditions, "task "+task.ID+" has pending dependencies resolved"),
+			ExitArtifacts:   ensureNonEmpty(exitArtifacts, "task "+task.ID+" completion report"),
 		})
+	}
+	ir.TaskGraph.Edges = normalizeEdges(p.Edges)
+	if p.ExecutionPolicy != nil {
+		ir.TaskGraph.ExecutionPolicy = *p.ExecutionPolicy
+	}
+	if ir.TaskGraph.ExecutionPolicy.MaxParallelism <= 0 {
+		ir.TaskGraph.ExecutionPolicy.MaxParallelism = 1
+	}
+	if ir.TaskGraph.ExecutionPolicy.RetryBudget <= 0 {
+		ir.TaskGraph.ExecutionPolicy.RetryBudget = 1
 	}
 	if current != nil {
 		ir.RequestModel.Entities = trimStringSlice(current.Entities)
@@ -192,6 +257,65 @@ func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.Analysi
 		}
 	}
 	return ir
+}
+
+func findRawNodeByID(raw []todoWriteTaskParam, id string) *todoWriteTaskParam {
+	for i := range raw {
+		candidate := strings.TrimSpace(raw[i].ID)
+		if candidate == "" {
+			candidate = fmt.Sprintf("task-%d", i+1)
+		}
+		if candidate == id {
+			return &raw[i]
+		}
+	}
+	return nil
+}
+
+func normalizeNodeType(raw *todoWriteTaskParam, task types.TaskItem) string {
+	if raw != nil && strings.TrimSpace(raw.NodeType) != "" {
+		return strings.TrimSpace(raw.NodeType)
+	}
+	if task.Writing {
+		return "implementation"
+	}
+	return "analysis"
+}
+
+func ensureNonEmpty(in []string, fallback string) []string {
+	if len(in) > 0 {
+		return in
+	}
+	return []string{fallback}
+}
+
+func normalizeEdges(in []types.TaskGraphEdge) []types.TaskGraphEdge {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.TaskGraphEdge, 0, len(in))
+	for _, edge := range in {
+		from := strings.TrimSpace(edge.From)
+		to := strings.TrimSpace(edge.To)
+		if from == "" || to == "" {
+			continue
+		}
+		edgeType := strings.ToLower(strings.TrimSpace(edge.EdgeType))
+		switch edgeType {
+		case "hard_dependency", "soft_dependency", "validation_feedback":
+		default:
+			edgeType = "hard_dependency"
+		}
+		out = append(out, types.TaskGraphEdge{
+			From:     from,
+			To:       to,
+			EdgeType: edgeType,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // buildTodoItems normalizes raw params into TaskItem values, assigning

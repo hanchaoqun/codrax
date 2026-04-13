@@ -21,19 +21,32 @@ type RequestModel struct {
 }
 
 type TaskGraph struct {
-	Nodes        []TaskGraphNode `json:"nodes,omitempty" yaml:"nodes,omitempty"`
-	Dependencies []TaskGraphEdge `json:"dependencies,omitempty" yaml:"dependencies,omitempty"`
-	ParallelSets [][]string      `json:"parallel_sets,omitempty" yaml:"parallel_sets,omitempty"`
+	Nodes           []TaskGraphNode     `json:"nodes,omitempty" yaml:"nodes,omitempty"`
+	Edges           []TaskGraphEdge     `json:"edges,omitempty" yaml:"edges,omitempty"`
+	ExecutionPolicy TaskExecutionPolicy `json:"execution_policy,omitempty" yaml:"execution_policy,omitempty"`
 }
 
 type TaskGraphNode struct {
-	ID    string `json:"id" yaml:"id"`
-	Title string `json:"title" yaml:"title"`
+	ID              string   `json:"id" yaml:"id"`
+	Type            string   `json:"type,omitempty" yaml:"type,omitempty"`
+	Objective       string   `json:"objective,omitempty" yaml:"objective,omitempty"`
+	Inputs          []string `json:"inputs,omitempty" yaml:"inputs,omitempty"`
+	Outputs         []string `json:"outputs,omitempty" yaml:"outputs,omitempty"`
+	SuccessCriteria []string `json:"success_criteria,omitempty" yaml:"success_criteria,omitempty"`
+	EntryConditions []string `json:"entry_conditions,omitempty" yaml:"entry_conditions,omitempty"`
+	ExitArtifacts   []string `json:"exit_artifacts,omitempty" yaml:"exit_artifacts,omitempty"`
 }
 
 type TaskGraphEdge struct {
-	From string `json:"from" yaml:"from"`
-	To   string `json:"to" yaml:"to"`
+	From     string `json:"from" yaml:"from"`
+	To       string `json:"to" yaml:"to"`
+	EdgeType string `json:"edge_type,omitempty" yaml:"edge_type,omitempty"`
+}
+
+type TaskExecutionPolicy struct {
+	MaxParallelism int      `json:"max_parallelism,omitempty" yaml:"max_parallelism,omitempty"`
+	CriticalPath   []string `json:"critical_path,omitempty" yaml:"critical_path,omitempty"`
+	RetryBudget    int      `json:"retry_budget,omitempty" yaml:"retry_budget,omitempty"`
 }
 
 type EvidencePlan struct {

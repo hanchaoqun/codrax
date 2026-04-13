@@ -77,6 +77,18 @@ answer_shape — pick one:
    config_value    — a resolved config key value
    none            — no structured shape applies
 
+entry_conditions — non-empty list. Preconditions that must be true
+               before this node can be scheduled. Empty list is forbidden.
+exit_artifacts — non-empty list. Concrete artifacts this node emits
+               on completion (notes, patch, test evidence, etc.).
+objective/inputs/outputs/success_criteria — provide concise node
+               semantics so TaskGraph is executable by dependency.
+
+# Optional graph-level fields
+edges — list of {from,to,edge_type} where edge_type is one of
+        hard_dependency | soft_dependency | validation_feedback.
+execution_policy — {max_parallelism, critical_path, retry_budget}
+
 # Hard rules
 
 1. entities come from the user's ORIGINAL text only. If the user wrote
@@ -138,7 +150,18 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 					QuestionKind: outputKind,
 				},
 				TaskGraph: types.TaskGraph{
-					Nodes: []types.TaskGraphNode{{ID: "task-1", Title: tl.Objective}},
+					Nodes: []types.TaskGraphNode{{
+						ID:              "task-1",
+						Type:            "analysis",
+						Objective:       tl.Objective,
+						EntryConditions: []string{"user request received"},
+						ExitArtifacts:   []string{"analysis summary"},
+					}},
+					ExecutionPolicy: types.TaskExecutionPolicy{
+						MaxParallelism: 1,
+						CriticalPath:   []string{"task-1"},
+						RetryBudget:    1,
+					},
 				},
 				EvidencePlan: types.EvidencePlan{
 					Complexity: defaultComplexity,

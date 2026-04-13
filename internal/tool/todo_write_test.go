@@ -279,6 +279,45 @@ func TestTodoWrite_EntitiesTrimEmpty(t *testing.T) {
 	}
 }
 
+func TestTodoWrite_TaskGraphFieldsAndDefaults(t *testing.T) {
+	tw := &TodoWrite{}
+	bus := newMutableBus()
+	params := []byte(`{
+		"tasks": [{
+			"id":"t1",
+			"title":"inspect analyzer",
+			"type":"analysis",
+			"objective":"inspect analyzer graph node",
+			"entry_conditions":["analyze stage completed"],
+			"exit_artifacts":["analysis notes"],
+			"inputs":["request"],
+			"outputs":["facts"],
+			"success_criteria":["facts >= 1"]
+		}],
+		"edges":[{"from":"t1","to":"t2","edge_type":"soft_dependency"}],
+		"execution_policy":{"max_parallelism":2,"critical_path":["t1"],"retry_budget":3}
+	}`)
+	if _, err := tw.Execute(bus, params); err != nil {
+		t.Fatalf("execute failed: %v", err)
+	}
+	if bus.AnalysisIR == nil {
+		t.Fatal("AnalysisIR should be populated")
+	}
+	node := bus.AnalysisIR.TaskGraph.Nodes[0]
+	if node.Objective != "inspect analyzer graph node" || node.Type != "analysis" {
+		t.Fatalf("unexpected node fields: %#v", node)
+	}
+	if len(node.EntryConditions) != 1 || len(node.ExitArtifacts) != 1 {
+		t.Fatalf("entry/exit fields not persisted: %#v", node)
+	}
+	if bus.AnalysisIR.TaskGraph.ExecutionPolicy.MaxParallelism != 2 {
+		t.Fatalf("max_parallelism not persisted")
+	}
+	if len(bus.AnalysisIR.TaskGraph.Edges) != 1 || bus.AnalysisIR.TaskGraph.Edges[0].EdgeType != "soft_dependency" {
+		t.Fatalf("edges not persisted: %#v", bus.AnalysisIR.TaskGraph.Edges)
+	}
+}
+
 // TestNormalizeQuestionKind_AllPaths verifies every branch of the
 // normalizer including fallbacks for unknown/empty inputs.
 func TestNormalizeQuestionKind_AllPaths(t *testing.T) {
