@@ -234,7 +234,7 @@ func TestDecideNextStage_ExploreToPlain(t *testing.T) {
 				Stage:   types.StageExplore,
 				Missing: types.MissingPlan,
 			},
-			Policy:   types.PolicyContext{},
+			Policy:  types.PolicyContext{},
 			Mutable: types.NewMutableState(*implementationTaskList()),
 		}
 
@@ -261,7 +261,7 @@ func TestDecideNextStage_PlanToDesignReview(t *testing.T) {
 				Stage:   types.StagePlan,
 				Missing: types.MissingCode,
 			},
-			Policy:   types.PolicyContext{RequireReview: true},
+			Policy:  types.PolicyContext{RequireReview: true},
 			Mutable: types.NewMutableState(*implementationTaskList()),
 		}
 
@@ -288,7 +288,7 @@ func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 				Stage:   types.StageImplement,
 				Missing: types.MissingVerification,
 			},
-			Policy:   types.PolicyContext{RequireReview: true},
+			Policy:  types.PolicyContext{RequireReview: true},
 			Mutable: types.NewMutableState(*implementationTaskList()),
 		}
 
@@ -779,10 +779,9 @@ func TestRun_FinalizeSkillRoutedByPolicy(t *testing.T) {
 	})
 }
 
-// TestRun_ForcesFinalizeWhenMaxStepsExhausted verifies that when the
+// TestRun_FailsTaskWhenMaxStepsExhausted verifies that when the
 // pipeline runs out of steps before reaching a terminal stage, the
-// orchestrator forces one finalizer call so the caller always sees a
-// terminal state and the FinalAnswer plumbing still gets exercised.
+// orchestrator marks the task failed (without forcing finalize).
 func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 	cfg := defaultResolvedConfig()
 
@@ -824,23 +823,20 @@ func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 	}
 
 	if !busCtx.TaskState.IsTerminal {
-		t.Error("expected pipeline to be marked terminal after forced finalize")
+		t.Error("expected pipeline to be marked terminal")
 	}
-	if busCtx.PipelineStage != types.StageFinalize {
-		t.Errorf("PipelineStage = %s, want finalize", busCtx.PipelineStage)
-	}
-	if finalizerCalled != 1 {
-		t.Errorf("finalizer call count = %d, want exactly 1", finalizerCalled)
+	if finalizerCalled != 0 {
+		t.Errorf("finalizer call count = %d, want 0", finalizerCalled)
 	}
 	tl := busCtx.Mutable.TaskList()
 	if len(tl.Tasks) == 0 {
 		t.Fatal("expected at least one task on the list")
 	}
-	if got := tl.Tasks[0].Result; got != "forced summary after max-steps" {
-		t.Errorf("task.Result = %q, want forced summary", got)
+	if got := tl.Tasks[0].Result; got != "" {
+		t.Errorf("task.Result = %q, want empty (no forced finalize)", got)
 	}
-	if tl.Tasks[0].Status != types.TaskDone {
-		t.Errorf("task.Status = %s, want done after forced finalize", tl.Tasks[0].Status)
+	if tl.Tasks[0].Status != types.TaskFailed {
+		t.Errorf("task.Status = %s, want failed", tl.Tasks[0].Status)
 	}
 	if busCtx.TaskState.LastError == "" {
 		t.Error("expected LastError to record max-steps exhaustion")
@@ -979,11 +975,11 @@ func TestRun_MultiTaskExecution(t *testing.T) {
 // The explorer mock returns NewFacts whose Source fields are logical file
 // paths (as produced by logicalFactSource) and EvidenceRef fields carry
 // the raw blob references. Assertions check:
-//   1. Facts accumulate on BusContext.RepoFacts with correct Source/EvidenceRef
-//   2. The finalizer's AgentContext.RelevantFiles contains real file paths
-//   3. The finalizer's AgentContext.RelevantFiles is properly deduplicated
-//   4. The finalizer's RelevantFacts includes source annotations with file paths
-//   5. BuildPromptContext renders "Relevant Files" with paths, not tool names
+//  1. Facts accumulate on BusContext.RepoFacts with correct Source/EvidenceRef
+//  2. The finalizer's AgentContext.RelevantFiles contains real file paths
+//  3. The finalizer's AgentContext.RelevantFiles is properly deduplicated
+//  4. The finalizer's RelevantFacts includes source annotations with file paths
+//  5. BuildPromptContext renders "Relevant Files" with paths, not tool names
 func TestRun_ExplorerFactSourceFlowsToFinalizer(t *testing.T) {
 	cfg := defaultResolvedConfig()
 
@@ -1006,7 +1002,7 @@ func TestRun_ExplorerFactSourceFlowsToFinalizer(t *testing.T) {
 		// Source = file path (not tool name), EvidenceRef = blob reference.
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			return &agent.StageOutput{
-				MissingPiece: types.MissingNone,
+				MissingPiece:  types.MissingNone,
 				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
 				NewFacts: []types.RepoFact{
 					{
@@ -1105,8 +1101,8 @@ func TestRun_ExplorerFactSourceFlowsToFinalizer(t *testing.T) {
 			len(finalizerRelevantFiles), finalizerRelevantFiles)
 	}
 	expectedFiles := map[string]bool{
-		"internal/agent/explorer.go":   false,
-		"internal/context/builder.go":  false,
+		"internal/agent/explorer.go":  false,
+		"internal/context/builder.go": false,
 		"tool:repo_map":               false,
 	}
 	for _, f := range finalizerRelevantFiles {
@@ -1248,8 +1244,8 @@ func TestRun_OldBehaviorWouldFail(t *testing.T) {
 
 // TestRun_OscillationGuardTripsBeforeMaxSteps verifies that when a
 // stage re-enters itself repeatedly without making progress, the
-// per-stage visit counter trips well before max-steps would, leading
-// to a forced finalize with a stuck-error message. The default
+// per-stage visit counter trips well before max-steps would, marking
+// the task as failed. The default
 // config has an explore → explore self-loop transition; combined
 // with an analysis-typed task and an explorer that never reports
 // HasEnoughFacts, the orchestrator naturally bounces inside explore.
@@ -1296,17 +1292,20 @@ func TestRun_OscillationGuardTripsBeforeMaxSteps(t *testing.T) {
 	}
 
 	if !busCtx.TaskState.IsTerminal {
-		t.Error("expected pipeline to terminate via forced finalize")
+		t.Error("expected pipeline to terminate")
 	}
-	if finalizerCalled != 1 {
-		t.Errorf("finalizer call count = %d, want exactly 1", finalizerCalled)
+	if finalizerCalled != 0 {
+		t.Errorf("finalizer call count = %d, want 0", finalizerCalled)
 	}
 	tl := busCtx.Mutable.TaskList()
 	if len(tl.Tasks) == 0 {
 		t.Fatal("expected at least one task on the list")
 	}
-	if got := tl.Tasks[0].Result; got != "stuck — forced finalize" {
-		t.Errorf("task.Result = %q, want forced summary", got)
+	if got := tl.Tasks[0].Result; got != "" {
+		t.Errorf("task.Result = %q, want empty", got)
+	}
+	if tl.Tasks[0].Status != types.TaskFailed {
+		t.Errorf("task.Status = %s, want failed", tl.Tasks[0].Status)
 	}
 	if busCtx.TaskState.LastError == "" {
 		t.Error("expected LastError to record oscillation")
@@ -1317,3 +1316,123 @@ func TestRun_OscillationGuardTripsBeforeMaxSteps(t *testing.T) {
 		t.Errorf("expected guard to fire fast; explorer ran %d times", exploreCalled)
 	}
 }
+
+func TestRun_SchedulesOnlyDependencyReadyTasks(t *testing.T) {
+	cfg := defaultResolvedConfig()
+	runOrder := make([]string, 0, 2)
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetTaskList(types.TaskList{
+				Objective: "dependency schedule",
+				Tasks: []types.TaskItem{
+					{ID: "t1", Title: "first", Writing: true, Status: types.TaskPending},
+					{ID: "t2", Title: "second", Writing: true, Status: types.TaskPending},
+				},
+				CurrentTaskID: "t1",
+			})
+			return &agent.StageOutput{
+				AnalysisIR: &types.AnalysisIR{
+					TaskGraph: types.TaskGraph{
+						Edges: []types.TaskGraphEdge{{From: "t1", To: "t2", EdgeType: "hard_dependency"}},
+					},
+				},
+			}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingPlan,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+			}, nil
+		},
+		types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingCode,
+				SignalUpdates: &types.ExecutionSignals{HasPlan: true},
+			}, nil
+		},
+		types.AgentImplementer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingVerification,
+				SignalUpdates: &types.ExecutionSignals{HasPatch: true},
+			}, nil
+		},
+		types.AgentVerifier: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{VerificationPassed: true},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			runOrder = append(runOrder, ctx.CurrentTaskID)
+			return &agent.StageOutput{FinalAnswer: "ok", MissingPiece: types.MissingNone}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(20)
+	if _, err := o.Run("dependency schedule", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(runOrder) != 2 || runOrder[0] != "t1" || runOrder[1] != "t2" {
+		t.Fatalf("unexpected finalize order: %v", runOrder)
+	}
+}
+
+func TestRun_ValidationFeedbackReopensUpstreamTask(t *testing.T) {
+	cfg := defaultResolvedConfig()
+	finalized := make([]string, 0, 2)
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			ctx.Mutable.SetTaskList(types.TaskList{
+				Objective: "feedback schedule",
+				Tasks: []types.TaskItem{
+					{ID: "up", Title: "upstream", Writing: true, Status: types.TaskPending},
+					{ID: "down", Title: "downstream", Writing: true, Status: types.TaskPending},
+				},
+				CurrentTaskID: "up",
+			})
+			return &agent.StageOutput{
+				AnalysisIR: &types.AnalysisIR{
+					TaskGraph: types.TaskGraph{
+						Edges: []types.TaskGraphEdge{
+							{From: "up", To: "down", EdgeType: "hard_dependency"},
+							{From: "down", To: "up", EdgeType: "validation_feedback"},
+						},
+					},
+				},
+			}, nil
+		},
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
+			}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalized = append(finalized, ctx.CurrentTaskID)
+			return &agent.StageOutput{FinalAnswer: "ok", MissingPiece: types.MissingNone}, nil
+		},
+		types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			if ctx.CurrentTaskID == "down" {
+				return nil, assertErr("downstream failed validation")
+			}
+			return &agent.StageOutput{
+				MissingPiece:  types.MissingNone,
+				SignalUpdates: &types.ExecutionSignals{HasPlan: true},
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(20)
+	if _, err := o.Run("feedback schedule", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(finalized) < 2 || finalized[0] != "up" || finalized[1] != "up" {
+		t.Fatalf("expected upstream to run, then rerun via validation feedback; got %v", finalized)
+	}
+}
+
+type assertErr string
+
+func (e assertErr) Error() string { return string(e) }
