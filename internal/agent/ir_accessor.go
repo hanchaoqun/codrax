@@ -3,59 +3,37 @@ package agent
 import "github.com/hanchaoqun/codrax/internal/types"
 
 // The ir* helpers read analyzer-sourced hints from the AnalysisIR
-// populated by the analyze stage. When the IR is nil (pre-v3 call
-// paths, fail-safe analyze output, unit tests that skip analyze),
-// they fall back to the legacy AgentContext.CurrentTask* fields so
-// behavior is unchanged for callers that have not migrated yet.
+// populated by the analyze stage. They return zero values when the IR
+// is nil (analyze failed, or unit tests that skip the analyze stage).
 //
-// Batch B5b-α routes explorer and finalizer reads through these
-// helpers. B5b-β deletes the legacy CurrentTask* fields once every
-// consumer has migrated.
+// Before batch B5b-β these helpers fell back to legacy CurrentTask*
+// fields on AgentContext; those fields were deleted along with their
+// TaskItem siblings.
 
 func irKeywords(ctx *types.AgentContext) []string {
-	if ctx == nil {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
-	if ctx.AnalysisIR != nil {
-		if h := ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords; len(h) > 0 {
-			return h
-		}
-	}
-	return ctx.CurrentTaskKeywords
+	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords
 }
 
 func irEntities(ctx *types.AgentContext) []string {
-	if ctx == nil {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
-	if ctx.AnalysisIR != nil {
-		if h := ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities; len(h) > 0 {
-			return h
-		}
-	}
-	return ctx.CurrentTaskEntities
+	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities
 }
 
 func irQuestionKind(ctx *types.AgentContext) string {
-	if ctx == nil {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	if ctx.AnalysisIR != nil {
-		if k := ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind; k != "" {
-			return k
-		}
-	}
-	return ctx.CurrentTaskQuestionKind
+	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind
 }
 
 func irAnswerShape(ctx *types.AgentContext) string {
-	if ctx == nil {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
-	if ctx.AnalysisIR != nil {
-		if s := ctx.AnalysisIR.RequestModel.AnalyzerHints.Shape; s != "" {
-			return s
-		}
-	}
-	return ctx.CurrentTaskAnswerShape
+	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Shape
 }

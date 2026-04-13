@@ -714,41 +714,19 @@ func (o *Orchestrator) decideNextStage() types.PipelineStage {
 	return types.StageFinalize
 }
 
-// determineActivePolicy determines which task policy applies based on the
-// analyzer-frozen RunPolicy.
+// determineActivePolicy determines which task policy applies based on
+// the analyzer-frozen RunPolicy.
 //
-// IR-first: when AnalysisIR is populated the RunPolicy is authoritative —
-// RequireDesignReview/RequireCodeReview are the v3 equivalent of the legacy
-// HighRisk bit and already fold in the analyzer's own HighRisk signal
-// (analyzer.go forces both review flags when TaskItem.HighRisk is set).
-//
-// Legacy fallback: when AnalysisIR is nil (pre-v3 call paths, analyze
-// skipped, unit tests) we read the legacy TaskItem.Writing/HighRisk fields.
-// Batch B5b-β will delete the fallback branch once every call path is
-// guaranteed to produce an IR.
-//
-// Fail-safe default when nothing is known: "analysis" — answering the user
-// without mutating anything is a much smaller failure mode than running a
-// write pipeline against the wrong task.
+// When AnalysisIR is nil (analyze failed, pre-IR unit tests) the
+// fail-safe default is "analysis" — answering the user without mutating
+// anything is a much smaller failure mode than running a write pipeline
+// against the wrong task.
 func (o *Orchestrator) determineActivePolicy() string {
-	if ir := o.busCtx.AnalysisIR; ir != nil {
-		if !ir.RunPolicy.Writing {
-			return "analysis"
-		}
-		if ir.RunPolicy.RequireDesignReview || ir.RunPolicy.RequireCodeReview || o.busCtx.Policy.RequireReview {
-			return "high_risk_implementation"
-		}
-		return "implementation"
-	}
-	tl := o.busCtx.Mutable.TaskList()
-	task := tl.CurrentTask()
-	if task == nil {
+	ir := o.busCtx.AnalysisIR
+	if ir == nil || !ir.RunPolicy.Writing {
 		return "analysis"
 	}
-	if !task.Writing {
-		return "analysis"
-	}
-	if task.HighRisk || o.busCtx.Policy.RequireReview {
+	if ir.RunPolicy.RequireDesignReview || ir.RunPolicy.RequireCodeReview || o.busCtx.Policy.RequireReview {
 		return "high_risk_implementation"
 	}
 	return "implementation"

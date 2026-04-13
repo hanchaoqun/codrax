@@ -333,12 +333,6 @@ type BusContext struct {
 	// run. Downstream stages may still write hypothesis status or
 	// per-node execution state through dedicated APIs that are added
 	// later batches; the top-level pointer itself stays read-only.
-	//
-	// TaskItem's legacy analyzer-populated fields
-	// (Writing/HighRisk/Complexity/Keywords/Entities/QuestionKind/
-	// AnswerShape) remain populated in parallel as a compatibility
-	// layer so pre-v3 consumers (explorer/finalizer/orchestrator)
-	// keep reading the same surfaces until batch B5b deletes them.
 	AnalysisIR *AnalysisIR `json:"analysis_ir,omitempty"`
 }
 
@@ -347,23 +341,14 @@ type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
 
-	Objective               string   `json:"objective"`
-	CurrentTaskID           string   `json:"current_task_id"`
-	CurrentTask             string   `json:"current_task"`
-	CurrentTaskDescription  string   `json:"current_task_description,omitempty"`
-	CurrentTaskWriting      bool     `json:"current_task_writing"`
-	CurrentTaskHighRisk     bool     `json:"current_task_high_risk"`
-	CurrentTaskComplexity   string   `json:"current_task_complexity,omitempty"`
-	CurrentTaskKeywords     []string `json:"current_task_keywords,omitempty"`
-	CurrentTaskEntities     []string `json:"current_task_entities,omitempty"`
-	CurrentTaskQuestionKind string   `json:"current_task_question_kind,omitempty"`
-	CurrentTaskAnswerShape  string   `json:"current_task_answer_shape,omitempty"`
+	Objective              string `json:"objective"`
+	CurrentTaskID          string `json:"current_task_id"`
+	CurrentTask            string `json:"current_task"`
+	CurrentTaskDescription string `json:"current_task_description,omitempty"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —
-	// consumers MUST nil-check before reading. Batch B5 wires this
-	// through; B5b removes the legacy CurrentTask* fields above once
-	// every consumer has migrated.
+	// consumers MUST nil-check before reading.
 	AnalysisIR *AnalysisIR `json:"-"`
 
 	RelevantFacts         []string            `json:"relevant_facts,omitempty"`

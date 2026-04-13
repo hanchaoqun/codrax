@@ -156,11 +156,9 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			// so the pipeline answers the user instead of guessing
 			// code changes.
 			tl.Tasks = []types.TaskItem{{
-				ID:       "task-1",
-				Title:    tl.Objective,
-				Writing:  false,
-				HighRisk: false,
-				Status:   types.TaskPending,
+				ID:     "task-1",
+				Title:  tl.Objective,
+				Status: types.TaskPending,
 			}}
 			tl.CurrentTaskID = "task-1"
 			ctx.Mutable.SetTaskList(tl)

@@ -139,20 +139,29 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 	}
 }
 
-// implementationTaskList builds a TaskList that classifies the user
-// request as an implementation task. Used by tests whose analyzer mock
-// needs to drive the orchestrator into the implementation policy now
-// that the default fallback is analysis.
+// implementationTaskList builds a TaskList for an implementation
+// task. Post-B5b-β, the implementation policy is selected from
+// AnalysisIR.RunPolicy, not TaskItem — so any test that wants this
+// task list to route through the implementation policy must also
+// attach implementationIR() to BusContext.AnalysisIR.
 func implementationTaskList() *types.TaskList {
 	return &types.TaskList{
 		Objective: "implement a widget",
 		Tasks: []types.TaskItem{{
-			ID:      "t1",
-			Title:   "implement",
-			Writing: true,
-			Status:  types.TaskPending,
+			ID:     "t1",
+			Title:  "implement",
+			Status: types.TaskPending,
 		}},
 		CurrentTaskID: "t1",
+	}
+}
+
+// implementationIR builds an AnalysisIR that routes the pipeline into
+// the implementation policy. Pair with implementationTaskList on
+// BusContext when a test needs both the task list and the policy.
+func implementationIR() *types.AnalysisIR {
+	return &types.AnalysisIR{
+		RunPolicy: types.RunPolicy{Writing: true},
 	}
 }
 
@@ -234,8 +243,9 @@ func TestDecideNextStage_ExploreToPlain(t *testing.T) {
 				Stage:   types.StageExplore,
 				Missing: types.MissingPlan,
 			},
-			Policy:   types.PolicyContext{},
-			Mutable: types.NewMutableState(*implementationTaskList()),
+			Policy:     types.PolicyContext{},
+			Mutable:    types.NewMutableState(*implementationTaskList()),
+			AnalysisIR: implementationIR(),
 		}
 
 		next := o.decideNextStage()
@@ -261,8 +271,9 @@ func TestDecideNextStage_PlanToDesignReview(t *testing.T) {
 				Stage:   types.StagePlan,
 				Missing: types.MissingCode,
 			},
-			Policy:   types.PolicyContext{RequireReview: true},
-			Mutable: types.NewMutableState(*implementationTaskList()),
+			Policy:     types.PolicyContext{RequireReview: true},
+			Mutable:    types.NewMutableState(*implementationTaskList()),
+			AnalysisIR: implementationIR(),
 		}
 
 		next := o.decideNextStage()
@@ -288,8 +299,9 @@ func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 				Stage:   types.StageImplement,
 				Missing: types.MissingVerification,
 			},
-			Policy:   types.PolicyContext{RequireReview: true},
-			Mutable: types.NewMutableState(*implementationTaskList()),
+			Policy:     types.PolicyContext{RequireReview: true},
+			Mutable:    types.NewMutableState(*implementationTaskList()),
+			AnalysisIR: implementationIR(),
 		}
 
 		next := o.decideNextStage()
@@ -299,22 +311,13 @@ func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 	})
 }
 
-func TestDetermineActivePolicy_IRFirst(t *testing.T) {
+func TestDetermineActivePolicy_IR(t *testing.T) {
 	cfg := defaultResolvedConfig()
 	ar, sr, sar := buildRegistries(nil)
 	o := New(cfg, ar, sr, sar)
 
-	// Legacy TaskItem says Writing+HighRisk=false (would legacy-resolve
-	// to "analysis"), but AnalysisIR.RunPolicy says Writing=true with
-	// both reviews required. IR must win → high_risk_implementation.
+	// high_risk_implementation: writing + either review flag.
 	o.busCtx = &types.BusContext{
-		Mutable: types.NewMutableState(types.TaskList{
-			Objective:     "ambiguous",
-			CurrentTaskID: "t1",
-			Tasks: []types.TaskItem{
-				{ID: "t1", Title: "x", Writing: false, HighRisk: false, Status: types.TaskInProgress},
-			},
-		}),
 		Policy: types.PolicyContext{},
 		AnalysisIR: &types.AnalysisIR{
 			RunPolicy: types.RunPolicy{
@@ -325,72 +328,43 @@ func TestDetermineActivePolicy_IRFirst(t *testing.T) {
 		},
 	}
 	if got := o.determineActivePolicy(); got != "high_risk_implementation" {
-		t.Errorf("IR-first high-risk: got %q", got)
+		t.Errorf("high-risk: got %q", got)
 	}
 
-	// IR says Writing=true with no review flags → implementation.
+	// implementation: writing with no review flags.
 	o.busCtx.AnalysisIR.RunPolicy = types.RunPolicy{Writing: true}
 	if got := o.determineActivePolicy(); got != "implementation" {
-		t.Errorf("IR-first writing: got %q", got)
+		t.Errorf("writing: got %q", got)
 	}
 
-	// IR says Writing=false → analysis (even if legacy TaskItem were
-	// Writing=true, IR must win).
-	o.busCtx.Mutable = types.NewMutableState(types.TaskList{
-		Objective:     "ambiguous",
-		CurrentTaskID: "t1",
-		Tasks: []types.TaskItem{
-			{ID: "t1", Title: "x", Writing: true, HighRisk: true, Status: types.TaskInProgress},
-		},
-	})
+	// analysis: writing=false.
 	o.busCtx.AnalysisIR.RunPolicy = types.RunPolicy{Writing: false}
 	if got := o.determineActivePolicy(); got != "analysis" {
-		t.Errorf("IR-first analysis: got %q", got)
+		t.Errorf("writing=false: got %q", got)
 	}
 
-	// Policy.RequireReview still escalates a writing IR task.
+	// Policy.RequireReview escalates a writing IR task even when the
+	// IR itself didn't require a review.
 	o.busCtx.AnalysisIR.RunPolicy = types.RunPolicy{Writing: true}
 	o.busCtx.Policy = types.PolicyContext{RequireReview: true}
 	if got := o.determineActivePolicy(); got != "high_risk_implementation" {
-		t.Errorf("IR-first + RequireReview: got %q", got)
+		t.Errorf("RequireReview escalation: got %q", got)
 	}
 }
 
-func TestDetermineActivePolicy_LegacyFallback(t *testing.T) {
+func TestDetermineActivePolicy_NoIRFailsSafe(t *testing.T) {
 	cfg := defaultResolvedConfig()
 	ar, sr, sar := buildRegistries(nil)
 	o := New(cfg, ar, sr, sar)
 
-	// No AnalysisIR → legacy read path.
+	// No AnalysisIR (analyze failed, pre-IR unit tests) → fail-safe
+	// "analysis" regardless of what else is on BusContext.
 	o.busCtx = &types.BusContext{
-		Mutable: types.NewMutableState(types.TaskList{
-			Objective:     "legacy",
-			CurrentTaskID: "t1",
-			Tasks: []types.TaskItem{
-				{ID: "t1", Title: "x", Writing: true, HighRisk: true, Status: types.TaskInProgress},
-			},
-		}),
-		Policy: types.PolicyContext{},
+		Mutable: types.NewMutableState(types.TaskList{Objective: "nothing"}),
+		Policy:  types.PolicyContext{RequireReview: true},
 	}
-	if got := o.determineActivePolicy(); got != "high_risk_implementation" {
-		t.Errorf("legacy high-risk: got %q", got)
-	}
-
-	o.busCtx.Mutable = types.NewMutableState(types.TaskList{
-		Objective:     "legacy",
-		CurrentTaskID: "t1",
-		Tasks: []types.TaskItem{
-			{ID: "t1", Title: "x", Writing: false, Status: types.TaskInProgress},
-		},
-	})
 	if got := o.determineActivePolicy(); got != "analysis" {
-		t.Errorf("legacy analysis: got %q", got)
-	}
-
-	// Nil task → fail-safe "analysis".
-	o.busCtx.Mutable = types.NewMutableState(types.TaskList{Objective: "nothing"})
-	if got := o.determineActivePolicy(); got != "analysis" {
-		t.Errorf("legacy nil task: got %q", got)
+		t.Errorf("no IR: got %q", got)
 	}
 }
 
@@ -407,7 +381,7 @@ func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 				Objective:     "analyze something",
 				CurrentTaskID: "t1",
 				Tasks: []types.TaskItem{
-					{ID: "t1", Title: "analysis task", Writing: false, Status: types.TaskInProgress},
+					{ID: "t1", Title: "analysis task", Status: types.TaskInProgress},
 				},
 			}),
 			Signals: types.ExecutionSignals{
@@ -473,6 +447,7 @@ func TestRun_SimplePipeline(t *testing.T) {
 				ctx.Mutable.SetTaskList(*implementationTaskList())
 				return &agent.StageOutput{
 					MissingPiece: types.MissingFacts,
+					AnalysisIR:   implementationIR(),
 				}, nil
 			},
 			// plan: reports HasPlan and MissingCode
@@ -568,7 +543,10 @@ func TestRun_PipelineWithBothReviews(t *testing.T) {
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				ctx.Mutable.SetTaskList(*implementationTaskList())
-				return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+				return &agent.StageOutput{
+					MissingPiece: types.MissingFacts,
+					AnalysisIR:   implementationIR(),
+				}, nil
 			},
 			types.AgentPlanner: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				return &agent.StageOutput{
@@ -702,7 +680,7 @@ func TestRun_AnalysisPolicyFromMutable(t *testing.T) {
 			ctx.Mutable.SetTaskList(types.TaskList{
 				Objective: "explain the project",
 				Tasks: []types.TaskItem{{
-					ID: "t1", Title: "explain", Writing: false, Status: types.TaskPending,
+					ID: "t1", Title: "explain", Status: types.TaskPending,
 				}},
 				CurrentTaskID: "t1",
 			})
@@ -744,8 +722,9 @@ func TestRun_AnalysisPolicyFromMutable(t *testing.T) {
 	if current == nil {
 		t.Fatal("expected BusContext.Mutable.TaskList to be populated from analyzer")
 	}
-	if current.Writing {
-		t.Errorf("current task should be read-only (Writing=false), got Writing=true")
+	// Post-B5b-β, "read-only task" is asserted on the IR, not TaskItem.
+	if busCtx.AnalysisIR != nil && busCtx.AnalysisIR.RunPolicy.Writing {
+		t.Errorf("analysis task should produce a non-writing RunPolicy")
 	}
 
 	// Pipeline must NOT visit implement / verify under analysis policy.
@@ -788,7 +767,7 @@ func TestRun_FinalizeSkillRoutedByPolicy(t *testing.T) {
 				ctx.Mutable.SetTaskList(types.TaskList{
 					Objective: "explain something",
 					Tasks: []types.TaskItem{{
-						ID: "t1", Title: "explain", Writing: false, Status: types.TaskPending,
+						ID: "t1", Title: "explain", Status: types.TaskPending,
 					}},
 					CurrentTaskID: "t1",
 				})
@@ -826,7 +805,10 @@ func TestRun_FinalizeSkillRoutedByPolicy(t *testing.T) {
 		agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 			types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				ctx.Mutable.SetTaskList(*implementationTaskList())
-				return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+				return &agent.StageOutput{
+					MissingPiece: types.MissingFacts,
+					AnalysisIR:   implementationIR(),
+				}, nil
 			},
 			types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 				return &agent.StageOutput{
@@ -894,7 +876,10 @@ func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			ctx.Mutable.SetTaskList(*implementationTaskList())
-			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				AnalysisIR:   implementationIR(),
+			}, nil
 		},
 		types.AgentExplorer:    noProgress(types.MissingPlan),
 		types.AgentPlanner:     noProgress(types.MissingCode),
@@ -947,6 +932,14 @@ func TestRun_ForcesFinalizeWhenMaxStepsExhausted(t *testing.T) {
 // per-task pipeline, ends with its own finalize call, and writes its
 // own Result onto the task. The orchestrator iterates over pending
 // tasks until none remain.
+//
+// Post-B5b-β, the RunPolicy is frozen on BusContext.AnalysisIR at the
+// analyze stage and governs every task in the run uniformly — the
+// per-task mix of "some analysis, some implementation" the pre-β
+// version of this test asserted is no longer supported (the memo
+// called this out as "Orchestrator HighRisk mapping is lossy — defer
+// to β"). The test now exercises 3 writing tasks under one shared
+// implementation policy.
 func TestRun_MultiTaskExecution(t *testing.T) {
 	cfg := defaultResolvedConfig()
 
@@ -957,18 +950,22 @@ func TestRun_MultiTaskExecution(t *testing.T) {
 	finalizerCount := 0
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-		// Analyzer plants three tasks: one read-only, two writing.
+		// Analyzer plants three writing tasks under one implementation
+		// RunPolicy.
 		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			ctx.Mutable.SetTaskList(types.TaskList{
-				Objective: "two-part request",
+				Objective: "three-part request",
 				Tasks: []types.TaskItem{
-					{ID: "ta", Title: "explain X", Writing: false, Status: types.TaskPending},
-					{ID: "tb", Title: "implement Y", Writing: true, Status: types.TaskPending},
-					{ID: "tc", Title: "implement Z", Writing: true, Status: types.TaskPending},
+					{ID: "ta", Title: "implement X", Status: types.TaskPending},
+					{ID: "tb", Title: "implement Y", Status: types.TaskPending},
+					{ID: "tc", Title: "implement Z", Status: types.TaskPending},
 				},
 				CurrentTaskID: "ta",
 			})
-			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				AnalysisIR:   implementationIR(),
+			}, nil
 		},
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			exploreCount++
@@ -1045,20 +1042,19 @@ func TestRun_MultiTaskExecution(t *testing.T) {
 		t.Errorf("finalizer call count = %d, want 3 (once per task)", finalizerCount)
 	}
 
-	// The read-only task (ta) should have skipped plan/implement/verify
-	// because the analysis policy filters them out, while the two
-	// writing tasks (tb, tc) should have visited all of them.
+	// All 3 tasks share the implementation policy so every stage runs
+	// once per task.
 	if exploreCount != 3 {
 		t.Errorf("explore count = %d, want 3 (once per task)", exploreCount)
 	}
-	if planCount != 2 {
-		t.Errorf("plan count = %d, want 2 (writing tasks only)", planCount)
+	if planCount != 3 {
+		t.Errorf("plan count = %d, want 3 (once per task)", planCount)
 	}
-	if implementCount != 2 {
-		t.Errorf("implement count = %d, want 2 (writing tasks only)", implementCount)
+	if implementCount != 3 {
+		t.Errorf("implement count = %d, want 3 (once per task)", implementCount)
 	}
-	if verifyCount != 2 {
-		t.Errorf("verify count = %d, want 2 (writing tasks only)", verifyCount)
+	if verifyCount != 3 {
+		t.Errorf("verify count = %d, want 3 (once per task)", verifyCount)
 	}
 }
 
@@ -1091,7 +1087,7 @@ func TestRun_ExplorerFactSourceFlowsToFinalizer(t *testing.T) {
 			ctx.Mutable.SetTaskList(types.TaskList{
 				Objective: "explain how the explorer works",
 				Tasks: []types.TaskItem{{
-					ID: "t1", Title: "explain explorer", Writing: false, Status: types.TaskPending,
+					ID: "t1", Title: "explain explorer", Status: types.TaskPending,
 				}},
 				CurrentTaskID: "t1",
 			})
@@ -1278,7 +1274,7 @@ func TestRun_OldBehaviorWouldFail(t *testing.T) {
 			ctx.Mutable.SetTaskList(types.TaskList{
 				Objective: "explain it",
 				Tasks: []types.TaskItem{{
-					ID: "t1", Title: "explain", Writing: false, Status: types.TaskPending,
+					ID: "t1", Title: "explain", Status: types.TaskPending,
 				}},
 				CurrentTaskID: "t1",
 			})
@@ -1358,7 +1354,7 @@ func TestRun_OscillationGuardTripsBeforeMaxSteps(t *testing.T) {
 			ctx.Mutable.SetTaskList(types.TaskList{
 				Objective: "explain it",
 				Tasks: []types.TaskItem{{
-					ID: "t1", Title: "explain", Writing: false, Status: types.TaskPending,
+					ID: "t1", Title: "explain", Status: types.TaskPending,
 				}},
 				CurrentTaskID: "t1",
 			})

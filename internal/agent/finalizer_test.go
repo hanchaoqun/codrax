@@ -55,7 +55,11 @@ func TestFinalizerPrompt_L02SymbolsTriggerTranslationMode(t *testing.T) {
 			{Name: "Explorer", File: "internal/agent/explorer.go", Line: 48, Kind: "registration"},
 			{Name: "SubExplorer", File: "internal/agent/sub_explorer.go", Line: 12, Kind: "registration"},
 		},
-		CurrentTaskAnswerShape: "list_of_symbols",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Shape: "list_of_symbols"},
+			},
+		},
 	}
 	prompt := e.BuildInitialPrompt(ctx, nil)
 
@@ -79,8 +83,12 @@ func TestFinalizerPrompt_L02SymbolsTriggerTranslationMode(t *testing.T) {
 func TestFinalizerPrompt_EmptySymbolsFallsBackToShape(t *testing.T) {
 	e := &finalizerEvaluator{}
 	ctx := &types.AgentContext{
-		Stage:                  types.StageFinalize,
-		CurrentTaskAnswerShape: "step_list",
+		Stage: types.StageFinalize,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Shape: "step_list"},
+			},
+		},
 		// No AnswerSymbols set.
 	}
 	prompt := e.BuildInitialPrompt(ctx, nil)

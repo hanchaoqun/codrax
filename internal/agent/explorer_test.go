@@ -670,10 +670,14 @@ func TestExtractQuestionEntities(t *testing.T) {
 func TestBuildInitialPromptRetry(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
-		CurrentTask:        "test question",
-		CurrentTaskKeywords: []string{"test"},
-		RepoRoot:           ".",
-		RetryHint:          "Read more files about X",
+		CurrentTask: "test question",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Keywords: []string{"test"}},
+			},
+		},
+		RepoRoot:  ".",
+		RetryHint: "Read more files about X",
 	}
 
 	// First call: should be Phase 0
