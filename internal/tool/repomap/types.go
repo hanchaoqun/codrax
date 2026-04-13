@@ -81,13 +81,41 @@ type Import struct {
 	Line  int    `json:"line"`
 }
 
+// RelationEndpoint is the canonical endpoint of a Relation. `ID` is
+// populated when the endpoint resolves to a single SymbolID; empty
+// when unresolved (external calls, unknown receiver variables,
+// package-level calls that fail type lookup, etc.).
+//
+// `Name` is the raw identifier text at the source location (the
+// method name for calls, the type name for type_usage, the import
+// path for imports). `Receiver` is the raw receiver text for method
+// calls — e.g. for `x.Execute()` it's `"x"`, for `pkg.Fn()` it's
+// `"pkg"`. Parsers that cannot determine a receiver leave it empty.
+//
+// Introduced in Phase 1 to replace the flat `Relation.From/To`
+// string carrier; the legacy strings remain in parallel until the
+// P1.4 deletion step so consumers can migrate without flag days.
+type RelationEndpoint struct {
+	ID       SymbolID `json:"id,omitempty"`
+	Name     string   `json:"name,omitempty"`
+	Receiver string   `json:"receiver,omitempty"`
+	File     string   `json:"file,omitempty"`
+	Line     int      `json:"line,omitempty"`
+}
+
 // Relation represents a relationship between code entities.
 type Relation struct {
 	Kind string `json:"kind"` // import, call, reference, type_usage, inheritance, embedding
-	From string `json:"from"` // file or file:symbol
-	To   string `json:"to"`   // file or file:symbol
+	From string `json:"from"` // file or file:symbol (legacy string form, deleted in P1.4)
+	To   string `json:"to"`   // file or file:symbol (legacy string form, deleted in P1.4)
 	File string `json:"file"` // file where the relation is observed
 	Line int    `json:"line"`
+
+	// ToEP is the structured endpoint populated by Phase 1+ extractors.
+	// Carries the receiver text (for method calls) and, once resolved,
+	// the SymbolID of the target. P1.2b rewrites CallersOf/rank to
+	// read ToEP. Legacy consumers still read To.
+	ToEP RelationEndpoint `json:"to_ep,omitempty"`
 }
 
 // FileInfo holds all extracted data for a single source file.

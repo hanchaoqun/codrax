@@ -117,6 +117,15 @@ type callEdgeAmbiguity struct {
 	Unambiguous        float64        `json:"unambiguous_ratio"`
 	AmbiguityHistogram map[int]int    `json:"ambiguity_histogram"` // ambiguity → edge count
 	TopAmbiguous       []ambiguousRow `json:"top_ambiguous"`
+
+	// Phase 1 P1.2a additions. These read ToEP (the structured call
+	// endpoint) rather than the legacy rel.To string, and measure
+	// how much receiver information the Go extractor is now capturing
+	// and how much of it is usable for disambiguation.
+	CallsWithReceiver      int     `json:"calls_with_receiver"`      // ToEP.Receiver != ""
+	ReceiverCaptureRatio   float64 `json:"receiver_capture_ratio"`   // CallsWithReceiver / TotalCallEdges
+	UnambigByReceiverType  int     `json:"unambig_by_receiver_type"` // receiver matches a type in the same pkg AND that type has exactly one method with the given name
+	UnambigByReceiverRatio float64 `json:"unambig_by_receiver_ratio"`
 }
 
 type ambiguousRow struct {
@@ -398,6 +407,20 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 	for name, defs := range g.SymbolDefs {
 		symDefCount[name] = len(defs)
 	}
+	// typeSet: the set of symbol names that ARE a type (struct,
+	// interface, type alias). Used to check whether a call's raw
+	// receiver text happens to match a type declared in the same
+	// package. Keyed by "<package>::<type-name>".
+	typeSet := make(map[string]bool)
+	for _, fi := range g.Files {
+		for idx := range fi.Symbols {
+			s := &fi.Symbols[idx]
+			switch s.Kind {
+			case "type", "struct", "interface", "class":
+				typeSet[fi.Package+"::"+s.Name] = true
+			}
+		}
+	}
 	ambigCount := make(map[string]int)
 	for _, fi := range g.Files {
 		for _, rel := range fi.Relations {
@@ -405,23 +428,51 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 				continue
 			}
 			out.TotalCallEdges++
+			// Legacy name-only ambiguity — the pre-Phase-1 metric.
+			// Kept so we can track it through the cutover; P1.2b
+			// replaces it.
 			n := symDefCount[rel.To]
 			if n == 0 {
-				// No definitions found: treat as ambiguity 0 (external
-				// call). Not counted as unambiguous.
 				out.AmbiguityHistogram[0]++
+			} else {
+				out.AmbiguityHistogram[n]++
+				if n == 1 {
+					out.UnambiguousEdges++
+				} else {
+					ambigCount[rel.To] += 1
+				}
+			}
+			// Phase 1 receiver-aware accounting. ToEP.Receiver is only
+			// populated by the Go extractor's selector_expression path
+			// (P1.2a); older extractors leave it empty.
+			if rel.ToEP.Receiver == "" {
 				continue
 			}
-			out.AmbiguityHistogram[n]++
-			if n == 1 {
-				out.UnambiguousEdges++
-			} else {
-				ambigCount[rel.To] += 1
+			out.CallsWithReceiver++
+			// When the receiver text matches a type name in the same
+			// package we can credibly filter defs to that type's
+			// methods only. This is not a full resolver — receivers
+			// that are local variables or package aliases stay
+			// unresolved — but it captures the common `Type{}.Method`
+			// and `(*Type).Method` call shapes, plus any package-
+			// level var whose name happens to equal its type.
+			if typeSet[fi.Package+"::"+rel.ToEP.Receiver] {
+				matchingDefs := 0
+				for _, d := range g.SymbolDefs[rel.To] {
+					if d.Receiver == rel.ToEP.Receiver {
+						matchingDefs++
+					}
+				}
+				if matchingDefs == 1 {
+					out.UnambigByReceiverType++
+				}
 			}
 		}
 	}
 	if out.TotalCallEdges > 0 {
 		out.Unambiguous = float64(out.UnambiguousEdges) / float64(out.TotalCallEdges)
+		out.ReceiverCaptureRatio = float64(out.CallsWithReceiver) / float64(out.TotalCallEdges)
+		out.UnambigByReceiverRatio = float64(out.UnambigByReceiverType) / float64(out.TotalCallEdges)
 	}
 	// Top 20 ambiguous symbols by # of call edges pointing at them.
 	type kv struct {
@@ -595,6 +646,10 @@ func writeMarkdown(path string, b baseline) {
 		b.ImportAcc.Resolved, b.ImportAcc.TotalRelations, b.ImportAcc.Accuracy)
 	fmt.Fprintf(&sb, "| call edge unambiguous ratio (%d / %d) | %.3f |\n",
 		b.CallAmbig.UnambiguousEdges, b.CallAmbig.TotalCallEdges, b.CallAmbig.Unambiguous)
+	fmt.Fprintf(&sb, "| call receiver capture ratio (%d / %d) | %.3f |\n",
+		b.CallAmbig.CallsWithReceiver, b.CallAmbig.TotalCallEdges, b.CallAmbig.ReceiverCaptureRatio)
+	fmt.Fprintf(&sb, "| unambiguous by receiver-type (%d / %d) | %.3f |\n",
+		b.CallAmbig.UnambigByReceiverType, b.CallAmbig.TotalCallEdges, b.CallAmbig.UnambigByReceiverRatio)
 	fmt.Fprintf(&sb, "| task_map mean hit@k (%d / %d perfect) | %.3f |\n",
 		b.TaskMapHit.PerfectHits, b.TaskMapHit.TotalQueries, b.TaskMapHit.MeanHitAtK)
 

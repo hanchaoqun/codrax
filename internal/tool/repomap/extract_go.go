@@ -323,26 +323,60 @@ func goExtractCalls(root *sitter.Node, src []byte, file string) []Relation {
 		}
 		switch fn.Type() {
 		case "identifier":
+			// Bare call: `fn(args)`. No receiver text.
 			name := nodeText(fn, src)
+			line := nodeLine(fn)
 			rels = append(rels, Relation{
 				Kind: "call",
 				From: file,
 				To:   name,
 				File: file,
-				Line: nodeLine(fn),
+				Line: line,
+				ToEP: RelationEndpoint{
+					Name: name,
+					File: file,
+					Line: line,
+				},
 			})
 		case "selector_expression":
+			// Qualified call: `recv.Method(args)`. Record the raw
+			// receiver text — it is either a variable name, a package
+			// name, or a type name. The Phase 1 resolver in CallersOf
+			// /rank heuristically classifies it against the package
+			// symbol table; when ambiguous the call falls back to the
+			// legacy name-only resolution.
 			field := fn.ChildByFieldName("field")
-			if field != nil {
-				name := nodeText(field, src)
-				rels = append(rels, Relation{
-					Kind: "call",
-					From: file,
-					To:   name,
-					File: file,
-					Line: nodeLine(fn),
-				})
+			if field == nil {
+				return
 			}
+			name := nodeText(field, src)
+			line := nodeLine(fn)
+			var receiver string
+			if op := fn.ChildByFieldName("operand"); op != nil {
+				receiver = nodeText(op, src)
+				// Strip pointer/dereference and parentheses so the
+				// raw receiver reads as an identifier. We accept
+				// false conflations (e.g. `(*ptr).Method` and
+				// `ptr.Method` become `ptr`) because the ambiguity
+				// metric already downgrades them to heuristic
+				// resolution downstream.
+				receiver = strings.TrimPrefix(receiver, "*")
+				receiver = strings.TrimPrefix(receiver, "&")
+				receiver = strings.Trim(receiver, "()")
+			}
+			rels = append(rels, Relation{
+				Kind: "call",
+				From: file,
+				To:   name,
+				File: file,
+				Line: line,
+				ToEP: RelationEndpoint{
+					Name:     name,
+					Receiver: receiver,
+					File:     file,
+					Line:     line,
+				},
+			})
 		}
 	})
 	return rels
