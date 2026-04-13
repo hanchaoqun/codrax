@@ -311,75 +311,205 @@ func goExtractEmbeddings(typeDecl *sitter.Node, src []byte, file string) []Relat
 	return rels
 }
 
+// goExtractCalls walks the file tree looking for call_expression
+// nodes. It builds a function-scoped local scope — receiver name
+// plus parameter names, each bound to their declared type — so
+// that when a selector_expression call's receiver text matches a
+// local binding, the Phase 1 receiver-aware resolver in
+// `computeCallAmbiguity` (and P1.2b's rewritten CallersOf) can
+// attribute the call to a specific type instead of guessing from
+// the bare method name.
+//
+// Walking strategy: iterate top-level function_declaration and
+// method_declaration nodes, derive their local scope, then walk
+// each function's body for call sites using that scope. Calls at
+// package scope (init blocks, top-level var initializers) use an
+// empty scope and contribute only unqualified receivers.
 func goExtractCalls(root *sitter.Node, src []byte, file string) []Relation {
 	var rels []Relation
-	walkNamedChildren(root, true, func(node *sitter.Node) {
-		if node.Type() != "call_expression" {
-			return
-		}
-		fn := node.ChildByFieldName("function")
-		if fn == nil {
-			return
-		}
-		switch fn.Type() {
-		case "identifier":
-			// Bare call: `fn(args)`. No receiver text.
-			name := nodeText(fn, src)
-			line := nodeLine(fn)
-			rels = append(rels, Relation{
-				Kind: "call",
-				From: file,
-				To:   name,
-				File: file,
-				Line: line,
-				ToEP: RelationEndpoint{
-					Name: name,
-					File: file,
-					Line: line,
-				},
-			})
-		case "selector_expression":
-			// Qualified call: `recv.Method(args)`. Record the raw
-			// receiver text — it is either a variable name, a package
-			// name, or a type name. The Phase 1 resolver in CallersOf
-			// /rank heuristically classifies it against the package
-			// symbol table; when ambiguous the call falls back to the
-			// legacy name-only resolution.
-			field := fn.ChildByFieldName("field")
-			if field == nil {
-				return
+	for i := 0; i < int(root.NamedChildCount()); i++ {
+		top := root.NamedChild(i)
+		switch top.Type() {
+		case "function_declaration", "method_declaration":
+			scope := goLocalScope(top, src)
+			body := top.ChildByFieldName("body")
+			if body == nil {
+				continue
 			}
-			name := nodeText(field, src)
-			line := nodeLine(fn)
-			var receiver string
-			if op := fn.ChildByFieldName("operand"); op != nil {
-				receiver = nodeText(op, src)
-				// Strip pointer/dereference and parentheses so the
-				// raw receiver reads as an identifier. We accept
-				// false conflations (e.g. `(*ptr).Method` and
-				// `ptr.Method` become `ptr`) because the ambiguity
-				// metric already downgrades them to heuristic
-				// resolution downstream.
-				receiver = strings.TrimPrefix(receiver, "*")
-				receiver = strings.TrimPrefix(receiver, "&")
-				receiver = strings.Trim(receiver, "()")
-			}
-			rels = append(rels, Relation{
-				Kind: "call",
-				From: file,
-				To:   name,
-				File: file,
-				Line: line,
-				ToEP: RelationEndpoint{
-					Name:     name,
-					Receiver: receiver,
-					File:     file,
-					Line:     line,
-				},
-			})
+			goWalkCalls(body, src, file, scope, &rels)
+		default:
+			// Top-level var/const initializers can contain calls too.
+			goWalkCalls(top, src, file, nil, &rels)
 		}
-	})
+	}
 	return rels
+}
+
+// goLocalScope binds every parameter and (for methods) the receiver
+// to its declared type for a single function. Returns a map keyed
+// by identifier name; values are the cleaned type names with
+// pointer/slice/array prefixes stripped. A nil map is returned for
+// functions that take no params and have no receiver.
+func goLocalScope(fnNode *sitter.Node, src []byte) map[string]string {
+	scope := make(map[string]string)
+	// Receiver for methods: field "receiver" → parameter_list →
+	// parameter_declaration whose names bind to the receiver type.
+	if recv := fnNode.ChildByFieldName("receiver"); recv != nil {
+		for j := 0; j < int(recv.NamedChildCount()); j++ {
+			pd := recv.NamedChild(j)
+			if pd.Type() != "parameter_declaration" {
+				continue
+			}
+			typeName := goCleanTypeName(pd.ChildByFieldName("type"), src)
+			for k := 0; k < int(pd.NamedChildCount()); k++ {
+				ch := pd.NamedChild(k)
+				if ch.Type() == "identifier" {
+					scope[nodeText(ch, src)] = typeName
+				}
+			}
+		}
+	}
+	// Parameters: field "parameters" → parameter_list → parameter_declaration.
+	if params := fnNode.ChildByFieldName("parameters"); params != nil {
+		for j := 0; j < int(params.NamedChildCount()); j++ {
+			pd := params.NamedChild(j)
+			if pd.Type() != "parameter_declaration" && pd.Type() != "variadic_parameter_declaration" {
+				continue
+			}
+			typeName := goCleanTypeName(pd.ChildByFieldName("type"), src)
+			for k := 0; k < int(pd.NamedChildCount()); k++ {
+				ch := pd.NamedChild(k)
+				if ch.Type() == "identifier" {
+					scope[nodeText(ch, src)] = typeName
+				}
+			}
+		}
+	}
+	if len(scope) == 0 {
+		return nil
+	}
+	return scope
+}
+
+// goCleanTypeName strips pointer / slice / array / ellipsis prefixes
+// AND the package qualifier from a type expression node's text, so
+// receiver matching compares against the bare type name. Empty in
+// → empty out. Examples:
+//
+//	*testing.T          → T
+//	[]*repomap.Symbol   → Symbol
+//	sitter.Node         → Node
+//	Graph               → Graph
+//
+// The package qualifier is dropped because every downstream
+// consumer (SymbolDefs keyed by bare name, typeSet keyed by bare
+// name, resolveCallTarget's MethodIndex keyed by (fi.Package,
+// receiver, name) tuple) uses the bare-name shape. Losing the
+// qualifier does NOT create cross-package collisions in the
+// receiver-aware resolver because resolveCallTarget still keys by
+// (pkg, receiver, name) — the pkg disambiguates a `T` in `testing`
+// from a `T` in some other package.
+func goCleanTypeName(n *sitter.Node, src []byte) string {
+	if n == nil {
+		return ""
+	}
+	// Descend through pointer_type → type_identifier.
+	cur := n
+	for {
+		switch cur.Type() {
+		case "pointer_type", "slice_type", "array_type":
+			if e := cur.NamedChild(0); e != nil {
+				cur = e
+				continue
+			}
+		case "parenthesized_type":
+			if e := cur.NamedChild(0); e != nil {
+				cur = e
+				continue
+			}
+		}
+		break
+	}
+	t := nodeText(cur, src)
+	t = strings.TrimPrefix(t, "*")
+	t = strings.TrimPrefix(t, "[]")
+	t = strings.TrimPrefix(t, "...")
+	// Drop the package qualifier: everything after the last "." is
+	// the bare type name.
+	if i := strings.LastIndex(t, "."); i >= 0 {
+		t = t[i+1:]
+	}
+	return t
+}
+
+// goWalkCalls recursively visits `node`, emitting a Relation for
+// every call_expression. Uses the provided local scope to resolve
+// receiver text to a declared type when possible.
+func goWalkCalls(node *sitter.Node, src []byte, file string, scope map[string]string, out *[]Relation) {
+	if node.Type() == "call_expression" {
+		goEmitCall(node, src, file, scope, out)
+		// Do NOT return: arguments may contain nested calls.
+	}
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		goWalkCalls(node.NamedChild(i), src, file, scope, out)
+	}
+}
+
+func goEmitCall(node *sitter.Node, src []byte, file string, scope map[string]string, out *[]Relation) {
+	fn := node.ChildByFieldName("function")
+	if fn == nil {
+		return
+	}
+	switch fn.Type() {
+	case "identifier":
+		name := nodeText(fn, src)
+		line := nodeLine(fn)
+		*out = append(*out, Relation{
+			Kind: "call",
+			From: file,
+			To:   name,
+			File: file,
+			Line: line,
+			ToEP: RelationEndpoint{Name: name, File: file, Line: line},
+		})
+	case "selector_expression":
+		field := fn.ChildByFieldName("field")
+		if field == nil {
+			return
+		}
+		name := nodeText(field, src)
+		line := nodeLine(fn)
+		var receiver string
+		if op := fn.ChildByFieldName("operand"); op != nil {
+			receiver = nodeText(op, src)
+			receiver = strings.TrimPrefix(receiver, "*")
+			receiver = strings.TrimPrefix(receiver, "&")
+			receiver = strings.Trim(receiver, "()")
+		}
+		// Receiver-to-type resolution. When the receiver is a plain
+		// identifier (no further dots) and appears in the local
+		// scope, rewrite it to the declared type. This turns
+		// `g.CallersOf()` inside `func (g *Graph) M()` into a
+		// receiver of "Graph" rather than "g".
+		if scope != nil && !strings.Contains(receiver, ".") {
+			if t, ok := scope[receiver]; ok && t != "" {
+				receiver = t
+			}
+		}
+		*out = append(*out, Relation{
+			Kind: "call",
+			From: file,
+			To:   name,
+			File: file,
+			Line: line,
+			ToEP: RelationEndpoint{
+				Name:     name,
+				Receiver: receiver,
+				File:     file,
+				Line:     line,
+			},
+		})
+	}
 }
 
 func goExtractTypeRefs(root *sitter.Node, src []byte, file string) []Relation {

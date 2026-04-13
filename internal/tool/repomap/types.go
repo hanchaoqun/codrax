@@ -132,6 +132,17 @@ type FileInfo struct {
 	SpecialType string     `json:"special_type,omitempty"` // build_config, dockerfile, ci, etc.
 }
 
+// MethodKey is the (package, receiver, name) tuple used to resolve
+// a call site to a concrete method without full type inference.
+// Because Go disallows overloading, the tuple is unique per package;
+// in languages that allow overloading two entries may collide and
+// the first-wins policy from SymbolByID applies.
+type MethodKey struct {
+	Pkg      string
+	Receiver string // empty for bare package-level functions
+	Name     string
+}
+
 // Graph is the complete repository index.
 type Graph struct {
 	Root        string                `json:"root"`
@@ -139,6 +150,7 @@ type Graph struct {
 	FileIndex   map[string]*FileInfo  `json:"-"` // rel path → FileInfo
 	SymbolDefs  map[string][]*Symbol  `json:"-"` // symbol name → all definitions (legacy; kept while consumers migrate)
 	SymbolByID  map[SymbolID]*Symbol  `json:"-"` // canonical drift-proof index: one SymbolID → one definition
+	MethodIndex map[MethodKey]*Symbol `json:"-"` // (pkg, receiver, name) → method def; used by the receiver-aware call resolver
 	ImportGraph map[string][]string   `json:"-"` // file → imported file paths
 	ReverseImports map[string][]string `json:"-"` // file → files that import it
 	Scores      map[string]float64    `json:"-"` // key → importance score

@@ -94,6 +94,129 @@ func TestBuildGraphPopulatesSymbolByID(t *testing.T) {
 	}
 }
 
+// TestCallersOfIDReceiverAware verifies that CallersOfID filters
+// callers by the target's receiver type instead of collapsing every
+// method that shares a name. Set up: two types ToolA and ToolB both
+// define `Execute`; two caller files each call one of them, with
+// the scope-resolved receiver populated on ToEP.
+func TestCallersOfIDReceiverAware(t *testing.T) {
+	files := []*FileInfo{
+		{
+			RelPath:  "agent/tool_a.go",
+			Language: LangGo,
+			Package:  "agent",
+			Symbols: []Symbol{
+				{Name: "Execute", Kind: "method", Receiver: "ToolA", Arity: 0, File: "agent/tool_a.go", Line: 10},
+				{Name: "ToolA", Kind: "type", File: "agent/tool_a.go", Line: 5},
+			},
+		},
+		{
+			RelPath:  "agent/tool_b.go",
+			Language: LangGo,
+			Package:  "agent",
+			Symbols: []Symbol{
+				{Name: "Execute", Kind: "method", Receiver: "ToolB", Arity: 0, File: "agent/tool_b.go", Line: 10},
+				{Name: "ToolB", Kind: "type", File: "agent/tool_b.go", Line: 5},
+			},
+		},
+		{
+			RelPath:  "agent/caller_a.go",
+			Language: LangGo,
+			Package:  "agent",
+			Relations: []Relation{
+				{Kind: "call", From: "agent/caller_a.go", To: "Execute", File: "agent/caller_a.go", Line: 20,
+					ToEP: RelationEndpoint{Name: "Execute", Receiver: "ToolA", File: "agent/caller_a.go", Line: 20}},
+			},
+		},
+		{
+			RelPath:  "agent/caller_b.go",
+			Language: LangGo,
+			Package:  "agent",
+			Relations: []Relation{
+				{Kind: "call", From: "agent/caller_b.go", To: "Execute", File: "agent/caller_b.go", Line: 20,
+					ToEP: RelationEndpoint{Name: "Execute", Receiver: "ToolB", File: "agent/caller_b.go", Line: 20}},
+			},
+		},
+	}
+	g := BuildGraph("/tmp/repo", files)
+
+	// Legacy CallersOf returns BOTH caller files — the pre-Phase-1
+	// receiver-drift bug. Kept for backward-compat verification.
+	legacy := g.CallersOf("Execute")
+	if len(legacy) != 2 {
+		t.Errorf("legacy CallersOf(Execute) = %v, want 2 files", legacy)
+	}
+
+	// CallersOfID for ToolA.Execute returns ONLY caller_a.
+	idA := MakeSymbolID("go", "agent", "ToolA", "Execute", 0)
+	gotA := g.CallersOfID(idA)
+	if len(gotA) != 1 || gotA[0] != "agent/caller_a.go" {
+		t.Errorf("CallersOfID(ToolA.Execute) = %v, want [agent/caller_a.go]", gotA)
+	}
+	// CallersOfID for ToolB.Execute returns ONLY caller_b.
+	idB := MakeSymbolID("go", "agent", "ToolB", "Execute", 0)
+	gotB := g.CallersOfID(idB)
+	if len(gotB) != 1 || gotB[0] != "agent/caller_b.go" {
+		t.Errorf("CallersOfID(ToolB.Execute) = %v, want [agent/caller_b.go]", gotB)
+	}
+
+	// MethodIndex should have entries for both methods + both types.
+	if _, ok := g.MethodIndex[MethodKey{Pkg: "agent", Receiver: "ToolA", Name: "Execute"}]; !ok {
+		t.Error("MethodIndex missing ToolA.Execute")
+	}
+	if _, ok := g.MethodIndex[MethodKey{Pkg: "agent", Receiver: "ToolB", Name: "Execute"}]; !ok {
+		t.Error("MethodIndex missing ToolB.Execute")
+	}
+}
+
+// TestResolveCallTargetFallbacks verifies the multi-step resolution
+// order in resolveCallTarget: same-package receiver match, bare
+// function fallback, cross-package receiver scan.
+func TestResolveCallTargetFallbacks(t *testing.T) {
+	files := []*FileInfo{
+		{
+			RelPath:  "agent/a.go",
+			Language: LangGo,
+			Package:  "agent",
+			Symbols: []Symbol{
+				{Name: "helper", Kind: "function", Arity: 1, File: "agent/a.go", Line: 5},
+			},
+		},
+		{
+			RelPath:  "repomap/g.go",
+			Language: LangGo,
+			Package:  "repomap",
+			Symbols: []Symbol{
+				{Name: "CallersOf", Kind: "method", Receiver: "Graph", Arity: 1, File: "repomap/g.go", Line: 10},
+				{Name: "Graph", Kind: "type", File: "repomap/g.go", Line: 5},
+			},
+		},
+	}
+	g := BuildGraph("/tmp/repo", files)
+
+	callerFile := &FileInfo{RelPath: "agent/caller.go", Package: "agent", Language: LangGo}
+
+	// Same-package bare function: resolves via Pkg="agent", Receiver="".
+	rel := Relation{Kind: "call", To: "helper", ToEP: RelationEndpoint{Name: "helper"}}
+	if s := g.resolveCallTarget(callerFile, rel); s == nil || s.Name != "helper" {
+		t.Errorf("bare-function resolution failed: got %+v", s)
+	}
+
+	// Cross-package method call: scope-resolved receiver "Graph" in
+	// "agent" package should resolve to the "repomap" package method
+	// via the linear cross-package scan.
+	rel = Relation{Kind: "call", To: "CallersOf", ToEP: RelationEndpoint{Name: "CallersOf", Receiver: "Graph"}}
+	if s := g.resolveCallTarget(callerFile, rel); s == nil || s.Name != "CallersOf" {
+		t.Errorf("cross-pkg resolution failed: got %+v", s)
+	}
+
+	// Unresolved: unknown method/receiver.
+	rel = Relation{Kind: "call", To: "NoSuchThing", ToEP: RelationEndpoint{Name: "NoSuchThing", Receiver: "NoSuchType"}}
+	if s := g.resolveCallTarget(callerFile, rel); s != nil {
+		t.Errorf("unresolved call should return nil, got %+v", s)
+	}
+}
+
 // TestDeriveSymbolIDFallsBackToDirForNoPackage verifies that
 // languages without a package concept (JS file-scoped, C) still get
 // distinct IDs for same-named symbols in different directories,

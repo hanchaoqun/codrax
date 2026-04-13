@@ -124,8 +124,19 @@ type callEdgeAmbiguity struct {
 	// and how much of it is usable for disambiguation.
 	CallsWithReceiver      int     `json:"calls_with_receiver"`      // ToEP.Receiver != ""
 	ReceiverCaptureRatio   float64 `json:"receiver_capture_ratio"`   // CallsWithReceiver / TotalCallEdges
-	UnambigByReceiverType  int     `json:"unambig_by_receiver_type"` // receiver matches a type in the same pkg AND that type has exactly one method with the given name
+	UnambigByReceiverType  int     `json:"unambig_by_receiver_type"` // receiver matches a type in the graph AND that type has exactly one method with the given name
 	UnambigByReceiverRatio float64 `json:"unambig_by_receiver_ratio"`
+
+	// Phase 1 drift-resolution KPI. A "drift call" is a call to a
+	// name whose legacy SymbolDefs has more than one definition —
+	// i.e. a call that would be ambiguous under name-only lookup.
+	// DriftCallsResolved is the subset whose scope-resolved receiver
+	// narrows the candidate defs down to exactly one. This is the
+	// direct numerical answer to "how much of the receiver-drift bug
+	// is Phase 1 actually fixing on local symbols".
+	DriftCalls          int     `json:"drift_calls"`
+	DriftCallsResolved  int     `json:"drift_calls_resolved"`
+	DriftResolvedRatio  float64 `json:"drift_resolved_ratio"`
 }
 
 type ambiguousRow struct {
@@ -408,16 +419,18 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 		symDefCount[name] = len(defs)
 	}
 	// typeSet: the set of symbol names that ARE a type (struct,
-	// interface, type alias). Used to check whether a call's raw
-	// receiver text happens to match a type declared in the same
-	// package. Keyed by "<package>::<type-name>".
+	// interface, type alias). Checked ACROSS all packages — a call's
+	// receiver text may name a type declared in a different package
+	// (the common `*foreign.Type` case), so a same-package check
+	// undercounts. The set is a flat name → true map; a type name
+	// shared by two packages still counts as a matchable receiver.
 	typeSet := make(map[string]bool)
 	for _, fi := range g.Files {
 		for idx := range fi.Symbols {
 			s := &fi.Symbols[idx]
 			switch s.Kind {
 			case "type", "struct", "interface", "class":
-				typeSet[fi.Package+"::"+s.Name] = true
+				typeSet[s.Name] = true
 			}
 		}
 	}
@@ -449,14 +462,14 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 				continue
 			}
 			out.CallsWithReceiver++
-			// When the receiver text matches a type name in the same
-			// package we can credibly filter defs to that type's
-			// methods only. This is not a full resolver — receivers
-			// that are local variables or package aliases stay
-			// unresolved — but it captures the common `Type{}.Method`
-			// and `(*Type).Method` call shapes, plus any package-
-			// level var whose name happens to equal its type.
-			if typeSet[fi.Package+"::"+rel.ToEP.Receiver] {
+			// When the receiver text matches a type declared anywhere
+			// in the graph, filter defs by matching receiver and count
+			// as receiver-resolved if exactly one method survives.
+			// Cross-package types are included because the Phase 1
+			// scope resolver rewrites call-site receivers to their
+			// declared Go type name, which commonly lives in a
+			// different package than the caller.
+			if typeSet[rel.ToEP.Receiver] {
 				matchingDefs := 0
 				for _, d := range g.SymbolDefs[rel.To] {
 					if d.Receiver == rel.ToEP.Receiver {
@@ -467,12 +480,32 @@ func computeCallAmbiguity(g *repomap.Graph) callEdgeAmbiguity {
 					out.UnambigByReceiverType++
 				}
 			}
+			// Drift-resolution KPI: direct measurement of Phase 1's
+			// receiver-drift fix on multi-def local symbols. Skip
+			// single-def symbols (not drift) and symbols with zero
+			// defs (external — cannot possibly be resolved against
+			// the local graph).
+			if n > 1 {
+				out.DriftCalls++
+				matchingDefs := 0
+				for _, d := range g.SymbolDefs[rel.To] {
+					if d.Receiver == rel.ToEP.Receiver {
+						matchingDefs++
+					}
+				}
+				if matchingDefs == 1 {
+					out.DriftCallsResolved++
+				}
+			}
 		}
 	}
 	if out.TotalCallEdges > 0 {
 		out.Unambiguous = float64(out.UnambiguousEdges) / float64(out.TotalCallEdges)
 		out.ReceiverCaptureRatio = float64(out.CallsWithReceiver) / float64(out.TotalCallEdges)
 		out.UnambigByReceiverRatio = float64(out.UnambigByReceiverType) / float64(out.TotalCallEdges)
+	}
+	if out.DriftCalls > 0 {
+		out.DriftResolvedRatio = float64(out.DriftCallsResolved) / float64(out.DriftCalls)
 	}
 	// Top 20 ambiguous symbols by # of call edges pointing at them.
 	type kv struct {
@@ -650,6 +683,8 @@ func writeMarkdown(path string, b baseline) {
 		b.CallAmbig.CallsWithReceiver, b.CallAmbig.TotalCallEdges, b.CallAmbig.ReceiverCaptureRatio)
 	fmt.Fprintf(&sb, "| unambiguous by receiver-type (%d / %d) | %.3f |\n",
 		b.CallAmbig.UnambigByReceiverType, b.CallAmbig.TotalCallEdges, b.CallAmbig.UnambigByReceiverRatio)
+	fmt.Fprintf(&sb, "| **drift calls resolved (%d / %d)** | **%.3f** |\n",
+		b.CallAmbig.DriftCallsResolved, b.CallAmbig.DriftCalls, b.CallAmbig.DriftResolvedRatio)
 	fmt.Fprintf(&sb, "| task_map mean hit@k (%d / %d perfect) | %.3f |\n",
 		b.TaskMapHit.PerfectHits, b.TaskMapHit.TotalQueries, b.TaskMapHit.MeanHitAtK)
 

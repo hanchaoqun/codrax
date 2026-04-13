@@ -46,14 +46,25 @@ func RankGraph(g *Graph, query string) {
 	entrypoints := detectEntrypoints(g)
 	totalFiles := float64(len(g.Files))
 
-	// count how many files reference each symbol name
-	refCount := make(map[string]int)
+	// Phase 1 receiver-aware accounting. For every call / reference
+	// relation, try to resolve it to a canonical Symbol via
+	// MethodIndex. Resolved edges credit the one target Symbol by
+	// ID. Unresolved edges (unknown receiver, external packages)
+	// fall back to name-keyed counters that still get divided by
+	// ambiguity at scoring time so the noise doesn't dominate.
+	callCountByID := make(map[SymbolID]int)
+	refCountByID := make(map[SymbolID]int)
 	callCount := make(map[string]int)
+	refCount := make(map[string]int)
 	for _, fi := range g.Files {
 		for _, rel := range fi.Relations {
 			switch rel.Kind {
 			case "call":
-				callCount[rel.To]++
+				if s := g.resolveCallTarget(fi, rel); s != nil && s.ID != "" {
+					callCountByID[s.ID]++
+				} else {
+					callCount[rel.To]++
+				}
 			case "type_usage", "reference":
 				refCount[rel.To]++
 			}
@@ -62,11 +73,9 @@ func RankGraph(g *Graph, query string) {
 
 	// Symbol name ambiguity: count how many files define the same
 	// symbol name. Common interface methods (Name, Execute, String,
-	// Error, etc.) are defined in many files. When a symbol name has
-	// N definitions across N files, each file's credit for that
-	// symbol's refs/calls should be divided by N — otherwise a file
-	// with 7 tools implementing Name() gets 7× the global call count
-	// for "Name", which is meaningless noise.
+	// Error, etc.) are defined in many files. Used ONLY for the
+	// name-keyed fallback counters — resolved-by-ID counters already
+	// pick a single definition and do not need damping.
 	symDefCount := make(map[string]int)
 	for _, fi := range g.Files {
 		localNames := make(map[string]bool)
@@ -78,14 +87,19 @@ func RankGraph(g *Graph, query string) {
 		}
 	}
 
-	// Compute per-file fan-out: count how many distinct files
-	// reference ANY symbol defined in this file. This is broader
-	// than import fan-in because it captures call-site and type-usage
-	// references, not just import statements. High fan-out (>0.15)
-	// strongly suggests infrastructure, not domain code.
+	// Compute per-file fan-out using the resolved call edges so a
+	// file with 7 tools implementing Name() no longer gets credited
+	// with the global call count for "Name". The symbol→file index
+	// is keyed by SymbolID for resolved edges; name-keyed fallback
+	// reproduces the legacy behavior for unresolved edges.
+	symbolIDToFile := make(map[SymbolID]string, len(g.Files)*10)
 	symbolToFile := make(map[string]string, len(g.Files)*10)
 	for _, fi := range g.Files {
-		for _, sym := range fi.Symbols {
+		for idx := range fi.Symbols {
+			sym := &fi.Symbols[idx]
+			if sym.ID != "" {
+				symbolIDToFile[sym.ID] = fi.RelPath
+			}
 			symbolToFile[sym.Name] = fi.RelPath
 		}
 	}
@@ -93,12 +107,19 @@ func RankGraph(g *Graph, query string) {
 	fileReferrers := make(map[string]map[string]bool)
 	for _, fi := range g.Files {
 		for _, rel := range fi.Relations {
-			if defFile, ok := symbolToFile[rel.To]; ok && defFile != fi.RelPath {
-				if fileReferrers[defFile] == nil {
-					fileReferrers[defFile] = make(map[string]bool)
-				}
-				fileReferrers[defFile][fi.RelPath] = true
+			var defFile string
+			if s := g.resolveCallTarget(fi, rel); s != nil && s.ID != "" {
+				defFile = symbolIDToFile[s.ID]
+			} else if f, ok := symbolToFile[rel.To]; ok {
+				defFile = f
 			}
+			if defFile == "" || defFile == fi.RelPath {
+				continue
+			}
+			if fileReferrers[defFile] == nil {
+				fileReferrers[defFile] = make(map[string]bool)
+			}
+			fileReferrers[defFile][fi.RelPath] = true
 		}
 	}
 	fileFanout := make(map[string]float64, len(g.Files))
@@ -112,12 +133,19 @@ func RankGraph(g *Graph, query string) {
 	for _, fi := range g.Files {
 		score := 0.0
 
-		// sum reference/call counts for symbols defined in this file,
-		// divided by the number of files that define the same name.
+		// sum reference/call counts for symbols defined in this file.
+		// Resolved-by-ID call counts are credited directly (no
+		// ambiguity divisor because they already picked one def);
+		// name-keyed fallback counters are divided by the symbol's
+		// name-level ambiguity as before.
 		for _, sym := range fi.Symbols {
 			ambiguity := float64(symDefCount[sym.Name])
 			if ambiguity < 1 {
 				ambiguity = 1
+			}
+			if sym.ID != "" {
+				score += float64(callCountByID[sym.ID]) * wInbound
+				score += float64(refCountByID[sym.ID]) * wReference
 			}
 			score += float64(refCount[sym.Name]) * wReference / ambiguity
 			score += float64(callCount[sym.Name]) * wInbound / ambiguity

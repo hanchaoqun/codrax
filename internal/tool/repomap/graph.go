@@ -14,6 +14,7 @@ func BuildGraph(repoRoot string, files []*FileInfo) *Graph {
 		FileIndex:      make(map[string]*FileInfo, len(files)),
 		SymbolDefs:     make(map[string][]*Symbol),
 		SymbolByID:     make(map[SymbolID]*Symbol),
+		MethodIndex:    make(map[MethodKey]*Symbol),
 		ImportGraph:    make(map[string][]string),
 		ReverseImports: make(map[string][]string),
 		Scores:         make(map[string]float64),
@@ -55,6 +56,22 @@ func BuildGraph(repoRoot string, files []*FileInfo) *Graph {
 				if _, exists := g.SymbolByID[s.ID]; !exists {
 					g.SymbolByID[s.ID] = s
 				}
+			}
+			// MethodIndex: callable symbols (function, method) plus
+			// types (for compat with receiver-resolution lookups
+			// where a call site's "receiver" is actually a package-
+			// level type name). Uses fi.Package directly so the key
+			// matches what the call resolver hands it.
+			pkg := fi.Package
+			if pkg == "" {
+				pkg = filepath.Dir(fi.RelPath)
+			}
+			key := MethodKey{Pkg: pkg, Receiver: s.Receiver, Name: s.Name}
+			if s.Receiver == "" {
+				key.Receiver = s.Parent
+			}
+			if _, exists := g.MethodIndex[key]; !exists {
+				g.MethodIndex[key] = s
 			}
 		}
 	}
@@ -268,6 +285,14 @@ func (g *Graph) SymbolsInFile(file string) []Symbol {
 }
 
 // CallersOf returns files that call the given symbol name.
+//
+// Legacy name-only resolver: when two methods in different files
+// share a name (the receiver drift corpus — `Execute`, `Name`,
+// `String`, etc.), a call to any of them credits every file that
+// defines a same-named method. Post-Phase-1, consumers should
+// prefer CallersOfID which filters by the canonical (pkg, receiver,
+// name) tuple. CallersOf is kept for legacy consumers migrated in
+// P1.3 and deleted in P1.4.
 func (g *Graph) CallersOf(symbolName string) []string {
 	var callers []string
 	seen := make(map[string]bool)
@@ -280,6 +305,110 @@ func (g *Graph) CallersOf(symbolName string) []string {
 		}
 	}
 	return callers
+}
+
+// CallersOfID is the receiver-aware caller resolver. Given a
+// canonical SymbolID (typically a method with a non-empty receiver
+// type), it walks every call relation and includes only the files
+// whose call site's ToEP.Receiver matches the target's receiver.
+// Calls whose receiver is unresolved (empty ToEP.Receiver) are
+// conservatively included as potential callers — we would rather
+// over-report than silently drop legitimate edges. When the target
+// is a bare function (receiver empty), only calls with empty
+// ToEP.Receiver are included.
+//
+// Returns nil when the SymbolID is not in SymbolByID.
+func (g *Graph) CallersOfID(id SymbolID) []string {
+	target, ok := g.SymbolByID[id]
+	if !ok {
+		return nil
+	}
+	wantRecv := target.Receiver
+	if wantRecv == "" {
+		wantRecv = target.Parent
+	}
+	var callers []string
+	seen := make(map[string]bool)
+	for _, fi := range g.Files {
+		for _, rel := range fi.Relations {
+			if rel.Kind != "call" || rel.To != target.Name {
+				continue
+			}
+			gotRecv := rel.ToEP.Receiver
+			// Filter by receiver:
+			//   - target is a method (wantRecv != ""): accept calls
+			//     whose receiver matches wantRecv OR is empty
+			//     (unresolved, best-effort).
+			//   - target is a bare function (wantRecv == ""): accept
+			//     only calls whose receiver is also empty.
+			if wantRecv == "" && gotRecv != "" {
+				continue
+			}
+			if wantRecv != "" && gotRecv != "" && gotRecv != wantRecv {
+				continue
+			}
+			if !seen[rel.File] {
+				seen[rel.File] = true
+				callers = append(callers, rel.File)
+			}
+		}
+	}
+	return callers
+}
+
+// resolveCallTarget maps a call Relation to its canonical target
+// Symbol via MethodIndex. Returns nil when the call is unresolved
+// (external package, unknown receiver, or ambiguous pre-Phase-1
+// selector_expression that the extractor could not attribute to a
+// specific type).
+//
+// Resolution order:
+//  1. If ToEP.Receiver matches a type/receiver in fi.Package via
+//     MethodIndex, use it.
+//  2. Else if ToEP.Receiver is empty and fi.Package has a bare
+//     function with this name, use it.
+//  3. Else try every package for (pkg, ToEP.Receiver, name) — this
+//     catches cross-package method calls where the receiver was
+//     scope-resolved to a type that lives in another package.
+//  4. Give up; caller falls back to name-only accounting.
+func (g *Graph) resolveCallTarget(fi *FileInfo, rel Relation) *Symbol {
+	if rel.Kind != "call" {
+		return nil
+	}
+	name := rel.ToEP.Name
+	if name == "" {
+		name = rel.To
+	}
+	if name == "" {
+		return nil
+	}
+	recv := rel.ToEP.Receiver
+	pkg := fi.Package
+	if pkg == "" {
+		pkg = filepath.Dir(fi.RelPath)
+	}
+	// Same-package receiver match.
+	if s, ok := g.MethodIndex[MethodKey{Pkg: pkg, Receiver: recv, Name: name}]; ok {
+		return s
+	}
+	// Same-package bare function fallback.
+	if recv != "" {
+		if s, ok := g.MethodIndex[MethodKey{Pkg: pkg, Receiver: "", Name: name}]; ok {
+			return s
+		}
+	}
+	// Cross-package: scan every package for (pkg, receiver, name).
+	// Deliberately linear because MethodIndex has one entry per
+	// method and the typical repo has a few hundred packages; this
+	// is still cheap compared to the full scan the extractor runs.
+	if recv != "" {
+		for k, s := range g.MethodIndex {
+			if k.Receiver == recv && k.Name == name {
+				return s
+			}
+		}
+	}
+	return nil
 }
 
 // TransitiveDeps returns all files reachable from the given file via imports.
