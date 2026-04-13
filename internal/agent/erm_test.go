@@ -41,19 +41,24 @@ func TestExtractEvidenceRequirements_EnglishConfig(t *testing.T) {
 	if !kinds["config_mapping"] {
 		t.Error("missing config_mapping requirement")
 	}
-	// "flow" triggers call_chain via needsDataflow, but extractEvidenceRequirements
-	// should also detect it doesn't match call_chain keywords directly.
-	// "handler" is an entity that should appear
-	hasHandler := false
+	// Structural entities should survive the tightened filter. The
+	// qualified identifier `database.host` contains a dot, so it
+	// lands in the entity set regardless of whether a symbol table
+	// is available. Short pure-lowercase prose ("handler", "config",
+	// "value") is intentionally filtered — see
+	// TestExtractRankingEntitiesWithGraph_AcceptsShortSymbolMatches
+	// for how production callers recover those when they hold a
+	// repomap.Graph.
+	hasDatabaseHost := false
 	for _, r := range reqs {
 		for _, e := range r.Entities {
-			if strings.Contains(e, "handler") {
-				hasHandler = true
+			if strings.Contains(e, "database.host") {
+				hasDatabaseHost = true
 			}
 		}
 	}
-	if !hasHandler {
-		t.Error("handler entity not captured in any requirement")
+	if !hasDatabaseHost {
+		t.Errorf("database.host entity not captured in any requirement: %v", reqs)
 	}
 }
 
@@ -970,7 +975,19 @@ func TestIdentifyAnswerChains_TerminalRangeDemoted(t *testing.T) {
 		{Kind: "registration", Entities: []string{"subagent", "agents"}},
 		{Kind: "call_chain", Entities: []string{"subagent", "agents"}},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	// Provide a synthetic graph so the tightened
+	// extractRankingEntitiesWithGraph accepts the short pure-lowercase
+	// token `agents` (the original test pre-filter assumed the legacy
+	// ≥4-char gate). Without this, only `subagent` would survive and
+	// the `range r.agents` chain would be filtered out as zero-overlap
+	// before L0-1 demotion ever sees it — masking the regression this
+	// test was written to pin.
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Agents": {{Name: "Agents", Kind: "type"}},
+		},
+	}
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, graph)
 	if len(chains) == 0 {
 		t.Fatal("expected at least one chain returned")
 	}

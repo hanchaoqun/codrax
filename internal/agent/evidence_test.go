@@ -1,9 +1,11 @@
 package agent
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -101,13 +103,21 @@ func containsString(haystack, needle string) bool {
 }
 
 func TestExtractRankingEntities(t *testing.T) {
+	// The no-graph variant accepts structural identifiers
+	// (CamelCase, snake_case, qualified names) and long lowercase
+	// tokens (≥ 8 chars). Pure short lowercase words — including
+	// the domain term `agent` — are rejected because the extractor
+	// has no way to distinguish them from generic English prose.
+	// Callers that hold a repomap.Graph should use
+	// extractRankingEntitiesWithGraph so short lowercase tokens that
+	// exactly match a repo symbol survive.
 	tests := []struct {
 		question string
 		wantAny  []string // at least these entities should be extracted
 	}{
 		{
 			"有多少个agent可以调用subagent?",
-			[]string{"agent", "subagent"},
+			[]string{"subagent"},
 		},
 		{
 			"How does `SubExplorer.Name` work?",
@@ -131,6 +141,86 @@ func TestExtractRankingEntities(t *testing.T) {
 			if !found {
 				t.Errorf("extractRankingEntities(%q) missing %q, got %v", tt.question, want, entities)
 			}
+		}
+	}
+}
+
+func TestExtractRankingEntities_DropsGenericLowercaseProse(t *testing.T) {
+	// Regression pin for the REPL-audit follow-up #3: the df1 question
+	// used to yield {many, agents, invoke, subagent}, polluting every
+	// downstream ranking and ERM relevance calculation with three
+	// generic English verbs/nouns. After the 2026-04-13 tightening
+	// only `subagent` (8 chars, pure lowercase but long enough to
+	// stand on length alone) should survive the no-graph path.
+	got := extractRankingEntities("how many agents can invoke subagent")
+	sort.Strings(got)
+	want := []string{"subagent"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("expected only %v, got %v", want, got)
+	}
+	banned := []string{"many", "agents", "invoke", "how", "can"}
+	for _, b := range banned {
+		for _, g := range got {
+			if g == b {
+				t.Errorf("tightened filter still admits generic prose %q", b)
+			}
+		}
+	}
+}
+
+func TestExtractRankingEntitiesWithGraph_AcceptsShortSymbolMatches(t *testing.T) {
+	// When a repomap.Graph is available, pure-lowercase short tokens
+	// are accepted if their lowercased form exactly matches a symbol
+	// name in the repo. This lets genuine short domain terms like
+	// `Agent` (as a type) survive even though they would be filtered
+	// out by the no-graph length rule. The test uses a synthetic
+	// graph so the rule is independent of whatever real symbols
+	// codrax happens to ship today.
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Agent":   {{Name: "Agent", Kind: "type"}},
+			"Handler": {{Name: "Handler", Kind: "type"}},
+		},
+	}
+	got := extractRankingEntitiesWithGraph("how many agents invoke an Agent handler", graph)
+	// `agents` (plural) still has no symbol match → rejected.
+	// `invoke`  (no symbol named "invoke")          → rejected.
+	// `Agent`   (capitalised, structural)           → accepted as "agent".
+	// `handler` (symbol "Handler" lowercased match) → accepted.
+	// `many`    (4 chars, lowercase, no match)      → rejected.
+	// `how`     (3 chars)                           → rejected (min length).
+	wantSet := map[string]bool{"agent": true, "handler": true}
+	if len(got) != len(wantSet) {
+		t.Fatalf("got %v, want exactly %v", got, wantSet)
+	}
+	for _, e := range got {
+		if !wantSet[e] {
+			t.Errorf("unexpected entity %q in %v", e, got)
+		}
+	}
+}
+
+func TestEntityQualifies_Rule(t *testing.T) {
+	symSet := map[string]bool{"handler": true}
+	cases := []struct {
+		raw  string
+		ok   bool
+		note string
+	}{
+		{"many", false, "pure lowercase < 8 chars, no symbol match"},
+		{"invoke", false, "pure lowercase 6 chars, no symbol match"},
+		{"agents", false, "plural form, no symbol match"},
+		{"subagent", true, "length 8 compound identifier"},
+		{"Agent", true, "uppercase → structural"},
+		{"sub_agent", true, "underscore → structural"},
+		{"pkg.Foo", true, "dot → structural"},
+		{"handler", true, "matches symbol table"},
+		{"has", false, "below min length"},
+		{"Orchestrator", true, "CamelCase"},
+	}
+	for _, c := range cases {
+		if got := entityQualifies(c.raw, symSet); got != c.ok {
+			t.Errorf("entityQualifies(%q, symSet)=%v, want %v (%s)", c.raw, got, c.ok, c.note)
 		}
 	}
 }

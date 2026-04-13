@@ -844,7 +844,7 @@ func buildAnswerWhitelist(reqs []EvidenceRequirement) answerPredicateWhitelist {
 // Callers may pass nil for both to opt out and preserve legacy
 // ranking behaviour (used by older tests).
 func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist, reqs []EvidenceRequirement, graph *repomap.Graph) ([]string, []types.EvidenceItem) {
-	entities := extractRankingEntities(question)
+	entities := extractRankingEntitiesWithGraph(question, graph)
 	if len(entities) == 0 || len(evidence) == 0 {
 		return nil, nil
 	}

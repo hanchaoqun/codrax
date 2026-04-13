@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -548,19 +549,49 @@ func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64
 }
 
 // extractRankingEntities extracts question entities for relevance
-// scoring. More aggressive than extractQuestionEntities: also extracts
-// plain alphanumeric words ≥4 chars (lowercased) to handle questions
-// like "有多少个agent可以调用subagent?" where there are no CamelCase tokens.
+// scoring. Wrapper around extractRankingEntitiesWithGraph with no
+// symbol table; callers that have access to the repo's repomap.Graph
+// should prefer extractRankingEntitiesWithGraph so lowercase tokens
+// that verbatim match real symbol names survive the tighter filter.
 func extractRankingEntities(question string) []string {
+	return extractRankingEntitiesWithGraph(question, nil)
+}
+
+// extractRankingEntitiesWithGraph is the graph-aware variant. When
+// graph is non-nil, pure-lowercase tokens shorter than 8 chars are
+// accepted only if their lowercased form exactly matches a symbol
+// name in the repo. This rule replaced the blanket "≥ 4 chars" gate
+// that used to pull generic English words (`many`, `invoke`,
+// `agents`) into the ERM entity set for questions like
+// "how many agents can invoke subagent".
+//
+// Tokens that contain an uppercase letter, underscore, or dot are
+// always accepted — they are structural identifiers (CamelCase,
+// snake_case, qualified names) and never prose. Tokens with
+// length ≥ 8 are also always accepted; compound lowercase
+// identifiers like `subagent`, `explorer`, `handlers` stand on
+// length alone.
+func extractRankingEntitiesWithGraph(question string, graph *repomap.Graph) []string {
+	var symSet map[string]bool
+	if graph != nil {
+		symSet = make(map[string]bool, len(graph.SymbolDefs))
+		for name := range graph.SymbolDefs {
+			symSet[strings.ToLower(name)] = true
+		}
+	}
 	seen := make(map[string]bool)
 	var entities []string
-	add := func(s string) {
-		s = strings.ToLower(strings.Trim(s, "(){}[]?!.,;:'\""))
-		if len(s) < 4 || seen[s] {
+	add := func(raw string) {
+		trimmed := strings.Trim(raw, "(){}[]?!.,;:'\"")
+		if !entityQualifies(trimmed, symSet) {
 			return
 		}
-		seen[s] = true
-		entities = append(entities, s)
+		lowered := strings.ToLower(trimmed)
+		if seen[lowered] {
+			return
+		}
+		seen[lowered] = true
+		entities = append(entities, lowered)
 	}
 
 	// Backtick-quoted identifiers.
@@ -605,6 +636,29 @@ func extractRankingEntities(question string) []string {
 		}
 	}
 	return entities
+}
+
+// entityQualifies reports whether raw is admissible as a question
+// ranking entity. See extractRankingEntitiesWithGraph for the rule
+// summary. Exported only within the package for unit-test visibility
+// of the filter logic independent of the extraction loop.
+func entityQualifies(raw string, symSet map[string]bool) bool {
+	if len(raw) < 4 {
+		return false
+	}
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if (c >= 'A' && c <= 'Z') || c == '_' || c == '.' {
+			return true
+		}
+	}
+	if len(raw) >= 8 {
+		return true
+	}
+	if symSet != nil && symSet[strings.ToLower(raw)] {
+		return true
+	}
+	return false
 }
 
 // DataflowIntent encodes how much dataflow analysis a question needs.

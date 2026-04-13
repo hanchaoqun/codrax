@@ -227,29 +227,33 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// spurious `RegisterDefaults → GrepTool.Description` chain
 			// (the tool registry matched MORE polluted entities than the
 			// correct answer). Splitting the sources isolates the noise.
-			// Entity source strategy: UNION of the analyzer's declared
-			// entities (verbatim from user wording per analyzer contract)
-			// and the regex extraction over ctx.Objective. Deduplicated,
-			// analyzer entries first so they dominate any ordering-based
-			// downstream logic.
+			// Entity source strategy: prefer the analyzer's declared
+			// entities outright when it provided ≥ 2 entries alongside a
+			// concrete declared kind — the analyzer sees the raw user
+			// wording and its output is strictly more intentional than a
+			// regex over the same string. Fall back to UNION with the
+			// regex extraction only when the analyzer's set is too thin
+			// to satisfy ERM's call_chain minimum of 2 entities.
 			//
-			// Union, not preference, because:
-			//  - Analyzer alone is not sufficient: df1 revealed the analyzer
-			//    can legitimately produce only 1 entity ("subagent") when
-			//    the user's phrasing has a single CamelCase-looking token.
-			//    ERM's call_chain requirement demands 2+ entities to reach
-			//    "satisfied", so the T1.1 gate never skipped and dataflow
-			//    ran on every run (eval/results/df1-20260412-081619).
-			//  - Regex alone is the pre-analyzer-contract behaviour: it
-			//    works but misses user-intent signal (the analyzer saw the
-			//    raw request and chose symbols deliberately).
+			// 2026-04-13 (REPL-audit follow-up #5): the previous UNION
+			// policy pulled regex noise in even when the analyzer had
+			// already returned a clean set. Combined with the #3 tighter
+			// extractRankingEntitiesWithGraph filter, preferring the
+			// analyzer set removes the last over-broad path by which
+			// generic English words reach ERM. The < 2 fallback preserves
+			// the reason the original UNION existed: df1 revealed that
+			// the analyzer can legitimately produce only 1 entity
+			// ("subagent") for questions whose phrasing has a single
+			// CamelCase-looking token, and ERM's call_chain requirement
+			// demands 2+ entities to reach "satisfied".
 			//
-			// The c04298f regression this change must NOT re-introduce was
-			// joining the original Chinese question and the analyzer's
-			// English rewrite into a single STRING and then running regex
-			// extraction over the noise. That is a different failure mode:
-			// here we keep the extraction sources SEPARATE (analyzer field
-			// + regex over Objective only) and merge two clean lists.
+			// The c04298f regression this change must NOT re-introduce
+			// was joining the original Chinese question and the
+			// analyzer's English rewrite into a single STRING and then
+			// running regex extraction over the noise. That is a
+			// different failure mode: here we keep the two sources
+			// SEPARATE and either trust the analyzer outright or merge
+			// two clean lists.
 			var ermEntities []string
 			seen := make(map[string]bool)
 			for _, ent := range ctx.CurrentTaskEntities {
@@ -258,6 +262,8 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 					seen[ent] = true
 				}
 			}
+			declaredKind := strings.ToLower(strings.TrimSpace(ctx.CurrentTaskQuestionKind))
+			trustAnalyzer := declaredKind != "" && declaredKind != "unknown" && len(ermEntities) >= 2
 			// REPL-mode entity pollution fix.
 			//
 			// In REPL mode ctx.Objective is the REPL's `effective` string:
@@ -275,16 +281,20 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// request portion (unchanged in single-shot mode where no
 			// marker is present).
 			cleanObjective := stripConversationPrefix(ctx.Objective)
-			regexEntities := extractRankingEntities(cleanObjective)
-			if len(regexEntities) == 0 {
-				regexEntities = extractRankingEntities(ctx.CurrentTask)
-			}
-			for _, ent := range regexEntities {
-				if !seen[ent] {
-					ermEntities = append(ermEntities, ent)
-					seen[ent] = true
+			if !trustAnalyzer {
+				regexEntities := extractRankingEntitiesWithGraph(cleanObjective, sr.Graph)
+				if len(regexEntities) == 0 {
+					regexEntities = extractRankingEntitiesWithGraph(ctx.CurrentTask, sr.Graph)
+				}
+				for _, ent := range regexEntities {
+					if !seen[ent] {
+						ermEntities = append(ermEntities, ent)
+						seen[ent] = true
+					}
 				}
 			}
+			logging.Debug("[explorer] erm entities: %d (trustAnalyzer=%v declaredKind=%q analyzer=%d)",
+				len(ermEntities), trustAnalyzer, declaredKind, len(ctx.CurrentTaskEntities))
 			// Keyword trigger source also uses the clean current
 			// request. A memory blob containing a prior "如何 / how
 			// does" question would otherwise over-trigger the
