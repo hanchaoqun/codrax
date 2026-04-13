@@ -253,15 +253,189 @@ func TestGenerateViewDataTaskMap(t *testing.T) {
 	}
 }
 
-// TestGenerateViewDataNonMigratedReturnsNil keeps the dual-channel
-// contract explicit — Phase 4 migrates the remaining views one at
-// a time, and this test pins the set of not-yet-migrated types so
-// the next commit's fall-through behavior stays honest.
-func TestGenerateViewDataNonMigratedReturnsNil(t *testing.T) {
-	g := BuildGraph(t.TempDir(), nil)
-	for _, t2 := range []string{"file_map", "call_path", "edit_impact", "unknown"} {
-		if got := GenerateViewData(g, t2, ViewParams{}); got != nil {
-			t.Errorf("GenerateViewData(%q) = %+v, want nil", t2, got)
+// TestGenerateViewDataFileMap confirms file_map produces one
+// ViewSection per file with symbols grouped by kind in the
+// canonical order, and that the rendered markdown preserves the
+// exported-marker (+) and receiver-qualified bullet shapes.
+func TestGenerateViewDataFileMap(t *testing.T) {
+	files := []*FileInfo{
+		{
+			RelPath:  "foo.go",
+			Language: LangGo,
+			Package:  "foo",
+			Symbols: []Symbol{
+				{Name: "Doer", Kind: "interface", Line: 5, Exported: true},
+				{Name: "Impl", Kind: "struct", Line: 10, Exported: true},
+				{Name: "Do", Kind: "method", Line: 15, Exported: true, Receiver: "Impl"},
+				{Name: "helper", Kind: "function", Line: 30},
+			},
+		},
+	}
+	g := BuildGraph(t.TempDir(), files)
+
+	d := GenerateViewData(g, "file_map", ViewParams{TopN: 10})
+	if d == nil {
+		t.Fatal("GenerateViewData(file_map) returned nil")
+	}
+	if d.Type != "file_map" || d.Title != "File Map" {
+		t.Errorf("header wrong: %+v", d)
+	}
+	if len(d.Sections) != 1 {
+		t.Fatalf("expected 1 section, got %d", len(d.Sections))
+	}
+	sec := d.Sections[0]
+	if sec.Heading != "foo.go [foo]" {
+		t.Errorf("heading = %q, want %q", sec.Heading, "foo.go [foo]")
+	}
+	// Canonical order: interface → struct → function → method.
+	wantOrder := []string{"Doer", "Impl", "helper", "Do"}
+	if len(sec.Items) != len(wantOrder) {
+		t.Fatalf("expected %d items, got %d: %+v", len(wantOrder), len(sec.Items), sec.Items)
+	}
+	for i, w := range wantOrder {
+		if !strings.Contains(sec.Items[i].Text, "`"+w) && !strings.Contains(sec.Items[i].Text, ") "+w) {
+			t.Errorf("item[%d] = %q, want containing %q", i, sec.Items[i].Text, w)
 		}
+	}
+
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"# File Map",
+		"## foo.go [foo]",
+		"+`Doer` interface :5",
+		"+`Impl` struct :10",
+		"+`(Impl) Do` method :15",
+		" `helper` function :30",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q:\n%s", want, md)
+		}
+	}
+}
+
+// TestGenerateViewDataUnknownReturnsNil pins the dual-channel
+// contract: any view type that is not one of the five supported
+// names must return nil so GenerateView's fallback path can
+// redirect to "overview".
+func TestGenerateViewDataUnknownReturnsNil(t *testing.T) {
+	g := BuildGraph(t.TempDir(), nil)
+	if got := GenerateViewData(g, "unknown", ViewParams{}); got != nil {
+		t.Errorf("GenerateViewData(unknown) = %+v, want nil", got)
+	}
+}
+
+// TestGenerateViewDataCallPath locks the call_path BFS structure
+// — one ViewSection with BFS-depth-tagged items, rendered with
+// two-space indent per depth step.
+func TestGenerateViewDataCallPath(t *testing.T) {
+	files := []*FileInfo{
+		{RelPath: "main.go", Language: LangGo, Package: "main", Symbols: []Symbol{
+			{Name: "Run", Kind: "function", Line: 10, Exported: true},
+		}},
+		{RelPath: "lib.go", Language: LangGo, Package: "main", Symbols: []Symbol{
+			{Name: "Helper", Kind: "function", Line: 5, Exported: true},
+		}},
+		{RelPath: "deep.go", Language: LangGo, Package: "main"},
+	}
+	g := BuildGraph(t.TempDir(), files)
+	// Hand-wire the import graph.
+	g.ImportGraph["main.go"] = []string{"lib.go"}
+	g.ImportGraph["lib.go"] = []string{"deep.go"}
+
+	d := GenerateViewData(g, "call_path", ViewParams{EntryPoint: "main.go"})
+	if d == nil {
+		t.Fatal("GenerateViewData(call_path) returned nil")
+	}
+	if d.Type != "call_path" || !strings.Contains(d.Title, "main.go") {
+		t.Errorf("header wrong: %+v", d)
+	}
+	if len(d.Sections) != 1 || len(d.Sections[0].Items) != 3 {
+		t.Fatalf("expected 1 section with 3 items, got %+v", d.Sections)
+	}
+	depths := []int{d.Sections[0].Items[0].Depth, d.Sections[0].Items[1].Depth, d.Sections[0].Items[2].Depth}
+	wantDepths := []int{0, 1, 2}
+	for i := range depths {
+		if depths[i] != wantDepths[i] {
+			t.Errorf("depth[%d] = %d, want %d", i, depths[i], wantDepths[i])
+		}
+	}
+
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"# Call Path from main.go",
+		"- `main.go` → Run",
+		"  - `lib.go` → Helper",
+		"    - `deep.go`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q:\n%s", want, md)
+		}
+	}
+}
+
+// TestGenerateViewDataEditImpact locks the edit_impact four-
+// section structure and the exported-symbol caller-count
+// suffix.
+func TestGenerateViewDataEditImpact(t *testing.T) {
+	files := []*FileInfo{
+		{
+			RelPath: "target.go", Language: LangGo, Package: "main",
+			Symbols: []Symbol{
+				{Name: "PublicAPI", Kind: "function", Line: 5, Exported: true},
+				{Name: "private", Kind: "function", Line: 10},
+			},
+		},
+		{
+			RelPath: "caller.go", Language: LangGo, Package: "main",
+			Relations: []Relation{
+				{Kind: "call", From: "caller.go", To: "PublicAPI", File: "caller.go", Line: 5},
+			},
+		},
+		{RelPath: "dep.go", Language: LangGo, Package: "main"},
+	}
+	g := BuildGraph(t.TempDir(), files)
+	g.ReverseImports["target.go"] = []string{"caller.go"}
+	g.ImportGraph["target.go"] = []string{"dep.go"}
+
+	d := GenerateViewData(g, "edit_impact", ViewParams{TargetFile: "target.go"})
+	if d == nil {
+		t.Fatal("GenerateViewData(edit_impact) returned nil")
+	}
+	if !strings.Contains(d.Title, "target.go") {
+		t.Errorf("title wrong: %q", d.Title)
+	}
+	headings := make([]string, len(d.Sections))
+	for i, s := range d.Sections {
+		headings[i] = s.Heading
+	}
+	// Transitive Dependents section is omitted when it would equal
+	// the Direct Dependents list, so we expect exactly three.
+	wantHeadings := []string{"Direct Dependents", "Exported Symbols", "Dependencies (this file imports)"}
+	if len(headings) != len(wantHeadings) {
+		t.Fatalf("headings = %v, want %v", headings, wantHeadings)
+	}
+	for i := range wantHeadings {
+		if headings[i] != wantHeadings[i] {
+			t.Errorf("headings[%d] = %q, want %q", i, headings[i], wantHeadings[i])
+		}
+	}
+
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"# Edit Impact: target.go",
+		"## Direct Dependents",
+		"- `caller.go`",
+		"## Exported Symbols",
+		"- `PublicAPI` function (referenced from 1 files)",
+		"## Dependencies (this file imports)",
+		"- `dep.go`",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q:\n%s", want, md)
+		}
+	}
+	// Private symbols must not leak.
+	if strings.Contains(md, "`private`") {
+		t.Errorf("private symbol leaked:\n%s", md)
 	}
 }

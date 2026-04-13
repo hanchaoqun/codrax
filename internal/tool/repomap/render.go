@@ -39,11 +39,18 @@ type ViewSection struct {
 // `Text` is the primary rendered label; the other fields are
 // hints for programmatic consumers that want to post-process
 // results without parsing the rendered markdown.
+//
+// `Depth` is the indent level in the rendered bullet list —
+// 0 (the default) produces a top-level `- text` line, 1 produces
+// `  - text`, 2 produces `    - text`, and so on. Used by the
+// call_path view to visualize a BFS walk; most other views leave
+// it at zero.
 type ViewItem struct {
 	Text  string  `json:"text"`
 	File  string  `json:"file,omitempty"`
 	Kind  string  `json:"kind,omitempty"`
 	Score float64 `json:"score,omitempty"`
+	Depth int     `json:"depth,omitempty"`
 }
 
 // RenderMarkdown produces the markdown view that corresponds to a
@@ -101,6 +108,9 @@ func renderSection(b *strings.Builder, s *ViewSection, depth int) {
 		b.WriteString("\n")
 	}
 	for _, item := range s.Items {
+		if item.Depth > 0 {
+			b.WriteString(strings.Repeat("  ", item.Depth))
+		}
 		b.WriteString("- ")
 		b.WriteString(item.Text)
 		b.WriteString("\n")
@@ -130,6 +140,12 @@ func GenerateViewData(g *Graph, viewType string, params ViewParams) *ViewData {
 			return buildOverviewData(g, params)
 		}
 		return buildTaskMapData(g, params)
+	case "file_map":
+		return buildFileMapData(g, params)
+	case "call_path":
+		return buildCallPathData(g, params)
+	case "edit_impact":
+		return buildEditImpactData(g, params)
 	}
 	return nil
 }
@@ -265,6 +281,256 @@ func sortPackages(s []packageSummary) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// buildFileMapData produces the structured form of the file_map
+// view. Each of the top-N files becomes its own ViewSection whose
+// heading is `<relpath> [<package>]` and whose items are the
+// file's symbols grouped by kind in a canonical order. The
+// rendered markdown preserves the legacy shape so existing
+// consumers see the same landmarks.
+func buildFileMapData(g *Graph, params ViewParams) *ViewData {
+	topN := params.TopN
+	if topN <= 0 {
+		topN = 50
+	}
+	files := TopFiles(g, topN)
+
+	kindOrder := []string{
+		"interface", "trait", "class", "struct", "enum",
+		"type", "function", "method", "const", "var", "field",
+	}
+
+	d := &ViewData{
+		Type:  "file_map",
+		Title: "File Map",
+		Intro: "> **Navigation index only.** Verify symbols and line numbers by reading the actual files.",
+	}
+
+	for _, fi := range files {
+		if len(fi.Symbols) == 0 {
+			continue
+		}
+		heading := fi.RelPath
+		if fi.Package != "" {
+			heading += " [" + fi.Package + "]"
+		}
+		section := ViewSection{Heading: heading}
+
+		// Group by kind so the canonical ordering can walk them
+		// without re-scanning the slice for every kind.
+		groups := make(map[string][]Symbol)
+		for _, sym := range fi.Symbols {
+			groups[sym.Kind] = append(groups[sym.Kind], sym)
+		}
+
+		for _, kind := range kindOrder {
+			syms, ok := groups[kind]
+			if !ok {
+				continue
+			}
+			for _, sym := range syms {
+				marker := " "
+				if sym.Exported {
+					marker = "+"
+				}
+				line := marker + "`" + sym.Name + "`"
+				if sym.Receiver != "" {
+					line = marker + "`(" + sym.Receiver + ") " + sym.Name + "`"
+				} else if sym.Parent != "" {
+					line = marker + "`" + sym.Parent + "." + sym.Name + "`"
+				}
+				line += fmt.Sprintf(" %s :%d", sym.Kind, sym.Line)
+				if sym.Signature != "" {
+					line += " `" + sym.Signature + "`"
+				}
+				if sym.Doc != "" {
+					line += " — " + sym.Doc
+				}
+				section.Items = append(section.Items, ViewItem{
+					Text: line,
+					File: fi.RelPath,
+					Kind: sym.Kind,
+				})
+			}
+		}
+		d.Sections = append(d.Sections, section)
+	}
+
+	return d
+}
+
+// buildCallPathData produces the structured form of the call_path
+// view: a single-section BFS walk of the ImportGraph from the
+// requested entry point (or the highest-scored file when
+// EntryPoint is empty). Each visited file becomes a ViewItem
+// whose Depth matches the BFS depth so RenderMarkdown indents it
+// correctly. Key symbols on each file are appended to the item
+// text as a `→ sym1, sym2, ...` suffix.
+func buildCallPathData(g *Graph, params ViewParams) *ViewData {
+	entry := params.EntryPoint
+	if entry == "" {
+		if top := TopFiles(g, 1); len(top) > 0 {
+			entry = top[0].RelPath
+		}
+	}
+
+	d := &ViewData{
+		Type:  "call_path",
+		Title: "Call Path from " + entry,
+		Intro: "> **Navigation index only.** Verify call chains by reading the actual source files.",
+	}
+	walk := ViewSection{}
+
+	visited := make(map[string]bool)
+	type queueItem struct {
+		file  string
+		depth int
+	}
+	queue := []queueItem{{entry, 0}}
+	const maxDepth = 5
+
+	for len(queue) > 0 {
+		item := queue[0]
+		queue = queue[1:]
+		if visited[item.file] || item.depth > maxDepth {
+			continue
+		}
+		visited[item.file] = true
+
+		fi := g.FileIndex[item.file]
+		if fi == nil {
+			walk.Items = append(walk.Items, ViewItem{
+				Text:  "`" + item.file + "` (not in index)",
+				File:  item.file,
+				Depth: item.depth,
+			})
+			continue
+		}
+
+		var keySyms []string
+		for _, sym := range fi.Symbols {
+			if sym.Exported && (sym.Kind == "function" || sym.Kind == "method") {
+				keySyms = append(keySyms, sym.Name)
+			}
+		}
+		suffix := ""
+		if len(keySyms) > 0 {
+			suffix = " → " + strings.Join(abbreviate(keySyms, 5), ", ")
+		}
+		walk.Items = append(walk.Items, ViewItem{
+			Text:  "`" + item.file + "`" + suffix,
+			File:  item.file,
+			Depth: item.depth,
+		})
+		for _, dep := range g.ImportGraph[item.file] {
+			queue = append(queue, queueItem{dep, item.depth + 1})
+		}
+	}
+
+	d.Sections = append(d.Sections, walk)
+	return d
+}
+
+// buildEditImpactData produces the structured form of the
+// edit_impact view. Emits up to four sections depending on what
+// the target file has: Direct Dependents, Transitive Dependents
+// (only when strictly more than direct), Exported Symbols, and
+// Dependencies. Target-file-not-found falls back to a single
+// empty section so the rendered markdown still has the expected
+// "# Edit Impact: <target>" headline.
+func buildEditImpactData(g *Graph, params ViewParams) *ViewData {
+	target := params.TargetFile
+	if target == "" {
+		return &ViewData{
+			Type:  "edit_impact",
+			Title: "Edit Impact",
+			Intro: "No target file specified.",
+		}
+	}
+	d := &ViewData{
+		Type:  "edit_impact",
+		Title: "Edit Impact: " + target,
+		Intro: "> **Navigation index only.** Verify impact by reading the dependent files.",
+	}
+
+	fi := g.FileIndex[target]
+	if fi == nil {
+		d.Sections = append(d.Sections, ViewSection{
+			Intro: "File not found in index.",
+		})
+		return d
+	}
+
+	// Direct dependents.
+	directDeps := g.FilesImporting(target)
+	directSection := ViewSection{Heading: "Direct Dependents"}
+	if len(directDeps) == 0 {
+		directSection.Intro = "No files directly import this file."
+	}
+	for _, dep := range directDeps {
+		directSection.Items = append(directSection.Items, ViewItem{
+			Text: "`" + dep + "`",
+			File: dep,
+			Kind: "direct_dep",
+		})
+	}
+	d.Sections = append(d.Sections, directSection)
+
+	// Transitive dependents (only when strictly more than direct).
+	transitive := g.TransitiveReverseDeps(target, 5)
+	if len(transitive) > len(directDeps) {
+		trans := ViewSection{Heading: "Transitive Dependents (up to 5 levels)"}
+		directSet := make(map[string]bool, len(directDeps))
+		for _, d := range directDeps {
+			directSet[d] = true
+		}
+		for _, dep := range transitive {
+			if directSet[dep] {
+				continue
+			}
+			trans.Items = append(trans.Items, ViewItem{
+				Text: "`" + dep + "`",
+				File: dep,
+				Kind: "transitive_dep",
+			})
+		}
+		d.Sections = append(d.Sections, trans)
+	}
+
+	// Exported symbols with caller counts.
+	exports := ViewSection{Heading: "Exported Symbols"}
+	for _, sym := range fi.Symbols {
+		if !sym.Exported {
+			continue
+		}
+		refs := len(g.CallersOf(sym.Name))
+		suffix := ""
+		if refs > 0 {
+			suffix = fmt.Sprintf(" (referenced from %d files)", refs)
+		}
+		exports.Items = append(exports.Items, ViewItem{
+			Text: fmt.Sprintf("`%s` %s%s", sym.Name, sym.Kind, suffix),
+			File: target,
+			Kind: sym.Kind,
+		})
+	}
+	d.Sections = append(d.Sections, exports)
+
+	// Files this file depends on.
+	if deps := g.FilesImportedBy(target); len(deps) > 0 {
+		depsSection := ViewSection{Heading: "Dependencies (this file imports)"}
+		for _, dep := range deps {
+			depsSection.Items = append(depsSection.Items, ViewItem{
+				Text: "`" + dep + "`",
+				File: dep,
+				Kind: "imports",
+			})
+		}
+		d.Sections = append(d.Sections, depsSection)
+	}
+
+	return d
 }
 
 // buildTaskMapData produces the structured form of the task_map

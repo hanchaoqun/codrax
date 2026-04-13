@@ -100,7 +100,7 @@
     },
     {
       "query": "GenerateView task_map call_path",
-      "expected_files": ["internal/tool/repomap/views.go"]
+      "expected_files": ["internal/tool/repomap/render.go"]
     },
     {
       "query": "tree-sitter extractor go",
