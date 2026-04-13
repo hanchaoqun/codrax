@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
 // BuildGraph constructs the full repository graph from parsed files.
@@ -89,36 +91,46 @@ func BuildGraph(repoRoot string, files []*FileInfo) *Graph {
 	return g
 }
 
-// resolveImportGraph builds file→file import edges by matching import
-// paths to actual files in the repo.
+// resolveImportGraph builds file→file import edges by dispatching each
+// Import statement to the ImportResolver registered for its source
+// language. Unresolvable imports are recorded on Graph.Metadata so
+// consumers can compute per-import accuracy without re-walking the
+// resolver.
 func resolveImportGraph(g *Graph) {
-	// Build a lookup: package/module → files
-	pkgToFiles := make(map[string][]string)
-	for _, fi := range g.Files {
-		if fi.Package != "" {
-			pkgToFiles[fi.Package] = append(pkgToFiles[fi.Package], fi.RelPath)
+	ctx := newResolverContext(g)
+	resolvers := defaultResolvers()
+	for _, r := range resolvers {
+		if err := r.Prepare(g, ctx); err != nil {
+			logging.Debug("repomap: resolver %s prepare: %v", r.Language(), err)
 		}
-		// also index by directory
-		dir := filepath.Dir(fi.RelPath)
-		pkgToFiles[dir] = append(pkgToFiles[dir], fi.RelPath)
 	}
-
-	// basename index for header/source matching (C/C++)
-	basenameIndex := make(map[string][]string)
 	for _, fi := range g.Files {
-		base := strings.TrimSuffix(filepath.Base(fi.RelPath), filepath.Ext(fi.RelPath))
-		basenameIndex[base] = append(basenameIndex[base], fi.RelPath)
-	}
-
-	for _, fi := range g.Files {
+		r, ok := resolvers[fi.Language]
+		if !ok {
+			// No resolver registered for this language: treat every
+			// import as unresolved so the harness can count it.
+			for _, imp := range fi.Imports {
+				ctx.Unresolved = append(ctx.Unresolved, UnresolvedImport{
+					File: fi.RelPath, Raw: imp.Path, Reason: "no_resolver:" + fi.Language,
+				})
+			}
+			continue
+		}
 		for _, imp := range fi.Imports {
-			targets := resolveImport(g, fi, imp, pkgToFiles, basenameIndex)
+			targets := r.Resolve(g, fi, imp, ctx)
+			if len(targets) == 0 {
+				ctx.Unresolved = append(ctx.Unresolved, UnresolvedImport{
+					File: fi.RelPath, Raw: imp.Path, Reason: fi.Language,
+				})
+				continue
+			}
 			for _, t := range targets {
 				g.ImportGraph[fi.RelPath] = appendUnique(g.ImportGraph[fi.RelPath], t)
 				g.ReverseImports[t] = appendUnique(g.ReverseImports[t], fi.RelPath)
 			}
 		}
 	}
+	g.Metadata.UnresolvedImports = ctx.Unresolved
 }
 
 func resolveImport(g *Graph, fi *FileInfo, imp Import, pkgToFiles map[string][]string, basenameIndex map[string][]string) []string {

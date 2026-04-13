@@ -160,12 +160,24 @@ type Graph struct {
 
 // Metadata holds scan-level statistics.
 type Metadata struct {
-	ScanTime     time.Time      `json:"scan_time"`
-	FileCount    int            `json:"file_count"`
-	SymbolCount  int            `json:"symbol_count"`
-	RelationCount int           `json:"relation_count"`
-	Languages    map[string]int `json:"languages"`    // language → file count
-	SpecialFiles []string       `json:"special_files"` // notable files (go.mod, etc.)
+	ScanTime          time.Time          `json:"scan_time"`
+	FileCount         int                `json:"file_count"`
+	SymbolCount       int                `json:"symbol_count"`
+	RelationCount     int                `json:"relation_count"`
+	Languages         map[string]int     `json:"languages"`            // language → file count
+	SpecialFiles      []string           `json:"special_files"`        // notable files (go.mod, etc.)
+	UnresolvedImports []UnresolvedImport `json:"unresolved_imports,omitempty"`
+}
+
+// UnresolvedImport records an import statement that no registered
+// ImportResolver could map to a target file in the graph. Populated
+// by resolveImportGraph so consumers (the eval harness, diagnostics)
+// can compute per-import import_edge_accuracy without re-walking the
+// resolver.
+type UnresolvedImport struct {
+	File   string `json:"file"`             // source file RelPath
+	Raw    string `json:"raw"`              // imp.Path as written
+	Reason string `json:"reason,omitempty"` // resolver language / failure tag
 }
 
 // ViewParams controls what a view generator produces.

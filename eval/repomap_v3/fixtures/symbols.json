@@ -46,7 +46,7 @@
     {"name": "FileInfo",             "file": "internal/tool/repomap/types.go",   "line": 122,  "kind": "type"},
     {"name": "Graph",                "file": "internal/tool/repomap/types.go",   "line": 147,  "kind": "type"},
     {"name": "Metadata",             "file": "internal/tool/repomap/types.go",   "line": 162,  "kind": "type"},
-    {"name": "ViewParams",           "file": "internal/tool/repomap/types.go",   "line": 172,  "kind": "type"},
+    {"name": "ViewParams",           "file": "internal/tool/repomap/types.go",   "line": 184,  "kind": "type"},
     {"name": "RepoMapV2",            "file": "internal/tool/repomap/tool.go",    "line": 14,   "kind": "type"},
     {"name": "FileEntry",            "file": "internal/tool/repomap/scanner.go", "line": 11,   "kind": "type"},
     {"name": "TodoWrite",            "file": "internal/tool/todo_write.go",      "line": 24,   "kind": "type"},
@@ -88,7 +88,7 @@
     {"name": "BuildOrLoadGraph",     "file": "internal/tool/repomap/tool.go",    "line": 125,  "kind": "function"},
     {"name": "BuildGraph",           "file": "internal/tool/repomap/graph.go",   "line": 10,   "kind": "function"},
     {"name": "RankGraph",            "file": "internal/tool/repomap/rank.go",    "line": 44,   "kind": "function"},
-    {"name": "SymbolKey",            "file": "internal/tool/repomap/graph.go",   "line": 258,  "kind": "function"},
+    {"name": "SymbolKey",            "file": "internal/tool/repomap/graph.go",   "line": 270,  "kind": "function"},
     {"name": "ScanFiles",            "file": "internal/tool/repomap/scanner.go", "line": 56,   "kind": "function"},
     {"name": "ParseFiles",           "file": "internal/tool/repomap/parser.go",  "line": 17,   "kind": "function"},
     {"name": "GenerateView",         "file": "internal/tool/repomap/views.go",   "line": 10,   "kind": "function"},
@@ -123,10 +123,10 @@
     {"name": "BusContext",           "file": "internal/orchestrator/orchestrator.go","line": 833, "kind": "method", "receiver": "Orchestrator"},
     {"name": "Execute",              "file": "internal/agent/agent.go",          "line": 317,  "kind": "method",  "receiver": "BaseAgent"},
     {"name": "Name",                 "file": "internal/agent/agent.go",          "line": 219,  "kind": "method",  "receiver": "BaseAgent"},
-    {"name": "FilesImporting",       "file": "internal/tool/repomap/graph.go",   "line": 269,  "kind": "method",  "receiver": "Graph"},
-    {"name": "FilesImportedBy",      "file": "internal/tool/repomap/graph.go",   "line": 274,  "kind": "method",  "receiver": "Graph"},
-    {"name": "SymbolsInFile",        "file": "internal/tool/repomap/graph.go",   "line": 279,  "kind": "method",  "receiver": "Graph"},
-    {"name": "CallersOf",            "file": "internal/tool/repomap/graph.go",   "line": 296,  "kind": "method",  "receiver": "Graph"},
-    {"name": "TransitiveDeps",       "file": "internal/tool/repomap/graph.go",   "line": 415,  "kind": "method",  "receiver": "Graph"}
+    {"name": "FilesImporting",       "file": "internal/tool/repomap/graph.go",   "line": 281,  "kind": "method",  "receiver": "Graph"},
+    {"name": "FilesImportedBy",      "file": "internal/tool/repomap/graph.go",   "line": 286,  "kind": "method",  "receiver": "Graph"},
+    {"name": "SymbolsInFile",        "file": "internal/tool/repomap/graph.go",   "line": 291,  "kind": "method",  "receiver": "Graph"},
+    {"name": "CallersOf",            "file": "internal/tool/repomap/graph.go",   "line": 308,  "kind": "method",  "receiver": "Graph"},
+    {"name": "TransitiveDeps",       "file": "internal/tool/repomap/graph.go",   "line": 427,  "kind": "method",  "receiver": "Graph"}
   ]
 }

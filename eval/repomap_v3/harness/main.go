@@ -371,6 +371,16 @@ func abs(x int) int { if x < 0 { return -x }; return x }
 
 func computeImportAccuracy(g *repomap.Graph) importAccuracy {
 	out := importAccuracy{PerLanguage: make(map[string]importLangStats)}
+
+	// Per-(file,rawPath) unresolved lookup populated by
+	// resolveImportGraph. Keyed by "relpath|raw" so duplicate Import
+	// entries in a single file (rare but legal, e.g. JS re-imports)
+	// are each counted individually.
+	unresolved := make(map[string]int)
+	for _, u := range g.Metadata.UnresolvedImports {
+		unresolved[u.File+"|"+u.Raw]++
+	}
+
 	for _, fi := range g.Files {
 		if len(fi.Imports) == 0 {
 			continue
@@ -379,20 +389,13 @@ func computeImportAccuracy(g *repomap.Graph) importAccuracy {
 		for _, imp := range fi.Imports {
 			out.TotalRelations++
 			langStats.Total++
-			// Look up via resolved ImportGraph: the resolver stores
-			// successful targets there per-source-file. An import is
-			// "resolved" if it contributed at least one edge out of
-			// its source file.
-			_ = imp // imp.Path is informational; resolution went through graph.ImportGraph
-			targets := g.ImportGraph[fi.RelPath]
-			if len(targets) > 0 {
-				// At least one resolution exists for this file.
-				// Attribute one "hit" per imp to give a crude per-
-				// import ratio. This is an approximation: the resolver
-				// does not track per-import target lists.
-				out.Resolved++
-				langStats.Resolved++
+			key := fi.RelPath + "|" + imp.Path
+			if n := unresolved[key]; n > 0 {
+				unresolved[key] = n - 1
+				continue
 			}
+			out.Resolved++
+			langStats.Resolved++
 		}
 		out.PerLanguage[fi.Language] = langStats
 	}
