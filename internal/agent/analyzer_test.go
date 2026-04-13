@@ -18,26 +18,25 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	e := &analyzerEvaluator{}
 
 	// Pretend a previous todo_write call already populated the list
-	// with a full analyzer classification.
+	// and AnalysisIR classification.
 	mut := types.NewMutableState(types.TaskList{
 		Objective:     "explain the project",
 		CurrentTaskID: "t1",
 		Tasks: []types.TaskItem{{
-			ID:           "t1",
-			Title:        "explain",
-			Writing:      false,
-			Status:       types.TaskInProgress,
-			QuestionKind: "mechanism",
-			AnswerShape:  "step_list",
-			Complexity:   "moderate",
-			Entities:     []string{"Orchestrator", "BaseAgent"},
-			Keywords:     []string{"orchestrator", "agent", "pipeline"},
+			ID:      "t1",
+			Title:   "explain",
+			Writing: false,
+			Status:  types.TaskInProgress,
 		}},
 	})
 
 	ctx := &types.AgentContext{
-		Stage:   types.StageAnalyze,
-		Mutable: mut,
+		Stage:                   types.StageAnalyze,
+		Mutable:                 mut,
+		CurrentTaskQuestionKind: "mechanism",
+		CurrentTaskAnswerShape:  "step_list",
+		CurrentTaskEntities:     []string{"Orchestrator", "BaseAgent"},
+		CurrentTaskKeywords:     []string{"orchestrator", "agent", "pipeline"},
 	}
 	msgs := []llm.Message{
 		{Role: "assistant", Content: "Classified as mechanism: ordered steps."},
@@ -77,9 +76,6 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	tl := mut.TaskList()
 	if len(tl.Tasks) != 1 || tl.Tasks[0].ID != "t1" {
 		t.Errorf("Mutable.TaskList was clobbered, got %+v", tl.Tasks)
-	}
-	if tl.Tasks[0].QuestionKind != "mechanism" {
-		t.Errorf("QuestionKind was clobbered, got %q", tl.Tasks[0].QuestionKind)
 	}
 }
 

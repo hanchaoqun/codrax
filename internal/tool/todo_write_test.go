@@ -226,10 +226,8 @@ func TestPickCurrentTaskID_FallbackToFirst(t *testing.T) {
 	}
 }
 
-// TestTodoWrite_AnalyzerContractFields verifies that the new fields
-// feeding the deterministic pipeline (entities, question_kind,
-// answer_shape) round-trip from JSON params into TaskItem exactly as
-// the analyzer contract declares.
+// TestTodoWrite_AnalyzerContractFields verifies analyzer-only semantic
+// fields are persisted into BusContext.AnalysisIR (not TaskItem).
 func TestTodoWrite_AnalyzerContractFields(t *testing.T) {
 	tw := &TodoWrite{}
 	bus := newMutableBus()
@@ -248,15 +246,17 @@ func TestTodoWrite_AnalyzerContractFields(t *testing.T) {
 	if err != nil || !res.Success {
 		t.Fatalf("execute failed: err=%v summary=%s", err, res.Summary)
 	}
-	item := bus.Mutable.TaskList().Tasks[0]
-	if len(item.Entities) != 2 || item.Entities[0] != "ContinuationPrompt" {
-		t.Errorf("Entities roundtrip failed: %v", item.Entities)
+	if bus.AnalysisIR == nil {
+		t.Fatal("AnalysisIR should be populated")
 	}
-	if item.QuestionKind != "mechanism" {
-		t.Errorf("QuestionKind = %q, want mechanism", item.QuestionKind)
+	if len(bus.AnalysisIR.RequestModel.Entities) != 2 || bus.AnalysisIR.RequestModel.Entities[0] != "ContinuationPrompt" {
+		t.Errorf("AnalysisIR.RequestModel.Entities failed: %v", bus.AnalysisIR.RequestModel.Entities)
 	}
-	if item.AnswerShape != "step_list" {
-		t.Errorf("AnswerShape = %q, want step_list", item.AnswerShape)
+	if bus.AnalysisIR.RequestModel.QuestionKind != "mechanism" {
+		t.Errorf("AnalysisIR.RequestModel.QuestionKind = %q, want mechanism", bus.AnalysisIR.RequestModel.QuestionKind)
+	}
+	if bus.AnalysisIR.AnswerContract.OutputShape != "step_list" {
+		t.Errorf("AnalysisIR.AnswerContract.OutputShape = %q, want step_list", bus.AnalysisIR.AnswerContract.OutputShape)
 	}
 }
 
@@ -270,7 +270,10 @@ func TestTodoWrite_EntitiesTrimEmpty(t *testing.T) {
 	if _, err := tw.Execute(bus, params); err != nil {
 		t.Fatalf("execute failed: %v", err)
 	}
-	got := bus.Mutable.TaskList().Tasks[0].Entities
+	if bus.AnalysisIR == nil {
+		t.Fatal("AnalysisIR should be populated")
+	}
+	got := bus.AnalysisIR.RequestModel.Entities
 	if len(got) != 2 || got[0] != "Foo" || got[1] != "Bar" {
 		t.Errorf("Entities = %v, want [Foo Bar]", got)
 	}

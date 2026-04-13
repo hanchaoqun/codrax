@@ -78,6 +78,12 @@ type StageOutput struct {
 	// reverse-engineer it from raw tool dumps. applyStageOutput
 	// appends it to BusContext.StageReports.
 	StageReport string `json:"stage_report,omitempty"`
+
+	// AnalysisIR is the analyzer's canonical structured output.
+	// The orchestrator stores it on BusContext and downstream stages
+	// (especially explore) should read analyzer semantics from here
+	// instead of from TaskItem text fields.
+	AnalysisIR *types.AnalysisIR `json:"analysis_ir,omitempty"`
 }
 
 // Agent defines the interface for all agent types.

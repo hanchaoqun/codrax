@@ -132,6 +132,7 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		CurrentTaskID: pickCurrentTaskID(items),
 	}
 	ctx.Mutable.SetTaskList(newList)
+	ctx.AnalysisIR = buildAnalysisIR(p.Tasks, newList)
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -139,6 +140,58 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		Summary:   renderTodoSummary(items),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.AnalysisIR {
+	var current *todoWriteTaskParam
+	for i := range raw {
+		id := strings.TrimSpace(raw[i].ID)
+		if id == "" {
+			id = fmt.Sprintf("task-%d", i+1)
+		}
+		if id == tl.CurrentTaskID {
+			current = &raw[i]
+			break
+		}
+	}
+	if current == nil && len(raw) > 0 {
+		current = &raw[0]
+	}
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			UserIntent: tl.Objective,
+		},
+		TaskGraph: types.TaskGraph{
+			Nodes: make([]types.TaskGraphNode, 0, len(tl.Tasks)),
+		},
+		QualityGate: types.QualityGate{
+			FailureActions: []string{"re-analyze"},
+		},
+	}
+	for _, task := range tl.Tasks {
+		ir.TaskGraph.Nodes = append(ir.TaskGraph.Nodes, types.TaskGraphNode{
+			ID:    task.ID,
+			Title: task.Title,
+		})
+	}
+	if current != nil {
+		ir.RequestModel.Entities = trimStringSlice(current.Entities)
+		ir.RequestModel.QuestionKind = normalizeQuestionKind(current.QuestionKind)
+		ir.EvidencePlan = types.EvidencePlan{
+			Complexity: normalizeComplexity(current.Complexity),
+			Keywords:   trimStringSlice(current.Keywords),
+			SourceMix: map[string]float64{
+				"repo_code": 0.7,
+				"config":    0.3,
+			},
+			StopConditions: []string{"evidence_budget_exhausted", "acceptance_criteria_met"},
+		}
+		ir.AnswerContract = types.AnswerContract{
+			OutputShape:        normalizeAnswerShape(current.AnswerShape),
+			AcceptanceCriteria: []string{"all_must_items_satisfied", "no_forbidden_items_present"},
+		}
+	}
+	return ir
 }
 
 // buildTodoItems normalizes raw params into TaskItem values, assigning
@@ -163,17 +216,13 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 		seen[id] = true
 
 		items = append(items, types.TaskItem{
-			ID:           id,
-			Title:        title,
-			Description:  strings.TrimSpace(r.Description),
-			Writing:      r.Writing,
-			HighRisk:     r.HighRisk,
-			Complexity:   normalizeComplexity(r.Complexity),
-			Keywords:     r.Keywords,
-			Entities:     trimStringSlice(r.Entities),
-			QuestionKind: normalizeQuestionKind(r.QuestionKind),
-			AnswerShape:  normalizeAnswerShape(r.AnswerShape),
-			Status:       normalizeTodoStatus(r.Status),
+			ID:          id,
+			Title:       title,
+			Description: strings.TrimSpace(r.Description),
+			Writing:     r.Writing,
+			HighRisk:    r.HighRisk,
+			Complexity:  normalizeComplexity(r.Complexity),
+			Status:      normalizeTodoStatus(r.Status),
 		})
 	}
 	return items, nil

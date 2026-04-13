@@ -129,6 +129,25 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			}}
 			tl.CurrentTaskID = "task-1"
 			ctx.Mutable.SetTaskList(tl)
+			defaultComplexity := "moderate"
+			dataShape := "none"
+			outputKind := "unknown"
+			outputIR := &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					UserIntent:   tl.Objective,
+					QuestionKind: outputKind,
+				},
+				TaskGraph: types.TaskGraph{
+					Nodes: []types.TaskGraphNode{{ID: "task-1", Title: tl.Objective}},
+				},
+				EvidencePlan: types.EvidencePlan{
+					Complexity: defaultComplexity,
+				},
+				AnswerContract: types.AnswerContract{
+					OutputShape: dataShape,
+				},
+			}
+			return buildAnalyzerOutput(lastContent, outputIR), nil
 		}
 	}
 
@@ -137,29 +156,46 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// natural-language rationale). Downstream consumers and post-run
 	// audits can compare the analyzer's declared question_kind against
 	// ERM's eventual inference without grepping free text.
-	data := map[string]any{
-		"result": lastContent,
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			QuestionKind: ctx.CurrentTaskQuestionKind,
+			Entities:     append([]string(nil), ctx.CurrentTaskEntities...),
+		},
+		EvidencePlan: types.EvidencePlan{
+			Complexity: ctx.CurrentTaskComplexity,
+			Keywords:   append([]string(nil), ctx.CurrentTaskKeywords...),
+		},
+		AnswerContract: types.AnswerContract{
+			OutputShape: ctx.CurrentTaskAnswerShape,
+		},
 	}
-	if ctx.Mutable != nil {
-		tl := ctx.Mutable.TaskList()
-		if current := tl.CurrentTask(); current != nil {
-			data["question_kind"] = current.QuestionKind
-			data["answer_shape"] = current.AnswerShape
-			data["complexity"] = current.Complexity
-			data["entity_count"] = len(current.Entities)
-			data["keyword_count"] = len(current.Keywords)
-		}
+	if ir.EvidencePlan.Complexity == "" {
+		ir.EvidencePlan.Complexity = "moderate"
+	}
+	if ir.RequestModel.QuestionKind == "" && len(ir.RequestModel.Entities) == 0 &&
+		len(ir.EvidencePlan.Keywords) == 0 && ir.AnswerContract.OutputShape == "" {
+		ir = nil
+	}
+	return buildAnalyzerOutput(lastContent, ir), nil
+}
+
+func buildAnalyzerOutput(lastContent string, ir *types.AnalysisIR) *StageOutput {
+	data := map[string]any{"result": lastContent}
+	if ir != nil {
+		data["question_kind"] = ir.RequestModel.QuestionKind
+		data["answer_shape"] = ir.AnswerContract.OutputShape
+		data["complexity"] = ir.EvidencePlan.Complexity
+		data["entity_count"] = len(ir.RequestModel.Entities)
+		data["keyword_count"] = len(ir.EvidencePlan.Keywords)
 	}
 	raw, err := json.Marshal(data)
 	if err != nil {
-		// Marshal of a map[string]any with string/int values can only
-		// fail on pathological content; fall back to the legacy shape.
 		raw = json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent))
 	}
-
 	return &StageOutput{
-		Data: raw,
-	}, nil
+		Data:       raw,
+		AnalysisIR: ir,
+	}
 }
 
 func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *StageOutput) types.MissingPiece {
