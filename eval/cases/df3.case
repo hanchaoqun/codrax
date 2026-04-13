@@ -20,11 +20,25 @@ ID="df3"
 NAME="ContinuationPrompt mechanism enumeration"
 QUESTION="explorerEvaluator 的 ContinuationPrompt 是怎么实现的?有哪几种 push 策略?"
 #
-# EXPECT_CONTAINS uses substrings that survive both Chinese and English
-# answers AND prove the mechanism scan path actually fired:
-#   - ContinuationPrompt — the entity name, always present in any
-#     reasonable answer
-#   - explorer.go — a real source file reference, proves the answer is
-#     grounded in code
-EXPECT_CONTAINS="ContinuationPrompt explorer.go"
+# EXPECT_CONTAINS substring set must catch semantic correctness, not
+# just "file name appears somewhere in the output." Previous version
+# (ContinuationPrompt + explorer.go) allowed 15/15 grid runs to green
+# while the actual answers pointed at subExplorerEvaluator.Continuation-
+# Prompt (the trivial `return "", false` in sub_explorer.go) instead of
+# listing explorerEvaluator's real push strategies. See
+# memory/project_df3_semantic_drift_2026_04_13.md.
+#
+# Tightened set, rationale per substring:
+#   - ContinuationPrompt       entity name — always expected
+#   - explorer.go              grounded in the right source file
+#   - explorerEvaluator        disambiguates from subExplorerEvaluator
+#                              so an answer pointing at sub_explorer.go
+#                              no longer green-washes
+# The two T3 ground-truth push strategies the answer must mention:
+#   - partial                  the partial-read / function-boundary push
+#   - enumeration              the enumeration-completeness push
+# Both are short enough to appear in either Chinese or English answers
+# (Chinese rewrite typically keeps the English term for "partial" and
+# "enumeration").
+EXPECT_CONTAINS="ContinuationPrompt explorer.go explorerEvaluator partial enumeration"
 EXPECT_NOT_CONTAINS=""
