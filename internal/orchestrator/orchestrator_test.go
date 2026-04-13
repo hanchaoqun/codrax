@@ -299,6 +299,101 @@ func TestDecideNextStage_ImplementToCodeReview(t *testing.T) {
 	})
 }
 
+func TestDetermineActivePolicy_IRFirst(t *testing.T) {
+	cfg := defaultResolvedConfig()
+	ar, sr, sar := buildRegistries(nil)
+	o := New(cfg, ar, sr, sar)
+
+	// Legacy TaskItem says Writing+HighRisk=false (would legacy-resolve
+	// to "analysis"), but AnalysisIR.RunPolicy says Writing=true with
+	// both reviews required. IR must win → high_risk_implementation.
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState(types.TaskList{
+			Objective:     "ambiguous",
+			CurrentTaskID: "t1",
+			Tasks: []types.TaskItem{
+				{ID: "t1", Title: "x", Writing: false, HighRisk: false, Status: types.TaskInProgress},
+			},
+		}),
+		Policy: types.PolicyContext{},
+		AnalysisIR: &types.AnalysisIR{
+			RunPolicy: types.RunPolicy{
+				Writing:             true,
+				RequireDesignReview: true,
+				RequireCodeReview:   true,
+			},
+		},
+	}
+	if got := o.determineActivePolicy(); got != "high_risk_implementation" {
+		t.Errorf("IR-first high-risk: got %q", got)
+	}
+
+	// IR says Writing=true with no review flags → implementation.
+	o.busCtx.AnalysisIR.RunPolicy = types.RunPolicy{Writing: true}
+	if got := o.determineActivePolicy(); got != "implementation" {
+		t.Errorf("IR-first writing: got %q", got)
+	}
+
+	// IR says Writing=false → analysis (even if legacy TaskItem were
+	// Writing=true, IR must win).
+	o.busCtx.Mutable = types.NewMutableState(types.TaskList{
+		Objective:     "ambiguous",
+		CurrentTaskID: "t1",
+		Tasks: []types.TaskItem{
+			{ID: "t1", Title: "x", Writing: true, HighRisk: true, Status: types.TaskInProgress},
+		},
+	})
+	o.busCtx.AnalysisIR.RunPolicy = types.RunPolicy{Writing: false}
+	if got := o.determineActivePolicy(); got != "analysis" {
+		t.Errorf("IR-first analysis: got %q", got)
+	}
+
+	// Policy.RequireReview still escalates a writing IR task.
+	o.busCtx.AnalysisIR.RunPolicy = types.RunPolicy{Writing: true}
+	o.busCtx.Policy = types.PolicyContext{RequireReview: true}
+	if got := o.determineActivePolicy(); got != "high_risk_implementation" {
+		t.Errorf("IR-first + RequireReview: got %q", got)
+	}
+}
+
+func TestDetermineActivePolicy_LegacyFallback(t *testing.T) {
+	cfg := defaultResolvedConfig()
+	ar, sr, sar := buildRegistries(nil)
+	o := New(cfg, ar, sr, sar)
+
+	// No AnalysisIR → legacy read path.
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState(types.TaskList{
+			Objective:     "legacy",
+			CurrentTaskID: "t1",
+			Tasks: []types.TaskItem{
+				{ID: "t1", Title: "x", Writing: true, HighRisk: true, Status: types.TaskInProgress},
+			},
+		}),
+		Policy: types.PolicyContext{},
+	}
+	if got := o.determineActivePolicy(); got != "high_risk_implementation" {
+		t.Errorf("legacy high-risk: got %q", got)
+	}
+
+	o.busCtx.Mutable = types.NewMutableState(types.TaskList{
+		Objective:     "legacy",
+		CurrentTaskID: "t1",
+		Tasks: []types.TaskItem{
+			{ID: "t1", Title: "x", Writing: false, Status: types.TaskInProgress},
+		},
+	})
+	if got := o.determineActivePolicy(); got != "analysis" {
+		t.Errorf("legacy analysis: got %q", got)
+	}
+
+	// Nil task → fail-safe "analysis".
+	o.busCtx.Mutable = types.NewMutableState(types.TaskList{Objective: "nothing"})
+	if got := o.determineActivePolicy(); got != "analysis" {
+		t.Errorf("legacy nil task: got %q", got)
+	}
+}
+
 func TestDecideNextStage_PolicyFiltering(t *testing.T) {
 	t.Run("analysis policy filters out plan and implement so explore goes to finalize", func(t *testing.T) {
 		cfg := defaultResolvedConfig()
