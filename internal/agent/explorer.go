@@ -2740,7 +2740,149 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		cvEvidence = append(cvEvidence, bridgeItems...)
 	}
 
+	// Collapse resolution_chain duplicates produced by the two
+	// independent chain producers. The per-file multi-pass tracer
+	// (Producer="concrete_values") and the graph-wide JOIN
+	// (Producer="bridge_literal") can emit semantically-identical
+	// chains that differ only in surface wording — `NewFoo(deps)`
+	// vs `NewFoo(...)`, `Name()` vs `Foo.Name()`, `binds` vs
+	// `binds ONLY`. Before dedup, identifyAnswerChains used to pick
+	// BOTH into its top 5, wasting slots that should have held
+	// genuinely distinct chains. Prefer the bridge_literal
+	// representation when available because it carries explicit
+	// receiver qualifiers and Source/LineStart locators.
+	cvEvidence = dedupeResolutionChains(cvEvidence)
+
 	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence}
+}
+
+// normalizeChainKey extracts a semantic identity for a resolution
+// chain summary so surface-level wording differences between the
+// two chain producers collapse to one key. The key is composed of
+//
+//  1. the first backtick-quoted method (receiver preserved — the
+//     chain root usually identifies which register function is
+//     doing the binding and is meaningful to retain)
+//  2. the last backtick-quoted method with its receiver qualifier
+//     and argument list stripped (the terminal identity method is
+//     often written as `Foo.Name()` by one producer and as `Name()`
+//     by the other)
+//  3. the sorted set of double-quoted string literals mentioned in
+//     the summary (the terminal return literal is the ground truth
+//     the chain answers toward)
+//
+// Returns an empty-anchor sentinel string ("||") when no backtick
+// tokens appear at all so keyless chains never collide in dedup.
+func normalizeChainKey(summary string) string {
+	var tokens []string
+	rest := summary
+	for {
+		i := strings.Index(rest, "`")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(rest[i+1:], "`")
+		if j < 0 {
+			break
+		}
+		tokens = append(tokens, rest[i+1:i+1+j])
+		rest = rest[i+1+j+1:]
+	}
+	first := ""
+	last := ""
+	if len(tokens) > 0 {
+		first = normalizeChainMethod(tokens[0], true)
+		last = normalizeChainMethod(tokens[len(tokens)-1], false)
+	}
+	if first == "" && last == "" {
+		return "||"
+	}
+	var literals []string
+	s := summary
+	for {
+		i := strings.Index(s, "\"")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(s[i+1:], "\"")
+		if j < 0 {
+			break
+		}
+		literals = append(literals, s[i+1:i+1+j])
+		s = s[i+1+j+1:]
+	}
+	sort.Strings(literals)
+	return first + "|" + last + "|" + strings.Join(literals, ",")
+}
+
+// normalizeChainMethod trims the parenthesized argument list and,
+// when keepReceiver is false, also drops any receiver qualifier
+// (`Foo.Name` → `Name`). Used by normalizeChainKey to reconcile
+// the per-producer differences on the terminal method slot.
+func normalizeChainMethod(tok string, keepReceiver bool) string {
+	if idx := strings.Index(tok, "("); idx >= 0 {
+		tok = tok[:idx]
+	}
+	tok = strings.TrimSpace(tok)
+	if !keepReceiver {
+		if dot := strings.LastIndex(tok, "."); dot >= 0 {
+			tok = tok[dot+1:]
+		}
+	}
+	return tok
+}
+
+// dedupeResolutionChains collapses resolution_chain items whose
+// normalizeChainKey matches. For each group, the winner is the item
+// with the highest producer rank (bridge_literal > concrete_values >
+// anything else); a non-empty Source is used as a secondary tie-break
+// so the retained item carries a real file locator when possible.
+// Non-chain items and chains with an empty anchor key pass through
+// unchanged, preserving their position in the input slice so this
+// pass can be safely inserted at the tail of the evidence pipeline
+// without disturbing unrelated ordering.
+func dedupeResolutionChains(items []types.EvidenceItem) []types.EvidenceItem {
+	producerRank := func(p string) int {
+		switch p {
+		case "bridge_literal":
+			return 2
+		case "concrete_values":
+			return 1
+		}
+		return 0
+	}
+	keyToIdx := make(map[string]int)
+	kept := make([]types.EvidenceItem, 0, len(items))
+	for _, it := range items {
+		if it.Kind != types.EvidenceDataflowPath || it.Predicate != "resolution_chain" {
+			kept = append(kept, it)
+			continue
+		}
+		key := normalizeChainKey(it.Summary)
+		if key == "||" {
+			kept = append(kept, it)
+			continue
+		}
+		if existingIdx, ok := keyToIdx[key]; ok {
+			existing := kept[existingIdx]
+			eRank := producerRank(existing.Producer)
+			nRank := producerRank(it.Producer)
+			replace := false
+			switch {
+			case nRank > eRank:
+				replace = true
+			case nRank == eRank && existing.Source == "" && it.Source != "":
+				replace = true
+			}
+			if replace {
+				kept[existingIdx] = it
+			}
+			continue
+		}
+		keyToIdx[key] = len(kept)
+		kept = append(kept, it)
+	}
+	return kept
 }
 
 // decisionBlock represents one independent logic block inside a long function,
