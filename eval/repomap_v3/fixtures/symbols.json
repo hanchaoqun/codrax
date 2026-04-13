@@ -91,7 +91,7 @@
     {"name": "SymbolKey",            "file": "internal/tool/repomap/graph.go",   "line": 276,  "kind": "function"},
     {"name": "ScanFiles",            "file": "internal/tool/repomap/scanner.go", "line": 56,   "kind": "function"},
     {"name": "ParseFiles",           "file": "internal/tool/repomap/parser.go",  "line": 17,   "kind": "function"},
-    {"name": "GenerateView",         "file": "internal/tool/repomap/views.go",   "line": 10,   "kind": "function"},
+    {"name": "GenerateView",         "file": "internal/tool/repomap/views.go",   "line": 14,   "kind": "function"},
     {"name": "IsSpecialFile",        "file": "internal/tool/repomap/scanner.go", "line": 143,  "kind": "function"},
     {"name": "CacheDir",             "file": "internal/tool/repomap/cache.go",   "line": 31,   "kind": "function"},
     {"name": "SaveCache",            "file": "internal/tool/repomap/cache.go",   "line": 106,  "kind": "function"},

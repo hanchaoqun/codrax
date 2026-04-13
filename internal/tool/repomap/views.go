@@ -2,15 +2,20 @@ package repomap
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 )
 
-// GenerateView produces a markdown view of the graph.
+// GenerateView produces a markdown view of the graph. The
+// "overview" view is routed through the Phase 3 dual-channel path
+// (GenerateViewData → RenderMarkdown) so programmatic consumers
+// can walk the structured form; every other view still produces
+// markdown directly and will migrate during the Phase 4
+// three-layer split.
 func GenerateView(g *Graph, viewType string, params ViewParams) string {
+	if data := GenerateViewData(g, viewType, params); data != nil {
+		return RenderMarkdown(data)
+	}
 	switch viewType {
-	case "overview":
-		return viewOverview(g, params)
 	case "file_map":
 		return viewFileMap(g, params)
 	case "task_map":
@@ -20,90 +25,8 @@ func GenerateView(g *Graph, viewType string, params ViewParams) string {
 	case "edit_impact":
 		return viewEditImpact(g, params)
 	default:
-		return viewOverview(g, params)
+		return RenderMarkdown(GenerateViewData(g, "overview", params))
 	}
-}
-
-// --- Overview: module-level summary ---
-
-func viewOverview(g *Graph, params ViewParams) string {
-	var b strings.Builder
-	b.WriteString("# Repository Overview\n\n")
-	b.WriteString("> **This is a navigation index, not evidence.** Use it to decide which files to read or grep next. Do not cite repo_map output as a source of truth — always verify by reading the actual file.\n\n")
-
-	// Language distribution
-	b.WriteString("## Languages\n\n")
-	type langCount struct {
-		lang  string
-		count int
-	}
-	var langs []langCount
-	for l, c := range g.Metadata.Languages {
-		langs = append(langs, langCount{l, c})
-	}
-	sort.Slice(langs, func(i, j int) bool { return langs[i].count > langs[j].count })
-	for _, lc := range langs {
-		b.WriteString(fmt.Sprintf("- **%s**: %d files\n", lc.lang, lc.count))
-	}
-
-	// Special files
-	if len(g.Metadata.SpecialFiles) > 0 {
-		b.WriteString("\n## Project Files\n\n")
-		for _, f := range g.Metadata.SpecialFiles {
-			b.WriteString(fmt.Sprintf("- `%s`\n", f))
-		}
-	}
-
-	// Module/package structure
-	b.WriteString("\n## Packages/Modules\n\n")
-	pkgs := make(map[string][]string) // package → files
-	for _, fi := range g.Files {
-		if fi.Package != "" {
-			pkgs[fi.Package] = append(pkgs[fi.Package], fi.RelPath)
-		}
-	}
-	// sort packages by file count
-	type pkgInfo struct {
-		name  string
-		files []string
-	}
-	var pkgList []pkgInfo
-	for name, files := range pkgs {
-		pkgList = append(pkgList, pkgInfo{name, files})
-	}
-	sort.Slice(pkgList, func(i, j int) bool { return len(pkgList[i].files) > len(pkgList[j].files) })
-	for _, p := range pkgList {
-		symCount := 0
-		for _, f := range p.files {
-			if fi, ok := g.FileIndex[f]; ok {
-				symCount += len(fi.Symbols)
-			}
-		}
-		b.WriteString(fmt.Sprintf("- **%s** — %d files, %d symbols\n", p.name, len(p.files), symCount))
-	}
-
-	// Top files by importance
-	topN := params.TopN
-	if topN <= 0 {
-		topN = 15
-	}
-	top := TopFiles(g, topN)
-	b.WriteString(fmt.Sprintf("\n## Top %d Files (by importance)\n\n", topN))
-	for i, fi := range top {
-		score := g.Scores[fi.RelPath]
-		exportedCount := 0
-		for _, sym := range fi.Symbols {
-			if sym.Exported {
-				exportedCount++
-			}
-		}
-		b.WriteString(fmt.Sprintf("%d. `%s` — %d symbols (%d exported), score %.1f\n",
-			i+1, fi.RelPath, len(fi.Symbols), exportedCount, score))
-	}
-
-	b.WriteString(fmt.Sprintf("\n---\n*%d files, %d symbols, %d relations*\n",
-		g.Metadata.FileCount, g.Metadata.SymbolCount, g.Metadata.RelationCount))
-	return b.String()
 }
 
 // --- File Map: symbols per file ---
@@ -171,7 +94,7 @@ func viewFileMap(g *Graph, params ViewParams) string {
 
 func viewTaskMap(g *Graph, params ViewParams) string {
 	if params.Query == "" {
-		return viewOverview(g, params)
+		return RenderMarkdown(GenerateViewData(g, "overview", params))
 	}
 
 	var b strings.Builder
