@@ -113,7 +113,7 @@ func defaultResolvers() map[string]ImportResolver {
 		LangPython:     &pythonImportResolver{},
 		LangJavaScript: js,
 		LangTypeScript: js,
-		LangRust:       &legacyResolver{lang: LangRust},
+		LangRust:       &rustImportResolver{},
 		LangC:          &legacyResolver{lang: LangC},
 		LangCpp:        &legacyResolver{lang: LangCpp},
 	}
