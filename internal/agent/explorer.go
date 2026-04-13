@@ -176,11 +176,15 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 
-	if len(ctx.CurrentTaskKeywords) > 0 {
+	analyzerKeywords := irKeywords(ctx)
+	analyzerEntities := irEntities(ctx)
+	analyzerKind := irQuestionKind(ctx)
+
+	if len(analyzerKeywords) > 0 {
 		// Run graduated keyword search before Phase 1 starts.
 		// This gives the LLM a pre-ranked file list instead of
 		// making it guess which grep patterns to use.
-		sr := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
+		sr := keywordSearch(analyzerKeywords, ctx.RepoRoot)
 		e.searchResult = sr
 		results := sr.Files
 		if len(results) > 0 {
@@ -256,13 +260,13 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// two clean lists.
 			var ermEntities []string
 			seen := make(map[string]bool)
-			for _, ent := range ctx.CurrentTaskEntities {
+			for _, ent := range analyzerEntities {
 				if ent = strings.TrimSpace(ent); ent != "" && !seen[ent] {
 					ermEntities = append(ermEntities, ent)
 					seen[ent] = true
 				}
 			}
-			declaredKind := strings.ToLower(strings.TrimSpace(ctx.CurrentTaskQuestionKind))
+			declaredKind := strings.ToLower(strings.TrimSpace(analyzerKind))
 			trustAnalyzer := declaredKind != "" && declaredKind != "unknown" && len(ermEntities) >= 2
 			// REPL-mode entity pollution fix.
 			//
@@ -294,7 +298,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 				}
 			}
 			logging.Debug("[explorer] erm entities: %d (trustAnalyzer=%v declaredKind=%q analyzer=%d)",
-				len(ermEntities), trustAnalyzer, declaredKind, len(ctx.CurrentTaskEntities))
+				len(ermEntities), trustAnalyzer, declaredKind, len(analyzerEntities))
 			// Keyword trigger source also uses the clean current
 			// request. A memory blob containing a prior "如何 / how
 			// does" question would otherwise over-trigger the
@@ -307,7 +311,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// "unknown"; the hint-aware path handles both by falling
 			// back to pure keyword inference).
 			e.ermRequirements = extractEvidenceRequirementsWithHint(
-				ermKeywordSource, ermEntities, ctx.CurrentTaskQuestionKind,
+				ermKeywordSource, ermEntities, analyzerKind,
 			)
 			// Auto-satisfy requirements whose entities don't match any
 			// symbol in the codebase — prevents generic English words from
@@ -344,7 +348,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// can try its own grep strategies.
 			b.WriteString("### Search Keywords (no pre-scan hits)\n\n")
 			b.WriteString("The analyzer provided these keywords but none matched. Try broader patterns:\n")
-			for _, kw := range ctx.CurrentTaskKeywords {
+			for _, kw := range analyzerKeywords {
 				fmt.Fprintf(&b, "- `%s`\n", kw)
 			}
 			b.WriteString("\n")
@@ -1184,7 +1188,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// classifier sees at least one cue regardless of which knob the
 	// LLM turned this run. See memory/project_answer_symbol_extraction_audit.md.
 	questionText := strings.TrimSpace(ctx.CurrentTask + " " + ctx.CurrentTaskDescription)
-	answerSymbols := extractAnswerSymbols(strictAnswerItems, ctx.CurrentTaskQuestionKind, questionText, ctx.CurrentTaskAnswerShape, ermGraph)
+	answerSymbols := extractAnswerSymbols(strictAnswerItems, irQuestionKind(ctx), questionText, irAnswerShape(ctx), ermGraph)
 	if len(answerSymbols) > 0 {
 		logging.Debug("[explorer] L0-2 extracted %d answer symbols", len(answerSymbols))
 		for i, s := range answerSymbols {

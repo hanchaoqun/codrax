@@ -83,7 +83,7 @@ func (e *finalizerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 	// When the analyzer declared an answer_shape, we inject a
 	// shape-specific constraint that's tighter than a generic "don't
 	// hallucinate" — shape lets us forbid specific failure modes.
-	switch ctx.CurrentTaskAnswerShape {
+	switch irAnswerShape(ctx) {
 	case "list_of_symbols":
 		b.WriteString("\n\n## Hard constraint: list_of_symbols answer\n\n")
 		b.WriteString("The answer is a SET OF IDENTIFIER NAMES. Rules:\n")

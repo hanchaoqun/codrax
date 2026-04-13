@@ -54,6 +54,27 @@ type RequestModel struct {
 	TermGraph   TermGraph   `json:"term_graph"`
 	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
 	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
+
+	// AnalyzerHints captures the raw LLM-extracted hints from the
+	// analyze stage's structured output. Intent/Scenario/Complexity
+	// above are typed, mapped, and sometimes lossy projections of the
+	// same LLM output; AnalyzerHints preserves the verbatim strings so
+	// explorer/finalizer can read them without going back to the legacy
+	// TaskItem fields. This field is the downstream read surface — not
+	// a "sidecar" — because v3 Intent has fewer distinct values than
+	// the LLM's question_kind enum (e.g. both "registration" and
+	// "enumeration" collapse to IntentEnumerate), so the mapped form
+	// is not a lossless substitute for the raw LLM string.
+	AnalyzerHints AnalyzerHints `json:"analyzer_hints"`
+}
+
+// AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto
+// the IR so downstream consumers have a single canonical read path.
+type AnalyzerHints struct {
+	Keywords []string `json:"keywords,omitempty"`
+	Entities []string `json:"entities,omitempty"`
+	Kind     string   `json:"kind,omitempty"`
+	Shape    string   `json:"shape,omitempty"`
 }
 
 type Intent string

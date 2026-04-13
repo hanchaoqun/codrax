@@ -338,6 +338,12 @@ func buildRequestModel(ctx *types.AgentContext, task *types.TaskItem) types.Requ
 			}
 		}
 		rm.Intent = mapIntent(task.QuestionKind)
+		rm.AnalyzerHints = types.AnalyzerHints{
+			Keywords: append([]string(nil), task.Keywords...),
+			Entities: append([]string(nil), task.Entities...),
+			Kind:     task.QuestionKind,
+			Shape:    task.AnswerShape,
+		}
 	} else {
 		rm.Intent = types.IntentUnknown
 	}
