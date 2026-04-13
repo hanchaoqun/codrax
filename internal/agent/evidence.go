@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -9,6 +10,28 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// pathTokenRe matches file-path-shaped substrings — two or more
+// `word/word` segments where word chars include `_` and `.`. Captures
+// e.g. `internal/agent/foo.go`, `pkg/handler/bar.py`,
+// `src/components/Header.tsx`. Used by stripPathTokens to scrub
+// locator metadata out of relevance-scoring text so package-layout
+// substrings (e.g. `agent` inside `internal/agent/...`) cannot
+// trivially match a question entity and dominate ranking.
+var pathTokenRe = regexp.MustCompile(`[A-Za-z0-9_.]+(?:/[A-Za-z0-9_.]+)+`)
+
+// stripPathTokens replaces every path-shaped substring in s with a
+// single space. Tokens like `internal/agent/registry.go:Registry.Register`
+// become ` :Registry.Register` — the path vanishes, the post-colon
+// symbol name survives. Entity-overlap scoring must run against the
+// stripped text so file-path locators are treated as metadata, not
+// as matchable semantic content.
+func stripPathTokens(s string) string {
+	if !strings.Contains(s, "/") {
+		return s
+	}
+	return pathTokenRe.ReplaceAllString(s, " ")
+}
 
 func parseEvidenceItems(notes []string, producer string) []types.EvidenceItem {
 	var items []types.EvidenceItem
@@ -426,7 +449,11 @@ func rankEvidenceByRelevance(question string, items []types.EvidenceItem, readFi
 
 func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFiles map[string]bool) float64 {
 	// 1. Entity overlap: how many question entities appear in item fields.
-	text := strings.ToLower(item.Subject + " " + item.Object + " " + item.Summary + " " + item.Predicate)
+	// File-path locators are stripped first — otherwise an entity that
+	// names a package directory (e.g. `agent` in `internal/agent/...`)
+	// trivially matches every item sourced from that directory. See
+	// memory/project_next_session_kickoff_filepath_entity_bug.md.
+	text := stripPathTokens(strings.ToLower(item.Subject + " " + item.Object + " " + item.Summary + " " + item.Predicate))
 	overlap := 0
 	for _, ent := range entities {
 		if strings.Contains(text, ent) {
@@ -465,10 +492,12 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 	}
 
 	// 4. Bridge bonus: if subject and object match different entities.
+	// Same path-strip discipline as the overlap text above — a file
+	// path embedded in Subject/Object must not count as a hit.
 	bridgeBonus := 1.0
 	if item.Subject != "" && item.Object != "" {
-		subjectLower := strings.ToLower(item.Subject)
-		objectLower := strings.ToLower(item.Object)
+		subjectLower := stripPathTokens(strings.ToLower(item.Subject))
+		objectLower := stripPathTokens(strings.ToLower(item.Object))
 		subjectHit, objectHit := false, false
 		for _, ent := range entities {
 			if strings.Contains(subjectLower, ent) {

@@ -1490,3 +1490,81 @@ func TestFormatERMStatuses(t *testing.T) {
 		t.Errorf("got %q\nwant %q", got, want)
 	}
 }
+
+// TestIdentifyAnswerChains_IgnoresFilePathSubstringMatch pins the
+// path-strip rule (2026-04-13 T4 finding). When the sole admissible
+// entity is a short lowercase token that happens to name a repo
+// package directory (`agent` in `internal/agent/...`), a chain whose
+// only textual overlap is an embedded file-path locator must not be
+// counted as relevant — the locator is metadata, not semantic text.
+// The scoring helper must strip path-shaped tokens before substring
+// matching so package layout cannot dominate ranking.
+func TestIdentifyAnswerChains_IgnoresFilePathSubstringMatch(t *testing.T) {
+	question := "which agent runs first?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "internal/agent/registry.go:Registry.Register line 24 calls Lock",
+		},
+	}
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Agent": {{Name: "Agent", Kind: "type"}},
+		},
+	}
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
+	if len(chains) != 0 {
+		t.Errorf("path-only match must not count as overlap; got chains=%v", chains)
+	}
+}
+
+// TestIdentifyAnswerChains_IgnoresPathSubstringMatch_GenericPrefix is
+// the reverse-test half of the over-fit rubric: the path-strip rule
+// must not be hardcoded to `internal/<pkg>/`. Any two-segment
+// `word/word/...` path must be stripped before matching, so a
+// `pkg/handler/...` layout behaves identically to `internal/agent/...`.
+func TestIdentifyAnswerChains_IgnoresPathSubstringMatch_GenericPrefix(t *testing.T) {
+	question := "which handler runs first?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "pkg/handler/registry.go:Registry.Register line 24 calls Lock",
+		},
+	}
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Handler": {{Name: "Handler", Kind: "type"}},
+		},
+	}
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
+	if len(chains) != 0 {
+		t.Errorf("path-only match must not count as overlap (generic prefix); got chains=%v", chains)
+	}
+}
+
+// TestIdentifyAnswerChains_GenuineMatchStillRanks is the deletion half
+// of the over-fit rubric: after stripping path tokens, a chain whose
+// Summary genuinely mentions the entity in non-path text must still
+// be returned. This guards against an over-aggressive strip that
+// would scrub legitimate symbol mentions.
+func TestIdentifyAnswerChains_GenuineMatchStillRanks(t *testing.T) {
+	question := "which agent runs first?"
+	evidence := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceDataflowPath,
+			Predicate: "resolution_chain",
+			Summary:   "`RegisterX()` binds NewY → `Agent.Name()` returns \"foo\"",
+		},
+	}
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Agent": {{Name: "Agent", Kind: "type"}},
+		},
+	}
+	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
+	if len(chains) == 0 {
+		t.Fatalf("genuine non-path mention of `Agent` should still rank; got zero chains")
+	}
+}

@@ -903,7 +903,13 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 			continue
 		}
 
-		text := normalizeForMatch(ev.Summary + " " + ev.Subject + " " + ev.Object)
+		// Strip file-path locators before substring matching — see
+		// memory/project_next_session_kickoff_filepath_entity_bug.md.
+		// Without this, a short lowercase entity that names a package
+		// directory (e.g. `agent`) matches every chain whose Summary
+		// embeds `internal/agent/...`, so package layout trumps
+		// semantic relevance during ranking.
+		text := normalizeForMatch(stripPathTokens(ev.Summary + " " + ev.Subject + " " + ev.Object))
 		overlap := 0
 		for _, ent := range entities {
 			if strings.Contains(text, normalizeForMatch(ent)) {
