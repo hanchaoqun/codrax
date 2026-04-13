@@ -53,12 +53,53 @@ func CacheDir(repoRoot string) string {
 }
 
 const (
-	cacheSymbolsFile    = "symbols.md"
-	cacheRelationsFile  = "relations.md"
-	cacheMetaFile       = "meta.md"
-	cacheHashesFile     = "hashes.md"
-	cacheFileInfosFile  = "fileinfos.json"
+	cacheSymbolsFile   = "symbols.md"
+	cacheRelationsFile = "relations.md"
+	cacheMetaFile      = "meta.md"
+	cacheHashesFile    = "hashes.md"
+	cacheFileInfosFile = "fileinfos.json"
+
+	// cacheSchemaVersion tracks the cache-file layout. Bump this
+	// whenever the fileinfos.json wrapper shape changes (fields
+	// added or removed from cachePayload, not per-language
+	// extractor updates — those go in extractorVersions). Loaders
+	// reject any cache whose SchemaVersion doesn't match, forcing
+	// a full rescan on the next BuildOrLoadGraph.
+	cacheSchemaVersion = 3
 )
+
+// extractorVersions tracks per-language extractor generations.
+// Bump the relevant entry whenever an extract_*.go file changes
+// its output semantics (e.g. the Phase 1 P1.0 grouped-import
+// fix). Any mismatch between the cache and the current map
+// invalidates the cache wholesale — individual-file invalidation
+// would be cheaper but adds complexity we don't need until scan
+// latency is a real bottleneck.
+var extractorVersions = map[string]int{
+	LangGo:         2, // P1.0 grouped-import fix; P1.2a call receiver capture
+	LangJava:       1,
+	LangPython:     1,
+	LangJavaScript: 1,
+	LangTypeScript: 1,
+	LangRust:       1,
+	LangC:          1,
+	LangCpp:        1,
+}
+
+// cachePayload is the wrapper around fileinfos.json. Previous
+// versions persisted the []*FileInfo slice bare; Phase 3 wraps it
+// in a header recording schema version, per-language extractor
+// versions, the repo HEAD SHA when the cache was written, and a
+// truncated SHA-256 checksum over the Files slice for corruption
+// detection.
+type cachePayload struct {
+	SchemaVersion     int            `json:"schema_version"`
+	ExtractorVersions map[string]int `json:"extractor_versions"`
+	RepoHead          string         `json:"repo_head,omitempty"`
+	WrittenAt         string         `json:"written_at,omitempty"`
+	Checksum          string         `json:"checksum,omitempty"`
+	Files             []*FileInfo    `json:"files"`
+}
 
 // SaveCache writes the graph index to markdown files and a JSON snapshot
 // of FileInfo data (for incremental reload) in the cache directory.
@@ -72,8 +113,9 @@ func SaveCache(dir string, g *Graph) error {
 		return err
 	}
 
-	// Save FileInfo JSON for incremental reload
-	if err := saveFileInfos(dir, g.Files); err != nil {
+	// Save FileInfo JSON for incremental reload, wrapped in a
+	// versioned payload so loaders can reject stale caches.
+	if err := saveFileInfos(dir, g.Root, g.Files); err != nil {
 		return err
 	}
 
@@ -91,26 +133,95 @@ func SaveCache(dir string, g *Graph) error {
 	return saveMeta(dir, g)
 }
 
-func saveFileInfos(dir string, files []*FileInfo) error {
-	data, err := json.Marshal(files)
+func saveFileInfos(dir, repoRoot string, files []*FileInfo) error {
+	// Marshal the Files slice first so we can checksum it before
+	// wrapping. The checksum is over the data payload only, not
+	// the header, so changes to the header schema don't
+	// retroactively invalidate an otherwise-fresh cache.
+	filesData, err := json.Marshal(files)
 	if err != nil {
-		return fmt.Errorf("marshal fileinfos: %w", err)
+		return fmt.Errorf("marshal fileinfos files: %w", err)
 	}
-	return os.WriteFile(filepath.Join(dir, cacheFileInfosFile), data, 0o644)
+	sum := sha256.Sum256(filesData)
+
+	// Copy extractorVersions so the serialized value is not a
+	// live reference to the package-global map.
+	extractors := make(map[string]int, len(extractorVersions))
+	for k, v := range extractorVersions {
+		extractors[k] = v
+	}
+
+	payload := cachePayload{
+		SchemaVersion:     cacheSchemaVersion,
+		ExtractorVersions: extractors,
+		RepoHead:          gitHeadSHA(repoRoot),
+		WrittenAt:         time.Now().UTC().Format(time.RFC3339),
+		Checksum:          hex.EncodeToString(sum[:8]),
+		Files:             files,
+	}
+	out, err := json.Marshal(&payload)
+	if err != nil {
+		return fmt.Errorf("marshal cache payload: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, cacheFileInfosFile), out, 0o644)
 }
 
 // LoadFileInfos reads the cached FileInfo data from a previous scan.
-// Returns nil if the cache file is missing or corrupt.
+// Returns nil — forcing a full rescan — when any of the following
+// conditions hold:
+//   - the cache file is missing, unreadable, or not valid JSON
+//   - the payload has a SchemaVersion that doesn't match the
+//     current cacheSchemaVersion (cache-wrapper layout changed)
+//   - any per-language entry in ExtractorVersions disagrees with
+//     the current extractorVersions map (a given extractor's
+//     output semantics changed since this cache was written)
+//   - the Checksum doesn't match SHA-256 over the Files payload
+//     (on-disk corruption or truncation)
 func LoadFileInfos(dir string) []*FileInfo {
 	data, err := os.ReadFile(filepath.Join(dir, cacheFileInfosFile))
 	if err != nil {
 		return nil
 	}
-	var files []*FileInfo
-	if err := json.Unmarshal(data, &files); err != nil {
+	var payload cachePayload
+	if err := json.Unmarshal(data, &payload); err != nil {
 		return nil
 	}
-	return files
+	if payload.SchemaVersion != cacheSchemaVersion {
+		return nil
+	}
+	for lang, ver := range extractorVersions {
+		if payload.ExtractorVersions[lang] != ver {
+			return nil
+		}
+	}
+	if payload.Checksum != "" {
+		filesData, err := json.Marshal(payload.Files)
+		if err != nil {
+			return nil
+		}
+		sum := sha256.Sum256(filesData)
+		if payload.Checksum != hex.EncodeToString(sum[:8]) {
+			return nil
+		}
+	}
+	return payload.Files
+}
+
+// gitHeadSHA returns the short SHA of repoRoot's current HEAD or
+// an empty string when the directory isn't a git repo. Purely
+// diagnostic — the rest of the cache validation does not depend
+// on it, so a missing git or a detached worktree never forces a
+// rescan on its own.
+func gitHeadSHA(repoRoot string) string {
+	if repoRoot == "" {
+		return ""
+	}
+	cmd := exec.Command("git", "-C", repoRoot, "rev-parse", "--short", "HEAD")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(out))
 }
 
 func saveHashes(dir string, g *Graph) error {
