@@ -65,6 +65,8 @@ stages:
 
 transitions:
   analyze:
+    - to: analyze        # retry: invalid hypothesis coverage
+      priority: 120
     - to: explore
       priority: 100
     - to: plan
@@ -73,6 +75,8 @@ transitions:
       priority: 20
 
   explore:
+    - to: analyze        # backtrack: hypotheses rejected
+      priority: 90
     - to: plan
       priority: 100
     - to: finalize

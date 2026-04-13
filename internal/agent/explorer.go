@@ -1205,6 +1205,9 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		AnswerSymbols: answerSymbols,
 		SignalUpdates: signals,
 	}
+	if len(ctx.CurrentHypothesisSet) > 0 {
+		out.AnalysisIR = writeBackHypothesisStatus(ctx, rankedEvidence, e.investigationNotes, signals.HasEnoughFacts)
+	}
 
 	if !signals.HasEnoughFacts {
 		if !toolDiversity {
@@ -1219,6 +1222,77 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	return out, nil
+}
+
+func writeBackHypothesisStatus(ctx *types.AgentContext, evidence []types.EvidenceItem, notes []string, hasEnoughFacts bool) *types.AnalysisIR {
+	ir := &types.AnalysisIR{}
+	if ctx.CurrentAnalysisIR != nil {
+		raw, _ := json.Marshal(ctx.CurrentAnalysisIR)
+		_ = json.Unmarshal(raw, ir)
+	}
+	if len(ir.HypothesisSet) == 0 {
+		ir.HypothesisSet = append([]types.Hypothesis(nil), ctx.CurrentHypothesisSet...)
+	}
+	body := strings.ToLower(strings.Join(notes, "\n"))
+	for i := range evidence {
+		body += "\n" + strings.ToLower(evidence[i].Summary)
+	}
+	statusByID := map[string]string{}
+	for i := range ir.HypothesisSet {
+		h := &ir.HypothesisSet[i]
+		status := "unknown"
+		if h.FalsificationCondition != "" && strings.Contains(body, strings.ToLower(h.FalsificationCondition)) {
+			status = "rejected"
+		} else if len(h.RequiredEvidence) > 0 {
+			matched := 0
+			for _, req := range h.RequiredEvidence {
+				if req != "" && strings.Contains(body, strings.ToLower(req)) {
+					matched++
+				}
+			}
+			if matched == len(h.RequiredEvidence) {
+				status = "confirmed"
+			}
+		} else if hasEnoughFacts {
+			status = "confirmed"
+		}
+		h.Status = status
+		if h.ID != "" {
+			statusByID[h.ID] = status
+		}
+	}
+	nodeStatus := "unknown"
+	if len(ctx.CurrentTaskHypothesisRefs) > 0 {
+		seenConfirmed := false
+		seenUnknown := false
+		for _, ref := range ctx.CurrentTaskHypothesisRefs {
+			switch statusByID[ref] {
+			case "confirmed":
+				seenConfirmed = true
+			case "unknown":
+				seenUnknown = true
+			case "rejected":
+				nodeStatus = "rejected"
+			}
+		}
+		if nodeStatus != "rejected" {
+			if seenConfirmed && !seenUnknown {
+				nodeStatus = "confirmed"
+			} else {
+				nodeStatus = "unknown"
+			}
+		}
+	}
+	for i := range ir.TaskGraph.Nodes {
+		if ir.TaskGraph.Nodes[i].ID == ctx.CurrentTaskID {
+			ir.TaskGraph.Nodes[i].HypothesisStatus = nodeStatus
+			if len(ir.TaskGraph.Nodes[i].HypothesisRefs) == 0 {
+				ir.TaskGraph.Nodes[i].HypothesisRefs = append([]string(nil), ctx.CurrentTaskHypothesisRefs...)
+			}
+			break
+		}
+	}
+	return ir
 }
 
 func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece {
@@ -2701,17 +2775,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		kind := types.EvidenceConcrete
 		predicate := v.kind
 		cvEvidence = append(cvEvidence, types.EvidenceItem{
-			ID: types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
-			Kind:      kind,
-			Subject:   v.method,
-			Predicate: predicate,
-			Object:    v.value,
-			Source:    v.file,
-			LineStart: v.line,
-			LineEnd:   v.line,
+			ID:         types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
+			Kind:       kind,
+			Subject:    v.method,
+			Predicate:  predicate,
+			Object:     v.value,
+			Source:     v.file,
+			LineStart:  v.line,
+			LineEnd:    v.line,
 			Confidence: 0.95,
-			Producer:  "concrete_values",
-			Summary:   fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
+			Producer:   "concrete_values",
+			Summary:    fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
 		})
 	}
 	for _, c := range allChainsForEvidence {
@@ -3386,7 +3460,7 @@ func parseTargetClassFromBinding(token string) string {
 //   - Go/Java/JS/TS/C/Rust:   `//` line, `/* ... */` block, `* ...`
 //     continuation lines inside block comments
 //   - Python/Ruby/Shell/YAML: `#` line
-//   - Python docstrings:      `"""` / `'''` multi-line string blocks
+//   - Python docstrings:      `"""` / `”'` multi-line string blocks
 //
 // A real code line that happens to start with `*` (e.g. a C pointer
 // deref `*ptr = 5`) is not blanked: the helper only strips the

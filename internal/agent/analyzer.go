@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -172,11 +173,96 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if ir.EvidencePlan.Complexity == "" {
 		ir.EvidencePlan.Complexity = "moderate"
 	}
+	if invalidReason := validateHypothesisCoverage(ctx.Objective, ir); invalidReason != "" {
+		out := buildAnalyzerOutput(lastContent, ir)
+		out.MissingPiece = types.MissingUnderstanding
+		out.RetryHint = "Analyzer output invalid: " + invalidReason + " Re-run todo_write with falsifiable hypotheses and complete task-node bindings."
+		return out, nil
+	}
 	if ir.RequestModel.QuestionKind == "" && len(ir.RequestModel.Entities) == 0 &&
 		len(ir.EvidencePlan.Keywords) == 0 && ir.AnswerContract.OutputShape == "" {
 		ir = nil
 	}
 	return buildAnalyzerOutput(lastContent, ir), nil
+}
+
+func validateHypothesisCoverage(objective string, ir *types.AnalysisIR) string {
+	if ir == nil {
+		return "missing AnalysisIR"
+	}
+	hypByID := make(map[string]types.Hypothesis, len(ir.HypothesisSet))
+	for _, h := range ir.HypothesisSet {
+		if strings.TrimSpace(h.Statement) == "" {
+			return "empty hypothesis statement"
+		}
+		if strings.TrimSpace(h.FalsificationCondition) == "" {
+			return "hypothesis missing falsification_condition"
+		}
+		if h.ID != "" {
+			hypByID[h.ID] = h
+		}
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		if n.IsBaselineProbe {
+			continue
+		}
+		if len(n.HypothesisRefs) == 0 {
+			return fmt.Sprintf("task %q has no hypothesis and is not baseline_probe", n.ID)
+		}
+		for _, ref := range n.HypothesisRefs {
+			if _, ok := hypByID[ref]; !ok {
+				return fmt.Sprintf("task %q references unknown hypothesis %q", n.ID, ref)
+			}
+		}
+	}
+	clauses := splitKeyClauses(objective)
+	for _, c := range clauses {
+		if !hasFalsifiableHypothesisForClause(c, ir.HypothesisSet) {
+			return fmt.Sprintf("key clause %q has no mapped falsifiable hypothesis", c)
+		}
+	}
+	return ""
+}
+
+func splitKeyClauses(s string) []string {
+	parts := strings.FieldsFunc(s, func(r rune) bool {
+		switch r {
+		case '，', '。', '；', '：', '、', ',', '.', ';', ':', '?', '？', '!', '！', '\n':
+			return true
+		default:
+			return false
+		}
+	})
+	var out []string
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if len([]rune(p)) >= 4 {
+			out = append(out, p)
+		}
+	}
+	if len(out) == 0 && strings.TrimSpace(s) != "" {
+		return []string{strings.TrimSpace(s)}
+	}
+	return out
+}
+
+func hasFalsifiableHypothesisForClause(clause string, hyps []types.Hypothesis) bool {
+	tokens := strings.Fields(strings.ToLower(clause))
+	for _, h := range hyps {
+		if strings.TrimSpace(h.FalsificationCondition) == "" {
+			continue
+		}
+		target := strings.ToLower(h.Statement + " " + strings.Join(h.RequiredEvidence, " ") + " " + h.FalsificationCondition)
+		if len(tokens) == 0 && strings.TrimSpace(h.Statement) != "" {
+			return true
+		}
+		for _, tk := range tokens {
+			if len(tk) >= 2 && strings.Contains(target, tk) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func buildAnalyzerOutput(lastContent string, ir *types.AnalysisIR) *StageOutput {
@@ -198,7 +284,10 @@ func buildAnalyzerOutput(lastContent string, ir *types.AnalysisIR) *StageOutput 
 	}
 }
 
-func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *StageOutput) types.MissingPiece {
+func (e *analyzerEvaluator) DetermineMissingPiece(_ *types.AgentContext, output *StageOutput) types.MissingPiece {
+	if output != nil && strings.Contains(output.RetryHint, "Analyzer output invalid") {
+		return types.MissingUnderstanding
+	}
 	return types.MissingFacts
 }
 

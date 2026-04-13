@@ -38,11 +38,20 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ac.CurrentTaskComplexity = task.Complexity
 	}
 	if bus.AnalysisIR != nil {
+		clone := *bus.AnalysisIR
+		ac.CurrentAnalysisIR = &clone
 		ac.CurrentTaskComplexity = bus.AnalysisIR.EvidencePlan.Complexity
 		ac.CurrentTaskKeywords = append([]string(nil), bus.AnalysisIR.EvidencePlan.Keywords...)
 		ac.CurrentTaskEntities = append([]string(nil), bus.AnalysisIR.RequestModel.Entities...)
 		ac.CurrentTaskQuestionKind = bus.AnalysisIR.RequestModel.QuestionKind
 		ac.CurrentTaskAnswerShape = bus.AnalysisIR.AnswerContract.OutputShape
+		ac.CurrentHypothesisSet = append([]types.Hypothesis(nil), bus.AnalysisIR.HypothesisSet...)
+		for _, node := range bus.AnalysisIR.TaskGraph.Nodes {
+			if node.ID == ac.CurrentTaskID {
+				ac.CurrentTaskHypothesisRefs = append([]string(nil), node.HypothesisRefs...)
+				break
+			}
+		}
 	}
 
 	// Collect relevant facts

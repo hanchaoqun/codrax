@@ -31,17 +31,26 @@ type todoWriteParams struct {
 }
 
 type todoWriteTaskParam struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Description  string   `json:"description,omitempty"`
-	Writing      bool     `json:"writing,omitempty"`
-	HighRisk     bool     `json:"high_risk,omitempty"`
-	Complexity   string   `json:"complexity,omitempty"`
-	Keywords     []string `json:"keywords,omitempty"`
-	Entities     []string `json:"entities,omitempty"`
-	QuestionKind string   `json:"question_kind,omitempty"`
-	AnswerShape  string   `json:"answer_shape,omitempty"`
-	Status       string   `json:"status,omitempty"`
+	ID            string                     `json:"id"`
+	Title         string                     `json:"title"`
+	Description   string                     `json:"description,omitempty"`
+	Writing       bool                       `json:"writing,omitempty"`
+	HighRisk      bool                       `json:"high_risk,omitempty"`
+	Complexity    string                     `json:"complexity,omitempty"`
+	Keywords      []string                   `json:"keywords,omitempty"`
+	Entities      []string                   `json:"entities,omitempty"`
+	QuestionKind  string                     `json:"question_kind,omitempty"`
+	AnswerShape   string                     `json:"answer_shape,omitempty"`
+	BaselineProbe bool                       `json:"baseline_probe,omitempty"`
+	Hypotheses    []todoWriteHypothesisParam `json:"hypotheses,omitempty"`
+	Status        string                     `json:"status,omitempty"`
+}
+
+type todoWriteHypothesisParam struct {
+	Statement              string   `json:"statement"`
+	RequiredEvidence       []string `json:"required_evidence,omitempty"`
+	FalsificationCondition string   `json:"falsification_condition,omitempty"`
+	Priority               int      `json:"priority,omitempty"`
 }
 
 func (t *TodoWrite) Name() string { return "todo_write" }
@@ -73,6 +82,8 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "entities":    {"type": "array", "items": {"type": "string"}, "description": "CamelCase/snake_case symbol names copied VERBATIM from the user's original wording. Do NOT translate, re-case, or paraphrase. These drive ERM entity extraction for the explorer; adding generic English nouns (e.g. 'count','that','function') has caused ranking regressions. Leave empty only if the user's question contains no identifier-looking tokens."},
           "question_kind": {"type": "string", "enum": ["registration","mechanism","return_value","conditional","config_mapping","enumeration","call_chain","unknown"], "description": "Evidence-requirement shape. registration = 'which/how many X register/bind Y'. mechanism = 'how does X work / explain process'. return_value = 'what does X return / X's name/type'. conditional = 'when/under what condition'. config_mapping = 'what does config key K do'. enumeration = 'list/count all X'. call_chain = 'which X calls Y'. Use 'unknown' only if genuinely ambiguous — ERM will fall back to keyword inference. Picking the right kind here directly drives which evidence predicates the downstream pipeline opens."},
           "answer_shape":  {"type": "string", "enum": ["list_of_symbols","step_list","value","boolean","config_value","none"], "description": "Expected final-answer structure. list_of_symbols = answer is a set of identifier names (the finalizer will forbid out-of-evidence symbols). step_list = ordered steps of a mechanism. value = a single literal/return. boolean = yes/no. config_value = a config key's resolved value. none = no structured shape applies."},
+          "baseline_probe": {"type": "boolean", "description": "Mark true only when this node is a baseline probing task that intentionally has no hypothesis binding."},
+          "hypotheses": {"type": "array", "description": "Task-bound falsifiable hypotheses. Every non-baseline node must provide at least one hypothesis.", "items": {"type":"object","properties":{"statement":{"type":"string"},"required_evidence":{"type":"array","items":{"type":"string"}},"falsification_condition":{"type":"string"},"priority":{"type":"integer"}},"required":["statement","falsification_condition"]}},
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
@@ -169,9 +180,32 @@ func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.Analysi
 		},
 	}
 	for _, task := range tl.Tasks {
+		var refs []string
+		rawTask := findRawTaskByID(raw, task.ID)
+		if rawTask != nil {
+			for hi, h := range rawTask.Hypotheses {
+				statement := strings.TrimSpace(h.Statement)
+				if statement == "" {
+					continue
+				}
+				hid := fmt.Sprintf("%s-h%d", task.ID, hi+1)
+				refs = append(refs, hid)
+				ir.HypothesisSet = append(ir.HypothesisSet, types.Hypothesis{
+					ID:                     hid,
+					Statement:              statement,
+					RequiredEvidence:       trimStringSlice(h.RequiredEvidence),
+					FalsificationCondition: strings.TrimSpace(h.FalsificationCondition),
+					Priority:               h.Priority,
+					Status:                 "unknown",
+				})
+			}
+		}
 		ir.TaskGraph.Nodes = append(ir.TaskGraph.Nodes, types.TaskGraphNode{
-			ID:    task.ID,
-			Title: task.Title,
+			ID:               task.ID,
+			Title:            task.Title,
+			HypothesisRefs:   refs,
+			IsBaselineProbe:  rawTask != nil && rawTask.BaselineProbe,
+			HypothesisStatus: "unknown",
 		})
 	}
 	if current != nil {
@@ -331,6 +365,19 @@ func trimStringSlice(in []string) []string {
 		return nil
 	}
 	return out
+}
+
+func findRawTaskByID(raw []todoWriteTaskParam, id string) *todoWriteTaskParam {
+	for i := range raw {
+		rid := strings.TrimSpace(raw[i].ID)
+		if rid == "" {
+			rid = fmt.Sprintf("task-%d", i+1)
+		}
+		if rid == id {
+			return &raw[i]
+		}
+	}
+	return nil
 }
 
 // normalizeComplexity maps LLM-produced complexity strings to canonical

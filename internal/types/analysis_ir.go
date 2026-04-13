@@ -6,6 +6,7 @@ package types
 type AnalysisIR struct {
 	RequestModel   RequestModel   `json:"request_model" yaml:"request_model"`
 	TaskGraph      TaskGraph      `json:"task_graph" yaml:"task_graph"`
+	HypothesisSet  []Hypothesis   `json:"hypothesis_set,omitempty" yaml:"hypothesis_set,omitempty"`
 	EvidencePlan   EvidencePlan   `json:"evidence_plan" yaml:"evidence_plan"`
 	AnswerContract AnswerContract `json:"answer_contract" yaml:"answer_contract"`
 	QualityGate    QualityGate    `json:"quality_gate" yaml:"quality_gate"`
@@ -27,8 +28,20 @@ type TaskGraph struct {
 }
 
 type TaskGraphNode struct {
-	ID    string `json:"id" yaml:"id"`
-	Title string `json:"title" yaml:"title"`
+	ID               string   `json:"id" yaml:"id"`
+	Title            string   `json:"title" yaml:"title"`
+	HypothesisRefs   []string `json:"hypothesis_refs,omitempty" yaml:"hypothesis_refs,omitempty"`
+	IsBaselineProbe  bool     `json:"is_baseline_probe,omitempty" yaml:"is_baseline_probe,omitempty"`
+	HypothesisStatus string   `json:"hypothesis_status,omitempty" yaml:"hypothesis_status,omitempty"`
+}
+
+type Hypothesis struct {
+	ID                     string   `json:"id,omitempty" yaml:"id,omitempty"`
+	Statement              string   `json:"statement" yaml:"statement"`
+	RequiredEvidence       []string `json:"required_evidence,omitempty" yaml:"required_evidence,omitempty"`
+	FalsificationCondition string   `json:"falsification_condition,omitempty" yaml:"falsification_condition,omitempty"`
+	Priority               int      `json:"priority,omitempty" yaml:"priority,omitempty"`
+	Status                 string   `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 type TaskGraphEdge struct {

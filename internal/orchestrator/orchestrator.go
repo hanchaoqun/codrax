@@ -794,12 +794,16 @@ func (o *Orchestrator) filterBySignals(transitions []types.Transition) []types.T
 
 // isTransitionValidBySignals checks if a transition makes sense given the current signals.
 func (o *Orchestrator) isTransitionValidBySignals(t types.Transition, signals types.ExecutionSignals, missing types.MissingPiece) bool {
+	hypoStatus := o.currentTaskHypothesisStatus()
 	switch t.To {
 	case types.StageExplore:
 		// Go to explore if we need facts
-		return missing == types.MissingFacts || missing == types.MissingUnderstanding || !signals.HasEnoughFacts
+		return missing == types.MissingFacts || missing == types.MissingUnderstanding || !signals.HasEnoughFacts || hypoStatus == "unknown"
 	case types.StagePlan:
 		// Go to plan if we have facts but need a plan
+		if o.busCtx.PipelineStage == types.StageExplore && hypoStatus != "" {
+			return hypoStatus == "confirmed"
+		}
 		return signals.HasEnoughFacts || missing == types.MissingPlan
 	case types.StageImplement:
 		// Go to implement if we have a plan
@@ -821,14 +825,33 @@ func (o *Orchestrator) isTransitionValidBySignals(t types.Transition, signals ty
 		// explore self-loop fire instead, with the oscillation guard
 		// as the ultimate bound.
 		if o.busCtx.PipelineStage == types.StageExplore {
+			if hypoStatus != "" {
+				return hypoStatus == "confirmed"
+			}
 			return signals.HasEnoughFacts
 		}
 		return true
 	case types.StageAnalyze:
-		// Backtrack to analyze only if fundamentally confused
-		return missing == types.MissingUnderstanding
+		// Backtrack to analyze if fundamentally confused or hypotheses were rejected.
+		return missing == types.MissingUnderstanding || hypoStatus == "rejected"
 	}
 	return true
+}
+
+func (o *Orchestrator) currentTaskHypothesisStatus() string {
+	if o.busCtx == nil || o.busCtx.AnalysisIR == nil || o.busCtx.Mutable == nil {
+		return ""
+	}
+	taskID := o.busCtx.Mutable.TaskList().CurrentTaskID
+	if taskID == "" {
+		return ""
+	}
+	for _, n := range o.busCtx.AnalysisIR.TaskGraph.Nodes {
+		if n.ID == taskID {
+			return n.HypothesisStatus
+		}
+	}
+	return ""
 }
 
 // BusContext returns the current bus context (for inspection/testing).
