@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -148,6 +149,7 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 				RequestModel: types.RequestModel{
 					UserIntent:   tl.Objective,
 					QuestionKind: outputKind,
+					TermGraph:    normalizer.BuildTermGraph(ctx.Objective),
 				},
 				TaskGraph: types.TaskGraph{
 					Nodes: []types.TaskGraphNode{{
@@ -183,6 +185,7 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		RequestModel: types.RequestModel{
 			QuestionKind: ctx.CurrentTaskQuestionKind,
 			Entities:     append([]string(nil), ctx.CurrentTaskEntities...),
+			TermGraph:    normalizer.BuildTermGraph(ctx.Objective),
 		},
 		EvidencePlan: types.EvidencePlan{
 			Complexity: ctx.CurrentTaskComplexity,
@@ -191,6 +194,9 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		AnswerContract: types.AnswerContract{
 			OutputShape: ctx.CurrentTaskAnswerShape,
 		},
+	}
+	if tokens := normalizer.RetrievalTokens(ir.RequestModel.TermGraph); len(tokens) > 0 {
+		ir.EvidencePlan.Keywords = tokens
 	}
 	if ir.EvidencePlan.Complexity == "" {
 		ir.EvidencePlan.Complexity = "moderate"
