@@ -1,9 +1,8 @@
 # Repomap v3 Design
 
-Status: **Phases 0 – 3 COMPLETE** (HEAD `3eeee40`).
-Next step: **Phase 4 — three-layer split** (`index/retrieve/render`),
-starting with migration of the remaining views to the Phase 3
-GenerateViewData / RenderMarkdown dual-channel contract.
+Status: **Phases 0 – 4 COMPLETE** (HEAD `30fbfc1`).
+Next step: **Phase 5 — language plugins + semantic subgraphs**
+(plan items 5 and 8). Roadmap only — do not auto-start.
 
 This document is the architectural spec for the repomap refactor.
 For the day-to-day eval harness usage, see `eval/repomap_v3/README.md`.
@@ -39,8 +38,8 @@ every lookup drift-proof by construction.
 
 ## Architectural overview
 
-Six phases, in order. Phases 0 – 3 are shipped end-to-end; Phase 4
-is next; Phase 5 is roadmap.
+Six phases, in order. Phases 0 – 4 are shipped end-to-end; Phase 5
+is roadmap.
 
 ```
 Phase 0  eval framework first              ─ SHIPPED  fe91203
@@ -64,8 +63,11 @@ Phase 3  cache + structured output         ─ SHIPPED  196078f..3eeee40
   P3a   unified exclude-dirs layering      ─ shipped  196078f
   P3b   versioned cache protocol           ─ shipped  b6d93a0
   P3c   dual-channel ViewData + render     ─ shipped  3eeee40
-Phase 4  three-layer split + view migration ─ NEXT
-Phase 5  language plugins + semantic subgraphs
+Phase 4  three-layer split + view migration ─ SHIPPED  da22269..30fbfc1
+  P4a   migrate task_map view to ViewData  ─ shipped  da22269
+  P4b   migrate file_map/call_path/edit_impact views + ViewItem.Depth ─ shipped  60208f6
+  P4c   three-layer directory split        ─ shipped  30fbfc1
+Phase 5  language plugins + semantic subgraphs ─ ROADMAP
 ```
 
 Phase 1 closed out at P1.2b. The data-model work the user's refactor
@@ -289,20 +291,20 @@ resolved edges and `symbolToFile` for fallback. The file a symbol
 belongs to is now identified by ID, so receiver-drift doesn't
 mis-attribute referrers.
 
-## Measured delivery — Phases 1 through 3
+## Measured delivery — Phases 1 through 4
 
 Deterministic gate runs at each phase closeout:
 
-| metric | baseline `7a60dd4` | P1.2b `04b54f1` | P2b.3 `67982e4` | P3c `3eeee40` |
-|---|--:|--:|--:|--:|
-| symbol precision | 1.000 | 1.000 | 1.000 | 1.000 |
-| symbol recall | 1.000 | 1.000 | 1.000 | 1.000 |
-| import edge accuracy (overall) | 0.333 | ~~0.797~~ † | 0.289 | 0.286 |
-| **import internal_accuracy** | — | — | **1.000 (188/188)** | **1.000** |
-| receiver capture ratio | 0.000 | 0.584 | 0.584 | 0.584 |
-| drift calls resolved | — | 0.068 | 0.066 | 0.066 |
-| **task_map hit@k mean** | 0.729 | 0.729 | **0.8714** | **0.8714** |
-| scan latency (fresh) | 0.18 s | 0.87 s | 1.07 s | 0.94 s |
+| metric | baseline `7a60dd4` | P1.2b `04b54f1` | P2b.3 `67982e4` | P3c `3eeee40` | P4c `30fbfc1` |
+|---|--:|--:|--:|--:|--:|
+| symbol precision | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| symbol recall | 1.000 | 1.000 | 1.000 | 1.000 | 1.000 |
+| import edge accuracy (overall) | 0.333 | ~~0.797~~ † | 0.289 | 0.286 | 0.286 |
+| **import internal_accuracy** | — | — | **1.000 (188/188)** | **1.000** | **1.000** |
+| receiver capture ratio | 0.000 | 0.584 | 0.584 | 0.584 | 0.582 |
+| drift calls resolved | — | 0.068 | 0.066 | 0.066 | 0.064 |
+| **task_map hit@k mean** | 0.729 | 0.729 | **0.8714** | **0.8714** | **0.8571** |
+| scan latency (fresh) | 0.18 s | 0.87 s | 1.07 s | 0.94 s | 1.21 s |
 
 † The 0.797 number reported at P1.2b was the pre-P2a.1 inflated
 metric that credited every import in any file with one resolved
@@ -557,71 +559,184 @@ through `GenerateView` (which routes any view with a data
 implementation through `GenerateViewData → RenderMarkdown` and
 falls through to the legacy functions otherwise).
 
-## Next step — Phase 4
+## Phase 4 — view migration + three-layer split (shipped)
 
-**Three-layer split + view migration (plan item 1).** Phase 4
-refactors `internal/tool/repomap/` into three logical layers and
-migrates the remaining views onto the dual-channel contract as a
-precondition.
+### 4a/4b — view migration
 
-### Required view migrations
+Phase 3 migrated only the "overview" view to the dual-channel
+`GenerateViewData` → `RenderMarkdown` contract. Phase 4a/4b
+extended that to the remaining four views so the legacy direct-
+markdown path in `views.go` could be retired before the
+directory split. The render layer would otherwise have needed
+to import extractor and retrieval helpers from other layers,
+creating a cycle.
 
-Phase 4 cannot start the three-layer split while four views still
-hand-roll markdown, because the `render/` layer would then need
-to import extractor and retrieval helpers that the index layer
-owns — a cycle. Sequencing:
+The migrations in order:
 
-1. **`task_map`**: per-file subsections with score, matched
-   symbols, imports/dependents list. Migrating this validates
-   that `ViewSection.Subsections` is sufficient for the common
-   hierarchical case.
-2. **`file_map`**: flat per-file grouping by symbol kind. Simpler
-   than task_map — a good second pattern for "list of sections,
-   each with a nested item list".
-3. **`call_path`**: BFS walk over `ImportGraph`. Item shape is
-   "indent + file + symbol hints"; may need a new `Depth` field
-   on `ViewItem`, or a recursive `Subsections` chain.
-4. **`edit_impact`**: direct + transitive dependents + exported
-   symbols + caller counts. Straightforward once the pattern is
-   established.
+1. **task_map** (P4a `da22269`). Per-file subsections with
+   score, matched symbols, and imports/dependents lines. Runs
+   the query-biased `RankGraph` pass (same side effect as the
+   legacy function) and filters matched symbols via
+   `TokenizeQuery`'s primary-weight tokens so the shown
+   symbols are exactly the ones that contributed to the rank
+   score. Validated that `ViewSection.Subsections` is
+   sufficient for the common hierarchical case.
+2. **file_map** (P4b `60208f6`). Flat per-file grouping by
+   symbol kind in the canonical order interface → trait →
+   class → struct → enum → type → function → method → const
+   → var → field, with exported-marker `+` and
+   receiver-qualified bullet shapes preserved.
+3. **call_path** (P4b `60208f6`). BFS walk over
+   `Graph.ImportGraph`. Introduced a new `ViewItem.Depth`
+   field so the BFS can tag each item with its depth; the
+   renderer prepends two spaces per depth step, reproducing
+   the legacy indent shape without a recursive Subsections
+   chain.
+4. **edit_impact** (P4b `60208f6`). Up to four sections
+   (Direct Dependents, Transitive Dependents when strictly
+   more than direct, Exported Symbols, Dependencies) with the
+   `(referenced from N files)` caller-count suffix from
+   `CallersOf`.
 
-After these migrate, the legacy view bodies in `views.go` can be
-deleted and `GenerateView` becomes a pure dispatcher.
+`views.go` shrinks to ~30 lines — a pure dispatcher plus the
+shared `abbreviate` helper. `GenerateView` routes every view
+type through `GenerateViewData → RenderMarkdown`.
 
-### Three-layer split
+### 4c — three-layer directory split
 
-Refactor into three logical layers. Two variants:
+With all five views on the dual-channel path, Phase 4c split
+the flat `internal/tool/repomap/` package into four sub-packages
+(`types/`, `index/`, `retrieve/`, `render/`) with a
+single-direction dependency graph:
 
-- **Directory split**: `index/`, `retrieve/`, `render/`
-  sub-packages. Cleanest but forces import-path changes across
-  every caller.
-- **File-prefix split**: `index_*.go`, `retrieve_*.go`,
-  `render_*.go` kept in one package. Less architecturally clean
-  but less disruptive to downstream imports.
+```
+types ← no repomap deps
+index    ← types
+retrieve ← types
+render   ← types + retrieve
+repomap/ ← all four (re-exports the public API via facade.go)
+```
 
-Allocation:
-- **index/**: `graph.go`, `cache.go`, `parser.go`, `scanner.go`,
-  every `extract_*.go`, every `resolver*.go`, and the structural
-  types from `types.go`. Every file whose output is persisted
-  into the cache belongs here.
-- **retrieve/**: `rank.go`, `query.go`, plus the `CallersOfID`,
-  `TransitiveDeps`, and `TopFiles` helpers currently on `*Graph`.
-  Everything that turns a query + graph into a ranked result set.
-- **render/**: `views.go` + `render.go` after every view is on
-  the dual-channel path. The only non-test consumer of
-  `GenerateView` today is `tool.go:110`.
+Sub-package allocation:
 
-The natural time to revisit the drift-sensitive B-bucket agent
-consumers (`erm.go:answerSymbolFromEvidence`, `explorer.go:
-symDefFile`) is here, because the retrieval layer will own the
-`Relation.ToEP.ID` propagation contract.
+- **types/** — structural types (`Graph`, `FileInfo`,
+  `Symbol`, `Relation`, `Import`, `Metadata`,
+  `UnresolvedImport`, `SymbolID`, `MethodKey`,
+  `RelationEndpoint`, `ViewParams`), `Lang*` constants,
+  `DetectLanguage` / `GetSitterLanguage` / `IsExported`,
+  `MakeSymbolID` / `DeriveSymbolID` / `SymbolKey` /
+  `AppendUnique`, and Graph-receiver methods for in-graph
+  navigation (`FilesImporting`, `FilesImportedBy`,
+  `SymbolsInFile`, `CallersOf`, `CallersOfID`,
+  `ResolveCallTarget`, `TransitiveDeps`,
+  `TransitiveReverseDeps`). Methods live here because Go
+  requires receivers to share a package with the type.
+- **index/** — graph construction (`BuildGraph` +
+  `resolveImportGraph` in `build.go`), cache I/O, scanner,
+  parser, per-language extractors, and the import-resolver
+  plugins (one per language). Every file whose output is
+  persisted into the cache belongs here.
+- **retrieve/** — `RankGraph`, `TopFiles`, `queryMatchScore`,
+  `isTestFile`, and the multilingual `TokenizeQuery`
+  tokenizer. Everything that turns a query + graph into a
+  ranked result set.
+- **render/** — `ViewData` / `ViewSection` / `ViewItem`
+  structural types, `RenderMarkdown`, `GenerateViewData`,
+  the per-view builders, and the `GenerateView` dispatcher.
+  Imports `retrieve` for `RankGraph` / `TopFiles` /
+  `TokenizeQuery`.
+
+Top-level `repomap/` now holds:
+
+- `facade.go` — type aliases and function wrappers that
+  preserve the exact public API external callers depend on
+  (`repomap.Graph`, `repomap.Symbol`, `repomap.Lang*`,
+  `repomap.BuildOrLoadGraph`, `repomap.ScanFiles`,
+  `repomap.ParseFiles`, `repomap.GenerateView`, etc.). Go
+  type aliases propagate the receiver method set, so
+  `graph.FilesImporting(x)` continues to compile against
+  `repomap.Graph` unchanged.
+- `tool.go` — the `RepoMapV2` tool binding plus the
+  `BuildOrLoadGraph` full/incremental-scan driver, updated
+  to call through to the sub-package implementations via
+  `index.BuildGraph`, `index.SaveCache`, `retrieve.RankGraph`,
+  `render.GenerateView`.
+
+**External zero-change property.** Seventeen external import
+sites — `internal/agent/**`, `internal/analysis/dataflow/**`,
+`cmd/root.go`, `eval/repomap_v3/**` — touch only type
+aliases, exported functions, and Graph field access. All
+three continue to work through the facade. The only method
+call into Graph from outside `repomap` is the two lines in
+`internal/analysis/dataflow/engine.go` that call
+`FilesImporting` / `FilesImportedBy`, and those ride through
+the `type Graph = types.Graph` alias without change.
+
+One method rename was carried along: `Graph.resolveCallTarget`
+became `Graph.ResolveCallTarget` so `retrieve.RankGraph` in a
+different package could call it through the receiver. No
+semantic change.
+
+**Gotchas.** Documented here so future refactor sessions do
+not re-discover them:
+
+- `_js.go` is the GOOS=js (WebAssembly) build-tag suffix. Go
+  silently excludes files with that name on other platforms.
+  The JS/TS resolver file must be named `resolver_javascript.go`.
+- `os.FileInfo` contains the substring `FileInfo`, so any
+  word-boundary sed rewrite of `FileInfo → types.FileInfo`
+  must guard with a negative look-behind on the dot, or the
+  stdlib `os.FileInfo` interface gets rewritten into
+  `os.types.FileInfo` and nothing builds. Use Perl
+  `(?<!\.)\bFileInfo\b`.
+- Graph fields named after their element types (`Metadata`,
+  `SymbolDefs`, `SymbolByID`, `MethodIndex`) can be
+  accidentally prefixed by naive type-name rewrites. Same
+  `(?<!\.)` guard.
+
+### Measured Phase 4 delivery
+
+| metric              | P3c `3eeee40` | P4b `60208f6` | P4c `30fbfc1` |
+|---------------------|--------------:|--------------:|--------------:|
+| symbol precision    |         1.000 |         1.000 |         1.000 |
+| symbol recall       |         1.000 |         1.000 |         1.000 |
+| internal_accuracy   |         1.000 |         1.000 |         1.000 |
+| drift resolved      |         0.066 |         0.066 |         0.064 |
+| **task_map hit@k**  |        0.8714 |        0.8714 |    **0.8571** |
+| scan latency        |        0.94 s |        1.14 s |        1.21 s |
+
+The 0.0143 hit@k drop from P4b → P4c (= half a query out of 35)
+is a structural effect of the new file layout: the
+`BuildGraph FileInfo Symbol Relation` query now finds
+`types/types.go` + `facade.go` in its top-5 instead of
+`types/types.go` + the old flat `graph.go`, because the
+`BuildGraph` function moved into `index/build.go` where its
+sibling tokens no longer amplify each other. The result is
+still comfortably above the Phase 2b gate of 0.85 and the
+residual non-perfect queries match the same structural /
+fixture-strict / CJK-unreachable set identified in Phase 2b.
+We deliberately do not chase them — the cost is over-fit
+risk, and the harness's purpose is to gate regressions, not
+to push the last few tenths of a point.
+
+The natural time to revisit the Phase 1 B-bucket drift-
+sensitive consumers (`erm.go:answerSymbolFromEvidence`,
+`explorer.go:symDefFile`) is now open — the retrieval layer
+owns the `Relation.ToEP.ID` propagation contract, so a
+receiver-aware `AnswerSymbolFromEvidence` helper has a clean
+home. Not started; tracked as a standalone agent-code follow-up
+outside the repomap refactor scope.
 
 ## Roadmap — Phase 5
 
 Language plugins + semantic subgraphs. Covers plan items 5
 (C#/PHP/Ruby/Kotlin plugins + `LanguageExtractor` interface) and
 8 (semantic subgraph output: chains / hubs / bridges). After the
-core is solid.
+core is solid. With Phase 4's directory split, the new plugin
+work has a clear home in `index/extract_*.go` +
+`index/resolver_*.go` and does not require touching the
+retrieval or render layers. Not scheduled — wait for the user
+to prioritize.
 
 ## References
 
