@@ -1390,14 +1390,43 @@ func TestExtractAnswerSymbols_EvidenceDrivenGate(t *testing.T) {
 		},
 	}
 	// All of these should now extract SubExplorer — question_kind is
-	// reported but does NOT gate.
-	for _, kind := range []string{"registration", "call_chain", "enumeration", "mechanism", "unknown", ""} {
+	// reported but does NOT gate. EXCEPT mechanism, which intentionally
+	// skips extraction so the finalizer can route to step_list shape
+	// (see extractAnswerSymbols doc comment for the df3 drift-fix
+	// rationale). Mechanism is covered by a dedicated test below.
+	for _, kind := range []string{"registration", "call_chain", "enumeration", "unknown", ""} {
 		syms := extractAnswerSymbols(items, kind, "", "", nil)
 		if len(syms) != 1 || syms[0].Name != "SubExplorer" {
 			t.Errorf("kind=%s: expected [SubExplorer], got %+v", kind, syms)
 		}
 		if syms[0].Kind != kind {
 			t.Errorf("kind=%s: AnswerSymbol.Kind should mirror supplied kind, got %q", kind, syms[0].Kind)
+		}
+	}
+}
+
+// TestExtractAnswerSymbols_MechanismKindSkipped pins the df3 drift
+// fix: mechanism questions MUST NOT produce a symbol list, because
+// the finalizer's Translation mode would force the answer to be a
+// flat name list instead of an ordered step-by-step explanation.
+// Evidence shape is irrelevant — the skip is kind-driven so the
+// rule generalises across any mechanism question regardless of the
+// specific evidence carried.
+func TestExtractAnswerSymbols_MechanismKindSkipped(t *testing.T) {
+	// Same terminal-shape evidence as the gate test above. The only
+	// difference is questionKind = "mechanism".
+	items := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceConcrete, Predicate: "binds ONLY",
+			Subject: "RegisterDefaultSubAgents", Object: "NewSubExplorer(deps)",
+			Summary: "RegisterDefaultSubAgents() binds ONLY NewSubExplorer(deps)",
+			Source:  "internal/agent/subagent.go", LineStart: 63,
+		},
+	}
+	for _, kindVariant := range []string{"mechanism", "Mechanism", "MECHANISM", "  mechanism  "} {
+		syms := extractAnswerSymbols(items, kindVariant, "explorerEvaluator 的 ContinuationPrompt 怎么实现?", "step_list", nil)
+		if syms != nil {
+			t.Errorf("kind=%q: mechanism must skip symbol extraction, got %+v", kindVariant, syms)
 		}
 	}
 }
@@ -1566,5 +1595,122 @@ func TestIdentifyAnswerChains_GenuineMatchStillRanks(t *testing.T) {
 	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
 	if len(chains) == 0 {
 		t.Fatalf("genuine non-path mention of `Agent` should still rank; got zero chains")
+	}
+}
+
+// TestErmAutoSatisfyUnresolvable_RegistrationKind pins the fix for the
+// explorer self-dispatch latency bug analyzed in
+// docs/latency-analysis-2026-04-13.md §2. When ERM emits a
+// registration(X) requirement whose entity X is an interface type,
+// an interface method, or an abstract concept verb, the explorer can
+// never satisfy it from source evidence — the orchestrator then
+// re-dispatches the explorer for a second pass that re-discovers the
+// same unsatisfiable state and burns ~120 s for zero new evidence.
+//
+// The fix tightens ermAutoSatisfyUnresolvable so registration(X) reqs
+// auto-satisfy unless X has an exact-name symbol with a registration-
+// eligible Kind. This test grid covers the three failure modes that
+// kept t1 at 100% re-dispatch plus two negative cases that MUST stay
+// unsatisfied (legit struct/function registration targets).
+func TestErmAutoSatisfyUnresolvable_RegistrationKind(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			// Interface type — not directly registrable.
+			"SynthesizingEvaluator": {{Name: "SynthesizingEvaluator", Kind: "interface"}},
+			"ContinuingEvaluator":   {{Name: "ContinuingEvaluator", Kind: "interface"}},
+			"Evaluator":             {{Name: "Evaluator", Kind: "interface"}},
+			// Method — reached via parent type, not registered on its own.
+			"Execute": {{Name: "Execute", Kind: "method", Receiver: "BaseAgent"}},
+			// Legit registration targets.
+			"BaseAgent":        {{Name: "BaseAgent", Kind: "struct"}},
+			"NewExplorerAgent": {{Name: "NewExplorerAgent", Kind: "function"}},
+			// Unrelated substring noise — `synthesis` must not match
+			// `SynthesisPrompt`, `continuation` must not match
+			// `ContinuationPrompt`. These were the exact substrings
+			// that let the old permissive filter keep the reqs alive.
+			"SynthesisPrompt":    {{Name: "SynthesisPrompt", Kind: "function"}},
+			"ContinuationPrompt": {{Name: "ContinuationPrompt", Kind: "function"}},
+		},
+		Files: []*repomap.FileInfo{
+			// File path noise — must not rescue concept-word entities.
+			{RelPath: "internal/agent/synthesis.go"},
+			{RelPath: "internal/agent/continuation_test.go"},
+		},
+	}
+	cases := []struct {
+		name        string
+		req         EvidenceRequirement
+		wantSatisfy bool
+	}{
+		{"interface-type entity auto-satisfies",
+			EvidenceRequirement{Kind: "registration", Entities: []string{"SynthesizingEvaluator"}, Status: "unsatisfied"},
+			true},
+		{"interface-type lowercase entity auto-satisfies",
+			EvidenceRequirement{Kind: "registration", Entities: []string{"evaluator"}, Status: "unsatisfied"},
+			true},
+		{"method-only entity auto-satisfies",
+			EvidenceRequirement{Kind: "registration", Entities: []string{"Execute"}, Status: "partial"},
+			true},
+		{"concept verb (no symbol) auto-satisfies",
+			EvidenceRequirement{Kind: "registration", Entities: []string{"synthesis"}, Status: "unsatisfied"},
+			true},
+		{"concept verb partial auto-satisfies",
+			EvidenceRequirement{Kind: "registration", Entities: []string{"continuation"}, Status: "partial"},
+			true},
+		{"legit struct registration target stays unsatisfied",
+			EvidenceRequirement{Kind: "registration", Entities: []string{"BaseAgent"}, Status: "unsatisfied"},
+			false},
+		{"legit function registration target stays unsatisfied",
+			EvidenceRequirement{Kind: "registration", Entities: []string{"NewExplorerAgent"}, Status: "unsatisfied"},
+			false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			in := []EvidenceRequirement{c.req}
+			out := ermAutoSatisfyUnresolvable(in, graph)
+			got := out[0].Status == "satisfied"
+			if got != c.wantSatisfy {
+				t.Errorf("status=%q wantSatisfy=%v got=%v", out[0].Status, c.wantSatisfy, got)
+			}
+		})
+	}
+}
+
+// TestErmAutoSatisfyUnresolvable_NonRegistrationFallback verifies
+// non-registration reqs still use the permissive substring fallback.
+// A call_chain req whose entity substring-hits a symbol name stays
+// unsatisfied; a req whose entity is wholly absent from the codebase
+// is marked satisfied ("not applicable") by the generic filter.
+func TestErmAutoSatisfyUnresolvable_NonRegistrationFallback(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"ContinuationPrompt": {{Name: "ContinuationPrompt", Kind: "function"}},
+		},
+	}
+	reqs := []EvidenceRequirement{
+		// Substring hit — stays unsatisfied (fallback filter).
+		{Kind: "call_chain", Entities: []string{"continuation"}, Status: "unsatisfied"},
+		// No hit anywhere — auto-satisfied by fallback.
+		{Kind: "call_chain", Entities: []string{"totally_absent_xyz"}, Status: "unsatisfied"},
+	}
+	out := ermAutoSatisfyUnresolvable(reqs, graph)
+	if out[0].Status == "satisfied" {
+		t.Error("call_chain substring match should NOT auto-satisfy via registration gate")
+	}
+	if out[1].Status != "satisfied" {
+		t.Errorf("absent entity should be auto-satisfied by generic fallback, got %q", out[1].Status)
+	}
+}
+
+// TestErmAutoSatisfyUnresolvable_NilGraph is the graph-unavailable
+// short-circuit. The function must be a no-op when no graph is
+// supplied — reqs pass through unchanged.
+func TestErmAutoSatisfyUnresolvable_NilGraph(t *testing.T) {
+	reqs := []EvidenceRequirement{
+		{Kind: "registration", Entities: []string{"SynthesizingEvaluator"}, Status: "unsatisfied"},
+	}
+	out := ermAutoSatisfyUnresolvable(reqs, nil)
+	if out[0].Status != "unsatisfied" {
+		t.Errorf("nil graph must be a no-op, got status=%q", out[0].Status)
 	}
 }

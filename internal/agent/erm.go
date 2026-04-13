@@ -692,12 +692,89 @@ type ermFileSuggestion struct {
 	Reason string
 }
 
-// ermAutoSatisfyUnresolvable marks requirements as "satisfied" when none
-// of their entities match any symbol in the codebase. This prevents
-// generic English words (from analyzer-rewritten tasks) from creating
-// unsatisfiable requirements that block the pipeline indefinitely.
-// This is a data-driven filter (checked against the repo's symbol table),
-// not a hardcoded stopword list.
+// registrationEligibleKinds lists Symbol.Kind values that can
+// legitimately be the target of a literal registration call like
+// `Register(NewFoo)` or `registry[key] = Foo{}`. Interfaces, methods,
+// fields, packages, and traits are excluded because they are not
+// directly registrable — an interface's concrete implementer is the
+// registration target, not the interface itself; a method is reached
+// via its parent type; a field/package/trait is structural. Kinds are
+// matched case-insensitively against the canonical values emitted by
+// the tree-sitter extractors in internal/tool/repomap/extract_*.go.
+var registrationEligibleKinds = map[string]bool{
+	"function": true,
+	"struct":   true,
+	"class":    true,
+	"type":     true,
+	"const":    true,
+	"var":      true,
+	"enum":     true,
+}
+
+// isRegistrationTargetKind reports whether any of the given symbol
+// definitions has a Kind that could be a literal registration target.
+func isRegistrationTargetKind(defs []*repomap.Symbol) bool {
+	for _, d := range defs {
+		if d == nil {
+			continue
+		}
+		if registrationEligibleKinds[strings.ToLower(d.Kind)] {
+			return true
+		}
+	}
+	return false
+}
+
+// hasConcreteRegistrationTarget reports whether any entity in the
+// requirement refers to a graph symbol that could be a registration
+// target. Matching is exact-name (case-insensitive) against
+// graph.SymbolDefs — the permissive substring match used for other
+// Kinds is not safe here because words like `synthesis` / `continuation`
+// substring-hit unrelated symbol names and file paths but are not
+// themselves registrable. See docs/latency-analysis-2026-04-13.md §2.1
+// for the t1 self-dispatch bug this guards against.
+func hasConcreteRegistrationTarget(entities []string, graph *repomap.Graph) bool {
+	if graph == nil {
+		return false
+	}
+	for _, ent := range entities {
+		if ent == "" {
+			continue
+		}
+		entLower := strings.ToLower(ent)
+		for symName, defs := range graph.SymbolDefs {
+			if strings.ToLower(symName) != entLower {
+				continue
+			}
+			if isRegistrationTargetKind(defs) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// ermAutoSatisfyUnresolvable marks requirements as "satisfied" when
+// they can never be resolved by the evidence pipeline. Two layers:
+//
+//  1. Registration-specific gate: if req.Kind == "registration" and
+//     no entity in the req has an exact-name symbol with a
+//     registration-eligible Kind (function / struct / class / type /
+//     const / var / enum), auto-satisfy. This kills the explorer
+//     self-dispatch loop caused by interface-method names
+//     (`SynthesizingEvaluator`) or abstract concept verbs
+//     (`synthesis`, `continuation`) that substring-hit unrelated
+//     symbols but are not registrable. Analyzed in
+//     docs/latency-analysis-2026-04-13.md §2.
+//
+//  2. Generic fallback: if no entity substring-matches any symbol
+//     name or file path, the entity is simply not present in the
+//     codebase and the requirement is "not applicable". This
+//     preserves the original filter for generic English words from
+//     analyzer-rewritten tasks (e.g. "list", "count", "agents").
+//
+// Both filters are data-driven — checked against the repo's symbol
+// table and file index — not hardcoded stopword lists.
 func ermAutoSatisfyUnresolvable(reqs []EvidenceRequirement, graph *repomap.Graph) []EvidenceRequirement {
 	if graph == nil || len(reqs) == 0 {
 		return reqs
@@ -707,7 +784,15 @@ func ermAutoSatisfyUnresolvable(reqs []EvidenceRequirement, graph *repomap.Graph
 		if req.Status == "satisfied" {
 			continue
 		}
-		// Check if ANY entity in this requirement matches ANY symbol in the repo.
+		// Layer 1: registration-specific gate.
+		if req.Kind == "registration" && len(req.Entities) > 0 {
+			if !hasConcreteRegistrationTarget(req.Entities, graph) {
+				req.Status = "satisfied"
+				continue
+			}
+		}
+		// Layer 2: generic substring fallback — does ANY entity
+		// appear anywhere in the codebase (symbol name or file path)?
 		hasCodeMatch := false
 		for _, ent := range req.Entities {
 			entLower := strings.ToLower(ent)
@@ -1591,6 +1676,38 @@ func pickTerminalLegacy(ev types.EvidenceItem, graph *repomap.Graph) string {
 // continue to produce the same symbol.
 func extractAnswerSymbols(items []types.EvidenceItem, questionKind, question, answerShape string, graph *repomap.Graph) []types.AnswerSymbol {
 	if len(items) == 0 {
+		return nil
+	}
+	// Mechanism questions never produce a symbol list.
+	//
+	// Mechanism answers are prose descriptions of HOW something works
+	// — ordered sequences of steps each anchored by a file:line. Forcing
+	// the finalizer into "Translation mode" (see finalizer.go §Translation
+	// mode) on a mechanism question tells the LLM "mention EXACTLY these
+	// symbols, no more no less," which degrades a step-by-step explanation
+	// into a flat name list.
+	//
+	// Concrete df3 failure (docs/df3-file-selection-drift 2026-04-13):
+	// the question "explorerEvaluator 的 ContinuationPrompt 是怎么实现的?
+	// 有哪几种 push 策略?" is mechanism kind + step_list shape. The
+	// pipeline produced [REGISTRATION]-shape and [MECHANISM]-shape
+	// evidence items, hasTerminalEvidence returned true, and this
+	// function extracted {subExplorerEvaluator, ContinuationPrompt}
+	// as answer symbols. Translation mode then forced the finalizer
+	// to write "the answer is subExplorerEvaluator and ContinuationPrompt"
+	// — skipping every actual push strategy (partial-read, unread
+	// high-priority, enumeration completeness, cross-reference, idle
+	// streak). Returning nil here routes the finalizer to the
+	// shape-based step_list prompt which asks for citations and
+	// ordered steps — the right container for a how-does-X-work
+	// answer.
+	//
+	// The early return is keyed on questionKind, NOT on the specific
+	// entity or answer_shape, so it generalises across any mechanism
+	// question in any language and doesn't depend on the analyzer's
+	// specific wording.
+	if strings.EqualFold(strings.TrimSpace(questionKind), "mechanism") {
+		logging.Debug("[erm] extractAnswerSymbols: mechanism kind, skipping symbol extraction (finalizer will use shape prompt)")
 		return nil
 	}
 	if !hasTerminalEvidence(items) {
