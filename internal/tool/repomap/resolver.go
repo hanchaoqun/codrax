@@ -105,8 +105,8 @@ func (r *legacyResolver) Resolve(g *Graph, fi *FileInfo, imp Import, ctx *Resolv
 func defaultResolvers() map[string]ImportResolver {
 	return map[string]ImportResolver{
 		LangGo:         &goImportResolver{},
-		LangJava:       &legacyResolver{lang: LangJava},
-		LangPython:     &legacyResolver{lang: LangPython},
+		LangJava:       &javaImportResolver{},
+		LangPython:     &pythonImportResolver{},
 		LangJavaScript: &legacyResolver{lang: LangJavaScript},
 		LangTypeScript: &legacyResolver{lang: LangTypeScript},
 		LangRust:       &legacyResolver{lang: LangRust},
