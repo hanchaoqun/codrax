@@ -1173,7 +1173,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// classifier sees at least one cue regardless of which knob the
 	// LLM turned this run. See memory/project_answer_symbol_extraction_audit.md.
 	questionText := strings.TrimSpace(ctx.CurrentTask + " " + ctx.CurrentTaskDescription)
-	answerSymbols := extractAnswerSymbols(strictAnswerItems, ctx.CurrentTaskQuestionKind, questionText, ermGraph)
+	answerSymbols := extractAnswerSymbols(strictAnswerItems, ctx.CurrentTaskQuestionKind, questionText, ctx.CurrentTaskAnswerShape, ermGraph)
 	if len(answerSymbols) > 0 {
 		logging.Debug("[explorer] L0-2 extracted %d answer symbols", len(answerSymbols))
 		for i, s := range answerSymbols {

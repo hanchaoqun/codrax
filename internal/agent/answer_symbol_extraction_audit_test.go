@@ -76,7 +76,7 @@ func TestAudit_ReverseBindsGo_Phase2Fixed(t *testing.T) {
 	// (count + relationship verb), which walks the chain right-to-left
 	// for a string literal and finds "users" in the terminal hop.
 	question := "how many handlers can serve users"
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "enumeration", question, nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "enumeration", question, "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
@@ -117,7 +117,7 @@ func TestAudit_IdentityReturnsGo_Phase2Fixed(t *testing.T) {
 	// the Object hop contains a quoted literal, extractQuotedLiteral
 	// returns "users".
 	question := "what does UserHandler.Name return?"
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoReturnsLiteral()}, "return_value", question, nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoReturnsLiteral()}, "return_value", question, "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
@@ -157,7 +157,7 @@ func TestAudit_ReverseDecoratorPython_Phase3Fixed(t *testing.T) {
 	// firstIdent of the right-hand side — the decorated function name.
 	// `list_users` is a snake_case identifier, so firstIdent (not
 	// firstUppercaseIdent) does the picking.
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", "", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonDecoratorRoute()}, "enumeration", "", "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
@@ -190,7 +190,7 @@ func TestAudit_ReverseAnnotationJava_Phase3Fixed(t *testing.T) {
 	// Same decorates-case routing as the Python test, proving the
 	// fix is language-agnostic: lowercase-first camelCase (`getFoo`)
 	// is accepted by firstIdent just like snake_case.
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", "", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceJavaAnnotationRoute()}, "call_chain", "", "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
@@ -224,7 +224,7 @@ func TestAudit_ForwardMapDispatchGo_Phase3Fixed(t *testing.T) {
 	// is `NewUserHandler()`; firstUppercaseIdent picks `NewUserHandler`
 	// and stripNewPrefix strips the constructor prefix. Any map entry
 	// whose value is a Go constructor follows this path.
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", "", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoMapDispatchTable()}, "registration", "", "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
@@ -258,7 +258,7 @@ func TestAudit_ReverseChainGo_Phase2Fixed(t *testing.T) {
 	// the first "<Ident>(" pattern — NewOrchestrator, stripped of
 	// its New prefix to "Orchestrator".
 	question := "who initializes TaskRunner"
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoResolutionChainMultihop()}, "call_chain", question, nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoResolutionChainMultihop()}, "call_chain", question, "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
@@ -301,7 +301,7 @@ func TestAudit_IdentityReturnsPython_Phase3Fixed(t *testing.T) {
 	// firstIdent accepts `list_users` as a snake_case identifier
 	// (≥3 chars, isIdentStart-passing). This keeps legacy Go tests
 	// unchanged and adds Python/Ruby receiver-type coverage.
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", "", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidencePythonMethodReturnsLiteral()}, "return_value", "", "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}
@@ -439,7 +439,7 @@ func TestClassifyAnswerRole_ReverseReferenceEnglish(t *testing.T) {
 // does RegisterHandlers register?" → UserHandler ✓.
 
 func TestAudit_ForwardBindsGo_SanityNonRegression(t *testing.T) {
-	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "registration", "", nil)
+	syms := extractAnswerSymbols([]types.EvidenceItem{evidenceGoRegistrationHopLiteral()}, "registration", "", "", nil)
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
 	}

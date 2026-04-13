@@ -1347,9 +1347,10 @@ func pickHop(ev types.EvidenceItem, role AnswerRole, graph *repomap.Graph) strin
 		}
 		return ""
 	case RoleAnchor:
-		// Walk right-to-left for a string literal. Strict: if no
-		// literal is found we return "" (the caller drops this
-		// item) rather than falling through to pickTerminalLegacy.
+		// Walk right-to-left for an IDENTIFIER-shaped string literal.
+		// Strict: if no identifier-shaped literal is found we return
+		// "" (the caller drops this item) rather than falling through
+		// to pickTerminalLegacy.
 		//
 		// Why strict: for an anchor question, the answer IS a
 		// literal (a name, a path, an ID). An evidence item with no
@@ -1363,11 +1364,28 @@ func pickHop(ev types.EvidenceItem, role AnswerRole, graph *repomap.Graph) strin
 		// "SubExplorer", re-polluting the answer set with the
 		// callee class). Dropping the second item produces a clean
 		// single-symbol result.
+		//
+		// Why identifier-shaped (2026-04-13 Phase 4 repro): when the
+		// Phase 4 gate promotes a batch to RoleAnchor, that batch
+		// may contain unrelated evidence whose terminal hop carries
+		// a long narrative literal — e.g. `GrepTool.Description()
+		// returns "Search file contents..."`. These are legitimate
+		// `returns "literal"` shapes but NOT the bridging identity
+		// the user asked for. The analyzer's list_of_symbols
+		// contract explicitly scopes the answer to "a SET of
+		// IDENTIFIER NAMES"; filtering here to identifier-shaped
+		// literals keeps the walker aligned with that contract
+		// without adding any NL/keyword logic. Non-identifier
+		// literals are skipped in the same walk; if an item has no
+		// identifier literal in ANY hop, it falls out via the
+		// strict-drop path unchanged.
 		hops := splitHops(ev)
 		for i := len(hops) - 1; i >= 0; i-- {
-			if lit := extractQuotedLiteral(hops[i]); lit != "" {
-				return lit
+			lit := extractQuotedLiteral(hops[i])
+			if lit == "" || !isIdentifierLiteral(lit) {
+				continue
 			}
+			return lit
 		}
 		return ""
 	case RoleTerminal:
@@ -1499,11 +1517,45 @@ func pickTerminalLegacy(ev types.EvidenceItem, graph *repomap.Graph) string {
 // caller is expected to pass only items that passed all applicable
 // L0-1 predicates; this function does NOT re-apply them.
 //
-// Phase 2 (2026-04-12, this change): classify the answer role from
-// the user's question once, pass it into answerSymbolFromEvidence so
-// reverse-reference and link-identity questions can pick the correct
-// hop. Legacy (empty question / RoleTerminal) path is untouched.
-// See memory/project_answer_symbol_extraction_audit.md.
+// Phase 2 (2026-04-12): classify the answer role from the user's
+// question once, pass it into answerSymbolFromEvidence so reverse-
+// reference and link-identity questions can pick the correct hop.
+// Legacy (empty question / RoleTerminal) path is untouched. See
+// memory/project_answer_symbol_extraction_audit.md.
+//
+// Phase 4 (2026-04-13): answer-shape-gated literal-termination
+// dominance. The Phase 2 NL classifier reads analyzer-rewritten
+// surface forms and can miss reverse-reference questions when the
+// analyzer picks a rewrite that doesn't match any keyword cue (real
+// 2026-04-13 repro: "which agents can invoke subagent" → analyzer
+// title "Identify subagent-invoking agents" + question_kind
+// "call_chain" → classifier defaulted to RoleTerminal → picked
+// callee class SubExplorer instead of bridging literal "explorer").
+//
+// The fix is a STRUCTURAL gate independent of question-text keyword
+// matching: when the analyzer declared answer_shape=list_of_symbols
+// AND the classifier's default would be RoleTerminal AND at least
+// one evidence item carries a terminal string literal, promote the
+// role to RoleAnchor. The promoted role's strict-drop semantics
+// ensures items without literals are discarded rather than falling
+// back to shape-dispatched class picks that would re-pollute the
+// answer set.
+//
+// Why answer_shape: the analyzer prompt (analyzer.go hard-rule 3)
+// defines list_of_symbols as "user is asking for a SET of names
+// they want to see listed. 'How many agents call X' is
+// list_of_symbols (they want the names even if phrased as a
+// count)". This is a documented contract on the analyzer's
+// structured output and is INDEPENDENT of how the analyzer rewrites
+// the title — unlike question_kind which drifted between
+// call_chain/enumeration across LLM runs on the same question.
+//
+// Over-fit audit: the rule is purely shape- and schema-driven. No
+// identifier names, no question keywords, no language tokens. The
+// gate fires only when the analyzer contractually declared
+// "answer is a set of names" AND the evidence graph actually
+// carries a literal name to surface. Removing any single eval case
+// does not weaken the rule.
 //
 // S2 trigger (unchanged): L0-2 no longer gates on analyzer-declared
 // questionKind. The gate is EVIDENCE-DRIVEN — extract only if at
@@ -1514,7 +1566,7 @@ func pickTerminalLegacy(ev types.EvidenceItem, graph *repomap.Graph) string {
 // pre-Phase-2 per-shape behaviour is preserved under RoleTerminal
 // so forward-reference questions and all pre-existing unit tests
 // continue to produce the same symbol.
-func extractAnswerSymbols(items []types.EvidenceItem, questionKind, question string, graph *repomap.Graph) []types.AnswerSymbol {
+func extractAnswerSymbols(items []types.EvidenceItem, questionKind, question, answerShape string, graph *repomap.Graph) []types.AnswerSymbol {
 	if len(items) == 0 {
 		return nil
 	}
@@ -1523,6 +1575,16 @@ func extractAnswerSymbols(items []types.EvidenceItem, questionKind, question str
 	}
 
 	role := classifyAnswerRole(question, questionKind)
+
+	// Phase 4 gate: promote Terminal → Anchor when the analyzer
+	// declared the answer is a set of names AND the evidence set
+	// contains an actual literal to surface. Anchor's strict-drop
+	// walk then picks the bridging literal from any item that has
+	// one, and discards items that only carry a class-name shape.
+	if role == RoleTerminal && strings.EqualFold(answerShape, "list_of_symbols") && hasTerminalLiteral(items) {
+		logging.Debug("[erm] Phase 4 gate: answer_shape=list_of_symbols and literal present; promoting role Terminal → Anchor")
+		role = RoleAnchor
+	}
 
 	var out []types.AnswerSymbol
 	seen := make(map[string]bool)
@@ -1573,6 +1635,60 @@ func hasTerminalEvidence(items []types.EvidenceItem) bool {
 			// reference. The chain already passed L0-1 predicates
 			// upstream (strict subset), so it is terminal-shaped.
 			return true
+		}
+	}
+	return false
+}
+
+// isIdentifierLiteral reports whether a quoted string literal is
+// shaped like an identifier name — the form the analyzer's
+// `list_of_symbols` answer_shape contract asks us to surface. The
+// rule is purely structural: no whitespace and length ≤ 64. This
+// accepts real identifiers ("explorer", "propose_sub_agents",
+// "widget-handler", "/api/v1/users", snake_case, kebab-case, route
+// paths) and rejects docstrings, help text, tool descriptions, and
+// any other narrative string that happens to live in a `returns
+// "..."` hop. No hardcoded keywords, no name-specific patterns.
+//
+// Why 64: empirically, the longest well-formed identifier-ish
+// literals in Go/Python/Java/TS/Ruby codebases (compound snake_case
+// names, namespaced route paths) stay under 64 characters. A
+// docstring or help text is typically hundreds of characters and
+// always contains whitespace — either filter alone would catch it;
+// both together make the filter defense-in-depth.
+func isIdentifierLiteral(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+			return false
+		}
+	}
+	return true
+}
+
+// hasTerminalLiteral reports whether any item's evidence chain
+// contains an IDENTIFIER-SHAPED quoted string literal in any hop
+// (not just the last one — the bridging literal can be produced by
+// a pre-terminal Name()/Key()/Type() call). Used by
+// extractAnswerSymbols' Phase 4 gate to decide whether promoting
+// the role to RoleAnchor would actually surface a usable literal —
+// if every literal in the batch is a long docstring or help text,
+// promotion would degrade to garbage, so we stay on the legacy
+// Terminal path instead.
+//
+// Implementation is purely structural: for each item, splitHops the
+// chain and scan each hop for a quoted literal using the same
+// extractor pickHop(RoleAnchor) uses, then filter via
+// isIdentifierLiteral. No identifier/keyword matching.
+func hasTerminalLiteral(items []types.EvidenceItem) bool {
+	for _, ev := range items {
+		for _, hop := range splitHops(ev) {
+			if lit := extractQuotedLiteral(hop); lit != "" && isIdentifierLiteral(lit) {
+				return true
+			}
 		}
 	}
 	return false

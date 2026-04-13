@@ -104,7 +104,7 @@ func TestReverseRefExtraction_Phase2Fixed(t *testing.T) {
 	items := []types.EvidenceItem{evidenceFromFailingRun()}
 	question := "有多少个agent可以调用subagent"
 
-	syms := extractAnswerSymbols(items, "enumeration", question, nil)
+	syms := extractAnswerSymbols(items, "enumeration", question, "", nil)
 
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 extracted symbol, got %d: %+v", len(syms), syms)
@@ -127,7 +127,7 @@ func TestReverseRefExtraction_Phase2Fixed(t *testing.T) {
 func TestReverseRefExtraction_NoQuestionStaysLegacy(t *testing.T) {
 	items := []types.EvidenceItem{evidenceFromFailingRun()}
 
-	syms := extractAnswerSymbols(items, "enumeration", "", nil)
+	syms := extractAnswerSymbols(items, "enumeration", "", "", nil)
 
 	if len(syms) != 1 {
 		t.Fatalf("expected 1 symbol, got %d: %+v", len(syms), syms)
