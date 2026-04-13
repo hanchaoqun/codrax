@@ -1,0 +1,316 @@
+package types
+
+// AnalysisIR is the sole structured output of the analyze stage under the
+// Analyzer v3 design. It is a single source of truth for everything the
+// downstream pipeline needs to know about the user's request: intent and
+// scenario classification, a canonical term graph, a task DAG, a falsifiable
+// hypothesis set, a multi-dimensional risk matrix, an evidence plan, a
+// machine-checkable answer contract, and the resolved run policy that the
+// orchestrator is bound to for the rest of the run.
+//
+// Design invariants:
+//
+//  1. Analyzer is the *only* writer. Other stages may mutate
+//     HypothesisSet[*].Status and TaskGraph.Nodes[*] execution state via
+//     dedicated APIs but must not rewrite the structural fields.
+//  2. RunPolicy is frozen once the analyze stage succeeds and is read-only
+//     for the rest of the run. Risk re-evaluation happens via a retryable
+//     analyze re-entry, not by mutating RunPolicy in place.
+//  3. Every non-probe TaskNode must bind at least one Hypothesis.
+//  4. TaskGraph must be a well-formed DAG whose hard dependencies are
+//     satisfiable — enforced by the analyzer quality gate, not by consumers.
+//
+// This file is pure data-model scaffolding for batch B1 of the
+// analyzer-v3 refactor (see docs/analyzer-v3-refactor-plan.md). It is not
+// yet wired into the runtime; subsequent batches add the normalizer,
+// scenario compiler, hypothesis planner, risk evaluator, counterfactual
+// expander, quality gate, and orchestrator DAG scheduler that operate on
+// these types.
+type AnalysisIR struct {
+	Version        string         `json:"version"`
+	TraceID        string         `json:"trace_id,omitempty"`
+	RequestModel   RequestModel   `json:"request_model"`
+	TaskGraph      TaskGraph      `json:"task_graph"`
+	EvidencePlan   EvidencePlan   `json:"evidence_plan"`
+	AnswerContract AnswerContract `json:"answer_contract"`
+	HypothesisSet  []Hypothesis   `json:"hypothesis_set,omitempty"`
+	RunPolicy      RunPolicy      `json:"run_policy"`
+	QualityGate    GateReport     `json:"quality_gate"`
+}
+
+// AnalysisIRVersion is the current schema version string. Bump on any
+// breaking change to the wire format so downstream consumers can refuse
+// to parse IRs they do not understand.
+const AnalysisIRVersion = "v3"
+
+// ── RequestModel ────────────────────────────────────────────────────────
+
+type RequestModel struct {
+	RawRequest  string      `json:"raw_request"`
+	Language    string      `json:"language"`
+	Intent      Intent      `json:"intent"`
+	Scenario    Scenario    `json:"scenario"`
+	Complexity  Complexity  `json:"complexity"`
+	TermGraph   TermGraph   `json:"term_graph"`
+	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
+	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
+}
+
+type Intent string
+
+const (
+	IntentExplain       Intent = "explain"
+	IntentRootCause     Intent = "root_cause"
+	IntentTrace         Intent = "trace"
+	IntentEnumerate     Intent = "enumerate"
+	IntentConfigQuery   Intent = "config_query"
+	IntentReturnValue   Intent = "return_value"
+	IntentRefactor      Intent = "refactor"
+	IntentBugfix        Intent = "bugfix"
+	IntentSecurityAudit Intent = "security_audit"
+	IntentUnknown       Intent = "unknown"
+)
+
+type Scenario string
+
+const (
+	ScenarioArchitectureExplain   Scenario = "architecture_explain"
+	ScenarioRootCause             Scenario = "root_cause"
+	ScenarioSecurityAudit         Scenario = "security_audit"
+	ScenarioRefactorDesign        Scenario = "refactor_design"
+	ScenarioConfigTrace           Scenario = "config_trace"
+	ScenarioPerformanceBottleneck Scenario = "performance_bottleneck"
+	ScenarioGeneric               Scenario = "generic"
+)
+
+type Complexity string
+
+const (
+	ComplexitySimple   Complexity = "simple"
+	ComplexityModerate Complexity = "moderate"
+	ComplexityComplex  Complexity = "complex"
+)
+
+type Ambiguity struct {
+	Clause     string   `json:"clause"`
+	Options    []string `json:"options,omitempty"`
+	Resolution string   `json:"resolution,omitempty"`
+}
+
+// ── TermGraph ───────────────────────────────────────────────────────────
+
+type TermGraph struct {
+	Canonical []CanonicalTerm `json:"canonical"`
+	Aliases   []TermAlias     `json:"aliases,omitempty"`
+}
+
+type CanonicalTerm struct {
+	ID         string   `json:"id"`
+	Surface    string   `json:"surface"`
+	Language   string   `json:"language"`
+	Kind       TermKind `json:"kind"`
+	Domain     string   `json:"domain,omitempty"`
+	Confidence float32  `json:"confidence"`
+}
+
+type TermKind string
+
+const (
+	TermSymbol  TermKind = "symbol"
+	TermConcept TermKind = "concept"
+	TermConfig  TermKind = "config"
+	TermCommand TermKind = "command"
+	TermLiteral TermKind = "literal"
+)
+
+type TermAlias struct {
+	Source     string  `json:"source"`
+	Target     string  `json:"target"`
+	Relation   string  `json:"relation"`
+	Confidence float32 `json:"confidence"`
+}
+
+// ── TaskGraph ───────────────────────────────────────────────────────────
+
+type TaskGraph struct {
+	Nodes           []TaskNode      `json:"nodes"`
+	Edges           []TaskEdge      `json:"edges,omitempty"`
+	ExecutionPolicy ExecutionPolicy `json:"execution_policy"`
+}
+
+type TaskNode struct {
+	ID               string       `json:"id"`
+	Type             TaskNodeType `json:"type"`
+	Objective        string       `json:"objective"`
+	Inputs           []string     `json:"inputs,omitempty"`
+	Outputs          []string     `json:"outputs,omitempty"`
+	EntryConditions  []string     `json:"entry_conditions,omitempty"`
+	ExitArtifacts    []string     `json:"exit_artifacts,omitempty"`
+	SuccessCriteria  []Criterion  `json:"success_criteria,omitempty"`
+	Hypotheses       []string     `json:"hypotheses,omitempty"`
+	SearchHints      SearchHints  `json:"search_hints"`
+	IsCounterfactual bool         `json:"is_counterfactual,omitempty"`
+	MaxRetries       int          `json:"max_retries,omitempty"`
+}
+
+type TaskNodeType string
+
+const (
+	NodeProbe     TaskNodeType = "probe"
+	NodeEvidence  TaskNodeType = "evidence"
+	NodeValidate  TaskNodeType = "validate"
+	NodeReconcile TaskNodeType = "reconcile"
+	NodeDesign    TaskNodeType = "design"
+	NodeImplement TaskNodeType = "implement"
+	NodeReview    TaskNodeType = "review"
+	NodeVerify    TaskNodeType = "verify"
+	NodeFinalize  TaskNodeType = "finalize"
+)
+
+type TaskEdge struct {
+	From     string   `json:"from"`
+	To       string   `json:"to"`
+	EdgeType EdgeType `json:"edge_type"`
+	Guard    string   `json:"guard,omitempty"`
+}
+
+type EdgeType string
+
+const (
+	EdgeHardDependency     EdgeType = "hard_dependency"
+	EdgeSoftDependency     EdgeType = "soft_dependency"
+	EdgeValidationFeedback EdgeType = "validation_feedback"
+)
+
+type ExecutionPolicy struct {
+	MaxParallelism int      `json:"max_parallelism"`
+	CriticalPath   []string `json:"critical_path,omitempty"`
+	RetryBudget    int      `json:"retry_budget"`
+}
+
+type Criterion struct {
+	Kind string `json:"kind"`
+	Expr string `json:"expr"`
+}
+
+type SearchHints struct {
+	KeywordIDs []string `json:"keyword_ids,omitempty"`
+	EntityIDs  []string `json:"entity_ids,omitempty"`
+}
+
+// ── EvidencePlan ────────────────────────────────────────────────────────
+
+type EvidencePlan struct {
+	Budget         EvidenceBudget  `json:"budget"`
+	SourceMix      map[string]int  `json:"source_mix,omitempty"`
+	StopConditions []StopCondition `json:"stop_conditions,omitempty"`
+}
+
+type EvidenceBudget struct {
+	MaxFiles      int `json:"max_files"`
+	MaxBytes      int `json:"max_bytes"`
+	MaxReactIters int `json:"max_react_iters"`
+	MaxToolCalls  int `json:"max_tool_calls"`
+}
+
+type StopCondition struct {
+	Kind string `json:"kind"`
+	Expr string `json:"expr,omitempty"`
+}
+
+// ── AnswerContract ──────────────────────────────────────────────────────
+
+type AnswerContract struct {
+	RequiredAnswerShape AnswerShape  `json:"required_answer_shape"`
+	MustInclude         []string     `json:"must_include,omitempty"`
+	MustExclude         []string     `json:"must_exclude,omitempty"`
+	CitationReq         CitationReq  `json:"citation_requirements"`
+	AcceptanceTests     []Acceptance `json:"acceptance_tests,omitempty"`
+	Language            string       `json:"language"`
+}
+
+type AnswerShape string
+
+const (
+	ShapeListOfSymbols AnswerShape = "list_of_symbols"
+	ShapeStepList      AnswerShape = "step_list"
+	ShapeValue         AnswerShape = "value"
+	ShapeBoolean       AnswerShape = "boolean"
+	ShapeConfigValue   AnswerShape = "config_value"
+	ShapeExplanation   AnswerShape = "explanation"
+	ShapeNone          AnswerShape = "none"
+)
+
+type CitationReq struct {
+	Required     bool   `json:"required"`
+	Granularity  string `json:"granularity"`
+	MinCitations int    `json:"min_citations"`
+}
+
+type Acceptance struct {
+	Kind string `json:"kind"`
+	Expr string `json:"expr"`
+}
+
+// ── HypothesisSet ───────────────────────────────────────────────────────
+
+type Hypothesis struct {
+	ID                     string           `json:"id"`
+	Statement              string           `json:"statement"`
+	RequiredEvidence       []Criterion      `json:"required_evidence,omitempty"`
+	FalsificationCondition Criterion        `json:"falsification_condition"`
+	Priority               int              `json:"priority"`
+	Status                 HypothesisStatus `json:"status"`
+}
+
+type HypothesisStatus string
+
+const (
+	HypUnknown   HypothesisStatus = "unknown"
+	HypConfirmed HypothesisStatus = "confirmed"
+	HypRejected  HypothesisStatus = "rejected"
+)
+
+// ── RiskMatrix & RunPolicy ──────────────────────────────────────────────
+
+type RiskMatrix struct {
+	Security      RiskLevel `json:"security"`
+	DataIntegrity RiskLevel `json:"data_integrity"`
+	Compatibility RiskLevel `json:"compatibility"`
+	Performance   RiskLevel `json:"performance"`
+	Ops           RiskLevel `json:"ops"`
+	Compliance    RiskLevel `json:"compliance"`
+}
+
+// RiskLevel is a 0..5 score with supporting free-text evidence.
+// 0 = not relevant, 1 = trivial, 2 = minor, 3 = moderate,
+// 4 = high, 5 = critical.
+type RiskLevel struct {
+	Level    int      `json:"level"`
+	Evidence []string `json:"evidence,omitempty"`
+}
+
+type RunPolicy struct {
+	Writing             bool     `json:"writing"`
+	RequireDesignReview bool     `json:"require_design_review"`
+	RequireCodeReview   bool     `json:"require_code_review"`
+	RequireVerify       bool     `json:"require_verify"`
+	ForbidSkipStages    []string `json:"forbid_skip_stages,omitempty"`
+}
+
+// ── Quality Gate ────────────────────────────────────────────────────────
+
+type GateReport struct {
+	Passed    bool        `json:"passed"`
+	Rejected  bool        `json:"rejected"`
+	Retryable bool        `json:"retryable"`
+	Checks    []GateCheck `json:"checks,omitempty"`
+}
+
+type GateCheck struct {
+	Name      string  `json:"name"`
+	Passed    bool    `json:"passed"`
+	Score     float32 `json:"score"`
+	Threshold float32 `json:"threshold"`
+	Detail    string  `json:"detail,omitempty"`
+}
