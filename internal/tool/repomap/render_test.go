@@ -173,13 +173,93 @@ func TestGenerateViewDataOverview(t *testing.T) {
 	}
 }
 
-// TestGenerateViewDataNonOverviewReturnsNil keeps the dual-channel
-// contract explicit — Phase 3 only migrates "overview"; every
-// other view type falls back to the legacy markdown path and
-// GenerateViewData must return nil for them.
-func TestGenerateViewDataNonOverviewReturnsNil(t *testing.T) {
+// TestGenerateViewDataTaskMap confirms the Phase 4 task_map
+// migration produces a structured view data with one per-file
+// subsection per ranked relevant file, and that the rendered
+// markdown preserves the legacy headline/item shape.
+func TestGenerateViewDataTaskMap(t *testing.T) {
+	files := []*FileInfo{
+		{
+			RelPath:  "a.go",
+			Language: LangGo,
+			Package:  "main",
+			Symbols: []Symbol{
+				{Name: "Finalizer", Kind: "type", Line: 5, Exported: true},
+				{Name: "AnswerShape", Kind: "type", Line: 20, Exported: true},
+			},
+		},
+		{
+			RelPath:  "b.go",
+			Language: LangGo,
+			Package:  "main",
+			Symbols: []Symbol{
+				{Name: "Other", Kind: "function", Line: 10, Exported: true},
+			},
+		},
+	}
+	g := BuildGraph(t.TempDir(), files)
+
+	d := GenerateViewData(g, "task_map", ViewParams{Query: "Finalizer AnswerShape", TopN: 5})
+	if d == nil {
+		t.Fatal("GenerateViewData(task_map) returned nil")
+	}
+	if d.Type != "task_map" || d.Query != "Finalizer AnswerShape" {
+		t.Errorf("header wrong: %+v", d)
+	}
+	if len(d.Sections) != 1 || d.Sections[0].Heading != "Relevant Files" {
+		t.Fatalf("expected one 'Relevant Files' section, got %+v", d.Sections)
+	}
+	subs := d.Sections[0].Subsections
+	if len(subs) == 0 {
+		t.Fatal("expected at least one file subsection")
+	}
+	// Locate a.go's subsection — it must have both symbols as
+	// matched items. b.go may or may not surface depending on
+	// centrality; its matched-item count must be 0 regardless.
+	var aSub *ViewSection
+	for i := range subs {
+		if strings.Contains(subs[i].Heading, "a.go") {
+			aSub = &subs[i]
+		} else if strings.Contains(subs[i].Heading, "b.go") {
+			// b.go has no matching symbol names, so its items
+			// should be empty (apart from optional imports lines
+			// which don't apply in this no-import fixture).
+			if len(subs[i].Items) != 0 {
+				t.Errorf("b.go subsection should have no matched items, got %+v", subs[i].Items)
+			}
+		}
+	}
+	if aSub == nil {
+		t.Fatalf("a.go subsection missing; got %+v", subs)
+	}
+	if !strings.Contains(aSub.Heading, "score:") {
+		t.Errorf("a.go heading missing score: %q", aSub.Heading)
+	}
+	if len(aSub.Items) != 2 {
+		t.Errorf("expected 2 matched items in a.go, got %d: %+v", len(aSub.Items), aSub.Items)
+	}
+
+	md := RenderMarkdown(d)
+	for _, want := range []string{
+		"# Task Map: Finalizer AnswerShape",
+		"## Relevant Files",
+		"### a.go (score: ",
+		"- `Finalizer` type :5",
+		"- `AnswerShape` type :20",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("markdown missing %q:\n%s", want, md)
+		}
+	}
+}
+
+// TestGenerateViewDataNonMigratedReturnsNil keeps the dual-channel
+// contract explicit — Phase 4 migrates the remaining views one at
+// a time, and this test pins the set of not-yet-migrated types so
+// the next commit's fall-through behavior stays honest.
+func TestGenerateViewDataNonMigratedReturnsNil(t *testing.T) {
 	g := BuildGraph(t.TempDir(), nil)
-	for _, t2 := range []string{"file_map", "task_map", "call_path", "edit_impact", "unknown"} {
+	for _, t2 := range []string{"file_map", "call_path", "edit_impact", "unknown"} {
 		if got := GenerateViewData(g, t2, ViewParams{}); got != nil {
 			t.Errorf("GenerateViewData(%q) = %+v, want nil", t2, got)
 		}

@@ -18,8 +18,6 @@ func GenerateView(g *Graph, viewType string, params ViewParams) string {
 	switch viewType {
 	case "file_map":
 		return viewFileMap(g, params)
-	case "task_map":
-		return viewTaskMap(g, params)
 	case "call_path":
 		return viewCallPath(g, params)
 	case "edit_impact":
@@ -87,74 +85,6 @@ func viewFileMap(g *Graph, params ViewParams) string {
 		}
 		b.WriteString("\n")
 	}
-	return b.String()
-}
-
-// --- Task Map: local subgraph around a query ---
-
-func viewTaskMap(g *Graph, params ViewParams) string {
-	if params.Query == "" {
-		return RenderMarkdown(GenerateViewData(g, "overview", params))
-	}
-
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("# Task Map: %s\n\n", params.Query))
-	b.WriteString("> **Navigation index only.** Use these results to decide which files to read or grep — do not treat them as evidence.\n\n")
-
-	// Re-rank with query
-	RankGraph(g, params.Query)
-
-	topN := params.TopN
-	if topN <= 0 {
-		topN = 20
-	}
-	relevant := TopFiles(g, topN)
-
-	b.WriteString("## Relevant Files\n\n")
-	for _, fi := range relevant {
-		score := g.Scores[fi.RelPath]
-		if score <= 0 {
-			continue
-		}
-		b.WriteString(fmt.Sprintf("### %s (score: %.1f)\n\n", fi.RelPath, score))
-
-		// show matching symbols
-		query := strings.ToLower(params.Query)
-		terms := strings.Fields(query)
-		for _, sym := range fi.Symbols {
-			matched := false
-			nameLower := strings.ToLower(sym.Name)
-			for _, term := range terms {
-				if strings.Contains(nameLower, term) {
-					matched = true
-					break
-				}
-			}
-			if !matched {
-				continue
-			}
-			line := fmt.Sprintf("- `%s` %s :%d", sym.Name, sym.Kind, sym.Line)
-			if sym.Signature != "" {
-				line += " `" + sym.Signature + "`"
-			}
-			if sym.Doc != "" {
-				line += " — " + sym.Doc
-			}
-			b.WriteString(line + "\n")
-		}
-
-		// show imports/dependents
-		deps := g.FilesImportedBy(fi.RelPath)
-		if len(deps) > 0 {
-			b.WriteString(fmt.Sprintf("  - imports: %s\n", strings.Join(abbreviate(deps, 5), ", ")))
-		}
-		importers := g.FilesImporting(fi.RelPath)
-		if len(importers) > 0 {
-			b.WriteString(fmt.Sprintf("  - imported by: %s\n", strings.Join(abbreviate(importers, 5), ", ")))
-		}
-		b.WriteString("\n")
-	}
-
 	return b.String()
 }
 

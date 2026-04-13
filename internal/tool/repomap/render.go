@@ -118,12 +118,18 @@ func renderSection(b *strings.Builder, s *ViewSection, depth int) {
 // that still use the legacy markdown-direct path, GenerateViewData
 // returns nil and callers should fall back to GenerateView.
 //
-// Phase 3 migrates only "overview". Phase 4's three-layer split
-// will migrate the remaining views.
+// Phase 3 migrated "overview" as the initial pattern. Phase 4
+// migrates the remaining views as a precondition for the
+// three-layer split.
 func GenerateViewData(g *Graph, viewType string, params ViewParams) *ViewData {
 	switch viewType {
 	case "overview", "":
 		return buildOverviewData(g, params)
+	case "task_map":
+		if params.Query == "" {
+			return buildOverviewData(g, params)
+		}
+		return buildTaskMapData(g, params)
 	}
 	return nil
 }
@@ -258,5 +264,98 @@ func sortPackages(s []packageSummary) {
 		for j := i; j > 0 && (s[j].fileCount > s[j-1].fileCount || (s[j].fileCount == s[j-1].fileCount && s[j].name < s[j-1].name)); j-- {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
+	}
+}
+
+// buildTaskMapData produces the structured form of the task_map
+// view. Runs a query-biased RankGraph pass (same side-effect as
+// the legacy viewTaskMap function), then emits one "Relevant
+// Files" section with one ViewSection per file and matched
+// symbols as Items on that file's subsection. Matched-symbol
+// filtering uses the same TokenizeQuery tokens that drive
+// rank.go's queryMatchScore, so the shown symbols are exactly
+// the ones that contributed to the file's rank score.
+//
+// The legacy view appended "imports: …" and "imported by: …"
+// lines directly under each file block as indented bullets.
+// ViewItem is a flat list shape, so these become plain items
+// at the end of the file's Items slice with the same visible
+// prefix, giving identical rendered markdown.
+func buildTaskMapData(g *Graph, params ViewParams) *ViewData {
+	RankGraph(g, params.Query)
+
+	topN := params.TopN
+	if topN <= 0 {
+		topN = 20
+	}
+	relevant := TopFiles(g, topN)
+
+	// Primary-weight tokens only: sub-tokens would over-match the
+	// rendered "matched symbols" list and clutter the human view
+	// without adding information beyond what the file score
+	// already encodes.
+	tokens := TokenizeQuery(params.Query)
+	primary := tokens[:0]
+	for _, t := range tokens {
+		if t.Weight >= 1.0 {
+			primary = append(primary, t)
+		}
+	}
+
+	body := ViewSection{Heading: "Relevant Files"}
+	for _, fi := range relevant {
+		score := g.Scores[fi.RelPath]
+		if score <= 0 {
+			continue
+		}
+		fileSection := ViewSection{
+			Heading: fmt.Sprintf("%s (score: %.1f)", fi.RelPath, score),
+		}
+		for _, sym := range fi.Symbols {
+			nameLower := strings.ToLower(sym.Name)
+			matched := false
+			for _, t := range primary {
+				if strings.Contains(nameLower, t.Text) {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				continue
+			}
+			line := fmt.Sprintf("`%s` %s :%d", sym.Name, sym.Kind, sym.Line)
+			if sym.Signature != "" {
+				line += " `" + sym.Signature + "`"
+			}
+			if sym.Doc != "" {
+				line += " — " + sym.Doc
+			}
+			fileSection.Items = append(fileSection.Items, ViewItem{
+				Text: line,
+				File: fi.RelPath,
+				Kind: sym.Kind,
+			})
+		}
+		if deps := g.FilesImportedBy(fi.RelPath); len(deps) > 0 {
+			fileSection.Items = append(fileSection.Items, ViewItem{
+				Text: "  - imports: " + strings.Join(abbreviate(deps, 5), ", "),
+				Kind: "imports",
+			})
+		}
+		if importers := g.FilesImporting(fi.RelPath); len(importers) > 0 {
+			fileSection.Items = append(fileSection.Items, ViewItem{
+				Text: "  - imported by: " + strings.Join(abbreviate(importers, 5), ", "),
+				Kind: "imported_by",
+			})
+		}
+		body.Subsections = append(body.Subsections, fileSection)
+	}
+
+	return &ViewData{
+		Type:  "task_map",
+		Title: "Task Map: " + params.Query,
+		Query: params.Query,
+		Intro: "> **Navigation index only.** Use these results to decide which files to read or grep — do not treat them as evidence.",
+		Sections: []ViewSection{body},
 	}
 }
