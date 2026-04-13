@@ -95,16 +95,25 @@ type importAccuracy struct {
 	// For every import relation extracted by repomap, check whether
 	// the target file exists in graph.FileIndex. Unresolved imports
 	// count as inaccurate — the resolver failed to map path→file.
-	TotalRelations int     `json:"total_relations"`
-	Resolved       int     `json:"resolved"`
-	Accuracy       float64 `json:"accuracy"`
-	PerLanguage    map[string]importLangStats `json:"per_language"`
+	// "Accuracy" is the overall ratio. "InternalAccuracy" excludes
+	// imports the resolver classified as external (stdlib / third-
+	// party modules that cannot resolve to a repo file) via a
+	// Reason suffix of "_external", and is the Phase 2a gate.
+	TotalRelations    int                        `json:"total_relations"`
+	Resolved          int                        `json:"resolved"`
+	External          int                        `json:"external"`
+	Accuracy          float64                    `json:"accuracy"`
+	InternalAccuracy  float64                    `json:"internal_accuracy"`
+	PerLanguage       map[string]importLangStats `json:"per_language"`
+	UnresolvedReasons map[string]int             `json:"unresolved_reasons"`
 }
 
 type importLangStats struct {
-	Total    int     `json:"total"`
-	Resolved int     `json:"resolved"`
-	Accuracy float64 `json:"accuracy"`
+	Total            int     `json:"total"`
+	Resolved         int     `json:"resolved"`
+	External         int     `json:"external"`
+	Accuracy         float64 `json:"accuracy"`
+	InternalAccuracy float64 `json:"internal_accuracy"`
 }
 
 type callEdgeAmbiguity struct {
@@ -370,15 +379,26 @@ func abs(x int) int { if x < 0 { return -x }; return x }
 // ── Metric 3: import edge accuracy ──────────────────────────────────────
 
 func computeImportAccuracy(g *repomap.Graph) importAccuracy {
-	out := importAccuracy{PerLanguage: make(map[string]importLangStats)}
+	out := importAccuracy{
+		PerLanguage:       make(map[string]importLangStats),
+		UnresolvedReasons: make(map[string]int),
+	}
 
-	// Per-(file,rawPath) unresolved lookup populated by
-	// resolveImportGraph. Keyed by "relpath|raw" so duplicate Import
-	// entries in a single file (rare but legal, e.g. JS re-imports)
-	// are each counted individually.
-	unresolved := make(map[string]int)
+	// Per-(file,rawPath) unresolved queue populated by
+	// resolveImportGraph. Each entry carries a Reason; reasons with
+	// a "_external" suffix denote stdlib / third-party imports that
+	// cannot resolve to a repo file by construction and are excluded
+	// from the internal-accuracy denominator.
+	type unresolvedEntry struct{ reason string }
+	unresolved := make(map[string][]unresolvedEntry)
 	for _, u := range g.Metadata.UnresolvedImports {
-		unresolved[u.File+"|"+u.Raw]++
+		key := u.File + "|" + u.Raw
+		unresolved[key] = append(unresolved[key], unresolvedEntry{reason: u.Reason})
+		out.UnresolvedReasons[u.Reason]++
+	}
+
+	isExternal := func(reason string) bool {
+		return strings.HasSuffix(reason, "_external")
 	}
 
 	for _, fi := range g.Files {
@@ -390,8 +410,13 @@ func computeImportAccuracy(g *repomap.Graph) importAccuracy {
 			out.TotalRelations++
 			langStats.Total++
 			key := fi.RelPath + "|" + imp.Path
-			if n := unresolved[key]; n > 0 {
-				unresolved[key] = n - 1
+			if q := unresolved[key]; len(q) > 0 {
+				entry := q[0]
+				unresolved[key] = q[1:]
+				if isExternal(entry.reason) {
+					out.External++
+					langStats.External++
+				}
 				continue
 			}
 			out.Resolved++
@@ -402,11 +427,17 @@ func computeImportAccuracy(g *repomap.Graph) importAccuracy {
 	if out.TotalRelations > 0 {
 		out.Accuracy = float64(out.Resolved) / float64(out.TotalRelations)
 	}
+	if denom := out.TotalRelations - out.External; denom > 0 {
+		out.InternalAccuracy = float64(out.Resolved) / float64(denom)
+	}
 	for lang, s := range out.PerLanguage {
 		if s.Total > 0 {
 			s.Accuracy = float64(s.Resolved) / float64(s.Total)
-			out.PerLanguage[lang] = s
 		}
+		if denom := s.Total - s.External; denom > 0 {
+			s.InternalAccuracy = float64(s.Resolved) / float64(denom)
+		}
+		out.PerLanguage[lang] = s
 	}
 	return out
 }

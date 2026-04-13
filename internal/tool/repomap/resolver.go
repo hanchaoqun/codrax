@@ -99,12 +99,12 @@ func (r *legacyResolver) Resolve(g *Graph, fi *FileInfo, imp Import, ctx *Resolv
 	return resolveImport(g, fi, imp, ctx.PkgToFiles, ctx.BasenameIndex)
 }
 
-// defaultResolvers returns the Phase 2a dispatcher map. Every
-// language starts life bound to a legacyResolver; subsequent commits
-// swap individual entries out for dedicated implementations.
+// defaultResolvers returns the Phase 2a dispatcher map. Languages
+// that have a dedicated resolver are wired here; the rest still fall
+// back to legacyResolver until their per-language commit lands.
 func defaultResolvers() map[string]ImportResolver {
 	return map[string]ImportResolver{
-		LangGo:         &legacyResolver{lang: LangGo},
+		LangGo:         &goImportResolver{},
 		LangJava:       &legacyResolver{lang: LangJava},
 		LangPython:     &legacyResolver{lang: LangPython},
 		LangJavaScript: &legacyResolver{lang: LangJavaScript},

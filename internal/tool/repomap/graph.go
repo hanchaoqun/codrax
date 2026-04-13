@@ -117,11 +117,17 @@ func resolveImportGraph(g *Graph) {
 			continue
 		}
 		for _, imp := range fi.Imports {
+			before := len(ctx.Unresolved)
 			targets := r.Resolve(g, fi, imp, ctx)
 			if len(targets) == 0 {
-				ctx.Unresolved = append(ctx.Unresolved, UnresolvedImport{
-					File: fi.RelPath, Raw: imp.Path, Reason: fi.Language,
-				})
+				// Only record a generic unresolved entry when the
+				// resolver didn't already append a more specific
+				// reason of its own.
+				if len(ctx.Unresolved) == before {
+					ctx.Unresolved = append(ctx.Unresolved, UnresolvedImport{
+						File: fi.RelPath, Raw: imp.Path, Reason: fi.Language,
+					})
+				}
 				continue
 			}
 			for _, t := range targets {
