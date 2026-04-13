@@ -275,36 +275,48 @@ func hasMainMethod(fi *FileInfo) bool {
 	return false
 }
 
+// queryMatchScore scores a file by how well its RelPath, symbol
+// names, and symbol doc comments match the query. The query is
+// tokenized via the Phase 2b multilingual tokenizer
+// (TokenizeQuery in query.go): primary tokens (weight 1.0) are the
+// whole whitespace-separated lowered identifier, secondary sub-
+// tokens (weight 0.5) are CamelCase / snake_case / kebab-case /
+// dotted / slashed decompositions, and CJK runs are emitted as
+// primary-weight bi-grams. Each token hit contributes its weight
+// times the field multiplier (path=3, symbol=2, doc=1); total is
+// capped at 20 to prevent a single file from dominating rank.
 func queryMatchScore(fi *FileInfo, query string) float64 {
-	query = strings.ToLower(query)
-	terms := strings.Fields(query)
-	score := 0.0
+	tokens := TokenizeQuery(query)
+	if len(tokens) == 0 {
+		return 0.0
+	}
 
-	fileLower := strings.ToLower(fi.RelPath)
-	for _, term := range terms {
-		if strings.Contains(fileLower, term) {
-			score += 3.0
+	score := 0.0
+	pathLower := strings.ToLower(fi.RelPath)
+	for _, t := range tokens {
+		if strings.Contains(pathLower, t.Text) {
+			score += 3.0 * t.Weight
 		}
 	}
 
 	for _, sym := range fi.Symbols {
 		nameLower := strings.ToLower(sym.Name)
-		for _, term := range terms {
-			if strings.Contains(nameLower, term) {
-				score += 2.0
+		for _, t := range tokens {
+			if strings.Contains(nameLower, t.Text) {
+				score += 2.0 * t.Weight
 			}
 		}
 		if sym.Doc != "" {
 			docLower := strings.ToLower(sym.Doc)
-			for _, term := range terms {
-				if strings.Contains(docLower, term) {
-					score += 1.0
+			for _, t := range tokens {
+				if strings.Contains(docLower, t.Text) {
+					score += 1.0 * t.Weight
 				}
 			}
 		}
 	}
 
-	return math.Min(score, 20.0) // cap to avoid one file dominating
+	return math.Min(score, 20.0)
 }
 
 func itoa(n int) string {
