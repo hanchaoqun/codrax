@@ -209,10 +209,12 @@ type ExecutionSignals struct {
 
 // PolicyContext holds policy flags governing pipeline behavior.
 type PolicyContext struct {
-	AllowWrite          bool `json:"allow_write"`
-	RequireReview       bool `json:"require_review"`
-	RequireVerification bool `json:"require_verification"`
-	MaxRetriesPerStage  int  `json:"max_retries_per_stage"`
+	AllowWrite          bool      `json:"allow_write"`
+	RequireReview       bool      `json:"require_review"`
+	RequireVerification bool      `json:"require_verification"`
+	MaxRetriesPerStage  int       `json:"max_retries_per_stage"`
+	RunPolicy           RunPolicy `json:"run_policy,omitempty"`
+	PolicyLocked        bool      `json:"policy_locked"`
 }
 
 // BusContext is the central data structure passed through the pipeline.

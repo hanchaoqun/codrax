@@ -12,12 +12,27 @@ type AnalysisIR struct {
 }
 
 type RequestModel struct {
-	UserIntent   string   `json:"user_intent,omitempty" yaml:"user_intent,omitempty"`
-	Scenario     string   `json:"scenario,omitempty" yaml:"scenario,omitempty"`
-	Risk         string   `json:"risk,omitempty" yaml:"risk,omitempty"`
-	Ambiguities  []string `json:"ambiguities,omitempty" yaml:"ambiguities,omitempty"`
-	Entities     []string `json:"entities,omitempty" yaml:"entities,omitempty"`
-	QuestionKind string   `json:"question_kind,omitempty" yaml:"question_kind,omitempty"`
+	UserIntent   string     `json:"user_intent,omitempty" yaml:"user_intent,omitempty"`
+	Scenario     string     `json:"scenario,omitempty" yaml:"scenario,omitempty"`
+	Risk         string     `json:"risk,omitempty" yaml:"risk,omitempty"`
+	RiskMatrix   RiskMatrix `json:"risk_matrix,omitempty" yaml:"risk_matrix,omitempty"`
+	Ambiguities  []string   `json:"ambiguities,omitempty" yaml:"ambiguities,omitempty"`
+	Entities     []string   `json:"entities,omitempty" yaml:"entities,omitempty"`
+	QuestionKind string     `json:"question_kind,omitempty" yaml:"question_kind,omitempty"`
+}
+
+type RiskDimension struct {
+	Level    int      `json:"level" yaml:"level"`
+	Evidence []string `json:"evidence,omitempty" yaml:"evidence,omitempty"`
+}
+
+type RiskMatrix struct {
+	Security      RiskDimension `json:"security,omitempty" yaml:"security,omitempty"`
+	DataIntegrity RiskDimension `json:"data_integrity,omitempty" yaml:"data_integrity,omitempty"`
+	Compatibility RiskDimension `json:"compatibility,omitempty" yaml:"compatibility,omitempty"`
+	Performance   RiskDimension `json:"performance,omitempty" yaml:"performance,omitempty"`
+	Ops           RiskDimension `json:"ops,omitempty" yaml:"ops,omitempty"`
+	Compliance    RiskDimension `json:"compliance,omitempty" yaml:"compliance,omitempty"`
 }
 
 type TaskGraph struct {

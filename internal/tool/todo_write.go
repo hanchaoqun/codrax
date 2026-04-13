@@ -31,17 +31,18 @@ type todoWriteParams struct {
 }
 
 type todoWriteTaskParam struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Description  string   `json:"description,omitempty"`
-	Writing      bool     `json:"writing,omitempty"`
-	HighRisk     bool     `json:"high_risk,omitempty"`
-	Complexity   string   `json:"complexity,omitempty"`
-	Keywords     []string `json:"keywords,omitempty"`
-	Entities     []string `json:"entities,omitempty"`
-	QuestionKind string   `json:"question_kind,omitempty"`
-	AnswerShape  string   `json:"answer_shape,omitempty"`
-	Status       string   `json:"status,omitempty"`
+	ID           string            `json:"id"`
+	Title        string            `json:"title"`
+	Description  string            `json:"description,omitempty"`
+	Writing      bool              `json:"writing,omitempty"`
+	HighRisk     bool              `json:"high_risk,omitempty"`
+	RiskMatrix   *types.RiskMatrix `json:"risk_matrix,omitempty"`
+	Complexity   string            `json:"complexity,omitempty"`
+	Keywords     []string          `json:"keywords,omitempty"`
+	Entities     []string          `json:"entities,omitempty"`
+	QuestionKind string            `json:"question_kind,omitempty"`
+	AnswerShape  string            `json:"answer_shape,omitempty"`
+	Status       string            `json:"status,omitempty"`
 }
 
 func (t *TodoWrite) Name() string { return "todo_write" }
@@ -68,6 +69,18 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "description": {"type": "string", "description": "Optional details"},
           "writing":     {"type": "boolean", "description": "True if this task may mutate files (picks an implementation-class policy)"},
           "high_risk":   {"type": "boolean", "description": "True if this task needs design/code review (only meaningful when writing is true)"},
+          "risk_matrix": {
+            "type": "object",
+            "description": "Optional 6-dimension risk assessment (0-5 + evidence) used to lock pipeline policy after analyze.",
+            "properties": {
+              "security": {"$ref": "#/$defs/risk_dimension"},
+              "data_integrity": {"$ref": "#/$defs/risk_dimension"},
+              "compatibility": {"$ref": "#/$defs/risk_dimension"},
+              "performance": {"$ref": "#/$defs/risk_dimension"},
+              "ops": {"$ref": "#/$defs/risk_dimension"},
+              "compliance": {"$ref": "#/$defs/risk_dimension"}
+            }
+          },
           "complexity":  {"type": "string", "enum": ["simple", "moderate", "complex"], "description": "Investigation depth: simple (lookup/count), moderate (single-component), complex (cross-component architecture). Defaults to moderate if omitted."},
           "keywords":    {"type": "array", "items": {"type": "string"}, "description": "Search terms for the explorer to grep. Include CamelCase symbols, snake_case identifiers, and conceptual synonyms. Minimum 8 keywords."},
           "entities":    {"type": "array", "items": {"type": "string"}, "description": "CamelCase/snake_case symbol names copied VERBATIM from the user's original wording. Do NOT translate, re-case, or paraphrase. These drive ERM entity extraction for the explorer; adding generic English nouns (e.g. 'count','that','function') has caused ranking regressions. Leave empty only if the user's question contains no identifier-looking tokens."},
@@ -76,6 +89,15 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
+      }
+    }
+  },
+  "$defs": {
+    "risk_dimension": {
+      "type": "object",
+      "properties": {
+        "level": {"type": "integer", "minimum": 0, "maximum": 5},
+        "evidence": {"type": "array", "items": {"type": "string"}}
       }
     }
   },
@@ -175,6 +197,9 @@ func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.Analysi
 		})
 	}
 	if current != nil {
+		if current.RiskMatrix != nil {
+			ir.RequestModel.RiskMatrix = types.NormalizeRiskMatrix(*current.RiskMatrix)
+		}
 		ir.RequestModel.Entities = trimStringSlice(current.Entities)
 		ir.RequestModel.QuestionKind = normalizeQuestionKind(current.QuestionKind)
 		ir.EvidencePlan = types.EvidencePlan{

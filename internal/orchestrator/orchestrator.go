@@ -229,7 +229,29 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	if _, err := o.dispatchStage(stageConfig); err != nil {
 		return 1, err
 	}
+	o.freezeRunPolicyFromAnalysis()
 	return 1, nil
+}
+
+func (o *Orchestrator) freezeRunPolicyFromAnalysis() {
+	if o.busCtx == nil || o.busCtx.Policy.PolicyLocked {
+		return
+	}
+	runPolicy := types.RunPolicy{}
+	if o.busCtx.AnalysisIR != nil {
+		risk := types.NormalizeRiskMatrix(o.busCtx.AnalysisIR.RequestModel.RiskMatrix)
+		o.busCtx.AnalysisIR.RequestModel.RiskMatrix = risk
+		runPolicy = types.ResolveRiskPolicy(risk)
+	}
+
+	// Existing startup flags remain hard lower bounds.
+	runPolicy.RequireReview = runPolicy.RequireReview || o.busCtx.Policy.RequireReview
+	runPolicy.RequireVerification = runPolicy.RequireVerification || o.busCtx.Policy.RequireVerification
+
+	o.busCtx.Policy.RunPolicy = runPolicy
+	o.busCtx.Policy.RequireReview = runPolicy.RequireReview
+	o.busCtx.Policy.RequireVerification = runPolicy.RequireVerification
+	o.busCtx.Policy.PolicyLocked = true
 }
 
 // runTaskPhase iterates over pending tasks and runs each through its
@@ -695,6 +717,9 @@ func (o *Orchestrator) decideNextStage() types.PipelineStage {
 	// Filter by runtime signals
 	transitions = o.filterBySignals(transitions)
 
+	// Enforce frozen run policy (post-analyze).
+	transitions = o.filterByRunPolicy(transitions)
+
 	// Select highest priority (first after filtering, since they're sorted)
 	if len(transitions) > 0 {
 		o.busCtx.TaskState.LastDecision = fmt.Sprintf(
@@ -758,18 +783,70 @@ func (o *Orchestrator) filterByPolicy(transitions []types.Transition, policyName
 // filterByPipelineSettings removes transitions to stages disabled by pipeline settings.
 func (o *Orchestrator) filterByPipelineSettings(transitions []types.Transition) []types.Transition {
 	flags := o.config.PipelineSettings
+	requireVerify := flags.EnableVerify
+	if o.busCtx != nil && o.busCtx.Policy.RequireVerification {
+		requireVerify = true
+	}
 
 	var filtered []types.Transition
 	for _, t := range transitions {
 		switch t.To {
 		case types.StageVerify:
-			if !flags.EnableVerify {
+			if !requireVerify {
 				continue
 			}
 		}
 		filtered = append(filtered, t)
 	}
 	return filtered
+}
+
+func (o *Orchestrator) filterByRunPolicy(transitions []types.Transition) []types.Transition {
+	if o.busCtx == nil {
+		return transitions
+	}
+	mandatory := o.busCtx.Policy.RunPolicy.MandatoryStages
+	if len(mandatory) == 0 {
+		return transitions
+	}
+
+	blockedFinalize := false
+	for _, st := range mandatory {
+		if !o.hasVisitedRequiredStage(st) {
+			blockedFinalize = true
+			break
+		}
+	}
+	if !blockedFinalize {
+		return transitions
+	}
+
+	filtered := make([]types.Transition, 0, len(transitions))
+	for _, t := range transitions {
+		if t.To == types.StageFinalize {
+			continue
+		}
+		filtered = append(filtered, t)
+	}
+	if len(filtered) == 0 {
+		return transitions
+	}
+	return filtered
+}
+
+func (o *Orchestrator) hasVisitedRequiredStage(stage types.PipelineStage) bool {
+	switch stage {
+	case types.StagePlan:
+		return o.stageVisits[types.StagePlan] > 0 || o.busCtx.Signals.HasPlan
+	case types.StageDesignReview:
+		return o.stageVisits[types.StageDesignReview] > 0 || o.busCtx.Signals.DesignReviewPassed
+	case types.StageCodeReview:
+		return o.stageVisits[types.StageCodeReview] > 0 || o.busCtx.Signals.CodeReviewPassed
+	case types.StageVerify:
+		return o.stageVisits[types.StageVerify] > 0 || o.busCtx.Signals.VerificationPassed
+	default:
+		return o.stageVisits[stage] > 0
+	}
 }
 
 // filterBySignals applies runtime signal-based filtering to transitions.
