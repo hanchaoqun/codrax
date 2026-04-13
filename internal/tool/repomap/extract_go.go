@@ -48,7 +48,18 @@ func extractGo(root *sitter.Node, src []byte, file string) (pkg string, syms []S
 
 func goExtractImports(node *sitter.Node, src []byte, file string) []Import {
 	var imps []Import
+	// tree-sitter-go places grouped imports (import ( ... )) under an
+	// import_spec_list child, not directly under import_declaration.
+	// Verified against codrax/internal/orchestrator/orchestrator.go via
+	// eval/repomap_v3/probe_ast (2026-04-13). Always check the
+	// spec_list first; fall back to direct import_spec children for
+	// parser variants; fall back to the single-import literal last.
 	specs := childrenByType(node, "import_spec")
+	if len(specs) == 0 {
+		if list := childByType(node, "import_spec_list"); list != nil {
+			specs = childrenByType(list, "import_spec")
+		}
+	}
 	if len(specs) == 0 {
 		// single import: import "path"
 		if lit := childByType(node, "interpreted_string_literal"); lit != nil {
