@@ -1,0 +1,269 @@
+package compiler
+
+import (
+	"testing"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+func sampleRM(scenario types.Scenario, intent types.Intent, complexity types.Complexity) types.RequestModel {
+	return types.RequestModel{
+		RawRequest: "sample",
+		Language:   "zh",
+		Intent:     intent,
+		Scenario:   scenario,
+		Complexity: complexity,
+		TermGraph: types.TermGraph{
+			Canonical: []types.CanonicalTerm{
+				{ID: "code:explorer", Surface: "Explorer", Language: "code", Kind: types.TermSymbol},
+				{ID: "en:stop", Surface: "stop", Language: "en", Kind: types.TermConcept},
+				{ID: "cfg:config/orchestrator.yaml", Surface: "config/orchestrator.yaml", Language: "code", Kind: types.TermConfig},
+			},
+		},
+	}
+}
+
+// countNodeType returns how many nodes of the given type exist in g.
+func countNodeType(g types.TaskGraph, t types.TaskNodeType) int {
+	n := 0
+	for _, node := range g.Nodes {
+		if node.Type == t {
+			n++
+		}
+	}
+	return n
+}
+
+func hasEdge(g types.TaskGraph, from, to string, et types.EdgeType) bool {
+	for _, e := range g.Edges {
+		if e.From == from && e.To == to && e.EdgeType == et {
+			return true
+		}
+	}
+	return false
+}
+
+func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
+	out := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	if out.AnswerContract.RequiredAnswerShape != types.ShapeExplanation {
+		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
+	}
+	if countNodeType(out.TaskGraph, types.NodeProbe) != 1 {
+		t.Fatalf("want 1 probe node")
+	}
+	if countNodeType(out.TaskGraph, types.NodeFinalize) != 1 {
+		t.Fatalf("want 1 finalize node")
+	}
+	// All edges must reference nodes that exist.
+	ids := make(map[string]bool)
+	for _, n := range out.TaskGraph.Nodes {
+		ids[n.ID] = true
+	}
+	for _, e := range out.TaskGraph.Edges {
+		if !ids[e.From] || !ids[e.To] {
+			t.Fatalf("dangling edge %+v", e)
+		}
+	}
+}
+
+func TestCompile_RootCause_HasValidationFeedback(t *testing.T) {
+	out := Compile(sampleRM(types.ScenarioRootCause, types.IntentRootCause, types.ComplexityComplex))
+	if out.AnswerContract.RequiredAnswerShape != types.ShapeStepList {
+		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
+	}
+	// validate → evidence feedback edge must exist.
+	var validateID, evidenceID string
+	for _, n := range out.TaskGraph.Nodes {
+		if n.Type == types.NodeValidate {
+			validateID = n.ID
+		}
+		if n.Type == types.NodeEvidence {
+			evidenceID = n.ID
+		}
+	}
+	if validateID == "" || evidenceID == "" {
+		t.Fatalf("missing validate or evidence node")
+	}
+	if !hasEdge(out.TaskGraph, validateID, evidenceID, types.EdgeValidationFeedback) {
+		t.Fatalf("expected validation_feedback edge %s→%s; edges=%+v", validateID, evidenceID, out.TaskGraph.Edges)
+	}
+}
+
+func TestCompile_SecurityAudit_ListOfSymbols(t *testing.T) {
+	out := Compile(sampleRM(types.ScenarioSecurityAudit, types.IntentSecurityAudit, types.ComplexityComplex))
+	if out.AnswerContract.RequiredAnswerShape != types.ShapeListOfSymbols {
+		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
+	}
+	if countNodeType(out.TaskGraph, types.NodeReview) != 1 {
+		t.Fatalf("security audit template must include a review node")
+	}
+}
+
+func TestCompile_RefactorDesign_HasDesignAndReview(t *testing.T) {
+	out := Compile(sampleRM(types.ScenarioRefactorDesign, types.IntentRefactor, types.ComplexityComplex))
+	if countNodeType(out.TaskGraph, types.NodeDesign) != 1 {
+		t.Fatalf("refactor template must include a design node")
+	}
+	if countNodeType(out.TaskGraph, types.NodeReview) != 1 {
+		t.Fatalf("refactor template must include a review node")
+	}
+}
+
+func TestCompile_ConfigTrace_ShapeConfigValue(t *testing.T) {
+	out := Compile(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
+	if out.AnswerContract.RequiredAnswerShape != types.ShapeConfigValue {
+		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
+	}
+	// Simple complexity must give a smaller budget than moderate.
+	moderate := Compile(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexityModerate))
+	if out.EvidencePlan.Budget.MaxFiles >= moderate.EvidencePlan.Budget.MaxFiles {
+		t.Fatalf("simple budget %d should be < moderate %d",
+			out.EvidencePlan.Budget.MaxFiles, moderate.EvidencePlan.Budget.MaxFiles)
+	}
+}
+
+func TestCompile_PerformanceBottleneck_ListOfSymbols(t *testing.T) {
+	out := Compile(sampleRM(types.ScenarioPerformanceBottleneck, types.IntentTrace, types.ComplexityModerate))
+	if out.AnswerContract.RequiredAnswerShape != types.ShapeListOfSymbols {
+		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
+	}
+}
+
+func TestCompile_Generic_ReactsToIntent(t *testing.T) {
+	cases := []struct {
+		intent types.Intent
+		want   types.AnswerShape
+	}{
+		{types.IntentExplain, types.ShapeExplanation},
+		{types.IntentReturnValue, types.ShapeValue},
+		{types.IntentEnumerate, types.ShapeListOfSymbols},
+		{types.IntentConfigQuery, types.ShapeConfigValue},
+	}
+	for _, c := range cases {
+		out := Compile(sampleRM(types.ScenarioGeneric, c.intent, types.ComplexityModerate))
+		if out.AnswerContract.RequiredAnswerShape != c.want {
+			t.Fatalf("intent=%s: want shape=%s got %s", c.intent, c.want, out.AnswerContract.RequiredAnswerShape)
+		}
+	}
+}
+
+func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
+	out := Compile(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
+	// Generic template has exactly 3 nodes: probe, evidence, finalize.
+	if len(out.TaskGraph.Nodes) != 3 {
+		t.Fatalf("unknown scenario should fall back to generic (3 nodes); got %d", len(out.TaskGraph.Nodes))
+	}
+}
+
+func TestCompile_HintsPropagateFromTermGraph(t *testing.T) {
+	out := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	foundCodeHint := false
+	for _, n := range out.TaskGraph.Nodes {
+		for _, id := range n.SearchHints.EntityIDs {
+			if id == "code:explorer" {
+				foundCodeHint = true
+			}
+		}
+	}
+	if !foundCodeHint {
+		t.Fatalf("code:explorer must reach node search hints")
+	}
+}
+
+func TestCompile_ComplexityScalesBudget(t *testing.T) {
+	simple := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexitySimple))
+	moderate := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	complex := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityComplex))
+	if !(simple.EvidencePlan.Budget.MaxFiles < moderate.EvidencePlan.Budget.MaxFiles &&
+		moderate.EvidencePlan.Budget.MaxFiles < complex.EvidencePlan.Budget.MaxFiles) {
+		t.Fatalf("budget not monotonic: simple=%d moderate=%d complex=%d",
+			simple.EvidencePlan.Budget.MaxFiles, moderate.EvidencePlan.Budget.MaxFiles,
+			complex.EvidencePlan.Budget.MaxFiles)
+	}
+}
+
+func TestInferScenario(t *testing.T) {
+	cases := []struct {
+		name   string
+		rm     types.RequestModel
+		expect types.Scenario
+	}{
+		{"security intent", types.RequestModel{Intent: types.IntentSecurityAudit}, types.ScenarioSecurityAudit},
+		{"refactor intent", types.RequestModel{Intent: types.IntentRefactor}, types.ScenarioRefactorDesign},
+		{"bugfix intent", types.RequestModel{Intent: types.IntentBugfix}, types.ScenarioRefactorDesign},
+		{"config intent", types.RequestModel{Intent: types.IntentConfigQuery}, types.ScenarioConfigTrace},
+		{"root cause intent", types.RequestModel{Intent: types.IntentRootCause}, types.ScenarioRootCause},
+		{"explain default", types.RequestModel{Intent: types.IntentExplain}, types.ScenarioArchitectureExplain},
+		{
+			"perf terms trigger perf scenario",
+			types.RequestModel{Intent: types.IntentExplain, TermGraph: types.TermGraph{
+				Canonical: []types.CanonicalTerm{{ID: "en:bottleneck"}},
+			}},
+			types.ScenarioPerformanceBottleneck,
+		},
+		{
+			"zh perf term triggers perf scenario",
+			types.RequestModel{Intent: types.IntentExplain, TermGraph: types.TermGraph{
+				Canonical: []types.CanonicalTerm{{ID: "zh:性能"}},
+			}},
+			types.ScenarioPerformanceBottleneck,
+		},
+	}
+	for _, c := range cases {
+		if got := InferScenario(c.rm); got != c.expect {
+			t.Errorf("%s: got %q want %q", c.name, got, c.expect)
+		}
+	}
+}
+
+func TestCompile_LanguagePropagatesToContract(t *testing.T) {
+	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate)
+	rm.Language = "en"
+	out := Compile(rm)
+	if out.AnswerContract.Language != "en" {
+		t.Fatalf("language not propagated: %q", out.AnswerContract.Language)
+	}
+}
+
+// Over-fit audit: each template must always produce a non-empty graph
+// with at least one probe → evidence → finalize path and a
+// fully-valid DAG (no dangling edges, no duplicate node IDs).
+func TestCompile_AllTemplatesStructurallyValid(t *testing.T) {
+	scenarios := []types.Scenario{
+		types.ScenarioArchitectureExplain,
+		types.ScenarioRootCause,
+		types.ScenarioSecurityAudit,
+		types.ScenarioRefactorDesign,
+		types.ScenarioConfigTrace,
+		types.ScenarioPerformanceBottleneck,
+		types.ScenarioGeneric,
+	}
+	for _, sc := range scenarios {
+		out := Compile(sampleRM(sc, types.IntentExplain, types.ComplexityModerate))
+		if len(out.TaskGraph.Nodes) == 0 {
+			t.Errorf("%s: empty node set", sc)
+			continue
+		}
+		ids := make(map[string]bool)
+		for _, n := range out.TaskGraph.Nodes {
+			if ids[n.ID] {
+				t.Errorf("%s: duplicate node id %q", sc, n.ID)
+			}
+			ids[n.ID] = true
+		}
+		for _, e := range out.TaskGraph.Edges {
+			if !ids[e.From] || !ids[e.To] {
+				t.Errorf("%s: dangling edge %+v", sc, e)
+			}
+		}
+		if countNodeType(out.TaskGraph, types.NodeProbe) == 0 {
+			t.Errorf("%s: missing probe node", sc)
+		}
+		if countNodeType(out.TaskGraph, types.NodeFinalize) == 0 {
+			t.Errorf("%s: missing finalize node", sc)
+		}
+		if out.EvidencePlan.Budget.MaxFiles == 0 {
+			t.Errorf("%s: empty evidence budget", sc)
+		}
+	}
+}
