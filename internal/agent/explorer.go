@@ -413,12 +413,10 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 		notesForCheck = e.investigationNotes
 	}
 	e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, notesForCheck, e.structuredEvidence)
-	logging.Debug("[explorer] S1 check iter=%d: %d notes (+1 fresh=%v), ERM statuses:",
-		iteration, len(e.investigationNotes), resp.Content != "")
-	for _, r := range e.ermRequirements {
-		logging.Debug("[explorer]   S1 erm: %s(%v) = %s", r.Kind, r.Entities, r.Status)
-	}
 	if !ermAllSatisfied(e.ermRequirements) {
+		logging.Debug("[explorer] S1 check iter=%d notes=%d fresh=%v unsat: %s",
+			iteration, len(e.investigationNotes), resp.Content != "",
+			formatERMStatuses(e.ermRequirements))
 		return false
 	}
 	// During the ReAct loop, `e.structuredEvidence` is only
@@ -436,10 +434,13 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	}
 	noteEvidence := parseEvidenceItems(e.investigationNotes, "explorer.s1check")
 	if !hasTerminalEvidence(noteEvidence) {
+		logging.Debug("[explorer] S1 check iter=%d notes=%d ERM satisfied but no terminal evidence (%d items parsed)",
+			iteration, len(e.investigationNotes), len(noteEvidence))
 		return false
 	}
-	logging.Debug("[explorer] S1 semantic early-stop at iter=%d: ERM all satisfied + terminal evidence in notes (%d items)",
-		iteration, len(noteEvidence))
+	logging.Debug("[explorer] S1 early-stop iter=%d notes=%d ERM satisfied + terminal evidence=%d (%s)",
+		iteration, len(e.investigationNotes), len(noteEvidence),
+		formatERMStatuses(e.ermRequirements))
 	return true
 }
 

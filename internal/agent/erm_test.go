@@ -1456,3 +1456,20 @@ func TestIdentifyAnswerChains_StrictSubsetExcludesDemoted(t *testing.T) {
 		t.Errorf("strict subset should be the Register chain, got: %s", strict[0].Summary)
 	}
 }
+
+// TestFormatERMStatuses pins the compact log-line renderer used by
+// the explorer's S1 soft-stop diagnostics.
+func TestFormatERMStatuses(t *testing.T) {
+	if got := formatERMStatuses(nil); got != "(none)" {
+		t.Errorf("empty: got %q, want (none)", got)
+	}
+	reqs := []EvidenceRequirement{
+		{Kind: "enumeration", Entities: []string{"agents", "subagent"}, Status: "satisfied"},
+		{Kind: "registration", Entities: []string{"subagent"}, Status: "unsatisfied"},
+	}
+	got := formatERMStatuses(reqs)
+	want := "enumeration(agents,subagent)=satisfied; registration(subagent)=unsatisfied"
+	if got != want {
+		t.Errorf("got %q\nwant %q", got, want)
+	}
+}

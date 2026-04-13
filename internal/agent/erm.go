@@ -749,6 +749,23 @@ func ermAllSatisfied(reqs []EvidenceRequirement) bool {
 	return true
 }
 
+// formatERMStatuses renders a compact one-line summary of a
+// []EvidenceRequirement suitable for a single debug log entry. Each
+// requirement becomes `kind(ent1,ent2)=status`, joined by `; `. Used
+// by the explorer's S1 soft-stop diagnostics to collapse what used to
+// be a ~5-line multi-entry dump into a single line per check.
+func formatERMStatuses(reqs []EvidenceRequirement) string {
+	if len(reqs) == 0 {
+		return "(none)"
+	}
+	parts := make([]string, 0, len(reqs))
+	for _, r := range reqs {
+		parts = append(parts, fmt.Sprintf("%s(%s)=%s",
+			r.Kind, strings.Join(r.Entities, ","), r.Status))
+	}
+	return strings.Join(parts, "; ")
+}
+
 // isRegistrationShape reports whether an EvidenceItem matches the
 // canonical "registration linkage" shape — an EvidenceConcrete whose
 // predicate contains "binds" (e.g. "binds ONLY", "binds first").
