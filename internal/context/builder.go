@@ -43,6 +43,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ac.CurrentTaskEntities = append([]string(nil), bus.AnalysisIR.RequestModel.Entities...)
 		ac.CurrentTaskQuestionKind = bus.AnalysisIR.RequestModel.QuestionKind
 		ac.CurrentTaskAnswerShape = bus.AnalysisIR.AnswerContract.OutputShape
+		ac.CurrentTaskTermGraph = bus.AnalysisIR.RequestModel.TermGraph
 	}
 
 	// Collect relevant facts

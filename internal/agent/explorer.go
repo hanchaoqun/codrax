@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -176,11 +177,13 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 
-	if len(ctx.CurrentTaskKeywords) > 0 {
+	retrievalKeywords := normalizer.RetrievalTokens(ctx.CurrentTaskTermGraph)
+	if len(retrievalKeywords) > 0 {
+		b.WriteString("Retrieval constraint: use only canonical RequestModel.TermGraph tokens for grep/repo_map queries; do not invent ad-hoc keywords.\n\n")
 		// Run graduated keyword search before Phase 1 starts.
 		// This gives the LLM a pre-ranked file list instead of
 		// making it guess which grep patterns to use.
-		sr := keywordSearch(ctx.CurrentTaskKeywords, ctx.RepoRoot)
+		sr := keywordSearch(retrievalKeywords, ctx.RepoRoot)
 		e.searchResult = sr
 		results := sr.Files
 		if len(results) > 0 {
@@ -343,12 +346,15 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// No hits at any level — list the keywords so the LLM
 			// can try its own grep strategies.
 			b.WriteString("### Search Keywords (no pre-scan hits)\n\n")
-			b.WriteString("The analyzer provided these keywords but none matched. Try broader patterns:\n")
-			for _, kw := range ctx.CurrentTaskKeywords {
+			b.WriteString("The RequestModel.TermGraph tokens returned no hits. Retry with stems derived from the same token set:\n")
+			for _, kw := range retrievalKeywords {
 				fmt.Fprintf(&b, "- `%s`\n", kw)
 			}
 			b.WriteString("\n")
 		}
+	}
+	if len(retrievalKeywords) == 0 {
+		b.WriteString("Retrieval constraint: RequestModel.TermGraph is empty, so skip keyword pre-scan and avoid fabricating new query terms.\n\n")
 	}
 
 	b.WriteString("At the end of this phase, produce a FILE LIST of 3-6 files to read in depth. ")
@@ -2701,17 +2707,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		kind := types.EvidenceConcrete
 		predicate := v.kind
 		cvEvidence = append(cvEvidence, types.EvidenceItem{
-			ID: types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
-			Kind:      kind,
-			Subject:   v.method,
-			Predicate: predicate,
-			Object:    v.value,
-			Source:    v.file,
-			LineStart: v.line,
-			LineEnd:   v.line,
+			ID:         types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
+			Kind:       kind,
+			Subject:    v.method,
+			Predicate:  predicate,
+			Object:     v.value,
+			Source:     v.file,
+			LineStart:  v.line,
+			LineEnd:    v.line,
 			Confidence: 0.95,
-			Producer:  "concrete_values",
-			Summary:   fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
+			Producer:   "concrete_values",
+			Summary:    fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
 		})
 	}
 	for _, c := range allChainsForEvidence {
@@ -3386,7 +3392,7 @@ func parseTargetClassFromBinding(token string) string {
 //   - Go/Java/JS/TS/C/Rust:   `//` line, `/* ... */` block, `* ...`
 //     continuation lines inside block comments
 //   - Python/Ruby/Shell/YAML: `#` line
-//   - Python docstrings:      `"""` / `'''` multi-line string blocks
+//   - Python docstrings:      `"""` / `”'` multi-line string blocks
 //
 // A real code line that happens to start with `*` (e.g. a C pointer
 // deref `*ptr = 5`) is not blanked: the helper only strips the
