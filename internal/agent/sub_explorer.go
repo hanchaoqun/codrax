@@ -91,6 +91,17 @@ type subExplorerEvaluator struct {
 }
 
 func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+	// Cross-Run reset — sub_explorer is a process-lifetime singleton
+	// (NewSubExplorer called once from RegisterDefaults). Each
+	// SubAgentRequest is an independent scoped investigation, so
+	// accumulated state from a previous Run() must not leak into
+	// notes/idle counters/evidence of the next one. Mirrors the F2
+	// fix in explorer.go (project_repl_equivalence_audit.md).
+	if ctx.Objective != e.objective {
+		e.investigationNotes = nil
+		e.idleStreak = 0
+		e.lastToolCount = 0
+	}
 	e.objective = ctx.Objective
 	e.scope = ctx.Constraints // scope passed as constraints in sub-agent context
 	e.structuredEvidence = nil

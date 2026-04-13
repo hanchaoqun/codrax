@@ -85,12 +85,21 @@ type Turn struct {
 
 // IndexEntry is a compacted summary of a Turn that lives in MEMORY.md.
 // FullRef points at the original turn file under turns/.
+//
+// WasError marks entries that were synthesized from an error-laden
+// turn (see compactOldest). Such entries bypass the LLM summarizer,
+// carry an empty Keywords slice so matchIndex cannot surface them,
+// and are skipped explicitly by BuildContext as defense in depth.
+// The flag is persisted to MEMORY.md as `was_error: true` and
+// defaults to false when absent so pre-schema entries round-trip
+// unchanged.
 type IndexEntry struct {
 	ID       string
 	Topic    string
 	Keywords []string
 	Summary  string
 	FullRef  string
+	WasError bool
 }
 
 // Summarizer compresses a Turn into an IndexEntry. Implementations are
@@ -620,6 +629,13 @@ func (s *Store) BuildContext(currentRequest string) string {
 			b.WriteString("### Relevant compacted memory\n")
 			inlined := 0
 			for _, e := range matches {
+				// Defense in depth: WasError entries carry empty
+				// Keywords, so matchIndex should never surface them.
+				// This guard covers hand-edited MEMORY.md files and
+				// any future match rule that doesn't key on keywords.
+				if e.WasError {
+					continue
+				}
 				fmt.Fprintf(&b, "- **%s** (%s) — %s\n", e.Topic, e.ID, e.Summary)
 				// Total-budget brake: once we're over the overall cap,
 				// stop inlining full turns but keep emitting the bullet
@@ -720,18 +736,42 @@ func (s *Store) compactOldest() error {
 	oldest := s.recent[0]
 	s.mu.Unlock()
 
-	if s.summarizer == nil {
-		return errors.New("memory: no summarizer configured")
-	}
-	entry, err := s.summarizer.Summarize(context.Background(), oldest)
-	if err != nil {
-		return fmt.Errorf("summarize turn %s: %w", oldest.ID, err)
-	}
-	if entry.ID == "" {
-		entry.ID = oldest.ID
-	}
-	if entry.FullRef == "" {
-		entry.FullRef = filepath.Join("turns", oldest.ID+".md")
+	var entry IndexEntry
+	// Short-circuit error-laden turns BEFORE calling the LLM
+	// summarizer. Otherwise the summarizer reads raw pipeline
+	// failure text ("error: task X stuck at stage explore after 5
+	// visits", OpenAI 400 JSON) and produces natural-language
+	// descriptions like "hit a 5-visit oscillation" that evade
+	// the read-side sanitizeErrorResponse phrase list. Detection
+	// reuses the structural check from sanitizeErrorResponse so
+	// the write-side placeholder (post-F4 turn files) and
+	// raw-text legacy turn files (pre-F4, not yet compacted) are
+	// both caught by the same path. Keywords intentionally left
+	// empty so matchIndex never surfaces the entry — it stays
+	// on disk as a historical marker only.
+	if sanitizeErrorResponse(oldest.Response) == errorResponsePlaceholder {
+		entry = IndexEntry{
+			ID:       oldest.ID,
+			Topic:    "(failed attempt)",
+			Summary:  errorResponsePlaceholder,
+			FullRef:  filepath.Join("turns", oldest.ID+".md"),
+			WasError: true,
+		}
+	} else {
+		if s.summarizer == nil {
+			return errors.New("memory: no summarizer configured")
+		}
+		var err error
+		entry, err = s.summarizer.Summarize(context.Background(), oldest)
+		if err != nil {
+			return fmt.Errorf("summarize turn %s: %w", oldest.ID, err)
+		}
+		if entry.ID == "" {
+			entry.ID = oldest.ID
+		}
+		if entry.FullRef == "" {
+			entry.FullRef = filepath.Join("turns", oldest.ID+".md")
+		}
 	}
 
 	return s.withExclusiveLock(func() error {
@@ -781,6 +821,9 @@ func (s *Store) appendIndexEntry(e IndexEntry) error {
 	fmt.Fprintf(w, "topic: %q\n", e.Topic)
 	fmt.Fprintf(w, "keywords: [%s]\n", strings.Join(e.Keywords, ", "))
 	fmt.Fprintf(w, "full_ref: %s\n", e.FullRef)
+	if e.WasError {
+		fmt.Fprintln(w, "was_error: true")
+	}
 	fmt.Fprintln(w, "---")
 	fmt.Fprintln(w, e.Summary)
 	fmt.Fprintln(w)
@@ -847,6 +890,8 @@ func parseIndex(text string) []IndexEntry {
 				}
 			case "full_ref":
 				entry.FullRef = strings.TrimSpace(v)
+			case "was_error":
+				entry.WasError = strings.EqualFold(strings.TrimSpace(v), "true")
 			}
 		}
 		i++ // past closing ---

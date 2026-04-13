@@ -710,3 +710,198 @@ func TestConcurrentStoresShareMemoryMd(t *testing.T) {
 		t.Errorf("compacted count %d outside [%d, %d]", len(idx), minCompacted, maxCompacted)
 	}
 }
+
+// recordingSummarizer remembers every turn it was asked to summarize
+// so the WasError short-circuit can be proven by absence.
+type recordingSummarizer struct {
+	mu   sync.Mutex
+	seen []string // Turn IDs the summarizer was invoked on
+}
+
+func (r *recordingSummarizer) Summarize(_ context.Context, t Turn) (IndexEntry, error) {
+	r.mu.Lock()
+	r.seen = append(r.seen, t.ID)
+	r.mu.Unlock()
+	return IndexEntry{
+		ID:       t.ID,
+		Topic:    "topic-" + t.ID,
+		Keywords: []string{strings.Fields(t.Request)[0]},
+		Summary:  "LLM summary of " + t.Request,
+	}, nil
+}
+
+// TestCompactOldestBypassesSummarizerForErrorTurn locks the #4 fix
+// from the REPL-equivalence follow-up list. An error-laden turn must
+// never reach the LLM summarizer, otherwise the summarizer produces
+// natural-language descriptions ("hit a 5-visit oscillation") that
+// evade the read-side sanitizeErrorResponse phrase list. The
+// compactOldest short-circuit synthesizes a deterministic WasError
+// entry instead.
+func TestCompactOldestBypassesSummarizerForErrorTurn(t *testing.T) {
+	dir := t.TempDir()
+	rec := &recordingSummarizer{}
+	s, err := NewStore(dir, rec)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+
+	// Append 7 turns — turn 0 is error-laden, the others are clean.
+	// With maxRecent=6, turn 0 is compacted first.
+	_ = s.Append(Turn{
+		ID:       "t0",
+		Request:  "how does config loader work",
+		Response: "error: task 3e5d94c4 stuck at stage explore after 5 visits",
+	})
+	for i := 1; i < 7; i++ {
+		_ = s.Append(Turn{
+			ID:       fmt.Sprintf("t%d", i),
+			Request:  fmt.Sprintf("kw%d clean question", i),
+			Response: fmt.Sprintf("clean answer %d", i),
+		})
+	}
+
+	idx := s.Index()
+	if len(idx) != 1 {
+		t.Fatalf("index len = %d, want 1 (only t0 should be compacted)", len(idx))
+	}
+	entry := idx[0]
+	if entry.ID != "t0" {
+		t.Errorf("compacted entry ID = %q, want t0", entry.ID)
+	}
+	if !entry.WasError {
+		t.Errorf("WasError should be true for error-laden turn; entry=%+v", entry)
+	}
+	if entry.Summary != errorResponsePlaceholder {
+		t.Errorf("Summary = %q, want placeholder", entry.Summary)
+	}
+	if len(entry.Keywords) != 0 {
+		t.Errorf("Keywords should be empty (so matchIndex never surfaces the entry); got %v", entry.Keywords)
+	}
+
+	// The summarizer must NOT have been called for t0.
+	rec.mu.Lock()
+	seen := append([]string(nil), rec.seen...)
+	rec.mu.Unlock()
+	for _, id := range seen {
+		if id == "t0" {
+			t.Errorf("summarizer was called on error turn t0 (bypass failed); seen=%v", seen)
+		}
+	}
+}
+
+// TestIndexEntryWasErrorRoundTrip locks the on-disk schema: when an
+// entry with WasError=true is appended to MEMORY.md, a fresh Store
+// parsing MEMORY.md back must recover the flag. Pre-schema entries
+// (no was_error line) must default to false.
+func TestIndexEntryWasErrorRoundTrip(t *testing.T) {
+	dir := t.TempDir()
+	rec := &recordingSummarizer{}
+	s, err := NewStore(dir, rec)
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	// Force a WasError compaction via an error-laden oldest turn.
+	_ = s.Append(Turn{
+		ID:       "err-1",
+		Request:  "broken question",
+		Response: "error: OpenAI 400 context_length_exceeded",
+	})
+	// Pad the buffer to trigger compaction.
+	for i := 0; i < 7; i++ {
+		_ = s.Append(Turn{
+			ID:       fmt.Sprintf("clean-%d", i),
+			Request:  fmt.Sprintf("word%d clean", i),
+			Response: fmt.Sprintf("answer %d", i),
+		})
+	}
+
+	// Sanity: MEMORY.md has the was_error line.
+	data, err := os.ReadFile(filepath.Join(dir, "MEMORY.md"))
+	if err != nil {
+		t.Fatalf("read MEMORY.md: %v", err)
+	}
+	if !strings.Contains(string(data), "was_error: true") {
+		t.Errorf("MEMORY.md missing was_error marker; got %q", string(data))
+	}
+	s.Close()
+
+	// Fresh Store parses it back.
+	s2, err := NewStore(dir, rec)
+	if err != nil {
+		t.Fatalf("NewStore reload: %v", err)
+	}
+	defer s2.Close()
+	idx := s2.Index()
+	var found *IndexEntry
+	for i := range idx {
+		if idx[i].ID == "err-1" {
+			found = &idx[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("err-1 entry not found after reload; idx=%+v", idx)
+	}
+	if !found.WasError {
+		t.Errorf("WasError not recovered from disk; got %+v", *found)
+	}
+
+	// Pre-schema entry (no was_error line) → WasError stays false.
+	for _, e := range idx {
+		if e.ID != "err-1" && e.WasError {
+			t.Errorf("clean entry should have WasError=false; got %+v", e)
+		}
+	}
+}
+
+// TestBuildContextSkipsWasErrorEntry is the defense-in-depth guard:
+// even if a WasError entry somehow had non-empty keywords (hand-edited
+// MEMORY.md, future match-rule change), BuildContext must NOT emit it
+// into the prior-conversation prompt block.
+func TestBuildContextSkipsWasErrorEntry(t *testing.T) {
+	dir := t.TempDir()
+	// Hand-craft a MEMORY.md with a WasError entry that has keywords
+	// matching a query token. The in-process parser + BuildContext
+	// must still refuse to surface it.
+	memPath := filepath.Join(dir, "MEMORY.md")
+	entry := "" +
+		"---\n" +
+		"id: tainted\n" +
+		`topic: "bad"` + "\n" +
+		"keywords: [foo, bar]\n" +
+		"full_ref: turns/tainted.md\n" +
+		"was_error: true\n" +
+		"---\n" +
+		"LLM-written error description about hit a 5-visit oscillation\n\n"
+	if err := os.WriteFile(memPath, []byte(entry), 0o644); err != nil {
+		t.Fatalf("write MEMORY.md: %v", err)
+	}
+	// Provide a full_ref target so BuildContext's ReadFile would
+	// succeed if the guard ever failed.
+	if err := os.MkdirAll(filepath.Join(dir, "turns"), 0o755); err != nil {
+		t.Fatalf("mkdir turns: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "turns", "tainted.md"),
+		[]byte("# tainted\n\npolluting raw turn body\n"), 0o644); err != nil {
+		t.Fatalf("write tainted turn: %v", err)
+	}
+
+	s, err := NewStore(dir, stubSummarizer{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+
+	out := s.BuildContext("tell me about foo")
+	if strings.Contains(out, "LLM-written error description") {
+		t.Errorf("WasError entry Summary leaked into BuildContext: %q", out)
+	}
+	if strings.Contains(out, "polluting raw turn body") {
+		t.Errorf("WasError entry full_ref body leaked into BuildContext: %q", out)
+	}
+	if strings.Contains(out, "tainted") {
+		t.Errorf("WasError entry id/topic leaked into BuildContext: %q", out)
+	}
+}
