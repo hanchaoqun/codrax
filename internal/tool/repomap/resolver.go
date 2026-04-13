@@ -99,14 +99,17 @@ func (r *legacyResolver) Resolve(g *Graph, fi *FileInfo, imp Import, ctx *Resolv
 	return resolveImport(g, fi, imp, ctx.PkgToFiles, ctx.BasenameIndex)
 }
 
-// defaultResolvers returns the Phase 2a dispatcher map. Languages
-// that have a dedicated resolver are wired here; the rest still fall
-// back to legacyResolver until their per-language commit lands.
+// defaultResolvers returns the Phase 2a dispatcher map. Every
+// language now has a dedicated resolver; the legacyResolver path
+// survives only as a compatibility shim for future languages that
+// have not yet been migrated.
 //
-// JS and TS share a single jsImportResolver instance so tsconfig
-// parsing only runs once per BuildGraph.
+// JS and TS share a single jsImportResolver instance; C and C++
+// share a single cppImportResolver instance. Both dedupe their
+// Prepare work so the shared-instance registration is safe.
 func defaultResolvers() map[string]ImportResolver {
 	js := &jsImportResolver{}
+	cpp := &cppImportResolver{}
 	return map[string]ImportResolver{
 		LangGo:         &goImportResolver{},
 		LangJava:       &javaImportResolver{},
@@ -114,7 +117,7 @@ func defaultResolvers() map[string]ImportResolver {
 		LangJavaScript: js,
 		LangTypeScript: js,
 		LangRust:       &rustImportResolver{},
-		LangC:          &legacyResolver{lang: LangC},
-		LangCpp:        &legacyResolver{lang: LangCpp},
+		LangC:          cpp,
+		LangCpp:        cpp,
 	}
 }
