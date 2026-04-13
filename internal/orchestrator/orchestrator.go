@@ -239,7 +239,7 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 // any remaining pending tasks are marked failed.
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	for {
-		next := o.nextPendingTask()
+		next := o.nextReadyPendingTask()
 		if next == nil {
 			return nil
 		}
@@ -261,8 +261,12 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 			TaskStatus: types.TaskInProgress,
 		})
 
-		used := o.runTaskPipeline(next.ID, o.maxSteps-*stepsUsed)
+		used, ok := o.runTaskPipeline(next.ID, o.maxSteps-*stepsUsed)
 		*stepsUsed += used
+		if !ok {
+			o.busCtx.Mutable.UpdateTaskStatus(next.ID, types.TaskFailed)
+			o.triggerValidationFeedback(next.ID)
+		}
 	}
 }
 
@@ -271,7 +275,7 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 // stage visit counter) on entry, runs explore → … → finalize, and
 // always marks the task as Done or Failed before returning so the
 // outer loop's nextPendingTask cannot pick it up again.
-func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
+func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) (int, bool) {
 	// Reset per-task state.
 	o.busCtx.Signals = types.ExecutionSignals{}
 	o.busCtx.TaskState.Missing = types.MissingFacts
@@ -318,11 +322,9 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 			o.busCtx.Signals.LastFailureReason = err.Error()
 			o.busCtx.Signals.RetryCount++
 			if o.busCtx.Signals.RetryCount > o.busCtx.Policy.MaxRetriesPerStage {
-				logging.Error("[orchestrator] task %s max retries exceeded at %s, jumping to finalize",
+				logging.Error("[orchestrator] task %s max retries exceeded at %s",
 					taskID, stage)
-				o.busCtx.PipelineStage = types.StageFinalize
-				o.busCtx.TaskState.Stage = types.StageFinalize
-				continue
+				break
 			}
 		}
 
@@ -358,35 +360,18 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 		}
 	}
 
-	// If we exited the loop without naturally reaching finalize, force
-	// one finalize call so the task gets a Result (or at least a clear
-	// failure marker).
+	// Failed tasks do not auto-finalize. They are marked failed by the
+	// caller and can trigger validation_feedback backtracking edges.
 	if !reachedFinalize {
 		if o.busCtx.TaskState.LastError == "" {
 			o.busCtx.TaskState.LastError = fmt.Sprintf(
 				"task %s did not reach terminal within budget", taskID)
 		}
-		logging.Warning("[orchestrator] task %s forcing finalize: %s", taskID, o.busCtx.TaskState.LastError)
-		o.busCtx.PipelineStage = types.StageFinalize
-		o.busCtx.TaskState.Stage = types.StageFinalize
-
-		finalConfig, err := o.config.GetStageConfig(types.StageFinalize)
-		if err != nil {
-			logging.Error("[orchestrator] task %s force finalize lookup failed: %v", taskID, err)
-			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
-			return stepsUsed
-		}
-		stepsUsed++
-		out, err := o.dispatchStage(finalConfig)
-		if err != nil {
-			logging.Error("[orchestrator] task %s forced finalize failed: %v", taskID, err)
-			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
-			return stepsUsed
-		}
-		o.recordTaskFinalize(taskID, out)
+		logging.Warning("[orchestrator] task %s failed before terminal stage: %s", taskID, o.busCtx.TaskState.LastError)
+		return stepsUsed, false
 	}
 
-	return stepsUsed
+	return stepsUsed, true
 }
 
 // recordTaskFinalize copies the finalizer's FinalAnswer into the
@@ -428,15 +413,59 @@ func (o *Orchestrator) recordTaskFinalize(taskID string, out *agent.StageOutput)
 // nextPendingTask returns a pointer to a copy of the next pending
 // task, or nil if no pending tasks remain. The pointer is for
 // convenience; do not mutate it directly — go through Mutable.
-func (o *Orchestrator) nextPendingTask() *types.TaskItem {
+func (o *Orchestrator) nextReadyPendingTask() *types.TaskItem {
 	tl := o.busCtx.Mutable.TaskList()
 	for i := range tl.Tasks {
-		if tl.Tasks[i].Status == types.TaskPending {
+		if tl.Tasks[i].Status == types.TaskPending && o.dependenciesSatisfied(tl.Tasks[i].ID) {
 			t := tl.Tasks[i]
 			return &t
 		}
 	}
 	return nil
+}
+
+func (o *Orchestrator) dependenciesSatisfied(taskID string) bool {
+	if o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return true
+	}
+	edges := o.busCtx.AnalysisIR.TaskGraph.Edges
+	if len(edges) == 0 {
+		return true
+	}
+	tl := o.busCtx.Mutable.TaskList()
+	statusByID := make(map[string]types.TaskStatus, len(tl.Tasks))
+	for _, t := range tl.Tasks {
+		statusByID[t.ID] = t.Status
+	}
+	for _, edge := range edges {
+		if edge.To != taskID || edge.EdgeType != "hard_dependency" {
+			continue
+		}
+		if statusByID[edge.From] != types.TaskDone {
+			return false
+		}
+	}
+	return true
+}
+
+func (o *Orchestrator) triggerValidationFeedback(failedTaskID string) {
+	if o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return
+	}
+	edges := o.busCtx.AnalysisIR.TaskGraph.Edges
+	tl := o.busCtx.Mutable.TaskList()
+	statusByID := make(map[string]types.TaskStatus, len(tl.Tasks))
+	for _, t := range tl.Tasks {
+		statusByID[t.ID] = t.Status
+	}
+	for _, edge := range edges {
+		if edge.From != failedTaskID || edge.EdgeType != "validation_feedback" {
+			continue
+		}
+		if statusByID[edge.To] == types.TaskDone || statusByID[edge.To] == types.TaskFailed || statusByID[edge.To] == types.TaskBlocked {
+			o.busCtx.Mutable.UpdateTaskStatus(edge.To, types.TaskPending)
+		}
+	}
 }
 
 // dispatchStage runs the agent bound to the given stage and returns

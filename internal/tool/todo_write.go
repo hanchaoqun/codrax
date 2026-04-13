@@ -27,7 +27,9 @@ type TodoWrite struct {
 }
 
 type todoWriteParams struct {
-	Tasks []todoWriteTaskParam `json:"tasks"`
+	Tasks           []todoWriteTaskParam       `json:"tasks"`
+	Edges           []types.TaskGraphEdge      `json:"edges,omitempty"`
+	ExecutionPolicy *types.TaskExecutionPolicy `json:"execution_policy,omitempty"`
 }
 
 type todoWriteTaskParam struct {
@@ -88,6 +90,27 @@ func (t *TodoWrite) Parameters() json.RawMessage {
         },
         "required": ["title"]
       }
+    },
+    "edges": {
+      "type": "array",
+      "description": "TaskGraph edges. edge_type must be one of hard_dependency|soft_dependency|validation_feedback.",
+      "items": {
+        "type": "object",
+        "properties": {
+          "from": {"type": "string"},
+          "to": {"type": "string"},
+          "edge_type": {"type": "string", "enum": ["hard_dependency", "soft_dependency", "validation_feedback"]}
+        },
+        "required": ["from", "to", "edge_type"]
+      }
+    },
+    "execution_policy": {
+      "type": "object",
+      "properties": {
+        "max_parallelism": {"type": "integer"},
+        "critical_path": {"type": "array", "items": {"type": "string"}},
+        "retry_budget": {"type": "integer"}
+      }
     }
   },
   "required": ["tasks"]
@@ -143,7 +166,7 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		CurrentTaskID: pickCurrentTaskID(items),
 	}
 	ctx.Mutable.SetTaskList(newList)
-	ctx.AnalysisIR = buildAnalysisIR(p.Tasks, newList)
+	ctx.AnalysisIR = buildAnalysisIR(p, newList)
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -153,20 +176,20 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	}, nil
 }
 
-func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.AnalysisIR {
+func buildAnalysisIR(p todoWriteParams, tl types.TaskList) *types.AnalysisIR {
 	var current *todoWriteTaskParam
-	for i := range raw {
-		id := strings.TrimSpace(raw[i].ID)
+	for i := range p.Tasks {
+		id := strings.TrimSpace(p.Tasks[i].ID)
 		if id == "" {
 			id = fmt.Sprintf("task-%d", i+1)
 		}
 		if id == tl.CurrentTaskID {
-			current = &raw[i]
+			current = &p.Tasks[i]
 			break
 		}
 	}
-	if current == nil && len(raw) > 0 {
-		current = &raw[0]
+	if current == nil && len(p.Tasks) > 0 {
+		current = &p.Tasks[0]
 	}
 	ir := &types.AnalysisIR{
 		RequestModel: types.RequestModel{
@@ -208,6 +231,16 @@ func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.Analysi
 			HypothesisStatus: "unknown",
 		})
 	}
+	ir.TaskGraph.Edges = normalizeEdges(p.Edges)
+	if p.ExecutionPolicy != nil {
+		ir.TaskGraph.ExecutionPolicy = *p.ExecutionPolicy
+	}
+	if ir.TaskGraph.ExecutionPolicy.MaxParallelism <= 0 {
+		ir.TaskGraph.ExecutionPolicy.MaxParallelism = 1
+	}
+	if ir.TaskGraph.ExecutionPolicy.RetryBudget <= 0 {
+		ir.TaskGraph.ExecutionPolicy.RetryBudget = 1
+	}
 	if current != nil {
 		ir.RequestModel.Entities = trimStringSlice(current.Entities)
 		ir.RequestModel.QuestionKind = normalizeQuestionKind(current.QuestionKind)
@@ -226,6 +259,65 @@ func buildAnalysisIR(raw []todoWriteTaskParam, tl types.TaskList) *types.Analysi
 		}
 	}
 	return ir
+}
+
+func findRawNodeByID(raw []todoWriteTaskParam, id string) *todoWriteTaskParam {
+	for i := range raw {
+		candidate := strings.TrimSpace(raw[i].ID)
+		if candidate == "" {
+			candidate = fmt.Sprintf("task-%d", i+1)
+		}
+		if candidate == id {
+			return &raw[i]
+		}
+	}
+	return nil
+}
+
+func normalizeNodeType(raw *todoWriteTaskParam, task types.TaskItem) string {
+	if raw != nil && strings.TrimSpace(raw.NodeType) != "" {
+		return strings.TrimSpace(raw.NodeType)
+	}
+	if task.Writing {
+		return "implementation"
+	}
+	return "analysis"
+}
+
+func ensureNonEmpty(in []string, fallback string) []string {
+	if len(in) > 0 {
+		return in
+	}
+	return []string{fallback}
+}
+
+func normalizeEdges(in []types.TaskGraphEdge) []types.TaskGraphEdge {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]types.TaskGraphEdge, 0, len(in))
+	for _, edge := range in {
+		from := strings.TrimSpace(edge.From)
+		to := strings.TrimSpace(edge.To)
+		if from == "" || to == "" {
+			continue
+		}
+		edgeType := strings.ToLower(strings.TrimSpace(edge.EdgeType))
+		switch edgeType {
+		case "hard_dependency", "soft_dependency", "validation_feedback":
+		default:
+			edgeType = "hard_dependency"
+		}
+		out = append(out, types.TaskGraphEdge{
+			From:     from,
+			To:       to,
+			EdgeType: edgeType,
+		})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // buildTodoItems normalizes raw params into TaskItem values, assigning
