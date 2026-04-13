@@ -2716,6 +2716,19 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	}
 	logging.Debug("[explorer] concrete values: %d chain evidence items (from %d uncapped chains)", len(allChainsForEvidence), len(allChainsForEvidence))
 
+	// Bridge-literal extraction pass — deterministic cross-file JOIN
+	// producing `A() binds ONLY NewB(...) → B.Name() returns "lit"`
+	// chains even when the LLM didn't read the target file. Orthogonal
+	// to the per-file extractConcreteValues + multi-pass tracer above,
+	// this pass is graph-wide and bounded by symbol-name matching.
+	// See docs/bridge-literal-extraction-gap.md and
+	// memory/project_baseline_2026_04_13_post_phase4.md.
+	bridgeItems := extractBridgeLiteralChains(graph, repoRoot)
+	if len(bridgeItems) > 0 {
+		logging.Debug("[explorer] bridge literal chains: %d items", len(bridgeItems))
+		cvEvidence = append(cvEvidence, bridgeItems...)
+	}
+
 	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence}
 }
 
@@ -2903,6 +2916,391 @@ type concreteValueEntry struct {
 	value string // the concrete value
 }
 
+// extractBridgeLiteralChains produces deterministic
+// `A() binds ONLY NewB(...) → B.Name() returns "literal"` evidence
+// chains via a graph-wide cross-file join. This is the "production"
+// half of the bridge-literal story (Phase 4 is the "selection" half):
+// it guarantees the strict-subset contains the chain even when the
+// LLM's investigation didn't read the binding file.
+//
+// Pass A — Binding collection: walk every function/method whose name
+// matches a register-family pattern, run extractConcreteValues on its
+// body (comment-stripped), and emit (bindingFn, targetClass) tuples
+// for each constructor-passing-call token.
+//
+// Pass B — Identity-method scan: walk every method whose name is one
+// of (Name|ID|Key|Type|Label|Slug|Kind)-family, run
+// extractConcreteValues, and emit (class, method, literal) triples
+// for string-literal returns.
+//
+// Pass C — Join on class identifier: for every (binding, identity)
+// pair whose target class matches the identity receiver, emit a
+// `resolution_chain` EvidenceItem with Producer="bridge_literal".
+//
+// Cost is bounded by graph symbol count + body size per matching
+// function. On codrax-scale repos this is a few hundred short body
+// reads, sub-millisecond total.
+//
+// See docs/bridge-literal-extraction-gap.md.
+func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string) []types.EvidenceItem {
+	if graph == nil {
+		return nil
+	}
+	// isRegName matches function names from the "registration family"
+	// across supported languages (Go/Java/Python/JS/TS/Rust/C). It is a
+	// structural heuristic: any such function MAY contain binding calls.
+	// False positives are filtered downstream because Pass C requires a
+	// paired identity method on the target class — functions named
+	// `addSlice` or `setupDB` that don't actually wire handlers produce
+	// zero chains. Case-insensitive so snake_case / camelCase both match.
+	regPrefixes := []string{
+		"register", "bind", "mount", "wire", "provide", "install",
+		"setup", "configure", "attach", "subscribe", "listen", "route",
+	}
+	isRegName := func(name string) bool {
+		lower := strings.ToLower(name)
+		for _, p := range regPrefixes {
+			if strings.HasPrefix(lower, p) {
+				return true
+			}
+		}
+		if strings.HasSuffix(lower, "defaults") || strings.HasSuffix(lower, "default") {
+			return true
+		}
+		// Go-style init() and init-family wiring functions.
+		if lower == "init" {
+			return true
+		}
+		if strings.HasPrefix(lower, "init") && len(lower) > 4 {
+			return true
+		}
+		return false
+	}
+	isIdentityMethod := func(name string) bool {
+		switch name {
+		case "Name", "ID", "Id", "Key", "Type", "Label", "Slug", "Kind",
+			"name", "id", "key", "type", "label", "slug", "kind",
+			"getName", "GetName", "get_name",
+			"getID", "GetID", "get_id", "getId",
+			"getKey", "GetKey", "get_key",
+			"getType", "GetType", "get_type":
+			return true
+		}
+		return false
+	}
+
+	// File-content cache shared across all loadBody calls.
+	fileCache := make(map[string][]string)
+	loadBody := func(relPath string, start, end int) string {
+		lines, ok := fileCache[relPath]
+		if !ok {
+			f, err := os.Open(filepath.Join(repoRoot, relPath))
+			if err != nil {
+				fileCache[relPath] = nil
+				return ""
+			}
+			var ls []string
+			sc := bufio.NewScanner(f)
+			sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+			for sc.Scan() {
+				ls = append(ls, sc.Text())
+			}
+			f.Close()
+			fileCache[relPath] = ls
+			lines = ls
+		}
+		if lines == nil || start < 1 || end > len(lines) || start > end {
+			return ""
+		}
+		return strings.Join(lines[start-1:end], "\n")
+	}
+
+	type binding struct {
+		fnQual      string
+		file        string
+		line        int
+		targetClass string
+	}
+	type identity struct {
+		class   string
+		method  string
+		literal string
+	}
+	var bindings []binding
+	var identities []identity
+
+	for _, fi := range graph.Files {
+		if fi == nil {
+			continue
+		}
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if sym.Kind != "function" && sym.Kind != "method" {
+				continue
+			}
+			if sym.EndLine == 0 {
+				continue
+			}
+			bodyLen := sym.EndLine - sym.Line
+			// Pass A — binding collection (register-family names).
+			if isRegName(sym.Name) && bodyLen <= 60 {
+				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
+				if body != "" {
+					for _, cv := range extractConcreteValues(body) {
+						if !strings.Contains(cv.kind, "binds") {
+							continue
+						}
+						qual := sym.Name
+						if sym.Receiver != "" {
+							qual = sym.Receiver + "." + sym.Name
+						}
+						for _, part := range strings.Split(cv.value, ",") {
+							tgt := parseTargetClassFromBinding(part)
+							if tgt == "" {
+								continue
+							}
+							bindings = append(bindings, binding{
+								fnQual:      qual,
+								file:        fi.RelPath,
+								line:        sym.Line,
+								targetClass: tgt,
+							})
+						}
+					}
+				}
+			}
+			// Pass B — identity-method scan. Methods on any class/struct
+			// (Go uses sym.Receiver, Java/Python/JS/Rust use sym.Parent;
+			// mirrors the owner fallback in buildConcreteValuesSection),
+			// short body (≤10 lines).
+			owner := sym.Receiver
+			if owner == "" {
+				owner = sym.Parent
+			}
+			if sym.Kind == "method" && owner != "" &&
+				isIdentityMethod(sym.Name) && bodyLen <= 10 {
+				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
+				if body != "" {
+					for _, cv := range extractConcreteValues(body) {
+						if cv.kind != "returns" {
+							continue
+						}
+						if len(cv.value) < 2 {
+							continue
+						}
+						first, last := cv.value[0], cv.value[len(cv.value)-1]
+						if (first != '"' && first != '\'') || first != last {
+							continue
+						}
+						lit := cv.value[1 : len(cv.value)-1]
+						if lit == "" {
+							continue
+						}
+						identities = append(identities, identity{
+							class:   owner,
+							method:  sym.Name,
+							literal: lit,
+						})
+						break // first literal wins per method
+					}
+				}
+			}
+		}
+	}
+
+	// Pass C — Join on class identifier.
+	if len(bindings) == 0 || len(identities) == 0 {
+		return nil
+	}
+	idByClass := make(map[string][]identity, len(identities))
+	for _, id := range identities {
+		idByClass[id.class] = append(idByClass[id.class], id)
+	}
+	var items []types.EvidenceItem
+	seen := make(map[string]bool)
+	for _, b := range bindings {
+		ids := idByClass[b.targetClass]
+		if len(ids) == 0 {
+			continue
+		}
+		for _, id := range ids {
+			summary := fmt.Sprintf(
+				"`%s()` binds ONLY New%s(...) → `%s.%s()` returns %q",
+				b.fnQual, b.targetClass, b.targetClass, id.method, id.literal)
+			if seen[summary] {
+				continue
+			}
+			seen[summary] = true
+			items = append(items, types.EvidenceItem{
+				ID: types.StableEvidenceID(
+					types.EvidenceDataflowPath, summary, "resolution_chain",
+					"", "", b.file, b.line, b.line),
+				Kind:       types.EvidenceDataflowPath,
+				Subject:    summary,
+				Predicate:  "resolution_chain",
+				Summary:    summary,
+				Source:     b.file,
+				LineStart:  b.line,
+				LineEnd:    b.line,
+				Confidence: 0.9,
+				Producer:   "bridge_literal",
+			})
+		}
+	}
+	return items
+}
+
+// parseTargetClassFromBinding extracts the class identifier from a
+// binding value token like "NewSubExplorer(deps)", "new Handler()",
+// "UserHandler", or "&Config{}". Returns the class name with the
+// "New"/"new " constructor prefixes stripped and parenthesized args
+// removed. Empty string if the shape is not a constructor reference.
+func parseTargetClassFromBinding(token string) string {
+	t := strings.TrimSpace(token)
+	t = strings.TrimLeft(t, "&,()")
+	t = strings.TrimSpace(t)
+	if t == "" {
+		return ""
+	}
+	if paren := strings.IndexByte(t, '('); paren >= 0 {
+		t = t[:paren]
+	}
+	if brace := strings.IndexByte(t, '{'); brace >= 0 {
+		t = t[:brace]
+	}
+	t = strings.TrimSpace(t)
+	// Java: "new Xxx"
+	if strings.HasPrefix(t, "new ") {
+		t = strings.TrimSpace(t[4:])
+	}
+	// Qualified name disambiguation — walks separator-split segments
+	// and returns the rightmost one that begins with an uppercase
+	// letter (the type, regardless of which side it's on). Handles:
+	//   pkg.Xxx         (Go/Python/JS: pkg is module, Xxx is type)
+	//   a.b.UserHandler (chained module access)
+	//   pkg::Xxx        (Rust/C++ module path)
+	//   Handler::new    (Rust static factory: Handler is the type)
+	//   Handler<T>      (generics: <T> gets trimmed by the leading-id
+	//                    walk below)
+	if strings.ContainsAny(t, ".:") {
+		splits := strings.FieldsFunc(t, func(r rune) bool {
+			return r == '.' || r == ':'
+		})
+		picked := ""
+		for i := len(splits) - 1; i >= 0; i-- {
+			s := splits[i]
+			if len(s) > 0 && s[0] >= 'A' && s[0] <= 'Z' {
+				picked = s
+				break
+			}
+		}
+		if picked != "" {
+			t = picked
+		}
+	}
+	// Factory prefix: "NewXxx" → "Xxx" (common Go/C# idiom). Only
+	// strips if the remaining name starts with an uppercase letter,
+	// keeping words like "News" / "Newer" intact.
+	if strings.HasPrefix(t, "New") && len(t) > 3 && t[3] >= 'A' && t[3] <= 'Z' {
+		t = t[3:]
+	}
+	// Take the leading identifier only: stop at the first non-ident
+	// char (covers `Xxx::new`, `Xxx()`, `Xxx{}`, `Xxx<T>`, etc.).
+	end := 0
+	for end < len(t) {
+		c := t[end]
+		if c == '_' || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') {
+			end++
+			continue
+		}
+		break
+	}
+	t = t[:end]
+	if t == "" || t[0] < 'A' || t[0] > 'Z' {
+		return ""
+	}
+	return t
+}
+
+// stripCommentLines replaces comment-only lines (and lines inside a
+// multi-line comment block) with empty strings, preserving the line
+// array length. This is a pre-pass for extractConcreteValues and
+// friends so that the downstream pattern scanners cannot parse comment
+// text as code.
+//
+// Coverage (superset across languages — the scanner doesn't know the
+// file's language, so it accepts any common comment shape):
+//   - Go/Java/JS/TS/C/Rust:   `//` line, `/* ... */` block, `* ...`
+//     continuation lines inside block comments
+//   - Python/Ruby/Shell/YAML: `#` line
+//   - Python docstrings:      `"""` / `'''` multi-line string blocks
+//
+// A real code line that happens to start with `*` (e.g. a C pointer
+// deref `*ptr = 5`) is not blanked: the helper only strips the
+// shapes `*` alone, `* text`, or `*/`, which are exclusively found in
+// block-comment continuation lines.
+func stripCommentLines(lines []string) []string {
+	out := make([]string, len(lines))
+	inBlock := false
+	inTripleDouble := false
+	inTripleSingle := false
+	for i, line := range lines {
+		t := strings.TrimSpace(line)
+		if inBlock {
+			if strings.Contains(t, "*/") {
+				inBlock = false
+			}
+			continue
+		}
+		if inTripleDouble {
+			if strings.Contains(line, `"""`) {
+				inTripleDouble = false
+			}
+			continue
+		}
+		if inTripleSingle {
+			if strings.Contains(line, `'''`) {
+				inTripleSingle = false
+			}
+			continue
+		}
+		if strings.HasPrefix(t, "/*") {
+			// Block comment opener. Blank the line regardless;
+			// if it doesn't also close on the same line, enter block state.
+			if !strings.Contains(t[2:], "*/") {
+				inBlock = true
+			}
+			continue
+		}
+		if strings.HasPrefix(t, "//") || strings.HasPrefix(t, "#") {
+			continue
+		}
+		if t == "*" || strings.HasPrefix(t, "* ") || strings.HasPrefix(t, "*/") {
+			continue
+		}
+		// Standalone Python-style triple-quoted strings (docstrings).
+		// A real triple-quoted ASSIGNMENT like `x = """abc"""` is also
+		// blanked, but such lines would not produce code-shaped
+		// extractions anyway.
+		if strings.HasPrefix(t, `"""`) {
+			rest := strings.TrimPrefix(t, `"""`)
+			if !strings.Contains(rest, `"""`) {
+				inTripleDouble = true
+			}
+			continue
+		}
+		if strings.HasPrefix(t, `'''`) {
+			rest := strings.TrimPrefix(t, `'''`)
+			if !strings.Contains(rest, `'''`) {
+				inTripleSingle = true
+			}
+			continue
+		}
+		out[i] = line
+	}
+	return out
+}
+
 // extractConcreteValues parses a short source code snippet for patterns
 // that establish concrete values. These patterns are language-agnostic
 // enough to work across Go, Python, Java, TypeScript, etc.
@@ -2915,7 +3313,14 @@ type concreteValueEntry struct {
 //   - return TypeName{...}      → returns TypeName{...}
 func extractConcreteValues(source string) []concreteValueEntry {
 	var results []concreteValueEntry
-	lines := strings.Split(source, "\n")
+	// Pre-strip comment-only lines so none of the pattern scanners
+	// below can parse comment text as code. The constructor-passing
+	// call scanner in particular is vulnerable: a line like
+	//   // (NewSubExplorer called once from RegisterDefaults). Each
+	// would otherwise be emitted as a phantom `binds ONLY` entry,
+	// which pollutes resolution-chain synthesis. See
+	// memory/project_baseline_2026_04_13_post_phase4.md.
+	lines := stripCommentLines(strings.Split(source, "\n"))
 
 	// Count non-blank, non-brace-only lines to detect "single-statement" bodies.
 	var registerCalls []string
