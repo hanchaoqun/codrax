@@ -1422,3 +1422,355 @@ func containsStr(s, sub string) bool {
 	}
 	return false
 }
+
+// midLoopFixtureResults builds a ToolResult history that
+// extractFileCoverage will parse as: 3 discovered files, 1 read, so
+// 2 remain unread. This is the minimum shape the parallel-batching
+// cue (MidLoopCheck Check 3) needs to fire its coverage gate.
+func midLoopFixtureResults() []types.ToolResult {
+	grepSummary := "[grep: 3 matching files]\n" +
+		"internal/fixture/alpha.go\n" +
+		"internal/fixture/beta.go\n" +
+		"internal/fixture/gamma.go\n"
+	readSummary := "[internal/fixture/alpha.go: showing lines 1-40 of 40]\n" +
+		"package fixture\n\nfunc Alpha() {}\n"
+	return []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: grepSummary},
+		{ToolName: "read_file", Success: true, Summary: readSummary},
+	}
+}
+
+// TestMidLoopCheck_ParallelCueFiresOnSerialStreak verifies Check 3
+// injects the parallel-batching cue when the LLM has been in a
+// serial (1 tool call per round) rhythm for ≥2 iterations in a row
+// AND ≥2 discovered files remain unread AND Check 1/Check 2 stayed
+// silent. Throttle + cadence rules apply.
+func TestMidLoopCheck_ParallelCueFiresOnSerialStreak(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopLastInjectIter: -10,
+		// Seed streak as if two prior iters were single-call.
+		// The current MidLoopCheck call will observe its own
+		// +1 growth and bump streak to 3.
+		midLoopSerialStreak:   2,
+		midLoopLastResultsLen: 1,
+	}
+	// Fixture: grep-discovered 3 files, 1 read → 2 unread.
+	results := midLoopFixtureResults()
+	hint, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	if !inject {
+		t.Fatal("Check 3 should inject after streak≥2 with ≥2 unread files")
+	}
+	if !strings.Contains(hint, "one tool call per round") {
+		t.Errorf("hint missing parallel-batching cue, got: %q", hint)
+	}
+	if !strings.Contains(hint, "parallel tool-call batch") {
+		t.Errorf("hint missing 'parallel tool-call batch' phrasing, got: %q", hint)
+	}
+	if !strings.Contains(hint, "determines what to read next") {
+		t.Errorf("hint missing serialize-when-dependent clause, got: %q", hint)
+	}
+	if !eval.midLoopParallelInjected {
+		t.Error("midLoopParallelInjected latch not set after inject")
+	}
+}
+
+// TestMidLoopCheck_ParallelCueOncePerDispatch verifies the parallel
+// cue is injected at most once per dispatch — subsequent calls with
+// the same conditions must stay silent so the cue doesn't become
+// noise that starves other mid-loop checks.
+func TestMidLoopCheck_ParallelCueOncePerDispatch(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                   1,
+		searchResult:            &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopLastInjectIter:   -10,
+		midLoopSerialStreak:     2,
+		midLoopLastResultsLen:   1,
+		midLoopParallelInjected: true, // already fired earlier this dispatch
+	}
+	results := midLoopFixtureResults()
+	_, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	if inject {
+		t.Error("parallel cue must not fire twice in a single dispatch")
+	}
+}
+
+// TestMidLoopCheck_ParallelCueSkippedOnParallelBatch verifies that
+// when the LLM is ALREADY batching tool calls in parallel, the streak
+// resets and the cue does not fire. This is the over-fit guard: the
+// cue must only push serial rhythms, never nag an already-parallel
+// one.
+func TestMidLoopCheck_ParallelCueSkippedOnParallelBatch(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopLastInjectIter: -10,
+		midLoopSerialStreak:   2,
+		midLoopLastResultsLen: 1,
+	}
+	// Simulate a 3-call parallel batch: allResults grew by 3 since
+	// the previous MidLoopCheck call.
+	results := append(midLoopFixtureResults(),
+		types.ToolResult{ToolName: "read_file", Success: true,
+			Summary: "[internal/fixture/beta.go: showing lines 1-20 of 20]\ncontent\n"},
+		types.ToolResult{ToolName: "read_file", Success: true,
+			Summary: "[internal/fixture/gamma.go: showing lines 1-20 of 20]\ncontent\n"},
+	)
+	// prev len=1, new len=4 → batch=3. Streak must reset to 0.
+	_, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	if inject {
+		t.Error("parallel cue must not fire when the LLM is already batching")
+	}
+	if eval.midLoopSerialStreak != 0 {
+		t.Errorf("serial streak must reset on a parallel batch, got %d", eval.midLoopSerialStreak)
+	}
+}
+
+// TestMidLoopCheck_ParallelCueSuppressedByPartialRead verifies the
+// existing Check 1 (function-boundary partial-read hint) takes
+// priority. When a partial-read hint is pending, the parallel cue
+// must NOT fire — the LLM has to finish reading the current function
+// before it is safe to suggest parallel batching of other files.
+func TestMidLoopCheck_ParallelCueSuppressedByPartialRead(t *testing.T) {
+	// We can't easily seed partialHints without a real Graph, so
+	// instead this test documents the structural guarantee: Check 3
+	// is gated on `b.Len() == 0`, meaning any earlier check that
+	// wrote into the builder suppresses the cue. A future refactor
+	// that decouples Check 3 from this gate must also decouple this
+	// test.
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopLastInjectIter: -10,
+		midLoopSerialStreak:   2,
+		midLoopLastResultsLen: 1,
+	}
+	results := midLoopFixtureResults()
+	hint, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	// Without partial-read hints in the fixture, Check 3 will fire.
+	// The suppression assertion lives in the structural gate: Check 3
+	// only runs if b.Len() == 0. Assert that the hint is ONLY the
+	// parallel cue and does NOT contain a partial-read clause, so a
+	// regression that accidentally merges the two branches is caught.
+	if !inject {
+		t.Fatal("precondition failed: Check 3 should have fired on this fixture")
+	}
+	if strings.Contains(hint, "Incomplete function") {
+		t.Error("parallel cue fixture must not contain a partial-read clause")
+	}
+}
+
+// driftFixGraph builds a repomap.Graph with two entity symbols so
+// the primary-entity file gate can be tested deterministically. The
+// fixture mirrors the df3 failing case: a struct + a method that
+// both live in explorer.go, an auxiliary file that does NOT count
+// as a primary-entity file, and a noise-kind symbol that must be
+// ignored.
+func driftFixGraph() *repomap.Graph {
+	return &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"explorerEvaluator": {{
+				Name: "explorerEvaluator", Kind: "struct",
+				File: "internal/agent/explorer.go",
+			}},
+			"ContinuationPrompt": {{
+				Name: "ContinuationPrompt", Kind: "method",
+				File: "internal/agent/explorer.go",
+			}},
+			// Unrelated symbol in another file — must NOT count.
+			"UnrelatedFoo": {{
+				Name: "UnrelatedFoo", Kind: "function",
+				File: "internal/agent/unrelated.go",
+			}},
+		},
+	}
+}
+
+// driftFakeEvidenceNotes is the iter-3 content snapshot from the
+// run-3 repro log: evidence blocks fabricated from grep context
+// lines. Used to verify that terminal-evidence alone does NOT let
+// S1 fire when the primary file was never read.
+const driftFakeEvidenceNotes = `## Evidence from internal/agent/explorer.go
+- [MECHANISM] ` + "`ContinuationPrompt`" + ` line 470: two-phase exploration model
+- [REGISTRATION] line 973: Registers forceful push for unread files
+- [CONDITIONAL] line 870: ERM gap-directed file suggestions prioritized
+`
+
+// TestShouldStop_PrimaryFileReadGate_BlocksOnFakeGrepEvidence pins
+// the df3 run-3 failure mode: the LLM satisfies ERM with tags
+// extracted from grep context lines, without ever calling read_file
+// on the primary-entity file. S1 MUST NOT fire until the primary
+// file is in the readSet.
+func TestShouldStop_PrimaryFileReadGate_BlocksOnFakeGrepEvidence(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:              1,
+		searchResult:       &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements:    []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"explorerEvaluator", "ContinuationPrompt"}, Status: "satisfied"}},
+		investigationNotes: []string{driftFakeEvidenceNotes},
+		// primaryReadIter deliberately 0 — no primary file read yet.
+	}
+	resp := llm.Response{Content: "wrap-up after grep-only evidence"}
+	if eval.ShouldStop(resp, 3) {
+		t.Fatal("S1 must not fire when primary-entity file was never read")
+	}
+}
+
+// TestShouldStop_PrimaryFileReadGate_BlocksOnStaleNotes pins the
+// "secondary" failure from df3 run-3 iter-5: primary file was read
+// at iter 4, but investigationNotes did NOT grow between the read
+// and the next soft-stop (LLM produced a short "I will continue"
+// reply, content not yet appended). S1 must wait for fresh notes.
+func TestShouldStop_PrimaryFileReadGate_BlocksOnStaleNotes(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements:       []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}, Status: "satisfied"}},
+		investigationNotes:    []string{driftFakeEvidenceNotes},
+		primaryReadIter:       4,
+		notesLenAtPrimaryRead: 1,
+	}
+	resp := llm.Response{Content: "Due to the length, I will now focus on reading the next segment."}
+	if eval.ShouldStop(resp, 5) {
+		t.Fatal("S1 must not fire when notes have not grown since primary-file read")
+	}
+}
+
+// TestShouldStop_PrimaryFileReadGate_AllowsAfterFreshNotes verifies
+// the happy path: primary file was read, investigationNotes grew
+// (LLM wrote fresh evidence from the real read), ERM satisfied,
+// terminal evidence present → S1 fires.
+func TestShouldStop_PrimaryFileReadGate_AllowsAfterFreshNotes(t *testing.T) {
+	freshNotes := `## Evidence from internal/agent/explorer.go (actual read)
+- [DIRECT] ContinuationPrompt line 572: appends resp.Content to investigationNotes when phase==1
+- [REGISTRATION] line 638: Phase 0 → Phase 1 transition returns evidence-collection prompt
+`
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements:       []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}, Status: "satisfied"}},
+		investigationNotes:    []string{driftFakeEvidenceNotes, freshNotes},
+		primaryReadIter:       4,
+		notesLenAtPrimaryRead: 1, // only 1 note existed when primary was read; now there are 2
+	}
+	resp := llm.Response{Content: "wrap-up"}
+	if !eval.ShouldStop(resp, 7) {
+		t.Fatal("S1 should fire when notes grew past the primary-read snapshot")
+	}
+}
+
+// TestShouldStop_PrimaryFileReadGate_SkippedWhenNoGraphSymbol
+// verifies the guard is skipped when ERM entities are concept
+// words with no graph symbol. These questions legitimately cannot
+// anchor on a "primary file" — existing ERM/terminal-evidence
+// checks govern behavior.
+func TestShouldStop_PrimaryFileReadGate_SkippedWhenNoGraphSymbol(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:              1,
+		searchResult:       &keywordSearchResult{Graph: &repomap.Graph{SymbolDefs: map[string][]*repomap.Symbol{}}},
+		ermRequirements:    []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"synthesis", "continuation"}, Status: "satisfied"}},
+		investigationNotes: []string{driftFakeEvidenceNotes},
+	}
+	resp := llm.Response{Content: "wrap-up"}
+	if !eval.ShouldStop(resp, 5) {
+		t.Fatal("S1 should fire when entities are concept words (no primary file anchor)")
+	}
+}
+
+// TestFilterEvidenceByPrimaryFiles pins the df3 drift-fix filter
+// contract: items from primary-entity files are kept, items from
+// other files are dropped, and items with no Source are kept
+// (general facts without location). Empty primary set is a no-op.
+func TestFilterEvidenceByPrimaryFiles(t *testing.T) {
+	items := []types.EvidenceItem{
+		{Source: "internal/agent/explorer.go", LineStart: 774, Summary: "two-phase model"},    // keep
+		{Source: "internal/agent/sub_explorer.go", LineStart: 169, Summary: `returns "", false`}, // drop
+		{Source: "cmd/root.go", LineStart: 96, Summary: "CLI flag"},                              // drop
+		{Source: "", Summary: "no-source general fact"},                                            // keep
+		{Source: "internal/agent/explorer.go", LineStart: 856, Summary: "partial read push"},     // keep
+		{Source: "internal/agent/finalizer.go", LineStart: 182, Summary: "finalizer string"},    // drop
+	}
+	primary := []string{"internal/agent/explorer.go"}
+	out := filterEvidenceByPrimaryFiles(items, primary)
+	if len(out) != 3 {
+		t.Fatalf("expected 3 filtered items, got %d: %+v", len(out), out)
+	}
+	// Order must be preserved.
+	if out[0].LineStart != 774 || out[1].Source != "" || out[2].LineStart != 856 {
+		t.Errorf("filtered items in wrong order: %+v", out)
+	}
+	// Empty primary = no-op.
+	if got := filterEvidenceByPrimaryFiles(items, nil); len(got) != len(items) {
+		t.Errorf("nil primary should be no-op, got %d items", len(got))
+	}
+	// Empty items = empty out.
+	if got := filterEvidenceByPrimaryFiles(nil, primary); len(got) != 0 {
+		t.Errorf("nil items should return empty, got %+v", got)
+	}
+}
+
+// TestObservePrimaryRead_IdempotentAndSnapshots verifies that
+// observePrimaryRead records primaryReadIter and notesLenAtPrimaryRead
+// on the first detection of a primary-entity file in readSet and is
+// a no-op thereafter (primaryReadIter stays at the first-detection
+// iter even if called repeatedly).
+func TestObservePrimaryRead_IdempotentAndSnapshots(t *testing.T) {
+	eval := &explorerEvaluator{
+		searchResult:       &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements:    []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"explorerEvaluator"}, Status: "unsatisfied"}},
+		investigationNotes: []string{"iter-3 notes here"},
+	}
+	// Empty history → no detection.
+	eval.observePrimaryRead(3, nil)
+	if eval.primaryReadIter != 0 {
+		t.Fatalf("primaryReadIter must stay 0 on empty history, got %d", eval.primaryReadIter)
+	}
+	// History containing a read of the primary file → first detection at iter 4.
+	history := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "[grep: 1 matching files]\ninternal/agent/explorer.go\n"},
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-500 of 5000]\npackage agent\n"},
+	}
+	eval.observePrimaryRead(4, history)
+	if eval.primaryReadIter != 4 {
+		t.Fatalf("primaryReadIter should be 4 after first detection, got %d", eval.primaryReadIter)
+	}
+	if eval.notesLenAtPrimaryRead != 1 {
+		t.Fatalf("notesLenAtPrimaryRead should snapshot len(notes)=1, got %d", eval.notesLenAtPrimaryRead)
+	}
+	// Simulate notes growing, call again at a later iter. primaryReadIter must not change.
+	eval.investigationNotes = append(eval.investigationNotes, "iter-5 notes")
+	eval.observePrimaryRead(6, history)
+	if eval.primaryReadIter != 4 {
+		t.Fatalf("primaryReadIter must stay at first-detection value 4, got %d", eval.primaryReadIter)
+	}
+	if eval.notesLenAtPrimaryRead != 1 {
+		t.Fatalf("notesLenAtPrimaryRead must stay at first-detection snapshot 1, got %d", eval.notesLenAtPrimaryRead)
+	}
+}
+
+// TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor verifies the
+// cue does not fire when fewer than 2 files remain unread. With only
+// 1 unread file there is nothing to parallelize — nudging the LLM
+// would be counterproductive (it should just read the one file).
+func TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopLastInjectIter: -10,
+		midLoopSerialStreak:   2,
+		midLoopLastResultsLen: 1,
+	}
+	// Fixture: 2 discovered, 1 read → only 1 unread. Below the floor.
+	grepSummary := "[grep: 2 matching files]\n" +
+		"internal/fixture/alpha.go\n" +
+		"internal/fixture/beta.go\n"
+	readSummary := "[internal/fixture/alpha.go: showing lines 1-40 of 40]\ncontent\n"
+	results := []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: grepSummary},
+		{ToolName: "read_file", Success: true, Summary: readSummary},
+	}
+	_, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	if inject {
+		t.Error("parallel cue must not fire when fewer than 2 files remain unread")
+	}
+}

@@ -43,6 +43,11 @@ type explorerEvaluator struct {
 	ermRequirements           []EvidenceRequirement // evidence requirement model
 	cachedConcreteValues      *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
 	midLoopLastInjectIter     int                   // #34: throttle MidLoopCheck cadence
+	midLoopLastResultsLen     int                   // #34: allResults length at prev MidLoopCheck (used to infer current batch size)
+	midLoopSerialStreak       int                   // #34: consecutive iters observed as single-call rounds
+	midLoopParallelInjected   bool                  // #34: parallel-batching hint already pushed this dispatch
+	primaryReadIter           int                   // df3-drift: iter at which a primary-entity file first entered readSet (0 = never)
+	notesLenAtPrimaryRead     int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
 }
 
 // stripConversationPrefix returns only the "current request" portion
@@ -99,6 +104,11 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		e.preScannedPushCount = 0
 		e.lastPreScannedUnreadCount = 0
 		e.broadenAttempts = 0
+		e.midLoopLastResultsLen = 0
+		e.midLoopSerialStreak = 0
+		e.midLoopParallelInjected = false
+		e.primaryReadIter = 0
+		e.notesLenAtPrimaryRead = 0
 	}
 
 	e.userQuestion = ctx.CurrentTask
@@ -108,6 +118,11 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
 	e.midLoopLastInjectIter = -10
+	e.midLoopLastResultsLen = 0
+	e.midLoopSerialStreak = 0
+	e.midLoopParallelInjected = false
+	e.primaryReadIter = 0
+	e.notesLenAtPrimaryRead = 0
 
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
@@ -366,6 +381,103 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	return b.String()
 }
 
+// primaryEntityFiles computes the set of file paths that define any
+// ERM requirement entity as a symbol in the repo graph. This is the
+// "primary entity" file set — the files the LLM MUST read_file (not
+// merely grep) to substantively answer the question.
+//
+// Entity-to-file lookup uses exact-name match (case-insensitive) on
+// `Graph.SymbolDefs`. Entities that have no graph symbol (concept
+// words, generic English nouns) contribute nothing — for those the
+// gate is skipped, and the existing ERM/evidence checks govern.
+//
+// The function is called each time MidLoopCheck and ShouldStop need
+// the set. It is cheap (hash lookups per entity) and re-computing
+// avoids stale-cache risk when ermRequirements evolve across iters.
+func (e *explorerEvaluator) primaryEntityFiles() []string {
+	if e.searchResult == nil || e.searchResult.Graph == nil || len(e.ermRequirements) == 0 {
+		return nil
+	}
+	graph := e.searchResult.Graph
+	seen := make(map[string]bool)
+	var files []string
+	for _, req := range e.ermRequirements {
+		for _, ent := range req.Entities {
+			if ent == "" {
+				continue
+			}
+			entLower := strings.ToLower(ent)
+			for symName, defs := range graph.SymbolDefs {
+				if strings.ToLower(symName) != entLower {
+					continue
+				}
+				for _, d := range defs {
+					if d == nil || d.File == "" {
+						continue
+					}
+					if !seen[d.File] {
+						seen[d.File] = true
+						files = append(files, d.File)
+					}
+				}
+			}
+		}
+	}
+	return files
+}
+
+// filterEvidenceByPrimaryFiles keeps evidence items whose Source is
+// in the primary-file set (empty Source is kept too — items without
+// a location cannot be filtered safely and usually carry general
+// facts like resolved chains). Used only for mechanism questions
+// where the finalizer needs tightly-scoped evidence to avoid being
+// drowned by concrete-value noise from unrelated files.
+func filterEvidenceByPrimaryFiles(items []types.EvidenceItem, primary []string) []types.EvidenceItem {
+	if len(items) == 0 || len(primary) == 0 {
+		return items
+	}
+	primarySet := make(map[string]bool, len(primary))
+	for _, p := range primary {
+		primarySet[p] = true
+	}
+	out := items[:0:0] // new slice, preserve original order
+	for _, ev := range items {
+		if ev.Source == "" || primarySet[ev.Source] {
+			out = append(out, ev)
+		}
+	}
+	return out
+}
+
+// observePrimaryRead detects whether any primary-entity file has
+// just entered the readSet derived from the given tool history. On
+// first detection, it snapshots the current iteration and the
+// length of investigationNotes so ShouldStop's S1 anchor can
+// enforce: "primary file was read AND LLM subsequently wrote fresh
+// evidence notes from that read."
+//
+// Idempotent: once primaryReadIter is set, later calls are no-ops.
+// Called from MidLoopCheck (runs after every tool batch).
+func (e *explorerEvaluator) observePrimaryRead(iteration int, history []types.ToolResult) {
+	if e.primaryReadIter > 0 {
+		return
+	}
+	primary := e.primaryEntityFiles()
+	if len(primary) == 0 {
+		return
+	}
+	_, readSet := extractFileCoverage(history)
+	for _, pf := range primary {
+		if readSet[pf] {
+			e.primaryReadIter = iteration
+			e.notesLenAtPrimaryRead = len(e.investigationNotes)
+			logging.Debug("[explorer] primary-entity file read at iter=%d: %s (notesAtRead=%d)",
+				iteration, pf, e.notesLenAtPrimaryRead)
+			return
+		}
+	}
+}
+
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	// Semantic early stop (S1 of the early-stop audit, see
 	// memory/project_explorer_early_stop_audit.md): when the LLM
@@ -433,6 +545,50 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 			formatERMStatuses(e.ermRequirements))
 		return false
 	}
+	// S1 primary-file-read gate (df3 file-selection drift fix).
+	//
+	// Observed failure mode (docs/df3-file-selection-drift analysis of
+	// eval/results/df3-20260413-173231/run-3): LLM runs parallel grep
+	// on 5 files, extracts [MECHANISM] / [DIRECT] / [REGISTRATION]
+	// tags from the grep CONTEXT LINES (not from actual file bodies),
+	// writes a `## Evidence from <file>` block per file. ERM counts
+	// the tags, flips to "satisfied". S1 fires. The LLM never read
+	// any of the files via read_file, so all evidence is fabricated
+	// from 3-line grep context.
+	//
+	// Two-part gate:
+	//
+	//   (a) At least ONE primary-entity file must be in the readSet.
+	//       Primary-entity file = file defining any ERM entity as a
+	//       graph symbol (exact-name match in SymbolDefs). Concept-
+	//       word entities (no symbol) contribute nothing; when no
+	//       primary file exists, the gate is skipped. This forces
+	//       the LLM to actually read_file the target before S1.
+	//
+	//   (b) investigationNotes must have GROWN since the primary
+	//       file first entered the readSet. Without this, the LLM
+	//       can read the file at iter=N but still soft-stop at
+	//       iter=N+1 with only iter=N-2's fake notes on record —
+	//       S1 would fire on the fake notes and the read is wasted.
+	//       The grow-check guarantees at least one soft-stop AFTER
+	//       the primary read, during which ContinuationPrompt has a
+	//       chance to append fresh notes derived from the real read.
+	//
+	// Tracking state (primaryReadIter, notesLenAtPrimaryRead) is
+	// updated from MidLoopCheck's observePrimaryRead at every tool
+	// batch, so ShouldStop always sees a current snapshot.
+	if primary := e.primaryEntityFiles(); len(primary) > 0 {
+		if e.primaryReadIter == 0 {
+			logging.Debug("[explorer] S1 check iter=%d blocked: primary-entity files %v not read yet",
+				iteration, primary)
+			return false
+		}
+		if len(e.investigationNotes) <= e.notesLenAtPrimaryRead {
+			logging.Debug("[explorer] S1 check iter=%d blocked: notes have not grown since primary read at iter=%d (notes=%d, atRead=%d)",
+				iteration, e.primaryReadIter, len(e.investigationNotes), e.notesLenAtPrimaryRead)
+			return false
+		}
+	}
 	// During the ReAct loop, `e.structuredEvidence` is only
 	// populated at ParseOutput time (ensureStructuredEvidence is
 	// the end-of-stage hook), so it is nil here and
@@ -494,6 +650,29 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // Hints are kept short on purpose — this runs every iteration and
 // would otherwise blow up the message budget.
 func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolResult, allResults []types.ToolResult) (string, bool) {
+	// Track primary-entity file reads for S1's df3-drift gate. Runs
+	// before the throttle so even "skipped" MidLoopCheck calls still
+	// update the read tracking — ShouldStop's gate depends on this
+	// state being current. Idempotent: once primaryReadIter is set,
+	// later calls are no-ops.
+	e.observePrimaryRead(iteration, allResults)
+
+	// Infer the current batch size from the allResults growth delta.
+	// MidLoopCheck is called once per ReAct iteration, after all tool
+	// calls in the current batch have executed and their results have
+	// been appended. This is the cleanest signal we have without
+	// changing the MidLoopEvaluator interface. Update the serial-
+	// streak counter regardless of whether the throttled checks below
+	// fire, so the parallel-batching cue (Check 3) has accurate
+	// degradation history when it runs.
+	currentBatch := len(allResults) - e.midLoopLastResultsLen
+	if e.midLoopLastResultsLen > 0 && currentBatch <= 1 {
+		e.midLoopSerialStreak++
+	} else if currentBatch > 1 {
+		e.midLoopSerialStreak = 0
+	}
+	e.midLoopLastResultsLen = len(allResults)
+
 	// Throttle: fire at most every 3 iters, and not before iter 3.
 	if iteration < 3 || iteration-e.midLoopLastInjectIter < 3 {
 		return "", false
@@ -559,6 +738,52 @@ func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolRe
 						len(readSet), len(discovered), coverage*100, strings.Join(unread, ", "))
 				}
 			}
+		}
+	}
+
+	// Check 3: parallel tool-call cue.
+	//
+	// iter=0 reliably batches 3-8 tool calls because the initial
+	// prompt sets up a seed-file scan. Mid-loop iterations degrade to
+	// 1-2 tool calls per round because the LLM falls into a single-
+	// step ReAct rhythm ("read A, observe, think, read B, observe,
+	// ..."). Each serial round pays full LLM round-trip latency, and
+	// the audit in docs/latency-analysis-2026-04-13.md §3.1 measured
+	// ~3s per round. On a 15-iter explorer this is where most of the
+	// remaining ReAct latency lives AFTER the self-dispatch fix.
+	//
+	// Fire only when:
+	//   - the LLM has been in a serial (≤1 call/round) rhythm for at
+	//     least 2 iters in a row — one serial round is noise, two is
+	//     a pattern
+	//   - at least 2 discovered files remain unread — otherwise there
+	//     is nothing to parallelize
+	//   - no partial-read hint was emitted above — those have higher
+	//     priority and the LLM should finish that function first
+	//   - the hint has not already been injected this dispatch — one
+	//     nudge is enough; repeated nudges become noise and would
+	//     starve other mid-loop checks
+	//
+	// The cue stays structural: it says "parallelize independent
+	// reads, serialize when output of one determines the next" and
+	// names no files. The LLM is the only party that sees the notes
+	// and history, so it is the only party that can judge
+	// independence; we just remove the implicit "one-at-a-time"
+	// rhythm that the prior iterations established.
+	if b.Len() == 0 && !e.midLoopParallelInjected && e.midLoopSerialStreak >= 2 {
+		discovered, readSet := extractFileCoverage(allResults)
+		unreadCount := 0
+		for _, f := range discovered {
+			if !readSet[f] && !isNoisePath(f) {
+				unreadCount++
+			}
+		}
+		if unreadCount >= 2 {
+			b.WriteString("MID-LOOP CHECK: you have been issuing one tool call per round for several iterations. " +
+				"If you need to read multiple files whose contents do NOT depend on each other, issue all the `read_file` calls as a single parallel tool-call batch (multiple tool_use blocks in one assistant message) — this cuts LLM round-trip latency significantly. " +
+				"Serialize only when the output of one read determines what to read next (e.g. you need to see a symbol in file A before you know which line range of file B to fetch). " +
+				"Apply the same rule to independent `grep` calls.\n")
+			e.midLoopParallelInjected = true
 		}
 	}
 
@@ -1158,6 +1383,35 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	rankedEvidence := rankEvidenceByRelevance(e.userQuestion, e.structuredEvidence, readSet)
 	rankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
 
+	// df3 drift fix: for mechanism questions anchored on a primary
+	// entity file (e.g. "explorerEvaluator 的 ContinuationPrompt 怎
+	// 么实现?" → primary file = internal/agent/explorer.go), filter
+	// the evidence to items from the primary file(s) before passing
+	// to the finalizer. This solves the `cmd/root.go` / `sub_explorer.go`
+	// contamination of the finalizer's top-18 Structured Evidence
+	// section — concrete-value extraction across the whole repo
+	// would otherwise drown the actual [MECHANISM]/[CONDITIONAL]
+	// tags the LLM wrote about the target function.
+	//
+	// Fail-open: if filtering removes everything (no primary-file
+	// evidence survived — unusual, implies the investigation never
+	// touched the target file), the unfiltered list is used so we
+	// don't block the finalizer on an empty set. Only applied for
+	// mechanism; enumeration / registration / call_chain are unaffected.
+	if strings.EqualFold(strings.TrimSpace(irQuestionKind(ctx)), "mechanism") {
+		if primary := e.primaryEntityFiles(); len(primary) > 0 {
+			filtered := filterEvidenceByPrimaryFiles(rankedEvidence, primary)
+			if len(filtered) > 0 {
+				logging.Debug("[explorer] mechanism-kind evidence filter: %d → %d items (primary files: %v)",
+					len(rankedEvidence), len(filtered), primary)
+				rankedEvidence = filtered
+			} else {
+				logging.Debug("[explorer] mechanism-kind evidence filter: 0 items match primary files %v, keeping full set (%d)",
+					primary, len(rankedEvidence))
+			}
+		}
+	}
+
 	// Identify answer chains: deterministic resolution chains that
 	// directly answer the user's question. These get a dedicated
 	// section in the finalizer prompt with higher priority than
@@ -1168,6 +1422,23 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	answerChains, strictAnswerItems := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
 		buildAnswerWhitelist(e.ermRequirements), e.ermRequirements, ermGraph)
+	// df3 drift fix: mechanism questions do not benefit from the
+	// chain-ranked Ground Truth section. identifyAnswerChains tends
+	// to surface whatever bind/return chains rank high, which for
+	// multi-type polymorphic methods (e.g. ContinuationPrompt exists
+	// on explorerEvaluator, subExplorerEvaluator, finalizerEvaluator)
+	// pulls sibling evaluators into the Ground Truth and poisons the
+	// final answer. Evidence Items (filtered above) carry the
+	// [MECHANISM]/[CONDITIONAL] tags with file:line citations which
+	// is the right anchoring for a mechanism step_list answer.
+	if strings.EqualFold(strings.TrimSpace(irQuestionKind(ctx)), "mechanism") {
+		if len(answerChains) > 0 {
+			logging.Debug("[explorer] mechanism-kind: dropping %d answer chains (step_list shape uses Evidence Items)",
+				len(answerChains))
+		}
+		answerChains = nil
+		strictAnswerItems = nil
+	}
 	if len(answerChains) > 0 {
 		logging.Debug("[explorer] identified %d answer chains (%d strict)", len(answerChains), len(strictAnswerItems))
 		for i, ac := range answerChains {
