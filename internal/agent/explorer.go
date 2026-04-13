@@ -358,6 +358,19 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 					e.fileSymbols[c.path] = c.symbols
 				}
 			}
+			// Primary-target banner: when the ERM entities resolve to a
+			// SINGLE primary file via receiver-aware disambiguation AND
+			// sibling-receiver definitions of the same method name exist
+			// in OTHER files, emit an explicit "read this, avoid those"
+			// directive. Without this, the LLM sees the sibling files in
+			// the keyword_search ranked list and repo_map output, then
+			// self-directs "Next steps: gather evidence from sub_explorer
+			// and finalizer" — poisoning the final answer with drift from
+			// siblings even though f99a727's evidence filter drops their
+			// items. Tracked in the df3 eval at 190611 (2/3 runs drifted).
+			if banner := e.buildPrimaryTargetBanner(); banner != "" {
+				b.WriteString(banner)
+			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
 			// can try its own grep strategies.
@@ -473,6 +486,123 @@ func (e *explorerEvaluator) primaryEntityFiles() []string {
 		}
 	}
 	return files
+}
+
+// buildPrimaryTargetBanner returns a prompt block that names the single
+// primary target file and lists sibling-receiver files to avoid. Fires
+// only when receiver-aware disambiguation resolves the ERM method
+// entities to exactly one file AND at least one sibling-receiver
+// definition of the same method name exists in another file.
+//
+// This is the second layer of the receiver drift fix (f99a727 was the
+// first). The evidence filter in f99a727 drops sibling-file evidence
+// items but cannot stop the LLM from READING sub_explorer.go /
+// finalizer.go in the first place — both appear in the keyword_search
+// ranked list and the repo_map output for any grep of a polymorphic
+// method name. Once the LLM has read them, their observations leak
+// into the narrative StageReport even though the structured evidence
+// items are filtered out. Df3 eval at 190611 run-2 / run-3 both drifted
+// this way: cited internal/agent/sub_explorer.go:154-198 with the exact
+// signature line, because the LLM chose to go read it.
+//
+// Banner fires only when the drift is actually possible. When no
+// siblings exist (single definition), no banner is emitted — the
+// evidence filter and primary-file S1 gate already handle that case.
+func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
+	if e.searchResult == nil || e.searchResult.Graph == nil || len(e.ermRequirements) == 0 {
+		return ""
+	}
+	graph := e.searchResult.Graph
+	primary := e.primaryEntityFiles()
+	if len(primary) != 1 {
+		return ""
+	}
+	targetFile := primary[0]
+
+	// Collect the method-name entities (the ones whose sibling
+	// definitions we need to warn against). These are entities that
+	// resolve to a "method" kind in the graph.
+	entities := make(map[string]string) // lower → original
+	for _, req := range e.ermRequirements {
+		for _, ent := range req.Entities {
+			if ent == "" {
+				continue
+			}
+			entities[strings.ToLower(ent)] = ent
+		}
+	}
+	methodNames := make(map[string]string) // lower → original
+	for entLower, entOrig := range entities {
+		for symName, defs := range graph.SymbolDefs {
+			if strings.ToLower(symName) != entLower {
+				continue
+			}
+			for _, d := range defs {
+				if d != nil && strings.ToLower(d.Kind) == "method" {
+					methodNames[entLower] = entOrig
+					break
+				}
+			}
+		}
+	}
+	if len(methodNames) == 0 {
+		return ""
+	}
+
+	// Collect sibling files: files OTHER than targetFile that define a
+	// method with any of these names. De-duplicate by file.
+	siblingSet := make(map[string]bool)
+	for entLower := range methodNames {
+		for symName, defs := range graph.SymbolDefs {
+			if strings.ToLower(symName) != entLower {
+				continue
+			}
+			for _, d := range defs {
+				if d == nil || d.File == "" {
+					continue
+				}
+				if strings.ToLower(d.Kind) != "method" {
+					continue
+				}
+				if d.File == targetFile {
+					continue
+				}
+				siblingSet[d.File] = true
+			}
+		}
+	}
+	if len(siblingSet) == 0 {
+		return ""
+	}
+
+	siblings := make([]string, 0, len(siblingSet))
+	for f := range siblingSet {
+		siblings = append(siblings, f)
+	}
+	sort.Strings(siblings)
+
+	// Pick the most distinctive method name for the directive. When
+	// multiple polymorphic method entities are present, prefer the
+	// longest name as the most specific.
+	var distinct string
+	for _, orig := range methodNames {
+		if len(orig) > len(distinct) {
+			distinct = orig
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("### Primary Target File\n\n")
+	fmt.Fprintf(&b, "**Read `%s` to answer this question.** ", targetFile)
+	fmt.Fprintf(&b, "This is the only file whose `%s` definition matches the receiver in the question.\n\n",
+		distinct)
+	b.WriteString("**Do NOT gather evidence from these sibling files** — they define methods with the same name but on different receiver types, and are NOT the target:\n")
+	for _, f := range siblings {
+		fmt.Fprintf(&b, "- `%s`\n", f)
+	}
+	b.WriteString("\nIgnore these siblings even if grep/repo_map/pre-scan ranking surfaces them. ")
+	b.WriteString("They answer a different question about a different type.\n\n")
+	return b.String()
 }
 
 // filterEvidenceByPrimaryFiles keeps evidence items whose Source is

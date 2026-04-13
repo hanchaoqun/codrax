@@ -1751,6 +1751,125 @@ func TestPrimaryEntityFiles_NoReceiverHint(t *testing.T) {
 	}
 }
 
+// TestBuildPrimaryTargetBanner_SiblingsPresent verifies the banner
+// fires when receiver-aware disambiguation yields a single primary
+// file AND sibling-receiver definitions exist in other files. The
+// banner is the second layer of the df3 receiver drift fix: it stops
+// the LLM from self-directing into sub_explorer.go / finalizer.go
+// after seeing them in the keyword_search ranked list and repo_map
+// output. See the df3-20260413-190611 run-2/run-3 regression for
+// the repro.
+func TestBuildPrimaryTargetBanner_SiblingsPresent(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"explorerEvaluator": {{
+				Name: "explorerEvaluator", Kind: "struct",
+				File: "internal/agent/explorer.go", Line: 23,
+			}},
+			"ContinuationPrompt": {
+				{Name: "ContinuationPrompt", Kind: "method", Receiver: "explorerEvaluator",
+					File: "internal/agent/explorer.go", Line: 846},
+				{Name: "ContinuationPrompt", Kind: "method", Receiver: "subExplorerEvaluator",
+					File: "internal/agent/sub_explorer.go", Line: 154},
+				{Name: "ContinuationPrompt", Kind: "method", Receiver: "finalizerEvaluator",
+					File: "internal/agent/finalizer.go", Line: 161},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: graph},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: "mechanism", Entities: []string{"explorerEvaluator", "ContinuationPrompt"}, Status: "unsatisfied"},
+		},
+	}
+	banner := eval.buildPrimaryTargetBanner()
+	if banner == "" {
+		t.Fatal("expected banner to fire for single primary + 2 siblings")
+	}
+	// Target file must appear.
+	if !strings.Contains(banner, "internal/agent/explorer.go") {
+		t.Errorf("banner missing target file: %s", banner)
+	}
+	// Both siblings must appear in the negative list.
+	if !strings.Contains(banner, "internal/agent/sub_explorer.go") {
+		t.Errorf("banner missing sibling sub_explorer.go: %s", banner)
+	}
+	if !strings.Contains(banner, "internal/agent/finalizer.go") {
+		t.Errorf("banner missing sibling finalizer.go: %s", banner)
+	}
+	// Distinctive method name must appear in the positive directive.
+	if !strings.Contains(banner, "ContinuationPrompt") {
+		t.Errorf("banner missing method name: %s", banner)
+	}
+	// Negative framing must be explicit.
+	if !strings.Contains(banner, "Do NOT") {
+		t.Errorf("banner missing explicit negative directive: %s", banner)
+	}
+}
+
+// TestBuildPrimaryTargetBanner_NoSiblings verifies the banner is
+// silent when the single primary file has no sibling definitions.
+// In that case the evidence filter + S1 gate already handle scoping;
+// adding a negative directive with an empty sibling list would be
+// noise.
+func TestBuildPrimaryTargetBanner_NoSiblings(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Foo": {{Name: "Foo", Kind: "struct", File: "foo.go", Line: 10}},
+			"Bar": {{Name: "Bar", Kind: "method", Receiver: "Foo", File: "foo.go", Line: 20}},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: graph},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: "mechanism", Entities: []string{"Foo", "Bar"}, Status: "unsatisfied"},
+		},
+	}
+	if banner := eval.buildPrimaryTargetBanner(); banner != "" {
+		t.Errorf("no siblings → banner should be empty, got: %s", banner)
+	}
+}
+
+// TestBuildPrimaryTargetBanner_MultiplePrimaries verifies the banner
+// is silent when multiple primary files exist (no receiver hint, or
+// hint resolves to multiple). The banner contract requires a single
+// unambiguous target.
+func TestBuildPrimaryTargetBanner_MultiplePrimaries(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Execute": {
+				{Name: "Execute", Kind: "method", Receiver: "BaseAgent",
+					File: "internal/agent/agent.go", Line: 317},
+				{Name: "Execute", Kind: "method", Receiver: "Planner",
+					File: "internal/agent/planner.go", Line: 100},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: graph},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: "call_chain", Entities: []string{"Execute"}, Status: "unsatisfied"},
+		},
+	}
+	if banner := eval.buildPrimaryTargetBanner(); banner != "" {
+		t.Errorf("multiple primaries → banner should be empty, got: %s", banner)
+	}
+}
+
+// TestBuildPrimaryTargetBanner_NilGraph verifies the banner is silent
+// when no graph is available. The function must be a safe no-op
+// against the same preconditions as primaryEntityFiles.
+func TestBuildPrimaryTargetBanner_NilGraph(t *testing.T) {
+	eval := &explorerEvaluator{
+		ermRequirements: []EvidenceRequirement{
+			{Kind: "mechanism", Entities: []string{"Foo"}, Status: "unsatisfied"},
+		},
+	}
+	if banner := eval.buildPrimaryTargetBanner(); banner != "" {
+		t.Errorf("nil graph → banner should be empty, got: %s", banner)
+	}
+}
+
 // TestFilterEvidenceByPrimaryFiles pins the df3 drift-fix filter
 // contract: items from primary-entity files are kept, items from
 // other files are dropped, and items with no Source are kept
