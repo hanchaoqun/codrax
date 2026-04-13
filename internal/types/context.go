@@ -248,11 +248,12 @@ type BusContext struct {
 	RepoFacts     []RepoFact          `json:"repo_facts,omitempty"`
 	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
-	AnswerChains  []string            `json:"answer_chains,omitempty"` // deterministic chains that directly answer the question
+	AnswerChains  []string            `json:"answer_chains,omitempty"`  // deterministic chains that directly answer the question
 	AnswerSymbols []AnswerSymbol      `json:"answer_symbols,omitempty"` // L0-2: structured terminal symbols extracted from AnswerChains
 	ToolResults   []ToolResult        `json:"tool_results,omitempty"`
 	MCPResponses  []MCPResponse       `json:"mcp_responses,omitempty"`
 	StageReports  []StageReport       `json:"stage_reports,omitempty"`
+	AnalysisIR    *AnalysisIR         `json:"analysis_ir,omitempty"`
 
 	Signals ExecutionSignals `json:"signals"`
 	Policy  PolicyContext    `json:"policy"`

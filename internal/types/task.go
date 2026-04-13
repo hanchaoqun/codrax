@@ -9,9 +9,9 @@ package types
 // escalates an implementation task to the high_risk_implementation
 // policy with review stages.
 type TaskItem struct {
-	ID          string     `json:"id" yaml:"id"`
-	Title       string     `json:"title" yaml:"title"`
-	Description string     `json:"description" yaml:"description"`
+	ID          string `json:"id" yaml:"id"`
+	Title       string `json:"title" yaml:"title"`
+	Description string `json:"description" yaml:"description"`
 
 	// Writing indicates whether this task may mutate the filesystem.
 	// It is the per-task analogue of StageConfig.RequiresWrite and
@@ -32,38 +32,6 @@ type TaskItem struct {
 	//   "complex" — cross-component architecture / flow (high threshold)
 	// Empty string is treated as "moderate" (the default).
 	Complexity string `json:"complexity,omitempty" yaml:"complexity,omitempty"`
-
-	// Keywords are search terms extracted by the analyzer for the
-	// explorer's Phase 1 breadth scan. Should include both domain
-	// terms (CamelCase symbols, snake_case identifiers) and conceptual
-	// synonyms so grep casts a wide net.
-	Keywords []string `json:"keywords,omitempty" yaml:"keywords,omitempty"`
-
-	// Entities is the analyzer-preserved list of CamelCase/snake_case
-	// symbol names copied verbatim from the user's original wording.
-	// This is the authoritative entity source for ERM: explorer.go
-	// prefers it over its own regex-based extractRankingEntities when
-	// non-empty, because the analyzer (seeing the raw request) has
-	// strictly more context than a post-hoc regex over a rewritten
-	// string. Must not be translated or re-cased.
-	Entities []string `json:"entities,omitempty" yaml:"entities,omitempty"`
-
-	// QuestionKind is the analyzer-declared evidence-requirement shape
-	// for the question. Values are the same Kind strings used by
-	// EvidenceRequirement: "registration", "mechanism", "return_value",
-	// "conditional", "config_mapping", "enumeration", "call_chain",
-	// or "unknown". When set and != "unknown", ERM adopts it directly
-	// and skips keyword-based inference (which has a long history of
-	// regression on analyzer rewrites — see project_erm_english_keyword_gap).
-	QuestionKind string `json:"question_kind,omitempty" yaml:"question_kind,omitempty"`
-
-	// AnswerShape describes the expected final-answer structure so the
-	// finalizer can apply shape-specific anti-hallucination constraints.
-	// Values: "list_of_symbols", "step_list", "value", "boolean",
-	// "config_value", "none". Drives the finalizer's injected prompt
-	// constraint that forbids out-of-evidence symbol names for shapes
-	// like list_of_symbols.
-	AnswerShape string `json:"answer_shape,omitempty" yaml:"answer_shape,omitempty"`
 
 	Status TaskStatus `json:"status" yaml:"status"`
 	Result string     `json:"result,omitempty" yaml:"result,omitempty"`

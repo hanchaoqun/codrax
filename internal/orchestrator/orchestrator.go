@@ -618,6 +618,9 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	o.busCtx.FlowFindings = agent.MergeFlowFindings(o.busCtx.FlowFindings, output.FlowFindings)
 	o.busCtx.AnswerChains = types.MergeAnswerChains(o.busCtx.AnswerChains, output.AnswerChains)
 	o.busCtx.AnswerSymbols = types.MergeAnswerSymbols(o.busCtx.AnswerSymbols, output.AnswerSymbols)
+	if output.AnalysisIR != nil {
+		o.busCtx.AnalysisIR = output.AnalysisIR
+	}
 
 	// Append the stage's synthesized narrative so downstream stages
 	// can read prior reasoning. The active agent/stage at this point

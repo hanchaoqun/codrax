@@ -36,10 +36,13 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ac.CurrentTaskWriting = task.Writing
 		ac.CurrentTaskHighRisk = task.HighRisk
 		ac.CurrentTaskComplexity = task.Complexity
-		ac.CurrentTaskKeywords = task.Keywords
-		ac.CurrentTaskEntities = task.Entities
-		ac.CurrentTaskQuestionKind = task.QuestionKind
-		ac.CurrentTaskAnswerShape = task.AnswerShape
+	}
+	if bus.AnalysisIR != nil {
+		ac.CurrentTaskComplexity = bus.AnalysisIR.EvidencePlan.Complexity
+		ac.CurrentTaskKeywords = append([]string(nil), bus.AnalysisIR.EvidencePlan.Keywords...)
+		ac.CurrentTaskEntities = append([]string(nil), bus.AnalysisIR.RequestModel.Entities...)
+		ac.CurrentTaskQuestionKind = bus.AnalysisIR.RequestModel.QuestionKind
+		ac.CurrentTaskAnswerShape = bus.AnalysisIR.AnswerContract.OutputShape
 	}
 
 	// Collect relevant facts
