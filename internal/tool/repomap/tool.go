@@ -7,7 +7,10 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool"
-	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/index"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/render"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/retrieve"
+	ctypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // RepoMapV2 is the tree-sitter-powered repo map tool.
@@ -19,10 +22,10 @@ type RepoMapV2 struct {
 type repoMapParams struct {
 	Path       string `json:"path"`
 	View       string `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact
-	Query      string `json:"query,omitempty"`        // for task_map
-	TargetFile string `json:"target_file,omitempty"`  // for edit_impact
-	EntryPoint string `json:"entry_point,omitempty"`  // for call_path
-	TopN       int    `json:"top_n,omitempty"`        // max items
+	Query      string `json:"query,omitempty"`       // for task_map
+	TargetFile string `json:"target_file,omitempty"` // for edit_impact
+	EntryPoint string `json:"entry_point,omitempty"` // for call_path
+	TopN       int    `json:"top_n,omitempty"`       // max items
 }
 
 func (t *RepoMapV2) Name() string { return "repo_map" }
@@ -69,10 +72,10 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
 }`)
 }
 
-func (t *RepoMapV2) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
+func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (ctypes.ToolResult, error) {
 	var p repoMapParams
 	if err := json.Unmarshal(params, &p); err != nil {
-		return types.ToolResult{
+		return ctypes.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   fmt.Sprintf("invalid params: %v", err),
@@ -92,7 +95,7 @@ func (t *RepoMapV2) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	// Build or load the graph
 	graph, err := buildOrLoadGraph(repoRoot, p.Query)
 	if err != nil {
-		return types.ToolResult{
+		return ctypes.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
 			Summary:   fmt.Sprintf("scan failed: %v", err),
@@ -107,10 +110,10 @@ func (t *RepoMapV2) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		EntryPoint: p.EntryPoint,
 		TopN:       p.TopN,
 	}
-	output := GenerateView(graph, p.View, viewParams)
+	output := render.GenerateView(graph, p.View, viewParams)
 
 	summary, ref := tool.StoreBlob(ctx, t.Name(), output)
-	return types.ToolResult{
+	return ctypes.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
 		Summary:   summary,
@@ -119,18 +122,18 @@ func (t *RepoMapV2) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	}, nil
 }
 
-// BuildOrLoadGraph builds or loads a cached repo graph, ranks files by
-// the given query, and returns the result. Exported for use by the
-// keyword search system in the agent package.
+// BuildOrLoadGraph builds or loads a cached repo graph, ranks files
+// by the given query, and returns the result. Exported for use by
+// the keyword search system in the agent package.
 func BuildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	return buildOrLoadGraph(repoRoot, query)
 }
 
 func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
-	cacheDir := CacheDir(repoRoot)
+	cacheDir := index.CacheDir(repoRoot)
 
 	// Scan files
-	entries, err := ScanFiles(repoRoot)
+	entries, err := index.ScanFiles(repoRoot)
 	if err != nil {
 		return nil, fmt.Errorf("file scan: %w", err)
 	}
@@ -140,13 +143,13 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 	}
 
 	// No cache at all → full scan
-	if NeedsFullRescan(cacheDir) {
+	if index.NeedsFullRescan(cacheDir) {
 		logging.Info("repo_map: full scan (%d files, no cache)", len(entries))
 		return fullScan(repoRoot, cacheDir, entries, query)
 	}
 
 	// Detect which files changed
-	changed := ChangedFiles(repoRoot, cacheDir, entries)
+	changed := index.ChangedFiles(repoRoot, cacheDir, entries)
 
 	// Nothing changed → load from cache directly
 	if len(changed) == 0 {
@@ -166,23 +169,23 @@ func buildOrLoadGraph(repoRoot, query string) (*Graph, error) {
 }
 
 func loadFromCache(repoRoot, cacheDir, query string) (*Graph, error) {
-	cached := LoadFileInfos(cacheDir)
+	cached := index.LoadFileInfos(cacheDir)
 	if cached == nil {
 		// Cache corrupt or missing JSON → fall back to full scan
-		entries, err := ScanFiles(repoRoot)
+		entries, err := index.ScanFiles(repoRoot)
 		if err != nil {
 			return nil, fmt.Errorf("file scan: %w", err)
 		}
 		return fullScan(repoRoot, cacheDir, entries, query)
 	}
 
-	graph := BuildGraph(repoRoot, cached)
-	RankGraph(graph, query)
+	graph := index.BuildGraph(repoRoot, cached)
+	retrieve.RankGraph(graph, query)
 	return graph, nil
 }
 
 func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []string, query string) (*Graph, error) {
-	cached := LoadFileInfos(cacheDir)
+	cached := index.LoadFileInfos(cacheDir)
 	if cached == nil {
 		return fullScan(repoRoot, cacheDir, entries, query)
 	}
@@ -220,14 +223,14 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 		}
 	}
 
-	freshInfos := ParseFiles(parseable, repoRoot)
+	freshInfos := index.ParseFiles(parseable, repoRoot)
 	for _, e := range unparseable {
 		fi := &FileInfo{
 			RelPath:  e.RelPath,
 			Language: "",
 			Size:     e.Size,
 		}
-		if ok, stype := IsSpecialFile(e.RelPath); ok {
+		if ok, stype := index.IsSpecialFile(e.RelPath); ok {
 			fi.IsSpecial = true
 			fi.SpecialType = stype
 		}
@@ -252,9 +255,9 @@ func incrementalScan(repoRoot, cacheDir string, entries []FileEntry, changed []s
 	}
 
 	// Build graph, rank, save
-	graph := BuildGraph(repoRoot, merged)
-	RankGraph(graph, query)
-	_ = SaveCache(cacheDir, graph)
+	graph := index.BuildGraph(repoRoot, merged)
+	retrieve.RankGraph(graph, query)
+	_ = index.SaveCache(cacheDir, graph)
 	return graph, nil
 }
 
@@ -271,7 +274,7 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string) (*Gr
 	}
 
 	// Parse all files in parallel
-	fileInfos := ParseFiles(parseable, repoRoot)
+	fileInfos := index.ParseFiles(parseable, repoRoot)
 
 	// Add unparseable files with basic metadata
 	for _, e := range unparseable {
@@ -280,7 +283,7 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string) (*Gr
 			Language: "",
 			Size:     e.Size,
 		}
-		if ok, stype := IsSpecialFile(e.RelPath); ok {
+		if ok, stype := index.IsSpecialFile(e.RelPath); ok {
 			fi.IsSpecial = true
 			fi.SpecialType = stype
 		}
@@ -288,13 +291,13 @@ func fullScan(repoRoot, cacheDir string, entries []FileEntry, query string) (*Gr
 	}
 
 	// Build graph
-	graph := BuildGraph(repoRoot, fileInfos)
+	graph := index.BuildGraph(repoRoot, fileInfos)
 
 	// Rank
-	RankGraph(graph, query)
+	retrieve.RankGraph(graph, query)
 
 	// Save cache (non-blocking — errors are tolerable)
-	_ = SaveCache(cacheDir, graph)
+	_ = index.SaveCache(cacheDir, graph)
 
 	return graph, nil
 }

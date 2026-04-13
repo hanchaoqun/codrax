@@ -1,146 +1,225 @@
 {
-  "_comment": "Curated task_map queries. Each query has an expected_files list that MUST appear in the top-K ranked files (K=top_k per query, default 5). Picking files that are unambiguously the answer — e.g. a query about determineActivePolicy should definitely surface orchestrator.go. Metric is hit@k: fraction of expected files that show up in top-K. A hit@k of 1.0 means every expected file made it into top-K.",
+  "_comment": "Curated task_map queries. Each query has an expected_files list that MUST appear in the top-K ranked files (K=top_k per query, default 5). Picking files that are unambiguously the answer \u2014 e.g. a query about determineActivePolicy should definitely surface orchestrator.go. Metric is hit@k: fraction of expected files that show up in top-K. A hit@k of 1.0 means every expected file made it into top-K.",
   "default_top_k": 5,
   "queries": [
     {
       "query": "determineActivePolicy run policy",
-      "expected_files": ["internal/orchestrator/orchestrator.go"]
+      "expected_files": [
+        "internal/orchestrator/orchestrator.go"
+      ]
     },
     {
       "query": "AnalysisIR RunPolicy",
-      "expected_files": ["internal/types/analysis_ir.go", "internal/analysis/risk/policy.go"]
+      "expected_files": [
+        "internal/types/analysis_ir.go",
+        "internal/analysis/risk/policy.go"
+      ]
     },
     {
       "query": "AnalyzerClassification MutableState",
-      "expected_files": ["internal/types/context.go", "internal/tool/todo_write.go"]
+      "expected_files": [
+        "internal/types/context.go",
+        "internal/tool/todo_write.go"
+      ]
     },
     {
       "query": "todo_write analyzer classification",
-      "expected_files": ["internal/tool/todo_write.go", "internal/agent/analyzer.go"]
+      "expected_files": [
+        "internal/tool/todo_write.go",
+        "internal/agent/analyzer.go"
+      ]
     },
     {
       "query": "buildAnalysisIR buildRequestModel",
-      "expected_files": ["internal/agent/analyzer.go"]
+      "expected_files": [
+        "internal/agent/analyzer.go"
+      ]
     },
     {
       "query": "ir_accessor irKeywords irEntities",
-      "expected_files": ["internal/agent/ir_accessor.go"]
+      "expected_files": [
+        "internal/agent/ir_accessor.go"
+      ]
     },
     {
       "query": "propose_sub_agents tool",
-      "expected_files": ["internal/tool/propose_sub_agents.go"]
+      "expected_files": [
+        "internal/tool/propose_sub_agents.go"
+      ]
     },
     {
       "query": "subagent register default SubExplorer",
-      "expected_files": ["internal/agent/subagent.go"]
+      "expected_files": [
+        "internal/agent/subagent.go"
+      ]
     },
     {
       "query": "extractSubAgentProposal orchestrator",
-      "expected_files": ["internal/orchestrator/orchestrator.go"]
+      "expected_files": [
+        "internal/orchestrator/orchestrator.go"
+      ]
     },
     {
       "query": "explorer ShouldStop BaseAgent",
-      "expected_files": ["internal/agent/explorer.go", "internal/agent/agent.go"]
+      "expected_files": [
+        "internal/agent/explorer.go",
+        "internal/agent/agent.go"
+      ]
     },
     {
       "query": "ContinuationPrompt explorer evaluator",
-      "expected_files": ["internal/agent/explorer.go"]
+      "expected_files": [
+        "internal/agent/explorer.go"
+      ]
     },
     {
       "query": "keyword search IDF ranking",
-      "expected_files": ["internal/agent/keyword_search.go"]
+      "expected_files": [
+        "internal/agent/keyword_search.go"
+      ]
     },
     {
       "query": "extractConcreteValues evidence",
-      "expected_files": ["internal/agent/explorer.go"]
+      "expected_files": [
+        "internal/agent/explorer.go"
+      ]
     },
     {
       "query": "EvidenceRequirement ERM",
-      "expected_files": ["internal/agent/erm.go"]
+      "expected_files": [
+        "internal/agent/erm.go"
+      ]
     },
     {
       "query": "risk matrix derive policy",
-      "expected_files": ["internal/analysis/risk/policy.go", "internal/analysis/risk/matrix.go"]
+      "expected_files": [
+        "internal/analysis/risk/policy.go",
+        "internal/analysis/risk/matrix.go"
+      ]
     },
     {
       "query": "hypothesis planner Plan Bind",
-      "expected_files": ["internal/analysis/hdp/planner.go"]
+      "expected_files": [
+        "internal/analysis/hdp/planner.go"
+      ]
     },
     {
       "query": "counterfactual expand ShouldExpand",
-      "expected_files": ["internal/analysis/counterfactual/expander.go"]
+      "expected_files": [
+        "internal/analysis/counterfactual/expander.go"
+      ]
     },
     {
       "query": "quality gate report checks",
-      "expected_files": ["internal/analysis/gate/gate.go"]
+      "expected_files": [
+        "internal/analysis/gate/gate.go"
+      ]
     },
     {
       "query": "normalizer term graph canonical",
-      "expected_files": ["internal/analysis/normalizer/normalizer.go"]
+      "expected_files": [
+        "internal/analysis/normalizer/normalizer.go"
+      ]
     },
     {
       "query": "compiler scenario compile",
-      "expected_files": ["internal/analysis/compiler/compile.go", "internal/analysis/compiler/scenario.go"]
+      "expected_files": [
+        "internal/analysis/compiler/compile.go",
+        "internal/analysis/compiler/scenario.go"
+      ]
     },
     {
       "query": "BuildGraph FileInfo Symbol Relation",
-      "expected_files": ["internal/tool/repomap/graph.go", "internal/tool/repomap/types.go"]
+      "expected_files": [
+        "internal/tool/repomap/index/build.go",
+        "internal/tool/repomap/types/types.go"
+      ]
     },
     {
       "query": "RankGraph query score fan-out",
-      "expected_files": ["internal/tool/repomap/rank.go"]
+      "expected_files": [
+        "internal/tool/repomap/retrieve/rank.go"
+      ]
     },
     {
       "query": "repomap cache SaveCache LoadFileInfos",
-      "expected_files": ["internal/tool/repomap/cache.go"]
+      "expected_files": [
+        "internal/tool/repomap/index/cache.go"
+      ]
     },
     {
       "query": "ScanFiles FileEntry special file",
-      "expected_files": ["internal/tool/repomap/scanner.go"]
+      "expected_files": [
+        "internal/tool/repomap/index/scanner.go"
+      ]
     },
     {
       "query": "GenerateView task_map call_path",
-      "expected_files": ["internal/tool/repomap/render.go"]
+      "expected_files": [
+        "internal/tool/repomap/render/render.go"
+      ]
     },
     {
       "query": "tree-sitter extractor go",
-      "expected_files": ["internal/tool/repomap/extract_go.go", "internal/tool/repomap/parser.go"]
+      "expected_files": [
+        "internal/tool/repomap/index/extract_go.go",
+        "internal/tool/repomap/index/parser.go"
+      ]
     },
     {
       "query": "BuildAgentContext narrowed view",
-      "expected_files": ["internal/context/builder.go"]
+      "expected_files": [
+        "internal/context/builder.go"
+      ]
     },
     {
       "query": "MutableState TaskList lock concurrency",
-      "expected_files": ["internal/types/context.go"]
+      "expected_files": [
+        "internal/types/context.go"
+      ]
     },
     {
       "query": "GrepTool ReadFile tool builtin",
-      "expected_files": ["internal/tool/builtin.go"]
+      "expected_files": [
+        "internal/tool/builtin.go"
+      ]
     },
     {
       "query": "logging rotation PID retention",
-      "expected_files": ["internal/logging/logger.go"]
+      "expected_files": [
+        "internal/logging/logger.go"
+      ]
     },
     {
       "query": "memory store compact turn index",
-      "expected_files": ["internal/memory/store.go"]
+      "expected_files": [
+        "internal/memory/store.go"
+      ]
     },
     {
       "query": "REPL slash command history",
-      "expected_files": ["internal/repl/repl.go"]
+      "expected_files": [
+        "internal/repl/repl.go"
+      ]
     },
     {
       "query": "finalizer answer shape translation",
-      "expected_files": ["internal/agent/finalizer.go"]
+      "expected_files": [
+        "internal/agent/finalizer.go"
+      ]
     },
     {
-      "query": "有多少个agent可以调用subagent",
-      "expected_files": ["internal/agent/subagent.go"]
+      "query": "\u6709\u591a\u5c11\u4e2aagent\u53ef\u4ee5\u8c03\u7528subagent",
+      "expected_files": [
+        "internal/agent/subagent.go"
+      ]
     },
     {
-      "query": "分析器如何派生 run policy",
-      "expected_files": ["internal/analysis/risk/policy.go", "internal/agent/analyzer.go"]
+      "query": "\u5206\u6790\u5668\u5982\u4f55\u6d3e\u751f run policy",
+      "expected_files": [
+        "internal/analysis/risk/policy.go",
+        "internal/agent/analyzer.go"
+      ]
     }
   ]
 }
