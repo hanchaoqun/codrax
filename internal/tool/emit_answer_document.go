@@ -10,19 +10,18 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// EmitAnswerDocument is the P2.2 structured finalizer channel. It
-// replaces the prose-composition role of the legacy finalizer ReAct
-// loop under answer_document_mode=on: the finalizer LLM makes exactly
-// one emit_answer_document call per dispatch, supplying a typed
-// AnswerDocument, and a deterministic renderer (internal/render/
-// answerdoc.go) turns the struct into user-visible prose.
+// EmitAnswerDocument is the structured finalizer channel. The
+// finalizer LLM makes exactly one emit_answer_document call per
+// dispatch, supplying a typed AnswerDocument, and a deterministic
+// renderer (internal/render/answerdoc.go) turns the struct into
+// user-visible prose.
 //
 // Classified ReadOnly because IsWrite() is the filesystem-write
 // boundary; mutating BusContext is not a filesystem write.
 // Classified NonEvidenceTool: the payload is the final answer slate,
 // not a repo fact. Mirrors emit_answer_symbol on both axes.
 //
-// The structural defenses (design doc §6 P2.2):
+// The structural defenses:
 //
 //  1. Pattern 1 (step_list collapse): AnswerDocument.Steps is a typed
 //     slice; a collapse would have to drop elements the schema

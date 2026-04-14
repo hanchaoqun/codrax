@@ -1,23 +1,21 @@
 package orchestrator
 
-// P2.2 end-to-end tests for answer_document_mode. These tests drive
-// the full analyze → explore → finalize chain via mock agents, with
-// the finalizer mock simulating an emit_answer_document tool call
-// (directly through ctx.Mutable.SetAnswerDocument) and then calling
-// the real AnswerDocument renderer. This exercises:
+// End-to-end tests for the AnswerDocument finalizer. These tests
+// drive the full analyze → explore → finalize chain via mock agents,
+// with the finalizer mock simulating an emit_answer_document tool
+// call (directly through ctx.Mutable.SetAnswerDocument) and then
+// calling the real AnswerDocument renderer. This exercises:
 //
-//   - the per-task reset hook in runTaskGraph (P2.2 addition to the
-//     existing Phase 14 reset block)
+//   - the per-task reset hook in runTaskGraph
 //   - the cardinality cross-check on list_of_symbols + complete
 //     slates (reused from extractorEvaluator.validateCompletenessClaim)
 //   - the renderer's shape-dispatched prose output
-//   - the flag=off path staying unchanged (legacy finalizer)
 //
 // The mock finalizer pattern mirrors realExtractorEval from
 // two_turn_e2e_test.go: orchestrator tests live in the orchestrator
 // package and cannot directly construct an agent.answerDocumentEvaluator,
 // so we duplicate the tiny evaluator-like shim that writes the
-// AnswerDocument, runs the P2.1 cardinality validator math, and
+// AnswerDocument, runs the cardinality validator math, and
 // renders through the public render.RenderAnswerDocument function.
 
 import (
@@ -277,15 +275,9 @@ func TestE2E_AnswerDocument_StepList_CitationPool(t *testing.T) {
 }
 
 // TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill
-// pins the P2.2 cleanup contract: when answer_document_mode=on is
-// set and stageConfig.Name == StageFinalize, dispatchStage must
-// route the finalizer to `answer-document-skill` instead of the
-// legacy `final-answer-skill` / `analysis-final-answer-skill`. This
-// is the mechanism that prevents the two legacy skills' declarative
-// markdown Answer/Evidence OutputFormats from contradicting the
-// new tool-call directive — without this routing, the LLM sees two
-// conflicting system sections and (per training distribution)
-// prefers the example-driven prose path.
+// pins the finalize-stage skill routing: dispatchStage must route
+// the finalizer to `answer-document-skill` when it is registered,
+// overriding the hardcoded topology's default `final-answer-skill`.
 func TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill(t *testing.T) {
 
 

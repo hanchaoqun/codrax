@@ -1,16 +1,15 @@
 package types
 
-// answer_document.go — P2.2 structured answer payload.
+// answer_document.go — structured answer payload.
 //
 // AnswerDocument is the typed replacement for the finalizer's free
-// prose output. Under answer_document_mode=on, the finalizer LLM emits
-// an AnswerDocument via the emit_answer_document tool call instead of
-// writing prose directly, and a deterministic renderer
-// (internal/render/answerdoc.go) converts the struct into user-visible
-// prose keyed on BusContext language.
+// prose output. The finalizer LLM emits an AnswerDocument via the
+// emit_answer_document tool call, and a deterministic renderer
+// (internal/render/answerdoc.go) converts the struct into
+// user-visible prose keyed on BusContext language.
 //
-// Design target (P2.2 remediation): close R1 at the finalizer layer.
-// The four fake-green patterns become structurally impossible:
+// Design target: close R1 at the finalizer layer. The four
+// fake-green patterns become structurally impossible:
 //
 //   1. step_list collapse → Steps is a slice; LLM cannot collapse a
 //      slice into a paragraph without dropping items the schema

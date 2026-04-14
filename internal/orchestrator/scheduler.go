@@ -8,37 +8,21 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// scheduler.go implements the Analyzer-v3 DAG scheduler. The orchestrator
-// uses it whenever BusContext.AnalysisIR carries a non-empty TaskGraph;
-// when AnalysisIR is nil the legacy stage-machine path runs instead.
+// scheduler.go implements the Analyzer-v3 DAG scheduler. The
+// orchestrator uses it to walk BusContext.AnalysisIR.TaskGraph.
 //
-// P1.3 conservative-schedule note (P1.3-MERGED-SCHEDULE):
-//
-// The graphState abstraction below tracks node-level pending/done/failed
-// state and walks validation_feedback edges, but the runTaskGraph driver
-// in orchestrator.go currently MERGES every non-finalize TaskNode into a
-// single explorer dispatch per round to keep the 35-cell baseline from
-// blowing up under 4-5× more LLM calls per task. The 4 capabilities that
-// stay deferred behind this merge are documented in
-// memory/project_p1_3_deferred_items.md (D1, D2, D5, D7) — read it
-// before relaxing the merge in any future P-item.
-//
-// Concretely, the value the merged schedule actually preserves from the
-// IR is:
+// The graphState abstraction tracks node-level pending/done/failed
+// state, but the runTaskGraph driver in orchestrator.go MERGES every
+// non-finalize TaskNode into a single explorer dispatch per round
+// (see the "merged-window schedule" comment on runTaskGraph). From
+// the IR the merged schedule still honors:
 //
 //   - hard_dependency edge ordering (the merged window only advances
 //     once all its predecessors are done)
 //   - the explicit Finalize node's separation from the explore phase
 //     (so the contract checker has a clean "answer just produced" hook)
-//   - validation_feedback edges as a backtrack signal (collapsed today
-//     into "re-run the merged explore window with a retry hint")
-//
-// What the merged schedule defers:
-//
-//   - separate dispatches per non-finalize TaskNodeType (D1)
-//   - selective re-entry of only the evidence node on contract failure (D2)
-//   - counterfactual branches as independent explorer passes (D5)
-//   - hypothesis status write-back from validate nodes (D7)
+//   - validation_feedback edges as a backtrack signal (collapsed into
+//     "re-run the merged explore window with a retry hint")
 
 // nodeStatus is the per-node execution state the scheduler tracks.
 // The values are private to internal/orchestrator: downstream agents

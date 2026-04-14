@@ -330,23 +330,18 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// P2.1 Phase 14 — cross-task reset of Turn A/B handoff state
+// Cross-task reset of Turn A/B handoff state
 // -----------------------------------------------------------------------------
 //
 // Multi-task runs must not leak Turn A/B buffers between tasks. The
-// orchestrator resets the P2.1 surface at the top of every per-task
-// dispatch (both runTaskGraph and runTaskPipelineLegacy).
+// orchestrator resets the surface at the top of every per-task
+// dispatch in runTaskGraph.
 //
 // This test directly exercises the reset by populating Mutable with
 // "previous task" data, then calling runTaskGraph and verifying the
-// buffers are cleared before any stage dispatch runs. The indirection
-// (rather than driving a 2-task Run) is necessary because the
-// orchestrator routes subsequent tasks through runTaskPipelineLegacy
-// (a design decision for multi-task IR — per-task IR is deferred),
-// and the mock chain for a full 2-task run conflates task 1's retry
-// loop with task 2's first dispatch, making the assertion ambiguous.
+// buffers are cleared before any stage dispatch runs.
 
-func TestPhase14_RunTaskGraph_ResetsP21StateAtEntry(t *testing.T) {
+func TestRunTaskGraph_ResetsTurnAStateAtEntry(t *testing.T) {
 
 
 

@@ -363,26 +363,14 @@ The handler always writes to the database first. Only after the DB confirms succ
 		},
 	})
 
-	// P2.2 — the structured-finalizer skill used when
-	// answer_document_mode=on. Holds the complete declarative contract
-	// for the emit_answer_document tool channel: shape dispatch table,
-	// citation pool semantics, completeness honesty contract,
-	// prohibitions. The evaluator (answerDocumentEvaluator) only
-	// renders DYNAMIC per-dispatch content (resolved target shape,
-	// MustInclude floor, prior extraction slate) so a shape addition
-	// or prompt re-word lives here in declarative config, one grep
-	// away, instead of in a Go string builder.
-	//
-	// Registered unconditionally; the actual selection happens at
-	// Orchestrator.dispatchStage via a flag check, same shape as the
-	// P2.1 extract-skill registration.
-	//
-	// DO NOT share OutputFormat with the legacy final-answer-skill /
-	// analysis-final-answer-skill. Those teach prose-writing shape
-	// (Answer/Evidence markdown with 4 examples) which directly
-	// contradicts this skill's "call the tool, do not write prose"
-	// directive. The finalize dispatcher picks exactly one skill per
-	// run — legacy path or this one, never both.
+	// The structured-finalizer skill. Holds the complete declarative
+	// contract for the emit_answer_document tool channel: shape
+	// dispatch table, citation pool semantics, completeness honesty
+	// contract, prohibitions. The evaluator (answerDocumentEvaluator)
+	// only renders DYNAMIC per-dispatch content (resolved target
+	// shape, MustInclude floor, prior extraction slate) so a shape
+	// addition or prompt re-word lives here in declarative config,
+	// one grep away, instead of in a Go string builder.
 	r.Register(&Config{
 		Name: "answer-document-skill",
 		Goal: "Produce the final answer as a structured AnswerDocument by calling emit_answer_document exactly once. A deterministic renderer turns the structure into user-visible prose.",
@@ -439,29 +427,21 @@ Summary field (shape=explanation or optional lead-in for others):
 		},
 	})
 
-	// P2.1 Turn B — the extractor's skill. This is the declarative
-	// contract surface that context/builder.go auto-renders into
-	// system sections (Workflow, Prohibitions) and schema scope
-	// (ToolSuggestions). Keeping Turn B's role, tool allowlist,
-	// output format, and honesty contract in this file — rather than
-	// baked into extractor.go's BuildInitialPrompt string builder —
-	// means (a) the contract is one grep away for any future reader,
-	// (b) prompt-length is reduced because the stable parts render
-	// once as system sections instead of being appended per dispatch,
-	// and (c) BaseAgent.buildToolSchemas scopes the LLM tool set from
-	// ToolSuggestions here without any runtime append in cmd/root.go.
+	// Turn B — the extractor's skill. Declarative contract surface
+	// that context/builder.go auto-renders into system sections
+	// (Workflow, Prohibitions) and schema scope (ToolSuggestions).
+	// Keeping Turn B's role, tool allowlist, output format, and
+	// honesty contract in this file — rather than baked into
+	// extractor.go's BuildInitialPrompt string builder — means the
+	// contract is one grep away, the stable parts render once as
+	// system sections instead of being appended per dispatch, and
+	// BaseAgent.buildToolSchemas scopes the LLM tool set from
+	// ToolSuggestions here.
 	//
-	// extractor.go's BuildInitialPrompt is now only responsible for
-	// the DYNAMIC per-dispatch data: the Turn A transcript digest
-	// (investigation notes, read files, top evidence, flow findings,
-	// cardinality baseline, hypothesis set). Static contract lives
-	// here.
-	//
-	// The skill is unconditionally registered — the actual dispatch
-	// gating happens at the orchestrator layer (extractStageEnabled()
-	// in scheduler.go), which only routes the extract stage when
-	// two_turn_explorer_mode=on. Registering unconditionally means
-	// tests can look up the skill without threading the flag.
+	// extractor.go's BuildInitialPrompt only handles the DYNAMIC
+	// per-dispatch data: the Turn A transcript digest (investigation
+	// notes, read files, top evidence, flow findings, cardinality
+	// baseline, hypothesis set). Static contract lives here.
 	r.Register(&Config{
 		Name: "extract-skill",
 		Goal: "Produce the answer-symbol slate and the per-hypothesis verdicts from Turn A's frozen investigation transcript. Evidence is Turn A's territory — Turn B never re-emits it. Turn B's two unique jobs are (1) LLM-driven answer_symbol selection with a completeness claim the finalizer cross-checks, and (2) LLM-driven hypothesis judgement with a citation.",

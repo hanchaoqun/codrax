@@ -47,15 +47,15 @@ type MutableState struct {
 	emittedAnswerSymbolCompleteness CompletenessClaim
 	emittedHypothesisVerdicts []HypothesisVerdict
 	turnAArtifacts           *TurnAArtifacts
-	// answerDocument is the P2.2 structured final-answer payload. It
-	// is written by the emit_answer_document tool (one atomic set per
+	// answerDocument is the structured final-answer payload. It is
+	// written by the emit_answer_document tool (one atomic set per
 	// dispatch) and read by the finalizer's ParseOutput to render the
 	// user-visible prose. Set semantics mirror SetEmittedAnswerSymbols:
 	// a later call REPLACES any previous document, so a correction
 	// retry from the ReAct loop cleanly wins over the prior attempt.
-	// Cross-task reset (runTaskGraph / runTaskPipelineLegacy) calls
-	// ResetAnswerDocument at per-task entry so stale state cannot leak
-	// between tasks in a multi-task run.
+	// Cross-task reset (runTaskGraph) calls ResetAnswerDocument at
+	// per-task entry so stale state cannot leak between tasks in a
+	// multi-task run.
 	answerDocument *AnswerDocument
 }
 
@@ -501,11 +501,10 @@ func (m *MutableState) AnswerDocument() *AnswerDocument {
 	return CloneAnswerDocument(m.answerDocument)
 }
 
-// ResetAnswerDocument clears the P2.2 answer payload at the start of
-// a fresh per-task dispatch. Mirror of ResetTurnAArtifacts /
-// ResetEmittedAnswerSymbols. Called from runTaskGraph and
-// runTaskPipelineLegacy so multi-task runs do not drag a stale
-// document from task N into task N+1.
+// ResetAnswerDocument clears the answer payload at the start of a
+// fresh per-task dispatch. Mirror of ResetTurnAArtifacts /
+// ResetEmittedAnswerSymbols. Called from runTaskGraph so multi-task
+// runs do not drag a stale document from task N into task N+1.
 func (m *MutableState) ResetAnswerDocument() {
 	if m == nil {
 		return

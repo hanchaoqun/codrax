@@ -1689,11 +1689,11 @@ func TestShouldStop_PrimaryFileReadGate_SkippedWhenNoGraphSymbol(t *testing.T) {
 // matches the hint survives.
 //
 // df3 repro: entities = [explorerEvaluator, ContinuationPrompt];
-// graph has three ContinuationPrompt methods (on explorerEvaluator,
-// subExplorerEvaluator, finalizerEvaluator) each in a different
-// file. Without receiver disambiguation, the filter keeps all three
-// primary files and provides no actual scoping — the finalizer sees
-// evidence from all three evaluators' methods.
+// graph has two ContinuationPrompt methods (on explorerEvaluator,
+// subExplorerEvaluator) in different files. Without receiver
+// disambiguation, the filter keeps both primary files and provides
+// no actual scoping — the finalizer sees evidence from both
+// evaluators' methods.
 func TestPrimaryEntityFiles_ReceiverDisambiguation(t *testing.T) {
 	graph := &repomap.Graph{
 		SymbolDefs: map[string][]*repomap.Symbol{
@@ -1702,13 +1702,11 @@ func TestPrimaryEntityFiles_ReceiverDisambiguation(t *testing.T) {
 				File: "internal/agent/explorer.go", Line: 23,
 			}},
 			"ContinuationPrompt": {
-				// Three sibling methods, same name, different receivers.
+				// Two sibling methods, same name, different receivers.
 				{Name: "ContinuationPrompt", Kind: "method", Receiver: "explorerEvaluator",
 					File: "internal/agent/explorer.go", Line: 774},
 				{Name: "ContinuationPrompt", Kind: "method", Receiver: "subExplorerEvaluator",
 					File: "internal/agent/sub_explorer.go", Line: 154},
-				{Name: "ContinuationPrompt", Kind: "method", Receiver: "finalizerEvaluator",
-					File: "internal/agent/finalizer.go", Line: 161},
 			},
 		},
 	}
@@ -1738,8 +1736,8 @@ func TestPrimaryEntityFiles_NoReceiverHint(t *testing.T) {
 			"Execute": {
 				{Name: "Execute", Kind: "method", Receiver: "BaseAgent",
 					File: "internal/agent/agent.go", Line: 317},
-				{Name: "Execute", Kind: "method", Receiver: "Planner",
-					File: "internal/agent/planner.go", Line: 100},
+				{Name: "Execute", Kind: "method", Receiver: "mockAgent",
+					File: "internal/agent/orchestrator_test.go", Line: 34},
 			},
 		},
 	}
@@ -1759,10 +1757,9 @@ func TestPrimaryEntityFiles_NoReceiverHint(t *testing.T) {
 // fires when receiver-aware disambiguation yields a single primary
 // file AND sibling-receiver definitions exist in other files. The
 // banner is the second layer of the df3 receiver drift fix: it stops
-// the LLM from self-directing into sub_explorer.go / finalizer.go
-// after seeing them in the keyword_search ranked list and repo_map
-// output. See the df3-20260413-190611 run-2/run-3 regression for
-// the repro.
+// the LLM from self-directing into sibling evaluator files after
+// seeing them in the keyword_search ranked list and repo_map output.
+// See the df3-20260413-190611 run-2/run-3 regression for the repro.
 func TestBuildPrimaryTargetBanner_SiblingsPresent(t *testing.T) {
 	graph := &repomap.Graph{
 		SymbolDefs: map[string][]*repomap.Symbol{
@@ -1775,8 +1772,6 @@ func TestBuildPrimaryTargetBanner_SiblingsPresent(t *testing.T) {
 					File: "internal/agent/explorer.go", Line: 846},
 				{Name: "ContinuationPrompt", Kind: "method", Receiver: "subExplorerEvaluator",
 					File: "internal/agent/sub_explorer.go", Line: 154},
-				{Name: "ContinuationPrompt", Kind: "method", Receiver: "finalizerEvaluator",
-					File: "internal/agent/finalizer.go", Line: 161},
 			},
 		},
 	}
@@ -1788,18 +1783,15 @@ func TestBuildPrimaryTargetBanner_SiblingsPresent(t *testing.T) {
 	}
 	banner := eval.buildPrimaryTargetBanner()
 	if banner == "" {
-		t.Fatal("expected banner to fire for single primary + 2 siblings")
+		t.Fatal("expected banner to fire for single primary + sibling")
 	}
 	// Target file must appear.
 	if !strings.Contains(banner, "internal/agent/explorer.go") {
 		t.Errorf("banner missing target file: %s", banner)
 	}
-	// Both siblings must appear in the negative list.
+	// Sibling must appear in the negative list.
 	if !strings.Contains(banner, "internal/agent/sub_explorer.go") {
 		t.Errorf("banner missing sibling sub_explorer.go: %s", banner)
-	}
-	if !strings.Contains(banner, "internal/agent/finalizer.go") {
-		t.Errorf("banner missing sibling finalizer.go: %s", banner)
 	}
 	// Distinctive method name must appear in the positive directive.
 	if !strings.Contains(banner, "ContinuationPrompt") {
@@ -1844,8 +1836,8 @@ func TestBuildPrimaryTargetBanner_MultiplePrimaries(t *testing.T) {
 			"Execute": {
 				{Name: "Execute", Kind: "method", Receiver: "BaseAgent",
 					File: "internal/agent/agent.go", Line: 317},
-				{Name: "Execute", Kind: "method", Receiver: "Planner",
-					File: "internal/agent/planner.go", Line: 100},
+				{Name: "Execute", Kind: "method", Receiver: "mockAgent",
+					File: "internal/agent/orchestrator_test.go", Line: 34},
 			},
 		},
 	}

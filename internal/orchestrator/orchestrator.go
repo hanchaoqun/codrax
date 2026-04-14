@@ -227,11 +227,6 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 // moves on to the next pending task. The total step budget
 // (o.maxSteps) is enforced across all tasks; when it is exhausted
 // any remaining pending tasks are marked failed.
-//
-// After the 2026-04-14 simplification the codrax pipeline is
-// read-only: implementation stages (plan / implement / design_review
-// / code_review / verify) are gone, every task routes through
-// runTaskGraph with the analysis-only DAG scheduler.
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	for {
 		next := o.nextPendingTask()
@@ -261,19 +256,15 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	}
 }
 
-// runTaskGraph is the DAG-driven execution path and (after the
-// 2026-04-14 simplification) the single per-task execution path.
-// It walks AnalysisIR.TaskGraph.Nodes via graphState.
+// runTaskGraph is the per-task execution path. It walks
+// AnalysisIR.TaskGraph.Nodes via graphState.
 //
-// P1.3 conservative-schedule (P1.3-MERGED-SCHEDULE):
-//
-// All ready non-finalize TaskNodes in the current readyNodes() batch
-// are dispatched as ONE explorer execution per round. The merge
-// trades node-level dispatch granularity for a 35-cell baseline that
-// stays close to the legacy-pipeline LLM-call count. The deferred
-// breakdown lives in memory/project_p1_3_deferred_items.md (D1, D2,
-// D5, D7). When P2.1 lands two-turn explorer, this body is the
-// place to relax the merge.
+// Merged-window schedule: all ready non-finalize TaskNodes in the
+// current readyNodes() batch are dispatched as ONE explorer
+// execution per round. The merge trades node-level dispatch
+// granularity for a tight LLM-call count — relaxing it would
+// multiply calls 4-5× per task without a separable behavioural win
+// on current workloads.
 //
 // Round structure:
 //
@@ -313,9 +304,8 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 		return 0
 	}
 
-	// Per-task state reset, mirroring legacy semantics so a multi-task
-	// run that mixes IR + legacy never drags signals or stage visit
-	// counters across the boundary.
+	// Per-task state reset so a multi-task run does not drag signals
+	// or stage visit counters across the task boundary.
 	o.busCtx.Signals = types.ExecutionSignals{}
 	o.busCtx.TaskState.Missing = types.MissingFacts
 	o.stageVisits = make(map[types.PipelineStage]int)
@@ -335,10 +325,9 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 		o.busCtx.Mutable.ResetEmittedAnswerSymbols()
 		o.busCtx.Mutable.ResetEmittedHypothesisVerdicts()
 		o.busCtx.Mutable.ResetEmittedEvidence()
-		// P2.2: the AnswerDocument buffer is the finalizer's output
-		// channel under answer_document_mode=on. Reset it at per-task
-		// entry alongside the P2.1 extractor buffers so a multi-task
-		// run cannot drag a stale document from task N into task N+1.
+		// AnswerDocument is the finalizer's structured output buffer;
+		// reset it alongside the extractor buffers so a multi-task run
+		// cannot drag a stale document from task N into task N+1.
 		o.busCtx.Mutable.ResetAnswerDocument()
 	}
 	// AnswerSymbolCompleteness is a BusContext field, not a
@@ -470,9 +459,7 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 		// Backtrack: requeue the finalize node and every explorer-
 		// window node that sits behind it, so the next round
 		// re-runs the merged investigation with the violation
-		// diagnostic in front. P1.3-MERGED-SCHEDULE: D2 in the
-		// deferred memo will switch this to selective evidence
-		// re-entry once node-level dispatch lands.
+		// diagnostic in front.
 		state.requeue(fin.ID)
 		for _, n := range ir.TaskGraph.Nodes {
 			if n.Type == types.NodeFinalize {

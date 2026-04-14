@@ -409,11 +409,11 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 // symbol's name is treated as a "receiver hint". Method-kind entities
 // in the same set are then filtered to definitions whose Receiver is
 // in the hint set. This makes "explorerEvaluator 的 ContinuationPrompt"
-// resolve to the SINGLE explorer.go definition instead of the three
-// sibling methods (explorerEvaluator / subExplorerEvaluator /
-// finalizerEvaluator) all named ContinuationPrompt — the df3 drift
-// root cause. When no receiver hint exists (question has only method
-// entities with no type qualifier), the old behaviour is preserved:
+// resolve to the SINGLE explorer.go definition instead of sibling
+// methods (explorerEvaluator / subExplorerEvaluator / ...) all named
+// ContinuationPrompt — the df3 drift root cause. When no receiver
+// hint exists (question has only method entities with no type
+// qualifier), the old behaviour is preserved:
 // all method definitions contribute their file.
 //
 // The function is called each time MidLoopCheck and ShouldStop need
@@ -1619,9 +1619,9 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// df3 drift fix: mechanism questions do not benefit from the
 	// chain-ranked Ground Truth section. identifyAnswerChains tends
 	// to surface whatever bind/return chains rank high, which for
-	// multi-type polymorphic methods (e.g. ContinuationPrompt exists
-	// on explorerEvaluator, subExplorerEvaluator, finalizerEvaluator)
-	// pulls sibling evaluators into the Ground Truth and poisons the
+	// multi-type polymorphic methods (e.g. ContinuationPrompt on
+	// both explorerEvaluator and subExplorerEvaluator) pulls
+	// sibling evaluators into the Ground Truth and poisons the
 	// final answer. Evidence Items (filtered above) carry the
 	// [MECHANISM]/[CONDITIONAL] tags with file:line citations which
 	// is the right anchoring for a mechanism step_list answer.

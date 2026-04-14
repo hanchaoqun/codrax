@@ -59,8 +59,7 @@ type answerDocumentEvaluator struct {
 	mu *types.MutableState
 
 	// retriesUsed tracks correction rounds across the ReAct loop,
-	// bounded by maxFinalizerCorrectionRetries (the shared budget
-	// with the legacy finalizerEvaluator).
+	// bounded by maxFinalizerCorrectionRetries.
 	retriesUsed int
 }
 
