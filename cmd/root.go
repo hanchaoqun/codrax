@@ -395,6 +395,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.TwoTurnExplorerMode != nil {
 			agent.SetTwoTurnExplorerMode(*rs.TwoTurnExplorerMode)
 		}
+		if rs.AnswerDocumentMode != nil {
+			agent.SetAnswerDocumentMode(*rs.AnswerDocumentMode)
+		}
 	}
 	// CLI flag overrides for pipeline budget.
 	if cmd.Flags().Changed("pipeline-max-retries") && flagMaxRetries > 0 {
@@ -469,6 +472,29 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		toolRegistry.Register(&tool.EmitAnswerSymbol{})
 		toolRegistry.Register(&tool.EmitHypothesisVerdict{})
 		logging.Info("two_turn_explorer_mode=on — emit_answer_symbol + emit_hypothesis_verdict tool types registered (extract-skill already declares them declaratively)")
+	}
+	// P2.2 (answer_document_mode): register the emit_answer_document
+	// tool type and add it to the finalize skill's ToolSuggestions so
+	// the finalizer LLM sees it in its tool list. Same shape as the
+	// P1.1 evidence_tool_mode gate — process-wide tool registration
+	// plus per-skill ToolSuggestions append. The finalizer evaluator
+	// is swapped to answerDocumentEvaluator inside NewFinalizerAgent
+	// via the AnswerDocumentEnabled() check at construction time.
+	if agent.AnswerDocumentEnabled() {
+		toolRegistry.Register(&tool.EmitAnswerDocument{})
+		// There are TWO finalize skills: final-answer-skill (for
+		// implementation/writing tasks) and analysis-final-answer-skill
+		// (for question-answering tasks). Both need the tool in their
+		// ToolSuggestions so the finalizer sees it regardless of which
+		// skill the orchestrator routes to at dispatchStage time.
+		for _, skillName := range []string{"final-answer-skill", "analysis-final-answer-skill"} {
+			if sk, err := skillRegistry.Get(skillName); err == nil {
+				sk.ToolSuggestions = append(sk.ToolSuggestions, "emit_answer_document")
+			} else {
+				logging.Warning("answer_document_mode=on but %s not found in registry: %v", skillName, err)
+			}
+		}
+		logging.Info("answer_document_mode=on — emit_answer_document registered for both finalizer skills")
 	}
 
 	subAgentRegistry := agent.NewSubAgentRegistry()

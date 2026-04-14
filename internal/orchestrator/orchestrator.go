@@ -318,6 +318,11 @@ func (o *Orchestrator) runTaskPipelineLegacy(taskID string, stepBudget int) int 
 		o.busCtx.Mutable.ResetEmittedAnswerSymbols()
 		o.busCtx.Mutable.ResetEmittedHypothesisVerdicts()
 		o.busCtx.Mutable.ResetEmittedEvidence()
+		// P2.2: the AnswerDocument buffer is the finalizer's output
+		// channel under answer_document_mode=on. Reset it at per-task
+		// entry alongside the P2.1 extractor buffers so a multi-task
+		// run cannot drag a stale document from task N into task N+1.
+		o.busCtx.Mutable.ResetAnswerDocument()
 	}
 	o.busCtx.AnswerSymbolCompleteness = types.CompletenessUnknown
 
@@ -503,6 +508,11 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 		o.busCtx.Mutable.ResetEmittedAnswerSymbols()
 		o.busCtx.Mutable.ResetEmittedHypothesisVerdicts()
 		o.busCtx.Mutable.ResetEmittedEvidence()
+		// P2.2: the AnswerDocument buffer is the finalizer's output
+		// channel under answer_document_mode=on. Reset it at per-task
+		// entry alongside the P2.1 extractor buffers so a multi-task
+		// run cannot drag a stale document from task N into task N+1.
+		o.busCtx.Mutable.ResetAnswerDocument()
 	}
 	// AnswerSymbolCompleteness is a BusContext field, not a
 	// MutableState field — reset it here too so the applyStageOutput

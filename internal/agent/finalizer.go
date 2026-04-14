@@ -363,6 +363,21 @@ func (e *finalizerEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *Sta
 }
 
 // NewFinalizerAgent creates the finalizer agent (used in finalize stage).
+//
+// P2.2: when AnswerDocumentEnabled() is true, the agent uses the
+// structured answerDocumentEvaluator that emits via the
+// emit_answer_document tool and renders through
+// internal/render/answerdoc.go. Otherwise the legacy finalizerEvaluator
+// (shape-based prose with S3 symbol-set validation + P0.2 shape
+// validators) runs unchanged.
+//
+// The two evaluators intentionally coexist. Flipping the default is
+// gated on a grid run + manual inspection in a separate session; the
+// legacy evaluator and its validators (outOfListSymbols,
+// finalizer_validators.go) are NOT deleted in this ship.
 func NewFinalizerAgent(deps *Dependencies) Agent {
+	if AnswerDocumentEnabled() {
+		return NewBaseAgent(types.AgentFinalizer, deps, &answerDocumentEvaluator{})
+	}
 	return NewBaseAgent(types.AgentFinalizer, deps, &finalizerEvaluator{})
 }

@@ -108,4 +108,107 @@ func TestTwoTurnExplorerMode_NormalizesUnknownToOff(t *testing.T) {
 func resetFeatureFlagsForTest() {
 	SetEvidenceToolMode("")
 	SetTwoTurnExplorerMode("")
+	SetAnswerDocumentMode("")
+}
+
+// ── P2.2 AnswerDocument flag ──────────────────────────────────────────
+
+func TestAnswerDocumentMode_DefaultOff(t *testing.T) {
+	resetFeatureFlagsForTest()
+	if AnswerDocumentEnabled() {
+		t.Fatal("default state must be off")
+	}
+	if AnswerDocumentMode() != AnswerDocumentModeOff {
+		t.Errorf("AnswerDocumentMode() = %q, want %q", AnswerDocumentMode(), AnswerDocumentModeOff)
+	}
+}
+
+func TestAnswerDocumentMode_OnByExplicitFlag(t *testing.T) {
+	resetFeatureFlagsForTest()
+	SetAnswerDocumentMode("on")
+	if !AnswerDocumentEnabled() {
+		t.Fatal("explicit on must enable")
+	}
+}
+
+func TestAnswerDocumentMode_NormalizesUnknownToOff(t *testing.T) {
+	resetFeatureFlagsForTest()
+	SetAnswerDocumentMode("maybe")
+	if AnswerDocumentEnabled() {
+		t.Fatal("unknown values must collapse to off")
+	}
+	SetAnswerDocumentMode("  ON  ")
+	if !AnswerDocumentEnabled() {
+		t.Error("whitespace + uppercase must normalize to on")
+	}
+}
+
+// TestAnswerDocumentMode_IndependentFromOthers pins that P2.2 does
+// NOT escalate into or from the P1.1 / P2.1 flags. A deployment that
+// turns on answer_document_mode alone must not force the explorer
+// into two-turn mode, and turning on two-turn mode must not
+// transitively flip the finalizer into AnswerDocument mode either.
+func TestAnswerDocumentMode_IndependentFromOthers(t *testing.T) {
+	resetFeatureFlagsForTest()
+	SetAnswerDocumentMode("on")
+	if EvidenceToolEnabled() {
+		t.Error("answer_document_mode=on must not force evidence_tool_mode on")
+	}
+	if TwoTurnExplorerEnabled() {
+		t.Error("answer_document_mode=on must not force two_turn_explorer_mode on")
+	}
+
+	resetFeatureFlagsForTest()
+	SetTwoTurnExplorerMode("on")
+	if AnswerDocumentEnabled() {
+		t.Error("two_turn_explorer_mode=on must not force answer_document_mode on")
+	}
+}
+
+// TestNewFinalizerAgent_AnswerDocumentFlag_SelectsEvaluator exercises
+// the branch in NewFinalizerAgent. When AnswerDocumentEnabled() is
+// false, the legacy finalizerEvaluator is used (legacy tests still
+// pass byte-for-byte). When true, answerDocumentEvaluator is used.
+// The evaluator types are not exported, so the test inspects
+// behaviour via ShouldStop — finalizerEvaluator returns true on the
+// first iteration in the no-AnswerSymbols + no-validator-covered-
+// shape case, while answerDocumentEvaluator always returns false
+// (soft-stop path).
+func TestNewFinalizerAgent_AnswerDocumentFlag_SelectsEvaluator(t *testing.T) {
+	defer resetFeatureFlagsForTest()
+
+	// Flag off: legacy evaluator. Construct through NewFinalizerAgent
+	// so we go through the branch under test.
+	resetFeatureFlagsForTest()
+	deps := &Dependencies{} // nil LLM fine; we only inspect construction
+	legacy := NewFinalizerAgent(deps)
+	if legacy == nil {
+		t.Fatal("legacy: NewFinalizerAgent returned nil")
+	}
+
+	// Flag on: answer-document evaluator.
+	SetAnswerDocumentMode("on")
+	adoc := NewFinalizerAgent(deps)
+	if adoc == nil {
+		t.Fatal("answer_document: NewFinalizerAgent returned nil")
+	}
+	// Minimal smoke check: the two returned agents are distinct
+	// constructions — if NewFinalizerAgent's new branch is wrong, the
+	// ShouldStop behaviour will diverge between the two when driven
+	// through BaseAgent. We validate the construction site picks the
+	// expected evaluator type by inspecting the underlying BaseAgent.
+	if legacyBase, ok := legacy.(*BaseAgent); ok {
+		if _, ok := legacyBase.eval.(*finalizerEvaluator); !ok {
+			t.Errorf("legacy: evaluator type = %T, want *finalizerEvaluator", legacyBase.eval)
+		}
+	} else {
+		t.Errorf("legacy: unexpected agent type %T", legacy)
+	}
+	if adocBase, ok := adoc.(*BaseAgent); ok {
+		if _, ok := adocBase.eval.(*answerDocumentEvaluator); !ok {
+			t.Errorf("answer_document: evaluator type = %T, want *answerDocumentEvaluator", adocBase.eval)
+		}
+	} else {
+		t.Errorf("answer_document: unexpected agent type %T", adoc)
+	}
 }

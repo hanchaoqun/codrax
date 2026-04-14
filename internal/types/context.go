@@ -47,6 +47,16 @@ type MutableState struct {
 	emittedAnswerSymbolCompleteness CompletenessClaim
 	emittedHypothesisVerdicts []HypothesisVerdict
 	turnAArtifacts           *TurnAArtifacts
+	// answerDocument is the P2.2 structured final-answer payload. It
+	// is written by the emit_answer_document tool (one atomic set per
+	// dispatch) and read by the finalizer's ParseOutput to render the
+	// user-visible prose. Set semantics mirror SetEmittedAnswerSymbols:
+	// a later call REPLACES any previous document, so a correction
+	// retry from the ReAct loop cleanly wins over the prior attempt.
+	// Cross-task reset (runTaskGraph / runTaskPipelineLegacy) calls
+	// ResetAnswerDocument at per-task entry so stale state cannot leak
+	// between tasks in a multi-task run.
+	answerDocument *AnswerDocument
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
@@ -486,6 +496,53 @@ func (m *MutableState) ResetEmittedHypothesisVerdicts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedHypothesisVerdicts = nil
+}
+
+// SetAnswerDocument atomically replaces the P2.2 structured answer
+// payload. Called by the emit_answer_document tool after the schema
+// validator has accepted the LLM's emission. Set-replace semantics:
+// a later call fully overwrites any previous document, so a
+// correction retry from the finalizer's ReAct loop always wins. A nil
+// argument clears the buffer (the same effect as ResetAnswerDocument).
+//
+// The input is defensively deep-copied so a later mutation on the
+// caller's side cannot race with reader goroutines through the
+// AnswerDocument accessor.
+func (m *MutableState) SetAnswerDocument(doc *AnswerDocument) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDocument = CloneAnswerDocument(doc)
+}
+
+// AnswerDocument returns a defensive deep copy of the buffered
+// structured answer payload, or nil when no document has been set on
+// this MutableState. The returned pointer is independent of the
+// internal state — callers cannot mutate the buffered document in
+// place.
+func (m *MutableState) AnswerDocument() *AnswerDocument {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return CloneAnswerDocument(m.answerDocument)
+}
+
+// ResetAnswerDocument clears the P2.2 answer payload at the start of
+// a fresh per-task dispatch. Mirror of ResetTurnAArtifacts /
+// ResetEmittedAnswerSymbols. Called from runTaskGraph and
+// runTaskPipelineLegacy so multi-task runs do not drag a stale
+// document from task N into task N+1.
+func (m *MutableState) ResetAnswerDocument() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.answerDocument = nil
 }
 
 // SetTurnAArtifacts stores the P2.1 handoff snapshot from the

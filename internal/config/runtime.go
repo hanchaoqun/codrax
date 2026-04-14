@@ -88,6 +88,19 @@ type RuntimeSettings struct {
 	// switching topology mid-process makes no sense.
 	TwoTurnExplorerMode *string `yaml:"two_turn_explorer_mode"`
 
+	// AnswerDocumentMode selects the finalizer's output channel.
+	//   "off" — legacy prose composition with S3 symbol-set validator
+	//           and P0.2 shape validators (current behavior, default)
+	//   "on"  — the finalizer emits a structured types.AnswerDocument
+	//           via the emit_answer_document tool, and a deterministic
+	//           renderer (internal/render/answerdoc.go) produces the
+	//           user-visible prose. Patterns 1/2/3/4 become structurally
+	//           impossible on this path.
+	// P2.2 design (memory/project_architecture_remediation_roadmap.md §6).
+	// Flipping the default requires a grid run + manual inspection in a
+	// separate session — same gating as P1.1 / P2.1.
+	AnswerDocumentMode *string `yaml:"answer_document_mode"`
+
 	// Pointers to the other two config files. Nested here so a single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

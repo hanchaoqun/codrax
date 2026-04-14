@@ -264,6 +264,20 @@ const (
 	ShapeNone          AnswerShape = "none"
 )
 
+// IsEmittable reports whether the shape is one a producer (finalizer
+// emit_answer_document, analyzer AnswerContract) can actually emit.
+// ShapeNone is accepted by the type system as "no shape declared"
+// but MUST NOT land in an AnswerDocument — the tool schema rejects
+// it so a zero-value drift cannot reach the renderer.
+func (s AnswerShape) IsEmittable() bool {
+	switch s {
+	case ShapeListOfSymbols, ShapeStepList, ShapeValue,
+		ShapeBoolean, ShapeConfigValue, ShapeExplanation:
+		return true
+	}
+	return false
+}
+
 type CitationReq struct {
 	Required     bool   `json:"required"`
 	Granularity  string `json:"granularity"`
