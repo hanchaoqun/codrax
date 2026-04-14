@@ -1640,33 +1640,16 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// L0-2: structured translation. extractAnswerSymbols now reads
-	// EvidenceItem fields directly (Subject/Object/Source/LineStart)
-	// instead of parsing display strings, which fixes the arrow-less
-	// single-hop concrete-value edge case and removes fragile
-	// trailing-locator parsing. Input is the strict subset already
-	// pre-filtered by L0-1 predicates inside identifyAnswerChains.
-	// Feed the classifier BOTH the task title and description because
-	// Turn A computes the terminal-evidence count and hands the raw
-	// strictAnswerItems to Turn B (the extractor) via TurnAArtifacts.
-	// Turn B calls emit_answer_symbol and the Phase 9 cardinality
-	// validator checks the emitted count against max(TerminalEvidenceCount,
-	// len(AnalysisIR.AnswerContract.MustInclude)) before allowing a
-	// CompletenessComplete claim to pass through to the finalizer.
-	//
-	// Flag=off path (legacy): call extractAnswerSymbols as before and
-	// attach CompletenessComplete to the slate when non-empty. This
-	// is not a behaviour change — it only tags the existing slate as
-	// authoritative, matching the implicit "MUST NOT add or remove"
-	// directive the legacy builder.go already applied unconditionally.
-	// AnswerSymbols are produced exclusively by Turn B (extractor)
-	// via emit_answer_symbol after it digests Turn A's transcript.
-	// Turn A leaves them nil and the completeness claim at zero
-	// (CompletenessUnknown) — the orchestrator's per-task merge rule
-	// treats nil as "no claim made yet" and the subsequent Turn B
-	// output authoritatively fills the slot.
-	var answerSymbols []types.AnswerSymbol
-	var answerSymbolCompleteness types.CompletenessClaim
+	// Turn A computes only the terminal-evidence count (β) and hands
+	// the raw strictAnswerItems to Turn B via TurnAArtifacts. Turn B
+	// (extractor) is the sole producer of AnswerSymbols — it calls
+	// emit_answer_symbol and the cardinality validator cross-checks
+	// the emitted count against max(β, len(AnswerContract.MustInclude))
+	// before allowing a CompletenessComplete claim to pass through to
+	// the finalizer. Turn A leaves StageOutput.AnswerSymbols nil and
+	// the completeness claim at CompletenessUnknown; the orchestrator's
+	// per-task merge rule treats nil as "no claim yet" so Turn B's
+	// subsequent output authoritatively fills the slot.
 	terminalEvidenceCount := 0
 	for _, it := range strictAnswerItems {
 		if hasTerminalEvidence([]types.EvidenceItem{it}) {
@@ -1689,22 +1672,22 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		irAnswerShape(ctx),
 		rankedEvidence,
 		answerChains,
-		answerSymbols,
+		nil, // symbols: deferred to Turn B
 		rankedFindings,
 		readFilesList,
 		e.isEnumerationQuery,
 	)
 
 	out := &StageOutput{
-		Data:                     json.RawMessage(`{}`),
-		StageReport:              canonicalReport,
-		NewFacts:                 facts,
-		EvidenceItems:            rankedEvidence,
-		FlowFindings:             rankedFindings,
-		AnswerChains:             answerChains,
-		AnswerSymbols:            answerSymbols,
-		AnswerSymbolCompleteness: answerSymbolCompleteness,
-		SignalUpdates:            signals,
+		Data:          json.RawMessage(`{}`),
+		StageReport:   canonicalReport,
+		NewFacts:      facts,
+		EvidenceItems: rankedEvidence,
+		FlowFindings:  rankedFindings,
+		AnswerChains:  answerChains,
+		SignalUpdates: signals,
+		// AnswerSymbols + AnswerSymbolCompleteness left zero — Turn B
+		// (extractor) is the sole producer; see comment above.
 	}
 
 	// Turn A → Turn B handoff: write TurnAArtifacts so the extractor
