@@ -1,5 +1,17 @@
 package agent
 
+// explorer_erm.go — Evidence Requirement Model (ERM).
+//
+// All types and functions in this file serve the explorer agent's
+// Turn A investigation loop (internal/agent/explorer.go). ERM is the
+// bookkeeping layer that turns the analyzer's AnalysisIR entities +
+// question_kind into concrete "have I collected enough evidence to
+// stop reading files" predicates. Every symbol here has exactly one
+// caller — the main explorer evaluator — and no other agent imports
+// this file's surface. The file is named with the explorer_ prefix
+// so `ls internal/agent/explorer_*` surfaces the full explorer
+// codebase in one shot.
+
 import (
 	"fmt"
 	"sort"
