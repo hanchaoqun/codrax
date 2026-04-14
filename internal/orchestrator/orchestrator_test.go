@@ -201,7 +201,8 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		// dispatchStage looks it up by name and falls back to the
 		// stage's DefaultSkill if missing — see TestRun_FinalizeSkillRoutedByPolicy.
 		"analysis-final-answer-skill",
-		"extract-skill", // P2.1: Turn B skill
+		"extract-skill",          // P2.1: Turn B skill
+		"answer-document-skill",  // P2.2: structured finalizer skill
 	}
 	for _, s := range skillNames {
 		sr.Register(&skill.Config{Name: s, Goal: s + " goal"})

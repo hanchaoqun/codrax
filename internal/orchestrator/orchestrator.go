@@ -851,6 +851,21 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 		}
 	}
 
+	// P2.2: when answer_document_mode=on, the finalize stage uses the
+	// structured-output channel. Route to answer-document-skill so the
+	// system sections taught to the finalizer describe emit_answer_document
+	// semantics instead of the legacy markdown Answer/Evidence prose
+	// shape. Takes precedence over the analysis routing above because
+	// the skill is shape-agnostic — the evaluator resolves the target
+	// shape from AnalysisIR at BuildInitialPrompt time. Only overrides
+	// when the skill is actually registered, so unit tests with a
+	// minimal skill registry degrade to the legacy skills cleanly.
+	if stageConfig.Name == types.StageFinalize && agent.AnswerDocumentEnabled() {
+		if _, err := o.skills.Get("answer-document-skill"); err == nil {
+			skillName = "answer-document-skill"
+		}
+	}
+
 	ag, err := o.agents.Get(agentName)
 	if err != nil {
 		return nil, fmt.Errorf("get agent %s: %w", agentName, err)

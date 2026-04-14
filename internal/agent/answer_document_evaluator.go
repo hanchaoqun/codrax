@@ -58,6 +58,29 @@ type answerDocumentEvaluator struct {
 	retriesUsed int
 }
 
+// BuildInitialPrompt renders ONLY the dynamic per-dispatch data the
+// answer-document-skill system sections cannot carry:
+//
+//   - Resolved target shape (depends on ctx.AnalysisIR / ctx.AnswerSymbols)
+//   - Cardinality baseline for list_of_symbols (MustInclude list)
+//   - Prior extraction slate (from explorer / extractor output)
+//   - User question echo
+//
+// All STATIC contract — tool name, shape-field dispatch table,
+// citation pool semantics, completeness honesty contract,
+// prohibitions — lives in `answer-document-skill` in
+// internal/skill/defaults.go and is rendered as system sections
+// (Goal / Workflow / OutputFormat / Prohibitions) by
+// context/builder.go before this dynamic block runs.
+//
+// Rationale: matches the P2.1 Session 2 pattern where extractor.go
+// was slimmed to a dynamic Turn A digest while the static contract
+// moved to the extract-skill. Contradicting directives between a
+// declarative skill OutputFormat and a Go-string-builder prompt are
+// a known footgun (the legacy finalize skills teach markdown
+// Answer/Evidence prose, and the P2.2 flag=on path picks the
+// answer-document-skill instead via dispatchStage routing, so the
+// two surfaces never coexist in one prompt).
 func (e *answerDocumentEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	e.retriesUsed = 0
 	e.language = extractAnswerDocLang(ctx)
@@ -66,47 +89,39 @@ func (e *answerDocumentEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk
 	}
 
 	var b strings.Builder
-	b.WriteString("Compile your findings into a STRUCTURED final answer by calling the ")
-	b.WriteString("`emit_answer_document` tool exactly once. Do NOT write prose outside the tool ")
-	b.WriteString("call — the tool's output is the entire final answer, and a deterministic ")
-	b.WriteString("renderer turns it into user-visible text in the configured language.\n\n")
+
+	if ctx != nil && strings.TrimSpace(ctx.CurrentTask) != "" {
+		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.CurrentTask))
+	}
 
 	shape := resolveAnswerDocShape(ctx)
+	fmt.Fprintf(&b, "## Target shape (resolved from AnalysisIR)\n\n`%s`\n\n", shape)
 
-	fmt.Fprintf(&b, "## Target shape: `%s`\n\n", shape)
-	b.WriteString(answerDocShapeInstructions(shape))
-	b.WriteString("\n\n")
-
-	// Citation pool contract: enforced at the tool layer, but the LLM
-	// needs to know why it exists so it does not try to duplicate
-	// citations inline per step.
-	b.WriteString("## Citation pool\n\n")
-	b.WriteString("Every file:line you cite MUST be declared once in the `citations` array, and every ")
-	b.WriteString("`citation_ref` elsewhere is a zero-based integer index into that array (or `-1` when ")
-	b.WriteString("no citation backs the entry). This lets one cited line serve multiple steps without ")
-	b.WriteString("re-rendering — the renderer resolves the indices for you.\n\n")
-
-	// Completeness honesty contract is only meaningful for
-	// list_of_symbols, but we surface it unconditionally so the model
-	// never forgets to set it when the shape does apply.
 	if shape == string(types.ShapeListOfSymbols) {
-		b.WriteString("## Completeness honesty contract (list_of_symbols)\n\n")
-		b.WriteString("Set `symbols_completeness` to `complete` ONLY if the slate contains every answer. ")
+		must := []string(nil)
 		if ctx != nil && ctx.AnalysisIR != nil {
-			must := ctx.AnalysisIR.AnswerContract.MustInclude
-			if len(must) > 0 {
-				fmt.Fprintf(&b, "The analyzer requires at least %d name(s): %s. A `complete` claim with fewer items will be DOWNGRADED to `lower_bound` by the finalizer's cardinality validator. ",
-					len(must), strings.Join(must, ", "))
-			}
+			must = ctx.AnalysisIR.AnswerContract.MustInclude
 		}
-		b.WriteString("If you are not certain the slate is complete, use `lower_bound` instead — it ")
-		b.WriteString("preserves your findings as a floor without lying to the user.\n\n")
+		b.WriteString("## Cardinality baseline (symbols_completeness floor)\n\n")
+		if len(must) > 0 {
+			fmt.Fprintf(&b, "Analyzer MustInclude (γ): **%d name(s)** — %s\n\n",
+				len(must), strings.Join(must, ", "))
+			fmt.Fprintf(&b,
+				"A `symbols_completeness=complete` claim with fewer than %d items will be "+
+					"DOWNGRADED to `lower_bound` automatically with a visible caveat in the "+
+					"rendered answer. If you cannot reach the floor, choose `lower_bound` up "+
+					"front — it is the honest terminal state.\n\n", len(must))
+		} else {
+			b.WriteString("Analyzer MustInclude (γ) is empty. No floor is enforced for this dispatch — ")
+			b.WriteString("choose `complete` / `lower_bound` / `unknown` based on your own recall confidence.\n\n")
+		}
 
-		if len(ctx.AnswerSymbols) > 0 {
-			b.WriteString("### Prior slate from the extraction pipeline\n\n")
-			b.WriteString("The deterministic pipeline already produced an answer-symbol list. Use it ")
-			b.WriteString("as the starting point; adding items requires evidence from the Evidence Items ")
-			b.WriteString("section, and removing items requires a rationale.\n\n")
+		if ctx != nil && len(ctx.AnswerSymbols) > 0 {
+			b.WriteString("## Prior slate from the extraction pipeline\n\n")
+			b.WriteString("The upstream deterministic pipeline produced this answer-symbol list. ")
+			b.WriteString("Use it as the starting point; adding items requires evidence from the ")
+			b.WriteString("Evidence Items section, removing items requires a rationale in the ")
+			b.WriteString("symbol's `rationale` field.\n\n")
 			for _, s := range ctx.AnswerSymbols {
 				if s.File != "" && s.Line > 0 {
 					fmt.Fprintf(&b, "- %s (%s:%d)\n", s.Name, s.File, s.Line)
@@ -117,12 +132,6 @@ func (e *answerDocumentEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk
 			b.WriteString("\n")
 		}
 	}
-
-	b.WriteString("## Prohibitions\n\n")
-	b.WriteString("- Do not write prose outside the `emit_answer_document` tool call.\n")
-	b.WriteString("- Do not cite a file or line that is not in the evidence / read-files list from prior stages.\n")
-	b.WriteString("- Do not inflate `summary` past 500 characters — it is a 1-2 sentence lead-in, not the answer body.\n")
-	b.WriteString("- Do not invent `citation_ref` values; use `-1` when there is genuinely no backing cite.\n")
 
 	return b.String()
 }
@@ -182,41 +191,6 @@ func resolveAnswerDocShape(ctx *types.AgentContext) string {
 		return string(types.ShapeListOfSymbols)
 	}
 	return string(types.ShapeExplanation)
-}
-
-// answerDocShapeInstructions returns the shape-specific required-field
-// block rendered into the LLM prompt. Each branch is short because
-// the tool's JSON schema carries the full per-field contract — this
-// block is the natural-language summary that tells the LLM what to
-// produce, not the authoritative spec.
-func answerDocShapeInstructions(shape string) string {
-	switch shape {
-	case string(types.ShapeListOfSymbols):
-		return "Emit `symbols[]` with one entry per answer (name, file, line, kind), " +
-			"and set `symbols_completeness` to `complete` / `lower_bound` / `unknown`. " +
-			"Do NOT emit `steps[]`, `value`, or `boolean` — they are forbidden for this shape."
-	case string(types.ShapeStepList):
-		return "Emit `steps[]` with one entry per distinct branch or mechanism hop. " +
-			"Each step needs a positive `index`, a one-sentence `description`, and a " +
-			"`citation_ref` (or -1). Distinct [CONDITIONAL] evidence branches MUST become distinct steps. " +
-			"Do NOT emit `symbols[]`, `value`, or `boolean`."
-	case string(types.ShapeValue):
-		return "Emit `value{literal, citation_ref}` with the verbatim value literal from evidence. " +
-			"Leave `key` empty. Do NOT emit `steps[]`, `symbols[]`, or `boolean`."
-	case string(types.ShapeConfigValue):
-		return "Emit `value{key, literal, citation_ref}` with the config key path AND the " +
-			"resolved literal. Both come from evidence. Do NOT emit `steps[]`, `symbols[]`, or `boolean`."
-	case string(types.ShapeBoolean):
-		return "Emit `boolean{decision, rationale, citation_ref}` — decision is exactly one of " +
-			"true / false / yes / no / 是 / 否, rationale is a one-sentence evidence citation. " +
-			"Do NOT hedge. Do NOT emit `steps[]`, `symbols[]`, or `value`."
-	case string(types.ShapeExplanation):
-		return "Emit a non-empty `summary` (1-2 sentences, ≤500 chars) with the natural-language " +
-			"answer. Add `citations[]` entries for any file:line the summary references. " +
-			"Do NOT emit `steps[]`, `symbols[]`, `value`, or `boolean`."
-	}
-	return "The analyzer did not declare a specific shape; emit `explanation` with a " +
-		"non-empty summary plus backing citations."
 }
 
 // ShouldStop always returns false so the BaseAgent's soft-stop path

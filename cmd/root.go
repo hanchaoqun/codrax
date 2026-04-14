@@ -474,27 +474,19 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		logging.Info("two_turn_explorer_mode=on — emit_answer_symbol + emit_hypothesis_verdict tool types registered (extract-skill already declares them declaratively)")
 	}
 	// P2.2 (answer_document_mode): register the emit_answer_document
-	// tool type and add it to the finalize skill's ToolSuggestions so
-	// the finalizer LLM sees it in its tool list. Same shape as the
-	// P1.1 evidence_tool_mode gate — process-wide tool registration
-	// plus per-skill ToolSuggestions append. The finalizer evaluator
-	// is swapped to answerDocumentEvaluator inside NewFinalizerAgent
-	// via the AnswerDocumentEnabled() check at construction time.
+	// tool type process-wide. The per-skill binding is already
+	// declared in answer-document-skill.ToolSuggestions in
+	// internal/skill/defaults.go — the skill is registered
+	// unconditionally, and Orchestrator.dispatchStage routes the
+	// finalize stage to it when AnswerDocumentEnabled() is true.
+	// This flag-driven routing replaces the pre-cleanup approach of
+	// patching both legacy finalize skills' ToolSuggestions at
+	// runtime, which would have left their markdown Answer/Evidence
+	// OutputFormat sections in place and contradicted the evaluator's
+	// "call the tool, do not write prose" directive.
 	if agent.AnswerDocumentEnabled() {
 		toolRegistry.Register(&tool.EmitAnswerDocument{})
-		// There are TWO finalize skills: final-answer-skill (for
-		// implementation/writing tasks) and analysis-final-answer-skill
-		// (for question-answering tasks). Both need the tool in their
-		// ToolSuggestions so the finalizer sees it regardless of which
-		// skill the orchestrator routes to at dispatchStage time.
-		for _, skillName := range []string{"final-answer-skill", "analysis-final-answer-skill"} {
-			if sk, err := skillRegistry.Get(skillName); err == nil {
-				sk.ToolSuggestions = append(sk.ToolSuggestions, "emit_answer_document")
-			} else {
-				logging.Warning("answer_document_mode=on but %s not found in registry: %v", skillName, err)
-			}
-		}
-		logging.Info("answer_document_mode=on — emit_answer_document registered for both finalizer skills")
+		logging.Info("answer_document_mode=on — emit_answer_document registered; dispatchStage will route finalize to answer-document-skill")
 	}
 
 	subAgentRegistry := agent.NewSubAgentRegistry()

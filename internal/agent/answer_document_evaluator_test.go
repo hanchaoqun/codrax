@@ -6,51 +6,56 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestAnswerDocumentEvaluator_BuildInitialPrompt_ShapeDispatch covers
-// each declared shape: the prompt must surface the shape-specific
-// instructions and the tool name.
-func TestAnswerDocumentEvaluator_BuildInitialPrompt_ShapeDispatch(t *testing.T) {
-	cases := []struct {
-		shape   types.AnswerShape
-		wantSub []string
-	}{
-		{types.ShapeListOfSymbols, []string{"symbols[]", "list_of_symbols", "symbols_completeness"}},
-		{types.ShapeStepList, []string{"steps[]", "step_list"}},
-		{types.ShapeValue, []string{"value{literal", "value"}},
-		{types.ShapeConfigValue, []string{"value{key", "config_value"}},
-		{types.ShapeBoolean, []string{"boolean{decision", "boolean"}},
-		{types.ShapeExplanation, []string{"summary", "explanation"}},
+// TestAnswerDocumentEvaluator_BuildInitialPrompt_RendersResolvedShape
+// pins that the dynamic prompt surfaces the resolved target shape
+// (for operator visibility + diagnostic logs). The STATIC shape
+// dispatch table — tool name, required fields, forbidden fields —
+// lives in answer-document-skill.OutputFormat and is rendered as a
+// system section by context/builder.go, NOT here. Asserting those
+// substrings in the dynamic prompt would resurrect the pre-cleanup
+// contradiction between the skill's declarative contract and the
+// evaluator's baked-in instructions.
+func TestAnswerDocumentEvaluator_BuildInitialPrompt_RendersResolvedShape(t *testing.T) {
+	shapes := []types.AnswerShape{
+		types.ShapeListOfSymbols, types.ShapeStepList, types.ShapeValue,
+		types.ShapeConfigValue, types.ShapeBoolean, types.ShapeExplanation,
 	}
-	for _, tc := range cases {
-		t.Run(string(tc.shape), func(t *testing.T) {
+	for _, shape := range shapes {
+		t.Run(string(shape), func(t *testing.T) {
 			ctx := &types.AgentContext{
 				AnalysisIR: &types.AnalysisIR{
-					AnswerContract: types.AnswerContract{
-						RequiredAnswerShape: tc.shape,
-					},
+					AnswerContract: types.AnswerContract{RequiredAnswerShape: shape},
 				},
 			}
-			e := &answerDocumentEvaluator{}
-			prompt := e.BuildInitialPrompt(ctx, nil)
-			if !strings.Contains(prompt, "emit_answer_document") {
-				t.Errorf("shape=%s: prompt missing tool name: %q", tc.shape, prompt)
+			prompt := (&answerDocumentEvaluator{}).BuildInitialPrompt(ctx, nil)
+			// The dynamic prompt carries the shape name for operator
+			// visibility — this is the one substring the evaluator
+			// still owns after the static contract moved to the skill.
+			if !strings.Contains(prompt, string(shape)) {
+				t.Errorf("shape=%s: dynamic prompt missing resolved shape name: %q", shape, prompt)
 			}
-			for _, sub := range tc.wantSub {
-				if !strings.Contains(prompt, sub) {
-					t.Errorf("shape=%s: prompt missing %q", tc.shape, sub)
+			// Guard against drift back to the pre-cleanup pattern:
+			// the static contract MUST NOT resurface here.
+			for _, banned := range []string{"emit_answer_document", "Prohibitions", "Citation pool"} {
+				if strings.Contains(prompt, banned) {
+					t.Errorf("shape=%s: dynamic prompt leaked static contract substring %q — "+
+						"that content belongs in answer-document-skill, not the evaluator", shape, banned)
 				}
 			}
 		})
 	}
 }
 
-// TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesPriorSlate
-// checks that when ctx.AnswerSymbols is populated, the initial prompt
-// surfaces the prior slate so the LLM sees it as a starting point.
-func TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesPriorSlate(t *testing.T) {
+// TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesCardinalityBaseline
+// checks that when MustInclude is populated and the resolved shape
+// is list_of_symbols, the dynamic prompt renders the γ floor so the
+// LLM can compute its completeness claim without re-deriving it from
+// the IR.
+func TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesCardinalityBaseline(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
@@ -63,13 +68,31 @@ func TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesPriorSlate(t *testin
 			{Name: "Beta", File: "b.go", Line: 20},
 		},
 	}
-	e := &answerDocumentEvaluator{}
-	prompt := e.BuildInitialPrompt(ctx, nil)
+	prompt := (&answerDocumentEvaluator{}).BuildInitialPrompt(ctx, nil)
 	if !strings.Contains(prompt, "Alpha") || !strings.Contains(prompt, "Beta") {
 		t.Errorf("prior slate not surfaced: %q", prompt)
 	}
-	if !strings.Contains(prompt, "analyzer requires at least 2 name(s)") {
-		t.Errorf("MustInclude floor not surfaced: %q", prompt)
+	if !strings.Contains(prompt, "MustInclude (γ): **2 name(s)**") {
+		t.Errorf("MustInclude γ floor not surfaced: %q", prompt)
+	}
+	if !strings.Contains(prompt, "fewer than 2 items will be DOWNGRADED") {
+		t.Errorf("downgrade warning not surfaced: %q", prompt)
+	}
+}
+
+// TestAnswerDocumentEvaluator_BuildInitialPrompt_NoFloorWithoutMustInclude
+// checks the other branch: when MustInclude is empty, the prompt
+// says "no floor is enforced" so the LLM picks the claim from its
+// own recall confidence.
+func TestAnswerDocumentEvaluator_BuildInitialPrompt_NoFloorWithoutMustInclude(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialPrompt(ctx, nil)
+	if !strings.Contains(prompt, "MustInclude (γ) is empty") {
+		t.Errorf("no-floor branch missing: %q", prompt)
 	}
 }
 
@@ -298,5 +321,39 @@ func TestAnswerDocumentEvaluator_DetermineMissingPiece(t *testing.T) {
 	e := &answerDocumentEvaluator{}
 	if got := e.DetermineMissingPiece(nil, nil); got != types.MissingNone {
 		t.Errorf("DetermineMissingPiece = %q, want MissingNone", got)
+	}
+}
+
+// TestAnswerDocumentSkill_DeclaresEmitTool pins the P2.2 cleanup
+// contract: the declarative answer-document-skill in
+// internal/skill/defaults.go MUST declare emit_answer_document in
+// its ToolSuggestions. This replaces the pre-cleanup approach of
+// patching the two legacy finalize skills' ToolSuggestions at runtime
+// in cmd/root.go, which would have left their contradictory
+// Answer/Evidence markdown OutputFormat in the prompt.
+func TestAnswerDocumentSkill_DeclaresEmitTool(t *testing.T) {
+	reg := skill.NewRegistry()
+	skill.RegisterDefaults(reg)
+	sk, err := reg.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("answer-document-skill not registered by RegisterDefaults: %v", err)
+	}
+	found := false
+	for _, name := range sk.ToolSuggestions {
+		if name == "emit_answer_document" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("answer-document-skill.ToolSuggestions missing emit_answer_document: %v",
+			sk.ToolSuggestions)
+	}
+	// Sanity checks: the skill must NOT accidentally declare the
+	// legacy finalize skills' tools (todo_write etc.) which would
+	// reintroduce the prose-writing pathway.
+	if len(sk.ToolSuggestions) != 1 {
+		t.Errorf("answer-document-skill should only declare emit_answer_document, got %v",
+			sk.ToolSuggestions)
 	}
 }

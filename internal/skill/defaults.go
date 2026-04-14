@@ -369,6 +369,82 @@ The handler always writes to the database first. Only after the DB confirms succ
 		},
 	})
 
+	// P2.2 — the structured-finalizer skill used when
+	// answer_document_mode=on. Holds the complete declarative contract
+	// for the emit_answer_document tool channel: shape dispatch table,
+	// citation pool semantics, completeness honesty contract,
+	// prohibitions. The evaluator (answerDocumentEvaluator) only
+	// renders DYNAMIC per-dispatch content (resolved target shape,
+	// MustInclude floor, prior extraction slate) so a shape addition
+	// or prompt re-word lives here in declarative config, one grep
+	// away, instead of in a Go string builder.
+	//
+	// Registered unconditionally; the actual selection happens at
+	// Orchestrator.dispatchStage via a flag check, same shape as the
+	// P2.1 extract-skill registration.
+	//
+	// DO NOT share OutputFormat with the legacy final-answer-skill /
+	// analysis-final-answer-skill. Those teach prose-writing shape
+	// (Answer/Evidence markdown with 4 examples) which directly
+	// contradicts this skill's "call the tool, do not write prose"
+	// directive. The finalize dispatcher picks exactly one skill per
+	// run — legacy path or this one, never both.
+	r.Register(&Config{
+		Name: "answer-document-skill",
+		Goal: "Produce the final answer as a structured AnswerDocument by calling emit_answer_document exactly once. A deterministic renderer turns the structure into user-visible prose.",
+		Workflow: []string{
+			"Read the resolved target shape from the user section (list_of_symbols / step_list / value / boolean / config_value / explanation)",
+			"For list_of_symbols shape: inspect the prior extraction slate and the analyzer MustInclude floor rendered in the user section, assemble the symbols[] array from them, and set symbols_completeness to 'complete' only if your slate reaches the floor — otherwise set it to 'lower_bound'",
+			"For step_list shape: emit steps[] with one entry per distinct branch or mechanism hop; each step carries a positive index, a one-sentence description drawn from evidence, and a citation_ref into the shared citations pool (or -1 when no citation backs the step)",
+			"For value / config_value shape: emit value{literal} (plus key for config_value) with a citation_ref into the pool",
+			"For boolean shape: emit boolean{decision, rationale, citation_ref}; decision must be one of true/false/yes/no/是/否 — no hedging",
+			"For explanation shape: fill summary with 1-2 sentence lead-in prose (≤500 chars), populate citations[] for any referenced file:line",
+			"Declare every file:line you cite ONCE in the citations[] array; other fields reference it by zero-based integer index (or -1 for no cite). One cited line can serve multiple steps without duplication",
+		},
+		ToolSuggestions: []string{
+			"emit_answer_document",
+		},
+		OutputFormat: `Produce ZERO free-form prose. Your entire contribution is ONE emit_answer_document tool call per dispatch — the finalizer reads the Mutable buffer and runs a deterministic renderer, not your assistant text.
+
+Required-field dispatch by shape (see the tool's JSON schema for the full contract):
+
+- shape=list_of_symbols → symbols[] (non-empty) + symbols_completeness ∈ {complete, lower_bound, unknown}
+- shape=step_list       → steps[] (non-empty), each with index + description + citation_ref
+- shape=value           → value{literal, citation_ref} (key omitted)
+- shape=config_value    → value{key, literal, citation_ref}
+- shape=boolean         → boolean{decision, rationale, citation_ref}
+- shape=explanation     → summary (non-empty, ≤500 chars)
+
+Forbidden-field rules:
+- list_of_symbols forbids steps / value / boolean
+- step_list forbids symbols / value / boolean
+- value + config_value forbid steps / symbols / boolean
+- boolean forbids steps / symbols / value
+- explanation forbids steps / symbols / value / boolean
+
+Citation pool:
+- citations[] is a shared zero-based array of {file, line, quote?}
+- Every citation_ref elsewhere (steps[i].citation_ref, value.citation_ref, boolean.citation_ref) is an integer index into citations[], or -1 when no citation backs that entry
+- Every citations[i].file MUST be a repo-relative path and MUST NOT live inside the per-trace WorkDir (blob directory)
+- Every citations[i].line MUST be > 0 — line-hallucination guard
+
+Completeness honesty contract (list_of_symbols only):
+- "complete" — you assert this list enumerates EVERY symbol that answers the question. The finalizer cardinality validator will cross-check against max(Turn A terminal-evidence count β, analyzer MustInclude γ). A short claim of "complete" is DOWNGRADED to "lower_bound" with a visible caveat in the rendered answer.
+- "lower_bound" — symbols are confirmed present, more may exist. Honest default when you cannot confidently reach the floor.
+- "unknown" — investigated but no definitive slate. Renderer drops the section entirely and falls back to the shape-based prompt.
+
+Summary field (shape=explanation or optional lead-in for others):
+- LLM-authored 1-2 sentence lead-in, ≤500 chars — the ONE prose escape hatch. Do not pad this into an answer body.`,
+		Prohibitions: []string{
+			"do not write prose outside the emit_answer_document tool call — the tool result IS the final answer",
+			"do not cite a file or line that is not in the evidence / read-files list from prior stages",
+			"do not invent line numbers — every citation.line must come from a concrete read_file gutter or a prior-stage evidence item",
+			"do not inflate summary past 500 characters — it is a 1-2 sentence lead-in, not the answer body",
+			"do not set citation_ref to a zero-value-looking sentinel; use -1 for 'no citation' and a valid pool index otherwise",
+			"do not claim symbols_completeness=complete without meeting the floor shown in the cardinality baseline — a short 'complete' claim will be downgraded to lower_bound automatically and the downgrade is surfaced as a caveat",
+		},
+	})
+
 	// P2.1 Turn B — the extractor's skill. This is the declarative
 	// contract surface that context/builder.go auto-renders into
 	// system sections (Workflow, Prohibitions) and schema scope

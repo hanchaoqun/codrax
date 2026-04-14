@@ -337,6 +337,87 @@ func TestE2E_AnswerDocument_FlagOff_LegacyPathUnchanged(t *testing.T) {
 	}
 }
 
+// TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill
+// pins the P2.2 cleanup contract: when answer_document_mode=on is
+// set and stageConfig.Name == StageFinalize, dispatchStage must
+// route the finalizer to `answer-document-skill` instead of the
+// legacy `final-answer-skill` / `analysis-final-answer-skill`. This
+// is the mechanism that prevents the two legacy skills' declarative
+// markdown Answer/Evidence OutputFormats from contradicting the
+// new tool-call directive — without this routing, the LLM sees two
+// conflicting system sections and (per training distribution)
+// prefers the example-driven prose path.
+func TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill(t *testing.T) {
+	prev := agent.AnswerDocumentMode()
+	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOn)
+	defer agent.SetAnswerDocumentMode(prev)
+
+	cfg := defaultResolvedConfig()
+	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
+
+	var observedSkill string
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			if sk != nil {
+				observedSkill = sk.Name
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	if _, err := o.Run("q", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if observedSkill != "answer-document-skill" {
+		t.Errorf("finalize routed to %q, want answer-document-skill", observedSkill)
+	}
+}
+
+// TestE2E_AnswerDocument_FlagOffLeavesLegacyRouting is the complement:
+// with answer_document_mode off, dispatchStage must NOT route to
+// answer-document-skill even if the skill is registered. The
+// analysis-policy routing still wins for read-only tasks, and the
+// default final-answer-skill wins for writing tasks.
+func TestE2E_AnswerDocument_FlagOffLeavesLegacyRouting(t *testing.T) {
+	prev := agent.AnswerDocumentMode()
+	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOff)
+	defer agent.SetAnswerDocumentMode(prev)
+
+	cfg := defaultResolvedConfig()
+	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
+
+	var observedSkill string
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			if sk != nil {
+				observedSkill = sk.Name
+			}
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(cfg, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	if _, err := o.Run("q", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if observedSkill == "answer-document-skill" {
+		t.Error("flag=off: finalize routed to answer-document-skill, want legacy skill")
+	}
+}
+
 // TestE2E_AnswerDocument_CrossTaskReset — directly exercises the
 // P2.2 addition to the per-task reset block. A stale AnswerDocument
 // on Mutable must be cleared before the first stage of the next
