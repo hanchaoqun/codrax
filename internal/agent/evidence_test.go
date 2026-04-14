@@ -537,6 +537,38 @@ func TestGroundEvidenceItems_PassThroughWhenNoLineCited(t *testing.T) {
 	}
 }
 
+// TestParseEvidenceHeaderSource_StripsMarkdownBackticks locks the
+// parser behaviour that the LLM's markdown-prose wrapper around
+// the file path does NOT leak into EvidenceItem.Source.
+//
+// Observed in df1-20260414-011749: the LLM wrote
+//
+//	## Evidence from `internal/agent/sub_explorer.go`
+//
+// and the parser carried the backticks through, so the grounder
+// looked up `` `internal/agent/sub_explorer.go` `` in its per-
+// file line index and missed every legitimate cite. The fix
+// strips both the legacy `[...]` wrapper and the markdown `` `...` ``
+// wrapper in a single TrimCutset pass.
+func TestParseEvidenceHeaderSource_StripsMarkdownBackticks(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"## Evidence from `internal/agent/sub_explorer.go`", "internal/agent/sub_explorer.go"},
+		{"## Evidence from [internal/agent/sub_explorer.go]", "internal/agent/sub_explorer.go"},
+		{"## Evidence from internal/agent/sub_explorer.go", "internal/agent/sub_explorer.go"},
+		{"## Evidence from `internal/agent/sub_explorer.go:25`", "internal/agent/sub_explorer.go"},
+		{"## Evidence from ``", ""},
+	}
+	for _, c := range cases {
+		got := parseEvidenceHeaderSource(c.in)
+		if got != c.want {
+			t.Errorf("parseEvidenceHeaderSource(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 // TestScrubSiblingEvidenceBlocks_DropsSiblingKeepsPrimary covers
 // the core contract of Plan C: a note containing multiple
 // `## Evidence from <file>` blocks has sibling blocks dropped but

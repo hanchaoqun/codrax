@@ -77,7 +77,17 @@ func parseEvidenceItems(notes []string, producer string) []types.EvidenceItem {
 
 func parseEvidenceHeaderSource(line string) string {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "## Evidence from "))
-	rest = strings.Trim(rest, "[]")
+	// Strip both the legacy `[path]` wrapper the original format
+	// expected and the markdown `` `path` `` wrapper LLMs emit when
+	// they format the header as prose. A leaked wrapper turns the
+	// parsed Source into a key that downstream consumers
+	// (filterEvidenceByPrimaryFiles, grounder lineIndex lookup,
+	// SynthesisPrompt scrub) cannot match against the repo path
+	// set — causing silent over-filtering. See df1-20260414-011749
+	// where 17/18 evidence items were wrongly ungrounded because
+	// the LLM wrote `` ## Evidence from `internal/agent/x.go` ``
+	// and the Source carried the backticks through.
+	rest = strings.Trim(rest, "[]`")
 	if idx := strings.Index(rest, ":"); idx > 0 && looksLikePath(rest[:idx]) {
 		return rest[:idx]
 	}
