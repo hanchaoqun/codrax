@@ -236,15 +236,13 @@ func (e *extractorEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // ParseOutput implements Evaluator. The extractor's two unique
 // responsibilities drain here:
 //
-//  1. Answer-symbol slate + cardinality validator (Phase 9): the
-//     LLM-driven replacement for the erm.go extractAnswerSymbols
-//     heuristic that ships bug #13. Extractor emits a slate with a
-//     completeness claim; validateCompletenessClaim cross-checks the
-//     claim against Turn A's TerminalEvidenceCount + AnalysisIR
-//     MustInclude floor and downgrades a dishonest "complete" to
-//     "lower_bound".
+//  1. Answer-symbol slate + cardinality validator: extractor emits
+//     a slate with a completeness claim; validateCompletenessClaim
+//     cross-checks the claim against Turn A's TerminalEvidenceCount
+//     + AnalysisIR MustInclude floor and downgrades a dishonest
+//     "complete" to "lower_bound".
 //
-//  2. Hypothesis verdicts: drained by the orchestrator's Phase 10
+//  2. Hypothesis verdicts: drained by the orchestrator's
 //     post-dispatch hook (drainHypothesisVerdicts), not here,
 //     because MarkHypothesis needs to write through the IR and the
 //     extractor's StageOutput has no IR pointer. The buffer stays
@@ -276,13 +274,11 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	return out, nil
 }
 
-// validateCompletenessClaim is the P2.1 Phase 9 cardinality
-// validator. It is the structural closure for UNRESOLVED #1
-// (extractAnswerSymbols enumeration completeness gap): when the LLM
-// claims "complete" but the emitted slate is smaller than the
-// baseline Turn A produced OR smaller than the analyzer's MustInclude
-// floor, the claim is downgraded to "lower_bound" and a warning is
-// logged. The downgrade is the honest terminal state — the finalizer
+// validateCompletenessClaim is the cardinality validator for the
+// extractor's answer-symbol slate. When the LLM claims "complete"
+// but the emitted slate is smaller than the baseline Turn A
+// produced OR smaller than the analyzer's MustInclude floor, the
+// claim is downgraded to "lower_bound" and a warning is logged. The downgrade is the honest terminal state — the finalizer
 // will render the softened floor prompt that preserves the emitted
 // symbols as a floor while allowing the LLM to add evidence-backed
 // names on top.

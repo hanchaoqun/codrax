@@ -395,27 +395,14 @@ func TestDetermineMissingPiece_NotEnoughReturnsMissingFacts(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// P2.1 Phase 11 — Turn A flag-gate + Completeness claim + TurnAArtifacts handoff
+// Turn A — Completeness claim + TurnAArtifacts handoff
 // -----------------------------------------------------------------------------
 //
-// Phase 11 contract:
-//
-//   - Flag=off (legacy): ParseOutput calls extractAnswerSymbols as
-//     before. When the resulting slate is non-empty, StageOutput.
-//     AnswerSymbolCompleteness is set to CompletenessComplete. An
-//     empty slate leaves the field zero (CompletenessUnknown).
-//     TurnAArtifacts is NOT written.
-//
-//   - Flag=on: ParseOutput skips extractAnswerSymbols entirely. Turn A
-//     computes TerminalEvidenceCount over strictAnswerItems and writes
-//     a full TurnAArtifacts snapshot via Mutable.SetTurnAArtifacts.
-//     StageOutput.AnswerSymbols is nil and AnswerSymbolCompleteness
-//     stays zero (the extractor will write both).
-//
-// These tests pin both branches. The flag toggle uses
-// SetTwoTurnExplorerMode directly (not a test helper) because the
-// atomic pointer is process-level and each test restores state via
-// defer.
+// Contract: ParseOutput computes TerminalEvidenceCount over
+// strictAnswerItems and writes a full TurnAArtifacts snapshot via
+// Mutable.SetTurnAArtifacts. StageOutput.AnswerSymbols is nil and
+// AnswerSymbolCompleteness stays zero — the extractor (Turn B) is
+// the sole producer of both.
 
 // phase11Eval returns an explorerEvaluator primed with enough state
 // that ParseOutput reaches the answer-symbol branch: two files read,
@@ -467,13 +454,13 @@ func TestParseOutput_WritesTurnAArtifactsAndLeavesSlateEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
-	// Flag=on: StageOutput.AnswerSymbols MUST be nil and completeness
-	// MUST stay zero. The extractor will populate both.
+	// StageOutput.AnswerSymbols MUST be nil and completeness MUST
+	// stay zero. The extractor (Turn B) will populate both.
 	if len(out.AnswerSymbols) != 0 {
-		t.Errorf("flag=on must leave AnswerSymbols empty, got %d: %+v", len(out.AnswerSymbols), out.AnswerSymbols)
+		t.Errorf("Turn A must leave AnswerSymbols empty, got %d: %+v", len(out.AnswerSymbols), out.AnswerSymbols)
 	}
 	if out.AnswerSymbolCompleteness != types.CompletenessUnknown {
-		t.Errorf("flag=on completeness = %q, want zero", out.AnswerSymbolCompleteness)
+		t.Errorf("Turn A completeness = %q, want zero", out.AnswerSymbolCompleteness)
 	}
 	// TurnAArtifacts MUST be written with the user question, read
 	// files, tool results, evidence items and a non-negative
