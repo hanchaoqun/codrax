@@ -66,36 +66,6 @@ func TestGraphState_PendingExplorerWindowSkipsFinalize(t *testing.T) {
 	}
 }
 
-func TestGraphState_FeedbackTargetWalksValidationEdge(t *testing.T) {
-	s := newGraphState(smallChainGraph())
-	// n2 has a validation_feedback edge to n1.
-	target := s.feedbackTarget("n2")
-	if target != "n1" {
-		t.Errorf("feedback from n2: want n1, got %q", target)
-	}
-	// No feedback edge out of n0.
-	if got := s.feedbackTarget("n0"); got != "" {
-		t.Errorf("feedback from n0: want \"\", got %q", got)
-	}
-}
-
-func TestGraphState_FeedbackTargetRespectsMaxRetries(t *testing.T) {
-	g := smallChainGraph()
-	// n1 has MaxRetries=0 (unlimited per the schema), n2 has MaxRetries=2.
-	// Force n1 to have a per-node cap so feedback should refuse re-entry.
-	for i := range g.Nodes {
-		if g.Nodes[i].ID == "n1" {
-			g.Nodes[i].MaxRetries = 1
-		}
-	}
-	s := newGraphState(g)
-	s.markRunning("n1") // attempts[n1]=1
-	s.markRunning("n1") // attempts[n1]=2
-	if got := s.feedbackTarget("n2"); got != "" {
-		t.Errorf("feedback to n1 with attempts=2 cap=1+1: want refused, got %q", got)
-	}
-}
-
 func TestGraphState_RetryBudgetExhausted(t *testing.T) {
 	s := newGraphState(smallChainGraph())
 	if s.retryBudgetExhausted() {

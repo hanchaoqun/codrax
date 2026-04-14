@@ -63,23 +63,6 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// so an agent only sees a hint that was meant for itself.
 	ac.RetryHint = bus.TaskState.RetryHint
 
-	// Build summaries from signals
-	if bus.Signals.HasPlan {
-		ac.PlanSummary = findSummaryFromResults(bus.ToolResults, "plan")
-	}
-	if bus.Signals.HasPatch {
-		ac.PatchSummary = findSummaryFromResults(bus.ToolResults, "patch")
-	}
-	if bus.Signals.DesignReviewPassed {
-		ac.ReviewSummary = "Design review passed"
-	}
-	if bus.Signals.CodeReviewPassed {
-		ac.ReviewSummary = "Code review passed"
-	}
-	if bus.Signals.VerificationPassed {
-		ac.VerificationSummary = "Verification passed"
-	}
-
 	return ac
 }
 
@@ -353,34 +336,6 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	if ac.PlanSummary != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Plan Summary",
-			Content: ac.PlanSummary,
-		})
-	}
-
-	if ac.PatchSummary != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Patch Summary",
-			Content: ac.PatchSummary,
-		})
-	}
-
-	if ac.ReviewSummary != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Review Summary",
-			Content: ac.ReviewSummary,
-		})
-	}
-
-	if ac.VerificationSummary != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Verification Summary",
-			Content: ac.VerificationSummary,
-		})
-	}
-
 	if ac.MissingPiece != types.MissingNone {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Missing Piece",
@@ -464,13 +419,6 @@ func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *ty
 	ac.FlowFindings = filterFlowFindingsByEvidence(ac.EvidenceItems, bus.FlowFindings)
 	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
 	ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
-
-	if bus.Signals.HasPlan {
-		ac.PlanSummary = findSummaryFromResults(bus.ToolResults, "plan")
-	}
-	if bus.Signals.HasPatch {
-		ac.PatchSummary = findSummaryFromResults(bus.ToolResults, "patch")
-	}
 
 	return ac
 }

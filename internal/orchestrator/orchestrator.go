@@ -819,8 +819,8 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	}
 
 	// Carry the agent's own retry diagnosis through to the next
-	// dispatch. runTaskPipelineLegacy clears this on any forward transition
-	// so a hint from explore never leaks into plan.
+	// dispatch. The forward explorer→finalize transition clears this
+	// on BusContext so a hint from explore never leaks forward.
 	o.busCtx.TaskState.RetryHint = output.RetryHint
 
 	// Store the Analyzer v3 structured output on the first non-nil
@@ -831,33 +831,16 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		o.busCtx.AnalysisIR = output.AnalysisIR
 	}
 
-	// Update signals
-	if output.SignalUpdates != nil {
-		s := output.SignalUpdates
-		if s.HasEnoughFacts {
-			o.busCtx.Signals.HasEnoughFacts = true
-		}
-		if s.HasPlan {
-			o.busCtx.Signals.HasPlan = true
-		}
-		if s.HasPatch {
-			o.busCtx.Signals.HasPatch = true
-		}
-		if s.DesignReviewPassed {
-			o.busCtx.Signals.DesignReviewPassed = true
-		}
-		if s.CodeReviewPassed {
-			o.busCtx.Signals.CodeReviewPassed = true
-		}
-		if s.VerificationPassed {
-			o.busCtx.Signals.VerificationPassed = true
-		}
+	// Update signals — only HasEnoughFacts survives after the
+	// write-pipeline deletion.
+	if output.SignalUpdates != nil && output.SignalUpdates.HasEnoughFacts {
+		o.busCtx.Signals.HasEnoughFacts = true
 	}
 
-	// FinalAnswer is no longer captured here. The per-task loop in
-	// runTaskPipelineLegacy reads it directly from the StageOutput returned
-	// by dispatchStage and writes it onto the task's Result field
-	// via Mutable.UpdateTaskResult.
+	// FinalAnswer is not captured here. runTaskGraph reads it
+	// directly from the StageOutput returned by dispatchStage and
+	// writes it onto the task's Result field via
+	// Mutable.UpdateTaskResult.
 
 	// Update missing piece
 	o.busCtx.TaskState.Missing = output.MissingPiece

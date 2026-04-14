@@ -646,17 +646,12 @@ type MCPResponse struct {
 	Timestamp  time.Time `json:"timestamp"`
 }
 
-// ExecutionSignals tracks boolean signals used for stage transitions.
+// ExecutionSignals tracks boolean signals produced by agents. After
+// the 2026-04-14 simplification only HasEnoughFacts remains — the
+// write-pipeline signals (HasPlan, HasPatch, *ReviewPassed,
+// VerificationPassed) all gated stages that no longer exist.
 type ExecutionSignals struct {
-	HasEnoughFacts     bool   `json:"has_enough_facts"`
-	HasPlan            bool   `json:"has_plan"`
-	HasPatch           bool   `json:"has_patch"`
-	DesignReviewPassed bool   `json:"design_review_passed"`
-	CodeReviewPassed   bool   `json:"code_review_passed"`
-	VerificationPassed bool   `json:"verification_passed"`
-	LastStageFailed    bool   `json:"last_stage_failed"`
-	LastFailureReason  string `json:"last_failure_reason,omitempty"`
-	RetryCount         int    `json:"retry_count"`
+	HasEnoughFacts bool `json:"has_enough_facts"`
 }
 
 // BusContext is the central data structure passed through the pipeline.
@@ -753,11 +748,6 @@ type AgentContext struct {
 	RelevantToolSummaries []string            `json:"relevant_tool_summaries,omitempty"`
 	RelevantMCPNotes      []string            `json:"relevant_mcp_notes,omitempty"`
 	PriorReports          []StageReport       `json:"prior_reports,omitempty"`
-
-	PlanSummary         string `json:"plan_summary,omitempty"`
-	PatchSummary        string `json:"patch_summary,omitempty"`
-	ReviewSummary       string `json:"review_summary,omitempty"`
-	VerificationSummary string `json:"verification_summary,omitempty"`
 
 	Constraints []string `json:"constraints,omitempty"`
 	Preferences []string `json:"preferences,omitempty"`

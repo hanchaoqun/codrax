@@ -64,11 +64,6 @@ type graphState struct {
 	// start as nodePending.
 	status map[string]nodeStatus
 
-	// attempts[id] counts how many times the node has been entered.
-	// Used by canBacktrack to refuse re-entry once a node has been
-	// attempted more than its individual MaxRetries.
-	attempts map[string]int
-
 	// retryUsed counts the cumulative number of cross-window retries
 	// driven by validation_feedback edges or contract violations. The
 	// driver compares it against ExecutionPolicy.RetryBudget.
@@ -76,12 +71,11 @@ type graphState struct {
 }
 
 // newGraphState constructs the state for a given TaskGraph. The
-// returned state is fresh — every node is pending, no attempts.
+// returned state is fresh — every node is pending.
 func newGraphState(g types.TaskGraph) *graphState {
 	s := &graphState{
-		graph:    g,
-		status:   make(map[string]nodeStatus, len(g.Nodes)),
-		attempts: make(map[string]int, len(g.Nodes)),
+		graph:  g,
+		status: make(map[string]nodeStatus, len(g.Nodes)),
 	}
 	for _, n := range g.Nodes {
 		s.status[n.ID] = nodePending
@@ -156,16 +150,14 @@ func (s *graphState) readyNodes() []*types.TaskNode {
 	return out
 }
 
-// markRunning flips the node into running state and bumps its
-// attempts counter. The driver calls this immediately before
-// dispatching the agent so a crash-mid-dispatch leaves a visible
-// state.
+// markRunning flips the node into running state. The driver calls
+// this immediately before dispatching the agent so a
+// crash-mid-dispatch leaves a visible state.
 func (s *graphState) markRunning(id string) {
 	if s == nil {
 		return
 	}
 	s.status[id] = nodeRunning
-	s.attempts[id]++
 }
 
 // markDone flips the node into done state. Idempotent.
@@ -177,7 +169,7 @@ func (s *graphState) markDone(id string) {
 }
 
 // markFailed flips the node into failed state. The driver decides
-// separately whether to backtrack via feedbackTarget.
+// separately whether to backtrack.
 func (s *graphState) markFailed(id string) {
 	if s == nil {
 		return
@@ -193,40 +185,6 @@ func (s *graphState) requeue(id string) {
 		return
 	}
 	s.status[id] = nodeRequeued
-}
-
-// feedbackTarget walks validation_feedback edges out of fromID and
-// returns the first edge target whose own attempt count is below its
-// per-node MaxRetries (default unlimited when MaxRetries == 0).
-// Returns "" when no valid backtrack target exists.
-//
-// In the P1.3 merged schedule, the driver consults feedbackTarget at
-// contract-check failure time but currently ignores the returned ID
-// and simply re-runs the merged explore window. The walk is still
-// implemented because (a) it keeps the abstraction honest, (b) it
-// gives unit tests something to lock down, and (c) D2 in the
-// deferred memo will use it once node-level dispatch lands.
-func (s *graphState) feedbackTarget(fromID string) string {
-	if s == nil {
-		return ""
-	}
-	for _, e := range s.graph.Edges {
-		if e.EdgeType != types.EdgeValidationFeedback || e.From != fromID {
-			continue
-		}
-		// Find the target node and check per-node retry cap.
-		for i := range s.graph.Nodes {
-			n := &s.graph.Nodes[i]
-			if n.ID != e.To {
-				continue
-			}
-			if n.MaxRetries > 0 && s.attempts[n.ID] >= n.MaxRetries+1 {
-				continue
-			}
-			return n.ID
-		}
-	}
-	return ""
 }
 
 // retryBudgetExhausted reports whether the cumulative cross-window

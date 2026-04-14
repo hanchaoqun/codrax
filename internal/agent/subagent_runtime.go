@@ -192,26 +192,10 @@ func (r *SubAgentReducer) Reduce(results []*types.SubAgentResult) *StageOutput {
 		merged.ToolResults = append(merged.ToolResults, res.Tools...)
 		merged.MCPResponses = append(merged.MCPResponses, res.MCPResps...)
 
-		// OR-merge signals
-		if res.Signals != nil {
-			if res.Signals.HasEnoughFacts {
-				signals.HasEnoughFacts = true
-			}
-			if res.Signals.HasPlan {
-				signals.HasPlan = true
-			}
-			if res.Signals.HasPatch {
-				signals.HasPatch = true
-			}
-			if res.Signals.DesignReviewPassed {
-				signals.DesignReviewPassed = true
-			}
-			if res.Signals.CodeReviewPassed {
-				signals.CodeReviewPassed = true
-			}
-			if res.Signals.VerificationPassed {
-				signals.VerificationPassed = true
-			}
+		// OR-merge signals — only HasEnoughFacts survives after the
+		// write-pipeline deletion.
+		if res.Signals != nil && res.Signals.HasEnoughFacts {
+			signals.HasEnoughFacts = true
 		}
 
 		if res.Output != nil {
