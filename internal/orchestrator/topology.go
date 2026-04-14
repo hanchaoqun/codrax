@@ -3,9 +3,7 @@ package orchestrator
 import "github.com/hanchaoqun/codrax/internal/types"
 
 // pipelineTopology is the hardcoded 4-stage × 4-agent pipeline.
-// Each entry names the default agent and skill bound to the stage.
-// dispatchStage may override the skill at the finalize stage when
-// the answer-document-skill is registered; see orchestrator.go.
+// Each entry names the agent and skill bound to the stage.
 //
 // Before the 2026-04-14 simplification this topology lived in
 // config/orchestrator.yaml alongside 5 extra write-pipeline stages
@@ -20,5 +18,5 @@ var pipelineTopology = map[types.PipelineStage]struct {
 	types.StageAnalyze:  {Agent: types.AgentAnalyzer, Skill: "task-analysis-skill"},
 	types.StageExplore:  {Agent: types.AgentExplorer, Skill: "repo-explore-skill"},
 	types.StageExtract:  {Agent: types.AgentExtractor, Skill: "extract-skill"},
-	types.StageFinalize: {Agent: types.AgentFinalizer, Skill: "final-answer-skill", Terminal: true},
+	types.StageFinalize: {Agent: types.AgentFinalizer, Skill: "answer-document-skill", Terminal: true},
 }

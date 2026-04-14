@@ -18,15 +18,14 @@ import (
 // machine. It walks the hardcoded 4-stage topology (see topology.go),
 // manages BusContext, and dispatches agents.
 type Orchestrator struct {
-	settings    types.PipelineSettings
-	agents      *agent.Registry
-	skills      *skill.Registry
-	busCtx      *types.BusContext
-	maxSteps    int
-	subRuntime  *agent.SubAgentRuntime
-	stageVisits map[types.PipelineStage]int
-	language    string
-	emit        render.EventEmitter
+	settings   types.PipelineSettings
+	agents     *agent.Registry
+	skills     *skill.Registry
+	busCtx     *types.BusContext
+	maxSteps   int
+	subRuntime *agent.SubAgentRuntime
+	language   string
+	emit       render.EventEmitter
 }
 
 // New creates a new Orchestrator.
@@ -305,13 +304,11 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 	}
 
 	// Per-task state reset so a multi-task run does not drag signals
-	// or stage visit counters across the task boundary.
+	// across the task boundary.
 	o.busCtx.Signals = types.ExecutionSignals{}
 	o.busCtx.TaskState.Missing = types.MissingFacts
-	o.stageVisits = make(map[types.PipelineStage]int)
 
-	// P2.1 Phase 14 — cross-task reset of the Turn A/B handoff
-	// surface. Multi-task runs (REPL turns, batched analysis, task
+	// Cross-task reset of the Turn A/B handoff surface. Multi-task runs (REPL turns, batched analysis, task
 	// list with >1 entry) otherwise drag stale state from task N
 	// into task N+1: the previous task's TurnAArtifacts would still
 	// be visible to this task's extractor, the previous task's
@@ -615,17 +612,6 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	}
 	agentName := info.Agent
 	skillName := info.Skill
-
-	// The finalize stage always uses the structured AnswerDocument
-	// channel (answer-document-skill) when it is registered. The skill
-	// is shape-agnostic — the evaluator resolves the target shape from
-	// AnalysisIR at BuildInitialPrompt time. Unit tests with a minimal
-	// skill registry fall back to the default skill cleanly.
-	if stage == types.StageFinalize {
-		if _, err := o.skills.Get("answer-document-skill"); err == nil {
-			skillName = "answer-document-skill"
-		}
-	}
 
 	ag, err := o.agents.Get(agentName)
 	if err != nil {
