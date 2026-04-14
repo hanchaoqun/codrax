@@ -16,8 +16,7 @@
 - [6. 请求生命周期](#6-请求生命周期)
 - [7. 编排器状态机](#7-编排器状态机)
 - [8. 关键设计模式](#8-关键设计模式)
-  - [调查与综合分离](#调查与综合分离探索器)
-  - [两阶段探索](#两阶段探索广读--深读)
+  - [调查与结构化分离（Turn A / Turn B 双 Agent）](#调查与结构化分离turn-a--turn-b-双-agent)
   - [runtime file coverage](#runtime-file-coverage)
   - [反过拟合设计原则](#反过拟合设计原则)
 - [9. 错误处理与容错](#9-错误处理与容错)
@@ -277,12 +276,13 @@ init → receive_prompt → execute_loop → complete
 |-------|------|------|------|
 | `analyzer`（分析器） | analyze | 只读 | 通过 emit_analysis 输出 v3 RequestModel，ParseOutput 跑 normalizer/compiler/risk/hdp/gate 产出 AnalysisIR |
 | `planner`（规划器） | plan | 只读 | 设计实现方案 |
-| `explorer`（探索器） | explore | 只读 | 浏览代码库，收集事实，构建模块映射 |
+| `explorer`（探索器，Turn A） | explore | 只读 | 调查 + 证据收集。内部两阶段（Phase 0 broad scan → Phase 1 depth read）+ emit_evidence。独占 EvidenceItems/AnswerChains/FlowFindings 的写入，并把投影快照写入 TurnAArtifacts 供 Turn B 读 |
+| `extractor`（提取器，Turn B） | extract | 只读 | One-shot LLM 调用，读 TurnAArtifacts digest，独占 emit_answer_symbol（带完备性 claim + Phase 9 cardinality validator）+ emit_hypothesis_verdict（带 citation）。禁止文件 IO，禁止 emit_evidence |
 | `implementer`（实现器） | implement | **读 + 写** | 编写代码，修改文件，生成补丁 |
 | `design_reviewer`（设计审查器） | design_review | 只读 | 审查方案可行性、架构影响、风险 |
 | `code_reviewer`（代码审查器） | code_review | 只读 | 审查代码正确性、缺陷、风格、副作用 |
 | `verifier`（验证器） | verify | 只读 | 运行测试、lint、构建检查 |
-| `finalizer`（终结器） | finalize | 只读 | 汇总结果，产出最终输出 |
+| `finalizer`（终结器） | finalize | 只读 | 汇总结果，跑 contract check，产出最终输出（legacy prose 或 AnswerDocument） |
 
 #### Agent 执行循环（ReAct）
 
@@ -397,7 +397,11 @@ type Tool interface {
 | `git_log` | 读 | 显示 git 提交历史 |
 | `apply_patch` | **写** | 对文件做目标化改动(write/edit/insert_before/insert_after 四种模式),保留行尾,限定在 workspace 根内,返回 diff 预览 |
 | `todo_write` | 读(逻辑上写 `Mutable`) | 在 `BusContext.Mutable.TaskList` 上做**全量替换**式更新,explorer / implementer / planner 的 skill 推荐它用于进度追踪。sub-agent 不共享 `Mutable`,调用会被拒。v3 之后 analyzer 不再用此工具 — analyzer 走 emit_analysis |
-| `emit_analysis` | 读(逻辑上写 `Mutable`) | Analyzer v3 专用出口。一次性写 v3 `RequestModel`（intent / scenario / complexity / writing / keywords / entities / question_kind / answer_shape）到 `BusContext.Mutable`，`analyzer.ParseOutput` 随后跑确定性的 normalizer/compiler/risk/hdp/counterfactual/gate 管线组装完整 `AnalysisIR` |
+| `emit_analysis` | 读(逻辑上写 `Mutable`) | **Analyzer 独占**。一次性写 v3 `RequestModel`（intent / scenario / complexity / writing / keywords / entities / question_kind / answer_shape）到 `BusContext.Mutable`，`analyzer.ParseOutput` 随后跑 normalizer/compiler/risk/hdp/counterfactual/gate 管线组装完整 `AnalysisIR` |
+| `emit_evidence` | 读(逻辑上写 `Mutable`) | **Explorer 独占**（Turn A Phase 1 per-file 调用）。批量写结构化 `EvidenceItem`（kind / subject / object / source / line / condition / summary）到 `BusContext.Mutable.emittedEvidence`，`explorer.ensureStructuredEvidence` 合并 markdown fallback 后写 `StageOutput.EvidenceItems` |
+| `emit_answer_symbol` | 读(逻辑上写 `Mutable`) | **Extractor 独占**。一次性写答案符号 slate + `completeness` claim（complete/lower_bound/unknown）。`extractor.ParseOutput` 跑 Phase 9 cardinality validator 自动降级不诚实的 `complete` claim |
+| `emit_hypothesis_verdict` | 读(逻辑上写 `Mutable`) | **Extractor 独占**。为 AnalysisIR 里每条 hypothesis 写 status (confirmed/rejected/inconclusive) + rationale + file:line citation。orchestrator 的 post-extract hook 通过 `MarkHypothesis` 写回 IR |
+| `emit_answer_document` | 读(逻辑上写 `Mutable`) | **Finalizer 独占**（`answer_document_mode=on` 时）。批量写结构化 `AnswerDocument`（按 AnswerShape 分支的 typed payload），替代 legacy prose 合成。renderer 层产生用户可见的最终答案 |
 | `propose_sub_agents` | 读 | **自动注入**给名字匹配已注册 sub-agent 的主 agent,用于在 ReAct 循环里申请派生并行 sub-agent,schema 的 `sub_agent` enum 会被收窄到该主 agent 对应的唯一名字 |
 
 #### ToolResult 格式
@@ -573,47 +577,132 @@ PromptContext 的组装具有 token 预算意识：
 
 > **核心：** 构建"可信的事实基础"
 
+探索阶段由**两个独立 agent 串行接力**完成：Turn A（explorer）做调查 + 证据收集，Turn B（extractor）做答案结构化 + 假设判定。两者职责**严格不重叠**，共享的只是 Turn A 写入 `MutableState.TurnAArtifacts` 的只读快照。
+
+```
+┌─ Turn A: Explorer (StageExplore) ───────────────────────────────┐
+│                                                                 │
+│  内部两阶段 (explorerEvaluator.phase):                            │
+│    Phase 0 (Breadth Scan)   →  Phase 1 (Depth Read)             │
+│       grep / repo_map /         read_file 全文                    │
+│       list_files                emit_evidence per file           │
+│                                                                 │
+│  质量门: grep + repo_map + list_files 全跑过 + ≥3 个文件          │
+│                                                                 │
+│  输出:                                                           │
+│    StageOutput.EvidenceItems   (ensureStructuredEvidence 合并)   │
+│    StageOutput.AnswerChains    (identifyAnswerChains 确定性)     │
+│    StageOutput.FlowFindings    (dataflow pipeline 确定性)        │
+│    StageOutput.StageReport     (renderExplorerStageReport 渲染)  │
+│    MutableState.TurnAArtifacts (投影快照供 Turn B 读)             │
+│                                                                 │
+│  允许工具: grep / read_file / repo_map / list_files /            │
+│           emit_evidence                                         │
+└─────────────────────────────┬───────────────────────────────────┘
+                              │
+                  runTaskGraph dispatch StageExtract
+                  (two_turn_explorer_mode=on 默认)
+                              │
+                              ▼
+┌─ Turn B: Extractor (StageExtract) ──────────────────────────────┐
+│                                                                 │
+│  One-shot LLM call (ShouldStop iteration >= 1)                  │
+│                                                                 │
+│  输入: TurnAArtifacts digest (user section)                     │
+│    - Investigation notes                                        │
+│    - Files Turn A read (citation source)                        │
+│    - Top 24 deterministic EvidenceItems                         │
+│    - Top 10 FlowFindings                                        │
+│    - Cardinality baseline (β, γ, floor=max(β,γ))                │
+│    - Hypothesis set                                             │
+│                                                                 │
+│  输出:                                                           │
+│    StageOutput.AnswerSymbols   (LLM emit_answer_symbol)         │
+│    StageOutput.AnswerSymbolCompleteness (Phase 9 validator 校验) │
+│    HypothesisSet[i].Status  (post-dispatch drain hook 写回 IR)  │
+│                                                                 │
+│  允许工具: emit_answer_symbol / emit_hypothesis_verdict 仅此 2 个 │
+│  禁止工具: read_file / grep / repo_map / list_files / exec /    │
+│           emit_evidence  (evidence 是 Turn A 独占通道)           │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+#### Turn A: Explorer — 调查 + 证据收集
+
 | 方面 | 详情 |
 |------|------|
-| **Agent** | 探索器 |
-| **技能** | repo-explore-skill |
-| **输入** | 当前 TaskList / 活动任务、仓库路径 / 分支、已知事实（可能为空） |
-| **工作** | 两阶段探索（见下）+ 综合步骤 |
-| **输出** | `{ repo_facts, entrypoints, call_chains, relevant_files }` + 综合后的 StageReport |
+| **Agent** | `AgentExplorer` (`internal/agent/explorer.go`) |
+| **Skill** | `repo-explore-skill` |
+| **Stage** | `StageExplore` |
+| **输入** | 当前 AnalysisIR、仓库路径 / 分支、已知事实（可能为空） |
+| **允许工具** | `grep` / `read_file` / `repo_map` / `list_files` / `emit_evidence` |
+| **内部状态** | `explorerEvaluator.phase` (0=breadth, 1=depth) |
+| **工作** | Phase 0 广读 → 质量门 → Phase 1 深读 + 证据收集 → 确定性 ParseOutput |
+| **输出** | `StageOutput.{EvidenceItems, AnswerChains, FlowFindings, StageReport}` + `MutableState.TurnAArtifacts` |
 
-#### 两阶段探索模型
+**Phase 0（Breadth Scan）**：使用 `repo_map`（task_map 视图）、`grep files_only=true`、`list_files` 快速定位所有相关文件，不读文件全文。LLM 按角色对发现的文件分类，产出 3-6 个文件的优先读取清单。
 
-探索器将调查分为两个显式阶段，通过 `ContinuingEvaluator` 的 phase 状态机控制：
+**Phase 0 → Phase 1 质量门**（`ContinuationPrompt`）：必须同时满足 (1) 用过 grep，(2) 用过 repo_map 或 list_files，(3) 发现 ≥ 3 个文件。任一未满足则返回一次补救 prompt（`phase0ExtraRound` 防死循环）。
 
-```
-Phase 1: 广读（Breadth Scan）          Phase 2: 深读（Depth Read）
-┌─────────────────────────┐          ┌─────────────────────────┐
-│ repo_map → 全局概览      │          │ read_file（全文深读）     │
-│ grep files_only → 定位   │   转换    │ 提取数据结构/控制流      │
-│ list_files → 目录结构     │ ──────→  │ 提取配置行为/交叉引用    │
-│                         │          │                         │
-│ 输出：按角色分类的文件清单 │          │ runtime file coverage   │
-│  (a) 类型定义            │          │ 跟踪已读/未读文件        │
-│  (b) 核心逻辑            │          │                         │
-│  (c) 配置/规则声明       │          │                         │
-│  (d) 配置加载器          │          └─────────────────────────┘
-│  (e) 入口点              │                      │
-└─────────────────────────┘                      ▼
-  只用轻量工具，不读文件内容          Synthesis Step（综合）
-  目标：发现所有相关文件              ┌─────────────────────┐
-                                    │ 结构化 evidence digest │
-                                    │ → 干净上下文 LLM 调用   │
-                                    │ → 最终 StageReport     │
-                                    └─────────────────────┘
-```
+**Phase 1（Depth Read + Evidence Collection）**：LLM 按清单逐个 `read_file`，每读一个文件调用一次 `emit_evidence(items=[...])`，每个 item 带 `kind/subject/object/source/line_start/condition/summary`。五种结构化 tag（`[DIRECT] [CONDITIONAL] [REGISTRATION] [MECHANISM] [RELATIONSHIP] [ABSENT]`）覆盖不同证据类型。大文件（>500 行）强制先 grep 再 slice read。行号必须来自 `read_file` 的 gutter，禁止估算或复用 grep 输出。
 
-**Phase 1（广读）**：使用 `repo_map`（task_map 视图）和 `grep`（`files_only=true`，不限文件类型）快速定位所有与问题相关的文件。LLM 按角色对发现的文件分类，产出 3-6 个文件的优先读取清单。Phase 1 不读文件全文。
+**ParseOutput（确定性 pipeline）**：`ensureStructuredEvidence` 合并 emit_evidence buffer + markdown 回退 parser → `groundEvidenceItems` → `mergeEvidenceItems` → `rankEvidenceByRelevance` → `scrubSiblingEvidenceBlocks` → `identifyAnswerChains` → 最后 `SetTurnAArtifacts` 把投影快照写给 Turn B。
 
-**Phase 转换**：当 LLM 第一次尝试 soft-stop 时，`ContinuingEvaluator` 检测到 `phase=0`，注入 Phase 2 指令并切换到 `phase=1`。
+#### Turn B: Extractor — 答案结构化 + 假设判定
 
-**Phase 2（深读）**：LLM 按清单逐个全文读取关键文件，提取数据结构、控制流、配置行为和交叉引用。`ContinuingEvaluator` 通过 **runtime file coverage**（从 tool history 中提取已读文件和已发现文件的覆盖率）引导 LLM 读取未覆盖的重要文件，同时列出已读文件防止重复读取。
+| 方面 | 详情 |
+|------|------|
+| **Agent** | `AgentExtractor` (`internal/agent/extractor.go`) |
+| **Skill** | `extract-skill` |
+| **Stage** | `StageExtract` |
+| **输入** | `MutableState.TurnAArtifacts` digest + `AnalysisIR.HypothesisSet` + `AnalysisIR.AnswerContract.MustInclude` |
+| **允许工具** | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
+| **禁止工具** | `read_file` / `grep` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` |
+| **ShouldStop** | `iteration >= 1`（one-shot，无 ReAct 循环，无 retry） |
+| **工作** | 读 Turn A digest → LLM 一次性 emit → Phase 9 cardinality validator → post-dispatch hook 写回 IR |
+| **输出** | `StageOutput.{AnswerSymbols, AnswerSymbolCompleteness}` + `HypothesisSet[i].Status` 回写 |
 
-**Synthesis**：ReAct 循环结束后，`SynthesizingEvaluator` 构建所有 evidence tool results 的结构化摘要，做一次干净的 LLM 调用产出最终综合回答。该回答成为 StageReport，传递给下游的 Finalizer。
+Turn B 有且只有两项 Turn A 做不到的独特职责：
+
+1. **LLM-driven answer_symbol slate + 完备性 claim**：代替确定性 `extractAnswerSymbols`（bug #13 的根源，在 Go receiver-method chain 上会抽 method 名而非 receiver 类型）。LLM 读 Turn A 的证据决定 slate 并附加 `complete` / `lower_bound` / `unknown` 声明。
+2. **LLM-driven hypothesis verdict + citation**：为 AnalysisIR 里每条 hypothesis 给 `confirmed` / `rejected` / `inconclusive` 判定，`confirmed`/`rejected` 强制带 `file:line` citation，`inconclusive` 是无证据时的诚实回答。
+
+**Phase 9 cardinality validator**（`validateCompletenessClaim`）：当 LLM claim `complete` 但 `len(items) < max(TerminalEvidenceCount, len(MustInclude))` 时，claim 被自动降级为 `lower_bound` 并 log warning。这是 `UNRESOLVED #1 extractAnswerSymbols` 在 flag=on 路径的**结构性关闭**。
+
+**drainHypothesisVerdicts hook**（`runTaskGraph` post-extract）：orchestrator 从 `MutableState.EmittedHypothesisVerdicts` 读出 verdict 批次，对每条调用 `AnalysisIR.MarkHypothesis(id, status)` 写回 IR。buffer 保留给 finalizer prompt 渲染 rationale/citation。
+
+#### 职责边界（严格不重叠）
+
+| 产物 | 归属 | 生成路径 |
+|---|---|---|
+| `EvidenceItems` | **Explorer 独占** | `emit_evidence` tool + markdown parser + merge |
+| `AnswerChains` | **Explorer 独占** | 确定性 `identifyAnswerChains` |
+| `FlowFindings` | **Explorer 独占** | 确定性 dataflow pipeline |
+| `StageReport` prose digest | **Explorer 独占** | `renderExplorerStageReport` 确定性渲染 |
+| `TurnAArtifacts` 快照 | **Explorer 写，Extractor 读** | `SetTurnAArtifacts` / `TurnAArtifacts()` |
+| `AnswerSymbols` + completeness claim | **Extractor 独占** | `emit_answer_symbol` + Phase 9 validator |
+| `HypothesisSet[i].Status` | **Extractor 写 buffer** | `emit_hypothesis_verdict` + `drainHypothesisVerdicts` hook |
+
+之前版本 extract-skill 也 instruct 了 `emit_evidence`，两个 agent 同时往同一个 `MutableState.emittedEvidence` buffer 写。审计发现这是架构上的重复（浪费 LLM token + 角色模糊），已在 2026-04-14 session 整改：extract-skill 的 ToolSuggestions / Workflow / Prohibitions 明确禁止 `emit_evidence`，extractor.ParseOutput 不再 drain evidence。Explorer 是 EvidenceItems 的**唯一**写者。
+
+#### Turn B 为什么是 one-shot
+
+Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结。retry 没法带来新信息，只能在同一批证据上再犹豫一次。设计决定：错了就降级为 `lower_bound` 而不是 retry，这是诚实的终态。finalizer 可以在 softened floor prompt 上添加证据支撑的 symbol。
+
+#### grep files_only 模式
+
+探索器 Phase 0 使用 grep 工具的 `files_only` 参数（对应 `grep -rl`），只返回匹配文件的路径列表而非每一行匹配。避免大量匹配行被 blob 截断（原始 grep 结果可达数十 KB，截断后只显示第一个文件的匹配），确保 LLM 能看到所有相关文件。
+
+#### runtime file coverage
+
+Phase 1 的 continuation 决策基于 runtime 数据而非固定阈值：
+
+1. 从 tool history 中提取 grep files_only 的结果 → **discovered files**
+2. 从 tool history 中提取 read_file 的路径 → **read files**
+3. 过滤噪音路径（VCS、依赖目录、测试文件、日志文件等）
+4. 向 LLM 展示 coverage 状态和未读文件清单，由 LLM 判断哪些值得继续读
+
+这替代了之前基于固定 call count 的 evidence gate，使调查深度自适应于问题的实际复杂度。
 
 #### grep files_only 模式
 
@@ -740,7 +829,8 @@ type AgentName string
 const (
     AgentAnalyzer       AgentName = "analyzer"
     AgentPlanner        AgentName = "planner"
-    AgentExplorer       AgentName = "explorer"
+    AgentExplorer       AgentName = "explorer"      // Turn A: investigate + emit_evidence
+    AgentExtractor      AgentName = "extractor"     // Turn B: emit_answer_symbol + emit_hypothesis_verdict
     AgentDesignReviewer AgentName = "design_reviewer"
     AgentCodeReviewer   AgentName = "code_reviewer"
     AgentImplementer    AgentName = "implementer"
@@ -1228,20 +1318,28 @@ graph LR
 
 工具和 MCP 服务器都实现了统一接口（`Execute` / `CallTool`），允许 Agent 互换调用它们。适配器模式将本地执行和远程 MCP 调用的差异隐藏在通用抽象之后。
 
-### 调查与综合分离（探索器）
+### 调查与结构化分离（Turn A / Turn B 双 Agent）
 
-探索器的 ReAct 循环混合了两个本质不同的活动——调查（调用工具收集事实）和综合（将事实组织为回答）。这导致了一个系统性问题：continuation push 推动更深调查后，最后一条 assistant 消息往往是碎片笔记而非综合回答，而 StageReport 默认取最后一条消息。
+探索阶段混合了两种本质不同的活动——**调查**（读文件、收集事实）和**结构化**（把事实组织成机器可消费的答案 slate / hypothesis verdict / 完备性 claim）。这两种活动对 LLM 的上下文预算、工具访问权限和 prompt 压力完全不同：
 
-**解法：** `SynthesizingEvaluator` 接口将两者彻底分离。ReAct 循环结束后，BaseAgent 检查 evaluator 是否实现此接口；若是，则用所有 tool results 构建结构化 evidence digest，在**全新的消息序列**（不追加到调查对话）中做一次专门的 LLM 调用。synthesis 结果成为 StageReport，传递给下游阶段。
+- 调查需要文件 IO、ReAct 循环、迭代探索、大的上下文窗口
+- 结构化需要完整的证据视图、零文件 IO、一次性 commit、严格的 schema
 
-### 两阶段探索（广读 + 深读）
+**解法：**把两种活动分配给**两个独立 agent**，串行接力：
 
-探索器内部实现了两阶段调查模型，通过 evaluator 的 phase 状态机控制：
+1. **Turn A (`explorer`)** — 承担调查。内部还有一个 **Phase 0 → Phase 1** 两阶段（`explorerEvaluator.phase` 字段）：
+   - Phase 0（Breadth Scan）：只用轻量工具（grep files_only / repo_map / list_files）扫描全局，产出按角色分类的文件清单
+   - Phase 1（Depth Read）：全文 `read_file` 关键文件，每读一个调用 `emit_evidence` 写结构化证据
 
-- **Phase 1（广读）**：只用轻量工具（grep files_only、repo_map、list_files）扫描全局，产出按角色分类的文件清单
-- **Phase 2（深读）**：全文读取清单中的关键文件，提取详细信息
+2. **Turn B (`extractor`)** — 承担结构化。一次性 LLM 调用（`ShouldStop iteration >= 1`），读 Turn A 的 `TurnAArtifacts` 快照 digest，调用 `emit_answer_symbol`（带完备性 claim + Phase 9 cardinality validator）和 `emit_hypothesis_verdict`（带 citation）。**没有文件 IO，没有 ReAct 循环，没有 retry**。
 
-两阶段分离防止了常见失败模式：LLM 读了一个源文件后被 continuation 推动继续，去读测试文件或无关文件（因为"还没读过"），而不是深入已有的关键文件。
+两层分离防止了多个系统性失败：
+- continuation push 推动更深调查后，最后一条 assistant 消息往往是碎片笔记而非综合回答（Turn A 的 ParseOutput 用确定性 `renderExplorerStageReport` 产出 StageReport，不看 LLM 最后一条消息）
+- LLM 读了一个源文件后去读测试文件或无关文件（因为"还没读过"），而不是深入已有的关键文件（Phase 0 → Phase 1 质量门强制先完成 breadth scan 才允许 depth read）
+- 确定性 `extractAnswerSymbols` 在 Go receiver-method chain 上抽 method 名而非 receiver 类型（UNRESOLVED #1 bug #13 的根因）→ Turn B LLM 看着 Turn A 的完整证据做 slate 判断，规避这个根因
+- LLM 在调查中间声称 `completeness=complete` 撒谎 → Phase 9 cardinality validator 用 `max(β, γ)` 基线自动降级为 `lower_bound`
+
+**职责严格不重叠**：evidence / answer chains / flow findings 是 Turn A 独占写入，answer symbols / hypothesis verdicts 是 Turn B 独占写入。2026-04-14 的一次架构审计发现 extract-skill 原本也 instruct `emit_evidence`（duplication），已整改：extract-skill 的 Workflow / ToolSuggestions / Prohibitions 明确禁止 Turn B 调用 `emit_evidence`。
 
 ### runtime file coverage
 
