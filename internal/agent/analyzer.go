@@ -60,31 +60,23 @@ func (e *analyzerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 
 # Required emit_analysis fields
 
-intent        — the v3 task intent. Pick one:
+intent        — the task intent. Pick one:
    explain         — user wants to understand how something works
    root_cause      — user is debugging, asks "why does X fail"
    trace           — follow a data flow or call chain end to end
    enumerate       — list every X, count Xs (also for "which agents call Y")
    config_query    — look up what a config key controls
    return_value    — asks what a specific function returns or its literal name
-   refactor        — design or implement a code change
-   bugfix          — fix a defect
-   security_audit  — review for vulnerabilities
    unknown         — genuinely ambiguous (ERM will fall back to keyword inference)
 
 scenario      — which scenario template drives the investigation plan:
    architecture_explain    — explain mechanism / code / flow
    root_cause              — debug a failure
-   security_audit          — vulnerability review
-   refactor_design         — plan a refactor
    config_trace            — trace config → behaviour
    performance_bottleneck  — find a perf hotspot
    generic                 — none of the above (safe fallback)
 
 complexity    — "simple" (single lookup/count, 1-2 files), "moderate" (single component, 3-5 files), "complex" (cross-component, 6+ files).
-
-writing       — true only if the task may MUTATE files; false for read/explain/audit.
-high_risk     — true only when writing=true AND the change needs design/code review (security, schema, irreversible). Always false for read-only work.
 
 keywords      — ≥8 grep search terms. Include every CamelCase / snake_case identifier the user wrote PLUS conceptual synonyms. For Chinese questions include BOTH Chinese and English forms (the codebase is English).
 entities      — CamelCase / snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens.

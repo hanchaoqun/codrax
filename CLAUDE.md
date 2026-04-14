@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-A 5-layer multi-agent AI system in Go that decomposes software engineering tasks through a YAML-driven state machine pipeline. The layers are: Orchestration → Execution (Agents) → Strategy (Skills) → Capability (Tools/MCP) → Intelligence (LLM).
+Codrax is a read-only code analysis tool in Go. It takes a natural-language question about a repository, drives a deterministic 4-stage LLM pipeline (analyze → explore → extract → finalize), and emits a grounded structured answer. It does not modify source files.
 
 ## Build & Run Commands
 
@@ -17,7 +17,7 @@ make static
 
 # Single-shot run (explicit flags; any omitted flag falls back to
 # config/codrax.yaml then to the code default)
-./codrax -config config/orchestrator.yaml -repo . -branch main -request "task" -pipeline-max-steps 50
+./codrax -repo . -branch main -request "task" -pipeline-max-steps 50
 
 # Interactive REPL (no -request → enters multi-turn mode with
 # /exit /clear /history /compact /help slash commands, memory
@@ -31,7 +31,7 @@ make static
 make test
 
 # Run a single test
-go test ./internal/orchestrator/ -run TestOrchestratorRun
+go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 
 # Run tests with verbose output
 make test-v
@@ -41,34 +41,64 @@ make test-v
 
 ### Pipeline Flow
 
-User request → Orchestrator (Layer 1) dispatches specialized Agents (Layer 2) through stages defined in `config/orchestrator.yaml`. Agents use Skills (Layer 3) for strategy, Tools/MCP (Layer 4) for capabilities, and LLM adapters (Layer 5) for intelligence.
-
-**Critical rule:** All tool invocation and LLM calls pass through Layer 2 (Agent). The Orchestrator never directly calls Tools, MCP, or LLM.
+User request → Orchestrator dispatches agents through 4 hardcoded stages. All tool invocation and LLM calls pass through an agent — the orchestrator never calls tools, MCP, or LLM directly.
 
 ### Pipeline Stages
 
-`analyze → explore → plan → design_review → implement → code_review → verify → finalize`
+`analyze → explore → extract → finalize`
 
-Not all stages run for every task. Task policies in the YAML config control which stages are allowed:
-- **analysis**: analyze → explore → finalize
-- **implementation**: analyze → explore → plan → implement → verify → finalize
-- **high_risk_implementation**: full pipeline including design_review & code_review
+Hardcoded in `internal/orchestrator/topology.go`. Every stage maps 1:1 to one agent and one default skill:
 
-Transitions between stages are priority-weighted and filtered by task policy, pipeline settings, and runtime signals (e.g., `HasPlan`, `HasPatch`, `DesignReviewPassed`).
+| Stage | Agent | Default Skill | Purpose |
+|---|---|---|---|
+| analyze | analyzer | task-analysis-skill | Classify the request, emit `AnalysisIR` via `emit_analysis` (one LLM call) |
+| explore | explorer | repo-explore-skill | Turn A investigation: read_file / grep / repo_map, emit evidence via `emit_evidence` |
+| extract | extractor | extract-skill | Turn B structuring: no file IO; drain Turn A's transcript into `emit_answer_symbol` / `emit_hypothesis_verdict` batches |
+| finalize | finalizer | final-answer-skill → answer-document-skill | Emit one `emit_answer_document` tool call; deterministic renderer turns the struct into prose |
+
+At dispatch time `Orchestrator.dispatchStage` routes the finalize stage to `answer-document-skill` when it is registered, overriding the default. There is no priority-weighted transition graph, no task policy system, no per-task stage allowlist — the pipeline is a deterministic DAG walk.
+
+### Per-task DAG scheduler
+
+After analyze produces `AnalysisIR.TaskGraph`, `runTaskGraph` walks the graph with a **merged-window scheduler**:
+
+1. Collect every ready non-finalize node (probe / evidence / validate / reconcile). Dispatch them as ONE `StageExplore` call per round. Mark the window done on success.
+2. Dispatch `StageExtract` once after a successful explore window (Turn B drains the transcript).
+3. If a finalize node is ready, dispatch `StageFinalize`, then run the AnswerContract checker over the final answer.
+   - Pass: mark finalize done, record the answer, return.
+   - Fail with retry budget remaining: requeue the finalize and every window node, record one cross-window retry, inject the violation diagnostic into the next window's retry hint, loop.
+   - Fail with budget exhausted: prepend a fail-loud warning to the answer and return the original body beneath it.
+4. Loop until all nodes done or the per-task step budget is exhausted. On a scheduler stall the driver forces one finalize dispatch so the task always terminates with a result.
 
 ### Key Data Structures (`internal/types/`)
 
-- **BusContext**: Shared execution state flowing through the entire pipeline — tasks, signals, facts, tool results, policy context.
-- **AgentContext** (`internal/context/builder.go`): Narrowed view of BusContext built for a specific agent.
-- **StageOutput**: What agents return — data, signal updates, new facts, errors.
+- **BusContext** — shared execution state (tasks, signals, facts, tool results, analysis IR). The `Mutable` region is the only part tools may write to during the ReAct loop.
+- **AgentContext** (`internal/context/builder.go`) — narrowed BusContext view built per agent.
+- **StageOutput** — what agents return: data, signal updates, new facts, errors, analysis IR, final answer.
+- **AnalysisIR** (`internal/types/analysis_ir.go`) — the analyze stage's sole structured output: `RequestModel`, `TaskGraph`, `EvidencePlan`, `AnswerContract`, `HypothesisSet`, `QualityGate`. Analyzer is the sole writer; downstream stages mutate hypothesis status via the dedicated `MarkHypothesis` API and never rewrite structural fields.
+- **ExecutionSignals** — a single-field struct (`HasEnoughFacts bool`). All write-pipeline signals were deleted with the write pipeline.
+- **PipelineSettings** — budget knobs only (`MaxRetriesPerStage`, `MaxStageVisits`). Loaded from `codrax.yaml`.
 
 ### Agent System (`internal/agent/`)
 
-All 8 agent types embed `BaseAgent` which provides the ReAct loop (Reason → Act → Observe). Each agent implements the `Evaluator` interface: `BuildInitialPrompt`, `ShouldStop`, `ParseOutput`, `DetermineMissingPiece`.
+All 4 agent types embed `BaseAgent` which provides the ReAct loop (Reason → Act → Observe). Each agent implements the `Evaluator` interface: `BuildInitialPrompt`, `ShouldStop`, `ParseOutput`, `DetermineMissingPiece`.
+
+### Analyzer post-processing pipeline (`internal/agent/analyzer.go:buildAnalysisIR`)
+
+The analyzer makes ONE LLM call that emits a `RequestModel` via `emit_analysis`. `ParseOutput` then runs a deterministic chain:
+
+1. `normalizer.Normalize` — canonical TermGraph from the raw request
+2. `compiler.InferScenario` + `compiler.Compile` — scenario template → TaskGraph + EvidencePlan + AnswerContract
+3. `risk.Evaluate` — 6-dimension risk matrix (Security / DataIntegrity / Compatibility / Performance / Ops / Compliance)
+4. `hdp.Plan` + `hdp.Bind` — hypotheses (including risk-driven ones on Security≥3 / DataIntegrity≥3) bound to TaskGraph nodes
+5. `counterfactual.Expand` — optional branch expansion for complex+ambiguous explain/root_cause
+6. `gate.Run` — deterministic quality gate (coverage, DAG closure, budget sanity, contract completeness, hypothesis coverage)
+
+Gate failures are retryable via analyze re-entry; the analyzer retries once on a retryable reject and fails loud otherwise.
 
 ### Evidence Chain System (`internal/agent/explorer.go`)
 
-The explorer agent includes a programmatic evidence extraction pipeline that supplements LLM investigation with deterministic, source-code-derived facts. This addresses a systemic LLM weakness: the ability to read code files and extract individual facts, but the inability to chain those facts across files to reach specific conclusions (multi-hop reasoning).
+The explorer agent supplements LLM investigation with deterministic, source-code-derived facts. This addresses a systemic LLM weakness: the ability to read code files and extract individual facts, but the inability to chain those facts across files to reach specific conclusions (multi-hop reasoning).
 
 **Three-phase investigation model:**
 
@@ -113,23 +143,24 @@ The explorer agent includes a programmatic evidence extraction pipeline that sup
 
 ### Configuration
 
-Three YAML files under `config/`, strictly non-overlapping:
+Two YAML files under `config/`, strictly non-overlapping:
 
-- **`orchestrator.yaml`** — pipeline topology only: stages, transitions (priority-weighted), task policies, agent/skill bindings. Loaded by `internal/config/loader.go` into `ResolvedConfig`.
 - **`providers.yaml`** — LLM provider credentials and per-agent model routing. Loaded by `internal/config/providers.go`. Secrets, never committed.
-- **`codrax.yaml`** — per-process runtime knobs. Three flat groups by prefix: bare keys (`log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `orchestrator_config`, `providers_config`); `blob_*` keys for tool output sizing (`blob_max_inline_bytes`, `blob_preview_head_bytes`, `blob_preview_tail_bytes`); `pipeline_*` keys for orchestrator behavior and budgets (`pipeline_max_steps`, `pipeline_enable_verify`, `pipeline_require_review`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`, `pipeline_allow_skip_plan_for_small_change`). Loaded by `internal/config/runtime.go`. All fields are pointer-typed so the merge in `main.go` can distinguish "absent" from "explicit zero value".
+- **`codrax.yaml`** — per-process runtime knobs. Three flat groups by prefix: bare keys (`log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `providers_config`); `blob_*` keys for tool output sizing (`blob_max_inline_bytes`, `blob_preview_head_bytes`, `blob_preview_tail_bytes`); `pipeline_*` keys for per-run budget limits (`pipeline_max_steps`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`). Loaded by `internal/config/runtime.go`. All fields are pointer-typed so the merge in `cmd/root.go` can distinguish "absent" from "explicit zero value".
+
+The pipeline topology (stages + agents + skills) is hardcoded in `internal/orchestrator/topology.go` and has no YAML counterpart.
 
 **Precedence** for the bare keys (lowest wins last): code default → `config/codrax.yaml` → command-line flag.
 
-**Precedence** for the `pipeline_*` keys (lowest wins last): code default → `codrax.yaml` `pipeline_*` keys → command-line flags (`-pipeline-max-steps`, `-pipeline-max-retries`, and `-pipeline-max-stage-visits` only — the three boolean toggles have no CLI override).
+**Precedence** for the `pipeline_*` keys (lowest wins last): code default → `codrax.yaml` `pipeline_*` keys → command-line flags (`-pipeline-max-steps`, `-pipeline-max-retries`, `-pipeline-max-stage-visits`).
 
 **Precedence** for the `blob_*` keys (lowest wins last): code default in `internal/tool/blob.go` → `codrax.yaml` `blob_*` keys. No CLI overrides.
 
-`main.go` applies the runtime overrides into `cfg.PipelineSettings` (from `codrax.yaml`) and via `tool.SetBlobLimits` immediately after `LoadAndResolve`, before any agent or tool runs. Override the entry file with `CODRAX_SETTINGS=path/to/codrax.yaml` to bootstrap an entire environment (since `orchestrator_config` / `providers_config` paths can also live in `codrax.yaml`).
+`cmd/root.go` applies the runtime overrides into a local `types.PipelineSettings` and via `tool.SetBlobLimits` immediately after `LoadRuntimeSettings`, before any agent or tool runs. Override the entry file with `CODRAX_SETTINGS=path/to/codrax.yaml` to bootstrap an entire environment (since `providers_config` paths can live in `codrax.yaml`).
 
-**Path anchoring.** `main.go` searches for `codrax.yaml` in three places: `$CODRAX_SETTINGS` → `<CWD>/config/codrax.yaml` → `<exeDir>/config/codrax.yaml` → `<exeDir>/../config/codrax.yaml` (the `bin/` install layout). The directory containing the found file's `config/` becomes the *anchor*, and any relative default path (`log_dir`, `memory_dir`, `orchestrator_config`, `providers_config`) is rewritten to `anchor/<value>` *before* flag registration so `-h` shows the resolved path. User-supplied flag values are passed through verbatim and remain CWD-relative. `-repo` is excluded from anchoring — its default `.` always means the current working directory because it names a target, not tool state. When no settings file is found anywhere, the anchor falls back to CWD, preserving the historical behavior.
+**Path anchoring.** `cmd/root.go` searches for `codrax.yaml` in three places: `$CODRAX_SETTINGS` → `<CWD>/config/codrax.yaml` → `<exeDir>/config/codrax.yaml` → `<exeDir>/../config/codrax.yaml` (the `bin/` install layout). The directory containing the found file's `config/` becomes the *anchor*, and any relative default path (`log_dir`, `memory_dir`, `providers_config`) is rewritten to `anchor/<value>` *before* flag registration so `-h` shows the resolved path. User-supplied flag values are passed through verbatim and remain CWD-relative. `-repo` is excluded from anchoring — its default `.` always means the current working directory because it names a target, not tool state. When no settings file is found anywhere, the anchor falls back to CWD, preserving the historical behavior.
 
-**Per-target-repo namespacing.** Default `log_dir` and `memory_dir` get an extra `<basename>-<fnv32>` suffix derived from the absolute, symlink-resolved `-repo` path, so multiple target repos sharing one codrax install keep their logs and conversation memory in disjoint subtrees (`<anchor>/logs/foo-a3f9c2b1/`, `<anchor>/memory/foo-a3f9c2b1/`). The slug is baked into the flag default so `-h` shows the final path; if the user overrides `-repo` on the command line and leaves `-log-dir`/`-memory-dir` defaulted, `main.go` re-slugs after `flag.Parse`. Explicit `-log-dir`/`-memory-dir` always wins — opting out is one flag away. The slug uses the resolved absolute path so reaching the same repo via different CWDs or symlinks lands in the same memory bucket.
+**Per-target-repo namespacing.** Default `log_dir` and `memory_dir` get an extra `<basename>-<fnv32>` suffix derived from the absolute, symlink-resolved `-repo` path, so multiple target repos sharing one codrax install keep their logs and conversation memory in disjoint subtrees (`<anchor>/logs/foo-a3f9c2b1/`, `<anchor>/memory/foo-a3f9c2b1/`). The slug is baked into the flag default so `-h` shows the final path; if the user overrides `-repo` on the command line and leaves `-log-dir`/`-memory-dir` defaulted, `cmd/root.go` re-slugs after flag parse. Explicit `-log-dir`/`-memory-dir` always wins — opting out is one flag away. The slug uses the resolved absolute path so reaching the same repo via different CWDs or symlinks lands in the same memory bucket.
 
 **Multi-instance concurrency model.** Once two codrax processes can land in the same repo slug, the logging and memory subsystems both have to tolerate concurrent writers. The contract is enforced at two layers, both pure stdlib (no `golang.org/x/sys`):
 
@@ -139,13 +170,13 @@ Three YAML files under `config/`, strictly non-overlapping:
 
 ### Runtime subsystems (`internal/logging`, `internal/memory`, `internal/repl`)
 
-- **`internal/logging`** — leveled logger (`error/warning/info/debug`) writing to `logs/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log` with 4 MB rotation and a 7-file retention cap. Each process always opens a fresh PID-stamped file; `pruneOldFiles` skips files whose embedded PID is still a live process. Package-level `Error/Warning/Info/Debug` free functions delegate to `logging.Default`, initialized from `main()`. A debug-gated `[diag ...]` trace in `BaseAgent.Execute` dumps the full ReAct loop (initial prompt, assistant turns, tool results, stop reason) when `-log-level debug` is set.
+- **`internal/logging`** — leveled logger (`error/warning/info/debug`) writing to `logs/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log` with 4 MB rotation and a 7-file retention cap. Each process always opens a fresh PID-stamped file; `pruneOldFiles` skips files whose embedded PID is still a live process. Package-level `Error/Warning/Info/Debug` free functions delegate to `logging.Default`, initialized from `cmd/root.go`. A debug-gated `[diag ...]` trace in `BaseAgent.Execute` dumps the full ReAct loop (initial prompt, assistant turns, tool results, stop reason) when `-log-level debug` is set.
 - **`internal/memory`** — multi-turn REPL store. Recent turns live in-memory + verbatim on disk under `memory/turns/<id>.md` where `<id>` = `turn-<unix-nano>-<pid>`. Once the recent buffer exceeds 6 turns or 20 KB, the oldest is LLM-summarized into a `{topic, keywords, summary, full_ref}` entry appended to `memory/MEMORY.md`. Cross-process safety: a per-operation flock on `MEMORY.md.lock` serializes mutations and reloads the in-process index after each acquire so peers' writes are immediately visible; a lifetime shared lock on `.instance.lock` lets `NewStore` decide via a non-blocking exclusive try whether it's alone in the directory and may safely run orphan recovery — when peers are present, recovery is skipped to prevent double compaction. On a *true* fresh start (alone, previous session crashed or exited), `NewStore` parses `MEMORY.md` *and* resurrects orphan turns into the recent buffer so the tail of the last session survives crash/Ctrl-C. `BuildContext(request)` assembles a prompt block with recent turns plus keyword-matching compacted entries (index entry + inlined full turn).
 - **`internal/repl`** — interactive loop. Reads one line at a time, injects prior conversation via `Store.BuildContext` prepended as `## Prior conversation\n...\n\n## Current request\n...` (zero changes to BusContext or any agent — history flows as part of the request string). Slash commands: `/exit /quit /clear /history /compact /help`.
 
 ### Response language switch
 
-`main.go` passes a `-lang` (default `zh`) through `orchestrator.SetLanguage`. Inside `Run()`, a language directive is appended to `BusContext.Preferences`, which `context/builder.go` now renders as a "User Preferences" system section on every agent prompt. The directive always includes a fallback clause so a question asked in another language is answered in that language. Set `-lang=off` (or `none`) to revert to the pre-feature behavior.
+`cmd/root.go` passes a `-lang` (default `zh`) through `orchestrator.SetLanguage`. Inside `Run()`, a language directive is appended to `BusContext.Preferences`, which `context/builder.go` renders as a "User Preferences" system section on every agent prompt. The directive always includes a fallback clause so a question asked in another language is answered in that language. Set `-lang=off` (or `none`) to revert to the pre-feature behavior.
 
 ## Dependencies
 
