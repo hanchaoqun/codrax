@@ -6,9 +6,9 @@ package agent
 // finalizer reads as its "Prior Stage Findings" section) was the LLM's
 // own synthesis prose: BaseAgent.Execute auto-captured the last
 // assistant message into output.StageReport, and that prose flowed
-// into BusContext.StageReports → finalizer prompt verbatim. The doc
-// `docs/architecture-root-cause-remediation.md` §5 R1 calls that the
-// "free-text escape hatch" — the structured Evidence / AnswerChains /
+// into BusContext.StageReports → finalizer prompt verbatim. The P1.2
+// remediation audit called that channel the "free-text escape hatch"
+// — the structured Evidence / AnswerChains /
 // AnswerSymbols channel and the prose channel were both visible to
 // the finalizer, with no single source of truth, so the finalizer
 // could (and did) pick prose details that contradicted the structured

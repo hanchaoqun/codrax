@@ -9,9 +9,8 @@ package types
 // (internal/render/answerdoc.go) converts the struct into user-visible
 // prose keyed on BusContext language.
 //
-// Design target (docs/architecture-root-cause-remediation.md §6 P2.2):
-// close R1 at the finalizer layer. The four fake-green patterns become
-// structurally impossible:
+// Design target (P2.2 remediation): close R1 at the finalizer layer.
+// The four fake-green patterns become structurally impossible:
 //
 //   1. step_list collapse → Steps is a slice; LLM cannot collapse a
 //      slice into a paragraph without dropping items the schema

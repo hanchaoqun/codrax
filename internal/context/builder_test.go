@@ -512,8 +512,7 @@ func TestBuildSubAgentContextFiltersEvidenceItemsByScope(t *testing.T) {
 // prompt with a visible [UNGROUNDED: cite without line number] tag.
 // This upgrades the /ungrounded contract from prompt-level soft
 // constraint (set in finalizer.go) to a renderer-level visual marker
-// the LLM cannot miss. Mirrors roadmap item P0.1 in
-// docs/architecture-root-cause-remediation.md.
+// the LLM cannot miss. Mirrors roadmap item P0.1.
 func TestFormatEvidenceItemsRendersUngroundedTag(t *testing.T) {
 	items := []types.EvidenceItem{
 		{

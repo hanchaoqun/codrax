@@ -11,8 +11,7 @@ package tool
 //     definition site).
 //
 //   - file inside ctx.WorkDir is REJECTED (blob-file path leak gate,
-//     UNRESOLVED bug N=1 from docs/bug-blob-file-path-leak-into-final-
-//     answer.md).
+//     UNRESOLVED bug N=1; see memory/project_blob_file_leak_unresolved.md).
 //
 //   - kind enum is closed; aliases (func/function, struct/type/class)
 //     normalize to canonical forms.

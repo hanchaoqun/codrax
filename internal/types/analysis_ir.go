@@ -22,12 +22,11 @@ import "fmt"
 //  4. TaskGraph must be a well-formed DAG whose hard dependencies are
 //     satisfiable — enforced by the analyzer quality gate, not by consumers.
 //
-// This file is pure data-model scaffolding for batch B1 of the
-// analyzer-v3 refactor (see docs/analyzer-v3-refactor-plan.md). It is not
-// yet wired into the runtime; subsequent batches add the normalizer,
-// scenario compiler, hypothesis planner, risk evaluator, counterfactual
-// expander, quality gate, and orchestrator DAG scheduler that operate on
-// these types.
+// The deterministic pipeline that fills every field on this struct
+// — normalizer, scenario compiler, hypothesis planner, risk
+// evaluator, counterfactual expander, quality gate — lives under
+// internal/analysis/ and is orchestrated from internal/agent/
+// analyzer.go:buildAnalysisIR.
 type AnalysisIR struct {
 	Version        string         `json:"version"`
 	TraceID        string         `json:"trace_id,omitempty"`

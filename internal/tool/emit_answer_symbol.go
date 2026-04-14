@@ -29,8 +29,7 @@ import (
 //     rejected at decode time, never silently demoted.
 //
 //  2. Blob-file path leak gate (UNRESOLVED bug N=1, see
-//     memory/project_blob_file_leak_unresolved.md and
-//     docs/bug-blob-file-path-leak-into-final-answer.md). The file
+//     memory/project_blob_file_leak_unresolved.md). The file
 //     field MUST NOT live under BusContext.WorkDir. Turn A's tool
 //     output blobs are stored there; if the LLM mistakes a blob path
 //     for a repo path the symbol's file:line citation points to a
@@ -251,9 +250,9 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 // The check uses a normalized prefix match: both sides have leading/
 // trailing slashes trimmed and "/" appended to the workDir comparison
 // key so that "/tmp/codrax-trace-foo" does not falsely match
-// "/tmp/codrax-trace-foo-sibling/file.go". This is the same shape
-// used by the docs/bug-blob-file-path-leak-into-final-answer.md
-// short-term mitigation: structural prefix only, no extension list.
+// "/tmp/codrax-trace-foo-sibling/file.go". Short-term mitigation for
+// the UNRESOLVED blob-file leak bug: structural prefix only, no
+// extension list.
 func isInsideWorkDir(filePath, workDir string) bool {
 	if workDir == "" || filePath == "" {
 		return false

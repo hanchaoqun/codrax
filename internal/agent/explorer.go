@@ -612,8 +612,8 @@ func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
 // where the finalizer needs tightly-scoped evidence to avoid being
 // drowned by concrete-value noise from unrelated files.
 //
-// Filter F8 in docs/filtering-pipeline.md. Fail-open: returns the
-// unfiltered set on zero survivors; see §4 fail-open table.
+// Filter F8 in the evidence filtering pipeline. Fail-open: returns
+// the unfiltered set on zero survivors.
 // Paired with F9 (scrubSiblingEvidenceBlocks) which enforces the
 // same primary-file scope on the prose channel — both must run.
 func filterEvidenceByPrimaryFiles(items []types.EvidenceItem, primary []string) []types.EvidenceItem {
@@ -731,7 +731,7 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	}
 	// S1 primary-file-read gate (df3 file-selection drift fix).
 	//
-	// Observed failure mode (docs/df3-file-selection-drift analysis of
+	// Observed failure mode (df3 file-selection drift, 2026-04-13
 	// eval/results/df3-20260413-173231/run-3): LLM runs parallel grep
 	// on 5 files, extracts [MECHANISM] / [DIRECT] / [REGISTRATION]
 	// tags from the grep CONTEXT LINES (not from actual file bodies),
@@ -932,8 +932,8 @@ func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolRe
 	// 1-2 tool calls per round because the LLM falls into a single-
 	// step ReAct rhythm ("read A, observe, think, read B, observe,
 	// ..."). Each serial round pays full LLM round-trip latency, and
-	// the audit in docs/latency-analysis-2026-04-13.md §3.1 measured
-	// ~3s per round. On a 15-iter explorer this is where most of the
+	// the 2026-04-13 latency audit measured ~3s per round. On a 15-
+	// iter explorer this is where most of the
 	// remaining ReAct latency lives AFTER the self-dispatch fix.
 	//
 	// Fire only when:
@@ -1695,9 +1695,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// from the coverage set and render the canonical markdown that
 	// becomes "Prior Stage Findings" downstream. This replaces the
 	// LLM-prose channel that BaseAgent.Execute would otherwise
-	// auto-capture into output.StageReport. See
-	// docs/architecture-root-cause-remediation.md §6 P1.2 and
-	// docs/filtering-pipeline.md "P1.2 update".
+	// auto-capture into output.StageReport (P1.2 remediation).
 	readFilesList := make([]string, 0, len(readSet))
 	for f := range readSet {
 		readFilesList = append(readFilesList, f)
@@ -1963,8 +1961,7 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	// StageReport (see ParseOutput's renderExplorerStageReport call),
 	// so even if the synthesis LLM repeats sibling-file content the
 	// finalizer never sees it. The notes are now passed through
-	// untouched. See docs/architecture-root-cause-remediation.md §6
-	// P1.2 and docs/filtering-pipeline.md "P1.2 update".
+	// untouched (P1.2 remediation).
 	if len(e.investigationNotes) > 0 {
 		digest.WriteString("## Evidence Catalog\n\n")
 		digest.WriteString("These are the evidence entries YOU collected during investigation:\n\n")
@@ -3342,8 +3339,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// chains even when the LLM didn't read the target file. Orthogonal
 	// to the per-file extractConcreteValues + multi-pass tracer above,
 	// this pass is graph-wide and bounded by symbol-name matching.
-	// See docs/bridge-literal-extraction-gap.md and
-	// memory/project_baseline_2026_04_13_post_phase4.md.
+	// See memory/project_baseline_2026_04_13_post_phase4.md.
 	bridgeItems := extractBridgeLiteralChains(graph, repoRoot)
 	if len(bridgeItems) > 0 {
 		logging.Debug("[explorer] bridge literal chains: %d items", len(bridgeItems))
@@ -3703,8 +3699,6 @@ type concreteValueEntry struct {
 // Cost is bounded by graph symbol count + body size per matching
 // function. On codrax-scale repos this is a few hundred short body
 // reads, sub-millisecond total.
-//
-// See docs/bridge-literal-extraction-gap.md.
 func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string) []types.EvidenceItem {
 	if graph == nil {
 		return nil

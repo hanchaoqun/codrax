@@ -84,8 +84,7 @@ func StableEvidenceID(kind EvidenceKind, subject, predicate, object, condition, 
 // downstream rendering layer (context/builder.go §Answer Symbols)
 // silently defaulted to "complete", producing the UNRESOLVED #1 bug
 // where a partial LLM-derived allowlist was sold to the finalizer as
-// a verified-complete answer. See docs/bug-extractanswersymbols-
-// enumeration-completeness-gap.md and memory/project_p2_1_session_1_shipped.md.
+// a verified-complete answer. See memory/project_p2_1_session_1_shipped.md.
 //
 // The three claims form a strict authority ladder:
 //

@@ -11,8 +11,8 @@ import (
 )
 
 // EmitEvidence is the structured replacement for the LLM-authored
-// markdown evidence channel that parseEvidenceItems (F4 in
-// docs/filtering-pipeline.md) historically walked. The explorer phase-2
+// markdown evidence channel that parseEvidenceItems historically
+// walked. The explorer phase-2
 // prompt instructs the LLM to call this tool once per file with a
 // batch of EvidenceItem-shaped objects; the tool validates them and
 // appends to BusContext.Mutable.AppendEvidence, where the explorer's
@@ -176,7 +176,6 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q does not look like a repo-relative file path", index, in.Source)
 	}
 	// Blob-file path leak gate (UNRESOLVED bug N=1, see
-	// docs/bug-blob-file-path-leak-into-final-answer.md and
 	// memory/project_blob_file_leak_unresolved.md). The same
 	// structural prefix check ships in emit_answer_symbol; both tools
 	// ride on isInsideWorkDir from emit_answer_symbol.go.

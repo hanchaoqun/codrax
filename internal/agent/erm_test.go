@@ -1598,10 +1598,10 @@ func TestIdentifyAnswerChains_GenuineMatchStillRanks(t *testing.T) {
 	}
 }
 
-// TestErmAutoSatisfyUnresolvable_RegistrationKind pins the fix for the
-// explorer self-dispatch latency bug analyzed in
-// docs/latency-analysis-2026-04-13.md §2. When ERM emits a
-// registration(X) requirement whose entity X is an interface type,
+// TestErmAutoSatisfyUnresolvable_RegistrationKind pins the fix for
+// the explorer self-dispatch latency bug (2026-04-13 latency audit).
+// When ERM emits a registration(X) requirement whose entity X is an
+// interface type,
 // an interface method, or an abstract concept verb, the explorer can
 // never satisfy it from source evidence — the orchestrator then
 // re-dispatches the explorer for a second pass that re-discovers the

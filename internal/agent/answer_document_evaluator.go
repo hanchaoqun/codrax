@@ -7,8 +7,8 @@ package agent
 // Flag=on replacement for finalizerEvaluator; the two coexist until
 // flip-default (gated on grid + manual inspection).
 //
-// Design contract (docs/architecture-root-cause-remediation.md §6
-// P2.2): the LLM emits AnswerDocument via one batched tool call, the
+// Design contract (P2.2 remediation): the LLM emits AnswerDocument
+// via one batched tool call, the
 // evaluator runs shape-level structural validation plus the P2.1
 // cardinality cross-check for list_of_symbols/complete slates, and
 // the renderer produces deterministic prose. Patterns 1/2/3/4 become

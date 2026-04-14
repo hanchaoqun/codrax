@@ -15,8 +15,8 @@ import (
 // handles one-shot final-answer composition. They share no state and
 // can be read, tested, and modified in isolation.
 //
-// Design contract (docs/architecture-root-cause-remediation.md §6
-// P2.2): the finalizer LLM emits a typed AnswerDocument; this
+// Design contract (P2.2 remediation): the finalizer LLM emits a
+// typed AnswerDocument; this
 // renderer is the ONLY path by which that struct becomes user-visible
 // prose. Every per-shape template is a Go string builder — no Go
 // text/template or html/template, no locale library, no plugin

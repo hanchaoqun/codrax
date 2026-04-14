@@ -731,8 +731,8 @@ func isRegistrationTargetKind(defs []*repomap.Symbol) bool {
 // graph.SymbolDefs — the permissive substring match used for other
 // Kinds is not safe here because words like `synthesis` / `continuation`
 // substring-hit unrelated symbol names and file paths but are not
-// themselves registrable. See docs/latency-analysis-2026-04-13.md §2.1
-// for the t1 self-dispatch bug this guards against.
+// themselves registrable. Guards against the t1 explorer self-
+// dispatch bug from the 2026-04-13 latency audit.
 func hasConcreteRegistrationTarget(entities []string, graph *repomap.Graph) bool {
 	if graph == nil {
 		return false
@@ -764,8 +764,7 @@ func hasConcreteRegistrationTarget(entities []string, graph *repomap.Graph) bool
 //     self-dispatch loop caused by interface-method names
 //     (`SynthesizingEvaluator`) or abstract concept verbs
 //     (`synthesis`, `continuation`) that substring-hit unrelated
-//     symbols but are not registrable. Analyzed in
-//     docs/latency-analysis-2026-04-13.md §2.
+//     symbols but are not registrable (2026-04-13 latency audit).
 //
 //  2. Generic fallback: if no entity substring-matches any symbol
 //     name or file path, the entity is simply not present in the
@@ -1687,7 +1686,7 @@ func extractAnswerSymbols(items []types.EvidenceItem, questionKind, question, an
 	// symbols, no more no less," which degrades a step-by-step explanation
 	// into a flat name list.
 	//
-	// Concrete df3 failure (docs/df3-file-selection-drift 2026-04-13):
+	// Concrete df3 failure (2026-04-13 file-selection drift):
 	// the question "explorerEvaluator 的 ContinuationPrompt 是怎么实现的?
 	// 有哪几种 push 策略?" is mechanism kind + step_list shape. The
 	// pipeline produced [REGISTRATION]-shape and [MECHANISM]-shape

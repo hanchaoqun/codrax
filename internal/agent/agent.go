@@ -318,10 +318,10 @@ func pruneToolHistory(messages []llm.Message) bool {
 //
 // Debug-level trace logging dumps the initial prompt, every assistant
 // turn (content + tool calls), every tool result, and the reason for
-// loop termination. This was originally added during the explorer
-// knowledge-flow investigation (docs/investigation-explorer-knowledge-
-// flow.md) to localize Layer-2 soft-stop and Layer-3 read_file slice
-// issues, then removed because it was noisy on stderr. It is back as
+// loop termination. This was originally added to localize Layer-2
+// soft-stop and Layer-3 read_file slice issues during an early
+// explorer knowledge-flow investigation, then removed because it was
+// noisy on stderr. It is back as
 // debug-gated logging so the same trace can be reproduced on demand by
 // running with `-log-level debug` without polluting normal runs.
 func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOutput, error) {

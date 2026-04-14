@@ -12,8 +12,7 @@ import (
 //   - happy-path pass
 //   - violation fails with a named reason
 //   - skip-guard when upstream data is unavailable
-// See docs/architecture-root-cause-remediation.md §P0.2 and
-// memory/project_architecture_remediation_roadmap.md.
+// See memory/project_architecture_remediation_roadmap.md (P0.2).
 
 // ---------------------------------------------------------------
 // validateStepList

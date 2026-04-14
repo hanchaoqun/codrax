@@ -14,13 +14,11 @@ import (
 // message is fed into the finalizer correction prompt on retry and
 // into the fail-loud honesty note after retries are exhausted.
 //
-// These validators form part of filter F11 in docs/filtering-pipeline.md
+// These validators form filter F11 in the evidence filtering pipeline
 // (the "answer-shape validator family" — alongside the legacy
-// outOfListSymbols for list_of_symbols). F11 runs strictly last in the
-// pipeline; see §3 invariant 8.
+// outOfListSymbols for list_of_symbols). F11 runs strictly last.
 //
-// Design rules (from docs/architecture-root-cause-remediation.md
-// §P0.2 and the session's pre-design audit):
+// Design rules (P0.2 remediation):
 //
 //  1. Predicates are STRUCTURAL — they key off EvidenceItem kinds and
 //     regex shapes, never hardcoded word lists.

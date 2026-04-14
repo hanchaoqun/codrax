@@ -14,7 +14,7 @@ import (
 // The Phase 2 NL classifier (classifyAnswerRole) reads analyzer-
 // rewritten surface forms and can miss reverse-reference questions
 // when the analyzer picks a rewrite that doesn't match any keyword
-// cue. Real 2026-04-13 repro captured in docs/ and in the log at
+// cue. Real 2026-04-13 repro captured in the log at
 // /tmp/codrax-verify-repl3-.../logs/*.log:
 //
 //   user:     "which agents can invoke subagent"

@@ -34,8 +34,7 @@ import (
 // falsify without a concrete cite) and optional for inconclusive
 // (the whole point of inconclusive is "we looked but couldn't find a
 // definitive cite"). The cite shape is the same file:line[-end] used
-// by docs/architecture-root-cause-remediation.md §10 Pattern 2 and
-// runContractCheck — structural, no extension list.
+// by runContractCheck — structural, no extension list.
 //
 // Like the other emit_* tools: ReadOnly + NonEvidenceTool. Mutating
 // BusContext is not a filesystem write, and the verdict carries

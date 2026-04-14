@@ -1,9 +1,11 @@
 // Several functions in this file (parseEvidenceItems, groundEvidenceItems,
 // mergeEvidenceItems, rankEvidenceByRelevance, scrubSiblingEvidenceBlocks)
-// form filters F4..F7 and F9 of the post-hoc filtering pipeline. Their
-// required execution order and fail-open behaviour are documented in
-// docs/filtering-pipeline.md — update that doc in the same commit when
-// adding, moving, or removing a filter here.
+// form filters F4..F7 and F9 of the post-hoc filtering pipeline. The
+// required execution order is: parseEvidenceItems → groundEvidenceItems
+// (F5 grounding) → mergeEvidenceItems (F6 structured + prose merge) →
+// rankEvidenceByRelevance (F7) → scrubSiblingEvidenceBlocks (F9).
+// Every filter is fail-open — a zero-survivor outcome passes the
+// input set through unchanged rather than silently dropping evidence.
 //
 // P1.1 (2026-04-14): parseEvidenceItems is no longer the only feeder of
 // the Evidence channel. The structured emit_evidence tool
@@ -11,8 +13,7 @@
 // evidence_tool_mode=on; ensureStructuredEvidence in explorer.go merges
 // its output with parseEvidenceItems via mergeEvidenceItems before
 // grounding. parseEvidenceItems stays as the fallback path and the
-// default; do NOT delete it without flipping the default first and
-// updating docs/filtering-pipeline.md row F4.
+// default; do NOT delete it without flipping the default first.
 package agent
 
 import (

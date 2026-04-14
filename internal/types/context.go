@@ -322,7 +322,7 @@ func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) st
 // explorer's ensureStructuredEvidence after the ReAct loop exits.
 //
 // P1.1: this is the structured replacement for the markdown-parsed
-// evidence channel (parseEvidenceItems / F4 in docs/filtering-pipeline.md).
+// evidence channel (parseEvidenceItems).
 // Tools fill this buffer instead of asking the LLM to write a markdown
 // header that a regex then walks. The two channels are merged in
 // ensureStructuredEvidence so under evidence_tool_mode=on both can run
@@ -709,8 +709,7 @@ type BusContext struct {
 	// pick the correct rendering branch (Translation mode for
 	// "complete", softened floor prompt for "lower_bound", drop the
 	// section entirely for "unknown"/zero). Zero value is the
-	// fail-closed default. See docs/bug-extractanswersymbols-enumeration-
-	// completeness-gap.md and types.CompletenessClaim for the three-
+	// fail-closed default. See types.CompletenessClaim for the three-
 	// level authority ladder.
 	AnswerSymbolCompleteness CompletenessClaim `json:"answer_symbol_completeness,omitempty"`
 	ToolResults   []ToolResult        `json:"tool_results,omitempty"`
