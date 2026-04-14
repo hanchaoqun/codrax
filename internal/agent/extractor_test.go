@@ -98,7 +98,7 @@ func TestExtractor_BuildInitialPromptEchoesQuestion(t *testing.T) {
 	// above). This test pins what BuildInitialPrompt IS responsible
 	// for post-cleanup: the user question + a non-empty result.
 	e := &extractorEvaluator{}
-	ctx := &types.AgentContext{CurrentTask: "what does Foo return?"}
+	ctx := &types.AgentContext{Objective: "what does Foo return?"}
 	prompt := e.BuildInitialPrompt(ctx, nil)
 	if prompt == "" {
 		t.Fatal("BuildInitialPrompt must produce a non-empty result")
@@ -155,7 +155,7 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 	// here — that is Turn A's exclusive channel after the de-
 	// duplication cleanup. With Phase 9's Set-semantics API the
 	// completeness claim travels with the slate.
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	// Pre-populate the evidence buffer with a token item and verify
 	// the extractor IGNORES it — a regression that re-drains evidence
 	// here would surface immediately.
@@ -169,7 +169,7 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 	// No baseline data (no TurnAArtifacts, no AnalysisIR) → the
 	// validator passes the claim through untouched.
 	ctx := &types.AgentContext{
-		CurrentTask: "test",
+		Objective: "test",
 		Mutable:     mu,
 	}
 
@@ -199,14 +199,14 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 // Other claims pass through unchanged.
 
 func extractorCtxWithBaseline(termCount int, mustInclude []string, syms []types.AnswerSymbol, claim types.CompletenessClaim) *types.AgentContext {
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
 		UserQuestion:          "q",
 		TerminalEvidenceCount: termCount,
 	})
 	mu.SetEmittedAnswerSymbols(syms, claim)
 	return &types.AgentContext{
-		CurrentTask: "q",
+		Objective: "q",
 		Mutable:     mu,
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
@@ -324,7 +324,7 @@ func TestExtractor_Validator_Complete_NoBaseline_PassesThrough(t *testing.T) {
 // -----------------------------------------------------------------------------
 
 func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
 		UserQuestion:          "which handlers register Foo?",
 		InvestigationNotes:    []string{"iter 1: read reg.go, found Register calls"},
@@ -335,7 +335,7 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 		TerminalEvidenceCount: 3,
 	})
 	ctx := &types.AgentContext{
-		CurrentTask: "which handlers register Foo?",
+		Objective: "which handlers register Foo?",
 		Mutable:     mu,
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{MustInclude: []string{"HandlerA", "HandlerB"}},
@@ -396,8 +396,8 @@ func TestExtractor_BuildPrompt_NoArtifacts_GracefulDegrade(t *testing.T) {
 	// When Mutable exists but TurnAArtifacts is nil (unit test
 	// bootstrap, or wiring bug), the prompt must still be usable and
 	// must warn the LLM to set completeness=unknown.
-	mu := types.NewMutableState(types.TaskList{})
-	ctx := &types.AgentContext{CurrentTask: "q", Mutable: mu}
+	mu := types.NewMutableState("")
+	ctx := &types.AgentContext{Objective: "q", Mutable: mu}
 	e := &extractorEvaluator{}
 	prompt := e.BuildInitialPrompt(ctx, nil)
 
@@ -418,12 +418,12 @@ func TestExtractor_BuildPrompt_ClampsLongInvestigationNotes(t *testing.T) {
 	for i := range notes {
 		notes[i] = fmt.Sprintf("iter %d: %s", i, longNote)
 	}
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
 		UserQuestion:       "q",
 		InvestigationNotes: notes,
 	})
-	ctx := &types.AgentContext{CurrentTask: "q", Mutable: mu}
+	ctx := &types.AgentContext{Objective: "q", Mutable: mu}
 	e := &extractorEvaluator{}
 	prompt := e.BuildInitialPrompt(ctx, nil)
 
@@ -436,10 +436,10 @@ func TestExtractor_BuildPrompt_ClampsLongInvestigationNotes(t *testing.T) {
 }
 
 func TestExtractor_BuildPrompt_IncludesHypothesisSet(t *testing.T) {
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{UserQuestion: "q"})
 	ctx := &types.AgentContext{
-		CurrentTask: "q",
+		Objective: "q",
 		Mutable:     mu,
 		AnalysisIR: &types.AnalysisIR{
 			HypothesisSet: []types.Hypothesis{
@@ -462,10 +462,10 @@ func TestExtractor_Validator_EmptySlate_LeavesCompletenessZero(t *testing.T) {
 	// len(syms)==0 short-circuits the drain: StageOutput.AnswerSymbols
 	// stays nil and completeness stays at zero (CompletenessUnknown).
 	// The builder then drops the section entirely.
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
 	ctx := &types.AgentContext{
-		CurrentTask: "q",
+		Objective: "q",
 		Mutable:     mu,
 	}
 	e := &extractorEvaluator{}

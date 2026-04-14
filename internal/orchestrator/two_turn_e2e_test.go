@@ -60,7 +60,7 @@ func twoTurnIRWithHypotheses(mustInclude []string, terminalFloor int) *types.Ana
 func mockTurnA(terminalCount int, readFiles []string) func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
 	return func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
-			UserQuestion:          ctx.CurrentTask,
+			UserQuestion:          ctx.Objective,
 			InvestigationNotes:    []string{"mock Turn A investigation note"},
 			ReadFiles:             readFiles,
 			EvidenceItems: []types.EvidenceItem{
@@ -346,13 +346,7 @@ func TestRunTaskGraph_ResetsTurnAStateAtEntry(t *testing.T) {
 
 
 	// Simulate "previous task" state on Mutable.
-	mu := types.NewMutableState(types.TaskList{
-		Objective:     "obj",
-		CurrentTaskID: "t1",
-		Tasks: []types.TaskItem{
-			{ID: "t1", Title: "task", Status: types.TaskPending},
-		},
-	})
+	mu := types.NewMutableState("obj")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{UserQuestion: "stale", TerminalEvidenceCount: 99})
 	mu.SetEmittedAnswerSymbols(
 		[]types.AnswerSymbol{{Name: "Stale", File: "stale.go", Line: 1, Kind: "function"}},

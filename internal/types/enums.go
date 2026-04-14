@@ -57,22 +57,6 @@ func AllAgentNames() []AgentName {
 	}
 }
 
-// TaskStatus represents the status of a task.
-type TaskStatus string
-
-const (
-	TaskPending    TaskStatus = "pending"
-	TaskInProgress TaskStatus = "in_progress"
-	TaskDone       TaskStatus = "done"
-	TaskBlocked    TaskStatus = "blocked"
-	TaskFailed     TaskStatus = "failed"
-)
-
-// String returns the string representation of the TaskStatus.
-func (s TaskStatus) String() string {
-	return string(s)
-}
-
 // MissingPiece indicates what the pipeline still needs.
 type MissingPiece string
 

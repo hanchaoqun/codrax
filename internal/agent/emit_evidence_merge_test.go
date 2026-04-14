@@ -75,7 +75,7 @@ func TestEnsureStructuredEvidence_MergesEmittedAndParsed(t *testing.T) {
 		t.Fatalf("test setup wrong: overlap IDs do not match — %q vs %q", overlapping.ID, overlapID)
 	}
 
-	mut := types.NewMutableState(types.TaskList{})
+	mut := types.NewMutableState("")
 	mut.AppendEvidence([]types.EvidenceItem{toolOnly, overlapping})
 
 	// Reuse the singleton evaluator state by constructing one directly;
@@ -129,7 +129,7 @@ func TestEnsureStructuredEvidence_MergesEmittedAndParsed(t *testing.T) {
 // alone still flows through ensureStructuredEvidence into
 // e.structuredEvidence — the explorer must not require both channels.
 func TestEnsureStructuredEvidence_ToolOnlyIsCharted(t *testing.T) {
-	mut := types.NewMutableState(types.TaskList{})
+	mut := types.NewMutableState("")
 	mut.AppendEvidence([]types.EvidenceItem{{
 		Kind:       types.EvidenceRegistration,
 		Subject:    "Reg",

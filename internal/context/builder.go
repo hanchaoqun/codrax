@@ -12,12 +12,15 @@ import (
 // BuildAgentContext trims a full BusContext into an Agent-scoped view.
 // It selects only the facts, tools, and summaries relevant to the given agent and stage.
 func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage types.PipelineStage) *types.AgentContext {
-	tl := bus.Mutable.TaskList()
+	objective := ""
+	if bus.Mutable != nil {
+		objective = bus.Mutable.Objective()
+	}
 
 	ac := &types.AgentContext{
 		AgentName:    agentName,
 		Stage:        stage,
-		Objective:    tl.Objective,
+		Objective:    objective,
 		MissingPiece: bus.TaskState.Missing,
 		Constraints:  bus.Constraints,
 		Preferences:  bus.Preferences,
@@ -27,13 +30,6 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		WorkDir:      bus.WorkDir,
 		Mutable:      bus.Mutable, // shared pointer; tools mutate through this
 		AnalysisIR:   bus.AnalysisIR,
-	}
-
-	// Set current task info
-	if task := tl.CurrentTask(); task != nil {
-		ac.CurrentTaskID = task.ID
-		ac.CurrentTask = task.Title
-		ac.CurrentTaskDescription = task.Description
 	}
 
 	// Collect relevant facts
@@ -160,13 +156,6 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "User Request",
 			Content: ac.Objective,
-		})
-	}
-
-	if ac.CurrentTask != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Current Task",
-			Content: fmt.Sprintf("[%s] %s", ac.CurrentTaskID, ac.CurrentTask),
 		})
 	}
 

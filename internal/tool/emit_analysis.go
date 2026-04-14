@@ -130,13 +130,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	scenario := normalizeScenario(p.Scenario)
 	complexity := normalizeComplexity(p.Complexity)
 
-	// Raw objective — the analyzer gets it from the TaskList seeded by
+	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
 	// TermGraph from this in analyzer.ParseOutput.
-	raw := ""
-	if tl := ctx.Mutable.TaskList(); tl.Objective != "" {
-		raw = tl.Objective
-	}
+	raw := ctx.Mutable.Objective()
 
 	rm := types.RequestModel{
 		RawRequest: raw,

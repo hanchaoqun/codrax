@@ -5,10 +5,30 @@ import (
 	"time"
 )
 
+// TaskState captures the current pipeline execution state.
+type TaskState struct {
+	Stage        PipelineStage `json:"stage"`
+	Missing      MissingPiece  `json:"missing"`
+	Completed    []string      `json:"completed"`
+	Remaining    []string      `json:"remaining"`
+	LastDecision string        `json:"last_decision"`
+	LastError    string        `json:"last_error,omitempty"`
+	IsTerminal   bool          `json:"is_terminal"`
+
+	// RetryHint is set when a stage self-loops (orchestrator picks
+	// the same stage as next). It carries the previous dispatch's own
+	// diagnosis of why it could not progress, so the next dispatch
+	// sees concrete "do this differently" guidance instead of being
+	// re-run with an unchanged prompt. The orchestrator clears it on
+	// any forward transition. The prompt builder renders it as the
+	// most prominent user section.
+	RetryHint string `json:"retry_hint,omitempty"`
+}
+
 // MutableState is the tool-mutable region of pipeline state. Tools
 // invoked during the ReAct loop receive a *BusContext whose Mutable
 // pointer aliases the orchestrator's, so updates to the contained
-// task list are visible to subsequent tool calls and to the next
+// state are visible to subsequent tool calls and to the next
 // stage's prompt rebuild without going through applyStageOutput.
 //
 // Everything outside MutableState in BusContext remains agent-output
@@ -25,12 +45,20 @@ import (
 // their findings via SubAgentResult and the reducer merges them
 // back at the orchestrator boundary.
 //
-// Callers go through TaskList() / SetTaskList() / UpdateTaskStatus /
-// UpdateTaskResult / SetCurrentTask instead of touching fields
-// directly, so locking stays correct.
+// Callers go through Objective() / SetObjective() / Result() /
+// SetResult() instead of touching fields directly, so locking
+// stays correct.
 type MutableState struct {
-	mu                       sync.RWMutex
-	taskList                 TaskList
+	mu sync.RWMutex
+	// objective is the raw user question / task description seeded
+	// at orchestrator Run time. Replaces the old one-task TaskList
+	// wrapper — every stage reads this field as the load-bearing
+	// "what is the user asking" surface.
+	objective string
+	// result is the finalizer's final answer for the run, written
+	// by recordTaskFinalize after the per-task pipeline completes.
+	// Replaces the old TaskItem.Result field.
+	result                   string
 	requestModel             *RequestModel
 	emittedEvidence          []EvidenceItem
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
@@ -178,10 +206,51 @@ type HypothesisVerdict struct {
 }
 
 // NewMutableState constructs a MutableState seeded with the given
-// task list. Use this instead of zero-value literals so the internal
-// mutex is paired correctly with its data.
-func NewMutableState(tl TaskList) *MutableState {
-	return &MutableState{taskList: tl}
+// raw objective (user question). Use this instead of zero-value
+// literals so the internal mutex is paired correctly with its data.
+func NewMutableState(objective string) *MutableState {
+	return &MutableState{objective: objective}
+}
+
+// Objective returns the raw user question / task description.
+func (m *MutableState) Objective() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.objective
+}
+
+// SetObjective atomically replaces the objective string.
+func (m *MutableState) SetObjective(s string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.objective = s
+}
+
+// Result returns the finalizer's final answer recorded for this run.
+// Empty until recordTaskFinalize has fired.
+func (m *MutableState) Result() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.result
+}
+
+// SetResult atomically replaces the recorded final answer.
+func (m *MutableState) SetResult(s string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.result = s
 }
 
 // RequestModel returns a pointer to the analyzer-emitted RequestModel,
@@ -214,102 +283,6 @@ func (m *MutableState) SetRequestModel(rm RequestModel) {
 	defer m.mu.Unlock()
 	cp := rm
 	m.requestModel = &cp
-}
-
-// TaskList returns a snapshot of the current task list. The returned
-// value shares its slice headers with the underlying state — callers
-// must not append to or otherwise mutate the slices in place.
-func (m *MutableState) TaskList() TaskList {
-	if m == nil {
-		return TaskList{}
-	}
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.taskList
-}
-
-// SetTaskList atomically replaces the task list.
-func (m *MutableState) SetTaskList(tl TaskList) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.taskList = tl
-}
-
-// UpdateTaskStatus marks a task by ID with the given status. No-op
-// if the task is missing. Used by the orchestrator to transition
-// individual tasks through the per-task execution loop.
-func (m *MutableState) UpdateTaskStatus(id string, status TaskStatus) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.taskList.Tasks {
-		if m.taskList.Tasks[i].ID == id {
-			m.taskList.Tasks[i].Status = status
-			return
-		}
-	}
-}
-
-// UpdateTaskResult records the per-task final answer (and a final
-// status). Used by the orchestrator after a per-task finalize stage
-// runs, so each task's contribution is preserved on the task itself
-// rather than overwriting a single global FinalAnswer.
-//
-// Returns the actual task ID that was updated, which differs from
-// the supplied id ONLY when the supplied id is stale and the
-// fallback path below runs. Empty return means the task list was
-// empty (nothing could be updated).
-//
-// Task identity fallback: if the supplied ID is not found in the
-// current task list, the result is written to the first in-progress
-// task, failing that the first pending task, failing that the first
-// task overall. Prevents silent data loss when a task ID drifts.
-// Callers can compare the returned ID against the supplied id to
-// detect and log fallback.
-func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) string {
-	if m == nil {
-		return ""
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	for i := range m.taskList.Tasks {
-		if m.taskList.Tasks[i].ID == id {
-			m.taskList.Tasks[i].Result = result
-			m.taskList.Tasks[i].Status = status
-			return id
-		}
-	}
-	// Fallback: supplied ID is stale. Find a sensible target task to
-	// avoid silent data loss. Preference: in_progress → pending → first.
-	idx := -1
-	for i := range m.taskList.Tasks {
-		if m.taskList.Tasks[i].Status == TaskInProgress {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		for i := range m.taskList.Tasks {
-			if m.taskList.Tasks[i].Status == TaskPending {
-				idx = i
-				break
-			}
-		}
-	}
-	if idx < 0 && len(m.taskList.Tasks) > 0 {
-		idx = 0
-	}
-	if idx >= 0 {
-		m.taskList.Tasks[idx].Result = result
-		m.taskList.Tasks[idx].Status = status
-		return m.taskList.Tasks[idx].ID
-	}
-	return ""
 }
 
 // AppendEvidence appends one or more LLM-emitted evidence items to the
@@ -587,17 +560,6 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.turnAArtifacts = nil
 }
 
-// SetCurrentTask updates which task drives routing. The orchestrator
-// calls this when it advances to the next task in the per-task loop.
-func (m *MutableState) SetCurrentTask(id string) {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.taskList.CurrentTaskID = id
-}
-
 // StageReport is the synthesized narrative an agent leaves behind
 // at the end of its ReAct loop. It carries the LLM's own summary of
 // what it discovered or decided so downstream stages can read prior
@@ -719,10 +681,7 @@ type AgentContext struct {
 	AgentName AgentName     `json:"agent_name"`
 	Stage     PipelineStage `json:"stage"`
 
-	Objective              string `json:"objective"`
-	CurrentTaskID          string `json:"current_task_id"`
-	CurrentTask            string `json:"current_task"`
-	CurrentTaskDescription string `json:"current_task_description,omitempty"`
+	Objective string `json:"objective"`
 
 	// AnalysisIR aliases BusContext.AnalysisIR for agents that have
 	// opted into the v3 pipeline. Still nil for legacy call paths —

@@ -83,14 +83,14 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 	// and the retry branch then treats the new question as a
 	// continuation of the old one.
 	//
-	// Detection: compare the incoming CurrentTask to the cached one.
-	// Within a single Run, CurrentTask is constant across all explore
+	// Detection: compare the incoming Objective to the cached one.
+	// Within a single Run, Objective is constant across all explore
 	// dispatches (same task.Title). Across Run()s it's different (new
 	// REPL turn → new analyzer output → new task title). When they
 	// differ, reset every cross-Run field so the fresh-start branch
 	// below fires cleanly.
-	if ctx.CurrentTask != "" && ctx.CurrentTask != e.userQuestion {
-		logging.Debug("[explorer] cross-run reset: current=%q != cached=%q", ctx.CurrentTask, e.userQuestion)
+	if ctx.Objective != "" && ctx.Objective != e.userQuestion {
+		logging.Debug("[explorer] cross-run reset: current=%q != cached=%q", ctx.Objective, e.userQuestion)
 		e.investigationNotes = nil
 		e.preScannedFiles = nil
 		e.allScoredFiles = nil
@@ -111,9 +111,9 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 		e.notesLenAtPrimaryRead = 0
 	}
 
-	e.userQuestion = ctx.CurrentTask
+	e.userQuestion = ctx.Objective
 	e.repoRoot = ctx.RepoRoot
-	e.isEnumerationQuery = detectEnumerationIntent(ctx.CurrentTask)
+	e.isEnumerationQuery = detectEnumerationIntent(ctx.Objective)
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
@@ -230,9 +230,9 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			//
 			//  - Entities come from `ctx.Objective` ONLY (the original
 			//    user request), so the precise CamelCase identifiers
-			//    survive. Falls back to `ctx.CurrentTask` only when
+			//    survive. Falls back to `ctx.Objective` only when
 			//    Objective is empty (e.g. analyze stage stub state).
-			//  - Keyword detection runs over the union `Objective | CurrentTask`,
+			//  - Keyword detection runs over the union `Objective | Objective`,
 			//    so Chinese trigger words ("怎么"/"多少") AND the analyzer's
 			//    English idioms ("Determine the number of...") both fire.
 			//
@@ -303,7 +303,7 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			if !trustAnalyzer {
 				regexEntities := extractRankingEntitiesWithGraph(cleanObjective, sr.Graph)
 				if len(regexEntities) == 0 {
-					regexEntities = extractRankingEntitiesWithGraph(ctx.CurrentTask, sr.Graph)
+					regexEntities = extractRankingEntitiesWithGraph(ctx.Objective, sr.Graph)
 				}
 				for _, ent := range regexEntities {
 					if !seen[ent] {
@@ -318,9 +318,9 @@ func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skil
 			// request. A memory blob containing a prior "如何 / how
 			// does" question would otherwise over-trigger the
 			// mechanism classifier on a fresh enumeration question.
-			ermKeywordSource := ctx.CurrentTask
-			if cleanObjective != "" && cleanObjective != ctx.CurrentTask {
-				ermKeywordSource = cleanObjective + " | " + ctx.CurrentTask
+			ermKeywordSource := ctx.Objective
+			if cleanObjective != "" && cleanObjective != ctx.Objective {
+				ermKeywordSource = cleanObjective + " | " + ctx.Objective
 			}
 			// Pass the analyzer's declared question_kind (may be empty or
 			// "unknown"; the hint-aware path handles both by falling
@@ -1930,7 +1930,7 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	var digest strings.Builder
 	digest.WriteString("You have completed your evidence collection. Below is the evidence catalog from your investigation.\n\n")
 	digest.WriteString("## User Question\n")
-	digest.WriteString(ctx.CurrentTask)
+	digest.WriteString(ctx.Objective)
 	digest.WriteString("\n\n")
 
 	// Include the LLM's evidence entries from the ReAct loop.

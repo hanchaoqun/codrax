@@ -110,7 +110,7 @@ func TestCloneAnswerDocument_Nil(t *testing.T) {
 }
 
 func TestMutableState_SetAnswerDocument_RoundTrip(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	if got := m.AnswerDocument(); got != nil {
 		t.Errorf("fresh store: AnswerDocument() = %v, want nil", got)
 	}
@@ -136,7 +136,7 @@ func TestMutableState_SetAnswerDocument_RoundTrip(t *testing.T) {
 }
 
 func TestMutableState_SetAnswerDocument_Replaces(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	m.SetAnswerDocument(&AnswerDocument{Shape: ShapeStepList,
 		Steps: []AnswerStep{{Index: 1, Description: "a", CitationRef: -1}}})
 	m.SetAnswerDocument(&AnswerDocument{Shape: ShapeExplanation, Summary: "new"})
@@ -150,7 +150,7 @@ func TestMutableState_SetAnswerDocument_Replaces(t *testing.T) {
 }
 
 func TestMutableState_ResetAnswerDocument(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	m.SetAnswerDocument(&AnswerDocument{Shape: ShapeExplanation, Summary: "x"})
 	m.ResetAnswerDocument()
 	if got := m.AnswerDocument(); got != nil {
@@ -163,7 +163,7 @@ func TestMutableState_ResetAnswerDocument(t *testing.T) {
 // state. The lock covers the Set/Get atomicity; the defensive copy
 // covers post-access independence.
 func TestMutableState_AnswerDocument_DefensiveCopy(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	m.SetAnswerDocument(&AnswerDocument{
 		Shape:   ShapeStepList,
 		Steps:   []AnswerStep{{Index: 1, Description: "orig", CitationRef: -1}},

@@ -14,7 +14,7 @@ import (
 )
 
 func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	original := TurnAArtifacts{
 		UserQuestion:       "what does Foo return?",
 		InvestigationNotes: []string{"iter 1 narrative", "iter 2 narrative"},
@@ -63,7 +63,7 @@ func TestTurnAArtifacts_TerminalEvidenceCount_ZeroRoundtrip(t *testing.T) {
 	// the "no β constraint" sentinel that Phase 9's validator reads
 	// as "baseline collapses to len(MustInclude) alone". A non-zero
 	// default would silently activate the β baseline on legacy runs.
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	m.SetTurnAArtifacts(TurnAArtifacts{UserQuestion: "q"})
 	got := m.TurnAArtifacts()
 	if got == nil {
@@ -75,7 +75,7 @@ func TestTurnAArtifacts_TerminalEvidenceCount_ZeroRoundtrip(t *testing.T) {
 }
 
 func TestTurnAArtifacts_NilBeforeSet(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	if got := m.TurnAArtifacts(); got != nil {
 		t.Errorf("expected nil before any Set, got %+v", got)
 	}
@@ -87,7 +87,7 @@ func TestTurnAArtifacts_DefensiveCopyOnWrite(t *testing.T) {
 	// snapshot in place. This is the structural defense against a
 	// Session-2 explorer ParseOutput that builds the slices once and
 	// then keeps appending in subsequent iterations.
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	notes := []string{"iter 1"}
 	m.SetTurnAArtifacts(TurnAArtifacts{InvestigationNotes: notes})
 
@@ -101,7 +101,7 @@ func TestTurnAArtifacts_DefensiveCopyOnWrite(t *testing.T) {
 func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 	// TurnAArtifacts() returns a fresh copy. Mutating the returned
 	// pointer must not affect the next read.
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	m.SetTurnAArtifacts(TurnAArtifacts{
 		ReadFiles: []string{"a.go", "b.go"},
 	})
@@ -119,7 +119,7 @@ func TestTurnAArtifacts_DefensiveCopyOnRead(t *testing.T) {
 }
 
 func TestTurnAArtifacts_Reset(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	m.SetTurnAArtifacts(TurnAArtifacts{UserQuestion: "first"})
 	m.ResetTurnAArtifacts()
 	if got := m.TurnAArtifacts(); got != nil {
@@ -236,7 +236,7 @@ func TestMarkHypothesis_IsIdempotentByValue(t *testing.T) {
 // emit_hypothesis_verdict pipeline.
 
 func TestHypothesisVerdictBuffer_IndependentFromTurnAArtifacts(t *testing.T) {
-	m := NewMutableState(TaskList{})
+	m := NewMutableState("")
 	m.AppendEmittedHypothesisVerdicts([]HypothesisVerdict{
 		{HypothesisID: "H1", Status: HypConfirmed, Citation: "a.go:1"},
 	})

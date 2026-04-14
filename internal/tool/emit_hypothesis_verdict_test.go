@@ -18,7 +18,7 @@ import (
 )
 
 func newVerdictCtx() *types.BusContext {
-	return &types.BusContext{Mutable: types.NewMutableState(types.TaskList{})}
+	return &types.BusContext{Mutable: types.NewMutableState("")}
 }
 
 func TestEmitHypothesisVerdict_AcceptsValidBatch(t *testing.T) {

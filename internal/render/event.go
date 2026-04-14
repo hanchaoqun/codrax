@@ -37,9 +37,9 @@ const (
 	EventSubAgentStart
 	EventSubAgentEnd
 
-	// Task list changes
-	EventTaskListUpdated
-	EventTaskStatusChanged
+	// Task / objective lifecycle
+	EventObjectiveStarted
+	EventObjectiveDone
 
 	// Stage transition
 	EventTransition
@@ -77,10 +77,8 @@ type Event struct {
 	SubTaskTitle string
 	SubTaskCount int
 
-	// Task
-	TaskID     string
-	TaskTitle  string
-	TaskStatus types.TaskStatus
+	// Objective (formerly Task)
+	Objective string
 
 	// Transition
 	FromStage types.PipelineStage
@@ -92,9 +90,6 @@ type Event struct {
 	MCPCallCount  int
 	FactCount     int
 	Error         string
-
-	// Full task list snapshot (for EventTaskListUpdated)
-	TaskList *types.TaskList
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

@@ -128,9 +128,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		RepoRoot:      repoRoot,
 		Branch:        branch,
 		TraceID:       fmt.Sprintf("trace-%d", time.Now().UnixNano()),
-		Mutable: types.NewMutableState(types.TaskList{
-			Objective: request,
-		}),
+		Mutable: types.NewMutableState(request),
 		TaskState: types.TaskState{
 			Stage:   types.StageAnalyze,
 			Missing: types.MissingUnderstanding,
@@ -220,38 +218,29 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	return 1, nil
 }
 
-// runTaskPhase iterates over pending tasks and runs each through
-// the DAG scheduler. Failed tasks do not abort the phase — the loop
-// moves on to the next pending task. The total step budget
-// (o.maxSteps) is enforced across all tasks; when it is exhausted
-// any remaining pending tasks are marked failed.
+// runTaskPhase dispatches the single task graph for the run. After
+// the v3 analyzer simplification every request maps to exactly one
+// task, so this is a direct call into runTaskGraph — no loop, no
+// pending-queue bookkeeping. The budget check still runs so a
+// pathologically expensive analyze phase cannot silently starve the
+// per-task path.
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
-	for {
-		next := o.nextPendingTask()
-		if next == nil {
-			return nil
-		}
-		if *stepsUsed >= o.maxSteps {
-			logging.Error("[orchestrator] global max-steps (%d) exhausted; marking remaining tasks failed",
-				o.maxSteps)
-			o.busCtx.Mutable.UpdateTaskResult(next.ID, "", types.TaskFailed)
-			continue
-		}
-
-		o.busCtx.Mutable.SetCurrentTask(next.ID)
-		o.busCtx.Mutable.UpdateTaskStatus(next.ID, types.TaskInProgress)
-
-		o.emit(render.Event{
-			Kind:       render.EventTaskStatusChanged,
-			Timestamp:  time.Now(),
-			TaskID:     next.ID,
-			TaskTitle:  next.Title,
-			TaskStatus: types.TaskInProgress,
-		})
-
-		used := o.runTaskGraph(next.ID, o.maxSteps-*stepsUsed)
-		*stepsUsed += used
+	if *stepsUsed >= o.maxSteps {
+		logging.Error("[orchestrator] global max-steps (%d) exhausted before task phase", o.maxSteps)
+		o.busCtx.Mutable.SetResult("")
+		return nil
 	}
+
+	objective := o.busCtx.Mutable.Objective()
+	o.emit(render.Event{
+		Kind:      render.EventObjectiveStarted,
+		Timestamp: time.Now(),
+		Objective: objective,
+	})
+
+	used := o.runTaskGraph(o.maxSteps - *stepsUsed)
+	*stepsUsed += used
+	return nil
 }
 
 // runTaskGraph is the per-task execution path. It walks
@@ -291,14 +280,15 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 // On any unexpected scheduler stall (no ready window, no ready
 // finalize, but not all done) the function falls back to a forced
 // finalize dispatch so the task always terminates with a Result.
-func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
+func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	ir := o.busCtx.AnalysisIR
 	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
 		// Defensive: analyzer should always produce a non-empty
 		// TaskGraph, but if something upstream failed we cannot
 		// execute the task.
-		logging.Error("[orchestrator] task %s: no AnalysisIR.TaskGraph — analyzer failed to produce a valid IR", taskID)
-		o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
+		logging.Error("[orchestrator] task: no AnalysisIR.TaskGraph — analyzer failed to produce a valid IR")
+		o.busCtx.Mutable.SetResult("")
+		o.busCtx.TaskState.LastError = "analyzer failed to produce TaskGraph"
 		return 0
 	}
 
@@ -373,7 +363,7 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 			o.busCtx.TaskState.Stage = types.StageExplore
 			stepsUsed++
 			if _, err := o.dispatchStage(types.StageExplore); err != nil {
-				logging.Error("[orchestrator] task %s DAG explore window failed: %v", taskID, err)
+				logging.Error("[orchestrator] DAG explore window failed: %v", err)
 				for _, n := range window {
 					state.markFailed(n.ID)
 				}
@@ -393,7 +383,7 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 				o.busCtx.TaskState.Stage = types.StageExtract
 				stepsUsed++
 				if _, exDispatchErr := o.dispatchStage(types.StageExtract); exDispatchErr != nil {
-					logging.Warning("[orchestrator] task %s DAG extract dispatch failed (continuing to finalize): %v", taskID, exDispatchErr)
+					logging.Warning("[orchestrator] DAG extract dispatch failed (continuing to finalize): %v", exDispatchErr)
 				} else {
 					// Turn B's hypothesis verdict drain hook. After the
 					// extractor successfully emits emit_hypothesis_verdict
@@ -408,7 +398,7 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 					// verdict, and LEAVES the buffer populated so the
 					// finalizer's prompt builder can render the
 					// rationale and citation back to the user.
-					o.drainHypothesisVerdicts(taskID)
+					o.drainHypothesisVerdicts()
 				}
 			}
 			continue
@@ -417,7 +407,7 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 		if fin == nil {
 			// No ready window AND no ready finalize but not allDone:
 			// scheduler stall. Force finalize so the task terminates.
-			logging.Warning("[orchestrator] task %s DAG scheduler stalled; forcing finalize", taskID)
+			logging.Warning("[orchestrator] DAG scheduler stalled; forcing finalize")
 			break
 		}
 
@@ -427,7 +417,7 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 		stepsUsed++
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
-			logging.Error("[orchestrator] task %s DAG finalize failed: %v", taskID, err)
+			logging.Error("[orchestrator] DAG finalize failed: %v", err)
 			state.markFailed(fin.ID)
 			break
 		}
@@ -440,8 +430,8 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 			break
 		}
 
-		logging.Info("[orchestrator] task %s contract check failed (%d violation(s)); retryUsed=%d/%d",
-			taskID, len(res.Violations), state.retryUsed, ir.TaskGraph.ExecutionPolicy.RetryBudget)
+		logging.Info("[orchestrator] contract check failed (%d violation(s)); retryUsed=%d/%d",
+			len(res.Violations), state.retryUsed, ir.TaskGraph.ExecutionPolicy.RetryBudget)
 
 		if state.retryBudgetExhausted() {
 			// Fail-loud — preserve the original answer beneath an
@@ -472,20 +462,21 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 	if lastFinalize == nil {
 		// Force one finalize dispatch so the task always terminates
 		// with a Result.
-		logging.Warning("[orchestrator] task %s DAG run produced no finalize output; forcing finalize", taskID)
+		logging.Warning("[orchestrator] DAG run produced no finalize output; forcing finalize")
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
 		stepsUsed++
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
-			logging.Error("[orchestrator] task %s forced finalize failed: %v", taskID, err)
-			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
+			logging.Error("[orchestrator] forced finalize failed: %v", err)
+			o.busCtx.Mutable.SetResult("")
+			o.busCtx.TaskState.LastError = fmt.Sprintf("forced finalize: %v", err)
 			return stepsUsed
 		}
 		lastFinalize = out
 	}
 
-	o.recordTaskFinalize(taskID, lastFinalize)
+	o.recordTaskFinalize(lastFinalize)
 	return stepsUsed
 }
 
@@ -526,7 +517,7 @@ func (o *Orchestrator) applyWindowHint(hint string) {
 // The function is a no-op when the buffer is empty, so it is always
 // safe to call after any extract dispatch regardless of whether the
 // LLM actually used emit_hypothesis_verdict.
-func (o *Orchestrator) drainHypothesisVerdicts(taskID string) {
+func (o *Orchestrator) drainHypothesisVerdicts() {
 	if o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.AnalysisIR == nil {
 		return
 	}
@@ -537,64 +528,32 @@ func (o *Orchestrator) drainHypothesisVerdicts(taskID string) {
 	applied := 0
 	for _, v := range verdicts {
 		if err := o.busCtx.AnalysisIR.MarkHypothesis(v.HypothesisID, v.Status); err != nil {
-			logging.Warning("[orchestrator] task %s hypothesis verdict drain: %v (rationale=%q citation=%q)",
-				taskID, err, v.Rationale, v.Citation)
+			logging.Warning("[orchestrator] hypothesis verdict drain: %v (rationale=%q citation=%q)",
+				err, v.Rationale, v.Citation)
 			continue
 		}
 		applied++
 	}
-	logging.Debug("[orchestrator] task %s applied %d/%d hypothesis verdicts to IR; buffer retained for finalizer rendering",
-		taskID, applied, len(verdicts))
+	logging.Debug("[orchestrator] applied %d/%d hypothesis verdicts to IR; buffer retained for finalizer rendering",
+		applied, len(verdicts))
 }
 
-// recordTaskFinalize copies the finalizer's FinalAnswer into the
-// task's Result field via Mutable, and marks the task done. Empty
-// answers still mark Done — the per-task loop's contract is that
-// every task it runs ends with a definitive status.
-func (o *Orchestrator) recordTaskFinalize(taskID string, out *agent.StageOutput) {
+// recordTaskFinalize copies the finalizer's FinalAnswer into
+// Mutable.result and emits the objective-done event. Empty answers
+// are still recorded — callers downstream (render layer) treat an
+// empty result as "no answer" and display the fail state instead.
+func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 	answer := ""
 	if out != nil {
 		answer = out.FinalAnswer
 	}
-	actual := o.busCtx.Mutable.UpdateTaskResult(taskID, answer, types.TaskDone)
-	if actual == "" {
-		logging.Warning("[orchestrator] recordTaskFinalize: task list was empty; finalizer answer (%d bytes) dropped",
-			len(answer))
-	} else if actual != taskID {
-		logging.Warning("[orchestrator] recordTaskFinalize: task ID %q not found, fell back to %q",
-			taskID, actual)
-	}
+	o.busCtx.Mutable.SetResult(answer)
 
-	// Find the task title for the event.
-	taskTitle := taskID
-	tl := o.busCtx.Mutable.TaskList()
-	for _, t := range tl.Tasks {
-		if t.ID == taskID {
-			taskTitle = t.Title
-			break
-		}
-	}
 	o.emit(render.Event{
-		Kind:       render.EventTaskStatusChanged,
-		Timestamp:  time.Now(),
-		TaskID:     taskID,
-		TaskTitle:  taskTitle,
-		TaskStatus: types.TaskDone,
+		Kind:      render.EventObjectiveDone,
+		Timestamp: time.Now(),
+		Objective: o.busCtx.Mutable.Objective(),
 	})
-}
-
-// nextPendingTask returns a pointer to a copy of the next pending
-// task, or nil if no pending tasks remain. The pointer is for
-// convenience; do not mutate it directly — go through Mutable.
-func (o *Orchestrator) nextPendingTask() *types.TaskItem {
-	tl := o.busCtx.Mutable.TaskList()
-	for i := range tl.Tasks {
-		if tl.Tasks[i].Status == types.TaskPending {
-			t := tl.Tasks[i]
-			return &t
-		}
-	}
-	return nil
 }
 
 // dispatchStage runs the agent bound to the given stage and returns
@@ -703,17 +662,6 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	o.applyStageOutput(output)
 	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stage))
 
-	// Emit task list update if analyzer populated it.
-	if stage == types.StageAnalyze && o.busCtx.Mutable != nil {
-		tl := o.busCtx.Mutable.TaskList()
-		if len(tl.Tasks) > 0 {
-			o.emit(render.Event{
-				Kind:      render.EventTaskListUpdated,
-				Timestamp: time.Now(),
-				TaskList:  &tl,
-			})
-		}
-	}
 
 	stageErr := ""
 	if output.Error != "" {

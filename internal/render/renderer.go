@@ -37,15 +37,13 @@ type Renderer struct {
 	detail      string    // tool/sub-agent name for status line
 	detailDone  bool      // true if the detail refers to a completed call
 	detailStart time.Time // when current detail phase began
-	tasks       []taskEntry // tracked tasks
+	// objective is the single user-question line displayed above the
+	// status line. Populated on EventObjectiveStarted and flipped to
+	// done=true on EventObjectiveDone.
+	objective     string
+	objectiveDone bool
 	animFrame     int
 	animStop      chan struct{}
-}
-
-type taskEntry struct {
-	id     string
-	title  string
-	status types.TaskStatus
 }
 
 // New creates a Renderer.
@@ -79,7 +77,8 @@ func (r *Renderer) StartSpinner() {
 	if r.area != nil {
 		return
 	}
-	r.tasks = nil
+	r.objective = ""
+	r.objectiveDone = false
 	r.agentName = ""
 	r.subRunning = 0
 	r.detail = ""
@@ -130,18 +129,17 @@ func (r *Renderer) StopSpinner() {
 	r.area.Stop()
 	r.area = nil
 
-	// Print final task list — green checkmarks, dimmed titles.
-	if len(r.tasks) > 0 {
+	// Print final objective — green checkmark, dimmed title.
+	if r.objective != "" {
 		fmt.Println()
-		for _, t := range r.tasks {
-			fmt.Printf("  %s %s\n",
-				pterm.FgGreen.Sprint("✓"),
-				pterm.FgDarkGray.Sprint(t.title))
-		}
+		fmt.Printf("  %s %s\n",
+			pterm.FgGreen.Sprint("✓"),
+			pterm.FgDarkGray.Sprint(r.objective))
 		fmt.Println()
 	}
 
-	r.tasks = nil
+	r.objective = ""
+	r.objectiveDone = false
 	r.agentName = ""
 	r.subRunning = 0
 	r.detail = ""
@@ -206,21 +204,14 @@ func (r *Renderer) Emitter() EventEmitter {
 			r.detail = ev.SubTaskTitle
 			r.detailDone = true
 
-		case EventTaskListUpdated:
-			if ev.TaskList != nil && len(ev.TaskList.Tasks) > 0 {
-				r.tasks = make([]taskEntry, len(ev.TaskList.Tasks))
-				for i, t := range ev.TaskList.Tasks {
-					r.tasks[i] = taskEntry{id: t.ID, title: t.Title, status: t.Status}
-				}
+		case EventObjectiveStarted:
+			if ev.Objective != "" {
+				r.objective = ev.Objective
+				r.objectiveDone = false
 			}
 
-		case EventTaskStatusChanged:
-			for i := range r.tasks {
-				if r.tasks[i].id == ev.TaskID {
-					r.tasks[i].status = ev.TaskStatus
-					break
-				}
-			}
+		case EventObjectiveDone:
+			r.objectiveDone = true
 		}
 
 		r.redraw()
@@ -253,15 +244,20 @@ func (r *Renderer) redraw() {
 		maxCols = 20
 	}
 
-	// Task list.
-	if len(r.tasks) > 0 {
-		for _, t := range r.tasks {
-			icon := statusIcon(t.status)
-			color := statusColor(t.status)
-			line := fmt.Sprintf("  %s %s", color.Sprint(icon), t.title)
-			b.WriteString(truncByDisplayWidth(line, maxCols))
-			b.WriteByte('\n')
+	// Objective line (single-task wrapper collapsed into one row).
+	if r.objective != "" {
+		var icon string
+		var color pterm.Style
+		if r.objectiveDone {
+			icon = "✓"
+			color = *pterm.NewStyle(pterm.FgGreen)
+		} else {
+			icon = "►"
+			color = *pterm.NewStyle(pterm.FgCyan)
 		}
+		line := fmt.Sprintf("  %s %s", color.Sprint(icon), r.objective)
+		b.WriteString(truncByDisplayWidth(line, maxCols))
+		b.WriteByte('\n')
 		b.WriteString("\n")
 	}
 
@@ -367,13 +363,9 @@ func (r *Renderer) RenderResult(busCtx *types.BusContext) string {
 	}
 
 	if busCtx.Mutable != nil {
-		tl := busCtx.Mutable.TaskList()
-		for _, item := range tl.Tasks {
-			if item.Result != "" {
-				clean := stripAgentLabels(item.Result)
-				if clean == "" {
-					continue
-				}
+		if result := busCtx.Mutable.Result(); result != "" {
+			clean := stripAgentLabels(result)
+			if clean != "" {
 				rendered := r.renderMarkdown(clean)
 				b.WriteString(rendered)
 				b.WriteString("\n")
@@ -431,32 +423,3 @@ func formatAgent(name types.AgentName, count int) string {
 	return fmt.Sprintf("%s(%d)", s, count)
 }
 
-func statusIcon(s types.TaskStatus) string {
-	switch s {
-	case types.TaskDone:
-		return "✓"
-	case types.TaskInProgress:
-		return "►"
-	case types.TaskFailed:
-		return "✗"
-	case types.TaskBlocked:
-		return "⊘"
-	default:
-		return "○"
-	}
-}
-
-func statusColor(s types.TaskStatus) pterm.Style {
-	switch s {
-	case types.TaskDone:
-		return *pterm.NewStyle(pterm.FgGreen)
-	case types.TaskInProgress:
-		return *pterm.NewStyle(pterm.FgCyan)
-	case types.TaskFailed:
-		return *pterm.NewStyle(pterm.FgRed)
-	case types.TaskBlocked:
-		return *pterm.NewStyle(pterm.FgYellow)
-	default:
-		return *pterm.NewStyle(pterm.FgDarkGray)
-	}
-}

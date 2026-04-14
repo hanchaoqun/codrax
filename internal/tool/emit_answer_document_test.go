@@ -14,7 +14,7 @@ import (
 // it explicitly.
 func newDocBusCtx(workDir string) *types.BusContext {
 	return &types.BusContext{
-		Mutable: types.NewMutableState(types.TaskList{}),
+		Mutable: types.NewMutableState(""),
 		WorkDir: workDir,
 	}
 }

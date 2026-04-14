@@ -11,23 +11,14 @@ import (
 // TestAnalyzerParseOutputCapturesSummary verifies that the analyzer's
 // ParseOutput packs the LLM's free-form text into Data (under "result")
 // alongside the structured classification fields derived from an
-// emit_analysis-emitted RequestModel, and that it does not touch a
-// non-empty Mutable.TaskList.
+// emit_analysis-emitted RequestModel.
 func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	e := &analyzerEvaluator{}
 
 	// Pretend a previous emit_analysis call already populated the
 	// RequestModel carrier. Under v3 the analyzer reads its hints
 	// from MutableState.RequestModel(), not a separate carrier.
-	mut := types.NewMutableState(types.TaskList{
-		Objective:     "explain the project",
-		CurrentTaskID: "t1",
-		Tasks: []types.TaskItem{{
-			ID:     "t1",
-			Title:  "explain",
-			Status: types.TaskInProgress,
-		}},
-	})
+	mut := types.NewMutableState("explain the project")
 	mut.SetRequestModel(types.RequestModel{
 		Intent:     types.IntentExplain,
 		Scenario:   types.ScenarioArchitectureExplain,
@@ -74,11 +65,10 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 		t.Errorf("Data.keyword_count = %v, want 3", got)
 	}
 
-	// Mutable.TaskList must be unchanged — analyzer should not clobber
+	// Mutable.Objective must be unchanged — analyzer should not clobber
 	// what the bootstrap or a previous dispatch put there.
-	tl := mut.TaskList()
-	if len(tl.Tasks) != 1 || tl.Tasks[0].ID != "t1" {
-		t.Errorf("Mutable.TaskList was clobbered, got %+v", tl.Tasks)
+	if obj := mut.Objective(); obj != "explain the project" {
+		t.Errorf("Mutable.Objective was clobbered, got %q", obj)
 	}
 	if rm := mut.RequestModel(); rm == nil || rm.AnalyzerHints.Kind != "mechanism" {
 		t.Errorf("RequestModel was clobbered, got %+v", rm)
@@ -86,21 +76,19 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 }
 
 // TestAnalyzerParseOutputFailSafe verifies that when the LLM fails to
-// call emit_analysis — leaving Mutable.TaskList empty and no
-// RequestModel carrier — the analyzer installs a single task as a
-// safety net so the orchestrator routes to the analysis policy
-// instead of falling through into nothing, and buildAnalysisIR
-// still produces a structurally complete IR from the zero-value
-// RequestModel.
+// call emit_analysis — leaving the RequestModel carrier empty —
+// buildAnalysisIR still produces a structurally complete IR from a
+// zero-value RequestModel seeded with the raw objective.
 func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 	e := &analyzerEvaluator{}
 
 	// Empty Mutable: simulates "LLM never called emit_analysis"
-	mut := types.NewMutableState(types.TaskList{Objective: "what does this do?"})
+	mut := types.NewMutableState("what does this do?")
 
 	ctx := &types.AgentContext{
-		Stage:   types.StageAnalyze,
-		Mutable: mut,
+		Stage:     types.StageAnalyze,
+		Objective: "what does this do?",
+		Mutable:   mut,
 	}
 	msgs := []llm.Message{
 		{Role: "assistant", Content: "I'm thinking about it..."},
@@ -114,15 +102,8 @@ func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 		t.Fatal("expected non-nil output")
 	}
 
-	tl := mut.TaskList()
-	if len(tl.Tasks) != 1 {
-		t.Fatalf("fail-safe should install exactly 1 task, got %d", len(tl.Tasks))
-	}
-	if tl.CurrentTask() == nil {
-		t.Error("CurrentTaskID and Tasks must agree")
-	}
-	if tl.Objective != "what does this do?" {
-		t.Errorf("Objective should be preserved, got %q", tl.Objective)
+	if obj := mut.Objective(); obj != "what does this do?" {
+		t.Errorf("Objective should be preserved, got %q", obj)
 	}
 	// Failsafe path: no emit_analysis → zero-value RequestModel →
 	// buildAnalysisIR still builds a structurally complete IR.
@@ -158,16 +139,8 @@ func TestAnalyzerParseOutputNoMutable(t *testing.T) {
 // TaskItem and raw objective, ParseOutput must produce a full
 // AnalysisIR whose RequestModel, TaskGraph, and QualityGate are
 // all consistent with the inputs.
-func TestAnalyzer_IRIsBuiltFromTaskItem(t *testing.T) {
-	mut := types.NewMutableState(types.TaskList{
-		Objective: "请解释 explorer 是如何决定 ShouldStop 的",
-		Tasks: []types.TaskItem{{
-			ID:     "task-1",
-			Title:  "解释 explorer 停止逻辑",
-			Status: types.TaskPending,
-		}},
-		CurrentTaskID: "task-1",
-	})
+func TestAnalyzer_IRIsBuiltFromRequestModel(t *testing.T) {
+	mut := types.NewMutableState("请解释 explorer 是如何决定 ShouldStop 的")
 	mut.SetRequestModel(types.RequestModel{
 		Intent:     types.IntentExplain,
 		Scenario:   types.ScenarioArchitectureExplain,
@@ -180,10 +153,8 @@ func TestAnalyzer_IRIsBuiltFromTaskItem(t *testing.T) {
 		},
 	})
 	ctx := &types.AgentContext{
-		Objective:     "请解释 explorer 是如何决定 ShouldStop 的",
-		CurrentTaskID: "task-1",
-		CurrentTask:   "解释 explorer 停止逻辑",
-		Mutable:       mut,
+		Objective: "请解释 explorer 是如何决定 ShouldStop 的",
+		Mutable:   mut,
 	}
 
 	eval := &analyzerEvaluator{}
@@ -250,9 +221,7 @@ func TestAnalyzer_IRIsBuiltFromTaskItem(t *testing.T) {
 // a usable IR. This is the "ungraceful degradation" contract:
 // analyzer never emits a nil IR on a non-empty objective.
 func TestAnalyzer_FailsafeTaskInstallsIR(t *testing.T) {
-	mut := types.NewMutableState(types.TaskList{
-		Objective: "explain how the pipeline stops",
-	})
+	mut := types.NewMutableState("explain how the pipeline stops")
 	ctx := &types.AgentContext{
 		Objective: "explain how the pipeline stops",
 		Mutable:   mut,
@@ -273,11 +242,6 @@ func TestAnalyzer_FailsafeTaskInstallsIR(t *testing.T) {
 	if out.AnalysisIR.RequestModel.Intent != types.IntentUnknown {
 		t.Errorf("intent: got %q want unknown", out.AnalysisIR.RequestModel.Intent)
 	}
-	// And the fail-safe installed a default task.
-	tl := mut.TaskList()
-	if len(tl.Tasks) != 1 {
-		t.Fatalf("fail-safe must install a single default task; got %d", len(tl.Tasks))
-	}
 }
 
 // TestAnalyzer_StageOutputCarriesIR validates the propagation path:
@@ -286,9 +250,7 @@ func TestAnalyzer_FailsafeTaskInstallsIR(t *testing.T) {
 // catches wiring regressions between the analyzer and orchestrator
 // without needing a full LLM run.
 func TestAnalyzer_StageOutputCarriesIR(t *testing.T) {
-	mut := types.NewMutableState(types.TaskList{
-		Objective: "explain the finalizer's translation mode",
-	})
+	mut := types.NewMutableState("explain the finalizer's translation mode")
 	ctx := &types.AgentContext{
 		Objective: "explain the finalizer's translation mode",
 		Mutable:   mut,
@@ -300,8 +262,5 @@ func TestAnalyzer_StageOutputCarriesIR(t *testing.T) {
 	}
 	if out.AnalysisIR == nil {
 		t.Fatal("StageOutput.AnalysisIR must be non-nil")
-	}
-	if out.AnalysisIR.TraceID == "" && ctx.CurrentTaskID != "" {
-		t.Errorf("TraceID should be set when CurrentTaskID is available")
 	}
 }

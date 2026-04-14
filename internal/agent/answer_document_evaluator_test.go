@@ -153,7 +153,7 @@ func TestAnswerDocumentEvaluator_ContinuationPrompt_RetryBounded(t *testing.T) {
 // closer would trigger a correction retry that clobbers the first
 // document on the second call.
 func TestAnswerDocumentEvaluator_ContinuationPrompt_AcceptsWhenDocPresent(t *testing.T) {
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.SetAnswerDocument(&types.AnswerDocument{
 		Shape:   types.ShapeExplanation,
 		Summary: "landed tool call",
@@ -171,7 +171,7 @@ func TestAnswerDocumentEvaluator_ContinuationPrompt_AcceptsWhenDocPresent(t *tes
 // TestAnswerDocumentEvaluator_ContinuationPrompt_RetriesWhenDocMissing
 // is the complement: no doc in Mutable → retry.
 func TestAnswerDocumentEvaluator_ContinuationPrompt_RetriesWhenDocMissing(t *testing.T) {
-	mu := types.NewMutableState(types.TaskList{}) // empty Mutable
+	mu := types.NewMutableState("") // empty Mutable
 	e := &answerDocumentEvaluator{mu: mu}
 	_, cont := e.ContinuationPrompt(llm.Response{}, 0, 0, nil)
 	if !cont {
@@ -186,7 +186,7 @@ func TestAnswerDocumentEvaluator_ContinuationPrompt_RetriesWhenDocMissing(t *tes
 // AnswerDocument in Mutable is rendered into FinalAnswer.
 func TestAnswerDocumentEvaluator_ParseOutput_Happy(t *testing.T) {
 	ctx := &types.AgentContext{
-		Mutable: types.NewMutableState(types.TaskList{}),
+		Mutable: types.NewMutableState(""),
 	}
 	doc := &types.AnswerDocument{
 		Shape:   types.ShapeValue,
@@ -227,7 +227,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_Happy(t *testing.T) {
 // surfaces a warning banner prefixed to the raw content.
 func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoud(t *testing.T) {
 	ctx := &types.AgentContext{
-		Mutable: types.NewMutableState(types.TaskList{}),
+		Mutable: types.NewMutableState(""),
 	}
 	messages := []llm.Message{
 		{Role: "assistant", Content: "raw fallback text"},
@@ -252,7 +252,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_MissingDoc_FailLoud(t *testing.T) {
 // extractorEvaluator so this test pins the cross-stage contract.
 func TestAnswerDocumentEvaluator_ParseOutput_CardinalityDowngrade(t *testing.T) {
 	ctx := &types.AgentContext{
-		Mutable: types.NewMutableState(types.TaskList{}),
+		Mutable: types.NewMutableState(""),
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
 				MustInclude: []string{"Alpha", "Beta", "Gamma", "Delta"}, // baseline = 4
@@ -289,7 +289,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_CardinalityDowngrade(t *testing.T) 
 // complete with enough symbols passes through unchanged.
 func TestAnswerDocumentEvaluator_ParseOutput_NoDowngrade(t *testing.T) {
 	ctx := &types.AgentContext{
-		Mutable: types.NewMutableState(types.TaskList{}),
+		Mutable: types.NewMutableState(""),
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
 				MustInclude: []string{"Alpha"}, // baseline = 1

@@ -84,11 +84,8 @@ func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 	var b strings.Builder
 
 	// -------- User question --------
-	if ctx != nil && strings.TrimSpace(ctx.CurrentTask) != "" {
-		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.CurrentTask))
-		if desc := strings.TrimSpace(ctx.CurrentTaskDescription); desc != "" && desc != strings.TrimSpace(ctx.CurrentTask) {
-			fmt.Fprintf(&b, "**Expanded description:** %s\n\n", desc)
-		}
+	if ctx != nil && strings.TrimSpace(ctx.Objective) != "" {
+		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.Objective))
 	}
 
 	// -------- Turn A transcript digest --------

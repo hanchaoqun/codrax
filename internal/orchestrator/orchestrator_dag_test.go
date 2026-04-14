@@ -53,13 +53,6 @@ func dagIR(contract types.AnswerContract) *types.AnalysisIR {
 
 func dagAnalyzerFn(ir *types.AnalysisIR) func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
 	return func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-		ctx.Mutable.SetTaskList(types.TaskList{
-			Objective:     ctx.Objective,
-			CurrentTaskID: "t1",
-			Tasks: []types.TaskItem{
-				{ID: "t1", Title: "answer the question", Status: types.TaskPending},
-			},
-		})
 		return &agent.StageOutput{
 			MissingPiece: types.MissingFacts,
 			AnalysisIR:   ir,
@@ -122,10 +115,9 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 			t.Errorf("hint missing %q\n%s", want, hint)
 		}
 	}
-	// Recorded answer should land on the task.
-	tl := busCtx.Mutable.TaskList()
-	if len(tl.Tasks) == 0 || !strings.Contains(tl.Tasks[0].Result, "Foo") {
-		t.Errorf("task result not recorded: %+v", tl.Tasks)
+	// Recorded answer should land on Mutable.Result.
+	if result := busCtx.Mutable.Result(); !strings.Contains(result, "Foo") {
+		t.Errorf("task result not recorded: %q", result)
 	}
 }
 
@@ -218,11 +210,10 @@ func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	tl := busCtx.Mutable.TaskList()
-	if len(tl.Tasks) == 0 {
-		t.Fatal("no tasks")
+	result := busCtx.Mutable.Result()
+	if result == "" {
+		t.Fatal("no result recorded")
 	}
-	result := tl.Tasks[0].Result
 	if !strings.Contains(result, "answer-contract validation exhausted") {
 		t.Errorf("expected fail-loud warning prepended; got %q", result)
 	}
@@ -241,13 +232,6 @@ func TestRunTaskGraph_NilIRFailsFast(t *testing.T) {
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-			ctx.Mutable.SetTaskList(types.TaskList{
-				Objective:     ctx.Objective,
-				CurrentTaskID: "t1",
-				Tasks: []types.TaskItem{
-					{ID: "t1", Title: "task", Status: types.TaskPending},
-				},
-			})
 			// Return NO AnalysisIR — runTaskGraph should fail fast.
 			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
 		},
@@ -268,9 +252,8 @@ func TestRunTaskGraph_NilIRFailsFast(t *testing.T) {
 	if explorerCalls != 0 {
 		t.Error("nil-IR path must not dispatch explorer")
 	}
-	tl := busCtx.Mutable.TaskList()
-	if len(tl.Tasks) == 0 || tl.Tasks[0].Status != types.TaskFailed {
-		t.Errorf("nil-IR task should be marked failed: %+v", tl.Tasks)
+	if busCtx.TaskState.LastError == "" {
+		t.Error("nil-IR path should record a LastError")
 	}
 }
 

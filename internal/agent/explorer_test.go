@@ -670,7 +670,7 @@ func TestExtractQuestionEntities(t *testing.T) {
 func TestBuildInitialPromptRetry(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
-		CurrentTask: "test question",
+		Objective: "test question",
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{Keywords: []string{"test"}},
@@ -1226,7 +1226,7 @@ func TestStripConversationPrefix(t *testing.T) {
 
 // TestBuildInitialPrompt_CrossRunResetOnQuestionChange is the REPL-
 // turn-boundary fix lock. When the explorer evaluator's cached
-// userQuestion differs from the new ctx.CurrentTask, every cross-
+// userQuestion differs from the new ctx.Objective, every cross-
 // Run field must be reset so the retry branch below does NOT treat
 // the new question as a continuation of a prior one.
 //
@@ -1258,7 +1258,7 @@ func TestBuildInitialPrompt_CrossRunResetOnQuestionChange(t *testing.T) {
 	// keywordSearch gate doesn't run — we only care that the reset
 	// wipes prior state BEFORE the retry check.
 	ctx := &types.AgentContext{
-		CurrentTask: "how does BuildContext cap turn file size",
+		Objective: "how does BuildContext cap turn file size",
 	}
 	prompt := eval.BuildInitialPrompt(ctx, nil)
 
@@ -1300,7 +1300,7 @@ func TestBuildInitialPrompt_CrossRunResetOnQuestionChange(t *testing.T) {
 }
 
 // TestBuildInitialPrompt_SameQuestionKeepsRetryState is the
-// complementary test: when ctx.CurrentTask equals e.userQuestion
+// complementary test: when ctx.Objective equals e.userQuestion
 // (intra-Run self-loop), the cross-run reset must NOT fire and the
 // retry branch below must activate as before.
 func TestBuildInitialPrompt_SameQuestionKeepsRetryState(t *testing.T) {
@@ -1308,7 +1308,7 @@ func TestBuildInitialPrompt_SameQuestionKeepsRetryState(t *testing.T) {
 		userQuestion:       "investigate strategies",
 		investigationNotes: []string{"[DIRECT] strategy A from iter 1"},
 	}
-	ctx := &types.AgentContext{CurrentTask: "investigate strategies"}
+	ctx := &types.AgentContext{Objective: "investigate strategies"}
 	prompt := eval.BuildInitialPrompt(ctx, nil)
 
 	if !strings.Contains(prompt, "Retry: Depth Investigation") {
@@ -1322,7 +1322,7 @@ func TestBuildInitialPrompt_SameQuestionKeepsRetryState(t *testing.T) {
 func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 	// All sub-tests simulate an intra-Run explore → explore self-loop
 	// where the SAME question is retried. The 2026-04-12 REPL audit
-	// added a cross-run reset that fires when `ctx.CurrentTask !=
+	// added a cross-run reset that fires when `ctx.Objective !=
 	// e.userQuestion`, so intra-Run retry fixtures MUST keep the two
 	// fields equal for the retry branch to activate.
 	const taskTitle = "investigate strategies"
@@ -1332,7 +1332,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 
 	t.Run("retry with prior explore report includes synthesis baseline", func(t *testing.T) {
 		ctx := &types.AgentContext{
-			CurrentTask: taskTitle,
+			Objective: taskTitle,
 			PriorReports: []types.StageReport{
 				{
 					Stage:    types.StageExplore,
@@ -1360,7 +1360,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 			userQuestion:       "investigate",
 		}
 		ctx := &types.AgentContext{
-			CurrentTask: "investigate",
+			Objective: "investigate",
 			RetryHint:   "Previous attempt had low file coverage.",
 			PriorReports: []types.StageReport{
 				{
@@ -1386,7 +1386,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 			userQuestion:       "investigate",
 		}
 		ctx := &types.AgentContext{
-			CurrentTask: "investigate",
+			Objective: "investigate",
 		}
 		prompt := eval3.BuildInitialPrompt(ctx, nil)
 
@@ -1405,7 +1405,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 		}
 		longFindings := strings.Repeat("A very detailed finding. ", 200)
 		ctx := &types.AgentContext{
-			CurrentTask: "investigate",
+			Objective: "investigate",
 			PriorReports: []types.StageReport{
 				{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: longFindings},
 			},

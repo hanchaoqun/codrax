@@ -118,23 +118,6 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// v3: ensure the single-task fallback list exists so downstream
-	// stages always have a task to route on. The analyzer no longer
-	// decomposes the request into sibling tasks — v3 treats every
-	// request as one analysis task whose decomposition happens inside
-	// the TaskGraph, not inside TaskList.
-	if ctx.Mutable != nil {
-		if tl := ctx.Mutable.TaskList(); len(tl.Tasks) == 0 {
-			tl.Tasks = []types.TaskItem{{
-				ID:     "task-1",
-				Title:  tl.Objective,
-				Status: types.TaskPending,
-			}}
-			tl.CurrentTaskID = "task-1"
-			ctx.Mutable.SetTaskList(tl)
-		}
-	}
-
 	// Build the Analyzer v3 IR deterministically from the RequestModel
 	// the LLM emitted via emit_analysis. Missing LLM output is not
 	// fatal — buildAnalysisIR synthesises a minimal zero-value
@@ -278,7 +261,6 @@ func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 		EvidencePlan:   out.EvidencePlan,
 		AnswerContract: out.AnswerContract,
 		HypothesisSet:  hypotheses,
-		TraceID:        ctx.CurrentTaskID,
 	}
 
 	// Quality gate.

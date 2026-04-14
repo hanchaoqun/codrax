@@ -9,7 +9,7 @@ import (
 )
 
 func newEmitCtx() *types.BusContext {
-	return &types.BusContext{Mutable: types.NewMutableState(types.TaskList{})}
+	return &types.BusContext{Mutable: types.NewMutableState("")}
 }
 
 func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {

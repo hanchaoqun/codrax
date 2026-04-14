@@ -127,9 +127,8 @@ func TestShouldStop_AllCriteriaMet_ReturnsTrue(t *testing.T) {
 // test can switch between mechanism and other kinds.
 func parseOutputCtx(kind, shape string) *types.AgentContext {
 	return &types.AgentContext{
-		CurrentTask:            "test question",
-		CurrentTaskDescription: "test description",
-		RepoRoot:               ".",
+		Objective: "test question",
+		RepoRoot:  ".",
 		AnalysisIR: &types.AnalysisIR{
 			RequestModel: types.RequestModel{
 				AnalyzerHints: types.AnalyzerHints{Kind: kind, Shape: shape},
@@ -448,7 +447,7 @@ func phase11ToolResults() []types.ToolResult {
 func TestParseOutput_WritesTurnAArtifactsAndLeavesSlateEmpty(t *testing.T) {
 	eval := phase11Eval("which handlers register Foo?")
 	ctx := parseOutputCtx("registration", "list_of_symbols")
-	ctx.Mutable = types.NewMutableState(types.TaskList{})
+	ctx.Mutable = types.NewMutableState("")
 
 	out, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
 	if err != nil {

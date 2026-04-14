@@ -27,7 +27,7 @@ type errorRunner struct{ errText string }
 func (r errorRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	bc := &types.BusContext{}
 	bc.TaskState.LastError = r.errText
-	bc.Mutable = types.NewMutableState(types.TaskList{Objective: "probe"})
+	bc.Mutable = types.NewMutableState("probe")
 	return bc, nil
 }
 

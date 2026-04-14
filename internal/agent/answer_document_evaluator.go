@@ -95,8 +95,8 @@ func (e *answerDocumentEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk
 
 	var b strings.Builder
 
-	if ctx != nil && strings.TrimSpace(ctx.CurrentTask) != "" {
-		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.CurrentTask))
+	if ctx != nil && strings.TrimSpace(ctx.Objective) != "" {
+		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.Objective))
 	}
 
 	shape := resolveAnswerDocShape(ctx)

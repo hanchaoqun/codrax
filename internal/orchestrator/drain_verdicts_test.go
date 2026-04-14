@@ -20,7 +20,7 @@ import (
 )
 
 func newOrchestratorForDrain(ir *types.AnalysisIR, verdicts []types.HypothesisVerdict) *Orchestrator {
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.AppendEmittedHypothesisVerdicts(verdicts)
 	return &Orchestrator{
 		busCtx: &types.BusContext{
@@ -43,7 +43,7 @@ func TestDrainHypothesisVerdicts_UpdatesIRAndRetainsBuffer(t *testing.T) {
 	}
 	o := newOrchestratorForDrain(ir, verdicts)
 
-	o.drainHypothesisVerdicts("task1")
+	o.drainHypothesisVerdicts()
 
 	// IR updated
 	if ir.HypothesisSet[0].Status != types.HypConfirmed {
@@ -76,7 +76,7 @@ func TestDrainHypothesisVerdicts_UnknownIDSkipsAndContinues(t *testing.T) {
 	}
 	o := newOrchestratorForDrain(ir, verdicts)
 
-	o.drainHypothesisVerdicts("task1")
+	o.drainHypothesisVerdicts()
 
 	if ir.HypothesisSet[0].Status != types.HypRejected {
 		t.Errorf("H1 status should still apply after hallucinated id skip, got %q",
@@ -88,12 +88,12 @@ func TestDrainHypothesisVerdicts_NilIR_NoOp(t *testing.T) {
 	verdicts := []types.HypothesisVerdict{
 		{HypothesisID: "H1", Status: types.HypConfirmed, Citation: "a.go:1"},
 	}
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.AppendEmittedHypothesisVerdicts(verdicts)
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: mu, AnalysisIR: nil}}
 
 	// Must not panic; buffer must be preserved (no consumer yet).
-	o.drainHypothesisVerdicts("task1")
+	o.drainHypothesisVerdicts()
 
 	retained := o.busCtx.Mutable.EmittedHypothesisVerdicts()
 	if len(retained) != 1 {
@@ -108,7 +108,7 @@ func TestDrainHypothesisVerdicts_EmptyBuffer_NoOp(t *testing.T) {
 	o := newOrchestratorForDrain(ir, nil)
 
 	// Must not panic and must not change pre-existing IR state.
-	o.drainHypothesisVerdicts("task1")
+	o.drainHypothesisVerdicts()
 
 	if ir.HypothesisSet[0].Status != types.HypUnknown {
 		t.Errorf("empty buffer drain should not change IR, got status %q",
@@ -121,5 +121,5 @@ func TestDrainHypothesisVerdicts_NilMutable_NoOp(t *testing.T) {
 	// orchestrator never constructs one this way in production, but
 	// the hook is the right place for the guard.
 	o := &Orchestrator{busCtx: &types.BusContext{Mutable: nil, AnalysisIR: &types.AnalysisIR{}}}
-	o.drainHypothesisVerdicts("task1")
+	o.drainHypothesisVerdicts()
 }

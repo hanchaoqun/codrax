@@ -15,13 +15,7 @@ func TestBuildAgentContext(t *testing.T) {
 		RepoRoot:      "/tmp/repo",
 		Branch:        "main",
 		Commit:        "abc123",
-		Mutable: types.NewMutableState(types.TaskList{
-			Objective:     "Fix the bug",
-			CurrentTaskID: "t1",
-			Tasks: []types.TaskItem{
-				{ID: "t1", Title: "Investigate root cause", Status: types.TaskInProgress},
-			},
-		}),
+		Mutable: types.NewMutableState("Fix the bug"),
 		TaskState: types.TaskState{
 			Stage:   types.StageExplore,
 			Missing: types.MissingFacts,
@@ -52,12 +46,9 @@ func TestBuildAgentContext(t *testing.T) {
 		}
 	})
 
-	t.Run("current task", func(t *testing.T) {
-		if ac.CurrentTaskID != "t1" {
-			t.Errorf("got task ID %q, want %q", ac.CurrentTaskID, "t1")
-		}
-		if ac.CurrentTask != "Investigate root cause" {
-			t.Errorf("got task %q, want %q", ac.CurrentTask, "Investigate root cause")
+	t.Run("objective preserved", func(t *testing.T) {
+		if ac.Objective != "Fix the bug" {
+			t.Errorf("got objective %q, want %q", ac.Objective, "Fix the bug")
 		}
 	})
 
@@ -84,9 +75,7 @@ func TestBuildPromptContext(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName:     types.AgentAnalyzer,
 		Stage:         types.StageAnalyze,
-		Objective:     "Add logging",
-		CurrentTaskID: "t1",
-		CurrentTask:   "Analyze requirements",
+		Objective:     "Analyze requirements",
 		MissingPiece:  types.MissingUnderstanding,
 		Constraints:   []string{"must be backwards compatible"},
 		RelevantFacts: []string{"uses logrus"},
@@ -144,19 +133,6 @@ func TestBuildPromptContext(t *testing.T) {
 		}
 	})
 
-	t.Run("user sections include current task", func(t *testing.T) {
-		found := false
-		for _, s := range pc.UserSections {
-			if s.Title == "Current Task" {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Error("user sections missing Current Task")
-		}
-	})
-
 	t.Run("user sections include user request first", func(t *testing.T) {
 		if len(pc.UserSections) == 0 {
 			t.Fatal("expected user sections to be populated")
@@ -165,8 +141,8 @@ func TestBuildPromptContext(t *testing.T) {
 		if first.Title != "User Request" {
 			t.Errorf("first user section = %q, want User Request", first.Title)
 		}
-		if first.Content != "Add logging" {
-			t.Errorf("user request content = %q, want Add logging", first.Content)
+		if first.Content != "Analyze requirements" {
+			t.Errorf("user request content = %q, want Analyze requirements", first.Content)
 		}
 	})
 
@@ -265,11 +241,7 @@ func TestE2E_PromptRelevantFilesContainsPaths(t *testing.T) {
 		PipelineStage: types.StageFinalize,
 		RepoRoot:      "/tmp/repo",
 		RepoFacts:     facts,
-		Mutable: types.NewMutableState(types.TaskList{
-			Objective:     "test",
-			CurrentTaskID: "t1",
-			Tasks:         []types.TaskItem{{ID: "t1", Title: "test task", Status: types.TaskInProgress}},
-		}),
+		Mutable: types.NewMutableState("test"),
 	}
 
 	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
@@ -375,9 +347,7 @@ func TestBuildPromptContextIncludesStructuredEvidenceAndDataflow(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName:     types.AgentExplorer,
 		Stage:         types.StageExplore,
-		Objective:     "Trace which config value reaches the handler",
-		CurrentTaskID: "t1",
-		CurrentTask:   "Investigate registration flow",
+		Objective: "Investigate registration flow",
 		EvidenceItems: []types.EvidenceItem{
 			{
 				ID:        "ev-1",
@@ -572,8 +542,7 @@ func buildAgentCtxWithSymbols(syms []types.AnswerSymbol, claim types.Completenes
 	return &types.AgentContext{
 		AgentName:                types.AgentFinalizer,
 		Stage:                    types.StageFinalize,
-		Objective:                "render answer",
-		CurrentTask:              "q",
+		Objective:                "q",
 		AnswerSymbols:            syms,
 		AnswerSymbolCompleteness: claim,
 	}
@@ -679,7 +648,7 @@ func TestBuildPromptContext_AnswerSymbols_EmptyAlwaysDrops(t *testing.T) {
 }
 
 func TestBuildPromptContext_RendersHypothesisVerdictsSection(t *testing.T) {
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{
 		{HypothesisID: "H1", Status: types.HypConfirmed, Rationale: "direct binding", Citation: "reg.go:12"},
 		{HypothesisID: "H2", Status: types.HypInconclusive, Rationale: "no conclusive cite"},
@@ -687,7 +656,7 @@ func TestBuildPromptContext_RendersHypothesisVerdictsSection(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName:   types.AgentFinalizer,
 		Stage:       types.StageFinalize,
-		CurrentTask: "q",
+		Objective: "q",
 		Mutable:     mu,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "final-answer-skill"})
@@ -704,11 +673,11 @@ func TestBuildPromptContext_RendersHypothesisVerdictsSection(t *testing.T) {
 }
 
 func TestBuildPromptContext_SkipsHypothesisVerdictsWhenEmpty(t *testing.T) {
-	mu := types.NewMutableState(types.TaskList{})
+	mu := types.NewMutableState("")
 	ac := &types.AgentContext{
 		AgentName:   types.AgentFinalizer,
 		Stage:       types.StageFinalize,
-		CurrentTask: "q",
+		Objective: "q",
 		Mutable:     mu,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
@@ -721,7 +690,7 @@ func TestBuildPromptContext_SkipsHypothesisVerdictsWhenMutableNil(t *testing.T) 
 	ac := &types.AgentContext{
 		AgentName:   types.AgentFinalizer,
 		Stage:       types.StageFinalize,
-		CurrentTask: "q",
+		Objective: "q",
 		Mutable:     nil,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
@@ -736,7 +705,7 @@ func TestBuildAgentContext_CarriesCompletenessFromBus(t *testing.T) {
 		ActiveAgent:              types.AgentFinalizer,
 		AnswerSymbols:            []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1}},
 		AnswerSymbolCompleteness: types.CompletenessLowerBound,
-		Mutable:                  types.NewMutableState(types.TaskList{}),
+		Mutable:                  types.NewMutableState(""),
 	}
 	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
 	if ac.AnswerSymbolCompleteness != types.CompletenessLowerBound {
