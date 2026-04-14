@@ -74,6 +74,14 @@ func defaultResolvedConfig() *config.ResolvedConfig {
 				Name: types.StageFinalize, DefaultAgent: types.AgentFinalizer,
 				DefaultSkill: "finalize-skill", Terminal: true,
 			},
+			// P2.1: extract stage between explore and finalize.
+			// Routing is still controlled by the two_turn_explorer_mode
+			// flag; this config entry is the lookup target for
+			// runTaskGraph's extractStageEnabled() + GetStageConfig hop.
+			types.StageExtract: {
+				Name: types.StageExtract, DefaultAgent: types.AgentExtractor,
+				DefaultSkill: "extract-skill",
+			},
 		},
 		Transitions: map[types.PipelineStage][]types.Transition{
 			types.StageAnalyze: {
@@ -173,6 +181,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		types.AgentAnalyzer, types.AgentPlanner, types.AgentExplorer, types.AgentImplementer,
 		types.AgentDesignReviewer, types.AgentCodeReviewer,
 		types.AgentVerifier, types.AgentFinalizer,
+		types.AgentExtractor, // P2.1: Turn B agent
 	}
 	for _, n := range names {
 		var fn func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)
@@ -192,6 +201,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		// dispatchStage looks it up by name and falls back to the
 		// stage's DefaultSkill if missing — see TestRun_FinalizeSkillRoutedByPolicy.
 		"analysis-final-answer-skill",
+		"extract-skill", // P2.1: Turn B skill
 	}
 	for _, s := range skillNames {
 		sr.Register(&skill.Config{Name: s, Goal: s + " goal"})

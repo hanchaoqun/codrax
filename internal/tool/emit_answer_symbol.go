@@ -63,7 +63,19 @@ var emitAnswerSymbolAllowedKinds = map[string]string{
 }
 
 type emitAnswerSymbolParams struct {
-	Items []emitAnswerSymbolItem `json:"items"`
+	Items        []emitAnswerSymbolItem `json:"items"`
+	Completeness string                 `json:"completeness"`
+}
+
+// emitAnswerSymbolAllowedCompleteness is the closed set of valid
+// completeness claims the extractor (Turn B) can attach to a slate.
+// Mirrors types.CompletenessClaim — duplicated here to keep the
+// schema validator loop self-contained and avoid a cross-package
+// string lookup during high-frequency tool calls.
+var emitAnswerSymbolAllowedCompleteness = map[string]types.CompletenessClaim{
+	"complete":    types.CompletenessComplete,
+	"lower_bound": types.CompletenessLowerBound,
+	"unknown":     types.CompletenessUnknown,
 }
 
 type emitAnswerSymbolItem struct {
@@ -91,7 +103,13 @@ func (t *EmitAnswerSymbol) Description() string {
 		"name, file (repo-relative path), line (gutter line number, never estimated), and kind " +
 		"(function/method/type/struct/class/const/var). Items with line == 0 are REJECTED. Items " +
 		"whose file path lives inside the per-trace WorkDir (a temporary blob directory) are " +
-		"REJECTED — that is a sign the LLM mistook a tool-output blob for a repo file."
+		"REJECTED — that is a sign the LLM mistook a tool-output blob for a repo file. " +
+		"The call MUST also carry a 'completeness' field declaring the set-level authority " +
+		"of the slate: 'complete' (these are ALL the answers), 'lower_bound' (these are confirmed " +
+		"present but more may exist), or 'unknown' (investigated but no definitive claim). " +
+		"Claiming 'complete' is a falsifiable honesty assertion — the extractor validates it " +
+		"against Turn A's terminal-evidence count and the analyzer's MustInclude list, and " +
+		"downgrades to 'lower_bound' on mismatch with a warning."
 }
 
 func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
@@ -113,9 +131,14 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
         },
         "required": ["name", "file", "line", "kind"]
       }
+    },
+    "completeness": {
+      "type": "string",
+      "enum": ["complete", "lower_bound", "unknown"],
+      "description": "Set-level authority claim for the slate. REQUIRED. 'complete' = these are ALL the answers (validated against Turn A's terminal-evidence count and the analyzer's MustInclude list; downgraded to lower_bound on mismatch). 'lower_bound' = these are confirmed present but more may exist (honest default when a partial slate is the best available). 'unknown' = investigated but no definitive verdict (the finalizer drops the section entirely)."
     }
   },
-  "required": ["items"]
+  "required": ["items", "completeness"]
 }`)
 }
 
@@ -140,6 +163,22 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		return failEmit(t.Name(), now, "items is empty; emit at least one answer-symbol object per call")
 	}
 
+	// Completeness is REQUIRED (P2.1 honesty contract). The schema
+	// declares it as required so a compliant JSON-schema LLM will
+	// always include it; the Go-side check defends against a lenient
+	// model that drops the field at runtime. An empty string or any
+	// value outside the closed enum is rejected loudly rather than
+	// silently coerced to "unknown" — silent coercion is exactly the
+	// class of bug P2.1 is trying to close (UNRESOLVED #1).
+	claimRaw := strings.ToLower(strings.TrimSpace(p.Completeness))
+	if claimRaw == "" {
+		return failEmit(t.Name(), now, "completeness field is required — choose one of: complete, lower_bound, unknown. See the tool description for the honesty contract.")
+	}
+	claim, claimOK := emitAnswerSymbolAllowedCompleteness[claimRaw]
+	if !claimOK {
+		return failEmit(t.Name(), now, "unknown completeness value %q (allowed: complete, lower_bound, unknown)", p.Completeness)
+	}
+
 	workDir := strings.TrimSpace(ctx.WorkDir)
 	built := make([]types.AnswerSymbol, 0, len(p.Items))
 	for i, in := range p.Items {
@@ -150,12 +189,18 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 		built = append(built, sym)
 	}
 
-	ctx.Mutable.AppendEmittedAnswerSymbols(built)
+	// Set semantics: this REPLACES any previous slate + claim. On a
+	// retry after validation downgrade, the LLM's second call wins
+	// over the first. Phase 9's extractor-side validator runs at
+	// ParseOutput time, not here, so that it has access to the full
+	// AgentContext (Turn A baseline + AnalysisIR MustInclude) which
+	// BusContext alone does not expose.
+	ctx.Mutable.SetEmittedAnswerSymbols(built, claim)
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   renderEmitAnswerSymbolSummary(built),
+		Summary:   renderEmitAnswerSymbolSummary(built, claim),
 		Timestamp: now,
 	}, nil
 }
@@ -223,9 +268,13 @@ func isInsideWorkDir(filePath, workDir string) bool {
 	return strings.HasPrefix(filePath, clean+"/")
 }
 
-func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol) string {
+func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.CompletenessClaim) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "emit_answer_symbol accepted %d item(s)\n", len(items))
+	claimText := string(claim)
+	if claimText == "" {
+		claimText = "unknown"
+	}
+	fmt.Fprintf(&b, "emit_answer_symbol accepted %d item(s) with completeness=%s\n", len(items), claimText)
 	for _, it := range items {
 		fmt.Fprintf(&b, "  %s (%s:%d) [%s]\n", it.Name, it.File, it.Line, it.Kind)
 	}

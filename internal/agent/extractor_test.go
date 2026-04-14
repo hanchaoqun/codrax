@@ -11,9 +11,13 @@ package agent
 // tests as it implements those branches.
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -71,20 +75,22 @@ func TestExtractor_ShouldStopFiresAfterOneIteration(t *testing.T) {
 }
 
 func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
-	// The skeleton's job is to drain MutableState's emit_evidence and
-	// emit_answer_symbol buffers into StageOutput so the
-	// orchestrator's applyStageOutput merge sees whatever Turn B
-	// produced. Today the buffers will normally be empty (no prompt
-	// teaches the LLM to call the tools yet), but the drain must
-	// work end-to-end so Session 2 can populate them and immediately
-	// see them flow through.
+	// ParseOutput must drain MutableState's emit_evidence and
+	// emit_answer_symbol buffers into StageOutput. With Phase 9's
+	// Set-semantics API the completeness claim travels with the
+	// slate. Here we pre-populate with CompletenessComplete and
+	// verify both fields flow through; cardinality-validator paths
+	// live in their own tests below.
 	mu := types.NewMutableState(types.TaskList{})
 	mu.AppendEvidence([]types.EvidenceItem{
 		{ID: "ev1", Kind: types.EvidenceDirect, Source: "a.go", LineStart: 5},
 	})
-	mu.AppendEmittedAnswerSymbols([]types.AnswerSymbol{
-		{Name: "Foo", File: "a.go", Line: 5, Kind: "function"},
-	})
+	mu.SetEmittedAnswerSymbols(
+		[]types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 5, Kind: "function"}},
+		types.CompletenessComplete,
+	)
+	// No baseline data (no TurnAArtifacts, no AnalysisIR) → the
+	// validator passes the claim through untouched.
 	ctx := &types.AgentContext{
 		CurrentTask: "test",
 		Mutable:     mu,
@@ -100,6 +106,297 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 	}
 	if len(out.AnswerSymbols) != 1 || out.AnswerSymbols[0].Name != "Foo" {
 		t.Errorf("AnswerSymbols not drained: %+v", out.AnswerSymbols)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
+		t.Errorf("completeness not drained: got %q, want complete", out.AnswerSymbolCompleteness)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// P2.1 Phase 9 — cardinality validator tests
+// -----------------------------------------------------------------------------
+//
+// validateCompletenessClaim runs inside ParseOutput and checks the
+// LLM's "complete" claim against max(TerminalEvidenceCount,
+// len(MustInclude)). A mismatch downgrades complete → lower_bound.
+// Other claims pass through unchanged.
+
+func extractorCtxWithBaseline(termCount int, mustInclude []string, syms []types.AnswerSymbol, claim types.CompletenessClaim) *types.AgentContext {
+	mu := types.NewMutableState(types.TaskList{})
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion:          "q",
+		TerminalEvidenceCount: termCount,
+	})
+	mu.SetEmittedAnswerSymbols(syms, claim)
+	return &types.AgentContext{
+		CurrentTask: "q",
+		Mutable:     mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				MustInclude: mustInclude,
+			},
+		},
+	}
+}
+
+func TestExtractor_Validator_Complete_BaselineMet_PassThrough(t *testing.T) {
+	syms := []types.AnswerSymbol{
+		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
+		{Name: "B", File: "b.go", Line: 2, Kind: "function"},
+		{Name: "C", File: "c.go", Line: 3, Kind: "function"},
+	}
+	ctx := extractorCtxWithBaseline(3, nil, syms, types.CompletenessComplete)
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
+		t.Errorf("baseline met: claim should stay complete, got %q", out.AnswerSymbolCompleteness)
+	}
+	if len(out.AnswerSymbols) != 3 {
+		t.Errorf("slate: got %d items, want 3", len(out.AnswerSymbols))
+	}
+}
+
+func TestExtractor_Validator_Complete_TerminalCountShortfall_Downgrade(t *testing.T) {
+	// Turn A found 5 terminal items, LLM only emitted 2 and claimed
+	// complete. β baseline catches this; downgrade to lower_bound.
+	syms := []types.AnswerSymbol{
+		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
+		{Name: "B", File: "b.go", Line: 2, Kind: "function"},
+	}
+	ctx := extractorCtxWithBaseline(5, nil, syms, types.CompletenessComplete)
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Errorf("β shortfall must downgrade to lower_bound, got %q", out.AnswerSymbolCompleteness)
+	}
+	// Slate MUST still be rendered — it becomes the floor for the
+	// softened prompt, not dropped entirely.
+	if len(out.AnswerSymbols) != 2 {
+		t.Errorf("downgrade must preserve slate as floor, got %d items", len(out.AnswerSymbols))
+	}
+}
+
+func TestExtractor_Validator_Complete_MustIncludeShortfall_Downgrade(t *testing.T) {
+	// Analyzer's MustInclude lists 4 names, LLM only emitted 2 and
+	// claimed complete. γ baseline catches this independently of β.
+	syms := []types.AnswerSymbol{
+		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
+		{Name: "B", File: "b.go", Line: 2, Kind: "function"},
+	}
+	ctx := extractorCtxWithBaseline(0, []string{"X", "Y", "Z", "W"}, syms, types.CompletenessComplete)
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Errorf("γ shortfall must downgrade to lower_bound, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
+func TestExtractor_Validator_Complete_MaxOfTwoBaselines(t *testing.T) {
+	// β=2 γ=3 — max = 3. LLM emits 2 with complete → downgrade.
+	// This test pins the max() semantics: either baseline alone
+	// would have different verdicts (β=2 would pass, γ=3 would fail),
+	// and max catches the stricter one.
+	syms := []types.AnswerSymbol{
+		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
+		{Name: "B", File: "b.go", Line: 2, Kind: "function"},
+	}
+	ctx := extractorCtxWithBaseline(2, []string{"X", "Y", "Z"}, syms, types.CompletenessComplete)
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Errorf("max baseline must catch γ=3, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
+func TestExtractor_Validator_LowerBound_PassesThroughUnchanged(t *testing.T) {
+	// Only "complete" is falsifiable. lower_bound and unknown are
+	// honest by construction and must never be "upgraded" or
+	// challenged by the validator.
+	syms := []types.AnswerSymbol{
+		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
+	}
+	ctx := extractorCtxWithBaseline(10, []string{"X", "Y"}, syms, types.CompletenessLowerBound)
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Errorf("lower_bound must pass through unchanged, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
+func TestExtractor_Validator_Complete_NoBaseline_PassesThrough(t *testing.T) {
+	// REPL turn with no Turn A data and no MustInclude — we have
+	// nothing to validate against, so the claim is trusted. This is
+	// not a silent coercion: the LLM did claim complete explicitly,
+	// and we have no structural reason to override it.
+	syms := []types.AnswerSymbol{
+		{Name: "A", File: "a.go", Line: 1, Kind: "function"},
+	}
+	ctx := extractorCtxWithBaseline(0, nil, syms, types.CompletenessComplete)
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
+		t.Errorf("no baseline: claim should be trusted, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// P2.1 Phase 8 — BuildInitialPrompt reads TurnAArtifacts
+// -----------------------------------------------------------------------------
+
+func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
+	mu := types.NewMutableState(types.TaskList{})
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion:          "which handlers register Foo?",
+		InvestigationNotes:    []string{"iter 1: read reg.go, found Register calls"},
+		ReadFiles:             []string{"internal/reg.go", "internal/a.go"},
+		EvidenceItems: []types.EvidenceItem{
+			{Kind: types.EvidenceRegistration, Subject: "Register", Object: "NewHandlerA", Source: "internal/reg.go", LineStart: 12},
+		},
+		TerminalEvidenceCount: 3,
+	})
+	ctx := &types.AgentContext{
+		CurrentTask: "which handlers register Foo?",
+		Mutable:     mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{MustInclude: []string{"HandlerA", "HandlerB"}},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	// Question echoed
+	if !contains(prompt, "which handlers register Foo?") {
+		t.Error("prompt must echo user question")
+	}
+	// Tool contract
+	for _, tool := range []string{"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict"} {
+		if !contains(prompt, tool) {
+			t.Errorf("prompt missing allowed tool %q", tool)
+		}
+	}
+	for _, forbidden := range []string{"read_file", "grep", "repo_map"} {
+		if !contains(prompt, forbidden) {
+			t.Errorf("prompt must forbid %q", forbidden)
+		}
+	}
+	// Completeness honesty contract
+	for _, term := range []string{"complete", "lower_bound", "unknown", "honesty contract"} {
+		if !contains(prompt, term) {
+			t.Errorf("prompt must mention completeness term %q", term)
+		}
+	}
+	// Turn A digest sections
+	for _, section := range []string{
+		"Investigation notes",
+		"iter 1: read reg.go",
+		"Files Turn A read",
+		"internal/reg.go",
+		"Deterministic evidence Turn A extracted",
+		"registration",
+		"Register",
+		"Cardinality baseline",
+	} {
+		if !contains(prompt, section) {
+			t.Errorf("prompt missing Turn A digest section/content %q", section)
+		}
+	}
+	// Baseline numbers surfaced
+	if !contains(prompt, "terminal-evidence count") || !contains(prompt, "MustInclude") {
+		t.Error("prompt must surface β and γ baselines by name")
+	}
+	// Effective floor = max(3, 2) = 3
+	if !contains(prompt, "Effective floor") || !contains(prompt, "3") {
+		t.Error("prompt must surface effective floor")
+	}
+}
+
+func TestExtractor_BuildPrompt_NoArtifacts_GracefulDegrade(t *testing.T) {
+	// When Mutable exists but TurnAArtifacts is nil (unit test
+	// bootstrap, or wiring bug), the prompt must still be usable and
+	// must warn the LLM to set completeness=unknown.
+	mu := types.NewMutableState(types.TaskList{})
+	ctx := &types.AgentContext{CurrentTask: "q", Mutable: mu}
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	if !contains(prompt, "No transcript available") {
+		t.Error("prompt must announce missing transcript")
+	}
+	if !contains(prompt, "set `completeness` to `unknown`") {
+		t.Error("prompt must instruct unknown fallback when no transcript")
+	}
+}
+
+func TestExtractor_BuildPrompt_ClampsLongInvestigationNotes(t *testing.T) {
+	// Prompt budget: more than 6 iterations must be clamped to the
+	// 6 most recent. A single note longer than 1200 chars must be
+	// truncated with an ellipsis. Both branches exercised here.
+	longNote := strings.Repeat("x", 2000)
+	notes := make([]string, 10)
+	for i := range notes {
+		notes[i] = fmt.Sprintf("iter %d: %s", i, longNote)
+	}
+	mu := types.NewMutableState(types.TaskList{})
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion:       "q",
+		InvestigationNotes: notes,
+	})
+	ctx := &types.AgentContext{CurrentTask: "q", Mutable: mu}
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	if !contains(prompt, "showing the 6 most recent of 10") {
+		t.Error("prompt must show clamp notice when notes > 6")
+	}
+	if !contains(prompt, "…") {
+		t.Error("prompt must truncate over-long notes with ellipsis")
+	}
+}
+
+func TestExtractor_BuildPrompt_IncludesHypothesisSet(t *testing.T) {
+	mu := types.NewMutableState(types.TaskList{})
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{UserQuestion: "q"})
+	ctx := &types.AgentContext{
+		CurrentTask: "q",
+		Mutable:     mu,
+		AnalysisIR: &types.AnalysisIR{
+			HypothesisSet: []types.Hypothesis{
+				{ID: "H1", Statement: "Foo calls Bar", Status: types.HypUnknown},
+				{ID: "H2", Statement: "Bar returns true", Status: types.HypUnknown},
+			},
+		},
+	}
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	for _, want := range []string{"Hypotheses", "H1", "H2", "Foo calls Bar", "Bar returns true"} {
+		if !contains(prompt, want) {
+			t.Errorf("prompt missing hypothesis content %q", want)
+		}
+	}
+}
+
+func TestExtractor_Validator_EmptySlate_LeavesCompletenessZero(t *testing.T) {
+	// len(syms)==0 short-circuits the drain: StageOutput.AnswerSymbols
+	// stays nil and completeness stays at zero (CompletenessUnknown).
+	// The builder then drops the section entirely.
+	mu := types.NewMutableState(types.TaskList{})
+	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
+	ctx := &types.AgentContext{
+		CurrentTask: "q",
+		Mutable:     mu,
+	}
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if len(out.AnswerSymbols) != 0 {
+		t.Errorf("empty slate should not populate AnswerSymbols, got %d", len(out.AnswerSymbols))
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessUnknown {
+		t.Errorf("empty slate completeness should be zero, got %q", out.AnswerSymbolCompleteness)
 	}
 }
 
@@ -128,6 +425,100 @@ func TestExtractor_DetermineMissingPieceAlwaysNone(t *testing.T) {
 	e := &extractorEvaluator{}
 	if got := e.DetermineMissingPiece(nil, &StageOutput{}); got != types.MissingNone {
 		t.Errorf("got %v, want MissingNone", got)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// P2.1 Phase 12 — stage-local tool whitelist invariant
+// -----------------------------------------------------------------------------
+//
+// The extractor's LLM call must see ONLY emit_evidence /
+// emit_answer_symbol / emit_hypothesis_verdict. Phase 12 is not a
+// new code path — it is a pin on the skill.ToolSuggestions mechanism
+// already used by buildToolSchemas. This test constructs a BaseAgent
+// with a tool registry containing both the allowed emit_* tools AND
+// forbidden investigation tools (grep, read_file), then verifies
+// buildToolSchemas returns exactly the allowed three.
+//
+// A regression here would mean either (a) ToolSuggestions filtering
+// drifted, or (b) a new auto-injection source was added to
+// buildToolSchemas without being gated by agent name. Either would
+// silently give Turn B file access — the exact thing the two-turn
+// split exists to prevent.
+
+func TestExtractor_ToolSchemas_ExactlyThreeEmitTools(t *testing.T) {
+	registry := tool.NewRegistry()
+	// Register both allowed and forbidden tools to prove filtering.
+	registry.Register(&tool.EmitEvidence{})
+	registry.Register(&tool.EmitAnswerSymbol{})
+	registry.Register(&tool.EmitHypothesisVerdict{})
+	registry.Register(&tool.GrepTool{})
+	registry.Register(&tool.ReadFile{})
+
+	deps := &Dependencies{
+		LLM:           nil,
+		Tools:         registry,
+		MaxIterations: 1,
+	}
+	agent := NewExtractorAgent(deps).(*BaseAgent)
+
+	// Simulate what the orchestrator does: fetch the extract-skill
+	// from the config layer. We hand-build the equivalent of what
+	// cmd/root.go's P2.1 bootstrap appends: the three emit_* names.
+	sk := &skill.Config{
+		Name: "extract-skill",
+		ToolSuggestions: []string{
+			"emit_evidence",
+			"emit_answer_symbol",
+			"emit_hypothesis_verdict",
+		},
+	}
+
+	schemas := agent.buildToolSchemas(sk)
+
+	got := make(map[string]bool, len(schemas))
+	for _, s := range schemas {
+		got[s.Name] = true
+	}
+
+	for _, want := range []string{"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict"} {
+		if !got[want] {
+			t.Errorf("missing allowed tool %q from schemas", want)
+		}
+	}
+	for _, forbidden := range []string{"grep", "read_file", "repo_map", "exec_command"} {
+		if got[forbidden] {
+			t.Errorf("forbidden tool %q leaked into schemas — Phase 12 scoping broken", forbidden)
+		}
+	}
+	// Cardinality: no other tool should be in the schema (propose_sub_agents
+	// is auto-injected only when a sub-agent of the same name exists; the
+	// extractor has none, so the schema length must equal the allowlist).
+	if len(schemas) != 3 {
+		names := make([]string, 0, len(schemas))
+		for _, s := range schemas {
+			names = append(names, s.Name)
+		}
+		t.Errorf("extractor schema must contain exactly 3 tools, got %d: %v", len(schemas), names)
+	}
+}
+
+func TestExtractor_ToolSchemas_EmptyToolSuggestions_YieldsEmpty(t *testing.T) {
+	// Defensive: if the extract-skill's ToolSuggestions is empty
+	// (config drift, or test path that skips cmd/root.go bootstrap),
+	// buildToolSchemas must NOT inject any fallback investigation
+	// tools. Empty in → empty out.
+	registry := tool.NewRegistry()
+	registry.Register(&tool.EmitAnswerSymbol{})
+	registry.Register(&tool.GrepTool{})
+
+	deps := &Dependencies{Tools: registry, MaxIterations: 1}
+	agent := NewExtractorAgent(deps).(*BaseAgent)
+	sk := &skill.Config{Name: "extract-skill", ToolSuggestions: nil}
+
+	schemas := agent.buildToolSchemas(sk)
+	if len(schemas) != 0 {
+		t.Errorf("empty ToolSuggestions must produce empty schemas, got %d", len(schemas))
 	}
 }
 

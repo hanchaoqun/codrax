@@ -573,6 +573,27 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	return output, nil
 }
 
+// buildToolSchemas assembles the tool-schema slice handed to the LLM
+// for this dispatch. The output is the UNION of:
+//
+//  1. Tools named in sk.ToolSuggestions (the per-skill allowlist)
+//  2. MCP tools from all configured servers
+//  3. propose_sub_agents (auto-injected when a sub-agent of the same
+//     name as the current agent is registered)
+//
+// (1) is the P2.1 Phase 12 stage-local tool whitelist mechanism. The
+// extractor's extract-skill lists ONLY emit_evidence /
+// emit_answer_symbol / emit_hypothesis_verdict in its ToolSuggestions
+// (cmd/root.go P2.1 bootstrap block), so the extractor's LLM call
+// physically cannot see read_file / grep / repo_map — they are never
+// added to the schema list and the LLM's tool-selection mechanism has
+// no way to invoke them. (2) does not affect the extractor because
+// Turn B should not have MCP servers configured. (3) is also
+// inactive for the extractor because there is no sub-agent named
+// "extractor" in RegisterDefaultSubAgents. Therefore Turn B's LLM
+// sees exactly the three emit_* tools — no more code is needed for
+// Phase 12 beyond this documentation and the tests that pin the
+// invariant.
 func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
 	var schemas []llm.ToolSchema
 

@@ -306,6 +306,21 @@ func (o *Orchestrator) runTaskPipelineLegacy(taskID string, stepBudget int) int 
 	o.busCtx.TaskState.Stage = types.StageExplore
 	o.stageVisits = make(map[types.PipelineStage]int)
 
+	// P2.1 Phase 14 — same cross-task reset as runTaskGraph. The
+	// legacy pipeline never dispatches the extractor (two-turn mode
+	// only runs under the DAG path), but the flag=off explorer
+	// still writes AnswerSymbolCompleteness and the legacy answer-
+	// symbol buffer would otherwise carry between tasks in a
+	// multi-task analysis run. Symmetric reset keeps the two
+	// pipelines indistinguishable from a state-isolation standpoint.
+	if o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.ResetTurnAArtifacts()
+		o.busCtx.Mutable.ResetEmittedAnswerSymbols()
+		o.busCtx.Mutable.ResetEmittedHypothesisVerdicts()
+		o.busCtx.Mutable.ResetEmittedEvidence()
+	}
+	o.busCtx.AnswerSymbolCompleteness = types.CompletenessUnknown
+
 	visitCap := o.config.PipelineSettings.MaxStageVisits
 	if visitCap <= 0 {
 		visitCap = types.DefaultMaxStageVisits
@@ -473,6 +488,29 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 	o.busCtx.TaskState.Missing = types.MissingFacts
 	o.stageVisits = make(map[types.PipelineStage]int)
 
+	// P2.1 Phase 14 — cross-task reset of the Turn A/B handoff
+	// surface. Multi-task runs (REPL turns, batched analysis, task
+	// list with >1 entry) otherwise drag stale state from task N
+	// into task N+1: the previous task's TurnAArtifacts would still
+	// be visible to this task's extractor, the previous task's
+	// answer-symbol slate would still be drained into this task's
+	// StageOutput, and the previous task's hypothesis verdicts would
+	// still populate the finalizer prompt. Each Reset is a no-op
+	// when the buffer is already empty, so it is safe to call
+	// unconditionally at the top of every per-task dispatch.
+	if o.busCtx.Mutable != nil {
+		o.busCtx.Mutable.ResetTurnAArtifacts()
+		o.busCtx.Mutable.ResetEmittedAnswerSymbols()
+		o.busCtx.Mutable.ResetEmittedHypothesisVerdicts()
+		o.busCtx.Mutable.ResetEmittedEvidence()
+	}
+	// AnswerSymbolCompleteness is a BusContext field, not a
+	// MutableState field — reset it here too so the applyStageOutput
+	// "last non-empty writer wins" merge rule does not accidentally
+	// keep the previous task's claim alive when the current task's
+	// extractor emits CompletenessUnknown.
+	o.busCtx.AnswerSymbolCompleteness = types.CompletenessUnknown
+
 	state := newGraphState(ir.TaskGraph)
 	resolveSurface := termSurfaceLookup(ir)
 
@@ -551,6 +589,25 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 						stepsUsed++
 						if _, exDispatchErr := o.dispatchStage(extractCfg); exDispatchErr != nil {
 							logging.Warning("[orchestrator] task %s DAG extract dispatch failed (continuing to finalize with legacy state): %v", taskID, exDispatchErr)
+						} else {
+							// P2.1 Phase 10 — hypothesis verdict drain hook.
+							// After the extractor successfully emits
+							// emit_hypothesis_verdict batches, Turn B's
+							// ParseOutput leaves the verdicts in
+							// MutableState.EmittedHypothesisVerdicts instead
+							// of copying them into StageOutput (because
+							// MarkHypothesis writes into AnalysisIR, which
+							// the extractor does not own — the v3 contract
+							// makes the analyzer the sole writer of the IR,
+							// with MarkHypothesis as the dedicated carve-out
+							// API). The orchestrator reads the buffer here,
+							// applies MarkHypothesis for each verdict, and
+							// LEAVES the buffer populated so the finalizer's
+							// prompt builder can render the rationale and
+							// citation back to the user (those fields are
+							// intentionally not stored on the IR to keep
+							// types.Hypothesis minimal).
+							o.drainHypothesisVerdicts(taskID)
 						}
 					} else {
 						logging.Debug("[orchestrator] two_turn_explorer_mode=on but extract stage config missing (%v); skipping extractor dispatch — legacy single-turn path will run", exErr)
@@ -657,6 +714,54 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 // fields. Empty hint clears the slot.
 func (o *Orchestrator) applyWindowHint(hint string) {
 	o.busCtx.TaskState.RetryHint = hint
+}
+
+// drainHypothesisVerdicts is the P2.1 Phase 10 hook invoked after a
+// successful StageExtract dispatch. It reads the Turn B verdict
+// buffer, applies MarkHypothesis for each entry, and LEAVES the
+// buffer populated so the finalizer's prompt builder can render the
+// rationale / citation text back to the user.
+//
+// Error handling policy:
+//
+//   - Unknown hypothesis id: log a warning and skip. The v3
+//     schema-level emit_hypothesis_verdict tool already rejects
+//     malformed calls at decode time, so reaching this path means
+//     the LLM emitted a verdict for an id not in the hypothesis set
+//     (hallucinated id or a typo). We never let a hallucinated id
+//     corrupt the IR.
+//
+//   - Unknown status: same as above. MarkHypothesis validates the
+//     enum and returns an error. Skip + warn.
+//
+//   - Nil AnalysisIR: the extractor dispatched without an analyzer
+//     run (REPL bootstrap, unit tests). Skip the drain entirely;
+//     the verdicts stay in the buffer but have no IR to write
+//     through. This is the same fail-closed policy as Phase 11's
+//     nil-Mutable check in the explorer.
+//
+// The function is a no-op when the buffer is empty, so it is always
+// safe to call after any extract dispatch regardless of whether the
+// LLM actually used emit_hypothesis_verdict.
+func (o *Orchestrator) drainHypothesisVerdicts(taskID string) {
+	if o.busCtx == nil || o.busCtx.Mutable == nil || o.busCtx.AnalysisIR == nil {
+		return
+	}
+	verdicts := o.busCtx.Mutable.EmittedHypothesisVerdicts()
+	if len(verdicts) == 0 {
+		return
+	}
+	applied := 0
+	for _, v := range verdicts {
+		if err := o.busCtx.AnalysisIR.MarkHypothesis(v.HypothesisID, v.Status); err != nil {
+			logging.Warning("[orchestrator] task %s hypothesis verdict drain: %v (rationale=%q citation=%q)",
+				taskID, err, v.Rationale, v.Citation)
+			continue
+		}
+		applied++
+	}
+	logging.Debug("[orchestrator] task %s applied %d/%d hypothesis verdicts to IR; buffer retained for finalizer rendering",
+		taskID, applied, len(verdicts))
 }
 
 // recordTaskFinalize copies the finalizer's FinalAnswer into the

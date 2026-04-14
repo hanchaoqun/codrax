@@ -34,7 +34,17 @@ type MutableState struct {
 	taskList                 TaskList
 	classification           AnalyzerClassification
 	emittedEvidence          []EvidenceItem
-	emittedAnswerSymbols     []AnswerSymbol
+	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
+	// written as a set via SetEmittedAnswerSymbols and read via
+	// EmittedAnswerSymbolSet (P2.1 Phase 9). The two fields are always
+	// written together because the completeness claim is a set-level
+	// property of the slate — an append-then-tag API would allow a
+	// retry call to partially overwrite items without also overwriting
+	// the claim, which is the exact foot-gun we want to rule out.
+	// Retry semantics: a subsequent Set call REPLACES both fields
+	// atomically under the write lock.
+	emittedAnswerSymbols         []AnswerSymbol
+	emittedAnswerSymbolCompleteness CompletenessClaim
 	emittedHypothesisVerdicts []HypothesisVerdict
 	turnAArtifacts           *TurnAArtifacts
 }
@@ -375,40 +385,57 @@ func (m *MutableState) ResetEmittedEvidence() {
 	m.emittedEvidence = nil
 }
 
-// AppendEmittedAnswerSymbols appends LLM-emitted answer symbols (P2.1
-// Turn B emit_answer_symbol channel) to the per-run buffer. The
-// extractor's ParseOutput drains this buffer at end-of-stage. Sister
-// API to AppendEvidence; the two channels are independent because the
-// answer-symbol slate may be empty for non-list_of_symbols shapes
-// while evidence is still required.
-func (m *MutableState) AppendEmittedAnswerSymbols(items []AnswerSymbol) {
-	if m == nil || len(items) == 0 {
+// SetEmittedAnswerSymbols atomically replaces the answer-symbol
+// buffer and the accompanying completeness claim (P2.1 Phase 9
+// set-level semantics). The emit_answer_symbol tool calls this on
+// every invocation; subsequent calls REPLACE the prior slate,
+// matching the "last writer wins" retry contract: on a mismatch
+// retry the LLM either raises the list or downgrades the claim, and
+// either way the new batch wins.
+//
+// The claim is validated for IsValid() and coerced to
+// CompletenessUnknown on invalid input, so a buggy producer cannot
+// corrupt the buffer with an unknown enum value. The items slice is
+// defensively copied so a later mutation on the caller's side cannot
+// race with reader goroutines.
+func (m *MutableState) SetEmittedAnswerSymbols(items []AnswerSymbol, claim CompletenessClaim) {
+	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.emittedAnswerSymbols = append(m.emittedAnswerSymbols, items...)
+	if len(items) == 0 {
+		m.emittedAnswerSymbols = nil
+	} else {
+		m.emittedAnswerSymbols = append([]AnswerSymbol(nil), items...)
+	}
+	if !claim.IsValid() {
+		claim = CompletenessUnknown
+	}
+	m.emittedAnswerSymbolCompleteness = claim
 }
 
 // EmittedAnswerSymbols returns a snapshot of the LLM-emitted answer
-// symbol buffer. The returned slice is a copy — safe for callers to
-// retain across subsequent appends.
-func (m *MutableState) EmittedAnswerSymbols() []AnswerSymbol {
+// symbol buffer paired with the set-level completeness claim. Both
+// travel together so the reader cannot accidentally use one without
+// checking the other. The slice is a defensive copy; the claim is a
+// string enum so it is copied by value.
+func (m *MutableState) EmittedAnswerSymbols() ([]AnswerSymbol, CompletenessClaim) {
 	if m == nil {
-		return nil
+		return nil, CompletenessUnknown
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	if len(m.emittedAnswerSymbols) == 0 {
-		return nil
+		return nil, m.emittedAnswerSymbolCompleteness
 	}
 	out := make([]AnswerSymbol, len(m.emittedAnswerSymbols))
 	copy(out, m.emittedAnswerSymbols)
-	return out
+	return out, m.emittedAnswerSymbolCompleteness
 }
 
-// ResetEmittedAnswerSymbols clears the buffer at the start of a new
-// extractor dispatch. Mirror of ResetEmittedEvidence.
+// ResetEmittedAnswerSymbols clears both the buffer and the claim at
+// the start of a new extractor dispatch. Mirror of ResetEmittedEvidence.
 func (m *MutableState) ResetEmittedAnswerSymbols() {
 	if m == nil {
 		return
@@ -416,6 +443,7 @@ func (m *MutableState) ResetEmittedAnswerSymbols() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedAnswerSymbols = nil
+	m.emittedAnswerSymbolCompleteness = CompletenessUnknown
 }
 
 // AppendEmittedHypothesisVerdicts appends LLM-emitted hypothesis

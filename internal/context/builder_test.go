@@ -679,6 +679,58 @@ func TestBuildPromptContext_AnswerSymbols_EmptyAlwaysDrops(t *testing.T) {
 	}
 }
 
+func TestBuildPromptContext_RendersHypothesisVerdictsSection(t *testing.T) {
+	mu := types.NewMutableState(types.TaskList{})
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{
+		{HypothesisID: "H1", Status: types.HypConfirmed, Rationale: "direct binding", Citation: "reg.go:12"},
+		{HypothesisID: "H2", Status: types.HypInconclusive, Rationale: "no conclusive cite"},
+	})
+	ac := &types.AgentContext{
+		AgentName:   types.AgentFinalizer,
+		Stage:       types.StageFinalize,
+		CurrentTask: "q",
+		Mutable:     mu,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "final-answer-skill"})
+
+	sec := findSectionTitle(pc, "Hypothesis Verdicts")
+	if sec == nil {
+		t.Fatal("Hypothesis Verdicts section missing when buffer populated")
+	}
+	for _, want := range []string{"H1", "confirmed", "direct binding", "reg.go:12", "H2", "inconclusive", "no conclusive cite"} {
+		if !strings.Contains(sec.Content, want) {
+			t.Errorf("section missing %q:\n%s", want, sec.Content)
+		}
+	}
+}
+
+func TestBuildPromptContext_SkipsHypothesisVerdictsWhenEmpty(t *testing.T) {
+	mu := types.NewMutableState(types.TaskList{})
+	ac := &types.AgentContext{
+		AgentName:   types.AgentFinalizer,
+		Stage:       types.StageFinalize,
+		CurrentTask: "q",
+		Mutable:     mu,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
+	if findSectionTitle(pc, "Hypothesis Verdicts") != nil {
+		t.Error("empty verdict buffer must not produce the section")
+	}
+}
+
+func TestBuildPromptContext_SkipsHypothesisVerdictsWhenMutableNil(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName:   types.AgentFinalizer,
+		Stage:       types.StageFinalize,
+		CurrentTask: "q",
+		Mutable:     nil,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
+	if findSectionTitle(pc, "Hypothesis Verdicts") != nil {
+		t.Error("nil Mutable must not produce the section")
+	}
+}
+
 func TestBuildAgentContext_CarriesCompletenessFromBus(t *testing.T) {
 	bus := &types.BusContext{
 		PipelineStage:            types.StageFinalize,

@@ -312,6 +312,40 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	// P2.1 Phase 10 — Hypothesis Verdicts section. Rendered when the
+	// extractor (Turn B) has emitted per-hypothesis verdicts via
+	// emit_hypothesis_verdict and the orchestrator's drain hook has
+	// applied the status mutations to AnalysisIR. The buffer is
+	// read directly from Mutable (not plumbed through a new
+	// BusContext field) because the verdicts are read-only after the
+	// extractor exits and the narrower AgentContext already aliases
+	// Mutable for this kind of late read. Legacy paths without the
+	// extractor simply produce an empty buffer and the section is
+	// dropped.
+	if ac.Mutable != nil {
+		if verdicts := ac.Mutable.EmittedHypothesisVerdicts(); len(verdicts) > 0 {
+			var vc strings.Builder
+			vc.WriteString("The extractor (Turn B) reached the following verdicts on the hypotheses the analyzer posed. " +
+				"When writing the final answer, carry these verdicts forward: confirmed hypotheses become load-bearing " +
+				"claims, rejected ones become caveats, and inconclusive ones are acknowledged as open questions. " +
+				"Cite the file:line anchor from the verdict whenever you reference the conclusion.\n\n")
+			for _, v := range verdicts {
+				fmt.Fprintf(&vc, "- **%s** → **%s**", v.HypothesisID, v.Status)
+				if rationale := strings.TrimSpace(v.Rationale); rationale != "" {
+					fmt.Fprintf(&vc, ": %s", rationale)
+				}
+				if cite := strings.TrimSpace(v.Citation); cite != "" {
+					fmt.Fprintf(&vc, " *(`%s`)*", cite)
+				}
+				vc.WriteString("\n")
+			}
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   "Hypothesis Verdicts",
+				Content: vc.String(),
+			})
+		}
+	}
+
 	if len(ac.RelevantFiles) > 0 {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Relevant Files",
