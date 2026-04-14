@@ -1854,10 +1854,48 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 
 	// Include the LLM's evidence entries from the ReAct loop.
 	// These contain structured facts extracted from each file.
+	//
+	// Scope scrubbing: when the question has a single receiver-
+	// disambiguated primary target and the analyzer declared
+	// question_kind=mechanism, drop `## Evidence from <sibling>`
+	// blocks whose file is not in the primary set. The existing
+	// rankedEvidence filter in ParseOutput (filterEvidenceByPrimaryFiles)
+	// runs AFTER synthesis and does not affect the raw notes the
+	// synthesis prompt injects here — so sibling-file blocks would
+	// still reach the synthesis LLM and leak into its output as
+	// `finalizer.go:100` / `sub_explorer.go:...` drift cites. See
+	// memory/project_fake_green_audit_2026_04_14.md Pattern 3 and
+	// the t3 2026-04-14 run for the concrete leak.
+	//
+	// Gate is deliberately the same as the ParseOutput-side filter:
+	// mechanism only (enumeration / dataflow questions legitimately
+	// span multiple files). `primary` may contain more than one file
+	// when entities genuinely span files — we drop only blocks for
+	// files OUTSIDE that set, never narrow to fewer than what the
+	// primary disambiguator resolved.
+	var scrubPrimarySet map[string]bool
+	if strings.EqualFold(strings.TrimSpace(irQuestionKind(ctx)), "mechanism") {
+		if primary := e.primaryEntityFiles(); len(primary) > 0 {
+			scrubPrimarySet = make(map[string]bool, len(primary))
+			for _, p := range primary {
+				scrubPrimarySet[p] = true
+			}
+		}
+	}
 	if len(e.investigationNotes) > 0 {
 		digest.WriteString("## Evidence Catalog\n\n")
 		digest.WriteString("These are the evidence entries YOU collected during investigation:\n\n")
+		totalScrubbed := 0
 		for i, note := range e.investigationNotes {
+			if scrubPrimarySet != nil {
+				scrubbed, dropped := scrubSiblingEvidenceBlocks(note, scrubPrimarySet)
+				note = scrubbed
+				totalScrubbed += dropped
+			}
+			note = strings.TrimSpace(note)
+			if note == "" {
+				continue
+			}
 			// Adaptive truncation: scale limit with investigation complexity.
 			// More notes = more complex investigation = each note needs more space.
 			truncLimit := 1200
@@ -1871,6 +1909,10 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 				note = note[:truncLimit] + "\n... [truncated]"
 			}
 			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
+		}
+		if totalScrubbed > 0 {
+			logging.Debug("[explorer] synthesis scope scrub: dropped %d sibling-file evidence blocks (primary=%v)",
+				totalScrubbed, scrubPrimarySet)
 		}
 	}
 
