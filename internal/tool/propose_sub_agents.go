@@ -27,7 +27,15 @@ func NewProposeSubAgents() *ProposeSubAgents {
 
 func (t *ProposeSubAgents) Name() string { return "propose_sub_agents" }
 func (t *ProposeSubAgents) Description() string {
-	return "Propose splitting the current task into parallel sub-tasks, each executed by a SubAgent of the same name as this agent. Use when the task can be decomposed into independent sub-tasks that benefit from parallel execution."
+	return "Decompose the current question into independent parallel sub-tasks, each investigating a disjoint scope. " +
+		"USE WHEN: the question asks about MULTIPLE unrelated modules/packages/subsystems that can be explored in parallel " +
+		"(e.g., 'compare the X implementation across module A and module B', 'enumerate all handlers in package P and package Q', " +
+		"'how does feature F manifest in frontend code and backend code'). " +
+		"Each sub_task declares its own scope (file/directory prefixes) so sub-agents do not overlap. " +
+		"DO NOT USE when the question is a single-target investigation (follow a call chain, explain one mechanism, find one config value) — " +
+		"sequential read_file + grep is faster than fanning out. " +
+		"DO NOT USE when sub-tasks would share files — results will collide. " +
+		"Call this EARLY, before you start reading files, so the sub-agents do not duplicate work you already did."
 }
 
 // Parameters returns a schema with an empty enum. The Agent layer calls

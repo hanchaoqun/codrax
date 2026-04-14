@@ -3,9 +3,6 @@ package agent
 // answer_document_evaluator.go — finalizer evaluator that emits a
 // structured AnswerDocument via the emit_answer_document tool and
 // renders it to user prose through internal/render/answerdoc.go.
-// This is the ONLY finalizer after the 2026-04-14 simplification
-// pass — the legacy prose finalizer + S3 symbol-set validator +
-// shape validators were deleted.
 //
 // Design contract: the LLM emits AnswerDocument via one batched
 // tool call, the evaluator runs shape-level structural validation
@@ -15,9 +12,9 @@ package agent
 //
 // Cardinality cross-check: the emit_answer_document tool already
 // validates per-item grounding (line > 0, file not in WorkDir,
-// citation_ref in range). The P2.1 baseline (TerminalEvidenceCount +
+// citation_ref in range). The baseline (TerminalEvidenceCount +
 // AnalysisIR.AnswerContract.MustInclude) is not part of the tool
-// schema, so the evaluator applies validateCompletenessClaim HERE
+// schema, so the evaluator applies validateCompletenessClaim here
 // at ParseOutput time — the same function extractorEvaluator uses
 // for emit_answer_symbol, so one audited implementation covers
 // both stages.
@@ -78,14 +75,12 @@ type answerDocumentEvaluator struct {
 // (Goal / Workflow / OutputFormat / Prohibitions) by
 // context/builder.go before this dynamic block runs.
 //
-// Rationale: matches the P2.1 Session 2 pattern where extractor.go
-// was slimmed to a dynamic Turn A digest while the static contract
-// moved to the extract-skill. Contradicting directives between a
-// declarative skill OutputFormat and a Go-string-builder prompt are
-// a known footgun (the legacy finalize skills teach markdown
-// Answer/Evidence prose, and the P2.2 flag=on path picks the
-// answer-document-skill instead via dispatchStage routing, so the
-// two surfaces never coexist in one prompt).
+// Rationale: matches the pattern used by extractor.go where the
+// evaluator stays slim (dynamic data only) and the static contract
+// lives in the skill config. Contradicting directives between a
+// declarative skill OutputFormat and a Go-string-builder prompt
+// are a known footgun, so this evaluator deliberately never
+// repeats the skill's contract text.
 func (e *answerDocumentEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	e.retriesUsed = 0
 	e.language = extractAnswerDocLang(ctx)
@@ -237,7 +232,7 @@ type answerDocumentStageData struct {
 	AnswerDocument *types.AnswerDocument `json:"answer_document"`
 }
 
-// ParseOutput reads the AnswerDocument from Mutable, runs the P2.1
+// ParseOutput reads the AnswerDocument from Mutable, runs the
 // cardinality cross-check on list_of_symbols + complete claims,
 // renders the document to prose, and packages the result into a
 // StageOutput. On a zero/missing document, emits a fail-loud warning

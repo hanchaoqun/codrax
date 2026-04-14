@@ -1,43 +1,35 @@
 package agent
 
-// extractor.go — P2.1 Turn B (extractor) evaluator.
+// extractor.go — Turn B (extractor) evaluator.
 //
-// The extractor is the second half of the P2.1 two-turn explorer
-// split. It runs AFTER Turn A (the explorer) has completed its
+// The extractor is the second half of the two-turn explorer split.
+// It runs AFTER Turn A (the explorer) has completed its
 // investigation and handed off a frozen TurnAArtifacts snapshot, and
 // BEFORE the finalizer synthesizes the user-visible answer. Its job
 // is to convert Turn A's raw transcript (investigation notes, tool
 // results, deterministic evidence) into STRUCTURED emit_* tool calls:
 //
-//   - emit_evidence          — refined / re-tagged evidence items
 //   - emit_answer_symbol     — the answer-symbol slate with a
 //                               required set-level completeness claim
 //   - emit_hypothesis_verdict — per-hypothesis status + citation
 //
 // The extractor calls read_file / grep / repo_map NOT AT ALL. The
-// LLM is explicitly forbidden from them at the prompt layer (Phase 8)
-// and at the tool-schema layer (Phase 12). Every fact it emits must
-// trace back to Turn A's snapshot.
+// LLM is explicitly forbidden from them at the prompt layer and at
+// the tool-schema layer (ToolSuggestions allowlist). Every fact it
+// emits must trace back to Turn A's snapshot.
 //
-// Phase 9 (this ship) introduces the cardinality validator that
-// structurally closes UNRESOLVED #1 on the flag=on path: when the
-// LLM claims CompletenessComplete but len(items) falls below
-// max(Turn A's TerminalEvidenceCount, len(AnswerContract.MustInclude)),
-// ParseOutput downgrades the claim to CompletenessLowerBound, logs a
-// warning diagnosing the mismatch, and lets the finalizer render the
-// softened floor prompt instead of the Translation-mode prompt. The
-// original schema-level check from Session 1 still rejects completely
-// malformed calls; this is the semantic second layer.
+// The cardinality validator closes the completeness-claim loophole:
+// when the LLM claims CompletenessComplete but len(items) falls
+// below max(Turn A's TerminalEvidenceCount, len(AnswerContract.MustInclude)),
+// ParseOutput downgrades the claim to CompletenessLowerBound, logs
+// a warning diagnosing the mismatch, and lets the finalizer render
+// the softened floor prompt instead of the Translation-mode prompt.
+// The schema-level check still rejects malformed calls; this is the
+// semantic second layer.
 //
-// ShouldStop is deliberately one-shot (iteration >= 1). The retry
-// pattern the design doc originally sketched (two iterations with a
-// mid-loop feedback hint) was dropped after audit because Turn B
-// cannot read new files — a retry has no new information to work
-// with. Downgrading to lower_bound is the honest terminal state, and
-// the softened prompt gives the finalizer the latitude to add
-// evidence-backed symbols above the floor. Retry would add LLM cost
-// for an unprovable improvement in recall; waiting for grid data in
-// the flip-default session is the correct evidence bar.
+// ShouldStop is deliberately one-shot (iteration >= 1). Turn B
+// cannot read new files, so a retry has no new information to work
+// with — downgrading to lower_bound is the honest terminal state.
 
 import (
 	"encoding/json"
@@ -52,8 +44,7 @@ import (
 
 // extractorEvaluator is the Turn B evaluator. It is a separate type
 // from explorerEvaluator so the two turns cannot accidentally share
-// state (cross-run leakage was a real problem in pre-P2.1 code, see
-// memory/project_repl_equivalence_audit.md).
+// state.
 type extractorEvaluator struct{}
 
 // BuildInitialPrompt implements Evaluator.
@@ -65,15 +56,14 @@ type extractorEvaluator struct{}
 // rendered into the LLM prompt as system sections by
 // context/builder.go before this evaluator-specific instruction runs.
 //
-// Rationale (P2.1 Session 2 cleanup): baking the tool contract into
-// a string builder here was a shortcut that (a) duplicated what the
-// skill system exists for, (b) inflated every dispatch with the
-// stable preamble, and (c) made the contract harder to find (a
-// buried `strings.Builder.WriteString` call vs. a top-level
-// declarative Config entry). Moving it to the skill makes the
-// contract one grep away and lets BaseAgent.buildToolSchemas scope
-// the LLM tool set from ToolSuggestions without a runtime append in
-// cmd/root.go.
+// Rationale for keeping the static contract in the skill config
+// rather than baked into this string builder: (a) the skill system
+// exists for exactly this, (b) the stable preamble would otherwise
+// inflate every dispatch, (c) a top-level declarative Config entry
+// is one grep away whereas a buried `strings.Builder.WriteString`
+// call is not. Moving it to the skill also lets
+// BaseAgent.buildToolSchemas scope the LLM tool set from
+// ToolSuggestions without any runtime append.
 //
 // The prompt below therefore carries ONLY what changes per dispatch:
 // the user question, the Turn A transcript digest (investigation
