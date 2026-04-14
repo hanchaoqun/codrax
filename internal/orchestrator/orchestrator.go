@@ -238,13 +238,10 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 // (o.maxSteps) is enforced across all tasks; when it is exhausted
 // any remaining pending tasks are marked failed.
 //
-// v3: every task routes through runTaskGraph whenever
-// BusContext.AnalysisIR carries a non-empty TaskGraph. The first-task-
-// only DAG hack (that restricted runTaskGraph to the first pending
-// task and sent siblings to runTaskPipelineLegacy) was removed in
-// the v3 integration batch. runTaskPipelineLegacy is retained as
-// the defensive fallback for runs where analyze failed to produce
-// an IR (e.g., REPL bootstrap turns, unit tests).
+// After the 2026-04-14 simplification the codrax pipeline is
+// read-only: implementation stages (plan / implement / design_review
+// / code_review / verify) are gone, every task routes through
+// runTaskGraph with the analysis-only DAG scheduler.
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	for {
 		next := o.nextPendingTask()
@@ -269,175 +266,14 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 			TaskStatus: types.TaskInProgress,
 		})
 
-		var used int
-		if o.busCtx.AnalysisIR != nil && len(o.busCtx.AnalysisIR.TaskGraph.Nodes) > 0 {
-			used = o.runTaskGraph(next.ID, o.maxSteps-*stepsUsed)
-		} else {
-			used = o.runTaskPipelineLegacy(next.ID, o.maxSteps-*stepsUsed)
-		}
+		used := o.runTaskGraph(next.ID, o.maxSteps-*stepsUsed)
 		*stepsUsed += used
 	}
 }
 
-// runTaskPipelineLegacy runs the per-task stage loop for a single
-// task using the priority-weighted transition table from
-// orchestrator.yaml. It resets per-task state (Signals, MissingPiece,
-// PipelineStage, stage visit counter) on entry, runs
-// explore → … → finalize, and always marks the task as Done or
-// Failed before returning so the outer loop's nextPendingTask cannot
-// pick it up again.
-//
-// Deprecated as of P1.3: when BusContext.AnalysisIR is populated with
-// a non-empty TaskGraph, runTaskPhase routes the first pending task
-// through runTaskGraph instead. Legacy is retained as the fallback
-// path for nil-IR runs (analyze failed, pre-IR unit tests, REPL turns
-// where the analyzer never produced an IR) and for subsequent tasks
-// in a multi-task run (per-task IR is de-scoped — see D8 in
-// memory/project_p1_3_deferred_items.md). Do not delete this function
-// without first re-introducing per-task IR or proving that no caller
-// can land on the nil-IR branch.
-func (o *Orchestrator) runTaskPipelineLegacy(taskID string, stepBudget int) int {
-	// Reset per-task state.
-	o.busCtx.Signals = types.ExecutionSignals{}
-	o.busCtx.TaskState.Missing = types.MissingFacts
-	o.busCtx.PipelineStage = types.StageExplore
-	o.busCtx.TaskState.Stage = types.StageExplore
-	o.stageVisits = make(map[types.PipelineStage]int)
-
-	// P2.1 Phase 14 — same cross-task reset as runTaskGraph. The
-	// legacy pipeline never dispatches the extractor (two-turn mode
-	// only runs under the DAG path), but the flag=off explorer
-	// still writes AnswerSymbolCompleteness and the legacy answer-
-	// symbol buffer would otherwise carry between tasks in a
-	// multi-task analysis run. Symmetric reset keeps the two
-	// pipelines indistinguishable from a state-isolation standpoint.
-	if o.busCtx.Mutable != nil {
-		o.busCtx.Mutable.ResetTurnAArtifacts()
-		o.busCtx.Mutable.ResetEmittedAnswerSymbols()
-		o.busCtx.Mutable.ResetEmittedHypothesisVerdicts()
-		o.busCtx.Mutable.ResetEmittedEvidence()
-		// P2.2: the AnswerDocument buffer is the finalizer's output
-		// channel under answer_document_mode=on. Reset it at per-task
-		// entry alongside the P2.1 extractor buffers so a multi-task
-		// run cannot drag a stale document from task N into task N+1.
-		o.busCtx.Mutable.ResetAnswerDocument()
-	}
-	o.busCtx.AnswerSymbolCompleteness = types.CompletenessUnknown
-
-	visitCap := o.config.PipelineSettings.MaxStageVisits
-	if visitCap <= 0 {
-		visitCap = types.DefaultMaxStageVisits
-	}
-
-	stepsUsed := 0
-	reachedFinalize := false
-
-	for stepsUsed < stepBudget {
-		stage := o.busCtx.PipelineStage
-
-		logging.Debug("[orchestrator] task=%s step=%d stage=%s missing=%s",
-			taskID, stepsUsed, stage, o.busCtx.TaskState.Missing)
-
-		// Oscillation guard, scoped per task.
-		o.stageVisits[stage]++
-		if o.stageVisits[stage] > visitCap {
-			logging.Warning("[orchestrator] task %s stage %s visited %d times (cap %d); oscillation guard tripped",
-				taskID, stage, o.stageVisits[stage], visitCap)
-			o.busCtx.TaskState.LastError = fmt.Sprintf(
-				"task %s stuck at stage %s after %d visits", taskID, stage, o.stageVisits[stage])
-			break
-		}
-
-		stageConfig, err := o.config.GetStageConfig(stage)
-		if err != nil {
-			o.busCtx.TaskState.LastError = fmt.Sprintf("unknown stage %s: %v", stage, err)
-			break
-		}
-
-		stepsUsed++
-
-		out, err := o.dispatchStage(stageConfig)
-		if err != nil {
-			logging.Error("[orchestrator] task %s stage %s failed: %v", taskID, stage, err)
-			o.busCtx.Signals.LastStageFailed = true
-			o.busCtx.Signals.LastFailureReason = err.Error()
-			o.busCtx.Signals.RetryCount++
-			if o.busCtx.Signals.RetryCount > o.busCtx.Policy.MaxRetriesPerStage {
-				logging.Error("[orchestrator] task %s max retries exceeded at %s, jumping to finalize",
-					taskID, stage)
-				o.busCtx.PipelineStage = types.StageFinalize
-				o.busCtx.TaskState.Stage = types.StageFinalize
-				continue
-			}
-		}
-
-		if stageConfig.Terminal {
-			logging.Info("[orchestrator] task %s reached terminal stage %s", taskID, stage)
-			o.recordTaskFinalize(taskID, out)
-			reachedFinalize = true
-			break
-		}
-
-		nextStage := o.decideNextStage()
-		logging.Info("[orchestrator] task %s transition: %s -> %s", taskID, stage, nextStage)
-
-		o.emit(render.Event{
-			Kind:      render.EventTransition,
-			Timestamp: time.Now(),
-			FromStage: stage,
-			ToStage:   nextStage,
-		})
-		o.busCtx.LastTransitionReason = fmt.Sprintf("%s -> %s (task %s, missing %s)",
-			stage, nextStage, taskID, o.busCtx.TaskState.Missing)
-		o.busCtx.PipelineStage = nextStage
-		o.busCtx.TaskState.Stage = nextStage
-
-		if nextStage != stage {
-			o.busCtx.Signals.RetryCount = 0
-			o.busCtx.Signals.LastStageFailed = false
-			// A retry hint only makes sense within the same stage's
-			// self-loop. Forward transitions discard it so the next
-			// agent does not inherit a stale "do this differently"
-			// directive aimed at the previous stage.
-			o.busCtx.TaskState.RetryHint = ""
-		}
-	}
-
-	// If we exited the loop without naturally reaching finalize, force
-	// one finalize call so the task gets a Result (or at least a clear
-	// failure marker).
-	if !reachedFinalize {
-		if o.busCtx.TaskState.LastError == "" {
-			o.busCtx.TaskState.LastError = fmt.Sprintf(
-				"task %s did not reach terminal within budget", taskID)
-		}
-		logging.Warning("[orchestrator] task %s forcing finalize: %s", taskID, o.busCtx.TaskState.LastError)
-		o.busCtx.PipelineStage = types.StageFinalize
-		o.busCtx.TaskState.Stage = types.StageFinalize
-
-		finalConfig, err := o.config.GetStageConfig(types.StageFinalize)
-		if err != nil {
-			logging.Error("[orchestrator] task %s force finalize lookup failed: %v", taskID, err)
-			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
-			return stepsUsed
-		}
-		stepsUsed++
-		out, err := o.dispatchStage(finalConfig)
-		if err != nil {
-			logging.Error("[orchestrator] task %s forced finalize failed: %v", taskID, err)
-			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
-			return stepsUsed
-		}
-		o.recordTaskFinalize(taskID, out)
-	}
-
-	return stepsUsed
-}
-
-// runTaskGraph is the Analyzer-v3 DAG-driven execution path. It
-// replaces runTaskPipelineLegacy when BusContext.AnalysisIR carries
-// a non-empty TaskGraph, walking the IR's nodes via graphState
-// instead of consulting orchestrator.yaml's stage transitions.
+// runTaskGraph is the DAG-driven execution path and (after the
+// 2026-04-14 simplification) the single per-task execution path.
+// It walks AnalysisIR.TaskGraph.Nodes via graphState.
 //
 // P1.3 conservative-schedule (P1.3-MERGED-SCHEDULE):
 //
@@ -479,9 +315,12 @@ func (o *Orchestrator) runTaskPipelineLegacy(taskID string, stepBudget int) int 
 func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 	ir := o.busCtx.AnalysisIR
 	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
-		// Defensive: caller already checked but a code-path drift is
-		// possible. Fall back to legacy.
-		return o.runTaskPipelineLegacy(taskID, stepBudget)
+		// Defensive: analyzer should always produce a non-empty
+		// TaskGraph, but if something upstream failed we cannot
+		// execute the task.
+		logging.Error("[orchestrator] task %s: no AnalysisIR.TaskGraph — analyzer failed to produce a valid IR", taskID)
+		o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
+		return 0
 	}
 
 	// Per-task state reset, mirroring legacy semantics so a multi-task
@@ -1071,154 +910,6 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	}
 }
 
-// decideNextStage evaluates transitions and selects the highest-priority valid next stage.
-// This implements the core decision function described in the architecture doc.
-func (o *Orchestrator) decideNextStage() types.PipelineStage {
-	current := o.busCtx.PipelineStage
-
-	// Get all transitions from current stage (already sorted by priority desc)
-	transitions := o.config.GetTransitions(current)
-
-	// Determine active task policy
-	policyName := o.determineActivePolicy()
-
-	// Filter by policy
-	transitions = o.filterByPolicy(transitions, policyName)
-
-	// Filter by feature flags
-	transitions = o.filterByPipelineSettings(transitions)
-
-	// Filter by runtime signals
-	transitions = o.filterBySignals(transitions)
-
-	// Select highest priority (first after filtering, since they're sorted)
-	if len(transitions) > 0 {
-		o.busCtx.TaskState.LastDecision = fmt.Sprintf(
-			"selected %s (priority %d, policy=%s)",
-			transitions[0].To, transitions[0].Priority, policyName,
-		)
-		return transitions[0].To
-	}
-
-	// Fallback: finalize
-	o.busCtx.TaskState.LastDecision = "fallback to finalize (no valid transitions)"
-	return types.StageFinalize
-}
-
-// determineActivePolicy determines which task policy applies based on
-// the analyzer-frozen RunPolicy.
-//
-// When AnalysisIR is nil (analyze failed, pre-IR unit tests) the
-// fail-safe default is "analysis" — answering the user without mutating
-// anything is a much smaller failure mode than running a write pipeline
-// against the wrong task.
-func (o *Orchestrator) determineActivePolicy() string {
-	ir := o.busCtx.AnalysisIR
-	if ir == nil || !ir.RunPolicy.Writing {
-		return "analysis"
-	}
-	if ir.RunPolicy.RequireDesignReview || ir.RunPolicy.RequireCodeReview || o.busCtx.Policy.RequireReview {
-		return "high_risk_implementation"
-	}
-	return "implementation"
-}
-
-// filterByPolicy removes transitions to stages not allowed by the active policy.
-func (o *Orchestrator) filterByPolicy(transitions []types.Transition, policyName string) []types.Transition {
-	policy, err := o.config.GetTaskPolicy(policyName)
-	if err != nil {
-		return transitions // no policy = all stages allowed
-	}
-
-	allowed := make(map[types.PipelineStage]bool)
-	for _, s := range policy.AllowedStages {
-		allowed[s] = true
-	}
-
-	var filtered []types.Transition
-	for _, t := range transitions {
-		if allowed[t.To] {
-			filtered = append(filtered, t)
-		}
-	}
-	return filtered
-}
-
-// filterByPipelineSettings removes transitions to stages disabled by pipeline settings.
-func (o *Orchestrator) filterByPipelineSettings(transitions []types.Transition) []types.Transition {
-	flags := o.config.PipelineSettings
-
-	var filtered []types.Transition
-	for _, t := range transitions {
-		switch t.To {
-		case types.StageVerify:
-			if !flags.EnableVerify {
-				continue
-			}
-		}
-		filtered = append(filtered, t)
-	}
-	return filtered
-}
-
-// filterBySignals applies runtime signal-based filtering to transitions.
-func (o *Orchestrator) filterBySignals(transitions []types.Transition) []types.Transition {
-	signals := o.busCtx.Signals
-	missing := o.busCtx.TaskState.Missing
-
-	var filtered []types.Transition
-	for _, t := range transitions {
-		if o.isTransitionValidBySignals(t, signals, missing) {
-			filtered = append(filtered, t)
-		}
-	}
-
-	// If filtering removed everything, return the original list
-	// to avoid getting stuck (the priority ordering will handle selection)
-	if len(filtered) == 0 {
-		return transitions
-	}
-	return filtered
-}
-
-// isTransitionValidBySignals checks if a transition makes sense given the current signals.
-func (o *Orchestrator) isTransitionValidBySignals(t types.Transition, signals types.ExecutionSignals, missing types.MissingPiece) bool {
-	switch t.To {
-	case types.StageExplore:
-		// Go to explore if we need facts
-		return missing == types.MissingFacts || missing == types.MissingUnderstanding || !signals.HasEnoughFacts
-	case types.StagePlan:
-		// Go to plan if we have facts but need a plan
-		return signals.HasEnoughFacts || missing == types.MissingPlan
-	case types.StageImplement:
-		// Go to implement if we have a plan
-		return signals.HasPlan || missing == types.MissingCode
-	case types.StageDesignReview:
-		// Go to design review if there's a plan to review
-		return signals.HasPlan
-	case types.StageCodeReview:
-		// Go to code review if there's a patch to review
-		return signals.HasPatch
-	case types.StageVerify:
-		// Go to verify if we have a patch
-		return signals.HasPatch || missing == types.MissingVerification
-	case types.StageFinalize:
-		// Finalizing directly out of explore is only valid if the
-		// explorer reported enough facts. Otherwise we'd let a thin
-		// single-tool exploration short-circuit into a final answer.
-		// Blocking this edge here lets the lower-priority explore →
-		// explore self-loop fire instead, with the oscillation guard
-		// as the ultimate bound.
-		if o.busCtx.PipelineStage == types.StageExplore {
-			return signals.HasEnoughFacts
-		}
-		return true
-	case types.StageAnalyze:
-		// Backtrack to analyze only if fundamentally confused
-		return missing == types.MissingUnderstanding
-	}
-	return true
-}
 
 // BusContext returns the current bus context (for inspection/testing).
 func (o *Orchestrator) BusContext() *types.BusContext {

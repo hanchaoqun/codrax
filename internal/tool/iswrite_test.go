@@ -5,19 +5,20 @@ import "testing"
 // TestBuiltinIsWriteClassification locks in the read/write classification
 // for every builtin tool. Adding a new tool that doesn't compile here is
 // the intended way to force a deliberate read/write decision.
+//
+// After the 2026-04-14 simplification the codrax pipeline is read-only:
+// apply_patch and run_tests were deleted, so no builtin tool is classified
+// as a filesystem write anymore.
 func TestBuiltinIsWriteClassification(t *testing.T) {
 	cases := []struct {
 		name    string
 		tool    Tool
 		isWrite bool
 	}{
-		{"apply_patch", &ApplyPatch{}, true},
 		{"exec_command", &ExecCommand{}, false},
 		{"grep", &GrepTool{}, false},
 		{"read_file", &ReadFile{}, false},
 		{"list_files", &ListFiles{}, false},
-		// repo_map moved to internal/tool/repomap/ (tree-sitter powered, registered from main.go)
-		{"run_tests", &RunTests{}, false},
 		{"git_diff", &GitDiff{}, false},
 		{"git_log", &GitLog{}, false},
 		{"propose_sub_agents", &ProposeSubAgents{}, false},
@@ -40,17 +41,14 @@ func TestBuiltinConfidenceClassification(t *testing.T) {
 		tool       Tool
 		confidence float64
 	}{
-		{"apply_patch", &ApplyPatch{}, 0.8},
 		{"exec_command", &ExecCommand{}, 0.8},
 		{"grep", &GrepTool{}, 0.8},
 		{"read_file", &ReadFile{}, 0.8},
 		{"list_files", &ListFiles{}, 0.8},
-		{"run_tests", &RunTests{}, 0.8},
 		{"git_diff", &GitDiff{}, 0.8},
 		{"git_log", &GitLog{}, 0.8},
 		{"propose_sub_agents", &ProposeSubAgents{}, 0.0},
 		{"todo_write", &TodoWrite{}, 0.0},
-		// repo_map is in internal/tool/repomap/ — tested separately there
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -64,12 +62,6 @@ func TestBuiltinConfidenceClassification(t *testing.T) {
 func TestRegistryIsWrite(t *testing.T) {
 	r := NewRegistry()
 	RegisterDefaults(r)
-
-	t.Run("write tool reports true", func(t *testing.T) {
-		if !r.IsWrite("apply_patch") {
-			t.Error("apply_patch should be classified as write")
-		}
-	})
 
 	t.Run("read-only tool reports false", func(t *testing.T) {
 		if r.IsWrite("read_file") {

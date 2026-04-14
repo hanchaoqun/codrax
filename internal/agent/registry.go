@@ -52,32 +52,24 @@ func (r *Registry) List() []types.AgentName {
 // If it returns nil, the default adapter from Dependencies is used.
 type LLMResolver func(name types.AgentName) llm.Adapter
 
-// RegisterDefaults registers all 8 agent types.
+// RegisterDefaults registers all agent types. After the 2026-04-14
+// simplification the codrax pipeline is read-only: four agents
+// drive the analyze → explore → extract → finalize flow.
 // If resolver is non-nil, each agent gets its own LLM adapter;
 // otherwise all agents share deps.LLM.
 func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver) {
 	agents := []types.AgentName{
 		types.AgentAnalyzer,
-		types.AgentPlanner,
 		types.AgentExplorer,
 		types.AgentExtractor,
-		types.AgentImplementer,
-		types.AgentDesignReviewer,
-		types.AgentCodeReviewer,
-		types.AgentVerifier,
 		types.AgentFinalizer,
 	}
 
 	constructors := map[types.AgentName]func(*Dependencies) Agent{
-		types.AgentAnalyzer:       func(d *Dependencies) Agent { return NewAnalyzerAgent(d) },
-		types.AgentPlanner:        func(d *Dependencies) Agent { return NewPlannerAgent(d) },
-		types.AgentExplorer:       func(d *Dependencies) Agent { return NewExplorerAgent(d) },
-		types.AgentExtractor:      func(d *Dependencies) Agent { return NewExtractorAgent(d) },
-		types.AgentImplementer:    func(d *Dependencies) Agent { return NewImplementerAgent(d) },
-		types.AgentDesignReviewer: func(d *Dependencies) Agent { return NewDesignReviewerAgent(d) },
-		types.AgentCodeReviewer:   func(d *Dependencies) Agent { return NewCodeReviewerAgent(d) },
-		types.AgentVerifier:       func(d *Dependencies) Agent { return NewVerifierAgent(d) },
-		types.AgentFinalizer:      func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
+		types.AgentAnalyzer:  func(d *Dependencies) Agent { return NewAnalyzerAgent(d) },
+		types.AgentExplorer:  func(d *Dependencies) Agent { return NewExplorerAgent(d) },
+		types.AgentExtractor: func(d *Dependencies) Agent { return NewExtractorAgent(d) },
+		types.AgentFinalizer: func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
 	}
 
 	for _, name := range agents {

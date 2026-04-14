@@ -233,13 +233,12 @@ func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 	}
 }
 
-func TestRunTaskGraph_FallbackWhenIRNil(t *testing.T) {
-	// When the analyzer returns no IR (or one with empty TaskGraph),
-	// runTaskPhase must route through the legacy pipeline. This guards
-	// the nil-IR fallback path that pre-IR unit tests and crashed
-	// analyze stages depend on.
+// TestRunTaskGraph_NilIRFailsFast: when the analyzer does not
+// produce a TaskGraph, runTaskGraph marks the task failed fast.
+// The legacy fallback was deleted in the 2026-04-14 simplification.
+func TestRunTaskGraph_NilIRFailsFast(t *testing.T) {
 	cfg := defaultResolvedConfig()
-	var explorerCalls, finalizeCalls int
+	var explorerCalls int
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
 		types.AgentAnalyzer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
@@ -250,22 +249,12 @@ func TestRunTaskGraph_FallbackWhenIRNil(t *testing.T) {
 					{ID: "t1", Title: "task", Status: types.TaskPending},
 				},
 			})
-			// Return NO AnalysisIR — legacy must take over.
+			// Return NO AnalysisIR — runTaskGraph should fail fast.
 			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
 		},
 		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
 			explorerCalls++
-			return &agent.StageOutput{
-				MissingPiece:  types.MissingNone,
-				SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true},
-			}, nil
-		},
-		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-			finalizeCalls++
-			return &agent.StageOutput{
-				MissingPiece: types.MissingNone,
-				FinalAnswer:  "legacy answer",
-			}, nil
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
 		},
 	}
 
@@ -277,15 +266,12 @@ func TestRunTaskGraph_FallbackWhenIRNil(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if explorerCalls == 0 {
-		t.Error("legacy explorer should have been called")
-	}
-	if finalizeCalls == 0 {
-		t.Error("legacy finalize should have been called")
+	if explorerCalls != 0 {
+		t.Error("nil-IR path must not dispatch explorer")
 	}
 	tl := busCtx.Mutable.TaskList()
-	if len(tl.Tasks) == 0 || tl.Tasks[0].Result != "legacy answer" {
-		t.Errorf("legacy answer not recorded: %+v", tl.Tasks)
+	if len(tl.Tasks) == 0 || tl.Tasks[0].Status != types.TaskFailed {
+		t.Errorf("nil-IR task should be marked failed: %+v", tl.Tasks)
 	}
 }
 
