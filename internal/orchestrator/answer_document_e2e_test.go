@@ -88,7 +88,7 @@ func finalizeWithAnswerDocument(doc *types.AnswerDocument, lang string) func(*ty
 // complete-header prose.
 func TestE2E_AnswerDocument_ListOfSymbols_Complete_Pipeline(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	ir := dagIR(types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
@@ -127,7 +127,7 @@ func TestE2E_AnswerDocument_ListOfSymbols_Complete_Pipeline(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	if _, err := o.Run("list the handlers", "/tmp/repo", "main"); err != nil {
@@ -154,7 +154,7 @@ func TestE2E_AnswerDocument_ListOfSymbols_Complete_Pipeline(t *testing.T) {
 // the finalizer, and the renderer picks the softened header.
 func TestE2E_AnswerDocument_CardinalityDowngrade(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	ir := dagIR(types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
 		Language:            "en",
@@ -189,7 +189,7 @@ func TestE2E_AnswerDocument_CardinalityDowngrade(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	if _, err := o.Run("list all X", "/tmp/repo", "main"); err != nil {
@@ -212,7 +212,7 @@ func TestE2E_AnswerDocument_CardinalityDowngrade(t *testing.T) {
 // renderer output.
 func TestE2E_AnswerDocument_StepList_CitationPool(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	ir := dagIR(types.AnswerContract{
 		RequiredAnswerShape: types.ShapeStepList,
 		Language:            "en",
@@ -248,7 +248,7 @@ func TestE2E_AnswerDocument_StepList_CitationPool(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	if _, err := o.Run("how does the router dispatch", "/tmp/repo", "main"); err != nil {
@@ -288,7 +288,7 @@ func TestE2E_AnswerDocument_StepList_CitationPool(t *testing.T) {
 // prefers the example-driven prose path.
 func TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
 
 	var observedSkill string
@@ -305,7 +305,7 @@ func TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill(t *testing.
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	if _, err := o.Run("q", "/tmp/repo", "main"); err != nil {
@@ -322,7 +322,7 @@ func TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill(t *testing.
 // task runs. Mirrors the structure of TestPhase14_RunTaskGraph_ResetsP21StateAtEntry.
 func TestE2E_AnswerDocument_CrossTaskReset(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
 
 	// Capture ONLY the first explorer call's view of Mutable. The
@@ -367,7 +367,7 @@ func TestE2E_AnswerDocument_CrossTaskReset(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	if _, err := o.Run("q", "/tmp/repo", "main"); err != nil {

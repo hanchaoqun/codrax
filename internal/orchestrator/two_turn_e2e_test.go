@@ -142,7 +142,7 @@ func (r *realExtractorEval) ParseOutput(ctx *types.AgentContext, _ []any, _ []an
 
 func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	ir := twoTurnIRWithHypotheses(nil, 2)
 	syms := []types.AnswerSymbol{
 		{Name: "Foo", File: "a.go", Line: 1, Kind: "function"},
@@ -179,7 +179,7 @@ func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	_, err := o.Run("which handlers register Foo?", "/tmp/repo", "main")
@@ -205,7 +205,7 @@ func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 
 func TestE2E_TwoTurnFlagOn_CompleteShortfall_DowngradedToLowerBound(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	// β=5 γ=0 baseline = 5. Extractor emits 2 with complete →
 	// downgrade to lower_bound. This is the UNRESOLVED #1 structural
 	// closure being exercised end-to-end.
@@ -230,7 +230,7 @@ func TestE2E_TwoTurnFlagOn_CompleteShortfall_DowngradedToLowerBound(t *testing.T
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	_, err := o.Run("which handlers register Foo?", "/tmp/repo", "main")
@@ -246,7 +246,7 @@ func TestE2E_TwoTurnFlagOn_CompleteShortfall_DowngradedToLowerBound(t *testing.T
 
 func TestE2E_TwoTurnFlagOn_MustIncludeShortfall_Downgraded(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 	// γ baseline dominates: MustInclude lists 4 names, β=0.
 	// Extractor emits 2 with complete → downgrade.
 	ir := twoTurnIRWithHypotheses([]string{"A", "B", "C", "D"}, 0)
@@ -270,7 +270,7 @@ func TestE2E_TwoTurnFlagOn_MustIncludeShortfall_Downgraded(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	_, err := o.Run("list all X", "/tmp/repo", "main")
@@ -291,7 +291,7 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 	// builder_test.go). Here we verify the plumbing reaches the
 	// finalizer with claim=unknown.
 
-	cfg := defaultResolvedConfig()
+
 	ir := twoTurnIRWithHypotheses(nil, 0)
 	syms := []types.AnswerSymbol{
 		{Name: "X", File: "x.go", Line: 1, Kind: "function"},
@@ -312,7 +312,7 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	_, err := o.Run("ambiguous", "/tmp/repo", "main")
@@ -348,7 +348,7 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 
 func TestPhase14_RunTaskGraph_ResetsP21StateAtEntry(t *testing.T) {
 
-	cfg := defaultResolvedConfig()
+
 
 	// Simulate "previous task" state on Mutable.
 	mu := types.NewMutableState(types.TaskList{
@@ -403,7 +403,7 @@ func TestPhase14_RunTaskGraph_ResetsP21StateAtEntry(t *testing.T) {
 		},
 	}
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 	// Inject the stale Mutable + pre-populated completeness through
 	// Run — the orchestrator's Run wraps busCtx, but we need to
@@ -428,7 +428,7 @@ func TestPhase14_RunTaskGraph_ResetsP21StateAtEntry(t *testing.T) {
 	}
 	agentFns[types.AgentAnalyzer] = pre
 	ar, sr, sar = buildRegistries(agentFns)
-	o = New(cfg, ar, sr, sar)
+	o = New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	_, err := o.Run("q", "/tmp/repo", "main")

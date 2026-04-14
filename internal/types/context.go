@@ -659,14 +659,6 @@ type ExecutionSignals struct {
 	RetryCount         int    `json:"retry_count"`
 }
 
-// PolicyContext holds policy flags governing pipeline behavior.
-type PolicyContext struct {
-	AllowWrite          bool `json:"allow_write"`
-	RequireReview       bool `json:"require_review"`
-	RequireVerification bool `json:"require_verification"`
-	MaxRetriesPerStage  int  `json:"max_retries_per_stage"`
-}
-
 // BusContext is the central data structure passed through the pipeline.
 //
 // The Mutable region is the only part of BusContext that tools may
@@ -717,7 +709,6 @@ type BusContext struct {
 	StageReports  []StageReport       `json:"stage_reports,omitempty"`
 
 	Signals ExecutionSignals `json:"signals"`
-	Policy  PolicyContext    `json:"policy"`
 
 	Constraints []string `json:"constraints,omitempty"`
 	Preferences []string `json:"preferences,omitempty"`

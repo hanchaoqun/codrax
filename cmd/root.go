@@ -37,33 +37,31 @@ var (
 // Code defaults for runtime settings.
 const (
 	defaultLogDir             = "logs"
-	defaultLogLevel           = "info"
-	defaultLogStdout          = false
-	defaultMemoryDir          = "memory"
-	defaultLang               = "zh"
-	defaultRepo               = "."
-	defaultBranch             = "main"
-	defaultMaxSteps           = 50
-	defaultOrchestratorConfig = "config/orchestrator.yaml"
-	defaultProvidersConfig    = "config/providers.yaml"
+	defaultLogLevel        = "info"
+	defaultLogStdout       = false
+	defaultMemoryDir       = "memory"
+	defaultLang            = "zh"
+	defaultRepo            = "."
+	defaultBranch          = "main"
+	defaultMaxSteps        = 50
+	defaultProvidersConfig = "config/providers.yaml"
 )
 
 // CLI flag variables.
 var (
-	flagConfig             string
-	flagProviders          string
-	flagRepo               string
-	flagBranch             string
-	flagRequest            string
-	flagMaxSteps           int
-	flagLogDir             string
-	flagLogLevel           string
-	flagLogStdout          bool
-	flagMemoryDir          string
-	flagCacheDir           string
-	flagLang               string
-	flagMaxRetries         int
-	flagMaxStageVisits     int
+	flagProviders      string
+	flagRepo           string
+	flagBranch         string
+	flagRequest        string
+	flagMaxSteps       int
+	flagLogDir         string
+	flagLogLevel       string
+	flagLogStdout      bool
+	flagMemoryDir      string
+	flagCacheDir       string
+	flagLang           string
+	flagMaxRetries     int
+	flagMaxStageVisits int
 )
 
 // appContext holds initialized state shared between subcommands.
@@ -71,7 +69,6 @@ type appContext struct {
 	renderer   *render.Renderer
 	orch       *orchestrator.Orchestrator
 	defaultLLM llm.Adapter
-	cfg        *config.ResolvedConfig
 	logger     *logging.Logger
 }
 
@@ -95,7 +92,6 @@ When invoked with no arguments, enters interactive REPL mode.`,
 
 func init() {
 	f := rootCmd.PersistentFlags()
-	f.StringVar(&flagConfig, "config", "", "path to orchestrator config")
 	f.StringVar(&flagProviders, "providers", "", "path to providers config")
 	f.StringVar(&flagRepo, "repo", ".", "repository root path")
 	f.StringVar(&flagBranch, "branch", "main", "git branch")
@@ -107,8 +103,8 @@ func init() {
 	f.StringVar(&flagMemoryDir, "memory-dir", "", "directory for conversation memory")
 	f.StringVar(&flagCacheDir, "cache-dir", "", "base directory for repo map caches (empty = ~/.cache/codrax)")
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
-	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from yaml")
-	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from yaml")
+	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
+	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
 
 	rootCmd.AddCommand(versionCmd)
 }
@@ -225,7 +221,6 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	mergedRepo := defaultRepo
 	mergedBranch := defaultBranch
 	mergedMaxSteps := defaultMaxSteps
-	mergedOrchestratorConfig := defaultOrchestratorConfig
 	mergedProvidersConfig := defaultProvidersConfig
 
 	// Overlay config file values.
@@ -266,9 +261,6 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineMaxSteps != nil {
 			mergedMaxSteps = *rs.PipelineMaxSteps
 		}
-		if rs.OrchestratorConfig != nil {
-			mergedOrchestratorConfig = *rs.OrchestratorConfig
-		}
 		if rs.ProvidersConfig != nil {
 			mergedProvidersConfig = *rs.ProvidersConfig
 		}
@@ -280,7 +272,6 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if mergedCacheDir != "" {
 		mergedCacheDir = anchorPath(anchorDir, mergedCacheDir)
 	}
-	mergedOrchestratorConfig = anchorPath(anchorDir, mergedOrchestratorConfig)
 	mergedProvidersConfig = anchorPath(anchorDir, mergedProvidersConfig)
 
 	// Per-target-repo namespacing.
@@ -293,9 +284,6 @@ func initApp(cmd *cobra.Command, _ []string) error {
 
 	// --- Phase 2: apply CLI flag overrides (3rd tier) ---
 	// Only override if the flag was explicitly set on the command line.
-	if !cmd.Flags().Changed("config") {
-		flagConfig = mergedOrchestratorConfig
-	}
 	if !cmd.Flags().Changed("providers") {
 		flagProviders = mergedProvidersConfig
 	}
@@ -352,15 +340,8 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	repomap.SetCacheDir(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir)
 
-	// Load configuration.
-	cfg, err := config.LoadAndResolve(flagConfig)
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-	app.cfg = cfg
-	logging.Info("loaded config: %d stages, %d policies", len(cfg.Stages), len(cfg.TaskPolicies))
-
-	// Apply runtime overrides from codrax.yaml.
+	// Build pipeline settings from codrax.yaml overrides.
+	var pipelineSettings types.PipelineSettings
 	if rs != nil {
 		blobMax, blobHead, blobTail := 0, 0, 0
 		if rs.BlobMaxInlineBytes != nil {
@@ -375,35 +356,23 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		tool.SetBlobLimits(blobMax, blobHead, blobTail)
 
 		if rs.PipelineMaxRetriesPerStage != nil {
-			cfg.PipelineSettings.MaxRetriesPerStage = *rs.PipelineMaxRetriesPerStage
+			pipelineSettings.MaxRetriesPerStage = *rs.PipelineMaxRetriesPerStage
 		}
 		if rs.PipelineMaxStageVisits != nil {
-			cfg.PipelineSettings.MaxStageVisits = *rs.PipelineMaxStageVisits
-		}
-		if rs.PipelineEnableVerify != nil {
-			cfg.PipelineSettings.EnableVerify = *rs.PipelineEnableVerify
-		}
-		if rs.PipelineRequireReview != nil {
-			cfg.PipelineSettings.RequireReview = *rs.PipelineRequireReview
-		}
-		if rs.PipelineAllowSkipPlanForSmall != nil {
-			cfg.PipelineSettings.AllowSkipPlanForSmallChange = *rs.PipelineAllowSkipPlanForSmall
+			pipelineSettings.MaxStageVisits = *rs.PipelineMaxStageVisits
 		}
 	}
 	// CLI flag overrides for pipeline budget.
 	if cmd.Flags().Changed("pipeline-max-retries") && flagMaxRetries > 0 {
-		cfg.PipelineSettings.MaxRetriesPerStage = flagMaxRetries
+		pipelineSettings.MaxRetriesPerStage = flagMaxRetries
 	}
 	if cmd.Flags().Changed("pipeline-max-stage-visits") && flagMaxStageVisits > 0 {
-		cfg.PipelineSettings.MaxStageVisits = flagMaxStageVisits
+		pipelineSettings.MaxStageVisits = flagMaxStageVisits
 	}
-	logging.Info("pipeline_settings: max_steps=%d enable_verify=%v require_review=%v max_retries_per_stage=%d max_stage_visits=%d allow_skip_plan_for_small_change=%v",
+	logging.Info("pipeline_settings: max_steps=%d max_retries_per_stage=%d max_stage_visits=%d",
 		flagMaxSteps,
-		cfg.PipelineSettings.EnableVerify,
-		cfg.PipelineSettings.RequireReview,
-		cfg.PipelineSettings.MaxRetriesPerStage,
-		cfg.PipelineSettings.MaxStageVisits,
-		cfg.PipelineSettings.AllowSkipPlanForSmallChange)
+		pipelineSettings.MaxRetriesPerStage,
+		pipelineSettings.MaxStageVisits)
 	logging.Info("blob_limits: max_inline_bytes=%d preview_head_bytes=%d preview_tail_bytes=%d",
 		tool.MaxInlineBytes, tool.PreviewHeadBytesValue(), tool.PreviewTailBytesValue())
 
@@ -469,7 +438,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	agent.RegisterDefaults(agentRegistry, deps, resolver)
 	logging.Info("registered %d agents", len(agentRegistry.List()))
 
-	orch := orchestrator.New(cfg, agentRegistry, skillRegistry, subAgentRegistry)
+	orch := orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)
 	orch.SetMaxSteps(flagMaxSteps)
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())

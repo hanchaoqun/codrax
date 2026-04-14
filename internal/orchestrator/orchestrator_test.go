@@ -2,23 +2,14 @@ package orchestrator
 
 import (
 	"github.com/hanchaoqun/codrax/internal/agent"
-	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// This file used to host the linear-pipeline orchestrator tests
-// (TestRun_SimplePipeline, TestRun_MultiTaskExecution,
-// TestRun_ExplorerFactSourceFlowsToFinalizer,
-// TestDecideNextStage_*, TestDetermineActivePolicy_*, etc). All of
-// them exercised the legacy implementation pipeline (plan →
-// design_review → implement → code_review → verify) which was
-// deleted in the 2026-04-14 simplification when codrax collapsed to
-// a read-only analysis tool. The orchestrator is now tested via the
-// DAG-path tests in orchestrator_dag_test.go + two_turn_e2e_test.go
-// + answer_document_e2e_test.go.
-//
-// Test helpers that the DAG tests still depend on stay here.
+// This file hosts the mock agent + registry helpers the DAG tests
+// (orchestrator_dag_test.go, two_turn_e2e_test.go,
+// answer_document_e2e_test.go, apply_stage_output_dedup_test.go)
+// share.
 
 // ---------------------------------------------------------------------------
 // Mock agent
@@ -42,38 +33,9 @@ func newMockAgent(name types.AgentName, fn func(*types.AgentContext, *skill.Conf
 	return &mockAgent{name: name, execFn: fn}
 }
 
-// defaultResolvedConfig builds a read-only pipeline config:
-// analyze → explore → extract → finalize. The write stages
-// (plan / design_review / implement / code_review / verify) were
-// deleted in the 2026-04-14 simplification.
-func defaultResolvedConfig() *config.ResolvedConfig {
-	return &config.ResolvedConfig{
-		Stages: map[types.PipelineStage]*types.StageConfig{
-			types.StageAnalyze: {
-				Name: types.StageAnalyze, DefaultAgent: types.AgentAnalyzer,
-				DefaultSkill: "analyze-skill",
-			},
-			types.StageExplore: {
-				Name: types.StageExplore, DefaultAgent: types.AgentExplorer,
-				DefaultSkill: "explore-skill",
-			},
-			types.StageExtract: {
-				Name: types.StageExtract, DefaultAgent: types.AgentExtractor,
-				DefaultSkill: "extract-skill",
-			},
-			types.StageFinalize: {
-				Name: types.StageFinalize, DefaultAgent: types.AgentFinalizer,
-				DefaultSkill: "finalize-skill", Terminal: true,
-			},
-		},
-		PipelineSettings: types.PipelineSettings{},
-		Agents:           map[types.AgentName]*types.AgentConfig{},
-		Skills:           map[string]*types.SkillConfigYAML{},
-	}
-}
-
 // buildRegistries creates agent and skill registries with mock
-// entries matching the read-only pipeline.
+// entries matching the 4-stage read-only pipeline. Skill names
+// match the hardcoded topology in topology.go.
 func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)) (*agent.Registry, *skill.Registry, *agent.SubAgentRegistry) {
 	ar := agent.NewRegistry()
 	names := []types.AgentName{
@@ -92,10 +54,10 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 
 	sr := skill.NewRegistry()
 	skillNames := []string{
-		"analyze-skill",
-		"explore-skill",
+		"task-analysis-skill",
+		"repo-explore-skill",
 		"extract-skill",
-		"finalize-skill",
+		"final-answer-skill",
 		"answer-document-skill",
 	}
 	for _, s := range skillNames {

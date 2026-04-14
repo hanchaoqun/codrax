@@ -1081,30 +1081,31 @@ func TestE2E_RealRepo_CodraxSelfAnalysis(t *testing.T) {
 	parsed := repomap.ParseFiles(entries, root)
 	graph := repomap.BuildGraph(root, parsed)
 
-	t.Run("analyze_orchestrator_config_pipeline", func(t *testing.T) {
-		// Focus on config/orchestrator.yaml and the orchestrator package
+	t.Run("analyze_providers_config", func(t *testing.T) {
+		// Focus on config/providers.yaml — the only YAML config
+		// that survives in the read-only codrax pipeline.
 		result := Analyze(graph, Options{
 			RepoRoot: root,
-			Question: "What stages does the pipeline define and how do they transition?",
+			Question: "What providers and models does the LLM routing use?",
 			CandidateFiles: []string{
-				"config/orchestrator.yaml",
-				"internal/orchestrator/orchestrator.go",
+				"config/providers.yaml",
+				"internal/config/providers.go",
 			},
 			WorkDir: t.TempDir(),
 		})
 
-		// config/orchestrator.yaml is a real YAML file — must produce config evidence
+		// config/providers.yaml is a real YAML file — must produce config evidence
 		var configEvidence int
 		for _, ev := range result.Evidence {
 			if ev.Kind == types.EvidenceConcrete && ev.Predicate == "config_value" &&
-				ev.Source == "config/orchestrator.yaml" {
+				ev.Source == "config/providers.yaml" {
 				configEvidence++
 			}
 		}
 		if configEvidence == 0 {
 			t.Fatal("real YAML config produced no flattened config evidence")
 		}
-		t.Logf("config/orchestrator.yaml produced %d config evidence items", configEvidence)
+		t.Logf("config/providers.yaml produced %d config evidence items", configEvidence)
 	})
 
 	t.Run("analyze_agent_package", func(t *testing.T) {

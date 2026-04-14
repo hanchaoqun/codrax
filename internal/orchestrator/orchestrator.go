@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
-	"github.com/hanchaoqun/codrax/internal/config"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -15,11 +14,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// Orchestrator is the Layer 1 component that drives the pipeline state machine.
-// It reads configuration from YAML, manages BusContext, dispatches agents,
-// and evaluates transitions between stages.
+// Orchestrator is the Layer 1 component that drives the pipeline state
+// machine. It walks the hardcoded 4-stage topology (see topology.go),
+// manages BusContext, and dispatches agents.
 type Orchestrator struct {
-	config      *config.ResolvedConfig
+	settings    types.PipelineSettings
 	agents      *agent.Registry
 	skills      *skill.Registry
 	busCtx      *types.BusContext
@@ -31,9 +30,9 @@ type Orchestrator struct {
 }
 
 // New creates a new Orchestrator.
-func New(cfg *config.ResolvedConfig, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
+func New(settings types.PipelineSettings, agents *agent.Registry, skills *skill.Registry, subAgents *agent.SubAgentRegistry) *Orchestrator {
 	return &Orchestrator{
-		config:     cfg,
+		settings:   settings,
 		agents:     agents,
 		skills:     skills,
 		maxSteps:   50,
@@ -138,10 +137,6 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			Stage:   types.StageAnalyze,
 			Missing: types.MissingUnderstanding,
 		},
-		Policy: types.PolicyContext{
-			RequireReview:      o.config.PipelineSettings.RequireReview,
-			MaxRetriesPerStage: o.config.PipelineSettings.MaxRetriesPerStage,
-		},
 	}
 
 	if pref := languageDirective(o.language); pref != "" {
@@ -217,16 +212,11 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 // the task list via todo_write (or its fail-safe path) before
 // returning so the per-task phase has work to do.
 func (o *Orchestrator) runAnalyzePhase() (int, error) {
-	stageConfig, err := o.config.GetStageConfig(types.StageAnalyze)
-	if err != nil {
-		return 0, fmt.Errorf("get analyze stage: %w", err)
-	}
-
 	o.busCtx.PipelineStage = types.StageAnalyze
 	o.busCtx.TaskState.Stage = types.StageAnalyze
 	o.busCtx.TaskState.Missing = types.MissingUnderstanding
 
-	if _, err := o.dispatchStage(stageConfig); err != nil {
+	if _, err := o.dispatchStage(types.StageAnalyze); err != nil {
 		return 1, err
 	}
 	return 1, nil
@@ -394,19 +384,10 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 				state.markRunning(n.ID)
 			}
 
-			stageConfig, err := o.config.GetStageConfig(types.StageExplore)
-			if err != nil {
-				logging.Error("[orchestrator] task %s explore stage lookup failed: %v", taskID, err)
-				for _, n := range window {
-					state.markFailed(n.ID)
-				}
-				break
-			}
-
 			o.busCtx.PipelineStage = types.StageExplore
 			o.busCtx.TaskState.Stage = types.StageExplore
 			stepsUsed++
-			if _, err := o.dispatchStage(stageConfig); err != nil {
+			if _, err := o.dispatchStage(types.StageExplore); err != nil {
 				logging.Error("[orchestrator] task %s DAG explore window failed: %v", taskID, err)
 				for _, n := range window {
 					state.markFailed(n.ID)
@@ -422,33 +403,27 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 				// window completes successfully, dispatch the
 				// extractor to drain Turn A's transcript into
 				// structured emit_answer_symbol / emit_hypothesis_verdict
-				// items. The stage-config lookup is a sanity guard for
-				// bootstrap/test runs where the extract stage is not
-				// registered.
-				if extractCfg, exErr := o.config.GetStageConfig(types.StageExtract); exErr == nil {
-					o.busCtx.PipelineStage = types.StageExtract
-					o.busCtx.TaskState.Stage = types.StageExtract
-					stepsUsed++
-					if _, exDispatchErr := o.dispatchStage(extractCfg); exDispatchErr != nil {
-						logging.Warning("[orchestrator] task %s DAG extract dispatch failed (continuing to finalize): %v", taskID, exDispatchErr)
-					} else {
-						// Turn B's hypothesis verdict drain hook. After the
-						// extractor successfully emits emit_hypothesis_verdict
-						// batches, Turn B's ParseOutput leaves the verdicts
-						// in MutableState.EmittedHypothesisVerdicts instead
-						// of copying them into StageOutput (MarkHypothesis
-						// writes into AnalysisIR, which the extractor does
-						// not own — the v3 contract makes the analyzer the
-						// sole writer of the IR with MarkHypothesis as the
-						// dedicated carve-out API). The orchestrator reads
-						// the buffer here, applies MarkHypothesis for each
-						// verdict, and LEAVES the buffer populated so the
-						// finalizer's prompt builder can render the
-						// rationale and citation back to the user.
-						o.drainHypothesisVerdicts(taskID)
-					}
+				// items.
+				o.busCtx.PipelineStage = types.StageExtract
+				o.busCtx.TaskState.Stage = types.StageExtract
+				stepsUsed++
+				if _, exDispatchErr := o.dispatchStage(types.StageExtract); exDispatchErr != nil {
+					logging.Warning("[orchestrator] task %s DAG extract dispatch failed (continuing to finalize): %v", taskID, exDispatchErr)
 				} else {
-					logging.Debug("[orchestrator] extract stage config missing (%v); skipping extractor dispatch", exErr)
+					// Turn B's hypothesis verdict drain hook. After the
+					// extractor successfully emits emit_hypothesis_verdict
+					// batches, Turn B's ParseOutput leaves the verdicts
+					// in MutableState.EmittedHypothesisVerdicts instead
+					// of copying them into StageOutput (MarkHypothesis
+					// writes into AnalysisIR, which the extractor does
+					// not own — the v3 contract makes the analyzer the
+					// sole writer of the IR with MarkHypothesis as the
+					// dedicated carve-out API). The orchestrator reads
+					// the buffer here, applies MarkHypothesis for each
+					// verdict, and LEAVES the buffer populated so the
+					// finalizer's prompt builder can render the
+					// rationale and citation back to the user.
+					o.drainHypothesisVerdicts(taskID)
 				}
 			}
 			continue
@@ -462,16 +437,10 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 		}
 
 		state.markRunning(fin.ID)
-		stageConfig, err := o.config.GetStageConfig(types.StageFinalize)
-		if err != nil {
-			logging.Error("[orchestrator] task %s finalize stage lookup failed: %v", taskID, err)
-			state.markFailed(fin.ID)
-			break
-		}
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
 		stepsUsed++
-		out, err := o.dispatchStage(stageConfig)
+		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
 			logging.Error("[orchestrator] task %s DAG finalize failed: %v", taskID, err)
 			state.markFailed(fin.ID)
@@ -519,18 +488,12 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 
 	if lastFinalize == nil {
 		// Force one finalize dispatch so the task always terminates
-		// with a Result, mirroring runTaskPipelineLegacy's safety net.
+		// with a Result.
 		logging.Warning("[orchestrator] task %s DAG run produced no finalize output; forcing finalize", taskID)
-		finalConfig, err := o.config.GetStageConfig(types.StageFinalize)
-		if err != nil {
-			logging.Error("[orchestrator] task %s forced finalize lookup failed: %v", taskID, err)
-			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
-			return stepsUsed
-		}
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
 		stepsUsed++
-		out, err := o.dispatchStage(finalConfig)
+		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
 			logging.Error("[orchestrator] task %s forced finalize failed: %v", taskID, err)
 			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
@@ -656,27 +619,22 @@ func (o *Orchestrator) nextPendingTask() *types.TaskItem {
 // through applyStageOutput by the time this function returns, so
 // callers don't need to apply it again — they can just inspect
 // fields like FinalAnswer that are useful for per-stage reactions
-// (runTaskGraph / runTaskPipelineLegacy use this to write the finalizer's answer onto
-// the task's Result).
-func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.StageOutput, error) {
-	agentName := stageConfig.DefaultAgent
-	skillName := stageConfig.DefaultSkill
+// (runTaskGraph uses this to write the finalizer's answer onto the
+// task's Result).
+func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOutput, error) {
+	info, ok := pipelineTopology[stage]
+	if !ok {
+		return nil, fmt.Errorf("unknown pipeline stage: %s", stage)
+	}
+	agentName := info.Agent
+	skillName := info.Skill
 
-	// Per-policy skill override at the finalize stage. The default
-	// final-answer-skill is shaped for implementation tasks (its
-	// workflow is "summarize all changes, compile patch information,
-	// write usage instructions, list action steps, mark tasks
-	// complete"), and forcing an analysis answer through that template
-	// produces verbose templated prose with invented Action Steps and
-	// dilutes precise quantitative answers into mush. For analysis
-	// pipelines we route to a Q&A-shaped skill instead. Only the
-	// finalize stage gets this routing today; other stages have a
 	// The finalize stage always uses the structured AnswerDocument
-	// channel (answer-document-skill). The skill is shape-agnostic —
-	// the evaluator resolves the target shape from AnalysisIR at
-	// BuildInitialPrompt time. Unit tests with a minimal skill
-	// registry fall back to the default skill cleanly.
-	if stageConfig.Name == types.StageFinalize {
+	// channel (answer-document-skill) when it is registered. The skill
+	// is shape-agnostic — the evaluator resolves the target shape from
+	// AnalysisIR at BuildInitialPrompt time. Unit tests with a minimal
+	// skill registry fall back to the default skill cleanly.
+	if stage == types.StageFinalize {
 		if _, err := o.skills.Get("answer-document-skill"); err == nil {
 			skillName = "answer-document-skill"
 		}
@@ -693,7 +651,7 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	}
 
 	o.busCtx.ActiveAgent = agentName
-	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stageConfig.Name)
+	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)
 
 	logging.Info("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
 
@@ -701,14 +659,14 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	o.emit(render.Event{
 		Kind:      render.EventStageStart,
 		Timestamp: stageStart,
-		Stage:     stageConfig.Name,
+		Stage:     stage,
 		Agent:     agentName,
 		Skill:     skillName,
 	})
 	o.emit(render.Event{
 		Kind:      render.EventSkillBound,
 		Timestamp: stageStart,
-		Stage:     stageConfig.Name,
+		Stage:     stage,
 		Agent:     agentName,
 		Skill:     skillName,
 	})
@@ -718,7 +676,7 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 		o.emit(render.Event{
 			Kind:      render.EventStageEnd,
 			Timestamp: time.Now(),
-			Stage:     stageConfig.Name,
+			Stage:     stage,
 			Agent:     agentName,
 			Error:     err.Error(),
 		})
@@ -737,7 +695,7 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 		o.emit(render.Event{
 			Kind:         render.EventSubAgentStart,
 			Timestamp:    time.Now(),
-			Stage:        stageConfig.Name,
+			Stage:        stage,
 			SubAgentName: string(agentName),
 			SubAgentID:   o.busCtx.TraceID + "-subagent",
 			SubTaskTitle: subTitle,
@@ -761,7 +719,7 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 		o.emit(render.Event{
 			Kind:          render.EventSubAgentEnd,
 			Timestamp:     time.Now(),
-			Stage:         stageConfig.Name,
+			Stage:         stage,
 			SubAgentName:  string(agentName),
 			SubAgentID:    o.busCtx.TraceID + "-subagent",
 			ToolCallCount: subTools,
@@ -771,10 +729,10 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	}
 
 	o.applyStageOutput(output)
-	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stageConfig.Name))
+	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stage))
 
 	// Emit task list update if analyzer populated it.
-	if stageConfig.Name == types.StageAnalyze && o.busCtx.Mutable != nil {
+	if stage == types.StageAnalyze && o.busCtx.Mutable != nil {
 		tl := o.busCtx.Mutable.TaskList()
 		if len(tl.Tasks) > 0 {
 			o.emit(render.Event{
@@ -792,7 +750,7 @@ func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.Sta
 	o.emit(render.Event{
 		Kind:      render.EventStageEnd,
 		Timestamp: time.Now(),
-		Stage:     stageConfig.Name,
+		Stage:     stage,
 		Agent:     agentName,
 		Error:     stageErr,
 	})

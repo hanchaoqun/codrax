@@ -68,7 +68,7 @@ func dagAnalyzerFn(ir *types.AnalysisIR) func(*types.AgentContext, *skill.Config
 }
 
 func TestRunTaskGraph_HappyPath(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 
 	var explorerCalls, finalizeCalls int
 	var observedExplorerHints []string
@@ -95,7 +95,7 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 	}
 
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
@@ -130,7 +130,7 @@ func TestRunTaskGraph_HappyPath(t *testing.T) {
 }
 
 func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 
 	var explorerCalls, finalizeCalls int
 
@@ -168,7 +168,7 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 	}
 
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	_, err := o.Run("explain X", "/tmp/repo", "main")
@@ -184,7 +184,7 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 }
 
 func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 
 	ir := dagIR(types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
@@ -211,7 +211,7 @@ func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 	}
 
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("explain X", "/tmp/repo", "main")
@@ -236,7 +236,7 @@ func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 // produce a TaskGraph, runTaskGraph marks the task failed fast.
 // The legacy fallback was deleted in the 2026-04-14 simplification.
 func TestRunTaskGraph_NilIRFailsFast(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 	var explorerCalls int
 
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -258,7 +258,7 @@ func TestRunTaskGraph_NilIRFailsFast(t *testing.T) {
 	}
 
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(20)
 
 	busCtx, err := o.Run("ask something", "/tmp/repo", "main")
@@ -278,7 +278,7 @@ func TestRunTaskGraph_EvidencePlanBudgetCapsSteps(t *testing.T) {
 	// Build an IR whose EvidencePlan caps stepBudget tighter than
 	// the orchestrator's maxSteps. The merged schedule's per-task
 	// loop should respect the IR cap.
-	cfg := defaultResolvedConfig()
+
 
 	ir := dagIR(types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
@@ -309,7 +309,7 @@ func TestRunTaskGraph_EvidencePlanBudgetCapsSteps(t *testing.T) {
 	}
 
 	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.SetMaxSteps(50) // generous, but the IR cap should win
 
 	_, err := o.Run("ask", "/tmp/repo", "main")

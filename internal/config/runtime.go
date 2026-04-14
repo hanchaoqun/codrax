@@ -10,23 +10,19 @@ import (
 
 // RuntimeSettings holds the per-process knobs that the codrax binary
 // exposes on the command line. The division of responsibility across
-// the three YAML files in config/ is:
+// the two YAML files in config/ is:
 //
-//   - orchestrator.yaml — pipeline topology (stages, transitions,
-//     policies, agents, skills, per-stage limits). Shared across users.
-//   - providers.yaml    — LLM provider credentials and per-agent model
+//   - providers.yaml — LLM provider credentials and per-agent model
 //     routing. Per-user secrets, never committed.
-//   - codrax.yaml       — this file. Runtime knobs that describe how
+//   - codrax.yaml    — this file. Runtime knobs that describe how
 //     the binary should run on this machine/in this invocation: log
 //     sink, memory sink, language, per-run step budget, target repo,
-//     and pointers to the two files above.
+//     and a pointer to providers.yaml.
 //
-// Nothing in this struct should duplicate orchestrator.yaml or
-// providers.yaml keys: OrchestratorConfig and ProvidersConfig are
-// paths, not contents; PipelineMaxSteps is a global Run() budget,
-// not a per-stage limit like pipeline_max_stage_visits.
+// The pipeline topology (4 stages × 4 agents) is hardcoded in
+// internal/orchestrator/topology.go and has no YAML counterpart.
 //
-// Every field is a pointer so the merge logic in main.go can tell
+// Every field is a pointer so the merge logic in cmd/root.go can tell
 // "user omitted this key in the YAML file" (nil) from "user set it
 // to the zero value" (non-nil pointer to the zero value). This matters
 // for LogStdout in particular: a default of false and a config file
@@ -53,23 +49,16 @@ type RuntimeSettings struct {
 	BlobPreviewHeadBytes *int `yaml:"blob_preview_head_bytes"`
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
 
-	// Pipeline behavior. Flat-prefixed `pipeline_*`. These are
-	// runtime/operator concerns (retry budgets, behavior toggles,
-	// step budget), not pipeline topology. PipelineMaxSteps is the
-	// global Run() step budget. Precedence: code default → codrax.yaml
-	// → CLI flag.
-	PipelineMaxSteps              *int  `yaml:"pipeline_max_steps"`
-	PipelineMaxRetriesPerStage    *int  `yaml:"pipeline_max_retries_per_stage"`
-	PipelineMaxStageVisits        *int  `yaml:"pipeline_max_stage_visits"`
-	PipelineEnableVerify          *bool `yaml:"pipeline_enable_verify"`
-	PipelineRequireReview         *bool `yaml:"pipeline_require_review"`
-	PipelineAllowSkipPlanForSmall *bool `yaml:"pipeline_allow_skip_plan_for_small_change"`
+	// Pipeline budget knobs. Flat-prefixed `pipeline_*`. Precedence:
+	// code default → codrax.yaml → CLI flag.
+	PipelineMaxSteps           *int `yaml:"pipeline_max_steps"`
+	PipelineMaxRetriesPerStage *int `yaml:"pipeline_max_retries_per_stage"`
+	PipelineMaxStageVisits     *int `yaml:"pipeline_max_stage_visits"`
 
-	// Pointers to the other two config files. Nested here so a single
+	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.
-	OrchestratorConfig *string `yaml:"orchestrator_config"`
-	ProvidersConfig    *string `yaml:"providers_config"`
+	ProvidersConfig *string `yaml:"providers_config"`
 }
 
 // LoadRuntimeSettings reads path as a YAML document into a

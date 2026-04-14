@@ -34,14 +34,13 @@ import (
 // design note in the audit doc.
 
 func TestApplyStageOutput_DedupsAnswerChainsOnSelfLoop(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 	ar, sr, sar := buildRegistries(nil)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageExplore,
 		ActiveAgent:   types.AgentExplorer,
 		TaskState:     types.TaskState{Stage: types.StageExplore},
-		Policy:        types.PolicyContext{},
 	}
 
 	// First explore run: two chains produced.
@@ -78,14 +77,13 @@ func TestApplyStageOutput_DedupsAnswerChainsOnSelfLoop(t *testing.T) {
 }
 
 func TestApplyStageOutput_DedupsAnswerSymbolsOnSelfLoop(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 	ar, sr, sar := buildRegistries(nil)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageExplore,
 		ActiveAgent:   types.AgentExplorer,
 		TaskState:     types.TaskState{Stage: types.StageExplore},
-		Policy:        types.PolicyContext{},
 	}
 
 	sym1 := types.AnswerSymbol{Name: "explorer", File: "internal/agent/sub_explorer.go", Line: 32}
@@ -107,14 +105,13 @@ func TestApplyStageOutput_DedupsAnswerSymbolsOnSelfLoop(t *testing.T) {
 }
 
 func TestApplyStageOutput_DedupsEvidenceItemsByID(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 	ar, sr, sar := buildRegistries(nil)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageExplore,
 		ActiveAgent:   types.AgentExplorer,
 		TaskState:     types.TaskState{Stage: types.StageExplore},
-		Policy:        types.PolicyContext{},
 	}
 
 	ev1 := types.EvidenceItem{
@@ -155,14 +152,13 @@ func TestApplyStageOutput_DedupsEvidenceItemsByID(t *testing.T) {
 // that intent so a future "dedup everything" patch doesn't
 // accidentally erase useful tool-call history.
 func TestApplyStageOutput_KeepsAppendingToolResultsOnSelfLoop(t *testing.T) {
-	cfg := defaultResolvedConfig()
+
 	ar, sr, sar := buildRegistries(nil)
-	o := New(cfg, ar, sr, sar)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageExplore,
 		ActiveAgent:   types.AgentExplorer,
 		TaskState:     types.TaskState{Stage: types.StageExplore},
-		Policy:        types.PolicyContext{},
 	}
 
 	tr := types.ToolResult{ToolName: "grep", Success: true, Summary: "internal/agent/subagent.go"}
