@@ -416,7 +416,7 @@ type BusContext struct {
     RepoFacts     []RepoFact
     EvidenceItems []EvidenceItem
     FlowFindings  []FlowFindingDigest
-    AnswerChains  []string
+    AnswerChains  []AnswerChain        // 结构化：每条携带 Item+Score+StrictOK
     AnswerSymbols []AnswerSymbol
     AnswerSymbolCompleteness CompletenessClaim
     ToolResults   []ToolResult
@@ -542,7 +542,7 @@ type AgentContext struct {
     RelevantFiles         []string
     EvidenceItems         []EvidenceItem
     FlowFindings          []FlowFindingDigest
-    AnswerChains          []string
+    AnswerChains          []AnswerChain
     AnswerSymbols         []AnswerSymbol
     AnswerSymbolCompleteness CompletenessClaim
     RelevantToolSummaries []string
@@ -714,7 +714,8 @@ ERM（Evidence Requirement Model）和 extractor 常被混为一谈，但它们�
 | LLM → Agent（tool call） | `llm.ToolCall{ID, Name, Arguments json.RawMessage}` → schema decode |
 | StageOutput → BusContext | struct 直拷（`applyStageOutput`） |
 | Analyzer → 流水线 | `*AnalysisIR`（深度 typed tree） |
-| Turn A → Turn B | `*TurnAArtifacts`（struct 快照） |
+| Turn A → Turn B | `*TurnAArtifacts`（struct 快照，包含 `[]EvidenceItem` 严格子集） |
+| 确定性 chain 排序 | `[]AnswerChain{Item EvidenceItem, Score float64, StrictOK bool}` 从 `identifyAnswerChains` 产出，沿 StageOutput → BusContext → AgentContext 流到 finalizer prompt |
 | Extractor → Finalizer | `[]AnswerSymbol` + `CompletenessClaim` + `[]HypothesisVerdict`（存在 `MutableState` 缓冲区） |
 | Finalizer → Renderer | `*AnswerDocument`（typed Summary/Steps/Symbols/Value/Boolean/Citations） |
 | Tool → MutableState（emit_\* 侧信道） | 每个工具有专属 typed setter（`SetEvidence` / `SetEmittedAnswerSymbols` / `SetAnswerDocument` / `AppendEmittedHypothesisVerdict`） |
@@ -745,8 +746,9 @@ typed data ───────────────> Markdown prompt ──
 | `StageOutput.Error` | 错误信息 |
 | `ToolResult.Summary` | 工具给 LLM 看的摘要，具体内容由每个工具决定 |
 | `ToolResult.RawRef` | 大输出的 blob 文件引用 |
-| `BusContext.AnswerChains []string` | `identifyAnswerChains` 产出的 resolution chain 文本，消费端永远是 LLM prompt |
-| `AgentContext.RelevantFacts/Files/ToolSummaries/MCPNotes []string` | 已结构化数据 flatten 后的 prompt-layer 缓冲区，语义正确 |
+| `AgentContext.RelevantFacts/Files/ToolSummaries/MCPNotes []string` | 已结构化数据 flatten 后的 prompt-layer 缓冲区，产生点在 `context/builder.go`（LLM 边界之前一步），语义正确 |
+
+> **历史注记**：`AnswerChains` 曾经是 `[]string` —— `identifyAnswerChains` 在纯 Go 代码里把 `EvidenceItem` 的 `Summary` 字段拼上 `" (file:line)"` 后缀往下游传，属于"运行时 Go 代码中途做 flatten"的反模式。2026-04-14 的 commit `784fb4e` 把它改成 typed `[]AnswerChain{Item, Score, StrictOK}`，扁平化下移到唯一合法的 flatten 点（`context/builder.go:renderAnswerChainForPrompt`）。现在代码库里**再没有任何"运行时产、提前 flatten、作为 string 往下传"的数据通道**。
 
 #### 强约束（Invariants）
 
