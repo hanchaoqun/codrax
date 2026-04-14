@@ -139,9 +139,10 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		return failEmit(t.Name(), now, "items is empty; emit at least one evidence object per call")
 	}
 
+	workDir := strings.TrimSpace(ctx.WorkDir)
 	built := make([]types.EvidenceItem, 0, len(p.Items))
 	for i, in := range p.Items {
-		ev, perr := buildEmitEvidenceItem(in, i)
+		ev, perr := buildEmitEvidenceItem(in, i, workDir)
 		if perr != nil {
 			return failEmit(t.Name(), now, "%v", perr)
 		}
@@ -161,7 +162,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 // buildEmitEvidenceItem validates a single decoded item and converts
 // it into a types.EvidenceItem with stable ID and producer stamped.
 // All validation is structural, never wordlist-based.
-func buildEmitEvidenceItem(in emitEvidenceItem, index int) (types.EvidenceItem, error) {
+func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (types.EvidenceItem, error) {
 	kindKey := strings.ToLower(strings.TrimSpace(in.Kind))
 	kind, ok := emitEvidenceAllowedKinds[kindKey]
 	if !ok {
@@ -173,6 +174,14 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int) (types.EvidenceItem, 
 	}
 	if !emitLooksLikePath(source) {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q does not look like a repo-relative file path", index, in.Source)
+	}
+	// Blob-file path leak gate (UNRESOLVED bug N=1, see
+	// docs/bug-blob-file-path-leak-into-final-answer.md and
+	// memory/project_blob_file_leak_unresolved.md). The same
+	// structural prefix check ships in emit_answer_symbol; both tools
+	// ride on isInsideWorkDir from emit_answer_symbol.go.
+	if isInsideWorkDir(source, workDir) {
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file. Re-cite the original repo path that the blob was extracted from.", index, in.Source, workDir)
 	}
 	if in.LineStart < 0 || in.LineEnd < 0 {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_start/line_end must be >= 0", index)

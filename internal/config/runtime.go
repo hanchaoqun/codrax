@@ -75,6 +75,19 @@ type RuntimeSettings struct {
 	// No CLI override — switching channels mid-process makes no sense.
 	EvidenceToolMode *string `yaml:"evidence_tool_mode"`
 
+	// TwoTurnExplorerMode selects the explorer turn topology.
+	//   "off" — single-turn ReAct loop (current behavior, default)
+	//   "on"  — split into Turn A (investigation, read tools) followed by
+	//           a separate StageExtract dispatch handled by the extractor
+	//           agent (Turn B, restricted to emit_evidence /
+	//           emit_answer_symbol / emit_hypothesis_verdict). Turning
+	//           this on implies EvidenceToolMode == "on" since Turn B's
+	//           only evidence channel is the structured tool.
+	// P2.1 design (memory/project_architecture_remediation_roadmap.md §6,
+	// memory/project_p2_1_session_*_shipped.md). No CLI override —
+	// switching topology mid-process makes no sense.
+	TwoTurnExplorerMode *string `yaml:"two_turn_explorer_mode"`
+
 	// Pointers to the other two config files. Nested here so a single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

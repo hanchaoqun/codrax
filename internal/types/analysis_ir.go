@@ -1,5 +1,7 @@
 package types
 
+import "fmt"
+
 // AnalysisIR is the sole structured output of the analyze stage under the
 // Analyzer v3 design. It is a single source of truth for everything the
 // downstream pipeline needs to know about the user's request: intent and
@@ -287,10 +289,59 @@ type Hypothesis struct {
 type HypothesisStatus string
 
 const (
-	HypUnknown   HypothesisStatus = "unknown"
-	HypConfirmed HypothesisStatus = "confirmed"
-	HypRejected  HypothesisStatus = "rejected"
+	HypUnknown      HypothesisStatus = "unknown"
+	HypConfirmed    HypothesisStatus = "confirmed"
+	HypRejected     HypothesisStatus = "rejected"
+	HypInconclusive HypothesisStatus = "inconclusive"
 )
+
+// MarkHypothesis is the P2.1 D7 carve-out documented in the IR
+// header invariant: "Other stages may mutate
+// HypothesisSet[*].Status and TaskGraph.Nodes[*] execution state via
+// dedicated APIs but must not rewrite the structural fields." This
+// method is the dedicated API for the Status mutation. It is the
+// ONLY supported way to write back per-hypothesis verdicts produced
+// by the extractor (Turn B) — direct field assignment from outside
+// internal/types is forbidden by convention so the carve-out stays
+// auditable from a single grep.
+//
+// The method takes id and status by value, validates both, and
+// rejects unknown IDs and unknown statuses loudly. Rationale and
+// citation are intentionally NOT carried into the IR — they live on
+// MutableState's verdict buffer (see HypothesisVerdict struct in
+// context.go) so the structural Hypothesis type stays minimal. The
+// orchestrator's drain hook in Session 2 reads both halves: it
+// calls MarkHypothesis to update the IR and renders the rationale /
+// citation via the finalizer prompt builder.
+//
+// memory/project_p1_3_deferred_items.md D7 names this as
+// "MutableState.MarkHypothesis" — implementing it on AnalysisIR
+// instead keeps the IR write encapsulated with the type that owns
+// the field, and avoids storing an aliased *AnalysisIR pointer on
+// MutableState (which would reach across the analyzer's
+// single-writer invariant). The deferred memo will be updated to
+// point at this location when P2.1 ships.
+func (ir *AnalysisIR) MarkHypothesis(id string, status HypothesisStatus) error {
+	if ir == nil {
+		return fmt.Errorf("MarkHypothesis: nil AnalysisIR")
+	}
+	if id == "" {
+		return fmt.Errorf("MarkHypothesis: empty hypothesis id")
+	}
+	switch status {
+	case HypUnknown, HypConfirmed, HypRejected, HypInconclusive:
+		// known status
+	default:
+		return fmt.Errorf("MarkHypothesis: unknown status %q (allowed: unknown, confirmed, rejected, inconclusive)", status)
+	}
+	for i := range ir.HypothesisSet {
+		if ir.HypothesisSet[i].ID == id {
+			ir.HypothesisSet[i].Status = status
+			return nil
+		}
+	}
+	return fmt.Errorf("MarkHypothesis: hypothesis id %q not found in HypothesisSet (size %d)", id, len(ir.HypothesisSet))
+}
 
 // ── RiskMatrix & RunPolicy ──────────────────────────────────────────────
 

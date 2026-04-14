@@ -5,8 +5,28 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// setTwoTurnForExtractTest writes the package-level two-turn flag.
+// The flag is normally a process-wide knob set once at startup; tests
+// that need to toggle it MUST also call resetFeatureFlagsForExtractTest
+// in defer or as a fixture restore so they do not contaminate sibling
+// tests in this package.
+func setTwoTurnForExtractTest(value string) {
+	agent.SetTwoTurnExplorerMode(value)
+}
+
+// resetFeatureFlagsForExtractTest restores both feature flags to off.
+// Required after any test that calls setTwoTurnForExtractTest(...) so
+// the next test in this package starts from a clean baseline. Mirrors
+// the agent-package's resetFeatureFlagsForTest helper but is duplicated
+// here to avoid exporting a test-only symbol from internal/agent.
+func resetFeatureFlagsForExtractTest() {
+	agent.SetEvidenceToolMode("")
+	agent.SetTwoTurnExplorerMode("")
+}
 
 // scheduler_test.go locks the graphState abstraction and the
 // node-type→stage mapping. These are pure-data tests; they do not
@@ -272,6 +292,36 @@ func TestTermSurfaceLookup_ResolvesKnownID(t *testing.T) {
 	}
 	if got := fn("missing"); got != "" {
 		t.Errorf("missing id should return empty; got %q", got)
+	}
+}
+
+// ── P2.1 Phase 5: extractStageEnabled gate ─────────────────────────
+
+func TestExtractStageEnabled_DefaultOff(t *testing.T) {
+	// Phase 5 invariant: with no flag set the dispatch hook is inert
+	// so existing single-turn pipelines run unchanged. This is the
+	// regression guard against an accidental implicit enable.
+	resetFeatureFlagsForExtractTest()
+	if extractStageEnabled() {
+		t.Fatal("default state must be off so legacy single-turn path runs")
+	}
+}
+
+func TestExtractStageEnabled_OnWhenFlagSet(t *testing.T) {
+	resetFeatureFlagsForExtractTest()
+	setTwoTurnForExtractTest("on")
+	defer resetFeatureFlagsForExtractTest()
+	if !extractStageEnabled() {
+		t.Fatal("two_turn_explorer_mode=on must enable the dispatch hook")
+	}
+}
+
+func TestExtractStageEnabled_OffByExplicitOff(t *testing.T) {
+	resetFeatureFlagsForExtractTest()
+	setTwoTurnForExtractTest("off")
+	defer resetFeatureFlagsForExtractTest()
+	if extractStageEnabled() {
+		t.Fatal("explicit off must keep the hook inert")
 	}
 }
 

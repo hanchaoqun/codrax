@@ -24,6 +24,18 @@ stages:
     default_skill: repo-explore-skill
     terminal: false
 
+  # P2.1 — Turn B (extraction). Runs immediately after the merged
+  # explore window when two_turn_explorer_mode=on. The extractor agent
+  # is restricted to emit_evidence / emit_answer_symbol /
+  # emit_hypothesis_verdict tools and works exclusively from Turn A's
+  # transcript snapshot. When the flag is off, the orchestrator's
+  # runTaskGraph driver skips this stage entirely so the legacy
+  # single-turn path runs unchanged.
+  extract:
+    default_agent: extractor
+    default_skill: extract-skill
+    terminal: false
+
   plan:
     default_agent: planner
     default_skill: implementation-plan-skill
@@ -164,6 +176,8 @@ agents:
     stages: [plan]
   - name: explorer
     stages: [explore]
+  - name: extractor
+    stages: [extract]
   - name: implementer
     stages: [implement]
     requires_write: true
@@ -188,6 +202,9 @@ skills:
 
   - name: repo-explore-skill
     description: Browse codebase, collect facts, build module map
+
+  - name: extract-skill
+    description: P2.1 Turn B — drain the explore-stage transcript into structured emit_evidence / emit_answer_symbol / emit_hypothesis_verdict items. No read tools.
 
   - name: implementation-plan-skill
     description: Design step-by-step implementation plan with file targets

@@ -882,7 +882,7 @@ yet another symptomatic patch.
 | P1.1 | `emit_evidence` 调用次数 vs `parseEvidenceItems` 调用次数 | feature flag off → 全部走 parse；on → 全部走 emit；切换期间两条路径并行跑一周 |
 | P1.2 | C commit 的 scrubSiblingEvidenceBlocks 被 delete | 代码 grep "scrubSiblingEvidenceBlocks" 返回 0 条 |
 | P1.3 | `grep -r "Classification\." internal/` 返回数 | 降到只剩 accessor (`irGet*`) — **部分达成**: P1.3 SHIPPED conservative DAG scheduler + ContractChecker。AnalysisIR.TaskGraph / EvidencePlan.Budget / AnswerContract / RunPolicy 全部接入运行时；`Classification()` 直读仅剩 `analyzer.go:246 buildAnalysisIR`（合理：carrier→IR 翻译点）。**遗留**: 节点级 explorer 调度 / SourceMix / StopConditions / Hypothesis 写回 / counterfactual 真分支 → `memory/project_p1_3_deferred_items.md` D1..D9。 |
-| P2.1 | Turn B 里 LLM 的 tool_call 分布 | 100% 是 emit_evidence / emit_answer_symbol；0% 是 read_file / grep |
+| P2.1 | Turn B 里 LLM 的 tool_call 分布 | 100% 是 emit_evidence / emit_answer_symbol；0% 是 read_file / grep — **Session 1 SHIPPED 2026-04-14**: foundations 全部 land (emit_answer_symbol + emit_hypothesis_verdict tools, two_turn_explorer_mode flag, StageExtract pipeline stage + scheduler hook, TurnAArtifacts handoff, AnalysisIR.MarkHypothesis D7 carve-out, extractorEvaluator skeleton). Default off → 零运行时影响. Session 2 = wiring (BuildInitialPrompt 读 TurnAArtifacts / cardinality validator / orchestrator drain hook / Turn A 写 handoff). flag flip 是第三个 session. 见 `memory/project_p2_1_session_1_shipped.md`. |
 | P2.2 | `StageOutput.FinalAnswer` 的类型 | 从 `string` 变成 `*types.AnswerDocument` |
 | P2.3 | filter 依赖关系在 compiler 级有 check | 加一条未声明 predecessor 的 filter 应该编译失败 |
 

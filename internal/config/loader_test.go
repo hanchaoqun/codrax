@@ -517,9 +517,14 @@ func TestLoadAndResolve(t *testing.T) {
 		t.Fatalf("LoadAndResolve(%q): %v", configPath, err)
 	}
 
-	t.Run("8 stages loaded", func(t *testing.T) {
-		if got := len(rc.Stages); got != 8 {
-			t.Fatalf("expected 8 stages, got %d", got)
+	t.Run("9 stages loaded", func(t *testing.T) {
+		// 9 = analyze, explore, extract (P2.1), plan, design_review,
+		// implement, code_review, verify, finalize. The extract stage
+		// is declared in orchestrator.yaml unconditionally; the
+		// runtime gate (two_turn_explorer_mode) controls whether the
+		// scheduler dispatches it, NOT whether the config loads it.
+		if got := len(rc.Stages); got != 9 {
+			t.Fatalf("expected 9 stages, got %d", got)
 		}
 		for _, s := range types.AllStages() {
 			if _, ok := rc.Stages[s]; !ok {
@@ -612,15 +617,17 @@ func TestLoadAndResolve(t *testing.T) {
 		}
 	})
 
-	t.Run("8 agents loaded", func(t *testing.T) {
-		if got := len(rc.Agents); got != 8 {
-			t.Fatalf("expected 8 agents, got %d", got)
+	t.Run("9 agents loaded", func(t *testing.T) {
+		// +1 from baseline: extractor (P2.1).
+		if got := len(rc.Agents); got != 9 {
+			t.Fatalf("expected 9 agents, got %d", got)
 		}
 	})
 
-	t.Run("9 skills loaded", func(t *testing.T) {
-		if got := len(rc.Skills); got != 9 {
-			t.Fatalf("expected 9 skills, got %d", got)
+	t.Run("10 skills loaded", func(t *testing.T) {
+		// +1 from baseline: extract-skill (P2.1).
+		if got := len(rc.Skills); got != 10 {
+			t.Fatalf("expected 10 skills, got %d", got)
 		}
 	})
 }

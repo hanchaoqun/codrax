@@ -30,10 +30,111 @@ import (
 // UpdateTaskResult / SetCurrentTask instead of touching fields
 // directly, so locking stays correct.
 type MutableState struct {
-	mu               sync.RWMutex
-	taskList         TaskList
-	classification   AnalyzerClassification
-	emittedEvidence  []EvidenceItem
+	mu                       sync.RWMutex
+	taskList                 TaskList
+	classification           AnalyzerClassification
+	emittedEvidence          []EvidenceItem
+	emittedAnswerSymbols     []AnswerSymbol
+	emittedHypothesisVerdicts []HypothesisVerdict
+	turnAArtifacts           *TurnAArtifacts
+}
+
+// TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
+// to Turn B (extractor). It is a snapshot of everything Turn B needs
+// to derive structured emit_evidence / emit_answer_symbol /
+// emit_hypothesis_verdict items WITHOUT calling read_file or grep
+// itself.
+//
+// Why a struct instead of letting Turn B re-read the BusContext
+// directly: the extractor is forbidden from running tools, so it
+// cannot re-derive any state that was lost during the handoff. Any
+// fact that must reach the answer slate has to be in this struct
+// when Turn A's ParseOutput closes. The struct is therefore the
+// contract surface the two evaluators both depend on, and the
+// session-1 ship pins its shape so session-2 wiring on either side
+// cannot silently drop a field.
+//
+// Lifecycle:
+//
+//  1. Turn A's ParseOutput populates the struct via
+//     MutableState.SetTurnAArtifacts. This happens at end-of-stage
+//     after ensureStructuredEvidence + grounding + ranking, so the
+//     evidence slice already reflects every deterministic
+//     (concrete-value / mechanism / flow) item the explorer has.
+//
+//  2. The orchestrator dispatches StageExtract; the extractor's
+//     BuildInitialPrompt reads the snapshot via TurnAArtifacts() and
+//     bakes the relevant pieces into Turn B's prompt.
+//
+//  3. After Turn B's ParseOutput finishes, ResetTurnAArtifacts()
+//     clears the buffer so the next per-task explore→extract cycle
+//     starts clean (intra-Run self-loops + REPL turn boundary).
+//
+// The fields are intentionally minimal — Session 2 will iterate on
+// what Turn B actually needs. Anything we omit here can be added
+// incrementally as a backwards-compatible struct field; anything we
+// include and stop using costs a 5-line removal commit.
+type TurnAArtifacts struct {
+	// UserQuestion is the original task question, plumbed through so
+	// Turn B can quote it back in its prompt without re-deriving from
+	// AnalysisIR.RequestModel (which is normalized and may have lost
+	// the user's exact phrasing).
+	UserQuestion string
+
+	// InvestigationNotes is the sequence of per-iteration assistant
+	// content blocks the explorer accumulated. Each entry is one ReAct
+	// loop iteration's worth of LLM narrative. Turn B's prompt may
+	// include a digest of these to ground its extraction in the same
+	// language Turn A used.
+	InvestigationNotes []string
+
+	// ReadFiles is the de-duplicated list of repository-relative file
+	// paths Turn A fetched via read_file. Used by Turn B to constrain
+	// its emit_evidence / emit_answer_symbol Source citations to
+	// files that were actually read (a structural defense against the
+	// LLM citing a file it never saw).
+	ReadFiles []string
+
+	// ToolResults is the raw tool result history from Turn A, in
+	// chronological order. Carries grep / read_file / repo_map
+	// outputs so Turn B can re-scan them without burning iterations.
+	// Subject to pruneToolHistory so the slice is bounded.
+	ToolResults []ToolResult
+
+	// EvidenceItems is the deterministic evidence the explorer's
+	// ParseOutput already produced (concrete values, flow findings,
+	// mechanism scan, grounded markdown items if the legacy channel
+	// is still on). Turn B uses these as a starting point and may
+	// emit additional items via emit_evidence; the merge happens at
+	// drain time via mergeEvidenceItems.
+	EvidenceItems []EvidenceItem
+
+	// FlowFindings is the dataflow analysis output from Turn A.
+	// Carries pre-extracted source→sink chains that are useful for
+	// Turn B's chain rendering.
+	FlowFindings []FlowFindingDigest
+}
+
+// HypothesisVerdict is the structured verdict the extractor (Turn B)
+// emits for a single hypothesis from AnalysisIR.HypothesisSet. It is
+// the on-the-wire shape of the emit_hypothesis_verdict tool's items
+// and the input shape of MutableState.MarkHypothesis (the D7 carve-out
+// API landing in P6).
+//
+// HypothesisID is matched against AnalysisIR.HypothesisSet[*].ID at
+// drain time; unknown IDs are diagnosed but not silently dropped, so
+// a typo in the LLM's emission cannot disappear a real hypothesis.
+//
+// Citation is a single file:line pointer (the same shape downstream
+// renderers expect for any cite) that the renderer can use to anchor
+// the verdict in the final answer. Empty when the verdict is purely
+// inferential — but inferential verdicts must be 'inconclusive', not
+// 'confirmed' / 'rejected'.
+type HypothesisVerdict struct {
+	HypothesisID string           `json:"hypothesis_id"`
+	Status       HypothesisStatus `json:"status"`
+	Rationale    string           `json:"rationale,omitempty"`
+	Citation     string           `json:"citation,omitempty"`
 }
 
 // AnalyzerClassification is the raw LLM-emitted classification of the
@@ -251,6 +352,169 @@ func (m *MutableState) ResetEmittedEvidence() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.emittedEvidence = nil
+}
+
+// AppendEmittedAnswerSymbols appends LLM-emitted answer symbols (P2.1
+// Turn B emit_answer_symbol channel) to the per-run buffer. The
+// extractor's ParseOutput drains this buffer at end-of-stage. Sister
+// API to AppendEvidence; the two channels are independent because the
+// answer-symbol slate may be empty for non-list_of_symbols shapes
+// while evidence is still required.
+func (m *MutableState) AppendEmittedAnswerSymbols(items []AnswerSymbol) {
+	if m == nil || len(items) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emittedAnswerSymbols = append(m.emittedAnswerSymbols, items...)
+}
+
+// EmittedAnswerSymbols returns a snapshot of the LLM-emitted answer
+// symbol buffer. The returned slice is a copy — safe for callers to
+// retain across subsequent appends.
+func (m *MutableState) EmittedAnswerSymbols() []AnswerSymbol {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.emittedAnswerSymbols) == 0 {
+		return nil
+	}
+	out := make([]AnswerSymbol, len(m.emittedAnswerSymbols))
+	copy(out, m.emittedAnswerSymbols)
+	return out
+}
+
+// ResetEmittedAnswerSymbols clears the buffer at the start of a new
+// extractor dispatch. Mirror of ResetEmittedEvidence.
+func (m *MutableState) ResetEmittedAnswerSymbols() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emittedAnswerSymbols = nil
+}
+
+// AppendEmittedHypothesisVerdicts appends LLM-emitted hypothesis
+// verdicts (P2.1 Turn B emit_hypothesis_verdict channel) to the
+// per-run buffer. The extractor's ParseOutput drains this buffer at
+// end-of-stage and routes the verdicts through MutableState.MarkHypothesis
+// (the D7 carve-out API on AnalysisIR). Sister API to AppendEvidence
+// and AppendEmittedAnswerSymbols.
+func (m *MutableState) AppendEmittedHypothesisVerdicts(items []HypothesisVerdict) {
+	if m == nil || len(items) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emittedHypothesisVerdicts = append(m.emittedHypothesisVerdicts, items...)
+}
+
+// EmittedHypothesisVerdicts returns a snapshot of the verdict buffer.
+// Returned slice is a copy; safe to retain across subsequent appends.
+func (m *MutableState) EmittedHypothesisVerdicts() []HypothesisVerdict {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.emittedHypothesisVerdicts) == 0 {
+		return nil
+	}
+	out := make([]HypothesisVerdict, len(m.emittedHypothesisVerdicts))
+	copy(out, m.emittedHypothesisVerdicts)
+	return out
+}
+
+// ResetEmittedHypothesisVerdicts clears the buffer at the start of a
+// new extractor dispatch. Mirror of ResetEmittedEvidence.
+func (m *MutableState) ResetEmittedHypothesisVerdicts() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emittedHypothesisVerdicts = nil
+}
+
+// SetTurnAArtifacts stores the P2.1 handoff snapshot from the
+// explorer (Turn A) for the extractor (Turn B) to consume. Called
+// from the explorer's ParseOutput at end-of-stage when
+// agent.TwoTurnExplorerEnabled() is true. The setter takes a value
+// (not a pointer) so the explorer cannot accidentally mutate the
+// snapshot after handoff — Turn B always sees a frozen view.
+func (m *MutableState) SetTurnAArtifacts(a TurnAArtifacts) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Defensive copy of the slice headers so a later append on the
+	// caller side cannot mutate the buffered snapshot in place.
+	snap := a
+	if a.InvestigationNotes != nil {
+		snap.InvestigationNotes = append([]string(nil), a.InvestigationNotes...)
+	}
+	if a.ReadFiles != nil {
+		snap.ReadFiles = append([]string(nil), a.ReadFiles...)
+	}
+	if a.ToolResults != nil {
+		snap.ToolResults = append([]ToolResult(nil), a.ToolResults...)
+	}
+	if a.EvidenceItems != nil {
+		snap.EvidenceItems = append([]EvidenceItem(nil), a.EvidenceItems...)
+	}
+	if a.FlowFindings != nil {
+		snap.FlowFindings = append([]FlowFindingDigest(nil), a.FlowFindings...)
+	}
+	m.turnAArtifacts = &snap
+}
+
+// TurnAArtifacts returns a snapshot of the buffered handoff payload,
+// or nil when no Turn A has run yet on this MutableState. The
+// returned pointer is to a fresh copy — callers cannot mutate the
+// buffered state in place.
+func (m *MutableState) TurnAArtifacts() *TurnAArtifacts {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.turnAArtifacts == nil {
+		return nil
+	}
+	out := *m.turnAArtifacts
+	if m.turnAArtifacts.InvestigationNotes != nil {
+		out.InvestigationNotes = append([]string(nil), m.turnAArtifacts.InvestigationNotes...)
+	}
+	if m.turnAArtifacts.ReadFiles != nil {
+		out.ReadFiles = append([]string(nil), m.turnAArtifacts.ReadFiles...)
+	}
+	if m.turnAArtifacts.ToolResults != nil {
+		out.ToolResults = append([]ToolResult(nil), m.turnAArtifacts.ToolResults...)
+	}
+	if m.turnAArtifacts.EvidenceItems != nil {
+		out.EvidenceItems = append([]EvidenceItem(nil), m.turnAArtifacts.EvidenceItems...)
+	}
+	if m.turnAArtifacts.FlowFindings != nil {
+		out.FlowFindings = append([]FlowFindingDigest(nil), m.turnAArtifacts.FlowFindings...)
+	}
+	return &out
+}
+
+// ResetTurnAArtifacts clears the buffered handoff snapshot. Called
+// at the start of a fresh per-task explore→extract cycle (intra-Run
+// self-loops + REPL turn boundary) so a stale Turn A from the
+// previous task cannot leak into the next extractor dispatch.
+func (m *MutableState) ResetTurnAArtifacts() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.turnAArtifacts = nil
 }
 
 // SetCurrentTask updates which task drives routing. The orchestrator

@@ -392,6 +392,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.EvidenceToolMode != nil {
 			agent.SetEvidenceToolMode(*rs.EvidenceToolMode)
 		}
+		if rs.TwoTurnExplorerMode != nil {
+			agent.SetTwoTurnExplorerMode(*rs.TwoTurnExplorerMode)
+		}
 	}
 	// CLI flag overrides for pipeline budget.
 	if cmd.Flags().Changed("pipeline-max-retries") && flagMaxRetries > 0 {
@@ -438,12 +441,40 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// process-wide gate; the skill ToolSuggestions edit below is the
 	// per-agent gate. Both are needed because RegisterDefaults must
 	// stay agnostic of pipeline topology.
+	//
+	// P2.1 (two_turn_explorer_mode): turning on two-turn explorer
+	// implicitly enables emit_evidence (Turn B has no other evidence
+	// pipe), and ALSO registers two new tools — emit_answer_symbol and
+	// emit_hypothesis_verdict — against a separate "extract-skill"
+	// ToolSuggestions list owned by the extractor agent. The extractor
+	// is forbidden from seeing read-only investigation tools, so its
+	// skill is constructed here from scratch rather than appended to
+	// repo-explore-skill. EvidenceToolEnabled() returns true whenever
+	// either flag is on, which is why we only register emit_evidence
+	// once below.
 	if agent.EvidenceToolEnabled() {
 		toolRegistry.Register(&tool.EmitEvidence{})
 		if exploreSkill, err := skillRegistry.Get("repo-explore-skill"); err == nil {
 			exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence")
 		}
 		logging.Info("evidence_tool_mode=on — emit_evidence registered for explorer")
+	}
+	if agent.TwoTurnExplorerEnabled() {
+		toolRegistry.Register(&tool.EmitAnswerSymbol{})
+		toolRegistry.Register(&tool.EmitHypothesisVerdict{})
+		// Best-effort: an extract-skill SHOULD be present in the
+		// orchestrator config when two_turn_explorer_mode is on. The
+		// skill is added in P5 (StageExtract pipeline stage). When
+		// running an older orchestrator.yaml that does not yet declare
+		// it, we fall back to silent absence rather than erroring out
+		// — the scheduler hook in P5 also checks the flag and will
+		// short-circuit if the skill is missing. This keeps the merge
+		// of P4 + P5 staged commits independently green.
+		if extractSkill, err := skillRegistry.Get("extract-skill"); err == nil {
+			extractSkill.ToolSuggestions = append(extractSkill.ToolSuggestions,
+				"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict")
+		}
+		logging.Info("two_turn_explorer_mode=on — emit_answer_symbol + emit_hypothesis_verdict registered for extractor")
 	}
 
 	subAgentRegistry := agent.NewSubAgentRegistry()

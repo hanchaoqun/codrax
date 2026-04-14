@@ -49,8 +49,60 @@ func EvidenceToolMode() string {
 }
 
 // EvidenceToolEnabled is the boolean shorthand callers usually want.
+// P2.1 escalation: when TwoTurnExplorerEnabled() is true the structured
+// tool channel MUST also be available (Turn B has no other evidence
+// pipe), so callers see EvidenceToolEnabled() == true even if the user
+// only set two_turn_explorer_mode in codrax.yaml. Setting them
+// independently is supported (P1.1-only is the documented pre-P2.1
+// path); the implication is one-way.
 func EvidenceToolEnabled() bool {
-	return EvidenceToolMode() == EvidenceToolModeOn
+	if EvidenceToolMode() == EvidenceToolModeOn {
+		return true
+	}
+	return TwoTurnExplorerEnabled()
+}
+
+// TwoTurnExplorerModeOff / TwoTurnExplorerModeOn are the legal values
+// for the two_turn_explorer_mode flag. Compared as exact lower-case
+// strings, mirror of EvidenceToolMode*.
+const (
+	TwoTurnExplorerModeOff = "off"
+	TwoTurnExplorerModeOn  = "on"
+)
+
+var twoTurnExplorerMode atomic.Pointer[string]
+
+// SetTwoTurnExplorerMode stores the runtime value for the explorer's
+// turn topology. Called from cmd/root.go after the codrax.yaml
+// merge resolves the final value. Empty string, "off", and any
+// unrecognised value collapse to off so the default path is the
+// current single-turn ReAct loop.
+//
+// P2.1: when set to "on", cmd/root.go also registers
+// emit_answer_symbol and emit_hypothesis_verdict against the new
+// extractor skill, scheduler.go inserts a StageExtract dispatch
+// after the merged explorer window, and the orchestrator routes the
+// extractor agent for that stage.
+func SetTwoTurnExplorerMode(s string) {
+	v := strings.ToLower(strings.TrimSpace(s))
+	if v != TwoTurnExplorerModeOn {
+		v = TwoTurnExplorerModeOff
+	}
+	twoTurnExplorerMode.Store(&v)
+}
+
+// TwoTurnExplorerMode returns the current value of the flag.
+// Returns TwoTurnExplorerModeOff when unset.
+func TwoTurnExplorerMode() string {
+	if p := twoTurnExplorerMode.Load(); p != nil {
+		return *p
+	}
+	return TwoTurnExplorerModeOff
+}
+
+// TwoTurnExplorerEnabled is the boolean shorthand callers usually want.
+func TwoTurnExplorerEnabled() bool {
+	return TwoTurnExplorerMode() == TwoTurnExplorerModeOn
 }
 
 // phase2EvidenceChannelInstructions returns the explorer phase-2 prompt

@@ -533,6 +533,29 @@ func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
 				for _, n := range window {
 					state.markDone(n.ID)
 				}
+				// P2.1 (two_turn_explorer_mode): immediately after the
+				// merged explorer window completes successfully, dispatch
+				// the extractor (Turn B) to drain Turn A's transcript
+				// into structured emit_evidence / emit_answer_symbol /
+				// emit_hypothesis_verdict items. The dispatch is gated by
+				// the flag AND by the stage-config lookup — when the
+				// extract-skill is not yet registered (P5 ships before
+				// P7), the lookup fails silently and the legacy single-
+				// turn path runs through. See
+				// memory/project_p2_1_session_*_shipped.md for the
+				// staged-rollout rationale.
+				if extractStageEnabled() {
+					if extractCfg, exErr := o.config.GetStageConfig(types.StageExtract); exErr == nil {
+						o.busCtx.PipelineStage = types.StageExtract
+						o.busCtx.TaskState.Stage = types.StageExtract
+						stepsUsed++
+						if _, exDispatchErr := o.dispatchStage(extractCfg); exDispatchErr != nil {
+							logging.Warning("[orchestrator] task %s DAG extract dispatch failed (continuing to finalize with legacy state): %v", taskID, exDispatchErr)
+						}
+					} else {
+						logging.Debug("[orchestrator] two_turn_explorer_mode=on but extract stage config missing (%v); skipping extractor dispatch — legacy single-turn path will run", exErr)
+					}
+				}
 			}
 			continue
 		}

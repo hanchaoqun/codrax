@@ -158,6 +158,29 @@
 # evidence_tool_mode: off
 
 # ---------------------------------------------------------------------------
+# Two-turn explorer (P2.1 — investigation / extraction split)
+# ---------------------------------------------------------------------------
+# Selects the explorer turn topology.
+#
+#   off — single-turn ReAct loop (default, current behavior). The
+#         explorer is a monolithic evaluator that interleaves file
+#         reads with structured-evidence emission inside one ReAct
+#         loop.
+#
+#   on  — split into Turn A (investigation) followed by a separate
+#         StageExtract dispatch handled by the extractor agent
+#         (Turn B). Turn A keeps grep / read_file / repo_map but no
+#         longer emits the answer slate. Turn B is restricted to
+#         emit_evidence / emit_answer_symbol / emit_hypothesis_verdict
+#         and works exclusively from Turn A's transcript snapshot —
+#         no fresh file IO. Turning this on implies
+#         evidence_tool_mode == "on" since Turn B has no other
+#         evidence pipe.
+#
+# No CLI override — switching topology mid-process makes no sense.
+# two_turn_explorer_mode: off
+
+# ---------------------------------------------------------------------------
 # Paths to the other two config files
 # ---------------------------------------------------------------------------
 # Keeping these here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
