@@ -57,6 +57,14 @@ type RequestModel struct {
 	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
 	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
 
+	// Writing and HighRisk are the LLM-declared writing-vs-reading
+	// classification. They feed risk.DerivePolicy to freeze the
+	// RunPolicy for the rest of the run. Pre-v3 these lived on the
+	// legacy AnalyzerClassification carrier; v3 moves them onto the
+	// RequestModel so emit_analysis is the single structured channel.
+	Writing  bool `json:"writing,omitempty"`
+	HighRisk bool `json:"high_risk,omitempty"`
+
 	// AnalyzerHints captures the raw LLM-extracted hints from the
 	// analyze stage's structured output. Intent/Scenario/Complexity
 	// above are typed, mapped, and sometimes lossy projections of the

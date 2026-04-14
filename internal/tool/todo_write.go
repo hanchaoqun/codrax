@@ -14,10 +14,20 @@ import (
 // only region of pipeline state tools are allowed to mutate during
 // the ReAct loop.
 //
+// Under Analyzer v3 this tool is NO LONGER used by the analyzer
+// agent — analyzer classification flows through emit_analysis
+// instead. TodoWrite survives as a pure task-list-management tool
+// for agents that need to track progress on multi-step work
+// (implementer, planner, verifier). The v1 classification fields
+// (writing, high_risk, complexity, keywords, entities,
+// question_kind, answer_shape) were removed when emit_analysis
+// shipped — any tool call that still sends them gets them silently
+// ignored.
+//
 // API: full-list replacement. The caller must send the complete
-// desired state every call; the tool does not merge with the existing
-// list. This matches Claude Code's TodoWrite convention and avoids
-// merge-logic complexity.
+// desired state every call; the tool does not merge with the
+// existing list. This matches Claude Code's TodoWrite convention
+// and avoids merge-logic complexity.
 //
 // Classified ReadOnly because IsWrite() is the filesystem-write
 // boundary; mutating BusContext is not a filesystem write.
@@ -31,17 +41,10 @@ type todoWriteParams struct {
 }
 
 type todoWriteTaskParam struct {
-	ID           string   `json:"id"`
-	Title        string   `json:"title"`
-	Description  string   `json:"description,omitempty"`
-	Writing      bool     `json:"writing,omitempty"`
-	HighRisk     bool     `json:"high_risk,omitempty"`
-	Complexity   string   `json:"complexity,omitempty"`
-	Keywords     []string `json:"keywords,omitempty"`
-	Entities     []string `json:"entities,omitempty"`
-	QuestionKind string   `json:"question_kind,omitempty"`
-	AnswerShape  string   `json:"answer_shape,omitempty"`
-	Status       string   `json:"status,omitempty"`
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status,omitempty"`
 }
 
 func (t *TodoWrite) Name() string { return "todo_write" }
@@ -50,7 +53,8 @@ func (t *TodoWrite) Description() string {
 	return "Update the working todolist that tracks progress on the user's request. " +
 		"Pass the complete list of tasks every call — this tool replaces the existing " +
 		"list, it does not merge. Use it to record initial decomposition, mark items " +
-		"in_progress as you start them, and mark items done as you finish."
+		"in_progress as you start them, and mark items done as you finish. " +
+		"NOT used by the analyzer — the analyzer writes its classification via emit_analysis."
 }
 
 func (t *TodoWrite) Parameters() json.RawMessage {
@@ -66,13 +70,6 @@ func (t *TodoWrite) Parameters() json.RawMessage {
           "id":          {"type": "string", "description": "Stable identifier; auto-assigned if missing"},
           "title":       {"type": "string", "description": "Short user-facing label"},
           "description": {"type": "string", "description": "Optional details"},
-          "writing":     {"type": "boolean", "description": "True if this task may mutate files (picks an implementation-class policy)"},
-          "high_risk":   {"type": "boolean", "description": "True if this task needs design/code review (only meaningful when writing is true)"},
-          "complexity":  {"type": "string", "enum": ["simple", "moderate", "complex"], "description": "Investigation depth: simple (lookup/count), moderate (single-component), complex (cross-component architecture). Defaults to moderate if omitted."},
-          "keywords":    {"type": "array", "items": {"type": "string"}, "description": "Search terms for the explorer to grep. Include CamelCase symbols, snake_case identifiers, and conceptual synonyms. Minimum 8 keywords."},
-          "entities":    {"type": "array", "items": {"type": "string"}, "description": "CamelCase/snake_case symbol names copied VERBATIM from the user's original wording. Do NOT translate, re-case, or paraphrase. These drive ERM entity extraction for the explorer; adding generic English nouns (e.g. 'count','that','function') has caused ranking regressions. Leave empty only if the user's question contains no identifier-looking tokens."},
-          "question_kind": {"type": "string", "enum": ["registration","mechanism","return_value","conditional","config_mapping","enumeration","call_chain","unknown"], "description": "Evidence-requirement shape. registration = 'which/how many X register/bind Y'. mechanism = 'how does X work / explain process'. return_value = 'what does X return / X's name/type'. conditional = 'when/under what condition'. config_mapping = 'what does config key K do'. enumeration = 'list/count all X'. call_chain = 'which X calls Y'. Use 'unknown' only if genuinely ambiguous — ERM will fall back to keyword inference. Picking the right kind here directly drives which evidence predicates the downstream pipeline opens."},
-          "answer_shape":  {"type": "string", "enum": ["list_of_symbols","step_list","value","boolean","config_value","none"], "description": "Expected final-answer structure. list_of_symbols = answer is a set of identifier names (the finalizer will forbid out-of-evidence symbols). step_list = ordered steps of a mechanism. value = a single literal/return. boolean = yes/no. config_value = a config key's resolved value. none = no structured shape applies."},
           "status":      {"type": "string", "enum": ["pending", "in_progress", "done", "blocked", "failed"]}
         },
         "required": ["title"]
@@ -133,12 +130,6 @@ func (t *TodoWrite) Execute(ctx *types.BusContext, params json.RawMessage) (type
 	}
 	ctx.Mutable.SetTaskList(newList)
 
-	// Stash the LLM classification on Mutable so buildAnalysisIR can
-	// read it after the ReAct loop exits. B5b-β moved this carrier off
-	// TaskItem; we pick fields from the task that pickCurrentTaskID
-	// selected so semantics match the pre-β `CurrentTask().X` reads.
-	ctx.Mutable.SetClassification(pickClassification(p.Tasks, items, newList.CurrentTaskID))
-
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -178,51 +169,6 @@ func buildTodoItems(raw []todoWriteTaskParam) ([]types.TaskItem, error) {
 	return items, nil
 }
 
-// pickClassification selects the classification carrier to promote to
-// MutableState from a batch of todo_write params. Rule: use whichever
-// task pickCurrentTaskID elected as current (matched positionally
-// against the parallel items slice since params may omit ID); if
-// that task carries no hints (e.g. a status-only update), fall back
-// to the first task in the batch that has any hint content. Returns
-// a zero AnalyzerClassification when nothing in the batch has hints
-// — in that case SetClassification is a no-op and the previously
-// stored hints survive.
-func pickClassification(raw []todoWriteTaskParam, items []types.TaskItem, currentID string) types.AnalyzerClassification {
-	classify := func(r todoWriteTaskParam) types.AnalyzerClassification {
-		return types.AnalyzerClassification{
-			Writing:      r.Writing,
-			HighRisk:     r.HighRisk,
-			Complexity:   normalizeComplexity(r.Complexity),
-			Keywords:     r.Keywords,
-			Entities:     trimStringSlice(r.Entities),
-			QuestionKind: normalizeQuestionKind(r.QuestionKind),
-			AnswerShape:  normalizeAnswerShape(r.AnswerShape),
-		}
-	}
-	// normalizeComplexity defaults to "moderate" — which is non-zero
-	// but semantically empty for a status-only update. Track whether
-	// the raw input actually carried classification bits before
-	// deciding whether to promote.
-	hasContent := func(r todoWriteTaskParam) bool {
-		return r.Writing || r.HighRisk ||
-			strings.TrimSpace(r.Complexity) != "" ||
-			len(r.Keywords) > 0 || len(r.Entities) > 0 ||
-			strings.TrimSpace(r.QuestionKind) != "" ||
-			strings.TrimSpace(r.AnswerShape) != ""
-	}
-	for i, r := range raw {
-		if i < len(items) && items[i].ID == currentID && hasContent(r) {
-			return classify(r)
-		}
-	}
-	for _, r := range raw {
-		if hasContent(r) {
-			return classify(r)
-		}
-	}
-	return types.AnalyzerClassification{}
-}
-
 // pickCurrentTaskID selects the task that should drive routing for
 // the next decision point. Preference order: first in_progress, then
 // first pending, then first overall.
@@ -257,87 +203,6 @@ func normalizeTodoStatus(s string) types.TaskStatus {
 		return types.TaskFailed
 	default:
 		return types.TaskPending
-	}
-}
-
-// normalizeQuestionKind maps LLM-produced question_kind strings to the
-// canonical set used by ERM (EvidenceRequirement.Kind). Unknown and
-// empty values both fall back to "unknown" so downstream callers can
-// cleanly distinguish "analyzer did not classify" from a valid Kind.
-// The analyzer's prompt is the primary enforcement of the enum; this
-// function is a defensive normalizer only.
-func normalizeQuestionKind(s string) string {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "registration", "register":
-		return "registration"
-	case "mechanism", "process", "flow":
-		return "mechanism"
-	case "return_value", "return-value", "return", "value_of":
-		return "return_value"
-	case "conditional", "condition":
-		return "conditional"
-	case "config_mapping", "config-mapping", "config":
-		return "config_mapping"
-	case "enumeration", "enumerate", "list", "count":
-		return "enumeration"
-	case "call_chain", "call-chain", "callchain", "calls":
-		return "call_chain"
-	case "", "unknown", "other":
-		return "unknown"
-	default:
-		return "unknown"
-	}
-}
-
-// normalizeAnswerShape maps LLM-produced answer_shape strings to the
-// canonical set consumed by the finalizer. Empty maps to "none" so the
-// finalizer can early-return its shape switch.
-func normalizeAnswerShape(s string) string {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "list_of_symbols", "symbol_list", "list-of-symbols":
-		return "list_of_symbols"
-	case "step_list", "steps", "step-list":
-		return "step_list"
-	case "value", "literal", "return_value":
-		return "value"
-	case "boolean", "yes_no", "yes/no":
-		return "boolean"
-	case "config_value", "config-value":
-		return "config_value"
-	default:
-		return "none"
-	}
-}
-
-// trimStringSlice drops empty/whitespace-only entries and trims each
-// remaining element. Returns nil for an empty input so the field stays
-// omitempty-friendly.
-func trimStringSlice(in []string) []string {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(in))
-	for _, s := range in {
-		if t := strings.TrimSpace(s); t != "" {
-			out = append(out, t)
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// normalizeComplexity maps LLM-produced complexity strings to canonical
-// values. Unknown values fall back to "moderate".
-func normalizeComplexity(s string) string {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "simple", "easy", "trivial":
-		return "simple"
-	case "complex", "hard", "deep":
-		return "complex"
-	default:
-		return "moderate"
 	}
 }
 

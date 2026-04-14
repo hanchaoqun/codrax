@@ -4,37 +4,31 @@ package skill
 func RegisterDefaults(r *Registry) {
 	r.Register(&Config{
 		Name: "task-analysis-skill",
-		Goal: "Structurize and classify the user task into actionable items.",
+		Goal: "Classify the user request into a v3 RequestModel (intent, scenario, complexity, writing, keywords, entities, question_kind, answer_shape) via a single emit_analysis tool call.",
 		Workflow: []string{
-			"read user input",
-			"identify intent type",
-			"classify task type",
-			"generate objective",
-			"decompose into subtasks only when the request contains genuinely independent work items (e.g. 'fix bug A and add feature B'); if the request is a single question with multiple facets (e.g. 'explain X and draw a diagram'), keep it as ONE task — the diagram is part of the answer, not a separate task",
-			"extract constraints",
-			"identify missing pieces",
+			"read user input and detect its language",
+			"pick intent from the v3 enum (explain/trace/enumerate/root_cause/return_value/config_query/refactor/bugfix/security_audit/unknown)",
+			"pick scenario from the v3 enum (architecture_explain/root_cause/security_audit/refactor_design/config_trace/performance_bottleneck/generic)",
+			"pick complexity (simple/moderate/complex) from the number of files the answer likely needs",
+			"set writing (true only if files may be mutated) and high_risk (true only when writing=true and change is irreversible or security-sensitive)",
+			"extract entities VERBATIM from the user's text — CamelCase/snake_case only, no generic nouns",
+			"generate ≥8 keywords in three rounds — core terms, compound identifiers, action synonyms",
+			"pick question_kind and answer_shape from the ERM / finalizer enums",
+			"call emit_analysis EXACTLY ONCE with the classified fields",
 		},
 		ToolSuggestions: []string{
-			"todo_write",
+			"emit_analysis",
 		},
-		OutputFormat: `Call the todo_write tool with the decomposed task list. For each task set: ` +
-			`title (short user-facing label), writing (true if the task may modify files, ` +
-			`false for read-only / question-answering work), high_risk (true only for ` +
-			`writing tasks that touch security-sensitive code, schemas, or irreversible ops), ` +
-			`complexity — one of: "simple" (lookup, count, yes/no — answer lives in 1-2 files), ` +
-			`"moderate" (single-component explanation — needs 3-5 files), or ` +
-			`"complex" (cross-component architecture, flow walkthrough, comparison — needs 6+ files), ` +
-			`and keywords — an array of at least 8 search terms the explorer should grep for. ` +
-			`Generate keywords in three rounds: ` +
-			`(1) Core terms: extract every domain noun and verb from the user's question in both its original form and common code identifier forms (CamelCase, snake_case). ` +
-			`(2) Compound identifiers: cross-combine the core terms into plausible multi-word identifiers — e.g. from core terms "create" and "user" produce "CreateUser", "user_factory"; from "cache" and "store" and "config" produce "CacheStore", "store_config". Think about what types, functions, or variables a developer would name. ` +
-			`(3) Action synonyms: for each verb in the question, add 2-3 programming synonyms (e.g. "send" → "emit", "dispatch", "publish"). ` +
-			`The system will auto-expand each keyword into CamelCase/snake_case/concatenated variants, so focus on producing diverse STEMS rather than repeating the same word in different cases. ` +
-			`After todo_write succeeds, briefly explain your classification in plain text.`,
+		OutputFormat: `Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, writing, keywords, entities, question_kind, answer_shape (high_risk optional, defaults false). ` +
+			`The system synthesises the TermGraph, TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically from your input — do not provide them. ` +
+			`Keyword generation (3 rounds): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (send → emit/dispatch/publish). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words. ` +
+			`After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log.`,
 		Prohibitions: []string{
+			"do not call any tool other than emit_analysis",
+			"do not write prose before the emit_analysis call",
 			"do not make assumptions about code structure",
 			"do not start implementation",
-			"do not split a single question into multiple tasks just because it mentions multiple output forms (e.g. 'explain X and generate a diagram' is one task, not two)",
+			"do not translate or re-case entities — copy them verbatim from the user's text",
 		},
 	})
 

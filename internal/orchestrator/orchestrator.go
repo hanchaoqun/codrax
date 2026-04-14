@@ -232,21 +232,20 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	return 1, nil
 }
 
-// runTaskPhase iterates over pending tasks and runs each through its
-// own mini stage pipeline. Failed tasks do not abort the phase — the
-// loop moves on to the next pending task. The total step budget
+// runTaskPhase iterates over pending tasks and runs each through
+// the DAG scheduler. Failed tasks do not abort the phase — the loop
+// moves on to the next pending task. The total step budget
 // (o.maxSteps) is enforced across all tasks; when it is exhausted
 // any remaining pending tasks are marked failed.
 //
-// P1.3: when BusContext.AnalysisIR carries a non-empty TaskGraph the
-// FIRST pending task drives runTaskGraph (the IR is a per-Run global
-// produced once by the analyze stage, not per-task). Subsequent
-// pending tasks fall back to the legacy stage-machine pipeline since
-// per-task IR was de-scoped in B5b-β (see
-// memory/project_analyzer_v3_b5_baseline.md and D8 in
-// memory/project_p1_3_deferred_items.md).
+// v3: every task routes through runTaskGraph whenever
+// BusContext.AnalysisIR carries a non-empty TaskGraph. The first-task-
+// only DAG hack (that restricted runTaskGraph to the first pending
+// task and sent siblings to runTaskPipelineLegacy) was removed in
+// the v3 integration batch. runTaskPipelineLegacy is retained as
+// the defensive fallback for runs where analyze failed to produce
+// an IR (e.g., REPL bootstrap turns, unit tests).
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
-	firstTask := true
 	for {
 		next := o.nextPendingTask()
 		if next == nil {
@@ -271,12 +270,11 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 		})
 
 		var used int
-		if firstTask && o.busCtx.AnalysisIR != nil && len(o.busCtx.AnalysisIR.TaskGraph.Nodes) > 0 {
+		if o.busCtx.AnalysisIR != nil && len(o.busCtx.AnalysisIR.TaskGraph.Nodes) > 0 {
 			used = o.runTaskGraph(next.ID, o.maxSteps-*stepsUsed)
 		} else {
 			used = o.runTaskPipelineLegacy(next.ID, o.maxSteps-*stepsUsed)
 		}
-		firstTask = false
 		*stepsUsed += used
 	}
 }

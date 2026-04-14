@@ -22,12 +22,16 @@ func TestAnalyzerV3_IRIsBuiltFromTaskItem(t *testing.T) {
 		}},
 		CurrentTaskID: "task-1",
 	})
-	mut.SetClassification(types.AnalyzerClassification{
-		Complexity:   "moderate",
-		Keywords:     []string{"explorer", "ShouldStop", "explore"},
-		Entities:     []string{"Explorer", "ShouldStop"},
-		QuestionKind: "mechanism",
-		AnswerShape:  "step_list",
+	mut.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"explorer", "ShouldStop", "explore"},
+			Entities: []string{"Explorer", "ShouldStop"},
+			Kind:     "mechanism",
+			Shape:    "step_list",
+		},
 	})
 	ctx := &types.AgentContext{
 		Objective:     "请解释 explorer 是如何决定 ShouldStop 的",
@@ -146,7 +150,9 @@ func TestAnalyzerV3_WritingTaskDerivesPolicy(t *testing.T) {
 		}},
 		CurrentTaskID: "task-1",
 	})
-	mut.SetClassification(types.AnalyzerClassification{
+	mut.SetRequestModel(types.RequestModel{
+		Intent:   types.IntentRefactor,
+		Scenario: types.ScenarioRefactorDesign,
 		Writing:  true,
 		HighRisk: true,
 	})

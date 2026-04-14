@@ -32,7 +32,7 @@ import (
 type MutableState struct {
 	mu                       sync.RWMutex
 	taskList                 TaskList
-	classification           AnalyzerClassification
+	requestModel             *RequestModel
 	emittedEvidence          []EvidenceItem
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
 	// written as a set via SetEmittedAnswerSymbols and read via
@@ -178,43 +178,6 @@ type HypothesisVerdict struct {
 	Citation     string           `json:"citation,omitempty"`
 }
 
-// AnalyzerClassification is the raw LLM-emitted classification of the
-// user request. It is the carrier between the analyze stage's
-// todo_write tool call (inside the ReAct loop) and buildAnalysisIR
-// (run synchronously in ParseOutput after the loop exits). Every
-// field maps into a specific slot on AnalysisIR downstream:
-//
-//	Writing      → RunPolicy.Writing
-//	HighRisk     → RunPolicy.{RequireDesignReview,RequireCodeReview}
-//	Complexity   → RequestModel.Complexity
-//	Keywords     → RequestModel.AnalyzerHints.Keywords
-//	Entities     → RequestModel.AnalyzerHints.Entities
-//	QuestionKind → RequestModel.AnalyzerHints.Kind (+ Intent mapping)
-//	AnswerShape  → RequestModel.AnalyzerHints.Shape (+ AnswerContract override)
-//
-// Before batch B5b-β this carrier was the 7 legacy TaskItem fields.
-// Moving the carrier off TaskItem lets B5b-β delete those fields
-// without breaking the analyze-stage contract.
-type AnalyzerClassification struct {
-	Writing      bool
-	HighRisk     bool
-	Complexity   string
-	Keywords     []string
-	Entities     []string
-	QuestionKind string
-	AnswerShape  string
-}
-
-// IsZero reports whether the classification carries any non-default
-// content. Used by todo_write to decide whether a given call should
-// overwrite the carrier — a status-only todo_write from explorer/
-// implementer must not wipe the analyzer's classification.
-func (c AnalyzerClassification) IsZero() bool {
-	return !c.Writing && !c.HighRisk && c.Complexity == "" &&
-		len(c.Keywords) == 0 && len(c.Entities) == 0 &&
-		c.QuestionKind == "" && c.AnswerShape == ""
-}
-
 // NewMutableState constructs a MutableState seeded with the given
 // task list. Use this instead of zero-value literals so the internal
 // mutex is paired correctly with its data.
@@ -222,29 +185,36 @@ func NewMutableState(tl TaskList) *MutableState {
 	return &MutableState{taskList: tl}
 }
 
-// Classification returns a snapshot of the analyzer classification
-// carrier. Read by buildAnalysisIR in the analyze stage's ParseOutput.
-func (m *MutableState) Classification() AnalyzerClassification {
+// RequestModel returns a pointer to the analyzer-emitted RequestModel,
+// or nil when no emit_analysis call has landed yet. Read by
+// analyzer.ParseOutput after the ReAct loop exits to build AnalysisIR.
+// The returned pointer is a snapshot copy — callers must not mutate
+// the TermGraph slices in place.
+func (m *MutableState) RequestModel() *RequestModel {
 	if m == nil {
-		return AnalyzerClassification{}
+		return nil
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.classification
+	if m.requestModel == nil {
+		return nil
+	}
+	cp := *m.requestModel
+	return &cp
 }
 
-// SetClassification stores the analyzer classification carrier.
-// Written by todo_write when its params contain non-empty
-// classification fields. No-op for zero-valued input so status-only
-// todo_write calls from downstream agents cannot wipe the analyzer's
-// classification after the analyze stage has frozen it.
-func (m *MutableState) SetClassification(c AnalyzerClassification) {
-	if m == nil || c.IsZero() {
+// SetRequestModel stores the analyzer's v3 RequestModel emitted via
+// the emit_analysis tool. Callers pass a fully-populated RequestModel;
+// the stored value is a deep-enough copy that the analyzer can read it
+// out once the ReAct loop closes.
+func (m *MutableState) SetRequestModel(rm RequestModel) {
+	if m == nil {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.classification = c
+	cp := rm
+	m.requestModel = &cp
 }
 
 // TaskList returns a snapshot of the current task list. The returned

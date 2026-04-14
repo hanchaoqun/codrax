@@ -10,16 +10,15 @@ import (
 
 // TestAnalyzerParseOutputCapturesSummary verifies that the analyzer's
 // ParseOutput packs the LLM's free-form text into Data (under "result")
-// alongside the structured classification fields (question_kind,
-// answer_shape, etc), and that it does not touch a non-empty
-// Mutable.TaskList (i.e. respects whatever todo_write set during the
-// ReAct loop).
+// alongside the structured classification fields derived from an
+// emit_analysis-emitted RequestModel, and that it does not touch a
+// non-empty Mutable.TaskList.
 func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	e := &analyzerEvaluator{}
 
-	// Pretend a previous todo_write call already populated the list
-	// with a full analyzer classification. Under B5b-β the LLM hints
-	// live on MutableState.Classification(), not on TaskItem.
+	// Pretend a previous emit_analysis call already populated the
+	// RequestModel carrier. Under v3 the analyzer reads its hints
+	// from MutableState.RequestModel(), not a separate carrier.
 	mut := types.NewMutableState(types.TaskList{
 		Objective:     "explain the project",
 		CurrentTaskID: "t1",
@@ -29,12 +28,16 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 			Status: types.TaskInProgress,
 		}},
 	})
-	mut.SetClassification(types.AnalyzerClassification{
-		QuestionKind: "mechanism",
-		AnswerShape:  "step_list",
-		Complexity:   "moderate",
-		Entities:     []string{"Orchestrator", "BaseAgent"},
-		Keywords:     []string{"orchestrator", "agent", "pipeline"},
+	mut.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:     "mechanism",
+			Shape:    "step_list",
+			Keywords: []string{"orchestrator", "agent", "pipeline"},
+			Entities: []string{"Orchestrator", "BaseAgent"},
+		},
 	})
 
 	ctx := &types.AgentContext{
@@ -50,9 +53,6 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	// Data should capture both the natural-language summary and the
-	// structured classification. Use map[string]any to accommodate
-	// the mixed string/int value types.
 	var data map[string]any
 	if err := json.Unmarshal(out.Data, &data); err != nil {
 		t.Fatalf("Data not valid JSON: %v", err)
@@ -75,25 +75,26 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	}
 
 	// Mutable.TaskList must be unchanged — analyzer should not clobber
-	// what todo_write put there.
+	// what the bootstrap or a previous dispatch put there.
 	tl := mut.TaskList()
 	if len(tl.Tasks) != 1 || tl.Tasks[0].ID != "t1" {
 		t.Errorf("Mutable.TaskList was clobbered, got %+v", tl.Tasks)
 	}
-	if mut.Classification().QuestionKind != "mechanism" {
-		t.Errorf("Classification was clobbered, got %q", mut.Classification().QuestionKind)
+	if rm := mut.RequestModel(); rm == nil || rm.AnalyzerHints.Kind != "mechanism" {
+		t.Errorf("RequestModel was clobbered, got %+v", rm)
 	}
 }
 
 // TestAnalyzerParseOutputFailSafe verifies that when the LLM fails to
-// call todo_write — leaving Mutable.TaskList empty — the analyzer
-// installs a single Analysis-typed task as a safety net so the
-// orchestrator routes to the analysis policy instead of falling
-// through into nothing.
+// call emit_analysis — leaving Mutable.TaskList empty and no
+// RequestModel carrier — the analyzer installs a single task as a
+// safety net so the orchestrator routes to the analysis policy
+// instead of falling through into nothing, and buildAnalysisIR
+// synthesises a read-only RunPolicy from the zero-value RequestModel.
 func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 	e := &analyzerEvaluator{}
 
-	// Empty Mutable: simulates "LLM never called todo_write"
+	// Empty Mutable: simulates "LLM never called emit_analysis"
 	mut := types.NewMutableState(types.TaskList{Objective: "what does this do?"})
 
 	ctx := &types.AgentContext{

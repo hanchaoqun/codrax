@@ -18,115 +18,103 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// analyzerEvaluator customizes the ReAct loop for the analyzer agent,
-// which is responsible only for the analyze stage: classify the user
-// request and produce both the legacy task list AND the Analyzer v3
-// structured AnalysisIR.
+// analyzerEvaluator drives the Analyzer v3 analyze stage. The agent
+// makes a single LLM call whose only job is to emit a RequestModel
+// through the emit_analysis tool; everything else about AnalysisIR
+// (TermGraph, TaskGraph, EvidencePlan, AnswerContract, Hypotheses,
+// RunPolicy, QualityGate) is derived deterministically after the
+// ReAct loop exits.
 //
-// Under Analyzer v3 (batch B5) the analyzer now runs a deterministic
-// post-processing pipeline after the LLM has called todo_write:
+// Pipeline:
 //
-//   1. LLM produces a legacy TaskItem via todo_write (unchanged prompt
-//      contract; preserves the 35/35 baseline on df1/df3/t1-t5).
-//   2. ParseOutput builds a RequestModel from the TaskItem + the raw
-//      user objective. Language is auto-detected from Han characters,
-//      intent is mapped from the legacy question_kind, and the term
-//      graph comes from running the normalizer over the raw objective.
-//   3. compiler.Compile produces the scenario-templated TaskGraph,
-//      EvidencePlan, and AnswerContract. The AnswerContract's
-//      required_answer_shape is overridden by the legacy answer_shape
-//      field when the LLM supplied one, so classifier improvements
-//      survive.
-//   4. risk.Evaluate + risk.DerivePolicy freeze the RunPolicy.
-//   5. hdp.Plan + hdp.Bind attach falsifiable hypotheses to every
-//      non-probe node.
-//   6. counterfactual.Expand runs only when ShouldExpand says the
-//      request is complex, multi-option-ambiguous, and explain/root-
-//      cause/security. Default policy keeps it off until batch B9.
-//   7. gate.Run reports quality-gate findings. A rejected gate does
-//      NOT block the run in B5 — it is logged and surfaced on the IR
-//      so downstream analytics can diff failures. B5b will wire this
-//      to the retry budget once we have eval coverage.
+//  1. BuildInitialPrompt asks the LLM to call emit_analysis with the
+//     classified v3 fields (intent, scenario, complexity, writing,
+//     keywords, entities, question_kind, answer_shape).
+//  2. ShouldStop ends the loop on the first LLM response with no
+//     pending tool calls.
+//  3. ParseOutput reads the emitted RequestModel from Mutable,
+//     normalises the raw objective through the term-graph builder,
+//     then runs compiler → risk → hdp → counterfactual → gate to
+//     assemble a full AnalysisIR.
+//  4. The quality gate's Rejected flag is consulted at the end:
+//     structural failures (dag_closure, contract_complete, nil_ir)
+//     return a hard error that bubbles up through StageOutput.Error
+//     and fails the run fast. Soft-quality failures (coverage,
+//     budget_sanity, hypothesis_coverage, risk_consistency) log a
+//     warning and the run continues.
 //
-// The downstream consumers (explorer, finalizer, ERM, orchestrator)
-// continue to read the legacy TaskItem fields in B5. Batch B5b
-// switches them to the IR and deletes the legacy fields.
+// The LLM never sees the legacy AnalyzerClassification carrier, the
+// todo_write tool, or any translation layer from legacy question_kind
+// strings to v3 Intent values — that path was deleted when
+// emit_analysis shipped.
 type analyzerEvaluator struct{}
 
 func (e *analyzerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = ctx
 	_ = sk
 	// The analyzer is the first LLM in the pipeline to see the raw
-	// user request, so it has strictly more context than any downstream
-	// post-hoc extractor. Every field it writes via todo_write feeds a
-	// deterministic consumer:
-	//
-	//   keywords   -> keywordSearch / grep IDF ranking
-	//   entities   -> ERM entity set (explorer.go prefers this over regex)
-	//   question_kind -> ERM predicate whitelist (skips keyword inference)
-	//   answer_shape -> finalizer anti-hallucination constraint
-	//
-	// Vague output here (generic keywords, missing entities, wrong
-	// kind) cascades into wasted breadth scans, spurious ERM requirements,
-	// and hallucinated final answers. The prompt is therefore written
-	// as an explicit contract.
-	return `You decompose the user request into a working task list by calling todo_write.
-Your output feeds a deterministic evidence pipeline — downstream stages rely
-on the STRUCTURED fields below, not your free-form explanation.
+	// user request. Its only job is to call emit_analysis ONCE with
+	// the classification fields below. The deterministic v3 pipeline
+	// (normalizer → compiler → risk → hdp → counterfactual → gate)
+	// runs in ParseOutput and does not need any free-form rationale.
+	return `You are the analyzer. Classify the user's request by calling the emit_analysis tool EXACTLY ONCE. Every field below feeds a deterministic downstream stage — vague input here cascades into wasted search and hallucinated answers.
 
-# Required fields on every task
+# Required emit_analysis fields
 
-title        — short imperative label in the user's language
-writing      — true only if the task may mutate files; leave false for
-               any read/explain/audit request
-high_risk    — true only when writing=true AND the change needs review
-complexity   — "simple" (single lookup/count), "moderate" (single-component
-               explanation, the default), "complex" (cross-component flow)
-keywords     — ≥8 search terms for grep. MUST include every CamelCase and
-               snake_case identifier the user mentioned, PLUS conceptual
-               synonyms. For Chinese questions, include BOTH Chinese and
-               English forms (the codebase is English).
-entities     — CamelCase/snake_case symbol names copied VERBATIM from the
-               user's wording. Do NOT translate, pluralise, re-case, or
-               paraphrase. Leave empty only if the question has no
-               identifier-looking tokens. Generic nouns (count, function,
-               thing, agent, handler, module) MUST NOT appear here — they
-               poison ERM ranking.
-question_kind — pick one:
-   registration  — "which/how many X register/bind Y", "X 是在哪注册的"
-   mechanism     — "how does X work", "explain the process of X", "X 怎么实现"
-   return_value  — "what does X return", "X 的 Name() 是什么"
-   conditional   — "when does X fire", "under what condition", "什么时候"
-   config_mapping — "what does config key K control", key → behaviour
-   enumeration   — "list all X", "count of X", pure set membership
-   call_chain    — "which X calls Y", "从 A 到 B 怎么调用的"
-   unknown       — genuinely ambiguous; ERM will fall back to keyword inference
-answer_shape — pick one:
-   list_of_symbols — answer is a set of identifier names (triggers
-                     finalizer's anti-hallucination: forbids symbols
-                     not present in Ground Truth evidence)
+intent        — the v3 task intent. Pick one:
+   explain         — user wants to understand how something works
+   root_cause      — user is debugging, asks "why does X fail"
+   trace           — follow a data flow or call chain end to end
+   enumerate       — list every X, count Xs (also for "which agents call Y")
+   config_query    — look up what a config key controls
+   return_value    — asks what a specific function returns or its literal name
+   refactor        — design or implement a code change
+   bugfix          — fix a defect
+   security_audit  — review for vulnerabilities
+   unknown         — genuinely ambiguous (ERM will fall back to keyword inference)
+
+scenario      — which scenario template drives the investigation plan:
+   architecture_explain    — explain mechanism / code / flow
+   root_cause              — debug a failure
+   security_audit          — vulnerability review
+   refactor_design         — plan a refactor
+   config_trace            — trace config → behaviour
+   performance_bottleneck  — find a perf hotspot
+   generic                 — none of the above (safe fallback)
+
+complexity    — "simple" (single lookup/count, 1-2 files), "moderate" (single component, 3-5 files), "complex" (cross-component, 6+ files).
+
+writing       — true only if the task may MUTATE files; false for read/explain/audit.
+high_risk     — true only when writing=true AND the change needs design/code review (security, schema, irreversible). Always false for read-only work.
+
+keywords      — ≥8 grep search terms. Include every CamelCase / snake_case identifier the user wrote PLUS conceptual synonyms. For Chinese questions include BOTH Chinese and English forms (the codebase is English).
+entities      — CamelCase / snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens.
+question_kind — ERM predicate selector. Pick one:
+   registration   — "which/how many X register/bind Y", "X 是在哪注册的"
+   mechanism      — "how does X work", "explain the process of X", "X 怎么实现"
+   return_value   — "what does X return", "X.Name() 是什么"
+   conditional    — "when does X fire", "under what condition", "什么时候"
+   config_mapping — "what does config key K control"
+   enumeration    — "list all X", "count of X"
+   call_chain     — "which X calls Y", "从 A 到 B 怎么调用的"
+   unknown        — genuinely ambiguous
+answer_shape  — the finalizer's anti-hallucination selector:
+   list_of_symbols — answer is a set of identifier names (forbids symbols not in Ground Truth evidence)
    step_list       — ordered steps of a mechanism
    value           — a single literal / returned value
    boolean         — yes/no
    config_value    — a resolved config key value
+   explanation     — long prose explanation
    none            — no structured shape applies
 
 # Hard rules
 
-1. entities come from the user's ORIGINAL text only. If the user wrote
-   "ContinuationPrompt", put "ContinuationPrompt" — NOT "continuation
-   prompt", NOT "continuation_prompt", NOT "prompt".
-2. Do not invent a question_kind by stretching one of the categories.
-   If two fit equally, choose the one that directly matches the
-   user's verb. If none fit, use "unknown".
-3. answer_shape=list_of_symbols ONLY when the user is asking for a
-   SET of names they want to see listed. "How many agents call X" is
-   list_of_symbols (they want the names even if phrased as a count).
-   "Is X registered" is boolean. "Explain X" is step_list or none.
-4. After calling todo_write, briefly explain your classification choices
-   (question_kind and answer_shape) in one paragraph. This text is
-   captured for the trace but does not drive any agent — the structured
-   fields are what matter.`
+1. Every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays). Missing required fields rejects the call.
+2. entities come from the user's ORIGINAL text only. "ContinuationPrompt" stays as "ContinuationPrompt" — not "continuation prompt", not "continuation_prompt", not "prompt".
+3. Do not invent an intent by stretching a category. If two fit equally, choose the one that directly matches the user's verb. If none fit, use "unknown".
+4. answer_shape=list_of_symbols ONLY when the user is asking for a SET of names they want to see listed. "How many agents call X" is list_of_symbols (they want the names even if phrased as a count). "Is X registered" is boolean. "Explain X" is step_list or explanation.
+5. Do NOT call any other tool. Do NOT write free-form prose before the tool call. emit_analysis is the only output channel for the analyze stage.
+6. After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent — the structured fields are what matter.`
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -144,17 +132,13 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// If the LLM never called todo_write, fall back to a single-item
-	// analysis-typed task so the orchestrator still has something to
-	// route on. The fallback uses the user's original request as the
-	// task title and writes through Mutable so we go through the same
-	// channel a tool call would.
+	// v3: ensure the single-task fallback list exists so downstream
+	// stages always have a task to route on. The analyzer no longer
+	// decomposes the request into sibling tasks — v3 treats every
+	// request as one analysis task whose decomposition happens inside
+	// the TaskGraph, not inside TaskList.
 	if ctx.Mutable != nil {
 		if tl := ctx.Mutable.TaskList(); len(tl.Tasks) == 0 {
-			// Fail-safe default: the user request as a single
-			// non-writing, non-risky task. Picks the analysis policy
-			// so the pipeline answers the user instead of guessing
-			// code changes.
 			tl.Tasks = []types.TaskItem{{
 				ID:     "task-1",
 				Title:  tl.Objective,
@@ -165,18 +149,13 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
-	// Build the Analyzer v3 IR deterministically from the current
-	// TaskItem + raw objective. Every sub-component runs even when
-	// parts of the TaskItem are empty — the compiler's generic
-	// template + a zero risk matrix + a single baseline hypothesis
-	// are still a valid starting point for downstream consumers.
+	// Build the Analyzer v3 IR deterministically from the RequestModel
+	// the LLM emitted via emit_analysis. Missing LLM output is not
+	// fatal — buildAnalysisIR synthesises a minimal zero-value
+	// RequestModel from the raw objective so downstream stages always
+	// have a valid IR to read.
 	ir := buildAnalysisIR(ctx)
 
-	// Assemble a structured StageOutput.Data so the trace records the
-	// analyzer's classification machine-readably (in addition to the
-	// natural-language rationale). Downstream consumers and post-run
-	// audits can compare the analyzer's declared question_kind against
-	// ERM's eventual inference without grepping free text.
 	data := map[string]any{
 		"result": lastContent,
 	}
@@ -193,24 +172,34 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		data["ir_nodes"] = len(ir.TaskGraph.Nodes)
 		data["ir_hypotheses"] = len(ir.HypothesisSet)
 		data["ir_gate_passed"] = ir.QualityGate.Passed
-		if !ir.QualityGate.Passed {
-			// Log gate failures at debug so B5 eval can diff them
-			// without the trace getting noisy on the happy path.
-			logging.Debug("[analyzer-v3] gate rejected: retryable=%v checks=%+v",
-				ir.QualityGate.Retryable, ir.QualityGate.Checks)
-		}
 	}
 	raw, err := json.Marshal(data)
 	if err != nil {
-		// Marshal of a map[string]any with string/int values can only
-		// fail on pathological content; fall back to the legacy shape.
 		raw = json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent))
 	}
 
-	return &StageOutput{
+	out := &StageOutput{
 		Data:       raw,
 		AnalysisIR: ir,
-	}, nil
+	}
+
+	// Quality Gate enforcement. Structural failures (nil_ir,
+	// dag_closure, contract_complete) are hard errors — downstream
+	// stages cannot safely proceed on a malformed IR. Soft-quality
+	// failures (coverage, budget_sanity, hypothesis_coverage,
+	// risk_consistency) log a warning and the run continues so
+	// evaluations can diff the soft failures without a wholesale
+	// abort.
+	if ir != nil && ir.QualityGate.Rejected {
+		if hard, detail := classifyGateFailure(ir.QualityGate); hard {
+			logging.Error("[analyzer-v3] quality gate HARD failure: %s", detail)
+			out.Error = fmt.Sprintf("analyzer quality gate rejected: %s", detail)
+			return out, nil
+		}
+		logging.Warning("[analyzer-v3] quality gate soft failure (continuing): %+v", ir.QualityGate.Checks)
+	}
+
+	return out, nil
 }
 
 func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *StageOutput) types.MissingPiece {
@@ -226,57 +215,70 @@ func NewAnalyzerAgent(deps *Dependencies) Agent {
 
 // ── Analyzer v3 IR builder ───────────────────────────────────────────
 
-// buildAnalysisIR composes a full AnalysisIR by running the deterministic
-// pipeline (normalizer → compiler → risk → hdp → counterfactual → gate)
-// over a RequestModel synthesized from the classification carrier
-// (populated by todo_write during the analyze ReAct loop) and the raw
-// user objective. It is tolerant of missing fields: every sub-step has
-// a sensible zero-value fallback.
+// buildAnalysisIR composes a full AnalysisIR from the emit_analysis-
+// produced RequestModel plus the raw objective. It runs the full
+// deterministic sub-package pipeline every time:
 //
-// Pre-B5b-β this function read its hints from the current TaskItem
-// (ctx.Mutable.TaskList().CurrentTask()); B5b-β moved the carrier off
-// TaskItem onto MutableState.Classification() so the legacy fields
-// could be deleted.
+//	normalizer.Normalize   — canonical TermGraph from the raw request
+//	compiler.InferScenario — scenario default when LLM omitted one
+//	compiler.Compile       — TaskGraph + EvidencePlan + AnswerContract
+//	risk.Evaluate          — 6-dim risk matrix
+//	risk.DerivePolicy      — frozen RunPolicy
+//	hdp.Plan + hdp.Bind    — hypotheses + binding
+//	counterfactual.Expand  — optional branch expansion
+//	gate.Run               — deterministic quality gate
+//
+// When the LLM never called emit_analysis, buildAnalysisIR uses a
+// zero-value RequestModel seeded with the raw objective — the
+// compiler's generic template and a zero RiskMatrix are a valid
+// starting point that still produces a structurally complete IR.
 func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 	if ctx == nil {
 		return nil
 	}
-	var hints types.AnalyzerClassification
-	if ctx.Mutable != nil {
-		hints = ctx.Mutable.Classification()
-	}
 
-	// 1. RequestModel from classification + Objective.
-	rm := buildRequestModel(ctx, hints)
+	rm := readOrSynthesizeRequestModel(ctx)
 
-	// 2. Scenario compilation.
-	out := compiler.Compile(rm)
+	// Normalizer runs unconditionally on the raw objective so
+	// downstream Coverage checks have real symbols to work with.
+	rm.TermGraph = normalizer.Normalize(rm.RawRequest, normalizer.Options{})
 
-	// 3. AnswerShape override from the LLM classification when set —
-	// the LLM's explicit shape choice should trump the scenario
-	// template's default shape (e.g. the analyzer decided a particular
-	// mechanism question is list_of_symbols rather than step_list).
-	if hints.AnswerShape != "" {
-		if shape := mapAnswerShape(hints.AnswerShape); shape != "" {
-			out.AnswerContract.RequiredAnswerShape = shape
+	// Scenario default — LLM may have omitted or the compiler's
+	// InferScenario may produce a safer pick given the term graph.
+	if rm.Scenario == "" || rm.Scenario == types.ScenarioGeneric {
+		if s := compiler.InferScenario(rm); s != "" {
+			rm.Scenario = s
 		}
 	}
 
-	// 4. Risk matrix + run policy.
+	// Scenario compilation — templates produce TaskGraph, EvidencePlan,
+	// and a default AnswerContract. The LLM's explicit answer_shape
+	// overrides the template default when supplied.
+	out := compiler.Compile(rm)
+	if rm.AnalyzerHints.Shape != "" {
+		if shape := mapLegacyAnswerShape(rm.AnalyzerHints.Shape); shape != "" {
+			out.AnswerContract.RequiredAnswerShape = shape
+		}
+	}
+	if out.AnswerContract.Language == "" {
+		out.AnswerContract.Language = rm.Language
+	}
+
+	// Risk matrix + run policy. Pre-normalisation risk evidence is
+	// empty — risk.Evaluate decorates it from the term graph.
 	rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)
-	runPolicy := risk.DerivePolicy(rm.RiskMatrix, hints.Writing)
-	// HighRisk from the LLM classification is an OR of all the review
-	// switches — honor it so analyzer-declared risk always escalates.
-	if hints.HighRisk {
+	runPolicy := risk.DerivePolicy(rm.RiskMatrix, rm.Writing)
+	if rm.HighRisk {
 		runPolicy.RequireDesignReview = true
 		runPolicy.RequireCodeReview = true
 	}
 
-	// 5. Hypothesis planning and binding.
+	// Hypothesis planning and binding.
 	hypotheses := hdp.Plan(rm)
 	hdp.Bind(&out.TaskGraph, hypotheses)
 
-	// 6. Optional counterfactual expansion.
+	// Optional counterfactual expansion (default off; only fires on
+	// complex + ambiguous explain/root_cause/security_audit).
 	if counterfactual.ShouldExpand(rm) {
 		expanded, newIDs := counterfactual.Expand(
 			out.TaskGraph, rm,
@@ -284,9 +286,6 @@ func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 		)
 		out.TaskGraph = expanded
 		if len(newIDs) > 0 {
-			// Bind hypotheses to any new counterfactual nodes the
-			// expander added, so the quality gate's coverage check
-			// still passes.
 			hdp.Bind(&out.TaskGraph, hypotheses)
 		}
 	}
@@ -302,97 +301,67 @@ func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 		TraceID:        ctx.CurrentTaskID,
 	}
 
-	// 7. Quality gate — reported, not enforced in B5.
+	// Quality gate.
 	ir.QualityGate = gate.Run(ir, gate.Thresholds{})
-
 	return ir
 }
 
-// buildRequestModel turns the raw objective + LLM classification
-// carrier into a RequestModel. The normalizer produces the canonical
-// TermGraph from the raw text (always), and the carrier-supplied
-// intent/complexity classification is honored when present.
-func buildRequestModel(ctx *types.AgentContext, hints types.AnalyzerClassification) types.RequestModel {
+// readOrSynthesizeRequestModel returns the LLM-emitted RequestModel
+// from MutableState, or a zero-value fallback seeded with the raw
+// objective when the analyzer never called emit_analysis.
+func readOrSynthesizeRequestModel(ctx *types.AgentContext) types.RequestModel {
 	raw := ctx.Objective
-	// Normalize the raw objective to populate the term graph. We run
-	// this unconditionally — it's cheap and deterministic.
-	termGraph := normalizer.Normalize(raw, normalizer.Options{})
-
-	rm := types.RequestModel{
-		RawRequest: raw,
-		Language:   detectLanguage(raw, ctx.Preferences),
-		TermGraph:  termGraph,
-		Complexity: types.ComplexityModerate,
-	}
-
-	if hints.Complexity != "" {
-		if c := mapComplexity(hints.Complexity); c != "" {
-			rm.Complexity = c
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			if rm.RawRequest == "" {
+				rm.RawRequest = raw
+			}
+			if rm.Language == "" {
+				rm.Language = detectLanguage(raw, ctx.Preferences)
+			}
+			if rm.Complexity == "" {
+				rm.Complexity = types.ComplexityModerate
+			}
+			if rm.Intent == "" {
+				rm.Intent = types.IntentUnknown
+			}
+			return *rm
 		}
 	}
-	if hints.QuestionKind != "" {
-		rm.Intent = mapIntent(hints.QuestionKind)
-	} else {
-		rm.Intent = types.IntentUnknown
+	// Fallback: analyzer never called emit_analysis. Synthesise a
+	// zero-value RequestModel so downstream stages still see a
+	// structurally valid IR.
+	return types.RequestModel{
+		RawRequest: raw,
+		Language:   detectLanguage(raw, ctx.Preferences),
+		Intent:     types.IntentUnknown,
+		Scenario:   types.ScenarioGeneric,
+		Complexity: types.ComplexityModerate,
 	}
-	rm.AnalyzerHints = types.AnalyzerHints{
-		Keywords: append([]string(nil), hints.Keywords...),
-		Entities: append([]string(nil), hints.Entities...),
-		Kind:     hints.QuestionKind,
-		Shape:    hints.AnswerShape,
-	}
-
-	// Scenario is derived from Intent + TermGraph. The compiler's
-	// templates already honor ScenarioGeneric as the fallback so
-	// InferScenario's output is always safe.
-	rm.Scenario = compiler.InferScenario(rm)
-
-	return rm
 }
 
-// mapIntent translates the legacy question_kind enum (analyzer prompt
-// contract) into the v3 Intent enum. Unknown maps to IntentUnknown
-// rather than an empty string so compiler.InferScenario gets a
-// consistent shape.
-func mapIntent(qk string) types.Intent {
-	switch strings.ToLower(strings.TrimSpace(qk)) {
-	case "registration":
-		return types.IntentEnumerate // "X registers Y" is a set question
-	case "mechanism":
-		return types.IntentExplain
-	case "return_value":
-		return types.IntentReturnValue
-	case "conditional":
-		return types.IntentTrace
-	case "config_mapping":
-		return types.IntentConfigQuery
-	case "enumeration":
-		return types.IntentEnumerate
-	case "call_chain":
-		return types.IntentTrace
+// classifyGateFailure inspects a GateReport and returns whether the
+// failure is structural (hard fail) along with a short detail
+// string. Structural failures: nil_ir, dag_closure, contract_complete.
+// Everything else (coverage, budget_sanity, hypothesis_coverage,
+// risk_consistency) is soft and logs a warning without aborting.
+func classifyGateFailure(report types.GateReport) (hard bool, detail string) {
+	for _, c := range report.Checks {
+		if c.Passed {
+			continue
+		}
+		switch c.Name {
+		case "nil_ir", "dag_closure", "contract_complete":
+			return true, fmt.Sprintf("%s: %s", c.Name, c.Detail)
+		}
 	}
-	return types.IntentUnknown
+	return false, ""
 }
 
-// mapComplexity coerces the legacy complexity string into the typed
-// Complexity enum. Empty or unrecognized → "" so the caller can apply
-// its own default.
-func mapComplexity(s string) types.Complexity {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "simple":
-		return types.ComplexitySimple
-	case "moderate", "":
-		return types.ComplexityModerate
-	case "complex":
-		return types.ComplexityComplex
-	}
-	return ""
-}
-
-// mapAnswerShape coerces the legacy answer_shape string into the typed
-// AnswerShape enum. Unknown values return "" so the compiler's default
-// stays in place.
-func mapAnswerShape(s string) types.AnswerShape {
+// mapLegacyAnswerShape coerces a free-form answer_shape string into
+// the typed AnswerShape enum. Unknown values return "" so the
+// compiler's template default stays in place.
+func mapLegacyAnswerShape(s string) types.AnswerShape {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "list_of_symbols":
 		return types.ShapeListOfSymbols
@@ -404,6 +373,8 @@ func mapAnswerShape(s string) types.AnswerShape {
 		return types.ShapeBoolean
 	case "config_value":
 		return types.ShapeConfigValue
+	case "explanation":
+		return types.ShapeExplanation
 	case "none":
 		return types.ShapeNone
 	}
@@ -412,15 +383,13 @@ func mapAnswerShape(s string) types.AnswerShape {
 
 // detectLanguage picks "zh" when the raw request contains Han
 // characters, "en" otherwise. Falls back to Preferences-declared
-// language when the request is entirely non-alphabetic (edge case).
+// language when the request is entirely non-alphabetic.
 func detectLanguage(raw string, prefs []string) string {
 	for _, r := range raw {
 		if unicode.Is(unicode.Han, r) {
 			return "zh"
 		}
 	}
-	// If the raw request is Latin-only, honor a preference override
-	// so -lang=zh still produces an IR with zh language tag.
 	for _, p := range prefs {
 		lp := strings.ToLower(p)
 		if strings.Contains(lp, "chinese") || strings.Contains(lp, "zh") || strings.Contains(lp, "简体中文") {

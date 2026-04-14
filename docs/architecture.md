@@ -146,8 +146,8 @@ graph LR
 
 `Run()` 分两个阶段:
 
-1. **Phase 1 — analyze 阶段**: 调度 `analyze` 一次。analyzer 通过 `todo_write` 工具(或 fail-safe 路径)向 `BusContext.Mutable.TaskList` 写入分解后的任务列表
-2. **Phase 2 — 任务循环**: 遍历所有 pending 的 task,为每个 task 跑一次 mini-pipeline(`explore → plan → implement → verify → finalize`),由该 task 的 `Writing`/`HighRisk` 决定走哪条 policy
+1. **Phase 1 — analyze 阶段**: 调度 `analyze` 一次。analyzer 通过 `emit_analysis` 工具输出 v3 `RequestModel`（intent / scenario / complexity / writing / keywords / entities / question_kind / answer_shape），`ParseOutput` 随后确定性地跑 `normalizer → compiler → risk → hdp → counterfactual → gate` 管线组装完整 `AnalysisIR`（含 TaskGraph / EvidencePlan / AnswerContract / Hypotheses / RunPolicy）并写入 `BusContext.AnalysisIR`
+2. **Phase 2 — 任务循环**: 遍历所有 pending 的 task。每个 task 走 DAG 驱动的 `runTaskGraph`（基于 `AnalysisIR.TaskGraph` 调度 probe/evidence/validate/reconcile/finalize 节点,finalize 节点后跑 `contract.Check` 对答案做结构验证,违规则 requeue 探索窗口）。analyze 阶段失败未能产出 IR 时回退到 `runTaskPipelineLegacy` 的线性状态机
 
 每个 task 进入循环时**重置 per-task state**:
 - `Signals` 清空
@@ -275,7 +275,7 @@ init → receive_prompt → execute_loop → complete
 
 | Agent | 阶段 | 能力 | 描述 |
 |-------|------|------|------|
-| `analyzer`（分析器） | analyze | 只读 | 结构化任务并通过 todo_write 标记 writing / high_risk |
+| `analyzer`（分析器） | analyze | 只读 | 通过 emit_analysis 输出 v3 RequestModel，ParseOutput 跑 normalizer/compiler/risk/hdp/gate 产出 AnalysisIR |
 | `planner`（规划器） | plan | 只读 | 设计实现方案 |
 | `explorer`（探索器） | explore | 只读 | 浏览代码库，收集事实，构建模块映射 |
 | `implementer`（实现器） | implement | **读 + 写** | 编写代码，修改文件，生成补丁 |
@@ -396,7 +396,8 @@ type Tool interface {
 | `git_diff` | 读 | 显示 git diff 输出 |
 | `git_log` | 读 | 显示 git 提交历史 |
 | `apply_patch` | **写** | 对文件做目标化改动(write/edit/insert_before/insert_after 四种模式),保留行尾,限定在 workspace 根内,返回 diff 预览 |
-| `todo_write` | 读(逻辑上写 `Mutable`) | 在 `BusContext.Mutable.TaskList` 上做**全量替换**式更新,analyzer / explorer / implementer 的 skill 推荐它。sub-agent 不共享 `Mutable`,调用会被拒 |
+| `todo_write` | 读(逻辑上写 `Mutable`) | 在 `BusContext.Mutable.TaskList` 上做**全量替换**式更新,explorer / implementer / planner 的 skill 推荐它用于进度追踪。sub-agent 不共享 `Mutable`,调用会被拒。v3 之后 analyzer 不再用此工具 — analyzer 走 emit_analysis |
+| `emit_analysis` | 读(逻辑上写 `Mutable`) | Analyzer v3 专用出口。一次性写 v3 `RequestModel`（intent / scenario / complexity / writing / keywords / entities / question_kind / answer_shape）到 `BusContext.Mutable`，`analyzer.ParseOutput` 随后跑确定性的 normalizer/compiler/risk/hdp/counterfactual/gate 管线组装完整 `AnalysisIR` |
 | `propose_sub_agents` | 读 | **自动注入**给名字匹配已注册 sub-agent 的主 agent,用于在 ReAct 循环里申请派生并行 sub-agent,schema 的 `sub_agent` enum 会被收窄到该主 agent 对应的唯一名字 |
 
 #### ToolResult 格式
@@ -1098,7 +1099,7 @@ sequenceDiagram
 下面的演练针对**单个 task**(即 Phase 2 里的一次 per-task 循环)。多任务 Run 把 step 2 执行一次,然后重复 step 3–14 每个 task 一次,最后每个 task 各自落一份 Result 到 `Mutable.TaskList.Tasks[i].Result`。
 
 1. **用户请求到达** → 编排器创建初始 BusContext,`Mutable = NewMutableState(Objective=request)`
-2. **`analyze`**(Phase 1,只跑一次) — analyzer + task-analysis-skill:解析意图,通过 `todo_write` 工具在 Mutable 中产出 TaskList,每个 task 带 `Writing` / `HighRisk` 两个布尔
+2. **`analyze`**(Phase 1,只跑一次) — analyzer + task-analysis-skill:通过 `emit_analysis` 工具输出 v3 RequestModel,ParseOutput 跑 normalizer/compiler/risk/hdp/gate 管线组装完整 `AnalysisIR`,RunPolicy 自此被冻结
 3. **编排器重新评估**(进入 Phase 2 per-task 循环) — 读取当前 task 的 `MissingFacts`:
    - `MissingFacts` → 路由到 `explore`（优先级 100）
    - `MissingPlan` → 路由到 `plan`（优先级 80）
