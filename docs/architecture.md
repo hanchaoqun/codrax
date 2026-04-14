@@ -1,6 +1,6 @@
 # 架构设计文档
 
-> **当前状态：** codrax 是一个**只读的代码分析工具**。早期版本包含完整的写入流水线（planner / implementer / design_reviewer / code_reviewer / verifier），已在 2026-04-14 的一系列简化提交中整体删除。现在的定位是**回答关于代码的问题**，而不是修改代码。4 阶段 × 4 agent 流水线硬编码在 `internal/orchestrator/topology.go`。
+> **当前状态：** codrax 是一个**只读的代码分析工具**。定位是**回答关于代码的问题**，而不是修改代码。4 阶段 × 4 agent 流水线硬编码在 `internal/orchestrator/topology.go`。
 
 ## 目录
 
@@ -748,7 +748,7 @@ typed data ───────────────> Markdown prompt ──
 | `ToolResult.RawRef` | 大输出的 blob 文件引用 |
 | `AgentContext.RelevantFacts/Files/ToolSummaries/MCPNotes []string` | 已结构化数据 flatten 后的 prompt-layer 缓冲区，产生点在 `context/builder.go`（LLM 边界之前一步），语义正确 |
 
-> **历史注记**：`AnswerChains` 曾经是 `[]string` —— `identifyAnswerChains` 在纯 Go 代码里把 `EvidenceItem` 的 `Summary` 字段拼上 `" (file:line)"` 后缀往下游传，属于"运行时 Go 代码中途做 flatten"的反模式。2026-04-14 的 commit `784fb4e` 把它改成 typed `[]AnswerChain{Item, Score, StrictOK}`，扁平化下移到唯一合法的 flatten 点（`context/builder.go:renderAnswerChainForPrompt`）。现在代码库里**再没有任何"运行时产、提前 flatten、作为 string 往下传"的数据通道**。
+代码库里没有任何"运行时 Go 代码中途做 flatten、把结构化数据压成 string 往下传"的数据通道。上表列出的是唯一合法的 string 字段集合。
 
 #### 强约束（Invariants）
 
