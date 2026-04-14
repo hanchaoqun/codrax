@@ -1,0 +1,197 @@
+package agent
+
+// P1.2 — deterministic StageReport rendering.
+//
+// Background. Before this file, the explorer's StageReport (which the
+// finalizer reads as its "Prior Stage Findings" section) was the LLM's
+// own synthesis prose: BaseAgent.Execute auto-captured the last
+// assistant message into output.StageReport, and that prose flowed
+// into BusContext.StageReports → finalizer prompt verbatim. The doc
+// `docs/architecture-root-cause-remediation.md` §5 R1 calls that the
+// "free-text escape hatch" — the structured Evidence / AnswerChains /
+// AnswerSymbols channel and the prose channel were both visible to
+// the finalizer, with no single source of truth, so the finalizer
+// could (and did) pick prose details that contradicted the structured
+// fields. F9 (`scrubSiblingEvidenceBlocks`) was a band-aid that tried
+// to scrub one specific shape of leak (sibling-file `## Evidence
+// from <path>` blocks the LLM copied into its synthesis output).
+//
+// P1.2 closes the channel: the explorer's ParseOutput now sets
+// out.StageReport explicitly to the byte-deterministic markdown
+// produced by renderExplorerStageReport. BaseAgent.Execute's
+// auto-capture (`if output.StageReport == ""`) is therefore skipped,
+// and the synthesis LLM's prose never reaches the finalizer through
+// the StageReport channel. F9 becomes structurally unnecessary and
+// is deleted in the same commit.
+//
+// Design rules for this renderer:
+//
+//   1. Pure function over structured types — no LLM input, no
+//      `interface{}`, no captured state.
+//   2. Byte-deterministic — same inputs always produce the same
+//      output (relied on by TestRenderExplorerStageReport_Deterministic
+//      and by every grid run that wants a stable diff).
+//   3. No word lists, no regex pattern matching, no language-specific
+//      heuristics. The structured fields are the source of truth;
+//      this file just formats them.
+//   4. No dropping or filtering. Upstream filters F5..F8 already did
+//      grounding/dedup/rank/scope. This renderer formats the survivors.
+//      "Honesty over cleverness" — empty inputs render as an explicit
+//      empty skeleton, not as silence.
+//   5. The output is human-readable markdown so the finalizer LLM can
+//      treat it as a normal context section, but the section headers
+//      are stable so future automated diffing is possible.
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// renderExplorerStageReport produces the canonical, byte-deterministic
+// markdown that becomes BusContext.StageReports[explorer].Findings and
+// is rendered by the prompt builder under "Prior Stage Findings". It
+// reads only structured fields the explorer has already computed by
+// the time ParseOutput runs.
+//
+// readFiles is the unique set of source paths the explorer touched
+// during the ReAct loop, ordered for stable rendering. The caller is
+// responsible for de-duplication; this function only sorts.
+func renderExplorerStageReport(
+	questionKind string,
+	answerShape string,
+	evidence []types.EvidenceItem,
+	chains []string,
+	symbols []types.AnswerSymbol,
+	findings []types.FlowFindingDigest,
+	readFiles []string,
+	isEnumeration bool,
+) string {
+	var b strings.Builder
+
+	b.WriteString("## Investigation Summary\n")
+	fmt.Fprintf(&b, "- question_kind: %s\n", emptyAsDash(questionKind))
+	fmt.Fprintf(&b, "- answer_shape: %s\n", emptyAsDash(answerShape))
+	fmt.Fprintf(&b, "- enumeration_query: %v\n", isEnumeration)
+	fmt.Fprintf(&b, "- evidence_items: %d\n", len(evidence))
+	fmt.Fprintf(&b, "- answer_chains: %d\n", len(chains))
+	fmt.Fprintf(&b, "- answer_symbols: %d\n", len(symbols))
+	fmt.Fprintf(&b, "- flow_findings: %d\n", len(findings))
+	fmt.Fprintf(&b, "- files_read: %d\n", len(readFiles))
+	b.WriteString("\n")
+
+	// Primary Evidence: the top items in their post-F8 order, kept
+	// short. The full evidence list still reaches the finalizer via
+	// the structured Evidence Items channel (formatEvidenceItems in
+	// internal/context/builder.go, top-18). This section is a
+	// compact recap so the finalizer prompt does not need to
+	// cross-reference two sections to see what the explorer found.
+	if len(evidence) > 0 {
+		b.WriteString("## Primary Evidence\n")
+		const topN = 8
+		for i, ev := range evidence {
+			if i >= topN {
+				break
+			}
+			b.WriteString("- " + formatEvidenceLineForReport(ev) + "\n")
+		}
+		if len(evidence) > topN {
+			fmt.Fprintf(&b, "- ... (+%d more in Structured Evidence section)\n", len(evidence)-topN)
+		}
+		b.WriteString("\n")
+	}
+
+	if len(chains) > 0 {
+		b.WriteString("## Resolution Chains\n")
+		for _, c := range chains {
+			b.WriteString("- " + c + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(symbols) > 0 {
+		b.WriteString("## Answer Symbols\n")
+		for _, s := range symbols {
+			if s.File != "" && s.Line > 0 {
+				fmt.Fprintf(&b, "- %s (%s:%d)\n", s.Name, s.File, s.Line)
+			} else if s.File != "" {
+				fmt.Fprintf(&b, "- %s (%s)\n", s.Name, s.File)
+			} else {
+				fmt.Fprintf(&b, "- %s\n", s.Name)
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	if len(findings) > 0 {
+		b.WriteString("## Dataflow Findings\n")
+		for _, f := range findings {
+			line := strings.Join(f.Path, " → ")
+			if line == "" {
+				line = f.ID
+			}
+			if f.UnsupportedReason != "" {
+				line += " [unsupported: " + f.UnsupportedReason + "]"
+			}
+			b.WriteString("- " + line + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	if len(readFiles) > 0 {
+		b.WriteString("## Files Read\n")
+		sorted := append([]string(nil), readFiles...)
+		sort.Strings(sorted)
+		for _, f := range sorted {
+			b.WriteString("- " + f + "\n")
+		}
+		b.WriteString("\n")
+	}
+
+	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+// formatEvidenceLineForReport renders one EvidenceItem as a single
+// markdown bullet for the Primary Evidence section. It reads only
+// struct fields — never LLM-authored prose summary — so the output
+// is stable across runs.
+//
+// Format: `[KIND] subject predicate object — source:line` with
+// missing fields gracefully elided. The [/ungrounded] marker (P0.1)
+// is preserved by reading Producer, so the finalizer can still see
+// that an evidence line did not have a verifiable cite.
+func formatEvidenceLineForReport(ev types.EvidenceItem) string {
+	var parts []string
+	parts = append(parts, fmt.Sprintf("[%s]", ev.Kind))
+
+	semantic := strings.TrimSpace(strings.Join(nonEmpty([]string{ev.Subject, ev.Predicate, ev.Object}), " "))
+	if semantic == "" {
+		semantic = strings.TrimSpace(ev.Summary)
+	}
+	if semantic != "" {
+		parts = append(parts, semantic)
+	}
+
+	if ev.Source != "" {
+		loc := ev.Source
+		if ev.LineStart > 0 {
+			loc = fmt.Sprintf("%s:%d", ev.Source, ev.LineStart)
+		}
+		parts = append(parts, "— "+loc)
+	}
+
+	if strings.HasSuffix(ev.Producer, "/ungrounded") {
+		parts = append(parts, "[UNGROUNDED]")
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func emptyAsDash(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return "-"
+	}
+	return s
+}

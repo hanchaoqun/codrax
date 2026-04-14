@@ -14,8 +14,29 @@
 > accompanies this doc. When a filter is added, moved, or removed,
 > update this doc *in the same commit*.
 >
-> **HEAD at write**: post-P1.1 ship (emit_evidence channel landed,
-> default off). Earlier: P0.3 doc itself written at `41f4b61`.
+> **HEAD at write**: post-P1.2 ship (deterministic StageReport renderer
+> landed, F9 deleted). Earlier: P1.1 ship at `5e695d7`, P0.3 doc itself
+> written at `41f4b61`.
+>
+> **P1.2 update (2026-04-14)**: F9 (`scrubSiblingEvidenceBlocks`) is
+> deleted. The explorer's `StageReport` is no longer the LLM synthesis
+> prose — `internal/agent/explorer.go` `ParseOutput` now sets
+> `out.StageReport = renderExplorerStageReport(...)` (in
+> `internal/agent/stage_report_render.go`), a byte-deterministic
+> markdown built from EvidenceItems + AnswerChains + AnswerSymbols +
+> FlowFindings + read files. The synthesis LLM call still runs because
+> `SynthesisPrompt` has structured side effects (concrete-value
+> extraction merged into `e.structuredEvidence`), but its prose output
+> dies inside `BaseAgent.Execute` instead of leaking to the finalizer
+> via `BusContext.StageReports`. Sibling-file `## Evidence from
+> <path>` leakage (the t3 sibling-drift Pattern 3 in the fake-green
+> audit) is therefore structurally impossible — the renderer reads
+> only typed structs. The §2 inventory drops from 11 to 10 logical
+> filters; §3 invariants 6 and 7 are amended; §4 fail-open table
+> drops the F9 row. R1 (the prose escape hatch) is closed for the
+> explorer→finalizer hop. Other agents (implementer, verifier,
+> code_reviewer, …) still emit prose StageReports — that residual
+> remediation is tracked separately and is not in P1.2 scope.
 >
 > **P1.1 update (2026-04-14)**: F4 (`parseEvidenceItems`) is no
 > longer the only feeder of the Evidence channel. The new
@@ -129,14 +150,13 @@ edges. The three channels are:
                                           │                        ▼
                                           │                 synthesis prompt
                                           │                        │
-                                          │                        ▼
-                                          │                 ┌─────────────────┐
-                                          │                 │  F9              │
-                                          │                 │ scrubSibling     │
-                                          │                 │  EvidenceBlocks  │
-                                          │                 │ (prose channel,  │
-                                          │                 │  mechanism only) │
-                                          │                 └──────┬───────────┘
+                                          │                  (P1.2: synth LLM
+                                          │                   prose dies inside
+                                          │                   BaseAgent.Execute;
+                                          │                   StageReport built
+                                          │                   from structs by
+                                          │                   renderExplorer-
+                                          │                   StageReport)
                                           │                        │
                                           └──────┐                 ▼
                                                  │         finalizer prompt
@@ -164,12 +184,11 @@ edges. The three channels are:
 
 Explanatory edges (not drawn above to keep the DAG readable):
 
-- F4 reads `e.investigationNotes` which is **the same slice** that the
-  synthesis prompt later scrubs via F9 — so F4 and F9 share an input,
-  but F4 runs in `ensureStructuredEvidence` and F9 runs inside
-  `SynthesisPrompt` much later. Both read, neither writes back, so
-  there is no mutation ordering — but any *new* filter that *mutates*
-  `e.investigationNotes` between these two read sites would break both.
+- F4 reads `e.investigationNotes`. Before P1.2, F9 also read this
+  slice inside `SynthesisPrompt` to scrub sibling-file blocks; after
+  P1.2 the synthesis LLM still sees the notes but its prose output no
+  longer flows to the finalizer, so the notes are passed through
+  untouched. The slice is now read by F4 only.
 - F7 runs **twice**: once in `ParseOutput` at `explorer.go:1563` (for
   stage-output ranking) and once in `SynthesisPrompt` at
   `explorer.go:1846` (for synthesis digest). Both calls are idempotent
@@ -192,16 +211,16 @@ Explanatory edges (not drawn above to keep the DAG readable):
 | F6 | Evidence | `mergeEvidenceItems` | `internal/agent/evidence.go:237` | Duplicate evidence across sources (LLM notes / concrete values / mechanism / dataflow) | Dedup on `StableEvidenceID` hash | struct (hash) |
 | F7 | Evidence | `rankEvidenceByRelevance` | `internal/agent/evidence.go:847` | Low-relevance items pushed into top-N | Reorder + weighted bonus (does NOT drop) | regex / string heuristics over struct |
 | F8 | Evidence | `filterEvidenceByPrimaryFiles` | `internal/agent/explorer.go:614` (called at `:1583`) | Non-primary-file evidence leaking into mechanism-kind finalizer prompt | Drop; **fail-open on 0 survivors** | struct (source-path match) |
-| F9 | Prose channel | `scrubSiblingEvidenceBlocks` | `internal/agent/evidence.go:633` (called at `explorer.go:1891`) | Sibling-file `## Evidence from` markdown blocks inside investigation notes reaching synthesis prompt | Drop block | string / regex (markdown headers) |
+| ~~F9~~ | ~~Prose channel~~ | ~~`scrubSiblingEvidenceBlocks`~~ | **Deleted P1.2** — the prose channel itself was removed (explorer's `StageReport` is now built from structured fields by `renderExplorerStageReport` in `internal/agent/stage_report_render.go`). Sibling-file leakage is structurally impossible. | — | — |
 | F10 | Prompt | Explorer Rules block + Finalizer Hard-constraints block | `internal/agent/explorer.go:1058-1076`, `internal/agent/finalizer.go:88-136` | Format / answer-shape violations expressible as English rules | Prompt soft constraint (no enforcement) | string / prompt |
 | F11 | Answer | `outOfListSymbols` + shape-validator family | `internal/agent/finalizer.go:276` (S3 core), `internal/agent/finalizer_validators.go` (P0.2 shape validators), dispatch at `finalizer.go:169` / `:194`, retry via `ContinuationPrompt` at `finalizer.go:190` | Finalizer shape violations: out-of-list symbol names (`list_of_symbols`); insufficient step count vs `[CONDITIONAL]` branches (`step_list`); missing/mis-typed value literal (`value`); missing YES/NO/是/否 prefix (`boolean`); missing key/value/file:line triple (`config_value`) | Inject correction prompt + retry ≤2×; on exhaustion **fail LOUD** via `validationFailed` (P0.2 red line) — `list_of_symbols` legacy path still silent-accepts | struct (allowed set + regex shape predicates) |
 
-**Tallies (post-P0.2)**:
+**Tallies (post-P1.2)**:
 
-- By channel: **1 Request, 3 Tool, 5 Evidence, 1 Prose, 1 Prompt, 1 Answer** = 12 slots if you count F3' as distinct, 11 if you fold it into F3. The `architecture-root-cause-remediation.md` §4 table counts 11; this doc keeps that number by listing F3/F3' as one row.
-- By data form: 6 string/regex/prompt (F1, F4, F7, F9, F10, half of F11) + 5 struct/schema (F2, F3/F3', F5, F6, F8, other half of F11). R2 is the reason the string-form half is where the parser-class bugs keep happening.
-- By action: 6 drop (F3, F3', F8, F9, part of F11, parts of F6) + 3 rewrite (F5, F1, parts of F11) + 2 retry (F2, F11) + 1 reorder (F7).
-- By layer order in the DAG: F1 → F2/F3/F3' → F4 → F5 → F6 → F7 → F8 → (synthesis prompt inserts prose) → F9 → F10 → F11.
+- By channel: **1 Request, 3 Tool, 5 Evidence (incl. F4'), 1 Prompt, 1 Answer** = 11 slots if you count F3' as distinct, 10 if you fold it into F3. P1.2 removed the Prose channel slot (F9) entirely — explorer's `StageReport` is now structured-field-derived.
+- By data form: 5 string/regex/prompt (F1, F4, F7, F10, half of F11) + 6 struct/schema (F2, F3/F3', F4', F5, F6, F8, other half of F11). R2 is the reason the string-form half is where the parser-class bugs keep happening.
+- By action: 5 drop (F3, F3', F8, part of F11, parts of F6) + 3 rewrite (F5, F1, parts of F11) + 2 retry (F2, F11) + 1 reorder (F7).
+- By layer order in the DAG: F1 → F2/F3/F3' → F4/F4' → F5 → F6 → F7 → F8 → (synthesis prompt; LLM prose dies inside BaseAgent) → F10 → F11.
 
 ---
 
@@ -233,17 +252,18 @@ test-time signal.
 5. **F7 (rank) must run before the top-18 truncation inside
    `formatEvidenceItems` at `internal/context/builder.go`.**
    Reason: truncation is positional.
-6. **F8 (filterEvidenceByPrimaryFiles) is the *structured-channel* half
-   of the primary-file scope narrowing. F9 (scrubSiblingEvidenceBlocks)
-   is the *prose-channel* half.** They must **both** run, because one
-   alone leaks through the other channel. This is the
-   `architecture-root-cause-remediation.md` R1 symptom: two filters on
-   two channels to solve the same semantic problem.
-7. **F9 runs inside `SynthesisPrompt` and must run before the notes are
-   written into the synthesis digest.** If F9 runs after digest
-   construction (or a new filter is inserted between F9 and the digest
-   writer), sibling-file blocks leak into synthesis prose and the t3
-   drift regresses.
+6. **F8 (filterEvidenceByPrimaryFiles) is the only primary-file scope
+   narrowing.** Pre-P1.2, F9 (`scrubSiblingEvidenceBlocks`) was the
+   prose-channel half; P1.2 deleted F9 by eliminating the prose
+   channel itself, so primary-file scope is now enforced at exactly
+   one place. The architecture-root-cause-remediation.md R1
+   "two parallel channels" symptom for the explorer→finalizer hop is
+   structurally closed.
+7. **(P1.2 deletion)** The F9 ordering invariant — "F9 runs inside
+   `SynthesisPrompt` before the notes are written into the synthesis
+   digest" — is removed because F9 no longer exists. The synthesis
+   digest still receives raw notes, but its prose output no longer
+   reaches the finalizer.
 8. **F11 runs strictly last.** It operates on the finalizer LLM's
    response text, not on evidence — any filter placed *after* F11
    would operate on the answer handed back to the user and would
@@ -269,7 +289,6 @@ without triggering any signal.
 | F5 `groundEvidenceItems` | LLM cites the wrong line | `LineStart` cleared + `/ungrounded` tag appended to `Producer`; item is NOT dropped | Finalizer honoring the /ungrounded contract is prompt-soft (F10) until P0.1 made it a renderer-visible tag (shipped). Still not a hard reject. |
 | F8 `filterEvidenceByPrimaryFiles` | 0 items survive the primary-file filter | Explicit fail-open at `explorer.go:1583-1591` — returns the unfiltered set | Non-primary evidence reaches the finalizer on an "unusual" investigation. Marked as acceptable to unblock small cases; audit when grid variance rises. |
 | F11 `outOfListSymbols` | LLM continues to emit banned symbols after 2 retries | Loop exits at `finalizer.go:221-225` after `maxFinalizerCorrectionRetries` with a debug log but **accepts the violation silently** (legacy S3 path) | Banned symbols reach the user. The P0.2 shape validators (`validateStepList`, …) deliberately do NOT silent-accept — they set `validationFailed` and `ParseOutput` appends a ⚠️ honesty note. The `list_of_symbols` path is still legacy until it is lifted into the P0.2 discipline. |
-| F9 `scrubSiblingEvidenceBlocks` | Gated by `question_kind == "mechanism"` | `enumeration` / `call_chain` / `dataflow` questions legitimately span multiple files and must not be scrubbed | Any mis-classified mechanism question (analyzer says "enumeration" when it should say "mechanism") silently skips F9 and leaks sibling blocks. |
 | F4 `parseEvidenceItems` | LLM writes evidence markdown in a shape the parser does not recognise | Regex match count drops to 0; nothing downstream; the prose still reaches synthesis via F9's input slice | Parser-class bug family. Two instances tracked so far: `c04298f→ba081db` (ERM entity pollution) and `133973d` (markdown-backtick source header). `memory/project_evidence_as_tool_refactor_deferred.md` tracks the counter; threshold = 3. P1.1 (`emit_evidence` tool) is the planned replacement. |
 | — (no filter) | Pure prose→fact drift inside investigation notes (the t5 `slice/total` hallucination case) | No filter in any channel matches this shape | F5 catches it only *indirectly* when the prose contains a line number. Pure prose with no cite slips through. Addressed only by P1.2 (`StageOutput.Data` deterministic rendering) + P2.2 (`AnswerDocument` renderer). |
 

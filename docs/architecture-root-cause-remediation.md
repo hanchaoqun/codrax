@@ -933,7 +933,7 @@ parser patch"——今天 session 的 fake-green ship 也不例外。这些修�
 |---|---|---|---|---|
 | 1 (step_list 坍缩) | D prompt 软约束 | P0.2 validator 强制 | 不变 | 结构上不可能 |
 | 2 (行号幻觉) | A gutter + B grounder | 可观测（UNGROUNDED 可见） | P1.1 parse 通道消失 | 结构上不可能 |
-| 3 (sibling drift) | C scrub 兜底 | 不变 | P1.2 逃生舱删除 → C 可以删除 | 结构上不可能 |
+| 3 (sibling drift) | C scrub 兜底 | 不变 | **P1.2 SHIPPED** — explorer StageReport 改为 deterministic render，prose 通道删除，F9 (`scrubSiblingEvidenceBlocks`) 一同删掉。结构上不可能（explorer→finalizer 这一跳） | 结构上不可能（全 agent） |
 | 4 (prose→fact) | A + B 间接覆盖 | 不变 | P1.1 直接消灭 prose 通道 | 结构上不可能 |
 
 **期望终态**：P2 完成时，fake-green 不是"通过多层拦截降到极低
@@ -975,7 +975,7 @@ disappear on the following schedule:
 |---|---|---|---|---|
 | 1 (step_list collapse) | D prompt-level | P0.2 validator-enforced | unchanged | structurally impossible |
 | 2 (line hallucination) | A gutter + B grounder | observable (UNGROUNDED visible) | P1.1 parse channel gone | structurally impossible |
-| 3 (sibling drift) | C scrub net | unchanged | P1.2 escape hatch deleted → C removable | structurally impossible |
+| 3 (sibling drift) | C scrub net | unchanged | **P1.2 SHIPPED** — explorer StageReport switched to deterministic render, prose channel removed, F9 (`scrubSiblingEvidenceBlocks`) deleted in the same commit. Structurally impossible on the explorer→finalizer hop. | structurally impossible (all agents) |
 | 4 (prose→fact) | A + B indirect cover | unchanged | P1.1 prose channel killed | structurally impossible |
 
 **Desired end state**: when P2 is complete, fake-greens are not "very

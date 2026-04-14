@@ -1421,18 +1421,15 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
-	// The last assistant message is always the synthesis response
-	// (produced by the SynthesizingEvaluator step in BaseAgent.Execute
-	// after the ReAct loop). If synthesis didn't run, fall back to the
-	// last assistant message from the investigation loop.
-	var lastContent string
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "assistant" && messages[i].Content != "" {
-			lastContent = messages[i].Content
-			break
-		}
-	}
-
+	// P1.2 — the explorer no longer captures the synthesis LLM's
+	// last-assistant prose into StageOutput. The prose-to-finalizer
+	// channel was the R1 escape hatch; out.StageReport below is set
+	// to the deterministic canonical render (renderExplorerStageReport)
+	// and out.Data is reduced to an empty JSON object. The synthesis
+	// LLM call still runs because SynthesisPrompt has structured side
+	// effects (concrete-value extraction merged into e.structuredEvidence)
+	// — but its prose output dies inside BaseAgent.Execute.
+	//
 	// Extract facts from tool results. Each tool declares its own
 	// Confidence via the Tool interface: evidence tools (grep,
 	// read_file, …) return 0.8, navigation indexes (repo_map) return
@@ -1658,8 +1655,31 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		}
 	}
 
+	// P1.2 — deterministic StageReport. Build the read-files slice
+	// from the coverage set and render the canonical markdown that
+	// becomes "Prior Stage Findings" downstream. This replaces the
+	// LLM-prose channel that BaseAgent.Execute would otherwise
+	// auto-capture into output.StageReport. See
+	// docs/architecture-root-cause-remediation.md §6 P1.2 and
+	// docs/filtering-pipeline.md "P1.2 update".
+	readFilesList := make([]string, 0, len(readSet))
+	for f := range readSet {
+		readFilesList = append(readFilesList, f)
+	}
+	canonicalReport := renderExplorerStageReport(
+		irQuestionKind(ctx),
+		irAnswerShape(ctx),
+		rankedEvidence,
+		answerChains,
+		answerSymbols,
+		rankedFindings,
+		readFilesList,
+		e.isEnumerationQuery,
+	)
+
 	out := &StageOutput{
-		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
+		Data:          json.RawMessage(`{}`),
+		StageReport:   canonicalReport,
 		NewFacts:      facts,
 		EvidenceItems: rankedEvidence,
 		FlowFindings:  rankedFindings,
@@ -1876,43 +1896,21 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 	// Include the LLM's evidence entries from the ReAct loop.
 	// These contain structured facts extracted from each file.
 	//
-	// Scope scrubbing: when the question has a single receiver-
-	// disambiguated primary target and the analyzer declared
-	// question_kind=mechanism, drop `## Evidence from <sibling>`
-	// blocks whose file is not in the primary set. The existing
-	// rankedEvidence filter in ParseOutput (filterEvidenceByPrimaryFiles)
-	// runs AFTER synthesis and does not affect the raw notes the
-	// synthesis prompt injects here — so sibling-file blocks would
-	// still reach the synthesis LLM and leak into its output as
-	// `finalizer.go:100` / `sub_explorer.go:...` drift cites. See
-	// memory/project_fake_green_audit_2026_04_14.md Pattern 3 and
-	// the t3 2026-04-14 run for the concrete leak.
-	//
-	// Gate is deliberately the same as the ParseOutput-side filter:
-	// mechanism only (enumeration / dataflow questions legitimately
-	// span multiple files). `primary` may contain more than one file
-	// when entities genuinely span files — we drop only blocks for
-	// files OUTSIDE that set, never narrow to fewer than what the
-	// primary disambiguator resolved.
-	var scrubPrimarySet map[string]bool
-	if strings.EqualFold(strings.TrimSpace(irQuestionKind(ctx)), "mechanism") {
-		if primary := e.primaryEntityFiles(); len(primary) > 0 {
-			scrubPrimarySet = make(map[string]bool, len(primary))
-			for _, p := range primary {
-				scrubPrimarySet[p] = true
-			}
-		}
-	}
+	// P1.2 — F9 (`scrubSiblingEvidenceBlocks`) was deleted in the
+	// same commit as the deterministic StageReport renderer. Before
+	// P1.2, sibling-file `## Evidence from <path>` blocks would have
+	// reached the synthesis LLM here, been replayed into its prose
+	// output, and then leaked to the finalizer through StageReport.
+	// After P1.2 the synthesis LLM's prose no longer flows to
+	// StageReport (see ParseOutput's renderExplorerStageReport call),
+	// so even if the synthesis LLM repeats sibling-file content the
+	// finalizer never sees it. The notes are now passed through
+	// untouched. See docs/architecture-root-cause-remediation.md §6
+	// P1.2 and docs/filtering-pipeline.md "P1.2 update".
 	if len(e.investigationNotes) > 0 {
 		digest.WriteString("## Evidence Catalog\n\n")
 		digest.WriteString("These are the evidence entries YOU collected during investigation:\n\n")
-		totalScrubbed := 0
 		for i, note := range e.investigationNotes {
-			if scrubPrimarySet != nil {
-				scrubbed, dropped := scrubSiblingEvidenceBlocks(note, scrubPrimarySet)
-				note = scrubbed
-				totalScrubbed += dropped
-			}
 			note = strings.TrimSpace(note)
 			if note == "" {
 				continue
@@ -1930,10 +1928,6 @@ func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults
 				note = note[:truncLimit] + "\n... [truncated]"
 			}
 			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
-		}
-		if totalScrubbed > 0 {
-			logging.Debug("[explorer] synthesis scope scrub: dropped %d sibling-file evidence blocks (primary=%v)",
-				totalScrubbed, scrubPrimarySet)
 		}
 	}
 
