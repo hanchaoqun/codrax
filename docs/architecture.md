@@ -1,6 +1,6 @@
 # 架构设计文档
 
-> **当前状态（HEAD `c9edcaa` 之后）：** codrax 是一个**只读的代码分析工具**。早期版本包含完整的写入流水线（planner / implementer / design_reviewer / code_reviewer / verifier），已在 2026-04-14 的一系列简化提交中整体删除。现在的定位是**回答关于代码的问题**，而不是修改代码。
+> **当前状态：** codrax 是一个**只读的代码分析工具**。早期版本包含完整的写入流水线（planner / implementer / design_reviewer / code_reviewer / verifier），已在 2026-04-14 的一系列简化提交中整体删除。现在的定位是**回答关于代码的问题**，而不是修改代码。4 阶段 × 4 agent 流水线硬编码在 `internal/orchestrator/topology.go`。
 
 ## 目录
 
@@ -17,6 +17,13 @@
 - [6. 请求生命周期](#6-请求生命周期)
 - [7. 分析器后处理管线](#7-分析器后处理管线)
 - [8. 关键设计模式](#8-关键设计模式)
+  - [调查与结构化分离（Turn A / Turn B）](#调查与结构化分离turn-a--turn-b-双-agent)
+    - [ERM vs Extractor — 职责边界](#erm-vs-extractor--职责边界)
+    - [强约束（Invariants）](#强约束invariants)
+  - [结构化数据贯穿全架构](#结构化数据贯穿全架构prose-仅在-llm-边界)
+  - [Merged-window DAG schedule](#merged-window-dag-schedule)
+  - [诚实失败（fail-loud）](#诚实失败fail-loud)
+  - [反过拟合设计原则](#反过拟合设计原则)
 - [9. 运行时子系统](#9-运行时子系统)
 - [10. 配置](#10-配置)
 - [11. 可扩展性](#11-可扩展性)
@@ -652,12 +659,102 @@ sequenceDiagram
 - 调查需要文件 IO、ReAct 循环、迭代探索、大上下文窗口
 - 结构化需要完整证据视图、零文件 IO、一次性 commit、严格 schema
 
-**解法：**两个独立 Agent 串行接力。Turn A explorer 承担调查（Phase 0 Breadth → Phase 1 Depth + emit_evidence），Turn B extractor 承担结构化（one-shot call + emit_answer_symbol / emit_hypothesis_verdict）。职责严格不重叠：`extract-skill` 的 `Prohibitions` 明确禁止 Turn B 调用 `emit_evidence`。
+**解法：**两个独立 Agent 串行接力。Turn A explorer 承担调查，Turn B extractor 承担结构化。
 
-两层分离防止了多个系统性失败：
+#### ERM vs Extractor — 职责边界
+
+ERM（Evidence Requirement Model）和 extractor 常被混为一谈，但它们是**同一条流水线上的两个不重叠阶段**：
+
+|  | **ERM**（Turn A 内） | **Extractor**（Turn B） |
+|---|---|---|
+| **文件** | `internal/agent/explorer_erm.go` | `internal/agent/extractor.go` |
+| **关心的问题** | "LLM 还需要读哪些文件才能回答？什么时候可以停？" | "Turn A 收集的证据里，哪些是真正的答案？答案列完了吗？" |
+| **输入** | AnalysisIR + 运行中累积的 notes/evidence | Turn A 冻结后的完整 `TurnAArtifacts` 快照 |
+| **产出** | 下一步读文件建议（`ermSuggestFiles`）+ 停止信号（`ermAllSatisfied`）+ β 基线（`terminalEvidenceCount`） | `AnswerSymbols[]` + `CompletenessClaim` + `HypothesisVerdicts[]` |
+| **工具权限** | 完整：`read_file` / `grep` / `repo_map` / `emit_evidence` | 严格受限：只能 `emit_answer_symbol` / `emit_hypothesis_verdict` |
+| **LLM 调用次数** | 每轮一次（ReAct loop，可能 3~10 次） | **一次**（`ShouldStop: iteration >= 1`） |
+| **运行模式** | 确定性规则（纯 Go，LLM 不参与） | LLM 主导 + 确定性验证兜底（`validateCompletenessClaim`） |
+| **诚实契约** | "我已经尽力收集所有相关证据" | "我不会谎称列全了" |
+
+一句话总结：
+- **ERM 是 Turn A 的"投入阶段"** — 决定 LLM 去读什么、什么时候够了
+- **Extractor 是 Turn B 的"收尾阶段"** — 从已读的东西里挑出真正的答案，并确保 LLM 不瞎说它列全了
+
+两者共享"证据"这个对象，但一个是"生产者的监工"，一个是"消费者的校对员"。
+
+#### 强约束（Invariants）
+
+任何 PR 改动这两层的代码都必须保持以下不变式：
+
+1. **Turn B 禁止文件 IO。** `extract-skill.ToolSuggestions` 只开放 `emit_answer_symbol` / `emit_hypothesis_verdict`，`buildToolSchemas` 依赖这个 allowlist 物理裁剪 LLM schema。任何给 extractor 加 `read_file` 权限的 PR 都会破坏"Turn B 的事实只能来自 Turn A 快照"这条线。
+2. **Turn A 禁止答案面板。** `StageOutput.AnswerSymbols` 和 `StageOutput.AnswerSymbolCompleteness` 在 Turn A 的 ParseOutput 里被显式置零；Turn B 是 AnswerSymbols 的唯一生产者。`explorer.go:ParseOutput` 的结构体字面量留白并附注释锁定这一点。
+3. **Analyzer 是 AnalysisIR 的唯一 writer。** 其他 stage 只能通过专属 API（当前只有 `MarkHypothesis` 一个）修改 `HypothesisSet[*].Status`，不得重写结构字段。`applyStageOutput` 只在首次非 nil 时赋值，后续 analyze re-dispatch 不会覆盖现有 IR。
+4. **Turn A 的 StageReport 必须是确定性渲染。** explorer 的 ParseOutput 不读 LLM 最后一条消息，而是调用 `renderExplorerStageReport` 从 typed `[]EvidenceItem` / `[]FlowFindingDigest` / `[]AnswerChain` 渲染出 canonical markdown。任何"把 LLM assistant content 拿来当 StageReport"的 PR 都会把 Turn A 重新打开成 prose-dependent 路径。
+5. **Completeness claim 必须经过 cardinality validator。** Turn B 的 LLM 声明 `complete` 时，`validateCompletenessClaim` 用 `max(β=TerminalEvidenceCount, γ=len(MustInclude))` 交叉验证；slate 不足就降级为 `lower_bound` 并 log warning。任何绕过 validator 直接把 LLM claim 传给 finalizer 的 PR 都会重新打开 fake-green 通道。
+6. **`extract-skill.Prohibitions` 禁止 Turn B 调用 `emit_evidence`。** 这是第二层 schema-外的 prompt-level 约束，防止 LLM 自作主张跨界。
+
+这些约束是**层级分离**的物理实现，删掉任何一条都会把 Turn A/B 的职责边界抹平，重新暴露当年 extractAnswerSymbols 产出错 receiver、LLM 谎称 complete 的根因。
+
+两层分离还防止了几个系统性失败：
 - Continuation push 推动更深调查后，最后一条 assistant 消息是碎片笔记而非综合答案 → Turn A 的 ParseOutput 用确定性 `renderExplorerStageReport` 产出 StageReport，不看 LLM 最后一条消息。
-- 确定性 `extractAnswerSymbols` 在 Go receiver-method chain 上抽 method 名而非 receiver 类型 → Turn B LLM 看完整证据做 slate 判断，规避根因。
-- LLM 在调查中间谎称 `completeness=complete` → Phase 9 cardinality validator 用 `max(β, γ)` 基线自动降级为 `lower_bound`。
+- 启发式 `extractAnswerSymbols`（已删除）在 Go receiver-method chain 上抽 method 名而非 receiver 类型 → Turn B LLM 看完整证据做 slate 判断，规避根因。
+- LLM 在调查中间谎称 `completeness=complete` → cardinality validator 用 `max(β, γ)` 基线自动降级为 `lower_bound`。
+
+### 结构化数据贯穿全架构，prose 仅在 LLM 边界
+
+这是架构的**核心设计原则**：代码层面的所有层间数据流都是 Go struct，字符串只在两处合法出现 —— LLM 的 prompt 渲染（struct → markdown）和 LLM 的回答重新结构化（tool call → struct）。任何其他"agent A 吐 prose，agent B 解析 prose"的数据通道都是反模式。
+
+#### 结构化 boundary 一览
+
+| boundary | 数据类型 |
+|---|---|
+| Orchestrator → Agent | `*AgentContext` + `*skill.Config`（struct） |
+| Agent → Tool（请求） | `json.RawMessage` params，受每个工具的 JSON schema 约束 |
+| Agent → LLM（schema） | `[]llm.ToolSchema{Name, Description, Parameters}` |
+| LLM → Agent（tool call） | `llm.ToolCall{ID, Name, Arguments json.RawMessage}` → schema decode |
+| StageOutput → BusContext | struct 直拷（`applyStageOutput`） |
+| Analyzer → 流水线 | `*AnalysisIR`（深度 typed tree） |
+| Turn A → Turn B | `*TurnAArtifacts`（struct 快照） |
+| Extractor → Finalizer | `[]AnswerSymbol` + `CompletenessClaim` + `[]HypothesisVerdict`（存在 `MutableState` 缓冲区） |
+| Finalizer → Renderer | `*AnswerDocument`（typed Summary/Steps/Symbols/Value/Boolean/Citations） |
+| Tool → MutableState（emit_\* 侧信道） | 每个工具有专属 typed setter（`SetEvidence` / `SetEmittedAnswerSymbols` / `SetAnswerDocument` / `AppendEmittedHypothesisVerdict`） |
+
+#### LLM 边界 — 唯一合法的 flatten 点
+
+```
+                 <flatten>                              <re-structure>
+typed data ───────────────> Markdown prompt ───> LLM ──────────────────> typed tool call → typed fields
+          context/builder                            emit_* schema decoder
+```
+
+- **往下**：`context/builder.go:BuildPromptContext` 把所有 typed 字段渲染成 `PromptSection{Title, Content}` 列表，再拼成 markdown 喂给 LLM。这是物理约束 —— LLM 吃字符串。
+- **往上**：LLM 通过 **tool call** 路径返回 —— 强制 schema 校验，任何字段违反 schema 就拒绝。`emit_analysis` / `emit_evidence` / `emit_answer_symbol` / `emit_hypothesis_verdict` / `emit_answer_document` 全都走 JSON schema → struct decode。
+- **关键**：LLM 产出的 **assistant content**（自由文本）**不允许 drive 下游决策**。它只流到两处：
+  1. trace log（`StageOutput.Data` 里的 `result` 字段，纯展示）
+  2. 被确定性渲染**覆盖** 的 `StageReport`（explorer 已经这么做了，finalizer 产出 `AnswerDocument` 而不是 prose）
+
+#### 允许存在的 string 字段
+
+以下 string 字段是**语义上就该是字符串**，不是结构化不彻底：
+
+| 字段 | 为什么是 string |
+|---|---|
+| `StageOutput.FinalAnswer` | 最终用户可见输出，天然是字符串 |
+| `StageOutput.StageReport` + `BusContext.StageReports[].Findings` | **半结构化** — explorer 已经是确定性 markdown 渲染（`renderExplorerStageReport` 从 typed 字段生成），下游消费端是 LLM prompt，不需要结构化访问 |
+| `StageOutput.RetryHint` + `TaskState.RetryHint` | agent 自己给下一轮 LLM 写的 prose hint |
+| `StageOutput.Error` | 错误信息 |
+| `ToolResult.Summary` | 工具给 LLM 看的摘要，具体内容由每个工具决定 |
+| `ToolResult.RawRef` | 大输出的 blob 文件引用 |
+| `BusContext.AnswerChains []string` | `identifyAnswerChains` 产出的 resolution chain 文本，消费端永远是 LLM prompt |
+| `AgentContext.RelevantFacts/Files/ToolSummaries/MCPNotes []string` | 已结构化数据 flatten 后的 prompt-layer 缓冲区，语义正确 |
+
+#### 强约束（Invariants）
+
+1. **LLM 的 assistant content 不得 drive 下游代码分支。** 任何 `if strings.Contains(lastAssistantMsg, "...")` 模式都是反模式 —— 改成 tool call 或确定性规则。
+2. **跨 stage 数据必须走 StageOutput 的 typed 字段。** 不允许 "Agent A 在 assistant content 里埋约定文本，Agent B 解析" 这种 out-of-band channel。
+3. **新增数据流必须先加 struct 字段，不许走 `map[string]any` / `json.RawMessage` 逃生舱。** 临时用未 typed map 的 PR 必须在同一 PR 内补 struct。
+4. **Tool schema 是强制的。** 新 tool 必须定义 JSON schema，`params` 必须能 unmarshal 到 struct，失败即拒。
+5. **确定性渲染优先于 LLM prose。** StageReport 能用 typed 字段渲染就不用 LLM assistant content；finalizer 能产 `AnswerDocument` 就不产自由 markdown。
 
 ### Merged-window DAG schedule
 
