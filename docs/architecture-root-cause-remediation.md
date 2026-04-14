@@ -881,7 +881,7 @@ yet another symptomatic patch.
 | P0.4 | memory 文件内容 | parser-class bug 计数 = 2 |
 | P1.1 | `emit_evidence` 调用次数 vs `parseEvidenceItems` 调用次数 | feature flag off → 全部走 parse；on → 全部走 emit；切换期间两条路径并行跑一周 |
 | P1.2 | C commit 的 scrubSiblingEvidenceBlocks 被 delete | 代码 grep "scrubSiblingEvidenceBlocks" 返回 0 条 |
-| P1.3 | `grep -r "Classification\." internal/` 返回数 | 降到只剩 accessor (`irGet*`) |
+| P1.3 | `grep -r "Classification\." internal/` 返回数 | 降到只剩 accessor (`irGet*`) — **部分达成**: P1.3 SHIPPED conservative DAG scheduler + ContractChecker。AnalysisIR.TaskGraph / EvidencePlan.Budget / AnswerContract / RunPolicy 全部接入运行时；`Classification()` 直读仅剩 `analyzer.go:246 buildAnalysisIR`（合理：carrier→IR 翻译点）。**遗留**: 节点级 explorer 调度 / SourceMix / StopConditions / Hypothesis 写回 / counterfactual 真分支 → `memory/project_p1_3_deferred_items.md` D1..D9。 |
 | P2.1 | Turn B 里 LLM 的 tool_call 分布 | 100% 是 emit_evidence / emit_answer_symbol；0% 是 read_file / grep |
 | P2.2 | `StageOutput.FinalAnswer` 的类型 | 从 `string` 变成 `*types.AnswerDocument` |
 | P2.3 | filter 依赖关系在 compiler 级有 check | 加一条未声明 predecessor 的 filter 应该编译失败 |
@@ -931,8 +931,8 @@ parser patch"——今天 session 的 fake-green ship 也不例外。这些修�
 
 | pattern | 今天的现状 | P0 后 | P1 后 | P2 后 |
 |---|---|---|---|---|
-| 1 (step_list 坍缩) | D prompt 软约束 | P0.2 validator 强制 | 不变 | 结构上不可能 |
-| 2 (行号幻觉) | A gutter + B grounder | 可观测（UNGROUNDED 可见） | P1.1 parse 通道消失 | 结构上不可能 |
+| 1 (step_list 坍缩) | D prompt 软约束 | P0.2 validator 强制 | **P1.3 SHIPPED** — finalize 出口接 `contract.Check` (shape + citation + must_include + must_exclude + acceptance)，违规 retry budget 内 backtrack 到 explorer 重跑，budget 耗尽 fail-loud `⚠️ answer-contract validation exhausted` 前置 | 结构上不可能 |
+| 2 (行号幻觉) | A gutter + B grounder | 可观测（UNGROUNDED 可见） | P1.1 parse 通道消失；**P1.3 SHIPPED** — `extractCitationsFromAnswer` 结构化抽 `path.ext:line` token，喂 contract checker 的 `MinCitations` / granularity 校验 | 结构上不可能 |
 | 3 (sibling drift) | C scrub 兜底 | 不变 | **P1.2 SHIPPED** — explorer StageReport 改为 deterministic render，prose 通道删除，F9 (`scrubSiblingEvidenceBlocks`) 一同删掉。结构上不可能（explorer→finalizer 这一跳） | 结构上不可能（全 agent） |
 | 4 (prose→fact) | A + B 间接覆盖 | 不变 | P1.1 直接消灭 prose 通道 | 结构上不可能 |
 
@@ -973,8 +973,8 @@ disappear on the following schedule:
 
 | pattern | today | after P0 | after P1 | after P2 |
 |---|---|---|---|---|
-| 1 (step_list collapse) | D prompt-level | P0.2 validator-enforced | unchanged | structurally impossible |
-| 2 (line hallucination) | A gutter + B grounder | observable (UNGROUNDED visible) | P1.1 parse channel gone | structurally impossible |
+| 1 (step_list collapse) | D prompt-level | P0.2 validator-enforced | **P1.3 SHIPPED** — finalize hooks `contract.Check`; violations within RetryBudget backtrack via the merged explorer window with the violation diagnostic in the RetryHint; budget-exhausted answers prefix a fail-loud `⚠️ answer-contract validation exhausted` warning while preserving the original answer body | structurally impossible |
+| 2 (line hallucination) | A gutter + B grounder | observable (UNGROUNDED visible) | P1.1 parse channel gone; **P1.3 SHIPPED** — `extractCitationsFromAnswer` pulls `path.ext:line` tokens via a structural regex (no curated extension list) and feeds the contract checker's `MinCitations` / granularity branches | structurally impossible |
 | 3 (sibling drift) | C scrub net | unchanged | **P1.2 SHIPPED** — explorer StageReport switched to deterministic render, prose channel removed, F9 (`scrubSiblingEvidenceBlocks`) deleted in the same commit. Structurally impossible on the explorer→finalizer hop. | structurally impossible (all agents) |
 | 4 (prose→fact) | A + B indirect cover | unchanged | P1.1 prose channel killed | structurally impossible |
 

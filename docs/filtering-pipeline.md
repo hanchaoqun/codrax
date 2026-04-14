@@ -14,9 +14,28 @@
 > accompanies this doc. When a filter is added, moved, or removed,
 > update this doc *in the same commit*.
 >
-> **HEAD at write**: post-P1.2 ship (deterministic StageReport renderer
-> landed, F9 deleted). Earlier: P1.1 ship at `5e695d7`, P0.3 doc itself
-> written at `41f4b61`.
+> **HEAD at write**: post-P1.3 ship (DAG scheduler + ContractChecker
+> wired). Earlier: P1.2 (deterministic StageReport, F9 deleted), P1.1
+> ship at `5e695d7`, P0.3 doc itself written at `41f4b61`.
+>
+> **P1.3 update (2026-04-14)**: NOT a new filter — a new **stage hook**.
+> When `BusContext.AnalysisIR` carries a non-empty `TaskGraph`, the
+> orchestrator now runs `runTaskGraph` instead of `runTaskPipelineLegacy`
+> (`internal/orchestrator/orchestrator.go`). After every finalize
+> dispatch, `runContractCheck` (`internal/orchestrator/contract_check.go`)
+> runs `contract.Check` over the finalizer's `FinalAnswer`, evaluating
+> shape / citation / must_include / must_exclude / acceptance against
+> the `AnalysisIR.AnswerContract`. Violations within
+> `ExecutionPolicy.RetryBudget` requeue the merged explorer window and
+> finalize, threading the violation diagnostic through `RetryHint`.
+> Budget-exhausted answers prefix a fail-loud
+> `⚠️ answer-contract validation exhausted` warning while preserving
+> the original answer body — same P0.2 pattern. The §2 inventory still
+> tallies **10 logical filters**: contract check is at the orchestrator
+> layer (post-finalize), not the evidence/answer-shape layer that the
+> §2 table covers, so it does not increment the count. The 11th-filter
+> guardrail in §5 still applies. Conservative-schedule deferred items
+> (D1..D9) live in `memory/project_p1_3_deferred_items.md`.
 >
 > **P1.2 update (2026-04-14)**: F9 (`scrubSiblingEvidenceBlocks`) is
 > deleted. The explorer's `StageReport` is no longer the LLM synthesis

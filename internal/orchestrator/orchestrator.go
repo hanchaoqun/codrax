@@ -237,7 +237,16 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 // loop moves on to the next pending task. The total step budget
 // (o.maxSteps) is enforced across all tasks; when it is exhausted
 // any remaining pending tasks are marked failed.
+//
+// P1.3: when BusContext.AnalysisIR carries a non-empty TaskGraph the
+// FIRST pending task drives runTaskGraph (the IR is a per-Run global
+// produced once by the analyze stage, not per-task). Subsequent
+// pending tasks fall back to the legacy stage-machine pipeline since
+// per-task IR was de-scoped in B5b-β (see
+// memory/project_analyzer_v3_b5_baseline.md and D8 in
+// memory/project_p1_3_deferred_items.md).
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
+	firstTask := true
 	for {
 		next := o.nextPendingTask()
 		if next == nil {
@@ -261,17 +270,35 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 			TaskStatus: types.TaskInProgress,
 		})
 
-		used := o.runTaskPipeline(next.ID, o.maxSteps-*stepsUsed)
+		var used int
+		if firstTask && o.busCtx.AnalysisIR != nil && len(o.busCtx.AnalysisIR.TaskGraph.Nodes) > 0 {
+			used = o.runTaskGraph(next.ID, o.maxSteps-*stepsUsed)
+		} else {
+			used = o.runTaskPipelineLegacy(next.ID, o.maxSteps-*stepsUsed)
+		}
+		firstTask = false
 		*stepsUsed += used
 	}
 }
 
-// runTaskPipeline runs the per-task stage loop for a single task.
-// It resets per-task state (Signals, MissingPiece, PipelineStage,
-// stage visit counter) on entry, runs explore → … → finalize, and
-// always marks the task as Done or Failed before returning so the
-// outer loop's nextPendingTask cannot pick it up again.
-func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
+// runTaskPipelineLegacy runs the per-task stage loop for a single
+// task using the priority-weighted transition table from
+// orchestrator.yaml. It resets per-task state (Signals, MissingPiece,
+// PipelineStage, stage visit counter) on entry, runs
+// explore → … → finalize, and always marks the task as Done or
+// Failed before returning so the outer loop's nextPendingTask cannot
+// pick it up again.
+//
+// Deprecated as of P1.3: when BusContext.AnalysisIR is populated with
+// a non-empty TaskGraph, runTaskPhase routes the first pending task
+// through runTaskGraph instead. Legacy is retained as the fallback
+// path for nil-IR runs (analyze failed, pre-IR unit tests, REPL turns
+// where the analyzer never produced an IR) and for subsequent tasks
+// in a multi-task run (per-task IR is de-scoped — see D8 in
+// memory/project_p1_3_deferred_items.md). Do not delete this function
+// without first re-introducing per-task IR or proving that no caller
+// can land on the nil-IR branch.
+func (o *Orchestrator) runTaskPipelineLegacy(taskID string, stepBudget int) int {
 	// Reset per-task state.
 	o.busCtx.Signals = types.ExecutionSignals{}
 	o.busCtx.TaskState.Missing = types.MissingFacts
@@ -389,6 +416,226 @@ func (o *Orchestrator) runTaskPipeline(taskID string, stepBudget int) int {
 	return stepsUsed
 }
 
+// runTaskGraph is the Analyzer-v3 DAG-driven execution path. It
+// replaces runTaskPipelineLegacy when BusContext.AnalysisIR carries
+// a non-empty TaskGraph, walking the IR's nodes via graphState
+// instead of consulting orchestrator.yaml's stage transitions.
+//
+// P1.3 conservative-schedule (P1.3-MERGED-SCHEDULE):
+//
+// All ready non-finalize TaskNodes in the current readyNodes() batch
+// are dispatched as ONE explorer execution per round. The merge
+// trades node-level dispatch granularity for a 35-cell baseline that
+// stays close to the legacy-pipeline LLM-call count. The deferred
+// breakdown lives in memory/project_p1_3_deferred_items.md (D1, D2,
+// D5, D7). When P2.1 lands two-turn explorer, this body is the
+// place to relax the merge.
+//
+// Round structure:
+//
+//  1. Collect the current explorer window (every ready non-finalize
+//     node). If non-empty, render its objectives + search hint
+//     surfaces into a Retry Directive and dispatch StageExplore once.
+//     Mark every window node done on success.
+//
+//  2. If a finalize node is now ready, dispatch StageFinalize, then
+//     run the AnswerContract checker over its FinalAnswer.
+//
+//     - Pass: mark the finalize node done, record the answer, return.
+//
+//     - Fail with retry budget remaining: requeue the finalize node,
+//       requeue every explorer-window node so the next round sees a
+//       fresh batch, record one cross-window retry, and inject the
+//       contract violation diagnostic into the next window's
+//       RetryHint via pendingViolation.
+//
+//     - Fail with budget exhausted: prepend a fail-loud
+//       "answer-contract validation exhausted" warning to the answer
+//       and return the original answer body beneath it (P0.2 pattern).
+//
+//  3. Loop until allDone or stepsUsed hits the per-task cap.
+//
+// On any unexpected scheduler stall (no ready window, no ready
+// finalize, but not all done) the function falls back to a forced
+// finalize dispatch so the task always terminates with a Result.
+func (o *Orchestrator) runTaskGraph(taskID string, stepBudget int) int {
+	ir := o.busCtx.AnalysisIR
+	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
+		// Defensive: caller already checked but a code-path drift is
+		// possible. Fall back to legacy.
+		return o.runTaskPipelineLegacy(taskID, stepBudget)
+	}
+
+	// Per-task state reset, mirroring legacy semantics so a multi-task
+	// run that mixes IR + legacy never drags signals or stage visit
+	// counters across the boundary.
+	o.busCtx.Signals = types.ExecutionSignals{}
+	o.busCtx.TaskState.Missing = types.MissingFacts
+	o.stageVisits = make(map[types.PipelineStage]int)
+
+	state := newGraphState(ir.TaskGraph)
+	resolveSurface := termSurfaceLookup(ir)
+
+	// pendingViolation carries the contract-checker diagnosis from the
+	// previous failed finalize into the next explorer window so the
+	// LLM sees the gap as a Retry Directive header.
+	var pendingViolation string
+
+	// Cap per-task budget at the EvidencePlan-declared max iterations
+	// when present. The plan's MaxReactIters is "react iterations
+	// expected for this scenario"; treating it as the per-task step
+	// cap is the natural mapping under the merged schedule (each
+	// dispatch consumes ~1 react loop's worth of LLM calls). Empty /
+	// zero falls through to the orchestrator-passed stepBudget.
+	if budget := ir.EvidencePlan.Budget.MaxReactIters; budget > 0 && budget < stepBudget {
+		stepBudget = budget
+	}
+
+	stepsUsed := 0
+	var lastFinalize *agent.StageOutput
+
+	for stepsUsed < stepBudget && !state.allDone() {
+		window := state.pendingExplorerWindow()
+		fin := state.firstFinalizeReadyMerged()
+
+		// The driver always tries the explorer window first, then
+		// finalize. This deterministic order matches the templates'
+		// hard_dependency edges (probe → evidence → … → finalize).
+		if len(window) > 0 {
+			hint := renderWindowHint(window, resolveSurface, pendingViolation)
+			pendingViolation = ""
+			o.applyWindowHint(hint)
+			for _, n := range window {
+				state.markRunning(n.ID)
+			}
+
+			stageConfig, err := o.config.GetStageConfig(types.StageExplore)
+			if err != nil {
+				logging.Error("[orchestrator] task %s explore stage lookup failed: %v", taskID, err)
+				for _, n := range window {
+					state.markFailed(n.ID)
+				}
+				break
+			}
+
+			o.busCtx.PipelineStage = types.StageExplore
+			o.busCtx.TaskState.Stage = types.StageExplore
+			stepsUsed++
+			if _, err := o.dispatchStage(stageConfig); err != nil {
+				logging.Error("[orchestrator] task %s DAG explore window failed: %v", taskID, err)
+				for _, n := range window {
+					state.markFailed(n.ID)
+				}
+				// Continue to the finalize attempt anyway — the
+				// finalizer can still produce a partial answer that
+				// the contract checker will judge.
+			} else {
+				for _, n := range window {
+					state.markDone(n.ID)
+				}
+			}
+			continue
+		}
+
+		if fin == nil {
+			// No ready window AND no ready finalize but not allDone:
+			// scheduler stall. Force finalize so the task terminates.
+			logging.Warning("[orchestrator] task %s DAG scheduler stalled; forcing finalize", taskID)
+			break
+		}
+
+		state.markRunning(fin.ID)
+		stageConfig, err := o.config.GetStageConfig(types.StageFinalize)
+		if err != nil {
+			logging.Error("[orchestrator] task %s finalize stage lookup failed: %v", taskID, err)
+			state.markFailed(fin.ID)
+			break
+		}
+		o.busCtx.PipelineStage = types.StageFinalize
+		o.busCtx.TaskState.Stage = types.StageFinalize
+		stepsUsed++
+		out, err := o.dispatchStage(stageConfig)
+		if err != nil {
+			logging.Error("[orchestrator] task %s DAG finalize failed: %v", taskID, err)
+			state.markFailed(fin.ID)
+			break
+		}
+		lastFinalize = out
+
+		// Contract check.
+		res := runContractCheck(out, ir.AnswerContract)
+		if res.Passed {
+			state.markDone(fin.ID)
+			break
+		}
+
+		logging.Info("[orchestrator] task %s contract check failed (%d violation(s)); retryUsed=%d/%d",
+			taskID, len(res.Violations), state.retryUsed, ir.TaskGraph.ExecutionPolicy.RetryBudget)
+
+		if state.retryBudgetExhausted() {
+			// Fail-loud — preserve the original answer beneath an
+			// honest warning so the user sees the gap.
+			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+			lastFinalize = out
+			state.markDone(fin.ID)
+			break
+		}
+
+		// Backtrack: requeue the finalize node and every explorer-
+		// window node that sits behind it, so the next round
+		// re-runs the merged investigation with the violation
+		// diagnostic in front. P1.3-MERGED-SCHEDULE: D2 in the
+		// deferred memo will switch this to selective evidence
+		// re-entry once node-level dispatch lands.
+		state.requeue(fin.ID)
+		for _, n := range ir.TaskGraph.Nodes {
+			if n.Type == types.NodeFinalize {
+				continue
+			}
+			if state.status[n.ID] == nodeDone {
+				state.requeue(n.ID)
+			}
+		}
+		state.recordRetry()
+		pendingViolation = renderViolations(res)
+	}
+
+	if lastFinalize == nil {
+		// Force one finalize dispatch so the task always terminates
+		// with a Result, mirroring runTaskPipelineLegacy's safety net.
+		logging.Warning("[orchestrator] task %s DAG run produced no finalize output; forcing finalize", taskID)
+		finalConfig, err := o.config.GetStageConfig(types.StageFinalize)
+		if err != nil {
+			logging.Error("[orchestrator] task %s forced finalize lookup failed: %v", taskID, err)
+			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
+			return stepsUsed
+		}
+		o.busCtx.PipelineStage = types.StageFinalize
+		o.busCtx.TaskState.Stage = types.StageFinalize
+		stepsUsed++
+		out, err := o.dispatchStage(finalConfig)
+		if err != nil {
+			logging.Error("[orchestrator] task %s forced finalize failed: %v", taskID, err)
+			o.busCtx.Mutable.UpdateTaskResult(taskID, "", types.TaskFailed)
+			return stepsUsed
+		}
+		lastFinalize = out
+	}
+
+	o.recordTaskFinalize(taskID, lastFinalize)
+	return stepsUsed
+}
+
+// applyWindowHint writes the rendered DAG-window hint into the
+// shared TaskState.RetryHint slot so BuildAgentContext picks it up
+// and BuildPromptContext renders it as the "Retry Directive (READ
+// FIRST)" section. This is the only state field the DAG scheduler
+// modifies on BusContext outside the standard PipelineStage / Stage
+// fields. Empty hint clears the slot.
+func (o *Orchestrator) applyWindowHint(hint string) {
+	o.busCtx.TaskState.RetryHint = hint
+}
+
 // recordTaskFinalize copies the finalizer's FinalAnswer into the
 // task's Result field via Mutable, and marks the task done. Empty
 // answers still mark Done — the per-task loop's contract is that
@@ -444,7 +691,7 @@ func (o *Orchestrator) nextPendingTask() *types.TaskItem {
 // through applyStageOutput by the time this function returns, so
 // callers don't need to apply it again — they can just inspect
 // fields like FinalAnswer that are useful for per-stage reactions
-// (runTaskPipeline uses this to write the finalizer's answer onto
+// (runTaskGraph / runTaskPipelineLegacy use this to write the finalizer's answer onto
 // the task's Result).
 func (o *Orchestrator) dispatchStage(stageConfig *types.StageConfig) (*agent.StageOutput, error) {
 	agentName := stageConfig.DefaultAgent
@@ -631,7 +878,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	}
 
 	// Carry the agent's own retry diagnosis through to the next
-	// dispatch. runTaskPipeline clears this on any forward transition
+	// dispatch. runTaskPipelineLegacy clears this on any forward transition
 	// so a hint from explore never leaks into plan.
 	o.busCtx.TaskState.RetryHint = output.RetryHint
 
@@ -667,7 +914,7 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	}
 
 	// FinalAnswer is no longer captured here. The per-task loop in
-	// runTaskPipeline reads it directly from the StageOutput returned
+	// runTaskPipelineLegacy reads it directly from the StageOutput returned
 	// by dispatchStage and writes it onto the task's Result field
 	// via Mutable.UpdateTaskResult.
 
