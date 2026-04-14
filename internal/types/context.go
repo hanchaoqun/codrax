@@ -325,7 +325,7 @@ func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) st
 // evidence channel (parseEvidenceItems).
 // Tools fill this buffer instead of asking the LLM to write a markdown
 // header that a regex then walks. The two channels are merged in
-// ensureStructuredEvidence so under evidence_tool_mode=on both can run
+// ensureStructuredEvidence so the structured and markdown channels run
 // simultaneously and dedup on StableEvidenceID.
 func (m *MutableState) AppendEvidence(items []EvidenceItem) {
 	if m == nil || len(items) == 0 {

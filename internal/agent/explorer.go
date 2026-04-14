@@ -1051,9 +1051,19 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"**Your job is to collect evidence, NOT to answer the question.** " +
 			"Do not form hypotheses or draw conclusions during this phase. " +
 			"Reasoning happens later in synthesis — right now, be a thorough investigator.\n\n" +
-			"Read the key source files you identified. After EACH file, extract ALL relevant facts as structured evidence" +
-			phase2EvidenceChannelInstructions() +
-			"\n\n" +
+			"Read the key source files you identified. After EACH file, extract ALL relevant facts as structured evidence.\n\n" +
+			"**Preferred channel: call the `emit_evidence` tool.** After reading a file, call `emit_evidence(items=[...])` with one item per fact you want the synthesis layer to see. Send the full batch in ONE call per file — do not invoke the tool per item. Each item is an object with these fields:\n" +
+			"  - `kind`: one of `direct`, `conditional`, `registration`, `mechanism`, `relationship`, `absent`\n" +
+			"  - `subject`: the primary symbol (function/type/key) the fact is about\n" +
+			"  - `object`: the secondary symbol (REQUIRED for `relationship`)\n" +
+			"  - `source`: repository-relative file path (REQUIRED, must contain `/` or `.`)\n" +
+			"  - `line_start`: integer line number taken EXACTLY from the read_file gutter (omit if no specific line)\n" +
+			"  - `line_end`: optional end of range, defaults to line_start\n" +
+			"  - `condition`: the IF clause for `conditional` items\n" +
+			"  - `summary`: free-text rationale\n" +
+			"Unknown fields and unknown kinds are REJECTED with a clear error — fix and resend rather than retry blind.\n\n" +
+			"**Fallback channel: markdown blocks.** If you cannot use the tool for a particular item, write the markdown shape below in your assistant message. The two channels are merged downstream and deduplicated, so it is also safe to use both — just do not duplicate the same fact verbatim across them.\n\n" +
+			"Markdown shape:\n\n" +
 			"```\n" +
 			"## Evidence from [filename]\n" +
 			"- [DIRECT] `functionName` line N: <what this code establishes>\n" +
@@ -1772,12 +1782,14 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 
 	parsed := parseEvidenceItems(e.investigationNotes, "explorer.llm")
-	// P1.1 (evidence_tool_mode=on): merge structured items emitted via
-	// the emit_evidence tool with the markdown-parsed channel. The two
-	// sources are merged by StableEvidenceID so a single fact reported
-	// through both channels (LLM both wrote markdown AND called the
-	// tool) collapses to one item. When the flag is off the buffer is
-	// empty and this is a no-op.
+	// Merge structured items emitted via the emit_evidence tool with
+	// the markdown-parsed channel. The two sources are merged by
+	// StableEvidenceID so a single fact reported through both
+	// channels (LLM both wrote markdown AND called the tool)
+	// collapses to one item. The structured tool is always
+	// registered after the 2026-04-14 simplification — the markdown
+	// parser remains a secondary channel for LLMs that keep writing
+	// prose blocks.
 	if ctx != nil && ctx.Mutable != nil {
 		if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
 			logging.Debug("[explorer] ensureStructuredEvidence: merging %d emit_evidence item(s) with %d parsed", len(emitted), len(parsed))

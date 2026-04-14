@@ -65,27 +65,17 @@ type RuntimeSettings struct {
 	PipelineRequireReview         *bool `yaml:"pipeline_require_review"`
 	PipelineAllowSkipPlanForSmall *bool `yaml:"pipeline_allow_skip_plan_for_small_change"`
 
-	// EvidenceToolMode selects the explorer evidence channel.
-	//   "off"  — markdown-parsed evidence only (current behavior, default)
-	//   "on"   — additionally register the emit_evidence structured tool,
-	//            extend the explorer phase-2 prompt to teach it, and merge
-	//            the tool's output with the parser output via
-	//            mergeEvidenceItems (StableEvidenceID dedups overlap).
-	// P1.1 design (memory/project_architecture_remediation_roadmap.md §6).
-	// No CLI override — switching channels mid-process makes no sense.
-	EvidenceToolMode *string `yaml:"evidence_tool_mode"`
-
 	// TwoTurnExplorerMode selects the explorer turn topology.
-	//   "off" — single-turn ReAct loop (current behavior, default)
-	//   "on"  — split into Turn A (investigation, read tools) followed by
-	//           a separate StageExtract dispatch handled by the extractor
-	//           agent (Turn B, restricted to emit_evidence /
-	//           emit_answer_symbol / emit_hypothesis_verdict). Turning
-	//           this on implies EvidenceToolMode == "on" since Turn B's
-	//           only evidence channel is the structured tool.
-	// P2.1 design (memory/project_architecture_remediation_roadmap.md §6,
-	// memory/project_p2_1_session_*_shipped.md). No CLI override —
-	// switching topology mid-process makes no sense.
+	//   "on"  — DEFAULT. Explorer splits into Turn A (investigation,
+	//           file IO via grep/read_file/repo_map/list_files +
+	//           emit_evidence) followed by a separate StageExtract
+	//           dispatch handled by the extractor agent (Turn B,
+	//           restricted to emit_answer_symbol + emit_hypothesis_verdict,
+	//           no file IO). Post-2026-04-14 cleanup this is the
+	//           only architecturally-clean path.
+	//   "off" — single-turn ReAct loop fallback. Explorer is
+	//           monolithic, extractor never dispatches.
+	// No CLI override — switching topology mid-process makes no sense.
 	TwoTurnExplorerMode *string `yaml:"two_turn_explorer_mode"`
 
 	// AnswerDocumentMode selects the finalizer's output channel.

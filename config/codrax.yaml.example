@@ -134,29 +134,6 @@
 # pipeline_allow_skip_plan_for_small_change: false
 
 # ---------------------------------------------------------------------------
-# Explorer evidence channel (emit_evidence structured tool)
-# ---------------------------------------------------------------------------
-# Selects how the explorer's investigation notes become structured
-# EvidenceItems consumed by the synthesis / finalize stages.
-#
-#   on   — DEFAULT. Register the emit_evidence tool against the
-#          explorer-only repo-explore-skill, extend the phase-2
-#          prompt to instruct the LLM to call it once per file with
-#          a JSON batch of items, and merge the tool's output with
-#          the markdown-parsed items via mergeEvidenceItems
-#          (StableEvidenceID dedups overlap). Both channels run side
-#          by side.
-#
-#   off  — markdown-only fallback. The explorer phase-2 prompt
-#          teaches the LLM to write `## Evidence from <path>` blocks,
-#          which parseEvidenceItems walks with regex. This channel is
-#          the historical source of parser-class bugs — only use it
-#          when chasing a regression caused by the structured tool.
-#
-# No CLI override — switching channels mid-process makes no sense.
-# evidence_tool_mode: on
-
-# ---------------------------------------------------------------------------
 # Two-turn explorer (investigation / extraction split)
 # ---------------------------------------------------------------------------
 # Selects the explorer turn topology.
@@ -167,8 +144,9 @@
 #         no longer emits the answer slate. Turn B is restricted to
 #         emit_evidence / emit_answer_symbol / emit_hypothesis_verdict
 #         and works exclusively from Turn A's transcript snapshot — no
-#         fresh file IO. Turning this on implies evidence_tool_mode="on"
-#         since Turn B has no other evidence pipe.
+#         fresh file IO. Turn B has no other evidence pipe, so this
+#         mode depends on the (always-on) emit_evidence channel
+#         produced by Turn A's Phase 1.
 #
 #   off — single-turn ReAct loop fallback. The explorer is a monolithic
 #         evaluator that interleaves file reads with structured-

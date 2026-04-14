@@ -18,14 +18,12 @@ func setTwoTurnForExtractTest(value string) {
 	agent.SetTwoTurnExplorerMode(value)
 }
 
-// resetFeatureFlagsForExtractTest restores both feature flags to
-// their default-on state. The flags default to ON (structured
-// evidence channel + two-turn explorer topology), so "reset" means
-// re-establishing that baseline — not forcing off. Tests that need
-// to exercise the off path call setTwoTurnForExtractTest("off")
-// explicitly.
+// resetFeatureFlagsForExtractTest restores the two-turn explorer
+// flag to its default-on state. The flag defaults to ON (the Turn A
+// / Turn B topology), so "reset" means re-establishing that baseline
+// — not forcing off. Tests that need to exercise the off path call
+// setTwoTurnForExtractTest("off") explicitly.
 func resetFeatureFlagsForExtractTest() {
-	agent.SetEvidenceToolMode("on")
 	agent.SetTwoTurnExplorerMode("on")
 }
 

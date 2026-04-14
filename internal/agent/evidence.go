@@ -7,13 +7,14 @@
 // Every filter is fail-open — a zero-survivor outcome passes the
 // input set through unchanged rather than silently dropping evidence.
 //
-// P1.1 (2026-04-14): parseEvidenceItems is no longer the only feeder of
-// the Evidence channel. The structured emit_evidence tool
-// (internal/tool/emit_evidence.go) is now the preferred channel under
-// evidence_tool_mode=on; ensureStructuredEvidence in explorer.go merges
-// its output with parseEvidenceItems via mergeEvidenceItems before
-// grounding. parseEvidenceItems stays as the fallback path and the
-// default; do NOT delete it without flipping the default first.
+// parseEvidenceItems is no longer the only feeder of the Evidence
+// channel. The structured emit_evidence tool (internal/tool/
+// emit_evidence.go) is the primary channel; ensureStructuredEvidence
+// in explorer.go merges its output with parseEvidenceItems via
+// mergeEvidenceItems before grounding. parseEvidenceItems stays as
+// a secondary channel for LLMs that write markdown blocks anyway,
+// and is directly used by the explorer's S1 check and by
+// sub_explorer which doesn't route through emit_evidence.
 package agent
 
 import (

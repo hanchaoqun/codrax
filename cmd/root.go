@@ -389,9 +389,6 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineAllowSkipPlanForSmall != nil {
 			cfg.PipelineSettings.AllowSkipPlanForSmallChange = *rs.PipelineAllowSkipPlanForSmall
 		}
-		if rs.EvidenceToolMode != nil {
-			agent.SetEvidenceToolMode(*rs.EvidenceToolMode)
-		}
 		if rs.TwoTurnExplorerMode != nil {
 			agent.SetTwoTurnExplorerMode(*rs.TwoTurnExplorerMode)
 		}
@@ -438,26 +435,16 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	toolRegistry.Register(&repomap.RepoMapV2{})
 	toolRegistry.Register(tool.NewProposeSubAgents())
 
-	// P1.1 (evidence_tool_mode): structured emit_evidence tool is the
-	// per-agent (explorer-only) replacement for parseEvidenceItems. We
-	// register it conditionally — the registration itself is the
-	// process-wide gate; the skill ToolSuggestions edit below is the
-	// per-agent gate. Both are needed because RegisterDefaults must
-	// stay agnostic of pipeline topology.
-	//
-	// P1.1 (evidence_tool_mode): the emit_evidence TOOL TYPE is
-	// registered conditionally (the process-wide gate) so a flag-off
-	// run cannot even resolve the tool name. The EXPLORER's per-agent
-	// gate — adding "emit_evidence" to repo-explore-skill's
-	// ToolSuggestions — is still a runtime append because the stable
-	// repo-explore-skill is shared across flag-on and flag-off modes
-	// and we do not want to branch its full Config definition.
-	if agent.EvidenceToolEnabled() {
-		toolRegistry.Register(&tool.EmitEvidence{})
-		if exploreSkill, err := skillRegistry.Get("repo-explore-skill"); err == nil {
-			exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence")
-		}
-		logging.Info("evidence_tool_mode=on — emit_evidence registered for explorer")
+	// emit_evidence is unconditionally registered for the explorer.
+	// The 2026-04-14 simplification removed the evidence_tool_mode
+	// flag gate — the structured channel is always on and the
+	// markdown parser (parseEvidenceItems) still runs as a secondary
+	// merge channel downstream. repo-explore-skill's ToolSuggestions
+	// gets a runtime append so the declarative skill config does not
+	// need to hard-code the tool name.
+	toolRegistry.Register(&tool.EmitEvidence{})
+	if exploreSkill, err := skillRegistry.Get("repo-explore-skill"); err == nil {
+		exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence")
 	}
 	// P2.1 (two_turn_explorer_mode): register the extractor's tool
 	// types. The extract-skill itself is declared declaratively in

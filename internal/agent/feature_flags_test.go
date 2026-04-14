@@ -4,54 +4,18 @@ package agent
 //
 // Pin the invariants the rest of the pipeline leans on:
 //
-//  1. evidence_tool_mode and two_turn_explorer_mode default to ON —
-//     unset / unknown / empty all collapse to "on" so the default
-//     runtime state is the structured emit_evidence channel + the
-//     two-turn Explorer/Extractor topology.
+//  1. two_turn_explorer_mode defaults to ON — unset / unknown /
+//     empty all collapse to "on" so the default runtime state is
+//     the Turn A / Turn B two-agent topology.
 //
 //  2. answer_document_mode defaults to OFF — the P2.2 structured
 //     finalizer is opt-in until its grid verification ships.
 //
-//  3. TwoTurnExplorerEnabled() implies EvidenceToolEnabled() — Turn B
-//     has no other evidence pipe, so any deployment that disables
-//     evidence_tool_mode while leaving two_turn_explorer_mode on
-//     still gets the structured channel (the one-way escalation).
+// The evidence_tool_mode flag was deleted in the 2026-04-14
+// simplification pass — the emit_evidence channel is unconditionally
+// registered and taught to the explorer. Nothing to test here.
 
 import "testing"
-
-func TestEvidenceToolMode_DefaultOn(t *testing.T) {
-	resetFeatureFlagsForTest()
-	if !EvidenceToolEnabled() {
-		t.Fatal("default state must be on")
-	}
-	if EvidenceToolMode() != EvidenceToolModeOn {
-		t.Errorf("EvidenceToolMode() = %q, want %q", EvidenceToolMode(), EvidenceToolModeOn)
-	}
-}
-
-func TestEvidenceToolMode_ExplicitOffDisables(t *testing.T) {
-	resetFeatureFlagsForTest()
-	SetEvidenceToolMode("off")
-	// EvidenceToolEnabled escalates from TwoTurnExplorer — keep that
-	// off too so this test isolates the direct flag.
-	SetTwoTurnExplorerMode("off")
-	if EvidenceToolEnabled() {
-		t.Fatal("explicit off must disable")
-	}
-}
-
-func TestEvidenceToolMode_NormalizesUnknownToOn(t *testing.T) {
-	resetFeatureFlagsForTest()
-	SetEvidenceToolMode("yes")
-	if !EvidenceToolEnabled() {
-		t.Fatal("unknown values must collapse to on (closed enum, default-on)")
-	}
-	SetEvidenceToolMode("OFF  ")
-	SetTwoTurnExplorerMode("off")
-	if EvidenceToolEnabled() {
-		t.Errorf("uppercase + whitespace should normalize to off")
-	}
-}
 
 func TestTwoTurnExplorerMode_DefaultOn(t *testing.T) {
 	resetFeatureFlagsForTest()
@@ -68,36 +32,6 @@ func TestTwoTurnExplorerMode_ExplicitOffDisables(t *testing.T) {
 	}
 }
 
-func TestTwoTurnExplorer_ImpliesEvidenceTool(t *testing.T) {
-	// The escalation rule: two-turn mode implies the evidence tool
-	// path because Turn B has no other channel. Force both to off to
-	// set a clean baseline, then flip only two-turn back on.
-	resetFeatureFlagsForTest()
-	SetEvidenceToolMode("off")
-	SetTwoTurnExplorerMode("off")
-	if EvidenceToolEnabled() {
-		t.Fatal("precondition: evidence tool must be off before flipping two-turn")
-	}
-	SetTwoTurnExplorerMode("on")
-	if !EvidenceToolEnabled() {
-		t.Error("TwoTurnExplorerEnabled() must imply EvidenceToolEnabled() — Turn B has no fallback channel")
-	}
-}
-
-func TestTwoTurnExplorer_OffDoesNotForceEvidence(t *testing.T) {
-	// The implication is one-way: turning two-turn off must not
-	// silently turn the evidence tool off too.
-	resetFeatureFlagsForTest()
-	SetEvidenceToolMode("on")
-	SetTwoTurnExplorerMode("off")
-	if !EvidenceToolEnabled() {
-		t.Error("turning two-turn off must not undo an explicit evidence_tool_mode=on")
-	}
-	if TwoTurnExplorerEnabled() {
-		t.Error("two-turn must be off")
-	}
-}
-
 func TestTwoTurnExplorerMode_NormalizesUnknownToOn(t *testing.T) {
 	resetFeatureFlagsForTest()
 	SetTwoTurnExplorerMode("maybe")
@@ -111,10 +45,7 @@ func TestTwoTurnExplorerMode_NormalizesUnknownToOn(t *testing.T) {
 // never touches it again; tests need a clean baseline between cases.
 func resetFeatureFlagsForTest() {
 	// Clear the atomic pointers back to nil so the getters return the
-	// documented unset defaults (on for evidence+two-turn, off for
-	// answer_document). Setting via SetXxx("") always stores a
-	// non-nil pointer, which would not exercise the "unset" path.
-	evidenceToolMode.Store(nil)
+	// documented unset defaults (on for two-turn, off for answer_document).
 	twoTurnExplorerMode.Store(nil)
 	answerDocumentMode.Store(nil)
 }
@@ -152,18 +83,14 @@ func TestAnswerDocumentMode_NormalizesUnknownToOff(t *testing.T) {
 }
 
 // TestAnswerDocumentMode_IndependentFromOthers pins that P2.2 does
-// NOT escalate into or from the evidence_tool / two_turn_explorer
-// flags. answer_document_mode=on must not force the explorer into
-// any particular topology, and two_turn_explorer_mode=on must not
+// NOT escalate into or from the two_turn_explorer flag.
+// answer_document_mode=on must not force the explorer into any
+// particular topology, and two_turn_explorer_mode=on must not
 // transitively flip the finalizer into AnswerDocument mode.
 func TestAnswerDocumentMode_IndependentFromOthers(t *testing.T) {
 	resetFeatureFlagsForTest()
-	SetEvidenceToolMode("off")
 	SetTwoTurnExplorerMode("off")
 	SetAnswerDocumentMode("on")
-	if EvidenceToolEnabled() {
-		t.Error("answer_document_mode=on must not force evidence_tool_mode on")
-	}
 	if TwoTurnExplorerEnabled() {
 		t.Error("answer_document_mode=on must not force two_turn_explorer_mode on")
 	}
