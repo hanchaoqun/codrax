@@ -1,18 +1,17 @@
 package agent
 
-// answer_document_evaluator.go — P2.2 finalizer evaluator that emits
-// a structured AnswerDocument via the emit_answer_document tool and
+// answer_document_evaluator.go — finalizer evaluator that emits a
+// structured AnswerDocument via the emit_answer_document tool and
 // renders it to user prose through internal/render/answerdoc.go.
+// This is the ONLY finalizer after the 2026-04-14 simplification
+// pass — the legacy prose finalizer + S3 symbol-set validator +
+// shape validators were deleted.
 //
-// Flag=on replacement for finalizerEvaluator; the two coexist until
-// flip-default (gated on grid + manual inspection).
-//
-// Design contract (P2.2 remediation): the LLM emits AnswerDocument
-// via one batched tool call, the
-// evaluator runs shape-level structural validation plus the P2.1
-// cardinality cross-check for list_of_symbols/complete slates, and
-// the renderer produces deterministic prose. Patterns 1/2/3/4 become
-// structurally impossible on the flag=on path.
+// Design contract: the LLM emits AnswerDocument via one batched
+// tool call, the evaluator runs shape-level structural validation
+// plus the cardinality cross-check for list_of_symbols/complete
+// slates, and the renderer produces deterministic prose. The four
+// fake-green patterns are structurally impossible on this path.
 //
 // Cardinality cross-check: the emit_answer_document tool already
 // validates per-item grounding (line > 0, file not in WorkDir,
@@ -35,8 +34,15 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// maxFinalizerCorrectionRetries caps how many times the finalizer
+// is allowed to re-invoke the LLM with a correction prompt when
+// the LLM forgot to call emit_answer_document or produced an
+// invalid document. Two is enough to resolve occasional slips
+// without turning a stubborn model into an infinite loop.
+const maxFinalizerCorrectionRetries = 2
+
 // answerDocumentEvaluator is the Evaluator implementation for the
-// finalize stage when answer_document_mode=on.
+// finalize stage.
 type answerDocumentEvaluator struct {
 	// language is captured at BuildInitialPrompt time so ParseOutput
 	// can pick the renderer locale without re-deriving it.
