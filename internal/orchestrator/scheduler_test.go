@@ -18,14 +18,15 @@ func setTwoTurnForExtractTest(value string) {
 	agent.SetTwoTurnExplorerMode(value)
 }
 
-// resetFeatureFlagsForExtractTest restores both feature flags to off.
-// Required after any test that calls setTwoTurnForExtractTest(...) so
-// the next test in this package starts from a clean baseline. Mirrors
-// the agent-package's resetFeatureFlagsForTest helper but is duplicated
-// here to avoid exporting a test-only symbol from internal/agent.
+// resetFeatureFlagsForExtractTest restores both feature flags to
+// their default-on state. The flags default to ON (structured
+// evidence channel + two-turn explorer topology), so "reset" means
+// re-establishing that baseline — not forcing off. Tests that need
+// to exercise the off path call setTwoTurnForExtractTest("off")
+// explicitly.
 func resetFeatureFlagsForExtractTest() {
-	agent.SetEvidenceToolMode("")
-	agent.SetTwoTurnExplorerMode("")
+	agent.SetEvidenceToolMode("on")
+	agent.SetTwoTurnExplorerMode("on")
 }
 
 // scheduler_test.go locks the graphState abstraction and the
@@ -295,28 +296,19 @@ func TestTermSurfaceLookup_ResolvesKnownID(t *testing.T) {
 	}
 }
 
-// ── P2.1 Phase 5: extractStageEnabled gate ─────────────────────────
+// ── extractStageEnabled gate ─────────────────────────
 
-func TestExtractStageEnabled_DefaultOff(t *testing.T) {
-	// Phase 5 invariant: with no flag set the dispatch hook is inert
-	// so existing single-turn pipelines run unchanged. This is the
-	// regression guard against an accidental implicit enable.
+func TestExtractStageEnabled_DefaultOn(t *testing.T) {
+	// Default-on invariant: with no flag explicitly set, the
+	// dispatch hook is active so the Turn A / Turn B topology runs.
+	// The off path is opt-in for regression chasing.
 	resetFeatureFlagsForExtractTest()
-	if extractStageEnabled() {
-		t.Fatal("default state must be off so legacy single-turn path runs")
-	}
-}
-
-func TestExtractStageEnabled_OnWhenFlagSet(t *testing.T) {
-	resetFeatureFlagsForExtractTest()
-	setTwoTurnForExtractTest("on")
-	defer resetFeatureFlagsForExtractTest()
 	if !extractStageEnabled() {
-		t.Fatal("two_turn_explorer_mode=on must enable the dispatch hook")
+		t.Fatal("default state must be on so the two-turn path runs")
 	}
 }
 
-func TestExtractStageEnabled_OffByExplicitOff(t *testing.T) {
+func TestExtractStageEnabled_OffWhenExplicitOff(t *testing.T) {
 	resetFeatureFlagsForExtractTest()
 	setTwoTurnForExtractTest("off")
 	defer resetFeatureFlagsForExtractTest()

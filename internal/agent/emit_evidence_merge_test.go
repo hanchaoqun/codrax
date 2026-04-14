@@ -157,17 +157,17 @@ func TestEnsureStructuredEvidence_ToolOnlyIsCharted(t *testing.T) {
 	}
 }
 
-// TestEvidenceToolFlag_DefaultOff pins the safe default: the channel
-// must be off until codrax.yaml flips it. A regression here would
-// silently expose the new tool to all explorer runs.
-func TestEvidenceToolFlag_DefaultOff(t *testing.T) {
-	// Save and restore via SetEvidenceToolMode itself — there is no
-	// other mutator. Test isolation: the default state on a fresh
-	// process is "no value set", which collapses to off.
-	SetEvidenceToolMode("")
-	if EvidenceToolEnabled() {
-		t.Fatal("empty string should be treated as off")
-	}
+// TestEvidenceToolFlag_DefaultOn pins the default-on contract: the
+// structured emit_evidence channel is enabled unless codrax.yaml
+// explicitly flips it off. A regression here would silently push
+// explorer runs back onto the markdown-only fallback.
+func TestEvidenceToolFlag_DefaultOn(t *testing.T) {
+	defer SetEvidenceToolMode("on")
+	defer SetTwoTurnExplorerMode("on")
+
+	// Isolate the direct flag from the two-turn escalation rule.
+	SetTwoTurnExplorerMode("off")
+
 	SetEvidenceToolMode("off")
 	if EvidenceToolEnabled() {
 		t.Fatal("explicit off should be off")
@@ -177,19 +177,28 @@ func TestEvidenceToolFlag_DefaultOff(t *testing.T) {
 		t.Fatal("on (any case) should enable the channel")
 	}
 	SetEvidenceToolMode("nonsense")
-	if EvidenceToolEnabled() {
-		t.Fatal("unrecognised values should collapse to off, not on")
+	if !EvidenceToolEnabled() {
+		t.Fatal("unrecognised values should collapse to on (default-on)")
 	}
-	// Restore safe default for the rest of the suite.
-	SetEvidenceToolMode("off")
+	SetEvidenceToolMode("")
+	if !EvidenceToolEnabled() {
+		t.Fatal("empty string should collapse to on (default-on)")
+	}
 }
 
 // TestPhase2EvidenceChannelInstructions_TeachesToolWhenEnabled covers
 // the prompt-shape contract: when the flag is on, the phase-2 prompt
 // fragment must mention emit_evidence and the markdown shape leader;
-// when off, it must collapse to a colon so the existing prompt reads
+// when off, it must collapse to a colon so the prompt reads
 // "extract ALL relevant facts as structured evidence:" verbatim.
 func TestPhase2EvidenceChannelInstructions_TeachesToolWhenEnabled(t *testing.T) {
+	defer SetEvidenceToolMode("on")
+	defer SetTwoTurnExplorerMode("on")
+
+	// Isolate from the two-turn escalation so explicit off on
+	// evidence_tool_mode actually disables the channel.
+	SetTwoTurnExplorerMode("off")
+
 	SetEvidenceToolMode("off")
 	off := phase2EvidenceChannelInstructions()
 	if off != ":" {
@@ -203,7 +212,6 @@ func TestPhase2EvidenceChannelInstructions_TeachesToolWhenEnabled(t *testing.T) 
 			t.Errorf("on variant must contain %q", want)
 		}
 	}
-	SetEvidenceToolMode("off")
 }
 
 func summarizeIDs(items []types.EvidenceItem) []string {

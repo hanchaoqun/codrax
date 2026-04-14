@@ -134,51 +134,49 @@
 # pipeline_allow_skip_plan_for_small_change: false
 
 # ---------------------------------------------------------------------------
-# Explorer evidence channel (P1.1 — emit_evidence structured tool)
+# Explorer evidence channel (emit_evidence structured tool)
 # ---------------------------------------------------------------------------
 # Selects how the explorer's investigation notes become structured
 # EvidenceItems consumed by the synthesis / finalize stages.
 #
-#   off  — markdown-only (default, current behavior). The explorer
-#          phase-2 prompt teaches the LLM to write `## Evidence from
-#          <path>` blocks, which parseEvidenceItems walks with regex.
-#          This channel is the historical source of parser-class bugs
-#          (see project_evidence_as_tool_refactor_deferred memo).
-#
-#   on   — additionally register the emit_evidence tool against the
+#   on   — DEFAULT. Register the emit_evidence tool against the
 #          explorer-only repo-explore-skill, extend the phase-2
 #          prompt to instruct the LLM to call it once per file with
 #          a JSON batch of items, and merge the tool's output with
 #          the markdown-parsed items via mergeEvidenceItems
 #          (StableEvidenceID dedups overlap). Both channels run side
-#          by side; this is the safe rollout state for collecting
-#          recall data before flipping the default.
+#          by side.
+#
+#   off  — markdown-only fallback. The explorer phase-2 prompt
+#          teaches the LLM to write `## Evidence from <path>` blocks,
+#          which parseEvidenceItems walks with regex. This channel is
+#          the historical source of parser-class bugs — only use it
+#          when chasing a regression caused by the structured tool.
 #
 # No CLI override — switching channels mid-process makes no sense.
-# evidence_tool_mode: off
+# evidence_tool_mode: on
 
 # ---------------------------------------------------------------------------
-# Two-turn explorer (P2.1 — investigation / extraction split)
+# Two-turn explorer (investigation / extraction split)
 # ---------------------------------------------------------------------------
 # Selects the explorer turn topology.
 #
-#   off — single-turn ReAct loop (default, current behavior). The
-#         explorer is a monolithic evaluator that interleaves file
-#         reads with structured-evidence emission inside one ReAct
-#         loop.
-#
-#   on  — split into Turn A (investigation) followed by a separate
-#         StageExtract dispatch handled by the extractor agent
-#         (Turn B). Turn A keeps grep / read_file / repo_map but no
-#         longer emits the answer slate. Turn B is restricted to
+#   on  — DEFAULT. Explorer splits into Turn A (investigation) followed
+#         by a separate StageExtract dispatch handled by the extractor
+#         agent (Turn B). Turn A keeps grep / read_file / repo_map but
+#         no longer emits the answer slate. Turn B is restricted to
 #         emit_evidence / emit_answer_symbol / emit_hypothesis_verdict
-#         and works exclusively from Turn A's transcript snapshot —
-#         no fresh file IO. Turning this on implies
-#         evidence_tool_mode == "on" since Turn B has no other
-#         evidence pipe.
+#         and works exclusively from Turn A's transcript snapshot — no
+#         fresh file IO. Turning this on implies evidence_tool_mode="on"
+#         since Turn B has no other evidence pipe.
+#
+#   off — single-turn ReAct loop fallback. The explorer is a monolithic
+#         evaluator that interleaves file reads with structured-
+#         evidence emission inside one ReAct loop. Only use this when
+#         chasing a regression caused by the two-turn topology.
 #
 # No CLI override — switching topology mid-process makes no sense.
-# two_turn_explorer_mode: off
+# two_turn_explorer_mode: on
 
 # ---------------------------------------------------------------------------
 # Paths to the other two config files

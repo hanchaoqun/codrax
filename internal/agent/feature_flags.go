@@ -15,6 +15,9 @@ import (
 
 // EvidenceToolModeOff / EvidenceToolModeOn are the legal values for
 // the evidence_tool_mode flag. Compared as exact lower-case strings.
+// Default is "on" — the structured emit_evidence channel is the
+// preferred path. The "off" value is retained so a user who hits
+// a regression can disable the channel without rebuilding.
 const (
 	EvidenceToolModeOff = "off"
 	EvidenceToolModeOn  = "on"
@@ -24,28 +27,25 @@ var evidenceToolMode atomic.Pointer[string]
 
 // SetEvidenceToolMode stores the runtime value for the explorer's
 // evidence channel. Called from cmd/root.go after the codrax.yaml /
-// runtime settings merge resolves the final value. Empty string,
-// "off", and any unrecognised value all collapse to off so the
-// default path is current behavior.
-//
-// P1.1: when set to "on", the explorer phase-2 prompt teaches the
-// LLM to call emit_evidence and the cmd/root.go bootstrap registers
-// that tool against the explore skill's ToolSuggestions list.
+// runtime settings merge resolves the final value. Only the literal
+// "off" disables the channel; every other value (including empty /
+// unknown) collapses to "on" so the default path is the structured
+// channel.
 func SetEvidenceToolMode(s string) {
 	v := strings.ToLower(strings.TrimSpace(s))
-	if v != EvidenceToolModeOn {
-		v = EvidenceToolModeOff
+	if v != EvidenceToolModeOff {
+		v = EvidenceToolModeOn
 	}
 	evidenceToolMode.Store(&v)
 }
 
 // EvidenceToolMode returns the current value of the flag.
-// Returns EvidenceToolModeOff when unset.
+// Returns EvidenceToolModeOn when unset (the default).
 func EvidenceToolMode() string {
 	if p := evidenceToolMode.Load(); p != nil {
 		return *p
 	}
-	return EvidenceToolModeOff
+	return EvidenceToolModeOn
 }
 
 // EvidenceToolEnabled is the boolean shorthand callers usually want.
@@ -63,8 +63,11 @@ func EvidenceToolEnabled() bool {
 }
 
 // TwoTurnExplorerModeOff / TwoTurnExplorerModeOn are the legal values
-// for the two_turn_explorer_mode flag. Compared as exact lower-case
-// strings, mirror of EvidenceToolMode*.
+// for the two_turn_explorer_mode flag. Default is "on" — the
+// explorer's Turn A hands its transcript to Turn B (the extractor)
+// which drains it into structured emit_* channels the finalizer
+// consumes. The "off" value is retained so a user who hits a
+// regression can disable the two-turn topology without rebuilding.
 const (
 	TwoTurnExplorerModeOff = "off"
 	TwoTurnExplorerModeOn  = "on"
@@ -74,30 +77,24 @@ var twoTurnExplorerMode atomic.Pointer[string]
 
 // SetTwoTurnExplorerMode stores the runtime value for the explorer's
 // turn topology. Called from cmd/root.go after the codrax.yaml
-// merge resolves the final value. Empty string, "off", and any
-// unrecognised value collapse to off so the default path is the
-// current single-turn ReAct loop.
-//
-// P2.1: when set to "on", cmd/root.go also registers
-// emit_answer_symbol and emit_hypothesis_verdict against the new
-// extractor skill, scheduler.go inserts a StageExtract dispatch
-// after the merged explorer window, and the orchestrator routes the
-// extractor agent for that stage.
+// merge resolves the final value. Only the literal "off" disables
+// the two-turn path; every other value (including empty / unknown)
+// collapses to "on".
 func SetTwoTurnExplorerMode(s string) {
 	v := strings.ToLower(strings.TrimSpace(s))
-	if v != TwoTurnExplorerModeOn {
-		v = TwoTurnExplorerModeOff
+	if v != TwoTurnExplorerModeOff {
+		v = TwoTurnExplorerModeOn
 	}
 	twoTurnExplorerMode.Store(&v)
 }
 
 // TwoTurnExplorerMode returns the current value of the flag.
-// Returns TwoTurnExplorerModeOff when unset.
+// Returns TwoTurnExplorerModeOn when unset (the default).
 func TwoTurnExplorerMode() string {
 	if p := twoTurnExplorerMode.Load(); p != nil {
 		return *p
 	}
-	return TwoTurnExplorerModeOff
+	return TwoTurnExplorerModeOn
 }
 
 // TwoTurnExplorerEnabled is the boolean shorthand callers usually want.
