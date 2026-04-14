@@ -19,6 +19,14 @@ type finalizerEvaluator struct {
 	answerSymbols    []types.AnswerSymbol // captured during BuildInitialPrompt
 	allowedSymbolSet map[string]bool      // Name → present, built once
 	retriesUsed      int                  // S3 correction retries already issued
+
+	// P0.2 fields — shape-aware runtime validators for step_list /
+	// value / boolean / config_value answers. Captured once per run
+	// so ContinuationPrompt and ParseOutput can dispatch without
+	// re-walking ctx on every retry check.
+	shape            string              // irAnswerShape(ctx), empty when unknown
+	evidenceItems    []types.EvidenceItem // snapshot for validators
+	validationFailed string              // last P0.2 violation message after retry cap
 }
 
 // maxFinalizerCorrectionRetries caps how many times the finalizer is
@@ -39,6 +47,9 @@ func (e *finalizerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 		e.allowedSymbolSet[s.Name] = true
 	}
 	e.retriesUsed = 0
+	e.shape = irAnswerShape(ctx)
+	e.evidenceItems = ctx.EvidenceItems
+	e.validationFailed = ""
 
 	var b strings.Builder
 	b.WriteString("Compile all results into a clear, actionable final answer for the user.")
@@ -150,6 +161,14 @@ func (e *finalizerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	// preserved: return true so the finalizer stops immediately
 	// after the first response, matching prior semantics.
 	if len(e.allowedSymbolSet) == 0 {
+		// P0.2: when the analyzer declared a shape that has a runtime
+		// validator (step_list / value / boolean / config_value), let
+		// the loop fall through to ContinuationPrompt so the
+		// validator can fire. Other shapes (explanation, none,
+		// unknown) stay on the legacy one-shot path.
+		if _, covered := shapeValidatorFor(e.shape, "", nil); covered {
+			return false
+		}
 		return true
 	}
 	return false
@@ -169,8 +188,35 @@ func (e *finalizerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // the explicit "Translation mode" prompt). Structured validation
 // at the evaluator layer closes that gap.
 func (e *finalizerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, _ []types.ToolResult) (string, bool) {
+	// P0.2 — shape-aware validator path, fires when L0-2 translation
+	// mode is OFF and the analyzer declared a validator-covered shape.
 	if len(e.allowedSymbolSet) == 0 {
-		return "", false // translation mode off — no validation
+		violation, covered := shapeValidatorFor(e.shape, resp.Content, e.evidenceItems)
+		if !covered {
+			return "", false
+		}
+		if violation == "" {
+			return "", false // shape validator passed
+		}
+		if e.retriesUsed >= maxFinalizerCorrectionRetries {
+			// Fail LOUD — not silent-accept (P0.2 red line). Record
+			// the violation so ParseOutput can append an honesty
+			// note to the final answer. See
+			// feedback_honesty_over_cleverness.md.
+			e.validationFailed = violation
+			logging.Debug("[finalizer] P0.2 validator retries exhausted for shape=%s: %s",
+				e.shape, violation)
+			return "", false
+		}
+		e.retriesUsed++
+		logging.Debug("[finalizer] P0.2 correction #%d shape=%s: %s",
+			e.retriesUsed, e.shape, violation)
+		var b strings.Builder
+		b.WriteString("Your previous answer failed the runtime validator for this answer shape:\n\n")
+		b.WriteString("  ")
+		b.WriteString(violation)
+		b.WriteString("\n\nRewrite your answer so it satisfies the shape's hard constraints. Do not add content that is not supported by the Evidence Items.\n")
+		return b.String(), true
 	}
 	if e.retriesUsed >= maxFinalizerCorrectionRetries {
 		logging.Debug("[finalizer] S3 retries exhausted (%d), accepting response with out-of-list symbols",
@@ -296,6 +342,15 @@ func (e *finalizerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm
 			lastContent = messages[i].Content
 			break
 		}
+	}
+	// P0.2 fail-loud: if the shape validator exhausted its retry
+	// budget, prepend an honest "answer-shape validation exhausted"
+	// note so the user sees the uncertainty instead of a silently
+	// accepted bad answer. The original answer is preserved below
+	// the note so no information is lost.
+	if e.validationFailed != "" {
+		lastContent = "⚠️ answer-shape validation exhausted (shape=" + e.shape + "): " +
+			e.validationFailed + "\n\n" + lastContent
 	}
 	return &StageOutput{
 		Data:        json.RawMessage(fmt.Sprintf(`{"final_answer": %q}`, lastContent)),
