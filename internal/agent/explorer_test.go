@@ -1971,3 +1971,40 @@ func TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor(t *testing.T) {
 		t.Error("parallel cue must not fire when fewer than 2 files remain unread")
 	}
 }
+
+// TestBuildUniqueDefFileIndex locks the B-bucket drift fix for
+// explorer.buildCrossReferenceMap. Symbols defined in exactly one
+// file resolve; symbols that span files are dropped so downstream
+// annotations ("defined in X") never display a drifted choice.
+func TestBuildUniqueDefFileIndex(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Execute": {
+				{Name: "Execute", Receiver: "ExplorerAgent", File: "internal/agent/explorer.go"},
+				{Name: "Execute", Receiver: "PlannerAgent", File: "internal/agent/planner.go"},
+			},
+			"Unique": {
+				{Name: "Unique", Receiver: "Solo", File: "internal/agent/solo.go"},
+			},
+			"OverloadedSameFile": {
+				{Name: "OverloadedSameFile", Receiver: "A", File: "internal/foo/foo.go"},
+				{Name: "OverloadedSameFile", Receiver: "B", File: "internal/foo/foo.go"},
+			},
+			"Empty": {},
+		},
+	}
+	got := buildUniqueDefFileIndex(graph)
+
+	if _, ok := got["Execute"]; ok {
+		t.Errorf("multi-file symbol Execute should be dropped, got %q", got["Execute"])
+	}
+	if got["Unique"] != "internal/agent/solo.go" {
+		t.Errorf("Unique = %q, want internal/agent/solo.go", got["Unique"])
+	}
+	if got["OverloadedSameFile"] != "internal/foo/foo.go" {
+		t.Errorf("OverloadedSameFile = %q, want internal/foo/foo.go", got["OverloadedSameFile"])
+	}
+	if _, ok := got["Empty"]; ok {
+		t.Errorf("empty-defs entry should be skipped, got %q", got["Empty"])
+	}
+}

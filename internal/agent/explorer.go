@@ -2186,6 +2186,37 @@ func removeMarkdownSection(text, heading string) string {
 // based bridges, the exact relationship verb (calls, references,
 // uses_type). This lets synthesis trace chains in the right direction
 // instead of guessing which end is the source.
+// buildUniqueDefFileIndex maps each symbol name in the graph to its
+// unique defining file, skipping names whose definitions span two
+// or more files. Closes the second of the two B-bucket drift sites
+// documented in memory/project_repomap_refactor_plan.md: the old
+// code read `defs[0].File` unconditionally, so a name like
+// `Execute` (present on every *Agent type) would drift to whichever
+// file the map iterator happened to visit first. Callers that show
+// "(defined in X)" annotations now get a clean empty value when the
+// answer is ambiguous, and the decoration is dropped instead of
+// displaying the wrong file.
+func buildUniqueDefFileIndex(graph *repomap.Graph) map[string]string {
+	out := make(map[string]string, len(graph.SymbolDefs))
+	for name, defs := range graph.SymbolDefs {
+		if len(defs) == 0 {
+			continue
+		}
+		file := defs[0].File
+		unique := true
+		for _, d := range defs[1:] {
+			if d.File != file {
+				unique = false
+				break
+			}
+		}
+		if unique {
+			out[name] = file
+		}
+	}
+	return out
+}
+
 func (e *explorerEvaluator) buildCrossReferenceMap() string {
 	if crossRefs := buildCrossReferenceMapFromEvidence(e.structuredEvidence, e.flowFindings); crossRefs != "" {
 		return crossRefs
@@ -2205,13 +2236,9 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 	}
 	bridgeMap := make(map[string]*symbolRef)
 
-	// Build symbol → definition file index for directionality annotation.
-	symDefFile := make(map[string]string) // symbol name → defining file
-	for symName, defs := range graph.SymbolDefs {
-		if len(defs) > 0 {
-			symDefFile[symName] = defs[0].File
-		}
-	}
+	// Build symbol → definition file index for directionality
+	// annotation. Drift-safe: see buildUniqueDefFileIndex.
+	symDefFile := buildUniqueDefFileIndex(graph)
 
 	for symName := range graph.SymbolDefs {
 		// Skip short/generic names that would produce noise.

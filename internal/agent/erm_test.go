@@ -1702,6 +1702,52 @@ func TestErmAutoSatisfyUnresolvable_NonRegistrationFallback(t *testing.T) {
 	}
 }
 
+// TestResolveDefWithReceiver_DriftSafe covers the B-bucket drift
+// fix for answerSymbolFromEvidence: when multiple definitions share
+// a name, the resolver must either disambiguate via the Subject
+// receiver hint or refuse to guess. It must NOT silently return
+// defs[0].
+func TestResolveDefWithReceiver_DriftSafe(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Execute": {
+				{Name: "Execute", Receiver: "ExplorerAgent", File: "internal/agent/explorer.go", Line: 10},
+				{Name: "Execute", Receiver: "PlannerAgent", File: "internal/agent/planner.go", Line: 20},
+				{Name: "Execute", Receiver: "FinalizerAgent", File: "internal/agent/finalizer.go", Line: 30},
+			},
+			"Unique": {
+				{Name: "Unique", Receiver: "Solo", File: "internal/agent/solo.go", Line: 5},
+			},
+		},
+	}
+
+	// Single def → return it.
+	if d := resolveDefWithReceiver(graph, "Unique", ""); d == nil || d.File != "internal/agent/solo.go" {
+		t.Errorf("single-def lookup failed: %+v", d)
+	}
+
+	// Multiple defs, no hint → refuse to guess.
+	if d := resolveDefWithReceiver(graph, "Execute", ""); d != nil {
+		t.Errorf("ambiguous lookup without hint should return nil, got %+v", d)
+	}
+
+	// Multiple defs, correct hint → return matching receiver.
+	d := resolveDefWithReceiver(graph, "Execute", "PlannerAgent")
+	if d == nil || d.File != "internal/agent/planner.go" {
+		t.Errorf("hint PlannerAgent should resolve to planner.go, got %+v", d)
+	}
+
+	// Multiple defs, hint with no match → refuse to guess.
+	if d := resolveDefWithReceiver(graph, "Execute", "GhostAgent"); d != nil {
+		t.Errorf("non-matching hint should return nil, got %+v", d)
+	}
+
+	// Name not in graph.
+	if d := resolveDefWithReceiver(graph, "NotThere", ""); d != nil {
+		t.Errorf("missing name should return nil, got %+v", d)
+	}
+}
+
 // TestErmAutoSatisfyUnresolvable_NilGraph is the graph-unavailable
 // short-circuit. The function must be a no-op when no graph is
 // supplied — reqs pass through unchanged.

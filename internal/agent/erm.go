@@ -1853,14 +1853,64 @@ func answerSymbolFromEvidence(ev types.EvidenceItem, questionKind string, role A
 	sym.Name = pickHop(ev, role, graph)
 
 	// Graph-anchored fallback for source locator when EvidenceItem
-	// didn't carry Source.
+	// didn't carry Source. Receiver-aware: when multiple
+	// definitions share the same name (the drift corpus —
+	// `Execute`, `Name`, `String`, …), pick the one whose Receiver
+	// or Parent matches ev.Subject. Refuse to guess when the hint
+	// cannot disambiguate, leaving File/Line empty rather than
+	// drifting to an arbitrary defs[0].
 	if sym.File == "" && graph != nil && sym.Name != "" {
-		if defs, ok := graph.SymbolDefs[sym.Name]; ok && len(defs) > 0 {
-			sym.File = defs[0].File
-			sym.Line = defs[0].Line
+		if def := resolveDefWithReceiver(graph, sym.Name, ev.Subject); def != nil {
+			sym.File = def.File
+			sym.Line = def.Line
 		}
 	}
 	return sym
+}
+
+// resolveDefWithReceiver looks up a symbol by name in the graph's
+// SymbolDefs index with receiver-aware disambiguation.
+//
+//   - 0 matches → nil
+//   - 1 match   → return it (no ambiguity)
+//   - >1 match  → if receiverHint is non-empty, filter by matching
+//     Receiver or Parent and return the unique survivor; otherwise
+//     return nil to avoid defs[0] drift.
+//
+// Receiver matching is a case-sensitive exact comparison against the
+// hint. Tree-sitter extractors already strip leading pointers (`*T`
+// → `T`) so direct equality is safe.
+//
+// Introduced to close the first of the two B-bucket drift sites
+// documented in memory/project_repomap_refactor_plan.md. The
+// contract is deliberately conservative: when in doubt, return nil
+// so downstream consumers see the same empty result they would see
+// if the evidence had no Source at all, rather than a plausible-
+// looking but wrong file.
+func resolveDefWithReceiver(graph *repomap.Graph, name, receiverHint string) *repomap.Symbol {
+	defs, ok := graph.SymbolDefs[name]
+	if !ok || len(defs) == 0 {
+		return nil
+	}
+	if len(defs) == 1 {
+		return defs[0]
+	}
+	if receiverHint == "" {
+		return nil
+	}
+	var match *repomap.Symbol
+	for _, d := range defs {
+		if d.Receiver == receiverHint || d.Parent == receiverHint {
+			if match != nil {
+				// Two receivers collide on the same hint (rare: an
+				// embedding chain or a duplicated type name across
+				// packages). Refuse to guess.
+				return nil
+			}
+			match = d
+		}
+	}
+	return match
 }
 
 // stripNewPrefix removes a leading "New" from a constructor-style
