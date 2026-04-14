@@ -141,9 +141,6 @@ func (r *realExtractorEval) ParseOutput(ctx *types.AgentContext, _ []any, _ []an
 }
 
 func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
-	prev := agent.TwoTurnExplorerMode()
-	agent.SetTwoTurnExplorerMode(agent.TwoTurnExplorerModeOn)
-	defer agent.SetTwoTurnExplorerMode(prev)
 
 	cfg := defaultResolvedConfig()
 	ir := twoTurnIRWithHypotheses(nil, 2)
@@ -207,9 +204,6 @@ func TestE2E_TwoTurnFlagOn_CompleteClaim_PassesThrough(t *testing.T) {
 }
 
 func TestE2E_TwoTurnFlagOn_CompleteShortfall_DowngradedToLowerBound(t *testing.T) {
-	prev := agent.TwoTurnExplorerMode()
-	agent.SetTwoTurnExplorerMode(agent.TwoTurnExplorerModeOn)
-	defer agent.SetTwoTurnExplorerMode(prev)
 
 	cfg := defaultResolvedConfig()
 	// β=5 γ=0 baseline = 5. Extractor emits 2 with complete →
@@ -251,9 +245,6 @@ func TestE2E_TwoTurnFlagOn_CompleteShortfall_DowngradedToLowerBound(t *testing.T
 }
 
 func TestE2E_TwoTurnFlagOn_MustIncludeShortfall_Downgraded(t *testing.T) {
-	prev := agent.TwoTurnExplorerMode()
-	agent.SetTwoTurnExplorerMode(agent.TwoTurnExplorerModeOn)
-	defer agent.SetTwoTurnExplorerMode(prev)
 
 	cfg := defaultResolvedConfig()
 	// γ baseline dominates: MustInclude lists 4 names, β=0.
@@ -299,9 +290,6 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 	// builder's three-way branch (tested directly in context/
 	// builder_test.go). Here we verify the plumbing reaches the
 	// finalizer with claim=unknown.
-	prev := agent.TwoTurnExplorerMode()
-	agent.SetTwoTurnExplorerMode(agent.TwoTurnExplorerModeOn)
-	defer agent.SetTwoTurnExplorerMode(prev)
 
 	cfg := defaultResolvedConfig()
 	ir := twoTurnIRWithHypotheses(nil, 0)
@@ -341,58 +329,6 @@ func TestE2E_TwoTurnFlagOn_UnknownClaim_DropsSection(t *testing.T) {
 	}
 }
 
-func TestE2E_TwoTurnFlagOff_LegacyPathUnchanged(t *testing.T) {
-	// Flag=off: runTaskGraph must NOT dispatch the extractor. The
-	// legacy explorer→finalize flow runs as before, and the
-	// extractor mock should never be called.
-	prev := agent.TwoTurnExplorerMode()
-	agent.SetTwoTurnExplorerMode(agent.TwoTurnExplorerModeOff)
-	defer agent.SetTwoTurnExplorerMode(prev)
-
-	cfg := defaultResolvedConfig()
-	ir := twoTurnIRWithHypotheses(nil, 0)
-
-	var extractorCalls, finalizeCalls int
-	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-		types.AgentAnalyzer: dagAnalyzerFn(ir),
-		types.AgentExplorer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
-			return &agent.StageOutput{
-				MissingPiece: types.MissingFacts,
-				AnswerSymbols: []types.AnswerSymbol{
-					{Name: "Foo", File: "a.go", Line: 1, Kind: "function"},
-				},
-				AnswerSymbolCompleteness: types.CompletenessComplete,
-			}, nil
-		},
-		types.AgentExtractor: func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error) {
-			extractorCalls++
-			return &agent.StageOutput{}, nil
-		},
-		types.AgentFinalizer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
-			finalizeCalls++
-			return &agent.StageOutput{
-				MissingPiece: types.MissingNone,
-				FinalAnswer:  "- `Foo` (a.go:1)",
-			}, nil
-		},
-	}
-	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
-	o.SetMaxSteps(20)
-
-	_, err := o.Run("q", "/tmp/repo", "main")
-	if err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	if extractorCalls != 0 {
-		t.Errorf("flag=off must NOT dispatch extractor, got %d calls", extractorCalls)
-	}
-	if finalizeCalls == 0 {
-		t.Error("flag=off: finalize should still run")
-	}
-}
-
 // -----------------------------------------------------------------------------
 // P2.1 Phase 14 — cross-task reset of Turn A/B handoff state
 // -----------------------------------------------------------------------------
@@ -411,9 +347,6 @@ func TestE2E_TwoTurnFlagOff_LegacyPathUnchanged(t *testing.T) {
 // loop with task 2's first dispatch, making the assertion ambiguous.
 
 func TestPhase14_RunTaskGraph_ResetsP21StateAtEntry(t *testing.T) {
-	prev := agent.TwoTurnExplorerMode()
-	agent.SetTwoTurnExplorerMode(agent.TwoTurnExplorerModeOn)
-	defer agent.SetTwoTurnExplorerMode(prev)
 
 	cfg := defaultResolvedConfig()
 

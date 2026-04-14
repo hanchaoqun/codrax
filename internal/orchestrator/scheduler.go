@@ -5,24 +5,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
-
-// extractStageEnabled reports whether the P2.1 StageExtract dispatch
-// hook in runTaskGraph should fire. Currently a thin wrapper over
-// agent.TwoTurnExplorerEnabled() so the orchestrator's gate is a
-// single named call instead of an inline package reference, which
-// makes the gate easier to find via grep and easier to mock from
-// tests in this package without colliding with the agent-package
-// flag tests.
-//
-// The function is intentionally pure (reads only the process-wide
-// atomic from feature_flags.go) so it can be invoked from any code
-// path — including tests that do not stand up a full Orchestrator.
-func extractStageEnabled() bool {
-	return agent.TwoTurnExplorerEnabled()
-}
 
 // scheduler.go implements the Analyzer-v3 DAG scheduler. The orchestrator
 // uses it whenever BusContext.AnalysisIR carries a non-empty TaskGraph;

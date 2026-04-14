@@ -5,27 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
-
-// setTwoTurnForExtractTest writes the package-level two-turn flag.
-// The flag is normally a process-wide knob set once at startup; tests
-// that need to toggle it MUST also call resetFeatureFlagsForExtractTest
-// in defer or as a fixture restore so they do not contaminate sibling
-// tests in this package.
-func setTwoTurnForExtractTest(value string) {
-	agent.SetTwoTurnExplorerMode(value)
-}
-
-// resetFeatureFlagsForExtractTest restores the two-turn explorer
-// flag to its default-on state. The flag defaults to ON (the Turn A
-// / Turn B topology), so "reset" means re-establishing that baseline
-// — not forcing off. Tests that need to exercise the off path call
-// setTwoTurnForExtractTest("off") explicitly.
-func resetFeatureFlagsForExtractTest() {
-	agent.SetTwoTurnExplorerMode("on")
-}
 
 // scheduler_test.go locks the graphState abstraction and the
 // node-type→stage mapping. These are pure-data tests; they do not
@@ -291,27 +272,6 @@ func TestTermSurfaceLookup_ResolvesKnownID(t *testing.T) {
 	}
 	if got := fn("missing"); got != "" {
 		t.Errorf("missing id should return empty; got %q", got)
-	}
-}
-
-// ── extractStageEnabled gate ─────────────────────────
-
-func TestExtractStageEnabled_DefaultOn(t *testing.T) {
-	// Default-on invariant: with no flag explicitly set, the
-	// dispatch hook is active so the Turn A / Turn B topology runs.
-	// The off path is opt-in for regression chasing.
-	resetFeatureFlagsForExtractTest()
-	if !extractStageEnabled() {
-		t.Fatal("default state must be on so the two-turn path runs")
-	}
-}
-
-func TestExtractStageEnabled_OffWhenExplicitOff(t *testing.T) {
-	resetFeatureFlagsForExtractTest()
-	setTwoTurnForExtractTest("off")
-	defer resetFeatureFlagsForExtractTest()
-	if extractStageEnabled() {
-		t.Fatal("explicit off must keep the hook inert")
 	}
 }
 

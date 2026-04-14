@@ -458,69 +458,7 @@ func phase11ToolResults() []types.ToolResult {
 	}
 }
 
-func TestParseOutput_FlagOff_NonEmptySymbolsSetsCompletenessComplete(t *testing.T) {
-	prev := TwoTurnExplorerMode()
-	SetTwoTurnExplorerMode(TwoTurnExplorerModeOff)
-	defer SetTwoTurnExplorerMode(prev)
-
-	eval := phase11Eval("which handlers register Foo?")
-	ctx := parseOutputCtx("registration", "list_of_symbols")
-	ctx.Mutable = types.NewMutableState(types.TaskList{})
-
-	out, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
-	if err != nil {
-		t.Fatalf("ParseOutput error: %v", err)
-	}
-	// Symbols may be non-empty OR empty depending on the extractor's
-	// role classification — this test only pins the CONTRACT between
-	// symbol count and completeness. If symbols are non-empty,
-	// completeness MUST be Complete; if empty, it MUST stay zero.
-	if len(out.AnswerSymbols) > 0 {
-		if out.AnswerSymbolCompleteness != types.CompletenessComplete {
-			t.Errorf("flag=off non-empty slate: completeness = %q, want %q",
-				out.AnswerSymbolCompleteness, types.CompletenessComplete)
-		}
-	} else {
-		if out.AnswerSymbolCompleteness != types.CompletenessUnknown {
-			t.Errorf("flag=off empty slate: completeness = %q, want zero", out.AnswerSymbolCompleteness)
-		}
-	}
-	// Flag=off path must NOT write TurnAArtifacts.
-	if got := ctx.Mutable.TurnAArtifacts(); got != nil {
-		t.Errorf("flag=off must not write TurnAArtifacts, got %+v", got)
-	}
-}
-
-func TestParseOutput_FlagOff_MechanismKindLeavesCompletenessZero(t *testing.T) {
-	// Mechanism kind drops answerChains/strictAnswerItems at the
-	// 1624 gate, so extractAnswerSymbols receives nil. Empty slate
-	// must leave completeness at zero so the builder drops the
-	// section and the finalizer goes to the step_list shape prompt.
-	prev := TwoTurnExplorerMode()
-	SetTwoTurnExplorerMode(TwoTurnExplorerModeOff)
-	defer SetTwoTurnExplorerMode(prev)
-
-	eval := phase11Eval("how does Foo do its thing?")
-	ctx := parseOutputCtx("mechanism", "step_list")
-	ctx.Mutable = types.NewMutableState(types.TaskList{})
-
-	out, err := eval.ParseOutput(ctx, nil, phase11ToolResults(), nil)
-	if err != nil {
-		t.Fatalf("ParseOutput error: %v", err)
-	}
-	if len(out.AnswerSymbols) != 0 {
-		t.Errorf("mechanism kind must drop symbols, got %d", len(out.AnswerSymbols))
-	}
-	if out.AnswerSymbolCompleteness != types.CompletenessUnknown {
-		t.Errorf("empty slate completeness = %q, want zero", out.AnswerSymbolCompleteness)
-	}
-}
-
-func TestParseOutput_FlagOn_WritesTurnAArtifactsAndSkipsExtract(t *testing.T) {
-	prev := TwoTurnExplorerMode()
-	SetTwoTurnExplorerMode(TwoTurnExplorerModeOn)
-	defer SetTwoTurnExplorerMode(prev)
-
+func TestParseOutput_WritesTurnAArtifactsAndLeavesSlateEmpty(t *testing.T) {
 	eval := phase11Eval("which handlers register Foo?")
 	ctx := parseOutputCtx("registration", "list_of_symbols")
 	ctx.Mutable = types.NewMutableState(types.TaskList{})
@@ -570,15 +508,11 @@ func TestParseOutput_FlagOn_WritesTurnAArtifactsAndSkipsExtract(t *testing.T) {
 	}
 }
 
-func TestParseOutput_FlagOn_NoMutableStateGracefullyDegrades(t *testing.T) {
-	// Defensive: ParseOutput must not panic when ctx.Mutable is nil
-	// under flag=on. The snapshot is simply skipped and the legacy
-	// code path continues to populate StageOutput fields (minus the
-	// answer-symbol slate, which remains nil).
-	prev := TwoTurnExplorerMode()
-	SetTwoTurnExplorerMode(TwoTurnExplorerModeOn)
-	defer SetTwoTurnExplorerMode(prev)
-
+func TestParseOutput_NoMutableStateGracefullyDegrades(t *testing.T) {
+	// Defensive: ParseOutput must not panic when ctx.Mutable is nil.
+	// The TurnA handoff snapshot is simply skipped and the rest of
+	// the StageOutput fields still get populated (minus the
+	// answer-symbol slate, which is Turn B's responsibility).
 	eval := phase11Eval("q")
 	ctx := parseOutputCtx("registration", "list_of_symbols")
 	ctx.Mutable = nil

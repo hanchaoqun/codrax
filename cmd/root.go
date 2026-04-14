@@ -389,12 +389,6 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineAllowSkipPlanForSmall != nil {
 			cfg.PipelineSettings.AllowSkipPlanForSmallChange = *rs.PipelineAllowSkipPlanForSmall
 		}
-		if rs.TwoTurnExplorerMode != nil {
-			agent.SetTwoTurnExplorerMode(*rs.TwoTurnExplorerMode)
-		}
-		if rs.AnswerDocumentMode != nil {
-			agent.SetAnswerDocumentMode(*rs.AnswerDocumentMode)
-		}
 	}
 	// CLI flag overrides for pipeline budget.
 	if cmd.Flags().Changed("pipeline-max-retries") && flagMaxRetries > 0 {
@@ -435,46 +429,19 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	toolRegistry.Register(&repomap.RepoMapV2{})
 	toolRegistry.Register(tool.NewProposeSubAgents())
 
-	// emit_evidence is unconditionally registered for the explorer.
-	// The 2026-04-14 simplification removed the evidence_tool_mode
-	// flag gate — the structured channel is always on and the
-	// markdown parser (parseEvidenceItems) still runs as a secondary
-	// merge channel downstream. repo-explore-skill's ToolSuggestions
-	// gets a runtime append so the declarative skill config does not
-	// need to hard-code the tool name.
+	// Runtime tool registration. After the 2026-04-14 simplification
+	// all three runtime flags (evidence_tool_mode / two_turn_explorer_mode
+	// / answer_document_mode) were deleted; every structured tool
+	// below is unconditionally registered. The repo-explore-skill gets
+	// a runtime append for emit_evidence so the declarative skill
+	// config does not need to hard-code the tool name.
 	toolRegistry.Register(&tool.EmitEvidence{})
 	if exploreSkill, err := skillRegistry.Get("repo-explore-skill"); err == nil {
 		exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence")
 	}
-	// P2.1 (two_turn_explorer_mode): register the extractor's tool
-	// types. The extract-skill itself is declared declaratively in
-	// internal/skill/defaults.go with its ToolSuggestions pre-bound to
-	// the three emit_* names — no runtime append needed (post P2.1
-	// Session 2 cleanup). The actual dispatch gating happens at the
-	// orchestrator layer (extractStageEnabled in scheduler.go), so
-	// registering the tool TYPES unconditionally is safe: when
-	// two-turn mode is off, the scheduler never dispatches the extract
-	// stage and the tools are simply unused in the registry.
-	if agent.TwoTurnExplorerEnabled() {
-		toolRegistry.Register(&tool.EmitAnswerSymbol{})
-		toolRegistry.Register(&tool.EmitHypothesisVerdict{})
-		logging.Info("two_turn_explorer_mode=on — emit_answer_symbol + emit_hypothesis_verdict tool types registered (extract-skill already declares them declaratively)")
-	}
-	// P2.2 (answer_document_mode): register the emit_answer_document
-	// tool type process-wide. The per-skill binding is already
-	// declared in answer-document-skill.ToolSuggestions in
-	// internal/skill/defaults.go — the skill is registered
-	// unconditionally, and Orchestrator.dispatchStage routes the
-	// finalize stage to it when AnswerDocumentEnabled() is true.
-	// This flag-driven routing replaces the pre-cleanup approach of
-	// patching both legacy finalize skills' ToolSuggestions at
-	// runtime, which would have left their markdown Answer/Evidence
-	// OutputFormat sections in place and contradicted the evaluator's
-	// "call the tool, do not write prose" directive.
-	if agent.AnswerDocumentEnabled() {
-		toolRegistry.Register(&tool.EmitAnswerDocument{})
-		logging.Info("answer_document_mode=on — emit_answer_document registered; dispatchStage will route finalize to answer-document-skill")
-	}
+	toolRegistry.Register(&tool.EmitAnswerSymbol{})
+	toolRegistry.Register(&tool.EmitHypothesisVerdict{})
+	toolRegistry.Register(&tool.EmitAnswerDocument{})
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 

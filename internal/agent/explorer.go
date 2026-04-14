@@ -1647,18 +1647,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// trailing-locator parsing. Input is the strict subset already
 	// pre-filtered by L0-1 predicates inside identifyAnswerChains.
 	// Feed the classifier BOTH the task title and description because
-	// the analyzer's rewrite varies run-to-run: one run's title may be
-	// "统计 X 数量", another's may be "识别可以 X 的 Y"; the description
-	// is usually the fuller rephrase. Concatenating ensures the
-	// classifier sees at least one cue regardless of which knob the
-	// LLM turned this run. See memory/project_answer_symbol_extraction_audit.md.
-	questionText := strings.TrimSpace(ctx.CurrentTask + " " + ctx.CurrentTaskDescription)
-	// P2.1 flag gate: two-turn mode skips the deterministic
-	// extractAnswerSymbols call on Turn A. Instead, Turn A computes
-	// the terminal-evidence count and hands the raw strictAnswerItems
-	// to Turn B (the extractor) via TurnAArtifacts. Turn B calls
-	// emit_answer_symbol and the Phase 9 cardinality validator checks
-	// the emitted count against max(TerminalEvidenceCount,
+	// Turn A computes the terminal-evidence count and hands the raw
+	// strictAnswerItems to Turn B (the extractor) via TurnAArtifacts.
+	// Turn B calls emit_answer_symbol and the Phase 9 cardinality
+	// validator checks the emitted count against max(TerminalEvidenceCount,
 	// len(AnalysisIR.AnswerContract.MustInclude)) before allowing a
 	// CompletenessComplete claim to pass through to the finalizer.
 	//
@@ -1667,8 +1659,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// is not a behaviour change — it only tags the existing slate as
 	// authoritative, matching the implicit "MUST NOT add or remove"
 	// directive the legacy builder.go already applied unconditionally.
-	// Empty/nil slate degrades to CompletenessUnknown (zero value)
-	// which drops the section, same as legacy behaviour.
+	// AnswerSymbols are produced exclusively by Turn B (extractor)
+	// via emit_answer_symbol after it digests Turn A's transcript.
+	// Turn A leaves them nil and the completeness claim at zero
+	// (CompletenessUnknown) — the orchestrator's per-task merge rule
+	// treats nil as "no claim made yet" and the subsequent Turn B
+	// output authoritatively fills the slot.
 	var answerSymbols []types.AnswerSymbol
 	var answerSymbolCompleteness types.CompletenessClaim
 	terminalEvidenceCount := 0
@@ -1677,29 +1673,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			terminalEvidenceCount++
 		}
 	}
-	if TwoTurnExplorerEnabled() {
-		// Flag=on: do NOT call extractAnswerSymbols here. Turn B's
-		// extractorEvaluator will produce the slate via emit_answer_symbol
-		// after the Phase 8 prompt digests strictAnswerItems. The slate
-		// and completeness claim both travel via StageOutput from Turn B,
-		// not Turn A, so we explicitly leave answerSymbols nil and the
-		// completeness claim at zero (CompletenessUnknown).
-		logging.Debug("[explorer] two-turn mode on: skipping extractAnswerSymbols; terminalEvidenceCount=%d deferred to Turn B",
-			terminalEvidenceCount)
-	} else {
-		answerSymbols = extractAnswerSymbols(strictAnswerItems, irQuestionKind(ctx), questionText, irAnswerShape(ctx), ermGraph)
-		if len(answerSymbols) > 0 {
-			answerSymbolCompleteness = types.CompletenessComplete
-			logging.Debug("[explorer] L0-2 extracted %d answer symbols (completeness=complete)", len(answerSymbols))
-			for i, s := range answerSymbols {
-				if s.File != "" {
-					logging.Debug("[explorer]   answer_symbol[%d]: %s (%s:%d)", i, s.Name, s.File, s.Line)
-				} else {
-					logging.Debug("[explorer]   answer_symbol[%d]: %s", i, s.Name)
-				}
-			}
-		}
-	}
+	logging.Debug("[explorer] terminalEvidenceCount=%d (slate deferred to Turn B)", terminalEvidenceCount)
 
 	// P1.2 — deterministic StageReport. Build the read-files slice
 	// from the coverage set and render the canonical markdown that
@@ -1733,14 +1707,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		SignalUpdates:            signals,
 	}
 
-	// P2.1 flag=on handoff: write TurnAArtifacts so the extractor
-	// (Turn B) has a frozen snapshot of everything Turn A produced.
-	// Must happen AFTER rankedEvidence / rankedFindings / readFilesList
-	// are final and BEFORE return so the extractor's BuildInitialPrompt
-	// sees the complete payload. The write is a no-op on the legacy
-	// path because MutableState.SetTurnAArtifacts is only read by the
-	// extractor dispatch hook, which is itself gated by the flag.
-	if TwoTurnExplorerEnabled() && ctx != nil && ctx.Mutable != nil {
+	// Turn A → Turn B handoff: write TurnAArtifacts so the extractor
+	// has a frozen snapshot of everything Turn A produced. Must
+	// happen AFTER rankedEvidence / rankedFindings / readFilesList
+	// are final and BEFORE return so the extractor's
+	// BuildInitialPrompt sees the complete payload.
+	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
 			UserQuestion:          e.userQuestion,
 			InvestigationNotes:    e.investigationNotes,
@@ -1750,7 +1722,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			FlowFindings:          rankedFindings,
 			TerminalEvidenceCount: terminalEvidenceCount,
 		})
-		logging.Debug("[explorer] two-turn handoff: wrote TurnAArtifacts (%d notes, %d readFiles, %d toolResults, %d evidence, %d flow, termCount=%d)",
+		logging.Debug("[explorer] turn A → turn B handoff: wrote TurnAArtifacts (%d notes, %d readFiles, %d toolResults, %d evidence, %d flow, termCount=%d)",
 			len(e.investigationNotes), len(readFilesList), len(toolResults), len(strictAnswerItems), len(rankedFindings), terminalEvidenceCount)
 	}
 

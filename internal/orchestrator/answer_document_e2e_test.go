@@ -87,9 +87,6 @@ func finalizeWithAnswerDocument(doc *types.AnswerDocument, lang string) func(*ty
 // complete claim that meets the baseline, renderer produces the
 // complete-header prose.
 func TestE2E_AnswerDocument_ListOfSymbols_Complete_Pipeline(t *testing.T) {
-	prev := agent.AnswerDocumentMode()
-	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOn)
-	defer agent.SetAnswerDocumentMode(prev)
 
 	cfg := defaultResolvedConfig()
 	ir := dagIR(types.AnswerContract{
@@ -156,9 +153,6 @@ func TestE2E_AnswerDocument_ListOfSymbols_Complete_Pipeline(t *testing.T) {
 // fewer symbols than MustInclude gets downgraded to lower_bound at
 // the finalizer, and the renderer picks the softened header.
 func TestE2E_AnswerDocument_CardinalityDowngrade(t *testing.T) {
-	prev := agent.AnswerDocumentMode()
-	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOn)
-	defer agent.SetAnswerDocumentMode(prev)
 
 	cfg := defaultResolvedConfig()
 	ir := dagIR(types.AnswerContract{
@@ -217,9 +211,6 @@ func TestE2E_AnswerDocument_CardinalityDowngrade(t *testing.T) {
 // pool is rendered inline per step, not duplicated, via the real
 // renderer output.
 func TestE2E_AnswerDocument_StepList_CitationPool(t *testing.T) {
-	prev := agent.AnswerDocumentMode()
-	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOn)
-	defer agent.SetAnswerDocumentMode(prev)
 
 	cfg := defaultResolvedConfig()
 	ir := dagIR(types.AnswerContract{
@@ -285,58 +276,6 @@ func TestE2E_AnswerDocument_StepList_CitationPool(t *testing.T) {
 	}
 }
 
-// TestE2E_AnswerDocument_FlagOff_LegacyPathUnchanged — flag off, the
-// legacy finalizer path runs unchanged. The e2e test pins that the
-// new per-task reset hook does NOT disturb the legacy path.
-func TestE2E_AnswerDocument_FlagOff_LegacyPathUnchanged(t *testing.T) {
-	prev := agent.AnswerDocumentMode()
-	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOff)
-	defer agent.SetAnswerDocumentMode(prev)
-
-	cfg := defaultResolvedConfig()
-	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols, Language: "en"})
-
-	var docSet bool
-	var finalProse string
-	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-		types.AgentAnalyzer: dagAnalyzerFn(ir),
-		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
-			return &agent.StageOutput{
-				MissingPiece: types.MissingFacts,
-				AnswerSymbols: []types.AnswerSymbol{
-					{Name: "Foo", File: "a.go", Line: 1, Kind: "function"},
-				},
-				AnswerSymbolCompleteness: types.CompletenessComplete,
-			}, nil
-		},
-		types.AgentFinalizer: func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
-			if ctx.Mutable != nil && ctx.Mutable.AnswerDocument() != nil {
-				docSet = true
-			}
-			// Legacy finalizer would produce prose directly.
-			finalProse = "- `Foo` (a.go:1)"
-			return &agent.StageOutput{
-				MissingPiece: types.MissingNone,
-				FinalAnswer:  finalProse,
-			}, nil
-		},
-	}
-	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
-	o.SetMaxSteps(20)
-
-	if _, err := o.Run("q", "/tmp/repo", "main"); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-
-	if docSet {
-		t.Error("flag=off: AnswerDocument buffer should be nil at finalize time")
-	}
-	if finalProse == "" {
-		t.Error("flag=off: legacy finalizer produced empty answer")
-	}
-}
-
 // TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill
 // pins the P2.2 cleanup contract: when answer_document_mode=on is
 // set and stageConfig.Name == StageFinalize, dispatchStage must
@@ -348,9 +287,6 @@ func TestE2E_AnswerDocument_FlagOff_LegacyPathUnchanged(t *testing.T) {
 // conflicting system sections and (per training distribution)
 // prefers the example-driven prose path.
 func TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill(t *testing.T) {
-	prev := agent.AnswerDocumentMode()
-	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOn)
-	defer agent.SetAnswerDocumentMode(prev)
 
 	cfg := defaultResolvedConfig()
 	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
@@ -380,52 +316,11 @@ func TestE2E_AnswerDocument_DispatchStageRoutesToAnswerDocumentSkill(t *testing.
 	}
 }
 
-// TestE2E_AnswerDocument_FlagOffLeavesLegacyRouting is the complement:
-// with answer_document_mode off, dispatchStage must NOT route to
-// answer-document-skill even if the skill is registered. The
-// analysis-policy routing still wins for read-only tasks, and the
-// default final-answer-skill wins for writing tasks.
-func TestE2E_AnswerDocument_FlagOffLeavesLegacyRouting(t *testing.T) {
-	prev := agent.AnswerDocumentMode()
-	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOff)
-	defer agent.SetAnswerDocumentMode(prev)
-
-	cfg := defaultResolvedConfig()
-	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
-
-	var observedSkill string
-	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
-		types.AgentAnalyzer: dagAnalyzerFn(ir),
-		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
-			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
-		},
-		types.AgentFinalizer: func(_ *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
-			if sk != nil {
-				observedSkill = sk.Name
-			}
-			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
-		},
-	}
-	ar, sr, sar := buildRegistries(agentFns)
-	o := New(cfg, ar, sr, sar)
-	o.SetMaxSteps(20)
-
-	if _, err := o.Run("q", "/tmp/repo", "main"); err != nil {
-		t.Fatalf("Run: %v", err)
-	}
-	if observedSkill == "answer-document-skill" {
-		t.Error("flag=off: finalize routed to answer-document-skill, want legacy skill")
-	}
-}
-
 // TestE2E_AnswerDocument_CrossTaskReset — directly exercises the
 // P2.2 addition to the per-task reset block. A stale AnswerDocument
 // on Mutable must be cleared before the first stage of the next
 // task runs. Mirrors the structure of TestPhase14_RunTaskGraph_ResetsP21StateAtEntry.
 func TestE2E_AnswerDocument_CrossTaskReset(t *testing.T) {
-	prev := agent.AnswerDocumentMode()
-	agent.SetAnswerDocumentMode(agent.AnswerDocumentModeOn)
-	defer agent.SetAnswerDocumentMode(prev)
 
 	cfg := defaultResolvedConfig()
 	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
