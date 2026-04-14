@@ -360,6 +360,11 @@ func (e *subExplorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext,
 
 	parsed := parseEvidenceItems(e.investigationNotes, "sub_explorer.llm")
 	graph, candidates := buildScopedSearchGraph(ctx, toolResults, e.scope)
+	// Deterministic line grounding — see groundEvidenceItems and
+	// memory/project_fake_green_audit_2026_04_14.md Pattern 2.
+	// Runs here so the grounded items flow through regardless of
+	// whether dataflow analysis fires below.
+	parsed = groundEvidenceItems(parsed, graph, toolResults)
 	if graph == nil || !needsDataflowAnalysis(e.objective, parsed) {
 		e.structuredEvidence = parsed
 		return

@@ -1689,6 +1689,19 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 
 	parsed := parseEvidenceItems(e.investigationNotes, "explorer.llm")
+	// Deterministic line grounding: every parsed item that carries
+	// a Subject / Source / LineStart triple is cross-checked against
+	// (a) the gutter-reconstructed line text the LLM actually saw
+	// and (b) the tree-sitter symbol table. Mismatches have their
+	// LineStart cleared and their Producer suffixed "/ungrounded".
+	// See groundEvidenceItems for the full contract and
+	// memory/project_fake_green_audit_2026_04_14.md Pattern 2 for
+	// the failure mode this closes.
+	var graphForGrounding *repomap.Graph
+	if e.searchResult != nil {
+		graphForGrounding = e.searchResult.Graph
+	}
+	parsed = groundEvidenceItems(parsed, graphForGrounding, toolResults)
 	intent := dataflowIntent(e.userQuestion, parsed)
 	hasGraph := e.searchResult != nil && e.searchResult.Graph != nil
 	logging.Debug("[explorer] ensureStructuredEvidence: parsed=%d dataflowIntent=%s hasGraph=%v", len(parsed), intent, hasGraph)
