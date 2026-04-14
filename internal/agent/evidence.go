@@ -1,3 +1,9 @@
+// Several functions in this file (parseEvidenceItems, groundEvidenceItems,
+// mergeEvidenceItems, rankEvidenceByRelevance, scrubSiblingEvidenceBlocks)
+// form filters F4..F7 and F9 of the post-hoc filtering pipeline. Their
+// required execution order and fail-open behaviour are documented in
+// docs/filtering-pipeline.md — update that doc in the same commit when
+// adding, moving, or removing a filter here.
 package agent
 
 import (

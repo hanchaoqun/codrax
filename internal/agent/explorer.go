@@ -611,6 +611,11 @@ func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
 // facts like resolved chains). Used only for mechanism questions
 // where the finalizer needs tightly-scoped evidence to avoid being
 // drowned by concrete-value noise from unrelated files.
+//
+// Filter F8 in docs/filtering-pipeline.md. Fail-open: returns the
+// unfiltered set on zero survivors; see §4 fail-open table.
+// Paired with F9 (scrubSiblingEvidenceBlocks) which enforces the
+// same primary-file scope on the prose channel — both must run.
 func filterEvidenceByPrimaryFiles(items []types.EvidenceItem, primary []string) []types.EvidenceItem {
 	if len(items) == 0 || len(primary) == 0 {
 		return items
