@@ -112,6 +112,21 @@ run_one() {
   cleaned="$(sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' "$out")"
   local pass=1 reasons=()
 
+  # Global min-length sanity filter (2026-04-14 deferred #10): any
+  # answer body shorter than 20 non-whitespace characters is a
+  # fragment — "type" (Go keyword picked by bug #14), "3" (df1 count
+  # hallucination), "• **type" (round-4 truncation), etc. These are
+  # produced by the S3 correction loop when the slate is wrong AND
+  # the case gate is empty. The threshold is low enough to allow a
+  # legitimate short single-symbol answer like "explorer (foo.go:12)"
+  # (~25 chars) to pass.
+  local stripped
+  stripped="$(tr -d '[:space:]' <<<"$cleaned")"
+  if (( ${#stripped} < 20 )); then
+    pass=0
+    reasons+=("too_short:${#stripped}chars")
+  fi
+
   if [[ -n "$EXPECT_CONTAINS" ]]; then
     for needle in $EXPECT_CONTAINS; do
       if ! grep -qF -- "$needle" <<<"$cleaned"; then

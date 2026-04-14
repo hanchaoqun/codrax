@@ -2,8 +2,18 @@
 # Ground truth: 7 continuation push strategies in Phase 1
 # (function-boundary, enumeration, large-file grep, preScanned,
 #  unanalyzed symbols, idle streak, idle termination).
+#
+# Gate tightening 2026-04-14 (deferred #10): positive anchors are the
+# code identifiers the answer must scope to (the explorerEvaluator
+# receiver, its file, the method name). These are the same anchors as
+# df3 and survive the ZH/EN paraphrase: Chinese answers translate
+# "函数边界" / "枚举完整性" but never translate `explorerEvaluator`.
+# Negative anchors block the sibling-evaluator drift mode first
+# documented on df3 (subExplorerEvaluator / finalizerEvaluator's
+# ContinuationPrompt methods are trivially empty — citing them is
+# dispositive of the polymorphic method drift failure).
 ID="t3"
 NAME="condition resolution — Phase 1 continuation push strategies"
 QUESTION="explorerEvaluator的ContinuationPrompt在Phase 1阶段，具体有哪几种continuation push策略？每种策略的触发条件是什么？按优先级从高到低排列。"
-EXPECT_CONTAINS=""
-EXPECT_NOT_CONTAINS=""
+EXPECT_CONTAINS="ContinuationPrompt explorerEvaluator explorer.go"
+EXPECT_NOT_CONTAINS="subExplorerEvaluator finalizerEvaluator .java .py"

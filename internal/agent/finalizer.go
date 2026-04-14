@@ -37,6 +37,46 @@ type finalizerEvaluator struct {
 // out-of-list symbols (eval verdict will catch it).
 const maxFinalizerCorrectionRetries = 2
 
+// mustIncludeLen returns the count of AnswerContract.MustInclude
+// symbols, guarding against a nil AnalysisIR.
+func mustIncludeLen(ctx *types.AgentContext) int {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return 0
+	}
+	return len(ctx.AnalysisIR.AnswerContract.MustInclude)
+}
+
+// shouldDisarmS3 reports whether the extracted AnswerSymbols slate is
+// too narrow to be trusted as authoritative for Translation Mode. See
+// BuildInitialPrompt's disarm comment for rationale.
+//
+// Two independent triggers, both structural:
+//
+//  1. slate < MustInclude — the analyzer's AnswerContract explicitly
+//     declared a cardinality the slate does not meet.
+//  2. slate * 2 < AnswerChains — the slate covers less than half the
+//     deterministic chains the pipeline produced, which empirically
+//     means extractAnswerSymbols walked wrong-shape terminals and
+//     produced a method-name / keyword slate instead of the receiver
+//     types the chains point at.
+//
+// Neither trigger fires when AnswerSymbols is empty (legacy path
+// already handles that via the shape-based fallback) or when
+// AnswerSymbols is proportional to the upstream evidence.
+func shouldDisarmS3(ctx *types.AgentContext) bool {
+	if ctx == nil || len(ctx.AnswerSymbols) == 0 {
+		return false
+	}
+	slate := len(ctx.AnswerSymbols)
+	if mi := mustIncludeLen(ctx); mi > 0 && slate < mi {
+		return true
+	}
+	if chains := len(ctx.AnswerChains); chains > 0 && slate*2 < chains {
+		return true
+	}
+	return false
+}
+
 func (e *finalizerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	// Capture the authoritative symbol set for S3 validation inside
 	// ContinuationPrompt. Building the set here (once per run)
@@ -46,6 +86,33 @@ func (e *finalizerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 	for _, s := range ctx.AnswerSymbols {
 		e.allowedSymbolSet[s.Name] = true
 	}
+
+	// S3 disarm (Option A for UNRESOLVED #1 flag=off): when the
+	// deterministic slate is demonstrably narrower than the declared
+	// AnswerContract.MustInclude OR less than half the AnswerChains
+	// count, we are very likely hitting the extractAnswerSymbols
+	// enumeration gap (memo project_extractansymbols_completeness_gap_unresolved.md,
+	// project_p2_2_deferred_items.md #13). Forcing Translation Mode on
+	// a wrong-tail-shaped slate makes the S3 correction loop actively
+	// veto correct answers — t2 run-2 log shows the loop driving the
+	// LLM from a correct partial into `BuildInitialPrompt` /
+	// `ContinuationPrompt` method names, and eventually into `type`
+	// on round 4 (deferred #14).
+	//
+	// The disarm is structural and data-driven: it only fires when
+	// the upstream pipeline has independent evidence that the slate
+	// is short relative to expectation. When disarmed, we clear
+	// allowedSymbolSet and fall through to the shape-based prompt
+	// (list_of_symbols: "every symbol must appear in Answer Chains
+	// or Evidence Items") — which is the pre-L0-2 pathway and does
+	// not veto legitimately-named types.
+	if shouldDisarmS3(ctx) {
+		logging.Warning("[finalizer] S3 disarm: slate cardinality suspiciously narrow (symbols=%d chains=%d must_include=%d) — dropping Translation Mode, falling back to shape-based prompt",
+			len(ctx.AnswerSymbols), len(ctx.AnswerChains), mustIncludeLen(ctx))
+		e.answerSymbols = nil
+		e.allowedSymbolSet = nil
+	}
+
 	e.retriesUsed = 0
 	e.shape = irAnswerShape(ctx)
 	e.evidenceItems = ctx.EvidenceItems
@@ -62,7 +129,7 @@ func (e *finalizerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 	// section built by context/builder.go contains the list itself;
 	// here we just re-state the contract at the top of the prompt so
 	// the LLM sees it in both places.
-	if len(ctx.AnswerSymbols) > 0 {
+	if len(e.allowedSymbolSet) > 0 {
 		b.WriteString("\n\n## Translation mode: symbols are already chosen\n\n")
 		b.WriteString("The deterministic pipeline has produced a structured Answer Symbols\n")
 		b.WriteString("list (see the 'Extracted Answer Symbols' section below). Your task\n")

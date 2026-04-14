@@ -299,3 +299,144 @@ func TestFinalizerShouldStopTranslationMode(t *testing.T) {
 		t.Error("legacy mode: ShouldStop should return true for one-shot")
 	}
 }
+
+// TestFinalizerDisarm_SlateNarrowerThanChains verifies the S3 disarm
+// fires when the extracted slate is less than half of the upstream
+// AnswerChains count — the extractAnswerSymbols enumeration-gap
+// symptom documented in project_p2_2_deferred_items.md #13.
+func TestFinalizerDisarm_SlateNarrowerThanChains(t *testing.T) {
+	e := &finalizerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageFinalize,
+		AnswerSymbols: []types.AnswerSymbol{
+			// 2 symbols — method-name-shaped, the bug signature.
+			{Name: "BuildInitialPrompt"},
+			{Name: "ContinuationPrompt"},
+		},
+		// 9 chains — slate covers < half → disarm fires.
+		AnswerChains: []string{"c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9"},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Shape: "list_of_symbols"},
+			},
+		},
+	}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	if e.allowedSymbolSet != nil {
+		t.Error("disarm should clear allowedSymbolSet")
+	}
+	if len(e.answerSymbols) != 0 {
+		t.Error("disarm should clear answerSymbols so ContinuationPrompt's S3 path is dead")
+	}
+	if strings.Contains(prompt, "Translation mode") {
+		t.Error("disarm: prompt must NOT render Translation mode header")
+	}
+	if !strings.Contains(prompt, "Hard constraint: list_of_symbols answer") {
+		t.Error("disarm: prompt must fall through to the shape-based constraint block")
+	}
+}
+
+// TestFinalizerDisarm_SlateBelowMustInclude verifies the disarm fires
+// when the analyzer declared MustInclude[] cardinality the slate fails
+// to meet — independent of chain count.
+func TestFinalizerDisarm_SlateBelowMustInclude(t *testing.T) {
+	e := &finalizerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageFinalize,
+		AnswerSymbols: []types.AnswerSymbol{
+			{Name: "Foo"},
+			{Name: "Bar"},
+		},
+		// No chains — the MustInclude trigger is independent.
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeListOfSymbols,
+				MustInclude:         []string{"A", "B", "C", "D", "E"},
+			},
+		},
+	}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	if e.allowedSymbolSet != nil {
+		t.Error("disarm should clear allowedSymbolSet when slate < MustInclude")
+	}
+	if strings.Contains(prompt, "Translation mode") {
+		t.Error("disarm: prompt must NOT render Translation mode header")
+	}
+}
+
+// TestFinalizerDisarm_ProportionalSlateNoDisarm verifies the disarm
+// does NOT fire when the slate is proportional to upstream evidence.
+// A 5-symbol slate against 5 chains and 5 MustInclude is the happy
+// path — Translation Mode must stay on.
+func TestFinalizerDisarm_ProportionalSlateNoDisarm(t *testing.T) {
+	e := &finalizerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageFinalize,
+		AnswerSymbols: []types.AnswerSymbol{
+			{Name: "A"}, {Name: "B"}, {Name: "C"}, {Name: "D"}, {Name: "E"},
+		},
+		AnswerChains: []string{"c1", "c2", "c3", "c4", "c5"},
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeListOfSymbols,
+				MustInclude:         []string{"A", "B", "C", "D", "E"},
+			},
+		},
+	}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	if e.allowedSymbolSet == nil {
+		t.Error("proportional slate: allowedSymbolSet should remain populated")
+	}
+	if len(e.allowedSymbolSet) != 5 {
+		t.Errorf("allowedSymbolSet size = %d, want 5", len(e.allowedSymbolSet))
+	}
+	if !strings.Contains(prompt, "Translation mode") {
+		t.Error("proportional slate: Translation mode should render")
+	}
+}
+
+// TestFinalizerDisarm_EmptySlateNoDisarm verifies empty AnswerSymbols
+// does not mis-trigger the disarm — empty slate goes through the
+// legacy no-symbols path, not the disarm path (which is only
+// meaningful against non-empty but wrong slates).
+func TestFinalizerDisarm_EmptySlateNoDisarm(t *testing.T) {
+	ctx := &types.AgentContext{
+		Stage: types.StageFinalize,
+		// No AnswerSymbols, no chains, large MustInclude.
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				MustInclude: []string{"A", "B", "C"},
+			},
+		},
+	}
+	if shouldDisarmS3(ctx) {
+		t.Error("empty slate should not trigger disarm — the legacy path handles it")
+	}
+}
+
+// TestFinalizerDisarm_NoChainsNoMustIncludeNoDisarm verifies the
+// disarm stays silent when the pipeline produced a slate but no
+// independent cardinality evidence — we only disarm when the
+// upstream has actual data to contradict the slate.
+func TestFinalizerDisarm_NoChainsNoMustIncludeNoDisarm(t *testing.T) {
+	e := &finalizerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageFinalize,
+		AnswerSymbols: []types.AnswerSymbol{
+			{Name: "OnlyOne"},
+		},
+		// No AnswerChains. No MustInclude.
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeListOfSymbols,
+			},
+		},
+	}
+	e.BuildInitialPrompt(ctx, nil)
+	if e.allowedSymbolSet == nil || len(e.allowedSymbolSet) != 1 {
+		t.Error("no upstream cardinality evidence: Translation Mode must stay on")
+	}
+}
