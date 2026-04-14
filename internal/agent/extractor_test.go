@@ -21,40 +21,111 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func TestExtractor_BuildInitialPromptMentionsAllowedTools(t *testing.T) {
-	// The skeleton prompt MUST list the three emit_* tools and MUST
-	// forbid read_file / grep / repo_map. This is the structural
-	// contract Session 2 inherits — even when the prompt body is
-	// rewritten, the allow/forbid list stays the same shape.
+func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
+	// P2.1 Session 2 cleanup: the tool contract (allowed / forbidden
+	// list, output format, completeness honesty contract) lives in
+	// the extract-skill declared by internal/skill/defaults.go, NOT
+	// in extractor.go's BuildInitialPrompt string builder. This test
+	// pins the skill's shape so a future edit that strips the
+	// contract from the skill surfaces here immediately.
+	r := skill.NewRegistry()
+	skill.RegisterDefaults(r)
+	sk, err := r.Get("extract-skill")
+	if err != nil {
+		t.Fatalf("extract-skill not registered by RegisterDefaults: %v", err)
+	}
+
+	// ToolSuggestions is the per-skill allowlist that buildToolSchemas
+	// reads to scope the LLM tool set. MUST contain exactly the three
+	// emit_* tools and nothing else — any extra entry (read_file,
+	// grep, repo_map) would give Turn B file access, which is the
+	// exact thing the two-turn split exists to prevent.
+	want := map[string]bool{
+		"emit_evidence":           false,
+		"emit_answer_symbol":      false,
+		"emit_hypothesis_verdict": false,
+	}
+	for _, ts := range sk.ToolSuggestions {
+		if _, ok := want[ts]; !ok {
+			t.Errorf("extract-skill ToolSuggestions leaks a non-emit tool %q", ts)
+		}
+		want[ts] = true
+	}
+	for name, seen := range want {
+		if !seen {
+			t.Errorf("extract-skill ToolSuggestions missing %q", name)
+		}
+	}
+
+	// Goal must mention the one-line role.
+	if !strings.Contains(sk.Goal, "Turn A") || !strings.Contains(sk.Goal, "structured") {
+		t.Errorf("extract-skill Goal must describe the role, got: %q", sk.Goal)
+	}
+
+	// Workflow must cover the three emit_* code paths.
+	wf := strings.Join(sk.Workflow, "\n")
+	for _, step := range []string{"emit_answer_symbol", "emit_hypothesis_verdict", "emit_evidence", "completeness"} {
+		if !strings.Contains(wf, step) {
+			t.Errorf("extract-skill Workflow missing %q:\n%s", step, wf)
+		}
+	}
+
+	// Prohibitions must explicitly forbid the investigation tools.
+	prohib := strings.Join(sk.Prohibitions, "\n")
+	for _, forbidden := range []string{"read_file", "grep", "repo_map"} {
+		if !strings.Contains(prohib, forbidden) {
+			t.Errorf("extract-skill Prohibitions must forbid %q: %s", forbidden, prohib)
+		}
+	}
+
+	// OutputFormat must spell out the completeness honesty contract
+	// (the three enum values + the cross-check downgrade rule).
+	for _, mustHave := range []string{"complete", "lower_bound", "unknown", "DOWNGRADED", "honesty contract"} {
+		if !strings.Contains(sk.OutputFormat, mustHave) {
+			t.Errorf("extract-skill OutputFormat missing %q:\n%s", mustHave, sk.OutputFormat)
+		}
+	}
+}
+
+func TestExtractor_BuildInitialPromptEchoesQuestion(t *testing.T) {
+	// BuildInitialPrompt is now the DYNAMIC digest only — it echoes
+	// the user question and bakes the Turn A transcript snapshot.
+	// The static tool contract lives in the skill (see the test
+	// above). This test pins what BuildInitialPrompt IS responsible
+	// for post-cleanup: the user question + a non-empty result.
 	e := &extractorEvaluator{}
 	ctx := &types.AgentContext{CurrentTask: "what does Foo return?"}
 	prompt := e.BuildInitialPrompt(ctx, nil)
-
-	allowed := []string{"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict"}
-	for _, tool := range allowed {
-		if !contains(prompt, tool) {
-			t.Errorf("prompt must mention allowed tool %q", tool)
-		}
-	}
-	forbidden := []string{"read_file", "grep", "repo_map"}
-	for _, tool := range forbidden {
-		if !contains(prompt, tool) {
-			t.Errorf("prompt must explicitly forbid %q so the LLM does not attempt it", tool)
-		}
+	if prompt == "" {
+		t.Fatal("BuildInitialPrompt must produce a non-empty result")
 	}
 	if !contains(prompt, "what does Foo return?") {
 		t.Error("prompt should echo the user question")
+	}
+	// Post-cleanup invariant: the dynamic prompt MUST NOT repeat the
+	// full contract sections (allowed/forbidden/honesty contract).
+	// A no-transcript path produces a short "No transcript available"
+	// notice; it should not accidentally carry the skill's content.
+	forbidden := []string{
+		"Allowed tools — call ONLY these",
+		"Forbidden tools",
+		"honesty contract",
+		"MUST NOT add or remove",
+	}
+	for _, staticContent := range forbidden {
+		if contains(prompt, staticContent) {
+			t.Errorf("cleanup regression: BuildInitialPrompt re-states %q (should be in skill, not prompt)",
+				staticContent)
+		}
 	}
 }
 
 func TestExtractor_BuildInitialPromptHandlesNilCtx(t *testing.T) {
 	// Defensive: Session 2 wiring may call BuildInitialPrompt before
-	// AgentContext is fully populated. The skeleton must not panic.
+	// AgentContext is fully populated. Must not panic; empty output
+	// is acceptable now that all static content lives in the skill.
 	e := &extractorEvaluator{}
-	prompt := e.BuildInitialPrompt(nil, nil)
-	if prompt == "" {
-		t.Error("nil ctx must still produce a non-empty prompt")
-	}
+	_ = e.BuildInitialPrompt(nil, nil) // must not panic
 }
 
 func TestExtractor_ShouldStopFiresAfterOneIteration(t *testing.T) {
@@ -272,24 +343,8 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	if !contains(prompt, "which handlers register Foo?") {
 		t.Error("prompt must echo user question")
 	}
-	// Tool contract
-	for _, tool := range []string{"emit_evidence", "emit_answer_symbol", "emit_hypothesis_verdict"} {
-		if !contains(prompt, tool) {
-			t.Errorf("prompt missing allowed tool %q", tool)
-		}
-	}
-	for _, forbidden := range []string{"read_file", "grep", "repo_map"} {
-		if !contains(prompt, forbidden) {
-			t.Errorf("prompt must forbid %q", forbidden)
-		}
-	}
-	// Completeness honesty contract
-	for _, term := range []string{"complete", "lower_bound", "unknown", "honesty contract"} {
-		if !contains(prompt, term) {
-			t.Errorf("prompt must mention completeness term %q", term)
-		}
-	}
-	// Turn A digest sections
+	// Turn A digest sections (the dynamic content this function is
+	// still responsible for post-cleanup)
 	for _, section := range []string{
 		"Investigation notes",
 		"iter 1: read reg.go",
@@ -311,6 +366,23 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	// Effective floor = max(3, 2) = 3
 	if !contains(prompt, "Effective floor") || !contains(prompt, "3") {
 		t.Error("prompt must surface effective floor")
+	}
+	// Post-cleanup invariant: the dynamic prompt MUST NOT repeat the
+	// full tool contract (role, allowed/forbidden list, output format,
+	// completeness honesty explanation) — those live in the skill.
+	// Individual references to emit_answer_symbol in the baseline
+	// hint are legitimate per-dispatch cross-references and are
+	// permitted; what we forbid is the CONTRACT sections themselves.
+	forbidden := []string{
+		"Allowed tools — call ONLY these",
+		"Forbidden tools",
+		"honesty contract",
+		"MUST NOT add or remove",
+	}
+	for _, staticContent := range forbidden {
+		if contains(prompt, staticContent) {
+			t.Errorf("cleanup regression: dynamic prompt re-states contract section %q (should be in skill)", staticContent)
+		}
 	}
 }
 

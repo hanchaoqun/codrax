@@ -58,94 +58,38 @@ type extractorEvaluator struct{}
 
 // BuildInitialPrompt implements Evaluator.
 //
-// Phase 8: the real prompt reads TurnAArtifacts and bakes Turn A's
-// transcript into the LLM context. The extractor never calls tools
-// that would re-fetch files; everything it emits must trace back to
-// the snapshot in this prompt. The prompt is organized as:
+// Scope: the DYNAMIC per-dispatch Turn A digest only. All STATIC
+// contract content — role, allowed/forbidden tool list, completeness
+// honesty contract, output format, prohibitions — lives in the
+// extract-skill declared in internal/skill/defaults.go and is
+// rendered into the LLM prompt as system sections by
+// context/builder.go before this evaluator-specific instruction runs.
 //
-//  1. Role + user question (who and what to answer)
-//  2. Tool contract (allowed emit_*, forbidden read_file / grep /
-//     repo_map, schema of each emit_answer_symbol / emit_evidence /
-//     emit_hypothesis_verdict call including the completeness claim
-//     honesty contract)
-//  3. Turn A transcript digest: investigation notes, read files,
-//     prior deterministic evidence, flow findings, hypothesis set
-//  4. Baseline floor: TerminalEvidenceCount + MustInclude with a
-//     clear statement of what "complete" requires
-//  5. Output requirements: emit one batched call per tool, no
-//     narrative, no speculation
+// Rationale (P2.1 Session 2 cleanup): baking the tool contract into
+// a string builder here was a shortcut that (a) duplicated what the
+// skill system exists for, (b) inflated every dispatch with the
+// stable preamble, and (c) made the contract harder to find (a
+// buried `strings.Builder.WriteString` call vs. a top-level
+// declarative Config entry). Moving it to the skill makes the
+// contract one grep away and lets BaseAgent.buildToolSchemas scope
+// the LLM tool set from ToolSuggestions without a runtime append in
+// cmd/root.go.
 //
-// The prompt builder degrades gracefully when any section is empty:
-// a missing TurnAArtifacts (can happen on unit-test paths or
-// first-session bootstrap) produces a "no transcript available"
-// notice instead of panicking. This is a structural defense against
-// a Session 2 wiring bug that forgets to populate the snapshot.
+// The prompt below therefore carries ONLY what changes per dispatch:
+// the user question, the Turn A transcript digest (investigation
+// notes, read files, top evidence, flow findings), the cardinality
+// baseline (β + γ + floor), and the hypothesis set. Graceful degrade
+// on nil TurnAArtifacts is preserved.
 func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	var b strings.Builder
 
-	// -------- Role + question --------
-	b.WriteString("# Extractor (Turn B) — structured synthesis of Turn A's investigation\n\n")
-	b.WriteString("You are the extractor. Turn A (the explorer) has finished investigating the ")
-	b.WriteString("user's question and handed you a frozen snapshot of its findings: the raw ")
-	b.WriteString("assistant notes, the files it read, the structured evidence it extracted, the ")
-	b.WriteString("dataflow chains it found, and — for enumeration / list-of-symbols questions — ")
-	b.WriteString("a deterministic count of terminal-literal evidence items. Your job is to ")
-	b.WriteString("convert that snapshot into STRUCTURED emit_* tool calls that the finalizer ")
-	b.WriteString("will render as the user-visible answer. You do NOT investigate. You do NOT ")
-	b.WriteString("speculate. You do NOT call read_file, grep, or repo_map — any fact you emit ")
-	b.WriteString("must trace back to the snapshot below.\n\n")
-
+	// -------- User question --------
 	if ctx != nil && strings.TrimSpace(ctx.CurrentTask) != "" {
 		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.CurrentTask))
 		if desc := strings.TrimSpace(ctx.CurrentTaskDescription); desc != "" && desc != strings.TrimSpace(ctx.CurrentTask) {
 			fmt.Fprintf(&b, "**Expanded description:** %s\n\n", desc)
 		}
 	}
-
-	// -------- Tool contract --------
-	b.WriteString("## Allowed tools — call ONLY these\n\n")
-	b.WriteString("- **`emit_evidence`** — emit one or more refined evidence items from Turn A's ")
-	b.WriteString("snapshot. One batched call per tool use; each item is `{kind, subject, object, ")
-	b.WriteString("source, line_start, line_end?, condition?, summary?}`. `kind` is one of `direct`, ")
-	b.WriteString("`conditional`, `registration`, `mechanism`, `relationship`, `absent`. `source` ")
-	b.WriteString("must be a repo-relative path; blob paths inside the per-trace WorkDir are ")
-	b.WriteString("REJECTED.\n")
-	b.WriteString("- **`emit_answer_symbol`** — emit the structured answer slate for ")
-	b.WriteString("list-of-symbols / enumeration / call-chain questions. ONE batched call with all ")
-	b.WriteString("symbols. Each item is `{name, file, line, kind, chain?, rationale?}`. `line` ")
-	b.WriteString("must be > 0 (never estimated). `kind` ∈ {function, method, type, struct, class, ")
-	b.WriteString("const, var}. The call MUST ALSO carry a set-level `completeness` claim — see ")
-	b.WriteString("the honesty contract below.\n")
-	b.WriteString("- **`emit_hypothesis_verdict`** — for each hypothesis in the hypothesis set, ")
-	b.WriteString("emit `{hypothesis_id, status, rationale, citation}`. `status` is one of ")
-	b.WriteString("`confirmed`, `rejected`, `inconclusive`. `confirmed` and `rejected` REQUIRE a ")
-	b.WriteString("`file:line` citation; `inconclusive` may omit it. If you cannot reach a ")
-	b.WriteString("definitive verdict, choose `inconclusive` — do NOT pick `confirmed` without a ")
-	b.WriteString("concrete cite.\n\n")
-	b.WriteString("## Forbidden tools\n\n")
-	b.WriteString("- **`read_file`** — all files you need are already in the snapshot; if something ")
-	b.WriteString("is missing, emit what you have and mark the hypothesis `inconclusive`.\n")
-	b.WriteString("- **`grep`** — same reason. No fresh search.\n")
-	b.WriteString("- **`repo_map`** — same reason. No fresh structure queries.\n\n")
-
-	// -------- Completeness contract --------
-	b.WriteString("## emit_answer_symbol completeness honesty contract\n\n")
-	b.WriteString("Every `emit_answer_symbol` call must declare a `completeness` value:\n\n")
-	b.WriteString("- **`complete`** — you assert this list enumerates EVERY symbol that answers ")
-	b.WriteString("the question. The finalizer will render it with a \"MUST NOT add or remove\" ")
-	b.WriteString("directive. Before you claim complete, verify that `len(items)` is at least ")
-	b.WriteString("`max(terminal_evidence_count, len(must_include))` from the baseline section ")
-	b.WriteString("below. The extractor validates this cross-check: a short claim of `complete` is ")
-	b.WriteString("AUTOMATICALLY downgraded to `lower_bound` with a warning.\n")
-	b.WriteString("- **`lower_bound`** — these symbols are all confirmed present, but additional ")
-	b.WriteString("symbols may also be part of the answer. The finalizer will render a softened ")
-	b.WriteString("\"at least these, may add more\" prompt. This is the HONEST DEFAULT when Turn A ")
-	b.WriteString("found more terminal evidence than you can confidently map to distinct symbols.\n")
-	b.WriteString("- **`unknown`** — you investigated but cannot reach a definitive slate. The ")
-	b.WriteString("finalizer will DROP the answer-symbol section entirely and fall back to a ")
-	b.WriteString("shape-based prompt (step_list, explanation, etc.). Choose this for mechanism ")
-	b.WriteString("questions, value questions where the answer is a literal rather than a set of ")
-	b.WriteString("names, or when the evidence is genuinely ambiguous.\n\n")
 
 	// -------- Turn A transcript digest --------
 	ta := (*types.TurnAArtifacts)(nil)
@@ -159,15 +103,15 @@ func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 		b.WriteString("Produce whatever `emit_*` calls you can justify from the user question ")
 		b.WriteString("alone, and set `completeness` to `unknown` for any answer-symbol emission.\n\n")
 	} else {
-		fmt.Fprintf(&b, "## Turn A transcript digest\n\n")
+		b.WriteString("## Turn A transcript digest\n\n")
 
 		// Investigation notes: up to 6 entries, trimmed for prompt length
 		if len(ta.InvestigationNotes) > 0 {
 			b.WriteString("### Investigation notes (per-iteration narrative)\n\n")
-			max := len(ta.InvestigationNotes)
-			if max > 6 {
-				fmt.Fprintf(&b, "*(showing the 6 most recent of %d iterations)*\n\n", max)
-				ta.InvestigationNotes = ta.InvestigationNotes[max-6:]
+			maxNotes := len(ta.InvestigationNotes)
+			if maxNotes > 6 {
+				fmt.Fprintf(&b, "*(showing the 6 most recent of %d iterations)*\n\n", maxNotes)
+				ta.InvestigationNotes = ta.InvestigationNotes[maxNotes-6:]
 			}
 			for i, note := range ta.InvestigationNotes {
 				trimmed := strings.TrimSpace(note)
@@ -192,9 +136,7 @@ func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 			b.WriteString("\n")
 		}
 
-		// Deterministic evidence slate: top items only (the prompt has
-		// no budget for hundreds of items and the LLM cannot absorb
-		// them anyway; the Turn A extraction pipeline already ranked).
+		// Deterministic evidence: top 24 ranked items
 		if len(ta.EvidenceItems) > 0 {
 			b.WriteString("### Deterministic evidence Turn A extracted\n\n")
 			evMax := len(ta.EvidenceItems)
@@ -225,7 +167,7 @@ func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 			b.WriteString("\n")
 		}
 
-		// Flow findings: source→sink chains from dataflow analysis
+		// Flow findings: top 10 source→sink chains
 		if len(ta.FlowFindings) > 0 {
 			b.WriteString("### Dataflow findings (source → sink chains)\n\n")
 			ffMax := len(ta.FlowFindings)
@@ -240,9 +182,11 @@ func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 			b.WriteString("\n")
 		}
 
-		// Baseline floor: the β + γ data for the completeness
-		// cross-check. Echoed back so the LLM can self-compute the
-		// threshold rather than trust its memory of the claim.
+		// Cardinality baseline — β + γ + effective floor. This is
+		// still rendered inline because it is dynamic (depends on
+		// this dispatch's Turn A count and the analyzer's MustInclude
+		// list), even though the honesty-contract EXPLANATION lives
+		// in the skill config.
 		b.WriteString("### Cardinality baseline (for completeness claim)\n\n")
 		fmt.Fprintf(&b, "- **Turn A terminal-evidence count (β):** %d\n", ta.TerminalEvidenceCount)
 		if ctx != nil && ctx.AnalysisIR != nil {
@@ -268,30 +212,14 @@ func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *ski
 		b.WriteString("\n")
 	}
 
-	// -------- Hypothesis set (if any) --------
+	// -------- Hypothesis set --------
 	if ctx != nil && ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 {
 		b.WriteString("## Hypotheses (emit a verdict for each)\n\n")
 		for _, h := range ctx.AnalysisIR.HypothesisSet {
 			fmt.Fprintf(&b, "- **%s** (%s): %s\n", h.ID, h.Status, strings.TrimSpace(h.Statement))
 		}
-		b.WriteString("\nFor each hypothesis above, call `emit_hypothesis_verdict` with its ")
-		b.WriteString("`hypothesis_id`, a `status` (confirmed / rejected / inconclusive), a short ")
-		b.WriteString("`rationale`, and a `citation` (required for confirmed/rejected).\n\n")
+		b.WriteString("\n")
 	}
-
-	// -------- Output requirements --------
-	b.WriteString("## Output requirements\n\n")
-	b.WriteString("1. Call each emit_* tool AT MOST ONCE per tool name. Batch all items in a ")
-	b.WriteString("single call per tool.\n")
-	b.WriteString("2. Do NOT produce any free-form narrative — your entire output is the emit_* ")
-	b.WriteString("tool calls. The finalizer reads the drained buffers, not your assistant text.\n")
-	b.WriteString("3. Do NOT invent line numbers. If the transcript does not have a line for a ")
-	b.WriteString("symbol, omit that symbol.\n")
-	b.WriteString("4. Do NOT cite files outside the \"Files Turn A read\" list above.\n")
-	b.WriteString("5. If the question is a mechanism / step-by-step / value / boolean question ")
-	b.WriteString("where an answer-symbol list is not the right shape, SKIP emit_answer_symbol ")
-	b.WriteString("entirely — the finalizer will use shape-based rendering. Do NOT fabricate an ")
-	b.WriteString("answer-symbol list to fill the section.\n")
 
 	return b.String()
 }

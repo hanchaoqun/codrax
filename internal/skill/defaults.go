@@ -368,4 +368,58 @@ The handler always writes to the database first. Only after the DB confirms succ
 			"do not repeat or paraphrase content that the explorer's stage report already stated — if the explorer answered it, adopt that text as-is instead of rewriting it in your own words",
 		},
 	})
+
+	// P2.1 Turn B — the extractor's skill. This is the declarative
+	// contract surface that context/builder.go auto-renders into
+	// system sections (Workflow, Prohibitions) and schema scope
+	// (ToolSuggestions). Keeping Turn B's role, tool allowlist,
+	// output format, and honesty contract in this file — rather than
+	// baked into extractor.go's BuildInitialPrompt string builder —
+	// means (a) the contract is one grep away for any future reader,
+	// (b) prompt-length is reduced because the stable parts render
+	// once as system sections instead of being appended per dispatch,
+	// and (c) BaseAgent.buildToolSchemas scopes the LLM tool set from
+	// ToolSuggestions here without any runtime append in cmd/root.go.
+	//
+	// extractor.go's BuildInitialPrompt is now only responsible for
+	// the DYNAMIC per-dispatch data: the Turn A transcript digest
+	// (investigation notes, read files, top evidence, flow findings,
+	// cardinality baseline, hypothesis set). Static contract lives
+	// here.
+	//
+	// The skill is unconditionally registered — the actual dispatch
+	// gating happens at the orchestrator layer (extractStageEnabled()
+	// in scheduler.go), which only routes the extract stage when
+	// two_turn_explorer_mode=on. Registering unconditionally means
+	// tests can look up the skill without threading the flag.
+	r.Register(&Config{
+		Name: "extract-skill",
+		Goal: "Drain Turn A's frozen investigation transcript into structured emit_* items. Turn B does NOT investigate — it converts what Turn A already found into the structured channels the finalizer consumes.",
+		Workflow: []string{
+			"Read the Turn A transcript digest the orchestrator injected as a user section: user question, investigation notes, read files, top evidence items, dataflow findings, cardinality baseline (β = Turn A terminal-evidence count, γ = analyzer MustInclude count, effective floor = max(β, γ)), and hypothesis set",
+			"For the answer-symbol slate (only for list_of_symbols / enumeration / call_chain questions): call emit_answer_symbol ONCE with a batched items array. Each item MUST carry a concrete file:line from a file in the 'Files Turn A read' list — never invent a line number",
+			"For emit_answer_symbol, set 'completeness' to 'complete' only if len(items) >= effective floor; otherwise set it to 'lower_bound'. If the question is not a list-of-names question at all, skip emit_answer_symbol entirely (the finalizer will use the shape-based prompt)",
+			"For every hypothesis in the hypothesis set: call emit_hypothesis_verdict once with hypothesis_id + status + rationale + citation. Status must be 'confirmed' / 'rejected' / 'inconclusive'. 'confirmed' and 'rejected' REQUIRE a file:line citation; 'inconclusive' is the honest choice when no definitive cite exists",
+			"For refined evidence (kind / subject / object / source / line / summary): call emit_evidence ONCE with the batched items array",
+		},
+		ToolSuggestions: []string{
+			"emit_evidence",
+			"emit_answer_symbol",
+			"emit_hypothesis_verdict",
+		},
+		OutputFormat: `Produce ZERO free-form narrative. Your entire contribution is the emit_* tool calls — the finalizer reads the drained buffers, not your assistant text. Call each emit_* tool AT MOST ONCE per dispatch; batch all items in a single call per tool.
+
+Completeness honesty contract for emit_answer_symbol:
+- "complete" — you assert this list enumerates EVERY symbol that answers the question. The finalizer will render it with a "MUST NOT add or remove" directive. This claim is AUTOMATICALLY cross-checked against max(β, γ): a short claim of "complete" is DOWNGRADED to "lower_bound" with a warning.
+- "lower_bound" — these symbols are all confirmed present, but additional symbols may also be part of the answer. The finalizer will render a softened "at least these, may add more" prompt. This is the HONEST DEFAULT when you cannot confidently reach the floor.
+- "unknown" — you investigated but cannot reach a definitive slate. The finalizer will DROP the answer-symbol section entirely and fall back to a shape-based prompt. Choose this for mechanism questions, value/boolean questions, or genuinely ambiguous evidence.`,
+		Prohibitions: []string{
+			"do not call read_file, grep, repo_map, list_files, or exec_command — the Turn A transcript is frozen and Turn B has no file access",
+			"do not invent line numbers — if the transcript does not have a line for a symbol, omit that symbol",
+			"do not cite files outside the 'Files Turn A read' list provided in the user section",
+			"do not fabricate an answer-symbol list to fill the section — if the question is a mechanism / value / boolean question, skip emit_answer_symbol and let the finalizer use the shape-based prompt",
+			"do not claim completeness=complete without verifying len(items) >= max(β, γ) from the cardinality baseline — a short 'complete' claim will be downgraded to lower_bound automatically and the downgrade is logged as a warning",
+			"do not choose hypothesis status=confirmed or rejected without a concrete file:line citation — use 'inconclusive' when no cite exists",
+		},
+	})
 }
