@@ -535,7 +535,7 @@ func TestIdentifyAnswerChains_RefactorParity(t *testing.T) {
 		},
 	}
 	whitelist := answerPredicateWhitelist{}
-	chains, _ := identifyAnswerChains(question, evidence, 5, whitelist, nil, nil)
+	chains := identifyAnswerChains(question, evidence, 5, whitelist, nil, nil)
 	if len(chains) == 0 {
 		t.Fatalf("identifyAnswerChains returned no chains; expected at least the binds-Concrete to land")
 	}
@@ -543,7 +543,7 @@ func TestIdentifyAnswerChains_RefactorParity(t *testing.T) {
 	// touched by the helper.
 	found := false
 	for _, c := range chains {
-		if strings.Contains(c, "binds ONLY SubExplorer") {
+		if strings.Contains(c.Item.Summary, "binds ONLY SubExplorer") {
 			found = true
 			break
 		}
@@ -943,12 +943,12 @@ func TestIdentifyAnswerChains_ConstructorOriginDemoted(t *testing.T) {
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"subagent", "agent"}},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 	if len(chains) == 0 {
 		t.Fatal("expected at least one chain")
 	}
-	if !strings.Contains(chains[0], "RegisterDefaultSubAgents") {
-		t.Errorf("expected RegisterDefaultSubAgents chain at top, got: %s", chains[0])
+	if !strings.Contains(chains[0].Item.Summary, "RegisterDefaultSubAgents") {
+		t.Errorf("expected RegisterDefaultSubAgents chain at top, got: %s", chains[0].Item.Summary)
 	}
 }
 
@@ -987,18 +987,18 @@ func TestIdentifyAnswerChains_TerminalRangeDemoted(t *testing.T) {
 			"Agents": {{Name: "Agents", Kind: "type"}},
 		},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, graph)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, graph)
 	if len(chains) == 0 {
 		t.Fatal("expected at least one chain returned")
 	}
 	// The SubExplorer chain must rank first.
-	if !strings.Contains(chains[0], "SubExplorer") {
-		t.Errorf("expected SubExplorer chain at top, got: %s", chains[0])
+	if !strings.Contains(chains[0].Item.Summary, "SubExplorer") {
+		t.Errorf("expected SubExplorer chain at top, got: %s", chains[0].Item.Summary)
 	}
 	// The range chain must still appear somewhere (demote, not drop).
 	foundRange := false
 	for _, c := range chains {
-		if strings.Contains(c, "range r.agents") {
+		if strings.Contains(c.Item.Summary, "range r.agents") {
 			foundRange = true
 			break
 		}
@@ -1021,7 +1021,7 @@ func TestIdentifyAnswerChains_NoPredicateForMechanism(t *testing.T) {
 		},
 	}
 	reqs := []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}}}
-	chains, _ := identifyAnswerChains(question, evidence, 5, buildAnswerWhitelist(reqs), reqs, nil)
+	chains := identifyAnswerChains(question, evidence, 5, buildAnswerWhitelist(reqs), reqs, nil)
 	// Mechanism kind has no predicate; chain containing `range` must
 	// still be ranked as-is, not demoted.
 	if len(chains) == 0 {
@@ -1042,7 +1042,7 @@ func TestIdentifyAnswerChains_BackCompatNilArgs(t *testing.T) {
 			Object:    "Foo",
 		},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, nil)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, nil)
 	if len(chains) == 0 {
 		t.Error("nil reqs + nil graph should preserve legacy behaviour; got no chains")
 	}
@@ -1086,13 +1086,19 @@ func TestIdentifyAnswerChains_StableSortEqualScoreByStrictOK(t *testing.T) {
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"register", "y"}},
 	}
-	chains, strict := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 	if len(chains) == 0 {
 		t.Fatal("expected at least one chain")
 	}
 	// Strict subset must contain the Register chain (the one that
 	// passed the origin predicate).
-	if len(strict) == 0 || !strings.Contains(strict[0].Summary, "RegisterHandlers") {
+	var strict []types.AnswerChain
+	for _, c := range chains {
+		if c.StrictOK {
+			strict = append(strict, c)
+		}
+	}
+	if len(strict) == 0 || !strings.Contains(strict[0].Item.Summary, "RegisterHandlers") {
 		t.Errorf("strict subset should lead with RegisterHandlers, got: %+v", strict)
 	}
 	// Loose list must also rank RegisterHandlers above NewFoo because
@@ -1102,10 +1108,10 @@ func TestIdentifyAnswerChains_StableSortEqualScoreByStrictOK(t *testing.T) {
 	registerIdx := -1
 	newFooIdx := -1
 	for i, c := range chains {
-		if strings.Contains(c, "RegisterHandlers") {
+		if strings.Contains(c.Item.Summary, "RegisterHandlers") {
 			registerIdx = i
 		}
-		if strings.Contains(c, "NewFoo") {
+		if strings.Contains(c.Item.Summary, "NewFoo") {
 			newFooIdx = i
 		}
 	}
@@ -1148,12 +1154,12 @@ func TestIdentifyAnswerChains_StableSortEqualScoreByConfidence(t *testing.T) {
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"register", "y"}},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 	if len(chains) == 0 {
 		t.Fatal("expected at least one chain")
 	}
 	// Higher-confidence chain must come first.
-	if !strings.Contains(chains[0], "NewHighConfY") {
+	if !strings.Contains(chains[0].Item.Summary, "NewHighConfY") {
 		t.Errorf("expected NewHighConfY first (higher confidence), got: %v", chains)
 	}
 }
@@ -1182,11 +1188,11 @@ func TestIdentifyAnswerChains_StableSortEqualScoreByChainLength(t *testing.T) {
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"register", "y"}},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 	if len(chains) < 2 {
 		t.Fatalf("expected at least 2 chains, got %d: %v", len(chains), chains)
 	}
-	if !strings.Contains(chains[0], "NewShort") {
+	if !strings.Contains(chains[0].Item.Summary, "NewShort") {
 		t.Errorf("expected shorter (NewShort) chain first, got order: %v", chains)
 	}
 }
@@ -1210,21 +1216,27 @@ func TestIdentifyAnswerChains_StableSortDeterministicAcrossRuns(t *testing.T) {
 	reqs := []EvidenceRequirement{
 		{Kind: "registration", Entities: []string{"register", "y"}},
 	}
-	baseline, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	baseline := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 	if len(baseline) == 0 {
 		t.Fatal("expected non-empty baseline")
 	}
 	// Re-run several times and compare — any permutation means the
 	// sort is not fully stable.
 	for run := 0; run < 5; run++ {
-		chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+		chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 		if len(chains) != len(baseline) {
 			t.Fatalf("run %d: len mismatch baseline=%d got=%d", run, len(baseline), len(chains))
 		}
 		for i := range chains {
-			if chains[i] != baseline[i] {
+			// AnswerChain contains an EvidenceItem which contains
+			// an unexported fields path — compare by the stable
+			// identity key rather than reflect.DeepEqual so the
+			// test stays robust to future field additions.
+			if chains[i].Item.Source != baseline[i].Item.Source ||
+				chains[i].Item.LineStart != baseline[i].Item.LineStart ||
+				chains[i].Item.Summary != baseline[i].Item.Summary {
 				t.Errorf("run %d: order changed at idx %d\n  baseline[%d]=%q\n  got[%d]=%q",
-					run, i, i, baseline[i], i, chains[i])
+					run, i, i, baseline[i].Item.Summary, i, chains[i].Item.Summary)
 			}
 		}
 	}
@@ -1251,18 +1263,25 @@ func TestIdentifyAnswerChains_StrictSubsetExcludesDemoted(t *testing.T) {
 		},
 	}
 	reqs := []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent", "agent"}}}
-	chains, strict := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, reqs, nil)
 
 	// Loose list includes both for Ground Truth display.
 	if len(chains) != 2 {
 		t.Errorf("loose chains: expected 2, got %d", len(chains))
 	}
-	// Strict subset includes only the RegisterDefaultSubAgents chain.
+	// Strict subset (chains with StrictOK) includes only the
+	// RegisterDefaultSubAgents chain.
+	var strict []types.AnswerChain
+	for _, c := range chains {
+		if c.StrictOK {
+			strict = append(strict, c)
+		}
+	}
 	if len(strict) != 1 {
 		t.Fatalf("strict subset: expected 1 item, got %d: %+v", len(strict), strict)
 	}
-	if !strings.Contains(strict[0].Summary, "RegisterDefaultSubAgents") {
-		t.Errorf("strict subset should be the Register chain, got: %s", strict[0].Summary)
+	if !strings.Contains(strict[0].Item.Summary, "RegisterDefaultSubAgents") {
+		t.Errorf("strict subset should be the Register chain, got: %s", strict[0].Item.Summary)
 	}
 }
 
@@ -1305,7 +1324,7 @@ func TestIdentifyAnswerChains_IgnoresFilePathSubstringMatch(t *testing.T) {
 			"Agent": {{Name: "Agent", Kind: "type"}},
 		},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
 	if len(chains) != 0 {
 		t.Errorf("path-only match must not count as overlap; got chains=%v", chains)
 	}
@@ -1330,7 +1349,7 @@ func TestIdentifyAnswerChains_IgnoresPathSubstringMatch_GenericPrefix(t *testing
 			"Handler": {{Name: "Handler", Kind: "type"}},
 		},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
 	if len(chains) != 0 {
 		t.Errorf("path-only match must not count as overlap (generic prefix); got chains=%v", chains)
 	}
@@ -1355,7 +1374,7 @@ func TestIdentifyAnswerChains_GenuineMatchStillRanks(t *testing.T) {
 			"Agent": {{Name: "Agent", Kind: "type"}},
 		},
 	}
-	chains, _ := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
+	chains := identifyAnswerChains(question, evidence, 5, answerPredicateWhitelist{}, nil, graph)
 	if len(chains) == 0 {
 		t.Fatalf("genuine non-path mention of `Agent` should still rank; got zero chains")
 	}

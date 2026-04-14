@@ -33,10 +33,12 @@ type StageOutput struct {
 	// Compact dataflow findings discovered during execution.
 	FlowFindings []types.FlowFindingDigest `json:"flow_findings,omitempty"`
 
-	// Answer chains: deterministic resolution chains identified as
-	// directly answering the user's question. These get priority
-	// presentation in the finalizer prompt.
-	AnswerChains []string `json:"answer_chains,omitempty"`
+	// AnswerChains: deterministic answer-relevance envelopes produced
+	// by identifyAnswerChains. Each element wraps an EvidenceItem
+	// plus the computed Score + StrictOK flag. The finalizer prompt
+	// assembler renders them to markdown via the single legal flatten
+	// point in context/builder.go.
+	AnswerChains []types.AnswerChain `json:"answer_chains,omitempty"`
 
 	// Answer symbols: L0-2 structured terminals extracted from
 	// AnswerChains. For registration / call_chain / return_value

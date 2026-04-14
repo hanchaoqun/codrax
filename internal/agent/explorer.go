@@ -1614,7 +1614,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if e.searchResult != nil {
 		ermGraph = e.searchResult.Graph
 	}
-	answerChains, strictAnswerItems := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
+	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
 		buildAnswerWhitelist(e.ermRequirements), e.ermRequirements, ermGraph)
 	// df3 drift fix: mechanism questions do not benefit from the
 	// chain-ranked Ground Truth section. identifyAnswerChains tends
@@ -1631,17 +1631,23 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 				len(answerChains))
 		}
 		answerChains = nil
-		strictAnswerItems = nil
 	}
 	if len(answerChains) > 0 {
-		logging.Debug("[explorer] identified %d answer chains (%d strict)", len(answerChains), len(strictAnswerItems))
-		for i, ac := range answerChains {
-			logging.Debug("[explorer]   answer_chain[%d]: %s", i, ac)
+		strictCount := 0
+		for _, c := range answerChains {
+			if c.StrictOK {
+				strictCount++
+			}
+		}
+		logging.Debug("[explorer] identified %d answer chains (%d strict)", len(answerChains), strictCount)
+		for i, c := range answerChains {
+			logging.Debug("[explorer]   answer_chain[%d]: %s (score=%.3f strict=%v)",
+				i, c.Item.Summary, c.Score, c.StrictOK)
 		}
 	}
 
 	// Turn A computes only the terminal-evidence count (β) and hands
-	// the raw strictAnswerItems to Turn B via TurnAArtifacts. Turn B
+	// the strict subset to Turn B via TurnAArtifacts. Turn B
 	// (extractor) is the sole producer of AnswerSymbols — it calls
 	// emit_answer_symbol and the cardinality validator cross-checks
 	// the emitted count against max(β, len(AnswerContract.MustInclude))
@@ -1651,8 +1657,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// per-task merge rule treats nil as "no claim yet" so Turn B's
 	// subsequent output authoritatively fills the slot.
 	terminalEvidenceCount := 0
-	for _, it := range strictAnswerItems {
-		if hasTerminalEvidence([]types.EvidenceItem{it}) {
+	for _, c := range answerChains {
+		if c.StrictOK && hasTerminalEvidence([]types.EvidenceItem{c.Item}) {
 			terminalEvidenceCount++
 		}
 	}
@@ -1696,17 +1702,28 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// are final and BEFORE return so the extractor's
 	// BuildInitialPrompt sees the complete payload.
 	if ctx != nil && ctx.Mutable != nil {
+		// Turn B gets the strict subset of answer-relevant evidence —
+		// the items that passed the L0-1 terminal/origin predicates.
+		// Demoted items are dropped here because Turn B's cardinality
+		// validator needs a predicate-passing baseline, not the loose
+		// Ground Truth fallback.
+		strictEvidence := make([]types.EvidenceItem, 0, len(answerChains))
+		for _, c := range answerChains {
+			if c.StrictOK {
+				strictEvidence = append(strictEvidence, c.Item)
+			}
+		}
 		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
 			UserQuestion:          e.userQuestion,
 			InvestigationNotes:    e.investigationNotes,
 			ReadFiles:             readFilesList,
 			ToolResults:           toolResults,
-			EvidenceItems:         strictAnswerItems,
+			EvidenceItems:         strictEvidence,
 			FlowFindings:          rankedFindings,
 			TerminalEvidenceCount: terminalEvidenceCount,
 		})
 		logging.Debug("[explorer] turn A → turn B handoff: wrote TurnAArtifacts (%d notes, %d readFiles, %d toolResults, %d evidence, %d flow, termCount=%d)",
-			len(e.investigationNotes), len(readFilesList), len(toolResults), len(strictAnswerItems), len(rankedFindings), terminalEvidenceCount)
+			len(e.investigationNotes), len(readFilesList), len(toolResults), len(strictEvidence), len(rankedFindings), terminalEvidenceCount)
 	}
 
 	if !signals.HasEnoughFacts {

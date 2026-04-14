@@ -44,8 +44,15 @@ func TestRenderExplorerStageReport_Deterministic(t *testing.T) {
 			Source: "internal/agent/sub_explorer.go", LineStart: 191,
 		},
 	}
-	chains := []string{
-		"RegisterExplorer binds NewExplorerAgent → Name() returns \"explorer\"",
+	chains := []types.AnswerChain{
+		{
+			Item: types.EvidenceItem{
+				Kind:    types.EvidenceDataflowPath,
+				Summary: "RegisterExplorer binds NewExplorerAgent → Name() returns \"explorer\"",
+			},
+			Score:    1.0,
+			StrictOK: true,
+		},
 	}
 	symbols := []types.AnswerSymbol{
 		{Name: "ExplorerAgent", File: "internal/agent/explorer.go", Line: 80},

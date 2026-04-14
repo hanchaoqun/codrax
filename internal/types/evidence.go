@@ -154,39 +154,72 @@ func (c CompletenessClaim) IsValid() bool {
 }
 
 // AnswerSymbol is the structured, deterministic form of a single
-// answer. Produced by extractAnswerSymbols from the chain strings
-// identifyAnswerChains returns, it is the bridge between the
-// deterministic pipeline (which identifies the correct symbol) and
-// the finalizer (which must render it as prose without adding or
-// removing names).
-//
-// L0-2 design: the finalizer receives a list of AnswerSymbol, not
-// raw chain text, so the LLM's answer-translation step is reduced to
-// a structural enumeration it cannot hallucinate around. See
-// project_L0_2_extract_then_express_design.md.
+// answer. Produced by Turn B's extractor via emit_answer_symbol,
+// it is the bridge between the deterministic pipeline (which
+// identifies the correct symbol) and the finalizer (which must
+// render it as prose without adding or removing names).
 type AnswerSymbol struct {
 	Name      string `json:"name"`
 	File      string `json:"file,omitempty"`
 	Line      int    `json:"line,omitempty"`
-	Chain     string `json:"chain"`             // full chain text that yielded this symbol
-	Kind      string `json:"kind"`              // question_kind at extraction time
+	Chain     string `json:"chain"`               // full chain text that yielded this symbol
+	Kind      string `json:"kind"`                // question_kind at extraction time
 	Rationale string `json:"rationale,omitempty"` // optional: why this terminal was picked
 }
 
-// MergeAnswerChains combines multiple answer-chain slices into one,
-// preserving first-seen order and dropping exact duplicates. Used by
-// the orchestrator to deduplicate BusContext.AnswerChains on stage
-// self-loops where the explorer's ParseOutput re-emits the full
-// snapshot each run. See memory/project_applystage_dedup.md.
-func MergeAnswerChains(groups ...[]string) []string {
+// AnswerChain is the typed ranked-and-scored answer-relevance envelope
+// around an EvidenceItem. Produced by identifyAnswerChains (pure Go,
+// deterministic, no LLM) from the explorer's structuredEvidence pool.
+//
+// Design rationale: identifyAnswerChains used to return []string where
+// each string was a pre-flattened render of the underlying evidence
+// (ev.Summary plus a " (file:line)" suffix). That violated the
+// architecture principle "prose only at the LLM boundary" because the
+// flattening happened in Go mid-pipeline, losing the structured fields
+// for every downstream consumer. The typed form keeps the underlying
+// EvidenceItem intact and defers rendering to context/builder.go's
+// prompt assembly step (the single legal flatten point).
+//
+// Fields:
+//   - Item: the underlying EvidenceItem (all structured fields —
+//     Subject / Predicate / Object / Source / LineStart / Summary /
+//     Kind / Confidence). Downstream consumers that need a specific
+//     field access Item directly instead of parsing a display string.
+//   - Score: the relevance score identifyAnswerChains computed. Kept
+//     in the envelope because (a) it is committed API semantics
+//     ("how well does this chain answer the question"), (b) debug
+//     / eval tooling wants to see why the ranking came out this way,
+//     (c) recomputing is expensive.
+//   - StrictOK: whether the chain passed the L0-1 terminal + origin
+//     predicates. The strict subset is used to compute β for Turn B's
+//     cardinality validator. Non-strict chains are retained in the
+//     slate as Ground Truth fallback but never contribute to β.
+type AnswerChain struct {
+	Item     EvidenceItem `json:"item"`
+	Score    float64      `json:"score"`
+	StrictOK bool         `json:"strict_ok"`
+}
+
+// MergeAnswerChains combines multiple AnswerChain slices into one,
+// preserving first-seen order and dropping duplicates by the chain
+// identity tuple (Summary, Source, LineStart, Subject, Predicate,
+// Object). The key matches identifyAnswerChains's own dedup key so a
+// merged slice has the same cardinality as a freshly-produced one.
+// Used by the orchestrator to deduplicate BusContext.AnswerChains on
+// stage self-loops where the explorer's ParseOutput re-emits the
+// full snapshot each run.
+func MergeAnswerChains(groups ...[]AnswerChain) []AnswerChain {
 	seen := make(map[string]struct{})
-	var out []string
+	var out []AnswerChain
 	for _, g := range groups {
 		for _, c := range g {
-			if _, ok := seen[c]; ok {
+			key := fmt.Sprintf("%s|%s|%d|%s|%s|%s",
+				c.Item.Summary, c.Item.Source, c.Item.LineStart,
+				c.Item.Subject, c.Item.Predicate, c.Item.Object)
+			if _, ok := seen[key]; ok {
 				continue
 			}
-			seen[c] = struct{}{}
+			seen[key] = struct{}{}
 			out = append(out, c)
 		}
 	}

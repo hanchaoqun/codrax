@@ -925,7 +925,11 @@ func buildAnswerWhitelist(reqs []EvidenceRequirement) answerPredicateWhitelist {
 //
 // A chain is "answer-relevant" if its text mentions entities from the
 // question. The score is the fraction of question entities matched.
-// Returns up to maxChains formatted strings, sorted by relevance.
+// Returns up to maxChains typed AnswerChain records, sorted by
+// relevance. Rendering the underlying EvidenceItem to a display string
+// happens at prompt-assembly time in context/builder.go — this
+// producer stays purely structured per the architecture principle
+// "prose only at the LLM boundary".
 //
 // `whitelist` opens additional evidence kinds/predicates beyond the base
 // set (resolution_chain + binds + returns) per ERM Kind. See
@@ -936,13 +940,13 @@ func buildAnswerWhitelist(reqs []EvidenceRequirement) answerPredicateWhitelist {
 // segment is structurally incompatible with the question's Kind —
 // e.g. chains ending at a Go `range` loop header when the question
 // asks for a registered symbol. Demoted chains are still returned as
-// a fallback safety net; they simply never outrank a passing chain.
-// Callers may pass nil for both to opt out and preserve legacy
-// ranking behaviour (used by older tests).
-func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist, reqs []EvidenceRequirement, graph *repomap.Graph) ([]string, []types.EvidenceItem) {
+// a fallback safety net with StrictOK=false; they simply never
+// outrank a passing chain. Callers may pass nil for both to opt out
+// and preserve legacy ranking behaviour (used by older tests).
+func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxChains int, whitelist answerPredicateWhitelist, reqs []EvidenceRequirement, graph *repomap.Graph) []types.AnswerChain {
 	entities := extractRankingEntitiesWithGraph(question, graph)
 	if len(entities) == 0 || len(evidence) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	// L0-1: pre-compute terminal + origin predicates once per call.
@@ -972,7 +976,6 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	//                      deterministic across Go runtime hash seeds
 	//                      and call orderings.
 	type scored struct {
-		text        string
 		score       float64
 		src         types.EvidenceItem // untouched source item
 		strictOK    bool               // passed all applicable predicates
@@ -1014,18 +1017,6 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		}
 		if overlap == 0 {
 			continue
-		}
-
-		display := ev.Summary
-		if display == "" {
-			display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
-		}
-		if ev.Source != "" {
-			display += fmt.Sprintf(" (%s", ev.Source)
-			if ev.LineStart > 0 {
-				display += fmt.Sprintf(":%d", ev.LineStart)
-			}
-			display += ")"
 		}
 
 		// Chains get a bonus because they contain multi-hop reasoning
@@ -1112,7 +1103,6 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		}
 
 		candidates = append(candidates, scored{
-			text:        display,
 			score:       float64(overlap) / float64(len(entities)) * bonus,
 			src:         ev,
 			strictOK:    strictOK,
@@ -1124,7 +1114,7 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 	}
 
 	if len(candidates) == 0 {
-		return nil, nil
+		return nil
 	}
 
 	// Stable multi-key sort. SliceStable (not Slice) keeps equal-
@@ -1160,35 +1150,50 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 		return ci.summary < cj.summary
 	})
 
-	// Build two aligned outputs:
-	//  - chains: loose list of display strings (includes demoted
-	//    candidates for Ground Truth fallback safety)
-	//  - strictItems: filtered list of EvidenceItems that passed
-	//    all applicable predicates, for L0-2 structured extraction
-	// Both are deduplicated independently: chains by text, strictItems
-	// by (Subject, Predicate, Object, Source, LineStart).
-	seenText := make(map[string]bool)
-	var chains []string
-	seenEv := make(map[string]bool)
-	var strictItems []types.EvidenceItem
+	// Build a single unified AnswerChain slice. Dedup by the
+	// identity tuple (Summary, Source, LineStart, Subject, Predicate,
+	// Object) — matches the legacy "two items with identical display
+	// text are the same chain" semantic while still using structured
+	// fields instead of the pre-rendered string.
+	//
+	// Cap semantics preserve legacy behaviour: up to maxChains
+	// loose-slot admissions, plus additional strict items until the
+	// strict cap also hits maxChains. In the common case (top-ranked
+	// items are strict) the two caps converge on a single maxChains-
+	// sized slice. Under heavy demotion (top maxChains are all
+	// demoted) the slice extends past maxChains to ensure strict items
+	// still reach downstream.
+	seen := make(map[string]bool)
+	var out []types.AnswerChain
+	looseFilled := 0
+	strictFilled := 0
 	for _, c := range candidates {
-		if !seenText[c.text] {
-			seenText[c.text] = true
-			if len(chains) < maxChains {
-				chains = append(chains, c.text)
-			}
+		key := fmt.Sprintf("%s|%s|%d|%s|%s|%s",
+			c.src.Summary, c.src.Source, c.src.LineStart,
+			c.src.Subject, c.src.Predicate, c.src.Object)
+		if seen[key] {
+			continue
 		}
-		if c.strictOK {
-			key := fmt.Sprintf("%s|%s|%s|%s|%d", c.src.Subject, c.src.Predicate, c.src.Object, c.src.Source, c.src.LineStart)
-			if !seenEv[key] {
-				seenEv[key] = true
-				if len(strictItems) < maxChains {
-					strictItems = append(strictItems, c.src)
-				}
-			}
+		admit := false
+		if looseFilled < maxChains {
+			admit = true
+			looseFilled++
 		}
+		if c.strictOK && strictFilled < maxChains {
+			admit = true
+			strictFilled++
+		}
+		if !admit {
+			continue
+		}
+		seen[key] = true
+		out = append(out, types.AnswerChain{
+			Item:     c.src,
+			Score:    c.score,
+			StrictOK: c.strictOK,
+		})
 	}
-	return chains, strictItems
+	return out
 }
 
 // hasTerminalEvidence reports whether any item in the strict subset

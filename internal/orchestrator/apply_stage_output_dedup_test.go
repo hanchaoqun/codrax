@@ -44,11 +44,24 @@ func TestApplyStageOutput_DedupsAnswerChainsOnSelfLoop(t *testing.T) {
 	}
 
 	// First explore run: two chains produced.
-	first := &agent.StageOutput{
-		AnswerChains: []string{
-			"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
-			"`NewSubAgentValidator()` returns &SubAgentValidator{ → `SubAgentValidator.Validate()` assigns st := range proposal.SubTasks {",
+	chain1 := types.AnswerChain{
+		Item: types.EvidenceItem{
+			Kind:    types.EvidenceDataflowPath,
+			Summary: "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
 		},
+		Score:    2.0,
+		StrictOK: true,
+	}
+	chain2 := types.AnswerChain{
+		Item: types.EvidenceItem{
+			Kind:    types.EvidenceDataflowPath,
+			Summary: "`NewSubAgentValidator()` returns &SubAgentValidator{ → `SubAgentValidator.Validate()` assigns st := range proposal.SubTasks {",
+		},
+		Score:    1.5,
+		StrictOK: true,
+	}
+	first := &agent.StageOutput{
+		AnswerChains: []types.AnswerChain{chain1, chain2},
 	}
 	o.applyStageOutput(first)
 	if got := len(o.busCtx.AnswerChains); got != 2 {
@@ -58,14 +71,16 @@ func TestApplyStageOutput_DedupsAnswerChainsOnSelfLoop(t *testing.T) {
 	// Second explore run (self-loop). ParseOutput recomputes from the
 	// cumulative investigationNotes, so the second StageOutput contains
 	// BOTH first-run chains PLUS a third new one.
-	second := &agent.StageOutput{
-		AnswerChains: []string{
-			// Same two as before.
-			"`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Name()` returns \"explorer\"",
-			"`NewSubAgentValidator()` returns &SubAgentValidator{ → `SubAgentValidator.Validate()` assigns st := range proposal.SubTasks {",
-			// Third chain only found on the second pass.
-			"`NewSubAgentRuntime()` returns &SubAgentRuntime{",
+	chain3 := types.AnswerChain{
+		Item: types.EvidenceItem{
+			Kind:    types.EvidenceDataflowPath,
+			Summary: "`NewSubAgentRuntime()` returns &SubAgentRuntime{",
 		},
+		Score:    1.0,
+		StrictOK: true,
+	}
+	second := &agent.StageOutput{
+		AnswerChains: []types.AnswerChain{chain1, chain2, chain3},
 	}
 	o.applyStageOutput(second)
 

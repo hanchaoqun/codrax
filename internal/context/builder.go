@@ -43,7 +43,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	ac.RelevantFiles = extractRelevantFiles(bus.RepoFacts)
 	ac.EvidenceItems = append([]types.EvidenceItem(nil), bus.EvidenceItems...)
 	ac.FlowFindings = append([]types.FlowFindingDigest(nil), bus.FlowFindings...)
-	ac.AnswerChains = append([]string(nil), bus.AnswerChains...)
+	ac.AnswerChains = append([]types.AnswerChain(nil), bus.AnswerChains...)
 	ac.AnswerSymbols = append([]types.AnswerSymbol(nil), bus.AnswerSymbols...)
 	ac.AnswerSymbolCompleteness = bus.AnswerSymbolCompleteness
 
@@ -265,12 +265,17 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// resolution chains that the system has identified as directly
 	// answering the user's question. The finalizer should use these
 	// as the answer skeleton, not re-derive from raw evidence.
+	//
+	// This is the SINGLE legal flatten point for AnswerChain per the
+	// architecture principle "prose only at the LLM boundary" —
+	// identifyAnswerChains stays structured and the rendering happens
+	// here, in the prompt assembler.
 	if len(ac.AnswerChains) > 0 {
 		var chainContent strings.Builder
 		chainContent.WriteString("The following facts were extracted deterministically from source code and directly answer the question. " +
 			"Use them as the primary basis for your answer — do NOT contradict or ignore them:\n\n")
 		for _, chain := range ac.AnswerChains {
-			chainContent.WriteString("- " + chain + "\n")
+			chainContent.WriteString("- " + renderAnswerChainForPrompt(chain) + "\n")
 		}
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Ground Truth (deterministic, verified from source code)",
@@ -693,4 +698,34 @@ func formatBulletList(items []string) string {
 		fmt.Fprintf(&b, "- %s\n", item)
 	}
 	return b.String()
+}
+
+// renderAnswerChainForPrompt flattens a typed AnswerChain into the
+// one-line display string that gets inlined into the finalizer's
+// Ground Truth prompt section. This is the SINGLE legal flatten
+// point for AnswerChain per the architecture principle "prose only
+// at the LLM boundary" — identifyAnswerChains stays structured.
+//
+// Format matches the legacy identifyAnswerChains display string so
+// prompt regressions are impossible:
+//
+//	<summary> (<source>:<line>)
+//
+// When Summary is empty, falls back to a [Kind] Subject Predicate
+// Object synthesis. When Source is empty, the source suffix is
+// dropped. Pure formatting — zero logic.
+func renderAnswerChainForPrompt(c types.AnswerChain) string {
+	ev := c.Item
+	display := ev.Summary
+	if display == "" {
+		display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
+	}
+	if ev.Source != "" {
+		display += fmt.Sprintf(" (%s", ev.Source)
+		if ev.LineStart > 0 {
+			display += fmt.Sprintf(":%d", ev.LineStart)
+		}
+		display += ")"
+	}
+	return display
 }

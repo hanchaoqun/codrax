@@ -686,7 +686,7 @@ type BusContext struct {
 	RepoFacts     []RepoFact          `json:"repo_facts,omitempty"`
 	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
-	AnswerChains  []string            `json:"answer_chains,omitempty"` // deterministic chains that directly answer the question
+	AnswerChains  []AnswerChain       `json:"answer_chains,omitempty"` // deterministic answer-relevance envelopes (typed)
 	AnswerSymbols []AnswerSymbol      `json:"answer_symbols,omitempty"` // L0-2: structured terminal symbols extracted from AnswerChains
 	// AnswerSymbolCompleteness is the P2.1 set-level authority claim
 	// attached to AnswerSymbols. It is written by whichever stage
@@ -738,7 +738,7 @@ type AgentContext struct {
 	RelevantFiles         []string            `json:"relevant_files,omitempty"`
 	EvidenceItems         []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings          []FlowFindingDigest `json:"flow_findings,omitempty"`
-	AnswerChains          []string            `json:"answer_chains,omitempty"`
+	AnswerChains          []AnswerChain       `json:"answer_chains,omitempty"`
 	AnswerSymbols         []AnswerSymbol      `json:"answer_symbols,omitempty"`
 	// AnswerSymbolCompleteness mirrors BusContext.AnswerSymbolCompleteness
 	// for the narrowed agent view. Read by finalize's prompt builder

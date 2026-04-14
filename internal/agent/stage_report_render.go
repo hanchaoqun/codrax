@@ -63,7 +63,7 @@ func renderExplorerStageReport(
 	questionKind string,
 	answerShape string,
 	evidence []types.EvidenceItem,
-	chains []string,
+	chains []types.AnswerChain,
 	symbols []types.AnswerSymbol,
 	findings []types.FlowFindingDigest,
 	readFiles []string,
@@ -106,7 +106,7 @@ func renderExplorerStageReport(
 	if len(chains) > 0 {
 		b.WriteString("## Resolution Chains\n")
 		for _, c := range chains {
-			b.WriteString("- " + c + "\n")
+			b.WriteString("- " + renderAnswerChain(c) + "\n")
 		}
 		b.WriteString("\n")
 	}
@@ -194,4 +194,27 @@ func emptyAsDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// renderAnswerChain flattens a typed AnswerChain to the same one-line
+// display string the finalizer's Ground Truth section uses. Kept in
+// sync with context/builder.go:renderAnswerChainForPrompt — if the
+// two ever drift, an integration test should catch it since both
+// write to the same `## Resolution Chains` markdown section reader.
+//
+// Format: `<summary> (<source>:<line>)` with sane fallbacks.
+func renderAnswerChain(c types.AnswerChain) string {
+	ev := c.Item
+	display := ev.Summary
+	if display == "" {
+		display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
+	}
+	if ev.Source != "" {
+		display += fmt.Sprintf(" (%s", ev.Source)
+		if ev.LineStart > 0 {
+			display += fmt.Sprintf(":%d", ev.LineStart)
+		}
+		display += ")"
+	}
+	return display
 }
