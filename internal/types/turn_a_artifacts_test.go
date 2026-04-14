@@ -28,6 +28,7 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 		FlowFindings: []FlowFindingDigest{
 			{ID: "ff1", Path: []string{"src", "sink"}, Confidence: 0.7},
 		},
+		TerminalEvidenceCount: 3,
 	}
 	m.SetTurnAArtifacts(original)
 	got := m.TurnAArtifacts()
@@ -51,6 +52,25 @@ func TestTurnAArtifacts_RoundtripPreservesAllFields(t *testing.T) {
 	}
 	if len(got.FlowFindings) != 1 || got.FlowFindings[0].ID != "ff1" {
 		t.Errorf("FlowFindings not preserved: %+v", got.FlowFindings)
+	}
+	if got.TerminalEvidenceCount != 3 {
+		t.Errorf("TerminalEvidenceCount: got %d, want 3", got.TerminalEvidenceCount)
+	}
+}
+
+func TestTurnAArtifacts_TerminalEvidenceCount_ZeroRoundtrip(t *testing.T) {
+	// Zero-value TerminalEvidenceCount must round-trip as 0 — it is
+	// the "no β constraint" sentinel that Phase 9's validator reads
+	// as "baseline collapses to len(MustInclude) alone". A non-zero
+	// default would silently activate the β baseline on legacy runs.
+	m := NewMutableState(TaskList{})
+	m.SetTurnAArtifacts(TurnAArtifacts{UserQuestion: "q"})
+	got := m.TurnAArtifacts()
+	if got == nil {
+		t.Fatal("expected snapshot, got nil")
+	}
+	if got.TerminalEvidenceCount != 0 {
+		t.Errorf("TerminalEvidenceCount default: got %d, want 0", got.TerminalEvidenceCount)
 	}
 }
 

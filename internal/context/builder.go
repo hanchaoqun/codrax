@@ -45,6 +45,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	ac.FlowFindings = append([]types.FlowFindingDigest(nil), bus.FlowFindings...)
 	ac.AnswerChains = append([]string(nil), bus.AnswerChains...)
 	ac.AnswerSymbols = append([]types.AnswerSymbol(nil), bus.AnswerSymbols...)
+	ac.AnswerSymbolCompleteness = bus.AnswerSymbolCompleteness
 
 	// Collect tool summaries
 	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
@@ -203,14 +204,33 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	logging.Debug("[builder] %s/%s: EvidenceItems=%d FlowFindings=%d AnswerChains=%d",
 		ac.AgentName, ac.Stage, len(ac.EvidenceItems), len(ac.FlowFindings), len(ac.AnswerChains))
 
-	// L0-2: Extracted Answer Symbols — the deterministic translation
-	// of answer chains into a structured symbol list. When populated,
-	// this section takes priority over the raw Ground Truth chains:
-	// the finalizer is constrained to prose over exactly these symbols,
-	// no others. Empty for kinds without a single-symbol terminal
-	// (mechanism / enumeration / conditional / config_mapping), in
-	// which case the Ground Truth section below remains primary.
-	if len(ac.AnswerSymbols) > 0 {
+	// L0-2 + P2.1 completeness: Extracted Answer Symbols block. The
+	// authority of this list depends on ac.AnswerSymbolCompleteness:
+	//
+	//   - CompletenessComplete → Translation mode (legacy behaviour):
+	//     render with "MUST NOT add or remove" directive. Used when
+	//     the producer has structurally validated the list against
+	//     Turn A's TerminalEvidenceCount and AnswerContract.MustInclude,
+	//     or when the legacy flag-off explorer path committed after
+	//     hasTerminalEvidence passed.
+	//
+	//   - CompletenessLowerBound → softened floor prompt: render with
+	//     "MUST include at least these, MAY add more" directive. Used
+	//     by the extractor (Turn B) when emit_answer_symbol claimed
+	//     lower_bound, or when the Phase 9 cardinality validator
+	//     downgraded a claim of complete that failed cross-check.
+	//
+	//   - CompletenessUnknown (or any invalid value) → drop the
+	//     section entirely. The finalizer falls back to the Ground
+	//     Truth / shape-based prompt. This is the fail-closed default
+	//     for legacy producers that never set the claim. Empty
+	//     AnswerSymbols is the same code path.
+	//
+	// The three-way branch structurally closes UNRESOLVED #1 — a
+	// partial LLM-derived allowlist can no longer be sold as a
+	// verified complete answer unless the producer explicitly claims
+	// complete AND the claim survives Phase 9 validation.
+	if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessComplete {
 		var symContent strings.Builder
 		symContent.WriteString("The deterministic pipeline has already identified the answer to this question. " +
 			"Your task is to render these symbols as prose. You MUST NOT add or remove symbols; your " +
@@ -230,7 +250,33 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Title:   "Extracted Answer Symbols (deterministic, authoritative)",
 			Content: symContent.String(),
 		})
+	} else if len(ac.AnswerSymbols) > 0 && ac.AnswerSymbolCompleteness == types.CompletenessLowerBound {
+		var symContent strings.Builder
+		symContent.WriteString("The deterministic pipeline has confirmed the following symbols as part of the answer, " +
+			"but the list is a LOWER BOUND — additional symbols may also be part of the answer if the " +
+			"evidence below supports them. Your task is to render this floor faithfully AND supplement it " +
+			"with any additional symbols you can ground in the Structured Evidence / Dataflow Findings / " +
+			"Ground Truth sections.\n\n")
+		symContent.WriteString("Confirmed floor (MUST include all):\n")
+		for _, s := range ac.AnswerSymbols {
+			if s.File != "" {
+				fmt.Fprintf(&symContent, "- **%s** (%s:%d)\n", s.Name, s.File, s.Line)
+			} else {
+				fmt.Fprintf(&symContent, "- **%s**\n", s.Name)
+			}
+		}
+		symContent.WriteString("\nRules:\n")
+		symContent.WriteString("1. Every symbol in the floor above MUST appear in your answer with its file:line citation.\n")
+		symContent.WriteString("2. You MAY add additional symbols, but ONLY if they are supported by a file:line anchor " +
+			"in the evidence sections below. Training-data recall alone is NOT sufficient.\n")
+		symContent.WriteString("3. Any symbol you add must be cited the same way as the floor symbols.\n")
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Answer Symbols (deterministic floor, may extend with cited evidence)",
+			Content: symContent.String(),
+		})
 	}
+	// else: unknown/empty → drop the section; finalizer falls back to
+	// Ground Truth + shape-based prompt downstream.
 
 	// Answer chains get the highest priority — these are deterministic
 	// resolution chains that the system has identified as directly

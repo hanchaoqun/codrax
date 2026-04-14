@@ -553,3 +553,142 @@ func TestFormatEvidenceItemsRendersUngroundedTag(t *testing.T) {
 		t.Fatalf("ungrounded item dropped instead of demoted:\n%s", out)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// P2.1 Phase 11 — AnswerSymbolCompleteness three-way rendering
+// -----------------------------------------------------------------------------
+//
+// The Extracted Answer Symbols section in BuildPromptContext must
+// branch on ac.AnswerSymbolCompleteness:
+//
+//   - CompletenessComplete → Translation mode ("MUST NOT add or remove")
+//   - CompletenessLowerBound → softened floor mode ("MUST include at
+//     least these, MAY add more")
+//   - CompletenessUnknown / zero → drop the section entirely
+//
+// These tests pin each branch so the Phase 9 wiring and the legacy
+// flag=off path cannot silently converge.
+
+func buildAgentCtxWithSymbols(syms []types.AnswerSymbol, claim types.CompletenessClaim) *types.AgentContext {
+	return &types.AgentContext{
+		AgentName:                types.AgentFinalizer,
+		Stage:                    types.StageFinalize,
+		Objective:                "render answer",
+		CurrentTask:              "q",
+		AnswerSymbols:            syms,
+		AnswerSymbolCompleteness: claim,
+	}
+}
+
+func findSectionTitle(pc *types.PromptContext, title string) *types.PromptSection {
+	for i := range pc.UserSections {
+		if pc.UserSections[i].Title == title {
+			return &pc.UserSections[i]
+		}
+	}
+	return nil
+}
+
+func TestBuildPromptContext_AnswerSymbols_Complete_RendersTranslationMode(t *testing.T) {
+	syms := []types.AnswerSymbol{
+		{Name: "Foo", File: "a.go", Line: 10, Kind: "registration"},
+		{Name: "Bar", File: "b.go", Line: 20, Kind: "registration"},
+	}
+	ac := buildAgentCtxWithSymbols(syms, types.CompletenessComplete)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
+
+	sec := findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)")
+	if sec == nil {
+		t.Fatal("Translation-mode section missing for CompletenessComplete")
+	}
+	if !strings.Contains(sec.Content, "MUST NOT add or remove") {
+		t.Errorf("Complete branch must include MUST-NOT directive, got:\n%s", sec.Content)
+	}
+	if !strings.Contains(sec.Content, "Foo") || !strings.Contains(sec.Content, "Bar") {
+		t.Errorf("Complete branch must list all symbols, got:\n%s", sec.Content)
+	}
+	// Guard against the lower-bound title leaking in
+	if findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)") != nil {
+		t.Error("Complete branch must not emit the lower-bound section title")
+	}
+}
+
+func TestBuildPromptContext_AnswerSymbols_LowerBound_RendersSoftenedFloor(t *testing.T) {
+	syms := []types.AnswerSymbol{
+		{Name: "Foo", File: "a.go", Line: 10, Kind: "registration"},
+	}
+	ac := buildAgentCtxWithSymbols(syms, types.CompletenessLowerBound)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
+
+	sec := findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)")
+	if sec == nil {
+		t.Fatal("LowerBound section missing for CompletenessLowerBound")
+	}
+	if !strings.Contains(sec.Content, "LOWER BOUND") {
+		t.Errorf("LowerBound branch must state the lower-bound contract, got:\n%s", sec.Content)
+	}
+	if !strings.Contains(sec.Content, "MAY add additional symbols") {
+		t.Errorf("LowerBound branch must permit additional symbols, got:\n%s", sec.Content)
+	}
+	if strings.Contains(sec.Content, "MUST NOT add or remove") {
+		t.Errorf("LowerBound branch must NOT carry the Translation MUST-NOT directive, got:\n%s", sec.Content)
+	}
+	if !strings.Contains(sec.Content, "Foo") {
+		t.Errorf("LowerBound branch must list floor symbols, got:\n%s", sec.Content)
+	}
+	// Guard against Translation-mode title leaking
+	if findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)") != nil {
+		t.Error("LowerBound branch must not emit the Translation-mode section title")
+	}
+}
+
+func TestBuildPromptContext_AnswerSymbols_Unknown_DropsSection(t *testing.T) {
+	// CompletenessUnknown (zero value) with non-empty symbol slate =
+	// producer bug per the Phase 11 contract. Rendering layer fails
+	// closed by dropping the section so a partial slate cannot reach
+	// the finalizer with unchecked authority.
+	syms := []types.AnswerSymbol{
+		{Name: "Foo", File: "a.go", Line: 10, Kind: "registration"},
+	}
+	ac := buildAgentCtxWithSymbols(syms, types.CompletenessUnknown)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
+
+	if findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)") != nil {
+		t.Error("Unknown claim must not render the Translation-mode section")
+	}
+	if findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)") != nil {
+		t.Error("Unknown claim must not render the LowerBound section")
+	}
+}
+
+func TestBuildPromptContext_AnswerSymbols_EmptyAlwaysDrops(t *testing.T) {
+	// Empty slate + any claim must drop the section. This guards
+	// against a Phase 9 producer that sets CompletenessComplete with
+	// zero items (which would be a vacuous "complete" claim).
+	for _, claim := range []types.CompletenessClaim{
+		types.CompletenessUnknown, types.CompletenessLowerBound, types.CompletenessComplete,
+	} {
+		ac := buildAgentCtxWithSymbols(nil, claim)
+		pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
+		if findSectionTitle(pc, "Extracted Answer Symbols (deterministic, authoritative)") != nil {
+			t.Errorf("claim=%q with empty slate must drop Translation section", claim)
+		}
+		if findSectionTitle(pc, "Answer Symbols (deterministic floor, may extend with cited evidence)") != nil {
+			t.Errorf("claim=%q with empty slate must drop LowerBound section", claim)
+		}
+	}
+}
+
+func TestBuildAgentContext_CarriesCompletenessFromBus(t *testing.T) {
+	bus := &types.BusContext{
+		PipelineStage:            types.StageFinalize,
+		ActiveAgent:              types.AgentFinalizer,
+		AnswerSymbols:            []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1}},
+		AnswerSymbolCompleteness: types.CompletenessLowerBound,
+		Mutable:                  types.NewMutableState(types.TaskList{}),
+	}
+	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
+	if ac.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Errorf("completeness not plumbed through builder: got %q, want lower_bound", ac.AnswerSymbolCompleteness)
+	}
+}

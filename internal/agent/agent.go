@@ -45,6 +45,16 @@ type StageOutput struct {
 	// finalizer falls back to the legacy prose path.
 	AnswerSymbols []types.AnswerSymbol `json:"answer_symbols,omitempty"`
 
+	// AnswerSymbolCompleteness is the set-level authority claim the
+	// producer attaches to AnswerSymbols (P2.1). See
+	// types.CompletenessClaim for the three-level ladder. Written by
+	// the explorer (flag=off legacy path, always "complete" when
+	// AnswerSymbols is non-empty) or the extractor (flag=on path,
+	// validated against Turn A's TerminalEvidenceCount and
+	// AnalysisIR.AnswerContract.MustInclude). Zero value degrades the
+	// rendering layer to the shape-based prompt.
+	AnswerSymbolCompleteness types.CompletenessClaim `json:"answer_symbol_completeness,omitempty"`
+
 	// Tool results collected during execution
 	ToolResults []types.ToolResult `json:"tool_results,omitempty"`
 

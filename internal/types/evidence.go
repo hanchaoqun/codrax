@@ -77,6 +77,83 @@ func StableEvidenceID(kind EvidenceKind, subject, predicate, object, condition, 
 	return fmt.Sprintf("ev-%x", h.Sum64())
 }
 
+// CompletenessClaim is the set-level authority the producer of an
+// AnswerSymbol slate attaches to that slate. It answers "how
+// authoritative is this list?" — a question that extractAnswerSymbols
+// (the pre-P2.1 selection layer) could never answer and that the
+// downstream rendering layer (context/builder.go §Answer Symbols)
+// silently defaulted to "complete", producing the UNRESOLVED #1 bug
+// where a partial LLM-derived allowlist was sold to the finalizer as
+// a verified-complete answer. See docs/bug-extractanswersymbols-
+// enumeration-completeness-gap.md and memory/project_p2_1_session_1_shipped.md.
+//
+// The three claims form a strict authority ladder:
+//
+//   - CompletenessComplete: these are ALL the answers. The finalizer
+//     runs its Translation mode prompt with "MUST NOT add or remove
+//     symbols" directive. Safe only when the upstream producer has
+//     structurally validated that no answers were missed.
+//
+//   - CompletenessLowerBound: these are confirmed present, but more
+//     may exist. The finalizer runs a softened prompt: "MUST include
+//     at least these names; MAY add more if evidence supports them."
+//     This is the honest default when a partial allowlist is the best
+//     we have — it preserves the floor without forbidding the ceiling.
+//
+//   - CompletenessUnknown: no authority at all. The finalizer drops
+//     the answer-symbols section entirely and falls back to the
+//     shape-based prompt (step_list / explanation / etc.). Zero-value
+//     of the type so an un-set field naturally means "no claim".
+//
+// The enum is closed — the emit_answer_symbol schema in P2.1 P9 will
+// reject any other string. CompletenessUnknown is the zero value so
+// that legacy code paths that do not set the field degrade safely.
+type CompletenessClaim string
+
+const (
+	// CompletenessUnknown is the zero value. It means the producer
+	// either did not run a cardinality check at all, or ran one and
+	// could not reach a definitive verdict. The rendering layer must
+	// treat the answer-symbol slate as non-authoritative and fall back
+	// to the shape-based prompt. Leaving the field at zero value is
+	// always safe; it is the "fail closed" default for P2.1's
+	// completeness contract.
+	CompletenessUnknown CompletenessClaim = ""
+
+	// CompletenessComplete asserts that the attached slate lists every
+	// symbol that answers the question. The finalizer runs Translation
+	// mode with "MUST NOT add or remove symbols". Producers MUST have
+	// run a structural completeness check (Turn A's deterministic
+	// extraction with a ≥1 baseline, or Turn B's emit_answer_symbol
+	// claim validated against Turn A's TerminalEvidenceCount and the
+	// AnalysisIR.AnswerContract.MustInclude cross-ref) before writing
+	// this value. Writing it without the check is forbidden by the
+	// P9 schema validator.
+	CompletenessComplete CompletenessClaim = "complete"
+
+	// CompletenessLowerBound asserts that the attached slate is a
+	// proper floor on the true answer set — every listed symbol is
+	// confirmed present, but the slate may be missing additional
+	// symbols that also answer the question. The finalizer runs the
+	// softened Translation prompt that preserves the floor without
+	// forbidding the ceiling. This is the right claim when
+	// investigation was bounded (read-file budget hit, grep recall
+	// partial, etc.) but produced high-confidence matches.
+	CompletenessLowerBound CompletenessClaim = "lower_bound"
+)
+
+// IsValid reports whether c is one of the three defined CompletenessClaim
+// values. Used by the emit_answer_symbol schema validator and by
+// applyStageOutput's merge rule so an invalid value cannot leak into
+// BusContext.
+func (c CompletenessClaim) IsValid() bool {
+	switch c {
+	case CompletenessUnknown, CompletenessComplete, CompletenessLowerBound:
+		return true
+	}
+	return false
+}
+
 // AnswerSymbol is the structured, deterministic form of a single
 // answer. Produced by extractAnswerSymbols from the chain strings
 // identifyAnswerChains returns, it is the bridge between the

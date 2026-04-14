@@ -113,6 +113,27 @@ type TurnAArtifacts struct {
 	// Carries pre-extracted source→sink chains that are useful for
 	// Turn B's chain rendering.
 	FlowFindings []FlowFindingDigest
+
+	// TerminalEvidenceCount is the count of EvidenceItems that Turn A's
+	// deterministic extraction pipeline identified as terminal-literal
+	// answer candidates (i.e. the items that hasTerminalEvidence /
+	// identifyAnswerChains' strictAnswerItems filter would admit). It
+	// is the β baseline for Phase 9's cardinality validator: when Turn
+	// B's emit_answer_symbol claims CompletenessComplete, the
+	// validator checks len(emit items) ≥ max(TerminalEvidenceCount,
+	// len(AnalysisIR.AnswerContract.MustInclude)) and downgrades /
+	// retries on mismatch.
+	//
+	// This count is NOT len(EvidenceItems) — most evidence items are
+	// not terminal-literal answer candidates (they are [DIRECT] facts,
+	// [MECHANISM] steps, etc.). It must be computed by Turn A at
+	// handoff time using the same predicate identifyAnswerChains uses,
+	// so the two numbers are directly comparable.
+	//
+	// Zero-value is safe: it means "Turn A produced no terminal-literal
+	// candidates" which Phase 9 treats as "no β constraint — the
+	// baseline collapses to len(AnswerContract.MustInclude) alone".
+	TerminalEvidenceCount int
 }
 
 // HypothesisVerdict is the structured verdict the extractor (Turn B)
@@ -626,6 +647,17 @@ type BusContext struct {
 	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
 	AnswerChains  []string            `json:"answer_chains,omitempty"` // deterministic chains that directly answer the question
 	AnswerSymbols []AnswerSymbol      `json:"answer_symbols,omitempty"` // L0-2: structured terminal symbols extracted from AnswerChains
+	// AnswerSymbolCompleteness is the P2.1 set-level authority claim
+	// attached to AnswerSymbols. It is written by whichever stage
+	// populated AnswerSymbols (explorer flag=off path, or extractor
+	// flag=on path) and read by context/builder.go §Answer Symbols to
+	// pick the correct rendering branch (Translation mode for
+	// "complete", softened floor prompt for "lower_bound", drop the
+	// section entirely for "unknown"/zero). Zero value is the
+	// fail-closed default. See docs/bug-extractanswersymbols-enumeration-
+	// completeness-gap.md and types.CompletenessClaim for the three-
+	// level authority ladder.
+	AnswerSymbolCompleteness CompletenessClaim `json:"answer_symbol_completeness,omitempty"`
 	ToolResults   []ToolResult        `json:"tool_results,omitempty"`
 	MCPResponses  []MCPResponse       `json:"mcp_responses,omitempty"`
 	StageReports  []StageReport       `json:"stage_reports,omitempty"`
@@ -670,6 +702,10 @@ type AgentContext struct {
 	FlowFindings          []FlowFindingDigest `json:"flow_findings,omitempty"`
 	AnswerChains          []string            `json:"answer_chains,omitempty"`
 	AnswerSymbols         []AnswerSymbol      `json:"answer_symbols,omitempty"`
+	// AnswerSymbolCompleteness mirrors BusContext.AnswerSymbolCompleteness
+	// for the narrowed agent view. Read by finalize's prompt builder
+	// to pick Translation / softened-floor / shape-based rendering.
+	AnswerSymbolCompleteness CompletenessClaim `json:"answer_symbol_completeness,omitempty"`
 	RelevantToolSummaries []string            `json:"relevant_tool_summaries,omitempty"`
 	RelevantMCPNotes      []string            `json:"relevant_mcp_notes,omitempty"`
 	PriorReports          []StageReport       `json:"prior_reports,omitempty"`

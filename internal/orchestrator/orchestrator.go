@@ -889,6 +889,20 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	o.busCtx.AnswerChains = types.MergeAnswerChains(o.busCtx.AnswerChains, output.AnswerChains)
 	o.busCtx.AnswerSymbols = types.MergeAnswerSymbols(o.busCtx.AnswerSymbols, output.AnswerSymbols)
 
+	// P2.1 AnswerSymbolCompleteness — last non-empty writer wins. The
+	// zero value (CompletenessUnknown) means "no claim attached" and
+	// must not overwrite a previously-written complete/lower_bound. On
+	// an explorer→extractor hand-off the extractor's claim is always
+	// more authoritative because it has seen Turn A's TerminalEvidenceCount
+	// plus the emit_answer_symbol LLM claim; the "last writer wins"
+	// rule reflects that ordering without encoding stage names. Invalid
+	// values (should be impossible under the schema validator) are
+	// silently dropped so a malformed stage output cannot corrupt the
+	// BusContext field.
+	if output.AnswerSymbolCompleteness != types.CompletenessUnknown && output.AnswerSymbolCompleteness.IsValid() {
+		o.busCtx.AnswerSymbolCompleteness = output.AnswerSymbolCompleteness
+	}
+
 	// Append the stage's synthesized narrative so downstream stages
 	// can read prior reasoning. The active agent/stage at this point
 	// is whatever just executed.
