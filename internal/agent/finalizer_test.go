@@ -102,6 +102,44 @@ func TestFinalizerPrompt_EmptySymbolsFallsBackToShape(t *testing.T) {
 	}
 }
 
+// TestFinalizerPrompt_StepListEnumeratesConditionalBranches verifies
+// that the step_list Hard constraint contains the Plan D clause
+// telling the LLM to enumerate distinct [CONDITIONAL] branches as
+// separate steps rather than collapsing them into a narrative.
+// See memory/project_fake_green_audit_2026_04_14.md Pattern 1 and
+// memory/project_df3_push_strategy_enumeration_gap.md direction 3.
+func TestFinalizerPrompt_StepListEnumeratesConditionalBranches(t *testing.T) {
+	e := &finalizerEvaluator{}
+	ctx := &types.AgentContext{
+		Stage: types.StageFinalize,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Shape: "step_list"},
+			},
+		},
+	}
+	prompt := e.BuildInitialPrompt(ctx, nil)
+
+	// Structural assertion: the prompt must acknowledge CONDITIONAL
+	// branches as a distinct enumeration unit. The exact wording is
+	// free to evolve; the test checks for the two load-bearing
+	// terms — `[CONDITIONAL]` (the tag name) and `ALTERNATIVE
+	// BRANCHES` (the contract).
+	if !strings.Contains(prompt, "[CONDITIONAL]") {
+		t.Error("step_list prompt should mention [CONDITIONAL] evidence tag")
+	}
+	if !strings.Contains(prompt, "ALTERNATIVE BRANCHES") {
+		t.Error("step_list prompt should instruct enumeration of alternative branches")
+	}
+	// /ungrounded contract from Plan B — when grounding tagged a
+	// cite as unreliable, the step must name function/file without
+	// a line number. The prompt must advertise this contract so the
+	// LLM knows what to do when it sees the tag in evidence.
+	if !strings.Contains(prompt, "/ungrounded") {
+		t.Error("step_list prompt should teach how to handle /ungrounded evidence")
+	}
+}
+
 // TestOutOfListSymbols covers the S3 token extractor. It only flags
 // tokens that STRUCTURALLY look like Go identifiers (CamelCase,
 // snake_case, or ≥8-char single-word caps). Common English prose
