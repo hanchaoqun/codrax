@@ -1056,6 +1056,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"- [RELATIONSHIP] `symbolA` → `symbolB`: <nature of the link>\n" +
 			"```\n\n" +
 			"**Rules:**\n" +
+			"- **Line numbers must come from the gutter.** Every `read_file` result shows each line with its absolute line number in the left gutter (format `   123│ code...`). When you write `line N` in an evidence entry, `N` MUST be the exact gutter number of the line you are describing — do not estimate, do not interpolate between two gutter numbers you saw, do not carry a number over from `grep` output. If you want to cite a range, cite the gutter numbers of the first and last lines of that range verbatim. If you are not certain which gutter number applies, leave the `line N` part off rather than guess — an entry without a line is useful, an entry with a wrong line is not.\n" +
 			"- Extract EVERY fact that MIGHT be relevant, even if you're unsure — err on the side of over-collecting\n" +
 			"- For [REGISTRATION] entries: always note the EXACT concrete values (which specific items are registered, what strings are returned). " +
 			"If a function registers exactly 1 item, say 'registers ONLY X' — 'including X' is ambiguous and insufficient\n" +

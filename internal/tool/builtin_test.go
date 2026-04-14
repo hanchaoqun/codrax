@@ -37,8 +37,15 @@ func TestReadFile(t *testing.T) {
 		if !strings.Contains(result.Summary, "showing lines 1-3 of 3") {
 			t.Fatalf("expected banner with line range, got %q", result.Summary)
 		}
-		if !strings.Contains(result.Summary, content) {
-			t.Fatalf("expected body to contain original content, got %q", result.Summary)
+		// Every line carries an absolute line number in the left
+		// gutter so the LLM cites line numbers verbatim instead of
+		// guessing. The gutter format is `%6d│ ` — see
+		// renderWithLineGutter in builtin.go.
+		if !strings.Contains(result.Summary, "     1│ hello from read test") {
+			t.Fatalf("expected line 1 gutter, got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "     2│ second line") {
+			t.Fatalf("expected line 2 gutter, got %q", result.Summary)
 		}
 	})
 

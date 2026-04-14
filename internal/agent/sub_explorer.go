@@ -135,6 +135,7 @@ func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *s
 	b.WriteString("```\n\n")
 
 	b.WriteString("**Rules:**\n")
+	b.WriteString("- **Line numbers must come from the gutter.** Every `read_file` result shows each line with its absolute line number in the left gutter (format `   123│ code...`). When you write `line N`, `N` MUST be the exact gutter number — do not estimate, do not interpolate. If you are not certain, leave the `line N` part off.\n")
 	b.WriteString("- Extract EVERY fact that might be relevant — err on over-collecting\n")
 	b.WriteString("- For short methods (getName, isEnabled, etc.): ALWAYS record the exact return value as [DIRECT]\n")
 	b.WriteString("- For [REGISTRATION]: note EXACT concrete values, not summaries\n")

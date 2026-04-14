@@ -385,7 +385,7 @@ type readFileParams struct {
 
 func (t *ReadFile) Name() string { return "read_file" }
 func (t *ReadFile) Description() string {
-	return "Read file contents. The offset/limit parameters exist for paging files too large to inline (>32KB); for files smaller than that, the whole file is always returned regardless of offset/limit, because slicing a small file silently hides the answer (e.g. asking for offset=0,limit=20 on a 66-line file). The slice/total banner at the top of the result tells you exactly which lines you saw out of how many."
+	return "Read file contents. The offset/limit parameters exist for paging files too large to inline (>32KB); for files smaller than that, the whole file is always returned regardless of offset/limit, because slicing a small file silently hides the answer (e.g. asking for offset=0,limit=20 on a 66-line file). The first line of the result is a banner shaped `[path: showing lines X-Y of Z total]` telling you which slice you got; every subsequent line is prefixed with its absolute line number followed by `│`. When citing a file location in your investigation notes, use only numbers taken verbatim from the gutter of a line you actually read — never estimate or interpolate line numbers between two lines you saw."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
@@ -436,28 +436,54 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		if p.Limit > 0 && sliceStart+p.Limit < sliceEnd {
 			sliceEnd = sliceStart + p.Limit
 		}
-		content = strings.Join(allLines[sliceStart:sliceEnd], "\n")
-		// Clamp sliceEnd so the banner matches what StoreBlobHeadOnly
-		// will actually show. Without this, the banner claims "showing
-		// lines X-Y" but blob truncation silently drops lines past the
-		// head budget, and the LLM pages from Y+1 — skipping the
-		// truncated lines entirely.
-		if len(content) > MaxInlineBytes {
-			headBudget := PreviewHeadBytesValue()
-			clamped := content
-			if len(clamped) > headBudget {
-				clamped = clamped[:headBudget]
-			}
-			// Walk back to the last complete line.
-			if idx := strings.LastIndex(clamped, "\n"); idx > 0 {
-				clamped = clamped[:idx]
-			}
-			visibleLines := strings.Count(clamped, "\n") + 1
-			sliceEnd = sliceStart + visibleLines
-			content = strings.Join(allLines[sliceStart:sliceEnd], "\n")
-		}
 	} else if p.Offset > 0 || p.Limit > 0 {
 		overrode = true
+	}
+
+	// Render the selected slice with a per-line gutter carrying the
+	// absolute 1-based line number. This exists because LLMs cannot
+	// reliably count lines inside a multi-line blob — when asked to
+	// cite `file:line` for an extracted fact, they guess monotonically
+	// across the read window, producing citations that are off by
+	// tens of lines (see memory/project_fake_green_audit_2026_04_14.md
+	// Pattern 2). With a gutter, the correct line number is already
+	// visible beside every statement and the LLM can copy it verbatim.
+	//
+	// Gutter format: a right-aligned 6-digit line number, a U+2502
+	// separator, and a single space. The separator is unambiguous
+	// (not a code-punctuation character) so the LLM cannot confuse
+	// the gutter with source content. Per-line overhead is ~10 bytes.
+	content = renderWithLineGutter(allLines[sliceStart:sliceEnd], sliceStart+1)
+
+	// Clamp sliceEnd so the banner matches what StoreBlobHeadOnly
+	// will actually show. Without this, the banner claims "showing
+	// lines X-Y" but blob truncation silently drops lines past the
+	// head budget, and the LLM pages from Y+1 — skipping the
+	// truncated lines entirely. Clamping runs on the rendered (gutter-
+	// prefixed) bytes because that is what actually ships to the LLM.
+	if !overrode && len(content) > MaxInlineBytes {
+		headBudget := PreviewHeadBytesValue()
+		// Find the largest line count N such that rendering
+		// allLines[sliceStart:sliceStart+N] fits in headBudget. The
+		// rendering is monotone in line count (each extra line only
+		// appends bytes), so a linear shrink from the current slice
+		// is cheap enough — no binary search needed for typical
+		// 24 KB budgets and ~100-byte lines.
+		clamped := content
+		if len(clamped) > headBudget {
+			clamped = clamped[:headBudget]
+		}
+		// Walk back to the last complete gutter-prefixed line. The
+		// resulting byte count may still be under budget; that is
+		// fine because we only need a conservative estimate.
+		if idx := strings.LastIndex(clamped, "\n"); idx > 0 {
+			clamped = clamped[:idx]
+		}
+		visibleLines := strings.Count(clamped, "\n") + 1
+		if visibleLines < sliceEnd-sliceStart {
+			sliceEnd = sliceStart + visibleLines
+			content = renderWithLineGutter(allLines[sliceStart:sliceEnd], sliceStart+1)
+		}
 	}
 
 	// Always prepend a slice/total banner so the LLM cannot mistake
@@ -466,6 +492,12 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// 330-line file looked identical to a 40-line read of a 40-line
 	// file — and the model would routinely conclude after the head
 	// that it had seen everything. Banner is plain text, no prescription.
+	//
+	// The banner format is load-bearing for three downstream parsers
+	// in explorer.go (extractFileCoverage, detectTruncatedUngrepped,
+	// detectPartiallyReadSymbols) — keep the `[path: showing lines
+	// X-Y of Z total]` / `[path: showing all N lines (B bytes); ...]`
+	// shapes in sync with the string matchers in those functions.
 	var banner string
 	if overrode {
 		banner = fmt.Sprintf("[%s: showing all %d lines (%d bytes); offset/limit ignored because the file fits inline]\n",
@@ -483,6 +515,56 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		RawRef:    ref,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// renderWithLineGutter joins a slice of source lines into a single
+// string where every line is prefixed by its absolute 1-based line
+// number followed by a U+2502 visual separator and a space. The
+// first element of `lines` is numbered `startLineNo`.
+//
+// The gutter exists so the LLM can cite file locations verbatim from
+// the numbers it sees on each line, instead of estimating them from
+// its position within the blob — an estimation LLMs do badly, with
+// drifts of +20 to +40 lines empirically observed on ~400-line reads
+// (see memory/project_fake_green_audit_2026_04_14.md Pattern 2).
+//
+// Width of the number column is 6 so line numbers up to 999999 fit
+// without realignment; longer files simply overflow the column, which
+// is still unambiguous because the `│` separator marks the boundary.
+// The separator is intentionally not a code-punctuation character so
+// the LLM cannot confuse gutter with content.
+//
+// Edge cases:
+//   - strings.Split of a file ending in `\n` yields a trailing empty
+//     element. We preserve it so the joined output round-trips when
+//     a downstream consumer splits on `\n` again, and we still number
+//     it (an empty line is still a line in the file).
+//   - If `lines` is empty, returns "" unchanged.
+func renderWithLineGutter(lines []string, startLineNo int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	// Pre-estimate buffer size: ~10 gutter bytes + average line length.
+	avg := 0
+	for _, l := range lines {
+		avg += len(l)
+	}
+	avg /= len(lines)
+	if avg < 1 {
+		avg = 1
+	}
+	var b strings.Builder
+	b.Grow(len(lines) * (avg + 11))
+	for i, l := range lines {
+		// Gutter: right-aligned 6-digit line number, U+2502, space.
+		// Using Fprintf avoids allocating a throwaway intermediate
+		// string per line.
+		fmt.Fprintf(&b, "%6d│ %s", startLineNo+i, l)
+		if i < len(lines)-1 {
+			b.WriteByte('\n')
+		}
+	}
+	return b.String()
 }
 
 // ---------------------------------------------------------------------------
