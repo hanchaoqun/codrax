@@ -36,18 +36,17 @@ func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
 	}
 
 	// ToolSuggestions is the per-skill allowlist that buildToolSchemas
-	// reads to scope the LLM tool set. MUST contain exactly the three
-	// emit_* tools and nothing else — any extra entry (read_file,
-	// grep, repo_map) would give Turn B file access, which is the
-	// exact thing the two-turn split exists to prevent.
+	// reads to scope the LLM tool set. MUST contain exactly the two
+	// extractor-unique emit_* tools and nothing else. Evidence is
+	// Turn A's exclusive channel after the de-duplication cleanup —
+	// emit_evidence MUST NOT appear here.
 	want := map[string]bool{
-		"emit_evidence":           false,
 		"emit_answer_symbol":      false,
 		"emit_hypothesis_verdict": false,
 	}
 	for _, ts := range sk.ToolSuggestions {
 		if _, ok := want[ts]; !ok {
-			t.Errorf("extract-skill ToolSuggestions leaks a non-emit tool %q", ts)
+			t.Errorf("extract-skill ToolSuggestions leaks a non-allowed tool %q", ts)
 		}
 		want[ts] = true
 	}
@@ -58,21 +57,26 @@ func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
 	}
 
 	// Goal must mention the one-line role.
-	if !strings.Contains(sk.Goal, "Turn A") || !strings.Contains(sk.Goal, "structured") {
+	if !strings.Contains(sk.Goal, "Turn A") || !strings.Contains(sk.Goal, "answer-symbol") {
 		t.Errorf("extract-skill Goal must describe the role, got: %q", sk.Goal)
 	}
 
-	// Workflow must cover the three emit_* code paths.
+	// Workflow must cover the two emit_* code paths this skill owns
+	// and must NOT instruct emit_evidence (evidence is Turn A's).
 	wf := strings.Join(sk.Workflow, "\n")
-	for _, step := range []string{"emit_answer_symbol", "emit_hypothesis_verdict", "emit_evidence", "completeness"} {
+	for _, step := range []string{"emit_answer_symbol", "emit_hypothesis_verdict", "completeness"} {
 		if !strings.Contains(wf, step) {
 			t.Errorf("extract-skill Workflow missing %q:\n%s", step, wf)
 		}
 	}
+	if strings.Contains(wf, "emit_evidence") {
+		t.Errorf("extract-skill Workflow must not instruct emit_evidence (duplicates Turn A):\n%s", wf)
+	}
 
-	// Prohibitions must explicitly forbid the investigation tools.
+	// Prohibitions must explicitly forbid the investigation tools and
+	// the evidence channel.
 	prohib := strings.Join(sk.Prohibitions, "\n")
-	for _, forbidden := range []string{"read_file", "grep", "repo_map"} {
+	for _, forbidden := range []string{"read_file", "grep", "repo_map", "emit_evidence"} {
 		if !strings.Contains(prohib, forbidden) {
 			t.Errorf("extract-skill Prohibitions must forbid %q: %s", forbidden, prohib)
 		}
@@ -146,13 +150,15 @@ func TestExtractor_ShouldStopFiresAfterOneIteration(t *testing.T) {
 }
 
 func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
-	// ParseOutput must drain MutableState's emit_evidence and
-	// emit_answer_symbol buffers into StageOutput. With Phase 9's
-	// Set-semantics API the completeness claim travels with the
-	// slate. Here we pre-populate with CompletenessComplete and
-	// verify both fields flow through; cardinality-validator paths
-	// live in their own tests below.
+	// ParseOutput must drain MutableState's emit_answer_symbol
+	// buffer into StageOutput. Evidence is intentionally NOT drained
+	// here — that is Turn A's exclusive channel after the de-
+	// duplication cleanup. With Phase 9's Set-semantics API the
+	// completeness claim travels with the slate.
 	mu := types.NewMutableState(types.TaskList{})
+	// Pre-populate the evidence buffer with a token item and verify
+	// the extractor IGNORES it — a regression that re-drains evidence
+	// here would surface immediately.
 	mu.AppendEvidence([]types.EvidenceItem{
 		{ID: "ev1", Kind: types.EvidenceDirect, Source: "a.go", LineStart: 5},
 	})
@@ -172,8 +178,8 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOutput: %v", err)
 	}
-	if len(out.EvidenceItems) != 1 || out.EvidenceItems[0].ID != "ev1" {
-		t.Errorf("EvidenceItems not drained: %+v", out.EvidenceItems)
+	if len(out.EvidenceItems) != 0 {
+		t.Errorf("extractor must not drain EvidenceItems (Turn A owns evidence), got %+v", out.EvidenceItems)
 	}
 	if len(out.AnswerSymbols) != 1 || out.AnswerSymbols[0].Name != "Foo" {
 		t.Errorf("AnswerSymbols not drained: %+v", out.AnswerSymbols)

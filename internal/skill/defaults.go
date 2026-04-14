@@ -464,16 +464,14 @@ Summary field (shape=explanation or optional lead-in for others):
 	// tests can look up the skill without threading the flag.
 	r.Register(&Config{
 		Name: "extract-skill",
-		Goal: "Drain Turn A's frozen investigation transcript into structured emit_* items. Turn B does NOT investigate — it converts what Turn A already found into the structured channels the finalizer consumes.",
+		Goal: "Produce the answer-symbol slate and the per-hypothesis verdicts from Turn A's frozen investigation transcript. Evidence is Turn A's territory — Turn B never re-emits it. Turn B's two unique jobs are (1) LLM-driven answer_symbol selection with a completeness claim the finalizer cross-checks, and (2) LLM-driven hypothesis judgement with a citation.",
 		Workflow: []string{
 			"Read the Turn A transcript digest the orchestrator injected as a user section: user question, investigation notes, read files, top evidence items, dataflow findings, cardinality baseline (β = Turn A terminal-evidence count, γ = analyzer MustInclude count, effective floor = max(β, γ)), and hypothesis set",
 			"For the answer-symbol slate (only for list_of_symbols / enumeration / call_chain questions): call emit_answer_symbol ONCE with a batched items array. Each item MUST carry a concrete file:line from a file in the 'Files Turn A read' list — never invent a line number",
 			"For emit_answer_symbol, set 'completeness' to 'complete' only if len(items) >= effective floor; otherwise set it to 'lower_bound'. If the question is not a list-of-names question at all, skip emit_answer_symbol entirely (the finalizer will use the shape-based prompt)",
 			"For every hypothesis in the hypothesis set: call emit_hypothesis_verdict once with hypothesis_id + status + rationale + citation. Status must be 'confirmed' / 'rejected' / 'inconclusive'. 'confirmed' and 'rejected' REQUIRE a file:line citation; 'inconclusive' is the honest choice when no definitive cite exists",
-			"For refined evidence (kind / subject / object / source / line / summary): call emit_evidence ONCE with the batched items array",
 		},
 		ToolSuggestions: []string{
-			"emit_evidence",
 			"emit_answer_symbol",
 			"emit_hypothesis_verdict",
 		},
@@ -485,6 +483,7 @@ Completeness honesty contract for emit_answer_symbol:
 - "unknown" — you investigated but cannot reach a definitive slate. The finalizer will DROP the answer-symbol section entirely and fall back to a shape-based prompt. Choose this for mechanism questions, value/boolean questions, or genuinely ambiguous evidence.`,
 		Prohibitions: []string{
 			"do not call read_file, grep, repo_map, list_files, or exec_command — the Turn A transcript is frozen and Turn B has no file access",
+			"do not call emit_evidence — evidence is Turn A's exclusive channel. Turn A already emitted evidence during Phase 1 and the orchestrator merged it into BusContext.EvidenceItems before this dispatch. Your job is to consume that evidence, not re-emit it.",
 			"do not invent line numbers — if the transcript does not have a line for a symbol, omit that symbol",
 			"do not cite files outside the 'Files Turn A read' list provided in the user section",
 			"do not fabricate an answer-symbol list to fill the section — if the question is a mechanism / value / boolean question, skip emit_answer_symbol and let the finalizer use the shape-based prompt",

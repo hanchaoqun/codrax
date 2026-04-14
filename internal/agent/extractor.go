@@ -233,24 +233,33 @@ func (e *extractorEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	return iteration >= 1
 }
 
-// ParseOutput implements Evaluator. This is where Phase 9's
-// cardinality validator lives: drain the three emit_* buffers, check
-// the answer-symbol claim against Turn A's baseline + the analyzer's
-// MustInclude floor, downgrade on mismatch, and package everything
-// into a StageOutput the orchestrator can merge.
+// ParseOutput implements Evaluator. The extractor's two unique
+// responsibilities drain here:
+//
+//  1. Answer-symbol slate + cardinality validator (Phase 9): the
+//     LLM-driven replacement for the erm.go extractAnswerSymbols
+//     heuristic that ships bug #13. Extractor emits a slate with a
+//     completeness claim; validateCompletenessClaim cross-checks the
+//     claim against Turn A's TerminalEvidenceCount + AnalysisIR
+//     MustInclude floor and downgrades a dishonest "complete" to
+//     "lower_bound".
+//
+//  2. Hypothesis verdicts: drained by the orchestrator's Phase 10
+//     post-dispatch hook (drainHypothesisVerdicts), not here,
+//     because MarkHypothesis needs to write through the IR and the
+//     extractor's StageOutput has no IR pointer. The buffer stays
+//     populated for the hook to read.
+//
+// Evidence is intentionally NOT drained in the extractor — that is
+// Turn A's exclusive channel. The extract-skill forbids
+// emit_evidence and the orchestrator already merged Turn A's
+// EvidenceItems into BusContext by the time this runs.
 func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Message, _ []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	out := &StageOutput{
 		Data: json.RawMessage(`{}`),
 	}
 	if ctx == nil || ctx.Mutable == nil {
 		return out, nil
-	}
-
-	// Evidence drain — no validation, the schema already enforced
-	// per-item integrity at tool-call time. Merging with prior-stage
-	// items happens downstream in applyStageOutput.
-	if items := ctx.Mutable.EmittedEvidence(); len(items) > 0 {
-		out.EvidenceItems = items
 	}
 
 	// Answer-symbol drain + cardinality validator.
@@ -263,11 +272,6 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	// If len(syms) == 0: leave both fields zero (CompletenessUnknown).
 	// The builder drops the section and the finalizer falls back to
 	// the shape-based prompt.
-
-	// HypothesisVerdicts are drained by Phase 10's orchestrator hook,
-	// not here, because MarkHypothesis needs to write through the IR
-	// and the extractor's StageOutput has no IR pointer. The buffer
-	// stays populated for the Phase 10 post-dispatch read.
 
 	return out, nil
 }
