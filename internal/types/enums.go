@@ -1,28 +1,16 @@
 package types
 
 // PipelineStage represents a stage in the orchestration pipeline.
+// After the 2026-04-14 simplification codrax is a read-only
+// analysis tool: four stages, four agents, one deterministic DAG.
 type PipelineStage string
 
 const (
-	StageAnalyze      PipelineStage = "analyze"
-	StageExplore      PipelineStage = "explore"
-	StageExtract      PipelineStage = "extract"
-	StagePlan         PipelineStage = "plan"
-	StageDesignReview PipelineStage = "design_review"
-	StageImplement    PipelineStage = "implement"
-	StageCodeReview   PipelineStage = "code_review"
-	StageVerify       PipelineStage = "verify"
-	StageFinalize     PipelineStage = "finalize"
+	StageAnalyze  PipelineStage = "analyze"
+	StageExplore  PipelineStage = "explore"
+	StageExtract  PipelineStage = "extract"
+	StageFinalize PipelineStage = "finalize"
 )
-
-// StageExtract is the P2.1 Turn B stage. It runs immediately after the
-// merged explore window completes and before finalize. The extractor
-// agent (internal/agent/extractor.go) handles it; the agent is
-// restricted to emit_evidence / emit_answer_symbol /
-// emit_hypothesis_verdict and works exclusively from Turn A's
-// transcript snapshot — no read_file / grep / repo_map. The stage is
-// only entered when agent.TwoTurnExplorerEnabled() is true; otherwise
-// the scheduler skips it and the legacy path runs unchanged.
 
 // IsTerminal returns true only for the finalize stage.
 func (s PipelineStage) IsTerminal() bool {
@@ -40,11 +28,6 @@ func AllStages() []PipelineStage {
 		StageAnalyze,
 		StageExplore,
 		StageExtract,
-		StagePlan,
-		StageDesignReview,
-		StageImplement,
-		StageCodeReview,
-		StageVerify,
 		StageFinalize,
 	}
 }
@@ -53,15 +36,10 @@ func AllStages() []PipelineStage {
 type AgentName string
 
 const (
-	AgentAnalyzer       AgentName = "analyzer"
-	AgentPlanner        AgentName = "planner"
-	AgentExplorer       AgentName = "explorer"
-	AgentExtractor      AgentName = "extractor"
-	AgentDesignReviewer AgentName = "design_reviewer"
-	AgentCodeReviewer   AgentName = "code_reviewer"
-	AgentImplementer    AgentName = "implementer"
-	AgentVerifier       AgentName = "verifier"
-	AgentFinalizer      AgentName = "finalizer"
+	AgentAnalyzer  AgentName = "analyzer"
+	AgentExplorer  AgentName = "explorer"
+	AgentExtractor AgentName = "extractor"
+	AgentFinalizer AgentName = "finalizer"
 )
 
 // String returns the string representation of the AgentName.
@@ -73,13 +51,8 @@ func (a AgentName) String() string {
 func AllAgentNames() []AgentName {
 	return []AgentName{
 		AgentAnalyzer,
-		AgentPlanner,
 		AgentExplorer,
 		AgentExtractor,
-		AgentDesignReviewer,
-		AgentCodeReviewer,
-		AgentImplementer,
-		AgentVerifier,
 		AgentFinalizer,
 	}
 }
@@ -107,10 +80,6 @@ const (
 	MissingNone          MissingPiece = "none"
 	MissingUnderstanding MissingPiece = "understanding"
 	MissingFacts         MissingPiece = "facts"
-	MissingPlan          MissingPiece = "plan"
-	MissingCode          MissingPiece = "code"
-	MissingReview        MissingPiece = "review"
-	MissingVerification  MissingPiece = "verification"
 )
 
 // String returns the string representation of the MissingPiece.

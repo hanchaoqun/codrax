@@ -44,16 +44,6 @@ func TestPlan_RootCause_PrioritizesTopSymbol(t *testing.T) {
 	}
 }
 
-func TestPlan_SecurityAudit_StandardHypothesis(t *testing.T) {
-	hs := Plan(rm(types.IntentSecurityAudit))
-	if len(hs) == 0 {
-		t.Fatal("expected at least one hypothesis")
-	}
-	if hs[0].FalsificationCondition.Kind != "all_surfaces_validated" {
-		t.Fatalf("security audit falsification mismatched: %+v", hs[0].FalsificationCondition)
-	}
-}
-
 func TestPlan_Ambiguity_ProducesHypothesisPerClause(t *testing.T) {
 	input := rm(types.IntentExplain, "Foo")
 	input.Ambiguities = []types.Ambiguity{
@@ -73,7 +63,7 @@ func TestPlan_Ambiguity_ProducesHypothesisPerClause(t *testing.T) {
 }
 
 func TestPlan_HighSecurity_AddsUntrustedPathHypothesis(t *testing.T) {
-	input := rm(types.IntentRefactor, "Auth")
+	input := rm(types.IntentExplain, "Auth")
 	input.RiskMatrix.Security.Level = 4
 	hs := Plan(input)
 	if findByStatement(hs, "un-sanitized") == nil {
@@ -82,7 +72,7 @@ func TestPlan_HighSecurity_AddsUntrustedPathHypothesis(t *testing.T) {
 }
 
 func TestPlan_HighDataIntegrity_AddsInvariantHypothesis(t *testing.T) {
-	input := rm(types.IntentBugfix, "Migration")
+	input := rm(types.IntentRootCause, "Migration")
 	input.RiskMatrix.DataIntegrity.Level = 5
 	hs := Plan(input)
 	if findByStatement(hs, "data invariants") == nil {

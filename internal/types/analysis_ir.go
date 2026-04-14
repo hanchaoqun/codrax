@@ -95,9 +95,6 @@ const (
 	IntentEnumerate     Intent = "enumerate"
 	IntentConfigQuery   Intent = "config_query"
 	IntentReturnValue   Intent = "return_value"
-	IntentRefactor      Intent = "refactor"
-	IntentBugfix        Intent = "bugfix"
-	IntentSecurityAudit Intent = "security_audit"
 	IntentUnknown       Intent = "unknown"
 )
 
@@ -106,8 +103,6 @@ type Scenario string
 const (
 	ScenarioArchitectureExplain   Scenario = "architecture_explain"
 	ScenarioRootCause             Scenario = "root_cause"
-	ScenarioSecurityAudit         Scenario = "security_audit"
-	ScenarioRefactorDesign        Scenario = "refactor_design"
 	ScenarioConfigTrace           Scenario = "config_trace"
 	ScenarioPerformanceBottleneck Scenario = "performance_bottleneck"
 	ScenarioGeneric               Scenario = "generic"
@@ -190,10 +185,6 @@ const (
 	NodeEvidence  TaskNodeType = "evidence"
 	NodeValidate  TaskNodeType = "validate"
 	NodeReconcile TaskNodeType = "reconcile"
-	NodeDesign    TaskNodeType = "design"
-	NodeImplement TaskNodeType = "implement"
-	NodeReview    TaskNodeType = "review"
-	NodeVerify    TaskNodeType = "verify"
 	NodeFinalize  TaskNodeType = "finalize"
 )
 

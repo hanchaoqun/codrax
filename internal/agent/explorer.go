@@ -1743,7 +1743,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 
 func (e *explorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece {
 	if output.SignalUpdates != nil && output.SignalUpdates.HasEnoughFacts {
-		return types.MissingPlan
+		return types.MissingNone
 	}
 	return types.MissingFacts
 }

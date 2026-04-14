@@ -20,10 +20,6 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //  7. otherwise                                → architecture_explain
 func InferScenario(rm types.RequestModel) types.Scenario {
 	switch rm.Intent {
-	case types.IntentSecurityAudit:
-		return types.ScenarioSecurityAudit
-	case types.IntentRefactor, types.IntentBugfix:
-		return types.ScenarioRefactorDesign
 	case types.IntentConfigQuery:
 		return types.ScenarioConfigTrace
 	case types.IntentRootCause:

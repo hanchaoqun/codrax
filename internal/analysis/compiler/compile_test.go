@@ -89,26 +89,6 @@ func TestCompile_RootCause_HasValidationFeedback(t *testing.T) {
 	}
 }
 
-func TestCompile_SecurityAudit_ListOfSymbols(t *testing.T) {
-	out := Compile(sampleRM(types.ScenarioSecurityAudit, types.IntentSecurityAudit, types.ComplexityComplex))
-	if out.AnswerContract.RequiredAnswerShape != types.ShapeListOfSymbols {
-		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
-	}
-	if countNodeType(out.TaskGraph, types.NodeReview) != 1 {
-		t.Fatalf("security audit template must include a review node")
-	}
-}
-
-func TestCompile_RefactorDesign_HasDesignAndReview(t *testing.T) {
-	out := Compile(sampleRM(types.ScenarioRefactorDesign, types.IntentRefactor, types.ComplexityComplex))
-	if countNodeType(out.TaskGraph, types.NodeDesign) != 1 {
-		t.Fatalf("refactor template must include a design node")
-	}
-	if countNodeType(out.TaskGraph, types.NodeReview) != 1 {
-		t.Fatalf("refactor template must include a review node")
-	}
-}
-
 func TestCompile_ConfigTrace_ShapeConfigValue(t *testing.T) {
 	out := Compile(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
 	if out.AnswerContract.RequiredAnswerShape != types.ShapeConfigValue {
@@ -188,9 +168,6 @@ func TestInferScenario(t *testing.T) {
 		rm     types.RequestModel
 		expect types.Scenario
 	}{
-		{"security intent", types.RequestModel{Intent: types.IntentSecurityAudit}, types.ScenarioSecurityAudit},
-		{"refactor intent", types.RequestModel{Intent: types.IntentRefactor}, types.ScenarioRefactorDesign},
-		{"bugfix intent", types.RequestModel{Intent: types.IntentBugfix}, types.ScenarioRefactorDesign},
 		{"config intent", types.RequestModel{Intent: types.IntentConfigQuery}, types.ScenarioConfigTrace},
 		{"root cause intent", types.RequestModel{Intent: types.IntentRootCause}, types.ScenarioRootCause},
 		{"explain default", types.RequestModel{Intent: types.IntentExplain}, types.ScenarioArchitectureExplain},
@@ -232,8 +209,6 @@ func TestCompile_AllTemplatesStructurallyValid(t *testing.T) {
 	scenarios := []types.Scenario{
 		types.ScenarioArchitectureExplain,
 		types.ScenarioRootCause,
-		types.ScenarioSecurityAudit,
-		types.ScenarioRefactorDesign,
 		types.ScenarioConfigTrace,
 		types.ScenarioPerformanceBottleneck,
 		types.ScenarioGeneric,

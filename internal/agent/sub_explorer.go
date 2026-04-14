@@ -348,7 +348,7 @@ func (e *subExplorerEvaluator) toolConfidence(name string) float64 {
 
 func (e *subExplorerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece {
 	if output.SignalUpdates != nil && output.SignalUpdates.HasEnoughFacts {
-		return types.MissingPlan
+		return types.MissingNone
 	}
 	return types.MissingFacts
 }

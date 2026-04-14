@@ -53,14 +53,6 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 			Priority:               90,
 			Status:                 types.HypUnknown,
 		})
-	case types.IntentSecurityAudit:
-		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              "At least one of the enumerated attack surfaces lacks adequate validation.",
-			FalsificationCondition: types.Criterion{Kind: "all_surfaces_validated"},
-			Priority:               90,
-			Status:                 types.HypUnknown,
-		})
 	case types.IntentConfigQuery:
 		out = append(out, types.Hypothesis{
 			ID:                     nextID(),
@@ -75,14 +67,6 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 			Statement:              fmt.Sprintf("The answer is a finite set of symbols anchored on %s.", orDefault(topSymbol, "the subject")),
 			FalsificationCondition: types.Criterion{Kind: "answer_set_unbounded"},
 			Priority:               80,
-			Status:                 types.HypUnknown,
-		})
-	case types.IntentRefactor, types.IntentBugfix:
-		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              "The proposed change is reversible and does not break any existing call site.",
-			FalsificationCondition: types.Criterion{Kind: "breaking_call_site"},
-			Priority:               85,
 			Status:                 types.HypUnknown,
 		})
 	default:

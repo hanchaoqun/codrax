@@ -373,11 +373,11 @@ func TestParseOutput_EnumerationStricterFloors(t *testing.T) {
 // DetermineMissingPiece
 // -----------------------------------------------------------------------------
 
-func TestDetermineMissingPiece_HasEnoughReturnsMissingPlan(t *testing.T) {
+func TestDetermineMissingPiece_HasEnoughReturnsMissingNone(t *testing.T) {
 	eval := &explorerEvaluator{}
 	out := &StageOutput{SignalUpdates: &types.ExecutionSignals{HasEnoughFacts: true}}
-	if got := eval.DetermineMissingPiece(nil, out); got != types.MissingPlan {
-		t.Errorf("HasEnoughFacts=true should yield MissingPlan, got %v", got)
+	if got := eval.DetermineMissingPiece(nil, out); got != types.MissingNone {
+		t.Errorf("HasEnoughFacts=true should yield MissingNone, got %v", got)
 	}
 }
 

@@ -68,12 +68,12 @@ func (t *EmitAnalysis) Parameters() json.RawMessage {
   "properties": {
     "intent": {
       "type": "string",
-      "enum": ["explain","root_cause","trace","enumerate","config_query","return_value","refactor","bugfix","security_audit","unknown"],
-      "description": "v3 Intent enum. Read questions use explain/trace/enumerate/return_value/config_query; writing tasks use refactor/bugfix/security_audit. Use 'unknown' only if genuinely ambiguous."
+      "enum": ["explain","root_cause","trace","enumerate","config_query","return_value","unknown"],
+      "description": "v3 Intent enum. Pick the closest match to the user's question. Use 'unknown' only if genuinely ambiguous."
     },
     "scenario": {
       "type": "string",
-      "enum": ["architecture_explain","root_cause","security_audit","refactor_design","config_trace","performance_bottleneck","generic"],
+      "enum": ["architecture_explain","root_cause","config_trace","performance_bottleneck","generic"],
       "description": "Scenario template picker. architecture_explain for explaining code/mechanism, root_cause for debugging, config_trace for config→behaviour questions, generic if none fit."
     },
     "complexity": {
@@ -203,12 +203,6 @@ func normalizeIntent(s string) types.Intent {
 		return types.IntentConfigQuery
 	case "return_value", "return-value", "return":
 		return types.IntentReturnValue
-	case "refactor":
-		return types.IntentRefactor
-	case "bugfix", "bug_fix", "bug-fix":
-		return types.IntentBugfix
-	case "security_audit", "security-audit", "security":
-		return types.IntentSecurityAudit
 	}
 	return types.IntentUnknown
 }
@@ -222,10 +216,6 @@ func normalizeScenario(s string) types.Scenario {
 		return types.ScenarioArchitectureExplain
 	case "root_cause", "rootcause":
 		return types.ScenarioRootCause
-	case "security_audit", "security":
-		return types.ScenarioSecurityAudit
-	case "refactor_design", "refactor":
-		return types.ScenarioRefactorDesign
 	case "config_trace", "config":
 		return types.ScenarioConfigTrace
 	case "performance_bottleneck", "performance":

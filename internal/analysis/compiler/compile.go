@@ -48,10 +48,6 @@ func pickTemplate(s types.Scenario) templateFn {
 		return templateArchitectureExplain
 	case types.ScenarioRootCause:
 		return templateRootCause
-	case types.ScenarioSecurityAudit:
-		return templateSecurityAudit
-	case types.ScenarioRefactorDesign:
-		return templateRefactorDesign
 	case types.ScenarioConfigTrace:
 		return templateConfigTrace
 	case types.ScenarioPerformanceBottleneck:

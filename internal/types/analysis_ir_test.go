@@ -167,8 +167,7 @@ func TestAnalysisIR_EnumDistinctness(t *testing.T) {
 	// the duplicate would silently collapse; we test by explicit count.
 	intents := []Intent{
 		IntentExplain, IntentRootCause, IntentTrace, IntentEnumerate,
-		IntentConfigQuery, IntentReturnValue, IntentRefactor, IntentBugfix,
-		IntentSecurityAudit, IntentUnknown,
+		IntentConfigQuery, IntentReturnValue, IntentUnknown,
 	}
 	seen := make(map[Intent]bool, len(intents))
 	for _, i := range intents {
@@ -191,8 +190,7 @@ func TestAnalysisIR_EnumDistinctness(t *testing.T) {
 	}
 
 	nodeTypes := []TaskNodeType{
-		NodeProbe, NodeEvidence, NodeValidate, NodeReconcile,
-		NodeDesign, NodeImplement, NodeReview, NodeVerify, NodeFinalize,
+		NodeProbe, NodeEvidence, NodeValidate, NodeReconcile, NodeFinalize,
 	}
 	seenNode := make(map[TaskNodeType]bool, len(nodeTypes))
 	for _, n := range nodeTypes {

@@ -82,7 +82,7 @@ func TestBuildAgentContext(t *testing.T) {
 
 func TestBuildPromptContext(t *testing.T) {
 	ac := &types.AgentContext{
-		AgentName:     types.AgentPlanner,
+		AgentName:     types.AgentAnalyzer,
 		Stage:         types.StageAnalyze,
 		Objective:     "Add logging",
 		CurrentTaskID: "t1",
@@ -104,8 +104,8 @@ func TestBuildPromptContext(t *testing.T) {
 	pc := BuildPromptContext(ac, sk)
 
 	t.Run("metadata", func(t *testing.T) {
-		if pc.AgentName != types.AgentPlanner {
-			t.Errorf("got agent %s, want %s", pc.AgentName, types.AgentPlanner)
+		if pc.AgentName != types.AgentAnalyzer {
+			t.Errorf("got agent %s, want %s", pc.AgentName, types.AgentAnalyzer)
 		}
 		if pc.SkillName != "task-analysis-skill" {
 			t.Errorf("got skill %q, want %q", pc.SkillName, "task-analysis-skill")

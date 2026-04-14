@@ -152,11 +152,7 @@ func TestGraphState_AllDoneOnlyWhenTerminal(t *testing.T) {
 }
 
 func TestStageMapping_AllNodeTypes(t *testing.T) {
-	g := types.TaskGraph{
-		Nodes: []types.TaskNode{
-			{Type: types.NodeImplement, ID: "imp"}, // presence enables code_review branch
-		},
-	}
+	g := types.TaskGraph{}
 	cases := []struct {
 		nt      types.TaskNodeType
 		writing bool
@@ -166,11 +162,6 @@ func TestStageMapping_AllNodeTypes(t *testing.T) {
 		{types.NodeEvidence, false, types.StageExplore},
 		{types.NodeValidate, false, types.StageExplore},
 		{types.NodeReconcile, false, types.StageExplore},
-		{types.NodeDesign, true, types.StagePlan},
-		{types.NodeImplement, true, types.StageImplement},
-		{types.NodeReview, false, types.StageDesignReview},
-		{types.NodeReview, true, types.StageCodeReview},
-		{types.NodeVerify, true, types.StageVerify},
 		{types.NodeFinalize, false, types.StageFinalize},
 	}
 	for _, c := range cases {
@@ -189,20 +180,6 @@ func TestStageMapping_UnknownTypeFailsLoud(t *testing.T) {
 	g := types.TaskGraph{}
 	if _, err := stageMapping(g, &types.TaskNode{Type: "bogus"}, false); err == nil {
 		t.Error("want error for unknown node type, got nil")
-	}
-}
-
-func TestStageMapping_ReviewWithoutImplementMapsToDesignReview(t *testing.T) {
-	g := types.TaskGraph{Nodes: []types.TaskNode{
-		{ID: "n0", Type: types.NodeProbe},
-		{ID: "n1", Type: types.NodeReview},
-	}}
-	got, err := stageMapping(g, &types.TaskNode{Type: types.NodeReview}, true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != types.StageDesignReview {
-		t.Errorf("review without implement: want design_review, got %s", got)
 	}
 }
 

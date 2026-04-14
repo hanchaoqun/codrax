@@ -40,7 +40,7 @@ func ShouldExpand(rm types.RequestModel) bool {
 		return false
 	}
 	switch rm.Intent {
-	case types.IntentRootCause, types.IntentSecurityAudit, types.IntentExplain:
+	case types.IntentRootCause, types.IntentExplain:
 	default:
 		return false
 	}

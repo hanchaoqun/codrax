@@ -352,41 +352,17 @@ func (s *graphState) firstFinalizeReadyMerged() *types.TaskNode {
 }
 
 // stageMapping resolves a TaskNodeType into the PipelineStage and
-// agent the merged schedule dispatches under. Review nodes split on
-// whether the run is in writing mode (design_review pre-implement,
-// code_review post-implement); P1.3 returns design_review for review
-// nodes that appear before any implement/code_review on the critical
-// path and code_review otherwise. This is a one-line heuristic, not
-// a curated list — the structural cue is the node's position in the
-// critical path declaration order.
+// stageMapping returns the pipeline stage that a given TaskNode
+// maps to. After the 2026-04-14 simplification codrax supports
+// only read-only analysis node types (probe / evidence / validate
+// / reconcile / finalize); the write node types (design / implement
+// / review / verify) were deleted along with the write agents.
 func stageMapping(g types.TaskGraph, n *types.TaskNode, writing bool) (types.PipelineStage, error) {
 	switch n.Type {
 	case types.NodeProbe, types.NodeEvidence, types.NodeValidate, types.NodeReconcile:
-		// P1.3-MERGED-SCHEDULE: all four collapse into the explorer
-		// dispatch. P2.1 will split them.
+		// The four analysis node types collapse into the explorer
+		// dispatch (the merged-window schedule).
 		return types.StageExplore, nil
-	case types.NodeDesign:
-		return types.StagePlan, nil
-	case types.NodeImplement:
-		return types.StageImplement, nil
-	case types.NodeReview:
-		if !writing {
-			// Read-only run with a review node is unusual — the
-			// security_audit template emits one. Map it onto
-			// design_review since code_review depends on a patch.
-			return types.StageDesignReview, nil
-		}
-		// Writing run: pick design_review when no implement node is
-		// done yet, code_review afterward. This mirrors the legacy
-		// pipeline's two review stages.
-		for _, m := range g.Nodes {
-			if m.Type == types.NodeImplement {
-				return types.StageCodeReview, nil
-			}
-		}
-		return types.StageDesignReview, nil
-	case types.NodeVerify:
-		return types.StageVerify, nil
 	case types.NodeFinalize:
 		return types.StageFinalize, nil
 	}

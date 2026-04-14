@@ -137,48 +137,6 @@ func TestAnalyzerV3_FailsafeTaskInstallsIR(t *testing.T) {
 	}
 }
 
-// TestAnalyzerV3_WritingTaskDerivesPolicy validates that writing +
-// high_risk flags on the legacy TaskItem propagate into the v3
-// RunPolicy correctly.
-func TestAnalyzerV3_WritingTaskDerivesPolicy(t *testing.T) {
-	mut := types.NewMutableState(types.TaskList{
-		Objective: "refactor the auth middleware to use new session storage",
-		Tasks: []types.TaskItem{{
-			ID:     "task-1",
-			Title:  "refactor auth middleware",
-			Status: types.TaskPending,
-		}},
-		CurrentTaskID: "task-1",
-	})
-	mut.SetRequestModel(types.RequestModel{
-		Intent:   types.IntentRefactor,
-		Scenario: types.ScenarioRefactorDesign,
-		Writing:  true,
-		HighRisk: true,
-	})
-	ctx := &types.AgentContext{
-		Objective: "refactor the auth middleware to use new session storage",
-		Mutable:   mut,
-	}
-	eval := &analyzerEvaluator{}
-	out, err := eval.ParseOutput(ctx, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ParseOutput: %v", err)
-	}
-	ir := out.AnalysisIR
-	if !ir.RunPolicy.Writing {
-		t.Errorf("writing=true must propagate")
-	}
-	if !ir.RunPolicy.RequireDesignReview || !ir.RunPolicy.RequireCodeReview {
-		t.Errorf("HighRisk=true must force both reviews; got %+v", ir.RunPolicy)
-	}
-	// "auth" term should trip the risk matrix security+compliance
-	// dimensions via the normalizer+risk path.
-	if ir.RequestModel.RiskMatrix.Security.Level < 3 {
-		t.Errorf("auth term must bump security ≥3; got %d", ir.RequestModel.RiskMatrix.Security.Level)
-	}
-}
-
 // TestAnalyzerV3_BusContextReceivesIR validates the propagation path:
 // StageOutput.AnalysisIR produced by the analyzer must survive the
 // applyStageOutput step and end up on BusContext.AnalysisIR. This
