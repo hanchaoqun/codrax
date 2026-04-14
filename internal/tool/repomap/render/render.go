@@ -149,8 +149,100 @@ func GenerateViewData(g *types.Graph, viewType string, params types.ViewParams) 
 		return buildCallPathData(g, params)
 	case "edit_impact":
 		return buildEditImpactData(g, params)
+	case "semantic_subgraph":
+		return buildSemanticSubgraphData(g, params)
 	}
 	return nil
+}
+
+// buildSemanticSubgraphData produces the structured form of the
+// semantic_subgraph view — Phase 5 plan item 8. Emits three
+// sections derived from the import graph's topology:
+//
+//   - Chains  : maximal linear dependency pipelines (retrieve.ComputeChains)
+//   - Hubs    : high-degree files (retrieve.ComputeHubs)
+//   - Bridges : articulation points (retrieve.ComputeBridges)
+//
+// TopN controls the cap on each section independently; the default
+// 8 keeps the rendered markdown navigable without drowning the
+// caller in tail items. Sections with no content are still emitted
+// (with an explanatory Intro) so the view has a stable shape.
+func buildSemanticSubgraphData(g *types.Graph, params types.ViewParams) *ViewData {
+	topN := params.TopN
+	if topN <= 0 {
+		topN = 8
+	}
+	d := &ViewData{
+		Type:  "semantic_subgraph",
+		Title: "Semantic Subgraphs",
+		Intro: "> **Navigation index only.** Topological summary of the import graph — use it to decide where to read, not as evidence of behaviour.",
+	}
+
+	// Chains.
+	chains := retrieve.ComputeChains(g, topN)
+	chainsSection := ViewSection{Heading: "Chains (linear import pipelines)"}
+	if len(chains) == 0 {
+		chainsSection.Intro = "No linear dependency chains of length ≥ 3 found."
+	}
+	for i, c := range chains {
+		chainsSection.Items = append(chainsSection.Items, ViewItem{
+			Text: fmt.Sprintf("%d. %s (%d files)", i+1, joinChain(c.Files), len(c.Files)),
+			Kind: "chain",
+		})
+	}
+	d.Sections = append(d.Sections, chainsSection)
+
+	// Hubs.
+	hubs := retrieve.ComputeHubs(g, topN)
+	hubsSection := ViewSection{Heading: "Hubs (high-degree files)"}
+	if len(hubs) == 0 {
+		hubsSection.Intro = "No files with non-zero import degree."
+	}
+	for _, h := range hubs {
+		hubsSection.Items = append(hubsSection.Items, ViewItem{
+			Text: fmt.Sprintf("`%s` — fan-in %d, fan-out %d", h.File, h.FanIn, h.FanOut),
+			File: h.File,
+			Kind: "hub",
+		})
+	}
+	d.Sections = append(d.Sections, hubsSection)
+
+	// Bridges.
+	bridges := retrieve.ComputeBridges(g, topN)
+	bridgesSection := ViewSection{Heading: "Bridges (articulation points)"}
+	if len(bridges) == 0 {
+		bridgesSection.Intro = "No articulation points — removing any single file keeps the graph connected."
+	}
+	for _, br := range bridges {
+		bridgesSection.Items = append(bridgesSection.Items, ViewItem{
+			Text: fmt.Sprintf("`%s` — degree %d", br.File, br.Degree),
+			File: br.File,
+			Kind: "bridge",
+		})
+	}
+	d.Sections = append(d.Sections, bridgesSection)
+
+	return d
+}
+
+// joinChain renders a chain's file list with ` → ` arrows, falling
+// back to a bracketed truncation when the chain is too long to
+// display comfortably.
+func joinChain(files []string) string {
+	const maxInline = 6
+	if len(files) <= maxInline {
+		return strings.Join(backtick(files), " → ")
+	}
+	head := backtick(files[:maxInline-1])
+	return strings.Join(head, " → ") + fmt.Sprintf(" → … → `%s`", files[len(files)-1])
+}
+
+func backtick(items []string) []string {
+	out := make([]string, len(items))
+	for i, s := range items {
+		out[i] = "`" + s + "`"
+	}
+	return out
 }
 
 // buildOverviewData produces the structured form of the overview

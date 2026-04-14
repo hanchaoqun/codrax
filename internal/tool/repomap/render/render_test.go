@@ -442,3 +442,69 @@ func TestGenerateViewDataEditImpact(t *testing.T) {
 		t.Errorf("private symbol leaked:\n%s", md)
 	}
 }
+
+// TestSemanticSubgraphView covers the Phase 5 item 8 view. Builds
+// a small fixture graph with a 4-file linear chain, an obvious hub,
+// and an articulation point, and asserts that each landmark lands
+// in the correct rendered section.
+func TestSemanticSubgraphView(t *testing.T) {
+	g := &types.Graph{
+		FileIndex:      map[string]*types.FileInfo{},
+		ImportGraph:    map[string][]string{},
+		ReverseImports: map[string][]string{},
+	}
+	add := func(f string, deps ...string) {
+		if g.FileIndex[f] == nil {
+			g.FileIndex[f] = &types.FileInfo{RelPath: f}
+		}
+		for _, d := range deps {
+			if g.FileIndex[d] == nil {
+				g.FileIndex[d] = &types.FileInfo{RelPath: d}
+			}
+			g.ImportGraph[f] = append(g.ImportGraph[f], d)
+			g.ReverseImports[d] = append(g.ReverseImports[d], f)
+		}
+	}
+	// Linear chain: pipe_a → pipe_b → pipe_c → pipe_d.
+	add("pipe_a", "pipe_b")
+	add("pipe_b", "pipe_c")
+	add("pipe_c", "pipe_d")
+	// Hub: three importers + one dependency.
+	add("cli_a", "hub")
+	add("cli_b", "hub")
+	add("cli_c", "hub")
+	add("hub", "util")
+	// Articulation point: left — cut — right.
+	add("left", "cut")
+	add("cut", "right")
+
+	d := GenerateViewData(g, "semantic_subgraph", types.ViewParams{})
+	if d == nil {
+		t.Fatalf("GenerateViewData returned nil")
+	}
+	if d.Type != "semantic_subgraph" {
+		t.Errorf("Type = %q, want semantic_subgraph", d.Type)
+	}
+	if len(d.Sections) != 3 {
+		t.Fatalf("want 3 sections, got %d", len(d.Sections))
+	}
+	md := RenderMarkdown(d)
+
+	for _, want := range []string{
+		"# Semantic Subgraphs",
+		"## Chains (linear import pipelines)",
+		"## Hubs (high-degree files)",
+		"## Bridges (articulation points)",
+		"`pipe_a` → `pipe_b` → `pipe_c` → `pipe_d`",
+		"`hub` — fan-in 3, fan-out 1",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("semantic_subgraph markdown missing %q:\n%s", want, md)
+		}
+	}
+	// Cut vertex must appear in the Bridges section.
+	bridgeIdx := strings.Index(md, "## Bridges")
+	if bridgeIdx < 0 || !strings.Contains(md[bridgeIdx:], "`cut`") {
+		t.Errorf("expected `cut` as a bridge, got:\n%s", md)
+	}
+}

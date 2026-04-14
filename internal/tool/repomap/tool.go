@@ -21,7 +21,7 @@ type RepoMapV2 struct {
 
 type repoMapParams struct {
 	Path       string `json:"path"`
-	View       string `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact
+	View       string `json:"view,omitempty"`        // overview, file_map, task_map, call_path, edit_impact, semantic_subgraph
 	Query      string `json:"query,omitempty"`       // for task_map
 	TargetFile string `json:"target_file,omitempty"` // for edit_impact
 	EntryPoint string `json:"entry_point,omitempty"` // for call_path
@@ -35,7 +35,8 @@ func (t *RepoMapV2) Description() string {
 		"After consulting the map, you MUST read or grep the actual files to obtain facts. " +
 		"Supports views: overview (module summary), file_map (symbols per file), " +
 		"task_map (relevant subgraph for a query), call_path (dependency chain from entry point), " +
-		"edit_impact (what changes to a file would affect)."
+		"edit_impact (what changes to a file would affect), " +
+		"semantic_subgraph (topological summary: linear chains, hub files, articulation-point bridges)."
 }
 
 func (t *RepoMapV2) Parameters() json.RawMessage {
@@ -48,7 +49,7 @@ func (t *RepoMapV2) Parameters() json.RawMessage {
     },
     "view": {
       "type": "string",
-      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact"],
+      "enum": ["overview", "file_map", "task_map", "call_path", "edit_impact", "semantic_subgraph"],
       "description": "Type of map to generate (default: overview)"
     },
     "query": {
@@ -313,6 +314,8 @@ func ToolDescription(view, query string) string {
 		return "Tracing call paths"
 	case "file_map":
 		return "Generating file map"
+	case "semantic_subgraph":
+		return "Summarizing semantic subgraphs"
 	default:
 		return "Generating repository overview"
 	}
