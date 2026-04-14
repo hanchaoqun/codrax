@@ -41,11 +41,6 @@ import (
 //     and fails the run fast. Soft-quality failures (coverage,
 //     budget_sanity, hypothesis_coverage, risk_consistency) log a
 //     warning and the run continues.
-//
-// The LLM never sees the legacy AnalyzerClassification carrier, the
-// todo_write tool, or any translation layer from legacy question_kind
-// strings to v3 Intent values — that path was deleted when
-// emit_analysis shipped.
 type analyzerEvaluator struct{}
 
 func (e *analyzerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {

@@ -20,11 +20,10 @@ import (
 // SubAgents do NOT share this region. SubAgentRuntime spawns
 // isolated workers whose AgentContext is built by
 // BuildSubAgentContext, which deliberately leaves Mutable nil. Any
-// tool that requires Mutable (e.g. todo_write) will reject calls
-// from a sub-agent with a clear error. Sub-agents return their
-// findings via SubAgentResult and the reducer merges them back at
-// the orchestrator boundary — that is the single point at which
-// sub-agent output re-enters the parent's working state.
+// tool that requires Mutable (the emit_* channels) will reject
+// calls from a sub-agent with a clear error. Sub-agents return
+// their findings via SubAgentResult and the reducer merges them
+// back at the orchestrator boundary.
 //
 // Callers go through TaskList() / SetTaskList() / UpdateTaskStatus /
 // UpdateTaskResult / SetCurrentTask instead of touching fields
@@ -266,16 +265,12 @@ func (m *MutableState) UpdateTaskStatus(id string, status TaskStatus) {
 // fallback path below runs. Empty return means the task list was
 // empty (nothing could be updated).
 //
-// Task identity fallback (S1): if the supplied ID is not found in
-// the current task list, the result is written to the first in-
-// progress task, failing that the first pending task, failing that
-// the first task overall. This prevents silent data loss when the
-// task list was replaced mid-pipeline by a second todo_write call
-// (see project_S1_S2_S3_three_layer_fixes). Without the fallback,
-// the finalizer's output is dropped and the CLI renders "(no
-// result)" — df3 run 3 on eval/results/df3-20260412-100207 is the
-// exact case that surfaced this bug. Callers can compare the
-// returned ID against the supplied id to detect and log fallback.
+// Task identity fallback: if the supplied ID is not found in the
+// current task list, the result is written to the first in-progress
+// task, failing that the first pending task, failing that the first
+// task overall. Prevents silent data loss when a task ID drifts.
+// Callers can compare the returned ID against the supplied id to
+// detect and log fallback.
 func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) string {
 	if m == nil {
 		return ""

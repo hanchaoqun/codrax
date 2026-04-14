@@ -398,12 +398,11 @@ type Message struct {
 //
 // Intentionally omits BusContext.Mutable: SubAgents are isolated
 // workers that report results via SubAgentResult, not by mutating
-// the parent's working state. Leaving ac.Mutable nil here means any
-// tool that requires it (currently todo_write) will fail-stop with
-// a clear error rather than silently racing against parallel
-// sub-agents over the shared task list. The SubAgentReducer is the
-// single point at which sub-agent results re-enter the parent's
-// state, keeping the per-task aggregation boundary explicit.
+// the parent's working state. Any tool that requires Mutable (emit_*
+// channels) will fail-stop with a clear error rather than silently
+// racing against parallel sub-agents over the shared state. The
+// SubAgentReducer is the single point at which sub-agent results
+// re-enter the parent's state.
 func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *types.AgentContext {
 	ac := &types.AgentContext{
 		AgentName:    types.AgentName(req.SubAgent),

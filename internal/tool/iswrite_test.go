@@ -48,7 +48,6 @@ func TestBuiltinConfidenceClassification(t *testing.T) {
 		{"git_diff", &GitDiff{}, 0.8},
 		{"git_log", &GitLog{}, 0.8},
 		{"propose_sub_agents", &ProposeSubAgents{}, 0.0},
-		{"todo_write", &TodoWrite{}, 0.0},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

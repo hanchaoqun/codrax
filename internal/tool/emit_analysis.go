@@ -19,13 +19,10 @@ import (
 // the remaining sub-package pipeline (compiler → risk → hdp →
 // counterfactual → gate) to assemble the full AnalysisIR.
 //
-// Unlike todo_write (the pre-v3 carrier) this tool:
+// Design notes:
 //
-//   - Uses v3 typed enum names (intent, scenario, answer_shape) directly;
-//     no legacy question_kind → Intent translation layer.
-//   - Does NOT write a TaskList. The analyzer synthesises a single-item
-//     TaskList from the raw objective in ParseOutput; v3 does not ask
-//     the LLM to decompose into sibling tasks at analyze time.
+//   - Uses typed enum names (intent, scenario, answer_shape) directly;
+//     no translation layer from LLM-phrased categories.
 //   - Does NOT ask the LLM for derived fields that deterministic code
 //     can compute. TermGraph, TaskGraph, EvidencePlan, AnswerContract,
 //     Hypotheses, RiskMatrix evidence, and the quality gate are all
@@ -131,7 +128,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 
 	intent := normalizeIntent(p.Intent)
 	scenario := normalizeScenario(p.Scenario)
-	complexity := normalizeComplexityV3(p.Complexity)
+	complexity := normalizeComplexity(p.Complexity)
 
 	// Raw objective — the analyzer gets it from the TaskList seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
@@ -148,10 +145,10 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Scenario:   scenario,
 		Complexity: complexity,
 		AnalyzerHints: types.AnalyzerHints{
-			Keywords: trimStringSliceV3(p.Keywords),
-			Entities: trimStringSliceV3(p.Entities),
-			Kind:     normalizeQuestionKindV3(p.QuestionKind),
-			Shape:    normalizeAnswerShapeV3(p.AnswerShape),
+			Keywords: trimStringSlice(p.Keywords),
+			Entities: trimStringSlice(p.Entities),
+			Kind:     normalizeQuestionKind(p.QuestionKind),
+			Shape:    normalizeAnswerShape(p.AnswerShape),
 		},
 	}
 	ctx.Mutable.SetRequestModel(rm)
@@ -203,9 +200,9 @@ func normalizeScenario(s string) types.Scenario {
 	return types.ScenarioGeneric
 }
 
-// normalizeComplexityV3 maps LLM-emitted complexity strings to the
+// normalizeComplexity maps LLM-emitted complexity strings to the
 // typed v3 Complexity enum. Unknown values default to moderate.
-func normalizeComplexityV3(s string) types.Complexity {
+func normalizeComplexity(s string) types.Complexity {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "simple":
 		return types.ComplexitySimple
@@ -215,10 +212,10 @@ func normalizeComplexityV3(s string) types.Complexity {
 	return types.ComplexityModerate
 }
 
-// normalizeQuestionKindV3 keeps the legacy ERM enum strings stable
+// normalizeQuestionKind keeps the legacy ERM enum strings stable
 // across the v3 migration so downstream ERM predicate whitelisting
 // does not need to change. Unknown values fall back to "unknown".
-func normalizeQuestionKindV3(s string) string {
+func normalizeQuestionKind(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "registration", "register":
 		return "registration"
@@ -238,10 +235,10 @@ func normalizeQuestionKindV3(s string) string {
 	return "unknown"
 }
 
-// normalizeAnswerShapeV3 maps LLM-emitted answer_shape strings to the
+// normalizeAnswerShape maps LLM-emitted answer_shape strings to the
 // canonical set consumed by the finalizer. Empty or unknown falls
 // back to "none".
-func normalizeAnswerShapeV3(s string) string {
+func normalizeAnswerShape(s string) string {
 	switch strings.ToLower(strings.TrimSpace(s)) {
 	case "list_of_symbols", "symbol_list", "list-of-symbols":
 		return "list_of_symbols"
@@ -259,11 +256,10 @@ func normalizeAnswerShapeV3(s string) string {
 	return "none"
 }
 
-// trimStringSliceV3 drops empty/whitespace-only entries and trims
+// trimStringSlice drops empty/whitespace-only entries and trims
 // each remaining element. Returns nil for an empty input so the
-// field stays omitempty-friendly. Named *V3 to avoid collision with
-// the legacy todo_write helper during the migration.
-func trimStringSliceV3(in []string) []string {
+// field stays omitempty-friendly.
+func trimStringSlice(in []string) []string {
 	if len(in) == 0 {
 		return nil
 	}

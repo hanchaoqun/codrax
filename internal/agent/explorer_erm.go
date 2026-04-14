@@ -57,16 +57,11 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 
 // extractEvidenceRequirementsWithHint is the analyzer-aware entry
 // point used by the explorer. When the analyzer declared a concrete
-// question_kind via todo_write (analyzer.go contract), we trust it
-// directly and emit the matching EvidenceRequirement without running
-// keyword inference — the analyzer has strictly more context than a
-// post-hoc regex over the same string. Empty or "unknown" kind falls
-// through to the legacy keyword-based path.
-//
-// This closes the regression loop documented in
-// project_erm_english_keyword_gap: the keyword tables existed because
-// the analyzer's output was opaque. With a typed kind, we no longer
-// need to reverse-engineer it from the rewritten English.
+// question_kind via emit_analysis (analyzer.go contract), we trust
+// it directly and emit the matching EvidenceRequirement without
+// running keyword inference — the analyzer has strictly more context
+// than a post-hoc regex over the same string. Empty or "unknown"
+// kind falls through to the keyword-based path.
 //
 // The keyword path is still run as a SUPPLEMENT when the declared
 // kind is present — it may surface additional requirements (e.g. a

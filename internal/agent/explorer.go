@@ -1443,7 +1443,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Extract facts from tool results. Each tool declares its own
 	// Confidence via the Tool interface: evidence tools (grep,
 	// read_file, …) return 0.8, navigation indexes (repo_map) return
-	// 0.3, and orchestration tools (todo_write, propose_sub_agents)
+	// 0.3, and orchestration/emit tools (propose_sub_agents, emit_*)
 	// return 0.0. Only tools with Confidence > 0.5 count toward the
 	// evidence-source floor below.
 	var facts []types.RepoFact

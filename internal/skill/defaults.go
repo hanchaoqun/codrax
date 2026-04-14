@@ -4,13 +4,12 @@ package skill
 func RegisterDefaults(r *Registry) {
 	r.Register(&Config{
 		Name: "task-analysis-skill",
-		Goal: "Classify the user request into a v3 RequestModel (intent, scenario, complexity, writing, keywords, entities, question_kind, answer_shape) via a single emit_analysis tool call.",
+		Goal: "Classify the user request into a RequestModel (intent, scenario, complexity, keywords, entities, question_kind, answer_shape) via a single emit_analysis tool call.",
 		Workflow: []string{
 			"read user input and detect its language",
-			"pick intent from the v3 enum (explain/trace/enumerate/root_cause/return_value/config_query/refactor/bugfix/security_audit/unknown)",
-			"pick scenario from the v3 enum (architecture_explain/root_cause/security_audit/refactor_design/config_trace/performance_bottleneck/generic)",
+			"pick intent from the enum (explain/trace/enumerate/root_cause/return_value/config_query/unknown)",
+			"pick scenario from the enum (architecture_explain/root_cause/config_trace/performance_bottleneck/generic)",
 			"pick complexity (simple/moderate/complex) from the number of files the answer likely needs",
-			"set writing (true only if files may be mutated) and high_risk (true only when writing=true and change is irreversible or security-sensitive)",
 			"extract entities VERBATIM from the user's text — CamelCase/snake_case only, no generic nouns",
 			"generate ≥8 keywords in three rounds — core terms, compound identifiers, action synonyms",
 			"pick question_kind and answer_shape from the ERM / finalizer enums",
@@ -19,7 +18,7 @@ func RegisterDefaults(r *Registry) {
 		ToolSuggestions: []string{
 			"emit_analysis",
 		},
-		OutputFormat: `Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, writing, keywords, entities, question_kind, answer_shape (high_risk optional, defaults false). ` +
+		OutputFormat: `Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape. ` +
 			`The system synthesises the TermGraph, TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically from your input — do not provide them. ` +
 			`Keyword generation (3 rounds): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (send → emit/dispatch/publish). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words. ` +
 			`After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log.`,
@@ -27,7 +26,6 @@ func RegisterDefaults(r *Registry) {
 			"do not call any tool other than emit_analysis",
 			"do not write prose before the emit_analysis call",
 			"do not make assumptions about code structure",
-			"do not start implementation",
 			"do not translate or re-case entities — copy them verbatim from the user's text",
 		},
 	})
@@ -48,7 +46,6 @@ func RegisterDefaults(r *Registry) {
 			"read_file",
 			"list_files",
 			"exec_command",
-			"todo_write",
 		},
 		// OutputFormat is shape-by-example, not shape-by-rule. The previous
 		// abstract description ("Direct answer ... plus file:line citations")

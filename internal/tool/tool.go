@@ -25,7 +25,7 @@ type Tool interface {
 	// Confidence reports how much weight a fact produced by this tool
 	// should carry. Evidence tools (grep, read_file, exec_command, …)
 	// return a high value; navigation indexes (repo_map) return a low
-	// value; orchestration/state tools (propose_sub_agents, todo_write)
+	// value; orchestration/emit tools (propose_sub_agents, emit_*)
 	// return 0 because they do not produce repo facts at all.
 	//
 	// The explorer agent uses this both to tag RepoFact.Confidence and
@@ -68,7 +68,7 @@ type NavigationTool struct{}
 func (NavigationTool) Confidence() float64 { return 0.3 }
 
 // NonEvidenceTool is an embeddable mixin for tools that do not produce
-// repo facts at all (propose_sub_agents, todo_write).
+// repo facts at all (propose_sub_agents, emit_*).
 type NonEvidenceTool struct{}
 
 // Confidence returns 0.0 — this tool does not produce factual claims

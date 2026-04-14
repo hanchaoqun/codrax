@@ -110,16 +110,15 @@ Use diagrams only when they add clarity — not every answer needs one. Keep dia
 // The pipeline runs in two phases:
 //
 //   - Phase 1 — analyze: dispatch StageAnalyze once. The analyzer
-//     populates BusContext.Mutable.TaskList (typically by calling
-//     todo_write) so the orchestrator knows what work to do.
+//     emits an AnalysisIR via emit_analysis and the post-processing
+//     pipeline deterministically builds TaskGraph / EvidencePlan /
+//     AnswerContract / HypothesisSet from it.
 //
-//   - Phase 2 — per-task: iterate over pending tasks, running a
-//     mini-pipeline (explore → … → finalize) for each one. Per-task
-//     state (Signals, MissingPiece, PipelineStage, oscillation
-//     counter) resets between tasks; shared state (RepoFacts,
-//     ToolResults, MCPResponses, Mutable) accumulates across tasks.
-//     Each task's finalize call writes its result onto the task
-//     itself via Mutable.UpdateTaskResult.
+//   - Phase 2 — per-task: iterate over pending tasks (typically one),
+//     running a mini-pipeline (explore → extract → finalize) for each
+//     via runTaskGraph. Per-task state (Signals, MissingPiece,
+//     PipelineStage, oscillation counter) resets between tasks;
+//     shared state accumulates.
 //
 // The maxSteps budget is enforced globally across both phases.
 func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*types.BusContext, error) {
@@ -207,9 +206,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 // runAnalyzePhase dispatches the analyze stage once and applies its
 // output. It does not iterate; the orchestrator does not evaluate
-// transitions out of analyze. The analyzer is expected to populate
-// the task list via todo_write (or its fail-safe path) before
-// returning so the per-task phase has work to do.
+// transitions out of analyze. The analyzer installs the fail-safe
+// single-task list in ParseOutput before returning so the per-task
+// phase has work to do.
 func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	o.busCtx.PipelineStage = types.StageAnalyze
 	o.busCtx.TaskState.Stage = types.StageAnalyze
@@ -562,7 +561,7 @@ func (o *Orchestrator) recordTaskFinalize(taskID string, out *agent.StageOutput)
 		logging.Warning("[orchestrator] recordTaskFinalize: task list was empty; finalizer answer (%d bytes) dropped",
 			len(answer))
 	} else if actual != taskID {
-		logging.Warning("[orchestrator] recordTaskFinalize: task ID %q not found, fell back to %q (likely a mid-pipeline todo_write replacement)",
+		logging.Warning("[orchestrator] recordTaskFinalize: task ID %q not found, fell back to %q",
 			taskID, actual)
 	}
 

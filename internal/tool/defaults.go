@@ -10,6 +10,5 @@ func RegisterDefaults(r *Registry) {
 	r.Register(&ListFiles{})
 	r.Register(&GitDiff{})
 	r.Register(&GitLog{})
-	r.Register(&TodoWrite{})
 	r.Register(&EmitAnalysis{})
 }
