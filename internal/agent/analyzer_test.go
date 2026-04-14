@@ -90,7 +90,8 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 // RequestModel carrier — the analyzer installs a single task as a
 // safety net so the orchestrator routes to the analysis policy
 // instead of falling through into nothing, and buildAnalysisIR
-// synthesises a read-only RunPolicy from the zero-value RequestModel.
+// still produces a structurally complete IR from the zero-value
+// RequestModel.
 func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 	e := &analyzerEvaluator{}
 
@@ -123,16 +124,10 @@ func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 	if tl.Objective != "what does this do?" {
 		t.Errorf("Objective should be preserved, got %q", tl.Objective)
 	}
-	// Failsafe path: no todo_write → Classification stays zero →
-	// buildAnalysisIR derives a read-only RunPolicy.
+	// Failsafe path: no emit_analysis → zero-value RequestModel →
+	// buildAnalysisIR still builds a structurally complete IR.
 	if out.AnalysisIR == nil {
 		t.Fatal("failsafe must still produce an IR")
-	}
-	if out.AnalysisIR.RunPolicy.Writing {
-		t.Error("fail-safe RunPolicy should be read-only")
-	}
-	if out.AnalysisIR.RunPolicy.RequireDesignReview || out.AnalysisIR.RunPolicy.RequireCodeReview {
-		t.Error("fail-safe RunPolicy should not force reviews")
 	}
 }
 

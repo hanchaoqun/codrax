@@ -114,12 +114,6 @@ func sampleAnalysisIR() AnalysisIR {
 				Status:                 HypUnknown,
 			},
 		},
-		RunPolicy: RunPolicy{
-			Writing:             false,
-			RequireDesignReview: false,
-			RequireCodeReview:   false,
-			RequireVerify:       false,
-		},
 		QualityGate: GateReport{
 			Passed:    true,
 			Rejected:  false,

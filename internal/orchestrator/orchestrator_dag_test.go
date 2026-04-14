@@ -48,7 +48,6 @@ func dagIR(contract types.AnswerContract) *types.AnalysisIR {
 			Budget: types.EvidenceBudget{MaxFiles: 30, MaxBytes: 200000, MaxReactIters: 10, MaxToolCalls: 40},
 		},
 		AnswerContract: contract,
-		RunPolicy:      types.RunPolicy{Writing: false},
 	}
 }
 

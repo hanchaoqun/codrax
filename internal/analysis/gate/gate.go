@@ -70,21 +70,17 @@ func Run(ir *types.AnalysisIR, th Thresholds) types.GateReport {
 	checks = append(checks, checkBudgetSanity(ir, th))
 	checks = append(checks, checkContractComplete(ir, th))
 	checks = append(checks, checkHypothesisCoverage(ir, th))
-	checks = append(checks, checkRiskConsistency(ir))
 
 	passed := true
 	for _, c := range checks {
-		if !c.Passed && c.Name != "risk_consistency" {
+		if !c.Passed {
 			passed = false
 		}
 	}
 
 	return types.GateReport{
-		Passed:   passed,
-		Rejected: !passed,
-		// All checks but risk_consistency are retryable on their own
-		// since they could plausibly be fixed by a second analyze
-		// pass. risk_consistency is a warning only.
+		Passed:    passed,
+		Rejected:  !passed,
 		Retryable: !passed,
 		Checks:    checks,
 	}
@@ -222,23 +218,6 @@ func checkHypothesisCoverage(ir *types.AnalysisIR, th Thresholds) types.GateChec
 			Detail: fmt.Sprintf("%d unbound node(s): %v", len(miss), miss)}
 	}
 	return types.GateCheck{Name: "hypothesis_coverage", Passed: true, Score: 1.0, Threshold: 1.0}
-}
-
-func checkRiskConsistency(ir *types.AnalysisIR) types.GateCheck {
-	// Warning-only: writing=true but every risk dim is zero.
-	// The policy designer left this as non-fatal because the
-	// analyzer may legitimately decide a change is risk-free.
-	if !ir.RunPolicy.Writing {
-		return types.GateCheck{Name: "risk_consistency", Passed: true, Score: 1.0, Threshold: 1.0}
-	}
-	rm := ir.RequestModel.RiskMatrix
-	sum := rm.Security.Level + rm.DataIntegrity.Level + rm.Compatibility.Level +
-		rm.Performance.Level + rm.Ops.Level + rm.Compliance.Level
-	if sum == 0 {
-		return types.GateCheck{Name: "risk_consistency", Passed: true, // warn only
-			Detail: "writing=true with all-zero risk matrix (warning)"}
-	}
-	return types.GateCheck{Name: "risk_consistency", Passed: true, Score: 1.0, Threshold: 1.0}
 }
 
 // ── helpers ────────────────────────────────────────────────────

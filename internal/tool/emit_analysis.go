@@ -43,8 +43,6 @@ type emitAnalysisParams struct {
 	Intent       string   `json:"intent"`
 	Scenario     string   `json:"scenario"`
 	Complexity   string   `json:"complexity"`
-	Writing      bool     `json:"writing"`
-	HighRisk     bool     `json:"high_risk"`
 	Keywords     []string `json:"keywords"`
 	Entities     []string `json:"entities"`
 	QuestionKind string   `json:"question_kind"`
@@ -56,7 +54,7 @@ func (t *EmitAnalysis) Name() string { return "emit_analysis" }
 
 func (t *EmitAnalysis) Description() string {
 	return "Analyzer v3 exit channel. Call EXACTLY ONCE at the end of the analyze stage " +
-		"with the classified request. Required fields: intent, scenario, complexity, writing, " +
+		"with the classified request. Required fields: intent, scenario, complexity, " +
 		"keywords, entities, question_kind, answer_shape. The system synthesises the TermGraph, " +
 		"TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically " +
 		"from this input — you do not need to provide them."
@@ -80,14 +78,6 @@ func (t *EmitAnalysis) Parameters() json.RawMessage {
       "type": "string",
       "enum": ["simple","moderate","complex"],
       "description": "Investigation depth: simple (single lookup), moderate (3-5 files), complex (cross-component flow)."
-    },
-    "writing": {
-      "type": "boolean",
-      "description": "True only if the task may mutate files. Read/explain/audit requests are always false."
-    },
-    "high_risk": {
-      "type": "boolean",
-      "description": "True only when writing=true AND the change needs design/code review (security-sensitive, schema changes, irreversible ops). Always false for read-only work."
     },
     "keywords": {
       "type": "array",
@@ -115,7 +105,7 @@ func (t *EmitAnalysis) Parameters() json.RawMessage {
       "description": "Optional. Output language for the final answer. Auto-detected from the raw request if omitted."
     }
   },
-  "required": ["intent","scenario","complexity","writing","keywords","entities","question_kind","answer_shape"]
+  "required": ["intent","scenario","complexity","keywords","entities","question_kind","answer_shape"]
 }`)
 }
 
@@ -164,24 +154,13 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Shape:    normalizeAnswerShapeV3(p.AnswerShape),
 		},
 	}
-	// Writing / HighRisk are consumed by risk.DerivePolicy through a
-	// lightweight side channel — we stash them on the RequestModel via
-	// the zero-cost Ambiguities slice so the downstream pipeline does
-	// not need a second carrier. The analyzer reads them back by
-	// looking for the well-known sentinel clauses.
-	//
-	// (No: storing on Ambiguities is semantic abuse. Instead we extend
-	// the RequestModel with a `Writing` field.)
-	rm.Writing = p.Writing
-	rm.HighRisk = p.HighRisk
-
 	ctx.Mutable.SetRequestModel(rm)
 
 	return types.ToolResult{
 		ToolName: t.Name(),
 		Success:  true,
-		Summary: fmt.Sprintf("analysis emitted: intent=%s scenario=%s complexity=%s writing=%t kw=%d ent=%d kind=%s shape=%s",
-			intent, scenario, complexity, p.Writing, len(rm.AnalyzerHints.Keywords), len(rm.AnalyzerHints.Entities),
+		Summary: fmt.Sprintf("analysis emitted: intent=%s scenario=%s complexity=%s kw=%d ent=%d kind=%s shape=%s",
+			intent, scenario, complexity, len(rm.AnalyzerHints.Keywords), len(rm.AnalyzerHints.Entities),
 			rm.AnalyzerHints.Kind, rm.AnalyzerHints.Shape),
 		Timestamp: time.Now(),
 	}, nil

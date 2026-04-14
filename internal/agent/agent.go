@@ -92,9 +92,8 @@ type StageOutput struct {
 	// AnalysisIR is the Analyzer v3 structured output. Only the
 	// analyzer stage sets this; other stages leave it nil.
 	// applyStageOutput copies it onto BusContext.AnalysisIR on the
-	// first non-nil value and leaves it alone afterwards, so the
-	// "RunPolicy frozen for the rest of the run" invariant holds even
-	// when a rogue re-dispatch reaches the analyzer a second time.
+	// first non-nil value and leaves it alone afterwards, so a rogue
+	// re-dispatch to the analyzer cannot mutate the IR in place.
 	AnalysisIR *types.AnalysisIR `json:"analysis_ir,omitempty"`
 }
 

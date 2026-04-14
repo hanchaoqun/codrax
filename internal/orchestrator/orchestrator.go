@@ -867,8 +867,8 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 
 	// Store the Analyzer v3 structured output on the first non-nil
 	// value and never overwrite it. Subsequent re-dispatches of
-	// analyze (rare but possible under retry budget) preserve the
-	// frozen RunPolicy contract.
+	// analyze (rare but possible under retry budget) do not mutate
+	// the IR in place.
 	if output.AnalysisIR != nil && o.busCtx.AnalysisIR == nil {
 		o.busCtx.AnalysisIR = output.AnalysisIR
 	}

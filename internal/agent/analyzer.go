@@ -22,8 +22,7 @@ import (
 // makes a single LLM call whose only job is to emit a RequestModel
 // through the emit_analysis tool; everything else about AnalysisIR
 // (TermGraph, TaskGraph, EvidencePlan, AnswerContract, Hypotheses,
-// RunPolicy, QualityGate) is derived deterministically after the
-// ReAct loop exits.
+// QualityGate) is derived deterministically after the ReAct loop exits.
 //
 // Pipeline:
 //
@@ -223,8 +222,7 @@ func NewAnalyzerAgent(deps *Dependencies) Agent {
 //	compiler.InferScenario — scenario default when LLM omitted one
 //	compiler.Compile       — TaskGraph + EvidencePlan + AnswerContract
 //	risk.Evaluate          — 6-dim risk matrix
-//	risk.DerivePolicy      — frozen RunPolicy
-//	hdp.Plan + hdp.Bind    — hypotheses + binding
+//	hdp.Plan + hdp.Bind    — hypotheses + binding (risk-driven)
 //	counterfactual.Expand  — optional branch expansion
 //	gate.Run               — deterministic quality gate
 //
@@ -264,21 +262,17 @@ func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 		out.AnswerContract.Language = rm.Language
 	}
 
-	// Risk matrix + run policy. Pre-normalisation risk evidence is
-	// empty — risk.Evaluate decorates it from the term graph.
+	// Risk matrix. Pre-normalisation risk evidence is empty —
+	// risk.Evaluate decorates it from the term graph. The matrix
+	// feeds hdp.Plan for risk-driven hypotheses.
 	rm.RiskMatrix = risk.Evaluate(rm, rm.RiskMatrix)
-	runPolicy := risk.DerivePolicy(rm.RiskMatrix, rm.Writing)
-	if rm.HighRisk {
-		runPolicy.RequireDesignReview = true
-		runPolicy.RequireCodeReview = true
-	}
 
 	// Hypothesis planning and binding.
 	hypotheses := hdp.Plan(rm)
 	hdp.Bind(&out.TaskGraph, hypotheses)
 
 	// Optional counterfactual expansion (default off; only fires on
-	// complex + ambiguous explain/root_cause/security_audit).
+	// complex + ambiguous explain/root_cause).
 	if counterfactual.ShouldExpand(rm) {
 		expanded, newIDs := counterfactual.Expand(
 			out.TaskGraph, rm,
@@ -297,7 +291,6 @@ func buildAnalysisIR(ctx *types.AgentContext) *types.AnalysisIR {
 		EvidencePlan:   out.EvidencePlan,
 		AnswerContract: out.AnswerContract,
 		HypothesisSet:  hypotheses,
-		RunPolicy:      runPolicy,
 		TraceID:        ctx.CurrentTaskID,
 	}
 

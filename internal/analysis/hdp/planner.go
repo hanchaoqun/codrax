@@ -119,10 +119,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 }
 
 // Bind attaches hypothesis IDs to every NodeEvidence, NodeValidate,
-// NodeReconcile, and NodeFinalize node in the task graph. Probe and
-// writing-stage nodes (design/implement/review/verify) are left
-// untouched — probes are baseline exploration and writing stages
-// inherit their targets from the parent validation node.
+// NodeReconcile, and NodeFinalize node in the task graph. Probe
+// nodes are left untouched — probes are baseline exploration and do
+// not need to bind a hypothesis.
 //
 // Binding strategy is round-robin: the i-th binding-eligible node
 // gets hs[i % len(hs)], so a single hypothesis graph still spreads

@@ -6,7 +6,6 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/analysis/compiler"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
-	"github.com/hanchaoqun/codrax/internal/analysis/risk"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -39,7 +38,6 @@ func validIR() *types.AnalysisIR {
 		EvidencePlan:   out.EvidencePlan,
 		AnswerContract: out.AnswerContract,
 		HypothesisSet:  hs,
-		RunPolicy:      risk.DerivePolicy(rm.RiskMatrix, false),
 	}
 	return ir
 }
@@ -225,18 +223,6 @@ func TestRun_HypothesisCoverage_FailsWhenAllLowPriority(t *testing.T) {
 	report := Run(ir, Thresholds{HypothesisMinPrio: 50})
 	if findCheck(report, "hypothesis_coverage").Passed {
 		t.Fatal("low-priority-only hypotheses must fail")
-	}
-}
-
-func TestRun_RiskConsistency_WarningOnly(t *testing.T) {
-	ir := validIR()
-	ir.RunPolicy.Writing = true
-	// All risk dims already zero on this IR.
-	report := Run(ir, Thresholds{})
-	// Risk consistency is warning-only: report.Passed must still
-	// reflect the other checks, which are green here.
-	if report.Rejected {
-		t.Fatalf("risk_consistency should warn, not reject; got %+v", report)
 	}
 }
 

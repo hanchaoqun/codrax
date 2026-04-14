@@ -1,15 +1,15 @@
 // Package risk evaluates the six-dimensional risk matrix for a
-// RequestModel and derives a RunPolicy that the orchestrator is bound
-// to for the rest of the run. It is one of the three components
-// (compiler, risk, hdp) that the analyzer agent will call after the
-// LLM produces a RequestModel in batch b5.
+// RequestModel. It is one of three deterministic post-processing
+// components (compiler, risk, hdp) the analyzer agent runs after the
+// LLM emits a RequestModel through the emit_analysis tool.
 //
 // The evaluator is deliberately conservative: it uses term-graph
 // heuristics to nudge dimensions upward from a baseline of zero and
-// leaves the final calibration to the LLM-supplied risk evidence
-// that b5 will layer on top. When the LLM already provides a
-// non-zero matrix, the heuristic only raises levels (never lowers),
-// so the analyzer cannot silently downgrade an LLM-flagged concern.
+// leaves the final calibration to the LLM-supplied risk evidence.
+// When the LLM already provides a non-zero matrix, the heuristic
+// only raises levels (never lowers), so the analyzer cannot silently
+// downgrade an LLM-flagged concern. The resulting matrix feeds
+// hdp.Plan — high-risk dimensions generate risk-driven hypotheses.
 package risk
 
 import "github.com/hanchaoqun/codrax/internal/types"

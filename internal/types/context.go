@@ -727,11 +727,10 @@ type BusContext struct {
 
 	// AnalysisIR is the Analyzer v3 structured output. Set once by the
 	// analyze stage via StageOutput.AnalysisIR → applyStageOutput and
-	// never rewritten thereafter — the v3 contract says the analyzer
-	// is the sole writer and RunPolicy is frozen for the rest of the
-	// run. Downstream stages may still write hypothesis status or
-	// per-node execution state through dedicated APIs that are added
-	// later batches; the top-level pointer itself stays read-only.
+	// never rewritten thereafter — the analyzer is the sole writer.
+	// Downstream stages may write hypothesis status or per-node
+	// execution state through dedicated APIs; the top-level pointer
+	// itself stays read-only.
 	AnalysisIR *AnalysisIR `json:"analysis_ir,omitempty"`
 }
 

@@ -10,8 +10,8 @@ import (
 // TestAnalyzerV3_IRIsBuiltFromTaskItem validates the analyzer's
 // deterministic post-processing pipeline: given a populated
 // TaskItem and raw objective, ParseOutput must produce a full
-// AnalysisIR whose RequestModel, TaskGraph, RunPolicy, and
-// QualityGate are all consistent with the inputs.
+// AnalysisIR whose RequestModel, TaskGraph, and QualityGate are
+// all consistent with the inputs.
 func TestAnalyzerV3_IRIsBuiltFromTaskItem(t *testing.T) {
 	mut := types.NewMutableState(types.TaskList{
 		Objective: "请解释 explorer 是如何决定 ShouldStop 的",
@@ -72,9 +72,6 @@ func TestAnalyzerV3_IRIsBuiltFromTaskItem(t *testing.T) {
 	}
 	if len(ir.HypothesisSet) == 0 {
 		t.Errorf("hypothesis planner must never produce an empty set")
-	}
-	if ir.RunPolicy.Writing {
-		t.Errorf("writing=false task should produce read-only policy")
 	}
 	// Normalizer should have found both terms. "ShouldStop" is
 	// CamelCase so it lands on code:shouldstop; lowercase "explorer"

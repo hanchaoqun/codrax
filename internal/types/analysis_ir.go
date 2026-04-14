@@ -6,20 +6,16 @@ import "fmt"
 // Analyzer v3 design. It is a single source of truth for everything the
 // downstream pipeline needs to know about the user's request: intent and
 // scenario classification, a canonical term graph, a task DAG, a falsifiable
-// hypothesis set, a multi-dimensional risk matrix, an evidence plan, a
-// machine-checkable answer contract, and the resolved run policy that the
-// orchestrator is bound to for the rest of the run.
+// hypothesis set, a multi-dimensional risk matrix, an evidence plan, and a
+// machine-checkable answer contract.
 //
 // Design invariants:
 //
 //  1. Analyzer is the *only* writer. Other stages may mutate
 //     HypothesisSet[*].Status and TaskGraph.Nodes[*] execution state via
 //     dedicated APIs but must not rewrite the structural fields.
-//  2. RunPolicy is frozen once the analyze stage succeeds and is read-only
-//     for the rest of the run. Risk re-evaluation happens via a retryable
-//     analyze re-entry, not by mutating RunPolicy in place.
-//  3. Every non-probe TaskNode must bind at least one Hypothesis.
-//  4. TaskGraph must be a well-formed DAG whose hard dependencies are
+//  2. Every non-probe TaskNode must bind at least one Hypothesis.
+//  3. TaskGraph must be a well-formed DAG whose hard dependencies are
 //     satisfiable — enforced by the analyzer quality gate, not by consumers.
 //
 // The deterministic pipeline that fills every field on this struct
@@ -35,7 +31,6 @@ type AnalysisIR struct {
 	EvidencePlan   EvidencePlan   `json:"evidence_plan"`
 	AnswerContract AnswerContract `json:"answer_contract"`
 	HypothesisSet  []Hypothesis   `json:"hypothesis_set,omitempty"`
-	RunPolicy      RunPolicy      `json:"run_policy"`
 	QualityGate    GateReport     `json:"quality_gate"`
 }
 
@@ -55,14 +50,6 @@ type RequestModel struct {
 	TermGraph   TermGraph   `json:"term_graph"`
 	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
 	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
-
-	// Writing and HighRisk are the LLM-declared writing-vs-reading
-	// classification. They feed risk.DerivePolicy to freeze the
-	// RunPolicy for the rest of the run. Pre-v3 these lived on the
-	// legacy AnalyzerClassification carrier; v3 moves them onto the
-	// RequestModel so emit_analysis is the single structured channel.
-	Writing  bool `json:"writing,omitempty"`
-	HighRisk bool `json:"high_risk,omitempty"`
 
 	// AnalyzerHints captures the raw LLM-extracted hints from the
 	// analyze stage's structured output. Intent/Scenario/Complexity
@@ -355,7 +342,7 @@ func (ir *AnalysisIR) MarkHypothesis(id string, status HypothesisStatus) error {
 	return fmt.Errorf("MarkHypothesis: hypothesis id %q not found in HypothesisSet (size %d)", id, len(ir.HypothesisSet))
 }
 
-// ── RiskMatrix & RunPolicy ──────────────────────────────────────────────
+// ── RiskMatrix ──────────────────────────────────────────────────────────
 
 type RiskMatrix struct {
 	Security      RiskLevel `json:"security"`
@@ -372,14 +359,6 @@ type RiskMatrix struct {
 type RiskLevel struct {
 	Level    int      `json:"level"`
 	Evidence []string `json:"evidence,omitempty"`
-}
-
-type RunPolicy struct {
-	Writing             bool     `json:"writing"`
-	RequireDesignReview bool     `json:"require_design_review"`
-	RequireCodeReview   bool     `json:"require_code_review"`
-	RequireVerify       bool     `json:"require_verify"`
-	ForbidSkipStages    []string `json:"forbid_skip_stages,omitempty"`
 }
 
 // ── Quality Gate ────────────────────────────────────────────────────────
