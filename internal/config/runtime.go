@@ -65,6 +65,16 @@ type RuntimeSettings struct {
 	PipelineRequireReview         *bool `yaml:"pipeline_require_review"`
 	PipelineAllowSkipPlanForSmall *bool `yaml:"pipeline_allow_skip_plan_for_small_change"`
 
+	// EvidenceToolMode selects the explorer evidence channel.
+	//   "off"  — markdown-parsed evidence only (current behavior, default)
+	//   "on"   — additionally register the emit_evidence structured tool,
+	//            extend the explorer phase-2 prompt to teach it, and merge
+	//            the tool's output with the parser output via
+	//            mergeEvidenceItems (StableEvidenceID dedups overlap).
+	// P1.1 design (memory/project_architecture_remediation_roadmap.md §6).
+	// No CLI override — switching channels mid-process makes no sense.
+	EvidenceToolMode *string `yaml:"evidence_tool_mode"`
+
 	// Pointers to the other two config files. Nested here so a single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

@@ -30,9 +30,10 @@ import (
 // UpdateTaskResult / SetCurrentTask instead of touching fields
 // directly, so locking stays correct.
 type MutableState struct {
-	mu             sync.RWMutex
-	taskList       TaskList
-	classification AnalyzerClassification
+	mu               sync.RWMutex
+	taskList         TaskList
+	classification   AnalyzerClassification
+	emittedEvidence  []EvidenceItem
 }
 
 // AnalyzerClassification is the raw LLM-emitted classification of the
@@ -202,6 +203,54 @@ func (m *MutableState) UpdateTaskResult(id, result string, status TaskStatus) st
 		return m.taskList.Tasks[idx].ID
 	}
 	return ""
+}
+
+// AppendEvidence appends one or more LLM-emitted evidence items to the
+// per-run buffer. Written by the emit_evidence tool; read by the
+// explorer's ensureStructuredEvidence after the ReAct loop exits.
+//
+// P1.1: this is the structured replacement for the markdown-parsed
+// evidence channel (parseEvidenceItems / F4 in docs/filtering-pipeline.md).
+// Tools fill this buffer instead of asking the LLM to write a markdown
+// header that a regex then walks. The two channels are merged in
+// ensureStructuredEvidence so under evidence_tool_mode=on both can run
+// simultaneously and dedup on StableEvidenceID.
+func (m *MutableState) AppendEvidence(items []EvidenceItem) {
+	if m == nil || len(items) == 0 {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emittedEvidence = append(m.emittedEvidence, items...)
+}
+
+// EmittedEvidence returns a snapshot of the LLM-emitted evidence buffer.
+// The returned slice shares its backing array with the internal state —
+// callers must not mutate it in place.
+func (m *MutableState) EmittedEvidence() []EvidenceItem {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.emittedEvidence) == 0 {
+		return nil
+	}
+	out := make([]EvidenceItem, len(m.emittedEvidence))
+	copy(out, m.emittedEvidence)
+	return out
+}
+
+// ResetEmittedEvidence clears the buffer. Called by the explorer's
+// cross-Run reset path so a stage re-dispatch starts from an empty
+// emitted-evidence state, matching how investigationNotes is reset.
+func (m *MutableState) ResetEmittedEvidence() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.emittedEvidence = nil
 }
 
 // SetCurrentTask updates which task drives routing. The orchestrator

@@ -1051,7 +1051,9 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"**Your job is to collect evidence, NOT to answer the question.** " +
 			"Do not form hypotheses or draw conclusions during this phase. " +
 			"Reasoning happens later in synthesis — right now, be a thorough investigator.\n\n" +
-			"Read the key source files you identified. After EACH file, extract ALL relevant facts as structured evidence:\n\n" +
+			"Read the key source files you identified. After EACH file, extract ALL relevant facts as structured evidence" +
+			phase2EvidenceChannelInstructions() +
+			"\n\n" +
 			"```\n" +
 			"## Evidence from [filename]\n" +
 			"- [DIRECT] `functionName` line N: <what this code establishes>\n" +
@@ -1694,6 +1696,18 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	}
 
 	parsed := parseEvidenceItems(e.investigationNotes, "explorer.llm")
+	// P1.1 (evidence_tool_mode=on): merge structured items emitted via
+	// the emit_evidence tool with the markdown-parsed channel. The two
+	// sources are merged by StableEvidenceID so a single fact reported
+	// through both channels (LLM both wrote markdown AND called the
+	// tool) collapses to one item. When the flag is off the buffer is
+	// empty and this is a no-op.
+	if ctx != nil && ctx.Mutable != nil {
+		if emitted := ctx.Mutable.EmittedEvidence(); len(emitted) > 0 {
+			logging.Debug("[explorer] ensureStructuredEvidence: merging %d emit_evidence item(s) with %d parsed", len(emitted), len(parsed))
+			parsed = mergeEvidenceItems(parsed, emitted)
+		}
+	}
 	// Deterministic line grounding: every parsed item that carries
 	// a Subject / Source / LineStart triple is cross-checked against
 	// (a) the gutter-reconstructed line text the LLM actually saw
@@ -1701,7 +1715,9 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	// LineStart cleared and their Producer suffixed "/ungrounded".
 	// See groundEvidenceItems for the full contract and
 	// memory/project_fake_green_audit_2026_04_14.md Pattern 2 for
-	// the failure mode this closes.
+	// the failure mode this closes. Items from emit_evidence go through
+	// the same grounder — the channel they came from doesn't change
+	// the line-number trust contract.
 	var graphForGrounding *repomap.Graph
 	if e.searchResult != nil {
 		graphForGrounding = e.searchResult.Graph

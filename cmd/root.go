@@ -389,6 +389,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineAllowSkipPlanForSmall != nil {
 			cfg.PipelineSettings.AllowSkipPlanForSmallChange = *rs.PipelineAllowSkipPlanForSmall
 		}
+		if rs.EvidenceToolMode != nil {
+			agent.SetEvidenceToolMode(*rs.EvidenceToolMode)
+		}
 	}
 	// CLI flag overrides for pipeline budget.
 	if cmd.Flags().Changed("pipeline-max-retries") && flagMaxRetries > 0 {
@@ -428,6 +431,20 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	tool.RegisterDefaults(toolRegistry)
 	toolRegistry.Register(&repomap.RepoMapV2{})
 	toolRegistry.Register(tool.NewProposeSubAgents())
+
+	// P1.1 (evidence_tool_mode): structured emit_evidence tool is the
+	// per-agent (explorer-only) replacement for parseEvidenceItems. We
+	// register it conditionally — the registration itself is the
+	// process-wide gate; the skill ToolSuggestions edit below is the
+	// per-agent gate. Both are needed because RegisterDefaults must
+	// stay agnostic of pipeline topology.
+	if agent.EvidenceToolEnabled() {
+		toolRegistry.Register(&tool.EmitEvidence{})
+		if exploreSkill, err := skillRegistry.Get("repo-explore-skill"); err == nil {
+			exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence")
+		}
+		logging.Info("evidence_tool_mode=on — emit_evidence registered for explorer")
+	}
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 

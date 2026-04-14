@@ -14,7 +14,22 @@
 > accompanies this doc. When a filter is added, moved, or removed,
 > update this doc *in the same commit*.
 >
-> **HEAD at write**: post-P0.2 ship `41f4b61`. P0.3 is this doc.
+> **HEAD at write**: post-P1.1 ship (emit_evidence channel landed,
+> default off). Earlier: P0.3 doc itself written at `41f4b61`.
+>
+> **P1.1 update (2026-04-14)**: F4 (`parseEvidenceItems`) is no
+> longer the only feeder of the Evidence channel. The new
+> `emit_evidence` tool (`internal/tool/emit_evidence.go`) is a
+> structured side-channel that bypasses regex parsing entirely; under
+> `evidence_tool_mode=on` (codrax.yaml) the explorer phase-2 prompt
+> teaches the LLM to call it, and `ensureStructuredEvidence` merges
+> its output with F4's via `mergeEvidenceItems`. The two channels
+> share F5 grounding, F6 dedup, F7 ranking, and F8 scope narrowing
+> — i.e. the ordering invariants in §3 are unchanged. F4 stays as
+> the documented fallback for the markdown channel; nothing was
+> deleted in this commit. The fail-loud bet is at the tool boundary
+> instead of inside the parser: unknown fields/kinds are rejected
+> by `EmitEvidence.Execute` rather than silently coerced.
 >
 > **What this is NOT**:
 > - NOT a spec — the code in `internal/agent/evidence.go`, `explorer.go`,
@@ -171,7 +186,8 @@ Explanatory edges (not drawn above to keep the DAG readable):
 | F2 | Tool output | `pruneToolHistory` | `internal/agent/agent.go:268` | LLM message history > 150KB | Replace old tool messages with stub | struct / byte |
 | F3 | Tool output | `StoreBlob` | `internal/tool/blob.go:93` | Per-tool output > inline cap (~32KB) | Spool to disk + inline preview | struct / size |
 | F3' | Tool output | `StoreBlobHeadOnly` | `internal/tool/blob.go:128` | Same, head-only variant (for tools that truncate mid-content catastrophically) | Spool + head-only preview | struct / size |
-| F4 | Evidence | `parseEvidenceItems` | `internal/agent/evidence.go:59` | (Not a filter in the strict sense; extractor) Markdown → `EvidenceItem` | Regex parse + intra-batch dedup via `mergeEvidenceItems` | regex → struct |
+| F4 | Evidence | `parseEvidenceItems` | `internal/agent/evidence.go:59` | (Not a filter in the strict sense; extractor) Markdown → `EvidenceItem`. **P1.1**: under `evidence_tool_mode=on`, runs side-by-side with the structured `emit_evidence` tool; both channels feed `mergeEvidenceItems` and share F5..F8. Markdown remains the default fallback (`evidence_tool_mode=off`). | Regex parse + intra-batch dedup via `mergeEvidenceItems` | regex → struct |
+| F4' | Evidence | `EmitEvidence.Execute` | `internal/tool/emit_evidence.go` | (P1.1) Schema-validated structured replacement for F4. The LLM calls `emit_evidence(items=[...])` once per file; tool rejects unknown fields and unknown kinds at the boundary so parser-class bugs are structurally impossible on this channel. Output goes to `BusContext.Mutable.AppendEvidence`, picked up by `ensureStructuredEvidence`. Active only when `evidence_tool_mode=on`. | Strict JSON decode + per-item shape validation | struct (schema) |
 | F5 | Evidence | `groundEvidenceItems` | `internal/agent/evidence.go:320` | LLM line-number hallucination | Clear `LineStart`, tag `Producer` with `/ungrounded` (does NOT drop) | struct (2-tier validator) |
 | F6 | Evidence | `mergeEvidenceItems` | `internal/agent/evidence.go:237` | Duplicate evidence across sources (LLM notes / concrete values / mechanism / dataflow) | Dedup on `StableEvidenceID` hash | struct (hash) |
 | F7 | Evidence | `rankEvidenceByRelevance` | `internal/agent/evidence.go:847` | Low-relevance items pushed into top-N | Reorder + weighted bonus (does NOT drop) | regex / string heuristics over struct |

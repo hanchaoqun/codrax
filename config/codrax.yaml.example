@@ -134,6 +134,30 @@
 # pipeline_allow_skip_plan_for_small_change: false
 
 # ---------------------------------------------------------------------------
+# Explorer evidence channel (P1.1 — emit_evidence structured tool)
+# ---------------------------------------------------------------------------
+# Selects how the explorer's investigation notes become structured
+# EvidenceItems consumed by the synthesis / finalize stages.
+#
+#   off  — markdown-only (default, current behavior). The explorer
+#          phase-2 prompt teaches the LLM to write `## Evidence from
+#          <path>` blocks, which parseEvidenceItems walks with regex.
+#          This channel is the historical source of parser-class bugs
+#          (see project_evidence_as_tool_refactor_deferred memo).
+#
+#   on   — additionally register the emit_evidence tool against the
+#          explorer-only repo-explore-skill, extend the phase-2
+#          prompt to instruct the LLM to call it once per file with
+#          a JSON batch of items, and merge the tool's output with
+#          the markdown-parsed items via mergeEvidenceItems
+#          (StableEvidenceID dedups overlap). Both channels run side
+#          by side; this is the safe rollout state for collecting
+#          recall data before flipping the default.
+#
+# No CLI override — switching channels mid-process makes no sense.
+# evidence_tool_mode: off
+
+# ---------------------------------------------------------------------------
 # Paths to the other two config files
 # ---------------------------------------------------------------------------
 # Keeping these here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
