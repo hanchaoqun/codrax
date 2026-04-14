@@ -2,20 +2,20 @@
 # codrax runtime settings — copy to config/codrax.yaml to activate.
 # =============================================================================
 #
-# There are three YAML files under config/, each with a distinct role.
+# There are two YAML files under config/, each with a distinct role.
 # Do not duplicate keys across them:
 #
-#   orchestrator.yaml — Pipeline topology only: stages, transitions,
-#                       task policies, agent/skill bindings.
+#   providers.yaml — LLM provider credentials and per-agent model
+#                    routing. Per-user secrets, never committed.
 #
-#   providers.yaml    — LLM provider credentials and per-agent model
-#                       routing. Per-user secrets, never committed.
+#   codrax.yaml    — THIS FILE. Per-process runtime knobs: where to
+#                    write logs and memory, default response language,
+#                    per-invocation targets (repo, branch), global
+#                    step budget, tool blob sizing, pipeline budgets,
+#                    and a pointer to providers.yaml.
 #
-#   codrax.yaml       — THIS FILE. Per-process runtime knobs: where to
-#                       write logs and memory, default response language,
-#                       per-invocation targets (repo, branch), global
-#                       step budget, tool blob sizing, pipeline
-#                       behavior, and pointers to the other two files.
+# The pipeline topology (4 stages × 4 agents) is hardcoded in
+# internal/orchestrator/topology.go and has no YAML counterpart.
 #
 # Precedence (lowest wins last):
 #
@@ -69,9 +69,6 @@
 # ---------------------------------------------------------------------------
 # Per-invocation target
 # ---------------------------------------------------------------------------
-# These describe WHERE the pipeline runs. Step budgets and per-stage
-# limits all live under "Pipeline behavior" below — they share the
-# pipeline_* prefix so the budget knobs are visually grouped.
 
 # Target repository the agents operate on.
 # repo: .
@@ -98,29 +95,18 @@
 # blob_preview_tail_bytes: 4096
 
 # ---------------------------------------------------------------------------
-# Pipeline behavior
+# Pipeline budgets
 # ---------------------------------------------------------------------------
-# Runtime operator knobs (retry budgets, behavior toggles, step budget).
-# Pipeline topology (stages, transitions, policies) lives in
-# orchestrator.yaml; these keys control *how* the pipeline runs.
-#
-# Precedence (lowest wins last):
+# Runtime budget knobs — how much work the pipeline is allowed to do
+# per Run() call. Precedence (lowest wins last):
 #   code default
 #     → these keys
-#     → command-line flags (-pipeline-max-steps, -pipeline-max-retries,
-#       -pipeline-max-stage-visits have CLI overrides; the three
-#       boolean toggles are CLI-less).
+#     → command-line flags (-pipeline-max-steps,
+#       -pipeline-max-retries, -pipeline-max-stage-visits).
 
 # Maximum total pipeline steps per Run() call. Acts as a hard global
 # budget cap independent of per-stage retries and oscillation guards.
 # pipeline_max_steps: 50
-
-# Enable / disable the verify stage globally.
-# pipeline_enable_verify: true
-
-# When true, use the high_risk_implementation policy that includes
-# design_review and code_review stages.
-# pipeline_require_review: true
 
 # Max consecutive failures per stage before forcing finalize.
 # pipeline_max_retries_per_stage: 3
@@ -129,38 +115,10 @@
 # finalize. Values <= 0 fall back to the code default (4).
 # pipeline_max_stage_visits: 4
 
-# When true, small changes can jump from explore to implement,
-# skipping plan.
-# pipeline_allow_skip_plan_for_small_change: false
-
 # ---------------------------------------------------------------------------
-# Two-turn explorer (investigation / extraction split)
+# Path to providers config
 # ---------------------------------------------------------------------------
-# Selects the explorer turn topology.
-#
-#   on  — DEFAULT. Explorer splits into Turn A (investigation) followed
-#         by a separate StageExtract dispatch handled by the extractor
-#         agent (Turn B). Turn A keeps grep / read_file / repo_map but
-#         no longer emits the answer slate. Turn B is restricted to
-#         emit_evidence / emit_answer_symbol / emit_hypothesis_verdict
-#         and works exclusively from Turn A's transcript snapshot — no
-#         fresh file IO. Turn B has no other evidence pipe, so this
-#         mode depends on the (always-on) emit_evidence channel
-#         produced by Turn A's Phase 1.
-#
-#   off — single-turn ReAct loop fallback. The explorer is a monolithic
-#         evaluator that interleaves file reads with structured-
-#         evidence emission inside one ReAct loop. Only use this when
-#         chasing a regression caused by the two-turn topology.
-#
-# No CLI override — switching topology mid-process makes no sense.
-# two_turn_explorer_mode: on
-
-# ---------------------------------------------------------------------------
-# Paths to the other two config files
-# ---------------------------------------------------------------------------
-# Keeping these here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
+# Keeping this here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
 # bootstraps an entire environment from a single entry point.
 
-# orchestrator_config: config/orchestrator.yaml
 # providers_config: config/providers.yaml
