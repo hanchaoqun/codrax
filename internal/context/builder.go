@@ -514,6 +514,13 @@ func filterFlowFindingsByEvidence(items []types.EvidenceItem, findings []types.F
 	return filtered
 }
 
+// evidenceUngroundedSuffix mirrors agent.ungroundedSuffix. The
+// grounding pass tags Producer with this suffix when an item's
+// LineStart fails every validation tier; see
+// internal/agent/evidence.go. Duplicated as a literal here to avoid
+// an internal/context → internal/agent import. Keep in sync.
+const evidenceUngroundedSuffix = "/ungrounded"
+
 func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
 	if len(items) == 0 {
 		return ""
@@ -552,6 +559,9 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
 				}
 			}
 			line += ")"
+		}
+		if strings.HasSuffix(item.Producer, evidenceUngroundedSuffix) {
+			line += " [UNGROUNDED: cite without line number]"
 		}
 		b.WriteString("- " + line + "\n")
 	}

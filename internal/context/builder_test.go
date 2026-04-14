@@ -504,3 +504,52 @@ func TestBuildSubAgentContextFiltersEvidenceItemsByScope(t *testing.T) {
 		t.Fatalf("filtered flow findings = %+v", ac.FlowFindings)
 	}
 }
+
+// TestFormatEvidenceItemsRendersUngroundedTag pins the P0.1 contract:
+// evidence items whose Producer carries the "/ungrounded" suffix
+// (assigned by agent.groundEvidenceItems when every validation tier
+// rejected the LLM-cited line number) must appear in the finalizer
+// prompt with a visible [UNGROUNDED: cite without line number] tag.
+// This upgrades the /ungrounded contract from prompt-level soft
+// constraint (set in finalizer.go) to a renderer-level visual marker
+// the LLM cannot miss. Mirrors roadmap item P0.1 in
+// docs/architecture-root-cause-remediation.md.
+func TestFormatEvidenceItemsRendersUngroundedTag(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Kind:      types.EvidenceConcrete,
+			Subject:   "Handler.Name",
+			Predicate: "returns",
+			Object:    "\"explorer\"",
+			Source:    "internal/agent/explorer.go",
+			LineStart: 18,
+			Producer:  "explorer",
+		},
+		{
+			Kind:      types.EvidenceConcrete,
+			Subject:   "Register",
+			Predicate: "binds",
+			Object:    "NewExplorerAgent",
+			Source:    "internal/agent/registry.go",
+			// LineStart cleared by groundEvidenceItems when
+			// tier1+tier2 failed; Producer tagged.
+			Producer: "explorer/ungrounded",
+		},
+	}
+	out := formatEvidenceItems(items, 0)
+	if !strings.Contains(out, "[UNGROUNDED: cite without line number]") {
+		t.Fatalf("ungrounded evidence item missing visible tag:\n%s", out)
+	}
+	// Grounded items must NOT carry the tag — otherwise the LLM
+	// would strip line numbers from every cite.
+	for _, line := range strings.Split(out, "\n") {
+		if strings.Contains(line, "Handler.Name") && strings.Contains(line, "[UNGROUNDED") {
+			t.Fatalf("grounded item wrongly tagged ungrounded:\n%s", line)
+		}
+	}
+	// Sanity: the ungrounded line must still render (demote, not
+	// drop — renderer stays purely presentational).
+	if !strings.Contains(out, "Register") {
+		t.Fatalf("ungrounded item dropped instead of demoted:\n%s", out)
+	}
+}
