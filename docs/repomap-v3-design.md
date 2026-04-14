@@ -1,8 +1,10 @@
 # Repomap v3 Design
 
-Status: **Phases 0 – 4 COMPLETE** (HEAD `30fbfc1`).
-Next step: **Phase 5 — language plugins + semantic subgraphs**
-(plan items 5 and 8). Roadmap only — do not auto-start.
+Status: **Phases 0 – 4 COMPLETE**, **Phase 5 item 8 (semantic_subgraph)
+SHIPPED 2026-04-14** at `1f2729f` (HEAD `861b4c6`). The B-bucket
+receiver-drift carryover is also closed at `861b4c6`.
+Next step: **Phase 5 item 5 — language plugins (C#/PHP/Ruby/Kotlin)**.
+Roadmap only — do not auto-start.
 
 This document is the architectural spec for the repomap refactor.
 For the day-to-day eval harness usage, see `eval/repomap_v3/README.md`.
@@ -67,7 +69,9 @@ Phase 4  three-layer split + view migration ─ SHIPPED  da22269..30fbfc1
   P4a   migrate task_map view to ViewData  ─ shipped  da22269
   P4b   migrate file_map/call_path/edit_impact views + ViewItem.Depth ─ shipped  60208f6
   P4c   three-layer directory split        ─ shipped  30fbfc1
-Phase 5  language plugins + semantic subgraphs ─ ROADMAP
+Phase 5  item 8 semantic_subgraph view           ─ shipped  1f2729f
+         B-bucket receiver drift (erm/explorer)   ─ shipped  861b4c6
+         item 5 language plugins (C#/PHP/...)     ─ ROADMAP
 ```
 
 Phase 1 closed out at P1.2b. The data-model work the user's refactor
@@ -719,21 +723,75 @@ We deliberately do not chase them — the cost is over-fit
 risk, and the harness's purpose is to gate regressions, not
 to push the last few tenths of a point.
 
-The natural time to revisit the Phase 1 B-bucket drift-
-sensitive consumers (`erm.go:answerSymbolFromEvidence`,
-`explorer.go:symDefFile`) is now open — the retrieval layer
-owns the `Relation.ToEP.ID` propagation contract, so a
-receiver-aware `AnswerSymbolFromEvidence` helper has a clean
-home. Not started; tracked as a standalone agent-code follow-up
-outside the repomap refactor scope.
+Both Phase 1 B-bucket drift-sensitive consumers
+(`erm.go:answerSymbolFromEvidence` and
+`explorer.go:symDefFile`) are closed at `861b4c6`. The erm
+site now routes through `resolveDefWithReceiver(graph, name,
+receiverHint)` using `ev.Subject` as the receiver hint and
+refuses to guess when the hint cannot disambiguate. The
+explorer site routes through `buildUniqueDefFileIndex` which
+drops any symbol spanning ≥2 files from the cross-reference
+"(defined in X)" decoration, so the render path simply omits
+the annotation rather than pointing at a drifted file. Both
+fixes are covered by direct unit tests
+(`TestResolveDefWithReceiver_DriftSafe`,
+`TestBuildUniqueDefFileIndex`).
 
-## Roadmap — Phase 5
+## Phase 5 item 8 — semantic_subgraph view (shipped `1f2729f`)
 
-Language plugins + semantic subgraphs. Covers plan items 5
-(C#/PHP/Ruby/Kotlin plugins + `LanguageExtractor` interface) and
-8 (semantic subgraph output: chains / hubs / bridges). After the
-core is solid. With Phase 4's directory split, the new plugin
-work has a clear home in `index/extract_*.go` +
+Adds three graph-analytic summaries over the ImportGraph under
+a single `semantic_subgraph` view type:
+
+- **Chains** — maximal linear import pipelines. An interior
+  node has in-degree 1 and out-degree 1. `ComputeChains` walks
+  backwards from every unvisited interior to its leftmost peer
+  (cycle-safe), then forward collecting the run, then extends
+  one step on each end to include the non-interior anchors.
+  Minimum emitted length is 3 — a simple 2-file edge is not a
+  chain. Pure 3-cycles produce a single 3-file output with no
+  duplicates.
+
+- **Hubs** — top-N files ranked by `FanIn + FanOut`. `FanIn`
+  is `len(ReverseImports[f])`, `FanOut` is `len(ImportGraph[f])`.
+  Ties break on FanIn desc, then FanOut desc, then lex. Isolated
+  nodes (zero total degree) are skipped.
+
+- **Bridges** — articulation points in the undirected
+  projection of the ImportGraph. Computed with an iterative
+  form of Tarjan's algorithm (frame stack, per-node index
+  pointer into the sorted neighbour list), sorted by undirected
+  degree desc then lex. The root-articulation special case is
+  handled by counting direct DFS-tree children after the stack
+  drains. Self-loops and duplicate edges are coalesced in
+  `buildUndirectedAdj`.
+
+All three helpers are deterministic: `ComputeChains` and the
+Tarjan start-node loop iterate over sorted file-path slices,
+and `buildUndirectedAdj` sorts each adjacency list. Tests in
+`retrieve/subgraph_test.go` cover 11 scenarios including
+branching kills, cycle termination, minimum-length drop,
+length-desc sort, hub tie-breaks, isolate skipping, triangle
+rejection, disjoint components, and bridge determinism.
+
+Rendering lives in `render.buildSemanticSubgraphData` and
+always emits three sections even when one is empty, so the
+view has a stable shape. Chains render with ` → ` arrows
+between backticked file paths, truncated to a sensible inline
+width. Hubs and bridges render as plain bullet lists with the
+relevant numbers inline.
+
+`tool.go` adds `semantic_subgraph` to the view enum in
+`repoMapParams`, the JSONSchema `view` enum, the tool
+description, and the `ToolDescription` switch. The harness at
+HEAD is unchanged (recall/precision/internal_accuracy 1.000,
+hit@k 0.8571, drift 0.064) because the new view is purely
+additive and does not touch the rank path.
+
+## Roadmap — Phase 5 item 5
+
+Language plugins for C#, PHP, Ruby, and Kotlin on the
+`LanguageExtractor` interface. With Phase 4's directory split,
+the new plugin work has a clear home in `index/extract_*.go` +
 `index/resolver_*.go` and does not require touching the
 retrieval or render layers. Not scheduled — wait for the user
 to prioritize.
