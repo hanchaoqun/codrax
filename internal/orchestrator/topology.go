@@ -15,7 +15,7 @@ var pipelineTopology = map[types.PipelineStage]struct {
 	Skill    string
 	Terminal bool
 }{
-	types.StageAnalyze:  {Agent: types.AgentAnalyzer, Skill: "task-analysis-skill"},
+	types.StageAnalyze:  {Agent: types.AgentAnalyzer, Skill: "analysis-skill"},
 	types.StageExplore:  {Agent: types.AgentExplorer, Skill: "repo-explore-skill"},
 	types.StageExtract:  {Agent: types.AgentExtractor, Skill: "extract-skill"},
 	types.StageFinalize: {Agent: types.AgentFinalizer, Skill: "answer-document-skill", Terminal: true},

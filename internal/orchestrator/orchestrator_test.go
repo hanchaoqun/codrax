@@ -54,7 +54,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 
 	sr := skill.NewRegistry()
 	skillNames := []string{
-		"task-analysis-skill",
+		"analysis-skill",
 		"repo-explore-skill",
 		"extract-skill",
 		"answer-document-skill",
