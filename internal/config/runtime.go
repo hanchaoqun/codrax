@@ -74,11 +74,25 @@ type RuntimeSettings struct {
 	//     the analyzer's LoopController force-stops the dispatch
 	//     and the ParseOutput failsafe synthesises a zero-value
 	//     RequestModel. 0 disables the gate entirely. Default 2.
-	AnalysisWarnBelowKeywords      *int     `yaml:"analysis_warn_below_keywords"`
-	AnalysisRejectBelowKeywords    *int     `yaml:"analysis_reject_below_keywords"`
-	AnalysisGenericEntityBlocklist []string `yaml:"analysis_generic_entity_blocklist"`
-	AnalysisRejectMultipleEmit     *bool    `yaml:"analysis_reject_multiple_emit"`
-	AnalysisMaxPrescanRounds       *int     `yaml:"analysis_max_prescan_rounds"`
+	//   - analysis_warn_below_keyword_hit_ratio: soft floor on the
+	//     runtime quality probe's keyword_hit_ratio (0.0-1.0).
+	//     When the fraction of emit_analysis.keywords observed in
+	//     the pre-scan summary blob drops below this value, the
+	//     emit_analysis tool attaches a `[warn: keyword_hit_ratio=X
+	//     below floor Y]` line to its Summary. 0 disables the
+	//     warning entirely (the probe is still computed and
+	//     surfaced via analysis_quality_probe). Default 0.
+	//   - analysis_warn_below_entity_hit_ratio: same soft floor for
+	//     entity_hit_ratio. Entities are higher signal than
+	//     keywords so this is the stricter of the two knobs in
+	//     practice. 0 disables. Default 0.
+	AnalysisWarnBelowKeywords       *int     `yaml:"analysis_warn_below_keywords"`
+	AnalysisRejectBelowKeywords     *int     `yaml:"analysis_reject_below_keywords"`
+	AnalysisGenericEntityBlocklist  []string `yaml:"analysis_generic_entity_blocklist"`
+	AnalysisRejectMultipleEmit      *bool    `yaml:"analysis_reject_multiple_emit"`
+	AnalysisMaxPrescanRounds        *int     `yaml:"analysis_max_prescan_rounds"`
+	AnalysisWarnBelowKeywordHitRatio *float64 `yaml:"analysis_warn_below_keyword_hit_ratio"`
+	AnalysisWarnBelowEntityHitRatio  *float64 `yaml:"analysis_warn_below_entity_hit_ratio"`
 
 	// Pipeline budget knobs. Flat-prefixed `pipeline_*`. Precedence:
 	// code default → codrax.yaml → CLI flag.

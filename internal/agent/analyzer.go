@@ -104,7 +104,6 @@ type analyzerEvaluator struct {
 // The TestAnalyzer_BuildInitialInstruction_IsEmpty guard pins this contract
 // so a future commit cannot re-seed static text here by accident.
 func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
-	_ = ctx
 	_ = sk
 	// Reset the pre-scan counter so cross-dispatch retries (e.g.
 	// analyze re-entry after a retryable quality gate rejection)
@@ -113,6 +112,14 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// gate failure, the second dispatch should get its own 2-round
 	// budget, not inherit the first dispatch's exhausted counter.
 	e.prescanRounds = 0
+	// Reset the pre-scan summary blob on Mutable for the same reason:
+	// the quality probe's seen-blob whitelist + hit-ratio inputs
+	// must only reflect THIS dispatch's pre-scan activity, not an
+	// earlier attempt's state. ResetPrescanSummary is a no-op when
+	// ctx.Mutable is nil (tests / sub-agent contexts).
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.ResetPrescanSummary()
+	}
 	return ""
 }
 
@@ -140,7 +147,6 @@ func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // the installed value so operators can see whether the gate is
 // armed.
 func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
-	_ = ctx
 	if obs.Phase != PhaseMidLoop {
 		return LoopSignal{}
 	}
@@ -148,6 +154,20 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		return LoopSignal{}
 	}
 	e.prescanRounds++
+
+	// Feed the pre-scan summary into the runtime quality-probe data
+	// channel on MutableState. The blob lets emit_analysis.Execute
+	// (and later analyzer.ParseOutput) answer two questions without
+	// re-running grep:
+	//   1. Is this generic-blocklist entity actually verified in
+	//      the repo? (whitelist exemption in validateAnalysisInput)
+	//   2. What fraction of emit_analysis.keywords / entities did
+	//      the pre-scan actually see? (ComputeAnalysisQualityProbe)
+	// AppendPrescanSummary lowercases the input once at write-time
+	// so the read path is a zero-alloc substring check.
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.AppendPrescanSummary(obs.LastToolResult.Summary)
+	}
 
 	max := tool.CurrentAnalysisLimits().MaxPrescanRounds
 	if max <= 0 || e.prescanRounds <= max {
@@ -251,12 +271,28 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// have a valid IR to read.
 	ir := buildAnalysisIR(ctx)
 
+	// Compute the runtime quality probe post-hoc so every analyze
+	// dispatch surfaces keyword/entity hit stats in StageOutput.Data,
+	// regardless of whether the warning thresholds are armed. This is
+	// the shared data channel the explorer stage will reuse via
+	// `analysis_quality_probe` — keeping the probe computation here
+	// means the explorer sees the SAME numbers the validator saw
+	// (both read Mutable.PrescanSummaryBlob through
+	// ComputeAnalysisQualityProbe).
+	var probeKeywords, probeEntities []string
+	if ir != nil {
+		probeKeywords = ir.RequestModel.AnalyzerHints.Keywords
+		probeEntities = ir.RequestModel.AnalyzerHints.Entities
+	}
+	qualityProbe := computeQualityProbeFromContext(ctx, prescanRounds, probeKeywords, probeEntities)
+
 	data := map[string]any{
 		"result":                            lastContent,
 		"analysis_emit_calls":               emitCalls,
 		"analysis_fallback_used":            fallbackUsed,
 		"analysis_prescan_rounds":           prescanRounds,
 		"analysis_prescan_budget_exhausted": prescanBudgetExhausted,
+		"analysis_quality_probe":            qualityProbeToMap(qualityProbe),
 	}
 	if ir != nil {
 		hints := ir.RequestModel.AnalyzerHints

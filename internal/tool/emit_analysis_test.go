@@ -17,7 +17,7 @@ func TestValidateAnalysisInput_HappyPath(t *testing.T) {
 	kw := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
 	ents := []string{"OrchestratorAgent", "StageAnalyze"}
 
-	res := validateAnalysisInput(kw, ents, limits)
+	res := validateAnalysisInput(kw, ents, limits, "", 0)
 
 	if res.RejectReason != "" {
 		t.Errorf("clean input must not reject, got %q", res.RejectReason)
@@ -35,7 +35,7 @@ func TestValidateAnalysisInput_HappyPath(t *testing.T) {
 
 func TestValidateAnalysisInput_WarnBelowKeywords(t *testing.T) {
 	limits := AnalysisLimits{WarnBelowKeywords: 8, RejectBelowKeywords: 0}
-	res := validateAnalysisInput([]string{"a", "b", "c"}, nil, limits)
+	res := validateAnalysisInput([]string{"a", "b", "c"}, nil, limits, "", 0)
 
 	if res.RejectReason != "" {
 		t.Errorf("soft floor must not reject, got %q", res.RejectReason)
@@ -53,7 +53,7 @@ func TestValidateAnalysisInput_WarnBelowKeywords(t *testing.T) {
 
 func TestValidateAnalysisInput_RejectBelowKeywords(t *testing.T) {
 	limits := AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 5}
-	res := validateAnalysisInput([]string{"a", "b"}, nil, limits)
+	res := validateAnalysisInput([]string{"a", "b"}, nil, limits, "", 0)
 
 	if res.RejectReason == "" {
 		t.Fatal("hard floor must reject")
@@ -70,7 +70,7 @@ func TestValidateAnalysisInput_RejectWinsOverWarn(t *testing.T) {
 	// When both thresholds trip, reject must win so the caller gets
 	// the machine-readable failure signal instead of only a soft warning.
 	limits := AnalysisLimits{WarnBelowKeywords: 8, RejectBelowKeywords: 6}
-	res := validateAnalysisInput([]string{"a", "b"}, nil, limits)
+	res := validateAnalysisInput([]string{"a", "b"}, nil, limits, "", 0)
 
 	if res.RejectReason == "" {
 		t.Fatal("hard floor must reject when both thresholds trip")
@@ -86,7 +86,9 @@ func TestValidateAnalysisInput_DropsGenericEntities(t *testing.T) {
 		GenericEntityBlocklist: []string{"agent", "handler"},
 	}
 	ents := []string{"OrchestratorAgent", "Agent", "Handler", "StageAnalyze", "HANDLER"}
-	res := validateAnalysisInput(nil, ents, limits)
+	// Empty seenBlob → whitelist is inactive → historical strict
+	// dropping behavior (Agent / Handler removed unconditionally).
+	res := validateAnalysisInput(nil, ents, limits, "", 0)
 
 	if res.RejectReason != "" {
 		t.Errorf("filter-only run must not reject, got %q", res.RejectReason)
@@ -111,7 +113,7 @@ func TestValidateAnalysisInput_DropsGenericEntities(t *testing.T) {
 	if len(res.Warnings) != 1 {
 		t.Fatalf("expected 1 warning, got %v", res.Warnings)
 	}
-	if !strings.Contains(res.Warnings[0], "dropped generic entities") {
+	if !strings.Contains(res.Warnings[0], "dropped_generic_entities") {
 		t.Errorf("warning text missing label, got %q", res.Warnings[0])
 	}
 }
@@ -123,7 +125,7 @@ func TestValidateAnalysisInput_EmptyBlocklistSkipsFilter(t *testing.T) {
 		GenericEntityBlocklist: nil,
 	}
 	ents := []string{"agent", "handler", "Explorer"}
-	res := validateAnalysisInput(nil, ents, limits)
+	res := validateAnalysisInput(nil, ents, limits, "", 0)
 
 	if len(res.DroppedEntities) != 0 {
 		t.Errorf("nil blocklist must drop nothing, got %v", res.DroppedEntities)
@@ -131,6 +133,317 @@ func TestValidateAnalysisInput_EmptyBlocklistSkipsFilter(t *testing.T) {
 	if len(res.FilteredEntities) != 3 {
 		t.Errorf("nil blocklist must pass all entities through, got %v", res.FilteredEntities)
 	}
+}
+
+// TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity pins
+// the 2026-04-15 fix: when a generic-blocklist entity ALSO appears
+// in the pre-scan summary blob (lowercase substring match), it must
+// be kept instead of dropped so real symbols named `Agent` or
+// `Handler` survive. A distinct `kept_generic_verified_entities`
+// warning fires so the operator can audit the rescue.
+func TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity(t *testing.T) {
+	limits := AnalysisLimits{
+		WarnBelowKeywords:      0,
+		RejectBelowKeywords:    0,
+		GenericEntityBlocklist: []string{"agent", "handler", "count"},
+	}
+	// seenBlob is what `AnalyzerEvaluator.Observe` would have appended:
+	// lowercased concatenation of successful pre-scan tool Summaries.
+	// Here we simulate a grep files_only=true hit on files that
+	// contain both `agent` and `handler` as real symbols, but NOT
+	// the word `count`.
+	seenBlob := "internal/agent/analyzer.go\ninternal/tool/handler.go\n"
+	ents := []string{"Orchestrator", "Agent", "Handler", "Count"}
+
+	res := validateAnalysisInput(nil, ents, limits, seenBlob, 1)
+
+	// Count is still dropped (not in the seenBlob).
+	if len(res.DroppedEntities) != 1 || res.DroppedEntities[0] != "Count" {
+		t.Errorf("DroppedEntities = %v, want [Count]", res.DroppedEntities)
+	}
+	// Agent and Handler should be rescued by the whitelist.
+	if len(res.KeptVerifiedEntities) != 2 {
+		t.Fatalf("KeptVerifiedEntities count = %d, want 2; got %v",
+			len(res.KeptVerifiedEntities), res.KeptVerifiedEntities)
+	}
+	// Both rescued entries should appear in the final FilteredEntities
+	// so downstream consumers see the full list in one place.
+	names := map[string]bool{}
+	for _, e := range res.FilteredEntities {
+		names[e] = true
+	}
+	for _, want := range []string{"Orchestrator", "Agent", "Handler"} {
+		if !names[want] {
+			t.Errorf("FilteredEntities missing %q, got %v", want, res.FilteredEntities)
+		}
+	}
+	if names["Count"] {
+		t.Errorf("Count should have been dropped, but is in FilteredEntities")
+	}
+
+	// Two distinct warnings: one for dropped (Count), one for
+	// kept-verified (Agent, Handler).
+	var haveDropped, haveKept bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "dropped_generic_entities") {
+			haveDropped = true
+		}
+		if strings.Contains(w, "kept_generic_verified_entities") {
+			haveKept = true
+		}
+	}
+	if !haveDropped {
+		t.Errorf("Warnings missing dropped_generic_entities line, got %v", res.Warnings)
+	}
+	if !haveKept {
+		t.Errorf("Warnings missing kept_generic_verified_entities line, got %v", res.Warnings)
+	}
+}
+
+// TestValidateAnalysisInput_WhitelistInactiveWithEmptyBlob pins the
+// backwards-compat invariant: when the seenBlob is empty (tests,
+// fallback paths, analyzer ran with no pre-scans), the whitelist
+// exception is INACTIVE and the historical strict drop behavior
+// applies byte-for-byte. This is the regression guard against
+// accidentally changing the no-pre-scan default.
+func TestValidateAnalysisInput_WhitelistInactiveWithEmptyBlob(t *testing.T) {
+	limits := AnalysisLimits{
+		GenericEntityBlocklist: []string{"agent", "handler"},
+	}
+	ents := []string{"Agent", "Handler", "Explorer"}
+
+	res := validateAnalysisInput(nil, ents, limits, "" /* empty blob */, 0)
+
+	if len(res.KeptVerifiedEntities) != 0 {
+		t.Errorf("empty blob must not rescue anything, got %v", res.KeptVerifiedEntities)
+	}
+	if len(res.DroppedEntities) != 2 {
+		t.Errorf("empty blob + strict blocklist should drop 2, got %v", res.DroppedEntities)
+	}
+	if len(res.FilteredEntities) != 1 || res.FilteredEntities[0] != "Explorer" {
+		t.Errorf("FilteredEntities = %v, want [Explorer]", res.FilteredEntities)
+	}
+}
+
+// TestValidateAnalysisInput_KeywordHitRatioWarning fires the
+// keyword_hit_ratio soft floor and asserts the warning shape.
+func TestValidateAnalysisInput_KeywordHitRatioWarning(t *testing.T) {
+	limits := AnalysisLimits{
+		WarnBelowKeywordHitRatio: 0.75,
+	}
+	// 1 of 4 keywords appears in the seenBlob → ratio 0.25 → below
+	// 0.75 floor → warning fires.
+	seenBlob := "internal/orchestrator/orchestrator.go\n"
+	keywords := []string{"orchestrator", "pipeline", "stage", "dispatch"}
+
+	res := validateAnalysisInput(keywords, nil, limits, seenBlob, 1)
+
+	if res.RejectReason != "" {
+		t.Errorf("soft floor must not reject, got %q", res.RejectReason)
+	}
+	if res.Probe.KeywordHits != 1 || res.Probe.KeywordTotal != 4 {
+		t.Errorf("Probe = %+v, want Hits=1 Total=4", res.Probe)
+	}
+	var found bool
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "keyword_hit_ratio") && strings.Contains(w, "below floor") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Warnings missing keyword_hit_ratio warning, got %v", res.Warnings)
+	}
+}
+
+// TestValidateAnalysisInput_HitRatioWarningsDisabledWhenFloorZero
+// pins the disabled-by-default behavior: when both floors are 0,
+// the probe is still computed and surfaced via res.Probe but no
+// warnings fire regardless of hit ratio.
+func TestValidateAnalysisInput_HitRatioWarningsDisabledWhenFloorZero(t *testing.T) {
+	limits := AnalysisLimits{
+		WarnBelowKeywordHitRatio: 0,
+		WarnBelowEntityHitRatio:  0,
+	}
+	// Pathological hit ratios: 0 of 5 keywords, 0 of 3 entities.
+	seenBlob := "internal/unrelated.go\n"
+	keywords := []string{"foo", "bar", "baz", "qux", "quux"}
+	entities := []string{"Missing1", "Missing2", "Missing3"}
+
+	res := validateAnalysisInput(keywords, entities, limits, seenBlob, 1)
+
+	if res.Probe.KeywordHits != 0 || res.Probe.EntityHits != 0 {
+		t.Errorf("Probe should show zero hits, got %+v", res.Probe)
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "hit_ratio") {
+			t.Errorf("threshold=0 must disable hit-ratio warnings, got %q", w)
+		}
+	}
+}
+
+// TestMutableState_PrescanSummaryBlob exercises the new accessor
+// trio (Append / Read / Reset). The lowercase-at-write invariant
+// is critical for the validator's whitelist + probe checks, so
+// the test asserts it explicitly.
+func TestMutableState_PrescanSummaryBlob(t *testing.T) {
+	mu := types.NewMutableState("trace the pipeline")
+
+	// Initial state: empty blob.
+	if got := mu.PrescanSummaryBlob(); got != "" {
+		t.Errorf("fresh Mutable should have empty blob, got %q", got)
+	}
+
+	// Append two summaries; they should be lowercased and
+	// newline-separated.
+	mu.AppendPrescanSummary("Internal/Agent/Analyzer.go matched")
+	mu.AppendPrescanSummary("File: internal/tool/emit_analysis.go")
+
+	blob := mu.PrescanSummaryBlob()
+	if blob == "" {
+		t.Fatal("blob should be non-empty after appends")
+	}
+	if !strings.Contains(blob, "internal/agent/analyzer.go") {
+		t.Errorf("append should lowercase at write; blob=%q", blob)
+	}
+	if strings.Contains(blob, "Internal/Agent/Analyzer.go") {
+		t.Errorf("blob must NOT contain the original-case summary; blob=%q", blob)
+	}
+	// Two appends → two newlines.
+	if count := strings.Count(blob, "\n"); count != 2 {
+		t.Errorf("newline count = %d, want 2", count)
+	}
+
+	// Reset wipes the blob.
+	mu.ResetPrescanSummary()
+	if got := mu.PrescanSummaryBlob(); got != "" {
+		t.Errorf("reset should clear blob, got %q", got)
+	}
+	// Post-reset append starts fresh.
+	mu.AppendPrescanSummary("Fresh")
+	if got := mu.PrescanSummaryBlob(); got != "fresh\n" {
+		t.Errorf("post-reset append = %q, want \"fresh\\n\"", got)
+	}
+
+	// Nil receiver is a no-op (defensive path from the signature
+	// comment). Not testable through the normal constructor, but
+	// we exercise the nil-check branch by shadowing.
+	var nilMu *types.MutableState
+	nilMu.AppendPrescanSummary("ignored")
+	if got := nilMu.PrescanSummaryBlob(); got != "" {
+		t.Errorf("nil Mutable should return empty blob, got %q", got)
+	}
+	nilMu.ResetPrescanSummary() // must not panic
+}
+
+// TestEmitAnalysis_Execute_ReadsPrescanBlobFromMutable is the
+// end-to-end tool contract: when the analyzer has appended pre-scan
+// summaries to Mutable, emit_analysis must thread them into
+// validateAnalysisInput so the whitelist and hit-ratio probe
+// activate. Exercises the whole pipeline from MutableState to
+// ToolResult.Summary.
+func TestEmitAnalysis_Execute_ReadsPrescanBlobFromMutable(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:      0,
+		RejectBelowKeywords:    0,
+		GenericEntityBlocklist: []string{"agent", "handler"},
+	})
+
+	mu := types.NewMutableState("explore the agents")
+	// Simulate the analyzer's Observe having recorded a pre-scan
+	// grep files_only hit on files containing `agent`.
+	mu.AppendPrescanSummary("internal/agent/analyzer.go\ninternal/agent/explorer.go")
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["explore"],
+		"entities": ["Agent", "Handler", "Orchestrator"],
+		"question_kind": "mechanism",
+		"answer_shape": "explanation"
+	}`
+
+	tl := &EmitAnalysis{}
+	res, err := tl.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+
+	// `Agent` should be rescued by the whitelist (it appears in the
+	// seen-blob); `Handler` should be dropped (not in the blob).
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	names := map[string]bool{}
+	for _, e := range rm.AnalyzerHints.Entities {
+		names[e] = true
+	}
+	if !names["Agent"] {
+		t.Errorf("Agent should have been rescued by whitelist, got %v", rm.AnalyzerHints.Entities)
+	}
+	if !names["Orchestrator"] {
+		t.Errorf("Orchestrator should be kept (non-blocklist), got %v", rm.AnalyzerHints.Entities)
+	}
+	if names["Handler"] {
+		t.Errorf("Handler should be dropped (not in seenBlob), got %v", rm.AnalyzerHints.Entities)
+	}
+	// Summary should mention both the kept-verified warning.
+	if !strings.Contains(res.Summary, "kept_generic_verified_entities") {
+		t.Errorf("Summary should surface kept_generic_verified_entities, got %q", res.Summary)
+	}
+}
+
+// TestComputeAnalysisQualityProbe is a direct unit test of the
+// probe computation helper: case-insensitive substring match,
+// ratio handling, empty-input edge cases.
+func TestComputeAnalysisQualityProbe(t *testing.T) {
+	seenBlob := "internal/agent/analyzer.go\ninternal/orchestrator/topology.go\n"
+
+	t.Run("counts substring hits case-insensitively", func(t *testing.T) {
+		p := ComputeAnalysisQualityProbe(seenBlob,
+			[]string{"Analyzer", "Orchestrator", "Missing"}, // 2 of 3 match
+			[]string{"Topology", "Absent"},                  // 1 of 2 match
+			2)
+		if p.KeywordHits != 2 || p.KeywordTotal != 3 {
+			t.Errorf("KeywordHits/Total = %d/%d, want 2/3", p.KeywordHits, p.KeywordTotal)
+		}
+		if p.EntityHits != 1 || p.EntityTotal != 2 {
+			t.Errorf("EntityHits/Total = %d/%d, want 1/2", p.EntityHits, p.EntityTotal)
+		}
+		if p.PrescanRounds != 2 {
+			t.Errorf("PrescanRounds = %d, want 2", p.PrescanRounds)
+		}
+	})
+
+	t.Run("ratios are zero when total is zero", func(t *testing.T) {
+		p := ComputeAnalysisQualityProbe(seenBlob, nil, nil, 0)
+		if p.KeywordHitRatio() != 0 || p.EntityHitRatio() != 0 {
+			t.Errorf("zero-total ratios should be 0, got kw=%v ent=%v",
+				p.KeywordHitRatio(), p.EntityHitRatio())
+		}
+	})
+
+	t.Run("empty blob produces zero probe", func(t *testing.T) {
+		p := ComputeAnalysisQualityProbe("", []string{"anything"}, []string{"anything"}, 0)
+		if p.KeywordHits != 0 || p.EntityHits != 0 {
+			t.Errorf("empty blob should produce zero hits, got %+v", p)
+		}
+	})
+
+	t.Run("ratio math matches hits/total", func(t *testing.T) {
+		p := ComputeAnalysisQualityProbe(seenBlob,
+			[]string{"Analyzer", "Topology", "Missing", "Absent"}, // 2 of 4
+			nil, 1)
+		if got := p.KeywordHitRatio(); got != 0.5 {
+			t.Errorf("KeywordHitRatio = %v, want 0.5", got)
+		}
+	})
 }
 
 func TestDefaultAnalysisLimits_SensibleDefaults(t *testing.T) {
@@ -382,7 +695,7 @@ func TestEmitAnalysis_Execute_GenericEntitiesDropped(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("entity filter must not fail the call, got %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "dropped generic entities") {
+	if !strings.Contains(res.Summary, "dropped_generic_entities") {
 		t.Errorf("Summary should mention dropped entities, got %q", res.Summary)
 	}
 	rm := mu.RequestModel()

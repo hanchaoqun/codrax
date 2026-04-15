@@ -926,6 +926,23 @@ func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Conf
 }
 
 func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*types.ToolResult, *types.MCPResponse) {
+	// Stage-specific pre-execution parameter validation. The
+	// analyzer's evidence-lite boundary forbids line-level grep
+	// results — pre-scan must use `files_only=true` because
+	// line-level results blow past the analyze stage's context
+	// budget and the "does this exist / in which files" question
+	// does not need line numbers. This check promotes the rule
+	// from a prompt-only hint to a runtime hard constraint: a
+	// violating grep call returns a failed ToolResult with a
+	// clear Summary so the LLM sees the error and can retry
+	// within the same dispatch, AND `analysis_quality_probe`'s
+	// hit-ratio measurement stays honest (line-level grep
+	// summaries would flood the seen-blob with irrelevant code
+	// snippets and mask true hit ratios).
+	if violation := validateAnalyzerPrescanToolCall(ctx, tc); violation != nil {
+		return violation, nil
+	}
+
 	// Try local tool first
 	if b.deps.Tools != nil {
 		if _, err := b.deps.Tools.Get(tc.Name); err == nil {
@@ -967,6 +984,64 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 
 	logging.Warning("tool not found: %s", tc.Name)
 	return nil, nil
+}
+
+// validateAnalyzerPrescanToolCall is the runtime hard-enforcement
+// companion to the analyzer skill's evidence-lite prompt rules.
+// When the current dispatch is the analyze stage, it inspects the
+// tool call before dispatching to the tool registry and rejects
+// violations with a synthesized failed ToolResult.
+//
+// Current rules:
+//
+//   - `grep` MUST be called with `files_only=true`. Line-level
+//     results blow past the analyze stage's context budget and
+//     are not useful for the "does X exist / in which files"
+//     question the analyzer is supposed to answer. Violations
+//     return a ToolResult with Success=false and a descriptive
+//     Summary so the LLM sees the error in the next iteration's
+//     message stream and can retry correctly.
+//
+// Returns nil when no violation is detected — the caller then
+// proceeds to the normal tool execution path. Returns a
+// pre-synthesized failed ToolResult when a violation is found.
+//
+// The pre-scan round budget (MaxPrescanRounds) is enforced
+// separately by `analyzerEvaluator.Observe` at the
+// LoopController layer — that gate trips AFTER a successful
+// pre-scan round completes, while this function trips BEFORE any
+// tool execution for parameter-shape violations. The two gates
+// are orthogonal and complementary: this function catches
+// "grep without files_only", Observe catches "too many rounds".
+func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *types.ToolResult {
+	if ctx == nil || ctx.Stage != types.StageAnalyze {
+		return nil
+	}
+	if tc.Name != "grep" {
+		return nil
+	}
+	// Parse minimal params to check files_only. Defensive: an
+	// unparseable params blob goes through unchanged so the real
+	// grep tool produces its canonical error message.
+	var p struct {
+		FilesOnly bool `json:"files_only"`
+	}
+	if err := json.Unmarshal(tc.Params, &p); err != nil {
+		return nil
+	}
+	if p.FilesOnly {
+		return nil
+	}
+	reason := "grep in analyze stage must be called with files_only=true " +
+		"(evidence-lite boundary: line-level results overflow the analyze " +
+		"stage's context budget). Retry with files_only=true."
+	logging.Warning("[analyzer] grep without files_only rejected: %s", reason)
+	return &types.ToolResult{
+		ToolName:  tc.Name,
+		Success:   false,
+		Summary:   reason,
+		Timestamp: time.Now(),
+	}
 }
 
 // toolDetail extracts a short human-readable detail from tool parameters

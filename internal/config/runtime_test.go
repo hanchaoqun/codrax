@@ -30,6 +30,8 @@ analysis_generic_entity_blocklist:
   - widget
 analysis_reject_multiple_emit: true
 analysis_max_prescan_rounds: 3
+analysis_warn_below_keyword_hit_ratio: 0.5
+analysis_warn_below_entity_hit_ratio: 0.75
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -100,6 +102,12 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.AnalysisMaxPrescanRounds == nil || *s.AnalysisMaxPrescanRounds != 3 {
 		t.Errorf("AnalysisMaxPrescanRounds = %v", s.AnalysisMaxPrescanRounds)
+	}
+	if s.AnalysisWarnBelowKeywordHitRatio == nil || *s.AnalysisWarnBelowKeywordHitRatio != 0.5 {
+		t.Errorf("AnalysisWarnBelowKeywordHitRatio = %v", s.AnalysisWarnBelowKeywordHitRatio)
+	}
+	if s.AnalysisWarnBelowEntityHitRatio == nil || *s.AnalysisWarnBelowEntityHitRatio != 0.75 {
+		t.Errorf("AnalysisWarnBelowEntityHitRatio = %v", s.AnalysisWarnBelowEntityHitRatio)
 	}
 }
 
@@ -184,7 +192,8 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		s.AnalysisWarnBelowKeywords != nil || s.AnalysisRejectBelowKeywords != nil ||
 		s.AnalysisGenericEntityBlocklist != nil ||
 		s.AnalysisRejectMultipleEmit != nil ||
-		s.AnalysisMaxPrescanRounds != nil {
+		s.AnalysisMaxPrescanRounds != nil ||
+		s.AnalysisWarnBelowKeywordHitRatio != nil || s.AnalysisWarnBelowEntityHitRatio != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }
