@@ -62,18 +62,88 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	return ac
 }
 
-// reasoningHygiene is a meta-rule injected into every agent's system
-// prompt. It encodes one principle: when the answer is the result of
-// a deterministic computation over data, run a tool that produces it
-// directly — do not derive it by inspection. Language models reliably
-// miscount, missort, and misaggregate even on small lists, so any
-// quantitative or structural claim should come from a tool's output,
-// not from the model's own reading of an upstream tool result.
+// reasoningHygieneShell is the "don't miscount, use a tool" meta-rule
+// for stages whose allowlist includes exec_command — today only the
+// explorer. The LLM is encouraged to run a shell pipeline when it
+// needs a deterministic count / sort / filter because the explorer
+// can actually make that call.
+const reasoningHygieneShell = "Whenever the answer is the result of a deterministic computation over data — counting, summing, sorting, finding extremes, diffing, hashing, filtering by exact criteria — run a tool that produces it directly (e.g. a shell pipeline through exec_command such as `find ... | wc -l`, `grep -c`, `sort | uniq`) and treat the tool's output as authoritative. Never derive such answers by reading a list_files / grep / read_file output yourself; language models miscount and miscompute even on short lists. The same rule applies to facts you intend to record: if a fact has a number, sort order, or set membership in it, that number/order/set must come from a tool, not from your inspection."
+
+// reasoningHygieneNoTool is the variant for stages whose allowlist
+// contains ONLY emit_* output channels — extract-skill and
+// answer-document-skill today. These stages never run a counting /
+// filtering tool of their own; everything quantitative they report
+// must come from upstream evidence. Telling them to "run a shell
+// pipeline" would waste a tool-call turn on an unavailable name.
+const reasoningHygieneNoTool = "Whenever the answer is the result of a deterministic computation over data — counting, summing, sorting, finding extremes, filtering by exact criteria — the number you report must come directly from upstream evidence, not from your own re-counting of text you received. This stage consumes prior-stage tool results and does NOT have permission to run counting tools of its own, so if a specific number is not already present in the evidence above, omit the claim or mark it uncertain rather than producing one. Language models miscount and miscompute even on short lists."
+
+// reasoningHygieneReadOnly returns the variant for stages whose
+// allowlist includes read-only navigation tools (grep / repo_map /
+// list_files / read_file) but NOT exec_command — today the analyzer.
+// The concrete tool names inlined into the text are picked from the
+// caller's own allowlist so the advice never mentions a tool the LLM
+// cannot invoke.
+func reasoningHygieneReadOnly(avail map[string]bool) string {
+	var tools []string
+	// Listed in the order the LLM is most likely to reach for them,
+	// so the sentence reads naturally even when a subset is present.
+	for _, name := range []string{"repo_map", "grep", "list_files", "read_file"} {
+		if avail[name] {
+			tools = append(tools, name)
+		}
+	}
+	toolList := strings.Join(tools, ", ")
+	return "Whenever the answer is the result of a deterministic computation over data — counting, summing, sorting, finding extremes, filtering by exact criteria — treat the exact output of the tools you DO have (" + toolList + ") as authoritative rather than re-deriving the number yourself. Language models miscount and miscompute even on short lists, so any quantitative claim must either come straight from a tool result you can cite (e.g. a grep match count, a list_files entry count) or not be made at all. If no tool in the list above can produce the exact number deterministically, mark the claim as uncertain instead of guessing."
+}
+
+// reasoningHygieneFor renders the "don't miscount, use a tool" meta-
+// rule adapted to the capability profile of the skill running this
+// dispatch. The underlying PRINCIPLE is invariant — language models
+// miscount, so any quantitative claim must come from a tool —
+// but the concrete ADVICE changes with the allowlist: telling the
+// extractor to "run a shell pipeline through exec_command" is worse
+// than useless when extract-skill physically blocks exec_command.
+// The LLM would waste a tool-call turn on a name the schema set
+// does not contain, or worse, fabricate a fact it thought the tool
+// produced.
 //
-// Kept here (not in any one agent or skill) so the rule applies to
-// the entire pipeline: analyzer routing, explorer fact-gathering,
-// planner estimates, verifier counts of failures, etc.
-const reasoningHygiene = "Whenever the answer is the result of a deterministic computation over data — counting, summing, sorting, finding extremes, diffing, hashing, filtering by exact criteria — run a tool that produces it directly (e.g. a shell pipeline through exec_command such as `find ... | wc -l`, `grep -c`, `sort | uniq`) and treat the tool's output as authoritative. Never derive such answers by reading a list_files / grep / read_file output yourself; language models miscount and miscompute even on short lists. The same rule applies to facts you intend to record: if a fact has a number, sort order, or set membership in it, that number/order/set must come from a tool, not from your inspection."
+// Variant selection:
+//
+//	exec_command in allowlist                                → shell
+//	grep / list_files / repo_map / read_file in allowlist    → read-only
+//	neither of the above (emit_* channels only)              → no-tool
+//
+// See TestReasoningHygiene_* in builder_test.go for the pinned
+// matrix.
+func reasoningHygieneFor(sk *skill.Config) string {
+	avail := skillToolSet(sk)
+
+	switch {
+	case avail["exec_command"]:
+		return reasoningHygieneShell
+	case avail["grep"] || avail["list_files"] || avail["repo_map"] || avail["read_file"]:
+		return reasoningHygieneReadOnly(avail)
+	default:
+		return reasoningHygieneNoTool
+	}
+}
+
+// skillToolSet materialises sk.ToolSuggestions into a map for O(1)
+// capability checks inside reasoningHygieneFor. Defensive against a
+// nil skill — the loader contract guarantees a non-nil config at
+// every BaseAgent call site, but the builder is also exercised
+// directly from tests with minimal fixtures and a nil Config is
+// easy to produce there.
+func skillToolSet(sk *skill.Config) map[string]bool {
+	if sk == nil {
+		return nil
+	}
+	out := make(map[string]bool, len(sk.ToolSuggestions))
+	for _, name := range sk.ToolSuggestions {
+		out[name] = true
+	}
+	return out
+}
 
 // canonicalSystemSectionOrder lists every system-role section title
 // BuildPromptContext may emit, in the exact order the LLM sees them.
@@ -158,7 +228,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		},
 		{
 			Title:   "Reasoning Hygiene",
-			Content: reasoningHygiene,
+			Content: reasoningHygieneFor(sk),
 		},
 	}
 

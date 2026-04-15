@@ -953,3 +953,213 @@ func findSystemSection(pc *types.PromptContext, title string) *types.PromptSecti
 	}
 	return nil
 }
+
+// -----------------------------------------------------------------------------
+// Capability-aware reasoning hygiene tests
+// -----------------------------------------------------------------------------
+//
+// reasoningHygieneFor used to be a constant that mentioned exec_command
+// and shell pipelines unconditionally — which told the analyzer, the
+// extractor, and the finalizer to "run `find | wc -l`" even though
+// their skill allowlists physically block exec_command. The three
+// stages would occasionally attempt the tool call, the schema set
+// would reject it, and the dispatch wasted a round. Making the hint
+// capability-aware means each stage only ever sees advice that
+// names a tool it can actually invoke.
+//
+// These tests pin the capability matrix:
+//
+//     repo-explore-skill   → exec_command present      → shell variant
+//     analysis-skill       → grep/list_files/repo_map  → read-only variant
+//     extract-skill        → emit_* only               → no-tool variant
+//     answer-document-skill → emit_* only              → no-tool variant
+//
+// A future skill-level refactor that changes the allowlist should
+// fail here if the new allowlist mismatches the variant.
+
+// reasoningHygieneSectionOf reaches into BuildPromptContext's output
+// and returns the Reasoning Hygiene section body, or the empty
+// string when the section is missing. Helper so every test below
+// can stay one line.
+func reasoningHygieneSectionOf(t *testing.T, sk *skill.Config) string {
+	t.Helper()
+	ac := &types.AgentContext{
+		AgentName: types.AgentName("test"),
+		Stage:     types.StageExplore,
+		Objective: "capability matrix probe",
+	}
+	pc := BuildPromptContext(ac, sk)
+	sec := findSystemSection(pc, "Reasoning Hygiene")
+	if sec == nil {
+		t.Fatal("Reasoning Hygiene section missing")
+	}
+	return sec.Content
+}
+
+// TestReasoningHygiene_ExplorerGetsShellVariant pins the historical
+// shell-pipeline advice for the explorer. The explorer owns
+// exec_command, so the distinctive phrase `find ... | wc -l`
+// (plus the word exec_command) should appear in its hygiene block.
+func TestReasoningHygiene_ExplorerGetsShellVariant(t *testing.T) {
+	sk := &skill.Config{
+		Name: "repo-explore-skill",
+		ToolSuggestions: []string{
+			"repo_map", "grep", "read_file", "list_files", "exec_command",
+		},
+	}
+	body := reasoningHygieneSectionOf(t, sk)
+
+	if !strings.Contains(body, "exec_command") {
+		t.Errorf("explorer hygiene should mention exec_command, got:\n%s", body)
+	}
+	if !strings.Contains(body, "`find ... | wc -l`") {
+		t.Errorf("explorer hygiene should suggest a shell pipeline, got:\n%s", body)
+	}
+}
+
+// TestReasoningHygiene_AnalyzerGetsReadOnlyVariant pins the analyzer
+// capability profile. analysis-skill has grep / list_files /
+// repo_map but NOT exec_command, so the hint must:
+//
+//   - list only the tools the analyzer actually has
+//   - NOT name exec_command anywhere (would be an unavailable-tool
+//     suggestion and waste a tool-call turn)
+func TestReasoningHygiene_AnalyzerGetsReadOnlyVariant(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	body := reasoningHygieneSectionOf(t, sk)
+
+	if strings.Contains(body, "exec_command") {
+		t.Errorf("analyzer hygiene must NOT mention exec_command (not in its allowlist), got:\n%s", body)
+	}
+	if strings.Contains(body, "`find ... | wc -l`") {
+		t.Errorf("analyzer hygiene must NOT suggest shell pipelines, got:\n%s", body)
+	}
+	// Positive: the three navigation tools the analyzer DOES have
+	// should be named so the hint is actionable.
+	for _, name := range []string{"grep", "list_files", "repo_map"} {
+		if !strings.Contains(body, name) {
+			t.Errorf("analyzer hygiene should mention %q, got:\n%s", name, body)
+		}
+	}
+	// read_file is NOT in the analyzer's allowlist (the evidence-
+	// lite boundary) and must NOT be named.
+	if strings.Contains(body, "read_file") {
+		t.Errorf("analyzer hygiene must NOT mention read_file (not in its allowlist), got:\n%s", body)
+	}
+}
+
+// TestReasoningHygiene_ExtractorGetsNoToolVariant pins the
+// extract-skill (Turn B) capability profile. The extractor has
+// zero read/compute tools — only emit_answer_symbol +
+// emit_hypothesis_verdict — so the hint must instruct the LLM to
+// consume upstream evidence without naming any read-tool or shell
+// pipeline.
+func TestReasoningHygiene_ExtractorGetsNoToolVariant(t *testing.T) {
+	sk := &skill.Config{
+		Name: "extract-skill",
+		ToolSuggestions: []string{
+			"emit_answer_symbol",
+			"emit_hypothesis_verdict",
+		},
+	}
+	body := reasoningHygieneSectionOf(t, sk)
+
+	// Negative assertions: none of the heavy / read tools should
+	// appear in the hint because the extractor cannot call any of
+	// them. "do NOT have permission" is fine prose; bare tool names
+	// are the risk.
+	for _, forbidden := range []string{
+		"exec_command",
+		"`find",
+		"grep ", // trailing space avoids matching "grep match count" in another variant
+		"list_files",
+		"read_file",
+		"repo_map",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("extractor hygiene must NOT name unavailable tool %q, got:\n%s", forbidden, body)
+		}
+	}
+	// Positive: the hint should frame the stage as "consume
+	// upstream evidence" rather than "run a tool".
+	if !strings.Contains(body, "upstream evidence") {
+		t.Errorf("extractor hygiene should reframe around upstream evidence, got:\n%s", body)
+	}
+}
+
+// TestReasoningHygiene_FinalizerGetsNoToolVariant mirrors the
+// extractor check for answer-document-skill. The finalizer has
+// only emit_answer_document in its allowlist.
+func TestReasoningHygiene_FinalizerGetsNoToolVariant(t *testing.T) {
+	sk := &skill.Config{
+		Name:            "answer-document-skill",
+		ToolSuggestions: []string{"emit_answer_document"},
+	}
+	body := reasoningHygieneSectionOf(t, sk)
+
+	for _, forbidden := range []string{
+		"exec_command",
+		"`find",
+		"list_files",
+		"read_file",
+		"repo_map",
+	} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("finalizer hygiene must NOT name unavailable tool %q, got:\n%s", forbidden, body)
+		}
+	}
+	if !strings.Contains(body, "upstream evidence") {
+		t.Errorf("finalizer hygiene should reframe around upstream evidence, got:\n%s", body)
+	}
+}
+
+// TestReasoningHygiene_NilSkillFallsBackSafely exercises the
+// defensive path for a nil skill.Config. The builder is invoked
+// directly from a handful of fixture-heavy tests with partially
+// zeroed inputs, and the function must not panic; it should
+// return the no-tool variant since no allowlist means no
+// capability.
+func TestReasoningHygiene_NilSkillFallsBackSafely(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("reasoningHygieneFor(nil) panicked: %v", r)
+		}
+	}()
+	body := reasoningHygieneFor(nil)
+	if strings.Contains(body, "exec_command") {
+		t.Errorf("nil skill must NOT produce shell variant, got:\n%s", body)
+	}
+	if body == "" {
+		t.Error("nil skill should still produce a non-empty hygiene body")
+	}
+}
+
+// TestReasoningHygiene_EveryStageProducesNonEmpty is a sanity guard
+// against a future variant picker that returns "" for an unhandled
+// combination. Every skill configuration in the codebase must yield
+// non-empty hygiene text.
+func TestReasoningHygiene_EveryStageProducesNonEmpty(t *testing.T) {
+	cases := []struct {
+		name string
+		sk   *skill.Config
+	}{
+		{"explorer", &skill.Config{Name: "repo-explore-skill", ToolSuggestions: []string{
+			"repo_map", "grep", "read_file", "list_files", "exec_command",
+		}}},
+		{"analyzer", skill.BuildAnalysisSkill()},
+		{"extractor", &skill.Config{Name: "extract-skill", ToolSuggestions: []string{
+			"emit_answer_symbol", "emit_hypothesis_verdict",
+		}}},
+		{"finalizer", &skill.Config{Name: "answer-document-skill", ToolSuggestions: []string{
+			"emit_answer_document",
+		}}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			body := reasoningHygieneFor(c.sk)
+			if strings.TrimSpace(body) == "" {
+				t.Errorf("%s produced empty hygiene", c.name)
+			}
+		})
+	}
+}
