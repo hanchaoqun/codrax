@@ -32,7 +32,7 @@ type explorerEvaluator struct {
 	searchResult              *keywordSearchResult // full search result for cross-reference lookups
 	investigationNotes        []string             // assistant analysis messages from ReAct loop
 	userQuestion              string               // original user question, for focus alignment
-	repoRoot                  string               // repository root path, cached from BuildInitialPrompt
+	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
 	preScannedPushCount       int                  // times we pushed for unread pre-scanned files without progress
 	lastPreScannedUnreadCount int                  // count of unread pre-scanned files at last push
 	grepRedirectedFiles       map[string]bool      // files that already received a large-file grep redirect
@@ -70,7 +70,7 @@ func stripConversationPrefix(s string) string {
 	return s
 }
 
-func (e *explorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	// CROSS-RUN STATE RESET (REPL turn boundary fix).
 	//
 	// The explorer evaluator is a process-lifetime singleton — state
@@ -1700,7 +1700,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// has a frozen snapshot of everything Turn A produced. Must
 	// happen AFTER rankedEvidence / rankedFindings / readFilesList
 	// are final and BEFORE return so the extractor's
-	// BuildInitialPrompt sees the complete payload.
+	// BuildInitialInstruction sees the complete payload.
 	if ctx != nil && ctx.Mutable != nil {
 		// Turn B gets the strict subset of answer-relevant evidence —
 		// the items that passed the L0-1 terminal/origin predicates.

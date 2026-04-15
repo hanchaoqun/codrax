@@ -12,7 +12,7 @@ package agent
 //
 // Scope deliberately limited to the four Evaluator-interface methods
 // that Turn A inherits in the split: ShouldStop, ParseOutput,
-// DetermineMissingPiece. (BuildInitialPrompt is well-covered by
+// DetermineMissingPiece. (BuildInitialInstruction is well-covered by
 // existing tests.) Synthesis-side behavior is out of scope here —
 // see stage_report_render_test.go for deterministic StageReport
 // coverage.

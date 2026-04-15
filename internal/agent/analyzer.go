@@ -27,7 +27,7 @@ import (
 //
 // Pipeline:
 //
-//  1. BuildInitialPrompt asks the LLM to call emit_analysis with the
+//  1. BuildInitialInstruction asks the LLM to call emit_analysis with the
 //     classified v3 fields (intent, scenario, complexity, writing,
 //     keywords, entities, question_kind, answer_shape).
 //  2. ShouldStop ends the loop on the first LLM response with no
@@ -44,7 +44,7 @@ import (
 //     warning and the run continues.
 type analyzerEvaluator struct{}
 
-// BuildInitialPrompt returns the evaluator's DYNAMIC per-dispatch
+// BuildInitialInstruction returns the evaluator's DYNAMIC per-dispatch
 // instruction — and for the analyzer, that slot is empty by design.
 //
 // Skill vs Evaluator contract (see docs/architecture.md §3.3):
@@ -54,7 +54,7 @@ type analyzerEvaluator struct{}
 //     OutputFormat (which holds the enum tables and keyword rules),
 //     Prohibitions, and ToolSuggestions. Those fields are rendered into
 //     the system prompt by context.BuildPromptContext for every dispatch.
-//   - The evaluator's BuildInitialPrompt only contributes content that
+//   - The evaluator's BuildInitialInstruction only contributes content that
 //     depends on THIS dispatch's runtime state and cannot be expressed
 //     declaratively in the skill. It must NEVER restate the skill's
 //     static contract and must NEVER re-emit sections that
@@ -77,9 +77,9 @@ type analyzerEvaluator struct{}
 // BaseAgent.buildInitialMessages drops an empty evaluator instruction,
 // so returning "" here is the correct, documented way to say "this
 // stage has no per-dispatch supplement beyond what the builder renders".
-// The TestAnalyzer_BuildInitialPrompt_IsEmpty guard pins this contract
+// The TestAnalyzer_BuildInitialInstruction_IsEmpty guard pins this contract
 // so a future commit cannot re-seed static text here by accident.
-func (e *analyzerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = ctx
 	_ = sk
 	return ""

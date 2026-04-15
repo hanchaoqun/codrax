@@ -267,8 +267,8 @@ func TestAnalyzer_StageOutputCarriesIR(t *testing.T) {
 	}
 }
 
-// TestAnalyzer_BuildInitialPrompt_IsEmpty pins the Skill/Evaluator
-// boundary contract documented on analyzerEvaluator.BuildInitialPrompt:
+// TestAnalyzer_BuildInitialInstruction_IsEmpty pins the Skill/Evaluator
+// boundary contract documented on analyzerEvaluator.BuildInitialInstruction:
 // every static input the analyze stage needs (field enums, rules,
 // workflow) is owned by the analysis-skill and rendered as system
 // sections by context.BuildPromptContext, and every dynamic input it
@@ -278,7 +278,7 @@ func TestAnalyzer_StageOutputCarriesIR(t *testing.T) {
 // future commit that re-seeds static prompt text here — drifting the
 // contract away from the SSOT in internal/skill/analysis_contract.go —
 // must fail this test.
-func TestAnalyzer_BuildInitialPrompt_IsEmpty(t *testing.T) {
+func TestAnalyzer_BuildInitialInstruction_IsEmpty(t *testing.T) {
 	eval := &analyzerEvaluator{}
 
 	cases := []struct {
@@ -300,8 +300,8 @@ func TestAnalyzer_BuildInitialPrompt_IsEmpty(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := eval.BuildInitialPrompt(tc.ctx, nil); got != "" {
-				t.Errorf("analyzer BuildInitialPrompt must stay empty "+
+			if got := eval.BuildInitialInstruction(tc.ctx, nil); got != "" {
+				t.Errorf("analyzer BuildInitialInstruction must stay empty "+
 					"(Skill/Evaluator boundary contract); got %d bytes:\n%s",
 					len(got), got)
 			}

@@ -352,7 +352,7 @@ func TestExtractEvidenceRequirements_OriginalRequestPreserved(t *testing.T) {
 	// answer_chain[0] to a spurious chain.
 	//
 	// This test mirrors the production split in explorer.go
-	// BuildInitialPrompt and verifies:
+	// BuildInitialInstruction and verifies:
 	//  1. Keyword detection over the join produces the right Kind
 	//     (return_value triggered by "什么" in the original AND
 	//     "return value" in the rewrite — either is sufficient).

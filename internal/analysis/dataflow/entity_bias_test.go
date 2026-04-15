@@ -32,7 +32,7 @@ func makeFileGraph(files map[string][]string) *repomap.Graph {
 
 func TestSortByEntityBias_PathMatchRanksFirst(t *testing.T) {
 	graph := makeFileGraph(map[string][]string{
-		"internal/agent/explorer.go":     {"explorerEvaluator", "BuildInitialPrompt"},
+		"internal/agent/explorer.go":     {"explorerEvaluator", "BuildInitialInstruction"},
 		"internal/agent/sub_explorer.go": {"SubExplorer"},
 		"internal/tool/grep.go":          {"GrepTool"},
 		"internal/tool/builtin.go":       {"DefaultRegistry"},

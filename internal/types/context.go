@@ -110,7 +110,7 @@ type MutableState struct {
 //     (concrete-value / mechanism / flow) item the explorer has.
 //
 //  2. The orchestrator dispatches StageExtract; the extractor's
-//     BuildInitialPrompt reads the snapshot via TurnAArtifacts() and
+//     BuildInitialInstruction reads the snapshot via TurnAArtifacts() and
 //     bakes the relevant pieces into Turn B's prompt.
 //
 //  3. After Turn B's ParseOutput finishes, ResetTurnAArtifacts()

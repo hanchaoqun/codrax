@@ -47,7 +47,7 @@ import (
 // state.
 type extractorEvaluator struct{}
 
-// BuildInitialPrompt implements Evaluator.
+// BuildInitialInstruction implements Evaluator.
 //
 // Scope: the DYNAMIC per-dispatch Turn A digest only. All STATIC
 // contract content — role, allowed/forbidden tool list, completeness
@@ -70,7 +70,7 @@ type extractorEvaluator struct{}
 // notes, read files, top evidence, flow findings), the cardinality
 // baseline (β + γ + floor), and the hypothesis set. Graceful degrade
 // on nil TurnAArtifacts is preserved.
-func (e *extractorEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	var b strings.Builder
 
 	// -------- User question --------

@@ -28,7 +28,7 @@ func TestSubExplorer_CrossRunResetOnObjectiveChange(t *testing.T) {
 		Objective:   "trace config loader",
 		Constraints: []string{"internal/config"},
 	}
-	prompt := eval.BuildInitialPrompt(ctx, nil)
+	prompt := eval.BuildInitialInstruction(ctx, nil)
 
 	if len(eval.investigationNotes) != 0 {
 		t.Errorf("investigationNotes not reset: %v", eval.investigationNotes)
@@ -72,7 +72,7 @@ func TestSubExplorer_SameObjectiveKeepsState(t *testing.T) {
 		Objective:   "trace config loader",
 		Constraints: []string{"internal/config"},
 	}
-	_ = eval.BuildInitialPrompt(ctx, nil)
+	_ = eval.BuildInitialInstruction(ctx, nil)
 
 	if len(eval.investigationNotes) != 1 {
 		t.Errorf("notes wiped on same-objective call: %v", eval.investigationNotes)
