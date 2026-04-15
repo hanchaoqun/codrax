@@ -11,25 +11,28 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// EmitAnalysis is the analyzer v3 exit tool. It is the single
-// structured channel through which the analyzer agent hands its
-// classification to the deterministic IR builder.
+// EmitAnalysis is the analyzer's single structured exit channel: it
+// deposits the classified RequestModel onto BusContext.Mutable so
+// analyzer.ParseOutput can run the deterministic IR builder against
+// it (normalizer → compiler → risk → hdp → counterfactual → gate).
 //
-// The tool takes a v3 RequestModel-shaped payload — intent / scenario /
-// complexity / writing / hints — and stores it on BusContext.Mutable.
-// analyzer.ParseOutput reads this after the ReAct loop exits and runs
-// the remaining sub-package pipeline (compiler → risk → hdp →
-// counterfactual → gate) to assemble the full AnalysisIR.
+// Contract surface:
 //
-// Design notes:
-//
-//   - Uses typed enum names (intent, scenario, answer_shape) directly;
-//     no translation layer from LLM-phrased categories.
-//   - Does NOT ask the LLM for derived fields that deterministic code
-//     can compute. TermGraph, TaskGraph, EvidencePlan, AnswerContract,
-//     Hypotheses, RiskMatrix evidence, and the quality gate are all
-//     produced post-tool by the normalizer/compiler/risk/hdp/gate
-//     sub-packages.
+//   - Parameters() is a pure interface contract — type + enum +
+//     required — and carries NO teaching copy. Everything the LLM
+//     needs to decide what each enum value means lives in the
+//     analysis-skill system prompt built from
+//     internal/skill/analysis_contract.go. The schema-drift test in
+//     this package pins the enum arrays to the SSOT.
+//   - Description() is one sentence: what the tool does and its
+//     one-call-per-dispatch constraint. Strategy guidance ("extract
+//     entities verbatim", "≥8 keywords", "bilingual for Chinese
+//     questions") lives in the skill prompt, not here.
+//   - Execute() is the quality gate: json.Unmarshal → runtime
+//     validation (AnalysisLimits) → normalization → write to
+//     Mutable.RequestModel. The ToolResult.Summary reports the
+//     POST-NORMALIZATION state so a trace reader can see exactly
+//     what the system persisted versus what the LLM actually sent.
 //
 // Classified ReadOnly because IsWrite() is the filesystem-write
 // boundary; mutating BusContext is not a filesystem write.
@@ -51,21 +54,22 @@ type emitAnalysisParams struct {
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
 
-// Description is intentionally short: it names the tool and its
-// one-call constraint. The field-level semantics (enum tables, rule
-// text) live in the analysis-skill system prompt built from
-// internal/skill/analysis_contract.go — the single source of truth.
-// The JSON schema returned from Parameters() carries the same enums.
+// Description is a single sentence: what the tool does and its
+// one-call-per-dispatch constraint. Strategy guidance — how to pick
+// an enum value, how many keywords to emit, what not to put in
+// entities — lives in the analysis-skill system prompt, not here.
 func (t *EmitAnalysis) Description() string {
-	return "Analyzer exit channel. Call EXACTLY ONCE at the end of the analyze stage " +
-		"to store the classified RequestModel. Required fields and their allowed values are " +
-		"defined in the parameter schema."
+	return "Stores the classified RequestModel on MutableState so the " +
+		"deterministic analyzer pipeline can assemble the full AnalysisIR. " +
+		"Call at most once per dispatch."
 }
 
-// Parameters returns the emit_analysis JSON schema. Enum arrays are
-// pulled from the skill.Analysis*Values() accessors so the schema
-// cannot drift from the skill prompt; a consistency test in this
-// package verifies the two sides match value-for-value.
+// Parameters returns a purely structural JSON schema: type, enum,
+// and required. Enum arrays are pulled from skill.Analysis*Values()
+// so the schema cannot drift from the skill prompt; a consistency
+// test pins the two sides. There are no "description" fields on
+// properties — a field-level teaching surface is precisely what this
+// refactor collapsed onto the analysis-skill.
 func (t *EmitAnalysis) Parameters() json.RawMessage {
 	emitAnalysisSchemaOnce.Do(buildEmitAnalysisSchema)
 	return emitAnalysisSchemaCache
@@ -78,59 +82,25 @@ var (
 
 func buildEmitAnalysisSchema() {
 	type stringProp struct {
-		Type        string   `json:"type"`
-		Enum        []string `json:"enum,omitempty"`
-		Description string   `json:"description,omitempty"`
+		Type string   `json:"type"`
+		Enum []string `json:"enum,omitempty"`
 	}
 	type arrayProp struct {
-		Type        string            `json:"type"`
-		Items       map[string]string `json:"items"`
-		Description string            `json:"description,omitempty"`
+		Type  string            `json:"type"`
+		Items map[string]string `json:"items"`
 	}
 
 	schema := map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"intent": stringProp{
-				Type:        "string",
-				Enum:        skill.AnalysisIntentValues(),
-				Description: "Task intent. Pick the closest match to the user's question; see the analysis-skill's Output Format section for each value's meaning.",
-			},
-			"scenario": stringProp{
-				Type:        "string",
-				Enum:        skill.AnalysisScenarioValues(),
-				Description: "Scenario template picker. See the analysis-skill's Output Format section for each value's meaning.",
-			},
-			"complexity": stringProp{
-				Type:        "string",
-				Enum:        skill.AnalysisComplexityValues(),
-				Description: "Investigation depth. See the analysis-skill's Output Format section for each value's meaning.",
-			},
-			"keywords": arrayProp{
-				Type:        "array",
-				Items:       map[string]string{"type": "string"},
-				Description: "Grep search terms. See the analysis-skill's Output Format section for generation rules.",
-			},
-			"entities": arrayProp{
-				Type:        "array",
-				Items:       map[string]string{"type": "string"},
-				Description: "CamelCase/snake_case symbol names copied VERBATIM from the user's wording. See the analysis-skill's Output Format section for constraints.",
-			},
-			"question_kind": stringProp{
-				Type:        "string",
-				Enum:        skill.AnalysisQuestionKindValues(),
-				Description: "ERM predicate selector. See the analysis-skill's Output Format section for each value's meaning.",
-			},
-			"answer_shape": stringProp{
-				Type:        "string",
-				Enum:        skill.AnalysisAnswerShapeValues(),
-				Description: "Expected final-answer structure. See the analysis-skill's Output Format section for each value's meaning.",
-			},
-			"language": stringProp{
-				Type:        "string",
-				Enum:        []string{"zh", "en"},
-				Description: "Optional. Output language for the final answer. Auto-detected from the raw request if omitted.",
-			},
+			"intent":        stringProp{Type: "string", Enum: skill.AnalysisIntentValues()},
+			"scenario":      stringProp{Type: "string", Enum: skill.AnalysisScenarioValues()},
+			"complexity":    stringProp{Type: "string", Enum: skill.AnalysisComplexityValues()},
+			"keywords":      arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
+			"entities":      arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
+			"question_kind": stringProp{Type: "string", Enum: skill.AnalysisQuestionKindValues()},
+			"answer_shape":  stringProp{Type: "string", Enum: skill.AnalysisAnswerShapeValues()},
+			"language":      stringProp{Type: "string", Enum: []string{"zh", "en"}},
 		},
 		"required": []string{
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind", "answer_shape",
@@ -151,6 +121,27 @@ func buildEmitAnalysisSchema() {
 	emitAnalysisSchemaCache = raw
 }
 
+// Execute is the runtime quality gate. The JSON schema caught the
+// structural problems (wrong type, unknown enum, missing required
+// field); this method handles everything the schema cannot express:
+//
+//  1. Mutable gating — sub-agent contexts that never wire Mutable
+//     are rejected up front.
+//  2. JSON unmarshal — structural shape.
+//  3. Normalization — LLM-phrased enum variants ("root-cause") are
+//     coerced to the canonical typed values.
+//  4. validateAnalysisInput — keyword floor + generic-entity filter
+//     driven by the runtime AnalysisLimits policy.
+//  5. Persist — the normalized RequestModel is written to
+//     Mutable.RequestModel.
+//  6. Summary — reports the POST-NORMALIZATION state plus any
+//     warnings or normalization deltas so a trace reader can
+//     diff the LLM's raw output against the system's interpretation
+//     in one line.
+//
+// Rejection paths keep the error channel machine-readable: Success=
+// false with a short reason, err returned when the failure is a
+// caller contract violation (bad JSON) rather than a policy breach.
 func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return types.ToolResult{
@@ -171,9 +162,32 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, err
 	}
 
+	// Normalize enum fields first so validateAnalysisInput and the
+	// Summary operate on a single canonical view of the classification.
 	intent := normalizeIntent(p.Intent)
 	scenario := normalizeScenario(p.Scenario)
 	complexity := normalizeComplexity(p.Complexity)
+	kind := normalizeQuestionKind(p.QuestionKind)
+	shape := normalizeAnswerShape(p.AnswerShape)
+
+	keywords := trimStringSlice(p.Keywords)
+	entities := trimStringSlice(p.Entities)
+
+	// Runtime validation — keyword floor + entity blocklist. Config
+	// lives in AnalysisLimits (see analysis_limits.go). The validator
+	// returns the filtered entity slice so a dropped generic noun
+	// never reaches the persisted RequestModel.
+	limits := CurrentAnalysisLimits()
+	val := validateAnalysisInput(keywords, entities, limits)
+	if val.RejectReason != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + val.RejectReason,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	entities = val.FilteredEntities
 
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
@@ -187,22 +201,87 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Scenario:   scenario,
 		Complexity: complexity,
 		AnalyzerHints: types.AnalyzerHints{
-			Keywords: trimStringSlice(p.Keywords),
-			Entities: trimStringSlice(p.Entities),
-			Kind:     normalizeQuestionKind(p.QuestionKind),
-			Shape:    normalizeAnswerShape(p.AnswerShape),
+			Keywords: keywords,
+			Entities: entities,
+			Kind:     kind,
+			Shape:    shape,
 		},
 	}
 	ctx.Mutable.SetRequestModel(rm)
 
 	return types.ToolResult{
-		ToolName: t.Name(),
-		Success:  true,
-		Summary: fmt.Sprintf("analysis emitted: intent=%s scenario=%s complexity=%s kw=%d ent=%d kind=%s shape=%s",
-			intent, scenario, complexity, len(rm.AnalyzerHints.Keywords), len(rm.AnalyzerHints.Entities),
-			rm.AnalyzerHints.Kind, rm.AnalyzerHints.Shape),
+		ToolName:  t.Name(),
+		Success:   true,
+		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// buildEmitAnalysisSummary renders a one-line, trace-friendly summary
+// that reports the POST-normalization state of every classification
+// field, flags any LLM→canonical coercion (e.g. "root-cause" →
+// "root_cause"), lists dropped generic entities, and surfaces
+// validator warnings. The single-line format matches the rest of the
+// tool package's Summary conventions and keeps the REPL trace
+// readable, while still letting the operator diff LLM input against
+// the system's normalized interpretation at a glance.
+//
+// Format:
+//
+//	analysis emitted: intent=<canonical> scenario=<canonical> ...
+//	 | normalized: <field> <raw>→<canonical>, ...
+//	 | warn: <warning>; <warning>
+//
+// The "normalized" and "warn" clauses only appear when they have
+// content, so happy-path calls still produce a compact summary.
+func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val analysisValidationResult) string {
+	var b strings.Builder
+	h := rm.AnalyzerHints
+
+	fmt.Fprintf(&b, "analysis emitted: intent=%s scenario=%s complexity=%s kw=%d ent=%d kind=%s shape=%s",
+		rm.Intent, rm.Scenario, rm.Complexity,
+		len(h.Keywords), len(h.Entities),
+		h.Kind, h.Shape)
+
+	// Normalization delta — only fields where raw ≠ canonical get
+	// listed, so a clean classification stays silent.
+	deltas := collectNormalizationDeltas(raw, rm)
+	if len(deltas) > 0 {
+		b.WriteString(" | normalized: ")
+		b.WriteString(strings.Join(deltas, ", "))
+	}
+
+	if len(val.Warnings) > 0 {
+		b.WriteString(" | warn: ")
+		b.WriteString(strings.Join(val.Warnings, "; "))
+	}
+
+	return b.String()
+}
+
+// collectNormalizationDeltas returns one "field raw→canonical" entry
+// for every enum field the normalizer coerced. Unknown-collapse cases
+// (LLM emitted "banana", normalizer returned "unknown") are listed
+// explicitly so they surface in the trace — those are the prompts
+// where the skill guidance missed. Empty-input cases stay silent:
+// the field was simply absent, not coerced.
+func collectNormalizationDeltas(raw emitAnalysisParams, rm types.RequestModel) []string {
+	var deltas []string
+	check := func(field, before, after string) {
+		before = strings.TrimSpace(before)
+		if before == "" {
+			return
+		}
+		if !strings.EqualFold(before, after) {
+			deltas = append(deltas, fmt.Sprintf("%s %q→%q", field, before, after))
+		}
+	}
+	check("intent", raw.Intent, string(rm.Intent))
+	check("scenario", raw.Scenario, string(rm.Scenario))
+	check("complexity", raw.Complexity, string(rm.Complexity))
+	check("question_kind", raw.QuestionKind, rm.AnalyzerHints.Kind)
+	check("answer_shape", raw.AnswerShape, rm.AnalyzerHints.Shape)
+	return deltas
 }
 
 // normalizeIntent coerces LLM-emitted intent strings to the typed

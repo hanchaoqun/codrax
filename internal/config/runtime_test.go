@@ -23,6 +23,11 @@ blob_preview_head_bytes: 49152
 blob_preview_tail_bytes: 8192
 pipeline_max_retries_per_stage: 5
 pipeline_max_stage_visits: 6
+analysis_warn_below_keywords: 6
+analysis_reject_below_keywords: 3
+analysis_generic_entity_blocklist:
+  - thing
+  - widget
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -75,6 +80,18 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.PipelineMaxStageVisits == nil || *s.PipelineMaxStageVisits != 6 {
 		t.Errorf("PipelineMaxStageVisits = %v", s.PipelineMaxStageVisits)
+	}
+	// analysis_*
+	if s.AnalysisWarnBelowKeywords == nil || *s.AnalysisWarnBelowKeywords != 6 {
+		t.Errorf("AnalysisWarnBelowKeywords = %v", s.AnalysisWarnBelowKeywords)
+	}
+	if s.AnalysisRejectBelowKeywords == nil || *s.AnalysisRejectBelowKeywords != 3 {
+		t.Errorf("AnalysisRejectBelowKeywords = %v", s.AnalysisRejectBelowKeywords)
+	}
+	if len(s.AnalysisGenericEntityBlocklist) != 2 ||
+		s.AnalysisGenericEntityBlocklist[0] != "thing" ||
+		s.AnalysisGenericEntityBlocklist[1] != "widget" {
+		t.Errorf("AnalysisGenericEntityBlocklist = %v", s.AnalysisGenericEntityBlocklist)
 	}
 }
 
@@ -155,7 +172,9 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		s.PipelineMaxSteps != nil ||
 		s.ProvidersConfig != nil ||
 		s.BlobMaxInlineBytes != nil || s.BlobPreviewHeadBytes != nil || s.BlobPreviewTailBytes != nil ||
-		s.PipelineMaxRetriesPerStage != nil || s.PipelineMaxStageVisits != nil {
+		s.PipelineMaxRetriesPerStage != nil || s.PipelineMaxStageVisits != nil ||
+		s.AnalysisWarnBelowKeywords != nil || s.AnalysisRejectBelowKeywords != nil ||
+		s.AnalysisGenericEntityBlocklist != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }
