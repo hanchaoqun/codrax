@@ -728,7 +728,7 @@ func TestBuildAgentContext_CarriesCompletenessFromBus(t *testing.T) {
 //     dynamic section (User Request / User Preferences / Retry
 //     Directive) for a populated AgentContext, and renders each
 //     section exactly once.
-//   - analyzer_prompt_test.go verifies analyzerEvaluator.BuildInitialPrompt
+//   - analyzer_prompt_test.go verifies analyzerEvaluator.BuildInitialInstruction
 //     returns no content from the removed hardcoded prompt and does
 //     not re-emit any canonical section header.
 //
@@ -872,7 +872,7 @@ func TestBuildPromptContext_AnalysisSkill_NoDuplicateSections(t *testing.T) {
 
 // TestBuildPromptContext_AnalysisSkill_NoStaticContractPhrases mirrors
 // analyzer_prompt_test.go's banned-phrase list from the BUILDER side:
-// the old hardcoded BuildInitialPrompt text should be nowhere in the
+// the old hardcoded BuildInitialInstruction text should be nowhere in the
 // rendered system/user message. If a future commit puts e.g. "ERM
 // predicate selector" into the analysis-skill's Goal or a new
 // builder section, this test will fail here even if the analyzer

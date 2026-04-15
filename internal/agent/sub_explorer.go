@@ -90,7 +90,7 @@ type subExplorerEvaluator struct {
 	flowFindings       []types.FlowFindingDigest
 }
 
-func (e *subExplorerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	// Cross-Run reset — sub_explorer is a process-lifetime singleton
 	// (NewSubExplorer called once from RegisterDefaults). Each
 	// SubAgentRequest is an independent scoped investigation, so

@@ -102,7 +102,7 @@ func (defaultPromptAssembler) RenderMessages(pc *types.PromptContext) []llm.Mess
 //     cross-wires two orthogonal extension points.
 //  2. An empty instruction is dropped, not appended as an empty user
 //     message. The analyzer (see analyzer_prompt_test.go) relies on
-//     this: its BuildInitialPrompt returns "" by design, and the LLM
+//     this: its BuildInitialInstruction returns "" by design, and the LLM
 //     must not see a bare user-role message with no content.
 //  3. A nil evaluator is a no-op so tests that only care about the
 //     assemble+render pipeline can skip the dynamic step by passing
@@ -114,7 +114,7 @@ func AppendDynamicInstruction(messages []llm.Message, eval Evaluator, ctx *types
 	if eval == nil {
 		return messages
 	}
-	instruction := eval.BuildInitialPrompt(ctx, sk)
+	instruction := eval.BuildInitialInstruction(ctx, sk)
 	if instruction == "" {
 		return messages
 	}

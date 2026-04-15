@@ -12,16 +12,16 @@ import (
 // analyzer_prompt_test.go is the regression fence for the Skill /
 // Evaluator boundary on the analyze stage. The analyzer used to
 // hardcode ~60 lines of enum tables and hard rules into
-// BuildInitialPrompt, duplicating the analysis-skill's declarative
+// BuildInitialInstruction, duplicating the analysis-skill's declarative
 // contract. Two commits removed that duplication — one moved the SSOT
 // into internal/skill/analysis_contract.go and one pinned
-// BuildInitialPrompt at "". But neither test file asserts the PROMPT
+// BuildInitialInstruction at "". But neither test file asserts the PROMPT
 // SHAPE directly, which is how the duplication went unnoticed for so
 // long in the first place.
 //
 // These tests lock three invariants:
 //
-//  1. The evaluator's BuildInitialPrompt output never contains any of
+//  1. The evaluator's BuildInitialInstruction output never contains any of
 //     the distinctive phrases from the removed hardcoded prompt, even
 //     when ctx is populated with every dynamic field the builder
 //     uses. A regression here means a future refactor has started
@@ -39,7 +39,7 @@ import (
 //     from the skill side.
 
 // bannedStaticPromptPhrases lists substrings taken verbatim from the
-// removed hardcoded BuildInitialPrompt. Every phrase is distinctive
+// removed hardcoded BuildInitialInstruction. Every phrase is distinctive
 // enough that it cannot plausibly appear in any legitimate dynamic
 // supplement — they all come from the old field-description /
 // hard-rule blocks. `rg` on the live source confirms each phrase is
@@ -92,11 +92,11 @@ func TestAnalyzerPrompt_NoStaticContractText(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := eval.BuildInitialPrompt(tc.ctx, sk)
+			got := eval.BuildInitialInstruction(tc.ctx, sk)
 			for _, phrase := range bannedStaticPromptPhrases {
 				if strings.Contains(got, phrase) {
 					t.Errorf(
-						"BuildInitialPrompt output contains banned static phrase %q — "+
+						"BuildInitialInstruction output contains banned static phrase %q — "+
 							"someone put the old hardcoded contract text back; it belongs "+
 							"in internal/skill/analysis_contract.go, not the evaluator.\n"+
 							"Full output:\n%s",
@@ -108,7 +108,7 @@ func TestAnalyzerPrompt_NoStaticContractText(t *testing.T) {
 }
 
 // TestAnalyzerPrompt_SkillOwnsContractText is the inverse regression
-// guard: every piece of content we removed from BuildInitialPrompt
+// guard: every piece of content we removed from BuildInitialInstruction
 // must still be carried by the analysis-skill, otherwise the LLM
 // sees neither side. Checks the declarative Goal / Workflow /
 // OutputFormat / Prohibitions are non-empty and the OutputFormat
@@ -167,7 +167,7 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 // asserts every dynamic supplement the analyzer relies on lands in
 // the rendered messages. This is the test that catches "the
 // evaluator is empty but so is the system" regressions, where
-// removing BuildInitialPrompt content accidentally drops a piece of
+// removing BuildInitialInstruction content accidentally drops a piece of
 // dynamic context that no other layer replaces.
 //
 // Dynamic supplements checked:
@@ -213,18 +213,18 @@ func TestAnalyzerPrompt_DynamicContentInjectedViaBuilder(t *testing.T) {
 
 	// The evaluator's supplement must still be empty after all this —
 	// BuildPromptContext carries everything, so there is nothing left
-	// for BuildInitialPrompt to contribute. This guard catches the
+	// for BuildInitialInstruction to contribute. This guard catches the
 	// "nobody noticed the evaluator was re-injecting duplicates"
 	// regression from two angles.
-	if got := (&analyzerEvaluator{}).BuildInitialPrompt(ac, sk); got != "" {
-		t.Errorf("analyzer BuildInitialPrompt must be empty because the builder carries "+
+	if got := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk); got != "" {
+		t.Errorf("analyzer BuildInitialInstruction must be empty because the builder carries "+
 			"all per-dispatch context; got %d bytes:\n%s", len(got), got)
 	}
 }
 
 // TestAnalyzerPrompt_NoDuplicateSkillTitles is a second-layer
 // boundary guard: IF a future refactor legitimately adds dynamic
-// content to BuildInitialPrompt (the rule is "dynamic content only",
+// content to BuildInitialInstruction (the rule is "dynamic content only",
 // not "empty forever"), the supplement must still not restate any of
 // the titled sections the builder already renders. Section-title
 // collision is how the two layers silently drift into
@@ -244,7 +244,7 @@ func TestAnalyzerPrompt_NoDuplicateSkillTitles(t *testing.T) {
 	}
 	sk := skill.BuildAnalysisSkill()
 
-	evalOut := (&analyzerEvaluator{}).BuildInitialPrompt(ac, sk)
+	evalOut := (&analyzerEvaluator{}).BuildInitialInstruction(ac, sk)
 	if evalOut == "" {
 		// Happy case — nothing to duplicate. The companion test
 		// TestAnalyzerPrompt_DynamicContentInjectedViaBuilder already
@@ -267,7 +267,7 @@ func TestAnalyzerPrompt_NoDuplicateSkillTitles(t *testing.T) {
 	}
 	for _, header := range canonicalSectionHeaders {
 		if strings.Contains(evalOut, header) {
-			t.Errorf("evaluator BuildInitialPrompt duplicates builder-owned section header %q — "+
+			t.Errorf("evaluator BuildInitialInstruction duplicates builder-owned section header %q — "+
 				"supplements must be strictly additive new titles, never re-renders of the canonical set",
 				header)
 		}

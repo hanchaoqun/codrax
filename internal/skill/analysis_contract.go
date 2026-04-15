@@ -15,12 +15,12 @@ import (
 //
 // Before this file existed the same contract was triplicated across
 // internal/skill/defaults.go (task-analysis-skill), internal/agent/
-// analyzer.go (BuildInitialPrompt hardcoded text), and internal/tool/
+// analyzer.go (BuildInitialInstruction hardcoded text), and internal/tool/
 // emit_analysis.go (Description + Parameters JSON). Any change to an
 // enum value or wording required editing three files in two packages
 // and nothing enforced consistency, so values drifted. Now:
 //
-//   - analyzer agent's BuildInitialPrompt returns "" and the skill
+//   - analyzer agent's BuildInitialInstruction returns "" and the skill
 //     sections rendered from BuildAnalysisSkill() are the only static
 //     prompt text the analyzer sees;
 //   - emit_analysis.go builds its JSON schema enum arrays from

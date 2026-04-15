@@ -136,8 +136,20 @@ type BaseAgent struct {
 
 // Evaluator allows concrete agents to customize the ReAct loop behavior.
 type Evaluator interface {
-	// BuildInitialPrompt creates the first user message for the ReAct loop.
-	BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string
+	// BuildInitialInstruction returns the evaluator's per-dispatch
+	// dynamic supplement — a single user-role message BaseAgent
+	// appends AFTER the static PromptContext the shared assembler
+	// renders. The supplement is strictly additive: it may ONLY
+	// carry content that depends on this dispatch's runtime state
+	// (Turn A digest, resolved shape, cardinality baseline, ...) and
+	// must NEVER restate any piece of the skill config (Goal,
+	// Workflow, OutputFormat, Prohibitions) or re-emit a section
+	// title the builder already renders — see docs/architecture.md
+	// §3.3 for the Skill/Evaluator boundary contract. Returning ""
+	// is the correct implementation for a stage whose entire
+	// per-dispatch context is already carried by the builder (the
+	// analyzer is the minimal case).
+	BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string
 
 	// ShouldStop decides if the loop should terminate based on the LLM response.
 	ShouldStop(resp llm.Response, iteration int) bool
@@ -700,8 +712,12 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
 // primitives keep passing because this method never implements
 // rules on its own.
 func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Config) []llm.Message {
+	// 1. Assemble the structured PromptContext from ctx + skill.
 	pc := b.deps.PromptAssembler.AssembleContext(ctx, sk)
+	// 2. Render the PromptContext as the llm.Message slice.
 	messages := b.deps.PromptAssembler.RenderMessages(pc)
+	// 3. Append evaluator instruction (evaluator's dynamic supplement,
+	//    when non-empty; never restates the skill static contract).
 	messages = AppendDynamicInstruction(messages, b.eval, ctx, sk)
 	return messages
 }

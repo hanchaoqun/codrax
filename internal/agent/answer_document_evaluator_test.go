@@ -10,7 +10,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestAnswerDocumentEvaluator_BuildInitialPrompt_RendersResolvedShape
+// TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape
 // pins that the dynamic prompt surfaces the resolved target shape
 // (for operator visibility + diagnostic logs). The STATIC shape
 // dispatch table — tool name, required fields, forbidden fields —
@@ -19,7 +19,7 @@ import (
 // substrings in the dynamic prompt would resurrect the pre-cleanup
 // contradiction between the skill's declarative contract and the
 // evaluator's baked-in instructions.
-func TestAnswerDocumentEvaluator_BuildInitialPrompt_RendersResolvedShape(t *testing.T) {
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape(t *testing.T) {
 	shapes := []types.AnswerShape{
 		types.ShapeListOfSymbols, types.ShapeStepList, types.ShapeValue,
 		types.ShapeConfigValue, types.ShapeBoolean, types.ShapeExplanation,
@@ -31,7 +31,7 @@ func TestAnswerDocumentEvaluator_BuildInitialPrompt_RendersResolvedShape(t *test
 					AnswerContract: types.AnswerContract{RequiredAnswerShape: shape},
 				},
 			}
-			prompt := (&answerDocumentEvaluator{}).BuildInitialPrompt(ctx, nil)
+			prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 			// The dynamic prompt carries the shape name for operator
 			// visibility — this is the one substring the evaluator
 			// still owns after the static contract moved to the skill.
@@ -50,12 +50,12 @@ func TestAnswerDocumentEvaluator_BuildInitialPrompt_RendersResolvedShape(t *test
 	}
 }
 
-// TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesCardinalityBaseline
+// TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBaseline
 // checks that when MustInclude is populated and the resolved shape
 // is list_of_symbols, the dynamic prompt renders the γ floor so the
 // LLM can compute its completeness claim without re-deriving it from
 // the IR.
-func TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesCardinalityBaseline(t *testing.T) {
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBaseline(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
@@ -68,7 +68,7 @@ func TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesCardinalityBaseline(
 			{Name: "Beta", File: "b.go", Line: 20},
 		},
 	}
-	prompt := (&answerDocumentEvaluator{}).BuildInitialPrompt(ctx, nil)
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "Alpha") || !strings.Contains(prompt, "Beta") {
 		t.Errorf("prior slate not surfaced: %q", prompt)
 	}
@@ -80,17 +80,17 @@ func TestAnswerDocumentEvaluator_BuildInitialPrompt_SurfacesCardinalityBaseline(
 	}
 }
 
-// TestAnswerDocumentEvaluator_BuildInitialPrompt_NoFloorWithoutMustInclude
+// TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude
 // checks the other branch: when MustInclude is empty, the prompt
 // says "no floor is enforced" so the LLM picks the claim from its
 // own recall confidence.
-func TestAnswerDocumentEvaluator_BuildInitialPrompt_NoFloorWithoutMustInclude(t *testing.T) {
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclude(t *testing.T) {
 	ctx := &types.AgentContext{
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
 		},
 	}
-	prompt := (&answerDocumentEvaluator{}).BuildInitialPrompt(ctx, nil)
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "MustInclude (γ) is empty") {
 		t.Errorf("no-floor branch missing: %q", prompt)
 	}
@@ -106,7 +106,7 @@ func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
 		},
 	}
 	e := &answerDocumentEvaluator{}
-	e.BuildInitialPrompt(ctx, nil)
+	e.BuildInitialInstruction(ctx, nil)
 	if e.language != "zh" {
 		t.Errorf("language = %q, want zh", e.language)
 	}
@@ -115,14 +115,14 @@ func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
 		Preferences: []string{"Respond to the user in English by default."},
 	}
 	e2 := &answerDocumentEvaluator{}
-	e2.BuildInitialPrompt(ctx2, nil)
+	e2.BuildInitialInstruction(ctx2, nil)
 	if e2.language != "en" {
 		t.Errorf("language = %q, want en", e2.language)
 	}
 
 	ctx3 := &types.AgentContext{} // no preferences
 	e3 := &answerDocumentEvaluator{}
-	e3.BuildInitialPrompt(ctx3, nil)
+	e3.BuildInitialInstruction(ctx3, nil)
 	if e3.language != "en" {
 		t.Errorf("default language = %q, want en", e3.language)
 	}

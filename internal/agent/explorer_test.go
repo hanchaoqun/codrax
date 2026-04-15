@@ -667,7 +667,7 @@ func TestExtractQuestionEntities(t *testing.T) {
 	}
 }
 
-func TestBuildInitialPromptRetry(t *testing.T) {
+func TestBuildInitialInstructionRetry(t *testing.T) {
 	eval := &explorerEvaluator{}
 	ctx := &types.AgentContext{
 		Objective: "test question",
@@ -681,7 +681,7 @@ func TestBuildInitialPromptRetry(t *testing.T) {
 	}
 
 	// First call: should be Phase 0
-	prompt1 := eval.BuildInitialPrompt(ctx, nil)
+	prompt1 := eval.BuildInitialInstruction(ctx, nil)
 	if eval.phase != 0 {
 		t.Fatalf("first call should set phase=0, got %d", eval.phase)
 	}
@@ -694,7 +694,7 @@ func TestBuildInitialPromptRetry(t *testing.T) {
 	eval.idleStreakInDepth = 5 // simulate stale counter
 
 	// Second call (self-loop): should skip Phase 0
-	prompt2 := eval.BuildInitialPrompt(ctx, nil)
+	prompt2 := eval.BuildInitialInstruction(ctx, nil)
 	if eval.phase != 1 {
 		t.Fatalf("retry call should set phase=1, got %d", eval.phase)
 	}
@@ -1224,7 +1224,7 @@ func TestStripConversationPrefix(t *testing.T) {
 	}
 }
 
-// TestBuildInitialPrompt_CrossRunResetOnQuestionChange is the REPL-
+// TestBuildInitialInstruction_CrossRunResetOnQuestionChange is the REPL-
 // turn-boundary fix lock. When the explorer evaluator's cached
 // userQuestion differs from the new ctx.Objective, every cross-
 // Run field must be reset so the retry branch below does NOT treat
@@ -1235,7 +1235,7 @@ func TestStripConversationPrefix(t *testing.T) {
 // previous turn's investigationNotes, preScannedFiles, searchResult,
 // and ermRequirements — polluting S1/S2 decisions for the new
 // question.
-func TestBuildInitialPrompt_CrossRunResetOnQuestionChange(t *testing.T) {
+func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 	eval := &explorerEvaluator{
 		userQuestion:              "how many agents can invoke subagent",
 		investigationNotes:        []string{"[DIRECT] prior turn note"},
@@ -1254,13 +1254,13 @@ func TestBuildInitialPrompt_CrossRunResetOnQuestionChange(t *testing.T) {
 	}
 
 	// Simulate next REPL turn with a completely different question.
-	// ctx.CurrentTaskKeywords is empty so BuildInitialPrompt's
+	// ctx.CurrentTaskKeywords is empty so BuildInitialInstruction's
 	// keywordSearch gate doesn't run — we only care that the reset
 	// wipes prior state BEFORE the retry check.
 	ctx := &types.AgentContext{
 		Objective: "how does BuildContext cap turn file size",
 	}
-	prompt := eval.BuildInitialPrompt(ctx, nil)
+	prompt := eval.BuildInitialInstruction(ctx, nil)
 
 	// The retry branch must NOT activate — prior notes should be gone.
 	if strings.Contains(prompt, "Retry: Depth Investigation") {
@@ -1299,17 +1299,17 @@ func TestBuildInitialPrompt_CrossRunResetOnQuestionChange(t *testing.T) {
 	}
 }
 
-// TestBuildInitialPrompt_SameQuestionKeepsRetryState is the
+// TestBuildInitialInstruction_SameQuestionKeepsRetryState is the
 // complementary test: when ctx.Objective equals e.userQuestion
 // (intra-Run self-loop), the cross-run reset must NOT fire and the
 // retry branch below must activate as before.
-func TestBuildInitialPrompt_SameQuestionKeepsRetryState(t *testing.T) {
+func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 	eval := &explorerEvaluator{
 		userQuestion:       "investigate strategies",
 		investigationNotes: []string{"[DIRECT] strategy A from iter 1"},
 	}
 	ctx := &types.AgentContext{Objective: "investigate strategies"}
-	prompt := eval.BuildInitialPrompt(ctx, nil)
+	prompt := eval.BuildInitialInstruction(ctx, nil)
 
 	if !strings.Contains(prompt, "Retry: Depth Investigation") {
 		t.Error("same-question retry branch did not fire")
@@ -1319,7 +1319,7 @@ func TestBuildInitialPrompt_SameQuestionKeepsRetryState(t *testing.T) {
 	}
 }
 
-func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
+func TestBuildInitialInstruction_RetryInjectsPriorSynthesis(t *testing.T) {
 	// All sub-tests simulate an intra-Run explore → explore self-loop
 	// where the SAME question is retried. The 2026-04-12 REPL audit
 	// added a cross-run reset that fires when `ctx.Objective !=
@@ -1341,7 +1341,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 				},
 			},
 		}
-		prompt := eval.BuildInitialPrompt(ctx, nil)
+		prompt := eval.BuildInitialInstruction(ctx, nil)
 
 		if !strings.Contains(prompt, "Previous Synthesis") {
 			t.Error("retry prompt should contain 'Previous Synthesis' section")
@@ -1370,7 +1370,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 				},
 			},
 		}
-		prompt := eval2.BuildInitialPrompt(ctx, nil)
+		prompt := eval2.BuildInitialInstruction(ctx, nil)
 
 		if !strings.Contains(prompt, "Previous attempt had low file coverage") {
 			t.Error("should contain RetryHint")
@@ -1388,7 +1388,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 		ctx := &types.AgentContext{
 			Objective: "investigate",
 		}
-		prompt := eval3.BuildInitialPrompt(ctx, nil)
+		prompt := eval3.BuildInitialInstruction(ctx, nil)
 
 		if strings.Contains(prompt, "Previous Synthesis") {
 			t.Error("should NOT contain Previous Synthesis when no PriorReports")
@@ -1410,7 +1410,7 @@ func TestBuildInitialPrompt_RetryInjectsPriorSynthesis(t *testing.T) {
 				{Stage: types.StageExplore, Agent: types.AgentExplorer, Findings: longFindings},
 			},
 		}
-		prompt := eval4.BuildInitialPrompt(ctx, nil)
+		prompt := eval4.BuildInitialInstruction(ctx, nil)
 
 		if !strings.Contains(prompt, "[truncated]") {
 			t.Error("long prior synthesis should be truncated")

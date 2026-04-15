@@ -178,13 +178,13 @@ Summary field (shape=explanation or optional lead-in for others):
 	// (Workflow, Prohibitions) and schema scope (ToolSuggestions).
 	// Keeping Turn B's role, tool allowlist, output format, and
 	// honesty contract in this file — rather than baked into
-	// extractor.go's BuildInitialPrompt string builder — means the
+	// extractor.go's BuildInitialInstruction string builder — means the
 	// contract is one grep away, the stable parts render once as
 	// system sections instead of being appended per dispatch, and
 	// BaseAgent.buildToolSchemas scopes the LLM tool set from
 	// ToolSuggestions here.
 	//
-	// extractor.go's BuildInitialPrompt only handles the DYNAMIC
+	// extractor.go's BuildInitialInstruction only handles the DYNAMIC
 	// per-dispatch data: the Turn A transcript digest (investigation
 	// notes, read files, top evidence, flow findings, cardinality
 	// baseline, hypothesis set). Static contract lives here.

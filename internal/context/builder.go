@@ -95,7 +95,7 @@ var canonicalSystemSectionOrder = []string{
 // canonicalUserSectionOrder does the same for user-role sections.
 // Note that several of these are conditional — they only appear when
 // their backing AgentContext field is non-empty — but the relative
-// ORDER is fixed. Evaluators (BuildInitialPrompt) must not re-emit
+// ORDER is fixed. Evaluators (BuildInitialInstruction) must not re-emit
 // any of these titles: they append a separate user message after the
 // builder's output, so a duplicate title produces two visually
 // identical sections and contradictory directives when the two sides
@@ -131,7 +131,7 @@ var canonicalUserSectionOrder = []string{
 // evaluator sides.
 //
 // Evaluators contribute the DYNAMIC, stage-specific supplement through
-// Evaluator.BuildInitialPrompt, which BaseAgent appends as an extra
+// Evaluator.BuildInitialInstruction, which BaseAgent appends as an extra
 // user-role message AFTER this function's output. Those supplements
 // MUST NOT re-emit any title listed in the canonical section arrays —
 // doing so produces two visually identical sections and lets the two

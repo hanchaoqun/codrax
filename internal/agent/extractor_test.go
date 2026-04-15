@@ -25,7 +25,7 @@ func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
 	// P2.1 Session 2 cleanup: the tool contract (allowed / forbidden
 	// list, output format, completeness honesty contract) lives in
 	// the extract-skill declared by internal/skill/defaults.go, NOT
-	// in extractor.go's BuildInitialPrompt string builder. This test
+	// in extractor.go's BuildInitialInstruction string builder. This test
 	// pins the skill's shape so a future edit that strips the
 	// contract from the skill surfaces here immediately.
 	r := skill.NewRegistry()
@@ -91,17 +91,17 @@ func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
 	}
 }
 
-func TestExtractor_BuildInitialPromptEchoesQuestion(t *testing.T) {
-	// BuildInitialPrompt is now the DYNAMIC digest only — it echoes
+func TestExtractor_BuildInitialInstructionEchoesQuestion(t *testing.T) {
+	// BuildInitialInstruction is now the DYNAMIC digest only — it echoes
 	// the user question and bakes the Turn A transcript snapshot.
 	// The static tool contract lives in the skill (see the test
-	// above). This test pins what BuildInitialPrompt IS responsible
+	// above). This test pins what BuildInitialInstruction IS responsible
 	// for post-cleanup: the user question + a non-empty result.
 	e := &extractorEvaluator{}
 	ctx := &types.AgentContext{Objective: "what does Foo return?"}
-	prompt := e.BuildInitialPrompt(ctx, nil)
+	prompt := e.BuildInitialInstruction(ctx, nil)
 	if prompt == "" {
-		t.Fatal("BuildInitialPrompt must produce a non-empty result")
+		t.Fatal("BuildInitialInstruction must produce a non-empty result")
 	}
 	if !contains(prompt, "what does Foo return?") {
 		t.Error("prompt should echo the user question")
@@ -118,18 +118,18 @@ func TestExtractor_BuildInitialPromptEchoesQuestion(t *testing.T) {
 	}
 	for _, staticContent := range forbidden {
 		if contains(prompt, staticContent) {
-			t.Errorf("cleanup regression: BuildInitialPrompt re-states %q (should be in skill, not prompt)",
+			t.Errorf("cleanup regression: BuildInitialInstruction re-states %q (should be in skill, not prompt)",
 				staticContent)
 		}
 	}
 }
 
-func TestExtractor_BuildInitialPromptHandlesNilCtx(t *testing.T) {
-	// Defensive: Session 2 wiring may call BuildInitialPrompt before
+func TestExtractor_BuildInitialInstructionHandlesNilCtx(t *testing.T) {
+	// Defensive: Session 2 wiring may call BuildInitialInstruction before
 	// AgentContext is fully populated. Must not panic; empty output
 	// is acceptable now that all static content lives in the skill.
 	e := &extractorEvaluator{}
-	_ = e.BuildInitialPrompt(nil, nil) // must not panic
+	_ = e.BuildInitialInstruction(nil, nil) // must not panic
 }
 
 func TestExtractor_ShouldStopFiresAfterOneIteration(t *testing.T) {
@@ -320,7 +320,7 @@ func TestExtractor_Validator_Complete_NoBaseline_PassesThrough(t *testing.T) {
 }
 
 // -----------------------------------------------------------------------------
-// P2.1 Phase 8 — BuildInitialPrompt reads TurnAArtifacts
+// P2.1 Phase 8 — BuildInitialInstruction reads TurnAArtifacts
 // -----------------------------------------------------------------------------
 
 func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
@@ -343,7 +343,7 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	}
 
 	e := &extractorEvaluator{}
-	prompt := e.BuildInitialPrompt(ctx, nil)
+	prompt := e.BuildInitialInstruction(ctx, nil)
 
 	// Question echoed
 	if !contains(prompt, "which handlers register Foo?") {
@@ -399,7 +399,7 @@ func TestExtractor_BuildPrompt_NoArtifacts_GracefulDegrade(t *testing.T) {
 	mu := types.NewMutableState("")
 	ctx := &types.AgentContext{Objective: "q", Mutable: mu}
 	e := &extractorEvaluator{}
-	prompt := e.BuildInitialPrompt(ctx, nil)
+	prompt := e.BuildInitialInstruction(ctx, nil)
 
 	if !contains(prompt, "No transcript available") {
 		t.Error("prompt must announce missing transcript")
@@ -425,7 +425,7 @@ func TestExtractor_BuildPrompt_ClampsLongInvestigationNotes(t *testing.T) {
 	})
 	ctx := &types.AgentContext{Objective: "q", Mutable: mu}
 	e := &extractorEvaluator{}
-	prompt := e.BuildInitialPrompt(ctx, nil)
+	prompt := e.BuildInitialInstruction(ctx, nil)
 
 	if !contains(prompt, "showing the 6 most recent of 10") {
 		t.Error("prompt must show clamp notice when notes > 6")
@@ -449,7 +449,7 @@ func TestExtractor_BuildPrompt_IncludesHypothesisSet(t *testing.T) {
 		},
 	}
 	e := &extractorEvaluator{}
-	prompt := e.BuildInitialPrompt(ctx, nil)
+	prompt := e.BuildInitialInstruction(ctx, nil)
 
 	for _, want := range []string{"Hypotheses", "H1", "H2", "Foo calls Bar", "Bar returns true"} {
 		if !contains(prompt, want) {

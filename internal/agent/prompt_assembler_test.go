@@ -70,8 +70,8 @@ func (r *recordingAssembler) RenderMessages(pc *types.PromptContext) []llm.Messa
 }
 
 // recordingEvaluator is a zero-logic Evaluator that returns a fixed
-// BuildInitialPrompt string and no-ops for the other three methods.
-// buildInitialMessages only calls BuildInitialPrompt, so the other
+// BuildInitialInstruction string and no-ops for the other three methods.
+// buildInitialMessages only calls BuildInitialInstruction, so the other
 // three methods are pure stubs.
 type recordingEvaluator struct {
 	instruction string
@@ -80,7 +80,7 @@ type recordingEvaluator struct {
 	calls       int
 }
 
-func (r *recordingEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+func (r *recordingEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	r.gotCtx = ctx
 	r.gotSkill = sk
 	r.calls++
@@ -178,7 +178,7 @@ func TestDefaultPromptAssembler_RenderMessages_RoundTrip(t *testing.T) {
 // TestAppendDynamicInstruction_EmptyInstructionIsDropped pins the
 // contract that an empty evaluator supplement does NOT append a
 // bare user-role message. The analyzer relies on this: its
-// BuildInitialPrompt returns "" by design.
+// BuildInitialInstruction returns "" by design.
 func TestAppendDynamicInstruction_EmptyInstructionIsDropped(t *testing.T) {
 	eval := &recordingEvaluator{instruction: ""}
 	base := []llm.Message{{Role: "system", Content: "base"}}
@@ -189,7 +189,7 @@ func TestAppendDynamicInstruction_EmptyInstructionIsDropped(t *testing.T) {
 		t.Fatalf("empty supplement must not append, got %d messages", len(out))
 	}
 	if eval.calls != 1 {
-		t.Errorf("BuildInitialPrompt should have been called exactly once, got %d", eval.calls)
+		t.Errorf("BuildInitialInstruction should have been called exactly once, got %d", eval.calls)
 	}
 }
 
@@ -319,10 +319,10 @@ func TestBuildInitialMessages_CallsPrimitivesInOrder(t *testing.T) {
 
 	// 3. Evaluator supplement ran with the same ctx + skill.
 	if evalRec.calls != 1 {
-		t.Errorf("BuildInitialPrompt called %d times, want 1", evalRec.calls)
+		t.Errorf("BuildInitialInstruction called %d times, want 1", evalRec.calls)
 	}
 	if evalRec.gotCtx != ac || evalRec.gotSkill != sk {
-		t.Error("BuildInitialPrompt did not receive the same ctx/skill as the assembler")
+		t.Error("BuildInitialInstruction did not receive the same ctx/skill as the assembler")
 	}
 
 	// 4. Output equals [assembler messages..., dynamic supplement].
@@ -338,7 +338,7 @@ func TestBuildInitialMessages_CallsPrimitivesInOrder(t *testing.T) {
 }
 
 // TestBuildInitialMessages_EmptySupplementDropsAppend wires a
-// recording evaluator whose BuildInitialPrompt returns "" and
+// recording evaluator whose BuildInitialInstruction returns "" and
 // asserts buildInitialMessages returns only the assembler output.
 // This pins the analyzer's empty-supplement path end-to-end.
 func TestBuildInitialMessages_EmptySupplementDropsAppend(t *testing.T) {
@@ -362,7 +362,7 @@ func TestBuildInitialMessages_EmptySupplementDropsAppend(t *testing.T) {
 	// The evaluator was still consulted — dropping the supplement is
 	// a post-consultation decision, not a skip-the-call optimization.
 	if evalRec.calls != 1 {
-		t.Errorf("BuildInitialPrompt calls = %d, want 1 (empty supplement is still a consultation)", evalRec.calls)
+		t.Errorf("BuildInitialInstruction calls = %d, want 1 (empty supplement is still a consultation)", evalRec.calls)
 	}
 }
 

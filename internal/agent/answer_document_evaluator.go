@@ -41,11 +41,11 @@ const maxFinalizerCorrectionRetries = 2
 // answerDocumentEvaluator is the Evaluator implementation for the
 // finalize stage.
 type answerDocumentEvaluator struct {
-	// language is captured at BuildInitialPrompt time so ParseOutput
+	// language is captured at BuildInitialInstruction time so ParseOutput
 	// can pick the renderer locale without re-deriving it.
 	language string
 
-	// mu is captured at BuildInitialPrompt so ContinuationPrompt can
+	// mu is captured at BuildInitialInstruction so ContinuationPrompt can
 	// check whether the AnswerDocument tool call has landed before
 	// issuing a correction retry. Without this, a content-only turn
 	// that followed a successful tool call would burn a retry and
@@ -60,7 +60,7 @@ type answerDocumentEvaluator struct {
 	retriesUsed int
 }
 
-// BuildInitialPrompt renders ONLY the dynamic per-dispatch data the
+// BuildInitialInstruction renders ONLY the dynamic per-dispatch data the
 // answer-document-skill system sections cannot carry:
 //
 //   - Resolved target shape (depends on ctx.AnalysisIR / ctx.AnswerSymbols)
@@ -81,7 +81,7 @@ type answerDocumentEvaluator struct {
 // declarative skill OutputFormat and a Go-string-builder prompt
 // are a known footgun, so this evaluator deliberately never
 // repeats the skill's contract text.
-func (e *answerDocumentEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
+func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.retriesUsed = 0
 	e.language = extractAnswerDocLang(ctx)
 	if ctx != nil {
