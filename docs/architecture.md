@@ -66,7 +66,7 @@ graph TB
     end
 
     subgraph "Layer 3 策略层 (4 Skill)"
-        S1[task-analysis-skill]
+        S1[analysis-skill]
         S2[repo-explore-skill]
         S3[extract-skill]
         S4[answer-document-skill<br/>(fallback: final-answer-skill)]
@@ -100,7 +100,7 @@ graph TB
 
 | 阶段 | 默认 Agent | 默认 Skill | Terminal |
 |------|-----------|-----------|:-:|
-| `analyze` | `analyzer` | `task-analysis-skill` | |
+| `analyze` | `analyzer` | `analysis-skill` | |
 | `explore` | `explorer` | `repo-explore-skill` | |
 | `extract` | `extractor` | `extract-skill` | |
 | `finalize` | `finalizer` | `final-answer-skill` *（注册时覆盖为 `answer-document-skill`）* | ✅ |
@@ -270,7 +270,7 @@ Per-agent 模型路由在 `config/providers.yaml` 里配（不同 Agent 可以�
 | 方面 | 详情 |
 |------|------|
 | **Agent** | analyzer |
-| **Skill** | `task-analysis-skill` |
+| **Skill** | `analysis-skill` |
 | **工具** | `emit_analysis`（独占，一次性调用） |
 | **输入** | 用户原始请求 |
 | **工作** | 一次 LLM 调用 → 写 v3 RequestModel → `ParseOutput` 跑 `normalizer → compiler → risk → hdp → counterfactual → gate`（见 §7） |

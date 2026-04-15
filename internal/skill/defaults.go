@@ -1,34 +1,14 @@
 package skill
 
 // RegisterDefaults registers all built-in skill configurations.
+//
+// The analyzer's "analysis-skill" is built programmatically from the
+// single-source-of-truth tables in analysis_contract.go. Every other
+// stage's skill config is an inlined literal below — their contracts
+// are not triplicated across the codebase the way the analyzer's was,
+// so declarative literals stay fine there.
 func RegisterDefaults(r *Registry) {
-	r.Register(&Config{
-		Name: "task-analysis-skill",
-		Goal: "Classify the user request into a RequestModel (intent, scenario, complexity, keywords, entities, question_kind, answer_shape) via a single emit_analysis tool call.",
-		Workflow: []string{
-			"read user input and detect its language",
-			"pick intent from the enum (explain/trace/enumerate/root_cause/return_value/config_query/unknown)",
-			"pick scenario from the enum (architecture_explain/root_cause/config_trace/performance_bottleneck/generic)",
-			"pick complexity (simple/moderate/complex) from the number of files the answer likely needs",
-			"extract entities VERBATIM from the user's text — CamelCase/snake_case only, no generic nouns",
-			"generate ≥8 keywords in three rounds — core terms, compound identifiers, action synonyms",
-			"pick question_kind and answer_shape from the ERM / finalizer enums",
-			"call emit_analysis EXACTLY ONCE with the classified fields",
-		},
-		ToolSuggestions: []string{
-			"emit_analysis",
-		},
-		OutputFormat: `Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape. ` +
-			`The system synthesises the TermGraph, TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically from your input — do not provide them. ` +
-			`Keyword generation (3 rounds): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (send → emit/dispatch/publish). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words. ` +
-			`After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log.`,
-		Prohibitions: []string{
-			"do not call any tool other than emit_analysis",
-			"do not write prose before the emit_analysis call",
-			"do not make assumptions about code structure",
-			"do not translate or re-case entities — copy them verbatim from the user's text",
-		},
-	})
+	r.Register(BuildAnalysisSkill())
 
 	r.Register(&Config{
 		Name: "repo-explore-skill",

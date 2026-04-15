@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -49,61 +51,104 @@ type emitAnalysisParams struct {
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
 
+// Description is intentionally short: it names the tool and its
+// one-call constraint. The field-level semantics (enum tables, rule
+// text) live in the analysis-skill system prompt built from
+// internal/skill/analysis_contract.go — the single source of truth.
+// The JSON schema returned from Parameters() carries the same enums.
 func (t *EmitAnalysis) Description() string {
-	return "Analyzer v3 exit channel. Call EXACTLY ONCE at the end of the analyze stage " +
-		"with the classified request. Required fields: intent, scenario, complexity, " +
-		"keywords, entities, question_kind, answer_shape. The system synthesises the TermGraph, " +
-		"TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically " +
-		"from this input — you do not need to provide them."
+	return "Analyzer exit channel. Call EXACTLY ONCE at the end of the analyze stage " +
+		"to store the classified RequestModel. Required fields and their allowed values are " +
+		"defined in the parameter schema."
 }
 
+// Parameters returns the emit_analysis JSON schema. Enum arrays are
+// pulled from the skill.Analysis*Values() accessors so the schema
+// cannot drift from the skill prompt; a consistency test in this
+// package verifies the two sides match value-for-value.
 func (t *EmitAnalysis) Parameters() json.RawMessage {
-	return json.RawMessage(`{
-  "type": "object",
-  "properties": {
-    "intent": {
-      "type": "string",
-      "enum": ["explain","root_cause","trace","enumerate","config_query","return_value","unknown"],
-      "description": "v3 Intent enum. Pick the closest match to the user's question. Use 'unknown' only if genuinely ambiguous."
-    },
-    "scenario": {
-      "type": "string",
-      "enum": ["architecture_explain","root_cause","config_trace","performance_bottleneck","generic"],
-      "description": "Scenario template picker. architecture_explain for explaining code/mechanism, root_cause for debugging, config_trace for config→behaviour questions, generic if none fit."
-    },
-    "complexity": {
-      "type": "string",
-      "enum": ["simple","moderate","complex"],
-      "description": "Investigation depth: simple (single lookup), moderate (3-5 files), complex (cross-component flow)."
-    },
-    "keywords": {
-      "type": "array",
-      "items": {"type": "string"},
-      "description": "≥8 search terms for grep. MUST include every CamelCase and snake_case identifier the user mentioned, plus conceptual synonyms. For Chinese questions include BOTH Chinese and English forms."
-    },
-    "entities": {
-      "type": "array",
-      "items": {"type": "string"},
-      "description": "CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, agent, handler, module) MUST NOT appear. Leave empty only when the question has no identifier-looking tokens."
-    },
-    "question_kind": {
-      "type": "string",
-      "enum": ["registration","mechanism","return_value","conditional","config_mapping","enumeration","call_chain","unknown"],
-      "description": "Evidence-requirement shape for ERM's predicate whitelist. registration='which/how many X register Y', mechanism='how does X work', return_value='what does X return', conditional='when/under what condition', config_mapping='what does config key K do', enumeration='list all X', call_chain='which X calls Y'."
-    },
-    "answer_shape": {
-      "type": "string",
-      "enum": ["list_of_symbols","step_list","value","boolean","config_value","explanation","none"],
-      "description": "Expected final-answer structure. list_of_symbols for sets of names, step_list for mechanism steps, value for a single literal, boolean for yes/no, config_value for a resolved key:value, explanation for long prose."
-    },
-    "language": {
-      "type": "string",
-      "enum": ["zh","en"],
-      "description": "Optional. Output language for the final answer. Auto-detected from the raw request if omitted."
-    }
-  },
-  "required": ["intent","scenario","complexity","keywords","entities","question_kind","answer_shape"]
-}`)
+	emitAnalysisSchemaOnce.Do(buildEmitAnalysisSchema)
+	return emitAnalysisSchemaCache
+}
+
+var (
+	emitAnalysisSchemaOnce  sync.Once
+	emitAnalysisSchemaCache json.RawMessage
+)
+
+func buildEmitAnalysisSchema() {
+	type stringProp struct {
+		Type        string   `json:"type"`
+		Enum        []string `json:"enum,omitempty"`
+		Description string   `json:"description,omitempty"`
+	}
+	type arrayProp struct {
+		Type        string            `json:"type"`
+		Items       map[string]string `json:"items"`
+		Description string            `json:"description,omitempty"`
+	}
+
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"intent": stringProp{
+				Type:        "string",
+				Enum:        skill.AnalysisIntentValues(),
+				Description: "Task intent. Pick the closest match to the user's question; see the analysis-skill's Output Format section for each value's meaning.",
+			},
+			"scenario": stringProp{
+				Type:        "string",
+				Enum:        skill.AnalysisScenarioValues(),
+				Description: "Scenario template picker. See the analysis-skill's Output Format section for each value's meaning.",
+			},
+			"complexity": stringProp{
+				Type:        "string",
+				Enum:        skill.AnalysisComplexityValues(),
+				Description: "Investigation depth. See the analysis-skill's Output Format section for each value's meaning.",
+			},
+			"keywords": arrayProp{
+				Type:        "array",
+				Items:       map[string]string{"type": "string"},
+				Description: "Grep search terms. See the analysis-skill's Output Format section for generation rules.",
+			},
+			"entities": arrayProp{
+				Type:        "array",
+				Items:       map[string]string{"type": "string"},
+				Description: "CamelCase/snake_case symbol names copied VERBATIM from the user's wording. See the analysis-skill's Output Format section for constraints.",
+			},
+			"question_kind": stringProp{
+				Type:        "string",
+				Enum:        skill.AnalysisQuestionKindValues(),
+				Description: "ERM predicate selector. See the analysis-skill's Output Format section for each value's meaning.",
+			},
+			"answer_shape": stringProp{
+				Type:        "string",
+				Enum:        skill.AnalysisAnswerShapeValues(),
+				Description: "Expected final-answer structure. See the analysis-skill's Output Format section for each value's meaning.",
+			},
+			"language": stringProp{
+				Type:        "string",
+				Enum:        []string{"zh", "en"},
+				Description: "Optional. Output language for the final answer. Auto-detected from the raw request if omitted.",
+			},
+		},
+		"required": []string{
+			"intent", "scenario", "complexity", "keywords", "entities", "question_kind", "answer_shape",
+		},
+	}
+
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		// emit_analysis schema is built from static SSOT data; a
+		// marshal failure here is a programmer error, not a runtime
+		// input problem. Fall back to the minimal well-formed schema
+		// so the tool still registers and the caller sees a clear
+		// compile-time-style error on first use.
+		emitAnalysisSchemaCache = json.RawMessage(fmt.Sprintf(
+			`{"type":"object","description":"emit_analysis schema build failed: %s"}`, err))
+		return
+	}
+	emitAnalysisSchemaCache = raw
 }
 
 func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {

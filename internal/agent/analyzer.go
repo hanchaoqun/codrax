@@ -43,64 +43,27 @@ import (
 //     warning and the run continues.
 type analyzerEvaluator struct{}
 
+// BuildInitialPrompt is intentionally empty. All static analyzer-
+// contract text (field enums, descriptions, hard rules) lives in the
+// single-source-of-truth tables in internal/skill/analysis_contract.go
+// and flows into the system prompt through the skill rendering path
+// in context/builder.go (Skill Goal / Workflow / Output Format /
+// Prohibitions). The analyzer has no per-dispatch dynamic content
+// that is not already injected elsewhere:
+//
+//   - the user request is rendered as the "User Request" user section;
+//   - language preference flows through Preferences → "User
+//     Preferences";
+//   - retry hints flow through RetryHint → "Retry Directive".
+//
+// BaseAgent.buildInitialMessages skips an empty evaluator instruction,
+// so returning "" here means the LLM sees the skill's system block
+// exactly once instead of once from the skill path plus a second copy
+// from this method.
 func (e *analyzerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = ctx
 	_ = sk
-	// The analyzer is the first LLM in the pipeline to see the raw
-	// user request. Its only job is to call emit_analysis ONCE with
-	// the classification fields below. The deterministic v3 pipeline
-	// (normalizer → compiler → risk → hdp → counterfactual → gate)
-	// runs in ParseOutput and does not need any free-form rationale.
-	return `You are the analyzer. Classify the user's request by calling the emit_analysis tool EXACTLY ONCE. Every field below feeds a deterministic downstream stage — vague input here cascades into wasted search and hallucinated answers.
-
-# Required emit_analysis fields
-
-intent        — the task intent. Pick one:
-   explain         — user wants to understand how something works
-   root_cause      — user is debugging, asks "why does X fail"
-   trace           — follow a data flow or call chain end to end
-   enumerate       — list every X, count Xs (also for "which agents call Y")
-   config_query    — look up what a config key controls
-   return_value    — asks what a specific function returns or its literal name
-   unknown         — genuinely ambiguous (ERM will fall back to keyword inference)
-
-scenario      — which scenario template drives the investigation plan:
-   architecture_explain    — explain mechanism / code / flow
-   root_cause              — debug a failure
-   config_trace            — trace config → behaviour
-   performance_bottleneck  — find a perf hotspot
-   generic                 — none of the above (safe fallback)
-
-complexity    — "simple" (single lookup/count, 1-2 files), "moderate" (single component, 3-5 files), "complex" (cross-component, 6+ files).
-
-keywords      — ≥8 grep search terms. Include every CamelCase / snake_case identifier the user wrote PLUS conceptual synonyms. For Chinese questions include BOTH Chinese and English forms (the codebase is English).
-entities      — CamelCase / snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens.
-question_kind — ERM predicate selector. Pick one:
-   registration   — "which/how many X register/bind Y", "X 是在哪注册的"
-   mechanism      — "how does X work", "explain the process of X", "X 怎么实现"
-   return_value   — "what does X return", "X.Name() 是什么"
-   conditional    — "when does X fire", "under what condition", "什么时候"
-   config_mapping — "what does config key K control"
-   enumeration    — "list all X", "count of X"
-   call_chain     — "which X calls Y", "从 A 到 B 怎么调用的"
-   unknown        — genuinely ambiguous
-answer_shape  — the finalizer's anti-hallucination selector:
-   list_of_symbols — answer is a set of identifier names (forbids symbols not in Ground Truth evidence)
-   step_list       — ordered steps of a mechanism
-   value           — a single literal / returned value
-   boolean         — yes/no
-   config_value    — a resolved config key value
-   explanation     — long prose explanation
-   none            — no structured shape applies
-
-# Hard rules
-
-1. Every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays). Missing required fields rejects the call.
-2. entities come from the user's ORIGINAL text only. "ContinuationPrompt" stays as "ContinuationPrompt" — not "continuation prompt", not "continuation_prompt", not "prompt".
-3. Do not invent an intent by stretching a category. If two fit equally, choose the one that directly matches the user's verb. If none fit, use "unknown".
-4. answer_shape=list_of_symbols ONLY when the user is asking for a SET of names they want to see listed. "How many agents call X" is list_of_symbols (they want the names even if phrased as a count). "Is X registered" is boolean. "Explain X" is step_list or explanation.
-5. Do NOT call any other tool. Do NOT write free-form prose before the tool call. emit_analysis is the only output channel for the analyze stage.
-6. After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent — the structured fields are what matter.`
+	return ""
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {

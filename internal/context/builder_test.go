@@ -82,7 +82,7 @@ func TestBuildPromptContext(t *testing.T) {
 	}
 
 	sk := &skill.Config{
-		Name:            "task-analysis-skill",
+		Name:            "analysis-skill",
 		Goal:            "Structurize and classify the user task",
 		Workflow:        []string{"read input", "identify intent", "classify type"},
 		ToolSuggestions: []string{"grep", "read_file"},
@@ -96,8 +96,8 @@ func TestBuildPromptContext(t *testing.T) {
 		if pc.AgentName != types.AgentAnalyzer {
 			t.Errorf("got agent %s, want %s", pc.AgentName, types.AgentAnalyzer)
 		}
-		if pc.SkillName != "task-analysis-skill" {
-			t.Errorf("got skill %q, want %q", pc.SkillName, "task-analysis-skill")
+		if pc.SkillName != "analysis-skill" {
+			t.Errorf("got skill %q, want %q", pc.SkillName, "analysis-skill")
 		}
 	})
 
