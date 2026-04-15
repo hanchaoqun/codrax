@@ -597,9 +597,16 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				}
 				sig := loopCtrl.Observe(ctx, obs)
 				result := policyState.Apply(PhaseSoftStop, obs, sig)
-				logging.Debug("[diag %s] iter=%d SOFT-STOP signal hint=%t progress=%t stop=%t → %s (%s)",
+				// `key=%q` surfaces the evaluator's HintKey so
+				// post-hoc trace analysis can pinpoint which
+				// detection branch fired without source-reading
+				// detective work. `result.Reason` is independently
+				// useful (carries the policy-layer rejection
+				// explanation for dropped hints), so both fields
+				// stay on the same line.
+				logging.Debug("[diag %s] iter=%d SOFT-STOP signal hint=%t progress=%t stop=%t key=%q → %s (%s)",
 					b.name, i, sig.HintRequested, sig.Progress, sig.StopRequested,
-					result.Outcome, result.Reason)
+					sig.HintKey, result.Outcome, result.Reason)
 				if result.Outcome == OutcomeInjectHint {
 					messages = append(messages, llm.Message{
 						Role:      "assistant",
@@ -709,6 +716,16 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			}
 			sig := loopCtrl.Observe(ctx, obs)
 			result := policyState.Apply(PhaseMidLoop, obs, sig)
+			// Symmetric signal line with the soft-stop path above,
+			// so `rg 'SOFT-STOP signal|MIDLOOP signal' logs/` yields
+			// a uniform stream of controller-vote events across
+			// both loop phases. `key=%q` exposes the evaluator's
+			// HintKey — without it, trace analysis has to grep the
+			// evaluator source to figure out which detection
+			// branch fired.
+			logging.Debug("[diag %s] iter=%d MIDLOOP signal hint=%t progress=%t stop=%t key=%q → %s (%s)",
+				b.name, i, sig.HintRequested, sig.Progress, sig.StopRequested,
+				sig.HintKey, result.Outcome, result.Reason)
 			switch result.Outcome {
 			case OutcomeInjectHint:
 				messages = append(messages, llm.Message{

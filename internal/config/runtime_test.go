@@ -29,6 +29,7 @@ analysis_generic_entity_blocklist:
   - thing
   - widget
 analysis_reject_multiple_emit: true
+analysis_max_prescan_rounds: 3
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -96,6 +97,9 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.AnalysisRejectMultipleEmit == nil || *s.AnalysisRejectMultipleEmit != true {
 		t.Errorf("AnalysisRejectMultipleEmit = %v", s.AnalysisRejectMultipleEmit)
+	}
+	if s.AnalysisMaxPrescanRounds == nil || *s.AnalysisMaxPrescanRounds != 3 {
+		t.Errorf("AnalysisMaxPrescanRounds = %v", s.AnalysisMaxPrescanRounds)
 	}
 }
 
@@ -179,7 +183,8 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		s.PipelineMaxRetriesPerStage != nil || s.PipelineMaxStageVisits != nil ||
 		s.AnalysisWarnBelowKeywords != nil || s.AnalysisRejectBelowKeywords != nil ||
 		s.AnalysisGenericEntityBlocklist != nil ||
-		s.AnalysisRejectMultipleEmit != nil {
+		s.AnalysisRejectMultipleEmit != nil ||
+		s.AnalysisMaxPrescanRounds != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }

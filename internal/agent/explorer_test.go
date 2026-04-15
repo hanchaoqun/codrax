@@ -2028,3 +2028,197 @@ func TestBuildUniqueDefFileIndex(t *testing.T) {
 		t.Errorf("empty-defs entry should be skipped, got %q", got["Empty"])
 	}
 }
+
+// The `TestExplorerSoftStop_*` tests below pin the 2026-04-15 soft-stop
+// differentiation contract in observeSoftStop: on the FIRST voluntary
+// soft-stop (ContinuationsUsed==0), only hard-evidence detection
+// branches (partial-read, enumeration, grep-redirect) can override
+// the LLM's "I'm done" signal. Soft heuristics (erm-gap, prescanned,
+// unanalyzed) and the structural `coverage` fallthrough must return
+// an empty signal so the policy layer accepts the stop. On the
+// SECOND and later soft-stops, the full detector suite runs — the
+// LLM is clearly stalling after ignoring a prior hint.
+//
+// The fixtures here drop the explorer into phase=1, populate the
+// state each branch reads (searchResult, preScannedFiles,
+// fileSymbols, investigationNotes), and assert the signal shape on
+// both first- and second-stop observations.
+
+// softStopWithContinuations is a narrower helper that returns the
+// full LoopSignal (not just the `(hint, cont)` pair from
+// softStopExplorer) so tests can assert HintKey, Progress, and
+// HintRequested independently. Adding it as a local test helper
+// instead of extending softStopExplorer keeps the existing tests'
+// call-site shape unchanged.
+func softStopWithContinuations(eval *explorerEvaluator, content string, iter, continuations int, history []types.ToolResult) LoopSignal {
+	return eval.observeSoftStop(LoopObservation{
+		Phase:             PhaseSoftStop,
+		Iteration:         iter,
+		Response:          llm.Response{Content: content},
+		AllToolResults:    history,
+		ContinuationsUsed: continuations,
+	})
+}
+
+// TestExplorerSoftStop_FirstStop_HardBranch_PartialReadFires verifies
+// that partial-read (hard evidence: read_file coverage vs symbol
+// range math) still fires on a first soft-stop. The LLM read lines
+// 100-200 of a function defined on lines 100-400 (50% coverage, no
+// grep redirect), which is a concrete "you left lines unread"
+// signal the LLM cannot argue against. This is the control case for
+// "hard-evidence bypass of the firstSoftStop gate".
+func TestExplorerSoftStop_FirstStop_HardBranch_PartialReadFires(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "how does Execute work",
+		searchResult: &keywordSearchResult{
+			Graph: &repomap.Graph{
+				FileIndex: map[string]*repomap.FileInfo{
+					"agent.go": {
+						Symbols: []repomap.Symbol{
+							{Name: "Execute", Kind: "method", Receiver: "BaseAgent", Line: 100, EndLine: 400, File: "agent.go"},
+						},
+					},
+				},
+			},
+		},
+	}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true,
+			Summary: "[agent.go: showing lines 100-200 of 500 total]\ncode..."},
+	}
+
+	sig := softStopWithContinuations(eval, "BaseAgent.Execute runs a ReAct loop.", 4, 0, history)
+	if !sig.HintRequested {
+		t.Fatalf("partial-read hard branch should fire on first soft-stop; got %+v", sig)
+	}
+	if sig.HintKey != "explorer.phase1.partial-read" {
+		t.Errorf("HintKey = %q, want explorer.phase1.partial-read", sig.HintKey)
+	}
+}
+
+// TestExplorerSoftStop_FirstStop_SoftBranch_PrescannedSuppressed is
+// the DIRECT iter=5 regression check: the preScannedUnread branch
+// would have fired on the 2026-04-15 user trace and injected a
+// "please read these files" hint, overriding the LLM's correct
+// answer. With firstSoftStop gating, the first voluntary stop must
+// return an empty signal so LoopPolicy accepts the stop.
+func TestExplorerSoftStop_FirstStop_SoftBranch_PrescannedSuppressed(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:           1,
+		userQuestion:    "list the agents",
+		preScannedFiles: []string{"internal/agent/analyzer.go", "internal/agent/explorer.go", "internal/agent/finalizer.go"},
+		// Empty readSet → all three preScanned files are "unread".
+		// No searchResult graph → partial-read/grep-redirect cannot fire.
+	}
+	var history []types.ToolResult // no read_file entries → nothing in readSet
+
+	sig := softStopWithContinuations(eval, "The agents are analyzer, explorer, extractor, finalizer.", 4, 0, history)
+	if sig.HintRequested {
+		t.Errorf("preScannedUnread soft branch must NOT fire on first soft-stop; got HintKey=%q Hint=%q",
+			sig.HintKey, sig.Hint)
+	}
+	// progress stayed false because no branch was actually taken — the
+	// gate short-circuited before preScannedUnread's progress=true.
+	if sig.Progress {
+		t.Errorf("Progress = true, want false (no branch fired)")
+	}
+}
+
+// TestExplorerSoftStop_SecondStop_SoftBranch_PrescannedFires pins the
+// symmetry: the same fixture that suppresses preScanned on first
+// stop must ALLOW it on second stop. At ContinuationsUsed=1 the LLM
+// has already ignored one hint and stopped again, so the soft
+// heuristics earn the right to push.
+func TestExplorerSoftStop_SecondStop_SoftBranch_PrescannedFires(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:           1,
+		userQuestion:    "list the agents",
+		preScannedFiles: []string{"internal/agent/analyzer.go", "internal/agent/explorer.go"},
+	}
+	var history []types.ToolResult
+
+	sig := softStopWithContinuations(eval, "still analyzing", 5, 1, history)
+	if !sig.HintRequested {
+		t.Fatalf("preScannedUnread should fire on second soft-stop; got %+v", sig)
+	}
+	if sig.HintKey != "explorer.phase1.prescanned" {
+		t.Errorf("HintKey = %q, want explorer.phase1.prescanned", sig.HintKey)
+	}
+}
+
+// TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed verifies that
+// the `unanalyzed` soft branch also obeys the first-soft-stop gate.
+// readSet contains a file whose fileSymbols list 3-char method
+// names that are not mentioned in investigationNotes — the historic
+// pathology that flagged every correct-answer soft-stop.
+func TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "how does ExecCommand work",
+		fileSymbols: map[string][]string{
+			"internal/tool/exec.go": {"Run method:50", "Get method:70", "Set method:90"},
+		},
+		investigationNotes: []string{
+			"The ExecCommand tool shells out to /bin/bash for each call.",
+		},
+	}
+	// readSet is derived from read_file entries — inject one so the
+	// unanalyzed branch sees the file.
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true,
+			Summary: "[internal/tool/exec.go: showing lines 1-100 of 100 total]\npackage tool"},
+	}
+
+	sig := softStopWithContinuations(eval, "ExecCommand shells out to /bin/bash.", 4, 0, history)
+	if sig.HintRequested {
+		t.Errorf("unanalyzed soft branch must NOT fire on first soft-stop; got HintKey=%q", sig.HintKey)
+	}
+}
+
+// TestExplorerSoftStop_FirstStop_CoverageFallthrough_ReturnsEmpty
+// pins the structural fallthrough fix: when no hard detector fired
+// and no soft heuristic was eligible, the function used to return
+// HintRequested=true unconditionally. Now it must return an empty
+// signal on the first soft-stop so the policy layer accepts the
+// voluntary stop.
+func TestExplorerSoftStop_FirstStop_CoverageFallthrough_ReturnsEmpty(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "how many stages are there",
+		// No preScannedFiles, no fileSymbols, no ermRequirements, no
+		// searchResult — every detector short-circuits. This is the
+		// "clean stop, nothing to say" scenario.
+	}
+	var history []types.ToolResult
+
+	sig := softStopWithContinuations(eval, "There are four stages: analyze, explore, extract, finalize.", 4, 0, history)
+	if sig.HintRequested {
+		t.Errorf("coverage fallthrough must NOT fire on first soft-stop; got HintKey=%q Hint=%q",
+			sig.HintKey, sig.Hint)
+	}
+	if sig.StopRequested {
+		t.Errorf("coverage fallthrough must not request explicit stop; got StopRequested=true")
+	}
+}
+
+// TestExplorerSoftStop_SecondStop_CoverageFallthrough_StillFires
+// verifies that the coverage fallthrough is still available on
+// second-and-later soft-stops, so long-running dispatches where
+// the LLM repeatedly stops without progress still get a nudge
+// toward any unread files instead of just terminating silently.
+func TestExplorerSoftStop_SecondStop_CoverageFallthrough_StillFires(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "how many stages are there",
+	}
+	var history []types.ToolResult
+
+	sig := softStopWithContinuations(eval, "still thinking", 5, 1, history)
+	if !sig.HintRequested {
+		t.Fatalf("coverage fallthrough should fire on second soft-stop; got %+v", sig)
+	}
+	if sig.HintKey != "explorer.phase1.coverage" {
+		t.Errorf("HintKey = %q, want explorer.phase1.coverage", sig.HintKey)
+	}
+}

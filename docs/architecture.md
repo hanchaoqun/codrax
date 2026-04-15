@@ -189,6 +189,8 @@ graph TD
     - `PhaseSoftStop` — 当 LLM 返回纯文本且没有 tool 调用时调用，评估器投票"要不要把 soft-stop 变成强制继续"。
 
   评估器的 `Observe(ctx, obs) LoopSignal` 只做**检测**：返回 `Progress` / `StopRequested` / `HintRequested`+`Hint`+`HintKey`。节流（`MinInjectInterval`）、去重（按 `HintKey` 匹配上一次已接受的 hint）、预算（`MaxContinuations` / `MaxMidLoopInjects`）、idle-streak 强制停（`IdleStopThreshold`）都由 **`LoopPolicy`**（`internal/agent/loop_policy.go`）在 `loopPolicyState.Apply` 里统一执行，不再由每个评估器各自重复实现 `idleStreak` / `lastToolCount` / `midLoopLastInjectIter`。这条分层规则被 `internal/agent/loop_policy_test.go` 的 12 条场景测试锁定（dedup、throttle、mid-loop 预算 drop、soft-stop 预算 force-stop、tool-result 增长自动重置 idle、显式 stop 立即生效等）。
+
+  **首次软停差异化（2026-04-15）**：`explorerEvaluator.observeSoftStop` 原本有 10 条 return 路径，全部无条件 `HintRequested: true`，导致 LLM 的第一次自愿停下（ReAct 前几轮都在调 tool，第 N 轮首次返回纯文本）被检测器 100% 拦截 —— 初始状态下 LoopPolicy 的 dedup/throttle/budget 三道闸门都是 no-op，拦不住新 key 的硬注入。修复后 `observeSoftStop` 按证据强度把分支分成两类：**硬证据分支**（`phase1.partial-read` 基于符号 range 算术，`phase1.enumeration` 基于 80% 覆盖率硬约束，`phase1.grep-redirect` 基于 truncated 文件几何，加上 Phase 0→1 的三个转场 gate）在任何软停都能触发；**软启发式分支**（`phase1.erm-gap` 的字符串匹配，`phase1.prescanned` 的 top-N 召回，`phase1.unanalyzed` 的 3-字符符号名匹配）和结构性 `phase1.coverage` 兜底在 `obs.ContinuationsUsed == 0` 的首次软停上返回空信号，让 LoopPolicy 接受 LLM 的完成信号；`ContinuationsUsed >= 1` 时全部分支照旧运行。这是"只在 LLM 有硬证据没做完时覆盖它的自愿停下"契约 —— 新的检测分支必须明确落到硬证据或软启发式桶里，测试在 `explorer_test.go::TestExplorerSoftStop_*` 里把这条契约固化。`BaseAgent.Execute` 的 SOFT-STOP 和 MIDLOOP 调试日志都带上了 `key=%q` 字段透传 `sig.HintKey`，配合 `result.Reason` 一起出现在 trace 里，方便事后定位是哪条检测分支投的票。
 - **`SynthesizingEvaluator`**：ReAct 循环结束后用干净上下文跑一次综合调用，防止最后一条 assistant 消息是碎片笔记。目前只有 `explorer` 实现。
 
 #### 子 Agent
@@ -312,9 +314,9 @@ Per-agent 模型路由在 `config/providers.yaml` 里配（不同 Agent 可以�
 **Evidence-lite 预扫边界规则**（由 `internal/skill/analysis_contract.go::AnalysisHardRules` 里的 `EVIDENCE-LITE BOUNDARY:` 前缀规则 enforce，测试在 `internal/agent/analyzer_prompt_test.go::TestAnalysisSkill_*`）：
 
 - 只允许 `repo_map`、`grep`（强制 `files_only=true`）、`list_files` 三个只读导航工具 —— `BaseAgent.buildToolSchemas` 通过 `analysis-skill.ToolSuggestions` allowlist 物理裁剪 LLM 看到的 schema，`read_file` / `exec_command` / 其他阶段的 `emit_*` 通道根本不在候选集中；
-- 预扫硬上限 2 轮：目的是"这些 entity 在不在仓库 / 它们在哪些文件"，而不是读内容或推理代码逻辑；
+- 预扫硬上限 2 轮，**由 `analyzerEvaluator.Observe` 在 ReAct 层运行时强制**：每一轮 PhaseMidLoop 观测里，如果 `obs.LastToolResult` 是三个预扫工具之一就给 `prescanRounds` 计数 +1；一旦计数严格超过 `tool.AnalysisLimits.MaxPrescanRounds`（默认 2，可通过 `codrax.yaml` 里 `analysis_max_prescan_rounds` 覆写；设为 0 可禁用 gate），下一次预扫会返回 `LoopSignal{StopRequested: true}`，`BaseAgent` 立即终止 dispatch，`ParseOutput` 的 failsafe 走 0-call 分支合成零值 `RequestModel`。这条 runtime gate 把原本只是 skill prompt 文案的 "1-2 rounds" 上限变成真正的约束，即使 LLM 不看 prompt 也会被限制；诊断字段 `analysis_prescan_rounds` 和 `analysis_prescan_budget_exhausted` 在 `StageOutput.Data` 里告诉 operator gate 是否触发过。混合批次（同一轮里 `emit_analysis` 跟在预扫工具之后）不计入 round，因为 `LastToolResult` 指向最后一个执行的 tool —— `emit_analysis` 作为 "last" 正好是期望的终止状态；
 - 预扫完成（不论结果如何）后，analyzer 必须调用 `emit_analysis` 一次。即使某个实体在预扫中没找到，也依然放进 `entities` 数组（downstream 的 ERM ranking 层会处理 non-existent 的 term）；
-- `call-count gate` 仍然只统计 `emit_analysis` 的调用次数（见下文），预扫工具调用不计入。
+- `call-count gate` 仍然只统计 `emit_analysis` 的调用次数（见下文），预扫工具调用不计入，和 `prescan gate` 是两条正交的诊断通道。
 
 Quality Gate 的 `Rejected` 区分 **hard failure**（`nil_ir` / `dag_closure` / `contract_complete` → 直接失败 Run）和 **soft failure**（`coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency` → log warning，继续跑）。
 

@@ -587,3 +587,226 @@ func TestAnalyzer_CallCountGate_IgnoresOtherTools(t *testing.T) {
 		t.Errorf("single-call branch must not set Error, got %q", out.Error)
 	}
 }
+
+// observePrescan is a test helper that fires a single PhaseMidLoop
+// observation with `lastTool` as the LastToolResult. Used by the
+// pre-scan budget tests so each test reads like a sequence of "round
+// 1: grep" / "round 2: repo_map" statements. The helper also feeds
+// the monotonically growing AllToolResults slice every iteration,
+// matching BaseAgent's real observation stream.
+func observePrescan(e *analyzerEvaluator, iteration int, lastTool string, history *[]types.ToolResult) LoopSignal {
+	result := types.ToolResult{ToolName: lastTool, Success: true}
+	*history = append(*history, result)
+	obs := LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      iteration,
+		LastToolResult: &(*history)[len(*history)-1],
+		AllToolResults: *history,
+	}
+	return e.Observe(nil, obs)
+}
+
+// TestAnalyzer_PrescanBudget_WithinBudget verifies that two pre-scan
+// rounds leave Observe returning an empty signal when MaxPrescanRounds=2
+// (the historical default). The prescanRounds counter climbs to exactly
+// 2, nothing fires, and the next iteration with emit_analysis as
+// LastToolResult does NOT advance the counter further.
+func TestAnalyzer_PrescanBudget_WithinBudget(t *testing.T) {
+	restoreAnalysisLimits(t)
+	// Explicit default reinstall so the test is self-contained even if
+	// the global default drifts.
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
+
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(nil, nil) // reset prescanRounds = 0
+	var history []types.ToolResult
+
+	if sig := observePrescan(e, 0, "grep", &history); sig.StopRequested {
+		t.Errorf("round 1 (grep): unexpected StopRequested (reason=%q)", sig.StopReason)
+	}
+	if e.prescanRounds != 1 {
+		t.Errorf("after round 1: prescanRounds = %d, want 1", e.prescanRounds)
+	}
+	if sig := observePrescan(e, 1, "repo_map", &history); sig.StopRequested {
+		t.Errorf("round 2 (repo_map): unexpected StopRequested (reason=%q)", sig.StopReason)
+	}
+	if e.prescanRounds != 2 {
+		t.Errorf("after round 2: prescanRounds = %d, want 2", e.prescanRounds)
+	}
+	// A third observation whose LastToolResult is emit_analysis must
+	// NOT advance the counter (well-behaved end state).
+	if sig := observePrescan(e, 2, "emit_analysis", &history); sig.StopRequested {
+		t.Errorf("emit_analysis observation: unexpected StopRequested (reason=%q)", sig.StopReason)
+	}
+	if e.prescanRounds != 2 {
+		t.Errorf("emit_analysis must not advance prescanRounds; got %d, want 2", e.prescanRounds)
+	}
+}
+
+// TestAnalyzer_PrescanBudget_OverBudget_ForcesStop verifies that a
+// third pre-scan tool after two in-budget rounds triggers a
+// force-stop with a descriptive StopReason.
+func TestAnalyzer_PrescanBudget_OverBudget_ForcesStop(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
+
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(nil, nil)
+	var history []types.ToolResult
+
+	_ = observePrescan(e, 0, "grep", &history)
+	_ = observePrescan(e, 1, "repo_map", &history)
+
+	sig := observePrescan(e, 2, "list_files", &history)
+	if !sig.StopRequested {
+		t.Fatalf("round 3 (list_files over budget): StopRequested=false, want true (prescanRounds=%d)", e.prescanRounds)
+	}
+	if !strings.Contains(sig.StopReason, "budget exhausted") {
+		t.Errorf("StopReason = %q, want it to contain \"budget exhausted\"", sig.StopReason)
+	}
+	if !strings.Contains(sig.StopReason, "3") || !strings.Contains(sig.StopReason, "2") {
+		t.Errorf("StopReason = %q, want it to mention rounds count (3) and max (2)", sig.StopReason)
+	}
+	if e.prescanRounds != 3 {
+		t.Errorf("after round 3: prescanRounds = %d, want 3", e.prescanRounds)
+	}
+}
+
+// TestAnalyzer_PrescanBudget_EmitAnalysisNotCounted verifies that
+// emit_analysis tool results never advance the counter regardless
+// of how many times they fire — only the three pre-scan navigation
+// tools (repo_map, grep, list_files) count as "pre-scan rounds".
+// This pins the mixed-batch semantic: if the LLM fires
+// `grep → emit_analysis` in a single iteration, the last-tool is
+// emit_analysis and the round does not count.
+func TestAnalyzer_PrescanBudget_EmitAnalysisNotCounted(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
+
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(nil, nil)
+	var history []types.ToolResult
+
+	// Five consecutive emit_analysis-as-last observations must leave
+	// prescanRounds at 0 and never trip the gate.
+	for i := 0; i < 5; i++ {
+		sig := observePrescan(e, i, "emit_analysis", &history)
+		if sig.StopRequested {
+			t.Errorf("iteration %d: emit_analysis should not trigger stop, got reason=%q", i, sig.StopReason)
+		}
+	}
+	if e.prescanRounds != 0 {
+		t.Errorf("after 5 emit_analysis observations: prescanRounds = %d, want 0", e.prescanRounds)
+	}
+	// A single pre-scan tool after the emit observations counts as
+	// round 1.
+	if sig := observePrescan(e, 5, "grep", &history); sig.StopRequested {
+		t.Errorf("first real pre-scan round: unexpected StopRequested (reason=%q)", sig.StopReason)
+	}
+	if e.prescanRounds != 1 {
+		t.Errorf("after first real pre-scan: prescanRounds = %d, want 1", e.prescanRounds)
+	}
+}
+
+// TestAnalyzer_PrescanBudget_NilLastToolResult is a defensive check
+// for the branch where BaseAgent dispatches a PhaseMidLoop
+// observation with nil LastToolResult — this happens when the
+// iteration had no successful tool execution. Observe must return
+// an empty signal and leave the counter alone.
+func TestAnalyzer_PrescanBudget_NilLastToolResult(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
+
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(nil, nil)
+
+	obs := LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: nil,
+	}
+	sig := e.Observe(nil, obs)
+	if sig.StopRequested || sig.HintRequested || sig.Progress {
+		t.Errorf("nil LastToolResult: got non-empty signal %+v, want zero value", sig)
+	}
+	if e.prescanRounds != 0 {
+		t.Errorf("nil LastToolResult: prescanRounds = %d, want 0", e.prescanRounds)
+	}
+}
+
+// TestAnalyzer_PrescanBudget_DisabledWithZero verifies that setting
+// MaxPrescanRounds=0 disables the runtime gate entirely: five
+// consecutive pre-scan rounds all return empty signals even though
+// each advances the internal counter.
+func TestAnalyzer_PrescanBudget_DisabledWithZero(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 0})
+
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(nil, nil)
+	var history []types.ToolResult
+
+	tools := []string{"grep", "repo_map", "list_files", "grep", "repo_map"}
+	for i, name := range tools {
+		sig := observePrescan(e, i, name, &history)
+		if sig.StopRequested {
+			t.Errorf("iteration %d (%s) with gate disabled: unexpected StopRequested (reason=%q)",
+				i, name, sig.StopReason)
+		}
+	}
+	if e.prescanRounds != len(tools) {
+		t.Errorf("counter should still advance even with gate disabled; got %d, want %d",
+			e.prescanRounds, len(tools))
+	}
+}
+
+// TestAnalyzer_ParseOutput_SurfacesPrescanDiagnostics fires three
+// pre-scan observations (exceeding the budget of 2), then runs
+// ParseOutput and asserts the new diagnostic keys appear on
+// StageOutput.Data with the correct values. This pins the end-to-end
+// contract the operator reads from StageOutput.Data.
+func TestAnalyzer_ParseOutput_SurfacesPrescanDiagnostics(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
+
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(nil, nil)
+	var history []types.ToolResult
+	for i, name := range []string{"grep", "repo_map", "list_files"} {
+		_ = observePrescan(e, i, name, &history)
+	}
+	if e.prescanRounds != 3 {
+		t.Fatalf("setup invariant: prescanRounds = %d, want 3", e.prescanRounds)
+	}
+
+	// Drive ParseOutput on the SAME evaluator instance so the counter
+	// state survives into the diagnostic.
+	mu := types.NewMutableState("runtime gate diagnostics")
+	mu.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+	})
+	ctx := &types.AgentContext{
+		Stage:     types.StageAnalyze,
+		Objective: "runtime gate diagnostics",
+		Mutable:   mu,
+	}
+	out, err := e.ParseOutput(ctx, nil, history, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out == nil {
+		t.Fatal("ParseOutput returned nil")
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Data, &decoded); err != nil {
+		t.Fatalf("StageOutput.Data is not valid JSON: %v", err)
+	}
+	if got := getFloat(t, decoded, "analysis_prescan_rounds"); got != 3 {
+		t.Errorf("analysis_prescan_rounds = %v, want 3", got)
+	}
+	if got := getBool(t, decoded, "analysis_prescan_budget_exhausted"); !got {
+		t.Errorf("analysis_prescan_budget_exhausted = false, want true")
+	}
+}

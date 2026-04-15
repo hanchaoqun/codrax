@@ -1060,12 +1060,41 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	iteration := obs.Iteration
 	history := obs.AllToolResults
 	// continuationCount / iteration are not currently referenced by
-	// any branch — the policy owns the continuation budget so the
-	// evaluator no longer needs to gate on them. Touching them here
-	// keeps the old variable names visible for a future detection
-	// branch without triggering "declared and not used" diagnostics.
+	// every branch — the policy owns the continuation budget so the
+	// evaluator no longer needs to gate on it. Touching `iteration`
+	// here keeps the name visible for a future detection branch
+	// without triggering "declared and not used" diagnostics.
 	_ = iteration
-	_ = obs.ContinuationsUsed
+
+	// firstSoftStop encodes the "trust the LLM's first voluntary
+	// stop unless hard evidence contradicts it" contract (added
+	// 2026-04-15 to fix the structural "always intercept" bug this
+	// function used to have):
+	//
+	//   - ContinuationsUsed == 0 means this dispatch has NOT yet
+	//     had any soft-stop hint injected. The LLM produced content
+	//     with no tool calls for the first time, which is the
+	//     strongest "I'm done" signal the system gets. On this
+	//     stop, only HARD-evidence branches (partial-read /
+	//     enumeration / grep-redirect) are allowed to override the
+	//     termination; SOFT heuristics (erm-gap / prescanned /
+	//     unanalyzed) and the structural `coverage` fallthrough
+	//     return an empty signal so the policy layer accepts the
+	//     stop.
+	//   - ContinuationsUsed >= 1 means the LLM already ignored at
+	//     least one previous hint and stopped again. At that point
+	//     the soft heuristics earn their seat — the LLM is clearly
+	//     stalling, not finishing — so the full detector suite
+	//     runs as before.
+	//
+	// Before this contract, every return path from this function
+	// asserted `HintRequested: true`. Combined with LoopPolicy's
+	// initial-state gates (dedup / throttle / budget) all being
+	// no-ops on a first soft-stop, that meant the LLM's first
+	// voluntary stop after any amount of tool work was
+	// deterministically overridden — the iter=5 false positive
+	// documented in the plan file.
+	firstSoftStop := obs.ContinuationsUsed == 0
 	// progress is set to true by any branch that DETECTS forward
 	// progress and wants the policy to reset the idle streak even
 	// when no hint fires. The final return copies it into
@@ -1340,11 +1369,15 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// obs.IdleStreak below is the snapshot the policy already
 	// updated before calling this Observe.)
 
-	// --- ERM gap-directed file suggestions ---
+	// --- ERM gap-directed file suggestions (SOFT heuristic) ---
 	// Check which evidence requirements are still unsatisfied and suggest
-	// specific files to read. This is higher priority than generic coverage
-	// pushes because it's semantically directed by the question.
-	if len(e.ermRequirements) > 0 && e.searchResult != nil && e.searchResult.Graph != nil {
+	// specific files to read. Gated on !firstSoftStop because ERM's
+	// checkRequirementSatisfaction is a string-match over investigation
+	// notes + evidence entries — paraphrased or translated prose tags
+	// the requirement as "unsatisfied" even when the LLM answered the
+	// question correctly. On the first voluntary stop we trust the
+	// LLM's self-assessment; on subsequent stops, ERM gets to vote.
+	if !firstSoftStop && len(e.ermRequirements) > 0 && e.searchResult != nil && e.searchResult.Graph != nil {
 		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
 		logERM(e.ermRequirements)
 		if !ermAllSatisfied(e.ermRequirements) {
@@ -1426,9 +1459,16 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 
 	// If there are unread high-priority files, push for reading.
+	// (SOFT heuristic, gated on !firstSoftStop.) The preScannedFiles
+	// list is a top-N keyword-search recall result, NOT a precision
+	// list — half its members are expected to be noise, and "unread"
+	// does not imply "should have been read". On the first voluntary
+	// stop we trust the LLM to have picked the relevant members; on
+	// subsequent stops the push counter fires as before.
+	//
 	// Track push attempts: if the LLM ignores file-reading requests
 	// repeatedly (same unread count), escalate then give up.
-	if len(preScannedUnread) > 0 {
+	if !firstSoftStop && len(preScannedUnread) > 0 {
 		// Check whether the LLM made progress since the last push.
 		if len(preScannedUnread) >= e.lastPreScannedUnreadCount && e.lastPreScannedUnreadCount > 0 {
 			e.preScannedPushCount++
@@ -1496,8 +1536,15 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 
 	// If files were read but have symbols the LLM didn't analyze,
-	// push for analysis of those specific symbols.
-	if len(unanalyzed) > 0 {
+	// push for analysis of those specific symbols. (SOFT heuristic,
+	// gated on !firstSoftStop.) The matching logic is a literal
+	// substring search of each symbol name against the joined
+	// investigation notes — "Run", "Get", "Set", "New" (3-char
+	// methods) match just about any note, and any paraphrase or
+	// translation of the LLM's understanding slips past the match.
+	// On the first voluntary stop we defer to the LLM's
+	// self-assessment; on subsequent stops this branch still runs.
+	if !firstSoftStop && len(unanalyzed) > 0 {
 		progress = true
 		var hint strings.Builder
 		fmt.Fprintf(&hint, "Reminder — user question: %s\n\n", e.userQuestion)
@@ -1523,6 +1570,23 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// check is GONE: LoopPolicy.IdleStopThreshold=2 force-stops at
 	// the policy layer, so every evaluator gets identical soft-stop
 	// termination semantics without re-implementing the count.
+
+	// STRUCTURAL fallthrough: when none of the hard-evidence
+	// detectors fired and none of the soft heuristics were eligible,
+	// this branch used to unconditionally return HintRequested=true
+	// with a "File coverage: X read out of Y discovered" hint — the
+	// structural "always intercept" bug that made `observeSoftStop`
+	// incapable of ever accepting a soft-stop. On the first
+	// voluntary stop we now return an empty signal (preserving
+	// `progress` if any earlier detector set it, so the policy's
+	// idle counter still resets appropriately). On subsequent
+	// voluntary stops we fall through to the historical coverage
+	// hint so long-running dispatches where the LLM repeatedly
+	// stops without making progress still get a nudge toward any
+	// unread files.
+	if firstSoftStop {
+		return LoopSignal{Progress: progress}
+	}
 
 	// When the LLM is slowing down (idle ≥ 1), inject a preview of
 	// programmatically extracted concrete values. This breaks the
