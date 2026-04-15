@@ -1,6 +1,7 @@
 package types
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -84,6 +85,26 @@ type MutableState struct {
 	// per-task entry so stale state cannot leak between tasks in a
 	// multi-task run.
 	answerDocument *AnswerDocument
+
+	// prescanSummaryBlob is the lowercased concatenation of every
+	// successful pre-scan ToolResult.Summary the analyzer observed
+	// during the current analyze dispatch (repo_map / grep
+	// files_only=true / list_files). Populated by
+	// `analyzerEvaluator.Observe` via AppendPrescanSummary, read by
+	// `emit_analysis.Execute` to feed the runtime quality probe:
+	//   - As the verified-entity whitelist for
+	//     validateAnalysisInput (entities that match the generic
+	//     blocklist but appear in the blob are kept instead of
+	//     dropped — see filterGenericEntitiesWithWhitelist).
+	//   - As the substring corpus for the keyword/entity hit-ratio
+	//     probe (ComputeAnalysisQualityProbe).
+	// This is analyzer-specific state that lives on MutableState
+	// only because the emit_analysis tool needs a path to read it;
+	// other agents never touch it, and ResetPrescanSummary is
+	// called at the start of each analyze dispatch by
+	// analyzerEvaluator.BuildInitialInstruction so cross-dispatch
+	// state never leaks.
+	prescanSummaryBlob strings.Builder
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
@@ -558,6 +579,59 @@ func (m *MutableState) ResetTurnAArtifacts() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.turnAArtifacts = nil
+}
+
+// AppendPrescanSummary appends `summary` to the per-dispatch
+// pre-scan summary blob, lowercased, followed by a newline
+// separator. Called by `analyzerEvaluator.Observe` once per
+// successful pre-scan tool result (repo_map / grep files_only=true
+// / list_files). The blob is bounded in practice by the analyzer's
+// pre-scan budget (`AnalysisLimits.MaxPrescanRounds`, default 2) ×
+// the per-result blob size, so no explicit size cap is enforced
+// here — callers rely on the runtime gate to stop the dispatch
+// before this grows unbounded.
+//
+// Lowercase-at-write means `PrescanSummaryBlob()` is a hot-path
+// zero-allocation read the emit_analysis tool and the validator
+// can call without touching strings.ToLower. Callers MUST NOT
+// assume the blob preserves the verbatim Summary — it is a
+// case-folded corpus for substring probing, not a trace record.
+func (m *MutableState) AppendPrescanSummary(summary string) {
+	if m == nil || summary == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prescanSummaryBlob.WriteString(strings.ToLower(summary))
+	m.prescanSummaryBlob.WriteByte('\n')
+}
+
+// PrescanSummaryBlob returns the lowercased concatenation of every
+// pre-scan summary appended so far during the current analyze
+// dispatch. Returns an empty string when no summary has been
+// appended (e.g. the dispatch had no pre-scan rounds, or the
+// caller is running outside the analyze stage).
+func (m *MutableState) PrescanSummaryBlob() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.prescanSummaryBlob.String()
+}
+
+// ResetPrescanSummary zeroes the pre-scan summary blob so a new
+// analyze dispatch starts with a clean buffer. Called by
+// `analyzerEvaluator.BuildInitialInstruction` at dispatch entry,
+// symmetrical with the prescanRounds reset. Cross-dispatch
+// retries from the orchestrator each get an empty blob.
+func (m *MutableState) ResetPrescanSummary() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.prescanSummaryBlob.Reset()
 }
 
 // StageReport is the synthesized narrative an agent leaves behind

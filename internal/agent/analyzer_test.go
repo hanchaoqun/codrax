@@ -760,6 +760,154 @@ func TestAnalyzer_PrescanBudget_DisabledWithZero(t *testing.T) {
 	}
 }
 
+// TestAnalyzer_Observe_AppendsPrescanSummaryToMutable pins the
+// runtime data channel: every successful pre-scan observation must
+// flow through to Mutable.PrescanSummaryBlob so emit_analysis and
+// the post-hoc probe can read it.
+func TestAnalyzer_Observe_AppendsPrescanSummaryToMutable(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 5})
+
+	mu := types.NewMutableState("explain the analyzer path")
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(ctx, nil) // resets prescanRounds + blob
+
+	var history []types.ToolResult
+	fireOne := func(name, summary string) {
+		result := types.ToolResult{ToolName: name, Success: true, Summary: summary}
+		history = append(history, result)
+		e.Observe(ctx, LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      len(history) - 1,
+			LastToolResult: &history[len(history)-1],
+			AllToolResults: history,
+		})
+	}
+
+	fireOne("grep", "internal/agent/Analyzer.go\ninternal/tool/emit_analysis.go\n")
+	fireOne("repo_map", "Symbol: NewAnalyzerAgent in internal/agent/analyzer.go")
+
+	blob := mu.PrescanSummaryBlob()
+	if blob == "" {
+		t.Fatal("blob should not be empty after two pre-scan observations")
+	}
+	// Lowercase-at-write invariant.
+	if strings.Contains(blob, "Analyzer.go") {
+		t.Errorf("blob should be lowercased; got %q", blob)
+	}
+	if !strings.Contains(blob, "analyzer.go") {
+		t.Errorf("blob missing lowercased summary content; got %q", blob)
+	}
+	if !strings.Contains(blob, "newanalyzeragent") {
+		t.Errorf("blob missing repo_map summary content; got %q", blob)
+	}
+	// Non-pre-scan tool results should NOT advance the blob.
+	nonPrescan := types.ToolResult{ToolName: "emit_analysis", Success: true, Summary: "ShouldNotAppear"}
+	history = append(history, nonPrescan)
+	e.Observe(ctx, LoopObservation{
+		Phase:          PhaseMidLoop,
+		LastToolResult: &history[len(history)-1],
+		AllToolResults: history,
+	})
+	if strings.Contains(mu.PrescanSummaryBlob(), "shouldnotappear") {
+		t.Errorf("emit_analysis summary should NOT be appended to the blob")
+	}
+}
+
+// TestAnalyzer_BuildInitialInstruction_ResetsPrescanBlob pins the
+// per-dispatch reset invariant: cross-dispatch retries must start
+// with a fresh blob so state doesn't leak between analyze attempts.
+func TestAnalyzer_BuildInitialInstruction_ResetsPrescanBlob(t *testing.T) {
+	mu := types.NewMutableState("question")
+	mu.AppendPrescanSummary("stale data from prior dispatch")
+	if mu.PrescanSummaryBlob() == "" {
+		t.Fatal("setup invariant: blob should start non-empty")
+	}
+
+	e := &analyzerEvaluator{prescanRounds: 99}
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mu}
+	e.BuildInitialInstruction(ctx, nil)
+
+	if e.prescanRounds != 0 {
+		t.Errorf("prescanRounds not reset, got %d", e.prescanRounds)
+	}
+	if got := mu.PrescanSummaryBlob(); got != "" {
+		t.Errorf("PrescanSummaryBlob not reset, got %q", got)
+	}
+}
+
+// TestAnalyzer_ParseOutput_SurfacesQualityProbe exercises the
+// end-to-end post-hoc probe: Observe appends pre-scan summaries,
+// ParseOutput reads them via computeQualityProbeFromContext and
+// writes the result to StageOutput.Data under
+// `analysis_quality_probe`.
+func TestAnalyzer_ParseOutput_SurfacesQualityProbe(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 5})
+
+	mu := types.NewMutableState("how does emit_analysis work")
+	mu.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"emit", "analyzer", "probe", "missing"},
+			Entities: []string{"EmitAnalysis", "Analyzer", "Missing"},
+		},
+	})
+	// Seed the blob so the probe has something to match against.
+	mu.AppendPrescanSummary("internal/tool/emit_analysis.go\ninternal/agent/analyzer.go\n")
+
+	ctx := &types.AgentContext{
+		Stage:     types.StageAnalyze,
+		Objective: "how does emit_analysis work",
+		Mutable:   mu,
+	}
+
+	e := &analyzerEvaluator{prescanRounds: 2}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(out.Data, &decoded); err != nil {
+		t.Fatalf("Data is not JSON: %v", err)
+	}
+	probeRaw, ok := decoded["analysis_quality_probe"]
+	if !ok {
+		t.Fatal("Data missing analysis_quality_probe key")
+	}
+	probe, ok := probeRaw.(map[string]any)
+	if !ok {
+		t.Fatalf("analysis_quality_probe = %T(%v), want map", probeRaw, probeRaw)
+	}
+	// `emit` and `analyzer` appear in the blob → 2 of 4 keywords → 0.5.
+	// `probe` and `missing` do not appear.
+	if got := probe["keyword_hits"]; got != float64(2) {
+		t.Errorf("keyword_hits = %v, want 2", got)
+	}
+	if got := probe["keyword_total"]; got != float64(4) {
+		t.Errorf("keyword_total = %v, want 4", got)
+	}
+	if got := probe["keyword_hit_ratio"]; got != 0.5 {
+		t.Errorf("keyword_hit_ratio = %v, want 0.5", got)
+	}
+	// `EmitAnalysis` (as substring `emitanalysis`? no — blob contains
+	// `emit_analysis.go` which substring-matches "emit" but not
+	// "emitanalysis"). `Analyzer` matches. `Missing` doesn't.
+	// So 1 of 3 entities hit → ~0.33.
+	if got := probe["entity_hits"]; got != float64(1) {
+		t.Errorf("entity_hits = %v, want 1 (only `Analyzer` substring-matches the blob)", got)
+	}
+	if got := probe["entity_total"]; got != float64(3) {
+		t.Errorf("entity_total = %v, want 3", got)
+	}
+	if got := probe["prescan_rounds"]; got != float64(2) {
+		t.Errorf("prescan_rounds = %v, want 2", got)
+	}
+}
+
 // TestAnalyzer_ParseOutput_SurfacesPrescanDiagnostics fires three
 // pre-scan observations (exceeding the budget of 2), then runs
 // ParseOutput and asserts the new diagnostic keys appear on

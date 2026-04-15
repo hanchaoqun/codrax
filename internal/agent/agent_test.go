@@ -1,10 +1,12 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // TestPruneToolHistoryKeepsRecentAndStubsOlder locks the ReAct
@@ -142,4 +144,81 @@ func TestPruneToolHistoryUnderBudgetNoop(t *testing.T) {
 
 func toolID(i int) string {
 	return "call-" + string(rune('a'+i%26)) + string(rune('0'+i/10))
+}
+
+// TestValidateAnalyzerPrescanToolCall pins the evidence-lite
+// boundary enforcement: in the analyze stage, grep MUST be called
+// with files_only=true. The validator is a pre-execution gate that
+// synthesizes a failed ToolResult instead of dispatching to the
+// real grep tool; the LLM sees the failure as a normal tool-error
+// message and can retry within the same dispatch.
+func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
+	t.Run("analyze stage rejects grep without files_only", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		tc := llm.ToolCall{
+			Name:   "grep",
+			Params: json.RawMessage(`{"pattern":"analyzer"}`),
+		}
+		result := validateAnalyzerPrescanToolCall(ctx, tc)
+		if result == nil {
+			t.Fatal("expected violation for grep without files_only, got nil")
+		}
+		if result.Success {
+			t.Errorf("violation result should have Success=false")
+		}
+		if !strings.Contains(result.Summary, "files_only=true") {
+			t.Errorf("violation summary should mention files_only=true, got %q", result.Summary)
+		}
+	})
+
+	t.Run("analyze stage accepts grep with files_only", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		tc := llm.ToolCall{
+			Name:   "grep",
+			Params: json.RawMessage(`{"pattern":"analyzer","files_only":true}`),
+		}
+		if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+			t.Errorf("files_only=true should pass, got violation: %+v", got)
+		}
+	})
+
+	t.Run("non-analyze stage has no files_only constraint", func(t *testing.T) {
+		// The explorer is the full-power consumer of grep and routinely
+		// calls it without files_only to get line-level matches.
+		for _, stage := range []types.PipelineStage{types.StageExplore, types.StageExtract, types.StageFinalize} {
+			ctx := &types.AgentContext{Stage: stage}
+			tc := llm.ToolCall{
+				Name:   "grep",
+				Params: json.RawMessage(`{"pattern":"analyzer"}`),
+			}
+			if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+				t.Errorf("stage=%s: grep without files_only should be allowed, got violation", stage)
+			}
+		}
+	})
+
+	t.Run("analyze stage ignores non-grep tools", func(t *testing.T) {
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		for _, name := range []string{"repo_map", "list_files", "emit_analysis"} {
+			tc := llm.ToolCall{Name: name, Params: json.RawMessage(`{}`)}
+			if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+				t.Errorf("tool=%s should be unaffected, got violation", name)
+			}
+		}
+	})
+
+	t.Run("malformed params fall through to the tool", func(t *testing.T) {
+		// Defensive: a tool call with unparseable params is NOT
+		// rejected by the pre-check so the real grep tool produces
+		// its canonical error message. This keeps the LLM's error
+		// experience consistent.
+		ctx := &types.AgentContext{Stage: types.StageAnalyze}
+		tc := llm.ToolCall{
+			Name:   "grep",
+			Params: json.RawMessage(`{not json`),
+		}
+		if got := validateAnalyzerPrescanToolCall(ctx, tc); got != nil {
+			t.Errorf("malformed params should fall through, got violation: %+v", got)
+		}
+	})
 }

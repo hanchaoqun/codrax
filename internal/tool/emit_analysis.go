@@ -173,12 +173,29 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	keywords := trimStringSlice(p.Keywords)
 	entities := trimStringSlice(p.Entities)
 
-	// Runtime validation — keyword floor + entity blocklist. Config
-	// lives in AnalysisLimits (see analysis_limits.go). The validator
-	// returns the filtered entity slice so a dropped generic noun
-	// never reaches the persisted RequestModel.
+	// Runtime validation — keyword floor + entity blocklist + quality
+	// probe. Config lives in AnalysisLimits (see analysis_limits.go).
+	// Two new inputs vs the pre-refactor signature:
+	//
+	//   - seenBlob: lowercased concatenation of every pre-scan
+	//     ToolResult.Summary the analyzer saw this dispatch, read
+	//     from Mutable.PrescanSummaryBlob() which
+	//     analyzerEvaluator.Observe populates at runtime. Feeds the
+	//     verified-entity whitelist (so `Agent` / `Handler` are
+	//     KEPT when the pre-scan saw them in the target repo) and
+	//     the hit-ratio quality probe.
+	//   - prescanRounds: derived from the number of newline-separated
+	//     entries in seenBlob. The validator threads this into the
+	//     returned Probe so downstream consumers (analyzer.ParseOutput,
+	//     eval harnesses) see rounds + hits in one struct without
+	//     pulling from two sources.
+	//
+	// The validator returns the filtered entity slice so a dropped
+	// generic noun never reaches the persisted RequestModel.
 	limits := CurrentAnalysisLimits()
-	val := validateAnalysisInput(keywords, entities, limits)
+	seenBlob := ctx.Mutable.PrescanSummaryBlob()
+	prescanRounds := countPrescanRounds(seenBlob)
+	val := validateAnalysisInput(keywords, entities, limits, seenBlob, prescanRounds)
 	if val.RejectReason != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -375,6 +392,22 @@ func normalizeAnswerShape(s string) string {
 		return "explanation"
 	}
 	return "none"
+}
+
+// countPrescanRounds derives the number of pre-scan rounds from
+// the seen-blob. `MutableState.AppendPrescanSummary` appends each
+// summary followed by a `\n`, so the number of newlines equals the
+// round count. This lets emit_analysis.Execute report the full
+// quality-probe triple (keyword hits / entity hits / rounds) in
+// one call without a separate counter field on Mutable.
+//
+// Returns 0 when the blob is empty (no pre-scan fired) or the
+// caller forgot the trailing newline.
+func countPrescanRounds(seenBlob string) int {
+	if seenBlob == "" {
+		return 0
+	}
+	return strings.Count(seenBlob, "\n")
 }
 
 // trimStringSlice drops empty/whitespace-only entries and trims
