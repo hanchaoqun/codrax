@@ -712,3 +712,218 @@ func TestBuildAgentContext_CarriesCompletenessFromBus(t *testing.T) {
 		t.Errorf("completeness not plumbed through builder: got %q, want lower_bound", ac.AnswerSymbolCompleteness)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Analyzer scenario — regression fences for the Skill/Evaluator boundary
+// -----------------------------------------------------------------------------
+//
+// These tests assert the builder side of the analyzer prompt contract
+// that the agent package asserts from its side in
+// internal/agent/analyzer_prompt_test.go. Together they pin a bright
+// line between the two layers:
+//
+//   - This file (context package) verifies BuildPromptContext renders
+//     the complete analysis-skill system block (Skill Goal / Workflow
+//     / Output Format / Prohibitions) plus every builder-owned
+//     dynamic section (User Request / User Preferences / Retry
+//     Directive) for a populated AgentContext, and renders each
+//     section exactly once.
+//   - analyzer_prompt_test.go verifies analyzerEvaluator.BuildInitialPrompt
+//     returns no content from the removed hardcoded prompt and does
+//     not re-emit any canonical section header.
+//
+// If either side fails, the boundary rule documented at
+// docs/architecture.md §3.3 has been violated.
+
+// TestBuildPromptContext_AnalysisSkill_RendersAllSections assembles
+// the full analyze-stage prompt from the real analysis-skill and a
+// populated AgentContext, then asserts every section the boundary
+// rule allocates to the builder is present and carries the expected
+// content. It catches the "nobody noticed the system block lost a
+// section" regression from both sides:
+//
+//   - a stripped analysis-skill (missing Goal / Workflow / ...) fails
+//     the system-section checks.
+//   - a stripped BuildPromptContext (forgot to render RetryHint)
+//     fails the user-section checks.
+func TestBuildPromptContext_AnalysisSkill_RendersAllSections(t *testing.T) {
+	const (
+		objectivePin  = "SENTINEL_ANALYZER_OBJECTIVE: trace the analyze dispatch end-to-end"
+		preferencePin = "SENTINEL_ANALYZER_PREFERENCE: respond to the user in English"
+		retryPin      = "SENTINEL_ANALYZER_RETRY: previous dispatch emitted 0 times; retry"
+	)
+
+	ac := &types.AgentContext{
+		AgentName:   types.AgentAnalyzer,
+		Stage:       types.StageAnalyze,
+		Objective:   objectivePin,
+		Preferences: []string{preferencePin},
+		RetryHint:   retryPin,
+	}
+	sk := skill.BuildAnalysisSkill()
+
+	pc := BuildPromptContext(ac, sk)
+
+	// --- static skill sections (system side) ---
+	requiredSystemSections := []string{
+		"Agent Identity",
+		"Skill Goal",
+		"Workflow",
+		"Output Format",
+		"Prohibitions",
+		"User Preferences",
+	}
+	for _, title := range requiredSystemSections {
+		if findSystemSection(pc, title) == nil {
+			t.Errorf("system missing section %q; builder dropped a skill-owned or runtime section", title)
+		}
+	}
+
+	// --- dynamic builder sections (user side) ---
+	if sec := findSectionTitle(pc, "User Request"); sec == nil {
+		t.Error("user sections missing User Request")
+	} else if !strings.Contains(sec.Content, objectivePin) {
+		t.Errorf("User Request missing objective sentinel %q, got:\n%s", objectivePin, sec.Content)
+	}
+	if sec := findSectionTitle(pc, "Retry Directive (READ FIRST)"); sec == nil {
+		t.Error("user sections missing Retry Directive")
+	} else if !strings.Contains(sec.Content, retryPin) {
+		t.Errorf("Retry Directive missing retry sentinel %q, got:\n%s", retryPin, sec.Content)
+	}
+	if sec := findSystemSection(pc, "User Preferences"); sec == nil {
+		t.Error("system sections missing User Preferences")
+	} else if !strings.Contains(sec.Content, preferencePin) {
+		t.Errorf("User Preferences missing preference sentinel %q, got:\n%s", preferencePin, sec.Content)
+	}
+
+	// --- SSOT integrity: the Output Format block must carry every
+	// enum-table header renderEnumTable emits. If this fails, the
+	// analysis-skill lost its classification content and the LLM
+	// sees neither side. ---
+	of := findSystemSection(pc, "Output Format")
+	if of == nil {
+		t.Fatal("Output Format section missing")
+	}
+	for _, field := range []string{
+		"intent",
+		"scenario",
+		"complexity",
+		"question_kind",
+		"answer_shape",
+	} {
+		header := field + " — pick one:"
+		if !strings.Contains(of.Content, header) {
+			t.Errorf("Output Format missing enum-table header %q — SSOT is incomplete", header)
+		}
+	}
+
+	// Tool suggestions must still scope the LLM to emit_analysis
+	// alone. A leak here indicates the analysis-skill gained a new
+	// tool without an audit.
+	if len(pc.EnabledTools) != 1 || pc.EnabledTools[0] != "emit_analysis" {
+		t.Errorf("EnabledTools = %v, want [emit_analysis]", pc.EnabledTools)
+	}
+}
+
+// TestBuildPromptContext_AnalysisSkill_NoDuplicateSections asserts
+// each skill-owned section renders exactly once in the system block.
+// A second copy of e.g. Workflow or Output Format would be a
+// builder-side bug that nobody would catch from the analyzer tests
+// alone — the only way to see it is to count titles on this side of
+// the boundary.
+func TestBuildPromptContext_AnalysisSkill_NoDuplicateSections(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName:   types.AgentAnalyzer,
+		Stage:       types.StageAnalyze,
+		Objective:   "pin no-duplication",
+		Preferences: []string{"Respond in English."},
+	}
+	sk := skill.BuildAnalysisSkill()
+	pc := BuildPromptContext(ac, sk)
+
+	systemCounts := make(map[string]int, len(pc.SystemSections))
+	for _, s := range pc.SystemSections {
+		systemCounts[s.Title]++
+	}
+	for _, title := range []string{
+		"Agent Identity",
+		"Reasoning Hygiene",
+		"User Preferences",
+		"Skill Goal",
+		"Workflow",
+		"Output Format",
+		"Prohibitions",
+	} {
+		if c := systemCounts[title]; c != 1 {
+			t.Errorf("system section %q rendered %d times, want 1", title, c)
+		}
+	}
+
+	userCounts := make(map[string]int, len(pc.UserSections))
+	for _, s := range pc.UserSections {
+		userCounts[s.Title]++
+	}
+	for _, title := range []string{"User Request"} {
+		if c := userCounts[title]; c != 1 {
+			t.Errorf("user section %q rendered %d times, want 1", title, c)
+		}
+	}
+}
+
+// TestBuildPromptContext_AnalysisSkill_NoStaticContractPhrases mirrors
+// analyzer_prompt_test.go's banned-phrase list from the BUILDER side:
+// the old hardcoded BuildInitialPrompt text should be nowhere in the
+// rendered system/user message. If a future commit puts e.g. "ERM
+// predicate selector" into the analysis-skill's Goal or a new
+// builder section, this test will fail here even if the analyzer
+// package-level test does not — the boundary has two faces and each
+// side owns its own guard.
+//
+// IMPORTANT: this guard asserts the phrases are absent from BOTH the
+// SKILL fields (Goal / Workflow / OutputFormat / Prohibitions) AND
+// the BUILDER-added sections (Agent Identity, Reasoning Hygiene, ...).
+// The skill's renderEnumTable emits lowercase `"<field> — pick one:"`
+// (different from the old uppercase "— the task intent. Pick one:")
+// so the banned phrases do not collide with the legitimate
+// SSOT content.
+func TestBuildPromptContext_AnalysisSkill_NoStaticContractPhrases(t *testing.T) {
+	ac := &types.AgentContext{
+		AgentName: types.AgentAnalyzer,
+		Stage:     types.StageAnalyze,
+		Objective: "assert distinctive phrases are absent",
+	}
+	sk := skill.BuildAnalysisSkill()
+	pc := BuildPromptContext(ac, sk)
+	msgs := ToMessages(pc)
+
+	banned := []string{
+		"Required emit_analysis fields",
+		"ERM predicate selector",
+		"anti-hallucination selector",
+		"task intent. Pick one",
+		"predicate whitelist",
+	}
+
+	for _, m := range msgs {
+		for _, phrase := range banned {
+			if strings.Contains(m.Content, phrase) {
+				t.Errorf("rendered %s message contains banned phrase %q — "+
+					"static contract text crept back via the skill or a new builder section",
+					m.Role, phrase)
+			}
+		}
+	}
+}
+
+// findSystemSection is the system-side analogue of findSectionTitle
+// (which only scans UserSections). Both helpers return nil when the
+// requested title is absent so the caller can distinguish "section
+// missing" from "section present but wrong content".
+func findSystemSection(pc *types.PromptContext, title string) *types.PromptSection {
+	for i := range pc.SystemSections {
+		if pc.SystemSections[i].Title == title {
+			return &pc.SystemSections[i]
+		}
+	}
+	return nil
+}
