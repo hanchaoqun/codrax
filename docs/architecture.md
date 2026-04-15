@@ -121,7 +121,7 @@ stateDiagram-v2
     contractCheck --> [*] : 通过 / retry 耗尽（fail-loud）
 ```
 
-1. **Phase 1 — `analyze`** 跑一次。analyzer 通过 `emit_analysis` 工具写回 v3 `RequestModel`，随后 `analyzer.ParseOutput` 确定性地跑后处理管线（见 §7）组装完整的 `AnalysisIR` 并写进 `BusContext.AnalysisIR`。
+1. **Phase 1 — `analyze`** 跑一次。analyzer 先用 1-2 轮 evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`）验证用户提到的实体和术语是否在仓库里出现，然后通过 `emit_analysis` 工具写回 v3 `RequestModel`。随后 `analyzer.ParseOutput` 确定性地跑后处理管线（见 §7）组装完整的 `AnalysisIR` 并写进 `BusContext.AnalysisIR`。Analyzer **禁止** 读文件内容（`read_file` / `exec_command` 不在它的 tool allowlist 里），内容阅读是下一阶段 `explore` 的责任。
 2. **Phase 2 — per-task 循环**。对 `Mutable.TaskList.Tasks` 里每个 pending 的任务依次跑 `runTaskGraph`，它遍历 `AnalysisIR.TaskGraph.Nodes`：
    - **merged-window schedule**：每一轮把所有 ready 的非 finalize 节点合并成**一次** `explore` dispatch。Node 级别的串行化让 explorer 的 ReAct 循环在内部处理，以换取紧凑的 LLM 调用数。
    - **StageExtract** 在 explore window 完成后作为 Turn B 分派。extractor 看不到新文件，只消费 Turn A 的 `TurnAArtifacts` 快照。
@@ -159,7 +159,7 @@ stateDiagram-v2
 
 | Agent | Stage | 工具权限 | 职责 |
 |-------|-------|----------|------|
-| `analyzer` | `analyze` | `emit_analysis`（独占） | 一次 LLM 调用产出 v3 `RequestModel`，`ParseOutput` 确定性组装 `AnalysisIR` |
+| `analyzer` | `analyze` | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`） | 1-2 轮轻证据预扫验证实体/关键词是否在仓库出现，然后一次 `emit_analysis` 调用产出 v3 `RequestModel`，`ParseOutput` 确定性组装 `AnalysisIR` |
 | `explorer`（Turn A） | `explore` | `grep` / `read_file` / `repo_map` / `list_files` / `emit_evidence` / `exec_command` | 两阶段调查（Phase 0 Breadth Scan → Phase 1 Depth Read），独占写 `EvidenceItems` / `AnswerChains` / `FlowFindings`，并把投影快照写入 `TurnAArtifacts` |
 | `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | One-shot LLM 调用，读 Turn A digest，产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO**，禁止 `emit_evidence` |
 | `finalizer` | `finalize` | `emit_answer_document` | 按 `AnswerShape` 渲染结构化答案文档，跑 contract check |
@@ -304,10 +304,17 @@ Per-agent 模型路由在 `config/providers.yaml` 里配（不同 Agent 可以�
 |------|------|
 | **Agent** | analyzer |
 | **Skill** | `analysis-skill` |
-| **工具** | `emit_analysis`（独占，一次性调用） |
+| **工具** | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep`（必须 `files_only=true`） / `list_files`） |
 | **输入** | 用户原始请求 |
-| **工作** | 一次 LLM 调用 → 写 v3 RequestModel → `ParseOutput` 跑 `normalizer → compiler → risk → hdp → counterfactual → gate`（见 §7） |
+| **工作** | **Phase A**：1-2 轮 evidence-lite 预扫，验证用户提到的实体/术语是否在仓库出现（存在 + 位置，**不读内容**）→ **Phase B**：一次 `emit_analysis` LLM 调用写 v3 RequestModel → `ParseOutput` 跑 `normalizer → compiler → risk → hdp → counterfactual → gate`（见 §7） |
 | **输出** | `BusContext.AnalysisIR`（`TaskGraph` / `EvidencePlan` / `AnswerContract` / `HypothesisSet` / `QualityGate`） |
+
+**Evidence-lite 预扫边界规则**（由 `internal/skill/analysis_contract.go::AnalysisHardRules` 里的 `EVIDENCE-LITE BOUNDARY:` 前缀规则 enforce，测试在 `internal/agent/analyzer_prompt_test.go::TestAnalysisSkill_*`）：
+
+- 只允许 `repo_map`、`grep`（强制 `files_only=true`）、`list_files` 三个只读导航工具 —— `BaseAgent.buildToolSchemas` 通过 `analysis-skill.ToolSuggestions` allowlist 物理裁剪 LLM 看到的 schema，`read_file` / `exec_command` / 其他阶段的 `emit_*` 通道根本不在候选集中；
+- 预扫硬上限 2 轮：目的是"这些 entity 在不在仓库 / 它们在哪些文件"，而不是读内容或推理代码逻辑；
+- 预扫完成（不论结果如何）后，analyzer 必须调用 `emit_analysis` 一次。即使某个实体在预扫中没找到，也依然放进 `entities` 数组（downstream 的 ERM ranking 层会处理 non-existent 的 term）；
+- `call-count gate` 仍然只统计 `emit_analysis` 的调用次数（见下文），预扫工具调用不计入。
 
 Quality Gate 的 `Rejected` 区分 **hard failure**（`nil_ir` / `dag_closure` / `contract_complete` → 直接失败 Run）和 **soft failure**（`coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency` → log warning，继续跑）。
 
