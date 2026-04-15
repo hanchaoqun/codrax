@@ -49,6 +49,29 @@ type RuntimeSettings struct {
 	BlobPreviewHeadBytes *int `yaml:"blob_preview_head_bytes"`
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
 
+	// emit_analysis runtime validation knobs. Flat-prefixed
+	// `analysis_*` so the namespace stays visible alongside the
+	// `blob_*` and `pipeline_*` groups. All three are optional:
+	// absent = inherit the code default in
+	// internal/tool/analysis_limits.go.
+	//
+	//   - analysis_warn_below_keywords: soft floor; the tool
+	//     attaches a "[warn: ...]" tag to the ToolResult.Summary
+	//     when the analyzer emits fewer keywords. 0 disables the
+	//     warning. Default 8.
+	//   - analysis_reject_below_keywords: hard floor; the tool
+	//     fails the emit call with Success=false when the keyword
+	//     count is below this value. 0 disables rejection (only
+	//     the warning fires). Default 0.
+	//   - analysis_generic_entity_blocklist: lowercase words the
+	//     validator drops from the entities slice because they
+	//     poison ERM ranking. Empty disables the filter. Default
+	//     lives in DefaultAnalysisLimits().
+	AnalysisWarnBelowKeywords      *int     `yaml:"analysis_warn_below_keywords"`
+	AnalysisRejectBelowKeywords    *int     `yaml:"analysis_reject_below_keywords"`
+	AnalysisGenericEntityBlocklist []string `yaml:"analysis_generic_entity_blocklist"`
+	AnalysisRejectMultipleEmit     *bool    `yaml:"analysis_reject_multiple_emit"`
+
 	// Pipeline budget knobs. Flat-prefixed `pipeline_*`. Precedence:
 	// code default → codrax.yaml → CLI flag.
 	PipelineMaxSteps           *int `yaml:"pipeline_max_steps"`

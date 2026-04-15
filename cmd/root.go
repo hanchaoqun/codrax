@@ -355,6 +355,27 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		tool.SetBlobLimits(blobMax, blobHead, blobTail)
 
+		// emit_analysis runtime validation knobs. Start from the
+		// code defaults and overlay any non-nil yaml fields so a
+		// partial override leaves the other knobs alone.
+		analysisLimits := tool.DefaultAnalysisLimits()
+		if rs.AnalysisWarnBelowKeywords != nil {
+			analysisLimits.WarnBelowKeywords = *rs.AnalysisWarnBelowKeywords
+		}
+		if rs.AnalysisRejectBelowKeywords != nil {
+			analysisLimits.RejectBelowKeywords = *rs.AnalysisRejectBelowKeywords
+		}
+		if rs.AnalysisGenericEntityBlocklist != nil {
+			// Non-nil but possibly empty slice — empty explicitly
+			// disables the filter, honoring operator intent.
+			analysisLimits.GenericEntityBlocklist = append(
+				[]string(nil), rs.AnalysisGenericEntityBlocklist...)
+		}
+		if rs.AnalysisRejectMultipleEmit != nil {
+			analysisLimits.RejectMultipleEmit = *rs.AnalysisRejectMultipleEmit
+		}
+		tool.SetAnalysisLimits(analysisLimits)
+
 		if rs.PipelineMaxRetriesPerStage != nil {
 			pipelineSettings.MaxRetriesPerStage = *rs.PipelineMaxRetriesPerStage
 		}
@@ -375,6 +396,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		pipelineSettings.MaxStageVisits)
 	logging.Info("blob_limits: max_inline_bytes=%d preview_head_bytes=%d preview_tail_bytes=%d",
 		tool.MaxInlineBytes, tool.PreviewHeadBytesValue(), tool.PreviewTailBytesValue())
+	al := tool.CurrentAnalysisLimits()
+	logging.Info("analysis_limits: warn_below_keywords=%d reject_below_keywords=%d generic_entity_blocklist=%d reject_multiple_emit=%t",
+		al.WarnBelowKeywords, al.RejectBelowKeywords, len(al.GenericEntityBlocklist), al.RejectMultipleEmit)
 
 	providersCfg, err := config.LoadProviders(flagProviders)
 	if err != nil {
