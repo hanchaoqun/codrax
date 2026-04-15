@@ -204,6 +204,31 @@ type Config struct {
 
 技能是**声明式配置**，不是执行者 —— Agent 加载 skill，按它的 workflow 决定 prompt、按它的 `ToolSuggestions` 决定允许的工具、按它的 `Prohibitions` 决定禁止事项。Extract-skill 显式在 `Prohibitions` 里禁止 `emit_evidence`（Turn B 不能侵犯 Turn A 的 evidence 通道）。
 
+#### Skill vs Evaluator 职责边界
+
+Skill 和 Evaluator 在职责上严格二分，任何一端越界都会导致 prompt 漂移：
+
+| 层级 | 归属 | 承载内容 | 物理位置 |
+|------|------|----------|----------|
+| **Static（静态契约）** | Skill | 角色身份、Workflow、OutputFormat、Prohibitions、字段枚举、ToolSuggestions —— 与"本次请求"无关的所有内容 | `internal/skill/` 下的 `Config` 字面量（或构造器，如 `BuildAnalysisSkill`）。`context.BuildPromptContext` 每次 dispatch 把这些字段渲染进 system 段 |
+| **Dynamic（动态上下文）** | Builder | 通用的 per-dispatch 段：User Request / Retry Directive / Prior Findings / Known Facts / Structured Evidence / Dataflow Findings / Answer Symbols / Hypothesis Verdicts / Relevant Files / Missing Piece | `internal/context/builder.go::BuildPromptContext`。`canonicalSystemSectionOrder` + `canonicalUserSectionOrder` 两个数组把标题顺序固化下来 |
+| **Stage-specific supplement（本轮专属补充）** | Evaluator | 只有 builder 无法泛化产出的、本 stage 本轮独有的段：extractor 的 Turn A digest、answer-document 的 resolved shape + cardinality baseline + prior slate | `Evaluator.BuildInitialPrompt`。`BaseAgent.buildInitialMessages` 把它作为 **额外** 的 user 消息追加到 builder 输出之后 |
+
+**约束**：
+
+1. Evaluator 的 `BuildInitialPrompt` 必须**只**输出 stage-specific supplement。它绝对不能重述 skill 的任何字段，也不能再发射 builder 已经写过的标题（`canonicalSystemSectionOrder` / `canonicalUserSectionOrder`）—— 标题冲突会让 LLM 看到两份同名段并在两者漂移时收到互相矛盾的指令。
+2. Skill 是唯一承载"做什么"的声明式入口。任何对 workflow、字段枚举、输出格式、禁止项的改动都只发生在 skill 文件里。一处改完两处联动（比如 emit_* 工具的 JSON schema 从 skill 的 SSOT 读枚举）是目前强制这条规则的主要防线。
+3. Evaluator 的另一半职责是 `ParseOutput`——从 LLM 输出提取结构化结果并跑 stage-specific 的后处理管线。对 analyzer 来说这就是 normalizer → compiler → risk → hdp → counterfactual → gate。Skill 里永远不写这类代码逻辑。
+
+**Analyzer 是这条边界的极小参照实现**：
+
+- 静态契约全部落在 `analysis-skill`（由 `internal/skill/analysis_contract.go::BuildAnalysisSkill` 构造，字段枚举来自同文件的 SSOT 表）；
+- `analyzerEvaluator.BuildInitialPrompt` 恒返回空字符串——analyzer 没有任何 builder 未覆盖的动态补充；
+- 唯一的输出通道是 `emit_analysis` 工具（一次性调用），IR 的拼装全部由 `ParseOutput` 里的确定性管线完成；
+- `TestAnalyzer_BuildInitialPrompt_IsEmpty` 把"空补充"这条契约固化，任何回写静态文本的改动会在这里失败。
+
+Extractor 和 Finalizer 是"非空补充"的参照实现：extractor 的 `BuildInitialPrompt` 只输出 Turn A transcript digest（新段，builder 不知道怎么产出），finalizer 的 `answer_document_evaluator.BuildInitialPrompt` 只输出 resolved target shape + cardinality baseline + prior slate。两者都**不**重述 User Request / Workflow / Output Format 等 builder 已经写过的段。
+
 ### 3.4 工具（Layer 4）
 
 工具通过嵌入 `tool.ReadOnly` 满足 `IsWrite() bool` —— 所有现存工具都是 read-only。`Execute` 收到的 `*BusContext` 是窄视图：只有 `RepoRoot` / `Branch` / `Commit` / `WorkDir` / `Mutable` 被填充，其他字段置零，物理上限制工具只能修改 `Mutable`。

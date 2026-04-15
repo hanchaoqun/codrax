@@ -43,23 +43,41 @@ import (
 //     warning and the run continues.
 type analyzerEvaluator struct{}
 
-// BuildInitialPrompt is intentionally empty. All static analyzer-
-// contract text (field enums, descriptions, hard rules) lives in the
-// single-source-of-truth tables in internal/skill/analysis_contract.go
-// and flows into the system prompt through the skill rendering path
-// in context/builder.go (Skill Goal / Workflow / Output Format /
-// Prohibitions). The analyzer has no per-dispatch dynamic content
-// that is not already injected elsewhere:
+// BuildInitialPrompt returns the evaluator's DYNAMIC per-dispatch
+// instruction — and for the analyzer, that slot is empty by design.
 //
-//   - the user request is rendered as the "User Request" user section;
-//   - language preference flows through Preferences → "User
-//     Preferences";
-//   - retry hints flow through RetryHint → "Retry Directive".
+// Skill vs Evaluator contract (see docs/architecture.md §3.3):
 //
-// BaseAgent.buildInitialMessages skips an empty evaluator instruction,
-// so returning "" here means the LLM sees the skill's system block
-// exactly once instead of once from the skill path plus a second copy
-// from this method.
+//   - The skill ("analysis-skill" in internal/skill/analysis_contract.go)
+//     owns everything STATIC about the analyze stage: Goal, Workflow,
+//     OutputFormat (which holds the enum tables and keyword rules),
+//     Prohibitions, and ToolSuggestions. Those fields are rendered into
+//     the system prompt by context.BuildPromptContext for every dispatch.
+//   - The evaluator's BuildInitialPrompt only contributes content that
+//     depends on THIS dispatch's runtime state and cannot be expressed
+//     declaratively in the skill. It must NEVER restate the skill's
+//     static contract and must NEVER re-emit sections that
+//     context.BuildPromptContext already renders (see the canonical
+//     section list in internal/context/builder.go:BuildPromptContext).
+//
+// The analyzer is the minimal case of that contract. Every dynamic
+// input the agent needs is already surfaced by the builder:
+//
+//   - the user request → "User Request" user section;
+//   - the language preference → "User Preferences" system section;
+//   - retry hints from a failed prior analyze → "Retry Directive" user
+//     section.
+//
+// Post-processing is the analyzer's other responsibility and lives in
+// ParseOutput, which runs the deterministic normalizer → compiler →
+// risk → hdp → counterfactual → gate pipeline to assemble the full
+// AnalysisIR from the single emit_analysis tool call.
+//
+// BaseAgent.buildInitialMessages drops an empty evaluator instruction,
+// so returning "" here is the correct, documented way to say "this
+// stage has no per-dispatch supplement beyond what the builder renders".
+// The TestAnalyzer_BuildInitialPrompt_IsEmpty guard pins this contract
+// so a future commit cannot re-seed static text here by accident.
 func (e *analyzerEvaluator) BuildInitialPrompt(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = ctx
 	_ = sk

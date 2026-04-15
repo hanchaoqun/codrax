@@ -264,3 +264,45 @@ func TestAnalyzer_StageOutputCarriesIR(t *testing.T) {
 		t.Fatal("StageOutput.AnalysisIR must be non-nil")
 	}
 }
+
+// TestAnalyzer_BuildInitialPrompt_IsEmpty pins the Skill/Evaluator
+// boundary contract documented on analyzerEvaluator.BuildInitialPrompt:
+// every static input the analyze stage needs (field enums, rules,
+// workflow) is owned by the analysis-skill and rendered as system
+// sections by context.BuildPromptContext, and every dynamic input it
+// needs (user request, language preference, retry directive) is
+// rendered as user sections by the same builder. The evaluator's
+// per-dispatch supplement slot is therefore intentionally empty. A
+// future commit that re-seeds static prompt text here — drifting the
+// contract away from the SSOT in internal/skill/analysis_contract.go —
+// must fail this test.
+func TestAnalyzer_BuildInitialPrompt_IsEmpty(t *testing.T) {
+	eval := &analyzerEvaluator{}
+
+	cases := []struct {
+		name string
+		ctx  *types.AgentContext
+	}{
+		{"nil-ctx", nil},
+		{"empty-ctx", &types.AgentContext{}},
+		{
+			"fully-populated-ctx",
+			&types.AgentContext{
+				Objective:    "trace how the orchestrator dispatches the analyze stage",
+				MissingPiece: types.MissingFacts,
+				Preferences:  []string{"Respond to the user in Simplified Chinese (zh)."},
+				RetryHint:    "previous analyze attempt produced a nil IR; try again",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := eval.BuildInitialPrompt(tc.ctx, nil); got != "" {
+				t.Errorf("analyzer BuildInitialPrompt must stay empty "+
+					"(Skill/Evaluator boundary contract); got %d bytes:\n%s",
+					len(got), got)
+			}
+		})
+	}
+}

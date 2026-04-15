@@ -75,7 +75,71 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 // planner estimates, verifier counts of failures, etc.
 const reasoningHygiene = "Whenever the answer is the result of a deterministic computation over data — counting, summing, sorting, finding extremes, diffing, hashing, filtering by exact criteria — run a tool that produces it directly (e.g. a shell pipeline through exec_command such as `find ... | wc -l`, `grep -c`, `sort | uniq`) and treat the tool's output as authoritative. Never derive such answers by reading a list_files / grep / read_file output yourself; language models miscount and miscompute even on short lists. The same rule applies to facts you intend to record: if a fact has a number, sort order, or set membership in it, that number/order/set must come from a tool, not from your inspection."
 
-// BuildPromptContext assembles the final prompt payload from an AgentContext and Skill config.
+// canonicalSystemSectionOrder lists every system-role section title
+// BuildPromptContext may emit, in the exact order the LLM sees them.
+// The list is purely documentary — it pins the contract between the
+// builder and the evaluators and mirrors the append() sequence in
+// BuildPromptContext. When a new system section is added below, also
+// add its title here so a grep reaches both sides.
+var canonicalSystemSectionOrder = []string{
+	"Agent Identity",
+	"Reasoning Hygiene",
+	"Constraints",
+	"User Preferences",
+	"Skill Goal",
+	"Workflow",
+	"Output Format",
+	"Prohibitions",
+}
+
+// canonicalUserSectionOrder does the same for user-role sections.
+// Note that several of these are conditional — they only appear when
+// their backing AgentContext field is non-empty — but the relative
+// ORDER is fixed. Evaluators (BuildInitialPrompt) must not re-emit
+// any of these titles: they append a separate user message after the
+// builder's output, so a duplicate title produces two visually
+// identical sections and contradictory directives when the two sides
+// drift.
+var canonicalUserSectionOrder = []string{
+	"Retry Directive (READ FIRST)",
+	"User Request",
+	"Prior Stage Findings",
+	"Known Facts",
+	"Extracted Answer Symbols (deterministic, authoritative)",
+	"Answer Symbols (deterministic floor, may extend with cited evidence)",
+	"Ground Truth (deterministic, verified from source code)",
+	"Structured Evidence",
+	"Dataflow Findings",
+	"Hypothesis Verdicts",
+	"Relevant Files",
+	"Missing Piece",
+}
+
+// BuildPromptContext assembles the final prompt payload from an
+// AgentContext and Skill config.
+//
+// Skill vs Evaluator contract (see docs/architecture.md §3.3):
+//
+// This function owns every STATIC prompt surface — identity, hygiene,
+// constraints, preferences, the skill's declarative sections (Goal /
+// Workflow / Output Format / Prohibitions), and the generic per-
+// dispatch context (user request, retry directive, prior findings,
+// facts, evidence, flow findings, hypothesis verdicts, relevant files,
+// missing piece). The canonical titles and their relative order are
+// pinned by canonicalSystemSectionOrder and canonicalUserSectionOrder
+// above so additions stay grep-visible from both the builder and the
+// evaluator sides.
+//
+// Evaluators contribute the DYNAMIC, stage-specific supplement through
+// Evaluator.BuildInitialPrompt, which BaseAgent appends as an extra
+// user-role message AFTER this function's output. Those supplements
+// MUST NOT re-emit any title listed in the canonical section arrays —
+// doing so produces two visually identical sections and lets the two
+// sides silently drift. The analyzer returns an empty supplement (its
+// entire per-dispatch context is already carried by this builder);
+// the extractor and finalizer append genuinely new sections (Turn A
+// digest, resolved target shape, cardinality baseline, prior slate)
+// that this builder cannot produce generically.
 func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptContext {
 	pc := &types.PromptContext{
 		AgentName: ac.AgentName,
