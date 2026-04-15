@@ -32,17 +32,41 @@ import (
 //     keywords, entities, question_kind, answer_shape).
 //  2. ShouldStop ends the loop on the first LLM response with no
 //     pending tool calls.
-//  3. ParseOutput reads the emitted RequestModel from Mutable,
+//  3. Observe (LoopController) enforces the evidence-lite pre-scan
+//     budget at runtime: every PhaseMidLoop iteration whose last
+//     executed tool was a navigation tool (repo_map / grep /
+//     list_files) increments prescanRounds, and when the counter
+//     exceeds tool.AnalysisLimits.MaxPrescanRounds the analyzer
+//     returns StopRequested so BaseAgent force-terminates the
+//     dispatch — the ParseOutput failsafe then synthesises a
+//     zero-value RequestModel. Prompt-only "1-2 rounds" guidance is
+//     supplemented with a hard runtime ceiling the LLM cannot
+//     ignore.
+//  4. ParseOutput reads the emitted RequestModel from Mutable,
 //     normalises the raw objective through the term-graph builder,
 //     then runs compiler → risk → hdp → counterfactual → gate to
 //     assemble a full AnalysisIR.
-//  4. The quality gate's Rejected flag is consulted at the end:
+//  5. The quality gate's Rejected flag is consulted at the end:
 //     structural failures (dag_closure, contract_complete, nil_ir)
 //     return a hard error that bubbles up through StageOutput.Error
 //     and fails the run fast. Soft-quality failures (coverage,
 //     budget_sanity, hypothesis_coverage, risk_consistency) log a
 //     warning and the run continues.
-type analyzerEvaluator struct{}
+type analyzerEvaluator struct {
+	// prescanRounds counts PhaseMidLoop observations whose
+	// LastToolResult was a pre-scan navigation tool (repo_map /
+	// grep / list_files). Reset to 0 at the start of each dispatch
+	// by BuildInitialInstruction so cross-dispatch retries from the
+	// orchestrator start with a clean counter.
+	//
+	// Mixed batches where emit_analysis and a pre-scan tool run in
+	// the same iteration are not counted as pre-scan rounds because
+	// LastToolResult is the LAST appended result. When emit_analysis
+	// runs second (the desired end state), the counter correctly
+	// does not advance; when a pre-scan tool runs second (pathology),
+	// it does.
+	prescanRounds int
+}
 
 // BuildInitialInstruction returns the evaluator's DYNAMIC per-dispatch
 // instruction — and for the analyzer, that slot is empty by design.
@@ -82,12 +106,62 @@ type analyzerEvaluator struct{}
 func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = ctx
 	_ = sk
+	// Reset the pre-scan counter so cross-dispatch retries (e.g.
+	// analyze re-entry after a retryable quality gate rejection)
+	// start with a clean budget. The per-dispatch scope is critical:
+	// if the orchestrator re-dispatches the analyze stage after a
+	// gate failure, the second dispatch should get its own 2-round
+	// budget, not inherit the first dispatch's exhausted counter.
+	e.prescanRounds = 0
 	return ""
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	_ = iteration
 	return len(resp.ToolCalls) == 0
+}
+
+// Observe implements LoopController to enforce the pre-scan budget
+// at runtime. PhaseMidLoop observations increment prescanRounds
+// whenever the iteration's LastToolResult is a pre-scan navigation
+// tool; once the count exceeds AnalysisLimits.MaxPrescanRounds, the
+// next pre-scan triggers a force-stop via LoopSignal.StopRequested.
+// PhaseSoftStop observations are ignored — the analyzer's stop
+// semantics at soft-stop are already driven by ShouldStop.
+//
+// Mixed-batch behavior: when emit_analysis and a pre-scan tool run
+// in the same iteration, LastToolResult is whichever one appended
+// last. The common well-behaved pattern is "grep → emit_analysis"
+// (emit_analysis last) and does not advance the counter, which is
+// correct because the dispatch is about to end anyway.
+//
+// Zero MaxPrescanRounds disables the runtime gate entirely. This is
+// the escape hatch for tuning or debugging; the startup banner logs
+// the installed value so operators can see whether the gate is
+// armed.
+func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
+	_ = ctx
+	if obs.Phase != PhaseMidLoop {
+		return LoopSignal{}
+	}
+	if obs.LastToolResult == nil || !isPrescanTool(obs.LastToolResult.ToolName) {
+		return LoopSignal{}
+	}
+	e.prescanRounds++
+
+	max := tool.CurrentAnalysisLimits().MaxPrescanRounds
+	if max <= 0 || e.prescanRounds <= max {
+		return LoopSignal{}
+	}
+	reason := fmt.Sprintf(
+		"pre-scan budget exhausted (%d rounds > max %d); "+
+			"fallback will synthesize a zero-value RequestModel",
+		e.prescanRounds, max)
+	logging.Warning("[analyzer] %s", reason)
+	return LoopSignal{
+		StopRequested: true,
+		StopReason:    reason,
+	}
 }
 
 func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
@@ -135,6 +209,20 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	limits := tool.CurrentAnalysisLimits()
 	var emitGateError string
 
+	// Runtime pre-scan budget diagnostics. These mirror
+	// analyzerEvaluator.Observe's counter so the operator can see
+	// from StageOutput.Data alone whether the runtime gate fired.
+	// `analysis_prescan_rounds` is the authoritative value that
+	// Observe incremented at the ReAct layer, NOT a post-hoc
+	// re-derivation from `toolResults` — the two would disagree on
+	// mixed batches where emit_analysis runs after a pre-scan tool.
+	// `analysis_prescan_budget_exhausted` is true iff the counter
+	// strictly exceeds the configured ceiling (Observe's force-stop
+	// condition).
+	prescanRounds := e.prescanRounds
+	prescanBudgetExhausted := limits.MaxPrescanRounds > 0 &&
+		prescanRounds > limits.MaxPrescanRounds
+
 	switch {
 	case emitCalls == 0:
 		logging.Warning(
@@ -164,9 +252,11 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	ir := buildAnalysisIR(ctx)
 
 	data := map[string]any{
-		"result":                 lastContent,
-		"analysis_emit_calls":    emitCalls,
-		"analysis_fallback_used": fallbackUsed,
+		"result":                            lastContent,
+		"analysis_emit_calls":               emitCalls,
+		"analysis_fallback_used":            fallbackUsed,
+		"analysis_prescan_rounds":           prescanRounds,
+		"analysis_prescan_budget_exhausted": prescanBudgetExhausted,
 	}
 	if ir != nil {
 		hints := ir.RequestModel.AnalyzerHints
@@ -234,6 +324,24 @@ func countEmitAnalysisCalls(toolResults []types.ToolResult) int {
 		}
 	}
 	return n
+}
+
+// isPrescanTool returns true when name identifies one of the
+// analyzer's three evidence-lite pre-scan navigation tools. The list
+// mirrors skill.AnalysisToolSuggestions minus emit_analysis and is
+// the single source of truth the runtime pre-scan gate uses to
+// decide whether an iteration counts against the budget.
+//
+// When a future skill update adds a new pre-scan tool, this helper
+// must gain the new name too. The call sites are:
+//   - analyzerEvaluator.Observe (runtime budget enforcement)
+//   - TestAnalyzer_PrescanBudget_* tests
+func isPrescanTool(name string) bool {
+	switch name {
+	case "repo_map", "grep", "list_files":
+		return true
+	}
+	return false
 }
 
 // ctxObjective pulls the user objective out of an AgentContext for

@@ -69,6 +69,35 @@ type AnalysisLimits struct {
 	// structured `analysis_fallback_used` diagnostic), never gated
 	// by this knob.
 	RejectMultipleEmit bool
+
+	// MaxPrescanRounds caps the number of analyzer pre-scan rounds
+	// (iterations whose last-executed tool was `repo_map`, `grep`, or
+	// `list_files`) before the analyzer's LoopController forces a
+	// stop. The skill prompt asks for "1-2 rounds then emit_analysis",
+	// and this is the runtime hard-enforcement of that ceiling: when
+	// the LLM ignores the prompt and keeps pre-scanning, every extra
+	// round burns an LLM round-trip that the explore stage was
+	// supposed to own.
+	//
+	// Behavior:
+	//   - N > 0: after `N` successful pre-scan rounds, the next
+	//     observed pre-scan tool triggers a force-stop via
+	//     LoopSignal{StopRequested: true} with a descriptive
+	//     StopReason. The analyzer's ParseOutput then synthesises a
+	//     zero-value RequestModel via readOrSynthesizeRequestModel
+	//     (the same failsafe the 0-call branch uses), and the
+	//     `analysis_prescan_budget_exhausted` diagnostic is surfaced
+	//     on StageOutput.Data so operators see the cause.
+	//   - N == 0: the runtime gate is DISABLED. Observe returns an
+	//     empty signal regardless of how many pre-scan rounds fired.
+	//     This is the escape hatch for tuning or debugging.
+	//
+	// Default is 2, matching the skill prompt's "1-2 rounds" language
+	// literally. Mixed batches where `emit_analysis` and a pre-scan
+	// tool run in the same iteration are not counted as pre-scan
+	// rounds — the "last tool" is emit_analysis, which is the
+	// desired end state.
+	MaxPrescanRounds int
 }
 
 // DefaultAnalysisLimits returns the populated default policy. Callers
@@ -90,6 +119,7 @@ func DefaultAnalysisLimits() AnalysisLimits {
 	return AnalysisLimits{
 		WarnBelowKeywords:   8,
 		RejectBelowKeywords: 0,
+		MaxPrescanRounds:    2,
 		GenericEntityBlocklist: []string{
 			"agent", "agents",
 			"class", "classes",
