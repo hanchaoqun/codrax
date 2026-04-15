@@ -154,10 +154,45 @@ func TestAnalyzerPrompt_SkillOwnsContractText(t *testing.T) {
 		}
 	}
 
-	// Tool suggestions must still scope the LLM to emit_analysis only.
-	// A leak here would allow the analyzer to call arbitrary tools.
-	if len(sk.ToolSuggestions) != 1 || sk.ToolSuggestions[0] != "emit_analysis" {
-		t.Errorf("skill ToolSuggestions = %v, want [emit_analysis]", sk.ToolSuggestions)
+	// Tool suggestions scope the analyzer's LLM to exactly the
+	// evidence-lite pre-scan surface: emit_analysis (the exit
+	// channel) plus three read-only navigation tools (repo_map,
+	// grep, list_files). BaseAgent.buildToolSchemas only exposes
+	// tools named here to the LLM, so a leak (read_file, etc.)
+	// would surface as the schema set mismatching this list.
+	wantTools := map[string]bool{
+		"emit_analysis": true,
+		"repo_map":      true,
+		"grep":          true,
+		"list_files":    true,
+	}
+	if len(sk.ToolSuggestions) != len(wantTools) {
+		t.Errorf("skill ToolSuggestions = %v, want exactly %d tools",
+			sk.ToolSuggestions, len(wantTools))
+	}
+	got := make(map[string]bool, len(sk.ToolSuggestions))
+	for _, name := range sk.ToolSuggestions {
+		got[name] = true
+	}
+	for name := range wantTools {
+		if !got[name] {
+			t.Errorf("skill ToolSuggestions missing %q", name)
+		}
+	}
+	// Heavy / content-reading tools must stay OUT of the analyzer's
+	// allowlist. This is the complement of the wantTools check: any
+	// future PR that mistakenly adds one surfaces here.
+	for _, forbidden := range []string{
+		"read_file",
+		"exec_command",
+		"emit_evidence",
+		"emit_answer_symbol",
+		"emit_answer_document",
+		"emit_hypothesis_verdict",
+	} {
+		if got[forbidden] {
+			t.Errorf("skill ToolSuggestions must NOT contain %q (evidence-lite boundary)", forbidden)
+		}
 	}
 }
 
@@ -270,6 +305,160 @@ func TestAnalyzerPrompt_NoDuplicateSkillTitles(t *testing.T) {
 			t.Errorf("evaluator BuildInitialInstruction duplicates builder-owned section header %q — "+
 				"supplements must be strictly additive new titles, never re-renders of the canonical set",
 				header)
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Evidence-lite pre-scan contract tests
+// -----------------------------------------------------------------------------
+//
+// The analyze stage runs a 1-2 round "existence + location" pre-scan
+// before emit_analysis so the entities and keywords it extracts are
+// grounded in the actual repo, not pure language-level guesswork.
+// These tests pin the four concrete pieces of that contract so a
+// future edit to internal/skill/analysis_contract.go cannot silently
+// break the boundary:
+//
+//  1. ToolSuggestions exposes exactly the four allowed tools.
+//  2. The heavy content tools (read_file, exec_command) are NEVER
+//     in ToolSuggestions.
+//  3. The skill's OutputFormat + Prohibitions text instructs the
+//     LLM to use files_only=true on every grep call and forbids
+//     read_file / content inspection by name.
+//  4. AnalysisToolSuggestions is the single source the builder
+//     reads, not a stray fork hiding inside BuildAnalysisSkill.
+
+// TestAnalysisSkill_EvidenceLiteToolsExposedExactly asserts the four
+// tools we want and only those four. Mirrors the check inside
+// TestAnalyzerPrompt_SkillOwnsContractText but as a dedicated test
+// so a future split or rename produces a clearly named failure.
+func TestAnalysisSkill_EvidenceLiteToolsExposedExactly(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+
+	want := []string{"emit_analysis", "grep", "list_files", "repo_map"}
+	got := append([]string(nil), sk.ToolSuggestions...)
+	// Sort independently for a stable equality check.
+	sortStrings := func(in []string) []string {
+		out := append([]string(nil), in...)
+		for i := 1; i < len(out); i++ {
+			for j := i; j > 0 && out[j-1] > out[j]; j-- {
+				out[j-1], out[j] = out[j], out[j-1]
+			}
+		}
+		return out
+	}
+	gotSorted := sortStrings(got)
+	wantSorted := sortStrings(want)
+	if len(gotSorted) != len(wantSorted) {
+		t.Fatalf("ToolSuggestions count = %d, want %d; got=%v want=%v",
+			len(gotSorted), len(wantSorted), gotSorted, wantSorted)
+	}
+	for i := range wantSorted {
+		if gotSorted[i] != wantSorted[i] {
+			t.Errorf("ToolSuggestions[%d] = %q, want %q (sorted)",
+				i, gotSorted[i], wantSorted[i])
+		}
+	}
+}
+
+// TestAnalysisSkill_HeavyToolsNeverAllowed is the negative guard.
+// It lists every tool that would break the evidence-lite boundary
+// and asserts none of them appear in the allowlist. The list is
+// deliberately broader than "just read_file" so a future new tool
+// with similar semantics (edit_file, apply_patch, ...) surfaces
+// here on the day it is added to internal/tool/.
+func TestAnalysisSkill_HeavyToolsNeverAllowed(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	allowed := make(map[string]bool, len(sk.ToolSuggestions))
+	for _, name := range sk.ToolSuggestions {
+		allowed[name] = true
+	}
+
+	forbidden := []string{
+		// Content-reading tools — reserved for the explore stage.
+		"read_file",
+		// Shell execution — never appropriate at analyze time.
+		"exec_command",
+		// Other stages' emit channels — strictly out of scope.
+		"emit_evidence",
+		"emit_answer_symbol",
+		"emit_answer_document",
+		"emit_hypothesis_verdict",
+		// Git tools — content-ish, no place in classification.
+		"git_diff",
+		"git_log",
+	}
+	for _, name := range forbidden {
+		if allowed[name] {
+			t.Errorf("analyze stage must NOT allow %q (evidence-lite boundary)", name)
+		}
+	}
+}
+
+// TestAnalysisSkill_PromptDocumentsFilesOnlyGuard pins the
+// distinctive phrasing that tells the LLM to always pass
+// files_only=true when calling grep. This is a text-level check,
+// not an enforcement check — the tool itself will happily accept
+// files_only=false. The prompt is the contract, and the phrase
+// "files_only=true" must appear in the rendered prompt (either in
+// the workflow, the output format section, or the prohibitions).
+func TestAnalysisSkill_PromptDocumentsFilesOnlyGuard(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+
+	// Collect every text surface the builder renders into the LLM
+	// prompt: OutputFormat is the big one, Workflow is a slice, and
+	// Prohibitions is where the hard rule lives.
+	var corpus strings.Builder
+	corpus.WriteString(sk.Goal)
+	corpus.WriteString("\n")
+	for _, w := range sk.Workflow {
+		corpus.WriteString(w)
+		corpus.WriteString("\n")
+	}
+	corpus.WriteString(sk.OutputFormat)
+	corpus.WriteString("\n")
+	for _, p := range sk.Prohibitions {
+		corpus.WriteString(p)
+		corpus.WriteString("\n")
+	}
+
+	if !strings.Contains(corpus.String(), "files_only=true") {
+		t.Errorf("analysis-skill prompt must instruct the LLM to call grep with files_only=true")
+	}
+	// The phrase "do NOT call read_file" / equivalent should also
+	// appear so the LLM cannot claim "the prompt didn't say no".
+	if !strings.Contains(corpus.String(), "read_file") {
+		t.Errorf("analysis-skill prompt must name read_file explicitly in its prohibition")
+	}
+}
+
+// TestAnalysisSkill_PromptDocumentsPreScanBudget pins the
+// "1-2 rounds, then emit_analysis" budget language so a future
+// edit cannot silently drop the ceiling. Without an explicit
+// budget, the LLM will happily loop on repo_map calls forever.
+func TestAnalysisSkill_PromptDocumentsPreScanBudget(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	if !strings.Contains(sk.OutputFormat, "1-2 rounds") && !strings.Contains(sk.OutputFormat, "two rounds") {
+		t.Errorf("analysis-skill OutputFormat must document the 1-2 round pre-scan budget")
+	}
+}
+
+// TestAnalysisToolSuggestions_IsTheSingleSourceOfTruth verifies
+// that BuildAnalysisSkill uses the exported AnalysisToolSuggestions
+// slice rather than a separate literal. Two sources would be the
+// exact kind of duplication we just finished eliminating elsewhere
+// in this package.
+func TestAnalysisToolSuggestions_IsTheSingleSourceOfTruth(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+	if len(sk.ToolSuggestions) != len(skill.AnalysisToolSuggestions) {
+		t.Fatalf("BuildAnalysisSkill ToolSuggestions len = %d, AnalysisToolSuggestions len = %d",
+			len(sk.ToolSuggestions), len(skill.AnalysisToolSuggestions))
+	}
+	for i := range skill.AnalysisToolSuggestions {
+		if sk.ToolSuggestions[i] != skill.AnalysisToolSuggestions[i] {
+			t.Errorf("ToolSuggestions[%d] = %q, AnalysisToolSuggestions[%d] = %q (drift)",
+				i, sk.ToolSuggestions[i], i, skill.AnalysisToolSuggestions[i])
 		}
 	}
 }

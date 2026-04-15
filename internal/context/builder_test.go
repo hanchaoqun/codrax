@@ -817,11 +817,37 @@ func TestBuildPromptContext_AnalysisSkill_RendersAllSections(t *testing.T) {
 		}
 	}
 
-	// Tool suggestions must still scope the LLM to emit_analysis
-	// alone. A leak here indicates the analysis-skill gained a new
-	// tool without an audit.
-	if len(pc.EnabledTools) != 1 || pc.EnabledTools[0] != "emit_analysis" {
-		t.Errorf("EnabledTools = %v, want [emit_analysis]", pc.EnabledTools)
+	// Tool suggestions scope the analyzer's LLM to the evidence-lite
+	// pre-scan surface: emit_analysis (exit channel) plus three
+	// read-only navigation tools (repo_map, grep, list_files). A
+	// heavier tool appearing here — most importantly read_file or
+	// exec_command — means the skill's ToolSuggestions leaked past
+	// the evidence-lite boundary.
+	wantEnabled := map[string]bool{
+		"emit_analysis": true,
+		"repo_map":      true,
+		"grep":          true,
+		"list_files":    true,
+	}
+	if len(pc.EnabledTools) != len(wantEnabled) {
+		t.Errorf("EnabledTools = %v, want exactly %d entries", pc.EnabledTools, len(wantEnabled))
+	}
+	for _, name := range pc.EnabledTools {
+		if !wantEnabled[name] {
+			t.Errorf("EnabledTools contains unexpected %q", name)
+		}
+	}
+	for name := range wantEnabled {
+		found := false
+		for _, got := range pc.EnabledTools {
+			if got == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("EnabledTools missing %q", name)
+		}
 	}
 }
 

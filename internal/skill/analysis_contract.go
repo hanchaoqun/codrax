@@ -140,15 +140,26 @@ func enumValues(choices []AnalysisEnumChoice) []string {
 // agent must obey. Rendered verbatim into the analysis-skill's
 // Prohibitions section by BuildAnalysisSkill so the analyzer agent
 // never needs to restate them in its own prompt.
+//
+// The evidence-lite pre-scan rules (no read_file, grep must use
+// files_only=true, no deep content reasoning) are grouped together
+// at the end so the contract between the analyzer and the explorer
+// stays grep-visible: the analyzer verifies that symbols and terms
+// EXIST in the repo; the explorer does the content reading.
 var AnalysisHardRules = []string{
 	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
 	"do not invent an intent by stretching a category; if two fit equally, pick the one that matches the user's verb; if none fit, use \"unknown\"",
 	"answer_shape=list_of_symbols ONLY when the user is asking for a SET of names they want listed — \"how many agents call X\" is list_of_symbols, \"is X registered\" is boolean, \"explain X\" is step_list or explanation",
-	"do NOT call any tool other than emit_analysis",
-	"do NOT write free-form prose before the emit_analysis call — emit_analysis is the only output channel for the analyze stage",
+	"call emit_analysis EXACTLY ONCE — multiple calls trigger a warning (or a hard reject when analysis_reject_multiple_emit=true) and only the last write is effective",
+	"do NOT write free-form prose before the emit_analysis call beyond what the evidence-lite pre-scan requires — emit_analysis is the final output channel of the analyze stage",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
-	"do not make assumptions about code structure — classify only what the user's text supports",
+	"do not make assumptions about code structure — classify only what the user's text plus the evidence-lite pre-scan support",
+	// Evidence-lite pre-scan boundary rules.
+	"EVIDENCE-LITE BOUNDARY: do NOT call read_file, exec_command, or any tool that reads file CONTENT — the analyze stage is existence + location verification only, not content inspection; the explore stage owns deep reading",
+	"EVIDENCE-LITE BOUNDARY: when calling grep, ALWAYS pass files_only=true — line-level results are noise at the analyze stage and will overflow the budget",
+	"EVIDENCE-LITE BOUNDARY: pre-scan is limited to 1-2 rounds of lightweight calls (repo_map, grep files_only=true, list_files) before emit_analysis; do NOT loop on pre-scan tools — two rounds is the hard ceiling",
+	"EVIDENCE-LITE BOUNDARY: the pre-scan answers \"does X exist / in which files does term Y appear\" and nothing else; do not draw conclusions about how code WORKS from file paths alone — save that for the explorer",
 }
 
 // renderEnumTable formats one enum table as the bulleted block the
@@ -164,6 +175,36 @@ func renderEnumTable(field string, choices []AnalysisEnumChoice) string {
 	return b.String()
 }
 
+// AnalysisToolSuggestions is the allowlist of tools the analyze
+// stage's BaseAgent exposes to the LLM. The analyzer is a "pure
+// language classifier" by default and used to see only emit_analysis
+// — which meant every entity it extracted was guesswork against a
+// repo it had never touched, and that guesswork flowed straight into
+// the explorer's seed keywords. The evidence-lite pre-scan adds
+// three read-only navigation tools so the analyzer can verify
+// "does this symbol exist? in which files does this term appear?"
+// before committing to a classification:
+//
+//   - repo_map    — structural index (tasks view), for discovering
+//     which files are relevant to a term
+//   - grep        — MUST be called with files_only=true (line-level
+//     results are noise at the analyze stage and blow the budget)
+//   - list_files  — directory listing for when grep / repo_map come
+//     back empty and the analyzer wants to know what's even there
+//
+// read_file, exec_command, and the explorer-owned emit_evidence
+// channel are intentionally absent: the analyze stage is existence
+// + location verification, not content inspection. The explorer
+// owns deep reading. BaseAgent.buildToolSchemas enforces this by
+// only adding tools listed here to the LLM's schema set, so the
+// analyzer's LLM has no tool it can call to break the boundary.
+var AnalysisToolSuggestions = []string{
+	"emit_analysis",
+	"repo_map",
+	"grep",
+	"list_files",
+}
+
 // BuildAnalysisSkill returns the single analysis-skill Config the
 // analyze stage binds to. All static analyzer-contract text — field
 // descriptions, enum tables, hard rules — is assembled from the
@@ -171,6 +212,18 @@ func renderEnumTable(field string, choices []AnalysisEnumChoice) string {
 // this file.
 func BuildAnalysisSkill() *Config {
 	var of strings.Builder
+
+	// Evidence-lite pre-scan preamble. Runs BEFORE the field-enum
+	// tables so the LLM sees the workflow framing first: pre-scan,
+	// then classify, then emit_analysis.
+	of.WriteString("## Evidence-lite pre-scan (1-2 rounds, then emit_analysis)\n\n")
+	of.WriteString("Before calling emit_analysis, spend 1-2 rounds verifying that the entities you plan to extract from the user's wording actually exist in this repository and that the terms you plan to put into keywords appear somewhere relevant. Use ONLY these low-cost navigation tools:\n\n")
+	of.WriteString("  - `repo_map` — structural index of the repo, for discovering which files are relevant to a term.\n")
+	of.WriteString("  - `grep` — MUST be called with `files_only=true`. Line-level results are too noisy for the analyze stage and will overflow the budget. `files_only=true` returns just the file paths that contain matches, which is what you need.\n")
+	of.WriteString("  - `list_files` — fall back here when grep / repo_map come back empty and you want to know what's even in a directory.\n\n")
+	of.WriteString("You are FORBIDDEN from calling `read_file`, `exec_command`, or any tool that reads file CONTENT — the analyze stage is existence + location verification, not content inspection. The explorer stage runs next and owns deep reading. Do NOT draw conclusions about how code WORKS from file paths alone; the pre-scan answers \"does X exist / in which files does term Y appear\" and nothing else.\n\n")
+	of.WriteString("Pre-scan budget: at most two rounds. If round 1 confirmed your entities and keywords, go straight to emit_analysis. If round 1 came back empty on a symbol, spend round 2 on broader search (strip camelCase, try stems, drop qualifiers) — then emit_analysis regardless of whether the symbol was found. An entity that does not appear in the repo still belongs in the `entities` array exactly as the user wrote it; the downstream ranking layer will handle non-existent terms.\n\n")
+	of.WriteString("## emit_analysis contract\n\n")
 	of.WriteString("Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape. " +
 		"The system synthesises the TermGraph, TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically from your input — do not provide them.\n\n")
 	of.WriteString("Field enums:\n\n")
@@ -184,15 +237,17 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("\n")
 	of.WriteString(renderEnumTable("answer_shape", analysisAnswerShapes))
 	of.WriteString("\n")
-	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens.\n\n")
-	of.WriteString("Keyword generation (3 rounds): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (send → emit/dispatch/publish). Target ≥8 diverse stems. For Chinese questions include BOTH Chinese and English forms (the codebase is English). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words.\n\n")
+	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
+	of.WriteString("Keyword generation (3 rounds): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (send → emit/dispatch/publish). Target ≥8 diverse stems. For Chinese questions include BOTH Chinese and English forms (the codebase is English). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words. The pre-scan is a good place to validate at least a handful of these stems appear in the repo, so downstream search time is not wasted on terms that never match.\n\n")
 	of.WriteString("After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent — the structured fields are what matter.")
 
 	return &Config{
 		Name: "analysis-skill",
-		Goal: "Classify the user request into a RequestModel (intent, scenario, complexity, keywords, entities, question_kind, answer_shape) via a single emit_analysis tool call.",
+		Goal: "Classify the user request into a RequestModel (intent, scenario, complexity, keywords, entities, question_kind, answer_shape). Use 1-2 rounds of evidence-lite pre-scan (repo_map, grep files_only=true, list_files) to verify entities/terms exist in the repo, then call emit_analysis exactly once.",
 		Workflow: []string{
 			"read the user input and detect its language",
+			"round 1 pre-scan: call repo_map and/or grep(files_only=true) to check whether the entities from the user's wording exist in the repo and which files they live in",
+			"round 2 pre-scan (optional): broaden the search if round 1 was empty on a key symbol — strip camelCase, try stems, drop qualifiers — or use list_files on a relevant directory",
 			"pick intent from the intent enum",
 			"pick scenario from the scenario enum",
 			"pick complexity from the complexity enum (use the \"how many files\" hints)",
@@ -201,7 +256,7 @@ func BuildAnalysisSkill() *Config {
 			"pick question_kind and answer_shape from their enums",
 			"call emit_analysis EXACTLY ONCE with the classified fields",
 		},
-		ToolSuggestions: []string{"emit_analysis"},
+		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),
 		Prohibitions:    append([]string(nil), AnalysisHardRules...),
 	}
