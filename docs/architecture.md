@@ -171,18 +171,24 @@ graph TD
     Start([Agent 接收 prompt]) --> Think[LLM 推理]
     Think --> Decide{需要工具?}
     Decide -->|是| Act[调用工具]
-    Act --> Observe[处理结果]
-    Observe --> Think
-    Decide -->|否| SoftStop{ContinuingEvaluator?}
-    SoftStop -->|是| Think
-    SoftStop -->|否| Synth{SynthesizingEvaluator?}
+    Act --> MidLoop{LoopController<br/>Observe PhaseMidLoop}
+    MidLoop -->|InjectHint| Think
+    MidLoop -->|Stop| Synth
+    MidLoop -->|Continue| Think
+    Decide -->|否| SoftStop{LoopController<br/>Observe PhaseSoftStop}
+    SoftStop -->|InjectHint| Think
+    SoftStop -->|Stop/Continue| Synth{SynthesizingEvaluator?}
     Synth -->|是| SynthCall[干净上下文综合调用]
     SynthCall --> Output
     Synth -->|否| Output[StageOutput]
     Output --> Done([返回编排器])
 ```
 
-- **`ContinuingEvaluator`**：当 LLM 产出纯文本（无工具调用）时拦截 soft-stop，注入 continuation prompt。目前只有 `explorer` 实现。
+- **`LoopController`** (`internal/agent/agent.go`)：统一的循环控制钩子，取代了历史上的 `ContinuingEvaluator` + `MidLoopEvaluator` 双接口。`BaseAgent.Execute` 在两个固定时机调用它：
+    - `PhaseMidLoop` — 每一轮 tool 调用执行完后调用一次，评估器检测"方向偏了"并请求纠偏提示；
+    - `PhaseSoftStop` — 当 LLM 返回纯文本且没有 tool 调用时调用，评估器投票"要不要把 soft-stop 变成强制继续"。
+
+  评估器的 `Observe(ctx, obs) LoopSignal` 只做**检测**：返回 `Progress` / `StopRequested` / `HintRequested`+`Hint`+`HintKey`。节流（`MinInjectInterval`）、去重（按 `HintKey` 匹配上一次已接受的 hint）、预算（`MaxContinuations` / `MaxMidLoopInjects`）、idle-streak 强制停（`IdleStopThreshold`）都由 **`LoopPolicy`**（`internal/agent/loop_policy.go`）在 `loopPolicyState.Apply` 里统一执行，不再由每个评估器各自重复实现 `idleStreak` / `lastToolCount` / `midLoopLastInjectIter`。这条分层规则被 `internal/agent/loop_policy_test.go` 的 12 条场景测试锁定（dedup、throttle、mid-loop 预算 drop、soft-stop 预算 force-stop、tool-result 增长自动重置 idle、显式 stop 立即生效等）。
 - **`SynthesizingEvaluator`**：ReAct 循环结束后用干净上下文跑一次综合调用，防止最后一条 assistant 消息是碎片笔记。目前只有 `explorer` 实现。
 
 #### 子 Agent
@@ -897,7 +903,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 ### 添加新 Agent
 
 1. 新增 `AgentName` 枚举常量
-2. 实现 `Evaluator` 接口（`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`），可选实现 `ContinuingEvaluator` / `SynthesizingEvaluator`
+2. 实现 `Evaluator` 接口（`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`），可选实现 `LoopController` / `SynthesizingEvaluator`
 3. 在 agent registry 里用 `NewBaseAgent(name, deps, eval)` 包装注册
 4. 如果绑到一个新阶段，需要同步更新 `topology.go` 的 `pipelineTopology` map 和 `PipelineStage` 枚举
 

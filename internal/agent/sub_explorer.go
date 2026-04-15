@@ -75,17 +75,20 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 	}, nil
 }
 
-// subExplorerEvaluator implements Evaluator, ContinuingEvaluator, and
+// subExplorerEvaluator implements Evaluator, LoopController, and
 // SynthesizingEvaluator for the SubExplorer's BaseAgent. Unlike the
 // main explorer, it operates within a scoped directory set and has a
 // simpler two-phase model: discover files → read and extract evidence.
+//
+// Loop-control state that USED to live on this struct (idleStreak,
+// lastToolCount) has been lifted into LoopPolicy; this evaluator now
+// just detects conditions and returns a LoopSignal. The policy owns
+// idle counting, throttling, and budget enforcement.
 type subExplorerEvaluator struct {
 	tools              *tool.Registry
 	objective          string   // user objective, cached for prompts
 	scope              []string // scoped directories
 	investigationNotes []string // assistant analysis messages
-	idleStreak         int      // consecutive no-tool-call rounds
-	lastToolCount      int      // tool result count at last check
 	structuredEvidence []types.EvidenceItem
 	flowFindings       []types.FlowFindingDigest
 }
@@ -95,12 +98,12 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	// (NewSubExplorer called once from RegisterDefaults). Each
 	// SubAgentRequest is an independent scoped investigation, so
 	// accumulated state from a previous Run() must not leak into
-	// notes/idle counters/evidence of the next one. Mirrors the F2
-	// fix in explorer.go (project_repl_equivalence_audit.md).
+	// notes/evidence of the next one. Mirrors the F2 fix in
+	// explorer.go (project_repl_equivalence_audit.md). Idle counting
+	// and tool-count deltas moved to LoopPolicy, which constructs a
+	// fresh loopPolicyState per Execute call — no reset needed here.
 	if ctx.Objective != e.objective {
 		e.investigationNotes = nil
-		e.idleStreak = 0
-		e.lastToolCount = 0
 	}
 	e.objective = ctx.Objective
 	e.scope = ctx.Constraints // scope passed as constraints in sub-agent context
@@ -146,37 +149,55 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 }
 
 func (e *subExplorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	// Never hard-stop; use ContinuationPrompt for soft-stop control.
+	// Never hard-stop; use LoopController.Observe for soft-stop control.
 	return false
 }
 
-// ContinuationPrompt implements ContinuingEvaluator. Tracks investigation
-// progress and pushes for more coverage when the LLM stops too early.
-func (e *subExplorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
-	// Capture investigation notes from content-only responses.
-	if resp.Content != "" {
-		e.investigationNotes = append(e.investigationNotes, resp.Content)
+// Observe implements LoopController. The sub_explorer only cares
+// about the soft-stop phase — nothing to detect mid-loop because it
+// runs a simple discover→read→extract flow without the complex
+// phase state the main explorer tracks. The mid-loop path returns
+// an empty signal so the policy just continues.
+//
+// Detection logic (soft-stop only):
+//
+//   - Captures any assistant content into investigationNotes for
+//     later synthesis. This is a side effect on the evaluator's
+//     detection state, not loop-control state.
+//   - Checks file coverage within scope. No files read and we still
+//     have continuation budget → hint HARD to use list_files.
+//   - Counts [DIRECT] / [REGISTRATION] evidence entries in the
+//     collected notes. Too few (<2) and still within budget → hint
+//     for more extraction.
+//   - At least 3 files read is the "plenty" threshold; below that
+//     with remaining budget → gentle coverage reminder.
+//
+// Loop-policy concerns (idle streak, throttle, dedup, budget) are
+// NOT implemented here — LoopPolicy owns all of them. This evaluator
+// returns the raw detection result and the policy decides.
+func (e *subExplorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase != PhaseSoftStop {
+		return LoopSignal{}
 	}
 
-	// Track idle streak (consecutive rounds with no new tool results).
-	if len(history) > e.lastToolCount {
-		e.idleStreak = 0
-	}
-	e.lastToolCount = len(history)
-	e.idleStreak++
-
-	// After 2 idle rounds, let the loop terminate.
-	if e.idleStreak >= 2 {
-		return "", false
+	// Capture investigation notes from content-only responses. The
+	// side effect is on detection state, not loop-control state, so
+	// it stays on the evaluator.
+	if obs.Response.Content != "" {
+		e.investigationNotes = append(e.investigationNotes, obs.Response.Content)
 	}
 
-	// Check file coverage within scope.
-	_, readSet := extractFileCoverage(history)
+	// File coverage within scope.
+	_, readSet := extractFileCoverage(obs.AllToolResults)
 
-	// If we haven't read any files yet, push harder.
-	if len(readSet) == 0 && continuationCount < 3 {
-		return "You have not read any files yet. Use list_files to discover files in scope, " +
-			"then read the most relevant ones and extract evidence entries.", true
+	// If we haven't read any files yet, push HARD.
+	if len(readSet) == 0 && obs.ContinuationsUsed < 3 {
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "sub_explorer.no_files_read",
+			Hint: "You have not read any files yet. Use list_files to discover files in scope, " +
+				"then read the most relevant ones and extract evidence entries.",
+		}
 	}
 
 	// Count evidence quality.
@@ -191,22 +212,31 @@ func (e *subExplorerEvaluator) ContinuationPrompt(resp llm.Response, iteration i
 	}
 
 	// If we have files but weak evidence, push for more extraction.
-	if directCount < 2 && continuationCount < 3 {
+	if directCount < 2 && obs.ContinuationsUsed < 3 {
 		var hint strings.Builder
 		fmt.Fprintf(&hint, "File coverage: %d files read.\n", len(readSet))
 		hint.WriteString("You need at least 2 [DIRECT] or [REGISTRATION] evidence entries. ")
 		hint.WriteString("Read more files in scope or re-examine the files you already read — ")
 		hint.WriteString("look for return values, registrations, and concrete configurations.")
-		return hint.String(), true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "sub_explorer.weak_evidence",
+			Hint:          hint.String(),
+		}
 	}
 
 	// Gentle coverage reminder if there are still things to explore.
-	if len(readSet) < 3 && continuationCount < 4 {
-		return fmt.Sprintf("File coverage: %d files read. If there are more relevant files "+
-			"in scope, read them now. Otherwise you may stop.", len(readSet)), true
+	if len(readSet) < 3 && obs.ContinuationsUsed < 4 {
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "sub_explorer.coverage_reminder",
+			Hint: fmt.Sprintf("File coverage: %d files read. If there are more relevant files "+
+				"in scope, read them now. Otherwise you may stop.", len(readSet)),
+		}
 	}
 
-	return "", false
+	// Nothing to nudge; the policy will accept the soft-stop.
+	return LoopSignal{}
 }
 
 // SynthesisPrompt implements SynthesizingEvaluator. Produces a clean

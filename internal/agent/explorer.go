@@ -24,8 +24,6 @@ type explorerEvaluator struct {
 	tools                     *tool.Registry
 	phase                     int                  // 0 = breadth scan, 1 = depth read
 	broadenAttempts           int                  // times we pushed for broader grep in Phase 0
-	idleStreakInDepth         int                  // consecutive no-tool-call rounds in Phase 2
-	lastToolResultCount       int                  // tool result count at last continuation check
 	preScannedFiles           []string             // top files from keyword search, for coverage tracking
 	allScoredFiles            []string             // ALL files from keyword search (not just top 8), for supplementary evidence
 	fileSymbols               map[string][]string  // path → symbol summaries from repo_map
@@ -42,12 +40,23 @@ type explorerEvaluator struct {
 	flowFindings              []types.FlowFindingDigest
 	ermRequirements           []EvidenceRequirement // evidence requirement model
 	cachedConcreteValues      *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
-	midLoopLastInjectIter     int                   // #34: throttle MidLoopCheck cadence
-	midLoopLastResultsLen     int                   // #34: allResults length at prev MidLoopCheck (used to infer current batch size)
+	midLoopLastResultsLen     int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
 	midLoopSerialStreak       int                   // #34: consecutive iters observed as single-call rounds
 	midLoopParallelInjected   bool                  // #34: parallel-batching hint already pushed this dispatch
 	primaryReadIter           int                   // df3-drift: iter at which a primary-entity file first entered readSet (0 = never)
 	notesLenAtPrimaryRead     int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+
+	// Loop-control state that USED to live here has been lifted into
+	// LoopPolicy:
+	//   - idleStreakInDepth → obs.IdleStreak (policy-owned counter)
+	//   - lastToolResultCount → implicit via policy's tool-result
+	//     growth detection in loopPolicyState.Apply
+	//   - midLoopLastInjectIter → obs throttling via
+	//     LoopPolicy.MinInjectInterval
+	// The remaining fields above are DETECTION state (phase
+	// transitions, serial-streak detection, primary-read gating)
+	// that the explorer's own ReAct logic needs — not duplicated
+	// counter state.
 }
 
 // stripConversationPrefix returns only the "current request" portion
@@ -99,8 +108,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.fileSymbols = nil
 		e.phase0ExtraRound = false
 		e.grepRedirectedFiles = nil
-		e.idleStreakInDepth = 0
-		e.lastToolResultCount = 0
 		e.preScannedPushCount = 0
 		e.lastPreScannedUnreadCount = 0
 		e.broadenAttempts = 0
@@ -109,6 +116,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopParallelInjected = false
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
+		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
+		// midLoopLastInjectIter) are no longer fields on this struct —
+		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
+		// so there is nothing to reset here.
 	}
 
 	e.userQuestion = ctx.Objective
@@ -117,7 +128,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
-	e.midLoopLastInjectIter = -10
 	e.midLoopLastResultsLen = 0
 	e.midLoopSerialStreak = 0
 	e.midLoopParallelInjected = false
@@ -134,8 +144,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if len(e.investigationNotes) > 0 {
 		e.phase = 1
 		// Reset per-run counters but preserve accumulated evidence.
-		e.idleStreakInDepth = 0
-		e.lastToolResultCount = 0
+		// (Loop-policy counters — idleStreakInDepth, lastToolResultCount —
+		// are no longer fields here; LoopPolicy rebuilds its state
+		// per dispatch.)
 		e.preScannedPushCount = 0
 		e.lastPreScannedUnreadCount = 0
 		e.broadenAttempts = 0
@@ -833,22 +844,45 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 //
 // Hints are kept short on purpose — this runs every iteration and
 // would otherwise blow up the message budget.
-func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolResult, allResults []types.ToolResult) (string, bool) {
+// observeMidLoop is the mid-loop half of LoopController.Observe. It
+// inspects the tool-result stream AFTER BaseAgent has executed a
+// batch of tool calls for the current iteration and returns a
+// LoopSignal the policy may accept as a corrective hint. Called from
+// Observe(PhaseMidLoop); the throttle (at most every 3 iters; not
+// before iter 3) is enforced by LoopPolicy.MinInjectInterval, so
+// this function is called unconditionally and returns silently
+// until conditions warrant a hint.
+//
+// Detection branches (in priority order, first match wins the HintKey):
+//
+//  1. Function-boundary coverage: LLM started reading a symbol but
+//     hasn't finished the function body. "partial-read".
+//  2. Enumeration completeness: question asks to list ALL X and
+//     coverage is under 60% with ≥2 files unread. "enumeration".
+//  3. Parallel tool-call cue: LLM has been in a serial (≤1 call/
+//     round) rhythm for ≥2 iters AND ≥2 files unread AND the
+//     parallel hint hasn't fired yet this dispatch. "parallelize".
+//
+// Detection-only state (midLoopSerialStreak, midLoopLastResultsLen,
+// midLoopParallelInjected) stays on the evaluator because it drives
+// phase-specific behavior the policy can't express.
+func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
+	iteration := obs.Iteration
+	allResults := obs.AllToolResults
+
 	// Track primary-entity file reads for S1's df3-drift gate. Runs
-	// before the throttle so even "skipped" MidLoopCheck calls still
+	// unconditionally so even "quiet" observeMidLoop calls still
 	// update the read tracking — ShouldStop's gate depends on this
 	// state being current. Idempotent: once primaryReadIter is set,
 	// later calls are no-ops.
 	e.observePrimaryRead(iteration, allResults)
 
 	// Infer the current batch size from the allResults growth delta.
-	// MidLoopCheck is called once per ReAct iteration, after all tool
-	// calls in the current batch have executed and their results have
-	// been appended. This is the cleanest signal we have without
-	// changing the MidLoopEvaluator interface. Update the serial-
-	// streak counter regardless of whether the throttled checks below
-	// fire, so the parallel-batching cue (Check 3) has accurate
-	// degradation history when it runs.
+	// observeMidLoop is called once per ReAct iteration, after all
+	// tool calls in the current batch have executed and their
+	// results have been appended. Update the serial-streak counter
+	// every call so the parallel-batching cue (Check 3) has
+	// accurate degradation history when it fires.
 	currentBatch := len(allResults) - e.midLoopLastResultsLen
 	if e.midLoopLastResultsLen > 0 && currentBatch <= 1 {
 		e.midLoopSerialStreak++
@@ -857,15 +891,27 @@ func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolRe
 	}
 	e.midLoopLastResultsLen = len(allResults)
 
-	// Throttle: fire at most every 3 iters, and not before iter 3.
-	if iteration < 3 || iteration-e.midLoopLastInjectIter < 3 {
-		return "", false
+	// The old "fire at most every 3 iters, not before iter 3" throttle
+	// now lives in LoopPolicy.MinInjectInterval. We still want the
+	// "not before iter 3" behavior — no mid-loop hint makes sense in
+	// the first few iterations because the LLM hasn't had a chance
+	// to demonstrate a pattern yet — so we short-circuit here.
+	if iteration < 3 {
+		return LoopSignal{}
 	}
 	if e.searchResult == nil || e.searchResult.Graph == nil {
-		return "", false
+		return LoopSignal{}
 	}
 
 	var b strings.Builder
+	// hintKey tracks which detection branch fired so the LoopPolicy
+	// dedup window blocks only back-to-back repeats of the SAME
+	// category (partial-read → partial-read) and lets different
+	// categories through unimpeded (partial-read → enumeration).
+	// Higher-priority checks overwrite lower-priority keys since
+	// the final hint body reflects every fired check and the last
+	// branch to fire names the most salient problem.
+	var hintKey string
 
 	// Check 1: function-boundary coverage.
 	if hints := detectPartiallyReadSymbols(allResults, e.searchResult.Graph); len(hints) > 0 {
@@ -874,6 +920,7 @@ func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolRe
 			"Finish reading this function before moving on — call read_file with offset=%d limit=%d.\n",
 			h.symbolName, h.symStart, h.readEnd, h.symStart, h.symEnd, h.coverage*100,
 			h.readEnd+1, h.symEnd-h.readEnd)
+		hintKey = "explorer.mid-loop.partial-read"
 	}
 
 	// Check 2: enumeration completeness.
@@ -920,6 +967,9 @@ func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolRe
 					fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d discovered files (%.0f%%). "+
 						"Read these next: %s\n",
 						len(readSet), len(discovered), coverage*100, strings.Join(unread, ", "))
+					if hintKey == "" {
+						hintKey = "explorer.mid-loop.enumeration"
+					}
 				}
 			}
 		}
@@ -968,17 +1018,59 @@ func (e *explorerEvaluator) MidLoopCheck(iteration int, lastResult *types.ToolRe
 				"Serialize only when the output of one read determines what to read next (e.g. you need to see a symbol in file A before you know which line range of file B to fetch). " +
 				"Apply the same rule to independent `grep` calls.\n")
 			e.midLoopParallelInjected = true
+			hintKey = "explorer.mid-loop.parallelize"
 		}
 	}
 
 	if b.Len() == 0 {
-		return "", false
+		return LoopSignal{}
 	}
-	e.midLoopLastInjectIter = iteration
-	return b.String(), true
+	return LoopSignal{
+		HintRequested: true,
+		Hint:          b.String(),
+		HintKey:       hintKey,
+	}
 }
 
-func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (string, bool) {
+// observeSoftStop is the soft-stop half of LoopController.Observe:
+// called when the LLM produced content with no tool calls, and the
+// policy needs to decide whether to accept the termination or inject
+// a corrective continuation hint. Every branch in this method is a
+// DETECTION branch — the throttle, dedup, budget, and idle-streak
+// force-stop rules live in LoopPolicy and run over the returned
+// LoopSignal.
+//
+// Where the old ContinuationPrompt read e.idleStreakInDepth, the
+// new code reads obs.IdleStreak (snapshot of the policy's counter).
+// Where the old code set e.idleStreakInDepth = 0 to "reset the
+// streak because we have directed work", the new code sets the
+// local `progress` flag and returns it as LoopSignal.Progress; the
+// policy reacts by resetting its counter on the active signal.
+//
+// The old "if e.idleStreakInDepth >= 2 { return '', false }"
+// terminal check is GONE: LoopPolicy.IdleStopThreshold enforces it
+// at the policy layer so every evaluator gets the same termination
+// semantics without re-implementing the count.
+//
+// The old `e.lastToolResultCount`-based tool-growth detector is also
+// GONE: loopPolicyState.Apply tracks the tool-result count growth
+// itself and resets the idle streak on growth.
+func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
+	resp := obs.Response
+	iteration := obs.Iteration
+	history := obs.AllToolResults
+	// continuationCount / iteration are not currently referenced by
+	// any branch — the policy owns the continuation budget so the
+	// evaluator no longer needs to gate on them. Touching them here
+	// keeps the old variable names visible for a future detection
+	// branch without triggering "declared and not used" diagnostics.
+	_ = iteration
+	_ = obs.ContinuationsUsed
+	// progress is set to true by any branch that DETECTS forward
+	// progress and wants the policy to reset the idle streak even
+	// when no hint fires. The final return copies it into
+	// LoopSignal.Progress.
+	progress := false
 	// Capture assistant analysis messages from the ReAct loop.
 	// These contain the LLM's processed understanding of the files
 	// it read — essential for synthesis, where raw files get truncated.
@@ -998,13 +1090,18 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		discovered, _ := extractFileCoverage(history)
 		if len(discovered) == 0 && e.broadenAttempts < 2 {
 			e.broadenAttempts++
-			return "Your grep searches returned no file matches. Before moving to depth reading, " +
-				"try broader search strategies:\n" +
-				"- Drop any --include filter (search ALL file types)\n" +
-				"- Use shorter or partial keywords (prefixes, stems) — e.g. instead of 'UserAuthenticationService' try 'UserAuth' or 'authentication'\n" +
-				"- Use single common terms rather than compound phrases\n" +
-				"- Try conceptual synonyms for the same idea\n\n" +
-				"Run at least 2-3 new grep calls with files_only=true before producing your file list. If the repo is polyglot, use grep `file_type` to narrow by language.", true
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "explorer.phase0.broaden",
+				Hint: "Your grep searches returned no file matches. Before moving to depth reading, " +
+					"try broader search strategies:\n" +
+					"- Drop any --include filter (search ALL file types)\n" +
+					"- Use shorter or partial keywords (prefixes, stems) — e.g. instead of 'UserAuthenticationService' try 'UserAuth' or 'authentication'\n" +
+					"- Use single common terms rather than compound phrases\n" +
+					"- Try conceptual synonyms for the same idea\n\n" +
+					"Run at least 2-3 new grep calls with files_only=true before producing your file list. If the repo is polyglot, use grep `file_type` to narrow by language.",
+				Progress: progress,
+			}
 		}
 
 		// Quality gate: before transitioning to Phase 1, verify the
@@ -1037,7 +1134,12 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 				if len(discovered) < 3 {
 					fmt.Fprintf(&gate, "- You only discovered %d files. Use broader search patterns to find at least 3.\n", len(discovered))
 				}
-				return gate.String(), true
+				return LoopSignal{
+					HintRequested: true,
+					HintKey:       "explorer.phase0.quality-gate",
+					Hint:          gate.String(),
+					Progress:      progress,
+				}
 			}
 		}
 
@@ -1045,7 +1147,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		// scan summary. Now switch to depth reading with evidence
 		// catalog mode: collect ALL facts, defer reasoning to synthesis.
 		e.phase = 1
-		return "## Phase 2: Evidence Collection\n\n" +
+		phaseTransitionHint := "## Phase 2: Evidence Collection\n\n" +
 			"Good — you have mapped the relevant territory. Now switch to deep evidence collection.\n\n" +
 			"**User question: " + e.userQuestion + "**\n\n" +
 			"**Your job is to collect evidence, NOT to answer the question.** " +
@@ -1090,7 +1192,15 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			"Instead, FIRST grep the file for the key identifiers from the user's question (field names, function names, string literals), using `context_lines=3` where helpful, " +
 			"THEN read only the specific line ranges where grep found matches. " +
 			"Sequential paging through a 2000-line file wastes steps and misses content — targeted grep + read is both faster and more thorough\n\n" +
-			"Start investigating now. For each file: grep first, then read the matched sections.", true
+			"Start investigating now. For each file: grep first, then read the matched sections."
+		// Phase-transition is a HARD progress signal — the LLM has
+		// completed Phase 0 and now moves into Phase 1.
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.phase-transition",
+			Hint:          phaseTransitionHint,
+			Progress:      true,
+		}
 	}
 
 	// Phase 1 (depth read): use runtime file coverage as guidance.
@@ -1123,7 +1233,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	if e.searchResult != nil && e.searchResult.Graph != nil {
 		partialHints := detectPartiallyReadSymbols(history, e.searchResult.Graph)
 		if len(partialHints) > 0 {
-			e.idleStreakInDepth = 0 // reset to keep loop alive
+			progress = true // keep the loop alive via LoopSignal.Progress
 			var hint strings.Builder
 			hint.WriteString("**CRITICAL: Incomplete function reads.** You MUST finish reading these functions before doing anything else:\n\n")
 			for _, ph := range partialHints {
@@ -1143,7 +1253,12 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			}
 			hint.WriteString("\nDo NOT read other files or draw conclusions until you have read the complete function bodies listed above. " +
 				"The unread portions often contain the answer to the question.")
-			return hint.String(), true
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "explorer.phase1.partial-read",
+				Hint:          hint.String(),
+				Progress:      progress,
+			}
 		}
 	}
 
@@ -1163,8 +1278,13 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			}
 			hint.WriteString("\nRead these files to ensure your enumeration is complete. " +
 				"Skip only files that are clearly unrelated (test helpers, documentation).")
-			e.idleStreakInDepth = 0
-			return hint.String(), true
+			progress = true
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "explorer.phase1.enumeration",
+				Hint:          hint.String(),
+				Progress:      progress,
+			}
 		}
 	}
 
@@ -1205,15 +1325,20 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		}
 		hint.WriteString("\nThe user question is: " + e.userQuestion + "\n")
 		hint.WriteString("Identify the key identifier (field name, constant, function) and grep for it within these files.")
-		return hint.String(), true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.phase1.grep-redirect",
+			Hint:          hint.String(),
+			Progress:      progress,
+		}
 	}
 
-	// Track consecutive no-tool-call rounds in Phase 2.
-	if len(history) > e.lastToolResultCount {
-		e.idleStreakInDepth = 0
-	}
-	e.lastToolResultCount = len(history)
-	e.idleStreakInDepth++
+	// (The old "track consecutive no-tool-call rounds" block that
+	// maintained e.lastToolResultCount / e.idleStreakInDepth is gone.
+	// LoopPolicy owns both counters now: tool-result growth resets
+	// the idle streak automatically in loopPolicyState.Apply, and
+	// obs.IdleStreak below is the snapshot the policy already
+	// updated before calling this Observe.)
 
 	// --- ERM gap-directed file suggestions ---
 	// Check which evidence requirements are still unsatisfied and suggest
@@ -1233,10 +1358,14 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 				}
 				hint.WriteString("\nCall `read_file` on the top suggestion immediately. ")
 				hint.WriteString("Extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.\n")
-				if e.idleStreakInDepth >= 1 {
-					e.idleStreakInDepth = 0 // reset: we have directed work to do
+				// Directed ERM work resets the idle counter.
+				progress = true
+				return LoopSignal{
+					HintRequested: true,
+					HintKey:       "explorer.phase1.erm-gap",
+					Hint:          hint.String(),
+					Progress:      progress,
 				}
-				return hint.String(), true
 			}
 		}
 	}
@@ -1310,9 +1439,13 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 
 		// After 3 failed pushes, stop resetting idle streak so the
 		// loop terminates naturally. The LLM is clearly not going to
-		// read these files — wasting more rounds won't help.
+		// read these files — wasting more rounds won't help. Setting
+		// progress=true here tells LoopPolicy to reset the idle
+		// streak for this iteration only; after the third push we
+		// leave progress=false so the policy's IdleStopThreshold
+		// catches the drift.
 		if e.preScannedPushCount <= 3 {
-			e.idleStreakInDepth = 0
+			progress = true
 		}
 
 		var hint strings.Builder
@@ -1354,13 +1487,18 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 			hint.WriteString("\nRead the most important unread file and extract ALL evidence entries from it. " +
 				"Remember: collect facts, do not answer the question yet.")
 		}
-		return hint.String(), true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.phase1.prescanned",
+			Hint:          hint.String(),
+			Progress:      progress,
+		}
 	}
 
 	// If files were read but have symbols the LLM didn't analyze,
 	// push for analysis of those specific symbols.
 	if len(unanalyzed) > 0 {
-		e.idleStreakInDepth = 0
+		progress = true
 		var hint strings.Builder
 		fmt.Fprintf(&hint, "Reminder — user question: %s\n\n", e.userQuestion)
 		hint.WriteString("You read these files but SKIPPED some symbols that may be relevant:\n\n")
@@ -1373,13 +1511,18 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		hint.WriteString("\nFor each missed symbol, QUOTE its complete implementation (not just the signature). " +
 			"Then extract evidence entries: what does this implementation register, configure, or establish? " +
 			"Include [REGISTRATION] entries with EXACT values.")
-		return hint.String(), true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.phase1.unanalyzed",
+			Hint:          hint.String(),
+			Progress:      progress,
+		}
 	}
 
-	// No unread high-priority files. Apply idle streak detection.
-	if e.idleStreakInDepth >= 2 {
-		return "", false
-	}
+	// The old terminal `if e.idleStreakInDepth >= 2 { return "", false }`
+	// check is GONE: LoopPolicy.IdleStopThreshold=2 force-stops at
+	// the policy layer, so every evaluator gets identical soft-stop
+	// termination semantics without re-implementing the count.
 
 	// When the LLM is slowing down (idle ≥ 1), inject a preview of
 	// programmatically extracted concrete values. This breaks the
@@ -1388,7 +1531,7 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 	// focus its remaining reads on gaps only it can fill (semantic
 	// relationships, complex conditions, cross-file reasoning).
 	var cvPreview string
-	if e.idleStreakInDepth >= 1 && len(e.investigationNotes) >= 2 && e.searchResult != nil {
+	if obs.IdleStreak >= 1 && len(e.investigationNotes) >= 2 && e.searchResult != nil {
 		cvPreview = e.getConcreteValuesCached(e.repoRoot, readSet).markdown
 	}
 
@@ -1427,7 +1570,26 @@ func (e *explorerEvaluator) ContinuationPrompt(resp llm.Response, iteration int,
 		hint.WriteString("- Semantic intent behind registrations (WHY something is registered, not just WHAT)\n")
 	}
 
-	return hint.String(), true
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "explorer.phase1.coverage",
+		Hint:          hint.String(),
+		Progress:      progress,
+	}
+}
+
+// Observe implements LoopController. Dispatches to observeMidLoop or
+// observeSoftStop based on the LoopPhase in the observation. See the
+// two helper methods for the detection logic; this function is pure
+// phase routing.
+func (e *explorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	switch obs.Phase {
+	case PhaseMidLoop:
+		return e.observeMidLoop(obs)
+	case PhaseSoftStop:
+		return e.observeSoftStop(obs)
+	}
+	return LoopSignal{}
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {

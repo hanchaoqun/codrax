@@ -124,6 +124,15 @@ type Dependencies struct {
 	// render messages in a non-default encoding. See
 	// internal/agent/prompt_assembler.go for the contract.
 	PromptAssembler PromptAssembler
+
+	// LoopPolicy is the throttling / dedup / budget configuration
+	// for the LoopController extension point BaseAgent.Execute
+	// consults each iteration. Optional: a zero LoopPolicy is
+	// replaced by DefaultLoopPolicy() in NewBaseAgent, matching the
+	// historical "fire at most every 3 iters, force-stop after 2
+	// idle rounds, cap continuations at 5" behavior of the pre-
+	// refactor evaluator implementations.
+	LoopPolicy LoopPolicy
 }
 
 // BaseAgent provides the common ReAct loop implementation.
@@ -161,21 +170,6 @@ type Evaluator interface {
 	DetermineMissingPiece(ctx *types.AgentContext, output *StageOutput) types.MissingPiece
 }
 
-// ContinuingEvaluator is an optional interface for agents that want to
-// reject the BaseAgent's default "no tool calls + content = stop" rule.
-// When the LLM produces a content-only response, BaseAgent.Execute
-// checks whether the evaluator implements this interface and, if so,
-// asks it for a continuation prompt. Returning shouldContinue=true
-// causes the loop to inject the prompt as a user message and run
-// another LLM turn, instead of breaking.
-//
-// The continuationCount parameter is the number of continuation prompts
-// already injected for this Execute call, so the evaluator can bound
-// its own retry budget. MaxIterations remains the hard upper bound.
-type ContinuingEvaluator interface {
-	ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, history []types.ToolResult) (prompt string, shouldContinue bool)
-}
-
 // SynthesizingEvaluator is an optional interface for agents that need
 // a dedicated synthesis step after the ReAct investigation loop. When
 // the loop ends, BaseAgent.Execute checks whether the evaluator
@@ -203,24 +197,148 @@ type SynthesizingEvaluator interface {
 	SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (prompt string, shouldSynthesize bool)
 }
 
-// MidLoopEvaluator is an optional interface for agents that need to
-// inject corrective hints WHILE the LLM is still actively calling
-// tools. ContinuationPrompt only fires on soft-stop (LLM produced
-// content with no tool calls); when the LLM keeps calling tools but
-// in the wrong direction (reading wrong files, missing the question's
-// focus), every ContinuationPrompt-based check is blind. MidLoopCheck
-// fills that gap: BaseAgent.Execute calls it after each tool-execution
-// batch and, if inject=true, appends the returned hint as a fresh
-// user message before the next LLM Chat call.
-//
-// Implementations should:
-//   - Throttle internally (e.g., fire at most every 3 iterations) to
-//     avoid over-steering the LLM.
-//   - Keep hints short and surgical — this runs every iteration, not
-//     just at termination.
-//   - Return inject=false when there is nothing actionable to say.
-type MidLoopEvaluator interface {
-	MidLoopCheck(iteration int, lastResult *types.ToolResult, allResults []types.ToolResult) (hint string, inject bool)
+// LoopPhase names the point in the ReAct iteration where
+// LoopController.Observe is being consulted. The phase lets a single
+// Observe hook handle both the "LLM is still calling tools — should
+// we nudge it?" case (PhaseMidLoop, fires after each tool-execution
+// batch) and the "LLM soft-stopped with content — should we
+// continue?" case (PhaseSoftStop, fires when resp.ToolCalls is empty
+// and resp.Content is non-empty).
+type LoopPhase int
+
+const (
+	// PhaseMidLoop fires after BaseAgent has executed a batch of
+	// tool calls for this iteration. The evaluator sees the full
+	// allToolResults slice plus a pointer to the last result it
+	// appended, and can request a corrective hint.
+	PhaseMidLoop LoopPhase = iota
+	// PhaseSoftStop fires when the LLM produced content but called
+	// no tools. The evaluator can vote to inject a continuation hint
+	// (accept the soft-stop into a forced continue) or stay silent
+	// (accept the natural termination).
+	PhaseSoftStop
+)
+
+// String returns a human-readable phase name used in the
+// BaseAgent.Execute debug trace. Keeping it short keeps the one-line
+// log entries readable.
+func (p LoopPhase) String() string {
+	switch p {
+	case PhaseMidLoop:
+		return "mid-loop"
+	case PhaseSoftStop:
+		return "soft-stop"
+	}
+	return "unknown"
+}
+
+// LoopObservation is the read-only snapshot a LoopController sees
+// when BaseAgent asks it to observe one iteration. The policy-owned
+// counter fields (IdleStreak, ContinuationsUsed, MidLoopInjectsUsed)
+// are snapshots of the LoopPolicy state BEFORE this iteration's
+// signal is applied, so branches that used to read the evaluator's
+// own counters (explorer.idleStreakInDepth, sub_explorer.idleStreak,
+// ...) can migrate to obs.IdleStreak with no semantic change.
+type LoopObservation struct {
+	// Phase distinguishes the mid-loop call from the soft-stop call.
+	// Evaluators should dispatch on this field.
+	Phase LoopPhase
+
+	// Iteration is the ReAct loop's zero-based iteration counter,
+	// matching the index BaseAgent would log as `iter=N`.
+	Iteration int
+
+	// Response is the LLM's latest response — non-empty Content and
+	// potentially non-empty ToolCalls. At PhaseSoftStop the ToolCalls
+	// slice is guaranteed empty by the BaseAgent dispatch path.
+	Response llm.Response
+
+	// LastToolResult points at the most recently executed tool's
+	// result inside AllToolResults. Only populated at PhaseMidLoop;
+	// nil at PhaseSoftStop. The pointer may be nil mid-loop too if
+	// the previous iteration had no successful tool execution.
+	LastToolResult *types.ToolResult
+
+	// AllToolResults is every successful tool result collected so
+	// far in this Execute call. Evaluators must not mutate this
+	// slice — BaseAgent reuses it across observations.
+	AllToolResults []types.ToolResult
+
+	// IdleStreak is the number of consecutive Observe calls so far
+	// that returned LoopSignal{Progress: false, HintRequested: false}
+	// — i.e. the count of "truly idle" rounds. Owned and incremented
+	// by LoopPolicy; read by evaluators that want to branch on
+	// "N-th idle round" without tracking the count themselves.
+	IdleStreak int
+
+	// ContinuationsUsed is the number of soft-stop hints LoopPolicy
+	// has already accepted in this dispatch, subject to the
+	// MaxContinuations budget.
+	ContinuationsUsed int
+
+	// MidLoopInjectsUsed is the number of mid-loop hints LoopPolicy
+	// has already accepted in this dispatch, subject to the
+	// MaxMidLoopInjects budget.
+	MidLoopInjectsUsed int
+}
+
+// LoopSignal is the raw detection result a LoopController returns
+// from Observe. Every field is a DETECTION signal — throttling,
+// dedup, and budget are applied by LoopPolicy against this struct.
+// Multiple fields may be set at once: for example, an evaluator
+// that detected progress this round AND wants to inject a prompt
+// returns Progress=true and HintRequested=true; the policy resets
+// the idle counter and considers the hint subject to its other
+// rules.
+type LoopSignal struct {
+	// Progress reports that this iteration made meaningful forward
+	// progress toward the question. Resets the LoopPolicy's
+	// IdleStreak counter. Leave false if the iteration was a no-op
+	// (LLM output content but added no useful tool results, or read
+	// the wrong file again).
+	Progress bool
+
+	// StopRequested is a hard vote to terminate the loop. The
+	// evaluator has the final word on termination — LoopPolicy
+	// honors this signal without applying throttle / budget rules.
+	// Use for detected terminal conditions (answer complete,
+	// structural failure, hard budget exhausted) where the evaluator
+	// is certain no further iteration will help.
+	StopRequested bool
+
+	// StopReason is a short human-readable label surfaced in the
+	// BaseAgent.Execute debug trace when StopRequested is honored.
+	StopReason string
+
+	// HintRequested is true when the evaluator has a corrective
+	// prompt to inject. LoopPolicy may still drop the hint based on
+	// HintKey dedup, MinInjectInterval throttle, or the phase-
+	// specific budget cap.
+	HintRequested bool
+
+	// Hint is the user-role message body LoopPolicy will append to
+	// the ReAct message stream when it accepts the injection.
+	Hint string
+
+	// HintKey is a stable identifier used for dedup. When two
+	// consecutive accepted hints share the same non-empty HintKey,
+	// the second is dropped. Pick a short descriptor of the hint's
+	// category ("partial_function", "erm_gap", "parallelize", ...)
+	// so the dedup window catches "same problem two iters in a row"
+	// without suppressing legitimately different corrections.
+	HintKey string
+}
+
+// LoopController is the unified replacement for ContinuingEvaluator +
+// MidLoopEvaluator. One Observe hook is consulted at BOTH the
+// mid-loop (after tool execution) and soft-stop (no tool call with
+// content) points in BaseAgent.Execute; the LoopPhase field on
+// LoopObservation distinguishes the two. Detection-only: the
+// evaluator returns a raw LoopSignal, and LoopPolicy decides whether
+// to act on it based on throttling, dedup, and budget rules. See
+// docs/architecture.md §3.2 for the full loop-control contract.
+type LoopController interface {
+	Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal
 }
 
 // NewBaseAgent creates a new BaseAgent.
@@ -242,6 +360,14 @@ func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *Bas
 	if assembler == nil {
 		assembler = DefaultPromptAssembler()
 	}
+	// Zero-value LoopPolicy → substitute the historical defaults.
+	// A caller that genuinely wants every knob off must build an
+	// explicit LoopPolicy (e.g. LoopPolicy{IdleStopThreshold: -1})
+	// — but in practice only unit tests do that.
+	loopPolicy := deps.LoopPolicy
+	if loopPolicy == (LoopPolicy{}) {
+		loopPolicy = DefaultLoopPolicy()
+	}
 	return &BaseAgent{
 		name: name,
 		deps: &Dependencies{
@@ -252,6 +378,7 @@ func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *Bas
 			MaxIterations:   maxIter,
 			Emit:            emit,
 			PromptAssembler: assembler,
+			LoopPolicy:      loopPolicy,
 		},
 		eval: eval,
 	}
@@ -371,10 +498,29 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 	var allToolResults []types.ToolResult
 	var allMCPResponses []types.MCPResponse
-	continuationsUsed := 0
+
+	// Loop-control state: snapshot the evaluator's LoopController
+	// once (nil when the evaluator does not implement it) and
+	// construct a fresh loopPolicyState from the configured
+	// LoopPolicy. The state is per-dispatch — BaseAgent.Execute
+	// never shares it across calls — so the idle counter, hint
+	// budget, and dedup window always start clean.
+	loopCtrl, _ := b.eval.(LoopController)
+	policyState := newLoopPolicyState(b.deps.LoopPolicy)
+
+	// forceStop is set by a mid-loop LoopPolicy decision that asks
+	// BaseAgent to terminate the ReAct loop (e.g. idle-streak
+	// force-stop, evaluator StopRequested). A bool flag plus a
+	// `break` at the top of the next iteration preserves the
+	// pre-refactor control-flow shape without requiring a labeled
+	// break inside the tool-batch loop.
+	forceStop := false
 
 	// ReAct loop
 	for i := 0; i < b.deps.MaxIterations; i++ {
+		if forceStop {
+			break
+		}
 		// Prune older "tool" role messages in-place so cumulative tool
 		// output never blows the model's context window on long
 		// investigations. Runs every iteration because a single late
@@ -426,11 +572,11 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 
 		// Soft stop: LLM produced content but called no tools. By
 		// default this is treated as voluntary completion. Agents that
-		// implement ContinuingEvaluator can override and inject a
-		// continuation prompt instead — this exists because the LLM
-		// often "thinks aloud" mid-investigation ("I'll check X next")
-		// without acting, and the default break would silently accept
-		// that as the final answer.
+		// implement LoopController can observe the soft-stop and vote
+		// to inject a continuation hint instead — this exists because
+		// the LLM often "thinks aloud" mid-investigation ("I'll check
+		// X next") without acting, and the default break would
+		// silently accept that as the final answer.
 		if len(resp.ToolCalls) == 0 {
 			// Empty response (no content, no tools) — treat as
 			// voluntary stop to avoid an infinite thinking loop.
@@ -438,9 +584,23 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				logging.Debug("[diag %s] STOP at iter=%d (empty response)", b.name, i)
 				break
 			}
-			if c, ok := b.eval.(ContinuingEvaluator); ok {
-				if prompt, cont := c.ContinuationPrompt(resp, i, continuationsUsed, allToolResults); cont {
-					continuationsUsed++
+			if loopCtrl != nil {
+				idle, conts, midLoopInjects := policyState.snapshot()
+				obs := LoopObservation{
+					Phase:              PhaseSoftStop,
+					Iteration:          i,
+					Response:           resp,
+					AllToolResults:     allToolResults,
+					IdleStreak:         idle,
+					ContinuationsUsed:  conts,
+					MidLoopInjectsUsed: midLoopInjects,
+				}
+				sig := loopCtrl.Observe(ctx, obs)
+				result := policyState.Apply(PhaseSoftStop, obs, sig)
+				logging.Debug("[diag %s] iter=%d SOFT-STOP signal hint=%t progress=%t stop=%t → %s (%s)",
+					b.name, i, sig.HintRequested, sig.Progress, sig.StopRequested,
+					result.Outcome, result.Reason)
+				if result.Outcome == OutcomeInjectHint {
 					messages = append(messages, llm.Message{
 						Role:      "assistant",
 						Content:   resp.Content,
@@ -448,12 +608,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					})
 					messages = append(messages, llm.Message{
 						Role:    "user",
-						Content: prompt,
+						Content: result.Hint,
 					})
-					logging.Debug("[diag %s] CONTINUE at iter=%d (continuationsUsed=%d)",
-						b.name, i, continuationsUsed)
 					continue
 				}
+				// OutcomeStop or OutcomeContinue at PhaseSoftStop
+				// both terminate the ReAct loop — the policy's
+				// soft-stop semantics treat "no hint" as accept.
 			}
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
@@ -525,20 +686,45 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			})
 		}
 
-		// Mid-loop check (#34): give the evaluator a chance to inject a
-		// corrective hint between tool batches. Unlike ContinuationPrompt
-		// (which only fires on soft-stop), this fires on every iteration
-		// where the LLM is still actively calling tools — closing the
-		// blind spot where the LLM keeps tool-calling in the wrong
-		// direction. The evaluator is responsible for throttling.
-		if m, ok := b.eval.(MidLoopEvaluator); ok {
-			if hint, inject := m.MidLoopCheck(i, lastToolResultPtr, allToolResults); inject {
+		// Mid-loop check: give the LoopController a chance to detect
+		// drift and inject a corrective hint between tool batches.
+		// Unlike PhaseSoftStop (which only fires when the LLM
+		// returned content with no tools), PhaseMidLoop fires on
+		// every iteration where the LLM is still actively calling
+		// tools — closing the blind spot where the LLM keeps
+		// tool-calling in the wrong direction. Throttling, dedup,
+		// budget, and idle-streak force-stop all live in LoopPolicy
+		// so the evaluator's Observe method stays detection-only.
+		if loopCtrl != nil {
+			idle, conts, midLoopInjects := policyState.snapshot()
+			obs := LoopObservation{
+				Phase:              PhaseMidLoop,
+				Iteration:          i,
+				Response:           resp,
+				LastToolResult:     lastToolResultPtr,
+				AllToolResults:     allToolResults,
+				IdleStreak:         idle,
+				ContinuationsUsed:  conts,
+				MidLoopInjectsUsed: midLoopInjects,
+			}
+			sig := loopCtrl.Observe(ctx, obs)
+			result := policyState.Apply(PhaseMidLoop, obs, sig)
+			switch result.Outcome {
+			case OutcomeInjectHint:
 				messages = append(messages, llm.Message{
 					Role:    "user",
-					Content: hint,
+					Content: result.Hint,
 				})
 				logging.Debug("[diag %s] iter=%d MIDLOOP inject len=%d:\n%s\n---",
-					b.name, i, len(hint), truncForLog(hint, 1000))
+					b.name, i, len(result.Hint), truncForLog(result.Hint, 1000))
+			case OutcomeStop:
+				// Policy decided to terminate — e.g. idle-streak
+				// force-stop or evaluator StopRequested. Record the
+				// reason for the trace and break out of the ReAct
+				// loop on the next iteration's top check.
+				logging.Debug("[diag %s] iter=%d MIDLOOP force-stop: %s",
+					b.name, i, result.Reason)
+				forceStop = true
 			}
 		}
 	}

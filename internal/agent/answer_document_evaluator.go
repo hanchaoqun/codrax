@@ -199,29 +199,51 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 	return false
 }
 
-// ContinuationPrompt fires when the LLM soft-stops. A populated
-// AnswerDocument in Mutable means the tool call has already landed
-// and the prose is assembled by ParseOutput — accept. A missing
-// document within the retry budget triggers a correction; beyond
-// the budget we give up and fall through to the fail-loud path in
-// ParseOutput.
-func (e *answerDocumentEvaluator) ContinuationPrompt(resp llm.Response, iteration int, continuationCount int, _ []types.ToolResult) (string, bool) {
+// Observe implements LoopController. The finalizer only has a
+// soft-stop branch — the answer-document stage runs a handful of
+// one-shot LLM turns, so there is nothing to detect mid-loop.
+//
+// Soft-stop policy: a populated AnswerDocument in Mutable means the
+// emit_answer_document tool call has already landed and ParseOutput
+// will render the prose — accept the soft-stop. A missing document
+// within the retry budget triggers a correction hint; beyond the
+// budget the evaluator stays silent and the stage's ParseOutput
+// writes a fail-loud warning from the raw last LLM content.
+//
+// Evaluator-specific retry budget (retriesUsed vs
+// maxFinalizerCorrectionRetries) is INTENTIONALLY kept here rather
+// than delegated to LoopPolicy.MaxContinuations: it is a
+// finalizer-specific contract ("try at most N correction prompts
+// before fail-loud"), not a generic loop-wide cap. LoopPolicy's
+// continuation cap still applies as an outer safety net.
+func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase != PhaseSoftStop {
+		return LoopSignal{}
+	}
 	if e.mu != nil {
 		if doc := e.mu.AnswerDocument(); doc != nil && !doc.IsZero() {
-			return "", false
+			return LoopSignal{}
 		}
 	}
 	if e.retriesUsed >= maxFinalizerCorrectionRetries {
 		logging.Debug("[finalizer/answer_document] correction retries exhausted (%d); accepting response",
 			e.retriesUsed)
-		return "", false
+		return LoopSignal{}
 	}
 	e.retriesUsed++
 	logging.Debug("[finalizer/answer_document] correction retry #%d: requesting emit_answer_document",
 		e.retriesUsed)
-	return "You must produce the final answer by calling `emit_answer_document` exactly once. " +
-		"Do not write prose outside the tool call. Review the shape-specific instructions in the " +
-		"initial prompt and emit the tool call now.", true
+	// HintKey embeds the retry counter so the LoopPolicy's dedup
+	// window does NOT swallow the second retry. The finalizer's
+	// retry budget is an evaluator-owned contract; dedup by a
+	// shared key would silently truncate it to the first attempt.
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       fmt.Sprintf("finalizer.missing_document.%d", e.retriesUsed),
+		Hint: "You must produce the final answer by calling `emit_answer_document` exactly once. " +
+			"Do not write prose outside the tool call. Review the shape-specific instructions in the " +
+			"initial prompt and emit the tool call now.",
+	}
 }
 
 // answerDocumentStageData is the JSON payload shape written into

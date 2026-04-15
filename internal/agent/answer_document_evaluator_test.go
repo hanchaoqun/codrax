@@ -128,54 +128,69 @@ func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
 	}
 }
 
-// TestAnswerDocumentEvaluator_ContinuationPrompt_RetryBounded
-// exercises the retry budget — after maxFinalizerCorrectionRetries
-// retries, the evaluator stops issuing corrections.
-func TestAnswerDocumentEvaluator_ContinuationPrompt_RetryBounded(t *testing.T) {
-	e := &answerDocumentEvaluator{}
-	for i := 0; i < maxFinalizerCorrectionRetries; i++ {
-		_, cont := e.ContinuationPrompt(llm.Response{}, 0, i, nil)
-		if !cont {
-			t.Errorf("retry %d: cont = false, want true (still within budget)", i)
-		}
-	}
-	_, cont := e.ContinuationPrompt(llm.Response{}, 0, maxFinalizerCorrectionRetries, nil)
-	if cont {
-		t.Error("after budget: cont = true, want false")
+// softStopObs builds a minimal PhaseSoftStop LoopObservation for the
+// Observe tests — all the answer-document evaluator cares about is
+// Phase; the rest of the fields can stay zero.
+func softStopObs(continuationCount int) LoopObservation {
+	return LoopObservation{
+		Phase:             PhaseSoftStop,
+		Iteration:         0,
+		ContinuationsUsed: continuationCount,
 	}
 }
 
-// TestAnswerDocumentEvaluator_ContinuationPrompt_AcceptsWhenDocPresent
-// pins the simplify-round bug fix: when the LLM emits a tool call
-// then soft-stops with a content-only turn, ContinuationPrompt must
-// see the populated AnswerDocument in Mutable and NOT burn a retry.
-// Without this guard, every successful emit followed by a free-text
-// closer would trigger a correction retry that clobbers the first
-// document on the second call.
-func TestAnswerDocumentEvaluator_ContinuationPrompt_AcceptsWhenDocPresent(t *testing.T) {
+// TestAnswerDocumentEvaluator_Observe_RetryBounded exercises the
+// evaluator-owned retry budget. After maxFinalizerCorrectionRetries
+// retries, Observe must stop returning HintRequested so the policy
+// accepts the soft-stop. The retries counter is an
+// evaluator-internal contract (fail-loud when the LLM stays off-
+// contract after N corrections), distinct from LoopPolicy's
+// MaxContinuations which applies loop-wide.
+func TestAnswerDocumentEvaluator_Observe_RetryBounded(t *testing.T) {
+	e := &answerDocumentEvaluator{}
+	for i := 0; i < maxFinalizerCorrectionRetries; i++ {
+		sig := e.Observe(nil, softStopObs(i))
+		if !sig.HintRequested {
+			t.Errorf("retry %d: HintRequested = false, want true (still within budget)", i)
+		}
+	}
+	sig := e.Observe(nil, softStopObs(maxFinalizerCorrectionRetries))
+	if sig.HintRequested {
+		t.Error("after budget: HintRequested = true, want false")
+	}
+}
+
+// TestAnswerDocumentEvaluator_Observe_AcceptsWhenDocPresent pins
+// the simplify-round bug fix: when the LLM emits a tool call then
+// soft-stops with a content-only turn, Observe must see the
+// populated AnswerDocument in Mutable and NOT burn a retry.
+// Without this guard, every successful emit followed by a
+// free-text closer would trigger a correction retry that clobbers
+// the first document on the second call.
+func TestAnswerDocumentEvaluator_Observe_AcceptsWhenDocPresent(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAnswerDocument(&types.AnswerDocument{
 		Shape:   types.ShapeExplanation,
 		Summary: "landed tool call",
 	})
 	e := &answerDocumentEvaluator{mu: mu}
-	_, cont := e.ContinuationPrompt(llm.Response{}, 0, 0, nil)
-	if cont {
-		t.Error("doc present in Mutable: cont = true, want false (no retry)")
+	sig := e.Observe(nil, softStopObs(0))
+	if sig.HintRequested {
+		t.Error("doc present in Mutable: HintRequested = true, want false (no retry)")
 	}
 	if e.retriesUsed != 0 {
 		t.Errorf("doc-present path burned a retry: retriesUsed = %d, want 0", e.retriesUsed)
 	}
 }
 
-// TestAnswerDocumentEvaluator_ContinuationPrompt_RetriesWhenDocMissing
-// is the complement: no doc in Mutable → retry.
-func TestAnswerDocumentEvaluator_ContinuationPrompt_RetriesWhenDocMissing(t *testing.T) {
+// TestAnswerDocumentEvaluator_Observe_RetriesWhenDocMissing is the
+// complement: no doc in Mutable → Observe returns HintRequested.
+func TestAnswerDocumentEvaluator_Observe_RetriesWhenDocMissing(t *testing.T) {
 	mu := types.NewMutableState("") // empty Mutable
 	e := &answerDocumentEvaluator{mu: mu}
-	_, cont := e.ContinuationPrompt(llm.Response{}, 0, 0, nil)
-	if !cont {
-		t.Error("doc missing: cont = false, want true")
+	sig := e.Observe(nil, softStopObs(0))
+	if !sig.HintRequested {
+		t.Error("doc missing: HintRequested = false, want true")
 	}
 	if e.retriesUsed != 1 {
 		t.Errorf("retriesUsed = %d, want 1", e.retriesUsed)

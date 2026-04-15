@@ -10,6 +10,39 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// softStopExplorer adapts the pre-refactor ContinuationPrompt shape
+// (content string, iter int, continuationCount int, history []ToolResult
+// → (prompt, cont)) onto the new Observe API. Used only by tests so
+// the migration left every call site minimal and a future reader can
+// grep for "observeSoftStop" to find the real contract.
+func softStopExplorer(eval *explorerEvaluator, content string, iter, continuations int, history []types.ToolResult) (string, bool) {
+	sig := eval.observeSoftStop(LoopObservation{
+		Phase:             PhaseSoftStop,
+		Iteration:         iter,
+		Response:          llm.Response{Content: content},
+		AllToolResults:    history,
+		ContinuationsUsed: continuations,
+	})
+	if sig.HintRequested {
+		return sig.Hint, true
+	}
+	return "", false
+}
+
+// midLoopExplorer is the PhaseMidLoop analogue of softStopExplorer.
+func midLoopExplorer(eval *explorerEvaluator, iter int, lastResult *types.ToolResult, allResults []types.ToolResult) (string, bool) {
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      iter,
+		LastToolResult: lastResult,
+		AllToolResults: allResults,
+	})
+	if sig.HintRequested {
+		return sig.Hint, true
+	}
+	return "", false
+}
+
 func TestContainsIdentifier(t *testing.T) {
 	tests := []struct {
 		text string
@@ -501,7 +534,7 @@ func TestPerFileGrepRedirect(t *testing.T) {
 		{ToolName: "read_file", Success: true, Summary: "[big_a.go: showing lines 1-100 of 2000 total]\npackage x"},
 		{ToolName: "read_file", Success: true, Summary: "[big_b.go: showing lines 1-100 of 1500 total]\npackage y"},
 	}
-	prompt1, cont1 := eval.ContinuationPrompt(llm.Response{Content: "analyzing..."}, 0, 0, history1)
+	prompt1, cont1 := softStopExplorer(eval, "analyzing...", 0, 0, history1)
 	if !cont1 {
 		t.Fatal("expected continuation for first redirect")
 	}
@@ -515,7 +548,7 @@ func TestPerFileGrepRedirect(t *testing.T) {
 		ToolName: "read_file", Success: true,
 		Summary: "[big_c.go: showing lines 1-200 of 3000 total]\npackage z",
 	})
-	prompt2, cont2 := eval.ContinuationPrompt(llm.Response{Content: "more analysis..."}, 1, 1, history2)
+	prompt2, cont2 := softStopExplorer(eval, "more analysis...", 1, 1, history2)
 	if !cont2 {
 		t.Fatal("expected continuation for second redirect (new file)")
 	}
@@ -689,9 +722,13 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 		t.Error("first call should contain 'Breadth Scan'")
 	}
 
-	// Simulate investigation: add notes
+	// Simulate investigation: add notes. The old test also set
+	// eval.idleStreakInDepth = 5 to simulate a stale counter and
+	// then asserted the self-loop reset cleared it — but that
+	// field is owned by LoopPolicy now, so the evaluator has
+	// nothing to reset. The rest of the retry prompt checks below
+	// still apply.
 	eval.investigationNotes = []string{"## Evidence from file.go\n- [DIRECT] foo line 1: returns true"}
-	eval.idleStreakInDepth = 5 // simulate stale counter
 
 	// Second call (self-loop): should skip Phase 0
 	prompt2 := eval.BuildInitialInstruction(ctx, nil)
@@ -707,10 +744,6 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 	if !strings.Contains(prompt2, "Read more files about X") {
 		t.Error("retry call should include RetryHint")
 	}
-	// Counters should be reset
-	if eval.idleStreakInDepth != 0 {
-		t.Errorf("idleStreakInDepth should be reset, got %d", eval.idleStreakInDepth)
-	}
 }
 
 func TestPhase0QualityGate(t *testing.T) {
@@ -719,7 +752,7 @@ func TestPhase0QualityGate(t *testing.T) {
 		history := []types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
 		}
-		prompt, cont := eval.ContinuationPrompt(llm.Response{Content: "done scanning"}, 0, 0, history)
+		prompt, cont := softStopExplorer(eval, "done scanning", 0, 0, history)
 		if !cont {
 			t.Fatal("gate should fire (no repo_map used)")
 		}
@@ -737,7 +770,7 @@ func TestPhase0QualityGate(t *testing.T) {
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
 			{ToolName: "repo_map", Success: true, Summary: "map output"},
 		}
-		prompt, cont := eval.ContinuationPrompt(llm.Response{Content: "done"}, 0, 0, history)
+		prompt, cont := softStopExplorer(eval, "done", 0, 0, history)
 		// Should transition to Phase 1
 		if !cont {
 			t.Fatal("should continue to Phase 1")
@@ -755,7 +788,7 @@ func TestPhase0QualityGate(t *testing.T) {
 		history := []types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go"},
 		}
-		prompt, cont := eval.ContinuationPrompt(llm.Response{Content: "done"}, 0, 0, history)
+		prompt, cont := softStopExplorer(eval, "done", 0, 0, history)
 		// Should NOT fire again — proceed to Phase 1
 		if !cont {
 			t.Fatal("should continue to Phase 1")
@@ -1246,11 +1279,12 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 		fileSymbols:               map[string][]string{"stale.go": {"Foo"}},
 		phase0ExtraRound:          true,
 		grepRedirectedFiles:       map[string]bool{"stale.go": true},
-		idleStreakInDepth:         5,
-		lastToolResultCount:       10,
 		preScannedPushCount:       3,
 		lastPreScannedUnreadCount: 2,
 		broadenAttempts:           1,
+		// idleStreakInDepth and lastToolResultCount used to live on
+		// this struct too; they moved to LoopPolicy and are rebuilt
+		// per dispatch, so there is nothing to stuff into the fixture.
 	}
 
 	// Simulate next REPL turn with a completely different question.
@@ -1288,8 +1322,7 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 	if eval.phase0ExtraRound {
 		t.Error("phase0ExtraRound not reset")
 	}
-	if eval.idleStreakInDepth != 0 || eval.lastToolResultCount != 0 ||
-		eval.preScannedPushCount != 0 || eval.lastPreScannedUnreadCount != 0 ||
+	if eval.preScannedPushCount != 0 || eval.lastPreScannedUnreadCount != 0 ||
 		eval.broadenAttempts != 0 {
 		t.Error("per-run counters not reset")
 	}
@@ -1451,18 +1484,17 @@ func midLoopFixtureResults() []types.ToolResult {
 // silent. Throttle + cadence rules apply.
 func TestMidLoopCheck_ParallelCueFiresOnSerialStreak(t *testing.T) {
 	eval := &explorerEvaluator{
-		phase:                 1,
-		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
-		midLoopLastInjectIter: -10,
+		phase:        1,
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		// Seed streak as if two prior iters were single-call.
-		// The current MidLoopCheck call will observe its own
+		// The current observeMidLoop call will observe its own
 		// +1 growth and bump streak to 3.
 		midLoopSerialStreak:   2,
 		midLoopLastResultsLen: 1,
 	}
 	// Fixture: grep-discovered 3 files, 1 read → 2 unread.
 	results := midLoopFixtureResults()
-	hint, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	hint, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
 	if !inject {
 		t.Fatal("Check 3 should inject after streak≥2 with ≥2 unread files")
 	}
@@ -1488,13 +1520,12 @@ func TestMidLoopCheck_ParallelCueOncePerDispatch(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                   1,
 		searchResult:            &keywordSearchResult{Graph: &repomap.Graph{}},
-		midLoopLastInjectIter:   -10,
 		midLoopSerialStreak:     2,
 		midLoopLastResultsLen:   1,
 		midLoopParallelInjected: true, // already fired earlier this dispatch
 	}
 	results := midLoopFixtureResults()
-	_, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	_, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
 	if inject {
 		t.Error("parallel cue must not fire twice in a single dispatch")
 	}
@@ -1509,12 +1540,11 @@ func TestMidLoopCheck_ParallelCueSkippedOnParallelBatch(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                 1,
 		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
-		midLoopLastInjectIter: -10,
 		midLoopSerialStreak:   2,
 		midLoopLastResultsLen: 1,
 	}
 	// Simulate a 3-call parallel batch: allResults grew by 3 since
-	// the previous MidLoopCheck call.
+	// the previous observeMidLoop call.
 	results := append(midLoopFixtureResults(),
 		types.ToolResult{ToolName: "read_file", Success: true,
 			Summary: "[internal/fixture/beta.go: showing lines 1-20 of 20]\ncontent\n"},
@@ -1522,7 +1552,7 @@ func TestMidLoopCheck_ParallelCueSkippedOnParallelBatch(t *testing.T) {
 			Summary: "[internal/fixture/gamma.go: showing lines 1-20 of 20]\ncontent\n"},
 	)
 	// prev len=1, new len=4 → batch=3. Streak must reset to 0.
-	_, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	_, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
 	if inject {
 		t.Error("parallel cue must not fire when the LLM is already batching")
 	}
@@ -1546,12 +1576,11 @@ func TestMidLoopCheck_ParallelCueSuppressedByPartialRead(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                 1,
 		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
-		midLoopLastInjectIter: -10,
 		midLoopSerialStreak:   2,
 		midLoopLastResultsLen: 1,
 	}
 	results := midLoopFixtureResults()
-	hint, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	hint, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
 	// Without partial-read hints in the fixture, Check 3 will fire.
 	// The suppression assertion lives in the structural gate: Check 3
 	// only runs if b.Len() == 0. Assert that the hint is ONLY the
@@ -1945,7 +1974,6 @@ func TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                 1,
 		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
-		midLoopLastInjectIter: -10,
 		midLoopSerialStreak:   2,
 		midLoopLastResultsLen: 1,
 	}
@@ -1958,7 +1986,7 @@ func TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor(t *testing.T) {
 		{ToolName: "grep", Success: true, Summary: grepSummary},
 		{ToolName: "read_file", Success: true, Summary: readSummary},
 	}
-	_, inject := eval.MidLoopCheck(5, &results[len(results)-1], results)
+	_, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
 	if inject {
 		t.Error("parallel cue must not fire when fewer than 2 files remain unread")
 	}
