@@ -28,6 +28,7 @@ analysis_reject_below_keywords: 3
 analysis_generic_entity_blocklist:
   - thing
   - widget
+analysis_reject_multiple_emit: true
 providers_config: /etc/codrax/providers.yaml
 `
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
@@ -92,6 +93,9 @@ providers_config: /etc/codrax/providers.yaml
 		s.AnalysisGenericEntityBlocklist[0] != "thing" ||
 		s.AnalysisGenericEntityBlocklist[1] != "widget" {
 		t.Errorf("AnalysisGenericEntityBlocklist = %v", s.AnalysisGenericEntityBlocklist)
+	}
+	if s.AnalysisRejectMultipleEmit == nil || *s.AnalysisRejectMultipleEmit != true {
+		t.Errorf("AnalysisRejectMultipleEmit = %v", s.AnalysisRejectMultipleEmit)
 	}
 }
 
@@ -174,7 +178,8 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		s.BlobMaxInlineBytes != nil || s.BlobPreviewHeadBytes != nil || s.BlobPreviewTailBytes != nil ||
 		s.PipelineMaxRetriesPerStage != nil || s.PipelineMaxStageVisits != nil ||
 		s.AnalysisWarnBelowKeywords != nil || s.AnalysisRejectBelowKeywords != nil ||
-		s.AnalysisGenericEntityBlocklist != nil {
+		s.AnalysisGenericEntityBlocklist != nil ||
+		s.AnalysisRejectMultipleEmit != nil {
 		t.Errorf("empty file should leave all fields nil, got %+v", s)
 	}
 }

@@ -67,9 +67,10 @@ type RuntimeSettings struct {
 	//     validator drops from the entities slice because they
 	//     poison ERM ranking. Empty disables the filter. Default
 	//     lives in DefaultAnalysisLimits().
-	AnalysisWarnBelowKeywords     *int     `yaml:"analysis_warn_below_keywords"`
-	AnalysisRejectBelowKeywords   *int     `yaml:"analysis_reject_below_keywords"`
+	AnalysisWarnBelowKeywords      *int     `yaml:"analysis_warn_below_keywords"`
+	AnalysisRejectBelowKeywords    *int     `yaml:"analysis_reject_below_keywords"`
 	AnalysisGenericEntityBlocklist []string `yaml:"analysis_generic_entity_blocklist"`
+	AnalysisRejectMultipleEmit     *bool    `yaml:"analysis_reject_multiple_emit"`
 
 	// Pipeline budget knobs. Flat-prefixed `pipeline_*`. Precedence:
 	// code default → codrax.yaml → CLI flag.

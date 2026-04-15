@@ -46,6 +46,29 @@ type AnalysisLimits struct {
 	// warnings list so they surface in ToolResult.Summary and the
 	// Debug trace. Set to nil to disable the filter entirely.
 	GenericEntityBlocklist []string
+
+	// RejectMultipleEmit decides the analyzer's policy when the LLM
+	// calls emit_analysis more than once in a single analyze dispatch.
+	// The tool's Execute method already accepts multiple calls (the
+	// last write wins on Mutable.RequestModel), but the call-count
+	// gate in analyzer.ParseOutput makes the repeat VISIBLE:
+	//
+	//   - false (default): log a warning, keep the last write,
+	//     continue the pipeline. This matches the historical
+	//     behavior — codrax prefers best-effort recovery over a
+	//     wholesale abort because a wasted LLM round-trip is
+	//     cheaper than a failed analyze stage.
+	//   - true: write a descriptive message to StageOutput.Error so
+	//     downstream tracing + eval harnesses see a loud failure.
+	//     The IR is still populated from the last write so the
+	//     rest of the pipeline can continue if the operator chooses
+	//     to ignore the error signal.
+	//
+	// The 0-call case is handled separately (always falls back to
+	// readOrSynthesizeRequestModel with a strong warning + a
+	// structured `analysis_fallback_used` diagnostic), never gated
+	// by this knob.
+	RejectMultipleEmit bool
 }
 
 // DefaultAnalysisLimits returns the populated default policy. Callers

@@ -303,6 +303,21 @@ Per-agent 模型路由在 `config/providers.yaml` 里配（不同 Agent 可以�
 
 Quality Gate 的 `Rejected` 区分 **hard failure**（`nil_ir` / `dag_closure` / `contract_complete` → 直接失败 Run）和 **soft failure**（`coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency` → log warning，继续跑）。
 
+**emit_analysis call-count gate.** Skill 文案里写的是 "call emit_analysis EXACTLY ONCE"，但 ReAct 循环和工具本身都允许 0 或 N 次。`analyzer.ParseOutput` 在走 `buildAnalysisIR` 之前扫一遍本次 dispatch 的 tool-result 流，把 emit_analysis 的实际调用次数和 fallback 决策以结构化字段透出到 `StageOutput.Data`：
+
+| 字段 | 含义 |
+|------|------|
+| `analysis_emit_calls` | 本次 dispatch 里 emit_analysis 的总调用次数（成功 + 失败都计，因为 LLM 的"意图"才是 gate 要测的） |
+| `analysis_fallback_used` | 进入 `ParseOutput` 时 `Mutable.RequestModel()` 是否为 nil —— 等价于 `readOrSynthesizeRequestModel` 走了零值合成路径 |
+
+三条分支行为：
+
+- **0 次**：触发强告警（`logging.Warning` + 目标问题的前 120 字节），走 failsafe 合成零值 `RequestModel`，`analysis_fallback_used=true`，**不**写 `StageOutput.Error`。0 次是 warn-only，永远不因为单次 LLM 抖动把整条 pipeline 拉断——但结构化字段会把"真的发生了 fallback"这件事透出来，eval 能直接 diff。
+- **1 次**：happy path。不打任何日志，`analysis_fallback_used=false`，`analysis_emit_calls=1`。
+- **>1 次**：行为由 `tool.AnalysisLimits.RejectMultipleEmit` 决定。默认 `false` → 打 warning、保留最后一次写入、继续跑；`true` → 额外把描述性消息写进 `StageOutput.Error`，IR 还是按最后一次写入填充（让下游 stage 在 operator 选择忽略 error 信号时也能继续）。该 knob 由 `analysis_reject_multiple_emit` 配置。
+
+`analysis_emit_calls` 的计数和 Quality Gate 正交：两条错误通道可以同时 fire，Quality Gate 的 hard failure 优先（它先写 `out.Error`），call-count gate 只在 gate error 为空时才会覆盖 `out.Error`。
+
 ### 4.2 `explore` — Turn A：调查 + 证据收集
 
 | 方面 | 详情 |

@@ -371,6 +371,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			analysisLimits.GenericEntityBlocklist = append(
 				[]string(nil), rs.AnalysisGenericEntityBlocklist...)
 		}
+		if rs.AnalysisRejectMultipleEmit != nil {
+			analysisLimits.RejectMultipleEmit = *rs.AnalysisRejectMultipleEmit
+		}
 		tool.SetAnalysisLimits(analysisLimits)
 
 		if rs.PipelineMaxRetriesPerStage != nil {
@@ -394,8 +397,8 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	logging.Info("blob_limits: max_inline_bytes=%d preview_head_bytes=%d preview_tail_bytes=%d",
 		tool.MaxInlineBytes, tool.PreviewHeadBytesValue(), tool.PreviewTailBytesValue())
 	al := tool.CurrentAnalysisLimits()
-	logging.Info("analysis_limits: warn_below_keywords=%d reject_below_keywords=%d generic_entity_blocklist=%d",
-		al.WarnBelowKeywords, al.RejectBelowKeywords, len(al.GenericEntityBlocklist))
+	logging.Info("analysis_limits: warn_below_keywords=%d reject_below_keywords=%d generic_entity_blocklist=%d reject_multiple_emit=%t",
+		al.WarnBelowKeywords, al.RejectBelowKeywords, len(al.GenericEntityBlocklist), al.RejectMultipleEmit)
 
 	providersCfg, err := config.LoadProviders(flagProviders)
 	if err != nil {
