@@ -13,13 +13,14 @@ import (
 // memory/project_repl_equivalence_audit.md for the original explorer
 // fix this mirrors. Each SubAgentRequest is an independent scoped
 // investigation, so state from a previous Run() must not leak into
-// the next one's notes / idle counters / evidence.
+// the next one's notes / evidence. The old test also checked that
+// idleStreak / lastToolCount counters were reset on cross-run —
+// those counters moved to LoopPolicy and are rebuilt per dispatch,
+// so the evaluator no longer owns them.
 func TestSubExplorer_CrossRunResetOnObjectiveChange(t *testing.T) {
 	eval := &subExplorerEvaluator{
 		objective:          "find registration points",
 		investigationNotes: []string{"[DIRECT] stale note from prior run"},
-		idleStreak:         3,
-		lastToolCount:      7,
 		structuredEvidence: []types.EvidenceItem{{Summary: "stale"}},
 		flowFindings:       []types.FlowFindingDigest{{ID: "stale-flow"}},
 	}
@@ -32,12 +33,6 @@ func TestSubExplorer_CrossRunResetOnObjectiveChange(t *testing.T) {
 
 	if len(eval.investigationNotes) != 0 {
 		t.Errorf("investigationNotes not reset: %v", eval.investigationNotes)
-	}
-	if eval.idleStreak != 0 {
-		t.Errorf("idleStreak not reset: %d", eval.idleStreak)
-	}
-	if eval.lastToolCount != 0 {
-		t.Errorf("lastToolCount not reset: %d", eval.lastToolCount)
 	}
 	if len(eval.structuredEvidence) != 0 {
 		t.Errorf("structuredEvidence not reset: %v", eval.structuredEvidence)
@@ -64,8 +59,6 @@ func TestSubExplorer_SameObjectiveKeepsState(t *testing.T) {
 	eval := &subExplorerEvaluator{
 		objective:          "trace config loader",
 		investigationNotes: []string{"[DIRECT] keep me"},
-		idleStreak:         2,
-		lastToolCount:      5,
 	}
 
 	ctx := &types.AgentContext{
@@ -76,9 +69,5 @@ func TestSubExplorer_SameObjectiveKeepsState(t *testing.T) {
 
 	if len(eval.investigationNotes) != 1 {
 		t.Errorf("notes wiped on same-objective call: %v", eval.investigationNotes)
-	}
-	if eval.idleStreak != 2 || eval.lastToolCount != 5 {
-		t.Errorf("counters wiped on same-objective call: idle=%d lastTool=%d",
-			eval.idleStreak, eval.lastToolCount)
 	}
 }

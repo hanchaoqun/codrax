@@ -81,7 +81,7 @@ After analyze produces `AnalysisIR.TaskGraph`, `runTaskGraph` walks the graph wi
 
 ### Agent System (`internal/agent/`)
 
-All 4 agent types embed `BaseAgent` which provides the ReAct loop (Reason → Act → Observe). Each agent implements the `Evaluator` interface: `BuildInitialInstruction`, `ShouldStop`, `ParseOutput`, `DetermineMissingPiece`.
+All 4 agent types embed `BaseAgent` which provides the ReAct loop (Reason → Act → Observe). Each agent implements the `Evaluator` interface: `BuildInitialInstruction`, `ShouldStop`, `ParseOutput`, `DetermineMissingPiece`. Loop control — "continue vs stop vs inject hint" — flows through the optional `LoopController` interface (`Observe(ctx, obs) LoopSignal`), which replaces the historical `ContinuingEvaluator` + `MidLoopEvaluator` pair. Throttling, dedup, and budget rules live in `LoopPolicy` (`internal/agent/loop_policy.go`), not in the evaluators themselves — see `docs/architecture.md` §3.2 for the full contract.
 
 ### Analyzer post-processing pipeline (`internal/agent/analyzer.go:buildAnalysisIR`)
 
