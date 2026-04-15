@@ -24,6 +24,69 @@ const (
 	EvidenceTruncated    EvidenceKind = "analysis_truncated"
 )
 
+// allEvidenceKinds is the canonical, ordered list of every
+// EvidenceKind value. The first six are LLM-emittable via
+// emit_evidence; the last five are deterministic-only (written by
+// mechanism_scan, dataflow/lower, the concrete-values extractor, and
+// the analysis-truncation reporter) and are intentionally rejected
+// if the LLM tries to emit them — see IsLLMEmittable below.
+var allEvidenceKinds = []EvidenceKind{
+	EvidenceDirect,
+	EvidenceConditional,
+	EvidenceRegistration,
+	EvidenceMechanism,
+	EvidenceRelationship,
+	EvidenceAbsent,
+	EvidenceConcrete,
+	EvidenceDataflowPath,
+	EvidenceConflict,
+	EvidenceUnresolved,
+	EvidenceTruncated,
+}
+
+// AllEvidenceKinds returns the canonical list of every EvidenceKind
+// value in stable declaration order. Callers must not mutate the
+// returned slice.
+func AllEvidenceKinds() []EvidenceKind {
+	out := make([]EvidenceKind, len(allEvidenceKinds))
+	copy(out, allEvidenceKinds)
+	return out
+}
+
+// IsLLMEmittable reports whether this EvidenceKind is one the LLM is
+// allowed to produce through the emit_evidence tool. The six
+// "investigation-shape" kinds (direct / conditional / registration /
+// mechanism / relationship / absent) are emittable; the five
+// deterministic-only kinds (concrete_value / dataflow_path /
+// conflict / unresolved / analysis_truncated) are not — they are
+// written exclusively by Go code that has already done the
+// structural work, so allowing the LLM to emit them would let it
+// launder unverified claims through a channel whose semantic contract
+// is "I ran a deterministic check". The emit_evidence tool derives
+// its schema enum and its accept-list from this predicate so the
+// canonical list and the tool contract cannot drift apart.
+func (k EvidenceKind) IsLLMEmittable() bool {
+	switch k {
+	case EvidenceDirect, EvidenceConditional, EvidenceRegistration,
+		EvidenceMechanism, EvidenceRelationship, EvidenceAbsent:
+		return true
+	}
+	return false
+}
+
+// LLMEmittableEvidenceKinds returns the subset of AllEvidenceKinds
+// for which IsLLMEmittable is true, in canonical order. This is what
+// the emit_evidence tool schema's enum is built from.
+func LLMEmittableEvidenceKinds() []EvidenceKind {
+	out := make([]EvidenceKind, 0, len(allEvidenceKinds))
+	for _, k := range allEvidenceKinds {
+		if k.IsLLMEmittable() {
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
 // EvidenceItem is the normalized, structured representation of a
 // single evidence statement that can be carried across agents/stages.
 type EvidenceItem struct {

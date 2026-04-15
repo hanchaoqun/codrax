@@ -36,18 +36,30 @@ type EmitEvidence struct {
 	NonEvidenceTool
 }
 
-// Allowed kinds. Mirrors types.EvidenceKind for the six public kinds
-// the explorer prompt teaches; deterministic-only kinds
-// (concrete_value, dataflow_path, conflict, unresolved,
-// analysis_truncated) are intentionally excluded — the LLM has no
-// business emitting those.
-var emitEvidenceAllowedKinds = map[string]types.EvidenceKind{
-	"direct":       types.EvidenceDirect,
-	"conditional":  types.EvidenceConditional,
-	"registration": types.EvidenceRegistration,
-	"mechanism":    types.EvidenceMechanism,
-	"relationship": types.EvidenceRelationship,
-	"absent":       types.EvidenceAbsent,
+// emitEvidenceAllowedKinds is derived at package init from
+// types.LLMEmittableEvidenceKinds() so the whitelist, the canonical
+// EvidenceKind declaration, and the JSON schema enum stay in lockstep
+// by construction. Adding a new LLM-emittable kind means flipping
+// IsLLMEmittable in internal/types/evidence.go and nothing else.
+var emitEvidenceAllowedKinds = buildEmitEvidenceAllowedKinds()
+
+func buildEmitEvidenceAllowedKinds() map[string]types.EvidenceKind {
+	out := make(map[string]types.EvidenceKind, len(types.LLMEmittableEvidenceKinds()))
+	for _, k := range types.LLMEmittableEvidenceKinds() {
+		out[strings.ToLower(string(k))] = k
+	}
+	return out
+}
+
+// emitEvidenceAllowedKindNames returns the accepted kind strings in
+// canonical order, for schema enum rendering and error messages.
+func emitEvidenceAllowedKindNames() []string {
+	kinds := types.LLMEmittableEvidenceKinds()
+	names := make([]string, len(kinds))
+	for i, k := range kinds {
+		names[i] = string(k)
+	}
+	return names
 }
 
 type emitEvidenceParams struct {
@@ -80,13 +92,17 @@ func (t *EmitEvidence) Description() string {
 		"fact you want the synthesis layer to see. The batched 'items' array preserves the " +
 		"existing 'one tool call per file' write pattern; do not call this tool once per item. " +
 		"Every item MUST cite source (file path) and SHOULD cite line_start (gutter line number, " +
-		"never estimated). kind is one of: direct, conditional, registration, mechanism, " +
-		"relationship, absent. Unknown kinds and unknown fields are REJECTED — the tool will not " +
+		"never estimated). kind is one of: " + strings.Join(emitEvidenceAllowedKindNames(), ", ") +
+		". Unknown kinds and unknown fields are REJECTED — the tool will not " +
 		"silently coerce. If you are unsure which kind to use, prefer 'direct' over guessing."
 }
 
 func (t *EmitEvidence) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+	// Build the enum list as JSON so it stays in lockstep with the
+	// canonical types.LLMEmittableEvidenceKinds list — hand-editing the
+	// schema literal is how the 6-vs-11 drift bug was born.
+	enumJSON, _ := json.Marshal(emitEvidenceAllowedKindNames())
+	schema := fmt.Sprintf(`{
   "type": "object",
   "properties": {
     "items": {
@@ -95,7 +111,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
       "items": {
         "type": "object",
         "properties": {
-          "kind":       {"type": "string", "enum": ["direct", "conditional", "registration", "mechanism", "relationship", "absent"], "description": "Evidence shape. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). absent = expected pattern was looked for and NOT found."},
+          "kind":       {"type": "string", "enum": %s, "description": "Evidence shape. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). absent = expected pattern was looked for and NOT found."},
           "subject":    {"type": "string", "description": "Primary symbol the item is about (function name, type, key). Optional but strongly recommended."},
           "predicate":  {"type": "string", "description": "Verb tying subject to object (e.g. 'binds', 'returns', 'calls'). Optional; defaults to the lower-cased kind."},
           "object":     {"type": "string", "description": "Secondary symbol or value. Required for relationship; optional otherwise."},
@@ -110,7 +126,8 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
     }
   },
   "required": ["items"]
-}`)
+}`, string(enumJSON))
+	return json.RawMessage(schema)
 }
 
 func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -166,7 +183,7 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	kindKey := strings.ToLower(strings.TrimSpace(in.Kind))
 	kind, ok := emitEvidenceAllowedKinds[kindKey]
 	if !ok {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown kind %q (allowed: direct, conditional, registration, mechanism, relationship, absent)", index, in.Kind)
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown kind %q (allowed: %s)", index, in.Kind, strings.Join(emitEvidenceAllowedKindNames(), ", "))
 	}
 	source := strings.TrimSpace(in.Source)
 	if source == "" {

@@ -35,7 +35,11 @@ import (
 const noSourceLineSentinel = 1 << 30
 
 type EvidenceRequirement struct {
-	Kind     string   // "enumeration", "call_chain", "registration", "return_value", "config_mapping", "conditional"
+	// Kind is the typed question-side classification. See
+	// internal/types/requirement_kind.go for the canonical enum and
+	// the RequirementToEvidenceKinds map that binds each Kind to the
+	// EvidenceKinds the ERM layer accepts as contributing evidence.
+	Kind     types.RequirementKind
 	Entities []string // key entities from the question this requirement relates to
 	Reason   string   // human-readable reason for this requirement
 	Status   string   // "unsatisfied", "partial", "satisfied"
@@ -68,9 +72,9 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 // mechanism question that also needs a registration lookup) that the
 // analyzer did not think to declare. The declared kind is always
 // represented at least once in the output.
-func extractEvidenceRequirementsWithHint(question string, entities []string, declaredKind string) []EvidenceRequirement {
-	declaredKind = strings.ToLower(strings.TrimSpace(declaredKind))
-	if declaredKind == "" || declaredKind == "unknown" {
+func extractEvidenceRequirementsWithHint(question string, entities []string, declaredKindRaw string) []EvidenceRequirement {
+	declaredKind := types.NormalizeRequirementKind(declaredKindRaw)
+	if declaredKind == types.ReqUnknown {
 		return extractEvidenceRequirementsWithEntities(question, entities)
 	}
 
@@ -91,23 +95,10 @@ func extractEvidenceRequirementsWithHint(question string, entities []string, dec
 	// the keyword tables don't cover.
 	reason := fmt.Sprintf("analyzer declared question_kind=%s", declaredKind)
 	switch declaredKind {
-	case "registration":
-		// Registration requirements are per-entity in the keyword
-		// path; match that convention so downstream
+	case types.ReqRegistration, types.ReqReturnValue:
+		// Registration and return_value requirements are per-entity
+		// in the keyword path; match that convention so downstream
 		// checkRequirementSatisfaction works uniformly.
-		if len(entities) == 0 {
-			reqs = append(reqs, EvidenceRequirement{
-				Kind: declaredKind, Reason: reason, Status: "unsatisfied",
-			})
-		} else {
-			for _, ent := range entities {
-				reqs = append(reqs, EvidenceRequirement{
-					Kind: declaredKind, Entities: []string{ent},
-					Reason: reason + " (per-entity)", Status: "unsatisfied",
-				})
-			}
-		}
-	case "return_value":
 		if len(entities) == 0 {
 			reqs = append(reqs, EvidenceRequirement{
 				Kind: declaredKind, Reason: reason, Status: "unsatisfied",
@@ -156,8 +147,8 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 
 	var reqs []EvidenceRequirement
 	seen := make(map[string]bool)
-	add := func(kind, reason string, ents ...string) {
-		key := kind + ":" + strings.Join(ents, ",")
+	add := func(kind types.RequirementKind, reason string, ents ...string) {
+		key := string(kind) + ":" + strings.Join(ents, ",")
 		if seen[key] {
 			return
 		}
@@ -187,13 +178,13 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 		"all instances of", "enumerate",
 	} {
 		if strings.Contains(lower, kw) {
-			add("enumeration", fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
+			add(types.ReqEnumeration, fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
 			break
 		}
 	}
 	for _, kw := range []string{"哪些", "多少", "列出", "哪几", "有几个", "分别"} {
 		if strings.Contains(question, kw) {
-			add("enumeration", fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
+			add(types.ReqEnumeration, fmt.Sprintf("question asks to enumerate (%s)", kw), entities...)
 			break
 		}
 	}
@@ -213,11 +204,11 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 		}
 	}
 	if isCallChain && len(entities) >= 2 {
-		add("call_chain",
+		add(types.ReqCallChain,
 			fmt.Sprintf("need to trace how %s invokes/calls %s", entities[0], entities[1]),
 			entities...)
 	} else if isCallChain && len(entities) >= 1 {
-		add("call_chain",
+		add(types.ReqCallChain,
 			fmt.Sprintf("need to trace call relationships of %s", entities[0]),
 			entities...)
 	}
@@ -244,7 +235,7 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 	// Call chains imply registration: "which X can call Y?" requires knowing what Y is registered
 	if isCallChain || isRegistration {
 		for _, ent := range entities {
-			add("registration",
+			add(types.ReqRegistration,
 				fmt.Sprintf("need to find where %s is registered/bound", ent),
 				ent)
 		}
@@ -266,7 +257,7 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 	} {
 		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
 			for _, ent := range entities {
-				add("return_value",
+				add(types.ReqReturnValue,
 					fmt.Sprintf("need concrete return values from %s (for matching/identity)", ent),
 					ent)
 			}
@@ -277,7 +268,7 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 	// --- Config mapping: "config", "configured", "配置" ---
 	for _, kw := range []string{"config", "configured", "configuration", "配置", "yaml", "json"} {
 		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
-			add("config_mapping", "need to trace config keys to runtime behavior", entities...)
+			add(types.ReqConfigMapping, "need to trace config keys to runtime behavior", entities...)
 			break
 		}
 	}
@@ -295,7 +286,7 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 		"条件", "什么时候", "何时",
 	} {
 		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
-			add("conditional", "need to resolve conditions under which behavior occurs", entities...)
+			add(types.ReqConditional, "need to resolve conditions under which behavior occurs", entities...)
 			break
 		}
 	}
@@ -317,7 +308,7 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 		"walk through", "walkthrough",
 	} {
 		if strings.Contains(lower, kw) {
-			add("mechanism", fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
+			add(types.ReqMechanism, fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
 			break
 		}
 	}
@@ -327,7 +318,7 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 		"原理", "机制", "工作流程", "步骤", "过程",
 	} {
 		if strings.Contains(question, kw) {
-			add("mechanism", fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
+			add(types.ReqMechanism, fmt.Sprintf("need to trace mechanism (%s)", kw), entities...)
 			break
 		}
 	}
@@ -350,7 +341,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			continue
 		}
 		switch req.Kind {
-		case "enumeration":
+		case types.ReqEnumeration:
 			// Satisfied if notes contain a list of items (multiple [DIRECT]/[REGISTRATION] tags)
 			count := countEvidenceTags(notesJoined, []string{"[direct]", "[registration]"})
 			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceDirect, types.EvidenceRegistration)
@@ -360,7 +351,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 				req.Status = "partial"
 			}
 
-		case "call_chain":
+		case types.ReqCallChain:
 			// Satisfied if notes describe call relationships between entities
 			hasRelationship := countEvidenceTags(notesJoined, []string{"[relationship]", "[mechanism]"}) > 0
 			hasRelationship = hasRelationship || countEvidenceByKinds(evidence, req.Entities, types.EvidenceRelationship) > 0
@@ -377,7 +368,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 				req.Status = "partial"
 			}
 
-		case "registration":
+		case types.ReqRegistration:
 			// Satisfied if notes contain a [REGISTRATION] tag mentioning the entity,
 			// AND the registration mentions a SPECIFIC value (not just the interface).
 			for _, ent := range req.Entities {
@@ -430,7 +421,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 				}
 			}
 
-		case "return_value":
+		case types.ReqReturnValue:
 			// Satisfied if concrete values exist for the entity
 			for _, ent := range req.Entities {
 				entLower := normalizeForMatch(ent)
@@ -454,7 +445,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 				}
 			}
 
-		case "config_mapping":
+		case types.ReqConfigMapping:
 			count := countEvidenceByKinds(evidence, req.Entities, types.EvidenceConcrete, types.EvidenceMechanism)
 			if count >= 2 {
 				req.Status = "satisfied"
@@ -462,14 +453,14 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 				req.Status = "partial"
 			}
 
-		case "conditional":
+		case types.ReqConditional:
 			count := countEvidenceTags(notesJoined, []string{"[conditional]"})
 			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceConditional)
 			if count >= 1 {
 				req.Status = "satisfied"
 			}
 
-		case "mechanism":
+		case types.ReqMechanism:
 			// Mechanism requirements need either LLM-tagged [MECHANISM]
 			// notes or structured EvidenceMechanism items mentioning the
 			// requirement entities. Reuses the same per-Kind counter as
@@ -791,7 +782,7 @@ func ermAutoSatisfyUnresolvable(reqs []EvidenceRequirement, graph *repomap.Graph
 			continue
 		}
 		// Layer 1: registration-specific gate.
-		if req.Kind == "registration" && len(req.Entities) > 0 {
+		if req.Kind == types.ReqRegistration && len(req.Entities) > 0 {
 			if !hasConcreteRegistrationTarget(req.Entities, graph) {
 				req.Status = "satisfied"
 				continue
@@ -894,14 +885,14 @@ func buildAnswerWhitelist(reqs []EvidenceRequirement) answerPredicateWhitelist {
 	var w answerPredicateWhitelist
 	for _, r := range reqs {
 		switch r.Kind {
-		case "conditional":
+		case types.ReqConditional:
 			w.allowConditional = true
-		case "call_chain":
+		case types.ReqCallChain:
 			w.allowRelationshipCall = true
-		case "config_mapping":
+		case types.ReqConfigMapping:
 			w.allowMechanismConfig = true
 			w.allowConditional = true
-		case "mechanism":
+		case types.ReqMechanism:
 			// Reserved for T2.1 (mechanism Kind). Opens broad mechanism
 			// + relationship slots so the future mechanism scanner has
 			// a delivery channel into Ground Truth.
@@ -1247,10 +1238,10 @@ type terminalPredicate func(chainText string, graph *repomap.Graph) bool
 // verified by other means. Keeping this map small is deliberate:
 // predicates are only for kinds whose answer is a SINGLE concrete
 // symbol or literal.
-var terminalPredicateByKind = map[string]terminalPredicate{
-	"registration": terminalIsConcreteSymbolRef,
-	"call_chain":   terminalIsConcreteSymbolRef,
-	"return_value": terminalIsConcreteLiteral,
+var terminalPredicateByKind = map[types.RequirementKind]terminalPredicate{
+	types.ReqRegistration: terminalIsConcreteSymbolRef,
+	types.ReqCallChain:    terminalIsConcreteSymbolRef,
+	types.ReqReturnValue:  terminalIsConcreteLiteral,
 }
 
 // originPredicateByKind maps ERM Kind to an ORIGIN predicate on the
@@ -1272,8 +1263,8 @@ var terminalPredicateByKind = map[string]terminalPredicate{
 // overlap while the correct `RegisterDefaultSubAgents → SubExplorer`
 // chain only matches once), and fed BaseAgent / ProposeSubAgents
 // into L0-2's AnswerSymbols list.
-var originPredicateByKind = map[string]terminalPredicate{
-	"registration": chainOriginIsRegistrationLinkage,
+var originPredicateByKind = map[types.RequirementKind]terminalPredicate{
+	types.ReqRegistration: chainOriginIsRegistrationLinkage,
 }
 
 // chainOriginIsRegistrationLinkage reports whether a chain's leftmost
@@ -1374,11 +1365,11 @@ func originPredicatesFor(reqs []EvidenceRequirement) []terminalPredicate {
 
 // predicatesFor is the shared lookup helper for any Kind → predicate
 // table.
-func predicatesFor(reqs []EvidenceRequirement, table map[string]terminalPredicate) []terminalPredicate {
+func predicatesFor(reqs []EvidenceRequirement, table map[types.RequirementKind]terminalPredicate) []terminalPredicate {
 	if len(reqs) == 0 || len(table) == 0 {
 		return nil
 	}
-	seen := make(map[string]bool, len(table))
+	seen := make(map[types.RequirementKind]bool, len(table))
 	var out []terminalPredicate
 	for _, r := range reqs {
 		if seen[r.Kind] {

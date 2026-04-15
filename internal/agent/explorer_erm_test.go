@@ -13,7 +13,7 @@ func TestExtractEvidenceRequirements_ChineseSubagent(t *testing.T) {
 
 	kinds := make(map[string]bool)
 	for _, r := range reqs {
-		kinds[r.Kind] = true
+		kinds[string(r.Kind)] = true
 	}
 
 	if !kinds["enumeration"] {
@@ -35,7 +35,7 @@ func TestExtractEvidenceRequirements_EnglishConfig(t *testing.T) {
 
 	kinds := make(map[string]bool)
 	for _, r := range reqs {
-		kinds[r.Kind] = true
+		kinds[string(r.Kind)] = true
 	}
 
 	if !kinds["config_mapping"] {

@@ -67,19 +67,48 @@ var analysisComplexities = []AnalysisEnumChoice{
 	{string(types.ComplexityComplex), "cross-component, 6+ files"},
 }
 
-// analysisQuestionKinds is the canonical question_kind enum. Unlike
-// the others, question_kind has no typed Go constant — it is the ERM
-// predicate selector consumed downstream as a raw string. This table
-// is the only place the values live.
-var analysisQuestionKinds = []AnalysisEnumChoice{
-	{"registration", "\"which/how many X register/bind Y\", \"X 是在哪注册的\""},
-	{"mechanism", "\"how does X work\", \"explain the process of X\", \"X 怎么实现\""},
-	{"return_value", "\"what does X return\", \"X.Name() 是什么\""},
-	{"conditional", "\"when does X fire\", \"under what condition\", \"什么时候\""},
-	{"config_mapping", "\"what does config key K control\""},
-	{"enumeration", "\"list all X\", \"count of X\""},
-	{"call_chain", "\"which X calls Y\", \"从 A 到 B 怎么调用的\""},
-	{"unknown", "genuinely ambiguous"},
+// analysisQuestionKinds is the canonical question_kind enum. Values
+// are sourced from types.AllRequirementKinds() so adding a new
+// question kind requires editing internal/types/requirement_kind.go
+// and nothing else — the skill prompt, the emit_analysis schema, and
+// the ERM predicate selector all pick up the change automatically.
+// Descriptions live here because they are user-facing prompt copy.
+//
+// The table is built once at package init; the mutable rendering is
+// done through AnalysisQuestionKindChoices()/Values() accessors.
+var analysisQuestionKinds = buildAnalysisQuestionKinds()
+
+// questionKindDescriptions pairs each RequirementKind with the
+// prompt-copy string the LLM sees. Kinds without an entry fall back
+// to string(kind) for the description. Keeping descriptions here
+// (not in internal/types) avoids leaking prompt copy into the type
+// definition.
+var questionKindDescriptions = map[types.RequirementKind]string{
+	types.ReqRegistration:  "\"which/how many X register/bind Y\", \"X 是在哪注册的\"",
+	types.ReqMechanism:     "\"how does X work\", \"explain the process of X\", \"X 怎么实现\"",
+	types.ReqReturnValue:   "\"what does X return\", \"X.Name() 是什么\"",
+	types.ReqConditional:   "\"when does X fire\", \"under what condition\", \"什么时候\"",
+	types.ReqConfigMapping: "\"what does config key K control\"",
+	types.ReqEnumeration:   "\"list all X\", \"count of X\"",
+	types.ReqCallChain:     "\"which X calls Y\", \"从 A 到 B 怎么调用的\"",
+}
+
+func buildAnalysisQuestionKinds() []AnalysisEnumChoice {
+	kinds := types.AllRequirementKinds()
+	out := make([]AnalysisEnumChoice, 0, len(kinds)+1)
+	for _, k := range kinds {
+		desc, ok := questionKindDescriptions[k]
+		if !ok {
+			desc = string(k)
+		}
+		out = append(out, AnalysisEnumChoice{Value: string(k), Desc: desc})
+	}
+	// "unknown" is the analyzer-facing fallback when the LLM cannot
+	// classify. It is NOT a RequirementKind value (ReqUnknown is the
+	// zero value and has empty string form), so we append it here as
+	// a rendering-only tail entry.
+	out = append(out, AnalysisEnumChoice{Value: "unknown", Desc: "genuinely ambiguous"})
+	return out
 }
 
 // analysisAnswerShapes is the canonical answer_shape enum. Values

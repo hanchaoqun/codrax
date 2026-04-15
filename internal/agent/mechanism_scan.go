@@ -67,7 +67,7 @@ func scanMechanismEvidence(reqs []EvidenceRequirement, graph *repomap.Graph, rep
 	// dataflow lowering for call_chain/conditional/config_mapping).
 	var mechReqs []EvidenceRequirement
 	for _, r := range reqs {
-		if r.Kind == "mechanism" {
+		if r.Kind == types.ReqMechanism {
 			mechReqs = append(mechReqs, r)
 		}
 	}

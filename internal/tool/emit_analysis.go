@@ -353,24 +353,16 @@ func normalizeComplexity(s string) types.Complexity {
 // normalizeQuestionKind keeps the legacy ERM enum strings stable
 // across the v3 migration so downstream ERM predicate whitelisting
 // does not need to change. Unknown values fall back to "unknown".
+//
+// Delegates to types.NormalizeRequirementKind so the synonym table
+// lives next to the typed enum — historically this function had its
+// own switch table that drifted apart from the ERM consumer side.
 func normalizeQuestionKind(s string) string {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "registration", "register":
-		return "registration"
-	case "mechanism", "process", "flow":
-		return "mechanism"
-	case "return_value", "return-value", "return", "value_of":
-		return "return_value"
-	case "conditional", "condition":
-		return "conditional"
-	case "config_mapping", "config-mapping":
-		return "config_mapping"
-	case "enumeration", "enumerate", "list", "count":
-		return "enumeration"
-	case "call_chain", "call-chain", "callchain", "calls":
-		return "call_chain"
+	k := types.NormalizeRequirementKind(s)
+	if k == types.ReqUnknown {
+		return "unknown"
 	}
-	return "unknown"
+	return string(k)
 }
 
 // normalizeAnswerShape maps LLM-emitted answer_shape strings to the
