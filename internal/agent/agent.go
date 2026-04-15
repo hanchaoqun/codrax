@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	agentctx "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
@@ -116,6 +115,15 @@ type Dependencies struct {
 	SubAgents     *SubAgentRegistry
 	MaxIterations int
 	Emit          render.EventEmitter
+
+	// PromptAssembler turns an AgentContext + Skill config into the
+	// initial llm.Message slice for the ReAct loop. Optional: a nil
+	// value means "use DefaultPromptAssembler()" and is the common
+	// production path. Tests and specialized callers set a custom
+	// implementation to capture the assembled PromptContext or to
+	// render messages in a non-default encoding. See
+	// internal/agent/prompt_assembler.go for the contract.
+	PromptAssembler PromptAssembler
 }
 
 // BaseAgent provides the common ReAct loop implementation.
@@ -213,15 +221,25 @@ func NewBaseAgent(name types.AgentName, deps *Dependencies, eval Evaluator) *Bas
 	if emit == nil {
 		emit = render.NopEmitter
 	}
+	// A nil PromptAssembler is the common production path — tests are
+	// the only callers that install a custom implementation. The
+	// fallback keeps NewBaseAgent zero-config for every existing
+	// caller (cmd/root.go, eval harnesses, unit tests) while still
+	// letting the new extension point override the default.
+	assembler := deps.PromptAssembler
+	if assembler == nil {
+		assembler = DefaultPromptAssembler()
+	}
 	return &BaseAgent{
 		name: name,
 		deps: &Dependencies{
-			LLM:           deps.LLM,
-			Tools:         deps.Tools,
-			MCPServers:    deps.MCPServers,
-			SubAgents:     deps.SubAgents,
-			MaxIterations: maxIter,
-			Emit:          emit,
+			LLM:             deps.LLM,
+			Tools:           deps.Tools,
+			MCPServers:      deps.MCPServers,
+			SubAgents:       deps.SubAgents,
+			MaxIterations:   maxIter,
+			Emit:            emit,
+			PromptAssembler: assembler,
 		},
 		eval: eval,
 	}
@@ -656,28 +674,35 @@ func (b *BaseAgent) buildToolSchemas(sk *skill.Config) []llm.ToolSchema {
 	return schemas
 }
 
+// buildInitialMessages is the sole entry point for producing the
+// ReAct loop's initial message stream. It owns the ORCHESTRATION
+// (assemble → render → append) and nothing else; every business
+// rule lives in one of the three primitives below:
+//
+//  1. PromptAssembler.AssembleContext — builds the structured
+//     PromptContext from ctx + skill. Pinned by the prompt-shape
+//     regression tests in internal/context/builder_test.go.
+//  2. PromptAssembler.RenderMessages — flattens the PromptContext
+//     into llm.Messages. Owns the context.Message → llm.Message
+//     conversion so a future schema change to llm.Message does not
+//     ripple into every call site.
+//  3. AppendDynamicInstruction — appends the evaluator's per-
+//     dispatch supplement when non-empty. Kept as a free function
+//     so the Skill/Evaluator boundary contract documented in
+//     docs/architecture.md §3.3 stays grep-visible at the site
+//     where the supplement actually enters the stream.
+//
+// The function intentionally has no control flow beyond the three
+// sequential calls: every branch, length check, and type conversion
+// belongs to one of the primitives. A future extension that wants to
+// (for example) inject a retry hint between render and append simply
+// adds a fourth step here — tests that target the individual
+// primitives keep passing because this method never implements
+// rules on its own.
 func (b *BaseAgent) buildInitialMessages(ctx *types.AgentContext, sk *skill.Config) []llm.Message {
-	// Build full prompt context from agent context + skill config
-	pc := agentctx.BuildPromptContext(ctx, sk)
-	ctxMsgs := agentctx.ToMessages(pc)
-
-	// Convert context.Message to llm.Message
-	var messages []llm.Message
-	for _, m := range ctxMsgs {
-		messages = append(messages, llm.Message{
-			Role:    m.Role,
-			Content: m.Content,
-		})
-	}
-
-	// Append evaluator-specific instruction if provided
-	if instruction := b.eval.BuildInitialPrompt(ctx, sk); instruction != "" {
-		messages = append(messages, llm.Message{
-			Role:    "user",
-			Content: instruction,
-		})
-	}
-
+	pc := b.deps.PromptAssembler.AssembleContext(ctx, sk)
+	messages := b.deps.PromptAssembler.RenderMessages(pc)
+	messages = AppendDynamicInstruction(messages, b.eval, ctx, sk)
 	return messages
 }
 
