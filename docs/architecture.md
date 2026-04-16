@@ -151,6 +151,10 @@ stateDiagram-v2
    - **criterion-aware window schedule**：`readyExplorerWindow` 返回两个列表：`ready`（所有 `EntryConditions`（`[]Criterion`，由 `criterion.EvalAll` 运行时求值）满足的 pending/requeued 非 finalize 非 counterfactual 节点）和 `blocked`（entry condition 未满足的节点——在 retry hint 中暴露阻塞的 criterion 诊断）。Ready 节点合并成**一次** `explore` dispatch。每轮开始前 `stopcond.ShouldStop`（`internal/analysis/stopcond`）评估 `EvidencePlan.StopConditions`（每个 `StopCondition{Kind,Expr}` 按 Criterion 求值、OR 语义），命中则 `forceCloseExploreWindow` 直接跳到 finalize。编排器在 `runTaskGraph` 入口从 `EvidencePlan.NodeBudgetHints` 安装 `ExploreBudget` 到 `MutableState`；explorer 的 `BaseAgent.executeTool` 在 `StageExplore` 中每次工具调用前检查 `ctx.Mutable.BudgetRemaining(canonicalToolName)`，超出 per-tool 或 overall 上限时返回失败 `ToolResult` 阻断调用。
    - **StageExtract** 在 explore window 完成后作为 Turn B 分派。dispatch 后 `markSuccessCriteriaFailed` 评估每个 window 节点的 `SuccessCriteria`（`[]Criterion`）——通过的节点标 done，未通过的标 requeued。若失败的是 **validate** 节点，额外触发 `requeueValidationTargets`：沿 `EdgeValidationFeedback` 边只 requeue 其上游 evidence 节点（细粒度回溯，非整个 window）。extractor 的 `ParseOutput` 还会对每条 hypothesis 调用 `criterion.Eval`：`RequiredEvidence` 全部满足但无 LLM verdict → 注入 `HypInconclusive`；`FalsificationCondition` 满足 → 注入 `HypRejected`（覆盖 LLM verdict）。
    - **StageFinalize** 仅在 `firstFinalizeReadyMerged` 返回非 nil 时分派（所有非 finalize、非 counterfactual 节点都 `done`）。
+   - **investigation_complete 策略**（`agent_investigation_complete_policy`）：当 LLM 调用了 `emit_investigation_complete` 但 DAG 节点的 `SuccessCriteria`（例如 `evidence_count >= 3`）数量上不满足时，三种策略可选：
+     - `soft`（默认）：将 `InvestigationComplete=true` 注入 `criterion.Env`，`evalEvidenceCount` 将阈值降至 `>= 1`。只要有 1 条证据即视为通过，兼顾 LLM 判断和最低质量底线。
+     - `override`：跳过所有 SuccessCriteria 评估，直接 `markDone`。最快，但质量全靠 finalize 的 AnswerContract checker 兜底。
+     - `strict`：忽略 investigation_complete 信号，模板声明的阈值无条件执行。历史行为（2026-04-16 之前的默认）。
    - **Contract check**：finalize 返回后跑 `contract.Check`（`AnswerContract.AcceptanceTests` 是 `[]Criterion` 但由 `contract/checker.go` 的本地 switch 评估，非 `criterion.Eval`）。不通过且 retry budget 未耗尽 → requeue finalize 节点和所有 done 的 explorer 节点，记录一次 cross-window retry，把违规诊断塞进下一轮的 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回（P0.2 模式）。
 3. Finalize 把答案写进 `Mutable.Result()`（通过 `recordTaskFinalize`）。`Run()` 返回 `BusContext`，`main.go` 渲染结果。
 
@@ -950,7 +954,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 | `pipeline_*` | 3 | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算 |
 | `gate_*` | 5 | `gate_coverage_min` / `gate_coverage_weight_symbol` / `gate_coverage_weight_config` / `gate_coverage_weight_concept` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
 | `explore_*` | 16 | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize 等）— explorer 行为启发式 |
-| `agent_*` | 8 | `agent_max_iterations`(20) / `agent_max_tool_history_bytes`(150KB) / `agent_loop_min_inject_interval`(3) / `agent_loop_max_continuations`(5) / `agent_loop_max_midloop_injects`(6) / `agent_loop_idle_stop_threshold`(2) / `agent_finalizer_max_correction_retries`(2) / `agent_extractor_max_correction_retries`(1) — per-agent 迭代/重试/LoopPolicy 限制 |
+| `agent_*` | 9 | `agent_max_iterations`(20) / `agent_max_tool_history_bytes`(150KB) / `agent_loop_min_inject_interval`(3) / `agent_loop_max_continuations`(5) / `agent_loop_max_midloop_injects`(6) / `agent_loop_idle_stop_threshold`(2) / `agent_finalizer_max_correction_retries`(2) / `agent_extractor_max_correction_retries`(1) / `agent_investigation_complete_policy`(soft) — per-agent 迭代/重试/LoopPolicy 限制 + investigation_complete 策略 |
 | `memory_*` | 6 | `memory_max_recent_turns`(6) / `memory_max_recent_bytes`(20KB) / `memory_max_turn_body_bytes`(64KB) / `memory_max_build_context_matches`(3) / `memory_max_inlined_turn_bytes`(8KB) / `memory_max_build_context_total_bytes`(32KB) — REPL 多轮记忆存储限制 |
 
 ### 优先级（precedence）

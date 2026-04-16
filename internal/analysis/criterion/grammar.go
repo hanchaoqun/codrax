@@ -110,6 +110,10 @@ type Env struct {
 	// ReactItersUsed is the per-task explore-window iteration count
 	// the scheduler has already spent. Consumed by budget_exhausted.
 	ReactItersUsed int
+	// InvestigationComplete is true when the LLM explicitly called
+	// emit_investigation_complete. Under the "soft" policy, this
+	// lowers evidence_count thresholds to >=1.
+	InvestigationComplete bool
 }
 
 // Result is the outcome of evaluating a single Criterion.

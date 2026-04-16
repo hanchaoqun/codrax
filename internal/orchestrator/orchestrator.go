@@ -372,7 +372,35 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				// validate failures trigger fine-grained
 				// requeueValidationTargets, others just mark the
 				// node requeued.
+				icComplete := o.busCtx.Mutable != nil && o.busCtx.Mutable.IsInvestigationComplete()
+				icPolicy := o.settings.Agent.InvestigationCompletePolicy
+
+				// "override" policy: when the LLM called
+				// emit_investigation_complete, skip all criteria and
+				// mark every explore-type node done immediately. The
+				// AnswerContract checker at finalize is the sole quality
+				// gate in this mode.
+				if icComplete && icPolicy == types.ICPolicyOverride {
+					for _, n := range window {
+						state.markDone(n.ID)
+					}
+					o.emit(render.Event{
+						Kind:      render.EventAgentReasoning,
+						Timestamp: time.Now(),
+						Agent:     "orchestrator",
+						Reasoning: "investigation_complete override: all explore nodes marked done (policy=override).",
+					})
+					o.runAutoVerdicts()
+					o.drainHypothesisVerdicts()
+					continue
+				}
+
 				envAfter := buildEnv("", 0)
+				// "soft" policy: inject the completion signal into the
+				// criterion env so evidence_count lowers to >=1.
+				if icComplete && icPolicy == types.ICPolicySoft {
+					envAfter.InvestigationComplete = true
+				}
 				var valFailed *types.TaskNode
 				for _, n := range window {
 					ok, failed := state.markSuccessCriteriaFailed(n, envAfter)

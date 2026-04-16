@@ -138,8 +138,9 @@ type RuntimeSettings struct {
 	AgentLoopMaxContinuations         *int `yaml:"agent_loop_max_continuations"`
 	AgentLoopMaxMidLoopInjects        *int `yaml:"agent_loop_max_midloop_injects"`
 	AgentLoopIdleStopThreshold        *int `yaml:"agent_loop_idle_stop_threshold"`
-	AgentFinalizerMaxCorrectionRetries *int `yaml:"agent_finalizer_max_correction_retries"`
-	AgentExtractorMaxCorrectionRetries *int `yaml:"agent_extractor_max_correction_retries"`
+	AgentFinalizerMaxCorrectionRetries  *int    `yaml:"agent_finalizer_max_correction_retries"`
+	AgentExtractorMaxCorrectionRetries *int    `yaml:"agent_extractor_max_correction_retries"`
+	AgentInvestigationCompletePolicy   *string `yaml:"agent_investigation_complete_policy"`
 
 	// Memory store limits. All optional; nil → code default in
 	// types.DefaultMemorySettings().

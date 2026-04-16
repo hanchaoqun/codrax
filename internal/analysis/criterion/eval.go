@@ -291,6 +291,16 @@ func evalEvidenceCount(expr string, env Env) Result {
 		return Result{Satisfied: false, Detail: fmt.Sprintf("malformed comparison %q", expr)}
 	}
 	n := len(env.Evidence)
+	// Under the "soft" investigation-complete policy, the LLM's
+	// explicit completion signal lowers the threshold to 1. The LLM
+	// judged the evidence sufficient; we only insist on at least 1
+	// item so we're not finalizing on an empty set.
+	if env.InvestigationComplete && threshold > 1 && n >= 1 {
+		return Result{
+			Satisfied: true,
+			Detail:    fmt.Sprintf("|evidence|=%d (investigation_complete override, original threshold %s %d)", n, op, threshold),
+		}
+	}
 	return Result{
 		Satisfied: compareInt(n, op, threshold),
 		Detail:    fmt.Sprintf("|evidence|=%d %s %d", n, op, threshold),

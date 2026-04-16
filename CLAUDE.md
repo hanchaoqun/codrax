@@ -218,6 +218,7 @@ The pipeline topology (stages + agents + skills) is hardcoded in `internal/orche
 | `agent_loop_idle_stop_threshold` | 2 | Consecutive idle iterations before LoopPolicy force-stops the loop |
 | `agent_finalizer_max_correction_retries` | 2 | Soft-stop correction retries when emit_answer_document is missing |
 | `agent_extractor_max_correction_retries` | 1 | Soft-stop correction retries when emit_answer_symbol is missing on list_of_symbols questions |
+| `agent_investigation_complete_policy` | `soft` | How the DAG scheduler treats explore nodes when emit_investigation_complete was called. `soft` = lower evidence_count threshold to >=1; `override` = skip criteria entirely, mark all explore nodes done; `strict` = ignore the signal, enforce template thresholds unconditionally |
 
 **Precedence** for the `memory_*` keys (lowest wins last): code default in `types.DefaultMemorySettings()` → `codrax.yaml` `memory_*` keys. No CLI overrides. These keys tune the multi-turn REPL memory store's buffer sizes and context-building limits. Zero or omitted means "use code default". The full list:
 

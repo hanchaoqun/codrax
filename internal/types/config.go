@@ -66,7 +66,35 @@ type AgentSettings struct {
 	// emit_answer_symbol is missing on list_of_symbols questions.
 	// Default 1.
 	ExtractorMaxCorrectionRetries int `yaml:"extractor_max_correction_retries"`
+
+	// InvestigationCompletePolicy controls how the DAG scheduler treats
+	// nodes when the LLM has called emit_investigation_complete.
+	//
+	//   "soft"     (default) — inject InvestigationComplete=true into
+	//              criterion.Env so evidence_count thresholds drop to
+	//              >=1 instead of the template's declared floor. The
+	//              node still needs at least 1 evidence item.
+	//
+	//   "override" — skip SuccessCriteria evaluation entirely for
+	//              explore-type nodes and mark them done. Fastest, but
+	//              relies entirely on the AnswerContract checker at
+	//              finalize for quality assurance.
+	//
+	//   "strict"   — ignore emit_investigation_complete at the DAG
+	//              level; the template's declared thresholds are
+	//              enforced unconditionally. Historical behaviour
+	//              before this config existed.
+	InvestigationCompletePolicy string `yaml:"investigation_complete_policy"`
 }
+
+const (
+	// ICPolicySoft is the default: lower evidence_count threshold to 1.
+	ICPolicySoft = "soft"
+	// ICPolicyOverride skips criteria entirely.
+	ICPolicyOverride = "override"
+	// ICPolicyStrict ignores investigation_complete at DAG level.
+	ICPolicyStrict = "strict"
+)
 
 // DefaultAgentSettings returns the code defaults for all agent limits.
 func DefaultAgentSettings() AgentSettings {
@@ -79,6 +107,7 @@ func DefaultAgentSettings() AgentSettings {
 		LoopIdleStopThreshold:         2,
 		FinalizerMaxCorrectionRetries: 2,
 		ExtractorMaxCorrectionRetries: 1,
+		InvestigationCompletePolicy:   ICPolicySoft,
 	}
 }
 
@@ -109,6 +138,12 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	}
 	if s.ExtractorMaxCorrectionRetries == 0 {
 		s.ExtractorMaxCorrectionRetries = d.ExtractorMaxCorrectionRetries
+	}
+	switch s.InvestigationCompletePolicy {
+	case ICPolicySoft, ICPolicyOverride, ICPolicyStrict:
+		// valid
+	default:
+		s.InvestigationCompletePolicy = d.InvestigationCompletePolicy
 	}
 	return s
 }

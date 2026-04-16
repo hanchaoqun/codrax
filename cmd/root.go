@@ -526,6 +526,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentExtractorMaxCorrectionRetries != nil {
 			a.ExtractorMaxCorrectionRetries = *rs.AgentExtractorMaxCorrectionRetries
 		}
+		if rs.AgentInvestigationCompletePolicy != nil {
+			a.InvestigationCompletePolicy = *rs.AgentInvestigationCompletePolicy
+		}
 	}
 	pipelineSettings.Agent = types.ResolvedAgentSettings(pipelineSettings.Agent)
 
