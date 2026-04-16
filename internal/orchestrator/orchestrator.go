@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -380,6 +381,17 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 						continue
 					}
 					logging.Info("[orchestrator] node %s success criteria failed: %+v", n.ID, failed)
+					// Surface the criterion failure to the user.
+					var details []string
+					for _, f := range failed {
+						details = append(details, fmt.Sprintf("%s %s: %s", f.Kind, f.Expr, f.Detail))
+					}
+					o.emit(render.Event{
+						Kind:      render.EventAgentReasoning,
+						Timestamp: time.Now(),
+						Agent:     "orchestrator",
+						Reasoning: fmt.Sprintf("⟳ Node %s success criteria not met (%s) — requeuing.", n.ID, strings.Join(details, "; ")),
+					})
 					if n.Type == types.NodeValidate {
 						valFailed = n
 					} else {
