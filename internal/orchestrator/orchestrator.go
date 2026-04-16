@@ -398,17 +398,12 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 					}
 				}
 
-				// Turn B extract dispatch (unconditional after a
-				// successful explore dispatch — criterion failures
-				// may still produce partial evidence worth draining).
-				o.busCtx.PipelineStage = types.StageExtract
-				o.busCtx.TaskState.Stage = types.StageExtract
-				stepsUsed++
-				if _, exDispatchErr := o.dispatchStage(types.StageExtract); exDispatchErr != nil {
-					logging.Warning("[orchestrator] DAG extract dispatch failed (continuing): %v", exDispatchErr)
-				} else {
-					o.drainHypothesisVerdicts()
-				}
+				// Lightweight auto-verdict after each explore window:
+				// evaluate criterion-based hypothesis verdicts without
+				// an LLM call. The full extract dispatch (with LLM)
+				// runs once just before finalize.
+				o.runAutoVerdicts()
+				o.drainHypothesisVerdicts()
 			}
 			continue
 		}
@@ -425,6 +420,19 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				logging.Warning("[orchestrator] DAG scheduler stalled; forcing finalize")
 			}
 			break
+		}
+
+		// Full Turn B extract dispatch — runs once, just before
+		// finalize, with complete accumulated evidence from all
+		// explore windows. Answer-symbol selection + LLM hypothesis
+		// verdicts happen here.
+		o.busCtx.PipelineStage = types.StageExtract
+		o.busCtx.TaskState.Stage = types.StageExtract
+		stepsUsed++
+		if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+			logging.Warning("[orchestrator] pre-finalize extract dispatch failed (continuing): %v", exErr)
+		} else {
+			o.drainHypothesisVerdicts()
 		}
 
 		state.markRunning(fin.ID)
@@ -491,6 +499,17 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		// Force one finalize dispatch so the task always terminates
 		// with a Result.
 		logging.Warning("[orchestrator] DAG run produced no finalize output; forcing finalize")
+
+		// Extract before forced finalize.
+		o.busCtx.PipelineStage = types.StageExtract
+		o.busCtx.TaskState.Stage = types.StageExtract
+		stepsUsed++
+		if _, exErr := o.dispatchStage(types.StageExtract); exErr != nil {
+			logging.Warning("[orchestrator] pre-forced-finalize extract dispatch failed (continuing): %v", exErr)
+		} else {
+			o.drainHypothesisVerdicts()
+		}
+
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
 		stepsUsed++
@@ -564,6 +583,69 @@ func (o *Orchestrator) drainHypothesisVerdicts() {
 	}
 	logging.Debug("[orchestrator] applied %d/%d hypothesis verdicts to IR; buffer retained for finalizer rendering",
 		applied, len(verdicts))
+}
+
+// runAutoVerdicts evaluates criterion-based hypothesis auto-verdicts
+// without dispatching the extractor LLM. Falsification conditions
+// that are satisfied inject a "rejected" verdict; hypotheses whose
+// RequiredEvidence is fully satisfied (but no LLM verdict exists)
+// get an "inconclusive" verdict. This is the lightweight post-
+// explore-window hook that replaced the per-window extract dispatch
+// — the full LLM-backed extract runs once just before finalize.
+func (o *Orchestrator) runAutoVerdicts() {
+	if o.busCtx == nil || o.busCtx.AnalysisIR == nil || len(o.busCtx.AnalysisIR.HypothesisSet) == 0 {
+		return
+	}
+	mu := o.busCtx.Mutable
+	if mu == nil {
+		return
+	}
+	var taToolResults []types.ToolResult
+	if ta := mu.TurnAArtifacts(); ta != nil {
+		taToolResults = ta.ToolResults
+	}
+	env := criterion.Env{
+		IR:            o.busCtx.AnalysisIR,
+		Evidence:      o.busCtx.EvidenceItems,
+		ToolResults:   taToolResults,
+		AnswerSymbols: o.busCtx.AnswerSymbols,
+		PrescanBlob:   mu.PrescanSummaryBlob(),
+	}
+	existing := mu.EmittedHypothesisVerdicts()
+	byID := make(map[string]bool, len(existing))
+	for _, v := range existing {
+		byID[v.HypothesisID] = true
+	}
+	var injected []types.HypothesisVerdict
+	for _, h := range o.busCtx.AnalysisIR.HypothesisSet {
+		fals := criterion.Eval(h.FalsificationCondition, env)
+		if fals.Satisfied {
+			if byID[h.ID] {
+				logging.Warning("[orchestrator] auto-verdict: falsification satisfied for %s: forcing rejected", h.ID)
+			}
+			injected = append(injected, types.HypothesisVerdict{
+				HypothesisID: h.ID,
+				Status:       types.HypRejected,
+				Rationale:    "falsification condition satisfied: " + fals.Detail,
+			})
+			continue
+		}
+		if byID[h.ID] {
+			continue
+		}
+		okReq, _ := criterion.EvalAll(h.RequiredEvidence, env)
+		if okReq && len(h.RequiredEvidence) > 0 {
+			injected = append(injected, types.HypothesisVerdict{
+				HypothesisID: h.ID,
+				Status:       types.HypInconclusive,
+				Rationale:    "required evidence satisfied but no LLM verdict emitted",
+			})
+		}
+	}
+	if len(injected) > 0 {
+		mu.AppendEmittedHypothesisVerdicts(injected)
+		logging.Info("[orchestrator] injected %d auto-verdict(s) from criterion evaluation", len(injected))
+	}
 }
 
 // recordTaskFinalize copies the finalizer's FinalAnswer into

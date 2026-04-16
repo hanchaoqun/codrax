@@ -49,7 +49,16 @@ import (
 // immediately after the one-shot emit_* batch executes, instead of
 // burning an extra LLM round that ShouldStop(iteration >= 1) would
 // catch anyway.
-type extractorEvaluator struct{}
+type extractorEvaluator struct {
+	// retriesUsed tracks soft-stop correction rounds, bounded by
+	// maxExtractorCorrectionRetries. Mirrors the finalizer pattern.
+	retriesUsed int
+}
+
+// maxExtractorCorrectionRetries caps how many times the extractor
+// re-prompts the LLM when it stops without calling emit_answer_symbol
+// on a list_of_symbols question.
+const maxExtractorCorrectionRetries = 1
 
 // BuildInitialInstruction implements Evaluator.
 //
@@ -75,6 +84,7 @@ type extractorEvaluator struct{}
 // baseline (β + γ + floor), and the hypothesis set. Graceful degrade
 // on nil TurnAArtifacts is preserved.
 func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
+	e.retriesUsed = 0
 	var b strings.Builder
 
 	// -------- User question --------
@@ -218,10 +228,12 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 // ShouldStop implements Evaluator.
 //
 // Turn B is one-shot: one LLM call produces the entire emit_* batch.
-// No soft-stop, no continuation, no ReAct loop. Validation and
-// downgrade happen in ParseOutput after the loop exits.
+// Validation and downgrade happen in ParseOutput after the loop exits.
+// iteration >= 2 (not >= 1) so a failed emit_* at iter=0 gets one
+// retry: the LLM sees the error message at iter=1 and can re-emit
+// with fixed parameters; ShouldStop fires at iter=2 to cap the loop.
 func (e *extractorEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	return iteration >= 1
+	return iteration >= 2
 }
 
 // ParseOutput implements Evaluator. The extractor's two unique
@@ -393,15 +405,55 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 	return types.CompletenessLowerBound
 }
 
-// Observe implements LoopController. The extractor is one-shot: once
-// the LLM's emit_* tool batch executes, there is nothing left to do.
-// Stop immediately at PhaseMidLoop instead of burning one extra LLM
-// round.
-func (e *extractorEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
-	if obs.Phase == PhaseMidLoop && len(obs.AllToolResults) > 0 {
-		return LoopSignal{StopRequested: true, StopReason: "extractor one-shot batch complete"}
+// Observe implements LoopController.
+//
+// PhaseMidLoop: the extractor is one-shot — once the LLM's emit_*
+// tool batch executes successfully, stop immediately. When all tool
+// calls FAILED, let the LLM see the errors and retry.
+//
+// PhaseSoftStop: when the question shape is list_of_symbols and the
+// LLM stopped without calling emit_answer_symbol, inject a
+// correction hint (same pattern as the finalizer's missing
+// emit_answer_document correction). Capped at
+// maxExtractorCorrectionRetries.
+func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase == PhaseMidLoop {
+		for _, r := range obs.AllToolResults {
+			if r.Success {
+				return LoopSignal{StopRequested: true, StopReason: "extractor one-shot batch complete"}
+			}
+		}
+		return LoopSignal{}
 	}
-	return LoopSignal{}
+	if obs.Phase != PhaseSoftStop {
+		return LoopSignal{}
+	}
+	// Soft-stop correction for list_of_symbols questions: if the LLM
+	// stopped without emitting answer symbols, nudge it.
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return LoopSignal{}
+	}
+	if ctx.AnalysisIR.AnswerContract.RequiredAnswerShape != types.ShapeListOfSymbols {
+		return LoopSignal{}
+	}
+	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(syms) > 0 {
+		return LoopSignal{}
+	}
+	if e.retriesUsed >= maxExtractorCorrectionRetries {
+		logging.Debug("[extractor] soft-stop correction retries exhausted (%d); accepting response", e.retriesUsed)
+		return LoopSignal{}
+	}
+	e.retriesUsed++
+	logging.Debug("[extractor] soft-stop correction retry #%d: requesting emit_answer_symbol", e.retriesUsed)
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       fmt.Sprintf("extractor.missing_symbols.%d", e.retriesUsed),
+		Hint: "The question shape is list_of_symbols but you stopped without calling " +
+			"`emit_answer_symbol`. Review the Turn A transcript digest and call " +
+			"`emit_answer_symbol` with the symbols that answer the question. " +
+			"Also call `emit_hypothesis_verdict` for each hypothesis.",
+	}
 }
 
 // DetermineMissingPiece implements Evaluator.

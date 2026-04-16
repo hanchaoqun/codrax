@@ -132,20 +132,22 @@ func TestExtractor_BuildInitialInstructionHandlesNilCtx(t *testing.T) {
 	_ = e.BuildInitialInstruction(nil, nil) // must not panic
 }
 
-func TestExtractor_ShouldStopFiresAfterOneIteration(t *testing.T) {
-	// Turn B is fundamentally one-shot — there is no soft-stop, no
-	// continuation, no ReAct loop. ShouldStop must return true at
-	// iteration >= 1 so BaseAgent.Execute exits cleanly after the
-	// first LLM response is produced.
+func TestExtractor_ShouldStopFiresAfterRetryBudget(t *testing.T) {
+	// Turn B is one-shot with one retry: iteration 0 is the normal
+	// emit_* batch, iteration 1 allows the LLM to see a tool error
+	// and retry with fixed parameters, iteration 2 is the hard stop.
 	e := &extractorEvaluator{}
 	if e.ShouldStop(llm.Response{}, 0) {
-		t.Error("must NOT stop at iteration 0 (we need at least one LLM response)")
+		t.Error("must NOT stop at iteration 0 (first LLM call)")
 	}
-	if !e.ShouldStop(llm.Response{}, 1) {
-		t.Error("must stop at iteration 1 (one-shot policy)")
+	if e.ShouldStop(llm.Response{}, 1) {
+		t.Error("must NOT stop at iteration 1 (retry window for failed tool calls)")
+	}
+	if !e.ShouldStop(llm.Response{}, 2) {
+		t.Error("must stop at iteration 2 (retry budget exhausted)")
 	}
 	if !e.ShouldStop(llm.Response{}, 5) {
-		t.Error("must stop at any iteration >= 1")
+		t.Error("must stop at any iteration >= 2")
 	}
 }
 

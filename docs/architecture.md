@@ -186,7 +186,7 @@ stateDiagram-v2
 |-------|-------|----------|------|
 | `analyzer` | `analyze` | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`） | 1-2 轮轻证据预扫验证实体/关键词是否在仓库出现，然后一次 `emit_analysis` 调用产出 v3 `RequestModel`，`ParseOutput` 确定性组装 `AnalysisIR` |
 | `explorer`（Turn A） | `explore` | `grep` / `read_file` / `repo_map` / `list_files` / `emit_evidence` / `exec_command` | 两阶段调查（Phase 0 Breadth Scan → Phase 1 Depth Read），独占写 `EvidenceItems` / `AnswerChains` / `FlowFindings`，并把投影快照写入 `TurnAArtifacts` |
-| `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | One-shot LLM 调用，读 Turn A digest，产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO**，禁止 `emit_evidence` |
+| `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | One-shot LLM 调用（仅在 finalize 前运行一次），读 Turn A digest，产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO**，禁止 `emit_evidence`。工具参数校验失败时有一次 retry 窗口（`ShouldStop: iteration >= 2`） |
 | `finalizer` | `finalize` | `emit_answer_document` | 按 `AnswerShape` 渲染结构化答案文档，跑 contract check |
 
 #### ReAct 循环
@@ -214,6 +214,15 @@ graph TD
     - `PhaseSoftStop` — 当 LLM 返回纯文本且没有 tool 调用时调用，评估器投票"要不要把 soft-stop 变成强制继续"。
 
   评估器的 `Observe(ctx, obs) LoopSignal` 只做**检测**：返回 `Progress` / `StopRequested` / `HintRequested`+`Hint`+`HintKey`。节流（`MinInjectInterval`）、去重（按 `HintKey` 匹配上一次已接受的 hint）、预算（`MaxContinuations` / `MaxMidLoopInjects`）、idle-streak 强制停（`IdleStopThreshold`）都由 **`LoopPolicy`**（`internal/agent/loop_policy.go`）在 `loopPolicyState.Apply` 里统一执行，不再由每个评估器各自重复实现 `idleStreak` / `lastToolCount` / `midLoopLastInjectIter`。这条分层规则被 `internal/agent/loop_policy_test.go` 的 12 条场景测试锁定（dedup、throttle、mid-loop 预算 drop、soft-stop 预算 force-stop、tool-result 增长自动重置 idle、显式 stop 立即生效等）。
+
+  **Terminal-tool-call stop**：所有 4 个 agent 的 `Observe` 在 `PhaseMidLoop` 检测到各自的终态工具调用**成功**后立即返回 `StopRequested: true`，省掉一轮无意义的 LLM 调用。终态工具的失败（参数校验错误等）**不触发** stop，允许 LLM 在下一轮看到错误消息并重试。
+
+  | Agent | 终态工具 | Stop 条件 |
+  |-------|---------|-----------|
+  | analyzer | `emit_analysis` | `LastToolResult.Success == true` |
+  | explorer | `emit_investigation_complete` | `LastToolResult.Success == true` |
+  | extractor | 任何 emit_* | `AllToolResults` 中存在任何 `Success == true` |
+  | finalizer | `emit_answer_document` | `MutableState.AnswerDocument()` 非空（隐含成功） |
 
   **首次软停差异化**：`explorerEvaluator.observeSoftStop` 按证据强度把分支分成三类：
 
@@ -409,18 +418,20 @@ Phase 1 的 continuation 决策基于 runtime 数据而不是固定阈值：`ext
 | **Skill** | `extract-skill` |
 | **允许工具** | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
 | **禁止工具** | `read_file` / `grep` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` |
-| **ShouldStop** | `iteration >= 1`（one-shot，无 ReAct 循环，无 retry） |
+| **ShouldStop** | `iteration >= 2`（one-shot + 一次 retry 窗口：iter=0 正常 emit_* 批次，iter=1 允许 LLM 看到失败的 tool error 并重试） |
 | **输入** | `MutableState.TurnAArtifacts` digest + `AnalysisIR.HypothesisSet` + `AnswerContract.MustInclude` |
 | **输出** | `StageOutput.{AnswerSymbols, AnswerSymbolCompleteness}` + 回写 `HypothesisSet[i].Status` |
 
 Turn B 有且只有**两项** Turn A 做不到的独特职责：
 
 1. **LLM-driven answer_symbol slate + completeness claim**。LLM 读 Turn A 的证据决定 slate，附 `complete` / `lower_bound` / `unknown` 声明。Phase 9 cardinality validator（`validateCompletenessClaim`）：当 LLM claim `complete` 但 `len(items) < max(TerminalEvidenceCount, len(MustInclude))` 时，claim 自动降级为 `lower_bound` 并 log warning。
-2. **LLM-driven hypothesis verdict + citation**。为 IR 里每条 hypothesis 给 confirmed/rejected/inconclusive 判定；confirmed/rejected 强制带 `file:line` citation。编排器 post-extract hook 调 `AnalysisIR.MarkHypothesis` 写回 IR，buffer 保留给 finalizer prompt 渲染 rationale。
+2. **LLM-driven hypothesis verdict + citation**。为 IR 里每条 hypothesis 给 confirmed/rejected/inconclusive 判定；confirmed/rejected 强制带 `file:line` citation。编排器 post-extract hook 调 `AnalysisIR.MarkHypothesis` 写回 IR，buffer 保留给 finalizer prompt 渲染 rationale。注意：`rejected` 和 `inconclusive` 也有确定性路径——`ParseOutput` 里的 auto-verdict 逻辑用 `criterion.Eval` 评估 `FalsificationCondition` → rejected、`RequiredEvidence` all-pass → inconclusive。只有 `confirmed` 必须由 LLM 产出。编排器在每次 explore window 后运行轻量级 `runAutoVerdicts`（同样的 criterion 逻辑，不调 LLM）+ `drainHypothesisVerdicts` 更新 IR，使后续 explore window 的 criterion evaluation 能看到更新后的假设状态。
 
 #### Turn B 为什么是 one-shot
 
 Turn B 看不到新文件 —— 所有信息在 Turn A transcript 快照里冻结。retry 带不来新信息。设计决定：错了就降级为 `lower_bound` 而不是 retry，这是诚实的终态。
+
+例外：`ShouldStop` 设为 `iteration >= 2`（而非 `>= 1`），给工具参数校验失败（如 `line=0`）留一次 retry 窗口——LLM 在 iter=1 能看到错误消息并修正参数。`Observe` 在 `PhaseMidLoop` 检测到**至少一个成功的** emit_* 结果时立即 `StopRequested`，正常路径仍是 one-shot（省掉多余的 LLM 轮次）。`PhaseSoftStop` 对 `list_of_symbols` 问题有 correction hint：当 LLM 停下但未调 `emit_answer_symbol` 时注入一次重试提示（`maxExtractorCorrectionRetries = 1`），其他 shape 直接接受 soft-stop。
 
 ### 4.4 `finalize` — 输出收敛
 
@@ -707,11 +718,12 @@ sequenceDiagram
             E->>Tool: grep/read_file/repo_map/...
             E->>Tool: emit_evidence per file
             E-->>Orch: StageOutput (EvidenceItems, TurnAArtifacts)
-            Orch->>X: dispatchStage(extract)
-            X->>Tool: emit_answer_symbol + emit_hypothesis_verdict
-            X-->>Orch: StageOutput (AnswerSymbols + verdicts)
-            Orch->>Orch: drainHypothesisVerdicts → MarkHypothesis
+            Note over Orch: runAutoVerdicts (criterion-based, no LLM)<br/>+ drainHypothesisVerdicts → MarkHypothesis
             alt finalize ready
+                Orch->>X: dispatchStage(extract) — 只在 finalize 前跑一次
+                X->>Tool: emit_answer_symbol + emit_hypothesis_verdict
+                X-->>Orch: StageOutput (AnswerSymbols + verdicts)
+                Orch->>Orch: drainHypothesisVerdicts → MarkHypothesis
                 Orch->>F: dispatchStage(finalize)
                 F->>Tool: emit_answer_document
                 F-->>Orch: StageOutput.FinalAnswer
@@ -777,7 +789,7 @@ ERM（Evidence Requirement Model）和 extractor 常被混为一谈，但它们�
 | **输入** | AnalysisIR + 运行中累积的 notes/evidence | Turn A 冻结后的完整 `TurnAArtifacts` 快照 |
 | **产出** | 下一步读文件建议（`ermSuggestFiles`）+ 停止信号（`ermAllSatisfied`）+ β 基线（`terminalEvidenceCount`） | `AnswerSymbols[]` + `CompletenessClaim` + `HypothesisVerdicts[]` |
 | **工具权限** | 完整：`read_file` / `grep` / `repo_map` / `emit_evidence` | 严格受限：只能 `emit_answer_symbol` / `emit_hypothesis_verdict` |
-| **LLM 调用次数** | 每轮一次（ReAct loop，可能 3~10 次） | **一次**（`ShouldStop: iteration >= 1`） |
+| **LLM 调用次数** | 每轮一次（ReAct loop，可能 3~10 次） | **一次**（`ShouldStop: iteration >= 2`，正常路径 Observe 在首次成功后 StopRequested） |
 | **运行模式** | 确定性规则（纯 Go，LLM 不参与） | LLM 主导 + 确定性验证兜底（`validateCompletenessClaim`） |
 | **诚实契约** | "我已经尽力收集所有相关证据" | "我不会谎称列全了" |
 

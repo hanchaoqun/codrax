@@ -67,11 +67,13 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if obs.LastToolResult == nil {
 		return LoopSignal{}
 	}
-	// emit_analysis is the analyzer's terminal action — once it fires,
-	// there is nothing left for the ReAct loop to do. Stop immediately
-	// instead of burning one extra LLM round that invariably produces
-	// a content-only soft-stop.
-	if obs.LastToolResult.ToolName == "emit_analysis" {
+	// emit_analysis is the analyzer's terminal action — once it fires
+	// successfully, there is nothing left for the ReAct loop to do.
+	// Stop immediately instead of burning one extra LLM round.
+	// When the call FAILED (parameter validation error), do NOT stop:
+	// let the LLM see the error message and retry within the same
+	// dispatch, which is cheaper than a full runAnalyzePhase retry.
+	if obs.LastToolResult.ToolName == "emit_analysis" && obs.LastToolResult.Success {
 		return LoopSignal{StopRequested: true, StopReason: "emit_analysis called"}
 	}
 	if !isPrescanTool(obs.LastToolResult.ToolName) {
