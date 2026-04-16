@@ -575,7 +575,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			b.name, i, len(resp.Content), len(resp.ToolCalls))
 		if resp.Content != "" {
 			logging.Debug("[diag %s] iter=%d ASSISTANT content:\n%s\n---",
-				b.name, i, truncForLog(resp.Content, 2000))
+				b.name, i, truncForLog(resp.Content, 4000))
 			// Surface the LLM's reasoning text so the user can follow
 			// the investigation in real time. The renderer decides how
 			// to present it (dimmed text above the spinner, etc.).

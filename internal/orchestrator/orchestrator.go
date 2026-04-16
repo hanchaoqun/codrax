@@ -715,6 +715,7 @@ func (o *Orchestrator) recordTaskFinalize(out *agent.StageOutput) {
 		answer = out.FinalAnswer
 	}
 	o.busCtx.Mutable.SetResult(answer)
+	logging.Debug("[orchestrator] final answer (len=%d):\n%s\n---", len(answer), answer)
 
 	o.emit(render.Event{
 		Kind:      render.EventObjectiveDone,
