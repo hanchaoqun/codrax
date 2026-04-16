@@ -130,8 +130,18 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) string {
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	_ = iteration
-	return len(resp.ToolCalls) == 0
+	// Never hard-stop from ShouldStop. The analyzer relies on:
+	// - Observe(PhaseMidLoop) to stop after emit_analysis succeeds
+	// - Observe(PhaseMidLoop) to stop after prescan budget exhaustion
+	// - MaxIterations as the outer ceiling
+	// The old "stop when no tool calls" behavior broke when Think
+	// Aloud was added: the LLM writes a plan statement (content-only,
+	// no tools) and then would hit the soft-stop path at iter=0,
+	// terminating before any tool call. Returning false unconditionally
+	// lets the soft-stop path in BaseAgent.Execute handle content-only
+	// turns — which will continue the loop since the analyzer does
+	// not implement LoopController.PhaseSoftStop.
+	return false
 }
 
 // Observe enforces the pre-scan budget at runtime. Once the counter
@@ -140,6 +150,21 @@ func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 // Mutable.RequestModel()==nil if the LLM never called emit_analysis,
 // and will emit a hard StageOutput.Error — no silent synthesis.
 func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
+	// PhaseSoftStop: when the LLM produces content-only (e.g. Think
+	// Aloud plan statement) without calling any tool, inject a
+	// continuation hint so the loop doesn't terminate prematurely.
+	// The analyzer's contract requires emit_analysis — stopping
+	// before that is always wrong.
+	if obs.Phase == PhaseSoftStop {
+		// Use a unique key per iteration so LoopPolicy dedup doesn't
+		// swallow the second continuation — the LLM tends to produce
+		// multiple content-only turns before finally issuing tool calls.
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       fmt.Sprintf("analyzer.continue.%d", obs.Iteration),
+			Hint:          "You wrote text but did not call any tool. Do NOT write more analysis — call emit_analysis NOW with the fields you have. If you need to verify entities first, call grep(files_only=true) in the SAME response as your reasoning, not in a separate turn.",
+		}
+	}
 	if obs.Phase != PhaseMidLoop {
 		return LoopSignal{}
 	}
