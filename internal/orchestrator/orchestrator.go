@@ -393,6 +393,16 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 
 			o.busCtx.PipelineStage = types.StageExplore
 			o.busCtx.TaskState.Stage = types.StageExplore
+			// Reset per-tool usage counters so a retry window
+			// (validation_feedback requeue or contract backtrack)
+			// starts with a fresh budget.
+			if eb := o.busCtx.Mutable.ExploreBudget(); eb != nil {
+				o.busCtx.Mutable.SetExploreBudget(&types.ExploreBudget{
+					PerToolCap:  eb.PerToolCap,
+					PerToolUsed: map[string]int{},
+					OverallCap:  eb.OverallCap,
+				})
+			}
 			stepsUsed++
 			if _, err := o.dispatchStage(types.StageExplore); err != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", err)
@@ -472,6 +482,18 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 			break
 		}
 		lastFinalize = out
+
+		// Evaluate finalize node's SuccessCriteria alongside
+		// the AnswerContract check. SuccessCriteria on finalize
+		// nodes carry citation / symbol constraints the compiler
+		// declared; failing them is treated like a contract
+		// violation for backtrack purposes.
+		envFin := buildEnv(out.FinalAnswer, len(extractCitationsFromAnswer(out.FinalAnswer)))
+		if scOK, scFailed := state.markSuccessCriteriaFailed(fin, envFin); !scOK {
+			for _, f := range scFailed {
+				logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s", f.Kind, f.Expr, f.Detail)
+			}
+		}
 
 		// Contract check.
 		res := runContractCheck(out, ir.AnswerContract)

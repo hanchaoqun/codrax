@@ -267,6 +267,7 @@ func checkCriterionResolvable(ir *types.AnalysisIR) types.GateCheck {
 	var unknown []string
 	visit := func(c types.Criterion, where string) {
 		if c.Kind == "" {
+			unknown = append(unknown, fmt.Sprintf("%s: empty Kind", where))
 			return
 		}
 		if !criterion.IsRegistered(criterion.Kind(c.Kind)) {

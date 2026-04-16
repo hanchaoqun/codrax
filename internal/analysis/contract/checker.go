@@ -216,6 +216,9 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 				out = append(out, Violation{Kind: "acceptance",
 					Detail: fmt.Sprintf("only %d citations, need ≥%d", len(draft.Citations), n)})
 			}
+		default:
+			out = append(out, Violation{Kind: "acceptance",
+				Detail: fmt.Sprintf("unknown acceptance test kind %q (expr=%q)", a.Kind, a.Expr)})
 		}
 	}
 	return out
