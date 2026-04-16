@@ -139,6 +139,10 @@ func rootRun(cmd *cobra.Command, args []string) error {
 }
 
 // runSingleShot executes one pipeline run and prints the result.
+// Unlike the REPL path, single-shot outputs raw markdown (no glamour
+// ANSI rendering) so the output is clean when piped to another tool
+// or written to a file. The REPL owns the glamour rendering step via
+// its own RenderResult callback.
 func runSingleShot(_ *cobra.Command, request string) error {
 	logging.Info("starting pipeline for request: %s", request)
 	busCtx, err := app.orch.Run(request, flagRepo, flagBranch)
@@ -146,9 +150,24 @@ func runSingleShot(_ *cobra.Command, request string) error {
 		logging.Error("pipeline failed: %v", err)
 		return fmt.Errorf("pipeline failed: %w", err)
 	}
-	rendered := app.renderer.RenderResult(busCtx)
-	logging.Info("final answer:\n%s", rendered)
-	fmt.Print(rendered)
+	if busCtx == nil {
+		fmt.Println("(no result)")
+		return nil
+	}
+	if busCtx.TaskState.LastError != "" {
+		fmt.Fprintf(os.Stderr, "error: %s\n", busCtx.TaskState.LastError)
+	}
+	if busCtx.Mutable != nil {
+		if result := busCtx.Mutable.Result(); result != "" {
+			logging.Info("final answer:\n%s", result)
+			fmt.Print(result)
+			if !strings.HasSuffix(result, "\n") {
+				fmt.Println()
+			}
+			return nil
+		}
+	}
+	fmt.Println("(no result)")
 	return nil
 }
 

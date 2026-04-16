@@ -940,16 +940,18 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 ### `codrax.yaml` 分组
 
-六组 key，按前缀区分（全部字段指针类型，让 merge 区分 "absent" 与 "explicit zero value"）：
+八组 key，按前缀区分（全部字段指针类型，让 merge 区分 "absent" 与 "explicit zero value"）：
 
-| 前缀 | key | 用途 |
-|------|-----|------|
-| 裸 key | `log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` | 进程级 UX |
-| `blob_*` | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` | Tool 输出 offload 到 WorkDir 的阈值 |
-| `analysis_*` | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` | `emit_analysis` 运行时验证 |
-| `pipeline_*` | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` | 流水线预算 |
-| `gate_*` | `gate_coverage_min` / `gate_coverage_weight_symbol` / `gate_coverage_weight_config` / `gate_coverage_weight_concept` / `gate_hypothesis_min_priority` | analyzer 质量门阈值（通过 `gate.SetGlobalThresholds`） |
-| 其他 | `explore_per_tool_default_cap` | explorer sourcemix 预算默认上限 |
+| 前缀 | key 数 | 用途 |
+|------|--------|------|
+| 裸 key | 9 | `log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` — 进程级 UX |
+| `blob_*` | 3 | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` — Tool 输出 offload 阈值 |
+| `analysis_*` | 7 | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` — emit_analysis 运行时验证 |
+| `pipeline_*` | 3 | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算 |
+| `gate_*` | 5 | `gate_coverage_min` / `gate_coverage_weight_symbol` / `gate_coverage_weight_config` / `gate_coverage_weight_concept` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
+| `explore_*` | 16 | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize 等）— explorer 行为启发式 |
+| `agent_*` | 8 | `agent_max_iterations`(20) / `agent_max_tool_history_bytes`(150KB) / `agent_loop_min_inject_interval`(3) / `agent_loop_max_continuations`(5) / `agent_loop_max_midloop_injects`(6) / `agent_loop_idle_stop_threshold`(2) / `agent_finalizer_max_correction_retries`(2) / `agent_extractor_max_correction_retries`(1) — per-agent 迭代/重试/LoopPolicy 限制 |
+| `memory_*` | 6 | `memory_max_recent_turns`(6) / `memory_max_recent_bytes`(20KB) / `memory_max_turn_body_bytes`(64KB) / `memory_max_build_context_matches`(3) / `memory_max_inlined_turn_bytes`(8KB) / `memory_max_build_context_total_bytes`(32KB) — REPL 多轮记忆存储限制 |
 
 ### 优先级（precedence）
 
@@ -960,7 +962,9 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 | `blob_*` | code default（`internal/tool/blob.go`）→ `codrax.yaml`。**无 CLI override** |
 | `analysis_*` | code default（`internal/tool/analysis_limits.go`）→ `codrax.yaml`。**无 CLI override** |
 | `gate_*` | code default（`internal/analysis/gate`）→ `codrax.yaml`。**无 CLI override** |
-| `explore_*` | code default（0 = 不限）→ `codrax.yaml`。**无 CLI override** |
+| `explore_*` | code default（`types.DefaultExploreHeuristics()`）→ `codrax.yaml`。**无 CLI override** |
+| `agent_*` | code default（`types.DefaultAgentSettings()`）→ `codrax.yaml`。**无 CLI override** |
+| `memory_*` | code default（`types.DefaultMemorySettings()`）→ `codrax.yaml`。**无 CLI override** |
 
 ### Path anchoring
 
