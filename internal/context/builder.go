@@ -69,7 +69,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 // and users can follow the agent's logic in real time (once the
 // rendering layer surfaces assistant text). Token overhead is minimal
 // (20-40 tokens per iteration) relative to the tool-result payloads.
-const thinkAloudDirective = "Before each tool call (or batch of parallel tool calls), write 1-2 sentences explaining what you are about to do and why. This reasoning trace helps users follow your investigation. Keep it brief — the tool results carry the substance, not the preamble."
+const thinkAloudDirective = "Before each tool call (or batch of parallel tool calls), write 1-2 sentences explaining what you are about to do and why. Use the same language as the user's question. This reasoning trace helps users follow your investigation. Keep it brief — the tool results carry the substance, not the preamble."
 
 // reasoningHygieneShell is the "don't miscount, use a tool" meta-rule
 // for stages whose allowlist includes exec_command — today only the
@@ -875,10 +875,10 @@ func languageDirective(lang string) string {
 	case "", "off", "none":
 		return ""
 	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "Reply in Simplified Chinese (简体中文). Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead."
+		return "All text output — including thinking, reasoning, and final answers — must be in Simplified Chinese (简体中文). Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead."
 	case "en", "en-US", "english":
-		return "Reply in English. Keep code identifiers and technical terms in their original form. If the user writes in another language, reply in that language instead."
+		return "All text output — including thinking, reasoning, and final answers — must be in English. Keep code identifiers and technical terms in their original form. If the user writes in another language, reply in that language instead."
 	default:
-		return fmt.Sprintf("Reply in %s. Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead.", lang)
+		return fmt.Sprintf("All text output — including thinking, reasoning, and final answers — must be in %s. Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead.", lang)
 	}
 }
