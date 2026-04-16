@@ -258,19 +258,19 @@ const (
 
 func kindFamily(kind string) string {
 	switch kind {
-	case "symbol_present":
+	case types.CritSymbolPresent:
 		return famPresence
-	case "no_call_sites", "no_relevant_evidence":
+	case types.CritNoCallSites, types.CritNoRelevantEvidence:
 		return famAbsence
-	case "invariant_broken":
+	case types.CritInvariantBroken:
 		return famInvariant
-	case "untrusted_reaches_sink":
+	case types.CritUntrustedReachesSink:
 		return famFlow
-	case "multiple_resolution_chains":
+	case types.CritMultipleResolutionChains:
 		return famResolution
-	case "answer_set_unbounded", "answer_set_bounded":
+	case types.CritAnswerSetUnbounded, types.CritAnswerSetBounded:
 		return famCardinality
-	case "user_clause_unresolved":
+	case types.CritUserClauseUnresolved:
 		return famAmbiguity
 	}
 	return famOther

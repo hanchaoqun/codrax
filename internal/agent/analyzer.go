@@ -340,20 +340,20 @@ func classifyGateFailure(report types.GateReport) (hard bool, detail string) {
 // mapLegacyAnswerShape coerces a free-form answer_shape string into
 // the typed AnswerShape enum.
 func mapLegacyAnswerShape(s string) types.AnswerShape {
-	switch strings.ToLower(strings.TrimSpace(s)) {
-	case "list_of_symbols":
+	switch types.AnswerShape(strings.ToLower(strings.TrimSpace(s))) {
+	case types.ShapeListOfSymbols:
 		return types.ShapeListOfSymbols
-	case "step_list":
+	case types.ShapeStepList:
 		return types.ShapeStepList
-	case "value":
+	case types.ShapeValue:
 		return types.ShapeValue
-	case "boolean":
+	case types.ShapeBoolean:
 		return types.ShapeBoolean
-	case "config_value":
+	case types.ShapeConfigValue:
 		return types.ShapeConfigValue
-	case "explanation":
+	case types.ShapeExplanation:
 		return types.ShapeExplanation
-	case "none":
+	case types.ShapeNone:
 		return types.ShapeNone
 	}
 	return ""

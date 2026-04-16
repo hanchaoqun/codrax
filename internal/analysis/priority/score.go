@@ -90,15 +90,12 @@ func intentMatch(h types.Hypothesis, rm types.RequestModel) float64 {
 }
 
 func riskElevation(h types.Hypothesis, rm types.RequestModel) float64 {
-	// Map the hypothesis' falsification kind onto a risk dimension
-	// so risk-driven hypotheses rank higher when their own
-	// dimension is elevated.
 	switch h.FalsificationCondition.Kind {
-	case "untrusted_reaches_sink":
+	case types.CritUntrustedReachesSink:
 		return float64(rm.RiskMatrix.Security.Level) / 5.0
-	case "invariant_broken":
+	case types.CritInvariantBroken:
 		return float64(rm.RiskMatrix.DataIntegrity.Level) / 5.0
-	case "multiple_resolution_chains":
+	case types.CritMultipleResolutionChains:
 		return float64(rm.RiskMatrix.Ops.Level) / 5.0
 	}
 	return maxRisk(rm.RiskMatrix) / 5.0 * 0.5
