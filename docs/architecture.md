@@ -272,26 +272,26 @@ Extractor 和 Finalizer 是"非空补充"的参照实现：extractor 的 `BuildI
 
 | 工具 | 描述 |
 |------|------|
-| `grep` | 按模式搜索；支持 `files_only=true`（对应 `rg -l`）返回匹配文件列表而非每行。Phase 0 依赖此模式避免大量匹配行被 blob 截断 |
+| `grep` | 按模式搜索；支持 `files_only=true`（对应 `rg -l`）返回匹配文件列表而非每行。breadth scan 依赖此模式避免大量匹配行被 blob 截断 |
 | `read_file` | 读整文件；大文件用 `offset+limit` slice 读 |
 | `list_files` | 列目录 |
-| `repo_map` | 生成仓库符号/关系索引的结构化视图。`task_map` 视图给 Phase 0 快速定位角色 |
+| `repo_map` | 生成仓库符号/关系索引的结构化视图。`task_map` 视图给 breadth scan 快速定位角色 |
 | `exec_command` | 执行 shell 命令（按 read-only 处理，写限制靠外部沙箱） |
 | `git_diff` / `git_log` | git 状态查询 |
-| `todo_write` | 在 `Mutable.TaskList` 上做全量替换。sub-agent 不共享 `Mutable`，调用会被拒 |
 
 #### 结构化发射器（emit_* 系列）
 
-以下工具本质上是把 LLM 的结构化输出**落到 `Mutable`** 的持久化通道。各 Agent 严格独占自己的通道：
+以下工具把 LLM 的结构化输出落到 `MutableState` 的持久化通道。各 Agent 严格独占自己的通道：
 
 | 工具 | 独占 Agent | 作用 |
 |------|-----------|------|
-| `emit_analysis` | analyzer | 一次性写 `RequestModel`（intent / scenario / complexity / keywords / entities / question_kind / answer_shape）；ParseOutput 随后跑确定性管线组装完整 `AnalysisIR` |
-| `emit_evidence` | explorer | 批量写 `EvidenceItem`（kind / subject / object / source / line / condition / summary）；五种结构化 tag：`[DIRECT]` `[CONDITIONAL]` `[REGISTRATION]` `[MECHANISM]` `[RELATIONSHIP]` `[ABSENT]` |
-| `emit_answer_symbol` | extractor | 写答案符号 slate + `completeness` claim（`complete` / `lower_bound` / `unknown`）；`extractor.ParseOutput` 跑 Phase 9 cardinality validator 自动降级不诚实的 `complete` claim |
-| `emit_hypothesis_verdict` | extractor | 为 `AnalysisIR.HypothesisSet` 的每条 hypothesis 写 status (`confirmed` / `rejected` / `inconclusive`) + rationale + `file:line` citation。编排器的 post-extract hook 通过 `AnalysisIR.MarkHypothesis` 写回 IR |
+| `emit_analysis` | analyzer | 一次性写 `RequestModel`（intent / scenario / complexity / keywords / entities / question_kind / answer_shape）；`ParseOutput` 随后跑确定性管线组装完整 `AnalysisIR` |
+| `emit_evidence` | explorer | 批量写 `EvidenceItem`（kind / subject / object / source / line / condition / summary）；六种结构化 kind：`direct` / `conditional` / `registration` / `mechanism` / `relationship` / `absent` |
+| `emit_investigation_complete` | explorer | 显式完成信号——explorer 调用此工具告知系统"证据已足够，进入提取和终稿阶段"。需要 `reason` + `confidence`（high/medium），low 被拒绝迫使 LLM 继续调查 |
+| `emit_answer_symbol` | extractor | 写答案符号 slate + `completeness` claim（`complete` / `lower_bound` / `unknown`）；`extractor.ParseOutput` 跑 cardinality validator 自动降级不诚实的 `complete` claim |
+| `emit_hypothesis_verdict` | extractor | 为 `AnalysisIR.HypothesisSet` 的每条 hypothesis 写 status（`confirmed` / `rejected` / `inconclusive`）+ rationale + `file:line` citation。编排器的 post-extract hook 通过 `AnalysisIR.MarkHypothesis` 写回 IR。extractor 还通过 `criterion.Eval` 自动注入判决（RequiredEvidence 满足但无 LLM verdict → inconclusive；FalsificationCondition 满足 → rejected） |
 | `emit_answer_document` | finalizer | 写结构化 `AnswerDocument`（按 `AnswerShape` 分支的 typed payload）；renderer 层产生用户可见的最终答案 |
-| `propose_sub_agents` | 主 agent 用 | 向编排器申请派生并行 sub-agent |
+| `propose_sub_agents` | explorer | 向编排器申请派生并行 sub-agent |
 
 #### ToolResult 与 blob 机制
 
