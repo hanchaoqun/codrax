@@ -122,8 +122,6 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 		b.WriteString("\n")
 	}
 
-	b.WriteString("**First**, state your approach in 1-2 sentences: what you'll investigate within the scope and which files you expect to find answers in.\n\n")
-
 	b.WriteString("**Strategy** (adapt to what you find):\n")
 	b.WriteString("1. List files in scope to understand what's available\n")
 	b.WriteString("2. Grep for key terms related to the objective — use `files_only=true` for discovery, line-level grep with `context_lines=3` for targeted search\n")

@@ -877,10 +877,10 @@ func languageDirective(lang string) string {
 	case "", "off", "none":
 		return ""
 	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "All text output — including thinking, reasoning, and final answers — must be in Simplified Chinese (简体中文). Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead."
+		return "Reply in Simplified Chinese (简体中文). Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead."
 	case "en", "en-US", "english":
-		return "All text output — including thinking, reasoning, and final answers — must be in English. Keep code identifiers and technical terms in their original form. If the user writes in another language, reply in that language instead."
+		return "Reply in English. Keep code identifiers and technical terms in their original form. If the user writes in another language, reply in that language instead."
 	default:
-		return fmt.Sprintf("All text output — including thinking, reasoning, and final answers — must be in %s. Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead.", lang)
+		return fmt.Sprintf("Reply in %s. Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead.", lang)
 	}
 }

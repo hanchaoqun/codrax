@@ -246,8 +246,7 @@ func BuildAnalysisSkill() *Config {
 	// tables so the LLM sees the workflow framing first: pre-scan,
 	// then classify, then emit_analysis.
 	of.WriteString("## Evidence-lite pre-scan (1-2 rounds, then emit_analysis)\n\n")
-	of.WriteString("**First**, state your classification plan in 1-2 sentences: what the user is asking about, which intent/scenario you're leaning toward, and what you need to verify in the pre-scan.\n\n")
-	of.WriteString("**Then**, spend 1-2 rounds verifying that the entities you plan to extract from the user's wording actually exist in this repository and that the terms you plan to put into keywords appear somewhere relevant. Use ONLY these low-cost navigation tools:\n\n")
+	of.WriteString("Spend 1-2 rounds verifying that the entities you plan to extract from the user's wording actually exist in this repository and that the terms you plan to put into keywords appear somewhere relevant. Use ONLY these low-cost navigation tools:\n\n")
 	of.WriteString("  - `repo_map` — structural index of the repo, for discovering which files are relevant to a term.\n")
 	of.WriteString("  - `grep` — MUST be called with `files_only=true`. Line-level results are too noisy for the analyze stage and will overflow the budget. `files_only=true` returns just the file paths that contain matches, which is what you need.\n")
 	of.WriteString("  - `list_files` — fall back here when grep / repo_map come back empty and you want to know what's even in a directory.\n\n")

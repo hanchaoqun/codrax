@@ -87,7 +87,6 @@ Scale the answer depth to the question: one sentence for a lookup/count, multipl
 		Goal: "Produce the final answer as a structured AnswerDocument by calling emit_answer_document exactly once. A deterministic renderer turns the structure into user-visible prose.",
 		Workflow: []string{
 			"Read the resolved target shape from the user section (list_of_symbols / step_list / value / boolean / config_value / explanation)",
-			"State your approach in 1-2 sentences: which shape you'll use and how you'll structure the answer. This text is shown to the user as a thinking trace",
 			"For list_of_symbols shape: inspect the prior extraction slate and the analyzer MustInclude floor rendered in the user section, assemble the symbols[] array from them, and set symbols_completeness to 'complete' only if your slate reaches the floor — otherwise set it to 'lower_bound'",
 			"For step_list shape: emit steps[] with one entry per distinct branch or mechanism hop; each step carries a positive index, a one-sentence description drawn from evidence, and a citation_ref into the shared citations pool (or -1 when no citation backs the step)",
 			"For value / config_value shape: emit value{literal} (plus key for config_value) with a citation_ref into the pool",
@@ -164,7 +163,6 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 		Goal: "Produce the answer-symbol slate and the per-hypothesis verdicts from Turn A's frozen investigation transcript. Evidence is Turn A's territory — Turn B never re-emits it. Turn B's two unique jobs are (1) LLM-driven answer_symbol selection with a completeness claim the finalizer cross-checks, and (2) LLM-driven hypothesis judgement with a citation.",
 		Workflow: []string{
 			"Read the Turn A transcript digest the orchestrator injected as a user section: user question, investigation notes, read files, top evidence items, dataflow findings, cardinality baseline (β = Turn A terminal-evidence count, γ = analyzer MustInclude count, effective floor = max(β, γ)), and hypothesis set",
-			"State your reasoning in 1-2 sentences: which symbols answer the question, what completeness claim you'll make, and your verdict on each hypothesis. This text is shown to the user as a thinking trace",
 			"For the answer-symbol slate (only for list_of_symbols / enumeration / call_chain questions): call emit_answer_symbol ONCE with a batched items array. Each item MUST carry a concrete file:line from a file in the 'Files Turn A read' list — never invent a line number. See the Completeness honesty contract in OutputFormat for the completeness claim rules",
 			"For every hypothesis in the hypothesis set: call emit_hypothesis_verdict once with hypothesis_id + status + rationale + citation. Status must be 'confirmed' / 'rejected' / 'inconclusive'. 'confirmed' and 'rejected' REQUIRE a file:line citation; 'inconclusive' is the honest choice when no definitive cite exists",
 		},

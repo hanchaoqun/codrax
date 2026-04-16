@@ -197,7 +197,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		fmt.Fprintf(&b, "You already collected %d evidence sets. ",
 			len(e.investigationNotes))
 		b.WriteString("Focus on the gaps identified above. Do NOT re-read files you already analyzed.\n\n")
-		b.WriteString("**First**, state in 1-2 sentences what gaps you'll target and how.\n\n")
 		b.WriteString("**Tools:** use `grep` (efficient for locating patterns and scanning large files), `read_file` (for reading content), or both together. Pick the most efficient approach for each situation.\n\n")
 		b.WriteString("Evidence format (examples — adapt to what you find):\n")
 		b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
@@ -211,8 +210,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	var b strings.Builder
 	b.WriteString("## Phase 1: Breadth Scan\n\n")
-	b.WriteString("**First**, state your investigation plan in 1-2 sentences: what aspects of the question you'll investigate and which areas of the codebase you expect to be relevant.\n\n")
-	b.WriteString("**Then**, MAP the relevant territory — find ALL files related to the question. ")
+	b.WriteString("Your goal is to MAP the relevant territory — find ALL files related to the question. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
@@ -1166,9 +1164,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// catalog mode: collect ALL facts, defer reasoning to synthesis.
 		e.phase = 1
 		phaseTransitionHint := "## Now entering PHASE 2: Evidence Collection\n\n" +
-			"Good — you have mapped the relevant territory.\n\n" +
-			"**First**, state your plan in 1-2 sentences: which files you'll read first and what evidence you expect to find.\n\n" +
-			"**Then**, investigate the source files and collect evidence. " +
+			"Good — you have mapped the relevant territory. Now investigate the source files and collect evidence. " +
 			"**Your job is to collect evidence, NOT to answer the question.** Reasoning happens later.\n\n" +
 			"**Tools you should use** (pick the most efficient for each situation):\n" +
 			"- `grep` — locate specific patterns, find line numbers, scan large files efficiently. Prefer grep over full-file reads when you only need specific sections\n" +
