@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -254,9 +255,66 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 		out.AnswerSymbols = syms
 		out.AnswerSymbolCompleteness = validatedClaim
 	}
-	// If len(syms) == 0: leave both fields zero (CompletenessUnknown).
-	// The builder drops the section and the finalizer falls back to
-	// the shape-based prompt.
+
+	// Criterion-based hypothesis auto-verdict injection. For every
+	// hypothesis with a RequiredEvidence list, evaluate the list
+	// against the current env; if all criteria pass AND the LLM did
+	// not emit a verdict, inject an "inconclusive" entry so the
+	// drain hook downstream still records progress. For
+	// FalsificationCondition: if it is satisfied, inject a rejected
+	// verdict (or override an existing LLM verdict to rejected).
+	if ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 {
+		var taToolResults []types.ToolResult
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			taToolResults = ta.ToolResults
+		}
+		env := criterion.Env{
+			IR:            ctx.AnalysisIR,
+			Evidence:      ctx.EvidenceItems,
+			ToolResults:   taToolResults,
+			AnswerSymbols: out.AnswerSymbols,
+			PrescanBlob:   ctx.Mutable.PrescanSummaryBlob(),
+		}
+		existing := ctx.Mutable.EmittedHypothesisVerdicts()
+		byID := make(map[string]bool, len(existing))
+		for _, v := range existing {
+			byID[v.HypothesisID] = true
+		}
+		var injected []types.HypothesisVerdict
+		for _, h := range ctx.AnalysisIR.HypothesisSet {
+			fals := criterion.Eval(h.FalsificationCondition, env)
+			if fals.Satisfied {
+				if byID[h.ID] {
+					// Override: later drain hook will read these injected
+					// verdicts AFTER the LLM-emitted ones; since the drain
+					// writes each verdict into the IR via MarkHypothesis,
+					// a later call wins. We always emit the override.
+					logging.Warning("[extractor] falsification satisfied for %s: forcing rejected", h.ID)
+				}
+				injected = append(injected, types.HypothesisVerdict{
+					HypothesisID: h.ID,
+					Status:       types.HypRejected,
+					Rationale:    "falsification condition satisfied: " + fals.Detail,
+				})
+				continue
+			}
+			if byID[h.ID] {
+				continue
+			}
+			okReq, _ := criterion.EvalAll(h.RequiredEvidence, env)
+			if okReq && len(h.RequiredEvidence) > 0 {
+				injected = append(injected, types.HypothesisVerdict{
+					HypothesisID: h.ID,
+					Status:       types.HypInconclusive,
+					Rationale:    "required evidence satisfied but no LLM verdict emitted",
+				})
+			}
+		}
+		if len(injected) > 0 {
+			ctx.Mutable.AppendEmittedHypothesisVerdicts(injected)
+			logging.Info("[extractor] injected %d auto-verdict(s) from criterion evaluation", len(injected))
+		}
+	}
 
 	return out, nil
 }

@@ -151,18 +151,37 @@ type TaskGraph struct {
 }
 
 type TaskNode struct {
-	ID               string       `json:"id"`
-	Type             TaskNodeType `json:"type"`
-	Objective        string       `json:"objective"`
-	Inputs           []string     `json:"inputs,omitempty"`
-	Outputs          []string     `json:"outputs,omitempty"`
-	EntryConditions  []string     `json:"entry_conditions,omitempty"`
-	ExitArtifacts    []string     `json:"exit_artifacts,omitempty"`
-	SuccessCriteria  []Criterion  `json:"success_criteria,omitempty"`
-	Hypotheses       []string     `json:"hypotheses,omitempty"`
-	SearchHints      SearchHints  `json:"search_hints"`
-	IsCounterfactual bool         `json:"is_counterfactual,omitempty"`
-	MaxRetries       int          `json:"max_retries,omitempty"`
+	ID        string       `json:"id"`
+	Type      TaskNodeType `json:"type"`
+	Objective string       `json:"objective"`
+
+	// pending(artifact-exchange): declared input artifact type slots
+	// for a future per-node typed data-flow contract. Compiler
+	// templates fill them with snake_case identifiers so the values
+	// remain human-readable, but no runtime consumer reads this
+	// field today. Gate's pending_fields_wellformed check enforces
+	// the identifier shape; criterion_resolvable does not scan this
+	// field because it is not a Criterion.
+	Inputs []string `json:"inputs,omitempty"`
+
+	// pending(artifact-exchange): declared output artifact type
+	// slots. Paired with ExitArtifacts which will hold the concrete
+	// produced IDs at runtime. Same pending semantics as Inputs.
+	Outputs []string `json:"outputs,omitempty"`
+
+	EntryConditions []Criterion `json:"entry_conditions,omitempty"`
+
+	// pending(artifact-exchange): runtime-populated artifact IDs the
+	// node actually produced, keyed to Outputs slot names. Will be
+	// read by a future artifact store; today nothing populates or
+	// reads it at runtime.
+	ExitArtifacts []string `json:"exit_artifacts,omitempty"`
+
+	SuccessCriteria  []Criterion `json:"success_criteria,omitempty"`
+	Hypotheses       []string    `json:"hypotheses,omitempty"`
+	SearchHints      SearchHints `json:"search_hints"`
+	IsCounterfactual bool        `json:"is_counterfactual,omitempty"`
+	MaxRetries       int         `json:"max_retries,omitempty"`
 }
 
 type TaskNodeType string
@@ -209,9 +228,32 @@ type SearchHints struct {
 // ── EvidencePlan ────────────────────────────────────────────────────────
 
 type EvidencePlan struct {
-	Budget         EvidenceBudget  `json:"budget"`
-	SourceMix      map[string]int  `json:"source_mix,omitempty"`
+	Budget EvidenceBudget `json:"budget"`
+
+	// SourceMix is the template-level declaration of per-tool
+	// budget ratios (e.g. grep:30, repomap:40, read:30). The
+	// sourcemix package compiles it into NodeBudgetHints at analyze
+	// time; explorer consumes the compiled form, never this raw map
+	// directly. Kept as the declaration source so future template
+	// edits stay human-readable and diffable.
+	SourceMix map[string]int `json:"source_mix,omitempty"`
+
+	// NodeBudgetHints is the compiled, machine-consumable form of
+	// SourceMix. explorerEvaluator reads it on every tool dispatch
+	// to throttle per-tool calls inside the explore window.
+	NodeBudgetHints NodeBudgetHints `json:"node_budget_hints"`
+
 	StopConditions []StopCondition `json:"stop_conditions,omitempty"`
+}
+
+// NodeBudgetHints is the compiled shape of EvidencePlan.SourceMix.
+// PerToolCap is keyed by tool name (e.g. "grep", "read_file") and
+// gives the maximum number of times that tool may fire inside one
+// explore window. OverallCap is a ceiling on total tool calls across
+// all tools — 0 means "fall through to EvidenceBudget.MaxToolCalls".
+type NodeBudgetHints struct {
+	PerToolCap map[string]int `json:"per_tool_cap,omitempty"`
+	OverallCap int            `json:"overall_cap,omitempty"`
 }
 
 type EvidenceBudget struct {
@@ -229,12 +271,12 @@ type StopCondition struct {
 // ── AnswerContract ──────────────────────────────────────────────────────
 
 type AnswerContract struct {
-	RequiredAnswerShape AnswerShape  `json:"required_answer_shape"`
-	MustInclude         []string     `json:"must_include,omitempty"`
-	MustExclude         []string     `json:"must_exclude,omitempty"`
-	CitationReq         CitationReq  `json:"citation_requirements"`
-	AcceptanceTests     []Acceptance `json:"acceptance_tests,omitempty"`
-	Language            string       `json:"language"`
+	RequiredAnswerShape AnswerShape `json:"required_answer_shape"`
+	MustInclude         []string    `json:"must_include,omitempty"`
+	MustExclude         []string    `json:"must_exclude,omitempty"`
+	CitationReq         CitationReq `json:"citation_requirements"`
+	AcceptanceTests     []Criterion `json:"acceptance_tests,omitempty"`
+	Language            string      `json:"language"`
 }
 
 type AnswerShape string
@@ -267,11 +309,6 @@ type CitationReq struct {
 	Required     bool   `json:"required"`
 	Granularity  string `json:"granularity"`
 	MinCitations int    `json:"min_citations"`
-}
-
-type Acceptance struct {
-	Kind string `json:"kind"`
-	Expr string `json:"expr"`
 }
 
 // ── HypothesisSet ───────────────────────────────────────────────────────

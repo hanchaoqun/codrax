@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/binder"
+	"github.com/hanchaoqun/codrax/internal/analysis/priority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -36,8 +38,11 @@ func TestPlan_RootCause_PrioritizesTopSymbol(t *testing.T) {
 	if h == nil {
 		t.Fatalf("expected hypothesis mentioning Explorer; got %+v", hs)
 	}
-	if h.Priority < 80 {
-		t.Fatalf("root_cause seed hypothesis should have priority ≥80; got %d", h.Priority)
+	// Priority is computed by the priority package; unpack via
+	// priority.Raw. A root_cause seed with strong intent match
+	// should clear 30 in the human-scale range.
+	if priority.Raw(h.Priority) < 30 {
+		t.Fatalf("root_cause seed hypothesis should have raw priority ≥30; got %d", priority.Raw(h.Priority))
 	}
 	if h.Status != types.HypUnknown {
 		t.Fatalf("fresh hypotheses must be unknown; got %q", h.Status)
@@ -81,46 +86,44 @@ func TestPlan_HighDataIntegrity_AddsInvariantHypothesis(t *testing.T) {
 }
 
 func TestPlan_NeverEmpty(t *testing.T) {
-	// No terms, no intent, no ambiguities — should still produce a
-	// baseline hypothesis so Bind has something to attach.
 	hs := Plan(types.RequestModel{})
 	if len(hs) == 0 {
 		t.Fatalf("Plan must never return an empty hypothesis set")
 	}
 }
 
-func TestBind_AttachesToEvidenceAndValidate(t *testing.T) {
+func TestBinder_AttachesToEvidenceAndValidate(t *testing.T) {
 	tg := types.TaskGraph{Nodes: []types.TaskNode{
 		{ID: "n0", Type: types.NodeProbe},
-		{ID: "n1", Type: types.NodeEvidence},
-		{ID: "n2", Type: types.NodeValidate},
-		{ID: "n3", Type: types.NodeFinalize},
+		{ID: "n1", Type: types.NodeEvidence, Objective: "collect evidence for h1"},
+		{ID: "n2", Type: types.NodeValidate, Objective: "validate h2"},
+		{ID: "n3", Type: types.NodeFinalize, Objective: "render answer"},
 	}}
-	hs := []types.Hypothesis{{ID: "h1"}, {ID: "h2"}}
-	Bind(&tg, hs)
+	hs := []types.Hypothesis{{ID: "h1", Statement: "evidence claim"}, {ID: "h2", Statement: "validate claim"}}
+	if err := binder.BindByRelevance(&tg, hs, binder.Options{}); err != nil {
+		t.Fatalf("binder: %v", err)
+	}
 	if len(tg.Nodes[0].Hypotheses) != 0 {
 		t.Fatalf("probe nodes must not be bound; got %+v", tg.Nodes[0].Hypotheses)
 	}
 	if len(tg.Nodes[1].Hypotheses) == 0 || len(tg.Nodes[2].Hypotheses) == 0 || len(tg.Nodes[3].Hypotheses) == 0 {
 		t.Fatalf("evidence/validate/finalize must be bound; got %+v", tg.Nodes)
 	}
-	// Round-robin: n1 → h1, n2 → h2, n3 → h1
-	if tg.Nodes[1].Hypotheses[0] != "h1" || tg.Nodes[3].Hypotheses[0] != "h1" {
-		t.Fatalf("round-robin binding broken: %+v", tg.Nodes)
-	}
 }
 
-func TestBind_PreservesExistingBindings(t *testing.T) {
+func TestBinder_PreservesExistingBindings(t *testing.T) {
 	tg := types.TaskGraph{Nodes: []types.TaskNode{
 		{ID: "n1", Type: types.NodeEvidence, Hypotheses: []string{"h_preexisting"}},
-		{ID: "n2", Type: types.NodeValidate},
+		{ID: "n2", Type: types.NodeValidate, Objective: "validate"},
 	}}
-	Bind(&tg, []types.Hypothesis{{ID: "h1"}})
-	if tg.Nodes[0].Hypotheses[0] != "h_preexisting" {
-		t.Fatalf("Bind must not overwrite existing hypothesis list; got %+v", tg.Nodes[0].Hypotheses)
+	if err := binder.BindByRelevance(&tg, []types.Hypothesis{{ID: "h1", Statement: "validate claim"}}, binder.Options{}); err != nil {
+		t.Fatalf("binder: %v", err)
 	}
-	if tg.Nodes[1].Hypotheses[0] != "h1" {
-		t.Fatalf("Bind must attach to unbound nodes; got %+v", tg.Nodes[1].Hypotheses)
+	if tg.Nodes[0].Hypotheses[0] != "h_preexisting" {
+		t.Fatalf("binder must not overwrite existing hypothesis list; got %+v", tg.Nodes[0].Hypotheses)
+	}
+	if len(tg.Nodes[1].Hypotheses) == 0 {
+		t.Fatalf("binder must attach to unbound nodes; got %+v", tg.Nodes[1].Hypotheses)
 	}
 }
 

@@ -80,8 +80,10 @@ func Expand(tg types.TaskGraph, rm types.RequestModel, opts Options) (types.Task
 		reconcileID = "cf_reconcile"
 		out.Nodes = append(out.Nodes, types.TaskNode{
 			ID: reconcileID, Type: types.NodeReconcile,
-			Objective:       "Reconcile counterfactual branches by evidence weight.",
-			EntryConditions: []string{"all_counterfactuals_evaluated"},
+			Objective: "Reconcile counterfactual branches by evidence weight.",
+			EntryConditions: []types.Criterion{
+				{Kind: "counterfactual_branches_decided"},
+			},
 		})
 		// Rewire finalize: remove any existing direct edge from
 		// mainEvidence → finalize and redirect through reconcile.

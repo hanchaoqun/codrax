@@ -96,7 +96,7 @@ func sampleAnalysisIR() AnalysisIR {
 			MustInclude:         []string{"t2"},
 			MustExclude:         nil,
 			CitationReq:         CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
-			AcceptanceTests: []Acceptance{
+			AcceptanceTests: []Criterion{
 				{Kind: "contains_symbol", Expr: "ShouldStop"},
 				{Kind: "citation_count_ge", Expr: "2"},
 			},
@@ -109,7 +109,7 @@ func sampleAnalysisIR() AnalysisIR {
 				RequiredEvidence: []Criterion{
 					{Kind: "symbol_present", Expr: "ermSatisfied"},
 				},
-				FalsificationCondition: Criterion{Kind: "symbol_absent", Expr: "ermSatisfied"},
+				FalsificationCondition: Criterion{Kind: "no_call_sites", Expr: "ermSatisfied"},
 				Priority:               80,
 				Status:                 HypUnknown,
 			},

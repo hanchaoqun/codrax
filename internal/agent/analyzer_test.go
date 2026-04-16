@@ -41,7 +41,7 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 		{Role: "assistant", Content: "Classified as mechanism: ordered steps."},
 	}
 
-	out, err := e.ParseOutput(ctx, msgs, nil, nil)
+	out, err := e.ParseOutput(ctx, msgs, []types.ToolResult{emitResult(true)}, nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -77,16 +77,14 @@ func TestAnalyzerParseOutputCapturesSummary(t *testing.T) {
 	}
 }
 
-// TestAnalyzerParseOutputFailSafe verifies that when the LLM fails to
-// call emit_analysis — leaving the RequestModel carrier empty —
-// buildAnalysisIR still produces a structurally complete IR from a
-// zero-value RequestModel seeded with the raw objective.
-func TestAnalyzerParseOutputFailSafe(t *testing.T) {
+// TestAnalyzerParseOutputFailLoud_ZeroEmit verifies the fail-loud
+// contract: when the LLM never calls emit_analysis, ParseOutput
+// returns a StageOutput with a populated Error and a nil
+// AnalysisIR so the orchestrator's runAnalyzePhase retries.
+func TestAnalyzerParseOutputFailLoud_ZeroEmit(t *testing.T) {
 	e := &analyzerEvaluator{}
 
-	// Empty Mutable: simulates "LLM never called emit_analysis"
 	mut := types.NewMutableState("what does this do?")
-
 	ctx := &types.AgentContext{
 		Stage:     types.StageAnalyze,
 		Objective: "what does this do?",
@@ -103,14 +101,11 @@ func TestAnalyzerParseOutputFailSafe(t *testing.T) {
 	if out == nil {
 		t.Fatal("expected non-nil output")
 	}
-
-	if obj := mut.Objective(); obj != "what does this do?" {
-		t.Errorf("Objective should be preserved, got %q", obj)
+	if out.Error == "" {
+		t.Fatal("expected populated Error on 0-emit fail-loud path")
 	}
-	// Failsafe path: no emit_analysis → zero-value RequestModel →
-	// buildAnalysisIR still builds a structurally complete IR.
-	if out.AnalysisIR == nil {
-		t.Fatal("failsafe must still produce an IR")
+	if out.AnalysisIR != nil {
+		t.Error("expected nil AnalysisIR on 0-emit path")
 	}
 }
 
@@ -162,7 +157,7 @@ func TestAnalyzer_IRIsBuiltFromRequestModel(t *testing.T) {
 	eval := &analyzerEvaluator{}
 	out, err := eval.ParseOutput(ctx, []llm.Message{
 		{Role: "assistant", Content: "classification complete"},
-	}, nil, nil)
+	}, []types.ToolResult{emitResult(true)}, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput: %v", err)
 	}
@@ -218,33 +213,8 @@ func TestAnalyzer_IRIsBuiltFromRequestModel(t *testing.T) {
 	}
 }
 
-// TestAnalyzer_FailsafeTaskInstallsIR validates that even when the
-// LLM never called emit_analysis, the fail-safe path still produces
-// a usable IR. This is the "ungraceful degradation" contract:
-// analyzer never emits a nil IR on a non-empty objective.
-func TestAnalyzer_FailsafeTaskInstallsIR(t *testing.T) {
-	mut := types.NewMutableState("explain how the pipeline stops")
-	ctx := &types.AgentContext{
-		Objective: "explain how the pipeline stops",
-		Mutable:   mut,
-	}
-	eval := &analyzerEvaluator{}
-	out, err := eval.ParseOutput(ctx, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("ParseOutput: %v", err)
-	}
-	if out.AnalysisIR == nil {
-		t.Fatal("expected non-nil IR on failsafe path")
-	}
-	// Failsafe task has no QuestionKind, so intent stays unknown and
-	// language falls back to en (no Han chars).
-	if out.AnalysisIR.RequestModel.Language != "en" {
-		t.Errorf("language: got %q want en", out.AnalysisIR.RequestModel.Language)
-	}
-	if out.AnalysisIR.RequestModel.Intent != types.IntentUnknown {
-		t.Errorf("intent: got %q want unknown", out.AnalysisIR.RequestModel.Intent)
-	}
-}
+// (TestAnalyzer_FailsafeTaskInstallsIR deleted: fail-loud contract
+// no longer synthesizes an IR when emit_analysis was not called.)
 
 // TestAnalyzer_StageOutputCarriesIR validates the propagation path:
 // StageOutput.AnalysisIR produced by the analyzer must survive the
@@ -253,12 +223,17 @@ func TestAnalyzer_FailsafeTaskInstallsIR(t *testing.T) {
 // without needing a full LLM run.
 func TestAnalyzer_StageOutputCarriesIR(t *testing.T) {
 	mut := types.NewMutableState("explain the finalizer's translation mode")
+	mut.SetRequestModel(types.RequestModel{
+		Intent:     types.IntentExplain,
+		Scenario:   types.ScenarioArchitectureExplain,
+		Complexity: types.ComplexityModerate,
+	})
 	ctx := &types.AgentContext{
 		Objective: "explain the finalizer's translation mode",
 		Mutable:   mut,
 	}
 	eval := &analyzerEvaluator{}
-	out, err := eval.ParseOutput(ctx, nil, nil, nil)
+	out, err := eval.ParseOutput(ctx, nil, []types.ToolResult{emitResult(true)}, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput: %v", err)
 	}
@@ -405,37 +380,26 @@ func restoreAnalysisLimits(t *testing.T) {
 	t.Cleanup(func() { tool.SetAnalysisLimits(prev) })
 }
 
-// TestAnalyzer_CallCountGate_ZeroCalls pins the 0-call branch:
-// ParseOutput must invoke the failsafe (buildAnalysisIR still
-// returns a structurally valid IR from a zero-value RequestModel),
-// but the diagnostic must mark the fallback as used and the emit
-// count as zero. No out.Error — the 0-call case is warn-only so a
-// single flaky LLM round trip never aborts the pipeline.
+// TestAnalyzer_CallCountGate_ZeroCalls pins the fail-loud 0-call
+// branch: ParseOutput returns a StageOutput with Error populated
+// and AnalysisIR nil so runAnalyzePhase can retry. There is no
+// "failsafe" synthesis anymore.
 func TestAnalyzer_CallCountGate_ZeroCalls(t *testing.T) {
 	restoreAnalysisLimits(t)
-	// Strict policy should NOT affect the 0-call branch — only >1
-	// is gated by RejectMultipleEmit. Installing the strict policy
-	// here guards against a future refactor that accidentally
-	// couples the two knobs.
 	tool.SetAnalysisLimits(tool.AnalysisLimits{RejectMultipleEmit: true})
 
 	mu := types.NewMutableState("explain the analyzer 0-call path")
-	// Intentionally leave Mutable.RequestModel unset so the failsafe
-	// path is the only thing populating the IR.
 
 	data, out := parseWithToolResults(t, mu, nil)
 
 	if got := getFloat(t, data, "analysis_emit_calls"); got != 0 {
 		t.Errorf("analysis_emit_calls = %v, want 0", got)
 	}
-	if got := getBool(t, data, "analysis_fallback_used"); !got {
-		t.Errorf("analysis_fallback_used = false, want true")
+	if out.Error == "" {
+		t.Error("0-call branch must set StageOutput.Error on fail-loud")
 	}
-	if out.Error != "" {
-		t.Errorf("0-call branch must not set StageOutput.Error (warn-only), got %q", out.Error)
-	}
-	if out.AnalysisIR == nil {
-		t.Error("0-call branch must still produce an AnalysisIR via the failsafe")
+	if out.AnalysisIR != nil {
+		t.Error("0-call branch must NOT produce an AnalysisIR")
 	}
 }
 
@@ -463,9 +427,6 @@ func TestAnalyzer_CallCountGate_SingleCall(t *testing.T) {
 
 	if got := getFloat(t, data, "analysis_emit_calls"); got != 1 {
 		t.Errorf("analysis_emit_calls = %v, want 1", got)
-	}
-	if got := getBool(t, data, "analysis_fallback_used"); got {
-		t.Errorf("analysis_fallback_used = true, want false (single call is the happy path)")
 	}
 	if out.Error != "" {
 		t.Errorf("single-call branch must not set StageOutput.Error, got %q", out.Error)
@@ -508,9 +469,6 @@ func TestAnalyzer_CallCountGate_MultipleCalls_WarnAndContinue(t *testing.T) {
 	if got := getFloat(t, data, "analysis_emit_calls"); got != 3 {
 		t.Errorf("analysis_emit_calls = %v, want 3", got)
 	}
-	if got := getBool(t, data, "analysis_fallback_used"); got {
-		t.Errorf("analysis_fallback_used = true, want false (Mutable had a RequestModel)")
-	}
 	if out.Error != "" {
 		t.Errorf("warn-and-continue policy must NOT set StageOutput.Error, got %q", out.Error)
 	}
@@ -539,9 +497,6 @@ func TestAnalyzer_CallCountGate_MultipleCalls_Reject(t *testing.T) {
 
 	if got := getFloat(t, data, "analysis_emit_calls"); got != 2 {
 		t.Errorf("analysis_emit_calls = %v, want 2", got)
-	}
-	if got := getBool(t, data, "analysis_fallback_used"); got {
-		t.Errorf("analysis_fallback_used = true, want false (RequestModel was set)")
 	}
 	if out.Error == "" {
 		t.Error("strict policy must set StageOutput.Error when emit_calls > 1")
@@ -866,7 +821,7 @@ func TestAnalyzer_ParseOutput_SurfacesQualityProbe(t *testing.T) {
 	}
 
 	e := &analyzerEvaluator{prescanRounds: 2}
-	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	out, err := e.ParseOutput(ctx, nil, []types.ToolResult{emitResult(true)}, nil)
 	if err != nil {
 		t.Fatalf("ParseOutput: %v", err)
 	}

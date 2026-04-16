@@ -4,10 +4,21 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/binder"
+	"github.com/hanchaoqun/codrax/internal/analysis/budget"
 	"github.com/hanchaoqun/codrax/internal/analysis/compiler"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func sigFor(rm types.RequestModel) budget.BudgetSignals {
+	return budget.BudgetSignals{
+		Complexity:      rm.Complexity,
+		TermCount:       len(rm.TermGraph.Canonical),
+		HypothesisCount: 1,
+		PrescanHitRatio: 1.0,
+	}
+}
 
 // validIR builds a fully-realistic AnalysisIR by composing the real
 // compiler / risk / hdp packages. This is the "golden path" input
@@ -28,9 +39,11 @@ func validIR() *types.AnalysisIR {
 			},
 		},
 	}
-	out := compiler.Compile(rm)
+	out := compiler.Compile(rm, sigFor(rm))
 	hs := hdp.Plan(rm)
-	hdp.Bind(&out.TaskGraph, hs)
+	if err := binder.BindByRelevance(&out.TaskGraph, hs, binder.Options{}); err != nil {
+		panic("gate test binder: " + err.Error())
+	}
 	ir := &types.AnalysisIR{
 		Version:        types.AnalysisIRVersion,
 		RequestModel:   rm,
@@ -125,9 +138,11 @@ func TestRun_DAGClosure_IgnoresValidationFeedbackCycles(t *testing.T) {
 			{ID: "code:explorer", Surface: "Explorer", Kind: types.TermSymbol, Confidence: 0.9},
 		}},
 	}
-	out := compiler.Compile(rm)
+	out := compiler.Compile(rm, sigFor(rm))
 	hs := hdp.Plan(rm)
-	hdp.Bind(&out.TaskGraph, hs)
+	if err := binder.BindByRelevance(&out.TaskGraph, hs, binder.Options{}); err != nil {
+		t.Fatalf("binder: %v", err)
+	}
 	ir := &types.AnalysisIR{
 		Version: types.AnalysisIRVersion, RequestModel: rm,
 		TaskGraph: out.TaskGraph, EvidencePlan: out.EvidencePlan,

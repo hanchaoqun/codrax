@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -390,6 +391,30 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.PipelineMaxStageVisits != nil {
 			pipelineSettings.MaxStageVisits = *rs.PipelineMaxStageVisits
+		}
+
+		// Gate thresholds → package-global in gate package.
+		var gt gate.Thresholds
+		if rs.GateCoverageMin != nil {
+			gt.CoverageMin = float32(*rs.GateCoverageMin)
+		}
+		if rs.GateCoverageWeightSymbol != nil {
+			gt.CoverageWeights.Symbol = float32(*rs.GateCoverageWeightSymbol)
+		}
+		if rs.GateCoverageWeightConfig != nil {
+			gt.CoverageWeights.Config = float32(*rs.GateCoverageWeightConfig)
+		}
+		if rs.GateCoverageWeightConcept != nil {
+			gt.CoverageWeights.Concept = float32(*rs.GateCoverageWeightConcept)
+		}
+		if rs.GateHypothesisMinPriority != nil {
+			gt.HypothesisMinPrio = *rs.GateHypothesisMinPriority
+		}
+		gate.SetGlobalThresholds(gt)
+
+		// Explorer per-tool default cap.
+		if rs.ExplorePerToolDefaultCap != nil {
+			pipelineSettings.Explore.PerToolDefaultCap = *rs.ExplorePerToolDefaultCap
 		}
 	}
 	// CLI flag overrides for pipeline budget.

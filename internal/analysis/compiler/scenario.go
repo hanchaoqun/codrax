@@ -28,7 +28,33 @@ func InferScenario(rm types.RequestModel) types.Scenario {
 	if hasPerfTerms(rm.TermGraph) {
 		return types.ScenarioPerformanceBottleneck
 	}
+	// Ambiguity-sensitive escalation: when the request is
+	// non-trivial AND carries at least one ambiguity clause, route
+	// to a scenario whose template has a reconcile node so the DAG
+	// schedules a branch-collapse step. architecture_explain is the
+	// only scenario with a reconcile node that is not already
+	// picked above.
+	if hasReconcileWorthyAmbiguity(rm) {
+		return types.ScenarioArchitectureExplain
+	}
 	return types.ScenarioArchitectureExplain
+}
+
+// hasReconcileWorthyAmbiguity reports whether the request has at
+// least one non-trivial ambiguity clause AND the request's
+// complexity is moderate or complex. Simple requests never need
+// reconciliation regardless of how many ambiguities the LLM lists.
+func hasReconcileWorthyAmbiguity(rm types.RequestModel) bool {
+	if rm.Complexity != types.ComplexityModerate && rm.Complexity != types.ComplexityComplex {
+		return false
+	}
+	for _, a := range rm.Ambiguities {
+		if a.Clause == "" {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // perfTerms are canonical IDs the normalizer emits for concepts that

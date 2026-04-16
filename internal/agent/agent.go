@@ -943,6 +943,30 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 		return violation, nil
 	}
 
+	// Explorer sourcemix budget gate. When an ExploreBudget is
+	// installed on MutableState (runTaskGraph does this before
+	// every explore window), refuse tool calls that would exceed
+	// the per-tool or overall cap. The LLM sees a failed ToolResult
+	// describing the exhausted budget and is expected to switch to
+	// a different tool or stop. Non-explore stages (analyze,
+	// extract, finalize) are untouched.
+	if ctx != nil && ctx.Stage == types.StageExplore && ctx.Mutable != nil {
+		canonical := canonicalToolName(tc.Name)
+		if rem := ctx.Mutable.BudgetRemaining(canonical); rem <= 0 {
+			msg := fmt.Sprintf(
+				"explore budget exhausted for tool %q: per-tool or overall cap reached. "+
+					"Use a different tool or stop the investigation.", tc.Name)
+			logging.Warning("[sourcemix] %s", msg)
+			return &types.ToolResult{
+				ToolName:  tc.Name,
+				Summary:   msg,
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		ctx.Mutable.RecordToolCall(canonical)
+	}
+
 	// Try local tool first
 	if b.deps.Tools != nil {
 		if _, err := b.deps.Tools.Get(tc.Name); err == nil {
@@ -984,6 +1008,24 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 
 	logging.Warning("tool not found: %s", tc.Name)
 	return nil, nil
+}
+
+// canonicalToolName mirrors sourcemix.canonicalTool so the
+// ExploreBudget key lookup in executeTool matches the map keys the
+// analyzer's NodeBudgetHints populated. Kept small + local so the
+// agent package does not import internal/analysis/sourcemix (which
+// would create a cycle through types.ExploreBudget's doc refs).
+func canonicalToolName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	switch n {
+	case "read":
+		return "read_file"
+	case "repomap":
+		return "repo_map"
+	case "ls":
+		return "list_files"
+	}
+	return n
 }
 
 // validateAnalyzerPrescanToolCall is the runtime hard-enforcement

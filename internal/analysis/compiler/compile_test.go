@@ -3,8 +3,21 @@ package compiler
 import (
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/budget"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// compileT is the test helper that mirrors Compile with a default
+// BudgetSignals. Keeps the test call sites terse after the Compile
+// signature gained the signals parameter.
+func compileT(rm types.RequestModel) Output {
+	return Compile(rm, budget.BudgetSignals{
+		Complexity:      rm.Complexity,
+		TermCount:       len(rm.TermGraph.Canonical),
+		HypothesisCount: 1,
+		PrescanHitRatio: 1.0,
+	})
+}
 
 func sampleRM(scenario types.Scenario, intent types.Intent, complexity types.Complexity) types.RequestModel {
 	return types.RequestModel{
@@ -44,7 +57,7 @@ func hasEdge(g types.TaskGraph, from, to string, et types.EdgeType) bool {
 }
 
 func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
-	out := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
 	if out.AnswerContract.RequiredAnswerShape != types.ShapeExplanation {
 		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
 	}
@@ -67,7 +80,7 @@ func TestCompile_ArchitectureExplain_HasExplanationContract(t *testing.T) {
 }
 
 func TestCompile_RootCause_HasValidationFeedback(t *testing.T) {
-	out := Compile(sampleRM(types.ScenarioRootCause, types.IntentRootCause, types.ComplexityComplex))
+	out := compileT(sampleRM(types.ScenarioRootCause, types.IntentRootCause, types.ComplexityComplex))
 	if out.AnswerContract.RequiredAnswerShape != types.ShapeStepList {
 		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
 	}
@@ -90,12 +103,12 @@ func TestCompile_RootCause_HasValidationFeedback(t *testing.T) {
 }
 
 func TestCompile_ConfigTrace_ShapeConfigValue(t *testing.T) {
-	out := Compile(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
+	out := compileT(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexitySimple))
 	if out.AnswerContract.RequiredAnswerShape != types.ShapeConfigValue {
 		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
 	}
 	// Simple complexity must give a smaller budget than moderate.
-	moderate := Compile(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexityModerate))
+	moderate := compileT(sampleRM(types.ScenarioConfigTrace, types.IntentConfigQuery, types.ComplexityModerate))
 	if out.EvidencePlan.Budget.MaxFiles >= moderate.EvidencePlan.Budget.MaxFiles {
 		t.Fatalf("simple budget %d should be < moderate %d",
 			out.EvidencePlan.Budget.MaxFiles, moderate.EvidencePlan.Budget.MaxFiles)
@@ -103,7 +116,7 @@ func TestCompile_ConfigTrace_ShapeConfigValue(t *testing.T) {
 }
 
 func TestCompile_PerformanceBottleneck_ListOfSymbols(t *testing.T) {
-	out := Compile(sampleRM(types.ScenarioPerformanceBottleneck, types.IntentTrace, types.ComplexityModerate))
+	out := compileT(sampleRM(types.ScenarioPerformanceBottleneck, types.IntentTrace, types.ComplexityModerate))
 	if out.AnswerContract.RequiredAnswerShape != types.ShapeListOfSymbols {
 		t.Fatalf("shape=%q", out.AnswerContract.RequiredAnswerShape)
 	}
@@ -120,7 +133,7 @@ func TestCompile_Generic_ReactsToIntent(t *testing.T) {
 		{types.IntentConfigQuery, types.ShapeConfigValue},
 	}
 	for _, c := range cases {
-		out := Compile(sampleRM(types.ScenarioGeneric, c.intent, types.ComplexityModerate))
+		out := compileT(sampleRM(types.ScenarioGeneric, c.intent, types.ComplexityModerate))
 		if out.AnswerContract.RequiredAnswerShape != c.want {
 			t.Fatalf("intent=%s: want shape=%s got %s", c.intent, c.want, out.AnswerContract.RequiredAnswerShape)
 		}
@@ -128,7 +141,7 @@ func TestCompile_Generic_ReactsToIntent(t *testing.T) {
 }
 
 func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
-	out := Compile(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
+	out := compileT(sampleRM("no_such_scenario", types.IntentExplain, types.ComplexityModerate))
 	// Generic template has exactly 3 nodes: probe, evidence, finalize.
 	if len(out.TaskGraph.Nodes) != 3 {
 		t.Fatalf("unknown scenario should fall back to generic (3 nodes); got %d", len(out.TaskGraph.Nodes))
@@ -136,7 +149,7 @@ func TestCompile_UnknownScenarioFallsBackToGeneric(t *testing.T) {
 }
 
 func TestCompile_HintsPropagateFromTermGraph(t *testing.T) {
-	out := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	out := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
 	foundCodeHint := false
 	for _, n := range out.TaskGraph.Nodes {
 		for _, id := range n.SearchHints.EntityIDs {
@@ -151,9 +164,9 @@ func TestCompile_HintsPropagateFromTermGraph(t *testing.T) {
 }
 
 func TestCompile_ComplexityScalesBudget(t *testing.T) {
-	simple := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexitySimple))
-	moderate := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
-	complex := Compile(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityComplex))
+	simple := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexitySimple))
+	moderate := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate))
+	complex := compileT(sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityComplex))
 	if !(simple.EvidencePlan.Budget.MaxFiles < moderate.EvidencePlan.Budget.MaxFiles &&
 		moderate.EvidencePlan.Budget.MaxFiles < complex.EvidencePlan.Budget.MaxFiles) {
 		t.Fatalf("budget not monotonic: simple=%d moderate=%d complex=%d",
@@ -196,7 +209,7 @@ func TestInferScenario(t *testing.T) {
 func TestCompile_LanguagePropagatesToContract(t *testing.T) {
 	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate)
 	rm.Language = "en"
-	out := Compile(rm)
+	out := compileT(rm)
 	if out.AnswerContract.Language != "en" {
 		t.Fatalf("language not propagated: %q", out.AnswerContract.Language)
 	}
@@ -214,7 +227,7 @@ func TestCompile_AllTemplatesStructurallyValid(t *testing.T) {
 		types.ScenarioGeneric,
 	}
 	for _, sc := range scenarios {
-		out := Compile(sampleRM(sc, types.IntentExplain, types.ComplexityModerate))
+		out := compileT(sampleRM(sc, types.IntentExplain, types.ComplexityModerate))
 		if len(out.TaskGraph.Nodes) == 0 {
 			t.Errorf("%s: empty node set", sc)
 			continue

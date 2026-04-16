@@ -1,39 +1,37 @@
-// Package hdp implements the Hypothesis-Driven Planning layer of the
-// Analyzer v3 refactor. It produces a set of falsifiable hypotheses
-// from a RequestModel and binds each hypothesis to the TaskGraph
-// nodes that must verify or reject it. The explorer/validator stages
-// later write HypothesisStatus back onto the IR so the DAG scheduler
-// can drive transitions on evidence rather than on opaque booleans.
+// Package hdp implements the Hypothesis-Driven Planning layer of
+// the Analyzer v3 refactor. It produces a set of falsifiable
+// hypotheses from a RequestModel; the separate binder package
+// attaches each hypothesis to the TaskGraph node(s) that will
+// verify it.
 //
 // This package is intentionally narrow:
 //
-//   - Plan(rm, tg) returns a candidate HypothesisSet that the
-//     analyzer agent (b5) may replace or refine with LLM-generated
-//     statements. When the LLM provides nothing, the rule-based
-//     output is still a valid starting point.
-//
-//   - Bind(tg, hs) attaches hypothesis IDs to every NodeEvidence and
-//     NodeValidate node so Validate(tg) can later enforce the
-//     "every non-probe node binds ≥1 hypothesis" invariant.
+//   - Plan(rm) returns a candidate HypothesisSet. Every hypothesis
+//     carries both a RequiredEvidence list (what the extractor must
+//     observe before declaring the hypothesis confirmed) and a
+//     FalsificationCondition (the mechanical criterion that flips
+//     it to rejected). Both are evaluated by the criterion package.
 //
 //   - Validate(tg) is the invariant check the analyzer quality gate
-//     (b4 gate package, next) calls before accepting an IR.
+//     calls before accepting an IR ("every binding-eligible node
+//     binds ≥1 hypothesis").
+//
+// Priority values come from the priority package, not from
+// hardcoded constants — see priority.Score.
 package hdp
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/priority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// Plan generates a small set of candidate hypotheses derived from
-// the Intent + TermGraph + Ambiguities of the request. It never
-// returns an empty set — even a fully generic request gets one
-// baseline hypothesis so downstream binding has something to attach.
-//
-// The output order is deterministic: priority desc, then ID asc, so
-// tests and diff-based evaluations stay stable.
+// Plan generates a set of candidate hypotheses from Intent,
+// TermGraph, Ambiguities, and RiskMatrix. The output is sorted by
+// priority desc with stable idx tie-breaking.
 func Plan(rm types.RequestModel) []types.Hypothesis {
 	var out []types.Hypothesis
 	nextID := func() string { return fmt.Sprintf("h%d", len(out)+1) }
@@ -44,37 +42,49 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 	switch rm.Intent {
 	case types.IntentRootCause:
 		out = append(out, types.Hypothesis{
-			ID:        nextID(),
-			Statement: fmt.Sprintf("The observed symptom is caused by %s or a module it depends on.", orDefault(topSymbol, "the primary subject of the request")),
+			ID: nextID(),
+			Statement: fmt.Sprintf(
+				"The observed symptom is caused by %s or a module it depends on.",
+				orDefault(topSymbol, "the primary subject of the request")),
 			RequiredEvidence: []types.Criterion{
-				{Kind: "symbol_present", Expr: orDefault(topSymbol, "")},
+				{Kind: "symbol_present", Expr: topSymbol},
+				{Kind: "evidence_count", Expr: ">=2"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "no_call_sites", Expr: orDefault(topSymbol, "")},
-			Priority:               90,
+			FalsificationCondition: types.Criterion{Kind: "no_call_sites", Expr: topSymbol},
 			Status:                 types.HypUnknown,
 		})
 	case types.IntentConfigQuery:
 		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              "The effective config value is resolved by a single deterministic chain from default to override.",
+			ID: nextID(),
+			Statement: "The effective config value is resolved by a single deterministic chain from default to override.",
+			RequiredEvidence: []types.Criterion{
+				{Kind: "evidence_count", Expr: ">=1"},
+			},
 			FalsificationCondition: types.Criterion{Kind: "multiple_resolution_chains"},
-			Priority:               80,
 			Status:                 types.HypUnknown,
 		})
 	case types.IntentReturnValue, types.IntentEnumerate:
 		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              fmt.Sprintf("The answer is a finite set of symbols anchored on %s.", orDefault(topSymbol, "the subject")),
+			ID: nextID(),
+			Statement: fmt.Sprintf(
+				"The answer is a finite set of symbols anchored on %s.",
+				orDefault(topSymbol, "the subject")),
+			RequiredEvidence: []types.Criterion{
+				{Kind: "answer_set_bounded", Expr: "<=50"},
+			},
 			FalsificationCondition: types.Criterion{Kind: "answer_set_unbounded"},
-			Priority:               80,
 			Status:                 types.HypUnknown,
 		})
 	default:
 		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              fmt.Sprintf("The request can be answered using evidence anchored on %s.", orDefault(topSymbol, "repo symbols")),
+			ID: nextID(),
+			Statement: fmt.Sprintf(
+				"The request can be answered using evidence anchored on %s.",
+				orDefault(topSymbol, "repo symbols")),
+			RequiredEvidence: []types.Criterion{
+				{Kind: "evidence_count", Expr: ">=1"},
+			},
 			FalsificationCondition: types.Criterion{Kind: "no_relevant_evidence"},
-			Priority:               60,
 			Status:                 types.HypUnknown,
 		})
 	}
@@ -85,65 +95,52 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 			continue
 		}
 		statement := fmt.Sprintf("The user's intent for %q is: %s.",
-			amb.Clause, firstNonEmpty(amb.Resolution, firstOption(amb.Options), "to be determined"))
+			amb.Clause,
+			firstNonEmpty(amb.Resolution, firstOption(amb.Options), "to be determined"))
 		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              statement,
+			ID:        nextID(),
+			Statement: statement,
+			RequiredEvidence: []types.Criterion{
+				{Kind: "evidence_count", Expr: ">=1"},
+			},
 			FalsificationCondition: types.Criterion{Kind: "user_clause_unresolved", Expr: amb.Clause},
-			Priority:               70,
 			Status:                 types.HypUnknown,
 		})
 	}
 
-	// 3. Risk-driven hypotheses — one per high-risk dimension.
+	// 3. Risk-driven hypotheses — one per elevated risk dimension.
 	if rm.RiskMatrix.Security.Level >= 3 {
 		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              "The change does not introduce an un-sanitized data path from an untrusted boundary.",
+			ID:        nextID(),
+			Statement: "The change does not introduce an un-sanitized data path from an untrusted boundary.",
+			RequiredEvidence: []types.Criterion{
+				{Kind: "evidence_count", Expr: ">=1"},
+			},
 			FalsificationCondition: types.Criterion{Kind: "untrusted_reaches_sink"},
-			Priority:               85,
 			Status:                 types.HypUnknown,
 		})
 	}
 	if rm.RiskMatrix.DataIntegrity.Level >= 3 {
 		out = append(out, types.Hypothesis{
-			ID:                     nextID(),
-			Statement:              "The change preserves all existing data invariants and is safe under concurrent writes.",
+			ID:        nextID(),
+			Statement: "The change preserves all existing data invariants and is safe under concurrent writes.",
+			RequiredEvidence: []types.Criterion{
+				{Kind: "evidence_count", Expr: ">=1"},
+			},
 			FalsificationCondition: types.Criterion{Kind: "invariant_broken"},
-			Priority:               85,
 			Status:                 types.HypUnknown,
 		})
 	}
 
+	// Assign priorities via the priority scorer. idx is the
+	// original slice position so ties break deterministically.
+	for i := range out {
+		out[i].Priority = priority.Score(out[i], rm, i)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].Priority > out[j].Priority
+	})
 	return out
-}
-
-// Bind attaches hypothesis IDs to every NodeEvidence, NodeValidate,
-// NodeReconcile, and NodeFinalize node in the task graph. Probe
-// nodes are left untouched — probes are baseline exploration and do
-// not need to bind a hypothesis.
-//
-// Binding strategy is round-robin: the i-th binding-eligible node
-// gets hs[i % len(hs)], so a single hypothesis graph still spreads
-// pressure across evidence nodes, and multiple hypotheses get
-// distributed evenly.
-//
-// Bind is additive — nodes that already have hypotheses keep them.
-func Bind(tg *types.TaskGraph, hs []types.Hypothesis) {
-	if tg == nil || len(hs) == 0 {
-		return
-	}
-	i := 0
-	for idx := range tg.Nodes {
-		if !requiresHypothesis(tg.Nodes[idx].Type) {
-			continue
-		}
-		if len(tg.Nodes[idx].Hypotheses) > 0 {
-			continue
-		}
-		tg.Nodes[idx].Hypotheses = []string{hs[i%len(hs)].ID}
-		i++
-	}
 }
 
 // Validate enforces the "non-probe nodes bind ≥1 hypothesis"
@@ -170,9 +167,7 @@ func requiresHypothesis(t types.TaskNodeType) bool {
 	return false
 }
 
-// firstSymbol returns the first TermSymbol's surface in the graph,
-// preferring repo-grounded terms over pattern-derived ones by
-// confidence.
+// firstSymbol returns the first TermSymbol's surface in the graph.
 func firstSymbol(tg types.TermGraph) string {
 	best := ""
 	bestConf := float32(-1)

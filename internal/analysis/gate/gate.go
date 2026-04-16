@@ -1,39 +1,76 @@
 // Package gate implements the Analyzer v3 deterministic quality
 // gate. It runs a fixed list of checks against an AnalysisIR and
 // returns a GateReport whose Rejected/Retryable flags tell the
-// analyzer agent whether to accept the IR, retry the analyze stage,
-// or surface a hard error to the user.
+// analyzer agent whether to accept the IR or retry.
 //
-// The checks are intentionally cheap and side-effect-free so the
-// gate can be re-run cheaply after every analyze retry. Each check
-// is independent: a later check is still evaluated even if an
-// earlier check failed, so the final GateReport lists every defect
-// at once rather than one at a time.
+// Every check is independent and the gate always runs all of them
+// so the returned report lists every defect at once. The gate is
+// observational only — fixes happen in the compiler (deterministic)
+// or via LLM retry (non-deterministic).
 //
-// The gate is never responsible for *fixing* an IR — only for
-// observing it. Fixes happen either in the scenario compiler
-// (deterministic) or via an LLM retry (non-deterministic).
+// All checks except pending_fields_wellformed are classified hard
+// by classifyGateFailure (in internal/agent/analyzer.go). The one
+// soft check is the format-hygiene sweep over the pending
+// artifact-exchange fields (TaskNode.Inputs/Outputs/ExitArtifacts)
+// and EvidencePlan.SourceMix: those fields have no runtime
+// consumer yet but the gate still verifies they are human-readable,
+// so a pending-field refactor lands with a clean baseline.
 package gate
 
 import (
 	"fmt"
+	"regexp"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
+	"github.com/hanchaoqun/codrax/internal/analysis/priority"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// Thresholds control the numeric gate cutoffs. Zero value produces
-// the defaults documented in the refactor plan §4.7.
+// Thresholds control the numeric gate cutoffs.
 type Thresholds struct {
-	CoverageMin       float32 // default 0.9
-	BudgetMinFiles    int     // default 5
-	BudgetMinIters    int     // default 4
-	HypothesisMinPrio int     // default 50
+	CoverageMin       float32         // default 0.9
+	CoverageWeights   CoverageWeights // default {Symbol:1.0, Config:0.7, Concept:0.4}
+	BudgetMinFiles    int             // default 5
+	BudgetMinIters    int             // default 4
+	HypothesisMinPrio int             // default 50 (human-scale 0-100)
 }
+
+// CoverageWeights assigns per-term-kind weight to the coverage
+// check. Symbols weigh most because they are code identifiers that
+// MUST appear in a search hint; config strings weigh second; pure
+// concepts weigh least because they are mostly natural language.
+type CoverageWeights struct {
+	Symbol  float32
+	Config  float32
+	Concept float32
+}
+
+// globalThresholds is the runtime-installed gate cutoffs, set by
+// cmd/root.go from codrax.yaml / CLI flags via SetGlobalThresholds.
+// Zero value → withDefaults fills package-level defaults.
+var globalThresholds Thresholds
+
+// SetGlobalThresholds installs the runtime-supplied thresholds.
+// Called from cmd/root.go alongside tool.SetAnalysisLimits.
+func SetGlobalThresholds(t Thresholds) { globalThresholds = t }
+
+// GlobalThresholds returns the installed thresholds (zero-value
+// safe: withDefaults fills defaults on first use).
+func GlobalThresholds() Thresholds { return globalThresholds }
 
 func (t Thresholds) withDefaults() Thresholds {
 	if t.CoverageMin == 0 {
 		t.CoverageMin = 0.9
+	}
+	if t.CoverageWeights.Symbol == 0 {
+		t.CoverageWeights.Symbol = 1.0
+	}
+	if t.CoverageWeights.Config == 0 {
+		t.CoverageWeights.Config = 0.7
+	}
+	if t.CoverageWeights.Concept == 0 {
+		t.CoverageWeights.Concept = 0.4
 	}
 	if t.BudgetMinFiles == 0 {
 		t.BudgetMinFiles = 5
@@ -42,7 +79,12 @@ func (t Thresholds) withDefaults() Thresholds {
 		t.BudgetMinIters = 4
 	}
 	if t.HypothesisMinPrio == 0 {
-		t.HypothesisMinPrio = 50
+		// Priorities are produced by priority.Score and unpacked via
+		// priority.Raw into a 0-100 range. The default floor is 30:
+		// a baseline Explain/Trace hypothesis on a 2-term graph
+		// scores ~35 and should pass, whereas a hypothesis rejected
+		// at every dimension (~0) must fail.
+		t.HypothesisMinPrio = 30
 	}
 	return t
 }
@@ -55,12 +97,8 @@ func Run(ir *types.AnalysisIR, th Thresholds) types.GateReport {
 	th = th.withDefaults()
 	if ir == nil {
 		return types.GateReport{
-			Passed:    false,
-			Rejected:  true,
-			Retryable: false,
-			Checks: []types.GateCheck{
-				{Name: "nil_ir", Passed: false, Detail: "analyzer returned nil AnalysisIR"},
-			},
+			Passed: false, Rejected: true, Retryable: false,
+			Checks: []types.GateCheck{{Name: "nil_ir", Passed: false, Detail: "analyzer returned nil AnalysisIR"}},
 		}
 	}
 
@@ -70,6 +108,8 @@ func Run(ir *types.AnalysisIR, th Thresholds) types.GateReport {
 	checks = append(checks, checkBudgetSanity(ir, th))
 	checks = append(checks, checkContractComplete(ir, th))
 	checks = append(checks, checkHypothesisCoverage(ir, th))
+	checks = append(checks, checkCriterionResolvable(ir))
+	checks = append(checks, checkPendingFieldsWellformed(ir))
 
 	passed := true
 	for _, c := range checks {
@@ -77,34 +117,17 @@ func Run(ir *types.AnalysisIR, th Thresholds) types.GateReport {
 			passed = false
 		}
 	}
-
 	return types.GateReport{
-		Passed:    passed,
-		Rejected:  !passed,
-		Retryable: !passed,
-		Checks:    checks,
+		Passed: passed, Rejected: !passed, Retryable: !passed, Checks: checks,
 	}
 }
 
 // ── individual checks ──────────────────────────────────────────
 
 func checkCoverage(ir *types.AnalysisIR, th Thresholds) types.GateCheck {
-	// Coverage proxy: every canonical symbol / config term in the
-	// request must appear in at least one task node's SearchHints.
-	// Concept-only terms don't count toward coverage because the
-	// normalizer may emit them for context rather than search.
-	important := 0
+	totalWeight := float32(0)
+	covered := float32(0)
 	hinted := make(map[string]bool)
-	for _, c := range ir.RequestModel.TermGraph.Canonical {
-		if c.Kind != types.TermSymbol && c.Kind != types.TermConfig {
-			continue
-		}
-		important++
-	}
-	if important == 0 {
-		return types.GateCheck{Name: "coverage", Passed: true, Score: 1.0, Threshold: th.CoverageMin,
-			Detail: "no critical terms to cover"}
-	}
 	for _, n := range ir.TaskGraph.Nodes {
 		for _, id := range n.SearchHints.KeywordIDs {
 			hinted[id] = true
@@ -113,22 +136,41 @@ func checkCoverage(ir *types.AnalysisIR, th Thresholds) types.GateCheck {
 			hinted[id] = true
 		}
 	}
-	covered := 0
+	weightFor := func(k types.TermKind) float32 {
+		switch k {
+		case types.TermSymbol:
+			return th.CoverageWeights.Symbol
+		case types.TermConfig:
+			return th.CoverageWeights.Config
+		case types.TermConcept:
+			return th.CoverageWeights.Concept
+		}
+		return 0
+	}
 	for _, c := range ir.RequestModel.TermGraph.Canonical {
-		if c.Kind != types.TermSymbol && c.Kind != types.TermConfig {
+		w := weightFor(c.Kind)
+		if w == 0 {
 			continue
 		}
+		totalWeight += w
 		if hinted[c.ID] {
-			covered++
+			covered += w
 		}
 	}
-	score := float32(covered) / float32(important)
+	if totalWeight == 0 {
+		return types.GateCheck{
+			Name: "coverage", Passed: true, Score: 1.0, Threshold: th.CoverageMin,
+			Detail: "no weighted terms to cover",
+		}
+	}
+	score := covered / totalWeight
 	return types.GateCheck{
 		Name:      "coverage",
 		Passed:    score >= th.CoverageMin,
 		Score:     score,
 		Threshold: th.CoverageMin,
-		Detail:    fmt.Sprintf("%d/%d critical terms appear in node search hints", covered, important),
+		Detail: fmt.Sprintf("weighted coverage %.2f/%.2f (Symbol=%.1f Config=%.1f Concept=%.1f)",
+			covered, totalWeight, th.CoverageWeights.Symbol, th.CoverageWeights.Config, th.CoverageWeights.Concept),
 	}
 }
 
@@ -170,8 +212,6 @@ func checkBudgetSanity(ir *types.AnalysisIR, th Thresholds) types.GateCheck {
 				b.MaxFiles, th.BudgetMinFiles, b.MaxReactIters, th.BudgetMinIters),
 		}
 	}
-	// Upper sanity bound: refuse absurdly large budgets so a rogue
-	// LLM cannot DoS the pipeline.
 	if b.MaxFiles > 1000 || b.MaxReactIters > 200 {
 		return types.GateCheck{
 			Name: "budget_sanity", Passed: false,
@@ -201,10 +241,9 @@ func checkContractComplete(ir *types.AnalysisIR, th Thresholds) types.GateCheck 
 }
 
 func checkHypothesisCoverage(ir *types.AnalysisIR, th Thresholds) types.GateCheck {
-	// Rule 1: at least one high-priority hypothesis exists.
 	highPrio := 0
 	for _, h := range ir.HypothesisSet {
-		if h.Priority >= th.HypothesisMinPrio {
+		if priority.Raw(h.Priority) >= th.HypothesisMinPrio {
 			highPrio++
 		}
 	}
@@ -212,12 +251,119 @@ func checkHypothesisCoverage(ir *types.AnalysisIR, th Thresholds) types.GateChec
 		return types.GateCheck{Name: "hypothesis_coverage", Passed: false,
 			Detail: "no hypothesis at or above min priority"}
 	}
-	// Rule 2: every binding-eligible node must have ≥1 hypothesis.
 	if miss := hdp.Validate(ir.TaskGraph); len(miss) > 0 {
 		return types.GateCheck{Name: "hypothesis_coverage", Passed: false,
 			Detail: fmt.Sprintf("%d unbound node(s): %v", len(miss), miss)}
 	}
 	return types.GateCheck{Name: "hypothesis_coverage", Passed: true, Score: 1.0, Threshold: 1.0}
+}
+
+// checkCriterionResolvable scans every Criterion-bearing field in
+// the IR and fails hard if any Kind is not registered in the
+// criterion package. This is the static guarantee the scheduler /
+// extractor rely on to panic on unknown-kind observation at
+// runtime.
+func checkCriterionResolvable(ir *types.AnalysisIR) types.GateCheck {
+	var unknown []string
+	visit := func(c types.Criterion, where string) {
+		if c.Kind == "" {
+			return
+		}
+		if !criterion.IsRegistered(criterion.Kind(c.Kind)) {
+			unknown = append(unknown, fmt.Sprintf("%s: %q", where, c.Kind))
+		}
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		for _, c := range n.EntryConditions {
+			visit(c, "node "+n.ID+".entry")
+		}
+		for _, c := range n.SuccessCriteria {
+			visit(c, "node "+n.ID+".success")
+		}
+	}
+	for _, h := range ir.HypothesisSet {
+		for _, c := range h.RequiredEvidence {
+			visit(c, "hyp "+h.ID+".required_evidence")
+		}
+		visit(h.FalsificationCondition, "hyp "+h.ID+".falsification")
+	}
+	for _, sc := range ir.EvidencePlan.StopConditions {
+		visit(types.Criterion{Kind: sc.Kind, Expr: sc.Expr}, "stop_condition")
+	}
+	for _, a := range ir.AnswerContract.AcceptanceTests {
+		visit(a, "acceptance_test")
+	}
+	if len(unknown) > 0 {
+		joined := ""
+		for i, u := range unknown {
+			if i > 0 {
+				joined += "; "
+			}
+			joined += u
+		}
+		return types.GateCheck{
+			Name: "criterion_resolvable", Passed: false,
+			Detail: fmt.Sprintf("%d unregistered kind(s): %s", len(unknown), joined),
+		}
+	}
+	return types.GateCheck{Name: "criterion_resolvable", Passed: true, Score: 1.0, Threshold: 1.0}
+}
+
+var pendingSlotName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// checkPendingFieldsWellformed is the SOFT gate check for the
+// artifact-exchange pending fields. It verifies:
+//
+//   - TaskNode.Inputs / Outputs / ExitArtifacts entries match
+//     snake_case_identifier so a future typed-artifact milestone
+//     can adopt them without a cleanup pass.
+//   - EvidencePlan.SourceMix values sum to ~100 (±5) when the
+//     template declared any, so the ratio semantics stay honest.
+//
+// Failures here produce a warning rather than a hard reject —
+// pending fields have no runtime consumer.
+func checkPendingFieldsWellformed(ir *types.AnalysisIR) types.GateCheck {
+	var issues []string
+	for _, n := range ir.TaskGraph.Nodes {
+		for _, slot := range n.Inputs {
+			if !pendingSlotName.MatchString(slot) {
+				issues = append(issues, fmt.Sprintf("node %s input %q not snake_case", n.ID, slot))
+			}
+		}
+		for _, slot := range n.Outputs {
+			if !pendingSlotName.MatchString(slot) {
+				issues = append(issues, fmt.Sprintf("node %s output %q not snake_case", n.ID, slot))
+			}
+		}
+		for _, slot := range n.ExitArtifacts {
+			if !pendingSlotName.MatchString(slot) {
+				issues = append(issues, fmt.Sprintf("node %s exit_artifact %q not snake_case", n.ID, slot))
+			}
+		}
+	}
+	if mix := ir.EvidencePlan.SourceMix; len(mix) > 0 {
+		sum := 0
+		for _, v := range mix {
+			sum += v
+		}
+		if sum < 95 || sum > 105 {
+			issues = append(issues, fmt.Sprintf("source_mix sums to %d, expected 100±5", sum))
+		}
+	}
+	if len(issues) > 0 {
+		joined := ""
+		for i, s := range issues {
+			if i > 0 {
+				joined += "; "
+			}
+			joined += s
+		}
+		return types.GateCheck{
+			Name: "pending_fields_wellformed", Passed: false,
+			Detail: joined,
+		}
+	}
+	return types.GateCheck{Name: "pending_fields_wellformed", Passed: true, Score: 1.0, Threshold: 1.0}
 }
 
 // ── helpers ────────────────────────────────────────────────────
@@ -240,10 +386,6 @@ func isKnownShape(s types.AnswerShape) bool {
 	return false
 }
 
-// findCycle returns a node ID involved in a hard-dependency cycle,
-// or "" if the graph is acyclic. Only hard_dependency edges count —
-// validation_feedback edges are by design cycles back to earlier
-// stages, so including them would flag every root_cause graph.
 func findCycle(g types.TaskGraph) string {
 	adj := make(map[string][]string, len(g.Nodes))
 	for _, e := range g.Edges {
@@ -252,7 +394,7 @@ func findCycle(g types.TaskGraph) string {
 		}
 		adj[e.From] = append(adj[e.From], e.To)
 	}
-	color := make(map[string]int) // 0=unseen,1=in-stack,2=done
+	color := make(map[string]int)
 	var visit func(id string) string
 	visit = func(id string) string {
 		if color[id] == 1 {

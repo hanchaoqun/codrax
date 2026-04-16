@@ -113,7 +113,7 @@ graph TB
 stateDiagram-v2
     [*] --> analyze
     analyze --> taskLoop : AnalysisIR.TaskGraph 生成
-    taskLoop --> explore : readyNodes 非空
+    taskLoop --> explore : readyExplorerWindow 非空
     explore --> extract : 当前 window 全 done
     extract --> finalize : finalize 节点 ready
     finalize --> contractCheck
@@ -123,10 +123,10 @@ stateDiagram-v2
 
 1. **Phase 1 — `analyze`** 跑一次。analyzer 先用 1-2 轮 evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`）验证用户提到的实体和术语是否在仓库里出现，然后通过 `emit_analysis` 工具写回 v3 `RequestModel`。随后 `analyzer.ParseOutput` 确定性地跑后处理管线（见 §7）组装完整的 `AnalysisIR` 并写进 `BusContext.AnalysisIR`。Analyzer **禁止** 读文件内容（`read_file` / `exec_command` 不在它的 tool allowlist 里），内容阅读是下一阶段 `explore` 的责任。
 2. **Phase 2 — per-task 循环**。对 `Mutable.TaskList.Tasks` 里每个 pending 的任务依次跑 `runTaskGraph`，它遍历 `AnalysisIR.TaskGraph.Nodes`：
-   - **merged-window schedule**：每一轮把所有 ready 的非 finalize 节点合并成**一次** `explore` dispatch。Node 级别的串行化让 explorer 的 ReAct 循环在内部处理，以换取紧凑的 LLM 调用数。
-   - **StageExtract** 在 explore window 完成后作为 Turn B 分派。extractor 看不到新文件，只消费 Turn A 的 `TurnAArtifacts` 快照。
+   - **criterion-aware window schedule**：`readyExplorerWindow` 收集所有 `EntryConditions`（`[]Criterion`，由 `criterion.Eval` 运行时求值）满足的非 finalize 节点，合并成**一次** `explore` dispatch。每轮开始前 `stopcond.ShouldStop` 评估 `EvidencePlan.StopConditions`，命中则 `forceCloseExploreWindow` 直接跳到 finalize。Explorer 的 `executeTool` 在 `StageExplore` 中每次工具调用前检查 `sourcemix.BudgetForTool`，超出 `NodeBudgetHints` 上限时阻断调用。
+   - **StageExtract** 在 explore window 完成后作为 Turn B 分派。dispatch 后 `markSuccessCriteriaFailed` 评估每个节点的 `SuccessCriteria`。extractor 还会评估每条 hypothesis 的 `RequiredEvidence` + `FalsificationCondition`，注入 auto-verdicts（required evidence met 但无 LLM verdict → inconclusive；falsification condition satisfied → rejected）。
    - **StageFinalize** 仅在 `NodeFinalize` 的所有非 finalize 前驱都 `done` 后分派。
-   - **Contract check + backtrack**：finalize 返回后跑 `contract.Check`。不通过且 retry budget 未耗尽 → requeue finalize 节点 + 整个 explorer window，把违规诊断塞进下一轮的 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回（P0.2 模式）。
+   - **Contract check + fine-grained backtrack**：finalize 返回后跑 `contract.Check`。不通过且 retry budget 未耗尽 → requeue finalize 节点，`requeueValidationTargets` 沿 `EdgeValidationFeedback` 边只 requeue 特定上游 evidence 节点（细粒度回溯，非整个 window），把违规诊断塞进下一轮的 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回（P0.2 模式）。
 3. 每个 task 的 finalize 把答案写进它自己的 `task.Result`（通过 `Mutable.UpdateTaskResult`）。所有 task 跑完后 `Run()` 返回 `BusContext`，`main.go` 遍历 `Tasks` 渲染每个任务的独立结果。
 
 **全局预算** `pipeline_max_steps` 是整 Run 的硬上限，跨 Phase 1 和 Phase 2 共用，在 `config/codrax.yaml` 配置。`EvidencePlan.Budget.MaxReactIters` 是**每个 task** 的额外上限。
@@ -228,7 +228,7 @@ Skill 和 Evaluator 在职责上严格二分，任何一端越界都会导致 pr
 
 1. Evaluator 的 `BuildInitialInstruction` 必须**只**输出 stage-specific supplement。它绝对不能重述 skill 的任何字段，也不能再发射 builder 已经写过的标题（`canonicalSystemSectionOrder` / `canonicalUserSectionOrder`）—— 标题冲突会让 LLM 看到两份同名段并在两者漂移时收到互相矛盾的指令。
 2. Skill 是唯一承载"做什么"的声明式入口。任何对 workflow、字段枚举、输出格式、禁止项的改动都只发生在 skill 文件里。一处改完两处联动（比如 emit_* 工具的 JSON schema 从 skill 的 SSOT 读枚举）是目前强制这条规则的主要防线。
-3. Evaluator 的另一半职责是 `ParseOutput`——从 LLM 输出提取结构化结果并跑 stage-specific 的后处理管线。对 analyzer 来说这就是 normalizer → compiler → risk → hdp → counterfactual → gate。Skill 里永远不写这类代码逻辑。
+3. Evaluator 的另一半职责是 `ParseOutput`——从 LLM 输出提取结构化结果并跑 stage-specific 的后处理管线。对 analyzer 来说这就是 normalizer → compiler → risk → hdp+priority+binder → counterfactual → gate。Skill 里永远不写这类代码逻辑。
 
 **Analyzer 是这条边界的极小参照实现**：
 
@@ -321,19 +321,17 @@ Per-agent 模型路由在 `config/providers.yaml` 里配（不同 Agent 可以�
 - 预扫完成（不论结果如何）后，analyzer 必须调用 `emit_analysis` 一次。即使某个实体在预扫中没找到，也依然放进 `entities` 数组（downstream 的 ERM ranking 层会处理 non-existent 的 term）；
 - `call-count gate` 仍然只统计 `emit_analysis` 的调用次数（见下文），预扫工具调用不计入，和 `prescan gate` + `quality probe` 一起是三条正交的诊断通道：前者管"是否被调用"，第二个管"调了几次预扫"，第三个管"预扫找到的东西和 LLM 说的是否一致"。
 
-Quality Gate 的 `Rejected` 区分 **hard failure**（`nil_ir` / `dag_closure` / `contract_complete` → 直接失败 Run）和 **soft failure**（`coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency` → log warning，继续跑）。
+Quality Gate 的 `Rejected` 区分 **hard failure**（所有 checks except `pending_fields_wellformed`，包括新增的 `criterion_resolvable`）和 **soft failure**（仅 `pending_fields_wellformed`）。Coverage 使用加权计算（Symbol=1.0, Config=0.7, Concept=0.4），阈值通过 `gate.GlobalThresholds()` 配置（`gate_coverage_min` / `gate_coverage_weight_*` / `gate_hypothesis_min_priority`）。
 
 **emit_analysis call-count gate.** Skill 文案里写的是 "call emit_analysis EXACTLY ONCE"，但 ReAct 循环和工具本身都允许 0 或 N 次。`analyzer.ParseOutput` 在走 `buildAnalysisIR` 之前扫一遍本次 dispatch 的 tool-result 流，把 emit_analysis 的实际调用次数和 fallback 决策以结构化字段透出到 `StageOutput.Data`：
 
 | 字段 | 含义 |
 |------|------|
 | `analysis_emit_calls` | 本次 dispatch 里 emit_analysis 的总调用次数（成功 + 失败都计，因为 LLM 的"意图"才是 gate 要测的） |
-| `analysis_fallback_used` | 进入 `ParseOutput` 时 `Mutable.RequestModel()` 是否为 nil —— 等价于 `readOrSynthesizeRequestModel` 走了零值合成路径 |
-
 三条分支行为：
 
-- **0 次**：触发强告警（`logging.Warning` + 目标问题的前 120 字节），走 failsafe 合成零值 `RequestModel`，`analysis_fallback_used=true`，**不**写 `StageOutput.Error`。0 次是 warn-only，永远不因为单次 LLM 抖动把整条 pipeline 拉断——但结构化字段会把"真的发生了 fallback"这件事透出来，eval 能直接 diff。
-- **1 次**：happy path。不打任何日志，`analysis_fallback_used=false`，`analysis_emit_calls=1`。
+- **0 次**：触发强告警（`logging.Warning` + 目标问题的前 120 字节），返回 hard `StageOutput.Error`。编排器的 `runAnalyzePhase` 会重试至 `MaxRetriesPerStage` 次；预算耗尽后整个 Run 终止，不进入 task 阶段。
+- **1 次**：happy path。不打任何日志，`analysis_emit_calls=1`。
 - **>1 次**：行为由 `tool.AnalysisLimits.RejectMultipleEmit` 决定。默认 `false` → 打 warning、保留最后一次写入、继续跑；`true` → 额外把描述性消息写进 `StageOutput.Error`，IR 还是按最后一次写入填充（让下游 stage 在 operator 选择忽略 error 信号时也能继续）。该 knob 由 `analysis_reject_multiple_emit` 配置。
 
 `analysis_emit_calls` 的计数和 Quality Gate 正交：两条错误通道可以同时 fire，Quality Gate 的 hard failure 优先（它先写 `out.Error`），call-count gate 只在 gate error 为空时才会覆盖 `out.Error`。
@@ -513,9 +511,10 @@ type AnalysisIR struct {
     RequestModel   RequestModel    // Intent / Scenario / Complexity /
                                    // TermGraph / RiskMatrix / AnalyzerHints
     TaskGraph      TaskGraph       // Nodes / Edges / ExecutionPolicy
-    EvidencePlan   EvidencePlan    // Budget / SourceMix / StopConditions
+    EvidencePlan   EvidencePlan    // Budget / SourceMix / StopConditions / NodeBudgetHints
     AnswerContract AnswerContract  // RequiredAnswerShape / MustInclude /
                                    // CitationReq / Language
+                                   // AcceptanceTests now []Criterion (Acceptance type deleted)
     HypothesisSet  []Hypothesis
     QualityGate    GateReport
 }
@@ -536,7 +535,7 @@ const (
 )
 ```
 
-Scheduler 的 `stageMapping` 把前四种节点（probe / evidence / validate / reconcile）全部映射到 `StageExplore`（merged window），只有 `NodeFinalize` 映射到 `StageFinalize`。写入相关的节点类型（design / implement / review / verify）已删除。
+Scheduler 的 `stageMapping` 把前四种节点（probe / evidence / validate / reconcile）全部映射到 `StageExplore`，只有 `NodeFinalize` 映射到 `StageFinalize`。写入相关的节点类型（design / implement / review / verify）已删除。`TaskNode.EntryConditions` 现在是 `[]Criterion`（typed，由 `criterion.Eval` 在运行时求值，19 种 registered Kinds）。`TaskNode.Inputs/Outputs/ExitArtifacts` 保留，带 `pending(artifact-exchange)` 标记。
 
 #### AnswerShape
 
@@ -557,7 +556,7 @@ const (
 
 #### RiskMatrix
 
-六维 0-5 打分（`Security` / `DataIntegrity` / `Compatibility` / `Performance` / `Ops` / `Compliance`），`risk.Evaluate` 从 term graph 推导 evidence。hdp 根据 risk level 决定是否 plan 额外的 hypothesis。
+六维 0-5 打分（`Security` / `DataIntegrity` / `Compatibility` / `Performance` / `Ops` / `Compliance`），`risk.Evaluate` 从 term graph 推导 evidence。`hdp.Plan` 根据 risk level 决定是否 plan 额外的 hypothesis，`priority.Score` 对每条 hypothesis 做 4 维打分，`binder.BindByRelevance` 基于相关性绑定到 TaskNode。
 
 ### TaskItem / TaskList
 
@@ -657,7 +656,7 @@ sequenceDiagram
     loop 每个 pending task
         Orch->>Orch: reset Turn A/B buffers + Signals
         loop runTaskGraph rounds
-            Orch->>Orch: readyNodes → window
+            Orch->>Orch: readyExplorerWindow → window
             Orch->>E: dispatchStage(explore) w/ window hint
             E->>Tool: grep/read_file/repo_map/...
             E->>Tool: emit_evidence per file
@@ -674,7 +673,7 @@ sequenceDiagram
                 alt pass
                     Orch->>Orch: Mutable.UpdateTaskResult(DONE)
                 else fail & budget left
-                    Orch->>Orch: requeue finalize + window
+                    Orch->>Orch: requeue finalize + upstream evidence (via EdgeValidationFeedback)
                 else fail & budget exhausted
                     Orch->>Orch: fail-loud prepend warning → DONE
                 end
@@ -698,15 +697,15 @@ sequenceDiagram
 | 2. Infer scenario | `internal/analysis/compiler` | `RequestModel` | `Scenario` 默认值（LLM 未指定时） |
 | 3. Compile | `internal/analysis/compiler` | `RequestModel` | `TaskGraph` + `EvidencePlan` + 默认 `AnswerContract` |
 | 4. Risk evaluate | `internal/analysis/risk` | `RequestModel` | `RiskMatrix`（六维 0-5 打分） |
-| 5. Hypothesis plan + bind | `internal/analysis/hdp` | `RequestModel` + `TaskGraph` | `[]Hypothesis` + 绑到 TaskNode |
+| 5. Hypothesis plan + bind | `internal/analysis/hdp` + `internal/analysis/priority` + `internal/analysis/binder` | `RequestModel` + `TaskGraph` | `[]Hypothesis` with `priority.Score`; `binder.BindByRelevance` 替代旧的 round-robin 绑定 |
 | 6. Counterfactual expand | `internal/analysis/counterfactual` | `TaskGraph` + `RequestModel` | 可选的 counterfactual branch（默认关闭，仅 complex + ambiguous 触发） |
 | 7. Quality gate | `internal/analysis/gate` | 完整 IR | `GateReport` + `Rejected` flag |
 
-**不变量**：每一步都可在零输入下退化到安全默认值。LLM 完全没调用 `emit_analysis` 时，`readOrSynthesizeRequestModel` 用 raw objective 组装一个零值 `RequestModel`，compiler 的 generic template 和零 RiskMatrix 仍能产出结构上完整的 IR。
+**不变量**：每一步都可在零输入下退化到安全默认值。LLM 完全没调用 `emit_analysis` 时，analyzer 返回 hard `StageOutput.Error`；`runAnalyzePhase` 重试至 `MaxRetriesPerStage` 次，预算耗尽后 Run 终止。
 
 **Quality Gate 分层**：
-- **Hard failures**（`nil_ir` / `dag_closure` / `contract_complete`）→ `StageOutput.Error` 抛出 → Run 硬失败。
-- **Soft failures**（`coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency`）→ 记 warning，继续跑，让评测能 diff 软失败而不是整批 abort。
+- **Hard failures**（所有 checks except `pending_fields_wellformed`：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency` / `criterion_resolvable`）→ `StageOutput.Error` 抛出 → Run 硬失败。Coverage 使用加权计算（Symbol=1.0, Config=0.7, Concept=0.4），阈值通过 `gate.GlobalThresholds()` 配置。
+- **Soft failure**（仅 `pending_fields_wellformed` — pending artifact-exchange 字段格式检查）→ 记 warning，继续跑。
 
 ---
 
@@ -824,7 +823,7 @@ Analyzer 产出的 TaskGraph 理论上允许 node 级别并发调度，但现阶
 
 - 节点级 dispatch 会把 LLM 调用数乘 4-5 倍
 - explorer 的 monolithic ReAct 循环本来就能在内部处理 window 内的排序
-- DAG 的 hard_dependency / validation_feedback 结构仍然被尊重（window 只在前驱全部 `done` 时推进，contract check fail 时整个 window 被 requeue）
+- DAG 的 hard_dependency / validation_feedback 结构被细粒度利用：`readyExplorerWindow` 用 `criterion.Eval` 求值 `EntryConditions` 决定节点就绪；contract check fail 时 `requeueValidationTargets` 沿 `EdgeValidationFeedback` 边只 requeue 特定上游 evidence 节点（非整个 window）
 
 ### 诚实失败（fail-loud）
 

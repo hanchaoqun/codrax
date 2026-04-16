@@ -86,6 +86,16 @@ type MutableState struct {
 	// multi-task run.
 	answerDocument *AnswerDocument
 
+	// exploreBudget is the ExploreBudget the orchestrator installs
+	// at the top of runTaskGraph. The explorer's ReAct loop reads
+	// it before every tool dispatch (BudgetRemaining / RecordToolCall)
+	// so NodeBudgetHints becomes a real runtime throttle rather
+	// than a log-only metric. Zero-value-safe: a nil budget means
+	// "no caps installed" and BudgetRemaining returns a very large
+	// number so non-DAG call paths (tests, one-shot dispatches)
+	// stay unaffected.
+	exploreBudget *ExploreBudget
+
 	// prescanSummaryBlob is the lowercased concatenation of every
 	// successful pre-scan ToolResult.Summary the analyzer observed
 	// during the current analyze dispatch (repo_map / grep
@@ -632,6 +642,82 @@ func (m *MutableState) ResetPrescanSummary() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.prescanSummaryBlob.Reset()
+}
+
+// SetExploreBudget installs a fresh ExploreBudget for the current
+// per-task explore window. The orchestrator calls this once at the
+// start of runTaskGraph with per-tool caps derived from the
+// analyzer's NodeBudgetHints. A nil argument clears the budget so
+// non-DAG call paths degrade to "no throttling".
+func (m *MutableState) SetExploreBudget(b *ExploreBudget) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.exploreBudget = b
+}
+
+// ExploreBudget returns a defensive clone of the currently
+// installed budget. Callers that just need counters (RecordToolCall /
+// BudgetRemaining) should use those methods directly; this getter
+// is for the explorer's ReAct loop to pass the clone into
+// sourcemix.BudgetForTool.
+func (m *MutableState) ExploreBudget() *ExploreBudget {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.exploreBudget == nil {
+		return nil
+	}
+	return m.exploreBudget.Clone()
+}
+
+// RecordToolCall bumps the per-tool and overall used counters for
+// the given canonical tool name. No-op when no budget is installed.
+func (m *MutableState) RecordToolCall(tool string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.exploreBudget == nil {
+		return
+	}
+	if m.exploreBudget.PerToolUsed == nil {
+		m.exploreBudget.PerToolUsed = make(map[string]int)
+	}
+	m.exploreBudget.PerToolUsed[tool]++
+	m.exploreBudget.OverallUsed++
+}
+
+// BudgetRemaining returns the smaller of the per-tool and overall
+// remaining cap for `tool`. When no budget is installed, returns a
+// very large number so callers can treat the return as "plenty".
+func (m *MutableState) BudgetRemaining(tool string) int {
+	if m == nil {
+		return 1 << 30
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.exploreBudget == nil {
+		return 1 << 30
+	}
+	const inf = 1 << 30
+	perRem := inf
+	if cap, ok := m.exploreBudget.PerToolCap[tool]; ok {
+		perRem = cap - m.exploreBudget.PerToolUsed[tool]
+	}
+	overallRem := inf
+	if m.exploreBudget.OverallCap > 0 {
+		overallRem = m.exploreBudget.OverallCap - m.exploreBudget.OverallUsed
+	}
+	if perRem < overallRem {
+		return perRem
+	}
+	return overallRem
 }
 
 // StageReport is the synthesized narrative an agent leaves behind

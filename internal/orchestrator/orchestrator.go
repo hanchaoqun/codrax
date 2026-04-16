@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
+	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
@@ -167,10 +169,20 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	stepsUsed := 0
 
-	// Phase 1: analyze.
+	// Phase 1: analyze. Fail-loud: when analyze exhausts its retry
+	// budget the whole Run terminates without entering phase 2.
 	if used, err := o.runAnalyzePhase(); err != nil {
 		logging.Error("[orchestrator] analyze phase failed: %v", err)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
+		o.busCtx.TaskState.IsTerminal = true
+		o.busCtx.Mutable.SetResult("")
+		o.emit(render.Event{
+			Kind:      render.EventPipelineEnd,
+			Timestamp: time.Now(),
+			TraceID:   o.busCtx.TraceID,
+			Error:     o.busCtx.TaskState.LastError,
+		})
+		return o.busCtx, nil
 	} else {
 		stepsUsed += used
 	}
@@ -202,20 +214,37 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	return o.busCtx, nil
 }
 
-// runAnalyzePhase dispatches the analyze stage once and applies its
-// output. It does not iterate; the orchestrator does not evaluate
-// transitions out of analyze. The analyzer installs the fail-safe
-// single-task list in ParseOutput before returning so the per-task
-// phase has work to do.
+// runAnalyzePhase dispatches the analyze stage with hard fail-loud
+// retry semantics. Each attempt is counted; the loop exits early
+// on a clean StageOutput (no Error, non-nil AnalysisIR). After the
+// retry budget is exhausted the phase returns an error so Run
+// terminates without entering the per-task phase.
 func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	o.busCtx.PipelineStage = types.StageAnalyze
 	o.busCtx.TaskState.Stage = types.StageAnalyze
 	o.busCtx.TaskState.Missing = types.MissingUnderstanding
 
-	if _, err := o.dispatchStage(types.StageAnalyze); err != nil {
-		return 1, err
+	max := o.settings.MaxRetriesPerStage
+	if max < 1 {
+		max = 1
 	}
-	return 1, nil
+	var lastErr string
+	used := 0
+	for attempt := 0; attempt < max; attempt++ {
+		used++
+		out, err := o.dispatchStage(types.StageAnalyze)
+		if err == nil && (out == nil || out.Error == "") && o.busCtx.AnalysisIR != nil {
+			return used, nil
+		}
+		if out != nil {
+			lastErr = out.Error
+		}
+		if err != nil {
+			lastErr = err.Error()
+		}
+		logging.Warning("[orchestrator] analyze attempt %d/%d failed: %s", attempt+1, max, lastErr)
+	}
+	return used, fmt.Errorf("analyze stage exhausted after %d attempt(s): %s", max, lastErr)
 }
 
 // runTaskPhase dispatches the single task graph for the run. After
@@ -243,43 +272,23 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	return nil
 }
 
-// runTaskGraph is the per-task execution path. It walks
-// AnalysisIR.TaskGraph.Nodes via graphState.
+// runTaskGraph walks AnalysisIR.TaskGraph with criterion-aware
+// scheduling. Each round:
 //
-// Merged-window schedule: all ready non-finalize TaskNodes in the
-// current readyNodes() batch are dispatched as ONE explorer
-// execution per round. The merge trades node-level dispatch
-// granularity for a tight LLM-call count — relaxing it would
-// multiply calls 4-5× per task without a separable behavioural win
-// on current workloads.
-//
-// Round structure:
-//
-//  1. Collect the current explorer window (every ready non-finalize
-//     node). If non-empty, render its objectives + search hint
-//     surfaces into a Retry Directive and dispatch StageExplore once.
-//     Mark every window node done on success.
-//
-//  2. If a finalize node is now ready, dispatch StageFinalize, then
-//     run the AnswerContract checker over its FinalAnswer.
-//
-//     - Pass: mark the finalize node done, record the answer, return.
-//
-//     - Fail with retry budget remaining: requeue the finalize node,
-//       requeue every explorer-window node so the next round sees a
-//       fresh batch, record one cross-window retry, and inject the
-//       contract violation diagnostic into the next window's
-//       RetryHint via pendingViolation.
-//
-//     - Fail with budget exhausted: prepend a fail-loud
-//       "answer-contract validation exhausted" warning to the answer
-//       and return the original answer body beneath it (P0.2 pattern).
-//
-//  3. Loop until allDone or stepsUsed hits the per-task cap.
-//
-// On any unexpected scheduler stall (no ready window, no ready
-// finalize, but not all done) the function falls back to a forced
-// finalize dispatch so the task always terminates with a Result.
+//  1. Build a criterion.Env from current BusContext state.
+//  2. Check stopcond.ShouldStop; if true, forceCloseExploreWindow
+//     and jump directly to finalize.
+//  3. readyExplorerWindow returns nodes whose hard deps are done
+//     AND whose EntryConditions all pass. Dispatch them as one
+//     explore window. After the explore dispatch, evaluate each
+//     window node's SuccessCriteria: successful ones are marked
+//     done; failed ones are requeued.
+//  4. A failed validate node's SuccessCriteria triggers
+//     requeueValidationTargets — only the specific upstream
+//     evidence nodes named by EdgeValidationFeedback get requeued,
+//     not the whole window.
+//  5. Finalize dispatch + contract check on the same contract-
+//     checker retry semantics as before.
 func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	ir := o.busCtx.AnalysisIR
 	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
@@ -326,34 +335,57 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	state := newGraphState(ir.TaskGraph)
 	resolveSurface := termSurfaceLookup(ir)
 
-	// pendingViolation carries the contract-checker diagnosis from the
-	// previous failed finalize into the next explorer window so the
-	// LLM sees the gap as a Retry Directive header.
-	var pendingViolation string
+	// Install the ExploreBudget derived from the analyzer's
+	// NodeBudgetHints. Explorer's ReAct loop reads this through
+	// ctx.Mutable.ExploreBudget() to throttle per-tool calls.
+	hints := ir.EvidencePlan.NodeBudgetHints
+	o.busCtx.Mutable.SetExploreBudget(&types.ExploreBudget{
+		PerToolCap:  hints.PerToolCap,
+		PerToolUsed: map[string]int{},
+		OverallCap:  hints.OverallCap,
+	})
 
-	// Cap per-task budget at the EvidencePlan-declared max iterations
-	// when present. The plan's MaxReactIters is "react iterations
-	// expected for this scenario"; treating it as the per-task step
-	// cap is the natural mapping under the merged schedule (each
-	// dispatch consumes ~1 react loop's worth of LLM calls). Empty /
-	// zero falls through to the orchestrator-passed stepBudget.
-	if budget := ir.EvidencePlan.Budget.MaxReactIters; budget > 0 && budget < stepBudget {
-		stepBudget = budget
+	var pendingViolation string
+	var pendingValidationTargets []string
+
+	if b := ir.EvidencePlan.Budget.MaxReactIters; b > 0 && b < stepBudget {
+		stepBudget = b
 	}
 
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
 
+	buildEnv := func(draft string, draftCitations int) criterion.Env {
+		return criterion.Env{
+			IR:             ir,
+			Evidence:       o.busCtx.EvidenceItems,
+			AnswerSymbols:  o.busCtx.AnswerSymbols,
+			AnswerChains:   o.busCtx.AnswerChains,
+			ToolResults:    o.busCtx.ToolResults,
+			PrescanBlob:    o.busCtx.Mutable.PrescanSummaryBlob(),
+			Signals:        o.busCtx.Signals,
+			DraftAnswer:    draft,
+			DraftCitations: draftCitations,
+			ReactItersUsed: stepsUsed,
+		}
+	}
+
 	for stepsUsed < stepBudget && !state.allDone() {
-		window := state.pendingExplorerWindow()
+		env := buildEnv("", 0)
+
+		if stop, reason := stopcond.ShouldStop(ir.EvidencePlan, env); stop {
+			logging.Info("[orchestrator] stop condition fired: %s", reason)
+			state.forceCloseExploreWindow()
+			continue
+		}
+
+		window, blocked := state.readyExplorerWindow(env)
 		fin := state.firstFinalizeReadyMerged()
 
-		// The driver always tries the explorer window first, then
-		// finalize. This deterministic order matches the templates'
-		// hard_dependency edges (probe → evidence → … → finalize).
 		if len(window) > 0 {
-			hint := renderWindowHint(window, resolveSurface, pendingViolation)
+			hint := renderWindowHint(window, blocked, pendingValidationTargets, resolveSurface, pendingViolation)
 			pendingViolation = ""
+			pendingValidationTargets = nil
 			o.applyWindowHint(hint)
 			for _, n := range window {
 				state.markRunning(n.ID)
@@ -367,37 +399,48 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				for _, n := range window {
 					state.markFailed(n.ID)
 				}
-				// Continue to the finalize attempt anyway — the
-				// finalizer can still produce a partial answer that
-				// the contract checker will judge.
 			} else {
+				// Post-dispatch criterion evaluation. Separate
+				// validate-node failure from non-validate failure:
+				// validate failures trigger fine-grained
+				// requeueValidationTargets, others just mark the
+				// node requeued.
+				envAfter := buildEnv("", 0)
+				var valFailed *types.TaskNode
 				for _, n := range window {
-					state.markDone(n.ID)
+					ok, failed := state.markSuccessCriteriaFailed(n, envAfter)
+					if ok {
+						state.markDone(n.ID)
+						continue
+					}
+					logging.Info("[orchestrator] node %s success criteria failed: %+v", n.ID, failed)
+					if n.Type == types.NodeValidate {
+						valFailed = n
+					} else {
+						state.requeue(n.ID)
+					}
 				}
-				// Turn B: immediately after the merged explorer
-				// window completes successfully, dispatch the
-				// extractor to drain Turn A's transcript into
-				// structured emit_answer_symbol / emit_hypothesis_verdict
-				// items.
+				if valFailed != nil {
+					targets := state.requeueValidationTargets(valFailed.ID)
+					if len(targets) == 0 {
+						// No upstream evidence edges found — fall
+						// back to requeueing the validate node only.
+						state.requeue(valFailed.ID)
+					} else {
+						pendingValidationTargets = targets
+						state.recordRetry()
+					}
+				}
+
+				// Turn B extract dispatch (unconditional after a
+				// successful explore dispatch — criterion failures
+				// may still produce partial evidence worth draining).
 				o.busCtx.PipelineStage = types.StageExtract
 				o.busCtx.TaskState.Stage = types.StageExtract
 				stepsUsed++
 				if _, exDispatchErr := o.dispatchStage(types.StageExtract); exDispatchErr != nil {
-					logging.Warning("[orchestrator] DAG extract dispatch failed (continuing to finalize): %v", exDispatchErr)
+					logging.Warning("[orchestrator] DAG extract dispatch failed (continuing): %v", exDispatchErr)
 				} else {
-					// Turn B's hypothesis verdict drain hook. After the
-					// extractor successfully emits emit_hypothesis_verdict
-					// batches, Turn B's ParseOutput leaves the verdicts
-					// in MutableState.EmittedHypothesisVerdicts instead
-					// of copying them into StageOutput (MarkHypothesis
-					// writes into AnalysisIR, which the extractor does
-					// not own — the v3 contract makes the analyzer the
-					// sole writer of the IR with MarkHypothesis as the
-					// dedicated carve-out API). The orchestrator reads
-					// the buffer here, applies MarkHypothesis for each
-					// verdict, and LEAVES the buffer populated so the
-					// finalizer's prompt builder can render the
-					// rationale and citation back to the user.
 					o.drainHypothesisVerdicts()
 				}
 			}
@@ -405,9 +448,16 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		}
 
 		if fin == nil {
-			// No ready window AND no ready finalize but not allDone:
-			// scheduler stall. Force finalize so the task terminates.
-			logging.Warning("[orchestrator] DAG scheduler stalled; forcing finalize")
+			// No ready window (or every node blocked) AND no ready
+			// finalize. If blocked nodes exist we can make progress
+			// only by waiting for a future env change; since env is
+			// pure-read we would loop forever. Break to forced
+			// finalize.
+			if len(blocked) > 0 {
+				logging.Warning("[orchestrator] %d node(s) blocked on entry conditions; forcing finalize", len(blocked))
+			} else {
+				logging.Warning("[orchestrator] DAG scheduler stalled; forcing finalize")
+			}
 			break
 		}
 

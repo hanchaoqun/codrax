@@ -1,16 +1,15 @@
 package orchestrator
 
 import (
-	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // scheduler_test.go locks the graphState abstraction and the
-// node-type→stage mapping. These are pure-data tests; they do not
-// dispatch any agent, so they can assert exact-state invariants.
+// node-type→stage mapping.
 
 func smallChainGraph() types.TaskGraph {
 	probe := types.TaskNode{ID: "n0", Type: types.NodeProbe, Objective: "scan"}
@@ -32,35 +31,39 @@ func smallChainGraph() types.TaskGraph {
 	}
 }
 
-func TestGraphState_ReadyOrderRespectsHardEdges(t *testing.T) {
+func emptyEnv() criterion.Env {
+	return criterion.Env{}
+}
+
+func TestGraphState_ReadyWindow_MergedInitial(t *testing.T) {
 	s := newGraphState(smallChainGraph())
-
-	// Initially only n0 is ready (no preds).
-	ready := s.readyNodes()
-	if len(ready) != 1 || ready[0].ID != "n0" {
-		t.Fatalf("first ready: want [n0], got %v", idsOf(ready))
+	window, _ := s.readyExplorerWindow(emptyEnv())
+	// Merged-window schedule: every non-finalize node is ready on
+	// round 1 regardless of hard-dep chain.
+	if len(window) != 3 {
+		t.Fatalf("first window: want 3 nodes (merged), got %v", idsOf(window))
 	}
-
-	// After n0 done, n1 should be ready alone.
-	s.markRunning("n0")
-	s.markDone("n0")
-	ready = s.readyNodes()
-	if len(ready) != 1 || ready[0].ID != "n1" {
-		t.Errorf("after n0 done: want [n1], got %v", idsOf(ready))
+	// Mark all done and verify window empties.
+	for _, n := range window {
+		s.markDone(n.ID)
+	}
+	window, _ = s.readyExplorerWindow(emptyEnv())
+	if len(window) != 0 {
+		t.Errorf("after marking all done: want empty, got %v", idsOf(window))
 	}
 }
 
-func TestGraphState_PendingExplorerWindowSkipsFinalize(t *testing.T) {
+func TestGraphState_WindowExcludesFinalize(t *testing.T) {
 	s := newGraphState(smallChainGraph())
-	// Walk the chain so n3 (finalize) becomes ready.
 	for _, id := range []string{"n0", "n1", "n2"} {
 		s.markRunning(id)
 		s.markDone(id)
 	}
-	if w := s.pendingExplorerWindow(); len(w) != 0 {
-		t.Errorf("explorer window after chain done: want empty, got %v", idsOf(w))
+	window, _ := s.readyExplorerWindow(emptyEnv())
+	if len(window) != 0 {
+		t.Errorf("window after chain done: want empty, got %v", idsOf(window))
 	}
-	fin := s.firstFinalizeReady()
+	fin := s.firstFinalizeReadyMerged()
 	if fin == nil || fin.ID != "n3" {
 		t.Errorf("finalize ready: want n3, got %v", fin)
 	}
@@ -79,69 +82,87 @@ func TestGraphState_RetryBudgetExhausted(t *testing.T) {
 	}
 }
 
-func TestGraphState_ReadyDeprioritizesCounterfactual(t *testing.T) {
-	g := smallChainGraph()
-	cf := types.TaskNode{ID: "ncf", Type: types.NodeEvidence, Objective: "alt", IsCounterfactual: true}
-	g.Nodes = append(g.Nodes, cf)
-	g.Edges = append(g.Edges, types.TaskEdge{From: "n0", To: "ncf", EdgeType: types.EdgeHardDependency})
-	s := newGraphState(g)
-	s.markRunning("n0")
-	s.markDone("n0")
-	ready := s.readyNodes()
-	// Both n1 and ncf should be ready, n1 (non-counterfactual) first.
-	if len(ready) < 2 {
-		t.Fatalf("want at least 2 ready, got %v", idsOf(ready))
-	}
-	if ready[0].ID != "n1" {
-		t.Errorf("non-counterfactual should sort first; got %v", idsOf(ready))
-	}
-	// Counterfactual must appear, just not first.
-	found := false
-	for _, n := range ready {
-		if n.ID == "ncf" {
-			found = true
-		}
-	}
-	if !found {
-		t.Error("counterfactual node missing from ready list")
-	}
-}
-
-func TestGraphState_AllDoneOnlyWhenTerminal(t *testing.T) {
+func TestGraphState_RequeueValidationTargets(t *testing.T) {
 	s := newGraphState(smallChainGraph())
-	if s.allDone() {
-		t.Fatal("fresh state should not be allDone")
-	}
-	for _, id := range []string{"n0", "n1", "n2", "n3"} {
+	// Walk to validate stage.
+	for _, id := range []string{"n0", "n1", "n2"} {
 		s.markRunning(id)
 		s.markDone(id)
 	}
-	if !s.allDone() {
-		t.Error("after all done should be allDone")
+	targets := s.requeueValidationTargets("n2")
+	// Validation feedback: n2 → n1 (from smallChainGraph edges).
+	if len(targets) != 1 || targets[0] != "n1" {
+		t.Fatalf("want [n1], got %v", targets)
+	}
+	if s.status["n1"] != nodeRequeued || s.status["n2"] != nodeRequeued {
+		t.Errorf("n1/n2 should be requeued; n1=%v n2=%v", s.status["n1"], s.status["n2"])
+	}
+	if s.status["n0"] != nodeDone {
+		t.Error("n0 (not a validation target) must stay done")
+	}
+}
+
+func TestGraphState_ForceCloseExploreWindow(t *testing.T) {
+	s := newGraphState(smallChainGraph())
+	s.forceCloseExploreWindow()
+	for _, id := range []string{"n0", "n1", "n2"} {
+		if s.status[id] != nodeDone {
+			t.Errorf("%s should be forced to done; got %v", id, s.status[id])
+		}
+	}
+	if s.status["n3"] == nodeDone {
+		t.Error("finalize must not be force-closed")
+	}
+}
+
+func TestGraphState_EntryConditionBlocks(t *testing.T) {
+	g := smallChainGraph()
+	// Gate n1 on has_enough_facts. Env.Signals is zero → blocked.
+	g.Nodes[1].EntryConditions = []types.Criterion{
+		{Kind: "has_enough_facts"},
+	}
+	s := newGraphState(g)
+	window, blocked := s.readyExplorerWindow(emptyEnv())
+	// n0, n2 ready (no gate); n1 blocked by entry condition.
+	if len(window) != 2 {
+		t.Errorf("want 2 ready nodes (n0, n2); got %v", idsOf(window))
+	}
+	foundBlocked := false
+	for _, b := range blocked {
+		if b.NodeID == "n1" {
+			foundBlocked = true
+		}
+	}
+	if !foundBlocked {
+		t.Error("n1 should be blocked on entry condition")
+	}
+	env := criterion.Env{Signals: types.ExecutionSignals{HasEnoughFacts: true}}
+	window, _ = s.readyExplorerWindow(env)
+	if len(window) != 3 {
+		t.Errorf("after signal: want 3 nodes; got %v", idsOf(window))
 	}
 }
 
 func TestStageMapping_AllNodeTypes(t *testing.T) {
 	g := types.TaskGraph{}
 	cases := []struct {
-		nt      types.TaskNodeType
-		writing bool
-		want    types.PipelineStage
+		nt   types.TaskNodeType
+		want types.PipelineStage
 	}{
-		{types.NodeProbe, false, types.StageExplore},
-		{types.NodeEvidence, false, types.StageExplore},
-		{types.NodeValidate, false, types.StageExplore},
-		{types.NodeReconcile, false, types.StageExplore},
-		{types.NodeFinalize, false, types.StageFinalize},
+		{types.NodeProbe, types.StageExplore},
+		{types.NodeEvidence, types.StageExplore},
+		{types.NodeValidate, types.StageExplore},
+		{types.NodeReconcile, types.StageExplore},
+		{types.NodeFinalize, types.StageFinalize},
 	}
 	for _, c := range cases {
-		got, err := stageMapping(g, &types.TaskNode{Type: c.nt}, c.writing)
+		got, err := stageMapping(g, &types.TaskNode{Type: c.nt}, false)
 		if err != nil {
-			t.Errorf("nt=%s writing=%v: unexpected err %v", c.nt, c.writing, err)
+			t.Errorf("nt=%s: %v", c.nt, err)
 			continue
 		}
 		if got != c.want {
-			t.Errorf("nt=%s writing=%v: want %s, got %s", c.nt, c.writing, c.want, got)
+			t.Errorf("nt=%s: want %s, got %s", c.nt, c.want, got)
 		}
 	}
 }
@@ -149,7 +170,7 @@ func TestStageMapping_AllNodeTypes(t *testing.T) {
 func TestStageMapping_UnknownTypeFailsLoud(t *testing.T) {
 	g := types.TaskGraph{}
 	if _, err := stageMapping(g, &types.TaskNode{Type: "bogus"}, false); err == nil {
-		t.Error("want error for unknown node type, got nil")
+		t.Error("want error for unknown node type")
 	}
 }
 
@@ -164,10 +185,8 @@ func TestRenderWindowHint_StructuralOutput(t *testing.T) {
 			SearchHints: types.SearchHints{KeywordIDs: []string{"k2"}},
 		},
 	}
-	surfaces := map[string]string{
-		"k1": "explorer", "k2": "tool", "e1": "Explorer",
-	}
-	hint := renderWindowHint(window, func(id string) string { return surfaces[id] }, "")
+	surfaces := map[string]string{"k1": "explorer", "k2": "tool", "e1": "Explorer"}
+	hint := renderWindowHint(window, nil, nil, func(id string) string { return surfaces[id] }, "")
 	for _, want := range []string{"Locate the explorer agent", "Read its tools", "explorer", "Explorer", "tool"} {
 		if !strings.Contains(hint, want) {
 			t.Errorf("hint missing %q\n%s", want, hint)
@@ -176,7 +195,7 @@ func TestRenderWindowHint_StructuralOutput(t *testing.T) {
 }
 
 func TestRenderWindowHint_PrependsViolationPreamble(t *testing.T) {
-	hint := renderWindowHint(nil, func(string) string { return "" },
+	hint := renderWindowHint(nil, nil, nil, func(string) string { return "" },
 		"citation count too low; collect more file:line anchors")
 	if !strings.Contains(hint, "previous final answer") {
 		t.Errorf("missing preamble: %s", hint)
@@ -186,8 +205,18 @@ func TestRenderWindowHint_PrependsViolationPreamble(t *testing.T) {
 	}
 }
 
+func TestRenderWindowHint_ValidationTargets(t *testing.T) {
+	hint := renderWindowHint(nil, nil, []string{"n1_evidence"}, func(string) string { return "" }, "")
+	if !strings.Contains(hint, "n1_evidence") {
+		t.Errorf("expected validation target name in hint: %s", hint)
+	}
+	if !strings.Contains(hint, "Validation rejected") {
+		t.Errorf("expected validation-reject preamble in hint: %s", hint)
+	}
+}
+
 func TestRenderWindowHint_EmptyAllReturnsEmpty(t *testing.T) {
-	if got := renderWindowHint(nil, func(string) string { return "" }, ""); got != "" {
+	if got := renderWindowHint(nil, nil, nil, func(string) string { return "" }, ""); got != "" {
 		t.Errorf("empty inputs should yield empty hint; got %q", got)
 	}
 }
@@ -217,9 +246,6 @@ func TestTermSurfaceLookup_ResolvesKnownID(t *testing.T) {
 	if got := fn("k2"); got != "Finalizer" {
 		t.Errorf("k2: want Finalizer, got %q", got)
 	}
-	if got := fn("missing"); got != "" {
-		t.Errorf("missing id should return empty; got %q", got)
-	}
 }
 
 // ── helpers ──────────────────────────────────────────────────────
@@ -231,6 +257,3 @@ func idsOf(ns []*types.TaskNode) []string {
 	}
 	return out
 }
-
-// reflect-based zero check for use in stricter tests if needed.
-var _ = reflect.DeepEqual

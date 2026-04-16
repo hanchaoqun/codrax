@@ -100,6 +100,18 @@ type RuntimeSettings struct {
 	PipelineMaxRetriesPerStage *int `yaml:"pipeline_max_retries_per_stage"`
 	PipelineMaxStageVisits     *int `yaml:"pipeline_max_stage_visits"`
 
+	// Analyzer quality gate thresholds. Flat-prefixed `gate_*`.
+	// All optional; zero/nil → code default in gate.Thresholds.
+	GateCoverageMin           *float64 `yaml:"gate_coverage_min"`
+	GateCoverageWeightSymbol  *float64 `yaml:"gate_coverage_weight_symbol"`
+	GateCoverageWeightConfig  *float64 `yaml:"gate_coverage_weight_config"`
+	GateCoverageWeightConcept *float64 `yaml:"gate_coverage_weight_concept"`
+	GateHypothesisMinPriority *int     `yaml:"gate_hypothesis_min_priority"`
+
+	// Explorer per-tool budget cap. 0 = no default ceiling; only
+	// the analyzer's per-tool NodeBudgetHints govern.
+	ExplorePerToolDefaultCap *int `yaml:"explore_per_tool_default_cap"`
+
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.
