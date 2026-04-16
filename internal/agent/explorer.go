@@ -215,6 +215,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
+	b.WriteString("**Non-English questions:** When the user's question is not in English, search with BOTH the original terms AND their English programming equivalents. Most codebases use English identifiers, so always include the translated English terms alongside the original. Batch both versions as parallel grep calls.\n\n")
 
 	analyzerKeywords := irKeywords(ctx)
 	analyzerEntities := irEntities(ctx)
