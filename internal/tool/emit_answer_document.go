@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -221,6 +222,31 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			p.Shape)
 	}
 
+	// Shape auto-correction: when the AnalysisIR declares a target
+	// shape and the LLM chose a different one, silently override to
+	// the target shape. This prevents infinite retry loops where the
+	// LLM consistently picks the wrong shape (e.g. "boolean" for an
+	// "enumeration" question classified as list_of_symbols).
+	if ctx.AnalysisIR != nil {
+		target := ctx.AnalysisIR.AnswerContract.RequiredAnswerShape
+		if target != "" && target != shape {
+			logging.Warning("[emit_answer_document] LLM chose shape=%s but AnalysisIR target is %s — auto-correcting", shape, target)
+			shape = target
+		}
+	}
+
+	// Scrub zero-value forbidden-field objects that the LLM tends to
+	// include even when they don't apply to the selected shape. An
+	// empty value{literal=""} or boolean{decision=""} is semantically
+	// absent; clearing the pointer prevents the forbidden-field
+	// validator from rejecting the call.
+	if p.Value != nil && p.Value.Literal == "" {
+		p.Value = nil
+	}
+	if p.Boolean != nil && p.Boolean.Decision == "" {
+		p.Boolean = nil
+	}
+
 	if len(p.Summary) > types.AnswerDocumentMaxSummaryChars {
 		return failEmit(t.Name(), now,
 			"summary length %d exceeds cap %d — Summary is the only prose field and must stay brief",
@@ -368,10 +394,15 @@ func validateEmitAnswerDocumentNoForbidden(p emitAnswerDocumentParams, shape typ
 	if mask&forbidSymbols != 0 && len(p.Symbols) > 0 {
 		return fmt.Errorf("shape=%s does not accept symbols[] (got %d)", shape, len(p.Symbols))
 	}
-	if mask&forbidValue != 0 && p.Value != nil {
+	// Treat zero-value pointer objects as absent. LLMs often include
+	// all fields with zero values ("value":{"literal":"","key":"",
+	// "citation_ref":-1}) instead of omitting them. Rejecting these
+	// empty objects causes infinite retry loops where the LLM keeps
+	// sending the same zero payload it cannot figure out how to remove.
+	if mask&forbidValue != 0 && p.Value != nil && p.Value.Literal != "" {
 		return fmt.Errorf("shape=%s does not accept the value{} object", shape)
 	}
-	if mask&forbidBoolean != 0 && p.Boolean != nil {
+	if mask&forbidBoolean != 0 && p.Boolean != nil && p.Boolean.Decision != "" {
 		return fmt.Errorf("shape=%s does not accept the boolean{} object", shape)
 	}
 	return nil
