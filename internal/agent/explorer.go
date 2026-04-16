@@ -1057,6 +1057,8 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// deterministically overridden — the iter=5 false positive
 	// documented in the plan file.
 	firstSoftStop := obs.ContinuationsUsed == 0
+	logging.Debug("[explorer] observeSoftStop: phase=%d firstSoftStop=%v iter=%d contentLen=%d",
+		e.phase, firstSoftStop, obs.Iteration, len(resp.Content))
 	// progress is set to true by any branch that DETECTS forward
 	// progress and wants the policy to reset the idle streak even
 	// when no hint fires. The final return copies it into
@@ -1095,6 +1097,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// insufficient, the AnswerContract checker will backtrack via
 		// the retry budget.
 		if firstSoftStop && hasHighConfidenceEvidence(history, e) {
+			logging.Info("[explorer] Phase 0 early-exit: high-confidence evidence found on first soft-stop, skipping to Phase 1")
 			e.phase = 1
 			return LoopSignal{Progress: progress}
 		}
@@ -1162,6 +1165,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// Phase 0 → Phase 1 transition: the LLM produced a breadth
 		// scan summary. Now switch to depth reading with evidence
 		// catalog mode: collect ALL facts, defer reasoning to synthesis.
+		logging.Info("[explorer] Phase 0 → Phase 1 transition: breadth scan complete, entering evidence collection")
 		e.phase = 1
 		phaseTransitionHint := "## Now entering PHASE 2: Evidence Collection\n\n" +
 			"Good — you have mapped the relevant territory. Now investigate the source files and collect evidence. " +
@@ -4470,10 +4474,26 @@ func extractFileCoverage(history []types.ToolResult) (discovered []string, readS
 // tool — while excluding navigation-only tools like repo_map (0.3).
 func hasHighConfidenceEvidence(history []types.ToolResult, e *explorerEvaluator) bool {
 	for i := range history {
-		if history[i].Success && e.toolConfidence(history[i].ToolName) > 0.5 {
-			return true
+		r := &history[i]
+		if !r.Success {
+			continue
 		}
+		conf := e.toolConfidence(r.ToolName)
+		if conf <= 0.5 {
+			continue
+		}
+		// grep with files_only=true is a navigation result (file list),
+		// not actual evidence. Its Summary starts with "[grep: N matching
+		// files]" and contains no code content. Exclude it from the
+		// high-confidence check so Phase 0 early-exit doesn't fire on
+		// breadth-scan results that haven't read any file yet.
+		if r.ToolName == "grep" && strings.HasPrefix(r.Summary, "[grep:") && strings.Contains(r.Summary, "matching files]") {
+			continue
+		}
+		logging.Debug("[explorer] hasHighConfidenceEvidence: tool=%s confidence=%.1f → true", r.ToolName, conf)
+		return true
 	}
+	logging.Debug("[explorer] hasHighConfidenceEvidence: no qualifying tool result → false")
 	return false
 }
 
