@@ -493,6 +493,15 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		}
 		state.recordRetry()
 		pendingViolation = renderViolations(res)
+
+		// Surface the backtrack to the user so they know
+		// the pipeline is re-investigating, not stalled.
+		o.emit(render.Event{
+			Kind:      render.EventAgentReasoning,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+			Reasoning: "⟳ Answer contract check failed: " + pendingViolation + " — re-investigating.",
+		})
 	}
 
 	if lastFinalize == nil {
@@ -852,6 +861,20 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// dispatch. The forward explorer→finalize transition clears this
 	// on BusContext so a hint from explore never leaks forward.
 	o.busCtx.TaskState.RetryHint = output.RetryHint
+	if output.RetryHint != "" {
+		// Surface the retry reason to the user so they know the
+		// pipeline is re-running, not stalled.
+		summary := output.RetryHint
+		if len(summary) > 200 {
+			summary = summary[:197] + "..."
+		}
+		o.emit(render.Event{
+			Kind:      render.EventAgentReasoning,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+			Reasoning: "⟳ Evidence insufficient — retrying: " + summary,
+		})
+	}
 
 	// Store the Analyzer v3 structured output on the first non-nil
 	// value and never overwrite it. Subsequent re-dispatches of
