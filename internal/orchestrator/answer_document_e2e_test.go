@@ -198,7 +198,7 @@ func TestE2E_AnswerDocument_CardinalityDowngrade(t *testing.T) {
 	if finalClaim != types.CompletenessLowerBound {
 		t.Errorf("downgrade failed: final claim = %q, want lower_bound", finalClaim)
 	}
-	if !strings.Contains(finalProse, "confirmed symbols") {
+	if !strings.Contains(finalProse, "confirmed items") {
 		t.Errorf("lower_bound footer tag missing: %q", finalProse)
 	}
 	if !strings.Contains(finalProse, "downgraded to lower_bound") {

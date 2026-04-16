@@ -260,16 +260,16 @@ func completenessTag(claim types.CompletenessClaim, lang answerDocLang) string {
 	case types.CompletenessLowerBound:
 		switch lang {
 		case answerDocLangZH:
-			return "以上为已确认符号，可能还有其他符合条件的符号"
+			return "以上为已确认信息，可能还有其他符合条件的信息"
 		default:
-			return "confirmed symbols listed above; more may exist"
+			return "confirmed items listed above; more may exist"
 		}
 	case types.CompletenessUnknown:
 		switch lang {
 		case answerDocLangZH:
-			return "以上为候选符号，非权威列表"
+			return "以上为候选信息，非权威列表"
 		default:
-			return "candidate symbols above; non-authoritative"
+			return "candidate items above; non-authoritative"
 		}
 	}
 	// CompletenessComplete: no tag — a complete answer needs no qualifier.

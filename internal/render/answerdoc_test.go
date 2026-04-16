@@ -47,7 +47,7 @@ func TestRenderAnswerDocument_ListOfSymbols_LowerBound_ZH(t *testing.T) {
 	}
 	out := RenderAnswerDocument(doc, "zh")
 	// lower_bound renders as a quiet footer tag, not a header.
-	if !strings.Contains(out, "已确认符号") {
+	if !strings.Contains(out, "已确认信息") {
 		t.Errorf("zh lower_bound footer tag missing: %q", out)
 	}
 	if !strings.Contains(out, "Foo") {

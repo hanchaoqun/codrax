@@ -286,7 +286,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_CardinalityDowngrade(t *testing.T) 
 	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
 		t.Errorf("completeness = %q, want lower_bound (downgrade)", out.AnswerSymbolCompleteness)
 	}
-	if !strings.Contains(out.FinalAnswer, "confirmed symbols") {
+	if !strings.Contains(out.FinalAnswer, "confirmed items") {
 		t.Errorf("downgraded rendering footer tag missing: %q", out.FinalAnswer)
 	}
 	if !strings.Contains(out.FinalAnswer, "downgraded to lower_bound") {
