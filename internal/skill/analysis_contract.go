@@ -246,7 +246,8 @@ func BuildAnalysisSkill() *Config {
 	// tables so the LLM sees the workflow framing first: pre-scan,
 	// then classify, then emit_analysis.
 	of.WriteString("## Evidence-lite pre-scan (1-2 rounds, then emit_analysis)\n\n")
-	of.WriteString("Before calling emit_analysis, spend 1-2 rounds verifying that the entities you plan to extract from the user's wording actually exist in this repository and that the terms you plan to put into keywords appear somewhere relevant. Use ONLY these low-cost navigation tools:\n\n")
+	of.WriteString("**First**, state your classification plan in 1-2 sentences: what the user is asking about, which intent/scenario you're leaning toward, and what you need to verify in the pre-scan.\n\n")
+	of.WriteString("**Then**, spend 1-2 rounds verifying that the entities you plan to extract from the user's wording actually exist in this repository and that the terms you plan to put into keywords appear somewhere relevant. Use ONLY these low-cost navigation tools:\n\n")
 	of.WriteString("  - `repo_map` — structural index of the repo, for discovering which files are relevant to a term.\n")
 	of.WriteString("  - `grep` — MUST be called with `files_only=true`. Line-level results are too noisy for the analyze stage and will overflow the budget. `files_only=true` returns just the file paths that contain matches, which is what you need.\n")
 	of.WriteString("  - `list_files` — fall back here when grep / repo_map come back empty and you want to know what's even in a directory.\n\n")
@@ -268,7 +269,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString(renderEnumTable("answer_shape", analysisAnswerShapes))
 	of.WriteString("\n")
 	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
-	of.WriteString("Keyword generation (3 rounds): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (send → emit/dispatch/publish). Target ≥8 diverse stems. For Chinese questions include BOTH Chinese and English forms (the codebase is English). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words. The pre-scan is a good place to validate at least a handful of these stems appear in the repo, so downstream search time is not wasted on terms that never match.\n\n")
+	of.WriteString("Keyword generation (example approach — adapt to the question's complexity): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (e.g. CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (e.g. CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (e.g. send → emit/dispatch/publish). Target ≥8 diverse stems; simple questions may need fewer rounds, complex ones may need more. For Chinese questions include BOTH Chinese and English forms (the codebase is English). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words. The pre-scan is a good place to validate at least a handful of these stems appear in the repo, so downstream search time is not wasted on terms that never match.\n\n")
 	of.WriteString("After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent — the structured fields are what matter.")
 
 	return &Config{
@@ -282,7 +283,7 @@ func BuildAnalysisSkill() *Config {
 			"pick scenario from the scenario enum",
 			"pick complexity from the complexity enum (use the \"how many files\" hints)",
 			"extract entities VERBATIM from the user's text — CamelCase/snake_case only, no generic nouns",
-			"generate ≥8 keywords in three rounds — core terms, compound identifiers, action synonyms",
+			"generate ≥8 keywords (e.g. core terms, compound identifiers, action synonyms — adapt rounds to complexity)",
 			"pick question_kind and answer_shape from their enums",
 			"call emit_analysis EXACTLY ONCE with the classified fields",
 		},

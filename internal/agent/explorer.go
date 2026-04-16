@@ -197,11 +197,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		fmt.Fprintf(&b, "You already collected %d evidence sets. ",
 			len(e.investigationNotes))
 		b.WriteString("Focus on the gaps identified above. Do NOT re-read files you already analyzed.\n\n")
-		b.WriteString("Continue using the evidence collection format:\n")
-		b.WriteString("- [DIRECT] `functionName` line N: <what this code establishes>\n")
-		b.WriteString("- [CONDITIONAL] `functionName` line N: <what happens> IF <condition>\n")
-		b.WriteString("- [REGISTRATION] `functionName` line N: <what is registered, EXACT values>\n\n")
-		b.WriteString("**Large file strategy:** grep for key identifiers first, prefer `context_lines=3`, then read only matched line ranges when you need the full body.\n")
+		b.WriteString("**First**, state in 1-2 sentences what gaps you'll target and how.\n\n")
+		b.WriteString("**Tools:** use `grep` (efficient for locating patterns and scanning large files), `read_file` (for reading content), or both together. Pick the most efficient approach for each situation.\n\n")
+		b.WriteString("Evidence format (examples — adapt to what you find):\n")
+		b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
+		b.WriteString("- `[CONDITIONAL] functionName line N: <what happens> IF <condition>`\n")
+		b.WriteString("- `[REGISTRATION] functionName line N: <what is registered, EXACT values>`\n\n")
 		b.WriteString("**User question:** " + e.userQuestion)
 		return b.String()
 	}
@@ -210,7 +211,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	var b strings.Builder
 	b.WriteString("## Phase 1: Breadth Scan\n\n")
-	b.WriteString("Your goal in this phase is to MAP the relevant territory — find ALL files related to the question. ")
+	b.WriteString("**First**, state your investigation plan in 1-2 sentences: what aspects of the question you'll investigate and which areas of the codebase you expect to be relevant.\n\n")
+	b.WriteString("**Then**, MAP the relevant territory — find ALL files related to the question. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
@@ -1164,17 +1166,25 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// catalog mode: collect ALL facts, defer reasoning to synthesis.
 		e.phase = 1
 		phaseTransitionHint := "## Now entering PHASE 2: Evidence Collection\n\n" +
-			"Good — you have mapped the relevant territory. Now read the key source files and collect evidence.\n\n" +
-			"**Your job is to collect evidence, NOT to answer the question.** Reasoning happens later in synthesis.\n\n" +
-			"After reading each file, call `emit_evidence(items=[...])` with ALL facts in ONE batch. " +
-			"The tool schema describes the fields — use it. Line numbers MUST come from the `read_file` gutter exactly.\n\n" +
+			"Good — you have mapped the relevant territory.\n\n" +
+			"**First**, state your plan in 1-2 sentences: which files you'll read first and what evidence you expect to find.\n\n" +
+			"**Then**, investigate the source files and collect evidence. " +
+			"**Your job is to collect evidence, NOT to answer the question.** Reasoning happens later.\n\n" +
+			"**Tools you should use** (pick the most efficient for each situation):\n" +
+			"- `grep` — locate specific patterns, find line numbers, scan large files efficiently. Prefer grep over full-file reads when you only need specific sections\n" +
+			"- `read_file` — read file contents (use offset/limit for targeted ranges)\n" +
+			"- `grep` + `read_file` combo — for large files (>500 lines), grep to find relevant line numbers first, then read only those ranges\n" +
+			"- `emit_evidence(items=[...])` — after gathering facts from a file, emit ALL evidence in ONE batch. Line numbers MUST come from the `read_file` gutter exactly\n\n" +
+			"**Evidence format** (examples — adapt to what you find):\n" +
+			"- `[DIRECT] functionName line N: <what this code establishes>` — e.g. a return value, a constant definition\n" +
+			"- `[REGISTRATION] functionName line N: <what is registered, EXACT values>` — e.g. a handler binding, a route mapping\n" +
+			"- `[CONDITIONAL] functionName line N: <what happens> IF <condition>` — e.g. a branch, a config-dependent path\n" +
+			"- `[ABSENT] <what was expected but NOT found>` — e.g. a pattern you searched for that doesn't exist\n\n" +
 			"**Key rules:**\n" +
 			"- NEVER skip simple methods (`getName() { return \"x\" }`) — record them as evidence with exact return values\n" +
 			"- For [REGISTRATION]: note EXACT concrete values, not just 'including X'\n" +
 			"- For [CONDITIONAL]: note the exact condition, not 'when configured'\n" +
-			"- Record [ABSENT] evidence when an expected pattern is NOT found\n" +
-			"- Read function BODIES, not just signatures\n" +
-			"- **Large files (>500 lines):** grep for key identifiers first, then read only matched ranges\n\n" +
+			"- Read function BODIES, not just signatures\n\n" +
 			"Start investigating now."
 		// Phase-transition is a HARD progress signal — the LLM has
 		// completed Phase 0 and now moves into Phase 1.

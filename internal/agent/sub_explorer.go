@@ -122,12 +122,15 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 		b.WriteString("\n")
 	}
 
-	b.WriteString("**Strategy:**\n")
-	b.WriteString("1. List files in scope to understand what's available\n")
-	b.WriteString("2. Grep for key terms related to the objective (files_only=true first; use file_type when the language is obvious)\n")
-	b.WriteString("3. Read the most relevant files and extract structured evidence; for line-level grep prefer context_lines=3 before a larger read_file\n\n")
+	b.WriteString("**First**, state your approach in 1-2 sentences: what you'll investigate within the scope and which files you expect to find answers in.\n\n")
 
-	b.WriteString("**Evidence format** — after each file, extract facts as:\n\n")
+	b.WriteString("**Strategy** (adapt to what you find):\n")
+	b.WriteString("1. List files in scope to understand what's available\n")
+	b.WriteString("2. Grep for key terms related to the objective — use `files_only=true` for discovery, line-level grep with `context_lines=3` for targeted search\n")
+	b.WriteString("3. Read the most relevant files and extract structured evidence\n")
+	b.WriteString("4. Use `grep` + `read_file` together: grep to locate patterns efficiently, read_file for full context when needed\n\n")
+
+	b.WriteString("**Evidence format** (examples — adapt the tags and structure to what you find):\n\n")
 	b.WriteString("```\n")
 	b.WriteString("## Evidence from [filename]\n")
 	b.WriteString("- [DIRECT] `functionName` line N: <what this code establishes>\n")
@@ -142,7 +145,6 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	b.WriteString("- Extract EVERY fact that might be relevant — err on over-collecting\n")
 	b.WriteString("- For short methods (getName, isEnabled, etc.): ALWAYS record the exact return value as [DIRECT]\n")
 	b.WriteString("- For [REGISTRATION]: note EXACT concrete values, not summaries\n")
-	b.WriteString("- **Large file strategy:** grep first for key identifiers, prefer context_lines=3, then read only matched line ranges\n")
 	b.WriteString("- Stay within scope — do not read files outside the specified directories\n")
 
 	return b.String()
