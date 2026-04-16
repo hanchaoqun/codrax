@@ -155,7 +155,10 @@ func pinnedEvidenceItem(file, subject string, line int) types.EvidenceItem {
 	}
 }
 
-func TestParseOutput_ToolDiversityFails(t *testing.T) {
+func TestParseOutput_SingleSourceBypass(t *testing.T) {
+	// Single evidence tool type (grep only) is accepted via the
+	// single-source investigation bypass — simple queries answered by
+	// one tool type don't need multi-tool diversity.
 	eval := &explorerEvaluator{
 		userQuestion:       "question",
 		structuredEvidence: []types.EvidenceItem{pinnedEvidenceItem("a.go", "Foo", 1)},
@@ -167,11 +170,8 @@ func TestParseOutput_ToolDiversityFails(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParseOutput error: %v", err)
 	}
-	if out.SignalUpdates == nil || out.SignalUpdates.HasEnoughFacts {
-		t.Fatal("hasEnough must be false when only one evidence tool was used")
-	}
-	if !strings.Contains(out.RetryHint, "fewer than 2 distinct evidence tool types") {
-		t.Errorf("RetryHint should diagnose tool-diversity failure, got: %q", out.RetryHint)
+	if out.SignalUpdates == nil || !out.SignalUpdates.HasEnoughFacts {
+		t.Fatal("hasEnough must be true for single-source investigation (bypass)")
 	}
 }
 

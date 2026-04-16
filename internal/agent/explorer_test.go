@@ -747,12 +747,31 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 }
 
 func TestPhase0QualityGate(t *testing.T) {
-	t.Run("gate fires when only grep used", func(t *testing.T) {
+	t.Run("firstSoftStop with evidence bypasses gate", func(t *testing.T) {
+		// On first soft-stop with high-confidence evidence, the Phase 0
+		// gate is bypassed entirely — the LLM answered without needing
+		// the two-phase model.
 		eval := &explorerEvaluator{phase: 0}
 		history := []types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
 		}
-		prompt, cont := softStopExplorer(eval, "done scanning", 0, 0, history)
+		_, cont := softStopExplorer(eval, "done scanning", 0, 0, history)
+		if cont {
+			t.Fatal("firstSoftStop with evidence should accept stop, not inject hint")
+		}
+		if eval.phase != 1 {
+			t.Errorf("phase should advance to 1 for downstream consistency, got %d", eval.phase)
+		}
+	})
+
+	t.Run("gate fires on non-first stop when only grep used", func(t *testing.T) {
+		// After the first soft-stop has been consumed (ContinuationsUsed>0),
+		// the Phase 0 quality gate applies its tool checks.
+		eval := &explorerEvaluator{phase: 0}
+		history := []types.ToolResult{
+			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
+		}
+		prompt, cont := softStopExplorer(eval, "done scanning", 0, 1, history)
 		if !cont {
 			t.Fatal("gate should fire (no repo_map used)")
 		}
@@ -764,13 +783,13 @@ func TestPhase0QualityGate(t *testing.T) {
 		}
 	})
 
-	t.Run("gate passes with both tools", func(t *testing.T) {
+	t.Run("gate passes with both tools on non-first stop", func(t *testing.T) {
 		eval := &explorerEvaluator{phase: 0}
 		history := []types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
 			{ToolName: "repo_map", Success: true, Summary: "map output"},
 		}
-		prompt, cont := softStopExplorer(eval, "done", 0, 0, history)
+		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
 		// Should transition to Phase 1
 		if !cont {
 			t.Fatal("should continue to Phase 1")
@@ -783,12 +802,12 @@ func TestPhase0QualityGate(t *testing.T) {
 		}
 	})
 
-	t.Run("gate fires only once", func(t *testing.T) {
+	t.Run("gate fires only once on non-first stop", func(t *testing.T) {
 		eval := &explorerEvaluator{phase: 0, phase0ExtraRound: true}
 		history := []types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go"},
 		}
-		prompt, cont := softStopExplorer(eval, "done", 0, 0, history)
+		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
 		// Should NOT fire again — proceed to Phase 1
 		if !cont {
 			t.Fatal("should continue to Phase 1")
@@ -2169,11 +2188,11 @@ func TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed(t *testing.T) {
 	}
 
 	sig := softStopWithContinuations(eval, "ExecCommand shells out to /bin/bash.", 4, 0, history)
-	// Unanalyzed soft branch is suppressed on first soft-stop;
-	// completion-tool-reminder fires instead.
-	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
-		t.Errorf("first soft-stop should fire completion-tool-reminder; got HintRequested=%v HintKey=%q",
-			sig.HintRequested, sig.HintKey)
+	// On first soft-stop with high-confidence evidence, the stop is
+	// accepted — no hint injected, no unanalyzed branch fires.
+	if sig.HintRequested {
+		t.Errorf("first soft-stop with evidence should accept stop; got HintRequested=true HintKey=%q",
+			sig.HintKey)
 	}
 }
 

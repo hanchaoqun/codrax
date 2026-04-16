@@ -1038,6 +1038,24 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 
 	if e.phase == 0 {
+		// Early evidence sufficiency: when the LLM makes its first
+		// voluntary stop AND has already gathered high-confidence
+		// evidence from ANY tool, the Phase 0 breadth-scan requirements
+		// (grep + repo_map/list_files + discovered>=3) are inapplicable.
+		// The LLM answered without needing the two-phase investigation
+		// model. Skip the quality gate entirely, advance to Phase 1
+		// for ParseOutput consistency, and accept the stop.
+		//
+		// Covers: exec_command(find/wc/git), grep-only, read_file-only,
+		// list_files-only — any scenario where a single tool call (or
+		// small batch) provides a complete answer. If the evidence is
+		// insufficient, the AnswerContract checker will backtrack via
+		// the retry budget.
+		if firstSoftStop && hasHighConfidenceEvidence(history, e) {
+			e.phase = 1
+			return LoopSignal{Progress: progress}
+		}
+
 		// Before transitioning to Phase 2, check if Phase 1 actually
 		// discovered any files. If all greps returned zero results,
 		// push the LLM to retry with broader patterns before moving on.
@@ -1510,14 +1528,19 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// stops without making progress still get a nudge toward any
 	// unread files.
 	if firstSoftStop {
-		// On the first voluntary stop, remind the LLM to use the
-		// explicit completion tool rather than silently stopping.
-		// This bridges the gap for LLMs that soft-stop instead of
-		// calling emit_investigation_complete.
+		// When the LLM's first voluntary stop comes with evidence
+		// already gathered, accept it — the LLM judged it has enough.
+		// If wrong, the AnswerContract checker will backtrack via the
+		// retry budget. Only inject the completion-tool reminder when
+		// NO evidence was gathered (the LLM stopped before doing any
+		// real investigative work).
+		if hasHighConfidenceEvidence(history, e) {
+			return LoopSignal{Progress: progress}
+		}
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       "explorer.completion-tool-reminder",
-			Hint: "You stopped without calling emit_investigation_complete. " +
+			Hint: "You stopped without gathering evidence or calling emit_investigation_complete. " +
 				"If you have collected enough evidence to answer the user's question, " +
 				"call emit_investigation_complete(reason, confidence) now. " +
 				"If you still need more evidence, continue reading files and running greps.",
@@ -1687,6 +1710,18 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			minDirect = 2
 		}
 		evidenceQuality = directCount >= minDirect
+	}
+	// Single-source investigation bypass: when exactly one type of
+	// high-confidence evidence tool was used, the multi-dimensional
+	// quality floor is inapplicable. The LLM answered using a single
+	// tool type — file counts via exec_command, version checks via
+	// read_file, existence checks via grep, directory listings via
+	// list_files. If the answer is insufficient, the AnswerContract
+	// checker will backtrack via the retry budget.
+	if len(sources) == 1 {
+		toolDiversity = true
+		fileCoverage = true
+		evidenceQuality = true
 	}
 	hasEnough := toolDiversity && fileCoverage && evidenceQuality
 
@@ -4759,9 +4794,43 @@ func extractFileCoverage(history []types.ToolResult) (discovered []string, readS
 					readSet[path] = true
 				}
 			}
+		case "exec_command":
+			// Best-effort file path extraction from exec_command
+			// output. Handles find/ls/tree output where each line
+			// is a file path. Non-path lines (counts, errors,
+			// binary output) are filtered by isValidFilePath.
+			for _, line := range strings.Split(r.Summary, "\n") {
+				path := strings.TrimSpace(line)
+				if path == "" || path[0] == '[' {
+					continue
+				}
+				path = strings.TrimPrefix(path, "./")
+				if !isValidFilePath(path) || isNoisePath(path) {
+					continue
+				}
+				if !discoveredSet[path] {
+					discoveredSet[path] = true
+					discovered = append(discovered, path)
+				}
+			}
 		}
 	}
 	return
+}
+
+// hasHighConfidenceEvidence reports whether at least one tool in
+// history produced a successful result with confidence > 0.5. This is
+// the tool-agnostic "did the LLM gather real evidence?" check used by
+// the firstSoftStop early-exit paths in observeSoftStop. It covers
+// exec_command, grep, read_file, list_files — any evidence-bearing
+// tool — while excluding navigation-only tools like repo_map (0.3).
+func hasHighConfidenceEvidence(history []types.ToolResult, e *explorerEvaluator) bool {
+	for i := range history {
+		if history[i].Success && e.toolConfidence(history[i].ToolName) > 0.5 {
+			return true
+		}
+	}
+	return false
 }
 
 // isNoisePath returns true for paths that should be excluded from the
