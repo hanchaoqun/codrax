@@ -36,17 +36,20 @@
 
 codrax 接收用户的自然语言问题，通过一个**确定性的四阶段流水线**分析目标仓库，最终产出一份结构化的答案文档。系统不做代码修改，不调用外部副作用服务，只读文件、跑 grep、做 repo map。
 
+**核心设计原则：** LLM 仅负责请求分类和自然语言理解；所有下游推导（TaskGraph、EvidencePlan、假设集、质量门、答案契约）都由 `internal/analysis/` 下 14 个确定性子包完成。IR 上的每个 `{Kind, Expr}` 字段（`EntryConditions` / `SuccessCriteria` / `StopConditions` / `RequiredEvidence` / `FalsificationCondition` / `AcceptanceTests`）都有一个运行时评估器（`criterion` 包，19 个注册 Kind），在调度器 / 提取器 / 合约检查器中真正执行——不存在"只写不读"的结构化字段。Analyzer 执行 fail-loud 合约：LLM 不调 `emit_analysis` → 阶段直接报错并重试，不静默合成零值 IR。
+
 ### 分层
 
 五个逻辑层，只是概念划分 —— 实现上压在四个阶段里：
 
-- **Layer 1 编排层** — 走 DAG、分派阶段
-- **Layer 2 执行层** — 4 个专业 Agent 承担一阶段一 ReAct 循环
+- **Layer 1 编排层** — 走 criterion-aware DAG、分派阶段、fail-loud 重试
+- **Layer 2 执行层** — 4 个专业 Agent 承担一阶段一 ReAct 循环；explorer 的 `executeTool` 内置 sourcemix 预算门控
 - **Layer 3 策略层** — 每个 Agent 绑定一个 Skill 配置，决定工作流和输出契约
 - **Layer 4 能力层** — 本地只读工具（grep / read_file / repo_map 等）+ emit_* 结构化发射器
 - **Layer 5 智能层** — 可插拔的 LLM 适配器
+- **Layer 6 分析层** — `internal/analysis/` 下 14 个确定性子包：normalizer / compiler / budget / sourcemix / risk / hdp / priority / binder / counterfactual / gate / stopcond / criterion / contract / dataflow
 
-**关键规则：** 所有工具调用和 LLM 调用都必须通过 Layer 2（Agent）。编排器永远不直接调用工具或 LLM。
+**关键规则：** 所有工具调用和 LLM 调用都必须通过 Layer 2（Agent）。编排器永远不直接调用工具或 LLM。Layer 6 不调用 LLM，不调用工具——纯确定性函数。
 
 ### 系统概览
 
@@ -55,13 +58,13 @@ graph TB
     User([用户请求])
 
     subgraph "Layer 1 编排层"
-        Orch[编排器<br/>hardcoded topology<br/>+ DAG scheduler]
+        Orch[编排器<br/>hardcoded topology<br/>+ criterion-aware DAG scheduler<br/>+ fail-loud analyze retry]
     end
 
     subgraph "Layer 2 执行层 (4 Agent)"
         A1[analyzer]
-        A2[explorer<br/>Turn A]
-        A3[extractor<br/>Turn B]
+        A2[explorer<br/>Turn A<br/>+ sourcemix budget gate]
+        A3[extractor<br/>Turn B<br/>+ criterion auto-verdict]
         A4[finalizer]
     end
 
@@ -81,6 +84,10 @@ graph TB
         LLM[LLM 适配器]
     end
 
+    subgraph "Layer 6 分析层 (14 确定性子包)"
+        AN[normalizer / compiler / budget /<br/>sourcemix / risk / hdp / priority /<br/>binder / counterfactual / gate /<br/>stopcond / criterion / contract / dataflow]
+    end
+
     User --> Orch
     Orch -->|dispatch| A1 & A2 & A3 & A4
     A1 --- S1
@@ -90,6 +97,9 @@ graph TB
     A1 & A2 -->|调用| T
     A1 & A2 & A3 & A4 -->|调用| E
     A1 & A2 & A3 & A4 -->|调用| LLM
+    A1 -->|buildAnalysisIR| AN
+    Orch -->|stopcond / criterion| AN
+    A3 -->|criterion auto-verdict| AN
 ```
 
 ---
@@ -122,12 +132,12 @@ stateDiagram-v2
 ```
 
 1. **Phase 1 — `analyze`** 跑一次。analyzer 先用 1-2 轮 evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`）验证用户提到的实体和术语是否在仓库里出现，然后通过 `emit_analysis` 工具写回 v3 `RequestModel`。随后 `analyzer.ParseOutput` 确定性地跑后处理管线（见 §7）组装完整的 `AnalysisIR` 并写进 `BusContext.AnalysisIR`。Analyzer **禁止** 读文件内容（`read_file` / `exec_command` 不在它的 tool allowlist 里），内容阅读是下一阶段 `explore` 的责任。
-2. **Phase 2 — per-task 循环**。对 `Mutable.TaskList.Tasks` 里每个 pending 的任务依次跑 `runTaskGraph`，它遍历 `AnalysisIR.TaskGraph.Nodes`：
-   - **criterion-aware window schedule**：`readyExplorerWindow` 收集所有 `EntryConditions`（`[]Criterion`，由 `criterion.Eval` 运行时求值）满足的非 finalize 节点，合并成**一次** `explore` dispatch。每轮开始前 `stopcond.ShouldStop` 评估 `EvidencePlan.StopConditions`，命中则 `forceCloseExploreWindow` 直接跳到 finalize。Explorer 的 `executeTool` 在 `StageExplore` 中每次工具调用前检查 `sourcemix.BudgetForTool`，超出 `NodeBudgetHints` 上限时阻断调用。
-   - **StageExtract** 在 explore window 完成后作为 Turn B 分派。dispatch 后 `markSuccessCriteriaFailed` 评估每个节点的 `SuccessCriteria`。extractor 还会评估每条 hypothesis 的 `RequiredEvidence` + `FalsificationCondition`，注入 auto-verdicts（required evidence met 但无 LLM verdict → inconclusive；falsification condition satisfied → rejected）。
-   - **StageFinalize** 仅在 `NodeFinalize` 的所有非 finalize 前驱都 `done` 后分派。
-   - **Contract check + fine-grained backtrack**：finalize 返回后跑 `contract.Check`。不通过且 retry budget 未耗尽 → requeue finalize 节点，`requeueValidationTargets` 沿 `EdgeValidationFeedback` 边只 requeue 特定上游 evidence 节点（细粒度回溯，非整个 window），把违规诊断塞进下一轮的 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回（P0.2 模式）。
-3. 每个 task 的 finalize 把答案写进它自己的 `task.Result`（通过 `Mutable.UpdateTaskResult`）。所有 task 跑完后 `Run()` 返回 `BusContext`，`main.go` 遍历 `Tasks` 渲染每个任务的独立结果。
+2. **Phase 2 — per-task DAG 执行**。`runTaskPhase` 调用 `runTaskGraph`，遍历 `AnalysisIR.TaskGraph.Nodes`（每次 Run 只有一个 task，`MutableState.Objective` 就是用户问题）：
+   - **criterion-aware window schedule**：`readyExplorerWindow` 返回两个列表：`ready`（所有 `EntryConditions`（`[]Criterion`，由 `criterion.EvalAll` 运行时求值）满足的 pending/requeued 非 finalize 非 counterfactual 节点）和 `blocked`（entry condition 未满足的节点——在 retry hint 中暴露阻塞的 criterion 诊断）。Ready 节点合并成**一次** `explore` dispatch。每轮开始前 `stopcond.ShouldStop`（`internal/analysis/stopcond`）评估 `EvidencePlan.StopConditions`（每个 `StopCondition{Kind,Expr}` 按 Criterion 求值、OR 语义），命中则 `forceCloseExploreWindow` 直接跳到 finalize。编排器在 `runTaskGraph` 入口从 `EvidencePlan.NodeBudgetHints` 安装 `ExploreBudget` 到 `MutableState`；explorer 的 `BaseAgent.executeTool` 在 `StageExplore` 中每次工具调用前检查 `ctx.Mutable.BudgetRemaining(canonicalToolName)`，超出 per-tool 或 overall 上限时返回失败 `ToolResult` 阻断调用。
+   - **StageExtract** 在 explore window 完成后作为 Turn B 分派。dispatch 后 `markSuccessCriteriaFailed` 评估每个 window 节点的 `SuccessCriteria`（`[]Criterion`）——通过的节点标 done，未通过的标 requeued。若失败的是 **validate** 节点，额外触发 `requeueValidationTargets`：沿 `EdgeValidationFeedback` 边只 requeue 其上游 evidence 节点（细粒度回溯，非整个 window）。extractor 的 `ParseOutput` 还会对每条 hypothesis 调用 `criterion.Eval`：`RequiredEvidence` 全部满足但无 LLM verdict → 注入 `HypInconclusive`；`FalsificationCondition` 满足 → 注入 `HypRejected`（覆盖 LLM verdict）。
+   - **StageFinalize** 仅在 `firstFinalizeReadyMerged` 返回非 nil 时分派（所有非 finalize、非 counterfactual 节点都 `done`）。
+   - **Contract check**：finalize 返回后跑 `contract.Check`（`AnswerContract.AcceptanceTests` 是 `[]Criterion` 但由 `contract/checker.go` 的本地 switch 评估，非 `criterion.Eval`）。不通过且 retry budget 未耗尽 → requeue finalize 节点和所有 done 的 explorer 节点，记录一次 cross-window retry，把违规诊断塞进下一轮的 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回（P0.2 模式）。
+3. Finalize 把答案写进 `Mutable.Result()`（通过 `recordTaskFinalize`）。`Run()` 返回 `BusContext`，`main.go` 渲染结果。
 
 **全局预算** `pipeline_max_steps` 是整 Run 的硬上限，跨 Phase 1 和 Phase 2 共用，在 `config/codrax.yaml` 配置。`EvidencePlan.Budget.MaxReactIters` 是**每个 task** 的额外上限。
 

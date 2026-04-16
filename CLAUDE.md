@@ -6,6 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Codrax is a read-only code analysis tool in Go. It takes a natural-language question about a repository, drives a deterministic 4-stage LLM pipeline (analyze → explore → extract → finalize), and emits a grounded structured answer. It does not modify source files.
 
+The analyzer stage makes a single LLM call that classifies the request; everything else — TaskGraph, EvidencePlan, hypotheses, quality gate — is built deterministically by 14 sub-packages under `internal/analysis/`. Every field in the resulting `AnalysisIR` is either consumed at runtime by a typed evaluator (the `criterion` package evaluates `EntryConditions` / `SuccessCriteria` / `StopConditions` / `RequiredEvidence` / `FalsificationCondition` / `AcceptanceTests`) or carries an explicit `pending(artifact-exchange)` marker. The analyzer enforces a fail-loud contract: if the LLM fails to call `emit_analysis`, the stage errors immediately and is retried; there is no silent fallback to a zero-value IR.
+
 ## Build & Run Commands
 
 ```bash
@@ -41,7 +43,7 @@ make test-v
 
 ### Pipeline Flow
 
-User request → Orchestrator dispatches agents through 4 hardcoded stages. All tool invocation and LLM calls pass through an agent — the orchestrator never calls tools, MCP, or LLM directly.
+User request → Orchestrator dispatches agents through 4 hardcoded stages. All tool invocation and LLM calls pass through an agent — the orchestrator never calls tools, MCP, or LLM directly. The pipeline has two phases: Phase 1 dispatches `analyze` (with fail-loud retry up to `MaxRetriesPerStage`); Phase 2 walks the analyzer's `TaskGraph` DAG via a criterion-aware window scheduler, dispatching `explore → extract → finalize` per round with per-node `EntryConditions` / `SuccessCriteria` evaluation and fine-grained `EdgeValidationFeedback` backtrack.
 
 ### Pipeline Stages
 
