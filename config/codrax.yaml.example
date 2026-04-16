@@ -81,14 +81,7 @@
 # ---------------------------------------------------------------------------
 # Tool results larger than blob_max_inline_bytes are offloaded to a
 # blob file under the work dir; only a head+tail preview is inlined
-# into the LLM context. The head/tail split controls how much of the
-# original output the model can still see in the preview.
-#
-# Defaults are tuned for typical Go repositories where most source
-# files fit comfortably in 32 KB. Lower the threshold if you are
-# working with a token-budget-constrained model and want more
-# aggressive truncation; raise it (and grow the head budget to match)
-# if you are routinely dealing with files in the 30-60 KB range.
+# into the LLM context.
 
 # blob_max_inline_bytes: 32768
 # blob_preview_head_bytes: 24576
@@ -97,23 +90,146 @@
 # ---------------------------------------------------------------------------
 # Pipeline budgets
 # ---------------------------------------------------------------------------
-# Runtime budget knobs — how much work the pipeline is allowed to do
-# per Run() call. Precedence (lowest wins last):
-#   code default
-#     → these keys
-#     → command-line flags (-pipeline-max-steps,
-#       -pipeline-max-retries, -pipeline-max-stage-visits).
+# How much work the pipeline is allowed to do per Run() call.
+# CLI flags (-pipeline-max-steps, -pipeline-max-retries,
+# -pipeline-max-stage-visits) override these.
 
-# Maximum total pipeline steps per Run() call. Acts as a hard global
-# budget cap independent of per-stage retries and oscillation guards.
 # pipeline_max_steps: 50
-
-# Max consecutive failures per stage before forcing finalize.
 # pipeline_max_retries_per_stage: 3
-
-# Oscillation guard: cap per-stage entries per Run before forced
-# finalize. Values <= 0 fall back to the code default (4).
 # pipeline_max_stage_visits: 4
+
+# ---------------------------------------------------------------------------
+# Analyzer quality gate (gate_*)
+# ---------------------------------------------------------------------------
+# Thresholds for the deterministic quality gate that runs after
+# emit_analysis. All optional — zero falls through to code default.
+
+# gate_coverage_min: 0.6
+# gate_coverage_weight_symbol: 1.0
+# gate_coverage_weight_config: 0.7
+# gate_coverage_weight_concept: 0.4
+# gate_hypothesis_min_priority: 0
+
+# ---------------------------------------------------------------------------
+# emit_analysis runtime validation (analysis_*)
+# ---------------------------------------------------------------------------
+# Controls keyword/entity validation during the analyze stage.
+
+# Soft floor: attach a warning when keyword count is below this.
+# analysis_warn_below_keywords: 8
+
+# Hard floor: fail emit_analysis when keyword count is below this. 0 = disabled.
+# analysis_reject_below_keywords: 0
+
+# Generic nouns dropped from entities to prevent ERM poisoning.
+# Set to [] to disable the filter.
+# analysis_generic_entity_blocklist:
+#   - count
+#   - function
+#   - thing
+#   - agent
+#   - handler
+#   - module
+
+# When true, a second emit_analysis call in one dispatch sets StageOutput.Error.
+# analysis_reject_multiple_emit: false
+
+# Max pre-scan rounds before force-stop. 0 = disabled.
+# analysis_max_prescan_rounds: 2
+
+# Soft floor for keyword/entity hit ratio in pre-scan blob. 0 = disabled.
+# analysis_warn_below_keyword_hit_ratio: 0
+# analysis_warn_below_entity_hit_ratio: 0
+
+# ---------------------------------------------------------------------------
+# Explorer heuristics (explore_*)
+# ---------------------------------------------------------------------------
+# Tunable thresholds for the explorer evaluator's mid-loop and
+# soft-stop detection branches. Zero = code default.
+
+# --- Mid-loop detection ---
+# explore_midloop_min_iteration: 2
+# explore_serial_batch_threshold: 2
+# explore_serial_streak_threshold: 2
+# explore_partial_read_line_threshold: 150
+# explore_midloop_enum_coverage: 0.6
+# explore_parallel_unread_floor: 2
+# explore_enum_midloop_unread_floor: 2
+
+# --- Soft-stop detection ---
+# explore_softstop_enum_coverage: 0.8
+# explore_phase0_min_discovered_files: 3
+# explore_phase0_max_broaden_attempts: 2
+# explore_symbol_min_len_method: 3
+# explore_symbol_min_len_other: 8
+# explore_max_prescanned_pushes: 3
+# explore_erm_suggest_limit: 3
+
+# --- Display ---
+# explore_cv_preview_max_len: 1500
+
+# --- Sourcemix budget ---
+# explore_per_tool_default_cap: 0
+
+# ---------------------------------------------------------------------------
+# Agent limits (agent_*)
+# ---------------------------------------------------------------------------
+# Per-agent behavioral limits: iteration caps, tool-history budget,
+# LoopPolicy defaults, correction retries, investigation_complete policy.
+
+# ReAct loop ceiling for all agents.
+# agent_max_iterations: 20
+
+# Cumulative byte budget for "tool" role messages before pruning.
+# agent_max_tool_history_bytes: 153600
+
+# LoopPolicy: minimum iterations between two accepted hint injections.
+# agent_loop_min_inject_interval: 3
+
+# LoopPolicy: max soft-stop continuation hints per dispatch.
+# agent_loop_max_continuations: 5
+
+# LoopPolicy: max mid-loop hint injections per dispatch.
+# agent_loop_max_midloop_injects: 6
+
+# LoopPolicy: consecutive idle iterations before force-stop.
+# agent_loop_idle_stop_threshold: 2
+
+# Finalizer: max correction retries when emit_answer_document is missing.
+# agent_finalizer_max_correction_retries: 2
+
+# Extractor: max correction retries when emit_answer_symbol is missing.
+# agent_extractor_max_correction_retries: 1
+
+# How the DAG scheduler treats explore nodes when emit_investigation_complete
+# was called but SuccessCriteria (e.g. evidence_count>=3) still fail:
+#   "soft"     — lower evidence_count threshold to >=1 (default)
+#   "override" — skip criteria entirely, mark all explore nodes done
+#   "strict"   — ignore the signal, enforce template thresholds
+# agent_investigation_complete_policy: soft
+
+# ---------------------------------------------------------------------------
+# Memory store limits (memory_*)
+# ---------------------------------------------------------------------------
+# Multi-turn REPL memory: buffer sizes and context-building caps.
+
+# Number of recent turns kept verbatim before LLM-summarization.
+# memory_max_recent_turns: 6
+
+# Total byte budget for the recent turn buffer.
+# memory_max_recent_bytes: 20480
+
+# Max size of a single turn's request+response stored to disk.
+# memory_max_turn_body_bytes: 65536
+
+# Max compacted index entries inlined into BuildContext per request.
+# memory_max_build_context_matches: 3
+
+# Max bytes from a single matched compacted turn inlined into context.
+# memory_max_inlined_turn_bytes: 8192
+
+# Total byte budget for all inlined compacted turns in BuildContext.
+# memory_max_build_context_total_bytes: 32768
 
 # ---------------------------------------------------------------------------
 # Path to providers config
