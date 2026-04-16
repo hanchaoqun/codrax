@@ -333,7 +333,14 @@ func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *St
 // NewAnalyzerAgent creates the analyzer agent.
 func NewAnalyzerAgent(deps *Dependencies) Agent {
 	eval := &analyzerEvaluator{}
-	return NewBaseAgent(types.AgentAnalyzer, deps, eval)
+	// Override LoopPolicy for the analyzer: MinInjectInterval=1 so
+	// soft-stop continuation hints are not throttled. The analyzer
+	// runs 3-5 iterations total; the default interval of 3 means the
+	// second content-only turn (iter=2) gets throttled and the loop
+	// terminates before emit_analysis is called.
+	d := *deps
+	d.LoopPolicy.MinInjectInterval = 1
+	return NewBaseAgent(types.AgentAnalyzer, &d, eval)
 }
 
 // ── Analyzer v3 IR builder ───────────────────────────────────────────
