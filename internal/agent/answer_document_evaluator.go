@@ -135,27 +135,18 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	return b.String()
 }
 
-// extractAnswerDocLang pulls the language preference from the
-// orchestrator's injected BusContext.Preferences. The directive
-// wording is stable (languageDirective in orchestrator.go emits
-// "Respond to the user in Simplified Chinese …" or "Respond to the
-// user in English …"), so a cheap substring match recovers the locale
-// without plumbing a dedicated field through AgentContext.
-//
-// When no directive is present (flagLang=off / none / "") we default
-// to "en" so the renderer has a defined locale.
+// extractAnswerDocLang reads the language from AgentContext.Language,
+// which is set by BuildAgentContext from BusContext.Language (the
+// -lang CLI flag). Falls back to "en" when empty/off/none.
 func extractAnswerDocLang(ctx *types.AgentContext) string {
 	if ctx == nil {
 		return "en"
 	}
-	for _, p := range ctx.Preferences {
-		lower := strings.ToLower(p)
-		if strings.Contains(lower, "simplified chinese") || strings.Contains(lower, "简体中文") {
-			return "zh"
-		}
-		if strings.Contains(lower, "respond to the user in english") {
-			return "en"
-		}
+	switch ctx.Language {
+	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
+		return "zh"
+	case "", "off", "none":
+		return "en"
 	}
 	return "en"
 }

@@ -96,31 +96,24 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 	}
 }
 
-// TestAnswerDocumentEvaluator_LanguageCapture pulls zh from
-// Preferences. Mirrors orchestrator.languageDirective output.
+// TestAnswerDocumentEvaluator_LanguageCapture reads language from
+// AgentContext.Language (set by BuildAgentContext from -lang flag).
 func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
-	ctx := &types.AgentContext{
-		Preferences: []string{
-			"Respond to the user in Simplified Chinese (简体中文) by default. " +
-				"Keep technical terms …",
-		},
-	}
+	ctx := &types.AgentContext{Language: "zh"}
 	e := &answerDocumentEvaluator{}
 	e.BuildInitialInstruction(ctx, nil)
 	if e.language != "zh" {
 		t.Errorf("language = %q, want zh", e.language)
 	}
 
-	ctx2 := &types.AgentContext{
-		Preferences: []string{"Respond to the user in English by default."},
-	}
+	ctx2 := &types.AgentContext{Language: "en"}
 	e2 := &answerDocumentEvaluator{}
 	e2.BuildInitialInstruction(ctx2, nil)
 	if e2.language != "en" {
 		t.Errorf("language = %q, want en", e2.language)
 	}
 
-	ctx3 := &types.AgentContext{} // no preferences
+	ctx3 := &types.AgentContext{} // no language set
 	e3 := &answerDocumentEvaluator{}
 	e3.BuildInitialInstruction(ctx3, nil)
 	if e3.language != "en" {
