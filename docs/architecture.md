@@ -58,34 +58,49 @@ graph TB
     User([用户请求])
 
     subgraph "Layer 1 编排层"
-        Orch[编排器<br/>hardcoded topology<br/>+ criterion-aware DAG scheduler<br/>+ fail-loud analyze retry]
+        Orch["编排器
+        hardcoded topology
+        + criterion-aware DAG scheduler
+        + fail-loud analyze retry"]
     end
 
-    subgraph "Layer 2 执行层 (4 Agent)"
-        A1[analyzer]
-        A2[explorer<br/>Turn A<br/>+ sourcemix budget gate]
-        A3[extractor<br/>Turn B<br/>+ criterion auto-verdict]
-        A4[finalizer]
+    subgraph "Layer 2 执行层"
+        A1["analyzer"]
+        A2["explorer · Turn A
+        + sourcemix budget gate"]
+        A3["extractor · Turn B
+        + criterion auto-verdict"]
+        A4["finalizer"]
     end
 
-    subgraph "Layer 3 策略层 (4 Skill)"
-        S1[analysis-skill]
-        S2[repo-explore-skill]
-        S3[extract-skill]
-        S4[answer-document-skill<br/>(fallback: final-answer-skill)]
+    subgraph "Layer 3 策略层"
+        S1["analysis-skill"]
+        S2["repo-explore-skill"]
+        S3["extract-skill"]
+        S4["answer-document-skill
+        fallback: final-answer-skill"]
     end
 
     subgraph "Layer 4 能力层"
-        T[只读工具<br/>grep / read_file / list_files /<br/>repo_map / git_* / exec_command]
-        E[结构化发射器<br/>emit_analysis / emit_evidence /<br/>emit_answer_symbol /<br/>emit_hypothesis_verdict /<br/>emit_answer_document]
+        T["只读工具
+        grep / read_file / list_files
+        repo_map / exec_command"]
+        E["结构化发射器
+        emit_analysis / emit_evidence
+        emit_answer_symbol
+        emit_hypothesis_verdict
+        emit_answer_document"]
     end
 
     subgraph "Layer 5 智能层"
-        LLM[LLM 适配器]
+        LLM["LLM 适配器"]
     end
 
-    subgraph "Layer 6 分析层 (14 确定性子包)"
-        AN[normalizer / compiler / budget /<br/>sourcemix / risk / hdp / priority /<br/>binder / counterfactual / gate /<br/>stopcond / criterion / contract / dataflow]
+    subgraph "Layer 6 分析层 · 14 确定性子包"
+        AN["normalizer / compiler / budget
+        sourcemix / risk / hdp / priority
+        binder / counterfactual / gate
+        stopcond / criterion / contract / dataflow"]
     end
 
     User --> Orch
