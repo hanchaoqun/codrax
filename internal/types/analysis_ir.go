@@ -51,6 +51,11 @@ type RequestModel struct {
 	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
 	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
 
+	// SubTopics lists independently-answerable sub-topics detected by
+	// the analyzer. When non-empty, the compiler generates one evidence
+	// DAG node per sub-topic. Empty for single-topic questions.
+	SubTopics []SubTopic `json:"sub_topics,omitempty"`
+
 	// AnalyzerHints captures the raw LLM-extracted hints from the
 	// analyze stage's structured output. Intent/Scenario/Complexity
 	// above are typed, mapped, and sometimes lossy projections of the
@@ -107,6 +112,15 @@ type Ambiguity struct {
 	Clause     string   `json:"clause"`
 	Options    []string `json:"options,omitempty"`
 	Resolution string   `json:"resolution,omitempty"`
+}
+
+// SubTopic is one independently-answerable sub-topic within a multi-topic
+// user question. Produced by the analyzer LLM in the sub_topics field of
+// emit_analysis. The compiler maps each SubTopic to a dedicated evidence
+// DAG node so the scheduler tracks per-topic investigation progress.
+type SubTopic struct {
+	Summary  string   `json:"summary"`
+	Entities []string `json:"entities,omitempty"`
 }
 
 // ── TermGraph ───────────────────────────────────────────────────────────

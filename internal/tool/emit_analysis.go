@@ -42,14 +42,15 @@ type EmitAnalysis struct {
 }
 
 type emitAnalysisParams struct {
-	Intent       string   `json:"intent"`
-	Scenario     string   `json:"scenario"`
-	Complexity   string   `json:"complexity"`
-	Keywords     []string `json:"keywords"`
-	Entities     []string `json:"entities"`
-	QuestionKind string   `json:"question_kind"`
-	AnswerShape  string   `json:"answer_shape"`
-	Language     string   `json:"language,omitempty"`
+	Intent       string           `json:"intent"`
+	Scenario     string           `json:"scenario"`
+	Complexity   string           `json:"complexity"`
+	Keywords     []string         `json:"keywords"`
+	Entities     []string         `json:"entities"`
+	QuestionKind string           `json:"question_kind"`
+	AnswerShape  string           `json:"answer_shape"`
+	Language     string           `json:"language,omitempty"`
+	SubTopics    []types.SubTopic `json:"sub_topics,omitempty"`
 }
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
@@ -101,6 +102,18 @@ func buildEmitAnalysisSchema() {
 			"question_kind": stringProp{Type: "string", Enum: skill.AnalysisQuestionKindValues()},
 			"answer_shape":  stringProp{Type: "string", Enum: skill.AnalysisAnswerShapeValues()},
 			"language":      stringProp{Type: "string", Enum: []string{"zh", "en"}},
+			"sub_topics": map[string]any{
+				"type":        "array",
+				"description": "Independent sub-topics in the user's question. Empty for single-topic questions. Do NOT split topics with causal dependencies.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"summary":  map[string]string{"type": "string", "description": "One-sentence sub-topic description"},
+						"entities": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Code entities for this sub-topic"},
+					},
+					"required": []string{"summary"},
+				},
+			},
 		},
 		"required": []string{
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind", "answer_shape",
@@ -217,6 +230,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Intent:     intent,
 		Scenario:   scenario,
 		Complexity: complexity,
+		SubTopics:  p.SubTopics,
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords: keywords,
 			Entities: entities,

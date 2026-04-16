@@ -128,6 +128,17 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		}
 	}
 
+	// Multi-topic: guide the finalizer to address each sub-topic.
+	if ctx != nil && ctx.AnalysisIR != nil && len(ctx.AnalysisIR.RequestModel.SubTopics) > 1 {
+		b.WriteString("## Answer Structure (multi-topic)\n\n")
+		b.WriteString("The user asked about multiple topics. " +
+			"Your summary MUST address each one with a clearly labeled section:\n\n")
+		for i, st := range ctx.AnalysisIR.RequestModel.SubTopics {
+			fmt.Fprintf(&b, "%d. %s\n", i+1, st.Summary)
+		}
+		b.WriteString("\nProvide citations for each section.\n\n")
+	}
+
 	return b.String()
 }
 

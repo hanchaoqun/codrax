@@ -364,6 +364,39 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		rm.Language = detectLanguage(rm.RawRequest, ctx.Preferences)
 	}
 
+	// Sub-topics post-processing: when the LLM detected multiple
+	// independent sub-topics, force explanation shape and merge entities.
+	if len(rm.SubTopics) > 5 {
+		rm.SubTopics = rm.SubTopics[:5]
+		logging.Warning("[analyzer] sub_topics truncated to 5")
+	}
+	if len(rm.SubTopics) > 1 {
+		if rm.AnalyzerHints.Shape != string(types.ShapeExplanation) {
+			logging.Warning("[analyzer] sub_topics detected (%d), forcing answer_shape explanation (was %s)",
+				len(rm.SubTopics), rm.AnalyzerHints.Shape)
+			rm.AnalyzerHints.Shape = string(types.ShapeExplanation)
+		}
+		if rm.Complexity == types.ComplexitySimple {
+			logging.Debug("[analyzer] sub_topics detected, upgrading complexity simple → moderate")
+			rm.Complexity = types.ComplexityModerate
+		}
+		// Merge sub-topic entities into main entity list.
+		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
+		for _, e := range rm.AnalyzerHints.Entities {
+			seen[e] = true
+		}
+		for _, st := range rm.SubTopics {
+			for _, e := range st.Entities {
+				if !seen[e] {
+					rm.AnalyzerHints.Entities = append(rm.AnalyzerHints.Entities, e)
+					seen[e] = true
+				}
+			}
+		}
+		logging.Info("[analyzer] multi-topic: %d sub-topics, merged entities=%v",
+			len(rm.SubTopics), rm.AnalyzerHints.Entities)
+	}
+
 	// Normalizer runs unconditionally on the raw objective.
 	rm.TermGraph = normalizer.Normalize(rm.RawRequest, normalizer.Options{})
 

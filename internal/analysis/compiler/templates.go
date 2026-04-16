@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"strconv"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -40,6 +41,43 @@ func critEntry(signal string) []types.Criterion {
 	return []types.Criterion{{Kind: types.CritSignalPresent, Expr: signal}}
 }
 
+
+// expandEvidenceNodes returns one evidence node per sub-topic when
+// rm.SubTopics is non-empty, or a single evidence node otherwise.
+// Each node gets the sub-topic's Summary as its Objective and the
+// sub-topic's Entities as SearchHints.
+func expandEvidenceNodes(rm types.RequestModel, defaultHints types.SearchHints, idPrefix string) []types.TaskNode {
+	if len(rm.SubTopics) <= 1 {
+		return []types.TaskNode{{
+			ID:          idPrefix,
+			Type:        types.NodeEvidence,
+			Objective:   "Collect evidence that answers the user's request.",
+			SearchHints: defaultHints,
+			MaxRetries:  TmplEvidenceMaxRetries,
+			SuccessCriteria: []types.Criterion{
+				{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
+			},
+		}}
+	}
+	nodes := make([]types.TaskNode, len(rm.SubTopics))
+	for i, st := range rm.SubTopics {
+		h := types.SearchHints{}
+		for _, e := range st.Entities {
+			h.EntityIDs = append(h.EntityIDs, e)
+		}
+		nodes[i] = types.TaskNode{
+			ID:          fmt.Sprintf("%s_t%d", idPrefix, i),
+			Type:        types.NodeEvidence,
+			Objective:   st.Summary,
+			SearchHints: h,
+			MaxRetries:  TmplEvidenceMaxRetries,
+			SuccessCriteria: []types.Criterion{
+				{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
+			},
+		}
+	}
+	return nodes
+}
 
 // ── architecture_explain ────────────────────────────────────────
 
@@ -342,19 +380,10 @@ func templateGeneric(rm types.RequestModel) Output {
 		Outputs:     []string{"file_candidates"},
 		SearchHints: hints,
 	}
-	ev := types.TaskNode{
-		ID: nodeID(1, "evidence"), Type: types.NodeEvidence,
-		Objective:   "Collect evidence that answers the user's request.",
-		Inputs:      []string{"file_candidates"},
-		Outputs:     []string{"evidence_items"},
-		SearchHints: hints,
-		MaxRetries:  TmplEvidenceMaxRetries,
-		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
-		},
-	}
+	evNodes := expandEvidenceNodes(rm, hints, nodeID(1, "evidence"))
+	finalIdx := 1 + len(evNodes)
 	final := types.TaskNode{
-		ID: nodeID(2, "finalize"), Type: types.NodeFinalize,
+		ID: nodeID(finalIdx, "finalize"), Type: types.NodeFinalize,
 		Objective: "Render the answer.",
 		Inputs:    []string{"evidence_items"},
 		Outputs:   []string{"answer_document"},
@@ -362,12 +391,26 @@ func templateGeneric(rm types.RequestModel) Output {
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},
 	}
+	nodes := []types.TaskNode{probe}
+	nodes = append(nodes, evNodes...)
+	nodes = append(nodes, final)
+	// Edges: probe → each evidence → finalize
+	var edges []types.TaskEdge
+	for _, ev := range evNodes {
+		edges = append(edges, types.TaskEdge{From: probe.ID, To: ev.ID})
+		edges = append(edges, types.TaskEdge{From: ev.ID, To: final.ID})
+	}
+	critPath := []string{probe.ID}
+	for _, ev := range evNodes {
+		critPath = append(critPath, ev.ID)
+	}
+	critPath = append(critPath, final.ID)
 	graph := types.TaskGraph{
-		Nodes: []types.TaskNode{probe, ev, final},
-		Edges: chain(probe.ID, ev.ID, final.ID),
+		Nodes: nodes,
+		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
 			MaxParallelism: 1, RetryBudget: TmplRetryBudgetLow,
-			CriticalPath: []string{probe.ID, ev.ID, final.ID},
+			CriticalPath: critPath,
 		},
 	}
 	plan := types.EvidencePlan{

@@ -274,6 +274,14 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("\n")
 	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
 	of.WriteString("Keyword generation (example approach — adapt to the question's complexity): (1) Core — extract every domain noun and verb from the question in both original and identifier forms (e.g. CamelCase, snake_case). (2) Compound — cross-combine core terms into plausible multi-word identifiers (e.g. CacheStore, store_config). (3) Synonyms — for each verb add 2-3 programming synonyms (e.g. send → emit/dispatch/publish). Target ≥8 diverse stems; simple questions may need fewer rounds, complex ones may need more. For Chinese questions include BOTH Chinese and English forms (the codebase is English). The system auto-expands each keyword into case variants, so produce diverse STEMS rather than repeating words. The pre-scan is a good place to validate at least a handful of these stems appear in the repo, so downstream search time is not wasted on terms that never match.\n\n")
+	of.WriteString("## Sub-topic detection (sub_topics field)\n\n")
+	of.WriteString("When the user's question contains multiple independently-answerable sub-topics, list each in sub_topics. Rules:\n")
+	of.WriteString("- Each sub_topic has a one-sentence summary and its own entities\n")
+	of.WriteString("- Do NOT split topics that depend on each other (e.g. \"X是什么，它怎么影响Y\" → one topic)\n")
+	of.WriteString("- DO split genuinely independent questions (e.g. \"pipeline有几个stage？emit_analysis有哪些字段？\" → two topics)\n")
+	of.WriteString("- When sub_topics is non-empty, answer_shape MUST be explanation\n")
+	of.WriteString("- When unsure, do NOT split (empty array is safe)\n")
+	of.WriteString("- Maximum 5 sub-topics\n\n")
 	of.WriteString("After emit_analysis succeeds, you may add a one-paragraph rationale for the trace log. This text is captured but does not drive any agent — the structured fields are what matter.")
 
 	return &Config{
@@ -284,7 +292,8 @@ func BuildAnalysisSkill() *Config {
 			"Round 1 pre-scan: batch ALL entity verification into ONE response — call repo_map and/or multiple grep(files_only=true) calls together as parallel tool calls. A 'round' is one LLM response, which can contain multiple tool calls",
 			"If round 1 confirmed the entities exist → SKIP round 2, go directly to emit_analysis",
 			"Round 2 (only if round 1 came up empty on a key entity): broaden search with stems/variants, then emit_analysis REGARDLESS of result",
-			"Call emit_analysis EXACTLY ONCE with: intent, scenario, complexity, keywords, entities, question_kind, answer_shape",
+			"If the question covers multiple independent topics, fill sub_topics with each topic's summary and entities; set answer_shape to explanation",
+			"Call emit_analysis EXACTLY ONCE with: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, sub_topics",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),
