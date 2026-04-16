@@ -80,23 +80,10 @@ Evidence:
 - lib/cache.rb:78-91 — get() falls through to the DB on miss but does not write back
 - lib/cache.rb:14 — DEFAULT_TTL = 300
 
-Example D — architecture/flow question (use a Mermaid diagram when a visual clarifies relationships or sequences):
-Answer: A write request flows through three layers before reaching the database:
+Example D — architecture/flow question (use structured prose with clear call chain):
+Answer: A write request flows through three layers before reaching the database: Client → Handler → Database → Cache invalidation.
 
-` + "```mermaid" + `
-sequenceDiagram
-    participant C as Client
-    participant H as Handler
-    participant CA as Cache
-    participant DB as Database
-    C->>H: PUT /api/v1/users/42
-    H->>DB: UPDATE users SET ...
-    DB-->>H: ok
-    H->>CA: invalidate("users:42")
-    H-->>C: 200 OK
-` + "```" + `
-
-The handler always writes to the database first. Only after the DB confirms success does it invalidate the cache key.
+The handler always writes to the database first (user_handler.ts:87). Only after the DB confirms success does it call cache.invalidate (user_handler.ts:102), which deletes the key so the next read repopulates from DB (store.ts:42-58).
 
 Evidence:
 - app/handlers/user_handler.ts:87-102 — updateUser calls repo.save then cache.invalidate
@@ -127,7 +114,7 @@ Evidence:
 			"For step_list shape: emit steps[] with one entry per distinct branch or mechanism hop; each step carries a positive index, a one-sentence description drawn from evidence, and a citation_ref into the shared citations pool (or -1 when no citation backs the step)",
 			"For value / config_value shape: emit value{literal} (plus key for config_value) with a citation_ref into the pool",
 			"For boolean shape: emit boolean{decision, rationale, citation_ref}; decision must be one of true/false/yes/no/是/否 — no hedging",
-			"For explanation shape: fill summary with 1-2 sentence lead-in prose (≤500 chars), populate citations[] for any referenced file:line",
+			"For explanation shape: fill summary with a thorough multi-paragraph explanation that fully answers the user's question — include mechanism details, code-level specifics, cross-file relationships. Populate citations[] for every file:line you reference",
 			"Declare every file:line you cite ONCE in the citations[] array; other fields reference it by zero-based integer index (or -1 for no cite). One cited line can serve multiple steps without duplication",
 		},
 		ToolSuggestions: []string{
@@ -142,7 +129,7 @@ Required-field dispatch by shape (see the tool's JSON schema for the full contra
 - shape=value           → value{literal, citation_ref} (key omitted)
 - shape=config_value    → value{key, literal, citation_ref}
 - shape=boolean         → boolean{decision, rationale, citation_ref}
-- shape=explanation     → summary (non-empty, ≤500 chars)
+- shape=explanation     → summary (non-empty, thorough multi-paragraph answer)
 
 Forbidden-field rules:
 - list_of_symbols forbids steps / value / boolean
@@ -162,15 +149,18 @@ Completeness honesty contract (list_of_symbols only):
 - "lower_bound" — symbols are confirmed present, more may exist. Honest default when you cannot confidently reach the floor.
 - "unknown" — investigated but no definitive slate. Renderer drops the section entirely and falls back to the shape-based prompt.
 
-Summary field (shape=explanation or optional lead-in for others):
-- LLM-authored 1-2 sentence lead-in, ≤500 chars — the ONE prose escape hatch. Do not pad this into an answer body.
+Summary field:
+- For shape=explanation: the summary IS the answer body — write a thorough, multi-paragraph explanation that fully addresses the user's question. Include code-level specifics, cross-file relationships, and mechanism details. Match the depth of the answer to the depth of the question. No character limit.
+- For other shapes (list_of_symbols / step_list / value / boolean / config_value): the summary is a concise lead-in (1-3 sentences) that frames the structured payload below. Keep it brief — the structured fields carry the answer.
 
-Diagrams: when a visual would clarify the answer, use Mermaid fenced code blocks in the summary field. Prefer flowchart for control flow, sequenceDiagram for call chains, classDiagram for type hierarchies. Keep diagrams concise — collapse trivial nodes, label edges. Only use when it adds clarity.`,
+Diagrams: when a visual would clarify the answer, use Mermaid fenced code blocks in the summary field. Prefer flowchart for control flow, sequenceDiagram for call chains, classDiagram for type hierarchies. Keep diagrams concise — collapse trivial nodes, label edges. Only use when it adds clarity.
+
+Caveats field: an optional string array for honesty markers. When writing caveats, use the same language as the user's question.`,
 		Prohibitions: []string{
 			"do not write prose outside the emit_answer_document tool call — the tool result IS the final answer",
 			"do not cite a file or line that is not in the evidence / read-files list from prior stages",
 			"do not invent line numbers — every citation.line must come from a concrete read_file gutter or a prior-stage evidence item",
-			"do not inflate summary past 500 characters — it is a 1-2 sentence lead-in, not the answer body",
+			"do not inflate summary past 3 sentences for non-explanation shapes — for explanation shape, the summary IS the answer body and should be thorough",
 			"do not set citation_ref to a zero-value-looking sentinel; use -1 for 'no citation' and a valid pool index otherwise",
 			"do not claim symbols_completeness=complete without meeting the floor shown in the cardinality baseline — a short 'complete' claim will be downgraded to lower_bound automatically and the downgrade is surfaced as a caveat",
 		},

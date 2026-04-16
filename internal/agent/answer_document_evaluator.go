@@ -308,8 +308,11 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			doc.SymbolsCompleteness = validated
 			// Caveat surfaces the downgrade in the rendered prose
 			// instead of letting it happen silently.
-			doc.Caveats = append(doc.Caveats,
-				"symbols list was marked complete but did not meet the cardinality baseline; downgraded to lower_bound")
+			caveat := "symbols list was marked complete but did not meet the cardinality baseline; downgraded to lower_bound"
+			if e.language == "zh" {
+				caveat = "符号列表声称完整但未达到基数基线，已自动降级为 lower_bound"
+			}
+			doc.Caveats = append(doc.Caveats, caveat)
 		}
 	}
 
