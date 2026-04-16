@@ -62,14 +62,14 @@ At dispatch time `Orchestrator.dispatchStage` routes the finalize stage to `answ
 
 After analyze produces `AnalysisIR.TaskGraph`, `runTaskGraph` walks the graph with a **criterion-aware window scheduler**:
 
-0. At each round start, `stopcond.ShouldStop` evaluates `EvidencePlan.StopConditions`. If any fires → `forceCloseExploreWindow` marks remaining explore nodes done and directs the scheduler straight to finalize.
-1. `readyExplorerWindow` (replaces the old `pendingExplorerWindow`) collects every non-finalize node whose `EntryConditions` (now `[]Criterion`, evaluated by `criterion.Eval`) are satisfied. Dispatch them as ONE `StageExplore` call per round. Explorer's `BaseAgent.executeTool` gate checks `sourcemix.BudgetForTool` before every tool call in `StageExplore`; blocks the call when the `NodeBudgetHints` cap for that tool type is reached.
-2. After dispatch, `markSuccessCriteriaFailed` evaluates each node's `SuccessCriteria`. Dispatch `StageExtract` once after a successful explore window (Turn B drains the transcript). The extractor also evaluates `RequiredEvidence` + `FalsificationCondition` for each hypothesis; injects auto-verdicts (inconclusive when required evidence met but no LLM verdict; rejected when falsification condition satisfied).
-3. If a finalize node is ready, dispatch `StageFinalize`, then run the AnswerContract checker over the final answer.
+0. At each round start, `stopcond.ShouldStop` (`internal/analysis/stopcond`) evaluates `EvidencePlan.StopConditions` — each `StopCondition{Kind, Expr}` is treated as a `Criterion` and evaluated via `criterion.Eval`. StopConditions are OR-ed: the first satisfied one fires → `forceCloseExploreWindow` marks remaining explore nodes done and directs the scheduler straight to finalize.
+1. `readyExplorerWindow` collects every pending/requeued non-finalize, non-counterfactual node whose `EntryConditions` (`[]Criterion`, evaluated by `criterion.EvalAll`) are all satisfied. Returns two lists: `ready` (dispatched as ONE `StageExplore` call) and `blocked` (entry conditions not yet met — surfaced in the retry hint so the LLM can see what criterion is stalling which node). The orchestrator installs an `ExploreBudget` on `MutableState` at the start of `runTaskGraph` (derived from `EvidencePlan.NodeBudgetHints`); during the explore dispatch, `BaseAgent.executeTool` checks `ctx.Mutable.BudgetRemaining(canonicalToolName)` before every tool call in `StageExplore` and blocks the call when the per-tool or overall cap is reached.
+2. After dispatch, `markSuccessCriteriaFailed` evaluates each window node's `SuccessCriteria` (`[]Criterion`) against the current `criterion.Env`. Nodes that pass are marked done; nodes that fail are requeued. A failed **validate** node additionally triggers `requeueValidationTargets`: the scheduler follows `EdgeValidationFeedback` edges from the validate node to its upstream evidence nodes and requeues **only** those specific nodes (fine-grained backtrack, not the whole window). Dispatch `StageExtract` once after the explore window (Turn B drains the transcript). The extractor's `ParseOutput` also evaluates `RequiredEvidence` + `FalsificationCondition` for each hypothesis via `criterion.Eval`: when all RequiredEvidence criteria are satisfied but the LLM emitted no verdict → inject `HypInconclusive`; when FalsificationCondition is satisfied → inject `HypRejected` (overriding any LLM verdict).
+3. If a finalize node is ready (`firstFinalizeReadyMerged` — all non-finalize, non-counterfactual nodes are done), dispatch `StageFinalize`, then run the AnswerContract checker over the final answer. Note: `AnswerContract.AcceptanceTests` is `[]Criterion` but `contract/checker.go`'s `checkAcceptance` evaluates them via a local switch (contains_symbol / regex_match / citation_count_ge), not via the generic `criterion.Eval` dispatcher.
    - Pass: mark finalize done, record the answer, return.
-   - Fail with retry budget remaining: requeue the finalize node. `requeueValidationTargets` follows `EdgeValidationFeedback` edges to requeue only the specific upstream evidence nodes (fine-grained backtrack, not the whole window). Inject the violation diagnostic into the next window's retry hint, loop.
+   - Fail with retry budget remaining: requeue the finalize node and every explorer-window node that sits behind it, record one cross-window retry, inject the violation diagnostic into the next window's retry hint, loop.
    - Fail with budget exhausted: prepend a fail-loud warning to the answer and return the original body beneath it.
-4. Loop until all nodes done or the per-task step budget is exhausted. On a scheduler stall the driver forces one finalize dispatch so the task always terminates with a result.
+4. Loop until all nodes done or the per-task step budget is exhausted. On a scheduler stall (no ready window, no ready finalize, but not allDone — e.g. all remaining nodes blocked on entry conditions) the driver forces one finalize dispatch so the task always terminates with a result.
 
 ### Key Data Structures (`internal/types/`)
 
@@ -78,7 +78,7 @@ After analyze produces `AnalysisIR.TaskGraph`, `runTaskGraph` walks the graph wi
 - **StageOutput** — what agents return: data, signal updates, new facts, errors, analysis IR, final answer.
 - **AnalysisIR** (`internal/types/analysis_ir.go`) — the analyze stage's sole structured output: `RequestModel`, `TaskGraph`, `EvidencePlan`, `AnswerContract`, `HypothesisSet`, `QualityGate`. `TaskNode.EntryConditions` is now `[]Criterion` (typed, evaluated by the `internal/analysis/criterion` package at runtime — 19 registered Kinds). `AnswerContract.AcceptanceTests` is also `[]Criterion` (the old `Acceptance` type is deleted). `EvidencePlan` now has `NodeBudgetHints` alongside `SourceMix`. Analyzer is the sole writer; downstream stages mutate hypothesis status via the dedicated `MarkHypothesis` API and never rewrite structural fields.
 - **ExecutionSignals** — a single-field struct (`HasEnoughFacts bool`). All write-pipeline signals were deleted with the write pipeline.
-- **PipelineSettings** — budget knobs only (`MaxRetriesPerStage`, `MaxStageVisits`). Loaded from `codrax.yaml`.
+- **PipelineSettings** — budget knobs (`MaxRetriesPerStage`, `MaxStageVisits`) plus `GateThresholds` (coverage weights + hypothesis min priority) and `Explore` (per-tool default cap for sourcemix throttling). Loaded from `codrax.yaml`.
 
 ### Agent System (`internal/agent/`)
 
@@ -89,13 +89,34 @@ All 4 agent types embed `BaseAgent` which provides the ReAct loop (Reason → Ac
 The analyzer makes ONE LLM call that emits a `RequestModel` via `emit_analysis`. `ParseOutput` then runs a deterministic chain:
 
 1. `normalizer.Normalize` — canonical TermGraph from the raw request
-2. `compiler.InferScenario` + `compiler.Compile` — scenario template → TaskGraph + EvidencePlan + AnswerContract; now takes `budget.BudgetSignals` (multi-dimensional: Complexity × TermCount × HypothesisCount × PrescanHitRatio); InferScenario also reads `rm.Ambiguities` to route moderate/complex requests with ambiguity clauses to reconcile-node scenarios
+2. `compiler.InferScenario` + `compiler.Compile(rm, budget.BudgetSignals)` — scenario template → TaskGraph + EvidencePlan + AnswerContract. Budget is multi-dimensional (Complexity × TermCount × HypothesisCount × PrescanHitRatio) via the `internal/analysis/budget` package, replacing the old single-axis `defaultBudget`. `sourcemix.FromTemplateMix` compiles `EvidencePlan.SourceMix` ratios into `NodeBudgetHints` (per-tool caps). InferScenario reads `rm.Ambiguities` to route moderate/complex requests with ambiguity clauses to reconcile-node scenarios.
 3. `risk.Evaluate` — 6-dimension risk matrix (Security / DataIntegrity / Compatibility / Performance / Ops / Compliance)
-4. `hdp.Plan` — hypotheses with `priority.Score` (4 dimensions: intent match, risk elevation, term cardinality, ambiguity resolution); binding now done by `binder.BindByRelevance` (Jaccard + surface mentions + kind-family affinity, replacing the old round-robin `hdp.Bind`)
-5. `counterfactual.Expand` — optional branch expansion for complex+ambiguous explain/root_cause
-6. `gate.Run` — deterministic quality gate; now includes `criterion_resolvable` (hard — scans all Criterion fields for unregistered Kinds) + `pending_fields_wellformed` (soft — format hygiene on pending artifact-exchange fields) checks; all checks except `pending_fields_wellformed` are hard; coverage is weighted (Symbol=1.0, Config=0.7, Concept=0.4); thresholds from `gate.GlobalThresholds()`
+4. `hdp.Plan` — hypotheses scored by `priority.Score` (weights: IntentMatch=0.35, RiskElevation=0.30, TermCardinality=0.20, AmbiguityResolution=0.15; packed as `round(raw*100)*1000 - idx` for stable sorting). Budget is recomputed with the real hypothesis count via `compiler.RecomputeBudget`. Binding by `binder.BindByRelevance` (Jaccard overlap on term IDs + surface mentions + kind-family affinity between falsification kind and node type).
+5. `counterfactual.Expand` — optional branch expansion for complex+ambiguous explain/root_cause. When expansion adds new nodes, `binder.BindByRelevance` runs a second time to cover the new evidence nodes.
+6. `gate.Run` — deterministic quality gate with 7 checks in order: (1) `coverage` — weighted (Symbol=1.0, Config=0.7, Concept=0.4); (2) `dag_closure` — no cycles, no dangling edges, finalize node present; (3) `budget_sanity` — min/max files and react iters; (4) `contract_complete` — required fields present; (5) `hypothesis_coverage` — every binding-eligible node has ≥1 hypothesis, at least one hypothesis above min priority; (6) `criterion_resolvable` — scans all `[]Criterion` fields for unregistered Kinds; (7) `pending_fields_wellformed` — format hygiene on pending artifact-exchange fields (Inputs/Outputs/ExitArtifacts slot names, SourceMix sum). All checks except `pending_fields_wellformed` are **hard**; `pending_fields_wellformed` is the only **soft** check. Thresholds configurable via `gate.GlobalThresholds()` (set by `cmd/root.go` from `codrax.yaml` `gate_*` keys).
 
 Gate failures are retryable via analyze re-entry; the analyzer retries once on a retryable reject and fails loud otherwise.
+
+### Analysis sub-packages (`internal/analysis/`)
+
+The analyzer's deterministic post-processing chain is decomposed into independent packages under `internal/analysis/`. Each is called from `analyzer.go:buildAnalysisIR` (or indirectly via `compiler.Compile`):
+
+| Package | Entry point | Purpose |
+|---|---|---|
+| `normalizer` | `Normalize(raw, opts)` | Canonical TermGraph from raw request text |
+| `compiler` | `Compile(rm, sig)` / `InferScenario(rm)` | Scenario template → TaskGraph + EvidencePlan + AnswerContract |
+| `budget` | `Compute(rm, sig)` | Multi-dimensional EvidenceBudget scaling |
+| `sourcemix` | `FromTemplateMix(mix, budget)` | Compile SourceMix ratios into NodeBudgetHints; `BudgetForTool` for per-tool throttling |
+| `risk` | `Evaluate(rm, matrix)` | 6-dimension risk matrix decoration |
+| `hdp` | `Plan(rm)` / `Validate(tg)` | Hypothesis generation + coverage invariant check |
+| `priority` | `Score(h, rm, idx)` | 4-dimension hypothesis scoring (0–100 raw scale) |
+| `binder` | `BindByRelevance(tg, hs, opts)` | Relevance-based hypothesis → node binding |
+| `counterfactual` | `ShouldExpand(rm)` / `Expand(tg, rm, opts)` | Optional branch expansion for ambiguous requests |
+| `gate` | `Run(ir, th)` | 7-check deterministic quality gate |
+| `stopcond` | `ShouldStop(plan, env)` | EvidencePlan.StopConditions evaluation |
+| `criterion` | `Eval(c, env)` / `EvalAll(cs, env)` | 19-Kind executable-contract evaluator |
+| `contract` | `Check(draft, contract)` | AnswerContract validation (shape, citations, must_include, acceptance tests) |
+| `dataflow` | `Analyze(evidence)` | Source→sink chain discovery from evidence items |
 
 ### Evidence Chain System (`internal/agent/explorer.go`)
 

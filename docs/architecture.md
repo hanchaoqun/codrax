@@ -308,7 +308,7 @@ Per-agent 模型路由在 `config/providers.yaml` 里配（不同 Agent 可以�
 | **Skill** | `analysis-skill` |
 | **工具** | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep`（必须 `files_only=true`） / `list_files`） |
 | **输入** | 用户原始请求 |
-| **工作** | **Phase A**：1-2 轮 evidence-lite 预扫，验证用户提到的实体/术语是否在仓库出现（存在 + 位置，**不读内容**）→ **Phase B**：一次 `emit_analysis` LLM 调用写 v3 RequestModel → `ParseOutput` 跑 `normalizer → compiler → risk → hdp → counterfactual → gate`（见 §7） |
+| **工作** | **Phase A**：1-2 轮 evidence-lite 预扫，验证用户提到的实体/术语是否在仓库出现（存在 + 位置，**不读内容**）→ **Phase B**：一次 `emit_analysis` LLM 调用写 v3 RequestModel → `ParseOutput` 跑 `normalizer → compiler → risk → hdp+priority+binder → counterfactual → gate`（见 §7） |
 | **输出** | `BusContext.AnalysisIR`（`TaskGraph` / `EvidencePlan` / `AnswerContract` / `HypothesisSet` / `QualityGate`） |
 
 **Evidence-lite 预扫边界规则**（由 `internal/skill/analysis_contract.go::AnalysisHardRules` 里的 `EVIDENCE-LITE BOUNDARY:` 前缀规则 enforce，测试在 `internal/agent/analyzer_prompt_test.go::TestAnalysisSkill_*`）：
@@ -647,7 +647,7 @@ sequenceDiagram
     Orch->>A: dispatchStage(analyze)
     A->>LLM: emit_analysis 指令
     LLM->>Tool: emit_analysis(v3 RequestModel)
-    A->>A: buildAnalysisIR (normalizer→compiler→risk→hdp→counterfactual→gate)
+    A->>A: buildAnalysisIR (normalizer→compiler→risk→hdp+priority+binder→counterfactual→gate)
     A-->>Orch: StageOutput.AnalysisIR
     end
 
