@@ -969,7 +969,7 @@ func findSystemSection(pc *types.PromptContext, title string) *types.PromptSecti
 //
 // These tests pin the capability matrix:
 //
-//     repo-explore-skill   → exec_command present      → shell variant
+//     explore-skill   → exec_command present      → shell variant
 //     analysis-skill       → grep/list_files/repo_map  → read-only variant
 //     extract-skill        → emit_* only               → no-tool variant
 //     answer-document-skill → emit_* only              → no-tool variant
@@ -1002,7 +1002,7 @@ func reasoningHygieneSectionOf(t *testing.T, sk *skill.Config) string {
 // (plus the word exec_command) should appear in its hygiene block.
 func TestReasoningHygiene_ExplorerGetsShellVariant(t *testing.T) {
 	sk := &skill.Config{
-		Name: "repo-explore-skill",
+		Name: "explore-skill",
 		ToolSuggestions: []string{
 			"repo_map", "grep", "read_file", "list_files", "exec_command",
 		},
@@ -1143,7 +1143,7 @@ func TestReasoningHygiene_EveryStageProducesNonEmpty(t *testing.T) {
 		name string
 		sk   *skill.Config
 	}{
-		{"explorer", &skill.Config{Name: "repo-explore-skill", ToolSuggestions: []string{
+		{"explorer", &skill.Config{Name: "explore-skill", ToolSuggestions: []string{
 			"repo_map", "grep", "read_file", "list_files", "exec_command",
 		}}},
 		{"analyzer", skill.BuildAnalysisSkill()},

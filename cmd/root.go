@@ -460,12 +460,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Runtime tool registration. After the 2026-04-14 simplification
 	// all three runtime flags (evidence_tool_mode / two_turn_explorer_mode
 	// / answer_document_mode) were deleted; every structured tool
-	// below is unconditionally registered. The repo-explore-skill gets
+	// below is unconditionally registered. The explore-skill gets
 	// a runtime append for emit_evidence so the declarative skill
 	// config does not need to hard-code the tool name.
 	toolRegistry.Register(&tool.EmitEvidence{})
 	toolRegistry.Register(&tool.EmitInvestigationComplete{})
-	if exploreSkill, err := skillRegistry.Get("repo-explore-skill"); err == nil {
+	if exploreSkill, err := skillRegistry.Get("explore-skill"); err == nil {
 		exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence", "emit_investigation_complete")
 	}
 	toolRegistry.Register(&tool.EmitAnswerSymbol{})

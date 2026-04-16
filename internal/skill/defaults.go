@@ -11,7 +11,7 @@ func RegisterDefaults(r *Registry) {
 	r.Register(BuildAnalysisSkill())
 
 	r.Register(&Config{
-		Name: "repo-explore-skill",
+		Name: "explore-skill",
 		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
 		Workflow: []string{
 			"PHASE 1 — Breadth scan: use repo_map and grep (with files_only=true) to discover ALL relevant files. Do not read files in full yet. Classify each file by role (type definitions, core logic, configuration/rules, entry point). Output a prioritized list of 3-6 files to investigate",

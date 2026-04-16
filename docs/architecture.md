@@ -75,7 +75,7 @@ graph TB
 
     subgraph "Layer 3 策略层"
         S1["analysis-skill"]
-        S2["repo-explore-skill"]
+        S2["explore-skill"]
         S3["extract-skill"]
         S4["answer-document-skill
         fallback: final-answer-skill"]
@@ -126,7 +126,7 @@ graph TB
 | 阶段 | 默认 Agent | 默认 Skill | Terminal |
 |------|-----------|-----------|:-:|
 | `analyze` | `analyzer` | `analysis-skill` | |
-| `explore` | `explorer` | `repo-explore-skill` | |
+| `explore` | `explorer` | `explore-skill` | |
 | `extract` | `extractor` | `extract-skill` | |
 | `finalize` | `finalizer` | `final-answer-skill` *（注册时覆盖为 `answer-document-skill`）* | ✅ |
 
@@ -366,7 +366,7 @@ Quality Gate 的 `Rejected` 区分 **hard failure**（所有 checks except `pend
 | 方面 | 详情 |
 |------|------|
 | **Agent** | `AgentExplorer` (`internal/agent/explorer.go`) |
-| **Skill** | `repo-explore-skill` |
+| **Skill** | `explore-skill` |
 | **允许工具** | `grep` / `read_file` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` |
 | **内部状态** | `explorerEvaluator.phase`（0=breadth, 1=depth） |
 | **输出** | `StageOutput.{EvidenceItems, AnswerChains, FlowFindings, StageReport}` + `MutableState.TurnAArtifacts` |
