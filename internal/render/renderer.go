@@ -326,21 +326,49 @@ func (r *Renderer) printAboveArea(text string) {
 // reasoningMaxChars caps the reasoning summary shown to the user.
 const reasoningMaxChars = 200
 
+// reMarkdownHeader matches markdown headers (### Title, ## Title, etc.)
+var reMarkdownHeader = regexp.MustCompile(`^#{1,6}\s+`)
+
+// stripMarkdownForReasoning removes markdown formatting that looks
+// ugly in a single-line dimmed thinking trace. Strips headers (###),
+// bold (**text**), bullets (- /* ), and code fences (```).
+func stripMarkdownForReasoning(s string) string {
+	// Strip markdown headers from each line.
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		lines[i] = reMarkdownHeader.ReplaceAllString(line, "")
+	}
+	s = strings.Join(lines, "\n")
+	// Strip bold markers.
+	s = strings.ReplaceAll(s, "**", "")
+	// Strip leading bullets.
+	s = strings.TrimPrefix(s, "- ")
+	s = strings.TrimPrefix(s, "* ")
+	// Strip code fences.
+	s = strings.ReplaceAll(s, "```json", "")
+	s = strings.ReplaceAll(s, "```", "")
+	return strings.TrimSpace(s)
+}
+
 // formatReasoning extracts the first 1-2 sentences from the LLM's
 // reasoning text and formats them as a dimmed line with an
-// [agent-iteration] tag. Long reasoning blocks are truncated.
+// [agent-iteration] tag. Markdown formatting is stripped since the
+// thinking trace is a plain single-line display.
 func formatReasoning(agent string, iteration int, text string) string {
-	text = strings.TrimSpace(text)
+	text = stripMarkdownForReasoning(text)
 	if text == "" {
 		return ""
 	}
 	lines := strings.SplitN(text, "\n", 3)
-	summary := lines[0]
+	summary := strings.TrimSpace(lines[0])
+	if summary == "" && len(lines) > 1 {
+		summary = strings.TrimSpace(lines[1])
+	}
 	if len(lines) > 1 && len(summary)+len(lines[1]) < reasoningMaxChars {
 		summary += " " + strings.TrimSpace(lines[1])
 	}
 	if len(summary) > reasoningMaxChars {
-		cut := reasoningMaxChars - 3 // room for "..."
+		cut := reasoningMaxChars - 3
 		for cut > 0 && summary[cut] != ' ' {
 			cut--
 		}
