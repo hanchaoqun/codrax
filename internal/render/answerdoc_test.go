@@ -26,8 +26,10 @@ func TestRenderAnswerDocument_ListOfSymbols_Complete_EN(t *testing.T) {
 		},
 	}
 	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Complete answer") {
-		t.Errorf("missing complete header: %q", out)
+	// Complete answers have no completeness tag — the answer speaks
+	// for itself. Symbols are listed directly.
+	if strings.Contains(out, "Complete answer") {
+		t.Errorf("complete should not have a header in the body: %q", out)
 	}
 	if !strings.Contains(out, "**Foo**") || !strings.Contains(out, "a.go:10") {
 		t.Errorf("missing Foo/a.go: %q", out)
@@ -44,8 +46,9 @@ func TestRenderAnswerDocument_ListOfSymbols_LowerBound_ZH(t *testing.T) {
 		Symbols:             []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 10}},
 	}
 	out := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(out, "至少包含以下符号") {
-		t.Errorf("zh lower_bound header missing: %q", out)
+	// lower_bound renders as a quiet footer tag, not a header.
+	if !strings.Contains(out, "已确认符号") {
+		t.Errorf("zh lower_bound footer tag missing: %q", out)
 	}
 	if !strings.Contains(out, "Foo") {
 		t.Errorf("symbol missing in zh output: %q", out)
@@ -59,8 +62,9 @@ func TestRenderAnswerDocument_ListOfSymbols_Unknown_EN(t *testing.T) {
 		Symbols:             []types.AnswerSymbol{{Name: "X", File: "a.go", Line: 1}},
 	}
 	out := RenderAnswerDocument(doc, "en")
+	// unknown renders as a quiet footer tag.
 	if !strings.Contains(out, "non-authoritative") {
-		t.Errorf("unknown header missing: %q", out)
+		t.Errorf("unknown footer tag missing: %q", out)
 	}
 }
 
@@ -217,11 +221,12 @@ func TestRenderAnswerDocument_Caveats_Appended(t *testing.T) {
 		Caveats: []string{"investigation was bounded", "one file unread"},
 	}
 	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Caveats") {
-		t.Errorf("caveats header missing: %q", out)
-	}
+	// Caveats render as italic lines in the footer, not a bold header.
 	if !strings.Contains(out, "investigation was bounded") || !strings.Contains(out, "one file unread") {
 		t.Errorf("caveat bodies missing: %q", out)
+	}
+	if !strings.Contains(out, "---") {
+		t.Errorf("footer separator missing: %q", out)
 	}
 }
 
@@ -255,8 +260,9 @@ func TestRenderAnswerDocument_LangFallback(t *testing.T) {
 		Symbols:             []types.AnswerSymbol{{Name: "X", File: "a.go", Line: 1}},
 	}
 	// "japanese" is not a recognized locale → fallback to English.
+	// Complete claims have no tag, so just verify symbols render.
 	out := RenderAnswerDocument(doc, "japanese")
-	if !strings.Contains(out, "Complete answer") {
-		t.Errorf("lang fallback did not pick English: %q", out)
+	if !strings.Contains(out, "**X**") {
+		t.Errorf("lang fallback did not render symbol: %q", out)
 	}
 }

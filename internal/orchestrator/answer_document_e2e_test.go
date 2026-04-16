@@ -135,8 +135,9 @@ func TestE2E_AnswerDocument_ListOfSymbols_Complete_Pipeline(t *testing.T) {
 	if finalClaim != types.CompletenessComplete {
 		t.Errorf("final claim = %q, want complete (baseline met)", finalClaim)
 	}
-	if !strings.Contains(finalProse, "Complete answer") {
-		t.Errorf("complete header missing: %q", finalProse)
+	// Complete answers have no header — symbols listed directly.
+	if strings.Contains(finalProse, "Complete answer") {
+		t.Errorf("complete should not have header: %q", finalProse)
 	}
 	if !strings.Contains(finalProse, "**Foo**") || !strings.Contains(finalProse, "a.go:10") {
 		t.Errorf("Foo symbol missing from prose: %q", finalProse)
@@ -197,8 +198,8 @@ func TestE2E_AnswerDocument_CardinalityDowngrade(t *testing.T) {
 	if finalClaim != types.CompletenessLowerBound {
 		t.Errorf("downgrade failed: final claim = %q, want lower_bound", finalClaim)
 	}
-	if !strings.Contains(finalProse, "At least the following symbols") {
-		t.Errorf("softened header missing: %q", finalProse)
+	if !strings.Contains(finalProse, "confirmed symbols") {
+		t.Errorf("lower_bound footer tag missing: %q", finalProse)
 	}
 	if !strings.Contains(finalProse, "downgraded to lower_bound") {
 		t.Errorf("downgrade caveat missing: %q", finalProse)

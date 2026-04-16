@@ -286,8 +286,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_CardinalityDowngrade(t *testing.T) 
 	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
 		t.Errorf("completeness = %q, want lower_bound (downgrade)", out.AnswerSymbolCompleteness)
 	}
-	if !strings.Contains(out.FinalAnswer, "At least the following symbols") {
-		t.Errorf("downgraded rendering not applied: %q", out.FinalAnswer)
+	if !strings.Contains(out.FinalAnswer, "confirmed symbols") {
+		t.Errorf("downgraded rendering footer tag missing: %q", out.FinalAnswer)
 	}
 	if !strings.Contains(out.FinalAnswer, "downgraded to lower_bound") {
 		t.Errorf("downgrade caveat missing: %q", out.FinalAnswer)
@@ -319,8 +319,12 @@ func TestAnswerDocumentEvaluator_ParseOutput_NoDowngrade(t *testing.T) {
 	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
 		t.Errorf("completeness = %q, want complete (no downgrade)", out.AnswerSymbolCompleteness)
 	}
-	if !strings.Contains(out.FinalAnswer, "Complete answer") {
-		t.Errorf("complete rendering not applied: %q", out.FinalAnswer)
+	// Complete answers have no completeness tag — symbols listed directly.
+	if strings.Contains(out.FinalAnswer, "Complete answer") {
+		t.Errorf("complete should not have header in body: %q", out.FinalAnswer)
+	}
+	if !strings.Contains(out.FinalAnswer, "**Alpha**") {
+		t.Errorf("symbol missing: %q", out.FinalAnswer)
 	}
 }
 

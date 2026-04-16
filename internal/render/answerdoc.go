@@ -86,12 +86,24 @@ func RenderAnswerDocument(doc *types.AnswerDocument, lang string) string {
 		renderAnswerDocCitationPool(&b, doc, l)
 	}
 
-	if len(doc.Caveats) > 0 {
-		b.WriteString("\n")
-		b.WriteString(answerDocCaveatsHeader(l))
-		b.WriteString("\n")
-		for _, c := range doc.Caveats {
-			fmt.Fprintf(&b, "- %s\n", strings.TrimSpace(c))
+	// Completeness and caveats: render as a quiet footer separated
+	// from the main answer by a blank line. Keeps the answer body
+	// clean and puts metadata where it belongs — at the bottom.
+	var footer []string
+	if doc.Shape == types.ShapeListOfSymbols {
+		if tag := completenessTag(doc.SymbolsCompleteness, l); tag != "" {
+			footer = append(footer, tag)
+		}
+	}
+	for _, c := range doc.Caveats {
+		if t := strings.TrimSpace(c); t != "" {
+			footer = append(footer, t)
+		}
+	}
+	if len(footer) > 0 {
+		b.WriteString("\n---\n")
+		for _, f := range footer {
+			fmt.Fprintf(&b, "*%s*\n", f)
 		}
 	}
 
@@ -120,37 +132,10 @@ func normalizeAnswerDocLang(lang string) answerDocLang {
 // -------- Shape: list_of_symbols --------
 
 func renderAnswerDocListOfSymbols(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	// Header varies by completeness claim so the reader can see at a
-	// glance whether the slate is authoritative, a floor, or tentative.
-	switch doc.SymbolsCompleteness {
-	case types.CompletenessComplete:
-		switch lang {
-		case answerDocLangZH:
-			b.WriteString("**完整答案**：\n\n")
-		default:
-			b.WriteString("**Complete answer:**\n\n")
-		}
-	case types.CompletenessLowerBound:
-		switch lang {
-		case answerDocLangZH:
-			b.WriteString("**至少包含以下符号**（可能还有其他符合条件的符号）：\n\n")
-		default:
-			b.WriteString("**At least the following symbols** (more may exist):\n\n")
-		}
-	default:
-		// CompletenessUnknown or empty: the finalizer should not
-		// normally reach this path — the evaluator's cardinality
-		// cross-check would have downgraded to lower_bound — but if
-		// it does, render the symbols without an authority claim so
-		// the user sees the data instead of a blank.
-		switch lang {
-		case answerDocLangZH:
-			b.WriteString("**候选符号**（非权威列表）：\n\n")
-		default:
-			b.WriteString("**Candidate symbols** (non-authoritative):\n\n")
-		}
-	}
-
+	// No header — the completeness claim is rendered as a quiet
+	// footer by the caller. Symbols are listed directly after the
+	// summary so the answer reads cleanly.
+	_ = lang
 	for _, s := range doc.Symbols {
 		if s.File != "" && s.Line > 0 {
 			fmt.Fprintf(b, "- **%s** (`%s:%d`)", s.Name, s.File, s.Line)
@@ -266,16 +251,29 @@ func renderAnswerDocCitationPool(b *strings.Builder, doc *types.AnswerDocument, 
 	}
 }
 
-// answerDocCaveatsHeader returns the per-language header for the
-// caveats footer. Isolated so adding a new language means adding one
-// case here, not scanning Render* bodies.
-func answerDocCaveatsHeader(lang answerDocLang) string {
-	switch lang {
-	case answerDocLangZH:
-		return "**注意事项**："
-	default:
-		return "**Caveats:**"
+// completenessTag returns a short italic tag for the list_of_symbols
+// completeness claim, rendered in the footer. Returns empty for
+// CompletenessComplete (no annotation needed — the answer speaks for
+// itself).
+func completenessTag(claim types.CompletenessClaim, lang answerDocLang) string {
+	switch claim {
+	case types.CompletenessLowerBound:
+		switch lang {
+		case answerDocLangZH:
+			return "以上为已确认符号，可能还有其他符合条件的符号"
+		default:
+			return "confirmed symbols listed above; more may exist"
+		}
+	case types.CompletenessUnknown:
+		switch lang {
+		case answerDocLangZH:
+			return "以上为候选符号，非权威列表"
+		default:
+			return "candidate symbols above; non-authoritative"
+		}
 	}
+	// CompletenessComplete: no tag — a complete answer needs no qualifier.
+	return ""
 }
 
 // lookupCitation resolves a CitationRef integer against the
