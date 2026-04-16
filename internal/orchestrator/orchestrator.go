@@ -393,9 +393,10 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 
 			o.busCtx.PipelineStage = types.StageExplore
 			o.busCtx.TaskState.Stage = types.StageExplore
-			// Reset per-tool usage counters so a retry window
-			// (validation_feedback requeue or contract backtrack)
-			// starts with a fresh budget.
+			// Reset per-tool usage counters and investigation-complete
+			// flag so a retry window (validation_feedback requeue or
+			// contract backtrack) starts fresh.
+			o.busCtx.Mutable.ResetInvestigationComplete()
 			if eb := o.busCtx.Mutable.ExploreBudget(); eb != nil {
 				o.busCtx.Mutable.SetExploreBudget(&types.ExploreBudget{
 					PerToolCap:  eb.PerToolCap,

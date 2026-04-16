@@ -19,6 +19,7 @@ func RegisterDefaults(r *Registry) {
 			"if you surface a name that looks load-bearing (a function, type, symbol, config key), open it before drawing conclusions — a name is a hypothesis to verify, not an answer",
 			"cross-reference: when file A references file B, read file B too — don't assume, verify",
 			"never read test files — they are derivative, not authoritative. Never read utility/infrastructure files unless the question is about them",
+			"COMPLETION: when you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence) to signal the system. Do NOT stop without calling this tool — the system uses it to know you are done. If your confidence is not at least 'medium', continue investigating.",
 		},
 		ToolSuggestions: []string{
 			"repo_map",

@@ -2114,14 +2114,12 @@ func TestExplorerSoftStop_FirstStop_SoftBranch_PrescannedSuppressed(t *testing.T
 	var history []types.ToolResult // no read_file entries → nothing in readSet
 
 	sig := softStopWithContinuations(eval, "The agents are analyzer, explorer, extractor, finalizer.", 4, 0, history)
-	if sig.HintRequested {
-		t.Errorf("preScannedUnread soft branch must NOT fire on first soft-stop; got HintKey=%q Hint=%q",
-			sig.HintKey, sig.Hint)
-	}
-	// progress stayed false because no branch was actually taken — the
-	// gate short-circuited before preScannedUnread's progress=true.
-	if sig.Progress {
-		t.Errorf("Progress = true, want false (no branch fired)")
+	// On first soft-stop, the prescanned-unread soft branch is
+	// suppressed, but the completion-tool-reminder fires instead —
+	// nudging the LLM to call emit_investigation_complete explicitly.
+	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
+		t.Errorf("first soft-stop should fire completion-tool-reminder; got HintRequested=%v HintKey=%q",
+			sig.HintRequested, sig.HintKey)
 	}
 }
 
@@ -2171,8 +2169,11 @@ func TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed(t *testing.T) {
 	}
 
 	sig := softStopWithContinuations(eval, "ExecCommand shells out to /bin/bash.", 4, 0, history)
-	if sig.HintRequested {
-		t.Errorf("unanalyzed soft branch must NOT fire on first soft-stop; got HintKey=%q", sig.HintKey)
+	// Unanalyzed soft branch is suppressed on first soft-stop;
+	// completion-tool-reminder fires instead.
+	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
+		t.Errorf("first soft-stop should fire completion-tool-reminder; got HintRequested=%v HintKey=%q",
+			sig.HintRequested, sig.HintKey)
 	}
 }
 
@@ -2193,9 +2194,11 @@ func TestExplorerSoftStop_FirstStop_CoverageFallthrough_ReturnsEmpty(t *testing.
 	var history []types.ToolResult
 
 	sig := softStopWithContinuations(eval, "There are four stages: analyze, explore, extract, finalize.", 4, 0, history)
-	if sig.HintRequested {
-		t.Errorf("coverage fallthrough must NOT fire on first soft-stop; got HintKey=%q Hint=%q",
-			sig.HintKey, sig.Hint)
+	// Coverage fallthrough on first soft-stop now fires the
+	// completion-tool-reminder instead of returning empty.
+	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
+		t.Errorf("first soft-stop should fire completion-tool-reminder; got HintRequested=%v HintKey=%q",
+			sig.HintRequested, sig.HintKey)
 	}
 	if sig.StopRequested {
 		t.Errorf("coverage fallthrough must not request explicit stop; got StopRequested=true")

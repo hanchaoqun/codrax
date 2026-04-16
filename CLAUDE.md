@@ -54,7 +54,7 @@ Hardcoded in `internal/orchestrator/topology.go`. Every stage maps 1:1 to one ag
 | Stage | Agent | Default Skill | Purpose |
 |---|---|---|---|
 | analyze | analyzer | analysis-skill | 1-2 rounds of evidence-lite pre-scan (`repo_map` / `grep files_only=true` / `list_files`) to verify entities/terms exist in the repo, then emit `AnalysisIR` via `emit_analysis` (one LLM call). Analyzer is FORBIDDEN from calling `read_file` / `exec_command` — content reading is the explore stage's job. |
-| explore | explorer | repo-explore-skill | Turn A investigation: read_file / grep / repo_map, emit evidence via `emit_evidence` |
+| explore | explorer | repo-explore-skill | Turn A investigation: read_file / grep / repo_map, emit evidence via `emit_evidence`, signal completion via `emit_investigation_complete` |
 | extract | extractor | extract-skill | Turn B structuring: no file IO; drain Turn A's transcript into `emit_answer_symbol` / `emit_hypothesis_verdict` batches |
 | finalize | finalizer | final-answer-skill → answer-document-skill | Emit one `emit_answer_document` tool call; deterministic renderer turns the struct into prose |
 

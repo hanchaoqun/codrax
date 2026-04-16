@@ -464,8 +464,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// a runtime append for emit_evidence so the declarative skill
 	// config does not need to hard-code the tool name.
 	toolRegistry.Register(&tool.EmitEvidence{})
+	toolRegistry.Register(&tool.EmitInvestigationComplete{})
 	if exploreSkill, err := skillRegistry.Get("repo-explore-skill"); err == nil {
-		exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence")
+		exploreSkill.ToolSuggestions = append(exploreSkill.ToolSuggestions, "emit_evidence", "emit_investigation_complete")
 	}
 	toolRegistry.Register(&tool.EmitAnswerSymbol{})
 	toolRegistry.Register(&tool.EmitHypothesisVerdict{})

@@ -45,6 +45,7 @@ type explorerEvaluator struct {
 	midLoopParallelInjected   bool                  // #34: parallel-batching hint already pushed this dispatch
 	primaryReadIter           int                   // df3-drift: iter at which a primary-entity file first entered readSet (0 = never)
 	notesLenAtPrimaryRead     int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete     bool                  // set when emit_investigation_complete tool was observed in MidLoop
 
 	// Loop-control state that USED to live here has been lifted into
 	// LoopPolicy:
@@ -674,58 +675,25 @@ func (e *explorerEvaluator) observePrimaryRead(iteration int, history []types.To
 }
 
 func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	// Semantic early stop (S1 of the early-stop audit, see
-	// memory/project_explorer_early_stop_audit.md): when the LLM
-	// has just produced a content-only response (no tool calls) AND
-	//  1. Phase 1 (depth read) is active,
-	//  2. ERM requirements are ALL satisfied,
-	//  3. the structured evidence set already carries at least one
-	//     answer-shaped (terminal) item,
-	// the investigation has everything it needs. Keep running past
-	// this point only burns iterations on cross-reference self-
-	// recursion (LLM writes notes mentioning internal symbols like
-	// `ContinuationPrompt`, those symbol files get added to
-	// preScannedFiles, and the loop chases its own tail).
-	//
-	// Runtime evidence: the 2026-04-12 `有多少个agent可以调用subagent`
-	// re-test reached this state at iter=13 but the loop burned 6
-	// more iterations reading internal/agent/explorer.go — entirely
-	// useless for the user question. See
-	// /tmp/earlystop_run.log for the full per-iteration trace.
-	//
-	// Why stop here instead of in ContinuationPrompt: the existing
-	// ContinuationPrompt branches (partial-read hints, preScanned
-	// unread, unanalyzed symbols) have HIGHER priority than the
-	// terminal `idleStreakInDepth >= 2` escape hatch, and they each
-	// reset the idle counter so it never actually trips. ShouldStop
-	// runs BEFORE ContinuationPrompt in BaseAgent.Execute, so
-	// returning true here bypasses all those self-feeding branches
-	// cleanly.
+	// Primary path: the LLM explicitly called emit_investigation_complete.
+	// This is the clean, aligned completion signal — no heuristic ambiguity.
+	if e.investigationComplete {
+		logging.Debug("[explorer] ShouldStop iter=%d: investigation complete (explicit tool call)", iteration)
+		return true
+	}
+
+	// Fallback S1: when the LLM soft-stops (no tool calls) in Phase 1
+	// with ERM fully satisfied + terminal evidence, accept the stop even
+	// though the LLM forgot to call emit_investigation_complete. This
+	// preserves backward-compatible behavior for LLMs that don't use the
+	// new tool yet, and catches the case where the soft-stop prompt
+	// injection was ignored.
 	if len(resp.ToolCalls) > 0 {
 		return false
 	}
-	if e.phase != 1 {
+	if e.phase != 1 || len(e.ermRequirements) == 0 {
 		return false
 	}
-	if len(e.ermRequirements) == 0 {
-		return false
-	}
-	// Refresh ERM satisfaction from the latest investigation
-	// notes. Pre-Phase-2, ERM state was only updated inside
-	// ContinuationPrompt — which runs AFTER ShouldStop in
-	// BaseAgent.Execute. That meant the first soft-stop AFTER an
-	// iteration that satisfied the requirements would still see
-	// stale (unsatisfied) state and push through to
-	// ContinuationPrompt, burning one extra iteration. Running
-	// the check here is cheap (pure note parsing + tag counting;
-	// no file reads, no dataflow) and makes S1 fire at the
-	// earliest possible soft-stop.
-	//
-	// Important: the check must also parse the current soft-stop
-	// content into notes before running the ERM check, because
-	// ContinuationPrompt is what normally appends. Without this,
-	// ShouldStop always sees stale notes (missing the iteration
-	// that just produced the satisfying evidence).
 	var notesForCheck []string
 	if resp.Content != "" {
 		notesForCheck = append(notesForCheck, e.investigationNotes...)
@@ -735,77 +703,22 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	}
 	e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, notesForCheck, e.structuredEvidence)
 	if !ermAllSatisfied(e.ermRequirements) {
-		logging.Debug("[explorer] S1 check iter=%d notes=%d fresh=%v unsat: %s",
-			iteration, len(e.investigationNotes), resp.Content != "",
-			formatERMStatuses(e.ermRequirements))
 		return false
 	}
-	// S1 primary-file-read gate (df3 file-selection drift fix).
-	//
-	// Observed failure mode (df3 file-selection drift, 2026-04-13
-	// eval/results/df3-20260413-173231/run-3): LLM runs parallel grep
-	// on 5 files, extracts [MECHANISM] / [DIRECT] / [REGISTRATION]
-	// tags from the grep CONTEXT LINES (not from actual file bodies),
-	// writes a `## Evidence from <file>` block per file. ERM counts
-	// the tags, flips to "satisfied". S1 fires. The LLM never read
-	// any of the files via read_file, so all evidence is fabricated
-	// from 3-line grep context.
-	//
-	// Two-part gate:
-	//
-	//   (a) At least ONE primary-entity file must be in the readSet.
-	//       Primary-entity file = file defining any ERM entity as a
-	//       graph symbol (exact-name match in SymbolDefs). Concept-
-	//       word entities (no symbol) contribute nothing; when no
-	//       primary file exists, the gate is skipped. This forces
-	//       the LLM to actually read_file the target before S1.
-	//
-	//   (b) investigationNotes must have GROWN since the primary
-	//       file first entered the readSet. Without this, the LLM
-	//       can read the file at iter=N but still soft-stop at
-	//       iter=N+1 with only iter=N-2's fake notes on record —
-	//       S1 would fire on the fake notes and the read is wasted.
-	//       The grow-check guarantees at least one soft-stop AFTER
-	//       the primary read, during which ContinuationPrompt has a
-	//       chance to append fresh notes derived from the real read.
-	//
-	// Tracking state (primaryReadIter, notesLenAtPrimaryRead) is
-	// updated from MidLoopCheck's observePrimaryRead at every tool
-	// batch, so ShouldStop always sees a current snapshot.
 	if primary := e.primaryEntityFiles(); len(primary) > 0 {
-		if e.primaryReadIter == 0 {
-			logging.Debug("[explorer] S1 check iter=%d blocked: primary-entity files %v not read yet",
-				iteration, primary)
-			return false
-		}
-		if len(e.investigationNotes) <= e.notesLenAtPrimaryRead {
-			logging.Debug("[explorer] S1 check iter=%d blocked: notes have not grown since primary read at iter=%d (notes=%d, atRead=%d)",
-				iteration, e.primaryReadIter, len(e.investigationNotes), e.notesLenAtPrimaryRead)
+		if e.primaryReadIter == 0 || len(e.investigationNotes) <= e.notesLenAtPrimaryRead {
 			return false
 		}
 	}
-	// During the ReAct loop, `e.structuredEvidence` is only
-	// populated at ParseOutput time (ensureStructuredEvidence is
-	// the end-of-stage hook), so it is nil here and
-	// hasTerminalEvidence would always return false. Parse the
-	// live investigation notes on-the-fly instead — this covers
-	// [REGISTRATION] and [DIRECT] tags the LLM has already
-	// written, which is what hasTerminalEvidence needs to see.
-	// The parse is a pure string walk (parseEvidenceItems), no
-	// file reads, no dataflow — cheap enough to run every
-	// soft-stop check.
 	if len(e.investigationNotes) == 0 {
 		return false
 	}
 	noteEvidence := parseEvidenceItems(e.investigationNotes, "explorer.s1check")
 	if !hasTerminalEvidence(noteEvidence) {
-		logging.Debug("[explorer] S1 check iter=%d notes=%d ERM satisfied but no terminal evidence (%d items parsed)",
-			iteration, len(e.investigationNotes), len(noteEvidence))
 		return false
 	}
-	logging.Debug("[explorer] S1 early-stop iter=%d notes=%d ERM satisfied + terminal evidence=%d (%s)",
-		iteration, len(e.investigationNotes), len(noteEvidence),
-		formatERMStatuses(e.ermRequirements))
+	logging.Info("[explorer] S1 fallback early-stop iter=%d: ERM satisfied + terminal evidence but LLM did not call emit_investigation_complete",
+		iteration)
 	return true
 }
 
@@ -869,6 +782,12 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	iteration := obs.Iteration
 	allResults := obs.AllToolResults
+
+	// Detect explicit completion signal from the LLM.
+	if obs.LastToolResult != nil && obs.LastToolResult.ToolName == "emit_investigation_complete" && obs.LastToolResult.Success {
+		e.investigationComplete = true
+		logging.Info("[explorer] emit_investigation_complete observed at iter=%d", iteration)
+	}
 
 	// Track primary-entity file reads for S1's df3-drift gate. Runs
 	// unconditionally so even "quiet" observeMidLoop calls still
@@ -1110,6 +1029,12 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// "NewSubExplorer" and repo_map knows it's defined in
 		// sub_explorer.go, add that file to coverage tracking.
 		e.trackCrossReferences(resp.Content)
+	}
+
+	// If the LLM already called emit_investigation_complete, accept
+	// the soft-stop immediately — no continuation prompts needed.
+	if e.investigationComplete {
+		return LoopSignal{Progress: progress}
 	}
 
 	if e.phase == 0 {
@@ -1585,7 +1510,19 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// stops without making progress still get a nudge toward any
 	// unread files.
 	if firstSoftStop {
-		return LoopSignal{Progress: progress}
+		// On the first voluntary stop, remind the LLM to use the
+		// explicit completion tool rather than silently stopping.
+		// This bridges the gap for LLMs that soft-stop instead of
+		// calling emit_investigation_complete.
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.completion-tool-reminder",
+			Hint: "You stopped without calling emit_investigation_complete. " +
+				"If you have collected enough evidence to answer the user's question, " +
+				"call emit_investigation_complete(reason, confidence) now. " +
+				"If you still need more evidence, continue reading files and running greps.",
+			Progress: progress,
+		}
 	}
 
 	// When the LLM is slowing down (idle ≥ 1), inject a preview of
@@ -1753,46 +1690,36 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	hasEnough := toolDiversity && fileCoverage && evidenceQuality
 
-	// ERM quality gate: if we have evidence requirements that are still
-	// unsatisfied, demote hasEnough to trigger a retry that fills gaps.
-	// Conversely (S1 alignment, see memory/project_explorer_early_stop_audit.md):
-	// if all ERM requirements ARE satisfied, PROMOTE hasEnough to true
-	// regardless of the quantitative toolDiversity / fileCoverage /
-	// evidenceQuality thresholds. Those thresholds are heuristic
-	// proxies for "enough evidence"; when ERM is fully satisfied we
-	// know semantically that the required evidence exists, so blocking
-	// on a coverage ratio would re-enter the stage uselessly and
-	// eventually hit the oscillation guard (5-visit cap).
-	//
-	// Concrete trigger: 2026-04-12 `有多少个agent可以调用subagent` real-
-	// scenario re-test. S1 stopped the ReAct loop at iter=11 with ERM
-	// fully satisfied, but ParseOutput still computed hasEnough=false
-	// because enumeration-mode fileCoverage needed ≥80% of discovered
-	// files read (the explorer stopped earlier than that). HasEnough=false
-	// → MissingFacts → orchestrator re-dispatched explore → 5 visits → oscillation error.
-	if len(e.ermRequirements) > 0 {
-		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
-		allSat := ermAllSatisfied(e.ermRequirements)
-		if hasEnough && !allSat {
-			unsatCount := 0
-			for _, r := range e.ermRequirements {
-				if r.Status == "unsatisfied" {
-					unsatCount++
-				}
-			}
-			// Only block if there are fully unsatisfied requirements.
-			// Partial requirements are tolerable.
-			if unsatCount > 0 {
-				logging.Debug("[explorer] ERM gate: %d unsatisfied requirements, demoting hasEnough", unsatCount)
-				hasEnough = false
-			}
-		} else if !hasEnough && allSat {
-			// S1 alignment: ERM fully satisfied overrides quantitative
-			// floors. Record which floor originally failed so the retry
-			// hint (if any downstream code still builds one) is accurate.
-			logging.Debug("[explorer] ERM all-satisfied promote: hasEnough=true (quantitative floors: toolDiv=%v fileCov=%v evQual=%v)",
+	// Primary signal: the LLM explicitly called emit_investigation_complete.
+	// When set, it overrides ALL heuristic calculations — the LLM
+	// declared it has enough evidence, and we trust it.
+	if ctx != nil && ctx.Mutable != nil && ctx.Mutable.IsInvestigationComplete() {
+		if !hasEnough {
+			logging.Debug("[explorer] HasEnoughFacts promoted by emit_investigation_complete (heuristic was: toolDiv=%v fileCov=%v evQual=%v)",
 				toolDiversity, fileCoverage, evidenceQuality)
-			hasEnough = true
+		}
+		hasEnough = true
+	} else {
+		// Fallback: ERM quality gate (only when no explicit signal).
+		if len(e.ermRequirements) > 0 {
+			e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
+			allSat := ermAllSatisfied(e.ermRequirements)
+			if hasEnough && !allSat {
+				unsatCount := 0
+				for _, r := range e.ermRequirements {
+					if r.Status == "unsatisfied" {
+						unsatCount++
+					}
+				}
+				if unsatCount > 0 {
+					logging.Debug("[explorer] ERM gate: %d unsatisfied requirements, demoting hasEnough", unsatCount)
+					hasEnough = false
+				}
+			} else if !hasEnough && allSat {
+				logging.Debug("[explorer] ERM all-satisfied promote: hasEnough=true (quantitative floors: toolDiv=%v fileCov=%v evQual=%v)",
+					toolDiversity, fileCoverage, evidenceQuality)
+				hasEnough = true
+			}
 		}
 	}
 

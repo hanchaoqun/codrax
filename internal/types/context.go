@@ -86,6 +86,15 @@ type MutableState struct {
 	// multi-task run.
 	answerDocument *AnswerDocument
 
+	// investigationComplete is set by the emit_investigation_complete
+	// tool when the LLM explicitly declares that it has collected
+	// enough evidence to answer the user's question. The explorer's
+	// ShouldStop reads this flag to terminate the ReAct loop, and
+	// ParseOutput reads it to set HasEnoughFacts. Reset at the start
+	// of each explore window by ResetInvestigationComplete.
+	investigationComplete       bool
+	investigationCompleteReason string
+
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
 	// it before every tool dispatch (BudgetRemaining / RecordToolCall)
@@ -642,6 +651,53 @@ func (m *MutableState) ResetPrescanSummary() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.prescanSummaryBlob.Reset()
+}
+
+// SetInvestigationComplete marks the investigation as complete with
+// the given reason. Called by emit_investigation_complete tool.
+func (m *MutableState) SetInvestigationComplete(reason string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.investigationComplete = true
+	m.investigationCompleteReason = reason
+}
+
+// IsInvestigationComplete reports whether the LLM has called
+// emit_investigation_complete during this explore window.
+func (m *MutableState) IsInvestigationComplete() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.investigationComplete
+}
+
+// InvestigationCompleteReason returns the LLM's stated reason for
+// completing investigation. Empty when not yet called.
+func (m *MutableState) InvestigationCompleteReason() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.investigationCompleteReason
+}
+
+// ResetInvestigationComplete clears the completion flag so a retried
+// explore window starts fresh. Called by the orchestrator before
+// each explore dispatch (alongside ExploreBudget reset).
+func (m *MutableState) ResetInvestigationComplete() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.investigationComplete = false
+	m.investigationCompleteReason = ""
 }
 
 // SetExploreBudget installs a fresh ExploreBudget for the current
