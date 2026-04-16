@@ -326,18 +326,52 @@ func (r *Renderer) printAboveArea(text string) {
 // reasoningMaxChars caps the reasoning summary shown to the user.
 const reasoningMaxChars = 200
 
+// stripMarkdown removes markdown syntax that clutters a single-line
+// thinking trace: headers (###), bold (**), bullets (- / *), code
+// fences (```), and leading/trailing whitespace around them.
+func stripMarkdown(s string) string {
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		// Strip header prefixes: "### Title" → "Title"
+		for strings.HasPrefix(line, "#") {
+			line = strings.TrimLeft(line, "#")
+		}
+		line = strings.TrimSpace(line)
+		// Strip bold markers
+		line = strings.ReplaceAll(line, "**", "")
+		// Strip leading bullet
+		if strings.HasPrefix(line, "- ") {
+			line = line[2:]
+		} else if strings.HasPrefix(line, "* ") {
+			line = line[2:]
+		}
+		// Strip code fences
+		if strings.HasPrefix(line, "```") {
+			continue
+		}
+		if line != "" {
+			out = append(out, line)
+		}
+	}
+	return strings.Join(out, " ")
+}
+
 // formatReasoning extracts the first 1-2 sentences from the LLM's
 // reasoning text and formats them as a dimmed line with an
-// [agent-iteration] tag. Long reasoning blocks are truncated.
+// [agent-iteration] tag. Markdown is stripped and leading blank
+// lines are skipped so the display is clean plain text.
 func formatReasoning(agent string, iteration int, text string) string {
-	text = strings.TrimSpace(text)
+	text = stripMarkdown(text)
 	if text == "" {
 		return ""
 	}
-	lines := strings.SplitN(text, "\n", 3)
-	summary := strings.TrimSpace(lines[0])
-	if len(lines) > 1 && len(summary)+len(lines[1]) < reasoningMaxChars {
-		summary += " " + strings.TrimSpace(lines[1])
+	summary := text
+	// Take roughly 1-2 sentences worth.
+	if idx := strings.Index(summary, ". "); idx > 0 && idx < reasoningMaxChars-20 {
+		// Try to find a second sentence boundary.
+		if idx2 := strings.Index(summary[idx+2:], ". "); idx2 > 0 && idx+2+idx2 < reasoningMaxChars {
+			summary = summary[:idx+2+idx2+1]
+		}
 	}
 	if len(summary) > reasoningMaxChars {
 		cut := reasoningMaxChars - 3
