@@ -941,11 +941,12 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			// All other BusContext fields are zero-valued, so tools
 			// physically cannot mutate stage-output state.
 			busCtx := &types.BusContext{
-				RepoRoot: ctx.RepoRoot,
-				Branch:   ctx.Branch,
-				Commit:   ctx.Commit,
-				WorkDir:  ctx.WorkDir,
-				Mutable:  ctx.Mutable,
+				RepoRoot:   ctx.RepoRoot,
+				Branch:     ctx.Branch,
+				Commit:     ctx.Commit,
+				WorkDir:    ctx.WorkDir,
+				Mutable:    ctx.Mutable,
+				AnalysisIR: ctx.AnalysisIR,
 			}
 			result, execErr := b.deps.Tools.Execute(busCtx, tc.Name, tc.Params)
 			if execErr != nil {

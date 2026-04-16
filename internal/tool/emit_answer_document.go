@@ -228,8 +228,12 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// This prevents infinite retry loops where the LLM consistently
 	// picks the wrong shape (e.g. "boolean" for a list_of_symbols
 	// question) and fills the wrong shape's required fields.
+	if ctx.AnalysisIR == nil {
+		logging.Debug("[emit_answer_document] AnalysisIR is nil — shape auto-correct disabled")
+	}
 	if ctx.AnalysisIR != nil {
 		target := ctx.AnalysisIR.AnswerContract.RequiredAnswerShape
+		logging.Debug("[emit_answer_document] AnalysisIR present, target shape=%s, LLM shape=%s", target, shape)
 		if target != "" && target != shape {
 			logging.Warning("[emit_answer_document] LLM chose shape=%s but AnalysisIR target is %s — auto-correcting", shape, target)
 			// Check if the LLM provided the required fields for the
