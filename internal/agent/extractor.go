@@ -51,14 +51,12 @@ import (
 // catch anyway.
 type extractorEvaluator struct {
 	// retriesUsed tracks soft-stop correction rounds, bounded by
-	// maxExtractorCorrectionRetries. Mirrors the finalizer pattern.
+	// maxRetries. Mirrors the finalizer pattern.
 	retriesUsed int
+	// maxRetries caps correction rounds. Set from
+	// AgentSettings.ExtractorMaxCorrectionRetries at construction.
+	maxRetries int
 }
-
-// maxExtractorCorrectionRetries caps how many times the extractor
-// re-prompts the LLM when it stops without calling emit_answer_symbol
-// on a list_of_symbols question.
-const maxExtractorCorrectionRetries = 1
 
 // BuildInitialInstruction implements Evaluator.
 //
@@ -413,7 +411,7 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 // LLM stopped without calling emit_answer_symbol, inject a
 // correction hint (same pattern as the finalizer's missing
 // emit_answer_document correction). Capped at
-// maxExtractorCorrectionRetries.
+// e.maxRetries.
 func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.Phase == PhaseMidLoop {
 		for _, r := range obs.AllToolResults {
@@ -438,7 +436,7 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 	if len(syms) > 0 {
 		return LoopSignal{}
 	}
-	if e.retriesUsed >= maxExtractorCorrectionRetries {
+	if e.retriesUsed >= e.maxRetries {
 		logging.Debug("[extractor] soft-stop correction retries exhausted (%d); accepting response", e.retriesUsed)
 		return LoopSignal{}
 	}
@@ -468,5 +466,7 @@ func (e *extractorEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *Sta
 // NewFinalizerAgent in shape so the registry constructor table looks
 // uniform.
 func NewExtractorAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentExtractor, deps, &extractorEvaluator{})
+	return NewBaseAgent(types.AgentExtractor, deps, &extractorEvaluator{
+		maxRetries: deps.AgentSettings.ExtractorMaxCorrectionRetries,
+	})
 }

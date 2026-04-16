@@ -31,16 +31,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// maxFinalizerCorrectionRetries caps how many times the finalizer
-// is allowed to re-invoke the LLM with a correction prompt when
-// the LLM forgot to call emit_answer_document or produced an
-// invalid document. Two is enough to resolve occasional slips
-// without turning a stubborn model into an infinite loop.
-const maxFinalizerCorrectionRetries = 2
-
 // answerDocumentEvaluator is the Evaluator implementation for the
 // finalize stage.
 type answerDocumentEvaluator struct {
+	// maxRetries caps correction rounds. Set from
+	// AgentSettings.FinalizerMaxCorrectionRetries at construction.
+	maxRetries int
 	// language is captured at BuildInitialInstruction time so ParseOutput
 	// can pick the renderer locale without re-deriving it.
 	language string
@@ -56,7 +52,7 @@ type answerDocumentEvaluator struct {
 	mu *types.MutableState
 
 	// retriesUsed tracks correction rounds across the ReAct loop,
-	// bounded by maxFinalizerCorrectionRetries.
+	// bounded by e.maxRetries.
 	retriesUsed int
 }
 
@@ -201,7 +197,7 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 // writes a fail-loud warning from the raw last LLM content.
 //
 // Evaluator-specific retry budget (retriesUsed vs
-// maxFinalizerCorrectionRetries) is INTENTIONALLY kept here rather
+// e.maxRetries) is INTENTIONALLY kept here rather
 // than delegated to LoopPolicy.MaxContinuations: it is a
 // finalizer-specific contract ("try at most N correction prompts
 // before fail-loud"), not a generic loop-wide cap. LoopPolicy's
@@ -226,7 +222,7 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 			return LoopSignal{}
 		}
 	}
-	if e.retriesUsed >= maxFinalizerCorrectionRetries {
+	if e.retriesUsed >= e.maxRetries {
 		logging.Debug("[finalizer/answer_document] correction retries exhausted (%d); accepting response",
 			e.retriesUsed)
 		return LoopSignal{}

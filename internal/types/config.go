@@ -26,6 +26,91 @@ type PipelineSettings struct {
 	// Explore carries the explorer-side budget knobs used by the
 	// sourcemix throttler.
 	Explore ExploreSettings `yaml:"explore"`
+
+	// Agent carries the per-agent tunable limits (iteration caps,
+	// tool-history budget, loop-policy defaults, correction retries).
+	Agent AgentSettings `yaml:"agent"`
+}
+
+// AgentSettings carries per-agent tunable limits. Zero values mean
+// "use code default" — see DefaultAgentSettings().
+type AgentSettings struct {
+	// MaxIterations is the ReAct loop ceiling for all agents.
+	// Default 20.
+	MaxIterations int `yaml:"max_iterations"`
+
+	// MaxToolHistoryBytes is the cumulative byte budget for "tool"
+	// role messages kept verbatim in the ReAct conversation. Older
+	// messages beyond this budget are stubbed. Default 153600 (150 KB).
+	MaxToolHistoryBytes int `yaml:"max_tool_history_bytes"`
+
+	// LoopPolicy defaults. See LoopPolicy in internal/agent/loop_policy.go.
+	// MinInjectInterval: min iterations between two accepted hint
+	// injections. Default 3.
+	LoopMinInjectInterval int `yaml:"loop_min_inject_interval"`
+	// MaxContinuations: soft-stop continuation hints per dispatch.
+	// Default 5.
+	LoopMaxContinuations int `yaml:"loop_max_continuations"`
+	// MaxMidLoopInjects: mid-loop hint injections per dispatch.
+	// Default 6.
+	LoopMaxMidLoopInjects int `yaml:"loop_max_midloop_injects"`
+	// IdleStopThreshold: consecutive idle iterations before force-stop.
+	// Default 2.
+	LoopIdleStopThreshold int `yaml:"loop_idle_stop_threshold"`
+
+	// FinalizerMaxCorrectionRetries: soft-stop correction retries when
+	// emit_answer_document is missing. Default 2.
+	FinalizerMaxCorrectionRetries int `yaml:"finalizer_max_correction_retries"`
+
+	// ExtractorMaxCorrectionRetries: soft-stop correction retries when
+	// emit_answer_symbol is missing on list_of_symbols questions.
+	// Default 1.
+	ExtractorMaxCorrectionRetries int `yaml:"extractor_max_correction_retries"`
+}
+
+// DefaultAgentSettings returns the code defaults for all agent limits.
+func DefaultAgentSettings() AgentSettings {
+	return AgentSettings{
+		MaxIterations:                 20,
+		MaxToolHistoryBytes:           150 * 1024,
+		LoopMinInjectInterval:         3,
+		LoopMaxContinuations:          5,
+		LoopMaxMidLoopInjects:         6,
+		LoopIdleStopThreshold:         2,
+		FinalizerMaxCorrectionRetries: 2,
+		ExtractorMaxCorrectionRetries: 1,
+	}
+}
+
+// ResolvedAgentSettings returns s with zero fields filled from
+// DefaultAgentSettings(). Call once at startup.
+func ResolvedAgentSettings(s AgentSettings) AgentSettings {
+	d := DefaultAgentSettings()
+	if s.MaxIterations == 0 {
+		s.MaxIterations = d.MaxIterations
+	}
+	if s.MaxToolHistoryBytes == 0 {
+		s.MaxToolHistoryBytes = d.MaxToolHistoryBytes
+	}
+	if s.LoopMinInjectInterval == 0 {
+		s.LoopMinInjectInterval = d.LoopMinInjectInterval
+	}
+	if s.LoopMaxContinuations == 0 {
+		s.LoopMaxContinuations = d.LoopMaxContinuations
+	}
+	if s.LoopMaxMidLoopInjects == 0 {
+		s.LoopMaxMidLoopInjects = d.LoopMaxMidLoopInjects
+	}
+	if s.LoopIdleStopThreshold == 0 {
+		s.LoopIdleStopThreshold = d.LoopIdleStopThreshold
+	}
+	if s.FinalizerMaxCorrectionRetries == 0 {
+		s.FinalizerMaxCorrectionRetries = d.FinalizerMaxCorrectionRetries
+	}
+	if s.ExtractorMaxCorrectionRetries == 0 {
+		s.ExtractorMaxCorrectionRetries = d.ExtractorMaxCorrectionRetries
+	}
+	return s
 }
 
 // GateThresholdSettings mirrors gate.Thresholds through the YAML

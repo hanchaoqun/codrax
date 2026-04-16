@@ -15,7 +15,7 @@ import (
 // explorer iterations × multiple read_file calls per iter accumulated
 // ~450 KB of tool output in the `messages` slice, and the next LLM
 // call 400'd with context_length_exceeded. Fix: stub every tool
-// message older than the newest N that fit in maxToolHistoryBytes,
+// message older than the newest N that fit in types.DefaultAgentSettings().MaxToolHistoryBytes,
 // preserving ToolCallID so OpenAI's tool-call pairing stays valid.
 func TestPruneToolHistoryKeepsRecentAndStubsOlder(t *testing.T) {
 	// Build a conversation with 20 tool results at 20 KB each = 400 KB,
@@ -45,7 +45,7 @@ func TestPruneToolHistoryKeepsRecentAndStubsOlder(t *testing.T) {
 		})
 	}
 
-	pruned := pruneToolHistory(messages)
+	pruned := pruneToolHistory(messages, types.DefaultAgentSettings().MaxToolHistoryBytes)
 	if !pruned {
 		t.Fatalf("pruneToolHistory returned false, expected pruning to occur (400 KB > 150 KB)")
 	}
@@ -71,8 +71,8 @@ func TestPruneToolHistoryKeepsRecentAndStubsOlder(t *testing.T) {
 		intactToolIDs[m.ToolCallID] = true
 	}
 
-	if liveBytes > maxToolHistoryBytes {
-		t.Errorf("surviving tool bytes %d exceed budget %d", liveBytes, maxToolHistoryBytes)
+	if liveBytes > types.DefaultAgentSettings().MaxToolHistoryBytes {
+		t.Errorf("surviving tool bytes %d exceed budget %d", liveBytes, types.DefaultAgentSettings().MaxToolHistoryBytes)
 	}
 	if stubbed == 0 {
 		t.Errorf("expected at least one stubbed message")
@@ -112,12 +112,12 @@ func TestPruneToolHistoryIdempotent(t *testing.T) {
 			ToolCallID: toolID(i),
 		})
 	}
-	_ = pruneToolHistory(messages)
+	_ = pruneToolHistory(messages, types.DefaultAgentSettings().MaxToolHistoryBytes)
 	snapshot := make([]string, len(messages))
 	for i, m := range messages {
 		snapshot[i] = m.Content
 	}
-	_ = pruneToolHistory(messages)
+	_ = pruneToolHistory(messages, types.DefaultAgentSettings().MaxToolHistoryBytes)
 	for i, m := range messages {
 		if m.Content != snapshot[i] {
 			t.Errorf("message %d content changed on second prune: %q → %q", i, snapshot[i], m.Content)
@@ -134,7 +134,7 @@ func TestPruneToolHistoryUnderBudgetNoop(t *testing.T) {
 		{Role: "assistant", Content: "plan", ToolCalls: []llm.ToolCall{{ID: "a", Name: "grep"}}},
 		{Role: "tool", Content: strings.Repeat("Z", 10*1024), ToolCallID: "a"},
 	}
-	if pruneToolHistory(messages) {
+	if pruneToolHistory(messages, types.DefaultAgentSettings().MaxToolHistoryBytes) {
 		t.Errorf("pruneToolHistory modified messages under budget")
 	}
 	if len(messages[3].Content) != 10*1024 {

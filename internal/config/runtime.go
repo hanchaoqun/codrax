@@ -130,6 +130,17 @@ type RuntimeSettings struct {
 	ExploreEnumMidLoopUnreadFloor   *int     `yaml:"explore_enum_midloop_unread_floor"`
 	ExploreErmSuggestLimit          *int     `yaml:"explore_erm_suggest_limit"`
 
+	// Agent-level limits. All optional; nil → code default in
+	// types.DefaultAgentSettings().
+	AgentMaxIterations                *int `yaml:"agent_max_iterations"`
+	AgentMaxToolHistoryBytes          *int `yaml:"agent_max_tool_history_bytes"`
+	AgentLoopMinInjectInterval        *int `yaml:"agent_loop_min_inject_interval"`
+	AgentLoopMaxContinuations         *int `yaml:"agent_loop_max_continuations"`
+	AgentLoopMaxMidLoopInjects        *int `yaml:"agent_loop_max_midloop_injects"`
+	AgentLoopIdleStopThreshold        *int `yaml:"agent_loop_idle_stop_threshold"`
+	AgentFinalizerMaxCorrectionRetries *int `yaml:"agent_finalizer_max_correction_retries"`
+	AgentExtractorMaxCorrectionRetries *int `yaml:"agent_extractor_max_correction_retries"`
+
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

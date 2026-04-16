@@ -140,14 +140,15 @@ func softStopObs(continuationCount int) LoopObservation {
 // contract after N corrections), distinct from LoopPolicy's
 // MaxContinuations which applies loop-wide.
 func TestAnswerDocumentEvaluator_Observe_RetryBounded(t *testing.T) {
-	e := &answerDocumentEvaluator{}
-	for i := 0; i < maxFinalizerCorrectionRetries; i++ {
+	maxRetries := types.DefaultAgentSettings().FinalizerMaxCorrectionRetries
+	e := &answerDocumentEvaluator{maxRetries: maxRetries}
+	for i := 0; i < maxRetries; i++ {
 		sig := e.Observe(nil, softStopObs(i))
 		if !sig.HintRequested {
 			t.Errorf("retry %d: HintRequested = false, want true (still within budget)", i)
 		}
 	}
-	sig := e.Observe(nil, softStopObs(maxFinalizerCorrectionRetries))
+	sig := e.Observe(nil, softStopObs(maxRetries))
 	if sig.HintRequested {
 		t.Error("after budget: HintRequested = true, want false")
 	}
@@ -180,7 +181,7 @@ func TestAnswerDocumentEvaluator_Observe_AcceptsWhenDocPresent(t *testing.T) {
 // complement: no doc in Mutable → Observe returns HintRequested.
 func TestAnswerDocumentEvaluator_Observe_RetriesWhenDocMissing(t *testing.T) {
 	mu := types.NewMutableState("") // empty Mutable
-	e := &answerDocumentEvaluator{mu: mu}
+	e := &answerDocumentEvaluator{mu: mu, maxRetries: types.DefaultAgentSettings().FinalizerMaxCorrectionRetries}
 	sig := e.Observe(nil, softStopObs(0))
 	if !sig.HintRequested {
 		t.Error("doc missing: HintRequested = false, want true")

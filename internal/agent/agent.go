@@ -139,6 +139,11 @@ type Dependencies struct {
 	// Optional: zero fields are filled from DefaultExploreHeuristics()
 	// in cmd/root.go before agent construction.
 	ExploreHeuristics types.ExploreHeuristics
+
+	// AgentSettings carries all per-agent tunable limits (iteration
+	// caps, tool-history budget, correction retries). Resolved from
+	// YAML in cmd/root.go before agent construction.
+	AgentSettings types.AgentSettings
 }
 
 // BaseAgent provides the common ReAct loop implementation.
@@ -394,12 +399,8 @@ func truncForLog(s string, max int) string {
 //   - stay well below the 256 KB range where even permissive models
 //     start to slow down.
 //
-// Tuneable by future config if needed; hard-coded for now because the
-// failure mode is acute and any value in [100 KB, 200 KB] would fix it.
-const maxToolHistoryBytes = 150 * 1024
-
 // pruneToolHistory stubs out older "tool" role messages in-place when
-// their cumulative content size exceeds maxToolHistoryBytes. Walks
+// their cumulative content size exceeds the budget. Walks
 // newest-to-oldest, keeping the hot window intact, and replaces every
 // older tool message's content with a short placeholder.
 //
@@ -412,7 +413,7 @@ const maxToolHistoryBytes = 150 * 1024
 //
 // Returns true when at least one message was stubbed, so the caller
 // can log the event.
-func pruneToolHistory(messages []llm.Message) bool {
+func pruneToolHistory(messages []llm.Message, budget int) bool {
 	total := 0
 	cutoff := -1
 	for i := len(messages) - 1; i >= 0; i-- {
@@ -420,7 +421,7 @@ func pruneToolHistory(messages []llm.Message) bool {
 			continue
 		}
 		total += len(messages[i].Content)
-		if total > maxToolHistoryBytes {
+		if total > budget {
 			cutoff = i
 			break
 		}
@@ -505,9 +506,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// investigations. Runs every iteration because a single late
 		// read_file batch can push us over the budget; the stub is
 		// idempotent so already-pruned messages are skipped.
-		if pruneToolHistory(messages) {
+		toolHistBudget := b.deps.AgentSettings.MaxToolHistoryBytes
+		if toolHistBudget <= 0 {
+			toolHistBudget = 150 * 1024
+		}
+		if pruneToolHistory(messages, toolHistBudget) {
 			logging.Debug("[diag %s] iter=%d TOOL HISTORY PRUNED (budget=%d bytes)",
-				b.name, i, maxToolHistoryBytes)
+				b.name, i, toolHistBudget)
 		}
 
 		// Reason — call LLM

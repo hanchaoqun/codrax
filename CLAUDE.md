@@ -206,6 +206,19 @@ The pipeline topology (stages + agents + skills) is hardcoded in `internal/orche
 | `explore_enum_midloop_unread_floor` | 2 | Minimum unread files for mid-loop enumeration check to fire |
 | `explore_erm_suggest_limit` | 3 | Maximum ERM file suggestions in the gap-directed hint |
 
+**Precedence** for the `agent_*` keys (lowest wins last): code default in `types.DefaultAgentSettings()` → `codrax.yaml` `agent_*` keys. No CLI overrides. These keys tune per-agent behavioral limits (iteration caps, loop policy, correction retries). Zero or omitted means "use code default". The full list:
+
+| YAML key | Default | What it controls |
+|---|---|---|
+| `agent_max_iterations` | 20 | ReAct loop ceiling for all agents |
+| `agent_max_tool_history_bytes` | 153600 | Cumulative byte budget for "tool" role messages kept verbatim; older messages are stubbed |
+| `agent_loop_min_inject_interval` | 3 | Minimum iterations between two accepted LoopPolicy hint injections |
+| `agent_loop_max_continuations` | 5 | Maximum soft-stop continuation hints per dispatch |
+| `agent_loop_max_midloop_injects` | 6 | Maximum mid-loop hint injections per dispatch |
+| `agent_loop_idle_stop_threshold` | 2 | Consecutive idle iterations before LoopPolicy force-stops the loop |
+| `agent_finalizer_max_correction_retries` | 2 | Soft-stop correction retries when emit_answer_document is missing |
+| `agent_extractor_max_correction_retries` | 1 | Soft-stop correction retries when emit_answer_symbol is missing on list_of_symbols questions |
+
 **Evidence-lite runtime enforcement (pre-execution gate).** In addition to the `MaxPrescanRounds` round-count gate, `BaseAgent.executeTool` runs a pre-execution parameter check at `internal/agent/agent.go` (`validateAnalyzerPrescanToolCall`) that rejects a `grep` tool call when the current dispatch is `StageAnalyze` AND the call omits `files_only=true`. Line-level grep results overflow the analyze stage's context budget and pollute the pre-scan seen-blob with irrelevant code snippets, so this is a hard constraint rather than a prompt-only hint. The violation path synthesizes a failed `ToolResult` with a descriptive Summary — the LLM sees a normal tool-error in the next iteration's message stream and can retry within the same dispatch. Other stages (explore, extract, finalize) are unaffected: the explorer routinely needs line-level grep matches for deep investigation.
 
 `cmd/root.go` applies the runtime overrides into a local `types.PipelineSettings` and via `tool.SetBlobLimits` + `tool.SetAnalysisLimits` immediately after `LoadRuntimeSettings`, before any agent or tool runs. Override the entry file with `CODRAX_SETTINGS=path/to/codrax.yaml` to bootstrap an entire environment (since `providers_config` paths can live in `codrax.yaml`).

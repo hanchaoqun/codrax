@@ -9,5 +9,7 @@ import (
 // structured types.AnswerDocument via the emit_answer_document
 // tool and renders it through internal/render/answerdoc.go.
 func NewFinalizerAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentFinalizer, deps, &answerDocumentEvaluator{})
+	return NewBaseAgent(types.AgentFinalizer, deps, &answerDocumentEvaluator{
+		maxRetries: deps.AgentSettings.FinalizerMaxCorrectionRetries,
+	})
 }

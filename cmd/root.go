@@ -475,6 +475,36 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Resolve zero-valued heuristic fields to code defaults.
 	pipelineSettings.Explore.Heuristics = types.ResolvedExploreHeuristics(pipelineSettings.Explore.Heuristics)
 
+	// Agent-level limits from YAML.
+	if rs != nil {
+		a := &pipelineSettings.Agent
+		if rs.AgentMaxIterations != nil {
+			a.MaxIterations = *rs.AgentMaxIterations
+		}
+		if rs.AgentMaxToolHistoryBytes != nil {
+			a.MaxToolHistoryBytes = *rs.AgentMaxToolHistoryBytes
+		}
+		if rs.AgentLoopMinInjectInterval != nil {
+			a.LoopMinInjectInterval = *rs.AgentLoopMinInjectInterval
+		}
+		if rs.AgentLoopMaxContinuations != nil {
+			a.LoopMaxContinuations = *rs.AgentLoopMaxContinuations
+		}
+		if rs.AgentLoopMaxMidLoopInjects != nil {
+			a.LoopMaxMidLoopInjects = *rs.AgentLoopMaxMidLoopInjects
+		}
+		if rs.AgentLoopIdleStopThreshold != nil {
+			a.LoopIdleStopThreshold = *rs.AgentLoopIdleStopThreshold
+		}
+		if rs.AgentFinalizerMaxCorrectionRetries != nil {
+			a.FinalizerMaxCorrectionRetries = *rs.AgentFinalizerMaxCorrectionRetries
+		}
+		if rs.AgentExtractorMaxCorrectionRetries != nil {
+			a.ExtractorMaxCorrectionRetries = *rs.AgentExtractorMaxCorrectionRetries
+		}
+	}
+	pipelineSettings.Agent = types.ResolvedAgentSettings(pipelineSettings.Agent)
+
 	logging.Info("pipeline_settings: max_steps=%d max_retries_per_stage=%d max_stage_visits=%d",
 		flagMaxSteps,
 		pipelineSettings.MaxRetriesPerStage,
@@ -525,14 +555,22 @@ func initApp(cmd *cobra.Command, _ []string) error {
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 
+	agentCfg := pipelineSettings.Agent
 	deps := &agent.Dependencies{
 		LLM:               app.defaultLLM,
 		Tools:             toolRegistry,
 		MCPServers:        mcpRegistry,
 		SubAgents:         subAgentRegistry,
-		MaxIterations:     20,
+		MaxIterations:     agentCfg.MaxIterations,
 		Emit:              renderer.Emitter(),
 		ExploreHeuristics: pipelineSettings.Explore.Heuristics,
+		AgentSettings:     agentCfg,
+		LoopPolicy: agent.LoopPolicy{
+			MinInjectInterval: agentCfg.LoopMinInjectInterval,
+			MaxContinuations:  agentCfg.LoopMaxContinuations,
+			MaxMidLoopInjects: agentCfg.LoopMaxMidLoopInjects,
+			IdleStopThreshold: agentCfg.LoopIdleStopThreshold,
+		},
 	}
 
 	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)
