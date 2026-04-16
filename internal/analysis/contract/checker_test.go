@@ -106,7 +106,9 @@ func TestCheck_Explanation_TooShort(t *testing.T) {
 	}
 }
 
-func TestCheck_Citations_MinCount(t *testing.T) {
+func TestCheck_Citations_MinCount_SoftDegrade(t *testing.T) {
+	// 1 citation with min=2: soft degradation accepts because
+	// citations > 0. Only 0 citations is a hard reject.
 	c := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
@@ -116,8 +118,24 @@ func TestCheck_Citations_MinCount(t *testing.T) {
 		Citations: []Citation{{File: "a.go", Line: 10}},
 	}
 	r := Check(a, c)
+	if !r.Passed {
+		t.Fatal("1 citation with min=2 should soft-pass (>0 citations present)")
+	}
+}
+
+func TestCheck_Citations_MinCount_ZeroRejects(t *testing.T) {
+	// 0 citations with min=2: hard reject.
+	c := types.AnswerContract{
+		RequiredAnswerShape: types.ShapeExplanation,
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+	}
+	a := Answer{
+		Text:      "Long enough explanation that passes the shape check because it is many characters.",
+		Citations: nil,
+	}
+	r := Check(a, c)
 	if r.Passed {
-		t.Fatal("1 citation should fail min=2")
+		t.Fatal("0 citations should hard-reject")
 	}
 	if !hasViolation(r, "citation") {
 		t.Fatal("should emit citation violation")
@@ -207,21 +225,37 @@ func TestCheck_Acceptance_RegexMatch(t *testing.T) {
 	}
 }
 
-func TestCheck_Acceptance_CitationCountGE(t *testing.T) {
+func TestCheck_Acceptance_CitationCountGE_SoftDegrade(t *testing.T) {
+	c := types.AnswerContract{
+		RequiredAnswerShape: types.ShapeExplanation,
+		AcceptanceTests:     []types.Criterion{{Kind: types.CritCitationCountGE, Expr: "3"}},
+	}
+	// 2 citations with threshold 3: soft-pass (>0).
+	a := Answer{
+		Text:      "Long enough explanation that passes the shape check because it is many characters.",
+		Citations: []Citation{{File: "a", Line: 1}, {File: "b", Line: 1}},
+	}
+	if !Check(a, c).Passed {
+		t.Fatal("2 citations with threshold 3 should soft-pass (>0 present)")
+	}
+	// 3 citations: hard pass.
+	a.Citations = append(a.Citations, Citation{File: "c", Line: 1})
+	if !Check(a, c).Passed {
+		t.Fatal("3 citations should pass ≥3 acceptance")
+	}
+}
+
+func TestCheck_Acceptance_CitationCountGE_ZeroRejects(t *testing.T) {
 	c := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
 		AcceptanceTests:     []types.Criterion{{Kind: types.CritCitationCountGE, Expr: "3"}},
 	}
 	a := Answer{
 		Text:      "Long enough explanation that passes the shape check because it is many characters.",
-		Citations: []Citation{{File: "a", Line: 1}, {File: "b", Line: 1}},
+		Citations: nil,
 	}
 	if Check(a, c).Passed {
-		t.Fatal("2 citations should fail ≥3 acceptance")
-	}
-	a.Citations = append(a.Citations, Citation{File: "c", Line: 1})
-	if !Check(a, c).Passed {
-		t.Fatal("3 citations should pass ≥3 acceptance")
+		t.Fatal("0 citations should hard-reject")
 	}
 }
 

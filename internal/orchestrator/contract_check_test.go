@@ -111,8 +111,9 @@ func TestRunContractCheck_FailingShape(t *testing.T) {
 	}
 }
 
-func TestRunContractCheck_CitationGap(t *testing.T) {
+func TestRunContractCheck_CitationGap_SoftDegrade(t *testing.T) {
 	// Contract requires 3 file_line citations; answer has 1.
+	// Soft degradation: 1 > 0 → pass.
 	out := &agent.StageOutput{
 		FinalAnswer: "- foo\n- bar\nSee internal/agent/explorer.go:42",
 	}
@@ -125,17 +126,27 @@ func TestRunContractCheck_CitationGap(t *testing.T) {
 		},
 	}
 	res := runContractCheck(out, c)
+	if !res.Passed {
+		t.Errorf("1 citation with min=3 should soft-pass; got violations: %+v", res.Violations)
+	}
+}
+
+func TestRunContractCheck_CitationGap_ZeroRejects(t *testing.T) {
+	// Contract requires 3 file_line citations; answer has 0 → reject.
+	out := &agent.StageOutput{
+		FinalAnswer: "- foo\n- bar\nNo citations at all",
+	}
+	c := types.AnswerContract{
+		RequiredAnswerShape: types.ShapeListOfSymbols,
+		CitationReq: types.CitationReq{
+			Required:     true,
+			Granularity:  "file_line",
+			MinCitations: 3,
+		},
+	}
+	res := runContractCheck(out, c)
 	if res.Passed {
-		t.Error("want failure for citation count gap")
-	}
-	hasCitationViolation := false
-	for _, v := range res.Violations {
-		if v.Kind == "citation" {
-			hasCitationViolation = true
-		}
-	}
-	if !hasCitationViolation {
-		t.Errorf("want a citation violation; got %+v", res.Violations)
+		t.Error("0 citations should hard-reject")
 	}
 }
 

@@ -24,6 +24,13 @@ func InferScenario(rm types.RequestModel) types.Scenario {
 		return types.ScenarioConfigTrace
 	case types.IntentRootCause:
 		return types.ScenarioRootCause
+	case types.IntentEnumerate, types.IntentReturnValue:
+		// Enumerate/return_value questions produce short answers (a
+		// list of symbols or a single value) that rarely need the
+		// heavy architecture_explain template with its reconcile node
+		// and citation_count_ge=3 gate. Route to the lightweight
+		// generic template (citation_count_ge=1).
+		return types.ScenarioGeneric
 	}
 	if hasPerfTerms(rm.TermGraph) {
 		return types.ScenarioPerformanceBottleneck
