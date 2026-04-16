@@ -316,6 +316,23 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		stepBudget = b
 	}
 
+	// Adaptive budget scaling for multi-topic questions. When the
+	// analyzer detected >1 SubTopics, the pipeline needs more steps
+	// to investigate each sub-topic thoroughly.
+	if nSub := len(ir.RequestModel.SubTopics); nSub > 1 {
+		agentCfg := o.settings.Agent
+		extraSteps := nSub * agentCfg.SubTopicPipelineStepsExtra
+		adjusted := stepBudget + extraSteps
+		if adjusted > 100 {
+			adjusted = 100
+		}
+		if adjusted > stepBudget {
+			logging.Info("[orchestrator] multi-topic scaling: %d sub-topics, step budget %d → %d",
+				nSub, stepBudget, adjusted)
+			stepBudget = adjusted
+		}
+	}
+
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
 
@@ -753,6 +770,24 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)
 	if ta, ok := o.thinkAloudMap[agentName]; ok {
 		agentCtx.ThinkAloud = ta
+	}
+
+	// Adaptive explorer iteration scaling for multi-topic questions.
+	if stage == types.StageExplore && o.busCtx.AnalysisIR != nil {
+		if nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics); nSub > 1 {
+			agentCfg := o.settings.Agent
+			base := agentCfg.MaxIterations
+			extra := nSub * agentCfg.SubTopicExplorerBudgetExtra
+			adjusted := base + extra
+			if adjusted > 35 {
+				adjusted = 35
+			}
+			if adjusted > base {
+				agentCtx.MaxIterOverride = adjusted
+				logging.Debug("[orchestrator] multi-topic explorer scaling: %d sub-topics, iterations %d → %d",
+					nSub, base, adjusted)
+			}
+		}
 	}
 
 	logging.Info("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)

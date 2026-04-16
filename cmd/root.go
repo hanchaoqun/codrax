@@ -526,6 +526,18 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentExtractorMaxCorrectionRetries != nil {
 			a.ExtractorMaxCorrectionRetries = *rs.AgentExtractorMaxCorrectionRetries
 		}
+		if rs.AgentSubTopicPrescanExtra != nil {
+			a.SubTopicPrescanBudgetExtra = *rs.AgentSubTopicPrescanExtra
+		}
+		if rs.AgentSubTopicExplorerExtra != nil {
+			a.SubTopicExplorerBudgetExtra = *rs.AgentSubTopicExplorerExtra
+		}
+		if rs.AgentSubTopicPipelineExtra != nil {
+			a.SubTopicPipelineStepsExtra = *rs.AgentSubTopicPipelineExtra
+		}
+		if rs.AgentSubTopicRetryExtra != nil {
+			a.SubTopicRetryBudgetExtra = *rs.AgentSubTopicRetryExtra
+		}
 		if rs.AgentInvestigationCompletePolicy != nil {
 			a.InvestigationCompletePolicy = *rs.AgentInvestigationCompletePolicy
 		}

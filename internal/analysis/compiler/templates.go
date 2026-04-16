@@ -24,6 +24,25 @@ const (
 	TmplRetryBudgetLow      = 2  // RetryBudget for simple/generic
 )
 
+// subTopicRetryBudgetBoost returns the extra retry budget for multi-
+// topic questions. The boost is len(SubTopics)/2, capped so the total
+// never exceeds 5.
+func subTopicRetryBudgetBoost(rm types.RequestModel, base int) int {
+	n := len(rm.SubTopics)
+	if n <= 1 {
+		return base
+	}
+	boost := n / 2
+	if boost < 1 {
+		boost = 1
+	}
+	adjusted := base + boost
+	if adjusted > 5 {
+		adjusted = 5
+	}
+	return adjusted
+}
+
 // Each template builds the same three artifacts so call sites are
 // interchangeable. The node skeletons are hand-tuned per scenario
 // and kept small (3–5 nodes) so the scheduler has clear checkpoints
@@ -138,7 +157,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Nodes: []types.TaskNode{probe, ev, val, reconcile, final},
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: TmplRetryBudgetMedium,
+			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
 			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
 		},
 	}
@@ -216,7 +235,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		Nodes: []types.TaskNode{probe, ev, val, reconcile, final},
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: TmplRetryBudgetVeryHigh,
+			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetVeryHigh),
 			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
 		},
 	}
@@ -284,7 +303,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		Nodes: []types.TaskNode{probe, ev, val, final},
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: TmplRetryBudgetLow,
+			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
 			CriticalPath: []string{probe.ID, ev.ID, final.ID},
 		},
 	}
@@ -347,7 +366,7 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		Nodes: []types.TaskNode{probe, ev, val, final},
 		Edges: chain(probe.ID, ev.ID, val.ID, final.ID),
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: TmplRetryBudgetMedium,
+			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
 			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
 		},
 	}
@@ -409,7 +428,7 @@ func templateGeneric(rm types.RequestModel) Output {
 		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: TmplRetryBudgetLow,
+			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
 			CriticalPath: critPath,
 		},
 	}

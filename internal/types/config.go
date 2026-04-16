@@ -67,6 +67,26 @@ type AgentSettings struct {
 	// Default 1.
 	ExtractorMaxCorrectionRetries int `yaml:"extractor_max_correction_retries"`
 
+	// SubTopicPrescanBudgetExtra is the number of extra prescan rounds
+	// granted per 2 sub-topics when RequestModel.SubTopics > 1.
+	// Default 1. The adjusted prescan budget is capped at base + 2.
+	SubTopicPrescanBudgetExtra int `yaml:"subtopic_prescan_budget_extra"`
+
+	// SubTopicExplorerBudgetExtra is the number of extra explorer
+	// iterations granted per sub-topic. Default 3. The adjusted
+	// MaxIterations is capped at 35.
+	SubTopicExplorerBudgetExtra int `yaml:"subtopic_explorer_budget_extra"`
+
+	// SubTopicPipelineStepsExtra is the number of extra pipeline steps
+	// granted per sub-topic. Default 5. The adjusted step budget is
+	// capped at 100.
+	SubTopicPipelineStepsExtra int `yaml:"subtopic_pipeline_steps_extra"`
+
+	// SubTopicRetryBudgetExtra is the number of extra retry budget
+	// granted per 2 sub-topics. Default 1. The adjusted retry budget
+	// is capped at 5.
+	SubTopicRetryBudgetExtra int `yaml:"subtopic_retry_budget_extra"`
+
 	// InvestigationCompletePolicy controls how the DAG scheduler treats
 	// nodes when the LLM has called emit_investigation_complete.
 	//
@@ -107,6 +127,10 @@ func DefaultAgentSettings() AgentSettings {
 		LoopIdleStopThreshold:         2,
 		FinalizerMaxCorrectionRetries: 2,
 		ExtractorMaxCorrectionRetries: 1,
+		SubTopicPrescanBudgetExtra:    1,
+		SubTopicExplorerBudgetExtra:   3,
+		SubTopicPipelineStepsExtra:    5,
+		SubTopicRetryBudgetExtra:      1,
 		InvestigationCompletePolicy:   ICPolicySoft,
 	}
 }
@@ -138,6 +162,18 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	}
 	if s.ExtractorMaxCorrectionRetries == 0 {
 		s.ExtractorMaxCorrectionRetries = d.ExtractorMaxCorrectionRetries
+	}
+	if s.SubTopicPrescanBudgetExtra == 0 {
+		s.SubTopicPrescanBudgetExtra = d.SubTopicPrescanBudgetExtra
+	}
+	if s.SubTopicExplorerBudgetExtra == 0 {
+		s.SubTopicExplorerBudgetExtra = d.SubTopicExplorerBudgetExtra
+	}
+	if s.SubTopicPipelineStepsExtra == 0 {
+		s.SubTopicPipelineStepsExtra = d.SubTopicPipelineStepsExtra
+	}
+	if s.SubTopicRetryBudgetExtra == 0 {
+		s.SubTopicRetryBudgetExtra = d.SubTopicRetryBudgetExtra
 	}
 	switch s.InvestigationCompletePolicy {
 	case ICPolicySoft, ICPolicyOverride, ICPolicyStrict:

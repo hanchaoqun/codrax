@@ -201,6 +201,23 @@
 # Extractor: max correction retries when emit_answer_symbol is missing.
 # agent_extractor_max_correction_retries: 1
 
+# --- Multi-topic adaptive budget scaling ---
+# When RequestModel.SubTopics has >1 entries, these knobs control how
+# much extra budget each sub-topic adds. All values have sensible
+# defaults; zero-config works out of the box.
+
+# Extra prescan rounds per 2 sub-topics. Adjusted prescan is capped at base+2 (max 4).
+# agent_subtopic_prescan_extra: 1
+
+# Extra explorer iterations per sub-topic. Adjusted MaxIterations capped at 35.
+# agent_subtopic_explorer_extra: 3
+
+# Extra pipeline steps per sub-topic. Adjusted step budget capped at 100.
+# agent_subtopic_pipeline_extra: 5
+
+# Extra retry budget per 2 sub-topics. Adjusted retry budget capped at 5.
+# agent_subtopic_retry_extra: 1
+
 # How the DAG scheduler treats explore nodes when emit_investigation_complete
 # was called but SuccessCriteria (e.g. evidence_count>=3) still fail:
 #   "soft"     — lower evidence_count threshold to >=1 (default)

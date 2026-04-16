@@ -536,7 +536,11 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	forceStop := false
 
 	// ReAct loop
-	for i := 0; i < b.deps.MaxIterations; i++ {
+	maxIter := b.deps.MaxIterations
+	if ctx != nil && ctx.MaxIterOverride > 0 {
+		maxIter = ctx.MaxIterOverride
+	}
+	for i := 0; i < maxIter; i++ {
 		if forceStop {
 			break
 		}

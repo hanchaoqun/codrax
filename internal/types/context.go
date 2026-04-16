@@ -954,6 +954,11 @@ type AgentContext struct {
 	// omitted from the prompt — useful for providers that natively
 	// combine reasoning with tool calls without needing the directive.
 	ThinkAloud bool `json:"think_aloud,omitempty"`
+
+	// MaxIterOverride, when > 0, overrides the agent's default
+	// MaxIterations for this single dispatch. Used by the orchestrator
+	// to grant extra explorer iterations for multi-topic questions.
+	MaxIterOverride int `json:"-"`
 }
 
 // PromptSection is a titled block of content used in prompt construction.

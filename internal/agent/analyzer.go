@@ -40,13 +40,53 @@ type analyzerEvaluator struct {
 	// LastToolResult was a pre-scan navigation tool. Reset at the
 	// start of each dispatch.
 	prescanRounds int
+
+	// prescanBudgetOverride, when > 0, replaces
+	// tool.CurrentAnalysisLimits().MaxPrescanRounds for this dispatch.
+	// Set in BuildInitialInstruction when the question text heuristically
+	// looks like a multi-topic request (multiple question marks or
+	// numbered sub-questions).
+	prescanBudgetOverride int
+
+	// agentSettings caches the resolved AgentSettings so the
+	// heuristic prescan scaling can read SubTopicPrescanBudgetExtra.
+	agentSettings types.AgentSettings
 }
 
 func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
 	e.prescanRounds = 0
+	e.prescanBudgetOverride = 0
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.ResetPrescanSummary()
+	}
+
+	// Heuristic multi-topic detection: count question marks and
+	// numbered list patterns to estimate the number of sub-topics
+	// BEFORE emit_analysis is called. This allows prescan budget
+	// scaling without waiting for the LLM's SubTopics field.
+	if ctx != nil && ctx.Objective != "" {
+		estimated := estimateSubTopicCount(ctx.Objective)
+		if estimated > 1 {
+			base := tool.CurrentAnalysisLimits().MaxPrescanRounds
+			if base > 0 {
+				extra := (estimated / 2) * e.agentSettings.SubTopicPrescanBudgetExtra
+				adjusted := base + extra
+				// Cap at base + 2 (max 4 total).
+				cap := base + 2
+				if cap > 4 {
+					cap = 4
+				}
+				if adjusted > cap {
+					adjusted = cap
+				}
+				if adjusted > base {
+					e.prescanBudgetOverride = adjusted
+					logging.Debug("[analyzer] multi-topic heuristic: estimated %d sub-topics, prescan budget %d → %d",
+						estimated, base, adjusted)
+				}
+			}
+		}
 	}
 
 	// Pre-inject a repo_map task_map view so the analyzer starts its
@@ -189,7 +229,10 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 		ctx.Mutable.AppendPrescanSummary(obs.LastToolResult.Summary)
 	}
 
-	max := tool.CurrentAnalysisLimits().MaxPrescanRounds
+	max := e.prescanBudgetOverride
+	if max <= 0 {
+		max = tool.CurrentAnalysisLimits().MaxPrescanRounds
+	}
 	if max <= 0 || e.prescanRounds <= max {
 		return LoopSignal{}
 	}
@@ -330,9 +373,54 @@ func (e *analyzerEvaluator) DetermineMissingPiece(ctx *types.AgentContext, _ *St
 	return types.MissingFacts
 }
 
+// estimateSubTopicCount heuristically detects the number of
+// independent sub-topics in a question string by counting question
+// marks (Chinese and ASCII) and numbered list patterns (e.g. "1. ",
+// "2) "). Returns at least 1.
+func estimateSubTopicCount(text string) int {
+	// Count question marks (? and ？).
+	qmarks := 0
+	for _, r := range text {
+		if r == '?' || r == '？' {
+			qmarks++
+		}
+	}
+
+	// Count numbered list items (e.g. "1. ", "2) ", "3、").
+	numbered := 0
+	lines := strings.Split(text, "\n")
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if len(trimmed) < 3 {
+			continue
+		}
+		// Check for patterns like "1. ", "2) ", "3、", "1) "
+		if trimmed[0] >= '1' && trimmed[0] <= '9' {
+			rest := trimmed[1:]
+			if len(rest) > 0 && (rest[0] == '.' || rest[0] == ')') {
+				numbered++
+			} else if strings.HasPrefix(rest, "、") {
+				numbered++
+			}
+		}
+	}
+
+	// Take the larger signal.
+	count := qmarks
+	if numbered > count {
+		count = numbered
+	}
+	if count < 1 {
+		count = 1
+	}
+	return count
+}
+
 // NewAnalyzerAgent creates the analyzer agent.
 func NewAnalyzerAgent(deps *Dependencies) Agent {
-	eval := &analyzerEvaluator{}
+	eval := &analyzerEvaluator{
+		agentSettings: deps.AgentSettings,
+	}
 	// Override LoopPolicy for the analyzer: MinInjectInterval=1 so
 	// soft-stop continuation hints are not throttled. The analyzer
 	// runs 3-5 iterations total; the default interval of 3 means the

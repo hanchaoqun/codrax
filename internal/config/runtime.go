@@ -140,6 +140,10 @@ type RuntimeSettings struct {
 	AgentLoopIdleStopThreshold        *int `yaml:"agent_loop_idle_stop_threshold"`
 	AgentFinalizerMaxCorrectionRetries  *int    `yaml:"agent_finalizer_max_correction_retries"`
 	AgentExtractorMaxCorrectionRetries *int    `yaml:"agent_extractor_max_correction_retries"`
+	AgentSubTopicPrescanExtra          *int    `yaml:"agent_subtopic_prescan_extra"`
+	AgentSubTopicExplorerExtra         *int    `yaml:"agent_subtopic_explorer_extra"`
+	AgentSubTopicPipelineExtra         *int    `yaml:"agent_subtopic_pipeline_extra"`
+	AgentSubTopicRetryExtra            *int    `yaml:"agent_subtopic_retry_extra"`
 	AgentInvestigationCompletePolicy   *string `yaml:"agent_investigation_complete_policy"`
 
 	// Memory store limits. All optional; nil → code default in

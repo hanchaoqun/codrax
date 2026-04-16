@@ -219,6 +219,10 @@ The pipeline topology (stages + agents + skills) is hardcoded in `internal/orche
 | `agent_finalizer_max_correction_retries` | 2 | Soft-stop correction retries when emit_answer_document is missing |
 | `agent_extractor_max_correction_retries` | 1 | Soft-stop correction retries when emit_answer_symbol is missing on list_of_symbols questions |
 | `agent_investigation_complete_policy` | `soft` | How the DAG scheduler treats explore nodes when emit_investigation_complete was called. `soft` = lower evidence_count threshold to >=1; `override` = skip criteria entirely, mark all explore nodes done; `strict` = ignore the signal, enforce template thresholds unconditionally |
+| `agent_subtopic_prescan_extra` | 1 | Extra prescan rounds per 2 sub-topics when `RequestModel.SubTopics > 1`. Adjusted prescan budget capped at base+2 (max 4 total) |
+| `agent_subtopic_explorer_extra` | 3 | Extra explorer ReAct iterations per sub-topic. Adjusted MaxIterations capped at 35 |
+| `agent_subtopic_pipeline_extra` | 5 | Extra pipeline steps per sub-topic. Adjusted step budget capped at 100 |
+| `agent_subtopic_retry_extra` | 1 | Extra retry budget per 2 sub-topics. Adjusted retry budget capped at 5 |
 
 **Precedence** for the `memory_*` keys (lowest wins last): code default in `types.DefaultMemorySettings()` → `codrax.yaml` `memory_*` keys. No CLI overrides. These keys tune the multi-turn REPL memory store's buffer sizes and context-building limits. Zero or omitted means "use code default". The full list:
 
