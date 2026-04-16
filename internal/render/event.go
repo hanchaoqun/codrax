@@ -41,6 +41,9 @@ const (
 	EventObjectiveStarted
 	EventObjectiveDone
 
+	// Agent reasoning text (LLM's thinking before tool calls)
+	EventAgentReasoning
+
 	// Stage transition
 	EventTransition
 
@@ -79,6 +82,9 @@ type Event struct {
 
 	// Objective (formerly Task)
 	Objective string
+
+	// Agent reasoning (think-aloud text from LLM)
+	Reasoning string
 
 	// Transition
 	FromStage types.PipelineStage

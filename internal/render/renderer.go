@@ -155,6 +155,12 @@ func (r *Renderer) Emitter() EventEmitter {
 		}
 
 		switch ev.Kind {
+		case EventAgentReasoning:
+			if ev.Reasoning != "" {
+				r.printAboveArea(formatReasoning(ev.Reasoning))
+			}
+			return // don't redraw — printAboveArea already did
+
 		case EventAgentThinking:
 			if ev.Iteration == 0 {
 				r.detail = "thinking"
@@ -291,6 +297,50 @@ func (r *Renderer) redraw() {
 	b.WriteString(truncByDisplayWidth(statusLine, maxCols))
 
 	r.area.Update(b.String())
+}
+
+// printAboveArea temporarily clears the pterm.Area, prints text to
+// stdout, then redraws the area beneath it. The printed text scrolls
+// up and stays visible; the spinner continues below. Must be called
+// with r.mu held.
+func (r *Renderer) printAboveArea(text string) {
+	if r.area == nil || text == "" {
+		return
+	}
+	// Clear the area's current content so the new text doesn't
+	// interleave with the spinner line.
+	r.area.Update("")
+	fmt.Println(text)
+	r.redraw()
+}
+
+// formatReasoning extracts the first 1-2 sentences from the LLM's
+// reasoning text and formats them as a dimmed, indented line. Long
+// reasoning blocks (multi-paragraph analysis) are truncated to keep
+// the terminal output scannable.
+func formatReasoning(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return ""
+	}
+	// Take first 2 lines or 200 chars, whichever is shorter.
+	lines := strings.SplitN(text, "\n", 3)
+	summary := lines[0]
+	if len(lines) > 1 && len(summary)+len(lines[1]) < 200 {
+		summary += " " + strings.TrimSpace(lines[1])
+	}
+	if len(summary) > 200 {
+		// Walk back to a word boundary.
+		cut := 197
+		for cut > 0 && summary[cut] != ' ' {
+			cut--
+		}
+		if cut == 0 {
+			cut = 197
+		}
+		summary = summary[:cut] + "..."
+	}
+	return "  " + pterm.FgDarkGray.Sprint("💭 "+summary)
 }
 
 // truncByDisplayWidth clamps a styled (ANSI-CSI-bearing) line to at
