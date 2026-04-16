@@ -126,9 +126,9 @@ The explorer agent supplements LLM investigation with deterministic, source-code
 
 **Three-phase investigation model:**
 
-1. **Phase 0 — Breadth Scan.** Keyword search (`keywordSearch` in `keyword_search.go`) combines repo_map structural ranking with grep IDF scoring. Produces a ranked file list with symbol tables. Uses ripgrep when available (auto-detected at startup via `tool.SearchCommand()`), falling back to GNU grep.
+1. **Phase 0 — Breadth Scan.** Keyword search (`keywordSearch` in `keyword_search.go`) combines repo_map structural ranking with grep IDF scoring. Produces a ranked file list with symbol tables. Uses ripgrep when available (auto-detected at startup via `tool.SearchCommand()`), falling back to GNU grep. **Early evidence exit**: when the LLM's first voluntary stop (`firstSoftStop`) has already gathered high-confidence evidence from ANY tool (`hasHighConfidenceEvidence`: confidence > 0.5, tool-agnostic), the Phase 0 quality gate (grep + repo_map/list_files + discovered>=3) is bypassed entirely — the LLM answered without needing the two-phase model. Covers exec_command, grep-only, read_file-only, list_files-only scenarios. If evidence is insufficient, AnswerContract backtrack catches it.
 
-2. **Phase 1 — Evidence Collection.** LLM reads files and extracts structured evidence entries tagged `[DIRECT]`, `[CONDITIONAL]`, `[REGISTRATION]`, `[MECHANISM]`, `[RELATIONSHIP]`. The evaluator tracks investigation notes, cross-references, and file coverage with escalating read prompts (3-level: gentle → forceful → final).
+2. **Phase 1 — Evidence Collection.** LLM reads files and extracts structured evidence entries tagged `[DIRECT]`, `[CONDITIONAL]`, `[REGISTRATION]`, `[MECHANISM]`, `[RELATIONSHIP]`. The evaluator tracks investigation notes, cross-references, and file coverage with escalating read prompts (3-level: gentle → forceful → final). On first voluntary stop with evidence, the stop is accepted without injecting a completion-tool-reminder hint; only when NO evidence was gathered does the reminder fire.
 
 3. **Synthesis.** `SynthesisPrompt` assembles a prompt with five programmatic layers, each independent — when upper layers produce no output, lower layers still function:
 
@@ -158,6 +158,10 @@ The explorer agent supplements LLM investigation with deterministic, source-code
 | YAML/JSON config leaf values | Config files | `default_agent = explorer` |
 
 **File scanning scope:** all keyword-search scored files + all LLM-read files + files defining symbols mentioned in investigation notes. Short methods (≤3 lines) are fully extracted; longer functions (≤30 lines) are scanned only for registrations/mappings when their name contains `Register`, `Defaults`, `Routes`, `Handlers`, `Config`, `Map`, or `Init`. Config files (YAML/JSON/TOML) are parsed with `yaml.v3`/`encoding/json` and flattened to dotted key paths.
+
+**Runtime file coverage (`extractFileCoverage`).** Extracts two sets from tool history: `discovered` (files found by grep + exec_command best-effort path extraction) and `readSet` (files read by read_file). The exec_command case parses output line-by-line through `isValidFilePath` + `isNoisePath` filters — handles `find`/`ls`/`tree` output; non-path lines (counts, errors) are silently dropped.
+
+**HasEnoughFacts quality floor.** `ParseOutput` computes `HasEnoughFacts` from three sub-checks ANDed together: `toolDiversity` (≥2 distinct evidence tool types), `fileCoverage` (≥50% or ≥3 files read), `evidenceQuality` (≥2 `[DIRECT]`/`[REGISTRATION]` tags). **Single-source investigation bypass**: when `len(sources) == 1` (only one type of high-confidence tool was used), all three floors are set to true — the LLM answered using a single tool type (exec_command, grep, read_file, or list_files). If the answer is insufficient, the AnswerContract checker backtracks via retry budget. `emit_investigation_complete` remains the most authoritative signal — when called, it unconditionally overrides all heuristic checks.
 
 **Resolution chain tracing** is multi-pass (up to 5 iterations): when a concrete value mentions a type name T, all of T's concrete values are pulled into the relevant set and linked. This supports chains of arbitrary depth: `RegisterX binds NewFoo → Foo returns NewBar → Bar.Name returns "baz"`.
 

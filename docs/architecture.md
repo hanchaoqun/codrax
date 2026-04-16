@@ -215,7 +215,13 @@ graph TD
 
   评估器的 `Observe(ctx, obs) LoopSignal` 只做**检测**：返回 `Progress` / `StopRequested` / `HintRequested`+`Hint`+`HintKey`。节流（`MinInjectInterval`）、去重（按 `HintKey` 匹配上一次已接受的 hint）、预算（`MaxContinuations` / `MaxMidLoopInjects`）、idle-streak 强制停（`IdleStopThreshold`）都由 **`LoopPolicy`**（`internal/agent/loop_policy.go`）在 `loopPolicyState.Apply` 里统一执行，不再由每个评估器各自重复实现 `idleStreak` / `lastToolCount` / `midLoopLastInjectIter`。这条分层规则被 `internal/agent/loop_policy_test.go` 的 12 条场景测试锁定（dedup、throttle、mid-loop 预算 drop、soft-stop 预算 force-stop、tool-result 增长自动重置 idle、显式 stop 立即生效等）。
 
-  **首次软停差异化（2026-04-15）**：`explorerEvaluator.observeSoftStop` 原本有 10 条 return 路径，全部无条件 `HintRequested: true`，导致 LLM 的第一次自愿停下（ReAct 前几轮都在调 tool，第 N 轮首次返回纯文本）被检测器 100% 拦截 —— 初始状态下 LoopPolicy 的 dedup/throttle/budget 三道闸门都是 no-op，拦不住新 key 的硬注入。修复后 `observeSoftStop` 按证据强度把分支分成两类：**硬证据分支**（`phase1.partial-read` 基于符号 range 算术，`phase1.enumeration` 基于 80% 覆盖率硬约束，`phase1.grep-redirect` 基于 truncated 文件几何，加上 Phase 0→1 的三个转场 gate）在任何软停都能触发；**软启发式分支**（`phase1.erm-gap` 的字符串匹配，`phase1.prescanned` 的 top-N 召回，`phase1.unanalyzed` 的 3-字符符号名匹配）和结构性 `phase1.coverage` 兜底在 `obs.ContinuationsUsed == 0` 的首次软停上返回空信号，让 LoopPolicy 接受 LLM 的完成信号；`ContinuationsUsed >= 1` 时全部分支照旧运行。这是"只在 LLM 有硬证据没做完时覆盖它的自愿停下"契约 —— 新的检测分支必须明确落到硬证据或软启发式桶里，测试在 `explorer_test.go::TestExplorerSoftStop_*` 里把这条契约固化。`BaseAgent.Execute` 的 SOFT-STOP 和 MIDLOOP 调试日志都带上了 `key=%q` 字段透传 `sig.HintKey`，配合 `result.Reason` 一起出现在 trace 里，方便事后定位是哪条检测分支投的票。
+  **首次软停差异化**：`explorerEvaluator.observeSoftStop` 按证据强度把分支分成三类：
+
+  1. **早期证据充分退出**（Phase 0 + Phase 1 共用）：当 `firstSoftStop`（`obs.ContinuationsUsed == 0`）且 `hasHighConfidenceEvidence` 为 true（history 中存在任何 confidence > 0.5 的成功 tool 结果）时，直接返回空信号接受停止。Phase 0 块在此处跳过全部质量门并 `e.phase = 1`；Phase 1 的 `completion-tool-reminder` 兜底同样跳过。这使得 exec_command / grep-only / read_file-only / list_files-only 等单工具回答的问题不浪费任何轮次。如果证据不充分，AnswerContract checker 在 finalize 后 backtrack 重新调查。`hasHighConfidenceEvidence`（`explorer.go`）是工具无关的——它通过 `toolConfidence()` 接口（EvidenceTool=0.8, NavigationTool=0.3）判断，不硬编码工具名。
+  2. **硬证据分支**（`phase1.partial-read` 基于符号 range 算术，`phase1.enumeration` 基于 80% 覆盖率硬约束，`phase1.grep-redirect` 基于 truncated 文件几何，加上 Phase 0→1 的三个转场 gate）在任何软停都能触发，不受 `firstSoftStop` 限制。
+  3. **软启发式分支**（`phase1.erm-gap` 的字符串匹配，`phase1.prescanned` 的 top-N 召回，`phase1.unanalyzed` 的 3-字符符号名匹配）和结构性 `phase1.coverage` 兜底在 `firstSoftStop` 上返回空信号，让 LoopPolicy 接受 LLM 的完成信号；`ContinuationsUsed >= 1` 时全部分支照旧运行。
+
+  契约总结："只在 LLM 有硬证据没做完时覆盖它的自愿停下"—— 新的检测分支必须明确落到硬证据或软启发式桶里，测试在 `explorer_test.go::TestExplorerSoftStop_*` 和 `TestPhase0QualityGate` 里把这条契约固化。`BaseAgent.Execute` 的 SOFT-STOP 和 MIDLOOP 调试日志都带上了 `key=%q` 字段透传 `sig.HintKey`，配合 `result.Reason` 一起出现在 trace 里，方便事后定位是哪条检测分支投的票。
 - **`SynthesizingEvaluator`**：ReAct 循环结束后用干净上下文跑一次综合调用，防止最后一条 assistant 消息是碎片笔记。目前只有 `explorer` 实现。
 
 #### 子 Agent
@@ -372,13 +378,28 @@ Quality Gate 的 `Rejected` 区分 **hard failure**（所有 checks except `pend
 | **输出** | `StageOutput.{EvidenceItems, AnswerChains, FlowFindings, StageReport}` + `MutableState.TurnAArtifacts` |
 
 - **Phase 0 — Breadth Scan**：`repo_map` (task_map 视图) + `grep files_only=true` + `list_files` 快速定位相关文件，不读全文。LLM 产出 3-6 个文件的优先读取清单。
-- **Phase 0 → Phase 1 质量门**：必须同时满足 (1) 用过 grep，(2) 用过 repo_map 或 list_files，(3) 发现 ≥ 3 个文件。任一未满足返回一次补救 prompt。
+- **Phase 0 早期证据退出**：当 LLM 首次自愿停下（`firstSoftStop`）且已有高置信证据（`hasHighConfidenceEvidence`：任何 confidence > 0.5 的工具成功返回）时，跳过质量门直接接受停止（`e.phase = 1` + 空信号）。覆盖 exec_command / grep-only / read_file-only / list_files-only 等单工具即可回答的场景，零浪费轮次。
+- **Phase 0 → Phase 1 质量门**（仅 `ContinuationsUsed >= 1` 时生效）：必须同时满足 (1) 用过 grep，(2) 用过 repo_map 或 list_files，(3) 发现 ≥ 3 个文件。任一未满足返回一次补救 prompt（`phase0ExtraRound` 确保最多触发一次）。
 - **Phase 1 — Depth Read + Evidence Collection**：LLM 按清单 `read_file`，每读一个文件调用一次 `emit_evidence(items=[...])`。大文件（>500 行）强制先 grep 再 slice read。行号必须来自 `read_file` 的 gutter。
 - **ParseOutput（确定性管线）**：`ensureStructuredEvidence` 合并 emit_evidence buffer + markdown fallback parser → `groundEvidenceItems` → `mergeEvidenceItems` → `rankEvidenceByRelevance` → `scrubSiblingEvidenceBlocks` → `identifyAnswerChains` → `SetTurnAArtifacts` 把投影快照交给 Turn B。
 
 #### runtime file coverage
 
-Phase 1 的 continuation 决策基于 runtime 数据而不是固定阈值：从 tool history 提取 grep 发现的文件 + 已读文件 → 过滤噪音路径（VCS / 依赖目录 / 日志）→ 向 LLM 展示覆盖状态，由 LLM 判断哪些还值得读。
+Phase 1 的 continuation 决策基于 runtime 数据而不是固定阈值：`extractFileCoverage` 从 tool history 提取 grep 发现的文件 + `read_file` 已读文件 + `exec_command` 输出中的文件路径（best-effort，逐行用 `isValidFilePath` 过滤）→ 过滤噪音路径（VCS / 依赖目录 / 日志）→ 向 LLM 展示覆盖状态，由 LLM 判断哪些还值得读。
+
+#### HasEnoughFacts 多维质量门
+
+`ParseOutput` 计算 `HasEnoughFacts` 信号，决定 DAG 中带 `has_enough_facts` 入口条件的节点（如 `reconcile`）是否 ready。三个子检查 AND 在一起：
+
+- **toolDiversity**：`len(sources) >= 2`（sources 只计 confidence > 0.5 的工具）
+- **fileCoverage**：`coverage >= 0.5 || len(readSet) >= 3`
+- **evidenceQuality**：`directCount >= 2`（investigation notes 中的 `[DIRECT]`/`[REGISTRATION]` 标签）
+
+枚举查询（`isEnumerationQuery`）使用更严格阈值（覆盖率 ≥ 80%）。
+
+**单来源调查旁路**：当 `len(sources) == 1`（仅使用一种高置信度工具），三个 floor 全部设为 true。这使 exec_command / grep-only / read_file-only / list_files-only 等单工具调查直接通过 HasEnoughFacts 门。如果证据不充分，AnswerContract checker 在 finalize 后通过 retry budget backtrack 重新调查。
+
+`emit_investigation_complete` 显式调用仍然是最权威的信号——设置后无条件 override 所有 heuristic 检查。
 
 ### 4.3 `extract` — Turn B：答案结构化 + 假设判定
 
