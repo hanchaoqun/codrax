@@ -75,8 +75,8 @@ func (s *SubExplorer) Run(req *types.SubAgentRequest) (*types.SubAgentResult, er
 	}, nil
 }
 
-// subExplorerEvaluator implements Evaluator, LoopController, and
-// SynthesizingEvaluator for the SubExplorer's BaseAgent. Unlike the
+// subExplorerEvaluator implements Evaluator and LoopController for
+// the SubExplorer's BaseAgent. Unlike the
 // main explorer, it operates within a scoped directory set and has a
 // simpler two-phase model: discover files → read and extract evidence.
 //
@@ -239,78 +239,7 @@ func (e *subExplorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservatio
 	return LoopSignal{}
 }
 
-// SynthesisPrompt implements SynthesizingEvaluator. Produces a clean
-// synthesis call with all collected evidence.
-func (e *subExplorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (string, bool) {
-	// Only synthesize if we have evidence-bearing results.
-	hasEvidence := false
-	for _, r := range toolResults {
-		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
-			hasEvidence = true
-			break
-		}
-	}
-	if !hasEvidence {
-		return "", false
-	}
-
-	e.ensureStructuredEvidence(ctx, toolResults)
-
-	var digest strings.Builder
-	digest.WriteString("Synthesize your findings from the scoped investigation.\n\n")
-	fmt.Fprintf(&digest, "## Objective\n%s\n\n", e.objective)
-
-	if len(e.investigationNotes) > 0 {
-		digest.WriteString("## Evidence Collected\n\n")
-		for i, note := range e.investigationNotes {
-			if len(note) > 1200 {
-				note = note[:1200] + "\n... [truncated]"
-			}
-			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
-		}
-	}
-
-	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConcrete, "Structured Concrete Evidence", 12); section != "" {
-		digest.WriteString(section)
-	}
-	if section := formatFlowFindingsSection(e.flowFindings, "Resolved Dataflow Paths", 8, false); section != "" {
-		digest.WriteString(section)
-	}
-	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConditional, "Condition Guards", 8); section != "" {
-		digest.WriteString(section)
-	}
-	if section := formatFlowFindingsSection(e.flowFindings, "Conflicts / Unknowns", 6, true); section != "" {
-		digest.WriteString(section)
-	}
-
-	// Compact file list.
-	digest.WriteString("## Files Read\n\n")
-	for _, r := range toolResults {
-		if r.Success && r.ToolName == "read_file" {
-			first := strings.SplitN(r.Summary, "\n", 2)[0]
-			digest.WriteString("- " + first + "\n")
-		}
-	}
-	digest.WriteString("\n")
-
-	digest.WriteString("## Instructions\n\n")
-	digest.WriteString("Provide a comprehensive summary of what you found:\n")
-	digest.WriteString("- Name SPECIFIC types, functions, and values — not categories\n")
-	digest.WriteString("- Ground claims in file:line citations\n")
-	digest.WriteString("- If evidence is incomplete or uncertain, say so explicitly\n")
-
-	return digest.String(), true
-}
-
 func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
-	var lastContent string
-	for i := len(messages) - 1; i >= 0; i-- {
-		if messages[i].Role == "assistant" && messages[i].Content != "" {
-			lastContent = messages[i].Content
-			break
-		}
-	}
-
 	// Extract facts from successful tool results, using each tool's
 	// declared Confidence.
 	var facts []types.RepoFact
@@ -357,7 +286,7 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 	rankedFindings := rankFindingsByRelevance(e.objective, e.flowFindings)
 
 	return &StageOutput{
-		Data:          json.RawMessage(fmt.Sprintf(`{"result": %q}`, lastContent)),
+		Data:          json.RawMessage(`{}`),
 		NewFacts:      facts,
 		EvidenceItems: rankedEvidence,
 		FlowFindings:  rankedFindings,

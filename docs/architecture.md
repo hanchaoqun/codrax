@@ -198,14 +198,11 @@ graph TD
     Decide -->|是| Act[调用工具]
     Act --> MidLoop{LoopController<br/>Observe PhaseMidLoop}
     MidLoop -->|InjectHint| Think
-    MidLoop -->|Stop| Synth
+    MidLoop -->|Stop| Output
     MidLoop -->|Continue| Think
     Decide -->|否| SoftStop{LoopController<br/>Observe PhaseSoftStop}
     SoftStop -->|InjectHint| Think
-    SoftStop -->|Stop/Continue| Synth{SynthesizingEvaluator?}
-    Synth -->|是| SynthCall[干净上下文综合调用]
-    SynthCall --> Output
-    Synth -->|否| Output[StageOutput]
+    SoftStop -->|Stop/Continue| Output[ParseOutput → StageOutput]
     Output --> Done([返回编排器])
 ```
 
@@ -239,7 +236,7 @@ graph TD
 
   加载链路：`codrax.yaml` `explore_*` → `RuntimeSettings` 指针字段 → `cmd/root.go` 合并到 `PipelineSettings.Explore.Heuristics` → `ResolvedExploreHeuristics()` 填充零值 → `Dependencies.ExploreHeuristics` → `explorerEvaluator.heuristics`。`ensureHeuristics()` 在 `observeMidLoop`/`observeSoftStop` 入口做惰性初始化，使得不经 `BuildInitialInstruction` 直接调用的测试也能正常工作。
 
-- **`SynthesizingEvaluator`**：ReAct 循环结束后用干净上下文跑一次综合调用，防止最后一条 assistant 消息是碎片笔记。目前只有 `explorer` 实现。
+- **`SynthesizingEvaluator`**（已删除，2026-04-16）：历史上 explorer 和 sub_explorer 在 ReAct 循环结束后额外跑一次 LLM.Chat 做"综合"，但 P1.2 之后 StageReport 改为确定性渲染、Data 固定为 `{}`，synthesis LLM 的 prose 输出无人消费。唯一的有意义副作用（具体值合并进 `e.structuredEvidence`）已内联到 `ParseOutput`。接口和 `BaseAgent.Execute` 中的 synthesis 调用路径均已删除。
 
 #### 子 Agent
 
@@ -986,7 +983,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 ### 添加新 Agent
 
 1. 新增 `AgentName` 枚举常量
-2. 实现 `Evaluator` 接口（`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`），可选实现 `LoopController` / `SynthesizingEvaluator`
+2. 实现 `Evaluator` 接口（`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`），可选实现 `LoopController`
 3. 在 agent registry 里用 `NewBaseAgent(name, deps, eval)` 包装注册
 4. 如果绑到一个新阶段，需要同步更新 `topology.go` 的 `pipelineTopology` map 和 `PipelineStage` 枚举
 

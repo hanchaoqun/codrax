@@ -1628,14 +1628,13 @@ func (e *explorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) 
 }
 
 func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.Message, toolResults []types.ToolResult, mcpResponses []types.MCPResponse) (*StageOutput, error) {
-	// P1.2 — the explorer no longer captures the synthesis LLM's
-	// last-assistant prose into StageOutput. The prose-to-finalizer
-	// channel was the R1 escape hatch; out.StageReport below is set
-	// to the deterministic canonical render (renderExplorerStageReport)
-	// and out.Data is reduced to an empty JSON object. The synthesis
-	// LLM call still runs because SynthesisPrompt has structured side
-	// effects (concrete-value extraction merged into e.structuredEvidence)
-	// — but its prose output dies inside BaseAgent.Execute.
+	// P1.2 → 2026-04-16: the explorer no longer implements
+	// SynthesizingEvaluator. The synthesis LLM call was deleted
+	// because its prose output was never consumed — StageReport is
+	// produced by the deterministic renderExplorerStageReport, and
+	// out.Data is `{}`. The structured side effects that used to
+	// live in SynthesisPrompt (concrete-value extraction, evidence
+	// merge) now run directly in ParseOutput above.
 	//
 	// Extract facts from tool results. Each tool declares its own
 	// Confidence via the Tool interface: evidence tools (grep,
@@ -1667,6 +1666,15 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	e.ensureStructuredEvidence(ctx, toolResults)
+
+	// Merge concrete values into structured evidence. Before the
+	// synthesis-LLM removal (2026-04-16) this merge lived inside
+	// SynthesisPrompt; now ParseOutput is the sole owner.
+	_, cvReadSet := extractFileCoverage(toolResults)
+	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, cvReadSet)
+	if len(cvResult.evidence) > 0 {
+		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)
+	}
 
 	// HasEnoughFacts: multi-dimensional quality check.
 	// 1. Tool diversity: at least 2 distinct evidence tools (grep + read_file).
@@ -2020,8 +2028,8 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 				len(parsed), len(cv.evidence), len(mechEvidence))
 			// Merge mechanism evidence into structuredEvidence so it
 			// reaches the finalizer regardless of whether dataflow runs.
-			// Concrete Values are merged later in SynthesisPrompt via
-			// the existing path (line ~1192).
+			// Concrete Values are merged in ParseOutput via
+			// getConcreteValuesCached + mergeEvidenceItems.
 			if len(mechEvidence) > 0 {
 				e.structuredEvidence = mergeEvidenceItems(parsed, mechEvidence)
 			} else {
@@ -2101,387 +2109,6 @@ func (e *explorerEvaluator) toolConfidence(name string) float64 {
 		return 0.8
 	}
 	return t.Confidence()
-}
-
-// SynthesisPrompt implements SynthesizingEvaluator. After the ReAct
-// investigation loop ends, BaseAgent calls this to get a synthesis
-// prompt. The prompt includes a structured digest of all tool results
-// so the LLM can produce a comprehensive answer in clean context,
-// without the noise of intermediate summaries and continuation pushes.
-func (e *explorerEvaluator) SynthesisPrompt(ctx *types.AgentContext, toolResults []types.ToolResult) (string, bool) {
-	// Only synthesize if we have evidence-bearing results.
-	hasEvidence := false
-	for _, r := range toolResults {
-		if r.Success && e.toolConfidence(r.ToolName) > 0.5 {
-			hasEvidence = true
-			break
-		}
-	}
-	if !hasEvidence {
-		return "", false
-	}
-
-	e.ensureStructuredEvidence(ctx, toolResults)
-	// Pre-rank evidence so structured sections show the most relevant items.
-	e.structuredEvidence = rankEvidenceByRelevance(e.userQuestion, e.structuredEvidence, nil)
-	e.flowFindings = rankFindingsByRelevance(e.userQuestion, e.flowFindings)
-
-	var digest strings.Builder
-	digest.WriteString("You have completed your evidence collection. Below is the evidence catalog from your investigation.\n\n")
-	digest.WriteString("## User Question\n")
-	digest.WriteString(ctx.Objective)
-	digest.WriteString("\n\n")
-
-	// Include the LLM's evidence entries from the ReAct loop.
-	// These contain structured facts extracted from each file.
-	//
-	// P1.2 — F9 (`scrubSiblingEvidenceBlocks`) was deleted in the
-	// same commit as the deterministic StageReport renderer. Before
-	// P1.2, sibling-file `## Evidence from <path>` blocks would have
-	// reached the synthesis LLM here, been replayed into its prose
-	// output, and then leaked to the finalizer through StageReport.
-	// After P1.2 the synthesis LLM's prose no longer flows to
-	// StageReport (see ParseOutput's renderExplorerStageReport call),
-	// so even if the synthesis LLM repeats sibling-file content the
-	// finalizer never sees it. The notes are now passed through
-	// untouched (P1.2 remediation).
-	if len(e.investigationNotes) > 0 {
-		digest.WriteString("## Evidence Catalog\n\n")
-		digest.WriteString("These are the evidence entries YOU collected during investigation:\n\n")
-		for i, note := range e.investigationNotes {
-			note = strings.TrimSpace(note)
-			if note == "" {
-				continue
-			}
-			// Adaptive truncation: scale limit with investigation complexity.
-			// More notes = more complex investigation = each note needs more space.
-			truncLimit := 1200
-			if noteCount := len(e.investigationNotes); noteCount > 3 {
-				truncLimit = 1200 + 400*(noteCount-3)
-			}
-			if truncLimit > 3000 {
-				truncLimit = 3000
-			}
-			if len(note) > truncLimit {
-				note = note[:truncLimit] + "\n... [truncated]"
-			}
-			fmt.Fprintf(&digest, "### Evidence Set %d\n%s\n\n", i+1, note)
-		}
-	}
-
-	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConcrete, "Structured Concrete Evidence", 18); section != "" {
-		digest.WriteString(section)
-	}
-	if section := formatFlowFindingsSection(e.flowFindings, "Resolved Dataflow Paths", 10, false); section != "" {
-		digest.WriteString(section)
-	}
-	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceConditional, "Condition Guards", 12); section != "" {
-		digest.WriteString(section)
-	}
-	if section := formatFlowFindingsSection(e.flowFindings, "Conflicts / Unknowns", 8, true); section != "" {
-		digest.WriteString(section)
-	}
-	if section := formatEvidenceSection(e.structuredEvidence, types.EvidenceAbsent, "Negative Evidence", 10); section != "" {
-		digest.WriteString(section)
-	}
-
-	// Focus alignment: detect if the LLM's evidence primarily discusses
-	// a different entity than what the question asks about.
-	questionEntities := extractQuestionEntities(e.userQuestion)
-	if len(questionEntities) > 0 && len(e.investigationNotes) > 0 {
-		notesJoined := strings.Join(e.investigationNotes, "\n")
-		targetEntity := questionEntities[0]
-		targetCount := strings.Count(notesJoined, targetEntity)
-
-		// Find the most-mentioned entity across all entities we know about.
-		bestEntity := targetEntity
-		bestCount := targetCount
-		// Also check entities from the graph that appear in notes.
-		if e.searchResult != nil && e.searchResult.Graph != nil {
-			for symName := range e.searchResult.Graph.SymbolDefs {
-				if len(symName) < 6 {
-					continue
-				}
-				// Skip if it's already one of the question entities.
-				isQuestionEntity := false
-				for _, qe := range questionEntities {
-					if symName == qe || strings.Contains(qe, symName) || strings.Contains(symName, qe) {
-						isQuestionEntity = true
-						break
-					}
-				}
-				if isQuestionEntity {
-					continue
-				}
-				cnt := strings.Count(notesJoined, symName)
-				if cnt > bestCount {
-					bestEntity = symName
-					bestCount = cnt
-				}
-			}
-		}
-
-		if bestEntity != targetEntity && bestCount > targetCount*2 && bestCount >= 3 {
-			digest.WriteString("## WARNING: Potential Focus Misalignment\n\n")
-			fmt.Fprintf(&digest, "Your question asks about **`%s`** but your evidence primarily discusses "+
-				"**`%s`** (%d mentions vs %d mentions for the target). "+
-				"Ensure your answer focuses on `%s`, not `%s`.\n\n",
-				targetEntity, bestEntity, bestCount, targetCount,
-				targetEntity, bestEntity)
-		}
-	}
-
-	// Build cross-reference map: identify symbols that appear in 2+
-	// evidence sets. These are the links in the evidence chain.
-	if crossRefs := e.buildCrossReferenceMap(); crossRefs != "" {
-		digest.WriteString(crossRefs)
-	}
-
-	// Enumeration completeness: show the LLM how many files were found
-	// vs analyzed, so it can assess whether its list is exhaustive.
-	if e.isEnumerationQuery {
-		allDiscovered, allReadSet := extractFileCoverage(toolResults)
-		enumCov := 0.0
-		if len(allDiscovered) > 0 {
-			enumCov = float64(len(allReadSet)) / float64(len(allDiscovered)) * 100
-		}
-		digest.WriteString("## Enumeration Completeness\n\n")
-		fmt.Fprintf(&digest, "This is an enumeration query. Files found: %d, analyzed: %d (%.0f%% coverage).\n",
-			len(allDiscovered), len(allReadSet), enumCov)
-		var enumUnread []string
-		for _, f := range allDiscovered {
-			if !allReadSet[f] {
-				enumUnread = append(enumUnread, f)
-			}
-		}
-		if len(enumUnread) > 0 {
-			digest.WriteString("**UNREAD files (your answer may be incomplete):**\n")
-			for _, f := range enumUnread {
-				digest.WriteString("- " + f + "\n")
-			}
-		} else {
-			digest.WriteString("All discovered files were analyzed — good coverage.\n")
-		}
-		digest.WriteString("\nEnsure your answer explicitly states the total count of items found.\n\n")
-	}
-
-	// Include a compact file list so the LLM knows what was read.
-	_, readSet := extractFileCoverage(toolResults)
-
-	// Inject concrete values extracted from short methods/functions
-	// across all relevant files (pre-scanned, read, and scored).
-	// Also builds resolution chains that trace through symbol references.
-	// Track what programmatic layers fired for adaptive instructions.
-	hasConcreteValues := false
-	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, readSet)
-	cv := cvResult.markdown
-	if cv != "" {
-		hasConcreteValues = true
-		digest.WriteString(cv)
-	}
-	// Merge concrete values evidence into structured evidence so it
-	// flows to finalizer regardless of synthesis success.
-	if len(cvResult.evidence) > 0 {
-		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)
-	}
-	digest.WriteString("## Files Read\n\n")
-	for _, r := range toolResults {
-		if r.Success && r.ToolName == "read_file" {
-			first := strings.SplitN(r.Summary, "\n", 2)[0]
-			digest.WriteString("- " + first + "\n")
-		}
-	}
-	digest.WriteString("\n")
-
-	// Flag pre-scanned files that were never read.
-	var unreadImportant []string
-	for _, f := range e.preScannedFiles {
-		if !readSet[f] && !isNoisePath(f) {
-			unreadImportant = append(unreadImportant, f)
-		}
-	}
-	if len(unreadImportant) > 0 {
-		digest.WriteString("## WARNING: Unread Important Files\n\n")
-		digest.WriteString("These structurally important files were identified but NEVER READ. ")
-		digest.WriteString("Your answer may be incomplete:\n\n")
-		for _, f := range unreadImportant {
-			digest.WriteString("- " + f)
-			if syms := e.fileSymbols[f]; len(syms) > 0 {
-				digest.WriteString(" — defines: " + strings.Join(syms, "; "))
-			}
-			digest.WriteString("\n")
-		}
-		digest.WriteString("\n")
-	}
-
-	// Cross-validate LLM evidence against programmatic concrete values.
-	// Surface conflicts where the LLM's claims contradict ground truth
-	// extracted directly from source code.
-	if len(e.investigationNotes) > 0 && hasConcreteValues {
-		if conflicts := crossValidateEvidence(e.investigationNotes, cv); conflicts != "" {
-			digest.WriteString(conflicts)
-		}
-	}
-
-	// Detect unresolved conditions: evidence entries tagged [CONDITIONAL]
-	// whose IF clauses cannot be structurally matched against any method
-	// in the Concrete Values table or Resolution Chains.
-	if len(e.investigationNotes) > 0 && hasConcreteValues {
-		unresolvedConditions := resolveConditions(e.investigationNotes, cv)
-		if len(unresolvedConditions) > 0 {
-			digest.WriteString("## Unresolved Conditions\n\n")
-			digest.WriteString("These conditions from your evidence could NOT be resolved by the Concrete Values table. " +
-				"Your answer should acknowledge this uncertainty:\n\n")
-			for _, c := range unresolvedConditions {
-				digest.WriteString(c + "\n")
-			}
-			digest.WriteString("\n")
-		}
-	}
-
-	// Surface negative evidence: [ABSENT] entries that the LLM recorded
-	// during investigation. These are critical for exclusion reasoning.
-	if len(e.investigationNotes) > 0 {
-		var absentEntries []string
-		for _, note := range e.investigationNotes {
-			for _, line := range strings.Split(note, "\n") {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "- [ABSENT]") {
-					absentEntries = append(absentEntries, trimmed)
-				}
-			}
-		}
-		if len(absentEntries) > 0 {
-			digest.WriteString("## Negative Evidence (Absent Patterns)\n\n")
-			digest.WriteString("These patterns were EXPECTED but NOT FOUND during investigation. " +
-				"Use them for exclusion reasoning:\n\n")
-			for _, e := range absentEntries {
-				digest.WriteString(e + "\n")
-			}
-			digest.WriteString("\n")
-		}
-	}
-
-	// Adaptive reasoning instructions: guide the LLM based on which
-	// programmatic layers actually produced output.
-	digest.WriteString("## Reasoning Instructions\n\n")
-	digest.WriteString("Answer the user's question by following these steps:\n\n")
-	if hasConcreteValues {
-		digest.WriteString("**Step 1 — Use programmatic evidence.** The Concrete Values table, " +
-			"Resolution Chains, and Embedding Chains above are extracted directly from source code " +
-			"and are ground truth. Start your reasoning from these.\n\n")
-	}
-	digest.WriteString("**Step 2 — Resolve conditions.** When your evidence says 'X happens if Y', " +
-		"find the concrete value of Y. Do not stop at 'any component that satisfies the condition' — " +
-		"trace through to identify WHICH specific components satisfy it right now.\n\n")
-	digest.WriteString("**Step 3 — Answer the question.** Requirements:\n")
-	digest.WriteString("- Name SPECIFIC components, not categories\n")
-	digest.WriteString("- Ground every key claim in a file:line citation\n")
-	digest.WriteString("- If a condition cannot be resolved (no concrete value found), say so explicitly " +
-		"rather than guessing\n")
-
-	// When the question asks for an itemized listing ("哪几种", "具体有哪些",
-	// "what strategies", "what are the"), add instruction to list each item
-	// individually with its exact trigger condition. This prevents the LLM
-	// from over-summarizing multiple distinct items into vague categories.
-	if detectDetailListingIntent(e.userQuestion) {
-		digest.WriteString("\n**Step 4 — Itemize your answer.** The question asks for specific items. " +
-			"List EACH distinct item as a numbered entry with:\n")
-		digest.WriteString("- Its exact name or identifier\n")
-		digest.WriteString("- Its trigger condition or defining characteristic\n")
-		digest.WriteString("- A file:line citation\n")
-		digest.WriteString("Do NOT merge multiple distinct items into one broad category. " +
-			"If there are 6 strategies, list all 6 separately — not 3 categories of 2.\n")
-	}
-
-	// Global budget: cap the synthesis prompt to avoid exceeding LLM
-	// context windows. gpt-4o ≈ 128K tokens ≈ 400KB; allow ~120KB for
-	// the synthesis user message (the system prompt and overhead take the
-	// rest). If over budget, progressively truncate lower-priority
-	// sections from the bottom of the digest.
-	const synthBudgetBytes = 120_000
-	result := digest.String()
-	if len(result) > synthBudgetBytes {
-		logging.Debug("[explorer] synthesis prompt %d bytes exceeds budget %d, truncating", len(result), synthBudgetBytes)
-		result = truncateSynthesisPrompt(result, synthBudgetBytes)
-	}
-	return result, true
-}
-
-// truncateSynthesisPrompt progressively removes lower-priority sections
-// from the synthesis prompt to fit within the byte budget. Sections are
-// removed from lowest to highest priority.
-func truncateSynthesisPrompt(prompt string, budget int) string {
-	if len(prompt) <= budget {
-		return prompt
-	}
-	// Sections to remove, in order of lowest to highest priority.
-	// Each entry is the markdown heading that starts the section.
-	lowPrioritySections := []string{
-		"## WARNING: Unread Important Files",
-		"## Unresolved Conditions",
-		"## Negative Evidence (Absent Patterns)",
-		"## WARNING: Potential Focus Misalignment",
-		"## Enumeration Completeness",
-		"## Cross-References Between Evidence Sets",
-		"### Type Hierarchy Chains",
-		"### Resolution Chains",
-	}
-	for _, heading := range lowPrioritySections {
-		if len(prompt) <= budget {
-			break
-		}
-		prompt = removeMarkdownSection(prompt, heading)
-	}
-	// If still over budget, hard-truncate the evidence catalog notes.
-	if len(prompt) > budget {
-		prompt = prompt[:budget] + "\n\n... [synthesis prompt truncated to fit context window]\n"
-	}
-	return prompt
-}
-
-// removeMarkdownSection removes a markdown section (heading + content up to
-// the next heading of equal or higher level) from text.
-func removeMarkdownSection(text, heading string) string {
-	idx := strings.Index(text, heading)
-	if idx < 0 {
-		return text
-	}
-	// Determine the heading level (count leading #).
-	level := 0
-	for _, ch := range heading {
-		if ch == '#' {
-			level++
-		} else {
-			break
-		}
-	}
-	// Find the end of this section: next heading of same or higher level.
-	rest := text[idx+len(heading):]
-	endMarker := strings.Repeat("#", level) + " "
-	// Also stop at headings with fewer # (higher level).
-	endIdx := -1
-	for i := 0; i < len(rest); i++ {
-		if i == 0 || (i > 0 && rest[i-1] == '\n') {
-			remaining := rest[i:]
-			for l := 1; l <= level; l++ {
-				prefix := strings.Repeat("#", l) + " "
-				if strings.HasPrefix(remaining, prefix) {
-					endIdx = i
-					break
-				}
-			}
-			if endIdx >= 0 {
-				break
-			}
-			_ = endMarker // suppress unused
-		}
-	}
-	if endIdx < 0 {
-		// Section runs to end of text.
-		return text[:idx]
-	}
-	return text[:idx] + rest[endIdx:]
 }
 
 // buildCrossReferenceMap scans investigation notes for symbol names
