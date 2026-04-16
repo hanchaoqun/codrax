@@ -7,7 +7,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-func hasViolation(r Result, kind string) bool {
+func hasViolation(r Result, kind ViolationKind) bool {
 	for _, v := range r.Violations {
 		if v.Kind == kind {
 			return true
@@ -137,7 +137,7 @@ func TestCheck_Citations_MinCount_ZeroRejects(t *testing.T) {
 	if r.Passed {
 		t.Fatal("0 citations should hard-reject")
 	}
-	if !hasViolation(r, "citation") {
+	if !hasViolation(r, ViolCitation) {
 		t.Fatal("should emit citation violation")
 	}
 }
@@ -171,7 +171,7 @@ func TestCheck_MustInclude(t *testing.T) {
 	if r.Passed {
 		t.Fatal("missing ShouldStop should fail")
 	}
-	if !hasViolation(r, "must_include") {
+	if !hasViolation(r, ViolMustInclude) {
 		t.Fatal("should emit must_include violation")
 	}
 }
@@ -190,7 +190,7 @@ func TestCheck_MustExclude(t *testing.T) {
 	if r.Passed {
 		t.Fatal("forbidden token must fail")
 	}
-	if !hasViolation(r, "must_exclude") {
+	if !hasViolation(r, ViolMustExclude) {
 		t.Fatal("should emit must_exclude violation")
 	}
 }
@@ -287,7 +287,7 @@ func TestCheck_RepairHintEmittedForRecoverable(t *testing.T) {
 	}
 	foundRepair := false
 	for _, v := range r.Violations {
-		if v.Kind == "must_include" && strings.Contains(v.Repair, "Explorer") {
+		if v.Kind == ViolMustInclude && strings.Contains(v.Repair, "Explorer") {
 			foundRepair = true
 		}
 	}

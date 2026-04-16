@@ -48,11 +48,22 @@ type Result struct {
 	Violations []Violation
 }
 
+// ViolationKind classifies a contract breach.
+type ViolationKind string
+
+const (
+	ViolShape       ViolationKind = "shape"
+	ViolCitation    ViolationKind = "citation"
+	ViolMustInclude ViolationKind = "must_include"
+	ViolMustExclude ViolationKind = "must_exclude"
+	ViolAcceptance  ViolationKind = "acceptance"
+)
+
 // Violation is one specific contract breach with a short reason and
 // an optional repair hint the orchestrator can pass to the explorer
 // when it reroutes the task.
 type Violation struct {
-	Kind   string // "shape" | "citation" | "must_include" | "must_exclude" | "acceptance"
+	Kind   ViolationKind
 	Detail string
 	Repair string // e.g. "collect evidence for <symbol>"
 }
@@ -85,17 +96,17 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 		// Accept yes/no as either the full answer or a leading token.
 		if !(strings.HasPrefix(lower, "yes") || strings.HasPrefix(lower, "no") ||
 			strings.HasPrefix(lower, "是") || strings.HasPrefix(lower, "否")) {
-			return []Violation{{Kind: "shape", Detail: "boolean answer must start with yes/no"}}
+			return []Violation{{Kind: ViolShape, Detail: "boolean answer must start with yes/no"}}
 		}
 	case types.ShapeValue:
 		// A value answer must be short and non-empty. "Short" is a
 		// rough heuristic: ≤ 200 chars. Longer indicates the model
 		// wrote an explanation instead of returning the value.
 		if len(strings.TrimSpace(text)) == 0 {
-			return []Violation{{Kind: "shape", Detail: "value answer must not be empty"}}
+			return []Violation{{Kind: ViolShape, Detail: "value answer must not be empty"}}
 		}
 		if len(text) > 500 {
-			return []Violation{{Kind: "shape",
+			return []Violation{{Kind: ViolShape,
 				Detail: fmt.Sprintf("value answer too long (%d chars) — expected a literal", len(text))}}
 		}
 	case types.ShapeListOfSymbols:
@@ -103,19 +114,19 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 		// symbol reference. We accept either explicit "-"/"*" bullets,
 		// numbered items, or backtick-fenced identifiers.
 		if !hasSymbolListShape(text) {
-			return []Violation{{Kind: "shape", Detail: "list_of_symbols answer must contain bulleted or fenced symbol entries"}}
+			return []Violation{{Kind: ViolShape, Detail: "list_of_symbols answer must contain bulleted or fenced symbol entries"}}
 		}
 	case types.ShapeStepList:
 		if !hasNumberedSteps(text) {
-			return []Violation{{Kind: "shape", Detail: "step_list answer must contain numbered steps"}}
+			return []Violation{{Kind: ViolShape, Detail: "step_list answer must contain numbered steps"}}
 		}
 	case types.ShapeConfigValue:
 		if !strings.Contains(text, "=") && !strings.Contains(text, ":") && !strings.Contains(text, " is ") {
-			return []Violation{{Kind: "shape", Detail: "config_value answer must express a key=value or key: value pair"}}
+			return []Violation{{Kind: ViolShape, Detail: "config_value answer must express a key=value or key: value pair"}}
 		}
 	case types.ShapeExplanation:
 		if len(strings.TrimSpace(text)) < 20 {
-			return []Violation{{Kind: "shape", Detail: "explanation answer too short to be meaningful"}}
+			return []Violation{{Kind: ViolShape, Detail: "explanation answer too short to be meaningful"}}
 		}
 	}
 	return nil
@@ -135,7 +146,7 @@ func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 			// pass — some citations present
 		} else {
 			return []Violation{{
-				Kind:   "citation",
+				Kind:   ViolCitation,
 				Detail: fmt.Sprintf("%d citations provided, %d required", len(draft.Citations), req.MinCitations),
 				Repair: "collect more evidence with file:line anchors",
 			}}
@@ -145,15 +156,15 @@ func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 		switch req.Granularity {
 		case "file":
 			if strings.TrimSpace(cit.File) == "" {
-				return []Violation{{Kind: "citation", Detail: "citation missing file"}}
+				return []Violation{{Kind: ViolCitation, Detail: "citation missing file"}}
 			}
 		case "file_line":
 			if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
-				return []Violation{{Kind: "citation", Detail: fmt.Sprintf("citation %q missing line number", cit.File)}}
+				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line number", cit.File)}}
 			}
 		case "file_line_range":
 			if strings.TrimSpace(cit.File) == "" || (cit.Line <= 0 && len(cit.Lines) == 0) {
-				return []Violation{{Kind: "citation", Detail: fmt.Sprintf("citation %q missing line range", cit.File)}}
+				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line range", cit.File)}}
 			}
 		}
 	}
@@ -168,7 +179,7 @@ func checkMustInclude(draft Answer, c types.AnswerContract) []Violation {
 		}
 		if !containsSymbol(draft.Text, sym) {
 			out = append(out, Violation{
-				Kind:   "must_include",
+				Kind:   ViolMustInclude,
 				Detail: fmt.Sprintf("required term %q missing from answer", sym),
 				Repair: "include " + sym + " in the final answer",
 			})
@@ -185,7 +196,7 @@ func checkMustExclude(draft Answer, c types.AnswerContract) []Violation {
 		}
 		if containsSymbol(draft.Text, sym) {
 			out = append(out, Violation{
-				Kind:   "must_exclude",
+				Kind:   ViolMustExclude,
 				Detail: fmt.Sprintf("forbidden term %q present in answer", sym),
 			})
 		}
@@ -199,24 +210,24 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 		switch a.Kind {
 		case types.CritContainsSymbol:
 			if !containsSymbol(draft.Text, a.Expr) {
-				out = append(out, Violation{Kind: "acceptance",
+				out = append(out, Violation{Kind: ViolAcceptance,
 					Detail: fmt.Sprintf("acceptance contains_symbol %q failed", a.Expr)})
 			}
 		case types.CritRegexMatch:
 			re, err := regexp.Compile(a.Expr)
 			if err != nil {
-				out = append(out, Violation{Kind: "acceptance",
+				out = append(out, Violation{Kind: ViolAcceptance,
 					Detail: fmt.Sprintf("invalid regex %q: %v", a.Expr, err)})
 				continue
 			}
 			if !re.MatchString(draft.Text) {
-				out = append(out, Violation{Kind: "acceptance",
+				out = append(out, Violation{Kind: ViolAcceptance,
 					Detail: fmt.Sprintf("acceptance regex %q did not match", a.Expr)})
 			}
 		case types.CritCitationCountGE:
 			n, err := strconv.Atoi(strings.TrimSpace(a.Expr))
 			if err != nil {
-				out = append(out, Violation{Kind: "acceptance",
+				out = append(out, Violation{Kind: ViolAcceptance,
 					Detail: fmt.Sprintf("citation_count_ge expects integer, got %q", a.Expr)})
 				continue
 			}
@@ -232,11 +243,11 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 				if len(draft.Citations) > 0 {
 					continue // pass with implicit caveat
 				}
-				out = append(out, Violation{Kind: "acceptance",
+				out = append(out, Violation{Kind: ViolAcceptance,
 					Detail: fmt.Sprintf("only %d citations, need ≥%d", len(draft.Citations), n)})
 			}
 		default:
-			out = append(out, Violation{Kind: "acceptance",
+			out = append(out, Violation{Kind: ViolAcceptance,
 				Detail: fmt.Sprintf("unknown acceptance test kind %q (expr=%q)", a.Kind, a.Expr)})
 		}
 	}
