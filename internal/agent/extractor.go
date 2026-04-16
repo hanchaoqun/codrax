@@ -45,7 +45,10 @@ import (
 
 // extractorEvaluator is the Turn B evaluator. It is a separate type
 // from explorerEvaluator so the two turns cannot accidentally share
-// state.
+// state. Implements LoopController so the mid-loop path can stop
+// immediately after the one-shot emit_* batch executes, instead of
+// burning an extra LLM round that ShouldStop(iteration >= 1) would
+// catch anyway.
 type extractorEvaluator struct{}
 
 // BuildInitialInstruction implements Evaluator.
@@ -388,6 +391,17 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 	logging.Warning("[extractor] completeness=complete DOWNGRADED to lower_bound: %d items < baseline %d (termCount=%d mustInclude=%d). The slate is preserved as a floor; the finalizer will use the softened prompt.",
 		len(syms), baseline, termCount, mustInclude)
 	return types.CompletenessLowerBound
+}
+
+// Observe implements LoopController. The extractor is one-shot: once
+// the LLM's emit_* tool batch executes, there is nothing left to do.
+// Stop immediately at PhaseMidLoop instead of burning one extra LLM
+// round.
+func (e *extractorEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase == PhaseMidLoop && len(obs.AllToolResults) > 0 {
+		return LoopSignal{StopRequested: true, StopReason: "extractor one-shot batch complete"}
+	}
+	return LoopSignal{}
 }
 
 // DetermineMissingPiece implements Evaluator.

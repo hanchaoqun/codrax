@@ -589,9 +589,10 @@ func TestAnalyzer_PrescanBudget_WithinBudget(t *testing.T) {
 		t.Errorf("after round 2: prescanRounds = %d, want 2", e.prescanRounds)
 	}
 	// A third observation whose LastToolResult is emit_analysis must
-	// NOT advance the counter (well-behaved end state).
-	if sig := observePrescan(e, 2, "emit_analysis", &history); sig.StopRequested {
-		t.Errorf("emit_analysis observation: unexpected StopRequested (reason=%q)", sig.StopReason)
+	// NOT advance the counter, but SHOULD request stop (emit_analysis
+	// is the analyzer's terminal action — no further iteration needed).
+	if sig := observePrescan(e, 2, "emit_analysis", &history); !sig.StopRequested {
+		t.Errorf("emit_analysis observation: expected StopRequested=true")
 	}
 	if e.prescanRounds != 2 {
 		t.Errorf("emit_analysis must not advance prescanRounds; got %d, want 2", e.prescanRounds)
@@ -628,12 +629,11 @@ func TestAnalyzer_PrescanBudget_OverBudget_ForcesStop(t *testing.T) {
 }
 
 // TestAnalyzer_PrescanBudget_EmitAnalysisNotCounted verifies that
-// emit_analysis tool results never advance the counter regardless
-// of how many times they fire — only the three pre-scan navigation
-// tools (repo_map, grep, list_files) count as "pre-scan rounds".
-// This pins the mixed-batch semantic: if the LLM fires
-// `grep → emit_analysis` in a single iteration, the last-tool is
-// emit_analysis and the round does not count.
+// emit_analysis tool results never advance the prescan counter
+// regardless of how many times they fire — only the three pre-scan
+// navigation tools (repo_map, grep, list_files) count as "pre-scan
+// rounds". emit_analysis DOES request a stop (it is the analyzer's
+// terminal action) but leaves prescanRounds unchanged.
 func TestAnalyzer_PrescanBudget_EmitAnalysisNotCounted(t *testing.T) {
 	restoreAnalysisLimits(t)
 	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
@@ -643,11 +643,11 @@ func TestAnalyzer_PrescanBudget_EmitAnalysisNotCounted(t *testing.T) {
 	var history []types.ToolResult
 
 	// Five consecutive emit_analysis-as-last observations must leave
-	// prescanRounds at 0 and never trip the gate.
+	// prescanRounds at 0, but each should request stop.
 	for i := 0; i < 5; i++ {
 		sig := observePrescan(e, i, "emit_analysis", &history)
-		if sig.StopRequested {
-			t.Errorf("iteration %d: emit_analysis should not trigger stop, got reason=%q", i, sig.StopReason)
+		if !sig.StopRequested {
+			t.Errorf("iteration %d: emit_analysis should trigger stop", i)
 		}
 	}
 	if e.prescanRounds != 0 {

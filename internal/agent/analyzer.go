@@ -64,7 +64,17 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if obs.Phase != PhaseMidLoop {
 		return LoopSignal{}
 	}
-	if obs.LastToolResult == nil || !isPrescanTool(obs.LastToolResult.ToolName) {
+	if obs.LastToolResult == nil {
+		return LoopSignal{}
+	}
+	// emit_analysis is the analyzer's terminal action — once it fires,
+	// there is nothing left for the ReAct loop to do. Stop immediately
+	// instead of burning one extra LLM round that invariably produces
+	// a content-only soft-stop.
+	if obs.LastToolResult.ToolName == "emit_analysis" {
+		return LoopSignal{StopRequested: true, StopReason: "emit_analysis called"}
+	}
+	if !isPrescanTool(obs.LastToolResult.ToolName) {
 		return LoopSignal{}
 	}
 	e.prescanRounds++

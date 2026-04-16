@@ -784,9 +784,13 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	allResults := obs.AllToolResults
 
 	// Detect explicit completion signal from the LLM.
+	// emit_investigation_complete is the explorer's terminal action —
+	// stop immediately instead of burning one extra LLM round that
+	// ShouldStop would catch anyway.
 	if obs.LastToolResult != nil && obs.LastToolResult.ToolName == "emit_investigation_complete" && obs.LastToolResult.Success {
 		e.investigationComplete = true
 		logging.Info("[explorer] emit_investigation_complete observed at iter=%d", iteration)
+		return LoopSignal{StopRequested: true, StopReason: "emit_investigation_complete called"}
 	}
 
 	// Track primary-entity file reads for S1's df3-drift gate. Runs

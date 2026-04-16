@@ -217,6 +217,17 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 // before fail-loud"), not a generic loop-wide cap. LoopPolicy's
 // continuation cap still applies as an outer safety net.
 func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+	if obs.Phase == PhaseMidLoop {
+		// emit_answer_document is the finalizer's terminal action —
+		// once it fires, stop immediately instead of burning one extra
+		// LLM round that would just produce a content-only soft-stop.
+		if e.mu != nil {
+			if doc := e.mu.AnswerDocument(); doc != nil && !doc.IsZero() {
+				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
+			}
+		}
+		return LoopSignal{}
+	}
 	if obs.Phase != PhaseSoftStop {
 		return LoopSignal{}
 	}
