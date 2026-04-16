@@ -40,11 +40,11 @@ codrax 接收用户的自然语言问题，通过一个**确定性的四阶段�
 
 ### 分层
 
-五个逻辑层，只是概念划分 —— 实现上压在四个阶段里：
+六个逻辑层，实现上压在四个阶段（`analyze → explore → extract → finalize`）里：
 
 - **Layer 1 编排层** — 走 criterion-aware DAG、分派阶段、fail-loud 重试
-- **Layer 2 执行层** — 4 个专业 Agent 承担一阶段一 ReAct 循环；explorer 的 `executeTool` 内置 sourcemix 预算门控
-- **Layer 3 策略层** — 每个 Agent 绑定一个 Skill 配置，决定工作流和输出契约
+- **Layer 2 执行层** — 4 个专业 Agent（analyzer / explorer / extractor / finalizer），各承担一阶段一 ReAct 循环；explorer 的 `executeTool` 内置 sourcemix 预算门控
+- **Layer 3 策略层** — 每个 Agent 绑定一个 Skill 配置（analysis-skill / explore-skill / extract-skill / answer-document-skill），决定工作流和输出契约
 - **Layer 4 能力层** — 本地只读工具（grep / read_file / repo_map 等）+ emit_* 结构化发射器
 - **Layer 5 智能层** — 可插拔的 LLM 适配器
 - **Layer 6 分析层** — `internal/analysis/` 下 14 个确定性子包：normalizer / compiler / budget / sourcemix / risk / hdp / priority / binder / counterfactual / gate / stopcond / criterion / contract / dataflow
