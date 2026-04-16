@@ -73,7 +73,7 @@ const thinkAloudDirective = "You may include 1-2 sentences of reasoning as text 
 	"IMPORTANT: reasoning goes in the assistant message text; tool calls go through the function-calling mechanism (tool_use blocks). " +
 	"NEVER write tool-call JSON in your text content — that does not execute the tool. " +
 	"Do NOT produce a text-only response without actual tool calls — always pair your reasoning with real function-calling tool_use blocks. " +
-	"Use the same language as the user's question. Keep it brief."
+	"Use the same language as the user's question. Write PLAIN TEXT only — no markdown headers, no bold, no bullets, no code blocks. Keep it to 1-2 short sentences."
 
 // reasoningHygieneShell is the "don't miscount, use a tool" meta-rule
 // for stages whose allowlist includes exec_command — today only the
