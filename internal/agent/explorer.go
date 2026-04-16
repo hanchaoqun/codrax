@@ -1133,52 +1133,19 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// scan summary. Now switch to depth reading with evidence
 		// catalog mode: collect ALL facts, defer reasoning to synthesis.
 		e.phase = 1
-		phaseTransitionHint := "## Phase 2: Evidence Collection\n\n" +
-			"Good — you have mapped the relevant territory. Now switch to deep evidence collection.\n\n" +
-			"**User question: " + e.userQuestion + "**\n\n" +
-			"**Your job is to collect evidence, NOT to answer the question.** " +
-			"Do not form hypotheses or draw conclusions during this phase. " +
-			"Reasoning happens later in synthesis — right now, be a thorough investigator.\n\n" +
-			"Read the key source files you identified. After EACH file, extract ALL relevant facts as structured evidence.\n\n" +
-			"**Preferred channel: call the `emit_evidence` tool.** After reading a file, call `emit_evidence(items=[...])` with one item per fact you want the synthesis layer to see. Send the full batch in ONE call per file — do not invoke the tool per item. Each item is an object with these fields:\n" +
-			"  - `kind`: one of `direct`, `conditional`, `registration`, `mechanism`, `relationship`, `absent`\n" +
-			"  - `subject`: the primary symbol (function/type/key) the fact is about\n" +
-			"  - `object`: the secondary symbol (REQUIRED for `relationship`)\n" +
-			"  - `source`: repository-relative file path (REQUIRED, must contain `/` or `.`)\n" +
-			"  - `line_start`: integer line number taken EXACTLY from the read_file gutter (omit if no specific line)\n" +
-			"  - `line_end`: optional end of range, defaults to line_start\n" +
-			"  - `condition`: the IF clause for `conditional` items\n" +
-			"  - `summary`: free-text rationale\n" +
-			"Unknown fields and unknown kinds are REJECTED with a clear error — fix and resend rather than retry blind.\n\n" +
-			"**Fallback channel: markdown blocks.** If you cannot use the tool for a particular item, write the markdown shape below in your assistant message. The two channels are merged downstream and deduplicated, so it is also safe to use both — just do not duplicate the same fact verbatim across them.\n\n" +
-			"Markdown shape:\n\n" +
-			"```\n" +
-			"## Evidence from [filename]\n" +
-			"- [DIRECT] `functionName` line N: <what this code establishes>\n" +
-			"- [CONDITIONAL] `functionName` line N: <what happens> IF <condition>\n" +
-			"- [REGISTRATION] `functionName` line N: <what is registered/configured, with EXACT values>\n" +
-			"- [MECHANISM] `functionName` line N: <how something works>\n" +
-			"- [RELATIONSHIP] `symbolA` → `symbolB`: <nature of the link>\n" +
-			"```\n\n" +
-			"**Rules:**\n" +
-			"- **Line numbers must come from the gutter.** Every `read_file` result shows each line with its absolute line number in the left gutter (format `   123│ code...`). When you write `line N` in an evidence entry, `N` MUST be the exact gutter number of the line you are describing — do not estimate, do not interpolate between two gutter numbers you saw, do not carry a number over from `grep` output. If you want to cite a range, cite the gutter numbers of the first and last lines of that range verbatim. If you are not certain which gutter number applies, leave the `line N` part off rather than guess — an entry without a line is useful, an entry with a wrong line is not.\n" +
-			"- Extract EVERY fact that MIGHT be relevant, even if you're unsure — err on the side of over-collecting\n" +
-			"- For [REGISTRATION] entries: always note the EXACT concrete values (which specific items are registered, what strings are returned). " +
-			"If a function registers exactly 1 item, say 'registers ONLY X' — 'including X' is ambiguous and insufficient\n" +
-			"- For [CONDITIONAL] entries: note the exact condition — do NOT summarize conditions as 'when configured' or 'if applicable'\n" +
-			"- **NEVER skip simple methods/functions.** Short ones like `getName() { return \"x\" }` or `isEnabled() { return true }` are CRITICAL " +
-			"because they establish concrete values that resolve conditions. Always record them as [REGISTRATION] with the exact return value\n" +
-			"- **Negative evidence matters.** If you expected to find a pattern/method/registration but it is ABSENT, record:\n" +
-			"  `- [ABSENT] Expected <what> in <where> but NOT found`\n" +
-			"  This is critical for exclusion reasoning (e.g., \"class X does NOT implement method Y because it is absent from the source\")\n" +
-			"- For interface implementations: note WHICH concrete type implements WHICH interface, and what each method returns\n" +
-			"- Read function BODIES, not just signatures — the specific values, registrations, and return values inside bodies are critical evidence\n" +
-			"- Read ONE file at a time\n" +
-			"- **Large file strategy (MANDATORY for files >500 lines):** Do NOT read large files with offset=0. " +
-			"Instead, FIRST grep the file for the key identifiers from the user's question (field names, function names, string literals), using `context_lines=3` where helpful, " +
-			"THEN read only the specific line ranges where grep found matches. " +
-			"Sequential paging through a 2000-line file wastes steps and misses content — targeted grep + read is both faster and more thorough\n\n" +
-			"Start investigating now. For each file: grep first, then read the matched sections."
+		phaseTransitionHint := "## Now entering PHASE 2: Evidence Collection\n\n" +
+			"Good — you have mapped the relevant territory. Now read the key source files and collect evidence.\n\n" +
+			"**Your job is to collect evidence, NOT to answer the question.** Reasoning happens later in synthesis.\n\n" +
+			"After reading each file, call `emit_evidence(items=[...])` with ALL facts in ONE batch. " +
+			"The tool schema describes the fields — use it. Line numbers MUST come from the `read_file` gutter exactly.\n\n" +
+			"**Key rules:**\n" +
+			"- NEVER skip simple methods (`getName() { return \"x\" }`) — record them as evidence with exact return values\n" +
+			"- For [REGISTRATION]: note EXACT concrete values, not just 'including X'\n" +
+			"- For [CONDITIONAL]: note the exact condition, not 'when configured'\n" +
+			"- Record [ABSENT] evidence when an expected pattern is NOT found\n" +
+			"- Read function BODIES, not just signatures\n" +
+			"- **Large files (>500 lines):** grep for key identifiers first, then read only matched ranges\n\n" +
+			"Start investigating now."
 		// Phase-transition is a HARD progress signal — the LLM has
 		// completed Phase 0 and now moves into Phase 1.
 		return LoopSignal{

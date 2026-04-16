@@ -87,10 +87,8 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 	e.retriesUsed = 0
 	var b strings.Builder
 
-	// -------- User question --------
-	if ctx != nil && strings.TrimSpace(ctx.Objective) != "" {
-		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.Objective))
-	}
+	// User question is already rendered by builder.go as "User Request"
+	// section — no need to repeat it here.
 
 	// -------- Turn A transcript digest --------
 	ta := (*types.TurnAArtifacts)(nil)

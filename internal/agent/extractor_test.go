@@ -73,12 +73,12 @@ func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
 		t.Errorf("extract-skill Workflow must not instruct emit_evidence (duplicates Turn A):\n%s", wf)
 	}
 
-	// Prohibitions must explicitly forbid the investigation tools and
-	// the evidence channel.
+	// Prohibitions must convey that Turn B has no file access and must
+	// not re-emit evidence.
 	prohib := strings.Join(sk.Prohibitions, "\n")
-	for _, forbidden := range []string{"read_file", "grep", "repo_map", "emit_evidence"} {
+	for _, forbidden := range []string{"no file access", "re-emit evidence"} {
 		if !strings.Contains(prohib, forbidden) {
-			t.Errorf("extract-skill Prohibitions must forbid %q: %s", forbidden, prohib)
+			t.Errorf("extract-skill Prohibitions must convey %q: %s", forbidden, prohib)
 		}
 	}
 
@@ -92,19 +92,19 @@ func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
 }
 
 func TestExtractor_BuildInitialInstructionEchoesQuestion(t *testing.T) {
-	// BuildInitialInstruction is now the DYNAMIC digest only — it echoes
-	// the user question and bakes the Turn A transcript snapshot.
-	// The static tool contract lives in the skill (see the test
-	// above). This test pins what BuildInitialInstruction IS responsible
-	// for post-cleanup: the user question + a non-empty result.
+	// BuildInitialInstruction is the DYNAMIC digest only — Turn A
+	// transcript snapshot + cardinality baseline + hypothesis set.
+	// The user question is rendered by builder.go as "User Request"
+	// section and is NOT repeated here.
 	e := &extractorEvaluator{}
 	ctx := &types.AgentContext{Objective: "what does Foo return?"}
 	prompt := e.BuildInitialInstruction(ctx, nil)
 	if prompt == "" {
 		t.Fatal("BuildInitialInstruction must produce a non-empty result")
 	}
-	if !contains(prompt, "what does Foo return?") {
-		t.Error("prompt should echo the user question")
+	// User question should NOT be echoed — builder.go handles it.
+	if contains(prompt, "## User question") {
+		t.Error("BuildInitialInstruction should not duplicate the user question (builder.go renders it)")
 	}
 	// Post-cleanup invariant: the dynamic prompt MUST NOT repeat the
 	// full contract sections (allowed/forbidden/honesty contract).
@@ -347,9 +347,10 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	e := &extractorEvaluator{}
 	prompt := e.BuildInitialInstruction(ctx, nil)
 
-	// Question echoed
-	if !contains(prompt, "which handlers register Foo?") {
-		t.Error("prompt must echo user question")
+	// User question is NOT echoed here — builder.go renders it as
+	// "User Request" section. Verify absence.
+	if contains(prompt, "## User question") {
+		t.Error("prompt must not duplicate user question (builder.go handles it)")
 	}
 	// Turn A digest sections (the dynamic content this function is
 	// still responsible for post-cleanup)

@@ -14,8 +14,8 @@ func RegisterDefaults(r *Registry) {
 		Name: "explore-skill",
 		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
 		Workflow: []string{
-			"PHASE 1 — Breadth scan: use repo_map and grep (with files_only=true) to discover ALL relevant files. Do not read files in full yet. Classify each file by role (type definitions, core logic, configuration/rules, entry point). Output a prioritized list of 3-6 files to investigate",
-			"PHASE 2 — Depth read: read each file from your list in full (no offset/limit for <500 lines). For each file extract: (a) key data structures and fields, (b) control flow and branching logic, (c) configuration-driven behavior, (d) cross-component interactions",
+			"PHASE 1 — Breadth scan: use repo_map and grep (files_only=true) to discover ALL relevant files. Do not read files yet. Output a prioritized list of 3-6 files to investigate",
+			"PHASE 2 — Depth read + evidence collection: read each file from your list (no offset/limit for <500 lines). After each file, call emit_evidence with ALL facts in one batch. For each file extract: (a) key data structures, (b) control flow, (c) configuration-driven behavior, (d) cross-component interactions",
 			"if you surface a name that looks load-bearing (a function, type, symbol, config key), open it before drawing conclusions — a name is a hypothesis to verify, not an answer",
 			"cross-reference: when file A references file B, read file B too — don't assume, verify",
 			"never read test files — they are derivative, not authoritative. Never read utility/infrastructure files unless the question is about them",
@@ -57,37 +57,14 @@ Evidence:
 
 If part of the question genuinely cannot be answered from the code you read, add one short sentence naming the missing piece — do not substitute "further analysis required" for an answer the evidence supports.
 
-Below are three illustrative examples drawn from a hypothetical, unrelated codebase. They show how the Answer block scales — DO NOT copy their content, only their shape:
+Example (hypothetical, unrelated codebase — copy the shape, not the content):
 
-Example A — lookup question (one short sentence is the right depth):
-Answer: The project uses version 3.12 of the language runtime.
-Evidence:
-- pyproject.toml:7 — python = "^3.12"
-
-Example B — count question (one sentence + several pieces of evidence):
 Answer: There are 4 HTTP handlers registered on the public router.
 Evidence:
 - src/routes.py:18-21 — route registrations for /health, /users, /orders, /metrics
 - src/routes.py:42 — no registrations after line 21
 
-Example C — explanation question (multi-paragraph is the right depth):
-Answer: The cache is a write-through layer between the API handlers and the database. On every write the handler updates the database first and then invalidates the corresponding cache key; the next read repopulates the cache from the database. There is no read-through-on-miss path: a cache miss is served directly from the database without writing back, which is intentional so that stale data from a misbehaving writer cannot persist beyond one request.
-
-The cache key format is "<resource>:<id>" and the default TTL is 5 minutes. Eviction is purely LRU; there is no manual flush API.
-
-Evidence:
-- lib/cache.rb:42-58 — set() invalidates the key after the DB write returns
-- lib/cache.rb:78-91 — get() falls through to the DB on miss but does not write back
-- lib/cache.rb:14 — DEFAULT_TTL = 300
-
-Example D — architecture/flow question (use structured prose with clear call chain):
-Answer: A write request flows through three layers before reaching the database: Client → Handler → Database → Cache invalidation.
-
-The handler always writes to the database first (user_handler.ts:87). Only after the DB confirms success does it call cache.invalidate (user_handler.ts:102), which deletes the key so the next read repopulates from DB (store.ts:42-58).
-
-Evidence:
-- app/handlers/user_handler.ts:87-102 — updateUser calls repo.save then cache.invalidate
-- app/cache/store.ts:42-58 — invalidate deletes the key, next get repopulates from DB`,
+Scale the answer depth to the question: one sentence for a lookup/count, multiple paragraphs for an explanation.`,
 		Prohibitions: []string{
 			"do not modify any files",
 			"do not make assumptions without evidence",
@@ -200,13 +177,12 @@ Completeness honesty contract for emit_answer_symbol:
 - "lower_bound" — these symbols are all confirmed present, but additional symbols may also be part of the answer. The finalizer will render a softened "at least these, may add more" prompt. This is the HONEST DEFAULT when you cannot confidently reach the floor.
 - "unknown" — you investigated but cannot reach a definitive slate. The finalizer will DROP the answer-symbol section entirely and fall back to a shape-based prompt. Choose this for mechanism questions, value/boolean questions, or genuinely ambiguous evidence.`,
 		Prohibitions: []string{
-			"do not call read_file, grep, repo_map, list_files, or exec_command — the Turn A transcript is frozen and Turn B has no file access",
-			"do not call emit_evidence — evidence is Turn A's exclusive channel. Turn A already emitted evidence during Phase 1 and the orchestrator merged it into BusContext.EvidenceItems before this dispatch. Your job is to consume that evidence, not re-emit it.",
+			"Turn A transcript is frozen — Turn B has no file access and must not re-emit evidence",
 			"do not invent line numbers — if the transcript does not have a line for a symbol, omit that symbol",
-			"do not cite files outside the 'Files Turn A read' list provided in the user section",
-			"do not fabricate an answer-symbol list to fill the section — if the question is a mechanism / value / boolean question, skip emit_answer_symbol and let the finalizer use the shape-based prompt",
-			"do not claim completeness=complete without verifying len(items) >= max(β, γ) from the cardinality baseline — a short 'complete' claim will be downgraded to lower_bound automatically and the downgrade is logged as a warning",
-			"do not choose hypothesis status=confirmed or rejected without a concrete file:line citation — use 'inconclusive' when no cite exists",
+			"do not cite files outside the 'Files Turn A read' list",
+			"do not fabricate an answer-symbol list — for mechanism / value / boolean questions, skip emit_answer_symbol",
+			"do not claim completeness=complete unless len(items) >= max(β, γ) — a short claim is auto-downgraded",
+			"do not choose hypothesis status=confirmed or rejected without a file:line citation — use 'inconclusive' when no cite exists",
 		},
 	})
 }

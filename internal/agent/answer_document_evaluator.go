@@ -90,9 +90,8 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 	var b strings.Builder
 
-	if ctx != nil && strings.TrimSpace(ctx.Objective) != "" {
-		fmt.Fprintf(&b, "## User question\n\n%s\n\n", strings.TrimSpace(ctx.Objective))
-	}
+	// User question is already rendered by builder.go as "User Request"
+	// section — no need to repeat it here.
 
 	shape := resolveAnswerDocShape(ctx)
 	fmt.Fprintf(&b, "## Target shape (resolved from AnalysisIR)\n\n`%s`\n\n", shape)
