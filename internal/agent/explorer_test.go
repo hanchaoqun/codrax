@@ -1529,14 +1529,14 @@ func midLoopFixtureResults() []types.ToolResult {
 
 // TestMidLoopCheck_ParallelCueFiresOnSerialStreak verifies Check 3
 // injects the parallel-batching cue when the LLM has been in a
-// serial (1 tool call per round) rhythm for ≥2 iterations in a row
-// AND ≥2 discovered files remain unread AND Check 1/Check 2 stayed
-// silent. Throttle + cadence rules apply.
+// serial-ish (≤2 tool calls per round) rhythm for ≥2 iterations in a
+// row AND ≥2 discovered files remain unread AND Check 1/Check 2
+// stayed silent. Throttle + cadence rules apply.
 func TestMidLoopCheck_ParallelCueFiresOnSerialStreak(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
-		// Seed streak as if two prior iters were single-call.
+		// Seed streak as if two prior iters were serial-ish.
 		// The current observeMidLoop call will observe its own
 		// +1 growth and bump streak to 3.
 		midLoopSerialStreak:   2,
@@ -1548,13 +1548,13 @@ func TestMidLoopCheck_ParallelCueFiresOnSerialStreak(t *testing.T) {
 	if !inject {
 		t.Fatal("Check 3 should inject after streak≥2 with ≥2 unread files")
 	}
-	if !strings.Contains(hint, "one tool call per round") {
+	if !strings.Contains(hint, "1-2 tool calls per round") {
 		t.Errorf("hint missing parallel-batching cue, got: %q", hint)
 	}
-	if !strings.Contains(hint, "parallel tool-call batch") {
-		t.Errorf("hint missing 'parallel tool-call batch' phrasing, got: %q", hint)
+	if !strings.Contains(hint, "tool_use blocks") {
+		t.Errorf("hint missing 'tool_use blocks' phrasing, got: %q", hint)
 	}
-	if !strings.Contains(hint, "determines what to read next") {
+	if !strings.Contains(hint, "one call's output determines") {
 		t.Errorf("hint missing serialize-when-dependent clause, got: %q", hint)
 	}
 	if !eval.midLoopParallelInjected {
@@ -1581,11 +1581,52 @@ func TestMidLoopCheck_ParallelCueOncePerDispatch(t *testing.T) {
 	}
 }
 
+// TestMidLoopCheck_ParallelCueFiresOnGrepReadPair verifies that a
+// batch of exactly 2 (the common 1-grep + 1-read_file pattern) still
+// counts as serial-ish and accumulates streak. Before this fix,
+// batch=2 reset the streak and the cue never fired for this common
+// LLM behavior pattern.
+func TestMidLoopCheck_ParallelCueFiresOnGrepReadPair(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                 1,
+		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
+		midLoopSerialStreak:   1, // 1 prior serial-ish round
+		midLoopLastResultsLen: 2, // previous iteration had 2 results total
+	}
+	// This iteration adds 2 more results (1 grep + 1 read_file).
+	// batch=2 → still serial-ish → streak bumps to 2.
+	// Discover 4 files so that after reading 1, 3 remain unread (≥2 floor).
+	grepSummary := "[grep: 4 matching files]\n" +
+		"internal/fixture/alpha.go\n" +
+		"internal/fixture/beta.go\n" +
+		"internal/fixture/gamma.go\n" +
+		"internal/fixture/delta.go\n"
+	readSummary := "[internal/fixture/alpha.go: showing lines 1-40 of 40]\ncontent\n"
+	results := []types.ToolResult{
+		// Previous iteration's results (already counted).
+		{ToolName: "grep", Success: true, Summary: grepSummary},
+		{ToolName: "read_file", Success: true, Summary: readSummary},
+		// Current iteration's batch: 1 grep + 1 read_file (same file re-grepped).
+		{ToolName: "grep", Success: true, Summary: grepSummary},
+		{ToolName: "read_file", Success: true, Summary: readSummary},
+	}
+	hint, inject := midLoopExplorer(eval, 5, &results[len(results)-1], results)
+	if !inject {
+		t.Fatal("Check 3 should fire for batch=2 (grep+read pair), streak should have reached 2")
+	}
+	if eval.midLoopSerialStreak != 2 {
+		t.Errorf("streak should be 2 after batch=2 round with prior streak=1, got %d", eval.midLoopSerialStreak)
+	}
+	if !strings.Contains(hint, "1-2 tool calls per round") {
+		t.Errorf("hint should mention 1-2 calls pattern, got: %q", hint)
+	}
+}
+
 // TestMidLoopCheck_ParallelCueSkippedOnParallelBatch verifies that
-// when the LLM is ALREADY batching tool calls in parallel, the streak
-// resets and the cue does not fire. This is the over-fit guard: the
-// cue must only push serial rhythms, never nag an already-parallel
-// one.
+// when the LLM is ALREADY batching 3+ tool calls in parallel, the
+// streak resets and the cue does not fire. This is the over-fit
+// guard: the cue must only push serial-ish rhythms (≤2 calls/round),
+// never nag an already-parallel one.
 func TestMidLoopCheck_ParallelCueSkippedOnParallelBatch(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                 1,

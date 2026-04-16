@@ -67,8 +67,8 @@ type LoopPolicy struct {
 // caller leaves Dependencies.LoopPolicy as a zero value. The
 // numbers are calibrated to match the pre-refactor behavior:
 //
-//   - MinInjectInterval=3  matches explorer.MidLoopCheck's "fire at
-//     most every 3 iterations" internal throttle.
+//   - MinInjectInterval=3  matches explorer.MidLoopCheck's throttle
+//     cadence (mid-loop checks fire from iter≥2 onward).
 //   - MaxContinuations=5   matches the worst-case observed number
 //     of soft-stop continuations the explorer ever accepted before
 //     forcing a stop, and sits above

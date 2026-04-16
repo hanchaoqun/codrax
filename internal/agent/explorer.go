@@ -21,6 +21,7 @@ import (
 )
 
 type explorerEvaluator struct {
+	heuristics                types.ExploreHeuristics
 	tools                     *tool.Registry
 	phase                     int                  // 0 = breadth scan, 1 = depth read
 	broadenAttempts           int                  // times we pushed for broader grep in Phase 0
@@ -58,6 +59,18 @@ type explorerEvaluator struct {
 	// transitions, serial-streak detection, primary-read gating)
 	// that the explorer's own ReAct logic needs — not duplicated
 	// counter state.
+}
+
+// ensureHeuristics resolves zero-valued heuristic fields to code
+// defaults. Called at the top of observeMidLoop/observeSoftStop so
+// tests that construct a bare explorerEvaluator{} still get the
+// expected default behavior without having to set every field.
+func (e *explorerEvaluator) ensureHeuristics() {
+	// Cheap sentinel: if the first field is already resolved, skip.
+	if e.heuristics.MidLoopMinIteration != 0 {
+		return
+	}
+	e.heuristics = types.ResolvedExploreHeuristics(e.heuristics)
 }
 
 // stripConversationPrefix returns only the "current request" portion
@@ -772,14 +785,15 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 //     hasn't finished the function body. "partial-read".
 //  2. Enumeration completeness: question asks to list ALL X and
 //     coverage is under 60% with ≥2 files unread. "enumeration".
-//  3. Parallel tool-call cue: LLM has been in a serial (≤1 call/
-//     round) rhythm for ≥2 iters AND ≥2 files unread AND the
+//  3. Parallel tool-call cue: LLM has been in a serial-ish (≤2
+//     calls/round) rhythm for ≥2 iters AND ≥2 files unread AND the
 //     parallel hint hasn't fired yet this dispatch. "parallelize".
 //
 // Detection-only state (midLoopSerialStreak, midLoopLastResultsLen,
 // midLoopParallelInjected) stays on the evaluator because it drives
 // phase-specific behavior the policy can't express.
 func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
+	e.ensureHeuristics()
 	iteration := obs.Iteration
 	allResults := obs.AllToolResults
 
@@ -806,20 +820,27 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// results have been appended. Update the serial-streak counter
 	// every call so the parallel-batching cue (Check 3) has
 	// accurate degradation history when it fires.
+	//
+	// Threshold: batch <= 2 counts as "serial-ish" because the LLM's
+	// most common low-parallelism pattern is a 1-grep + 1-read pair
+	// per round — technically 2 calls, but sequential in intent (grep
+	// to locate, then read what was found). Real parallelism means 3+
+	// independent calls in one batch.
 	currentBatch := len(allResults) - e.midLoopLastResultsLen
-	if e.midLoopLastResultsLen > 0 && currentBatch <= 1 {
+	serialThresh := e.heuristics.SerialBatchThreshold
+	if e.midLoopLastResultsLen > 0 && currentBatch <= serialThresh {
 		e.midLoopSerialStreak++
-	} else if currentBatch > 1 {
+	} else if currentBatch > serialThresh {
 		e.midLoopSerialStreak = 0
 	}
 	e.midLoopLastResultsLen = len(allResults)
 
-	// The old "fire at most every 3 iters, not before iter 3" throttle
+	// The old "fire at most every 3 iters, not before iter N" throttle
 	// now lives in LoopPolicy.MinInjectInterval. We still want the
-	// "not before iter 3" behavior — no mid-loop hint makes sense in
-	// the first few iterations because the LLM hasn't had a chance
+	// "not before iter N" behavior — no mid-loop hint makes sense in
+	// the very first iteration(s) because the LLM hasn't had a chance
 	// to demonstrate a pattern yet — so we short-circuit here.
-	if iteration < 3 {
+	if iteration < e.heuristics.MidLoopMinIteration {
 		return LoopSignal{}
 	}
 	if e.searchResult == nil || e.searchResult.Graph == nil {
@@ -840,7 +861,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if hints := detectPartiallyReadSymbols(allResults, e.searchResult.Graph); len(hints) > 0 {
 		h := hints[0] // worst-coverage offender
 		unreadLines := h.symEnd - h.readEnd
-		if unreadLines <= 150 {
+		if unreadLines <= e.heuristics.PartialReadLineThreshold {
 			// Small remainder: direct read is cheaper than grep+read.
 			fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
 				"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
@@ -883,7 +904,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		discovered, readSet := extractFileCoverage(allResults)
 		if len(discovered) > 0 {
 			coverage := float64(len(readSet)) / float64(len(discovered))
-			if coverage < 0.6 && len(discovered)-len(readSet) >= 2 {
+			if coverage < e.heuristics.MidLoopEnumCoverage && len(discovered)-len(readSet) >= e.heuristics.EnumMidLoopUnreadFloor {
 				var unread []string
 				for _, f := range discovered {
 					if !readSet[f] && !isNoisePath(f) {
@@ -912,17 +933,20 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	//
 	// iter=0 reliably batches 3-8 tool calls because the initial
 	// prompt sets up a seed-file scan. Mid-loop iterations degrade to
-	// 1-2 tool calls per round because the LLM falls into a single-
-	// step ReAct rhythm ("read A, observe, think, read B, observe,
-	// ..."). Each serial round pays full LLM round-trip latency, and
+	// 1-2 tool calls per round because the LLM falls into a
+	// serial-ish ReAct rhythm ("grep A → read A → grep B → read B"
+	// or "read A, observe, think, read B, observe, ..."). Each
+	// low-parallelism round pays full LLM round-trip latency, and
 	// the 2026-04-13 latency audit measured ~3s per round. On a 15-
-	// iter explorer this is where most of the
-	// remaining ReAct latency lives AFTER the self-dispatch fix.
+	// iter explorer this is where most of the remaining ReAct
+	// latency lives AFTER the self-dispatch fix.
 	//
 	// Fire only when:
-	//   - the LLM has been in a serial (≤1 call/round) rhythm for at
-	//     least 2 iters in a row — one serial round is noise, two is
-	//     a pattern
+	//   - the LLM has been in a serial-ish (≤2 calls/round) rhythm
+	//     for at least 2 iters — one low-parallelism round is noise,
+	//     two is a pattern. The ≤2 threshold catches the common
+	//     1-grep + 1-read pair which looks parallel but is
+	//     sequential in intent.
 	//   - at least 2 discovered files remain unread — otherwise there
 	//     is nothing to parallelize
 	//   - no partial-read hint was emitted above — those have higher
@@ -932,12 +956,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	//     starve other mid-loop checks
 	//
 	// The cue stays structural: it says "parallelize independent
-	// reads, serialize when output of one determines the next" and
-	// names no files. The LLM is the only party that sees the notes
-	// and history, so it is the only party that can judge
-	// independence; we just remove the implicit "one-at-a-time"
+	// operations, serialize when output of one determines the next"
+	// and names no files. The LLM is the only party that sees the
+	// notes and history, so it is the only party that can judge
+	// independence; we just break the implicit low-parallelism
 	// rhythm that the prior iterations established.
-	if b.Len() == 0 && !e.midLoopParallelInjected && e.midLoopSerialStreak >= 2 {
+	if b.Len() == 0 && !e.midLoopParallelInjected && e.midLoopSerialStreak >= e.heuristics.SerialStreakThreshold {
 		discovered, readSet := extractFileCoverage(allResults)
 		unreadCount := 0
 		for _, f := range discovered {
@@ -945,11 +969,15 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				unreadCount++
 			}
 		}
-		if unreadCount >= 2 {
-			b.WriteString("MID-LOOP CHECK: you have been issuing one tool call per round for several iterations. " +
-				"If you need to read multiple files whose contents do NOT depend on each other, issue all the `read_file` calls as a single parallel tool-call batch (multiple tool_use blocks in one assistant message) — this cuts LLM round-trip latency significantly. " +
-				"Serialize only when the output of one read determines what to read next (e.g. you need to see a symbol in file A before you know which line range of file B to fetch). " +
-				"Apply the same rule to independent `grep` calls.\n")
+		if unreadCount >= e.heuristics.ParallelUnreadFloor {
+			b.WriteString("MID-LOOP CHECK: you have been issuing only 1-2 tool calls per round for several iterations. " +
+				"Batch independent operations together in a single assistant message (multiple tool_use blocks): " +
+				"multiple `read_file` calls for unrelated files, multiple `grep` calls for different patterns/scopes, " +
+				"or mixed `grep` + `read_file` calls that don't depend on each other. " +
+				"For example, if you plan to read files A, B, and C whose contents are independent, call all three `read_file`s at once; " +
+				"if you need to grep for patterns X and Y in different directories, batch both `grep` calls together. " +
+				"Serialize only when one call's output determines the next call's parameters " +
+				"(e.g. grep to find a line number, then read_file at that offset).\n")
 			e.midLoopParallelInjected = true
 			hintKey = "explorer.mid-loop.parallelize"
 		}
@@ -989,6 +1017,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 // GONE: loopPolicyState.Apply tracks the tool-result count growth
 // itself and resets the idle streak on growth.
 func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
+	e.ensureHeuristics()
 	resp := obs.Response
 	iteration := obs.Iteration
 	history := obs.AllToolResults
@@ -1074,7 +1103,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// discovered any files. If all greps returned zero results,
 		// push the LLM to retry with broader patterns before moving on.
 		discovered, _ := extractFileCoverage(history)
-		if len(discovered) == 0 && e.broadenAttempts < 2 {
+		if len(discovered) == 0 && e.broadenAttempts < e.heuristics.Phase0MaxBroadenAttempts {
 			e.broadenAttempts++
 			return LoopSignal{
 				HintRequested: true,
@@ -1107,7 +1136,8 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 					}
 				}
 			}
-			if (!usedGrep || !usedOtherDiscovery) || len(discovered) < 3 {
+			minDisc := e.heuristics.Phase0MinDiscoveredFiles
+			if (!usedGrep || !usedOtherDiscovery) || len(discovered) < minDisc {
 				e.phase0ExtraRound = true
 				var gate strings.Builder
 				gate.WriteString("Before moving to depth reading, broaden your search:\n")
@@ -1117,8 +1147,8 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 				if !usedOtherDiscovery {
 					gate.WriteString("- Use repo_map (task_map view) to see structurally relevant files.\n")
 				}
-				if len(discovered) < 3 {
-					fmt.Fprintf(&gate, "- You only discovered %d files. Use broader search patterns to find at least 3.\n", len(discovered))
+				if len(discovered) < minDisc {
+					fmt.Fprintf(&gate, "- You only discovered %d files. Use broader search patterns to find at least %d.\n", len(discovered), minDisc)
 				}
 				return LoopSignal{
 					HintRequested: true,
@@ -1191,7 +1221,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			hint.WriteString("**Incomplete function reads detected.** If these functions are relevant to the question, finish reading them:\n\n")
 			for _, ph := range partialHints {
 				unreadLines := ph.symEnd - ph.readEnd
-				if unreadLines <= 150 {
+				if unreadLines <= e.heuristics.PartialReadLineThreshold {
 					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%, %d lines remaining). "+
 						"Call `read_file` with path=%q offset=%d limit=%d to see the rest\n",
 						ph.symbolName, ph.file, ph.symStart, ph.symEnd,
@@ -1220,12 +1250,12 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// A coverage gap here means the enumeration will be incomplete.
 	if e.isEnumerationQuery && len(discovered) > 0 {
 		enumCoverage := float64(len(readSet)) / float64(len(discovered))
-		if enumCoverage < 0.8 && len(unread) > 0 {
+		if enumCoverage < e.heuristics.SoftStopEnumCoverage && len(unread) > 0 {
 			var hint strings.Builder
 			fmt.Fprintf(&hint, "**Enumeration completeness check:** This question asks to list ALL items. "+
 				"You found %d matching files but only read %d (%.0f%% coverage). "+
-				"For enumeration queries you must achieve ≥80%% coverage.\n\n"+
-				"Unread files:\n", len(discovered), len(readSet), enumCoverage*100)
+				"For enumeration queries you must achieve ≥%.0f%% coverage.\n\n"+
+				"Unread files:\n", len(discovered), len(readSet), enumCoverage*100, e.heuristics.SoftStopEnumCoverage*100)
 			for _, f := range unread {
 				hint.WriteString("- " + f + "\n")
 			}
@@ -1305,7 +1335,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
 		logERM(e.ermRequirements)
 		if !ermAllSatisfied(e.ermRequirements) {
-			suggestions := ermSuggestFiles(e.searchResult.Graph, e.ermRequirements, readSet, 3)
+			suggestions := ermSuggestFiles(e.searchResult.Graph, e.ermRequirements, readSet, e.heuristics.ErmSuggestLimit)
 			if len(suggestions) > 0 {
 				var hint strings.Builder
 				hint.WriteString(ermUnsatisfiedGaps(e.ermRequirements))
@@ -1367,11 +1397,11 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 					kind = rest[:kidx]
 				}
 			}
-			// Methods and functions: 3+ chars (catches Name, Run, Get).
-			// Other symbols: 8+ chars (avoids noise from generic names).
-			minLen := 8
+			// Methods and functions: short names (catches Name, Run, Get).
+			// Other symbols: longer names (avoids noise from generic names).
+			minLen := e.heuristics.SymbolMinLenOther
 			if kind == "method" || kind == "function" {
-				minLen = 3
+				minLen = e.heuristics.SymbolMinLenMethod
 			}
 			if len(name) >= minLen && !strings.Contains(notesJoined, name) {
 				missed = append(missed, sym)
@@ -1408,7 +1438,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// streak for this iteration only; after the third push we
 		// leave progress=false so the policy's IdleStopThreshold
 		// catches the drift.
-		if e.preScannedPushCount <= 3 {
+		if e.preScannedPushCount <= e.heuristics.MaxPreScannedPushes {
 			progress = true
 		}
 
@@ -1417,7 +1447,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
 		fmt.Fprintf(&hint, "\nReminder — user question: %s\n\n", e.userQuestion)
 
-		if e.preScannedPushCount >= 3 {
+		if e.preScannedPushCount >= e.heuristics.MaxPreScannedPushes {
 			// Final forceful push: name the single most important file.
 			fmt.Fprintf(&hint, "STOP ANALYZING. You have NOT read %d critical files. Call read_file on this file RIGHT NOW:\n", len(preScannedUnread))
 			hint.WriteString("  " + preScannedUnread[0])
@@ -1425,7 +1455,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 				hint.WriteString(" — defines: " + strings.Join(syms, "; "))
 			}
 			hint.WriteString("\n\nDo NOT write any analysis. Your ONLY action should be a read_file tool call.")
-		} else if e.preScannedPushCount >= 2 {
+		} else if e.preScannedPushCount >= e.heuristics.MaxPreScannedPushes-1 {
 			// Escalated push: more forceful language.
 			hint.WriteString("You keep writing analysis without reading the critical files. STOP and call read_file.\n\n")
 			hint.WriteString("Unread HIGH-PRIORITY files:\n")
@@ -1565,8 +1595,8 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		hint.WriteString("The system has ALREADY extracted the following concrete values from source code. " +
 			"You do NOT need to re-investigate these — they will be provided as ground truth in synthesis.\n\n")
 		// Truncate to keep the continuation prompt from bloating.
-		if len(cvPreview) > 1500 {
-			cvPreview = cvPreview[:1500] + "\n... [preview truncated]\n"
+		if len(cvPreview) > e.heuristics.CVPreviewMaxLen {
+			cvPreview = cvPreview[:e.heuristics.CVPreviewMaxLen] + "\n... [preview truncated]\n"
 		}
 		hint.WriteString(cvPreview)
 		hint.WriteString("\n**Focus your remaining investigation on:**\n")
@@ -5894,5 +5924,8 @@ func isConditionNoise(s string) bool {
 
 // NewExplorerAgent creates the explorer agent (used in explore stage).
 func NewExplorerAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentExplorer, deps, &explorerEvaluator{tools: deps.Tools})
+	return NewBaseAgent(types.AgentExplorer, deps, &explorerEvaluator{
+		heuristics: deps.ExploreHeuristics,
+		tools:      deps.Tools,
+	})
 }

@@ -112,6 +112,24 @@ type RuntimeSettings struct {
 	// the analyzer's per-tool NodeBudgetHints govern.
 	ExplorePerToolDefaultCap *int `yaml:"explore_per_tool_default_cap"`
 
+	// Explorer heuristic thresholds. All optional; nil → code default
+	// in types.DefaultExploreHeuristics().
+	ExploreMidLoopMinIteration      *int     `yaml:"explore_midloop_min_iteration"`
+	ExploreSerialBatchThreshold     *int     `yaml:"explore_serial_batch_threshold"`
+	ExploreSerialStreakThreshold    *int     `yaml:"explore_serial_streak_threshold"`
+	ExplorePartialReadLineThreshold *int     `yaml:"explore_partial_read_line_threshold"`
+	ExploreMidLoopEnumCoverage      *float64 `yaml:"explore_midloop_enum_coverage"`
+	ExploreSoftStopEnumCoverage     *float64 `yaml:"explore_softstop_enum_coverage"`
+	ExplorePhase0MinDiscovered      *int     `yaml:"explore_phase0_min_discovered_files"`
+	ExplorePhase0MaxBroaden         *int     `yaml:"explore_phase0_max_broaden_attempts"`
+	ExploreSymbolMinLenMethod       *int     `yaml:"explore_symbol_min_len_method"`
+	ExploreSymbolMinLenOther        *int     `yaml:"explore_symbol_min_len_other"`
+	ExploreMaxPreScannedPushes      *int     `yaml:"explore_max_prescanned_pushes"`
+	ExploreCVPreviewMaxLen          *int     `yaml:"explore_cv_preview_max_len"`
+	ExploreParallelUnreadFloor      *int     `yaml:"explore_parallel_unread_floor"`
+	ExploreEnumMidLoopUnreadFloor   *int     `yaml:"explore_enum_midloop_unread_floor"`
+	ExploreErmSuggestLimit          *int     `yaml:"explore_erm_suggest_limit"`
+
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

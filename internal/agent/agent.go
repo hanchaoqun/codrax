@@ -133,6 +133,12 @@ type Dependencies struct {
 	// idle rounds, cap continuations at 5" behavior of the pre-
 	// refactor evaluator implementations.
 	LoopPolicy LoopPolicy
+
+	// ExploreHeuristics carries the tunable thresholds for the
+	// explorer evaluator's mid-loop and soft-stop detection branches.
+	// Optional: zero fields are filled from DefaultExploreHeuristics()
+	// in cmd/root.go before agent construction.
+	ExploreHeuristics types.ExploreHeuristics
 }
 
 // BaseAgent provides the common ReAct loop implementation.

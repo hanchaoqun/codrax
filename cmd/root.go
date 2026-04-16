@@ -416,6 +416,54 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.ExplorePerToolDefaultCap != nil {
 			pipelineSettings.Explore.PerToolDefaultCap = *rs.ExplorePerToolDefaultCap
 		}
+
+		// Explorer heuristic thresholds.
+		h := &pipelineSettings.Explore.Heuristics
+		if rs.ExploreMidLoopMinIteration != nil {
+			h.MidLoopMinIteration = *rs.ExploreMidLoopMinIteration
+		}
+		if rs.ExploreSerialBatchThreshold != nil {
+			h.SerialBatchThreshold = *rs.ExploreSerialBatchThreshold
+		}
+		if rs.ExploreSerialStreakThreshold != nil {
+			h.SerialStreakThreshold = *rs.ExploreSerialStreakThreshold
+		}
+		if rs.ExplorePartialReadLineThreshold != nil {
+			h.PartialReadLineThreshold = *rs.ExplorePartialReadLineThreshold
+		}
+		if rs.ExploreMidLoopEnumCoverage != nil {
+			h.MidLoopEnumCoverage = *rs.ExploreMidLoopEnumCoverage
+		}
+		if rs.ExploreSoftStopEnumCoverage != nil {
+			h.SoftStopEnumCoverage = *rs.ExploreSoftStopEnumCoverage
+		}
+		if rs.ExplorePhase0MinDiscovered != nil {
+			h.Phase0MinDiscoveredFiles = *rs.ExplorePhase0MinDiscovered
+		}
+		if rs.ExplorePhase0MaxBroaden != nil {
+			h.Phase0MaxBroadenAttempts = *rs.ExplorePhase0MaxBroaden
+		}
+		if rs.ExploreSymbolMinLenMethod != nil {
+			h.SymbolMinLenMethod = *rs.ExploreSymbolMinLenMethod
+		}
+		if rs.ExploreSymbolMinLenOther != nil {
+			h.SymbolMinLenOther = *rs.ExploreSymbolMinLenOther
+		}
+		if rs.ExploreMaxPreScannedPushes != nil {
+			h.MaxPreScannedPushes = *rs.ExploreMaxPreScannedPushes
+		}
+		if rs.ExploreCVPreviewMaxLen != nil {
+			h.CVPreviewMaxLen = *rs.ExploreCVPreviewMaxLen
+		}
+		if rs.ExploreParallelUnreadFloor != nil {
+			h.ParallelUnreadFloor = *rs.ExploreParallelUnreadFloor
+		}
+		if rs.ExploreEnumMidLoopUnreadFloor != nil {
+			h.EnumMidLoopUnreadFloor = *rs.ExploreEnumMidLoopUnreadFloor
+		}
+		if rs.ExploreErmSuggestLimit != nil {
+			h.ErmSuggestLimit = *rs.ExploreErmSuggestLimit
+		}
 	}
 	// CLI flag overrides for pipeline budget.
 	if cmd.Flags().Changed("pipeline-max-retries") && flagMaxRetries > 0 {
@@ -424,6 +472,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	if cmd.Flags().Changed("pipeline-max-stage-visits") && flagMaxStageVisits > 0 {
 		pipelineSettings.MaxStageVisits = flagMaxStageVisits
 	}
+	// Resolve zero-valued heuristic fields to code defaults.
+	pipelineSettings.Explore.Heuristics = types.ResolvedExploreHeuristics(pipelineSettings.Explore.Heuristics)
+
 	logging.Info("pipeline_settings: max_steps=%d max_retries_per_stage=%d max_stage_visits=%d",
 		flagMaxSteps,
 		pipelineSettings.MaxRetriesPerStage,
@@ -475,12 +526,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	subAgentRegistry := agent.NewSubAgentRegistry()
 
 	deps := &agent.Dependencies{
-		LLM:           app.defaultLLM,
-		Tools:         toolRegistry,
-		MCPServers:    mcpRegistry,
-		SubAgents:     subAgentRegistry,
-		MaxIterations: 20,
-		Emit:          renderer.Emitter(),
+		LLM:               app.defaultLLM,
+		Tools:             toolRegistry,
+		MCPServers:        mcpRegistry,
+		SubAgents:         subAgentRegistry,
+		MaxIterations:     20,
+		Emit:              renderer.Emitter(),
+		ExploreHeuristics: pipelineSettings.Explore.Heuristics,
 	}
 
 	agent.RegisterDefaultSubAgents(subAgentRegistry, deps)

@@ -231,6 +231,14 @@ graph TD
   3. **软启发式分支**（`phase1.erm-gap` 的字符串匹配，`phase1.prescanned` 的 top-N 召回，`phase1.unanalyzed` 的 3-字符符号名匹配）和结构性 `phase1.coverage` 兜底在 `firstSoftStop` 上返回空信号，让 LoopPolicy 接受 LLM 的完成信号；`ContinuationsUsed >= 1` 时全部分支照旧运行。
 
   契约总结："只在 LLM 有硬证据没做完时覆盖它的自愿停下"—— 新的检测分支必须明确落到硬证据或软启发式桶里，测试在 `explorer_test.go::TestExplorerSoftStop_*` 和 `TestPhase0QualityGate` 里把这条契约固化。`BaseAgent.Execute` 的 SOFT-STOP 和 MIDLOOP 调试日志都带上了 `key=%q` 字段透传 `sig.HintKey`，配合 `result.Reason` 一起出现在 trace 里，方便事后定位是哪条检测分支投的票。
+  **Explorer 启发式阈值**（`ExploreHeuristics`，定义在 `internal/types/config.go`）：explorer 评估器的 mid-loop（`observeMidLoop`）和 soft-stop（`observeSoftStop`）检测分支中所有行为阈值均可通过 `codrax.yaml` 的 `explore_*` 键覆盖，零值使用 `DefaultExploreHeuristics()` 的代码默认值。阈值分三组：
+
+  - **Mid-loop 检测**：`midloop_min_iteration`（默认 2，最早检测轮次）、`serial_batch_threshold`（默认 2，≤此值视为串行-ish，含 1-grep+1-read 对）、`serial_streak_threshold`（默认 2，连续串行-ish 轮数触发并行提示）、`partial_read_line_threshold`（默认 150，直接 read vs grep-then-read 的分界线）、`midloop_enum_coverage`（默认 0.6，枚举早期预警覆盖率下限）、`parallel_unread_floor`（默认 2，并行提示要求的最少未读文件数）、`enum_midloop_unread_floor`（默认 2，枚举 mid-loop 未读文件下限）。
+  - **Soft-stop 检测**：`softstop_enum_coverage`（默认 0.8，枚举硬门覆盖率下限）、`phase0_min_discovered_files`（默认 3，Phase 0 转 Phase 1 的最少发现文件数）、`phase0_max_broaden_attempts`（默认 2，零发现时"拓宽搜索"最大推送次数）、`symbol_min_len_method`（默认 3，方法/函数名最短长度）、`symbol_min_len_other`（默认 8，类型/常量名最短长度）、`max_prescanned_pushes`（默认 3，预扫描文件推送最大次数，超过后 idle 不再重置）、`erm_suggest_limit`（默认 3，ERM gap 提示的文件建议数上限）。
+  - **显示**：`cv_preview_max_len`（默认 1500，具体值预览截断长度）。
+
+  加载链路：`codrax.yaml` `explore_*` → `RuntimeSettings` 指针字段 → `cmd/root.go` 合并到 `PipelineSettings.Explore.Heuristics` → `ResolvedExploreHeuristics()` 填充零值 → `Dependencies.ExploreHeuristics` → `explorerEvaluator.heuristics`。`ensureHeuristics()` 在 `observeMidLoop`/`observeSoftStop` 入口做惰性初始化，使得不经 `BuildInitialInstruction` 直接调用的测试也能正常工作。
+
 - **`SynthesizingEvaluator`**：ReAct 循环结束后用干净上下文跑一次综合调用，防止最后一条 assistant 消息是碎片笔记。目前只有 `explorer` 实现。
 
 #### 子 Agent
