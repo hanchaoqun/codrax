@@ -224,20 +224,54 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 
 	// Shape auto-correction: when the AnalysisIR declares a target
 	// shape and the LLM chose a different one, silently override to
-	// the target shape. This prevents infinite retry loops where the
-	// LLM consistently picks the wrong shape (e.g. "boolean" for an
-	// "enumeration" question classified as list_of_symbols).
+	// the target shape AND scrub fields that belong to the old shape.
+	// This prevents infinite retry loops where the LLM consistently
+	// picks the wrong shape (e.g. "boolean" for a list_of_symbols
+	// question) and fills the wrong shape's required fields.
 	if ctx.AnalysisIR != nil {
 		target := ctx.AnalysisIR.AnswerContract.RequiredAnswerShape
 		if target != "" && target != shape {
 			logging.Warning("[emit_answer_document] LLM chose shape=%s but AnalysisIR target is %s — auto-correcting", shape, target)
-			shape = target
+			// Check if the LLM provided the required fields for the
+			// target shape. If not, fall back to explanation (which only
+			// needs summary) instead of entering a retry loop where the
+			// LLM keeps filling the wrong shape's fields.
+			canCorrect := true
+			switch target {
+			case types.ShapeListOfSymbols:
+				canCorrect = len(p.Symbols) > 0
+			case types.ShapeStepList:
+				canCorrect = len(p.Steps) > 0
+			case types.ShapeValue, types.ShapeConfigValue:
+				canCorrect = p.Value != nil && p.Value.Literal != ""
+			case types.ShapeBoolean:
+				canCorrect = p.Boolean != nil && p.Boolean.Decision != ""
+			}
+			if canCorrect {
+				shape = target
+			} else {
+				logging.Warning("[emit_answer_document] target shape %s requires fields the LLM didn't fill — falling back to explanation", target)
+				shape = types.ShapeExplanation
+			}
+			// Scrub fields forbidden by the resolved shape.
+			switch shape {
+			case types.ShapeListOfSymbols:
+				p.Steps = nil; p.Value = nil; p.Boolean = nil
+			case types.ShapeStepList:
+				p.Symbols = nil; p.Value = nil; p.Boolean = nil
+			case types.ShapeValue, types.ShapeConfigValue:
+				p.Steps = nil; p.Symbols = nil; p.Boolean = nil
+			case types.ShapeBoolean:
+				p.Steps = nil; p.Symbols = nil; p.Value = nil
+			case types.ShapeExplanation:
+				p.Steps = nil; p.Symbols = nil; p.Value = nil; p.Boolean = nil
+			}
 		}
 	}
 
 	// Scrub zero-value forbidden-field objects that the LLM tends to
-	// include even when they don't apply to the selected shape. An
-	// empty value{literal=""} or boolean{decision=""} is semantically
+	// include even when shape was NOT auto-corrected. An empty
+	// value{literal=""} or boolean{decision=""} is semantically
 	// absent; clearing the pointer prevents the forbidden-field
 	// validator from rejecting the call.
 	if p.Value != nil && p.Value.Literal == "" {
@@ -271,9 +305,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// the AnswerDocument slot the renderer will read.
 	switch shape {
 	case types.ShapeListOfSymbols:
-		if err := validateEmitAnswerDocumentNoForbidden(p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
-		}
+		scrubForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean)
 		if len(p.Symbols) == 0 {
 			return failEmit(t.Name(), now, "shape=list_of_symbols requires symbols[] with at least one entry")
 		}
@@ -297,9 +329,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.SymbolsCompleteness = claim
 
 	case types.ShapeStepList:
-		if err := validateEmitAnswerDocumentNoForbidden(p, shape, forbidSymbols|forbidValue|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
-		}
+		scrubForbiddenFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean)
 		if len(p.Steps) == 0 {
 			return failEmit(t.Name(), now, "shape=step_list requires steps[] with at least one entry")
 		}
@@ -312,9 +342,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Steps = p.Steps
 
 	case types.ShapeValue:
-		if err := validateEmitAnswerDocumentNoForbidden(p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
-		}
+		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean)
 		if p.Value == nil {
 			return failEmit(t.Name(), now, "shape=value requires value{literal, citation_ref}")
 		}
@@ -324,9 +352,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Value = p.Value
 
 	case types.ShapeConfigValue:
-		if err := validateEmitAnswerDocumentNoForbidden(p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
-		}
+		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean)
 		if p.Value == nil {
 			return failEmit(t.Name(), now, "shape=config_value requires value{key, literal, citation_ref}")
 		}
@@ -336,9 +362,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Value = p.Value
 
 	case types.ShapeBoolean:
-		if err := validateEmitAnswerDocumentNoForbidden(p, shape, forbidSteps|forbidSymbols|forbidValue); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
-		}
+		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue)
 		if p.Boolean == nil {
 			return failEmit(t.Name(), now, "shape=boolean requires boolean{decision, rationale, citation_ref}")
 		}
@@ -349,9 +373,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Boolean = bl
 
 	case types.ShapeExplanation:
-		if err := validateEmitAnswerDocumentNoForbidden(p, shape, forbidSteps|forbidSymbols|forbidValue|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
-		}
+		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue|forbidBoolean)
 		if strings.TrimSpace(p.Summary) == "" {
 			return failEmit(t.Name(), now, "shape=explanation requires a non-empty summary")
 		}
@@ -378,6 +400,8 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 // bitset (instead of a per-shape switch inside the validator) means
 // each shape's forbidden-field list is literally visible at its
 // branch in Execute, so a shape's contract is one-grep obvious.
+// Note: forbidden fields are silently SCRUBBED (not rejected) by
+// scrubForbiddenFields to prevent LLM infinite retry loops.
 type forbidBitset uint
 
 const (
@@ -387,25 +411,28 @@ const (
 	forbidBoolean
 )
 
-func validateEmitAnswerDocumentNoForbidden(p emitAnswerDocumentParams, shape types.AnswerShape, mask forbidBitset) error {
+// scrubForbiddenFields silently clears fields that are forbidden for
+// the given shape. LLMs persistently include cross-shape fields
+// (e.g. boolean{} on a list_of_symbols call) and cannot fix the
+// issue through retries. Logging the scrub for diagnostics but
+// accepting the call prevents infinite retry loops.
+func scrubForbiddenFields(p *emitAnswerDocumentParams, shape types.AnswerShape, mask forbidBitset) {
 	if mask&forbidSteps != 0 && len(p.Steps) > 0 {
-		return fmt.Errorf("shape=%s does not accept steps[] (got %d)", shape, len(p.Steps))
+		logging.Debug("[emit_answer_document] scrubbing forbidden steps[] (len=%d) for shape=%s", len(p.Steps), shape)
+		p.Steps = nil
 	}
 	if mask&forbidSymbols != 0 && len(p.Symbols) > 0 {
-		return fmt.Errorf("shape=%s does not accept symbols[] (got %d)", shape, len(p.Symbols))
+		logging.Debug("[emit_answer_document] scrubbing forbidden symbols[] (len=%d) for shape=%s", len(p.Symbols), shape)
+		p.Symbols = nil
 	}
-	// Treat zero-value pointer objects as absent. LLMs often include
-	// all fields with zero values ("value":{"literal":"","key":"",
-	// "citation_ref":-1}) instead of omitting them. Rejecting these
-	// empty objects causes infinite retry loops where the LLM keeps
-	// sending the same zero payload it cannot figure out how to remove.
-	if mask&forbidValue != 0 && p.Value != nil && p.Value.Literal != "" {
-		return fmt.Errorf("shape=%s does not accept the value{} object", shape)
+	if mask&forbidValue != 0 && p.Value != nil {
+		logging.Debug("[emit_answer_document] scrubbing forbidden value{} for shape=%s", shape)
+		p.Value = nil
 	}
-	if mask&forbidBoolean != 0 && p.Boolean != nil && p.Boolean.Decision != "" {
-		return fmt.Errorf("shape=%s does not accept the boolean{} object", shape)
+	if mask&forbidBoolean != 0 && p.Boolean != nil {
+		logging.Debug("[emit_answer_document] scrubbing forbidden boolean{} for shape=%s", shape)
+		p.Boolean = nil
 	}
-	return nil
 }
 
 func validateStep(s *types.AnswerStep, index int, numCites int) error {

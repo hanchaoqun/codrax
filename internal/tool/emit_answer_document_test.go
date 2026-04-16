@@ -101,7 +101,7 @@ func TestEmitAnswerDocument_ListOfSymbols_RequiresCompleteness(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocument_ListOfSymbols_RejectsStepsField(t *testing.T) {
+func TestEmitAnswerDocument_ListOfSymbols_ScrubsStepsField(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":                "list_of_symbols",
@@ -110,8 +110,11 @@ func TestEmitAnswerDocument_ListOfSymbols_RejectsStepsField(t *testing.T) {
 		"steps":                []map[string]interface{}{{"index": 1, "description": "x", "citation_ref": -1}},
 	})
 	res, _ := tool.Execute(newDocBusCtx(""), params)
-	if res.Success {
-		t.Error("list_of_symbols with steps: Success = true; should reject forbidden field")
+	// Forbidden fields are silently scrubbed (not rejected) to prevent
+	// LLM infinite retry loops. The call should succeed with steps
+	// removed and symbols preserved.
+	if !res.Success {
+		t.Errorf("list_of_symbols with steps: should succeed after scrub, got error: %s", res.Summary)
 	}
 }
 
