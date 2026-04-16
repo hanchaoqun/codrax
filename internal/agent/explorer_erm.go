@@ -342,9 +342,17 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 		}
 		switch req.Kind {
 		case types.ReqEnumeration:
-			// Satisfied if notes contain a list of items (multiple [DIRECT]/[REGISTRATION] tags)
+			// Satisfied if evidence contains items mentioning the entities.
+			// Accept all evidence-bearing kinds: LLM-tagged (DIRECT,
+			// REGISTRATION) AND deterministic (CONCRETE, DATAFLOW_PATH).
+			// Before this fix only DIRECT+REGISTRATION were counted, so
+			// the rich concrete-value evidence ("RegisterDefaultSubAgents
+			// binds NewSubExplorer") was invisible to the enumeration
+			// gate, causing spurious retries.
 			count := countEvidenceTags(notesJoined, []string{"[direct]", "[registration]"})
-			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceDirect, types.EvidenceRegistration)
+			count += countEvidenceByKinds(evidence, req.Entities,
+				types.EvidenceDirect, types.EvidenceRegistration,
+				types.EvidenceConcrete, types.EvidenceDataflowPath)
 			if count >= 3 {
 				req.Status = "satisfied"
 			} else if count >= 1 {
@@ -352,19 +360,32 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			}
 
 		case types.ReqCallChain:
-			// Satisfied if notes describe call relationships between entities
+			// Satisfied if evidence describes call/binding relationships
+			// between entities. Accept RELATIONSHIP, MECHANISM, and
+			// CONCRETE (which carries deterministic "binds"/"registers"
+			// chains that are stronger evidence than LLM-tagged notes).
 			hasRelationship := countEvidenceTags(notesJoined, []string{"[relationship]", "[mechanism]"}) > 0
-			hasRelationship = hasRelationship || countEvidenceByKinds(evidence, req.Entities, types.EvidenceRelationship) > 0
-			// Also check if entities appear together in a call context
-			entitiesInNotes := 0
+			hasRelationship = hasRelationship || countEvidenceByKinds(evidence, req.Entities,
+				types.EvidenceRelationship, types.EvidenceMechanism, types.EvidenceConcrete) > 0
+			// Check if entities appear together in notes or evidence
+			entitiesFound := 0
 			for _, ent := range req.Entities {
-				if strings.Contains(notesJoined, strings.ToLower(ent)) {
-					entitiesInNotes++
+				entLower := strings.ToLower(ent)
+				if strings.Contains(notesJoined, entLower) {
+					entitiesFound++
+					continue
+				}
+				// Also check structured evidence text
+				for _, ev := range evidence {
+					if strings.Contains(normalizeForMatch(ev.Subject+" "+ev.Object+" "+ev.Summary), normalizeForMatch(ent)) {
+						entitiesFound++
+						break
+					}
 				}
 			}
-			if hasRelationship && entitiesInNotes >= 2 {
+			if hasRelationship && entitiesFound >= 2 {
 				req.Status = "satisfied"
-			} else if hasRelationship || entitiesInNotes >= 1 {
+			} else if hasRelationship || entitiesFound >= 1 {
 				req.Status = "partial"
 			}
 
