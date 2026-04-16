@@ -268,7 +268,7 @@ func TestEmitAnswerDocument_Explanation_Happy(t *testing.T) {
 	ctx := newDocBusCtx("")
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
-		"summary": "The codrax architecture decomposes user tasks through a 5-layer pipeline.",
+		"summary": "The codrax architecture decomposes user tasks through a 6-layer pipeline.",
 	})
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {

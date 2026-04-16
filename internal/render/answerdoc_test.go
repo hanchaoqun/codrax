@@ -191,13 +191,13 @@ func TestRenderAnswerDocument_Boolean_NO_ZH(t *testing.T) {
 func TestRenderAnswerDocument_Explanation_WithPool(t *testing.T) {
 	doc := &types.AnswerDocument{
 		Shape:   types.ShapeExplanation,
-		Summary: "Codrax uses a 5-layer pipeline.",
+		Summary: "Codrax uses a 6-layer pipeline.",
 		Citations: []types.Citation{
 			{File: "CLAUDE.md", Line: 10, Quote: "orchestration layer"},
 		},
 	}
 	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Codrax uses a 5-layer pipeline") {
+	if !strings.Contains(out, "Codrax uses a 6-layer pipeline") {
 		t.Errorf("summary missing: %q", out)
 	}
 	if !strings.Contains(out, "CLAUDE.md:10") {

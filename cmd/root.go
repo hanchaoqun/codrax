@@ -79,8 +79,8 @@ var app appContext
 var rootCmd = &cobra.Command{
 	Use:   "codrax [request]",
 	Short: "AI-powered code analysis and implementation pipeline",
-	Long: `Codrax is a 5-layer multi-agent AI system that decomposes software
-engineering tasks through a YAML-driven state machine pipeline.
+	Long: `Codrax is a read-only code analysis tool with a 6-layer, 4-agent
+pipeline (analyze → explore → extract → finalize).
 
 When invoked with a request, runs the pipeline once and exits.
 When invoked with no arguments, enters interactive REPL mode.`,
