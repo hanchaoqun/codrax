@@ -156,10 +156,11 @@ func (r *Renderer) Emitter() EventEmitter {
 		// single-shot mode this is the user's only window into what
 		// the pipeline is doing during the 30+ second wait.
 		if ev.Kind == EventAgentReasoning && ev.Reasoning != "" {
+			line := formatReasoning(string(ev.Agent), ev.Reasoning)
 			if r.area != nil {
-				r.printAboveArea(formatReasoning(ev.Reasoning))
+				r.printAboveArea(line)
 			} else {
-				fmt.Fprintln(os.Stderr, formatReasoning(ev.Reasoning))
+				fmt.Fprintln(os.Stderr, line)
 			}
 			return
 		}
@@ -323,10 +324,10 @@ func (r *Renderer) printAboveArea(text string) {
 }
 
 // formatReasoning extracts the first 1-2 sentences from the LLM's
-// reasoning text and formats them as a dimmed, indented line. Long
-// reasoning blocks (multi-paragraph analysis) are truncated to keep
-// the terminal output scannable.
-func formatReasoning(text string) string {
+// reasoning text and formats them as a dimmed, indented line with the
+// agent name prefix. Long reasoning blocks are truncated to keep the
+// terminal output scannable.
+func formatReasoning(agent, text string) string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return ""
@@ -338,7 +339,6 @@ func formatReasoning(text string) string {
 		summary += " " + strings.TrimSpace(lines[1])
 	}
 	if len(summary) > 200 {
-		// Walk back to a word boundary.
 		cut := 197
 		for cut > 0 && summary[cut] != ' ' {
 			cut--
@@ -348,7 +348,11 @@ func formatReasoning(text string) string {
 		}
 		summary = summary[:cut] + "..."
 	}
-	return "  " + pterm.FgDarkGray.Sprint("💭 "+summary)
+	prefix := "💭"
+	if agent != "" {
+		prefix = "💭 [" + agent + "]"
+	}
+	return "  " + pterm.FgDarkGray.Sprint(prefix+" "+summary)
 }
 
 // truncByDisplayWidth clamps a styled (ANSI-CSI-bearing) line to at
