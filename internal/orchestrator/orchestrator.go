@@ -65,48 +65,6 @@ func (o *Orchestrator) SetLanguage(lang string) {
 	o.language = lang
 }
 
-// languageDirective returns the preference sentence to insert into
-// BusContext.Preferences, or "" to disable the feature. The directive
-// is phrased so the model keeps the user's language if it is clearly
-// different from the default — this preserves the "ask in English,
-// get English" behavior without forcing a single locale.
-func languageDirective(lang string) string {
-	switch lang {
-	case "", "off", "none":
-		return ""
-	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "Respond to the user in Simplified Chinese (简体中文) by default. " +
-			"Keep technical terms, proper nouns, project-specific names, code identifiers, " +
-			"file paths, and command names in their original form — do not translate them. " +
-			"If the user's most recent request is clearly written in another language " +
-			"(for example English or Japanese), match that language instead so the reply " +
-			"is in the same language as the question."
-	case "en", "en-US", "english":
-		return "Respond to the user in English by default. " +
-			"Keep technical terms, proper nouns, and project-specific names in their original form. " +
-			"If the user's most recent request is clearly written in another language, " +
-			"match that language instead."
-	default:
-		return fmt.Sprintf(
-			"Respond to the user in %s by default. "+
-				"Keep technical terms, proper nouns, project-specific names, code identifiers, "+
-				"file paths, and command names in their original form — do not translate them. "+
-				"If the user's most recent request is clearly written in another language, "+
-				"match that language instead.", lang)
-	}
-}
-
-// diagramDirective is a global preference injected into every agent's
-// prompt. It teaches agents to use Mermaid fenced code blocks for
-// visual representations when the answer benefits from them.
-const diagramDirective = `When a visual representation would clarify your answer, use Mermaid diagrams inside fenced code blocks (` + "```mermaid" + ` ... ` + "```" + `). Choose the diagram type that best fits the content:
-- Flowchart (graph TD/LR) for control flow, decision trees, pipeline stages
-- Sequence diagram (sequenceDiagram) for call chains, request/response flows, multi-component interactions
-- Class diagram (classDiagram) for type hierarchies, struct relationships, interface implementations
-- State diagram (stateDiagram-v2) for state machines, lifecycle transitions
-- Standard Markdown tables for structured comparisons, field listings, configuration summaries
-Use diagrams only when they add clarity — not every answer needs one. Keep diagrams concise: collapse trivial nodes, omit boilerplate, and label edges.`
-
 // Run executes the full pipeline for a user request.
 //
 // The pipeline runs in two phases:
@@ -137,10 +95,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		},
 	}
 
-	if pref := languageDirective(o.language); pref != "" {
-		o.busCtx.Preferences = append(o.busCtx.Preferences, pref)
-	}
-	o.busCtx.Preferences = append(o.busCtx.Preferences, diagramDirective)
+	o.busCtx.Language = o.language
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 

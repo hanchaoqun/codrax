@@ -880,6 +880,11 @@ type BusContext struct {
 	Constraints []string `json:"constraints,omitempty"`
 	Preferences []string `json:"preferences,omitempty"`
 
+	// Language is the response-language code from the -lang flag.
+	// builder.go reads it to generate the language preference
+	// directive. Empty / "off" / "none" disables the directive.
+	Language string `json:"language,omitempty"`
+
 	LastTransitionReason string `json:"last_transition_reason,omitempty"`
 	TraceID              string `json:"trace_id"`
 
@@ -920,6 +925,7 @@ type AgentContext struct {
 
 	Constraints []string `json:"constraints,omitempty"`
 	Preferences []string `json:"preferences,omitempty"`
+	Language    string   `json:"language,omitempty"`
 
 	MissingPiece MissingPiece `json:"missing_piece"`
 

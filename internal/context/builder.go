@@ -24,11 +24,12 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		MissingPiece: bus.TaskState.Missing,
 		Constraints:  bus.Constraints,
 		Preferences:  bus.Preferences,
+		Language:     bus.Language,
 		RepoRoot:     bus.RepoRoot,
 		Branch:       bus.Branch,
 		Commit:       bus.Commit,
 		WorkDir:      bus.WorkDir,
-		Mutable:      bus.Mutable, // shared pointer; tools mutate through this
+		Mutable:      bus.Mutable,
 		AnalysisIR:   bus.AnalysisIR,
 	}
 
@@ -239,15 +240,17 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	// User preferences (e.g. default response language) flow from
-	// BusContext.Preferences → AgentContext.Preferences and are rendered
-	// as a system section so every agent's final answer honors them.
-	// Empty preferences leave the prompt untouched, keeping the old
-	// zero-config behavior when the feature is disabled.
-	if len(ac.Preferences) > 0 {
+	// User preferences: static entries from BusContext.Preferences
+	// plus the dynamic language directive derived from BusContext.Language.
+	var prefs []string
+	prefs = append(prefs, ac.Preferences...)
+	if langPref := languageDirective(ac.Language); langPref != "" {
+		prefs = append(prefs, langPref)
+	}
+	if len(prefs) > 0 {
 		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
 			Title:   "User Preferences",
-			Content: strings.Join(ac.Preferences, "\n"),
+			Content: strings.Join(prefs, "\n"),
 		})
 	}
 
@@ -850,4 +853,19 @@ func renderAnswerChainForPrompt(c types.AnswerChain) string {
 		display += ")"
 	}
 	return display
+}
+
+// languageDirective maps a language code to a concise prompt
+// directive. Returns "" when the feature is disabled.
+func languageDirective(lang string) string {
+	switch lang {
+	case "", "off", "none":
+		return ""
+	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
+		return "Reply in Simplified Chinese (简体中文). Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead."
+	case "en", "en-US", "english":
+		return "Reply in English. Keep code identifiers and technical terms in their original form. If the user writes in another language, reply in that language instead."
+	default:
+		return fmt.Sprintf("Reply in %s. Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead.", lang)
+	}
 }

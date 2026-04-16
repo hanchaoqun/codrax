@@ -163,7 +163,9 @@ Completeness honesty contract (list_of_symbols only):
 - "unknown" — investigated but no definitive slate. Renderer drops the section entirely and falls back to the shape-based prompt.
 
 Summary field (shape=explanation or optional lead-in for others):
-- LLM-authored 1-2 sentence lead-in, ≤500 chars — the ONE prose escape hatch. Do not pad this into an answer body.`,
+- LLM-authored 1-2 sentence lead-in, ≤500 chars — the ONE prose escape hatch. Do not pad this into an answer body.
+
+Diagrams: when a visual would clarify the answer, use Mermaid fenced code blocks in the summary field. Prefer flowchart for control flow, sequenceDiagram for call chains, classDiagram for type hierarchies. Keep diagrams concise — collapse trivial nodes, label edges. Only use when it adds clarity.`,
 		Prohibitions: []string{
 			"do not write prose outside the emit_answer_document tool call — the tool result IS the final answer",
 			"do not cite a file or line that is not in the evidence / read-files list from prior stages",

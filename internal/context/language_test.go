@@ -1,4 +1,4 @@
-package orchestrator
+package context
 
 import (
 	"strings"
@@ -19,7 +19,7 @@ func TestLanguageDirective(t *testing.T) {
 		{in: "chinese", mustHave: "Simplified Chinese"},
 		{in: "en", mustHave: "English"},
 		{in: "english", mustHave: "English"},
-		{in: "fr", mustHave: "fr"}, // passthrough for unknown codes
+		{in: "fr", mustHave: "fr"},
 	}
 	for _, c := range cases {
 		got := languageDirective(c.in)
@@ -36,14 +36,9 @@ func TestLanguageDirective(t *testing.T) {
 		if !strings.Contains(got, c.mustHave) {
 			t.Errorf("languageDirective(%q) = %q, want substring %q", c.in, got, c.mustHave)
 		}
-		// Every non-empty directive must include the match-user-language
-		// fallback clause so a question asked in another language is not
-		// force-translated.
 		if !strings.Contains(strings.ToLower(got), "another language") {
 			t.Errorf("languageDirective(%q) missing fallback clause: %q", c.in, got)
 		}
-		// Every non-empty directive must tell the model to keep technical
-		// terms and proper nouns in their original form.
 		if !strings.Contains(strings.ToLower(got), "technical terms") {
 			t.Errorf("languageDirective(%q) missing term-preservation clause: %q", c.in, got)
 		}
