@@ -19,6 +19,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -47,7 +48,58 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.ResetPrescanSummary()
 	}
+
+	// Pre-inject a repo_map task_map view so the analyzer starts its
+	// first iteration with structural context already visible. Without
+	// this, the LLM always burns its first round calling repo_map itself
+	// — a predictable, wasted LLM round-trip (~3s). The task_map view
+	// uses the user question as the query, so the result is already
+	// relevance-filtered. The LLM can still call repo_map/grep/list_files
+	// in round 1-2 for additional verification, but now it has a head
+	// start.
+	if ctx != nil && ctx.RepoRoot != "" && ctx.Objective != "" {
+		query := ctx.Objective
+		// In REPL mode, strip the conversation prefix so the query
+		// only contains the current question, not prior-turn memory.
+		if idx := strings.Index(query, "## Current request\n"); idx >= 0 {
+			query = strings.TrimSpace(query[idx+len("## Current request\n"):])
+		}
+		if overview := buildAnalyzerRepoOverview(ctx.RepoRoot, query); overview != "" {
+			return overview
+		}
+	}
 	return ""
+}
+
+// buildAnalyzerRepoOverview calls the repo_map graph builder and
+// renders a task_map view for the analyzer's initial prompt. Returns
+// empty string on any error — the analyzer proceeds without it and
+// the LLM calls repo_map itself (graceful degrade).
+func buildAnalyzerRepoOverview(repoRoot, query string) string {
+	graph, err := repomap.BuildOrLoadGraph(repoRoot, query)
+	if err != nil {
+		logging.Debug("[analyzer] repo overview unavailable: %v", err)
+		return ""
+	}
+	output := repomap.GenerateView(graph, "task_map", repomap.ViewParams{
+		Query: query,
+		TopN:  15,
+	})
+	if output == "" {
+		return ""
+	}
+	// Cap the overview to avoid bloating the initial prompt. The
+	// task_map view for large repos can exceed 10KB; 4KB is enough
+	// to show the top-ranked files and their symbols.
+	const maxLen = 4096
+	if len(output) > maxLen {
+		output = output[:maxLen] + "\n... [truncated]\n"
+	}
+	return "## Repository overview (pre-computed, no tool call needed)\n\n" +
+		"The following task_map shows files and symbols relevant to the user's question. " +
+		"Use this to inform your entity/keyword choices and pre-scan targets. " +
+		"You may still call repo_map, grep, or list_files for additional verification.\n\n" +
+		output
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
