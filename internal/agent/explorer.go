@@ -4487,8 +4487,17 @@ func hasHighConfidenceEvidence(history []types.ToolResult, e *explorerEvaluator)
 		// files]" and contains no code content. Exclude it from the
 		// high-confidence check so Phase 0 early-exit doesn't fire on
 		// breadth-scan results that haven't read any file yet.
-		if r.ToolName == "grep" && strings.HasPrefix(r.Summary, "[grep:") && strings.Contains(r.Summary, "matching files]") {
-			continue
+		if r.ToolName == "grep" {
+			// Exclude grep results that are navigation-only:
+			// - files_only results: "[grep: N matching files]"
+			// - empty results: "no matches found"
+			// Neither constitutes actual evidence (no code content read).
+			if strings.HasPrefix(r.Summary, "[grep:") && strings.Contains(r.Summary, "matching files]") {
+				continue
+			}
+			if strings.Contains(r.Summary, "no matches") {
+				continue
+			}
 		}
 		logging.Debug("[explorer] hasHighConfidenceEvidence: tool=%s confidence=%.1f → true", r.ToolName, conf)
 		return true
