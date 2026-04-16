@@ -16,13 +16,13 @@ import "github.com/hanchaoqun/codrax/internal/types"
 
 // critEntry builds an EntryCondition that waits on a named signal.
 func critEntry(signal string) []types.Criterion {
-	return []types.Criterion{{Kind: "signal_present", Expr: signal}}
+	return []types.Criterion{{Kind: types.CritSignalPresent, Expr: signal}}
 }
 
 // critEvidence builds a SuccessCriteria list that requires N or
 // more evidence items.
 func critEvidenceAtLeast(n int) []types.Criterion {
-	return []types.Criterion{{Kind: "evidence_count", Expr: ">=" + itoa(n)}}
+	return []types.Criterion{{Kind: types.CritEvidenceCount, Expr: ">=" + itoa(n)}}
 }
 
 func itoa(n int) string {
@@ -59,7 +59,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Outputs:     []string{"file_candidates", "symbol_table"},
 		SearchHints: hints,
 		SuccessCriteria: []types.Criterion{
-			{Kind: "evidence_count", Expr: ">=1"},
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
 		},
 	}
 	ev := types.TaskNode{
@@ -70,7 +70,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		SearchHints: hints,
 		MaxRetries:  2,
 		SuccessCriteria: []types.Criterion{
-			{Kind: "evidence_count", Expr: ">=3"},
+			{Kind: types.CritEvidenceCount, Expr: ">=3"},
 		},
 	}
 	val := types.TaskNode{
@@ -79,7 +79,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Inputs:    []string{"evidence_items", "answer_chains"},
 		Outputs:   []string{"validation_report"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: "answer_set_bounded", Expr: "<=50"},
+			{Kind: types.CritAnswerSetBounded, Expr: "<=50"},
 		},
 	}
 	reconcile := types.TaskNode{
@@ -95,7 +95,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Inputs:    []string{"reconciled_story"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "3"},
+			{Kind: types.CritCitationCountGE, Expr: "3"},
 		},
 	}
 	edges := chain(probe.ID, ev.ID, val.ID, reconcile.ID, final.ID)
@@ -114,15 +114,15 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 	plan := types.EvidencePlan{
 		SourceMix: map[string]int{"grep": 30, "repomap": 40, "read": 30},
 		StopConditions: []types.StopCondition{
-			{Kind: "contract_satisfied"},
-			{Kind: "budget_exhausted"},
+			{Kind: types.CritContractSatisfied},
+			{Kind: types.CritBudgetExhausted},
 		},
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 3},
 		AcceptanceTests: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "3"},
+			{Kind: types.CritCitationCountGE, Expr: "3"},
 		},
 		Language: rm.Language,
 	}
@@ -148,7 +148,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		SearchHints: hints,
 		MaxRetries:  2,
 		SuccessCriteria: []types.Criterion{
-			{Kind: "evidence_count", Expr: ">=3"},
+			{Kind: types.CritEvidenceCount, Expr: ">=3"},
 		},
 	}
 	val := types.TaskNode{
@@ -158,7 +158,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		Outputs:         []string{"validation_verdicts"},
 		EntryConditions: critEntry("has_enough_facts"),
 		SuccessCriteria: []types.Criterion{
-			{Kind: "all_hypotheses_decided"},
+			{Kind: types.CritAllHypothesesDecided},
 		},
 	}
 	reconcile := types.TaskNode{
@@ -173,7 +173,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		Inputs:    []string{"root_cause_story"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: "2"},
 		},
 	}
 	edges := chain(probe.ID, ev.ID, val.ID, reconcile.ID, final.ID)
@@ -192,15 +192,15 @@ func templateRootCause(rm types.RequestModel) Output {
 	plan := types.EvidencePlan{
 		SourceMix: map[string]int{"grep": 40, "repomap": 25, "read": 35},
 		StopConditions: []types.StopCondition{
-			{Kind: "all_hypotheses_decided"},
-			{Kind: "budget_exhausted"},
+			{Kind: types.CritAllHypothesesDecided},
+			{Kind: types.CritBudgetExhausted},
 		},
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeStepList,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
 		AcceptanceTests: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: "2"},
 		},
 		Language: rm.Language,
 	}
@@ -226,7 +226,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		SearchHints: hints,
 		MaxRetries:  1,
 		SuccessCriteria: []types.Criterion{
-			{Kind: "evidence_count", Expr: ">=1"},
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
 		},
 	}
 	val := types.TaskNode{
@@ -241,7 +241,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		Inputs:    []string{"validation_report"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: "1"},
 		},
 	}
 	edges := chain(probe.ID, ev.ID, val.ID, final.ID)
@@ -260,15 +260,15 @@ func templateConfigTrace(rm types.RequestModel) Output {
 	plan := types.EvidencePlan{
 		SourceMix: map[string]int{"grep": 50, "repomap": 20, "read": 30},
 		StopConditions: []types.StopCondition{
-			{Kind: "contract_satisfied"},
-			{Kind: "budget_exhausted"},
+			{Kind: types.CritContractSatisfied},
+			{Kind: types.CritBudgetExhausted},
 		},
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeConfigValue,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
 		AcceptanceTests: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: "1"},
 		},
 		Language: rm.Language,
 	}
@@ -294,7 +294,7 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		SearchHints: hints,
 		MaxRetries:  2,
 		SuccessCriteria: []types.Criterion{
-			{Kind: "evidence_count", Expr: ">=2"},
+			{Kind: types.CritEvidenceCount, Expr: ">=2"},
 		},
 	}
 	val := types.TaskNode{
@@ -309,7 +309,7 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		Inputs:    []string{"final_ranking"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: "2"},
 		},
 	}
 	graph := types.TaskGraph{
@@ -323,15 +323,15 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 	plan := types.EvidencePlan{
 		SourceMix: map[string]int{"grep": 35, "repomap": 35, "read": 30},
 		StopConditions: []types.StopCondition{
-			{Kind: "contract_satisfied"},
-			{Kind: "budget_exhausted"},
+			{Kind: types.CritContractSatisfied},
+			{Kind: types.CritBudgetExhausted},
 		},
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
 		AcceptanceTests: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: "2"},
 		},
 		Language: rm.Language,
 	}
@@ -357,7 +357,7 @@ func templateGeneric(rm types.RequestModel) Output {
 		SearchHints: hints,
 		MaxRetries:  2,
 		SuccessCriteria: []types.Criterion{
-			{Kind: "evidence_count", Expr: ">=1"},
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
 		},
 	}
 	final := types.TaskNode{
@@ -366,7 +366,7 @@ func templateGeneric(rm types.RequestModel) Output {
 		Inputs:    []string{"evidence_items"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: "1"},
 		},
 	}
 	graph := types.TaskGraph{
@@ -380,8 +380,8 @@ func templateGeneric(rm types.RequestModel) Output {
 	plan := types.EvidencePlan{
 		SourceMix: map[string]int{"grep": 35, "repomap": 30, "read": 35},
 		StopConditions: []types.StopCondition{
-			{Kind: "contract_satisfied"},
-			{Kind: "budget_exhausted"},
+			{Kind: types.CritContractSatisfied},
+			{Kind: types.CritBudgetExhausted},
 		},
 	}
 	shape := types.ShapeExplanation
@@ -396,7 +396,7 @@ func templateGeneric(rm types.RequestModel) Output {
 		RequiredAnswerShape: shape,
 		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
 		AcceptanceTests: []types.Criterion{
-			{Kind: "citation_count_ge", Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: "1"},
 		},
 		Language: rm.Language,
 	}

@@ -220,6 +220,35 @@ type Criterion struct {
 	Expr string `json:"expr"`
 }
 
+// CriterionKind constants — the closed namespace of legal Kind
+// values for Criterion fields. Every raw string that appears in a
+// Criterion{Kind: ...} literal, a switch case, or a compiler
+// template MUST use one of these constants so a typo is caught at
+// compile time. The criterion package's evaluator dispatch table
+// and the gate's criterion_resolvable check both reference this
+// same set.
+const (
+	CritSymbolPresent                 = "symbol_present"
+	CritNoCallSites                   = "no_call_sites"
+	CritAnswerSetBounded              = "answer_set_bounded"
+	CritAnswerSetUnbounded            = "answer_set_unbounded"
+	CritMultipleResolutionChains      = "multiple_resolution_chains"
+	CritUserClauseUnresolved          = "user_clause_unresolved"
+	CritUntrustedReachesSink          = "untrusted_reaches_sink"
+	CritInvariantBroken               = "invariant_broken"
+	CritNoRelevantEvidence            = "no_relevant_evidence"
+	CritSignalPresent                 = "signal_present"
+	CritHasEnoughFacts                = "has_enough_facts"
+	CritAllHypothesesDecided          = "all_hypotheses_decided"
+	CritContractSatisfied             = "contract_satisfied"
+	CritBudgetExhausted               = "budget_exhausted"
+	CritEvidenceCount                 = "evidence_count"
+	CritCitationCountGE               = "citation_count_ge"
+	CritContainsSymbol                = "contains_symbol"
+	CritRegexMatch                    = "regex_match"
+	CritCounterfactualBranchesDecided = "counterfactual_branches_decided"
+)
+
 type SearchHints struct {
 	KeywordIDs []string `json:"keyword_ids,omitempty"`
 	EntityIDs  []string `json:"entity_ids,omitempty"`

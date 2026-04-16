@@ -119,7 +119,7 @@ func TestGraphState_EntryConditionBlocks(t *testing.T) {
 	g := smallChainGraph()
 	// Gate n1 on has_enough_facts. Env.Signals is zero → blocked.
 	g.Nodes[1].EntryConditions = []types.Criterion{
-		{Kind: "has_enough_facts"},
+		{Kind: types.CritHasEnoughFacts},
 	}
 	s := newGraphState(g)
 	window, blocked := s.readyExplorerWindow(emptyEnv())

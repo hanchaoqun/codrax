@@ -47,10 +47,10 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 				"The observed symptom is caused by %s or a module it depends on.",
 				orDefault(topSymbol, "the primary subject of the request")),
 			RequiredEvidence: []types.Criterion{
-				{Kind: "symbol_present", Expr: topSymbol},
-				{Kind: "evidence_count", Expr: ">=2"},
+				{Kind: types.CritSymbolPresent, Expr: topSymbol},
+				{Kind: types.CritEvidenceCount, Expr: ">=2"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "no_call_sites", Expr: topSymbol},
+			FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: topSymbol},
 			Status:                 types.HypUnknown,
 		})
 	case types.IntentConfigQuery:
@@ -58,9 +58,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 			ID: nextID(),
 			Statement: "The effective config value is resolved by a single deterministic chain from default to override.",
 			RequiredEvidence: []types.Criterion{
-				{Kind: "evidence_count", Expr: ">=1"},
+				{Kind: types.CritEvidenceCount, Expr: ">=1"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "multiple_resolution_chains"},
+			FalsificationCondition: types.Criterion{Kind: types.CritMultipleResolutionChains},
 			Status:                 types.HypUnknown,
 		})
 	case types.IntentReturnValue, types.IntentEnumerate:
@@ -70,9 +70,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 				"The answer is a finite set of symbols anchored on %s.",
 				orDefault(topSymbol, "the subject")),
 			RequiredEvidence: []types.Criterion{
-				{Kind: "answer_set_bounded", Expr: "<=50"},
+				{Kind: types.CritAnswerSetBounded, Expr: "<=50"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "answer_set_unbounded"},
+			FalsificationCondition: types.Criterion{Kind: types.CritAnswerSetUnbounded},
 			Status:                 types.HypUnknown,
 		})
 	default:
@@ -82,9 +82,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 				"The request can be answered using evidence anchored on %s.",
 				orDefault(topSymbol, "repo symbols")),
 			RequiredEvidence: []types.Criterion{
-				{Kind: "evidence_count", Expr: ">=1"},
+				{Kind: types.CritEvidenceCount, Expr: ">=1"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "no_relevant_evidence"},
+			FalsificationCondition: types.Criterion{Kind: types.CritNoRelevantEvidence},
 			Status:                 types.HypUnknown,
 		})
 	}
@@ -101,9 +101,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 			ID:        nextID(),
 			Statement: statement,
 			RequiredEvidence: []types.Criterion{
-				{Kind: "evidence_count", Expr: ">=1"},
+				{Kind: types.CritEvidenceCount, Expr: ">=1"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "user_clause_unresolved", Expr: amb.Clause},
+			FalsificationCondition: types.Criterion{Kind: types.CritUserClauseUnresolved, Expr: amb.Clause},
 			Status:                 types.HypUnknown,
 		})
 	}
@@ -114,9 +114,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 			ID:        nextID(),
 			Statement: "The change does not introduce an un-sanitized data path from an untrusted boundary.",
 			RequiredEvidence: []types.Criterion{
-				{Kind: "evidence_count", Expr: ">=1"},
+				{Kind: types.CritEvidenceCount, Expr: ">=1"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "untrusted_reaches_sink"},
+			FalsificationCondition: types.Criterion{Kind: types.CritUntrustedReachesSink},
 			Status:                 types.HypUnknown,
 		})
 	}
@@ -125,9 +125,9 @@ func Plan(rm types.RequestModel) []types.Hypothesis {
 			ID:        nextID(),
 			Statement: "The change preserves all existing data invariants and is safe under concurrent writes.",
 			RequiredEvidence: []types.Criterion{
-				{Kind: "evidence_count", Expr: ">=1"},
+				{Kind: types.CritEvidenceCount, Expr: ">=1"},
 			},
-			FalsificationCondition: types.Criterion{Kind: "invariant_broken"},
+			FalsificationCondition: types.Criterion{Kind: types.CritInvariantBroken},
 			Status:                 types.HypUnknown,
 		})
 	}

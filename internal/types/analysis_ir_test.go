@@ -50,7 +50,7 @@ func sampleAnalysisIR() AnalysisIR {
 					Inputs:          []string{"t2"},
 					Outputs:         []string{"shouldstop_impl"},
 					ExitArtifacts:   []string{"file_line_ref"},
-					SuccessCriteria: []Criterion{{Kind: "symbol_present", Expr: "ShouldStop"}},
+					SuccessCriteria: []Criterion{{Kind: CritSymbolPresent, Expr: "ShouldStop"}},
 					SearchHints:     SearchHints{KeywordIDs: []string{"t2"}, EntityIDs: []string{"t2"}},
 				},
 				{
@@ -87,8 +87,8 @@ func sampleAnalysisIR() AnalysisIR {
 				"read":    30,
 			},
 			StopConditions: []StopCondition{
-				{Kind: "all_hypotheses_decided"},
-				{Kind: "contract_satisfied"},
+				{Kind: CritAllHypothesesDecided},
+				{Kind: CritContractSatisfied},
 			},
 		},
 		AnswerContract: AnswerContract{
@@ -97,8 +97,8 @@ func sampleAnalysisIR() AnalysisIR {
 			MustExclude:         nil,
 			CitationReq:         CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
 			AcceptanceTests: []Criterion{
-				{Kind: "contains_symbol", Expr: "ShouldStop"},
-				{Kind: "citation_count_ge", Expr: "2"},
+				{Kind: CritContainsSymbol, Expr: "ShouldStop"},
+				{Kind: CritCitationCountGE, Expr: "2"},
 			},
 			Language: "zh",
 		},
@@ -107,9 +107,9 @@ func sampleAnalysisIR() AnalysisIR {
 				ID:        "h1",
 				Statement: "ShouldStop returns true when ERM is satisfied",
 				RequiredEvidence: []Criterion{
-					{Kind: "symbol_present", Expr: "ermSatisfied"},
+					{Kind: CritSymbolPresent, Expr: "ermSatisfied"},
 				},
-				FalsificationCondition: Criterion{Kind: "no_call_sites", Expr: "ermSatisfied"},
+				FalsificationCondition: Criterion{Kind: CritNoCallSites, Expr: "ermSatisfied"},
 				Priority:               80,
 				Status:                 HypUnknown,
 			},

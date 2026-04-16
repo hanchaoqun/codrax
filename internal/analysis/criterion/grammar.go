@@ -26,25 +26,25 @@ import (
 type Kind string
 
 const (
-	KindSymbolPresent                 Kind = "symbol_present"
-	KindNoCallSites                   Kind = "no_call_sites"
-	KindAnswerSetBounded              Kind = "answer_set_bounded"
-	KindAnswerSetUnbounded            Kind = "answer_set_unbounded"
-	KindMultipleResolutionChains      Kind = "multiple_resolution_chains"
-	KindUserClauseUnresolved          Kind = "user_clause_unresolved"
-	KindUntrustedReachesSink          Kind = "untrusted_reaches_sink"
-	KindInvariantBroken               Kind = "invariant_broken"
-	KindNoRelevantEvidence            Kind = "no_relevant_evidence"
-	KindSignalPresent                 Kind = "signal_present"
-	KindHasEnoughFacts                Kind = "has_enough_facts"
-	KindAllHypothesesDecided          Kind = "all_hypotheses_decided"
-	KindContractSatisfied             Kind = "contract_satisfied"
-	KindBudgetExhausted               Kind = "budget_exhausted"
-	KindEvidenceCount                 Kind = "evidence_count"
-	KindCitationCountGE               Kind = "citation_count_ge"
-	KindContainsSymbol                Kind = "contains_symbol"
-	KindRegexMatch                    Kind = "regex_match"
-	KindCounterfactualBranchesDecided Kind = "counterfactual_branches_decided"
+	KindSymbolPresent                 Kind = Kind(types.CritSymbolPresent)
+	KindNoCallSites                   Kind = Kind(types.CritNoCallSites)
+	KindAnswerSetBounded              Kind = Kind(types.CritAnswerSetBounded)
+	KindAnswerSetUnbounded            Kind = Kind(types.CritAnswerSetUnbounded)
+	KindMultipleResolutionChains      Kind = Kind(types.CritMultipleResolutionChains)
+	KindUserClauseUnresolved          Kind = Kind(types.CritUserClauseUnresolved)
+	KindUntrustedReachesSink          Kind = Kind(types.CritUntrustedReachesSink)
+	KindInvariantBroken               Kind = Kind(types.CritInvariantBroken)
+	KindNoRelevantEvidence            Kind = Kind(types.CritNoRelevantEvidence)
+	KindSignalPresent                 Kind = Kind(types.CritSignalPresent)
+	KindHasEnoughFacts                Kind = Kind(types.CritHasEnoughFacts)
+	KindAllHypothesesDecided          Kind = Kind(types.CritAllHypothesesDecided)
+	KindContractSatisfied             Kind = Kind(types.CritContractSatisfied)
+	KindBudgetExhausted               Kind = Kind(types.CritBudgetExhausted)
+	KindEvidenceCount                 Kind = Kind(types.CritEvidenceCount)
+	KindCitationCountGE               Kind = Kind(types.CritCitationCountGE)
+	KindContainsSymbol                Kind = Kind(types.CritContainsSymbol)
+	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
+	KindCounterfactualBranchesDecided Kind = Kind(types.CritCounterfactualBranchesDecided)
 )
 
 // registered is the source of truth for legal Kind values. Gate's

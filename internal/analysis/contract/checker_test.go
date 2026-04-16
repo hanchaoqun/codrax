@@ -180,7 +180,7 @@ func TestCheck_MustExclude(t *testing.T) {
 func TestCheck_Acceptance_ContainsSymbol(t *testing.T) {
 	c := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
-		AcceptanceTests:     []types.Criterion{{Kind: "contains_symbol", Expr: "rollback"}},
+		AcceptanceTests:     []types.Criterion{{Kind: types.CritContainsSymbol, Expr: "rollback"}},
 	}
 	good := Answer{Text: "The plan includes a rollback strategy described here at length sufficient to pass."}
 	if !Check(good, c).Passed {
@@ -195,7 +195,7 @@ func TestCheck_Acceptance_ContainsSymbol(t *testing.T) {
 func TestCheck_Acceptance_RegexMatch(t *testing.T) {
 	c := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
-		AcceptanceTests:     []types.Criterion{{Kind: "regex_match", Expr: `\b[A-Z][a-zA-Z]+Agent\b`}},
+		AcceptanceTests:     []types.Criterion{{Kind: types.CritRegexMatch, Expr: `\b[A-Z][a-zA-Z]+Agent\b`}},
 	}
 	good := Answer{Text: "The ExplorerAgent handles the explore stage with sufficient context for shape check."}
 	if !Check(good, c).Passed {
@@ -210,7 +210,7 @@ func TestCheck_Acceptance_RegexMatch(t *testing.T) {
 func TestCheck_Acceptance_CitationCountGE(t *testing.T) {
 	c := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
-		AcceptanceTests:     []types.Criterion{{Kind: "citation_count_ge", Expr: "3"}},
+		AcceptanceTests:     []types.Criterion{{Kind: types.CritCitationCountGE, Expr: "3"}},
 	}
 	a := Answer{
 		Text:      "Long enough explanation that passes the shape check because it is many characters.",

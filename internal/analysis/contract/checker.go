@@ -189,12 +189,12 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 	var out []Violation
 	for _, a := range c.AcceptanceTests {
 		switch a.Kind {
-		case "contains_symbol":
+		case types.CritContainsSymbol:
 			if !containsSymbol(draft.Text, a.Expr) {
 				out = append(out, Violation{Kind: "acceptance",
 					Detail: fmt.Sprintf("acceptance contains_symbol %q failed", a.Expr)})
 			}
-		case "regex_match":
+		case types.CritRegexMatch:
 			re, err := regexp.Compile(a.Expr)
 			if err != nil {
 				out = append(out, Violation{Kind: "acceptance",
@@ -205,7 +205,7 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 				out = append(out, Violation{Kind: "acceptance",
 					Detail: fmt.Sprintf("acceptance regex %q did not match", a.Expr)})
 			}
-		case "citation_count_ge":
+		case types.CritCitationCountGE:
 			n, err := strconv.Atoi(strings.TrimSpace(a.Expr))
 			if err != nil {
 				out = append(out, Violation{Kind: "acceptance",
