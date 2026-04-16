@@ -378,19 +378,41 @@ func (b *BaseAgent) Name() types.AgentName {
 // suffix preserves the total length so the reader can spot truncation.
 // looksLikeEmbeddedToolCall detects when the LLM wrote tool-call JSON
 // in its text content instead of using the function-calling mechanism.
-// Checks for common patterns: "recipient_name", "functions.", or
-// "tool_use" appearing alongside JSON-like structure.
+//
+// Trigger conditions (ALL must be true):
+//  1. Content contains a JSON code block (```json ... ```) or a
+//     top-level '{' followed by a closing '}'.
+//  2. Inside that JSON block, a concrete emit_* tool name appears
+//     as a quoted string value (e.g. "emit_answer_symbol",
+//     "emit_answer_document", "emit_evidence").
+//
+// This avoids false positives from LLM prose that merely discusses
+// tool names or JSON structures — the combination of a JSON block
+// with an actual tool name as a string value is the signature of a
+// serialized-but-not-executed tool call.
 func looksLikeEmbeddedToolCall(content string) bool {
-	if len(content) < 50 {
+	// Must contain a JSON-like block.
+	hasJSONBlock := strings.Contains(content, "```json") ||
+		(strings.Contains(content, `{"`) && strings.Contains(content, `"}`))
+	if !hasJSONBlock {
 		return false
 	}
-	lower := strings.ToLower(content)
-	hasJSON := strings.Contains(content, `"parameters"`) || strings.Contains(content, `"tool_uses"`)
-	hasToolRef := strings.Contains(lower, "recipient_name") ||
-		strings.Contains(lower, "functions.emit_") ||
-		strings.Contains(lower, "tool_use") ||
-		strings.Contains(lower, `"name": "emit_`)
-	return hasJSON && hasToolRef
+	// Must contain a concrete emit tool name as a JSON string value
+	// (quoted, not just mentioned in prose).
+	emitTools := []string{
+		`"emit_answer_symbol"`,
+		`"emit_answer_document"`,
+		`"emit_hypothesis_verdict"`,
+		`"emit_evidence"`,
+		`"emit_investigation_complete"`,
+		`"emit_analysis"`,
+	}
+	for _, t := range emitTools {
+		if strings.Contains(content, t) {
+			return true
+		}
+	}
+	return false
 }
 
 func truncForLog(s string, max int) string {
