@@ -128,9 +128,9 @@ graph TB
 | `analyze` | `analyzer` | `analysis-skill` | |
 | `explore` | `explorer` | `explore-skill` | |
 | `extract` | `extractor` | `extract-skill` | |
-| `finalize` | `finalizer` | `final-answer-skill` *（注册时覆盖为 `answer-document-skill`）* | ✅ |
+| `finalize` | `finalizer` | `answer-document-skill` | ✅ |
 
-**finalize skill 覆盖**（`orchestrator.go::dispatchStage`）：每次进入 finalize 阶段前，编排器调用 `skills.Get("answer-document-skill")`；命中则把默认的 `final-answer-skill` 替换成 `answer-document-skill`。正常运行时这个 skill 始终注册，单元测试里可以用一个缩小的 skill registry 走 fallback 路径。
+拓扑硬编码即 `answer-document-skill`（`topology.go:21`），不存在运行时覆盖。`final-answer-skill` 仅在部分单元测试的缩减 skill registry 中作为 fallback fixture 出现，生产路径不会走到它。
 
 ### 运行时流程
 
@@ -406,7 +406,7 @@ Turn B 看不到新文件 —— 所有信息在 Turn A transcript 快照里冻�
 | 方面 | 详情 |
 |------|------|
 | **Agent** | finalizer |
-| **Skill** | `answer-document-skill`（运行时 override）/ `final-answer-skill`（仅单元测试 fallback） |
+| **Skill** | `answer-document-skill`（硬编码于 `topology.go`） |
 | **工具** | `emit_answer_document`（独占） |
 | **输入** | `BusContext.AnalysisIR.AnswerContract` + `AnswerSymbols` + completeness + `HypothesisSet` + Turn A 的 `StageReport` |
 | **工作** | 按 `RequiredAnswerShape` 分支构造 typed payload → 调 `emit_answer_document` → renderer 渲染 |
@@ -902,21 +902,27 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 ### `codrax.yaml` 分组
 
-三组 key，按前缀区分：
+六组 key，按前缀区分（全部字段指针类型，让 merge 区分 "absent" 与 "explicit zero value"）：
 
-- **裸 key**：`log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config`
-- **`blob_*` key**：`blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes`（Tool 输出 offload 到 WorkDir 的阈值）
-- **`pipeline_*` key**：`pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits`
+| 前缀 | key | 用途 |
+|------|-----|------|
+| 裸 key | `log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` | 进程级 UX |
+| `blob_*` | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` | Tool 输出 offload 到 WorkDir 的阈值 |
+| `analysis_*` | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` | `emit_analysis` 运行时验证 |
+| `pipeline_*` | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` | 流水线预算 |
+| `gate_*` | `gate_coverage_min` / `gate_coverage_weight_symbol` / `gate_coverage_weight_config` / `gate_coverage_weight_concept` / `gate_hypothesis_min_priority` | analyzer 质量门阈值（通过 `gate.SetGlobalThresholds`） |
+| 其他 | `explore_per_tool_default_cap` | explorer sourcemix 预算默认上限 |
 
-所有字段都是指针类型，让 `main.go` 的 merge 区分 "absent" 与 "explicit zero value"。
-
-### 精度（precedence）
+### 优先级（precedence）
 
 | key 组 | 优先级（低 → 高） |
 |--------|------------------|
 | 裸 key | code default → `codrax.yaml` → CLI flag |
-| `pipeline_*` | code default → `codrax.yaml` → CLI flag（仅 `-pipeline-max-steps` / `-pipeline-max-retries` / `-pipeline-max-stage-visits`）|
+| `pipeline_*` | code default → `codrax.yaml` → CLI flag（`-pipeline-max-steps` / `-pipeline-max-retries` / `-pipeline-max-stage-visits`）|
 | `blob_*` | code default（`internal/tool/blob.go`）→ `codrax.yaml`。**无 CLI override** |
+| `analysis_*` | code default（`internal/tool/analysis_limits.go`）→ `codrax.yaml`。**无 CLI override** |
+| `gate_*` | code default（`internal/analysis/gate`）→ `codrax.yaml`。**无 CLI override** |
+| `explore_*` | code default（0 = 不限）→ `codrax.yaml`。**无 CLI override** |
 
 ### Path anchoring
 
