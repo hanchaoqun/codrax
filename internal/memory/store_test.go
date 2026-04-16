@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // stubSummarizer produces a deterministic IndexEntry from a Turn so the
@@ -26,7 +28,7 @@ func (stubSummarizer) Summarize(_ context.Context, t Turn) (IndexEntry, error) {
 
 func TestAppendCompactsOldest(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -75,7 +77,7 @@ func TestAppendCompactsOldest(t *testing.T) {
 
 func TestBuildContextInlinesMatchingTurn(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -179,7 +181,7 @@ func TestSanitizeErrorResponse(t *testing.T) {
 // output, without requiring re-writing the turn file.
 func TestBuildContextSanitizesLegacyErrorTurn(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -212,12 +214,12 @@ func TestBuildContextSanitizesLegacyErrorTurn(t *testing.T) {
 
 // TestSanitizeStripsANSIAndCapsSize locks the write-side contract:
 // glamour-style ANSI escapes must not survive to disk, and a
-// pathologically large Response must be truncated at maxTurnBodyBytes.
+// pathologically large Response must be truncated at types.DefaultMemorySettings().MaxTurnBodyBytes.
 // Regression guard for the 2026-04-12 incident where a 2.8 MB turn file
 // blew the analyzer's context window.
 func TestSanitizeStripsANSIAndCapsSize(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -241,8 +243,8 @@ func TestSanitizeStripsANSIAndCapsSize(t *testing.T) {
 		t.Errorf("ANSI escape leaked to disk")
 	}
 	// Header adds ~100 bytes; cap is 64 KB body + truncation marker.
-	if len(raw) > maxTurnBodyBytes+512 {
-		t.Errorf("turn file size %d exceeds cap %d", len(raw), maxTurnBodyBytes)
+	if len(raw) > types.DefaultMemorySettings().MaxTurnBodyBytes+512 {
+		t.Errorf("turn file size %d exceeds cap %d", len(raw), types.DefaultMemorySettings().MaxTurnBodyBytes)
 	}
 	if !strings.Contains(string(raw), "[truncated]") {
 		t.Errorf("expected truncation marker in oversized turn")
@@ -256,7 +258,7 @@ func TestSanitizeStripsANSIAndCapsSize(t *testing.T) {
 	if strings.Contains(recent[0].Response, "\x1b[") {
 		t.Errorf("ANSI escape leaked into recent buffer")
 	}
-	if len(recent[0].Response) > maxTurnBodyBytes+32 {
+	if len(recent[0].Response) > types.DefaultMemorySettings().MaxTurnBodyBytes+32 {
 		t.Errorf("recent[0].Response size %d exceeds cap", len(recent[0].Response))
 	}
 }
@@ -281,7 +283,7 @@ func TestReadTurnFileSanitizesLegacyFile(t *testing.T) {
 		t.Fatalf("write legacy file: %v", err)
 	}
 
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -294,8 +296,8 @@ func TestReadTurnFileSanitizesLegacyFile(t *testing.T) {
 	if strings.Contains(recent[0].Response, "\x1b[") {
 		t.Errorf("legacy ANSI escape survived readTurnFile")
 	}
-	if len(recent[0].Response) > maxTurnBodyBytes+32 {
-		t.Errorf("legacy Response size %d exceeds cap %d", len(recent[0].Response), maxTurnBodyBytes)
+	if len(recent[0].Response) > types.DefaultMemorySettings().MaxTurnBodyBytes+32 {
+		t.Errorf("legacy Response size %d exceeds cap %d", len(recent[0].Response), types.DefaultMemorySettings().MaxTurnBodyBytes)
 	}
 }
 
@@ -328,7 +330,7 @@ func TestBuildContextCapsInlinedFullRef(t *testing.T) {
 		t.Fatalf("write MEMORY.md: %v", err)
 	}
 
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -356,7 +358,7 @@ func TestBuildContextCapsInlinedFullRef(t *testing.T) {
 
 func TestClearRemovesEverything(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -377,7 +379,7 @@ func TestClearRemovesEverything(t *testing.T) {
 
 func TestParseIndexRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -386,7 +388,7 @@ func TestParseIndexRoundTrip(t *testing.T) {
 		_ = s.Append(Turn{ID: fmt.Sprintf("t%d", i), Request: fmt.Sprintf("kw%d q", i)})
 	}
 	// Re-open and ensure the index reloads.
-	s2, err := NewStore(dir, stubSummarizer{})
+	s2, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -402,7 +404,7 @@ func TestParseIndexRoundTrip(t *testing.T) {
 // compacted index entries — i.e. nothing is lost across restart.
 func TestRecentSurvivesRestart(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -424,7 +426,7 @@ func TestRecentSurvivesRestart(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("close: %v", err)
 	}
-	s2, err := NewStore(dir, stubSummarizer{})
+	s2, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -467,7 +469,7 @@ func TestRecentSurvivesRestart(t *testing.T) {
 // (simulating a legacy directory or a manually-seeded scenario).
 func TestOrphanRecoveryRespectsCap(t *testing.T) {
 	dir := t.TempDir()
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -485,7 +487,7 @@ func TestOrphanRecoveryRespectsCap(t *testing.T) {
 	}
 
 	// Reopen with the default cap of 6 — only the newest 6 must come back.
-	s2, err := NewStore(dir, stubSummarizer{})
+	s2, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("reopen: %v", err)
 	}
@@ -509,7 +511,7 @@ func TestOrphanRecoveryRespectsCap(t *testing.T) {
 func TestLivePeerCount(t *testing.T) {
 	dir := t.TempDir()
 
-	a, err := NewStore(dir, stubSummarizer{})
+	a, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore a: %v", err)
 	}
@@ -520,7 +522,7 @@ func TestLivePeerCount(t *testing.T) {
 		t.Errorf("alone count: got (%d, %v), want (0, nil)", got, err)
 	}
 
-	b, err := NewStore(dir, stubSummarizer{})
+	b, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore b: %v", err)
 	}
@@ -534,7 +536,7 @@ func TestLivePeerCount(t *testing.T) {
 	}
 
 	// Add a third.
-	c, err := NewStore(dir, stubSummarizer{})
+	c, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore c: %v", err)
 	}
@@ -634,7 +636,7 @@ func TestConcurrentStoresShareMemoryMd(t *testing.T) {
 			ready.Done()
 			<-release
 
-			s, err := NewStore(dir, stubSummarizer{})
+			s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 			if err != nil {
 				errs <- fmt.Errorf("store %d open: %w", storeIdx, err)
 				return
@@ -672,7 +674,7 @@ func TestConcurrentStoresShareMemoryMd(t *testing.T) {
 	}
 
 	// Re-open from a fresh Store and check MEMORY.md is intact.
-	fresh, err := NewStore(dir, stubSummarizer{})
+	fresh, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("fresh NewStore: %v", err)
 	}
@@ -740,7 +742,7 @@ func (r *recordingSummarizer) Summarize(_ context.Context, t Turn) (IndexEntry, 
 func TestCompactOldestBypassesSummarizerForErrorTurn(t *testing.T) {
 	dir := t.TempDir()
 	rec := &recordingSummarizer{}
-	s, err := NewStore(dir, rec)
+	s, err := NewStore(dir, rec, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -797,7 +799,7 @@ func TestCompactOldestBypassesSummarizerForErrorTurn(t *testing.T) {
 func TestIndexEntryWasErrorRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	rec := &recordingSummarizer{}
-	s, err := NewStore(dir, rec)
+	s, err := NewStore(dir, rec, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -828,7 +830,7 @@ func TestIndexEntryWasErrorRoundTrip(t *testing.T) {
 	s.Close()
 
 	// Fresh Store parses it back.
-	s2, err := NewStore(dir, rec)
+	s2, err := NewStore(dir, rec, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore reload: %v", err)
 	}
@@ -888,7 +890,7 @@ func TestBuildContextSkipsWasErrorEntry(t *testing.T) {
 		t.Fatalf("write tainted turn: %v", err)
 	}
 
-	s, err := NewStore(dir, stubSummarizer{})
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}

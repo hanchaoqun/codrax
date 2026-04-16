@@ -141,6 +141,15 @@ type RuntimeSettings struct {
 	AgentFinalizerMaxCorrectionRetries *int `yaml:"agent_finalizer_max_correction_retries"`
 	AgentExtractorMaxCorrectionRetries *int `yaml:"agent_extractor_max_correction_retries"`
 
+	// Memory store limits. All optional; nil → code default in
+	// types.DefaultMemorySettings().
+	MemoryMaxRecentTurns            *int `yaml:"memory_max_recent_turns"`
+	MemoryMaxRecentBytes            *int `yaml:"memory_max_recent_bytes"`
+	MemoryMaxTurnBodyBytes          *int `yaml:"memory_max_turn_body_bytes"`
+	MemoryMaxBuildContextMatches    *int `yaml:"memory_max_build_context_matches"`
+	MemoryMaxInlinedTurnBytes       *int `yaml:"memory_max_inlined_turn_bytes"`
+	MemoryMaxBuildContextTotalBytes *int `yaml:"memory_max_build_context_total_bytes"`
+
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

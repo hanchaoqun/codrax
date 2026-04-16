@@ -30,6 +30,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Hard caps that bound how much historical turn content ever reaches
@@ -46,12 +48,14 @@ import (
 //     maxTurnBodyBytes, a pathological request that matches many
 //     entries would still blow the model window. Top-K + per-entry +
 //     total-budget gives three independent brakes.
-const (
-	maxTurnBodyBytes          = 64 * 1024
-	maxBuildContextMatches    = 3
-	maxInlinedTurnBytes       = 8 * 1024
-	maxBuildContextTotalBytes = 32 * 1024
-)
+// buildContextLimits holds the per-dispatch caps for BuildContext.
+// Populated from MemorySettings at NewStore time.
+type buildContextLimits struct {
+	maxTurnBodyBytes          int
+	maxBuildContextMatches    int
+	maxInlinedTurnBytes       int
+	maxBuildContextTotalBytes int
+}
 
 // ansiEscapeRE matches the CSI ("ESC[…letter") sequences that leak into
 // turn.Response via glamour's markdown rendering. They have no semantic
@@ -60,15 +64,15 @@ const (
 var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
 // sanitizeTurnText strips ANSI escape sequences and truncates to
-// maxTurnBodyBytes. Truncation walks back to a UTF-8 rune boundary so
-// we never emit half a multibyte character (the REPL history is
-// overwhelmingly CJK).
-func sanitizeTurnText(s string) string {
+// the given byte limit. Truncation walks back to a UTF-8 rune
+// boundary so we never emit half a multibyte character (the REPL
+// history is overwhelmingly CJK).
+func sanitizeTurnText(s string, maxBytes int) string {
 	s = ansiEscapeRE.ReplaceAllString(s, "")
-	if len(s) <= maxTurnBodyBytes {
+	if len(s) <= maxBytes {
 		return s
 	}
-	cut := maxTurnBodyBytes
+	cut := maxBytes
 	for cut > 0 && (s[cut]&0xC0) == 0x80 {
 		cut--
 	}
@@ -155,6 +159,7 @@ type Store struct {
 
 	maxRecent  int
 	maxBytes   int
+	bcLimits   buildContextLimits
 	summarizer Summarizer
 }
 
@@ -176,7 +181,7 @@ const sidecarPrefix = ".instance-"
 // so a restart does not silently drop the tail of the last conversation.
 // This is the only place that reads turn files back; the rest of the
 // store treats turns/ as write-once history.
-func NewStore(dir string, summarizer Summarizer) (*Store, error) {
+func NewStore(dir string, summarizer Summarizer, ms types.MemorySettings) (*Store, error) {
 	if dir == "" {
 		dir = "memory"
 	}
@@ -202,6 +207,7 @@ func NewStore(dir string, summarizer Summarizer) (*Store, error) {
 		_ = flock.close()
 		return nil, fmt.Errorf("create instance sidecar: %w", err)
 	}
+	ms = types.ResolvedMemorySettings(ms)
 	s := &Store{
 		dir:          dir,
 		turnsDir:     turnsDir,
@@ -210,9 +216,15 @@ func NewStore(dir string, summarizer Summarizer) (*Store, error) {
 		flock:        flock,
 		instanceLock: instanceLock,
 		sidecarPath:  sidecar,
-		maxRecent:    6,
-		maxBytes:     20 * 1024,
-		summarizer:   summarizer,
+		maxRecent:    ms.MaxRecentTurns,
+		maxBytes:     ms.MaxRecentBytes,
+		bcLimits: buildContextLimits{
+			maxTurnBodyBytes:          ms.MaxTurnBodyBytes,
+			maxBuildContextMatches:    ms.MaxBuildContextMatches,
+			maxInlinedTurnBytes:       ms.MaxInlinedTurnBytes,
+			maxBuildContextTotalBytes: ms.MaxBuildContextTotalBytes,
+		},
+		summarizer: summarizer,
 	}
 
 	// Presence detection: try to grab an EXCLUSIVE lock on
@@ -490,8 +502,8 @@ func (s *Store) readTurnFile(id string) (Turn, error) {
 	// remediation path for pre-existing directories.
 	return Turn{
 		ID:        id,
-		Request:   sanitizeTurnText(request),
-		Response:  sanitizeTurnText(response),
+		Request:   sanitizeTurnText(request, s.bcLimits.maxTurnBodyBytes),
+		Response:  sanitizeTurnText(response, s.bcLimits.maxTurnBodyBytes),
 		Timestamp: ts,
 	}, nil
 }
@@ -516,8 +528,8 @@ func (s *Store) Append(turn Turn) error {
 	// the same bounded value lands on disk AND in the in-process recent
 	// buffer. Downstream consumers (writeTurnFile, recentBytesLocked,
 	// compactOldest → Summarize) never see the raw glamour output.
-	turn.Request = sanitizeTurnText(turn.Request)
-	turn.Response = sanitizeTurnText(turn.Response)
+	turn.Request = sanitizeTurnText(turn.Request, s.bcLimits.maxTurnBodyBytes)
+	turn.Response = sanitizeTurnText(turn.Response, s.bcLimits.maxTurnBodyBytes)
 	if err := s.writeTurnFile(turn); err != nil {
 		return err
 	}
@@ -622,8 +634,8 @@ func (s *Store) BuildContext(currentRequest string) string {
 		matches := matchIndex(idx, currentRequest)
 		// Top-K by score. matchIndex already returns score-sorted, so
 		// this is the cheapest of the three brakes and runs first.
-		if len(matches) > maxBuildContextMatches {
-			matches = matches[:maxBuildContextMatches]
+		if len(matches) > s.bcLimits.maxBuildContextMatches {
+			matches = matches[:s.bcLimits.maxBuildContextMatches]
 		}
 		if len(matches) > 0 {
 			b.WriteString("### Relevant compacted memory\n")
@@ -640,7 +652,7 @@ func (s *Store) BuildContext(currentRequest string) string {
 				// Total-budget brake: once we're over the overall cap,
 				// stop inlining full turns but keep emitting the bullet
 				// line so the model at least knows the topic existed.
-				if inlined >= maxBuildContextTotalBytes {
+				if inlined >= s.bcLimits.maxBuildContextTotalBytes {
 					b.WriteString("  (full turn elided: context budget exhausted)\n")
 					continue
 				}
@@ -652,8 +664,8 @@ func (s *Store) BuildContext(currentRequest string) string {
 				// regardless of its on-disk size. Cuts on a rune
 				// boundary so we never split a multibyte character.
 				text := string(full)
-				if len(text) > maxInlinedTurnBytes {
-					cut := maxInlinedTurnBytes
+				if len(text) > s.bcLimits.maxInlinedTurnBytes {
+					cut := s.bcLimits.maxInlinedTurnBytes
 					for cut > 0 && (text[cut]&0xC0) == 0x80 {
 						cut--
 					}

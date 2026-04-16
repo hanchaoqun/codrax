@@ -67,7 +67,7 @@ func newTestREPL(store *memory.Store, in *strings.Reader, out *bytes.Buffer) *RE
 // store still has its turn afterwards.
 func TestClearPromptDeclined(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewStore(dir, stubSummarizer{})
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -96,7 +96,7 @@ func TestClearPromptDeclined(t *testing.T) {
 // types 'y'. The complementary test to TestClearPromptDeclined.
 func TestClearPromptAccepted(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewStore(dir, stubSummarizer{})
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestClearPromptAccepted(t *testing.T) {
 // instance".
 func TestClearPromptShowsPeerCount(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewStore(dir, stubSummarizer{})
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -135,7 +135,7 @@ func TestClearPromptShowsPeerCount(t *testing.T) {
 
 	// Spin up a peer Store on the same dir; its sidecar makes it
 	// visible to LivePeerCount.
-	peer, err := memory.NewStore(dir, stubSummarizer{})
+	peer, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("peer NewStore: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestClearPromptShowsPeerCount(t *testing.T) {
 // doesn't leak historical failure text into the LLM's context.
 func TestErrorResponseNotPersistedToMemory(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewStore(dir, stubSummarizer{})
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -221,7 +221,7 @@ func renderErrorFromBus(bc *types.BusContext) string {
 // into a single multi-line request.
 func TestMultilineInput(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewStore(dir, stubSummarizer{})
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}
@@ -253,7 +253,7 @@ func TestMultilineInput(t *testing.T) {
 // TestMultilineThreeLines verifies continuation across three lines.
 func TestMultilineThreeLines(t *testing.T) {
 	dir := t.TempDir()
-	store, err := memory.NewStore(dir, stubSummarizer{})
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
 		t.Fatalf("NewStore: %v", err)
 	}

@@ -219,6 +219,17 @@ The pipeline topology (stages + agents + skills) is hardcoded in `internal/orche
 | `agent_finalizer_max_correction_retries` | 2 | Soft-stop correction retries when emit_answer_document is missing |
 | `agent_extractor_max_correction_retries` | 1 | Soft-stop correction retries when emit_answer_symbol is missing on list_of_symbols questions |
 
+**Precedence** for the `memory_*` keys (lowest wins last): code default in `types.DefaultMemorySettings()` → `codrax.yaml` `memory_*` keys. No CLI overrides. These keys tune the multi-turn REPL memory store's buffer sizes and context-building limits. Zero or omitted means "use code default". The full list:
+
+| YAML key | Default | What it controls |
+|---|---|---|
+| `memory_max_recent_turns` | 6 | Number of recent turns kept verbatim before the oldest is LLM-summarized into MEMORY.md |
+| `memory_max_recent_bytes` | 20480 | Total byte budget for the recent turn buffer; exceeded → oldest compacted |
+| `memory_max_turn_body_bytes` | 65536 | Maximum size of a single turn's request+response stored to disk; larger turns are tail-truncated |
+| `memory_max_build_context_matches` | 3 | Maximum compacted index entries inlined into BuildContext per request |
+| `memory_max_inlined_turn_bytes` | 8192 | Maximum bytes from a single matched compacted turn inlined into BuildContext |
+| `memory_max_build_context_total_bytes` | 32768 | Total byte budget for all inlined compacted turns in BuildContext |
+
 **Evidence-lite runtime enforcement (pre-execution gate).** In addition to the `MaxPrescanRounds` round-count gate, `BaseAgent.executeTool` runs a pre-execution parameter check at `internal/agent/agent.go` (`validateAnalyzerPrescanToolCall`) that rejects a `grep` tool call when the current dispatch is `StageAnalyze` AND the call omits `files_only=true`. Line-level grep results overflow the analyze stage's context budget and pollute the pre-scan seen-blob with irrelevant code snippets, so this is a hard constraint rather than a prompt-only hint. The violation path synthesizes a failed `ToolResult` with a descriptive Summary — the LLM sees a normal tool-error in the next iteration's message stream and can retry within the same dispatch. Other stages (explore, extract, finalize) are unaffected: the explorer routinely needs line-level grep matches for deep investigation.
 
 `cmd/root.go` applies the runtime overrides into a local `types.PipelineSettings` and via `tool.SetBlobLimits` + `tool.SetAnalysisLimits` immediately after `LoadRuntimeSettings`, before any agent or tool runs. Override the entry file with `CODRAX_SETTINGS=path/to/codrax.yaml` to bootstrap an entire environment (since `providers_config` paths can live in `codrax.yaml`).

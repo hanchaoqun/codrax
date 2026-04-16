@@ -67,10 +67,11 @@ var (
 
 // appContext holds initialized state shared between subcommands.
 type appContext struct {
-	renderer   *render.Renderer
-	orch       *orchestrator.Orchestrator
-	defaultLLM llm.Adapter
-	logger     *logging.Logger
+	renderer       *render.Renderer
+	orch           *orchestrator.Orchestrator
+	defaultLLM     llm.Adapter
+	logger         *logging.Logger
+	memorySettings types.MemorySettings
 }
 
 var app appContext
@@ -154,7 +155,7 @@ func runSingleShot(_ *cobra.Command, request string) error {
 // runREPL starts the interactive multi-turn session.
 func runREPL(_ *cobra.Command) error {
 	summarizer := newLLMSummarizer(app.defaultLLM)
-	store, err := memory.NewStore(flagMemoryDir, summarizer)
+	store, err := memory.NewStore(flagMemoryDir, summarizer, app.memorySettings)
 	if err != nil {
 		logging.Error("memory store init failed: %v", err)
 		return fmt.Errorf("memory store init failed: %w", err)
@@ -504,6 +505,30 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	pipelineSettings.Agent = types.ResolvedAgentSettings(pipelineSettings.Agent)
+
+	// Memory store limits from YAML.
+	var memCfg types.MemorySettings
+	if rs != nil {
+		if rs.MemoryMaxRecentTurns != nil {
+			memCfg.MaxRecentTurns = *rs.MemoryMaxRecentTurns
+		}
+		if rs.MemoryMaxRecentBytes != nil {
+			memCfg.MaxRecentBytes = *rs.MemoryMaxRecentBytes
+		}
+		if rs.MemoryMaxTurnBodyBytes != nil {
+			memCfg.MaxTurnBodyBytes = *rs.MemoryMaxTurnBodyBytes
+		}
+		if rs.MemoryMaxBuildContextMatches != nil {
+			memCfg.MaxBuildContextMatches = *rs.MemoryMaxBuildContextMatches
+		}
+		if rs.MemoryMaxInlinedTurnBytes != nil {
+			memCfg.MaxInlinedTurnBytes = *rs.MemoryMaxInlinedTurnBytes
+		}
+		if rs.MemoryMaxBuildContextTotalBytes != nil {
+			memCfg.MaxBuildContextTotalBytes = *rs.MemoryMaxBuildContextTotalBytes
+		}
+	}
+	app.memorySettings = types.ResolvedMemorySettings(memCfg)
 
 	logging.Info("pipeline_settings: max_steps=%d max_retries_per_stage=%d max_stage_visits=%d",
 		flagMaxSteps,
