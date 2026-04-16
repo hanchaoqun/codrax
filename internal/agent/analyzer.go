@@ -58,48 +58,75 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// in round 1-2 for additional verification, but now it has a head
 	// start.
 	if ctx != nil && ctx.RepoRoot != "" && ctx.Objective != "" {
-		query := ctx.Objective
+		objective := ctx.Objective
 		// In REPL mode, strip the conversation prefix so the query
 		// only contains the current question, not prior-turn memory.
-		if idx := strings.Index(query, "## Current request\n"); idx >= 0 {
-			query = strings.TrimSpace(query[idx+len("## Current request\n"):])
+		if idx := strings.Index(objective, "## Current request\n"); idx >= 0 {
+			objective = strings.TrimSpace(objective[idx+len("## Current request\n"):])
 		}
-		if overview := buildAnalyzerRepoOverview(ctx.RepoRoot, query); overview != "" {
+		if overview := buildAnalyzerRepoOverview(ctx.RepoRoot, objective); overview != "" {
 			return overview
 		}
 	}
 	return ""
 }
 
-// buildAnalyzerRepoOverview calls the repo_map graph builder and
-// renders a task_map view for the analyzer's initial prompt. Returns
-// empty string on any error — the analyzer proceeds without it and
-// the LLM calls repo_map itself (graceful degrade).
-func buildAnalyzerRepoOverview(repoRoot, query string) string {
+// buildAnalyzerRepoOverview builds a repo overview for the analyzer's
+// initial prompt. Strategy:
+//
+//  1. Extract CamelCase/snake_case entities from the user question.
+//  2. If entities found → build graph with entity query, render task_map
+//     (query-relevant files and symbols).
+//  3. If no entities → render overview (general repo structure).
+//
+// Returns empty string on any error — the analyzer proceeds without
+// it and the LLM calls repo_map itself (graceful degrade).
+func buildAnalyzerRepoOverview(repoRoot, objective string) string {
+	// Extract code identifiers from the question to use as the graph
+	// query. extractQuestionEntities pulls CamelCase/snake_case tokens
+	// — exactly the kind of tokens that match file and symbol names.
+	entities := extractQuestionEntities(objective)
+
+	query := strings.Join(entities, " ")
 	graph, err := repomap.BuildOrLoadGraph(repoRoot, query)
 	if err != nil {
 		logging.Debug("[analyzer] repo overview unavailable: %v", err)
 		return ""
 	}
-	output := repomap.GenerateView(graph, "task_map", repomap.ViewParams{
-		Query: query,
-		TopN:  15,
-	})
+
+	var view, output, header string
+	if len(entities) > 0 {
+		// Query-directed: show files/symbols relevant to the entities.
+		view = "task_map"
+		output = repomap.GenerateView(graph, view, repomap.ViewParams{
+			Query: query,
+			TopN:  15,
+		})
+		header = fmt.Sprintf("## Repository overview (pre-computed for entities: %s)\n\n"+
+			"The following task_map shows files and symbols matching the entities from the user's question. "+
+			"Use this to inform your entity/keyword choices and pre-scan targets. "+
+			"You may still call repo_map, grep, or list_files for additional verification.\n\n",
+			strings.Join(entities, ", "))
+	} else {
+		// No entities extracted — fall back to general overview.
+		view = "overview"
+		output = repomap.GenerateView(graph, view, repomap.ViewParams{})
+		header = "## Repository overview (pre-computed, no tool call needed)\n\n" +
+			"The following overview shows the repository structure. " +
+			"Use this to orient your entity/keyword choices and pre-scan targets. " +
+			"You may still call repo_map, grep, or list_files for additional verification.\n\n"
+	}
+
 	if output == "" {
 		return ""
 	}
-	// Cap the overview to avoid bloating the initial prompt. The
-	// task_map view for large repos can exceed 10KB; 4KB is enough
-	// to show the top-ranked files and their symbols.
+	// Cap the overview to keep the initial prompt bounded.
 	const maxLen = 4096
 	if len(output) > maxLen {
 		output = output[:maxLen] + "\n... [truncated]\n"
 	}
-	return "## Repository overview (pre-computed, no tool call needed)\n\n" +
-		"The following task_map shows files and symbols relevant to the user's question. " +
-		"Use this to inform your entity/keyword choices and pre-scan targets. " +
-		"You may still call repo_map, grep, or list_files for additional verification.\n\n" +
-		output
+	logging.Debug("[analyzer] pre-injected %s view (%d bytes, entities=%v)", view, len(output), entities)
+	return header + output
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
