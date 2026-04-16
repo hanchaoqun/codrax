@@ -835,27 +835,43 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 	}
 	entityScore := float64(overlap) / float64(len(entities))
 
-	// 2. Kind weight: concrete facts are most valuable.
+	// 2. Kind weight. LLM-emittable kinds (direct, conditional,
+	// registration, mechanism, relationship, absent) rank ABOVE
+	// deterministic-only kinds (concrete_value, dataflow_path) because
+	// the LLM extracted them with intent — they answer the question.
+	// Concrete values are quantity-heavy but often low-relevance
+	// ("Name() returns X") and should not dominate the top-N.
 	kindWeight := 0.5
 	switch item.Kind {
-	case types.EvidenceConcrete:
+	case types.EvidenceDirect:
 		kindWeight = 1.0
 	case types.EvidenceRegistration:
 		kindWeight = 0.95
-	case types.EvidenceRelationship:
-		kindWeight = 0.8
 	case types.EvidenceMechanism:
-		kindWeight = 0.7
+		kindWeight = 0.90
 	case types.EvidenceConditional:
-		kindWeight = 0.6
+		kindWeight = 0.85
+	case types.EvidenceRelationship:
+		kindWeight = 0.80
 	case types.EvidenceAbsent:
-		kindWeight = 0.55
-	case types.EvidenceDataflowPath:
 		kindWeight = 0.75
+	case types.EvidenceDataflowPath:
+		kindWeight = 0.60
+	case types.EvidenceConcrete:
+		kindWeight = 0.50
 	case types.EvidenceUnresolved:
 		kindWeight = 0.3
 	case types.EvidenceTruncated:
 		kindWeight = 0.1
+	}
+
+	// 2b. Producer boost: evidence emitted by the LLM via
+	// emit_evidence was extracted with intent — it directly answers
+	// the question. Deterministic evidence (concrete values, dataflow)
+	// is broad and often misses the point. Boost LLM-produced items.
+	producerBoost := 1.0
+	if item.Kind.IsLLMEmittable() && item.Producer != "" && !strings.HasSuffix(item.Producer, "/ungrounded") {
+		producerBoost = 1.5
 	}
 
 	// 3. Source weight: files the explorer read are more relevant.
@@ -885,7 +901,7 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 		}
 	}
 
-	return entityScore * kindWeight * sourceWeight * bridgeBonus
+	return entityScore * kindWeight * sourceWeight * bridgeBonus * producerBoost
 }
 
 // rankFindingsByRelevance scores and sorts dataflow findings by
