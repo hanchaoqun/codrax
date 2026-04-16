@@ -240,10 +240,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Title:   "Reasoning Hygiene",
 			Content: reasoningHygieneFor(sk),
 		},
-		{
+	}
+	if ac.ThinkAloud {
+		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
 			Title:   "Think Aloud",
 			Content: thinkAloudDirective,
-		},
+		})
 	}
 
 	if len(ac.Constraints) > 0 {

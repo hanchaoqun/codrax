@@ -13,8 +13,9 @@ type LLMProvidersConfig struct {
 
 // LLMProviderConfig is the configuration for a single LLM provider instance.
 type LLMProviderConfig struct {
-	Provider string `yaml:"provider"` // "openai", etc.
-	APIKey   string `yaml:"api_key"`
-	Model    string `yaml:"model"`
-	BaseURL  string `yaml:"base_url"`
+	Provider   string `yaml:"provider"` // "openai", etc.
+	APIKey     string `yaml:"api_key"`
+	Model      string `yaml:"model"`
+	BaseURL    string `yaml:"base_url"`
+	ThinkAloud *bool  `yaml:"think_aloud"` // nil = inherit from default; true/false = per-agent override
 }

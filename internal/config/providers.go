@@ -51,6 +51,9 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.BaseURL != "" {
 		dst.BaseURL = src.BaseURL
 	}
+	if src.ThinkAloud != nil {
+		dst.ThinkAloud = src.ThinkAloud
+	}
 }
 
 // mergeEnv fills empty fields from environment variables.

@@ -947,6 +947,13 @@ type AgentContext struct {
 	// "AgentContext is a value-only narrow view" rule for one specific
 	// pointer field by design — see MutableState's doc.
 	Mutable *MutableState `json:"-"`
+
+	// ThinkAloud controls the "Think Aloud" system section. Resolved
+	// per-agent from providers.yaml (default.think_aloud, overridable
+	// per agents.<name>.think_aloud). When false, the section is
+	// omitted from the prompt — useful for providers that natively
+	// combine reasoning with tool calls without needing the directive.
+	ThinkAloud bool `json:"think_aloud,omitempty"`
 }
 
 // PromptSection is a titled block of content used in prompt construction.

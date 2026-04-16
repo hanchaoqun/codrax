@@ -21,14 +21,15 @@ import (
 // machine. It walks the hardcoded 4-stage topology (see topology.go),
 // manages BusContext, and dispatches agents.
 type Orchestrator struct {
-	settings   types.PipelineSettings
-	agents     *agent.Registry
-	skills     *skill.Registry
-	busCtx     *types.BusContext
-	maxSteps   int
-	subRuntime *agent.SubAgentRuntime
-	language   string
-	emit       render.EventEmitter
+	settings       types.PipelineSettings
+	agents         *agent.Registry
+	skills         *skill.Registry
+	busCtx         *types.BusContext
+	maxSteps       int
+	subRuntime     *agent.SubAgentRuntime
+	language       string
+	emit           render.EventEmitter
+	thinkAloudMap  map[types.AgentName]bool // per-agent think-aloud override
 }
 
 // New creates a new Orchestrator.
@@ -64,6 +65,13 @@ func (o *Orchestrator) SetMaxSteps(n int) {
 // languageDirective which maps well-known codes to explicit wording.
 func (o *Orchestrator) SetLanguage(lang string) {
 	o.language = lang
+}
+
+// SetThinkAloudMap installs the per-agent think-aloud overrides
+// resolved from providers.yaml. Keys are agent names; values are
+// the resolved boolean. Agents not in the map inherit the default.
+func (o *Orchestrator) SetThinkAloudMap(m map[types.AgentName]bool) {
+	o.thinkAloudMap = m
 }
 
 // Run executes the full pipeline for a user request.
@@ -742,6 +750,9 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 
 	o.busCtx.ActiveAgent = agentName
 	agentCtx := ctxbuilder.BuildAgentContext(o.busCtx, agentName, stage)
+	if ta, ok := o.thinkAloudMap[agentName]; ok {
+		agentCtx.ThinkAloud = ta
+	}
 
 	logging.Info("[orchestrator] dispatching agent=%s skill=%s", agentName, skillName)
 

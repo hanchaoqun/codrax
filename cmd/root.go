@@ -643,6 +643,26 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetMaxSteps(flagMaxSteps)
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())
+
+	// Resolve per-agent think_aloud from providers.yaml. The default
+	// is true (directive included); per-agent overrides can disable it.
+	taMap := make(map[types.AgentName]bool)
+	defaultTA := true
+	if providersCfg.LLM.Default.ThinkAloud != nil {
+		defaultTA = *providersCfg.LLM.Default.ThinkAloud
+	}
+	for _, name := range []types.AgentName{
+		types.AgentAnalyzer, types.AgentExplorer,
+		types.AgentExtractor, types.AgentFinalizer,
+	} {
+		resolved := config.ResolveProvider(providersCfg, string(name))
+		if resolved.ThinkAloud != nil {
+			taMap[name] = *resolved.ThinkAloud
+		} else {
+			taMap[name] = defaultTA
+		}
+	}
+	orch.SetThinkAloudMap(taMap)
 	app.orch = orch
 
 	return nil
