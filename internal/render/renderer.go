@@ -150,17 +150,25 @@ func (r *Renderer) Emitter() EventEmitter {
 	return func(ev Event) {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+
+		// Reasoning events are printed regardless of whether the
+		// spinner area is active (REPL) or nil (single-shot). In
+		// single-shot mode this is the user's only window into what
+		// the pipeline is doing during the 30+ second wait.
+		if ev.Kind == EventAgentReasoning && ev.Reasoning != "" {
+			if r.area != nil {
+				r.printAboveArea(formatReasoning(ev.Reasoning))
+			} else {
+				fmt.Fprintln(os.Stderr, formatReasoning(ev.Reasoning))
+			}
+			return
+		}
+
 		if r.area == nil {
 			return
 		}
 
 		switch ev.Kind {
-		case EventAgentReasoning:
-			if ev.Reasoning != "" {
-				r.printAboveArea(formatReasoning(ev.Reasoning))
-			}
-			return // don't redraw — printAboveArea already did
-
 		case EventAgentThinking:
 			if ev.Iteration == 0 {
 				r.detail = "thinking"

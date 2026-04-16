@@ -160,6 +160,10 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	if busCtx.Mutable != nil {
 		if result := busCtx.Mutable.Result(); result != "" {
 			logging.Info("final answer:\n%s", result)
+			// Separator between thinking trace (stderr) and answer (stdout).
+			// On a terminal both streams interleave visually, so the
+			// separator helps the user see where the answer begins.
+			fmt.Fprintf(os.Stderr, "\n━━━\n\n")
 			fmt.Print(result)
 			if !strings.HasSuffix(result, "\n") {
 				fmt.Println()
