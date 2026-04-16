@@ -14,7 +14,6 @@ func RegisterDefaults(r *Registry) {
 		Name: "explore-skill",
 		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
 		Workflow: []string{
-			"State your investigation plan in 1-2 sentences: what aspects of the question you'll investigate and which areas of the codebase you expect to be relevant",
 			"PHASE 1 — Breadth scan: use repo_map and grep (files_only=true) to discover ALL relevant files. Do not read files yet. Output a prioritized list of 3-6 files to investigate",
 			"PHASE 2 — Depth investigation: use grep (for targeted pattern search) and read_file (for full context) — pick the most efficient tool for each situation. After each file, call emit_evidence with ALL facts in one batch. For each file extract: (a) key data structures, (b) control flow, (c) configuration-driven behavior, (d) cross-component interactions",
 			"if you surface a name that looks load-bearing (a function, type, symbol, config key), open it before drawing conclusions — a name is a hypothesis to verify, not an answer",
@@ -100,8 +99,6 @@ Scale the answer depth to the question: one sentence for a lookup/count, multipl
 		},
 		OutputFormat: `You have NO file-reading tools — no read_file, grep, or repo_map. You are a pure synthesizer working from prior stages' evidence. Your entire contribution is ONE emit_answer_document tool call per dispatch — the deterministic renderer turns the struct into user-visible prose.
 
-State your approach in 1-2 sentences: which shape you'll use, how you'll structure the answer, and any caveats you foresee. Then emit emit_answer_document exactly once.
-
 Required-field dispatch by shape (these are mandatory rules, not examples — see the tool's JSON schema for the full contract):
 
 - shape=list_of_symbols → symbols[] (non-empty) + symbols_completeness ∈ {complete, lower_bound, unknown}
@@ -165,7 +162,6 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 		Name: "extract-skill",
 		Goal: "Produce the answer-symbol slate and the per-hypothesis verdicts from Turn A's frozen investigation transcript. Evidence is Turn A's territory — Turn B never re-emits it. Turn B's two unique jobs are (1) LLM-driven answer_symbol selection with a completeness claim the finalizer cross-checks, and (2) LLM-driven hypothesis judgement with a citation.",
 		Workflow: []string{
-			"State your approach in 1-2 sentences: which symbols you believe answer the question and what completeness claim you expect to make",
 			"Read the Turn A transcript digest the orchestrator injected as a user section: user question, investigation notes, read files, top evidence items, dataflow findings, cardinality baseline (β = Turn A terminal-evidence count, γ = analyzer MustInclude count, effective floor = max(β, γ)), and hypothesis set",
 			"For the answer-symbol slate (only for list_of_symbols / enumeration / call_chain questions): call emit_answer_symbol ONCE with a batched items array. Each item MUST carry a concrete file:line from a file in the 'Files Turn A read' list — never invent a line number. See the Completeness honesty contract in OutputFormat for the completeness claim rules",
 			"For every hypothesis in the hypothesis set: call emit_hypothesis_verdict once with hypothesis_id + status + rationale + citation. Status must be 'confirmed' / 'rejected' / 'inconclusive'. 'confirmed' and 'rejected' REQUIRE a file:line citation; 'inconclusive' is the honest choice when no definitive cite exists",

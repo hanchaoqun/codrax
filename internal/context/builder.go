@@ -63,6 +63,14 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	return ac
 }
 
+// thinkAloudDirective is injected into every agent's system prompt.
+// It instructs the LLM to emit 1-2 sentences of reasoning before each
+// batch of tool calls, so the investigation trace is human-readable
+// and users can follow the agent's logic in real time (once the
+// rendering layer surfaces assistant text). Token overhead is minimal
+// (20-40 tokens per iteration) relative to the tool-result payloads.
+const thinkAloudDirective = "Before each tool call (or batch of parallel tool calls), write 1-2 sentences explaining what you are about to do and why. This reasoning trace helps users follow your investigation. Keep it brief — the tool results carry the substance, not the preamble."
+
 // reasoningHygieneShell is the "don't miscount, use a tool" meta-rule
 // for stages whose allowlist includes exec_command — today only the
 // explorer. The LLM is encouraged to run a shell pipeline when it
@@ -155,6 +163,7 @@ func skillToolSet(sk *skill.Config) map[string]bool {
 var canonicalSystemSectionOrder = []string{
 	"Agent Identity",
 	"Reasoning Hygiene",
+	"Think Aloud",
 	"Constraints",
 	"User Preferences",
 	"Skill Goal",
@@ -230,6 +239,10 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		{
 			Title:   "Reasoning Hygiene",
 			Content: reasoningHygieneFor(sk),
+		},
+		{
+			Title:   "Think Aloud",
+			Content: thinkAloudDirective,
 		},
 	}
 
