@@ -7,11 +7,11 @@
 - [1. 概述](#1-概述)
 - [2. 四阶段流水线](#2-四阶段流水线)
 - [3. 组件详情](#3-组件详情)
-  - [3.1 编排器（Layer 1）](#31-编排器layer-1)
-  - [3.2 Agent（Layer 2）](#32-agentlayer-2)
-  - [3.3 技能（Layer 3）](#33-技能layer-3)
-  - [3.4 工具（Layer 4）](#34-工具layer-4)
-  - [3.5 LLM（Layer 5）](#35-llmlayer-5)
+  - [3.1 编排器](#31-编排器)
+  - [3.2 Agent](#32-agent)
+  - [3.3 Skill](#33-skill)
+  - [3.4 Tool](#34-tool)
+  - [3.5 LLM](#35-llm)
 - [4. 阶段规范](#4-阶段规范)
 - [5. 数据结构](#5-数据结构)
 - [6. 请求生命周期](#6-请求生命周期)
@@ -40,16 +40,21 @@ codrax 接收用户的自然语言问题，通过一个**确定性的四阶段�
 
 ### 分层
 
-六个逻辑层，实现上压在四个阶段（`analyze → explore → extract → finalize`）里：
+四个阶段（`analyze → explore → extract → finalize`）由以下组件协作完成：
 
-- **Layer 1 编排层** — 走 criterion-aware DAG、分派阶段、fail-loud 重试
-- **Layer 2 执行层** — 4 个专业 Agent（analyzer / explorer / extractor / finalizer），各承担一阶段一 ReAct 循环；explorer 的 `executeTool` 内置 sourcemix 预算门控
-- **Layer 3 策略层** — 每个 Agent 绑定一个 Skill 配置（analysis-skill / explore-skill / extract-skill / answer-document-skill），决定工作流和输出契约
-- **Layer 4 能力层** — 本地只读工具（grep / read_file / repo_map 等）+ emit_* 结构化发射器
-- **Layer 5 智能层** — 可插拔的 LLM 适配器
-- **Layer 6 分析层** — `internal/analysis/` 下 14 个确定性子包：normalizer / compiler / budget / sourcemix / risk / hdp / priority / binder / counterfactual / gate / stopcond / criterion / contract / dataflow
+| 组件 | 包路径 | 职责 | 调用谁 | 被谁调用 |
+|------|--------|------|--------|----------|
+| **编排器** | `internal/orchestrator` | 走 criterion-aware DAG、分派阶段、fail-loud 重试 | Agent、Analysis（criterion/stopcond） | `cmd/root.go` |
+| **Agent** | `internal/agent` | 4 个专业 Agent（analyzer / explorer / extractor / finalizer），各跑一轮 ReAct 循环 | LLM、Tool、Analysis（仅 analyzer 调全套）、Skill（读配置） | 编排器 |
+| **Skill** | `internal/skill` | 声明式配置（analysis-skill / explore-skill / extract-skill / answer-document-skill），定义工作流、输出格式、禁令 | 无（纯数据） | Agent（读取后注入 prompt） |
+| **Tool** | `internal/tool` | 只读工具（grep / read_file / repo_map 等）+ emit_* 结构化发射器 | 文件系统、MutableState | Agent（`executeTool`） |
+| **LLM** | `internal/llm` | 可插拔适配器（OpenAI / 其他） | 外部 API | Agent（ReAct 循环） |
+| **Analysis** | `internal/analysis/*` | 14 个确定性子包：normalizer / compiler / budget / sourcemix / risk / hdp / priority / binder / counterfactual / gate / stopcond / criterion / contract / dataflow | 无（纯函数，不调 LLM、不调 Tool） | analyzer agent（`buildAnalysisIR`）、编排器（criterion/stopcond） |
 
-**关键规则：** 所有工具调用和 LLM 调用都必须通过 Layer 2（Agent）。编排器永远不直接调用工具或 LLM。Layer 6 不调用 LLM，不调用工具——纯确定性函数。
+**关键规则：**
+- 所有工具调用和 LLM 调用都必须通过 Agent。编排器不直接调用工具或 LLM。
+- Analysis 层是纯确定性函数——不调用 LLM、不调用工具、不读文件系统。
+- Skill 是声明式配置，不是执行层——它不调用任何东西，只被 Agent 读取。
 
 ### 系统概览
 
@@ -57,46 +62,41 @@ codrax 接收用户的自然语言问题，通过一个**确定性的四阶段�
 graph TB
     User([用户请求])
 
-    subgraph "Layer 1 编排层"
-        Orch["编排器
-        hardcoded topology
-        + criterion-aware DAG scheduler
-        + fail-loud analyze retry"]
+    subgraph Orchestrator["编排器 internal/orchestrator"]
+        Orch["DAG scheduler
+        + fail-loud retry"]
     end
 
-    subgraph "Layer 2 执行层"
+    subgraph Agents["Agent internal/agent"]
         A1["analyzer"]
-        A2["explorer · Turn A
-        + sourcemix budget gate"]
-        A3["extractor · Turn B
-        + criterion auto-verdict"]
+        A2["explorer · Turn A"]
+        A3["extractor · Turn B"]
         A4["finalizer"]
     end
 
-    subgraph "Layer 3 策略层"
+    subgraph Skills["Skill internal/skill · 声明式配置"]
         S1["analysis-skill"]
         S2["explore-skill"]
         S3["extract-skill"]
-        S4["answer-document-skill
-        fallback: final-answer-skill"]
+        S4["answer-document-skill"]
     end
 
-    subgraph "Layer 4 能力层"
+    subgraph Tools["Tool internal/tool"]
         T["只读工具
         grep / read_file / list_files
         repo_map / exec_command"]
         E["结构化发射器
         emit_analysis / emit_evidence
-        emit_answer_symbol
-        emit_hypothesis_verdict
-        emit_answer_document"]
+        emit_answer_symbol / emit_hypothesis_verdict
+        emit_answer_document
+        emit_investigation_complete"]
     end
 
-    subgraph "Layer 5 智能层"
-        LLM["LLM 适配器"]
+    subgraph LLMLayer["LLM internal/llm"]
+        LLM["可插拔适配器"]
     end
 
-    subgraph "Layer 6 分析层 · 14 确定性子包"
+    subgraph Analysis["Analysis internal/analysis · 14 确定性子包"]
         AN["normalizer / compiler / budget
         sourcemix / risk / hdp / priority
         binder / counterfactual / gate
@@ -105,16 +105,16 @@ graph TB
 
     User --> Orch
     Orch -->|dispatch| A1 & A2 & A3 & A4
-    A1 --- S1
-    A2 --- S2
-    A3 --- S3
-    A4 --- S4
+    A1 -.->|读配置| S1
+    A2 -.->|读配置| S2
+    A3 -.->|读配置| S3
+    A4 -.->|读配置| S4
     A1 & A2 -->|调用| T
     A1 & A2 & A3 & A4 -->|调用| E
     A1 & A2 & A3 & A4 -->|调用| LLM
     A1 -->|buildAnalysisIR| AN
     Orch -->|stopcond / criterion| AN
-    A3 -->|criterion auto-verdict| AN
+    A3 -->|criterion eval| AN
 ```
 
 ---
@@ -160,7 +160,7 @@ stateDiagram-v2
 
 ## 3. 组件详情
 
-### 3.1 编排器（Layer 1）
+### 3.1 编排器
 
 **职责：**
 - 维护全局 `BusContext`
@@ -178,7 +178,7 @@ stateDiagram-v2
 
 编排器的核心数据类型 `graphState`（`internal/orchestrator/scheduler.go`）只记录每个 DAG 节点的状态（`pending` / `running` / `done` / `failed` / `requeued`）和一个跨 window retry 计数。
 
-### 3.2 Agent（Layer 2）
+### 3.2 Agent
 
 **4 个 Agent**，全部只读。每个 Agent 嵌 `BaseAgent`，后者提供 ReAct 循环，并把 `Evaluator` 接口里的四个钩子连起来：`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`。
 
@@ -222,7 +222,7 @@ graph TD
 
 编排器可以让 explorer 派生并行的 `sub_explorer` 实例分摊独立的调查子问题，通过 `propose_sub_agents` 工具向编排器申请。`sub_explorer` 不共享 `Mutable`，`todo_write` / `emit_*` 在 sub-agent 上下文会被拒绝。
 
-### 3.3 技能（Layer 3）
+### 3.3 Skill
 
 ```go
 type Config struct {
@@ -264,7 +264,7 @@ Skill 和 Evaluator 在职责上严格二分，任何一端越界都会导致 pr
 
 Extractor 和 Finalizer 是"非空补充"的参照实现：extractor 的 `BuildInitialInstruction` 只输出 Turn A transcript digest（新段，builder 不知道怎么产出），finalizer 的 `answer_document_evaluator.BuildInitialInstruction` 只输出 resolved target shape + cardinality baseline + prior slate。两者都**不**重述 User Request / Workflow / Output Format 等 builder 已经写过的段。
 
-### 3.4 工具（Layer 4）
+### 3.4 Tool
 
 工具通过嵌入 `tool.ReadOnly` 满足 `IsWrite() bool` —— 所有现存工具都是 read-only。`Execute` 收到的 `*BusContext` 是窄视图：只有 `RepoRoot` / `Branch` / `Commit` / `WorkDir` / `Mutable` 被填充，其他字段置零，物理上限制工具只能修改 `Mutable`。
 
@@ -307,7 +307,7 @@ type ToolResult struct {
 
 工具结果超过 `blob_max_inline_bytes`（默认 32 KB）时会 offload 到 per-trace 的 WorkDir 临时目录，只把 head/tail preview 塞进 LLM 上下文；Agent 想看全文就调用 `read_file` 指向 `RawRef`。Blob 大小参数在 `config/codrax.yaml` 的 `blob_*` 键下配。
 
-### 3.5 LLM（Layer 5）
+### 3.5 LLM
 
 LLM adapter 是可插拔的最小接口：
 
