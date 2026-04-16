@@ -439,8 +439,8 @@ func TestAnalysisSkill_PromptDocumentsFilesOnlyGuard(t *testing.T) {
 // budget, the LLM will happily loop on repo_map calls forever.
 func TestAnalysisSkill_PromptDocumentsPreScanBudget(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
-	if !strings.Contains(sk.OutputFormat, "1-2 rounds") && !strings.Contains(sk.OutputFormat, "two rounds") {
-		t.Errorf("analysis-skill OutputFormat must document the 1-2 round pre-scan budget")
+	if !strings.Contains(sk.OutputFormat, "2 rounds") && !strings.Contains(sk.OutputFormat, "two rounds") && !strings.Contains(sk.OutputFormat, "2 pre-scan rounds") {
+		t.Errorf("analysis-skill OutputFormat must document the pre-scan budget ceiling")
 	}
 }
 

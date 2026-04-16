@@ -245,14 +245,19 @@ func BuildAnalysisSkill() *Config {
 	// Evidence-lite pre-scan preamble. Runs BEFORE the field-enum
 	// tables so the LLM sees the workflow framing first: pre-scan,
 	// then classify, then emit_analysis.
-	of.WriteString("## Evidence-lite pre-scan (1-2 rounds, then emit_analysis)\n\n")
-	of.WriteString("Spend 1-2 rounds verifying that the entities you plan to extract from the user's wording actually exist in this repository and that the terms you plan to put into keywords appear somewhere relevant. Use ONLY these low-cost navigation tools:\n\n")
-	of.WriteString("  - `repo_map` — structural index of the repo, for discovering which files are relevant to a term.\n")
-	of.WriteString("  - `grep` — MUST be called with `files_only=true`. Line-level results are too noisy for the analyze stage and will overflow the budget. `files_only=true` returns just the file paths that contain matches, which is what you need.\n")
-	of.WriteString("  - `list_files` — fall back here when grep / repo_map come back empty and you want to know what's even in a directory.\n\n")
-	of.WriteString("You are FORBIDDEN from calling `read_file`, `exec_command`, or any tool that reads file CONTENT — the analyze stage is existence + location verification, not content inspection. The explorer stage runs next and owns deep reading. Do NOT draw conclusions about how code WORKS from file paths alone; the pre-scan answers \"does X exist / in which files does term Y appear\" and nothing else.\n\n")
-	of.WriteString("Pre-scan budget: at most two rounds. If round 1 confirmed your entities and keywords, go straight to emit_analysis. If round 1 came back empty on a symbol, spend round 2 on broader search (strip camelCase, try stems, drop qualifiers) — then emit_analysis regardless of whether the symbol was found. An entity that does not appear in the repo still belongs in the `entities` array exactly as the user wrote it; the downstream ranking layer will handle non-existent terms.\n\n")
-	of.WriteString("A runtime gate enforces the 2-round ceiling: after two pre-scan rounds a call to `repo_map` / `grep` / `list_files` triggers a hard stop and the pipeline falls back to a zero-value RequestModel, so the budget is the real constraint even if you forget.\n\n")
+	of.WriteString("## Pre-scan: verify entities exist, then classify immediately\n\n")
+	of.WriteString("You are a CLASSIFIER. Your only job before calling emit_analysis is to verify that the entities from the user's wording exist in this repo. You are NOT investigating the question — the explorer stage does that next.\n\n")
+	of.WriteString("**One 'round' = one LLM response.** Each response can contain MULTIPLE parallel tool calls. Batch all your verification grep calls into a single response.\n\n")
+	of.WriteString("Available tools (ONLY these):\n")
+	of.WriteString("  - `grep` — MUST use `files_only=true`. Batch multiple patterns into parallel calls in ONE response.\n")
+	of.WriteString("  - `repo_map` — structural index for discovering relevant files.\n")
+	of.WriteString("  - `list_files` — fallback when grep/repo_map return nothing.\n\n")
+	of.WriteString("FORBIDDEN: `read_file`, `exec_command`, or anything that reads file CONTENT.\n\n")
+	of.WriteString("**Budget: at most 2 rounds (2 LLM responses with tool calls).** The moment you have enough info to classify, call emit_analysis — do NOT spend extra rounds on redundant verification. A runtime gate force-stops after 2 pre-scan rounds.\n\n")
+	of.WriteString("Typical flow:\n")
+	of.WriteString("  Round 1: batch grep(files_only=true) for ALL entities → results confirm they exist\n")
+	of.WriteString("  → Immediately call emit_analysis (skip round 2)\n")
+	of.WriteString("  Round 2 (only if round 1 found nothing): try broader search → then emit_analysis regardless\n\n")
 	of.WriteString("## emit_analysis contract\n\n")
 	of.WriteString("Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape. " +
 		"The system synthesises the TermGraph, TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically from your input — do not provide them.\n\n")
@@ -273,18 +278,13 @@ func BuildAnalysisSkill() *Config {
 
 	return &Config{
 		Name: "analysis-skill",
-		Goal: "Classify the user request into a RequestModel (intent, scenario, complexity, keywords, entities, question_kind, answer_shape). Use 1-2 rounds of evidence-lite pre-scan (repo_map, grep files_only=true, list_files) to verify entities/terms exist in the repo, then call emit_analysis exactly once.",
+		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request into a RequestModel (intent, scenario, complexity, keywords, entities, question_kind, answer_shape), then call emit_analysis exactly once. The explorer stage does the actual investigation — your job is only to verify entity existence and classify.",
 		Workflow: []string{
-			"read the user input and detect its language",
-			"round 1 pre-scan: call repo_map and/or grep(files_only=true) to check whether the entities from the user's wording exist in the repo and which files they live in",
-			"round 2 pre-scan (optional): broaden the search if round 1 was empty on a key symbol — strip camelCase, try stems, drop qualifiers — or use list_files on a relevant directory",
-			"pick intent from the intent enum",
-			"pick scenario from the scenario enum",
-			"pick complexity from the complexity enum (use the \"how many files\" hints)",
-			"extract entities VERBATIM from the user's text — CamelCase/snake_case only, no generic nouns",
-			"generate ≥8 keywords (e.g. core terms, compound identifiers, action synonyms — adapt rounds to complexity)",
-			"pick question_kind and answer_shape from their enums",
-			"call emit_analysis EXACTLY ONCE with the classified fields",
+			"Read the user input and detect its language",
+			"Round 1 pre-scan: batch ALL entity verification into ONE response — call repo_map and/or multiple grep(files_only=true) calls together as parallel tool calls. A 'round' is one LLM response, which can contain multiple tool calls",
+			"If round 1 confirmed the entities exist → SKIP round 2, go directly to emit_analysis",
+			"Round 2 (only if round 1 came up empty on a key entity): broaden search with stems/variants, then emit_analysis REGARDLESS of result",
+			"Call emit_analysis EXACTLY ONCE with: intent, scenario, complexity, keywords, entities, question_kind, answer_shape",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),
