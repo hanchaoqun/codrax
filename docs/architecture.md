@@ -155,6 +155,8 @@ stateDiagram-v2
      - `soft`（默认）：将 `InvestigationComplete=true` 注入 `criterion.Env`，`evalEvidenceCount` 将阈值降至 `>= 1`。只要有 1 条证据即视为通过，兼顾 LLM 判断和最低质量底线。
      - `override`：跳过所有 SuccessCriteria 评估，直接 `markDone`。最快，但质量全靠 finalize 的 AnswerContract checker 兜底。
      - `strict`：忽略 investigation_complete 信号，模板声明的阈值无条件执行。历史行为（2026-04-16 之前的默认）。
+   - **多话题 DAG 扩展**：当 `RequestModel.SubTopics` 非空时，`compiler.expandEvidenceNodes` 为每个子话题生成一个独立的 evidence DAG 节点。DAG scheduler 天然支持 per-node criterion 评估和 partial requeue——无需修改。Finalizer 收到 "Answer Structure (multi-topic)" prompt 引导按子话题分段输出。自适应 budget：prescan / explorer iterations / pipeline steps / retry budget 按子话题数量自动扩充（`agent_subtopic_*` 配置键）。
+   - **证据排名**：`rankEvidenceByRelevance` 按 entity overlap × kindWeight × sourceWeight × bridgeBonus × producerBoost 排序。LLM 通过 `emit_evidence` 提交的证据（IsLLMEmittable + 非 ungrounded）获得 1.5x producerBoost。`EvidenceConcrete`（确定性自动提取）kindWeight 从 1.0 降至 0.50，防止量大质低的 concrete_value 淹没 LLM 有意识提取的核心证据。
    - **Contract check**：finalize 返回后跑 `contract.Check`（`AnswerContract.AcceptanceTests` 是 `[]Criterion` 但由 `contract/checker.go` 的本地 switch 评估，非 `criterion.Eval`）。不通过且 retry budget 未耗尽 → requeue finalize 节点和所有 done 的 explorer 节点，记录一次 cross-window retry，把违规诊断塞进下一轮的 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回（P0.2 模式）。
 3. Finalize 把答案写进 `Mutable.Result()`（通过 `recordTaskFinalize`）。`Run()` 返回 `BusContext`，`main.go` 渲染结果。
 
