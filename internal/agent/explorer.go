@@ -839,10 +839,20 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// Check 1: function-boundary coverage.
 	if hints := detectPartiallyReadSymbols(allResults, e.searchResult.Graph); len(hints) > 0 {
 		h := hints[0] // worst-coverage offender
-		fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered). "+
-			"Finish reading this function before moving on — call read_file with path=%q offset=%d limit=%d.\n",
-			h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100,
-			h.file, h.readEnd+1, h.symEnd-h.readEnd)
+		unreadLines := h.symEnd - h.readEnd
+		if unreadLines <= 150 {
+			// Small remainder: direct read is cheaper than grep+read.
+			fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+				"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
+				h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
+				h.file, h.readEnd+1, unreadLines)
+		} else {
+			// Large remainder: grep-then-read is the Phase 1 strategy.
+			fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+				"If this function is relevant to the question, grep for key identifiers within `%s` (lines %d-%d) to find the important sections, then read those specific ranges.\n",
+				h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
+				h.file, h.readEnd+1, h.symEnd)
+		}
 		hintKey = "explorer.mid-loop.partial-read"
 	}
 
@@ -1211,24 +1221,24 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		if len(partialHints) > 0 {
 			progress = true // keep the loop alive via LoopSignal.Progress
 			var hint strings.Builder
-			hint.WriteString("**CRITICAL: Incomplete function reads.** You MUST finish reading these functions before doing anything else:\n\n")
+			hint.WriteString("**Incomplete function reads detected.** If these functions are relevant to the question, finish reading them:\n\n")
 			for _, ph := range partialHints {
 				unreadLines := ph.symEnd - ph.readEnd
-				if ph.coverage < 0.3 {
-					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d, %d lines): you read only %.0f%% of this function. "+
-						"Call `read_file` with offset=%d limit=%d to see the FULL implementation\n",
-						ph.symbolName, ph.file, ph.symStart, ph.symEnd, ph.symEnd-ph.symStart+1,
-						ph.coverage*100, ph.symStart, ph.symEnd-ph.symStart+1)
-				} else {
-					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%). "+
-						"Call `read_file` with offset=%d limit=%d to see the remaining %d lines\n",
+				if unreadLines <= 150 {
+					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%, %d lines remaining). "+
+						"Call `read_file` with path=%q offset=%d limit=%d to see the rest\n",
 						ph.symbolName, ph.file, ph.symStart, ph.symEnd,
-						ph.readEnd, ph.coverage*100,
-						ph.readEnd, unreadLines+1, unreadLines)
+						ph.readEnd, ph.coverage*100, unreadLines,
+						ph.file, ph.readEnd+1, unreadLines)
+				} else {
+					fmt.Fprintf(&hint, "- `%s` in %s (lines %d-%d): you read up to line %d (%.0f%%, %d lines remaining). "+
+						"Grep for key identifiers within `%s` (lines %d-%d) to find the important sections, then read those ranges\n",
+						ph.symbolName, ph.file, ph.symStart, ph.symEnd,
+						ph.readEnd, ph.coverage*100, unreadLines,
+						ph.file, ph.readEnd+1, ph.symEnd)
 				}
 			}
-			hint.WriteString("\nDo NOT read other files or draw conclusions until you have read the complete function bodies listed above. " +
-				"The unread portions often contain the answer to the question.")
+			hint.WriteString("\nSkip any function that is not relevant to the user's question.")
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       "explorer.phase1.partial-read",
