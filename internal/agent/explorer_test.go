@@ -625,9 +625,40 @@ func TestDetectPartiallyReadSymbols(t *testing.T) {
 		if len(hints) != 1 {
 			t.Fatalf("expected 1 hint, got %d", len(hints))
 		}
-		// maxEnd should be 250, function ends at 400 (coverage ~50%)
+		// furthest read is 250, function ends at 400 (coverage ~50%)
 		if hints[0].readEnd != 250 {
 			t.Errorf("expected readEnd=250, got %d", hints[0].readEnd)
+		}
+	})
+
+	t.Run("targeted read deep inside does not trigger", func(t *testing.T) {
+		// LLM does a grep-directed targeted read at lines 350-380,
+		// which is deep inside Execute (100-400). This is NOT a partial
+		// function read — the LLM is checking a specific spot, not
+		// trying to read the whole function.
+		history := []types.ToolResult{
+			{ToolName: "read_file", Success: true,
+				Summary: "[agent.go: showing lines 350-380 of 500 total]\ncode..."},
+		}
+		hints := detectPartiallyReadSymbols(history, graph)
+		if len(hints) != 0 {
+			t.Fatalf("expected 0 hints for targeted deep read, got %d: %+v", len(hints), hints)
+		}
+	})
+
+	t.Run("import scan plus targeted read does not trigger", func(t *testing.T) {
+		// LLM reads imports (lines 1-30) then does a grep-directed
+		// read at lines 350-380. Neither read started near Execute's
+		// beginning (line 100).
+		history := []types.ToolResult{
+			{ToolName: "read_file", Success: true,
+				Summary: "[agent.go: showing lines 1-30 of 500 total]\nimports..."},
+			{ToolName: "read_file", Success: true,
+				Summary: "[agent.go: showing lines 350-380 of 500 total]\ncode..."},
+		}
+		hints := detectPartiallyReadSymbols(history, graph)
+		if len(hints) != 0 {
+			t.Fatalf("expected 0 hints for import+targeted, got %d: %+v", len(hints), hints)
 		}
 	})
 

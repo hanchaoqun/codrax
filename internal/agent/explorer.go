@@ -839,10 +839,10 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// Check 1: function-boundary coverage.
 	if hints := detectPartiallyReadSymbols(allResults, e.searchResult.Graph); len(hints) > 0 {
 		h := hints[0] // worst-coverage offender
-		fmt.Fprintf(&b, "MID-LOOP CHECK: you started reading `%s` at lines %d-%d but the function spans %d-%d (%.0f%% covered). "+
-			"Finish reading this function before moving on — call read_file with offset=%d limit=%d.\n",
-			h.symbolName, h.symStart, h.readEnd, h.symStart, h.symEnd, h.coverage*100,
-			h.readEnd+1, h.symEnd-h.readEnd)
+		fmt.Fprintf(&b, "MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered). "+
+			"Finish reading this function before moving on — call read_file with path=%q offset=%d limit=%d.\n",
+			h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100,
+			h.file, h.readEnd+1, h.symEnd-h.readEnd)
 		hintKey = "explorer.mid-loop.partial-read"
 	}
 
@@ -5138,12 +5138,17 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 		return nil
 	}
 
-	// Build per-file read ranges: track the max end line across all reads.
-	type readRange struct {
-		minStart int
-		maxEnd   int
+	// Build per-file read intervals: keep every individual read_file
+	// range instead of collapsing to a single min/max. The old
+	// aggregation caused false positives: a targeted grep-directed
+	// read (e.g. lines 440-470) would be merged with an earlier
+	// import scan (lines 1-50) into {minStart:1, maxEnd:470}, making
+	// every large function starting before line 470 look "partially
+	// read" even though the LLM never tried to read it.
+	type readInterval struct {
+		start, end int
 	}
-	fileReads := make(map[string]*readRange)
+	fileReads := make(map[string][]readInterval)
 
 	for _, r := range history {
 		if !r.Success || r.ToolName != "read_file" {
@@ -5169,16 +5174,7 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 		if err1 != nil || err2 != nil {
 			continue
 		}
-		if rr, ok := fileReads[path]; ok {
-			if startLine < rr.minStart {
-				rr.minStart = startLine
-			}
-			if endLine > rr.maxEnd {
-				rr.maxEnd = endLine
-			}
-		} else {
-			fileReads[path] = &readRange{minStart: startLine, maxEnd: endLine}
-		}
+		fileReads[path] = append(fileReads[path], readInterval{startLine, endLine})
 	}
 
 	if len(fileReads) == 0 {
@@ -5186,7 +5182,7 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 	}
 
 	var hints []partialReadHint
-	for path, rr := range fileReads {
+	for path, intervals := range fileReads {
 		fi, ok := graph.FileIndex[path]
 		if !ok {
 			continue
@@ -5198,29 +5194,48 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 			if sym.EndLine == 0 || sym.EndLine-sym.Line < 10 {
 				continue // skip trivial functions
 			}
-			// Check if this symbol overlaps with the read range but was
-			// not fully covered.
-			if sym.Line > rr.maxEnd || sym.EndLine <= rr.maxEnd {
-				continue // entirely outside read range, or fully covered
-			}
-			// Symbol was partially read: sym.Line <= rr.maxEnd < sym.EndLine
+
+			// A function counts as "partially read" only when the LLM
+			// started reading FROM the function's beginning — i.e. at
+			// least one read_file interval started within the first 20%
+			// of the function body (or before it). A read that starts
+			// deep inside (grep-directed targeted read) is NOT a partial
+			// function read — the LLM was checking a specific spot, not
+			// trying to read the whole function.
 			bodyLines := sym.EndLine - sym.Line + 1
-			overlapStart := sym.Line
-			if rr.minStart > overlapStart {
-				overlapStart = rr.minStart
+			entryZone := sym.Line + bodyLines/5 // first 20% of the function
+			startedFromTop := false
+			maxEnd := 0
+			for _, iv := range intervals {
+				if iv.start <= entryZone && iv.end >= sym.Line {
+					// This read entered the function near its start.
+					startedFromTop = true
+				}
+				// Track the furthest line read within this function.
+				if iv.end > maxEnd && iv.start <= sym.EndLine && iv.end >= sym.Line {
+					if iv.end > sym.EndLine {
+						maxEnd = sym.EndLine
+					} else {
+						maxEnd = iv.end
+					}
+				}
 			}
-			overlapEnd := rr.maxEnd
-			if overlapEnd > sym.EndLine {
-				overlapEnd = sym.EndLine
+			if !startedFromTop || maxEnd == 0 {
+				continue
 			}
-			overlapLines := overlapEnd - overlapStart + 1
-			if overlapLines < 0 {
-				overlapLines = 0
+			// Fully covered?
+			if maxEnd >= sym.EndLine {
+				continue
 			}
-			cov := float64(overlapLines) / float64(bodyLines)
+
+			coveredLines := maxEnd - sym.Line + 1
+			if coveredLines < 0 {
+				coveredLines = 0
+			}
+			cov := float64(coveredLines) / float64(bodyLines)
 
 			// Only report if coverage < 80% AND missing > 20 lines.
-			unreadLines := sym.EndLine - rr.maxEnd
+			unreadLines := sym.EndLine - maxEnd
 			if cov < 0.8 && unreadLines > 20 {
 				qualName := sym.Name
 				if sym.Receiver != "" {
@@ -5234,7 +5249,7 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 					symbolKind: sym.Kind,
 					symStart:   sym.Line,
 					symEnd:     sym.EndLine,
-					readEnd:    rr.maxEnd,
+					readEnd:    maxEnd,
 					coverage:   cov,
 				})
 			}
