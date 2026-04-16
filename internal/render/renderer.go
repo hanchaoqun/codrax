@@ -323,6 +323,9 @@ func (r *Renderer) printAboveArea(text string) {
 	r.redraw()
 }
 
+// reasoningMaxChars caps the reasoning summary shown to the user.
+const reasoningMaxChars = 200
+
 // formatReasoning extracts the first 1-2 sentences from the LLM's
 // reasoning text and formats them as a dimmed line with an
 // [agent-iteration] tag. Long reasoning blocks are truncated.
@@ -333,16 +336,16 @@ func formatReasoning(agent string, iteration int, text string) string {
 	}
 	lines := strings.SplitN(text, "\n", 3)
 	summary := lines[0]
-	if len(lines) > 1 && len(summary)+len(lines[1]) < 200 {
+	if len(lines) > 1 && len(summary)+len(lines[1]) < reasoningMaxChars {
 		summary += " " + strings.TrimSpace(lines[1])
 	}
-	if len(summary) > 200 {
-		cut := 197
+	if len(summary) > reasoningMaxChars {
+		cut := reasoningMaxChars - 3 // room for "..."
 		for cut > 0 && summary[cut] != ' ' {
 			cut--
 		}
 		if cut == 0 {
-			cut = 197
+			cut = reasoningMaxChars - 3
 		}
 		summary = summary[:cut] + "..."
 	}

@@ -25,6 +25,12 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Shape validation thresholds.
+const (
+	shapeValueMaxLen       = 500 // reject value answers longer than this
+	shapeExplanationMinLen = 20  // reject explanations shorter than this
+)
+
 // Answer is the draft the finalizer produced. Separating this from
 // the IR lets tests build answers without constructing a full IR.
 type Answer struct {
@@ -105,7 +111,7 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 		if len(strings.TrimSpace(text)) == 0 {
 			return []Violation{{Kind: ViolShape, Detail: "value answer must not be empty"}}
 		}
-		if len(text) > 500 {
+		if len(text) > shapeValueMaxLen {
 			return []Violation{{Kind: ViolShape,
 				Detail: fmt.Sprintf("value answer too long (%d chars) — expected a literal", len(text))}}
 		}
@@ -125,7 +131,7 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 			return []Violation{{Kind: ViolShape, Detail: "config_value answer must express a key=value or key: value pair"}}
 		}
 	case types.ShapeExplanation:
-		if len(strings.TrimSpace(text)) < 20 {
+		if len(strings.TrimSpace(text)) < shapeExplanationMinLen {
 			return []Violation{{Kind: ViolShape, Detail: "explanation answer too short to be meaningful"}}
 		}
 	}

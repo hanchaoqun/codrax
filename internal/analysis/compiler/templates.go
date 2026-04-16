@@ -1,6 +1,27 @@
 package compiler
 
-import "github.com/hanchaoqun/codrax/internal/types"
+import (
+	"strconv"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// Template-level constants for DAG node thresholds. Named so a single
+// grep surfaces every node budget, and changing a value doesn't
+// require reading the full template function.
+const (
+	TmplEvidenceCountHigh   = 3  // evidence_count for moderate/complex templates
+	TmplEvidenceCountLow    = 1  // evidence_count for simple/generic templates
+	TmplCitationCountHigh   = 3  // architecture_explain, root_cause
+	TmplCitationCountMedium = 2  // config_trace, performance_bottleneck
+	TmplCitationCountLow    = 1  // generic
+	TmplAnswerSetMaxSize    = 50 // answer_set_bounded
+	TmplEvidenceMaxRetries  = 2  // evidence node MaxRetries
+	TmplRetryBudgetHigh     = 3  // RetryBudget for complex templates
+	TmplRetryBudgetVeryHigh = 4  // RetryBudget for root_cause (hardest)
+	TmplRetryBudgetMedium   = 3  // RetryBudget for mid-complexity
+	TmplRetryBudgetLow      = 2  // RetryBudget for simple/generic
+)
 
 // Each template builds the same three artifacts so call sites are
 // interchangeable. The node skeletons are hand-tuned per scenario
@@ -19,34 +40,6 @@ func critEntry(signal string) []types.Criterion {
 	return []types.Criterion{{Kind: types.CritSignalPresent, Expr: signal}}
 }
 
-// critEvidence builds a SuccessCriteria list that requires N or
-// more evidence items.
-func critEvidenceAtLeast(n int) []types.Criterion {
-	return []types.Criterion{{Kind: types.CritEvidenceCount, Expr: ">=" + itoa(n)}}
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := false
-	if n < 0 {
-		neg = true
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
-}
 
 // ── architecture_explain ────────────────────────────────────────
 
@@ -59,7 +52,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Outputs:     []string{"file_candidates", "symbol_table"},
 		SearchHints: hints,
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
 		},
 	}
 	ev := types.TaskNode{
@@ -68,9 +61,9 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Inputs:      []string{"file_candidates", "symbol_table"},
 		Outputs:     []string{"evidence_items", "answer_chains"},
 		SearchHints: hints,
-		MaxRetries:  2,
+		MaxRetries:  TmplEvidenceMaxRetries,
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=3"},
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountHigh)},
 		},
 	}
 	val := types.TaskNode{
@@ -79,7 +72,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Inputs:    []string{"evidence_items", "answer_chains"},
 		Outputs:   []string{"validation_report"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritAnswerSetBounded, Expr: "<=50"},
+			{Kind: types.CritAnswerSetBounded, Expr: "<=" + strconv.Itoa(TmplAnswerSetMaxSize)},
 		},
 	}
 	reconcile := types.TaskNode{
@@ -95,7 +88,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Inputs:    []string{"reconciled_story"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "3"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountHigh)},
 		},
 	}
 	edges := chain(probe.ID, ev.ID, val.ID, reconcile.ID, final.ID)
@@ -107,7 +100,7 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 		Nodes: []types.TaskNode{probe, ev, val, reconcile, final},
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: 3,
+			MaxParallelism: 1, RetryBudget: TmplRetryBudgetMedium,
 			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
 		},
 	}
@@ -120,9 +113,9 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeExplanation,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 3},
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountHigh},
 		AcceptanceTests: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "3"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountHigh)},
 		},
 		Language: rm.Language,
 	}
@@ -146,9 +139,9 @@ func templateRootCause(rm types.RequestModel) Output {
 		Inputs:      []string{"failing_component", "repro_sites"},
 		Outputs:     []string{"evidence_items", "hypothesis_bindings"},
 		SearchHints: hints,
-		MaxRetries:  2,
+		MaxRetries:  TmplEvidenceMaxRetries,
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=3"},
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountHigh)},
 		},
 	}
 	val := types.TaskNode{
@@ -173,7 +166,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		Inputs:    []string{"root_cause_story"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 	}
 	edges := chain(probe.ID, ev.ID, val.ID, reconcile.ID, final.ID)
@@ -185,7 +178,7 @@ func templateRootCause(rm types.RequestModel) Output {
 		Nodes: []types.TaskNode{probe, ev, val, reconcile, final},
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: 4,
+			MaxParallelism: 1, RetryBudget: TmplRetryBudgetVeryHigh,
 			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
 		},
 	}
@@ -198,9 +191,9 @@ func templateRootCause(rm types.RequestModel) Output {
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeStepList,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
 		AcceptanceTests: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 		Language: rm.Language,
 	}
@@ -226,7 +219,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		SearchHints: hints,
 		MaxRetries:  1,
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
 		},
 	}
 	val := types.TaskNode{
@@ -241,7 +234,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		Inputs:    []string{"validation_report"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},
 	}
 	edges := chain(probe.ID, ev.ID, val.ID, final.ID)
@@ -253,7 +246,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		Nodes: []types.TaskNode{probe, ev, val, final},
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: 2,
+			MaxParallelism: 1, RetryBudget: TmplRetryBudgetLow,
 			CriticalPath: []string{probe.ID, ev.ID, final.ID},
 		},
 	}
@@ -266,9 +259,9 @@ func templateConfigTrace(rm types.RequestModel) Output {
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeConfigValue,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountLow},
 		AcceptanceTests: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},
 		Language: rm.Language,
 	}
@@ -292,9 +285,9 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		Inputs:      []string{"hot_path_candidates"},
 		Outputs:     []string{"evidence_items", "ranked_bottlenecks"},
 		SearchHints: hints,
-		MaxRetries:  2,
+		MaxRetries:  TmplEvidenceMaxRetries,
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=2"},
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplCitationCountMedium)},
 		},
 	}
 	val := types.TaskNode{
@@ -309,14 +302,14 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		Inputs:    []string{"final_ranking"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 	}
 	graph := types.TaskGraph{
 		Nodes: []types.TaskNode{probe, ev, val, final},
 		Edges: chain(probe.ID, ev.ID, val.ID, final.ID),
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: 3,
+			MaxParallelism: 1, RetryBudget: TmplRetryBudgetMedium,
 			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
 		},
 	}
@@ -329,9 +322,9 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountMedium},
 		AcceptanceTests: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "2"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 		Language: rm.Language,
 	}
@@ -355,9 +348,9 @@ func templateGeneric(rm types.RequestModel) Output {
 		Inputs:      []string{"file_candidates"},
 		Outputs:     []string{"evidence_items"},
 		SearchHints: hints,
-		MaxRetries:  2,
+		MaxRetries:  TmplEvidenceMaxRetries,
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
 		},
 	}
 	final := types.TaskNode{
@@ -366,14 +359,14 @@ func templateGeneric(rm types.RequestModel) Output {
 		Inputs:    []string{"evidence_items"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},
 	}
 	graph := types.TaskGraph{
 		Nodes: []types.TaskNode{probe, ev, final},
 		Edges: chain(probe.ID, ev.ID, final.ID),
 		ExecutionPolicy: types.ExecutionPolicy{
-			MaxParallelism: 1, RetryBudget: 2,
+			MaxParallelism: 1, RetryBudget: TmplRetryBudgetLow,
 			CriticalPath: []string{probe.ID, ev.ID, final.ID},
 		},
 	}
@@ -394,9 +387,9 @@ func templateGeneric(rm types.RequestModel) Output {
 	}
 	contract := types.AnswerContract{
 		RequiredAnswerShape: shape,
-		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: 1},
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountLow},
 		AcceptanceTests: []types.Criterion{
-			{Kind: types.CritCitationCountGE, Expr: "1"},
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},
 		Language: rm.Language,
 	}

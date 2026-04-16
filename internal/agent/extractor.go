@@ -43,6 +43,16 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// Extractor prompt display caps. Named constants so the limits are
+// grep-visible and changeable in one place.
+const (
+	extractorMaxNotes       = 6    // max investigation note entries shown in prompt
+	extractorMaxNoteChars   = 1200 // max chars per note before truncation
+	extractorMaxEvidence    = 24   // max ranked evidence items shown
+	extractorMaxEvidenceSummary = 200 // max summary chars per evidence item
+	extractorMaxFlowFindings = 10  // max dataflow findings shown
+)
+
 // extractorEvaluator is the Turn B evaluator. It is a separate type
 // from explorerEvaluator so the two turns cannot accidentally share
 // state. Implements LoopController so the mid-loop path can stop
@@ -106,17 +116,17 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		if len(ta.InvestigationNotes) > 0 {
 			b.WriteString("### Investigation notes (per-iteration narrative)\n\n")
 			maxNotes := len(ta.InvestigationNotes)
-			if maxNotes > 6 {
-				fmt.Fprintf(&b, "*(showing the 6 most recent of %d iterations)*\n\n", maxNotes)
-				ta.InvestigationNotes = ta.InvestigationNotes[maxNotes-6:]
+			if maxNotes > extractorMaxNotes {
+				fmt.Fprintf(&b, "*(showing the %d most recent of %d iterations)*\n\n", extractorMaxNotes, maxNotes)
+				ta.InvestigationNotes = ta.InvestigationNotes[maxNotes-extractorMaxNotes:]
 			}
 			for i, note := range ta.InvestigationNotes {
 				trimmed := strings.TrimSpace(note)
 				if trimmed == "" {
 					continue
 				}
-				if len(trimmed) > 1200 {
-					trimmed = trimmed[:1200] + "…"
+				if len(trimmed) > extractorMaxNoteChars {
+					trimmed = trimmed[:extractorMaxNoteChars] + "…"
 				}
 				fmt.Fprintf(&b, "**Iter %d:**\n%s\n\n", i+1, trimmed)
 			}
@@ -137,9 +147,9 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		if len(ta.EvidenceItems) > 0 {
 			b.WriteString("### Deterministic evidence Turn A extracted\n\n")
 			evMax := len(ta.EvidenceItems)
-			if evMax > 24 {
-				fmt.Fprintf(&b, "*(showing top 24 of %d ranked items)*\n\n", evMax)
-				evMax = 24
+			if evMax > extractorMaxEvidence {
+				fmt.Fprintf(&b, "*(showing top %d of %d ranked items)*\n\n", extractorMaxEvidence, evMax)
+				evMax = extractorMaxEvidence
 			}
 			for i := 0; i < evMax; i++ {
 				ev := ta.EvidenceItems[i]
@@ -156,8 +166,8 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 					parts := []string{ev.Subject, ev.Predicate, ev.Object}
 					summary = strings.TrimSpace(strings.Join(parts, " "))
 				}
-				if len(summary) > 200 {
-					summary = summary[:200] + "…"
+				if len(summary) > extractorMaxEvidenceSummary {
+					summary = summary[:extractorMaxEvidenceSummary] + "…"
 				}
 				fmt.Fprintf(&b, "- [%s] %s%s\n", ev.Kind, summary, cite)
 			}
@@ -168,9 +178,9 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		if len(ta.FlowFindings) > 0 {
 			b.WriteString("### Dataflow findings (source → sink chains)\n\n")
 			ffMax := len(ta.FlowFindings)
-			if ffMax > 10 {
-				fmt.Fprintf(&b, "*(showing top 10 of %d)*\n\n", ffMax)
-				ffMax = 10
+			if ffMax > extractorMaxFlowFindings {
+				fmt.Fprintf(&b, "*(showing top %d of %d)*\n\n", extractorMaxFlowFindings, ffMax)
+				ffMax = extractorMaxFlowFindings
 			}
 			for i := 0; i < ffMax; i++ {
 				ff := ta.FlowFindings[i]
