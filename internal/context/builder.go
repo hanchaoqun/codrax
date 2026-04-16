@@ -69,7 +69,11 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 // and users can follow the agent's logic in real time (once the
 // rendering layer surfaces assistant text). Token overhead is minimal
 // (20-40 tokens per iteration) relative to the tool-result payloads.
-const thinkAloudDirective = "In the SAME response as your tool calls, include 1-2 sentences of reasoning explaining what you are about to do and why. Do NOT write a content-only response without tool calls — always combine your reasoning text with the tool call(s) in one response. Use the same language as the user's question. Keep it brief — the tool results carry the substance, not the preamble."
+const thinkAloudDirective = "You may include 1-2 sentences of reasoning as text content alongside your tool calls. " +
+	"IMPORTANT: reasoning goes in the assistant message text; tool calls go through the function-calling mechanism (tool_use blocks). " +
+	"NEVER write tool-call JSON in your text content — that does not execute the tool. " +
+	"Do NOT produce a text-only response without actual tool calls — always pair your reasoning with real function-calling tool_use blocks. " +
+	"Use the same language as the user's question. Keep it brief."
 
 // reasoningHygieneShell is the "don't miscount, use a tool" meta-rule
 // for stages whose allowlist includes exec_command — today only the

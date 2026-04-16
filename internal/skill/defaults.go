@@ -97,7 +97,7 @@ Scale the answer depth to the question: one sentence for a lookup/count, multipl
 		ToolSuggestions: []string{
 			"emit_answer_document",
 		},
-		OutputFormat: `You have NO file-reading tools — no read_file, grep, or repo_map. You are a pure synthesizer working from prior stages' evidence. Your contribution is ONE emit_answer_document tool call per dispatch — the deterministic renderer turns the struct into user-visible prose. A brief 1-2 sentence reasoning before the tool call is fine (per the Think Aloud rule), but do not write extended prose outside the tool call.
+		OutputFormat: `You have NO file-reading tools — no read_file, grep, or repo_map. You are a pure synthesizer working from prior stages' evidence. Your contribution is ONE emit_answer_document tool call per dispatch — the deterministic renderer turns the struct into user-visible prose. Do NOT write tool-call JSON in your text — use the function-calling mechanism only.
 
 Required-field dispatch by shape (these are mandatory rules, not examples — see the tool's JSON schema for the full contract):
 
@@ -170,7 +170,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			"emit_answer_symbol",
 			"emit_hypothesis_verdict",
 		},
-		OutputFormat: `Your contribution is the emit_* tool calls — the finalizer reads the drained buffers, not your prose. A brief 1-2 sentence reasoning before the tool calls is fine (per the Think Aloud rule), but do not write extended narrative. Call each emit_* tool AT MOST ONCE per dispatch; batch all items in a single call per tool.
+		OutputFormat: `Your contribution is the emit_* tool calls — the finalizer reads the drained buffers, not your prose. Call each emit_* tool AT MOST ONCE per dispatch; batch all items in a single call per tool. Do NOT write tool-call JSON in your text — use the function-calling mechanism only.
 
 Completeness honesty contract for emit_answer_symbol:
 - "complete" — you assert this list enumerates EVERY symbol that answers the question. The finalizer will render it with a "MUST NOT add or remove" directive. This claim is AUTOMATICALLY cross-checked against max(β, γ): a short claim of "complete" is DOWNGRADED to "lower_bound" with a warning.

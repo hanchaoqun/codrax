@@ -376,6 +376,23 @@ func (b *BaseAgent) Name() types.AgentName {
 // trace lines in Execute so a single iteration dump never floods the
 // log file with multi-megabyte LLM bodies. The "...[truncated N bytes]"
 // suffix preserves the total length so the reader can spot truncation.
+// looksLikeEmbeddedToolCall detects when the LLM wrote tool-call JSON
+// in its text content instead of using the function-calling mechanism.
+// Checks for common patterns: "recipient_name", "functions.", or
+// "tool_use" appearing alongside JSON-like structure.
+func looksLikeEmbeddedToolCall(content string) bool {
+	if len(content) < 50 {
+		return false
+	}
+	lower := strings.ToLower(content)
+	hasJSON := strings.Contains(content, `"parameters"`) || strings.Contains(content, `"tool_uses"`)
+	hasToolRef := strings.Contains(lower, "recipient_name") ||
+		strings.Contains(lower, "functions.emit_") ||
+		strings.Contains(lower, "tool_use") ||
+		strings.Contains(lower, `"name": "emit_`)
+	return hasJSON && hasToolRef
+}
+
 func truncForLog(s string, max int) string {
 	if len(s) <= max {
 		return s
@@ -578,6 +595,25 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			if resp.Content == "" {
 				logging.Debug("[diag %s] STOP at iter=%d (empty response)", b.name, i)
 				break
+			}
+			// Detect LLM writing tool-call JSON in content instead of
+			// using the function-calling mechanism. This happens when
+			// the Think Aloud directive leads the LLM to embed tool
+			// calls as markdown JSON blocks. Inject a correction hint
+			// so the LLM retries with real tool_use blocks.
+			if looksLikeEmbeddedToolCall(resp.Content) {
+				logging.Debug("[diag %s] iter=%d detected embedded tool-call JSON in content — injecting correction", b.name, i)
+				messages = append(messages, llm.Message{
+					Role:    "assistant",
+					Content: resp.Content,
+				})
+				messages = append(messages, llm.Message{
+					Role: "user",
+					Content: "You wrote tool-call JSON in your text content, but that does NOT execute the tool. " +
+						"You MUST use the function-calling mechanism (tool_use blocks) to actually call tools. " +
+						"Call the tool(s) again using the proper function-calling API — do NOT write JSON in text.",
+				})
+				continue
 			}
 			if loopCtrl != nil {
 				idle, conts, midLoopInjects := policyState.snapshot()
