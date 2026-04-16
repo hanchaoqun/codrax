@@ -216,10 +216,22 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 	b.WriteString("**Non-English questions:** When the user's question is not in English, search with BOTH the original terms AND their English programming equivalents. Most codebases use English identifiers, so always include the translated English terms alongside the original. Batch both versions as parallel grep calls.\n\n")
+	b.WriteString("**Keyword variants:** For each search term, try the word root and common variants (e.g. search 'cache' AND 'caching' AND 'cached', not just one form). Short stems match more broadly than full phrases.\n\n")
 
 	analyzerKeywords := irKeywords(ctx)
 	analyzerEntities := irEntities(ctx)
 	analyzerKind := irQuestionKind(ctx)
+
+	if len(analyzerKeywords) > 0 {
+		display := analyzerKeywords
+		if len(display) > 15 {
+			display = display[:15]
+		}
+		b.WriteString("### Suggested Search Terms\n\n")
+		b.WriteString("Use these for grep (from the analyzer's classification):\n`")
+		b.WriteString(strings.Join(display, "`, `"))
+		b.WriteString("`\n\n")
+	}
 
 	if len(analyzerKeywords) > 0 {
 		// Run graduated keyword search before Phase 1 starts.

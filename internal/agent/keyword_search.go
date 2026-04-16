@@ -339,10 +339,10 @@ func formatKeywordResults(results []keywordFileScore) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("### Pre-scanned File Ranking\n\n")
-	b.WriteString("The following files were found by graduated keyword search (exact match → case-insensitive → stem). ")
-	b.WriteString("Higher scores mean more keywords matched at higher precision levels. ")
-	b.WriteString("Use this ranking to prioritize your file list — but verify with your own grep/repo_map.\n\n")
+	b.WriteString("### Pre-scanned File Ranking (TOP PRIORITY)\n\n")
+	b.WriteString("These are the TOP PRIORITY files to investigate — read them first before exploring other files. ")
+	b.WriteString("Ranked by graduated keyword search (exact match → case-insensitive → stem). ")
+	b.WriteString("Higher scores mean more keywords matched at higher precision levels.\n\n")
 	b.WriteString("| Score | File | Matched Keywords |\n")
 	b.WriteString("|------:|------|------------------|\n")
 	for _, r := range results {
