@@ -589,11 +589,15 @@ func (r *Renderer) redraw() {
 
 	// Footer: total elapsed for the whole pipeline. Rendered only
 	// when at least one row is present so a pre-event "just started"
-	// state shows a bare objective.
+	// state shows a bare objective. The leading cyan spinner mirrors
+	// the running-row glyph so the footer visibly animates — makes
+	// it obvious the pipeline is still live even when every task row
+	// has already entered a stable state between dispatches.
 	if len(rows) > 0 {
 		b.WriteByte('\n')
-		footer := fmt.Sprintf("  %s %s",
-			pterm.FgDarkGray.Sprint("total"),
+		footer := fmt.Sprintf("  %s %s %s",
+			pterm.FgCyan.Sprint(frame),
+			pterm.FgDarkGray.Sprint("Total"),
 			pterm.FgWhite.Sprint(elapsed))
 		b.WriteString(truncByDisplayWidth(footer, maxCols))
 	}
