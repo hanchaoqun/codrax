@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -250,11 +251,17 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if ctx.AnalysisIR == nil {
 		logging.Debug("[emit_answer_document] AnalysisIR is nil — shape auto-correct disabled")
 	}
+	// shapeCorrectionNote tracks any auto-correct decision so it can
+	// be surfaced in the tool Summary (not just DEBUG/WARN logs) —
+	// the LLM on retry and the REPL operator both see the correction
+	// happened and what the resolved shape is. Empty on no-correction.
+	var shapeCorrectionNote string
 	if ctx.AnalysisIR != nil {
 		target := ctx.AnalysisIR.AnswerContract.RequiredAnswerShape
 		logging.Debug("[emit_answer_document] AnalysisIR present, target shape=%s, LLM shape=%s", target, shape)
 		if target != "" && target != shape {
 			logging.Warning("[emit_answer_document] LLM chose shape=%s but AnalysisIR target is %s — auto-correcting", shape, target)
+			llmShape := shape
 			// Check if the LLM provided the required fields for the
 			// target shape. If not, try to rescue from the extractor's
 			// prior slate before falling back to explanation — the
@@ -316,9 +323,11 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			}
 			if canCorrect {
 				shape = target
+				shapeCorrectionNote = fmt.Sprintf("shape auto-corrected: LLM chose %s → resolved to %s (analyzer target)", llmShape, shape)
 			} else {
 				logging.Warning("[emit_answer_document] target shape %s requires fields the LLM didn't fill — falling back to explanation", target)
 				shape = types.ShapeExplanation
+				shapeCorrectionNote = fmt.Sprintf("shape auto-corrected: LLM chose %s, target was %s but required fields empty → fell back to explanation", llmShape, target)
 			}
 			// Scrub fields forbidden by the resolved shape.
 			switch shape {
@@ -370,7 +379,14 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// anchor but have their Quote cleared (file:line exists but the
 	// quote is not corroborated by the line text).
 	groundCtx := ground.BuildContext(ctx)
-	citations, citationRemap, citationWarnings, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx)
+	// Session-8 whitelist: citations must reference a file Turn A
+	// actually read. Addresses the trace 1776448040358685830 case
+	// where the finalizer LLM cited internal/agent/subagent.go:63 but
+	// Turn A had read internal/types/subagent.go — two similar paths,
+	// both indexed, LLM picked wrong. Whitelist rejects this at the
+	// earliest point. Empty/nil set = skip (sub-agent / test paths).
+	readFiles := turnAReadFileSet(ctx)
+	citations, citationRemap, citationWarnings, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx, readFiles)
 	if cerr != nil {
 		return failEmit(t.Name(), now, "%v", cerr)
 	}
@@ -507,7 +523,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   renderEmitAnswerDocumentSummary(doc, citationWarnings),
+		Summary:   renderEmitAnswerDocumentSummary(doc, citationWarnings, shapeCorrectionNote),
 		Timestamp: now,
 	}, nil
 }
@@ -516,6 +532,26 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 // citation remap — i.e. the count of citations that failed grounding
 // and were pulled from the pool. Zero when every citation grounded
 // successfully.
+// turnAReadFileSet returns the set of file paths Turn A actually read.
+// Drives the citation-whitelist check in buildEmitAnswerDocumentCitations.
+// Returns nil for contexts that predate the TurnA snapshot (sub-agent
+// dispatches, unit tests with bare Mutable) so those paths stay
+// backward-compatible and skip the whitelist.
+func turnAReadFileSet(ctx *types.BusContext) map[string]bool {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil || len(ta.ReadFiles) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(ta.ReadFiles))
+	for _, f := range ta.ReadFiles {
+		set[strings.TrimSpace(f)] = true
+	}
+	return set
+}
+
 func countDroppedCitations(remap []int) int {
 	n := 0
 	for _, r := range remap {
@@ -641,7 +677,7 @@ func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int)
 //            line <= 0, quote too long, blob-leak) that should
 //            reject the whole call; grounding failures never return
 //            err — they are surfaced via drop/clear + warnings.
-func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *ground.Context) ([]types.Citation, []int, []string, error) {
+func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *ground.Context, readFiles map[string]bool) ([]types.Citation, []int, []string, error) {
 	if len(in) == 0 {
 		return nil, nil, nil, nil
 	}
@@ -652,6 +688,16 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 	// rule: a pool where every citation has empty/cleared quote AND
 	// none were Tier 1 means the LLM never actually read the files
 	// it claims to cite — drop the quote-cleared ones.
+	//
+	// readFiles (session 8) is the set of file paths Turn A actually
+	// read (Mutable.TurnAArtifacts().ReadFiles). When non-nil,
+	// citations pointing at files NOT in the set are dropped
+	// immediately with a warning that lists the allowed paths — this
+	// catches the LLM picking similar-but-wrong paths
+	// (internal/agent/subagent.go vs internal/types/subagent.go) at
+	// the earliest point, before grounder / Tier-1 peer logic runs.
+	// When nil or empty (pre-TurnA tests, sub-agent contexts), the
+	// check is skipped.
 	type perCitation struct {
 		keep         bool
 		cit          types.Citation
@@ -661,6 +707,23 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 	scratch := make([]perCitation, len(in))
 	var anyRealTier bool // did any citation get a non-empty Tier? false in no-context test mode.
 	var warnings []string
+	// Precompute allowed-path hint once — rendered into every
+	// whitelist rejection warning. Keeps the LLM from having to
+	// reconstruct the set from scattered prompt sections.
+	allowedHint := ""
+	if len(readFiles) > 0 {
+		allowed := make([]string, 0, len(readFiles))
+		for f := range readFiles {
+			allowed = append(allowed, f)
+		}
+		sort.Strings(allowed)
+		// Soft cap so the warning stays scannable.
+		if len(allowed) > 12 {
+			allowedHint = fmt.Sprintf("allowed files (first 12 of %d): %s", len(allowed), strings.Join(allowed[:12], ", "))
+		} else {
+			allowedHint = "allowed files: " + strings.Join(allowed, ", ")
+		}
+	}
 	for i := range in {
 		c := in[i]
 		c.File = strings.TrimSpace(c.File)
@@ -672,6 +735,18 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 		}
 		if isInsideWorkDir(c.File, workDir) {
 			return nil, nil, nil, fmt.Errorf("citations[%d]: file %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file", i, c.File, workDir)
+		}
+		// Whitelist check (session 8): citation file must be one
+		// Turn A actually read. Skipped when readFiles set is empty
+		// (test path / no TurnA). Dropped item goes through the
+		// standard per-citation drop path; the warning names both
+		// the offending file AND the allowed set so the next turn
+		// can correct in one shot.
+		if len(readFiles) > 0 && !readFiles[c.File] {
+			warnings = append(warnings,
+				fmt.Sprintf("citations[%d] dropped (%s:%d) — file not in Turn A's ReadFiles list; %s. Cite ONLY files Turn A read, or reject the answer",
+					i, c.File, c.Line, allowedHint))
+			continue
 		}
 		if c.Line <= 0 {
 			return nil, nil, nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
@@ -803,7 +878,7 @@ func validateCitationRef(field string, index int, ref int, numCites int) error {
 	return nil
 }
 
-func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument, citationWarnings []string) string {
+func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument, citationWarnings []string, shapeCorrectionNote string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "emit_answer_document accepted: shape=%s citations=%d", doc.Shape, len(doc.Citations))
 	switch doc.Shape {
@@ -829,6 +904,15 @@ func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument, citationWarnings
 	// the LLM (and eval harness) sees which citations were filtered
 	// out and why. When the LLM's next turn is the finalizer retry,
 	// it can pick different file:line anchors rather than guessing.
+	if shapeCorrectionNote != "" {
+		// Shape-correction notice is surfaced before citation
+		// warnings so the LLM (and the REPL operator) sees it as the
+		// first adjustment the tool made. Keeps the root cause of
+		// any surprising final shape one glance away from the
+		// Summary rather than buried in the log file.
+		b.WriteString("\n\nShape correction: ")
+		b.WriteString(shapeCorrectionNote)
+	}
 	if len(citationWarnings) > 0 {
 		b.WriteString("\n\nCitation grounding:")
 		for _, w := range citationWarnings {

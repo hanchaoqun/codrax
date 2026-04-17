@@ -664,3 +664,109 @@ func TestEmitAnswerDocument_Explanation_StillForbidsValue(t *testing.T) {
 		t.Errorf("rejection must name value: %q", res.Summary)
 	}
 }
+
+// TestEmitAnswerDocument_WhitelistsCitationFilesToTurnAReads pins the
+// session-8 whitelist: citations referencing a file Turn A did not
+// read are dropped with a warning that lists the allowed set. The
+// warning format lets the LLM re-emit against a correct path in one
+// round-trip instead of iterating through the grounder's tier cascade.
+func TestEmitAnswerDocument_WhitelistsCitationFilesToTurnAReads(t *testing.T) {
+	graph := newDocGraph(map[string][]docSymbol{
+		"internal/types/subagent.go": {{name: "SubAgent", line: 10, end: 30}},
+		"internal/agent/subagent.go": {{name: "SubExplorer", line: 20, end: 40}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/types/subagent.go"},
+	})
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/subagent.go", "line": 25}, // wrong file — similar path
+			{"file": "internal/types/subagent.go", "line": 15}, // correct
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("call with 1 good + 1 bad cite must succeed, got reject: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Citations) != 1 {
+		t.Errorf("expected 1 cite kept (whitelist path), got %d", len(doc.Citations))
+	}
+	if !strings.Contains(res.Summary, "not in Turn A's ReadFiles list") {
+		t.Errorf("whitelist reject warning must name the rule: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "allowed files") {
+		t.Errorf("whitelist reject warning must list allowed files: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/types/subagent.go") {
+		t.Errorf("allowed list must include the actual read file: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_WhitelistSkippedWhenNoTurnA — no TurnA
+// snapshot means pre-pipeline tests / sub-agent contexts. The
+// whitelist check must skip so legacy call paths stay green.
+func TestEmitAnswerDocument_WhitelistSkippedWhenNoTurnA(t *testing.T) {
+	graph := newDocGraph(map[string][]docSymbol{
+		"a.go": {{name: "Foo", line: 10, end: 30}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+	// No SetTurnAArtifacts — the whitelist must not fire.
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 15},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("no-TurnA path must accept; got: %s", res.Summary)
+	}
+	if strings.Contains(res.Summary, "not in Turn A's ReadFiles") {
+		t.Errorf("whitelist must be inactive without a TurnA snapshot: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ShapeCorrectionSurfacedInSummary pins the
+// shape auto-correct visibility upgrade — the tool Summary (not just
+// DEBUG/WARN logs) names the correction so both the LLM on retry and
+// the REPL operator see what happened.
+func TestEmitAnswerDocument_ShapeCorrectionSurfacedInSummary(t *testing.T) {
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	tool := &EmitAnswerDocument{}
+	// LLM chose boolean; analyzer wanted explanation. No boolean-
+	// required fields, so auto-correct falls back to explanation.
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "boolean",
+		"summary": "resolved explanation body",
+		"boolean": map[string]interface{}{"decision": "true", "rationale": "r", "citation_ref": -1},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("call should succeed after auto-correct: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "Shape correction:") {
+		t.Errorf("Summary must announce shape correction, got: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "LLM chose boolean") {
+		t.Errorf("Summary must name the LLM's original shape: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "explanation") {
+		t.Errorf("Summary must name the resolved shape: %q", res.Summary)
+	}
+}
