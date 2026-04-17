@@ -471,13 +471,17 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		}
 	}
 
-	// Set to true when reconcileIntent downgrades enumerate→return_value
-	// on a leading count-verb cue. The answer to such a question is a
+	// Set to true when the request is a measurement-scalar question
+	// (leading count-verb cue + simple complexity + intent in the
+	// enumerate/return_value pair). The answer to such a question is a
 	// scalar produced by a tool query (find | wc -l, list_files count,
 	// grep count) with no file:line to cite — declared outside the
 	// sanity block so the post-compile AnswerContract mutation below
-	// can read it.
-	intentDowngradedToScalar := false
+	// can read it. Fires regardless of whether reconcileIntent had to
+	// downgrade enumerate→return_value (LLM got it wrong) or the LLM
+	// picked return_value directly (LLM got it right) — both
+	// populations need the three-citation-gate carve-out.
+	isMeasurementScalar := false
 
 	// Post-process complexity sanity check. The sub_topics rule above
 	// is one input; reconcileComplexity additionally cross-checks the
@@ -505,12 +509,15 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		if intentResolved, intentReason := reconcileIntent(rm.Intent, rawForComplexity, rm.Complexity); intentResolved != rm.Intent {
 			logIntentReconcile(rm.Intent, intentResolved, intentReason)
 			rm.Intent = intentResolved
-			intentDowngradedToScalar = true
-			// Every consequence of the downgrade (shape override, 3
-			// citation-gate strips) is applied in one post-compile block
-			// below, keyed off this single flag. Keeps the "one signal,
-			// one response" contract grep-able.
 		}
+		// Broader measurement-scalar signal — captures both the
+		// reconciled-downgrade case above AND the case where the LLM
+		// picked IntentReturnValue directly on the same count-verb
+		// prefix. Every consequence (shape override, 3 citation-gate
+		// strips) is applied in one post-compile block below, keyed
+		// off this single flag. Keeps "one signal, one response"
+		// grep-able.
+		isMeasurementScalar = isMeasurementScalarRequest(rm, rawForComplexity)
 		// Merge sub-topic entities into main entity list.
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
 		for _, e := range rm.AnalyzerHints.Entities {
@@ -582,22 +589,28 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		}
 	}
 
-	// Measurement-scalar carve-out. A reconciled count question
-	// ("how many X", "统计 …") produces a scalar answer from a tool
-	// query (find | wc -l, list_files count, grep count) with no
-	// file:line to cite. The reconcileIntent firing is a 0-error
-	// signal — it only triggers on simple complexity + leading count-
-	// verb prefix — so every consequence below is keyed off the same
-	// flag and happens exactly when the downgrade fires. No other
-	// caller of IntentReturnValue is affected (a "what does X return"
-	// question never trips reconcileIntent because its declared intent
-	// is already return_value).
+	// Measurement-scalar carve-out. A count question ("how many X",
+	// "统计 …") produces a scalar answer from a tool query
+	// (find | wc -l, list_files count, grep count) with no file:line
+	// to cite. The isMeasurementScalar signal (computed by
+	// isMeasurementScalarRequest in analyzer_intent.go) is a 0-error
+	// discriminator: it fires on simple complexity + leading count-
+	// verb prefix + intent in {enumerate, return_value}, which is
+	// exactly the population that has no file:line to cite. A
+	// "what does X return" question — same IntentReturnValue — never
+	// fires because there is no count-verb prefix.
+	//
+	// The signal fires regardless of whether the LLM initially picked
+	// enumerate (reconcileIntent downgraded it above) or return_value
+	// (already correct). Both populations need the same carve-out —
+	// keying off the downgrade event alone missed the "LLM got it
+	// right on its own" case and looped the retry budget.
 	//
 	// Consequences in order:
 	//
 	//   (a) out.AnswerContract.RequiredAnswerShape → ShapeValue. Forces
 	//       the final shape past both compile's intent-switch (already
-	//       set to ShapeValue by the downgrade) and the LLM-hint
+	//       set to ShapeValue by IntentReturnValue) and the LLM-hint
 	//       override at "if rm.AnalyzerHints.Shape != ..." above,
 	//       whose stale list_of_symbols hint would otherwise restore
 	//       the wrong shape.
@@ -614,7 +627,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	//
 	//       Leaving any one enabled loops the retry budget on a
 	//       mismatch no amount of re-investigation can fix.
-	if intentDowngradedToScalar {
+	if isMeasurementScalar {
 		out.AnswerContract.RequiredAnswerShape = types.ShapeValue
 		if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols {
 			rm.AnalyzerHints.Shape = string(types.ShapeValue)

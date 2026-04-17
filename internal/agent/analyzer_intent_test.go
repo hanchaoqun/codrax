@@ -84,6 +84,76 @@ func TestBuildAnalysisIR_CountQuestionStripsAllThreeGates(t *testing.T) {
 	}
 }
 
+// TestBuildAnalysisIR_CountQuestionLLMPickedReturnValue covers the
+// critical case where the LLM already picked IntentReturnValue on a
+// leading count-verb question (so reconcileIntent has nothing to
+// downgrade). The carve-out must still fire because the isMeasurement
+// Scalar signal is question-level, not reconcile-event-level.
+func TestBuildAnalysisIR_CountQuestionLLMPickedReturnValue(t *testing.T) {
+	mut := types.NewMutableState("how many X are in this project")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "how many X are in this project",
+		Intent:     types.IntentReturnValue, // LLM got it right — nothing to reconcile
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"how", "many", "X"},
+			Entities: []string{"X"},
+			Shape:    string(types.ShapeValue),
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.AnswerContract.CitationReq.Required {
+		t.Error("CitationReq.Required must be false when LLM picks return_value on a count question")
+	}
+	if got := ir.AnswerContract.CitationReq.MinCitations; got != 0 {
+		t.Errorf("MinCitations = %d, want 0", got)
+	}
+	for _, a := range ir.AnswerContract.AcceptanceTests {
+		if a.Kind == types.CritCitationCountGE {
+			t.Errorf("AcceptanceTests still carries CritCitationCountGE: %+v", a)
+		}
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		for _, c := range n.SuccessCriteria {
+			if c.Kind == types.CritCitationCountGE {
+				t.Errorf("TaskNode %q SuccessCriteria still carries CritCitationCountGE: %+v", n.ID, c)
+			}
+		}
+	}
+}
+
+// TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates is the
+// other negative control — a regular return_value question ("what
+// does function F return") has a file:line to cite (the return
+// statement), so the carve-out must NOT strip its gates.
+func TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates(t *testing.T) {
+	mut := types.NewMutableState("what does function F return")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "what does function F return",
+		Intent:     types.IntentReturnValue,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"function", "F", "return"},
+			Entities: []string{"F"},
+			Shape:    string(types.ShapeValue),
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if !ir.AnswerContract.CitationReq.Required {
+		t.Error("CitationReq.Required must stay true for non-count return_value questions")
+	}
+}
+
 // TestBuildAnalysisIR_NonCountQuestionKeepsGates is the negative
 // control — a regular enumerate question (no leading count-verb cue)
 // must NOT have the citation gates stripped, otherwise the rule would

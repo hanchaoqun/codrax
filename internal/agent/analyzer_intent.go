@@ -33,10 +33,52 @@ import (
 //     legitimately include counting language ("list all files and
 //     report sizes") and downgrading would lose the enumeration half.
 
+// isMeasurementScalarRequest reports whether the request is asking for
+// a single scalar produced by a tool query — "how many X", "统计 …",
+// "total of Y" — where the answer has no file:line to cite.
+//
+// The check is independent of whether the LLM initially picked
+// IntentEnumerate (then reconcileIntent downgrades) or IntentReturnValue
+// (already correct) — both populations need the three-citation-gate
+// carve-out in buildAnalysisIR. Previously the carve-out keyed off
+// "reconcileIntent fired" which missed the case where the LLM nailed
+// the intent directly; the citation gates stayed enabled and the
+// retry budget looped the same way as the original bug.
+//
+// Three gates in force, all fire equally for both populations:
+//
+//   1. ComplexitySimple  — moderate/complex count-style questions
+//                          can have legitimate file:line evidence
+//                          ("list all files > N lines and their
+//                          counts") so we don't strip gates there.
+//   2. Intent in {enumerate, return_value} — other intents
+//                          (explain / trace / root_cause) are never
+//                          measurement-scalar even if the prose
+//                          starts with a count verb.
+//   3. Leading count-verb prefix — "list handlers that count requests"
+//                          does not fire because "list" is the prefix;
+//                          only first-verb cues count.
+func isMeasurementScalarRequest(rm types.RequestModel, rawRequest string) bool {
+	if rm.Complexity != types.ComplexitySimple {
+		return false
+	}
+	if rm.Intent != types.IntentEnumerate && rm.Intent != types.IntentReturnValue {
+		return false
+	}
+	lower := strings.ToLower(strings.TrimSpace(rawRequest))
+	lower = stripPolitenessPrefix(lower)
+	return hasLeadingCountVerb(lower)
+}
+
 // reconcileIntent returns the intent that should travel downstream and
 // a short reason string. When resolved == declared the rule did not
 // fire and reason is empty. Runs AFTER reconcileComplexity so the
 // complexity input is post-reconcile.
+//
+// This is the strict downgrade contract (enumerate → return_value on
+// count-verb prefix). For the broader "is this a measurement scalar
+// question regardless of declared intent" check that drives the
+// citation-gate carve-out, see isMeasurementScalarRequest above.
 func reconcileIntent(declared types.Intent, rawRequest string, complexity types.Complexity) (types.Intent, string) {
 	if declared != types.IntentEnumerate {
 		return declared, ""

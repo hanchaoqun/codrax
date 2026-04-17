@@ -760,17 +760,51 @@ sequenceDiagram
 
 `analyzer.buildAnalysisIR`（`internal/agent/analyzer.go`）在 ReAct 循环结束后**确定性**地跑以下子包：
 
-| 阶段 | 包 | 输入 | 输出 |
+| 阶段 | 包 / 文件 | 输入 | 输出 |
 |------|----|------|------|
 | 1. Normalize | `internal/analysis/normalizer` | `RawRequest` | `TermGraph`（canonical terms + aliases） |
-| 2. Infer scenario | `internal/analysis/compiler` | `RequestModel` | `Scenario` 默认值（LLM 未指定时） |
-| 3. Compile | `internal/analysis/compiler` | `RequestModel` | `TaskGraph` + `EvidencePlan` + 默认 `AnswerContract` |
-| 4. Risk evaluate | `internal/analysis/risk` | `RequestModel` | `RiskMatrix`（六维 0-5 打分） |
-| 5. Hypothesis plan + bind | `internal/analysis/hdp` + `internal/analysis/priority` + `internal/analysis/binder` | `RequestModel` + `TaskGraph` | `[]Hypothesis` with `priority.Score`; `binder.BindByRelevance` 替代旧的 round-robin 绑定 |
-| 6. Counterfactual expand | `internal/analysis/counterfactual` | `TaskGraph` + `RequestModel` | 可选的 counterfactual branch（默认关闭，仅 complex + ambiguous 触发） |
-| 7. Quality gate | `internal/analysis/gate` | 完整 IR | `GateReport` + `Rejected` flag |
+| 2a. Complexity sanity | `internal/agent/analyzer_complexity.go::reconcileComplexity` | LLM 的 Complexity + 实体/关键词数 + 请求文本首句线索 + sub-topic 数 | 可能覆写 `rm.Complexity`；5 条规则见包注释 |
+| 2b. Intent sanity | `internal/agent/analyzer_intent.go::reconcileIntent` | LLM 的 Intent + 请求文本首句线索 + post-reconcile Complexity | 首句命中 count-verb prefix 且 `Intent==Enumerate && Complexity==Simple` 时降级为 `IntentReturnValue`，设置 `intentDowngradedToScalar` flag |
+| 3. Infer scenario | `internal/analysis/compiler::InferScenario` | `RequestModel` | `Scenario` 默认值（LLM 未指定时） |
+| 4. Compile | `internal/analysis/compiler::Compile` | `RequestModel` | `TaskGraph` + `EvidencePlan` + 默认 `AnswerContract` |
+| 5. Measurement-scalar carve-out | `analyzer.go` 内联（见下） | `intentDowngradedToScalar` flag + `out` | 改 shape → `ShapeValue`，剥掉三层 citation gate 的 `CritCitationCountGE` |
+| 6. Risk evaluate | `internal/analysis/risk` | `RequestModel` | `RiskMatrix`（六维 0-5 打分） |
+| 7. Hypothesis plan + bind | `internal/analysis/hdp` + `internal/analysis/priority` + `internal/analysis/binder` | `RequestModel` + `TaskGraph` | `[]Hypothesis` with `priority.Score`; `binder.BindByRelevance` 替代旧的 round-robin 绑定 |
+| 8. Counterfactual expand | `internal/analysis/counterfactual` | `TaskGraph` + `RequestModel` | 可选的 counterfactual branch（默认关闭，仅 complex + ambiguous 触发） |
+| 9. Quality gate | `internal/analysis/gate` | 完整 IR | `GateReport` + `Rejected` flag |
 
 **不变量**：每一步都可在零输入下退化到安全默认值。LLM 完全没调用 `emit_analysis` 时，analyzer 返回 hard `StageOutput.Error`；`runAnalyzePhase` 重试至 `MaxRetriesPerStage` 次，预算耗尽后 Run 终止。
+
+### Deterministic sanity rules（第 2a / 2b 步）
+
+LLM 的 Complexity / Intent 判定被当作 prior，两条 reconcile 规则只在**结构性信号强烈相反**时才覆写，避免二次猜测所有 borderline case：
+
+- `reconcileComplexity`（5 条规则，`internal/agent/analyzer_complexity.go`）：sub-topic ≥3 floor / cross-component cue / lookup-shape downgrade / multi-entity upgrade / sparse-prompt floor。
+- `reconcileIntent`（1 条规则）：`IntentEnumerate + ComplexitySimple` 且请求首句匹配 count-verb prefix（`统计` / `有多少` / `how many` / `count` / `total` …）→ 降级为 `IntentReturnValue`。prefix 锚定在首句**避免**"list handlers that count requests"类误伤；只在 simple 触发**避免**"list all files and count them"类丢失 enumerate 语义。
+
+两条规则都按 pre-compile 的顺序跑（complexity → intent），log 用 `[analyzer] * reconciled:` 前缀，grep 一次能看全所有自动覆写。
+
+### Measurement-scalar carve-out（第 5 步）— 三层 citation gate 剥离
+
+> ⚠️ **关键不变量**：整个系统共有 **3 个独立的 citation gate 表面**，都共用 `types.CritCitationCountGE` 这个 Kind 但从三条不同代码路径读。改任何一条相关逻辑前先把三层都看清。
+
+| # | 数据位置 | 读它的代码 | 表现为的错误消息 |
+|---|---|---|---|
+| 1 | `AnswerContract.CitationReq.Required` + `MinCitations` | `internal/analysis/contract/checker.go::checkCitations` | `"0 citations provided, N required"` |
+| 2 | `AnswerContract.AcceptanceTests`（循环每条 `CritCitationCountGE`） | `internal/analysis/contract/checker.go::checkAcceptance` | `"only 0 citations, need ≥N"` |
+| 3 | `TaskNode.SuccessCriteria`（finalize 节点） | `internal/orchestrator/scheduler.go::markSuccessCriteriaFailed` → `criterion.Eval` | `"finalize success_criterion citation_count_ge N"` |
+
+每个 template（`internal/analysis/compiler/templates.go`）构造时同时写入三处。对于**测量 scalar 类问题**（"how many X" → `find | wc -l`），答案天然没有 file:line 可 cite —— 如果任何一条 gate 还在 enabled 状态，orchestrator 的 contract retry 就会循环到 retry budget 耗尽，且每轮都复现同一违规。
+
+`intentDowngradedToScalar` flag（第 2b 步设置）是一个 **0-error 信号**：reconcileIntent 只在首句命中 count-verb 时触发，population 正好是"测量 scalar 无 cite 目标"的集合。flag 为 true 时第 5 步在一个 block 里应用 **5 个后果**：
+
+1. `out.AnswerContract.RequiredAnswerShape = ShapeValue`（强制覆盖 compile 结果和下游 hint override）
+2. `rm.AnalyzerHints.Shape → ShapeValue`（保持 `ir_accessor.irAnswerShape` 下游读取一致）
+3. `CitationReq.Required = false` + `MinCitations = 0`（切 gate #1）
+4. `AcceptanceTests = dropCitationCountGE(...)`（切 gate #2）
+5. 遍历 `TaskGraph.Nodes` 把每个节点的 `SuccessCriteria = dropCitationCountGE(...)`（切 gate #3）
+
+单一 flag → 单一 block → 五个后果的"one signal, one response"契约让 `grep intentDowngradedToScalar` 能一次看到所有因果链。测试在 `internal/agent/analyzer_intent_test.go::TestBuildAnalysisIR_CountQuestionStripsAllThreeGates` + `TestBuildAnalysisIR_NonCountQuestionKeepsGates`（正例 + 负例 control）。
 
 **Quality Gate 分层**：
 - **Hard failures**（所有 checks except `pending_fields_wellformed`：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency` / `criterion_resolvable`）→ `StageOutput.Error` 抛出 → Run 硬失败。Coverage 使用加权计算（Symbol=1.0, Config=0.7, Concept=0.4），阈值通过 `gate.GlobalThresholds()` 配置。
