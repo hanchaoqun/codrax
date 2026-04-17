@@ -118,7 +118,7 @@ func TestEmitAnswerDocument_ListOfSymbols_RequiresCompleteness(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocument_ListOfSymbols_ScrubsStepsField(t *testing.T) {
+func TestEmitAnswerDocument_ListOfSymbols_RejectsStepsField(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":                "list_of_symbols",
@@ -127,11 +127,54 @@ func TestEmitAnswerDocument_ListOfSymbols_ScrubsStepsField(t *testing.T) {
 		"steps":                []map[string]interface{}{{"index": 1, "description": "x", "citation_ref": -1}},
 	})
 	res, _ := tool.Execute(newDocBusCtx(""), params)
-	// Forbidden fields are silently scrubbed (not rejected) to prevent
-	// LLM infinite retry loops. The call should succeed with steps
-	// removed and symbols preserved.
+	// 2026-04-17 hardening: non-zero forbidden fields reject the call
+	// with a structured error so the LLM sees the feedback on the
+	// next turn. Silent scrub was letting the LLM keep the wrong
+	// field across multiple iterations because no signal surfaced.
+	if res.Success {
+		t.Errorf("list_of_symbols with non-zero steps: must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "forbids steps") {
+		t.Errorf("rejection must name the offending field: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ListOfSymbols_TolerateZeroStepsArray — an
+// empty steps array is semantically absent; the LLM's JSON
+// serializer commonly emits it even when the shape forbids the
+// field. Tolerate zero-length; reject non-zero.
+func TestEmitAnswerDocument_ListOfSymbols_TolerateZeroStepsArray(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":                "list_of_symbols",
+		"symbols":              []map[string]interface{}{{"name": "Foo", "file": "a.go", "line": 1, "kind": "function"}},
+		"symbols_completeness": "complete",
+		"steps":                []map[string]interface{}{},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
 	if !res.Success {
-		t.Errorf("list_of_symbols with steps: should succeed after scrub, got error: %s", res.Summary)
+		t.Errorf("empty steps[] is semantically absent and must not reject: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Explanation_RejectsZombieBoolean pins the
+// exact failure mode from trace 1776439797257469553: the LLM sent
+// shape=explanation with a non-zero boolean{decision:"否", rationale:
+// "…"}. Old behaviour silently scrubbed it and accepted; new
+// behaviour rejects so the LLM corrects on retry.
+func TestEmitAnswerDocument_Explanation_RejectsZombieBoolean(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"boolean": map[string]interface{}{"decision": "否", "rationale": "spurious", "citation_ref": -1},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Errorf("explanation with non-zero boolean: must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "forbids boolean") {
+		t.Errorf("rejection must name boolean: %q", res.Summary)
 	}
 }
 

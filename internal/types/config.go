@@ -59,7 +59,14 @@ type AgentSettings struct {
 	LoopIdleStopThreshold int `yaml:"loop_idle_stop_threshold"`
 
 	// FinalizerMaxCorrectionRetries: soft-stop correction retries when
-	// emit_answer_document is missing. Default 2.
+	// emit_answer_document is missing or rejected (missing required
+	// field, non-zero forbidden field, over-cap summary). Default 3.
+	//
+	// Bumped from 2 to 3 in the 2026-04-17 rejection-over-scrub
+	// hardening: forbidden fields that LLMs habitually emit (zombie
+	// boolean{}, cross-shape value{}) now fail the call rather than
+	// being silently scrubbed, so a realistic dispatch may burn one
+	// retry to clear the field before the real answer lands.
 	FinalizerMaxCorrectionRetries int `yaml:"finalizer_max_correction_retries"`
 
 	// ExtractorMaxCorrectionRetries: soft-stop correction retries when
@@ -125,7 +132,7 @@ func DefaultAgentSettings() AgentSettings {
 		LoopMaxContinuations:          5,
 		LoopMaxMidLoopInjects:         6,
 		LoopIdleStopThreshold:         2,
-		FinalizerMaxCorrectionRetries: 2,
+		FinalizerMaxCorrectionRetries: 3,
 		ExtractorMaxCorrectionRetries: 1,
 		SubTopicPrescanBudgetExtra:    1,
 		SubTopicExplorerBudgetExtra:   3,

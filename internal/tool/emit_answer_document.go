@@ -380,7 +380,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// the AnswerDocument slot the renderer will read.
 	switch shape {
 	case types.ShapeListOfSymbols:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if len(p.Symbols) == 0 {
 			return failEmit(t.Name(), now, "shape=list_of_symbols requires symbols[] with at least one entry")
 		}
@@ -404,7 +406,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.SymbolsCompleteness = claim
 
 	case types.ShapeStepList:
-		scrubForbiddenFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if len(p.Steps) == 0 {
 			return failEmit(t.Name(), now, "shape=step_list requires steps[] with at least one entry")
 		}
@@ -417,7 +421,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Steps = p.Steps
 
 	case types.ShapeValue:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if p.Value == nil {
 			return failEmit(t.Name(), now, "shape=value requires value{literal, citation_ref}")
 		}
@@ -427,7 +433,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Value = p.Value
 
 	case types.ShapeConfigValue:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if p.Value == nil {
 			return failEmit(t.Name(), now, "shape=config_value requires value{key, literal, citation_ref}")
 		}
@@ -437,7 +445,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Value = p.Value
 
 	case types.ShapeBoolean:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if p.Boolean == nil {
 			return failEmit(t.Name(), now, "shape=boolean requires boolean{decision, rationale, citation_ref}")
 		}
@@ -448,7 +458,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Boolean = bl
 
 	case types.ShapeExplanation:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if strings.TrimSpace(p.Summary) == "" {
 			return failEmit(t.Name(), now, "shape=explanation requires a non-empty summary")
 		}
@@ -485,12 +497,12 @@ func countDroppedCitations(remap []int) int {
 // forbidBitset marks which AnswerDocument payload fields must be
 // empty for a given shape. Each shape-dispatch branch ORs together
 // the fields it does NOT accept and passes the mask to
-// validateEmitAnswerDocumentNoForbidden. Keeping the rule as a
-// bitset (instead of a per-shape switch inside the validator) means
-// each shape's forbidden-field list is literally visible at its
-// branch in Execute, so a shape's contract is one-grep obvious.
-// Note: forbidden fields are silently SCRUBBED (not rejected) by
-// scrubForbiddenFields to prevent LLM infinite retry loops.
+// rejectForbiddenFields. Keeping the rule as a bitset (instead of a
+// per-shape switch inside the validator) means each shape's
+// forbidden-field list is literally visible at its branch in Execute,
+// so a shape's contract is one-grep obvious. Non-zero forbidden
+// fields reject the call with a specific error; zero-valued objects
+// are tolerated (sweep above the shape switch clears them silently).
 type forbidBitset uint
 
 const (
@@ -500,28 +512,36 @@ const (
 	forbidBoolean
 )
 
-// scrubForbiddenFields silently clears fields that are forbidden for
-// the given shape. LLMs persistently include cross-shape fields
-// (e.g. boolean{} on a list_of_symbols call) and cannot fix the
-// issue through retries. Logging the scrub for diagnostics but
-// accepting the call prevents infinite retry loops.
-func scrubForbiddenFields(p *emitAnswerDocumentParams, shape types.AnswerShape, mask forbidBitset) {
+// rejectForbiddenFields rejects the call when a payload field is
+// forbidden for the given shape AND carries non-zero content. Zero
+// value objects (already nil'd by the empty-struct sweep above the
+// shape switch) are silently tolerated — LLMs habitually include an
+// empty `value{}` or `boolean{}` as a JSON-default even on unrelated
+// shapes, and penalising that noise would reject every call.
+//
+// The earlier behaviour silently scrubbed non-zero forbidden fields
+// and logged a debug line, on the theory that LLMs "cannot fix the
+// issue through retries". In practice the silent scrub LET the LLM
+// keep the wrong field for three consecutive iterations (trace
+// 1776439797257469553: boolean{decision:"否",rationale:"..."} kept
+// on an explanation answer) because it never saw the feedback.
+// Failing loudly gives the LLM a structured error it can correct on
+// the next turn; the finalizer's soft-stop correction budget (see
+// agent_finalizer_max_correction_retries) bounds the retry loop.
+func rejectForbiddenFields(p *emitAnswerDocumentParams, shape types.AnswerShape, mask forbidBitset) error {
 	if mask&forbidSteps != 0 && len(p.Steps) > 0 {
-		logging.Debug("[emit_answer_document] scrubbing forbidden steps[] (len=%d) for shape=%s", len(p.Steps), shape)
-		p.Steps = nil
+		return fmt.Errorf("shape=%s forbids steps[]; remove the %d step(s) and retry", shape, len(p.Steps))
 	}
 	if mask&forbidSymbols != 0 && len(p.Symbols) > 0 {
-		logging.Debug("[emit_answer_document] scrubbing forbidden symbols[] (len=%d) for shape=%s", len(p.Symbols), shape)
-		p.Symbols = nil
+		return fmt.Errorf("shape=%s forbids symbols[]; remove the %d symbol(s) and retry", shape, len(p.Symbols))
 	}
 	if mask&forbidValue != 0 && p.Value != nil {
-		logging.Debug("[emit_answer_document] scrubbing forbidden value{} for shape=%s", shape)
-		p.Value = nil
+		return fmt.Errorf("shape=%s forbids value{}; remove the field and retry", shape)
 	}
 	if mask&forbidBoolean != 0 && p.Boolean != nil {
-		logging.Debug("[emit_answer_document] scrubbing forbidden boolean{} for shape=%s", shape)
-		p.Boolean = nil
+		return fmt.Errorf("shape=%s forbids boolean{}; remove the field and retry", shape)
 	}
+	return nil
 }
 
 func validateStep(s *types.AnswerStep, index int, numCites int) error {
