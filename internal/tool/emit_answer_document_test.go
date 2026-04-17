@@ -612,3 +612,55 @@ type docSymbol struct {
 	line int
 	end  int
 }
+
+// TestEmitAnswerDocument_Explanation_AcceptsAnchorSkeleton pins the
+// 2026-04-17 change: shape=explanation allows optional symbols[] as
+// an anchor skeleton for multi-topic answers. Each symbol carries a
+// file:line that the renderer draws beneath the summary prose. The
+// steps/value/boolean mutex is unchanged — those remain forbidden.
+func TestEmitAnswerDocument_Explanation_AcceptsAnchorSkeleton(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "explorer delegates work to SubExplorer via ProposeSubAgents.",
+		"symbols": []map[string]interface{}{
+			{"name": "ProposeSubAgents", "file": "internal/tool/propose_sub_agents.go", "line": 18, "kind": "type", "rationale": "sub-topic 1: proposal schema"},
+			{"name": "SubExplorer", "file": "internal/agent/sub_explorer.go", "line": 25, "kind": "type", "rationale": "sub-topic 2: execution path"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("explanation + symbols[] skeleton must succeed: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc.Shape != types.ShapeExplanation {
+		t.Errorf("shape must stay explanation, got %s", doc.Shape)
+	}
+	if len(doc.Symbols) != 2 {
+		t.Errorf("skeleton symbols must round-trip, got %d items", len(doc.Symbols))
+	}
+	// Completeness NOT required on this path — the slate is auxiliary.
+	if doc.SymbolsCompleteness != "" {
+		t.Errorf("explanation skeleton must leave SymbolsCompleteness zero, got %q", doc.SymbolsCompleteness)
+	}
+}
+
+// TestEmitAnswerDocument_Explanation_StillForbidsValue — steps / value
+// / boolean remain forbidden on explanation shape; only symbols[] is
+// newly allowed.
+func TestEmitAnswerDocument_Explanation_StillForbidsValue(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"value":   map[string]interface{}{"literal": "42", "citation_ref": -1},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Errorf("explanation with value{}: must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "forbids value") {
+		t.Errorf("rejection must name value: %q", res.Summary)
+	}
+}

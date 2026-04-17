@@ -999,3 +999,58 @@ func TestHasPendingHypotheses_SomePending_True(t *testing.T) {
 		t.Error("h2 has no verdict → must return true")
 	}
 }
+
+// TestExtractor_MultiTopicExplanationTriggersAnchorSkeleton pins the
+// 2026-04-17 change: shape=explanation with sub_topics ≥ 1 renders
+// an "Anchor skeleton" section in the extractor prompt naming each
+// sub-topic, and expects emit_answer_symbol as a required emit
+// (observable via the missing-symbols correction hint).
+func TestExtractor_MultiTopicExplanationTriggersAnchorSkeleton(t *testing.T) {
+	ir := &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			SubTopics: []types.SubTopic{
+				{Summary: "How explorer invokes sub-agents", Entities: []string{"explorer"}},
+				{Summary: "SubExplorer execution path", Entities: []string{"SubExplorer"}},
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"a.go"}})
+	ctx := &types.AgentContext{
+		AnalysisIR: ir,
+		Mutable:    mut,
+	}
+
+	e := &extractorEvaluator{}
+	prompt := e.BuildInitialInstruction(ctx, nil)
+	if !contains(prompt, "Anchor skeleton") {
+		t.Errorf("multi-topic explanation prompt must include Anchor skeleton section: %q", prompt)
+	}
+	if !contains(prompt, "How explorer invokes sub-agents") {
+		t.Errorf("prompt must list first sub-topic summary: %q", prompt)
+	}
+	if !contains(prompt, "SubExplorer execution path") {
+		t.Errorf("prompt must list second sub-topic summary: %q", prompt)
+	}
+
+	// isMultiTopicExplanation must also classify this as needing emit_answer_symbol.
+	if !isMultiTopicExplanation(ctx) {
+		t.Errorf("isMultiTopicExplanation must return true for shape=explanation + 2 sub_topics")
+	}
+}
+
+// TestExtractor_SingleTopicExplanationNoSkeleton — shape=explanation
+// without sub_topics is a single-topic question; the old "summary is
+// the answer" path applies and no skeleton is emitted.
+func TestExtractor_SingleTopicExplanationNoSkeleton(t *testing.T) {
+	ir := &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+	}
+	ctx := &types.AgentContext{AnalysisIR: ir, Mutable: types.NewMutableState("q")}
+	if isMultiTopicExplanation(ctx) {
+		t.Errorf("isMultiTopicExplanation must be false without sub_topics")
+	}
+}

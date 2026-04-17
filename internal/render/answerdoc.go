@@ -76,8 +76,15 @@ func RenderAnswerDocument(doc *types.AnswerDocument, lang string) string {
 	case types.ShapeBoolean:
 		renderAnswerDocBoolean(&b, doc, l)
 	case types.ShapeExplanation:
-		// Summary already rendered above; explanation shape has no
-		// further structural content beyond the citation pool.
+		// Summary already rendered above. 2026-04-17: explanation
+		// shape now optionally carries an anchor-symbol skeleton for
+		// multi-topic answers (one symbol per sub-topic). When
+		// present, render it as a Key Anchors block between the
+		// summary and the citation pool so the reader sees the
+		// load-bearing identifiers each topic hangs on.
+		if len(doc.Symbols) > 0 {
+			renderAnswerDocExplanationSkeleton(&b, doc, l)
+		}
 		renderAnswerDocCitationPool(&b, doc, l)
 	default:
 		// ShapeNone / empty / unknown: degrade gracefully to the
@@ -136,6 +143,35 @@ func renderAnswerDocListOfSymbols(b *strings.Builder, doc *types.AnswerDocument,
 	// footer by the caller. Symbols are listed directly after the
 	// summary so the answer reads cleanly.
 	_ = lang
+	for _, s := range doc.Symbols {
+		if s.File != "" && s.Line > 0 {
+			fmt.Fprintf(b, "- **%s** (`%s:%d`)", s.Name, s.File, s.Line)
+		} else if s.File != "" {
+			fmt.Fprintf(b, "- **%s** (`%s`)", s.Name, s.File)
+		} else {
+			fmt.Fprintf(b, "- **%s**", s.Name)
+		}
+		if r := strings.TrimSpace(s.Rationale); r != "" {
+			fmt.Fprintf(b, " — %s", r)
+		}
+		b.WriteString("\n")
+	}
+}
+
+// -------- Shape: explanation (anchor skeleton) --------
+
+// renderAnswerDocExplanationSkeleton renders the optional Key Anchors
+// block for multi-topic explanation answers. Each anchor is one
+// symbol + file:line + rationale, laid out bullet-style so the reader
+// can jump from the summary prose to the concrete code location.
+// Invoked only when doc.Symbols is non-empty on ShapeExplanation.
+func renderAnswerDocExplanationSkeleton(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
+	switch lang {
+	case answerDocLangZH:
+		b.WriteString("\n**关键锚点**：\n\n")
+	default:
+		b.WriteString("\n**Key anchors:**\n\n")
+	}
 	for _, s := range doc.Symbols {
 		if s.File != "" && s.Line > 0 {
 			fmt.Fprintf(b, "- **%s** (`%s:%d`)", s.Name, s.File, s.Line)

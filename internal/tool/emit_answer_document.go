@@ -158,7 +158,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     },
     "symbols": {
       "type": "array",
-      "description": "Answer-symbol list for shape=list_of_symbols. REQUIRED for list_of_symbols; must be empty for all other shapes.",
+      "description": "Answer-symbol list. REQUIRED for shape=list_of_symbols (the primary payload). OPTIONAL for shape=explanation when the analyzer produced sub_topics: emit ONE anchor symbol per sub-topic naming the load-bearing identifier, and the renderer will draw a Key Anchors skeleton beneath the summary. Must be empty for step_list / value / config_value / boolean.",
       "items": {
         "type": "object",
         "properties": {
@@ -469,8 +469,29 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Boolean = bl
 
 	case types.ShapeExplanation:
-		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue|forbidBoolean); err != nil {
+		// 2026-04-17: explanation shape allows symbols[] as an anchor
+		// skeleton for multi-topic answers. The extractor emits one
+		// answer_symbol per sub-topic naming the load-bearing
+		// identifier, and the renderer draws a Key Anchors block
+		// beneath the summary prose. symbols_completeness is NOT
+		// required in this mode — the skeleton is auxiliary, not the
+		// answer body. steps / value / boolean remain forbidden.
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
 			return failEmit(t.Name(), now, "%v", err)
+		}
+		if len(p.Symbols) > 0 {
+			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
+			for i, in := range p.Symbols {
+				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
+				if perr != nil {
+					return failEmit(t.Name(), now, "symbols[%d]: %v", i, perr)
+				}
+				built = append(built, sym)
+			}
+			doc.Symbols = built
+			// Completeness is not part of the explanation-skeleton
+			// contract; leave SymbolsCompleteness zero-valued so the
+			// renderer can branch on "skeleton vs. enumeration".
 		}
 		if strings.TrimSpace(p.Summary) == "" {
 			return failEmit(t.Name(), now, "shape=explanation requires a non-empty summary")

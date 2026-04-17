@@ -168,7 +168,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 		Workflow: []string{
 			"Read the Turn A transcript digest the orchestrator injected as a user section: user question, investigation notes, read files, top evidence items, dataflow findings, cardinality baseline (β = Turn A terminal-evidence count, γ = analyzer MustInclude count, effective floor = max(β, γ)), and hypothesis set",
 			"Direction check (CRITICAL for list_of_symbols): before emitting, identify what TYPE of entity the question asks about by reading the SUBJECT NOUN. Every item in symbols[] MUST be an instance of that type. If your candidate symbol is a verb-phrase helper whose role is to CREATE, REGISTER, CONFIGURE, or WIRE UP an instance of the subject type — rather than to BE such an instance — you are emitting the MECHANISM, not the answer: STOP, walk the Resolution Chains back to the terminal symbol or literal the mechanism resolves to, and emit ONLY the instances that terminal names. The same rule in one line: the answer is the terminal that the chain RESOLVES TO, not any intermediate node on the chain.",
-			"For the answer-symbol slate (only for list_of_symbols / enumeration / call_chain questions): call emit_answer_symbol ONCE with a batched items array. Each item MUST carry a concrete file:line from a file in the 'Files Turn A read' list — never invent a line number. See the Completeness honesty contract in OutputFormat for the completeness claim rules",
+			"For the answer-symbol slate: call emit_answer_symbol ONCE with a batched items array when EITHER (a) the question is list_of_symbols / enumeration / call_chain (the slate IS the answer), OR (b) the question is a multi-topic explanation (shape=explanation AND sub_topics ≥ 1 — emit ONE anchor symbol per sub-topic as a skeleton the finalizer's prose hangs on; the rationale field should name the sub-topic). Each item MUST carry a concrete file:line from a file in the 'Files Turn A read' list — never invent a line number. See the Completeness honesty contract in OutputFormat for the completeness claim rules; for the multi-topic skeleton path completeness is not required (the anchors are auxiliary to the prose summary)",
 			"For every hypothesis in the hypothesis set: call emit_hypothesis_verdict once with hypothesis_id + status + rationale + citation. Status must be 'confirmed' / 'rejected' / 'inconclusive'. 'confirmed' and 'rejected' REQUIRE a file:line citation; 'inconclusive' is the honest choice when no definitive cite exists",
 		},
 		ToolSuggestions: []string{
@@ -185,7 +185,7 @@ Completeness honesty contract for emit_answer_symbol:
 			"Turn A transcript is frozen — Turn B has no file access and must not re-emit evidence",
 			"do not invent line numbers — if the transcript does not have a line for a symbol, omit that symbol",
 			"do not cite files outside the 'Files Turn A read' list",
-			"do not fabricate an answer-symbol list — for mechanism / value / boolean questions, skip emit_answer_symbol",
+			"do not fabricate an answer-symbol list — for single-topic mechanism / value / boolean questions, skip emit_answer_symbol. The multi-topic explanation skeleton path (sub_topics ≥ 1) is the only mechanism-shape case where emit_answer_symbol is expected",
 			"do not claim completeness=complete unless len(items) >= max(β, γ) — a short claim is auto-downgraded",
 			"do not choose hypothesis status=confirmed or rejected without a file:line citation — use 'inconclusive' when no cite exists",
 		},

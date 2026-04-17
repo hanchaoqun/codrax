@@ -219,6 +219,35 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		b.WriteString("\n")
 	}
 
+	// -------- Multi-topic explanation skeleton guide --------
+	// Render the per-dispatch sub-topic list ONLY when the analyzer
+	// resolved shape=explanation AND populated sub_topics. This is
+	// the trigger for the "emit one anchor symbol per sub-topic"
+	// mode documented in the extract-skill workflow; showing the
+	// topic list here tells the LLM exactly how many anchors to
+	// emit and what each anchor is for.
+	if isMultiTopicExplanation(ctx) {
+		st := ctx.AnalysisIR.RequestModel.SubTopics
+		b.WriteString("## Anchor skeleton (one per sub-topic)\n\n")
+		fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
+		b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
+		b.WriteString("identifier that the finalizer's multi-paragraph summary will hang on. Each ")
+		b.WriteString("anchor needs a concrete file:line from the 'Files Turn A read' list above; ")
+		b.WriteString("use the rationale field to name the sub-topic the anchor covers.\n\n")
+		for i, topic := range st {
+			summary := strings.TrimSpace(topic.Summary)
+			if summary == "" {
+				summary = "(no summary)"
+			}
+			fmt.Fprintf(&b, "%d. %s", i+1, summary)
+			if len(topic.Entities) > 0 {
+				fmt.Fprintf(&b, " — entities: %s", strings.Join(topic.Entities, ", "))
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
 	// -------- Hypothesis set --------
 	if ctx != nil && ctx.AnalysisIR != nil && len(ctx.AnalysisIR.HypothesisSet) > 0 {
 		b.WriteString("## Hypotheses (emit a verdict for each)\n\n")
@@ -466,7 +495,7 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 				gotVerdicts = true
 			}
 		}
-		needSymbols := isListOfSymbolsShape(ctx)
+		needSymbols := isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx)
 		needVerdicts := hasPendingHypotheses(ctx)
 		if (!needSymbols || gotSymbols) && (!needVerdicts || gotVerdicts) {
 			return LoopSignal{StopRequested: true, StopReason: "extractor emit batch complete"}
@@ -488,7 +517,7 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		return LoopSignal{}
 	}
 	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
-	missingSymbols := isListOfSymbolsShape(ctx) && len(syms) == 0
+	missingSymbols := (isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx)) && len(syms) == 0
 	missingVerdicts := hasPendingHypotheses(ctx)
 	if !missingSymbols && !missingVerdicts {
 		return LoopSignal{}
@@ -500,8 +529,14 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 	e.retriesUsed++
 	var missingParts []string
 	if missingSymbols {
-		missingParts = append(missingParts,
-			"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files Turn A read' list)")
+		switch {
+		case isListOfSymbolsShape(ctx):
+			missingParts = append(missingParts,
+				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files Turn A read' list)")
+		case isMultiTopicExplanation(ctx):
+			missingParts = append(missingParts,
+				"call `emit_answer_symbol` with ONE anchor symbol per sub-topic — the load-bearing identifier the finalizer's prose should hang on. Cite each with a concrete file:line from the 'Files Turn A read' list. The finalizer renders these as a Key Anchors skeleton beneath the summary")
+		}
 	}
 	if missingVerdicts {
 		missingParts = append(missingParts,
@@ -545,6 +580,34 @@ func isListOfSymbolsShape(ctx *types.AgentContext) bool {
 		return false
 	}
 	return ctx.AnalysisIR.AnswerContract.RequiredAnswerShape == types.ShapeListOfSymbols
+}
+
+// isMultiTopicExplanation reports whether the analyzer produced a
+// multi-topic explanation — the shape that trace 1776439797257469553
+// exposed as the extractor's worst failure mode. Analyzer sets
+// shape=explanation and populates RequestModel.SubTopics; the old
+// extractor treated this as "no expected emit" (not
+// list_of_symbols, auto-verdicted hypotheses) and returned nothing
+// structured. The finalizer then had only Turn A's raw evidence
+// stream to work from and frequently invented/copied prose.
+//
+// The fix: require ONE anchor symbol per sub-topic as a skeleton
+// the finalizer's summary hangs on. Each anchor carries a concrete
+// file:line that pins the sub-topic's load-bearing identifier
+// (e.g. {ProposeSubAgents @ propose_sub_agents.go:N} for a
+// sub-topic about sub-agent proposal). The finalizer renders them
+// as a Key Anchors skeleton beneath the multi-paragraph summary.
+//
+// Threshold: SubTopics > 0. Single-topic explanation keeps the old
+// path — the summary IS the answer and doesn't need a skeleton.
+func isMultiTopicExplanation(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	if ctx.AnalysisIR.AnswerContract.RequiredAnswerShape != types.ShapeExplanation {
+		return false
+	}
+	return len(ctx.AnalysisIR.RequestModel.SubTopics) > 0
 }
 
 // hasPendingHypotheses reports whether the analyzer posed hypotheses

@@ -212,6 +212,53 @@ func TestRenderAnswerDocument_Explanation_WithPool(t *testing.T) {
 	}
 }
 
+// TestRenderAnswerDocument_Explanation_WithSkeleton pins the 2026-04-17
+// change: shape=explanation with non-empty symbols[] renders a Key
+// Anchors block between the summary prose and the citation pool.
+// English and Chinese variants both get the section header.
+func TestRenderAnswerDocument_Explanation_WithSkeleton(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeExplanation,
+		Summary: "Explorer dispatches work to SubExplorer via ProposeSubAgents.",
+		Symbols: []types.AnswerSymbol{
+			{Name: "ProposeSubAgents", File: "internal/tool/propose_sub_agents.go", Line: 18, Rationale: "sub-topic 1: proposal schema"},
+			{Name: "SubExplorer", File: "internal/agent/sub_explorer.go", Line: 25, Rationale: "sub-topic 2: execution path"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Key anchors:") {
+		t.Errorf("English skeleton header missing: %q", out)
+	}
+	if !strings.Contains(out, "ProposeSubAgents") || !strings.Contains(out, "propose_sub_agents.go:18") {
+		t.Errorf("first anchor missing: %q", out)
+	}
+	if !strings.Contains(out, "SubExplorer") || !strings.Contains(out, "sub_explorer.go:25") {
+		t.Errorf("second anchor missing: %q", out)
+	}
+	if !strings.Contains(out, "sub-topic 1") || !strings.Contains(out, "sub-topic 2") {
+		t.Errorf("rationale rendered: %q", out)
+	}
+
+	outZH := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(outZH, "关键锚点") {
+		t.Errorf("Chinese skeleton header missing: %q", outZH)
+	}
+}
+
+// TestRenderAnswerDocument_Explanation_NoSkeletonWhenEmpty locks the
+// backwards-compatible path: explanation without symbols[] renders
+// as before — no spurious Key Anchors block.
+func TestRenderAnswerDocument_Explanation_NoSkeletonWhenEmpty(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeExplanation,
+		Summary: "single-topic answer.",
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Contains(out, "Key anchors") {
+		t.Errorf("empty symbols[] must not render anchor block: %q", out)
+	}
+}
+
 // -------- caveats + edge cases --------
 
 func TestRenderAnswerDocument_Caveats_Appended(t *testing.T) {

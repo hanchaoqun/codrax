@@ -137,6 +137,35 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 			fmt.Fprintf(&b, "%d. %s\n", i+1, st.Summary)
 		}
 		b.WriteString("\nProvide citations for each section.\n\n")
+
+		// Anchor skeleton: when the extractor produced a per-topic
+		// anchor slate (answer-symbols emitted during Turn B with
+		// shape=explanation + sub_topics ≥ 1), echo those anchors
+		// in the finalizer prompt so the LLM re-emits them as the
+		// symbols[] payload. The renderer draws a Key Anchors block
+		// beneath the summary when symbols[] is non-empty on
+		// explanation shape. This pins the load-bearing identifiers
+		// in the rendered output and stops the finalizer from
+		// synthesizing prose that drifts from Turn A's evidence.
+		if shape == string(types.ShapeExplanation) && len(ctx.AnswerSymbols) > 0 {
+			b.WriteString("### Anchor skeleton (emit as symbols[])\n\n")
+			b.WriteString("The extractor produced these per-sub-topic anchors. " +
+				"Re-emit them verbatim in the `symbols[]` field of emit_answer_document " +
+				"so the renderer can show them as a Key Anchors block beneath your prose. " +
+				"Each anchor's file:line is authoritative — do not modify.\n\n")
+			for _, s := range ctx.AnswerSymbols {
+				if s.File != "" && s.Line > 0 {
+					fmt.Fprintf(&b, "- %s (%s:%d)", s.Name, s.File, s.Line)
+				} else {
+					fmt.Fprintf(&b, "- %s", s.Name)
+				}
+				if r := strings.TrimSpace(s.Rationale); r != "" {
+					fmt.Fprintf(&b, " — %s", r)
+				}
+				b.WriteString("\n")
+			}
+			b.WriteString("\n")
+		}
 	}
 
 	return b.String()
