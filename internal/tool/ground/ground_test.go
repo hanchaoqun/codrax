@@ -304,6 +304,89 @@ func TestGroundCitation_GraphFallbackAcceptsAnyLineInIndexedFile(t *testing.T) {
 	}
 }
 
+// TestRecoveryR3_PackageSymbolGatedByAnchorKind pins the bug fix
+// where an AnchorKind=condition item citing an if-statement call site
+// (agent.go:900 "if _, err := b.deps.SubAgents.Get(...) {") was being
+// cross-file rewritten to registry.go:30 (the Registry.Get method
+// definition) because both carry a "Get" symbol. Only definition and
+// import anchors have cross-file package-wide semantics; every other
+// kind is file-local and must NOT trigger R3's Source rewrite.
+func TestRecoveryR3_PackageSymbolGatedByAnchorKind(t *testing.T) {
+	// A repo where `Get` is defined in registry.go (line 30) but the
+	// LLM cites a call site in agent.go (line 900) inside a condition.
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/agent/agent.go": {
+				RelPath: "internal/agent/agent.go",
+				Package: "agent",
+			},
+			"internal/agent/registry.go": {
+				RelPath: "internal/agent/registry.go",
+				Package: "agent",
+				Symbols: []repomap.Symbol{
+					{Name: "Get", Kind: "method", Line: 30},
+				},
+			},
+		},
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"Get": {{Name: "Get", File: "internal/agent/registry.go", Line: 30}},
+		},
+	}
+
+	// Condition anchor — file-local semantic. R3 must NOT fire.
+	condItem := &types.EvidenceItem{
+		Kind:         types.EvidenceConditional,
+		Source:       "internal/agent/agent.go",
+		LineStart:    900,
+		AnchorKind:   types.AnchorCondition,
+		AnchorSymbol: "SubAgents.Get",
+	}
+	if newSource, newLine, ok := recoverPackageSymbol(condItem, &Context{Graph: graph}); ok {
+		t.Errorf("condition anchor MUST NOT trigger R3 (got rewrite to %s:%d)", newSource, newLine)
+	}
+
+	// Call anchor — also file-local. R3 must NOT fire (R4 handles it).
+	callItem := &types.EvidenceItem{
+		Kind:         types.EvidenceRelationship,
+		Source:       "internal/agent/agent.go",
+		LineStart:    900,
+		AnchorKind:   types.AnchorCall,
+		AnchorSymbol: "SubAgents.Get",
+	}
+	if newSource, newLine, ok := recoverPackageSymbol(callItem, &Context{Graph: graph}); ok {
+		t.Errorf("call anchor MUST NOT trigger R3 (got rewrite to %s:%d)", newSource, newLine)
+	}
+
+	// Definition anchor on a file lacking the symbol — R3 MUST fire
+	// (this is the legitimate "pasted neighbour file" case).
+	defItem := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/agent/agent.go",
+		LineStart:    1,
+		AnchorKind:   types.AnchorDefinition,
+		AnchorSymbol: "Get",
+	}
+	newSource, newLine, ok := recoverPackageSymbol(defItem, &Context{Graph: graph})
+	if !ok {
+		t.Fatalf("definition anchor with no same-file match MUST trigger R3")
+	}
+	if newSource != "internal/agent/registry.go" || newLine != 30 {
+		t.Errorf("R3 rewrite wrong: got %s:%d, want registry.go:30", newSource, newLine)
+	}
+
+	// Empty AnchorKind (legacy item) — R3 must NOT fire because we
+	// cannot tell whether the original anchor was a definition.
+	legacyItem := &types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Source:       "internal/agent/agent.go",
+		LineStart:    900,
+		AnchorSymbol: "Get",
+	}
+	if newSource, newLine, ok := recoverPackageSymbol(legacyItem, &Context{Graph: graph}); ok {
+		t.Errorf("empty AnchorKind MUST NOT trigger R3 (got rewrite to %s:%d)", newSource, newLine)
+	}
+}
+
 // TestGroundCitation_EmptyContextSkipsGrounding locks the unit-test
 // backdoor: when the context carries no ground-truth sources, the
 // grounder returns Valid=true without looking. Required so tests

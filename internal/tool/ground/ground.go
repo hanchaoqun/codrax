@@ -423,13 +423,33 @@ func recoverSnippetFuzzy(it *types.EvidenceItem, gc *Context) (string, int, bool
 
 // ── Recovery R3: package_symbol ──────────────────────────────────────
 //
-// The AnchorSymbol resolves in the graph but in a DIFFERENT file that
-// belongs to the same package (Go) or same top-level directory (other
-// languages). Rewrites Source + LineStart. Useful when the LLM names
-// a symbol correctly but pasted the wrong file path (e.g. cited
-// explorer.go when the symbol lives in sub_explorer.go).
+// Only fires for definition and import anchors. For those kinds the
+// AnchorSymbol *is* a cross-file semantic locator: "this symbol's
+// declaration is in file X" is a well-posed question, and when the
+// LLM pastes a neighbouring file by mistake (e.g. cited
+// explorer.go when the type is defined in sub_explorer.go) R3 can
+// repair it.
+//
+// Call / condition / return / assignment / unspecified anchors are
+// file-local events — the call site lives where the LLM said it
+// does, even when a same-named definition exists in another file.
+// The old unguarded implementation rewrote agent.go:900 (an
+// `if _, err := b.deps.SubAgents.Get(...); err == nil {` condition)
+// to registry.go:30 (the SubAgentRegistry.Get method definition)
+// because both carry a `Get` symbol — a textbook same-name drift.
+// The guard shuts the door on that entire class.
 func recoverPackageSymbol(it *types.EvidenceItem, gc *Context) (string, int, bool) {
 	if gc == nil || gc.Graph == nil {
+		return "", 0, false
+	}
+	// Gate on AnchorKind: cross-file package lookup is only
+	// meaningful for definition-sited anchors. Empty AnchorKind
+	// (legacy pre-redesign items) is also gated out because we
+	// cannot tell whether the item is a definition or a call site.
+	switch it.AnchorKind {
+	case types.AnchorDefinition, types.AnchorImport:
+		// ok, continue.
+	default:
 		return "", 0, false
 	}
 	name := preferredSymbolName(it)
