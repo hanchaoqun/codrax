@@ -1146,47 +1146,19 @@ func extractRankingEntitiesWithGraph(question string, graph *repomap.Graph) []st
 		entities = append(entities, lowered)
 	}
 
-	// Backtick-quoted identifiers.
-	rest := question
-	for {
-		start := strings.Index(rest, "`")
-		if start < 0 {
-			break
-		}
-		end := strings.Index(rest[start+1:], "`")
-		if end < 0 {
-			break
-		}
-		add(rest[start+1 : start+1+end])
-		rest = rest[start+1+end+1:]
-	}
-
-	// All runs of [A-Za-z0-9_.] ≥ 4 chars — captures both CamelCase
-	// and lowercase identifiers like "agent", "subagent".
-	inIdent := false
-	identStart := 0
-	for i := 0; i <= len(question); i++ {
-		var c byte
-		if i < len(question) {
-			c = question[i]
-		}
-		isIdent := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '.'
-		if isIdent && !inIdent {
-			identStart = i
-			inIdent = true
-		} else if !isIdent && inIdent {
-			token := question[identStart:i]
-			add(token)
-			// Also add dotted parts: "Foo.Bar" → "Foo", "Bar"
-			if strings.Contains(token, ".") {
-				for _, part := range strings.Split(token, ".") {
-					add(part)
-				}
+	// Both sources (backtick + run) go through the same add() — the
+	// policy lives entirely in entityQualifies + the trim set. The
+	// one source-specific rule is that dotted run tokens get split
+	// into parts ("Foo.Bar" → "Foo", "Bar") so the ranking can score
+	// individual tokens as well as the qualified form.
+	scanQuestionTokens(question, func(tok string, src tokenSource) {
+		add(tok)
+		if src == tokenRun && strings.Contains(tok, ".") {
+			for _, part := range strings.Split(tok, ".") {
+				add(part)
 			}
-			inIdent = false
 		}
-	}
+	})
 	return entities
 }
 

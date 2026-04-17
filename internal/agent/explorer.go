@@ -4838,56 +4838,34 @@ func extractQuestionEntities(question string) []string {
 		entities = append(entities, s)
 	}
 
-	// 1. Backtick-quoted identifiers: `MyClass.doThing`
-	rest := question
-	for {
-		start := strings.Index(rest, "`")
-		if start < 0 {
-			break
-		}
-		end := strings.Index(rest[start+1:], "`")
-		if end < 0 {
-			break
-		}
-		sym := rest[start+1 : start+1+end]
-		add(sym)
-		rest = rest[start+1+end+1:]
-	}
-
-	// 2. CamelCase identifiers (2+ uppercase-initial segments): SubAgent, BaseAgent
-	inIdent := false
-	identStart := 0
-	for i := 0; i <= len(question); i++ {
-		var c byte
-		if i < len(question) {
-			c = question[i]
-		}
-		isIdent := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '.'
-		if isIdent && !inIdent {
-			identStart = i
-			inIdent = true
-		} else if !isIdent && inIdent {
-			token := question[identStart:i]
-			// Count uppercase-initial segments (CamelCase detection).
+	scanQuestionTokens(question, func(tok string, src tokenSource) {
+		switch src {
+		case tokenBacktick:
+			// Backtick-delimited tokens are explicit identifiers —
+			// admit subject only to the trim/length/dedup gate.
+			add(tok)
+		case tokenRun:
+			// Unquoted run — shape-gate it. Admit when CamelCase
+			// (2+ upper-initial segments AND len ≥ 6) OR dotted
+			// (contains '.' AND len ≥ 5). This is the split against
+			// extractRankingEntitiesWithGraph, which admits all runs
+			// subject to its own entityQualifies filter.
 			segments := 0
-			for j := 0; j < len(token); j++ {
-				if token[j] >= 'A' && token[j] <= 'Z' {
-					if j == 0 || (token[j-1] >= 'a' && token[j-1] <= 'z') {
+			for j := 0; j < len(tok); j++ {
+				if tok[j] >= 'A' && tok[j] <= 'Z' {
+					if j == 0 || (tok[j-1] >= 'a' && tok[j-1] <= 'z') {
 						segments++
 					}
 				}
 			}
-			if segments >= 2 && len(token) >= 6 {
-				add(token)
+			if segments >= 2 && len(tok) >= 6 {
+				add(tok)
 			}
-			// Dotted identifiers: Foo.Bar
-			if strings.Contains(token, ".") && len(token) >= 5 {
-				add(token)
+			if strings.Contains(tok, ".") && len(tok) >= 5 {
+				add(tok)
 			}
-			inIdent = false
 		}
-	}
+	})
 	return entities
 }
 
