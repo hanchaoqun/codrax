@@ -81,7 +81,7 @@ func (s *SubExplorer) Name() string {
 		"sub_explorer.go": subExplorer,
 	}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	if len(got) == 0 {
 		t.Fatalf("expected at least one bridge chain, got 0")
 	}
@@ -157,7 +157,7 @@ func (p *PhantomThing) Name() string { return "phantom" }
 		"phantom.go": phantom,
 	}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	foundReal := false
 	for _, it := range got {
 		if strings.Contains(it.Summary, "PhantomThing") {
@@ -200,7 +200,7 @@ func (o *Opaque) Do() {}
 	}
 	contents := map[string]string{"reg.go": reg, "opaque.go": opaque}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	if len(got) != 0 {
 		t.Fatalf("expected no bridge chain (no identity method on Opaque); got: %+v", got)
 	}
@@ -224,7 +224,7 @@ func (l *Lone) Name() string { return "lonely" }
 	}
 	contents := map[string]string{"lone.go": lone}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	if len(got) != 0 {
 		t.Fatalf("expected no bridge chain (no register caller); got: %+v", got)
 	}
@@ -272,7 +272,7 @@ func (b *Beta) Key() string { return "beta-key" }
 	}
 	contents := map[string]string{"reg.go": reg, "alpha.go": alpha, "beta.go": beta}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	if len(got) < 2 {
 		t.Fatalf("expected ≥2 chains (alpha, beta); got %d: %+v", len(got), got)
 	}
@@ -319,7 +319,7 @@ class UserHandler:
 		"handler.py":  handler,
 	}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	found := false
 	for _, it := range got {
 		if strings.Contains(it.Summary, "UserHandler") && strings.Contains(it.Summary, `"user"`) &&
@@ -362,7 +362,7 @@ public class UserController {
 	}
 	contents := map[string]string{"Config.java": config, "UserController.java": controller}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	found := false
 	for _, it := range got {
 		if strings.Contains(it.Summary, "UserController") && strings.Contains(it.Summary, `"users"`) {
@@ -407,7 +407,7 @@ impl Handler {
 	}
 	contents := map[string]string{"registry.rs": registry, "handler.rs": handler}
 	graph, root := buildFakeGraph(t, files, contents)
-	got := extractBridgeLiteralChains(graph, root)
+	got := extractBridgeLiteralChains(graph, root, nil)
 	found := false
 	for _, it := range got {
 		if strings.Contains(it.Summary, "Handler") && strings.Contains(it.Summary, `"rust-handler"`) {
@@ -444,6 +444,215 @@ func TestParseTargetClassFromBinding(t *testing.T) {
 		got := parseTargetClassFromBinding(c.in)
 		if got != c.want {
 			t.Errorf("parseTargetClassFromBinding(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestExtractBridgeLiteralChains_ConsumerGateJoin validates Pass D:
+// a consumer concrete_value whose Object shows <Field>.Get(<key>) is
+// joined with the producer binding+identity chain when the field
+// name shares a stem with the binding function name. This is the
+// join that answers questions like "how many agents can call
+// subagent" — the consumer (buildToolSchemas gate) plus the
+// registry population chain (RegisterDefaultSubAgents binds
+// NewSubExplorer, Name()="explorer") together imply "only the agent
+// named 'explorer' passes the gate → 1 agent".
+func TestExtractBridgeLiteralChains_ConsumerGateJoin(t *testing.T) {
+	// Producer-side: RegisterDefaultSubAgents populates a registry.
+	subagent := `package agent
+
+func RegisterDefaultSubAgents(r *SubAgentRegistry, deps *Dependencies) {
+	r.Register(NewSubExplorer(deps))
+}
+`
+	subExplorer := `package agent
+
+type SubExplorer struct{ base *BaseAgent }
+
+func NewSubExplorer(deps *Dependencies) *SubExplorer {
+	return &SubExplorer{base: nil}
+}
+
+func (s *SubExplorer) Name() string {
+	return "explorer"
+}
+`
+	files := map[string][]repomap.Symbol{
+		"subagent.go": {
+			{Name: "RegisterDefaultSubAgents", Kind: "function", File: "subagent.go", Line: 3, EndLine: 5},
+		},
+		"sub_explorer.go": {
+			{Name: "SubExplorer", Kind: "type", File: "sub_explorer.go", Line: 3, EndLine: 3},
+			{Name: "NewSubExplorer", Kind: "function", File: "sub_explorer.go", Line: 5, EndLine: 7},
+			{Name: "Name", Kind: "method", File: "sub_explorer.go", Line: 9, EndLine: 11, Receiver: "SubExplorer"},
+		},
+	}
+	contents := map[string]string{
+		"subagent.go":     subagent,
+		"sub_explorer.go": subExplorer,
+	}
+	graph, root := buildFakeGraph(t, files, contents)
+
+	// Consumer-side: BaseAgent.buildToolSchemas has an assignment
+	// concrete_value that gates on SubAgents.Get(name).
+	consumerValues := []concreteValue{
+		{
+			file:   "internal/agent/agent.go",
+			method: "BaseAgent.buildToolSchemas",
+			kind:   "assigns",
+			value:  `err := b.deps.SubAgents.Get(string(b.name)); err == nil {`,
+			line:   901,
+		},
+	}
+
+	got := extractBridgeLiteralChains(graph, root, consumerValues)
+
+	// Pass C should still produce the bridge chain.
+	foundBridge, foundConsumerGate := false, false
+	for _, it := range got {
+		switch it.Producer {
+		case "bridge_literal":
+			if strings.Contains(it.Summary, "RegisterDefaultSubAgents") &&
+				strings.Contains(it.Summary, `"explorer"`) {
+				foundBridge = true
+			}
+		case "consumer_gate":
+			if !strings.Contains(it.Summary, "BaseAgent.buildToolSchemas") {
+				t.Errorf("consumer_gate chain missing consumer subject: %s", it.Summary)
+			}
+			if !strings.Contains(it.Summary, "gates on SubAgents.Get") {
+				t.Errorf("consumer_gate chain missing gate clause: %s", it.Summary)
+			}
+			if !strings.Contains(it.Summary, "RegisterDefaultSubAgents") {
+				t.Errorf("consumer_gate chain missing producer name: %s", it.Summary)
+			}
+			if !strings.Contains(it.Summary, `"explorer"`) {
+				t.Errorf("consumer_gate chain missing identity literal: %s", it.Summary)
+			}
+			if it.Source != "internal/agent/agent.go" || it.LineStart != 901 {
+				t.Errorf("consumer_gate chain source/line wrong: %s:%d", it.Source, it.LineStart)
+			}
+			foundConsumerGate = true
+		}
+	}
+	if !foundBridge {
+		t.Errorf("Pass C bridge_literal chain missing; got: %+v", got)
+	}
+	if !foundConsumerGate {
+		t.Fatalf("Pass D consumer_gate chain missing; got: %+v", got)
+	}
+}
+
+// TestExtractBridgeLiteralChains_ConsumerGate_StemGate guards against
+// over-eager joining when the consumer's field stem is too generic
+// or its first letter is lowercase. Also verifies that non-assign
+// concrete values are ignored even if their text contains .Get(.
+func TestExtractBridgeLiteralChains_ConsumerGate_StemGate(t *testing.T) {
+	// A realistic bridge: RegisterPlugins binds NewAnalyzer,
+	// Analyzer.Name()="analyzer".
+	reg := `package agent
+
+func RegisterPlugins(r *PluginRegistry, deps *Dependencies) {
+	r.Register(NewAnalyzer(deps))
+}
+`
+	analyzer := `package agent
+
+type Analyzer struct{}
+
+func NewAnalyzer(deps *Dependencies) *Analyzer { return &Analyzer{} }
+
+func (a *Analyzer) Name() string { return "analyzer" }
+`
+	files := map[string][]repomap.Symbol{
+		"reg.go": {
+			{Name: "RegisterPlugins", Kind: "function", File: "reg.go", Line: 3, EndLine: 5},
+		},
+		"analyzer.go": {
+			{Name: "Analyzer", Kind: "type", File: "analyzer.go", Line: 3, EndLine: 3},
+			{Name: "NewAnalyzer", Kind: "function", File: "analyzer.go", Line: 5, EndLine: 5},
+			{Name: "Name", Kind: "method", File: "analyzer.go", Line: 7, EndLine: 7, Receiver: "Analyzer"},
+		},
+	}
+	contents := map[string]string{"reg.go": reg, "analyzer.go": analyzer}
+	graph, root := buildFakeGraph(t, files, contents)
+
+	consumerValues := []concreteValue{
+		// Too-short stem after singularization: "Tool" → len=4, rejected.
+		{file: "x.go", method: "X.A", kind: "assigns",
+			value: `err := b.Tools.Get("propose_sub_agents"); err == nil {`, line: 10},
+		// Lowercase field (`deps.plugins`) — not a capitalised identifier
+		// in the position expected for registry-typed fields.
+		{file: "y.go", method: "Y.B", kind: "assigns",
+			value: `err := deps.plugins.Get("x"); err == nil {`, line: 11},
+		// Non-assign kind — even if text contains .Get(, ignored.
+		{file: "z.go", method: "Z.C", kind: "returns",
+			value: `b.Plugins.Get("x")`, line: 12},
+		// Valid case: Plugins stem "Plugin" is ≥5 chars, substring of
+		// "RegisterPlugins" → join succeeds.
+		{file: "valid.go", method: "Valid.D", kind: "assigns",
+			value: `err := b.deps.Plugins.Get(id); err == nil {`, line: 42},
+	}
+
+	got := extractBridgeLiteralChains(graph, root, consumerValues)
+
+	consumerGateCount := 0
+	validFound := false
+	for _, it := range got {
+		if it.Producer != "consumer_gate" {
+			continue
+		}
+		consumerGateCount++
+		if it.Source == "valid.go" && it.LineStart == 42 {
+			validFound = true
+		}
+	}
+	if !validFound {
+		t.Errorf("expected valid-case consumer_gate chain to fire; got: %+v", got)
+	}
+	if consumerGateCount != 1 {
+		t.Errorf("want exactly 1 consumer_gate (the valid case), got %d", consumerGateCount)
+	}
+}
+
+// TestParseConsumerGateField exercises the parser across shapes.
+func TestParseConsumerGateField(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"canonical deps chain", `err := b.deps.SubAgents.Get(string(b.name)); err == nil {`, "SubAgents"},
+		{"simple field", `err := registry.Plugins.Get(id); err == nil {`, "Plugins"},
+		{"two-arg Get", `ok := store.Handlers.Get(key, ver); ok {`, "Handlers"},
+		{"lowercase — reject (not registry-style)", `x := list.get(i)`, ""},
+		{"no Get pattern", `y := foo.Bar()`, ""},
+		{"Get without dot prefix", `val := Get("x")`, ""},
+		{"identifier touching Get", `err := SubAgents.Get(name)`, "SubAgents"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseConsumerGateField(c.in)
+			if got != c.want {
+				t.Errorf("parseConsumerGateField(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// TestSingularize covers the plural-stripping heuristic.
+func TestSingularize(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"SubAgents", "SubAgent"},
+		{"Handlers", "Handler"},
+		{"Agent", "Agent"},   // already singular
+		{"s", "s"},           // too short to strip
+		{"", ""},             // empty
+		{"Kubernetes", "Kubernete"}, // Over-applies — known limitation
+	}
+	for _, c := range cases {
+		if got := singularize(c.in); got != c.want {
+			t.Errorf("singularize(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
 }

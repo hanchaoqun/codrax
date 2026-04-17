@@ -2436,14 +2436,6 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	graph := e.searchResult.Graph
 	notesJoined := strings.Join(e.investigationNotes, "\n")
 
-	type concreteValue struct {
-		file     string
-		receiver string
-		method   string // qualified: Receiver.Name or Name
-		kind     string // "returns", "binds ONLY", etc.
-		value    string
-		line     int
-	}
 	var allValues []concreteValue
 
 	// Build the set of files to scan: all scored files + all read files +
@@ -3205,7 +3197,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// to the per-file extractConcreteValues + multi-pass tracer above,
 	// this pass is graph-wide and bounded by symbol-name matching.
 	// See memory/project_baseline_2026_04_13_post_phase4.md.
-	bridgeItems := extractBridgeLiteralChains(graph, repoRoot)
+	bridgeItems := extractBridgeLiteralChains(graph, repoRoot, allRelevantForEvidence)
 	if len(bridgeItems) > 0 {
 		logging.Debug("[explorer] bridge literal chains: %d items", len(bridgeItems))
 		cvEvidence = append(cvEvidence, bridgeItems...)
@@ -3535,6 +3527,20 @@ func extractDecisionBlocks(lines []string, funcStart, funcEnd int) []decisionBlo
 }
 
 // concreteValueEntry holds a single extracted concrete value from source code.
+// concreteValue is a single programmatically-extracted fact from a
+// source file. Promoted to package scope 2026-04-17 so
+// extractBridgeLiteralChains can accept a []concreteValue argument
+// for Pass D consumer-gate join. Previously declared inside
+// buildConcreteValuesSection.
+type concreteValue struct {
+	file     string
+	receiver string
+	method   string // qualified: Receiver.Name or Name
+	kind     string // "returns", "binds ONLY", "assigns", etc.
+	value    string
+	line     int
+}
+
 type concreteValueEntry struct {
 	kind  string // "returns", "binds ONLY", "binds"
 	value string // the concrete value
@@ -3561,10 +3567,23 @@ type concreteValueEntry struct {
 // pair whose target class matches the identity receiver, emit a
 // `resolution_chain` EvidenceItem with Producer="bridge_literal".
 //
+// Pass D — Consumer-gate join: for each consumer concrete_value
+// (assignment whose Object contains <Field>.Get(<key>) against a
+// registry-like identifier), locate a producer binding whose fnQual
+// shares a stem with <Field>, and emit a joined chain that names
+// the gate, the registry population, and the terminal identity
+// literal. This closes the cross-file loop for questions that
+// require joining a caller-side gate with a registry population
+// chain (e.g. "how many agents can call subagent" = which agents
+// pass buildToolSchemas's SubAgents.Get gate, which is satisfied
+// only by agents whose Name matches a registered SubAgent name;
+// only NewSubExplorer is registered, Name()="explorer" — therefore
+// only the explorer agent). Producer="consumer_gate".
+//
 // Cost is bounded by graph symbol count + body size per matching
 // function. On codrax-scale repos this is a few hundred short body
 // reads, sub-millisecond total.
-func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string) []types.EvidenceItem {
+func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerValues []concreteValue) []types.EvidenceItem {
 	if graph == nil {
 		return nil
 	}
@@ -3730,46 +3749,163 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string) []types.E
 		}
 	}
 
-	// Pass C — Join on class identifier.
-	if len(bindings) == 0 || len(identities) == 0 {
-		return nil
-	}
 	idByClass := make(map[string][]identity, len(identities))
 	for _, id := range identities {
 		idByClass[id.class] = append(idByClass[id.class], id)
 	}
 	var items []types.EvidenceItem
 	seen := make(map[string]bool)
-	for _, b := range bindings {
-		ids := idByClass[b.targetClass]
-		if len(ids) == 0 {
-			continue
-		}
-		for _, id := range ids {
-			summary := fmt.Sprintf(
-				"`%s()` binds ONLY New%s(...) → `%s.%s()` returns %q",
-				b.fnQual, b.targetClass, b.targetClass, id.method, id.literal)
-			if seen[summary] {
+
+	// Pass C — Join on class identifier (existing bridge_literal chains).
+	// Requires BOTH bindings AND identities; skips silently if either
+	// is empty so Pass D can still fire on bindings alone.
+	if len(bindings) > 0 && len(identities) > 0 {
+		for _, b := range bindings {
+			ids := idByClass[b.targetClass]
+			if len(ids) == 0 {
 				continue
 			}
-			seen[summary] = true
-			items = append(items, types.EvidenceItem{
-				ID: types.StableEvidenceID(
-					types.EvidenceDataflowPath, summary, "resolution_chain",
-					"", "", b.file, b.line, b.line),
-				Kind:       types.EvidenceDataflowPath,
-				Subject:    summary,
-				Predicate:  "resolution_chain",
-				Summary:    summary,
-				Source:     b.file,
-				LineStart:  b.line,
-				LineEnd:    b.line,
-				Confidence: 0.9,
-				Producer:   "bridge_literal",
-			})
+			for _, id := range ids {
+				summary := fmt.Sprintf(
+					"`%s()` binds ONLY New%s(...) → `%s.%s()` returns %q",
+					b.fnQual, b.targetClass, b.targetClass, id.method, id.literal)
+				if seen[summary] {
+					continue
+				}
+				seen[summary] = true
+				items = append(items, types.EvidenceItem{
+					ID: types.StableEvidenceID(
+						types.EvidenceDataflowPath, summary, "resolution_chain",
+						"", "", b.file, b.line, b.line),
+					Kind:       types.EvidenceDataflowPath,
+					Subject:    summary,
+					Predicate:  "resolution_chain",
+					Summary:    summary,
+					Source:     b.file,
+					LineStart:  b.line,
+					LineEnd:    b.line,
+					Confidence: 0.9,
+					Producer:   "bridge_literal",
+				})
+			}
 		}
 	}
+
+	// Pass D — Consumer-gate join. Requires at least one binding;
+	// identities are best-effort (the chain tail naming
+	// `Target.Identity()` only appears when an identity was found).
+	if len(bindings) > 0 && len(consumerValues) > 0 {
+		for _, cv := range consumerValues {
+			// Only assignment-kind concrete values carry the <Field>.Get(
+			// <key>) pattern we care about. Returns/binds/maps do not.
+			if cv.kind != "assigns" {
+				continue
+			}
+			consumerField := parseConsumerGateField(cv.value)
+			if consumerField == "" {
+				continue
+			}
+			stem := singularize(consumerField)
+			// Generic names like `Tool`, `User`, `Role`, `Api` match too
+			// many unrelated bindings. Require stem length ≥5 to keep
+			// the heuristic tight; the typical question-relevant field
+			// (SubAgent, Plugin, Handler, Resource, Listener) clears
+			// this bar. Lower thresholds were tried and produced false
+			// matches in dev.
+			if len(stem) < 5 {
+				continue
+			}
+			lowerStem := strings.ToLower(stem)
+			for _, b := range bindings {
+				if !strings.Contains(strings.ToLower(b.fnQual), lowerStem) {
+					continue
+				}
+				ids := idByClass[b.targetClass]
+				var chainTail string
+				if len(ids) > 0 {
+					// Pick the first identity — `Name()` is the
+					// canonical choice when multiple identity methods
+					// coexist; Pass B ordering puts Name first.
+					id := ids[0]
+					chainTail = fmt.Sprintf(" → `%s.%s()` returns %q",
+						b.targetClass, id.method, id.literal)
+				}
+				summary := fmt.Sprintf(
+					"`%s()` gates on %s.Get(...) — registry populated by `%s()` binding New%s%s",
+					cv.method, consumerField, b.fnQual, b.targetClass, chainTail)
+				if seen[summary] {
+					continue
+				}
+				seen[summary] = true
+				items = append(items, types.EvidenceItem{
+					ID: types.StableEvidenceID(
+						types.EvidenceDataflowPath, summary, "resolution_chain",
+						"", "", cv.file, cv.line, cv.line),
+					Kind:       types.EvidenceDataflowPath,
+					Subject:    summary,
+					Predicate:  "resolution_chain",
+					Summary:    summary,
+					Source:     cv.file,
+					LineStart:  cv.line,
+					LineEnd:    cv.line,
+					Confidence: 0.85,
+					Producer:   "consumer_gate",
+				})
+			}
+		}
+	}
+
 	return items
+}
+
+// parseConsumerGateField extracts the last capitalised identifier
+// immediately before `.Get(` in a concrete_value's Object text. For
+// `err := b.deps.SubAgents.Get(string(b.name)); err == nil {` this
+// returns "SubAgents". Returns empty string when no such pattern
+// exists.
+//
+// The pattern is deliberately narrow (requires capital first letter)
+// so common Go code-noise like `list.get(i)` on a local slice is
+// excluded. Registry / store / repository fields are overwhelmingly
+// CamelCase in Go and TypeScript.
+func parseConsumerGateField(value string) string {
+	idx := strings.Index(value, ".Get(")
+	if idx < 0 {
+		return ""
+	}
+	// Walk backwards from idx to find the start of the identifier.
+	end := idx
+	start := end
+	for start > 0 {
+		c := value[start-1]
+		if (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+			(c >= '0' && c <= '9') || c == '_' {
+			start--
+			continue
+		}
+		break
+	}
+	if start == end {
+		return ""
+	}
+	ident := value[start:end]
+	// Must start with a capital letter — this is the registry-field
+	// convention. Skip locals/args that happen to have a Get method.
+	if ident[0] < 'A' || ident[0] > 'Z' {
+		return ""
+	}
+	return ident
+}
+
+// singularize strips a trailing 's' from a CamelCase plural to match
+// a singular stem. Handles the common English plural form used by
+// Go field names (SubAgents→SubAgent, Handlers→Handler). Does not
+// attempt irregular plurals — those are rare in Go identifiers.
+func singularize(s string) string {
+	if strings.HasSuffix(s, "s") && len(s) > 1 {
+		return s[:len(s)-1]
+	}
+	return s
 }
 
 // parseTargetClassFromBinding extracts the class identifier from a
