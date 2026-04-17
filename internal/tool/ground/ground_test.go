@@ -597,3 +597,38 @@ func TestGroundCitation_NearestSymbolsHint_EmptyWhenNoSymbols(t *testing.T) {
 		t.Errorf("empty-symbols file must produce empty hint, got %q", got)
 	}
 }
+
+// TestBuildContext_PicksUpTurnAArtifactsToolResults pins the
+// session-8 fix for trace 1776455705131728812: explorer's read_file
+// results live only on Mutable.TurnAArtifacts.ToolResults after
+// the stage ends (StageOutput.ToolResults is empty). Citation
+// grounding at finalizer-time must still see that history or every
+// cite falls through to Tier 2, and the Tier-1-peer pool rule
+// drops the whole pool with "LLM never read any cited file".
+func TestBuildContext_PicksUpTurnAArtifactsToolResults(t *testing.T) {
+	readResult := buildGutterReadResult("a.go", 10, []string{
+		"func Foo() {",
+		"    bar()",
+		"}",
+	}, 3)
+
+	mut := types.NewMutableState("q")
+	mut.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles:   []string{"a.go"},
+		ToolResults: []types.ToolResult{readResult},
+	})
+	bus := &types.BusContext{Mutable: mut}
+
+	gc := BuildContext(bus)
+	if _, ok := gc.LineIndex["a.go"]; !ok {
+		t.Fatalf("a.go missing from line index built from TurnA snapshot: %+v", gc.LineIndex)
+	}
+
+	// Tier 1 citation grounding must now succeed against the
+	// snapshot-sourced gutter.
+	rep := GroundCitation(types.Citation{File: "a.go", Line: 10, Quote: "func Foo"}, gc)
+	if !rep.Valid || rep.Tier != types.TierLineText {
+		t.Errorf("expected Tier 1 grounding via TurnA snapshot, got valid=%v tier=%q",
+			rep.Valid, rep.Tier)
+	}
+}

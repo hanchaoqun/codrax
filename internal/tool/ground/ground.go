@@ -62,10 +62,39 @@ func BuildContext(ctx *types.BusContext) *Context {
 	if ctx == nil {
 		return gc
 	}
-	// Prior-stage history first, then layer in the current dispatch
-	// so in-dispatch reads win on conflicting line numbers (the LLM
-	// may have re-read a file with a different offset/limit this turn).
+	// Sources, layered oldest → newest so in-dispatch reads win on
+	// conflicting line numbers (the LLM may have re-read a file
+	// with a different offset/limit this turn):
+	//
+	//   1. TurnA snapshot's ToolResults — explorer's historical
+	//      read_file calls, frozen into Mutable.TurnAArtifacts
+	//      when the explorer stage ended. Finalizer-time citation
+	//      grounding needs this or else every cite lands in Tier 2
+	//      (pre-session-8 bug: LLM cited `subagent.go:64`, explorer
+	//      had read the whole file, but BuildContext couldn't see
+	//      the gutter → "LLM never read any cited file" rule
+	//      dropped every citation).
+	//
+	//   2. BusContext.ToolResults — tool results applyStageOutput
+	//      propagated between stages. Currently empty for the
+	//      explorer → finalizer handoff (explorer returns
+	//      StageOutput.ToolResults=[], historical reads live only
+	//      on TurnAArtifacts), but preserved as a source for
+	//      future stages that might use it and for sub-agents
+	//      whose parent set ToolResults directly.
+	//
+	//   3. Mutable.DispatchToolResults — the current ReAct loop's
+	//      in-dispatch buffer. Empty for the finalizer (it has no
+	//      file-reading tools) but essential for emit_evidence in
+	//      the explorer loop: the grounder runs mid-loop and needs
+	//      to see read_file results from earlier iterations of
+	//      the SAME dispatch.
 	var history []types.ToolResult
+	if ctx.Mutable != nil {
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil && len(ta.ToolResults) > 0 {
+			history = append(history, ta.ToolResults...)
+		}
+	}
 	if len(ctx.ToolResults) > 0 {
 		history = append(history, ctx.ToolResults...)
 	}
