@@ -488,6 +488,27 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logComplexityReconcile(rm.Complexity, resolved, reason)
 			rm.Complexity = resolved
 		}
+		// Intent sanity rule. Runs AFTER reconcileComplexity so the
+		// simple-only gate reads the post-reconcile complexity. Patches
+		// the "count / 统计 / how many" → enumerate mis-classification
+		// that otherwise locks the pipeline into ShapeListOfSymbols
+		// and an unsatisfiable file:line citation floor.
+		// See internal/agent/analyzer_intent.go for the rule body.
+		if intentResolved, intentReason := reconcileIntent(rm.Intent, rawForComplexity, rm.Complexity); intentResolved != rm.Intent {
+			logIntentReconcile(rm.Intent, intentResolved, intentReason)
+			rm.Intent = intentResolved
+			// Keep the shape hint consistent with the reconciled intent.
+			// The LLM that picked enumerate usually also picked
+			// answer_shape=list_of_symbols; the post-compile hint
+			// override further down would restore that stale shape and
+			// defeat the rule. Normalise to ShapeValue only when the
+			// stale hint is specifically list_of_symbols — other shape
+			// hints (e.g. the LLM explicitly picked value while leaving
+			// intent=enumerate by accident) are already consistent.
+			if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols {
+				rm.AnalyzerHints.Shape = string(types.ShapeValue)
+			}
+		}
 		// Merge sub-topic entities into main entity list.
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
 		for _, e := range rm.AnalyzerHints.Entities {

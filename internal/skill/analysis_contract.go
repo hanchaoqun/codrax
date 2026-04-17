@@ -43,9 +43,9 @@ var analysisIntents = []AnalysisEnumChoice{
 	{string(types.IntentExplain), "user wants to understand how something works"},
 	{string(types.IntentRootCause), "user is debugging, asks \"why does X fail\""},
 	{string(types.IntentTrace), "follow a data flow or call chain end to end"},
-	{string(types.IntentEnumerate), "list every X, count Xs (also for \"which agents call Y\")"},
+	{string(types.IntentEnumerate), "list every X matching a predicate — the answer is a SET of names (\"list all X that do Y\", \"X matching pattern Y\"). Do NOT pick this when the user wants a count/size/total; that is return_value."},
 	{string(types.IntentConfigQuery), "look up what a config key controls"},
-	{string(types.IntentReturnValue), "asks what a specific function returns or its literal name"},
+	{string(types.IntentReturnValue), "asks for a single scalar answer: a function return, a literal name, a count / size / total / version number (\"how many X\", \"size of Y\", \"what does X return\"). One value, not a list."},
 	{string(types.IntentUnknown), "genuinely ambiguous (ERM will fall back to keyword inference)"},
 }
 
@@ -185,7 +185,7 @@ var AnalysisHardRules = []string{
 	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
 	"do not invent an intent by stretching a category; if two fit equally, pick the one that matches the user's verb; if none fit, use \"unknown\"",
-	"answer_shape=list_of_symbols ONLY when the user is asking for a SET of names they want listed — \"how many agents call X\" is list_of_symbols, \"is X registered\" is boolean, \"explain X\" is step_list or explanation",
+	"answer_shape=list_of_symbols ONLY when the user asks for the NAMES of items in a SET (\"list all X that match Y\"); if the user asks for a COUNT / SIZE / TOTAL (\"how many X\", \"统计…数量\", \"total of Y\"), the shape is value and the intent is return_value — a scalar cannot satisfy the list_of_symbols shape contract; \"is X registered\" is boolean; \"explain X\" is step_list or explanation",
 	"call emit_analysis EXACTLY ONCE — multiple calls trigger a warning (or a hard reject when analysis_reject_multiple_emit=true) and only the last write is effective",
 	"do NOT write free-form prose before the emit_analysis call beyond what the evidence-lite pre-scan requires — emit_analysis is the final output channel of the analyze stage",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
