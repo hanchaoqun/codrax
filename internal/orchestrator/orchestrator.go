@@ -506,6 +506,50 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 			break
 		}
 
+		// Pre-extract Tier-1 floor gate (session 8, log
+		// 1776446668535115555). emit_investigation_complete's Tier-1
+		// floor only fires when the LLM calls that tool. An explorer
+		// that exits via ShouldStop / idle-stop / soft-stop bypasses
+		// the tool, so pure-recovery investigations still reach Turn
+		// B. The orchestrator is the single choke point where all
+		// exit paths converge, so the same floor runs here against
+		// Mutable.EmittedEvidence() before we burn LLM calls on
+		// extract + finalize.
+		//
+		// On fail-with-budget: requeue all non-finalize explore nodes
+		// + finalize, inject the diagnostic as pendingViolation (the
+		// existing contract-backtrack retry path), record a retry
+		// tick, and continue the loop — next round builds a window
+		// that includes the "need more read_file" hint.
+		//
+		// On fail-budget-exhausted: log a warning and fall through;
+		// downstream contract check will still catch the problem and
+		// fail-loud.
+		if msg, proceed, exhausted := o.checkTier1Floor(ir, state); !proceed {
+			if exhausted {
+				logging.Warning("[orchestrator] pre-finalize Tier-1 floor failed but retry budget exhausted: %s", msg)
+			} else {
+				state.requeue(fin.ID)
+				for _, n := range ir.TaskGraph.Nodes {
+					if n.Type == types.NodeFinalize {
+						continue
+					}
+					if state.status[n.ID] == nodeDone {
+						state.requeue(n.ID)
+					}
+				}
+				state.recordRetry()
+				pendingViolation = msg
+				o.emit(render.Event{
+					Kind:      render.EventAgentReasoning,
+					Timestamp: time.Now(),
+					Agent:     "orchestrator",
+					Reasoning: "⟳ " + msg + " — re-investigating.",
+				})
+				continue
+			}
+		}
+
 		// Full Turn B extract dispatch — runs once, just before
 		// finalize, with complete accumulated evidence from all
 		// explore windows. Answer-symbol selection + LLM hypothesis
