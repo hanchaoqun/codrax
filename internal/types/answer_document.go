@@ -71,6 +71,38 @@ type AnswerDocument struct {
 
 	Citations []Citation `json:"citations,omitempty"`
 	Caveats   []string   `json:"caveats,omitempty"`
+
+	// Snippets are short code excerpts (±2 lines around each
+	// citation, clustered when adjacent) extracted deterministically
+	// from the read_file gutter index. Populated by
+	// emit_answer_document post-dispatch; the LLM never writes into
+	// this field. Rendered below the Summary and above the Citations
+	// pool so readers can see the relevant code without following
+	// file:line links.
+	Snippets []CodeSnippet `json:"snippets,omitempty"`
+
+	// RelationDiagram is an ASCII flow built from evidence
+	// relationship predicates (calls/binds/registers/returns). Empty
+	// when no clear chain exists. Populated by emit_answer_document
+	// post-dispatch; rendered under the Snippets section.
+	RelationDiagram string `json:"relation_diagram,omitempty"`
+}
+
+// CodeSnippet carries a contiguous code excerpt extracted from a
+// file that was actually read during Turn A. File+line range keys
+// it for display; Code is the verbatim text with a leading gutter
+// matching the read_file format so diff-grep style searches on
+// generated answers remain useful.
+type CodeSnippet struct {
+	File      string `json:"file"`
+	StartLine int    `json:"start_line"`
+	EndLine   int    `json:"end_line"`
+	// Language is a best-effort tag derived from the file extension
+	// (go, py, js, ...) so the renderer can emit language-tagged
+	// fenced blocks. Empty when no match; renderer falls back to
+	// an untagged fence.
+	Language string `json:"language,omitempty"`
+	Code     string `json:"code"`
 }
 
 // AnswerDocumentMaxSummaryChars caps the LLM-authored Summary field

@@ -313,3 +313,87 @@ func TestRenderAnswerDocument_LangFallback(t *testing.T) {
 		t.Errorf("lang fallback did not render symbol: %q", out)
 	}
 }
+
+// TestRenderAnswerDocument_Snippets — Snippets section renders as
+// language-tagged fenced code blocks with file:line-line headers.
+// Single-line snippets render as "file:N" without the range suffix.
+func TestRenderAnswerDocument_Snippets(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeExplanation,
+		Summary: "The mechanism works like this.",
+		Snippets: []types.CodeSnippet{
+			{File: "a.go", StartLine: 10, EndLine: 14, Language: "go",
+				Code: "func Foo() {\n    bar()\n}"},
+			{File: "b.py", StartLine: 5, EndLine: 5, Language: "python",
+				Code: "def baz(): pass"},
+		},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Key snippets:") {
+		t.Errorf("English header missing: %q", out)
+	}
+	if !strings.Contains(out, "`a.go:10-14`") {
+		t.Errorf("range header missing for multi-line snippet: %q", out)
+	}
+	if !strings.Contains(out, "`b.py:5`\n") {
+		t.Errorf("single-line header must omit range: %q", out)
+	}
+	if !strings.Contains(out, "```go") {
+		t.Errorf("language tag missing for Go snippet: %q", out)
+	}
+	if !strings.Contains(out, "```python") {
+		t.Errorf("language tag missing for Python snippet: %q", out)
+	}
+	if !strings.Contains(out, "func Foo()") || !strings.Contains(out, "def baz()") {
+		t.Errorf("snippet bodies missing: %q", out)
+	}
+
+	// Chinese locale header.
+	outZH := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(outZH, "关键代码") {
+		t.Errorf("Chinese header missing: %q", outZH)
+	}
+}
+
+// TestRenderAnswerDocument_RelationDiagram — RelationDiagram renders
+// wrapped in a plain ``` fence so the monospace column math
+// survives terminal rendering (pterm collapses whitespace outside
+// fences).
+func TestRenderAnswerDocument_RelationDiagram(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:           types.ShapeExplanation,
+		Summary:         "x",
+		RelationDiagram: "Foo\n │ calls\n ▼\nBar",
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "Flow:") {
+		t.Errorf("English flow header missing: %q", out)
+	}
+	if !strings.Contains(out, "Foo") || !strings.Contains(out, "Bar") {
+		t.Errorf("diagram body missing: %q", out)
+	}
+	if !strings.Contains(out, "```\nFoo") {
+		t.Errorf("diagram must be wrapped in a plain fence: %q", out)
+	}
+
+	outZH := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(outZH, "关系图") {
+		t.Errorf("Chinese flow header missing: %q", outZH)
+	}
+}
+
+// TestRenderAnswerDocument_NoSnippetsNoRenderBlock — empty Snippets
+// skips the Key snippets section entirely (no blank header).
+func TestRenderAnswerDocument_NoSnippetsNoRenderBlock(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeExplanation,
+		Summary: "x",
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if strings.Contains(out, "Key snippets") {
+		t.Errorf("empty Snippets must not render header: %q", out)
+	}
+	if strings.Contains(out, "Flow:") {
+		t.Errorf("empty diagram must not render header: %q", out)
+	}
+}

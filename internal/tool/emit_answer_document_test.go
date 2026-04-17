@@ -916,3 +916,155 @@ func TestEmitAnswerDocument_FailWithContext_AggregatesCitationWarnings(t *testin
 		t.Errorf("Summary must name the whitelist-dropped file: %q", res.Summary)
 	}
 }
+
+// TestEmitAnswerDocument_EnrichsDocWithSnippetsAndDiagram pins the
+// session-8 feature: after the LLM's emit_answer_document call lands,
+// the tool populates Snippets (from read_file gutter at citation
+// lines) and RelationDiagram (from evidence relationship predicates)
+// deterministically. LLM never writes these; the fields survive
+// without requiring the LLM to author code blocks or Mermaid.
+func TestEmitAnswerDocument_EnrichsDocWithSnippetsAndDiagram(t *testing.T) {
+	// Prepare context with:
+	//   - read_file result for "a.go" so the gutter index has lines
+	//     60-65 populated (snippet extractor reads these).
+	//   - SearchGraph indexing "a.go" so citation whitelist passes.
+	//   - TurnA.ReadFiles naming "a.go" so whitelist passes.
+	//   - Emitted evidence with relationship predicates so the
+	//     diagram builder finds a chain.
+	ctx := newDocBusCtx("")
+	graph := newDocGraph(map[string][]docSymbol{
+		"a.go": {{name: "Foo", line: 60, end: 100}, {name: "Bar", line: 50, end: 58}},
+	})
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{ReadFiles: []string{"a.go"}})
+
+	// Synthesize a read_file gutter so Tier 1 validates + snippets
+	// have real text to extract.
+	readResult := types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[a.go: showing lines 58-67 of 200]\n" +
+			"  58│ }\n" +
+			"  59│ \n" +
+			"  60│ func Foo() {\n" +
+			"  61│     bar()\n" +
+			"  62│     return\n" +
+			"  63│ }\n" +
+			"  64│ \n" +
+			"  65│ func baz() {\n" +
+			"  66│     return\n" +
+			"  67│ }\n",
+	}
+	ctx.ToolResults = []types.ToolResult{readResult}
+
+	// Evidence buffer carrying a simple chain A calls B / B returns C.
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceMechanism, Subject: "Foo", Predicate: "calls", Object: "Bar",
+			Source: "a.go", LineStart: 61,
+			AnchorKind: types.AnchorCall, AnchorSymbol: "Bar",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceDirect, Subject: "Bar", Predicate: "returns", Object: "x",
+			Source: "a.go", LineStart: 52,
+			AnchorKind: types.AnchorReturn, AnchorSymbol: "x",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+	})
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "Foo calls Bar which returns x.",
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 61, "quote": "bar()"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("emit must succeed: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+
+	// Snippets: one cluster around line 61 (±2 → 59-63).
+	if len(doc.Snippets) == 0 {
+		t.Fatalf("expected at least one snippet, got none")
+	}
+	s := doc.Snippets[0]
+	if s.File != "a.go" {
+		t.Errorf("snippet file = %q, want a.go", s.File)
+	}
+	if s.Language != "go" {
+		t.Errorf("snippet language = %q, want go", s.Language)
+	}
+	if !strings.Contains(s.Code, "func Foo()") {
+		t.Errorf("snippet body must contain the cited symbol: %q", s.Code)
+	}
+
+	// Diagram: two edges → linear chain Foo → Bar → x.
+	if doc.RelationDiagram == "" {
+		t.Fatalf("expected non-empty relation diagram")
+	}
+	for _, want := range []string{"Foo", "Bar", "calls", "returns"} {
+		if !strings.Contains(doc.RelationDiagram, want) {
+			t.Errorf("diagram missing %q: %q", want, doc.RelationDiagram)
+		}
+	}
+}
+
+// TestExtractCodeSnippets_ClustersAdjacentCitations pins the
+// adjacency-collapse rule: two citations into the same file with
+// overlapping ±2 windows merge into one snippet rather than
+// rendering two near-identical blocks.
+func TestExtractCodeSnippets_ClustersAdjacentCitations(t *testing.T) {
+	ctx := newDocBusCtx("")
+	readResult := types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[a.go: showing lines 60-70 of 200]\n" +
+			"  60│ func A() {}\n" +
+			"  61│ \n" +
+			"  62│ func B() {}\n" +
+			"  63│ \n" +
+			"  64│ func C() {}\n" +
+			"  65│ \n" +
+			"  66│ func D() {}\n" +
+			"  67│ \n" +
+			"  68│ func E() {}\n" +
+			"  69│ \n" +
+			"  70│ func F() {}\n",
+	}
+	ctx.ToolResults = []types.ToolResult{readResult}
+	doc := &types.AnswerDocument{
+		Shape: types.ShapeExplanation,
+		Citations: []types.Citation{
+			{File: "a.go", Line: 62},
+			{File: "a.go", Line: 64}, // window overlaps with 62's → merge
+		},
+	}
+	got := extractCodeSnippets(ctx, doc, 5)
+	if len(got) != 1 {
+		t.Fatalf("adjacent citations must merge into 1 snippet, got %d", len(got))
+	}
+	// Merged range: 60-66 (62-2 .. 64+2).
+	if got[0].StartLine != 60 || got[0].EndLine != 66 {
+		t.Errorf("merged range = %d-%d, want 60-66", got[0].StartLine, got[0].EndLine)
+	}
+}
+
+// TestBuildRelationDiagram_EmptyWhenNoRelationships — evidence with
+// no relationship predicates produces no diagram, so the renderer
+// skips the section entirely.
+func TestBuildRelationDiagram_EmptyWhenNoRelationships(t *testing.T) {
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceDirect, Subject: "Foo", Predicate: "defines",
+			Object: "", Source: "a.go", LineStart: 1,
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
+	})
+	got := buildRelationDiagram(ctx)
+	if got != "" {
+		t.Errorf("empty-object edge must produce no diagram, got %q", got)
+	}
+}

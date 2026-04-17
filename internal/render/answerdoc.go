@@ -85,11 +85,34 @@ func RenderAnswerDocument(doc *types.AnswerDocument, lang string) string {
 		if len(doc.Symbols) > 0 {
 			renderAnswerDocExplanationSkeleton(&b, doc, l)
 		}
-		renderAnswerDocCitationPool(&b, doc, l)
 	default:
 		// ShapeNone / empty / unknown: degrade gracefully to the
 		// explanation path so the user at least sees Summary and
 		// citations if any.
+	}
+
+	// Session-8 render-only sections (deterministic, built by
+	// emit_answer_document from read_file history + evidence
+	// buffer). Rendered between shape-specific body and citation
+	// pool for every shape so: prose → structured payload → code
+	// snippets → relation diagram → citations. Skipped when empty
+	// (non-read-backed answers / single-node chains).
+	if len(doc.Snippets) > 0 {
+		renderAnswerDocSnippets(&b, doc, l)
+	}
+	if s := strings.TrimSpace(doc.RelationDiagram); s != "" {
+		renderAnswerDocRelationDiagram(&b, doc, l)
+	}
+
+	// Citation pool renders last for explanation / unknown-shape
+	// fall-throughs. Structured shapes (list_of_symbols / step_list
+	// / value / config_value / boolean) inline their citations at
+	// the payload level.
+	switch doc.Shape {
+	case types.ShapeListOfSymbols, types.ShapeStepList,
+		types.ShapeValue, types.ShapeConfigValue, types.ShapeBoolean:
+		// payload renderer already inlined citations
+	default:
 		renderAnswerDocCitationPool(&b, doc, l)
 	}
 
@@ -285,6 +308,60 @@ func renderAnswerDocCitationPool(b *strings.Builder, doc *types.AnswerDocument, 
 			fmt.Fprintf(b, "- `%s:%d`\n", c.File, c.Line)
 		}
 	}
+}
+
+// -------- Code snippets (render-only, added session 8) --------
+
+// renderAnswerDocSnippets emits a "Key snippets" / "关键代码" block
+// showing the clustered code excerpts doc.Snippets carries. Each
+// snippet is a language-tagged markdown fence header-lined with
+// `file:line-line`. Empty when no snippets — caller already gated
+// on len(doc.Snippets) > 0 before calling.
+func renderAnswerDocSnippets(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
+	switch lang {
+	case answerDocLangZH:
+		b.WriteString("\n**关键代码**：\n\n")
+	default:
+		b.WriteString("\n**Key snippets:**\n\n")
+	}
+	for _, s := range doc.Snippets {
+		if s.StartLine == s.EndLine {
+			fmt.Fprintf(b, "`%s:%d`\n", s.File, s.StartLine)
+		} else {
+			fmt.Fprintf(b, "`%s:%d-%d`\n", s.File, s.StartLine, s.EndLine)
+		}
+		if tag := strings.TrimSpace(s.Language); tag != "" {
+			fmt.Fprintf(b, "```%s\n", tag)
+		} else {
+			b.WriteString("```\n")
+		}
+		b.WriteString(s.Code)
+		if !strings.HasSuffix(s.Code, "\n") {
+			b.WriteByte('\n')
+		}
+		b.WriteString("```\n\n")
+	}
+}
+
+// renderAnswerDocRelationDiagram renders the pre-built ASCII flow
+// under a "Flow" / "关系图" header. The diagram body is already
+// canonically laid out by buildRelationDiagram — the renderer only
+// prefixes the header and wraps in a ``` fence so the monospace
+// column math survives the markdown → terminal pipeline (pterm
+// collapses whitespace by default outside fences).
+func renderAnswerDocRelationDiagram(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
+	switch lang {
+	case answerDocLangZH:
+		b.WriteString("\n**关系图**：\n\n")
+	default:
+		b.WriteString("\n**Flow:**\n\n")
+	}
+	b.WriteString("```\n")
+	b.WriteString(doc.RelationDiagram)
+	if !strings.HasSuffix(doc.RelationDiagram, "\n") {
+		b.WriteByte('\n')
+	}
+	b.WriteString("```\n")
 }
 
 // completenessTag returns a short italic tag for the list_of_symbols
