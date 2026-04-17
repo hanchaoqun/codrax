@@ -1068,3 +1068,115 @@ func TestBuildRelationDiagram_EmptyWhenNoRelationships(t *testing.T) {
 		t.Errorf("empty-object edge must produce no diagram, got %q", got)
 	}
 }
+
+// TestBuildRelationDiagram_PrefersResolutionChainEvidence pins the
+// Tier-1 behaviour: when the evidence buffer carries pre-built
+// resolution_chain summaries (from the concrete_values extractor),
+// the diagram is built directly from those rather than
+// re-discovering a chain from raw edges. trace 1776455705131728812
+// exposed the failure mode: 749 concrete_values saturated the
+// edge graph, and the old algorithm picked a random
+// "explorer → extractEvidenceRequirementsWithHint" chain instead
+// of the curated "RegisterDefaultSubAgents → SubExplorer.Run"
+// path that was literally sitting in evidence as a
+// resolution_chain item.
+func TestBuildRelationDiagram_PrefersResolutionChainEvidence(t *testing.T) {
+	ctx := newDocBusCtx("")
+	// Noise edges that should be IGNORED because a resolution_chain
+	// item with real content is present.
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		// Noise relationship edges (Tier 2 edge-graph fallback).
+		{Kind: types.EvidenceMechanism, Subject: "NoiseA", Predicate: "calls", Object: "NoiseB",
+			Source: "a.go", LineStart: 1,
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
+		// Tier 1 resolution chain — THE one we want rendered.
+		{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain",
+			Summary: "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Run()` assigns sk := &skill.Config{",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
+	})
+	got := buildRelationDiagram(ctx)
+	if got == "" {
+		t.Fatal("diagram must render from resolution_chain evidence")
+	}
+	for _, want := range []string{"RegisterDefaultSubAgents", "binds", "SubExplorer.Run"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("diagram missing %q: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "NoiseA") || strings.Contains(got, "NoiseB") {
+		t.Errorf("noise edges must not leak into diagram: %q", got)
+	}
+}
+
+// TestBuildRelationDiagram_FallsBackWhenNoResolutionChain — when
+// evidence has NO resolution_chain items, the edge-graph walk
+// (Tier 2) still applies so non-concrete_values callers keep
+// working.
+func TestBuildRelationDiagram_FallsBackWhenNoResolutionChain(t *testing.T) {
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{Kind: types.EvidenceMechanism, Subject: "Foo", Predicate: "calls", Object: "Bar",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
+		{Kind: types.EvidenceDirect, Subject: "Bar", Predicate: "returns", Object: "x",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
+	})
+	got := buildRelationDiagram(ctx)
+	if got == "" {
+		t.Fatal("edge-graph fallback must produce diagram without resolution_chain evidence")
+	}
+	for _, want := range []string{"Foo", "Bar", "calls", "returns"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("fallback diagram missing %q: %q", want, got)
+		}
+	}
+}
+
+// TestParseResolutionChainSummary — unit-level coverage of the
+// parser so edge cases (two-word verbs, terminal argument, no
+// backticks) are explicit.
+func TestParseResolutionChainSummary(t *testing.T) {
+	cases := []struct {
+		name  string
+		in    string
+		nodes []string // expected label sequence
+	}{
+		{
+			"two-segment with terminal argument",
+			"`A()` binds ONLY B → `C.Run()` assigns sk := &skill.Config{",
+			[]string{"A", "C.Run", "sk := &skill.Config{"},
+		},
+		{
+			"three-segment",
+			"`A()` binds B → `C()` returns D → `E()` calls F",
+			[]string{"A", "C", "E", "F"},
+		},
+		{
+			"no backticks",
+			"Foo binds Bar → Baz returns Qux",
+			[]string{"Foo", "Baz", "Qux"},
+		},
+		{
+			"single segment (no arrow) rejected",
+			"`A()` returns x",
+			nil,
+		},
+		{
+			"empty rejected",
+			"",
+			nil,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := parseResolutionChainSummary(c.in)
+			if len(got) != len(c.nodes) {
+				t.Fatalf("got %d nodes, want %d: %+v", len(got), len(c.nodes), got)
+			}
+			for i, n := range got {
+				if n.label != c.nodes[i] {
+					t.Errorf("node[%d] = %q, want %q", i, n.label, c.nodes[i])
+				}
+			}
+		})
+	}
+}

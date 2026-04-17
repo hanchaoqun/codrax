@@ -235,17 +235,26 @@ type diagramNode struct {
 	edge  string // edge label to the NEXT node ("calls", "binds", ...)
 }
 
-// buildRelationDiagram walks the evidence buffer for relationship-
-// predicate edges, finds the longest linear chain, and renders it
-// as a vertical ASCII flow. Returns "" when no coherent chain of
-// length ≥ 2 emerges.
+// buildRelationDiagram builds a vertical ASCII flow from the
+// evidence buffer. Two-tier algorithm:
 //
-// Linear-chain heuristic keeps the render cheap and always
-// readable: when evidence contains a branch (one node with
-// multiple successors), only the first-seen successor survives.
-// Complex graphs fall back to "" rather than trying to draw ASCII
-// diamonds; those are better served by Mermaid fenced in the
-// summary.
+//   Tier 1 (preferred): evidence items already carry a pre-built
+//   resolution chain in their Summary field
+//   (Kind=EvidenceDataflowPath, Predicate="resolution_chain").
+//   These are produced by the explorer's concrete_values extractor
+//   and reflect a genuine cross-file data flow like
+//   "`RegisterDefaultSubAgents()` binds NewSubExplorer(deps) →
+//   `SubExplorer.Run()` assigns ...". Parsing this directly gives
+//   the diagram an authoritative chain without rebuilding the
+//   graph from raw edges.
+//
+//   Tier 2 (fallback): walk the edge graph (Subject, Predicate,
+//   Object) as before. Used when no resolution_chain evidence
+//   exists (sub-agent stage, evidence-lite pipelines, test paths).
+//
+// Returns "" when neither tier produces a chain of length ≥ 2.
+// Linear-chain only — branches drop because ASCII diamonds hurt
+// more than they help.
 func buildRelationDiagram(ctx *types.BusContext) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
@@ -253,6 +262,20 @@ func buildRelationDiagram(ctx *types.BusContext) string {
 	evidence := ctx.Mutable.EmittedEvidence()
 	if len(evidence) == 0 {
 		return ""
+	}
+
+	// Tier 1 — resolution_chain evidence. Pick the first item whose
+	// summary parses into ≥ 2 nodes; that is already a curated
+	// cross-file walk and is strictly better than re-discovering
+	// the chain from (S, P, O) triples.
+	for _, e := range evidence {
+		if e.Kind != types.EvidenceDataflowPath || e.Predicate != "resolution_chain" {
+			continue
+		}
+		chain := parseResolutionChainSummary(e.Summary)
+		if len(chain) >= 2 {
+			return renderASCIIChain(chain)
+		}
 	}
 	// Edge list: subject -[edge]-> object. Only keep the first
 	// occurrence of each (subject, object) tuple so accidental
@@ -349,6 +372,133 @@ func buildRelationDiagram(ctx *types.BusContext) string {
 	return renderASCIIChain(chain)
 }
 
+// parseResolutionChainSummary parses a concrete_values-produced
+// resolution chain summary into diagramNode slice. The producer's
+// format is a sequence of segments joined by " → " where each
+// segment has shape "`FunctionName()` verb argument" — the
+// function name is backticked, verb is a single lowercase word
+// ("binds", "returns", "calls", "assigns"), argument is whatever
+// follows until the next " → " or end-of-string.
+//
+// Example input:
+//
+//	`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Run()` assigns sk := &skill.Config{
+//
+// Produces nodes:
+//
+//	[RegisterDefaultSubAgents] --binds--> [SubExplorer.Run] --assigns--> [sk := &skill.Config{ (terminal)]
+//
+// The terminal argument of the LAST segment becomes the final
+// node so the reader sees where the chain ends. Chains that don't
+// parse cleanly (missing backticks / no segments) return nil and
+// the caller falls through to Tier 2.
+func parseResolutionChainSummary(summary string) []diagramNode {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return nil
+	}
+	segments := strings.Split(summary, " → ")
+	if len(segments) < 2 {
+		return nil
+	}
+	nodes := make([]diagramNode, 0, len(segments)+1)
+	for i, seg := range segments {
+		seg = strings.TrimSpace(seg)
+		// Expect: `<name>()` <verb> <rest...>
+		//       or  <name> <verb> <rest...>   (non-backticked producers)
+		name, verb, rest := splitChainSegment(seg)
+		if name == "" {
+			return nil
+		}
+		nodes = append(nodes, diagramNode{label: name, edge: verb})
+		// For the final segment, also append the terminal value
+		// node (the "rest" — a literal or expression the chain
+		// resolves TO). Skip when empty or when it duplicates the
+		// previous name.
+		if i == len(segments)-1 {
+			rest = strings.TrimSpace(rest)
+			if len(rest) > 60 {
+				rest = rest[:60] + "…"
+			}
+			if rest != "" && rest != name {
+				nodes = append(nodes, diagramNode{label: rest})
+			}
+		}
+	}
+	// The edge of the last node is unused (renderASCIIChain only
+	// draws N-1 edges for N nodes). Leave it as-is.
+	return nodes
+}
+
+// splitChainSegment pulls (name, verb, rest) out of a single
+// segment. Accepts three producer shapes:
+//
+//   `Name()` verb rest…
+//   `Name`    verb rest…
+//    Name     verb rest…
+//
+// Returns ("", "", "") on unparseable input.
+func splitChainSegment(seg string) (name, verb, rest string) {
+	// Strip leading backtick-wrapped name if present.
+	if strings.HasPrefix(seg, "`") {
+		if end := strings.Index(seg[1:], "`"); end > 0 {
+			name = strings.TrimSpace(seg[1 : 1+end])
+			// Strip trailing "()" — diagram labels read cleaner
+			// without the empty call parens.
+			name = strings.TrimSuffix(name, "()")
+			tail := strings.TrimSpace(seg[1+end+1:])
+			verb, rest = splitVerbRest(tail)
+			return name, verb, rest
+		}
+	}
+	// Non-backticked: take the first word as the name.
+	first, tail := cutFirstWord(seg)
+	if first == "" {
+		return "", "", ""
+	}
+	name = strings.TrimSuffix(first, "()")
+	verb, rest = splitVerbRest(tail)
+	return name, verb, rest
+}
+
+// splitVerbRest interprets the post-name tail as "verb rest…".
+// Handles multi-word verbs the concrete_values producer emits
+// ("binds ONLY", "delegates to") by peeking one extra word when
+// the first word is a known verb root. Bare single-word fallback
+// otherwise.
+func splitVerbRest(tail string) (verb, rest string) {
+	tail = strings.TrimSpace(tail)
+	if tail == "" {
+		return "", ""
+	}
+	first, remainder := cutFirstWord(tail)
+	lower := strings.ToLower(first)
+	// Two-word verb forms the producer uses.
+	if lower == "binds" || lower == "delegates" {
+		second, r2 := cutFirstWord(remainder)
+		sLower := strings.ToLower(second)
+		if sLower == "only" || sLower == "to" || sLower == "first" {
+			return first + " " + second, r2
+		}
+	}
+	return first, remainder
+}
+
+// cutFirstWord returns (firstWord, rest) on the leading space
+// boundary. Leading whitespace is stripped; the rest preserves
+// original internal whitespace.
+func cutFirstWord(s string) (string, string) {
+	s = strings.TrimLeft(s, " \t")
+	if s == "" {
+		return "", ""
+	}
+	idx := strings.IndexAny(s, " \t")
+	if idx < 0 {
+		return s, ""
+	}
+	return s[:idx], strings.TrimLeft(s[idx:], " \t")
+}
+
 // renderASCIIChain prints the chain as a centered vertical flow:
 //
 //	  RegisterDefaultSubAgents
@@ -410,3 +560,9 @@ func displayWidth(s string) int {
 	}
 	return w
 }
+
+// parseResolutionChainSummary + splitChainSegment + splitVerbRest +
+// cutFirstWord have the contract documented above. The tests
+// exercising them live alongside buildRelationDiagram in
+// emit_answer_document_test.go's Tier-1 parsing cases.
+
