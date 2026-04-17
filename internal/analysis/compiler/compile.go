@@ -36,6 +36,11 @@ type Output struct {
 func Compile(rm types.RequestModel, sig budget.BudgetSignals) Output {
 	t := pickTemplate(rm.Scenario)
 	out := t(rm)
+	// Adapt citation thresholds to complexity + subtopic count so a
+	// "simple single-lookup" question is not held to the same bar as
+	// a "cross-component architecture survey". See
+	// citation_scale.go:applyAdaptiveCitationThresholds for the rule.
+	applyAdaptiveCitationThresholds(&out, rm)
 	out.EvidencePlan.Budget = budget.Compute(rm, sig)
 	out.EvidencePlan.NodeBudgetHints = sourcemix.FromTemplateMix(out.EvidencePlan.SourceMix, out.EvidencePlan.Budget)
 	return out
