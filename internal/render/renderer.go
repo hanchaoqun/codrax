@@ -10,7 +10,10 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/glamour"
+	"github.com/charmbracelet/glamour/ansi"
+	"github.com/charmbracelet/glamour/styles"
 	"github.com/mattn/go-runewidth"
+	"github.com/muesli/termenv"
 	"github.com/pterm/pterm"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -23,28 +26,77 @@ var reAnsi = regexp.MustCompile(`\x1b\[[0-9;?]*[A-Za-z]`)
 
 var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
+// taskRow is one line of the live task list — either a main-pipeline
+// stage dispatch or a sub-agent run. Each Event from the pipeline
+// maps onto a taskRow: EventStageStart appends a new row, the
+// thinking / tool-call events update its detail in place, and
+// EventStageEnd / EventSubAgentEnd mark it completed. This replaces
+// the pre-2026-04-17 single-slot {agentName, detail, subRunning}
+// representation that collapsed all concurrent work into one line
+// and showed only the most-recent event, losing every previous
+// stage's progress when the DAG scheduler dispatched multiple
+// explore rounds or when the analyzer output multi-topic sub_topics.
+type taskRow struct {
+	stage       string    // "analyze" / "explore" / "extract" / "finalize"
+	agent       string    // concrete agent name
+	startTime   time.Time // when EventStageStart / EventSubAgentStart fired
+	endTime     time.Time // zero while running
+	okFinished  bool      // true when endTime > 0 and error == ""
+	errorMsg    string    // populated by EventStageEnd with non-empty Error
+	detail      string    // latest tool/iteration/sub-task description
+	detailDone  bool      // true when detail refers to a completed tool call
+	detailStart time.Time // for the "current detail elapsed" display
+	toolCount   int       // cumulative EventToolCallEnd successes for this row
+	iteration   int       // latest ReAct iteration seen on this row
+	isSubAgent  bool      // true for rows created by EventSubAgentStart
+	subAgentID  string    // identifier for matching EventSubAgentEnd
+	subTitle    string    // SubTaskTitle from the event
+	subCount    int       // SubTaskCount from the event (batch size)
+}
+
 // Renderer consumes pipeline events and produces styled terminal output.
 // Uses pterm.Area for in-place updating of task list and status during
 // pipeline execution, and Glamour for final markdown rendering.
+//
+// Concurrent-work representation: the renderer carries a slice of
+// taskRow values in insertion order. Every StageStart / SubAgentStart
+// appends; End events mutate the matching row in place. Tool-call and
+// thinking events route to `current` (the latest still-running
+// non-sub-agent stage row), so a tool call made DURING a sub-agent
+// run updates the outer stage's row rather than the sub-agent's.
+// This matches the event stream: the orchestrator emits tool-call
+// events with the main agent's Agent field even inside sub-agent
+// dispatches, so routing by Agent would be ambiguous; routing by
+// "latest running stage row" is unambiguous and matches what the
+// user sees on screen.
 type Renderer struct {
 	glamour *glamour.TermRenderer
 
-	mu            sync.Mutex
-	area          *pterm.AreaPrinter
-	startTime     time.Time
-	agentName  string // current agent name, e.g. "analyzer"
-	subRunning int    // number of currently running sub-agents
-	detail      string    // tool/sub-agent name for status line
-	detailDone  bool      // true if the detail refers to a completed call
-	detailStart time.Time // when current detail phase began
+	mu        sync.Mutex
+	area      *pterm.AreaPrinter
+	startTime time.Time
+
+	// Live task list. Append-only within a Start/Stop cycle; rows
+	// are not removed — completed rows stay visible with a
+	// done-indicator so the user can read the history of what ran.
+	tasks   []*taskRow
+	current *taskRow // most recent non-sub-agent row with endTime zero; receives tool / thinking events
+
 	// objective is the single user-question line displayed above the
-	// status line. Populated on EventObjectiveStarted and flipped to
+	// status list. Populated on EventObjectiveStarted and flipped to
 	// done=true on EventObjectiveDone.
 	objective     string
 	objectiveDone bool
 	animFrame     int
 	animStop      chan struct{}
 }
+
+// maxVisibleTasks caps how many rows the live area shows at once.
+// When the list exceeds this, the oldest COMPLETED rows are hidden
+// first — running rows are always retained so the user can see
+// what's in flight. A collapsed-count indicator is rendered in
+// their place.
+const maxVisibleTasks = 12
 
 // New creates a Renderer.
 func New(_ /* out */ interface{}, forceColor bool) *Renderer {
@@ -63,11 +115,58 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 	// columns, so CJK text overflows. The REPL does its own
 	// ANSI-aware, display-width wrapping after rendering.
 	gr, _ := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
+		glamour.WithStyles(codraxStyleConfig()),
 		glamour.WithWordWrap(0),
 	)
 
 	return &Renderer{glamour: gr}
+}
+
+// codraxStyleConfig returns the glamour style used for rendering the
+// final answer markdown. It starts from glamour's public
+// styles.DarkStyleConfig / LightStyleConfig (picked to match the
+// terminal background, same detection glamour.WithAutoStyle uses
+// internally) and overrides two colour slots:
+//
+//  1. Inline code foreground. glamour's DarkStyleConfig defaults
+//     Code.Color to xterm palette slot 203 (#ff5f5f — a saturated
+//     red/pink). Codrax answers routinely carry dozens of inline-code
+//     references (symbol names, file paths); a saturated red for every
+//     one triggers "alert-colour fatigue". Slot 117 (light cyan,
+//     #87d7ff) reads as "interesting" rather than "danger".
+//
+//  2. Fenced-block background. DarkStyleConfig leaves
+//     CodeBlock.BackgroundColor unset, so a ``` ``` block inherits
+//     the terminal's default black and blends into surrounding prose.
+//     Slot 236 (#303030 — a mild charcoal, same as the default inline
+//     Code.BackgroundColor) gives the block a visible gutter against
+//     black terminals without introducing a harsh contrast.
+//
+// LightStyleConfig receives analogous overrides: slot 33 (blue) for
+// inline code, slot 254 (near-white) for block background. Both
+// overrides are pointer-replacement, not target mutation: each
+// stringPtr allocates a new backing string so the source struct's
+// original pointer is not reachable from cfg. glamour's package-level
+// styles.DarkStyleConfig / styles.LightStyleConfig remain untouched —
+// this does NOT modify the glamour library.
+func codraxStyleConfig() ansi.StyleConfig {
+	var cfg ansi.StyleConfig
+	var (
+		inlineCodeColor  string
+		codeBlockBgColor string
+	)
+	if termenv.HasDarkBackground() {
+		cfg = styles.DarkStyleConfig
+		inlineCodeColor = "117"  // xterm light cyan, #87d7ff
+		codeBlockBgColor = "236" // mild charcoal, #303030
+	} else {
+		cfg = styles.LightStyleConfig
+		inlineCodeColor = "33"   // xterm blue, #0087ff
+		codeBlockBgColor = "254" // near-white grey, #e4e4e4
+	}
+	cfg.Code.Color = &inlineCodeColor
+	cfg.CodeBlock.BackgroundColor = &codeBlockBgColor
+	return cfg
 }
 
 // StartSpinner begins the live status area.
@@ -79,11 +178,8 @@ func (r *Renderer) StartSpinner() {
 	}
 	r.objective = ""
 	r.objectiveDone = false
-	r.agentName = ""
-	r.subRunning = 0
-	r.detail = ""
-	r.detailDone = false
-	r.detailStart = time.Time{}
+	r.tasks = nil
+	r.current = nil
 	r.startTime = time.Now()
 	r.animFrame = 0
 
@@ -140,9 +236,8 @@ func (r *Renderer) StopSpinner() {
 
 	r.objective = ""
 	r.objectiveDone = false
-	r.agentName = ""
-	r.subRunning = 0
-	r.detail = ""
+	r.tasks = nil
+	r.current = nil
 }
 
 // Emitter returns an EventEmitter callback bound to this renderer.
@@ -170,54 +265,92 @@ func (r *Renderer) Emitter() EventEmitter {
 		}
 
 		switch ev.Kind {
-		case EventAgentThinking:
-			if ev.Iteration == 0 {
-				r.detail = "thinking"
-			} else {
-				r.detail = fmt.Sprintf("thinking (round %d)", ev.Iteration+1)
-			}
-			r.detailDone = false
-			r.detailStart = ev.Timestamp
-
 		case EventStageStart:
-			r.agentName = string(ev.Agent)
-			r.subRunning = 0
-			r.detail = ""
-			r.detailDone = false
-			r.detailStart = ev.Timestamp
+			row := &taskRow{
+				stage:       string(ev.Stage),
+				agent:       string(ev.Agent),
+				startTime:   ev.Timestamp,
+				detailStart: ev.Timestamp,
+			}
+			r.tasks = append(r.tasks, row)
+			r.current = row
+
+		case EventStageEnd:
+			// Terminate the most recent matching (stage, agent) still-
+			// running row. Matching by (stage, agent) rather than just
+			// stage supports DAG windows dispatching the same stage
+			// multiple times with different agents, and sub-agent
+			// rows are exempt (isSubAgent flag).
+			if row := r.findRunningStageRow(string(ev.Stage), string(ev.Agent)); row != nil {
+				row.endTime = ev.Timestamp
+				row.errorMsg = ev.Error
+				row.okFinished = ev.Error == ""
+				if row == r.current {
+					r.current = nil
+				}
+			}
+
+		case EventAgentThinking:
+			if r.current != nil {
+				r.current.iteration = ev.Iteration
+				if ev.Iteration == 0 {
+					r.current.detail = "thinking"
+				} else {
+					r.current.detail = fmt.Sprintf("thinking (round %d)", ev.Iteration+1)
+				}
+				r.current.detailDone = false
+				r.current.detailStart = ev.Timestamp
+			}
 
 		case EventToolCallStart:
-			r.detail = ev.ToolName
-			if ev.ToolDetail != "" {
-				r.detail += " " + ev.ToolDetail
+			if r.current != nil {
+				r.current.detail = ev.ToolName
+				if ev.ToolDetail != "" {
+					r.current.detail += " " + ev.ToolDetail
+				}
+				r.current.detailDone = false
+				r.current.detailStart = ev.Timestamp
 			}
-			r.detailDone = false
-			r.detailStart = ev.Timestamp
 
 		case EventToolCallEnd:
-			r.detail = ev.ToolName
-			if ev.ToolDetail != "" {
-				r.detail += " " + ev.ToolDetail
+			if r.current != nil {
+				r.current.detail = ev.ToolName
+				if ev.ToolDetail != "" {
+					r.current.detail += " " + ev.ToolDetail
+				}
+				r.current.detailDone = true
+				if ev.ToolOK {
+					r.current.toolCount++
+				}
 			}
-			r.detailDone = true
 
 		case EventTransition:
-			r.detail = ""
-			r.detailDone = false
-			r.detailStart = ev.Timestamp
+			if r.current != nil {
+				r.current.detail = ""
+				r.current.detailDone = false
+				r.current.detailStart = ev.Timestamp
+			}
 
 		case EventSubAgentStart:
-			r.subRunning++
-			r.detail = ev.SubTaskTitle
-			r.detailDone = false
-			r.detailStart = ev.Timestamp
+			row := &taskRow{
+				stage:       string(ev.Stage),
+				agent:       ev.SubAgentName,
+				startTime:   ev.Timestamp,
+				detailStart: ev.Timestamp,
+				isSubAgent:  true,
+				subAgentID:  ev.SubAgentID,
+				subTitle:    ev.SubTaskTitle,
+				subCount:    ev.SubTaskCount,
+				detail:      ev.SubTaskTitle,
+			}
+			r.tasks = append(r.tasks, row)
 
 		case EventSubAgentEnd:
-			if r.subRunning > 0 {
-				r.subRunning--
+			if row := r.findSubAgentRow(ev.SubAgentID); row != nil {
+				row.endTime = ev.Timestamp
+				row.errorMsg = ev.Error
+				row.okFinished = ev.Error == ""
 			}
-			r.detail = ev.SubTaskTitle
-			r.detailDone = true
 
 		case EventObjectiveStarted:
 			if ev.Objective != "" {
@@ -231,6 +364,41 @@ func (r *Renderer) Emitter() EventEmitter {
 
 		r.redraw()
 	}
+}
+
+// findRunningStageRow returns the most recent main-pipeline row
+// matching (stage, agent) that has not yet ended, or nil. Used by
+// EventStageEnd to terminate the correct row when the same stage
+// re-dispatches (DAG explore windows) within one Run.
+func (r *Renderer) findRunningStageRow(stage, agent string) *taskRow {
+	for i := len(r.tasks) - 1; i >= 0; i-- {
+		row := r.tasks[i]
+		if row.isSubAgent {
+			continue
+		}
+		if !row.endTime.IsZero() {
+			continue
+		}
+		if row.stage == stage && row.agent == agent {
+			return row
+		}
+	}
+	return nil
+}
+
+// findSubAgentRow returns the row with the given subAgentID, or nil.
+// Sub-agent IDs are assigned by the orchestrator (trace-scoped unique)
+// so a direct match is sufficient.
+func (r *Renderer) findSubAgentRow(id string) *taskRow {
+	if id == "" {
+		return nil
+	}
+	for i := len(r.tasks) - 1; i >= 0; i-- {
+		if r.tasks[i].isSubAgent && r.tasks[i].subAgentID == id {
+			return r.tasks[i]
+		}
+	}
+	return nil
 }
 
 // redraw rebuilds the area content from current state. Must be called
@@ -276,36 +444,173 @@ func (r *Renderer) redraw() {
 		b.WriteString("\n")
 	}
 
-	// Status line: ⠋ stage · detail · 12s
-	// Each element has a distinct color for easy scanning. The
-	// previously-shown "N calls, last: TOOL" tail was removed because
-	// `detail` already names the most recent tool and the count made
-	// the line ~30 cols longer for almost no information value — and
-	// in 80-col terminals it was the difference between fitting on one
-	// row and wrapping, which triggered the刷屏 bug above.
-	var statusParts []string
-	running := 1 + r.subRunning // 1 main agent + sub-agents
-	statusParts = append(statusParts, pterm.FgWhite.Sprint(formatAgent(types.AgentName(r.agentName), running)))
-	if r.detail != "" {
-		if r.detailDone {
-			statusParts = append(statusParts,
-				pterm.FgGreen.Sprint("✓")+" "+pterm.FgDarkGray.Sprint(r.detail))
-		} else {
-			phaseElapsed := time.Since(r.detailStart).Truncate(time.Second)
-			detailStr := pterm.FgCyan.Sprint("►") + " " + pterm.FgGray.Sprint(r.detail) +
-				" " + pterm.FgDarkGray.Sprint(phaseElapsed)
-			statusParts = append(statusParts, detailStr)
+	// Task list: one line per stage dispatch + sub-agent run, in
+	// event order. Completed rows stay visible with a done-indicator.
+	// When the list grows past maxVisibleTasks we collapse the oldest
+	// completed entries into a summary row — running rows are never
+	// hidden.
+	rows := r.visibleRows()
+	for i, row := range rows {
+		line := r.formatTaskLine(row, frame)
+		b.WriteString(truncByDisplayWidth(line, maxCols))
+		if i < len(rows)-1 {
+			b.WriteByte('\n')
 		}
 	}
-	status := strings.Join(statusParts, pterm.FgDarkGray.Sprint(" · "))
-	statusLine := fmt.Sprintf("  %s %s %s %s",
-		pterm.FgCyan.Sprint(frame),
-		status,
-		pterm.FgDarkGray.Sprint("·"),
-		pterm.FgWhite.Sprint(elapsed))
-	b.WriteString(truncByDisplayWidth(statusLine, maxCols))
+
+	// Footer: total elapsed for the whole pipeline. Rendered only
+	// when at least one row is present so a pre-event "just started"
+	// state shows a bare objective.
+	if len(rows) > 0 {
+		b.WriteByte('\n')
+		footer := fmt.Sprintf("  %s %s",
+			pterm.FgDarkGray.Sprint("total"),
+			pterm.FgWhite.Sprint(elapsed))
+		b.WriteString(truncByDisplayWidth(footer, maxCols))
+	}
 
 	r.area.Update(b.String())
+}
+
+// visibleRows returns the task rows to draw this frame. Running rows
+// are always retained; when the running + recent-done count exceeds
+// maxVisibleTasks the oldest DONE rows are collapsed into a single
+// "(+N earlier done)" marker row inserted at the top.
+func (r *Renderer) visibleRows() []*taskRow {
+	if len(r.tasks) <= maxVisibleTasks {
+		return r.tasks
+	}
+	// Split into done vs running. Running is rare (usually 1-3 rows);
+	// done is everything else.
+	var done, running []*taskRow
+	for _, row := range r.tasks {
+		if row.endTime.IsZero() {
+			running = append(running, row)
+		} else {
+			done = append(done, row)
+		}
+	}
+	// Keep at most (maxVisibleTasks - 1 - len(running)) recent done
+	// rows so we have room for the collapsed marker and every running
+	// row. If running alone exceeds the cap, drop the collapsed
+	// marker and show all running rows.
+	budget := maxVisibleTasks - len(running)
+	if budget < 1 {
+		return running
+	}
+	budget-- // reserve one slot for the marker
+	keepDone := done
+	hidden := 0
+	if len(done) > budget {
+		hidden = len(done) - budget
+		keepDone = done[len(done)-budget:]
+	}
+	out := make([]*taskRow, 0, len(keepDone)+len(running)+1)
+	if hidden > 0 {
+		marker := &taskRow{
+			stage:      fmt.Sprintf("+%d earlier done", hidden),
+			okFinished: true,
+			endTime:    time.Now(), // treat marker as completed for rendering
+		}
+		out = append(out, marker)
+	}
+	out = append(out, keepDone...)
+	out = append(out, running...)
+	return out
+}
+
+// formatTaskLine renders one task row as a single terminal line with
+// colour codes and the current animation frame. Running rows get the
+// spinner frame; completed rows get ✓ (green) or ✗ (red). Layout:
+//
+//	  ⠋ ExplorerAgent(explore) · ► grep agent.go 2s · 3s
+//	  ✓ AnalyzerAgent(analyze) · finished · 1s
+//	  ⠋ subexplorer [sub-topic A] · ► read_file 1s
+func (r *Renderer) formatTaskLine(row *taskRow, frame string) string {
+	// Leading status icon.
+	var icon string
+	switch {
+	case !row.endTime.IsZero() && row.okFinished:
+		icon = pterm.FgGreen.Sprint("✓")
+	case !row.endTime.IsZero() && !row.okFinished:
+		icon = pterm.FgRed.Sprint("✗")
+	default:
+		icon = pterm.FgCyan.Sprint(frame)
+	}
+
+	// Label: distinguishes main-stage rows from sub-agent rows.
+	var label string
+	switch {
+	case row.agent == "" && row.stage != "":
+		// Collapsed marker row — render just the stage field as the label.
+		label = pterm.FgDarkGray.Sprint(row.stage)
+	case row.isSubAgent:
+		name := row.agent
+		if name == "" {
+			name = "subagent"
+		}
+		// Include the SubTaskCount when the batch has >1 sub-tasks,
+		// so a multi-sub-topic dispatch visibly shows "2 sub-tasks".
+		if row.subCount > 1 {
+			label = pterm.FgMagenta.Sprintf("%s[×%d]", name, row.subCount)
+		} else {
+			label = pterm.FgMagenta.Sprint(name)
+		}
+	default:
+		// Main stage row: "AnalyzerAgent(analyze)" style. Stage name
+		// in parentheses makes it obvious even when the same agent
+		// is dispatched in different stages (rare but possible).
+		agentLabel := formatAgent(types.AgentName(row.agent), 1)
+		// Strip the "(1)" count formatAgent appends — the per-row
+		// view doesn't need a count; the batch size is shown on
+		// sub-agent rows via [×N].
+		if idx := strings.LastIndex(agentLabel, "("); idx > 0 {
+			agentLabel = agentLabel[:idx]
+		}
+		label = pterm.FgWhite.Sprintf("%s(%s)", agentLabel, row.stage)
+	}
+
+	// Detail segment. For running rows with a live detail, show the
+	// per-phase elapsed; for completed rows, show total row elapsed.
+	var detailSeg string
+	switch {
+	case row.endTime.IsZero() && row.detail != "":
+		if row.detailDone {
+			detailSeg = pterm.FgGreen.Sprint("✓") + " " + pterm.FgDarkGray.Sprint(row.detail)
+		} else {
+			phaseElapsed := time.Since(row.detailStart).Truncate(time.Second)
+			detailSeg = pterm.FgCyan.Sprint("►") + " " + pterm.FgGray.Sprint(row.detail) +
+				" " + pterm.FgDarkGray.Sprint(phaseElapsed.String())
+		}
+	case !row.endTime.IsZero():
+		// Completed row: show total elapsed + tool count when > 0.
+		elapsed := row.endTime.Sub(row.startTime).Truncate(time.Second)
+		parts := []string{pterm.FgDarkGray.Sprint(elapsed.String())}
+		if row.toolCount > 0 {
+			parts = append(parts, pterm.FgDarkGray.Sprintf("%d tool%s", row.toolCount, pluralS(row.toolCount)))
+		}
+		if row.errorMsg != "" {
+			parts = append(parts, pterm.FgRed.Sprintf("error: %s", row.errorMsg))
+		}
+		detailSeg = strings.Join(parts, pterm.FgDarkGray.Sprint(" · "))
+	}
+
+	// Skip the trailing separator when the row has no agent (collapsed
+	// marker) or no detail segment.
+	if detailSeg == "" {
+		return fmt.Sprintf("  %s %s", icon, label)
+	}
+	return fmt.Sprintf("  %s %s %s %s",
+		icon, label, pterm.FgDarkGray.Sprint("·"), detailSeg)
+}
+
+// pluralS returns "s" when n != 1, "" otherwise. Renderer-local
+// plurality helper used by formatTaskLine's tool-count rendering.
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
 }
 
 // printAboveArea temporarily clears the pterm.Area, prints text to
