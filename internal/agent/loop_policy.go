@@ -2,6 +2,9 @@ package agent
 
 import (
 	"fmt"
+	"hash/fnv"
+
+	"github.com/hanchaoqun/codrax/internal/llm"
 )
 
 // loop_policy.go is the throttling / dedup / budget layer that sits
@@ -61,6 +64,25 @@ type LoopPolicy struct {
 	// Replaces explorer.idleStreakInDepth≥2 and
 	// subExplorer.idleStreak≥2 checks.
 	IdleStopThreshold int
+
+	// IdenticalToolCallAfterSuccessStreak caps byte-identical
+	// tool_use calls (same Name + same Params) at iter N+1 when the
+	// iter N tool call SUCCEEDED. 0 disables the check. Default 1:
+	// stop at the first identical repeat — a successful tool
+	// result already delivered what the LLM needed, a verbatim
+	// re-emit means the LLM is confused about state (e.g. the
+	// AnswerDocument was already written).
+	IdenticalToolCallAfterSuccessStreak int
+
+	// IdenticalToolCallAfterFailureStreak caps byte-identical
+	// tool_use calls when the previous tool call FAILED. 0 disables
+	// the check. Default 3: allow 2 retries (the LLM may need a
+	// turn or two to digest Fix α's aggregated error feedback), but
+	// stop on the 3rd identical repeat — non-learning LLMs start
+	// burning quota at that point. trace 1776450670620195562 showed
+	// the exact pattern: iter=0 rejected → iter=1 identical
+	// rejected → the 3rd attempt would have been the force-stop.
+	IdenticalToolCallAfterFailureStreak int
 }
 
 // DefaultLoopPolicy returns the policy BaseAgent installs when the
@@ -81,10 +103,12 @@ type LoopPolicy struct {
 //     and subExplorer.idleStreak>=2 exactly.
 func DefaultLoopPolicy() LoopPolicy {
 	return LoopPolicy{
-		MinInjectInterval: 3,
-		MaxContinuations:  5,
-		MaxMidLoopInjects: 6,
-		IdleStopThreshold: 2,
+		MinInjectInterval:                   3,
+		MaxContinuations:                    5,
+		MaxMidLoopInjects:                   6,
+		IdleStopThreshold:                   2,
+		IdenticalToolCallAfterSuccessStreak: 1,
+		IdenticalToolCallAfterFailureStreak: 3,
 	}
 }
 
@@ -130,6 +154,27 @@ type loopPolicyState struct {
 	// no longer need their own `lastToolCount` counter (the task
 	// explicitly called this out as "duplicate counter state").
 	lastToolResultCount int
+
+	// lastToolCallHash is the fnv-64 hash of (Name+Params) across
+	// the previous iteration's tool_use blocks. Zero before the
+	// first observation. Used by the identical-call detector to
+	// force-stop quota-burn loops where a non-learning LLM resends
+	// byte-identical payloads.
+	lastToolCallHash uint64
+
+	// identicalToolCallStreak counts consecutive iterations whose
+	// tool_use hash matches lastToolCallHash. Reset to 0 on any
+	// different payload. Compared against the shape-dependent
+	// threshold:
+	//   - previous call succeeded → IdenticalToolCallAfterSuccessStreak
+	//   - previous call failed    → IdenticalToolCallAfterFailureStreak
+	identicalToolCallStreak int
+
+	// lastToolCallSucceeded carries the Success bit of the previous
+	// iteration's LastToolResult so the identical-call detector can
+	// pick the success-vs-failure threshold. false when no previous
+	// call or previous failed.
+	lastToolCallSucceeded bool
 }
 
 // newLoopPolicyState constructs a fresh counter set under the given
@@ -258,6 +303,56 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 		s.idleStreak++
 	}
 
+	// Step 1c — identical-tool-call streak. Trace 1776450670620195562
+	// exposed the quota-burn pattern: emit_answer_document rejected
+	// on iter=0, LLM resent byte-identical payload on iter=1 (same
+	// forbidden field + same citations + same prose), got the same
+	// rejection, and would have repeated indefinitely if the OpenAI
+	// 429 quota hadn't intervened.
+	//
+	// The threshold branches on the previous iteration's tool
+	// result: after SUCCESS, any identical repeat means the LLM is
+	// confused about state and should stop immediately (default
+	// threshold 1); after FAILURE, a couple of retries are legit
+	// (the LLM may need a turn to digest Fix α's aggregated error
+	// feedback) so the default threshold is 3 (allow 2 retries,
+	// stop on the 3rd).
+	//
+	// Only fires at PhaseMidLoop with non-empty tool_use blocks;
+	// PhaseSoftStop carries no tool calls by contract.
+	if phase == PhaseMidLoop && len(obs.Response.ToolCalls) > 0 {
+		h := hashToolCalls(obs.Response.ToolCalls)
+		if s.lastToolCallHash != 0 && h == s.lastToolCallHash {
+			s.identicalToolCallStreak++
+		} else {
+			s.identicalToolCallStreak = 0
+		}
+		s.lastToolCallHash = h
+		var threshold int
+		var mode string
+		if s.lastToolCallSucceeded {
+			threshold = s.policy.IdenticalToolCallAfterSuccessStreak
+			mode = "after success"
+		} else {
+			threshold = s.policy.IdenticalToolCallAfterFailureStreak
+			mode = "after failure"
+		}
+		if threshold > 0 && s.identicalToolCallStreak >= threshold {
+			return LoopResult{
+				Outcome: OutcomeStop,
+				Reason: fmt.Sprintf("identical tool call repeated %d time(s) %s; stopping to avoid quota burn",
+					s.identicalToolCallStreak, mode),
+			}
+		}
+	}
+	// Record whether THIS iteration's tool call succeeded so the
+	// NEXT Apply call can pick the correct threshold. Obs.LastToolResult
+	// is the result of the call that just ran; nil on the first
+	// iteration before any tool executed.
+	if obs.LastToolResult != nil {
+		s.lastToolCallSucceeded = obs.LastToolResult.Success
+	}
+
 	// Step 2 — explicit stop.
 	if sig.StopRequested {
 		reason := "evaluator stop"
@@ -324,4 +419,27 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 		}
 	}
 	return LoopResult{Outcome: OutcomeContinue}
+}
+
+// hashToolCalls builds an fnv-64 hash over (Name, Params) of every
+// tool_use block in a response. Used by the identical-call streak
+// detector to compare consecutive iterations without retaining the
+// full payloads (they can be large). ID is deliberately excluded:
+// the OpenAI / Anthropic SDKs assign fresh IDs per request, so two
+// semantically-identical calls get different IDs and the hash must
+// normalize past them. Order matters — a reordering of parallel
+// tool_use blocks between iterations is a real behaviour change
+// and should NOT hash-equal.
+func hashToolCalls(calls []llm.ToolCall) uint64 {
+	if len(calls) == 0 {
+		return 0
+	}
+	h := fnv.New64a()
+	for _, c := range calls {
+		_, _ = h.Write([]byte(c.Name))
+		_, _ = h.Write([]byte{0x1f})
+		_, _ = h.Write(c.Params)
+		_, _ = h.Write([]byte{0x1e})
+	}
+	return h.Sum64()
 }

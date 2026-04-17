@@ -806,3 +806,54 @@ func TestEmitAnswerDocument_ShapeAutoCorrect_RejectsNonZeroForbidden(t *testing.
 		t.Errorf("rejection must name the offending field: %q", res.Summary)
 	}
 }
+
+// TestEmitAnswerDocument_FailWithContext_AggregatesCitationWarnings pins
+// session-8 Fix α (trace 1776450670620195562): when the shape switch
+// rejects a call, the failure Summary must include every earlier
+// validation signal (shape correction note + citation grounding
+// warnings) so the LLM sees ALL problems on one retry instead of
+// fixing them one-at-a-time and burning tokens to a rate-limit.
+func TestEmitAnswerDocument_FailWithContext_AggregatesCitationWarnings(t *testing.T) {
+	graph := newDocGraph(map[string][]docSymbol{
+		"a.go": {{name: "Foo", line: 10, end: 30}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"a.go"},
+	})
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeStepList},
+	}
+
+	tool := &EmitAnswerDocument{}
+	// Failure cocktail in ONE call:
+	//   - shape=step_list forbids non-nil boolean{decision:"否"} — structural reject
+	//   - citations[0] references `wrong.go` not in Turn A ReadFiles — whitelist drop
+	//   - citations[1] has a fabricated quote on an indexed file — Tier-1 peer drop
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "x",
+		"boolean": map[string]interface{}{"decision": "否", "rationale": "r", "citation_ref": -1},
+		"steps":   []map[string]interface{}{{"index": 1, "description": "s1", "citation_ref": -1}},
+		"citations": []map[string]interface{}{
+			{"file": "wrong.go", "line": 5},
+			{"file": "a.go", "line": 15, "quote": "fabricated prose"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("expected reject, got success: %s", res.Summary)
+	}
+	// Primary error: the forbidden boolean field.
+	if !strings.Contains(res.Summary, "forbids boolean") {
+		t.Errorf("Summary must carry the primary structural error: %q", res.Summary)
+	}
+	// Aggregated: the citation warnings must be visible too.
+	if !strings.Contains(res.Summary, "Citation grounding") {
+		t.Errorf("Summary must include aggregated citation grounding warnings: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "wrong.go") {
+		t.Errorf("Summary must name the whitelist-dropped file: %q", res.Summary)
+	}
+}

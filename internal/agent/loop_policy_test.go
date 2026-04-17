@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -367,5 +368,149 @@ func TestDefaultLoopPolicy_HasHistoricalValues(t *testing.T) {
 	}
 	if p.IdleStopThreshold != 2 {
 		t.Errorf("IdleStopThreshold = %d, want 2", p.IdleStopThreshold)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Identical-call streak: force-stop when the LLM resends a byte-
+// identical tool_use after a rejection.
+// -----------------------------------------------------------------------------
+
+// midLoopObsWithCalls builds a PhaseMidLoop observation carrying tool
+// calls in the LLM response AND the previous iteration's tool result.
+// lastResult drives the identical-call streak's success/failure
+// dispatch. AllToolResults grows with each iter so the policy's
+// implicit-progress detection does NOT trigger the idle-streak
+// force-stop — we want the identical-call rule to be the sole
+// exit path in these tests.
+func midLoopObsWithCalls(iter int, calls []llm.ToolCall, lastResult *types.ToolResult) LoopObservation {
+	// Fake N+1 tool results so the policy sees toolGrowth > 0 every
+	// iter → idle streak stays reset, isolating the rule under test.
+	results := make([]types.ToolResult, iter+1)
+	return LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      iter,
+		Response:       llm.Response{ToolCalls: calls},
+		LastToolResult: lastResult,
+		AllToolResults: results,
+	}
+}
+
+func successResult() *types.ToolResult   { return &types.ToolResult{Success: true} }
+func failureResult() *types.ToolResult   { return &types.ToolResult{Success: false} }
+
+// TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately — after the
+// previous tool call SUCCEEDED and the LLM sends a byte-identical
+// payload, Apply force-stops at threshold 1. This catches the
+// "LLM is confused about state" pattern (successful emit_answer_document
+// already wrote the doc; re-emit adds nothing).
+func TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	calls := []llm.ToolCall{
+		{Name: "emit_answer_document", Params: []byte(`{"shape":"explanation","summary":"x"}`)},
+	}
+
+	// iter=0 — no prior call, nothing to compare against.
+	r0 := s.Apply(PhaseMidLoop, midLoopObsWithCalls(0, calls, successResult()), LoopSignal{})
+	if r0.Outcome != OutcomeContinue {
+		t.Errorf("iter=0 first occurrence must Continue, got %v (%s)", r0.Outcome, r0.Reason)
+	}
+
+	// iter=1 — identical payload AND previous succeeded → threshold=1
+	// streak=1 → force stop.
+	r1 := s.Apply(PhaseMidLoop, midLoopObsWithCalls(1, calls, successResult()), LoopSignal{})
+	if r1.Outcome != OutcomeStop {
+		t.Fatalf("identical after success must force stop: got %v (%s)",
+			r1.Outcome, r1.Reason)
+	}
+	if !strings.Contains(r1.Reason, "after success") {
+		t.Errorf("stop reason must name success mode, got %q", r1.Reason)
+	}
+}
+
+// TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries — after a
+// FAILED previous call, the LLM gets two retry rounds before the
+// force-stop kicks in (threshold 3). Matches trace 1776450670620195562
+// where iter=0 failed + iter=1 identical failed, and the 3rd attempt
+// would be stopped.
+func TestLoopPolicy_IdenticalAfterFailure_AllowsTwoRetries(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	calls := []llm.ToolCall{
+		{Name: "emit_answer_document", Params: []byte(`{"shape":"step_list","boolean":{"decision":"否"}}`)},
+	}
+
+	// iter=0 — first call, failed. Streak=0.
+	r0 := s.Apply(PhaseMidLoop, midLoopObsWithCalls(0, calls, failureResult()), LoopSignal{})
+	if r0.Outcome != OutcomeContinue {
+		t.Fatalf("iter=0 must continue, got %v (%s)", r0.Outcome, r0.Reason)
+	}
+	// iter=1 — first retry after failure. Streak=1 < threshold=3 → allow.
+	r1 := s.Apply(PhaseMidLoop, midLoopObsWithCalls(1, calls, failureResult()), LoopSignal{})
+	if r1.Outcome != OutcomeContinue {
+		t.Fatalf("retry #1 after failure must continue, got %v (%s)", r1.Outcome, r1.Reason)
+	}
+	// iter=2 — second retry. Streak=2 < threshold=3 → still allow.
+	r2 := s.Apply(PhaseMidLoop, midLoopObsWithCalls(2, calls, failureResult()), LoopSignal{})
+	if r2.Outcome != OutcomeContinue {
+		t.Fatalf("retry #2 after failure must continue, got %v (%s)", r2.Outcome, r2.Reason)
+	}
+	// iter=3 — third retry. Streak=3 ≥ threshold=3 → force stop.
+	r3 := s.Apply(PhaseMidLoop, midLoopObsWithCalls(3, calls, failureResult()), LoopSignal{})
+	if r3.Outcome != OutcomeStop {
+		t.Fatalf("retry #3 after failure must stop (exhausted 2 retries): got %v (%s)",
+			r3.Outcome, r3.Reason)
+	}
+	if !strings.Contains(r3.Reason, "after failure") {
+		t.Errorf("stop reason must name failure mode, got %q", r3.Reason)
+	}
+}
+
+// TestLoopPolicy_IdenticalResetsOnChange — any variation in Name or
+// Params clears the streak. Exercises the "LLM learned something"
+// path (the retry feedback from Fix α's aggregated warnings should
+// cause different params → streak reset).
+func TestLoopPolicy_IdenticalResetsOnChange(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	c1 := []llm.ToolCall{{Name: "emit_answer_document", Params: []byte(`{"x":1}`)}}
+	c2 := []llm.ToolCall{{Name: "emit_answer_document", Params: []byte(`{"x":2}`)}}
+
+	s.Apply(PhaseMidLoop, midLoopObsWithCalls(0, c1, successResult()), LoopSignal{})
+	// Previous succeeded, but params differ — no stop.
+	r := s.Apply(PhaseMidLoop, midLoopObsWithCalls(1, c2, successResult()), LoopSignal{})
+	if r.Outcome != OutcomeContinue {
+		t.Errorf("different payload must not stop; got %v (%s)", r.Outcome, r.Reason)
+	}
+}
+
+// TestLoopPolicy_IdenticalDisabledWhenZero — both thresholds at 0
+// disables the gate entirely (backward-compat escape hatch).
+func TestLoopPolicy_IdenticalDisabledWhenZero(t *testing.T) {
+	s := newTestPolicyState(LoopPolicy{
+		IdenticalToolCallAfterSuccessStreak: 0,
+		IdenticalToolCallAfterFailureStreak: 0,
+	})
+
+	calls := []llm.ToolCall{{Name: "X", Params: []byte(`{}`)}}
+	s.Apply(PhaseMidLoop, midLoopObsWithCalls(0, calls, successResult()), LoopSignal{})
+	r := s.Apply(PhaseMidLoop, midLoopObsWithCalls(1, calls, successResult()), LoopSignal{})
+	if r.Outcome == OutcomeStop {
+		t.Errorf("thresholds=0 must disable the gate; got stop")
+	}
+}
+
+// TestLoopPolicy_IdenticalOnlyAtMidLoop — PhaseSoftStop has no tool
+// calls by contract, so the hash path never fires. Protects against
+// false positives on the soft-stop path.
+func TestLoopPolicy_IdenticalOnlyAtMidLoop(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	r1 := s.Apply(PhaseSoftStop, softStopObsFixture(0, nil), LoopSignal{})
+	_ = r1
+	r2 := s.Apply(PhaseSoftStop, softStopObsFixture(1, nil), LoopSignal{})
+	if strings.Contains(r2.Reason, "identical tool call") {
+		t.Errorf("soft-stop path must not trip identical-call rule, got %q", r2.Reason)
 	}
 }

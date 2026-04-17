@@ -403,6 +403,43 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		logging.Warning("[emit_answer_document] citation grounding: kept=%d dropped=%d warnings=%d", numCites, dropped, len(citationWarnings))
 	}
 
+	// Fix α (trace 1776450670620195562): failure paths must surface
+	// every validation signal collected so far, not just the first
+	// structural error that fires. Previously the shape-switch
+	// rejectForbiddenFields error drowned out the citation warnings
+	// ("kept=0 dropped=3 warnings=6") — the LLM on retry saw only
+	// "forbids boolean{}", fixed nothing else, and resent a
+	// byte-identical payload that got the SAME error. Two iterations
+	// of that pattern burned the OpenAI quota.
+	// failWithContext concatenates:
+	//   (1) the primary error (usually a forbidden-field or
+	//       required-field violation)
+	//   (2) the shape-correction note if the auto-correct path fired
+	//   (3) every citation-grounding warning (whitelist miss, Tier 2
+	//       dead-zone, fabricated-quote drop, …)
+	// so one retry round has a shot at fixing all of it.
+	failWithContext := func(format string, args ...interface{}) (types.ToolResult, error) {
+		var b strings.Builder
+		fmt.Fprintf(&b, format, args...)
+		if shapeCorrectionNote != "" {
+			b.WriteString("\n\nShape correction: ")
+			b.WriteString(shapeCorrectionNote)
+		}
+		if len(citationWarnings) > 0 {
+			b.WriteString("\n\nCitation grounding (fix these on the same retry):")
+			for _, w := range citationWarnings {
+				b.WriteString("\n  - ")
+				b.WriteString(w)
+			}
+		}
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   b.String(),
+			Timestamp: now,
+		}, nil
+	}
+
 	doc := &types.AnswerDocument{
 		Shape:     shape,
 		Summary:   strings.TrimSpace(p.Summary),
@@ -415,24 +452,24 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	switch shape {
 	case types.ShapeListOfSymbols:
 		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		if len(p.Symbols) == 0 {
-			return failEmit(t.Name(), now, "shape=list_of_symbols requires symbols[] with at least one entry")
+			return failWithContext("shape=list_of_symbols requires symbols[] with at least one entry")
 		}
 		claimRaw := strings.ToLower(strings.TrimSpace(p.SymbolsCompleteness))
 		if claimRaw == "" {
-			return failEmit(t.Name(), now, "shape=list_of_symbols requires symbols_completeness (one of: complete, lower_bound, unknown)")
+			return failWithContext("shape=list_of_symbols requires symbols_completeness (one of: complete, lower_bound, unknown)")
 		}
 		claim, cok := emitAnswerSymbolAllowedCompleteness[claimRaw]
 		if !cok {
-			return failEmit(t.Name(), now, "unknown symbols_completeness value %q (allowed: complete, lower_bound, unknown)", p.SymbolsCompleteness)
+			return failWithContext("unknown symbols_completeness value %q (allowed: complete, lower_bound, unknown)", p.SymbolsCompleteness)
 		}
 		built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 		for i, in := range p.Symbols {
 			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
 			if perr != nil {
-				return failEmit(t.Name(), now, "symbols[%d]: %v", i, perr)
+				return failWithContext("symbols[%d]: %v", i, perr)
 			}
 			built = append(built, sym)
 		}
@@ -441,14 +478,14 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 
 	case types.ShapeStepList:
 		if err := rejectForbiddenFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		if len(p.Steps) == 0 {
-			return failEmit(t.Name(), now, "shape=step_list requires steps[] with at least one entry")
+			return failWithContext("shape=step_list requires steps[] with at least one entry")
 		}
 		for i := range p.Steps {
 			if err := validateStep(&p.Steps[i], i, numCites); err != nil {
-				return failEmit(t.Name(), now, "%v", err)
+				return failWithContext("%v", err)
 			}
 			p.Steps[i].Description = strings.TrimSpace(p.Steps[i].Description)
 		}
@@ -456,38 +493,38 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 
 	case types.ShapeValue:
 		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		if p.Value == nil {
-			return failEmit(t.Name(), now, "shape=value requires value{literal, citation_ref}")
+			return failWithContext("shape=value requires value{literal, citation_ref}")
 		}
 		if err := validateValueField(p.Value, false, numCites); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		doc.Value = p.Value
 
 	case types.ShapeConfigValue:
 		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		if p.Value == nil {
-			return failEmit(t.Name(), now, "shape=config_value requires value{key, literal, citation_ref}")
+			return failWithContext("shape=config_value requires value{key, literal, citation_ref}")
 		}
 		if err := validateValueField(p.Value, true, numCites); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		doc.Value = p.Value
 
 	case types.ShapeBoolean:
 		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		if p.Boolean == nil {
-			return failEmit(t.Name(), now, "shape=boolean requires boolean{decision, rationale, citation_ref}")
+			return failWithContext("shape=boolean requires boolean{decision, rationale, citation_ref}")
 		}
 		bl, berr := buildEmitAnswerDocumentBoolean(p.Boolean, numCites)
 		if berr != nil {
-			return failEmit(t.Name(), now, "%v", berr)
+			return failWithContext("%v", berr)
 		}
 		doc.Boolean = bl
 
@@ -500,14 +537,14 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		// required in this mode — the skeleton is auxiliary, not the
 		// answer body. steps / value / boolean remain forbidden.
 		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
-			return failEmit(t.Name(), now, "%v", err)
+			return failWithContext("%v", err)
 		}
 		if len(p.Symbols) > 0 {
 			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 			for i, in := range p.Symbols {
 				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
 				if perr != nil {
-					return failEmit(t.Name(), now, "symbols[%d]: %v", i, perr)
+					return failWithContext("symbols[%d]: %v", i, perr)
 				}
 				built = append(built, sym)
 			}
@@ -517,7 +554,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			// renderer can branch on "skeleton vs. enumeration".
 		}
 		if strings.TrimSpace(p.Summary) == "" {
-			return failEmit(t.Name(), now, "shape=explanation requires a non-empty summary")
+			return failWithContext("shape=explanation requires a non-empty summary")
 		}
 	}
 
