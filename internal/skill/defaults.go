@@ -128,9 +128,10 @@ Completeness honesty contract (list_of_symbols only):
 - "lower_bound" — symbols are confirmed present, more may exist. Honest default when you cannot confidently reach the floor.
 - "unknown" — investigated but no definitive slate. Renderer drops the section entirely and falls back to the shape-based prompt.
 
-Summary field:
-- For shape=explanation: the summary IS the answer body — write a thorough, multi-paragraph explanation that fully addresses the user's question. Include code-level specifics, cross-file relationships, and mechanism details. Match the depth of the answer to the depth of the question. No character limit.
-- For other shapes (list_of_symbols / step_list / value / boolean / config_value): the summary is a concise lead-in (1-3 sentences) that frames the structured payload below. Keep it brief — the structured fields carry the answer.
+Summary field (per-shape length caps enforced by the schema):
+- shape=explanation — Summary IS the answer body. Up to 2500 chars. Write a thorough multi-paragraph explanation that fully addresses the user's question: mechanism details, code-level specifics, cross-file relationships. Organize with short markdown headers when covering multiple sub-topics. Match the depth of the answer to the depth of the question.
+- shape=list_of_symbols / step_list / boolean — Summary is a 1-3 sentence lead-in framing the structured payload. Up to 500 chars. Keep it brief; the structured fields carry the answer.
+- shape=value / config_value — Summary is a 1-sentence lead-in before the scalar literal. Up to 300 chars.
 
 Diagrams: when a visual would clarify the answer, use Mermaid fenced code blocks in the summary field. Prefer flowchart for control flow, sequenceDiagram for call chains, classDiagram for type hierarchies. Keep diagrams concise — collapse trivial nodes, label edges. Only use when it adds clarity.
 

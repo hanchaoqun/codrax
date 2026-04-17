@@ -73,15 +73,56 @@ type AnswerDocument struct {
 	Caveats   []string   `json:"caveats,omitempty"`
 }
 
-// AnswerDocumentMaxSummaryChars caps the LLM-authored Summary field.
-// The finalizer's prompt instructs the LLM to keep Summary to one or
-// two sentences; this cap is the structural enforcement. Values above
-// the cap are rejected by the emit_answer_document schema validator.
-//
-// 500 chars is chosen because two typical sentences in English or
-// Chinese fit comfortably under 400; 500 gives room for dense
-// technical phrasing without opening Summary as a prose escape.
+// AnswerDocumentMaxSummaryChars caps the LLM-authored Summary field
+// for shapes where Summary is a lead-in, not the answer body. Kept as
+// a top-level const for backwards compatibility with tests that
+// explicitly reference the 500-char floor; new code should call
+// SummaryCapFor(shape) which dispatches off SummaryCapByShape.
 const AnswerDocumentMaxSummaryChars = 500
+
+// SummaryCapByShape is the per-shape Summary length ceiling enforced
+// by emit_answer_document. Different shapes use Summary for different
+// purposes so a single number misserves some of them:
+//
+//   - ShapeExplanation: Summary IS the answer body. The LLM is
+//     instructed to produce a thorough, multi-paragraph explanation
+//     with code-level specifics, cross-file relationships, and
+//     mechanism details. 2500 chars comfortably fits 4-6 paragraphs
+//     plus a Mermaid diagram without opening summary as an unbounded
+//     prose escape. The earlier 500-char limit contradicted the
+//     skill prompt's "no character limit" clause and forced the
+//     finalizer to burn retry budget trimming a 900-char answer down
+//     to a 440-char summary that dropped half the content.
+//
+//   - ShapeValue / ShapeConfigValue: Summary is a 1-sentence lead-in
+//     before a scalar literal. 300 chars keeps it tight.
+//
+//   - ShapeListOfSymbols / ShapeStepList / ShapeBoolean: Summary is
+//     a 1-3 sentence lead-in before structured payload (the list,
+//     the step sequence, the boolean+rationale). 500 chars matches
+//     the old cap and works well for these shapes.
+//
+// ShapeNone is absent from the map by design — no-shape answers are
+// rejected upstream.
+var SummaryCapByShape = map[AnswerShape]int{
+	ShapeExplanation: 2500,
+	ShapeValue:       300,
+	ShapeConfigValue: 300,
+	ShapeListOfSymbols: AnswerDocumentMaxSummaryChars,
+	ShapeStepList:      AnswerDocumentMaxSummaryChars,
+	ShapeBoolean:       AnswerDocumentMaxSummaryChars,
+}
+
+// SummaryCapFor returns the Summary length ceiling for the given
+// shape. Unknown shapes fall back to AnswerDocumentMaxSummaryChars so
+// a future shape addition that forgets to extend the map does not
+// silently uncap.
+func SummaryCapFor(shape AnswerShape) int {
+	if cap, ok := SummaryCapByShape[shape]; ok {
+		return cap
+	}
+	return AnswerDocumentMaxSummaryChars
+}
 
 // CitationRefUnset is the sentinel value used when a typed field
 // (AnswerStep, AnswerValue, AnswerBoolean) has no backing citation in

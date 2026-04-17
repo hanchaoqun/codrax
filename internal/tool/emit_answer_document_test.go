@@ -346,15 +346,55 @@ func TestEmitAnswerDocument_Explanation_Happy(t *testing.T) {
 // -------- cross-cutting validators --------
 
 func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {
+	// 2026-04-17: summary cap is now per-shape (SummaryCapByShape).
+	// Exercise all three tiers so a future shape addition that forgets
+	// to populate the map gets caught here (via the default fallback).
+	cases := []struct {
+		shape types.AnswerShape
+		cap   int
+		extra map[string]interface{}
+	}{
+		{types.ShapeExplanation, types.SummaryCapFor(types.ShapeExplanation), nil},
+		{types.ShapeValue, types.SummaryCapFor(types.ShapeValue), map[string]interface{}{
+			"value": map[string]interface{}{"literal": "x", "citation_ref": -1},
+		}},
+		{types.ShapeBoolean, types.SummaryCapFor(types.ShapeBoolean), map[string]interface{}{
+			"boolean": map[string]interface{}{"decision": "true", "rationale": "r", "citation_ref": -1},
+		}},
+	}
+	for _, tc := range cases {
+		payload := map[string]interface{}{
+			"shape":   string(tc.shape),
+			"summary": strings.Repeat("a", tc.cap+1),
+		}
+		for k, v := range tc.extra {
+			payload[k] = v
+		}
+		tool := &EmitAnswerDocument{}
+		res, _ := tool.Execute(newDocBusCtx(""), mustDocJSON(t, payload))
+		if res.Success {
+			t.Errorf("shape=%s with summary %d (cap %d): must reject, got success", tc.shape, tc.cap+1, tc.cap)
+		}
+	}
+}
+
+// TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation locks in the
+// 2026-04-17 change: explanation shape now accepts summaries up to
+// 2500 chars (multi-paragraph answer body). The old 500-char cap
+// forced finalizers to burn retries trimming legitimate prose.
+func TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation(t *testing.T) {
 	tool := &EmitAnswerDocument{}
-	longSummary := strings.Repeat("a", types.AnswerDocumentMaxSummaryChars+1)
+	// 1500 chars: above the historical 500 cap, well under the new
+	// 2500 cap. Proves the explanation path uses the generous cap.
+	longEnough := strings.Repeat("abcde ", 300) // 1800 chars
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
-		"summary": longSummary,
+		"summary": longEnough,
 	})
 	res, _ := tool.Execute(newDocBusCtx(""), params)
-	if res.Success {
-		t.Error("over-cap summary: Success = true, want false")
+	if !res.Success {
+		t.Errorf("1800-char explanation summary: must accept (cap=%d), got rejection: %s",
+			types.SummaryCapFor(types.ShapeExplanation), res.Summary)
 	}
 }
 

@@ -115,8 +115,10 @@ func (t *EmitAnswerDocument) Description() string {
 		"SHARED POOL; every steps[].citation_ref / value.citation_ref / boolean.citation_ref / " +
 		"symbols is an integer INDEX into that pool (zero-based), or -1 when no citation backs " +
 		"the entry. Every citation MUST have file (repo-relative), line > 0, and file must NOT live " +
-		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field, capped at 500 chars — " +
-		"use it for the one-sentence lead-in, not for the answer body. " +
+		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field, with a per-shape " +
+		"length cap: explanation → up to 2500 chars (Summary IS the answer body — write a " +
+		"thorough multi-paragraph explanation), list_of_symbols / step_list / boolean → ≤500 " +
+		"chars lead-in, value / config_value → ≤300 chars lead-in. " +
 		"\n\n" +
 		"IMPORTANT — citation quote field: the quote is OPTIONAL but when provided it MUST be a " +
 		"VERBATIM copy of the characters at file:line from the read_file gutter (exact whitespace " +
@@ -140,7 +142,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
     "shape": {"type": "string", "enum": ["list_of_symbols", "step_list", "value", "boolean", "config_value", "explanation"], "description": "Closed enum of answer shapes. REQUIRED. Choose the shape the analyzer declared in the prompt's AnswerContract section."},
-    "summary": {"type": "string", "description": "LLM-authored lead-in prose, 1-2 sentences, ≤500 chars. The only prose field. REQUIRED for 'explanation' shape, optional for all others."},
+    "summary": {"type": "string", "description": "LLM-authored prose. Per-shape cap: explanation ≤2500 chars (Summary IS the answer body — multi-paragraph OK), list_of_symbols / step_list / boolean ≤500 chars (lead-in only), value / config_value ≤300 chars (lead-in only). REQUIRED for 'explanation'; optional for all others."},
     "steps": {
       "type": "array",
       "description": "Ordered steps for shape=step_list. REQUIRED for step_list; must be empty for all other shapes.",
@@ -346,10 +348,19 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		p.Boolean = nil
 	}
 
-	if len(p.Summary) > types.AnswerDocumentMaxSummaryChars {
+	// Shape-tiered Summary cap. explanation shape uses Summary as
+	// the answer body and gets a generous ceiling (2500 chars, room
+	// for 4-6 paragraphs); other shapes use Summary as a lead-in
+	// and keep the historical tighter limit. See SummaryCapByShape
+	// for the per-shape table. The prior single-value 500-char cap
+	// contradicted the skill prompt's "no character limit for
+	// explanation" clause and forced the finalizer to burn retries
+	// trimming legitimate prose.
+	summaryCap := types.SummaryCapFor(shape)
+	if len(p.Summary) > summaryCap {
 		return failEmit(t.Name(), now,
-			"summary length %d exceeds cap %d — Summary is the only prose field and must stay brief",
-			len(p.Summary), types.AnswerDocumentMaxSummaryChars)
+			"summary length %d exceeds cap %d for shape=%s — shorten the summary; cap is per-shape (see SummaryCapByShape)",
+			len(p.Summary), summaryCap, shape)
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
