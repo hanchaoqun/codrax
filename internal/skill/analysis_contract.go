@@ -285,7 +285,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("When the user's question contains multiple independently-answerable sub-topics, list each in sub_topics. Rules:\n")
 	of.WriteString("- Each sub_topic has a one-sentence summary and its own entities\n")
 	of.WriteString("- Do NOT split topics that depend on each other (e.g. \"X是什么，它怎么影响Y\" → one topic)\n")
-	of.WriteString("- DO split genuinely independent questions (e.g. \"pipeline有几个stage？emit_analysis有哪些字段？\" → two topics)\n")
+	of.WriteString("- DO split genuinely independent questions (e.g. \"快速排序的平均时间复杂度是多少？它是稳定排序吗？\" → two topics — one asks for a complexity class, the other asks for a boolean property)\n")
 	of.WriteString("- When sub_topics is non-empty, answer_shape MUST be explanation\n")
 	of.WriteString("- When unsure, do NOT split (empty array is safe)\n")
 	of.WriteString("- Maximum 5 sub-topics\n\n")
