@@ -411,10 +411,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		tool.SetAnalysisLimits(analysisLimits)
 
 		// Evidence grounding policy — overridden by codrax.yaml
-		// evidence_grounding_floor (default 0.5 per design pick #3).
+		// evidence_grounding_floor (default 0.5) and evidence_tier1_floor
+		// (default 0.3, session-8 upstream-intercept of pure-recovery
+		// investigations).
 		groundingPolicy := tool.DefaultGroundingPolicy()
 		if rs.EvidenceGroundingFloor != nil {
 			groundingPolicy.GroundingFloor = *rs.EvidenceGroundingFloor
+		}
+		if rs.EvidenceTier1Floor != nil {
+			groundingPolicy.Tier1Floor = *rs.EvidenceTier1Floor
 		}
 		tool.SetGroundingPolicy(groundingPolicy)
 

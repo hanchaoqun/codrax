@@ -103,6 +103,14 @@ type RuntimeSettings struct {
 	//     grounded. Default 0.5.
 	EvidenceGroundingFloor *float64 `yaml:"evidence_grounding_floor"`
 
+	//   - evidence_tier1_floor: minimum (Tier-1 proven grounded /
+	//     total) ratio required by emit_investigation_complete.
+	//     Range [0, 1]. 0 disables. Default 0.3. Blocks pure-recovery
+	//     investigations where the LLM never read_file'd the cited
+	//     sources; the finalizer grounder's stricter Tier 2 would
+	//     otherwise drop every such citation at cite time.
+	EvidenceTier1Floor *float64 `yaml:"evidence_tier1_floor"`
+
 	// Pipeline budget knobs. Flat-prefixed `pipeline_*`. Precedence:
 	// code default → codrax.yaml → CLI flag.
 	PipelineMaxSteps           *int `yaml:"pipeline_max_steps"`
