@@ -82,18 +82,21 @@ type emitEvidenceParams struct {
 }
 
 type emitEvidenceItem struct {
-	Kind         string `json:"kind"`
-	Subject      string `json:"subject,omitempty"`
-	Predicate    string `json:"predicate,omitempty"`
-	Object       string `json:"object,omitempty"`
-	Source       string `json:"source"`
-	LineStart    int    `json:"line_start,omitempty"`
-	LineEnd      int    `json:"line_end,omitempty"`
-	Condition    string `json:"condition,omitempty"`
-	Summary      string `json:"summary,omitempty"`
-	AnchorKind   string `json:"anchor_kind"`
-	AnchorSymbol string `json:"anchor_symbol"`
-	Snippet      string `json:"snippet,omitempty"`
+	Kind         string  `json:"kind"`
+	Subject      string  `json:"subject,omitempty"`
+	Predicate    string  `json:"predicate,omitempty"`
+	Object       string  `json:"object,omitempty"`
+	Source       string  `json:"source"`
+	// LineStart / LineEnd use FlexInt so LLMs that emit numeric
+	// strings ("42") or floats (42.0) pass strict schema validation
+	// instead of failing the whole batch on format pedantry.
+	LineStart    FlexInt `json:"line_start,omitempty"`
+	LineEnd      FlexInt `json:"line_end,omitempty"`
+	Condition    string  `json:"condition,omitempty"`
+	Summary      string  `json:"summary,omitempty"`
+	AnchorKind   string  `json:"anchor_kind"`
+	AnchorSymbol string  `json:"anchor_symbol"`
+	Snippet      string  `json:"snippet,omitempty"`
 }
 
 // EmitEvidenceProducer is the Producer string stamped on every item
@@ -261,14 +264,16 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	if isInsideWorkDir(source, workDir) {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file. Re-cite the original repo path that the blob was extracted from.", index, in.Source, workDir)
 	}
-	if in.LineStart <= 0 {
+	lineStartN := in.LineStart.Int()
+	lineEndN := in.LineEnd.Int()
+	if lineStartN <= 0 {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_start is required and must be > 0 (emit the exact gutter line from read_file, never estimate)", index)
 	}
-	if in.LineEnd < 0 {
+	if lineEndN < 0 {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_end must be >= 0", index)
 	}
-	if in.LineEnd > 0 && in.LineEnd < in.LineStart {
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_end (%d) is before line_start (%d)", index, in.LineEnd, in.LineStart)
+	if lineEndN > 0 && lineEndN < lineStartN {
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: line_end (%d) is before line_start (%d)", index, lineEndN, lineStartN)
 	}
 	if kind == types.EvidenceRelationship && strings.TrimSpace(in.Object) == "" {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: relationship items require object", index)
@@ -296,8 +301,8 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	condition := strings.TrimSpace(in.Condition)
 	summary := strings.TrimSpace(in.Summary)
 	snippet := strings.TrimSpace(in.Snippet)
-	lineStart := in.LineStart
-	lineEnd := in.LineEnd
+	lineStart := lineStartN
+	lineEnd := lineEndN
 	if lineEnd == 0 {
 		lineEnd = lineStart
 	}

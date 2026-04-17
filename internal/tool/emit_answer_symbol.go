@@ -70,12 +70,12 @@ var emitAnswerSymbolAllowedCompleteness = map[string]types.CompletenessClaim{
 }
 
 type emitAnswerSymbolItem struct {
-	Name      string `json:"name"`
-	File      string `json:"file"`
-	Line      int    `json:"line"`
-	Kind      string `json:"kind"`
-	Chain     string `json:"chain,omitempty"`
-	Rationale string `json:"rationale,omitempty"`
+	Name      string  `json:"name"`
+	File      string  `json:"file"`
+	Line      FlexInt `json:"line"` // FlexInt absorbs LLMs that emit "42" instead of 42
+	Kind      string  `json:"kind"`
+	Chain     string  `json:"chain,omitempty"`
+	Rationale string  `json:"rationale,omitempty"`
 }
 
 // EmitAnswerSymbolProducer is the producer string stamped on every
@@ -223,8 +223,9 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	if isInsideWorkDir(file, workDir) {
 		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: file %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file. Re-cite the original repo path that the blob was extracted from.", index, in.File, workDir)
 	}
-	if in.Line <= 0 {
-		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: line must be > 0 (got %d). Pattern 2 line-hallucination guard — every answer symbol needs a concrete gutter line.", index, in.Line)
+	lineN := in.Line.Int()
+	if lineN <= 0 {
+		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: line must be > 0 (got %d). Pattern 2 line-hallucination guard — every answer symbol needs a concrete gutter line.", index, lineN)
 	}
 	kind, ok := types.NormalizeAnswerSymbolKind(in.Kind)
 	if !ok {
@@ -234,7 +235,7 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	return types.AnswerSymbol{
 		Name:      name,
 		File:      file,
-		Line:      in.Line,
+		Line:      lineN,
 		Kind:      kind,
 		Chain:     strings.TrimSpace(in.Chain),
 		Rationale: strings.TrimSpace(in.Rationale),

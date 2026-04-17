@@ -492,6 +492,27 @@ func (r *Renderer) findSubAgentRow(id string) *taskRow {
 	return nil
 }
 
+// topicSuffixRe matches compiler.expandEvidenceNodes's per-sub-topic
+// node ID shape: the literal prefix ends with `_tN` where N is the
+// zero-based sub-topic index. `n1_evidence_t2` → index 2.
+// When the node ID does not carry this suffix (single-topic path),
+// the match fails and the caller shows the default "[evidence]" tag.
+var topicSuffixRe = regexp.MustCompile(`_t(\d+)$`)
+
+func topicIndexFromNodeID(id string) (int, bool) {
+	m := topicSuffixRe.FindStringSubmatch(id)
+	if m == nil {
+		return 0, false
+	}
+	n := 0
+	// Index returned is already non-negative by regex construction;
+	// parse manually to avoid pulling in strconv for one call.
+	for _, c := range m[1] {
+		n = n*10 + int(c-'0')
+	}
+	return n, true
+}
+
 // findNodeRow returns the task-graph node row with the given nodeID,
 // or nil. Task-graph rows are appended once per AnalysisIR node at
 // EventAnalysisReady time and stay in place for the remainder of the
@@ -658,10 +679,20 @@ func (r *Renderer) formatTaskLine(row *taskRow, frame string) string {
 		// is dimmed so the objective — the part the user actually
 		// cares about — dominates. finalize is special-cased to a
 		// friendlier label since the canonical id ("finalize") is
-		// not informative as a summary.
+		// not informative as a summary. Multi-subtopic evidence rows
+		// get "[topic N]" instead of "[evidence]" so a user seeing
+		// three "[evidence]" lines in a row can tell at a glance
+		// which is which — the tag comes from the node ID suffix
+		// (`_tN`) that compiler.expandEvidenceNodes writes when
+		// len(rm.SubTopics) > 1.
 		kindTag := row.nodeKind
 		if kindTag == "" {
 			kindTag = "task"
+		}
+		if row.nodeKind == "evidence" {
+			if idx, ok := topicIndexFromNodeID(row.nodeID); ok {
+				kindTag = fmt.Sprintf("topic %d", idx+1)
+			}
 		}
 		text := row.objective
 		if text == "" {

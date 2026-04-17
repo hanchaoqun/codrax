@@ -537,7 +537,17 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		// into res.Violations so the retry-budget / requeue /
 		// pendingViolation branch below treats them uniformly with
 		// contract.Check failures.
-		envFin := buildEnv(out.FinalAnswer, len(extractCitationsFromAnswer(out.FinalAnswer)))
+		// DraftCitations counts the authoritative citation pool from
+		// the AnswerDocument, not from the rendered text. The text-
+		// regex path is a legacy fallback — list_of_symbols and
+		// step_list renderers inline cites against specific rows and
+		// never emit the whole pool as a bulleted list, so the regex
+		// only sees the subset visible in prose and the
+		// citation_count_ge criterion would under-count by 50-80%.
+		// Pool size is what the grounder actually validated and what
+		// the answer is underwritten by.
+		citationCount := finalizerCitationPoolSize(o.busCtx.Mutable, out)
+		envFin := buildEnv(out.FinalAnswer, citationCount)
 		scOK, scFailed := state.markSuccessCriteriaFailed(fin, envFin)
 
 		// Contract check.

@@ -92,3 +92,37 @@ func TestTruncByDisplayWidthZeroBudget(t *testing.T) {
 		t.Errorf("expected empty string for negative budget, got %q", got)
 	}
 }
+
+// TestTopicIndexFromNodeID covers the sub-topic row rename rule.
+// `_tN` suffix → N (0-based); absence → not-found. Single-topic
+// nodes (no suffix) must not trip the regex.
+func TestTopicIndexFromNodeID(t *testing.T) {
+	cases := []struct {
+		id       string
+		wantIdx  int
+		wantOK   bool
+	}{
+		// Multi-subtopic evidence nodes — compiler.expandEvidenceNodes
+		// writes "_tN" when len(rm.SubTopics) > 1.
+		{"n1_evidence_t0", 0, true},
+		{"n1_evidence_t1", 1, true},
+		{"n1_evidence_t9", 9, true},
+		{"n1_evidence_t12", 12, true},
+		// Single-topic / non-evidence nodes — no suffix.
+		{"n1_evidence", 0, false},
+		{"n0_probe", 0, false},
+		{"n4_finalize", 0, false},
+		{"", 0, false},
+		// Structural false-positives the regex must NOT match.
+		{"t1", 0, false},             // no "_" prefix on suffix
+		{"_t_notdigit", 0, false},    // digits required
+		{"n1_evidence_t1a", 0, false},// trailing char after digit
+	}
+	for _, c := range cases {
+		gotIdx, gotOK := topicIndexFromNodeID(c.id)
+		if gotOK != c.wantOK || gotIdx != c.wantIdx {
+			t.Errorf("topicIndexFromNodeID(%q) = (%d, %v), want (%d, %v)",
+				c.id, gotIdx, gotOK, c.wantIdx, c.wantOK)
+		}
+	}
+}

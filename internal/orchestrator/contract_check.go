@@ -138,6 +138,33 @@ func renderViolations(res contract.Result) string {
 	return strings.Join(parts, "; ")
 }
 
+// finalizerCitationPoolSize returns the authoritative citation count
+// to feed into criterion.Env.DraftCitations. The count is sourced in
+// this priority order:
+//
+//  1. Mutable.AnswerDocument().Citations — populated by
+//     emit_answer_document.Execute after grounding + remap. This is
+//     the exact pool the renderer consults.
+//  2. extractCitationsFromAnswer(out.FinalAnswer) — legacy text-regex
+//     fallback when the AnswerDocument was never set (test harnesses
+//     that route directly through StageOutput.FinalAnswer).
+//
+// The regex fallback under-counts on list_of_symbols / step_list
+// because those shapes inline citations into per-row renders and do
+// not emit the pool as a bulleted list. Using the pool count fixes
+// the "4 citations but orchestrator says 1" class of bugs.
+func finalizerCitationPoolSize(mut *types.MutableState, out *agent.StageOutput) int {
+	if mut != nil {
+		if doc := mut.AnswerDocument(); doc != nil && len(doc.Citations) > 0 {
+			return len(doc.Citations)
+		}
+	}
+	if out != nil {
+		return len(extractCitationsFromAnswer(out.FinalAnswer))
+	}
+	return 0
+}
+
 // appendViolationsToAnswer prepends a single visible warning line to
 // the final answer text when the contract checker has exhausted its
 // retry budget. The original answer is preserved beneath the warning

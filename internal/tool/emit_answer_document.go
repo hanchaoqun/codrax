@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -98,9 +99,9 @@ type emitAnswerDocumentParams struct {
 // straight into types.AnswerDocument; this one cannot because
 // types.AnswerBoolean.Decision is a bool.
 type emitAnswerDocumentBoolean struct {
-	Decision    string `json:"decision"`
-	Rationale   string `json:"rationale"`
-	CitationRef int    `json:"citation_ref"`
+	Decision    string  `json:"decision"`
+	Rationale   string  `json:"rationale"`
+	CitationRef FlexInt `json:"citation_ref"`
 }
 
 func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
@@ -282,6 +283,31 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			case types.ShapeStepList:
 				canCorrect = len(p.Steps) > 0
 			case types.ShapeValue, types.ShapeConfigValue:
+				// Numeric-enumeration bridge. "有几个 X" / "how many X"
+				// can reasonably be answered as a count (value shape)
+				// or as a list (list_of_symbols). When the analyzer
+				// picked value but the LLM answered with symbols[],
+				// synthesise value.literal from the symbol set
+				// instead of falling back to explanation:
+				//   - 1 symbol  → value.literal = symbols[0].name
+				//   - N symbols → value.literal = N (count)
+				// Either way the user's numeric intent is preserved.
+				// CitationRef stays unset because the pool mapping
+				// from symbols to value-anchor would be guesswork.
+				if (p.Value == nil || strings.TrimSpace(p.Value.Literal) == "") && len(p.Symbols) > 0 {
+					logging.Warning("[emit_answer_document] rescuing value{} from symbols[] (%d items)", len(p.Symbols))
+					var literal string
+					if len(p.Symbols) == 1 {
+						literal = p.Symbols[0].Name
+					} else {
+						literal = strconv.Itoa(len(p.Symbols))
+					}
+					if p.Value == nil {
+						p.Value = &types.AnswerValue{}
+					}
+					p.Value.Literal = literal
+					p.Value.CitationRef = types.CitationRefUnset
+				}
 				canCorrect = p.Value != nil && p.Value.Literal != ""
 			case types.ShapeBoolean:
 				canCorrect = p.Boolean != nil && p.Boolean.Decision != ""
@@ -529,13 +555,14 @@ func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int)
 	if !ok {
 		return nil, fmt.Errorf("boolean.decision %q is not one of: true, false, yes, no, 是, 否", in.Decision)
 	}
-	if err := validateCitationRef("boolean", 0, in.CitationRef, numCites); err != nil {
+	citationRef := in.CitationRef.Int()
+	if err := validateCitationRef("boolean", 0, citationRef, numCites); err != nil {
 		return nil, err
 	}
 	return &types.AnswerBoolean{
 		Decision:    decision,
 		Rationale:   rationale,
-		CitationRef: in.CitationRef,
+		CitationRef: citationRef,
 	}, nil
 }
 
@@ -645,7 +672,7 @@ func applyCitationRemap(p *emitAnswerDocumentParams, remap []int) {
 		p.Value.CitationRef = mapRef(p.Value.CitationRef)
 	}
 	if p.Boolean != nil {
-		p.Boolean.CitationRef = mapRef(p.Boolean.CitationRef)
+		p.Boolean.CitationRef = FlexInt(mapRef(p.Boolean.CitationRef.Int()))
 	}
 }
 
@@ -717,7 +744,7 @@ func slateToEmittedSymbols(slate []types.AnswerSymbol) []emitAnswerSymbolItem {
 		out = append(out, emitAnswerSymbolItem{
 			Name:      s.Name,
 			File:      s.File,
-			Line:      s.Line,
+			Line:      FlexInt(s.Line),
 			Kind:      string(s.Kind),
 			Chain:     s.Chain,
 			Rationale: s.Rationale,
