@@ -475,51 +475,50 @@ func TestBuildSubAgentContextFiltersEvidenceItemsByScope(t *testing.T) {
 	}
 }
 
-// TestFormatEvidenceItemsRendersUngroundedTag pins the P0.1 contract:
-// evidence items whose Producer carries the "/ungrounded" suffix
-// (assigned by agent.groundEvidenceItems when every validation tier
-// rejected the LLM-cited line number) must appear in the finalizer
-// prompt with a visible [UNGROUNDED: cite without line number] tag.
-// This upgrades the /ungrounded contract from prompt-level soft
-// constraint (set in finalizer.go) to a renderer-level visual marker
-// the LLM cannot miss. Mirrors roadmap item P0.1.
-func TestFormatEvidenceItemsRendersUngroundedTag(t *testing.T) {
+// TestFormatEvidenceItemsExcludesUngrounded pins the 2026-04-17
+// redesign contract: items with GroundingStatus=Ungrounded are
+// intentionally EXCLUDED from the Structured Evidence section and
+// instead flow through formatUnverifiedLeads into a dedicated
+// "Unverified Leads (not for citation)" section. This prevents the
+// finalizer from citing claims the grounder could not validate.
+// Recovered items remain in Structured Evidence with a [recovered]
+// tag so the LLM can tell "my line was right" from "the grounder
+// adjusted my line".
+func TestFormatEvidenceItemsExcludesUngrounded(t *testing.T) {
 	items := []types.EvidenceItem{
 		{
-			Kind:      types.EvidenceConcrete,
-			Subject:   "Handler.Name",
-			Predicate: "returns",
-			Object:    "\"explorer\"",
-			Source:    "internal/agent/explorer.go",
-			LineStart: 18,
-			Producer:  "explorer",
+			Kind:            types.EvidenceConcrete,
+			Subject:         "Handler.Name",
+			Predicate:       "returns",
+			Object:          "\"explorer\"",
+			Source:          "internal/agent/explorer.go",
+			LineStart:       18,
+			GroundingStatus: types.GroundingGrounded,
 		},
 		{
-			Kind:      types.EvidenceConcrete,
-			Subject:   "Register",
-			Predicate: "binds",
-			Object:    "NewExplorerAgent",
-			Source:    "internal/agent/registry.go",
-			// LineStart cleared by groundEvidenceItems when
-			// tier1+tier2 failed; Producer tagged.
-			Producer: "explorer/ungrounded",
+			Kind:            types.EvidenceConcrete,
+			Subject:         "Register",
+			Predicate:       "binds",
+			Object:          "NewExplorerAgent",
+			Source:          "internal/agent/registry.go",
+			LineStart:       77,
+			GroundingStatus: types.GroundingUngrounded,
 		},
 	}
 	out := formatEvidenceItems(items, 0)
-	if !strings.Contains(out, "[UNGROUNDED: cite without line number]") {
-		t.Fatalf("ungrounded evidence item missing visible tag:\n%s", out)
+	if !strings.Contains(out, "Handler.Name") {
+		t.Fatalf("grounded item missing from Structured Evidence:\n%s", out)
 	}
-	// Grounded items must NOT carry the tag — otherwise the LLM
-	// would strip line numbers from every cite.
-	for _, line := range strings.Split(out, "\n") {
-		if strings.Contains(line, "Handler.Name") && strings.Contains(line, "[UNGROUNDED") {
-			t.Fatalf("grounded item wrongly tagged ungrounded:\n%s", line)
-		}
+	if strings.Contains(out, "Register") {
+		t.Fatalf("ungrounded item leaked into Structured Evidence; must go to Unverified Leads:\n%s", out)
 	}
-	// Sanity: the ungrounded line must still render (demote, not
-	// drop — renderer stays purely presentational).
-	if !strings.Contains(out, "Register") {
-		t.Fatalf("ungrounded item dropped instead of demoted:\n%s", out)
+	// Leads render is covered by formatUnverifiedLeads directly:
+	leads := formatUnverifiedLeads(items, 0)
+	if !strings.Contains(leads, "Register") {
+		t.Fatalf("ungrounded item missing from Unverified Leads:\n%s", leads)
+	}
+	if !strings.Contains(leads, "not for citation") && !strings.Contains(leads, "do NOT emit") {
+		t.Fatalf("Unverified Leads section missing citation guard directive:\n%s", leads)
 	}
 }
 

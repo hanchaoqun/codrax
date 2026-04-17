@@ -75,6 +75,13 @@ type MutableState struct {
 	emittedAnswerSymbolCompleteness CompletenessClaim
 	emittedHypothesisVerdicts []HypothesisVerdict
 	turnAArtifacts           *TurnAArtifacts
+	// searchGraph is an opaque handle to the repomap.Graph produced by
+	// explorer.keywordSearch. Carried as `any` so internal/types stays
+	// decoupled from internal/tool/repomap — consumers (emit_evidence,
+	// grounding) type-assert on their own side. Set once per Run by
+	// the explorer's BuildInitialInstruction so downstream tools can
+	// share the same graph instance with zero I/O.
+	searchGraph any
 	// answerDocument is the structured final-answer payload. It is
 	// written by the emit_answer_document tool (one atomic set per
 	// dispatch) and read by the finalizer's ParseOutput to render the
@@ -270,6 +277,31 @@ func (m *MutableState) SetObjective(s string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.objective = s
+}
+
+// SearchGraph returns the opaque handle previously stored by
+// SetSearchGraph. Consumers that need a typed pointer must do a type
+// assertion in their own package so internal/types does not depend on
+// internal/tool/repomap.
+func (m *MutableState) SearchGraph() any {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.searchGraph
+}
+
+// SetSearchGraph stores the repomap graph so downstream tools (notably
+// emit_evidence's grounder) can reuse it without re-invoking
+// BuildOrLoadGraph. Pass nil to clear.
+func (m *MutableState) SetSearchGraph(g any) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.searchGraph = g
 }
 
 // Result returns the finalizer's final answer recorded for this run.

@@ -164,18 +164,39 @@ func TestRenderExplorerStageReport_NoSiblingProseLeak(t *testing.T) {
 }
 
 func TestRenderExplorerStageReport_UngroundedTagPreserved(t *testing.T) {
+	// Post 2026-04-17 redesign: GroundingStatus replaces the legacy
+	// "/ungrounded" Producer suffix. formatEvidenceLineForReport
+	// surfaces ungrounded items with a trailing [UNGROUNDED] tag so
+	// the finalizer still sees the trust-level marker.
 	evidence := []types.EvidenceItem{
 		{
 			Kind: types.EvidenceConcrete,
 			Subject: "X", Predicate: "Y", Object: "Z",
 			Source: "internal/agent/foo.go", LineStart: 10,
-			Producer: "explorer.llm/ungrounded",
+			GroundingStatus: types.GroundingUngrounded,
 		},
 	}
 	got := renderExplorerStageReport("mechanism", "value",
 		evidence, nil, nil, nil, nil, false)
 	if !strings.Contains(got, "[UNGROUNDED]") {
 		t.Errorf("ungrounded marker not preserved in render:\n%s", got)
+	}
+}
+
+func TestRenderExplorerStageReport_RecoveredTagPreserved(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			Kind: types.EvidenceConcrete,
+			Subject: "X", Predicate: "Y", Object: "Z",
+			Source: "internal/agent/foo.go", LineStart: 42,
+			GroundingStatus: types.GroundingRecovered,
+			GroundingTier:   types.TierFQNameSameFile,
+		},
+	}
+	got := renderExplorerStageReport("mechanism", "value",
+		evidence, nil, nil, nil, nil, false)
+	if !strings.Contains(got, "[recovered]") {
+		t.Errorf("recovered marker missing in render:\n%s", got)
 	}
 }
 

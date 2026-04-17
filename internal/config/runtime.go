@@ -94,6 +94,15 @@ type RuntimeSettings struct {
 	AnalysisWarnBelowKeywordHitRatio *float64 `yaml:"analysis_warn_below_keyword_hit_ratio"`
 	AnalysisWarnBelowEntityHitRatio  *float64 `yaml:"analysis_warn_below_entity_hit_ratio"`
 
+	// Evidence grounding knobs. `evidence_*` prefix mirrors the
+	// analysis_* namespace. Shipped with the 2026-04-17 redesign.
+	//
+	//   - evidence_grounding_floor: minimum (grounded + recovered) /
+	//     total ratio required by emit_investigation_complete. Range
+	//     [0, 1]. 0 disables the gate entirely; 1 requires every item
+	//     grounded. Default 0.5.
+	EvidenceGroundingFloor *float64 `yaml:"evidence_grounding_floor"`
+
 	// Pipeline budget knobs. Flat-prefixed `pipeline_*`. Precedence:
 	// code default → codrax.yaml → CLI flag.
 	PipelineMaxSteps           *int `yaml:"pipeline_max_steps"`

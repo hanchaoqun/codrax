@@ -17,8 +17,8 @@ func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
 	ctx := newEmitCtx()
 	params := json.RawMessage(`{
         "items": [
-          {"kind": "registration", "subject": "Foo", "object": "bar", "source": "internal/agent/foo.go", "line_start": 12, "summary": "Foo registers bar"},
-          {"kind": "direct", "subject": "isOK", "source": "internal/agent/foo.go", "line_start": 30, "summary": "isOK returns true"}
+          {"kind": "registration", "subject": "Foo", "object": "bar", "source": "internal/agent/foo.go", "line_start": 12, "summary": "Foo registers bar", "anchor_kind": "call", "anchor_symbol": "Register"},
+          {"kind": "direct", "subject": "isOK", "source": "internal/agent/foo.go", "line_start": 30, "summary": "isOK returns true", "anchor_kind": "definition", "anchor_symbol": "isOK"}
         ]
     }`)
 	res, err := tool.Execute(ctx, params)
@@ -166,7 +166,7 @@ func TestEmitEvidence_StableIDDedups(t *testing.T) {
 	// downstream merger can dedup. Verify the IDs are stable.
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
-	body := `{"items":[{"kind":"direct","subject":"Foo","source":"a/b.go","line_start":7,"summary":"x"}]}`
+	body := `{"items":[{"kind":"direct","subject":"Foo","source":"a/b.go","line_start":7,"summary":"x","anchor_kind":"definition","anchor_symbol":"Foo"}]}`
 	_, _ = tool.Execute(ctx, json.RawMessage(body))
 	_, _ = tool.Execute(ctx, json.RawMessage(body))
 	got := ctx.Mutable.EmittedEvidence()
@@ -181,7 +181,7 @@ func TestEmitEvidence_StableIDDedups(t *testing.T) {
 func TestEmitEvidence_ResetEmittedEvidence(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
-	_, _ = tool.Execute(ctx, json.RawMessage(`{"items":[{"kind":"direct","source":"x.go","line_start":1}]}`))
+	_, _ = tool.Execute(ctx, json.RawMessage(`{"items":[{"kind":"direct","source":"x.go","line_start":1,"anchor_kind":"definition","anchor_symbol":"X"}]}`))
 	if len(ctx.Mutable.EmittedEvidence()) != 1 {
 		t.Fatalf("expected 1 item before reset")
 	}

@@ -175,9 +175,10 @@ func renderExplorerStageReport(
 // is stable across runs.
 //
 // Format: `[KIND] subject predicate object — source:line` with
-// missing fields gracefully elided. The [/ungrounded] marker (P0.1)
-// is preserved by reading Producer, so the finalizer can still see
-// that an evidence line did not have a verifiable cite.
+// missing fields gracefully elided. GroundingStatus is surfaced as a
+// trailing tag: recovered items get `[recovered]`, ungrounded items
+// get `[UNGROUNDED]` so the finalizer can see the trust level
+// attached to each cite.
 func formatEvidenceLineForReport(ev types.EvidenceItem) string {
 	var parts []string
 	parts = append(parts, fmt.Sprintf("[%s]", ev.Kind))
@@ -198,7 +199,10 @@ func formatEvidenceLineForReport(ev types.EvidenceItem) string {
 		parts = append(parts, "— "+loc)
 	}
 
-	if strings.HasSuffix(ev.Producer, "/ungrounded") {
+	switch ev.GroundingStatus {
+	case types.GroundingRecovered:
+		parts = append(parts, "[recovered]")
+	case types.GroundingUngrounded:
 		parts = append(parts, "[UNGROUNDED]")
 	}
 

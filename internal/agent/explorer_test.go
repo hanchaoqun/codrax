@@ -778,20 +778,35 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 }
 
 func TestPhase0QualityGate(t *testing.T) {
-	t.Run("firstSoftStop with evidence bypasses gate", func(t *testing.T) {
-		// On first soft-stop with high-confidence evidence, the Phase 0
-		// gate is bypassed entirely — the LLM answered without needing
-		// the two-phase model.
-		eval := &explorerEvaluator{phase: 0}
+	t.Run("firstSoftStop with investigationComplete bypasses gate", func(t *testing.T) {
+		// Completion is model-triggered. When the LLM has called
+		// emit_investigation_complete, the evaluator's investigationComplete
+		// flag is set (via observeMidLoop) and the soft-stop is accepted
+		// unconditionally — the Phase 0 gate is not applied.
+		eval := &explorerEvaluator{phase: 0, investigationComplete: true}
 		history := []types.ToolResult{
 			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
 		}
 		_, cont := softStopExplorer(eval, "done scanning", 0, 0, history)
 		if cont {
-			t.Fatal("firstSoftStop with evidence should accept stop, not inject hint")
+			t.Fatal("investigationComplete on firstSoftStop must accept stop, not inject hint")
 		}
-		if eval.phase != 1 {
-			t.Errorf("phase should advance to 1 for downstream consistency, got %d", eval.phase)
+	})
+
+	t.Run("firstSoftStop without investigationComplete falls through to gate / reminder", func(t *testing.T) {
+		// With the heuristic early-exit removed, a firstSoftStop carrying
+		// evidence but no emit_investigation_complete call must NOT be
+		// silently accepted. It falls through to the Phase 0 quality gate
+		// (or, if the gate is satisfied, to the Phase 2 transition). The
+		// LLM is never allowed to quit Phase 0 without either calling
+		// emit_investigation_complete or satisfying the gate.
+		eval := &explorerEvaluator{phase: 0}
+		history := []types.ToolResult{
+			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
+		}
+		_, cont := softStopExplorer(eval, "done scanning", 0, 0, history)
+		if !cont {
+			t.Fatal("firstSoftStop without investigationComplete must not accept silently; expected gate/reminder hint")
 		}
 	})
 
@@ -1321,58 +1336,6 @@ $$ LANGUAGE plpgsql;`
 			t.Logf("  [%d] L%d-%d: %s", i+1, b.startLine, b.endLine, b.label)
 		}
 	})
-}
-
-// TestStripConversationPrefix locks the parse for REPL's
-// "## Prior conversation ... ## Current request\n<raw>" wrapper. The
-// helper must return only the raw current request when the marker is
-// present, and pass through unchanged otherwise (single-shot mode).
-func TestStripConversationPrefix(t *testing.T) {
-	cases := []struct {
-		name string
-		in   string
-		want string
-	}{
-		{
-			name: "single-shot passes through",
-			in:   "how many agents can invoke subagent",
-			want: "how many agents can invoke subagent",
-		},
-		{
-			name: "REPL with memory prefix returns current request only",
-			in: "## Prior conversation\n### Relevant compacted memory\n" +
-				"- **Project Agents and Subagents** (turn-xxx) — SubExplorer, NewSubExplorer ...\n" +
-				"  Full turn:\n" +
-				"  (long content)\n\n" +
-				"## Current request\n" +
-				"how many agents can invoke subagent",
-			want: "how many agents can invoke subagent",
-		},
-		{
-			name: "REPL with trailing whitespace is trimmed",
-			in: "## Prior conversation\n(something)\n\n" +
-				"## Current request\n" +
-				"what does Foo.Bar return\n\n",
-			want: "what does Foo.Bar return",
-		},
-		{
-			name: "empty input",
-			in:   "",
-			want: "",
-		},
-		{
-			name: "marker without trailing newline not matched (single-shot form wins)",
-			in:   "## Current request",
-			want: "## Current request",
-		},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			if got := stripConversationPrefix(c.in); got != c.want {
-				t.Errorf("stripConversationPrefix(%q) = %q, want %q", c.in, got, c.want)
-			}
-		})
-	}
 }
 
 // TestBuildInitialInstruction_CrossRunResetOnQuestionChange is the REPL-
@@ -2309,10 +2272,15 @@ func TestExplorerSoftStop_SecondStop_SoftBranch_PrescannedFires(t *testing.T) {
 }
 
 // TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed verifies that
-// the `unanalyzed` soft branch also obeys the first-soft-stop gate.
-// readSet contains a file whose fileSymbols list 3-char method
-// names that are not mentioned in investigationNotes — the historic
-// pathology that flagged every correct-answer soft-stop.
+// the `unanalyzed` soft branch obeys the first-soft-stop gate — it must
+// not fire on the first voluntary stop even if readSet contains files
+// whose fileSymbols are unmentioned in investigationNotes (the historic
+// pathology that flagged every correct-answer soft-stop).
+//
+// Under the model-triggered completion contract, a firstSoftStop
+// WITHOUT emit_investigation_complete must land on the completion-tool
+// reminder branch — NOT on the unanalyzed soft-heuristic. This test
+// locks both halves: reminder fires, unanalyzed does not.
 func TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,
@@ -2332,11 +2300,15 @@ func TestExplorerSoftStop_FirstStop_UnanalyzedSuppressed(t *testing.T) {
 	}
 
 	sig := softStopWithContinuations(eval, "ExecCommand shells out to /bin/bash.", 4, 0, history)
-	// On first soft-stop with high-confidence evidence, the stop is
-	// accepted — no hint injected, no unanalyzed branch fires.
-	if sig.HintRequested {
-		t.Errorf("first soft-stop with evidence should accept stop; got HintRequested=true HintKey=%q",
-			sig.HintKey)
+	// Without emit_investigation_complete, firstSoftStop falls through
+	// to the completion-tool reminder. The unanalyzed soft-heuristic
+	// must not fire — suppression on first stop is the invariant.
+	if sig.HintKey == "explorer.phase1.unanalyzed" {
+		t.Errorf("unanalyzed branch must be suppressed on first soft-stop; got HintKey=%q", sig.HintKey)
+	}
+	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
+		t.Errorf("firstSoftStop without investigationComplete should fire completion-tool-reminder; got HintRequested=%v HintKey=%q",
+			sig.HintRequested, sig.HintKey)
 	}
 }
 

@@ -221,8 +221,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
-	// TermGraph from this in analyzer.ParseOutput.
-	raw := ctx.Mutable.Objective()
+	// TermGraph from this in analyzer.ParseOutput, so we strip the
+	// REPL conversation prefix first — otherwise every CamelCase /
+	// file-path token from the prior-turn memory block leaks into
+	// the TermGraph and downstream TaskNode.SearchHints, polluting
+	// the explorer's retry-directive hints with tokens unrelated to
+	// the current question. In single-shot mode the strip is a
+	// no-op (no marker present).
+	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
 
 	rm := types.RequestModel{
 		RawRequest: raw,

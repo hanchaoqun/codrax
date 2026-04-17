@@ -98,12 +98,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// in round 1-2 for additional verification, but now it has a head
 	// start.
 	if ctx != nil && ctx.RepoRoot != "" && ctx.Objective != "" {
-		objective := ctx.Objective
 		// In REPL mode, strip the conversation prefix so the query
 		// only contains the current question, not prior-turn memory.
-		if idx := strings.Index(objective, "## Current request\n"); idx >= 0 {
-			objective = strings.TrimSpace(objective[idx+len("## Current request\n"):])
-		}
+		objective := types.StripConversationPrefix(ctx.Objective)
 		if overview := buildAnalyzerRepoOverview(ctx.RepoRoot, objective); overview != "" {
 			return overview
 		}
@@ -446,7 +443,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	}
 	rm := *raw
 	if rm.RawRequest == "" {
-		rm.RawRequest = ctx.Objective
+		// Fallback path: strip the REPL conversation prefix so normalizer.Normalize
+		// never sees prior-turn memory. emit_analysis already strips at its write
+		// site; this guards the rare case where an alternate code path constructs
+		// a RequestModel without going through the tool.
+		rm.RawRequest = types.StripConversationPrefix(ctx.Objective)
 	}
 	if rm.Language == "" {
 		rm.Language = detectLanguage(rm.RawRequest, ctx.Preferences)

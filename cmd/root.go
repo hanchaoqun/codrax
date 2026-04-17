@@ -410,6 +410,14 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		tool.SetAnalysisLimits(analysisLimits)
 
+		// Evidence grounding policy — overridden by codrax.yaml
+		// evidence_grounding_floor (default 0.5 per design pick #3).
+		groundingPolicy := tool.DefaultGroundingPolicy()
+		if rs.EvidenceGroundingFloor != nil {
+			groundingPolicy.GroundingFloor = *rs.EvidenceGroundingFloor
+		}
+		tool.SetGroundingPolicy(groundingPolicy)
+
 		if rs.PipelineMaxRetriesPerStage != nil {
 			pipelineSettings.MaxRetriesPerStage = *rs.PipelineMaxRetriesPerStage
 		}

@@ -319,11 +319,11 @@ func (e *subExplorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext,
 
 	parsed := parseEvidenceItems(e.investigationNotes, "sub_explorer.llm")
 	graph, candidates := buildScopedSearchGraph(ctx, toolResults, e.scope)
-	// Deterministic line grounding — see groundEvidenceItems and
-	// memory/project_fake_green_audit_2026_04_14.md Pattern 2.
-	// Runs here so the grounded items flow through regardless of
-	// whether dataflow analysis fires below.
-	parsed = groundEvidenceItems(parsed, graph, toolResults)
+	// Grounding moved upstream into emit_evidence.Execute (Tier 1/2 +
+	// recovery). Sub-agents currently do not route through emit_evidence
+	// (Mutable is nil for them), so items surfaced via notes arrive
+	// ungrounded here; downstream rendering treats empty GroundingStatus
+	// like ungrounded for citation-pool purposes.
 	if graph == nil || !needsDataflowAnalysis(e.objective, parsed) {
 		e.structuredEvidence = parsed
 		return

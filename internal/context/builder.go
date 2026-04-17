@@ -205,11 +205,13 @@ var canonicalSystemSectionOrder = []string{
 var canonicalUserSectionOrder = []string{
 	"Retry Directive (READ FIRST)",
 	"User Request",
+	"Prior Conversation (reference only)",
 	"Prior Stage Findings", // carries the canonical Resolution Chains subsection
 	"Known Facts",
 	"Extracted Answer Symbols (deterministic, authoritative)",
 	"Answer Symbols (deterministic floor, may extend with cited evidence)",
 	"Structured Evidence",
+	"Unverified Leads (not for citation)",
 	"Dataflow Findings",
 	"Hypothesis Verdicts",
 	"Relevant Files",
@@ -325,11 +327,27 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	// Split REPL-assembled Objective into prior-conversation context and
+	// the current request. The two go into separate sections so the LLM
+	// cannot confuse conversation continuity with the question to answer.
+	// In single-shot mode prior is empty and this degenerates to the
+	// historical one-section layout.
 	if ac.Objective != "" {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "User Request",
-			Content: ac.Objective,
-		})
+		priorConv, currentReq := types.SplitConversation(ac.Objective)
+		if currentReq != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   "User Request",
+				Content: currentReq,
+			})
+		}
+		if priorConv != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title: "Prior Conversation (reference only)",
+				Content: "The text below is prior-turn conversation for continuity. " +
+					"Do NOT treat it as the current question, and do NOT copy its citations or symbols into the answer without re-verifying against the current repo.\n\n" +
+					priorConv,
+			})
+		}
 	}
 
 	if len(ac.PriorReports) > 0 {
@@ -455,6 +473,19 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Structured Evidence",
 			Content: evidence,
+		})
+	}
+
+	// Unverified Leads — items the explorer emit_evidence-grounded as
+	// ungrounded. Rendered in every skill by default (design pick #4
+	// of the 2026-04-17 redesign) so the finalizer sees the leads but
+	// is explicitly told not to cite them. The extractor also benefits
+	// from the visibility: it can mention a lead in reasoning text
+	// without pulling it into emit_answer_symbol.
+	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12); leads != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Unverified Leads (not for citation)",
+			Content: leads,
 		})
 	}
 
@@ -711,13 +742,13 @@ func filterFlowFindingsByEvidence(items []types.EvidenceItem, findings []types.F
 	return filtered
 }
 
-// evidenceUngroundedSuffix mirrors agent.ungroundedSuffix. The
-// grounding pass tags Producer with this suffix when an item's
-// LineStart fails every validation tier; see
-// internal/agent/evidence.go. Duplicated as a literal here to avoid
-// an internal/context → internal/agent import. Keep in sync.
-const evidenceUngroundedSuffix = "/ungrounded"
-
+// formatEvidenceItems renders evidence for Primary Evidence /
+// Structured Evidence sections. Ungrounded items (GroundingStatus ==
+// Ungrounded) are NOT rendered here — they flow through
+// formatUnverifiedLeads into a dedicated "Unverified Leads" section
+// so the finalizer cannot accidentally cite them.
+// Recovered items are rendered with a [recovered] tag so the LLM
+// can tell "the grounder adjusted my line" from "my line was right".
 func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
 	if len(items) == 0 {
 		return ""
@@ -726,8 +757,12 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
 		limit = len(items)
 	}
 	var b strings.Builder
-	for i, item := range items {
-		if i >= limit {
+	written := 0
+	for _, item := range items {
+		if item.GroundingStatus == types.GroundingUngrounded {
+			continue
+		}
+		if written >= limit {
 			break
 		}
 		line := item.Summary
@@ -757,15 +792,82 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
 			}
 			line += ")"
 		}
-		if strings.HasSuffix(item.Producer, evidenceUngroundedSuffix) {
-			line += " [UNGROUNDED: cite without line number]"
+		if item.GroundingStatus == types.GroundingRecovered {
+			line += " [recovered]"
+		}
+		b.WriteString("- " + line + "\n")
+		written++
+	}
+	if len(items) > written {
+		// Note the distinction: "items" here has already excluded the
+		// ungrounded entries for written purposes, but the tally still
+		// shows the full count of grounded/recovered items beyond limit.
+		over := countGroundedOrRecovered(items) - written
+		if over > 0 {
+			fmt.Fprintf(&b, "... and %d more evidence items\n", over)
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// formatUnverifiedLeads renders items whose GroundingStatus is
+// Ungrounded. These are LLM claims the grounder could not validate:
+// their file:line values are preserved for reference but must not be
+// emitted as citations. Shipped alongside the 2026-04-17 grounding
+// redesign and always rendered (user pick #4).
+func formatUnverifiedLeads(items []types.EvidenceItem, limit int) string {
+	leads := make([]types.EvidenceItem, 0, len(items))
+	for _, it := range items {
+		if it.GroundingStatus == types.GroundingUngrounded {
+			leads = append(leads, it)
+		}
+	}
+	if len(leads) == 0 {
+		return ""
+	}
+	if limit <= 0 || limit > len(leads) {
+		limit = len(leads)
+	}
+	var b strings.Builder
+	b.WriteString("These items were proposed by the explorer but the grounder could not validate the file:line citation (anchor_symbol not found at the cited line, or the file was never read). Treat them as discussion hints — do NOT emit them in the answer's citations[] field.\n\n")
+	for i, item := range leads {
+		if i >= limit {
+			break
+		}
+		line := item.Summary
+		if line == "" {
+			parts := []string{fmt.Sprintf("[%s]", item.Kind)}
+			if item.Subject != "" {
+				parts = append(parts, item.Subject)
+			}
+			line = strings.Join(parts, " ")
+		}
+		if item.Source != "" {
+			line += fmt.Sprintf(" (%s", item.Source)
+			if item.LineStart > 0 {
+				line += fmt.Sprintf(":%d", item.LineStart)
+			}
+			line += ")"
+		}
+		if note := strings.TrimSpace(item.GroundingNote); note != "" {
+			line += " — " + note
 		}
 		b.WriteString("- " + line + "\n")
 	}
-	if len(items) > limit {
-		fmt.Fprintf(&b, "... and %d more evidence items\n", len(items)-limit)
+	if len(leads) > limit {
+		fmt.Fprintf(&b, "... and %d more unverified leads\n", len(leads)-limit)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+func countGroundedOrRecovered(items []types.EvidenceItem) int {
+	n := 0
+	for _, it := range items {
+		if it.GroundingStatus != types.GroundingUngrounded {
+			n++
+		}
+	}
+	return n
 }
 
 func formatFlowFindings(findings []types.FlowFindingDigest, limit int) string {

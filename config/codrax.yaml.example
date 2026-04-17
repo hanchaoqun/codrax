@@ -142,6 +142,29 @@
 # analysis_warn_below_entity_hit_ratio: 0
 
 # ---------------------------------------------------------------------------
+# Evidence grounding (evidence_*)
+# ---------------------------------------------------------------------------
+# The grounder (internal/tool/ground) validates every LLM-emitted evidence
+# item at emit_evidence.Execute time: Tier 1 checks the read_file gutter
+# at source:line for the anchor_symbol token; Tier 2 consults the repomap
+# symbol table (definition / call / import). Recovery tiers R1-R5 rewrite
+# near-miss LineStart / Source to repair LLM off-by-one mistakes. Items
+# that fail every tier are marked ungrounded and routed to the
+# "Unverified Leads" section (not citable but visible).
+#
+# emit_investigation_complete then requires
+#   (grounded + recovered) / total >= evidence_grounding_floor
+# before accepting the completion signal. A miss returns a rejection
+# listing every ungrounded item with concrete repair options so the LLM
+# can fix on the next turn without a stage round-trip.
+
+# Minimum grounded ratio required by emit_investigation_complete.
+# Range [0, 1]. 0 disables the gate entirely; 1 requires every item grounded.
+# Default 0.5 — high enough to block a mostly-speculative investigation,
+# low enough that a handful of leads do not deadlock the pipeline.
+# evidence_grounding_floor: 0.5
+
+# ---------------------------------------------------------------------------
 # Explorer heuristics (explore_*)
 # ---------------------------------------------------------------------------
 # Tunable thresholds for the explorer evaluator's mid-loop and

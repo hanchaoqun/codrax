@@ -74,25 +74,6 @@ func (e *explorerEvaluator) ensureHeuristics() {
 	e.heuristics = types.ResolvedExploreHeuristics(e.heuristics)
 }
 
-// stripConversationPrefix returns only the "current request" portion
-// of a REPL-assembled Objective string, stripping the conversation-
-// memory prefix injected by `internal/repl/repl.go:dispatch`. When no
-// marker is found (single-shot mode, or an empty-conversation REPL
-// turn), returns the input unchanged.
-//
-// Added 2026-04-12 as part of the REPL-mode equivalence audit. The
-// main explorer's entity regex (`extractRankingEntities(ctx.Objective)`)
-// previously ran over the whole blob, pulling every CamelCase /
-// snake_case / file-path token from the memory section as a bogus
-// ERM entity. See memory/project_repl_equivalence_audit.md for the
-// full diagnostic.
-func stripConversationPrefix(s string) string {
-	const marker = "## Current request\n"
-	if idx := strings.Index(s, marker); idx >= 0 {
-		return strings.TrimSpace(s[idx+len(marker):])
-	}
-	return s
-}
 
 func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	// CROSS-RUN STATE RESET (REPL turn boundary fix).
@@ -149,6 +130,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopParallelInjected = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
+	// Per-dispatch reset of the completion flag. Without this, a
+	// Window 2 explore dispatch inherits Window 1's emit_investigation_complete
+	// state and observeSoftStop immediately accepts the stop even if the
+	// current window's LLM has done no tool work — defeating the "completion
+	// is model-triggered" contract that emit_investigation_complete
+	// enforces. Each dispatch must observe its OWN tool call before the
+	// flag is true.
+	e.investigationComplete = false
 
 	// Self-loop detection: if we already have investigation notes from
 	// a prior run, this is a retry (explore → explore self-loop). Skip
@@ -247,6 +236,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// making it guess which grep patterns to use.
 		sr := keywordSearch(analyzerKeywords, ctx.RepoRoot)
 		e.searchResult = sr
+		// Publish the graph to MutableState so tools running later in
+		// this dispatch (notably emit_evidence's synchronous grounder)
+		// can consult it without re-invoking BuildOrLoadGraph. The
+		// handle is `any` on the types side to keep internal/types
+		// decoupled from repomap; tool-side consumers type-assert.
+		if ctx != nil && ctx.Mutable != nil && sr != nil && sr.Graph != nil {
+			ctx.Mutable.SetSearchGraph(sr.Graph)
+		}
 		results := sr.Files
 		// Record that pre-scan produced a repo_map-derived ranked file
 		// list the LLM can see. Read by the Phase 0 quality gate.
@@ -345,15 +342,23 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// S1 semantic early-stop never fires (because ermAllSatisfied
 			// stays false forever), and the answer quality degrades.
 			//
-			// `stripConversationPrefix` returns only the raw current
+			// `types.StripConversationPrefix` returns only the raw current
 			// request portion (unchanged in single-shot mode where no
 			// marker is present).
-			cleanObjective := stripConversationPrefix(ctx.Objective)
+			cleanObjective := types.StripConversationPrefix(ctx.Objective)
 			if !trustAnalyzer {
+				// Entity extraction runs on cleanObjective ONLY. The prior
+				// implementation fell back to ctx.Objective when cleanObjective
+				// yielded zero entities — in REPL mode that blob contains
+				// prior-conversation tokens (file paths, symbol names from old
+				// turns, the "Prior/Current/Recent/memory" markers themselves),
+				// which then became ERM requirements that polluted file ranking
+				// and pulled the explorer toward unrelated files. When
+				// cleanObjective yields zero entities, honestly return zero:
+				// the analyzer's declared entity (if any) is already in
+				// ermEntities, and ermAutoSatisfyUnresolvable below handles
+				// the low-entity case so the pipeline does not deadlock.
 				regexEntities := extractRankingEntitiesWithGraph(cleanObjective, sr.Graph)
-				if len(regexEntities) == 0 {
-					regexEntities = extractRankingEntitiesWithGraph(ctx.Objective, sr.Graph)
-				}
 				for _, ent := range regexEntities {
 					if !seen[ent] {
 						ermEntities = append(ermEntities, ent)
@@ -363,14 +368,15 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			}
 			logging.Debug("[explorer] erm entities: %d (trustAnalyzer=%v declaredKind=%q analyzer=%d)",
 				len(ermEntities), trustAnalyzer, declaredKind, len(analyzerEntities))
-			// Keyword trigger source also uses the clean current
-			// request. A memory blob containing a prior "如何 / how
-			// does" question would otherwise over-trigger the
-			// mechanism classifier on a fresh enumeration question.
-			ermKeywordSource := ctx.Objective
-			if cleanObjective != "" && cleanObjective != ctx.Objective {
-				ermKeywordSource = cleanObjective + " | " + ctx.Objective
-			}
+			// Keyword trigger source uses the clean current request only.
+			// The prior implementation concatenated ctx.Objective as a
+			// fallback source — that leaked prior-conversation verbs
+			// ("如何 / how does") into the keyword-based mechanism classifier
+			// and mis-routed the investigation. cleanObjective is the
+			// current REPL turn's question (or the single-shot raw request
+			// when no marker is present), always the right source for
+			// classifying THIS question.
+			ermKeywordSource := cleanObjective
 			// Pass the analyzer's declared question_kind (may be empty or
 			// "unknown"; the hint-aware path handles both by falling
 			// back to pure keyword inference).
@@ -1076,24 +1082,18 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 
 	if e.phase == 0 {
-		// Early evidence sufficiency: when the LLM makes its first
-		// voluntary stop AND has already gathered high-confidence
-		// evidence from ANY tool, the Phase 0 breadth-scan requirements
-		// (grep + repo_map/list_files + discovered>=3) are inapplicable.
-		// The LLM answered without needing the two-phase investigation
-		// model. Skip the quality gate entirely, advance to Phase 1
-		// for ParseOutput consistency, and accept the stop.
-		//
-		// Covers: exec_command(find/wc/git), grep-only, read_file-only,
-		// list_files-only — any scenario where a single tool call (or
-		// small batch) provides a complete answer. If the evidence is
-		// insufficient, the AnswerContract checker will backtrack via
-		// the retry budget.
-		if firstSoftStop && hasHighConfidenceEvidence(history, e) {
-			logging.Info("[explorer] Phase 0 early-exit: high-confidence evidence found on first soft-stop, skipping to Phase 1")
-			e.phase = 1
-			return LoopSignal{Progress: progress}
-		}
+		// Completion is model-triggered via emit_investigation_complete
+		// (see internal/tool/emit_investigation_complete.go — that tool's
+		// docstring says it "replaces the implicit completion detection
+		// that relied on ShouldStop heuristics and soft-stop interception").
+		// The former Phase 0 early-exit heuristic accepted any soft-stop
+		// that had a successful evidence-bearing tool in history; it
+		// conflicted with this contract and, in REPL mode, accepted stops
+		// where the LLM only listed a directory and said "next I'll read
+		// the files" without actually reading any. The LLM must call
+		// emit_investigation_complete (handled by the e.investigationComplete
+		// guard above) to signal completion in Phase 0. Otherwise fall
+		// through to the breadth-scan quality gate / Phase 1 transition.
 
 		// Before transitioning to Phase 2, check if Phase 1 actually
 		// discovered any files. If all greps returned zero results,
@@ -1563,19 +1563,18 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// stops without making progress still get a nudge toward any
 	// unread files.
 	if firstSoftStop {
-		// When the LLM's first voluntary stop comes with evidence
-		// already gathered, accept it — the LLM judged it has enough.
-		// If wrong, the AnswerContract checker will backtrack via the
-		// retry budget. Only inject the completion-tool reminder when
-		// NO evidence was gathered (the LLM stopped before doing any
-		// real investigative work).
-		if hasHighConfidenceEvidence(history, e) {
-			return LoopSignal{Progress: progress}
-		}
+		// Completion is model-triggered. If e.investigationComplete were
+		// already true, the early guard at the top of this function would
+		// have returned before reaching this point — so here we know the
+		// LLM has NOT signalled completion. Nudge it to call
+		// emit_investigation_complete (or resume investigating). The
+		// previous branch accepted the stop whenever any evidence-bearing
+		// tool had run, which bypassed the contract that emit_investigation_complete
+		// is the sole completion trigger.
 		return LoopSignal{
 			HintRequested: true,
 			HintKey:       "explorer.completion-tool-reminder",
-			Hint: "You stopped without gathering evidence or calling emit_investigation_complete. " +
+			Hint: "You stopped without calling emit_investigation_complete. " +
 				"If you have collected enough evidence to answer the user's question, " +
 				"call emit_investigation_complete(reason, confidence) now. " +
 				"If you still need more evidence, continue reading files and running greps.",
@@ -1967,7 +1966,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 				strictEvidence = append(strictEvidence, c.Item)
 			}
 		}
-		ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		snapshot := types.TurnAArtifacts{
 			UserQuestion:          e.userQuestion,
 			InvestigationNotes:    e.investigationNotes,
 			ReadFiles:             readFilesList,
@@ -1975,9 +1974,22 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			EvidenceItems:         strictEvidence,
 			FlowFindings:          rankedFindings,
 			TerminalEvidenceCount: terminalEvidenceCount,
-		})
+		}
+		// Cross-window accumulation. When the DAG scheduler requeues
+		// the explore node (e.g. SuccessCriteria failed → retry window),
+		// BaseAgent re-dispatches the explorer with a fresh ReAct
+		// history, so `toolResults` and `readFilesList` only reflect
+		// the current window. Overwriting would erase Window 1's
+		// ReadFiles / ToolResults / strict evidence, which then
+		// triggers extractorInvestigationEmpty's R4 fail-loud even
+		// though investigation was rich. e.investigationNotes and
+		// ctx.Mutable.EmittedEvidence() already accumulate across
+		// windows via the cross-run reset gate — these four fields
+		// must match that semantics via merge.
+		snapshot = mergeTurnAArtifactsWithPrior(ctx.Mutable.TurnAArtifacts(), snapshot)
+		ctx.Mutable.SetTurnAArtifacts(snapshot)
 		logging.Debug("[explorer] turn A → turn B handoff: wrote TurnAArtifacts (%d notes, %d readFiles, %d toolResults, %d evidence, %d flow, termCount=%d)",
-			len(e.investigationNotes), len(readFilesList), len(toolResults), len(strictEvidence), len(rankedFindings), terminalEvidenceCount)
+			len(snapshot.InvestigationNotes), len(snapshot.ReadFiles), len(snapshot.ToolResults), len(snapshot.EvidenceItems), len(snapshot.FlowFindings), snapshot.TerminalEvidenceCount)
 	}
 
 	if !signals.HasEnoughFacts {
@@ -2022,21 +2034,15 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 			parsed = mergeEvidenceItems(parsed, emitted)
 		}
 	}
-	// Deterministic line grounding: every parsed item that carries
-	// a Subject / Source / LineStart triple is cross-checked against
-	// (a) the gutter-reconstructed line text the LLM actually saw
-	// and (b) the tree-sitter symbol table. Mismatches have their
-	// LineStart cleared and their Producer suffixed "/ungrounded".
-	// See groundEvidenceItems for the full contract and
-	// memory/project_fake_green_audit_2026_04_14.md Pattern 2 for
-	// the failure mode this closes. Items from emit_evidence go through
-	// the same grounder — the channel they came from doesn't change
-	// the line-number trust contract.
-	var graphForGrounding *repomap.Graph
-	if e.searchResult != nil {
-		graphForGrounding = e.searchResult.Graph
-	}
-	parsed = groundEvidenceItems(parsed, graphForGrounding, toolResults)
+	// Grounding moved upstream. emit_evidence.Execute now grounds every
+	// LLM-emitted item synchronously (Tier 1 line_text + Tier 2
+	// symbol_table via repomap, plus recovery tiers) and attaches
+	// GroundingStatus to each item before AppendEvidence. Items parsed
+	// from raw investigationNotes (rare — the LLM is prompted to go
+	// through emit_evidence) still land here ungrounded, but their
+	// GroundingStatus is left empty and the downstream renderer treats
+	// empty as "not submitted via the structured channel" — equivalent
+	// to ungrounded for citation-pool purposes.
 	intent := dataflowIntent(e.userQuestion, parsed)
 	hasGraph := e.searchResult != nil && e.searchResult.Graph != nil
 	logging.Debug("[explorer] ensureStructuredEvidence: parsed=%d dataflowIntent=%s hasGraph=%v", len(parsed), intent, hasGraph)
@@ -4637,46 +4643,6 @@ func extractFileCoverage(history []types.ToolResult) (discovered []string, readS
 		}
 	}
 	return
-}
-
-// hasHighConfidenceEvidence reports whether at least one tool in
-// history produced a successful result with confidence > 0.5. This is
-// the tool-agnostic "did the LLM gather real evidence?" check used by
-// the firstSoftStop early-exit paths in observeSoftStop. It covers
-// exec_command, grep, read_file, list_files — any evidence-bearing
-// tool — while excluding navigation-only tools like repo_map (0.3).
-func hasHighConfidenceEvidence(history []types.ToolResult, e *explorerEvaluator) bool {
-	for i := range history {
-		r := &history[i]
-		if !r.Success {
-			continue
-		}
-		conf := e.toolConfidence(r.ToolName)
-		if conf <= 0.5 {
-			continue
-		}
-		// grep with files_only=true is a navigation result (file list),
-		// not actual evidence. Its Summary starts with "[grep: N matching
-		// files]" and contains no code content. Exclude it from the
-		// high-confidence check so Phase 0 early-exit doesn't fire on
-		// breadth-scan results that haven't read any file yet.
-		if r.ToolName == "grep" {
-			// Exclude grep results that are navigation-only:
-			// - files_only results: "[grep: N matching files]"
-			// - empty results: "no matches found"
-			// Neither constitutes actual evidence (no code content read).
-			if strings.HasPrefix(r.Summary, "[grep:") && strings.Contains(r.Summary, "matching files]") {
-				continue
-			}
-			if strings.Contains(r.Summary, "no matches") {
-				continue
-			}
-		}
-		logging.Debug("[explorer] hasHighConfidenceEvidence: tool=%s confidence=%.1f → true", r.ToolName, conf)
-		return true
-	}
-	logging.Debug("[explorer] hasHighConfidenceEvidence: no qualifying tool result → false")
-	return false
 }
 
 // isNoisePath returns true for paths that should be excluded from the

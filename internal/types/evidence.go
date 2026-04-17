@@ -87,8 +87,89 @@ func LLMEmittableEvidenceKinds() []EvidenceKind {
 	return out
 }
 
+// GroundingStatus is the post-validation verdict attached to each
+// EvidenceItem by the grounding layer (internal/tool/ground). Three
+// values replace the old binary "grounded vs /ungrounded-suffixed"
+// model:
+//
+//   - Grounded: Tier 1 (line_text) or Tier 2 (symbol_table) accepted
+//     the item's (Source, LineStart, AnchorSymbol) triple verbatim.
+//   - Recovered: one of the Recovery tiers (R1-R5) found a nearby
+//     match and rewrote LineStart and/or Source. The original LLM
+//     claim was close enough that the system could repair it. The
+//     item is still usable as a citation.
+//   - Ungrounded: all tiers failed. The item is preserved as a
+//     "lead" but is kept out of citation pools and rendered in a
+//     dedicated "Unverified Leads" section. LineStart keeps the
+//     LLM's original value so the note carries a human-readable
+//     reference, but downstream must not emit it as a confirmed
+//     file:line citation.
+type GroundingStatus string
+
+const (
+	GroundingGrounded   GroundingStatus = "grounded"
+	GroundingRecovered  GroundingStatus = "recovered"
+	GroundingUngrounded GroundingStatus = "ungrounded"
+)
+
+// AnchorKind tells the grounder what KIND of code location the
+// EvidenceItem.LineStart points at. Emitted by the LLM through the
+// emit_evidence tool, required (not optional) so Tier 2 and the
+// recovery tiers have a concrete dispatch key — otherwise the grounder
+// would have to guess "is this the definition line? a call site? a
+// return statement?" from Subject text, which was the source of the
+// same-name-across-receivers misgrounding class.
+//
+// AnchorImport covers `import`/`use`/`require` statements whose
+// AnchorSymbol is typically a package path or alias.
+type AnchorKind string
+
+const (
+	AnchorDefinition AnchorKind = "definition"
+	AnchorCall       AnchorKind = "call"
+	AnchorCondition  AnchorKind = "condition"
+	AnchorReturn     AnchorKind = "return"
+	AnchorAssignment AnchorKind = "assignment"
+	AnchorImport     AnchorKind = "import"
+)
+
+var allAnchorKinds = []AnchorKind{
+	AnchorDefinition, AnchorCall, AnchorCondition,
+	AnchorReturn, AnchorAssignment, AnchorImport,
+}
+
+// AllAnchorKinds returns the canonical list of every AnchorKind value
+// in stable declaration order. Used by the emit_evidence schema to
+// drive the required-enum list.
+func AllAnchorKinds() []AnchorKind {
+	out := make([]AnchorKind, len(allAnchorKinds))
+	copy(out, allAnchorKinds)
+	return out
+}
+
+// GroundingTier names the exact tier that produced a grounded or
+// recovered verdict. Rendered in the per-item feedback the
+// emit_evidence tool returns, so the LLM can tell "my line was right"
+// from "my line was close and the system adjusted it".
+type GroundingTier string
+
+const (
+	TierLineText         GroundingTier = "line_text"
+	TierSymbolTable      GroundingTier = "symbol_table"
+	TierFQNameSameFile   GroundingTier = "fqname_same_file"
+	TierSnippetFuzzy     GroundingTier = "snippet_fuzzy"
+	TierPackageSymbol    GroundingTier = "package_symbol"
+	TierNearestCall      GroundingTier = "nearest_call"
+	TierNearestCondition GroundingTier = "nearest_condition"
+)
+
 // EvidenceItem is the normalized, structured representation of a
 // single evidence statement that can be carried across agents/stages.
+//
+// Anchor* fields are new (2026-04-17 redesign) and required on any
+// LLM-produced item. Snippet is optional but improves Tier R2
+// (snippet_fuzzy) recovery accuracy. Grounding* fields are filled by
+// internal/tool/ground.GroundItem at emit_evidence.Execute time.
 type EvidenceItem struct {
 	ID          string       `json:"id"`
 	Kind        EvidenceKind `json:"kind"`
@@ -104,6 +185,18 @@ type EvidenceItem struct {
 	DerivedFrom []string     `json:"derived_from,omitempty"`
 	Confidence  float64      `json:"confidence,omitempty"`
 	Producer    string       `json:"producer,omitempty"`
+
+	// Anchor fields: required for LLM-emitted items, let the grounder
+	// dispatch Tier 2 and the recovery tiers without guessing.
+	AnchorKind   AnchorKind `json:"anchor_kind,omitempty"`
+	AnchorSymbol string     `json:"anchor_symbol,omitempty"`
+	Snippet      string     `json:"snippet,omitempty"`
+
+	// Grounding output: filled by the grounder. Downstream renderers
+	// branch on GroundingStatus; Tier and Note are human-readable.
+	GroundingStatus GroundingStatus `json:"grounding_status,omitempty"`
+	GroundingTier   GroundingTier   `json:"grounding_tier,omitempty"`
+	GroundingNote   string          `json:"grounding_note,omitempty"`
 }
 
 // FlowFindingDigest is the compact, stage-safe output of the dataflow
