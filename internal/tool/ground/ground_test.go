@@ -304,6 +304,41 @@ func TestGroundCitation_GraphFallbackAcceptsAnyLineInIndexedFile(t *testing.T) {
 	}
 }
 
+// TestBuildContext_PicksUpDispatchToolResults pins the fix for the
+// "grounder doesn't see read_file history" bug. BaseAgent.executeTool
+// now mirrors every tool result into Mutable.DispatchToolResults; the
+// grounder's BuildContext reads that buffer ALONGSIDE
+// ctx.ToolResults so emit_evidence called later in the SAME ReAct
+// loop can corroborate lines the LLM read earlier in the same loop.
+func TestBuildContext_PicksUpDispatchToolResults(t *testing.T) {
+	// Simulate a read_file done earlier in the same dispatch (not yet
+	// flushed to bus.ToolResults by applyStageOutput).
+	readResult := buildGutterReadResult("a.go", 100, []string{
+		"func Foo() {",
+		"    bar()",
+		"}",
+	}, 3)
+
+	mut := types.NewMutableState("irrelevant")
+	mut.AppendDispatchToolResult(readResult)
+	bus := &types.BusContext{Mutable: mut}
+
+	gc := BuildContext(bus)
+	if _, ok := gc.LineIndex["a.go"]; !ok {
+		t.Fatalf("a.go missing from line index built from dispatch buffer: %+v", gc.LineIndex)
+	}
+	// Tier 1 grounding against the dispatch-buffered read.
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceDirect, Source: "a.go", LineStart: 100,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Foo",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded {
+		t.Errorf("in-dispatch read_file must ground: status=%q note=%q",
+			it.GroundingStatus, it.GroundingNote)
+	}
+}
+
 // TestRecoveryR3_PackageSymbolGatedByAnchorKind pins the bug fix
 // where an AnchorKind=condition item citing an if-statement call site
 // (agent.go:900 "if _, err := b.deps.SubAgents.Get(...) {") was being

@@ -48,14 +48,32 @@ type Context struct {
 }
 
 // BuildContext assembles a grounding Context from the caller's
-// BusContext. Pulls the read_file gutter index from ctx.ToolResults
-// and the graph handle from ctx.Mutable.SearchGraph (nil-tolerant).
+// BusContext. Pulls the read_file gutter index from the union of
+// (a) the per-dispatch running buffer Mutable.DispatchToolResults
+// — so tools that fire from inside the current ReAct loop see the
+// read_file results that earlier iterations of the SAME loop
+// produced — and (b) ctx.ToolResults, which carries prior-stage
+// history already flushed into BusContext by applyStageOutput.
+// Graph handle comes from Mutable.SearchGraph. All sources are
+// nil-tolerant.
 func BuildContext(ctx *types.BusContext) *Context {
 	gc := &Context{}
 	if ctx == nil {
 		return gc
 	}
-	gc.LineIndex = buildLineIndex(ctx.ToolResults)
+	// Prior-stage history first, then layer in the current dispatch
+	// so in-dispatch reads win on conflicting line numbers (the LLM
+	// may have re-read a file with a different offset/limit this turn).
+	var history []types.ToolResult
+	if len(ctx.ToolResults) > 0 {
+		history = append(history, ctx.ToolResults...)
+	}
+	if ctx.Mutable != nil {
+		if disp := ctx.Mutable.DispatchToolResults(); len(disp) > 0 {
+			history = append(history, disp...)
+		}
+	}
+	gc.LineIndex = buildLineIndex(history)
 	if ctx.Mutable != nil {
 		if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok {
 			gc.Graph = g

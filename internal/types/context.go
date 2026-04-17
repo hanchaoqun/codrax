@@ -82,6 +82,18 @@ type MutableState struct {
 	// the explorer's BuildInitialInstruction so downstream tools can
 	// share the same graph instance with zero I/O.
 	searchGraph any
+
+	// dispatchToolResults is the per-dispatch running buffer of tool
+	// results seen so far in the current BaseAgent.Execute loop.
+	// BusContext.ToolResults is only populated after ParseOutput via
+	// StageOutput/applyStageOutput, which is too late for tools that
+	// fire from inside the ReAct loop itself (notably emit_evidence's
+	// synchronous grounder needs the read_file gutter reconstructed
+	// from the same dispatch's earlier calls). BaseAgent.executeTool
+	// appends to this buffer on every successful result, and
+	// ResetDispatchToolResults clears it at loop entry so cross-
+	// dispatch leakage is impossible.
+	dispatchToolResults []ToolResult
 	// answerDocument is the structured final-answer payload. It is
 	// written by the emit_answer_document tool (one atomic set per
 	// dispatch) and read by the finalizer's ParseOutput to render the
@@ -302,6 +314,49 @@ func (m *MutableState) SetSearchGraph(g any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.searchGraph = g
+}
+
+// AppendDispatchToolResult pushes a tool result onto the per-dispatch
+// running buffer. BaseAgent.executeTool calls this after every
+// successful tool execution so tools that run later in the same
+// ReAct loop (emit_evidence's grounder is the motivating consumer)
+// can see the earlier results.
+func (m *MutableState) AppendDispatchToolResult(r ToolResult) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dispatchToolResults = append(m.dispatchToolResults, r)
+}
+
+// DispatchToolResults returns a snapshot of the per-dispatch running
+// buffer. Snapshot (not alias) so callers that iterate while a
+// sibling appends stay on a stable view.
+func (m *MutableState) DispatchToolResults() []ToolResult {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.dispatchToolResults) == 0 {
+		return nil
+	}
+	out := make([]ToolResult, len(m.dispatchToolResults))
+	copy(out, m.dispatchToolResults)
+	return out
+}
+
+// ResetDispatchToolResults clears the per-dispatch running buffer.
+// BaseAgent.Execute calls this at loop entry so a fresh dispatch
+// never inherits results from the previous one.
+func (m *MutableState) ResetDispatchToolResults() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.dispatchToolResults = nil
 }
 
 // Result returns the finalizer's final answer recorded for this run.

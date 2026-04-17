@@ -518,6 +518,16 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	var allToolResults []types.ToolResult
 	var allMCPResponses []types.MCPResponse
 
+	// Reset the per-dispatch running tool-result buffer so a fresh
+	// dispatch never inherits the previous one's read_file history.
+	// The buffer is what in-loop tools (notably emit_evidence's
+	// grounder) read to reconstruct the line index — bus.ToolResults
+	// alone is too late because applyStageOutput only flushes after
+	// ParseOutput.
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.ResetDispatchToolResults()
+	}
+
 	// Loop-control state: snapshot the evaluator's LoopController
 	// once (nil when the evaluator does not implement it) and
 	// construct a fresh loopPolicyState from the configured
@@ -717,6 +727,13 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 				toolOK = result.Success
 				allToolResults = append(allToolResults, *result)
 				lastToolResultPtr = &allToolResults[len(allToolResults)-1]
+				// Mirror into the Mutable-side running buffer so tools
+				// that run later in THIS dispatch (emit_evidence's
+				// grounder) can see the read_file history produced
+				// earlier in the same ReAct loop.
+				if ctx != nil && ctx.Mutable != nil {
+					ctx.Mutable.AppendDispatchToolResult(*result)
+				}
 				messages = append(messages, llm.Message{
 					Role:       "tool",
 					Content:    result.Summary,
