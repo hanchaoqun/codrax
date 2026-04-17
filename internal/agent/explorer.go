@@ -1488,7 +1488,11 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			if syms := e.fileSymbols[preScannedUnread[0]]; len(syms) > 0 {
 				hint.WriteString(" — defines: " + strings.Join(syms, "; "))
 			}
-			hint.WriteString("\n\nDo NOT write any analysis. Your ONLY action should be a read_file tool call.")
+			hint.WriteString("\n")
+			if guidance := e.formatReadFileOffsetGuidance(preScannedUnread[0]); guidance != "" {
+				hint.WriteString(guidance)
+			}
+			hint.WriteString("\nDo NOT write any analysis. Your ONLY action should be a read_file tool call.")
 		} else if e.preScannedPushCount >= e.heuristics.MaxPreScannedPushes-1 {
 			// Escalated push: more forceful language.
 			hint.WriteString("You keep writing analysis without reading the critical files. STOP and call read_file.\n\n")
@@ -1499,6 +1503,9 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 					hint.WriteString(" — defines: " + strings.Join(syms, "; "))
 				}
 				hint.WriteString("\n")
+			}
+			if guidance := e.formatReadFileOffsetGuidance(preScannedUnread[0]); guidance != "" {
+				hint.WriteString(guidance)
 			}
 			hint.WriteString("\nCall read_file on the most important one. Do NOT respond with analysis text — use the tool.")
 		} else {
@@ -1511,6 +1518,9 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 					hint.WriteString(strings.Join(syms, "; "))
 				}
 				hint.WriteString("\n")
+			}
+			if guidance := e.formatReadFileOffsetGuidance(preScannedUnread[0]); guidance != "" {
+				hint.WriteString(guidance)
 			}
 			hint.WriteString("\nRead the most important unread file and extract ALL evidence entries from it. " +
 				"Remember: collect facts, do not answer the question yet.")
@@ -1644,6 +1654,80 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		Hint:          hint.String(),
 		Progress:      progress,
 	}
+}
+
+// formatReadFileOffsetGuidance renders a concise multi-line hint
+// fragment reminding the LLM that read_file supports offset+limit
+// and showing, for the given file, the top 3 symbols with their
+// line ranges plus ONE concrete read_file invocation example
+// covering the union. Returns "" when no symbol info is available
+// (graph miss / empty file).
+//
+// Motivation (log trace 1776454589211679465): every single
+// read_file call in a 16-iteration explore window used offset=0,
+// even when repo_map had told the LLM the relevant function lived
+// at lines 100-200 of a 5000-line file. The LLM was reading the
+// first 1000 lines of irrelevant code each time, which (a) wasted
+// context budget, (b) often missed the actual symbol (past line
+// 1000), (c) slowed the pipeline enough to hit rate limits. The
+// schema description says "use offset/limit for targeted ranges"
+// but the LLM doesn't parse schema descriptions, only hints it
+// receives inline.
+//
+// Output shape:
+//
+//	  → Tip: read_file supports offset+limit for targeted reads.
+//	    Symbols in <path>:
+//	      - NewSubExplorer (lines 25-34)
+//	      - SubExplorer.Run (lines 35-65)
+//	      - subExplorerEvaluator (lines 67-107)
+//	    Example: read_file path=<path> offset=25 limit=83 to cover lines 25-107.
+func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return ""
+	}
+	fi, ok := e.searchResult.Graph.FileIndex[path]
+	if !ok || fi == nil || len(fi.Symbols) == 0 {
+		return ""
+	}
+	type ranged struct {
+		name  string
+		start int
+		end   int
+	}
+	var syms []ranged
+	for i := range fi.Symbols {
+		s := &fi.Symbols[i]
+		if s.Line <= 0 {
+			continue
+		}
+		end := s.EndLine
+		if end < s.Line {
+			end = s.Line
+		}
+		syms = append(syms, ranged{name: s.Name, start: s.Line, end: end})
+	}
+	if len(syms) == 0 {
+		return ""
+	}
+	sort.SliceStable(syms, func(i, j int) bool { return syms[i].start < syms[j].start })
+	topN := 3
+	if len(syms) < topN {
+		topN = len(syms)
+	}
+	var b strings.Builder
+	b.WriteString("  → Tip: read_file supports offset+limit for targeted reads (avoid re-reading from offset=0).\n")
+	fmt.Fprintf(&b, "    Symbols in %s:\n", path)
+	for i := 0; i < topN; i++ {
+		fmt.Fprintf(&b, "      - %s (lines %d-%d)\n", syms[i].name, syms[i].start, syms[i].end)
+	}
+	// Concrete example spanning the top-N union.
+	offset := syms[0].start
+	coverEnd := syms[topN-1].end
+	limit := coverEnd - offset + 1
+	fmt.Fprintf(&b, "    Example: read_file path=%s offset=%d limit=%d  (covers lines %d-%d).\n",
+		path, offset, limit, offset, coverEnd)
+	return b.String()
 }
 
 // Observe implements LoopController. Dispatches to observeMidLoop or

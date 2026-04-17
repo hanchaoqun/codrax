@@ -2423,3 +2423,76 @@ func TestIsProseLikeConcreteValue(t *testing.T) {
 		})
 	}
 }
+
+// TestFormatReadFileOffsetGuidance pins the session-8 hint that
+// reminds the LLM read_file supports offset+limit. trace
+// 1776454589211679465 showed 14 read_file calls all with offset=0
+// — the LLM was re-reading from the start each time even when
+// repo_map pointed at a specific line range. The guidance text
+// names the top-3 symbols with ranges and shows one concrete
+// invocation covering their union.
+func TestFormatReadFileOffsetGuidance(t *testing.T) {
+	e := &explorerEvaluator{
+		searchResult: &keywordSearchResult{
+			Graph: &repomap.Graph{
+				FileIndex: map[string]*repomap.FileInfo{
+					"a.go": {
+						RelPath: "a.go",
+						Symbols: []repomap.Symbol{
+							{Name: "Alpha", Line: 10, EndLine: 30},
+							{Name: "Beta", Line: 50, EndLine: 80},
+							{Name: "Gamma", Line: 100, EndLine: 150},
+							{Name: "Delta", Line: 200, EndLine: 240}, // beyond top 3
+						},
+					},
+				},
+			},
+		},
+	}
+
+	got := e.formatReadFileOffsetGuidance("a.go")
+	if got == "" {
+		t.Fatal("guidance must be non-empty for a file with indexed symbols")
+	}
+	// Header with the key reminder.
+	if !contains(got, "read_file supports offset+limit") {
+		t.Errorf("guidance must remind about offset+limit: %q", got)
+	}
+	// Top-3 symbols listed with ranges.
+	for _, name := range []string{"Alpha", "Beta", "Gamma"} {
+		if !contains(got, name) {
+			t.Errorf("top-3 symbol %s missing: %q", name, got)
+		}
+	}
+	if contains(got, "Delta") {
+		t.Errorf("beyond-top-3 Delta must not leak: %q", got)
+	}
+	// Concrete example covering lines 10-150 (Alpha start → Gamma end).
+	if !contains(got, "offset=10") {
+		t.Errorf("example must start at first symbol's line: %q", got)
+	}
+	if !contains(got, "limit=141") { // 150 - 10 + 1 = 141
+		t.Errorf("example limit must span Alpha→Gamma: %q", got)
+	}
+}
+
+// TestFormatReadFileOffsetGuidance_NoGraphReturnsEmpty — when the
+// file has no indexed symbols (graph miss), guidance is empty and
+// callers render the hint without it.
+func TestFormatReadFileOffsetGuidance_NoGraphReturnsEmpty(t *testing.T) {
+	e := &explorerEvaluator{searchResult: nil}
+	if got := e.formatReadFileOffsetGuidance("x.go"); got != "" {
+		t.Errorf("nil graph must return empty guidance, got %q", got)
+	}
+
+	e2 := &explorerEvaluator{
+		searchResult: &keywordSearchResult{
+			Graph: &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+				"a.go": {RelPath: "a.go", Symbols: nil},
+			}},
+		},
+	}
+	if got := e2.formatReadFileOffsetGuidance("a.go"); got != "" {
+		t.Errorf("zero-symbol file must return empty guidance, got %q", got)
+	}
+}
