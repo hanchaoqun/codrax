@@ -430,7 +430,7 @@ Phase 1 的 continuation 决策基于 runtime 数据而不是固定阈值：`ext
 | **允许工具** | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
 | **禁止工具** | `read_file` / `grep` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` |
 | **ShouldStop** | `iteration >= 2`（one-shot + 一次 retry 窗口：iter=0 正常 emit_* 批次，iter=1 允许 LLM 看到失败的 tool error 并重试） |
-| **输入** | `MutableState.TurnAArtifacts` digest + `AnalysisIR.HypothesisSet` + `AnswerContract.MustInclude` |
+| **输入** | `MutableState.TurnAArtifacts` digest + `AnalysisIR.HypothesisSet` + `AnswerContract.MustInclude` + (measurement-scalar only) Raw Tool Outputs 段 |
 | **输出** | `StageOutput.{AnswerSymbols, AnswerSymbolCompleteness}` + 回写 `HypothesisSet[i].Status` |
 
 Turn B 有且只有**两项** Turn A 做不到的独特职责：
@@ -451,7 +451,7 @@ Turn B 看不到新文件 —— 所有信息在 Turn A transcript 快照里冻�
 | **Agent** | finalizer |
 | **Skill** | `answer-document-skill`（硬编码于 `topology.go`） |
 | **工具** | `emit_answer_document`（独占） |
-| **输入** | `BusContext.AnalysisIR.AnswerContract` + `AnswerSymbols` + completeness + `HypothesisSet` + Turn A 的 `StageReport` |
+| **输入** | `BusContext.AnalysisIR.AnswerContract` + `AnswerSymbols` + completeness + `HypothesisSet` + Turn A 的 `StageReport` + (measurement-scalar only) Raw Tool Outputs 段 |
 | **工作** | 按 `RequiredAnswerShape` 分支构造 typed payload → 调 `emit_answer_document` → renderer 渲染 |
 | **输出** | `StageOutput.FinalAnswer`（写进 task.Result）|
 
@@ -796,7 +796,7 @@ LLM 的 Complexity / Intent 判定被当作 prior，两条 reconcile 规则只�
 
 每个 template（`internal/analysis/compiler/templates.go`）构造时同时写入三处。对于**测量 scalar 类问题**（"how many X" → `find | wc -l`），答案天然没有 file:line 可 cite —— 如果任何一条 gate 还在 enabled 状态，orchestrator 的 contract retry 就会循环到 retry budget 耗尽，且每轮都复现同一违规。
 
-`intentDowngradedToScalar` flag（第 2b 步设置）是一个 **0-error 信号**：reconcileIntent 只在首句命中 count-verb 时触发，population 正好是"测量 scalar 无 cite 目标"的集合。flag 为 true 时第 5 步在一个 block 里应用 **5 个后果**：
+`isMeasurementScalar` flag（由 `isMeasurementScalarRequest` 在 `analyzer_intent.go` 计算）是一个 **0-error 信号**：gate 条件是 `complexity == simple + intent ∈ {enumerate, return_value} + 首句命中 count-verb`，population 正好是"测量 scalar 无 cite 目标"的集合。**注意**：不是"reconcileIntent 降级事件"——LLM 直接选对 `IntentReturnValue` 的 count 问题（prompt 够清晰时的常见路径）也必须走同一条 carve-out，否则 citation gate 照样循环。flag 为 true 时第 5 步在一个 block 里应用 **5 个后果**：
 
 1. `out.AnswerContract.RequiredAnswerShape = ShapeValue`（强制覆盖 compile 结果和下游 hint override）
 2. `rm.AnalyzerHints.Shape → ShapeValue`（保持 `ir_accessor.irAnswerShape` 下游读取一致）
@@ -804,7 +804,33 @@ LLM 的 Complexity / Intent 判定被当作 prior，两条 reconcile 规则只�
 4. `AcceptanceTests = dropCitationCountGE(...)`（切 gate #2）
 5. 遍历 `TaskGraph.Nodes` 把每个节点的 `SuccessCriteria = dropCitationCountGE(...)`（切 gate #3）
 
-单一 flag → 单一 block → 五个后果的"one signal, one response"契约让 `grep intentDowngradedToScalar` 能一次看到所有因果链。测试在 `internal/agent/analyzer_intent_test.go::TestBuildAnalysisIR_CountQuestionStripsAllThreeGates` + `TestBuildAnalysisIR_NonCountQuestionKeepsGates`（正例 + 负例 control）。
+单一 flag → 单一 block → 五个后果的"one signal, one response"契约让 `grep isMeasurementScalar` 能一次看到所有因果链。测试在 `internal/agent/analyzer_intent_test.go::TestBuildAnalysisIR_CountQuestionStripsAllThreeGates` + `TestBuildAnalysisIR_CountQuestionLLMPickedReturnValue`（LLM 直接选对的正例）+ `TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates`（函数 return 类 value-shape 必须保留 citation gate）+ `TestBuildAnalysisIR_NonCountQuestionKeepsGates`（正常 enumerate 负例）。
+
+#### Turn A → Turn B handoff 的第 4 道 gate —— Raw Tool Outputs 渲染
+
+三层 citation gate 全切掉之后还有第四道结构性的洞：即使 pipeline 不再循环，**scalar 答案本身根本到不了 Turn B**。根因是 `emit_evidence` schema 的硬约束：
+
+- 枚举 `kind` 只允许 6 个 "investigation-shape" 值（见 `internal/types/evidence.go::IsLLMEmittable`）
+- 每一项**必须**带 `source` (repo 相对路径) + `line_start` (确切行号) + `anchor_kind` + `anchor_symbol`
+
+一个 `find ... | xargs wc -l` 的输出 `73396 total` 物理上没有 source file / line number / anchor kind —— `emit_evidence` 会当场 reject，LLM 想 emit 也 emit 不了。那 `TurnAArtifacts.Evidence` 里就只剩下 deterministic `concrete_value`（源码扫出来的函数返回值），73396 被整个丢掉。Extractor / Finalizer 再看不到正确答案，只能从剩下的 concrete_value 里瞎捞一个数。
+
+修法是 `internal/context/builder.go` 在 Turn B 的 user prompt 里加一个 **"Raw Tool Outputs from Turn A"** 段，直接渲染 `TurnAArtifacts.ToolResults` 里成功的 tool 输出。**严格 gate** 只对测量 scalar 问题 fire，和第 5 步用同一对 IR 字段作信号（`shouldRenderRawToolOutputs` in builder.go）：
+
+| # | 条件 | 含义 |
+|---|---|---|
+| 1 | `Stage ∈ {extract, finalize}` | 只 Turn B，analyzer/explorer 不 render |
+| 2-3 | `Mutable != nil && AnalysisIR != nil` | legacy / 单测路径 fall through |
+| 4 | `AnswerContract.RequiredAnswerShape == ShapeValue` | 其他 shape（explanation / step_list / list_of_symbols / boolean / config_value）全部过滤 |
+| 5 | `AnswerContract.CitationReq.Required == false` | 只无 citation floor 的 value —— 这一对是 carve-out 独占设点（grep `CitationReq.Required = false` 全仓只有 `analyzer.go:635` 一处写） |
+
+渲染时：
+- `head + (trim marker) + tail` —— **tail 永远保留**，因为 shell 工具（`wc -l` / `grep -c`）把 summarising scalar 放在**输出末尾**，clipping tail 就是当初 73396 丢失的直接原因
+- per-call head/tail 800/400 字节、total cap 4000 字节
+- skip list：`emit_evidence` / `emit_answer_symbol` / `emit_hypothesis_verdict` / `emit_answer_document` / `emit_analysis` / `emit_investigation_complete` / `propose_sub_agents` / `repo_map` —— 结构化通道已经渲染过
+- 开头一段 preamble 明确告诉 LLM："这些 tool output **不是** citations[] 的入口 —— 对 measurement scalar 用 `value{literal, citation_ref:-1}`，-1 是正确选择"。没这段 preamble 之前 LLM 会去写 `citations: [{"file":"tool:exec_command"}]` 然后被 `emitLooksLikePath` 拒，陷入 retry 循环。
+
+测试在 `internal/context/builder_test.go`：`TestShouldRenderRawToolOutputs_Gate`（8 路 gate 组合）+ `TestFormatRawToolOutputs_PreservesTailForScalar`（tail 不能裁掉）+ `TestFormatRawToolOutputs_SkipsEmitTools` / `SkipsFailedResults` / `TotalCapWithMarker` + `TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar`（正例 e2e） + `SkippedForExplanationShape`（负例 —— explain 类绝对不能带 raw tool output，否则 finalizer 会引原始文件 dump 而不是 Structured Evidence）。
 
 **Quality Gate 分层**：
 - **Hard failures**（所有 checks except `pending_fields_wellformed`：`nil_ir` / `dag_closure` / `contract_complete` / `coverage` / `budget_sanity` / `hypothesis_coverage` / `risk_consistency` / `criterion_resolvable`）→ `StageOutput.Error` 抛出 → Run 硬失败。Coverage 使用加权计算（Symbol=1.0, Config=0.7, Concept=0.4），阈值通过 `gate.GlobalThresholds()` 配置。
