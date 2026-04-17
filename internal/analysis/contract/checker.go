@@ -112,6 +112,17 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 	if c.RequiredAnswerShape == "" || c.RequiredAnswerShape == types.ShapeNone {
 		return nil
 	}
+	// Absence answers legitimately do not match shape heuristics —
+	// an honest "0 files match" has no bullets for list_of_symbols,
+	// no numbered steps for step_list, no yes/no for boolean (it
+	// might be explained in prose). The whole point is that the
+	// cited thing does not exist, so the shape-specific formatting
+	// rule does not apply. The IsAbsence flag is only set upstream
+	// when the LLM ran real investigation tools, so this waiver
+	// cannot rescue a lazy "didn't look and declared zero" run.
+	if draft.IsAbsence {
+		return nil
+	}
 	text := draft.Text
 	switch c.RequiredAnswerShape {
 	case types.ShapeBoolean:

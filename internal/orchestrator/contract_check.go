@@ -134,10 +134,21 @@ func isAbsenceShape(doc *types.AnswerDocument) bool {
 	}
 	switch doc.Shape {
 	case types.ShapeListOfSymbols:
-		// Empty symbols slate with a confirmed claim is the explicit
-		// "zero" signal. lower_bound on [] would be self-contradictory
-		// and is rejected upstream in emit_answer_symbol.
-		return len(doc.Symbols) == 0 && doc.SymbolsCompleteness == types.CompletenessComplete
+		// Empty symbols slate is an honest "zero" signal as long as
+		// the completeness is NOT lower_bound (lower_bound on [] is
+		// self-contradictory and is rejected upstream in
+		// emit_answer_symbol anyway). Both CompletenessComplete ("I
+		// enumerated every match and there are none") and
+		// CompletenessUnknown ("extractor skipped emit_answer_symbol
+		// entirely because the LLM found nothing") are valid ways a
+		// real LLM expresses zero on a list_of_symbols question; the
+		// earlier "must be Complete" rule rejected the common
+		// "nothing matched, no emit" path and made count/existence
+		// questions mis-shaped by the analyzer unrecoverable.
+		if len(doc.Symbols) != 0 {
+			return false
+		}
+		return doc.SymbolsCompleteness != types.CompletenessLowerBound
 	case types.ShapeValue, types.ShapeConfigValue:
 		if doc.Value == nil {
 			return false
@@ -235,7 +246,14 @@ func hasInvestigationEvidence(mut *types.MutableState, doc *types.AnswerDocument
 	if ta == nil {
 		return false
 	}
-	shallow := doc != nil && isShallowShape(doc.Shape)
+	// Empty list_of_symbols audits as shallow: the claim IS the
+	// emptiness ("zero matches"), not a behaviour assertion over
+	// candidate handlers. A `find` / `grep files_only` / `list_files`
+	// one-shot proves the count directly; opening any file adds no
+	// information. Only non-empty list_of_symbols (enumerations +
+	// behaviour claims) needs content-read audit.
+	emptyListAbsence := doc != nil && doc.Shape == types.ShapeListOfSymbols && len(doc.Symbols) == 0
+	shallow := emptyListAbsence || (doc != nil && isShallowShape(doc.Shape))
 	for _, r := range ta.ToolResults {
 		if !r.Success {
 			continue

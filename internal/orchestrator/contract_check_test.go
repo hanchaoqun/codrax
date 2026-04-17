@@ -218,9 +218,18 @@ func TestAppendViolationsToAnswer_PassedKeepsOriginal(t *testing.T) {
 }
 
 // TestIsJustifiedAbsenceAnswer_ShapeTieredGate pins the shape-tiered
-// trust check: shallow shapes pass on any single investigation tool,
-// deep shapes require a content read. Zero-tool or wrong-shape
-// answers never pass.
+// trust check. Shallow shapes (value / boolean / config_value) and
+// EMPTY list_of_symbols pass on any single investigation tool. Only
+// NON-empty list_of_symbols (behaviour-enumeration positive answers)
+// require a content read — and those are not absence cases. Zero-tool
+// runs never pass.
+//
+// Why empty list_of_symbols is shallow: a count / "how many X named
+// Y?" question mis-shaped by the analyzer as list_of_symbols is
+// answered authoritatively by `find` / `list_files` / `grep
+// files_only`; there is no behaviour to inspect. The earlier rule
+// rejected these and produced retry storms on legitimate zero
+// answers.
 func TestIsJustifiedAbsenceAnswer_ShapeTieredGate(t *testing.T) {
 	mkMut := func(doc *types.AnswerDocument, toolResults []types.ToolResult) *types.MutableState {
 		m := types.NewMutableState("")
@@ -250,15 +259,17 @@ func TestIsJustifiedAbsenceAnswer_ShapeTieredGate(t *testing.T) {
 		{"value + grep files_only", absentValue,
 			types.ToolResult{ToolName: "grep", Success: true, Summary: "[grep: 0 matching files]"}, true},
 
-		// Deep shape — need content read.
+		// Empty list_of_symbols (absence case) — now shallow. Any
+		// investigation tool is sufficient because the claim is
+		// pure enumeration-zero, not a behaviour assertion.
 		{"list_of_symbols + read_file OK", absentList,
 			types.ToolResult{ToolName: "read_file", Success: true, Summary: "file content"}, true},
 		{"list_of_symbols + content grep OK", absentList,
 			types.ToolResult{ToolName: "grep", Success: true, Summary: "file.go:1: found line"}, true},
-		{"list_of_symbols + only list_files REJECT", absentList,
-			types.ToolResult{ToolName: "list_files", Success: true}, false},
-		{"list_of_symbols + only grep files_only REJECT", absentList,
-			types.ToolResult{ToolName: "grep", Success: true, Summary: "[grep: 3 matching files]"}, false},
+		{"list_of_symbols + list_files accepts (shallow)", absentList,
+			types.ToolResult{ToolName: "list_files", Success: true}, true},
+		{"list_of_symbols + grep files_only accepts (shallow)", absentList,
+			types.ToolResult{ToolName: "grep", Success: true, Summary: "[grep: 3 matching files]"}, true},
 
 		// Universal: no tools at all fails both shape tiers.
 		{"value + no tools REJECT", absentValue,
@@ -309,7 +320,11 @@ func TestIsJustifiedAbsenceAnswer_ShapeCheck(t *testing.T) {
 		{"boolean=true rejects", &types.AnswerDocument{
 			Shape: types.ShapeBoolean, Boolean: &types.AnswerBoolean{Decision: true, CitationRef: -1}}, false},
 		{"empty symbols + complete accepts", &types.AnswerDocument{
-			Shape: types.ShapeListOfSymbols, SymbolsCompleteness: types.CompletenessComplete}, false}, // rejected here because list_files alone is not content-read for deep shape
+			Shape: types.ShapeListOfSymbols, SymbolsCompleteness: types.CompletenessComplete}, true},
+		{"empty symbols + unknown also accepts", &types.AnswerDocument{
+			Shape: types.ShapeListOfSymbols, SymbolsCompleteness: types.CompletenessUnknown}, true},
+		{"empty symbols + lower_bound rejects (self-contradictory)", &types.AnswerDocument{
+			Shape: types.ShapeListOfSymbols, SymbolsCompleteness: types.CompletenessLowerBound}, false},
 		{"non-empty symbols rejects", &types.AnswerDocument{
 			Shape:   types.ShapeListOfSymbols,
 			Symbols: []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1}},
