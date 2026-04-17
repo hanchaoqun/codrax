@@ -90,7 +90,14 @@ func renderExplorerStageReport(
 	// cross-reference two sections to see what the explorer found.
 	if len(evidence) > 0 {
 		b.WriteString("## Primary Evidence\n")
-		const topN = 8
+		// topN was 8 pre-2026-04-17. Widened to 12 together with the
+		// mechanism-concrete ranking promotion in evidence.go so
+		// programmatic cross-file mechanism items (e.g. buildToolSchemas
+		// gating on SubAgents.Get) have enough exposure even when the
+		// LLM emitted a dozen surface-overlap conditional items. The
+		// extra ~4 bullets add ~400 bytes to the digest — negligible
+		// relative to the extractor's 10KB+ budget.
+		const topN = 12
 		for i, ev := range evidence {
 			if i >= topN {
 				break

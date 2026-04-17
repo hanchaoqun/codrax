@@ -826,10 +826,20 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 	// names a package directory (e.g. `agent` in `internal/agent/...`)
 	// trivially matches every item sourced from that directory. See
 	// memory/project_next_session_kickoff_filepath_entity_bug.md.
+	//
+	// Underscores and hyphens are collapsed before matching so that
+	// snake_case identifiers like `sub_agents` register as a hit for
+	// the entity `subagent`. Without this, `b.deps.SubAgents.Get(
+	// "propose_sub_agents")` (a concrete value extracted by the
+	// programmatic layer) missed the `subagent` entity check even
+	// though it is THE cross-file join the extractor needs to see —
+	// the literal `sub_agents` token breaks the contiguous substring
+	// match that the pre-2026-04-17 scorer relied on.
 	text := stripPathTokens(strings.ToLower(item.Subject + " " + item.Object + " " + item.Summary + " " + item.Predicate))
+	normText := normalizeEntityHaystack(text)
 	overlap := 0
 	for _, ent := range entities {
-		if strings.Contains(text, ent) {
+		if entityHits(normText, ent) {
 			overlap++
 		}
 	}
@@ -865,34 +875,75 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 		kindWeight = 0.1
 	}
 
+	// 2a. Mechanism-concrete promotion. A concrete_value whose Object
+	// describes a registry lookup / gate / binding (e.g.
+	// `b.deps.SubAgents.Get(string(b.name))`) is the deterministic
+	// equivalent of an LLM-emit mechanism item — it names exactly the
+	// cross-file join the extractor needs to reach the answer. Without
+	// this promotion, the item scores at concrete's 0.5 kindWeight and
+	// 1.0 producerBoost and gets buried below LLM-emit noise items
+	// that happen to pass a superficial entity overlap check.
+	//
+	// Detection: Kind==Concrete + Producer=="concrete_values" + Object
+	// contains one of the registry-call patterns + at least one
+	// entity hit in the already-computed text. The pattern list is
+	// intentionally narrow (Get/Register/Bind/Inject/Lookup/Find);
+	// generic Add/Set are excluded to avoid matching `list.add(x)`
+	// style unrelated calls. The entity-hit prerequisite ensures
+	// irrelevant concrete values don't get promoted.
+	//
+	// Effect: kindWeight raised to 0.90 (parity with EvidenceMechanism),
+	// producerBoost raised to 1.5 (parity with LLM-emit boost). The
+	// combined effect is just enough to let a well-scoped mechanism
+	// concrete value compete with an LLM-emit conditional that has
+	// full entity overlap and bridgeBonus.
+	isMechanismConcrete := looksLikeMechanismConcreteValue(item, normText, entities)
+	if isMechanismConcrete {
+		kindWeight = 0.90
+	}
+
 	// 2b. Producer boost: evidence emitted by the LLM via
 	// emit_evidence was extracted with intent — it directly answers
 	// the question. Deterministic evidence (concrete values, dataflow)
 	// is broad and often misses the point. Boost LLM-produced items.
+	// Mechanism concrete values also qualify: they are programmatic
+	// extractions that name the exact gate/registry mechanism the
+	// question is about.
 	producerBoost := 1.0
 	if item.Kind.IsLLMEmittable() && item.Producer != "" && !strings.HasSuffix(item.Producer, "/ungrounded") {
+		producerBoost = 1.5
+	} else if isMechanismConcrete {
 		producerBoost = 1.5
 	}
 
 	// 3. Source weight: files the explorer read are more relevant.
+	// Exception: concrete_values are mechanically extracted from
+	// source text — their correctness does not depend on the LLM
+	// having chosen to read the file. Penalising them for living in
+	// an unread file defeats the programmatic layer's purpose, which
+	// is exactly to supply evidence for files the LLM missed.
 	sourceWeight := 0.5
 	if readFiles != nil && readFiles[item.Source] {
+		sourceWeight = 1.0
+	} else if item.Producer == "concrete_values" {
 		sourceWeight = 1.0
 	}
 
 	// 4. Bridge bonus: if subject and object match different entities.
-	// Same path-strip discipline as the overlap text above — a file
-	// path embedded in Subject/Object must not count as a hit.
+	// Same path-strip + normalization discipline as the overlap text
+	// above — a file path embedded in Subject/Object must not count,
+	// and snake_case identifiers must register for the snake_case
+	// form of an entity.
 	bridgeBonus := 1.0
 	if item.Subject != "" && item.Object != "" {
-		subjectLower := stripPathTokens(strings.ToLower(item.Subject))
-		objectLower := stripPathTokens(strings.ToLower(item.Object))
+		subjectLower := normalizeEntityHaystack(stripPathTokens(strings.ToLower(item.Subject)))
+		objectLower := normalizeEntityHaystack(stripPathTokens(strings.ToLower(item.Object)))
 		subjectHit, objectHit := false, false
 		for _, ent := range entities {
-			if strings.Contains(subjectLower, ent) {
+			if entityHits(subjectLower, ent) {
 				subjectHit = true
 			}
-			if strings.Contains(objectLower, ent) {
+			if entityHits(objectLower, ent) {
 				objectHit = true
 			}
 		}
@@ -902,6 +953,89 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 	}
 
 	return entityScore * kindWeight * sourceWeight * bridgeBonus * producerBoost
+}
+
+// normalizeEntityHaystack strips underscores and hyphens from a
+// haystack string so that snake_case / kebab-case identifiers match
+// entity tokens like `subagent`. Applied to the haystack only; the
+// entity list itself is normalised at construction time.
+func normalizeEntityHaystack(s string) string {
+	if !strings.ContainsAny(s, "_-") {
+		return s
+	}
+	b := make([]byte, 0, len(s))
+	for i := 0; i < len(s); i++ {
+		if s[i] == '_' || s[i] == '-' {
+			continue
+		}
+		b = append(b, s[i])
+	}
+	return string(b)
+}
+
+// entityHits reports whether the normalised haystack contains the
+// entity token. Thin wrapper kept separate from strings.Contains so
+// future refinements (word-boundary checks, synonym expansion) live
+// in one place.
+func entityHits(haystack, entity string) bool {
+	return strings.Contains(haystack, entity)
+}
+
+// mechanismConcretePatterns lists the lowercase method-call
+// fragments that identify a registry / gate / binding mechanism in
+// a concrete_value's Object field. The patterns are deliberately
+// narrow — generic call fragments like `.add(` or `.set(` are
+// excluded because they match too many unrelated data-structure
+// operations. Each fragment is case-insensitive via the caller's
+// strings.ToLower on the haystack.
+var mechanismConcretePatterns = []string{
+	".get(",
+	".register(",
+	".bind(",
+	".inject(",
+	".lookup(",
+	".find(",
+}
+
+// looksLikeMechanismConcreteValue reports whether a concrete_value
+// item is describing a cross-file mechanism (registry lookup /
+// binding / gate) rather than a plain return value. normText is the
+// lowercased, path-stripped, underscore-normalised combination of
+// Subject + Object + Summary + Predicate — passed in by the caller
+// so we reuse the work already done for entity scoring.
+//
+// The check requires BOTH a mechanism-call pattern AND at least one
+// entity overlap. The entity prerequisite prevents us from boosting
+// unrelated registry calls elsewhere in the codebase (e.g. a
+// logging framework's `logger.Register(handler)` has nothing to do
+// with the user's question and must score normally).
+func looksLikeMechanismConcreteValue(item types.EvidenceItem, normText string, entities []string) bool {
+	if item.Kind != types.EvidenceConcrete {
+		return false
+	}
+	if item.Producer != "concrete_values" {
+		return false
+	}
+	hasEntity := false
+	for _, ent := range entities {
+		if entityHits(normText, ent) {
+			hasEntity = true
+			break
+		}
+	}
+	if !hasEntity {
+		return false
+	}
+	// Check raw Object + Summary (not normText) so `.Get(` survives
+	// the underscore strip — the pattern needs its parenthesis to
+	// disambiguate method calls from bare identifiers.
+	haystack := strings.ToLower(item.Object + " " + item.Summary)
+	for _, p := range mechanismConcretePatterns {
+		if strings.Contains(haystack, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // rankFindingsByRelevance scores and sorts dataflow findings by

@@ -315,6 +315,182 @@ func TestRankFindingsByRelevance(t *testing.T) {
 	}
 }
 
+// TestRankEvidence_MechanismConcretePromotion replays the 2026-04-17
+// regression where a dozen LLM-emit conditional items from files the
+// LLM happened to read buried the programmatically-extracted concrete
+// value for `BaseAgent.buildToolSchemas → b.deps.SubAgents.Get(
+// string(b.name))` — the actual gate that answers "how many agents
+// can call subagent". Without mechanism-concrete promotion the
+// correct evidence lived in the +318 overflow; with promotion it
+// must surface in the top-N so the extractor digest carries it.
+func TestRankEvidence_MechanismConcretePromotion(t *testing.T) {
+	question := "有多少个agent可以调用subagent?"
+
+	items := []types.EvidenceItem{
+		// 8 LLM-emit conditional items about explorer meta-logic, all
+		// with subject/object containing `agent`/`subagent` superficially.
+		// This mirrors the real failure: explorer_erm.go and explorer.go
+		// produce lots of "agent X subagent" conditionals that are
+		// about the explorer's own detection heuristics, not about
+		// how agents invoke subagents.
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "reset", Object: "subagent",
+			Summary: "reset state across runs", Source: "internal/agent/explorer.go",
+			Producer: "emit_evidence"},
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "sequential", Object: "subagent",
+			Summary: "skip Phase 0 on retry", Source: "internal/agent/explorer.go",
+			Producer: "emit_evidence"},
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "validate", Object: "subagent",
+			Summary: "validate sub_tasks non-empty", Source: "internal/tool/propose_sub_agents.go",
+			Producer: "emit_evidence"},
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "analyze", Object: "subagent",
+			Summary: "trust analyzer if kind declared", Source: "internal/agent/explorer.go",
+			Producer: "emit_evidence"},
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "retry", Object: "subagent",
+			Summary: "depth read on retry", Source: "internal/agent/explorer.go",
+			Producer: "emit_evidence"},
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "enumerate", Object: "subagent",
+			Summary: "enumeration intent for subagents", Source: "internal/agent/explorer_erm.go",
+			Producer: "emit_evidence"},
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "calls", Object: "subagent",
+			Summary: "call-chain inferred", Source: "internal/agent/explorer_erm.go",
+			Producer: "emit_evidence"},
+		{Kind: types.EvidenceConditional, Subject: "agent", Predicate: "execute", Object: "subagent",
+			Summary: "execute if env var matches", Source: "internal/tool/propose_sub_agents.go",
+			Producer: "emit_evidence"},
+
+		// The critical mechanism concrete value. Source is NOT in the
+		// read files (mirrors real scenario: LLM skipped agent.go).
+		// Subject contains `agent` (in `BaseAgent`); Object contains
+		// `sub_agents` which must match `subagent` after underscore
+		// normalization.
+		{Kind: types.EvidenceConcrete,
+			Subject:   "BaseAgent.buildToolSchemas",
+			Predicate: "assigns",
+			Object:    `err := b.deps.SubAgents.Get(string(b.name)); err == nil {`,
+			Summary:   "`BaseAgent.buildToolSchemas()` assigns err := b.deps.SubAgents.Get(string(b.name)); err == nil {",
+			Source:    "internal/agent/agent.go",
+			Producer:  "concrete_values",
+		},
+	}
+
+	// readFiles mirrors the real run: LLM read explorer.go, explorer_erm.go,
+	// propose_sub_agents.go, subagent.go, types/subagent.go — NOT agent.go.
+	readFiles := map[string]bool{
+		"internal/agent/explorer.go":          true,
+		"internal/agent/explorer_erm.go":      true,
+		"internal/tool/propose_sub_agents.go": true,
+		"internal/agent/subagent.go":          true,
+		"internal/types/subagent.go":          true,
+	}
+
+	ranked := rankEvidenceByRelevance(question, items, readFiles)
+
+	// The mechanism concrete MUST appear within the top 4. The
+	// extractor's Primary Evidence slot is currently topN=12, so top-4
+	// is a strict floor — if the mechanism concrete is beaten even by
+	// 4 noise items the promotion is not strong enough.
+	foundAt := -1
+	for i, ev := range ranked {
+		if ev.Subject == "BaseAgent.buildToolSchemas" {
+			foundAt = i
+			break
+		}
+	}
+	if foundAt < 0 {
+		t.Fatalf("buildToolSchemas mechanism concrete not present in ranked output (len=%d)", len(ranked))
+	}
+	if foundAt >= 4 {
+		t.Errorf("buildToolSchemas ranked at position %d, want < 4 (mechanism-concrete promotion failed)", foundAt)
+	}
+}
+
+// TestLooksLikeMechanismConcreteValue exercises the detector directly
+// to lock down its decision boundary. Promotion is intentionally
+// tight — it triggers only when the Object shows a registry-call
+// pattern AND the text overlaps a question entity.
+func TestLooksLikeMechanismConcreteValue(t *testing.T) {
+	entities := []string{"agent", "subagent"}
+
+	cases := []struct {
+		name string
+		item types.EvidenceItem
+		want bool
+	}{
+		{
+			name: "buildToolSchemas SubAgents.Get — promote",
+			item: types.EvidenceItem{
+				Kind:     types.EvidenceConcrete,
+				Producer: "concrete_values",
+				Subject:  "BaseAgent.buildToolSchemas",
+				Object:   `err := b.deps.SubAgents.Get(string(b.name)); err == nil {`,
+			},
+			want: true,
+		},
+		{
+			name: "Tools.Get literal — promote (underscore-normalized entity match)",
+			item: types.EvidenceItem{
+				Kind:     types.EvidenceConcrete,
+				Producer: "concrete_values",
+				Subject:  "BaseAgent.buildToolSchemas",
+				Object:   `err := b.deps.Tools.Get("propose_sub_agents"); err == nil {`,
+			},
+			want: true,
+		},
+		{
+			name: "LLM-emit item — NOT promoted (promotion is concrete-only)",
+			item: types.EvidenceItem{
+				Kind:     types.EvidenceConditional,
+				Producer: "emit_evidence",
+				Subject:  "agent",
+				Object:   "subagent",
+				Summary:  "calls_subagent via .Get(key)",
+			},
+			want: false,
+		},
+		{
+			name: "unrelated registry call — no entity overlap",
+			item: types.EvidenceItem{
+				Kind:     types.EvidenceConcrete,
+				Producer: "concrete_values",
+				Subject:  "Logger.configure",
+				Object:   `h := registry.Get("default")`,
+			},
+			want: false,
+		},
+		{
+			name: "simple return value — no mechanism pattern",
+			item: types.EvidenceItem{
+				Kind:     types.EvidenceConcrete,
+				Producer: "concrete_values",
+				Subject:  "SubAgentRegistry.Name",
+				Object:   `"explorer"`,
+				Summary:  `SubAgentRegistry.Name() returns "explorer"`,
+			},
+			want: false,
+		},
+		{
+			name: "dataflow_path item — NOT a concrete, never promoted",
+			item: types.EvidenceItem{
+				Kind:     types.EvidenceDataflowPath,
+				Producer: "concrete_values",
+				Subject:  "RegisterDefaultSubAgents() binds NewSubExplorer",
+				Object:   `chains via SubAgents.Get(...)`,
+			},
+			want: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			text := normalizeEntityHaystack(strings.ToLower(
+				c.item.Subject + " " + c.item.Object + " " + c.item.Summary + " " + c.item.Predicate))
+			got := looksLikeMechanismConcreteValue(c.item, text, entities)
+			if got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 func TestRankEvidenceDiversity(t *testing.T) {
 	question := "What does SubExplorer do?"
 	// 5 items from same source+subject — only 2 should survive per key
