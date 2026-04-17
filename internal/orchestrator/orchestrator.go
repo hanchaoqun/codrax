@@ -593,6 +593,25 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 
 		logging.Info("[orchestrator] contract check failed (%d violation(s)); retryUsed=%d/%d",
 			len(res.Violations), state.retryUsed, ir.TaskGraph.ExecutionPolicy.RetryBudget)
+		// Per-violation debug so operators can tell, from a single log
+		// line per violation, exactly which gate fired and whether the
+		// retry is well-founded. Includes the is-absence flag and the
+		// authoritative citation-pool count so the usual "why didn't
+		// the absence waiver apply?" question has the data at hand.
+		if logging.IsDebug() {
+			absence := isJustifiedAbsenceAnswer(o.busCtx.Mutable)
+			poolCount := finalizerCitationPoolSize(o.busCtx.Mutable, out)
+			var shape types.AnswerShape
+			if doc := o.busCtx.Mutable.AnswerDocument(); doc != nil {
+				shape = doc.Shape
+			}
+			logging.Debug("[orchestrator] contract check state: is_absence=%v shape=%q citation_pool=%d",
+				absence, shape, poolCount)
+			for i, v := range res.Violations {
+				logging.Debug("[orchestrator]   violation[%d] kind=%s detail=%q repair=%q",
+					i, v.Kind, v.Detail, v.Repair)
+			}
+		}
 
 		if state.retryBudgetExhausted() {
 			// Fail-loud — preserve the original answer beneath an

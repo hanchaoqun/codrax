@@ -257,6 +257,16 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 					Detail: fmt.Sprintf("acceptance regex %q did not match", a.Expr)})
 			}
 		case types.CritCitationCountGE:
+			// Absence answers ("0 Python files", "no handlers do X")
+			// have nothing to cite — the whole point is that the
+			// cited thing does not exist. Mirror the carve-out that
+			// checkCitations already applies to CitationReq and the
+			// orchestrator's SC merge already applies to the finalize
+			// TaskNode's SuccessCriteria, so all three
+			// citation-threshold paths agree.
+			if draft.IsAbsence {
+				continue
+			}
 			n, err := strconv.Atoi(strings.TrimSpace(a.Expr))
 			if err != nil {
 				out = append(out, Violation{Kind: ViolAcceptance,

@@ -169,6 +169,10 @@ func (l *Logger) Warning(format string, args ...interface{}) { l.log(LevelWarnin
 func (l *Logger) Info(format string, args ...interface{})    { l.log(LevelInfo, format, args...) }
 func (l *Logger) Debug(format string, args ...interface{})   { l.log(LevelDebug, format, args...) }
 
+// IsDebug reports whether debug-level records would be written. Use it
+// to guard state-gathering work that is only needed for debug output.
+func (l *Logger) IsDebug() bool { return l != nil && l.level >= LevelDebug }
+
 // levelWriter adapts a Logger to io.Writer at a fixed level.
 type levelWriter struct {
 	l   *Logger
@@ -195,6 +199,9 @@ func Error(format string, args ...interface{})   { Default.Error(format, args...
 func Warning(format string, args ...interface{}) { Default.Warning(format, args...) }
 func Info(format string, args ...interface{})    { Default.Info(format, args...) }
 func Debug(format string, args ...interface{})   { Default.Debug(format, args...) }
+
+// IsDebug reports whether the Default logger would emit debug records.
+func IsDebug() bool { return Default.IsDebug() }
 
 // rotatingWriter is a size-bounded file writer that names each file
 // after its creation timestamp and the owning process's PID:
