@@ -980,6 +980,15 @@ type AgentContext struct {
 	// pointer field by design — see MutableState's doc.
 	Mutable *MutableState `json:"-"`
 
+	// SearchGraph is the opaque read-only handle to the repomap graph
+	// the main explorer seeded on Mutable.SearchGraph(). Duplicated
+	// onto AgentContext so SubAgents (which deliberately run with
+	// Mutable=nil) can reuse the same graph instance without a second
+	// BuildOrLoadGraph round-trip. The main-agent path usually reads
+	// through Mutable.SearchGraph() directly; this field is the
+	// Mutable-free alternative for sub-agents.
+	SearchGraph any `json:"-"`
+
 	// ThinkAloud controls the "Think Aloud" system section. Resolved
 	// per-agent from providers.yaml (default.think_aloud, overridable
 	// per agents.<name>.think_aloud). When false, the section is

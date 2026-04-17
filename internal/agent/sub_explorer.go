@@ -347,9 +347,24 @@ func buildScopedSearchGraph(ctx *types.AgentContext, toolResults []types.ToolRes
 	if ctx.RepoRoot == "" {
 		return nil, nil
 	}
-	graph, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, egrepQueryFromObjective(ctx.Objective))
-	if err != nil || graph == nil {
-		return nil, nil
+	// Reuse the main explorer's graph when the sub-agent dispatch
+	// carries one. BuildSubAgentContext copies the handle from
+	// bus.Mutable.SearchGraph(), so every sub-agent spawned after the
+	// main explorer's keyword_search skips a second BuildOrLoadGraph
+	// (~50-500ms per call depending on cache state). Falls back to
+	// building fresh when the handle is missing (tests, unusual flow).
+	var graph *repomap.Graph
+	if ctx.SearchGraph != nil {
+		if g, ok := ctx.SearchGraph.(*repomap.Graph); ok {
+			graph = g
+		}
+	}
+	if graph == nil {
+		g, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, egrepQueryFromObjective(ctx.Objective))
+		if err != nil || g == nil {
+			return nil, nil
+		}
+		graph = g
 	}
 	_, readSet := extractFileCoverage(toolResults)
 	candidateSet := make(map[string]bool)

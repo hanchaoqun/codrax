@@ -61,20 +61,48 @@ func critEntry(signal string) []types.Criterion {
 }
 
 
+// EvidenceNodeSpec carries the per-template fields expandEvidenceNodes
+// needs to build evidence-type TaskNodes. Every template supplies its
+// own IDPrefix / Inputs / Outputs / default Objective / default
+// Hints / EvidenceCount floor so the helper can handle both the
+// single-topic and multi-sub-topic cases uniformly.
+type EvidenceNodeSpec struct {
+	IDPrefix      string              // node ID prefix; multi-topic appends "_tN"
+	Inputs        []string            // default inputs (used by every emitted node)
+	Outputs       []string            // default outputs (used by every emitted node)
+	Objective     string              // used when len(SubTopics)<=1
+	Hints         types.SearchHints   // used when len(SubTopics)<=1
+	EvidenceCount int                 // floor for CritEvidenceCount success criterion
+}
+
 // expandEvidenceNodes returns one evidence node per sub-topic when
 // rm.SubTopics is non-empty, or a single evidence node otherwise.
-// Each node gets the sub-topic's Summary as its Objective and the
-// sub-topic's Entities as SearchHints.
-func expandEvidenceNodes(rm types.RequestModel, defaultHints types.SearchHints, idPrefix string) []types.TaskNode {
+// The per-sub-topic path uses the sub-topic's Summary as its
+// Objective and the sub-topic's Entities as SearchHints — every
+// other field is inherited from the spec.
+//
+// Every non-generic template now routes evidence node creation
+// through this helper so the multi-topic branch works identically
+// across scenarios; before this was only wired for templateGeneric
+// and sub-topic breakdowns silently degenerated to a single evidence
+// node in architecture_explain / root_cause / config_trace /
+// performance_bottleneck.
+func expandEvidenceNodes(rm types.RequestModel, spec EvidenceNodeSpec) []types.TaskNode {
+	evCount := spec.EvidenceCount
+	if evCount <= 0 {
+		evCount = TmplEvidenceCountLow
+	}
 	if len(rm.SubTopics) <= 1 {
 		return []types.TaskNode{{
-			ID:          idPrefix,
+			ID:          spec.IDPrefix,
 			Type:        types.NodeEvidence,
-			Objective:   "Collect evidence that answers the user's request.",
-			SearchHints: defaultHints,
+			Objective:   spec.Objective,
+			Inputs:      spec.Inputs,
+			Outputs:     spec.Outputs,
+			SearchHints: spec.Hints,
 			MaxRetries:  TmplEvidenceMaxRetries,
 			SuccessCriteria: []types.Criterion{
-				{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
+				{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(evCount)},
 			},
 		}}
 	}
@@ -85,17 +113,55 @@ func expandEvidenceNodes(rm types.RequestModel, defaultHints types.SearchHints, 
 			h.EntityIDs = append(h.EntityIDs, e)
 		}
 		nodes[i] = types.TaskNode{
-			ID:          fmt.Sprintf("%s_t%d", idPrefix, i),
+			ID:          fmt.Sprintf("%s_t%d", spec.IDPrefix, i),
 			Type:        types.NodeEvidence,
 			Objective:   st.Summary,
+			Inputs:      spec.Inputs,
+			Outputs:     spec.Outputs,
 			SearchHints: h,
 			MaxRetries:  TmplEvidenceMaxRetries,
 			SuccessCriteria: []types.Criterion{
-				{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
+				{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(evCount)},
 			},
 		}
 	}
 	return nodes
+}
+
+// evidenceChain wires probe → every evidence node → next as
+// hard-dependency edges. Replaces the `chain(probe.ID, ev.ID, ...)`
+// pattern for templates that use expandEvidenceNodes — chain() only
+// supports a single evidence id in the sequence.
+func evidenceChain(probeID string, evNodes []types.TaskNode, downstream ...string) []types.TaskEdge {
+	var edges []types.TaskEdge
+	for _, ev := range evNodes {
+		edges = append(edges, types.TaskEdge{
+			From: probeID, To: ev.ID, EdgeType: types.EdgeHardDependency,
+		})
+		if len(downstream) > 0 {
+			edges = append(edges, types.TaskEdge{
+				From: ev.ID, To: downstream[0], EdgeType: types.EdgeHardDependency,
+			})
+		}
+	}
+	for i := 1; i < len(downstream); i++ {
+		edges = append(edges, types.TaskEdge{
+			From: downstream[i-1], To: downstream[i], EdgeType: types.EdgeHardDependency,
+		})
+	}
+	return edges
+}
+
+// evidenceCriticalPath returns probe → first-evidence → downstream…
+// Keeps the critical path single-threaded (picking one evidence node
+// representative) regardless of fan-out on the sub-topic axis.
+func evidenceCriticalPath(probeID string, evNodes []types.TaskNode, downstream ...string) []string {
+	path := []string{probeID}
+	if len(evNodes) > 0 {
+		path = append(path, evNodes[0].ID)
+	}
+	path = append(path, downstream...)
+	return path
 }
 
 // ── architecture_explain ────────────────────────────────────────
@@ -112,17 +178,14 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
 		},
 	}
-	ev := types.TaskNode{
-		ID: nodeID(1, "evidence"), Type: types.NodeEvidence,
-		Objective:   "Collect evidence for each architectural component the user asked about.",
-		Inputs:      []string{"file_candidates", "symbol_table"},
-		Outputs:     []string{"evidence_items", "answer_chains"},
-		SearchHints: hints,
-		MaxRetries:  TmplEvidenceMaxRetries,
-		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountHigh)},
-		},
-	}
+	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
+		IDPrefix:      nodeID(1, "evidence"),
+		Inputs:        []string{"file_candidates", "symbol_table"},
+		Outputs:       []string{"evidence_items", "answer_chains"},
+		Objective:     "Collect evidence for each architectural component the user asked about.",
+		Hints:         hints,
+		EvidenceCount: TmplEvidenceCountHigh,
+	})
 	val := types.TaskNode{
 		ID: nodeID(2, "validate"), Type: types.NodeValidate,
 		Objective: "Check that every claimed symbol is backed by evidence and that answer chains terminate cleanly.",
@@ -148,17 +211,25 @@ func templateArchitectureExplain(rm types.RequestModel) Output {
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountHigh)},
 		},
 	}
-	edges := chain(probe.ID, ev.ID, val.ID, reconcile.ID, final.ID)
-	edges = append(edges, types.TaskEdge{
-		From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
-		Guard: "symbol_not_covered",
-	})
+	edges := evidenceChain(probe.ID, evNodes, val.ID, reconcile.ID, final.ID)
+	// validation_feedback edges fan out to every evidence node so a
+	// rejected validate pass can re-trigger any sub-topic's evidence
+	// collection, not just the first.
+	for _, ev := range evNodes {
+		edges = append(edges, types.TaskEdge{
+			From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
+			Guard: "symbol_not_covered",
+		})
+	}
+	nodes := []types.TaskNode{probe}
+	nodes = append(nodes, evNodes...)
+	nodes = append(nodes, val, reconcile, final)
 	graph := types.TaskGraph{
-		Nodes: []types.TaskNode{probe, ev, val, reconcile, final},
+		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
 			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
-			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
+			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
 		},
 	}
 	plan := types.EvidencePlan{
@@ -190,17 +261,14 @@ func templateRootCause(rm types.RequestModel) Output {
 		Outputs:     []string{"failing_component", "repro_sites"},
 		SearchHints: hints,
 	}
-	ev := types.TaskNode{
-		ID: nodeID(1, "evidence"), Type: types.NodeEvidence,
-		Objective:   "Collect call sites, control flow, and recent changes that could explain the symptom.",
-		Inputs:      []string{"failing_component", "repro_sites"},
-		Outputs:     []string{"evidence_items", "hypothesis_bindings"},
-		SearchHints: hints,
-		MaxRetries:  TmplEvidenceMaxRetries,
-		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountHigh)},
-		},
-	}
+	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
+		IDPrefix:      nodeID(1, "evidence"),
+		Inputs:        []string{"failing_component", "repro_sites"},
+		Outputs:       []string{"evidence_items", "hypothesis_bindings"},
+		Objective:     "Collect call sites, control flow, and recent changes that could explain the symptom.",
+		Hints:         hints,
+		EvidenceCount: TmplEvidenceCountHigh,
+	})
 	val := types.TaskNode{
 		ID: nodeID(2, "validate"), Type: types.NodeValidate,
 		Objective:       "Falsify every hypothesis about root cause against the collected evidence.",
@@ -226,17 +294,22 @@ func templateRootCause(rm types.RequestModel) Output {
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 	}
-	edges := chain(probe.ID, ev.ID, val.ID, reconcile.ID, final.ID)
-	edges = append(edges, types.TaskEdge{
-		From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
-		Guard: "any_hypothesis_unknown",
-	})
+	edges := evidenceChain(probe.ID, evNodes, val.ID, reconcile.ID, final.ID)
+	for _, ev := range evNodes {
+		edges = append(edges, types.TaskEdge{
+			From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
+			Guard: "any_hypothesis_unknown",
+		})
+	}
+	nodes := []types.TaskNode{probe}
+	nodes = append(nodes, evNodes...)
+	nodes = append(nodes, val, reconcile, final)
 	graph := types.TaskGraph{
-		Nodes: []types.TaskNode{probe, ev, val, reconcile, final},
+		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
 			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetVeryHigh),
-			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
+			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
 		},
 	}
 	plan := types.EvidencePlan{
@@ -268,17 +341,14 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		Outputs:     []string{"definition_sites"},
 		SearchHints: hints,
 	}
-	ev := types.TaskNode{
-		ID: nodeID(1, "evidence"), Type: types.NodeEvidence,
-		Objective:   "Trace default value, override precedence, and effective-value resolution.",
-		Inputs:      []string{"definition_sites"},
-		Outputs:     []string{"evidence_items", "resolution_chain"},
-		SearchHints: hints,
-		MaxRetries:  1,
-		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
-		},
-	}
+	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
+		IDPrefix:      nodeID(1, "evidence"),
+		Inputs:        []string{"definition_sites"},
+		Outputs:       []string{"evidence_items", "resolution_chain"},
+		Objective:     "Trace default value, override precedence, and effective-value resolution.",
+		Hints:         hints,
+		EvidenceCount: TmplEvidenceCountLow,
+	})
 	val := types.TaskNode{
 		ID: nodeID(2, "validate"), Type: types.NodeValidate,
 		Objective: "Confirm the traced chain matches the user's scenario.",
@@ -294,17 +364,22 @@ func templateConfigTrace(rm types.RequestModel) Output {
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountLow)},
 		},
 	}
-	edges := chain(probe.ID, ev.ID, val.ID, final.ID)
-	edges = append(edges, types.TaskEdge{
-		From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
-		Guard: "chain_incomplete",
-	})
+	edges := evidenceChain(probe.ID, evNodes, val.ID, final.ID)
+	for _, ev := range evNodes {
+		edges = append(edges, types.TaskEdge{
+			From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
+			Guard: "chain_incomplete",
+		})
+	}
+	nodes := []types.TaskNode{probe}
+	nodes = append(nodes, evNodes...)
+	nodes = append(nodes, val, final)
 	graph := types.TaskGraph{
-		Nodes: []types.TaskNode{probe, ev, val, final},
+		Nodes: nodes,
 		Edges: edges,
 		ExecutionPolicy: types.ExecutionPolicy{
 			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
-			CriticalPath: []string{probe.ID, ev.ID, final.ID},
+			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, final.ID),
 		},
 	}
 	plan := types.EvidencePlan{
@@ -336,17 +411,14 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 		Outputs:     []string{"hot_path_candidates"},
 		SearchHints: hints,
 	}
-	ev := types.TaskNode{
-		ID: nodeID(1, "evidence"), Type: types.NodeEvidence,
-		Objective:   "Collect loop structures, allocation sites, and any profiling hooks.",
-		Inputs:      []string{"hot_path_candidates"},
-		Outputs:     []string{"evidence_items", "ranked_bottlenecks"},
-		SearchHints: hints,
-		MaxRetries:  TmplEvidenceMaxRetries,
-		SuccessCriteria: []types.Criterion{
-			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplCitationCountMedium)},
-		},
-	}
+	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
+		IDPrefix:      nodeID(1, "evidence"),
+		Inputs:        []string{"hot_path_candidates"},
+		Outputs:       []string{"evidence_items", "ranked_bottlenecks"},
+		Objective:     "Collect loop structures, allocation sites, and any profiling hooks.",
+		Hints:         hints,
+		EvidenceCount: TmplCitationCountMedium,
+	})
 	val := types.TaskNode{
 		ID: nodeID(2, "validate"), Type: types.NodeValidate,
 		Objective: "Rank candidate bottlenecks by evidence weight.",
@@ -362,12 +434,15 @@ func templatePerformanceBottleneck(rm types.RequestModel) Output {
 			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountMedium)},
 		},
 	}
+	nodes := []types.TaskNode{probe}
+	nodes = append(nodes, evNodes...)
+	nodes = append(nodes, val, final)
 	graph := types.TaskGraph{
-		Nodes: []types.TaskNode{probe, ev, val, final},
-		Edges: chain(probe.ID, ev.ID, val.ID, final.ID),
+		Nodes: nodes,
+		Edges: evidenceChain(probe.ID, evNodes, val.ID, final.ID),
 		ExecutionPolicy: types.ExecutionPolicy{
 			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
-			CriticalPath: []string{probe.ID, ev.ID, val.ID, final.ID},
+			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
 		},
 	}
 	plan := types.EvidencePlan{
@@ -399,7 +474,14 @@ func templateGeneric(rm types.RequestModel) Output {
 		Outputs:     []string{"file_candidates"},
 		SearchHints: hints,
 	}
-	evNodes := expandEvidenceNodes(rm, hints, nodeID(1, "evidence"))
+	evNodes := expandEvidenceNodes(rm, EvidenceNodeSpec{
+		IDPrefix:      nodeID(1, "evidence"),
+		Inputs:        []string{"user_question"},
+		Outputs:       []string{"evidence_items"},
+		Objective:     "Collect evidence that answers the user's request.",
+		Hints:         hints,
+		EvidenceCount: TmplEvidenceCountLow,
+	})
 	finalIdx := 1 + len(evNodes)
 	final := types.TaskNode{
 		ID: nodeID(finalIdx, "finalize"), Type: types.NodeFinalize,
@@ -413,23 +495,12 @@ func templateGeneric(rm types.RequestModel) Output {
 	nodes := []types.TaskNode{probe}
 	nodes = append(nodes, evNodes...)
 	nodes = append(nodes, final)
-	// Edges: probe → each evidence → finalize
-	var edges []types.TaskEdge
-	for _, ev := range evNodes {
-		edges = append(edges, types.TaskEdge{From: probe.ID, To: ev.ID})
-		edges = append(edges, types.TaskEdge{From: ev.ID, To: final.ID})
-	}
-	critPath := []string{probe.ID}
-	for _, ev := range evNodes {
-		critPath = append(critPath, ev.ID)
-	}
-	critPath = append(critPath, final.ID)
 	graph := types.TaskGraph{
 		Nodes: nodes,
-		Edges: edges,
+		Edges: evidenceChain(probe.ID, evNodes, final.ID),
 		ExecutionPolicy: types.ExecutionPolicy{
 			MaxParallelism: 1, RetryBudget: subTopicRetryBudgetBoost(rm, TmplRetryBudgetLow),
-			CriticalPath: critPath,
+			CriticalPath: evidenceCriticalPath(probe.ID, evNodes, final.ID),
 		},
 	}
 	plan := types.EvidencePlan{

@@ -61,10 +61,16 @@ var analysisScenarios = []AnalysisEnumChoice{
 
 // analysisComplexities is the canonical complexity enum. Values match
 // types.Complexity constants.
+//
+// Descriptions carry TWO signals so the LLM can pick a level at
+// analyze-time — before any file is read. File-count estimates alone
+// are brittle (the LLM guesses) so each level also lists the
+// question-shape cues that reliably predict investigation breadth.
+// Language-neutral: cues are semantic patterns, not syntax.
 var analysisComplexities = []AnalysisEnumChoice{
-	{string(types.ComplexitySimple), "single lookup/count, 1-2 files"},
-	{string(types.ComplexityModerate), "single component, 3-5 files"},
-	{string(types.ComplexityComplex), "cross-component, 6+ files"},
+	{string(types.ComplexitySimple), "1 entity, 1-2 files. Question-shape cues: \"what is X\", \"where is X defined\", \"does X exist\", \"X 是什么\", \"X 在哪定义\", literal lookups, single-symbol return/boolean queries."},
+	{string(types.ComplexityModerate), "1 entity / 1 component, 3-5 files. Question-shape cues: \"how does X work\", \"what does X do\", \"explain X\", \"X 怎么工作\", \"X 的作用\", single-component mechanism/explanation questions with no cross-system comparison."},
+	{string(types.ComplexityComplex), "2+ entities OR cross-component reasoning, 6+ files. Question-shape cues: \"compare A and B\", \"how does X affect Y\", \"trace flow from A to B across M and N\", \"对比 A 和 B\", \"从 A 到 B 如何传递\", multi-symbol diffs, control-flow / dataflow spanning 2+ components."},
 }
 
 // analysisQuestionKinds is the canonical question_kind enum. Values

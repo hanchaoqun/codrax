@@ -619,6 +619,13 @@ func BuildSubAgentContext(bus *types.BusContext, req *types.SubAgentRequest) *ty
 	ac.FlowFindings = filterFlowFindingsByEvidence(ac.EvidenceItems, bus.FlowFindings)
 	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
 	ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
+	// Propagate the graph handle — Mutable is intentionally not
+	// aliased for sub-agents (they must not mutate parent state), but
+	// the repomap graph is a read-only pointer and reusing it spares
+	// every sub-agent a BuildOrLoadGraph round-trip.
+	if bus.Mutable != nil {
+		ac.SearchGraph = bus.Mutable.SearchGraph()
+	}
 
 	return ac
 }

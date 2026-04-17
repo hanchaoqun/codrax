@@ -469,6 +469,25 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logging.Debug("[analyzer] sub_topics detected, upgrading complexity simple → moderate")
 			rm.Complexity = types.ComplexityModerate
 		}
+	}
+
+	// Post-process complexity sanity check. The sub_topics rule above
+	// is one input; reconcileComplexity additionally cross-checks the
+	// LLM's pick against entity/keyword counts and question-shape
+	// cues in the raw request. Rules fire only on strong signals so
+	// the LLM's choice stays the default; see
+	// internal/agent/analyzer_complexity.go for the rule catalogue.
+	{
+		// Raw request stripped of the REPL conversation prefix — otherwise
+		// "## Current request\nrepomap的作用" would show simple-lookup
+		// cues even for a complex question re-asked in REPL mode.
+		rawForComplexity := types.StripConversationPrefix(rm.RawRequest)
+		resolved, reason := reconcileComplexity(rm.Complexity, rawForComplexity,
+			rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords, len(rm.SubTopics))
+		if resolved != rm.Complexity {
+			logComplexityReconcile(rm.Complexity, resolved, reason)
+			rm.Complexity = resolved
+		}
 		// Merge sub-topic entities into main entity list.
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
 		for _, e := range rm.AnalyzerHints.Entities {
