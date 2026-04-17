@@ -269,6 +269,23 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 		return out, nil
 	}
 
+	// R4 fail-loud gate. When Turn A read ZERO files AND produced ZERO
+	// key evidence items (direct / registration / mechanism — the three
+	// kinds that carry a concrete cross-file join the finalizer needs),
+	// the investigation is structurally empty: the LLM stopped before
+	// it did any real work. Emitting a synthesized answer at this
+	// point would be silent low-quality output. Fail loud via
+	// StageOutput.Error so the orchestrator's MaxRetriesPerStage
+	// budget forces a re-dispatch. ctx.EvidenceItems is the merged
+	// view visible at Turn B (LLM-emit + deterministic + Turn A
+	// artifacts); keyEvidenceCount counts the LLM-emittable kinds
+	// that name a mechanism, not prose observations.
+	if e.extractorInvestigationEmpty(ctx) {
+		out.Error = "extractor gate: Turn A produced 0 files read and 0 key evidence (direct/registration/mechanism) — investigation is structurally empty"
+		logging.Warning("[extractor] R4 fail-loud: %s", out.Error)
+		return out, nil
+	}
+
 	// Answer-symbol drain + cardinality validator.
 	syms, claim := ctx.Mutable.EmittedAnswerSymbols()
 	if len(syms) > 0 {
@@ -479,4 +496,30 @@ func NewExtractorAgent(deps *Dependencies) Agent {
 	return NewBaseAgent(types.AgentExtractor, deps, &extractorEvaluator{
 		maxRetries: deps.AgentSettings.ExtractorMaxCorrectionRetries,
 	})
+}
+
+// extractorInvestigationEmpty reports whether Turn A left the
+// extractor nothing real to work with: zero files read AND zero
+// key evidence items (Direct / Registration / Mechanism). Both
+// conditions must hold — a real answer can legitimately come from
+// concrete_value + resolution-chain extraction even when the LLM
+// read no files (R7/R8 bypass LLM noise), and a pure file-read
+// investigation that hasn't produced emit_evidence yet could still
+// be one ToolSuggestion away from useful output. The AND catches
+// the one structurally-empty combination.
+func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext) bool {
+	readFiles := 0
+	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+		readFiles = len(ta.ReadFiles)
+	}
+	if readFiles > 0 {
+		return false
+	}
+	for _, it := range ctx.EvidenceItems {
+		switch it.Kind {
+		case types.EvidenceDirect, types.EvidenceRegistration, types.EvidenceMechanism:
+			return false
+		}
+	}
+	return true
 }

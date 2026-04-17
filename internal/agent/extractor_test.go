@@ -168,11 +168,17 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 		[]types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 5, Kind: "function"}},
 		types.CompletenessComplete,
 	)
-	// No baseline data (no TurnAArtifacts, no AnalysisIR) → the
-	// validator passes the claim through untouched.
+	// No baseline data (no TurnAArtifacts.TerminalEvidenceCount, no
+	// MustInclude) → the validator passes the claim through untouched.
+	// ctx.EvidenceItems carries one Direct item so the R4 fail-loud
+	// gate recognises the investigation as non-empty and falls through
+	// to the drain logic the test is exercising.
 	ctx := &types.AgentContext{
 		Objective: "test",
-		Mutable:     mu,
+		Mutable:   mu,
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "ev1", Kind: types.EvidenceDirect, Source: "a.go", LineStart: 5},
+		},
 	}
 
 	e := &extractorEvaluator{}
@@ -202,9 +208,13 @@ func TestExtractor_ParseOutputDrainsEmittedBuffers(t *testing.T) {
 
 func extractorCtxWithBaseline(termCount int, mustInclude []string, syms []types.AnswerSymbol, claim types.CompletenessClaim) *types.AgentContext {
 	mu := types.NewMutableState("")
+	// ReadFiles is a stub: in production a non-zero TerminalEvidenceCount
+	// always coincides with Turn A having read at least one file, so
+	// tests that assert a baseline must not trip the R4 fail-loud gate.
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
 		UserQuestion:          "q",
 		TerminalEvidenceCount: termCount,
+		ReadFiles:             []string{"stub.go"},
 	})
 	mu.SetEmittedAnswerSymbols(syms, claim)
 	return &types.AgentContext{
@@ -318,6 +328,133 @@ func TestExtractor_Validator_Complete_NoBaseline_PassesThrough(t *testing.T) {
 	out, _ := e.ParseOutput(ctx, nil, nil, nil)
 	if out.AnswerSymbolCompleteness != types.CompletenessComplete {
 		t.Errorf("no baseline: claim should be trusted, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// R4 — extractor fail-loud gate: 0 files read AND 0 key evidence
+// -----------------------------------------------------------------------------
+//
+// The gate fires exactly when Turn A left the extractor nothing real
+// to work with. Passes 0 files read + 0 key evidence through to
+// StageOutput.Error so the orchestrator's retry budget sees a loud
+// signal instead of letting the extractor synthesize an answer on
+// an empty investigation.
+
+func TestExtractor_R4Gate_EmptyInvestigation_FailsLoud(t *testing.T) {
+	mu := types.NewMutableState("")
+	// Set TurnAArtifacts with zero ReadFiles so the Mutable branch is
+	// exercised (not the nil-ta branch). No key evidence on ctx.
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion: "q",
+	})
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+	}
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.Error == "" {
+		t.Error("R4 gate must set StageOutput.Error on 0 files + 0 key evidence")
+	}
+	if len(out.AnswerSymbols) != 0 {
+		t.Errorf("fail-loud must skip drain, got AnswerSymbols=%d", len(out.AnswerSymbols))
+	}
+}
+
+func TestExtractor_R4Gate_NilTurnAArtifacts_FailsLoud(t *testing.T) {
+	// nil TurnAArtifacts is the same shape as zero ReadFiles for the
+	// gate: both mean "Turn A read no files". Pinning this keeps the
+	// gate behaviour identical whether the artefacts struct was
+	// initialised or not.
+	mu := types.NewMutableState("")
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+	}
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.Error == "" {
+		t.Error("R4 gate must fire when TurnAArtifacts is nil and no evidence")
+	}
+}
+
+func TestExtractor_R4Gate_FilesRead_BypassesGate(t *testing.T) {
+	// A non-empty ReadFiles list is sufficient to pass the gate even
+	// when no key evidence is present: the investigation was not
+	// structurally empty. Downstream drain/validator logic runs.
+	mu := types.NewMutableState("")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		UserQuestion: "q",
+		ReadFiles:    []string{"a.go"},
+	})
+	mu.SetEmittedAnswerSymbols(
+		[]types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 5, Kind: "function"}},
+		types.CompletenessComplete,
+	)
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+	}
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.Error != "" {
+		t.Errorf("ReadFiles>0 must bypass gate, got Error=%q", out.Error)
+	}
+	if len(out.AnswerSymbols) != 1 {
+		t.Errorf("drain must run, got AnswerSymbols=%d", len(out.AnswerSymbols))
+	}
+}
+
+func TestExtractor_R4Gate_KeyEvidence_BypassesGate(t *testing.T) {
+	// Zero files read is acceptable when key evidence is present —
+	// the R7/R8 path populates ctx.EvidenceItems from programmatic
+	// concrete_value + resolution chains on files the LLM never
+	// opened. That path must not be blocked by the gate.
+	mu := types.NewMutableState("")
+	mu.SetEmittedAnswerSymbols(
+		[]types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 5, Kind: "function"}},
+		types.CompletenessComplete,
+	)
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "ev1", Kind: types.EvidenceRegistration, Subject: "Register", Object: "NewHandlerA", Source: "a.go", LineStart: 12},
+		},
+	}
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.Error != "" {
+		t.Errorf("Registration evidence must bypass gate, got Error=%q", out.Error)
+	}
+	if len(out.AnswerSymbols) != 1 {
+		t.Errorf("drain must run, got AnswerSymbols=%d", len(out.AnswerSymbols))
+	}
+}
+
+func TestExtractor_R4Gate_OnlyNonKeyEvidence_FailsLoud(t *testing.T) {
+	// Concrete_value / dataflow / conditional / relationship / absent
+	// without any of direct/registration/mechanism is NOT enough to
+	// bypass the gate: the three "key" kinds are the ones that carry
+	// a cross-file join the finalizer can cite.
+	mu := types.NewMutableState("")
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "ev1", Kind: types.EvidenceConcrete, Source: "a.go", LineStart: 5},
+			{ID: "ev2", Kind: types.EvidenceConditional, Source: "a.go", LineStart: 7},
+			{ID: "ev3", Kind: types.EvidenceRelationship, Source: "a.go", LineStart: 9},
+		},
+	}
+	e := &extractorEvaluator{}
+	out, _ := e.ParseOutput(ctx, nil, nil, nil)
+	if out.Error == "" {
+		t.Error("non-key evidence (concrete/conditional/relationship) must NOT bypass the gate")
 	}
 }
 
