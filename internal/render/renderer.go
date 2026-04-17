@@ -157,37 +157,42 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 //     one triggers "alert-colour fatigue". Slot 117 (light cyan,
 //     #87d7ff) reads as "interesting" rather than "danger".
 //
-//  2. Fenced-block background. DarkStyleConfig leaves
-//     CodeBlock.BackgroundColor unset, so a ``` ``` block inherits
-//     the terminal's default black and blends into surrounding prose.
-//     Slot 236 (#303030 — a mild charcoal, same as the default inline
-//     Code.BackgroundColor) gives the block a visible gutter against
-//     black terminals without introducing a harsh contrast.
+//  2. Answer-document background. The mild charcoal that used to
+//     live on fenced CodeBlock now wraps the ENTIRE answer
+//     document — the whole assistant reply reads as a single
+//     visually grouped card, and fenced code blocks inside blend
+//     with the surrounding prose instead of nesting a second
+//     background well inside the first. CodeBlock.BackgroundColor
+//     is explicitly left unset to avoid the nested-rectangle look.
 //
-// LightStyleConfig receives analogous overrides: slot 33 (blue) for
-// inline code, slot 254 (near-white) for block background. Both
-// overrides are pointer-replacement, not target mutation: each
-// stringPtr allocates a new backing string so the source struct's
-// original pointer is not reachable from cfg. glamour's package-level
-// styles.DarkStyleConfig / styles.LightStyleConfig remain untouched —
-// this does NOT modify the glamour library.
+// LightStyleConfig receives the analogous overrides: slot 33 (blue)
+// for inline code, slot 254 (near-white) for the document
+// background. All overrides are pointer-replacement, not target
+// mutation: each stringPtr allocates a new backing string so the
+// source struct's original pointer is not reachable from cfg.
+// glamour's package-level styles.DarkStyleConfig /
+// styles.LightStyleConfig remain untouched.
 func codraxStyleConfig() ansi.StyleConfig {
 	var cfg ansi.StyleConfig
 	var (
-		inlineCodeColor  string
-		codeBlockBgColor string
+		inlineCodeColor string
+		documentBgColor string
 	)
 	if termenv.HasDarkBackground() {
 		cfg = styles.DarkStyleConfig
-		inlineCodeColor = "117"  // xterm light cyan, #87d7ff
-		codeBlockBgColor = "236" // mild charcoal, #303030
+		inlineCodeColor = "117" // xterm light cyan, #87d7ff
+		documentBgColor = "236" // mild charcoal, #303030
 	} else {
 		cfg = styles.LightStyleConfig
-		inlineCodeColor = "33"   // xterm blue, #0087ff
-		codeBlockBgColor = "254" // near-white grey, #e4e4e4
+		inlineCodeColor = "33"  // xterm blue, #0087ff
+		documentBgColor = "254" // near-white grey, #e4e4e4
 	}
 	cfg.Code.Color = &inlineCodeColor
-	cfg.CodeBlock.BackgroundColor = &codeBlockBgColor
+	// Wrap the whole answer in a charcoal/grey background card.
+	cfg.Document.BackgroundColor = &documentBgColor
+	// Clear the fenced-code-block background so it does not nest a
+	// second rectangle inside the document card.
+	cfg.CodeBlock.BackgroundColor = nil
 	return cfg
 }
 
