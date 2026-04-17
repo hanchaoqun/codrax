@@ -118,24 +118,59 @@ func TestEmitAnswerDocument_ListOfSymbols_RequiresCompleteness(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocument_ListOfSymbols_RejectsStepsField(t *testing.T) {
+func TestEmitAnswerDocument_ListOfSymbols_ScrubsStepsWhenRequiredSatisfied(t *testing.T) {
+	// Session-8 Fix α' (trace 1776453454793969437): when shape=X's
+	// REQUIRED fields are already filled correctly, forbidden fields
+	// are JSON noise — silent-scrub them with a note in the success
+	// Summary instead of rejecting. Rejection burned 18 retries
+	// earlier because the LLM kept filling steps AND boolean on a
+	// step_list call; scrubbing accepts the valid answer on the
+	// first try and tells the LLM what was dropped.
 	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":                "list_of_symbols",
 		"symbols":              []map[string]interface{}{{"name": "Foo", "file": "a.go", "line": 1, "kind": "function"}},
 		"symbols_completeness": "complete",
 		"steps":                []map[string]interface{}{{"index": 1, "description": "x", "citation_ref": -1}},
 	})
-	res, _ := tool.Execute(newDocBusCtx(""), params)
-	// 2026-04-17 hardening: non-zero forbidden fields reject the call
-	// with a structured error so the LLM sees the feedback on the
-	// next turn. Silent scrub was letting the LLM keep the wrong
-	// field across multiple iterations because no signal surfaced.
-	if res.Success {
-		t.Errorf("list_of_symbols with non-zero steps: must reject, got success")
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("list_of_symbols with required filled + stray steps: must accept with scrub, got reject: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "forbids steps") {
-		t.Errorf("rejection must name the offending field: %q", res.Summary)
+	// Stray field must be scrubbed from the stored doc.
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Steps) != 0 {
+		t.Errorf("steps[] must be scrubbed, got %d items", len(doc.Steps))
+	}
+	// Summary must note the scrub so the LLM sees it happened.
+	if !strings.Contains(res.Summary, "scrubbed unused field") {
+		t.Errorf("Summary must note the scrub: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "steps[]") {
+		t.Errorf("Summary must name the scrubbed field: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ListOfSymbols_RejectsWhenRequiredMissing —
+// the reject path still fires when the SHAPE's required field is
+// missing. Scrub is only for "answer there, noise alongside".
+func TestEmitAnswerDocument_ListOfSymbols_RejectsWhenRequiredMissing(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	// No symbols[] — required field missing. Even if forbidden fields
+	// are present, we should reject because the shape is unsatisfied.
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":                "list_of_symbols",
+		"symbols":              []map[string]interface{}{},
+		"symbols_completeness": "complete",
+		"steps":                []map[string]interface{}{{"index": 1, "description": "x", "citation_ref": -1}},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Errorf("empty symbols[] must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "requires symbols[]") {
+		t.Errorf("rejection must name the missing required field: %q", res.Summary)
 	}
 }
 
@@ -157,24 +192,30 @@ func TestEmitAnswerDocument_ListOfSymbols_TolerateZeroStepsArray(t *testing.T) {
 	}
 }
 
-// TestEmitAnswerDocument_Explanation_RejectsZombieBoolean pins the
-// exact failure mode from trace 1776439797257469553: the LLM sent
-// shape=explanation with a non-zero boolean{decision:"否", rationale:
-// "…"}. Old behaviour silently scrubbed it and accepted; new
-// behaviour rejects so the LLM corrects on retry.
-func TestEmitAnswerDocument_Explanation_RejectsZombieBoolean(t *testing.T) {
+// TestEmitAnswerDocument_Explanation_ScrubsZombieBoolean pins the
+// session-8 Fix α' behavior: shape=explanation with a valid summary
+// AND a stray boolean{decision:"否", rationale:...} silent-scrubs
+// the boolean and accepts the call. Earlier session-7 behavior
+// rejected, which caused the trace 1776453454793969437 loop (LLM
+// kept answering correctly + filling the stray field).
+func TestEmitAnswerDocument_Explanation_ScrubsZombieBoolean(t *testing.T) {
 	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
-		"summary": "x",
+		"summary": "valid answer body",
 		"boolean": map[string]interface{}{"decision": "否", "rationale": "spurious", "citation_ref": -1},
 	})
-	res, _ := tool.Execute(newDocBusCtx(""), params)
-	if res.Success {
-		t.Errorf("explanation with non-zero boolean: must reject, got success")
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("explanation with valid summary + stray boolean: must accept with scrub, got reject: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "forbids boolean") {
-		t.Errorf("rejection must name boolean: %q", res.Summary)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc.Boolean != nil {
+		t.Errorf("boolean must be scrubbed from stored doc, got %+v", doc.Boolean)
+	}
+	if !strings.Contains(res.Summary, "boolean{}") {
+		t.Errorf("scrub note must name the boolean field: %q", res.Summary)
 	}
 }
 
@@ -646,22 +687,29 @@ func TestEmitAnswerDocument_Explanation_AcceptsAnchorSkeleton(t *testing.T) {
 	}
 }
 
-// TestEmitAnswerDocument_Explanation_StillForbidsValue — steps / value
-// / boolean remain forbidden on explanation shape; only symbols[] is
-// newly allowed.
-func TestEmitAnswerDocument_Explanation_StillForbidsValue(t *testing.T) {
+// TestEmitAnswerDocument_Explanation_ScrubsStrayValue — steps / value
+// / boolean remain forbidden on explanation shape, but under session-8
+// Fix α' they are silent-scrubbed (with a Summary note) when the
+// required summary field is satisfied. The cluttered answer ships
+// with the stray field removed.
+func TestEmitAnswerDocument_Explanation_ScrubsStrayValue(t *testing.T) {
 	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
-		"summary": "x",
+		"summary": "valid answer body",
 		"value":   map[string]interface{}{"literal": "42", "citation_ref": -1},
 	})
-	res, _ := tool.Execute(newDocBusCtx(""), params)
-	if res.Success {
-		t.Errorf("explanation with value{}: must reject, got success")
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("explanation with valid summary + stray value: must accept with scrub, got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "forbids value") {
-		t.Errorf("rejection must name value: %q", res.Summary)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc.Value != nil {
+		t.Errorf("value must be scrubbed, got %+v", doc.Value)
+	}
+	if !strings.Contains(res.Summary, "value{}") {
+		t.Errorf("scrub note must name value: %q", res.Summary)
 	}
 }
 
@@ -772,17 +820,15 @@ func TestEmitAnswerDocument_ShapeAutoCorrect_AcceptsCleanFallback(t *testing.T) 
 	}
 }
 
-// TestEmitAnswerDocument_ShapeAutoCorrect_RejectsNonZeroForbidden pins
-// the session-8 Bug 3 fix: when the LLM "shotgun"-fills fields
-// across shapes (trace 1776448040358685830 iter=0: shape=boolean +
-// non-zero boolean{decision,rationale} + steps[...] + symbols[...]
-// + value{...} all at once), the previous silent-scrub path let the
-// call pass with the wrong-shape fields quietly nil'd; the LLM saw
-// ok=true and repeated the same scattershot on the next turn.
-// Session-8: auto-correct resolves shape, then the downstream
-// rejectForbiddenFields fires on any non-zero forbidden field and
-// returns a specific "shape=X forbids Y" error so the LLM corrects.
-func TestEmitAnswerDocument_ShapeAutoCorrect_RejectsNonZeroForbidden(t *testing.T) {
+// TestEmitAnswerDocument_ShapeAutoCorrect_ScrubsStrayAfterRequiredFilled
+// pins session-8 Fix α' on the auto-correct path: LLM chose boolean,
+// analyzer target was explanation, LLM also filled a valid summary
+// so the resolved-shape required field is satisfied. The stray
+// boolean{} gets silent-scrubbed with a note in the Summary and
+// the answer ships. Previous session-7 behavior rejected here, but
+// the rejection burned retries without teaching the LLM anything
+// it could act on — the answer body was already correct.
+func TestEmitAnswerDocument_ShapeAutoCorrect_ScrubsStrayAfterRequiredFilled(t *testing.T) {
 	ctx := newDocBusCtx("")
 	ctx.AnalysisIR = &types.AnalysisIR{
 		AnswerContract: types.AnswerContract{
@@ -790,20 +836,28 @@ func TestEmitAnswerDocument_ShapeAutoCorrect_RejectsNonZeroForbidden(t *testing.
 		},
 	}
 	tool := &EmitAnswerDocument{}
-	// LLM chose boolean with a non-zero decision. Auto-correct
-	// resolves shape to explanation but boolean is still non-nil.
-	// rejectForbiddenFields must fire.
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "boolean",
-		"summary": "x",
+		"summary": "valid explanation answer body",
 		"boolean": map[string]interface{}{"decision": "true", "rationale": "r", "citation_ref": -1},
 	})
 	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Errorf("non-zero boolean after shape correction must reject, got success: %s", res.Summary)
+	if !res.Success {
+		t.Fatalf("shape auto-corrected + required satisfied + stray field: must accept with scrub, got: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "forbids boolean") {
-		t.Errorf("rejection must name the offending field: %q", res.Summary)
+	doc := ctx.Mutable.AnswerDocument()
+	if doc.Shape != types.ShapeExplanation {
+		t.Errorf("resolved shape must be explanation, got %s", doc.Shape)
+	}
+	if doc.Boolean != nil {
+		t.Errorf("stray boolean must be scrubbed, got %+v", doc.Boolean)
+	}
+	// Both the shape-correction and the scrub notes must surface.
+	if !strings.Contains(res.Summary, "Shape correction:") {
+		t.Errorf("Summary must carry shape correction note: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "boolean{}") {
+		t.Errorf("Summary must name the scrubbed boolean field: %q", res.Summary)
 	}
 }
 
@@ -813,6 +867,12 @@ func TestEmitAnswerDocument_ShapeAutoCorrect_RejectsNonZeroForbidden(t *testing.
 // validation signal (shape correction note + citation grounding
 // warnings) so the LLM sees ALL problems on one retry instead of
 // fixing them one-at-a-time and burning tokens to a rate-limit.
+//
+// Under Fix α', the "boolean stray + steps filled" combo now succeeds
+// (scrub path), so the failure trigger here is the REQUIRED step[]
+// being empty — shape=step_list with no steps + bad citations. The
+// aggregate message must carry both the "requires steps[]" error
+// and the citation-grounding warnings.
 func TestEmitAnswerDocument_FailWithContext_AggregatesCitationWarnings(t *testing.T) {
 	graph := newDocGraph(map[string][]docSymbol{
 		"a.go": {{name: "Foo", line: 10, end: 30}},
@@ -828,14 +888,13 @@ func TestEmitAnswerDocument_FailWithContext_AggregatesCitationWarnings(t *testin
 
 	tool := &EmitAnswerDocument{}
 	// Failure cocktail in ONE call:
-	//   - shape=step_list forbids non-nil boolean{decision:"否"} — structural reject
+	//   - shape=step_list required steps[] is EMPTY → reject
 	//   - citations[0] references `wrong.go` not in Turn A ReadFiles — whitelist drop
 	//   - citations[1] has a fabricated quote on an indexed file — Tier-1 peer drop
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "step_list",
 		"summary": "x",
-		"boolean": map[string]interface{}{"decision": "否", "rationale": "r", "citation_ref": -1},
-		"steps":   []map[string]interface{}{{"index": 1, "description": "s1", "citation_ref": -1}},
+		"steps":   []map[string]interface{}{}, // empty required field → fail
 		"citations": []map[string]interface{}{
 			{"file": "wrong.go", "line": 5},
 			{"file": "a.go", "line": 15, "quote": "fabricated prose"},
@@ -845,8 +904,8 @@ func TestEmitAnswerDocument_FailWithContext_AggregatesCitationWarnings(t *testin
 	if res.Success {
 		t.Fatalf("expected reject, got success: %s", res.Summary)
 	}
-	// Primary error: the forbidden boolean field.
-	if !strings.Contains(res.Summary, "forbids boolean") {
+	// Primary error: required steps missing.
+	if !strings.Contains(res.Summary, "requires steps[]") {
 		t.Errorf("Summary must carry the primary structural error: %q", res.Summary)
 	}
 	// Aggregated: the citation warnings must be visible too.

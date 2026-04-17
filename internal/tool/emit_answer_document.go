@@ -451,15 +451,19 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// the AnswerDocument slot the renderer will read.
 	switch shape {
 	case types.ShapeListOfSymbols:
-		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
-			return failWithContext("%v", err)
-		}
+		// Required-first gate: if required fields are missing, reject
+		// with full context so the LLM knows the shape is unsatisfied.
+		// If required fields are filled, forbidden fields are noise —
+		// silent scrub with a surfaced note.
 		if len(p.Symbols) == 0 {
 			return failWithContext("shape=list_of_symbols requires symbols[] with at least one entry")
 		}
 		claimRaw := strings.ToLower(strings.TrimSpace(p.SymbolsCompleteness))
 		if claimRaw == "" {
 			return failWithContext("shape=list_of_symbols requires symbols_completeness (one of: complete, lower_bound, unknown)")
+		}
+		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); note != "" {
+			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
 		claim, cok := emitAnswerSymbolAllowedCompleteness[claimRaw]
 		if !cok {
@@ -477,9 +481,6 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.SymbolsCompleteness = claim
 
 	case types.ShapeStepList:
-		if err := rejectForbiddenFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); err != nil {
-			return failWithContext("%v", err)
-		}
 		if len(p.Steps) == 0 {
 			return failWithContext("shape=step_list requires steps[] with at least one entry")
 		}
@@ -489,42 +490,45 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			}
 			p.Steps[i].Description = strings.TrimSpace(p.Steps[i].Description)
 		}
+		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); note != "" {
+			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
+		}
 		doc.Steps = p.Steps
 
 	case types.ShapeValue:
-		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
-			return failWithContext("%v", err)
-		}
 		if p.Value == nil {
 			return failWithContext("shape=value requires value{literal, citation_ref}")
 		}
 		if err := validateValueField(p.Value, false, numCites); err != nil {
 			return failWithContext("%v", err)
 		}
+		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
+			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
+		}
 		doc.Value = p.Value
 
 	case types.ShapeConfigValue:
-		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
-			return failWithContext("%v", err)
-		}
 		if p.Value == nil {
 			return failWithContext("shape=config_value requires value{key, literal, citation_ref}")
 		}
 		if err := validateValueField(p.Value, true, numCites); err != nil {
 			return failWithContext("%v", err)
 		}
+		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
+			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
+		}
 		doc.Value = p.Value
 
 	case types.ShapeBoolean:
-		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue); err != nil {
-			return failWithContext("%v", err)
-		}
 		if p.Boolean == nil {
 			return failWithContext("shape=boolean requires boolean{decision, rationale, citation_ref}")
 		}
 		bl, berr := buildEmitAnswerDocumentBoolean(p.Boolean, numCites)
 		if berr != nil {
 			return failWithContext("%v", berr)
+		}
+		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidValue); note != "" {
+			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
 		doc.Boolean = bl
 
@@ -536,8 +540,8 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		// beneath the summary prose. symbols_completeness is NOT
 		// required in this mode — the skeleton is auxiliary, not the
 		// answer body. steps / value / boolean remain forbidden.
-		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
-			return failWithContext("%v", err)
+		if strings.TrimSpace(p.Summary) == "" {
+			return failWithContext("shape=explanation requires a non-empty summary")
 		}
 		if len(p.Symbols) > 0 {
 			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
@@ -553,8 +557,8 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			// contract; leave SymbolsCompleteness zero-valued so the
 			// renderer can branch on "skeleton vs. enumeration".
 		}
-		if strings.TrimSpace(p.Summary) == "" {
-			return failWithContext("shape=explanation requires a non-empty summary")
+		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); note != "" {
+			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
 	}
 
@@ -654,6 +658,62 @@ func rejectForbiddenFields(p *emitAnswerDocumentParams, shape types.AnswerShape,
 		return fmt.Errorf("shape=%s forbids boolean{}; remove the field and retry", shape)
 	}
 	return nil
+}
+
+// joinNote concatenates two Summary notes with a "; " separator,
+// skipping empties. Used to layer the shape-auto-correct message
+// and the scrubbed-forbidden-fields message without fragile string
+// assembly at each call site.
+func joinNote(existing, added string) string {
+	existing = strings.TrimSpace(existing)
+	added = strings.TrimSpace(added)
+	if existing == "" {
+		return added
+	}
+	if added == "" {
+		return existing
+	}
+	return existing + "; " + added
+}
+
+// scrubForbiddenNonZeroFields nil's non-zero forbidden fields and
+// returns a human-readable description of what was scrubbed (empty
+// when nothing needed scrubbing). Session-8 Fix α' (trace
+// 1776453454793969437): once the shape's required fields are
+// already satisfied, forbidden fields are JSON-noise — the answer
+// is valid without them. Rejecting the whole call forces the LLM
+// to re-emit from scratch, which it may never figure out (the trace
+// showed 18 iterations of "shape=step_list forbids boolean{}"
+// with steps[] filled correctly on every one). Silently scrubbing
+// and appending a note to the success Summary keeps forward
+// progress while still telling the LLM what we dropped.
+//
+// The reject path (rejectForbiddenFields) is the right call when
+// required fields are MISSING — that's a shape confusion the LLM
+// should fix. The scrub path is for "answer's there, just cluttered".
+func scrubForbiddenNonZeroFields(p *emitAnswerDocumentParams, shape types.AnswerShape, mask forbidBitset) string {
+	var scrubbed []string
+	if mask&forbidSteps != 0 && len(p.Steps) > 0 {
+		scrubbed = append(scrubbed, fmt.Sprintf("steps[] (%d items)", len(p.Steps)))
+		p.Steps = nil
+	}
+	if mask&forbidSymbols != 0 && len(p.Symbols) > 0 {
+		scrubbed = append(scrubbed, fmt.Sprintf("symbols[] (%d items)", len(p.Symbols)))
+		p.Symbols = nil
+	}
+	if mask&forbidValue != 0 && p.Value != nil {
+		scrubbed = append(scrubbed, "value{}")
+		p.Value = nil
+	}
+	if mask&forbidBoolean != 0 && p.Boolean != nil {
+		scrubbed = append(scrubbed, "boolean{}")
+		p.Boolean = nil
+	}
+	if len(scrubbed) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("shape=%s scrubbed unused field(s): %s (answer body is valid without them)",
+		shape, strings.Join(scrubbed, ", "))
 }
 
 func validateStep(s *types.AnswerStep, index int, numCites int) error {

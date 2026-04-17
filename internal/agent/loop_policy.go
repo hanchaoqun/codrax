@@ -83,6 +83,19 @@ type LoopPolicy struct {
 	// the exact pattern: iter=0 rejected → iter=1 identical
 	// rejected → the 3rd attempt would have been the force-stop.
 	IdenticalToolCallAfterFailureStreak int
+
+	// IdenticalErrorStreak caps consecutive rejections that share
+	// the same error class (first line of the failed tool Summary)
+	// regardless of payload bytes. 0 disables the check. Default 3:
+	// trace 1776453454793969437 exposed a payload-different-but-
+	// error-identical failure mode — the LLM varied Chinese
+	// rationale/summary text each iteration but kept filling the
+	// same stray boolean{} on a step_list call, so every rejection
+	// carried "shape=step_list forbids boolean{}" as the first line
+	// but byte-level hash varied. The byte-identical detector above
+	// missed it; this complementary gate catches it. Fires on
+	// PhaseMidLoop after a failed LastToolResult; ignores successes.
+	IdenticalErrorStreak int
 }
 
 // DefaultLoopPolicy returns the policy BaseAgent installs when the
@@ -109,6 +122,7 @@ func DefaultLoopPolicy() LoopPolicy {
 		IdleStopThreshold:                   2,
 		IdenticalToolCallAfterSuccessStreak: 1,
 		IdenticalToolCallAfterFailureStreak: 3,
+		IdenticalErrorStreak:                3,
 	}
 }
 
@@ -175,6 +189,20 @@ type loopPolicyState struct {
 	// pick the success-vs-failure threshold. false when no previous
 	// call or previous failed.
 	lastToolCallSucceeded bool
+
+	// lastErrorHash is the fnv-64 hash of the FIRST LINE of the
+	// previous iteration's failed-tool Summary. Used by the
+	// identical-error streak detector to catch payload-different
+	// but structurally-identical rejection loops (e.g. the LLM
+	// varies Chinese prose each iteration but keeps the same
+	// "shape=X forbids Y" structural mistake). Zero when no prior
+	// failure observed.
+	lastErrorHash uint64
+
+	// identicalErrorStreak counts consecutive iterations whose
+	// previous-iter rejection error matched lastErrorHash. Reset
+	// on success or on a different error class.
+	identicalErrorStreak int
 }
 
 // newLoopPolicyState constructs a fresh counter set under the given
@@ -353,6 +381,37 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 		s.lastToolCallSucceeded = obs.LastToolResult.Success
 	}
 
+	// Step 1d — identical-error streak. Complements step 1c: the
+	// byte-identical tool-call gate misses payload-different but
+	// structurally-identical rejection loops (trace
+	// 1776453454793969437: LLM varied Chinese rationale / summary
+	// each iteration but kept filling the same stray boolean{}).
+	// Hashing the FIRST LINE of a failed Summary captures the
+	// error class ("shape=X forbids Y") without false-negatives
+	// from prose decoration around it. Skips success cases and
+	// no-tool-result cases.
+	if phase == PhaseMidLoop && obs.LastToolResult != nil && !obs.LastToolResult.Success {
+		firstLine := firstLineOfString(obs.LastToolResult.Summary)
+		eh := hashString(firstLine)
+		if s.lastErrorHash != 0 && eh == s.lastErrorHash {
+			s.identicalErrorStreak++
+		} else {
+			s.identicalErrorStreak = 0
+		}
+		s.lastErrorHash = eh
+		if s.policy.IdenticalErrorStreak > 0 && s.identicalErrorStreak >= s.policy.IdenticalErrorStreak {
+			return LoopResult{
+				Outcome: OutcomeStop,
+				Reason: fmt.Sprintf("same error class repeated %d time(s): %q; stopping to avoid quota burn",
+					s.identicalErrorStreak, truncForReason(firstLine, 120)),
+			}
+		}
+	} else if obs.LastToolResult != nil && obs.LastToolResult.Success {
+		// Success breaks the streak — the LLM converged.
+		s.identicalErrorStreak = 0
+		s.lastErrorHash = 0
+	}
+
 	// Step 2 — explicit stop.
 	if sig.StopRequested {
 		reason := "evaluator stop"
@@ -442,4 +501,49 @@ func hashToolCalls(calls []llm.ToolCall) uint64 {
 		_, _ = h.Write([]byte{0x1e})
 	}
 	return h.Sum64()
+}
+
+// hashString is the fnv-64 hash of a string. Used by the identical-
+// error streak detector to compare error classes cheaply across
+// iterations without retaining the full text.
+func hashString(s string) uint64 {
+	if s == "" {
+		return 0
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(s))
+	return h.Sum64()
+}
+
+// firstLineOfString returns the content up to the first newline
+// (exclusive). Used to extract the error class from a failed tool
+// Summary for streak detection — the first line carries
+// "shape=X forbids Y" or similar structural messages without the
+// prose decoration that follows.
+func firstLineOfString(s string) string {
+	if i := indexByteZero(s, '\n'); i >= 0 {
+		return s[:i]
+	}
+	return s
+}
+
+// indexByteZero avoids the strings import here — loop_policy.go
+// stays close to the hot path. Equivalent to strings.IndexByte(s, b).
+func indexByteZero(s string, b byte) int {
+	for i := 0; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
+}
+
+// truncForReason trims a string to max runes followed by "…" if
+// needed. Used to keep LoopResult.Reason messages readable when
+// the underlying error text is long.
+func truncForReason(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }

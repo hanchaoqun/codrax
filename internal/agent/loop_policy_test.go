@@ -514,3 +514,118 @@ func TestLoopPolicy_IdenticalOnlyAtMidLoop(t *testing.T) {
 		t.Errorf("soft-stop path must not trip identical-call rule, got %q", r2.Reason)
 	}
 }
+
+// -----------------------------------------------------------------------------
+// Identical-error streak: force-stop when the SAME error class repeats
+// regardless of whether the LLM varies the payload.
+// -----------------------------------------------------------------------------
+
+// midLoopObsWithFailedTool builds a PhaseMidLoop observation carrying a
+// failed tool result with a specific error Summary. The calls field
+// intentionally differs from previous iter so the byte-identical
+// detector (step 1c) does NOT fire and we isolate the error-streak
+// detector (step 1d).
+func midLoopObsWithFailedTool(iter int, errorSummary string, variant byte) LoopObservation {
+	return LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: iter,
+		Response: llm.Response{ToolCalls: []llm.ToolCall{
+			{Name: "emit_answer_document", Params: []byte{'{', 'x', ':', variant, '}'}},
+		}},
+		LastToolResult: &types.ToolResult{
+			Success: false,
+			Summary: errorSummary,
+		},
+		AllToolResults: make([]types.ToolResult, iter+1),
+	}
+}
+
+// TestLoopPolicy_IdenticalErrorStreak_ForcesStop pins session-8 Fix β'
+// (trace 1776453454793969437): consecutive rejections sharing the
+// same first-line error class ("shape=step_list forbids boolean{}"
+// etc.) force-stop the loop at threshold, even when each iteration's
+// tool_use payload is different. Catches the "LLM varies prose but
+// keeps the same structural mistake" pattern.
+func TestLoopPolicy_IdenticalErrorStreak_ForcesStop(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	errMsg := "shape=step_list forbids boolean{}; remove the field and retry"
+	// iter=0..2 all fail with the same error but varied payload.
+	// streak counts: iter=1 → 1, iter=2 → 2, iter=3 → 3 (force stop).
+	for i := 0; i < 3; i++ {
+		r := s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(i, errMsg, byte('a'+i)), LoopSignal{})
+		if r.Outcome == OutcomeStop && strings.Contains(r.Reason, "same error class") {
+			t.Fatalf("iter=%d stopped too early: %s", i, r.Reason)
+		}
+	}
+	// iter=3: identical error class streak=3 ≥ threshold=3 → force stop.
+	r := s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(3, errMsg, byte('z')), LoopSignal{})
+	if r.Outcome != OutcomeStop {
+		t.Fatalf("iter=3 must force-stop on identical-error streak, got %v (%s)",
+			r.Outcome, r.Reason)
+	}
+	if !strings.Contains(r.Reason, "same error class") {
+		t.Errorf("stop reason must name the error-streak rule, got %q", r.Reason)
+	}
+	if !strings.Contains(r.Reason, "shape=step_list forbids boolean") {
+		t.Errorf("stop reason should echo the repeating error, got %q", r.Reason)
+	}
+}
+
+// TestLoopPolicy_IdenticalErrorStreak_ResetsOnSuccess — when the LLM
+// finally produces a successful tool call, the error streak resets
+// so a later, different failure doesn't inherit the previous count.
+func TestLoopPolicy_IdenticalErrorStreak_ResetsOnSuccess(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	errMsg := "shape=step_list forbids boolean{}"
+	s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(0, errMsg, 'a'), LoopSignal{})
+	s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(1, errMsg, 'b'), LoopSignal{})
+
+	// iter=2: success. Streak must reset.
+	successObs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 2,
+		Response:  llm.Response{ToolCalls: []llm.ToolCall{{Name: "other", Params: []byte(`{}`)}}},
+		LastToolResult: &types.ToolResult{Success: true, Summary: "accepted"},
+		AllToolResults: make([]types.ToolResult, 3),
+	}
+	s.Apply(PhaseMidLoop, successObs, LoopSignal{})
+
+	// iter=3-5: new error class, same message. Streak starts from 0.
+	newErr := "shape=step_list requires steps[]"
+	for i := 3; i < 5; i++ {
+		r := s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(i, newErr, byte('a'+i)), LoopSignal{})
+		if r.Outcome == OutcomeStop {
+			t.Fatalf("iter=%d stopped too early after success reset: %s", i, r.Reason)
+		}
+	}
+}
+
+// TestLoopPolicy_IdenticalErrorStreak_ResetsOnDifferentError — a new
+// error class breaks the streak (LLM at least tried something
+// different, even if wrong in a new way).
+func TestLoopPolicy_IdenticalErrorStreak_ResetsOnDifferentError(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(0, "shape=step_list forbids boolean{}", 'a'), LoopSignal{})
+	s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(1, "shape=step_list forbids boolean{}", 'b'), LoopSignal{})
+	// iter=2: different error. Should reset streak.
+	r := s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(2, "shape=step_list requires steps[]", 'c'), LoopSignal{})
+	if r.Outcome == OutcomeStop {
+		t.Fatalf("different error class must reset streak, got stop: %s", r.Reason)
+	}
+}
+
+// TestLoopPolicy_IdenticalErrorStreak_DisabledWhenZero — threshold=0
+// is the backward-compat escape hatch.
+func TestLoopPolicy_IdenticalErrorStreak_DisabledWhenZero(t *testing.T) {
+	s := newTestPolicyState(LoopPolicy{IdenticalErrorStreak: 0})
+	errMsg := "some error"
+	for i := 0; i < 10; i++ {
+		r := s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(i, errMsg, byte('a'+i)), LoopSignal{})
+		if r.Outcome == OutcomeStop {
+			t.Fatalf("threshold=0 must disable; got stop at iter=%d: %s", i, r.Reason)
+		}
+	}
+}
