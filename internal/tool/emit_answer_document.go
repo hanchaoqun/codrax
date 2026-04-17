@@ -237,12 +237,31 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if target != "" && target != shape {
 			logging.Warning("[emit_answer_document] LLM chose shape=%s but AnalysisIR target is %s — auto-correcting", shape, target)
 			// Check if the LLM provided the required fields for the
-			// target shape. If not, fall back to explanation (which only
-			// needs summary) instead of entering a retry loop where the
-			// LLM keeps filling the wrong shape's fields.
+			// target shape. If not, try to rescue from the extractor's
+			// prior slate before falling back to explanation — the
+			// extractor's emit_answer_symbol slate lives on
+			// ctx.Mutable.EmittedAnswerSymbols and is frozen by the
+			// time the finalizer runs.
+			//
+			// The rescue path exists because LLM finalizers sometimes
+			// interpret "how many X" questions as boolean decisions
+			// ("is the count > 1?") even when the analyzer resolved
+			// target shape to list_of_symbols. Without the rescue, an
+			// empty p.Symbols degrades to explanation with a one-line
+			// summary — a silent regression from a fully-populated
+			// prior slate. With the rescue, the symbols[] array is
+			// populated from the slate and the shape-correct render
+			// proceeds normally.
 			canCorrect := true
 			switch target {
 			case types.ShapeListOfSymbols:
+				if len(p.Symbols) == 0 && ctx.Mutable != nil {
+					slate, _ := ctx.Mutable.EmittedAnswerSymbols()
+					if len(slate) > 0 {
+						logging.Warning("[emit_answer_document] rescuing symbols[] from extractor prior slate (%d items)", len(slate))
+						p.Symbols = slateToEmittedSymbols(slate)
+					}
+				}
 				canCorrect = len(p.Symbols) > 0
 			case types.ShapeStepList:
 				canCorrect = len(p.Steps) > 0
@@ -548,4 +567,27 @@ func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument) string {
 		fmt.Fprintf(&b, " caveats=%d", len(doc.Caveats))
 	}
 	return b.String()
+}
+
+// slateToEmittedSymbols converts the extractor's stored AnswerSymbol
+// slate into the finalizer-tool wire shape. Used by the shape
+// auto-correct rescue path when the LLM's finalizer dispatch left
+// p.Symbols empty on a list_of_symbols question but the extractor
+// had already produced a populated slate.
+func slateToEmittedSymbols(slate []types.AnswerSymbol) []emitAnswerSymbolItem {
+	if len(slate) == 0 {
+		return nil
+	}
+	out := make([]emitAnswerSymbolItem, 0, len(slate))
+	for _, s := range slate {
+		out = append(out, emitAnswerSymbolItem{
+			Name:      s.Name,
+			File:      s.File,
+			Line:      s.Line,
+			Kind:      s.Kind,
+			Chain:     s.Chain,
+			Rationale: s.Rationale,
+		})
+	}
+	return out
 }
