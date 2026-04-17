@@ -135,6 +135,9 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	// Phase 1: analyze. Fail-loud: when analyze exhausts its retry
 	// budget the whole Run terminates without entering phase 2.
+	// On success, emit EventAnalysisReady so the renderer can switch
+	// from stage-dispatch rows to the analyzer's actual task / sub-
+	// task breakdown.
 	if used, err := o.runAnalyzePhase(); err != nil {
 		logging.Error("[orchestrator] analyze phase failed: %v", err)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("analyze: %v", err)
@@ -149,6 +152,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		return o.busCtx, nil
 	} else {
 		stepsUsed += used
+		o.emitAnalysisReady()
 	}
 
 	// Phase 2: per-task execution.
@@ -370,6 +374,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 			o.applyWindowHint(hint)
 			for _, n := range window {
 				state.markRunning(n.ID)
+				o.emitNodeStart(n.ID)
 			}
 
 			o.busCtx.PipelineStage = types.StageExplore
@@ -390,6 +395,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				logging.Error("[orchestrator] DAG explore window failed: %v", err)
 				for _, n := range window {
 					state.markFailed(n.ID)
+					o.emitNodeEnd(n.ID, false, err.Error())
 				}
 			} else {
 				// Post-dispatch criterion evaluation. Separate
@@ -408,6 +414,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				if icComplete && icPolicy == types.ICPolicyOverride {
 					for _, n := range window {
 						state.markDone(n.ID)
+						o.emitNodeEnd(n.ID, true, "")
 					}
 					o.emit(render.Event{
 						Kind:      render.EventAgentReasoning,
@@ -431,6 +438,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 					ok, failed := state.markSuccessCriteriaFailed(n, envAfter)
 					if ok {
 						state.markDone(n.ID)
+						o.emitNodeEnd(n.ID, true, "")
 						continue
 					}
 					logging.Info("[orchestrator] node %s success criteria failed: %+v", n.ID, failed)
@@ -445,6 +453,9 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 						Agent:     "orchestrator",
 						Reasoning: fmt.Sprintf("⟳ Node %s success criteria not met (%s) — requeuing.", n.ID, strings.Join(details, "; ")),
 					})
+					// No EventTaskNodeEnd on requeue — the renderer treats
+					// the node as still "running" until the next
+					// EventTaskNodeStart flips it back in.
 					if n.Type == types.NodeValidate {
 						valFailed = n
 					} else {
@@ -501,6 +512,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		}
 
 		state.markRunning(fin.ID)
+		o.emitNodeStart(fin.ID)
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
 		stepsUsed++
@@ -508,6 +520,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		if err != nil {
 			logging.Error("[orchestrator] DAG finalize failed: %v", err)
 			state.markFailed(fin.ID)
+			o.emitNodeEnd(fin.ID, false, err.Error())
 			break
 		}
 		lastFinalize = out
@@ -528,6 +541,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		res := runContractCheck(out, ir.AnswerContract)
 		if res.Passed {
 			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
 
@@ -540,13 +554,17 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
 			lastFinalize = out
 			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
 
 		// Backtrack: requeue the finalize node and every explorer-
 		// window node that sits behind it, so the next round
 		// re-runs the merged investigation with the violation
-		// diagnostic in front.
+		// diagnostic in front. No EventTaskNodeEnd here — the next
+		// scheduler round will fire EventTaskNodeStart for each
+		// requeued node, and the renderer treats that as the row's
+		// transition back to running.
 		state.requeue(fin.ID)
 		for _, n := range ir.TaskGraph.Nodes {
 			if n.Type == types.NodeFinalize {
@@ -609,6 +627,106 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 // fields. Empty hint clears the slot.
 func (o *Orchestrator) applyWindowHint(hint string) {
 	o.busCtx.TaskState.RetryHint = hint
+}
+
+// emitAnalysisReady projects AnalysisIR.TaskGraph into the renderer-
+// facing TaskNodeInfo list and fires EventAnalysisReady. Hidden
+// nodes (counterfactual, probe) are filtered here so the renderer
+// can show one row per user-visible task without re-implementing
+// the filtering rules.
+//
+// Probe nodes are pre-scan placeholders the analyzer uses internally;
+// they do not correspond to a piece of the user's question. Counter-
+// factual nodes are speculative branches that may never actually run
+// — surfacing them as task rows would mislead the user about what
+// the pipeline is committed to investigating.
+//
+// Finalize is intentionally kept in the projection so the user sees
+// the "synthesise answer" step at the bottom of the list and the
+// row turns green when the answer is ready.
+func (o *Orchestrator) emitAnalysisReady() {
+	if o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return
+	}
+	nodes := o.busCtx.AnalysisIR.TaskGraph.Nodes
+	out := make([]render.TaskNodeInfo, 0, len(nodes))
+	for _, n := range nodes {
+		if n.IsCounterfactual {
+			continue
+		}
+		if n.Type == types.NodeProbe {
+			continue
+		}
+		out = append(out, render.TaskNodeInfo{
+			ID:        n.ID,
+			Type:      string(n.Type),
+			Objective: n.Objective,
+		})
+	}
+	if len(out) == 0 {
+		return
+	}
+	o.emit(render.Event{
+		Kind:      render.EventAnalysisReady,
+		Timestamp: time.Now(),
+		TraceID:   o.busCtx.TraceID,
+		TaskNodes: out,
+	})
+}
+
+// emitNodeStart / emitNodeEnd are thin wrappers around o.emit that
+// also look up the node's Type and Objective so the renderer never
+// needs to cross-reference the AnalysisIR. Called from runTaskGraph
+// at every state.markRunning / markDone / markFailed / requeue site
+// so the renderer's row state stays in lockstep with the scheduler.
+func (o *Orchestrator) emitNodeStart(id string) {
+	if id == "" || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return
+	}
+	n := findNode(o.busCtx.AnalysisIR.TaskGraph, id)
+	if n == nil {
+		return
+	}
+	o.emit(render.Event{
+		Kind:          render.EventTaskNodeStart,
+		Timestamp:     time.Now(),
+		NodeID:        id,
+		NodeKind:      string(n.Type),
+		NodeObjective: n.Objective,
+	})
+}
+
+func (o *Orchestrator) emitNodeEnd(id string, ok bool, errMsg string) {
+	if id == "" || o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return
+	}
+	n := findNode(o.busCtx.AnalysisIR.TaskGraph, id)
+	if n == nil {
+		return
+	}
+	ev := render.Event{
+		Kind:          render.EventTaskNodeEnd,
+		Timestamp:     time.Now(),
+		NodeID:        id,
+		NodeKind:      string(n.Type),
+		NodeObjective: n.Objective,
+	}
+	if !ok {
+		ev.Error = errMsg
+		if ev.Error == "" {
+			ev.Error = "criteria not met"
+		}
+	}
+	o.emit(ev)
+}
+
+func findNode(g types.TaskGraph, id string) *types.TaskNode {
+	for i := range g.Nodes {
+		if g.Nodes[i].ID == id {
+			return &g.Nodes[i]
+		}
+	}
+	return nil
 }
 
 // drainHypothesisVerdicts is the P2.1 Phase 10 hook invoked after a

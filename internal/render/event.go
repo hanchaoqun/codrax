@@ -49,7 +49,31 @@ const (
 
 	// Skill binding
 	EventSkillBound
+
+	// AnalysisIR task graph ready — emitted once by the orchestrator
+	// after the analyze phase succeeds. Carries the derived task node
+	// list so the renderer can replace its stage-dispatch task rows
+	// with the analyzer's actual task / sub-task breakdown.
+	EventAnalysisReady
+
+	// Per-TaskNode lifecycle — emitted from the DAG scheduler as
+	// nodes enter / leave the running state. Renderers use these to
+	// drive node-row transitions (pending → running → done/failed).
+	EventTaskNodeStart
+	EventTaskNodeEnd
 )
+
+// TaskNodeInfo is the renderable summary of a TaskGraph node carried
+// on EventAnalysisReady. It is a projection of types.TaskNode onto the
+// fields the renderer needs — id for matching, type for row icon /
+// ordering, objective for the label. Hidden nodes (counterfactual,
+// probe) are filtered out by the orchestrator before this list is
+// emitted so the renderer does not need to know the filtering rules.
+type TaskNodeInfo struct {
+	ID        string
+	Type      string
+	Objective string
+}
 
 // Event is a single lifecycle occurrence emitted by the pipeline.
 type Event struct {
@@ -96,6 +120,18 @@ type Event struct {
 	MCPCallCount  int
 	FactCount     int
 	Error         string
+
+	// Analysis-ready payload: the analyzer's task graph projected onto
+	// renderer-consumable fields. Populated only on EventAnalysisReady.
+	TaskNodes []TaskNodeInfo
+
+	// Per-node lifecycle payload — populated on EventTaskNodeStart /
+	// EventTaskNodeEnd. NodeID is the TaskGraph node identifier; the
+	// renderer matches these against the TaskNodes list emitted with
+	// EventAnalysisReady to locate the row to update.
+	NodeID        string
+	NodeKind      string
+	NodeObjective string
 }
 
 // EventEmitter is the callback signature for pipeline event delivery.

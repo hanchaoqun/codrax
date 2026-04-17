@@ -39,7 +39,7 @@ var spinnerFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "�
 type taskRow struct {
 	stage       string    // "analyze" / "explore" / "extract" / "finalize"
 	agent       string    // concrete agent name
-	startTime   time.Time // when EventStageStart / EventSubAgentStart fired
+	startTime   time.Time // when EventStageStart / EventSubAgentStart / EventTaskNodeStart fired
 	endTime     time.Time // zero while running
 	okFinished  bool      // true when endTime > 0 and error == ""
 	errorMsg    string    // populated by EventStageEnd with non-empty Error
@@ -52,6 +52,19 @@ type taskRow struct {
 	subAgentID  string    // identifier for matching EventSubAgentEnd
 	subTitle    string    // SubTaskTitle from the event
 	subCount    int       // SubTaskCount from the event (batch size)
+
+	// Task-graph node rows (post-EventAnalysisReady). nodeID is the
+	// TaskGraph node identifier; nodeKind is the TaskNode.Type string
+	// ("evidence" / "validate" / "reconcile" / "finalize"); objective
+	// is the node's short objective text rendered as the row label.
+	// pending is true when the row has been created but the node has
+	// not yet run once — distinguishes "planned" rows from rows that
+	// are actively in flight.
+	isNodeRow bool
+	nodeID    string
+	nodeKind  string
+	objective string
+	pending   bool
 }
 
 // Renderer consumes pipeline events and produces styled terminal output.
@@ -81,6 +94,15 @@ type Renderer struct {
 	// done-indicator so the user can read the history of what ran.
 	tasks   []*taskRow
 	current *taskRow // most recent non-sub-agent row with endTime zero; receives tool / thinking events
+
+	// analysisReady flips to true on EventAnalysisReady. Once flipped,
+	// stage-dispatch events (EventStageStart / EventStageEnd) for
+	// explore / extract / finalize are ignored — the task graph's
+	// node-lifecycle events (EventTaskNodeStart / EventTaskNodeEnd)
+	// own row creation and termination. The analyze stage row stays
+	// under stage-dispatch control because it runs BEFORE the task
+	// graph exists.
+	analysisReady bool
 
 	// objective is the single user-question line displayed above the
 	// status list. Populated on EventObjectiveStarted and flipped to
@@ -180,6 +202,7 @@ func (r *Renderer) StartSpinner() {
 	r.objectiveDone = false
 	r.tasks = nil
 	r.current = nil
+	r.analysisReady = false
 	r.startTime = time.Now()
 	r.animFrame = 0
 
@@ -238,6 +261,7 @@ func (r *Renderer) StopSpinner() {
 	r.objectiveDone = false
 	r.tasks = nil
 	r.current = nil
+	r.analysisReady = false
 }
 
 // Emitter returns an EventEmitter callback bound to this renderer.
@@ -266,6 +290,16 @@ func (r *Renderer) Emitter() EventEmitter {
 
 		switch ev.Kind {
 		case EventStageStart:
+			// Post-analysisReady the task graph's node rows own the
+			// display; suppress stage-dispatch row creation for the
+			// downstream stages (explore / extract / finalize) so the
+			// user does not see an extra "ExplorerAgent(explore)" line
+			// below the actual task list. The analyze stage starts
+			// BEFORE the task graph exists, so its stage row is
+			// always accepted.
+			if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
+				break
+			}
 			row := &taskRow{
 				stage:       string(ev.Stage),
 				agent:       string(ev.Agent),
@@ -276,12 +310,69 @@ func (r *Renderer) Emitter() EventEmitter {
 			r.current = row
 
 		case EventStageEnd:
+			// Same gating as EventStageStart: ignore downstream stage
+			// ends once the task graph is driving the display.
+			if r.analysisReady && ev.Stage != "" && string(ev.Stage) != "analyze" {
+				break
+			}
 			// Terminate the most recent matching (stage, agent) still-
 			// running row. Matching by (stage, agent) rather than just
 			// stage supports DAG windows dispatching the same stage
 			// multiple times with different agents, and sub-agent
 			// rows are exempt (isSubAgent flag).
 			if row := r.findRunningStageRow(string(ev.Stage), string(ev.Agent)); row != nil {
+				row.endTime = ev.Timestamp
+				row.errorMsg = ev.Error
+				row.okFinished = ev.Error == ""
+				if row == r.current {
+					r.current = nil
+				}
+			}
+
+		case EventAnalysisReady:
+			// Analyze phase complete: mark any still-running analyze
+			// row done and append one "pending" row per TaskNodeInfo.
+			// Rows are keyed by nodeID so subsequent EventTaskNodeStart
+			// / EventTaskNodeEnd can find them without rebuilding the
+			// list. Ordering is preserved from the orchestrator (which
+			// itself preserved TaskGraph.Nodes declaration order).
+			for _, row := range r.tasks {
+				if row.isSubAgent || row.isNodeRow {
+					continue
+				}
+				if row.stage == "analyze" && row.endTime.IsZero() {
+					row.endTime = ev.Timestamp
+					row.okFinished = true
+					if row == r.current {
+						r.current = nil
+					}
+				}
+			}
+			for _, n := range ev.TaskNodes {
+				r.tasks = append(r.tasks, &taskRow{
+					isNodeRow: true,
+					nodeID:    n.ID,
+					nodeKind:  n.Type,
+					objective: n.Objective,
+					pending:   true,
+				})
+			}
+			r.analysisReady = true
+
+		case EventTaskNodeStart:
+			if row := r.findNodeRow(ev.NodeID); row != nil {
+				row.pending = false
+				row.startTime = ev.Timestamp
+				row.detailStart = ev.Timestamp
+				row.endTime = time.Time{}
+				row.okFinished = false
+				row.errorMsg = ""
+				r.current = row
+			}
+
+		case EventTaskNodeEnd:
+			if row := r.findNodeRow(ev.NodeID); row != nil {
+				row.pending = false
 				row.endTime = ev.Timestamp
 				row.errorMsg = ev.Error
 				row.okFinished = ev.Error == ""
@@ -396,6 +487,23 @@ func (r *Renderer) findSubAgentRow(id string) *taskRow {
 	for i := len(r.tasks) - 1; i >= 0; i-- {
 		if r.tasks[i].isSubAgent && r.tasks[i].subAgentID == id {
 			return r.tasks[i]
+		}
+	}
+	return nil
+}
+
+// findNodeRow returns the task-graph node row with the given nodeID,
+// or nil. Task-graph rows are appended once per AnalysisIR node at
+// EventAnalysisReady time and stay in place for the remainder of the
+// run; the scan walks in insertion order because multiple rows may
+// share a short id prefix.
+func (r *Renderer) findNodeRow(id string) *taskRow {
+	if id == "" {
+		return nil
+	}
+	for _, row := range r.tasks {
+		if row.isNodeRow && row.nodeID == id {
+			return row
 		}
 	}
 	return nil
@@ -527,9 +635,13 @@ func (r *Renderer) visibleRows() []*taskRow {
 //	  ✓ AnalyzerAgent(analyze) · finished · 1s
 //	  ⠋ subexplorer [sub-topic A] · ► read_file 1s
 func (r *Renderer) formatTaskLine(row *taskRow, frame string) string {
-	// Leading status icon.
+	// Leading status icon. Node rows in the "pending" state (plan
+	// published but this node has not run yet) get a dim bullet so
+	// they read as "queued" rather than "in flight".
 	var icon string
 	switch {
+	case row.isNodeRow && row.pending:
+		icon = pterm.FgDarkGray.Sprint("·")
 	case !row.endTime.IsZero() && row.okFinished:
 		icon = pterm.FgGreen.Sprint("✓")
 	case !row.endTime.IsZero() && !row.okFinished:
@@ -541,6 +653,25 @@ func (r *Renderer) formatTaskLine(row *taskRow, frame string) string {
 	// Label: distinguishes main-stage rows from sub-agent rows.
 	var label string
 	switch {
+	case row.isNodeRow:
+		// Task-graph node row: show "[kind] objective". The kind tag
+		// is dimmed so the objective — the part the user actually
+		// cares about — dominates. finalize is special-cased to a
+		// friendlier label since the canonical id ("finalize") is
+		// not informative as a summary.
+		kindTag := row.nodeKind
+		if kindTag == "" {
+			kindTag = "task"
+		}
+		text := row.objective
+		if text == "" {
+			if row.nodeKind == "finalize" {
+				text = "Synthesise final answer"
+			} else {
+				text = row.nodeID
+			}
+		}
+		label = pterm.FgDarkGray.Sprintf("[%s] ", kindTag) + pterm.FgWhite.Sprint(text)
 	case row.agent == "" && row.stage != "":
 		// Collapsed marker row — render just the stage field as the label.
 		label = pterm.FgDarkGray.Sprint(row.stage)
