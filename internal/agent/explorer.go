@@ -3006,8 +3006,24 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" && v.kind != "config" && v.kind != "decorates" {
 			continue
 		}
+		// Session-8 Fix γ (trace 1776450670620195562): skip long /
+		// multi-line string literals. `of.WriteString("<prompt>")`
+		// inside BuildAnalysisSkill captures the entire prompt text
+		// as v.value; `containsIdentifier` then matches every type
+		// name MENTIONED inside the prose and generates a phantom
+		// chain per mention. The resulting Primary Evidence section
+		// showed 6-8 duplicate "chains" whose body was hundreds of
+		// chars of unrelated prompt prose. Concrete-value chains are
+		// meant to be code-level facts ("returns X", "binds
+		// NewFoo"); a 500-char prose literal is neither.
+		if isProseLikeConcreteValue(v.value) {
+			continue
+		}
 		for _, rv := range allRelevantForEvidence {
 			if rv.receiver == "" || rv.receiver == v.receiver {
+				continue
+			}
+			if isProseLikeConcreteValue(rv.value) {
 				continue
 			}
 			if containsIdentifier(v.value, rv.receiver) {
@@ -5255,6 +5271,40 @@ func isEvidenceLine(trimmed string) bool {
 			strings.HasPrefix(rhs, "[]") {
 			return true
 		}
+	}
+	return false
+}
+
+// proseConcreteValueMaxLen is the char ceiling for a "concrete value"
+// string. Anything longer is treated as prose (doc comment, prompt
+// body, markdown block) rather than a code-level fact. 120 fits
+// typical return literals ("foo", 42, nil, NewFoo(deps)) and
+// single-line config values while cleanly excluding multi-paragraph
+// prompt strings that can run hundreds of characters.
+const proseConcreteValueMaxLen = 120
+
+// isProseLikeConcreteValue reports whether a concrete_value's value
+// field is likely prose rather than a code fact. Used by the chain-
+// construction loop to skip `of.WriteString("<prompt>")` style
+// bindings that would otherwise generate phantom chains — the prose
+// text in v.value mentions type names that containsIdentifier
+// matches, fabricating cross-class edges that don't exist in code.
+//
+// Two heuristics:
+//
+//  1. Length: > proseConcreteValueMaxLen chars is almost always a
+//     multi-line prose literal. Real return values / bindings fit
+//     under this threshold.
+//  2. Newlines: any \n inside v.value means the source captured a
+//     multi-line string literal — prose, not a code expression.
+//
+// Both conditions are OR-ed; either one is enough to reject.
+func isProseLikeConcreteValue(v string) bool {
+	if len(v) > proseConcreteValueMaxLen {
+		return true
+	}
+	if strings.ContainsRune(v, '\n') {
+		return true
 	}
 	return false
 }

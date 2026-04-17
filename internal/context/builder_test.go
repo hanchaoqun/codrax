@@ -1537,3 +1537,41 @@ func TestBuildPromptContext_PriorConvHiddenFlag(t *testing.T) {
 		t.Errorf("User Request must NOT leak prior content, got %q", urSection.Content)
 	}
 }
+
+// TestExtractRelevantFacts_TrimsGrepPathListBody pins session-8
+// Fix δ (trace 1776450670620195562): the Known Facts section used
+// to quote each grep tool result's Summary verbatim, and because
+// grep's Summary is "header\n + 20-odd paths", five grep calls
+// rendered 100 overlapping path lines in the prompt. trimKnownFactValue
+// keeps only the "[grep: N matching files]" header; the paths still
+// live in the Relevant Files section, so no information is lost.
+func TestExtractRelevantFacts_TrimsGrepPathListBody(t *testing.T) {
+	facts := []types.RepoFact{
+		{
+			Key:        "grep",
+			Value:      "[grep: 94 matching files]\n./a.go\n./b.go\n./c.go\n./d.go",
+			Source:     "tool:grep",
+			Confidence: 0.80,
+		},
+		{
+			Key:        "read_file",
+			Value:      "package foo\n\nfunc Bar() {}\n",
+			Source:     "a.go",
+			Confidence: 0.80,
+		},
+	}
+	got := extractRelevantFacts(facts)
+	if len(got) != 2 {
+		t.Fatalf("got %d lines, want 2", len(got))
+	}
+	if !strings.Contains(got[0], "[grep: 94 matching files]") {
+		t.Errorf("grep header must survive: %q", got[0])
+	}
+	if strings.Contains(got[0], "./a.go") || strings.Contains(got[0], "./b.go") {
+		t.Errorf("grep path body must be stripped from Known Facts: %q", got[0])
+	}
+	// read_file is NOT grep → full value preserved (up to maxFactValueLen).
+	if !strings.Contains(got[1], "package foo") {
+		t.Errorf("non-grep fact must keep its value: %q", got[1])
+	}
+}

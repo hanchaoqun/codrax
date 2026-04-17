@@ -2388,3 +2388,38 @@ func TestExplorerSoftStop_SecondStop_CoverageFallthrough_StillFires(t *testing.T
 		t.Errorf("HintKey = %q, want explorer.phase1.coverage", sig.HintKey)
 	}
 }
+
+// TestIsProseLikeConcreteValue pins session-8 Fix γ (trace
+// 1776450670620195562): concrete_values chain construction must
+// skip string literals that are prose rather than code facts, so
+// `of.WriteString("<prompt>")` inside BuildAnalysisSkill does not
+// produce phantom cross-class chains whose body is hundreds of
+// chars of unrelated prompt prose mentioning incidental type names.
+func TestIsProseLikeConcreteValue(t *testing.T) {
+	cases := []struct {
+		name string
+		val  string
+		want bool
+	}{
+		// Real concrete values — must NOT trip the guard.
+		{"short string literal", `"explorer"`, false},
+		{"int literal", "42", false},
+		{"nil", "nil", false},
+		{"bool", "true", false},
+		{"constructor call", "NewSubExplorer(deps)", false},
+		{"struct literal", "&Foo{Bar: 1}", false},
+
+		// Prose-like values — must trip the guard.
+		{"long prompt text", strings.Repeat("prose words ", 20), true}, // 240 chars
+		{"multi-line literal", "line one\nline two", true},
+		{"multi-line explicit", "\"part A\\n\" + \"part B\\n\"\n\"part C\"", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isProseLikeConcreteValue(c.val); got != c.want {
+				t.Errorf("isProseLikeConcreteValue(%q) = %v, want %v",
+					c.val, got, c.want)
+			}
+		})
+	}
+}

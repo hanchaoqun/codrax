@@ -708,10 +708,34 @@ func filterFilesByScope(facts []types.RepoFact, scope []string) []string {
 // enough context for the downstream agent to verify provenance.
 const maxFactValueLen = 512
 
+// trimKnownFactValue strips tool-specific noise from a fact value
+// before it is rendered into the Known Facts section. Right now
+// grep is the sole special case: its Summary is a match-count
+// header followed by a full file-path list. The paths already live
+// in "Relevant Files" / the stage report, so quoting them again
+// inside Known Facts is pure duplication (trace 1776450670620195562
+// showed the same 20-file list being repeated across 5 grep calls).
+// The helper keeps just the header line (e.g. "[grep: 94 matching
+// files]") and discards the body. Other tool kinds fall through
+// to the generic length-cap path below.
+func trimKnownFactValue(key, val string) string {
+	switch key {
+	case "grep":
+		// First line carries "[grep: N matching files]" — the only
+		// useful summary. Drop the path body (it leaks into the
+		// prompt as pure duplicate of Relevant Files).
+		if nl := strings.IndexByte(val, '\n'); nl > 0 {
+			return val[:nl]
+		}
+		return val
+	}
+	return val
+}
+
 func extractRelevantFacts(facts []types.RepoFact) []string {
 	result := make([]string, 0, len(facts))
 	for _, f := range facts {
-		val := f.Value
+		val := trimKnownFactValue(f.Key, f.Value)
 		if len(val) > maxFactValueLen {
 			val = val[:maxFactValueLen] + "... [truncated]"
 		}
