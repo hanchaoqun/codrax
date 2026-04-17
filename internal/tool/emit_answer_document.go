@@ -115,8 +115,21 @@ func (t *EmitAnswerDocument) Description() string {
 		"symbols is an integer INDEX into that pool (zero-based), or -1 when no citation backs " +
 		"the entry. Every citation MUST have file (repo-relative), line > 0, and file must NOT live " +
 		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field, capped at 500 chars — " +
-		"use it for the one-sentence lead-in, not for the answer body. Unknown fields or shape-field " +
-		"mismatches are REJECTED with a clear error."
+		"use it for the one-sentence lead-in, not for the answer body. " +
+		"\n\n" +
+		"IMPORTANT — citation quote field: the quote is OPTIONAL but when provided it MUST be a " +
+		"VERBATIM copy of the characters at file:line from the read_file gutter (exact whitespace " +
+		"and punctuation, whatever the source language). It is NOT a field for natural-language " +
+		"prose, rationale, or paraphrase. The grounder cross-checks every quote against the " +
+		"actual line text; a quote whose identifier tokens do not overlap with the cited line is " +
+		"AUTOMATICALLY CLEARED. So your choices are: (1) paste the literal source line you saw " +
+		"in read_file (best — the reader sees code context), or (2) omit the quote entirely. " +
+		"Writing a one-sentence summary in the quote field wastes tokens because it will be " +
+		"stripped before the answer ships. Rule of thumb: if the text you want to put in 'quote' " +
+		"did not appear character-for-character on the read_file line at file:line, leave the " +
+		"field empty and put the sentence in 'summary' instead.\n" +
+		"\n" +
+		"Unknown fields or shape-field mismatches are REJECTED with a clear error."
 }
 
 func (t *EmitAnswerDocument) Parameters() json.RawMessage {
@@ -179,13 +192,13 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     },
     "citations": {
       "type": "array",
-      "description": "Shared citation pool. Each entry is one file:line anchor with an optional verbatim quote. Zero-based indices; CitationRef=-1 means 'no citation'.",
+      "description": "Shared citation pool. Each entry is one file:line anchor with an optional VERBATIM code quote. Zero-based indices; CitationRef=-1 means 'no citation'. The grounder validates quote tokens against the cited line — prose quotes are auto-cleared.",
       "items": {
         "type": "object",
         "properties": {
           "file":  {"type": "string", "description": "Repository-relative file path. MUST NOT live inside the per-trace WorkDir (blob directory)."},
           "line":  {"type": "integer", "description": "Gutter line number from read_file output. Must be > 0."},
-          "quote": {"type": "string", "description": "Optional verbatim snippet from the cited location, ≤200 chars."}
+          "quote": {"type": "string", "description": "OPTIONAL verbatim copy of the code at file:line from read_file, ≤200 chars. Rule: paste the literal source line, or LEAVE THIS FIELD EMPTY. Do NOT write prose, summaries, or paraphrases — the grounder compares quote tokens against the actual line text and strips any quote that does not overlap (prose will be automatically cleared). If you cannot paste the literal line, omit the field."}
         },
         "required": ["file", "line"]
       }

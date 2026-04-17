@@ -120,6 +120,7 @@ Citation pool:
 - Every citation_ref elsewhere (steps[i].citation_ref, value.citation_ref, boolean.citation_ref) is an integer index into citations[], or -1 when no citation backs that entry
 - Every citations[i].file MUST be a repo-relative path and MUST NOT live inside the per-trace WorkDir (blob directory)
 - Every citations[i].line MUST be > 0 — line-hallucination guard
+- quote is OPTIONAL. Only set it when you can paste the literal source characters that appear at file:line on the read_file gutter — exact punctuation, exact identifiers, the same language as the source file. The grounder cross-checks quote tokens against the cited line text; a quote whose identifier tokens do not overlap is AUTOMATICALLY CLEARED. So: paste the literal line verbatim, or leave quote empty. Natural-language summaries, paraphrases, rationale ("stated that …", "shows how …", "used for …") belong in the 'summary' field, never in 'quote' — they will be stripped before the answer ships.
 
 Completeness honesty contract (list_of_symbols only):
 - "complete" — you assert this list enumerates EVERY symbol that answers the question. The finalizer cardinality validator will cross-check against max(Turn A terminal-evidence count β, analyzer MustInclude γ). A short claim of "complete" is DOWNGRADED to "lower_bound" with a visible caveat in the rendered answer.
@@ -137,6 +138,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			"do not write prose outside the emit_answer_document tool call — the tool result IS the final answer",
 			"do not cite a file or line that is not in the evidence / read-files list from prior stages",
 			"do not invent line numbers — every citation.line must come from a concrete read_file gutter or a prior-stage evidence item",
+			"do not put prose / summaries / rationale in the citation quote field — quote must be a verbatim copy of the source line or empty; the grounder auto-clears mismatches",
 			"do not inflate summary past 3 sentences for non-explanation shapes — for explanation shape, the summary IS the answer body and should be thorough",
 			"do not set citation_ref to a zero-value-looking sentinel; use -1 for 'no citation' and a valid pool index otherwise",
 			"do not claim symbols_completeness=complete without meeting the floor shown in the cardinality baseline — a short 'complete' claim will be downgraded to lower_bound automatically and the downgrade is surfaced as a caveat",
