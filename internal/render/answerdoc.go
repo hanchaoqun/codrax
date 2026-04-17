@@ -94,14 +94,27 @@ func RenderAnswerDocument(doc *types.AnswerDocument, lang string) string {
 	// Session-8 render-only sections (deterministic, built by
 	// emit_answer_document from read_file history + evidence
 	// buffer). Rendered between shape-specific body and citation
-	// pool for every shape so: prose → structured payload → code
-	// snippets → relation diagram → citations. Skipped when empty
+	// pool so the order is: prose → structured payload → code
+	// snippets → relation diagram → citations.
+	//
+	// Skipped for scalar shapes (value / boolean / config_value) —
+	// those shapes have a hard character cap in contract.checkShape
+	// ("value answer too long" etc.) and appending snippets + diagram
+	// blows the cap, retrying into the fail-loud banner even when
+	// the literal answer is correct. Snippets belong to shapes whose
+	// contract allows multi-paragraph prose (list_of_symbols /
+	// step_list / explanation). Also skipped when empty
 	// (non-read-backed answers / single-node chains).
-	if len(doc.Snippets) > 0 {
-		renderAnswerDocSnippets(&b, doc, l)
-	}
-	if s := strings.TrimSpace(doc.RelationDiagram); s != "" {
-		renderAnswerDocRelationDiagram(&b, doc, l)
+	switch doc.Shape {
+	case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
+		// scalar shapes: render nothing extra
+	default:
+		if len(doc.Snippets) > 0 {
+			renderAnswerDocSnippets(&b, doc, l)
+		}
+		if s := strings.TrimSpace(doc.RelationDiagram); s != "" {
+			renderAnswerDocRelationDiagram(&b, doc, l)
+		}
 	}
 
 	// Citation pool renders last for explanation / unknown-shape
