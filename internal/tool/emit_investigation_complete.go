@@ -128,13 +128,37 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}, nil
 	}
 
-	ctx.Mutable.SetInvestigationComplete(reason)
-
 	// Declarative absence claim. Stored on Mutable so the orchestrator
 	// can waive citation-floor gates for honest-zero answers. The
 	// audit (hasAnyInvestigationSuccess) still runs — an LLM cannot
 	// escape by declaring absence with zero tool work.
+	//
+	// Absence-vs-grounded-evidence contradiction gate. The LLM has
+	// previously learned to shortcut citation-floor gates by tacking
+	// absence_justification onto every emit_investigation_complete
+	// call. Reject the combination when the evidence buffer already
+	// contains ≥1 grounded or recovered item — by definition that is
+	// not a zero answer, and accepting the claim bypasses the finalize
+	// citation gate for a question that DOES have file:line anchors.
+	// The rejection message tells the LLM exactly what to do: drop
+	// the field and re-emit. This runs BEFORE SetInvestigationComplete
+	// so the LLM sees the error and corrects in the same dispatch.
 	justification := strings.TrimSpace(p.AbsenceJustification)
+	if justification != "" {
+		if evidence := ctx.Mutable.EmittedEvidence(); hasGroundedOrRecovered(evidence) {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero answers " +
+					"(the question genuinely has nothing to cite — e.g. 'how many .py files?' → 0, 'does handler X exist?' → no). " +
+					"This investigation already recorded grounded/recovered evidence items via emit_evidence, so the answer is NOT an absence. " +
+					"Remove absence_justification and re-call emit_investigation_complete with just reason + confidence.",
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+	}
+
+	ctx.Mutable.SetInvestigationComplete(reason)
 	summary := fmt.Sprintf("Investigation marked complete (confidence=%s): %s", conf, reason)
 	if justification != "" {
 		ctx.Mutable.SetAbsenceJustification(justification)
@@ -218,4 +242,25 @@ func groundingGateReject(ctx *types.BusContext, floor float64) (string, bool) {
 	b.WriteString("  (C) if you provided no snippet, add one (1-2 lines of actual code) so the snippet_fuzzy recovery tier can re-anchor.\n")
 	b.WriteString("  (D) drop the item entirely if it was speculative — emit_evidence rejects of speculation do not hurt the investigation.\n")
 	return b.String(), false
+}
+
+// hasGroundedOrRecovered reports whether the evidence buffer contains
+// at least one item whose grounder verdict is grounded or recovered.
+// Drives the absence-vs-grounded contradiction gate in Execute: an
+// investigation with concrete file:line anchors cannot honestly claim
+// absence. Legacy items with empty GroundingStatus (deterministic
+// concrete_value items that predate the 2026-04-17 redesign) count as
+// grounded — they are not LLM claims but deterministic facts.
+func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
+	for _, e := range items {
+		switch e.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered:
+			return true
+		case types.GroundingUngrounded:
+			continue
+		default:
+			return true
+		}
+	}
+	return false
 }

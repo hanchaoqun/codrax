@@ -304,6 +304,87 @@ func TestGroundCitation_GraphFallbackAcceptsAnyLineInIndexedFile(t *testing.T) {
 	}
 }
 
+// TestGroundCitation_Tier2RejectsLineOutsideStructuralRegion locks the
+// 2026-04-17 tightening: a citation to an indexed file whose line
+// falls in a dead zone (between two far-apart symbols, beyond the doc
+// radius of either) is rejected so the LLM cannot fabricate line
+// numbers in files it never read. Legitimate doc-block cites
+// (within tier2DocRadius of a symbol) and prologue cites are still
+// accepted.
+func TestGroundCitation_Tier2RejectsLineOutsideStructuralRegion(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"a.go": {RelPath: "a.go", Symbols: []repomap.Symbol{
+				{Name: "Foo", Kind: "function", Line: 10, EndLine: 30},
+				{Name: "Bar", Kind: "function", Line: 100, EndLine: 120},
+			}},
+		},
+	}
+	gc := &Context{Graph: graph}
+
+	// Line 50 — mid-file between Foo (ends 30) and Bar's doc radius
+	// (starts 100-10=90). Outside both symbols' windows. Rejected.
+	r := GroundCitation(types.Citation{File: "a.go", Line: 50, Quote: "fabricated"}, gc)
+	if r.Valid {
+		t.Errorf("line 50 is a dead zone between symbols; must be rejected, got Valid=true tier=%q", r.Tier)
+	}
+	if r.Reason == "" {
+		t.Errorf("rejection must carry a human-readable reason")
+	}
+
+	// Line 27 — inside Foo [10, 30]. Accepted with Tier=symbol_table.
+	r2 := GroundCitation(types.Citation{File: "a.go", Line: 27}, gc)
+	if !r2.Valid || r2.Tier != types.TierSymbolTable {
+		t.Errorf("line 27 inside Foo body must be Valid+symbol_table: %+v", r2)
+	}
+
+	// Line 92 — inside Bar's doc radius [90, 120]. Accepted.
+	r3 := GroundCitation(types.Citation{File: "a.go", Line: 92}, gc)
+	if !r3.Valid || r3.Tier != types.TierSymbolTable {
+		t.Errorf("line 92 in Bar's doc block must be Valid+symbol_table: %+v", r3)
+	}
+
+	// Line 2 — prologue before Foo (firstSymbolLine=10). Line
+	// 2 ∈ [docStart=1, EndLine=30] via Foo's window.
+	r4 := GroundCitation(types.Citation{File: "a.go", Line: 2}, gc)
+	if !r4.Valid {
+		t.Errorf("line 2 (prologue / Foo doc window) must be Valid: %+v", r4)
+	}
+}
+
+// TestGroundCitation_TierFieldPopulated verifies that the Tier field
+// of CitationReport is always set when Valid, so emit_answer_document
+// can enforce the "at least one Tier 1 proven peer in pool" rule.
+func TestGroundCitation_TierFieldPopulated(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("a.go", 10, []string{"func Foo() string {", "\treturn \"x\"", "}"}, 3),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history)}
+	r := GroundCitation(types.Citation{File: "a.go", Line: 10}, gc)
+	if r.Tier != types.TierLineText {
+		t.Errorf("gutter-hit citation must have Tier=line_text, got %q", r.Tier)
+	}
+
+	graph := &repomap.Graph{FileIndex: map[string]*repomap.FileInfo{
+		"b.go": {RelPath: "b.go", Symbols: []repomap.Symbol{{Name: "Bar", Line: 5, EndLine: 20}}},
+	}}
+	gc2 := &Context{Graph: graph}
+	r2 := GroundCitation(types.Citation{File: "b.go", Line: 10}, gc2)
+	if r2.Tier != types.TierSymbolTable {
+		t.Errorf("graph-only citation must have Tier=symbol_table, got %q", r2.Tier)
+	}
+
+	// No-context path: empty Tier so emit_answer_document can tell
+	// this is a test environment and skip the pool-level rule.
+	r3 := GroundCitation(types.Citation{File: "x.go", Line: 1}, &Context{})
+	if r3.Tier != "" {
+		t.Errorf("no-context citation must have empty Tier, got %q", r3.Tier)
+	}
+	if !r3.Valid {
+		t.Errorf("no-context citation must stay Valid for test compatibility")
+	}
+}
+
 // TestBuildContext_PicksUpDispatchToolResults pins the fix for the
 // "grounder doesn't see read_file history" bug. BaseAgent.executeTool
 // now mirrors every tool result into Mutable.DispatchToolResults; the

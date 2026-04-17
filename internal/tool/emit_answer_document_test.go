@@ -5,8 +5,25 @@ import (
 	"strings"
 	"testing"
 
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// newDocGraph builds a minimal repomap.Graph indexing the given files
+// and symbols. Used by the Tier-1-peer pool-defence tests.
+func newDocGraph(files map[string][]docSymbol) *repomap.Graph {
+	g := &repomap.Graph{FileIndex: make(map[string]*repomap.FileInfo)}
+	for path, syms := range files {
+		fi := &repomap.FileInfo{RelPath: path}
+		for _, s := range syms {
+			fi.Symbols = append(fi.Symbols, repomap.Symbol{
+				Name: s.name, Kind: "function", Line: s.line, EndLine: s.end,
+			})
+		}
+		g.FileIndex[path] = fi
+	}
+	return g
+}
 
 // newDocBusCtx returns a BusContext wired with a fresh MutableState so
 // emit_answer_document can land its Set call. WorkDir is deliberately
@@ -419,4 +436,96 @@ func TestEmitAnswerDocument_Caveats_RoundTrip(t *testing.T) {
 	if len(doc.Caveats) != 2 {
 		t.Errorf("caveats len = %d, want 2", len(doc.Caveats))
 	}
+}
+
+// TestEmitAnswerDocument_DropsQuoteClearedWhenNoTier1Peer pins the
+// 2026-04-17 fabricated-citation defence. When every citation grounds
+// at Tier 2 only (the LLM never read the files it cites) AND at least
+// one quote was cleared as fabricated, ALL quote-cleared citations
+// are dropped — a pool with no Tier 1 proven peer cannot anchor
+// invented prose. Mirrors the failure mode in trace
+// 1776439797257469553 where two cited files had never been read yet
+// both citations passed the old Tier 2 "file indexed" check with
+// fabricated quotes.
+func TestEmitAnswerDocument_DropsQuoteClearedWhenNoTier1Peer(t *testing.T) {
+	// Repomap graph with two indexed files; no read_file results.
+	graph := newDocGraph(map[string][]docSymbol{
+		"a.go": {{name: "Foo", line: 10, end: 30}},
+		"b.go": {{name: "Bar", line: 5, end: 20}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 15, "quote": "Fabricated prose about Foo's mechanism"},
+			{"file": "b.go", "line": 10, "quote": "Fabricated prose about Bar's purpose"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("call must succeed with empty citations pool after drop: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Citations) != 0 {
+		t.Errorf("fabricated-quote Tier 2-only pool must be dropped to 0 cites, got %d: %+v", len(doc.Citations), doc.Citations)
+	}
+	if !strings.Contains(res.Summary, "no peer citation is Tier 1") {
+		t.Errorf("drop reason must name the Tier 1 peer rule, got: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_KeepsQuoteClearedWhenTier1PeerPresent — if
+// the pool contains at least one Tier 1 proven citation (the LLM
+// actually read that file), the quote-cleared peers keep their
+// file:line as honest "I saw this location" markers. The rule is a
+// pool-level sanity check, not a per-item reject.
+func TestEmitAnswerDocument_KeepsQuoteClearedWhenTier1PeerPresent(t *testing.T) {
+	// File a.go is BOTH indexed AND read (gutter index populated);
+	// file b.go is only indexed.
+	graph := newDocGraph(map[string][]docSymbol{
+		"a.go": {{name: "Foo", line: 10, end: 30}},
+		"b.go": {{name: "Bar", line: 5, end: 20}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.ToolResults = []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 10-12 of 30]\n  10│ func Foo() {\n  11│     return\n  12│ }\n"},
+	}
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 10, "quote": "func Foo() {"}, // Tier 1 QuoteMatched
+			{"file": "b.go", "line": 10, "quote": "Fabricated about Bar"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("call must succeed: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Citations) != 2 {
+		t.Errorf("Tier 1 peer present; all cites must survive, got %d", len(doc.Citations))
+	}
+	// Fabricated quote on b.go must still be CLEARED (per-item rule),
+	// even though the peer rescues the file:line.
+	for _, c := range doc.Citations {
+		if c.File == "b.go" && c.Quote != "" {
+			t.Errorf("b.go quote must be cleared, got %q", c.Quote)
+		}
+	}
+}
+
+// docSymbol and newDocGraph are minimal helpers so the above tests
+// can build a repomap Graph without pulling the full Graph builder.
+type docSymbol struct {
+	name string
+	line int
+	end  int
 }

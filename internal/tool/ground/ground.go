@@ -249,11 +249,19 @@ func describeRecovery(tier types.GroundingTier, original, adjusted int) string {
 //                          CitationRefUnset (-1).
 
 // CitationReport is the verdict returned by GroundCitation. The
-// emit_answer_document tool branches on Valid / QuoteMatched to
+// emit_answer_document tool branches on Valid / QuoteMatched / Tier to
 // decide drop-vs-clear-vs-keep.
 type CitationReport struct {
 	Valid        bool
 	QuoteMatched bool
+	// Tier names the tier that accepted the citation (empty when
+	// !Valid). "line_text" means the LLM actually read the file and
+	// the cited line is in the read_file gutter index — the strongest
+	// proof. "symbol_table" means the line is in a structural region
+	// of an indexed file but not in the gutter index. Callers use
+	// the tier to enforce the "at least one Tier 1 proven peer" rule
+	// when a citation's quote was cleared as fabricated.
+	Tier types.GroundingTier
 	// Reason is populated on !Valid with a short human-readable
 	// diagnostic ("source not read and not in graph", "line out of
 	// any symbol range", …) that the tool surfaces in its Summary
@@ -286,28 +294,44 @@ func GroundCitation(c types.Citation, gc *Context) CitationReport {
 			if _, hasLine := fileLines[c.Line]; hasLine {
 				quote := strings.TrimSpace(c.Quote)
 				if quote == "" {
-					return CitationReport{Valid: true, QuoteMatched: false}
+					return CitationReport{Valid: true, QuoteMatched: false, Tier: types.TierLineText}
 				}
 				return CitationReport{
 					Valid:        true,
 					QuoteMatched: quoteCorroboratesLine(quote, fileLines, c.Line, 2),
+					Tier:         types.TierLineText,
 				}
 			}
 		}
 	}
-	// Tier 2: graph lookup — the file is indexed by repomap. Lines
-	// are NOT restricted to symbol [Line, EndLine] ranges because
-	// legitimate citations routinely fall outside every symbol:
-	// package doc comments, import statements, top-level consts and
-	// type aliases, blank separator lines, build tags. Requiring
-	// symbol-range coverage rejected every `facade.go:1` cite on the
-	// first REPL run even though line 1 is "Package repomap is …"
-	// — a perfectly sensible citation anchor. The Tier 2 contract is
-	// "the file exists in the repo as repomap sees it"; Quote cannot
-	// be corroborated without the gutter so callers clear it.
+	// Tier 2: graph lookup — the file is indexed by repomap AND the
+	// cited line falls in a region the LLM could plausibly have seen
+	// without reading the file. Accepted regions:
+	//
+	//   (a) inside some symbol's [Line-docRadius, EndLine] — the
+	//       -docRadius prefix covers the symbol's doc comment block
+	//       (GoDoc, Python docstring preamble, JSDoc) which is a
+	//       legitimate citation anchor.
+	//   (b) inside the file prologue [1, firstSymbolLine-1] — package
+	//       docs, imports, top-level consts. Rescues `facade.go:1`.
+	//
+	// Earlier contract was "file exists" only, which let the LLM cite
+	// ANY line in an indexed file as long as the line number was
+	// positive — including mid-file comments and random blank lines.
+	// A fabricated line number that happened to fall on an empty
+	// separator line between two symbols passed unconditionally. The
+	// tighter rule requires the line to be structurally meaningful;
+	// genuinely legitimate cites that miss both (a) and (b) can still
+	// ride Tier 1 by having the LLM read_file the source first, which
+	// is the recovery the rule nudges toward.
 	if gc != nil && gc.Graph != nil {
 		if fi, ok := gc.Graph.FileIndex[file]; ok && fi != nil {
-			return CitationReport{Valid: true, QuoteMatched: false}
+			if tier2LineInStructuralRegion(fi, c.Line) {
+				return CitationReport{Valid: true, QuoteMatched: false, Tier: types.TierSymbolTable}
+			}
+			return CitationReport{
+				Reason: fmt.Sprintf("source %q is indexed but line %d is not inside any symbol range or the file prologue — read the file first so Tier 1 can corroborate", file, c.Line),
+			}
 		}
 	}
 	return CitationReport{
@@ -337,6 +361,59 @@ func quoteCorroboratesLine(quote string, fileLines map[int]string, line, radius 
 		if hTokens[t] {
 			return true
 		}
+	}
+	return false
+}
+
+// tier2DocRadius is how many lines above a symbol's declaration are
+// accepted as part of that symbol's doc-comment preamble. 10 covers
+// typical GoDoc blocks (2-6 lines), Python docstrings (up to 10 lines
+// before triple-quote opens), and JSDoc blocks without over-matching.
+const tier2DocRadius = 10
+
+// tier2LineInStructuralRegion reports whether a cited line falls in a
+// region of the file that the repomap parser mapped to structural
+// meaning: inside some symbol's body-plus-docblock, or inside the
+// prologue (pkg doc / imports / top-level consts) before the first
+// symbol. Any line outside those regions is a suspicious citation —
+// either a mid-file blank separator or a comment the LLM made up.
+func tier2LineInStructuralRegion(fi *repomap.FileInfo, line int) bool {
+	if fi == nil || line <= 0 {
+		return false
+	}
+	firstSymbolLine := 0
+	for i := range fi.Symbols {
+		s := &fi.Symbols[i]
+		if s.Line <= 0 {
+			continue
+		}
+		docStart := s.Line - tier2DocRadius
+		if docStart < 1 {
+			docStart = 1
+		}
+		end := s.EndLine
+		if end < s.Line {
+			end = s.Line
+		}
+		if line >= docStart && line <= end {
+			return true
+		}
+		if firstSymbolLine == 0 || s.Line < firstSymbolLine {
+			firstSymbolLine = s.Line
+		}
+	}
+	// Prologue rescue: when the file has any indexed symbol, lines
+	// above the first symbol's declaration (minus the doc radius) are
+	// the pkg-doc / imports / top-level const region.
+	if firstSymbolLine > 0 && line < firstSymbolLine-tier2DocRadius {
+		return true
+	}
+	// Files with no indexed symbols (YAML, JSON, plain config) have no
+	// structural regions to test against — accept any positive line so
+	// config citations don't regress. Callers that want stricter
+	// behaviour on these can add a Tier 1 check.
+	if firstSymbolLine == 0 {
+		return true
 	}
 	return false
 }

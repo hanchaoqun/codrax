@@ -593,8 +593,21 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 	if len(in) == 0 {
 		return nil, nil, nil, nil
 	}
-	kept := make([]types.Citation, 0, len(in))
-	remap := make([]int, len(in))
+	// Two-pass pipeline. Pass 1 validates structurally and grounds
+	// each citation, recording the tier that accepted it and whether
+	// the quote was cleared. Pass 2 enforces the "quote-cleared
+	// citations need a Tier 1 proven peer in the surviving pool"
+	// rule: a pool where every citation has empty/cleared quote AND
+	// none were Tier 1 means the LLM never actually read the files
+	// it claims to cite — drop the quote-cleared ones.
+	type perCitation struct {
+		keep         bool
+		cit          types.Citation
+		tier         types.GroundingTier
+		quoteCleared bool
+	}
+	scratch := make([]perCitation, len(in))
+	var anyRealTier bool // did any citation get a non-empty Tier? false in no-context test mode.
 	var warnings []string
 	for i := range in {
 		c := in[i]
@@ -618,19 +631,63 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 
 		// Grounding — pure function, never returns err.
 		rep := ground.GroundCitation(c, gc)
+		if rep.Tier != "" {
+			anyRealTier = true
+		}
 		if !rep.Valid {
 			warnings = append(warnings,
 				fmt.Sprintf("citations[%d] dropped (%s:%d): %s", i, c.File, c.Line, rep.Reason))
-			remap[i] = types.CitationRefUnset
 			continue
 		}
+		cleared := false
 		if c.Quote != "" && !rep.QuoteMatched {
 			warnings = append(warnings,
 				fmt.Sprintf("citations[%d] quote cleared (%s:%d) — Quote tokens do not corroborate the cited line", i, c.File, c.Line))
 			c.Quote = ""
+			cleared = true
+		}
+		scratch[i] = perCitation{keep: true, cit: c, tier: rep.Tier, quoteCleared: cleared}
+	}
+
+	// Pool-level defence: require at least one Tier 1 (line_text)
+	// peer when any citation had its quote cleared. This catches the
+	// fabricated-quote pattern — the LLM guesses a line number in an
+	// indexed file and fabricates a prose quote. Tier 2 would let the
+	// line through without the guard; the grounder already clears the
+	// quote but kept the line. The rule: if the LLM guessed at every
+	// citation (no Tier 1 anywhere) AND at least one had a fabricated
+	// quote, drop all quote-cleared citations as unsafe. Tier 2-only
+	// citations with an EMPTY original quote are honest (LLM knows it
+	// can't quote what it didn't read) and keep their file:line.
+	var tier1Proven bool
+	if anyRealTier {
+		for _, p := range scratch {
+			if p.keep && p.tier == types.TierLineText {
+				tier1Proven = true
+				break
+			}
+		}
+	} else {
+		// No grounding context at all (unit test / pre-index path).
+		// Skip the rule — legacy behaviour preserves all cites.
+		tier1Proven = true
+	}
+
+	kept := make([]types.Citation, 0, len(in))
+	remap := make([]int, len(in))
+	for i, p := range scratch {
+		if !p.keep {
+			remap[i] = types.CitationRefUnset
+			continue
+		}
+		if p.quoteCleared && !tier1Proven {
+			warnings = append(warnings,
+				fmt.Sprintf("citations[%d] dropped (%s:%d) — quote was fabricated and no peer citation is Tier 1 proven (the LLM never read any cited file)", i, p.cit.File, p.cit.Line))
+			remap[i] = types.CitationRefUnset
+			continue
 		}
 		remap[i] = len(kept)
-		kept = append(kept, c)
+		kept = append(kept, p.cit)
 	}
 	return kept, remap, warnings, nil
 }
