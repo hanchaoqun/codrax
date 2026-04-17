@@ -213,19 +213,46 @@ func languageFromPath(p string) string {
 
 // relationshipPredicates is the allowlist of evidence predicates
 // worth rendering as relationship edges in the diagram. Drawn from
-// the concrete_values extractor's predicate vocabulary. Anything
-// outside this set (prose "assigns", "references") is skipped —
-// those relationships are too vague to visualize cleanly.
+// the concrete_values extractor's predicate vocabulary plus the
+// evidence.go parser's edge tags. Anything outside this set (prose
+// "assigns", "references") is skipped — those relationships are
+// too vague to visualize cleanly.
+//
+// The table is canonical-lowercase keys → display verb; Tier 2
+// edge collector lowercases the raw predicate before lookup so
+// case variance from different producers (concrete_values vs
+// emit_evidence LLM input vs bridge_literal) converges here.
 var relationshipPredicates = map[string]string{
+	// Call-site edges
 	"calls":        "calls",
-	"binds":        "binds",
-	"binds ONLY":   "binds",
-	"registers":    "registers",
-	"returns":      "returns",
-	"defines":      "defines",
+	"invokes":      "calls",
+	"dispatches":   "calls",
 	"delegates to": "→",
-	"implements":   "implements",
-	"embeds":       "embeds",
+
+	// Registration / wiring edges
+	"binds":       "binds",
+	"binds only":  "binds",
+	"binds first": "binds",
+	"registers":   "registers",
+	"wires":       "wires",
+	"provides":    "provides",
+
+	// Return / production edges
+	"returns":      "returns",
+	"yields":       "yields",
+	"constructs":   "constructs",
+	"instantiates": "instantiates",
+
+	// Definition / structural edges
+	"defines":    "defines",
+	"implements": "implements",
+	"extends":    "extends",
+	"embeds":     "embeds",
+
+	// Config / mapping edges
+	"maps":      "maps",
+	"config":    "configures",
+	"decorates": "decorates",
 }
 
 // diagramNode carries the display text for one node in the relation
@@ -284,16 +311,10 @@ func buildRelationDiagram(ctx *types.BusContext) string {
 	edges := make([]edge, 0, len(evidence))
 	seen := make(map[string]bool)
 	for _, e := range evidence {
+		// Predicates table is canonical-lowercase; lookup with
+		// a single lowercased key covers every producer variant
+		// (concrete_values, bridge_literal, LLM emit_evidence).
 		label, ok := relationshipPredicates[strings.TrimSpace(strings.ToLower(e.Predicate))]
-		if !ok {
-			// Try raw (case-preserved) lookup — the predicate
-			// table is canonical-case but some producers emit
-			// camel-case strings.
-			if label2, ok2 := relationshipPredicates[strings.TrimSpace(e.Predicate)]; ok2 {
-				label = label2
-				ok = true
-			}
-		}
 		if !ok {
 			continue
 		}
