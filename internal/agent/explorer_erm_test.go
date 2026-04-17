@@ -762,6 +762,69 @@ func TestExtractTerminalSegment(t *testing.T) {
 	}
 }
 
+// TestForEachMatchingDef exercises the three visitor contracts:
+// case-insensitive match, nil-def skipping, and early-abort on
+// callback false-return.
+func TestForEachMatchingDef(t *testing.T) {
+	entities := map[string]string{
+		"subagent": "SubAgent",
+		"agent":    "Agent",
+	}
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"SubAgent": {
+				{Kind: "struct", File: "a.go"},
+				nil,
+				{Kind: "method", File: "b.go"},
+			},
+			"Agent": {
+				{Kind: "interface", File: "c.go"},
+			},
+			"Unrelated": {
+				{Kind: "func", File: "d.go"},
+			},
+		},
+	}
+
+	t.Run("visits every matching non-nil def", func(t *testing.T) {
+		var visited []string
+		forEachMatchingDef(entities, graph, func(_, entOrig, symName string, d *repomap.Symbol) bool {
+			visited = append(visited, symName+":"+entOrig+":"+d.File)
+			return true
+		})
+		// 3 non-nil defs across 2 matching symNames; Unrelated is skipped.
+		if len(visited) != 3 {
+			t.Errorf("expected 3 visits, got %d: %v", len(visited), visited)
+		}
+	})
+
+	t.Run("early abort via false return", func(t *testing.T) {
+		n := 0
+		forEachMatchingDef(entities, graph, func(_, _, _ string, _ *repomap.Symbol) bool {
+			n++
+			return false
+		})
+		if n != 1 {
+			t.Errorf("visitor returned false on first call; expected 1 visit, got %d", n)
+		}
+	})
+
+	t.Run("nil graph and empty entities are no-ops", func(t *testing.T) {
+		called := false
+		forEachMatchingDef(entities, nil, func(_, _, _ string, _ *repomap.Symbol) bool {
+			called = true
+			return true
+		})
+		forEachMatchingDef(nil, graph, func(_, _, _ string, _ *repomap.Symbol) bool {
+			called = true
+			return true
+		})
+		if called {
+			t.Error("visitor must not fire for nil graph or empty entities")
+		}
+	})
+}
+
 // TestNormalizedChainTerminal verifies the shared terminal
 // normaliser: strip trailing source locator, trim whitespace, fall
 // back to the whole string when there is no arrow. Used by β dedup,

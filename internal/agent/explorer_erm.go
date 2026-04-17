@@ -756,21 +756,96 @@ func hasConcreteRegistrationTarget(entities []string, graph *repomap.Graph) bool
 	if graph == nil {
 		return false
 	}
+	// Build lower→original map once; the helper inverts the loops so
+	// the full graph is walked in one pass. Registration targets
+	// check lives in isRegistrationTargetKind which takes the full
+	// defs slice — so we short-circuit on the first matching symName
+	// from inside the visitor by tracking which symNames we already
+	// dispatched.
+	entMap := entitiesSliceToLowerMap(entities)
+	if len(entMap) == 0 {
+		return false
+	}
+	dispatched := make(map[string]bool)
+	found := false
+	for symName, defs := range graph.SymbolDefs {
+		if dispatched[symName] {
+			continue
+		}
+		if _, hit := entMap[strings.ToLower(symName)]; !hit {
+			continue
+		}
+		dispatched[symName] = true
+		if isRegistrationTargetKind(defs) {
+			found = true
+			break
+		}
+	}
+	return found
+}
+
+// entitiesSliceToLowerMap builds the lower→original map that
+// forEachMatchingDef expects, filtering empty entries. Callers that
+// already have a map (most of the explorer.go sites do) pass it in
+// directly without going through this helper.
+func entitiesSliceToLowerMap(entities []string) map[string]string {
+	if len(entities) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(entities))
 	for _, ent := range entities {
 		if ent == "" {
 			continue
 		}
-		entLower := strings.ToLower(ent)
-		for symName, defs := range graph.SymbolDefs {
-			if strings.ToLower(symName) != entLower {
+		out[strings.ToLower(ent)] = ent
+	}
+	return out
+}
+
+// forEachMatchingDef iterates over graph definitions whose symbol
+// name case-insensitively matches an entity in the supplied
+// lower→original map. For each matching (symName, def) pair the
+// callback receives (entLower, entOrig, symName, def) with def
+// guaranteed non-nil. Returning false aborts iteration early.
+//
+// Replaces the hand-rolled
+//
+//	for entLower := range entities {
+//	    for symName, defs := range graph.SymbolDefs {
+//	        if strings.ToLower(symName) != entLower { continue }
+//	        for _, d := range defs { ... }
+//	    }
+//	}
+//
+// pattern that appeared four times in explorer.go (primaryEntityFiles,
+// buildPrimaryTargetBanner × 2 phases) plus once in this file
+// (hasConcreteRegistrationTarget). The outer-loop inversion turns an
+// O(|entities| × |SymbolDefs|) scan into O(|SymbolDefs|) while
+// preserving behaviour — both forms visit each (symName, def) pair at
+// most once per matching entity.
+func forEachMatchingDef(
+	entities map[string]string,
+	graph *repomap.Graph,
+	visit func(entLower, entOrig, symName string, d *repomap.Symbol) bool,
+) {
+	if graph == nil || len(entities) == 0 {
+		return
+	}
+	for symName, defs := range graph.SymbolDefs {
+		entLower := strings.ToLower(symName)
+		entOrig, hit := entities[entLower]
+		if !hit {
+			continue
+		}
+		for _, d := range defs {
+			if d == nil {
 				continue
 			}
-			if isRegistrationTargetKind(defs) {
-				return true
+			if !visit(entLower, entOrig, symName, d) {
+				return
 			}
 		}
 	}
-	return false
 }
 
 // ermAutoSatisfyUnresolvable marks requirements as "satisfied" when

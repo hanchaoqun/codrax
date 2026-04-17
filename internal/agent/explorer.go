@@ -493,47 +493,32 @@ func (e *explorerEvaluator) primaryEntityFiles() []string {
 	// canonical symbol name from the graph (original case) since
 	// Symbol.Receiver strings also preserve case.
 	receiverHint := make(map[string]bool)
-	for entLower := range entities {
-		for symName, defs := range graph.SymbolDefs {
-			if strings.ToLower(symName) != entLower {
-				continue
-			}
-			for _, d := range defs {
-				if d == nil {
-					continue
-				}
-				switch strings.ToLower(d.Kind) {
-				case "struct", "class", "interface", "type", "enum":
-					receiverHint[symName] = true
-				}
-			}
+	forEachMatchingDef(entities, graph, func(_, _, symName string, d *repomap.Symbol) bool {
+		switch strings.ToLower(d.Kind) {
+		case "struct", "class", "interface", "type", "enum":
+			receiverHint[symName] = true
 		}
-	}
+		return true
+	})
 
 	seen := make(map[string]bool)
 	var files []string
-	for entLower := range entities {
-		for symName, defs := range graph.SymbolDefs {
-			if strings.ToLower(symName) != entLower {
-				continue
-			}
-			for _, d := range defs {
-				if d == nil || d.File == "" {
-					continue
-				}
-				// Receiver-aware disambiguation for methods.
-				if strings.ToLower(d.Kind) == "method" && len(receiverHint) > 0 {
-					if !receiverHint[d.Receiver] {
-						continue
-					}
-				}
-				if !seen[d.File] {
-					seen[d.File] = true
-					files = append(files, d.File)
-				}
+	forEachMatchingDef(entities, graph, func(_, _, _ string, d *repomap.Symbol) bool {
+		if d.File == "" {
+			return true
+		}
+		// Receiver-aware disambiguation for methods.
+		if strings.ToLower(d.Kind) == "method" && len(receiverHint) > 0 {
+			if !receiverHint[d.Receiver] {
+				return true
 			}
 		}
-	}
+		if !seen[d.File] {
+			seen[d.File] = true
+			files = append(files, d.File)
+		}
+		return true
+	})
 	return files
 }
 
@@ -581,19 +566,12 @@ func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
 		}
 	}
 	methodNames := make(map[string]string) // lower → original
-	for entLower, entOrig := range entities {
-		for symName, defs := range graph.SymbolDefs {
-			if strings.ToLower(symName) != entLower {
-				continue
-			}
-			for _, d := range defs {
-				if d != nil && strings.ToLower(d.Kind) == "method" {
-					methodNames[entLower] = entOrig
-					break
-				}
-			}
+	forEachMatchingDef(entities, graph, func(entLower, entOrig, _ string, d *repomap.Symbol) bool {
+		if strings.ToLower(d.Kind) == "method" {
+			methodNames[entLower] = entOrig
 		}
-	}
+		return true
+	})
 	if len(methodNames) == 0 {
 		return ""
 	}
@@ -601,25 +579,16 @@ func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
 	// Collect sibling files: files OTHER than targetFile that define a
 	// method with any of these names. De-duplicate by file.
 	siblingSet := make(map[string]bool)
-	for entLower := range methodNames {
-		for symName, defs := range graph.SymbolDefs {
-			if strings.ToLower(symName) != entLower {
-				continue
-			}
-			for _, d := range defs {
-				if d == nil || d.File == "" {
-					continue
-				}
-				if strings.ToLower(d.Kind) != "method" {
-					continue
-				}
-				if d.File == targetFile {
-					continue
-				}
-				siblingSet[d.File] = true
-			}
+	forEachMatchingDef(methodNames, graph, func(_, _, _ string, d *repomap.Symbol) bool {
+		if d.File == "" || d.File == targetFile {
+			return true
 		}
-	}
+		if strings.ToLower(d.Kind) != "method" {
+			return true
+		}
+		siblingSet[d.File] = true
+		return true
+	})
 	if len(siblingSet) == 0 {
 		return ""
 	}
