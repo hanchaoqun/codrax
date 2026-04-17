@@ -233,6 +233,58 @@ func StableEvidenceID(kind EvidenceKind, subject, predicate, object, condition, 
 	return fmt.Sprintf("ev-%x", h.Sum64())
 }
 
+// IsCitable reports whether this evidence item carries a file:line
+// anchor that downstream stages (extractor, finalizer) can trust as
+// a citation target without re-grounding. The positive set is
+// deliberately narrow: Tier-1-proven (the LLM actually read the
+// file) OR Tier-2-proven (the LLM's claim matched the repomap
+// graph structurally). Recovered and Ungrounded items have a line
+// number that the finalizer's strict Tier-2 check may reject at
+// citation time, so prompt-layer renderers strip LineStart for
+// those to prevent downstream LLMs from citing them.
+//
+// Legacy items with empty GroundingStatus (pre-session-5
+// deterministic concrete_value) count as citable — they are
+// deterministic facts, not LLM claims.
+func (e EvidenceItem) IsCitable() bool {
+	switch e.GroundingStatus {
+	case GroundingGrounded:
+		return true
+	case GroundingRecovered, GroundingUngrounded:
+		return false
+	default:
+		return true
+	}
+}
+
+// DisplayLocation renders the "file:line" marker appropriate for a
+// given strictness:
+//
+//   - strict=false: historical behaviour. Full "file:line" when Source
+//     and LineStart are set; just "file" otherwise.
+//   - strict=true: file:line ONLY when IsCitable; recovered/ungrounded
+//     items show file alone (line suppressed). Used at the Turn B
+//     / finalize boundary so downstream LLMs cannot pick up a
+//     recovered line number that finalize-time grounding will later
+//     reject.
+//
+// Empty source returns "".
+func (e EvidenceItem) DisplayLocation(strict bool) string {
+	if e.Source == "" {
+		return ""
+	}
+	if strict && !e.IsCitable() {
+		return e.Source
+	}
+	if e.LineStart > 0 {
+		if e.LineEnd > e.LineStart {
+			return fmt.Sprintf("%s:%d-%d", e.Source, e.LineStart, e.LineEnd)
+		}
+		return fmt.Sprintf("%s:%d", e.Source, e.LineStart)
+	}
+	return e.Source
+}
+
 // CompletenessClaim is the set-level authority the producer of an
 // AnswerSymbol slate attaches to that slate. It answers "how
 // authoritative is this list?" — a question that extractAnswerSymbols

@@ -153,13 +153,13 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			}
 			for i := 0; i < evMax; i++ {
 				ev := ta.EvidenceItems[i]
+				// Turn B strict: DisplayLocation(true) strips
+				// LineStart for Recovered/Ungrounded items so the
+				// extractor LLM cannot pick a line the finalizer's
+				// stricter grounder will later reject.
 				cite := ""
-				if ev.Source != "" {
-					if ev.LineStart > 0 {
-						cite = fmt.Sprintf(" @ %s:%d", ev.Source, ev.LineStart)
-					} else {
-						cite = " @ " + ev.Source
-					}
+				if loc := ev.DisplayLocation(true); loc != "" {
+					cite = " @ " + loc
 				}
 				summary := strings.TrimSpace(ev.Summary)
 				if summary == "" {
@@ -169,7 +169,11 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 				if len(summary) > extractorMaxEvidenceSummary {
 					summary = summary[:extractorMaxEvidenceSummary] + "…"
 				}
-				fmt.Fprintf(&b, "- [%s] %s%s\n", ev.Kind, summary, cite)
+				tag := ""
+				if ev.GroundingStatus == types.GroundingRecovered {
+					tag = " [recovered — read_file before citing]"
+				}
+				fmt.Fprintf(&b, "- [%s] %s%s%s\n", ev.Kind, summary, cite, tag)
 			}
 			b.WriteString("\n")
 		}

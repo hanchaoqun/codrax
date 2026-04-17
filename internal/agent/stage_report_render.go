@@ -179,6 +179,14 @@ func renderExplorerStageReport(
 // trailing tag: recovered items get `[recovered]`, ungrounded items
 // get `[UNGROUNDED]` so the finalizer can see the trust level
 // attached to each cite.
+//
+// Session-8 strict rule: the StageReport is a cross-stage artifact
+// (produced by explorer, consumed by Turn B + finalize), so non-
+// Tier-1-grounded items show source WITHOUT LineStart — downstream
+// LLMs cannot pick up a recovered line number that the finalizer
+// grounder's stricter Tier 2 will later reject. Routed through
+// types.EvidenceItem.DisplayLocation(true) for consistency with the
+// context/builder.go renderers.
 func formatEvidenceLineForReport(ev types.EvidenceItem) string {
 	var parts []string
 	parts = append(parts, fmt.Sprintf("[%s]", ev.Kind))
@@ -191,17 +199,13 @@ func formatEvidenceLineForReport(ev types.EvidenceItem) string {
 		parts = append(parts, semantic)
 	}
 
-	if ev.Source != "" {
-		loc := ev.Source
-		if ev.LineStart > 0 {
-			loc = fmt.Sprintf("%s:%d", ev.Source, ev.LineStart)
-		}
+	if loc := ev.DisplayLocation(true); loc != "" {
 		parts = append(parts, "— "+loc)
 	}
 
 	switch ev.GroundingStatus {
 	case types.GroundingRecovered:
-		parts = append(parts, "[recovered]")
+		parts = append(parts, "[recovered — line stripped; read_file before citing]")
 	case types.GroundingUngrounded:
 		parts = append(parts, "[UNGROUNDED]")
 	}
@@ -223,18 +227,16 @@ func emptyAsDash(s string) string {
 // write to the same `## Resolution Chains` markdown section reader.
 //
 // Format: `<summary> (<source>:<line>)` with sane fallbacks.
+// Session-8: non-Tier-1 lines are stripped via DisplayLocation(true)
+// — same cross-stage strictness as formatEvidenceLineForReport.
 func renderAnswerChain(c types.AnswerChain) string {
 	ev := c.Item
 	display := ev.Summary
 	if display == "" {
 		display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
 	}
-	if ev.Source != "" {
-		display += fmt.Sprintf(" (%s", ev.Source)
-		if ev.LineStart > 0 {
-			display += fmt.Sprintf(":%d", ev.LineStart)
-		}
-		display += ")"
+	if loc := ev.DisplayLocation(true); loc != "" {
+		display += " (" + loc + ")"
 	}
 	return display
 }

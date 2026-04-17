@@ -1,6 +1,7 @@
 package ground
 
 import (
+	"strings"
 	"testing"
 
 	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
@@ -539,5 +540,60 @@ func TestGroundItem_LegacyNoAnchorStillGrounds(t *testing.T) {
 	if it.GroundingStatus != types.GroundingGrounded {
 		t.Fatalf("legacy anchor-less item did not ground: status=%q note=%q",
 			it.GroundingStatus, it.GroundingNote)
+	}
+}
+
+// TestGroundCitation_NearestSymbolsHintInRejection pins C+ (session-8):
+// when Tier 2 rejects a citation, the Reason text lists the 3 closest
+// symbols with their line ranges so the LLM can re-cite without
+// another read_file round-trip.
+func TestGroundCitation_NearestSymbolsHintInRejection(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"a.go": {RelPath: "a.go", Symbols: []repomap.Symbol{
+				{Name: "Alpha", Kind: "function", Line: 10, EndLine: 20},
+				{Name: "Beta", Kind: "function", Line: 200, EndLine: 240},
+				{Name: "Gamma", Kind: "function", Line: 300, EndLine: 340},
+				{Name: "Delta", Kind: "function", Line: 500, EndLine: 520},
+			}},
+		},
+	}
+	gc := &Context{Graph: graph}
+	// Line 100 is in a dead zone between Alpha (20) and Beta's doc
+	// radius (190). Rejection must list Beta / Alpha / Gamma
+	// (ordered by distance: 100 nearest Beta=100, Alpha=90, Gamma=200).
+	r := GroundCitation(types.Citation{File: "a.go", Line: 100}, gc)
+	if r.Valid {
+		t.Fatalf("line 100 should be rejected: %+v", r)
+	}
+	if !strings.Contains(r.Reason, "Candidate symbols nearby:") {
+		t.Errorf("rejection must carry candidate-symbols hint: %q", r.Reason)
+	}
+	// Nearest: Alpha (dist 90), Beta (dist 100), Gamma (dist 200).
+	// Delta (dist 400) should NOT appear — only top 3.
+	if !strings.Contains(r.Reason, "Alpha") || !strings.Contains(r.Reason, "lines 10-20") {
+		t.Errorf("nearest Alpha missing: %q", r.Reason)
+	}
+	if !strings.Contains(r.Reason, "Beta") || !strings.Contains(r.Reason, "lines 200-240") {
+		t.Errorf("nearest Beta missing: %q", r.Reason)
+	}
+	if !strings.Contains(r.Reason, "Gamma") {
+		t.Errorf("third-nearest Gamma missing: %q", r.Reason)
+	}
+	if strings.Contains(r.Reason, "Delta") {
+		t.Errorf("beyond-top-3 Delta leaked into hint: %q", r.Reason)
+	}
+}
+
+// TestGroundCitation_NoSymbolsNoHint — when the file has zero indexed
+// symbols (e.g. YAML/JSON config), rejection text has no candidate
+// section. (Actually such files accept any positive line under the
+// structural-region rule, so this case rarely hits; the test
+// documents the graceful degrade.)
+func TestGroundCitation_NearestSymbolsHint_EmptyWhenNoSymbols(t *testing.T) {
+	fi := &repomap.FileInfo{RelPath: "a.yaml"}
+	got := nearestSymbolsHint(fi, 50)
+	if got != "" {
+		t.Errorf("empty-symbols file must produce empty hint, got %q", got)
 	}
 }

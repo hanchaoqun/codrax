@@ -500,7 +500,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// was ~5% of the extractor prompt and ~1-2% of the finalizer
 	// prompt. Consolidated 2026-04-17.
 
-	evidence := formatEvidenceItems(ac.EvidenceItems, 18)
+	// Session-8 rule: at Turn B (extract / finalize) hide LineStart of
+	// non-Tier-1-grounded items so downstream LLMs cannot cite a
+	// recovered anchor that the finalizer's stricter citation
+	// grounder will later reject. Turn A (explore) still sees its
+	// own recovered lines so iterative investigation can reference
+	// earlier-window anchors.
+	strictEvidenceLoc := ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize
+	evidence := formatEvidenceItems(ac.EvidenceItems, 18, strictEvidenceLoc)
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
 	// Structured Evidence carries the full top-18 evidence dump.
@@ -522,7 +529,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// is explicitly told not to cite them. The extractor also benefits
 	// from the visibility: it can mention a lead in reasoning text
 	// without pulling it into emit_answer_symbol.
-	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12); leads != "" {
+	if leads := formatUnverifiedLeads(ac.EvidenceItems, 12, strictEvidenceLoc); leads != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Unverified Leads (not for citation)",
 			Content: leads,
@@ -794,9 +801,16 @@ func filterFlowFindingsByEvidence(items []types.EvidenceItem, findings []types.F
 // Ungrounded) are NOT rendered here — they flow through
 // formatUnverifiedLeads into a dedicated "Unverified Leads" section
 // so the finalizer cannot accidentally cite them.
-// Recovered items are rendered with a [recovered] tag so the LLM
-// can tell "the grounder adjusted my line" from "my line was right".
-func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
+//
+// strictLocation toggles session-8 "no non-Tier-1 lines reach Turn B"
+// behaviour: when true, Recovered items show `(file)` without a line
+// and get a `[recovered — line not read; re-run read_file before
+// citing]` tag so the LLM can't silently pick up an anchor that the
+// finalizer-time grounder will later reject. When false, the
+// historical "(file:line) [recovered]" format ships so the explorer
+// itself (self-referencing earlier windows) still sees its own
+// recovered lines.
+func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation bool) string {
 	if len(items) == 0 {
 		return ""
 	}
@@ -829,18 +843,15 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
 				line += " IF " + item.Condition
 			}
 		}
-		if item.Source != "" {
-			line += fmt.Sprintf(" (%s", item.Source)
-			if item.LineStart > 0 {
-				line += fmt.Sprintf(":%d", item.LineStart)
-				if item.LineEnd > item.LineStart {
-					line += fmt.Sprintf("-%d", item.LineEnd)
-				}
-			}
-			line += ")"
+		if loc := item.DisplayLocation(strictLocation); loc != "" {
+			line += " (" + loc + ")"
 		}
 		if item.GroundingStatus == types.GroundingRecovered {
-			line += " [recovered]"
+			if strictLocation {
+				line += " [recovered — line not read; re-run read_file before citing]"
+			} else {
+				line += " [recovered]"
+			}
 		}
 		b.WriteString("- " + line + "\n")
 		written++
@@ -859,10 +870,15 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int) string {
 
 // formatUnverifiedLeads renders items whose GroundingStatus is
 // Ungrounded. These are LLM claims the grounder could not validate:
-// their file:line values are preserved for reference but must not be
-// emitted as citations. Shipped alongside the 2026-04-17 grounding
-// redesign and always rendered (user pick #4).
-func formatUnverifiedLeads(items []types.EvidenceItem, limit int) string {
+// treated as discussion hints, never emitted as citations.
+//
+// strictLocation gates the LineStart: when true (Turn B / finalize)
+// the LineStart is stripped entirely so downstream LLMs cannot even
+// SEE the fabricated number — DisplayLocation returns just `file`.
+// When false (Turn A self-reference) the historical "file:line"
+// format is preserved so the explorer can cross-reference its own
+// speculative claims across iterations.
+func formatUnverifiedLeads(items []types.EvidenceItem, limit int, strictLocation bool) string {
 	leads := make([]types.EvidenceItem, 0, len(items))
 	for _, it := range items {
 		if it.GroundingStatus == types.GroundingUngrounded {
@@ -889,12 +905,8 @@ func formatUnverifiedLeads(items []types.EvidenceItem, limit int) string {
 			}
 			line = strings.Join(parts, " ")
 		}
-		if item.Source != "" {
-			line += fmt.Sprintf(" (%s", item.Source)
-			if item.LineStart > 0 {
-				line += fmt.Sprintf(":%d", item.LineStart)
-			}
-			line += ")"
+		if loc := item.DisplayLocation(strictLocation); loc != "" {
+			line += " (" + loc + ")"
 		}
 		if note := strings.TrimSpace(item.GroundingNote); note != "" {
 			line += " — " + note

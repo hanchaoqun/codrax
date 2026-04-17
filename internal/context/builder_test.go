@@ -506,7 +506,7 @@ func TestFormatEvidenceItemsExcludesUngrounded(t *testing.T) {
 			GroundingStatus: types.GroundingUngrounded,
 		},
 	}
-	out := formatEvidenceItems(items, 0)
+	out := formatEvidenceItems(items, 0, false)
 	if !strings.Contains(out, "Handler.Name") {
 		t.Fatalf("grounded item missing from Structured Evidence:\n%s", out)
 	}
@@ -514,7 +514,7 @@ func TestFormatEvidenceItemsExcludesUngrounded(t *testing.T) {
 		t.Fatalf("ungrounded item leaked into Structured Evidence; must go to Unverified Leads:\n%s", out)
 	}
 	// Leads render is covered by formatUnverifiedLeads directly:
-	leads := formatUnverifiedLeads(items, 0)
+	leads := formatUnverifiedLeads(items, 0, false)
 	if !strings.Contains(leads, "Register") {
 		t.Fatalf("ungrounded item missing from Unverified Leads:\n%s", leads)
 	}

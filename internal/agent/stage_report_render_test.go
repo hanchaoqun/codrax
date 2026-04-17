@@ -195,8 +195,17 @@ func TestRenderExplorerStageReport_RecoveredTagPreserved(t *testing.T) {
 	}
 	got := renderExplorerStageReport("mechanism", "value",
 		evidence, nil, nil, nil, nil, false)
-	if !strings.Contains(got, "[recovered]") {
+	// Session-8: recovered tag still rendered, with new "read_file
+	// before citing" guidance; LineStart (42) stripped so downstream
+	// cannot pick it up.
+	if !strings.Contains(got, "[recovered") {
 		t.Errorf("recovered marker missing in render:\n%s", got)
+	}
+	if strings.Contains(got, ":42") {
+		t.Errorf("recovered LineStart must be stripped at cross-stage boundary:\n%s", got)
+	}
+	if !strings.Contains(got, "read_file before citing") {
+		t.Errorf("recovered tag must nudge the LLM to read_file:\n%s", got)
 	}
 }
 

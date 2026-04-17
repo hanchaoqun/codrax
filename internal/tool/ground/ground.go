@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -330,7 +331,8 @@ func GroundCitation(c types.Citation, gc *Context) CitationReport {
 				return CitationReport{Valid: true, QuoteMatched: false, Tier: types.TierSymbolTable}
 			}
 			return CitationReport{
-				Reason: fmt.Sprintf("source %q is indexed but line %d is not inside any symbol range or the file prologue — read the file first so Tier 1 can corroborate", file, c.Line),
+				Reason: fmt.Sprintf("source %q is indexed but line %d is not inside any symbol range or the file prologue — %sread the file first so Tier 1 can corroborate, or pick a line inside one of the symbols above",
+					file, c.Line, nearestSymbolsHint(fi, c.Line)),
 			}
 		}
 	}
@@ -416,6 +418,67 @@ func tier2LineInStructuralRegion(fi *repomap.FileInfo, line int) bool {
 		return true
 	}
 	return false
+}
+
+// nearestSymbolsHint builds a "Candidate symbols nearby: ..." string
+// for a citation that fell outside any structural region. Lists up to
+// 3 symbols closest to the rejected line, sorted by absolute
+// distance (ties broken by earlier-line-first). Empty result when the
+// file has zero indexed symbols — callers should skip the prefix in
+// that case. Always ends with ". " so it can be slotted inline before
+// the existing repair sentence.
+//
+// The hint is the payload of C+: instead of just telling the LLM
+// "line N is wrong, read the file", give it three concrete lines
+// that ARE valid anchors so it can fix in one round-trip.
+func nearestSymbolsHint(fi *repomap.FileInfo, line int) string {
+	if fi == nil || len(fi.Symbols) == 0 {
+		return ""
+	}
+	type scored struct {
+		s    *repomap.Symbol
+		dist int
+	}
+	ranked := make([]scored, 0, len(fi.Symbols))
+	for i := range fi.Symbols {
+		s := &fi.Symbols[i]
+		if s.Line <= 0 {
+			continue
+		}
+		d := line - s.Line
+		if d < 0 {
+			d = -d
+		}
+		ranked = append(ranked, scored{s: s, dist: d})
+	}
+	if len(ranked) == 0 {
+		return ""
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		if ranked[i].dist != ranked[j].dist {
+			return ranked[i].dist < ranked[j].dist
+		}
+		return ranked[i].s.Line < ranked[j].s.Line
+	})
+	limit := 3
+	if len(ranked) < limit {
+		limit = len(ranked)
+	}
+	var b strings.Builder
+	b.WriteString("Candidate symbols nearby: ")
+	for i := 0; i < limit; i++ {
+		s := ranked[i].s
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		if s.EndLine > s.Line {
+			fmt.Fprintf(&b, "%s (lines %d-%d)", s.Name, s.Line, s.EndLine)
+		} else {
+			fmt.Fprintf(&b, "%s (line %d)", s.Name, s.Line)
+		}
+	}
+	b.WriteString(". ")
+	return b.String()
 }
 
 // ── Recovery R1: fqname_same_file ────────────────────────────────────
