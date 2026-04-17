@@ -112,6 +112,32 @@ type AgentSettings struct {
 	//              enforced unconditionally. Historical behaviour
 	//              before this config existed.
 	InvestigationCompletePolicy string `yaml:"investigation_complete_policy"`
+
+	// PriorConvPolicy controls how the REPL-assembled Prior Conversation
+	// block is surfaced to the 4 pipeline stages. The REPL always stores
+	// and retrieves prior turns; this knob gates VISIBILITY, not
+	// persistence, so flipping the policy takes effect on the next
+	// dispatch without any data migration.
+	//
+	//   "always"   — historical behaviour; every stage sees Prior.
+	//                Preserved as the opt-out for continuity-sensitive
+	//                debugging sessions.
+	//
+	//   "analyzer" (default) — only the analyzer stage sees Prior, where
+	//                it is useful for entity disambiguation ("它 = last
+	//                turn's subject"). Explorer / extractor / finalizer
+	//                stay blind so they cannot copy a prior-turn wrong
+	//                answer verbatim. AnalysisIR.RequestModel.Entities
+	//                carries any disambiguated identifiers downstream.
+	//
+	//   "continue" — analyzer always; explorer/extractor/finalizer see
+	//                Prior only when the current request is a
+	//                continuation per types.IsContinuation (leading
+	//                "再/继续/more on/..." or bare pronoun head).
+	//
+	//   "never"    — no stage sees Prior. Extreme isolation, not
+	//                recommended outside stress tests.
+	PriorConvPolicy string `yaml:"prior_conversation_policy"`
 }
 
 const (
@@ -121,6 +147,18 @@ const (
 	ICPolicyOverride = "override"
 	// ICPolicyStrict ignores investigation_complete at DAG level.
 	ICPolicyStrict = "strict"
+
+	// PriorConvPolicyAlways: every stage sees Prior Conversation.
+	// Historical behaviour; kept as an opt-out.
+	PriorConvPolicyAlways = "always"
+	// PriorConvPolicyAnalyzer (default): only the analyzer sees Prior.
+	PriorConvPolicyAnalyzer = "analyzer"
+	// PriorConvPolicyContinue: analyzer always; downstream stages see
+	// Prior only when types.IsContinuation returns true on the current
+	// request.
+	PriorConvPolicyContinue = "continue"
+	// PriorConvPolicyNever: no stage sees Prior. Extreme isolation.
+	PriorConvPolicyNever = "never"
 )
 
 // DefaultAgentSettings returns the code defaults for all agent limits.
@@ -139,6 +177,7 @@ func DefaultAgentSettings() AgentSettings {
 		SubTopicPipelineStepsExtra:    5,
 		SubTopicRetryBudgetExtra:      1,
 		InvestigationCompletePolicy:   ICPolicySoft,
+		PriorConvPolicy:               PriorConvPolicyAnalyzer,
 	}
 }
 
@@ -187,6 +226,12 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 		// valid
 	default:
 		s.InvestigationCompletePolicy = d.InvestigationCompletePolicy
+	}
+	switch s.PriorConvPolicy {
+	case PriorConvPolicyAlways, PriorConvPolicyAnalyzer, PriorConvPolicyContinue, PriorConvPolicyNever:
+		// valid
+	default:
+		s.PriorConvPolicy = d.PriorConvPolicy
 	}
 	return s
 }

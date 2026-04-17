@@ -955,6 +955,21 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 		agentCtx.ThinkAloud = ta
 	}
 
+	// Prior Conversation visibility. The Objective always carries the
+	// full prior+current payload so StripConversationPrefix /
+	// SplitConversation keep working; this flag gates whether the
+	// prompt builder renders the user-facing Prior Conversation
+	// section. See types.AgentSettings.PriorConvPolicy for rationale.
+	priorVisible := priorConvVisibleForStage(
+		o.settings.Agent.PriorConvPolicy, stage, agentCtx.Objective)
+	agentCtx.PriorConvHidden = !priorVisible
+	// Only log when a prior block actually exists — otherwise the
+	// flag is moot and the line is noise in single-shot traces.
+	if prior, _ := types.SplitConversation(agentCtx.Objective); prior != "" {
+		logging.Debug("[orchestrator] prior_conv: stage=%s policy=%s visible=%t",
+			stage, o.settings.Agent.PriorConvPolicy, priorVisible)
+	}
+
 	// Adaptive explorer iteration scaling for multi-topic questions.
 	if stage == types.StageExplore && o.busCtx.AnalysisIR != nil {
 		if nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics); nSub > 1 {

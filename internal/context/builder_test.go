@@ -1491,3 +1491,49 @@ func TestBuildPromptContext_RawToolOutputs_SkippedForExplanationShape(t *testing
 		t.Error("Raw Tool Outputs must NOT render for explanation-shape questions")
 	}
 }
+
+// TestBuildPromptContext_PriorConvHiddenFlag pins the 2026-04-17
+// Prior-Conversation intent-aware filter. When AgentContext.
+// PriorConvHidden is true, the "Prior Conversation (reference only)"
+// user section is omitted even if Objective carries a prior block.
+// The "User Request" section is always rendered so the stage still
+// sees the current question.
+func TestBuildPromptContext_PriorConvHiddenFlag(t *testing.T) {
+	objective := "## Prior conversation\n- You: old Q\n  Codrax: old A\n\n## Current request\nhow does Foo work"
+
+	// Visible (zero-value) → section present (historical behaviour).
+	acVis := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: objective,
+	}
+	pcVis := BuildPromptContext(acVis, &skill.Config{Name: "s"})
+	if findSectionTitle(pcVis, "Prior Conversation (reference only)") == nil {
+		t.Fatal("zero-value PriorConvHidden must render Prior Conversation section (legacy default)")
+	}
+	if findSectionTitle(pcVis, "User Request") == nil {
+		t.Fatal("User Request section must always render")
+	}
+
+	// Hidden → section absent, User Request still rendered.
+	acHid := &types.AgentContext{
+		AgentName:       types.AgentExplorer,
+		Stage:           types.StageExplore,
+		Objective:       objective,
+		PriorConvHidden: true,
+	}
+	pcHid := BuildPromptContext(acHid, &skill.Config{Name: "s"})
+	if findSectionTitle(pcHid, "Prior Conversation (reference only)") != nil {
+		t.Error("PriorConvHidden=true must omit Prior Conversation section")
+	}
+	if findSectionTitle(pcHid, "User Request") == nil {
+		t.Error("PriorConvHidden=true must STILL render User Request section")
+	}
+	urSection := findSectionTitle(pcHid, "User Request")
+	if !strings.Contains(urSection.Content, "how does Foo work") {
+		t.Errorf("User Request must carry the current question, got %q", urSection.Content)
+	}
+	if strings.Contains(urSection.Content, "old Q") {
+		t.Errorf("User Request must NOT leak prior content, got %q", urSection.Content)
+	}
+}

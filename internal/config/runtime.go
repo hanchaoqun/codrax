@@ -154,6 +154,7 @@ type RuntimeSettings struct {
 	AgentSubTopicPipelineExtra         *int    `yaml:"agent_subtopic_pipeline_extra"`
 	AgentSubTopicRetryExtra            *int    `yaml:"agent_subtopic_retry_extra"`
 	AgentInvestigationCompletePolicy   *string `yaml:"agent_investigation_complete_policy"`
+	AgentPriorConvPolicy               *string `yaml:"agent_prior_conversation_policy"`
 
 	// Memory store limits. All optional; nil → code default in
 	// types.DefaultMemorySettings().
