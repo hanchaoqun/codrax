@@ -371,3 +371,54 @@ func TestE2E_AnswerDocument_CrossTaskReset(t *testing.T) {
 		t.Errorf("AnswerDocument not reset at per-task entry: observed = %+v", observed)
 	}
 }
+
+// TestE2E_AnswerDocument_ResetBeforeFinalizeDispatch pins the session-8
+// Bug 4 fix: the orchestrator calls Mutable.ResetAnswerDocument()
+// immediately before every finalize dispatch so a stale doc from a
+// prior pipeline-retry round cannot short-circuit the finalizer's
+// evaluator Observe ("emit_answer_document called"). Setup plants a
+// doc on Mutable via a pre-hook extractor; the finalizer mock records
+// what it saw at dispatch entry and asserts nil.
+func TestE2E_AnswerDocument_ResetBeforeFinalizeDispatch(t *testing.T) {
+	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation, Language: "en"})
+
+	// Extractor plants a stale AnswerDocument on Mutable — simulates
+	// a prior round's leftover. Orchestrator must clear it before
+	// finalizer runs.
+	extractorPlant := func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+		ctx.Mutable.SetAnswerDocument(&types.AnswerDocument{
+			Shape:   types.ShapeExplanation,
+			Summary: "stale from previous retry",
+		})
+		return &agent.StageOutput{}, nil
+	}
+
+	var observedAtFinalizerEntry *types.AnswerDocument
+	finalizer := func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+		observedAtFinalizerEntry = ctx.Mutable.AnswerDocument()
+		return finalizeWithAnswerDocument(&types.AnswerDocument{
+			Shape:   types.ShapeExplanation,
+			Summary: "fresh answer",
+		}, "en")(ctx, sk)
+	}
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer:  dagAnalyzerFn(ir),
+		types.AgentExplorer:  func(ctx *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentExtractor: extractorPlant,
+		types.AgentFinalizer: finalizer,
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	if _, err := o.Run("q", "/tmp/repo", "main"); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if observedAtFinalizerEntry != nil {
+		t.Errorf("AnswerDocument must be reset before finalize dispatch; finalizer saw a stale doc: %+v", observedAtFinalizerEntry)
+	}
+}

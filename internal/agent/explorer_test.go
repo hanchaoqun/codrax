@@ -704,6 +704,34 @@ func TestDetectEnumerationIntent(t *testing.T) {
 	}
 }
 
+// TestEnumerationIntent_NotPollutedByPriorConversation pins the
+// trace 1776448040358685830 fix: the BuildInitialInstruction
+// callsite strips the REPL's Prior Conversation prefix before
+// detectEnumerationIntent runs, so a prior turn's "哪些" / "how
+// many" does not flip the current non-enumeration question's
+// isEnumerationQuery flag. Raw detectEnumerationIntent still
+// returns true on a concatenated input — that is correct for the
+// substring search; the fix lives at the call site.
+func TestEnumerationIntent_NotPollutedByPriorConversation(t *testing.T) {
+	priorWithEnumKw := "## Prior conversation\n### Recent conversation\n- You: 通过哪些机制？\n  Codrax: some answer\n\n## Current request\n"
+	currentMechanism := "explorer 是如何调用 subagent的？"
+	full := priorWithEnumKw + currentMechanism
+
+	// Raw concatenated input still trips the detector (substring
+	// search finds 哪些 in the prior).
+	if !detectEnumerationIntent(full) {
+		t.Error("raw concatenated Objective should trip detector (prior has 哪些) — test premise invalid")
+	}
+
+	// After stripping the prior, only the current request is checked
+	// and the non-enumeration question returns false.
+	stripped := types.StripConversationPrefix(full)
+	if detectEnumerationIntent(stripped) {
+		t.Errorf("stripped current %q must NOT be enumeration; Prior pollution regressed",
+			stripped)
+	}
+}
+
 func TestExtractQuestionEntities(t *testing.T) {
 	tests := []struct {
 		question string

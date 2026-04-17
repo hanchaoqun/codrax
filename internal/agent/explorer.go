@@ -121,7 +121,17 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	e.userQuestion = ctx.Objective
 	e.repoRoot = ctx.RepoRoot
-	e.isEnumerationQuery = detectEnumerationIntent(ctx.Objective)
+	// Strip the REPL-assembled Prior Conversation prefix before
+	// enumeration detection so that prior-turn keywords (哪些 / how
+	// many / list all / ...) do NOT falsely trip `isEnumerationQuery`
+	// on the current request. trace 1776448040358685830 exposed the
+	// cascade: Prior had "通过哪些机制" → detectEnumerationIntent →
+	// mid-loop pushed LLM to read 5 extra files → Tier-1 floor + E's
+	// whitelist both inflated to the point of bypass. Single
+	// assignment point so every downstream consumer of the flag
+	// (mid-loop enumeration hint, soft-stop coverage gate, stage
+	// report tag, synthesis prompt) sees the clean signal.
+	e.isEnumerationQuery = detectEnumerationIntent(types.StripConversationPrefix(ctx.Objective))
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil

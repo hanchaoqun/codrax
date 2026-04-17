@@ -316,6 +316,11 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 					}
 					p.Value.Literal = literal
 					p.Value.CitationRef = types.CitationRefUnset
+					// Consume the source. symbols[] is forbidden under
+					// the resolved value shape; leaving it populated
+					// would trip rejectForbiddenFields downstream even
+					// though its data was already absorbed into Value.
+					p.Symbols = nil
 				}
 				canCorrect = p.Value != nil && p.Value.Literal != ""
 			case types.ShapeBoolean:
@@ -329,19 +334,21 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 				shape = types.ShapeExplanation
 				shapeCorrectionNote = fmt.Sprintf("shape auto-corrected: LLM chose %s, target was %s but required fields empty → fell back to explanation", llmShape, target)
 			}
-			// Scrub fields forbidden by the resolved shape.
-			switch shape {
-			case types.ShapeListOfSymbols:
-				p.Steps = nil; p.Value = nil; p.Boolean = nil
-			case types.ShapeStepList:
-				p.Symbols = nil; p.Value = nil; p.Boolean = nil
-			case types.ShapeValue, types.ShapeConfigValue:
-				p.Steps = nil; p.Symbols = nil; p.Boolean = nil
-			case types.ShapeBoolean:
-				p.Steps = nil; p.Symbols = nil; p.Value = nil
-			case types.ShapeExplanation:
-				p.Steps = nil; p.Symbols = nil; p.Value = nil; p.Boolean = nil
-			}
+			// Previously this block silently scrubbed every field the
+			// resolved shape forbids. That let the LLM's "shotgun"
+			// response (chose shape=boolean, filled boolean + steps +
+			// symbols + value all at once — trace 1776448040358685830
+			// iter=0) slip through: the tool returned ok=true with
+			// everything except the single required field zeroed out,
+			// the LLM never saw feedback, and the next retry pattern-
+			// repeated. Session-8 behaviour: let the downstream shape
+			// switch's rejectForbiddenFields fire. Non-zero forbidden
+			// fields now fail the call with a specific message
+			// ("shape=X forbids Y") so the LLM corrects on the next
+			// turn. Zero-value forbidden objects are still silent-
+			// nil'd by the sweep below (Value.Literal=="" → nil,
+			// Boolean.Decision=="" → nil) — those are JSON noise, not
+			// semantic conflict.
 		}
 	}
 

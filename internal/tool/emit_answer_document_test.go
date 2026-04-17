@@ -737,11 +737,14 @@ func TestEmitAnswerDocument_WhitelistSkippedWhenNoTurnA(t *testing.T) {
 	}
 }
 
-// TestEmitAnswerDocument_ShapeCorrectionSurfacedInSummary pins the
-// shape auto-correct visibility upgrade — the tool Summary (not just
-// DEBUG/WARN logs) names the correction so both the LLM on retry and
-// the REPL operator see what happened.
-func TestEmitAnswerDocument_ShapeCorrectionSurfacedInSummary(t *testing.T) {
+// TestEmitAnswerDocument_ShapeAutoCorrect_AcceptsCleanFallback pins
+// the session-8 success path: LLM chose a wrong shape but left the
+// forbidden fields zero-valued. Zero-sweep nil's the empty Boolean
+// pointer, auto-correct falls back to explanation (canCorrect=false
+// because boolean.decision was empty), call accepts. Summary
+// announces the correction so both LLM retry and REPL operator see
+// what happened.
+func TestEmitAnswerDocument_ShapeAutoCorrect_AcceptsCleanFallback(t *testing.T) {
 	ctx := newDocBusCtx("")
 	ctx.AnalysisIR = &types.AnalysisIR{
 		AnswerContract: types.AnswerContract{
@@ -749,16 +752,14 @@ func TestEmitAnswerDocument_ShapeCorrectionSurfacedInSummary(t *testing.T) {
 		},
 	}
 	tool := &EmitAnswerDocument{}
-	// LLM chose boolean; analyzer wanted explanation. No boolean-
-	// required fields, so auto-correct falls back to explanation.
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "boolean",
 		"summary": "resolved explanation body",
-		"boolean": map[string]interface{}{"decision": "true", "rationale": "r", "citation_ref": -1},
+		"boolean": map[string]interface{}{"decision": "", "rationale": "", "citation_ref": -1},
 	})
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
-		t.Fatalf("call should succeed after auto-correct: %s", res.Summary)
+		t.Fatalf("clean fallback (empty boolean) should succeed: %s", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "Shape correction:") {
 		t.Errorf("Summary must announce shape correction, got: %q", res.Summary)
@@ -768,5 +769,40 @@ func TestEmitAnswerDocument_ShapeCorrectionSurfacedInSummary(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "explanation") {
 		t.Errorf("Summary must name the resolved shape: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ShapeAutoCorrect_RejectsNonZeroForbidden pins
+// the session-8 Bug 3 fix: when the LLM "shotgun"-fills fields
+// across shapes (trace 1776448040358685830 iter=0: shape=boolean +
+// non-zero boolean{decision,rationale} + steps[...] + symbols[...]
+// + value{...} all at once), the previous silent-scrub path let the
+// call pass with the wrong-shape fields quietly nil'd; the LLM saw
+// ok=true and repeated the same scattershot on the next turn.
+// Session-8: auto-correct resolves shape, then the downstream
+// rejectForbiddenFields fires on any non-zero forbidden field and
+// returns a specific "shape=X forbids Y" error so the LLM corrects.
+func TestEmitAnswerDocument_ShapeAutoCorrect_RejectsNonZeroForbidden(t *testing.T) {
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+		},
+	}
+	tool := &EmitAnswerDocument{}
+	// LLM chose boolean with a non-zero decision. Auto-correct
+	// resolves shape to explanation but boolean is still non-nil.
+	// rejectForbiddenFields must fire.
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "boolean",
+		"summary": "x",
+		"boolean": map[string]interface{}{"decision": "true", "rationale": "r", "citation_ref": -1},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Errorf("non-zero boolean after shape correction must reject, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "forbids boolean") {
+		t.Errorf("rejection must name the offending field: %q", res.Summary)
 	}
 }

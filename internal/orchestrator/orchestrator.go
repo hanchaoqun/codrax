@@ -567,6 +567,18 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		o.emitNodeStart(fin.ID)
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
+		// Bug 4 (trace 1776448040358685830): a prior retry round's
+		// AnswerDocument lingers in Mutable across pipeline retries.
+		// The finalizer's evaluator Observe short-circuits on the
+		// stale doc ("emit_answer_document called") and stops the
+		// ReAct loop WITHOUT giving the LLM a chance to correct after
+		// a tool-level reject in the current dispatch. Reset the
+		// buffer before every finalize dispatch so each round starts
+		// from a clean slate. Safe for round 0 (doc was already nil),
+		// correct for round 1+ (clears the stale doc from round N-1).
+		if o.busCtx.Mutable != nil {
+			o.busCtx.Mutable.ResetAnswerDocument()
+		}
 		stepsUsed++
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
