@@ -1134,6 +1134,124 @@ func TestReasoningHygiene_NilSkillFallsBackSafely(t *testing.T) {
 	}
 }
 
+// -----------------------------------------------------------------------------
+// Extract-skill prompt trim: Known Facts + Structured Evidence dropped
+// -----------------------------------------------------------------------------
+//
+// Rationale: the extractor has no investigation tools (grep /
+// read_file / repo_map / list_files / exec_command are all outside
+// its ToolSuggestions), so raw tool dumps and the full evidence list
+// are inert. The Prior Stage Findings section already carries the
+// curated Primary Evidence top-12 and the Resolution Chains; the
+// extractor's BuildInitialInstruction appends a separate Turn A
+// digest. Three tests below pin the gate on the skill-name axis so
+// a rename of either skill breaks them loudly.
+
+func extractorSkill() *skill.Config {
+	return &skill.Config{
+		Name:            "extract-skill",
+		ToolSuggestions: []string{"emit_answer_symbol", "emit_hypothesis_verdict"},
+	}
+}
+
+func finalizerSkill() *skill.Config {
+	return &skill.Config{
+		Name:            "answer-document-skill",
+		ToolSuggestions: []string{"emit_answer_document"},
+	}
+}
+
+func explorerSkill() *skill.Config {
+	return &skill.Config{
+		Name: "explore-skill",
+		ToolSuggestions: []string{
+			"repo_map", "grep", "read_file", "list_files", "exec_command",
+		},
+	}
+}
+
+func acWithFactsAndEvidence() *types.AgentContext {
+	return &types.AgentContext{
+		AgentName: types.AgentExtractor,
+		Stage:     types.StageExtract,
+		Objective: "q",
+		RelevantFacts: []string{
+			"[grep] grep = [grep: 42 matching files]",
+			"[read_file] read_file = [internal/agent/agent.go: showing lines 1-100 of 1127 total]",
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{ID: "e1", Kind: types.EvidenceDirect, Subject: "A", Predicate: "binds", Object: "B", Source: "a.go", LineStart: 1},
+			{ID: "e2", Kind: types.EvidenceRegistration, Subject: "C", Predicate: "registers", Object: "D", Source: "b.go", LineStart: 2},
+		},
+	}
+}
+
+func TestBuildPromptContext_ExtractSkill_SkipsKnownFactsAndStructuredEvidence(t *testing.T) {
+	ac := acWithFactsAndEvidence()
+	pc := BuildPromptContext(ac, extractorSkill())
+	if findSectionTitle(pc, "Known Facts") != nil {
+		t.Error("extract-skill must drop Known Facts (tool dumps the extractor cannot act on)")
+	}
+	if findSectionTitle(pc, "Structured Evidence") != nil {
+		t.Error("extract-skill must drop Structured Evidence (duplicates Primary Evidence + Turn A digest)")
+	}
+}
+
+func TestBuildPromptContext_FinalizerSkill_KeepsKnownFactsAndStructuredEvidence(t *testing.T) {
+	ac := acWithFactsAndEvidence()
+	ac.AgentName = types.AgentFinalizer
+	ac.Stage = types.StageFinalize
+	pc := BuildPromptContext(ac, finalizerSkill())
+	if findSectionTitle(pc, "Known Facts") == nil {
+		t.Error("finalizer still needs Known Facts (the trim targets extract-skill only)")
+	}
+	if findSectionTitle(pc, "Structured Evidence") == nil {
+		t.Error("finalizer needs Structured Evidence for citation pool coverage")
+	}
+}
+
+func TestBuildPromptContext_ExplorerSkill_KeepsBothSections(t *testing.T) {
+	ac := acWithFactsAndEvidence()
+	ac.AgentName = types.AgentExplorer
+	ac.Stage = types.StageExplore
+	pc := BuildPromptContext(ac, explorerSkill())
+	if findSectionTitle(pc, "Known Facts") == nil {
+		t.Error("explore-skill must keep Known Facts (explorer is the producer but may iterate)")
+	}
+	if findSectionTitle(pc, "Structured Evidence") == nil {
+		t.Error("explore-skill must keep Structured Evidence")
+	}
+}
+
+func TestIsExtractorSkill_Table(t *testing.T) {
+	cases := []struct {
+		name string
+		sk   *skill.Config
+		want bool
+	}{
+		{"nil skill", nil, false},
+		{"extract-skill", &skill.Config{Name: "extract-skill"}, true},
+		{"answer-document-skill", &skill.Config{Name: "answer-document-skill"}, false},
+		{"explore-skill", &skill.Config{Name: "explore-skill"}, false},
+		{"analysis-skill", &skill.Config{Name: "analysis-skill"}, false},
+		{"unknown skill name", &skill.Config{Name: "mystery"}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isExtractorSkill(c.sk); got != c.want {
+				t.Errorf("isExtractorSkill(%q) = %v, want %v", skillName(c.sk), got, c.want)
+			}
+		})
+	}
+}
+
+func skillName(sk *skill.Config) string {
+	if sk == nil {
+		return "<nil>"
+	}
+	return sk.Name
+}
+
 // TestReasoningHygiene_EveryStageProducesNonEmpty is a sanity guard
 // against a future variant picker that returns "" for an unhandled
 // combination. Every skill configuration in the codebase must yield

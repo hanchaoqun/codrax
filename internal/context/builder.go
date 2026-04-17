@@ -158,6 +158,24 @@ func skillToolSet(sk *skill.Config) map[string]bool {
 	return out
 }
 
+// isExtractorSkill reports whether the dispatch is Turn B (extractor).
+// Used by BuildPromptContext to skip sections that carry zero signal
+// for the extractor: raw tool-result dumps (Known Facts) it cannot
+// act on, and the un-curated full evidence list (Structured Evidence)
+// that duplicates the already-ranked Primary Evidence visible in
+// Prior Stage Findings plus the Turn A transcript digest the
+// extractor evaluator appends separately. Mirrors reasoningHygieneFor's
+// skill-aware dispatch rather than stage-name coupling — a rename
+// of the pipeline stage name would not silently break this gate.
+//
+// Not generalised to "any emit-only skill" (which would also match
+// answer-document-skill) because the finalizer still reads Structured
+// Evidence to broaden its citation pool; only the extractor has an
+// alternative evidence channel via its BuildInitialInstruction digest.
+func isExtractorSkill(sk *skill.Config) bool {
+	return sk != nil && sk.Name == "extract-skill"
+}
+
 // canonicalSystemSectionOrder lists every system-role section title
 // BuildPromptContext may emit, in the exact order the LLM sees them.
 // The list is purely documentary — it pins the contract between the
@@ -322,7 +340,17 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	if len(ac.RelevantFacts) > 0 {
+	// Extract-skill trim (Turn B noise reduction). See isExtractorSkill
+	// for the rationale: the extractor has no investigation tools,
+	// raw tool-result dumps are inert, and the full evidence list
+	// duplicates data the extractor already sees through the Prior
+	// Stage Findings Primary Evidence subsection plus its
+	// BuildInitialInstruction Turn A digest. In the 2026-04-17 audit
+	// the two skipped sections accounted for ~70% of the extractor's
+	// prompt, diluting the load-bearing signal.
+	skipForExtractor := isExtractorSkill(sk)
+
+	if !skipForExtractor && len(ac.RelevantFacts) > 0 {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Known Facts",
 			Content: strings.Join(ac.RelevantFacts, "\n"),
@@ -431,7 +459,13 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	evidence := formatEvidenceItems(ac.EvidenceItems, 18)
 	findings := formatFlowFindings(ac.FlowFindings, 10)
 	logging.Debug("[builder] %s/%s: evidence_section_len=%d findings_section_len=%d", ac.AgentName, ac.Stage, len(evidence), len(findings))
-	if evidence != "" {
+	// Structured Evidence carries the full top-18 evidence dump.
+	// Skipped for the extract-skill: that dispatch already sees the
+	// top-12 via Prior Stage Findings' Primary Evidence subsection
+	// and the curated view via the Turn A digest its evaluator
+	// appends. Other skills (finalizer especially) need the full
+	// list for citation coverage.
+	if !skipForExtractor && evidence != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Structured Evidence",
 			Content: evidence,
