@@ -112,6 +112,15 @@ func renderExplorerStageReport(
 
 	if len(chains) > 0 {
 		b.WriteString("## Resolution Chains\n")
+		// Directive prose previously duplicated as the top-level
+		// "Ground Truth" section in context/builder.go. Consolidated
+		// here so the same chain list isn't rendered twice with
+		// different framings — the section is now the single
+		// canonical home for deterministically-extracted answer chains.
+		b.WriteString("These facts were extracted deterministically from source code and directly answer the question. " +
+			"Use them as the primary basis for your answer — do NOT contradict or ignore them. " +
+			"The rightmost hop of each chain (after the final `→`) is the ANSWER TERMINAL the question resolves to; " +
+			"intermediate nodes are MECHANISM, not answer.\n\n")
 		for _, c := range chains {
 			b.WriteString("- " + renderAnswerChain(c) + "\n")
 		}

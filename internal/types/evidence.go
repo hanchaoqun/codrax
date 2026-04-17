@@ -222,12 +222,12 @@ func (c CompletenessClaim) IsValid() bool {
 // identifies the correct symbol) and the finalizer (which must
 // render it as prose without adding or removing names).
 type AnswerSymbol struct {
-	Name      string `json:"name"`
-	File      string `json:"file,omitempty"`
-	Line      int    `json:"line,omitempty"`
-	Chain     string `json:"chain"`               // full chain text that yielded this symbol
-	Kind      string `json:"kind"`                // question_kind at extraction time
-	Rationale string `json:"rationale,omitempty"` // optional: why this terminal was picked
+	Name      string           `json:"name"`
+	File      string           `json:"file,omitempty"`
+	Line      int              `json:"line,omitempty"`
+	Chain     string           `json:"chain"`               // full chain text that yielded this symbol
+	Kind      AnswerSymbolKind `json:"kind"`                // see answer_symbol_kind.go for the closed taxonomy
+	Rationale string           `json:"rationale,omitempty"` // optional: why this terminal was picked
 }
 
 // AnswerChain is the typed ranked-and-scored answer-relevance envelope

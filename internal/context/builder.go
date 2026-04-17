@@ -205,11 +205,10 @@ var canonicalSystemSectionOrder = []string{
 var canonicalUserSectionOrder = []string{
 	"Retry Directive (READ FIRST)",
 	"User Request",
-	"Prior Stage Findings",
+	"Prior Stage Findings", // carries the canonical Resolution Chains subsection
 	"Known Facts",
 	"Extracted Answer Symbols (deterministic, authoritative)",
 	"Answer Symbols (deterministic floor, may extend with cited evidence)",
-	"Ground Truth (deterministic, verified from source code)",
 	"Structured Evidence",
 	"Dataflow Findings",
 	"Hypothesis Verdicts",
@@ -412,7 +411,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			"but the list is a LOWER BOUND — additional symbols may also be part of the answer if the " +
 			"evidence below supports them. Your task is to render this floor faithfully AND supplement it " +
 			"with any additional symbols you can ground in the Structured Evidence / Dataflow Findings / " +
-			"Ground Truth sections.\n\n")
+			"Prior Stage Findings' Resolution Chains sections.\n\n")
 		symContent.WriteString("Confirmed floor (MUST include all):\n")
 		for _, s := range ac.AnswerSymbols {
 			if s.File != "" {
@@ -434,27 +433,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// else: unknown/empty → drop the section; finalizer falls back to
 	// Ground Truth + shape-based prompt downstream.
 
-	// Answer chains get the highest priority — these are deterministic
-	// resolution chains that the system has identified as directly
-	// answering the user's question. The finalizer should use these
-	// as the answer skeleton, not re-derive from raw evidence.
-	//
-	// This is the SINGLE legal flatten point for AnswerChain per the
-	// architecture principle "prose only at the LLM boundary" —
-	// identifyAnswerChains stays structured and the rendering happens
-	// here, in the prompt assembler.
-	if len(ac.AnswerChains) > 0 {
-		var chainContent strings.Builder
-		chainContent.WriteString("The following facts were extracted deterministically from source code and directly answer the question. " +
-			"Use them as the primary basis for your answer — do NOT contradict or ignore them:\n\n")
-		for _, chain := range ac.AnswerChains {
-			chainContent.WriteString("- " + renderAnswerChainForPrompt(chain) + "\n")
-		}
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Ground Truth (deterministic, verified from source code)",
-			Content: chainContent.String(),
-		})
-	}
+	// AnswerChains are no longer rendered as a separate "Ground Truth"
+	// section here — the explorer's stage report (see stage_report_render.go)
+	// already carries them under Prior Stage Findings' Resolution
+	// Chains subsection with the same "do NOT contradict, terminal is
+	// the answer" directive text. Rendering the same chain list twice
+	// with different headers was pure signal dilution; the duplicate
+	// was ~5% of the extractor prompt and ~1-2% of the finalizer
+	// prompt. Consolidated 2026-04-17.
 
 	evidence := formatEvidenceItems(ac.EvidenceItems, 18)
 	findings := formatFlowFindings(ac.FlowFindings, 10)

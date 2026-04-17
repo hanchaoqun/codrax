@@ -154,7 +154,12 @@ func TestEmitAnswerSymbol_AcceptsRepoPathWhenWorkDirEmpty(t *testing.T) {
 func TestEmitAnswerSymbol_RejectsUnknownKind(t *testing.T) {
 	tool := &EmitAnswerSymbol{}
 	ctx := newAnswerSymbolCtx()
-	params := json.RawMessage(`{"items":[{"name":"Foo","file":"a.go","line":1,"kind":"trait"}],"completeness":"complete"}`)
+	// `xyz` is not in types.AllAnswerSymbolKinds and not an alias —
+	// must reject. (`trait`, `protocol`, `module`, etc. ARE in the
+	// expanded cross-language taxonomy; a previous version of this
+	// test used `trait` as the "unknown" example, which now passes
+	// validation — the rename here mirrors the enum expansion.)
+	params := json.RawMessage(`{"items":[{"name":"Foo","file":"a.go","line":1,"kind":"xyz"}],"completeness":"complete"}`)
 	res, _ := tool.Execute(ctx, params)
 	if res.Success {
 		t.Fatal("expected failure on unknown kind")

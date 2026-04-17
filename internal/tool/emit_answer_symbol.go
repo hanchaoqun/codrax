@@ -46,20 +46,12 @@ type EmitAnswerSymbol struct {
 	NonEvidenceTool
 }
 
-// Allowed kinds. Mirrors the symbol kinds the explorer's repomap
-// graph actually emits (see internal/tool/repomap/*). The list is
-// closed because AnswerSymbol.Kind is consumed by the finalizer's
-// renderer which has zero handling for unknown kinds.
-var emitAnswerSymbolAllowedKinds = map[string]string{
-	"function": "function",
-	"func":     "function",
-	"method":   "method",
-	"type":     "type",
-	"struct":   "struct",
-	"class":    "class",
-	"const":    "const",
-	"var":      "var",
-}
+// Allowed kinds. Delegated to types.NormalizeAnswerSymbolKind for
+// the single-source-of-truth closed taxonomy — includes cross-
+// language shapes (trait / protocol / module / package / crate /
+// macro / decorator / annotation …) and the non-symbol terminal
+// (literal) used when the resolution chain resolves to a value
+// rather than a code identifier.
 
 type emitAnswerSymbolParams struct {
 	Items        []emitAnswerSymbolItem `json:"items"`
@@ -99,11 +91,16 @@ func (t *EmitAnswerSymbol) Description() string {
 		"finished reading Turn A's investigation transcript, with one item per terminal symbol the " +
 		"final answer should list. The batched 'items' array preserves the 'one tool call per " +
 		"answer batch' write pattern; do not call this tool once per item. Every item MUST cite " +
-		"name, file (repo-relative path), line (gutter line number, never estimated), and kind " +
-		"(function/method/type/struct/class/const/var). Items with line == 0 are REJECTED. Items " +
-		"whose file path lives inside the per-trace WorkDir (a temporary blob directory) are " +
-		"REJECTED — that is a sign the LLM mistook a tool-output blob for a repo file. " +
-		"The call MUST also carry a 'completeness' field declaring the set-level authority " +
+		"name, file (repo-relative path), line (gutter line number, never estimated), and kind. " +
+		"Kind is the closed cross-language taxonomy declared in types.AllAnswerSymbolKinds " +
+		"(function, method, type, struct, class, interface, trait, enum, protocol, const, var, " +
+		"field, property, module, package, crate, namespace, macro, decorator, annotation, " +
+		"literal) — pick the shape that matches the symbol's language and role. Use `literal` " +
+		"when the answer terminal is a value rather than a code identifier (e.g. a string returned " +
+		"by Name(), a config key's default, an enum member's literal value). Items with line == 0 " +
+		"are REJECTED. Items whose file path lives inside the per-trace WorkDir (a temporary blob " +
+		"directory) are REJECTED — that is a sign the LLM mistook a tool-output blob for a repo " +
+		"file. The call MUST also carry a 'completeness' field declaring the set-level authority " +
 		"of the slate: 'complete' (these are ALL the answers), 'lower_bound' (these are confirmed " +
 		"present but more may exist), or 'unknown' (investigated but no definitive claim). " +
 		"Claiming 'complete' is a falsifiable honesty assertion — the extractor validates it " +
@@ -112,7 +109,11 @@ func (t *EmitAnswerSymbol) Description() string {
 }
 
 func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+	// Kind enum is sourced from types.AnswerSymbolKindSchemaEnum so
+	// schema and validator never drift. Building the schema with a
+	// Sprintf is cheap — Parameters() runs once per dispatch, not per
+	// tool call.
+	return json.RawMessage(fmt.Sprintf(`{
   "type": "object",
   "properties": {
     "items": {
@@ -124,8 +125,8 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
           "name":      {"type": "string", "description": "Symbol identifier, exactly as it appears in source. Required."},
           "file":      {"type": "string", "description": "Repository-relative file path the symbol is defined in. Required. MUST NOT be a path inside the per-trace WorkDir."},
           "line":      {"type": "integer", "description": "First line of the symbol definition, taken EXACTLY from the read_file gutter. Required and must be > 0 — items with line == 0 are rejected."},
-          "kind":      {"type": "string", "enum": ["function", "func", "method", "type", "struct", "class", "const", "var"], "description": "Symbol category. function/func and method are normalized; struct/class/type are kept as-given."},
-          "chain":     {"type": "string", "description": "Optional resolution chain text that yielded this symbol (e.g. 'AgentExplorer registers NewExplorerAgent which returns explorerEvaluator.Name() = explorer'). Empty when the symbol is a direct read."},
+          "kind":      {"type": "string", "enum": [%s], "description": "Closed cross-language taxonomy. Canonical kinds cover callables (function/method), type-shape definitions (type/struct/class/interface/trait/enum/protocol), data bindings (const/var/field/property), module scopes (module/package/crate/namespace), metaprogramming (macro/decorator/annotation), and non-symbol terminals (literal). Language shorthand is accepted and normalised (func/fn → function). Use 'literal' when the terminal is a value (string/number/bool returned by a Name()/Type()/Kind() method, a config default, an enum value) rather than a code identifier."},
+          "chain":     {"type": "string", "description": "Optional resolution chain text that yielded this symbol (e.g. 'X registers Y which returns Y.Name() = \"foo\"'). Empty when the symbol is a direct read."},
           "rationale": {"type": "string", "description": "Optional one-sentence rationale for why this terminal was selected. Keep concise."}
         },
         "required": ["name", "file", "line", "kind"]
@@ -138,7 +139,7 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
     }
   },
   "required": ["items", "completeness"]
-}`)
+}`, types.AnswerSymbolKindSchemaEnum()))
 }
 
 func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -225,10 +226,9 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	if in.Line <= 0 {
 		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: line must be > 0 (got %d). Pattern 2 line-hallucination guard — every answer symbol needs a concrete gutter line.", index, in.Line)
 	}
-	kindKey := strings.ToLower(strings.TrimSpace(in.Kind))
-	kind, ok := emitAnswerSymbolAllowedKinds[kindKey]
+	kind, ok := types.NormalizeAnswerSymbolKind(in.Kind)
 	if !ok {
-		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: unknown kind %q (allowed: function, func, method, type, struct, class, const, var)", index, in.Kind)
+		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: unknown kind %q; see types.AllAnswerSymbolKinds for the closed taxonomy (function, method, type, struct, class, interface, trait, enum, protocol, const, var, field, property, module, package, crate, namespace, macro, decorator, annotation, literal)", index, in.Kind)
 	}
 
 	return types.AnswerSymbol{

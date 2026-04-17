@@ -119,7 +119,9 @@ func (t *EmitAnswerDocument) Description() string {
 }
 
 func (t *EmitAnswerDocument) Parameters() json.RawMessage {
-	return json.RawMessage(`{
+	// symbols[].kind enum is sourced from types.AnswerSymbolKindSchemaEnum
+	// so schema stays in lockstep with emit_answer_symbol's validator.
+	return json.RawMessage(fmt.Sprintf(`{
   "type": "object",
   "properties": {
     "shape": {"type": "string", "enum": ["list_of_symbols", "step_list", "value", "boolean", "config_value", "explanation"], "description": "Closed enum of answer shapes. REQUIRED. Choose the shape the analyzer declared in the prompt's AnswerContract section."},
@@ -146,7 +148,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
           "name":      {"type": "string"},
           "file":      {"type": "string"},
           "line":      {"type": "integer"},
-          "kind":      {"type": "string", "enum": ["function", "func", "method", "type", "struct", "class", "const", "var"]},
+          "kind":      {"type": "string", "enum": [%s], "description": "Closed cross-language taxonomy — see types.AllAnswerSymbolKinds. Use 'literal' when the answer terminal is a value (string/number/bool) rather than a code identifier."},
           "chain":     {"type": "string"},
           "rationale": {"type": "string"}
         },
@@ -194,7 +196,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     }
   },
   "required": ["shape"]
-}`)
+}`, types.AnswerSymbolKindSchemaEnum()))
 }
 
 func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -584,7 +586,7 @@ func slateToEmittedSymbols(slate []types.AnswerSymbol) []emitAnswerSymbolItem {
 			Name:      s.Name,
 			File:      s.File,
 			Line:      s.Line,
-			Kind:      s.Kind,
+			Kind:      string(s.Kind),
 			Chain:     s.Chain,
 			Rationale: s.Rationale,
 		})
