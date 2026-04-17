@@ -45,15 +45,172 @@ import (
 //
 // Returns the typed contract.Result so callers can render a
 // per-violation diagnostic for the explorer's retry hint.
-func runContractCheck(out *agent.StageOutput, c types.AnswerContract) contract.Result {
+func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types.MutableState) contract.Result {
 	if out == nil {
 		return contract.Result{Passed: true}
 	}
 	draft := contract.Answer{
 		Text:      out.FinalAnswer,
 		Citations: extractCitationsFromAnswer(out.FinalAnswer),
+		IsAbsence: isJustifiedAbsenceAnswer(mut),
 	}
 	return contract.Check(draft, c)
+}
+
+// isJustifiedAbsenceAnswer reports whether the finalized document is
+// an honest "zero" shape AND the investigation did enough work to
+// trust that zero. Both halves matter:
+//
+//   shape check — 0 symbols with completeness=complete, a value
+//                 literal that reads as zero/none, or boolean=false.
+//   trust check — shape-tiered: shallow shapes ("how many X",
+//                 "does X exist", "what is the value of K") are
+//                 honestly answered with ONE list_files / grep /
+//                 exec_command / repo_map — no file contents needed.
+//                 Deep shapes ("list all handlers that do X",
+//                 "explain the flow", "walk the call chain") demand
+//                 at least one real content read (read_file, or a
+//                 grep that returned line-bearing matches) so the
+//                 LLM cannot claim "no handler does X" without
+//                 opening any file.
+//
+// The shape-tiered gate replaces the earlier "read_file ≥ 3"
+// threshold which wrongly rejected legitimate one-call answers on
+// existence / count questions.
+func isJustifiedAbsenceAnswer(mut *types.MutableState) bool {
+	if mut == nil {
+		return false
+	}
+	doc := mut.AnswerDocument()
+	if !isAbsenceShape(doc) {
+		return false
+	}
+	return hasInvestigationEvidence(mut, doc)
+}
+
+func isAbsenceShape(doc *types.AnswerDocument) bool {
+	if doc == nil {
+		return false
+	}
+	switch doc.Shape {
+	case types.ShapeListOfSymbols:
+		// Empty symbols slate with a confirmed claim is the explicit
+		// "zero" signal. lower_bound on [] would be self-contradictory
+		// and is rejected upstream in emit_answer_symbol.
+		return len(doc.Symbols) == 0 && doc.SymbolsCompleteness == types.CompletenessComplete
+	case types.ShapeValue, types.ShapeConfigValue:
+		if doc.Value == nil {
+			return false
+		}
+		lit := strings.ToLower(strings.TrimSpace(doc.Value.Literal))
+		return isZeroLiteral(lit)
+	case types.ShapeBoolean:
+		return doc.Boolean != nil && !doc.Boolean.Decision
+	}
+	return false
+}
+
+// isZeroLiteral recognises the common cross-language ways a finalizer
+// expresses "no such value": empty string, "0", "none", "null", "nil",
+// "无" and "没有" (Chinese), "zero". Kept deliberately short so every
+// entry is one a real LLM has been seen to produce.
+func isZeroLiteral(lit string) bool {
+	switch lit {
+	case "", "0", "none", "null", "nil", "无", "没有", "zero":
+		return true
+	}
+	return false
+}
+
+// investigationToolKinds is the set of tools whose successful
+// invocation counts as "the explorer did real work". Excludes
+// orchestration / transport tools (propose_sub_agents, emit_* family).
+var investigationToolKinds = map[string]bool{
+	"grep":         true,
+	"exec_command": true,
+	"list_files":   true,
+	"read_file":    true,
+	"repo_map":     true,
+}
+
+// isShallowShape reports whether a shape can be honestly answered
+// without reading file contents. The distinction tracks what the
+// question fundamentally asks:
+//
+//   shallow — the answer is a count, an existence decision, or a
+//             single config value. "How many .py files" is answered
+//             by a find / ls / list_files in one call; opening any
+//             file adds no information.
+//   deep    — the answer enumerates functions that do X, walks a
+//             flow, or explains a mechanism. Claiming "no handler
+//             does X" demands inspecting the candidate handlers'
+//             code — listing file names is not sufficient because
+//             the question is about behaviour, not identity.
+func isShallowShape(s types.AnswerShape) bool {
+	switch s {
+	case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
+		return true
+	}
+	return false
+}
+
+// isContentRead reports whether a tool result represents the LLM
+// actually reading file content (as opposed to enumerating names).
+// read_file always qualifies; grep only when its summary carries
+// line-bearing matches (not the "[grep: N matching files]"
+// files_only shape).
+func isContentRead(r types.ToolResult) bool {
+	switch r.ToolName {
+	case "read_file":
+		return true
+	case "grep":
+		// files_only / no-match summaries advertise themselves with a
+		// bracketed prefix or the literal "no matches" phrase. Both
+		// are name-only signals and do not prove the LLM read code.
+		if strings.HasPrefix(r.Summary, "[grep:") && strings.Contains(r.Summary, "matching files]") {
+			return false
+		}
+		if strings.Contains(r.Summary, "no matches") {
+			return false
+		}
+		return true
+	}
+	return false
+}
+
+// hasInvestigationEvidence reports whether Turn A did enough work to
+// back an absence claim in the given shape. Two-tier rule:
+//
+//   shallow shape — any single successful investigation-class tool
+//                   call is sufficient. Rejects the "zero tools,
+//                   pure guess" failure mode and nothing else.
+//   deep shape    — at least one actual content read (read_file or
+//                   line-bearing grep). Rejects "I listed the files
+//                   and claim nothing inside does X" without looking.
+func hasInvestigationEvidence(mut *types.MutableState, doc *types.AnswerDocument) bool {
+	if mut == nil {
+		return false
+	}
+	ta := mut.TurnAArtifacts()
+	if ta == nil {
+		return false
+	}
+	shallow := doc != nil && isShallowShape(doc.Shape)
+	for _, r := range ta.ToolResults {
+		if !r.Success {
+			continue
+		}
+		if !investigationToolKinds[r.ToolName] {
+			continue
+		}
+		if shallow {
+			return true
+		}
+		if isContentRead(r) {
+			return true
+		}
+	}
+	return false
 }
 
 // citationRegex matches `path/to/file.ext:NNN` style references. The

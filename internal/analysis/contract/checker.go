@@ -33,9 +33,16 @@ const (
 
 // Answer is the draft the finalizer produced. Separating this from
 // the IR lets tests build answers without constructing a full IR.
+//
+// IsAbsence signals that the answer is an honest "zero" — e.g.
+// "how many Python files?" → 0, "which handlers do X?" → none,
+// "is X registered?" → no. Absence answers have no file:line to
+// cite (the point is that the cited thing does not exist), so
+// checkCitations skips MinCitations when the flag is set.
 type Answer struct {
 	Text      string
 	Citations []Citation
+	IsAbsence bool
 }
 
 // Citation is a single source reference the finalizer attached to
@@ -151,6 +158,15 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 	req := c.CitationReq
 	if !req.Required {
+		return nil
+	}
+	// Absence answers ("0 Python files", "no deprecated handlers",
+	// boolean false) legitimately have no file:line to cite — the
+	// whole point is that the cited thing does not exist. The
+	// IsAbsence flag is only set upstream when the investigation
+	// actually ran (grep / exec_command / multiple read_file), so a
+	// lazy "I didn't look and claim zero" cannot sneak through.
+	if draft.IsAbsence {
 		return nil
 	}
 	if len(draft.Citations) < req.MinCitations {

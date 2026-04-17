@@ -159,9 +159,6 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	if err := dec.Decode(&p); err != nil {
 		return failEmit(t.Name(), now, "invalid params: %v", err)
 	}
-	if len(p.Items) == 0 {
-		return failEmit(t.Name(), now, "items is empty; emit at least one answer-symbol object per call")
-	}
 
 	// Completeness is REQUIRED (P2.1 honesty contract). The schema
 	// declares it as required so a compliant JSON-schema LLM will
@@ -177,6 +174,19 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	claim, claimOK := emitAnswerSymbolAllowedCompleteness[claimRaw]
 	if !claimOK {
 		return failEmit(t.Name(), now, "unknown completeness value %q (allowed: complete, lower_bound, unknown)", p.Completeness)
+	}
+
+	// Empty-set handling. "How many Python files?" legitimately
+	// returns 0; "List all deprecated methods" legitimately returns
+	// zero items. Reject items=[] ONLY when paired with
+	// completeness=lower_bound, which would assert "more exist than
+	// these" — a nonsensical claim on zero items. complete (zero
+	// confirmed, none more) and unknown (could not determine) are
+	// both honest outcomes on an empty set and pass through.
+	if len(p.Items) == 0 {
+		if claim == types.CompletenessLowerBound {
+			return failEmit(t.Name(), now, "items is empty but completeness=lower_bound claims more items exist; use completeness=complete for a confirmed empty set or completeness=unknown when you cannot determine")
+		}
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)

@@ -204,13 +204,34 @@ func TestEmitAnswerSymbol_RejectsUnknownFields(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerSymbol_RejectsEmptyItems(t *testing.T) {
-	tool := &EmitAnswerSymbol{}
-	ctx := newAnswerSymbolCtx()
-	params := json.RawMessage(`{"items":[],"completeness":"complete"}`)
-	res, _ := tool.Execute(ctx, params)
-	if res.Success {
-		t.Fatal("expected failure on empty items")
+// TestEmitAnswerSymbol_EmptySetSemantics pins the 2026-04-17 fix: an
+// empty symbols[] is now a legitimate answer shape for "how many X"
+// questions that turn out to be zero. Rules:
+//
+//   items=[] + completeness=complete     → ACCEPT (confirmed empty set)
+//   items=[] + completeness=unknown      → ACCEPT (could not determine)
+//   items=[] + completeness=lower_bound  → REJECT (nonsensical — claims
+//                                          MORE items exist beyond zero)
+func TestEmitAnswerSymbol_EmptySetSemantics(t *testing.T) {
+	cases := []struct {
+		name         string
+		completeness string
+		wantSuccess  bool
+	}{
+		{"empty + complete accepts (confirmed zero)", "complete", true},
+		{"empty + unknown accepts (undetermined)", "unknown", true},
+		{"empty + lower_bound rejects (contradiction)", "lower_bound", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			tool := &EmitAnswerSymbol{}
+			ctx := newAnswerSymbolCtx()
+			params := json.RawMessage(`{"items":[],"completeness":"` + c.completeness + `"}`)
+			res, _ := tool.Execute(ctx, params)
+			if res.Success != c.wantSuccess {
+				t.Errorf("success=%v want=%v (summary=%q)", res.Success, c.wantSuccess, res.Summary)
+			}
+		})
 	}
 }
 

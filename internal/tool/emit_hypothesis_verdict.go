@@ -158,17 +158,37 @@ func buildEmitHypothesisVerdictItem(in emitHypothesisVerdictItem, index int) (ty
 	citation := strings.TrimSpace(in.Citation)
 	rationale := strings.TrimSpace(in.Rationale)
 
-	// confirmed/rejected REQUIRE a citation. inconclusive may omit it
-	// because the whole point of inconclusive is "we investigated but
-	// could not find a definitive cite". This is the structural twin
-	// of the contract checker's positive-line guard in
-	// internal/orchestrator/contract_check.go.
-	if status == types.HypConfirmed || status == types.HypRejected {
+	// confirmed REQUIRES a concrete citation — asserting "this is the
+	// case" without pointing at a line is the exact failure mode this
+	// gate exists to prevent. rejected can be justified two ways:
+	//   1. Positive counter-evidence — a file:line that contradicts
+	//      the hypothesis. Preferred when available.
+	//   2. Absence of evidence — the hypothesis claimed something that
+	//      would exist in the repo, a thorough investigation found
+	//      zero matches, so the hypothesis is rejected by absence
+	//      ("no .py files" → "no Python bindings" is rejected). A
+	//      line citation for absence does not exist; the rationale
+	//      MUST be non-empty and load-bearing.
+	// inconclusive requires neither — it is the honest "investigated
+	// but could not decide" verdict.
+	switch status {
+	case types.HypConfirmed:
 		if citation == "" {
 			return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: status %q requires a citation (path:line or path:line-end). Use 'inconclusive' if you cannot point at concrete code.", index, status)
 		}
 		if !looksLikeCitation(citation) {
 			return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: citation %q does not look like 'path:line' or 'path:line-end'", index, in.Citation)
+		}
+	case types.HypRejected:
+		if citation != "" {
+			// When provided, it must still be shape-valid.
+			if !looksLikeCitation(citation) {
+				return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: citation %q does not look like 'path:line' or 'path:line-end'", index, in.Citation)
+			}
+		} else if rationale == "" {
+			// Absence-based rejection requires rationale to carry the
+			// load since there is no cite to anchor on.
+			return types.HypothesisVerdict{}, fmt.Errorf("items[%d]: status 'rejected' without a citation requires a non-empty rationale explaining the absence (e.g. 'no .py files found in repo').", index)
 		}
 	}
 

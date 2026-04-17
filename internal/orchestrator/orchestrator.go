@@ -557,18 +557,32 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		envFin := buildEnv(out.FinalAnswer, citationCount)
 		scOK, scFailed := state.markSuccessCriteriaFailed(fin, envFin)
 
-		// Contract check.
-		res := runContractCheck(out, ir.AnswerContract)
+		// Contract check. runContractCheck consults
+		// Mutable.AnswerDocument to decide IsAbsence and skips
+		// MinCitations when the doc is a justified zero.
+		res := runContractCheck(out, ir.AnswerContract, o.busCtx.Mutable)
 
 		if !scOK {
+			// Absence answers legitimately have no file:line to cite;
+			// citation_count_ge SC failures on them are not real
+			// retry triggers (the retry would produce the same 0).
+			// Other SC failures still merge into res.Violations.
+			absence := isJustifiedAbsenceAnswer(o.busCtx.Mutable)
 			for _, f := range scFailed {
+				if absence && string(f.Kind) == string(types.CritCitationCountGE) {
+					logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s (waived: justified absence answer)", f.Kind, f.Expr, f.Detail)
+					continue
+				}
 				logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s", f.Kind, f.Expr, f.Detail)
 				res.Violations = append(res.Violations, contract.Violation{
 					Kind:   contract.ViolSuccessCriterion,
 					Detail: fmt.Sprintf("finalize success_criterion %s %s failed: %s", f.Kind, f.Expr, f.Detail),
 				})
 			}
-			res.Passed = false
+			// res.Passed stays true when every SC failure was waived.
+			if len(res.Violations) > 0 {
+				res.Passed = false
+			}
 		}
 
 		if res.Passed {

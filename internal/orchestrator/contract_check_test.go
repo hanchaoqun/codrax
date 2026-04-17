@@ -82,7 +82,7 @@ func TestExtractCitations_EmptyText(t *testing.T) {
 
 func TestRunContractCheck_EmptyContractAlwaysPasses(t *testing.T) {
 	out := &agent.StageOutput{FinalAnswer: "anything goes"}
-	res := runContractCheck(out, types.AnswerContract{})
+	res := runContractCheck(out, types.AnswerContract{}, nil)
 	if !res.Passed {
 		t.Errorf("empty contract should pass; got %+v", res)
 	}
@@ -91,7 +91,7 @@ func TestRunContractCheck_EmptyContractAlwaysPasses(t *testing.T) {
 func TestRunContractCheck_NilOutputPasses(t *testing.T) {
 	res := runContractCheck(nil, types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
-	})
+	}, nil)
 	if !res.Passed {
 		t.Errorf("nil output should pass (caller decides separately); got %+v", res)
 	}
@@ -102,7 +102,7 @@ func TestRunContractCheck_FailingShape(t *testing.T) {
 	c := types.AnswerContract{
 		RequiredAnswerShape: types.ShapeListOfSymbols,
 	}
-	res := runContractCheck(out, c)
+	res := runContractCheck(out, c, nil)
 	if res.Passed {
 		t.Errorf("plain prose should fail list_of_symbols shape")
 	}
@@ -125,7 +125,7 @@ func TestRunContractCheck_CitationGap_SoftDegrade(t *testing.T) {
 			MinCitations: 3,
 		},
 	}
-	res := runContractCheck(out, c)
+	res := runContractCheck(out, c, nil)
 	if !res.Passed {
 		t.Errorf("1 citation with min=3 should soft-pass; got violations: %+v", res.Violations)
 	}
@@ -144,7 +144,7 @@ func TestRunContractCheck_CitationGap_ZeroRejects(t *testing.T) {
 			MinCitations: 3,
 		},
 	}
-	res := runContractCheck(out, c)
+	res := runContractCheck(out, c, nil)
 	if res.Passed {
 		t.Error("0 citations should hard-reject")
 	}
@@ -163,7 +163,7 @@ func TestRunContractCheck_PassingCase(t *testing.T) {
 			MinCitations: 2,
 		},
 	}
-	res := runContractCheck(out, c)
+	res := runContractCheck(out, c, nil)
 	if !res.Passed {
 		t.Errorf("expected pass, got violations: %+v", res.Violations)
 	}
@@ -214,5 +214,112 @@ func TestAppendViolationsToAnswer_PassedKeepsOriginal(t *testing.T) {
 	res := contract.Result{Passed: true}
 	if got := appendViolationsToAnswer(original, res); got != original {
 		t.Errorf("passed: want original unchanged; got %q", got)
+	}
+}
+
+// TestIsJustifiedAbsenceAnswer_ShapeTieredGate pins the shape-tiered
+// trust check: shallow shapes pass on any single investigation tool,
+// deep shapes require a content read. Zero-tool or wrong-shape
+// answers never pass.
+func TestIsJustifiedAbsenceAnswer_ShapeTieredGate(t *testing.T) {
+	mkMut := func(doc *types.AnswerDocument, toolResults []types.ToolResult) *types.MutableState {
+		m := types.NewMutableState("")
+		m.SetAnswerDocument(doc)
+		m.SetTurnAArtifacts(types.TurnAArtifacts{ToolResults: toolResults})
+		return m
+	}
+	absentValue := &types.AnswerDocument{
+		Shape: types.ShapeValue,
+		Value: &types.AnswerValue{Literal: "0", CitationRef: -1},
+	}
+	absentList := &types.AnswerDocument{
+		Shape:               types.ShapeListOfSymbols,
+		SymbolsCompleteness: types.CompletenessComplete,
+	}
+	cases := []struct {
+		name string
+		doc  *types.AnswerDocument
+		tool types.ToolResult
+		want bool
+	}{
+		// Shallow shape — any investigation tool is enough.
+		{"value + list_files", absentValue,
+			types.ToolResult{ToolName: "list_files", Success: true}, true},
+		{"value + exec_command", absentValue,
+			types.ToolResult{ToolName: "exec_command", Success: true, Summary: "0"}, true},
+		{"value + grep files_only", absentValue,
+			types.ToolResult{ToolName: "grep", Success: true, Summary: "[grep: 0 matching files]"}, true},
+
+		// Deep shape — need content read.
+		{"list_of_symbols + read_file OK", absentList,
+			types.ToolResult{ToolName: "read_file", Success: true, Summary: "file content"}, true},
+		{"list_of_symbols + content grep OK", absentList,
+			types.ToolResult{ToolName: "grep", Success: true, Summary: "file.go:1: found line"}, true},
+		{"list_of_symbols + only list_files REJECT", absentList,
+			types.ToolResult{ToolName: "list_files", Success: true}, false},
+		{"list_of_symbols + only grep files_only REJECT", absentList,
+			types.ToolResult{ToolName: "grep", Success: true, Summary: "[grep: 3 matching files]"}, false},
+
+		// Universal: no tools at all fails both shape tiers.
+		{"value + no tools REJECT", absentValue,
+			types.ToolResult{}, false},
+		// Non-investigation tool: emit_evidence does not count.
+		{"value + only emit_evidence REJECT", absentValue,
+			types.ToolResult{ToolName: "emit_evidence", Success: true}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			var trs []types.ToolResult
+			if c.tool.ToolName != "" {
+				trs = []types.ToolResult{c.tool}
+			}
+			mut := mkMut(c.doc, trs)
+			if got := isJustifiedAbsenceAnswer(mut); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestIsJustifiedAbsenceAnswer_ShapeCheck pins shape detection:
+// lower_bound completeness is not an absence claim, non-zero literals
+// are not absence, boolean true is not absence.
+func TestIsJustifiedAbsenceAnswer_ShapeCheck(t *testing.T) {
+	mkMut := func(doc *types.AnswerDocument) *types.MutableState {
+		m := types.NewMutableState("")
+		m.SetAnswerDocument(doc)
+		m.SetTurnAArtifacts(types.TurnAArtifacts{
+			ToolResults: []types.ToolResult{{ToolName: "list_files", Success: true}},
+		})
+		return m
+	}
+	cases := []struct {
+		name string
+		doc  *types.AnswerDocument
+		want bool
+	}{
+		{"value=0 accepts", &types.AnswerDocument{
+			Shape: types.ShapeValue, Value: &types.AnswerValue{Literal: "0", CitationRef: -1}}, true},
+		{"value=none accepts", &types.AnswerDocument{
+			Shape: types.ShapeValue, Value: &types.AnswerValue{Literal: "none", CitationRef: -1}}, true},
+		{"value=42 rejects", &types.AnswerDocument{
+			Shape: types.ShapeValue, Value: &types.AnswerValue{Literal: "42", CitationRef: -1}}, false},
+		{"boolean=false accepts", &types.AnswerDocument{
+			Shape: types.ShapeBoolean, Boolean: &types.AnswerBoolean{Decision: false, CitationRef: -1}}, true},
+		{"boolean=true rejects", &types.AnswerDocument{
+			Shape: types.ShapeBoolean, Boolean: &types.AnswerBoolean{Decision: true, CitationRef: -1}}, false},
+		{"empty symbols + complete accepts", &types.AnswerDocument{
+			Shape: types.ShapeListOfSymbols, SymbolsCompleteness: types.CompletenessComplete}, false}, // rejected here because list_files alone is not content-read for deep shape
+		{"non-empty symbols rejects", &types.AnswerDocument{
+			Shape:   types.ShapeListOfSymbols,
+			Symbols: []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1}},
+			SymbolsCompleteness: types.CompletenessComplete}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isJustifiedAbsenceAnswer(mkMut(c.doc)); got != c.want {
+				t.Errorf("got %v, want %v", got, c.want)
+			}
+		})
 	}
 }
