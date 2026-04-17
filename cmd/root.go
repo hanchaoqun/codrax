@@ -549,6 +549,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentInvestigationCompletePolicy != nil {
 			a.InvestigationCompletePolicy = *rs.AgentInvestigationCompletePolicy
 		}
+		if rs.AgentPriorConvPolicy != nil {
+			a.PriorConvPolicy = *rs.AgentPriorConvPolicy
+		}
 	}
 	pipelineSettings.Agent = types.ResolvedAgentSettings(pipelineSettings.Agent)
 

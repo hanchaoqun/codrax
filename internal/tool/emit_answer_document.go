@@ -115,8 +115,10 @@ func (t *EmitAnswerDocument) Description() string {
 		"SHARED POOL; every steps[].citation_ref / value.citation_ref / boolean.citation_ref / " +
 		"symbols is an integer INDEX into that pool (zero-based), or -1 when no citation backs " +
 		"the entry. Every citation MUST have file (repo-relative), line > 0, and file must NOT live " +
-		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field, capped at 500 chars — " +
-		"use it for the one-sentence lead-in, not for the answer body. " +
+		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field, with a per-shape " +
+		"length cap: explanation → up to 2500 chars (Summary IS the answer body — write a " +
+		"thorough multi-paragraph explanation), list_of_symbols / step_list / boolean → ≤500 " +
+		"chars lead-in, value / config_value → ≤300 chars lead-in. " +
 		"\n\n" +
 		"IMPORTANT — citation quote field: the quote is OPTIONAL but when provided it MUST be a " +
 		"VERBATIM copy of the characters at file:line from the read_file gutter (exact whitespace " +
@@ -140,7 +142,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
   "type": "object",
   "properties": {
     "shape": {"type": "string", "enum": ["list_of_symbols", "step_list", "value", "boolean", "config_value", "explanation"], "description": "Closed enum of answer shapes. REQUIRED. Choose the shape the analyzer declared in the prompt's AnswerContract section."},
-    "summary": {"type": "string", "description": "LLM-authored lead-in prose, 1-2 sentences, ≤500 chars. The only prose field. REQUIRED for 'explanation' shape, optional for all others."},
+    "summary": {"type": "string", "description": "LLM-authored prose. Per-shape cap: explanation ≤2500 chars (Summary IS the answer body — multi-paragraph OK), list_of_symbols / step_list / boolean ≤500 chars (lead-in only), value / config_value ≤300 chars (lead-in only). REQUIRED for 'explanation'; optional for all others."},
     "steps": {
       "type": "array",
       "description": "Ordered steps for shape=step_list. REQUIRED for step_list; must be empty for all other shapes.",
@@ -156,7 +158,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     },
     "symbols": {
       "type": "array",
-      "description": "Answer-symbol list for shape=list_of_symbols. REQUIRED for list_of_symbols; must be empty for all other shapes.",
+      "description": "Answer-symbol list. REQUIRED for shape=list_of_symbols (the primary payload). OPTIONAL for shape=explanation when the analyzer produced sub_topics: emit ONE anchor symbol per sub-topic naming the load-bearing identifier, and the renderer will draw a Key Anchors skeleton beneath the summary. Must be empty for step_list / value / config_value / boolean.",
       "items": {
         "type": "object",
         "properties": {
@@ -346,10 +348,19 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		p.Boolean = nil
 	}
 
-	if len(p.Summary) > types.AnswerDocumentMaxSummaryChars {
+	// Shape-tiered Summary cap. explanation shape uses Summary as
+	// the answer body and gets a generous ceiling (2500 chars, room
+	// for 4-6 paragraphs); other shapes use Summary as a lead-in
+	// and keep the historical tighter limit. See SummaryCapByShape
+	// for the per-shape table. The prior single-value 500-char cap
+	// contradicted the skill prompt's "no character limit for
+	// explanation" clause and forced the finalizer to burn retries
+	// trimming legitimate prose.
+	summaryCap := types.SummaryCapFor(shape)
+	if len(p.Summary) > summaryCap {
 		return failEmit(t.Name(), now,
-			"summary length %d exceeds cap %d — Summary is the only prose field and must stay brief",
-			len(p.Summary), types.AnswerDocumentMaxSummaryChars)
+			"summary length %d exceeds cap %d for shape=%s — shorten the summary; cap is per-shape (see SummaryCapByShape)",
+			len(p.Summary), summaryCap, shape)
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
@@ -380,7 +391,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// the AnswerDocument slot the renderer will read.
 	switch shape {
 	case types.ShapeListOfSymbols:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if len(p.Symbols) == 0 {
 			return failEmit(t.Name(), now, "shape=list_of_symbols requires symbols[] with at least one entry")
 		}
@@ -404,7 +417,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.SymbolsCompleteness = claim
 
 	case types.ShapeStepList:
-		scrubForbiddenFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if len(p.Steps) == 0 {
 			return failEmit(t.Name(), now, "shape=step_list requires steps[] with at least one entry")
 		}
@@ -417,7 +432,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Steps = p.Steps
 
 	case types.ShapeValue:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if p.Value == nil {
 			return failEmit(t.Name(), now, "shape=value requires value{literal, citation_ref}")
 		}
@@ -427,7 +444,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Value = p.Value
 
 	case types.ShapeConfigValue:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if p.Value == nil {
 			return failEmit(t.Name(), now, "shape=config_value requires value{key, literal, citation_ref}")
 		}
@@ -437,7 +456,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Value = p.Value
 
 	case types.ShapeBoolean:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue)
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
 		if p.Boolean == nil {
 			return failEmit(t.Name(), now, "shape=boolean requires boolean{decision, rationale, citation_ref}")
 		}
@@ -448,7 +469,30 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Boolean = bl
 
 	case types.ShapeExplanation:
-		scrubForbiddenFields(&p, shape, forbidSteps|forbidSymbols|forbidValue|forbidBoolean)
+		// 2026-04-17: explanation shape allows symbols[] as an anchor
+		// skeleton for multi-topic answers. The extractor emits one
+		// answer_symbol per sub-topic naming the load-bearing
+		// identifier, and the renderer draws a Key Anchors block
+		// beneath the summary prose. symbols_completeness is NOT
+		// required in this mode — the skeleton is auxiliary, not the
+		// answer body. steps / value / boolean remain forbidden.
+		if err := rejectForbiddenFields(&p, shape, forbidSteps|forbidValue|forbidBoolean); err != nil {
+			return failEmit(t.Name(), now, "%v", err)
+		}
+		if len(p.Symbols) > 0 {
+			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
+			for i, in := range p.Symbols {
+				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
+				if perr != nil {
+					return failEmit(t.Name(), now, "symbols[%d]: %v", i, perr)
+				}
+				built = append(built, sym)
+			}
+			doc.Symbols = built
+			// Completeness is not part of the explanation-skeleton
+			// contract; leave SymbolsCompleteness zero-valued so the
+			// renderer can branch on "skeleton vs. enumeration".
+		}
 		if strings.TrimSpace(p.Summary) == "" {
 			return failEmit(t.Name(), now, "shape=explanation requires a non-empty summary")
 		}
@@ -485,12 +529,12 @@ func countDroppedCitations(remap []int) int {
 // forbidBitset marks which AnswerDocument payload fields must be
 // empty for a given shape. Each shape-dispatch branch ORs together
 // the fields it does NOT accept and passes the mask to
-// validateEmitAnswerDocumentNoForbidden. Keeping the rule as a
-// bitset (instead of a per-shape switch inside the validator) means
-// each shape's forbidden-field list is literally visible at its
-// branch in Execute, so a shape's contract is one-grep obvious.
-// Note: forbidden fields are silently SCRUBBED (not rejected) by
-// scrubForbiddenFields to prevent LLM infinite retry loops.
+// rejectForbiddenFields. Keeping the rule as a bitset (instead of a
+// per-shape switch inside the validator) means each shape's
+// forbidden-field list is literally visible at its branch in Execute,
+// so a shape's contract is one-grep obvious. Non-zero forbidden
+// fields reject the call with a specific error; zero-valued objects
+// are tolerated (sweep above the shape switch clears them silently).
 type forbidBitset uint
 
 const (
@@ -500,28 +544,36 @@ const (
 	forbidBoolean
 )
 
-// scrubForbiddenFields silently clears fields that are forbidden for
-// the given shape. LLMs persistently include cross-shape fields
-// (e.g. boolean{} on a list_of_symbols call) and cannot fix the
-// issue through retries. Logging the scrub for diagnostics but
-// accepting the call prevents infinite retry loops.
-func scrubForbiddenFields(p *emitAnswerDocumentParams, shape types.AnswerShape, mask forbidBitset) {
+// rejectForbiddenFields rejects the call when a payload field is
+// forbidden for the given shape AND carries non-zero content. Zero
+// value objects (already nil'd by the empty-struct sweep above the
+// shape switch) are silently tolerated — LLMs habitually include an
+// empty `value{}` or `boolean{}` as a JSON-default even on unrelated
+// shapes, and penalising that noise would reject every call.
+//
+// The earlier behaviour silently scrubbed non-zero forbidden fields
+// and logged a debug line, on the theory that LLMs "cannot fix the
+// issue through retries". In practice the silent scrub LET the LLM
+// keep the wrong field for three consecutive iterations (trace
+// 1776439797257469553: boolean{decision:"否",rationale:"..."} kept
+// on an explanation answer) because it never saw the feedback.
+// Failing loudly gives the LLM a structured error it can correct on
+// the next turn; the finalizer's soft-stop correction budget (see
+// agent_finalizer_max_correction_retries) bounds the retry loop.
+func rejectForbiddenFields(p *emitAnswerDocumentParams, shape types.AnswerShape, mask forbidBitset) error {
 	if mask&forbidSteps != 0 && len(p.Steps) > 0 {
-		logging.Debug("[emit_answer_document] scrubbing forbidden steps[] (len=%d) for shape=%s", len(p.Steps), shape)
-		p.Steps = nil
+		return fmt.Errorf("shape=%s forbids steps[]; remove the %d step(s) and retry", shape, len(p.Steps))
 	}
 	if mask&forbidSymbols != 0 && len(p.Symbols) > 0 {
-		logging.Debug("[emit_answer_document] scrubbing forbidden symbols[] (len=%d) for shape=%s", len(p.Symbols), shape)
-		p.Symbols = nil
+		return fmt.Errorf("shape=%s forbids symbols[]; remove the %d symbol(s) and retry", shape, len(p.Symbols))
 	}
 	if mask&forbidValue != 0 && p.Value != nil {
-		logging.Debug("[emit_answer_document] scrubbing forbidden value{} for shape=%s", shape)
-		p.Value = nil
+		return fmt.Errorf("shape=%s forbids value{}; remove the field and retry", shape)
 	}
 	if mask&forbidBoolean != 0 && p.Boolean != nil {
-		logging.Debug("[emit_answer_document] scrubbing forbidden boolean{} for shape=%s", shape)
-		p.Boolean = nil
+		return fmt.Errorf("shape=%s forbids boolean{}; remove the field and retry", shape)
 	}
+	return nil
 }
 
 func validateStep(s *types.AnswerStep, index int, numCites int) error {
@@ -593,8 +645,21 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 	if len(in) == 0 {
 		return nil, nil, nil, nil
 	}
-	kept := make([]types.Citation, 0, len(in))
-	remap := make([]int, len(in))
+	// Two-pass pipeline. Pass 1 validates structurally and grounds
+	// each citation, recording the tier that accepted it and whether
+	// the quote was cleared. Pass 2 enforces the "quote-cleared
+	// citations need a Tier 1 proven peer in the surviving pool"
+	// rule: a pool where every citation has empty/cleared quote AND
+	// none were Tier 1 means the LLM never actually read the files
+	// it claims to cite — drop the quote-cleared ones.
+	type perCitation struct {
+		keep         bool
+		cit          types.Citation
+		tier         types.GroundingTier
+		quoteCleared bool
+	}
+	scratch := make([]perCitation, len(in))
+	var anyRealTier bool // did any citation get a non-empty Tier? false in no-context test mode.
 	var warnings []string
 	for i := range in {
 		c := in[i]
@@ -618,19 +683,63 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 
 		// Grounding — pure function, never returns err.
 		rep := ground.GroundCitation(c, gc)
+		if rep.Tier != "" {
+			anyRealTier = true
+		}
 		if !rep.Valid {
 			warnings = append(warnings,
 				fmt.Sprintf("citations[%d] dropped (%s:%d): %s", i, c.File, c.Line, rep.Reason))
-			remap[i] = types.CitationRefUnset
 			continue
 		}
+		cleared := false
 		if c.Quote != "" && !rep.QuoteMatched {
 			warnings = append(warnings,
 				fmt.Sprintf("citations[%d] quote cleared (%s:%d) — Quote tokens do not corroborate the cited line", i, c.File, c.Line))
 			c.Quote = ""
+			cleared = true
+		}
+		scratch[i] = perCitation{keep: true, cit: c, tier: rep.Tier, quoteCleared: cleared}
+	}
+
+	// Pool-level defence: require at least one Tier 1 (line_text)
+	// peer when any citation had its quote cleared. This catches the
+	// fabricated-quote pattern — the LLM guesses a line number in an
+	// indexed file and fabricates a prose quote. Tier 2 would let the
+	// line through without the guard; the grounder already clears the
+	// quote but kept the line. The rule: if the LLM guessed at every
+	// citation (no Tier 1 anywhere) AND at least one had a fabricated
+	// quote, drop all quote-cleared citations as unsafe. Tier 2-only
+	// citations with an EMPTY original quote are honest (LLM knows it
+	// can't quote what it didn't read) and keep their file:line.
+	var tier1Proven bool
+	if anyRealTier {
+		for _, p := range scratch {
+			if p.keep && p.tier == types.TierLineText {
+				tier1Proven = true
+				break
+			}
+		}
+	} else {
+		// No grounding context at all (unit test / pre-index path).
+		// Skip the rule — legacy behaviour preserves all cites.
+		tier1Proven = true
+	}
+
+	kept := make([]types.Citation, 0, len(in))
+	remap := make([]int, len(in))
+	for i, p := range scratch {
+		if !p.keep {
+			remap[i] = types.CitationRefUnset
+			continue
+		}
+		if p.quoteCleared && !tier1Proven {
+			warnings = append(warnings,
+				fmt.Sprintf("citations[%d] dropped (%s:%d) — quote was fabricated and no peer citation is Tier 1 proven (the LLM never read any cited file)", i, p.cit.File, p.cit.Line))
+			remap[i] = types.CitationRefUnset
+			continue
 		}
 		remap[i] = len(kept)
-		kept = append(kept, c)
+		kept = append(kept, p.cit)
 	}
 	return kept, remap, warnings, nil
 }

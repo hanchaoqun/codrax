@@ -59,7 +59,14 @@ type AgentSettings struct {
 	LoopIdleStopThreshold int `yaml:"loop_idle_stop_threshold"`
 
 	// FinalizerMaxCorrectionRetries: soft-stop correction retries when
-	// emit_answer_document is missing. Default 2.
+	// emit_answer_document is missing or rejected (missing required
+	// field, non-zero forbidden field, over-cap summary). Default 3.
+	//
+	// Bumped from 2 to 3 in the 2026-04-17 rejection-over-scrub
+	// hardening: forbidden fields that LLMs habitually emit (zombie
+	// boolean{}, cross-shape value{}) now fail the call rather than
+	// being silently scrubbed, so a realistic dispatch may burn one
+	// retry to clear the field before the real answer lands.
 	FinalizerMaxCorrectionRetries int `yaml:"finalizer_max_correction_retries"`
 
 	// ExtractorMaxCorrectionRetries: soft-stop correction retries when
@@ -105,6 +112,32 @@ type AgentSettings struct {
 	//              enforced unconditionally. Historical behaviour
 	//              before this config existed.
 	InvestigationCompletePolicy string `yaml:"investigation_complete_policy"`
+
+	// PriorConvPolicy controls how the REPL-assembled Prior Conversation
+	// block is surfaced to the 4 pipeline stages. The REPL always stores
+	// and retrieves prior turns; this knob gates VISIBILITY, not
+	// persistence, so flipping the policy takes effect on the next
+	// dispatch without any data migration.
+	//
+	//   "always"   — historical behaviour; every stage sees Prior.
+	//                Preserved as the opt-out for continuity-sensitive
+	//                debugging sessions.
+	//
+	//   "analyzer" (default) — only the analyzer stage sees Prior, where
+	//                it is useful for entity disambiguation ("它 = last
+	//                turn's subject"). Explorer / extractor / finalizer
+	//                stay blind so they cannot copy a prior-turn wrong
+	//                answer verbatim. AnalysisIR.RequestModel.Entities
+	//                carries any disambiguated identifiers downstream.
+	//
+	//   "continue" — analyzer always; explorer/extractor/finalizer see
+	//                Prior only when the current request is a
+	//                continuation per types.IsContinuation (leading
+	//                "再/继续/more on/..." or bare pronoun head).
+	//
+	//   "never"    — no stage sees Prior. Extreme isolation, not
+	//                recommended outside stress tests.
+	PriorConvPolicy string `yaml:"prior_conversation_policy"`
 }
 
 const (
@@ -114,6 +147,18 @@ const (
 	ICPolicyOverride = "override"
 	// ICPolicyStrict ignores investigation_complete at DAG level.
 	ICPolicyStrict = "strict"
+
+	// PriorConvPolicyAlways: every stage sees Prior Conversation.
+	// Historical behaviour; kept as an opt-out.
+	PriorConvPolicyAlways = "always"
+	// PriorConvPolicyAnalyzer (default): only the analyzer sees Prior.
+	PriorConvPolicyAnalyzer = "analyzer"
+	// PriorConvPolicyContinue: analyzer always; downstream stages see
+	// Prior only when types.IsContinuation returns true on the current
+	// request.
+	PriorConvPolicyContinue = "continue"
+	// PriorConvPolicyNever: no stage sees Prior. Extreme isolation.
+	PriorConvPolicyNever = "never"
 )
 
 // DefaultAgentSettings returns the code defaults for all agent limits.
@@ -125,13 +170,14 @@ func DefaultAgentSettings() AgentSettings {
 		LoopMaxContinuations:          5,
 		LoopMaxMidLoopInjects:         6,
 		LoopIdleStopThreshold:         2,
-		FinalizerMaxCorrectionRetries: 2,
+		FinalizerMaxCorrectionRetries: 3,
 		ExtractorMaxCorrectionRetries: 1,
 		SubTopicPrescanBudgetExtra:    1,
 		SubTopicExplorerBudgetExtra:   3,
 		SubTopicPipelineStepsExtra:    5,
 		SubTopicRetryBudgetExtra:      1,
 		InvestigationCompletePolicy:   ICPolicySoft,
+		PriorConvPolicy:               PriorConvPolicyAnalyzer,
 	}
 }
 
@@ -180,6 +226,12 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 		// valid
 	default:
 		s.InvestigationCompletePolicy = d.InvestigationCompletePolicy
+	}
+	switch s.PriorConvPolicy {
+	case PriorConvPolicyAlways, PriorConvPolicyAnalyzer, PriorConvPolicyContinue, PriorConvPolicyNever:
+		// valid
+	default:
+		s.PriorConvPolicy = d.PriorConvPolicy
 	}
 	return s
 }

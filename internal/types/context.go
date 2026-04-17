@@ -1090,6 +1090,27 @@ type AgentContext struct {
 	// MaxIterations for this single dispatch. Used by the orchestrator
 	// to grant extra explorer iterations for multi-topic questions.
 	MaxIterOverride int `json:"-"`
+
+	// PriorConvHidden gates whether the REPL-assembled Prior
+	// Conversation block is HIDDEN from this agent's user prompt.
+	// The orchestrator resolves the flag from AgentSettings.
+	// PriorConvPolicy before dispatch; the prompt builder in
+	// internal/context/builder.go reads it to decide whether to skip
+	// the "Prior Conversation (reference only)" section.
+	//
+	// Inverted (Hidden instead of Visible) so the zero-value path —
+	// unit tests, single-shot dispatches, legacy callers — preserves
+	// the historical "Prior always visible" behaviour without
+	// requiring every construction site to set a new field.
+	//
+	// The Objective field ALWAYS carries the full "Prior + Current"
+	// string regardless of this flag — StripConversationPrefix and
+	// SplitConversation continue to work unchanged. The flag only
+	// gates the user-facing prompt section; analyzer's TermGraph
+	// normalisation and explorer's ERM extraction keep routing
+	// through StripConversationPrefix so they never ingest prior
+	// text into entity/keyword ranking.
+	PriorConvHidden bool `json:"-"`
 }
 
 // PromptSection is a titled block of content used in prompt construction.

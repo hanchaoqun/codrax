@@ -279,6 +279,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString(renderEnumTable("answer_shape", analysisAnswerShapes))
 	of.WriteString("\n")
 	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
+	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. The analyzer is the only stage that sees Prior Conversation by default; downstream stages work off the AnalysisIR you produce here, so any Prior-derived disambiguation MUST land in entities or the downstream stages will lose the subject.\n\n")
 	of.WriteString("Keyword generation — target ≥8 diverse stems. For each concept, generate multiple variants:\n")
 	of.WriteString("- Word roots and inflections (e.g. send/sending/sent)\n")
 	of.WriteString("- Synonyms (e.g. send → emit, dispatch, publish, write)\n")

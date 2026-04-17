@@ -201,13 +201,45 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
+	// Per-item validation. Earlier behaviour rejected the entire batch
+	// on any single items[i] error — a one-letter typo dropped four
+	// otherwise-valid evidence items (trace 1776439797257469553 iter=2:
+	// items[3] had line_end < line_start and wiped items[0..2] + [4]).
+	// New semantics:
+	//   (1) line_end < line_start is auto-swapped — obvious transposition
+	//       typo, warn but keep the item.
+	//   (2) Other single-item validation errors skip just that item and
+	//       surface the reason in the per-item feedback, UNLESS the
+	//       cumulative reject ratio ≥ 50%. At that threshold the batch
+	//       is structurally broken (not one typo) and the old "reject
+	//       entire call" semantics apply so the LLM sees one failure
+	//       envelope with ALL reasons, not a trickle of per-item notes.
 	built := make([]types.EvidenceItem, 0, len(p.Items))
+	rejectedItems := make([]string, 0)
+	autoSwapped := make([]int, 0)
 	for i, in := range p.Items {
-		ev, perr := buildEmitEvidenceItem(in, i, workDir)
+		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped)
 		if perr != nil {
-			return failEmit(t.Name(), now, "%v", perr)
+			rejectedItems = append(rejectedItems, fmt.Sprintf("items[%d]: %v", i, perr))
+			continue
 		}
 		built = append(built, ev)
+	}
+	// Majority-reject gate: when half or more of the items failed,
+	// return a hard failure with all reasons. Prevents the LLM from
+	// "hiding" a poisoned batch behind one successful item.
+	if len(rejectedItems) > 0 && len(rejectedItems)*2 >= len(p.Items) {
+		return failEmit(t.Name(), now,
+			"batch rejected: %d of %d items failed validation. Fix the following and re-emit:\n%s",
+			len(rejectedItems), len(p.Items), strings.Join(rejectedItems, "\n"))
+	}
+	// Sparse rejects: if a handful failed but the batch is majority
+	// healthy, keep going and stamp the rejections into the per-item
+	// rendered Summary so the LLM sees the reason on the same turn.
+	if len(built) == 0 {
+		return failEmit(t.Name(), now,
+			"no valid items after per-item validation:\n%s",
+			strings.Join(rejectedItems, "\n"))
 	}
 
 	// Synchronous grounding. Each item is validated against the
@@ -233,12 +265,51 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 
 	ctx.Mutable.AppendEvidence(built)
 
+	summary := renderEmitSummary(built, reports, ctx.Mutable.EmittedEvidence())
+	if len(rejectedItems) > 0 || len(autoSwapped) > 0 {
+		var b strings.Builder
+		b.WriteString(summary)
+		if len(rejectedItems) > 0 {
+			fmt.Fprintf(&b, "\n%d item(s) were SKIPPED due to validation errors and are NOT in the accepted buffer:\n",
+				len(rejectedItems))
+			for _, r := range rejectedItems {
+				fmt.Fprintf(&b, "  - %s\n", r)
+			}
+			b.WriteString("Re-emit these with corrected fields if they are load-bearing.\n")
+		}
+		if len(autoSwapped) > 0 {
+			fmt.Fprintf(&b, "\n%d item(s) had line_end < line_start (likely typo) and were AUTO-SWAPPED; double-check the range was what you intended: ",
+				len(autoSwapped))
+			var parts []string
+			for _, idx := range autoSwapped {
+				parts = append(parts, fmt.Sprintf("items[%d]", idx))
+			}
+			b.WriteString(strings.Join(parts, ", ") + "\n")
+		}
+		summary = b.String()
+	}
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   renderEmitSummary(built, reports, ctx.Mutable.EmittedEvidence()),
+		Summary:   summary,
 		Timestamp: now,
 	}, nil
+}
+
+// buildEmitEvidenceItemWithSwap wraps buildEmitEvidenceItem with the
+// 2026-04-17 line_end<line_start auto-swap. If the decoded item has
+// line_end < line_start AND line_end > 0, swap the two values before
+// delegating. Records the item index into autoSwapped so the caller
+// can surface a "double-check the range" warning. All other
+// validation errors flow through buildEmitEvidenceItem unchanged.
+func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir string, autoSwapped *[]int) (types.EvidenceItem, error) {
+	if in.LineStart.Int() > 0 && in.LineEnd.Int() > 0 && in.LineEnd.Int() < in.LineStart.Int() {
+		// Obvious transposition typo — repair rather than reject.
+		swappedStart, swappedEnd := in.LineEnd, in.LineStart
+		in.LineStart, in.LineEnd = swappedStart, swappedEnd
+		*autoSwapped = append(*autoSwapped, index)
+	}
+	return buildEmitEvidenceItem(*in, index, workDir)
 }
 
 // buildEmitEvidenceItem validates a single decoded item and converts

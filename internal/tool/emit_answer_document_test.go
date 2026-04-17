@@ -5,8 +5,25 @@ import (
 	"strings"
 	"testing"
 
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// newDocGraph builds a minimal repomap.Graph indexing the given files
+// and symbols. Used by the Tier-1-peer pool-defence tests.
+func newDocGraph(files map[string][]docSymbol) *repomap.Graph {
+	g := &repomap.Graph{FileIndex: make(map[string]*repomap.FileInfo)}
+	for path, syms := range files {
+		fi := &repomap.FileInfo{RelPath: path}
+		for _, s := range syms {
+			fi.Symbols = append(fi.Symbols, repomap.Symbol{
+				Name: s.name, Kind: "function", Line: s.line, EndLine: s.end,
+			})
+		}
+		g.FileIndex[path] = fi
+	}
+	return g
+}
 
 // newDocBusCtx returns a BusContext wired with a fresh MutableState so
 // emit_answer_document can land its Set call. WorkDir is deliberately
@@ -101,7 +118,7 @@ func TestEmitAnswerDocument_ListOfSymbols_RequiresCompleteness(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocument_ListOfSymbols_ScrubsStepsField(t *testing.T) {
+func TestEmitAnswerDocument_ListOfSymbols_RejectsStepsField(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":                "list_of_symbols",
@@ -110,11 +127,54 @@ func TestEmitAnswerDocument_ListOfSymbols_ScrubsStepsField(t *testing.T) {
 		"steps":                []map[string]interface{}{{"index": 1, "description": "x", "citation_ref": -1}},
 	})
 	res, _ := tool.Execute(newDocBusCtx(""), params)
-	// Forbidden fields are silently scrubbed (not rejected) to prevent
-	// LLM infinite retry loops. The call should succeed with steps
-	// removed and symbols preserved.
+	// 2026-04-17 hardening: non-zero forbidden fields reject the call
+	// with a structured error so the LLM sees the feedback on the
+	// next turn. Silent scrub was letting the LLM keep the wrong
+	// field across multiple iterations because no signal surfaced.
+	if res.Success {
+		t.Errorf("list_of_symbols with non-zero steps: must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "forbids steps") {
+		t.Errorf("rejection must name the offending field: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ListOfSymbols_TolerateZeroStepsArray — an
+// empty steps array is semantically absent; the LLM's JSON
+// serializer commonly emits it even when the shape forbids the
+// field. Tolerate zero-length; reject non-zero.
+func TestEmitAnswerDocument_ListOfSymbols_TolerateZeroStepsArray(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":                "list_of_symbols",
+		"symbols":              []map[string]interface{}{{"name": "Foo", "file": "a.go", "line": 1, "kind": "function"}},
+		"symbols_completeness": "complete",
+		"steps":                []map[string]interface{}{},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
 	if !res.Success {
-		t.Errorf("list_of_symbols with steps: should succeed after scrub, got error: %s", res.Summary)
+		t.Errorf("empty steps[] is semantically absent and must not reject: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Explanation_RejectsZombieBoolean pins the
+// exact failure mode from trace 1776439797257469553: the LLM sent
+// shape=explanation with a non-zero boolean{decision:"否", rationale:
+// "…"}. Old behaviour silently scrubbed it and accepted; new
+// behaviour rejects so the LLM corrects on retry.
+func TestEmitAnswerDocument_Explanation_RejectsZombieBoolean(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"boolean": map[string]interface{}{"decision": "否", "rationale": "spurious", "citation_ref": -1},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Errorf("explanation with non-zero boolean: must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "forbids boolean") {
+		t.Errorf("rejection must name boolean: %q", res.Summary)
 	}
 }
 
@@ -286,15 +346,55 @@ func TestEmitAnswerDocument_Explanation_Happy(t *testing.T) {
 // -------- cross-cutting validators --------
 
 func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {
+	// 2026-04-17: summary cap is now per-shape (SummaryCapByShape).
+	// Exercise all three tiers so a future shape addition that forgets
+	// to populate the map gets caught here (via the default fallback).
+	cases := []struct {
+		shape types.AnswerShape
+		cap   int
+		extra map[string]interface{}
+	}{
+		{types.ShapeExplanation, types.SummaryCapFor(types.ShapeExplanation), nil},
+		{types.ShapeValue, types.SummaryCapFor(types.ShapeValue), map[string]interface{}{
+			"value": map[string]interface{}{"literal": "x", "citation_ref": -1},
+		}},
+		{types.ShapeBoolean, types.SummaryCapFor(types.ShapeBoolean), map[string]interface{}{
+			"boolean": map[string]interface{}{"decision": "true", "rationale": "r", "citation_ref": -1},
+		}},
+	}
+	for _, tc := range cases {
+		payload := map[string]interface{}{
+			"shape":   string(tc.shape),
+			"summary": strings.Repeat("a", tc.cap+1),
+		}
+		for k, v := range tc.extra {
+			payload[k] = v
+		}
+		tool := &EmitAnswerDocument{}
+		res, _ := tool.Execute(newDocBusCtx(""), mustDocJSON(t, payload))
+		if res.Success {
+			t.Errorf("shape=%s with summary %d (cap %d): must reject, got success", tc.shape, tc.cap+1, tc.cap)
+		}
+	}
+}
+
+// TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation locks in the
+// 2026-04-17 change: explanation shape now accepts summaries up to
+// 2500 chars (multi-paragraph answer body). The old 500-char cap
+// forced finalizers to burn retries trimming legitimate prose.
+func TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation(t *testing.T) {
 	tool := &EmitAnswerDocument{}
-	longSummary := strings.Repeat("a", types.AnswerDocumentMaxSummaryChars+1)
+	// 1500 chars: above the historical 500 cap, well under the new
+	// 2500 cap. Proves the explanation path uses the generous cap.
+	longEnough := strings.Repeat("abcde ", 300) // 1800 chars
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
-		"summary": longSummary,
+		"summary": longEnough,
 	})
 	res, _ := tool.Execute(newDocBusCtx(""), params)
-	if res.Success {
-		t.Error("over-cap summary: Success = true, want false")
+	if !res.Success {
+		t.Errorf("1800-char explanation summary: must accept (cap=%d), got rejection: %s",
+			types.SummaryCapFor(types.ShapeExplanation), res.Summary)
 	}
 }
 
@@ -418,5 +518,149 @@ func TestEmitAnswerDocument_Caveats_RoundTrip(t *testing.T) {
 	doc := ctx.Mutable.AnswerDocument()
 	if len(doc.Caveats) != 2 {
 		t.Errorf("caveats len = %d, want 2", len(doc.Caveats))
+	}
+}
+
+// TestEmitAnswerDocument_DropsQuoteClearedWhenNoTier1Peer pins the
+// 2026-04-17 fabricated-citation defence. When every citation grounds
+// at Tier 2 only (the LLM never read the files it cites) AND at least
+// one quote was cleared as fabricated, ALL quote-cleared citations
+// are dropped — a pool with no Tier 1 proven peer cannot anchor
+// invented prose. Mirrors the failure mode in trace
+// 1776439797257469553 where two cited files had never been read yet
+// both citations passed the old Tier 2 "file indexed" check with
+// fabricated quotes.
+func TestEmitAnswerDocument_DropsQuoteClearedWhenNoTier1Peer(t *testing.T) {
+	// Repomap graph with two indexed files; no read_file results.
+	graph := newDocGraph(map[string][]docSymbol{
+		"a.go": {{name: "Foo", line: 10, end: 30}},
+		"b.go": {{name: "Bar", line: 5, end: 20}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 15, "quote": "Fabricated prose about Foo's mechanism"},
+			{"file": "b.go", "line": 10, "quote": "Fabricated prose about Bar's purpose"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("call must succeed with empty citations pool after drop: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Citations) != 0 {
+		t.Errorf("fabricated-quote Tier 2-only pool must be dropped to 0 cites, got %d: %+v", len(doc.Citations), doc.Citations)
+	}
+	if !strings.Contains(res.Summary, "no peer citation is Tier 1") {
+		t.Errorf("drop reason must name the Tier 1 peer rule, got: %s", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_KeepsQuoteClearedWhenTier1PeerPresent — if
+// the pool contains at least one Tier 1 proven citation (the LLM
+// actually read that file), the quote-cleared peers keep their
+// file:line as honest "I saw this location" markers. The rule is a
+// pool-level sanity check, not a per-item reject.
+func TestEmitAnswerDocument_KeepsQuoteClearedWhenTier1PeerPresent(t *testing.T) {
+	// File a.go is BOTH indexed AND read (gutter index populated);
+	// file b.go is only indexed.
+	graph := newDocGraph(map[string][]docSymbol{
+		"a.go": {{name: "Foo", line: 10, end: 30}},
+		"b.go": {{name: "Bar", line: 5, end: 20}},
+	})
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.ToolResults = []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 10-12 of 30]\n  10│ func Foo() {\n  11│     return\n  12│ }\n"},
+	}
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 10, "quote": "func Foo() {"}, // Tier 1 QuoteMatched
+			{"file": "b.go", "line": 10, "quote": "Fabricated about Bar"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("call must succeed: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Citations) != 2 {
+		t.Errorf("Tier 1 peer present; all cites must survive, got %d", len(doc.Citations))
+	}
+	// Fabricated quote on b.go must still be CLEARED (per-item rule),
+	// even though the peer rescues the file:line.
+	for _, c := range doc.Citations {
+		if c.File == "b.go" && c.Quote != "" {
+			t.Errorf("b.go quote must be cleared, got %q", c.Quote)
+		}
+	}
+}
+
+// docSymbol and newDocGraph are minimal helpers so the above tests
+// can build a repomap Graph without pulling the full Graph builder.
+type docSymbol struct {
+	name string
+	line int
+	end  int
+}
+
+// TestEmitAnswerDocument_Explanation_AcceptsAnchorSkeleton pins the
+// 2026-04-17 change: shape=explanation allows optional symbols[] as
+// an anchor skeleton for multi-topic answers. Each symbol carries a
+// file:line that the renderer draws beneath the summary prose. The
+// steps/value/boolean mutex is unchanged — those remain forbidden.
+func TestEmitAnswerDocument_Explanation_AcceptsAnchorSkeleton(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "explorer delegates work to SubExplorer via ProposeSubAgents.",
+		"symbols": []map[string]interface{}{
+			{"name": "ProposeSubAgents", "file": "internal/tool/propose_sub_agents.go", "line": 18, "kind": "type", "rationale": "sub-topic 1: proposal schema"},
+			{"name": "SubExplorer", "file": "internal/agent/sub_explorer.go", "line": 25, "kind": "type", "rationale": "sub-topic 2: execution path"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("explanation + symbols[] skeleton must succeed: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc.Shape != types.ShapeExplanation {
+		t.Errorf("shape must stay explanation, got %s", doc.Shape)
+	}
+	if len(doc.Symbols) != 2 {
+		t.Errorf("skeleton symbols must round-trip, got %d items", len(doc.Symbols))
+	}
+	// Completeness NOT required on this path — the slate is auxiliary.
+	if doc.SymbolsCompleteness != "" {
+		t.Errorf("explanation skeleton must leave SymbolsCompleteness zero, got %q", doc.SymbolsCompleteness)
+	}
+}
+
+// TestEmitAnswerDocument_Explanation_StillForbidsValue — steps / value
+// / boolean remain forbidden on explanation shape; only symbols[] is
+// newly allowed.
+func TestEmitAnswerDocument_Explanation_StillForbidsValue(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "x",
+		"value":   map[string]interface{}{"literal": "42", "citation_ref": -1},
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if res.Success {
+		t.Errorf("explanation with value{}: must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "forbids value") {
+		t.Errorf("rejection must name value: %q", res.Summary)
 	}
 }

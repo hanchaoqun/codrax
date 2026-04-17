@@ -340,7 +340,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 				Content: currentReq,
 			})
 		}
-		if priorConv != "" {
+		if priorConv != "" && !ac.PriorConvHidden {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
 				Title: "Prior Conversation (reference only)",
 				Content: "The text below is prior-turn conversation for continuity. " +
