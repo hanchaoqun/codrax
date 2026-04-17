@@ -233,13 +233,18 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 
 // ShouldStop implements Evaluator.
 //
-// Turn B is one-shot: one LLM call produces the entire emit_* batch.
-// Validation and downgrade happen in ParseOutput after the loop exits.
-// iteration >= 2 (not >= 1) so a failed emit_* at iter=0 gets one
-// retry: the LLM sees the error message at iter=1 and can re-emit
-// with fixed parameters; ShouldStop fires at iter=2 to cap the loop.
+// Turn B's happy path is parallel-batch at iter=0: both emit_answer_symbol
+// and emit_hypothesis_verdict fire in the same assistant response, the
+// mid-loop observer accepts the batch, and the dispatch terminates
+// after one LLM call. When the LLM does NOT batch in parallel (drops
+// one of the expected emits), the mid-loop keeps the loop running so
+// iter=1 can pick up the missing one; a soft-stop correction at iter=1
+// adds one more retry if the LLM stopped without emitting. iter >= 3
+// caps this at: iter=0 partial emit, iter=1 soft-stop+correction,
+// iter=2 LLM emits the missing tool, iter=3 break. Parallel-batch
+// case still terminates in one call.
 func (e *extractorEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	return iteration >= 2
+	return iteration >= 3
 }
 
 // ParseOutput implements Evaluator. The extractor's two unique
@@ -430,37 +435,62 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 
 // Observe implements LoopController.
 //
-// PhaseMidLoop: the extractor is one-shot — once the LLM's emit_*
-// tool batch executes successfully, stop immediately. When all tool
-// calls FAILED, let the LLM see the errors and retry.
+// Turn B has TWO expected tools — emit_answer_symbol (for
+// list_of_symbols questions) and emit_hypothesis_verdict (for
+// hypotheses without a pre-populated auto-verdict). The happy path
+// is both fired in parallel in one LLM response; the fallback path
+// lets the LLM emit the missing one on a later iteration. Mid-loop
+// stops as soon as every EXPECTED emit has succeeded; soft-stop
+// corrects if the LLM voluntarily stopped while an expected emit is
+// still outstanding.
 //
-// PhaseSoftStop: when the question shape is list_of_symbols and the
-// LLM stopped without calling emit_answer_symbol, inject a
-// correction hint (same pattern as the finalizer's missing
-// emit_answer_document correction). Capped at
-// e.maxRetries.
+// "Pending hypothesis" = hypothesis in AnalysisIR.HypothesisSet whose
+// ID is NOT yet in Mutable.EmittedHypothesisVerdicts(). Auto-verdicts
+// the orchestrator pre-injects after explore windows already populate
+// the buffer, so when every hypothesis is auto-verdicted needVerdicts
+// is false and the LLM is not nagged to re-emit — the auto path is
+// treated as sufficient fallback. The LLM CAN still override by
+// emitting in parallel with emit_answer_symbol at iter=0 (drain
+// semantics: last-written wins); it simply isn't forced to.
 func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.Phase == PhaseMidLoop {
+		gotSymbols, gotVerdicts := false, false
 		for _, r := range obs.AllToolResults {
-			if r.Success {
-				return LoopSignal{StopRequested: true, StopReason: "extractor one-shot batch complete"}
+			if !r.Success {
+				continue
+			}
+			switch r.ToolName {
+			case "emit_answer_symbol":
+				gotSymbols = true
+			case "emit_hypothesis_verdict":
+				gotVerdicts = true
 			}
 		}
+		needSymbols := isListOfSymbolsShape(ctx)
+		needVerdicts := hasPendingHypotheses(ctx)
+		if (!needSymbols || gotSymbols) && (!needVerdicts || gotVerdicts) {
+			return LoopSignal{StopRequested: true, StopReason: "extractor emit batch complete"}
+		}
+		// At least one expected emit still missing: let the loop run
+		// another iteration so the LLM can fill the gap. ShouldStop
+		// (iter>=3) and soft-stop correction retries bound the total.
 		return LoopSignal{}
 	}
 	if obs.Phase != PhaseSoftStop {
 		return LoopSignal{}
 	}
-	// Soft-stop correction for list_of_symbols questions: if the LLM
-	// stopped without emitting answer symbols, nudge it.
+	// Soft-stop correction: the LLM produced text without calling any
+	// tool this iteration. If an expected emit is still outstanding
+	// and the correction budget has room, inject a hint naming the
+	// specific missing tool(s). Capped at e.maxRetries so a
+	// non-compliant LLM cannot spin the loop indefinitely.
 	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
 		return LoopSignal{}
 	}
-	if ctx.AnalysisIR.AnswerContract.RequiredAnswerShape != types.ShapeListOfSymbols {
-		return LoopSignal{}
-	}
 	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
-	if len(syms) > 0 {
+	missingSymbols := isListOfSymbolsShape(ctx) && len(syms) == 0
+	missingVerdicts := hasPendingHypotheses(ctx)
+	if !missingSymbols && !missingVerdicts {
 		return LoopSignal{}
 	}
 	if e.retriesUsed >= e.maxRetries {
@@ -468,14 +498,23 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		return LoopSignal{}
 	}
 	e.retriesUsed++
-	logging.Debug("[extractor] soft-stop correction retry #%d: requesting emit_answer_symbol", e.retriesUsed)
+	var missingParts []string
+	if missingSymbols {
+		missingParts = append(missingParts,
+			"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files Turn A read' list)")
+	}
+	if missingVerdicts {
+		missingParts = append(missingParts,
+			"call `emit_hypothesis_verdict` for each hypothesis you can now judge (status + rationale + citation when confirmed/rejected, or inconclusive without citation)")
+	}
+	logging.Debug("[extractor] soft-stop correction retry #%d: missingSymbols=%t missingVerdicts=%t",
+		e.retriesUsed, missingSymbols, missingVerdicts)
 	return LoopSignal{
 		HintRequested: true,
-		HintKey:       fmt.Sprintf("extractor.missing_symbols.%d", e.retriesUsed),
-		Hint: "The question shape is list_of_symbols but you stopped without calling " +
-			"`emit_answer_symbol`. Review the Turn A transcript digest and call " +
-			"`emit_answer_symbol` with the symbols that answer the question. " +
-			"Also call `emit_hypothesis_verdict` for each hypothesis.",
+		HintKey:       fmt.Sprintf("extractor.missing_emits.%d", e.retriesUsed),
+		Hint: "You stopped without emitting one or more expected tool calls. Please " +
+			strings.Join(missingParts, ", and ") +
+			". If both apply, batch them in parallel in a single response.",
 	}
 }
 
@@ -496,6 +535,50 @@ func NewExtractorAgent(deps *Dependencies) Agent {
 	return NewBaseAgent(types.AgentExtractor, deps, &extractorEvaluator{
 		maxRetries: deps.AgentSettings.ExtractorMaxCorrectionRetries,
 	})
+}
+
+// isListOfSymbolsShape reports whether the analyzer resolved the
+// answer shape to list_of_symbols. Used by Observe to decide whether
+// emit_answer_symbol is an expected tool for this dispatch.
+func isListOfSymbolsShape(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	return ctx.AnalysisIR.AnswerContract.RequiredAnswerShape == types.ShapeListOfSymbols
+}
+
+// hasPendingHypotheses reports whether the analyzer posed hypotheses
+// that still lack a verdict in Mutable.EmittedHypothesisVerdicts.
+// Used by Observe to decide whether emit_hypothesis_verdict is an
+// expected tool for this dispatch.
+//
+// The orchestrator pre-injects criterion-based auto-verdicts after
+// each explore window (runAutoVerdicts + drainHypothesisVerdicts), so
+// by the time Turn B runs, every hypothesis whose RequiredEvidence or
+// FalsificationCondition is fully decidable already has a verdict in
+// the buffer. "Pending" therefore means: a hypothesis the LLM could
+// judge but that the deterministic path did NOT already verdict —
+// exactly the set worth prompting the LLM for. Hypotheses that are
+// already verdicted (auto or LLM-emitted) do not count; the LLM can
+// still override by emitting in parallel at iter=0, but is not nagged
+// to do so.
+func hasPendingHypotheses(ctx *types.AgentContext) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return false
+	}
+	if len(ctx.AnalysisIR.HypothesisSet) == 0 {
+		return false
+	}
+	verdicted := make(map[string]bool)
+	for _, v := range ctx.Mutable.EmittedHypothesisVerdicts() {
+		verdicted[v.HypothesisID] = true
+	}
+	for _, h := range ctx.AnalysisIR.HypothesisSet {
+		if !verdicted[h.ID] {
+			return true
+		}
+	}
+	return false
 }
 
 // extractorInvestigationEmpty reports whether Turn A left the

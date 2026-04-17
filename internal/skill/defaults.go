@@ -171,7 +171,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			"emit_answer_symbol",
 			"emit_hypothesis_verdict",
 		},
-		OutputFormat: `Your contribution is the emit_* tool calls — the finalizer reads the drained buffers, not your prose. Call each emit_* tool AT MOST ONCE per dispatch; batch all items in a single call per tool. Do NOT write tool-call JSON in your text — use the function-calling mechanism only.
+		OutputFormat: `Your contribution is the emit_* tool calls — the finalizer reads the drained buffers, not your prose. Call each emit_* tool AT MOST ONCE per dispatch; batch all items in a single call per tool. When both emit_answer_symbol and emit_hypothesis_verdict apply to this dispatch, invoke them IN PARALLEL within the SAME assistant response (multiple tool_use blocks in one turn) — not sequentially across iterations. The mid-loop observer accepts the single-response batch and terminates immediately; a split batch wastes a round-trip and risks losing the second tool to the iteration cap. Do NOT write tool-call JSON in your text — use the function-calling mechanism only.
 
 Completeness honesty contract for emit_answer_symbol:
 - "complete" — you assert this list enumerates EVERY symbol that answers the question. The finalizer will render it with a "MUST NOT add or remove" directive. This claim is AUTOMATICALLY cross-checked against max(β, γ): a short claim of "complete" is DOWNGRADED to "lower_bound" with a warning.

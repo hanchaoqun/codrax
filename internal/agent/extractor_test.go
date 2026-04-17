@@ -133,21 +133,20 @@ func TestExtractor_BuildInitialInstructionHandlesNilCtx(t *testing.T) {
 }
 
 func TestExtractor_ShouldStopFiresAfterRetryBudget(t *testing.T) {
-	// Turn B is one-shot with one retry: iteration 0 is the normal
-	// emit_* batch, iteration 1 allows the LLM to see a tool error
-	// and retry with fixed parameters, iteration 2 is the hard stop.
+	// Turn B happy path is a single parallel-batch LLM call at iter=0.
+	// Non-parallel paths need more room: iter=0 partial emit, iter=1
+	// soft-stop + correction hint, iter=2 LLM fills the gap,
+	// iter>=3 hard stop.
 	e := &extractorEvaluator{}
-	if e.ShouldStop(llm.Response{}, 0) {
-		t.Error("must NOT stop at iteration 0 (first LLM call)")
+	for _, i := range []int{0, 1, 2} {
+		if e.ShouldStop(llm.Response{}, i) {
+			t.Errorf("must NOT stop at iteration %d", i)
+		}
 	}
-	if e.ShouldStop(llm.Response{}, 1) {
-		t.Error("must NOT stop at iteration 1 (retry window for failed tool calls)")
-	}
-	if !e.ShouldStop(llm.Response{}, 2) {
-		t.Error("must stop at iteration 2 (retry budget exhausted)")
-	}
-	if !e.ShouldStop(llm.Response{}, 5) {
-		t.Error("must stop at any iteration >= 2")
+	for _, i := range []int{3, 5, 10} {
+		if !e.ShouldStop(llm.Response{}, i) {
+			t.Errorf("must stop at iteration %d (≥3 cap)", i)
+		}
 	}
 }
 
@@ -756,3 +755,247 @@ func TestExtractor_RegisteredAsAgent(t *testing.T) {
 }
 
 // (uses the package-level `contains` helper from explorer_test.go)
+
+// -----------------------------------------------------------------------------
+// Observe — mid-loop stop decision (option B)
+// -----------------------------------------------------------------------------
+//
+// The mid-loop controller must stop ONLY when every EXPECTED emit has
+// succeeded; missing expectations must return an empty signal so the
+// loop runs another iteration. "Expected" = emit_answer_symbol iff
+// shape is list_of_symbols, emit_hypothesis_verdict iff at least one
+// hypothesis lacks a verdict in the buffer.
+
+// observeMidLoopFixture assembles a minimal ctx + obs so each test
+// can toggle one axis (shape, pending hypothesis, tool results) and
+// assert on the signal.
+func observeMidLoopFixture(shape types.AnswerShape, hypotheses []types.Hypothesis, existingVerdicts []types.HypothesisVerdict, tools []types.ToolResult) (*types.AgentContext, LoopObservation) {
+	mu := types.NewMutableState("")
+	if len(existingVerdicts) > 0 {
+		mu.AppendEmittedHypothesisVerdicts(existingVerdicts)
+	}
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: shape},
+			HypothesisSet:  hypotheses,
+		},
+	}
+	obs := LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		AllToolResults: tools,
+	}
+	return ctx, obs
+}
+
+func TestExtractor_Observe_MidLoop_BothExpected_BothSucceeded_Stops(t *testing.T) {
+	ctx, obs := observeMidLoopFixture(
+		types.ShapeListOfSymbols,
+		[]types.Hypothesis{{ID: "h1"}},
+		nil, // no pre-injected verdict → h1 is pending
+		[]types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true},
+			{ToolName: "emit_hypothesis_verdict", Success: true},
+		},
+	)
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("both expected emits succeeded → must StopRequested; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_MissingVerdict_Continues(t *testing.T) {
+	// Emblematic of the original bug: LLM only emitted symbols, didn't
+	// batch verdict in parallel. Current code must NOT stop — the
+	// loop runs another iteration so iter=1 can emit the verdict.
+	ctx, obs := observeMidLoopFixture(
+		types.ShapeListOfSymbols,
+		[]types.Hypothesis{{ID: "h1"}},
+		nil,
+		[]types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true},
+		},
+	)
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if sig.StopRequested {
+		t.Fatalf("missing emit_hypothesis_verdict → must NOT StopRequested; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_MissingSymbols_Continues(t *testing.T) {
+	// Symmetric case: LLM emitted verdict but forgot symbols.
+	ctx, obs := observeMidLoopFixture(
+		types.ShapeListOfSymbols,
+		[]types.Hypothesis{{ID: "h1"}},
+		nil,
+		[]types.ToolResult{
+			{ToolName: "emit_hypothesis_verdict", Success: true},
+		},
+	)
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if sig.StopRequested {
+		t.Fatalf("missing emit_answer_symbol → must NOT StopRequested; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_AutoVerdictAlreadyInBuffer_StopsOnSymbolsOnly(t *testing.T) {
+	// Dominant production case: orchestrator pre-injected an auto-verdict
+	// before extractor ran, so hasPendingHypotheses=false. The LLM only
+	// needs to emit symbols; mid-loop stops after that single tool.
+	ctx, obs := observeMidLoopFixture(
+		types.ShapeListOfSymbols,
+		[]types.Hypothesis{{ID: "h1"}},
+		[]types.HypothesisVerdict{{HypothesisID: "h1", Status: types.HypInconclusive}},
+		[]types.ToolResult{
+			{ToolName: "emit_answer_symbol", Success: true},
+		},
+	)
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("auto-verdict filled → symbols-only emit must stop; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_MidLoop_NonListShapeNoHypothesis_NothingExpected_AnySuccessStops(t *testing.T) {
+	// No expected emits at all (shape=explanation, empty hypothesis
+	// set). Any success — or even none — satisfies "everything
+	// expected is done", so stop.
+	ctx, obs := observeMidLoopFixture(
+		types.ShapeExplanation,
+		nil,
+		nil,
+		nil,
+	)
+	e := &extractorEvaluator{}
+	sig := e.Observe(ctx, obs)
+	if !sig.StopRequested {
+		t.Fatalf("no expected emits → must stop; got %+v", sig)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Observe — soft-stop correction (option B)
+// -----------------------------------------------------------------------------
+
+func TestExtractor_Observe_SoftStop_MissingVerdict_InjectsHint(t *testing.T) {
+	// LLM stopped without tool calls while h1 is still pending → hint
+	// must fire, retriesUsed++.
+	mu := types.NewMutableState("")
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+			HypothesisSet:  []types.Hypothesis{{ID: "h1"}},
+		},
+	}
+	obs := LoopObservation{Phase: PhaseSoftStop, Iteration: 1}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if !sig.HintRequested {
+		t.Fatalf("pending hypothesis + soft-stop → hint expected; got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "emit_hypothesis_verdict") {
+		t.Errorf("hint must name emit_hypothesis_verdict; got %q", sig.Hint)
+	}
+	if e.retriesUsed != 1 {
+		t.Errorf("retriesUsed must increment to 1, got %d", e.retriesUsed)
+	}
+}
+
+func TestExtractor_Observe_SoftStop_RetryBudgetExhausted_NoHint(t *testing.T) {
+	// retriesUsed already at cap → no new hint, accept soft-stop.
+	mu := types.NewMutableState("")
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			HypothesisSet:  []types.Hypothesis{{ID: "h1"}},
+		},
+	}
+	obs := LoopObservation{Phase: PhaseSoftStop, Iteration: 2}
+	e := &extractorEvaluator{maxRetries: 1, retriesUsed: 1}
+	sig := e.Observe(ctx, obs)
+	if sig.HintRequested {
+		t.Errorf("retry budget exhausted → must NOT inject hint; got %+v", sig)
+	}
+}
+
+func TestExtractor_Observe_SoftStop_NothingMissing_NoHint(t *testing.T) {
+	// Symbols already in buffer AND all hypotheses verdicted → no
+	// correction needed, accept soft-stop.
+	mu := types.NewMutableState("")
+	mu.SetEmittedAnswerSymbols(
+		[]types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 5, Kind: "function"}},
+		types.CompletenessComplete,
+	)
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{
+		{HypothesisID: "h1", Status: types.HypInconclusive},
+	})
+	ctx := &types.AgentContext{
+		Objective: "q",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+			HypothesisSet:  []types.Hypothesis{{ID: "h1"}},
+		},
+	}
+	obs := LoopObservation{Phase: PhaseSoftStop, Iteration: 1}
+	e := &extractorEvaluator{maxRetries: 1}
+	sig := e.Observe(ctx, obs)
+	if sig.HintRequested {
+		t.Errorf("nothing missing → must NOT inject hint; got %+v", sig)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// hasPendingHypotheses — B-lenient invariant
+// -----------------------------------------------------------------------------
+
+func TestHasPendingHypotheses_EmptyHypothesisSet_False(t *testing.T) {
+	mu := types.NewMutableState("")
+	ctx := &types.AgentContext{Mutable: mu, AnalysisIR: &types.AnalysisIR{}}
+	if hasPendingHypotheses(ctx) {
+		t.Error("empty HypothesisSet → must return false")
+	}
+}
+
+func TestHasPendingHypotheses_AllVerdicted_False(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{
+		{HypothesisID: "h1", Status: types.HypInconclusive},
+		{HypothesisID: "h2", Status: types.HypConfirmed},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			HypothesisSet: []types.Hypothesis{{ID: "h1"}, {ID: "h2"}},
+		},
+	}
+	if hasPendingHypotheses(ctx) {
+		t.Error("all hypotheses verdicted → must return false")
+	}
+}
+
+func TestHasPendingHypotheses_SomePending_True(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.AppendEmittedHypothesisVerdicts([]types.HypothesisVerdict{
+		{HypothesisID: "h1", Status: types.HypInconclusive},
+	})
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			HypothesisSet: []types.Hypothesis{{ID: "h1"}, {ID: "h2"}},
+		},
+	}
+	if !hasPendingHypotheses(ctx) {
+		t.Error("h2 has no verdict → must return true")
+	}
+}
