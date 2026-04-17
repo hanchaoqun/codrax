@@ -230,13 +230,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// no-op (no marker present).
 	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
 
+	// Sub-topic summaries sometimes copy chunks of the REPL
+	// conversation prefix verbatim when the LLM is over-eager to
+	// "summarise". That pollution then surfaces in the renderer's
+	// per-topic row as "## Prior conversation ..." text. Sanitize
+	// every summary before it reaches downstream consumers.
+	sanitizedSubTopics := sanitizeSubTopics(p.SubTopics)
+
 	rm := types.RequestModel{
 		RawRequest: raw,
 		Language:   p.Language,
 		Intent:     intent,
 		Scenario:   scenario,
 		Complexity: complexity,
-		SubTopics:  p.SubTopics,
+		SubTopics:  sanitizedSubTopics,
 		AnalyzerHints: types.AnalyzerHints{
 			Keywords: keywords,
 			Entities: entities,
@@ -437,6 +444,86 @@ func trimStringSlice(in []string) []string {
 	}
 	if len(out) == 0 {
 		return nil
+	}
+	return out
+}
+
+// subTopicPollutionMarkers are substrings that, if found in a
+// sub-topic summary, mean the LLM copied a chunk of the REPL
+// conversation prefix verbatim instead of producing a genuine
+// one-line synopsis. Matching is case-sensitive — the markers are
+// structural, not prose — and exact (no regex) so the check stays
+// cheap and predictable.
+var subTopicPollutionMarkers = []string{
+	"## Prior conversation",
+	"## Current request",
+	"### Recent conversation",
+	"(previous attempt ended in error",
+}
+
+// sanitizeSubTopics scrubs every sub-topic summary through:
+//
+//   1. types.StripConversationPrefix — strips a full REPL prefix
+//      when the LLM pasted the whole effective-request wrapper.
+//   2. Pollution-marker check on what remains. When any marker is
+//      still present, the summary is considered unusable prose and
+//      is replaced by a comma-joined entity list if available, else
+//      emptied. An empty summary causes compiler.expandEvidenceNodes
+//      and the renderer to fall back to the node ID — ugly, but less
+//      misleading than rendering "## Prior conversation ..." as a
+//      sub-topic title.
+//   3. Whitespace + length cap at subTopicSummaryMaxChars so a
+//      pasted paragraph cannot dominate the live task-row width.
+//
+// The original slice is not mutated — callers get a freshly-allocated
+// sub-topic list with the cleaned Summary fields.
+func sanitizeSubTopics(in []types.SubTopic) []types.SubTopic {
+	if len(in) == 0 {
+		return in
+	}
+	out := make([]types.SubTopic, len(in))
+	for i, st := range in {
+		out[i] = types.SubTopic{
+			Summary:  sanitizeSubTopicSummary(st.Summary, st.Entities),
+			Entities: st.Entities,
+		}
+	}
+	return out
+}
+
+func sanitizeSubTopicSummary(summary string, entities []string) string {
+	s := strings.TrimSpace(summary)
+	if s == "" {
+		return ""
+	}
+	// Tier 1: strip a well-formed REPL prefix.
+	s = strings.TrimSpace(types.StripConversationPrefix(s))
+	// Tier 2: if any pollution marker survives, the summary is
+	// structurally bad — prefer the entity list as a fallback label.
+	for _, m := range subTopicPollutionMarkers {
+		if strings.Contains(s, m) {
+			return strings.Join(nonEmptyStrings(entities), " / ")
+		}
+	}
+	// Tier 3: length cap. Long paragraphs force the renderer to
+	// truncate every frame and make the task row unreadable.
+	if len(s) > subTopicSummaryMaxChars {
+		s = strings.TrimSpace(s[:subTopicSummaryMaxChars]) + "…"
+	}
+	return s
+}
+
+// subTopicSummaryMaxChars is chosen so the sub-topic label stays
+// readable in a typical 80-120 col terminal after the "[topic N] "
+// prefix. Anything longer is almost certainly a pasted paragraph.
+const subTopicSummaryMaxChars = 120
+
+func nonEmptyStrings(xs []string) []string {
+	out := make([]string, 0, len(xs))
+	for _, x := range xs {
+		if t := strings.TrimSpace(x); t != "" {
+			out = append(out, t)
+		}
 	}
 	return out
 }
