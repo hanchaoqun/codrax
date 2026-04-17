@@ -124,6 +124,28 @@ func reconcileComplexity(declared types.Complexity, rawRequest string, entities,
 			"zero entities and very few keywords — declared complex cannot be justified"
 	}
 
+	// Rule 6: enumeration + relational verb upgrade. A question
+	// shaped "how many X can do Y" / "有几个 X 可以 Y" reads as a
+	// count on the surface but the relational verb forces the
+	// answer to trace a relationship across every candidate. The
+	// generic-entity blocklist may have stripped X/Y when they hit
+	// domain-neutral tokens (agent / handler / module), which is
+	// exactly the case where Rule 4's entity floor cannot fire. Left
+	// at simple, investigation budget caps at ~2 rounds and the
+	// first file answers for the whole family ("SubExplorer" when
+	// the real answer is three agents). Raising to moderate gives
+	// the explorer 4-6 rounds and keeps citation gates ON so each
+	// candidate must be grounded in file:line evidence.
+	//
+	// Intent is deliberately left untouched — whether the LLM picks
+	// enumerate (returns the list) or return_value (returns the
+	// scalar) is a downstream shape concern, and both populations
+	// benefit equally from the budget lift.
+	if declared == types.ComplexitySimple && hasLeadingEnumerationCue(lower) && containsRelationalVerbCue(lower) {
+		return types.ComplexityModerate,
+			"enumeration cue + relational verb — answer requires tracing a relationship across candidates"
+	}
+
 	return declared, ""
 }
 

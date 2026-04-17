@@ -67,6 +67,38 @@ func TestReconcileComplexity(t *testing.T) {
 			"lang?", nil, []string{"lang", "?", "question"}, 0,
 			types.ComplexitySimple, true},
 
+		// Rule 6: enumeration cue + relational verb → moderate. Fires
+		// even when the generic-entity blocklist stripped all entities,
+		// which is exactly when Rule 4 cannot fire. Shape: "有几个 X 可以
+		// Y" / "how many X can Y".
+		{"有几个-agent-可以调用-subagent upgrades simple→moderate", types.ComplexitySimple,
+			"有几个agent可以调用subagent", nil, []string{"agent", "subagent"}, 0,
+			types.ComplexityModerate, true},
+		{"how-many-handlers-invoke-dispatcher upgrades simple→moderate", types.ComplexitySimple,
+			"how many handlers invoke the dispatcher", []string{"handler", "dispatcher"},
+			[]string{"handler", "invoke", "dispatcher"}, 0,
+			types.ComplexityModerate, true},
+		{"哪些-X-实现-Y upgrades simple→moderate", types.ComplexitySimple,
+			"哪些 agent 实现了 Executor 接口", nil, []string{"agent", "executor"}, 0,
+			types.ComplexityModerate, true},
+		// Negative: count cue without relational verb → stays simple
+		// (measurement-scalar carve-out still applies downstream).
+		{"有多少-files-over-100-lines stays simple (no relational verb)", types.ComplexitySimple,
+			"有多少 python 文件", nil, []string{"python", "files"}, 0,
+			types.ComplexitySimple, false},
+		{"how-many-python-files stays simple (no relational verb)", types.ComplexitySimple,
+			"how many python files are there", nil, []string{"python", "files"}, 0,
+			types.ComplexitySimple, false},
+		// Negative: relational verb without leading enumeration cue → stays simple.
+		{"explain-how-X-calls-Y stays simple (no leading enumeration)", types.ComplexitySimple,
+			"explain how the router calls handlers", []string{"router", "handler"},
+			[]string{"router", "call", "handler"}, 0,
+			types.ComplexitySimple, false},
+		// Rule 6 only lifts simple, not moderate/complex.
+		{"moderate enumeration+relational is left alone", types.ComplexityModerate,
+			"有几个 agent 可以调用 subagent", nil, []string{"agent", "subagent"}, 0,
+			types.ComplexityModerate, false},
+
 		// Conflict ordering — the first matching rule wins. Rule 1
 		// (subTopics>=3) fires before Rule 3's downgrade because
 		// structural breadth trumps lookup-shape signal.

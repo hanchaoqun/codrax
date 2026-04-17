@@ -170,6 +170,105 @@ func stripPolitenessPrefix(lower string) string {
 	return lower
 }
 
+// enumerationCuePrefixes extend countVerbPrefixes with leading cues
+// that ask for a count but typically carry a relational tail ("有几个
+// X 可以 Y") — cues where the count alone is uninteresting and the Y
+// side is the real question. Kept disjoint from countVerbPrefixes:
+// the latter drives the strict intent downgrade (enumerate →
+// return_value) and its list is curated to avoid false-positive
+// downgrades. This set is consulted ONLY from reconcileComplexity's
+// Rule 6, which upgrades complexity without touching intent, so a
+// looser membership is safe.
+var enumerationCuePrefixes = []string{
+	"有几个",
+	"几个",
+	"哪几个",
+	"哪些",
+	"which ",
+}
+
+// hasLeadingEnumerationCue reports whether the request starts with a
+// count-style cue — either the strict count-verb set from
+// countVerbPrefixes or the broader enumerationCuePrefixes list.
+// Prefix-matching (post politeness strip) keeps "list handlers that
+// count requests" from tripping the rule.
+func hasLeadingEnumerationCue(lower string) bool {
+	if hasLeadingCountVerb(lower) {
+		return true
+	}
+	for _, p := range enumerationCuePrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// relationalVerbCues are verbs that imply the enumeration target is
+// defined by its relationship to another symbol, not by intrinsic
+// attributes. Pure "how many files over 100 lines" has no relational
+// verb and stays simple; "how many agents CAN INVOKE subagents"
+// lifts to moderate because the answer depends on a cross-file
+// relationship trace.
+//
+// Curation discipline mirrors crossComponentCues / simpleLookupCues
+// in analyzer_complexity.go — add a verb here when a failing run
+// shows the rule missed, not preemptively.
+var relationalVerbCues = []string{
+	// English — whole-word padded matches. "uses" / "calls" etc.
+	// need spaces to avoid firing inside nouns ("abuses", "callback").
+	" can ", " could ", " may ",
+	" calls ", " call ", " calling ",
+	" invokes ", " invoke ", " invoking ",
+	" dispatches ", " dispatch ", " dispatching ",
+	" registers ", " register ", " registered ",
+	" implements ", " implement ",
+	" extends ", " extend ",
+	" embeds ", " embed ",
+	" contains ", " contain ",
+	" depends on ", " depend on ",
+	" triggers ", " trigger ",
+	" references ", " reference ",
+	" binds ", " bind ",
+	" wires ", " wire ",
+	" provides ", " provide ",
+	" returns ", " return ",
+	" handles ", " handle ",
+	" uses ", " use ",
+	// Chinese — no space delimiters, so bare substring is the right
+	// shape. Tokens are chosen so they cannot appear inside unrelated
+	// compounds (e.g. 调用 is unambiguous; 用 alone would match 使用
+	// 范围 and similar noise).
+	"可以",
+	"能够",
+	"调用",
+	"注册",
+	"实现",
+	"继承",
+	"包含",
+	"依赖",
+	"触发",
+	"引用",
+	"绑定",
+	"处理",
+	"分发",
+	"调度",
+}
+
+// containsRelationalVerbCue reports whether any relational verb
+// appears anywhere in the (lowercased, trimmed) request. Substring
+// match for Chinese; whole-word padded match for English is baked
+// into the cue list itself.
+func containsRelationalVerbCue(lower string) bool {
+	padded := " " + lower + " "
+	for _, cue := range relationalVerbCues {
+		if strings.Contains(padded, cue) {
+			return true
+		}
+	}
+	return false
+}
+
 // logIntentReconcile is the twin of logComplexityReconcile — one
 // warning line when the rule overrode the LLM's pick, silent no-op
 // otherwise. Matching log levels let operators grep a single trace
