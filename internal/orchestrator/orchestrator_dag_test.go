@@ -175,6 +175,74 @@ func TestRunTaskGraph_ContractFailureBacktracks(t *testing.T) {
 	}
 }
 
+// TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks pins the
+// 2026-04-17 fix: a failing finalize SuccessCriterion (e.g.
+// citation_count_ge 3 — only 1 citation produced) now triggers the
+// same requeue + retry path as an AnswerContract violation.
+// Pre-fix behaviour only logged the failure and let the answer ship.
+//
+// Setup: contract has NO failing clauses (shape=explanation, no
+// citation requirement) so contract.Check returns Passed=true. The
+// finalize TaskNode carries a citation_count_ge=3 SuccessCriterion,
+// and the first finalize draft produces only 1 citation in prose —
+// the criterion fails. The fix merges that failure into res so the
+// retry branch fires; the second draft emits 3 citations and passes.
+func TestRunTaskGraph_FinalizeSuccessCriterionFailureBacktracks(t *testing.T) {
+	var explorerCalls, finalizeCalls int
+
+	ir := dagIR(types.AnswerContract{
+		RequiredAnswerShape: types.ShapeExplanation,
+		Language:            "en",
+	})
+	// Attach the SuccessCriterion to the finalize node. The
+	// orchestrator's buildEnv wires DraftCitations from the rendered
+	// answer, so citation_count_ge inspects len(extractCitationsFromAnswer).
+	for i := range ir.TaskGraph.Nodes {
+		if ir.TaskGraph.Nodes[i].Type == types.NodeFinalize {
+			ir.TaskGraph.Nodes[i].SuccessCriteria = []types.Criterion{
+				{Kind: types.CritCitationCountGE, Expr: "3"},
+			}
+		}
+	}
+
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentExplorer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(ctx *types.AgentContext, sk *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			if finalizeCalls == 1 {
+				// Only 1 citation — SuccessCriterion citation_count_ge 3 fails.
+				return &agent.StageOutput{
+					MissingPiece: types.MissingNone,
+					FinalAnswer:  "Answer text with one anchor internal/agent/explorer.go:42.",
+				}, nil
+			}
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "Answer with internal/agent/a.go:1 and internal/agent/b.go:2 and internal/agent/c.go:3.",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	_, err := o.Run("explain X", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if explorerCalls != 2 {
+		t.Errorf("explorer calls: want 2 (initial + 1 backtrack after SC failure), got %d", explorerCalls)
+	}
+	if finalizeCalls != 2 {
+		t.Errorf("finalize calls: want 2, got %d", finalizeCalls)
+	}
+}
+
 func TestRunTaskGraph_BudgetExhaustedFailLoud(t *testing.T) {
 
 

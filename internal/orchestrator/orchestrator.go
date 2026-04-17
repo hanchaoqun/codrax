@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
+	"github.com/hanchaoqun/codrax/internal/analysis/contract"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/stopcond"
 	ctxbuilder "github.com/hanchaoqun/codrax/internal/context"
@@ -530,15 +531,29 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		// nodes carry citation / symbol constraints the compiler
 		// declared; failing them is treated like a contract
 		// violation for backtrack purposes.
+		//
+		// Pre-2026-04-17 these failures only produced a log line
+		// and the answer shipped regardless. They are now merged
+		// into res.Violations so the retry-budget / requeue /
+		// pendingViolation branch below treats them uniformly with
+		// contract.Check failures.
 		envFin := buildEnv(out.FinalAnswer, len(extractCitationsFromAnswer(out.FinalAnswer)))
-		if scOK, scFailed := state.markSuccessCriteriaFailed(fin, envFin); !scOK {
-			for _, f := range scFailed {
-				logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s", f.Kind, f.Expr, f.Detail)
-			}
-		}
+		scOK, scFailed := state.markSuccessCriteriaFailed(fin, envFin)
 
 		// Contract check.
 		res := runContractCheck(out, ir.AnswerContract)
+
+		if !scOK {
+			for _, f := range scFailed {
+				logging.Info("[orchestrator] finalize success criteria failed: %s %s — %s", f.Kind, f.Expr, f.Detail)
+				res.Violations = append(res.Violations, contract.Violation{
+					Kind:   contract.ViolSuccessCriterion,
+					Detail: fmt.Sprintf("finalize success_criterion %s %s failed: %s", f.Kind, f.Expr, f.Detail),
+				})
+			}
+			res.Passed = false
+		}
+
 		if res.Passed {
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")

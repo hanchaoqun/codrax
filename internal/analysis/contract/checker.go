@@ -63,6 +63,16 @@ const (
 	ViolMustInclude ViolationKind = "must_include"
 	ViolMustExclude ViolationKind = "must_exclude"
 	ViolAcceptance  ViolationKind = "acceptance"
+
+	// ViolSuccessCriterion marks a finalize TaskNode.SuccessCriteria
+	// failure that was merged into the Result by the orchestrator
+	// after the contract.Check returned. Merging lets the existing
+	// retry path (requeue + pendingViolation injection + retry
+	// budget) treat SuccessCriteria failures uniformly with
+	// contract.Check violations, replacing the pre-existing behaviour
+	// where a failing success criterion only produced a log line and
+	// the pipeline silently accepted the answer.
+	ViolSuccessCriterion ViolationKind = "success_criterion"
 )
 
 // Violation is one specific contract breach with a short reason and
