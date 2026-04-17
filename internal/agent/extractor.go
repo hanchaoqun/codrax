@@ -582,21 +582,37 @@ func hasPendingHypotheses(ctx *types.AgentContext) bool {
 }
 
 // extractorInvestigationEmpty reports whether Turn A left the
-// extractor nothing real to work with: zero files read AND zero
-// key evidence items (Direct / Registration / Mechanism). Both
-// conditions must hold — a real answer can legitimately come from
-// concrete_value + resolution-chain extraction even when the LLM
-// read no files (R7/R8 bypass LLM noise), and a pure file-read
-// investigation that hasn't produced emit_evidence yet could still
-// be one ToolSuggestion away from useful output. The AND catches
-// the one structurally-empty combination.
+// extractor nothing real to work with. Three acceptance signals;
+// ANY one passes:
+//
+//  1. ReadFiles > 0 — the LLM opened at least one file.
+//  2. One or more key evidence kinds (Direct / Registration /
+//     Mechanism) surfaced from emit_evidence or deterministic
+//     concrete_value extraction.
+//  3. At least one successful investigation-class tool call
+//     (grep / exec_command / list_files / read_file / repo_map).
+//     This rescues count / existence / "how many X files" shapes
+//     that legitimately answer with exec_command `find | wc -l` or
+//     `grep files_only=true` without ever opening a file or calling
+//     emit_evidence. Without this branch the gate falsely rejects
+//     structurally-valid shallow investigations.
+//
+// Only when ALL three signals are absent does this gate fire — a
+// zero-tool zero-read zero-emit run is genuinely empty and the
+// extractor should fail loud.
 func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext) bool {
-	readFiles := 0
 	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
-		readFiles = len(ta.ReadFiles)
-	}
-	if readFiles > 0 {
-		return false
+		if len(ta.ReadFiles) > 0 {
+			return false
+		}
+		for _, r := range ta.ToolResults {
+			if !r.Success {
+				continue
+			}
+			if investigationToolKinds[r.ToolName] {
+				return false
+			}
+		}
 	}
 	for _, it := range ctx.EvidenceItems {
 		switch it.Kind {
@@ -605,4 +621,15 @@ func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext
 		}
 	}
 	return true
+}
+
+// investigationToolKinds mirrors the orchestrator's
+// contract_check.go list so the extractor gate and the contract
+// audit agree on what "real investigation work" is. Keep in sync.
+var investigationToolKinds = map[string]bool{
+	"grep":         true,
+	"exec_command": true,
+	"list_files":   true,
+	"read_file":    true,
+	"repo_map":     true,
 }

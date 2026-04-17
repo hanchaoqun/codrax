@@ -148,51 +148,29 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 // final answer markdown. It starts from glamour's public
 // styles.DarkStyleConfig / LightStyleConfig (picked to match the
 // terminal background, same detection glamour.WithAutoStyle uses
-// internally) and overrides two colour slots:
+// internally) and overrides a single colour slot: inline code
+// foreground. glamour's DarkStyleConfig defaults Code.Color to xterm
+// palette slot 203 (#ff5f5f — a saturated red/pink). Codrax answers
+// routinely carry dozens of inline-code references (symbol names,
+// file paths); a saturated red on every one triggers "alert-colour
+// fatigue". Slot 117 (light cyan, #87d7ff) reads as "interesting"
+// rather than "danger". LightStyleConfig uses slot 33 (blue).
 //
-//  1. Inline code foreground. glamour's DarkStyleConfig defaults
-//     Code.Color to xterm palette slot 203 (#ff5f5f — a saturated
-//     red/pink). Codrax answers routinely carry dozens of inline-code
-//     references (symbol names, file paths); a saturated red for every
-//     one triggers "alert-colour fatigue". Slot 117 (light cyan,
-//     #87d7ff) reads as "interesting" rather than "danger".
-//
-//  2. Answer-document background. The mild charcoal that used to
-//     live on fenced CodeBlock now wraps the ENTIRE answer
-//     document — the whole assistant reply reads as a single
-//     visually grouped card, and fenced code blocks inside blend
-//     with the surrounding prose instead of nesting a second
-//     background well inside the first. CodeBlock.BackgroundColor
-//     is explicitly left unset to avoid the nested-rectangle look.
-//
-// LightStyleConfig receives the analogous overrides: slot 33 (blue)
-// for inline code, slot 254 (near-white) for the document
-// background. All overrides are pointer-replacement, not target
-// mutation: each stringPtr allocates a new backing string so the
-// source struct's original pointer is not reachable from cfg.
-// glamour's package-level styles.DarkStyleConfig /
-// styles.LightStyleConfig remain untouched.
+// Backgrounds — both Document and CodeBlock — are deliberately left
+// untouched. An earlier iteration wrapped the answer in a charcoal
+// card; user feedback was "太丑了". We defer to glamour's default
+// contrast choices, which blend into any terminal theme.
 func codraxStyleConfig() ansi.StyleConfig {
 	var cfg ansi.StyleConfig
-	var (
-		inlineCodeColor string
-		documentBgColor string
-	)
+	var inlineCodeColor string
 	if termenv.HasDarkBackground() {
 		cfg = styles.DarkStyleConfig
 		inlineCodeColor = "117" // xterm light cyan, #87d7ff
-		documentBgColor = "236" // mild charcoal, #303030
 	} else {
 		cfg = styles.LightStyleConfig
-		inlineCodeColor = "33"  // xterm blue, #0087ff
-		documentBgColor = "254" // near-white grey, #e4e4e4
+		inlineCodeColor = "33" // xterm blue, #0087ff
 	}
 	cfg.Code.Color = &inlineCodeColor
-	// Wrap the whole answer in a charcoal/grey background card.
-	cfg.Document.BackgroundColor = &documentBgColor
-	// Clear the fenced-code-block background so it does not nest a
-	// second rectangle inside the document card.
-	cfg.CodeBlock.BackgroundColor = nil
 	return cfg
 }
 
