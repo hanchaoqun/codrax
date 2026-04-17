@@ -1417,6 +1417,28 @@ func extractTerminalSegment(chainText string) string {
 	return strings.TrimSpace(chainText)
 }
 
+// normalizedChainTerminal returns the chain's rightmost hop with two
+// noise sources stripped: surrounding whitespace, and a trailing
+// ` (file:line)` source locator some render paths append. This is the
+// canonical "answer terminal" form used by:
+//
+//   - β (TerminalEvidenceCount) dedup — two chains pointing at the
+//     same answer produce identical strings.
+//   - terminalIsConcreteSymbolRef — shape-match on method calls /
+//     identifier references.
+//   - endsWithShortLiteralReturn — shape-match on `returns "..."`.
+//
+// Normalisation is deliberately minimal — anything more aggressive
+// (e.g. collapsing all "returns X" terminals regardless of X) risks
+// false-positive merges that would DROP distinct answers.
+func normalizedChainTerminal(chainText string) string {
+	t := extractTerminalSegment(chainText)
+	if p := strings.LastIndex(t, " ("); p >= 0 && strings.HasSuffix(t, ")") {
+		t = strings.TrimSpace(t[:p])
+	}
+	return t
+}
+
 // terminalIsConcreteSymbolRef reports whether a chain's terminal
 // segment names a concrete symbol (function call, method receiver,
 // type reference) rather than a Go-language control-flow construct.
@@ -1428,12 +1450,7 @@ func extractTerminalSegment(chainText string) string {
 // from Go semantics, not from any eval case's ground truth — reversing
 // it would break an entire class of questions, not just df1.
 func terminalIsConcreteSymbolRef(chainText string, graph *repomap.Graph) bool {
-	terminal := extractTerminalSegment(chainText)
-	// Strip a trailing source locator like ` (file:line)` so the
-	// literal shape matchers see the raw expression.
-	if p := strings.LastIndex(terminal, " ("); p >= 0 && strings.HasSuffix(terminal, ")") {
-		terminal = strings.TrimSpace(terminal[:p])
-	}
+	terminal := normalizedChainTerminal(chainText)
 	if terminal == "" {
 		return false
 	}
@@ -1593,21 +1610,7 @@ func firstSegmentIsBinds(chain string) bool {
 // assignments. The caller uses this as a deterministic tie-breaker
 // bonus when ranking answer chains.
 func endsWithShortLiteralReturn(chain string) bool {
-	// Take the last segment after the last arrow (U+2192). If there is
-	// no arrow (single-item chain, shouldn't happen for isChain but be
-	// defensive), consider the whole text.
-	const arrow = "→"
-	idx := strings.LastIndex(chain, arrow)
-	seg := chain
-	if idx >= 0 {
-		seg = chain[idx+len(arrow):]
-	}
-	seg = strings.TrimSpace(seg)
-	// Drop a trailing source locator like ` (file:line)` so it doesn't
-	// push the literal away from the end of the string.
-	if p := strings.LastIndex(seg, " ("); p >= 0 && strings.HasSuffix(seg, ")") {
-		seg = strings.TrimSpace(seg[:p])
-	}
+	seg := normalizedChainTerminal(chain)
 	// Require `returns ` somewhere in the segment.
 	rIdx := strings.Index(seg, "returns ")
 	if rIdx < 0 {

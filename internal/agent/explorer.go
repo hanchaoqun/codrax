@@ -1918,13 +1918,36 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// the completeness claim at CompletenessUnknown; the orchestrator's
 	// per-task merge rule treats nil as "no claim yet" so Turn B's
 	// subsequent output authoritatively fills the slot.
+	// β counts DISTINCT answer terminals, not raw evidence items.
+	// When multiple strict chains converge on the same terminal
+	// (e.g. two chains both ending in `Name() returns "explorer"`),
+	// they describe ONE answer — inflating β with per-chain counts
+	// pushes the extractor's cardinality validator to demand a slate
+	// that over-populates with mechanism nodes just to clear floor.
+	// Chains whose terminal is unparseable (key == "") count
+	// independently so we never under-count by collapsing legitimately
+	// distinct answers into one.
 	terminalEvidenceCount := 0
+	seenTerminals := make(map[string]bool)
 	for _, c := range answerChains {
-		if c.StrictOK && hasTerminalEvidence([]types.EvidenceItem{c.Item}) {
-			terminalEvidenceCount++
+		if !c.StrictOK {
+			continue
 		}
+		if !hasTerminalEvidence([]types.EvidenceItem{c.Item}) {
+			continue
+		}
+		key := normalizedChainTerminal(c.Item.Summary)
+		if key == "" {
+			terminalEvidenceCount++
+			continue
+		}
+		if seenTerminals[key] {
+			continue
+		}
+		seenTerminals[key] = true
+		terminalEvidenceCount++
 	}
-	logging.Debug("[explorer] terminalEvidenceCount=%d (slate deferred to Turn B)", terminalEvidenceCount)
+	logging.Debug("[explorer] terminalEvidenceCount=%d (slate deferred to Turn B; distinct terminals=%d)", terminalEvidenceCount, len(seenTerminals))
 
 	// P1.2 — deterministic StageReport. Build the read-files slice
 	// from the coverage set and render the canonical markdown that

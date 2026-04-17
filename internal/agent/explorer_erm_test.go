@@ -762,6 +762,71 @@ func TestExtractTerminalSegment(t *testing.T) {
 	}
 }
 
+// TestNormalizedChainTerminal verifies the shared terminal
+// normaliser: strip trailing source locator, trim whitespace, fall
+// back to the whole string when there is no arrow. Used by β dedup,
+// terminalIsConcreteSymbolRef, and endsWithShortLiteralReturn.
+func TestNormalizedChainTerminal(t *testing.T) {
+	cases := []struct{ in, want string }{
+		// Arrow-terminated: key is the rightmost hop.
+		{"A → B → C", "C"},
+		{"RegisterX() binds Y → Z.Name() returns \"foo\"", "Z.Name() returns \"foo\""},
+		// No arrow: whole string (trimmed) is the key.
+		{"RegisterX() binds ONLY Y", "RegisterX() binds ONLY Y"},
+		// Trailing source locator stripped.
+		{"A → B (file.go:10)", "B"},
+		{"A → Name() returns \"foo\" (internal/x.go:42)", "Name() returns \"foo\""},
+		// Leading/trailing whitespace trimmed on both halves.
+		{"  A → B  ", "B"},
+		{"", ""},
+		// Parenthesis NOT a locator (no leading space): leave alone.
+		{"A → Name(x)", "Name(x)"},
+	}
+	for _, c := range cases {
+		if got := normalizedChainTerminal(c.in); got != c.want {
+			t.Errorf("normalizedChainTerminal(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestNormalizedChainTerminal_DedupesConvergentChains asserts the β
+// property: N chains ending in the same terminal segment produce ONE
+// distinct key even when their prefixes differ. Mirrors the
+// 2026-04-17 log scenario where two chains converged on
+// `HandlerA.Name() returns "worker"` via different prefixes — a
+// short direct chain and a longer gate-through-registry chain — and
+// β inflated from 1 to 2 on that pair alone.
+func TestNormalizedChainTerminal_DedupesConvergentChains(t *testing.T) {
+	chains := []string{
+		// Short chain: direct binding → Name().
+		"RegisterDefaults() binds ONLY NewHandlerA(...) → HandlerA.Name() returns \"worker\"",
+		// Long chain: gate through registry → same Name() terminal.
+		"Gate() checks Registry.Get(name) — registry populated by RegisterDefaults binding NewHandlerA → HandlerA.Name() returns \"worker\"",
+	}
+	seen := map[string]bool{}
+	for _, c := range chains {
+		seen[normalizedChainTerminal(c)] = true
+	}
+	if len(seen) != 1 {
+		t.Errorf("two chains with same terminal but different prefixes must dedup to 1 key, got %d: %v", len(seen), seen)
+	}
+
+	// And a distinct-terminal case: different Name() return values
+	// stay apart. Guards against over-aggressive normalisation that
+	// would merge genuinely different answers.
+	distinct := []string{
+		"X → A.Name() returns \"foo\"",
+		"X → B.Name() returns \"bar\"",
+	}
+	seenDistinct := map[string]bool{}
+	for _, c := range distinct {
+		seenDistinct[normalizedChainTerminal(c)] = true
+	}
+	if len(seenDistinct) != 2 {
+		t.Errorf("two chains with distinct literal terminals must NOT dedup, got %d: %v", len(seenDistinct), seenDistinct)
+	}
+}
+
 // TestTerminalIsConcreteSymbolRef covers the bad-pattern rejection
 // list and the good-shape acceptance paths. Each entry is a terminal
 // string (not a full chain) passed through a single-segment chain.
