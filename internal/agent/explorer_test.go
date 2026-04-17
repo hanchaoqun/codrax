@@ -847,6 +847,74 @@ func TestPhase0QualityGate(t *testing.T) {
 			t.Error("gate should NOT fire twice")
 		}
 	})
+
+	t.Run("pre-scan repo_map substitutes for runtime repo_map", func(t *testing.T) {
+		// When keywordSearch ran at dispatch start, the LLM already sees
+		// a ranked file list produced via repo_map. The gate must not
+		// demand a redundant runtime repo_map/list_files call, because
+		// doing so consumes the LoopPolicy throttle window and causes
+		// the next iter's phase-transition hint to be dropped.
+		eval := &explorerEvaluator{
+			phase:             0,
+			hasPrescanRepoMap: true,
+			preScannedFiles:   []string{"a.go", "b.go", "c.go", "d.go"},
+		}
+		history := []types.ToolResult{
+			{ToolName: "grep", Success: true, Summary: "file1.go"},
+		}
+		prompt, cont := softStopExplorer(eval, "done scanning", 0, 1, history)
+		if !cont {
+			t.Fatal("should continue to Phase 1 when pre-scan provided structural discovery")
+		}
+		if !strings.Contains(prompt, "Evidence Collection") {
+			t.Errorf("should transition to Phase 1, got: %s", prompt[:min(100, len(prompt))])
+		}
+		if eval.phase != 1 {
+			t.Errorf("phase should be 1, got %d", eval.phase)
+		}
+	})
+
+	t.Run("pre-scan files count toward minDisc", func(t *testing.T) {
+		// Even if the LLM's grep returned only 1 runtime-discovered file,
+		// the pre-scanned ranked list contributes to the minimum-discovery
+		// floor, so the gate should not fire on the discovery-count check.
+		eval := &explorerEvaluator{
+			phase:             0,
+			hasPrescanRepoMap: true,
+			preScannedFiles:   []string{"pre1.go", "pre2.go", "pre3.go"},
+		}
+		history := []types.ToolResult{
+			{ToolName: "grep", Success: true, Summary: "runtime.go"},
+		}
+		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
+		if !cont {
+			t.Fatal("should continue to Phase 1")
+		}
+		if strings.Contains(prompt, "broader search patterns") {
+			t.Errorf("minDisc gate should not fire when preScannedFiles fill the floor, got: %s", prompt)
+		}
+	})
+
+	t.Run("pre-scan flag false falls back to runtime requirement", func(t *testing.T) {
+		// Regression guard for the case where pre-scan did not run
+		// (e.g. analyzerKeywords empty): the gate must still require
+		// a runtime repo_map / list_files call so the LLM gets a
+		// structural view before Phase 1.
+		eval := &explorerEvaluator{
+			phase:             0,
+			hasPrescanRepoMap: false,
+		}
+		history := []types.ToolResult{
+			{ToolName: "grep", Success: true, Summary: "file1.go\nfile2.go\nfile3.go"},
+		}
+		prompt, cont := softStopExplorer(eval, "done", 0, 1, history)
+		if !cont {
+			t.Fatal("gate should fire when neither runtime repo_map nor pre-scan provided structural discovery")
+		}
+		if !strings.Contains(prompt, "repo_map") {
+			t.Errorf("gate should suggest using repo_map, got: %s", prompt)
+		}
+	})
 }
 
 func TestAdaptiveTruncation(t *testing.T) {
@@ -1328,6 +1396,7 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 		ermRequirements:           []EvidenceRequirement{{Kind: "registration", Entities: []string{"subagent"}}},
 		fileSymbols:               map[string][]string{"stale.go": {"Foo"}},
 		phase0ExtraRound:          true,
+		hasPrescanRepoMap:         true,
 		grepRedirectedFiles:       map[string]bool{"stale.go": true},
 		preScannedPushCount:       3,
 		lastPreScannedUnreadCount: 2,
@@ -1371,6 +1440,9 @@ func TestBuildInitialInstruction_CrossRunResetOnQuestionChange(t *testing.T) {
 	}
 	if eval.phase0ExtraRound {
 		t.Error("phase0ExtraRound not reset")
+	}
+	if eval.hasPrescanRepoMap {
+		t.Error("hasPrescanRepoMap not reset")
 	}
 	if eval.preScannedPushCount != 0 || eval.lastPreScannedUnreadCount != 0 ||
 		eval.broadenAttempts != 0 {

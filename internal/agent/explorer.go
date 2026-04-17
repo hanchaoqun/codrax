@@ -37,6 +37,7 @@ type explorerEvaluator struct {
 	grepRedirectedFiles       map[string]bool      // files that already received a large-file grep redirect
 	isEnumerationQuery        bool                 // true if user question asks to list/enumerate all items
 	phase0ExtraRound          bool                 // whether we already gave one extra Phase 0 round for quality gate
+	hasPrescanRepoMap         bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
 	structuredEvidence        []types.EvidenceItem
 	flowFindings              []types.FlowFindingDigest
 	ermRequirements           []EvidenceRequirement // evidence requirement model
@@ -121,6 +122,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.ermRequirements = nil
 		e.fileSymbols = nil
 		e.phase0ExtraRound = false
+		e.hasPrescanRepoMap = false
 		e.grepRedirectedFiles = nil
 		e.preScannedPushCount = 0
 		e.lastPreScannedUnreadCount = 0
@@ -246,6 +248,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		sr := keywordSearch(analyzerKeywords, ctx.RepoRoot)
 		e.searchResult = sr
 		results := sr.Files
+		// Record that pre-scan produced a repo_map-derived ranked file
+		// list the LLM can see. Read by the Phase 0 quality gate.
+		e.hasPrescanRepoMap = len(results) > 0
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
 			// Save files with repo_map structural relevance for coverage
@@ -1144,6 +1149,16 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// Quality gate: before transitioning to Phase 1, verify the
 		// breadth scan used enough discovery tools and found enough files.
 		// At most 1 extra round (phase0ExtraRound prevents infinite loop).
+		//
+		// Pre-scan awareness: when keywordSearch ran at dispatch start it
+		// already used repo_map to produce a ranked file list the LLM
+		// can see (e.hasPrescanRepoMap + e.preScannedFiles). Without
+		// counting those, the gate would demand a redundant runtime
+		// repo_map call at the first soft-stop, which injects an extra
+		// hint and consumes the LoopPolicy throttle window — so the
+		// following iter's phase-transition hint gets dropped (iter
+		// 3-1=2 < MinInjectInterval=3) and the explorer exits Phase 0
+		// without ever delivering Phase 2 instructions to the LLM.
 		if !e.phase0ExtraRound {
 			discovered, _ = extractFileCoverage(history)
 			usedGrep := false
@@ -1158,19 +1173,30 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 					}
 				}
 			}
+			structuralDone := usedOtherDiscovery || e.hasPrescanRepoMap
+			// Merge pre-scanned files into the discovery count. Use a
+			// set to dedupe overlap with runtime grep hits.
+			uniq := make(map[string]struct{}, len(discovered)+len(e.preScannedFiles))
+			for _, f := range discovered {
+				uniq[f] = struct{}{}
+			}
+			for _, f := range e.preScannedFiles {
+				uniq[f] = struct{}{}
+			}
+			totalDiscovered := len(uniq)
 			minDisc := e.heuristics.Phase0MinDiscoveredFiles
-			if (!usedGrep || !usedOtherDiscovery) || len(discovered) < minDisc {
+			if !usedGrep || !structuralDone || totalDiscovered < minDisc {
 				e.phase0ExtraRound = true
 				var gate strings.Builder
 				gate.WriteString("Before moving to depth reading, broaden your search:\n")
 				if !usedGrep {
 					gate.WriteString("- You haven't used grep yet. Search for key terms from the question with files_only=true.\n")
 				}
-				if !usedOtherDiscovery {
+				if !structuralDone {
 					gate.WriteString("- Use repo_map (task_map view) to see structurally relevant files.\n")
 				}
-				if len(discovered) < minDisc {
-					fmt.Fprintf(&gate, "- You only discovered %d files. Use broader search patterns to find at least %d.\n", len(discovered), minDisc)
+				if totalDiscovered < minDisc {
+					fmt.Fprintf(&gate, "- You only discovered %d files. Use broader search patterns to find at least %d.\n", totalDiscovered, minDisc)
 				}
 				return LoopSignal{
 					HintRequested: true,
