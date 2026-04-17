@@ -50,6 +50,10 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 				"type": "string",
 				"enum": ["high", "medium"],
 				"description": "Your confidence that the collected evidence is sufficient. 'low' is not accepted — continue investigating instead."
+			},
+			"absence_justification": {
+				"type": "string",
+				"description": "OPTIONAL. Set this ONLY when the answer is an honest 'zero' / 'no X' / 'nothing found' that has no file:line to cite (e.g. 'how many .py files?' answered 0, 'does handler X exist?' answered no). A single short sentence explaining why the answer is genuinely empty. Leave unset for every non-absence answer. This is a declarative claim, not a system override: the framework still audits that at least one investigation-class tool (grep / exec_command / list_files / read_file / repo_map) ran successfully before accepting the waiver."
 			}
 		},
 		"required": ["reason", "confidence"]
@@ -57,8 +61,9 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 }
 
 type emitInvestigationCompleteParams struct {
-	Reason     string `json:"reason"`
-	Confidence string `json:"confidence"`
+	Reason               string `json:"reason"`
+	Confidence           string `json:"confidence"`
+	AbsenceJustification string `json:"absence_justification,omitempty"`
 }
 
 func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -125,9 +130,20 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 
 	ctx.Mutable.SetInvestigationComplete(reason)
 
+	// Declarative absence claim. Stored on Mutable so the orchestrator
+	// can waive citation-floor gates for honest-zero answers. The
+	// audit (hasAnyInvestigationSuccess) still runs — an LLM cannot
+	// escape by declaring absence with zero tool work.
+	justification := strings.TrimSpace(p.AbsenceJustification)
+	summary := fmt.Sprintf("Investigation marked complete (confidence=%s): %s", conf, reason)
+	if justification != "" {
+		ctx.Mutable.SetAbsenceJustification(justification)
+		summary += fmt.Sprintf(" | absence_justification: %s", justification)
+	}
+
 	return types.ToolResult{
 		ToolName:  t.Name(),
-		Summary:   fmt.Sprintf("Investigation marked complete (confidence=%s): %s", conf, reason),
+		Summary:   summary,
 		Success:   true,
 		Timestamp: time.Now(),
 	}, nil

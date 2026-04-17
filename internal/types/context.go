@@ -114,6 +114,17 @@ type MutableState struct {
 	investigationComplete       bool
 	investigationCompleteReason string
 
+	// absenceJustification is the LLM's declarative claim that the
+	// answer is an honest "zero" / "no X" and therefore has no
+	// file:line to cite. Set via emit_investigation_complete's
+	// optional absence_justification parameter. Stored on Mutable so
+	// the orchestrator's isJustifiedAbsenceAnswer can treat the
+	// answer as absence for citation-waiver purposes even when the
+	// finalizer chose an explanation shape instead of a literal 0 /
+	// false / [] shape. Declarative, not command: the audit
+	// (hasInvestigationEvidence ≥1 investigation tool) still runs.
+	absenceJustification string
+
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
 	// it before every tool dispatch (BudgetRemaining / RecordToolCall)
@@ -785,6 +796,30 @@ func (m *MutableState) ResetInvestigationComplete() {
 	defer m.mu.Unlock()
 	m.investigationComplete = false
 	m.investigationCompleteReason = ""
+	m.absenceJustification = ""
+}
+
+// SetAbsenceJustification stores the LLM's declarative claim that
+// the answer is a justified zero. See the absenceJustification field
+// doc for the contract.
+func (m *MutableState) SetAbsenceJustification(just string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.absenceJustification = just
+}
+
+// AbsenceJustification returns the LLM-declared zero rationale.
+// Empty when not set.
+func (m *MutableState) AbsenceJustification() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.absenceJustification
 }
 
 // SetExploreBudget installs a fresh ExploreBudget for the current

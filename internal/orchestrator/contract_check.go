@@ -82,10 +82,50 @@ func isJustifiedAbsenceAnswer(mut *types.MutableState) bool {
 		return false
 	}
 	doc := mut.AnswerDocument()
+	// Declarative path — the LLM called emit_investigation_complete
+	// with an absence_justification saying "this is an honest zero
+	// with nothing to cite." We trust the claim but still audit that
+	// the explorer ran at least one investigation-class tool; a zero-
+	// tool "I didn't look and declared absence" run is rejected.
+	// This rescues explanation-shape absence answers (e.g. a prose
+	// sentence "There are no Python files in this repo") whose
+	// structural shape would otherwise fail isAbsenceShape and make
+	// the citation-floor gate fire with no possible repair.
+	if strings.TrimSpace(mut.AbsenceJustification()) != "" {
+		return hasAnyInvestigationSuccess(mut)
+	}
+	// Structural path — the finalized document's shape itself reads
+	// as zero (empty symbols + complete, literal "0"/"none"/"zero",
+	// boolean=false). Audit depth is shape-tiered: shallow shapes
+	// accept any one investigation tool; deep shapes require a real
+	// content read.
 	if !isAbsenceShape(doc) {
 		return false
 	}
 	return hasInvestigationEvidence(mut, doc)
+}
+
+// hasAnyInvestigationSuccess reports whether Turn A succeeded in at
+// least one investigation-class tool call. This is the audit floor
+// for the declarative absence path — the LLM's "this is zero" claim
+// is not credible when the investigation is entirely empty.
+func hasAnyInvestigationSuccess(mut *types.MutableState) bool {
+	if mut == nil {
+		return false
+	}
+	ta := mut.TurnAArtifacts()
+	if ta == nil {
+		return false
+	}
+	for _, r := range ta.ToolResults {
+		if !r.Success {
+			continue
+		}
+		if investigationToolKinds[r.ToolName] {
+			return true
+		}
+	}
+	return false
 }
 
 func isAbsenceShape(doc *types.AnswerDocument) bool {

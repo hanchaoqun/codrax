@@ -20,6 +20,7 @@ func RegisterDefaults(r *Registry) {
 			"cross-reference: when file A references file B, read file B too — don't assume, verify",
 			"never read test files — they are derivative, not authoritative. Never read utility/infrastructure files unless the question is about them",
 			"COMPLETION: when you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence) to signal the system. Do NOT stop without calling this tool — the system uses it to know you are done. If your confidence is not at least 'medium', continue investigating.",
+			"ABSENCE ANSWERS: if the answer is an honest 'zero' / 'no X' / 'nothing found' (e.g. 'how many .py files?' → 0, 'does handler X exist?' → no), add absence_justification to emit_investigation_complete with a one-sentence explanation. The framework requires citations by default, but an honest-zero answer has nothing to cite — the declaration waives the citation floor. You still must have run at least one real investigation tool (grep / exec_command / list_files / read_file / repo_map); an empty investigation cannot declare absence.",
 		},
 		ToolSuggestions: []string{
 			"repo_map",
