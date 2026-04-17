@@ -229,7 +229,14 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 		return nil
 	}
 
-	objective := o.busCtx.Mutable.Objective()
+	// Strip the REPL conversation prefix before handing the objective
+	// to the renderer. Mutable.Objective() carries the full
+	// "## Prior conversation\n...\n## Current request\n<user text>"
+	// blob in REPL mode; rendering that verbatim as the header line
+	// replaced every clean sub-topic row with the whole prior-turn
+	// memory dump the moment runTaskPhase ran. In single-shot mode
+	// the strip is a no-op.
+	objective := types.StripConversationPrefix(o.busCtx.Mutable.Objective())
 	o.emit(render.Event{
 		Kind:      render.EventObjectiveStarted,
 		Timestamp: time.Now(),
