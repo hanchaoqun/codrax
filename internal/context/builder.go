@@ -357,6 +357,46 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	// Raw Tool Outputs from Turn A. The extractor and finalizer otherwise
+	// only see structured evidence (emit_evidence items + deterministic
+	// concrete_value scans) and never lay eyes on the explorer's raw
+	// tool results — so a scalar produced by a one-shot command (
+	// `find ... | xargs wc -l`, `grep -c`, `list_files` with 200 hits)
+	// cannot travel to Turn B unless the LLM thought to call
+	// emit_evidence for it. But emit_evidence's schema requires
+	// source + line_start + anchor_kind, which a command-level scalar
+	// doesn't have — physically impossible to emit. Surface the raw
+	// summaries here so the finalizer can pull the literal directly.
+	//
+	// NARROW SCOPE — measurement-scalar questions only. We gate on
+	// AnswerContract.RequiredAnswerShape == ShapeValue AND
+	// CitationReq.Required == false; that pair is set EXCLUSIVELY by
+	// the measurement-scalar carve-out in analyzer.buildAnalysisIR on
+	// "how many X / 统计 / size of Y" questions. For every other
+	// question shape (explanation / step_list / list_of_symbols /
+	// boolean / config_value / value with file:line-citable returns)
+	// the section stays hidden — otherwise the finalizer would quote
+	// raw read_file dumps instead of the curated Structured Evidence
+	// section, and explain-class answers would degrade.
+	//
+	// Explorer-only source: reading TurnAArtifacts.ToolResults scopes
+	// the section to the explore stage's work and excludes the
+	// analyzer's pre-scan noise.
+	//
+	// Stage-gated: only extractor + finalizer see this section.
+	// Explorer has the raw results inline in its own ReAct transcript;
+	// analyzer never reaches this block.
+	if shouldRenderRawToolOutputs(ac) {
+		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && len(ta.ToolResults) > 0 {
+			if rendered := formatRawToolOutputs(ta.ToolResults); rendered != "" {
+				pc.UserSections = append(pc.UserSections, types.PromptSection{
+					Title:   "Raw Tool Outputs from Turn A",
+					Content: rendered,
+				})
+			}
+		}
+	}
+
 	// Extract-skill trim (Turn B noise reduction). See isExtractorSkill
 	// for the rationale: the extractor has no investigation tools,
 	// raw tool-result dumps are inert, and the full evidence list
@@ -911,6 +951,153 @@ func formatFlowFindings(findings []types.FlowFindingDigest, limit int) string {
 		fmt.Fprintf(&b, "... and %d more dataflow findings\n", len(findings)-limit)
 	}
 	return strings.TrimSpace(b.String())
+}
+
+// shouldRenderRawToolOutputs gates the Raw Tool Outputs section to
+// measurement-scalar questions only. The discriminator mirrors the
+// upstream carve-out in analyzer.buildAnalysisIR: ShapeValue +
+// CitationReq.Required == false is the exact pair that carve-out
+// sets, and no other code path sets it. Using the IR state as the
+// gate keeps the rule 1:1 with its producer — there is no prefix
+// regex duplication and no risk of drift.
+//
+// All three conditions must hold:
+//
+//   - Stage is extract OR finalize. Explorer has raw results in its
+//     own transcript; analyzer never reaches this section.
+//   - Mutable + AnalysisIR + AnswerContract are populated. Legacy
+//     test paths (nil Mutable, nil IR) fall through cleanly.
+//   - AnswerContract.RequiredAnswerShape == ShapeValue AND
+//     CitationReq.Required == false. Other shapes (explanation,
+//     step_list, list_of_symbols, boolean, config_value, value-with-
+//     citation) are untouched so the finalizer's citation-grounded
+//     answer construction for deep-investigation questions stays
+//     exactly as it was.
+func shouldRenderRawToolOutputs(ac *types.AgentContext) bool {
+	if ac.Stage != types.StageExtract && ac.Stage != types.StageFinalize {
+		return false
+	}
+	if ac.Mutable == nil {
+		return false
+	}
+	if ac.AnalysisIR == nil {
+		return false
+	}
+	c := ac.AnalysisIR.AnswerContract
+	if c.RequiredAnswerShape != types.ShapeValue {
+		return false
+	}
+	if c.CitationReq.Required {
+		return false
+	}
+	return true
+}
+
+// Raw Tool Outputs rendering — size knobs.
+//
+// The per-tool head+tail pair is deliberately asymmetric: the head is
+// large enough to show the start of a typical exec_command listing
+// (20+ lines), and the tail is **always** preserved (never truncated
+// away) because shell tools that summarise put the summary at the
+// END — `wc -l`'s `NNNN total`, `grep -c`'s count, `ls -l | wc -l`,
+// `find ... | wc -l`. Clipping the tail was exactly how the 73396
+// regression lost its answer. Absolute total cap bounds the prompt
+// inflation across all tool calls in one dispatch.
+const (
+	rawToolOutputPerCallHeadBytes = 800
+	rawToolOutputPerCallTailBytes = 400
+	rawToolOutputTotalCapBytes    = 4000
+)
+
+// rawToolOutputSkipTools is the set of tool names whose results are
+// ALREADY rendered in other sections and would just duplicate signal
+// if surfaced in Raw Tool Outputs. emit_* tools are explicit structured
+// channels (evidence, answer symbols, hypothesis verdicts, answer
+// document); their raw Summary is a confirmation echo, not new
+// information. repo_map's raw output is a structural digest already
+// covered by the Investigation Summary.
+var rawToolOutputSkipTools = map[string]bool{
+	"emit_evidence":                true,
+	"emit_investigation_complete":  true,
+	"emit_answer_symbol":           true,
+	"emit_hypothesis_verdict":      true,
+	"emit_answer_document":         true,
+	"emit_analysis":                true,
+	"propose_sub_agents":           true,
+	"repo_map":                     true,
+}
+
+// rawToolOutputPreamble instructs the finalizer on how to consume the
+// tool outputs: they are scalar-bearing references, NOT entries in the
+// emit_answer_document.citations[] pool. Without this line the LLM
+// tries to cite "tool:exec_command" as a file — rejected by the
+// path validator — then gets stuck in a retry loop that never produces
+// a valid document. For measurement-scalar questions (shape=value +
+// no citation floor) citation_ref=-1 on the value is the correct
+// answer.
+const rawToolOutputPreamble = "These are the raw outputs of commands the explorer ran in Turn A. " +
+	"Use them as the source of TRUTH for scalar answers (counts, totals, sizes, version numbers). " +
+	"These tool outputs are NOT repo files — they MUST NOT appear in citations[]. " +
+	"For a measurement-scalar answer (shape=value, no citation floor) emit value{literal, citation_ref:-1} " +
+	"with the scalar taken directly from the tool output tail; -1 is the correct choice because the " +
+	"answer is a command-level measurement with no file:line anchor.\n\n"
+
+// formatRawToolOutputs renders the successful subset of Turn A's tool
+// results as a bulleted section. Each call shows head + (mid-trim
+// marker) + tail so a long `wc -l` listing still ends with its
+// `NNNN total` line. Stops appending once the cumulative rendered
+// size crosses rawToolOutputTotalCapBytes; a trailing "... (N more
+// tool calls omitted)" line flags the cap so the LLM knows the
+// section is not exhaustive.
+func formatRawToolOutputs(results []types.ToolResult) string {
+	var b strings.Builder
+	rendered := 0
+	for i, r := range results {
+		if !r.Success {
+			continue
+		}
+		if rawToolOutputSkipTools[r.ToolName] {
+			continue
+		}
+		summary := strings.TrimSpace(r.Summary)
+		if summary == "" {
+			continue
+		}
+		chunk := formatRawToolSummary(r.ToolName, summary)
+		if b.Len()+len(chunk) > rawToolOutputTotalCapBytes {
+			remaining := 0
+			for j := i; j < len(results); j++ {
+				if results[j].Success && !rawToolOutputSkipTools[results[j].ToolName] {
+					remaining++
+				}
+			}
+			if remaining > 0 {
+				fmt.Fprintf(&b, "- ... (%d more tool call(s) omitted to bound prompt size)\n", remaining)
+			}
+			break
+		}
+		b.WriteString(chunk)
+		rendered++
+	}
+	if rendered == 0 {
+		return ""
+	}
+	return rawToolOutputPreamble + strings.TrimRight(b.String(), "\n")
+}
+
+// formatRawToolSummary renders one ToolResult.Summary with a bounded
+// head + tail preview. The tail is always preserved because shell
+// tools put their summarising scalar at the END of output.
+func formatRawToolSummary(toolName, summary string) string {
+	head := rawToolOutputPerCallHeadBytes
+	tail := rawToolOutputPerCallTailBytes
+	var body string
+	if len(summary) <= head+tail {
+		body = summary
+	} else {
+		body = summary[:head] + "\n...[trimmed " + fmt.Sprint(len(summary)-head-tail) + " bytes]...\n" + summary[len(summary)-tail:]
+	}
+	return fmt.Sprintf("- **%s** (%d bytes):\n```\n%s\n```\n", toolName, len(summary), body)
 }
 
 func extractToolSummaries(results []types.ToolResult) []string {

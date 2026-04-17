@@ -1,6 +1,7 @@
 package context
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -1278,5 +1279,215 @@ func TestReasoningHygiene_EveryStageProducesNonEmpty(t *testing.T) {
 				t.Errorf("%s produced empty hygiene", c.name)
 			}
 		})
+	}
+}
+
+// measurementScalarIR builds a minimal AnalysisIR with the exact
+// AnswerContract state that analyzer.buildAnalysisIR's measurement-
+// scalar carve-out sets: ShapeValue + CitationReq disabled. Used by
+// the Raw Tool Outputs tests to mirror upstream state without pulling
+// in the full analyzer build pipeline.
+func measurementScalarIR() *types.AnalysisIR {
+	return &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeValue,
+			CitationReq:         types.CitationReq{Required: false, MinCitations: 0},
+		},
+	}
+}
+
+// explanationIR is the negative-control IR: ShapeExplanation + a
+// normal citation floor. Raw Tool Outputs must NEVER render for this
+// shape — the finalizer must rely on structured evidence, not on raw
+// tool dumps that would pollute explain-class answers.
+func explanationIR() *types.AnalysisIR {
+	return &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			CitationReq:         types.CitationReq{Required: true, MinCitations: 3, Granularity: "file_line"},
+		},
+	}
+}
+
+// TestShouldRenderRawToolOutputs_Gate covers all discriminator paths
+// so a future change to the measurement-scalar carve-out (or an
+// accidental widening of CitationReq semantics) is caught as a
+// regression rather than a silent behaviour drift.
+func TestShouldRenderRawToolOutputs_Gate(t *testing.T) {
+	mu := types.NewMutableState("q")
+	cases := []struct {
+		name string
+		ctx  *types.AgentContext
+		want bool
+	}{
+		{"extract + measurement-scalar IR renders",
+			&types.AgentContext{Stage: types.StageExtract, Mutable: mu, AnalysisIR: measurementScalarIR()}, true},
+		{"finalize + measurement-scalar IR renders",
+			&types.AgentContext{Stage: types.StageFinalize, Mutable: mu, AnalysisIR: measurementScalarIR()}, true},
+		{"explore stage never renders",
+			&types.AgentContext{Stage: types.StageExplore, Mutable: mu, AnalysisIR: measurementScalarIR()}, false},
+		{"analyze stage never renders",
+			&types.AgentContext{Stage: types.StageAnalyze, Mutable: mu, AnalysisIR: measurementScalarIR()}, false},
+		{"explanation IR never renders (deep-investigation path)",
+			&types.AgentContext{Stage: types.StageFinalize, Mutable: mu, AnalysisIR: explanationIR()}, false},
+		{"value shape with citation still required does not render",
+			&types.AgentContext{Stage: types.StageFinalize, Mutable: mu, AnalysisIR: &types.AnalysisIR{
+				AnswerContract: types.AnswerContract{
+					RequiredAnswerShape: types.ShapeValue,
+					CitationReq:         types.CitationReq{Required: true, MinCitations: 1},
+				},
+			}}, false},
+		{"nil Mutable never renders",
+			&types.AgentContext{Stage: types.StageFinalize, Mutable: nil, AnalysisIR: measurementScalarIR()}, false},
+		{"nil AnalysisIR never renders",
+			&types.AgentContext{Stage: types.StageFinalize, Mutable: mu, AnalysisIR: nil}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := shouldRenderRawToolOutputs(c.ctx); got != c.want {
+				t.Errorf("shouldRenderRawToolOutputs = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// TestFormatRawToolOutputs_PreservesTailForScalar is the load-bearing
+// assertion: when `wc -l` ends with a "NNNN total" line at the BOTTOM
+// of a long output, the preserved tail must include it. Regressing
+// this loses the entire point of the Raw Tool Outputs section.
+func TestFormatRawToolOutputs_PreservesTailForScalar(t *testing.T) {
+	// 5000 bytes of per-file counts + the total marker at the end.
+	var long strings.Builder
+	for i := 0; i < 180; i++ {
+		fmt.Fprintf(&long, "    %3d ./internal/pkg%03d/file.go\n", i*20, i)
+	}
+	long.WriteString("  73396 total\n")
+
+	got := formatRawToolOutputs([]types.ToolResult{
+		{ToolName: "exec_command", Success: true, Summary: long.String()},
+	})
+	if got == "" {
+		t.Fatal("rendered empty section")
+	}
+	if !strings.Contains(got, "73396 total") {
+		t.Errorf("rendered section missing the tail 'total' marker — tail trim broke:\n%s", got)
+	}
+	if !strings.Contains(got, "exec_command") {
+		t.Errorf("rendered section missing tool name header:\n%s", got)
+	}
+	if !strings.Contains(got, "trimmed") {
+		t.Errorf("long output should carry a trimmed marker:\n%s", got)
+	}
+}
+
+// TestFormatRawToolOutputs_SkipsEmitTools verifies that emit_* tool
+// results are never rendered — they duplicate signal already present
+// in structured channels (Evidence / Answer Symbols / Hypothesis
+// Verdicts / Answer Document).
+func TestFormatRawToolOutputs_SkipsEmitTools(t *testing.T) {
+	results := []types.ToolResult{
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 item(s)"},
+		{ToolName: "emit_answer_symbol", Success: true, Summary: "emit_answer_symbol accepted 5 item(s)"},
+		{ToolName: "emit_hypothesis_verdict", Success: true, Summary: "verdicts applied"},
+		{ToolName: "emit_answer_document", Success: true, Summary: "answer document stored"},
+		{ToolName: "emit_investigation_complete", Success: true, Summary: "complete"},
+		{ToolName: "emit_analysis", Success: true, Summary: "analysis emitted"},
+		{ToolName: "repo_map", Success: true, Summary: "repo_map: 230 files indexed"},
+	}
+	got := formatRawToolOutputs(results)
+	if got != "" {
+		t.Errorf("section should be empty when only emit_* + repo_map results exist, got:\n%s", got)
+	}
+}
+
+// TestFormatRawToolOutputs_SkipsFailedResults prevents error noise
+// from flooding the section. Failed tool calls are usually retried
+// with a different invocation; their error Summary is not a scalar
+// the finalizer should quote.
+func TestFormatRawToolOutputs_SkipsFailedResults(t *testing.T) {
+	got := formatRawToolOutputs([]types.ToolResult{
+		{ToolName: "exec_command", Success: false, Summary: "command failed: exit 1"},
+	})
+	if got != "" {
+		t.Errorf("failed tool results should be skipped, got:\n%s", got)
+	}
+}
+
+// TestFormatRawToolOutputs_TotalCapWithMarker verifies the total-bytes
+// cap engages and the trailing "... more omitted" marker appears when
+// the section would otherwise balloon the prompt.
+func TestFormatRawToolOutputs_TotalCapWithMarker(t *testing.T) {
+	// Build 10 successful tool results each large enough that two fit
+	// in ~1.5KB rendered, so the total cap (rawToolOutputTotalCapBytes
+	// = 4000) trips well before all 10 render.
+	results := make([]types.ToolResult, 0, 10)
+	for i := 0; i < 10; i++ {
+		results = append(results, types.ToolResult{
+			ToolName: "exec_command",
+			Success:  true,
+			// 1500 bytes: above per-call head (800) + tail (400) + the
+			// fmt envelope ("- **exec_command** ..."); so each rendered
+			// chunk is ~1300 bytes.
+			Summary: strings.Repeat("output line\n", 200),
+		})
+	}
+	got := formatRawToolOutputs(results)
+	if !strings.Contains(got, "more tool call(s) omitted") {
+		t.Errorf("total cap marker missing when many huge results present:\n%s", got)
+	}
+	if len(got) > 2*rawToolOutputTotalCapBytes {
+		t.Errorf("rendered section %d bytes, should be bounded near cap %d", len(got), rawToolOutputTotalCapBytes)
+	}
+}
+
+// TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar is
+// the end-to-end gate: for a count question IR, the Raw Tool Outputs
+// section appears in the finalizer's prompt with the scalar tail
+// visible.
+func TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar(t *testing.T) {
+	mu := types.NewMutableState("how many .go files")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			{ToolName: "exec_command", Success: true, Summary: "   891 ./cmd/root.go\n   491 ./main.go\n  73396 total\n"},
+		},
+	})
+	ac := &types.AgentContext{
+		AgentName:  types.AgentFinalizer,
+		Stage:      types.StageFinalize,
+		Objective:  "how many .go files",
+		Mutable:    mu,
+		AnalysisIR: measurementScalarIR(),
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "answer-document-skill"})
+	sec := findSectionTitle(pc, "Raw Tool Outputs from Turn A")
+	if sec == nil {
+		t.Fatal("expected Raw Tool Outputs section to be present for measurement-scalar IR")
+	}
+	if !strings.Contains(sec.Content, "73396 total") {
+		t.Errorf("section missing the scalar tail:\n%s", sec.Content)
+	}
+}
+
+// TestBuildPromptContext_RawToolOutputs_SkippedForExplanationShape is
+// the negative regression — the section must NOT appear for deep-
+// investigation (explain-class) questions, or the finalizer will
+// quote raw file dumps instead of the curated Structured Evidence.
+func TestBuildPromptContext_RawToolOutputs_SkippedForExplanationShape(t *testing.T) {
+	mu := types.NewMutableState("explain the analyzer pipeline")
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ToolResults: []types.ToolResult{
+			{ToolName: "exec_command", Success: true, Summary: "should never appear"},
+		},
+	})
+	ac := &types.AgentContext{
+		AgentName:  types.AgentFinalizer,
+		Stage:      types.StageFinalize,
+		Objective:  "explain the analyzer pipeline",
+		Mutable:    mu,
+		AnalysisIR: explanationIR(),
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "answer-document-skill"})
+	if findSectionTitle(pc, "Raw Tool Outputs from Turn A") != nil {
+		t.Error("Raw Tool Outputs must NOT render for explanation-shape questions")
 	}
 }
