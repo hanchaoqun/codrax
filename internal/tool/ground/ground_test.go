@@ -210,6 +210,115 @@ func TestGroundItem_SnippetFuzzyRecovery(t *testing.T) {
 	}
 }
 
+// TestGroundCitation_GutterHitQuoteMatches is the strongest happy
+// path: the file was read, the line is in the gutter, the Quote
+// tokens overlap with the line text → Valid + QuoteMatched.
+func TestGroundCitation_GutterHitQuoteMatches(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("a.go", 10, []string{
+			"func MyFunction() int {",
+			"\treturn 42",
+			"}",
+		}, 3),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history)}
+	c := types.Citation{File: "a.go", Line: 10, Quote: "func MyFunction() int"}
+	r := GroundCitation(c, gc)
+	if !r.Valid {
+		t.Fatalf("valid: %v (reason=%q)", r.Valid, r.Reason)
+	}
+	if !r.QuoteMatched {
+		t.Errorf("quote should be corroborated: %+v", r)
+	}
+}
+
+// TestGroundCitation_GutterHitQuoteFabricated catches the primary
+// bug motivating this change: the file:line is real but the Quote is
+// prose the LLM wrote, not text from the cited line. Valid stays
+// true (the anchor is usable) but QuoteMatched is false so the
+// caller clears it.
+func TestGroundCitation_GutterHitQuoteFabricated(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("a.go", 10, []string{
+			"func MyFunction() int {",
+		}, 1),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history)}
+	c := types.Citation{
+		File: "a.go", Line: 10,
+		Quote: "stated that the module is used for creating navigation indexes",
+	}
+	r := GroundCitation(c, gc)
+	if !r.Valid {
+		t.Fatalf("file:line is real, must be Valid: %+v", r)
+	}
+	if r.QuoteMatched {
+		t.Errorf("prose quote should NOT corroborate; got QuoteMatched=true")
+	}
+}
+
+// TestGroundCitation_FileAbsentEverywhere is the drop path: file not
+// in gutter and not in graph. Valid=false with a reason the LLM can
+// read and fix on the next turn.
+func TestGroundCitation_FileAbsentEverywhere(t *testing.T) {
+	gc := &Context{LineIndex: map[string]map[int]string{"b.go": {1: "pkg foo"}}}
+	c := types.Citation{File: "nowhere.go", Line: 42}
+	r := GroundCitation(c, gc)
+	if r.Valid {
+		t.Fatalf("absent file must not be Valid: %+v", r)
+	}
+	if r.Reason == "" {
+		t.Errorf("Valid=false must carry a Reason so the LLM knows what to fix")
+	}
+}
+
+// TestGroundCitation_GraphFallbackAcceptsAnyLineInIndexedFile covers
+// the Tier 2 fallback: the file is indexed by repomap (so we know
+// it's a real source file in this repo), the cited line is accepted
+// even when it falls outside every symbol range. This is the
+// package-doc / import / top-level-const case that matters for real
+// code — requiring symbol-range coverage rejected every `facade.go:1`
+// cite in the first REPL run.
+func TestGroundCitation_GraphFallbackAcceptsAnyLineInIndexedFile(t *testing.T) {
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"a.go": {RelPath: "a.go", Symbols: []repomap.Symbol{
+				{Name: "Foo", Kind: "function", Line: 10, EndLine: 30},
+			}},
+		},
+	}
+	gc := &Context{Graph: graph}
+	// Line 1 (package doc comment) — outside every symbol range but
+	// file is indexed → Valid.
+	r1 := GroundCitation(types.Citation{File: "a.go", Line: 1, Quote: "// Package foo"}, gc)
+	if !r1.Valid {
+		t.Errorf("line 1 in indexed file must be Valid (package doc): %+v", r1)
+	}
+	if r1.QuoteMatched {
+		t.Errorf("Tier 2 cannot corroborate quotes without the gutter; QuoteMatched must be false")
+	}
+	// Line 20 inside Foo — still valid.
+	r2 := GroundCitation(types.Citation{File: "a.go", Line: 20}, gc)
+	if !r2.Valid {
+		t.Errorf("line 20 (inside symbol) must be Valid: %+v", r2)
+	}
+}
+
+// TestGroundCitation_EmptyContextSkipsGrounding locks the unit-test
+// backdoor: when the context carries no ground-truth sources, the
+// grounder returns Valid=true without looking. Required so tests
+// that don't bother constructing a read_file history still exercise
+// the downstream citation-handling paths.
+func TestGroundCitation_EmptyContextSkipsGrounding(t *testing.T) {
+	c := types.Citation{File: "a.go", Line: 1, Quote: "whatever"}
+	if r := GroundCitation(c, nil); !r.Valid {
+		t.Errorf("nil context must skip grounding, got %+v", r)
+	}
+	if r := GroundCitation(c, &Context{}); !r.Valid {
+		t.Errorf("empty context must skip grounding, got %+v", r)
+	}
+}
+
 // TestSplitConversation via GroundItem is implicit — just a smoke
 // test that TierLineText's lineCorroborates fallback works when
 // AnchorSymbol is empty (legacy concrete_value items from

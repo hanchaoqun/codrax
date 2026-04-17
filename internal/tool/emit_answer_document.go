@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -313,11 +314,21 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
-	citations, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir)
+	// Grounding context: read_file gutter index + repomap graph from
+	// Mutable.SearchGraph. Citations that fail grounding are either
+	// dropped (file:line not in any source of truth) or keep the
+	// anchor but have their Quote cleared (file:line exists but the
+	// quote is not corroborated by the line text).
+	groundCtx := ground.BuildContext(ctx)
+	citations, citationRemap, citationWarnings, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx)
 	if cerr != nil {
 		return failEmit(t.Name(), now, "%v", cerr)
 	}
+	applyCitationRemap(&p, citationRemap)
 	numCites := len(citations)
+	if dropped := countDroppedCitations(citationRemap); dropped > 0 || len(citationWarnings) > 0 {
+		logging.Warning("[emit_answer_document] citation grounding: kept=%d dropped=%d warnings=%d", numCites, dropped, len(citationWarnings))
+	}
 
 	doc := &types.AnswerDocument{
 		Shape:     shape,
@@ -413,9 +424,23 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   renderEmitAnswerDocumentSummary(doc),
+		Summary:   renderEmitAnswerDocumentSummary(doc, citationWarnings),
 		Timestamp: now,
 	}, nil
+}
+
+// countDroppedCitations returns the number of -1 entries in a
+// citation remap — i.e. the count of citations that failed grounding
+// and were pulled from the pool. Zero when every citation grounded
+// successfully.
+func countDroppedCitations(remap []int) int {
+	n := 0
+	for _, r := range remap {
+		if r < 0 {
+			n++
+		}
+	}
+	return n
 }
 
 // forbidBitset marks which AnswerDocument payload fields must be
@@ -501,31 +526,114 @@ func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int)
 	}, nil
 }
 
-func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string) ([]types.Citation, error) {
+// buildEmitAnswerDocumentCitations validates every incoming citation
+// and runs the grounder against the current BusContext. Three-way
+// outcome per citation:
+//
+//   Valid + QuoteMatched  → kept as-is.
+//   Valid + !QuoteMatched → kept with Quote cleared (prevents a
+//                           fabricated excerpt from reaching the user
+//                           while preserving the real file:line anchor).
+//   !Valid                → dropped from the pool; any downstream
+//                           CitationRef that pointed at it is remapped
+//                           to CitationRefUnset (-1) by the caller.
+//
+// Returns (kept, remap, warnings, err):
+//   - kept:  the surviving citations in the new pool (may be shorter
+//            than `in` if some were dropped).
+//   - remap: old-index → new-index, or -1 for dropped entries. Always
+//            len(remap) == len(in) so callers can mapRef() safely.
+//   - warnings: per-citation messages surfaced in the tool Summary so
+//            the LLM can correct on the next turn.
+//   - err:   only set on a STRUCTURAL error (empty file, bad path,
+//            line <= 0, quote too long, blob-leak) that should
+//            reject the whole call; grounding failures never return
+//            err — they are surfaced via drop/clear + warnings.
+func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *ground.Context) ([]types.Citation, []int, []string, error) {
 	if len(in) == 0 {
-		return nil, nil
+		return nil, nil, nil, nil
 	}
+	kept := make([]types.Citation, 0, len(in))
+	remap := make([]int, len(in))
+	var warnings []string
 	for i := range in {
-		c := &in[i]
+		c := in[i]
 		c.File = strings.TrimSpace(c.File)
 		if c.File == "" {
-			return nil, fmt.Errorf("citations[%d]: file is required", i)
+			return nil, nil, nil, fmt.Errorf("citations[%d]: file is required", i)
 		}
 		if !emitLooksLikePath(c.File) {
-			return nil, fmt.Errorf("citations[%d]: file %q does not look like a repo-relative file path", i, c.File)
+			return nil, nil, nil, fmt.Errorf("citations[%d]: file %q does not look like a repo-relative file path", i, c.File)
 		}
 		if isInsideWorkDir(c.File, workDir) {
-			return nil, fmt.Errorf("citations[%d]: file %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file", i, c.File, workDir)
+			return nil, nil, nil, fmt.Errorf("citations[%d]: file %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file", i, c.File, workDir)
 		}
 		if c.Line <= 0 {
-			return nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
+			return nil, nil, nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
 		}
 		c.Quote = strings.TrimSpace(c.Quote)
 		if len(c.Quote) > types.CitationMaxQuoteChars {
-			return nil, fmt.Errorf("citations[%d]: quote length %d exceeds cap %d", i, len(c.Quote), types.CitationMaxQuoteChars)
+			return nil, nil, nil, fmt.Errorf("citations[%d]: quote length %d exceeds cap %d", i, len(c.Quote), types.CitationMaxQuoteChars)
 		}
+
+		// Grounding — pure function, never returns err.
+		rep := ground.GroundCitation(c, gc)
+		if !rep.Valid {
+			warnings = append(warnings,
+				fmt.Sprintf("citations[%d] dropped (%s:%d): %s", i, c.File, c.Line, rep.Reason))
+			remap[i] = types.CitationRefUnset
+			continue
+		}
+		if c.Quote != "" && !rep.QuoteMatched {
+			warnings = append(warnings,
+				fmt.Sprintf("citations[%d] quote cleared (%s:%d) — Quote tokens do not corroborate the cited line", i, c.File, c.Line))
+			c.Quote = ""
+		}
+		remap[i] = len(kept)
+		kept = append(kept, c)
 	}
-	return in, nil
+	return kept, remap, warnings, nil
+}
+
+// applyCitationRemap rewrites every CitationRef in p.Steps, p.Value,
+// p.Boolean according to the old-index → new-index map returned by
+// buildEmitAnswerDocumentCitations. A remap entry of -1 means the
+// citation was dropped; the corresponding ref is set to
+// CitationRefUnset so the renderer treats it as "no citation" rather
+// than pointing at a different (shifted) pool entry.
+//
+// emit_answer_symbol's symbols[] carry their own File/Line and do NOT
+// use CitationRef into this pool, so they are left alone.
+func applyCitationRemap(p *emitAnswerDocumentParams, remap []int) {
+	if len(remap) == 0 {
+		return
+	}
+	mapRef := func(ref int) int {
+		if ref == types.CitationRefUnset {
+			return ref
+		}
+		// Structural range errors (negative refs other than -1, or
+		// refs pointing past the ORIGINAL citations slice) are left
+		// intact so validateCitationRef downstream can reject them
+		// with the canonical "out of range" message. We only rewrite
+		// refs whose target exists but was dropped by the grounder.
+		if ref < 0 || ref >= len(remap) {
+			return ref
+		}
+		if remap[ref] < 0 {
+			return types.CitationRefUnset
+		}
+		return remap[ref]
+	}
+	for i := range p.Steps {
+		p.Steps[i].CitationRef = mapRef(p.Steps[i].CitationRef)
+	}
+	if p.Value != nil {
+		p.Value.CitationRef = mapRef(p.Value.CitationRef)
+	}
+	if p.Boolean != nil {
+		p.Boolean.CitationRef = mapRef(p.Boolean.CitationRef)
+	}
 }
 
 // validateCitationRef checks that ref is either CitationRefUnset (-1)
@@ -546,7 +654,7 @@ func validateCitationRef(field string, index int, ref int, numCites int) error {
 	return nil
 }
 
-func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument) string {
+func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument, citationWarnings []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "emit_answer_document accepted: shape=%s citations=%d", doc.Shape, len(doc.Citations))
 	switch doc.Shape {
@@ -567,6 +675,17 @@ func renderEmitAnswerDocumentSummary(doc *types.AnswerDocument) string {
 	}
 	if len(doc.Caveats) > 0 {
 		fmt.Fprintf(&b, " caveats=%d", len(doc.Caveats))
+	}
+	// Citation grounding feedback. Surfaced in the tool Summary so
+	// the LLM (and eval harness) sees which citations were filtered
+	// out and why. When the LLM's next turn is the finalizer retry,
+	// it can pick different file:line anchors rather than guessing.
+	if len(citationWarnings) > 0 {
+		b.WriteString("\n\nCitation grounding:")
+		for _, w := range citationWarnings {
+			b.WriteString("\n  - ")
+			b.WriteString(w)
+		}
 	}
 	return b.String()
 }

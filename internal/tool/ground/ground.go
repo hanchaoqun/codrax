@@ -206,6 +206,123 @@ func describeRecovery(tier types.GroundingTier, original, adjusted int) string {
 	return fmt.Sprintf("recovered via %s (LLM claimed line %d, adjusted to %d)", tier, original, adjusted)
 }
 
+// ── Citation grounding (emit_answer_document) ───────────────────────
+//
+// Citations are a leaner shape than EvidenceItems — just (File, Line,
+// Quote). They have no AnchorKind / AnchorSymbol, so the full 7-tier
+// evidence grounder does not apply. CitationReport classifies a
+// citation into three outcomes:
+//
+//   Valid + QuoteMatched : (File, Line) appears in the read_file gutter
+//                          AND the quote's identifier tokens overlap
+//                          with the cited line (± neighbours). The
+//                          strongest claim — LLM actually saw the text.
+//
+//   Valid + !QuoteMatched: (File, Line) exists (either in the gutter
+//                          without a readable quote, or in the repomap
+//                          graph as a symbol range) but the Quote does
+//                          not corroborate. Callers typically clear
+//                          the Quote so the rendered cite is honest
+//                          "file:line" without a fabricated excerpt.
+//
+//   !Valid               : neither gutter nor graph contains (File, Line).
+//                          Callers drop the citation; the emit tool
+//                          remaps any CitationRef pointing at it to
+//                          CitationRefUnset (-1).
+
+// CitationReport is the verdict returned by GroundCitation. The
+// emit_answer_document tool branches on Valid / QuoteMatched to
+// decide drop-vs-clear-vs-keep.
+type CitationReport struct {
+	Valid        bool
+	QuoteMatched bool
+	// Reason is populated on !Valid with a short human-readable
+	// diagnostic ("source not read and not in graph", "line out of
+	// any symbol range", …) that the tool surfaces in its Summary
+	// so the LLM knows which repair to attempt next turn.
+	Reason string
+}
+
+// GroundCitation validates one Citation against the grounding context.
+// No in-place mutation — pure function. Callers mutate on the way out
+// (clear Quote, drop item) according to the Report.
+//
+// When the grounding context carries NO ground-truth sources (no
+// read_file gutter index and no repomap graph), grounding cannot
+// form a judgement and returns Valid=true unconditionally. This
+// shows up in two places: unit tests that construct a bare
+// BusContext, and early-pipeline calls that happen before any tool
+// has produced a read_file result. Both want the pre-grounding
+// structural checks to stand alone.
+func GroundCitation(c types.Citation, gc *Context) CitationReport {
+	file := strings.TrimSpace(c.File)
+	if file == "" || c.Line <= 0 {
+		return CitationReport{Reason: "empty file or non-positive line"}
+	}
+	if gc == nil || (len(gc.LineIndex) == 0 && gc.Graph == nil) {
+		return CitationReport{Valid: true}
+	}
+	// Tier 1: gutter index hit — the LLM actually read this line.
+	if gc != nil {
+		if fileLines, ok := gc.LineIndex[file]; ok {
+			if _, hasLine := fileLines[c.Line]; hasLine {
+				quote := strings.TrimSpace(c.Quote)
+				if quote == "" {
+					return CitationReport{Valid: true, QuoteMatched: false}
+				}
+				return CitationReport{
+					Valid:        true,
+					QuoteMatched: quoteCorroboratesLine(quote, fileLines, c.Line, 2),
+				}
+			}
+		}
+	}
+	// Tier 2: graph lookup — the file is indexed by repomap. Lines
+	// are NOT restricted to symbol [Line, EndLine] ranges because
+	// legitimate citations routinely fall outside every symbol:
+	// package doc comments, import statements, top-level consts and
+	// type aliases, blank separator lines, build tags. Requiring
+	// symbol-range coverage rejected every `facade.go:1` cite on the
+	// first REPL run even though line 1 is "Package repomap is …"
+	// — a perfectly sensible citation anchor. The Tier 2 contract is
+	// "the file exists in the repo as repomap sees it"; Quote cannot
+	// be corroborated without the gutter so callers clear it.
+	if gc != nil && gc.Graph != nil {
+		if fi, ok := gc.Graph.FileIndex[file]; ok && fi != nil {
+			return CitationReport{Valid: true, QuoteMatched: false}
+		}
+	}
+	return CitationReport{
+		Reason: fmt.Sprintf("source %q not in read_file history and not indexed in the repomap graph", file),
+	}
+}
+
+// quoteCorroboratesLine checks whether the citation's Quote shares at
+// least one identifier-shaped token with the cited line or its
+// immediate neighbours. Prose quotes ("the repomap facade binds …")
+// that contain zero identifier tokens fall through as uncorroborated —
+// structural, not keyword-list based.
+func quoteCorroboratesLine(quote string, fileLines map[int]string, line, radius int) bool {
+	text, ok := lookupLineWithNeighbours(fileLines, line, radius)
+	if !ok {
+		return false
+	}
+	qTokens := tokenSet(quote)
+	if len(qTokens) == 0 {
+		// Quote with no identifier tokens is pure prose — we cannot
+		// corroborate it against code, so report false so the caller
+		// clears it.
+		return false
+	}
+	hTokens := tokenSet(text)
+	for t := range qTokens {
+		if hTokens[t] {
+			return true
+		}
+	}
+	return false
+}
+
 // ── Recovery R1: fqname_same_file ────────────────────────────────────
 //
 // The item cites Source but LineStart is off. Look up AnchorSymbol in
