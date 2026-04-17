@@ -471,6 +471,14 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		}
 	}
 
+	// Set to true when reconcileIntent downgrades enumerate→return_value
+	// on a leading count-verb cue. The answer to such a question is a
+	// scalar produced by a tool query (find | wc -l, list_files count,
+	// grep count) with no file:line to cite — declared outside the
+	// sanity block so the post-compile AnswerContract mutation below
+	// can read it.
+	intentDowngradedToScalar := false
+
 	// Post-process complexity sanity check. The sub_topics rule above
 	// is one input; reconcileComplexity additionally cross-checks the
 	// LLM's pick against entity/keyword counts and question-shape
@@ -497,17 +505,11 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		if intentResolved, intentReason := reconcileIntent(rm.Intent, rawForComplexity, rm.Complexity); intentResolved != rm.Intent {
 			logIntentReconcile(rm.Intent, intentResolved, intentReason)
 			rm.Intent = intentResolved
-			// Keep the shape hint consistent with the reconciled intent.
-			// The LLM that picked enumerate usually also picked
-			// answer_shape=list_of_symbols; the post-compile hint
-			// override further down would restore that stale shape and
-			// defeat the rule. Normalise to ShapeValue only when the
-			// stale hint is specifically list_of_symbols — other shape
-			// hints (e.g. the LLM explicitly picked value while leaving
-			// intent=enumerate by accident) are already consistent.
-			if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols {
-				rm.AnalyzerHints.Shape = string(types.ShapeValue)
-			}
+			intentDowngradedToScalar = true
+			// Every consequence of the downgrade (shape override, 3
+			// citation-gate strips) is applied in one post-compile block
+			// below, keyed off this single flag. Keeps the "one signal,
+			// one response" contract grep-able.
 		}
 		// Merge sub-topic entities into main entity list.
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
@@ -580,6 +582,51 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		}
 	}
 
+	// Measurement-scalar carve-out. A reconciled count question
+	// ("how many X", "统计 …") produces a scalar answer from a tool
+	// query (find | wc -l, list_files count, grep count) with no
+	// file:line to cite. The reconcileIntent firing is a 0-error
+	// signal — it only triggers on simple complexity + leading count-
+	// verb prefix — so every consequence below is keyed off the same
+	// flag and happens exactly when the downgrade fires. No other
+	// caller of IntentReturnValue is affected (a "what does X return"
+	// question never trips reconcileIntent because its declared intent
+	// is already return_value).
+	//
+	// Consequences in order:
+	//
+	//   (a) out.AnswerContract.RequiredAnswerShape → ShapeValue. Forces
+	//       the final shape past both compile's intent-switch (already
+	//       set to ShapeValue by the downgrade) and the LLM-hint
+	//       override at "if rm.AnalyzerHints.Shape != ..." above,
+	//       whose stale list_of_symbols hint would otherwise restore
+	//       the wrong shape.
+	//   (b) rm.AnalyzerHints.Shape → ShapeValue (only when stale
+	//       list_of_symbols), so downstream readers of the hint
+	//       (ir_accessor.irAnswerShape, answer_document_evaluator)
+	//       see the reconciled shape, not the LLM's original emit.
+	//   (c-e) Strip the three citation gate surfaces that all consult
+	//         CritCitationCountGE independently:
+	//
+	//         (c) AnswerContract.CitationReq           → contract.checkCitations
+	//         (d) AnswerContract.AcceptanceTests       → contract.checkAcceptance
+	//         (e) TaskNode.SuccessCriteria (finalize)  → orchestrator.markSuccessCriteriaFailed
+	//
+	//       Leaving any one enabled loops the retry budget on a
+	//       mismatch no amount of re-investigation can fix.
+	if intentDowngradedToScalar {
+		out.AnswerContract.RequiredAnswerShape = types.ShapeValue
+		if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols {
+			rm.AnalyzerHints.Shape = string(types.ShapeValue)
+		}
+		out.AnswerContract.CitationReq.Required = false
+		out.AnswerContract.CitationReq.MinCitations = 0
+		out.AnswerContract.AcceptanceTests = dropCitationCountGE(out.AnswerContract.AcceptanceTests)
+		for i := range out.TaskGraph.Nodes {
+			out.TaskGraph.Nodes[i].SuccessCriteria = dropCitationCountGE(out.TaskGraph.Nodes[i].SuccessCriteria)
+		}
+	}
+
 	ir := &types.AnalysisIR{
 		Version:        types.AnalysisIRVersion,
 		RequestModel:   rm,
@@ -590,6 +637,25 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	}
 	ir.QualityGate = gate.Run(ir, gate.GlobalThresholds())
 	return ir, nil
+}
+
+// dropCitationCountGE returns a copy of crits with every
+// CritCitationCountGE entry removed. Used by the measurement-scalar
+// carve-out above to strip the citation_count_ge gate from
+// AcceptanceTests and TaskNode.SuccessCriteria in one pass. Returns a
+// fresh slice (never the input's backing array) so callers never
+// observe an unexpected shared-aliasing mutation.
+func dropCitationCountGE(crits []types.Criterion) []types.Criterion {
+	if len(crits) == 0 {
+		return crits
+	}
+	out := make([]types.Criterion, 0, len(crits))
+	for _, c := range crits {
+		if c.Kind != types.CritCitationCountGE {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // prescanHitRatio pulls the quality probe keyword hit ratio out of

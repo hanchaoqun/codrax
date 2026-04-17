@@ -6,6 +6,135 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// TestDropCitationCountGE verifies the helper preserves non-matching
+// criteria in order, removes every matching one, and never returns
+// the caller's backing array.
+func TestDropCitationCountGE(t *testing.T) {
+	in := []types.Criterion{
+		{Kind: types.CritContainsSymbol, Expr: "Foo"},
+		{Kind: types.CritCitationCountGE, Expr: "1"},
+		{Kind: types.CritRegexMatch, Expr: `\d+`},
+		{Kind: types.CritCitationCountGE, Expr: "3"},
+	}
+	got := dropCitationCountGE(in)
+	if len(got) != 2 {
+		t.Fatalf("len = %d, want 2", len(got))
+	}
+	if got[0].Kind != types.CritContainsSymbol || got[1].Kind != types.CritRegexMatch {
+		t.Errorf("unexpected surviving kinds: %+v", got)
+	}
+
+	// nil / empty passthrough.
+	if out := dropCitationCountGE(nil); out != nil {
+		t.Errorf("nil input should return nil, got %+v", out)
+	}
+	if out := dropCitationCountGE([]types.Criterion{}); len(out) != 0 {
+		t.Errorf("empty input should stay empty, got %+v", out)
+	}
+}
+
+// TestBuildAnalysisIR_CountQuestionStripsAllThreeGates verifies that
+// a "how many X" / "统计 …" question with an LLM-declared enumerate
+// intent ends up with zero citation gate anywhere in the IR:
+//
+//   1. AnswerContract.CitationReq.Required == false
+//   2. No CritCitationCountGE entries in AnswerContract.AcceptanceTests
+//   3. No CritCitationCountGE entries on any TaskNode.SuccessCriteria
+//
+// Regression guard for the three-gate carve-out in buildAnalysisIR.
+func TestBuildAnalysisIR_CountQuestionStripsAllThreeGates(t *testing.T) {
+	mut := types.NewMutableState("统计一下这个项目下的 go 代码量")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "统计一下这个项目下的 go 代码量",
+		Intent:     types.IntentEnumerate, // the mis-classification under test
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"go", "lines", "count"},
+			Entities: []string{},
+			Shape:    string(types.ShapeListOfSymbols), // stale hint the LLM usually co-emits
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+
+	if ir.RequestModel.Intent != types.IntentReturnValue {
+		t.Errorf("Intent = %q, want return_value (reconcileIntent did not fire)", ir.RequestModel.Intent)
+	}
+	if ir.AnswerContract.CitationReq.Required {
+		t.Error("AnswerContract.CitationReq.Required should be false")
+	}
+	if got := ir.AnswerContract.CitationReq.MinCitations; got != 0 {
+		t.Errorf("AnswerContract.CitationReq.MinCitations = %d, want 0", got)
+	}
+	for _, a := range ir.AnswerContract.AcceptanceTests {
+		if a.Kind == types.CritCitationCountGE {
+			t.Errorf("AcceptanceTests still carries CritCitationCountGE: %+v", a)
+		}
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		for _, c := range n.SuccessCriteria {
+			if c.Kind == types.CritCitationCountGE {
+				t.Errorf("TaskNode %q SuccessCriteria still carries CritCitationCountGE: %+v", n.ID, c)
+			}
+		}
+	}
+}
+
+// TestBuildAnalysisIR_NonCountQuestionKeepsGates is the negative
+// control — a regular enumerate question (no leading count-verb cue)
+// must NOT have the citation gates stripped, otherwise the rule would
+// over-fit and regress the list_of_symbols happy path.
+func TestBuildAnalysisIR_NonCountQuestionKeepsGates(t *testing.T) {
+	mut := types.NewMutableState("list all X that match Y")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "list all X that match Y",
+		Intent:     types.IntentEnumerate,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"list", "X", "Y"},
+			Entities: []string{"X", "Y"},
+			Shape:    string(types.ShapeListOfSymbols),
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+
+	if ir.RequestModel.Intent != types.IntentEnumerate {
+		t.Errorf("Intent = %q, want enumerate (rule over-fired)", ir.RequestModel.Intent)
+	}
+	if !ir.AnswerContract.CitationReq.Required {
+		t.Error("AnswerContract.CitationReq.Required must remain true for legit enumerate")
+	}
+	foundAT := false
+	for _, a := range ir.AnswerContract.AcceptanceTests {
+		if a.Kind == types.CritCitationCountGE {
+			foundAT = true
+		}
+	}
+	if !foundAT {
+		t.Error("AcceptanceTests should still carry CritCitationCountGE on legit enumerate")
+	}
+	foundSC := false
+	for _, n := range ir.TaskGraph.Nodes {
+		for _, c := range n.SuccessCriteria {
+			if c.Kind == types.CritCitationCountGE {
+				foundSC = true
+			}
+		}
+	}
+	if !foundSC {
+		t.Error("At least one TaskNode.SuccessCriteria should still carry CritCitationCountGE")
+	}
+}
+
 // TestReconcileIntent covers the downgrade rule, the three hard gates
 // (intent must be enumerate, complexity must be simple, leading clause
 // must start with a count-verb cue), and a representative set of
