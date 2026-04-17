@@ -21,8 +21,11 @@
     - [ERM vs Extractor — 职责边界](#erm-vs-extractor--职责边界)
     - [强约束（Invariants）](#强约束invariants)
   - [结构化数据贯穿全架构](#结构化数据贯穿全架构prose-仅在-llm-边界)
+  - [Citation fabrication 三层防御](#citation-fabrication-三层防御session-7)
   - [Merged-window DAG schedule](#merged-window-dag-schedule)
   - [诚实失败（fail-loud）](#诚实失败fail-loud)
+  - [Prior Conversation intent-aware 可见性](#prior-conversation-intent-aware-可见性session-7)
+  - [emit_evidence per-item reject + auto-swap](#emit_evidence-per-item-reject--auto-swapsession-7)
   - [反过拟合设计原则](#反过拟合设计原则)
 - [9. 运行时子系统](#9-运行时子系统)
 - [10. 配置](#10-配置)
@@ -438,6 +441,20 @@ Turn B 有且只有**两项** Turn A 做不到的独特职责：
 1. **LLM-driven answer_symbol slate + completeness claim**。LLM 读 Turn A 的证据决定 slate，附 `complete` / `lower_bound` / `unknown` 声明。Phase 9 cardinality validator（`validateCompletenessClaim`）：当 LLM claim `complete` 但 `len(items) < max(TerminalEvidenceCount, len(MustInclude))` 时，claim 自动降级为 `lower_bound` 并 log warning。
 2. **LLM-driven hypothesis verdict + citation**。为 IR 里每条 hypothesis 给 confirmed/rejected/inconclusive 判定；confirmed/rejected 强制带 `file:line` citation。编排器 post-extract hook 调 `AnalysisIR.MarkHypothesis` 写回 IR，buffer 保留给 finalizer prompt 渲染 rationale。注意：`rejected` 和 `inconclusive` 也有确定性路径——`ParseOutput` 里的 auto-verdict 逻辑用 `criterion.Eval` 评估 `FalsificationCondition` → rejected、`RequiredEvidence` all-pass → inconclusive。只有 `confirmed` 必须由 LLM 产出。编排器在每次 explore window 后运行轻量级 `runAutoVerdicts`（同样的 criterion 逻辑，不调 LLM）+ `drainHypothesisVerdicts` 更新 IR，使后续 explore window 的 criterion evaluation 能看到更新后的假设状态。
 
+#### Anchor skeleton for `shape=explanation + sub_topics ≥ 1`（session 7）
+
+历史上 Turn B 在 `shape=explanation` 的 mechanism 类问题上**没有 expected emit** —— 不是 `list_of_symbols`（跳过 `emit_answer_symbol`），所有 hypothesis 被确定性 auto-verdict 判掉（跳过 `emit_hypothesis_verdict`）。结果 extractor 在 iter=0 只吐 prose 就 soft-stop，finalizer 拿到的只有 Turn A 的原始 evidence 流，很容易把 prior-turn 的错答案复制下来（trace `1776439797257469553` 的直接失败模式）。
+
+**修法**：`isMultiTopicExplanation(ctx)` 新谓词（`extractor.go`）—— 当 `AnswerContract.RequiredAnswerShape == ShapeExplanation` AND `RequestModel.SubTopics > 0` 时，`Observe.needSymbols = true`，把 `emit_answer_symbol` 提升为 expected emit。LLM 为每个 sub-topic 产出**一条** anchor symbol（load-bearing identifier + `file:line` + `rationale=子话题描述`），作为 finalizer 多段 prose 的骨架。
+
+配套改动：
+- `emit_answer_document` 的 shape 互斥规则放宽：`shape=explanation` 允许 optional `symbols[]`（skeleton），仍然 forbid `steps[] / value / boolean`。completeness 在这个 skeleton 路径**不要求**（它是 auxiliary，不是主答案）。
+- `render/answerdoc.go::renderAnswerDocExplanationSkeleton` 在 summary prose 和 citation pool 之间渲染 **"Key anchors"** / **"关键锚点"** 块。
+- `answer_document_evaluator.go` 的 finalizer prompt 把 extractor 产的 per-topic slate 原样传下去，附 "re-emit verbatim in symbols[]" 指令。
+- `extractor.go::BuildInitialInstruction` 加 **"Anchor skeleton (one per sub-topic)"** 段列出每个子话题的 summary + entities 让 LLM 知道要 emit 几条、分别对应什么。
+
+单话题 explanation（`SubTopics == 0`）保持老路径不变 —— summary 就是答案，不需要 skeleton。
+
 #### Turn B 为什么是 one-shot
 
 Turn B 看不到新文件 —— 所有信息在 Turn A transcript 快照里冻结。retry 带不来新信息。设计决定：错了就降级为 `lower_bound` 而不是 retry，这是诚实的终态。
@@ -467,6 +484,24 @@ Turn B 看不到新文件 —— 所有信息在 Turn A transcript 快照里冻�
 | `AnswerSymbols` + completeness claim | **Extractor 独占** | `emit_answer_symbol` + Phase 9 validator |
 | `HypothesisSet[i].Status` | **Extractor 写 buffer** | `emit_hypothesis_verdict` + `drainHypothesisVerdicts` hook |
 | `AnswerDocument` | **Finalizer 独占** | `emit_answer_document` + renderer |
+
+#### Summary 长度：shape-tiered cap（session 7）
+
+`emit_answer_document` 的 `summary` 字段按 shape 分档，单一 `SummaryCapByShape` 表是三处（tool description / skill prompt / runtime check）的唯一真源：
+
+| shape | 上限 | 用途 |
+|---|---|---|
+| `explanation` | 2500 chars | Summary **IS** 答案正文 —— 多段 prose + 可选 Mermaid |
+| `list_of_symbols` / `step_list` / `boolean` | 500 chars | 1-3 句 lead-in，结构化字段承载真正答案 |
+| `value` / `config_value` | 300 chars | 单句 lead-in，before scalar literal |
+
+历史上的 hard-coded 500 与 skill prompt 的 "No character limit" 产生口径矛盾，逼 finalizer 在 multi-paragraph explanation 上反复撞墙（trace `1776439797257469553` 烧了 3 轮）。`types.SummaryCapFor(shape)` 是新的唯一 lookup 入口；`AnswerDocumentMaxSummaryChars=500` 保留为 map 默认 fallback + 向后兼容别名。
+
+#### Forbidden 字段：reject 不 scrub（session 7）
+
+`rejectForbiddenFields`（`emit_answer_document.go`）**失败**整个 call 而不是静默清洗 —— shape=explanation 带着非零 `boolean{decision:"否", ...}` 会收到 `"shape=explanation forbids boolean{}; remove the field and retry"`，LLM 下一轮必清。零值字段（`value.Literal==""` / `boolean.Decision==""`）仍然静默 nil（JSON-default 噪音不触发 reject）。`FinalizerMaxCorrectionRetries` default 从 2 提到 3，吸收一次清字段的重试。
+
+历史的 `scrubForbiddenFields` 只写 debug log，LLM 看不到反馈，连续三轮带着 zombie 字段飞过 —— 这是 "silent correction 反而鼓励复读" 的典型反例。
 
 ---
 
@@ -946,6 +981,20 @@ typed data ───────────────> Markdown prompt ──
 4. **Tool schema 是强制的。** 新 tool 必须定义 JSON schema，`params` 必须能 unmarshal 到 struct，失败即拒。
 5. **确定性渲染优先于 LLM prose。** StageReport 能用 typed 字段渲染就不用 LLM assistant content；finalizer 能产 `AnswerDocument` 就不产自由 markdown。
 
+### Citation fabrication 三层防御（session 7）
+
+前面 §7 讲的 measurement-scalar carve-out 是**让没 cite 源的答案合法通过**；这里三层防御是反向 —— **让伪造的 cite 通不过**。trace `1776439797257469553` 暴露出即使每层单独看都"有在做事"，组合起来仍有可被 LLM 同时绕过的缝隙；三层缝合之后形成 pool-level 不变量。
+
+| # | 位置 | 代码入口 | 行为 |
+|---|---|---|---|
+| 1 | `emit_investigation_complete.Execute` | `hasGroundedOrRecovered(evidence)` | 当 Mutable 缓冲区已有 ≥1 条 `GroundingGrounded` / `GroundingRecovered` 时，`absence_justification` 参数**直接 reject**。这条 "absence vs grounded evidence 矛盾门" 关掉了 finalize 的 citation floor 豁免后门 —— LLM 不能再用"this is an absence answer"把 3-cite 门关掉 |
+| 2 | `ground.GroundCitation` Tier 2 | `tier2LineInStructuralRegion(fi, line)` | 之前 "file 在 repomap graph 里就 Valid"；现在要求 line 落在某 symbol 的 `[Line - docRadius, EndLine]`（docRadius=10，涵盖 GoDoc / Python docstring / JSDoc）或 prologue `[1, firstSymbolLine - docRadius]`（pkg doc / import）。两 symbol 之间的 dead zone（被 LLM 随便挑的行号）被 reject，强制 LLM 真读过再 cite |
+| 3 | `emit_answer_document.buildEmitAnswerDocumentCitations` | Tier 1 peer 规则 | pool-level 不变量：当 pool 中**所有**被保留的 citation 都是 Tier 2-only（没有 `TierLineText`）**且**至少有一条的 quote 被清理过（fabricated），全部 quote-cleared citation 整批 drop。含义："你一条文件都没真读过，pool 里的 cite 全是猜的" → 一条都不留 |
+
+**数据流**：`CitationReport.Tier` 字段（新增）沿 `ground.GroundCitation` → `buildEmitAnswerDocumentCitations` 传递，让 pool 级决策能看到 per-citation 的 tier 证据。empty Tier（没有 grounding context 的单测路径）表示 "跳过 pool-level rule"，保持测试 backward-compat。
+
+**组合效果**（以 trace 1776439797257469553 为例）：LLM 想用两条 Tier 2-only 的 cite（`explorer.go:1239` 随便挑的注释行 + `subagent.go:62` 随便挑的 GoDoc）加 fabricated quote 过关 —— Tier 2 gate 拒 `explorer.go:1239`（不在任何 symbol range），Tier 1 peer 规则 drop `subagent.go:62`（全 pool 没 Tier 1），最终 pool 为空，`citation_count_ge 3` fail，retry 或降级为 fail-loud warning 答案。同时第 1 层确保 LLM 不能用 `absence_justification` 豁免。
+
 ### Merged-window DAG schedule
 
 Analyzer 产出的 TaskGraph 理论上允许 node 级别并发调度，但现阶段 `runTaskGraph` 把每一轮所有 ready 的非 finalize 节点合并成 **一次** explorer dispatch。这是 pragmatic 折中：
@@ -957,6 +1006,41 @@ Analyzer 产出的 TaskGraph 理论上允许 node 级别并发调度，但现阶
 ### 诚实失败（fail-loud）
 
 当 contract check 反复失败、retry budget 耗尽时，编排器不会**丢弃**最后一次 finalizer 的原始答案 —— 而是在它前面 prepend 一条警告告诉用户答案没通过契约（P0.2 模式）。这比把 bad answer 静默改写成 error message 更有用 —— 用户至少能看到模型实际想说什么，再自行判断。
+
+### Prior Conversation intent-aware 可见性（session 7）
+
+REPL 的 `Store.BuildContext` 从 memory 拉上下文，把最近几轮 Q/A 拼进 `Objective` 前缀（`## Prior conversation\n...\n\n## Current request\n...`）。历史上这段 Prior 在**所有 4 个 stage** 的 user prompt 里无差别渲染，靠一句 "reference only" prose 软提醒 LLM 别乱 copy。实战里 LLM 仍会复读前一轮的错答案（trace `1776439797257469553` 的最终 summary 几乎逐字复制 15:22:42 的错 prior）。
+
+**解法：** `AgentSettings.PriorConvPolicy` 四值配置，resolved per-stage 决定当前 dispatch 是否渲染 Prior 段。
+
+| 值 | stage 可见性 | 场景 |
+|---|---|---|
+| `always` | 全部可见 | 历史行为，作为 opt-out |
+| `analyzer` **(默认)** | 仅 analyzer 可见 | analyzer 做实体消歧需要 Prior（"它" = 上轮 subject）；下游 stage 靠 AnalysisIR.entities 拿到已消歧的 identifier，不再看原始 Prior |
+| `continue` | analyzer 始终 + 下游看 `IsContinuation(current, prior)` | 连续追问体验保留：首字符命中 `再/继续/那/more on/elaborate/...` 或首 40 字符是裸代词（它/这/it/this）且不含 CamelCase/snake_case identifier → 判定为追问 |
+| `never` | 全部不可见 | 极端隔离，stress test 用 |
+
+**数据流不变量：**
+- `Objective` 字段**始终**携带完整 "Prior + Current" payload —— `StripConversationPrefix` / `SplitConversation` 继续工作不变。policy 只门控**渲染**，不门控**存在**。
+- `AgentContext.PriorConvHidden` **反义** bool 字段：零值 = 可见（保证 45+ unit test / 单次 dispatch 的 zero-value 路径沿用老行为，不强制每个构造点设字段）。
+- `context/builder.go` 用 `!ac.PriorConvHidden` 门控 "Prior Conversation (reference only)" 段的渲染；"User Request" 段永远渲染（即便 Prior 被切掉，当前问题仍然可见）。
+- `orchestrator.priorConvVisibleForStage` 一处 resolve；debug-level trace `[orchestrator] prior_conv: stage=X policy=Y visible=bool` 仅在存在 prior block 时 log。
+
+**关键配套：** `skill/analysis_contract.go` 的 analyzer prompt 加了一条明确指令 —— 当 Prior 消歧了某个代词或指代词时，analyzer **必须**把消歧后的具体 identifier verbatim 写进 `emit_analysis.entities`。这是让 `policy=analyzer` 可行的前提：下游 stage 不再看 Prior，但能从 IR 的 entities 读到 Prior-derived 的 subject。
+
+**REPL memory store 不受影响。** `internal/memory` 继续按老规则 recent-buffer / compact-to-MEMORY.md / keyword 匹配 —— policy 切换只改下游可见性，不触碰持久化。切换配置无需数据迁移。
+
+### emit_evidence per-item reject + auto-swap（session 7）
+
+老行为：任意一条 item 校验失败 → 整批 reject，LLM 下轮需重发整批。trace `1776439797257469553` iter=2 的具体失败：5 条 emit_evidence，item[3] 有 `line_end=63 < line_start=64`（数字转置笔误），整批 5 条被丢，剩下 4 条合法 item（`NewSubExplorer` / `SubExplorer.Run` / `ProposeSubAgents` / `conditional`）白白损失。
+
+**三条 graceful-degrade 规则：**
+
+1. **`line_end < line_start` 自动 swap**：明显转置笔误，swap 后保留，Summary 里附 "AUTO-SWAPPED; double-check the range" 警告。
+2. **Sparse per-item reject**（< 50% 失败率）：单条 validation error 跳过该 item 保留多数，reject 的 index + 原因写进 Summary 让 LLM 下轮补。
+3. **Majority reject**（≥ 50% 失败率）：整批失败，所有原因一次性列在错误信息里 —— 防止 LLM 用"一条成功 item 掩护一批坏 item"的模式偷过。
+
+实现在 `buildEmitEvidenceItemWithSwap` 包装 + 主循环改 "collect into `rejectedItems`, continue"；测试覆盖三条规则各一例。
 
 ### 反过拟合设计原则
 
@@ -1016,7 +1100,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 | `pipeline_*` | 3 | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算 |
 | `gate_*` | 5 | `gate_coverage_min` / `gate_coverage_weight_symbol` / `gate_coverage_weight_config` / `gate_coverage_weight_concept` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
 | `explore_*` | 16 | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize 等）— explorer 行为启发式 |
-| `agent_*` | 9 | `agent_max_iterations`(20) / `agent_max_tool_history_bytes`(150KB) / `agent_loop_min_inject_interval`(3) / `agent_loop_max_continuations`(5) / `agent_loop_max_midloop_injects`(6) / `agent_loop_idle_stop_threshold`(2) / `agent_finalizer_max_correction_retries`(2) / `agent_extractor_max_correction_retries`(1) / `agent_investigation_complete_policy`(soft) — per-agent 迭代/重试/LoopPolicy 限制 + investigation_complete 策略 |
+| `agent_*` | 10 | `agent_max_iterations`(20) / `agent_max_tool_history_bytes`(150KB) / `agent_loop_min_inject_interval`(3) / `agent_loop_max_continuations`(5) / `agent_loop_max_midloop_injects`(6) / `agent_loop_idle_stop_threshold`(2) / `agent_finalizer_max_correction_retries`(3) / `agent_extractor_max_correction_retries`(1) / `agent_investigation_complete_policy`(soft) / `agent_prior_conversation_policy`(analyzer) — per-agent 迭代/重试/LoopPolicy 限制 + investigation_complete 策略 + Prior Conversation 可见性策略（`always` / `analyzer` / `continue` / `never`，见 §8 Prior Conversation intent-aware 可见性） |
 | `memory_*` | 6 | `memory_max_recent_turns`(6) / `memory_max_recent_bytes`(20KB) / `memory_max_turn_body_bytes`(64KB) / `memory_max_build_context_matches`(3) / `memory_max_inlined_turn_bytes`(8KB) / `memory_max_build_context_total_bytes`(32KB) — REPL 多轮记忆存储限制 |
 
 ### 优先级（precedence）
