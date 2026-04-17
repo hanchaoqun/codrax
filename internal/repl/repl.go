@@ -176,7 +176,57 @@ func (r *REPL) banner() {
 	}
 	badge := pterm.NewStyle(pterm.BgBlue, pterm.FgWhite, pterm.Bold).Sprint(" CODRAX ")
 	hint := pterm.FgDarkGray.Sprint("/help · /exit")
-	fmt.Fprintf(r.out, "\n  %s  %s\n\n", badge, hint)
+	fmt.Fprintf(r.out, "\n  %s  %s\n", badge, hint)
+	if summary := r.memorySummaryLine(); summary != "" {
+		fmt.Fprintf(r.out, "  %s\n", summary)
+	}
+	fmt.Fprintln(r.out)
+}
+
+// memorySummaryLine returns a one-line dim-gray digest of the memory
+// store's current state, or "" when the store is empty or absent.
+// Format: "memory: <recent> recent turn(s) + <idx> compacted, <N> B total".
+//
+// Rendered in the banner instead of dumping the full history: the
+// turns are already replayed into every dispatch via
+// Store.BuildContext, so showing them verbatim in the banner would
+// be duplicate noise. A short stat line lets the user see "yes, my
+// previous N turns are still in play" without scrolling.
+func (r *REPL) memorySummaryLine() string {
+	if r.store == nil {
+		return ""
+	}
+	recent := r.store.Recent()
+	idx := r.store.Index()
+	if len(recent) == 0 && len(idx) == 0 {
+		return ""
+	}
+	bytes := 0
+	for _, t := range recent {
+		bytes += len(t.Request) + len(t.Response)
+	}
+	for _, e := range idx {
+		bytes += len(e.Topic) + len(e.Summary)
+	}
+	return pterm.FgDarkGray.Sprintf("Memory: %d recent + %d compacted, %s",
+		len(recent), len(idx), humanByteSize(bytes))
+}
+
+// humanByteSize renders a byte count in the smallest unit that keeps
+// the integer part ≤ 3 digits. "1023 B", "9.4 KB", "2.1 MB".
+func humanByteSize(n int) string {
+	const (
+		kb = 1024
+		mb = 1024 * 1024
+	)
+	switch {
+	case n < kb:
+		return fmt.Sprintf("%d B", n)
+	case n < mb:
+		return fmt.Sprintf("%.1f KB", float64(n)/float64(kb))
+	default:
+		return fmt.Sprintf("%.1f MB", float64(n)/float64(mb))
+	}
 }
 
 // inputTheme returns a minimal huh theme — no borders, no decorations,

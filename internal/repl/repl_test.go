@@ -279,3 +279,27 @@ func TestMultilineThreeLines(t *testing.T) {
 		t.Errorf("expected 2 newlines in request, got %d in: %q", strings.Count(req, "\n"), req)
 	}
 }
+
+// TestHumanByteSize pins the banner digest's unit selection so a
+// tiny memory (a few bytes) does not show up as "0.0 KB" and a
+// real multi-MB directory does not overflow the single-line format.
+func TestHumanByteSize(t *testing.T) {
+	cases := []struct {
+		in   int
+		want string
+	}{
+		{0, "0 B"},
+		{42, "42 B"},
+		{1023, "1023 B"},
+		{1024, "1.0 KB"},
+		{1536, "1.5 KB"},
+		{1048575, "1024.0 KB"}, // boundary: below MB threshold
+		{1048576, "1.0 MB"},
+		{5 * 1024 * 1024, "5.0 MB"},
+	}
+	for _, c := range cases {
+		if got := humanByteSize(c.in); got != c.want {
+			t.Errorf("humanByteSize(%d) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
