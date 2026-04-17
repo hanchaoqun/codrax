@@ -49,7 +49,7 @@ func canonicalize(surfaces []surface, opts Options) ([]types.CanonicalTerm, map[
 func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 	switch s.kind {
 	case kindCamel, kindSnake:
-		key := normalizeCodeKey(s.text)
+		key := NormalizeCodeKey(s.text)
 		id := "code:" + key
 		// Repo resolver may override with a known canonical surface.
 		domain := ""
@@ -73,7 +73,7 @@ func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 			Confidence: confidence,
 		}
 	case kindDotted:
-		id := "code:" + normalizeCodeKey(s.text)
+		id := "code:" + NormalizeCodeKey(s.text)
 		return id, types.CanonicalTerm{
 			ID:         id,
 			Surface:    s.text,
@@ -124,7 +124,7 @@ func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 		// resolver says so), upgrade this to a symbol term.
 		if opts.Resolver != nil {
 			if hits := opts.Resolver.LookupSymbol(s.text); len(hits) > 0 {
-				id := "code:" + normalizeCodeKey(hits[0].Canonical)
+				id := "code:" + NormalizeCodeKey(hits[0].Canonical)
 				return id, types.CanonicalTerm{
 					ID:         id,
 					Surface:    hits[0].Canonical,
@@ -147,9 +147,13 @@ func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 	return "", types.CanonicalTerm{}
 }
 
-// normalizeCodeKey strips underscores and lowercases so identifier
-// variants collapse to a single canonical key. It preserves digits.
-func normalizeCodeKey(s string) string {
+// NormalizeCodeKey strips underscores / hyphens and lowercases so
+// identifier variants collapse to a single canonical key. Digits
+// preserved. Used by this package for TermGraph canonicalisation and
+// by the agent package's ERM matching — exposed because both paths
+// used to carry their own copy (agent.normalizeForMatch used 3-pass
+// ReplaceAll; this version uses a single-pass rune walk).
+func NormalizeCodeKey(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {

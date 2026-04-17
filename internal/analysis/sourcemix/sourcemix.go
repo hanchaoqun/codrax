@@ -15,8 +15,6 @@
 package sourcemix
 
 import (
-	"strings"
-
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -49,7 +47,7 @@ func FromTemplateMix(mix map[string]int, budget types.EvidenceBudget) types.Node
 		if ratio <= 0 {
 			continue
 		}
-		canonical := canonicalTool(name)
+		canonical := types.CanonicalToolName(name)
 		cap := (overall * ratio) / total
 		if cap < 1 {
 			cap = 1
@@ -81,7 +79,7 @@ func FromTemplateMix(mix map[string]int, budget types.EvidenceBudget) types.Node
 // call and inform the LLM. remaining is the minimum of the two
 // relevant caps (per-tool, overall).
 func BudgetForTool(tool string, used types.ExploreBudget) (allowed bool, remaining int) {
-	name := canonicalTool(tool)
+	name := types.CanonicalToolName(tool)
 	overallCap := used.OverallCap
 	overallRem := overallCap - used.OverallUsed
 	if overallCap <= 0 {
@@ -103,15 +101,3 @@ func BudgetForTool(tool string, used types.ExploreBudget) (allowed bool, remaini
 	return true, min
 }
 
-func canonicalTool(name string) string {
-	n := strings.ToLower(strings.TrimSpace(name))
-	switch n {
-	case "read":
-		return "read_file"
-	case "repomap":
-		return "repo_map"
-	case "ls":
-		return "list_files"
-	}
-	return n
-}

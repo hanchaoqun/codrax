@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -509,14 +510,13 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 	return reqs
 }
 
-// normalizeForMatch lowercases and strips hyphens/underscores so that
-// "sub-agent", "sub_agent", and "subagent" all match.
-func normalizeForMatch(s string) string {
-	s = strings.ToLower(s)
-	s = strings.ReplaceAll(s, "-", "")
-	s = strings.ReplaceAll(s, "_", "")
-	return s
-}
+// normalizeForMatch is the package-local alias for the canonical
+// identifier-key normaliser. Single-pass builder implementation
+// lives in analysis/normalizer.NormalizeCodeKey — this file used to
+// carry its own 3-pass ReplaceAll copy; now it is one function with
+// one home and two callers (analysis/normalizer/canonicalize.go and
+// the 15+ ERM matching sites in this file).
+var normalizeForMatch = normalizer.NormalizeCodeKey
 
 func countEvidenceTags(text string, tags []string) int {
 	count := 0

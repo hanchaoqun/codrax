@@ -1,5 +1,32 @@
 package types
 
+import "strings"
+
+// CanonicalToolName maps common tool-name aliases to the canonical
+// form used as the key in ExploreBudget.PerToolCap / PerToolUsed.
+// Keeps agent.canonicalToolName and sourcemix.canonicalTool in sync
+// — both used to carry byte-identical local copies and drift risk
+// was only caught when the budget lookup silently missed an alias.
+//
+// Accepted aliases:
+//   read    → read_file
+//   repomap → repo_map
+//   ls      → list_files
+//
+// Anything else passes through lowercased-and-trimmed.
+func CanonicalToolName(name string) string {
+	n := strings.ToLower(strings.TrimSpace(name))
+	switch n {
+	case "read":
+		return "read_file"
+	case "repomap":
+		return "repo_map"
+	case "ls":
+		return "list_files"
+	}
+	return n
+}
+
 // ExploreBudget is the runtime counter + ceiling the explorer
 // consults before every tool dispatch. The orchestrator installs it
 // on MutableState at the start of runTaskGraph (derived from
@@ -7,7 +34,7 @@ package types
 // it through Mutable.ExploreBudget() on every tool call.
 //
 // PerToolCap / PerToolUsed are keyed by canonical tool name (e.g.
-// "grep", "read_file", "repo_map") — see sourcemix.canonicalTool.
+// "grep", "read_file", "repo_map") — see types.CanonicalToolName.
 // OverallCap is the ceiling for total tool calls across every tool;
 // 0 disables the ceiling so the per-tool caps alone govern.
 type ExploreBudget struct {

@@ -978,7 +978,7 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 	// a different tool or stop. Non-explore stages (analyze,
 	// extract, finalize) are untouched.
 	if ctx != nil && ctx.Stage == types.StageExplore && ctx.Mutable != nil {
-		canonical := canonicalToolName(tc.Name)
+		canonical := types.CanonicalToolName(tc.Name)
 		if rem := ctx.Mutable.BudgetRemaining(canonical); rem <= 0 {
 			msg := fmt.Sprintf(
 				"explore budget exhausted for tool %q: per-tool or overall cap reached. "+
@@ -1036,24 +1036,6 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 
 	logging.Warning("tool not found: %s", tc.Name)
 	return nil, nil
-}
-
-// canonicalToolName mirrors sourcemix.canonicalTool so the
-// ExploreBudget key lookup in executeTool matches the map keys the
-// analyzer's NodeBudgetHints populated. Kept small + local so the
-// agent package does not import internal/analysis/sourcemix (which
-// would create a cycle through types.ExploreBudget's doc refs).
-func canonicalToolName(name string) string {
-	n := strings.ToLower(strings.TrimSpace(name))
-	switch n {
-	case "read":
-		return "read_file"
-	case "repomap":
-		return "repo_map"
-	case "ls":
-		return "list_files"
-	}
-	return n
 }
 
 // validateAnalyzerPrescanToolCall is the runtime hard-enforcement
