@@ -133,13 +133,91 @@ func TestEmitEvidence_RejectsRelationshipWithoutObject(t *testing.T) {
 	}
 }
 
-func TestEmitEvidence_RejectsLineEndBeforeStart(t *testing.T) {
+// TestEmitEvidence_AutoSwapsLineEndBeforeStart pins the 2026-04-17
+// change: line_end < line_start is treated as an obvious
+// transposition typo and auto-swapped. The summary includes a
+// "double-check the range" warning so the LLM can notice. Earlier
+// behaviour rejected the whole batch over this single keystroke
+// mistake; trace 1776439797257469553 iter=2 lost four otherwise-
+// valid evidence items to a single typo on item[3].
+func TestEmitEvidence_AutoSwapsLineEndBeforeStart(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
-	params := json.RawMessage(`{"items":[{"kind":"direct","source":"x.go","line_start":50,"line_end":10}]}`)
+	params := json.RawMessage(`{"items":[{
+		"kind":"direct","source":"x.go","line_start":50,"line_end":10,
+		"anchor_kind":"definition","anchor_symbol":"Foo",
+		"subject":"Foo","summary":"test"
+	}]}`)
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("auto-swap path must succeed, got rejection: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "AUTO-SWAPPED") {
+		t.Errorf("summary must warn about auto-swap: %q", res.Summary)
+	}
+	// Item should be in the accepted buffer with line_start=10, line_end=50.
+	emitted := ctx.Mutable.EmittedEvidence()
+	if len(emitted) != 1 {
+		t.Fatalf("expected 1 accepted item, got %d", len(emitted))
+	}
+	if emitted[0].LineStart != 10 || emitted[0].LineEnd != 50 {
+		t.Errorf("swapped range wrong: got [%d, %d], want [10, 50]",
+			emitted[0].LineStart, emitted[0].LineEnd)
+	}
+}
+
+// TestEmitEvidence_PerItemRejectSkipsInsteadOfFailingBatch locks in
+// the graceful-degrade behaviour: a single invalid item in a mostly-
+// healthy batch skips that item and keeps the rest. Fires ONLY when
+// the reject ratio is below 50%; above that the batch is rejected
+// wholesale.
+func TestEmitEvidence_PerItemRejectSkipsInsteadOfFailingBatch(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	// 4 valid + 1 invalid (missing anchor_kind). 1/5 = 20% → sparse
+	// reject path. Batch succeeds with 4 accepted; 1 skipped in the
+	// Summary. (The healthy items all need required fields filled.)
+	params := json.RawMessage(`{"items":[
+		{"kind":"direct","source":"a.go","line_start":1,"anchor_kind":"definition","anchor_symbol":"A","subject":"A","summary":"x"},
+		{"kind":"direct","source":"b.go","line_start":2,"anchor_kind":"definition","anchor_symbol":"B","subject":"B","summary":"x"},
+		{"kind":"direct","source":"c.go","line_start":3,"subject":"C","summary":"x"},
+		{"kind":"direct","source":"d.go","line_start":4,"anchor_kind":"definition","anchor_symbol":"D","subject":"D","summary":"x"},
+		{"kind":"direct","source":"e.go","line_start":5,"anchor_kind":"definition","anchor_symbol":"E","subject":"E","summary":"x"}
+	]}`)
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("sparse-reject batch must succeed, got rejection: %s", res.Summary)
+	}
+	if len(ctx.Mutable.EmittedEvidence()) != 4 {
+		t.Errorf("expected 4 accepted, got %d", len(ctx.Mutable.EmittedEvidence()))
+	}
+	if !strings.Contains(res.Summary, "SKIPPED") {
+		t.Errorf("summary must mention skipped item: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "items[2]") {
+		t.Errorf("summary must identify the bad item index: %q", res.Summary)
+	}
+}
+
+// TestEmitEvidence_MajorityRejectFailsEntireBatch — when ≥ 50% of
+// items fail, the whole call fails with every reason listed in one
+// error envelope. Keeps poisoned batches from slipping through.
+func TestEmitEvidence_MajorityRejectFailsEntireBatch(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	// 1 valid + 2 invalid (missing anchor_kind on two items).
+	// 2/3 = 66% → majority reject path.
+	params := json.RawMessage(`{"items":[
+		{"kind":"direct","source":"a.go","line_start":1,"anchor_kind":"definition","anchor_symbol":"A","subject":"A","summary":"x"},
+		{"kind":"direct","source":"b.go","line_start":2,"subject":"B","summary":"x"},
+		{"kind":"direct","source":"c.go","line_start":3,"subject":"C","summary":"x"}
+	]}`)
 	res, _ := tool.Execute(ctx, params)
 	if res.Success {
-		t.Fatal("expected failure: line_end < line_start")
+		t.Fatalf("majority-reject batch must fail wholesale, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "2 of 3 items") {
+		t.Errorf("summary must report the ratio: %q", res.Summary)
 	}
 }
 
