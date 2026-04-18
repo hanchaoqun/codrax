@@ -156,10 +156,15 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 // fatigue". Slot 117 (light cyan, #87d7ff) reads as "interesting"
 // rather than "danger". LightStyleConfig uses slot 33 (blue).
 //
-// Backgrounds — both Document and CodeBlock — are deliberately left
-// untouched. An earlier iteration wrapped the answer in a charcoal
-// card; user feedback was "太丑了". We defer to glamour's default
-// contrast choices, which blend into any terminal theme.
+// Every background-color slot glamour paints is cleared so the
+// answer and every element nested inside it — H1 headers, inline
+// code, fenced code blocks (which carry the "Key snippets" code and
+// the ASCII "Flow" relation diagram), chroma error tokens — fall
+// back to the terminal's own background. Glamour's baked-in greys /
+// purples / reds clash with popular terminal themes; previous
+// iterations ("charcoal card", coloured H1 bar, grey inline pill)
+// have all been rejected as "太丑了". The user ask is: one flat
+// palette that inherits the terminal theme.
 func codraxStyleConfig() ansi.StyleConfig {
 	var cfg ansi.StyleConfig
 	var inlineCodeColor string
@@ -171,10 +176,20 @@ func codraxStyleConfig() ansi.StyleConfig {
 		inlineCodeColor = "33" // xterm blue, #0087ff
 	}
 	cfg.Code.Color = &inlineCodeColor
-	// glamour 的 Dark/LightStyleConfig 会给 inline code 塞一个
-	// 背景色（slot 237 之类的灰底），在多数终端主题下反而显脏。
-	// 显式 nil 掉，让 inline code 背景沿用终端本身的底色。
+
 	cfg.Code.BackgroundColor = nil
+	cfg.H1.BackgroundColor = nil
+	// CodeBlock.Chroma is a *Chroma pointing into the shared global
+	// styles.DarkStyleConfig / LightStyleConfig; mutating it in place
+	// would leak to any other glamour renderer in the process. Shallow-
+	// copy first, then clear the two chroma slots that paint a
+	// background (fence fill + error token).
+	if cfg.CodeBlock.Chroma != nil {
+		chroma := *cfg.CodeBlock.Chroma
+		chroma.Background.BackgroundColor = nil
+		chroma.Error.BackgroundColor = nil
+		cfg.CodeBlock.Chroma = &chroma
+	}
 	return cfg
 }
 
