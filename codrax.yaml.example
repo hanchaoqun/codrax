@@ -251,21 +251,29 @@
 
 # Maximum files the framework reads on the LLM's behalf per explore
 # round when chain-promotion / grounder-rejected files queue up as
-# PendingReads. Default 3. Setting 0 keeps the historical "the LLM
-# is on its own" behavior; setting too high can break ReAct autonomy.
+# PendingReads. Default 3. Setting 0 DISABLES Lazy Auto-Read entirely
+# (the LLM is on its own — mirrors analysis_max_prescan_rounds:0
+# disable semantics); setting too high can break ReAct autonomy.
+# Negative values are ignored (treated as operator error).
 # cgec_forced_reads_per_round: 3
 
 # Convergence detector soft threshold. After this many consecutive
-# explore rounds with identical (ReadSet, EvidenceCount, ChainTermSet)
-# fingerprints, the orchestrator will trigger Lazy Auto-Read to try
-# to break the stall. Default 2.
+# explore rounds with identical (ReadSet, Evidence, ChainTerm,
+# CitedRefs) 4-dim fingerprints, the orchestrator triggers Lazy
+# Auto-Read to try to break the stall AND emits a RepairExpandSearch
+# directive. Default 2. Setting 0 DISABLES soft-stall detection
+# entirely (no Lazy Auto-Read, no RepairExpandSearch from the stall
+# path). Negative values ignored.
 # cgec_stall_threshold_soft: 2
 
 # Convergence detector hard threshold. After this many consecutive
 # identical fingerprints AND no force-read fired, the orchestrator
-# force-completes the investigation so the finalizer can ship a
-# best-effort answer instead of looping until budget exhaustion.
-# Default 3 (must be >= cgec_stall_threshold_soft).
+# emits RepairForceCompleteDowngrade + SetInvestigationComplete so
+# the finalizer can ship a best-effort answer instead of looping
+# until budget exhaustion. Default 3 (must be >= cgec_stall_threshold_soft).
+# Setting 0 DISABLES hard stall (operator who wants observability
+# via Stats but NO force-complete sets hard=0). Negative values
+# ignored.
 # cgec_stall_threshold_hard: 3
 
 # ---------------------------------------------------------------------------
@@ -318,7 +326,13 @@
 # How the DAG scheduler treats explore nodes when emit_investigation_complete
 # was called but SuccessCriteria (e.g. evidence_count>=3) still fail:
 #   "soft"     — lower evidence_count threshold to >=1 (default)
-#   "override" — skip criteria entirely, mark all explore nodes done
+#   "override" — skip criteria entirely, mark all explore nodes done.
+#                SIDE EFFECT: CGEC preCompleteContractCheck also skips
+#                all 6 checks (a-f) — the DAG scheduler's "bypass
+#                criteria" directive implies the pre-complete gates
+#                should also be bypassed to stay consistent. Downgrade
+#                messages, RepairExpandSearch / RepairSwapShape /
+#                RepairRebindSubject from pre-complete all suppressed.
 #   "strict"   — ignore the signal, enforce template thresholds
 # agent_investigation_complete_policy: soft
 

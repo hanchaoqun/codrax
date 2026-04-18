@@ -1106,34 +1106,65 @@ CGEC 是跨 stage 的**证据闭环契约**，把 codrax 中"两套并行证据�
 | LLM-driven | `EvidenceItem` (emit_evidence) | `ReadSet` = LLM 真正 `read_file` 过的文件 | grounder **强制** citation ⊆ ReadSet |
 | Deterministic | Resolution Chain / Concrete Value / type hierarchy | `ScannedSet` = keyword-scored + LLM-read 的并集（≫ ReadSet）| prompt **命令** "primary basis, do NOT contradict" |
 
-致命矛盾区 = `ScannedSet \ ReadSet`。chain 落进这里时 prompt 强制使用 + grounder 强制拒绝 = 死结，retry 跑 N 轮永远修不掉。CGEC 用 **4 条不变量 + 4 个 enforcer** 一次堵死：
+致命矛盾区 = `ScannedSet \ ReadSet`。chain 落进这里时 prompt 强制使用 + grounder 强制拒绝 = 死结，retry 跑 N 轮永远修不掉。CGEC 用 **4 条核心不变量 + 5 种 RepairKind + 9 个 enforcer 入口**一次堵死：
 
 | # | 不变量 | Enforcer 位置 | 违反后做什么 |
 |---|---|---|---|
-| **I1** | 所有 prompt 中 surface 的 `file:line` ⊆ ReadSet | `internal/agent/explorer.go::applyChainPromotion` + `findings_validator` | chain 锚点 ∉ ReadSet → 不渲染到 prompt + 锚点 file 进 PendingReads；analyzer 幻觉 path/symbol → `~~text~~ ⚠️[未验证]` 标注 |
-| **I2** | 所有 emit_*-接受的 citation ⊆ ReadSet | `internal/tool/emit_answer_document.go` 的 grounder | drop citation + 写一条 `RepairDirective{Kind: ReadFile, Files: [...], Rationale: ...}` 到 `Mutable.EvidenceClosure` 的 repair 队列 |
-| **I3** | `emit_investigation_complete` ⇒ 模拟 `contract.Check` 能过 | `internal/tool/emit_investigation_complete.go::preCompleteContractCheck` | downgrade 成 complete_with_warnings，flag 不翻 → ShouldStop 不触发 → loop 继续；surface 哪些 PendingReads 未读 / 哪条 SuccessCriteria 不满足 |
-| **I4** | retry 间至少 `(ReadSet, EvidenceCount, ChainTermSet)` 三维度之一单调进步 | `internal/orchestrator/cgec_enforcers.go::detectStallAndAct` | 2 轮指纹相同 → 触发 `runForcedReads`（Lazy Auto-Read，框架代读 ≤N 个 PendingReads 文件，结果以 `[forced_read]` banner 注入 ToolResults + TurnAArtifacts.ReadFiles）；3 轮相同 → 强制 `SetInvestigationComplete` + 写 `RepairForceCompleteDowngrade` 让 finalizer 用现有证据出最佳努力答案 |
+| **I1** | 所有 prompt 中 surface 的 `file:line` ⊆ ReadSet | explorer 的 `applyChainPromotion` (`internal/agent/explorer.go::2625`)、Type Hierarchy filter (同文件 `:3520` F1)、`findings_validator` (`internal/analysis/findings_validator`) | chain 锚点 ∉ ReadSet → 不渲染 prompt + 锚点 file 进 PendingReads；analyzer 幻觉 path/symbol → UnverifiedFindings 写入 + prompt 里 `## Unverified Analyzer Findings` 段渲染 `~~text~~ ⚠️[未验证]` |
+| **I2** | 所有 emit_*-接受的 citation ⊆ ReadSet | `emit_answer_document.go` 的 whitelist check + **G1 pre-finalize dry-run**（`simulateCitationGrounding`）| dry-run 在调真 grounder 前先预检，全 miss 时直接 reject tool call；grounder 本身 drop citation + `RepairDirective{Kind: ReadFile, ...}` 进 Repairs 队列 + **A1 bridge** 同步镜像到 PendingReads（源头双写） |
+| **I3** | `emit_investigation_complete` ⇒ 模拟 contract.Check 能过 | `emit_investigation_complete.go::preCompleteContractCheck`（6 条 check: a/b/c/d/e/f）| (a) PendingReads 非空 downgrade + **D3 按 ScannedSet 分两段渲染** Forced Read List vs Suspicious Anchors；(b) citation 预检；(c) **B1c** MinCit 短缺 → emit RepairExpandSearch；(d) **B2b** subject×shape mismatch → emit RepairSwapShape；(e) **C2** evidence.Source 落在 unverifiedFinds.Path → downgrade + RepairExpandSearch；(f) **E3** 所有 chain SubjectMatch<0.4 → emit RepairRebindSubject |
+| **I4** | retry 间至少 (ReadSet, Evidence, ChainTerm, **CitedRefs**) 四维之一单调进步 | `cgec_enforcers.go::detectStallAndAct + runForcedReads`；调用点在 `orchestrator.go::runTaskGraph` 的 **pre-dispatch**（A3）+ post-dispatch 两处 | soft stall（默认 2）→ 触发 `runForcedReads`（Lazy Auto-Read，框架代读 ≤N 个 PendingReads，单轮上限 `cgec_forced_reads_per_round`=3）+ **B1b** emit RepairExpandSearch；hard stall（默认 3）→ `SetInvestigationComplete` + RepairForceCompleteDowngrade |
 
-**辅助层**（不直接强制不变量，但消除 LLM 误判 chain 的输入条件）：
+**5 种 RepairKind 全联通**（每种都有 ≥1 producer + 1 consumer，`TestAllRepairKindsHaveProducer` 锁死）：
 
-- **AnswerSubject taxonomy**（`internal/types/analysis_ir.go::AnswerSubjectKind` 枚举 ~15 种 + `internal/analysis/subject/taxonomy.go` 的 per-kind judge）：分类问题答案应该是什么类型的源码 literal（`skill_name` / `agent_name` / `config_key` / `return_value` / ...）
-- **`inferAnswerSubject`**（`internal/agent/analyzer_intent.go`）：deterministic 兜底，LLM 没填 AnswerSubject 时按 cue 表 + question_kind 推导
-- **`reconcileShape`**（同文件）：subject 是源码 literal（skill name/agent name/...）但 LLM 填了 `ShapeConfigValue` 时自动改成 `ShapeValue`，避免 finalizer 编 fake key 凑 schema
-- **`rankChainsBySubject`**（`internal/agent/explorer.go`）：chain 终端 token 用 `subject.Score(terminal, expectedKind, graph)` 评分，subject-match 高的 chain 排名前移 → markdown 表 chainCap 优先给到对题的链
+| Kind | Producer | Consumer |
+|---|---|---|
+| `RepairReadFile` | grounder (I2) + chain_promotion (I1) + G1 dry-run | renderWindowHint "## Forced Read List" + runForcedReads Lazy Auto-Read（经 A1 mirror）|
+| `RepairExpandSearch` | **B1a** explorer Phase 0 broaden 耗尽 + **B1b** stall 时 ReadSet 饱和 + **B1c** preComplete 低 MinCit + **C3** findings_validator unverified 符号 | renderWindowHint "## Search Coverage Gap" |
+| `RepairSwapShape` | **B2a** emit_answer_document shape mismatch + **B2b** preComplete subject/shape mismatch | renderWindowHint "## Shape Reconcile"（B3 retry hint 跨 explore→extract→finalize persist）|
+| `RepairRebindSubject` | rankChainsBySubject bestMatch<0.4（G5）+ **E3** preComplete SubjectMatch<0.4 | renderWindowHint "## Subject Constraint" |
+| `RepairForceCompleteDowngrade` | detectStallAndAct hard stall | renderWindowHint "## Force-Complete Downgrade" + SetInvestigationComplete |
 
-**EvidenceClosure 数据结构**（`internal/types/evidence_closure.go`）是上述 4 个 enforcer 共享的状态总线，挂在 `MutableState.evidenceClosure` 上，承载 ReadSet、PendingReads、CitedRefs、UnverifiedFinds、SubjectMatches、Fingerprints、Repairs queue。`runTaskGraph` 在 task entry 调 `Mutable.ResetEvidenceClosure` 保证跨 task 不污染。
+**辅助层**（hard-fallback 保证下游不失效）：
 
-**RepairDirective 渲染**（`internal/types/repair.go::RepairDirective.Render`）：`scheduler.go::renderWindowHint` 在 explore 重试前从 `closure.ConsumeRepairs()` 拿到结构化 directives，按 Kind 渲染成 prompt 顶部的 `## Forced Read List` / `## Subject Constraint` / `## Shape Reconcile` / `## Force-Complete Downgrade` 段落。每条 directive 只 fire 一次（`ConsumeRepairs` 是 atomic drain）。
+- **AnswerSubject taxonomy**（`internal/types/analysis_ir.go::AnswerSubjectKind` 枚举 ~15 种 + `internal/analysis/subject/taxonomy.go` 的 per-kind judge）
+- **`inferAnswerSubject`**（`analyzer_intent.go::399`）：双语 cue 表 + question_kind fallback + **E1 hard-fallback** 永不 SubjectUnknown（weakest: SubjectGeneric confidence=0.1），保证下游 reconcileShape / rankChainsBySubject / preComplete 的 subject 检查不因 Unknown 退化为死代码
+- **`reconcileShape`**（同文件）：subject 是源码 literal 时 ShapeConfigValue 自动改 ShapeValue
+- **`rankChainsBySubject`**（`explorer.go::3616`）：chain 终端 token 按 subject.Score 重排 + **E4+E5 Subject Match Summary** 渲染在 extractor/finalizer prompt
 
-**配置入口**：`codrax.yaml` 的 `cgec_*` 系列（`cgec_forced_reads_per_round` / `cgec_stall_threshold_soft` / `cgec_stall_threshold_hard`）；I1-I3 永远 on，只有 I4 的 Lazy Auto-Read 上限和 stall 阈值可调。code default → `codrax.yaml` 优先级，跟其他 `*_*` 系列一致。
+**EvidenceClosure 数据结构**（`internal/types/evidence_closure.go`）是上述 enforcer 共享的状态总线。字段 9 个，**每个都有 ≥1 production consumer**（`TestEvidenceClosureAllFieldsHaveConsumer` 锁死）：
 
-**典型故障链 → CGEC 修复**：用户问 "explorer agent 默认用哪个 skill"。explorer 读了 `cmd/root.go` + `explorer.go` + `defaults.go`，但 deterministic chain producer 在 keyword-scored 文件 `internal/agent/subagent.go` 上构造出 chain `SubExplorer.Name() returns "explorer"` 锚点 `subagent.go:63`。
-- I1（chain promotion）发现 `subagent.go ∉ ReadSet` → 该 chain 不进 prompt + `subagent.go` 进 PendingReads
-- C2（subject ranking）即使该 chain 漏到 prompt，terminal `"explorer"` 是 `agent_name` 不是 `skill_name` → 评分压低
-- B2（shape reconcile）即使最终 shape 错填 `config_value`，subject `skill_name` 触发 reconcile 改成 `value` → finalizer 不需要编 fake key
-- I4（Lazy Auto-Read）首轮结束发现 PendingReads 还在队列、LLM 没读 → 框架代读 `subagent.go`（甚至代读多个，单轮上限 `cgec_forced_reads_per_round` = 3），结果以 `[forced_read]` banner 注入 ReadSet
-- 综合效果：旧 = 3 retry + "validation exhausted" + literal `"explorer"`；新 = **1 round + literal `"explore-skill"` cited at `internal/skill/defaults.go:14`**
+| 字段 | Producer | Consumer |
+|---|---|---|
+| `readSet` | explorer.SetReadSet | I1/I2/I3/I4 全读 |
+| `scannedSet` | D1 explorer Phase 0 SetScannedSet(allScoredFiles) | D2 chain_promotion PendingRead 过滤 + D3 preComplete 分段渲染 + D4 runForcedReads advisory warning |
+| `citedRefs` | emit_answer_document.RecordCitation | I4 `CitedRefsHash` 第 4 维 fingerprint |
+| `pendingReads` | chain_promotion + A1 bridge mirror | I3 check (a) + runForcedReads |
+| `unverifiedFinds` | analyzer.findings_validator.Validate | C1 context/builder 渲染 "## Unverified Analyzer Findings" + C2 preComplete check (e) + C3 AddRepair RepairExpandSearch |
+| `subjectMatches` | rankChainsBySubject.SetSubjectMatch | E3 preComplete check (f) + E4+E5 Subject Match Summary prompt 段 |
+| `fingerprints` | detectStallAndAct Append | detectStallAndAct 4 维比较 |
+| `repairs` | 5 种 producer (上面 Kind 表) | ConsumeRepairs → renderWindowHint |
+| `stats` | 各 enforcer Bump | `emitCGECSummary` 任务末尾一行 `[CGEC] summary: chains_demoted=X unverified=X repairs_raised=X expand_search=X shape_swap=X pre_complete_downgrades=X forced_reads=X stall_soft=X stall_hard=X`（无 activity 时输出 "no enforcer fired (contract quiet)"）|
+
+**RetryHint 跨 stage 保持**（B3）：orchestrator.applyStageOutput 只在 `output.RetryHint != ""` 时覆盖 `TaskState.RetryHint`，让 explorer 写入的 Shape Reconcile / Forced Read List / Subject Constraint 段贯穿 explore → extract → finalize 一个 retry 回合，下一轮 applyWindowHint 再重置。
+
+**所有 enforcer 的 fire log 统一前缀 `[CGEC] <I|E|A|B|C|D|E|F|G> <event>`**（9 处入口），一次 grep 看全。
+
+**配置入口**：`codrax.yaml` 的 `cgec_*` 系列（`cgec_forced_reads_per_round` / `cgec_stall_threshold_soft` / `cgec_stall_threshold_hard`）；I1-I3 永远 on，只有 I4 可调。三个旋钮都接受 `0` = 禁用（镜像 `analysis_max_prescan_rounds: 0` 的禁用语义），负值视作输入错误忽略。
+
+`agent_investigation_complete_policy: override` 会让 `preCompleteContractCheck` 整体跳过（对齐 DAG scheduler 的 "skip all criteria" 策略），副作用：所有 6 条 check (a-f) 全部不 fire。默认 `soft` 保留全部 check。
+
+**典型故障链 → CGEC 修复**：用户问 "explorer agent 默认用哪个 skill"。explorer 读了 `cmd/root.go` + `explorer.go` + `defaults.go`，但 deterministic chain producer 在 keyword-scored 文件 `internal/agent/subagent.go` 上构造出 chain `SubExplorer.Name() returns "explorer"` 锚点 `subagent.go:63`，finalizer cite 该锚点。
+- **I1 chain_promotion** 发现 `subagent.go ∉ ReadSet` → chain 不进 prompt + 锚点 file 进 PendingReads
+- **I1 findings_validator** 标记 analyzer 引用的幻觉 symbol → C1 渲染 Unverified 段给下游
+- **G1 pre-finalize dry-run** 发现 citation 全 miss readFiles whitelist → emit_answer_document 直接 reject 不进 grounder
+- **I2 + A1 mirror** grounder reject 时 `AddRepair(RepairReadFile{subagent.go})` → A1 自动同步到 PendingReads
+- **I4 Lazy Auto-Read** 下个 explore 窗口 pre-dispatch（A3）调 `runForcedReads` → 框架代读 subagent.go，结果以 `[forced_read]` banner 注入 Turn A
+- **E1 hard-fallback** 保证 AnswerSubject 至少是 SubjectGeneric（不为 Unknown）→ reconcileShape / rankChainsBySubject / E3 都能运行
+- **B2a RepairSwapShape** shape=config_value 错配 subject=skill_name → emit_answer_document 触发 shape auto-correct 并 emit RepairSwapShape
+- **E3 RepairRebindSubject** chain 全部 SubjectMatch<0.4 → preComplete 下发 "## Subject Constraint: Answer must be a skill_name token"
+- **E4+E5 Subject Match Summary** 下一轮 finalizer prompt 顶部渲染 top-K 链 + 分数 → 偏向 `explore-skill` chain
+- 综合效果：旧 = 3 retry + "validation exhausted" + literal `"explorer"`；新 = **1 round + literal `"explore-skill"` cited at `internal/skill/defaults.go:14`**（`TestCGEC_ExplorerSkillBug_EndToEndReplay` 锁死）
 
 ---
 
