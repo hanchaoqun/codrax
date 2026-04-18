@@ -2595,7 +2595,7 @@ type chainAnchorInfo struct {
 // alone is sound.
 func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
 	if e.cachedConcreteValues == nil {
-		r := e.buildConcreteValuesSection(repoRoot, readSet)
+		r := e.buildConcreteValuesSection(repoRoot, readSet, closure)
 		e.cachedConcreteValues = &r
 	}
 	if closure == nil {
@@ -2658,6 +2658,7 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		// All chains kept — fast path returns the unmodified input.
 		return in
 	}
+	closure.BumpChainsDemoted(len(demotedSummaries))
 
 	// Filter the markdown's "### Resolution Chains" section. Chains
 	// in that section are bullet lines `- summary`; we drop the line
@@ -2742,7 +2743,7 @@ func filterResolutionChainSection(md string, demoted map[string]bool) string {
 	return out
 }
 
-func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool) concreteValuesResult {
+func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return concreteValuesResult{}
 	}
@@ -3370,7 +3371,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// e.answerSubject.Kind is SubjectUnknown the score is zero for
 	// every chain → adjusted ordering equals insertion order, and
 	// the cap below behaves identically to the pre-CGEC behavior.
-	chains, chainAnchors = rankChainsBySubject(chains, chainAnchors, e.answerSubject, graph)
+	chains, chainAnchors = rankChainsBySubject(chains, chainAnchors, e.answerSubject, graph, closure)
 	// Save the full chain list for evidence generation BEFORE capping.
 	// The cap controls the synthesis markdown table size; the evidence
 	// pipeline (StageOutput → finalizer) has its own ranking/top-K and
@@ -3603,22 +3604,33 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 // expected.Kind is SubjectUnknown, subjectMatch is zero for every
 // chain and the relative order is preserved.
 //
-// Side effect: writes the per-chain score into the closure's
-// SubjectMatches map (via the closure passed implicitly through the
-// later applyChainPromotion call) — cached for downstream consumers
-// without having to recompute.
-func rankChainsBySubject(chains []string, anchors []chainAnchorInfo, expected types.AnswerSubject, graph *repomap.Graph) ([]string, []chainAnchorInfo) {
+// Side effects:
+//   - When closure is non-nil, writes the per-chain score into
+//     closure.SetSubjectMatch so downstream consumers (the G5
+//     RebindSubject producer in particular) can spot "every chain
+//     scored low for the expected subject" without re-computing.
+//   - When the expected subject is high-confidence (>= 0.5) AND
+//     no chain achieved the rebind floor (0.4), raises a
+//     RepairRebindSubject directive on the closure so the next
+//     explore round's retry hint surfaces the constraint.
+func rankChainsBySubject(chains []string, anchors []chainAnchorInfo, expected types.AnswerSubject, graph *repomap.Graph, closure *types.EvidenceClosure) ([]string, []chainAnchorInfo) {
 	if len(chains) <= 1 || expected.Kind == types.SubjectUnknown {
 		return chains, anchors
 	}
-	const alpha = 2.0
+	const (
+		alpha         = 2.0
+		rebindFloor   = 0.4
+		highConfFloor = 0.5
+	)
 	type ranked struct {
 		summary  string
 		anchor   chainAnchorInfo
+		match    float64
 		adjusted float64
 		origIdx  int
 	}
 	rs := make([]ranked, len(chains))
+	bestMatch := 0.0
 	for i, c := range chains {
 		var anchor chainAnchorInfo
 		if i < len(anchors) {
@@ -3626,13 +3638,34 @@ func rankChainsBySubject(chains []string, anchors []chainAnchorInfo, expected ty
 		}
 		terminal := subject.ChainTerminalToken(c)
 		match := subject.Score(terminal, expected.Kind, graph)
+		if closure != nil {
+			closure.SetSubjectMatch(c, match)
+		}
+		if match > bestMatch {
+			bestMatch = match
+		}
 		baseRank := float64(len(chains) - i)
 		rs[i] = ranked{
 			summary:  c,
 			anchor:   anchor,
+			match:    match,
 			adjusted: baseRank * (1.0 + alpha*match),
 			origIdx:  i,
 		}
+	}
+	// G5: if no chain scored above the rebind floor AND the
+	// analyzer was confident in the expected subject, the chain
+	// producer is fundamentally talking past the question. Raise a
+	// RepairRebindSubject directive so the next retry's prompt
+	// explicitly tells the LLM what kind of token it should be
+	// looking for.
+	if closure != nil && expected.Confidence >= highConfFloor && bestMatch < rebindFloor {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairRebindSubject,
+			Subject:   string(expected.Kind),
+			Rationale: fmt.Sprintf("ranked %d candidate chain(s); none scored above %.1f for the expected subject (best=%.2f)", len(chains), rebindFloor, bestMatch),
+			Origin:    "chain_ranker",
+		})
 	}
 	// Stable sort by adjusted desc; insertion order on ties.
 	sort.SliceStable(rs, func(a, b int) bool {

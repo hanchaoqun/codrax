@@ -190,6 +190,9 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// flip investigationComplete). The explorer's ShouldStop sees
 	// the flag still false and continues the loop.
 	if downgrade := preCompleteContractCheck(ctx, justification); downgrade != "" {
+		if ctx != nil && ctx.Mutable != nil {
+			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Summary:   downgrade,
@@ -213,12 +216,45 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}, nil
 }
 
+// investigationCompletePolicy holds the operator-configured policy
+// from codrax.yaml's agent_investigation_complete_policy. cmd/root.go
+// calls SetInvestigationCompletePolicy at startup. Mirrors the same
+// SetXxx pattern as SetBlobLimits / SetAnalysisLimits / SetGroundingPolicy.
+//
+// Default is the empty string (effectively "soft" — preCompleteContractCheck
+// gates fire normally). When set to "override", the pre-complete
+// gates are skipped to honor the per-task scheduler's "skip all
+// criteria" mode (see orchestrator.go:454-468).
+var investigationCompletePolicy string
+
+// SetInvestigationCompletePolicy is the configuration entrypoint
+// from cmd/root.go. Pass the empty string to restore default
+// behavior.
+func SetInvestigationCompletePolicy(policy string) {
+	investigationCompletePolicy = strings.TrimSpace(policy)
+}
+
+// CurrentInvestigationCompletePolicy returns the active policy
+// string. Used by the pre-complete simulator and by tests that need
+// to assert / restore the global.
+func CurrentInvestigationCompletePolicy() string {
+	return investigationCompletePolicy
+}
+
 // preCompleteContractCheck is the CGEC E1 simulator. Returns an
 // empty string when the LLM may proceed to mark complete, or a
 // human-readable downgrade message describing exactly what is
 // missing. The caller treats a non-empty return as "do NOT call
 // SetInvestigationComplete; surface this message in the tool
 // result so the LLM sees what to do next".
+//
+// Honors the agent_investigation_complete_policy setting: when
+// "override", the pre-complete check is skipped because the
+// orchestrator's DAG scheduler will mark every explore-type node
+// done immediately on the in-flight emit_investigation_complete,
+// bypassing every criterion gate. Running pre-complete gates in
+// "override" mode would contradict the operator's explicit
+// "skip all criteria" policy.
 //
 // Two predictive checks (cheap, framework-side, no LLM in the loop):
 //
@@ -237,6 +273,13 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 // cite anything.
 func preCompleteContractCheck(ctx *types.BusContext, justification string) string {
 	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	// Honor agent_investigation_complete_policy=override. The DAG
+	// scheduler will skip all criteria when this policy is set, so
+	// running the pre-complete gates would contradict operator
+	// intent. soft / strict / unset all leave the gates in force.
+	if investigationCompletePolicy == "override" {
 		return ""
 	}
 	closure := ctx.Mutable.EvidenceClosure()

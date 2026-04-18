@@ -350,6 +350,7 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			for _, u := range validation.Unverified {
 				closure.AppendUnverifiedFinding(u)
 			}
+			closure.BumpUnverifiedFinds(len(validation.Unverified))
 			logging.Warning("[analyzer] findings validator flagged %d unverified token(s)", len(validation.Unverified))
 		}
 	}

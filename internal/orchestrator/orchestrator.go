@@ -436,6 +436,17 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 					OverallCap:  eb.OverallCap,
 				})
 			}
+			// CGEC A3: force-read any PendingReads that accumulated
+			// during the previous finalize pass (A1 mirrors grounder
+			// RepairReadFile into PendingReads). Run this BEFORE
+			// dispatch so the explorer LLM sees the [forced_read]
+			// ToolResults in its ReAct loop and can emit_evidence
+			// over them in the SAME dispatch, rather than waiting
+			// for the next retry round. Harmless no-op when
+			// PendingReads is empty.
+			if read := o.runForcedReads(); read > 0 {
+				logging.Info("[CGEC] E2 pre-dispatch forced-read %d file(s) before explore retry", read)
+			}
 			stepsUsed++
 			if _, err := o.dispatchStage(types.StageExplore); err != nil {
 				logging.Error("[orchestrator] DAG explore window failed: %v", err)
@@ -791,7 +802,35 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	}
 
 	o.recordTaskFinalize(lastFinalize)
+	o.emitCGECSummary()
 	return stepsUsed
+}
+
+// emitCGECSummary renders the per-task CGEC counter snapshot to the
+// trace + the renderer's reasoning event channel. Silent when no
+// enforcer fired (Stats.HasActivity() == false) so a no-op task
+// does not pollute the output. Called at the end of runTaskGraph
+// after all stages have exited.
+func (o *Orchestrator) emitCGECSummary() {
+	if o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	stats := o.busCtx.Mutable.EvidenceClosure().Stats()
+	if !stats.HasActivity() {
+		return
+	}
+	line := fmt.Sprintf(
+		"CGEC summary: chains_demoted=%d unverified=%d repairs_raised=%d pre_complete_downgrades=%d forced_reads=%d stall_soft=%d stall_hard=%d",
+		stats.ChainsDemoted, stats.UnverifiedFinds, stats.RepairsRaised,
+		stats.PreCompleteDowngrades, stats.ForcedReads,
+		stats.StallSoftHits, stats.StallHardHits)
+	logging.Info("[orchestrator] %s", line)
+	o.emit(render.Event{
+		Kind:      render.EventAgentReasoning,
+		Timestamp: time.Now(),
+		Agent:     "orchestrator",
+		Reasoning: "📊 " + line,
+	})
 }
 
 // applyWindowHint writes the rendered DAG-window hint into the
@@ -1298,6 +1337,9 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	if len(output.Repairs) > 0 && o.busCtx.Mutable != nil {
 		closure := o.busCtx.Mutable.EvidenceClosure()
 		for _, r := range output.Repairs {
+			// AddRepair bumps stats.RepairsRaised internally so we
+			// never double-count (the per-tool side channel
+			// emit_answer_document.Execute writes via AddRepair too).
 			closure.AddRepair(r)
 		}
 	}

@@ -686,6 +686,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	pipelineSettings.Agent = types.ResolvedAgentSettings(pipelineSettings.Agent)
+	// Mirror the resolved investigation_complete_policy into the
+	// tool layer so emit_investigation_complete's preCompleteContractCheck
+	// can honor "override" mode (skip pre-complete gates when the
+	// orchestrator's DAG scheduler is already configured to skip
+	// criteria).
+	tool.SetInvestigationCompletePolicy(pipelineSettings.Agent.InvestigationCompletePolicy)
 
 	// Memory store limits from YAML.
 	var memCfg types.MemorySettings

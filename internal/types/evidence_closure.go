@@ -98,6 +98,41 @@ type EvidenceClosure struct {
 	// to the next explore round. Drained by ConsumeRepairs at retry-
 	// hint render time so each directive fires exactly once.
 	repairs []RepairDirective
+
+	// stats accumulates CGEC enforcer fire counters across the
+	// current task. Each enforcer increments its own field
+	// (chain promotion → ChainsDemoted, findings_validator →
+	// UnverifiedFinds, grounder → RepairsRaised, pre-complete →
+	// PreCompleteDowngrades, runForcedReads → ForcedReads,
+	// detectStallAndAct → StallSoftHits / StallHardHits).
+	// Read by the orchestrator at task-end to emit a one-line
+	// summary; reset to zero by Reset() on per-task entry.
+	stats ClosureStats
+}
+
+// ClosureStats is the structured per-task counter snapshot the
+// orchestrator emits after each task so operators / eval harnesses
+// can grep one line for invariant fire counts. All fields default
+// to zero; counters increment via the corresponding Bump method
+// below, which threads through the closure mutex so concurrent
+// emit_*-tool calls cannot race.
+type ClosureStats struct {
+	ChainsDemoted         int // I1: chains stripped from prompt by chain promotion
+	UnverifiedFinds       int // I1: hallucinated paths/symbols flagged by findings_validator
+	RepairsRaised         int // I2: structured RepairDirectives written to closure (any kind)
+	PreCompleteDowngrades int // I3: emit_investigation_complete downgrade events
+	ForcedReads           int // I4: files read on the LLM's behalf (Lazy Auto-Read)
+	StallSoftHits         int // I4: convergence soft threshold hits
+	StallHardHits         int // I4: convergence hard threshold hits (force-complete)
+}
+
+// HasActivity returns true when at least one enforcer fired this
+// task. Used by the orchestrator's emit gate so a no-op task does
+// not pollute the trace with an empty summary.
+func (s ClosureStats) HasActivity() bool {
+	return s.ChainsDemoted+s.UnverifiedFinds+s.RepairsRaised+
+		s.PreCompleteDowngrades+s.ForcedReads+
+		s.StallSoftHits+s.StallHardHits > 0
 }
 
 // PendingRead is one entry in EvidenceClosure.pendingReads. Anchor is
@@ -125,16 +160,25 @@ type UnverifiedFinding struct {
 }
 
 // ClosureFingerprint is the snapshot used by the convergence detector
-// (I4 enforcer). Two adjacent fingerprints with all three fields
+// (I4 enforcer). Two adjacent fingerprints with all four fields
 // equal means an explore round did not change ReadSet, did not
-// produce new evidence, and did not surface new chain terminals —
+// produce new evidence, did not surface new chain terminals, AND
+// did not pull a new (file, line) into the citation pool —
 // retrying produces the same output and the orchestrator must
 // intervene (Lazy Auto-Read, force-finalize). The hashes use FNV-32
 // because the values are short keys and we only compare equality.
+//
+// CitedRefsHash is the fourth dimension added in G7. Without it the
+// convergence detector cannot spot the "LLM keeps citing the same
+// (file, line) tuples across retries" pattern that emit_answer_document
+// surfaces. ReadSet/Evidence/ChainTerm collectively miss that signal:
+// the LLM might not read new files but might re-cite existing ones
+// with different quote text — that's still a stall.
 type ClosureFingerprint struct {
-	ReadSetHash  uint32
-	EvidenceHash uint32
-	ChainTermSet uint32
+	ReadSetHash   uint32
+	EvidenceHash  uint32
+	ChainTermSet  uint32
+	CitedRefsHash uint32
 }
 
 // NewEvidenceClosure constructs an empty closure. Callers should pin
@@ -215,6 +259,15 @@ func (c *EvidenceClosure) AddPendingRead(p PendingRead) {
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.addPendingReadLocked(p)
+}
+
+// addPendingReadLocked is the lock-held helper shared by AddPendingRead
+// and the A1 bridge inside AddRepair. Caller MUST hold c.mu.
+func (c *EvidenceClosure) addPendingReadLocked(p PendingRead) {
+	if p.File == "" {
+		return
+	}
 	for _, existing := range c.pendingReads {
 		if existing.File == p.File && existing.Origin == p.Origin {
 			return
@@ -380,7 +433,23 @@ func (c *EvidenceClosure) Fingerprints() []ClosureFingerprint {
 
 // AddRepair enqueues a RepairDirective. De-duplicates by Kind +
 // sorted-Files + Subject so repeated firings of the same enforcer do
-// not double-render the retry hint.
+// not double-render the retry hint. Increments stats.RepairsRaised
+// on every NEW (non-deduplicated) directive so the orchestrator's
+// task-end summary reports a single accurate count regardless of
+// caller (emit_answer_document, pre-complete, stall detector all
+// flow through this single chokepoint).
+//
+// A1 bridge: every RepairReadFile directive simultaneously writes
+// its Files onto the PendingReads queue. Without this mirror, the
+// grounder's citation-drop feedback would ONLY reach the retry hint
+// prompt, where an inattentive LLM can ignore or mis-read it. The
+// mirror lets runForcedReads (I4) pick the same files up from the
+// PendingReads queue so the framework can READ the files on the
+// LLM's behalf as a fallback. ConsumeRepairs drains the Repairs
+// queue but does NOT clear the mirrored PendingReads — they stay
+// until runForcedReads consumes them (ClearPendingReadFor) or the
+// LLM reads the file naturally (marked done via SetReadSet +
+// ClearPendingReadFor from runForcedReads).
 func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 	if c == nil || r.Kind == "" {
 		return
@@ -393,6 +462,20 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 		}
 	}
 	c.repairs = append(c.repairs, r)
+	c.stats.RepairsRaised++
+	if r.Kind == RepairReadFile {
+		origin := "auto_bridge"
+		if r.Origin != "" {
+			origin = "auto_bridge." + r.Origin
+		}
+		for _, f := range r.Files {
+			c.addPendingReadLocked(PendingRead{
+				File:      f,
+				Rationale: r.Rationale,
+				Origin:    origin,
+			})
+		}
+	}
 }
 
 // PendingRepairs returns a defensive copy of the queue WITHOUT
@@ -444,6 +527,41 @@ func (c *EvidenceClosure) Reset() {
 	c.subjectMatches = make(map[string]float64)
 	c.fingerprints = nil
 	c.repairs = nil
+	c.stats = ClosureStats{}
+}
+
+// Stats returns a snapshot of the per-task counters. Cheap (struct
+// copy under read lock) so callers can poll across enforcer
+// invocations.
+func (c *EvidenceClosure) Stats() ClosureStats {
+	if c == nil {
+		return ClosureStats{}
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.stats
+}
+
+// BumpChainsDemoted / BumpUnverifiedFinds / etc. are typed counter
+// increments. Each takes a delta (always positive in practice) so
+// batch operations (e.g. one applyChainPromotion call demoting N
+// chains) increment in one mutex acquire.
+
+func (c *EvidenceClosure) BumpChainsDemoted(n int)         { c.bumpStat(func(s *ClosureStats) { s.ChainsDemoted += n }) }
+func (c *EvidenceClosure) BumpUnverifiedFinds(n int)       { c.bumpStat(func(s *ClosureStats) { s.UnverifiedFinds += n }) }
+func (c *EvidenceClosure) BumpRepairsRaised(n int)         { c.bumpStat(func(s *ClosureStats) { s.RepairsRaised += n }) }
+func (c *EvidenceClosure) BumpPreCompleteDowngrades(n int) { c.bumpStat(func(s *ClosureStats) { s.PreCompleteDowngrades += n }) }
+func (c *EvidenceClosure) BumpForcedReads(n int)           { c.bumpStat(func(s *ClosureStats) { s.ForcedReads += n }) }
+func (c *EvidenceClosure) BumpStallSoftHits(n int)         { c.bumpStat(func(s *ClosureStats) { s.StallSoftHits += n }) }
+func (c *EvidenceClosure) BumpStallHardHits(n int)         { c.bumpStat(func(s *ClosureStats) { s.StallHardHits += n }) }
+
+func (c *EvidenceClosure) bumpStat(mut func(*ClosureStats)) {
+	if c == nil || mut == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	mut(&c.stats)
 }
 
 // HashFileSet computes the FNV-32 hash of a sorted file set. Helper

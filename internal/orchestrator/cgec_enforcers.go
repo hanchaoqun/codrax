@@ -61,17 +61,26 @@ var (
 )
 
 // SetCGECPolicy overrides the CGEC tunables. cmd/root.go calls this
-// after LoadRuntimeSettings with any non-nil overrides; pass zero or
-// negative to keep the current value (defensive — operators that
-// leave the YAML key omitted should never zero out the floor).
+// after LoadRuntimeSettings with any non-nil overrides.
+//
+// Disable semantics:
+//
+//	cgec_forced_reads_per_round = 0  → Lazy Auto-Read disabled
+//	                                   ("LLM is on its own"). Mirrors
+//	                                   analysis_max_prescan_rounds: 0.
+//	cgec_stall_threshold_soft   = 0  → soft stall detection off
+//	cgec_stall_threshold_hard   = 0  → hard stall (force-complete) off
+//
+// Negative values are programming errors and are ignored — operators
+// that mistype "-1" should not silently zero out the policy.
 func SetCGECPolicy(forcedReadsPerRound, stallSoft, stallHard int) {
-	if forcedReadsPerRound > 0 {
+	if forcedReadsPerRound >= 0 {
 		cgecForcedReadsPerRound = forcedReadsPerRound
 	}
-	if stallSoft > 0 {
+	if stallSoft >= 0 {
 		cgecStallThresholdSoft = stallSoft
 	}
-	if stallHard > 0 {
+	if stallHard >= 0 {
 		cgecStallThresholdHard = stallHard
 	}
 }
@@ -95,17 +104,20 @@ func (o *Orchestrator) runForcedReads() int {
 	if o.busCtx == nil || o.busCtx.Mutable == nil {
 		return 0
 	}
-	closure := o.busCtx.Mutable.EvidenceClosure()
-	pending := closure.PendingReads()
-	if len(pending) == 0 {
+	// Lazy Auto-Read disabled by configuration. Mirrors the
+	// analysis_max_prescan_rounds: 0 disable convention.
+	if cgecForcedReadsPerRound == 0 {
 		return 0
 	}
+	closure := o.busCtx.Mutable.EvidenceClosure()
 	readSet := closure.ReadSet()
 
-	// Drop entries the LLM has caught up on; collect the rest until
-	// the per-round cap.
+	// A1 bridge: grounder-raised RepairReadFile directives are
+	// mirrored into PendingReads at AddRepair time, so this single
+	// loop covers BOTH chain-promotion pending reads AND grounder
+	// reject pending reads. No need for a second PEEK over Repairs.
 	var toRead []types.PendingRead
-	for _, p := range pending {
+	for _, p := range closure.PendingReads() {
 		if readSet[p.File] {
 			closure.ClearPendingReadFor(p.File)
 			continue
@@ -135,7 +147,7 @@ func (o *Orchestrator) runForcedReads() int {
 			}
 		}
 		if err != nil || !result.Success {
-			logging.Warning("[orchestrator] CGEC E2 forced-read failed for %s: %v summary=%s", p.File, err, result.Summary)
+			logging.Warning("[CGEC] E2 forced-read failed: file=%s err=%v summary=%s", p.File, err, result.Summary)
 			continue
 		}
 		// Tag the synthesized result so trace consumers can tell it
@@ -166,10 +178,11 @@ func (o *Orchestrator) runForcedReads() int {
 		readSet[p.File] = true
 		closure.ClearPendingReadFor(p.File)
 		success++
-		logging.Info("[orchestrator] CGEC E2: forced-read %s (rationale: %s)", p.File, p.Rationale)
+		logging.Info("[CGEC] E2 forced-read: file=%s origin=%s rationale=%s", p.File, p.Origin, p.Rationale)
 	}
 	if success > 0 {
 		closure.SetReadSet(readSet)
+		closure.BumpForcedReads(success)
 		o.emit(render.Event{
 			Kind:      render.EventAgentReasoning,
 			Timestamp: time.Now(),
@@ -195,22 +208,31 @@ func (o *Orchestrator) detectStallAndAct() bool {
 	}
 	closure := o.busCtx.Mutable.EvidenceClosure()
 	fp := types.ClosureFingerprint{
-		ReadSetHash:  types.HashFileSet(closure.ReadSet()),
-		EvidenceHash: hashEvidenceIDs(o.busCtx.Mutable.EmittedEvidence()),
-		ChainTermSet: hashChainTerminals(o.busCtx.Mutable.EmittedEvidence()),
+		ReadSetHash:   types.HashFileSet(closure.ReadSet()),
+		EvidenceHash:  hashEvidenceIDs(o.busCtx.Mutable.EmittedEvidence()),
+		ChainTermSet:  hashChainTerminals(o.busCtx.Mutable.EmittedEvidence()),
+		CitedRefsHash: hashCitedRefs(closure.CitedRefs()),
 	}
 	closure.AppendFingerprint(fp)
 	hist := closure.Fingerprints()
+	// Soft threshold = 0 disables the entire detector (no
+	// observability either; for that, set hard high but keep
+	// observability via Stats()).
+	if cgecStallThresholdSoft == 0 {
+		return false
+	}
 	if len(hist) < cgecStallThresholdSoft {
 		return false
 	}
-	// Soft threshold: 2 consecutive identical fingerprints.
-	last := hist[len(hist)-1]
-	prev := hist[len(hist)-2]
-	if !fingerprintsEqual(last, prev) {
+	// Soft threshold: last cgecStallThresholdSoft consecutive
+	// fingerprints must all be equal. Generic over the threshold so
+	// operators can tighten / loosen via codrax.yaml without code
+	// change.
+	if !lastNFingerprintsEqual(hist, cgecStallThresholdSoft) {
 		return false
 	}
-	logging.Warning("[orchestrator] CGEC I4: convergence stall detected (round %d)", len(hist))
+	logging.Warning("[orchestrator] CGEC I4: convergence stall detected (round %d, soft threshold %d)", len(hist), cgecStallThresholdSoft)
+	closure.BumpStallSoftHits(1)
 	// Try to break the stall by force-reading anything that's been
 	// queued but not satisfied yet.
 	read := o.runForcedReads()
@@ -221,18 +243,13 @@ func (o *Orchestrator) detectStallAndAct() bool {
 		return false
 	}
 	// Hard threshold: cgecStallThresholdHard consecutive identical
-	// fingerprints AND no forced read fired (because there's nothing
-	// more to read).
-	if len(hist) >= cgecStallThresholdHard {
-		allEqual := true
-		for i := len(hist) - cgecStallThresholdHard; i < len(hist)-1; i++ {
-			if !fingerprintsEqual(hist[i], hist[i+1]) {
-				allEqual = false
-				break
-			}
-		}
-		if allEqual {
+	// fingerprints AND no forced read fired. Threshold = 0 disables
+	// the hard exit (operators that want soft observability without
+	// force-complete set hard=0).
+	if cgecStallThresholdHard > 0 && len(hist) >= cgecStallThresholdHard {
+		if lastNFingerprintsEqual(hist, cgecStallThresholdHard) {
 			logging.Error("[orchestrator] CGEC I4: hard stall — force-completing investigation to ship best-effort answer")
+			closure.BumpStallHardHits(1)
 			closure.AddRepair(types.RepairDirective{
 				Kind:      types.RepairForceCompleteDowngrade,
 				Rationale: fmt.Sprintf("no progress detected across %d consecutive explore rounds", cgecStallThresholdHard),
@@ -249,6 +266,22 @@ func (o *Orchestrator) detectStallAndAct() bool {
 		}
 	}
 	return false
+}
+
+// lastNFingerprintsEqual reports whether the last n entries of hist
+// are all pairwise equal. Returns false when len(hist) < n. Helper
+// shared by the soft + hard threshold checks so the comparison
+// logic stays uniform.
+func lastNFingerprintsEqual(hist []types.ClosureFingerprint, n int) bool {
+	if n < 2 || len(hist) < n {
+		return false
+	}
+	for i := len(hist) - n; i < len(hist)-1; i++ {
+		if !fingerprintsEqual(hist[i], hist[i+1]) {
+			return false
+		}
+	}
+	return true
 }
 
 // appendUniqueString appends s to slice when it is not already present.
@@ -341,9 +374,36 @@ func trimChainTerminal(s string) string {
 	return s
 }
 
-// fingerprintsEqual compares two ClosureFingerprint values.
+// fingerprintsEqual compares two ClosureFingerprint values across
+// all four dimensions.
 func fingerprintsEqual(a, b types.ClosureFingerprint) bool {
 	return a.ReadSetHash == b.ReadSetHash &&
 		a.EvidenceHash == b.EvidenceHash &&
-		a.ChainTermSet == b.ChainTermSet
+		a.ChainTermSet == b.ChainTermSet &&
+		a.CitedRefsHash == b.CitedRefsHash
+}
+
+// hashCitedRefs computes a stable hash over the (file, line) pairs
+// in the citation pool. Detects "the LLM keeps citing the same
+// references across retries" stalls — a different signal from
+// "no new evidence" because the LLM may emit new evidence yet
+// re-cite the same lines in finalizer.
+func hashCitedRefs(refs map[string][]int) uint32 {
+	if len(refs) == 0 {
+		return 0
+	}
+	files := make([]string, 0, len(refs))
+	for f := range refs {
+		files = append(files, f)
+	}
+	sort.Strings(files)
+	var entries []string
+	for _, f := range files {
+		lines := append([]int(nil), refs[f]...)
+		sort.Ints(lines)
+		for _, l := range lines {
+			entries = append(entries, fmt.Sprintf("%s:%d", f, l))
+		}
+	}
+	return types.HashStringSet(entries)
 }
