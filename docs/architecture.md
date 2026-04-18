@@ -336,6 +336,27 @@ type ToolResult struct {
 
 工具结果超过 `blob_max_inline_bytes`（默认 32 KB）时会 offload 到 per-trace 的 WorkDir 临时目录，只把 head/tail preview 塞进 LLM 上下文；Agent 想看全文就调用 `read_file` 指向 `RawRef`。Blob 大小参数在 `config/codrax.yaml` 的 `blob_*` 键下配。
 
+#### Turn A → Turn B Summary banner 约定
+
+`ToolResult` 故意不带 `Params` 字段。Turn A（explorer）产出 `ToolResult` 列表后，进入 Turn B（extractor / finalizer）的 prompt 只通过两个渠道：`ToolName`（字符串）+ `Summary`（字符串）。`internal/context/builder.go::formatRawToolSummary` 的渲染模板就是 `` - **<ToolName>** (N bytes):\n```\n<body>\n``` `` —— 没有位置放 arguments，也没有任何额外字段补。
+
+这带来一个硬约束：**任何 Turn B 需要看到的 Turn A 调用细节（命令、pattern、path、flags 等），必须由工具自己写进 `Summary` 文本**。如果不写，Turn B 会看到结果但看不到产生结果的调用。典型失败模式：`find . -name '*.go' | wc -l` 跑出 `100`，Turn B 看到 `- **exec_command** (3 bytes):\n\`\`\`\n100\n\`\`\``，根本不知道这 100 是 Go 文件数还是 Python 文件数。
+
+约定：每个工具在 `Execute` 里把 Summary 的第一行做成自述 banner：
+
+| 工具 | Summary 首行 banner |
+|------|----------------------|
+| `read_file` | `[path: showing lines X-Y of Z total]` 或 `[path: showing all N lines (B bytes); limit=L expanded ...]`（path / offset / limit 顺道暴露） |
+| `exec_command` | `[exec_command: $ <command>]`（成功 / 失败 / 超时三条路径都挂） |
+| `grep` | 两行：已有的 `[grep: N matching {lines,files}]`（保 `HasPrefix("[grep:")` 契约）+ `[grep params: pattern=... path=... file_type=... include=... context_lines=... case_insensitive=... files_only=...]` |
+| `list_files` | `[list_files: path=... recursive=...]` |
+| `git_diff` | `[git_diff: path=... ref=... staged=...]` |
+| `git_log` | `[git_log: path=... count=... format=...]` |
+
+辅助函数 `internal/tool/builtin.go::kvBanner(name, kv...)` 负责去空值 + `sanitizeForBanner` 消除控制字符 + 200 字节单值截断，保证 banner 永远单行不超长。
+
+这也是 session 8 的 `fix(tool): echo call provenance in every Summary banner` 修的那条断点 —— 它和 session 6 的 Raw Tool Outputs 渲染路径（`shouldRenderRawToolOutputs` 决定 `ShapeValue + !CitationReq.Required` 的 scalar 答案把 `TurnAArtifacts.ToolResults` 直接送 Turn B）是同一套 handoff 机制的两部分：session 6 修"结果值进来"，session 8 修"结果值的 provenance 进来"。下游消费者（`contract_check.go:221` 的 `strings.HasPrefix("[grep:")` + `strings.Contains("matching files]")`、`explorer.go:4862` 的同样前缀检查、`explorer.go` 的 `extractFileCoverage` 解析 `[path: showing lines X-Y of Z]`）都是字符串模式匹配 banner 的第一行，**修 banner 格式时必须同步查这些 parser**。
+
 ### 3.5 LLM
 
 LLM adapter 是可插拔的最小接口：
