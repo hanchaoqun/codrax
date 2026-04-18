@@ -192,7 +192,29 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// the flag still false and continues the loop.
 	if downgrade := preCompleteContractCheck(ctx, justification); downgrade != "" {
 		if ctx != nil && ctx.Mutable != nil {
-			ctx.Mutable.EvidenceClosure().BumpPreCompleteDowngrades(1)
+			closure := ctx.Mutable.EvidenceClosure()
+			closure.BumpPreCompleteDowngrades(1)
+			// Session 11 F1: pre-complete downgrade is a compound
+			// signal — something (missing reads, zero citations, shape
+			// mismatch, unverified finds) blocked completion. The
+			// downgrade message body carries the reason for the
+			// operator; we record a ledger entry so F2 can aggregate
+			// "closure blocked N times with same root" into a direct
+			// IR patch request. Confidence 0.70 — the downgrade
+			// doesn't pinpoint which IR field without more context,
+			// so we leave CitationReq as the default blame and let
+			// the paired Repair (always raised by preCompleteContractCheck)
+			// carry the kind-specific detail.
+			closure.AppendViolation(types.Violation{
+				Kind:   types.ViolPreCompleteDowngrade,
+				Detail: "pre-complete simulator rejected emit_investigation_complete",
+				Stage:  string(types.StageExplore),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "CitationReq",
+					Reason:     "closure snapshot fails preflight; evidence insufficient or citations outside ReadSet",
+					Confidence: 0.70,
+				},
+			})
 		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -471,6 +493,22 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 				Origin:    "pre_complete.subject_shape_mismatch",
 			})
 			logging.Info("[CGEC] B2b shape_swap: origin=pre_complete.subject_shape_mismatch from=%s to=%s", fromShape, toShape)
+			// Session 11 F1: shape mismatch detected at pre-complete
+			// boundary. High-confidence (0.85) signal that the IR's
+			// answer_shape disagrees with the subject.kind — F2 can
+			// aggregate with finalizer-side B2a events to push an IR
+			// patch. Pre-complete sees this earlier than the finalizer
+			// so the signal arrives in the ledger before the retry cycle.
+			closure.AppendViolation(types.Violation{
+				Kind:   types.ViolShapeSwap,
+				Detail: fmt.Sprintf("pre-complete B2b: AnswerSubject=%s vs RequiredAnswerShape=%s (→ %s)", ir.RequestModel.AnswerSubject.Kind, fromShape, toShape),
+				Stage:  string(types.StageExplore),
+				SuspectedRoot: types.SuspectedRoot{
+					IRField:    "answer_shape",
+					Reason:     fmt.Sprintf("subject.kind=%s incompatible with shape=%s at pre-complete", ir.RequestModel.AnswerSubject.Kind, fromShape),
+					Confidence: 0.85,
+				},
+			})
 		}
 		return ""
 	}
@@ -518,8 +556,7 @@ func detectSubjectShapeMismatch(ir *types.AnalysisIR) (bool, types.AnswerShape, 
 	subj := ir.RequestModel.AnswerSubject.Kind
 	shape := ir.AnswerContract.RequiredAnswerShape
 	switch subj {
-	case types.SubjectSkillName, types.SubjectAgentName,
-		types.SubjectFunctionName, types.SubjectTypeName,
+	case types.SubjectFunctionName, types.SubjectTypeName,
 		types.SubjectInterface, types.SubjectHandlerRoute,
 		types.SubjectReturnValue:
 	default:

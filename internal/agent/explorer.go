@@ -2026,6 +2026,16 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if e.searchResult != nil {
 		ermGraph = e.searchResult.Graph
 	}
+	// Session 11 G7 — install the R3 axis-aware ledger hook so
+	// identifyAnswerChains can record ViolChainDemoted entries via
+	// the ambient callback instead of carrying a closure pointer
+	// through the ranking helpers. Clear the hook immediately
+	// after to keep package state clean between dispatches.
+	if ctx != nil && ctx.Mutable != nil {
+		closure := ctx.Mutable.EvidenceClosure()
+		SetLedgerHook(func(v types.Violation) { closure.AppendViolation(v) })
+		defer SetLedgerHook(nil)
+	}
 	answerChains := identifyAnswerChains(e.userQuestion, e.structuredEvidence, 5,
 		buildAnswerWhitelist(e.ermRequirements), e.ermRequirements, ermGraph)
 	// df3 drift fix: mechanism questions do not benefit from the
@@ -2654,7 +2664,7 @@ func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map
 	if closure == nil {
 		return *e.cachedConcreteValues
 	}
-	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure)
+	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure, repoRoot)
 }
 
 // applyChainPromotion is the CGEC chain-promotion enforcer. Given an
@@ -2675,7 +2685,7 @@ func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map
 // EvidenceItems land in TurnAArtifacts and the extractor / finalizer
 // prompt, so an unread-anchor item can mislead Turn B. Both render
 // paths must be cleaned for the invariant to hold.
-func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closure *types.EvidenceClosure, repoRoot string) concreteValuesResult {
 	if closure == nil || len(in.chainAnchors) == 0 {
 		return in
 	}
@@ -2714,6 +2724,48 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 			}
 			if !closure.IsScanned(f) {
 				logging.Debug("[CGEC] D2 chain_promotion: skipping ghost anchor file=%s origin=%s (not in ScannedSet)", f, anchor.Origin)
+				// Session 11 F1: record structured ledger entry so F2
+				// aggregator can promote repeated ghost anchors on the
+				// same file to a RetrievalGap signal (→ R5 expand_search).
+				closure.AppendViolation(types.Violation{
+					Kind:   types.ViolGhostAnchor,
+					Detail: fmt.Sprintf("chain anchor file=%s origin=%s not in ScannedSet", f, anchor.Origin),
+					Stage:  string(types.StageExplore),
+					EvidenceRefs: []string{f, "origin:" + anchor.Origin},
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "ScannedSet",
+						Reason:     "chain anchored outside explorer pre-scan; ranker likely missed file",
+						Confidence: 0.70,
+					},
+				})
+				// Session 11 R5 — reactive feedback: when the ghost
+				// anchor count for this specific file crosses a
+				// threshold AND the file actually exists on disk, the
+				// ranker is almost certainly missing a real answer
+				// source. Add the file to ScannedSet so the next D2
+				// pass accepts the chain, and raise a RepairExpandSearch
+				// directive for retry-hint visibility. The promotion
+				// is per-file one-shot (subsequent ghost anchors on
+				// the same file no-op because IsScanned now returns
+				// true).
+				r5Threshold := tool.CurrentAnalysisLimits().GhostAnchorExpandSearchThreshold
+				if r5Threshold > 0 &&
+					countGhostAnchorsForFile(closure, f) >= r5Threshold &&
+					fileExistsInRepo(repoRoot, f) {
+					updated := closure.ScannedSet()
+					if updated == nil {
+						updated = make(map[string]bool)
+					}
+					updated[f] = true
+					closure.SetScannedSet(updated)
+					closure.AddRepair(types.RepairDirective{
+						Kind:      types.RepairExpandSearch,
+						Files:     []string{f},
+						Rationale: fmt.Sprintf("R5 promote: %d ghost-anchor hits on %s — ranker missed a real file", r5Threshold, f),
+						Origin:    "chain_promotion.r5_expand",
+					})
+					logging.Info("[CGEC] R5 expand_search: promoted %s to ScannedSet after %d ghost anchor hits", f, r5Threshold)
+				}
 				continue
 			}
 			closure.AddPendingRead(types.PendingRead{
@@ -6329,4 +6381,43 @@ func NewExplorerAgent(deps *Dependencies) Agent {
 		heuristics: deps.ExploreHeuristics,
 		tools:      deps.Tools,
 	})
+}
+
+// countGhostAnchorsForFile walks the ledger and counts how many
+// ViolGhostAnchor entries reference the given repo-relative file.
+// Session 11 R5 uses this to decide when to promote the file to
+// ScannedSet. The ledger scan is O(N) on total violations which
+// is fine in practice — the ledger is bounded by per-dispatch
+// enforcer fire counts, not by LLM output size.
+func countGhostAnchorsForFile(closure *types.EvidenceClosure, file string) int {
+	if closure == nil || file == "" {
+		return 0
+	}
+	n := 0
+	for _, v := range closure.ViolationsByKind(types.ViolGhostAnchor) {
+		for _, ref := range v.EvidenceRefs {
+			if ref == file {
+				n++
+				break
+			}
+		}
+	}
+	return n
+}
+
+// fileExistsInRepo returns true when the repo-relative path
+// resolves to an existing regular file under repoRoot. The check
+// is intentionally conservative (reject directories, symlinks to
+// directories, non-existent paths) so R5 never promotes something
+// bogus into ScannedSet.
+func fileExistsInRepo(repoRoot, rel string) bool {
+	if repoRoot == "" || rel == "" {
+		return false
+	}
+	full := filepath.Join(repoRoot, rel)
+	info, err := os.Stat(full)
+	if err != nil {
+		return false
+	}
+	return info.Mode().IsRegular()
 }

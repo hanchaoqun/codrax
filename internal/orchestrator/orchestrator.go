@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -738,11 +739,56 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 			// Fail-loud — preserve the original answer beneath an
 			// honest warning so the user sees the gap.
 			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state, "retry budget exhausted", o.settings)
 			lastFinalize = out
 			state.markDone(fin.ID)
 			o.emitNodeEnd(fin.ID, true, "")
 			break
 		}
+
+		// Session 11 F5 per-kind retry budget gate. Each kind has a
+		// configurable cap (see types.RetryBudgetByKindSettings);
+		// when consumed, the retry stops at the finalize contract
+		// boundary without re-requeueing the explore window — the
+		// LLM already had N chances to address this specific
+		// violation family.
+		if kind := dominantViolationKind(res); kind != "" {
+			cap := o.settings.RetryBudgetByKind.For(kind, ir.TaskGraph.ExecutionPolicy.RetryBudget)
+			if state.retryUsedForKind(kind) >= cap {
+				logging.Warning("[orchestrator] retry budget for kind=%s exhausted (%d/%d) — accepting answer with caveat",
+					kind, state.retryUsedForKind(kind), cap)
+				out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+				out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
+					fmt.Sprintf("per-kind retry budget exhausted: %s", kind), o.settings)
+				lastFinalize = out
+				state.markDone(fin.ID)
+				o.emitNodeEnd(fin.ID, true, "")
+				break
+			}
+		}
+
+		// Session 11 F5 yield check. Before committing to another
+		// retry window, verify the last window actually produced
+		// new information (forced reads / scanned-set growth /
+		// ledger drift). Zero-yield retries indicate the LLM is
+		// looping — failing loud with the original answer beneath
+		// a warning is better than infinitely spinning.
+		currentSnapshot := captureYieldSnapshot(o.busCtx.Mutable.EvidenceClosure())
+		delta := yieldDelta(state.lastYieldSnapshot, currentSnapshot)
+		minYield := o.settings.ViolationBudget.MinRetryYield
+		if minYield > 0 && state.retryUsed > 0 && delta < minYield {
+			state.yieldKillCount++
+			logging.Warning("[orchestrator] F5 yield kill: Δ=%d below MinRetryYield=%d — stopping retry loop",
+				delta, minYield)
+			out.FinalAnswer = appendViolationsToAnswer(out.FinalAnswer, res)
+			out.FinalAnswer = prependFailLoudWarning(out.FinalAnswer, o.busCtx.Mutable, state,
+				"yield kill: retry window produced no new information", o.settings)
+			lastFinalize = out
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			break
+		}
+		state.lastYieldSnapshot = currentSnapshot
 
 		// Backtrack: requeue the finalize node and every explorer-
 		// window node that sits behind it, so the next round
@@ -761,6 +807,11 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 			}
 		}
 		state.recordRetry()
+		// C6: bump the per-kind counter for the dominant violation
+		// so subsequent iterations see the cap getting tighter.
+		if kind := dominantViolationKind(res); kind != "" {
+			state.recordRetryByKind(kind)
+		}
 		pendingViolation = renderViolations(res)
 
 		// Surface the backtrack to the user so they know
@@ -816,7 +867,8 @@ func (o *Orchestrator) emitCGECSummary() {
 	if o.busCtx == nil || o.busCtx.Mutable == nil {
 		return
 	}
-	stats := o.busCtx.Mutable.EvidenceClosure().Stats()
+	closure := o.busCtx.Mutable.EvidenceClosure()
+	stats := closure.Stats()
 	var line string
 	if !stats.HasActivity() {
 		line = "[CGEC] summary: no enforcer fired (contract quiet)"
@@ -827,6 +879,21 @@ func (o *Orchestrator) emitCGECSummary() {
 			stats.ExpandSearchRaised, stats.ShapeSwapRaised,
 			stats.PreCompleteDowngrades, stats.ForcedReads,
 			stats.StallSoftHits, stats.StallHardHits)
+		// Session 11 F1: extended summary with ViolationLedger view.
+		// Keep the extension tail-appended so existing log parsers
+		// that match the pre-session-11 prefix still work. The tail
+		// prints nothing when the ledger is empty (zero cost when
+		// F1 hookups are a no-op on a healthy run).
+		if stats.ViolationsLogged > 0 {
+			if topField, topCount, topConf := closure.TopSuspectedField(); topField != "" {
+				line = fmt.Sprintf("%s violations=%d by_field=%s top_suspected=(%s,conf=%.2f,events=%d)",
+					line, stats.ViolationsLogged,
+					formatViolationFieldTally(closure.ViolationFieldTally()),
+					topField, topConf, topCount)
+			} else {
+				line = fmt.Sprintf("%s violations=%d (no_suspected_root)", line, stats.ViolationsLogged)
+			}
+		}
 	}
 	logging.Info("%s", line)
 	o.emit(render.Event{
@@ -1394,4 +1461,101 @@ func extractSubAgentProposal(output *agent.StageOutput, agentName types.AgentNam
 		}
 	}
 	return nil
+}
+
+// dominantViolationKind returns the most common ViolationKind in
+// the failed contract result. When violations are distributed
+// evenly, returns the first violation's Kind (stable ordering). An
+// empty result returns "" so the caller can treat it as "no
+// per-kind budget applicable".
+//
+// Session 11 C6 — used by the retry-budget gate to pick which
+// kind's cap to consult. The dominance rule keeps the gate
+// sticky: a run that keeps producing shape_swap events stays on
+// the shape-violation budget even when occasional citation
+// violations sneak in.
+func dominantViolationKind(res contract.Result) types.ViolationKind {
+	if res.Passed || len(res.Violations) == 0 {
+		return ""
+	}
+	counts := make(map[types.ViolationKind]int)
+	for _, v := range res.Violations {
+		counts[v.Kind]++
+	}
+	var (
+		bestKind  types.ViolationKind
+		bestCount int
+	)
+	for _, v := range res.Violations {
+		if counts[v.Kind] > bestCount {
+			bestCount = counts[v.Kind]
+			bestKind = v.Kind
+		}
+	}
+	return bestKind
+}
+
+// prependFailLoudWarning wraps the final answer with a Session 11
+// F5 warning line when the retry/yield gates fired. Honours the
+// ViolationBudget.FailLoudEnabled config knob so operators can
+// disable the banner for golden-path test harnesses, but the
+// default (true) is to never hide the failure.
+func prependFailLoudWarning(answer string, mut *types.MutableState, state *graphState, trigger string, settings types.PipelineSettings) string {
+	if !settings.ViolationBudget.FailLoudEnabled {
+		return answer
+	}
+	var (
+		topField string
+		topCount int
+		topConf  float64
+	)
+	if mut != nil {
+		if closure := mut.EvidenceClosure(); closure != nil {
+			topField, topCount, topConf = closure.TopSuspectedField()
+		}
+	}
+	var yieldKills int
+	if state != nil {
+		yieldKills = state.yieldKillCount
+	}
+	header := fmt.Sprintf("⚠️ Pipeline terminated with unresolved violations (%s)", trigger)
+	var details []string
+	if yieldKills > 0 {
+		details = append(details, fmt.Sprintf("%d yield kill(s)", yieldKills))
+	}
+	if topField != "" {
+		details = append(details, fmt.Sprintf("top suspected IR field: %s (conf=%.2f, %d event(s))",
+			topField, topConf, topCount))
+	}
+	if len(details) > 0 {
+		header = fmt.Sprintf("%s — %s", header, strings.Join(details, "; "))
+	}
+	header += ". Classification may be incorrect.\n\n"
+	return header + answer
+}
+
+// formatViolationFieldTally renders the ledger's per-field histogram
+// as a compact stable string for the CGEC summary line:
+// "{answer_shape:3,ScannedSet:8,answer_subject.kind:12}". Keys are
+// sorted so log diffs are deterministic; empty input returns "{}".
+// Session 11 F1 — used only by emitCGECSummary.
+func formatViolationFieldTally(tally map[string]int) string {
+	if len(tally) == 0 {
+		return "{}"
+	}
+	keys := make([]string, 0, len(tally))
+	for k := range tally {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var b strings.Builder
+	b.WriteString("{")
+	for i, k := range keys {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, "%s:%d", k, tally[k])
+	}
+	b.WriteString("}")
+	return b.String()
 }

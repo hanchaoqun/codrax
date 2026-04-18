@@ -43,10 +43,6 @@ func Score(token string, expectedKind types.AnswerSubjectKind, graph *repomap.Gr
 		return 0
 	}
 	switch expectedKind {
-	case types.SubjectSkillName:
-		return judgeSkillName(clean, graph)
-	case types.SubjectAgentName:
-		return judgeAgentName(clean, graph)
 	case types.SubjectFunctionName:
 		return judgeFunctionName(clean, graph)
 	case types.SubjectTypeName:
@@ -85,6 +81,25 @@ func Score(token string, expectedKind types.AnswerSubjectKind, graph *repomap.Gr
 // passes one weak heuristic (~0.3) is treated as a maybe.
 func IsAnswerOfKind(token string, kind types.AnswerSubjectKind, graph *repomap.Graph) bool {
 	return Score(token, kind, graph) >= 0.4
+}
+
+// HasJudge reports whether the taxonomy has a kind-specific
+// scoring function for kind. Callers that want to distinguish
+// "token does not look like kind" from "taxonomy cannot judge
+// this kind" (so they can fail open on the latter) use this.
+// Session 11 G7 C5 literal-form check leans on it — a literal
+// whose kind has no judge passes unconditionally.
+func HasJudge(kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectFunctionName, types.SubjectTypeName,
+		types.SubjectInterface, types.SubjectHandlerRoute,
+		types.SubjectConfigKey, types.SubjectReturnValue,
+		types.SubjectFilePath, types.SubjectStringLiteral,
+		types.SubjectNumeric, types.SubjectEnumValue,
+		types.SubjectStructField:
+		return true
+	}
+	return false
 }
 
 // ChainTerminalToken extracts the terminal answer token from a
@@ -189,69 +204,11 @@ func indexAll(s, substr string) []int {
 
 // ── Per-kind judges ─────────────────────────────────────────────────
 
-// judgeSkillName: skill names live in registries that look like
-//
-//	r.Register(&Config{Name: "skill-name", ...})
-//
-// so a token whose graph occurrence is at a file under a skill/
-// directory or whose surrounding line contains `Name:` plus the
-// quoted string scores high. Token-shape: kebab-case names ending
-// in "-skill" are also a strong cue (codrax convention).
-func judgeSkillName(token string, graph *repomap.Graph) float64 {
-	if token == "" {
-		return 0
-	}
-	score := 0.0
-	if strings.HasSuffix(token, "-skill") {
-		score += 0.6
-	}
-	if graph != nil {
-		for _, def := range graph.SymbolDefs[token] {
-			if strings.Contains(strings.ToLower(def.File), "/skill") {
-				score += 0.4
-				break
-			}
-		}
-	}
-	if score > 1 {
-		score = 1
-	}
-	return score
-}
-
-// judgeAgentName: agent names appear as the value of types.AgentName
-// constants or as the return of NewXxxAgent factories. Token-shape:
-// short lowercase nouns (analyzer, explorer, extractor, finalizer)
-// or PascalCase types ending in "Agent".
-func judgeAgentName(token string, graph *repomap.Graph) float64 {
-	if token == "" {
-		return 0
-	}
-	low := strings.ToLower(token)
-	score := 0.0
-	if strings.HasSuffix(low, "agent") || strings.HasSuffix(low, "-agent") {
-		score += 0.5
-	}
-	commonAgents := []string{"analyzer", "explorer", "extractor", "finalizer"}
-	for _, n := range commonAgents {
-		if low == n {
-			score += 0.4
-			break
-		}
-	}
-	if graph != nil {
-		for _, def := range graph.SymbolDefs[token] {
-			if strings.Contains(strings.ToLower(def.File), "/agent") {
-				score += 0.3
-				break
-			}
-		}
-	}
-	if score > 1 {
-		score = 1
-	}
-	return score
-}
+// (judgeAgentName removed — see Session 11 over-fitting audit.
+// The "agent" convention, even as an industry-wide suffix, was
+// still a nudge toward the project's own pipeline nomenclature.
+// "Agent"-shaped answers are now judged by the generic identifier
+// kinds: SubjectTypeName / SubjectFunctionName / SubjectStringLiteral.)
 
 // judgeFunctionName: token must be a function/method symbol in the
 // graph. Score is high (0.9) when matched, zero otherwise — a

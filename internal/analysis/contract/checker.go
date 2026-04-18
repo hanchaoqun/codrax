@@ -61,15 +61,31 @@ type Result struct {
 	Violations []Violation
 }
 
-// ViolationKind classifies a contract breach.
-type ViolationKind string
+// Violation, ViolationKind, and SuspectedRoot definitions moved to
+// internal/types/violation.go in Session 11 F1 so EvidenceClosure
+// can embed a []Violation ledger without creating a circular import
+// (contract → types → contract). The aliases + re-exported const
+// values below keep every existing contract.Violation / contract.ViolShape
+// caller compiling unchanged.
 
+// ViolationKind is an alias for types.ViolationKind.
+type ViolationKind = types.ViolationKind
+
+// SuspectedRoot is an alias for types.SuspectedRoot.
+type SuspectedRoot = types.SuspectedRoot
+
+// Violation is an alias for types.Violation.
+type Violation = types.Violation
+
+// ViolationKind constants re-exported from the types package. The
+// compiler resolves both names to the same typed string so comparison,
+// switches, and map keys work identically to the pre-move code.
 const (
-	ViolShape       ViolationKind = "shape"
-	ViolCitation    ViolationKind = "citation"
-	ViolMustInclude ViolationKind = "must_include"
-	ViolMustExclude ViolationKind = "must_exclude"
-	ViolAcceptance  ViolationKind = "acceptance"
+	ViolShape       = types.ViolShape
+	ViolCitation    = types.ViolCitation
+	ViolMustInclude = types.ViolMustInclude
+	ViolMustExclude = types.ViolMustExclude
+	ViolAcceptance  = types.ViolAcceptance
 
 	// ViolSuccessCriterion marks a finalize TaskNode.SuccessCriteria
 	// failure that was merged into the Result by the orchestrator
@@ -79,17 +95,16 @@ const (
 	// contract.Check violations, replacing the pre-existing behaviour
 	// where a failing success criterion only produced a log line and
 	// the pipeline silently accepted the answer.
-	ViolSuccessCriterion ViolationKind = "success_criterion"
-)
+	ViolSuccessCriterion = types.ViolSuccessCriterion
 
-// Violation is one specific contract breach with a short reason and
-// an optional repair hint the orchestrator can pass to the explorer
-// when it reroutes the task.
-type Violation struct {
-	Kind   ViolationKind
-	Detail string
-	Repair string // e.g. "collect evidence for <symbol>"
-}
+	// Session 11 F1 kinds (see types/violation.go for definitions).
+	ViolGhostAnchor          = types.ViolGhostAnchor
+	ViolChainDemoted         = types.ViolChainDemoted
+	ViolSelfRefLiteral       = types.ViolSelfRefLiteral
+	ViolPreCompleteDowngrade = types.ViolPreCompleteDowngrade
+	ViolLiteralFormFailed    = types.ViolLiteralFormFailed
+	ViolShapeSwap            = types.ViolShapeSwap
+)
 
 // Check validates draft against c. It is safe to call with an empty
 // contract — every field is treated as "not required" so a
@@ -124,43 +139,54 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 		return nil
 	}
 	text := draft.Text
+	// shapeRoot is the common SuspectedRoot template for every
+	// checkShape violation: the finalizer emitted a shape the
+	// answer contract does not accept. F2 aggregates these events
+	// per-answer_shape so the F3 patcher can decide whether to
+	// reconcile (e.g. config_value → value based on cue match).
+	shapeRoot := SuspectedRoot{
+		IRField:    "answer_shape",
+		Reason:     fmt.Sprintf("finalizer output violates contract shape=%s", c.RequiredAnswerShape),
+		Confidence: 0.80,
+	}
 	switch c.RequiredAnswerShape {
 	case types.ShapeBoolean:
 		lower := strings.ToLower(strings.TrimSpace(text))
 		// Accept yes/no as either the full answer or a leading token.
 		if !(strings.HasPrefix(lower, "yes") || strings.HasPrefix(lower, "no") ||
 			strings.HasPrefix(lower, "是") || strings.HasPrefix(lower, "否")) {
-			return []Violation{{Kind: ViolShape, Detail: "boolean answer must start with yes/no"}}
+			return []Violation{{Kind: ViolShape, Detail: "boolean answer must start with yes/no", SuspectedRoot: shapeRoot}}
 		}
 	case types.ShapeValue:
 		// A value answer must be short and non-empty. "Short" is a
 		// rough heuristic: ≤ 200 chars. Longer indicates the model
 		// wrote an explanation instead of returning the value.
 		if len(strings.TrimSpace(text)) == 0 {
-			return []Violation{{Kind: ViolShape, Detail: "value answer must not be empty"}}
+			return []Violation{{Kind: ViolShape, Detail: "value answer must not be empty", SuspectedRoot: shapeRoot}}
 		}
 		if len(text) > shapeValueMaxLen {
 			return []Violation{{Kind: ViolShape,
-				Detail: fmt.Sprintf("value answer too long (%d chars) — expected a literal", len(text))}}
+				Detail:        fmt.Sprintf("value answer too long (%d chars) — expected a literal", len(text)),
+				SuspectedRoot: shapeRoot}}
 		}
 	case types.ShapeListOfSymbols:
 		// Require at least one line that looks like a bullet or
 		// symbol reference. We accept either explicit "-"/"*" bullets,
 		// numbered items, or backtick-fenced identifiers.
 		if !hasSymbolListShape(text) {
-			return []Violation{{Kind: ViolShape, Detail: "list_of_symbols answer must contain bulleted or fenced symbol entries"}}
+			return []Violation{{Kind: ViolShape, Detail: "list_of_symbols answer must contain bulleted or fenced symbol entries", SuspectedRoot: shapeRoot}}
 		}
 	case types.ShapeStepList:
 		if !hasNumberedSteps(text) {
-			return []Violation{{Kind: ViolShape, Detail: "step_list answer must contain numbered steps"}}
+			return []Violation{{Kind: ViolShape, Detail: "step_list answer must contain numbered steps", SuspectedRoot: shapeRoot}}
 		}
 	case types.ShapeConfigValue:
 		if !strings.Contains(text, "=") && !strings.Contains(text, ":") && !strings.Contains(text, " is ") {
-			return []Violation{{Kind: ViolShape, Detail: "config_value answer must express a key=value or key: value pair"}}
+			return []Violation{{Kind: ViolShape, Detail: "config_value answer must express a key=value or key: value pair", SuspectedRoot: shapeRoot}}
 		}
 	case types.ShapeExplanation:
 		if len(strings.TrimSpace(text)) < shapeExplanationMinLen {
-			return []Violation{{Kind: ViolShape, Detail: "explanation answer too short to be meaningful"}}
+			return []Violation{{Kind: ViolShape, Detail: "explanation answer too short to be meaningful", SuspectedRoot: shapeRoot}}
 		}
 	}
 	return nil
@@ -192,22 +218,36 @@ func checkCitations(draft Answer, c types.AnswerContract) []Violation {
 				Kind:   ViolCitation,
 				Detail: fmt.Sprintf("%d citations provided, %d required", len(draft.Citations), req.MinCitations),
 				Repair: "collect more evidence with file:line anchors",
+				SuspectedRoot: SuspectedRoot{
+					IRField:    "CitationReq",
+					Reason:     "finalizer produced zero citations though contract requires ≥N",
+					Confidence: 0.75,
+				},
 			}}
 		}
+	}
+	// citGranRoot covers granularity failures (missing file, missing
+	// line). SuspectedRoot points at CitationReq because granularity
+	// is a contract setting; F2 aggregates these alongside count-based
+	// citation failures.
+	citGranRoot := SuspectedRoot{
+		IRField:    "CitationReq",
+		Reason:     "citation granularity does not match contract requirement",
+		Confidence: 0.70,
 	}
 	for _, cit := range draft.Citations {
 		switch req.Granularity {
 		case "file":
 			if strings.TrimSpace(cit.File) == "" {
-				return []Violation{{Kind: ViolCitation, Detail: "citation missing file"}}
+				return []Violation{{Kind: ViolCitation, Detail: "citation missing file", SuspectedRoot: citGranRoot}}
 			}
 		case "file_line":
 			if strings.TrimSpace(cit.File) == "" || cit.Line <= 0 {
-				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line number", cit.File)}}
+				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line number", cit.File), SuspectedRoot: citGranRoot}}
 			}
 		case "file_line_range":
 			if strings.TrimSpace(cit.File) == "" || (cit.Line <= 0 && len(cit.Lines) == 0) {
-				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line range", cit.File)}}
+				return []Violation{{Kind: ViolCitation, Detail: fmt.Sprintf("citation %q missing line range", cit.File), SuspectedRoot: citGranRoot}}
 			}
 		}
 	}
@@ -249,23 +289,36 @@ func checkMustExclude(draft Answer, c types.AnswerContract) []Violation {
 
 func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 	var out []Violation
+	// acceptanceRoot covers contains_symbol / regex_match / invalid
+	// regex / unknown kind paths. SuspectedRoot points at
+	// AcceptanceTests because those tests are themselves an IR
+	// declaration — mis-authored criteria are the primary
+	// reconciliation target.
+	acceptanceRoot := SuspectedRoot{
+		IRField:    "AcceptanceTests",
+		Reason:     "finalizer answer does not satisfy acceptance criterion",
+		Confidence: 0.65,
+	}
 	for _, a := range c.AcceptanceTests {
 		switch a.Kind {
 		case types.CritContainsSymbol:
 			if !containsSymbol(draft.Text, a.Expr) {
 				out = append(out, Violation{Kind: ViolAcceptance,
-					Detail: fmt.Sprintf("acceptance contains_symbol %q failed", a.Expr)})
+					Detail:        fmt.Sprintf("acceptance contains_symbol %q failed", a.Expr),
+					SuspectedRoot: acceptanceRoot})
 			}
 		case types.CritRegexMatch:
 			re, err := regexp.Compile(a.Expr)
 			if err != nil {
 				out = append(out, Violation{Kind: ViolAcceptance,
-					Detail: fmt.Sprintf("invalid regex %q: %v", a.Expr, err)})
+					Detail:        fmt.Sprintf("invalid regex %q: %v", a.Expr, err),
+					SuspectedRoot: acceptanceRoot})
 				continue
 			}
 			if !re.MatchString(draft.Text) {
 				out = append(out, Violation{Kind: ViolAcceptance,
-					Detail: fmt.Sprintf("acceptance regex %q did not match", a.Expr)})
+					Detail:        fmt.Sprintf("acceptance regex %q did not match", a.Expr),
+					SuspectedRoot: acceptanceRoot})
 			}
 		case types.CritCitationCountGE:
 			// Absence answers ("0 Python files", "no handlers do X")
@@ -281,7 +334,8 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 			n, err := strconv.Atoi(strings.TrimSpace(a.Expr))
 			if err != nil {
 				out = append(out, Violation{Kind: ViolAcceptance,
-					Detail: fmt.Sprintf("citation_count_ge expects integer, got %q", a.Expr)})
+					Detail:        fmt.Sprintf("citation_count_ge expects integer, got %q", a.Expr),
+					SuspectedRoot: acceptanceRoot})
 				continue
 			}
 			if len(draft.Citations) < n {
@@ -297,11 +351,17 @@ func checkAcceptance(draft Answer, c types.AnswerContract) []Violation {
 					continue // pass with implicit caveat
 				}
 				out = append(out, Violation{Kind: ViolAcceptance,
-					Detail: fmt.Sprintf("only %d citations, need ≥%d", len(draft.Citations), n)})
+					Detail: fmt.Sprintf("only %d citations, need ≥%d", len(draft.Citations), n),
+					SuspectedRoot: SuspectedRoot{
+						IRField:    "CitationReq",
+						Reason:     "zero citations vs acceptance floor — answer is ungrounded",
+						Confidence: 0.80,
+					}})
 			}
 		default:
 			out = append(out, Violation{Kind: ViolAcceptance,
-				Detail: fmt.Sprintf("unknown acceptance test kind %q (expr=%q)", a.Kind, a.Expr)})
+				Detail:        fmt.Sprintf("unknown acceptance test kind %q (expr=%q)", a.Kind, a.Expr),
+				SuspectedRoot: acceptanceRoot})
 		}
 	}
 	return out

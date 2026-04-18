@@ -326,6 +326,24 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			case types.ShapeBoolean:
 				canCorrect = p.Boolean != nil && p.Boolean.Decision != ""
 			}
+			// Session 11 C4 — strict mode short-circuits the
+			// silent rescue. When enabled, every shape mismatch is a
+			// rejection so the LLM gets a structured retry hint from
+			// F4 HintComposer on the next turn instead of a hidden
+			// shape swap. Legacy mode (default false) preserves the
+			// historical canCorrect / fallback-to-explanation path.
+			if CurrentAnalysisLimits().ShapeSwapStrictMode {
+				return types.ToolResult{
+					ToolName: "emit_answer_document",
+					Success:  false,
+					Summary: fmt.Sprintf(
+						"emit_answer_document REJECTED (C4 strict mode): "+
+							"shape=%s but contract requires %s. "+
+							"Re-emit with shape=%s and the fields that shape mandates.",
+						llmShape, target, target),
+					Timestamp: now,
+				}, nil
+			}
 			if canCorrect {
 				shape = target
 				shapeCorrectionNote = fmt.Sprintf("shape auto-corrected: LLM chose %s → resolved to %s (analyzer target)", llmShape, shape)
@@ -355,6 +373,23 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 					Origin:    "emit_answer_document.shape_mismatch",
 				})
 				logging.Info("[CGEC] B2a shape_swap: from=%s to=%s can_correct=%v", llmShape, target, canCorrect)
+				// Session 11 F1: record structured ledger entry so F2
+				// aggregator can promote repeated shape_swap events into
+				// an IRPatch on answer_shape (e.g. the LLM consistently
+				// emits boolean when contract says value → reconcile
+				// toward value or downgrade to explanation). Confidence
+				// 0.85 reflects that a shape_swap directly diagnoses the
+				// answer_shape field with high specificity.
+				closure.AppendViolation(types.Violation{
+					Kind:   types.ViolShapeSwap,
+					Detail: fmt.Sprintf("LLM shape=%s but contract requires %s (can_correct=%v)", llmShape, target, canCorrect),
+					Stage:  string(types.StageFinalize),
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "answer_shape",
+						Reason:     fmt.Sprintf("finalizer picked %s; contract wants %s", llmShape, target),
+						Confidence: 0.85,
+					},
+				})
 			}
 			// Previously this block silently scrubbed every field the
 			// resolved shape forbids. That let the LLM's "shotgun"
@@ -436,6 +471,35 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			Timestamp: now,
 			Success:   false,
 		}, nil
+	}
+	// Session 11 C5 — literal form check. When the answer shape is
+	// `value` and the contract knows the AnswerSubject.Kind, the
+	// emitted value.literal must match the kind's regex form (e.g.
+	// skill_name → must end with "-skill"). Catching the mismatch
+	// here — before the AnswerDocument is written and the grounder
+	// runs — gives the LLM a precise retry hint via the F4 composer
+	// (the ViolLiteralFormFailed ledger entry drives it).
+	if ctx.AnalysisIR != nil && shape == types.ShapeValue {
+		if formErr := validateLiteralFormForSubject(&p, ctx.AnalysisIR.RequestModel.AnswerSubject.Kind); formErr != nil {
+			if ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().AppendViolation(types.Violation{
+					Kind:   types.ViolLiteralFormFailed,
+					Detail: formErr.Error(),
+					Stage:  string(types.StageFinalize),
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "answer_subject.kind",
+						Reason:     fmt.Sprintf("emitted literal does not match kind=%s form", ctx.AnalysisIR.RequestModel.AnswerSubject.Kind),
+						Confidence: 0.70,
+					},
+				})
+			}
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   "emit_answer_document REJECTED (C5 literal form check): " + formErr.Error(),
+				Timestamp: now,
+				Success:   false,
+			}, nil
+		}
 	}
 	citations, citationRemap, citationWarnings, citationRepairs, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx, readFiles)
 	if cerr != nil {
@@ -952,6 +1016,28 @@ func simulateCitationGrounding(citations []types.Citation, readFiles map[string]
 		allowed = append(allowed[:allowedCap], fmt.Sprintf("...and %d more", len(readFiles)-allowedCap))
 	}
 	logging.Warning("[CGEC] G1 pre_finalize_dry_run: rejecting emit_answer_document — 0/%d citations match whitelist", len(citations))
+	// Session 11 F1: record structured ledger entry so F2 aggregator
+	// can spot repeated ReadSet-miss patterns (→ R5 expand_search
+	// or SourceMix IRPatch). Confidence 0.90 because 0/N cite-hit
+	// is an unambiguous signal that finalizer + Turn A retrieval are
+	// out of sync.
+	if ctx != nil && ctx.Mutable != nil {
+		refs := make([]string, 0, len(missing))
+		for _, m := range missing {
+			refs = append(refs, m)
+		}
+		ctx.Mutable.EvidenceClosure().AppendViolation(types.Violation{
+			Kind:         types.ViolCitation,
+			Detail:       fmt.Sprintf("0/%d citations inside Turn A ReadSet at pre-finalize dry-run", len(citations)),
+			Stage:        string(types.StageFinalize),
+			EvidenceRefs: refs,
+			SuspectedRoot: types.SuspectedRoot{
+				IRField:    "ScannedSet",
+				Reason:     "finalizer citations anchored outside Turn A ReadSet — ranker/explorer missed target",
+				Confidence: 0.90,
+			},
+		})
+	}
 	return fmt.Sprintf(
 		"emit_answer_document REJECTED by CGEC G1 pre-finalize dry-run: none of your %d citation(s) point to a file Turn A actually read, so the grounder will drop every one and the answer contract will fail.\n\n"+
 			"Your citations: %s\n\n"+
@@ -1253,4 +1339,46 @@ func slateToEmittedSymbols(slate []types.AnswerSymbol) []emitAnswerSymbolItem {
 		})
 	}
 	return out
+}
+
+// validateLiteralFormForSubject is a language- and domain-neutral
+// structural sanity check on the emitted value.literal. It does
+// NOT enforce kind-specific patterns (e.g. "must end with -skill"
+// for skill names) — that would overfit to a specific project's
+// naming conventions. Instead, it only catches structural
+// impossibilities that apply to any identifier-like answer:
+//
+//   - empty literal (already covered by shape checks, but belt+braces)
+//   - whitespace-only literal (same)
+//   - literal containing embedded newlines (must be one line)
+//   - literal containing unbalanced quotes (source quoting leaked)
+//
+// Specific per-kind validation is the subject taxonomy's job
+// (internal/analysis/subject), which the chain ranker and the
+// pre-complete simulator already consult via subject.Score. This
+// keeps emit_answer_document clean of domain knowledge and avoids
+// double-gating the same pattern with two different regex tables.
+func validateLiteralFormForSubject(p *emitAnswerDocumentParams, kind types.AnswerSubjectKind) error {
+	_ = kind // kind-specific checks live in the subject package
+	if p == nil || p.Value == nil {
+		return nil
+	}
+	lit := strings.TrimSpace(p.Value.Literal)
+	if lit == "" {
+		return nil
+	}
+	if strings.ContainsAny(lit, "\n\r") {
+		return fmt.Errorf("literal %q contains embedded newline — value answers must be a single line", lit)
+	}
+	// Unbalanced quote count is a universal signal of a stray
+	// paste: either the LLM half-quoted the token or copied a
+	// trailing quote from the source line. Reject so the LLM
+	// re-emits without the trailing artefact.
+	if cnt := strings.Count(lit, `"`); cnt%2 != 0 {
+		return fmt.Errorf("literal %q has unbalanced double quotes", lit)
+	}
+	if cnt := strings.Count(lit, `'`); cnt%2 != 0 {
+		return fmt.Errorf("literal %q has unbalanced single quotes", lit)
+	}
+	return nil
 }

@@ -140,8 +140,6 @@ var analysisAnswerShapes = []AnalysisEnumChoice{
 // inferAnswerSubject in analyzer_intent.go provides a deterministic
 // fallback from the cue list and question_kind enum.
 var analysisAnswerSubjects = []AnalysisEnumChoice{
-	{string(types.SubjectSkillName), "answer is a skill identifier (\"explore-skill\")"},
-	{string(types.SubjectAgentName), "answer is an agent identifier (\"explorer\", \"analyzer\")"},
 	{string(types.SubjectFunctionName), "answer is a function or method name"},
 	{string(types.SubjectTypeName), "answer is a type / struct / class / enum name"},
 	{string(types.SubjectInterface), "answer is an interface / trait name"},
@@ -290,15 +288,16 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("You are a CLASSIFIER. Your only job before calling emit_analysis is to verify that the entities from the user's wording exist in this repo. You are NOT investigating the question — the explorer stage does that next.\n\n")
 	of.WriteString("**One 'round' = one LLM response.** Each response can contain MULTIPLE parallel tool calls. Batch all your verification grep calls into a single response.\n\n")
 	of.WriteString("Available tools (ONLY these):\n")
-	of.WriteString("  - `grep` — MUST use `files_only=true`. Batch multiple patterns into parallel calls in ONE response.\n")
+	of.WriteString("  - `grep` — Round 1 MUST use `files_only=true` (evidence-lite). Round 2 MAY use `files_only=false` for classification verification when the pre-scan has surfaced declarative files (topology/defaults/registry/routes/wire/init/manifest/schema/enum). Line-level matches stay in a sidecar channel — they refine classification only, never leak into downstream evidence.\n")
 	of.WriteString("  - `repo_map` — structural index for discovering relevant files.\n")
 	of.WriteString("  - `list_files` — fallback when grep/repo_map return nothing.\n\n")
 	of.WriteString("FORBIDDEN: `read_file`, `exec_command`, or anything that reads file CONTENT.\n\n")
 	of.WriteString("**Budget: at most 2 rounds (2 LLM responses with tool calls).** The moment you have enough info to classify, call emit_analysis — do NOT spend extra rounds on redundant verification. A runtime gate force-stops after 2 pre-scan rounds.\n\n")
+	of.WriteString("**Round 2 ClassificationGrep (optional)**: after Round 1 surfaces a declarative file (topology.go / defaults.go / registry.go / routes.go / schema.yaml / etc.), you MAY call `grep(files_only=false, max_count=20)` up to 3 times on those files to peek at the literal forms inside map/struct/enum bodies. Use this ONLY to lock the answer axis when your Round-1 classification is uncertain. Then call emit_analysis. Budget: 3 calls × 20 matches × 8 KB total.\n\n")
 	of.WriteString("Typical flow:\n")
 	of.WriteString("  Round 1: batch grep(files_only=true) for ALL entities → results confirm they exist\n")
 	of.WriteString("  → Immediately call emit_analysis (skip round 2)\n")
-	of.WriteString("  Round 2 (only if round 1 found nothing): try broader search → then emit_analysis regardless\n\n")
+	of.WriteString("  Round 2 (only if classification is uncertain): broader grep OR `grep(files_only=false)` on declarative files surfaced in Round 1 → then emit_analysis regardless\n\n")
 	of.WriteString("## emit_analysis contract\n\n")
 	of.WriteString("Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape. " +
 		"The system synthesises the TermGraph, TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically from your input — do not provide them.\n\n")

@@ -96,7 +96,7 @@ func TestFormatUnverifiedFindings_CapRenders_TrailingCount(t *testing.T) {
 // suppresses the entire Subject Match Summary section on
 // analyzer-only dispatches / SubjectUnknown questions.
 func TestFormatSubjectMatchSummary_EmptyMap_NoRender(t *testing.T) {
-	expected := types.AnswerSubject{Kind: types.SubjectSkillName, Confidence: 0.8}
+	expected := types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.8}
 	if got := formatSubjectMatchSummary(nil, expected); got != "" {
 		t.Errorf("nil matches must return empty, got %q", got)
 	}
@@ -130,12 +130,12 @@ func TestFormatSubjectMatchSummary_TopKSorted(t *testing.T) {
 		"chain F": 0.8,
 		"chain G": 0.1, // below floor — must NOT render
 	}
-	expected := types.AnswerSubject{Kind: types.SubjectSkillName, Confidence: 0.8}
+	expected := types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.8}
 	out := formatSubjectMatchSummary(matches, expected)
 	if out == "" {
 		t.Fatal("expected non-empty render")
 	}
-	if !strings.Contains(out, "Expected answer subject: `skill_name`") {
+	if !strings.Contains(out, "Expected answer subject: `function_name`") {
 		t.Errorf("missing expected-subject header, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Chain candidates") {
@@ -169,7 +169,7 @@ func TestFormatSubjectMatchSummary_AllBelowFloor_Warns(t *testing.T) {
 		"chain A": 0.1,
 		"chain B": 0.15,
 	}
-	expected := types.AnswerSubject{Kind: types.SubjectSkillName, Confidence: 0.8}
+	expected := types.AnswerSubject{Kind: types.SubjectFunctionName, Confidence: 0.8}
 	out := formatSubjectMatchSummary(matches, expected)
 	if !strings.Contains(out, "SKEPTICISM") {
 		t.Errorf("expected SKEPTICISM warning, got:\n%s", out)

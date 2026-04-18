@@ -148,6 +148,128 @@ func TestEvidenceClosureAllFieldsHaveConsumer(t *testing.T) {
 	}
 }
 
+// TestAllViolationKindsHaveProducer is the Session 11 F1 analogue of
+// TestAllRepairKindsHaveProducer. Every ViolationKind declared in
+// AllViolationKinds() MUST either (a) have a direct AppendViolation
+// producer, (b) be produced as a contract.Violation returned from
+// contract.Check (then batched into the ledger by runContractCheck),
+// or (c) be explicitly marked pending until its hookup lands in a
+// later group (G6/G7).
+//
+// The test walks production code and checks for the pattern
+// "Kind: Violxxx" (composite literal with Kind field) OR direct
+// reference "ViolationKind = ViolXxx". When a kind is marked
+// pending, the test asserts it is STILL un-produced — the moment
+// the hookup lands the test fails with a "move from pending to
+// covered" instruction, forcing the pending list to stay honest.
+func TestAllViolationKindsHaveProducer(t *testing.T) {
+	repoRoot := findRepoRoot(t)
+	internalDir := filepath.Join(repoRoot, "internal")
+	sources := collectGoSourcesExcludingTests(t, internalDir)
+	// Exclude internal/types/ — the enum + getter helpers live there,
+	// self-referential mentions (AllViolationKinds, const decls) are
+	// not producers.
+	filtered := make([]string, 0, len(sources))
+	for _, s := range sources {
+		if strings.Contains(s, string(os.PathSeparator)+"types"+string(os.PathSeparator)) {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+
+	// Kinds that have at least one producer in the current codebase.
+	// The G6/G7 kinds (ViolChainDemoted, ViolSelfRefLiteral,
+	// ViolLiteralFormFailed) are explicitly PENDING in G1 — their
+	// hookups land with R3/R4/C5 in later groups. Keep the pending
+	// list short and documented so when a kind stays unproduced past
+	// its expected group, the operator can tell.
+	covered := map[ViolationKind]bool{
+		ViolShape:                true, // contract/checker.go
+		ViolCitation:             true, // contract/checker.go + emit_answer_document.go G1 dry-run
+		ViolMustInclude:          true, // contract/checker.go
+		ViolMustExclude:          true, // contract/checker.go
+		ViolAcceptance:           true, // contract/checker.go
+		ViolSuccessCriterion:     true, // orchestrator.go SC merge
+		ViolGhostAnchor:          true, // agent/explorer.go D2
+		ViolPreCompleteDowngrade: true, // tool/emit_investigation_complete.go preComplete
+		ViolShapeSwap:            true, // tool/emit_answer_document.go B2a + emit_investigation_complete.go B2b
+		ViolSelfRefLiteral:       true, // tool/emit_evidence.go R4 self-ref filter (G6)
+		ViolLiteralFormFailed:    true, // tool/emit_answer_document.go C5 literal form check (G7)
+		ViolChainDemoted:         true, // agent/explorer_erm.go R3 self-ref chain demote (G7)
+	}
+	// All Session 11 violation kinds now have producers. The
+	// pending map remains empty but is kept so future additions
+	// can declare "not yet wired" kinds without deleting the
+	// pattern.
+	pending := map[ViolationKind]string{}
+	// Sanity: AllViolationKinds() must equal covered ∪ pending so the
+	// test itself catches a new kind added to the enum.
+	kinds := AllViolationKinds()
+	if len(kinds) != len(covered)+len(pending) {
+		t.Fatalf("kind coverage table out of date: %d kinds in AllViolationKinds vs %d covered + %d pending — add the new kind to either covered or pending", len(kinds), len(covered), len(pending))
+	}
+
+	kindSymbols := map[ViolationKind]string{
+		ViolShape:                "ViolShape",
+		ViolCitation:             "ViolCitation",
+		ViolMustInclude:          "ViolMustInclude",
+		ViolMustExclude:          "ViolMustExclude",
+		ViolAcceptance:           "ViolAcceptance",
+		ViolSuccessCriterion:     "ViolSuccessCriterion",
+		ViolGhostAnchor:          "ViolGhostAnchor",
+		ViolChainDemoted:         "ViolChainDemoted",
+		ViolSelfRefLiteral:       "ViolSelfRefLiteral",
+		ViolPreCompleteDowngrade: "ViolPreCompleteDowngrade",
+		ViolLiteralFormFailed:    "ViolLiteralFormFailed",
+		ViolShapeSwap:            "ViolShapeSwap",
+	}
+
+	// Match only the "Kind: ViolXxx" composite-literal pattern —
+	// the primary way violations are constructed at producer sites.
+	// We deliberately do NOT match bare references to ViolXxx
+	// symbols (const aliases, switch cases, enum re-exports) because
+	// those surface in contract/checker.go's backward-compat alias
+	// block and would falsely claim it as a producer for every kind.
+	// Only Kind: <sym> constructions count as real producer evidence.
+	kindLiteral := regexp.MustCompile(`\bKind\s*:\s*(?:types\.|contract\.)?(Viol\w+)`)
+
+	for kind, sym := range kindSymbols {
+		var producerFile string
+		for _, path := range filtered {
+			body := readFileForTest(t, path)
+			if matches := kindLiteral.FindAllStringSubmatch(body, -1); matches != nil {
+				for _, m := range matches {
+					if m[1] == sym {
+						producerFile = path
+						break
+					}
+				}
+			}
+			if producerFile != "" {
+				break
+			}
+		}
+
+		if covered[kind] {
+			if producerFile == "" {
+				t.Errorf("ViolationKind %s marked COVERED but no producer found in internal/ (searched %d files). Either wire a producer or move the kind to the pending list with a group tag.",
+					kind, len(filtered))
+			} else {
+				t.Logf("ViolationKind %s producer: %s", kind, relToRepo(producerFile, repoRoot))
+			}
+			continue
+		}
+		if note, isPending := pending[kind]; isPending {
+			if producerFile != "" {
+				t.Errorf("ViolationKind %s was marked pending (%s) but now has a producer at %s — MOVE IT FROM pending TO covered in the test map so the structural gate is accurate.",
+					kind, note, relToRepo(producerFile, repoRoot))
+			} else {
+				t.Logf("ViolationKind %s pending: %s (no producer yet, as expected)", kind, note)
+			}
+		}
+	}
+}
+
 // findRepoRoot walks up from the test working directory looking for
 // go.mod. Uses t.Fatalf so we do not silently skip on unexpected
 // layouts.

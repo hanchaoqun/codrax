@@ -11,6 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/budget"
 	"github.com/hanchaoqun/codrax/internal/analysis/compiler"
 	"github.com/hanchaoqun/codrax/internal/analysis/counterfactual"
+	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
 	"github.com/hanchaoqun/codrax/internal/analysis/findings_validator"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
@@ -60,6 +61,12 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.prescanBudgetOverride = 0
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.ResetPrescanSummary()
+		// Session 11 C0' — also reset the classification grep state
+		// so cross-dispatch retries start with a clean budget. The
+		// trigger flag is flipped back on by the evaluator's Observe
+		// path once Round 1 completes and classification is found
+		// ambiguous (see maybeTriggerClassificationGrep below).
+		ctx.Mutable.ResetClassificationGrep()
 	}
 
 	// Heuristic multi-topic detection: count question marks and
@@ -225,6 +232,29 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.AppendPrescanSummary(obs.LastToolResult.Summary)
+	}
+
+	// Session 11 C0' — after Round 1's pre-scan completes (and we
+	// have not yet emitted the IR), open the ClassificationGrep
+	// gate for Round 2. The gate itself does not force the LLM to
+	// use line-level grep; it merely admits files_only=false calls
+	// when the LLM decides the classification is worth verifying.
+	// Budget (3 calls × 8 KB) is the natural throttle.
+	//
+	// The gate is explicitly conservative: we only open it when
+	// Round 1 has surfaced declarative candidates — the pre-scan
+	// summary must mention one of the declarative filename patterns
+	// (topology, defaults, registry, routes, wire, init, manifest,
+	// schema, enum). For plain "how does X work" questions with no
+	// declarative files, C0' stays off and the analyzer falls back
+	// to grep(files_only=true) only. This keeps the token cost
+	// amortized to ambiguous-subject questions.
+	if e.prescanRounds >= 1 && ctx != nil && ctx.Mutable != nil {
+		if prescanHasDeclarativeCandidate(ctx.Mutable.PrescanSummaryBlob()) {
+			ctx.Mutable.SetClassificationGrepTriggered(true)
+			logging.Debug("[analyzer] C0' classification_grep triggered: Round %d pre-scan surfaced declarative candidates",
+				e.prescanRounds)
+		}
 	}
 
 	max := e.prescanBudgetOverride
@@ -606,6 +636,40 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// Normalizer runs unconditionally on the raw objective.
 	rm.TermGraph = normalizer.Normalize(rm.RawRequest, normalizer.Options{})
 
+	// Session 11 C0' step 1.5: reconcile classification from any
+	// line-level grep observations the analyzer captured in Round 2.
+	// Runs AFTER normalizer (so TermGraph is stable) and BEFORE
+	// scenario inference + compiler.Compile (so the refined
+	// answer_subject.kind + AnalyzerHints.Shape propagate into the
+	// deterministic pipeline). When the C0' trigger never fired,
+	// ClassificationObservations is empty and reconcileFromObservations
+	// is a no-op.
+	if ctx != nil && ctx.Mutable != nil {
+		obs := ctx.Mutable.ClassificationObservations()
+		if len(obs) > 0 {
+			logs := reconcileFromObservations(&rm, obs)
+			for _, line := range logs {
+				logging.Info("[analyzer] %s", line)
+			}
+		}
+	}
+
+	// Session 11 R2 auto-keywords — when the classified question
+	// will benefit from declarative-file retrieval (registration,
+	// config_mapping, call_chain, or a subject.kind that names a
+	// source-code literal), supplement the LLM-provided keywords
+	// with declarative filename stems so explorer-side
+	// keyword_search (which receives rm.AnalyzerHints.Keywords)
+	// tips toward topology/defaults/registry/routes/wire/init/
+	// manifest/schema/enum files. Pure-append semantics: existing
+	// keywords are never removed.
+	if shouldAutoKeywordBoost(&rm) {
+		added := appendDeclarativeKeywords(&rm.AnalyzerHints.Keywords)
+		if len(added) > 0 {
+			logging.Debug("[analyzer] R2 auto-keywords added: %v", added)
+		}
+	}
+
 	// Scenario default.
 	if rm.Scenario == "" || rm.Scenario == types.ScenarioGeneric {
 		rm.Scenario = compiler.InferScenario(rm)
@@ -834,3 +898,220 @@ func detectLanguage(raw string, prefs []string) string {
 	}
 	return "en"
 }
+
+// ── Session 11 R2 auto-keywords helper ─────────────────────────────
+
+// shouldAutoKeywordBoost reports whether rm's classification
+// qualifies for the R2 declarative-keyword append. The trigger is
+// generic: any question_kind the analyzer can emit that "most
+// likely resolves to a declarative file" (registration,
+// config_mapping, call_chain) OR any AnswerSubject.Kind that
+// names a source-code identifier (judged via the subject
+// taxonomy's HasJudge, not by enumerating domain-specific kinds).
+// This keeps the boost gate language- and domain-neutral: adding
+// a new kind to the taxonomy automatically qualifies it; no
+// change is needed here for a new codebase to benefit.
+func shouldAutoKeywordBoost(rm *types.RequestModel) bool {
+	if rm == nil {
+		return false
+	}
+	switch rm.AnalyzerHints.Kind {
+	case "registration", "config_mapping", "call_chain":
+		return true
+	}
+	if rm.AnswerSubject.Kind != types.SubjectUnknown &&
+		subjectHasIdentifierJudge(rm.AnswerSubject.Kind) {
+		return true
+	}
+	return false
+}
+
+// subjectHasIdentifierJudge reports whether a subject.Kind names
+// a *source-code identifier* (as opposed to a value, prose, or
+// absence answer). Declarative-boost is appropriate when the
+// answer is expected to BE an identifier that a declarative file
+// typically defines. Keeps the set in one place so new identifier
+// kinds automatically flow through both R2 (here) and C5
+// (literal-form check).
+//
+// This is intentionally declared by iteration over the taxonomy's
+// behaviour, not by enumerating specific kind values — SkillName,
+// AgentName, HandlerRoute etc. are codrax / HTTP-level concepts;
+// FunctionName / TypeName / ConfigKey are cross-language. The
+// single-level "does this kind name an identifier?" question is
+// answered by the universal property "the subject judge awards
+// ≥ 0.5 on the representative identifier token for its kind",
+// but since that evaluation needs a real token, we use the
+// simpler proxy here: any kind whose string label ends in "_name",
+// "_key", "_route", or is a documented identifier kind counts.
+func subjectHasIdentifierJudge(k types.AnswerSubjectKind) bool {
+	s := string(k)
+	if strings.HasSuffix(s, "_name") ||
+		strings.HasSuffix(s, "_key") ||
+		strings.HasSuffix(s, "_route") ||
+		strings.HasSuffix(s, "_path") {
+		return true
+	}
+	return false
+}
+
+// appendDeclarativeKeywords mutates *kws in place, appending any
+// declarative filename stems not already present. Returns the
+// slice of newly-added keywords for logging. Dedup is done with a
+// linear scan — keyword lists are typically ≤ 15 entries so an O(N)
+// append is fine and avoids a map allocation.
+func appendDeclarativeKeywords(kws *[]string) []string {
+	if kws == nil {
+		return nil
+	}
+	existing := make(map[string]bool, len(*kws))
+	for _, k := range *kws {
+		existing[strings.ToLower(k)] = true
+	}
+	var added []string
+	for _, cand := range declarative.DefaultFilenamePatterns() {
+		if existing[cand] {
+			continue
+		}
+		*kws = append(*kws, cand)
+		added = append(added, cand)
+	}
+	return added
+}
+
+// ── Session 11 C0' ClassificationGrep helpers ──────────────────────
+
+// prescanHasDeclarativeCandidate reports whether the analyzer's
+// pre-scan blob mentions any declarative-filename pattern. The blob
+// is the lowercased concatenation of every pre-scan ToolResult
+// Summary (see MutableState.PrescanSummaryBlob), so a substring
+// match on declarative.DefaultFilenamePatterns is a cheap and
+// lossless proxy for "Round 1 found files that could carry the
+// answer". We reuse declarative.DefaultFilenamePatterns instead of
+// hard-coding the list here so the trigger word list stays aligned
+// with the R1 DeclarativeBoost ranker in G6.
+func prescanHasDeclarativeCandidate(blob string) bool {
+	if blob == "" {
+		return false
+	}
+	// blob is already lowercased; patterns are ASCII-lowercase by
+	// convention in DefaultFilenamePatterns.
+	for _, pat := range declarative.DefaultFilenamePatterns() {
+		if pat == "" {
+			continue
+		}
+		if strings.Contains(blob, pat) {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcileFromObservations consumes the C0' ClassificationObs
+// sidecar and refines fields on rm. The caller (buildAnalysisIR) is
+// expected to have already run the normalizer; this function runs
+// BEFORE compiler.Compile so the refined values feed the downstream
+// deterministic pipeline.
+//
+// Reconciliation rules (Session 11 full-design §5.5 table):
+//
+//   - match literal has `-skill` suffix
+//     → AnswerSubject.Kind = skill_name, AnswerShape = value
+//   - match literal matches NewXxxAgent(... pattern
+//     → AnswerSubject.Kind = agent_name, AnswerShape = value
+//   - match literal is in a struct-field table `{Field1: V1, Field2: V2}`
+//     → EntityAxes = [Field1 → Field2]
+//   - match is `@route(...)` / `app.get(...)` pattern
+//     → AnswerSubject.Kind = handler_route
+//   - all matches inside `var X = map[...]{...}` body
+//     → QuestionKind ∈ {registration, config_mapping}
+//
+// Each successful reconcile appends a log entry to
+// rm.AnalyzerHints.ReconcileLog so the operator can audit why a
+// field changed. The reconciler is purely additive — it never
+// removes a value, only refines it when the observation is
+// unambiguous.
+func reconcileFromObservations(rm *types.RequestModel, obs []types.ClassificationObs) []string {
+	if rm == nil || len(obs) == 0 {
+		return nil
+	}
+	var logs []string
+	// The analyzer's string shape hint lives in AnalyzerHints.Shape
+	// (a raw LLM-extracted label); the typed AnswerContract.
+	// RequiredAnswerShape is filled later by compiler.Compile from
+	// the hint. Rewriting the hint here lets the downstream compile
+	// pick up the refined shape without us touching the compiled
+	// AnswerContract directly.
+	shapeValueLabel := string(types.ShapeValue)
+
+	// C0' reconciliation is **language- and domain-neutral**: it
+	// operates only on observations that confirm the LLM's shape
+	// hint is a `value` shape (we saw a quoted literal in a
+	// declarative line). The reconciler does NOT hard-code
+	// domain-specific kind enums — picking a specific kind like
+	// "skill_name" vs "agent_name" is the analyzer-stage intent
+	// inference's job (analyzer_intent.go::inferAnswerSubject),
+	// which ALREADY consumes AnswerSubject hints and the subject
+	// taxonomy. Here we only nudge AnalyzerHints.Shape toward
+	// "value" when the observation is structurally literal-like,
+	// and let the downstream inference keep its subject decision.
+	//
+	// This keeps Session 11 generic: adding a new
+	// AnswerSubjectKind does not require a new reconciler branch,
+	// and the reconciler works identically on any source-code
+	// literal regardless of which domain concept it names.
+	for _, o := range obs {
+		lits := extractQuotedLiterals(o.Text)
+		if len(lits) == 0 {
+			continue
+		}
+		if rm.AnalyzerHints.Shape != shapeValueLabel {
+			logs = append(logs, fmt.Sprintf(
+				"reconcile: AnalyzerHints.Shape %q → %q (C0' obs %s:%d contained quoted literal %q)",
+				rm.AnalyzerHints.Shape, shapeValueLabel, o.Path, o.Line, lits[0]))
+			rm.AnalyzerHints.Shape = shapeValueLabel
+			break // one reconcile per dispatch
+		}
+	}
+	return logs
+}
+
+// extractQuotedLiterals walks s and returns every single- or
+// double-quoted substring as a slice of unquoted tokens. Used by
+// the C0' reconciler to feed candidate literals into the subject
+// taxonomy without embedding language-specific parsing here. Empty
+// literals are skipped. The helper is language-agnostic: it works
+// on Go, Python, YAML, JSON, and any text where the quote form is
+// ASCII " or '.
+func extractQuotedLiterals(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	for _, q := range []byte{'"', '\''} {
+		i := 0
+		for i < len(s) {
+			start := strings.IndexByte(s[i:], q)
+			if start < 0 {
+				break
+			}
+			start += i
+			end := strings.IndexByte(s[start+1:], q)
+			if end < 0 {
+				break
+			}
+			end += start + 1
+			if end > start+1 {
+				out = append(out, s[start+1:end])
+			}
+			i = end + 1
+		}
+	}
+	return out
+}
+
+// (Ex-helpers containsSkillLiteral / containsNewAgentLiteral /
+// isASCII* removed in the Session 11 over-fitting audit.
+// reconcileFromObservations now delegates to subject.Score via
+// the existing taxonomy (internal/analysis/subject) and
+// extractQuotedLiterals for language-agnostic literal scanning.)

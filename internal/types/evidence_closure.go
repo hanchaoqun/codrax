@@ -108,6 +108,23 @@ type EvidenceClosure struct {
 	// Read by the orchestrator at task-end to emit a one-line
 	// summary; reset to zero by Reset() on per-task entry.
 	stats ClosureStats
+
+	// violations is the Session 11 F1 ViolationLedger — structured
+	// per-run record of every enforcer reject that carries a
+	// SuspectedRoot self-diagnosis. The F2 RootCauseAggregator
+	// groups these by SuspectedRoot.IRField and the F3 IRPatchEngine
+	// decides whether to reconcile the upstream IR. Distinct from
+	// the existing `repairs` queue (which represents "what to do
+	// next"); violations are the immutable "what happened"
+	// corresponding trail. Both exist concurrently — a single
+	// enforcer reject typically writes one Violation (fact) and
+	// optionally one RepairDirective (remediation).
+	//
+	// Violations carrying only zero-value SuspectedRoot are still
+	// recorded (backward compat with legacy three-field Violation
+	// writers) but filtered out by the F2 aggregator's confidence
+	// floor (default 0.5).
+	violations []Violation
 }
 
 // ClosureStats is the structured per-task counter snapshot the
@@ -133,6 +150,7 @@ type ClosureStats struct {
 	ForcedReads           int // I4: files read on the LLM's behalf (Lazy Auto-Read)
 	StallSoftHits         int // I4: convergence soft threshold hits
 	StallHardHits         int // I4: convergence hard threshold hits (force-complete)
+	ViolationsLogged      int // Session 11 F1: ledger entries recorded (any kind)
 }
 
 // HasActivity returns true when at least one enforcer fired this
@@ -142,7 +160,8 @@ func (s ClosureStats) HasActivity() bool {
 	return s.ChainsDemoted+s.UnverifiedFinds+s.RepairsRaised+
 		s.ExpandSearchRaised+s.ShapeSwapRaised+
 		s.PreCompleteDowngrades+s.ForcedReads+
-		s.StallSoftHits+s.StallHardHits > 0
+		s.StallSoftHits+s.StallHardHits+
+		s.ViolationsLogged > 0
 }
 
 // PendingRead is one entry in EvidenceClosure.pendingReads. Anchor is
@@ -579,6 +598,144 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 	}
 }
 
+// AppendViolation records one Session-11 F1 ledger entry. Always
+// appends (no dedup) because a single retry may surface the same
+// kind/field pair multiple times and the F2 aggregator relies on
+// event count to weight confidence. Bumps ClosureStats.ViolationsLogged
+// so the orchestrator's task-end summary reports a single accurate
+// count regardless of caller.
+//
+// Zero-value Violation.Kind entries are rejected (defensive: a bug
+// in the caller should not poison the ledger with uncategorized
+// rows).
+func (c *EvidenceClosure) AppendViolation(v Violation) {
+	if c == nil || v.Kind == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.violations = append(c.violations, v)
+	c.stats.ViolationsLogged++
+}
+
+// Violations returns a defensive copy of the ledger.
+func (c *EvidenceClosure) Violations() []Violation {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.violations) == 0 {
+		return nil
+	}
+	out := make([]Violation, len(c.violations))
+	copy(out, c.violations)
+	return out
+}
+
+// ViolationsByField returns the subset of ledger entries whose
+// SuspectedRoot.IRField equals the argument. Used by the F2
+// aggregator to compute per-field heat.
+func (c *EvidenceClosure) ViolationsByField(field string) []Violation {
+	if c == nil || field == "" {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []Violation
+	for _, v := range c.violations {
+		if v.SuspectedRoot.IRField == field {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// ViolationsByKind returns the subset of ledger entries whose Kind
+// equals the argument. Used by the F4 HintComposer when rendering
+// a kind-specific allowed/forbidden hint.
+func (c *EvidenceClosure) ViolationsByKind(kind ViolationKind) []Violation {
+	if c == nil || kind == "" {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	var out []Violation
+	for _, v := range c.violations {
+		if v.Kind == kind {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// ViolationFieldTally returns a histogram (field → event count)
+// over the entire ledger. The F2 aggregator consumes this to drive
+// the patch-threshold decision; operators can also hand-inspect it
+// via the extended CGEC summary line.
+func (c *EvidenceClosure) ViolationFieldTally() map[string]int {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.violations) == 0 {
+		return nil
+	}
+	tally := make(map[string]int, len(c.violations))
+	for _, v := range c.violations {
+		field := v.SuspectedRoot.IRField
+		if field == "" {
+			continue // zero-root events do not feed per-field aggregation
+		}
+		tally[field]++
+	}
+	return tally
+}
+
+// TopSuspectedField returns the IRField with the highest count in
+// the ledger, along with that count and the maximum Confidence
+// observed among events for that field. Used by the orchestrator's
+// fail-loud warning (F5) when the retry budget is exhausted.
+func (c *EvidenceClosure) TopSuspectedField() (field string, count int, maxConf float64) {
+	if c == nil {
+		return "", 0, 0
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.violations) == 0 {
+		return "", 0, 0
+	}
+	perField := make(map[string]int)
+	perFieldConf := make(map[string]float64)
+	for _, v := range c.violations {
+		f := v.SuspectedRoot.IRField
+		if f == "" {
+			continue
+		}
+		perField[f]++
+		if v.SuspectedRoot.Confidence > perFieldConf[f] {
+			perFieldConf[f] = v.SuspectedRoot.Confidence
+		}
+	}
+	for f, n := range perField {
+		if n > count {
+			count = n
+			field = f
+			maxConf = perFieldConf[f]
+		}
+	}
+	return field, count, maxConf
+}
+
+// BumpViolationsLogged exposes the counter increment so the F3
+// IRPatchEngine's audit-trail writes (which also emit structured
+// records but not through AppendViolation's path) can bump the
+// unified counter.
+func (c *EvidenceClosure) BumpViolationsLogged(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.ViolationsLogged += n })
+}
+
 // PendingRepairs returns a defensive copy of the queue WITHOUT
 // draining it. Use ConsumeRepairs to drain.
 func (c *EvidenceClosure) PendingRepairs() []RepairDirective {
@@ -628,6 +785,7 @@ func (c *EvidenceClosure) Reset() {
 	c.subjectMatches = make(map[string]float64)
 	c.fingerprints = nil
 	c.repairs = nil
+	c.violations = nil
 	c.stats = ClosureStats{}
 }
 

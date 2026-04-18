@@ -1128,6 +1128,42 @@ func identifyAnswerChains(question string, evidence []types.EvidenceItem, maxCha
 			bonus *= 1.3
 		}
 
+		// Session 11 R3 axis-aware chain demote. When the question's
+		// primary entity is named as the chain's terminal literal
+		// (e.g. "Explorer.Name() returns \"explorer\"" for the
+		// question "which skill does explorer use"), the chain is
+		// self-referential — it resolves primary entity → primary
+		// entity's own name — not primary entity → its property.
+		// Demote by ×0.2, matching the terminal-predicate demote
+		// factor so the two reasons are symmetric.
+		if isChain && len(entities) > 0 {
+			primary := entities[0]
+			if primary != "" && chainTerminalIsSelfRef(ev.Summary, primary) {
+				bonus *= 0.2
+				// Session 11 G7 R3 — ledger hookup via the
+				// ambient closure fn (set by the caller before
+				// identifyAnswerChains runs). When unset the
+				// demote is log-only, preserving the legacy
+				// test paths that do not wire a closure. The
+				// F2 aggregator picks up ViolChainDemoted events
+				// to correlate self-ref signal across chains +
+				// evidence.
+				if f := activeLedgerHook; f != nil {
+					f(types.Violation{
+						Kind:   types.ViolChainDemoted,
+						Detail: fmt.Sprintf("chain terminal equals primary entity %q (self-ref)", primary),
+						Stage:  string(types.StageExplore),
+						SuspectedRoot: types.SuspectedRoot{
+							IRField:    "answer_subject.kind",
+							Reason:     "chain terminal is primary_entity self-name — not an attribute lookup",
+							Confidence: 0.80,
+						},
+					})
+				}
+				logging.Debug("[erm] R3 axis-aware demote: chain terminal == primary entity %q", primary)
+			}
+		}
+
 		// L0-1: predicate checks. strictOK tracks whether the item
 		// passed ALL applicable predicates; used later to build the
 		// strict subset for L0-2 consumption. Failing items are
@@ -1724,4 +1760,48 @@ func logERM(reqs []EvidenceRequirement) {
 		logging.Debug("[erm] %s(%s) = %s — %s",
 			req.Kind, strings.Join(req.Entities, ","), req.Status, req.Reason)
 	}
+}
+
+// activeLedgerHook is a package-level pointer to a closure that
+// wraps EvidenceClosure.AppendViolation. Installed by the caller
+// (explorer.go) via setLedgerHook BEFORE identifyAnswerChains
+// runs and cleared immediately after. Session 11 G7 — the hook
+// lets R3's axis-aware demote write ViolChainDemoted entries
+// without threading a closure pointer through all the ranking
+// helpers. Test paths that do not install a hook get log-only
+// behaviour, preserving legacy test determinism.
+var activeLedgerHook func(types.Violation)
+
+// SetLedgerHook replaces the ambient ledger writer. Call with nil
+// to clear. Safe to call from the main explorer goroutine because
+// identifyAnswerChains is sequential within one explore window;
+// parallel explore dispatches are not supported.
+func SetLedgerHook(h func(types.Violation)) {
+	activeLedgerHook = h
+}
+
+// chainTerminalIsSelfRef reports whether a chain summary
+// terminates in a quoted literal equal to the question's primary
+// entity name. Used by Session 11 R3 to demote self-referential
+// chains when the question axis implies a real relational answer
+// (e.g. "which skill does X use" should not resolve to X.Name()
+// returning "X" itself).
+//
+// Heuristic: look for `returns "<primary>"` or `returns '<primary>'`
+// anywhere in the Summary (after normalising case on the literal
+// but NOT on the verb — chain summaries consistently use the
+// lowercase "returns" verb). False positives are acceptable because
+// the demote is non-lethal (×0.2, not ×0); real self-name chains
+// with no better candidate still win.
+func chainTerminalIsSelfRef(summary, primaryEntity string) bool {
+	if summary == "" || primaryEntity == "" {
+		return false
+	}
+	lit1 := `returns "` + primaryEntity + `"`
+	lit2 := `returns '` + primaryEntity + `'`
+	lower := strings.ToLower(summary)
+	lowerEntity := strings.ToLower(primaryEntity)
+	return strings.Contains(lower, `returns "`+lowerEntity+`"`) ||
+		strings.Contains(lower, `returns '`+lowerEntity+`'`) ||
+		strings.Contains(summary, lit1) || strings.Contains(summary, lit2)
 }

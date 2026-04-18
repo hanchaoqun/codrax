@@ -164,6 +164,21 @@ type MutableState struct {
 	// entry by ResetEvidenceClosure (mirror of ResetTurnAArtifacts).
 	// All accessor methods live in evidence_closure.go.
 	evidenceClosure *EvidenceClosure
+
+	// Session 11 C0' ClassificationGrep state — reset per analyze
+	// dispatch via ResetClassificationGrep. classificationGrepTriggered
+	// is flipped to true in Round 2 when the trigger conditions fire
+	// (LLM subject confidence < floor, CGEC E1 cue override disagrees,
+	// etc). The validator in agent.validateAnalyzerPrescanToolCall
+	// reads this flag to decide whether a line-level grep call is
+	// allowed. classificationObservations accumulates the line-level
+	// grep results for the reconcile step in buildAnalysisIR; the
+	// observations stay on MutableState (not TurnAArtifacts) so no
+	// downstream stage ever treats them as evidence.
+	classificationGrepTriggered bool
+	classificationGrepCalls     int // count of line-level calls made in Round 2
+	classificationGrepBytes     int // cumulative match bytes returned
+	classificationObservations  []ClassificationObs
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
@@ -759,6 +774,133 @@ func (m *MutableState) ResetPrescanSummary() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.prescanSummaryBlob.Reset()
+}
+
+// ── Session 11 C0' ClassificationGrep accessors ────────────────────
+
+// ClassificationObs is one line-level grep match observation
+// captured in analyzer Round 2. The reconcileFromObservations step
+// in buildAnalysisIR consumes these to refine AnalysisIR fields
+// (answer_subject.kind, answer_shape, question_kind, entity_axes)
+// without the classification signal ever leaking into TurnAArtifacts
+// or EvidenceClosure.
+type ClassificationObs struct {
+	Pattern string     // grep pattern
+	Path    string     // file the match came from (repo-relative)
+	Line    int        // 1-indexed line number
+	Text    string     // matched line content (trimmed)
+	Kind    string     // declarative.Kind string label (informational)
+	TS      time.Time  // capture time (for diagnostics)
+}
+
+// SetClassificationGrepTriggered flips the gate flag. Called by
+// analyzerEvaluator after it decides Round 2 should open the
+// line-level grep capability. The validator
+// (validateAnalyzerPrescanToolCall) consults the flag before
+// admitting a files_only=false grep call.
+func (m *MutableState) SetClassificationGrepTriggered(v bool) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.classificationGrepTriggered = v
+}
+
+// ClassificationGrepTriggered reports whether the gate is open.
+// Zero-cost when unset.
+func (m *MutableState) ClassificationGrepTriggered() bool {
+	if m == nil {
+		return false
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.classificationGrepTriggered
+}
+
+// BumpClassificationGrepCall records one line-level call and the
+// byte cost of its returned match block. Returns the new counters
+// so the caller can compare against caps without an extra lock
+// acquire.
+func (m *MutableState) BumpClassificationGrepCall(bytes int) (calls, totalBytes int) {
+	if m == nil {
+		return 0, 0
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.classificationGrepCalls++
+	if bytes > 0 {
+		m.classificationGrepBytes += bytes
+	}
+	return m.classificationGrepCalls, m.classificationGrepBytes
+}
+
+// ClassificationGrepCalls returns the number of line-level calls
+// admitted so far (for budget check in the validator).
+func (m *MutableState) ClassificationGrepCalls() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.classificationGrepCalls
+}
+
+// ClassificationGrepBytes returns the cumulative match bytes
+// admitted so far.
+func (m *MutableState) ClassificationGrepBytes() int {
+	if m == nil {
+		return 0
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.classificationGrepBytes
+}
+
+// AppendClassificationObs records one line-level match into the
+// sidecar observation channel. Safe to call concurrently.
+func (m *MutableState) AppendClassificationObs(obs ClassificationObs) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.classificationObservations = append(m.classificationObservations, obs)
+}
+
+// ClassificationObservations returns a defensive copy of the
+// sidecar channel. Consumed by reconcileFromObservations in
+// buildAnalysisIR. Empty slice means the C0' path did not fire
+// (either Round 2 was skipped or classification did not need
+// verification).
+func (m *MutableState) ClassificationObservations() []ClassificationObs {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.classificationObservations) == 0 {
+		return nil
+	}
+	out := make([]ClassificationObs, len(m.classificationObservations))
+	copy(out, m.classificationObservations)
+	return out
+}
+
+// ResetClassificationGrep clears every C0' gate/budget/observation
+// at the start of a new analyze dispatch. Called from
+// analyzerEvaluator.BuildInitialInstruction symmetrically with
+// ResetPrescanSummary.
+func (m *MutableState) ResetClassificationGrep() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.classificationGrepTriggered = false
+	m.classificationGrepCalls = 0
+	m.classificationGrepBytes = 0
+	m.classificationObservations = nil
 }
 
 // SetInvestigationComplete marks the investigation as complete with

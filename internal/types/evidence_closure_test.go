@@ -245,3 +245,154 @@ func TestAddRepair_RebindSubject_StillCountsRepairsRaised(t *testing.T) {
 		t.Errorf("per-kind counters must not fire for other kinds: ExpandSearch=%d ShapeSwap=%d", s.ExpandSearchRaised, s.ShapeSwapRaised)
 	}
 }
+
+// ─────────────────────────────────────────────────────────────────
+// Session 11 F1 ViolationLedger tests
+// ─────────────────────────────────────────────────────────────────
+
+// TestAppendViolation_RejectsZeroKind defends the ledger against
+// bug-induced pollution: a caller that forgets to set Kind would
+// otherwise insert an uncategorized row that the F2 aggregator
+// cannot group. The gate is intentionally on the type (not the
+// content of Detail) so silent failure is impossible.
+func TestAppendViolation_RejectsZeroKind(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.AppendViolation(Violation{}) // zero-kind, should be dropped
+	if got := c.Stats().ViolationsLogged; got != 0 {
+		t.Errorf("ViolationsLogged=%d, want 0 (zero-Kind entries must be rejected)", got)
+	}
+	if got := c.Violations(); got != nil {
+		t.Errorf("Violations()=%v, want nil", got)
+	}
+}
+
+// TestAppendViolation_BumpsStatsAndRetrieves is the happy-path check:
+// a well-formed Violation with SuspectedRoot appears in the ledger,
+// bumps the counter, and surfaces in ViolationsByField / ByKind.
+func TestAppendViolation_BumpsStatsAndRetrieves(t *testing.T) {
+	c := NewEvidenceClosure()
+	v := Violation{
+		Kind:   ViolGhostAnchor,
+		Detail: "chain anchor foo.go not in ScannedSet",
+		Stage:  "explore",
+		SuspectedRoot: SuspectedRoot{
+			IRField:    "ScannedSet",
+			Reason:     "ranker missed declarative file",
+			Confidence: 0.70,
+		},
+	}
+	c.AppendViolation(v)
+
+	if got := c.Stats().ViolationsLogged; got != 1 {
+		t.Errorf("ViolationsLogged=%d, want 1", got)
+	}
+	if got := c.Violations(); len(got) != 1 || got[0].Kind != ViolGhostAnchor {
+		t.Errorf("Violations()=%v, want 1 ghost_anchor entry", got)
+	}
+	if got := c.ViolationsByField("ScannedSet"); len(got) != 1 {
+		t.Errorf("ViolationsByField(ScannedSet)=%v, want 1 entry", got)
+	}
+	if got := c.ViolationsByKind(ViolGhostAnchor); len(got) != 1 {
+		t.Errorf("ViolationsByKind(ghost_anchor)=%v, want 1 entry", got)
+	}
+}
+
+// TestViolationFieldTally_SkipsZeroRootEntries verifies that
+// Violations with an empty SuspectedRoot.IRField are kept in the
+// ledger (for backward compat / audit) but are NOT counted in the
+// per-field histogram — the F2 aggregator relies on this to avoid
+// noise from legacy three-field writers.
+func TestViolationFieldTally_SkipsZeroRootEntries(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.AppendViolation(Violation{Kind: ViolShape, Detail: "legacy write no root"})
+	c.AppendViolation(Violation{
+		Kind: ViolShape, Detail: "modern write with root",
+		SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.8},
+	})
+	if got := c.Stats().ViolationsLogged; got != 2 {
+		t.Errorf("ViolationsLogged=%d, want 2 (both entries recorded)", got)
+	}
+	tally := c.ViolationFieldTally()
+	if tally["answer_shape"] != 1 {
+		t.Errorf("ViolationFieldTally[answer_shape]=%d, want 1", tally["answer_shape"])
+	}
+	if _, zero := tally[""]; zero {
+		t.Errorf("ViolationFieldTally must not have empty-key entry, got %v", tally)
+	}
+}
+
+// TestTopSuspectedField_PicksHighestCount verifies the field picker
+// returns the IRField with the most events, using max-confidence
+// across that field's events as the reported confidence.
+func TestTopSuspectedField_PicksHighestCount(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.AppendViolation(Violation{Kind: ViolShape, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.80}})
+	c.AppendViolation(Violation{Kind: ViolShape, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.85}})
+	c.AppendViolation(Violation{Kind: ViolShape, SuspectedRoot: SuspectedRoot{IRField: "answer_shape", Confidence: 0.75}})
+	c.AppendViolation(Violation{Kind: ViolCitation, SuspectedRoot: SuspectedRoot{IRField: "ScannedSet", Confidence: 0.90}})
+
+	field, count, conf := c.TopSuspectedField()
+	if field != "answer_shape" {
+		t.Errorf("TopSuspectedField field=%q, want answer_shape", field)
+	}
+	if count != 3 {
+		t.Errorf("TopSuspectedField count=%d, want 3", count)
+	}
+	if conf != 0.85 {
+		t.Errorf("TopSuspectedField conf=%.2f, want 0.85 (max within field)", conf)
+	}
+}
+
+// TestResetEvidenceClosure_ClearsViolations ensures per-task
+// isolation: the orchestrator's ResetEvidenceClosure call must wipe
+// the ledger so cross-task contamination is impossible (mirror of
+// the existing reset invariants for readSet / repairs / stats).
+func TestResetEvidenceClosure_ClearsViolations(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.AppendViolation(Violation{
+		Kind:          ViolGhostAnchor,
+		SuspectedRoot: SuspectedRoot{IRField: "ScannedSet", Confidence: 0.7},
+	})
+	if c.Stats().ViolationsLogged != 1 {
+		t.Fatalf("pre-Reset: want 1 violation logged, got %d", c.Stats().ViolationsLogged)
+	}
+	c.Reset()
+	if got := c.Stats().ViolationsLogged; got != 0 {
+		t.Errorf("post-Reset: ViolationsLogged=%d, want 0", got)
+	}
+	if got := c.Violations(); got != nil {
+		t.Errorf("post-Reset: Violations()=%v, want nil", got)
+	}
+}
+
+// TestContractResultRoundTrip_ViolationAliasing is the backward-compat
+// guard: code that writes contract.Violation (via the type alias)
+// and reads back via types.Violation must see the same data. This
+// prevents a future refactor that accidentally breaks the alias.
+func TestContractResultRoundTrip_ViolationAliasing(t *testing.T) {
+	c := NewEvidenceClosure()
+	// Write as a bare Violation (the types package view).
+	c.AppendViolation(Violation{
+		Kind:   ViolCitation,
+		Detail: "0/3 citations in ReadSet",
+		Stage:  "finalize",
+		SuspectedRoot: SuspectedRoot{
+			IRField:    "ScannedSet",
+			Reason:     "finalizer citations outside ReadSet",
+			Confidence: 0.90,
+		},
+	})
+	got := c.Violations()
+	if len(got) != 1 {
+		t.Fatalf("want 1 violation, got %d", len(got))
+	}
+	if got[0].Kind != ViolCitation {
+		t.Errorf("Kind=%s, want citation", got[0].Kind)
+	}
+	if got[0].SuspectedRoot.IRField != "ScannedSet" {
+		t.Errorf("SuspectedRoot.IRField=%s, want ScannedSet", got[0].SuspectedRoot.IRField)
+	}
+	if got[0].SuspectedRoot.Confidence != 0.90 {
+		t.Errorf("Confidence=%.2f, want 0.90", got[0].SuspectedRoot.Confidence)
+	}
+}

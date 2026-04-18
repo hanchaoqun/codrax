@@ -30,6 +30,111 @@ type PipelineSettings struct {
 	// Agent carries the per-agent tunable limits (iteration caps,
 	// tool-history budget, loop-policy defaults, correction retries).
 	Agent AgentSettings `yaml:"agent"`
+
+	// ViolationBudget controls Session 11 F5 retry-yield kill
+	// switch + fail-loud warning. Zero-value-safe: MinRetryYield=0
+	// disables the yield gate (historical behaviour).
+	ViolationBudget ViolationBudgetSettings `yaml:"violation_budget"`
+
+	// RetryBudgetByKind is the Session 11 C6 per-ViolationKind
+	// retry cap. When non-zero, overrides MaxRetriesPerStage for
+	// the relevant kind. Zero entries fall back to
+	// MaxRetriesPerStage so legacy tests stay deterministic.
+	RetryBudgetByKind RetryBudgetByKindSettings `yaml:"retry_budget_by_kind"`
+}
+
+// ViolationBudgetSettings — Session 11 F5 controls. See the
+// full-design doc §4 for the semantics.
+type ViolationBudgetSettings struct {
+	// MaxPatchesPerRun is the global F3 IR-patch cap. The F3
+	// IRPatchEngine refuses new PatchRequests once this count is
+	// reached; the fail-loud warning fires after that. Default 4.
+	MaxPatchesPerRun int `yaml:"max_patches_per_run"`
+
+	// MaxPatchesPerField is the per-IR-field patch cap (same
+	// field cannot be patched more than this many times in a
+	// single Run, preventing oscillation). Default 2.
+	MaxPatchesPerField int `yaml:"max_patches_per_field"`
+
+	// MinRetryYield is the threshold below which the yield check
+	// kills a retry: after each window, the scheduler computes
+	// Δforced_reads + Δpatches + Δevidence + Δscanned_set; when
+	// the sum is less than this value, retry is denied. Default 1.
+	// Setting to 0 disables the yield gate entirely.
+	MinRetryYield int `yaml:"min_retry_yield"`
+
+	// FailLoudEnabled, when true, prepends an "⚠️ pipeline
+	// terminated with unresolved violations" warning to the final
+	// answer when the yield kill fires or any budget is exhausted.
+	// Default true — never silently hide a failure.
+	FailLoudEnabled bool `yaml:"fail_loud_enabled"`
+
+	// YieldKillStage, when true, makes the yield kill per-stage
+	// rather than per-Run. Default true; setting false pauses the
+	// entire Run on any stage's zero-yield retry.
+	YieldKillStage bool `yaml:"yield_kill_stage"`
+}
+
+// RetryBudgetByKindSettings — Session 11 C6. Zero entries mean
+// "use MaxRetriesPerStage"; positive integers cap that specific
+// kind. See ViolationKind constants in types/violation.go.
+type RetryBudgetByKindSettings struct {
+	ShapeViolation    int `yaml:"shape_violation"`
+	CitationViolation int `yaml:"citation_violation"`
+	LiteralFormFailed int `yaml:"literal_form_failed"`
+	GhostAnchor       int `yaml:"ghost_anchor"`
+	SelfRefLiteral    int `yaml:"self_ref_literal"`
+	Other             int `yaml:"other"`
+}
+
+// For returns the configured retry cap for kind, or fallback when
+// the kind has a zero entry. Centralising this lookup so callers
+// don't hand-roll the switch.
+func (r RetryBudgetByKindSettings) For(kind ViolationKind, fallback int) int {
+	pick := func(v int) int {
+		if v <= 0 {
+			return fallback
+		}
+		return v
+	}
+	switch kind {
+	case ViolShape, ViolShapeSwap:
+		return pick(r.ShapeViolation)
+	case ViolCitation:
+		return pick(r.CitationViolation)
+	case ViolLiteralFormFailed:
+		return pick(r.LiteralFormFailed)
+	case ViolGhostAnchor:
+		return pick(r.GhostAnchor)
+	case ViolSelfRefLiteral:
+		return pick(r.SelfRefLiteral)
+	}
+	return pick(r.Other)
+}
+
+// DefaultViolationBudgetSettings returns the full-design §4
+// defaults: 4/2/1/true/true.
+func DefaultViolationBudgetSettings() ViolationBudgetSettings {
+	return ViolationBudgetSettings{
+		MaxPatchesPerRun:   4,
+		MaxPatchesPerField: 2,
+		MinRetryYield:      1,
+		FailLoudEnabled:    true,
+		YieldKillStage:     true,
+	}
+}
+
+// DefaultRetryBudgetByKindSettings returns the full-design §4
+// per-kind budgets: 1/3/2/2/2/1.
+func DefaultRetryBudgetByKindSettings() RetryBudgetByKindSettings {
+	return RetryBudgetByKindSettings{
+		ShapeViolation:    1,
+		CitationViolation: 3,
+		LiteralFormFailed: 2,
+		GhostAnchor:       2,
+		SelfRefLiteral:    2,
+		Other:             1,
+	}
 }
 
 // AgentSettings carries per-agent tunable limits. Zero values mean

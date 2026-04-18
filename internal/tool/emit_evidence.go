@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -217,11 +218,38 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	built := make([]types.EvidenceItem, 0, len(p.Items))
 	rejectedItems := make([]string, 0)
 	autoSwapped := make([]int, 0)
+	// Session 11 R4 self-reference filter — pre-compute the
+	// question's primary entity (first canonical entity on
+	// AnalysisIR.RequestModel.AnalyzerHints.Entities). When an
+	// emit_evidence item has subject == primary entity, predicate
+	// ∈ {returns, equals}, and snippet contains the entity name
+	// as a quoted literal, the item is self-referential and
+	// should not compete with real answer chains. We keep the
+	// item (no data lost) but zero its Confidence so downstream
+	// rankers demote it, and we log a ViolSelfRefLiteral to the
+	// ledger so F2 aggregator can weight it.
+	primaryEntity := extractPrimaryEntity(ctx)
 	for i, in := range p.Items {
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped)
 		if perr != nil {
 			rejectedItems = append(rejectedItems, fmt.Sprintf("items[%d]: %v", i, perr))
 			continue
+		}
+		if primaryEntity != "" && isSelfRefEvidence(&ev, primaryEntity) {
+			ev.Confidence = 0
+			if ctx.Mutable != nil {
+				ctx.Mutable.EvidenceClosure().AppendViolation(types.Violation{
+					Kind:   types.ViolSelfRefLiteral,
+					Detail: fmt.Sprintf("items[%d]: subject=%s matches primary entity; anchor literal is self-reference", i, ev.Subject),
+					Stage:  string(types.StageExplore),
+					SuspectedRoot: types.SuspectedRoot{
+						IRField:    "answer_subject.kind",
+						Reason:     "evidence subject=primary_entity with self-name literal",
+						Confidence: 0.75,
+					},
+				})
+			}
+			logging.Debug("[emit_evidence] R4 self-ref trap: items[%d] subject=%s zeroed confidence", i, ev.Subject)
 		}
 		built = append(built, ev)
 	}
@@ -557,4 +585,53 @@ func failEmit(name string, now time.Time, format string, args ...interface{}) (t
 		Summary:   msg,
 		Timestamp: now,
 	}, nil
+}
+
+// Session 11 R4 helpers — self-reference trap detection.
+
+// extractPrimaryEntity returns the first element of
+// AnalysisIR.RequestModel.AnalyzerHints.Entities as the question's
+// primary entity. Returns "" when no IR / no entities / the first
+// entity is empty; the caller treats "" as "skip R4 for this
+// dispatch" so non-analyzed tool calls stay unaffected.
+func extractPrimaryEntity(ctx *types.BusContext) string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	if len(ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities[0])
+}
+
+// isSelfRefEvidence tests the triple-condition R4 predicate:
+//
+//  1. ev.Subject equals (case-insensitive) the primary entity
+//     (so the evidence talks ABOUT the primary entity)
+//  2. ev.Predicate is a "terminal value" predicate (returns,
+//     equals, is) — the evidence claims the primary entity
+//     resolves to its own name, a self-reference pattern
+//  3. ev.Snippet contains the primary entity as a quoted literal
+//     ("explorer", 'explorer', or equivalent) — the smoking gun
+//     that ties the claim back to the trap shape. Without the
+//     quoted literal, evidence like "Explorer.Name() returns from
+//     a field" is legitimate and not a trap.
+//
+// All three conditions must hold; loose matching here would
+// reject legitimate self-descriptive evidence (e.g. a struct
+// that genuinely bears its own name).
+func isSelfRefEvidence(ev *types.EvidenceItem, primaryEntity string) bool {
+	if ev == nil || primaryEntity == "" {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(ev.Subject), primaryEntity) {
+		return false
+	}
+	predicate := strings.ToLower(strings.TrimSpace(ev.Predicate))
+	if predicate != "returns" && predicate != "equals" && predicate != "is" {
+		return false
+	}
+	lit1 := `"` + primaryEntity + `"`
+	lit2 := `'` + primaryEntity + `'`
+	return strings.Contains(ev.Snippet, lit1) || strings.Contains(ev.Snippet, lit2)
 }

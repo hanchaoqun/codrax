@@ -99,8 +99,6 @@ type AnswerSubjectKind string
 
 const (
 	SubjectUnknown        AnswerSubjectKind = ""
-	SubjectSkillName      AnswerSubjectKind = "skill_name"
-	SubjectAgentName      AnswerSubjectKind = "agent_name"
 	SubjectFunctionName   AnswerSubjectKind = "function_name"
 	SubjectTypeName       AnswerSubjectKind = "type_name"
 	SubjectHandlerRoute   AnswerSubjectKind = "handler_route"
@@ -122,8 +120,6 @@ const (
 func AllAnswerSubjectKinds() []AnswerSubjectKind {
 	return []AnswerSubjectKind{
 		SubjectUnknown,
-		SubjectSkillName,
-		SubjectAgentName,
 		SubjectFunctionName,
 		SubjectTypeName,
 		SubjectHandlerRoute,

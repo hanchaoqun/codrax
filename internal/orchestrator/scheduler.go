@@ -47,6 +47,41 @@ type graphState struct {
 	graph     types.TaskGraph
 	status    map[string]nodeStatus
 	retryUsed int
+
+	// Session 11 F5 per-kind retry bookkeeping + yield check
+	// state. retryUsedByKind tracks how many retries each
+	// ViolationKind has consumed (drives the C6 per-kind budget);
+	// lastYieldSnapshot holds the "before this retry window"
+	// counters so the next retry decision can compute a delta;
+	// yieldKillCount records how many times the yield gate
+	// forced an early terminate for the fail-loud warning.
+	retryUsedByKind   map[types.ViolationKind]int
+	lastYieldSnapshot yieldSnapshot
+	yieldKillCount    int
+}
+
+// yieldSnapshot captures the counters that drive F5's "did this
+// retry window bring new information" decision. Four independent
+// axes collectively encode "something changed":
+//   - ForcedReads: the framework force-read files on the LLM's
+//     behalf (I4 Lazy Auto-Read). Even a single forced read means
+//     the next window sees a materially different ReadSet.
+//   - ScannedSetSize: ranker pulled new files into scope (e.g. R5
+//     ghost-anchor promotion in G7).
+//   - ViolationsLogged: enforcers surfaced new structured
+//     diagnostics (F1 ledger entries). Even without I/O, ledger
+//     drift means the aggregator / patcher has new fuel.
+//   - PatchesApplied: the F3 IRPatchEngine (G2) reconciled fields.
+//     Any patch by definition resets downstream evaluation.
+//
+// Any one of these being non-zero at delta-compute time beats the
+// default MinRetryYield=1 threshold; callers can raise the
+// threshold to require multiple independent signals.
+type yieldSnapshot struct {
+	ForcedReads      int
+	ScannedSetSize   int
+	ViolationsLogged int
+	PatchesApplied   int
 }
 
 // nodeBlock carries a node's failed criteria into retry hints.
@@ -129,6 +164,71 @@ func (s *graphState) retryBudgetExhausted() bool {
 }
 
 func (s *graphState) recordRetry() { s.retryUsed++ }
+
+// recordRetryByKind bumps the Session 11 C6 per-kind counter so
+// shouldKillRetryByKind can apply the configured per-kind cap on
+// the next iteration.
+func (s *graphState) recordRetryByKind(kind types.ViolationKind) {
+	if s == nil {
+		return
+	}
+	if s.retryUsedByKind == nil {
+		s.retryUsedByKind = make(map[types.ViolationKind]int)
+	}
+	s.retryUsedByKind[kind]++
+}
+
+// retryUsedForKind returns the consumed count for kind; zero when
+// unset.
+func (s *graphState) retryUsedForKind(kind types.ViolationKind) int {
+	if s == nil || s.retryUsedByKind == nil {
+		return 0
+	}
+	return s.retryUsedByKind[kind]
+}
+
+// captureYieldSnapshot takes a "before this window" reading of
+// the yield-relevant counters off closure. Callers persist the
+// snapshot on graphState and compare against the post-window
+// closure state when deciding whether the retry earned enough
+// new information to continue.
+func captureYieldSnapshot(closure *types.EvidenceClosure) yieldSnapshot {
+	if closure == nil {
+		return yieldSnapshot{}
+	}
+	stats := closure.Stats()
+	return yieldSnapshot{
+		ForcedReads:      stats.ForcedReads,
+		ScannedSetSize:   len(closure.ScannedSet()),
+		ViolationsLogged: stats.ViolationsLogged,
+		// PatchesApplied is wired via the F3 patcher (G2); for G4
+		// we leave it zero so the delta still returns meaningful
+		// signal from the other three axes.
+		PatchesApplied: 0,
+	}
+}
+
+// yieldDelta computes the sum of per-axis increments between
+// `prev` (captured before the window) and `now` (captured after
+// the window). A zero return means the window produced no new
+// information on any axis — exactly the condition F5's kill gate
+// watches for.
+func yieldDelta(prev, now yieldSnapshot) int {
+	d := 0
+	if now.ForcedReads > prev.ForcedReads {
+		d += now.ForcedReads - prev.ForcedReads
+	}
+	if now.ScannedSetSize > prev.ScannedSetSize {
+		d += now.ScannedSetSize - prev.ScannedSetSize
+	}
+	if now.ViolationsLogged > prev.ViolationsLogged {
+		d += now.ViolationsLogged - prev.ViolationsLogged
+	}
+	if now.PatchesApplied > prev.PatchesApplied {
+		d += now.PatchesApplied - prev.PatchesApplied
+	}
+	return d
+}
 
 // allDone returns true when every node is done or failed.
 func (s *graphState) allDone() bool {

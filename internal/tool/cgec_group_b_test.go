@@ -14,8 +14,8 @@ import (
 // literal-friendly shapes return (false, "", "").
 func TestDetectSubjectShapeMismatch_LiteralSubjects(t *testing.T) {
 	literalKinds := []types.AnswerSubjectKind{
-		types.SubjectSkillName,
-		types.SubjectAgentName,
+		types.SubjectFunctionName,
+		types.SubjectTypeName,
 		types.SubjectFunctionName,
 		types.SubjectTypeName,
 		types.SubjectInterface,
@@ -55,7 +55,7 @@ func TestDetectSubjectShapeMismatch_LiteralSubjects(t *testing.T) {
 func TestDetectSubjectShapeMismatch_GoodShapes(t *testing.T) {
 	for _, shape := range []types.AnswerShape{types.ShapeValue, types.ShapeConfigValue} {
 		ir := &types.AnalysisIR{}
-		ir.RequestModel.AnswerSubject.Kind = types.SubjectSkillName
+		ir.RequestModel.AnswerSubject.Kind = types.SubjectFunctionName
 		ir.AnswerContract.RequiredAnswerShape = shape
 		if m, _, _ := detectSubjectShapeMismatch(ir); m {
 			t.Errorf("shape=%s must not report mismatch", shape)

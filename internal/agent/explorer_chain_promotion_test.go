@@ -58,7 +58,7 @@ func TestApplyChainPromotion_DropsChainsAnchoredOutsideReadSet(t *testing.T) {
 	}
 	closure := types.NewEvidenceClosure()
 
-	out := applyChainPromotion(in, readSet, closure)
+	out := applyChainPromotion(in, readSet, closure, "")
 
 	// Markdown: chainKept retained, chainDropped removed.
 	if !strings.Contains(out.markdown, chainKept) {
@@ -125,7 +125,7 @@ func TestApplyChainPromotion_AllAnchorsRead_NoOp(t *testing.T) {
 	readSet := map[string]bool{"internal/foo/bar.go": true}
 	closure := types.NewEvidenceClosure()
 
-	out := applyChainPromotion(in, readSet, closure)
+	out := applyChainPromotion(in, readSet, closure, "")
 
 	if !strings.Contains(out.markdown, chain) {
 		t.Errorf("expected chain retained, got markdown:\n%s", out.markdown)
@@ -155,7 +155,7 @@ func TestApplyChainPromotion_PartialAnchorMissing_Demoted(t *testing.T) {
 	readSet := map[string]bool{"internal/a.go": true} // b.go missing
 	closure := types.NewEvidenceClosure()
 
-	out := applyChainPromotion(in, readSet, closure)
+	out := applyChainPromotion(in, readSet, closure, "")
 
 	if strings.Contains(out.markdown, chain) {
 		t.Errorf("partial-miss chain should be demoted from markdown")
@@ -176,7 +176,7 @@ func TestApplyChainPromotion_NilClosure_Identity(t *testing.T) {
 		evidence:     []types.EvidenceItem{{Kind: types.EvidenceDataflowPath, Subject: "x"}},
 		chainAnchors: []chainAnchorInfo{{Summary: "x", Files: []string{"a.go"}}},
 	}
-	out := applyChainPromotion(in, nil, nil)
+	out := applyChainPromotion(in, nil, nil, "")
 	if out.markdown != in.markdown {
 		t.Errorf("nil closure must not mutate markdown")
 	}

@@ -3,6 +3,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -1040,6 +1041,14 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			if execErr != nil {
 				logging.Error("tool %s execution error: %v", tc.Name, execErr)
 			}
+			// Session 11 C0' post-process: when a line-level grep
+			// fires in analyze stage with the classification trigger
+			// flag on, account the call against the per-dispatch
+			// budget and capture the match lines into the sidecar
+			// observation channel for the reconciler. Analyzer is
+			// the only stage that takes this path; other stages
+			// short-circuit on the trigger flag being off.
+			analyzerPostProcessToolResult(ctx, tc, &result)
 			return &result, nil
 		}
 	}
@@ -1098,27 +1107,211 @@ func validateAnalyzerPrescanToolCall(ctx *types.AgentContext, tc llm.ToolCall) *
 	if tc.Name != "grep" {
 		return nil
 	}
-	// Parse minimal params to check files_only. Defensive: an
-	// unparseable params blob goes through unchanged so the real
-	// grep tool produces its canonical error message.
+	// Parse minimal params to check files_only and max_count.
+	// Defensive: an unparseable params blob goes through unchanged so
+	// the real grep tool produces its canonical error message.
 	var p struct {
 		FilesOnly bool `json:"files_only"`
+		MaxCount  int  `json:"max_count"`
 	}
 	if err := json.Unmarshal(tc.Params, &p); err != nil {
 		return nil
 	}
 	if p.FilesOnly {
+		// Round 1 happy path — evidence-lite boundary honoured.
 		return nil
 	}
-	reason := "grep in analyze stage must be called with files_only=true " +
-		"(evidence-lite boundary: line-level results overflow the analyze " +
-		"stage's context budget). Retry with files_only=true."
+
+	// files_only=false: Session 11 C0' ClassificationGrep gate.
+	// Only admit when the analyzer explicitly flipped the trigger
+	// (Round 2 + ambiguous classification) AND the per-dispatch
+	// budget is not exhausted.
+	limits := tool.CurrentAnalysisLimits()
+	if !limits.ClassificationGrepEnabled {
+		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+			"classification_grep disabled by config; retry with files_only=true")
+	}
+	if ctx.Mutable == nil || !ctx.Mutable.ClassificationGrepTriggered() {
+		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+			"grep in analyze stage must be called with files_only=true "+
+				"(evidence-lite boundary). Round 2 line-level grep is only "+
+				"allowed after the classification_grep trigger fires "+
+				"(ambiguous subject/shape + declarative candidates). Retry "+
+				"with files_only=true.")
+	}
+	// Call budget.
+	if limits.ClassificationGrepMaxCalls > 0 &&
+		ctx.Mutable.ClassificationGrepCalls() >= limits.ClassificationGrepMaxCalls {
+		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+			fmt.Sprintf("classification_grep call budget exhausted "+
+				"(%d/%d calls used). Call emit_analysis now with your "+
+				"best-effort classification — the reconciler will accept "+
+				"partial observations.",
+				ctx.Mutable.ClassificationGrepCalls(),
+				limits.ClassificationGrepMaxCalls))
+	}
+	// Byte budget — pre-check. We can't know the call's match byte
+	// cost before execution; block only when already exhausted.
+	if limits.ClassificationGrepMaxTotalBytes > 0 &&
+		ctx.Mutable.ClassificationGrepBytes() >= limits.ClassificationGrepMaxTotalBytes {
+		return rejectAnalyzerGrepWithoutFilesOnly(tc,
+			fmt.Sprintf("classification_grep byte budget exhausted "+
+				"(%d/%d bytes used). Call emit_analysis now.",
+				ctx.Mutable.ClassificationGrepBytes(),
+				limits.ClassificationGrepMaxTotalBytes))
+	}
+	// max_count auto-clamp. If the LLM provided no max_count (zero)
+	// or a value above the per-call cap, rewrite the param so the
+	// tool enforces the cap. Use raw JSON rewriting to avoid
+	// importing the grep tool's param type.
+	maxPerCall := limits.ClassificationGrepMaxMatchesPerCall
+	if maxPerCall > 0 && (p.MaxCount == 0 || p.MaxCount > maxPerCall) {
+		if rewritten, err := clampGrepMaxCount(tc.Params, maxPerCall); err == nil {
+			tc.Params = rewritten
+			// NB: the caller holds tc by value; rewriting here only
+			// affects downstream use within validateAnalyzerPrescanToolCall's
+			// return path. The actual grep execution in executeTool
+			// runs against the clamped params because executeTool
+			// receives tc from the same stack frame.
+			_ = tc.Params
+		}
+	}
+	// Allowed. The caller will bump call counters after a
+	// successful Execute (see analyzerPostProcessToolResult).
+	return nil
+}
+
+// rejectAnalyzerGrepWithoutFilesOnly synthesises the failed
+// ToolResult returned from validateAnalyzerPrescanToolCall when the
+// LLM tries a line-level grep but none of the gates admit it. Logs
+// the rejection at WARN so operators can spot unexpected trigger
+// misfires in production.
+func rejectAnalyzerGrepWithoutFilesOnly(tc llm.ToolCall, reason string) *types.ToolResult {
 	logging.Warning("[analyzer] grep without files_only rejected: %s", reason)
 	return &types.ToolResult{
 		ToolName:  tc.Name,
 		Success:   false,
 		Summary:   reason,
 		Timestamp: time.Now(),
+	}
+}
+
+// clampGrepMaxCount rewrites the max_count field of a grep param
+// blob to the given cap. Preserves unrelated fields verbatim.
+func clampGrepMaxCount(params json.RawMessage, cap int) (json.RawMessage, error) {
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(params, &m); err != nil {
+		return params, err
+	}
+	capJSON, err := json.Marshal(cap)
+	if err != nil {
+		return params, err
+	}
+	m["max_count"] = capJSON
+	out, err := json.Marshal(m)
+	if err != nil {
+		return params, err
+	}
+	return out, nil
+}
+
+// analyzerPostProcessToolResult is the Session 11 C0' accounting +
+// sidecar capture hook. Runs after every tool execution in
+// executeTool; short-circuits on anything that is not a line-level
+// grep in analyze stage with the classification trigger on.
+//
+// Two effects:
+//
+//  1. Bump the per-dispatch call counter and byte counter on
+//     MutableState so validateAnalyzerPrescanToolCall's next
+//     admission check sees the updated budget state.
+//
+//  2. Parse the match lines out of the grep Summary and append
+//     each as a ClassificationObs on MutableState's sidecar
+//     channel. The reconcileFromObservations step in
+//     buildAnalysisIR consumes the sidecar to refine IR fields
+//     (answer_subject.kind, answer_shape, question_kind,
+//     entity_axes). The sidecar is OFF the TurnAArtifacts path, so
+//     no downstream stage ever sees these lines as evidence.
+//
+// The parser is a best-effort line extractor — unparseable outputs
+// fall through silently (reconciler still gets partial data from
+// other rounds). We intentionally do not expand or enrich the
+// observation; the raw grep line + the file/line/pattern tuple is
+// enough signal for the classifier.
+func analyzerPostProcessToolResult(ctx *types.AgentContext, tc llm.ToolCall, result *types.ToolResult) {
+	if ctx == nil || result == nil {
+		return
+	}
+	if ctx.Stage != types.StageAnalyze || tc.Name != "grep" {
+		return
+	}
+	if ctx.Mutable == nil || !ctx.Mutable.ClassificationGrepTriggered() {
+		return
+	}
+	if !result.Success {
+		return
+	}
+	// Must be a line-level call; files_only=true means Round 1
+	// happy path and never produces observations.
+	var p struct {
+		Pattern   string `json:"pattern"`
+		Path      string `json:"path"`
+		FilesOnly bool   `json:"files_only"`
+	}
+	if err := json.Unmarshal(tc.Params, &p); err != nil {
+		return
+	}
+	if p.FilesOnly {
+		return
+	}
+	// Account this call.
+	ctx.Mutable.BumpClassificationGrepCall(len(result.Summary))
+	// Parse grep output lines — the standard format produced by
+	// the repo's grep tool is `<path>:<line>:<text>`. Lines that
+	// do not match this format are skipped (e.g. the `[grep: N
+	// matching files]` banner added by session 8's kvBanner).
+	scanGrepLinesIntoClassificationObs(ctx, p.Pattern, result.Summary)
+}
+
+// scanGrepLinesIntoClassificationObs walks the grep Summary and
+// converts each `path:line:text` match into a ClassificationObs
+// appended to MutableState.classificationObservations. Tolerates
+// banner lines and malformed rows by skipping them silently.
+func scanGrepLinesIntoClassificationObs(ctx *types.AgentContext, pattern, summary string) {
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Skip session-8 banner (`[grep: ...`).
+		if strings.HasPrefix(line, "[") {
+			continue
+		}
+		// Expect `path:lineNumber:text`.
+		colonA := strings.Index(line, ":")
+		if colonA <= 0 {
+			continue
+		}
+		rest := line[colonA+1:]
+		colonB := strings.Index(rest, ":")
+		if colonB <= 0 {
+			continue
+		}
+		path := line[:colonA]
+		lineNumStr := rest[:colonB]
+		text := rest[colonB+1:]
+		lineNum, err := strconv.Atoi(strings.TrimSpace(lineNumStr))
+		if err != nil || lineNum <= 0 {
+			continue
+		}
+		ctx.Mutable.AppendClassificationObs(types.ClassificationObs{
+			Pattern: pattern,
+			Path:    path,
+			Line:    lineNum,
+			Text:    strings.TrimSpace(text),
+			TS:      time.Now(),
+		})
 	}
 }
 

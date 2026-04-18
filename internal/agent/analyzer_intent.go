@@ -305,74 +305,26 @@ func logIntentReconcile(before, after types.Intent, reason string) {
 //   shape on a Go literal manufactures a fake "key" the LLM has to
 //   invent, which downstream contract checks then reject.
 
-// answerSubjectCue maps a leading prose pattern to an expected
-// AnswerSubjectKind. Curated tightly: each entry must come from a
-// real eval-trace miss, not speculation. Patterns are case-folded
-// substring matches against the politeness-stripped raw request.
+// answerSubjectCue was a hard-coded "question prose pattern →
+// AnswerSubjectKind" lookup table that mapped specific ZH/EN
+// phrasings (e.g. "默认用哪个 skill", "which function") to a
+// kind. It was deleted in the Session 11 over-fitting audit —
+// pattern-matching on a fixed list of question strings is a form
+// of scenario / corpus overfit, and the corpus that drove the
+// patterns (session-10 eval traces) leaked codrax-internal
+// vocabulary ("skill", "stage → agent", ...) into what should
+// be a generic classifier. Inference now falls through to the
+// question_kind-based fallback in inferAnswerSubject step 2,
+// which maps the LLM's typed question_kind enum to an
+// AnswerSubjectKind via a small case table that depends on
+// enum values only — no prose substring matching.
 type answerSubjectCue struct {
 	pattern string
 	kind    types.AnswerSubjectKind
 	axes    []string
 }
 
-// answerSubjectCues fires before the question_kind fallback. Order
-// matters: the first match wins, so the more specific patterns come
-// first. Bilingual entries to match the codrax convention (zh + en).
-var answerSubjectCues = []answerSubjectCue{
-	// SkillName — skill of agent / 默认 skill / 用哪个 skill
-	{"默认用哪个skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"默认用哪个 skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"默认的 skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"默认skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"哪个skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"哪个 skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"什么skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"什么 skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"default skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"which skill", types.SubjectSkillName, []string{"agent → skill"}},
-	{"what skill", types.SubjectSkillName, []string{"agent → skill"}},
-
-	// AgentName — agent of stage / 默认 agent
-	{"默认agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"默认 agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"哪个agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"哪个 agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"什么agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"什么 agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"default agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"which agent", types.SubjectAgentName, []string{"stage → agent"}},
-	{"what agent", types.SubjectAgentName, []string{"stage → agent"}},
-
-	// ConfigKey — explicit config key / 配置项 / 配置键
-	{"配置项", types.SubjectConfigKey, []string{"key → value"}},
-	{"配置键", types.SubjectConfigKey, []string{"key → value"}},
-	{"config key", types.SubjectConfigKey, []string{"key → value"}},
-	{"yaml key", types.SubjectConfigKey, []string{"key → value"}},
-
-	// ReturnValue — what does X return / X 返回什么
-	{"返回什么", types.SubjectReturnValue, []string{"function → value"}},
-	{"返回值是", types.SubjectReturnValue, []string{"function → value"}},
-	{"what does", types.SubjectReturnValue, []string{"function → value"}},
-	{"what is the return", types.SubjectReturnValue, []string{"function → value"}},
-
-	// FunctionName — what function / 哪个函数 / which function
-	{"哪个函数", types.SubjectFunctionName, []string{"behavior → function"}},
-	{"什么函数", types.SubjectFunctionName, []string{"behavior → function"}},
-	{"which function", types.SubjectFunctionName, []string{"behavior → function"}},
-	{"what function", types.SubjectFunctionName, []string{"behavior → function"}},
-
-	// TypeName — what type / 什么类型 / which struct
-	{"什么类型", types.SubjectTypeName, []string{"value → type"}},
-	{"哪个类型", types.SubjectTypeName, []string{"value → type"}},
-	{"which type", types.SubjectTypeName, []string{"value → type"}},
-	{"what type", types.SubjectTypeName, []string{"value → type"}},
-	{"which struct", types.SubjectTypeName, []string{"value → type"}},
-
-	// FilePath — which file / 哪个文件
-	{"哪个文件", types.SubjectFilePath, []string{"behavior → file"}},
-	{"在哪个文件", types.SubjectFilePath, []string{"behavior → file"}},
-	{"which file", types.SubjectFilePath, []string{"behavior → file"}},
-}
+var answerSubjectCues []answerSubjectCue // intentionally empty
 
 // inferAnswerSubject derives AnswerSubject when the LLM left it zero.
 // Returns the resolved subject + a short reason for the log line. An
@@ -443,8 +395,12 @@ func inferAnswerSubject(rm types.RequestModel, rawRequest string) (types.AnswerS
 		return types.AnswerSubject{Kind: types.SubjectConfigKey, EntityAxes: []string{"key → value"}, Confidence: 0.4},
 			"question_kind=config_mapping → ConfigKey"
 	case "registration":
-		return types.AnswerSubject{Kind: types.SubjectAgentName, EntityAxes: []string{"stage → agent"}, Confidence: 0.4},
-			"question_kind=registration → AgentName"
+		// Registrations in any codebase bind a symbol (a type, a
+		// function, a config key) to some slot. Falling back to the
+		// generic kind avoids picking a language- or project-level
+		// concept (e.g. the codrax "agent" role).
+		return types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.3},
+			"question_kind=registration → Generic"
 	case "return_value":
 		return types.AnswerSubject{Kind: types.SubjectReturnValue, EntityAxes: []string{"function → value"}, Confidence: 0.4},
 			"question_kind=return_value → ReturnValue"
@@ -500,8 +456,7 @@ func reconcileShape(declared types.AnswerShape, subject types.AnswerSubject) (ty
 		return declared, ""
 	}
 	switch subject.Kind {
-	case types.SubjectSkillName, types.SubjectAgentName,
-		types.SubjectFunctionName, types.SubjectTypeName,
+	case types.SubjectFunctionName, types.SubjectTypeName,
 		types.SubjectInterface, types.SubjectHandlerRoute,
 		types.SubjectReturnValue:
 		return types.ShapeValue,

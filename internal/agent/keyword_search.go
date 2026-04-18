@@ -13,10 +13,17 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 )
+
+// declarativeClassifier is the shared Session 11 R1 / C0' Classifier.
+// Package-level singleton so R1 (keyword_search boost) and C0'
+// (analyzer Round 2 gate) stay aligned on the same filename
+// pattern list / small-file thresholds.
+var declarativeClassifier = declarative.New(declarative.DefaultConfig())
 
 // searchTimeout is the maximum wall-clock time for any single search
 // command (rg, grep, find). Prevents hangs on large repos or
@@ -97,6 +104,20 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 			boost = 1.0 + (repoMapScores[f]/maxRM)*1.0
 		}
 		combined := grepScore * boost
+
+		// Session 11 R1 DeclarativeBoost — declarative filenames
+		// (topology, defaults, registry, routes, wire, init,
+		// manifest, schema, enum) and small literal-density
+		// files get an additive bonus that tips registration /
+		// config_mapping / call_chain answers toward the right
+		// file. The boost is additive (not multiplicative) so it
+		// never dwarfs a highly-matched implementation file; it
+		// only breaks ties between small declarative files and
+		// giant function-body files that happen to mention the
+		// same keywords.
+		if kind, conf := declarativeClassifier.ClassifyPath(f); kind != declarative.KindNone {
+			combined += declarativeClassifier.BoostFor(kind) * conf
+		}
 
 		hits := grepHits[f]
 		if hits == nil {

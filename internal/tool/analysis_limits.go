@@ -117,6 +117,63 @@ type AnalysisLimits struct {
 	// is a stronger "pre-scan didn't verify this term" signal than
 	// a missing keyword.
 	WarnBelowEntityHitRatio float64
+
+	// Session 11 C0' ClassificationGrep limits — control the analyzer's
+	// Round 2 line-level grep capability. The capability is off by
+	// default unless analyzer triggers it (trigger logic lives in
+	// analyzer.go). When triggered, the validator in agent.go admits
+	// files_only=false grep calls but caps them at these budgets.
+	// Setting ClassificationGrepEnabled=false disables the capability
+	// entirely — the analyzer falls back to Round 1-only behavior.
+
+	// ClassificationGrepEnabled turns the capability on/off. When
+	// false, validateAnalyzerPrescanToolCall rejects every
+	// files_only=false grep call in analyze stage regardless of
+	// trigger state. Default true.
+	ClassificationGrepEnabled bool
+
+	// ClassificationGrepMaxCalls is the per-dispatch limit on
+	// line-level calls. Default 3.
+	ClassificationGrepMaxCalls int
+
+	// ClassificationGrepMaxMatchesPerCall is the per-call cap on
+	// match count. When the LLM's grep params omit max_count (or
+	// provide a value above this limit), the validator auto-clamps
+	// it before forwarding to the tool. Default 20.
+	ClassificationGrepMaxMatchesPerCall int
+
+	// ClassificationGrepMaxTotalBytes is the cumulative byte cap
+	// across all line-level calls in one dispatch. Default 8192.
+	ClassificationGrepMaxTotalBytes int
+
+	// ClassificationGrepMinLLMSubjectConf is the LLM subject-
+	// confidence threshold below which the analyzer's Round-2
+	// trigger fires (one of several trigger conditions; see
+	// analyzer.shouldTriggerClassificationGrep). Default 0.80.
+	ClassificationGrepMinLLMSubjectConf float64
+
+	// Session 11 C4 — strict shape handling. When true, the
+	// emit_answer_document B2a auto-rescue path (which silently
+	// switches the answer shape when canCorrect=true) is
+	// disabled: mismatched shapes always return a failed
+	// ToolResult so the LLM sees the Error and re-emits with
+	// the correct shape. The G3 F4 HintComposer feeds the
+	// structured retry hint so the LLM has enough signal to
+	// self-correct on retry — no need for the silent save.
+	// Default false to keep legacy tests stable; operators
+	// flip to true in codrax.yaml once retry telemetry shows
+	// the F4 hints are driving single-retry recovery reliably.
+	ShapeSwapStrictMode bool
+
+	// Session 11 R5 — ghost-anchor promotion threshold. When the
+	// D2 chain-promotion enforcer has skipped N occurrences of the
+	// SAME file as a ghost anchor and the file exists on disk, the
+	// explorer adds the file to ScannedSet so the next D2 pass
+	// accepts it. A conservative default of 3 balances false
+	// promote (too eager → pollutes ScannedSet) against missed
+	// recovery (too lax → the legitimate ranker gap never closes).
+	// Zero disables the promotion entirely.
+	GhostAnchorExpandSearchThreshold int
 }
 
 // AnalysisQualityProbe captures runtime hit statistics from the
@@ -247,11 +304,17 @@ func countTermHitsInBlob(seenBlob string, terms []string) int {
 //     floors in codrax.yaml.
 func DefaultAnalysisLimits() AnalysisLimits {
 	return AnalysisLimits{
-		WarnBelowKeywords:        8,
-		RejectBelowKeywords:      0,
-		MaxPrescanRounds:         2,
-		WarnBelowKeywordHitRatio: 0,
-		WarnBelowEntityHitRatio:  0,
+		WarnBelowKeywords:                   8,
+		RejectBelowKeywords:                 0,
+		MaxPrescanRounds:                    2,
+		WarnBelowKeywordHitRatio:            0,
+		WarnBelowEntityHitRatio:             0,
+		ClassificationGrepEnabled:           true,
+		ClassificationGrepMaxCalls:          3,
+		ClassificationGrepMaxMatchesPerCall: 20,
+		ClassificationGrepMaxTotalBytes:     8192,
+		ClassificationGrepMinLLMSubjectConf: 0.80,
+		GhostAnchorExpandSearchThreshold:    3,
 		GenericEntityBlocklist: []string{
 			"agent", "agents",
 			"class", "classes",

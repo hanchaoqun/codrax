@@ -47,36 +47,13 @@ func fixtureGraph() *repomap.Graph {
 	return g
 }
 
-func TestScore_SkillName(t *testing.T) {
-	g := fixtureGraph()
-	cases := []struct {
-		token string
-		min   float64
-	}{
-		{"explore-skill", 0.8},  // suffix + skill/ file
-		{"random-skill", 0.5},   // suffix only
-		{"explorer", 0.0},       // wrong token (we want kept low)
-	}
-	for _, c := range cases {
-		got := Score(c.token, types.SubjectSkillName, g)
-		if c.min > 0 && got < c.min {
-			t.Errorf("Score(%q, SkillName) = %.2f, want >= %.2f", c.token, got, c.min)
-		}
-		if c.min == 0 && got > 0.4 {
-			t.Errorf("Score(%q, SkillName) = %.2f, want < 0.4", c.token, got)
-		}
-	}
-}
-
-func TestScore_AgentName(t *testing.T) {
-	g := fixtureGraph()
-	if got := Score("explorer", types.SubjectAgentName, g); got < 0.5 {
-		t.Errorf("Score(explorer, AgentName) = %.2f, want >= 0.5", got)
-	}
-	if got := Score("explore-skill", types.SubjectAgentName, g); got > 0.4 {
-		t.Errorf("Score(explore-skill, AgentName) = %.2f, want < 0.4 (it's a skill, not agent)", got)
-	}
-}
+// (TestScore_SkillName and TestScore_AgentName deleted — the
+// judges they exercised were removed in the Session 11 over-
+// fitting audit. Skill / Agent naming conventions are project-
+// specific, not industry-general; the taxonomy now relies on
+// universal identifier kinds (FunctionName, TypeName,
+// ConfigKey, ...) so a token like "explore-skill" is scored as
+// a generic quoted string literal, not a project-level role.)
 
 func TestScore_FunctionAndType(t *testing.T) {
 	g := fixtureGraph()
@@ -170,30 +147,22 @@ func TestChainTerminalToken(t *testing.T) {
 	}
 }
 
-// Critical regression: in the bug trace the chain was
-//
-//	`SubExplorer.Name()` returns "explorer"
-//
-// and the expected subject was SkillName. The judge MUST score
-// "explorer" low for SkillName so the chain ranker demotes it
-// below the legitimate `Name: "explore-skill"` chain.
-func TestScore_BugRegression_SubExplorerNameNotASkill(t *testing.T) {
-	g := fixtureGraph()
-	if got := Score("explorer", types.SubjectSkillName, g); got > 0.4 {
-		t.Errorf("Score(explorer, SkillName) = %.2f, want < 0.4 — bug regression: 'explorer' is an agent name, NOT a skill name", got)
-	}
-	if got := Score("explore-skill", types.SubjectSkillName, g); got < 0.6 {
-		t.Errorf("Score(explore-skill, SkillName) = %.2f, want >= 0.6 — the legitimate skill answer", got)
-	}
-}
+// (TestScore_BugRegression_SubExplorerNameNotASkill removed in
+// the Session 11 over-fitting audit — the SubjectSkillName kind
+// it exercised was itself a project-specific concept and got
+// deleted with the cleanup. The regression scenario — "don't let
+// an agent's Name() value outrank the real answer in a chain
+// ranker" — is now covered at the generic-kind level by
+// TestScore_FunctionAndType and TestScore_EnumValue.)
 
-// IsAnswerOfKind threshold check.
+// IsAnswerOfKind threshold check — uses a universal kind
+// (FunctionName) so the test survives the Session 11 audit.
 func TestIsAnswerOfKind_Threshold(t *testing.T) {
 	g := fixtureGraph()
-	if !IsAnswerOfKind("explore-skill", types.SubjectSkillName, g) {
-		t.Errorf("IsAnswerOfKind(explore-skill, SkillName) = false, want true")
+	if !IsAnswerOfKind("BuildPromptContext", types.SubjectFunctionName, g) {
+		t.Errorf("IsAnswerOfKind(BuildPromptContext, FunctionName) = false, want true")
 	}
-	if IsAnswerOfKind("nonsense", types.SubjectSkillName, g) {
-		t.Errorf("IsAnswerOfKind(nonsense, SkillName) = true, want false")
+	if IsAnswerOfKind("nonsense", types.SubjectFunctionName, g) {
+		t.Errorf("IsAnswerOfKind(nonsense, FunctionName) = true, want false")
 	}
 }
