@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode"
 
@@ -807,8 +808,87 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		AnswerContract: out.AnswerContract,
 		HypothesisSet:  hypotheses,
 	}
+	// T3a — populate EvidencePlan.RequiredFiles from the repo_map
+	// graph query over the analyzer-extracted entities. The analyzer
+	// already runs the same query at BuildInitialInstruction time
+	// (buildAnalyzerRepoOverview) to render the task_map view into
+	// the prompt, but previously the file list was discarded after
+	// rendering. This hook captures the list structurally so the
+	// explorer's keyword-search can merge it with its own ranking —
+	// closing the gap where the analyzer identified the right files
+	// but the signal evaporated before reaching the explorer.
+	//
+	// Graceful degrade: a nil ctx, empty RepoRoot, missing
+	// AnalyzerHints.Entities, or a repomap.BuildOrLoadGraph failure
+	// all land on an empty RequiredFiles slice. Downstream consumers
+	// already handle the empty case.
+	ir.EvidencePlan.RequiredFiles = analyzerRequiredFiles(ctx, rm)
 	ir.QualityGate = gate.Run(ir, gate.GlobalThresholds())
 	return ir, nil
+}
+
+// analyzerRequiredFiles queries the repo_map graph with the
+// analyzer-extracted entities and returns the top-N matching file
+// paths. These are the files the analyzer "expects" the explorer to
+// consider relevant, based solely on structural matching of entity
+// names to symbols in the graph. Non-authoritative — a soft hint,
+// not a hard requirement.
+//
+// Returns nil on any error or missing input; the caller assigns
+// directly so a nil slice is a valid zero value.
+func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []string {
+	if ctx == nil || ctx.RepoRoot == "" {
+		return nil
+	}
+	entities := rm.AnalyzerHints.Entities
+	if len(entities) == 0 {
+		// Fall back to extracting CamelCase/snake_case tokens from
+		// the raw request — same strategy as
+		// buildAnalyzerRepoOverview uses when no entity list was
+		// emitted. Keeps the hint active even when the LLM left
+		// entities empty (genuine ambiguity path).
+		entities = extractQuestionEntities(
+			types.StripConversationPrefix(rm.RawRequest))
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+	query := strings.Join(entities, " ")
+	graph, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, query)
+	if err != nil || graph == nil {
+		return nil
+	}
+	// Walk QueryScores, keep non-zero entries, sort by score desc,
+	// cap at maxAnalyzerRequiredFiles. The cap is deliberately
+	// small (10) because this is a soft prompt-level hint — the
+	// explorer's own keyword_search runs a more thorough ranking
+	// and will see many more candidates.
+	type scored struct {
+		path  string
+		score float64
+	}
+	var hits []scored
+	for path, qs := range graph.QueryScores {
+		if qs <= 0 {
+			continue
+		}
+		hits = append(hits, scored{path: path, score: qs})
+	}
+	if len(hits) == 0 {
+		return nil
+	}
+	sort.Slice(hits, func(i, j int) bool {
+		return hits[i].score > hits[j].score
+	})
+	const maxAnalyzerRequiredFiles = 10
+	if len(hits) > maxAnalyzerRequiredFiles {
+		hits = hits[:maxAnalyzerRequiredFiles]
+	}
+	out := make([]string, 0, len(hits))
+	for _, h := range hits {
+		out = append(out, h.path)
+	}
+	return out
 }
 
 // dropCitationCountGE returns a copy of crits with every

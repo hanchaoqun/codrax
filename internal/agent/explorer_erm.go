@@ -327,10 +327,85 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 	return reqs
 }
 
+// ermThresholds carries the "satisfied" and "partial" floors for a
+// single requirement kind at a given analyzer-classified complexity.
+// Returned by thresholdForKind so every branch in
+// checkRequirementSatisfaction reads the same SSOT.
+type ermThresholds struct {
+	Satisfied int
+	Partial   int
+}
+
+// thresholdForKind returns the count floors for a requirement kind
+// at the given complexity. Complex questions (cross-component, 6+
+// files) raise the "satisfied" floor so a handful of isolated
+// mechanism/config/enumeration facts cannot declare the requirement
+// resolved while the dispatch-path files are still unread.
+//
+// Mapping (satisfied / partial):
+//
+//	Kind           | simple  | moderate | complex |
+//	---------------|---------|----------|---------|
+//	mechanism      | 2 / 1   | 2 / 1    | 4 / 2   |
+//	enumeration    | 3 / 1   | 3 / 1    | 5 / 2   |
+//	config_mapping | 2 / 1   | 2 / 1    | 3 / 2   |
+//	conditional    | 1 / 0   | 1 / 0    | 2 / 1   |
+//	call_chain     | 2 / 1   | 2 / 1    | 3 / 2   |
+//	return_value   | 1 / 0   | 1 / 0    | 1 / 0   |
+//	registration   | 1 / 0   | 1 / 0    | 1 / 0   |  (not scalar — per-entity match)
+//
+// Unknown complexity (zero value or any future enum variant) falls
+// through to the moderate row so the pre-T1c behavior is preserved
+// byte-for-byte.
+//
+// Registration and return_value are per-entity rather than scalar
+// count based, so their thresholds are placeholders that the
+// respective cases don't actually read — kept in the table for
+// completeness and future-proofing.
+func thresholdForKind(kind types.RequirementKind, complexity types.Complexity) ermThresholds {
+	complex := complexity == types.ComplexityComplex
+	switch kind {
+	case types.ReqMechanism:
+		if complex {
+			return ermThresholds{Satisfied: 4, Partial: 2}
+		}
+		return ermThresholds{Satisfied: 2, Partial: 1}
+	case types.ReqEnumeration:
+		if complex {
+			return ermThresholds{Satisfied: 5, Partial: 2}
+		}
+		return ermThresholds{Satisfied: 3, Partial: 1}
+	case types.ReqConfigMapping:
+		if complex {
+			return ermThresholds{Satisfied: 3, Partial: 2}
+		}
+		return ermThresholds{Satisfied: 2, Partial: 1}
+	case types.ReqConditional:
+		if complex {
+			return ermThresholds{Satisfied: 2, Partial: 1}
+		}
+		return ermThresholds{Satisfied: 1, Partial: 0}
+	case types.ReqCallChain:
+		if complex {
+			return ermThresholds{Satisfied: 3, Partial: 2}
+		}
+		return ermThresholds{Satisfied: 2, Partial: 1}
+	default:
+		return ermThresholds{Satisfied: 1, Partial: 0}
+	}
+}
+
 // checkRequirementSatisfaction scans investigation notes and structured
 // evidence against ERM requirements. Returns the updated requirements
 // with status set to "satisfied", "partial", or "unsatisfied".
-func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, evidence []types.EvidenceItem) []EvidenceRequirement {
+//
+// T1c: `complexity` scales the count thresholds via thresholdForKind
+// so complex cross-component questions (6+ files) need more evidence
+// to satisfy a requirement than simple lookups. Callers that do not
+// have a classified complexity (e.g. unit tests, analyze-phase
+// failures) pass the zero value, which maps to the historical
+// moderate-complexity thresholds.
+func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, evidence []types.EvidenceItem, complexity types.Complexity) []EvidenceRequirement {
 	if len(reqs) == 0 {
 		return reqs
 	}
@@ -341,6 +416,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 		if req.Status == "satisfied" {
 			continue
 		}
+		th := thresholdForKind(req.Kind, complexity)
 		switch req.Kind {
 		case types.ReqEnumeration:
 			// Satisfied if evidence contains items mentioning the entities.
@@ -354,9 +430,11 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			count += countEvidenceByKinds(evidence, req.Entities,
 				types.EvidenceDirect, types.EvidenceRegistration,
 				types.EvidenceConcrete, types.EvidenceDataflowPath)
-			if count >= 3 {
+			if count >= th.Satisfied {
 				req.Status = "satisfied"
-			} else if count >= 1 {
+			} else if count >= th.Partial && th.Partial > 0 {
+				req.Status = "partial"
+			} else if count >= 1 && th.Partial == 0 {
 				req.Status = "partial"
 			}
 
@@ -469,7 +547,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 
 		case types.ReqConfigMapping:
 			count := countEvidenceByKinds(evidence, req.Entities, types.EvidenceConcrete, types.EvidenceMechanism)
-			if count >= 2 {
+			if count >= th.Satisfied {
 				req.Status = "satisfied"
 			} else if count >= 1 {
 				req.Status = "partial"
@@ -478,20 +556,27 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 		case types.ReqConditional:
 			count := countEvidenceTags(notesJoined, []string{"[conditional]"})
 			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceConditional)
-			if count >= 1 {
+			if count >= th.Satisfied {
 				req.Status = "satisfied"
+			} else if count >= 1 && th.Partial > 0 {
+				req.Status = "partial"
 			}
 
 		case types.ReqMechanism:
 			// Mechanism requirements need either LLM-tagged [MECHANISM]
 			// notes or structured EvidenceMechanism items mentioning the
 			// requirement entities. Reuses the same per-Kind counter as
-			// conditional/config_mapping for consistency. Two evidence
-			// items are required for "satisfied" because mechanism
-			// answers usually need at least an entry point + a step
-			// inside the function body — one isolated [MECHANISM] tag
-			// is rarely enough for a usable explanation. Falls through
-			// to "partial" with one item.
+			// conditional/config_mapping for consistency.
+			//
+			// T1c: th.Satisfied scales with complexity — complex
+			// cross-package mechanism questions (6+ files) need ≥4
+			// evidence items (up from 2), giving the explorer enough
+			// runway to read the orchestrator / runtime dispatch
+			// files in addition to the entry-point implementation.
+			// The 2026-04-18 "explorer是怎么调用subagent的？" root-cause
+			// analysis showed that count>=2 declared victory after
+			// the LLM read just sub_explorer.go and agent.go, missing
+			// orchestrator.go and subagent_runtime.go entirely.
 			count := countEvidenceTags(notesJoined, []string{"[mechanism]"})
 			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceMechanism)
 			// Also accept relationship items mentioning the entity —
@@ -500,7 +585,7 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 			// will produce richer EvidenceMechanism directly; until then
 			// the dataflow lowering's relationships fill the gap.
 			count += countEvidenceByKinds(evidence, req.Entities, types.EvidenceRelationship)
-			if count >= 2 {
+			if count >= th.Satisfied {
 				req.Status = "satisfied"
 			} else if count >= 1 {
 				req.Status = "partial"

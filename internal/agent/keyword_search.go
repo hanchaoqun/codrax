@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // declarativeClassifier is the shared Session 11 R1 / C0' Classifier.
@@ -49,8 +50,74 @@ type keywordSearchResult struct {
 // searchExcludeDirs is the shared exclude list from tool.ExcludeDirs.
 var searchExcludeDirs = tool.ExcludeDirs
 
-// keywordSearch combines repo_map's structural ranking with grep-based
-// keyword matching to produce a scored file list.
+// keywordSearchOptions tunes the scoring and cap behavior of
+// keywordSearchWithOptions. Zero values are treated as "use the
+// historical defaults" so the thin backwards-compat wrapper
+// `keywordSearch` keeps its pre-refactor semantics byte-for-byte.
+//
+// Added in T1a + T1b (cross-package question debug follow-up):
+//   - Entities surfaces the analyzer's high-confidence identifier
+//     tokens (verbatim from the user question). When provided,
+//     files whose path or indexed symbols match any entity get a
+//     multiplicative boost on top of the grep IDF × repo_map score.
+//     Entities carry strictly stronger signal than keywords (they
+//     are user-authored identifiers, not synonym expansions), so
+//     the boost is weighted accordingly — see applyEntityBoost.
+//   - MaxFiles caps the returned slice length. When 0, the default
+//     of `defaultKeywordSearchMaxFiles` (20) applies; when > 0, the
+//     caller's explicit value wins. Used for complexity-aware
+//     scaling: complex cross-package questions need a wider
+//     candidate pool so the top-20 cap does not drop the
+//     dispatch-path files below the LLM's eyeline.
+type keywordSearchOptions struct {
+	Entities []string
+	MaxFiles int
+}
+
+// defaultKeywordSearchMaxFiles is the historical cap preserved for
+// callers that don't pass an explicit MaxFiles. Matches the pre-T1b
+// hardcoded `results[:20]` behavior byte-for-byte so un-converted
+// callers see no change.
+const defaultKeywordSearchMaxFiles = 20
+
+// MaxFilesForComplexity returns the recommended keyword-search top-N
+// cap for a given analyzer-classified complexity. Complex questions
+// (6+ files, cross-component) need a wider candidate pool because
+// the critical dispatch-path file may sit at rank 22–28 if the
+// question's keywords also match a very large implementation file
+// like explorer.go. Simple questions stay at a tighter cap so the
+// LLM's prompt budget is not wasted on low-signal candidates.
+//
+// Mapping:
+//
+//	simple   → 15 (single-file lookups, tight focus)
+//	moderate → 20 (historical default, 3-5 file questions)
+//	complex  → 30 (cross-component, 6+ files)
+//	other    → 20 (safe default for "" / unknown / future values)
+//
+// Callers that want a fixed cap regardless of complexity can pass
+// MaxFiles directly to keywordSearchOptions.
+func MaxFilesForComplexity(complexity types.Complexity) int {
+	switch complexity {
+	case types.ComplexitySimple:
+		return 15
+	case types.ComplexityComplex:
+		return 30
+	default:
+		return defaultKeywordSearchMaxFiles
+	}
+}
+
+// keywordSearch is the pre-T1a thin wrapper preserved for callers
+// (and tests) that don't need entity boosting or custom caps. New
+// callers should use keywordSearchWithOptions and pass the analyzer's
+// entity list + the complexity-derived MaxFiles.
+func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
+	return keywordSearchWithOptions(keywords, repoRoot, keywordSearchOptions{})
+}
+
+// keywordSearchWithOptions combines repo_map's structural ranking
+// with grep-based keyword matching to produce a scored file list.
 //
 // Strategy:
 //  1. Build/load the repo_map graph (cached, fast) and rank files using
@@ -62,7 +129,14 @@ var searchExcludeDirs = tool.ExcludeDirs
 //  3. Merge: repo_map score (normalized) + grep IDF score, with repo_map
 //     weighted higher because structural definitions are more reliable
 //     than text mentions.
-func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
+//  4. (T1a) Apply entity boost: files whose path or indexed symbols
+//     match any analyzer-emitted entity get a 1.3x–1.6x multiplier.
+//     Entities are high-confidence identifier tokens copied verbatim
+//     from the user question, so they carry strictly stronger signal
+//     than the expanded keyword list.
+//  5. Cap the result list at `opts.MaxFiles` (or the historical 20
+//     when opts.MaxFiles is zero).
+func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSearchOptions) *keywordSearchResult {
 	if len(keywords) == 0 || repoRoot == "" {
 		return nil
 	}
@@ -119,6 +193,24 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 			combined += declarativeClassifier.BoostFor(kind) * conf
 		}
 
+		// T1a entity boost — multiplicatively scale the combined
+		// score when the file's path or its indexed symbols match
+		// any analyzer-emitted entity. Entities are the highest-
+		// confidence tokens the analyzer produces (verbatim from
+		// the user question, not expanded), so a match here is
+		// stronger signal than a keyword hit. The multiplier
+		// ladder (path+symbol > path > symbol > none) stacks:
+		// a file whose path contains the entity AND whose symbol
+		// table declares it gets the full 1.6x; matching only
+		// the path or only a symbol gets 1.3x. This is the fix
+		// for the 2026-04-18 "explorer是怎么调用subagent的？" root
+		// cause where `subagent_runtime.go` ranked below
+		// `explorer.go` because the latter's 6000+ lines
+		// drowned it on pure-grep IDF scoring.
+		if boost := entityBoostFactor(f, graph, opts.Entities); boost > 1.0 {
+			combined *= boost
+		}
+
 		hits := grepHits[f]
 		if hits == nil {
 			hits = make(map[string]string)
@@ -159,12 +251,72 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 	sort.Slice(results, func(i, j int) bool {
 		return results[i].Score > results[j].Score
 	})
-	if len(results) > 20 {
-		results = results[:20]
+	maxFiles := opts.MaxFiles
+	if maxFiles <= 0 {
+		maxFiles = defaultKeywordSearchMaxFiles
+	}
+	if len(results) > maxFiles {
+		results = results[:maxFiles]
 	}
 
-	logging.Debug("[keyword_search] %d keywords → %d files scored (repo_map + grep IDF)", len(keywords), len(results))
+	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
+		len(keywords), len(opts.Entities), len(results), maxFiles)
 	return &keywordSearchResult{Files: results, Graph: graph}
+}
+
+// entityBoostFactor returns the multiplicative score factor for a
+// file based on how many analyzer-emitted entities it references.
+// Return 1.0 means "no boost"; >1.0 means the file is rescored up.
+//
+// Signal ladder (strictest wins):
+//   - path match + symbol match → 1.6
+//   - path match only           → 1.3
+//   - symbol match only         → 1.3
+//   - neither                   → 1.0
+//
+// Matching is case-insensitive substring on the file basename for
+// the path channel and on exact symbol names in the repo_map graph
+// for the symbol channel. Short entities (< 4 chars) are skipped
+// to avoid false positives on 3-letter prefixes like "get", "run",
+// "new" — this is especially important because the analyzer's
+// generic-entity blocklist does NOT filter by length.
+func entityBoostFactor(path string, graph *repomap.Graph, entities []string) float64 {
+	if len(entities) == 0 {
+		return 1.0
+	}
+	base := strings.ToLower(filepath.Base(path))
+	pathHit := false
+	symbolHit := false
+	for _, ent := range entities {
+		norm := strings.ToLower(strings.TrimSpace(ent))
+		if len(norm) < 4 {
+			continue
+		}
+		if !pathHit && strings.Contains(base, norm) {
+			pathHit = true
+		}
+		if !symbolHit && graph != nil {
+			if fi, ok := graph.FileIndex[path]; ok {
+				for _, sym := range fi.Symbols {
+					if strings.Contains(strings.ToLower(sym.Name), norm) {
+						symbolHit = true
+						break
+					}
+				}
+			}
+		}
+		if pathHit && symbolHit {
+			break
+		}
+	}
+	switch {
+	case pathHit && symbolHit:
+		return 1.6
+	case pathHit || symbolHit:
+		return 1.3
+	default:
+		return 1.0
+	}
 }
 
 // repoMapRank uses the repo_map graph to rank files by structural relevance.

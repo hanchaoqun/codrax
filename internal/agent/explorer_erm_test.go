@@ -81,7 +81,7 @@ func TestCheckRequirementSatisfaction_Registration(t *testing.T) {
 		"## Evidence from subagent.go\n- [REGISTRATION] `RegisterDefaultSubAgents` line 62: registers NewSubExplorer as the only subagent",
 	}
 
-	reqs = checkRequirementSatisfaction(reqs, notes, nil)
+	reqs = checkRequirementSatisfaction(reqs, notes, nil, types.ComplexityModerate)
 	if reqs[0].Status != "satisfied" {
 		t.Errorf("registration requirement status = %q, want satisfied", reqs[0].Status)
 	}
@@ -98,7 +98,7 @@ func TestCheckRequirementSatisfaction_Partial(t *testing.T) {
 		"## Evidence from subagent.go\n- [REGISTRATION] `Register` line 33: registers a sub-agent in the registry.",
 	}
 
-	reqs = checkRequirementSatisfaction(reqs, notes, nil)
+	reqs = checkRequirementSatisfaction(reqs, notes, nil, types.ComplexityModerate)
 	if reqs[0].Status != "partial" {
 		t.Errorf("registration requirement status = %q, want partial (no specific value)", reqs[0].Status)
 	}
@@ -114,7 +114,7 @@ func TestCheckRequirementSatisfaction_ReturnValueFromEvidence(t *testing.T) {
 		{Kind: types.EvidenceConcrete, Subject: "SubExplorer.Name", Predicate: "returns", Object: `"explorer"`},
 	}
 
-	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status != "satisfied" {
 		t.Errorf("return_value requirement status = %q, want satisfied", reqs[0].Status)
 	}
@@ -458,7 +458,7 @@ func TestCheckRequirementSatisfaction_RegistrationFromConcreteBinds(t *testing.T
 			Summary:   "RegisterDefaultSubAgents() binds ONLY NewSubExplorer(deps)",
 		},
 	}
-	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status != "satisfied" {
 		t.Errorf("registration via binds-Concrete: status = %q, want satisfied", reqs[0].Status)
 	}
@@ -480,7 +480,7 @@ func TestCheckRequirementSatisfaction_RegistrationFromConcreteBinds_WrongEntity(
 			Summary:   "RegisterDefaultTools() binds ONLY NewGrepTool",
 		},
 	}
-	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status == "satisfied" {
 		t.Errorf("registration with non-matching entity: status = satisfied, want unsatisfied (entity precision must be preserved)")
 	}
@@ -506,7 +506,7 @@ func TestCheckRequirementSatisfaction_ReturnValueUnaffectedByBinds(t *testing.T)
 			Summary:   "binds NewSubExplorer",
 		},
 	}
-	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status == "satisfied" {
 		t.Errorf("return_value satisfied by binds-Concrete: cross-Kind leak detected; want unsatisfied")
 	}
@@ -637,7 +637,7 @@ func TestCheckRequirementSatisfaction_MechanismFromEvidence(t *testing.T) {
 		{Kind: types.EvidenceMechanism, Predicate: "reads_config", Subject: "explorer", Summary: "explorer reads_config"},
 		{Kind: types.EvidenceMechanism, Predicate: "iterates", Subject: "explorer", Summary: "explorer iterates files"},
 	}
-	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status != "satisfied" {
 		t.Errorf("mechanism satisfaction: status = %q, want satisfied", reqs[0].Status)
 	}
@@ -651,7 +651,7 @@ func TestCheckRequirementSatisfaction_MechanismPartial(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{Kind: types.EvidenceMechanism, Predicate: "reads_config", Subject: "explorer", Summary: "explorer reads_config"},
 	}
-	reqs = checkRequirementSatisfaction(reqs, nil, evidence)
+	reqs = checkRequirementSatisfaction(reqs, nil, evidence, types.ComplexityModerate)
 	if reqs[0].Status != "partial" {
 		t.Errorf("mechanism partial: status = %q, want partial", reqs[0].Status)
 	}
@@ -668,7 +668,7 @@ func TestCheckRequirementSatisfaction_RegistrationFallthroughLLMNotes(t *testing
 	notes := []string{
 		"## Evidence\n- [REGISTRATION] `RegisterDefaultSubAgents` line 62: registers NewSubExplorer as the only subagent",
 	}
-	reqs = checkRequirementSatisfaction(reqs, notes, nil)
+	reqs = checkRequirementSatisfaction(reqs, notes, nil, types.ComplexityModerate)
 	if reqs[0].Status != "satisfied" {
 		t.Errorf("LLM-notes [REGISTRATION] path: status = %q, want satisfied (legacy branch must still work)", reqs[0].Status)
 	}

@@ -379,6 +379,31 @@ type EvidencePlan struct {
 	NodeBudgetHints NodeBudgetHints `json:"node_budget_hints"`
 
 	StopConditions []StopCondition `json:"stop_conditions,omitempty"`
+
+	// RequiredFiles is the analyzer's up-front list of repo-relative
+	// file paths that downstream agents SHOULD consider relevant to
+	// answering the user's question. Populated at analyze-time by
+	// running the repo_map graph query with the analyzer-extracted
+	// entities as the query and pulling the top-N scored files.
+	//
+	// Unlike SourceMix (which is a budget hint) and StopConditions
+	// (which are termination gates), RequiredFiles carries a
+	// declarative coverage signal: "these are the files I expect
+	// you to read or grep to answer the question". The explorer
+	// merges this list into its own keyword_search ranking so
+	// high-confidence analyzer-picked files get priority alongside
+	// grep IDF scores — and the CGEC phase1-unread gate counts
+	// them against ReadSet for the pre-complete check.
+	//
+	// T3a (added after the 2026-04-18 "explorer是怎么调用subagent的？"
+	// debug): closes the gap where the analyzer's repo_map query
+	// identified the right files but the results were only rendered
+	// into prose prompt text and never carried structurally to the
+	// explorer's coverage tracker. Zero-value-safe: an empty slice
+	// is the fallback when the analyzer runs without a repo_map
+	// graph (sub-agent contexts, unit tests, or repo_map build
+	// failures) and downstream code treats it as "no hint".
+	RequiredFiles []string `json:"required_files,omitempty"`
 }
 
 // NodeBudgetHints is the compiled shape of EvidencePlan.SourceMix.

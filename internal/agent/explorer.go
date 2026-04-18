@@ -47,6 +47,7 @@ type explorerEvaluator struct {
 	midLoopLastResultsLen     int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
 	midLoopSerialStreak       int                   // #34: consecutive iters observed as single-call rounds
 	midLoopParallelInjected   bool                  // #34: parallel-batching hint already pushed this dispatch
+	midLoopSymbolRefInjected  bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
 	primaryReadIter           int                   // df3-drift: iter at which a primary-entity file first entered readSet (0 = never)
 	notesLenAtPrimaryRead     int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
 	investigationComplete     bool                  // set when emit_investigation_complete tool was observed in MidLoop
@@ -60,6 +61,18 @@ type explorerEvaluator struct {
 	// value (Kind=SubjectUnknown) preserves historical insertion
 	// ordering for tests / sub-agents that bypass the analyzer.
 	answerSubject types.AnswerSubject
+
+	// complexity is a cached copy of the analyzer-classified
+	// Complexity (via irComplexity) captured at
+	// BuildInitialInstruction time. T1c: drives ERM threshold
+	// scaling via thresholdForKind so complex cross-component
+	// questions need more evidence to satisfy a requirement than
+	// simple lookups. Cached here because ShouldStop / observeSoftStop
+	// do not have direct access to AgentContext; BuildInitialInstruction
+	// and ParseOutput do. Zero value ("" = unknown) maps to the
+	// historical moderate thresholds so tests that skip
+	// BuildInitialInstruction see no behavior change.
+	complexity types.Complexity
 
 	// Loop-control state that USED to live here has been lifted into
 	// LoopPolicy:
@@ -123,8 +136,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopLastResultsLen = 0
 		e.midLoopSerialStreak = 0
 		e.midLoopParallelInjected = false
+		e.midLoopSymbolRefInjected = false
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
+		e.complexity = ""
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -133,6 +148,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	e.userQuestion = ctx.Objective
 	e.repoRoot = ctx.RepoRoot
+	// T1c: capture the analyzer-classified complexity so ShouldStop /
+	// observeSoftStop / ensureStructuredEvidence can pass it to
+	// checkRequirementSatisfaction without re-reading ctx (those call
+	// sites don't all receive ctx). Zero value ("") is preserved when
+	// the analyzer stage hasn't run yet (unit tests, sub-agent paths).
+	e.complexity = irComplexity(ctx)
 	// CGEC: capture the analyzer's AnswerSubject classification so
 	// the chain ranker can score chain terminals against the
 	// expected subject kind. Empty when AnalysisIR not yet available
@@ -265,7 +286,19 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// Run graduated keyword search before Phase 1 starts.
 		// This gives the LLM a pre-ranked file list instead of
 		// making it guess which grep patterns to use.
-		sr := keywordSearch(analyzerKeywords, ctx.RepoRoot)
+		//
+		// T1a + T1b: pass analyzerEntities so files matching
+		// analyzer-emitted identifiers get a multiplicative boost
+		// (entities are the highest-confidence tokens — verbatim
+		// from the user question); scale MaxFiles by the
+		// complexity classification so complex cross-component
+		// questions get a 30-file candidate pool instead of the
+		// historical 20 that drops dispatch-path files below the
+		// LLM's eyeline.
+		sr := keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
+			Entities: analyzerEntities,
+			MaxFiles: MaxFilesForComplexity(irComplexity(ctx)),
+		})
 		e.searchResult = sr
 		// Publish the graph to MutableState so tools running later in
 		// this dispatch (notably emit_evidence's synchronous grounder)
@@ -280,13 +313,47 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// top-ranked files against ReadSet. Canonicalise each path the
 		// same way ground.CanonicalRepoRelative does so the gate's
 		// readSet lookup is apples-to-apples.
+		//
+		// T3a: also merge the analyzer's EvidencePlan.RequiredFiles
+		// into the ranking. The analyzer pre-computes a top-N list
+		// from its repo_map query over the entity set; adding those
+		// files here ensures the CGEC phase1-unread gate treats them
+		// as first-class coverage targets even when the explorer's
+		// own keyword search under-ranks them (the 2026-04-18
+		// "explorer→subagent" debug symptom — orchestrator.go
+		// matched weakly on pure-grep IDF). We preserve any score
+		// the explorer's search already produced; newly-surfaced
+		// RequiredFiles get a sentinel score that places them just
+		// above the median so they're prioritized without
+		// completely displacing high-grep-IDF matches.
 		if ctx != nil && ctx.Mutable != nil && sr != nil && len(sr.Files) > 0 {
+			seen := make(map[string]bool, len(sr.Files))
 			ranked := make([]types.Phase1RankedFile, 0, len(sr.Files))
 			for _, f := range sr.Files {
+				canon := ground.CanonicalRepoRelative(f.Path, ctx.RepoRoot)
 				ranked = append(ranked, types.Phase1RankedFile{
-					Path:  ground.CanonicalRepoRelative(f.Path, ctx.RepoRoot),
+					Path:  canon,
 					Score: f.Score,
 				})
+				seen[canon] = true
+			}
+			// Compute a sentinel score for analyzer-supplied files
+			// that didn't show up in the explorer's keyword search.
+			// Using the median of existing scores positions them
+			// mid-pack so strong grep-IDF matches still rank higher
+			// but the analyzer's picks can't be pushed out of the
+			// top-N by noise.
+			medianScore := phase1MedianScore(ranked)
+			for _, p := range analyzerRequiredFilesFromIR(ctx) {
+				canon := ground.CanonicalRepoRelative(p, ctx.RepoRoot)
+				if seen[canon] {
+					continue
+				}
+				ranked = append(ranked, types.Phase1RankedFile{
+					Path:  canon,
+					Score: medianScore,
+				})
+				seen[canon] = true
 			}
 			ctx.Mutable.SetPhase1Ranking(ranked)
 		}
@@ -294,6 +361,23 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// Record that pre-scan produced a repo_map-derived ranked file
 		// list the LLM can see. Read by the Phase 0 quality gate.
 		e.hasPrescanRepoMap = len(results) > 0
+		// T3a: surface the analyzer's EvidencePlan.RequiredFiles as
+		// a dedicated prompt section. Files appear first in the
+		// instruction text so the LLM sees "start here" guidance
+		// before scanning the longer keyword_search ranking below.
+		// Only render when non-empty AND complexity is not simple
+		// (simple questions don't need the multi-file push).
+		if reqFiles := analyzerRequiredFilesFromIR(ctx); len(reqFiles) > 0 &&
+			irComplexity(ctx) != types.ComplexitySimple {
+			b.WriteString("### Analyzer's Required Files\n\n")
+			b.WriteString("The analyzer's repo_map query over the question's entities " +
+				"identified these files as structurally relevant. Start your investigation " +
+				"here and trace cross-file references outward:\n\n")
+			for _, p := range reqFiles {
+				b.WriteString("- `" + p + "`\n")
+			}
+			b.WriteString("\n")
+		}
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
 			// Save files with repo_map structural relevance for coverage
@@ -779,7 +863,7 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	} else {
 		notesForCheck = e.investigationNotes
 	}
-	e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, notesForCheck, e.structuredEvidence)
+	e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, notesForCheck, e.structuredEvidence, e.complexity)
 	if !ermAllSatisfied(e.ermRequirements) {
 		return false
 	}
@@ -990,6 +1074,55 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 						hintKey = "explorer.mid-loop.enumeration"
 					}
 				}
+			}
+		}
+	}
+
+	// Check 4: cross-file symbol reference push (T3b).
+	//
+	// When the LLM has read a file and written analysis notes that
+	// mention exported symbol names, those symbols often refer to
+	// types/methods defined in OTHER files. For a cross-package
+	// mechanism question like "explorer是怎么调用subagent的？" the
+	// LLM reads agent.go, sees `deps.SubAgents.Get` and writes a
+	// note naming `SubAgent`; the type is defined in
+	// subagent_runtime.go which is the key dispatch file. Without
+	// this check, the LLM has no structural push to follow the
+	// reference — the answer gets half-complete because it never
+	// reads the downstream file.
+	//
+	// This check:
+	//   1. Walks graph.SymbolDefs for exported symbols (len >= 6 to
+	//      match the existing synthesis-prep scanner threshold;
+	//      shorter names are too generic and cause false positives).
+	//   2. Skips symbols that are already defined in a file the LLM
+	//      read — no need to push "go read what you already read".
+	//   3. Collects the top-N candidate files (by symbol count
+	//      referenced in notes → more references = stronger signal)
+	//      whose definitions are NOT in readSet.
+	//   4. Emits a mid-loop hint pointing at those files.
+	//
+	// Fires at most once per dispatch (midLoopSymbolRefInjected flag)
+	// so the hint doesn't recur on every subsequent iteration.
+	if b.Len() == 0 && !e.midLoopSymbolRefInjected &&
+		len(e.investigationNotes) >= e.heuristics.MidLoopMinIteration {
+		_, readSet := extractFileCoverage(allResults)
+		gaps := detectCrossFileSymbolGaps(
+			e.investigationNotes, e.searchResult.Graph, readSet, 3)
+		if len(gaps) > 0 {
+			if b.Len() > 0 {
+				b.WriteString("\n")
+			}
+			b.WriteString("MID-LOOP CHECK: your notes reference exported symbols whose " +
+				"definitions live in files you have NOT read yet. Reading the defining " +
+				"file is often the next hop of the call chain. Consider reading:\n")
+			for _, g := range gaps {
+				fmt.Fprintf(&b, "  - `%s` (defines `%s`)\n", g.File, g.Symbol)
+			}
+			b.WriteString("\n")
+			e.midLoopSymbolRefInjected = true
+			if hintKey == "" {
+				hintKey = "explorer.mid-loop.cross-file-ref"
 			}
 		}
 	}
@@ -1422,7 +1555,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// question correctly. On the first voluntary stop we trust the
 	// LLM's self-assessment; on subsequent stops, ERM gets to vote.
 	if !firstSoftStop && len(e.ermRequirements) > 0 && e.searchResult != nil && e.searchResult.Graph != nil {
-		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
+		e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence, e.complexity)
 		logERM(e.ermRequirements)
 		if !ermAllSatisfied(e.ermRequirements) {
 			suggestions := ermSuggestFiles(e.searchResult.Graph, e.ermRequirements, readSet, e.heuristics.ErmSuggestLimit)
@@ -1969,7 +2102,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	} else {
 		// Fallback: ERM quality gate (only when no explicit signal).
 		if len(e.ermRequirements) > 0 {
-			e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence)
+			e.ermRequirements = checkRequirementSatisfaction(e.ermRequirements, e.investigationNotes, e.structuredEvidence, e.complexity)
 			allSat := ermAllSatisfied(e.ermRequirements)
 			if hasEnough && !allSat {
 				unsatCount := 0
@@ -2287,7 +2420,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		}
 		reqsCopy := make([]EvidenceRequirement, len(e.ermRequirements))
 		copy(reqsCopy, e.ermRequirements)
-		reqsCopy = checkRequirementSatisfaction(reqsCopy, e.investigationNotes, trial)
+		reqsCopy = checkRequirementSatisfaction(reqsCopy, e.investigationNotes, trial, e.complexity)
 		if ermAllSatisfied(reqsCopy) {
 			logging.Debug("[explorer] T1.1 gate: ERM all satisfied by parsed(%d)+concreteValues(%d)+mechanism(%d) — skipping dataflow.Analyze",
 				len(parsed), len(cv.evidence), len(mechEvidence))
@@ -3077,8 +3210,14 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				continue
 			}
 			for _, cv := range extractConcreteValues(src) {
-				// For longer functions, only keep binding/registration values.
-				if !isShort && !strings.Contains(cv.kind, "binds") && cv.kind != "maps" {
+				// For longer functions, only keep binding/registration/map
+				// values and cross-component call targets. Bulk "returns"
+				// / "assigns" entries would flood the synthesis prompt,
+				// but "calls" carries control-flow signal that the
+				// evidence-chain resolver uses for cross-package
+				// dispatch chains.
+				if !isShort && !strings.Contains(cv.kind, "binds") &&
+					cv.kind != "maps" && cv.kind != "calls" {
 					continue
 				}
 				allValues = append(allValues, concreteValue{
@@ -3357,12 +3496,25 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 
 	var b strings.Builder
 	b.WriteString("## Concrete Values (programmatically extracted from source code)\n\n")
-	b.WriteString("These are EXACT values from source code — ground truth, not summaries.\n\n")
+	b.WriteString("These are EXACT values from source code — ground truth, not summaries. " +
+		"Rows whose Fact column starts with `calls →` surface cross-component " +
+		"dispatch: the method on the left transfers control to the target on the " +
+		"right. Follow the arrow with a `read_file` on the target's file to trace " +
+		"the next hop in the chain.\n\n")
 	b.WriteString("| File:Line | Method | Fact |\n")
 	b.WriteString("|-----------|--------|------|\n")
 	for _, v := range relevant {
-		fmt.Fprintf(&b, "| %s:%d | `%s()` | %s %s |\n",
-			v.file, v.line, v.method, v.kind, v.value)
+		// T2c: render "calls" with a right-arrow prefix so the LLM
+		// can distinguish control-flow rows from value-flow rows at
+		// a glance. Example: "calls → SubAgentRuntime.Run" vs.
+		// "returns \"explorer\"". All other kinds keep the historical
+		// "<kind> <value>" format.
+		fact := v.kind + " " + v.value
+		if v.kind == "calls" {
+			fact = "calls → " + v.value
+		}
+		fmt.Fprintf(&b, "| %s:%d | `%s()` | %s |\n",
+			v.file, v.line, v.method, fact)
 	}
 	b.WriteString("\n")
 
@@ -3451,7 +3603,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	var chainAnchors []chainAnchorInfo
 	for _, v := range allRelevantForEvidence {
 		// Skip values that don't reference other types.
-		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" && v.kind != "config" && v.kind != "decorates" {
+		// T2b: "calls" joins the allowlist so cross-package dispatch
+		// chains like `dispatchStage calls SubAgentRuntime.Run →
+		// SubAgentRuntime.Run calls SubExplorer.Run` can form. The
+		// call target renders as `ReceiverType.Method` which
+		// containsIdentifier tests just like any other type-
+		// referencing value (the LastIndex dot-split in
+		// scanCallTargetsInLine keeps the receiver identifier
+		// prominent so the identifier match fires).
+		if v.kind != "returns" && !strings.Contains(v.kind, "binds") &&
+			v.kind != "maps" && v.kind != "config" &&
+			v.kind != "decorates" && v.kind != "calls" {
 			continue
 		}
 		// Session-8 Fix γ (trace 1776450670620195562): skip long /
@@ -4992,6 +5154,47 @@ func extractConcreteValues(source string) []concreteValueEntry {
 		})
 	}
 
+	// T2a: Pattern — cross-component / cross-package method calls.
+	//
+	// Detects method-call expressions that transfer control to a
+	// named identifiable target: `o.subRuntime.Run(proposal)`,
+	// `b.deps.Tools.Execute(ctx, name, params)`, `Reducer.Reduce(...)`.
+	// Unlike the constructor-passing detector above (which emits
+	// "binds" when a factory value is passed as an argument), this
+	// detector emits "calls" whenever control transfers to an
+	// exported method on a non-stdlib receiver.
+	//
+	// Historical gap: the evidence-chain resolver couldn't trace
+	// cross-package dispatch chains like
+	//   explorer LLM → propose_sub_agents tool
+	//     → orchestrator.extractSubAgentProposal
+	//     → SubAgentRuntime.Run
+	//     → SubExplorer.Run
+	// because none of these hops are return/bind/map patterns. Every
+	// hop is a method call on a field. This detector closes that gap
+	// by surfacing the call target so the synthesis prompt can render
+	// "calls → SubAgentRuntime.Run" rows in the Concrete Values table.
+	//
+	// Filtering rules (noise suppression):
+	//   - Receiver chain must have at least one dot (method call, not
+	//     bare function). Bare function calls match the existing
+	//     constructor-passing detector when they matter.
+	//   - Method name must start uppercase (exported). Unexported
+	//     calls are implementation detail; exported calls cross
+	//     abstraction boundaries.
+	//   - Receiver's head segment must not be a known stdlib /
+	//     utility package (fmt, strings, log, logging, errors, …).
+	//   - Per-snippet cap: at most 6 calls surface so the concrete-
+	//     values table doesn't flood on long function bodies.
+	if calls := extractCallTargets(lines, 6); len(calls) > 0 {
+		for _, c := range calls {
+			results = append(results, concreteValueEntry{
+				kind:  "calls",
+				value: c,
+			})
+		}
+	}
+
 	// Pattern: map/dict literal entries — "key: value," lines.
 	// Extracts key→value mappings from map literals, routing tables,
 	// dispatch tables, etc. Works across Go (map[K]V{...}),
@@ -5048,6 +5251,244 @@ func extractConcreteValues(source string) []concreteValueEntry {
 	}
 
 	return results
+}
+
+// callTargetNoiseReceivers is the set of head-receiver identifiers
+// that should NEVER produce a "calls" entry. These are Go stdlib
+// packages and codrax-internal utility packages whose methods are
+// implementation plumbing, not cross-component dispatch.
+//
+// Missing entries just means the corresponding receiver will produce
+// a "calls" entry — a false positive — so this list prefers over-
+// inclusion. The method-name blocklist below catches leftover noise.
+var callTargetNoiseReceivers = map[string]bool{
+	// Go stdlib — called everywhere, never cross-component signal.
+	"fmt": true, "strings": true, "strconv": true, "errors": true,
+	"sort": true, "bytes": true, "bufio": true, "io": true,
+	"os": true, "filepath": true, "path": true, "time": true,
+	"sync": true, "context": true, "regexp": true, "unicode": true,
+	"math": true, "rand": true, "json": true, "xml": true,
+	"url": true, "http": true, "net": true, "net/http": true,
+	"reflect": true, "runtime": true,
+	// Codrax internal utility packages.
+	"log": true, "logging": true,
+	// Note: single-letter locals like `b` / `s` / `err` / `w` are NOT
+	// in this list because their method call chains carry real
+	// signal when the chain has multiple dots (e.g. `b.deps.Tools.Execute`
+	// is a legitimate cross-package dispatch that the 2026-04-18
+	// debug revealed was being falsely filtered). The
+	// callTargetNoiseMethods list below (String/Error/Write*) catches
+	// the common noise shapes on these receivers.
+}
+
+// callTargetNoiseMethods is the set of method names that should
+// NEVER produce a "calls" entry regardless of receiver. These are
+// value-extraction, formatting, and comparison helpers.
+var callTargetNoiseMethods = map[string]bool{
+	// stringers / value extractors
+	"String": true, "Error": true, "Bytes": true, "Len": true, "Cap": true,
+	// strings / bytes package methods
+	"Contains": true, "HasPrefix": true, "HasSuffix": true, "Index": true,
+	"LastIndex": true, "TrimSpace": true, "TrimPrefix": true, "TrimSuffix": true,
+	"ToLower": true, "ToUpper": true, "EqualFold": true, "Split": true,
+	"Join": true, "Replace": true, "ReplaceAll": true, "Repeat": true,
+	"Count": true, "Fields": true, "Trim": true,
+	// fmt package methods
+	"Sprintf": true, "Printf": true, "Println": true, "Fprintf": true,
+	"Sprint": true, "Fprintln": true, "Errorf": true,
+	// json / encoding package methods
+	"Marshal": true, "Unmarshal": true, "Encode": true, "Decode": true,
+	// time / misc
+	"Now": true, "Sleep": true, "Since": true,
+	// sync
+	"Lock": true, "Unlock": true, "RLock": true, "RUnlock": true, "Wait": true,
+	// log / logging (codrax's `logging` package has lowercase methods,
+	// but external loggers use these capitalized forms)
+	"Debug": true, "Info": true, "Warning": true, "Warn": true,
+	"Log": true, "Printf2": true,
+	// builder-style helpers
+	"WriteString": true, "WriteByte": true, "Write": true,
+	// slices / maps
+	"Append": true,
+}
+
+// extractCallTargets scans `lines` for method-call expressions that
+// transfer control to an identifiable cross-component target, and
+// returns a deduplicated list of targets in the form "Receiver.Method".
+// The result is capped at `maxCalls` entries so long function bodies
+// don't flood the concrete-values table.
+//
+// Recognition (conservative on purpose):
+//   - Line contains `<receiver>.<Method>(` where Method starts with
+//     an uppercase letter.
+//   - Receiver chain has >=1 dot. Bare function calls (`Foo(...)`)
+//     are handled by the constructor-passing detector when they are
+//     interesting; a bare call here would flood the output.
+//   - Head receiver identifier is NOT in callTargetNoiseReceivers.
+//   - Method name is NOT in callTargetNoiseMethods.
+//   - Dedup: the same "Receiver.Method" target is emitted at most
+//     once per snippet.
+//
+// The returned string format is `<tail-receiver>.<Method>` where
+// `<tail-receiver>` is the last identifier of the receiver chain
+// (e.g. `o.subRuntime.Run` → `subRuntime.Run`, `Reducer.Reduce` →
+// `Reducer.Reduce`). This is the shape the synthesis prompt renders
+// in the Concrete Values table's "Fact" column.
+func extractCallTargets(lines []string, maxCalls int) []string {
+	if maxCalls <= 0 {
+		maxCalls = 6
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, maxCalls)
+	for _, line := range lines {
+		if len(out) >= maxCalls {
+			break
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "//") ||
+			strings.HasPrefix(trimmed, "#") {
+			continue
+		}
+		for _, target := range scanCallTargetsInLine(trimmed) {
+			if seen[target] {
+				continue
+			}
+			seen[target] = true
+			out = append(out, target)
+			if len(out) >= maxCalls {
+				break
+			}
+		}
+	}
+	return out
+}
+
+// scanCallTargetsInLine finds all `<chain>.<Method>(` call-open
+// positions on a single line and returns their normalized form.
+// Multiple calls on one line (chained calls like
+// `x.Foo().Bar().Baz()`) are all captured so the detector doesn't
+// miss fluent-API dispatches.
+//
+// Implementation detail: scan for `(` then walk backwards to read
+// the receiver chain + method name, using identifier-character
+// classification. A proper lexer would be more robust but this is
+// a pattern-sniffer over short snippets, not a compiler — the
+// filtering lists above are the real precision gate.
+func scanCallTargetsInLine(line string) []string {
+	var targets []string
+	for i := 0; i < len(line); i++ {
+		if line[i] != '(' {
+			continue
+		}
+		// Walk back over the identifier chain `<head>[.<seg>]*`.
+		end := i
+		start := i
+		for start > 0 {
+			c := line[start-1]
+			if isIdentChar(c) || c == '.' {
+				start--
+				continue
+			}
+			break
+		}
+		chain := line[start:end]
+		if chain == "" || !strings.Contains(chain, ".") {
+			continue
+		}
+		// Split into receiver + method; method is the LAST segment.
+		dotIdx := strings.LastIndex(chain, ".")
+		receiver := chain[:dotIdx]
+		method := chain[dotIdx+1:]
+		if method == "" || !isExportedIdent(method) {
+			continue
+		}
+		if callTargetNoiseMethods[method] {
+			continue
+		}
+		// Head receiver identifier for stdlib exclusion.
+		head := receiver
+		if dot := strings.Index(head, "."); dot >= 0 {
+			head = head[:dot]
+		}
+		if callTargetNoiseReceivers[head] {
+			continue
+		}
+		// Normalize receiver to the LAST identifier in the chain
+		// (closest to the method). `o.subRuntime.Run(...)` → receiver
+		// `subRuntime`; `b.deps.Tools.Execute(...)` → `Tools`. This
+		// keeps the rendered target at "Type.Method" granularity
+		// without losing the call semantics.
+		tailRecv := receiver
+		if ldot := strings.LastIndex(receiver, "."); ldot >= 0 {
+			tailRecv = receiver[ldot+1:]
+		}
+		if tailRecv == "" {
+			continue
+		}
+		targets = append(targets, tailRecv+"."+method)
+	}
+	return targets
+}
+
+// (isIdentChar is defined below at its pre-existing site near the
+// cross-validation helpers; reused by scanCallTargetsInLine to walk
+// backwards over the receiver chain.)
+
+// isExportedIdent reports whether s is a non-empty identifier
+// starting with an uppercase letter — the Go convention for
+// exported names. Used to filter the call-target detector to
+// cross-abstraction-boundary calls only.
+func isExportedIdent(s string) bool {
+	if s == "" {
+		return false
+	}
+	c := s[0]
+	return c >= 'A' && c <= 'Z'
+}
+
+// phase1MedianScore returns the median `Score` across the given
+// Phase1RankedFile slice, or 1.0 when the slice is empty. Used by
+// the T3a merger that folds analyzer-supplied RequiredFiles into
+// the explorer's own keyword-search ranking: analyzer files that
+// don't already appear in the ranking get this median score so
+// they rank mid-pack, prioritized over low-match noise but not
+// displacing high-match grep-IDF winners.
+//
+// Median rather than mean because the grep IDF distribution is
+// heavy-tailed: a handful of high-IDF files (rare keywords that
+// match exactly 1-2 files) pull the mean far above the rank-10
+// value, which would force analyzer-supplied files unfairly high.
+// The median tracks the central mass, producing a more stable
+// injection point.
+func phase1MedianScore(ranked []types.Phase1RankedFile) float64 {
+	if len(ranked) == 0 {
+		return 1.0
+	}
+	scores := make([]float64, len(ranked))
+	for i, r := range ranked {
+		scores[i] = r.Score
+	}
+	// Partial sort via sort.Float64s. Median indexing handles both
+	// even and odd lengths without a branch — the (n-1)/2 position
+	// is always a legitimate middle choice.
+	sortFloats(scores)
+	return scores[(len(scores)-1)/2]
+}
+
+// sortFloats is an inline helper to avoid pulling in the sort
+// package just for a single call. Uses insertion sort because
+// the ranked list's len(sr.Files) is capped at 30 (T1b) and the
+// asymptotic constants favor simple O(n²) for small n.
+func sortFloats(xs []float64) {
+	for i := 1; i < len(xs); i++ {
+		x := xs[i]
+		j := i
+		for j > 0 && xs[j-1] > x {
+			xs[j] = xs[j-1]
+			j--
+		}
+		xs[j] = x
+	}
 }
 
 // extractFileCoverage analyzes tool history to determine which files
@@ -5569,6 +6010,100 @@ type partialReadHint struct {
 
 // detectPartiallyReadSymbols checks whether any function/method in the
 // read files was only partially covered by the LLM's read_file calls.
+// crossFileSymbolGap is one hit returned by detectCrossFileSymbolGaps:
+// an exported symbol `Symbol` referenced in the LLM's investigation
+// notes, defined in `File`, which the LLM has not yet read.
+type crossFileSymbolGap struct {
+	File   string
+	Symbol string
+}
+
+// detectCrossFileSymbolGaps scans investigation notes for exported
+// symbol references and returns up to `max` files that define
+// referenced symbols but haven't been read yet (T3b).
+//
+// Scoring:
+//   - A symbol name must be ≥ 6 characters to count. Shorter names
+//     (`Run`, `Get`, `Set`, `New`, `Dir`) are too generic and cause
+//     false positives; the existing post-hoc synthesis scanner at
+//     explorer.go:2986 uses the same threshold.
+//   - Only unread files (path not in readSet) produce a gap entry.
+//     Symbols defined in already-read files are no-ops — reading
+//     them again buys nothing.
+//   - When a symbol has multiple definitions (interface + impls,
+//     overloads), pick the first one whose defining file is NOT
+//     in readSet. This biases toward "find me an unread impl" when
+//     the LLM has seen the interface declaration but not the
+//     implementation, which is exactly the cross-package dispatch
+//     chain situation.
+//   - The returned slice is capped at `max` (caller passes 3 to
+//     keep the mid-loop hint compact).
+//   - Results are sorted by symbol-name length descending — longer
+//     identifiers tend to be higher-specificity (e.g.
+//     `SubAgentRuntime` outranks `Runtime`) so the most
+//     discriminating suggestions come first.
+//
+// Returns nil when graph is nil or no gaps are found.
+func detectCrossFileSymbolGaps(notes []string, graph *repomap.Graph, readSet map[string]bool, max int) []crossFileSymbolGap {
+	if graph == nil || len(notes) == 0 || max <= 0 {
+		return nil
+	}
+	joined := strings.Join(notes, "\n")
+	if joined == "" {
+		return nil
+	}
+	// Dedup by (file, symbol) — the same symbol may have multiple
+	// defining sites; we only emit the first unread one.
+	seen := make(map[string]bool)
+	var gaps []crossFileSymbolGap
+	for symName, defs := range graph.SymbolDefs {
+		if len(symName) < 6 {
+			continue
+		}
+		if !strings.Contains(joined, symName) {
+			continue
+		}
+		for _, def := range defs {
+			if def == nil {
+				continue
+			}
+			if readSet[def.File] {
+				// Canonical match — the file IS read.
+				continue
+			}
+			// Also check common canonicalisation variants (readSet
+			// keys sometimes carry a leading "./"). This mirrors the
+			// logic at explorer.go:3415 where readSet lookups
+			// normalize "./path" → "path".
+			if readSet["./"+def.File] || readSet[strings.TrimPrefix(def.File, "./")] {
+				continue
+			}
+			key := def.File + "\x00" + symName
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			gaps = append(gaps, crossFileSymbolGap{File: def.File, Symbol: symName})
+			break // one entry per symbol — no need to enumerate further defs
+		}
+	}
+	// Sort by symbol-name length descending (longer = more specific).
+	// Insertion sort is cheap for the small slice sizes we expect.
+	for i := 1; i < len(gaps); i++ {
+		cur := gaps[i]
+		j := i
+		for j > 0 && len(gaps[j-1].Symbol) < len(cur.Symbol) {
+			gaps[j] = gaps[j-1]
+			j--
+		}
+		gaps[j] = cur
+	}
+	if len(gaps) > max {
+		gaps = gaps[:max]
+	}
+	return gaps
+}
+
 // It cross-references the read ranges (from banner parsing) against the
 // symbol boundaries from the repo_map graph. Returns hints for functions
 // where the LLM missed >20 lines and covered <80% of the body.
