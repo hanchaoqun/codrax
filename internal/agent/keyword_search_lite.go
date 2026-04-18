@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"strings"
-
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -109,17 +107,4 @@ func round2(f float64) float64 {
 	// the 0.0-1.0 range the probe produces and avoids the
 	// allocation of a %.2f format string.
 	return float64(int(f*100+0.5)) / 100
-}
-
-// seenBlobContainsTerm reports whether `term` appears as a
-// case-insensitive substring in `seenBlob`. Exported for tests that
-// want to assert the whitelist behavior directly without going
-// through the full validator. `seenBlob` is expected to already be
-// lowercased (the MutableState writer guarantees this) but the
-// function defensively lowercases `term` so callers don't need to.
-func seenBlobContainsTerm(seenBlob, term string) bool {
-	if seenBlob == "" || term == "" {
-		return false
-	}
-	return strings.Contains(seenBlob, strings.ToLower(strings.TrimSpace(term)))
 }

@@ -371,77 +371,7 @@ func buildCrossReferenceMapFromEvidence(items []types.EvidenceItem, findings []t
 	return b.String()
 }
 
-func formatEvidenceSection(items []types.EvidenceItem, kind types.EvidenceKind, title string, limit int) string {
-	var selected []types.EvidenceItem
-	for _, item := range items {
-		if item.Kind == kind {
-			selected = append(selected, item)
-		}
-	}
-	if len(selected) == 0 {
-		return ""
-	}
-	if limit > 0 && len(selected) > limit {
-		selected = selected[:limit]
-	}
-	var b strings.Builder
-	b.WriteString("## " + title + "\n\n")
-	for _, item := range selected {
-		line := item.Summary
-		if line == "" {
-			line = fmt.Sprintf("%s %s %s", item.Subject, item.Predicate, item.Object)
-		}
-		b.WriteString("- " + line + "\n")
-	}
-	b.WriteString("\n")
-	return b.String()
-}
 
-func formatFlowFindingsSection(findings []types.FlowFindingDigest, title string, limit int, includeUnsupported bool) string {
-	if len(findings) == 0 {
-		return ""
-	}
-	var selected []types.FlowFindingDigest
-	for _, finding := range findings {
-		if finding.UnsupportedReason != "" && !includeUnsupported {
-			continue
-		}
-		if finding.UnsupportedReason == "" && includeUnsupported {
-			continue
-		}
-		selected = append(selected, finding)
-	}
-	if len(selected) == 0 {
-		return ""
-	}
-	if limit > 0 && len(selected) > limit {
-		selected = selected[:limit]
-	}
-	var b strings.Builder
-	b.WriteString("## " + title + "\n\n")
-	for _, finding := range selected {
-		line := strings.Join(finding.Path, " -> ")
-		if line == "" {
-			line = finding.ID
-		}
-		if len(finding.Conditions) > 0 {
-			line += " IF " + strings.Join(finding.Conditions, " AND ")
-		}
-		if finding.UnsupportedReason != "" {
-			line += " [uncertain: " + finding.UnsupportedReason + "]"
-		}
-		b.WriteString("- " + line + "\n")
-	}
-	b.WriteString("\n")
-	return b.String()
-}
-
-func max(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 // rankEvidenceByRelevance scores and sorts evidence items by their
 // relevance to the user's question. The ranking is question-aware,
@@ -517,7 +447,7 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 	if len(items) == 0 {
 		return items
 	}
-	entities := extractRankingEntities(question)
+	entities := extractRankingEntitiesWithGraph(question, nil)
 	if len(entities) == 0 && expected.Kind == types.SubjectUnknown && predicateAxis == types.AxisUnknown {
 		return items // no entities, no subject, AND no axis → nothing to rank by
 	}
@@ -809,7 +739,7 @@ func rankFindingsByRelevance(question string, findings []types.FlowFindingDigest
 	if len(findings) == 0 {
 		return findings
 	}
-	entities := extractRankingEntities(question)
+	entities := extractRankingEntitiesWithGraph(question, nil)
 	if len(entities) == 0 {
 		return findings
 	}
@@ -864,14 +794,7 @@ func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64
 	return entityScore * brevity * confidence
 }
 
-// extractRankingEntities extracts question entities for relevance
-// scoring. Wrapper around extractRankingEntitiesWithGraph with no
-// symbol table; callers that have access to the repo's repomap.Graph
-// should prefer extractRankingEntitiesWithGraph so lowercase tokens
-// that verbatim match real symbol names survive the tighter filter.
-func extractRankingEntities(question string) []string {
-	return extractRankingEntitiesWithGraph(question, nil)
-}
+
 
 // extractRankingEntitiesWithGraph is the graph-aware variant. When
 // graph is non-nil, pure-lowercase tokens shorter than 8 chars are

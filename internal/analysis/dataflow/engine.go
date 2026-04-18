@@ -479,7 +479,7 @@ func mergeEvidenceItems(items []types.EvidenceItem) []types.EvidenceItem {
 			if existing.Summary == "" && item.Summary != "" {
 				existing.Summary = item.Summary
 			}
-			existing.Confidence = maxFloat(existing.Confidence, item.Confidence)
+			existing.Confidence = max(existing.Confidence, item.Confidence)
 			existing.DerivedFrom = normalizeStrings(append(existing.DerivedFrom, item.DerivedFrom...))
 			if existing.EvidenceRef == "" {
 				existing.EvidenceRef = item.EvidenceRef
@@ -528,12 +528,7 @@ func mergeStrings(parts ...[]string) []string {
 	return normalizeStrings(all)
 }
 
-func maxFloat(a, b float64) float64 {
-	if a > b {
-		return a
-	}
-	return b
-}
+
 
 func collectConfigEvidence(items []types.EvidenceItem) map[string][]types.EvidenceItem {
 	index := make(map[string][]types.EvidenceItem)

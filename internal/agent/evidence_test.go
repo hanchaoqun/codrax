@@ -130,7 +130,7 @@ func TestExtractRankingEntities(t *testing.T) {
 		},
 	}
 	for _, tt := range tests {
-		entities := extractRankingEntities(tt.question)
+		entities := extractRankingEntitiesWithGraph(tt.question, nil)
 		for _, want := range tt.wantAny {
 			found := false
 			for _, got := range entities {
@@ -140,7 +140,7 @@ func TestExtractRankingEntities(t *testing.T) {
 				}
 			}
 			if !found {
-				t.Errorf("extractRankingEntities(%q) missing %q, got %v", tt.question, want, entities)
+				t.Errorf("extractRankingEntitiesWithGraph(%q) missing %q, got %v", tt.question, want, entities)
 			}
 		}
 	}
@@ -153,7 +153,7 @@ func TestExtractRankingEntities_DropsGenericLowercaseProse(t *testing.T) {
 	// generic English verbs/nouns. After the 2026-04-13 tightening
 	// only `subagent` (8 chars, pure lowercase but long enough to
 	// stand on length alone) should survive the no-graph path.
-	got := extractRankingEntities("how many agents can invoke subagent")
+	got := extractRankingEntitiesWithGraph("how many agents can invoke subagent", nil)
 	sort.Strings(got)
 	want := []string{"subagent"}
 	if len(got) != len(want) || got[0] != want[0] {
