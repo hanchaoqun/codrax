@@ -50,7 +50,7 @@ var (
 // verbatim.
 const (
 	defaultLogDir          = "logs"
-	defaultLogLevel        = "info"
+	defaultLogLevel        = "debug"
 	defaultLogStdout       = false
 	defaultMemoryDir       = "memory"
 	defaultLang            = "zh"

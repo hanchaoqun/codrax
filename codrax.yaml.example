@@ -46,7 +46,9 @@
 # log_dir: logs
 
 # Minimum level written to the log file. One of: error, warning, info, debug.
-# log_level: info
+# Default: debug — the [CGEC] enforcer trace and [diag analyzer/explorer]
+# iteration dumps are emitted at debug level; lower levels hide them.
+# log_level: debug
 
 # Mirror every log record to stdout in addition to the file.
 # Useful for foreground debugging; keep off for clean REPL UX.
