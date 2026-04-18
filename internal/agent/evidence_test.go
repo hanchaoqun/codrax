@@ -591,3 +591,102 @@ func TestParseEvidenceHeaderSource_StripsMarkdownBackticks(t *testing.T) {
 
 // TestLooksLikeCodeIdentifier_StructuralRules moved with the rest of
 // the grounding helpers to internal/tool/ground (2026-04-17 redesign).
+
+// TestRankEvidenceWithAxis_CallBreaksTieOverRegistration is the
+// regression test for the 2026-04-18 "explorer是如何调用subagent的"
+// bug class: when the question carries AxisCall and two evidence
+// items have comparable base scores (equal entity overlap, equal
+// kind weight, equal bridge bonus), the axis × anchor_kind affinity
+// must break the tie in favour of the call-anchored item.
+//
+// Balanced construction: both items carry the same entities
+// ("explorer", "subagent"), the same kind (direct), the same source
+// weight (neither read-through-explorer), and both trigger the
+// bridge bonus. The ONLY differentiator is AnchorKind, so any
+// ordering flip observed is solely the axis boost at work.
+func TestRankEvidenceWithAxis_CallBreaksTieOverRegistration(t *testing.T) {
+	question := "explorer是如何调用subagent的？"
+	items := []types.EvidenceItem{
+		{
+			// Assignment anchor: "registered SubExplorer against the
+			// SubAgentRegistry". Both entities present in subject+object
+			// → bridgeBonus fires.
+			Kind: types.EvidenceDirect, Subject: "SubAgentRegistry",
+			Predicate: "binds", Object: "NewSubExplorer",
+			Summary:      "SubAgentRegistry holds the sub-agent map; SubExplorer is the explorer-targeted entry",
+			Source:       "internal/agent/subagent.go",
+			AnchorKind:   types.AnchorAssignment,
+			AnchorSymbol: "SubAgentRegistry",
+			LineStart:    55,
+		},
+		{
+			// Call anchor: "SubAgentRuntime invokes SubExplorer.Run".
+			// Balanced entity overlap — both entities in subject+object.
+			Kind: types.EvidenceDirect, Subject: "SubAgentRuntime",
+			Predicate: "invokes", Object: "SubExplorer.Run",
+			Summary:      "SubAgentRuntime executes sub-agents including the explorer branch by calling Run",
+			Source:       "internal/agent/subagent_runtime.go",
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: "Run",
+			LineStart:    136,
+		},
+	}
+
+	// With AxisCall: the call-anchored item MUST float above the
+	// assignment-anchored one. With AxisUnknown the two items have
+	// equal (or near-equal) scores; axis is the decisive signal.
+	withAxis := rankEvidenceByRelevanceWithSubject(
+		question, items, nil, types.AnswerSubject{}, nil, types.AxisCall)
+	if len(withAxis) != 2 {
+		t.Fatalf("axis: got %d items, want 2", len(withAxis))
+	}
+	if withAxis[0].Subject != "SubAgentRuntime" {
+		t.Errorf("AxisCall should float call-anchored SubAgentRuntime to #1; got %q (all=%v)",
+			withAxis[0].Subject, subjectSlice(withAxis))
+	}
+	if withAxis[1].Subject != "SubAgentRegistry" {
+		t.Errorf("AxisCall should demote assignment-anchored SubAgentRegistry to #2; got %q at #2",
+			withAxis[1].Subject)
+	}
+
+	// Sanity: AxisRegister (the converse question) should FLIP the
+	// result — assignment-anchored item now wins.
+	withRegister := rankEvidenceByRelevanceWithSubject(
+		question, items, nil, types.AnswerSubject{}, nil, types.AxisRegister)
+	if withRegister[0].Subject != "SubAgentRegistry" {
+		t.Errorf("AxisRegister should float assignment-anchored SubAgentRegistry to #1; got %q (all=%v)",
+			withRegister[0].Subject, subjectSlice(withRegister))
+	}
+}
+
+func subjectSlice(items []types.EvidenceItem) []string {
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = it.Subject
+	}
+	return out
+}
+
+// TestRankEvidenceWithAxis_UnknownAxisIsNoOp confirms the zero-axis
+// path leaves ranking identical to the plain ranker.
+func TestRankEvidenceWithAxis_UnknownAxisIsNoOp(t *testing.T) {
+	question := "how does X work"
+	items := []types.EvidenceItem{
+		{Kind: types.EvidenceDirect, Subject: "A", Object: "x",
+			Source: "a.go", AnchorKind: types.AnchorCall, LineStart: 1},
+		{Kind: types.EvidenceDirect, Subject: "B", Object: "x",
+			Source: "b.go", AnchorKind: types.AnchorDefinition, LineStart: 1},
+	}
+	base := rankEvidenceByRelevance(question, items, nil)
+	withUnknown := rankEvidenceByRelevanceWithSubject(
+		question, items, nil, types.AnswerSubject{}, nil, types.AxisUnknown)
+	if len(base) != len(withUnknown) {
+		t.Fatalf("length mismatch: base=%d axis=%d", len(base), len(withUnknown))
+	}
+	for i := range base {
+		if base[i].Subject != withUnknown[i].Subject {
+			t.Errorf("AxisUnknown should not change order; pos %d: base=%q axis=%q",
+				i, base[i].Subject, withUnknown[i].Subject)
+		}
+	}
+}

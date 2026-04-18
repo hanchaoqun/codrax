@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/axis"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -448,7 +449,7 @@ func max(a, b float64) float64 {
 // bridge detection. A diversity constraint limits items from the
 // same (source, subject) to avoid redundancy.
 func rankEvidenceByRelevance(question string, items []types.EvidenceItem, readFiles map[string]bool) []types.EvidenceItem {
-	return rankEvidenceByRelevanceWithSubject(question, items, readFiles, types.AnswerSubject{}, nil)
+	return rankEvidenceByRelevanceWithSubject(question, items, readFiles, types.AnswerSubject{}, nil, types.AxisUnknown)
 }
 
 // evidenceSubjectBoost scores how well an evidence item's answer
@@ -493,22 +494,32 @@ func tailQuotedToken(s string) string {
 // literal-carrying evidence out-ranks generic concrete-value chains
 // that happen to have similar entity overlap.
 //
-// The zero-value AnswerSubject (Kind == SubjectUnknown) disables the
-// boost entirely, preserving historical ordering for tests and the
-// SubjectUnknown path.
+// The predicateAxis parameter adds a second independent boost from
+// the axis × anchor_kind affinity matrix (internal/analysis/axis).
+// When the user's question verb ("how does X CALL Y" → AxisCall)
+// matches an evidence item's AnchorKind, the item is boosted; when
+// they misalign (AxisCall × AnchorDefinition), the item is demoted.
+// Orthogonal to subject: both boosts compose multiplicatively and
+// either can be the decisive ordering signal. AxisUnknown disables
+// the axis boost; SubjectUnknown disables the subject boost.
+//
+// The zero-value combination (SubjectUnknown AND AxisUnknown) with
+// zero entities extracted returns the input unchanged.
 //
 // Fixes the post-Session-10 bug where the explorer emitted
 // `Config assigns "explore-skill"` at defaults.go:14 but the evidence
 // ranker demoted it below unrelated `NewExplorerAgent → ...` chains,
 // leaving the finalizer's curated Primary Evidence (top-12) without
-// the literal the answer needed.
-func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceItem, readFiles map[string]bool, expected types.AnswerSubject, graph *repomap.Graph) []types.EvidenceItem {
+// the literal the answer needed. Also addresses the 2026-04-18
+// "how does X call Y" class of bugs where call-anchored evidence was
+// buried under registration-anchored evidence in the top-N slate.
+func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceItem, readFiles map[string]bool, expected types.AnswerSubject, graph *repomap.Graph, predicateAxis types.PredicateAxis) []types.EvidenceItem {
 	if len(items) == 0 {
 		return items
 	}
 	entities := extractRankingEntities(question)
-	if len(entities) == 0 && expected.Kind == types.SubjectUnknown {
-		return items // no entities AND no subject to rank by
+	if len(entities) == 0 && expected.Kind == types.SubjectUnknown && predicateAxis == types.AxisUnknown {
+		return items // no entities, no subject, AND no axis → nothing to rank by
 	}
 
 	type scored struct {
@@ -529,6 +540,27 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 			if boost > 0 {
 				const alpha = 2.0
 				s *= (1.0 + alpha*boost)
+			}
+		}
+		// Axis boost: lookup into the static PredicateAxis × AnchorKind
+		// affinity matrix. The raw matrix weight w is in [0.7, 1.6]
+		// (see internal/analysis/axis/matrix.go for the curation
+		// discipline). On the boost side (w > 1.0) we amplify with
+		// the same beta=2.0 factor the subject boost uses, so a 1.5
+		// affinity becomes a 2.0x score multiplier — strong enough to
+		// flip ordering when entity overlap favours the wrong-axis
+		// item by 0.5. On the demote side (w < 1.0) we apply the raw
+		// weight directly — a 0.7 demote becomes a 0.7x multiplier,
+		// not 0.4x, to avoid starving the top-N when every item is a
+		// non-matching anchor kind.
+		if predicateAxis != types.AxisUnknown && item.AnchorKind != "" {
+			if w := axis.Affinity(predicateAxis, item.AnchorKind); w != 1.0 {
+				if w > 1.0 {
+					const beta = 2.0
+					s *= 1.0 + beta*(w-1.0)
+				} else {
+					s *= w
+				}
 			}
 		}
 		scored_items = append(scored_items, scored{item: item, score: s})

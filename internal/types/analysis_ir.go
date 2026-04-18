@@ -80,6 +80,19 @@ type RequestModel struct {
 	// the field zero. Zero-value (Kind=SubjectUnknown) is safe and
 	// degrades gracefully to the pre-CGEC behaviour.
 	AnswerSubject AnswerSubject `json:"answer_subject"`
+
+	// PredicateAxis captures the action verb of the user's question
+	// ("how does X CALL Y" → AxisCall; "how is X REGISTERED" →
+	// AxisRegister). Orthogonal to AnswerSubject: subject asks
+	// "what kind of token is the answer?"; axis asks "what
+	// action-direction is the question about?". Used by the
+	// evidence ranker to bias items whose AnchorKind matches the
+	// axis (AxisCall × AnchorCall → 1.5x; AxisCall × AnchorDefinition
+	// → 0.7x). Populated by analyzer_predicate.go::reconcilePredicateAxis
+	// from a verb-cue table; zero-value (AxisUnknown) disables the
+	// axis boost entirely and preserves historical ranking for
+	// questions without a clear verb cue.
+	PredicateAxis PredicateAxis `json:"predicate_axis,omitempty"`
 }
 
 // AnswerSubjectKind enumerates the distinct kinds of source-code
@@ -159,6 +172,66 @@ type AnswerSubject struct {
 	Kind       AnswerSubjectKind `json:"kind"`
 	EntityAxes []string          `json:"entity_axes,omitempty"`
 	Confidence float64           `json:"confidence,omitempty"`
+}
+
+// PredicateAxis enumerates the action-direction axis of the user's
+// question. Extracted deterministically from verb cues in the raw
+// request ("调用" / "call" / "invoke" → AxisCall; "注册" /
+// "register" → AxisRegister; ...). Paired at the evidence ranker
+// with each item's AnchorKind via a static PredicateAxis × AnchorKind
+// affinity matrix (see internal/analysis/axis). Zero value
+// (AxisUnknown) disables the axis-aware boost and preserves
+// historical ranking for questions without a verb cue.
+//
+// Orthogonal to AnswerSubjectKind: subject asks "what kind of
+// token is the answer?"; axis asks "what direction is the
+// question about?". Both can coexist: a "what does X.Y() return?"
+// question is AnswerSubject=SubjectReturnValue + PredicateAxis=AxisReturn.
+//
+// Add new axes only when a failing run surfaces a missing one —
+// do not pre-populate speculative kinds. Each new constant must be
+// paired with at least one AnchorKind affinity entry in
+// internal/analysis/axis/matrix.go or the axis is a no-op.
+type PredicateAxis string
+
+const (
+	AxisUnknown   PredicateAxis = ""
+	AxisCall      PredicateAxis = "call"
+	AxisRegister  PredicateAxis = "register"
+	AxisDefine    PredicateAxis = "define"
+	AxisReturn    PredicateAxis = "return"
+	AxisConfigure PredicateAxis = "configure"
+	AxisCondition PredicateAxis = "condition"
+	AxisImplement PredicateAxis = "implement"
+)
+
+var allPredicateAxes = []PredicateAxis{
+	AxisCall, AxisRegister, AxisDefine, AxisReturn,
+	AxisConfigure, AxisCondition, AxisImplement,
+}
+
+// AllPredicateAxes returns every declared axis in declaration
+// order, excluding the zero-value AxisUnknown. Used by tests and
+// the axis package's matrix completeness check.
+func AllPredicateAxes() []PredicateAxis {
+	out := make([]PredicateAxis, len(allPredicateAxes))
+	copy(out, allPredicateAxes)
+	return out
+}
+
+// IsValid reports whether a is one of the declared axes including
+// AxisUnknown (which is the explicit "no axis extracted" sentinel
+// and is valid).
+func (a PredicateAxis) IsValid() bool {
+	if a == AxisUnknown {
+		return true
+	}
+	for _, declared := range allPredicateAxes {
+		if a == declared {
+			return true
+		}
+	}
+	return false
 }
 
 // AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto

@@ -62,6 +62,16 @@ type explorerEvaluator struct {
 	// ordering for tests / sub-agents that bypass the analyzer.
 	answerSubject types.AnswerSubject
 
+	// predicateAxis is the question's action-verb axis copied from
+	// the analyzer's IR at BuildInitialInstruction time. The
+	// evidence ranker uses it (via internal/analysis/axis.Affinity)
+	// to bias items whose AnchorKind matches the axis — AxisCall
+	// boosts AnchorCall and demotes AnchorDefinition, etc. Zero
+	// value (AxisUnknown) disables the axis boost and preserves
+	// historical ranking for tests / sub-agents that bypass the
+	// analyzer.
+	predicateAxis types.PredicateAxis
+
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
 	// BuildInitialInstruction time. T1c: drives ERM threshold
@@ -161,6 +171,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	if ctx.Mutable != nil {
 		if rm := ctx.Mutable.RequestModel(); rm != nil {
 			e.answerSubject = rm.AnswerSubject
+			e.predicateAxis = rm.PredicateAxis
 		}
 	}
 	// Strip the REPL-assembled Prior Conversation prefix before
@@ -2135,7 +2146,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if e.searchResult != nil {
 		rankGraph = e.searchResult.Graph
 	}
-	rankedEvidence := rankEvidenceByRelevanceWithSubject(e.userQuestion, e.structuredEvidence, readSet, e.answerSubject, rankGraph)
+	rankedEvidence := rankEvidenceByRelevanceWithSubject(e.userQuestion, e.structuredEvidence, readSet, e.answerSubject, rankGraph, e.predicateAxis)
 	rankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
 
 	// df3 drift fix: for mechanism questions anchored on a primary

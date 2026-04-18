@@ -617,6 +617,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logSubjectInferred(subject, reason)
 			rm.AnswerSubject = subject
 		}
+		// PredicateAxis extraction. Orthogonal to AnswerSubject: this
+		// captures the question's action verb ("how does X CALL Y" →
+		// AxisCall; "how is X REGISTERED" → AxisRegister). The evidence
+		// ranker consumes this via internal/analysis/axis.Affinity to
+		// bias items whose AnchorKind matches the axis. Zero-value
+		// (AxisUnknown) is a clean no-op; reconcilePredicateAxis only
+		// FILLS empty and never overrides.
+		// See internal/agent/analyzer_predicate.go for the rule body.
+		if axis, axisReason := reconcilePredicateAxis(rm.PredicateAxis, rawForComplexity); axis != rm.PredicateAxis {
+			logPredicateAxisReconcile(rm.PredicateAxis, axis, axisReason)
+			rm.PredicateAxis = axis
+		}
 		// Merge sub-topic entities into main entity list.
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
 		for _, e := range rm.AnalyzerHints.Entities {
