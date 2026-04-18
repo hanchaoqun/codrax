@@ -3432,8 +3432,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				// they're different strings. Resolve through the graph:
 				// extract the method name from the call target, look it
 				// up in SymbolDefs, check if any defining type matches
-				// av.receiver.
-				if v.kind == "calls" && av.receiver != "" && len(av.receiver) >= 4 &&
+				// av.receiver. callValueMatchesReceiver uses exact
+				// equality, so unlike the standard containsIdentifier
+				// path above no length floor on av.receiver is needed —
+				// a 3-char type like Cmd or Job links cleanly without
+				// false-positive risk, and matches site 2 (chain
+				// builder) which also has no length gate on either path.
+				if v.kind == "calls" && av.receiver != "" &&
 					callValueMatchesReceiver(v.value, av.receiver, graph) {
 					relevant = append(relevant, av)
 					seen[av.method] = true
