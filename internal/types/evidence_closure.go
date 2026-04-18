@@ -260,6 +260,42 @@ func (c *EvidenceClosure) SetScannedSet(files map[string]bool) {
 	}
 }
 
+// IsScanned reports whether the explorer's keyword_search / repo_map
+// pre-scan actually saw this file. Callers use this to distinguish
+// "file relevant to the question (producer / chain anchor can
+// legitimately reference it)" from "ghost path the LLM fabricated".
+// Empty ScannedSet means the pre-scan never ran (old tests, analyzer-
+// only dispatch) — in that case every query returns true so the
+// historical behavior is preserved.
+func (c *EvidenceClosure) IsScanned(file string) bool {
+	if c == nil || file == "" {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.scannedSet) == 0 {
+		return true
+	}
+	return c.scannedSet[file]
+}
+
+// ScannedSet returns a defensive copy of the scanned-file set.
+func (c *EvidenceClosure) ScannedSet() map[string]bool {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.scannedSet) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(c.scannedSet))
+	for f := range c.scannedSet {
+		out[f] = true
+	}
+	return out
+}
+
 // AddPendingRead enqueues a forced-read directive. De-duplicates by
 // File + Origin so two enforcers raising the same file do not
 // double-render in the retry hint.

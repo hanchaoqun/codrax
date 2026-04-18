@@ -116,11 +116,23 @@ func (o *Orchestrator) runForcedReads() int {
 	// mirrored into PendingReads at AddRepair time, so this single
 	// loop covers BOTH chain-promotion pending reads AND grounder
 	// reject pending reads. No need for a second PEEK over Repairs.
+	//
+	// CGEC D4 (advisory): log a warning when a PendingRead file is
+	// NOT in ScannedSet — it may be a ghost path but could also be
+	// a legitimate new file the LLM discovered via mid-run grep.
+	// Do not SKIP the read because we don't want to false-negative
+	// legitimate late-discovered files; if it really is a ghost,
+	// the read_file tool call will fail gracefully and the warning
+	// at line 150 will fire. The advisory warning here gives the
+	// operator a grep-able heads-up before the attempt.
 	var toRead []types.PendingRead
 	for _, p := range closure.PendingReads() {
 		if readSet[p.File] {
 			closure.ClearPendingReadFor(p.File)
 			continue
+		}
+		if !closure.IsScanned(p.File) {
+			logging.Warning("[CGEC] D4 runForcedReads: attempting read of file=%s origin=%s NOT in ScannedSet — may be ghost path", p.File, p.Origin)
 		}
 		toRead = append(toRead, p)
 		if len(toRead) >= cgecForcedReadsPerRound {

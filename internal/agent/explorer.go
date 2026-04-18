@@ -443,6 +443,26 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 					e.fileSymbols[c.path] = c.symbols
 				}
 			}
+			// CGEC D1: publish the full scored-file list to the closure
+			// as ScannedSet. Downstream consumers (applyChainPromotion
+			// D2, preCompleteContractCheck D3, runForcedReads D4) use
+			// this to tell "the explorer knows this file exists and is
+			// relevant" apart from "this file is a path the LLM / a
+			// chain anchor just made up". Without ScannedSet, a ghost
+			// path that sneaks into a chain anchor would otherwise be
+			// force-read by the framework (wasting a read and
+            // polluting ReadSet). Also include symbol-definition files
+			// from repo_map so any file the graph could have surfaced
+			// counts as scanned — keeps the scope aligned with the
+			// ScannedSet design in architecture.md §8.
+			if ctx != nil && ctx.Mutable != nil && len(e.allScoredFiles) > 0 {
+				scanned := make(map[string]bool, len(e.allScoredFiles))
+				for _, f := range e.allScoredFiles {
+					scanned[f] = true
+				}
+				ctx.Mutable.EvidenceClosure().SetScannedSet(scanned)
+				logging.Info("[CGEC] D1 scanned_set: origin=keyword_search files=%d", len(scanned))
+			}
 			// Primary-target banner: when the ERM entities resolve to a
 			// SINGLE primary file via receiver-aware disambiguation AND
 			// sibling-receiver definitions of the same method name exist
@@ -2668,8 +2688,24 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		// Append PendingRead for every anchor file the closure has
 		// not seen. Origin tags the source so the operator can grep
 		// the trace for which enforcer raised the read.
+		//
+		// CGEC D2: filter by ScannedSet membership. A chain anchor
+		// pointing at a file the explorer's pre-scan never saw is
+		// almost certainly a ghost path (the concrete-values tracer
+		// built it from an identifier token that happens to match a
+		// path string elsewhere, or the LLM emitted a bad bridge).
+		// Force-reading a ghost path wastes a read slot and
+		// pollutes ReadSet with irrelevant content. If IsScanned
+		// returns true (including the empty-ScannedSet pass-through
+		// for old tests / analyzer-only dispatches), the PendingRead
+		// is enqueued as before; if false, we skip and log so the
+		// operator can see the filter fired.
 		for _, f := range anchor.Files {
 			if readSet[f] {
+				continue
+			}
+			if !closure.IsScanned(f) {
+				logging.Debug("[CGEC] D2 chain_promotion: skipping ghost anchor file=%s origin=%s (not in ScannedSet)", f, anchor.Origin)
 				continue
 			}
 			closure.AddPendingRead(types.PendingRead{

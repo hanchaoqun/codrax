@@ -163,6 +163,62 @@ func TestAddRepair_SwapShape_BumpsStats(t *testing.T) {
 	}
 }
 
+// TestIsScanned_EmptySet_ReturnsTrue covers the D1/D4 back-compat
+// pass-through: when ScannedSet has never been populated (old tests,
+// analyzer-only dispatches, sub-agents that bypass keywordSearch),
+// IsScanned MUST return true for every file so downstream
+// enforcers do not spuriously flag files as ghost paths.
+func TestIsScanned_EmptySet_ReturnsTrue(t *testing.T) {
+	c := NewEvidenceClosure()
+	if !c.IsScanned("internal/agent/explorer.go") {
+		t.Error("empty ScannedSet must return true (back-compat)")
+	}
+	if !c.IsScanned("anything/at/all.go") {
+		t.Error("empty ScannedSet must return true for every path")
+	}
+}
+
+// TestIsScanned_WithSet_ReportsMembership covers D1 + D2 + D4
+// membership test: once SetScannedSet populates the set, IsScanned
+// returns true only for members, false for non-members.
+func TestIsScanned_WithSet_ReportsMembership(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.SetScannedSet(map[string]bool{
+		"internal/agent/explorer.go":       true,
+		"internal/skill/defaults.go":       true,
+		"internal/agent/subagent.go":       false, // value-false keys must NOT enter
+	})
+	if !c.IsScanned("internal/agent/explorer.go") {
+		t.Error("file present in set must return true")
+	}
+	if !c.IsScanned("internal/skill/defaults.go") {
+		t.Error("file present in set must return true")
+	}
+	if c.IsScanned("internal/agent/subagent.go") {
+		t.Error("file with value-false entry must NOT count as scanned")
+	}
+	if c.IsScanned("ghost/path.go") {
+		t.Error("file absent from non-empty set must return false")
+	}
+}
+
+// TestScannedSet_DefensiveCopy verifies that ScannedSet returns a
+// defensive copy so callers cannot mutate the internal state by
+// writing to the returned map.
+func TestScannedSet_DefensiveCopy(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.SetScannedSet(map[string]bool{"a.go": true})
+	snap := c.ScannedSet()
+	if snap == nil || !snap["a.go"] {
+		t.Fatal("expected a.go in snapshot")
+	}
+	// Mutate the snapshot — must not leak.
+	snap["b.go"] = true
+	if c.IsScanned("b.go") {
+		t.Error("snapshot mutation leaked into closure state")
+	}
+}
+
 // TestAddRepair_RebindSubject_StillCountsRepairsRaised asserts that
 // the generic RepairsRaised counter bumps for every kind, including
 // RepairRebindSubject and RepairForceCompleteDowngrade — those two

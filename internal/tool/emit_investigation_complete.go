@@ -338,19 +338,50 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	}
 
 	// Check (a): forced reads still outstanding.
+	// CGEC D3: partition PendingRead entries by ScannedSet
+	// membership. Files the explorer's pre-scan saw (or grep'd /
+	// read during this run — IsScanned is lenient when ScannedSet
+	// is empty) render as "Forced Read List" directing the LLM to
+	// read them. Files NOT in ScannedSet render as "Suspicious
+	// Anchors" — likely ghost paths the LLM should either verify
+	// with grep OR ignore entirely. The two-section layout makes
+	// the LLM's action different per bucket: READ the scanned
+	// ones, INVESTIGATE (or reject) the unscanned ones.
 	if len(pending) > 0 {
+		var scanned, suspicious []types.PendingRead
+		for _, p := range pending {
+			if closure.IsScanned(p.File) {
+				scanned = append(scanned, p)
+			} else {
+				suspicious = append(suspicious, p)
+			}
+		}
 		var b strings.Builder
 		b.WriteString("emit_investigation_complete DOWNGRADED — pending forced reads block the closure.\n\n")
-		b.WriteString("The framework queued the following files (because chains anchored here or previous citations dropped) and the LLM has not read them yet:\n")
 		max := 6
-		for i, p := range pending {
-			if i >= max {
-				fmt.Fprintf(&b, "  ... and %d more\n", len(pending)-max)
-				break
+		if len(scanned) > 0 {
+			b.WriteString("## Forced Read List (scanned files the LLM has not read yet)\n")
+			for i, p := range scanned {
+				if i >= max {
+					fmt.Fprintf(&b, "  ... and %d more\n", len(scanned)-max)
+					break
+				}
+				fmt.Fprintf(&b, "  - %s — %s\n", p.File, p.Rationale)
 			}
-			fmt.Fprintf(&b, "  - %s — %s\n", p.File, p.Rationale)
+			b.WriteString("\n")
 		}
-		b.WriteString("\nRead these files via read_file and then re-call emit_investigation_complete. Marking complete now will drop every chain anchored in them.")
+		if len(suspicious) > 0 {
+			b.WriteString("## Suspicious Anchors (files NOT in the explorer's ScannedSet — possibly hallucinated paths)\n")
+			for i, p := range suspicious {
+				if i >= max {
+					fmt.Fprintf(&b, "  ... and %d more\n", len(suspicious)-max)
+					break
+				}
+				fmt.Fprintf(&b, "  - %s — %s\n", p.File, p.Rationale)
+			}
+			b.WriteString("Either grep for the real path if this is a legitimate reference, or reject any chain / citation that depends on it.\n\n")
+		}
+		b.WriteString("Read the scanned files (if any) and/or verify the suspicious anchors, then re-call emit_investigation_complete. Marking complete now will drop every chain anchored in them.")
 		return b.String()
 	}
 
