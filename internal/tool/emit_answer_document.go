@@ -604,7 +604,16 @@ func turnAReadFileSet(ctx *types.BusContext) map[string]bool {
 	}
 	set := make(map[string]bool, len(ta.ReadFiles))
 	for _, f := range ta.ReadFiles {
-		set[strings.TrimSpace(f)] = true
+		f = strings.TrimSpace(f)
+		if f == "" {
+			continue
+		}
+		// Canonicalise so the whitelist compares repo-relative against
+		// repo-relative regardless of whether the LLM read the file via
+		// relative or absolute path. Must stay in sync with the
+		// per-citation canonicalisation in buildEmitAnswerDocumentCitations
+		// — both sides of the `!readFiles[c.File]` lookup have to agree.
+		set[ground.CanonicalRepoRelative(f, ctx.RepoRoot)] = true
 	}
 	return set
 }
@@ -848,6 +857,13 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 		}
 		if isInsideWorkDir(c.File, workDir) {
 			return nil, nil, nil, fmt.Errorf("citations[%d]: file %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file", i, c.File, workDir)
+		}
+		// Canonicalise to the same repo-relative form the readFiles
+		// whitelist and the grounder's LineIndex / FileIndex use. The
+		// persisted citation carries the canonical form too — downstream
+		// renderers see a consistent path regardless of LLM choice.
+		if gc != nil {
+			c.File = ground.CanonicalRepoRelative(c.File, gc.RepoRoot)
 		}
 		// Whitelist check (session 8): citation file must be one
 		// Turn A actually read. Skipped when readFiles set is empty

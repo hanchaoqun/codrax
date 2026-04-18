@@ -757,6 +757,63 @@ func TestEmitAnswerDocument_WhitelistsCitationFilesToTurnAReads(t *testing.T) {
 	}
 }
 
+// TestEmitAnswerDocument_CitationPathCanonicalisation pins the
+// absolute-vs-relative path reconciliation (session 8 follow-up): the
+// explorer reads files with relative paths and the finalizer LLM
+// frequently cites with absolute paths (mirroring whatever format the
+// extractor's hypothesis verdict used). Without canonicalisation the
+// whitelist `readFiles[c.File]` check saw two different strings and
+// dropped every citation; with canonicalisation both sides become the
+// same repo-relative form and the citation is accepted.
+//
+// Regression scenario mirrors the reported log (iSulad README):
+//   - repoRoot = /mnt/d/repo
+//   - Turn A read_file path = "README.md" (relative)
+//   - Finalizer citation file = "/mnt/d/repo/README.md" (absolute)
+//
+// Both must canonicalise to "README.md" and the citation must survive.
+// README.md has zero symbols in the graph — Tier 2's zero-symbol
+// fallback accepts any positive line number, so the only gate that
+// could drop this citation is the whitelist.
+func TestEmitAnswerDocument_CitationPathCanonicalisation(t *testing.T) {
+	graph := newDocGraph(map[string][]docSymbol{
+		"README.md": {}, // no symbols — Tier 2 admits any line via prologue fallback
+	})
+	ctx := newDocBusCtx("")
+	ctx.RepoRoot = "/mnt/d/repo"
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"README.md"}, // explorer read via relative path
+	})
+
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "iSulad is a lightweight container runtime.",
+		"citations": []map[string]interface{}{
+			// Absolute — pre-fix this hit the whitelist and dropped.
+			{"file": "/mnt/d/repo/README.md", "line": 7},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("absolute-path citation against relative-path readFiles must survive: %s", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if len(doc.Citations) != 1 {
+		t.Fatalf("expected 1 citation kept after canonicalisation, got %d; summary=%q", len(doc.Citations), res.Summary)
+	}
+	// Persisted citation carries the canonical form so downstream
+	// renderers (Key Anchors block, evidence catalog) show a stable
+	// repo-relative path instead of the user's absolute prefix.
+	if doc.Citations[0].File != "README.md" {
+		t.Errorf("persisted citation must be canonical, got %q", doc.Citations[0].File)
+	}
+	if strings.Contains(res.Summary, "not in Turn A's ReadFiles list") {
+		t.Errorf("whitelist must not fire after canonicalisation: %q", res.Summary)
+	}
+}
+
 // TestEmitAnswerDocument_WhitelistSkippedWhenNoTurnA — no TurnA
 // snapshot means pre-pipeline tests / sub-agent contexts. The
 // whitelist check must skip so legacy call paths stay green.

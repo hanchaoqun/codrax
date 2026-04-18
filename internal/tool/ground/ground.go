@@ -43,9 +43,16 @@ var identifierTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
 // history, and the repomap Graph explorer.keywordSearch built. Both
 // are cheap to consult repeatedly — the line index is a map, the
 // graph is a pointer already resident in memory.
+//
+// RepoRoot is the absolute path of the target repository, used to
+// canonicalise every file / source / citation path to the same
+// repo-relative form before Tier 1 / Tier 2 lookups. Without it,
+// a citation to `/mnt/d/repo/README.md:7` could not match a
+// LineIndex built from a `read_file path=README.md` banner.
 type Context struct {
 	LineIndex map[string]map[int]string // source path → (1-based line → text)
 	Graph     *repomap.Graph            // nil when explorer has not populated MutableState yet
+	RepoRoot  string                    // for path canonicalisation; empty is tolerated (no normalisation)
 }
 
 // BuildContext assembles a grounding Context from the caller's
@@ -103,7 +110,8 @@ func BuildContext(ctx *types.BusContext) *Context {
 			history = append(history, disp...)
 		}
 	}
-	gc.LineIndex = buildLineIndex(history)
+	gc.RepoRoot = ctx.RepoRoot
+	gc.LineIndex = buildLineIndex(history, ctx.RepoRoot)
 	if ctx.Mutable != nil {
 		if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok {
 			gc.Graph = g
@@ -161,6 +169,15 @@ func GroundItem(it *types.EvidenceItem, gc *Context) Report {
 		return Report{}
 	}
 	originalLine := it.LineStart
+
+	// Canonicalise Source up-front so every tier's LineIndex /
+	// FileIndex / SymbolsInFile lookup on `it.Source` lands on the
+	// same key as buildLineIndex / repomap's RelPath. Otherwise an
+	// evidence item with an absolute Source silently falls through
+	// Tier 1 and Tier 2 even when the explorer did read the file.
+	if gc != nil && it.Source != "" {
+		it.Source = CanonicalRepoRelative(it.Source, gc.RepoRoot)
+	}
 
 	// Tier 1: line_text via read_file gutter.
 	if tier1LineText(it, gc) {
@@ -318,6 +335,12 @@ func GroundCitation(c types.Citation, gc *Context) CitationReport {
 	if gc == nil || (len(gc.LineIndex) == 0 && gc.Graph == nil) {
 		return CitationReport{Valid: true}
 	}
+	// Canonicalise file to match the form LineIndex (built via the
+	// same helper) and FileIndex (repomap's RelPath, already
+	// repo-relative) already use as keys. Handles the "LLM read with
+	// relative path but cited with absolute" failure mode that caused
+	// kept=0 dropped=12 on explanation-shape answers.
+	file = CanonicalRepoRelative(file, gc.RepoRoot)
 	// Tier 1: gutter index hit — the LLM actually read this line.
 	if gc != nil {
 		if fileLines, ok := gc.LineIndex[file]; ok {
@@ -1031,7 +1054,7 @@ func explainUngrounded(it *types.EvidenceItem, gc *Context) string {
 // number → line text (without the gutter prefix). Subsequent
 // read_file calls on the same Source merge into the existing map so
 // the latest content for each line wins.
-func buildLineIndex(history []types.ToolResult) map[string]map[int]string {
+func buildLineIndex(history []types.ToolResult, repoRoot string) map[string]map[int]string {
 	out := make(map[string]map[int]string)
 	for _, r := range history {
 		if !r.Success || r.ToolName != "read_file" {
@@ -1049,6 +1072,11 @@ func buildLineIndex(history []types.ToolResult) map[string]map[int]string {
 		if path == "" {
 			continue
 		}
+		// Canonicalise to repo-relative so lookups from GroundCitation
+		// / GroundItem (which also canonicalise their inputs) land on
+		// the same key regardless of whether the LLM read the file via
+		// relative or absolute path.
+		path = CanonicalRepoRelative(path, repoRoot)
 		fileMap, ok := out[path]
 		if !ok {
 			fileMap = make(map[int]string)

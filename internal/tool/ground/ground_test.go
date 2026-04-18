@@ -54,7 +54,7 @@ func TestGroundItem_Tier1LineText(t *testing.T) {
 			"}",
 		}, 3),
 	}
-	gc := &Context{LineIndex: buildLineIndex(history)}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	it := &types.EvidenceItem{
 		Kind: types.EvidenceDirect, Source: "a.go", LineStart: 10,
 		AnchorKind: types.AnchorDefinition, AnchorSymbol: "Foo",
@@ -195,7 +195,7 @@ func TestGroundItem_SnippetFuzzyRecovery(t *testing.T) {
 			"}",
 		}, 6),
 	}
-	gc := &Context{LineIndex: buildLineIndex(history)}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	it := &types.EvidenceItem{
 		Kind: types.EvidenceDirect, Source: "a.go", LineStart: 12,
 		AnchorKind: types.AnchorAssignment, AnchorSymbol: "veryDistinctIdentifier",
@@ -222,7 +222,7 @@ func TestGroundCitation_GutterHitQuoteMatches(t *testing.T) {
 			"}",
 		}, 3),
 	}
-	gc := &Context{LineIndex: buildLineIndex(history)}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	c := types.Citation{File: "a.go", Line: 10, Quote: "func MyFunction() int"}
 	r := GroundCitation(c, gc)
 	if !r.Valid {
@@ -244,7 +244,7 @@ func TestGroundCitation_GutterHitQuoteFabricated(t *testing.T) {
 			"func MyFunction() int {",
 		}, 1),
 	}
-	gc := &Context{LineIndex: buildLineIndex(history)}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	c := types.Citation{
 		File: "a.go", Line: 10,
 		Quote: "stated that the module is used for creating navigation indexes",
@@ -360,7 +360,7 @@ func TestGroundCitation_TierFieldPopulated(t *testing.T) {
 	history := []types.ToolResult{
 		buildGutterReadResult("a.go", 10, []string{"func Foo() string {", "\treturn \"x\"", "}"}, 3),
 	}
-	gc := &Context{LineIndex: buildLineIndex(history)}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	r := GroundCitation(types.Citation{File: "a.go", Line: 10}, gc)
 	if r.Tier != types.TierLineText {
 		t.Errorf("gutter-hit citation must have Tier=line_text, got %q", r.Tier)
@@ -529,7 +529,7 @@ func TestGroundItem_LegacyNoAnchorStillGrounds(t *testing.T) {
 			"func Orchestrator_Run() {",
 		}, 1),
 	}
-	gc := &Context{LineIndex: buildLineIndex(history)}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
 	it := &types.EvidenceItem{
 		Kind:      types.EvidenceConcrete,
 		Source:    "a.go",
