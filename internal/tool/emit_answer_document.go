@@ -415,6 +415,28 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// both indexed, LLM picked wrong. Whitelist rejects this at the
 	// earliest point. Empty/nil set = skip (sub-agent / test paths).
 	readFiles := turnAReadFileSet(ctx)
+	// CGEC G1 pre-finalize dry-run. Before doing the (relatively
+	// expensive) grounding pass — which reads file gutters, runs
+	// symbol-table lookups, scans quote tokens — do a cheap
+	// whitelist preflight: count how many citations are in
+	// readFiles AT ALL. When ZERO pass the whitelist AND the LLM
+	// supplied ≥1 citation, the grounder will drop every citation
+	// and the answer will ship with 0 grounded references — a
+	// guaranteed contract-check failure. Return a LOUD error now
+	// so the finalizer's internal correction retry path kicks in
+	// BEFORE we write out the full AnswerDocument. Also emits the
+	// same RepairReadFile directives the grounder would have
+	// emitted, so even if this early path doesn't trigger a
+	// correction retry (empty readFiles, test path, ...), the
+	// retry-hint renderer still surfaces the forced-read list.
+	if dryMsg := simulateCitationGrounding(p.Citations, readFiles, groundCtx, ctx); dryMsg != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   dryMsg,
+			Timestamp: now,
+			Success:   false,
+		}, nil
+	}
 	citations, citationRemap, citationWarnings, citationRepairs, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx, readFiles)
 	if cerr != nil {
 		return failEmit(t.Name(), now, "%v", cerr)
@@ -842,6 +864,104 @@ func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int)
 //            line <= 0, quote too long, blob-leak) that should
 //            reject the whole call; grounding failures never return
 //            err — they are surfaced via drop/clear + warnings.
+// simulateCitationGrounding is the CGEC G1 pre-finalize dry-run. It
+// runs the ReadSet whitelist check against every incoming citation
+// without touching the gutter / symbol-table / quote layers. When
+// ZERO citations can pass the whitelist AND the LLM supplied at
+// least one citation, the real grounder will drop them all and the
+// contract check will fail on 0-citations — wasting the dispatch.
+// The early error surfaces the whitelist to the LLM, triggers the
+// finalizer's correction retry path, and emits the same
+// RepairReadFile directives the grounder would have emitted (so
+// even if the finalizer's internal retry does not re-call
+// emit_answer_document, the retry-hint renderer surfaces the forced-
+// read list to the next explore round).
+//
+// Returns an empty string when the call should proceed to the real
+// grounder (i.e. at least one citation is whitelist-eligible OR
+// there are no citations at all OR the readFiles whitelist is
+// empty / unset).
+func simulateCitationGrounding(citations []types.Citation, readFiles map[string]bool, gc *ground.Context, ctx *types.BusContext) string {
+	if len(citations) == 0 || len(readFiles) == 0 {
+		return ""
+	}
+	// Canonicalise each citation file to match the readFiles whitelist's
+	// canonical form. buildEmitAnswerDocumentCitations does this at
+	// line 893 via ground.CanonicalRepoRelative; we replicate the call
+	// here so the dry-run accepts the same inputs the real grounder
+	// would have accepted (e.g. absolute-path citation against
+	// relative-path readFiles bridged through repoRoot).
+	var missing []string
+	var matched int
+	repoRoot := ""
+	if gc != nil {
+		repoRoot = gc.RepoRoot
+	}
+	canonical := make([]string, len(citations))
+	for i, c := range citations {
+		canonical[i] = c.File
+		if c.File != "" && repoRoot != "" {
+			canonical[i] = ground.CanonicalRepoRelative(c.File, repoRoot)
+		}
+	}
+	for i, c := range citations {
+		if c.File == "" {
+			continue
+		}
+		if readFiles[canonical[i]] {
+			matched++
+			continue
+		}
+		missing = append(missing, fmt.Sprintf("%s:%d", c.File, c.Line))
+	}
+	if matched > 0 {
+		return ""
+	}
+	if len(missing) == 0 {
+		return ""
+	}
+	// Emit RepairReadFile directives so the retry-hint renderer
+	// surfaces the forced-read list even if the finalizer's
+	// correction retry does not re-fire emit_answer_document.
+	// AddRepair is dedup-safe so repeated drops of the same file
+	// collapse into one directive, and A1 bridge mirrors each
+	// RepairReadFile into the PendingReads queue for Lazy Auto-Read.
+	if ctx != nil && ctx.Mutable != nil {
+		closure := ctx.Mutable.EvidenceClosure()
+		seen := make(map[string]bool)
+		for i, c := range citations {
+			if c.File == "" || readFiles[canonical[i]] || seen[canonical[i]] {
+				continue
+			}
+			seen[canonical[i]] = true
+			closure.AddRepair(types.RepairDirective{
+				Kind:      types.RepairReadFile,
+				Files:     []string{canonical[i]},
+				Rationale: fmt.Sprintf("pre-finalize dry-run: citation %s:%d points at a file Turn A did not read", c.File, c.Line),
+				Origin:    "emit_answer_document.dry_run",
+			})
+		}
+	}
+	allowed := make([]string, 0, len(readFiles))
+	for f := range readFiles {
+		allowed = append(allowed, f)
+	}
+	sort.Strings(allowed)
+	allowedCap := 10
+	if len(allowed) > allowedCap {
+		allowed = append(allowed[:allowedCap], fmt.Sprintf("...and %d more", len(readFiles)-allowedCap))
+	}
+	logging.Warning("[CGEC] G1 pre_finalize_dry_run: rejecting emit_answer_document — 0/%d citations match whitelist", len(citations))
+	return fmt.Sprintf(
+		"emit_answer_document REJECTED by CGEC G1 pre-finalize dry-run: none of your %d citation(s) point to a file Turn A actually read, so the grounder will drop every one and the answer contract will fail.\n\n"+
+			"Your citations: %s\n\n"+
+			"Allowed files (Turn A ReadSet): %s\n\n"+
+			"Re-emit emit_answer_document with file:line in the allowed list. If none of the allowed files contain the real answer anchor, call read_file on the missing file BEFORE re-emitting, or accept an absence answer via emit_investigation_complete(absence_justification=...).",
+		len(citations),
+		strings.Join(missing, ", "),
+		strings.Join(allowed, ", "))
+}
+
 // buildEmitAnswerDocumentCitations now also returns a slice of
 // CGEC RepairDirective values the caller pushes onto the per-Run
 // EvidenceClosure. One RepairReadFile entry is generated per
