@@ -324,7 +324,7 @@ func TestExtractConcreteValues_EmitsCallsKind(t *testing.T) {
 		_ = err
 	}
 }`
-	entries := extractConcreteValues(src)
+	entries := extractConcreteValues(src, "go")
 	hasCalls := false
 	for _, e := range entries {
 		if e.kind == "calls" && strings.Contains(e.value, "subRuntime.Run") {
