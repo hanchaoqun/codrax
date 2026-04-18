@@ -171,6 +171,10 @@ func codraxStyleConfig() ansi.StyleConfig {
 		inlineCodeColor = "33" // xterm blue, #0087ff
 	}
 	cfg.Code.Color = &inlineCodeColor
+	// glamour 的 Dark/LightStyleConfig 会给 inline code 塞一个
+	// 背景色（slot 237 之类的灰底），在多数终端主题下反而显脏。
+	// 显式 nil 掉，让 inline code 背景沿用终端本身的底色。
+	cfg.Code.BackgroundColor = nil
 	return cfg
 }
 
