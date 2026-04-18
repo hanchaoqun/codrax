@@ -1097,6 +1097,44 @@ REPL 的 `Store.BuildContext` 从 memory 拉上下文，把最近几轮 Q/A 拼�
 - OutputFormat 示例使用**混合语言**（Python / Ruby / TypeScript）的文件路径，强化"只学格式，不学语言"
 - 不在 prompt 里硬编码任何特定项目的目录结构、工具名或配置格式
 
+### CGEC — Citation-Grounded Evidence Closure
+
+CGEC 是跨 stage 的**证据闭环契约**，把 codrax 中"两套并行证据系统作用域不一致"这一类 bug 一次性根治。问题的对称形态：
+
+| 系统 | 数据 | 作用域 | 谁强制 |
+|---|---|---|---|
+| LLM-driven | `EvidenceItem` (emit_evidence) | `ReadSet` = LLM 真正 `read_file` 过的文件 | grounder **强制** citation ⊆ ReadSet |
+| Deterministic | Resolution Chain / Concrete Value / type hierarchy | `ScannedSet` = keyword-scored + LLM-read 的并集（≫ ReadSet）| prompt **命令** "primary basis, do NOT contradict" |
+
+致命矛盾区 = `ScannedSet \ ReadSet`。chain 落进这里时 prompt 强制使用 + grounder 强制拒绝 = 死结，retry 跑 N 轮永远修不掉。CGEC 用 **4 条不变量 + 4 个 enforcer** 一次堵死：
+
+| # | 不变量 | Enforcer 位置 | 违反后做什么 |
+|---|---|---|---|
+| **I1** | 所有 prompt 中 surface 的 `file:line` ⊆ ReadSet | `internal/agent/explorer.go::applyChainPromotion` + `findings_validator` | chain 锚点 ∉ ReadSet → 不渲染到 prompt + 锚点 file 进 PendingReads；analyzer 幻觉 path/symbol → `~~text~~ ⚠️[未验证]` 标注 |
+| **I2** | 所有 emit_*-接受的 citation ⊆ ReadSet | `internal/tool/emit_answer_document.go` 的 grounder | drop citation + 写一条 `RepairDirective{Kind: ReadFile, Files: [...], Rationale: ...}` 到 `Mutable.EvidenceClosure` 的 repair 队列 |
+| **I3** | `emit_investigation_complete` ⇒ 模拟 `contract.Check` 能过 | `internal/tool/emit_investigation_complete.go::preCompleteContractCheck` | downgrade 成 complete_with_warnings，flag 不翻 → ShouldStop 不触发 → loop 继续；surface 哪些 PendingReads 未读 / 哪条 SuccessCriteria 不满足 |
+| **I4** | retry 间至少 `(ReadSet, EvidenceCount, ChainTermSet)` 三维度之一单调进步 | `internal/orchestrator/cgec_enforcers.go::detectStallAndAct` | 2 轮指纹相同 → 触发 `runForcedReads`（Lazy Auto-Read，框架代读 ≤N 个 PendingReads 文件，结果以 `[forced_read]` banner 注入 ToolResults + TurnAArtifacts.ReadFiles）；3 轮相同 → 强制 `SetInvestigationComplete` + 写 `RepairForceCompleteDowngrade` 让 finalizer 用现有证据出最佳努力答案 |
+
+**辅助层**（不直接强制不变量，但消除 LLM 误判 chain 的输入条件）：
+
+- **AnswerSubject taxonomy**（`internal/types/analysis_ir.go::AnswerSubjectKind` 枚举 ~15 种 + `internal/analysis/subject/taxonomy.go` 的 per-kind judge）：分类问题答案应该是什么类型的源码 literal（`skill_name` / `agent_name` / `config_key` / `return_value` / ...）
+- **`inferAnswerSubject`**（`internal/agent/analyzer_intent.go`）：deterministic 兜底，LLM 没填 AnswerSubject 时按 cue 表 + question_kind 推导
+- **`reconcileShape`**（同文件）：subject 是源码 literal（skill name/agent name/...）但 LLM 填了 `ShapeConfigValue` 时自动改成 `ShapeValue`，避免 finalizer 编 fake key 凑 schema
+- **`rankChainsBySubject`**（`internal/agent/explorer.go`）：chain 终端 token 用 `subject.Score(terminal, expectedKind, graph)` 评分，subject-match 高的 chain 排名前移 → markdown 表 chainCap 优先给到对题的链
+
+**EvidenceClosure 数据结构**（`internal/types/evidence_closure.go`）是上述 4 个 enforcer 共享的状态总线，挂在 `MutableState.evidenceClosure` 上，承载 ReadSet、PendingReads、CitedRefs、UnverifiedFinds、SubjectMatches、Fingerprints、Repairs queue。`runTaskGraph` 在 task entry 调 `Mutable.ResetEvidenceClosure` 保证跨 task 不污染。
+
+**RepairDirective 渲染**（`internal/types/repair.go::RepairDirective.Render`）：`scheduler.go::renderWindowHint` 在 explore 重试前从 `closure.ConsumeRepairs()` 拿到结构化 directives，按 Kind 渲染成 prompt 顶部的 `## Forced Read List` / `## Subject Constraint` / `## Shape Reconcile` / `## Force-Complete Downgrade` 段落。每条 directive 只 fire 一次（`ConsumeRepairs` 是 atomic drain）。
+
+**配置入口**：`codrax.yaml` 的 `cgec_*` 系列（`cgec_forced_reads_per_round` / `cgec_stall_threshold_soft` / `cgec_stall_threshold_hard`）；I1-I3 永远 on，只有 I4 的 Lazy Auto-Read 上限和 stall 阈值可调。code default → `codrax.yaml` 优先级，跟其他 `*_*` 系列一致。
+
+**典型故障链 → CGEC 修复**：用户问 "explorer agent 默认用哪个 skill"。explorer 读了 `cmd/root.go` + `explorer.go` + `defaults.go`，但 deterministic chain producer 在 keyword-scored 文件 `internal/agent/subagent.go` 上构造出 chain `SubExplorer.Name() returns "explorer"` 锚点 `subagent.go:63`。
+- I1（chain promotion）发现 `subagent.go ∉ ReadSet` → 该 chain 不进 prompt + `subagent.go` 进 PendingReads
+- C2（subject ranking）即使该 chain 漏到 prompt，terminal `"explorer"` 是 `agent_name` 不是 `skill_name` → 评分压低
+- B2（shape reconcile）即使最终 shape 错填 `config_value`，subject `skill_name` 触发 reconcile 改成 `value` → finalizer 不需要编 fake key
+- I4（Lazy Auto-Read）首轮结束发现 PendingReads 还在队列、LLM 没读 → 框架代读 `subagent.go`（甚至代读多个，单轮上限 `cgec_forced_reads_per_round` = 3），结果以 `[forced_read]` banner 注入 ReadSet
+- 综合效果：旧 = 3 retry + "validation exhausted" + literal `"explorer"`；新 = **1 round + literal `"explore-skill"` cited at `internal/skill/defaults.go:14`**
+
 ---
 
 ## 9. 运行时子系统
@@ -1155,6 +1193,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 | `explore_*` | 16 | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize 等）— explorer 行为启发式 |
 | `agent_*` | 10 | `agent_max_iterations`(20) / `agent_max_tool_history_bytes`(150KB) / `agent_loop_min_inject_interval`(3) / `agent_loop_max_continuations`(5) / `agent_loop_max_midloop_injects`(6) / `agent_loop_idle_stop_threshold`(2) / `agent_finalizer_max_correction_retries`(3) / `agent_extractor_max_correction_retries`(1) / `agent_investigation_complete_policy`(soft) / `agent_prior_conversation_policy`(analyzer) — per-agent 迭代/重试/LoopPolicy 限制 + investigation_complete 策略 + Prior Conversation 可见性策略（`always` / `analyzer` / `continue` / `never`，见 §8 Prior Conversation intent-aware 可见性） |
 | `memory_*` | 6 | `memory_max_recent_turns`(6) / `memory_max_recent_bytes`(20KB) / `memory_max_turn_body_bytes`(64KB) / `memory_max_build_context_matches`(3) / `memory_max_inlined_turn_bytes`(8KB) / `memory_max_build_context_total_bytes`(32KB) — REPL 多轮记忆存储限制 |
+| `cgec_*` | 3 | `cgec_forced_reads_per_round`(3) / `cgec_stall_threshold_soft`(2) / `cgec_stall_threshold_hard`(3) — Citation-Grounded Evidence Closure 的 I4 调节旋钮（Lazy Auto-Read 上限 + 收敛检测阈值）。I1-I3 永远 on，无配置项 |
 
 ### 优先级（precedence）
 
@@ -1169,6 +1208,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 | `explore_*` | code default（`types.DefaultExploreHeuristics()`）→ `codrax.yaml`。**无 CLI override** |
 | `agent_*` | code default（`types.DefaultAgentSettings()`）→ `codrax.yaml`。**无 CLI override** |
 | `memory_*` | code default（`types.DefaultMemorySettings()`）→ `codrax.yaml`。**无 CLI override** |
+| `cgec_*` | code default（`internal/orchestrator/cgec_enforcers.go`）→ `codrax.yaml`。**无 CLI override** |
 
 ### Path anchoring
 

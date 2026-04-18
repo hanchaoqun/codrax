@@ -42,15 +42,27 @@ type EmitAnalysis struct {
 }
 
 type emitAnalysisParams struct {
-	Intent       string           `json:"intent"`
-	Scenario     string           `json:"scenario"`
-	Complexity   string           `json:"complexity"`
-	Keywords     []string         `json:"keywords"`
-	Entities     []string         `json:"entities"`
-	QuestionKind string           `json:"question_kind"`
-	AnswerShape  string           `json:"answer_shape"`
-	Language     string           `json:"language,omitempty"`
-	SubTopics    []types.SubTopic `json:"sub_topics,omitempty"`
+	Intent        string                  `json:"intent"`
+	Scenario      string                  `json:"scenario"`
+	Complexity    string                  `json:"complexity"`
+	Keywords      []string                `json:"keywords"`
+	Entities      []string                `json:"entities"`
+	QuestionKind  string                  `json:"question_kind"`
+	AnswerShape   string                  `json:"answer_shape"`
+	Language      string                  `json:"language,omitempty"`
+	SubTopics     []types.SubTopic        `json:"sub_topics,omitempty"`
+	AnswerSubject *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
+}
+
+// emitAnswerSubjectParam is the wire shape of the optional
+// answer_subject field. The LLM may set kind explicitly when the
+// question resolves to a clear answer-literal type; otherwise the
+// system's deterministic inferAnswerSubject in analyzer_intent.go
+// fills the field at IR-build time.
+type emitAnswerSubjectParam struct {
+	Kind       string   `json:"kind"`
+	EntityAxes []string `json:"entity_axes,omitempty"`
+	Confidence float64  `json:"confidence,omitempty"`
 }
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
@@ -112,6 +124,15 @@ func buildEmitAnalysisSchema() {
 						"entities": map[string]any{"type": "array", "items": map[string]string{"type": "string"}, "description": "Code entities for this sub-topic"},
 					},
 					"required": []string{"summary"},
+				},
+			},
+			"answer_subject": map[string]any{
+				"type":        "object",
+				"description": "Optional. Classifies what kind of source-code literal the answer should be (skill_name, agent_name, config_key, ...). The chain ranker uses this to demote chains whose terminal token is the wrong kind. Leave unset when the answer kind is ambiguous; the system's deterministic fallback infers from question_kind.",
+				"properties": map[string]any{
+					"kind":        stringProp{Type: "string", Enum: skill.AnalysisAnswerSubjectValues()},
+					"entity_axes": arrayProp{Type: "array", Items: map[string]string{"type": "string"}},
+					"confidence":  map[string]string{"type": "number"},
 				},
 			},
 		},
@@ -250,6 +271,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Kind:     kind,
 			Shape:    shape,
 		},
+		AnswerSubject: parseAnswerSubject(p.AnswerSubject),
 	}
 	ctx.Mutable.SetRequestModel(rm)
 
@@ -259,6 +281,29 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// parseAnswerSubject coerces the optional emit_analysis.answer_subject
+// field into a typed AnswerSubject. Returns the zero value when the
+// LLM omitted the field; the analyzer's deterministic
+// inferAnswerSubject fallback fills it later from cues +
+// question_kind. An unrecognised kind value is silently coerced to
+// SubjectUnknown — invalid kinds should be caught by the schema's
+// enum constraint, but defensive parsing keeps a malformed call from
+// short-circuiting downstream stages.
+func parseAnswerSubject(p *emitAnswerSubjectParam) types.AnswerSubject {
+	if p == nil {
+		return types.AnswerSubject{}
+	}
+	kind := types.AnswerSubjectKind(strings.TrimSpace(p.Kind))
+	if !kind.IsValid() {
+		kind = types.SubjectUnknown
+	}
+	return types.AnswerSubject{
+		Kind:       kind,
+		EntityAxes: trimStringSlice(p.EntityAxes),
+		Confidence: p.Confidence,
+	}
 }
 
 // buildEmitAnalysisSummary renders a one-line, trace-friendly summary

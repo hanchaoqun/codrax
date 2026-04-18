@@ -489,6 +489,24 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			tool.SetReadFileSmallLimitThreshold(*rs.ReadFileSmallLimitThreshold)
 		}
 
+		// CGEC (Citation-Grounded Evidence Closure) tunables. Each
+		// is a positive integer; SetCGECPolicy ignores zero/negative
+		// values and keeps the current default, so a partial override
+		// is safe.
+		{
+			forced, soft, hard := orchestrator.CGECPolicy()
+			if rs.CGECForcedReadsPerRound != nil {
+				forced = *rs.CGECForcedReadsPerRound
+			}
+			if rs.CGECStallThresholdSoft != nil {
+				soft = *rs.CGECStallThresholdSoft
+			}
+			if rs.CGECStallThresholdHard != nil {
+				hard = *rs.CGECStallThresholdHard
+			}
+			orchestrator.SetCGECPolicy(forced, soft, hard)
+		}
+
 		// emit_analysis runtime validation knobs. Start from the
 		// code defaults and overlay any non-nil yaml fields so a
 		// partial override leaves the other knobs alone.

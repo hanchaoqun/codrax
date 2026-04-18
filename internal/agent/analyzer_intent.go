@@ -279,3 +279,207 @@ func logIntentReconcile(before, after types.Intent, reason string) {
 	}
 	logging.Warning("[analyzer] intent reconciled: %s → %s (%s)", before, after, reason)
 }
+
+// ── AnswerSubject inference + Shape reconciliation ───────────────────
+//
+// inferAnswerSubject and reconcileShape are the CGEC additions to the
+// analyzer's deterministic post-processing chain. They mirror the
+// reconcileIntent / reconcileComplexity pattern: fire only on strong
+// signals, log every override under "[analyzer] * reconciled:" so
+// operators can grep one trace for every automatic decision, and
+// leave the LLM's choice untouched in every borderline case.
+//
+// Why both rules:
+//
+//   inferAnswerSubject classifies WHAT KIND of code-literal the
+//   answer is supposed to be (skill_name, agent_name, config_key,
+//   ...). The chain ranker uses this to demote chains whose terminal
+//   token is the wrong kind ("SubExplorer.Name() returns 'explorer'"
+//   should not rank highest when the question asks for a SKILL).
+//
+//   reconcileShape handles the corner where the LLM picked
+//   ShapeConfigValue (key=value pair) but the actual answer is a Go
+//   struct-field literal — e.g. the topology.go map literal that
+//   binds "explore-skill" to the explorer agent. Forcing config_value
+//   shape on a Go literal manufactures a fake "key" the LLM has to
+//   invent, which downstream contract checks then reject.
+
+// answerSubjectCue maps a leading prose pattern to an expected
+// AnswerSubjectKind. Curated tightly: each entry must come from a
+// real eval-trace miss, not speculation. Patterns are case-folded
+// substring matches against the politeness-stripped raw request.
+type answerSubjectCue struct {
+	pattern string
+	kind    types.AnswerSubjectKind
+	axes    []string
+}
+
+// answerSubjectCues fires before the question_kind fallback. Order
+// matters: the first match wins, so the more specific patterns come
+// first. Bilingual entries to match the codrax convention (zh + en).
+var answerSubjectCues = []answerSubjectCue{
+	// SkillName — skill of agent / 默认 skill / 用哪个 skill
+	{"默认用哪个skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"默认用哪个 skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"默认的 skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"默认skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"哪个skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"哪个 skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"什么skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"什么 skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"default skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"which skill", types.SubjectSkillName, []string{"agent → skill"}},
+	{"what skill", types.SubjectSkillName, []string{"agent → skill"}},
+
+	// AgentName — agent of stage / 默认 agent
+	{"默认agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"默认 agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"哪个agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"哪个 agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"什么agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"什么 agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"default agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"which agent", types.SubjectAgentName, []string{"stage → agent"}},
+	{"what agent", types.SubjectAgentName, []string{"stage → agent"}},
+
+	// ConfigKey — explicit config key / 配置项 / 配置键
+	{"配置项", types.SubjectConfigKey, []string{"key → value"}},
+	{"配置键", types.SubjectConfigKey, []string{"key → value"}},
+	{"config key", types.SubjectConfigKey, []string{"key → value"}},
+	{"yaml key", types.SubjectConfigKey, []string{"key → value"}},
+
+	// ReturnValue — what does X return / X 返回什么
+	{"返回什么", types.SubjectReturnValue, []string{"function → value"}},
+	{"返回值是", types.SubjectReturnValue, []string{"function → value"}},
+	{"what does", types.SubjectReturnValue, []string{"function → value"}},
+	{"what is the return", types.SubjectReturnValue, []string{"function → value"}},
+
+	// FunctionName — what function / 哪个函数 / which function
+	{"哪个函数", types.SubjectFunctionName, []string{"behavior → function"}},
+	{"什么函数", types.SubjectFunctionName, []string{"behavior → function"}},
+	{"which function", types.SubjectFunctionName, []string{"behavior → function"}},
+	{"what function", types.SubjectFunctionName, []string{"behavior → function"}},
+
+	// TypeName — what type / 什么类型 / which struct
+	{"什么类型", types.SubjectTypeName, []string{"value → type"}},
+	{"哪个类型", types.SubjectTypeName, []string{"value → type"}},
+	{"which type", types.SubjectTypeName, []string{"value → type"}},
+	{"what type", types.SubjectTypeName, []string{"value → type"}},
+	{"which struct", types.SubjectTypeName, []string{"value → type"}},
+
+	// FilePath — which file / 哪个文件
+	{"哪个文件", types.SubjectFilePath, []string{"behavior → file"}},
+	{"在哪个文件", types.SubjectFilePath, []string{"behavior → file"}},
+	{"which file", types.SubjectFilePath, []string{"behavior → file"}},
+}
+
+// inferAnswerSubject derives AnswerSubject when the LLM left it zero.
+// Returns the resolved subject + a short reason for the log line. An
+// empty Kind in the result means no rule fired and the caller should
+// keep the LLM's value (or accept SubjectUnknown).
+//
+// Two-step inference:
+//
+//  1. Cue match against the politeness-stripped lower-case request.
+//     The first matching cue wins. Bilingual patterns curated above.
+//  2. Fallback by question_kind enum. The LLM's question_kind is a
+//     stable signal even when the prose lacks an obvious cue:
+//
+//       config_mapping  → SubjectConfigKey
+//       registration    → SubjectAgentName  (registries usually bind agents)
+//       return_value    → SubjectReturnValue
+//       enumeration     → SubjectGeneric    (lists are heterogenous)
+//       call_chain      → SubjectFunctionName
+//       mechanism       → SubjectGeneric
+//       conditional     → SubjectGeneric
+//
+// Confidence is 0.8 for cue matches (unambiguous prose) and 0.4 for
+// question_kind fallbacks (the kind is right but the prose did not
+// pin a specific subject).
+func inferAnswerSubject(rm types.RequestModel, rawRequest string) (types.AnswerSubject, string) {
+	// Honour LLM-supplied subject when it explicitly classified.
+	if rm.AnswerSubject.Kind != types.SubjectUnknown {
+		return rm.AnswerSubject, ""
+	}
+	lower := strings.ToLower(strings.TrimSpace(rawRequest))
+	lower = stripPolitenessPrefix(lower)
+	for _, cue := range answerSubjectCues {
+		if strings.Contains(lower, cue.pattern) {
+			return types.AnswerSubject{
+				Kind:       cue.kind,
+				EntityAxes: append([]string(nil), cue.axes...),
+				Confidence: 0.8,
+			}, "cue match: " + cue.pattern
+		}
+	}
+	// Fallback by question_kind. AnalyzerHints.Kind is the LLM's
+	// raw question_kind value (registration / mechanism / config_mapping /
+	// enumeration / call_chain / return_value / conditional / unknown).
+	switch rm.AnalyzerHints.Kind {
+	case "config_mapping":
+		return types.AnswerSubject{Kind: types.SubjectConfigKey, EntityAxes: []string{"key → value"}, Confidence: 0.4},
+			"question_kind=config_mapping → ConfigKey"
+	case "registration":
+		return types.AnswerSubject{Kind: types.SubjectAgentName, EntityAxes: []string{"stage → agent"}, Confidence: 0.4},
+			"question_kind=registration → AgentName"
+	case "return_value":
+		return types.AnswerSubject{Kind: types.SubjectReturnValue, EntityAxes: []string{"function → value"}, Confidence: 0.4},
+			"question_kind=return_value → ReturnValue"
+	case "call_chain":
+		return types.AnswerSubject{Kind: types.SubjectFunctionName, EntityAxes: []string{"behavior → function"}, Confidence: 0.4},
+			"question_kind=call_chain → FunctionName"
+	case "enumeration":
+		return types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.3},
+			"question_kind=enumeration → Generic"
+	}
+	// No rule fired — preserve zero value.
+	return types.AnswerSubject{}, ""
+}
+
+// reconcileShape swaps AnswerShape from ShapeConfigValue to
+// ShapeValue when the AnswerSubject is a source-code literal that
+// has no YAML "key" surface.
+//
+// The LLM frequently picks ShapeConfigValue for any "what is the
+// X for Y" question because the schema enum lists config_value
+// before value, but most "X for Y" questions in real code resolve
+// to a Go map literal / struct field, NOT a YAML key. Forcing the
+// config_value shape on these questions makes the finalizer invent
+// a fake key like "explorerAgent.defaultSkill" to satisfy the
+// schema, which the contract checker then rejects with
+// "config_value answer must express a key=value or key: value pair".
+//
+// Returns the resolved shape + a short reason for the log line.
+// Empty reason means no rule fired.
+func reconcileShape(declared types.AnswerShape, subject types.AnswerSubject) (types.AnswerShape, string) {
+	if declared != types.ShapeConfigValue {
+		return declared, ""
+	}
+	switch subject.Kind {
+	case types.SubjectSkillName, types.SubjectAgentName,
+		types.SubjectFunctionName, types.SubjectTypeName,
+		types.SubjectInterface, types.SubjectHandlerRoute,
+		types.SubjectReturnValue:
+		return types.ShapeValue,
+			"answer subject is source-code literal (" + string(subject.Kind) + ") not a YAML config key"
+	}
+	return declared, ""
+}
+
+// logSubjectInferred + logShapeReconciled are the structural twins of
+// logIntentReconcile. One warning line per actual override. Silent
+// when the rule did not fire.
+func logSubjectInferred(subject types.AnswerSubject, reason string) {
+	if subject.Kind == types.SubjectUnknown || reason == "" {
+		return
+	}
+	logging.Warning("[analyzer] subject inferred: kind=%s axes=%v conf=%.2f (%s)",
+		subject.Kind, subject.EntityAxes, subject.Confidence, reason)
+}
+
+func logShapeReconciled(before, after types.AnswerShape, reason string) {
+	if before == after || reason == "" {
+		return
+	}
+	logging.Warning("[analyzer] shape reconciled: %s → %s (%s)", before, after, reason)
+}

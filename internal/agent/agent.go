@@ -62,6 +62,15 @@ type StageOutput struct {
 	// MCP responses collected during execution
 	MCPResponses []types.MCPResponse `json:"mcp_responses,omitempty"`
 
+	// Repairs is the structured RepairDirective queue produced by
+	// CGEC enforcers (citation grounder, pre-complete check, stall
+	// detector). applyStageOutput drains this slice into
+	// MutableState.EvidenceClosure().AddRepair so the next explore-
+	// window prompt can render them via the orchestrator's retry-
+	// hint path. Empty for stages that did not raise any structured
+	// repairs (i.e. the analyzer / extractor steady state).
+	Repairs []types.RepairDirective `json:"repairs,omitempty"`
+
 	// The missing piece after this stage completes
 	MissingPiece types.MissingPiece `json:"missing_piece"`
 

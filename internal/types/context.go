@@ -154,6 +154,16 @@ type MutableState struct {
 	// analyzerEvaluator.BuildInitialInstruction so cross-dispatch
 	// state never leaks.
 	prescanSummaryBlob strings.Builder
+
+	// evidenceClosure is the cross-stage CGEC tracker (Citation-
+	// Grounded Evidence Closure). Records ReadSet, PendingReads,
+	// UnverifiedFinds, RepairDirectives, and per-round Fingerprints
+	// so the four CGEC enforcers (chain promotion, grounder, pre-
+	// complete check, convergence detector) share a single source of
+	// truth. Lazily initialized by EvidenceClosure(); reset at task
+	// entry by ResetEvidenceClosure (mirror of ResetTurnAArtifacts).
+	// All accessor methods live in evidence_closure.go.
+	evidenceClosure *EvidenceClosure
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)

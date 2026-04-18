@@ -67,6 +67,102 @@ type RequestModel struct {
 	// "enumeration" collapse to IntentEnumerate), so the mapped form
 	// is not a lossless substitute for the raw LLM string.
 	AnalyzerHints AnalyzerHints `json:"analyzer_hints"`
+
+	// AnswerSubject classifies what kind of source-code literal the
+	// answer should be (skill name, agent name, config key, return
+	// value, ...). Used by the chain ranker to prefer chains whose
+	// terminal token matches the expected subject kind, by the
+	// shape reconciler to swap config_value→value when the subject
+	// is a Go-literal rather than a YAML key, and by the retry-hint
+	// renderer's RebindSubject directive. Either filled by the LLM
+	// via emit_analysis.answer_subject or derived deterministically
+	// by analyzer_intent.go::inferAnswerSubject when the LLM left
+	// the field zero. Zero-value (Kind=SubjectUnknown) is safe and
+	// degrades gracefully to the pre-CGEC behaviour.
+	AnswerSubject AnswerSubject `json:"answer_subject"`
+}
+
+// AnswerSubjectKind enumerates the distinct kinds of source-code
+// literals an answer can resolve to. The chain ranker, shape
+// reconciler, and retry-hint renderer all dispatch on this enum so
+// the LLM's "what kind of token am I looking for" intuition is
+// represented as a typed value rather than as English prose in
+// prompts.
+//
+// Add new kinds here when a real bug surfaces a missing one — do
+// not pre-populate speculative kinds. Each kind that callers can
+// rely on has a corresponding judge in
+// internal/analysis/subject/taxonomy.go that scores tokens against
+// it. SubjectUnknown is the explicit "I don't know" sentinel and
+// is the zero value.
+type AnswerSubjectKind string
+
+const (
+	SubjectUnknown        AnswerSubjectKind = ""
+	SubjectSkillName      AnswerSubjectKind = "skill_name"
+	SubjectAgentName      AnswerSubjectKind = "agent_name"
+	SubjectFunctionName   AnswerSubjectKind = "function_name"
+	SubjectTypeName       AnswerSubjectKind = "type_name"
+	SubjectHandlerRoute   AnswerSubjectKind = "handler_route"
+	SubjectConfigKey      AnswerSubjectKind = "config_key"
+	SubjectReturnValue    AnswerSubjectKind = "return_value"
+	SubjectFilePath       AnswerSubjectKind = "file_path"
+	SubjectStringLiteral  AnswerSubjectKind = "string_literal"
+	SubjectNumeric        AnswerSubjectKind = "numeric"
+	SubjectEnumValue      AnswerSubjectKind = "enum_value"
+	SubjectStructField    AnswerSubjectKind = "struct_field"
+	SubjectInterface      AnswerSubjectKind = "interface_name"
+	SubjectGeneric        AnswerSubjectKind = "generic"
+)
+
+// AllAnswerSubjectKinds returns every declared kind in declaration
+// order. The emit_analysis schema enum and the gate's
+// criterion_resolvable check both consume this list so adding a new
+// constant above is a single source of truth.
+func AllAnswerSubjectKinds() []AnswerSubjectKind {
+	return []AnswerSubjectKind{
+		SubjectUnknown,
+		SubjectSkillName,
+		SubjectAgentName,
+		SubjectFunctionName,
+		SubjectTypeName,
+		SubjectHandlerRoute,
+		SubjectConfigKey,
+		SubjectReturnValue,
+		SubjectFilePath,
+		SubjectStringLiteral,
+		SubjectNumeric,
+		SubjectEnumValue,
+		SubjectStructField,
+		SubjectInterface,
+		SubjectGeneric,
+	}
+}
+
+// IsValid returns true when k is one of the declared constants.
+// SubjectUnknown is treated as valid because the zero value is the
+// explicit "no classification yet" state.
+func (k AnswerSubjectKind) IsValid() bool {
+	for _, declared := range AllAnswerSubjectKinds() {
+		if k == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// AnswerSubject is the classifier the analyzer attaches to each
+// RequestModel. EntityAxes captures the relational structure of
+// the question (e.g. ["agent → skill"] for "what skill does the
+// explorer agent use"); the chain ranker uses both Kind and
+// EntityAxes to score candidate chains. Confidence is in [0, 1]
+// and reflects how sure the producer (LLM or deterministic
+// fallback) is about the classification — low-confidence
+// classifications get a softer ranker boost.
+type AnswerSubject struct {
+	Kind       AnswerSubjectKind `json:"kind"`
+	EntityAxes []string          `json:"entity_axes,omitempty"`
+	Confidence float64           `json:"confidence,omitempty"`
 }
 
 // AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto

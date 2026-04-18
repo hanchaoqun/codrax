@@ -11,6 +11,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/budget"
 	"github.com/hanchaoqun/codrax/internal/analysis/compiler"
 	"github.com/hanchaoqun/codrax/internal/analysis/counterfactual"
+	"github.com/hanchaoqun/codrax/internal/analysis/findings_validator"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
@@ -324,6 +325,35 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 	out := &StageOutput{Data: raw, AnalysisIR: ir}
 
+	// CGEC P4: validate the analyzer's free-form narrative for
+	// hallucinated paths / symbols before it travels downstream as
+	// the "Prior Stage Findings" section. Misses get strikethrough +
+	// "未验证" / "unverified" annotations so the extractor and
+	// finalizer cannot bake hallucinated artefacts into the answer.
+	// Verified findings record into MutableState.EvidenceClosure
+	// for cross-stage observability.
+	if lastContent != "" {
+		var graph *repomap.Graph
+		if ctx != nil && ctx.Mutable != nil {
+			if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok {
+				graph = g
+			}
+		}
+		var repoRoot string
+		if ctx != nil {
+			repoRoot = ctx.RepoRoot
+		}
+		validation := findings_validator.Validate(lastContent, repoRoot, graph)
+		out.StageReport = validation.Annotated
+		if len(validation.Unverified) > 0 && ctx != nil && ctx.Mutable != nil {
+			closure := ctx.Mutable.EvidenceClosure()
+			for _, u := range validation.Unverified {
+				closure.AppendUnverifiedFinding(u)
+			}
+			logging.Warning("[analyzer] findings validator flagged %d unverified token(s)", len(validation.Unverified))
+		}
+	}
+
 	// Quality gate enforcement. All checks except
 	// pending_fields_wellformed are classified hard — any hard
 	// failure yields an Error that makes runAnalyzePhase retry.
@@ -518,6 +548,20 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// off this single flag. Keeps "one signal, one response"
 		// grep-able.
 		isMeasurementScalar = isMeasurementScalarRequest(rm, rawForComplexity)
+
+		// CGEC: AnswerSubject inference. Classifies what kind of
+		// source-code literal the answer should be (skill_name,
+		// agent_name, config_key, ...). Honours an LLM-supplied
+		// AnswerSubject when present; otherwise applies the cue table
+		// in analyzer_intent.go::inferAnswerSubject. The chain ranker
+		// uses the resolved subject to demote chains whose terminal
+		// is the wrong kind, and reconcileShape (post-compile)
+		// consults it to swap config_value→value for source-code
+		// literals that have no YAML key surface.
+		if subject, reason := inferAnswerSubject(rm, rawForComplexity); subject.Kind != types.SubjectUnknown {
+			logSubjectInferred(subject, reason)
+			rm.AnswerSubject = subject
+		}
 		// Merge sub-topic entities into main entity list.
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
 		for _, e := range rm.AnalyzerHints.Entities {
@@ -637,6 +681,33 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		out.AnswerContract.AcceptanceTests = dropCitationCountGE(out.AnswerContract.AcceptanceTests)
 		for i := range out.TaskGraph.Nodes {
 			out.TaskGraph.Nodes[i].SuccessCriteria = dropCitationCountGE(out.TaskGraph.Nodes[i].SuccessCriteria)
+		}
+	}
+
+	// CGEC: shape reconcile. After the measurement-scalar carve-out
+	// has had its say, swap ShapeConfigValue → ShapeValue for answer
+	// subjects whose literal lives in source code rather than a YAML
+	// config (skill names, agent names, function names, type names,
+	// handler routes, return values). This catches the bug where the
+	// LLM picked config_value for a Go map-literal answer; the
+	// finalizer would otherwise be forced to invent a fake key like
+	// "explorerAgent.defaultSkill" to satisfy the schema, which the
+	// contract checker then rejects.
+	//
+	// Runs AFTER measurement-scalar so the measurement carve-out
+	// (which sets ShapeValue + strips citation gates) is not undone
+	// by reconcile picking a different shape; the two rules are
+	// disjoint in practice (measurement requires count-verb prefix;
+	// reconcile requires source-code-literal subject).
+	if reconciled, reason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject); reconciled != out.AnswerContract.RequiredAnswerShape {
+		logShapeReconciled(out.AnswerContract.RequiredAnswerShape, reconciled, reason)
+		out.AnswerContract.RequiredAnswerShape = reconciled
+		// Also align the AnalyzerHints surface so downstream readers
+		// (ir_accessor.irAnswerShape, answer_document_evaluator,
+		// emit_answer_document shape auto-correct) see the
+		// reconciled shape.
+		if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeConfigValue {
+			rm.AnalyzerHints.Shape = string(reconciled)
 		}
 	}
 

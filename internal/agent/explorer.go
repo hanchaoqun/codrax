@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
+	"github.com/hanchaoqun/codrax/internal/analysis/subject"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -48,6 +49,16 @@ type explorerEvaluator struct {
 	primaryReadIter           int                   // df3-drift: iter at which a primary-entity file first entered readSet (0 = never)
 	notesLenAtPrimaryRead     int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
 	investigationComplete     bool                  // set when emit_investigation_complete tool was observed in MidLoop
+
+	// answerSubject is the AnswerSubject classification copied from
+	// the analyzer's IR at BuildInitialInstruction time. The chain
+	// ranker consults it to score chain terminals against the
+	// expected subject kind so chains whose terminal is a different
+	// kind of token (e.g. an agent name when the question asks for a
+	// skill name) are demoted below subject-matching chains. Zero
+	// value (Kind=SubjectUnknown) preserves historical insertion
+	// ordering for tests / sub-agents that bypass the analyzer.
+	answerSubject types.AnswerSubject
 
 	// Loop-control state that USED to live here has been lifted into
 	// LoopPolicy:
@@ -121,6 +132,15 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	e.userQuestion = ctx.Objective
 	e.repoRoot = ctx.RepoRoot
+	// CGEC: capture the analyzer's AnswerSubject classification so
+	// the chain ranker can score chain terminals against the
+	// expected subject kind. Empty when AnalysisIR not yet available
+	// (analyzer dispatch did not run, or sub-agent context).
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			e.answerSubject = rm.AnswerSubject
+		}
+	}
 	// Strip the REPL-assembled Prior Conversation prefix before
 	// enumeration detection so that prior-turn keywords (哪些 / how
 	// many / list all / ...) do NOT falsely trip `isEnumerationQuery`
@@ -1610,7 +1630,12 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// relationships, complex conditions, cross-file reasoning).
 	var cvPreview string
 	if obs.IdleStreak >= 1 && len(e.investigationNotes) >= 2 && e.searchResult != nil {
-		cvPreview = e.getConcreteValuesCached(e.repoRoot, readSet).markdown
+		// CGEC: closure=nil for the soft-stop preview path. Preview is
+		// shown as a hint to the LLM about what the deterministic
+		// scanner already knows; it is NOT a citation source. The
+		// canonical evidence channels at the ParseOutput call sites
+		// below pass closure so promotion fires there.
+		cvPreview = e.getConcreteValuesCached(e.repoRoot, readSet, nil).markdown
 	}
 
 	// Show remaining coverage for grep-discovered files.
@@ -1788,7 +1813,17 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// synthesis-LLM removal (2026-04-16) this merge lived inside
 	// SynthesisPrompt; now ParseOutput is the sole owner.
 	_, cvReadSet := extractFileCoverage(toolResults)
-	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, cvReadSet)
+	// CGEC: pass the per-Run EvidenceClosure so the chain promotion
+	// enforcer can demote chains anchored outside ReadSet and queue
+	// the missing files as PendingReads on the closure. Update the
+	// closure's ReadSet snapshot first so any other CGEC consumer
+	// (pre-complete check, stall detector) sees the latest view.
+	var cvClosure *types.EvidenceClosure
+	if ctx.Mutable != nil {
+		cvClosure = ctx.Mutable.EvidenceClosure()
+		cvClosure.SetReadSet(cvReadSet)
+	}
+	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, cvReadSet, cvClosure)
 	if len(cvResult.evidence) > 0 {
 		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)
 	}
@@ -2159,7 +2194,11 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 	// structuredEvidence.
 	var mechEvidence []types.EvidenceItem
 	if len(e.ermRequirements) > 0 {
-		cv := e.getConcreteValuesCached(ctx.RepoRoot, readSet)
+		var ermClosure *types.EvidenceClosure
+		if ctx.Mutable != nil {
+			ermClosure = ctx.Mutable.EvidenceClosure()
+		}
+		cv := e.getConcreteValuesCached(ctx.RepoRoot, readSet, ermClosure)
 		// T2.2: produce structured EvidenceMechanism items for ERM
 		// mechanism requirements. No-op for non-mechanism questions.
 		mechEvidence = scanMechanismEvidence(e.ermRequirements, e.searchResult.Graph, ctx.RepoRoot)
@@ -2502,9 +2541,34 @@ func (e *explorerEvaluator) buildCrossReferenceMap() string {
 // made explicit (e.g., RegisterX binds NewFoo → Foo.Name returns "bar").
 // concreteValuesResult holds both the markdown for synthesis prompt and
 // structured evidence items for downstream stages.
+//
+// chainAnchors is the CGEC parallel array — one entry per chain in
+// the order chains were built, listing the source-file anchors each
+// chain depends on. The chain promotion helper consults this when
+// closure is non-nil to demote chains anchored outside Turn A's
+// ReadSet, so they cannot leak into the prompt as suggestions the
+// LLM would have to cite at unread file:line coordinates.
 type concreteValuesResult struct {
-	markdown string
-	evidence []types.EvidenceItem
+	markdown     string
+	evidence     []types.EvidenceItem
+	chainAnchors []chainAnchorInfo
+}
+
+// chainAnchorInfo records which source files a Resolution Chain or
+// dataflow_path EvidenceItem rests on. Used by the chain promotion
+// helper to enforce CGEC invariant I1 (every file:line surfaced in a
+// downstream prompt must be in ReadSet). When promotion fires, the
+// file paths in Files are appended to MutableState.EvidenceClosure
+// .pendingReads so the next explore round's retry hint surfaces them
+// as a "Forced Read List".
+//
+// Summary mirrors the chain markdown line / EvidenceItem.Summary so
+// callers can match an anchor entry back to the chain it describes
+// without re-parsing the rendered text.
+type chainAnchorInfo struct {
+	Summary string
+	Files   []string
+	Origin  string // "concrete_values_tracer", "bridge_literal", "hierarchy"
 }
 
 // getConcreteValuesCached builds concrete values once per Execute and
@@ -2512,13 +2576,170 @@ type concreteValuesResult struct {
 // the SynthesisPrompt section. Subsequent calls return the cached value
 // regardless of readSet drift; this is safe because both call sites run
 // near the end of the loop with effectively the same toolResults.
-func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map[string]bool) concreteValuesResult {
-	if e.cachedConcreteValues != nil {
+//
+// closure (CGEC) is optional. When non-nil the cached unfiltered
+// result is run through applyChainPromotion: chains anchored outside
+// ReadSet are stripped from the markdown and from the dataflow_path
+// evidence items, and the missing anchor files are appended to
+// closure.PendingReads. The cache itself stores the unfiltered
+// version because closure state mutates over the explore loop and
+// freezing a closure-aware snapshot would serve stale filters to a
+// later caller.
+//
+// subject (CGEC C2) is the answer-subject classification produced by
+// the analyzer. When non-Unknown the chain ranker scores each chain
+// terminal against the expected subject kind and re-orders chains so
+// the most subject-relevant ones win the chainCap slot. Zero value
+// (SubjectUnknown) preserves the historical insertion-order ranking.
+// Subject is constant for the Run, so caching on (repoRoot, readSet)
+// alone is sound.
+func (e *explorerEvaluator) getConcreteValuesCached(repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+	if e.cachedConcreteValues == nil {
+		r := e.buildConcreteValuesSection(repoRoot, readSet)
+		e.cachedConcreteValues = &r
+	}
+	if closure == nil {
 		return *e.cachedConcreteValues
 	}
-	r := e.buildConcreteValuesSection(repoRoot, readSet)
-	e.cachedConcreteValues = &r
-	return r
+	return applyChainPromotion(*e.cachedConcreteValues, readSet, closure)
+}
+
+// applyChainPromotion is the CGEC chain-promotion enforcer. Given an
+// unfiltered concreteValuesResult and a snapshot of Turn A's
+// ReadSet, it returns a new result whose markdown's "### Resolution
+// Chains" section drops any chain anchored outside ReadSet, whose
+// evidence slice drops dataflow_path EvidenceItems with Source
+// outside ReadSet, and which records every missing anchor file as a
+// PendingRead on the closure (so the next explore round's retry
+// hint surfaces them via the structured RepairReadFile directive).
+//
+// Pure of side effects on the input — the input result is shared
+// from the cache and must remain unfiltered.
+//
+// Why filter both markdown and evidence: the markdown chains land
+// in the explorer's synthesis prompt section, so an unread-anchor
+// chain can mislead the explorer LLM directly. The dataflow_path
+// EvidenceItems land in TurnAArtifacts and the extractor / finalizer
+// prompt, so an unread-anchor item can mislead Turn B. Both render
+// paths must be cleaned for the invariant to hold.
+func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
+	if closure == nil || len(in.chainAnchors) == 0 {
+		return in
+	}
+	keptSummaries := make(map[string]bool, len(in.chainAnchors))
+	demotedSummaries := make(map[string]bool, len(in.chainAnchors))
+	for _, anchor := range in.chainAnchors {
+		allRead := true
+		for _, f := range anchor.Files {
+			if !readSet[f] {
+				allRead = false
+			}
+		}
+		if allRead {
+			keptSummaries[anchor.Summary] = true
+			continue
+		}
+		demotedSummaries[anchor.Summary] = true
+		// Append PendingRead for every anchor file the closure has
+		// not seen. Origin tags the source so the operator can grep
+		// the trace for which enforcer raised the read.
+		for _, f := range anchor.Files {
+			if readSet[f] {
+				continue
+			}
+			closure.AddPendingRead(types.PendingRead{
+				File:      f,
+				Rationale: "Resolution Chain anchors here but file is outside Turn A ReadSet — read it before next emit_investigation_complete",
+				Origin:    "chain_promotion." + anchor.Origin,
+			})
+		}
+	}
+	if len(demotedSummaries) == 0 {
+		// All chains kept — fast path returns the unmodified input.
+		return in
+	}
+
+	// Filter the markdown's "### Resolution Chains" section. Chains
+	// in that section are bullet lines `- summary`; we drop the line
+	// when the trailing summary is in demotedSummaries.
+	out := in
+	out.markdown = filterResolutionChainSection(in.markdown, demotedSummaries)
+
+	// Filter dataflow_path evidence items. Match on Subject (the
+	// chain summary) so per-file tracer items (no Source) are also
+	// caught. Items whose summary is neither in keep nor demote
+	// (e.g. items added by other producers we did not track) are
+	// kept conservatively.
+	if len(in.evidence) > 0 {
+		filtered := make([]types.EvidenceItem, 0, len(in.evidence))
+		dropped := 0
+		for _, it := range in.evidence {
+			if it.Kind == types.EvidenceDataflowPath && it.Predicate == "resolution_chain" {
+				if demotedSummaries[it.Subject] || demotedSummaries[it.Summary] {
+					dropped++
+					continue
+				}
+			}
+			filtered = append(filtered, it)
+		}
+		if dropped > 0 {
+			logging.Debug("[explorer] chain promotion: dropped %d dataflow_path items anchored outside ReadSet", dropped)
+		}
+		out.evidence = filtered
+	}
+	logging.Debug("[explorer] chain promotion: kept %d / demoted %d chains; pending reads queued",
+		len(keptSummaries), len(demotedSummaries))
+	return out
+}
+
+// filterResolutionChainSection rewrites the "### Resolution Chains"
+// section of a concrete-values markdown blob, dropping any bullet
+// line whose body equals one of the demoted chain summaries. Other
+// sections are left untouched.
+//
+// The chain bullets have shape `- <summary>\n` where summary is the
+// raw chain text the producer appended at line 3148. We match on the
+// trailing-newline + leading "- " pair so partial substring matches
+// inside other sections cannot accidentally be filtered.
+func filterResolutionChainSection(md string, demoted map[string]bool) string {
+	const header = "### Resolution Chains\n"
+	headerIdx := strings.Index(md, header)
+	if headerIdx < 0 {
+		return md // section not present, nothing to filter
+	}
+	before := md[:headerIdx+len(header)]
+	rest := md[headerIdx+len(header):]
+	// Section ends at the next "### " header or end-of-string.
+	endIdx := strings.Index(rest, "\n### ")
+	var sectionBody, after string
+	if endIdx < 0 {
+		sectionBody = rest
+		after = ""
+	} else {
+		sectionBody = rest[:endIdx]
+		after = rest[endIdx:]
+	}
+	var b strings.Builder
+	b.WriteString(before)
+	for _, line := range strings.Split(sectionBody, "\n") {
+		if strings.HasPrefix(line, "- ") {
+			summary := strings.TrimPrefix(line, "- ")
+			if demoted[summary] {
+				continue
+			}
+		}
+		b.WriteString(line)
+		b.WriteString("\n")
+	}
+	// strings.Split + Join with "\n" + manual final WriteString
+	// double-counts the trailing newline; trim one back to keep the
+	// section spacing identical to the unfiltered path.
+	out := b.String()
+	if strings.HasSuffix(out, "\n\n") {
+		out = out[:len(out)-1]
+	}
+	out += after
+	return out
 }
 
 func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool) concreteValuesResult {
@@ -3085,6 +3306,11 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// → SubExplorer.Name returns explorer" are discovered even when
 	// SubExplorer.Name is outside the top-25 markdown cap.
 	var chains []string
+	// chainAnchors is the CGEC parallel array — for each chain
+	// summary appended to chains we append the (v.file, rv.file)
+	// pair so the promotion pass can drop chains anchored outside
+	// Turn A's ReadSet without re-deriving the source attribution.
+	var chainAnchors []chainAnchorInfo
 	for _, v := range allRelevantForEvidence {
 		// Skip values that don't reference other types.
 		if v.kind != "returns" && !strings.Contains(v.kind, "binds") && v.kind != "maps" && v.kind != "config" && v.kind != "decorates" {
@@ -3111,10 +3337,16 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				continue
 			}
 			if containsIdentifier(v.value, rv.receiver) {
-				chains = append(chains, fmt.Sprintf(
+				summary := fmt.Sprintf(
 					"`%s()` %s %s → `%s()` %s %s",
 					v.method, v.kind, v.value,
-					rv.method, rv.kind, rv.value))
+					rv.method, rv.kind, rv.value)
+				chains = append(chains, summary)
+				chainAnchors = append(chainAnchors, chainAnchorInfo{
+					Summary: summary,
+					Files:   dedupeAnchorFiles(v.file, rv.file),
+					Origin:  "concrete_values_tracer",
+				})
 			}
 		}
 	}
@@ -3125,6 +3357,20 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		logging.Debug("[explorer]   chain[%02d] %s", i, c)
 	}
+	// CGEC C2: subject-aware chain ranking. Reorder `chains` (and
+	// the parallel `chainAnchors`) by adjusted score:
+	//
+	//     adjusted = baseRank * (1 + α * subject.Score(terminal, expectedKind, graph))
+	//     α = 2.0
+	//
+	// `baseRank` is the chain's reverse-insertion-order rank (later
+	// chains have larger raw rank), so a chain that the producer
+	// emitted later but whose terminal matches the expected subject
+	// kind can leapfrog earlier subject-mismatch chains. When
+	// e.answerSubject.Kind is SubjectUnknown the score is zero for
+	// every chain → adjusted ordering equals insertion order, and
+	// the cap below behaves identically to the pre-CGEC behavior.
+	chains, chainAnchors = rankChainsBySubject(chains, chainAnchors, e.answerSubject, graph)
 	// Save the full chain list for evidence generation BEFORE capping.
 	// The cap controls the synthesis markdown table size; the evidence
 	// pipeline (StageOutput → finalizer) has its own ranking/top-K and
@@ -3308,6 +3554,19 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	bridgeItems := extractBridgeLiteralChains(graph, repoRoot, allRelevantForEvidence)
 	if len(bridgeItems) > 0 {
 		logging.Debug("[explorer] bridge literal chains: %d items", len(bridgeItems))
+		// CGEC: record per-item anchor file so the promotion helper
+		// can demote bridge-literal chains anchored outside ReadSet
+		// the same way it handles per-file tracer chains.
+		for _, it := range bridgeItems {
+			if it.Source == "" {
+				continue
+			}
+			chainAnchors = append(chainAnchors, chainAnchorInfo{
+				Summary: it.Summary,
+				Files:   []string{it.Source},
+				Origin:  "bridge_literal",
+			})
+		}
 		cvEvidence = append(cvEvidence, bridgeItems...)
 	}
 
@@ -3324,7 +3583,105 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// receiver qualifiers and Source/LineStart locators.
 	cvEvidence = dedupeResolutionChains(cvEvidence)
 
-	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence}
+	return concreteValuesResult{markdown: b.String(), evidence: cvEvidence, chainAnchors: chainAnchors}
+}
+
+// rankChainsBySubject is the CGEC C2 chain ranker. Given the raw
+// chain list (insertion order) and its parallel chainAnchors slice,
+// it returns both reordered so chains whose terminal token matches
+// the expected AnswerSubject.Kind win the chainCap slots in the
+// markdown table.
+//
+// Scoring formula:
+//
+//	subjectMatch = subject.Score(ChainTerminalToken(chain), kind, graph)  // [0, 1]
+//	baseRank     = N - i                                                  // 1..N, later → smaller
+//	adjusted     = baseRank * (1 + α * subjectMatch)                      // α = 2.0
+//
+// Chains are sorted by `adjusted` descending; ties broken by
+// original insertion order so the function is stable. When
+// expected.Kind is SubjectUnknown, subjectMatch is zero for every
+// chain and the relative order is preserved.
+//
+// Side effect: writes the per-chain score into the closure's
+// SubjectMatches map (via the closure passed implicitly through the
+// later applyChainPromotion call) — cached for downstream consumers
+// without having to recompute.
+func rankChainsBySubject(chains []string, anchors []chainAnchorInfo, expected types.AnswerSubject, graph *repomap.Graph) ([]string, []chainAnchorInfo) {
+	if len(chains) <= 1 || expected.Kind == types.SubjectUnknown {
+		return chains, anchors
+	}
+	const alpha = 2.0
+	type ranked struct {
+		summary  string
+		anchor   chainAnchorInfo
+		adjusted float64
+		origIdx  int
+	}
+	rs := make([]ranked, len(chains))
+	for i, c := range chains {
+		var anchor chainAnchorInfo
+		if i < len(anchors) {
+			anchor = anchors[i]
+		}
+		terminal := subject.ChainTerminalToken(c)
+		match := subject.Score(terminal, expected.Kind, graph)
+		baseRank := float64(len(chains) - i)
+		rs[i] = ranked{
+			summary:  c,
+			anchor:   anchor,
+			adjusted: baseRank * (1.0 + alpha*match),
+			origIdx:  i,
+		}
+	}
+	// Stable sort by adjusted desc; insertion order on ties.
+	sort.SliceStable(rs, func(a, b int) bool {
+		if rs[a].adjusted != rs[b].adjusted {
+			return rs[a].adjusted > rs[b].adjusted
+		}
+		return rs[a].origIdx < rs[b].origIdx
+	})
+	outChains := make([]string, len(rs))
+	outAnchors := make([]chainAnchorInfo, len(rs))
+	for i, r := range rs {
+		outChains[i] = r.summary
+		outAnchors[i] = r.anchor
+	}
+	logging.Debug("[explorer] subject-aware ranking: kind=%s reordered %d chains (top: %q)",
+		expected.Kind, len(outChains), firstChainPreview(outChains))
+	return outChains, outAnchors
+}
+
+// firstChainPreview returns a short prefix of the first chain (or
+// empty string), used in debug logs without dumping the full text.
+func firstChainPreview(chains []string) string {
+	if len(chains) == 0 {
+		return ""
+	}
+	c := chains[0]
+	if len(c) > 80 {
+		return c[:77] + "..."
+	}
+	return c
+}
+
+// dedupeAnchorFiles returns the unique non-empty entries in the
+// supplied file paths, preserving first-seen order. Used by
+// chainAnchorInfo construction so a chain that mentions the same
+// file twice (when v.file == rv.file) doesn't double-count for the
+// chain promotion check.
+func dedupeAnchorFiles(files ...string) []string {
+	seen := make(map[string]bool, len(files))
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		f = strings.TrimSpace(f)
+		if f == "" || seen[f] {
+			continue
+		}
+		seen[f] = true
+		out = append(out, f)
+	}
+	return out
 }
 
 // normalizeChainKey extracts a semantic identity for a resolution

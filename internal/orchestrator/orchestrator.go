@@ -324,6 +324,12 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		// reset it alongside the extractor buffers so a multi-task run
 		// cannot drag a stale document from task N into task N+1.
 		o.busCtx.Mutable.ResetAnswerDocument()
+		// CGEC: per-task reset of the EvidenceClosure (PendingReads,
+		// CitedRefs, Fingerprints, Repairs queue). Mirrors the other
+		// per-task resets above; without this a stall fingerprint
+		// from task N would carry into task N+1 and trigger a false
+		// hard-stall on the very first round.
+		o.busCtx.Mutable.ResetEvidenceClosure()
 	}
 	// AnswerSymbolCompleteness is a BusContext field, not a
 	// MutableState field — reset it here too so the applyStageOutput
@@ -400,7 +406,15 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		fin := state.firstFinalizeReadyMerged()
 
 		if len(window) > 0 {
-			hint := renderWindowHint(window, blocked, pendingValidationTargets, resolveSurface, pendingViolation)
+			// CGEC D2: drain pending RepairDirectives from the
+			// closure so each fires exactly once. ConsumeRepairs is
+			// atomic — it returns the queue and clears the field in
+			// one step.
+			var pendingRepairs []types.RepairDirective
+			if o.busCtx.Mutable != nil {
+				pendingRepairs = o.busCtx.Mutable.EvidenceClosure().ConsumeRepairs()
+			}
+			hint := renderWindowHint(window, blocked, pendingValidationTargets, resolveSurface, pendingViolation, pendingRepairs)
 			pendingViolation = ""
 			pendingValidationTargets = nil
 			o.applyWindowHint(hint)
@@ -511,6 +525,22 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				// an LLM call. The full extract dispatch (with LLM)
 				// runs once just before finalize.
 				o.runAutoVerdicts()
+
+				// CGEC E2 + I4: after each explore round, check for
+				// pending forced reads (LLM skipped framework-queued
+				// files) and convergence stall (3 identical
+				// fingerprints → force-finalize). Both run silently
+				// when state is fresh; runForcedReads may inject
+				// synthesized read_file results into the dispatch
+				// buffer so the next round sees them in extractFileCoverage.
+				_ = o.runForcedReads()
+				if o.detectStallAndAct() {
+					// Hard stall — break out of the explore loop and
+					// let the finalize path run with whatever evidence
+					// was gathered.
+					state.forceCloseExploreWindow()
+					continue
+				}
 				o.drainHypothesisVerdicts()
 			}
 			continue
@@ -1259,6 +1289,18 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// directly from the StageOutput returned by dispatchStage and
 	// writes it onto the task's Result field via
 	// Mutable.UpdateTaskResult.
+
+	// Drain CGEC RepairDirectives into the per-Run EvidenceClosure.
+	// Each enforcer (citation grounder, pre-complete check, stall
+	// detector) attaches its repairs to the StageOutput; the closure
+	// queues them until the next renderWindowHint pass consumes
+	// them. De-dup is enforced inside AddRepair.
+	if len(output.Repairs) > 0 && o.busCtx.Mutable != nil {
+		closure := o.busCtx.Mutable.EvidenceClosure()
+		for _, r := range output.Repairs {
+			closure.AddRepair(r)
+		}
+	}
 
 	// Update missing piece
 	o.busCtx.TaskState.Missing = output.MissingPiece

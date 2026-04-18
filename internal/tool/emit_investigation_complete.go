@@ -171,6 +171,33 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		}
 	}
 
+	// CGEC E1: pre-complete contract simulation. Before flipping the
+	// investigationComplete flag, simulate whether the finalizer's
+	// AnswerContract would actually pass on the current evidence +
+	// ReadSet snapshot. The two cheap predictive checks:
+	//
+	//   (a) PendingReads non-empty — the chain promotion enforcer
+	//       or a previous emit_answer_document grounder reject
+	//       queued forced reads. Completing now means the LLM
+	//       skipped them; force a downgrade.
+	//
+	//   (b) Cite-eligible evidence count below the analyzer's
+	//       MinCitations floor — the LLM hasn't gathered enough
+	//       file:line anchors to satisfy citation_count_ge.
+	//
+	// Either failure causes the tool to return a downgraded result
+	// (Success=true so the LLM sees the explanation but does NOT
+	// flip investigationComplete). The explorer's ShouldStop sees
+	// the flag still false and continues the loop.
+	if downgrade := preCompleteContractCheck(ctx, justification); downgrade != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Summary:   downgrade,
+			Success:   true, // soft signal so the loop continues without surfacing a tool error
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	ctx.Mutable.SetInvestigationComplete(reason)
 	summary := fmt.Sprintf("Investigation marked complete (confidence=%s): %s", conf, reason)
 	if justification != "" {
@@ -184,6 +211,91 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 		Success:   true,
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// preCompleteContractCheck is the CGEC E1 simulator. Returns an
+// empty string when the LLM may proceed to mark complete, or a
+// human-readable downgrade message describing exactly what is
+// missing. The caller treats a non-empty return as "do NOT call
+// SetInvestigationComplete; surface this message in the tool
+// result so the LLM sees what to do next".
+//
+// Two predictive checks (cheap, framework-side, no LLM in the loop):
+//
+//	(a) PendingReads — files queued by chain promotion or a previous
+//	    finalizer grounder reject. If any are still outstanding the
+//	    next finalize attempt will hit the same citation drop again.
+//
+//	(b) Citation-floor preflight — when AnswerContract.CitationReq.
+//	    Required is true, the evidence buffer must contain at least
+//	    one cite-eligible item whose Source is also in ReadSet.
+//	    Else citation_count_ge will fail.
+//
+// Absence-justified investigations (justification non-empty) are
+// exempted from check (b): the absence carve-out already waives
+// MinCitations, and the LLM has explicitly told the system it cannot
+// cite anything.
+func preCompleteContractCheck(ctx *types.BusContext, justification string) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	pending := closure.PendingReads()
+
+	// Check (a): forced reads still outstanding.
+	if len(pending) > 0 {
+		var b strings.Builder
+		b.WriteString("emit_investigation_complete DOWNGRADED — pending forced reads block the closure.\n\n")
+		b.WriteString("The framework queued the following files (because chains anchored here or previous citations dropped) and the LLM has not read them yet:\n")
+		max := 6
+		for i, p := range pending {
+			if i >= max {
+				fmt.Fprintf(&b, "  ... and %d more\n", len(pending)-max)
+				break
+			}
+			fmt.Fprintf(&b, "  - %s — %s\n", p.File, p.Rationale)
+		}
+		b.WriteString("\nRead these files via read_file and then re-call emit_investigation_complete. Marking complete now will drop every chain anchored in them.")
+		return b.String()
+	}
+
+	// Check (b): citation-floor preflight. Requires AnalysisIR.
+	if justification != "" {
+		// Absence answer waives the floor by contract; bypass.
+		return ""
+	}
+	ir := ctx.AnalysisIR
+	if ir == nil {
+		return ""
+	}
+	if !ir.AnswerContract.CitationReq.Required {
+		return ""
+	}
+	min := ir.AnswerContract.CitationReq.MinCitations
+	if min <= 0 {
+		min = 1
+	}
+	readSet := closure.ReadSet()
+	evidence := ctx.Mutable.EmittedEvidence()
+	eligible := 0
+	for _, e := range evidence {
+		if e.Source == "" || e.LineStart <= 0 {
+			continue
+		}
+		if len(readSet) > 0 && !readSet[e.Source] {
+			continue
+		}
+		eligible++
+	}
+	if eligible >= min {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("emit_investigation_complete DOWNGRADED — pre-complete citation preflight failed.\n\n")
+	fmt.Fprintf(&b, "The AnswerContract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in Turn A ReadSet).\n",
+		min, eligible)
+	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files Turn A actually read, or read additional files first.")
+	return b.String()
 }
 
 // evidenceTally breaks an evidence slice into grounding-status

@@ -238,6 +238,37 @@
 # explore_per_tool_default_cap: 0
 
 # ---------------------------------------------------------------------------
+# CGEC — Citation-Grounded Evidence Closure (cgec_*)
+# ---------------------------------------------------------------------------
+# CGEC is the cross-stage closure tracker that enforces four
+# invariants between the chain producer, the citation grounder, the
+# completion gate, and the convergence detector. The defaults below
+# are the values the unit + e2e tests pin against.
+#
+# I1 (chain promotion) and I2 (grounder repair) have no per-deployment
+# knobs — they are always on. I3 (pre-complete check) is also always
+# on. Only I4 (Lazy Auto-Read + convergence detector) is tunable.
+
+# Maximum files the framework reads on the LLM's behalf per explore
+# round when chain-promotion / grounder-rejected files queue up as
+# PendingReads. Default 3. Setting 0 keeps the historical "the LLM
+# is on its own" behavior; setting too high can break ReAct autonomy.
+# cgec_forced_reads_per_round: 3
+
+# Convergence detector soft threshold. After this many consecutive
+# explore rounds with identical (ReadSet, EvidenceCount, ChainTermSet)
+# fingerprints, the orchestrator will trigger Lazy Auto-Read to try
+# to break the stall. Default 2.
+# cgec_stall_threshold_soft: 2
+
+# Convergence detector hard threshold. After this many consecutive
+# identical fingerprints AND no force-read fired, the orchestrator
+# force-completes the investigation so the finalizer can ship a
+# best-effort answer instead of looping until budget exhaustion.
+# Default 3 (must be >= cgec_stall_threshold_soft).
+# cgec_stall_threshold_hard: 3
+
+# ---------------------------------------------------------------------------
 # Agent limits (agent_*)
 # ---------------------------------------------------------------------------
 # Per-agent behavioral limits: iteration caps, tool-history budget,

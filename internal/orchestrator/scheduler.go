@@ -242,15 +242,19 @@ func stageMapping(g types.TaskGraph, n *types.TaskNode, writing bool) (types.Pip
 // explorer dispatch. window is the set of nodes being dispatched;
 // blocks is the set of nodes stalled at EntryConditions; validationTargets
 // is the list of nodes requeued by a validation_feedback edge; prevViolation
-// is the contract checker's diagnosis from a previously-failed finalize.
+// is the contract checker's diagnosis from a previously-failed finalize;
+// repairs is the structured CGEC RepairDirective queue drained from
+// MutableState.EvidenceClosure (each directive renders its own retry-
+// hint section via RepairDirective.Render).
 func renderWindowHint(
 	window []*types.TaskNode,
 	blocks []nodeBlock,
 	validationTargets []string,
 	termSurface func(string) string,
 	prevViolation string,
+	repairs []types.RepairDirective,
 ) string {
-	if len(window) == 0 && len(blocks) == 0 && len(validationTargets) == 0 && prevViolation == "" {
+	if len(window) == 0 && len(blocks) == 0 && len(validationTargets) == 0 && prevViolation == "" && len(repairs) == 0 {
 		return ""
 	}
 	var b strings.Builder
@@ -259,6 +263,22 @@ func renderWindowHint(
 		b.WriteString("The previous final answer failed the answer-shape contract:\n\n")
 		b.WriteString("  " + prevViolation + "\n\n")
 		b.WriteString("Re-run the investigation focused on closing this gap.\n\n")
+	}
+
+	// CGEC D2: structured RepairDirective sections come BEFORE the
+	// DAG window so the LLM sees the framework's specific demands
+	// (forced reads, subject constraint, shape reconcile) before
+	// the generic objectives. De-dup happens in MergeRepairs so two
+	// enforcers raising the same directive surface only once.
+	if mergedRepairs := types.MergeRepairs(repairs); len(mergedRepairs) > 0 {
+		for _, r := range mergedRepairs {
+			rendered := r.Render()
+			if rendered == "" {
+				continue
+			}
+			b.WriteString(rendered)
+			b.WriteString("\n")
+		}
 	}
 	if len(validationTargets) > 0 {
 		b.WriteString("Validation rejected the previous verdicts. Re-run ONLY these upstream evidence nodes: ")

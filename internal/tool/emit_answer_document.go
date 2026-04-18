@@ -393,7 +393,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// both indexed, LLM picked wrong. Whitelist rejects this at the
 	// earliest point. Empty/nil set = skip (sub-agent / test paths).
 	readFiles := turnAReadFileSet(ctx)
-	citations, citationRemap, citationWarnings, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx, readFiles)
+	citations, citationRemap, citationWarnings, citationRepairs, cerr := buildEmitAnswerDocumentCitations(p.Citations, workDir, groundCtx, readFiles)
 	if cerr != nil {
 		return failEmit(t.Name(), now, "%v", cerr)
 	}
@@ -401,6 +401,27 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	numCites := len(citations)
 	if dropped := countDroppedCitations(citationRemap); dropped > 0 || len(citationWarnings) > 0 {
 		logging.Warning("[emit_answer_document] citation grounding: kept=%d dropped=%d warnings=%d", numCites, dropped, len(citationWarnings))
+	}
+	// CGEC D1: push the per-citation RepairDirectives onto the
+	// closure so the orchestrator's renderWindowHint can drain them
+	// into the next explore round's Forced Read List. AddRepair is
+	// dedup-safe so repeated drops of the same file collapse into
+	// one directive.
+	if len(citationRepairs) > 0 && ctx.Mutable != nil {
+		closure := ctx.Mutable.EvidenceClosure()
+		for _, r := range citationRepairs {
+			closure.AddRepair(r)
+		}
+	}
+	// CGEC C5: record every kept citation onto the closure's
+	// CitedRefs map so the convergence detector and pre-complete
+	// check can read the per-Run citation pool without re-walking
+	// the AnswerDocument.
+	if numCites > 0 && ctx.Mutable != nil {
+		closure := ctx.Mutable.EvidenceClosure()
+		for _, c := range citations {
+			closure.RecordCitation(c.File, c.Line)
+		}
 	}
 
 	// Fix α (trace 1776450670620195562): failure paths must surface
@@ -799,9 +820,15 @@ func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int)
 //            line <= 0, quote too long, blob-leak) that should
 //            reject the whole call; grounding failures never return
 //            err — they are surfaced via drop/clear + warnings.
-func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *ground.Context, readFiles map[string]bool) ([]types.Citation, []int, []string, error) {
+// buildEmitAnswerDocumentCitations now also returns a slice of
+// CGEC RepairDirective values the caller pushes onto the per-Run
+// EvidenceClosure. One RepairReadFile entry is generated per
+// citation dropped by the Turn-A ReadSet whitelist; the orchestrator
+// then surfaces those to the next explore-window prompt as a Forced
+// Read List so the LLM stops re-citing the same unread files.
+func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *ground.Context, readFiles map[string]bool) ([]types.Citation, []int, []string, []types.RepairDirective, error) {
 	if len(in) == 0 {
-		return nil, nil, nil, nil
+		return nil, nil, nil, nil, nil
 	}
 	// Two-pass pipeline. Pass 1 validates structurally and grounds
 	// each citation, recording the tier that accepted it and whether
@@ -829,6 +856,7 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 	scratch := make([]perCitation, len(in))
 	var anyRealTier bool // did any citation get a non-empty Tier? false in no-context test mode.
 	var warnings []string
+	var repairs []types.RepairDirective
 	// Precompute allowed-path hint once — rendered into every
 	// whitelist rejection warning. Keeps the LLM from having to
 	// reconstruct the set from scattered prompt sections.
@@ -850,13 +878,13 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 		c := in[i]
 		c.File = strings.TrimSpace(c.File)
 		if c.File == "" {
-			return nil, nil, nil, fmt.Errorf("citations[%d]: file is required", i)
+			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: file is required", i)
 		}
 		if !emitLooksLikePath(c.File) {
-			return nil, nil, nil, fmt.Errorf("citations[%d]: file %q does not look like a repo-relative file path", i, c.File)
+			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: file %q does not look like a repo-relative file path", i, c.File)
 		}
 		if isInsideWorkDir(c.File, workDir) {
-			return nil, nil, nil, fmt.Errorf("citations[%d]: file %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file", i, c.File, workDir)
+			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: file %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file", i, c.File, workDir)
 		}
 		// Canonicalise to the same repo-relative form the readFiles
 		// whitelist and the grounder's LineIndex / FileIndex use. The
@@ -875,14 +903,24 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 			warnings = append(warnings,
 				fmt.Sprintf("citations[%d] dropped (%s:%d) — file not in Turn A's ReadFiles list; %s. Cite ONLY files Turn A read, or reject the answer",
 					i, c.File, c.Line, allowedHint))
+			// CGEC D1: structured RepairDirective so the orchestrator
+			// can render a Forced Read List in the next explore round.
+			// One repair per dropped file (de-dup'd downstream by
+			// EvidenceClosure.AddRepair).
+			repairs = append(repairs, types.RepairDirective{
+				Kind:      types.RepairReadFile,
+				Files:     []string{c.File},
+				Rationale: fmt.Sprintf("emit_answer_document cited %s:%d but file is not in Turn A's ReadSet — read it before next emit_investigation_complete", c.File, c.Line),
+				Origin:    "emit_answer_document.grounder",
+			})
 			continue
 		}
 		if c.Line <= 0 {
-			return nil, nil, nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
+			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
 		}
 		c.Quote = strings.TrimSpace(c.Quote)
 		if len(c.Quote) > types.CitationMaxQuoteChars {
-			return nil, nil, nil, fmt.Errorf("citations[%d]: quote length %d exceeds cap %d", i, len(c.Quote), types.CitationMaxQuoteChars)
+			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: quote length %d exceeds cap %d", i, len(c.Quote), types.CitationMaxQuoteChars)
 		}
 
 		// Grounding — pure function, never returns err.
@@ -945,7 +983,7 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 		remap[i] = len(kept)
 		kept = append(kept, p.cit)
 	}
-	return kept, remap, warnings, nil
+	return kept, remap, warnings, repairs, nil
 }
 
 // applyCitationRemap rewrites every CitationRef in p.Steps, p.Value,

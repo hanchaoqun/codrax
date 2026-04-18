@@ -129,6 +129,41 @@ var analysisAnswerShapes = []AnalysisEnumChoice{
 	{string(types.ShapeNone), "no structured shape applies"},
 }
 
+// analysisAnswerSubjects is the canonical answer_subject.kind enum.
+// Values match types.AnswerSubjectKind constants. Used by the chain
+// ranker (subject-aware scoring), shape reconciler (config_value →
+// value when subject is a source-code literal), and retry-hint
+// renderer (rebind_subject directive). Zero-value (empty string =
+// SubjectUnknown) is the explicit "I don't know" sentinel — the
+// analyzer agent SHOULD pick a kind when the question has a clear
+// answer-literal type, but missing the field is non-fatal because
+// inferAnswerSubject in analyzer_intent.go provides a deterministic
+// fallback from the cue list and question_kind enum.
+var analysisAnswerSubjects = []AnalysisEnumChoice{
+	{string(types.SubjectSkillName), "answer is a skill identifier (\"explore-skill\")"},
+	{string(types.SubjectAgentName), "answer is an agent identifier (\"explorer\", \"analyzer\")"},
+	{string(types.SubjectFunctionName), "answer is a function or method name"},
+	{string(types.SubjectTypeName), "answer is a type / struct / class / enum name"},
+	{string(types.SubjectInterface), "answer is an interface / trait name"},
+	{string(types.SubjectHandlerRoute), "answer is an HTTP route or handler path"},
+	{string(types.SubjectConfigKey), "answer is a YAML/JSON/TOML config key"},
+	{string(types.SubjectReturnValue), "answer is what a function returns (literal or symbol)"},
+	{string(types.SubjectFilePath), "answer is a repo-relative file path"},
+	{string(types.SubjectStringLiteral), "answer is a quoted string constant"},
+	{string(types.SubjectNumeric), "answer is a number / count / size"},
+	{string(types.SubjectEnumValue), "answer is an enum constant / ALL_CAPS name"},
+	{string(types.SubjectStructField), "answer is a struct/object field name"},
+	{string(types.SubjectGeneric), "answer is heterogeneous (e.g. enumeration result)"},
+	{string(types.SubjectUnknown), "no clear answer-literal kind — let the system infer"},
+}
+
+// AnalysisAnswerSubjectChoices returns the canonical answer_subject.kind enum table.
+func AnalysisAnswerSubjectChoices() []AnalysisEnumChoice { return analysisAnswerSubjects }
+
+// AnalysisAnswerSubjectValues returns the answer_subject.kind enum values
+// in canonical order. The emit_analysis JSON schema reads this slice.
+func AnalysisAnswerSubjectValues() []string { return enumValues(analysisAnswerSubjects) }
+
 // AnalysisIntentChoices returns the canonical intent enum table.
 // Callers must not mutate the returned slice.
 func AnalysisIntentChoices() []AnalysisEnumChoice { return analysisIntents }
@@ -278,6 +313,9 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("\n")
 	of.WriteString(renderEnumTable("answer_shape", analysisAnswerShapes))
 	of.WriteString("\n")
+	of.WriteString(renderEnumTable("answer_subject.kind", analysisAnswerSubjects))
+	of.WriteString("\n")
+	of.WriteString("answer_subject is OPTIONAL — it tells downstream stages WHAT KIND of source-code literal the answer should be (a skill name, an agent name, a config key, ...). When the question clearly resolves to one of the listed kinds, set kind explicitly so the chain ranker can demote chains whose terminal token is the wrong kind. When unsure, leave the field unset; the system has a deterministic fallback that infers from question_kind. entity_axes is a short array describing the relational shape (e.g. [\"agent → skill\"] for \"what skill does the explorer agent use\").\n\n")
 	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
 	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. The analyzer is the only stage that sees Prior Conversation by default; downstream stages work off the AnalysisIR you produce here, so any Prior-derived disambiguation MUST land in entities or the downstream stages will lose the subject.\n\n")
 	of.WriteString("Keyword generation — target ≥8 diverse stems. For each concept, generate multiple variants:\n")

@@ -201,6 +201,14 @@ type RuntimeSettings struct {
 	MemoryMaxInlinedTurnBytes       *int `yaml:"memory_max_inlined_turn_bytes"`
 	MemoryMaxBuildContextTotalBytes *int `yaml:"memory_max_build_context_total_bytes"`
 
+	// CGEC (Citation-Grounded Evidence Closure) tunables. All
+	// optional; nil → code default in
+	// orchestrator.cgecForcedReadsPerRound /
+	// cgecStallThresholdSoft / cgecStallThresholdHard.
+	CGECForcedReadsPerRound *int `yaml:"cgec_forced_reads_per_round"`
+	CGECStallThresholdSoft  *int `yaml:"cgec_stall_threshold_soft"`
+	CGECStallThresholdHard  *int `yaml:"cgec_stall_threshold_hard"`
+
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.
