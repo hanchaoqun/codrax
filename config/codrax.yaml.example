@@ -88,6 +88,22 @@
 # blob_preview_tail_bytes: 4096
 
 # ---------------------------------------------------------------------------
+# read_file tool
+# ---------------------------------------------------------------------------
+# On an inline-sized file (bytes <= blob_max_inline_bytes), read_file
+# treats offset=0 combined with a small limit as a "training-distribution
+# default" and expands the slice to the whole file. This protects against
+# the common LLM failure mode of picking limit=20 on a 66-line source
+# file and silently missing the answer past line 20. Any non-zero offset
+# is always honored (a deliberate keyhole read), and a Limit above the
+# threshold is always honored. Banner makes the override visible.
+#
+# Set to 0 to disable the override entirely — offset/limit is then
+# honored on any file size.
+
+# readfile_small_limit_threshold: 100
+
+# ---------------------------------------------------------------------------
 # Pipeline budgets
 # ---------------------------------------------------------------------------
 # How much work the pipeline is allowed to do per Run() call.

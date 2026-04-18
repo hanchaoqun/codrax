@@ -49,13 +49,45 @@ func TestReadFile(t *testing.T) {
 		}
 	})
 
-	t.Run("small file ignores offset and limit", func(t *testing.T) {
+	t.Run("small file offset=0 with lazy limit expands to full file", func(t *testing.T) {
 		// Regression: read_file used to honor offset/limit on tiny files,
 		// so the LLM passing limit=20 on a 66-line source file would
-		// silently miss the answer past line 20. Now small files (<=
-		// MaxInlineBytes) always return the whole content with a banner
-		// announcing the override.
+		// silently miss the answer past line 20. Offset==0 + small Limit
+		// on an inline-sized file is recognised as a training-distribution
+		// default and expanded to the whole content with an override
+		// banner.
 		tmpFile := filepath.Join(t.TempDir(), "testoffset.txt")
+		content := "line0\nline1\nline2\nline3\nline4\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: tmpFile, Offset: 0, Limit: 2})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "expanded to full file") {
+			t.Fatalf("expected override banner, got %q", result.Summary)
+		}
+		// All lines must be present, not just the sliced two.
+		for _, line := range []string{"line0", "line1", "line2", "line3", "line4"} {
+			if !strings.Contains(result.Summary, line) {
+				t.Fatalf("expected full content to contain %q, got %q", line, result.Summary)
+			}
+		}
+	})
+
+	t.Run("small file with non-zero offset honors slice", func(t *testing.T) {
+		// Non-zero Offset is a strong signal of deliberate paging — the
+		// override never fires even on a tiny file. This lets the LLM
+		// re-read a specific section after having already consumed the
+		// whole file earlier in the dispatch.
+		tmpFile := filepath.Join(t.TempDir(), "testoffset_honor.txt")
 		content := "line0\nline1\nline2\nline3\nline4\n"
 		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
 			t.Fatalf("setup: %v", err)
@@ -70,14 +102,74 @@ func TestReadFile(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("expected success, got: %s", result.Summary)
 		}
-		if !strings.Contains(result.Summary, "offset/limit ignored because the file fits inline") {
-			t.Fatalf("expected passthrough banner, got %q", result.Summary)
+		if !strings.Contains(result.Summary, "showing lines 2-3") {
+			t.Fatalf("expected sliced banner, got %q", result.Summary)
 		}
-		// All lines must be present, not just the sliced two.
-		for _, line := range []string{"line0", "line1", "line2", "line3", "line4"} {
-			if !strings.Contains(result.Summary, line) {
-				t.Fatalf("expected full content to contain %q, got %q", line, result.Summary)
-			}
+		// Must NOT contain the tail line that falls outside the slice.
+		if strings.Contains(result.Summary, "line4") {
+			t.Fatalf("expected tail to be sliced off, got %q", result.Summary)
+		}
+	})
+
+	t.Run("small file with limit above threshold honors slice", func(t *testing.T) {
+		// A Limit above ReadFileSmallLimitThreshold is a deliberate size
+		// choice (LLMs rarely pick 150/200 lazily) — override must not
+		// fire. Build a file with enough lines that Limit still cuts
+		// content.
+		var b strings.Builder
+		for i := 0; i < 300; i++ {
+			b.WriteString("line\n")
+		}
+		tmpFile := filepath.Join(t.TempDir(), "testoffset_big_limit.txt")
+		if err := os.WriteFile(tmpFile, []byte(b.String()), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		prev := ReadFileSmallLimitThreshold
+		t.Cleanup(func() { SetReadFileSmallLimitThreshold(prev) })
+		SetReadFileSmallLimitThreshold(100)
+
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: tmpFile, Offset: 0, Limit: 150})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "showing lines 1-150") {
+			t.Fatalf("expected sliced banner (limit above threshold), got first 200 chars: %q", result.Summary[:min(200, len(result.Summary))])
+		}
+	})
+
+	t.Run("threshold=0 disables override", func(t *testing.T) {
+		// Setting readfile_small_limit_threshold to 0 disables the
+		// override entirely — offset/limit is honored on any file size.
+		tmpFile := filepath.Join(t.TempDir(), "testoffset_disabled.txt")
+		content := "line0\nline1\nline2\nline3\nline4\n"
+		if err := os.WriteFile(tmpFile, []byte(content), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		prev := ReadFileSmallLimitThreshold
+		t.Cleanup(func() { SetReadFileSmallLimitThreshold(prev) })
+		SetReadFileSmallLimitThreshold(0)
+
+		tool := &ReadFile{}
+		params, _ := json.Marshal(readFileParams{Path: tmpFile, Offset: 0, Limit: 2})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "showing lines 1-2") {
+			t.Fatalf("expected sliced banner (threshold disabled), got %q", result.Summary)
+		}
+		if strings.Contains(result.Summary, "line4") {
+			t.Fatalf("expected tail to be sliced off, got %q", result.Summary)
 		}
 	})
 

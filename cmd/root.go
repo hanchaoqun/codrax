@@ -380,6 +380,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		tool.SetBlobLimits(blobMax, blobHead, blobTail)
 
+		if rs.ReadFileSmallLimitThreshold != nil {
+			tool.SetReadFileSmallLimitThreshold(*rs.ReadFileSmallLimitThreshold)
+		}
+
 		// emit_analysis runtime validation knobs. Start from the
 		// code defaults and overlay any non-nil yaml fields so a
 		// partial override leaves the other knobs alone.

@@ -371,6 +371,37 @@ func fileTypeToGlobs(ft string) []string {
 // ReadFile
 // ---------------------------------------------------------------------------
 
+// ReadFileSmallLimitThreshold is the upper bound on LLM-provided Limit
+// values that read_file treats as a "training-distribution default"
+// on inline-sized files. When Offset==0 and 0 < Limit <= threshold on
+// a file of bytes <= MaxInlineBytes, read_file ignores the slice and
+// returns the whole file with an override banner. Any non-zero Offset
+// is a strong signal of deliberate paging and is always honored —
+// only the "first read, lazy default limit" shape is suppressed.
+//
+// Rationale: LLMs routinely emit offset=0+limit=20/50/100 from their
+// training distribution, not because they know the file layout. On a
+// 66-line source file, limit=20 silently hides the answer past line
+// 20. A re-read that deliberately wants a slice picks a non-zero
+// offset (see the paging loop around the banner).
+//
+// Default 100 catches the common lazy values (10/20/50/100) without
+// forcing back the whole file when the LLM picks an odd size like
+// 150 or 200 (almost always a deliberate keyhole read). Set to 0 to
+// disable the override entirely — offset/limit is then honored on
+// any file size.
+var ReadFileSmallLimitThreshold = 100
+
+// SetReadFileSmallLimitThreshold overrides the package default from
+// cmd/root.go at startup. Non-positive values disable the override
+// (0 is canonical for "disabled"; negatives are clamped to 0).
+func SetReadFileSmallLimitThreshold(n int) {
+	if n < 0 {
+		n = 0
+	}
+	ReadFileSmallLimitThreshold = n
+}
+
 // ReadFile reads file contents with optional line-based offset and limit.
 type ReadFile struct {
 	ReadOnly
@@ -385,7 +416,7 @@ type readFileParams struct {
 
 func (t *ReadFile) Name() string { return "read_file" }
 func (t *ReadFile) Description() string {
-	return "Read file contents. The offset/limit parameters exist for paging files too large to inline (>32KB); for files smaller than that, the whole file is always returned regardless of offset/limit, because slicing a small file silently hides the answer (e.g. asking for offset=0,limit=20 on a 66-line file). The first line of the result is a banner shaped `[path: showing lines X-Y of Z total]` telling you which slice you got; every subsequent line is prefixed with its absolute line number followed by `│`. When citing a file location in your investigation notes, use only numbers taken verbatim from the gutter of a line you actually read — never estimate or interpolate line numbers between two lines you saw."
+	return "Read file contents. The offset/limit parameters page files too large to inline (>32KB) and can also page inline-sized files — pass any non-zero offset (e.g. offset=100, limit=30) for a deliberate keyhole read and the slice is honored exactly. On files that fit inline, an offset=0 combined with a small limit (default <= 100 lines, configurable via readfile_small_limit_threshold) is treated as a lazy default and expanded to the whole file, because slicing a small file silently hides the answer past the cutoff; the override banner reports this when it fires. The first line of the result is a banner shaped `[path: showing lines X-Y of Z total]` telling you which slice you got; every subsequent line is prefixed with its absolute line number followed by `│`. When citing a file location in your investigation notes, use only numbers taken verbatim from the gutter of a line you actually read — never estimate or interpolate line numbers between two lines you saw."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {
@@ -415,29 +446,47 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	allLines := strings.Split(content, "\n")
 	totalLines := len(allLines)
 
-	// Small-file passthrough: if the whole file fits in the inline
-	// budget, ignore offset/limit and return everything. The LLM
-	// routinely passes a foolish limit (e.g. limit=20) on a 66-line
-	// source file because "20" is a popular default in its training
-	// distribution; on a small file that limit can hide the answer
-	// just past the cutoff. The offset/limit knobs exist for paging
-	// files too large to inline, so honoring them on a tiny file is
-	// strictly worse than ignoring them. The banner records that we
-	// did so, in case the slice was meaningful to the caller.
+	// Slice vs. full-file policy:
+	//
+	//   - No offset/limit passed → return the whole file.
+	//   - Offset > 0 → deliberate paging. Honor the slice verbatim,
+	//     regardless of file size. Any non-zero offset is a strong
+	//     signal that the LLM knows what section it wants.
+	//   - Large file (bytes > MaxInlineBytes) → honor the slice, the
+	//     whole file cannot fit inline anyway.
+	//   - Small file with Offset==0 and 0 < Limit <=
+	//     ReadFileSmallLimitThreshold and Limit < totalLines → treat
+	//     as a training-distribution default (limit=20 on a 66-line
+	//     file would silently hide the tail) and expand to the whole
+	//     file. Banner records the override.
+	//   - Small file with any other slice (Limit > threshold, or
+	//     Limit == 0, or Limit >= totalLines) → honor the slice.
+	//
+	// The threshold is configurable via codrax.yaml's
+	// readfile_small_limit_threshold; setting it to 0 disables the
+	// override entirely.
 	sliceStart := 0
 	sliceEnd := totalLines
 	overrode := false
-	if (p.Offset > 0 || p.Limit > 0) && len(data) > MaxInlineBytes {
-		sliceStart = p.Offset
-		if sliceStart > totalLines {
-			sliceStart = totalLines
+	if p.Offset > 0 || p.Limit > 0 {
+		isLazyDefault := p.Offset == 0 &&
+			p.Limit > 0 &&
+			ReadFileSmallLimitThreshold > 0 &&
+			p.Limit <= ReadFileSmallLimitThreshold &&
+			p.Limit < totalLines &&
+			len(data) <= MaxInlineBytes
+		if isLazyDefault {
+			overrode = true
+		} else {
+			sliceStart = p.Offset
+			if sliceStart > totalLines {
+				sliceStart = totalLines
+			}
+			sliceEnd = totalLines
+			if p.Limit > 0 && sliceStart+p.Limit < sliceEnd {
+				sliceEnd = sliceStart + p.Limit
+			}
 		}
-		sliceEnd = totalLines
-		if p.Limit > 0 && sliceStart+p.Limit < sliceEnd {
-			sliceEnd = sliceStart + p.Limit
-		}
-	} else if p.Offset > 0 || p.Limit > 0 {
-		overrode = true
 	}
 
 	// Render the selected slice with a per-line gutter carrying the
@@ -500,8 +549,8 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	// shapes in sync with the string matchers in those functions.
 	var banner string
 	if overrode {
-		banner = fmt.Sprintf("[%s: showing all %d lines (%d bytes); offset/limit ignored because the file fits inline]\n",
-			p.Path, totalLines, len(data))
+		banner = fmt.Sprintf("[%s: showing all %d lines (%d bytes); limit=%d expanded to full file (inline-sized; pass offset>0 for explicit paging)]\n",
+			p.Path, totalLines, len(data), p.Limit)
 	} else {
 		banner = fmt.Sprintf("[%s: showing lines %d-%d of %d total]\n", p.Path, sliceStart+1, sliceEnd, totalLines)
 	}

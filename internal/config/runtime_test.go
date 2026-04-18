@@ -21,6 +21,7 @@ pipeline_max_steps: 100
 blob_max_inline_bytes: 65536
 blob_preview_head_bytes: 49152
 blob_preview_tail_bytes: 8192
+readfile_small_limit_threshold: 50
 pipeline_max_retries_per_stage: 5
 pipeline_max_stage_visits: 6
 analysis_warn_below_keywords: 6
@@ -77,6 +78,10 @@ providers_config: /etc/codrax/providers.yaml
 	}
 	if s.BlobPreviewTailBytes == nil || *s.BlobPreviewTailBytes != 8192 {
 		t.Errorf("BlobPreviewTailBytes = %v", s.BlobPreviewTailBytes)
+	}
+	// readfile_*
+	if s.ReadFileSmallLimitThreshold == nil || *s.ReadFileSmallLimitThreshold != 50 {
+		t.Errorf("ReadFileSmallLimitThreshold = %v", s.ReadFileSmallLimitThreshold)
 	}
 	// pipeline_*
 	if s.PipelineMaxRetriesPerStage == nil || *s.PipelineMaxRetriesPerStage != 5 {
@@ -188,6 +193,7 @@ func TestLoadRuntimeSettings_Empty(t *testing.T) {
 		s.PipelineMaxSteps != nil ||
 		s.ProvidersConfig != nil ||
 		s.BlobMaxInlineBytes != nil || s.BlobPreviewHeadBytes != nil || s.BlobPreviewTailBytes != nil ||
+		s.ReadFileSmallLimitThreshold != nil ||
 		s.PipelineMaxRetriesPerStage != nil || s.PipelineMaxStageVisits != nil ||
 		s.AnalysisWarnBelowKeywords != nil || s.AnalysisRejectBelowKeywords != nil ||
 		s.AnalysisGenericEntityBlocklist != nil ||

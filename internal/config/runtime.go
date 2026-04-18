@@ -49,6 +49,18 @@ type RuntimeSettings struct {
 	BlobPreviewHeadBytes *int `yaml:"blob_preview_head_bytes"`
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
 
+	// read_file-specific knobs. `readfile_*` prefix. Currently a
+	// single knob.
+	//
+	//   - readfile_small_limit_threshold: on an inline-sized file,
+	//     offset=0 + Limit in (0, this] is treated as a lazy default
+	//     and expanded to the whole file (limit=20 on a 66-line file
+	//     silently hides the tail — a common LLM failure mode). Any
+	//     non-zero offset is always honored; a Limit above this value
+	//     is always honored. 0 disables the override entirely. Default
+	//     100 in internal/tool/builtin.go.
+	ReadFileSmallLimitThreshold *int `yaml:"readfile_small_limit_threshold"`
+
 	// emit_analysis runtime validation knobs. Flat-prefixed
 	// `analysis_*` so the namespace stays visible alongside the
 	// `blob_*` and `pipeline_*` groups. All three are optional:
