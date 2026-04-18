@@ -72,6 +72,13 @@ type explorerEvaluator struct {
 	// analyzer.
 	predicateAxis types.PredicateAxis
 
+	// requiredFiles is a cached copy of EvidencePlan.RequiredFiles
+	// from the analyzer IR, set at BuildInitialInstruction time.
+	// Used by observeSoftStop's RequiredFiles coverage gate (T3a
+	// follow-up) to push the LLM toward reading analyzer-identified
+	// files before stopping.
+	requiredFiles []string
+
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
 	// BuildInitialInstruction time. T1c: drives ERM threshold
@@ -150,6 +157,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
+		e.requiredFiles = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -164,6 +172,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// sites don't all receive ctx). Zero value ("") is preserved when
 	// the analyzer stage hasn't run yet (unit tests, sub-agent paths).
 	e.complexity = irComplexity(ctx)
+	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
 	// CGEC: capture the analyzer's AnswerSubject classification so
 	// the chain ranker can score chain terminals against the
 	// expected subject kind. Empty when AnalysisIR not yet available
@@ -1115,7 +1124,11 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	//
 	// Fires at most once per dispatch (midLoopSymbolRefInjected flag)
 	// so the hint doesn't recur on every subsequent iteration.
-	if b.Len() == 0 && !e.midLoopSymbolRefInjected &&
+	// #2 fix: cross-file-ref no longer gated on b.Len()==0 so it can
+	// co-exist with partial-read hints in the same signal. This
+	// prevents the throttle from eating the hint when partial-read
+	// took an earlier injection slot.
+	if !e.midLoopSymbolRefInjected &&
 		len(e.investigationNotes) >= e.heuristics.MidLoopMinIteration {
 		_, readSet := extractFileCoverage(allResults)
 		gaps := detectCrossFileSymbolGaps(
@@ -1132,9 +1145,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			}
 			b.WriteString("\n")
 			e.midLoopSymbolRefInjected = true
-			if hintKey == "" {
-				hintKey = "explorer.mid-loop.cross-file-ref"
-			}
+			// Use a unique key so cross-file-ref dedup is independent
+			// of partial-read dedup.
+			hintKey = "explorer.mid-loop.cross-file-ref"
 		}
 	}
 
@@ -1442,13 +1455,25 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		}
 	}
 
-	// Function-boundary read guidance (HIGHEST PRIORITY): when the LLM
-	// reads part of a function but stops before the end, inject exact
-	// read ranges. This is the #1 cause of answer quality failures —
-	// the LLM reads 40 lines of a 300-line function and misses critical
-	// logic at the end. Must fire before all other checks.
+	// Function-boundary read guidance: when the LLM reads part of a
+	// function but stops before the end, inject exact read ranges.
+	//
+	// #1 relevance filter: skip partial-read hints for functions
+	// whose name is NOT related to the question entities / keywords.
+	// The 2026-04-18 "explorer是如何调用subagent的？" failure showed
+	// partial-read fixation on BuildInitialInstruction (600 lines,
+	// prompt-builder, irrelevant to "calling subagent") consuming 5
+	// iterations while orchestrator.go / propose_sub_agents.go were
+	// never read. The filter keeps partial-read hints for functions
+	// that contain any entity/keyword token in their name; non-
+	// matching functions get their hint suppressed so the LLM's
+	// attention budget is spent on reading NEW relevant files
+	// instead of finishing irrelevant large functions.
 	if e.searchResult != nil && e.searchResult.Graph != nil {
 		partialHints := detectPartiallyReadSymbols(history, e.searchResult.Graph)
+		// Filter to relevant hints: function name must match an
+		// entity or keyword from the analyzer classification.
+		partialHints = filterPartialReadsByRelevance(partialHints, e.userQuestion)
 		if len(partialHints) > 0 {
 			progress = true // keep the loop alive via LoopSignal.Progress
 			var hint strings.Builder
@@ -1473,6 +1498,42 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			return LoopSignal{
 				HintRequested: true,
 				HintKey:       "explorer.phase1.partial-read",
+				Hint:          hint.String(),
+				Progress:      progress,
+			}
+		}
+	}
+
+	// RequiredFiles coverage (HARD evidence, T3a follow-up): when the
+	// analyzer pre-computed a RequiredFiles list (from repo_map entity
+	// query) and < 50% of those files have been read, push the LLM
+	// to read the unread ones. This is a hard-evidence branch — the
+	// RequiredFiles list is structurally derived from entity matches,
+	// not a heuristic guess — so it fires even on firstSoftStop.
+	// Closes the gap from the 2026-04-18 log where propose_sub_agents.go
+	// was in RequiredFiles and visible in the prompt but never read.
+	if reqFiles := e.requiredFiles; len(reqFiles) > 0 {
+		var unreadReq []string
+		for _, rf := range reqFiles {
+			canon := strings.TrimPrefix(rf, "./")
+			if !readSet[rf] && !readSet[canon] && !readSet["./"+canon] {
+				unreadReq = append(unreadReq, rf)
+			}
+		}
+		if len(unreadReq) > 0 && float64(len(unreadReq))/float64(len(reqFiles)) > 0.3 {
+			progress = true
+			var hint strings.Builder
+			hint.WriteString("**Analyzer Required Files not yet read.** The analyzer identified these files as structurally relevant to the question, but you haven't read them yet:\n\n")
+			for _, f := range unreadReq {
+				if len(hint.String()) > 600 {
+					break
+				}
+				hint.WriteString("- `" + f + "`\n")
+			}
+			hint.WriteString("\nRead the most important unread file and extract evidence from it.\n")
+			return LoopSignal{
+				HintRequested: true,
+				HintKey:       "explorer.phase1.required-files",
 				Hint:          hint.String(),
 				Progress:      progress,
 			}
@@ -3698,6 +3759,25 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				linked = callValueMatchesReceiver(rv.value, v.receiver, graph)
 			}
 
+			// #6: embeds/implements semantic chain inference. When v
+			// is an "embeds" or "implements" entry, it declares that
+			// v's type inherits rv.receiver's methods. So if v says
+			// "embeds ReadOnly" and rv.receiver is "ReadOnly" with
+			// rv.kind=="returns" (ReadOnly.IsWrite() returns false),
+			// the chain means "v's type.IsWrite() delegates to
+			// ReadOnly.IsWrite() → returns false". This is the same
+			// containsIdentifier test already performed above but
+			// applied to the VALUE of the embeds/implements entry
+			// rather than just the receiver name.
+			if !linked && (v.kind == "embeds" || v.kind == "implements") {
+				// v.value is "embeds ReadOnly" or "implements SubAgent"
+				// — check if rv.receiver appears in the value string
+				linked = containsIdentifier(v.value, rv.receiver)
+			}
+			if !linked && (rv.kind == "embeds" || rv.kind == "implements") {
+				linked = containsIdentifier(rv.value, v.receiver)
+			}
+
 			if linked {
 				summary := fmt.Sprintf(
 					"`%s()` %s %s → `%s()` %s %s",
@@ -5475,30 +5555,55 @@ func scanCallTargetsInLine(line string) []string {
 		if line[i] != '(' {
 			continue
 		}
-		// Walk back over the identifier chain `<head>[.<seg>]*`.
+		// Walk back over the identifier chain. Accepts three
+		// separator styles for multi-language support:
+		//   .   — Go / Java / Python / JS / TS
+		//   ::  — Rust / C++ (path separator)
+		//   ->  — C++ (pointer member access)
 		end := i
 		start := i
 		for start > 0 {
 			c := line[start-1]
-			if isIdentChar(c) || c == '.' {
+			if isIdentChar(c) || c == '.' || c == ':' || c == '>' || c == '-' {
 				start--
 				continue
 			}
 			break
 		}
 		chain := line[start:end]
-		if chain == "" || !strings.Contains(chain, ".") {
+		if chain == "" {
+			continue
+		}
+		// Normalize separators: :: and -> become . so the rest of
+		// the logic works uniformly.
+		chain = strings.ReplaceAll(chain, "::", ".")
+		chain = strings.ReplaceAll(chain, "->", ".")
+		if !strings.Contains(chain, ".") {
 			continue
 		}
 		// Split into receiver + method; method is the LAST segment.
 		dotIdx := strings.LastIndex(chain, ".")
 		receiver := chain[:dotIdx]
 		method := chain[dotIdx+1:]
-		if method == "" || !isExportedIdent(method) {
+		// #4 multi-language: accept non-uppercase methods for
+		// Python/Java/JS/TS/Rust where exported = no leading
+		// underscore, not uppercase. Keep the uppercase filter as a
+		// PREFERENCE: try uppercase first; if no methods pass,
+		// accept lowercase methods ≥ 4 chars that aren't in the
+		// noise list. This prevents flooding from short utility
+		// methods (get, set, run) while accepting dispatch-relevant
+		// methods like process, execute, dispatch.
+		if method == "" {
 			continue
 		}
 		if callTargetNoiseMethods[method] {
 			continue
+		}
+		if !isExportedIdent(method) {
+			// Lowercase fallback: accept long-enough non-noise methods
+			if len(method) < 4 || strings.HasPrefix(method, "_") {
+				continue
+			}
 		}
 		// Head receiver identifier for stdlib exclusion.
 		head := receiver
@@ -5508,11 +5613,7 @@ func scanCallTargetsInLine(line string) []string {
 		if callTargetNoiseReceivers[head] {
 			continue
 		}
-		// Normalize receiver to the LAST identifier in the chain
-		// (closest to the method). `o.subRuntime.Run(...)` → receiver
-		// `subRuntime`; `b.deps.Tools.Execute(...)` → `Tools`. This
-		// keeps the rendered target at "Type.Method" granularity
-		// without losing the call semantics.
+		// Normalize receiver to the LAST identifier in the chain.
 		tailRecv := receiver
 		if ldot := strings.LastIndex(receiver, "."); ldot >= 0 {
 			tailRecv = receiver[ldot+1:]
@@ -5588,8 +5689,32 @@ func resolveCallTargetReceivers(callValue string, graph *repomap.Graph) []string
 //   → resolves "Run" → SymbolDefs → [SubAgentRuntime, SomeOtherRunnable]
 //   → matches SubAgentRuntime → true
 func callValueMatchesReceiver(callValue, targetReceiver string, graph *repomap.Graph) bool {
+	// Path 1: graph-assisted exact type resolution (Go-optimal).
 	for _, recv := range resolveCallTargetReceivers(callValue, graph) {
 		if recv == targetReceiver {
+			return true
+		}
+	}
+	// Path 2 (#5): case-insensitive variable→type heuristic for
+	// non-Go languages where variable naming conventions don't align
+	// with type names (Java: subAgentRuntime → SubAgentRuntime,
+	// Python: sub_agent_runtime → SubAgentRuntime). Extract the
+	// receiver portion of the call value (before the last dot) and
+	// check if it case-insensitively equals the targetReceiver.
+	dot := strings.LastIndex(callValue, ".")
+	if dot > 0 {
+		varName := callValue[:dot]
+		// Also handle chain receivers: take the last segment only
+		if ldot := strings.LastIndex(varName, "."); ldot >= 0 {
+			varName = varName[ldot+1:]
+		}
+		if strings.EqualFold(varName, targetReceiver) {
+			return true
+		}
+		// Strip underscores for snake_case → CamelCase matching:
+		// sub_agent_runtime → subagentruntime == SubAgentRuntime
+		stripped := strings.ReplaceAll(strings.ToLower(varName), "_", "")
+		if stripped == strings.ToLower(targetReceiver) {
 			return true
 		}
 	}
@@ -6172,6 +6297,61 @@ type partialReadHint struct {
 
 // detectPartiallyReadSymbols checks whether any function/method in the
 // read files was only partially covered by the LLM's read_file calls.
+// filterPartialReadsByRelevance removes partial-read hints for
+// functions whose name is not related to the user's question. Uses
+// a simple heuristic: split the question into words (≥4 chars),
+// check if any word appears case-insensitively in the function's
+// qualified name. Functions that match are kept; functions that
+// don't are dropped so the LLM's attention budget is spent on
+// reading new relevant files instead of finishing irrelevant large
+// functions.
+//
+// Also unconditionally keeps functions with very high coverage gaps
+// (< 30% read) because those represent a structural "you barely
+// started reading this" signal that should always fire.
+func filterPartialReadsByRelevance(hints []partialReadHint, question string) []partialReadHint {
+	if len(hints) == 0 || question == "" {
+		return hints
+	}
+	// Build a token set from the question (words ≥ 4 chars).
+	lower := strings.ToLower(question)
+	words := strings.Fields(lower)
+	tokens := make([]string, 0, len(words))
+	for _, w := range words {
+		// Strip punctuation
+		w = strings.Trim(w, "?？！!.,;:()[]{}\"'")
+		if len(w) >= 4 {
+			tokens = append(tokens, w)
+		}
+	}
+	if len(tokens) == 0 {
+		return hints // can't filter without tokens
+	}
+
+	var kept []partialReadHint
+	for _, h := range hints {
+		// Always keep very-low-coverage reads (< 30%).
+		if h.coverage < 0.3 {
+			kept = append(kept, h)
+			continue
+		}
+		// Check if function name or file matches any question token.
+		nameLower := strings.ToLower(h.symbolName)
+		fileLower := strings.ToLower(h.file)
+		relevant := false
+		for _, tok := range tokens {
+			if strings.Contains(nameLower, tok) || strings.Contains(fileLower, tok) {
+				relevant = true
+				break
+			}
+		}
+		if relevant {
+			kept = append(kept, h)
+		}
+	}
+	return kept
+}
+
 // crossFileSymbolGap is one hit returned by detectCrossFileSymbolGaps:
 // an exported symbol `Symbol` referenced in the LLM's investigation
 // notes, defined in `File`, which the LLM has not yet read.
