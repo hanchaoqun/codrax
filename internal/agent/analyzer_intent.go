@@ -431,9 +431,30 @@ func inferAnswerSubject(rm types.RequestModel, rawRequest string) (types.AnswerS
 	case "enumeration":
 		return types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.3},
 			"question_kind=enumeration → Generic"
+	case "mechanism", "conditional":
+		return types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.2},
+			"question_kind=" + rm.AnalyzerHints.Kind + " → Generic"
 	}
-	// No rule fired — preserve zero value.
-	return types.AnswerSubject{}, ""
+	// CGEC E1 hard-fallback: no cue matched AND no question_kind
+	// fallback fired. Before this commit the function returned the
+	// zero value (SubjectUnknown), which neutered every downstream
+	// consumer — chain ranker (C2) skips ranking when Unknown,
+	// reconcileShape does nothing, rankChainsBySubject returns the
+	// unsorted input, RepairRebindSubject never fires. That made
+	// every helper in the AnswerSubject layer dead code whenever
+	// the LLM fell outside the cue table.
+	//
+	// Hard-fallback to SubjectGeneric with low confidence. Generic
+	// is the weakest-constraint kind (accepts any source-code token
+	// via subject.Score), so it does not cause false narrowing, but
+	// it DOES switch the subject-aware downstream consumers from
+	// "off" to "passive-on" — reconcileShape won't flip ConfigValue
+	// (the subject is not a source-code literal kind), rankChainsBySubject
+	// still preserves insertion order (match=0 on all chains), and
+	// pre-complete check (f) stays inactive. Operator observability
+	// gets a log line so the fallback is grep-able in trace.
+	return types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.1},
+		"hard fallback: no cue match and question_kind missing — defaulting to Generic (weakest kind)"
 }
 
 // reconcileShape swaps AnswerShape from ShapeConfigValue to
@@ -473,7 +494,7 @@ func logSubjectInferred(subject types.AnswerSubject, reason string) {
 	if subject.Kind == types.SubjectUnknown || reason == "" {
 		return
 	}
-	logging.Warning("[analyzer] subject inferred: kind=%s axes=%v conf=%.2f (%s)",
+	logging.Warning("[CGEC] E1 subject_inferred: kind=%s axes=%v conf=%.2f (%s)",
 		subject.Kind, subject.EntityAxes, subject.Confidence, reason)
 }
 

@@ -414,6 +414,43 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		eligible++
 	}
 	if eligible >= min {
+		// CGEC E3: check (f) — when the AnswerSubject has
+		// reasonable confidence and the explorer's chain ranker
+		// recorded SubjectMatch scores for chain terminals, assert
+		// that at least ONE chain scored above the rebind floor
+		// (0.4). If every chain scores below, the investigation is
+		// producing evidence about the WRONG kind of token
+		// (e.g. AgentName chains when question asks for SkillName).
+		// Emit RepairRebindSubject so the retry prompt tells the
+		// explorer to constrain its chain production to the right
+		// subject kind. Confidence gate mirrors rankChainsBySubject's
+		// existing G5 trigger (conf >= 0.5 + best < 0.4). Runs
+		// BEFORE the subject/shape mismatch check — rebind is the
+		// more fundamental fix (shape matters only if subject is
+		// right).
+		const (
+			rebindFloor   = 0.4
+			highConfFloor = 0.5
+		)
+		subj := ir.RequestModel.AnswerSubject
+		matches := closure.AllSubjectMatches()
+		if len(matches) > 0 && subj.Confidence >= highConfFloor && subj.Kind != types.SubjectUnknown {
+			var bestScore float64
+			for _, v := range matches {
+				if v > bestScore {
+					bestScore = v
+				}
+			}
+			if bestScore < rebindFloor {
+				closure.AddRepair(types.RepairDirective{
+					Kind:      types.RepairRebindSubject,
+					Subject:   string(subj.Kind),
+					Rationale: fmt.Sprintf("pre-complete: %d chain(s) scored against expected subject %s; none above %.1f (best=%.2f)", len(matches), subj.Kind, rebindFloor, bestScore),
+					Origin:    "pre_complete.subject_match_low",
+				})
+				logging.Info("[CGEC] E3 rebind_subject: origin=pre_complete.subject_match_low kind=%s best=%.2f floor=%.2f", subj.Kind, bestScore, rebindFloor)
+			}
+		}
 		// CGEC B2b: eligible evidence is sufficient in quantity, but
 		// check for a static mismatch between AnswerSubject (what
 		// kind of literal the answer should be) and RequiredAnswerShape

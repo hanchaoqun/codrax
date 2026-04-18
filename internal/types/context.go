@@ -1067,6 +1067,23 @@ type AgentContext struct {
 	// flagged.
 	UnverifiedAnalyzerFindings []UnverifiedFinding `json:"unverified_analyzer_findings,omitempty"`
 
+	// SubjectMatches is populated from EvidenceClosure.AllSubjectMatches()
+	// at BuildAgentContext time. The explorer's rankChainsBySubject (C2)
+	// writes a per-chain score against the expected AnswerSubject; the
+	// extractor and finalizer prompt builders render the top-K entries
+	// so Turn B emits answer symbols / leading citations aligned with
+	// the chain the framework believes best matches the question. Empty
+	// / nil when no chain was scored (analyzer-only dispatch, subject
+	// unknown, or sub-agents that bypass the ranker).
+	SubjectMatches map[string]float64 `json:"subject_matches,omitempty"`
+
+	// ExpectedAnswerSubject mirrors AnalysisIR.RequestModel.AnswerSubject
+	// into the agent view so the prompt builder can include the kind
+	// label next to SubjectMatches without re-plumbing the whole IR.
+	// Zero-value Kind means no expected subject — renderers should
+	// suppress the section.
+	ExpectedAnswerSubject AnswerSubject `json:"expected_answer_subject,omitempty"`
+
 	Constraints []string `json:"constraints,omitempty"`
 	Preferences []string `json:"preferences,omitempty"`
 	Language    string   `json:"language,omitempty"`

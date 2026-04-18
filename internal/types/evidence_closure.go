@@ -449,6 +449,51 @@ func (c *EvidenceClosure) SubjectMatch(chain string) (float64, bool) {
 	return v, ok
 }
 
+// AllSubjectMatches returns a defensive copy of the entire
+// subject-match cache. Used by the CGEC E3 pre-complete check to
+// compute the aggregate "did any chain meaningfully match the
+// expected AnswerSubject?" signal without re-running the chain
+// ranker. Empty map returns nil.
+func (c *EvidenceClosure) AllSubjectMatches() map[string]float64 {
+	if c == nil {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.subjectMatches) == 0 {
+		return nil
+	}
+	out := make(map[string]float64, len(c.subjectMatches))
+	for k, v := range c.subjectMatches {
+		out[k] = v
+	}
+	return out
+}
+
+// BestSubjectMatch returns the highest score recorded in the
+// subjectMatches cache, and true when at least one score exists.
+// The highest-match chain's summary is the second return value.
+// Useful for the pre-complete check and finalizer citation choice.
+func (c *EvidenceClosure) BestSubjectMatch() (string, float64, bool) {
+	if c == nil {
+		return "", 0, false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if len(c.subjectMatches) == 0 {
+		return "", 0, false
+	}
+	var bestChain string
+	var bestScore float64
+	for k, v := range c.subjectMatches {
+		if v > bestScore {
+			bestScore = v
+			bestChain = k
+		}
+	}
+	return bestChain, bestScore, true
+}
+
 // AppendFingerprint records a per-round closure snapshot. Returns the
 // updated history length so the convergence detector can decide
 // whether to compare adjacent entries this round.

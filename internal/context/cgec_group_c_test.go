@@ -90,3 +90,91 @@ func TestFormatUnverifiedFindings_CapRenders_TrailingCount(t *testing.T) {
 		t.Errorf("bullet count=%d, want %d", bullets, unverifiedFindingsRenderCap)
 	}
 }
+
+// TestFormatSubjectMatchSummary_EmptyMap_NoRender asserts E4+E5
+// returns "" when there is no chain match data so the caller
+// suppresses the entire Subject Match Summary section on
+// analyzer-only dispatches / SubjectUnknown questions.
+func TestFormatSubjectMatchSummary_EmptyMap_NoRender(t *testing.T) {
+	expected := types.AnswerSubject{Kind: types.SubjectSkillName, Confidence: 0.8}
+	if got := formatSubjectMatchSummary(nil, expected); got != "" {
+		t.Errorf("nil matches must return empty, got %q", got)
+	}
+	if got := formatSubjectMatchSummary(map[string]float64{}, expected); got != "" {
+		t.Errorf("empty map must return empty, got %q", got)
+	}
+}
+
+// TestFormatSubjectMatchSummary_UnknownSubject_NoRender asserts the
+// helper skips rendering when AnswerSubject.Kind is SubjectUnknown
+// (ranker's match=0 on all chains is noise, not signal).
+func TestFormatSubjectMatchSummary_UnknownSubject_NoRender(t *testing.T) {
+	matches := map[string]float64{"chain A": 0.9}
+	got := formatSubjectMatchSummary(matches, types.AnswerSubject{Kind: types.SubjectUnknown})
+	if got != "" {
+		t.Errorf("SubjectUnknown must return empty, got %q", got)
+	}
+}
+
+// TestFormatSubjectMatchSummary_TopKSorted covers the primary
+// E4+E5 render path: chains sorted by score descending, capped
+// at subjectMatchRenderCap (5), preceded by the expected subject
+// label, followed by the "prefer top-scored" directive.
+func TestFormatSubjectMatchSummary_TopKSorted(t *testing.T) {
+	matches := map[string]float64{
+		"chain A": 0.9,
+		"chain B": 0.3,
+		"chain C": 0.7,
+		"chain D": 0.5,
+		"chain E": 0.25,
+		"chain F": 0.8,
+		"chain G": 0.1, // below floor — must NOT render
+	}
+	expected := types.AnswerSubject{Kind: types.SubjectSkillName, Confidence: 0.8}
+	out := formatSubjectMatchSummary(matches, expected)
+	if out == "" {
+		t.Fatal("expected non-empty render")
+	}
+	if !strings.Contains(out, "Expected answer subject: `skill_name`") {
+		t.Errorf("missing expected-subject header, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Chain candidates") {
+		t.Errorf("missing Chain candidates section, got:\n%s", out)
+	}
+	// Order: A (0.9) > F (0.8) > C (0.7) > D (0.5) > B (0.3).
+	// Chain E (0.25) and G (0.1) must not appear.
+	aIdx := strings.Index(out, "chain A")
+	fIdx := strings.Index(out, "chain F")
+	cIdx := strings.Index(out, "chain C")
+	if !(aIdx < fIdx && fIdx < cIdx) {
+		t.Errorf("chains not sorted by descending score, got:\n%s", out)
+	}
+	if strings.Contains(out, "chain G") {
+		t.Error("chain G (below floor) must NOT appear")
+	}
+	if !strings.Contains(out, "chain B") {
+		t.Error("chain B (above floor, within cap) must appear")
+	}
+	if !strings.Contains(out, "Prefer the top-scored") {
+		t.Error("missing closing directive")
+	}
+}
+
+// TestFormatSubjectMatchSummary_AllBelowFloor_Warns asserts that
+// when every chain scored below the floor, the helper swaps the
+// candidate list for a SKEPTICISM warning — telling the LLM the
+// chain producer is likely off-target.
+func TestFormatSubjectMatchSummary_AllBelowFloor_Warns(t *testing.T) {
+	matches := map[string]float64{
+		"chain A": 0.1,
+		"chain B": 0.15,
+	}
+	expected := types.AnswerSubject{Kind: types.SubjectSkillName, Confidence: 0.8}
+	out := formatSubjectMatchSummary(matches, expected)
+	if !strings.Contains(out, "SKEPTICISM") {
+		t.Errorf("expected SKEPTICISM warning, got:\n%s", out)
+	}
+	if strings.Contains(out, "Prefer the top-scored") {
+		t.Error("closing 'Prefer top-scored' directive must not appear when nothing cleared floor")
+	}
+}

@@ -2,6 +2,7 @@ package context
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -62,6 +63,14 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// slice is not shared with the caller.
 	if bus.Mutable != nil {
 		ac.UnverifiedAnalyzerFindings = bus.Mutable.EvidenceClosure().UnverifiedFindings()
+		// CGEC E4+E5: surface SubjectMatch cache so extractor + finalizer
+		// prompt builders can render a "Subject Match Summary"
+		// directing Turn B's answer extraction / citation selection at
+		// the chain the framework believes best matches the question.
+		ac.SubjectMatches = bus.Mutable.EvidenceClosure().AllSubjectMatches()
+	}
+	if bus.AnalysisIR != nil {
+		ac.ExpectedAnswerSubject = bus.AnalysisIR.RequestModel.AnswerSubject
 	}
 
 	// Propagate any pending retry hint from the previous self-looped
@@ -379,6 +388,26 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Title:   "Unverified Analyzer Findings",
 			Content: uf,
 		})
+	}
+
+	// CGEC E4 + E5: Subject Match Summary. Renders the top chains
+	// rankChainsBySubject scored against the expected AnswerSubject
+	// so the extractor and finalizer can bias their answer-symbol
+	// extraction / leading-citation selection toward the
+	// highest-scoring chain. Only rendered for extract/finalize
+	// stages — the explorer already consulted the ranker directly in
+	// its synthesis; surfacing it again to the explorer prompt
+	// would be redundant. Renders nothing when the cache is empty
+	// or the expected subject is SubjectUnknown (ranker contract
+	// says match=0 for every chain in that state, so there is no
+	// signal to render).
+	if ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize {
+		if sm := formatSubjectMatchSummary(ac.SubjectMatches, ac.ExpectedAnswerSubject); sm != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   "Subject Match Summary",
+				Content: sm,
+			})
+		}
 	}
 
 	// Raw Tool Outputs from Turn A. The extractor and finalizer otherwise
@@ -1208,6 +1237,61 @@ func formatStageReports(reports []types.StageReport) string {
 			b.WriteString("\n\n")
 		}
 		fmt.Fprintf(&b, "### [%s / %s]\n%s", r.Stage, r.Agent, r.Findings)
+	}
+	return b.String()
+}
+
+// subjectMatchRenderCap bounds the number of top chains rendered in
+// the Subject Match Summary section.
+const subjectMatchRenderCap = 5
+
+// subjectMatchFloor is the minimum score a chain needs for the
+// helper to mention it. Chains below the floor are the G5-style
+// "off-target" signal — rendering them as candidates would mislead
+// the downstream LLM. If ZERO chains clear the floor we emit a
+// warning body instead of a candidate list.
+const subjectMatchFloor = 0.2
+
+// formatSubjectMatchSummary renders "## Subject Match Summary" body
+// for extractor / finalizer prompts. Sort chains by score descending,
+// keep the top-K above subjectMatchFloor, and precede the list with
+// the expected subject kind so the LLM knows what "match" means.
+// Returns "" when nothing meaningful to render.
+func formatSubjectMatchSummary(matches map[string]float64, expected types.AnswerSubject) string {
+	if len(matches) == 0 || expected.Kind == types.SubjectUnknown {
+		return ""
+	}
+	type scored struct {
+		chain string
+		score float64
+	}
+	entries := make([]scored, 0, len(matches))
+	for c, s := range matches {
+		entries = append(entries, scored{chain: c, score: s})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].score > entries[j].score
+	})
+	var b strings.Builder
+	fmt.Fprintf(&b, "Expected answer subject: `%s` (confidence %.2f)\n", expected.Kind, expected.Confidence)
+	var kept int
+	for _, e := range entries {
+		if e.score < subjectMatchFloor {
+			break
+		}
+		if kept == 0 {
+			b.WriteString("Chain candidates (sorted by subject match, highest first):\n")
+		}
+		fmt.Fprintf(&b, "  - score=%.2f  %s\n", e.score, e.chain)
+		kept++
+		if kept >= subjectMatchRenderCap {
+			break
+		}
+	}
+	if kept == 0 {
+		fmt.Fprintf(&b, "No chain scored above %.2f for the expected subject. Treat the chain producer's output with SKEPTICISM — the explorer's chains may be about the wrong kind of token.\n", subjectMatchFloor)
+	} else {
+		b.WriteString("Prefer the top-scored chain when selecting the primary answer symbol / leading citation.")
 	}
 	return b.String()
 }
