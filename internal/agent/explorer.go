@@ -3514,6 +3514,18 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// Pass 1: direct parent values. Pass 2+: grandparent values etc.
 	// A embeds B, B embeds C → A inherits C's concrete values.
 	// Cap at 3 passes to prevent runaway in deep hierarchies.
+	//
+	// CGEC F1: skip values whose source file is NOT in ReadSet.
+	// Each concreteValue has a .file field pointing at where the
+	// underlying method body lives; emitting a chain that depends
+	// on a method body the LLM never read surfaces an invisible
+	// dependency (the "applies to Foo" claim cannot be verified by
+	// the LLM without reading v.file). The existing applyChainPromotion
+	// handles Resolution Chains but historically did not touch this
+	// parallel Type Hierarchy producer — chains here could leak
+	// unread anchors into the synthesis prompt. The ScannedSet
+	// escape hatch at IsScanned keeps back-compat for tests.
+	var skippedHierarchyCount int
 	chainSet := make(map[string]bool) // deduplicate chains
 	for pass := 0; pass < 3; pass++ {
 		added := 0
@@ -3523,6 +3535,10 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				continue
 			}
 			for _, v := range vals {
+				if v.file != "" && !readSet[v.file] {
+					skippedHierarchyCount++
+					continue
+				}
 				chain := fmt.Sprintf(
 					"`%s` %s `%s` → `%s()` %s %s applies to `%s`",
 					rel.childType, rel.verb, rel.parentType,
@@ -3555,6 +3571,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		if added == 0 {
 			break
 		}
+	}
+	if skippedHierarchyCount > 0 {
+		logging.Info("[CGEC] F1 hierarchy_promotion: skipped=%d (source files outside ReadSet)", skippedHierarchyCount)
 	}
 	if len(hierarchyChains) > 0 {
 		hierCap := 20
