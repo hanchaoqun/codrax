@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -716,65 +717,144 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			ToolCalls: resp.ToolCalls,
 		})
 
-		// Act — execute tool calls
+		// Act — execute tool calls. When the batch contains only
+		// read-safe tools (no emit_* / propose_*), execute them in
+		// PARALLEL for latency reduction (S1). When any tool writes
+		// to MutableState (emit_evidence, emit_analysis, etc.), fall
+		// back to SEQUENTIAL execution because the grounder may need
+		// DispatchToolResults from a prior read_file in the same batch.
 		var lastToolResultPtr *types.ToolResult
-		for _, tc := range resp.ToolCalls {
-			toolStart := time.Now()
-			b.deps.Emit(render.Event{
-				Kind:       render.EventToolCallStart,
-				Timestamp:  toolStart,
-				Agent:      b.name,
-				Stage:      ctx.Stage,
-				ToolName:   tc.Name,
-				ToolCallID: tc.ID,
-				ToolDetail: toolDetail(tc.Params),
-			})
+		if canParallelizeToolBatch(resp.ToolCalls) && len(resp.ToolCalls) > 1 {
+			// ── PARALLEL PATH ──
+			type toolExecResult struct {
+				result  *types.ToolResult
+				mcpResp *types.MCPResponse
+			}
+			execResults := make([]toolExecResult, len(resp.ToolCalls))
+			toolStarts := make([]time.Time, len(resp.ToolCalls))
 
-			result, mcpResp := b.executeTool(ctx, tc)
+			// Emit start events sequentially (UI ordering).
+			for idx, tc := range resp.ToolCalls {
+				toolStarts[idx] = time.Now()
+				b.deps.Emit(render.Event{
+					Kind:       render.EventToolCallStart,
+					Timestamp:  toolStarts[idx],
+					Agent:      b.name,
+					Stage:      ctx.Stage,
+					ToolName:   tc.Name,
+					ToolCallID: tc.ID,
+					ToolDetail: toolDetail(tc.Params),
+				})
+			}
 
-			toolOK := false
-			if result != nil {
-				toolOK = result.Success
-				allToolResults = append(allToolResults, *result)
-				lastToolResultPtr = &allToolResults[len(allToolResults)-1]
-				// Mirror into the Mutable-side running buffer so tools
-				// that run later in THIS dispatch (emit_evidence's
-				// grounder) can see the read_file history produced
-				// earlier in the same ReAct loop.
-				if ctx != nil && ctx.Mutable != nil {
-					ctx.Mutable.AppendDispatchToolResult(*result)
+			// Execute all tools concurrently.
+			var wg sync.WaitGroup
+			for idx, tc := range resp.ToolCalls {
+				wg.Add(1)
+				go func(i int, call llm.ToolCall) {
+					defer wg.Done()
+					r, m := b.executeTool(ctx, call)
+					execResults[i] = toolExecResult{r, m}
+				}(idx, tc)
+			}
+			wg.Wait()
+
+			// Process results sequentially (message ordering).
+			for idx, tc := range resp.ToolCalls {
+				er := execResults[idx]
+				toolOK := false
+				if er.result != nil {
+					toolOK = er.result.Success
+					allToolResults = append(allToolResults, *er.result)
+					lastToolResultPtr = &allToolResults[len(allToolResults)-1]
+					if ctx != nil && ctx.Mutable != nil {
+						ctx.Mutable.AppendDispatchToolResult(*er.result)
+					}
+					messages = append(messages, llm.Message{
+						Role:       "tool",
+						Content:    er.result.Summary,
+						ToolCallID: tc.ID,
+					})
+					logging.Debug("[diag %s] iter=%d TOOLRESULT %s ok=%v len=%d:\n%s\n---",
+						b.name, i, er.result.ToolName, er.result.Success, len(er.result.Summary),
+						truncForLog(er.result.Summary, 2000))
 				}
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    result.Summary,
+				if er.mcpResp != nil {
+					toolOK = er.mcpResp.Success
+					allMCPResponses = append(allMCPResponses, *er.mcpResp)
+					messages = append(messages, llm.Message{
+						Role:       "tool",
+						Content:    er.mcpResp.Summary,
+						ToolCallID: tc.ID,
+					})
+				}
+				b.deps.Emit(render.Event{
+					Kind:       render.EventToolCallEnd,
+					Timestamp:  time.Now(),
+					Agent:      b.name,
+					Stage:      ctx.Stage,
+					ToolName:   tc.Name,
 					ToolCallID: tc.ID,
+					ToolDetail: toolDetail(tc.Params),
+					ToolOK:     toolOK,
+					ToolTime:   time.Since(toolStarts[idx]),
 				})
-				// DIAGNOSTIC — dump tool result (debug only).
-				logging.Debug("[diag %s] iter=%d TOOLRESULT %s ok=%v len=%d:\n%s\n---",
-					b.name, i, result.ToolName, result.Success, len(result.Summary),
-					truncForLog(result.Summary, 2000))
 			}
-			if mcpResp != nil {
-				toolOK = mcpResp.Success
-				allMCPResponses = append(allMCPResponses, *mcpResp)
-				messages = append(messages, llm.Message{
-					Role:       "tool",
-					Content:    mcpResp.Summary,
+		} else {
+			// ── SEQUENTIAL PATH (original) ──
+			for _, tc := range resp.ToolCalls {
+				toolStart := time.Now()
+				b.deps.Emit(render.Event{
+					Kind:       render.EventToolCallStart,
+					Timestamp:  toolStart,
+					Agent:      b.name,
+					Stage:      ctx.Stage,
+					ToolName:   tc.Name,
 					ToolCallID: tc.ID,
+					ToolDetail: toolDetail(tc.Params),
 				})
-			}
 
-			b.deps.Emit(render.Event{
-				Kind:       render.EventToolCallEnd,
-				Timestamp:  time.Now(),
-				Agent:      b.name,
-				Stage:      ctx.Stage,
-				ToolName:   tc.Name,
-				ToolCallID: tc.ID,
-				ToolDetail: toolDetail(tc.Params),
-				ToolOK:     toolOK,
-				ToolTime:   time.Since(toolStart),
-			})
+				result, mcpResp := b.executeTool(ctx, tc)
+
+				toolOK := false
+				if result != nil {
+					toolOK = result.Success
+					allToolResults = append(allToolResults, *result)
+					lastToolResultPtr = &allToolResults[len(allToolResults)-1]
+					if ctx != nil && ctx.Mutable != nil {
+						ctx.Mutable.AppendDispatchToolResult(*result)
+					}
+					messages = append(messages, llm.Message{
+						Role:       "tool",
+						Content:    result.Summary,
+						ToolCallID: tc.ID,
+					})
+					logging.Debug("[diag %s] iter=%d TOOLRESULT %s ok=%v len=%d:\n%s\n---",
+						b.name, i, result.ToolName, result.Success, len(result.Summary),
+						truncForLog(result.Summary, 2000))
+				}
+				if mcpResp != nil {
+					toolOK = mcpResp.Success
+					allMCPResponses = append(allMCPResponses, *mcpResp)
+					messages = append(messages, llm.Message{
+						Role:       "tool",
+						Content:    mcpResp.Summary,
+						ToolCallID: tc.ID,
+					})
+				}
+
+				b.deps.Emit(render.Event{
+					Kind:       render.EventToolCallEnd,
+					Timestamp:  time.Now(),
+					Agent:      b.name,
+					Stage:      ctx.Stage,
+					ToolName:   tc.Name,
+					ToolCallID: tc.ID,
+					ToolDetail: toolDetail(tc.Params),
+					ToolOK:     toolOK,
+					ToolTime:   time.Since(toolStart),
+				})
+			}
 		}
 
 		// Mid-loop check: give the LoopController a chance to detect
@@ -1071,6 +1151,29 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 
 	logging.Warning("tool not found: %s", tc.Name)
 	return nil, nil
+}
+
+// canParallelizeToolBatch returns true when all tool calls in the
+// batch are safe to execute concurrently. A batch is parallelizable
+// when it contains ONLY read-safe tools (grep, read_file, repo_map,
+// list_files, exec_command, git_diff, git_log). Batches containing
+// any emit_* or propose_* tool fall back to sequential execution
+// because those tools write to MutableState and may depend on
+// DispatchToolResults from earlier calls in the same batch (e.g.
+// emit_evidence's grounder needs read_file gutter data).
+//
+// This is the safety gate for S1 (parallel tool execution): only
+// truly independent reads run concurrently; anything that mutates
+// shared state stays sequential.
+func canParallelizeToolBatch(calls []llm.ToolCall) bool {
+	for _, tc := range calls {
+		if strings.HasPrefix(tc.Name, "emit_") ||
+			strings.HasPrefix(tc.Name, "propose_") ||
+			tc.Name == "todo_write" {
+			return false
+		}
+	}
+	return true
 }
 
 // validateAnalyzerPrescanToolCall is the runtime hard-enforcement

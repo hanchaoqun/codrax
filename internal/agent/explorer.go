@@ -463,6 +463,17 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				b.WriteString("- `" + p + "`\n")
 			}
 			b.WriteString("\n")
+			// S2a: pre-read the top 2 required files and inject their
+			// content directly into the initial prompt. This saves
+			// 1-2 LLM round-trips that would otherwise be spent on
+			// "let me read_file X → observe → decide". The LLM sees
+			// the file content BEFORE its first iteration and can
+			// immediately start extracting evidence.
+			preReadInjected := preReadRequiredFiles(ctx.RepoRoot, reqFiles, 2, 200)
+			if preReadInjected != "" {
+				b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
+				b.WriteString(preReadInjected)
+			}
 		}
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
@@ -927,6 +938,17 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	// This is the clean, aligned completion signal — no heuristic ambiguity.
 	if e.investigationComplete {
 		logging.Debug("[explorer] ShouldStop iter=%d: investigation complete (explicit tool call)", iteration)
+		return true
+	}
+
+	// S2b: early exit when the investigation plan's ALL steps are
+	// satisfied. This catches the case where the step-aware midLoop
+	// auto-advancement marked all steps satisfied but the LLM keeps
+	// calling tools (e.g. redundant grep after the chain is complete).
+	// Saves 1-2 wasted iterations at the tail of the investigation.
+	if e.investigationPlan != nil && len(e.investigationPlan.Steps) > 1 &&
+		e.investigationPlan.AllSatisfied() {
+		logging.Debug("[explorer] ShouldStop iter=%d: investigation plan all steps satisfied", iteration)
 		return true
 	}
 
@@ -3718,10 +3740,23 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// ranking and limit, and must not be truncated by the markdown budget.
 	allRelevantForEvidence := relevant
 
-	// Adaptive cap: controls markdown table size in synthesis prompt.
+	// S5: Adaptive cap scaled by complexity. Simple questions get a
+	// tighter cap to reduce prompt token count (fewer tokens → faster
+	// LLM first-token latency). Complex questions keep the wider cap
+	// because they genuinely need more concrete values for multi-hop
+	// chain building.
 	valueCap := 15
-	if len(e.allScoredFiles) > 10 {
-		valueCap = 25
+	switch e.complexity {
+	case types.ComplexitySimple:
+		valueCap = 10
+	case types.ComplexityComplex:
+		if len(e.allScoredFiles) > 10 {
+			valueCap = 25
+		}
+	default: // moderate
+		if len(e.allScoredFiles) > 10 {
+			valueCap = 20
+		}
 	}
 	if valueCap > 40 {
 		valueCap = 40
@@ -3963,10 +3998,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// can reach the answer identification layer even when the markdown
 	// table is dominated by higher-scoring noise.
 	allChainsForEvidence := chains
-	// Adaptive cap for resolution chains (markdown table only).
-	chainCap := 10
-	if len(e.allScoredFiles) > 10 {
+	// S5: Adaptive chain cap scaled by complexity.
+	chainCap := 8
+	switch e.complexity {
+	case types.ComplexitySimple:
+		chainCap = 5
+	case types.ComplexityComplex:
 		chainCap = 18
+	default:
+		if len(e.allScoredFiles) > 10 {
+			chainCap = 12
+		}
 	}
 	if len(chains) > chainCap {
 		chains = chains[:chainCap]
@@ -6435,6 +6477,50 @@ type partialReadHint struct {
 
 // detectPartiallyReadSymbols checks whether any function/method in the
 // read files was only partially covered by the LLM's read_file calls.
+// preReadRequiredFiles reads the first `maxFiles` required files
+// (each capped at `maxLines` lines) and formats them as a prompt
+// section. Used by S2a to inject file content into the explorer's
+// initial prompt, saving 1-2 LLM round-trips that would otherwise
+// be spent on explicit read_file calls.
+//
+// Returns empty string when no files can be read (missing files,
+// empty repoRoot, etc.). Each file gets a header with the path
+// so the LLM knows where the content came from.
+func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines int) string {
+	if repoRoot == "" || len(files) == 0 || maxFiles <= 0 {
+		return ""
+	}
+	var b strings.Builder
+	injected := 0
+	for _, f := range files {
+		if injected >= maxFiles {
+			break
+		}
+		absPath := filepath.Join(repoRoot, f)
+		content, err := os.ReadFile(absPath)
+		if err != nil {
+			continue
+		}
+		lines := strings.Split(string(content), "\n")
+		truncated := false
+		if len(lines) > maxLines {
+			lines = lines[:maxLines]
+			truncated = true
+		}
+		fmt.Fprintf(&b, "#### `%s`", f)
+		if truncated {
+			fmt.Fprintf(&b, " (first %d lines)", maxLines)
+		}
+		b.WriteString("\n```\n")
+		for i, line := range lines {
+			fmt.Fprintf(&b, "%d\t%s\n", i+1, line)
+		}
+		b.WriteString("```\n\n")
+		injected++
+	}
+	return b.String()
+}
+
 // stepStrategyGuidance returns a one-sentence instruction for the
 // LLM based on the investigation step's strategy. This is the
 // "how to investigate" complement to the step's Objective ("what
