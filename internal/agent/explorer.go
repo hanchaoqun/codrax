@@ -302,6 +302,35 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("`\n\n")
 	}
 
+	// Conditional-enumeration hint: when the question asks "how many X
+	// can Y" / "有几个X可以Y", the answer requires enumerating ALL
+	// candidates, verifying each against a condition, and counting.
+	// The LLM tends to short-circuit (reading the total registration
+	// count instead of filtering). This directive makes the required
+	// reasoning strategy explicit. Fires when question_kind is
+	// enumeration and the question contains a relational verb.
+	if e.isEnumerationQuery && analyzerKind == "enumeration" {
+		lower := strings.ToLower(e.userQuestion)
+		hasRelationalVerb := false
+		for _, verb := range []string{
+			"调用", "invoke", "call", "register", "实现", "implement",
+			"use", "使用", "access", "触发", "trigger", "可以",
+		} {
+			if strings.Contains(lower, verb) {
+				hasRelationalVerb = true
+				break
+			}
+		}
+		if hasRelationalVerb {
+			b.WriteString("### ⚠ Counting Strategy (CRITICAL)\n\n")
+			b.WriteString("This question asks HOW MANY items satisfy a CONDITION. You MUST:\n")
+			b.WriteString("1. **Enumerate ALL candidates** — find every instance of the subject type in the repository\n")
+			b.WriteString("2. **Verify each candidate** — check whether it satisfies the predicate stated in the question\n")
+			b.WriteString("3. **Count only the qualifying ones** — do NOT use a total registration/declaration count as the answer\n\n")
+			b.WriteString("Common mistake: treating the total number of declared items as the answer without filtering by the condition. The qualifying count is often strictly smaller — possibly 0 or 1.\n\n")
+		}
+	}
+
 	if len(analyzerKeywords) > 0 {
 		// Run graduated keyword search before Phase 1 starts.
 		// This gives the LLM a pre-ranked file list instead of
@@ -3383,6 +3412,22 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		return concreteValuesResult{}
 	}
 
+	// Pre-filter: strip prose-like values at the source so they
+	// never enter the relevance filter, multi-pass tracer, chain
+	// builder, or evidence pipeline. This prevents 500+ char prompt
+	// texts from `of.WriteString("...")` calls inside
+	// BuildAnalysisSkill (and similar prompt-builder functions) from
+	// polluting the entire downstream pipeline with phantom matches.
+	{
+		clean := allValues[:0]
+		for _, v := range allValues {
+			if !isProseLikeConcreteValue(v.value) {
+				clean = append(clean, v)
+			}
+		}
+		allValues = clean
+	}
+
 	// Build pre-scanned set for filtering.
 	preScannedSet := make(map[string]bool, len(e.preScannedFiles))
 	for _, f := range e.preScannedFiles {
@@ -3977,6 +4022,16 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// + formatEvidenceItems(limit=18) handles its own selection.
 	var cvEvidence []types.EvidenceItem
 	for _, v := range allRelevantForEvidence {
+		// Skip prose-like values from becoming evidence items. The
+		// chain builder already filters these (lines 3731/3738) but
+		// the evidence pipeline didn't — so 500+ char prompt-text
+		// "binds" entries (e.g. BuildAnalysisSkill's WriteString
+		// calls) leaked into the extractor/finalizer evidence set
+		// and drowned the real signal. This was the #4 root cause
+		// in the "有几个agent可以调用subagent" failure log.
+		if isProseLikeConcreteValue(v.value) {
+			continue
+		}
 		kind := types.EvidenceConcrete
 		predicate := v.kind
 		cvEvidence = append(cvEvidence, types.EvidenceItem{
