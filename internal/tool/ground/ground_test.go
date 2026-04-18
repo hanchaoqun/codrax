@@ -519,6 +519,113 @@ func TestGroundCitation_EmptyContextSkipsGrounding(t *testing.T) {
 	}
 }
 
+// TestGroundItem_Tier1RejectsCommentLine reproduces the 2026-04-18
+// "explorer → subagent" bug. The LLM emitted an evidence item anchored
+// at a line whose entire body is a `//` comment that happens to mention
+// the anchor_symbol. The Tier 1 matcher used to accept this because
+// the token substring appeared in the line; the comment-line gate now
+// forces fall-through so Tier 2 / recovery can find the real
+// definition (or leave the item ungrounded).
+func TestGroundItem_Tier1RejectsCommentLine(t *testing.T) {
+	// Line 321 is a pure comment mentioning the anchor; line 319-323
+	// are a comment block. Real definition lives elsewhere.
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/agent/explorer.go", 319, []string{
+			"\t\t\t// English nouns (\"count\",\"agents\",\"that\",\"call\") to the",
+			"\t\t\t// entity set, inflating registration req count from 2 to 8",
+			"\t\t\t// and flipping answer_chain[0] from the canonical",
+			"\t\t\t// `RegisterDefaultSubAgents → SubExplorer` chain to the",
+			"\t\t\t// spurious `RegisterDefaults → GrepTool.Description` chain",
+		}, 400),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceDirect, Source: "internal/agent/explorer.go",
+		LineStart: 322, // claim on the same comment block
+		AnchorKind: types.AnchorCall, AnchorSymbol: "RegisterDefaultSubAgents",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingGrounded &&
+		it.GroundingTier == types.TierLineText {
+		t.Fatalf("comment-only line was grounded at Tier 1 — gate did not fire (status=%q tier=%q)",
+			it.GroundingStatus, it.GroundingTier)
+	}
+}
+
+// TestGroundItem_Tier1AcceptsRealCodeLine is the positive control:
+// when the anchor actually lands on a code line (not a comment), Tier 1
+// should still accept it. Guards against the comment-exclusion gate
+// over-rejecting legitimate matches.
+func TestGroundItem_Tier1AcceptsRealCodeLine(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("internal/agent/subagent.go", 62, []string{
+			"// RegisterDefaultSubAgents registers the default set of SubAgent implementations.",
+			"func RegisterDefaultSubAgents(r *SubAgentRegistry, deps *Dependencies) {",
+			"\tr.Register(NewSubExplorer(deps))",
+			"}",
+		}, 100),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceRegistration, Source: "internal/agent/subagent.go",
+		LineStart:  63, // the actual func declaration line
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "RegisterDefaultSubAgents",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus != types.GroundingGrounded || it.GroundingTier != types.TierLineText {
+		t.Fatalf("real code line was not Tier-1 grounded: status=%q tier=%q note=%q",
+			it.GroundingStatus, it.GroundingTier, it.GroundingNote)
+	}
+}
+
+// TestGroundItem_Tier1RejectsBlockComment verifies the `/* ... */`
+// block-comment detector walks back through LineIndex and refuses to
+// Tier-1 ground a line sitting inside an unclosed block opener.
+func TestGroundItem_Tier1RejectsBlockComment(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("a.c", 10, []string{
+			"/*",
+			" * Block comment mentioning Foo here",
+			" * still in the block",
+			" */",
+			"int Foo(void) { return 0; }",
+		}, 20),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceDirect, Source: "a.c",
+		LineStart: 11, AnchorKind: types.AnchorDefinition, AnchorSymbol: "Foo",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingGrounded && it.GroundingTier == types.TierLineText {
+		t.Fatalf("anchor inside /* */ block was Tier-1 grounded — block gate did not fire")
+	}
+}
+
+// TestGroundItem_Tier1RejectsPythonDocstring verifies Python triple-
+// quoted docstring detection: a line mentioning the anchor inside a
+// `""" ... """` block must not ground at Tier 1.
+func TestGroundItem_Tier1RejectsPythonDocstring(t *testing.T) {
+	history := []types.ToolResult{
+		buildGutterReadResult("mod.py", 5, []string{
+			`def foo():`,
+			`    """`,
+			`    Calls bar() under certain conditions.`,
+			`    """`,
+			`    return None`,
+		}, 10),
+	}
+	gc := &Context{LineIndex: buildLineIndex(history, "")}
+	it := &types.EvidenceItem{
+		Kind: types.EvidenceDirect, Source: "mod.py",
+		LineStart: 7, AnchorKind: types.AnchorCall, AnchorSymbol: "bar",
+	}
+	GroundItem(it, gc)
+	if it.GroundingStatus == types.GroundingGrounded && it.GroundingTier == types.TierLineText {
+		t.Fatalf("anchor inside Python docstring was Tier-1 grounded — docstring gate did not fire")
+	}
+}
+
 // TestSplitConversation via GroundItem is implicit — just a smoke
 // test that TierLineText's lineCorroborates fallback works when
 // AnchorSymbol is empty (legacy concrete_value items from

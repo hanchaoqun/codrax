@@ -174,6 +174,21 @@ type AnalysisLimits struct {
 	// recovery (too lax → the legitimate ranker gap never closes).
 	// Zero disables the promotion entirely.
 	GhostAnchorExpandSearchThreshold int
+
+	// Session 12 — phase1-unread pre-complete gate. When the explorer
+	// calls emit_investigation_complete while high-ranked pre-scan
+	// files remain unread (the LLM skipped them) AND the declared
+	// RequirementKind is a breadth-intent (mechanism / call_chain /
+	// conditional — questions whose answer generally requires tracing
+	// multi-file flow), the gate raises a RepairExpandSearch
+	// directive, appends PendingReads for the top-K unread files, and
+	// downgrades the complete call so the retry window forces the
+	// LLM to read them. The top-K is capped by Phase1UnreadTopK;
+	// Phase1UnreadMinUnread is the minimum number of unread top-K
+	// files required to trigger (prevents single-miss noise).
+	// Set Phase1UnreadTopK to 0 to disable the gate entirely.
+	Phase1UnreadTopK      int
+	Phase1UnreadMinUnread int
 }
 
 // AnalysisQualityProbe captures runtime hit statistics from the
@@ -315,6 +330,8 @@ func DefaultAnalysisLimits() AnalysisLimits {
 		ClassificationGrepMaxTotalBytes:     8192,
 		ClassificationGrepMinLLMSubjectConf: 0.80,
 		GhostAnchorExpandSearchThreshold:    3,
+		Phase1UnreadTopK:                    5,
+		Phase1UnreadMinUnread:               2,
 		GenericEntityBlocklist: []string{
 			"agent", "agents",
 			"class", "classes",

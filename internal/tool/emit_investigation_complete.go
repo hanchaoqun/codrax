@@ -306,6 +306,19 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		return ""
 	}
 	closure := ctx.Mutable.EvidenceClosure()
+
+	// Session 12 phase1-unread gate. When the LLM calls complete on a
+	// breadth-intent question (mechanism / call_chain / conditional)
+	// while high-ranked pre-scan files remain unread, push those files
+	// into PendingReads so the downstream PendingReads branch surfaces
+	// them with a "Forced Read List" downgrade. This closes the gap
+	// where R5 ghost-anchor promotion chased red-herring files because
+	// the real answer-bearing file never produced a ghost anchor (the
+	// LLM simply never read it, so no chain could reference it).
+	if justification == "" {
+		raisePhase1UnreadPendingReads(ctx, closure)
+	}
+
 	pending := closure.PendingReads()
 
 	// CGEC C2: check (e) — evidence Source falls on a file the
@@ -536,6 +549,107 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files Turn A actually read, or read additional files first.")
 	return b.String()
+}
+
+// raisePhase1UnreadPendingReads is the session-12 CGEC gate that
+// catches the "LLM declares complete while ignoring high-ranked pre-
+// scan files" failure mode. The R5 ghost-anchor promotion covers the
+// opposite half — files the LLM's chains REFERENCE but didn't read —
+// and says nothing about files the LLM simply skipped. This gate
+// closes that gap by treating the keyword-search ranking itself as
+// evidence of "these files are likely answer-bearing; verify they
+// were read before complete".
+//
+// Triggering conditions (all must hold):
+//   - analysisLimits.Phase1UnreadTopK > 0 (gate enabled)
+//   - ctx.AnalysisIR is non-nil (classification available)
+//   - the declared RequirementKind is a breadth-intent (mechanism /
+//     call_chain / conditional) — single-lookup intents (registration
+//     / return_value / enumeration / config_mapping) do not require
+//     breadth and would false-fire on them
+//   - Phase1Ranking has at least Phase1UnreadTopK entries
+//   - top-K minus ReadSet has at least Phase1UnreadMinUnread entries
+//
+// When it fires: append PendingReads for each unread top-K file (with
+// origin="phase1_unread" so trace inspection can tell this gate from
+// chain-promotion D2) and raise a RepairExpandSearch directive. The
+// downstream PendingReads branch of preCompleteContractCheck then
+// renders the downgrade message.
+func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.EvidenceClosure) {
+	if ctx == nil || ctx.Mutable == nil || closure == nil {
+		return
+	}
+	if ctx.AnalysisIR == nil {
+		return
+	}
+	limits := CurrentAnalysisLimits()
+	if limits.Phase1UnreadTopK <= 0 {
+		return
+	}
+	kind := types.NormalizeRequirementKind(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind)
+	if !isBreadthIntent(kind) {
+		return
+	}
+	ranking := ctx.Mutable.Phase1Ranking()
+	if len(ranking) == 0 {
+		return
+	}
+	topK := limits.Phase1UnreadTopK
+	if topK > len(ranking) {
+		topK = len(ranking)
+	}
+	readSet := closure.ReadSet()
+	minUnread := limits.Phase1UnreadMinUnread
+	if minUnread < 1 {
+		minUnread = 1
+	}
+	var unread []types.Phase1RankedFile
+	for i := 0; i < topK; i++ {
+		f := ranking[i]
+		if f.Path == "" {
+			continue
+		}
+		if readSet[f.Path] {
+			continue
+		}
+		unread = append(unread, f)
+	}
+	if len(unread) < minUnread {
+		return
+	}
+
+	files := make([]string, 0, len(unread))
+	for rank, f := range unread {
+		rationale := fmt.Sprintf(
+			"Top-%d pre-scan ranked file (score=%.1f) remains unread — breadth-intent question (kind=%s) needs cross-component evidence",
+			rank+1, f.Score, kind,
+		)
+		closure.AddPendingRead(types.PendingRead{
+			File:      f.Path,
+			Rationale: rationale,
+			Origin:    "phase1_unread",
+		})
+		files = append(files, f.Path)
+		logging.Info("[CGEC] phase1_unread: queued forced-read file=%s score=%.1f kind=%s", f.Path, f.Score, kind)
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairExpandSearch,
+		Files:     files,
+		Rationale: fmt.Sprintf("%d of the top-%d keyword-search ranked files were not read before emit_investigation_complete — open them before re-declaring complete", len(unread), topK),
+		Origin:    "pre_complete.phase1_unread",
+	})
+}
+
+// isBreadthIntent reports whether the RequirementKind requires multi-
+// file evidence to answer correctly. Breadth intents benefit from the
+// phase1-unread gate because skipping ranked files is the common root
+// cause of shallow answers. Single-lookup intents do not benefit.
+func isBreadthIntent(k types.RequirementKind) bool {
+	switch k {
+	case types.ReqMechanism, types.ReqCallChain, types.ReqConditional:
+		return true
+	}
+	return false
 }
 
 // detectSubjectShapeMismatch returns true when the AnswerSubject is

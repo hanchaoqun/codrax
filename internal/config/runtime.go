@@ -209,6 +209,16 @@ type RuntimeSettings struct {
 	CGECStallThresholdSoft  *int `yaml:"cgec_stall_threshold_soft"`
 	CGECStallThresholdHard  *int `yaml:"cgec_stall_threshold_hard"`
 
+	// Phase1-unread pre-complete gate. Session 12. When the LLM calls
+	// emit_investigation_complete and the explorer's keyword-search
+	// top-K ranked files still have >= min_unread entries missing
+	// from ReadSet AND the declared RequirementKind is a breadth-
+	// intent, the gate downgrades the call and forces a follow-up
+	// read round. Defaults: top_k=5, min_unread=2. Set top_k=0 to
+	// disable.
+	CGECPhase1UnreadTopK      *int `yaml:"cgec_phase1_unread_top_k"`
+	CGECPhase1UnreadMinUnread *int `yaml:"cgec_phase1_unread_min_unread"`
+
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

@@ -147,6 +147,131 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPasses(t *testi
 	}
 }
 
+// TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks
+// reproduces the 2026-04-18 "explorer calls subagent how" bug at the
+// tool level. When the explorer's keyword-search top-K ranked files
+// remain unread AND the declared RequirementKind is a breadth-intent,
+// the gate queues PendingReads so the LLM's complete call is
+// downgraded with the standard "Forced Read List" message.
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/explorer.go", Score: 50},
+		{Path: "internal/agent/subagent.go", Score: 40},
+		{Path: "internal/tool/propose_sub_agents.go", Score: 29},
+		{Path: "internal/orchestrator/orchestrator.go", Score: 24},
+		{Path: "internal/agent/sub_explorer.go", Score: 23},
+	})
+	closure := mut.EvidenceClosure()
+	// LLM only read 2 of the top-5 — the rest are unread.
+	closure.SetReadSet(map[string]bool{
+		"internal/agent/explorer.go": true,
+		"internal/agent/subagent.go": true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "traced the answer",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("expected DOWNGRADED message when top-K are unread, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "propose_sub_agents.go") {
+		t.Errorf("expected unread top-K file in forced-read list, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Errorf("InvestigationComplete must remain false on downgrade")
+	}
+}
+
+// TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_Registration
+// is the negative control: a non-breadth intent (registration) must
+// NOT be blocked by the phase1-unread gate even when ranked files are
+// unread. Single-lookup intents commonly need only 1-2 files.
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_Registration(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "a.go", Score: 50},
+		{Path: "b.go", Score: 40},
+		{Path: "c.go", Score: 30},
+		{Path: "d.go", Score: 20},
+		{Path: "e.go", Score: 10},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"a.go": true})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "registration"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "found the registration",
+		"confidence": "high",
+	})
+	res, _ := tool.Execute(bus, params)
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Errorf("registration intent should not be blocked by phase1-unread gate: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Errorf("non-breadth intent should proceed when no other blockers")
+	}
+}
+
+// TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_AbsenceBypass
+// verifies absence_justification bypasses the phase1-unread gate —
+// when the LLM honestly declares "no such thing in the repo" there is
+// nothing to cite so forcing more reads is noise.
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_AbsenceBypass(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "a.go", Score: 50},
+		{Path: "b.go", Score: 40},
+		{Path: "c.go", Score: 30},
+		{Path: "d.go", Score: 20},
+		{Path: "e.go", Score: 10},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":                "no such mechanism exists",
+		"confidence":            "high",
+		"absence_justification": "grep produced zero hits for the claimed symbol",
+	})
+	res, _ := tool.Execute(bus, params)
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Errorf("absence answer must bypass phase1-unread gate: %s", res.Summary)
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesCitationFloor:
 // absence_justification skips check (b) by contract.
 func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testing.T) {

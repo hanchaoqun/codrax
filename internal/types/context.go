@@ -83,6 +83,15 @@ type MutableState struct {
 	// share the same graph instance with zero I/O.
 	searchGraph any
 
+	// phase1Ranking is the explorer's keyword-search file ranking
+	// (top-scored files by the pre-scan), captured once at dispatch
+	// start so downstream tools can cross-reference against ReadSet
+	// without re-running keyword_search. Used by the CGEC phase1-unread
+	// pre-complete gate: when the explorer marks investigation done
+	// while high-ranked files are still unread, the gate raises a
+	// RepairExpandSearch directive pointing at those files.
+	phase1Ranking []Phase1RankedFile
+
 	// dispatchToolResults is the per-dispatch running buffer of tool
 	// results seen so far in the current BaseAgent.Execute loop.
 	// BusContext.ToolResults is only populated after ParseOutput via
@@ -278,6 +287,25 @@ type TurnAArtifacts struct {
 	TerminalEvidenceCount int
 }
 
+// Phase1RankedFile is the minimum projection of the explorer's
+// keyword_search result that downstream CGEC checks need. Carrying a
+// trimmed struct (not the explorer's internal keywordFileScore) keeps
+// internal/types decoupled from internal/agent while giving the
+// pre-complete phase1-unread gate enough signal to sort and surface
+// the right files.
+type Phase1RankedFile struct {
+	// Path is the repo-relative file path, canonicalised the same way
+	// ReadSet entries are canonicalised (see tool/ground/path.go
+	// CanonicalRepoRelative) so a direct map lookup correctly reports
+	// "was this file read?".
+	Path string
+
+	// Score is the merged keyword-search score produced by
+	// explorer.keywordSearch. Higher = more keyword / repomap evidence.
+	// Carried so retry hints can cite a concrete ranking position.
+	Score float64
+}
+
 // HypothesisVerdict is the structured verdict the extractor (Turn B)
 // emits for a single hypothesis from AnalysisIR.HypothesisSet. It is
 // the on-the-wire shape of the emit_hypothesis_verdict tool's items
@@ -350,6 +378,41 @@ func (m *MutableState) SetSearchGraph(g any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.searchGraph = g
+}
+
+// Phase1Ranking returns a defensive copy of the stored ranked file
+// list. Returns nil when no ranking has been set (no explore dispatch
+// has run in this Run, or keyword_search produced no hits).
+func (m *MutableState) Phase1Ranking() []Phase1RankedFile {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.phase1Ranking) == 0 {
+		return nil
+	}
+	out := make([]Phase1RankedFile, len(m.phase1Ranking))
+	copy(out, m.phase1Ranking)
+	return out
+}
+
+// SetPhase1Ranking atomically replaces the stored ranking. The explorer
+// calls this once per dispatch right after keyword_search runs so the
+// pre-complete gate and retry-hint renderer see a consistent snapshot.
+// Pass nil / empty to clear.
+func (m *MutableState) SetPhase1Ranking(files []Phase1RankedFile) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(files) == 0 {
+		m.phase1Ranking = nil
+		return
+	}
+	m.phase1Ranking = make([]Phase1RankedFile, len(files))
+	copy(m.phase1Ranking, files)
 }
 
 // AppendDispatchToolResult pushes a tool result onto the per-dispatch

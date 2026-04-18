@@ -16,6 +16,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/tool"
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"gopkg.in/yaml.v3"
@@ -273,6 +274,21 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// decoupled from repomap; tool-side consumers type-assert.
 		if ctx != nil && ctx.Mutable != nil && sr != nil && sr.Graph != nil {
 			ctx.Mutable.SetSearchGraph(sr.Graph)
+		}
+		// Publish the keyword-search ranking to MutableState so the
+		// CGEC pre-complete phase1-unread gate can cross-reference
+		// top-ranked files against ReadSet. Canonicalise each path the
+		// same way ground.CanonicalRepoRelative does so the gate's
+		// readSet lookup is apples-to-apples.
+		if ctx != nil && ctx.Mutable != nil && sr != nil && len(sr.Files) > 0 {
+			ranked := make([]types.Phase1RankedFile, 0, len(sr.Files))
+			for _, f := range sr.Files {
+				ranked = append(ranked, types.Phase1RankedFile{
+					Path:  ground.CanonicalRepoRelative(f.Path, ctx.RepoRoot),
+					Score: f.Score,
+				})
+			}
+			ctx.Mutable.SetPhase1Ranking(ranked)
 		}
 		results := sr.Files
 		// Record that pre-scan produced a repo_map-derived ranked file

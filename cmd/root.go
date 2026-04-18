@@ -535,6 +535,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AnalysisWarnBelowEntityHitRatio != nil {
 			analysisLimits.WarnBelowEntityHitRatio = *rs.AnalysisWarnBelowEntityHitRatio
 		}
+		if rs.CGECPhase1UnreadTopK != nil {
+			analysisLimits.Phase1UnreadTopK = *rs.CGECPhase1UnreadTopK
+		}
+		if rs.CGECPhase1UnreadMinUnread != nil {
+			analysisLimits.Phase1UnreadMinUnread = *rs.CGECPhase1UnreadMinUnread
+		}
 		tool.SetAnalysisLimits(analysisLimits)
 
 		// Evidence grounding policy — overridden by codrax.yaml

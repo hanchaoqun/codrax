@@ -799,6 +799,15 @@ func recoverNearestCondition(it *types.EvidenceItem, gc *Context) (string, int, 
 // the union of Subject/Object/Condition tokens when AnchorSymbol is
 // empty, for tests that pass old-shape items) appears as a whole word
 // in the read_file gutter text for Source at LineStart±2.
+//
+// Comment-line rejection: when the matching line is a pure comment
+// (either a single-line `//` / `#` comment or inside a `/* ... */`
+// or Python `""" ... """` block), Tier 1 refuses to accept it. The
+// anchor_symbol being mentioned by prose is not evidence of a real
+// anchor — the LLM often cites a nearby comment that narrates what
+// a function DID elsewhere in the codebase. Rejecting here forces
+// the cascade into Tier 2 (symbol_table) and recovery, where the
+// repomap graph can find the genuine definition.
 func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 	if it.Source == "" || it.LineStart <= 0 || gc == nil {
 		return false
@@ -807,38 +816,120 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 	if !ok {
 		return false
 	}
+	// Anchor-first check: when the LLM supplied AnchorSymbol, pick the
+	// specific line in ±2 that actually contains the token, then comment-
+	// check that line. Per-line resolution is needed because the
+	// comment-exclusion gate is line-level, not window-level.
+	if it.AnchorSymbol != "" {
+		matchedLine, ok := findAnchorLine(fileLines, it.LineStart, 2, it.AnchorSymbol)
+		if !ok {
+			return false
+		}
+		if isLineComment(fileLines, matchedLine, it.Source) {
+			return false
+		}
+		return true
+	}
+	// Legacy fallback for items missing AnchorSymbol: use the
+	// Subject/Object/Condition code-shaped identifier union across the
+	// ±2 window, then comment-check the specific line that matched.
 	text, exists := lookupLineWithNeighbours(fileLines, it.LineStart, 2)
 	if !exists {
 		return false
 	}
-	// Anchor-first check: when the LLM supplied AnchorSymbol, the
-	// line must contain that exact token. This is the precise path
-	// we want — it avoids the old Subject/Object heuristic that
-	// matched same-name methods on wrong receivers.
-	if it.AnchorSymbol != "" {
-		have := tokenSet(text)
-		if have[it.AnchorSymbol] {
-			return true
-		}
-		// Also accept the last dotted segment (so `Receiver.Method`
-		// supplied as AnchorSymbol still matches a line containing
-		// just `Method`).
-		if seg := lastDotSegment(it.AnchorSymbol); seg != it.AnchorSymbol && have[seg] {
-			return true
-		}
-		// Keyword fallback for the AnchorKinds repomap cannot index
-		// structurally: if the LLM claimed this was a condition or
-		// return or assignment, Tier 1 additionally accepts the line
-		// when the kind-specific keyword is present. This means a
-		// condition claim grounded via a line that contains the
-		// anchor_symbol AND starts with `if`/`when`/… is still
-		// reported as TierLineText — the dispatch lives in Tier 2
-		// only for the repomap-native cases.
+	if !lineCorroborates(text, it.Subject, it.Object, it.Condition, gc.Graph) {
 		return false
 	}
-	// Legacy fallback for items missing AnchorSymbol: use the
-	// Subject/Object/Condition code-shaped identifier union.
-	return lineCorroborates(text, it.Subject, it.Object, it.Condition, gc.Graph)
+	matchedLine, ok := findCorroboratingLine(fileLines, it.LineStart, 2, it, gc.Graph)
+	if !ok {
+		// Corroborated via the aggregated window text but not any
+		// individual line (unusual but possible). Be conservative: reject.
+		return false
+	}
+	if isLineComment(fileLines, matchedLine, it.Source) {
+		return false
+	}
+	return true
+}
+
+// findAnchorLine locates the specific line within [center-radius,
+// center+radius] that contains the anchor token. Prefers the exact
+// center line when it matches; otherwise returns the nearest neighbour.
+// Matching accepts both the full anchor and its last dotted segment
+// (so `Receiver.Method` matches a line bearing just `Method`).
+func findAnchorLine(fileLines map[int]string, center, radius int, anchor string) (int, bool) {
+	seg := lastDotSegment(anchor)
+	// Center-first: if the claimed line matches, take it.
+	if text, ok := fileLines[center]; ok {
+		have := tokenSet(text)
+		if have[anchor] || (seg != anchor && have[seg]) {
+			return center, true
+		}
+	}
+	// Nearest-neighbour scan.
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok {
+			continue
+		}
+		have := tokenSet(text)
+		if !have[anchor] && (seg == anchor || !have[seg]) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
+}
+
+// findCorroboratingLine is the legacy-fallback counterpart of
+// findAnchorLine: locates the specific line within the ±radius window
+// whose tokenSet satisfies lineCorroborates. Used for evidence items
+// that were constructed without AnchorSymbol.
+func findCorroboratingLine(fileLines map[int]string, center, radius int, it *types.EvidenceItem, graph *repomap.Graph) (int, bool) {
+	if text, ok := fileLines[center]; ok {
+		if lineCorroborates(text, it.Subject, it.Object, it.Condition, graph) {
+			return center, true
+		}
+	}
+	bestLine, bestDist := 0, radius+1
+	for i := center - radius; i <= center+radius; i++ {
+		if i == center || i <= 0 {
+			continue
+		}
+		text, ok := fileLines[i]
+		if !ok {
+			continue
+		}
+		if !lineCorroborates(text, it.Subject, it.Object, it.Condition, graph) {
+			continue
+		}
+		d := i - center
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestLine = i
+		}
+	}
+	if bestLine > 0 {
+		return bestLine, true
+	}
+	return 0, false
 }
 
 // ── Tier 2 ────────────────────────────────────────────────────────────
