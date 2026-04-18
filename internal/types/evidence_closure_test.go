@@ -102,3 +102,90 @@ func TestAddRepair_ReadFile_Dedupe(t *testing.T) {
 		t.Errorf("distinct files must produce distinct PendingReads, got %d", len(pr))
 	}
 }
+
+// TestAddRepair_ExpandSearch_BumpsStats is the B1 producer
+// regression: every RepairExpandSearch written to the closure MUST
+// bump ClosureStats.ExpandSearchRaised (on top of the generic
+// RepairsRaised counter) so the CGEC summary line surfaces
+// "search coverage pressure" as a distinct observability column.
+func TestAddRepair_ExpandSearch_BumpsStats(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.AddRepair(RepairDirective{
+		Kind:     RepairExpandSearch,
+		Keywords: []string{"explorer", "skill"},
+		Origin:   "phase0.broaden_exhausted",
+	})
+	s := c.Stats()
+	if s.ExpandSearchRaised != 1 {
+		t.Errorf("ExpandSearchRaised=%d, want 1", s.ExpandSearchRaised)
+	}
+	if s.RepairsRaised != 1 {
+		t.Errorf("RepairsRaised=%d, want 1 (generic counter must also bump)", s.RepairsRaised)
+	}
+	if !s.HasActivity() {
+		t.Error("HasActivity must be true after RepairExpandSearch raised")
+	}
+	// Dedup on repeat.
+	c.AddRepair(RepairDirective{
+		Kind:     RepairExpandSearch,
+		Keywords: []string{"explorer", "skill"},
+		Origin:   "phase0.broaden_exhausted",
+	})
+	if s2 := c.Stats(); s2.ExpandSearchRaised != 1 {
+		t.Errorf("ExpandSearchRaised=%d after dedup, want 1", s2.ExpandSearchRaised)
+	}
+}
+
+// TestAddRepair_SwapShape_BumpsStats is the B2 producer regression:
+// every RepairSwapShape MUST bump ClosureStats.ShapeSwapRaised.
+func TestAddRepair_SwapShape_BumpsStats(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.AddRepair(RepairDirective{
+		Kind:    RepairSwapShape,
+		Subject: "from=boolean,to=value",
+		Origin:  "emit_answer_document.shape_mismatch",
+	})
+	s := c.Stats()
+	if s.ShapeSwapRaised != 1 {
+		t.Errorf("ShapeSwapRaised=%d, want 1", s.ShapeSwapRaised)
+	}
+	if s.RepairsRaised != 1 {
+		t.Errorf("RepairsRaised=%d, want 1", s.RepairsRaised)
+	}
+	// Distinct Subject = distinct directive, so another one bumps.
+	c.AddRepair(RepairDirective{
+		Kind:    RepairSwapShape,
+		Subject: "from=explanation,to=value",
+		Origin:  "pre_complete.subject_shape_mismatch",
+	})
+	if s2 := c.Stats(); s2.ShapeSwapRaised != 2 {
+		t.Errorf("ShapeSwapRaised=%d, want 2 (distinct Subject)", s2.ShapeSwapRaised)
+	}
+}
+
+// TestAddRepair_RebindSubject_StillCountsRepairsRaised asserts that
+// the generic RepairsRaised counter bumps for every kind, including
+// RepairRebindSubject and RepairForceCompleteDowngrade — those two
+// have no per-kind counter (they reuse RepairsRaised + StallHardHits
+// respectively), so the generic bump is their only observability
+// signal via ClosureStats.
+func TestAddRepair_RebindSubject_StillCountsRepairsRaised(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.AddRepair(RepairDirective{
+		Kind:    RepairRebindSubject,
+		Subject: "skill_name",
+		Origin:  "chain_ranker",
+	})
+	c.AddRepair(RepairDirective{
+		Kind:      RepairForceCompleteDowngrade,
+		Rationale: "3 identical fingerprints",
+		Origin:    "convergence_detector",
+	})
+	s := c.Stats()
+	if s.RepairsRaised != 2 {
+		t.Errorf("RepairsRaised=%d, want 2 (generic counter must fire for every kind)", s.RepairsRaised)
+	}
+	if s.ExpandSearchRaised != 0 || s.ShapeSwapRaised != 0 {
+		t.Errorf("per-kind counters must not fire for other kinds: ExpandSearch=%d ShapeSwap=%d", s.ExpandSearchRaised, s.ShapeSwapRaised)
+	}
+}

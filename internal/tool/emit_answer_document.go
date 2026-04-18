@@ -334,6 +334,28 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 				shape = types.ShapeExplanation
 				shapeCorrectionNote = fmt.Sprintf("shape auto-corrected: LLM chose %s, target was %s but required fields empty → fell back to explanation", llmShape, target)
 			}
+			// CGEC B2a: also emit a structured RepairSwapShape so the
+			// retry hint surfaces the mismatch explicitly. Keeping the
+			// silent auto-correct as a per-round safety net — a run
+			// that passes contract on the first try still ships. The
+			// Repair only materialises into the next explore prompt if
+			// a retry actually fires (ConsumeRepairs). Subject encodes
+			// "from=X,to=Y" so the extractor (B3) can read it and
+			// steer Turn B's answer_shape hint.
+			if ctx.Mutable != nil {
+				rationale := fmt.Sprintf("LLM chose shape=%s but AnalysisIR target is %s", llmShape, target)
+				if !canCorrect {
+					rationale += " (required fields missing, fell back to explanation)"
+				}
+				closure := ctx.Mutable.EvidenceClosure()
+				closure.AddRepair(types.RepairDirective{
+					Kind:      types.RepairSwapShape,
+					Subject:   fmt.Sprintf("from=%s,to=%s", llmShape, target),
+					Rationale: rationale,
+					Origin:    "emit_answer_document.shape_mismatch",
+				})
+				logging.Info("[CGEC] B2a shape_swap: from=%s to=%s can_correct=%v", llmShape, target, canCorrect)
+			}
 			// Previously this block silently scrubbed every field the
 			// resolved shape forbids. That let the LLM's "shotgun"
 			// response (chose shape=boolean, filled boolean + steps +

@@ -231,7 +231,7 @@ func (o *Orchestrator) detectStallAndAct() bool {
 	if !lastNFingerprintsEqual(hist, cgecStallThresholdSoft) {
 		return false
 	}
-	logging.Warning("[orchestrator] CGEC I4: convergence stall detected (round %d, soft threshold %d)", len(hist), cgecStallThresholdSoft)
+	logging.Warning("[CGEC] I4 stall soft: round=%d threshold=%d", len(hist), cgecStallThresholdSoft)
 	closure.BumpStallSoftHits(1)
 	// Try to break the stall by force-reading anything that's been
 	// queued but not satisfied yet.
@@ -242,6 +242,26 @@ func (o *Orchestrator) detectStallAndAct() bool {
 		// to record progress.
 		return false
 	}
+	// CGEC B1b: soft stall with NO files to force-read means the
+	// ReadSet is saturated (or PendingReads is empty) but evidence /
+	// chain terminals / citations are not growing — the LLM is
+	// treading water on the same set of files. Emit
+	// RepairExpandSearch so the next retry's prompt tells the LLM to
+	// broaden its grep coverage instead of re-reading the same
+	// files. Keywords empty → Render falls back to a generic
+	// rationale; downstream Group B3 extractor can still surface the
+	// prompt section.
+	var kws []string
+	if o.busCtx != nil && o.busCtx.AnalysisIR != nil {
+		kws = append(kws, o.busCtx.AnalysisIR.RequestModel.AnalyzerHints.Keywords...)
+	}
+	closure.AddRepair(types.RepairDirective{
+		Kind:      types.RepairExpandSearch,
+		Keywords:  kws,
+		Rationale: fmt.Sprintf("ReadSet saturated but %d consecutive rounds produced no new evidence/chain/citation — broaden grep coverage (stems / conceptual synonyms / sibling packages) instead of re-reading the same files", cgecStallThresholdSoft),
+		Origin:    "convergence_detector.soft_stall",
+	})
+	logging.Info("[CGEC] B1b expand_search: origin=convergence_detector.soft_stall keywords=%d", len(kws))
 	// Hard threshold: cgecStallThresholdHard consecutive identical
 	// fingerprints AND no forced read fired. Threshold = 0 disables
 	// the hard exit (operators that want soft observability without

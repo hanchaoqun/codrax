@@ -1823,6 +1823,31 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		cvClosure = ctx.Mutable.EvidenceClosure()
 		cvClosure.SetReadSet(cvReadSet)
 	}
+	// CGEC B1a: Phase 0 broaden attempts exhausted with 0 file
+	// matches → emit RepairExpandSearch so the next retry's prompt
+	// tells the LLM to try keyword stems / morphological variants
+	// / synonyms instead of repeating the same terms. The Keywords
+	// field carries the analyzer-declared keywords the LLM has
+	// already been trying (so the retry hint can surface them as
+	// "these didn't work — try different forms"). De-dup by
+	// AddRepair chokepoint.
+	discoveredFiles, _ := extractFileCoverage(toolResults)
+	if cvClosure != nil &&
+		e.phase == 0 &&
+		e.broadenAttempts >= e.heuristics.Phase0MaxBroadenAttempts &&
+		len(discoveredFiles) == 0 {
+		var kws []string
+		if ctx.AnalysisIR != nil {
+			kws = append(kws, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords...)
+		}
+		cvClosure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Keywords:  kws,
+			Rationale: fmt.Sprintf("Phase 0 exhausted %d broaden attempt(s) with 0 file matches — try stems, morphological variants, or conceptual synonyms of these keywords", e.broadenAttempts),
+			Origin:    "explorer.phase0.broaden_exhausted",
+		})
+		logging.Info("[CGEC] B1a expand_search: origin=phase0.broaden_exhausted attempts=%d keywords=%d", e.broadenAttempts, len(kws))
+	}
 	cvResult := e.getConcreteValuesCached(ctx.RepoRoot, cvReadSet, cvClosure)
 	if len(cvResult.evidence) > 0 {
 		e.structuredEvidence = mergeEvidenceItems(e.structuredEvidence, cvResult.evidence)

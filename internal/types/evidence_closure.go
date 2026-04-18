@@ -116,10 +116,19 @@ type EvidenceClosure struct {
 // to zero; counters increment via the corresponding Bump method
 // below, which threads through the closure mutex so concurrent
 // emit_*-tool calls cannot race.
+//
+// ExpandSearchRaised and ShapeSwapRaised are separate from the
+// generic RepairsRaised counter because Session 10 Group B wires
+// them as first-class producers with their own semantics — operator
+// observability treats "the framework asked the LLM to grep wider"
+// and "the framework asked the LLM to swap answer shape" as
+// distinct signals worth their own column in the task summary.
 type ClosureStats struct {
 	ChainsDemoted         int // I1: chains stripped from prompt by chain promotion
 	UnverifiedFinds       int // I1: hallucinated paths/symbols flagged by findings_validator
 	RepairsRaised         int // I2: structured RepairDirectives written to closure (any kind)
+	ExpandSearchRaised    int // B1: RepairExpandSearch directives raised (Phase0 / stall / preComplete)
+	ShapeSwapRaised       int // B2: RepairSwapShape directives raised (grounder / preComplete / retry)
 	PreCompleteDowngrades int // I3: emit_investigation_complete downgrade events
 	ForcedReads           int // I4: files read on the LLM's behalf (Lazy Auto-Read)
 	StallSoftHits         int // I4: convergence soft threshold hits
@@ -131,6 +140,7 @@ type ClosureStats struct {
 // not pollute the trace with an empty summary.
 func (s ClosureStats) HasActivity() bool {
 	return s.ChainsDemoted+s.UnverifiedFinds+s.RepairsRaised+
+		s.ExpandSearchRaised+s.ShapeSwapRaised+
 		s.PreCompleteDowngrades+s.ForcedReads+
 		s.StallSoftHits+s.StallHardHits > 0
 }
@@ -463,7 +473,13 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 	}
 	c.repairs = append(c.repairs, r)
 	c.stats.RepairsRaised++
-	if r.Kind == RepairReadFile {
+	// Per-kind counter bumps: each RepairKind has its own column in
+	// the CGEC summary line so operators can tell at a glance which
+	// enforcer family is driving retries. New kinds added to
+	// RepairKind MUST add a case here so TestAllRepairKindsHaveProducer
+	// does not regress.
+	switch r.Kind {
+	case RepairReadFile:
 		origin := "auto_bridge"
 		if r.Origin != "" {
 			origin = "auto_bridge." + r.Origin
@@ -475,6 +491,10 @@ func (c *EvidenceClosure) AddRepair(r RepairDirective) {
 				Origin:    origin,
 			})
 		}
+	case RepairExpandSearch:
+		c.stats.ExpandSearchRaised++
+	case RepairSwapShape:
+		c.stats.ShapeSwapRaised++
 	}
 }
 
@@ -550,6 +570,8 @@ func (c *EvidenceClosure) Stats() ClosureStats {
 func (c *EvidenceClosure) BumpChainsDemoted(n int)         { c.bumpStat(func(s *ClosureStats) { s.ChainsDemoted += n }) }
 func (c *EvidenceClosure) BumpUnverifiedFinds(n int)       { c.bumpStat(func(s *ClosureStats) { s.UnverifiedFinds += n }) }
 func (c *EvidenceClosure) BumpRepairsRaised(n int)         { c.bumpStat(func(s *ClosureStats) { s.RepairsRaised += n }) }
+func (c *EvidenceClosure) BumpExpandSearchRaised(n int)    { c.bumpStat(func(s *ClosureStats) { s.ExpandSearchRaised += n }) }
+func (c *EvidenceClosure) BumpShapeSwapRaised(n int)       { c.bumpStat(func(s *ClosureStats) { s.ShapeSwapRaised += n }) }
 func (c *EvidenceClosure) BumpPreCompleteDowngrades(n int) { c.bumpStat(func(s *ClosureStats) { s.PreCompleteDowngrades += n }) }
 func (c *EvidenceClosure) BumpForcedReads(n int)           { c.bumpStat(func(s *ClosureStats) { s.ForcedReads += n }) }
 func (c *EvidenceClosure) BumpStallSoftHits(n int)         { c.bumpStat(func(s *ClosureStats) { s.StallSoftHits += n }) }

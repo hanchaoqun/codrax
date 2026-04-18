@@ -807,24 +807,28 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 }
 
 // emitCGECSummary renders the per-task CGEC counter snapshot to the
-// trace + the renderer's reasoning event channel. Silent when no
-// enforcer fired (Stats.HasActivity() == false) so a no-op task
-// does not pollute the output. Called at the end of runTaskGraph
-// after all stages have exited.
+// trace + the renderer's reasoning event channel. Always emits a
+// single line so operators can grep [CGEC] summary even on no-op
+// tasks — a "no enforcer fired" line is a positive signal that the
+// closure is quiet, which is itself diagnostic information.
+// Called at the end of runTaskGraph after all stages have exited.
 func (o *Orchestrator) emitCGECSummary() {
 	if o.busCtx == nil || o.busCtx.Mutable == nil {
 		return
 	}
 	stats := o.busCtx.Mutable.EvidenceClosure().Stats()
+	var line string
 	if !stats.HasActivity() {
-		return
+		line = "[CGEC] summary: no enforcer fired (contract quiet)"
+	} else {
+		line = fmt.Sprintf(
+			"[CGEC] summary: chains_demoted=%d unverified=%d repairs_raised=%d expand_search=%d shape_swap=%d pre_complete_downgrades=%d forced_reads=%d stall_soft=%d stall_hard=%d",
+			stats.ChainsDemoted, stats.UnverifiedFinds, stats.RepairsRaised,
+			stats.ExpandSearchRaised, stats.ShapeSwapRaised,
+			stats.PreCompleteDowngrades, stats.ForcedReads,
+			stats.StallSoftHits, stats.StallHardHits)
 	}
-	line := fmt.Sprintf(
-		"CGEC summary: chains_demoted=%d unverified=%d repairs_raised=%d pre_complete_downgrades=%d forced_reads=%d stall_soft=%d stall_hard=%d",
-		stats.ChainsDemoted, stats.UnverifiedFinds, stats.RepairsRaised,
-		stats.PreCompleteDowngrades, stats.ForcedReads,
-		stats.StallSoftHits, stats.StallHardHits)
-	logging.Info("[orchestrator] %s", line)
+	logging.Info("%s", line)
 	o.emit(render.Event{
 		Kind:      render.EventAgentReasoning,
 		Timestamp: time.Now(),
@@ -1292,9 +1296,16 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	}
 
 	// Carry the agent's own retry diagnosis through to the next
-	// dispatch. The forward explorer→finalize transition clears this
-	// on BusContext so a hint from explore never leaks forward.
-	o.busCtx.TaskState.RetryHint = output.RetryHint
+	// dispatch. CGEC B3: only overwrite when the stage produced a
+	// non-empty hint of its own. An empty output.RetryHint leaves
+	// the orchestrator-written window hint (from renderWindowHint)
+	// in place so the Shape Reconcile / Subject Constraint /
+	// Forced Read List sections persist through explore → extract →
+	// finalize within the same retry round. The hint is reset at
+	// the start of the NEXT window via applyWindowHint.
+	if output.RetryHint != "" {
+		o.busCtx.TaskState.RetryHint = output.RetryHint
+	}
 	if output.RetryHint != "" {
 		// Surface the retry reason to the user so they know the
 		// pipeline is re-running, not stalled.

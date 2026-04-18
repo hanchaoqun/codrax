@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -331,7 +332,46 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		eligible++
 	}
 	if eligible >= min {
+		// CGEC B2b: eligible evidence is sufficient in quantity, but
+		// check for a static mismatch between AnswerSubject (what
+		// kind of literal the answer should be) and RequiredAnswerShape
+		// (what shape the finalizer will emit). reconcileShape runs
+		// at analyzer time but ONLY handles ShapeConfigValue →
+		// ShapeValue for source-code literal subjects; other shape
+		// mismatches (e.g. subject=SkillName + shape=ShapeExplanation)
+		// slip through. Emit RepairSwapShape so the retry hint
+		// surfaces the conflict explicitly — does NOT downgrade the
+		// current emit_investigation_complete because the evidence
+		// IS present; subsequent finalize + contract check will
+		// decide whether to accept.
+		if mismatch, fromShape, toShape := detectSubjectShapeMismatch(ir); mismatch {
+			closure.AddRepair(types.RepairDirective{
+				Kind:      types.RepairSwapShape,
+				Subject:   fmt.Sprintf("from=%s,to=%s", fromShape, toShape),
+				Rationale: fmt.Sprintf("AnswerSubject=%s (source-code literal) but RequiredAnswerShape=%s — finalizer should produce %s instead", ir.RequestModel.AnswerSubject.Kind, fromShape, toShape),
+				Origin:    "pre_complete.subject_shape_mismatch",
+			})
+			logging.Info("[CGEC] B2b shape_swap: origin=pre_complete.subject_shape_mismatch from=%s to=%s", fromShape, toShape)
+		}
 		return ""
+	}
+	// CGEC B1c: evidence short of MinCitations AND AnalysisIR.RequestModel
+	// has keywords the LLM has been trying. The common root cause is
+	// the keywords find too few files — tell the LLM to broaden the
+	// grep coverage (stems / synonyms) before re-calling
+	// emit_investigation_complete.
+	var kws []string
+	if ir.RequestModel.AnalyzerHints.Keywords != nil {
+		kws = append(kws, ir.RequestModel.AnalyzerHints.Keywords...)
+	}
+	if eligible+1 < min && len(kws) > 0 {
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Keywords:  kws,
+			Rationale: fmt.Sprintf("evidence buffer has only %d of %d required cite-eligible items — broaden grep coverage with stems / conceptual synonyms of the analyzer keywords above", eligible, min),
+			Origin:    "pre_complete.citation_floor_low",
+		})
+		logging.Info("[CGEC] B1c expand_search: origin=pre_complete.citation_floor_low eligible=%d min=%d keywords=%d", eligible, min, len(kws))
 	}
 	var b strings.Builder
 	b.WriteString("emit_investigation_complete DOWNGRADED — pre-complete citation preflight failed.\n\n")
@@ -339,6 +379,38 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files Turn A actually read, or read additional files first.")
 	return b.String()
+}
+
+// detectSubjectShapeMismatch returns true when the AnswerSubject is
+// a source-code literal kind (skill_name, agent_name, function_name,
+// type_name, interface, handler_route, return_value) but the
+// RequiredAnswerShape is one that cannot carry a single literal
+// (ShapeExplanation / ShapeStepList / ShapeBoolean / ShapeListOfSymbols).
+// ShapeValue / ShapeConfigValue are compatible targets; reconcileShape
+// at analyzer time already handles ConfigValue→Value so we don't
+// flag that case here.
+//
+// Returns (true, currentShape, recommendedShape) so the caller can
+// emit a structured RepairSwapShape with "from=X,to=Y" subject.
+func detectSubjectShapeMismatch(ir *types.AnalysisIR) (bool, types.AnswerShape, types.AnswerShape) {
+	if ir == nil {
+		return false, "", ""
+	}
+	subj := ir.RequestModel.AnswerSubject.Kind
+	shape := ir.AnswerContract.RequiredAnswerShape
+	switch subj {
+	case types.SubjectSkillName, types.SubjectAgentName,
+		types.SubjectFunctionName, types.SubjectTypeName,
+		types.SubjectInterface, types.SubjectHandlerRoute,
+		types.SubjectReturnValue:
+	default:
+		return false, "", ""
+	}
+	switch shape {
+	case types.ShapeValue, types.ShapeConfigValue:
+		return false, "", ""
+	}
+	return true, shape, types.ShapeValue
 }
 
 // evidenceTally breaks an evidence slice into grounding-status
