@@ -72,6 +72,8 @@ func pickTemplate(s types.Scenario) templateFn {
 		return templateConfigTrace
 	case types.ScenarioPerformanceBottleneck:
 		return templatePerformanceBottleneck
+	case types.ScenarioCallChainDispatch:
+		return templateCallChainDispatch
 	}
 	return templateGeneric
 }

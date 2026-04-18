@@ -1,6 +1,10 @@
 package compiler
 
-import "github.com/hanchaoqun/codrax/internal/types"
+import (
+	"strings"
+
+	"github.com/hanchaoqun/codrax/internal/types"
+)
 
 // InferScenario is a deterministic scenario classifier used when the
 // LLM did not supply rm.Scenario (or supplied ScenarioGeneric). It
@@ -17,7 +21,9 @@ import "github.com/hanchaoqun/codrax/internal/types"
 //     (unless root_cause signals are present — see step 6)
 //  5. Intent is root_cause                    → root_cause
 //  6. Term graph contains perf-related terms  → performance_bottleneck
-//  7. otherwise                                → architecture_explain
+//  7. Call-chain-dispatch question (Intent=explain + kind=mechanism
+//     + PredicateAxis=call)                    → call_chain_dispatch
+//  8. otherwise                                → architecture_explain
 func InferScenario(rm types.RequestModel) types.Scenario {
 	switch rm.Intent {
 	case types.IntentConfigQuery:
@@ -34,6 +40,13 @@ func InferScenario(rm types.RequestModel) types.Scenario {
 	}
 	if hasPerfTerms(rm.TermGraph) {
 		return types.ScenarioPerformanceBottleneck
+	}
+	// Call-chain-dispatch gate. Keep strict: all three signals must
+	// line up (Explain intent, mechanism kind, AxisCall axis) to
+	// avoid regressing architecture_explain for general "how does X
+	// work" questions that don't have a concrete call-site answer.
+	if IsCallChainDispatchQuestion(rm) {
+		return types.ScenarioCallChainDispatch
 	}
 	// Ambiguity-sensitive escalation: when the request is
 	// non-trivial AND carries at least one ambiguity clause, route
@@ -89,4 +102,33 @@ func hasPerfTerms(tg types.TermGraph) bool {
 		}
 	}
 	return false
+}
+
+// IsCallChainDispatchQuestion reports whether the request is a
+// mechanism-shape "how does X CALL Y" question that should be
+// decomposed as a call chain (entrypoint → dispatcher → receiver)
+// rather than as per-entity sub-topics.
+//
+// All three signals must line up:
+//  1. PredicateAxis == AxisCall (analyzer_predicate.go extracted the
+//     axis from a call-family verb cue).
+//  2. AnalyzerHints.Kind == "mechanism" (LLM's question_kind
+//     classification — the raw field before any typed mapping).
+//  3. Intent == IntentExplain (mechanism questions that aren't
+//     explain intent — e.g. IntentEnumerate "list all callers of X"
+//     — already route correctly via the Intent switch above).
+//
+// Conservative gate. Relaxing any of the three risks regressing
+// general "how does X work" questions that architecture_explain
+// handles well today. Exported so analyzer.go's scenario-reconcile
+// block can consult the same gate when deciding whether to override
+// an LLM-supplied ScenarioArchitectureExplain.
+func IsCallChainDispatchQuestion(rm types.RequestModel) bool {
+	if rm.PredicateAxis != types.AxisCall {
+		return false
+	}
+	if rm.Intent != types.IntentExplain {
+		return false
+	}
+	return strings.EqualFold(rm.AnalyzerHints.Kind, "mechanism")
 }

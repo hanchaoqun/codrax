@@ -36,6 +36,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/axis"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -466,6 +467,191 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 	return types.CompletenessLowerBound
 }
 
+// axisStrongAffinityThreshold is the affinity-matrix cell value above
+// which we consider an evidence item to "strongly realise" the
+// question's PredicateAxis. Kept as a const so the threshold is grep-
+// able in one place; matches the 1.2 floor empirically picked so
+// neutral-leaning boosts (AxisRegister × AnchorCall = 1.2) still
+// count while low-confidence pairs (AxisImplement × AnchorCall = 1.1)
+// do not force retries on every mechanism question.
+const axisStrongAffinityThreshold = 1.2
+
+// axisAnchorRetryHint is the L3 validator for the extractor's
+// answer_symbol slate. Returns a non-empty correction hint when the
+// question carries a clear PredicateAxis, the evidence pool has at
+// least one item whose AnchorKind strongly realises that axis (via
+// axis.Affinity ≥ threshold), and NONE of the picked answer_symbols
+// correlate with any such evidence item. Returns "" when the picks
+// are aligned or the check does not apply (axis zero, no matching
+// evidence, or no picks yet).
+//
+// Correlation: an answer_symbol at (file, line) is correlated with an
+// evidence item at (source, [LineStart..LineEnd]) when file == source
+// AND LineStart == 0 || line ∈ [LineStart..max(LineStart,LineEnd)].
+// Zero LineEnd is treated as a single-line range. File comparison is
+// strict — canonicalised by the upstream grounder.
+func axisAnchorRetryHint(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return ""
+	}
+	rm := ctx.Mutable.RequestModel()
+	if rm == nil {
+		return ""
+	}
+	pa := rm.PredicateAxis
+	if pa == types.AxisUnknown {
+		return ""
+	}
+
+	// Union of every reachable evidence source at extractor time:
+	//   - ctx.EvidenceItems: merged BusContext pool
+	//   - ctx.Mutable.EmittedEvidence(): LLM-emitted buffer (only
+	//     this channel carries the anchor_kind field the LLM sent)
+	//   - ctx.Mutable.TurnAArtifacts().EvidenceItems: Turn A handoff
+	//     snapshot (StrictOK subset, often empty)
+	// Dedup by (Source, LineStart, AnchorSymbol) keeps the matching
+	// set lean. Without unioning these three, the emit_evidence
+	// channel's anchor_kind signal is lost — BusContext merges only
+	// typed evidence, not the raw LLM buffer.
+	pool := mergeEvidenceForAxisCheck(ctx)
+	if len(pool) == 0 {
+		return ""
+	}
+	// Collect evidence items whose AnchorKind strongly realises the axis.
+	matching := make([]types.EvidenceItem, 0, len(pool))
+	for _, ev := range pool {
+		if ev.AnchorKind == "" {
+			continue
+		}
+		if axis.Affinity(pa, ev.AnchorKind) >= axisStrongAffinityThreshold {
+			matching = append(matching, ev)
+		}
+	}
+	if len(matching) == 0 {
+		// No axis-matching evidence in the pool — cannot blame the
+		// LLM for picking non-aligned anchors when none exist.
+		return ""
+	}
+
+	syms, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(syms) == 0 {
+		// Missing-symbols retry path owns this case.
+		return ""
+	}
+	for _, s := range syms {
+		for _, ev := range matching {
+			if answerSymbolCorrelatesWithEvidence(s, ev) {
+				return "" // at least one alignment → pass
+			}
+		}
+	}
+
+	// Violation: build a concrete hint naming a matching evidence item.
+	top := matching[0]
+	return fmt.Sprintf(
+		"The question axis is %q but none of the %d emit_answer_symbol items you picked correlate with an AnchorKind=%s evidence item in Turn A's pool. Re-emit emit_answer_symbol INCLUDING at least one symbol whose file:line matches an axis-aligned evidence item, e.g. %s:%d (%s). The deterministic renderer needs a call-site anchor for the finalizer's prose to hang on.",
+		pa,
+		len(syms),
+		top.AnchorKind,
+		top.Source,
+		top.LineStart,
+		firstNonEmpty(top.AnchorSymbol, top.Subject),
+	)
+}
+
+// answerSymbolCorrelatesWithEvidence reports whether the given
+// answer_symbol's (File, Line) falls within the evidence item's
+// (Source, LineStart..LineEnd) range. LineEnd=0 is a single-line
+// point; Line=0 on the answer_symbol treats the evidence range as a
+// file-level match (any line in the same file passes).
+func answerSymbolCorrelatesWithEvidence(s types.AnswerSymbol, ev types.EvidenceItem) bool {
+	if s.File == "" || ev.Source == "" || s.File != ev.Source {
+		return false
+	}
+	if s.Line <= 0 {
+		// File-level match — acceptable when the answer_symbol lacks a
+		// precise line (rare but possible for module-level anchors).
+		return true
+	}
+	end := ev.LineEnd
+	if end < ev.LineStart {
+		end = ev.LineStart
+	}
+	if ev.LineStart <= 0 {
+		return false
+	}
+	return s.Line >= ev.LineStart && s.Line <= end
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// mergeEvidenceForAxisCheck returns a deduped union of every
+// reachable evidence source at extractor Observe time. The three
+// sources differ in shape:
+//
+//	ctx.EvidenceItems                     — merged pool written by
+//	                                         applyStageOutput from every
+//	                                         stage's StageOutput
+//	ctx.Mutable.EmittedEvidence()         — raw LLM emit_evidence
+//	                                         buffer (preserves
+//	                                         anchor_kind verbatim)
+//	ctx.Mutable.TurnAArtifacts().EvidenceItems
+//	                                       — frozen StrictOK subset
+//	                                         the explorer picks for
+//	                                         Turn B hand-off
+//
+// The LLM-emitted channel is the only one that guarantees the
+// anchor_kind field is populated, so unioning is load-bearing —
+// skipping it means the axis validator silently passes even when
+// Turn A emitted perfect call-anchored evidence (see the 2026-04-18
+// bug replay log where 18 merged items had no anchor_kind but 3
+// LLM-emit items had call/definition/call).
+//
+// Dedup key: (Source, LineStart, LineEnd, AnchorSymbol). Two items
+// with identical coordinates are the same evidence in different
+// channels, not independent observations.
+func mergeEvidenceForAxisCheck(ctx *types.AgentContext) []types.EvidenceItem {
+	if ctx == nil {
+		return nil
+	}
+	type key struct {
+		src                  string
+		lineStart, lineEnd   int
+		anchorSym            string
+	}
+	seen := make(map[key]bool, 16)
+	var out []types.EvidenceItem
+	push := func(ev types.EvidenceItem) {
+		k := key{ev.Source, ev.LineStart, ev.LineEnd, ev.AnchorSymbol}
+		if seen[k] {
+			return
+		}
+		seen[k] = true
+		out = append(out, ev)
+	}
+	for _, ev := range ctx.EvidenceItems {
+		push(ev)
+	}
+	if ctx.Mutable != nil {
+		for _, ev := range ctx.Mutable.EmittedEvidence() {
+			push(ev)
+		}
+		if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+			for _, ev := range ta.EvidenceItems {
+				push(ev)
+			}
+		}
+	}
+	return out
+}
+
 // Observe implements LoopController.
 //
 // Turn B has TWO expected tools — emit_answer_symbol (for
@@ -502,6 +688,26 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		needSymbols := isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx)
 		needVerdicts := hasPendingHypotheses(ctx)
 		if (!needSymbols || gotSymbols) && (!needVerdicts || gotVerdicts) {
+			// L3 axis-anchor alignment gate. Before accepting the stop,
+			// if the question carries a PredicateAxis AND the evidence
+			// pool contains at least one axis-matching item, the picked
+			// answer_symbols MUST include at least one that correlates
+			// with an axis-matching evidence item. Otherwise the LLM
+			// picked registration/definition symbols for a "how does X
+			// CALL Y" question — re-dispatch with a correction hint.
+			// Gated on e.retriesUsed budget; after the budget is spent
+			// the mismatch is tolerated and logged (honest degrade).
+			if gotSymbols && e.retriesUsed < e.maxRetries {
+				if hint := axisAnchorRetryHint(ctx); hint != "" {
+					e.retriesUsed++
+					logging.Info("[extractor] axis-anchor mismatch retry #%d: %s", e.retriesUsed, hint)
+					return LoopSignal{
+						HintRequested: true,
+						HintKey:       fmt.Sprintf("extractor.axis_mismatch.%d", e.retriesUsed),
+						Hint:          hint,
+					}
+				}
+			}
 			return LoopSignal{StopRequested: true, StopReason: "extractor emit batch complete"}
 		}
 		// At least one expected emit still missing: let the loop run

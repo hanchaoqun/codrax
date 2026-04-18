@@ -528,3 +528,119 @@ func templateGeneric(rm types.RequestModel) Output {
 	}
 	return Output{TaskGraph: graph, EvidencePlan: plan, AnswerContract: contract}
 }
+
+// ── call_chain_dispatch ─────────────────────────────────────────
+//
+// templateCallChainDispatch is the L4 template for "how does X CALL Y"
+// mechanism questions. Architecture_explain decomposes these into
+// per-entity sub-topics (entity-X's role, entity-Y's role), which
+// surfaces as a slate of registration/definition anchors — a poor
+// fit for a question whose answer is a CALL CHAIN with a named
+// entrypoint, dispatcher, and receiver.
+//
+// This template replaces the per-entity decomposition with three
+// FIXED chain-hop evidence nodes whose Objective and SearchHints
+// push the explorer toward call-site evidence at each hop. The
+// evidence ranker (L2) and extractor validator (L3) downstream
+// ensure the call-anchored items actually win the top-N slate.
+//
+// Key shape choices vs architecture_explain:
+//   - 3 fixed evidence nodes instead of len(SubTopics) — the LLM's
+//     emitted sub_topics are IGNORED for this scenario because they
+//     typically enumerate entities (wrong axis), not hops.
+//   - Objectives use "call site" / "dispatch call" / "invocation
+//     receiver" wording so the explorer's prompt reflects the axis.
+//   - No reconcile node: the answer is a linear chain, not a
+//     multi-perspective synthesis.
+//   - CitationMinCount stays at TmplCitationCountHigh — three hops
+//     × one citation each is the honest floor.
+func templateCallChainDispatch(rm types.RequestModel) Output {
+	hints := hintsFromRM(rm)
+	probe := types.TaskNode{
+		ID: nodeID(0, "probe"), Type: types.NodeProbe,
+		Objective:   "Breadth scan to locate the call-site entrypoint and trace candidate dispatch paths between the question's entities.",
+		Inputs:      []string{"user_question", "term_graph"},
+		Outputs:     []string{"file_candidates", "symbol_table"},
+		SearchHints: hints,
+		SuccessCriteria: []types.Criterion{
+			{Kind: types.CritEvidenceCount, Expr: ">=" + strconv.Itoa(TmplEvidenceCountLow)},
+		},
+	}
+	// Three fixed hops. Each hop's Objective pushes the explorer
+	// toward call-anchored evidence at that layer of the dispatch.
+	hopObjectives := []string{
+		"Entrypoint hop — identify the call site in the caller entity that initiates the dispatch. Cite the `receiver.Method(args)` line.",
+		"Dispatcher hop — identify the runtime/orchestrator that routes the call to a registered handler. Cite the call that invokes the receiver's method.",
+		"Receiver hop — identify the callee that executes the dispatched work. Cite the method definition or the invocation entry point.",
+	}
+	evNodes := make([]types.TaskNode, 3)
+	for i, obj := range hopObjectives {
+		evNodes[i] = types.TaskNode{
+			ID:          fmt.Sprintf("%s_hop%d", nodeID(1, "evidence"), i),
+			Type:        types.NodeEvidence,
+			Objective:   obj,
+			Inputs:      []string{"file_candidates", "symbol_table"},
+			Outputs:     []string{"evidence_items", "answer_chains"},
+			SearchHints: hints,
+			MaxRetries:  TmplEvidenceMaxRetries,
+			SuccessCriteria: []types.Criterion{
+				{Kind: types.CritEvidenceCount, Expr: ">=1"},
+			},
+		}
+	}
+	val := types.TaskNode{
+		ID: nodeID(2, "validate"), Type: types.NodeValidate,
+		Objective: "Verify each hop has a call-anchored evidence citation so the answer chain terminates on the receiver's invocation, not on a registration or definition.",
+		Inputs:    []string{"evidence_items", "answer_chains"},
+		Outputs:   []string{"validation_report"},
+		SuccessCriteria: []types.Criterion{
+			{Kind: types.CritAnswerSetBounded, Expr: "<=" + strconv.Itoa(TmplAnswerSetMaxSize)},
+		},
+	}
+	final := types.TaskNode{
+		ID: nodeID(3, "finalize"), Type: types.NodeFinalize,
+		Objective: "Render the call chain as a three-hop explanation with one citation per hop.",
+		Inputs:    []string{"validation_report"},
+		Outputs:   []string{"answer_document"},
+		SuccessCriteria: []types.Criterion{
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountHigh)},
+		},
+	}
+	edges := evidenceChain(probe.ID, evNodes, val.ID, final.ID)
+	for _, ev := range evNodes {
+		edges = append(edges, types.TaskEdge{
+			From: val.ID, To: ev.ID, EdgeType: types.EdgeValidationFeedback,
+			Guard: "symbol_not_covered",
+		})
+	}
+	nodes := []types.TaskNode{probe}
+	nodes = append(nodes, evNodes...)
+	nodes = append(nodes, val, final)
+	graph := types.TaskGraph{
+		Nodes: nodes,
+		Edges: edges,
+		ExecutionPolicy: types.ExecutionPolicy{
+			MaxParallelism: 1,
+			RetryBudget:    subTopicRetryBudgetBoost(rm, TmplRetryBudgetMedium),
+			CriticalPath:   evidenceCriticalPath(probe.ID, evNodes, val.ID, final.ID),
+		},
+	}
+	plan := types.EvidencePlan{
+		// Call sites live in source files — bias toward read/grep over
+		// repomap compared to architecture_explain.
+		SourceMix: map[string]int{"grep": 35, "repomap": 30, "read": 35},
+		StopConditions: []types.StopCondition{
+			{Kind: types.CritContractSatisfied},
+			{Kind: types.CritBudgetExhausted},
+		},
+	}
+	contract := types.AnswerContract{
+		RequiredAnswerShape: types.ShapeExplanation,
+		CitationReq:         types.CitationReq{Required: true, Granularity: "file_line", MinCitations: TmplCitationCountHigh},
+		AcceptanceTests: []types.Criterion{
+			{Kind: types.CritCitationCountGE, Expr: strconv.Itoa(TmplCitationCountHigh)},
+		},
+		Language: rm.Language,
+	}
+	return Output{TaskGraph: graph, EvidencePlan: plan, AnswerContract: contract}
+}

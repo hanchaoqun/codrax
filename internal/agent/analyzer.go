@@ -687,6 +687,39 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if rm.Scenario == "" || rm.Scenario == types.ScenarioGeneric {
 		rm.Scenario = compiler.InferScenario(rm)
 	}
+	// L4 scenario reconcile: ScenarioArchitectureExplain is the
+	// LLM's default bucket for "how does X work" questions, but when
+	// our deterministic axis extractor confirms the question is
+	// actually a call-chain dispatch (strict 3-signal match), override
+	// to the more specific ScenarioCallChainDispatch. Other LLM-
+	// emitted scenarios (root_cause, config_trace, performance_*)
+	// are NOT overridden — they carry stronger discriminators than
+	// the architecture_explain default.
+	if rm.Scenario == types.ScenarioArchitectureExplain && compiler.IsCallChainDispatchQuestion(rm) {
+		logging.Info("[analyzer] scenario reconciled: %q → %q (axis=call + kind=mechanism + intent=explain)",
+			rm.Scenario, types.ScenarioCallChainDispatch)
+		rm.Scenario = types.ScenarioCallChainDispatch
+	}
+	// L4 sub-topics synthesis: when the LLM did not emit any
+	// sub_topics but the reconciled scenario is call_chain_dispatch,
+	// synthesize three hop-level sub_topics (entrypoint /
+	// dispatcher / receiver). This drives the extractor's
+	// multi-topic-skeleton path — emit_answer_symbol is then asked
+	// to produce ONE anchor per hop, which is exactly the call-site
+	// slate the finalizer needs. Synthesizing here (rather than in
+	// the template) keeps both the TaskGraph AND the extractor
+	// prompt consistent against a single source of truth.
+	// The entity list copies rm.AnalyzerHints.Entities so the search
+	// hints in each hop's DAG node still find the right files.
+	if rm.Scenario == types.ScenarioCallChainDispatch && len(rm.SubTopics) == 0 {
+		ents := append([]string(nil), rm.AnalyzerHints.Entities...)
+		rm.SubTopics = []types.SubTopic{
+			{Summary: "Entrypoint hop — the call site in the caller that initiates the dispatch.", Entities: ents},
+			{Summary: "Dispatcher hop — the runtime/orchestrator that routes the call.", Entities: ents},
+			{Summary: "Receiver hop — the callee that executes the dispatched work.", Entities: ents},
+		}
+		logging.Info("[analyzer] synthesized 3 call-chain hop sub_topics (entrypoint/dispatcher/receiver)")
+	}
 
 	// First-pass compile with an approximate budget signal
 	// (hypothesis count unknown yet). Budget gets recomputed after
@@ -836,6 +869,20 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// already handle the empty case.
 	ir.EvidencePlan.RequiredFiles = analyzerRequiredFiles(ctx, rm)
 	ir.QualityGate = gate.Run(ir, gate.GlobalThresholds())
+
+	// Writeback the reconciled RequestModel to Mutable so downstream
+	// agents reading via ctx.Mutable.RequestModel() see the same
+	// reconciled fields the IR carries. Without this step the
+	// reconcile* functions above (Complexity / Intent / Scenario /
+	// PredicateAxis / AnswerSubject + SubTopics synthesis) write to
+	// a local rm copy that only surfaces through ctx.AnalysisIR;
+	// tools that still read from Mutable (extractor's axis validator,
+	// emit_analysis callers on a re-entry) would see pre-reconcile
+	// zero values and silently skip work.
+	if ctx != nil && ctx.Mutable != nil {
+		ctx.Mutable.SetRequestModel(rm)
+	}
+
 	return ir, nil
 }
 
