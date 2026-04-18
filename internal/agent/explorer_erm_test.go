@@ -362,7 +362,7 @@ func TestExtractEvidenceRequirements_OriginalRequestPreserved(t *testing.T) {
 	original := "explorerEvaluator 的 ShouldStop 方法返回什么值?"
 	rewritten := "Identify the return value of the ShouldStop method in explorerEvaluator."
 	joined := original + " | " + rewritten
-	entities := extractRankingEntities(original)
+	entities := extractRankingEntitiesWithGraph(original, nil)
 
 	reqs := extractEvidenceRequirementsWithEntities(joined, entities)
 	if len(reqs) == 0 {

@@ -5758,25 +5758,11 @@ func phase1MedianScore(ranked []types.Phase1RankedFile) float64 {
 	// Partial sort via sort.Float64s. Median indexing handles both
 	// even and odd lengths without a branch — the (n-1)/2 position
 	// is always a legitimate middle choice.
-	sortFloats(scores)
+	sort.Float64s(scores)
 	return scores[(len(scores)-1)/2]
 }
 
-// sortFloats is an inline helper to avoid pulling in the sort
-// package just for a single call. Uses insertion sort because
-// the ranked list's len(sr.Files) is capped at 30 (T1b) and the
-// asymptotic constants favor simple O(n²) for small n.
-func sortFloats(xs []float64) {
-	for i := 1; i < len(xs); i++ {
-		x := xs[i]
-		j := i
-		for j > 0 && xs[j-1] > x {
-			xs[j] = xs[j-1]
-			j--
-		}
-		xs[j] = x
-	}
-}
+
 
 // extractFileCoverage analyzes tool history to determine which files
 // were discovered (via grep files_only) and which were actually read

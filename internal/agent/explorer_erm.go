@@ -57,7 +57,7 @@ type EvidenceRequirement struct {
 // but English idioms from the analyzer's rewrite) should use
 // extractEvidenceRequirementsWithEntities directly.
 func extractEvidenceRequirements(question string) []EvidenceRequirement {
-	return extractEvidenceRequirementsWithEntities(question, extractRankingEntities(question))
+	return extractEvidenceRequirementsWithEntities(question, extractRankingEntitiesWithGraph(question, nil))
 }
 
 // extractEvidenceRequirementsWithHint is the analyzer-aware entry

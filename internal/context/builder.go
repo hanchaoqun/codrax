@@ -1213,15 +1213,6 @@ func extractMCPNotes(responses []types.MCPResponse) []string {
 	return notes
 }
 
-func findSummaryFromResults(results []types.ToolResult, keyword string) string {
-	for _, r := range results {
-		if r.Success && strings.Contains(strings.ToLower(r.Summary), keyword) {
-			return r.Summary
-		}
-	}
-	return ""
-}
-
 func formatNumberedList(items []string) string {
 	var b strings.Builder
 	for i, item := range items {
