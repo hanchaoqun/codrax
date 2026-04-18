@@ -1978,7 +1978,15 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 
 	// Rank evidence and findings by relevance to the user's question
 	// so downstream consumers (finalizer) get the most useful items first.
-	rankedEvidence := rankEvidenceByRelevance(e.userQuestion, e.structuredEvidence, readSet)
+	// Subject-aware variant boosts items whose Object / Summary tail
+	// token matches the expected AnswerSubject kind — so the chain of
+	// "Config assigns 'explore-skill'" out-ranks the generic
+	// "NewExplorerAgent returns ..." when subject=skill_name.
+	var rankGraph *repomap.Graph
+	if e.searchResult != nil {
+		rankGraph = e.searchResult.Graph
+	}
+	rankedEvidence := rankEvidenceByRelevanceWithSubject(e.userQuestion, e.structuredEvidence, readSet, e.answerSubject, rankGraph)
 	rankedFindings := rankFindingsByRelevance(e.userQuestion, e.flowFindings)
 
 	// df3 drift fix: for mechanism questions anchored on a primary

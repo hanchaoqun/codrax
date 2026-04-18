@@ -422,6 +422,37 @@ func emitLooksLikePath(s string) bool {
 	return strings.Contains(s, "/") || strings.Contains(s, ".")
 }
 
+// evidenceSemantic renders the semantic payload of an evidence item
+// ("Subject Predicate Object" when all present, else Summary, else
+// empty). Called by renderEmitSummary so the emit_evidence tool
+// dump surfaces the actual CLAIM each item makes. Prior to this
+// helper the dump hid Object entirely — an item like
+// `{Subject: "Register", Predicate: "registers", Object: "explore-skill"}`
+// rendered only as `registration Register @ defaults.go:11`, losing
+// the one token (`explore-skill`) that answered the user's question.
+func evidenceSemantic(it types.EvidenceItem) string {
+	if s := strings.TrimSpace(it.Summary); s != "" {
+		return s
+	}
+	parts := make([]string, 0, 3)
+	if t := strings.TrimSpace(it.Subject); t != "" {
+		parts = append(parts, t)
+	}
+	if t := strings.TrimSpace(it.Predicate); t != "" {
+		parts = append(parts, t)
+	}
+	if t := strings.TrimSpace(it.Object); t != "" {
+		// Quote Object when it looks like a literal (contains
+		// hyphen / dot / space — would-be shell / token chars).
+		if strings.ContainsAny(t, "-. ") {
+			parts = append(parts, fmt.Sprintf("%q", t))
+		} else {
+			parts = append(parts, t)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 // renderEmitSummary builds the per-item + global grounding feedback
 // the LLM sees in the same turn it emitted the batch. This is the
 // core of the "one emit = one closed loop" contract: the LLM does not
@@ -450,8 +481,21 @@ func renderEmitSummary(items []types.EvidenceItem, reports []ground.Report, allE
 	for i, it := range items {
 		r := reports[i]
 		line := it.LineStart
-		fmt.Fprintf(&b, "  [%d] %s %s @ %s:%d\n",
-			i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line)
+		// Surface the semantic payload (Subject Predicate Object)
+		// alongside the anchor so the LLM — especially in the
+		// finalizer stage reading this dump from prior tool history
+		// — sees WHAT the evidence claims, not just WHERE it lives.
+		// Before this format change the line read "[2] registration
+		// Register @ defaults.go:11" and the LLM had no way to know
+		// that Object="explore-skill" (the literal answer).
+		semantic := evidenceSemantic(it)
+		if semantic != "" {
+			fmt.Fprintf(&b, "  [%d] %s %s @ %s:%d — %s\n",
+				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line, semantic)
+		} else {
+			fmt.Fprintf(&b, "  [%d] %s %s @ %s:%d\n",
+				i+1, it.Kind, prefOrDash(it.AnchorSymbol), it.Source, line)
+		}
 		switch it.GroundingStatus {
 		case types.GroundingGrounded:
 			fmt.Fprintf(&b, "      → grounded (tier=%s)\n", it.GroundingTier)

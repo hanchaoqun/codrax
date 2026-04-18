@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/subject"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -447,12 +448,67 @@ func max(a, b float64) float64 {
 // bridge detection. A diversity constraint limits items from the
 // same (source, subject) to avoid redundancy.
 func rankEvidenceByRelevance(question string, items []types.EvidenceItem, readFiles map[string]bool) []types.EvidenceItem {
+	return rankEvidenceByRelevanceWithSubject(question, items, readFiles, types.AnswerSubject{}, nil)
+}
+
+// evidenceSubjectBoost scores how well an evidence item's answer
+// token (Object field, falling back to the tail of Summary) matches
+// the expected AnswerSubject kind. Delegates the per-kind judge to
+// internal/analysis/subject so the evidence ranker and the chain
+// ranker use the same scoring logic. Empty Object + empty Summary
+// tail returns 0 (no boost applied).
+func evidenceSubjectBoost(item types.EvidenceItem, expected types.AnswerSubject, graph *repomap.Graph) float64 {
+	token := strings.TrimSpace(item.Object)
+	if token == "" {
+		// Summary often ends with the literal ("... returns
+		// 'foo'"). Grab the last quoted substring as a fallback
+		// token. Cheap heuristic; subject.Score tolerates misses.
+		token = tailQuotedToken(item.Summary)
+	}
+	if token == "" {
+		return 0
+	}
+	return subject.Score(token, expected.Kind, graph)
+}
+
+// tailQuotedToken returns the content of the LAST quoted substring in
+// s (single or double quotes). Returns "" when no quoted token
+// exists. Used as a conservative fallback when an evidence item's
+// Object is empty but the Summary contains the literal in quotes.
+func tailQuotedToken(s string) string {
+	for _, q := range []byte{'"', '\''} {
+		if end := strings.LastIndexByte(s, q); end >= 0 {
+			if start := strings.LastIndexByte(s[:end], q); start >= 0 && start < end-1 {
+				return s[start+1 : end]
+			}
+		}
+	}
+	return ""
+}
+
+// rankEvidenceByRelevanceWithSubject is the subject-aware variant of
+// rankEvidenceByRelevance. When expected.Kind is a source-code literal
+// kind AND the item's Object field (or Summary tail) matches that
+// kind via subject.Score, the score gets a subject boost so the
+// literal-carrying evidence out-ranks generic concrete-value chains
+// that happen to have similar entity overlap.
+//
+// The zero-value AnswerSubject (Kind == SubjectUnknown) disables the
+// boost entirely, preserving historical ordering for tests and the
+// SubjectUnknown path.
+//
+// Fixes the post-Session-10 bug where the explorer emitted
+// `Config assigns "explore-skill"` at defaults.go:14 but the evidence
+// ranker demoted it below unrelated `NewExplorerAgent → ...` chains,
+// leaving the finalizer's curated Primary Evidence (top-12) without
+// the literal the answer needed.
+func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceItem, readFiles map[string]bool, expected types.AnswerSubject, graph *repomap.Graph) []types.EvidenceItem {
 	if len(items) == 0 {
 		return items
 	}
 	entities := extractRankingEntities(question)
-	if len(entities) == 0 {
-		return items // no entities to rank by — preserve original order
+	if len(entities) == 0 && expected.Kind == types.SubjectUnknown {
+		return items // no entities AND no subject to rank by
 	}
 
 	type scored struct {
@@ -462,6 +518,19 @@ func rankEvidenceByRelevance(question string, items []types.EvidenceItem, readFi
 	scored_items := make([]scored, 0, len(items))
 	for _, item := range items {
 		s := evidenceRelevanceScore(item, entities, readFiles)
+		// Subject boost: additive multiplier when the item's Object
+		// / Summary carries a token that matches the expected
+		// AnswerSubject kind. The alpha is the same 2.0 used by
+		// rankChainsBySubject so downstream ordering stays
+		// consistent between the chain ranker and the evidence
+		// ranker.
+		if expected.Kind != types.SubjectUnknown {
+			boost := evidenceSubjectBoost(item, expected, graph)
+			if boost > 0 {
+				const alpha = 2.0
+				s *= (1.0 + alpha*boost)
+			}
+		}
 		scored_items = append(scored_items, scored{item: item, score: s})
 	}
 	sort.SliceStable(scored_items, func(i, j int) bool {
