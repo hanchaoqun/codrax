@@ -1,0 +1,13 @@
+# Sample configuration fixture for dataflow config extraction tests.
+# Not read by the runtime; exists solely so TestE2E_RealRepo_CodraxSelfAnalysis
+# has a committed YAML file to exercise the YAML config extractor
+# (the real providers.yaml and codrax.yaml live next to the binary and
+# are gitignored, so ScanFiles never sees them).
+llm:
+  default:
+    provider: sample
+    model: sample-model
+    base_url: https://example.invalid/v1
+  agents:
+    planner:
+      model: sample-planner

@@ -42,12 +42,28 @@ type RuntimeSettings struct {
 	CacheDir *string `yaml:"cache_dir"`
 
 	// Tool blob sizing knobs. Flat-prefixed `blob_*` to keep the
-	// namespace obvious without nesting. All three accept any
+	// namespace obvious without nesting. All four accept any
 	// positive integer; non-positive (or omitted) means "use the
 	// code default in internal/tool/blob.go".
+	//
+	//   - blob_max_sessions: number of startup session directories
+	//     retained under <CWD>/.codrax/blob/. Each codrax process
+	//     creates <timestamp>-<pid>/ on startup; prune runs at next
+	//     startup and skips sessions whose PID is still live. 0
+	//     disables the persistent layout and reverts to a per-trace
+	//     tmpdir cleaned up at the end of each Run. Default 7
+	//     (mirrors log_max_files for symmetry).
 	BlobMaxInlineBytes   *int `yaml:"blob_max_inline_bytes"`
 	BlobPreviewHeadBytes *int `yaml:"blob_preview_head_bytes"`
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
+	BlobMaxSessions      *int `yaml:"blob_max_sessions"`
+
+	// Log retention knob. Flat-prefixed `log_*` alongside log_dir
+	// and log_level. Controls how many rotated log files are kept
+	// per log directory before the sweeper starts deleting the
+	// oldest (never deletes a file owned by a live peer process).
+	// 0 or nil → use the code default (7) in internal/logging/logger.go.
+	LogMaxFiles *int `yaml:"log_max_files"`
 
 	// read_file-specific knobs. `readfile_*` prefix. Currently a
 	// single knob.

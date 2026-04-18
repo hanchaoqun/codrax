@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
+	"strings"
+	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Blob sizing knobs. These are package-level vars (not consts) so
-// main.go can override them at startup from config/codrax.yaml's
+// cmd/root.go can override them at startup from codrax.yaml's
 // blob_max_inline_bytes / blob_preview_head_bytes /
 // blob_preview_tail_bytes keys. The defaults below are the historical
 // constants and remain in effect when codrax.yaml leaves them unset.
@@ -237,6 +242,96 @@ func buildPreview(data []byte, ref string) string {
 		"%s\n…[truncated %d bytes. Full content at %s — call read_file with that path (use offset/limit to page) or grep it for specific patterns.]…\n%s",
 		head, middle, ref, tail,
 	)
+}
+
+// --- Blob session directory helpers ----------------------------------
+//
+// The blob subsystem is WorkDir-agnostic at write time: StoreBlob just
+// writes into ctx.WorkDir. cmd/root.go owns the decision of what that
+// directory should be — by default <CWD>/.codrax/blob/<session>/, where
+// <session> is one per-process directory. These helpers give cmd a
+// single place to pick the session name and prune old sessions, so the
+// policy lives next to the other blob knobs rather than spread across
+// cmd/root.go and the orchestrator.
+
+// SessionDirName returns the current process's session subdirectory
+// name, formatted as "<timestamp>-<pid>". The timestamp layout is
+// aligned with logging.FileTimeLayout so an operator who already
+// parsed a log filename can spot the matching blob session visually.
+func SessionDirName() string {
+	return fmt.Sprintf("%s-%d",
+		time.Now().Format(logging.FileTimeLayout),
+		os.Getpid())
+}
+
+// PruneBlobSessions deletes the oldest session subdirectories in base
+// until at most maxSessions remain. Sessions whose embedded PID is
+// still a running process are skipped, so a concurrent peer's
+// working set is never yanked out from under it (mirrors the log
+// retention contract). maxSessions <= 0 is a no-op; the session
+// layout itself is disabled earlier in cmd/root.go.
+//
+// Best-effort: any filesystem error aborts the sweep silently.
+// Retention is hygiene, not correctness.
+func PruneBlobSessions(base string, maxSessions int) {
+	if maxSessions <= 0 || base == "" {
+		return
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		if pidFromSessionDirName(e.Name()) == 0 {
+			// Not a session directory (random subdir dropped by an
+			// operator, or legacy). Leave it alone.
+			continue
+		}
+		names = append(names, e.Name())
+	}
+	// Names sort lexicographically the same way the timestamps sort
+	// chronologically (same property as log filenames).
+	sort.Strings(names)
+
+	selfPid := os.Getpid()
+	for len(names) > maxSessions {
+		removed := false
+		for i, name := range names {
+			pid := pidFromSessionDirName(name)
+			if pid != 0 && pid != selfPid && logging.IsPidAlive(pid) {
+				continue // owned by a live peer
+			}
+			if err := os.RemoveAll(filepath.Join(base, name)); err == nil {
+				names = append(names[:i], names[i+1:]...)
+				removed = true
+				break
+			}
+		}
+		if !removed {
+			return // all remaining are live peers; back off
+		}
+	}
+}
+
+// pidFromSessionDirName parses "<timestamp>-<pid>" and returns the pid.
+// The timestamp is three dash-separated parts (YYYYMMDD, HHMMSS, mmm)
+// from logging.FileTimeLayout, so a well-formed session name has
+// exactly four segments. Returns 0 on any mismatch, which callers
+// treat as "not a session directory" and skip without pruning.
+func pidFromSessionDirName(name string) int {
+	parts := strings.Split(name, "-")
+	if len(parts) != 4 {
+		return 0
+	}
+	pid, err := strconv.Atoi(parts[3])
+	if err != nil || pid <= 0 {
+		return 0
+	}
+	return pid
 }
 
 // sanitizeToolName makes a tool name safe to embed in a filename.

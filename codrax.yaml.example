@@ -1,8 +1,8 @@
 # =============================================================================
-# codrax runtime settings — copy to config/codrax.yaml to activate.
+# codrax runtime settings — copy to codrax.yaml (next to the binary) to activate.
 # =============================================================================
 #
-# There are two YAML files under config/, each with a distinct role.
+# Two YAML files live alongside the binary, each with a distinct role.
 # Do not duplicate keys across them:
 #
 #   providers.yaml — LLM provider credentials and per-agent model
@@ -19,12 +19,19 @@
 #
 # Precedence (lowest wins last):
 #
-#   code defaults  <  config/codrax.yaml  <  command-line flags
+#   code defaults  <  <exeDir>/codrax.yaml  <  command-line flags
 #
 # Every key is optional — omitted keys fall through to the code default.
 # The binary silently falls back to defaults when this file is missing,
 # so checking in an example while leaving the real file out of version
 # control is the expected workflow.
+#
+# Anchors:
+#
+#   - Configuration paths (providers_config) are anchored to the
+#     binary's own directory (exeDir) when written as relative values.
+#   - Runtime artifact paths (log_dir, memory_dir, cache_dir) are
+#     anchored to <CWD>/.codrax/ when written as relative values.
 #
 # To point at a different runtime settings file without editing this
 # path, set the CODRAX_SETTINGS environment variable.
@@ -34,6 +41,8 @@
 # ---------------------------------------------------------------------------
 
 # Directory for rotating log files. Created on first run.
+# Relative values anchor to <CWD>/.codrax/ (so the default lands at
+# <CWD>/.codrax/logs/<repo-slug>/); pass an absolute path to override.
 # log_dir: logs
 
 # Minimum level written to the log file. One of: error, warning, info, debug.
@@ -43,18 +52,36 @@
 # Useful for foreground debugging; keep off for clean REPL UX.
 # log_stdout: false
 
+# Maximum log files retained per directory. Rotation keeps the most
+# recent N files (PID-aware: files owned by live peer processes are
+# never deleted). 0 falls back to the code default (7).
+# log_max_files: 7
+
 # ---------------------------------------------------------------------------
 # Conversation memory
 # ---------------------------------------------------------------------------
 
 # Directory for multi-turn conversation memory (MEMORY.md + turns/).
+# Relative values anchor to <CWD>/.codrax/ (default: <CWD>/.codrax/memory/<repo-slug>/).
 # memory_dir: memory
 
 # Base directory for repo map caches (symbol index, relations, etc.).
 # Each target repo gets its own subdirectory under <cache_dir>/repomap/.
 # Default (when omitted): platform cache dir — ~/.cache/codrax (Linux),
 # ~/Library/Caches/codrax (macOS), %LocalAppData%\codrax (Windows).
+# Relative values anchor to <CWD>/.codrax/ (opts in to per-workspace caches).
 # cache_dir:
+
+# ---------------------------------------------------------------------------
+# Tool output blobs
+# ---------------------------------------------------------------------------
+
+# Maximum blob session directories retained under <CWD>/.codrax/blob/.
+# Each codrax process creates one session dir named <timestamp>-<pid>/
+# on startup. Prune runs at next startup; live peer sessions are never
+# deleted (mirrors log_max_files). 0 disables persistent sessions
+# entirely and reverts to per-trace tmpdir (cleaned at Run end).
+# blob_max_sessions: 7
 
 # ---------------------------------------------------------------------------
 # Response language
@@ -293,4 +320,4 @@
 # Keeping this here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`
 # bootstraps an entire environment from a single entry point.
 
-# providers_config: config/providers.yaml
+# providers_config: providers.yaml

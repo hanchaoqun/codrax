@@ -62,16 +62,41 @@ func (l Level) String() string {
 }
 
 const (
-	maxFileBytes  = 4 * 1024 * 1024 // 4 MiB per file before rotation
-	maxTotalFiles = 7               // total files kept in the log dir
-	filePrefix    = "codrax-"
-	fileSuffix    = ".log"
+	maxFileBytes        = 4 * 1024 * 1024 // 4 MiB per file before rotation
+	defaultMaxTotalFiles = 7              // default retention count
+	filePrefix          = "codrax-"
+	fileSuffix          = ".log"
 	// fileTimeLayout is the timestamp embedded in each log filename.
 	// The layout sorts lexicographically the same way it sorts
 	// chronologically, so plain os.ReadDir + sort.Strings is enough
 	// to find the newest/oldest files.
 	fileTimeLayout = "20060102-150405-000"
 )
+
+// FileTimeLayout is the exported filename-timestamp layout. Other
+// runtime-artifact producers (blob session dirs) reuse it so operators
+// can correlate logs and blobs by the timestamp prefix.
+const FileTimeLayout = fileTimeLayout
+
+// maxTotalFiles governs log retention. Defaults to defaultMaxTotalFiles;
+// SetMaxTotalFiles lets cmd/root.go override it from codrax.yaml
+// before any logger is constructed.
+var maxTotalFiles = defaultMaxTotalFiles
+
+// SetMaxTotalFiles overrides the retention cap. Non-positive values
+// are ignored so callers can pass an unresolved config field without
+// extra plumbing.
+func SetMaxTotalFiles(n int) {
+	if n > 0 {
+		maxTotalFiles = n
+	}
+}
+
+// IsPidAlive exposes the build-tagged pid liveness probe so other
+// runtime-artifact subsystems (blob session pruning) can share the
+// same multi-instance safety guarantee without duplicating the
+// Unix/Windows implementation.
+func IsPidAlive(pid int) bool { return isPidAlive(pid) }
 
 // Filename format: codrax-<timestamp>-<pid>.log. The PID suffix is
 // what makes the multi-instance scenario safe: each running codrax

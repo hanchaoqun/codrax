@@ -1,14 +1,20 @@
-config/providers.yaml
-config/codrax.yaml
+# Per-user / per-environment config files. Kept next to the binary;
+# never committed.
+/codrax.yaml
+/providers.yaml
 
 # Build output (binary name comes from module path)
 /codrax
 # `go build ./eval/repomap_v3/harness/` drops a binary at the repo root.
 /harness
 
-# Runtime artifacts produced by the binary itself. Both directories are
-# created on first run by the logger and REPL; they hold per-session
-# state that must never be committed.
+# Runtime artifacts produced by the binary itself. Everything created
+# by the logger, REPL memory store, and tool blob storage lives under
+# .codrax/ so a single rule keeps the workspace clean.
+/.codrax/
+
+# Legacy artifact directories from pre-flat layouts. Kept gitignored so
+# old clones with existing logs/memory don't accidentally stage them.
 /logs/
 /memory/
 

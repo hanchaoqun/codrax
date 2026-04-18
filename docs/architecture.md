@@ -163,7 +163,7 @@ stateDiagram-v2
    - **Contract check**：finalize 返回后跑 `contract.Check`（`AnswerContract.AcceptanceTests` 是 `[]Criterion` 但由 `contract/checker.go` 的本地 switch 评估，非 `criterion.Eval`）。不通过且 retry budget 未耗尽 → requeue finalize 节点和所有 done 的 explorer 节点，记录一次 cross-window retry，把违规诊断塞进下一轮的 `RetryHint`；retry 耗尽 → 在原答案上 prepend 一条 fail-loud 警告后返回（P0.2 模式）。
 3. Finalize 把答案写进 `Mutable.Result()`（通过 `recordTaskFinalize`）。`Run()` 返回 `BusContext`，`main.go` 渲染结果。
 
-**全局预算** `pipeline_max_steps` 是整 Run 的硬上限，跨 Phase 1 和 Phase 2 共用，在 `config/codrax.yaml` 配置。`EvidencePlan.Budget.MaxReactIters` 是**每个 task** 的额外上限。
+**全局预算** `pipeline_max_steps` 是整 Run 的硬上限，跨 Phase 1 和 Phase 2 共用，在 `codrax.yaml` 配置。`EvidencePlan.Budget.MaxReactIters` 是**每个 task** 的额外上限。
 
 ---
 
@@ -334,7 +334,7 @@ type ToolResult struct {
 }
 ```
 
-工具结果超过 `blob_max_inline_bytes`（默认 32 KB）时会 offload 到 per-trace 的 WorkDir 临时目录，只把 head/tail preview 塞进 LLM 上下文；Agent 想看全文就调用 `read_file` 指向 `RawRef`。Blob 大小参数在 `config/codrax.yaml` 的 `blob_*` 键下配。
+工具结果超过 `blob_max_inline_bytes`（默认 32 KB）时会 offload 到 WorkDir，只把 head/tail preview 塞进 LLM 上下文；Agent 想看全文就调用 `read_file` 指向 `RawRef`。WorkDir 默认是 `<CWD>/.codrax/blob/<timestamp>-<pid>/`（per-process 共享，启动时按 `blob_max_sessions`=7 保留最近 N 个 session，PID 存活的 peer session 永不删）；设 `blob_max_sessions: 0` 回退到历史 per-trace `os.MkdirTemp`+`RemoveAll`。Blob 大小参数和保留策略都在 `codrax.yaml` 的 `blob_*` 键下配。
 
 #### Turn A → Turn B Summary banner 约定
 
@@ -394,7 +394,7 @@ type Adapter interface {
 }
 ```
 
-Per-agent 模型路由在 `config/providers.yaml` 里配（不同 Agent 可以指向不同模型 / 不同 provider）。provider 级别的降级链（主模型 → fast 模型）也在 provider config 里声明。
+Per-agent 模型路由在 `providers.yaml` 里配（不同 Agent 可以指向不同模型 / 不同 provider）。provider 级别的降级链（主模型 → fast 模型）也在 provider config 里声明。
 
 ---
 
@@ -1125,23 +1125,30 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 ## 10. 配置
 
-两个 YAML 文件，严格不重叠：
+两个 YAML 文件平铺在二进制同目录（`<exeDir>/`），严格不重叠：
 
 | 文件 | 内容 | 加载器 |
 |------|------|--------|
-| `config/providers.yaml` | LLM provider credentials + per-agent model routing。Secrets，从不提交 | `internal/config/providers.go` |
-| `config/codrax.yaml` | per-process 运行时 knob：log/memory 路径、语言、repo/branch、blob 尺寸、pipeline 预算 | `internal/config/runtime.go` |
+| `providers.yaml` | LLM provider credentials + per-agent model routing。Secrets，从不提交 | `internal/config/providers.go` |
+| `codrax.yaml` | per-process 运行时 knob：log/memory 路径、语言、repo/branch、blob 尺寸 + session 保留、pipeline 预算 | `internal/config/runtime.go` |
+
+**路径锚点分两层**：
+- 配置锚点 = `<exeDir>` —— `providers_config` 的相对路径在这里解析
+- 运行产物锚点 = `<CWD>/.codrax/` —— `log_dir` / `memory_dir` / `cache_dir` / blob 会话根在这里解析
+
+旧 `config/codrax.yaml` 路径仍可识别（找到时打 deprecation warning），方便老安装平滑过渡。
 
 **历史上曾存在的 `config/orchestrator.yaml` 已经删除** —— 拓扑（4 阶段 × 4 Agent）在 `internal/orchestrator/topology.go` 硬编码，没有 YAML counterpart。task policy / priority-weighted transitions / feature flag 都不再存在。
 
 ### `codrax.yaml` 分组
 
-八组 key，按前缀区分（全部字段指针类型，让 merge 区分 "absent" 与 "explicit zero value"）：
+九组 key，按前缀区分（全部字段指针类型，让 merge 区分 "absent" 与 "explicit zero value"）：
 
 | 前缀 | key 数 | 用途 |
 |------|--------|------|
 | 裸 key | 9 | `log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` — 进程级 UX |
-| `blob_*` | 3 | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` — Tool 输出 offload 阈值 |
+| `log_*` | 1 | `log_max_files`(7) — 日志保留条数（rotation sweep 跳过存活 peer PID）|
+| `blob_*` | 4 | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` / `blob_max_sessions`(7) — Tool 输出 offload 阈值 + 会话目录保留数 |
 | `analysis_*` | 7 | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` — emit_analysis 运行时验证 |
 | `pipeline_*` | 3 | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算 |
 | `gate_*` | 5 | `gate_coverage_min` / `gate_coverage_weight_symbol` / `gate_coverage_weight_config` / `gate_coverage_weight_concept` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
@@ -1154,6 +1161,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 | key 组 | 优先级（低 → 高） |
 |--------|------------------|
 | 裸 key | code default → `codrax.yaml` → CLI flag |
+| `log_*` | code default（`internal/logging/logger.go`）→ `codrax.yaml`。**无 CLI override** |
 | `pipeline_*` | code default → `codrax.yaml` → CLI flag（`-pipeline-max-steps` / `-pipeline-max-retries` / `-pipeline-max-stage-visits`）|
 | `blob_*` | code default（`internal/tool/blob.go`）→ `codrax.yaml`。**无 CLI override** |
 | `analysis_*` | code default（`internal/tool/analysis_limits.go`）→ `codrax.yaml`。**无 CLI override** |
@@ -1164,11 +1172,16 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 ### Path anchoring
 
-`main.go` 在三个位置查找 `codrax.yaml`：`$CODRAX_SETTINGS` → `<CWD>/config/codrax.yaml` → `<exeDir>/config/codrax.yaml` → `<exeDir>/../config/codrax.yaml`（`bin/` 布局）。找到文件后，其父目录成为 **anchor**，任何相对的默认路径（`log_dir` / `memory_dir` / `providers_config`）在 flag 注册**之前**被重写成 `anchor/<value>`，这样 `-h` 打印的是 resolved path。用户 CLI flag 值原样透传，仍然是 CWD-relative。`-repo` 不参与 anchoring —— 它的默认 `.` 永远代表当前工作目录。
+`cmd/root.go` 分两套 anchor：
+
+- **`configAnchor = <exeDir>`**：`providers_config` 的相对路径在这里解析。安装 = 一份配置树，跟工作目录无关。
+- **`runtimeAnchor = <CWD>/.codrax/`**：`log_dir` / `memory_dir` / `cache_dir` / blob session 根在这里解析。运行产物跟随用户工作区。
+
+`codrax.yaml` 查找顺序（flat-first，exe 优先）：`$CODRAX_SETTINGS` → `<exeDir>/codrax.yaml` → `<exeDir>/codrax/codrax.yaml` → `<exeDir>/config/codrax.yaml`（*legacy，warn*）→ `<exeDir>/../config/codrax.yaml`（*legacy，warn*）→ `<CWD>/config/codrax.yaml`（*legacy，warn*）。两个 anchor 都在 flag 注册**之前**解析成绝对路径，`-h` 打印的是 resolved path。用户 CLI flag 值原样透传。`-repo` 不参与 anchoring —— 它的默认 `.` 永远代表 CWD。
 
 ### Per-target-repo namespacing
 
-默认 `log_dir` / `memory_dir` 带一个 `<basename>-<fnv32>` 后缀，derive 自 absolute + symlink-resolved `-repo` 路径，这样多个 target repo 共享一份 codrax 安装时，各自的 log 和 memory 落在互不相交的子树（`<anchor>/logs/foo-a3f9c2b1/` / `<anchor>/memory/foo-a3f9c2b1/`）。Slug 在 flag default 里 baked，`-h` 打印的是最终路径；用户显式覆盖 `-repo` 同时保留 `-log-dir`/`-memory-dir` 默认时，`main.go` 在 `flag.Parse` 后 re-slug。显式 `-log-dir` / `-memory-dir` 总是胜出。
+默认 `log_dir` / `memory_dir` 带一个 `<basename>-<fnv32>` 后缀，derive 自 absolute + symlink-resolved `-repo` 路径，这样多个 target repo 共享一份 codrax 安装时，各自的 log 和 memory 落在互不相交的子树（`<CWD>/.codrax/logs/foo-a3f9c2b1/` / `<CWD>/.codrax/memory/foo-a3f9c2b1/`）。Slug 在 flag default 里 baked，`-h` 打印的是最终路径；用户显式覆盖 `-repo` 同时保留 `-log-dir`/`-memory-dir` 默认时，`cmd/root.go` 在 `flag.Parse` 后 re-slug。显式 `-log-dir` / `-memory-dir` 总是胜出。Blob session 根 **不** 做 per-repo 分区——一个进程里的所有 Run 共用一个 `<CWD>/.codrax/blob/<timestamp>-<pid>/`，因为 blob 文件是 content-addressed（`<tool>-<sha8>.txt`），跨仓库相同输出天然去重。
 
 ---
 

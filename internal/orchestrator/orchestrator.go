@@ -31,6 +31,7 @@ type Orchestrator struct {
 	language       string
 	emit           render.EventEmitter
 	thinkAloudMap  map[types.AgentName]bool // per-agent think-aloud override
+	blobSessionDir string                   // persistent per-process blob dir; empty = tmpdir fallback
 }
 
 // New creates a new Orchestrator.
@@ -75,6 +76,19 @@ func (o *Orchestrator) SetThinkAloudMap(m map[types.AgentName]bool) {
 	o.thinkAloudMap = m
 }
 
+// SetBlobSessionDir installs the per-process blob session directory
+// (typically <CWD>/.codrax/blob/<timestamp>-<pid>/) created by cmd/root.go.
+// When non-empty, Run() uses it directly as BusContext.WorkDir and
+// skips the per-trace cleanup — the session directory is shared across
+// every Run() made by this process and pruned by the next startup's
+// tool.PruneBlobSessions sweep, mirroring the log retention policy.
+// Empty restores the historical per-trace os.MkdirTemp + RemoveAll
+// behavior (used by tests, and when blob_max_sessions=0 disables the
+// persistent layout).
+func (o *Orchestrator) SetBlobSessionDir(dir string) {
+	o.blobSessionDir = dir
+}
+
 // Run executes the full pipeline for a user request.
 //
 // The pipeline runs in two phases:
@@ -115,16 +129,26 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		TraceID:   o.busCtx.TraceID,
 	})
 
-	// Per-trace working directory for tool blob storage. Tools that
-	// produce large outputs offload to this dir and return a path in
-	// ToolResult.RawRef so the LLM can re-read slices on demand instead
-	// of carrying full content through the message history. Cleanup is
-	// best-effort; failures are logged but do not abort the pipeline.
-	if workDir, err := os.MkdirTemp("", "codrax-"+o.busCtx.TraceID+"-"); err != nil {
+	// Working directory for tool blob storage. Tools that produce
+	// large outputs offload to this dir and return a path in
+	// ToolResult.RawRef so the LLM can re-read slices on demand
+	// instead of carrying full content through the message history.
+	//
+	// Two layouts, selected by cmd/root.go at startup:
+	//
+	//   - Session (default): a persistent directory created by
+	//     cmd/root.go at process start, shared across every Run(),
+	//     pruned at next startup. No teardown here.
+	//   - Per-trace tmpdir (legacy / blob_max_sessions=0 / test
+	//     fixtures): os.MkdirTemp + deferred RemoveAll.
+	if o.blobSessionDir != "" {
+		o.busCtx.WorkDir = o.blobSessionDir
+		logging.Info("[orchestrator] work dir (session): %s", o.blobSessionDir)
+	} else if workDir, err := os.MkdirTemp("", "codrax-"+o.busCtx.TraceID+"-"); err != nil {
 		logging.Warning("[orchestrator] could not create work dir: %v (blob storage disabled)", err)
 	} else {
 		o.busCtx.WorkDir = workDir
-		logging.Info("[orchestrator] work dir: %s", workDir)
+		logging.Info("[orchestrator] work dir (tmp): %s", workDir)
 		defer func() {
 			if rmErr := os.RemoveAll(workDir); rmErr != nil {
 				logging.Warning("[orchestrator] work dir cleanup failed: %v", rmErr)

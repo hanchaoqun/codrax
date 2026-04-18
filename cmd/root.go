@@ -36,8 +36,20 @@ var (
 )
 
 // Code defaults for runtime settings.
+//
+// Two anchor domains:
+//
+//   - configAnchor (= exeDir) resolves providers_config. Configuration
+//     files live next to the binary so one install = one config tree.
+//   - runtimeAnchor (= <CWD>/.codrax) resolves log_dir / memory_dir /
+//     cache_dir / blob sessions. Runtime artifacts follow the user's
+//     workspace, not the install location.
+//
+// Relative defaults below are interpreted by the appropriate anchor
+// in initApp; absolute YAML overrides and CLI flags pass through
+// verbatim.
 const (
-	defaultLogDir             = "logs"
+	defaultLogDir          = "logs"
 	defaultLogLevel        = "info"
 	defaultLogStdout       = false
 	defaultMemoryDir       = "memory"
@@ -45,7 +57,10 @@ const (
 	defaultRepo            = "."
 	defaultBranch          = "main"
 	defaultMaxSteps        = 50
-	defaultProvidersConfig = "config/providers.yaml"
+	defaultProvidersConfig = "providers.yaml"
+	runtimeAnchorDir       = ".codrax"
+	blobSubdir             = "blob"
+	defaultBlobMaxSessions = 7
 )
 
 // CLI flag variables.
@@ -212,29 +227,70 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 
 	// --- Phase 1: locate runtime settings file ---
+	//
+	// Lookup order (flat-first, exe-owned):
+	//
+	//   1. $CODRAX_SETTINGS (absolute override)
+	//   2. <exeDir>/codrax.yaml               ← canonical new location
+	//   3. <exeDir>/codrax/codrax.yaml        (bin + share split)
+	//   4. <exeDir>/config/codrax.yaml        legacy; deprecation-warned
+	//   5. <exeDir>/../config/codrax.yaml     legacy; deprecation-warned
+	//   6. <CWD>/config/codrax.yaml           legacy; deprecation-warned
+	//
+	// Paths 4-6 stay functional so existing installs don't break; a
+	// warning is emitted after logger init so operators see exactly
+	// which file needs to move.
 	exeDir := executableDir()
 	settingsPath := ""
 	settingsExplicit := false
+	legacySettingsPath := ""
 	if p := os.Getenv("CODRAX_SETTINGS"); p != "" {
 		settingsPath = p
 		settingsExplicit = true
 	} else {
-		candidates := []string{"config/codrax.yaml"}
+		type candidate struct {
+			path   string
+			legacy bool
+		}
+		var candidates []candidate
 		if exeDir != "" {
 			candidates = append(candidates,
-				filepath.Join(exeDir, "config", "codrax.yaml"),
-				filepath.Join(exeDir, "..", "config", "codrax.yaml"),
+				candidate{filepath.Join(exeDir, "codrax.yaml"), false},
+				candidate{filepath.Join(exeDir, "codrax", "codrax.yaml"), false},
+				candidate{filepath.Join(exeDir, "config", "codrax.yaml"), true},
+				candidate{filepath.Join(exeDir, "..", "config", "codrax.yaml"), true},
 			)
 		}
+		candidates = append(candidates, candidate{"config/codrax.yaml", true})
 		for _, c := range candidates {
-			if _, err := os.Stat(c); err == nil {
-				settingsPath = c
+			if _, err := os.Stat(c.path); err == nil {
+				settingsPath = c.path
+				if c.legacy {
+					legacySettingsPath = c.path
+				}
 				break
 			}
 		}
 	}
 
-	anchorDir := computeAnchorDir(settingsPath)
+	// --- Anchor resolution ---
+	//
+	// configAnchor roots configuration files (providers.yaml) to the
+	// binary's directory. Falls back to CWD when os.Executable() is
+	// unavailable (rare, e.g. some embedded scenarios).
+	configAnchor := exeDir
+	if configAnchor == "" {
+		if cwd, err := os.Getwd(); err == nil {
+			configAnchor = cwd
+		}
+	}
+	// runtimeAnchor roots runtime artifacts to <CWD>/.codrax/. Absolute
+	// so later joins are stable even if a tool chdir's (which codrax
+	// doesn't do today, but the contract should still hold).
+	runtimeAnchor := runtimeAnchorDir
+	if abs, err := filepath.Abs(runtimeAnchor); err == nil {
+		runtimeAnchor = abs
+	}
 
 	// Start with code defaults.
 	mergedLogDir := defaultLogDir
@@ -292,12 +348,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 
 	// Anchor relative paths.
-	mergedLogDir = anchorPath(anchorDir, mergedLogDir)
-	mergedMemoryDir = anchorPath(anchorDir, mergedMemoryDir)
+	//
+	// Runtime artifacts go under runtimeAnchor (<CWD>/.codrax/):
+	// log_dir, memory_dir, cache_dir. Configuration files go under
+	// configAnchor (exeDir): providers_config. Absolute YAML overrides
+	// pass through anchorPath unchanged.
+	mergedLogDir = anchorPath(runtimeAnchor, mergedLogDir)
+	mergedMemoryDir = anchorPath(runtimeAnchor, mergedMemoryDir)
 	if mergedCacheDir != "" {
-		mergedCacheDir = anchorPath(anchorDir, mergedCacheDir)
+		mergedCacheDir = anchorPath(runtimeAnchor, mergedCacheDir)
 	}
-	mergedProvidersConfig = anchorPath(anchorDir, mergedProvidersConfig)
+	mergedProvidersConfig = anchorPath(configAnchor, mergedProvidersConfig)
 
 	// Per-target-repo namespacing.
 	logDirBase := mergedLogDir
@@ -353,6 +414,20 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 
 	// --- Phase 3: initialize subsystems ---
+	//
+	// Create the runtime anchor up-front so the logger + memory store
+	// can rely on their parent directory existing. MkdirAll is idempotent
+	// so repeated invocations in the same CWD are free.
+	if err := os.MkdirAll(runtimeAnchor, 0o755); err != nil {
+		return fmt.Errorf("create runtime anchor %s: %w", runtimeAnchor, err)
+	}
+
+	// Apply log retention override before constructing the logger so
+	// its startup sweep (pruneOldFiles) honors the configured cap.
+	if rs != nil && rs.LogMaxFiles != nil {
+		logging.SetMaxTotalFiles(*rs.LogMaxFiles)
+	}
+
 	logger, err := logging.NewFromFlags(flagLogDir, flagLogLevel, flagLogStdout)
 	if err != nil {
 		return fmt.Errorf("logging init failed: %w", err)
@@ -362,8 +437,38 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	log.SetOutput(logger.InfoWriter())
 	log.SetFlags(0)
 
+	if legacySettingsPath != "" {
+		logging.Warning("runtime settings loaded from legacy path %s; move to <exeDir>/codrax.yaml to silence this warning", legacySettingsPath)
+	}
+
+	// Set up the blob session directory. With blob_max_sessions > 0
+	// (the default, matching log retention), each codrax process owns
+	// <CWD>/.codrax/blob/<timestamp>-<pid>/ for the lifetime of the
+	// process; the orchestrator injects this into BusContext.WorkDir
+	// on every Run so tool blobs land in one grep-able tree. A config
+	// of 0 disables the layout and lets the orchestrator fall back to
+	// the historical per-trace os.MkdirTemp + RemoveAll behavior.
+	blobMaxSessions := defaultBlobMaxSessions
+	if rs != nil && rs.BlobMaxSessions != nil {
+		blobMaxSessions = *rs.BlobMaxSessions
+	}
+	blobSessionDir := ""
+	if blobMaxSessions > 0 {
+		blobBase := filepath.Join(runtimeAnchor, blobSubdir)
+		if err := os.MkdirAll(blobBase, 0o755); err != nil {
+			logging.Warning("create blob base %s failed: %v (falling back to per-trace tmpdir)", blobBase, err)
+		} else {
+			tool.PruneBlobSessions(blobBase, blobMaxSessions)
+			blobSessionDir = filepath.Join(blobBase, tool.SessionDirName())
+			if err := os.MkdirAll(blobSessionDir, 0o755); err != nil {
+				logging.Warning("create blob session %s failed: %v (falling back to per-trace tmpdir)", blobSessionDir, err)
+				blobSessionDir = ""
+			}
+		}
+	}
+
 	repomap.SetCacheDir(flagCacheDir)
-	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir)
+	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
 
 	// Build pipeline settings from codrax.yaml overrides.
 	var pipelineSettings types.PipelineSettings
@@ -675,6 +780,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetMaxSteps(flagMaxSteps)
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())
+	orch.SetBlobSessionDir(blobSessionDir)
 
 	// Resolve per-agent think_aloud from providers.yaml. The default
 	// is true (directive included); per-agent overrides can disable it.
@@ -760,22 +866,6 @@ func anchorPath(anchor, p string) string {
 		return p
 	}
 	return filepath.Clean(filepath.Join(anchor, p))
-}
-
-func computeAnchorDir(settingsPath string) string {
-	if settingsPath != "" {
-		if abs, err := filepath.Abs(filepath.Clean(settingsPath)); err == nil {
-			parent := filepath.Dir(abs)
-			if filepath.Base(parent) == "config" {
-				return filepath.Dir(parent)
-			}
-			return parent
-		}
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return cwd
-	}
-	return ""
 }
 
 func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {

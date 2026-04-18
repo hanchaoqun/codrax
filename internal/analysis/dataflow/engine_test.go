@@ -1082,30 +1082,34 @@ func TestE2E_RealRepo_CodraxSelfAnalysis(t *testing.T) {
 	graph := repomap.BuildGraph(root, parsed)
 
 	t.Run("analyze_providers_config", func(t *testing.T) {
-		// Focus on config/providers.yaml — the only YAML config
-		// that survives in the read-only codrax pipeline.
+		// Exercise the YAML config extractor against a committed
+		// fixture. After the flat-layout migration the real
+		// providers.yaml and codrax.yaml live next to the binary and
+		// are gitignored, so ScanFiles never sees them; the fixture
+		// below is the one committed YAML under the project tree
+		// and is shaped like the real provider config for parity.
+		fixture := "internal/analysis/dataflow/testdata/sample_config.yaml"
 		result := Analyze(graph, Options{
 			RepoRoot: root,
 			Question: "What providers and models does the LLM routing use?",
 			CandidateFiles: []string{
-				"config/providers.yaml",
+				fixture,
 				"internal/config/providers.go",
 			},
 			WorkDir: t.TempDir(),
 		})
 
-		// config/providers.yaml is a real YAML file — must produce config evidence
 		var configEvidence int
 		for _, ev := range result.Evidence {
 			if ev.Kind == types.EvidenceConcrete && ev.Predicate == "config_value" &&
-				ev.Source == "config/providers.yaml" {
+				ev.Source == fixture {
 				configEvidence++
 			}
 		}
 		if configEvidence == 0 {
 			t.Fatal("real YAML config produced no flattened config evidence")
 		}
-		t.Logf("config/providers.yaml produced %d config evidence items", configEvidence)
+		t.Logf("%s produced %d config evidence items", fixture, configEvidence)
 	})
 
 	t.Run("analyze_agent_package", func(t *testing.T) {

@@ -67,25 +67,60 @@ make test
 
 ## 配置
 
-两个 YAML 文件，分工明确：
+两个 YAML 文件平铺在二进制同目录，分工明确：
 
 | 文件 | 负责 | 典型键 |
 |---|---|---|
-| [`config/providers.yaml`](config/providers.yaml.example) | **LLM 凭证与路由** — 每个 agent 用哪个 provider | API key, model ID |
-| [`config/codrax.yaml`](config/codrax.yaml.example) | **本次运行怎么跑** — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 工具 blob 大小 / 指向 providers.yaml 的路径 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`, `blob_*` |
+| [`providers.yaml`](providers.yaml.example) | **LLM 凭证与路由** — 每个 agent 用哪个 provider | API key, model ID |
+| [`codrax.yaml`](codrax.yaml.example) | **本次运行怎么跑** — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 工具 blob 大小 / 指向 providers.yaml 的路径 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`, `blob_*`, `log_max_files`, `blob_max_sessions` |
 
 流水线拓扑（4 阶段 × 4 agent）是硬编码的，没有 YAML 对应项。
 
-优先级（低到高）：**代码默认 < `config/codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=envs/prod/codrax.yaml` 环境变量可以一键切换整套环境（因为 `providers_config` 路径也可以写在 codrax.yaml 里）。
+优先级（低到高）：**代码默认 < `codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=path/to/codrax.yaml` 环境变量可以一键切换整套环境（因为 `providers_config` 路径也可以写在 codrax.yaml 里）。
 
-`config/codrax.yaml` 的查找顺序：`$CODRAX_SETTINGS` → `<CWD>/config/codrax.yaml` → `<exeDir>/config/codrax.yaml` → `<exeDir>/../config/codrax.yaml`（覆盖 `bin/<exe>` 安装布局）。命中后，文件所在的 `config/` 父目录成为「锚点」，所有相对默认路径（`log_dir`、`memory_dir`、`providers_config`）都基于锚点解析，所以二进制扔到任何 CWD 都能找到自己的配置和写日志。
+### 路径锚点
+
+一个二进制跨多目录、多仓库运行时需要两个锚点：
+
+- **配置锚点**（`<exeDir>`，即二进制所在目录）：`providers_config` 的相对路径都在这里解析。部署时把 `codrax` + `codrax.yaml` + `providers.yaml` 三个文件扔一起就行。
+- **运行产物锚点**（`<CWD>/.codrax/`）：`log_dir` / `memory_dir` / `cache_dir` / blob 会话目录的相对路径都在这里解析。用户在哪个工作目录启动 codrax，日志就落在哪个工作目录的 `.codrax/` 下。
+
+### `codrax.yaml` 查找顺序
+
+1. `$CODRAX_SETTINGS`（绝对路径，显式指定）
+2. `<exeDir>/codrax.yaml` ← 主路径
+3. `<exeDir>/codrax/codrax.yaml`（bin + share 分离布局）
+4. 以下为 legacy 路径，找到时会打 deprecation warning：
+   - `<exeDir>/config/codrax.yaml`
+   - `<exeDir>/../config/codrax.yaml`
+   - `<CWD>/config/codrax.yaml`
+
+### 目录结构
+
+```
+<exeDir>/                        ← 配置
+  codrax
+  codrax.yaml                    (复制自 codrax.yaml.example)
+  providers.yaml                 (复制自 providers.yaml.example)
+
+<CWD>/.codrax/                   ← 运行产物（单个隐藏根，.gitignore 一条搞定）
+  logs/<repo-slug>/
+    codrax-<timestamp>-<pid>.log
+  memory/<repo-slug>/
+    MEMORY.md
+    turns/
+  blob/<timestamp>-<pid>/        (每个进程一个 session，保留最近 N 个)
+    <tool>-<sha8>.txt
+```
+
+`log_max_files` 和 `blob_max_sessions` 两个 YAML 键控制保留数量（默认都是 7）；PID 还活着的 peer 永远不会被清理。
 
 ## 功能亮点
 
-- **分级日志**：error / warning / info / debug 四档，按 4MB 滚动、保留 7 份；文件名 `logs/<repo-slug>/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`，每个 codrax 进程独占自己的文件，多实例并发也不会撕日志
+- **分级日志**：error / warning / info / debug 四档，按 4MB 滚动、保留 7 份；文件名 `.codrax/logs/<repo-slug>/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`，每个 codrax 进程独占自己的文件，多实例并发也不会撕日志
 - **交互多轮**：REPL 模式下每一轮自动带前轮上下文；超过 6 轮或 20KB 触发 LLM 摘要压缩成 `MEMORY.md` 索引条目，下次问到相关话题可按关键词召回原文
-- **跨重启恢复**：单实例从崩溃中恢复时，`memory/<repo-slug>/turns/` 里未压缩的最近 6 轮会自动回灌到 recent；多实例并发场景下检测到 peer 时跳过这一步，避免双方互相把对方的对话挪到自己头上
-- **多目标仓隔离**：log 和 memory 默认按 `-repo` 绝对路径的 hash slug 自动分目录（`logs/foo-a3f9c2b1/...`），同一 codrax 安装可以服务多个目标仓而互不污染
+- **跨重启恢复**：单实例从崩溃中恢复时，`.codrax/memory/<repo-slug>/turns/` 里未压缩的最近 6 轮会自动回灌到 recent；多实例并发场景下检测到 peer 时跳过这一步，避免双方互相把对方的对话挪到自己头上
+- **多目标仓隔离**：log 和 memory 默认按 `-repo` 绝对路径的 hash slug 自动分目录（`.codrax/logs/foo-a3f9c2b1/...`），同一 codrax 安装可以服务多个目标仓而互不污染
 - **多实例并发安全**：同一目标仓多开 codrax 时，日志按 PID 隔离、`MEMORY.md` 周期写入由 `flock` 串行化、`/clear` 会提示当前还有几个 peer 在用、retention sweep 跳过仍存活进程的活跃文件
 - **跨平台**：Linux / macOS 用 `flock(2)`，Windows 通过 `kernel32.dll!LockFileEx` 实现等价语义，全程零非 stdlib 依赖
 - **默认语言**：`-lang=zh` 默认简体中文作答；`-lang=off` 关闭；任一非空值都会保留"用户若用其他语言提问则跟随"的兜底
@@ -94,5 +129,5 @@ make test
 ## 文档
 
 - **[架构设计文档](docs/architecture.md)** — 完整的系统规范，包括组件详情、数据结构、Turn A/Turn B 分离、分析后处理管线、运行时子系统
-- **[运行时配置示例](config/codrax.yaml.example)** — 所有可调项的完整列表与分工说明
-- **[Providers 配置示例](config/providers.yaml.example)** — LLM provider 凭证 + 每 agent 模型路由
+- **[运行时配置示例](codrax.yaml.example)** — 所有可调项的完整列表与分工说明
+- **[Providers 配置示例](providers.yaml.example)** — LLM provider 凭证 + 每 agent 模型路由

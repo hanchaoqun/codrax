@@ -18,15 +18,15 @@ make
 make static
 
 # Single-shot run (explicit flags; any omitted flag falls back to
-# config/codrax.yaml then to the code default)
+# <exeDir>/codrax.yaml then to the code default)
 ./codrax -repo . -branch main -request "task" -pipeline-max-steps 50
 
 # Interactive REPL (no -request → enters multi-turn mode with
 # /exit /clear /history /compact /help slash commands, memory
-# persisted under memory/)
+# persisted under <CWD>/.codrax/memory/)
 ./codrax
 
-# Debug mode: full ReAct trace written to logs/ and mirrored to stdout
+# Debug mode: full ReAct trace written to <CWD>/.codrax/logs/ and mirrored to stdout
 ./codrax -log-level debug -log-stdout -request "task"
 
 # Run all tests
@@ -172,14 +172,28 @@ The explorer agent supplements LLM investigation with deterministic, source-code
 
 ### Configuration
 
-Two YAML files under `config/`, strictly non-overlapping:
+Two YAML files live **flat next to the binary** (no `config/` subdirectory), strictly non-overlapping:
 
 - **`providers.yaml`** — LLM provider credentials and per-agent model routing. Loaded by `internal/config/providers.go`. Secrets, never committed.
-- **`codrax.yaml`** — per-process runtime knobs. Four flat groups by prefix: bare keys (`log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `providers_config`); `blob_*` keys for tool output sizing (`blob_max_inline_bytes`, `blob_preview_head_bytes`, `blob_preview_tail_bytes`); `pipeline_*` keys for per-run budget limits (`pipeline_max_steps`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`); `analysis_*` keys for emit_analysis runtime validation (`analysis_warn_below_keywords`, `analysis_reject_below_keywords`, `analysis_generic_entity_blocklist`, `analysis_reject_multiple_emit`, `analysis_max_prescan_rounds`, `analysis_warn_below_keyword_hit_ratio`, `analysis_warn_below_entity_hit_ratio`). Loaded by `internal/config/runtime.go`. All fields are pointer-typed so the merge in `cmd/root.go` can distinguish "absent" from "explicit zero value".
+- **`codrax.yaml`** — per-process runtime knobs. Five flat groups by prefix: bare keys (`log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `providers_config`); `log_*` keys for log retention (`log_max_files`); `blob_*` keys for tool output sizing and session retention (`blob_max_inline_bytes`, `blob_preview_head_bytes`, `blob_preview_tail_bytes`, `blob_max_sessions`); `pipeline_*` keys for per-run budget limits (`pipeline_max_steps`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`); `analysis_*` keys for emit_analysis runtime validation (`analysis_warn_below_keywords`, `analysis_reject_below_keywords`, `analysis_generic_entity_blocklist`, `analysis_reject_multiple_emit`, `analysis_max_prescan_rounds`, `analysis_warn_below_keyword_hit_ratio`, `analysis_warn_below_entity_hit_ratio`). Loaded by `internal/config/runtime.go`. All fields are pointer-typed so the merge in `cmd/root.go` can distinguish "absent" from "explicit zero value".
 
 The pipeline topology (stages + agents + skills) is hardcoded in `internal/orchestrator/topology.go` and has no YAML counterpart.
 
-**Precedence** for the bare keys (lowest wins last): code default → `config/codrax.yaml` → command-line flag.
+**Path anchors.** `cmd/root.go` uses two anchors to resolve relative paths:
+
+- `configAnchor = exeDir` — `providers_config` and any other configuration file path resolves here. One bin + one config tree, wherever the binary lives.
+- `runtimeAnchor = <CWD>/.codrax/` — `log_dir`, `memory_dir`, `cache_dir`, and the blob session root resolve here. Runtime artifacts follow the user's workspace, not the install location. The directory is created on startup.
+
+**`codrax.yaml` lookup order.** `cmd/root.go` walks this list and stops at the first hit; paths marked *legacy* print a deprecation warning once the logger is up:
+
+1. `$CODRAX_SETTINGS` (absolute override; errors out loudly if set but missing)
+2. `<exeDir>/codrax.yaml` ← canonical flat location
+3. `<exeDir>/codrax/codrax.yaml`
+4. `<exeDir>/config/codrax.yaml` — *legacy*
+5. `<exeDir>/../config/codrax.yaml` — *legacy*
+6. `<CWD>/config/codrax.yaml` — *legacy*
+
+**Precedence** for the bare keys (lowest wins last): code default → `<exeDir>/codrax.yaml` → command-line flag.
 
 **Precedence** for the `pipeline_*` keys (lowest wins last): code default → `codrax.yaml` `pipeline_*` keys → command-line flags (`-pipeline-max-steps`, `-pipeline-max-retries`, `-pipeline-max-stage-visits`).
 
@@ -240,9 +254,14 @@ The pipeline topology (stages + agents + skills) is hardcoded in `internal/orche
 
 `cmd/root.go` applies the runtime overrides into a local `types.PipelineSettings` and via `tool.SetBlobLimits` + `tool.SetAnalysisLimits` immediately after `LoadRuntimeSettings`, before any agent or tool runs. Override the entry file with `CODRAX_SETTINGS=path/to/codrax.yaml` to bootstrap an entire environment (since `providers_config` paths can live in `codrax.yaml`).
 
-**Path anchoring.** `cmd/root.go` searches for `codrax.yaml` in three places: `$CODRAX_SETTINGS` → `<CWD>/config/codrax.yaml` → `<exeDir>/config/codrax.yaml` → `<exeDir>/../config/codrax.yaml` (the `bin/` install layout). The directory containing the found file's `config/` becomes the *anchor*, and any relative default path (`log_dir`, `memory_dir`, `providers_config`) is rewritten to `anchor/<value>` *before* flag registration so `-h` shows the resolved path. User-supplied flag values are passed through verbatim and remain CWD-relative. `-repo` is excluded from anchoring — its default `.` always means the current working directory because it names a target, not tool state. When no settings file is found anywhere, the anchor falls back to CWD, preserving the historical behavior.
+**Path anchoring (two domains).** `cmd/root.go` resolves relative paths against one of two anchors depending on what the path names:
 
-**Per-target-repo namespacing.** Default `log_dir` and `memory_dir` get an extra `<basename>-<fnv32>` suffix derived from the absolute, symlink-resolved `-repo` path, so multiple target repos sharing one codrax install keep their logs and conversation memory in disjoint subtrees (`<anchor>/logs/foo-a3f9c2b1/`, `<anchor>/memory/foo-a3f9c2b1/`). The slug is baked into the flag default so `-h` shows the final path; if the user overrides `-repo` on the command line and leaves `-log-dir`/`-memory-dir` defaulted, `cmd/root.go` re-slugs after flag parse. Explicit `-log-dir`/`-memory-dir` always wins — opting out is one flag away. The slug uses the resolved absolute path so reaching the same repo via different CWDs or symlinks lands in the same memory bucket.
+- `configAnchor = exeDir` — applied to `providers_config`. Configuration files live next to the binary so one install maps to one config tree, regardless of CWD.
+- `runtimeAnchor = <CWD>/.codrax/` — applied to `log_dir`, `memory_dir`, `cache_dir`, and the blob session root. Runtime artifacts follow the user's current workspace, not the install location. The directory is created at startup via `os.MkdirAll`.
+
+Both anchors are resolved to absolute paths *before* flag registration, so `-h` shows the final path. User-supplied flag values are passed through verbatim. `-repo` is excluded from anchoring — its default `.` always means CWD because it names a target, not tool state. Legacy `config/` lookup paths (see the lookup order table above) still work and emit a one-time deprecation warning.
+
+**Per-target-repo namespacing.** Default `log_dir` and `memory_dir` get an extra `<basename>-<fnv32>` suffix derived from the absolute, symlink-resolved `-repo` path, so multiple target repos sharing one codrax install keep their logs and conversation memory in disjoint subtrees (`<CWD>/.codrax/logs/foo-a3f9c2b1/`, `<CWD>/.codrax/memory/foo-a3f9c2b1/`). The slug is baked into the flag default so `-h` shows the final path; if the user overrides `-repo` on the command line and leaves `-log-dir`/`-memory-dir` defaulted, `cmd/root.go` re-slugs after flag parse. Explicit `-log-dir`/`-memory-dir` always wins — opting out is one flag away. The slug uses the resolved absolute path so reaching the same repo via different CWDs or symlinks lands in the same memory bucket. The blob session root is *not* per-repo-namespaced: all runs from the same process share one `<CWD>/.codrax/blob/<timestamp>-<pid>/` directory, because blob files are content-addressed (`<tool>-<sha8>.txt`) and identical output across repos deduplicates naturally.
 
 **Multi-instance concurrency model.** Once two codrax processes can land in the same repo slug, the logging and memory subsystems both have to tolerate concurrent writers. The contract is enforced at two layers, both pure stdlib (no `golang.org/x/sys`):
 
@@ -250,11 +269,12 @@ The pipeline topology (stages + agents + skills) is hardcoded in `internal/orche
 
 - *Memory.* Two file locks govern the directory: `MEMORY.md.lock` is a per-operation flock — shared for `loadIndex`/`BuildContext`, exclusive for `appendIndexEntry`/`Clear`/`compactOldest`. Every operation reloads `s.index` from disk after acquiring the lock so the in-process cache never lags behind a peer's writes. `.instance.lock` is a *lifetime* shared lock used purely for presence detection: at `NewStore` time we try a non-blocking exclusive on it; success means we are the only Store on this directory and may safely run `loadOrphanRecent` to recover the tail of a crashed previous session. Failure means peers exist, the un-compacted turn files in `turns/` belong to their recent buffers, and orphan recovery is skipped to avoid double-compaction. After recovery the alone-Store atomically downgrades to shared (Linux: `flock(LOCK_SH)` in place; Windows: unlock+re-lock with a window that is harmless because no `Append` has happened yet). Turn IDs include the PID (`turn-<unix-nano>-<pid>`) so two processes never collide on a turn filename. The Windows file-lock primitives (`LockFileEx`/`UnlockFileEx`) are not exported by stdlib `syscall` in Go 1.22, so `internal/memory/lock_windows.go` calls them through `syscall.NewLazyDLL("kernel32.dll")` to keep the dependency footprint at zero.
 
-### Runtime subsystems (`internal/logging`, `internal/memory`, `internal/repl`)
+### Runtime subsystems (`internal/logging`, `internal/memory`, `internal/repl`, `internal/tool/blob`)
 
-- **`internal/logging`** — leveled logger (`error/warning/info/debug`) writing to `logs/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log` with 4 MB rotation and a 7-file retention cap. Each process always opens a fresh PID-stamped file; `pruneOldFiles` skips files whose embedded PID is still a live process. Package-level `Error/Warning/Info/Debug` free functions delegate to `logging.Default`, initialized from `cmd/root.go`. A debug-gated `[diag ...]` trace in `BaseAgent.Execute` dumps the full ReAct loop (initial prompt, assistant turns, tool results, stop reason) when `-log-level debug` is set.
-- **`internal/memory`** — multi-turn REPL store. Recent turns live in-memory + verbatim on disk under `memory/turns/<id>.md` where `<id>` = `turn-<unix-nano>-<pid>`. Once the recent buffer exceeds 6 turns or 20 KB, the oldest is LLM-summarized into a `{topic, keywords, summary, full_ref}` entry appended to `memory/MEMORY.md`. Cross-process safety: a per-operation flock on `MEMORY.md.lock` serializes mutations and reloads the in-process index after each acquire so peers' writes are immediately visible; a lifetime shared lock on `.instance.lock` lets `NewStore` decide via a non-blocking exclusive try whether it's alone in the directory and may safely run orphan recovery — when peers are present, recovery is skipped to prevent double compaction. On a *true* fresh start (alone, previous session crashed or exited), `NewStore` parses `MEMORY.md` *and* resurrects orphan turns into the recent buffer so the tail of the last session survives crash/Ctrl-C. `BuildContext(request)` assembles a prompt block with recent turns plus keyword-matching compacted entries (index entry + inlined full turn).
+- **`internal/logging`** — leveled logger (`error/warning/info/debug`) writing to `<CWD>/.codrax/logs/<repo-slug>/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log` with 4 MB rotation and a default 7-file retention cap (overridable via `log_max_files` in `codrax.yaml`; `logging.SetMaxTotalFiles` is called from `cmd/root.go` before the first logger constructs). Each process always opens a fresh PID-stamped file; `pruneOldFiles` skips files whose embedded PID is still a live process. The `logging.IsPidAlive` and `logging.FileTimeLayout` exports are reused by `internal/tool/blob.go` so blob session pruning follows the same multi-instance safety rules as log retention. Package-level `Error/Warning/Info/Debug` free functions delegate to `logging.Default`, initialized from `cmd/root.go`. A debug-gated `[diag ...]` trace in `BaseAgent.Execute` dumps the full ReAct loop (initial prompt, assistant turns, tool results, stop reason) when `-log-level debug` is set.
+- **`internal/memory`** — multi-turn REPL store. Recent turns live in-memory + verbatim on disk under `<CWD>/.codrax/memory/<repo-slug>/turns/<id>.md` where `<id>` = `turn-<unix-nano>-<pid>`. Once the recent buffer exceeds 6 turns or 20 KB, the oldest is LLM-summarized into a `{topic, keywords, summary, full_ref}` entry appended to `MEMORY.md` in the same directory. Cross-process safety: a per-operation flock on `MEMORY.md.lock` serializes mutations and reloads the in-process index after each acquire so peers' writes are immediately visible; a lifetime shared lock on `.instance.lock` lets `NewStore` decide via a non-blocking exclusive try whether it's alone in the directory and may safely run orphan recovery — when peers are present, recovery is skipped to prevent double compaction. On a *true* fresh start (alone, previous session crashed or exited), `NewStore` parses `MEMORY.md` *and* resurrects orphan turns into the recent buffer so the tail of the last session survives crash/Ctrl-C. `BuildContext(request)` assembles a prompt block with recent turns plus keyword-matching compacted entries (index entry + inlined full turn).
 - **`internal/repl`** — interactive loop. Reads one line at a time, injects prior conversation via `Store.BuildContext` prepended as `## Prior conversation\n...\n\n## Current request\n...` (zero changes to BusContext or any agent — history flows as part of the request string). Slash commands: `/exit /quit /clear /history /compact /help`.
+- **`internal/tool/blob`** — per-process blob storage for large tool outputs. `cmd/root.go` creates one session directory `<CWD>/.codrax/blob/<timestamp>-<pid>/` at startup (named via `tool.SessionDirName()`, aligned with `logging.FileTimeLayout`) and passes it to the orchestrator via `SetBlobSessionDir`. `Orchestrator.Run` assigns it to `BusContext.WorkDir` for every Run in this process; no per-Run teardown, so debugging can inspect the blob tree after the fact. `tool.PruneBlobSessions(base, N)` runs once at startup and deletes the oldest session directories until only `blob_max_sessions` remain, skipping any session whose embedded PID is still a live peer process (same multi-instance safety as log retention). Setting `blob_max_sessions: 0` disables the persistent layout entirely and reverts to the legacy per-trace `os.MkdirTemp + RemoveAll` behavior.
 
 ### Response language switch
 
