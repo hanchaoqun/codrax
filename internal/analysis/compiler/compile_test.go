@@ -206,115 +206,6 @@ func TestInferScenario(t *testing.T) {
 	}
 }
 
-// TestInferScenario_CallChainDispatchGate pins the strict 3-signal
-// trigger for ScenarioCallChainDispatch — the gate must NOT fire
-// when any signal is missing, which would regress the default
-// architecture_explain routing.
-func TestInferScenario_CallChainDispatchGate(t *testing.T) {
-	base := types.RequestModel{
-		Intent:        types.IntentExplain,
-		PredicateAxis: types.AxisCall,
-		AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
-	}
-	if got := InferScenario(base); got != types.ScenarioCallChainDispatch {
-		t.Fatalf("full 3-signal match should route to call_chain_dispatch; got %q", got)
-	}
-
-	// Missing each signal in turn — must fall back to architecture_explain.
-	noAxis := base
-	noAxis.PredicateAxis = types.AxisUnknown
-	if got := InferScenario(noAxis); got == types.ScenarioCallChainDispatch {
-		t.Errorf("missing PredicateAxis must NOT route to call_chain_dispatch; got %q", got)
-	}
-
-	wrongAxis := base
-	wrongAxis.PredicateAxis = types.AxisDefine
-	if got := InferScenario(wrongAxis); got == types.ScenarioCallChainDispatch {
-		t.Errorf("non-call axis must NOT route to call_chain_dispatch; got %q", got)
-	}
-
-	noKind := base
-	noKind.AnalyzerHints.Kind = ""
-	if got := InferScenario(noKind); got == types.ScenarioCallChainDispatch {
-		t.Errorf("empty question_kind must NOT route to call_chain_dispatch; got %q", got)
-	}
-
-	wrongKind := base
-	wrongKind.AnalyzerHints.Kind = "list_of_symbols"
-	if got := InferScenario(wrongKind); got == types.ScenarioCallChainDispatch {
-		t.Errorf("list_of_symbols kind must NOT route to call_chain_dispatch; got %q", got)
-	}
-
-	// Different intents must NOT fall through to the axis gate —
-	// they go through earlier cases in InferScenario and never reach
-	// isCallChainDispatchQuestion.
-	enumIntent := base
-	enumIntent.Intent = types.IntentEnumerate
-	if got := InferScenario(enumIntent); got == types.ScenarioCallChainDispatch {
-		t.Errorf("enumerate intent must route to generic, NOT call_chain_dispatch; got %q", got)
-	}
-	rootCauseIntent := base
-	rootCauseIntent.Intent = types.IntentRootCause
-	if got := InferScenario(rootCauseIntent); got != types.ScenarioRootCause {
-		t.Errorf("root_cause intent must route to root_cause; got %q", got)
-	}
-
-	// Case-insensitive kind match.
-	upperKind := base
-	upperKind.AnalyzerHints.Kind = "MECHANISM"
-	if got := InferScenario(upperKind); got != types.ScenarioCallChainDispatch {
-		t.Errorf("case-insensitive kind match must route to call_chain_dispatch; got %q", got)
-	}
-}
-
-// TestTemplateCallChainDispatch_ThreeHopShape pins the template's
-// structural promise: exactly 3 evidence nodes (entrypoint,
-// dispatcher, receiver), no reconcile node, and the answer contract
-// requires 3 citations (one per hop).
-func TestTemplateCallChainDispatch_ThreeHopShape(t *testing.T) {
-	rm := types.RequestModel{
-		Intent:        types.IntentExplain,
-		Scenario:      types.ScenarioCallChainDispatch,
-		Complexity:    types.ComplexityComplex,
-		PredicateAxis: types.AxisCall,
-		AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
-		Language:      "zh",
-		// LLM-emitted sub_topics are IGNORED by this template: the
-		// three hops are fixed regardless. Including two sub_topics
-		// here verifies they do NOT multiply into 2×3=6 nodes.
-		SubTopics: []types.SubTopic{
-			{Summary: "topic 1"},
-			{Summary: "topic 2"},
-		},
-	}
-	out := compileT(rm)
-
-	var evidenceCount, reconcileCount int
-	for _, n := range out.TaskGraph.Nodes {
-		switch n.Type {
-		case types.NodeEvidence:
-			evidenceCount++
-		case types.NodeReconcile:
-			reconcileCount++
-		}
-	}
-	if evidenceCount != 3 {
-		t.Errorf("expected exactly 3 evidence nodes (entrypoint/dispatcher/receiver); got %d", evidenceCount)
-	}
-	if reconcileCount != 0 {
-		t.Errorf("call_chain_dispatch should have NO reconcile node; got %d", reconcileCount)
-	}
-	if out.AnswerContract.CitationReq.MinCitations != TmplCitationCountHigh {
-		t.Errorf("MinCitations should be %d (one per hop); got %d",
-			TmplCitationCountHigh, out.AnswerContract.CitationReq.MinCitations)
-	}
-	if out.AnswerContract.RequiredAnswerShape != types.ShapeExplanation {
-		t.Errorf("shape should be Explanation; got %q", out.AnswerContract.RequiredAnswerShape)
-	}
-	if out.AnswerContract.Language != "zh" {
-		t.Errorf("language propagation broken; got %q", out.AnswerContract.Language)
-	}
-}
 
 func TestCompile_LanguagePropagatesToContract(t *testing.T) {
 	rm := sampleRM(types.ScenarioArchitectureExplain, types.IntentExplain, types.ComplexityModerate)
@@ -335,7 +226,6 @@ func TestCompile_AllTemplatesStructurallyValid(t *testing.T) {
 		types.ScenarioConfigTrace,
 		types.ScenarioPerformanceBottleneck,
 		types.ScenarioGeneric,
-		types.ScenarioCallChainDispatch,
 	}
 	for _, sc := range scenarios {
 		out := compileT(sampleRM(sc, types.IntentExplain, types.ComplexityModerate))

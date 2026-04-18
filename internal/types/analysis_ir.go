@@ -263,14 +263,6 @@ const (
 	ScenarioConfigTrace           Scenario = "config_trace"
 	ScenarioPerformanceBottleneck Scenario = "performance_bottleneck"
 	ScenarioGeneric               Scenario = "generic"
-	// ScenarioCallChainDispatch routes "how does X CALL Y"-style
-	// mechanism questions through a template that decomposes the
-	// investigation into three chain hops — entrypoint, dispatcher,
-	// receiver — instead of the per-entity sub-topic decomposition of
-	// architecture_explain. Selected by InferScenario when Intent is
-	// explain + AnalyzerHints.Kind is mechanism + PredicateAxis is
-	// AxisCall. See internal/analysis/compiler/templates.go::templateCallChainDispatch.
-	ScenarioCallChainDispatch Scenario = "call_chain_dispatch"
 )
 
 type Complexity string
