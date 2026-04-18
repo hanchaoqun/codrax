@@ -286,6 +286,57 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	closure := ctx.Mutable.EvidenceClosure()
 	pending := closure.PendingReads()
 
+	// CGEC C2: check (e) — evidence Source falls on a file the
+	// analyzer named but findings_validator could not verify. The
+	// LLM's evidence pool is citing a file the framework has flagged
+	// as "analyzer hallucination". Downgrade and push for grep
+	// rediscovery so the LLM can disprove or confirm the file
+	// actually exists with the expected symbol. Runs BEFORE the
+	// PendingReads check so operator sees the root-cause signal
+	// first (unverified findings are stronger evidence of bad
+	// grounding than "LLM didn't read file X").
+	if unverified := closure.UnverifiedFindings(); len(unverified) > 0 {
+		unverifiedPaths := make(map[string]string)
+		for _, u := range unverified {
+			if u.Kind == "path" {
+				unverifiedPaths[u.Token] = u.Reason
+			}
+		}
+		if len(unverifiedPaths) > 0 {
+			var hits []string
+			for _, ev := range ctx.Mutable.EmittedEvidence() {
+				if reason, bad := unverifiedPaths[ev.Source]; bad {
+					hits = append(hits, fmt.Sprintf("%s (%s)", ev.Source, reason))
+				}
+			}
+			if len(hits) > 0 {
+				// Emit RepairExpandSearch so the retry hint surfaces
+				// broaden-keyword guidance. The Rationale mentions
+				// the unverified files explicitly so the LLM knows
+				// which claims to disprove.
+				var kws []string
+				if ctx.AnalysisIR != nil {
+					kws = append(kws, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords...)
+				}
+				closure.AddRepair(types.RepairDirective{
+					Kind:      types.RepairExpandSearch,
+					Keywords:  kws,
+					Rationale: fmt.Sprintf("evidence cites %d file(s) findings_validator flagged as unverified: %s — re-grep the repo to confirm the correct locations", len(hits), strings.Join(hits, "; ")),
+					Origin:    "pre_complete.evidence_on_unverified_path",
+				})
+				logging.Info("[CGEC] C2 downgrade: evidence cites unverified path(s) count=%d", len(hits))
+				var b strings.Builder
+				b.WriteString("emit_investigation_complete DOWNGRADED — evidence cites files the analyzer findings_validator flagged as unverified.\n\n")
+				b.WriteString("The following evidence sources were unable to be verified against the repo graph:\n")
+				for _, h := range hits {
+					b.WriteString("  - " + h + "\n")
+				}
+				b.WriteString("\nRe-run grep to confirm the correct file paths (the analyzer may have hallucinated them). After finding real evidence anchors, re-call emit_investigation_complete.")
+				return b.String()
+			}
+		}
+	}
+
 	// Check (a): forced reads still outstanding.
 	if len(pending) > 0 {
 		var b strings.Builder

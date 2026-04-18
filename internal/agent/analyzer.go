@@ -347,11 +347,34 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		out.StageReport = validation.Annotated
 		if len(validation.Unverified) > 0 && ctx != nil && ctx.Mutable != nil {
 			closure := ctx.Mutable.EvidenceClosure()
+			var symbolTokens []string
 			for _, u := range validation.Unverified {
 				closure.AppendUnverifiedFinding(u)
+				if u.Kind == "symbol" {
+					symbolTokens = append(symbolTokens, u.Token)
+				}
 			}
 			closure.BumpUnverifiedFinds(len(validation.Unverified))
-			logging.Warning("[analyzer] findings validator flagged %d unverified token(s)", len(validation.Unverified))
+			logging.Warning("[CGEC] I1 findings_validator: unverified_tokens=%d (paths + symbols flagged)", len(validation.Unverified))
+			// CGEC C3: the analyzer mentioned entities the validator
+			// could not verify against the repo. Emit RepairExpandSearch
+			// with the symbol tokens so the next explore round's prompt
+			// tells the LLM to grep the real repo for these (or confirm
+			// they genuinely don't exist). Path-kind unverified tokens
+			// are NOT passed as keywords because path strings aren't
+			// grep-able identifiers; they're already rendered as
+			// strikethrough in the Annotated StageReport which flows
+			// into Prior Stage Findings. Only fires when the analyzer
+			// actually named a symbol we couldn't pin down.
+			if len(symbolTokens) > 0 {
+				closure.AddRepair(types.RepairDirective{
+					Kind:      types.RepairExpandSearch,
+					Keywords:  symbolTokens,
+					Rationale: fmt.Sprintf("analyzer referenced %d symbol(s) that findings_validator could not verify against the repo graph — grep these to confirm existence / disprove before acting on them", len(symbolTokens)),
+					Origin:    "findings_validator.unverified_symbols",
+				})
+				logging.Info("[CGEC] C3 expand_search: origin=findings_validator.unverified_symbols symbols=%d", len(symbolTokens))
+			}
 		}
 	}
 

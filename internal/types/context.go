@@ -1055,6 +1055,18 @@ type AgentContext struct {
 	RelevantMCPNotes      []string            `json:"relevant_mcp_notes,omitempty"`
 	PriorReports          []StageReport       `json:"prior_reports,omitempty"`
 
+	// UnverifiedAnalyzerFindings is populated from
+	// EvidenceClosure.UnverifiedFindings() at BuildAgentContext time.
+	// The CGEC findings_validator (I1) records each path/symbol the
+	// analyzer mentioned that the repo graph could not confirm; the
+	// prompt builder renders these as a dedicated "## Unverified
+	// Analyzer Findings" section so every downstream agent sees a
+	// single consolidated warning list instead of having to re-derive
+	// it from the annotated StageReport text. Capped at render time
+	// to keep prompt-size bounded. Empty / nil when no findings were
+	// flagged.
+	UnverifiedAnalyzerFindings []UnverifiedFinding `json:"unverified_analyzer_findings,omitempty"`
+
 	Constraints []string `json:"constraints,omitempty"`
 	Preferences []string `json:"preferences,omitempty"`
 	Language    string   `json:"language,omitempty"`

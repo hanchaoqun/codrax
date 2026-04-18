@@ -55,6 +55,15 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// raw tool dumps. Append-only; the prompt builder formats them.
 	ac.PriorReports = bus.StageReports
 
+	// CGEC C1: surface UnverifiedFindings written by the analyzer's
+	// findings_validator into the AgentContext so BuildPromptContext
+	// can render a dedicated warning section in every downstream
+	// agent's prompt. Copy is defensive; the closure's internal
+	// slice is not shared with the caller.
+	if bus.Mutable != nil {
+		ac.UnverifiedAnalyzerFindings = bus.Mutable.EvidenceClosure().UnverifiedFindings()
+	}
+
 	// Propagate any pending retry hint from the previous self-looped
 	// dispatch. Forward transitions clear this on the BusContext side,
 	// so an agent only sees a hint that was meant for itself.
@@ -354,6 +363,21 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Prior Stage Findings",
 			Content: formatStageReports(ac.PriorReports),
+		})
+	}
+
+	// CGEC C1: Unverified Analyzer Findings. findings_validator (I1)
+	// flags path / symbol tokens the analyzer referenced that the
+	// repo graph could not confirm. Render them as a dedicated
+	// warning section so the agent explicitly distrusts these rather
+	// than mining them out of the annotated StageReport prose.
+	// Consolidates what would otherwise be scattered ~~strikethrough~~
+	// annotations into a single grep-able block the operator can
+	// also match in trace.
+	if uf := formatUnverifiedFindings(ac.UnverifiedAnalyzerFindings); uf != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Unverified Analyzer Findings",
+			Content: uf,
 		})
 	}
 
@@ -1184,6 +1208,64 @@ func formatStageReports(reports []types.StageReport) string {
 			b.WriteString("\n\n")
 		}
 		fmt.Fprintf(&b, "### [%s / %s]\n%s", r.Stage, r.Agent, r.Findings)
+	}
+	return b.String()
+}
+
+// unverifiedFindingsRenderCap bounds the number of entries rendered
+// in the Unverified Analyzer Findings section so a pathological
+// analyzer output cannot flood downstream prompts. When the cap is
+// hit the trailing "... and N more" line keeps the information loss
+// visible. C4 caps the render, not the underlying slice, so the
+// preCompleteContractCheck (C2) still sees every finding.
+const unverifiedFindingsRenderCap = 12
+
+// formatUnverifiedFindings produces the markdown body for the
+// "Unverified Analyzer Findings" section. Dedupes by Token+Kind
+// (AppendUnverifiedFinding already dedupes but belt-and-suspenders
+// for older closures), caps at unverifiedFindingsRenderCap, and
+// returns "" when nothing to render so the caller can suppress the
+// section title entirely on a clean analyzer run.
+//
+// Format:
+//
+//	The analyzer referenced these items but findings_validator could not
+//	confirm them against the repo graph. Treat them as UNRELIABLE — do
+//	not cite them, do not assume their contents, grep the repo to
+//	confirm or disprove.
+//	  - `path` internal/agent/foo.go — file does not exist in repo
+//	  - `symbol` BarHandler — symbol not found in graph
+//	  ... and 3 more.
+func formatUnverifiedFindings(finds []types.UnverifiedFinding) string {
+	if len(finds) == 0 {
+		return ""
+	}
+	seen := make(map[string]bool, len(finds))
+	var uniq []types.UnverifiedFinding
+	for _, f := range finds {
+		key := f.Kind + "\x00" + f.Token
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		uniq = append(uniq, f)
+	}
+	var b strings.Builder
+	b.WriteString("The analyzer referenced these items but findings_validator could not confirm them against the repo graph. Treat them as UNRELIABLE — do not cite them, do not assume their contents, grep the repo to confirm or disprove.\n")
+	max := unverifiedFindingsRenderCap
+	if len(uniq) < max {
+		max = len(uniq)
+	}
+	for i := 0; i < max; i++ {
+		f := uniq[i]
+		label := f.Kind
+		if label == "" {
+			label = "token"
+		}
+		fmt.Fprintf(&b, "  - `%s` %s — %s\n", label, f.Token, f.Reason)
+	}
+	if len(uniq) > max {
+		fmt.Fprintf(&b, "  ... and %d more.\n", len(uniq)-max)
 	}
 	return b.String()
 }
