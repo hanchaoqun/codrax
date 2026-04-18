@@ -3423,6 +3423,21 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					relevant = append(relevant, av)
 					seen[av.method] = true
 					added++
+					continue
+				}
+				// Graph-assisted call resolution: when v is a "calls"
+				// entry, its value contains a variable name (e.g.
+				// "subRuntime.Run") but av.receiver is a type name
+				// ("SubAgentRuntime"). containsIdentifier fails because
+				// they're different strings. Resolve through the graph:
+				// extract the method name from the call target, look it
+				// up in SymbolDefs, check if any defining type matches
+				// av.receiver.
+				if v.kind == "calls" && av.receiver != "" && len(av.receiver) >= 4 &&
+					callValueMatchesReceiver(v.value, av.receiver, graph) {
+					relevant = append(relevant, av)
+					seen[av.method] = true
+					added++
 				}
 			}
 		}
@@ -3657,7 +3672,28 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if isProseLikeConcreteValue(rv.value) {
 				continue
 			}
-			if containsIdentifier(v.value, rv.receiver) {
+			// Standard identifier match: v.value mentions rv.receiver
+			// as a word-boundary substring (e.g. "binds NewFoo" contains
+			// "Foo" via factory prefix). Works for all non-call kinds.
+			linked := containsIdentifier(v.value, rv.receiver)
+
+			// Graph-assisted call resolution: for "calls" entries the
+			// value contains a VARIABLE name ("subRuntime.Run") but
+			// rv.receiver is a TYPE name ("SubAgentRuntime"). The
+			// identifier match fails because they're different strings.
+			// Fix: extract the method name from the call target, look
+			// it up in graph.SymbolDefs, and check if ANY definition's
+			// receiver type equals rv.receiver. This closes the 3-hop
+			// gap: dispatchStage calls subRuntime.Run → linked to
+			// SubAgentRuntime.Run → linked to SubExplorer.Run.
+			if !linked && v.kind == "calls" {
+				linked = callValueMatchesReceiver(v.value, rv.receiver, graph)
+			}
+			if !linked && rv.kind == "calls" {
+				linked = callValueMatchesReceiver(rv.value, v.receiver, graph)
+			}
+
+			if linked {
 				summary := fmt.Sprintf(
 					"`%s()` %s %s → `%s()` %s %s",
 					v.method, v.kind, v.value,
@@ -5487,6 +5523,73 @@ func scanCallTargetsInLine(line string) []string {
 // (isIdentChar is defined below at its pre-existing site near the
 // cross-validation helpers; reused by scanCallTargetsInLine to walk
 // backwards over the receiver chain.)
+
+// resolveCallTargetReceiver resolves a "calls" kind value like
+// "subRuntime.Run" to the actual TYPE name of the receiver by
+// looking up the method in graph.SymbolDefs. Returns the resolved
+// type name (e.g. "SubAgentRuntime") or "" if not resolvable.
+//
+// This bridges the fundamental gap in the chain linker: the "calls"
+// detector emits VARIABLE names (last-segment normalisation), but
+// the chain linker needs TYPE names for containsIdentifier matching.
+// Without this resolver, `containsIdentifier("subRuntime.Run",
+// "SubAgentRuntime")` returns false and the chain breaks.
+//
+// Strategy:
+//  1. Extract the method name from the value (after the last dot).
+//  2. Look up graph.SymbolDefs[method] — all definitions of that
+//     method across the codebase.
+//  3. For each definition that is a method (has a non-empty Receiver),
+//     return the Receiver as a candidate type name.
+//  4. Caller matches the returned type against rv.receiver.
+//
+// When the method name is common (e.g. "Run" defined on 5 types),
+// returns ALL candidate receivers so the caller can match any of
+// them. This is O(method-defs) per call but the SymbolDefs map is
+// bounded by codebase size and the "calls" entries are capped at 6
+// per snippet, so the total work is negligible.
+func resolveCallTargetReceivers(callValue string, graph *repomap.Graph) []string {
+	if graph == nil || callValue == "" {
+		return nil
+	}
+	// Extract method name: "subRuntime.Run" → "Run"
+	dot := strings.LastIndex(callValue, ".")
+	if dot < 0 || dot >= len(callValue)-1 {
+		return nil
+	}
+	method := callValue[dot+1:]
+	if method == "" {
+		return nil
+	}
+	defs, ok := graph.SymbolDefs[method]
+	if !ok || len(defs) == 0 {
+		return nil
+	}
+	var receivers []string
+	for _, def := range defs {
+		if def != nil && def.Receiver != "" {
+			receivers = append(receivers, def.Receiver)
+		}
+	}
+	return receivers
+}
+
+// callValueMatchesReceiver checks whether a "calls" kind value
+// links to a target whose receiver is `targetReceiver`, using
+// graph-assisted type resolution. Returns true when ANY of the
+// resolved receiver types for the call target equals targetReceiver.
+//
+// Example: value="subRuntime.Run", targetReceiver="SubAgentRuntime"
+//   → resolves "Run" → SymbolDefs → [SubAgentRuntime, SomeOtherRunnable]
+//   → matches SubAgentRuntime → true
+func callValueMatchesReceiver(callValue, targetReceiver string, graph *repomap.Graph) bool {
+	for _, recv := range resolveCallTargetReceivers(callValue, graph) {
+		if recv == targetReceiver {
+			return true
+		}
+	}
+	return false
+}
 
 // isExportedIdent reports whether s is a non-empty identifier
 // starting with an uppercase letter — the Go convention for

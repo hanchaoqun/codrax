@@ -455,3 +455,79 @@ func TestDetectCrossFileSymbolGaps(t *testing.T) {
 		}
 	})
 }
+
+// ── 3-hop chain resolution ─────────────────────────────────────────
+
+// TestResolveCallTargetReceivers verifies the graph-assisted type
+// resolution that bridges variable names → type names in call chains.
+func TestResolveCallTargetReceivers(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"Run": {
+				{Name: "Run", Kind: "method", Receiver: "SubAgentRuntime", File: "subagent_runtime.go"},
+				{Name: "Run", Kind: "method", Receiver: "SubExplorer", File: "sub_explorer.go"},
+			},
+			"Execute": {
+				{Name: "Execute", Kind: "function", Receiver: "", File: "tool.go"},
+			},
+		},
+	}
+
+	t.Run("resolves subRuntime.Run to SubAgentRuntime", func(t *testing.T) {
+		recvs := resolveCallTargetReceivers("subRuntime.Run", graph)
+		found := false
+		for _, r := range recvs {
+			if r == "SubAgentRuntime" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("expected SubAgentRuntime in resolved receivers, got %v", recvs)
+		}
+	})
+
+	t.Run("bare function returns no receivers", func(t *testing.T) {
+		recvs := resolveCallTargetReceivers("pkg.Execute", graph)
+		if len(recvs) != 0 {
+			t.Errorf("expected no receivers for bare function, got %v", recvs)
+		}
+	})
+
+	t.Run("nil graph safe", func(t *testing.T) {
+		recvs := resolveCallTargetReceivers("subRuntime.Run", nil)
+		if recvs != nil {
+			t.Errorf("expected nil for nil graph, got %v", recvs)
+		}
+	})
+}
+
+// TestCallValueMatchesReceiver_3HopChain is the regression test for
+// the "explorer→subagent" 3-hop gap. It verifies the graph-assisted
+// resolution bridging variable names to type names.
+func TestCallValueMatchesReceiver_3HopChain(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"Run": {
+				{Name: "Run", Kind: "method", Receiver: "SubAgentRuntime"},
+				{Name: "Run", Kind: "method", Receiver: "SubExplorer"},
+			},
+		},
+	}
+
+	// Hop 1: dispatchStage calls "subRuntime.Run"
+	//        → should match rv.receiver "SubAgentRuntime"
+	if !callValueMatchesReceiver("subRuntime.Run", "SubAgentRuntime", graph) {
+		t.Error("hop 1 failed: subRuntime.Run should match SubAgentRuntime via graph resolution")
+	}
+
+	// Hop 2: SubAgentRuntime.Run calls "sub.Run"
+	//        → should match rv.receiver "SubExplorer"
+	if !callValueMatchesReceiver("sub.Run", "SubExplorer", graph) {
+		t.Error("hop 2 failed: sub.Run should match SubExplorer via graph resolution")
+	}
+
+	// Negative: should NOT match unrelated receiver
+	if callValueMatchesReceiver("subRuntime.Run", "Unrelated", graph) {
+		t.Error("should not match unrelated receiver")
+	}
+}
