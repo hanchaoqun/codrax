@@ -24,23 +24,50 @@ func TestInferAnswerSubject_CueMatch(t *testing.T) {
 	}
 }
 
-// TestInferAnswerSubject_LLMSuppliedWins asserts that when the LLM
-// explicitly provided a Kind (rm.AnswerSubject.Kind != Unknown), the
-// inference function returns it verbatim without running the cue
-// table.
-func TestInferAnswerSubject_LLMSuppliedWins(t *testing.T) {
+// TestInferAnswerSubject_CueOverridesLLM asserts that when the LLM
+// classified the subject AND a curated cue pattern matches, the
+// cue WINS. The curated cues are high-signal bilingual explicit
+// patterns (e.g. "哪个 skill" → SkillName); the LLM's own
+// AnswerSubject classification has been observed to mis-label
+// "agent → skill" questions as SubjectConfigKey (post-Session-10
+// 2026-04-18T14:25 log). A cue match at confidence 0.8 overrides
+// the LLM and the reason string flags the override for the trace.
+func TestInferAnswerSubject_CueOverridesLLM(t *testing.T) {
+	rm := types.RequestModel{}
+	rm.AnswerSubject = types.AnswerSubject{
+		Kind:       types.SubjectConfigKey,
+		Confidence: 0.9,
+		EntityAxes: []string{"agent → skill"}, // LLM got axes right
+	}
+	subj, reason := inferAnswerSubject(rm, "codrax 的 explorer agent 默认用哪个skill?")
+	if subj.Kind != types.SubjectSkillName {
+		t.Errorf("cue must override LLM-supplied kind, got %s (reason=%s)", subj.Kind, reason)
+	}
+	if !strings.Contains(reason, "overriding LLM=") {
+		t.Errorf("reason must flag the LLM override, got %q", reason)
+	}
+	// EntityAxes: LLM-supplied "agent → skill" preserved (better
+	// than the static cue axes).
+	if len(subj.EntityAxes) != 1 || subj.EntityAxes[0] != "agent → skill" {
+		t.Errorf("LLM-supplied EntityAxes must survive cue override, got %v", subj.EntityAxes)
+	}
+}
+
+// TestInferAnswerSubject_LLMWinsWhenNoCueMatch asserts that when
+// no cue matches, the LLM-supplied kind is honoured verbatim —
+// cue precedence only applies to the curated pattern set.
+func TestInferAnswerSubject_LLMWinsWhenNoCueMatch(t *testing.T) {
 	rm := types.RequestModel{}
 	rm.AnswerSubject = types.AnswerSubject{
 		Kind:       types.SubjectAgentName,
 		Confidence: 0.9,
 	}
-	// Question has a skill cue but LLM declared AgentName — LLM wins.
-	subj, reason := inferAnswerSubject(rm, "默认用哪个skill?")
+	subj, reason := inferAnswerSubject(rm, "arbitrary prose that matches no cue")
 	if subj.Kind != types.SubjectAgentName {
-		t.Errorf("LLM-supplied kind must win, got %s (reason=%s)", subj.Kind, reason)
+		t.Errorf("LLM-supplied kind must win when no cue matches, got %s (reason=%s)", subj.Kind, reason)
 	}
 	if reason != "" {
-		t.Errorf("reason should be empty when LLM-supplied, got %q", reason)
+		t.Errorf("reason should be empty when LLM-supplied path fired, got %q", reason)
 	}
 }
 

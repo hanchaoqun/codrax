@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -397,20 +398,42 @@ var answerSubjectCues = []answerSubjectCue{
 // question_kind fallbacks (the kind is right but the prose did not
 // pin a specific subject).
 func inferAnswerSubject(rm types.RequestModel, rawRequest string) (types.AnswerSubject, string) {
-	// Honour LLM-supplied subject when it explicitly classified.
-	if rm.AnswerSubject.Kind != types.SubjectUnknown {
-		return rm.AnswerSubject, ""
-	}
+	// Cue match runs FIRST, with high (0.8) confidence — curated
+	// explicit bilingual patterns are more reliable than the LLM's
+	// own AnswerSubject classification, which has been observed to
+	// mis-label "agent → skill" questions as SubjectConfigKey
+	// (log 2026-04-18T14:25 — "explorer agent 默认用哪个 skill?"
+	// → LLM picked config_key → reconcileShape skipped → finalizer
+	// invented a fake config key). A matching cue overrides the
+	// LLM-supplied kind; entity_axes prefers the LLM's value if
+	// provided (the LLM often gets the relation shape right even
+	// when the subject kind is wrong).
 	lower := strings.ToLower(strings.TrimSpace(rawRequest))
 	lower = stripPolitenessPrefix(lower)
 	for _, cue := range answerSubjectCues {
 		if strings.Contains(lower, cue.pattern) {
+			// Preserve LLM-supplied entity_axes when present so we
+			// don't discard useful relational annotation.
+			axes := append([]string(nil), cue.axes...)
+			if len(rm.AnswerSubject.EntityAxes) > 0 {
+				axes = append([]string(nil), rm.AnswerSubject.EntityAxes...)
+			}
+			reason := "cue match: " + cue.pattern
+			// Flag the override in the log when LLM disagreed, so
+			// operators can tell which cases cue rescued.
+			if rm.AnswerSubject.Kind != types.SubjectUnknown && rm.AnswerSubject.Kind != cue.kind {
+				reason = fmt.Sprintf("cue match: %s (overriding LLM=%s)", cue.pattern, rm.AnswerSubject.Kind)
+			}
 			return types.AnswerSubject{
 				Kind:       cue.kind,
-				EntityAxes: append([]string(nil), cue.axes...),
+				EntityAxes: axes,
 				Confidence: 0.8,
-			}, "cue match: " + cue.pattern
+			}, reason
 		}
+	}
+	// No cue matched — honour LLM-supplied subject if present.
+	if rm.AnswerSubject.Kind != types.SubjectUnknown {
+		return rm.AnswerSubject, ""
 	}
 	// Fallback by question_kind. AnalyzerHints.Kind is the LLM's
 	// raw question_kind value (registration / mechanism / config_mapping /
