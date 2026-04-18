@@ -282,6 +282,11 @@ func TestListFiles(t *testing.T) {
 				t.Errorf("expected %s in output, got: %s", expected, result.Summary)
 			}
 		}
+		// Params banner must record the directory the LLM asked for so
+		// Turn B (extractor / finalizer) can see the scope of the listing.
+		if !strings.Contains(result.Summary, "[list_files: path="+tmpDir+"]") {
+			t.Errorf("expected params banner with path=%q, got: %s", tmpDir, result.Summary)
+		}
 	})
 }
 
@@ -296,8 +301,15 @@ func TestExecCommand(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("expected success, got: %s", result.Summary)
 		}
-		if strings.TrimSpace(result.Summary) != "hello" {
-			t.Fatalf("expected 'hello', got %q", result.Summary)
+		// Summary is now "[exec_command: $ echo hello]\nhello\n" — the
+		// banner records the call so Turn B (extractor / finalizer) can
+		// see the command that produced a scalar answer. Assert both
+		// the banner line and the stdout are present.
+		if !strings.Contains(result.Summary, "[exec_command: $ echo hello]") {
+			t.Fatalf("expected params banner, got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "hello\n") {
+			t.Fatalf("expected stdout 'hello', got %q", result.Summary)
 		}
 	})
 }
@@ -663,8 +675,15 @@ func TestGrepTool(t *testing.T) {
 		if !result.Success {
 			t.Fatalf("expected success (no matches), got: %s", result.Summary)
 		}
-		if result.Summary != "no matches found" {
-			t.Fatalf("expected 'no matches found', got %q", result.Summary)
+		// Summary is "[grep params: ...]\nno matches found" — the
+		// params banner survives into Turn B so the extractor / finalizer
+		// can see which pattern turned up nothing, not just "the grep
+		// was empty".
+		if !strings.Contains(result.Summary, "[grep params: pattern=zzzznotfound") {
+			t.Fatalf("expected params banner, got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "no matches found") {
+			t.Fatalf("expected 'no matches found' body, got %q", result.Summary)
 		}
 	})
 
@@ -796,6 +815,41 @@ func TestGrepTool(t *testing.T) {
 		}
 		if strings.Contains(result.Summary, "notes.txt") {
 			t.Errorf("file_type=go should exclude .txt, got: %s", result.Summary)
+		}
+	})
+
+	t.Run("summary preserves [grep: ...] prefix for downstream parsers", func(t *testing.T) {
+		// contract_check.go and explorer.go both key on strings.HasPrefix
+		// (Summary, "[grep:") and strings.Contains(Summary, "matching
+		// {files,lines}]") to classify grep results. Adding a params
+		// banner must never break that contract — the count banner stays
+		// line 1, the params banner goes on line 2.
+		tmpDir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(tmpDir, "hit.go"), []byte("target\n"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+
+		tool := &GrepTool{}
+		params, _ := json.Marshal(grepToolParams{Pattern: "target", Path: tmpDir, FilesOnly: true})
+		result, err := tool.Execute(newBusContext(), params)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if !result.Success {
+			t.Fatalf("expected success, got: %s", result.Summary)
+		}
+		if !strings.HasPrefix(result.Summary, "[grep:") {
+			t.Errorf("expected '[grep:' prefix (contract for contract_check/explorer), got first 40 chars: %q",
+				result.Summary[:min(40, len(result.Summary))])
+		}
+		if !strings.Contains(result.Summary, "matching files]") {
+			t.Errorf("expected 'matching files]' in summary, got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "[grep params: pattern=target") {
+			t.Errorf("expected params banner with pattern, got %q", result.Summary)
+		}
+		if !strings.Contains(result.Summary, "files_only=true") {
+			t.Errorf("expected params banner to record files_only, got %q", result.Summary)
 		}
 	})
 }

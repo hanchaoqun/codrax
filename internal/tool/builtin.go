@@ -19,6 +19,72 @@ import (
 // search.go, used by the grep tool and keyword search.
 var defaultExcludeDirs = ExcludeDirs
 
+// toolBannerMaxValueLen caps each k=v value in the per-tool params
+// banner so a pathological command / pattern does not blow the
+// banner into pages. 200 is roomy for typical shell pipelines and
+// regex patterns while still fitting on one terminal line.
+const toolBannerMaxValueLen = 200
+
+// sanitizeForBanner renders a param value as a single banner-safe
+// token: control chars become spaces, the result is truncated to
+// toolBannerMaxValueLen and any truncation is marked with an
+// ellipsis. The banner lives at the top of ToolResult.Summary and is
+// the ONLY path through which Turn A call provenance reaches Turn B
+// (extractor / finalizer) — see internal/context/builder.go's
+// formatRawToolSummary, which only renders ToolName + Summary.
+func sanitizeForBanner(s string) string {
+	if s == "" {
+		return ""
+	}
+	// Replace each control / newline character with a single space so
+	// the banner stays on one line; collapsing runs of spaces is not
+	// necessary because downstream parsers don't care about extra
+	// whitespace and the LLM tolerates it fine.
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' || r < 0x20 {
+			b.WriteByte(' ')
+			continue
+		}
+		b.WriteRune(r)
+	}
+	out := b.String()
+	if len(out) > toolBannerMaxValueLen {
+		out = out[:toolBannerMaxValueLen-3] + "..."
+	}
+	return out
+}
+
+// kvBanner renders a tool call's parameters as a single-line banner
+// of the shape `[<name>: k1=v1 k2=v2]\n`. Empty values are dropped so
+// the banner stays tight. Values are sanitised via sanitizeForBanner.
+// Callers pass alternating key/value strings; if an odd count is
+// passed the trailing key is ignored.
+func kvBanner(name string, kv ...string) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	b.WriteString(name)
+	first := true
+	for i := 0; i+1 < len(kv); i += 2 {
+		v := sanitizeForBanner(kv[i+1])
+		if v == "" {
+			continue
+		}
+		if first {
+			b.WriteString(": ")
+			first = false
+		} else {
+			b.WriteByte(' ')
+		}
+		b.WriteString(kv[i])
+		b.WriteByte('=')
+		b.WriteString(v)
+	}
+	b.WriteString("]\n")
+	return b.String()
+}
+
 // ---------------------------------------------------------------------------
 // ExecCommand
 // ---------------------------------------------------------------------------
@@ -64,6 +130,12 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		timeout = time.Duration(p.TimeoutMs) * time.Millisecond
 	}
 
+	// The `$ <cmd>` banner is the single path through which the
+	// executed command reaches Turn B (extractor / finalizer). Without
+	// it, a `wc -l` scalar arrives in the Raw Tool Outputs section as
+	// just a number, stripped of its provenance.
+	banner := fmt.Sprintf("[exec_command: $ %s]\n", sanitizeForBanner(p.Command))
+
 	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -80,7 +152,7 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("command timed out after %v\n%s", timeout, preview),
+			Summary:   banner + fmt.Sprintf("command timed out after %v\n%s", timeout, preview),
 			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, fmt.Errorf("command timed out after %v", timeout)
@@ -91,13 +163,13 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("command failed: %v\n%s", err, preview),
+			Summary:   banner + fmt.Sprintf("command failed: %v\n%s", err, preview),
 			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, nil
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), output)
+	summary, ref := StoreBlob(ctx, t.Name(), banner+output)
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -265,12 +337,40 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	err := cmd.Run()
 	output := stdout.String()
 
+	// Params banner — added AFTER the count banner (or at the top
+	// when there is no count banner) so `strings.HasPrefix(Summary,
+	// "[grep:")` and `strings.Contains(Summary, "matching files]")`
+	// contracts in contract_check.go and explorer.go survive. Records
+	// the resolved flags, not the raw LLM inputs (e.g. smart-case
+	// already folded into case_insensitive).
+	caseStr := ""
+	if caseInsensitive {
+		caseStr = "true"
+	}
+	filesOnlyStr := ""
+	if p.FilesOnly {
+		filesOnlyStr = "true"
+	}
+	contextStr := ""
+	if contextLines > 0 {
+		contextStr = fmt.Sprintf("%d", contextLines)
+	}
+	paramsBanner := kvBanner("grep params",
+		"pattern", p.Pattern,
+		"path", p.Path,
+		"file_type", p.FileType,
+		"include", p.Include,
+		"context_lines", contextStr,
+		"case_insensitive", caseStr,
+		"files_only", filesOnlyStr,
+	)
+
 	// Timeout produces a context.DeadlineExceeded — surface it clearly.
 	if searchCtx.Err() == context.DeadlineExceeded {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "grep timed out after 60s — pattern may be too broad or repo too large",
+			Summary:   paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -281,32 +381,36 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   true,
-				Summary:   "no matches found",
+				Summary:   paramsBanner + "no matches found",
 				Timestamp: time.Now(),
 			}, nil
 		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("grep failed: %v: %s", err, stderr.String()),
+			Summary:   paramsBanner + fmt.Sprintf("grep failed: %v: %s", err, stderr.String()),
 			Timestamp: time.Now(),
 		}, nil
 	}
 
-	// Prepend a count banner so the LLM knows whether the blob was
-	// truncated. Without this, a blob-trimmed result looks identical
-	// to a short result and the model cannot judge completeness.
+	// Count banner first (preserves the `[grep:` prefix contract that
+	// contract_check.go and explorer.go key on), params banner
+	// second. Without the count banner the LLM cannot tell whether
+	// a blob was truncated; without the params banner Turn B loses
+	// the call provenance.
 	lines := strings.Count(output, "\n")
 	if output != "" && !strings.HasSuffix(output, "\n") {
 		lines++ // last line has no trailing newline
 	}
+	var countBanner string
 	if lines > 0 {
 		unit := "matching lines"
 		if p.FilesOnly {
 			unit = "matching files"
 		}
-		output = fmt.Sprintf("[grep: %d %s]\n%s", lines, unit, output)
+		countBanner = fmt.Sprintf("[grep: %d %s]\n", lines, unit)
 	}
+	output = countBanner + paramsBanner + output
 
 	summary, ref := StoreBlob(ctx, t.Name(), output)
 	return types.ToolResult{
@@ -653,6 +757,15 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
+	recursiveStr := ""
+	if p.Recursive {
+		recursiveStr = "true"
+	}
+	banner := kvBanner("list_files",
+		"path", p.Path,
+		"recursive", recursiveStr,
+	)
+
 	var files []string
 
 	if p.Recursive {
@@ -673,19 +786,19 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			return nil
 		})
 		if err != nil {
-			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("walk failed: %v", err), Timestamp: time.Now()}, nil
+			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + fmt.Sprintf("walk failed: %v", err), Timestamp: time.Now()}, nil
 		}
 	} else {
 		entries, err := os.ReadDir(p.Path)
 		if err != nil {
-			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("readdir failed: %v", err), Timestamp: time.Now()}, nil
+			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + fmt.Sprintf("readdir failed: %v", err), Timestamp: time.Now()}, nil
 		}
 		for _, e := range entries {
 			files = append(files, filepath.Join(p.Path, e.Name()))
 		}
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), strings.Join(files, "\n"))
+	summary, ref := StoreBlob(ctx, t.Name(), banner+strings.Join(files, "\n"))
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -734,6 +847,16 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
+	stagedStr := ""
+	if p.Staged {
+		stagedStr = "true"
+	}
+	banner := kvBanner("git_diff",
+		"path", p.Path,
+		"ref", p.Ref,
+		"staged", stagedStr,
+	)
+
 	args := []string{"diff"}
 	if p.Staged {
 		args = append(args, "--cached")
@@ -755,12 +878,12 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("git diff failed: %v: %s", err, stderr.String()),
+			Summary:   banner + fmt.Sprintf("git diff failed: %v: %s", err, stderr.String()),
 			Timestamp: time.Now(),
 		}, nil
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), stdout.String())
+	summary, ref := StoreBlob(ctx, t.Name(), banner+stdout.String())
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
@@ -815,6 +938,12 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		format = "oneline"
 	}
 
+	banner := kvBanner("git_log",
+		"path", p.Path,
+		"count", fmt.Sprintf("%d", count),
+		"format", format,
+	)
+
 	args := []string{"log", fmt.Sprintf("-n%d", count), fmt.Sprintf("--format=%s", format)}
 
 	cmd := exec.Command("git", args...)
@@ -830,12 +959,12 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("git log failed: %v: %s", err, stderr.String()),
+			Summary:   banner + fmt.Sprintf("git log failed: %v: %s", err, stderr.String()),
 			Timestamp: time.Now(),
 		}, nil
 	}
 
-	summary, ref := StoreBlob(ctx, t.Name(), stdout.String())
+	summary, ref := StoreBlob(ctx, t.Name(), banner+stdout.String())
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
