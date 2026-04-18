@@ -10,61 +10,62 @@ import (
 // identity case (no rule fires, declared returned unchanged).
 func TestReconcileComplexity(t *testing.T) {
 	type row struct {
-		name       string
-		declared   types.Complexity
-		request    string
-		entities   []string
-		keywords   []string
-		subTopics  int
-		wantResult types.Complexity
-		wantReason bool // true when a reason string is expected (non-empty)
+		name         string
+		declared     types.Complexity
+		request      string
+		entities     []string
+		keywords     []string
+		subTopics    int
+		questionKind string
+		wantResult   types.Complexity
+		wantReason   bool // true when a reason string is expected (non-empty)
 	}
 	cases := []row{
 		// Identity — no rule applies.
 		{"simple passes through on short lookup", types.ComplexitySimple,
-			"what is the login function", []string{"login"}, []string{"login", "function"}, 0,
+			"what is the login function", []string{"login"}, []string{"login", "function"}, 0, "",
 			types.ComplexitySimple, false},
 		{"moderate passes through on mechanism question", types.ComplexityModerate,
-			"how does the auth module work", []string{"auth"}, []string{"auth", "module", "work"}, 0,
+			"how does the auth module work", []string{"auth"}, []string{"auth", "module", "work"}, 0, "",
 			types.ComplexityModerate, false},
 
 		// Rule 1: subTopics>=3 → complex.
 		{"3 subtopics forces complex", types.ComplexityModerate,
-			"explain A and B and C and D", []string{"A", "B"}, []string{"A", "B", "C"}, 3,
+			"explain A and B and C and D", []string{"A", "B"}, []string{"A", "B", "C"}, 3, "",
 			types.ComplexityComplex, true},
 		{"2 subtopics does not trigger rule 1", types.ComplexityModerate,
-			"ask two things", []string{"X", "Y"}, []string{"X", "Y"}, 2,
+			"ask two things", []string{"X", "Y"}, []string{"X", "Y"}, 2, "",
 			types.ComplexityModerate, false},
 
 		// Rule 2: cross-component cue → complex.
 		{"compare-A-and-B upgrades to complex", types.ComplexityModerate,
-			"compare logger and tracer", []string{"logger", "tracer"}, []string{"logger", "tracer"}, 0,
+			"compare logger and tracer", []string{"logger", "tracer"}, []string{"logger", "tracer"}, 0, "",
 			types.ComplexityComplex, true},
 		{"Chinese 对比 cue upgrades", types.ComplexitySimple,
-			"对比 A 和 B 的区别", []string{"A", "B"}, []string{"A", "B"}, 0,
+			"对比 A 和 B 的区别", []string{"A", "B"}, []string{"A", "B"}, 0, "",
 			types.ComplexityComplex, true},
 		{"across cue upgrades", types.ComplexityModerate,
-			"trace flow across the API and storage layers", []string{"API", "storage"}, []string{"flow"}, 0,
+			"trace flow across the API and storage layers", []string{"API", "storage"}, []string{"flow"}, 0, "",
 			types.ComplexityComplex, true},
 
 		// Rule 3: LLM claimed complex but single-entity lookup shape.
 		{"complex + what-is-X downgrades to simple", types.ComplexityComplex,
-			"what is repomap", []string{"repomap"}, []string{"repomap"}, 0,
+			"what is repomap", []string{"repomap"}, []string{"repomap"}, 0, "",
 			types.ComplexitySimple, true},
 		{"complex + X-是什么 downgrades to simple", types.ComplexityComplex,
-			"repomap 是什么", []string{"repomap"}, []string{"repomap"}, 0,
+			"repomap 是什么", []string{"repomap"}, []string{"repomap"}, 0, "",
 			types.ComplexitySimple, true},
 
 		// Rule 4: 5+ entities and 10+ keywords → complex regardless of LLM pick.
 		{"five entities + rich keywords upgrade", types.ComplexityModerate,
 			"tell me about these things",
 			[]string{"A", "B", "C", "D", "E"},
-			[]string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}, 0,
+			[]string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j"}, 0, "",
 			types.ComplexityComplex, true},
 
 		// Rule 5: zero entities + tiny keyword pool → simple floor.
 		{"empty entities + 3 keywords downgrades from complex", types.ComplexityComplex,
-			"lang?", nil, []string{"lang", "?", "question"}, 0,
+			"lang?", nil, []string{"lang", "?", "question"}, 0, "",
 			types.ComplexitySimple, true},
 
 		// Rule 6: enumeration cue + relational verb → moderate. Fires
@@ -72,43 +73,59 @@ func TestReconcileComplexity(t *testing.T) {
 		// which is exactly when Rule 4 cannot fire. Shape: "有几个 X 可以
 		// Y" / "how many X can Y".
 		{"有几个-agent-可以调用-subagent upgrades simple→moderate", types.ComplexitySimple,
-			"有几个agent可以调用subagent", nil, []string{"agent", "subagent"}, 0,
+			"有几个agent可以调用subagent", nil, []string{"agent", "subagent"}, 0, "",
 			types.ComplexityModerate, true},
 		{"how-many-handlers-invoke-dispatcher upgrades simple→moderate", types.ComplexitySimple,
 			"how many handlers invoke the dispatcher", []string{"handler", "dispatcher"},
-			[]string{"handler", "invoke", "dispatcher"}, 0,
+			[]string{"handler", "invoke", "dispatcher"}, 0, "",
 			types.ComplexityModerate, true},
 		{"哪些-X-实现-Y upgrades simple→moderate", types.ComplexitySimple,
-			"哪些 agent 实现了 Executor 接口", nil, []string{"agent", "executor"}, 0,
+			"哪些 agent 实现了 Executor 接口", nil, []string{"agent", "executor"}, 0, "",
 			types.ComplexityModerate, true},
 		// Negative: count cue without relational verb → stays simple
 		// (measurement-scalar carve-out still applies downstream).
 		{"有多少-files-over-100-lines stays simple (no relational verb)", types.ComplexitySimple,
-			"有多少 python 文件", nil, []string{"python", "files"}, 0,
+			"有多少 python 文件", nil, []string{"python", "files"}, 0, "",
 			types.ComplexitySimple, false},
 		{"how-many-python-files stays simple (no relational verb)", types.ComplexitySimple,
-			"how many python files are there", nil, []string{"python", "files"}, 0,
+			"how many python files are there", nil, []string{"python", "files"}, 0, "",
 			types.ComplexitySimple, false},
-		// Negative: relational verb without leading enumeration cue → stays simple.
-		{"explain-how-X-calls-Y stays simple (no leading enumeration)", types.ComplexitySimple,
+		// Negative: relational verb without leading enumeration cue → stays simple
+		// (unless mechanism question_kind fires Rule 6).
+		{"explain-how-X-calls-Y stays simple (no mechanism kind)", types.ComplexitySimple,
 			"explain how the router calls handlers", []string{"router", "handler"},
-			[]string{"router", "call", "handler"}, 0,
+			[]string{"router", "call", "handler"}, 0, "",
 			types.ComplexitySimple, false},
+
+		// Rule 6 (new): mechanism/call_chain + 2+ entities → complex.
+		// The 2026-04-18 "explorer是如何调用subagent的？" failure.
+		{"mechanism + 2 entities upgrades moderate→complex", types.ComplexityModerate,
+			"explorer是如何调用subagent的？", []string{"explorer", "subagent"},
+			[]string{"explorer", "subagent", "call"}, 0, "mechanism",
+			types.ComplexityComplex, true},
+		{"call_chain + 2 entities upgrades simple→complex", types.ComplexitySimple,
+			"how does A call B", []string{"A", "B"},
+			[]string{"A", "B", "call"}, 0, "call_chain",
+			types.ComplexityComplex, true},
+		{"mechanism + 1 entity stays moderate (single component)", types.ComplexityModerate,
+			"how does X work", []string{"X"},
+			[]string{"X", "work"}, 0, "mechanism",
+			types.ComplexityModerate, false},
 		// Rule 6 only lifts simple, not moderate/complex.
 		{"moderate enumeration+relational is left alone", types.ComplexityModerate,
-			"有几个 agent 可以调用 subagent", nil, []string{"agent", "subagent"}, 0,
+			"有几个 agent 可以调用 subagent", nil, []string{"agent", "subagent"}, 0, "",
 			types.ComplexityModerate, false},
 
 		// Conflict ordering — the first matching rule wins. Rule 1
 		// (subTopics>=3) fires before Rule 3's downgrade because
 		// structural breadth trumps lookup-shape signal.
 		{"subTopics>=3 beats what-is-X downgrade", types.ComplexityComplex,
-			"what is X", []string{"X"}, []string{"X"}, 4,
+			"what is X", []string{"X"}, []string{"X"}, 4, "",
 			types.ComplexityComplex, false}, // already complex, rule 1 is no-op because declared==complex
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, reason := reconcileComplexity(c.declared, c.request, c.entities, c.keywords, c.subTopics)
+			got, reason := reconcileComplexity(c.declared, c.request, c.entities, c.keywords, c.subTopics, c.questionKind)
 			if got != c.wantResult {
 				t.Errorf("result = %q, want %q (reason=%q)", got, c.wantResult, reason)
 			}

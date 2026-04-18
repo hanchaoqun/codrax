@@ -68,7 +68,7 @@ const (
 //
 // Returns (resolved, reason). When resolved == declared the rule did
 // not fire and reason is empty.
-func reconcileComplexity(declared types.Complexity, rawRequest string, entities, keywords []string, subTopics int) (types.Complexity, string) {
+func reconcileComplexity(declared types.Complexity, rawRequest string, entities, keywords []string, subTopics int, questionKind string) (types.Complexity, string) {
 	entCount := len(entities)
 	kwCount := len(keywords)
 	lower := strings.ToLower(strings.TrimSpace(rawRequest))
@@ -124,7 +124,24 @@ func reconcileComplexity(declared types.Complexity, rawRequest string, entities,
 			"zero entities and very few keywords — declared complex cannot be justified"
 	}
 
-	// Rule 6: enumeration + relational verb upgrade. A question
+	// Rule 6: mechanism/call_chain + multi-entity → complex. A
+	// "how does X call/invoke Y" question with 2+ entities
+	// structurally implies a cross-component dispatch chain (X is in
+	// package A, Y is in package B, the dispatch path runs through
+	// package C). The LLM frequently picks moderate for these because
+	// the question READS like a simple "how does X work" — but the
+	// answer requires 6+ files across 3+ packages. The 2026-04-18
+	// "explorer是如何调用subagent的？" failure was caused by this exact
+	// gap: 2 entities + mechanism → classified moderate → cap=20,
+	// threshold=2 → LLM stopped after 3 files, answer missed the
+	// orchestrator dispatch chain.
+	if declared != types.ComplexityComplex && entCount >= 2 &&
+		(questionKind == "mechanism" || questionKind == "call_chain") {
+		return types.ComplexityComplex,
+			"mechanism/call_chain question with 2+ entities implies cross-component dispatch chain"
+	}
+
+	// Rule 7: enumeration + relational verb upgrade. A question
 	// shaped "how many X can do Y" / "有几个 X 可以 Y" reads as a
 	// count on the surface but the relational verb forces the
 	// answer to trace a relationship across every candidate. The

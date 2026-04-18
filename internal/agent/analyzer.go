@@ -580,7 +580,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// cues even for a complex question re-asked in REPL mode.
 		rawForComplexity := types.StripConversationPrefix(rm.RawRequest)
 		resolved, reason := reconcileComplexity(rm.Complexity, rawForComplexity,
-			rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords, len(rm.SubTopics))
+			rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords, len(rm.SubTopics),
+			rm.AnalyzerHints.Kind)
 		if resolved != rm.Complexity {
 			logComplexityReconcile(rm.Complexity, resolved, reason)
 			rm.Complexity = resolved

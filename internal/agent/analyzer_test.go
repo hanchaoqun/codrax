@@ -175,8 +175,11 @@ func TestAnalyzer_IRIsBuiltFromRequestModel(t *testing.T) {
 	if ir.RequestModel.Intent != types.IntentExplain {
 		t.Errorf("intent: got %q want explain (mechanism)", ir.RequestModel.Intent)
 	}
-	if ir.RequestModel.Complexity != types.ComplexityModerate {
-		t.Errorf("complexity: got %q want moderate", ir.RequestModel.Complexity)
+	// Rule 6 (mechanism + 2 entities → complex) fires here because
+	// the fixture has entities=["Explorer","ShouldStop"] + kind=mechanism.
+	// Before Rule 6, this was moderate; after, it reconciles to complex.
+	if ir.RequestModel.Complexity != types.ComplexityComplex {
+		t.Errorf("complexity: got %q want complex (mechanism + 2 entities)", ir.RequestModel.Complexity)
 	}
 	if ir.AnswerContract.RequiredAnswerShape != types.ShapeStepList {
 		t.Errorf("answer shape override: got %q want step_list", ir.AnswerContract.RequiredAnswerShape)
