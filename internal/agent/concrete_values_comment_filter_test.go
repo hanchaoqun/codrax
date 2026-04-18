@@ -99,7 +99,7 @@ func TestExtractConcreteValues_CommentFilter(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := extractConcreteValues(tt.source)
+			got := extractConcreteValues(tt.source, "go")
 			hasBinds := false
 			var values []string
 			for _, e := range got {

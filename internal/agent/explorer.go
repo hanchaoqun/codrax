@@ -3202,7 +3202,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 						ctxEnd = end
 					}
 					snippet := strings.Join(allLines[ctxStart:ctxEnd], "\n")
-					for _, cv := range extractConcreteValues(snippet) {
+					for _, cv := range extractConcreteValues(snippet, fi.Language) {
 						allValues = append(allValues, concreteValue{
 							file:     file,
 							receiver: owner,
@@ -3220,7 +3220,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if src == "" {
 				continue
 			}
-			for _, cv := range extractConcreteValues(src) {
+			for _, cv := range extractConcreteValues(src, fi.Language) {
 				// For longer functions, only keep binding/registration/map
 				// values and cross-component call targets. Bulk "returns"
 				// / "assigns" entries would flood the synthesis prompt,
@@ -3228,7 +3228,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				// evidence-chain resolver uses for cross-package
 				// dispatch chains.
 				if !isShort && !strings.Contains(cv.kind, "binds") &&
-					cv.kind != "maps" && cv.kind != "calls" {
+					cv.kind != "maps" && cv.kind != "calls" &&
+					cv.kind != "embeds" && cv.kind != "implements" &&
+					cv.kind != "conditional" && cv.kind != "errors" {
 					continue
 				}
 				allValues = append(allValues, concreteValue{
@@ -3515,14 +3517,21 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	b.WriteString("| File:Line | Method | Fact |\n")
 	b.WriteString("|-----------|--------|------|\n")
 	for _, v := range relevant {
-		// T2c: render "calls" with a right-arrow prefix so the LLM
-		// can distinguish control-flow rows from value-flow rows at
-		// a glance. Example: "calls → SubAgentRuntime.Run" vs.
-		// "returns \"explorer\"". All other kinds keep the historical
-		// "<kind> <value>" format.
+		// Render each kind with a distinctive prefix so the LLM can
+		// distinguish control-flow, inheritance, and error rows at a
+		// glance without reading the kind column.
 		fact := v.kind + " " + v.value
-		if v.kind == "calls" {
+		switch v.kind {
+		case "calls":
 			fact = "calls → " + v.value
+		case "embeds":
+			fact = "⊂ " + v.value
+		case "implements":
+			fact = "⊳ " + v.value
+		case "conditional":
+			fact = "guard: " + v.value
+		case "errors":
+			fact = "⚠ " + v.value
 		}
 		fmt.Fprintf(&b, "| %s:%d | `%s()` | %s |\n",
 			v.file, v.line, v.method, fact)
@@ -3624,7 +3633,8 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		// prominent so the identifier match fires).
 		if v.kind != "returns" && !strings.Contains(v.kind, "binds") &&
 			v.kind != "maps" && v.kind != "config" &&
-			v.kind != "decorates" && v.kind != "calls" {
+			v.kind != "decorates" && v.kind != "calls" &&
+			v.kind != "embeds" && v.kind != "implements" {
 			continue
 		}
 		// Session-8 Fix γ (trace 1776450670620195562): skip long /
@@ -4514,7 +4524,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 			if isRegName(sym.Name) && bodyLen <= 60 {
 				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
 				if body != "" {
-					for _, cv := range extractConcreteValues(body) {
+					for _, cv := range extractConcreteValues(body, fi.Language) {
 						if !strings.Contains(cv.kind, "binds") {
 							continue
 						}
@@ -4549,7 +4559,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 				isIdentityMethod(sym.Name) && bodyLen <= 10 {
 				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
 				if body != "" {
-					for _, cv := range extractConcreteValues(body) {
+					for _, cv := range extractConcreteValues(body, fi.Language) {
 						if cv.kind != "returns" {
 							continue
 						}
@@ -4887,16 +4897,32 @@ func stripCommentLines(lines []string) []string {
 }
 
 // extractConcreteValues parses a short source code snippet for patterns
-// that establish concrete values. These patterns are language-agnostic
-// enough to work across Go, Python, Java, TypeScript, etc.
+// that establish concrete values. The universal patterns are language-
+// agnostic (Go, Python, Java, TypeScript, Rust, C, C++ all share
+// enough surface syntax for return-literal / constructor-passing /
+// map-literal detection). Language-specific patterns layer on top
+// via the `lang` parameter — pass `""` for language-agnostic mode
+// (tests / fallback), or `types.LangGo` / `types.LangPython` /
+// ... for the full kind set available in that language.
 //
-// Recognized patterns:
-//   - return "literal" or 'literal' → returns "literal"
-//   - return number             → returns number
-//   - return true/false/nil     → returns true/false/nil
-//   - x.Verb(NewFoo(...))       → binds ONLY NewFoo (any method passing a constructor)
-//   - return TypeName{...}      → returns TypeName{...}
-func extractConcreteValues(source string) []concreteValueEntry {
+// Universal kinds emitted (any language):
+//   - "returns"   — return literal / bool / nil / number
+//   - "assigns"   — composite-literal variable assignment
+//   - "binds"     — constructor-passing call argument
+//   - "decorates" — @annotation paired with next decl
+//   - "maps"      — key:value map/dict literal entries
+//   - "calls"     — cross-component exported method call (T2a)
+//
+// Language-specific kinds emitted (when lang != ""):
+//   - "conditional" — if / switch / match / case guards (P0.1,
+//     8/8 languages)
+//   - "embeds"      — struct embedding / class inheritance (P0.2,
+//     8/8 languages)
+//   - "implements"  — interface implementation declaration (P0.3,
+//     Go / TypeScript / Java / Rust / C++)
+//   - "errors"      — throw / raise / panic / Err / Errorf (P0.4,
+//     7/8 languages, C skipped)
+func extractConcreteValues(source, lang string) []concreteValueEntry {
 	var results []concreteValueEntry
 	// Pre-strip comment-only lines so none of the pattern scanners
 	// below can parse comment text as code. The constructor-passing
@@ -5163,6 +5189,23 @@ func extractConcreteValues(source string) []concreteValueEntry {
 			kind:  qualifier,
 			value: strings.Join(registerCalls, ", "),
 		})
+	}
+
+	// P0 (4 new kinds, language-aware): conditional, embeds,
+	// implements, errors. Each detector is safe to call with any
+	// language — it either dispatches to a language-specific
+	// scanner or returns nil for "this language has no clean
+	// pattern for this kind" (e.g. implements on JavaScript).
+	//
+	// Ordering matters: emit language-specific kinds BEFORE the
+	// universal "calls" detector so the final slice reads
+	// naturally (declarations first, references last) when
+	// rendered into the Concrete Values table.
+	if lang != "" {
+		results = append(results, scanConditionalPatterns(lines, lang)...)
+		results = append(results, scanEmbedsPatterns(lines, lang)...)
+		results = append(results, scanImplementsPatterns(lines, lang)...)
+		results = append(results, scanErrorsPatterns(lines, lang)...)
 	}
 
 	// T2a: Pattern — cross-component / cross-package method calls.
