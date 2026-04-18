@@ -280,7 +280,7 @@ func (o *Orchestrator) detectStallAndAct() bool {
 	// force-complete set hard=0).
 	if cgecStallThresholdHard > 0 && len(hist) >= cgecStallThresholdHard {
 		if lastNFingerprintsEqual(hist, cgecStallThresholdHard) {
-			logging.Error("[orchestrator] CGEC I4: hard stall — force-completing investigation to ship best-effort answer")
+			logging.Error("[CGEC] I4 stall hard: force-completing investigation to ship best-effort answer")
 			closure.BumpStallHardHits(1)
 			closure.AddRepair(types.RepairDirective{
 				Kind:      types.RepairForceCompleteDowngrade,
