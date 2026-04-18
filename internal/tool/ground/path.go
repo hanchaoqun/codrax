@@ -24,6 +24,15 @@ import (
 //   - relative paths → cleaned as-is (filepath.Clean already handles
 //     `./foo/bar` → `foo/bar`)
 //
+// Critical: repoRoot is resolved to an absolute path via filepath.Abs
+// before any Rel computation. Go's filepath.Rel REQUIRES both paths
+// to be of the same kind (both absolute or both relative); a relative
+// repoRoot (`-repo .`, the CLI default) paired with the absolute
+// banner paths LLM tools emit makes Rel error out and the helper
+// degenerates into a no-op. Abs resolves `.` against the process
+// CWD, which matches the repo root users typically invoke codrax
+// from.
+//
 // The bug this exists to fix: the LLM may read a file via
 // `read_file path=README.md` (relative) but then cite
 // `/mnt/d/repo/README.md:7` (absolute) — the whitelist in
@@ -40,8 +49,17 @@ func CanonicalRepoRelative(path, repoRoot string) string {
 	if repoRoot == "" || !filepath.IsAbs(cleaned) {
 		return cleaned
 	}
-	cleanedRoot := filepath.Clean(repoRoot)
-	rel, err := filepath.Rel(cleanedRoot, cleaned)
+	// filepath.Rel refuses to mix absolute and relative arguments.
+	// The LLM emits absolute banner paths (we already know cleaned is
+	// absolute here); resolve repoRoot to absolute so Rel has a
+	// consistent pair. Abs failure is effectively impossible on a
+	// reachable string but we degrade to Clean(repoRoot) rather than
+	// silently dropping canonicalisation.
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		absRoot = filepath.Clean(repoRoot)
+	}
+	rel, err := filepath.Rel(absRoot, cleaned)
 	if err != nil || strings.HasPrefix(rel, "..") {
 		return cleaned
 	}
