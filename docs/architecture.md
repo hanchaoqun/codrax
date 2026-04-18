@@ -357,6 +357,31 @@ type ToolResult struct {
 
 这也是 session 8 的 `fix(tool): echo call provenance in every Summary banner` 修的那条断点 —— 它和 session 6 的 Raw Tool Outputs 渲染路径（`shouldRenderRawToolOutputs` 决定 `ShapeValue + !CitationReq.Required` 的 scalar 答案把 `TurnAArtifacts.ToolResults` 直接送 Turn B）是同一套 handoff 机制的两部分：session 6 修"结果值进来"，session 8 修"结果值的 provenance 进来"。下游消费者（`contract_check.go:221` 的 `strings.HasPrefix("[grep:")` + `strings.Contains("matching files]")`、`explorer.go:4862` 的同样前缀检查、`explorer.go` 的 `extractFileCoverage` 解析 `[path: showing lines X-Y of Z]`）都是字符串模式匹配 banner 的第一行，**修 banner 格式时必须同步查这些 parser**。
 
+#### Citation / evidence 路径规范化
+
+`emit_answer_document` 的 citation 白名单 (`!readFiles[c.File]`) 和 `ground.GroundCitation` / `ground.GroundItem` 的 Tier 1 `LineIndex[file]` + Tier 2 `FileIndex[file]` 三处 lookup 都做**字符串相等**比较。LLM 完全可能用不一致的路径形式：Turn A 里 `read_file path=README.md` 是相对路径，finalizer 出答案时却引用 `/mnt/d/repo/README.md:7`（绝对，镜像了 extractor verdict 里存的那条格式）。直接比对会把 12 条都引到同一 README 的 citation 整批 drop 掉，`citation_count_ge` 失败进重试循环。
+
+解决方案：所有存进这三个 map 的 key 以及所有查询这三个 map 的 input，都穿过同一个 `internal/tool/ground/path.go::CanonicalRepoRelative(path, repoRoot)`：
+- empty → empty
+- 绝对且在 `repoRoot` 内 → `filepath.Rel` 剥前缀（`/mnt/d/repo/internal/x.go` + `repoRoot=/mnt/d/repo` → `internal/x.go`）
+- 绝对但在 `repoRoot` 外（或 `repoRoot` 为空、或 `Rel` 经 `..` 逃逸） → 保留 `filepath.Clean` 后的绝对形式（避免把 `/etc/passwd` 静默 alias 到假相对名）
+- 相对 → `filepath.Clean` 之后原样
+
+具体落地点（每个 index / map 的 key 产生处都要调用，否则比对必错）：
+
+| 位置 | 动作 |
+|------|------|
+| `ground.BuildContext` | 把 `ctx.RepoRoot` 存进 `Context.RepoRoot` |
+| `ground.buildLineIndex(history, repoRoot)` | banner path 规范化后当 LineIndex key |
+| `ground.GroundCitation` 入口 | 用 `gc.RepoRoot` 规范化 `c.File` |
+| `ground.GroundItem` 入口 | **原地 mutate** `it.Source` 成 canonical；下游 5 个 recovery tier + Tier 1/2 对 `it.Source` 的 17 处 lookup 自然对齐，且存进 `Mutable.EmittedEvidence` 的 Source 也是 canonical |
+| `emit_answer_document.turnAReadFileSet` | 填 whitelist set 前规范化每条 `TurnAArtifacts.ReadFiles` |
+| `emit_answer_document.buildEmitAnswerDocumentCitations` 循环 | 规范化 `c.File` 后再过 whitelist → grounder → persist；持久化的 citation 也是 canonical，下游渲染（Key Anchors block）看到稳定 repo-relative 路径 |
+
+`FileIndex[RelPath]` 是 repomap 构建时就用的 `RelPath`（已是规范 repo-relative），不需要改产地，只要查询端规范化即可匹配。
+
+这条规则和 banner 约定同属一个元约束：**任何 key 产地 + 查询端分散在多个 package / 多个 stage 的 map，必须有一个共享的规范化函数管住所有出入口**。session 8 的 `fix(ground): canonicalise repo paths across whitelist + LineIndex + FileIndex` 把这条规则从"心照不宣"升级成代码约束。
+
 ### 3.5 LLM
 
 LLM adapter 是可插拔的最小接口：
