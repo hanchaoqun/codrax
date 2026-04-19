@@ -265,7 +265,32 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	if max <= 0 {
 		max = tool.CurrentAnalysisLimits().MaxPrescanRounds
 	}
-	if max <= 0 || e.prescanRounds <= max {
+	if max <= 0 {
+		return LoopSignal{}
+	}
+	// Last-legal-round warning: the LLM just consumed the final
+	// prescan slot. Inject a strong must-emit hint so the next
+	// response has a chance to call emit_analysis instead of hitting
+	// the hard stop with an exhausted counter and nothing emitted.
+	//
+	// The 5-Q audit (2026-04-19) caught the gap: on unfamiliar repos
+	// (glamour, bubbletea, lipgloss) the LLM burns the entire budget
+	// verifying entities one per round, never gets a runtime signal
+	// that it is at the wall, and the stage fails loud with 0
+	// useful work. One grace round with a firm hint gives
+	// model-compliant LLMs a chance to course-correct while
+	// preserving the fail-loud contract when they do not.
+	if e.prescanRounds == max {
+		return LoopSignal{
+			HintRequested: true,
+			Progress:      true,
+			HintKey:       "analyzer.must-emit",
+			Hint: fmt.Sprintf(
+				"Pre-scan budget reached (%d of %d rounds used). Your NEXT response MUST call emit_analysis with the fields you have — any additional prescan tool call (repo_map / grep / list_files) will exhaust the budget and fail the analyze stage. If you still need to verify an entity, batch the grep call in the SAME response as emit_analysis, not before it.",
+				e.prescanRounds, max),
+		}
+	}
+	if e.prescanRounds <= max {
 		return LoopSignal{}
 	}
 	reason := fmt.Sprintf(

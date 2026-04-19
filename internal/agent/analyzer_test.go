@@ -602,6 +602,52 @@ func TestAnalyzer_PrescanBudget_WithinBudget(t *testing.T) {
 	}
 }
 
+// TestAnalyzer_PrescanBudget_MustEmitHintOnLastLegalRound verifies
+// that the runtime injects a strong must-emit hint the moment the
+// LLM consumes its final legal prescan slot — before the hard stop
+// fires. Without this grace hint the audit on unfamiliar repos
+// (glamour / bubbletea / lipgloss) caught the LLM burning 3 rounds
+// on entity verification with zero warning that the stage was about
+// to fail loud with nothing emitted.
+func TestAnalyzer_PrescanBudget_MustEmitHintOnLastLegalRound(t *testing.T) {
+	restoreAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.AnalysisLimits{MaxPrescanRounds: 2})
+
+	e := &analyzerEvaluator{}
+	e.BuildInitialInstruction(nil, nil)
+	var history []types.ToolResult
+
+	// Round 1: no hint — plenty of budget remaining.
+	sig := observePrescan(e, 0, "grep", &history)
+	if sig.HintRequested {
+		t.Errorf("round 1: unexpected must-emit hint (prescanRounds=%d)", e.prescanRounds)
+	}
+
+	// Round 2: prescanRounds now == max. MUST get the must-emit hint,
+	// must NOT request stop (the LLM still deserves one grace response
+	// to call emit_analysis).
+	sig = observePrescan(e, 1, "repo_map", &history)
+	if sig.StopRequested {
+		t.Fatalf("round 2 (at budget): unexpected StopRequested=true; the grace round is the whole point (reason=%q)", sig.StopReason)
+	}
+	if !sig.HintRequested {
+		t.Fatalf("round 2 (at budget): HintRequested=false, expected must-emit hint")
+	}
+	if sig.HintKey != "analyzer.must-emit" {
+		t.Errorf("HintKey = %q, want \"analyzer.must-emit\"", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "emit_analysis") {
+		t.Errorf("Hint must mention emit_analysis by name; got %q", sig.Hint)
+	}
+
+	// Round 3: LLM ignored the hint and kept prescanning. NOW the
+	// stage must force-stop — fail-loud contract intact.
+	sig = observePrescan(e, 2, "list_files", &history)
+	if !sig.StopRequested {
+		t.Errorf("round 3 (over budget after hint ignored): StopRequested=false, want true")
+	}
+}
+
 // TestAnalyzer_PrescanBudget_OverBudget_ForcesStop verifies that a
 // third pre-scan tool after two in-budget rounds triggers a
 // force-stop with a descriptive StopReason.
