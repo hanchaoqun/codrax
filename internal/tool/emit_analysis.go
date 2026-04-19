@@ -346,6 +346,20 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// Self-consistency: when the LLM's chosen intent / shape contradicts
+	// its own predicates, that is a sign the LLM did not actually
+	// inspect the question carefully (the predicates flagged "this is a
+	// scalar count" but it still picked a list-shaped answer). Reject
+	// here so the retry hint forces it to reconcile its own classification
+	// instead of a Go reconcile rule papering over the inconsistency.
+	if reason := validateSelfConsistency(intent, kind, shape, predicates); reason != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + reason,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
@@ -431,6 +445,56 @@ func rejectDegenerateClassification(
 		return ""
 	}
 	return "degenerate classification (intent=unknown, question_kind=unknown, answer_shape=none, keywords=0, entities=0). Re-read the User Request section only and emit at least one real keyword/entity or choose a concrete question_kind/answer_shape."
+}
+
+// validateSelfConsistency cross-checks the LLM's intent / kind /
+// shape against its own predicates and rejects internally-contradictory
+// classifications. The downstream pipeline trusts the LLM's predicates
+// as the cross-language signal that replaces the deleted prose-cue
+// tables; if the LLM emits "is_count_question=true" but also picks
+// intent=enumerate + shape=list_of_symbols, two things are wrong at
+// once and the retry hint should force the LLM to reconcile its own
+// answer rather than have a Go rule silently override one of them
+// (which is what session 6 reconcileIntent used to do via the
+// prose-cue table that's about to be deleted).
+//
+// Each check fires only on a clear contradiction. We deliberately do
+// NOT enforce the full Cartesian product (e.g. is_cross_component
+// implies complexity=complex) because a few of those would trip on
+// legitimate edge cases; callers should add a check here only when a
+// real failure is observed.
+func validateSelfConsistency(
+	intent types.Intent,
+	kind string,
+	shape string,
+	preds types.SemanticPredicates,
+) string {
+	// Count question must resolve to a scalar answer, not a list. If
+	// the LLM marked is_count_question but picked an enumerate intent
+	// or a list_of_symbols shape, it has answered the question wrong
+	// in two places at once.
+	if preds.IsCountQuestion {
+		if intent == types.IntentEnumerate {
+			return "is_count_question=true is inconsistent with intent=enumerate — a count question returns a single scalar; pick intent=return_value (and ensure answer_shape=value, not list_of_symbols)"
+		}
+		shapeLower := strings.ToLower(strings.TrimSpace(shape))
+		if shapeLower == "list_of_symbols" {
+			return "is_count_question=true is inconsistent with answer_shape=list_of_symbols — a count question returns a single scalar; set answer_shape=value"
+		}
+	}
+	// is_count_question implies is_scalar_answer (the prompt says so).
+	// LLM can still get this wrong; reject so it has to fix one or
+	// the other.
+	if preds.IsCountQuestion && !preds.IsScalarAnswer {
+		return "is_count_question=true requires is_scalar_answer=true — a count question always yields a single scalar"
+	}
+	// Category enumeration ("what kinds of X exist") implies a list
+	// shape, not a single scalar. If both predicates are set the
+	// question is contradictory.
+	if preds.IsCategoryEnumeration && preds.IsScalarAnswer {
+		return "is_category_enumeration=true and is_scalar_answer=true are mutually exclusive — a 'what kinds of X' question yields a list, not a scalar"
+	}
+	return ""
 }
 
 // parsePredicates enforces the schema-v4 fail-loud contract for the

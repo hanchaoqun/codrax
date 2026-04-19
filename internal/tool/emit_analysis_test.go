@@ -961,6 +961,144 @@ func TestEmitAnalysis_Execute_RejectsInvalidPredicateAxis(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("how many agents are there")
+	tool := &EmitAnalysis{}
+	// LLM marked is_count_question=true but still picked intent=enumerate.
+	// This is the session-6 failure mode the deleted prose-cue table
+	// used to silently downgrade. Now the LLM must fix it itself.
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["agent"],
+		"entities": ["Agent"],
+		"question_kind": "enumeration",
+		"answer_shape": "value",
+		"intent_confidence": 0.7, "complexity_confidence": 0.7,
+		"kind_confidence": 0.7, "shape_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("count question + intent=enumerate must reject")
+	}
+	if !strings.Contains(res.Summary, "is_count_question") || !strings.Contains(res.Summary, "intent=enumerate") {
+		t.Errorf("reject summary should name both contradicting fields, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsInconsistentCountShape(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("how many agents are there")
+	tool := &EmitAnalysis{}
+	// is_count_question=true + answer_shape=list_of_symbols is the
+	// other half of the same failure shape.
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["agent"],
+		"entities": ["Agent"],
+		"question_kind": "return_value",
+		"answer_shape": "list_of_symbols",
+		"intent_confidence": 0.7, "complexity_confidence": 0.7,
+		"kind_confidence": 0.7, "shape_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("count question + shape=list_of_symbols must reject")
+	}
+	if !strings.Contains(res.Summary, "list_of_symbols") {
+		t.Errorf("reject summary should name the bad shape, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("how many agents are there")
+	tool := &EmitAnalysis{}
+	// is_count_question=true must imply is_scalar_answer=true.
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["agent"],
+		"entities": ["Agent"],
+		"question_kind": "return_value",
+		"answer_shape": "value",
+		"intent_confidence": 0.7, "complexity_confidence": 0.7,
+		"kind_confidence": 0.7, "shape_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("count without scalar must reject")
+	}
+	if !strings.Contains(res.Summary, "is_scalar_answer") {
+		t.Errorf("reject summary should name is_scalar_answer, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("what kinds of agents are there")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "enumerate",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["agent", "kind"],
+		"entities": ["Agent"],
+		"question_kind": "enumeration",
+		"answer_shape": "list_of_symbols",
+		"intent_confidence": 0.7, "complexity_confidence": 0.7,
+		"kind_confidence": 0.7, "shape_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": true
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("category enumeration + scalar must reject")
+	}
+	if !strings.Contains(res.Summary, "is_category_enumeration") {
+		t.Errorf("reject summary should name is_category_enumeration, got %q", res.Summary)
+	}
+}
+
 func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
