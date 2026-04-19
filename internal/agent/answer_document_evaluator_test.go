@@ -73,8 +73,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBase
 	if !strings.Contains(prompt, "Alpha") || !strings.Contains(prompt, "Beta") {
 		t.Errorf("prior slate not surfaced: %q", prompt)
 	}
-	if !strings.Contains(prompt, "MustInclude (γ): **2 name(s)**") {
-		t.Errorf("MustInclude γ floor not surfaced: %q", prompt)
+	if !strings.Contains(prompt, "must-include floor: **2 name(s)**") {
+		t.Errorf("must-include floor not surfaced: %q", prompt)
 	}
 	if !strings.Contains(prompt, "fewer than 2 items will be DOWNGRADED") {
 		t.Errorf("downgrade warning not surfaced: %q", prompt)
@@ -92,7 +92,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 		},
 	}
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
-	if !strings.Contains(prompt, "MustInclude (γ) is empty") {
+	if !strings.Contains(prompt, "must-include floor is empty") {
 		t.Errorf("no-floor branch missing: %q", prompt)
 	}
 }

@@ -559,9 +559,9 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	}
 	var b strings.Builder
 	b.WriteString("emit_investigation_complete DOWNGRADED — pre-complete citation preflight failed.\n\n")
-	fmt.Fprintf(&b, "The AnswerContract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in Turn A ReadSet).\n",
+	fmt.Fprintf(&b, "The answer contract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in the read-files list).\n",
 		min, eligible)
-	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files Turn A actually read, or read additional files first.")
+	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")
 	return b.String()
 }
 

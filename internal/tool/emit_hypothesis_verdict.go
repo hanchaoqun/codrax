@@ -66,15 +66,15 @@ const EmitHypothesisVerdictProducer = "explorer.emit_hypothesis_verdict"
 func (t *EmitHypothesisVerdict) Name() string { return "emit_hypothesis_verdict" }
 
 func (t *EmitHypothesisVerdict) Description() string {
-	return "Emit a verdict for each hypothesis from AnalysisIR.HypothesisSet that the investigation " +
-		"has reached a conclusion on. Call this from the extractor (Turn B) AFTER you have read " +
-		"Turn A's investigation transcript, with one item per hypothesis you can confidently judge. " +
-		"hypothesis_id MUST match a real ID from the analyzer's HypothesisSet; typos are flagged. " +
-		"status is one of: confirmed (transcript supports it), rejected (transcript falsifies it), " +
-		"inconclusive (investigated but evidence is insufficient — distinct from 'never " +
-		"investigated'). Both confirmed and rejected REQUIRE a citation in the form 'path:line' or " +
-		"'path:line-end' — you cannot confirm or falsify without pointing at concrete code. " +
-		"Inconclusive verdicts may omit the citation."
+	return "Emit a verdict for each hypothesis from the analyzer's hypothesis set that the " +
+		"investigation has reached a conclusion on. Call this during the extraction stage AFTER the " +
+		"investigation transcript has been read, with one item per hypothesis you can confidently " +
+		"judge. hypothesis_id MUST match a real ID from the analyzer's hypothesis set; typos are " +
+		"flagged. status is one of: confirmed (transcript supports it), rejected (transcript " +
+		"falsifies it), inconclusive (investigated but evidence is insufficient — distinct from " +
+		"'never investigated'). Both confirmed and rejected REQUIRE a citation in the form " +
+		"'path:line' or 'path:line-end' — you cannot confirm or falsify without pointing at concrete " +
+		"code. Inconclusive verdicts may omit the citation."
 }
 
 func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {

@@ -1475,7 +1475,7 @@ func TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar(t *testing.
 		AnalysisIR: measurementScalarIR(),
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "answer-document-skill"})
-	sec := findSectionTitle(pc, "Raw Tool Outputs from Turn A")
+	sec := findSectionTitle(pc, "Raw Tool Outputs from the Investigation")
 	if sec == nil {
 		t.Fatal("expected Raw Tool Outputs section to be present for measurement-scalar IR")
 	}
@@ -1503,7 +1503,7 @@ func TestBuildPromptContext_RawToolOutputs_SkippedForExplanationShape(t *testing
 		AnalysisIR: explanationIR(),
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "answer-document-skill"})
-	if findSectionTitle(pc, "Raw Tool Outputs from Turn A") != nil {
+	if findSectionTitle(pc, "Raw Tool Outputs from the Investigation") != nil {
 		t.Error("Raw Tool Outputs must NOT render for explanation-shape questions")
 	}
 }

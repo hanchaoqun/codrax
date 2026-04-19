@@ -173,7 +173,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
         "required": ["name", "file", "line", "kind"]
       }
     },
-    "symbols_completeness": {"type": "string", "enum": ["", "complete", "lower_bound", "unknown"], "description": "Set-level authority for the symbols slate. REQUIRED when shape=list_of_symbols. 'complete' is validated at finalizer-time against Turn A's TerminalEvidenceCount and analyzer's MustInclude; mismatches downgrade to 'lower_bound'."},
+    "symbols_completeness": {"type": "string", "enum": ["", "complete", "lower_bound", "unknown"], "description": "Set-level authority for the symbols slate. REQUIRED when shape=list_of_symbols. 'complete' is cross-checked against the investigation's terminal-evidence count and the analyzer's must-include list; mismatches downgrade to 'lower_bound'."},
     "value": {
       "type": "object",
       "description": "Concrete value payload. REQUIRED for shape=value (literal only) and shape=config_value (key + literal).",
@@ -1039,9 +1039,9 @@ func simulateCitationGrounding(citations []types.Citation, readFiles map[string]
 		})
 	}
 	return fmt.Sprintf(
-		"emit_answer_document REJECTED by CGEC G1 pre-finalize dry-run: none of your %d citation(s) point to a file Turn A actually read, so the grounder will drop every one and the answer contract will fail.\n\n"+
+		"emit_answer_document REJECTED: none of your %d citation(s) point to a file the investigation actually read, so the grounder will drop every one and the answer contract will fail.\n\n"+
 			"Your citations: %s\n\n"+
-			"Allowed files (Turn A ReadSet): %s\n\n"+
+			"Allowed files (the investigation's read-files list): %s\n\n"+
 			"Re-emit emit_answer_document with file:line in the allowed list. If none of the allowed files contain the real answer anchor, call read_file on the missing file BEFORE re-emitting, or accept an absence answer via emit_investigation_complete(absence_justification=...).",
 		len(citations),
 		strings.Join(missing, ", "),
@@ -1129,7 +1129,7 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 		// can correct in one shot.
 		if len(readFiles) > 0 && !readFiles[c.File] {
 			warnings = append(warnings,
-				fmt.Sprintf("citations[%d] dropped (%s:%d) — file not in Turn A's ReadFiles list; %s. Cite ONLY files Turn A read, or reject the answer",
+				fmt.Sprintf("citations[%d] dropped (%s:%d) — file not in the investigation's read-files list; %s. Cite ONLY files the investigation read, or reject the answer",
 					i, c.File, c.Line, allowedHint))
 			// CGEC D1: structured RepairDirective so the orchestrator
 			// can render a Forced Read List in the next explore round.

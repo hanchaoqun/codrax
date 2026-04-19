@@ -72,8 +72,8 @@ func (t *EmitAnalysis) Name() string { return "emit_analysis" }
 // an enum value, how many keywords to emit, what not to put in
 // entities — lives in the analysis-skill system prompt, not here.
 func (t *EmitAnalysis) Description() string {
-	return "Stores the classified RequestModel on MutableState so the " +
-		"deterministic analyzer pipeline can assemble the full AnalysisIR. " +
+	return "Records the classified request model for this dispatch so the " +
+		"deterministic analyzer pipeline can assemble the full analysis. " +
 		"Call at most once per dispatch."
 }
 

@@ -462,7 +462,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		if ta := ac.Mutable.TurnAArtifacts(); ta != nil && len(ta.ToolResults) > 0 {
 			if rendered := formatRawToolOutputs(ta.ToolResults); rendered != "" {
 				pc.UserSections = append(pc.UserSections, types.PromptSection{
-					Title:   "Raw Tool Outputs from Turn A",
+					Title:   "Raw Tool Outputs from the Investigation",
 					Content: rendered,
 				})
 			}
@@ -1136,7 +1136,7 @@ var rawToolOutputSkipTools = map[string]bool{
 // a valid document. For measurement-scalar questions (shape=value +
 // no citation floor) citation_ref=-1 on the value is the correct
 // answer.
-const rawToolOutputPreamble = "These are the raw outputs of commands the explorer ran in Turn A. " +
+const rawToolOutputPreamble = "These are the raw outputs of commands the explorer ran during the investigation. " +
 	"Use them as the source of TRUTH for scalar answers (counts, totals, sizes, version numbers). " +
 	"These tool outputs are NOT repo files — they MUST NOT appear in citations[]. " +
 	"For a measurement-scalar answer (shape=value, no citation floor) emit value{literal, citation_ref:-1} " +

@@ -746,7 +746,7 @@ func TestEmitAnswerDocument_WhitelistsCitationFilesToTurnAReads(t *testing.T) {
 	if len(doc.Citations) != 1 {
 		t.Errorf("expected 1 cite kept (whitelist path), got %d", len(doc.Citations))
 	}
-	if !strings.Contains(res.Summary, "not in Turn A's ReadFiles list") {
+	if !strings.Contains(res.Summary, "not in the investigation's read-files list") {
 		t.Errorf("whitelist reject warning must name the rule: %q", res.Summary)
 	}
 	if !strings.Contains(res.Summary, "allowed files") {
@@ -809,7 +809,7 @@ func TestEmitAnswerDocument_CitationPathCanonicalisation(t *testing.T) {
 	if doc.Citations[0].File != "README.md" {
 		t.Errorf("persisted citation must be canonical, got %q", doc.Citations[0].File)
 	}
-	if strings.Contains(res.Summary, "not in Turn A's ReadFiles list") {
+	if strings.Contains(res.Summary, "not in the investigation's read-files list") {
 		t.Errorf("whitelist must not fire after canonicalisation: %q", res.Summary)
 	}
 }
@@ -837,7 +837,7 @@ func TestEmitAnswerDocument_WhitelistSkippedWhenNoTurnA(t *testing.T) {
 	if !res.Success {
 		t.Fatalf("no-TurnA path must accept; got: %s", res.Summary)
 	}
-	if strings.Contains(res.Summary, "not in Turn A's ReadFiles") {
+	if strings.Contains(res.Summary, "not in the investigation's read-files") {
 		t.Errorf("whitelist must be inactive without a TurnA snapshot: %q", res.Summary)
 	}
 }

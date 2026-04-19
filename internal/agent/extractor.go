@@ -105,13 +105,13 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		ta = ctx.Mutable.TurnAArtifacts()
 	}
 	if ta == nil {
-		b.WriteString("## Turn A transcript\n\n")
-		b.WriteString("**No transcript available** — Turn A did not produce a snapshot for this ")
+		b.WriteString("## Investigation transcript\n\n")
+		b.WriteString("**No transcript available** — the investigation did not produce a snapshot for this ")
 		b.WriteString("dispatch. This is an unusual path (unit-test bootstrap or wiring bug). ")
 		b.WriteString("Produce whatever `emit_*` calls you can justify from the user question ")
 		b.WriteString("alone, and set `completeness` to `unknown` for any answer-symbol emission.\n\n")
 	} else {
-		b.WriteString("## Turn A transcript digest\n\n")
+		b.WriteString("## Investigation transcript digest\n\n")
 
 		// Investigation notes: up to 6 entries, trimmed for prompt length
 		if len(ta.InvestigationNotes) > 0 {
@@ -135,7 +135,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 
 		// Files read: authoritative list for citation grounding
 		if len(ta.ReadFiles) > 0 {
-			b.WriteString("### Files Turn A read (authoritative citation source)\n\n")
+			b.WriteString("### Files the investigation read (authoritative citation source)\n\n")
 			b.WriteString("You MUST cite only these files in emit_* calls. Any other path is a ")
 			b.WriteString("hallucination and will be rejected as ungrounded.\n\n")
 			for _, f := range ta.ReadFiles {
@@ -146,7 +146,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 
 		// Deterministic evidence: top 24 ranked items
 		if len(ta.EvidenceItems) > 0 {
-			b.WriteString("### Deterministic evidence Turn A extracted\n\n")
+			b.WriteString("### Deterministic evidence the investigation extracted\n\n")
 			evMax := len(ta.EvidenceItems)
 			if evMax > extractorMaxEvidence {
 				fmt.Fprintf(&b, "*(showing top %d of %d ranked items)*\n\n", extractorMaxEvidence, evMax)
@@ -200,10 +200,10 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		// list), even though the honesty-contract EXPLANATION lives
 		// in the skill config.
 		b.WriteString("### Cardinality baseline (for completeness claim)\n\n")
-		fmt.Fprintf(&b, "- **Turn A terminal-evidence count (β):** %d\n", ta.TerminalEvidenceCount)
+		fmt.Fprintf(&b, "- **Investigation terminal-evidence count:** %d\n", ta.TerminalEvidenceCount)
 		if ctx != nil && ctx.AnalysisIR != nil {
 			must := ctx.AnalysisIR.AnswerContract.MustInclude
-			fmt.Fprintf(&b, "- **Analyzer MustInclude (γ):** %d name(s)", len(must))
+			fmt.Fprintf(&b, "- **Analyzer must-include count:** %d name(s)", len(must))
 			if len(must) > 0 {
 				fmt.Fprintf(&b, " — %s", strings.Join(must, ", "))
 			}
@@ -212,7 +212,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 			if len(must) > baseline {
 				baseline = len(must)
 			}
-			fmt.Fprintf(&b, "- **Effective floor (max of β and γ):** %d\n", baseline)
+			fmt.Fprintf(&b, "- **Effective floor (the larger of the two):** %d\n", baseline)
 			if baseline > 0 {
 				fmt.Fprintf(&b, "\nIf you claim `complete`, your `emit_answer_symbol` batch MUST have ≥ %d items. ",
 					baseline)
@@ -237,7 +237,7 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 		fmt.Fprintf(&b, "The analyzer identified %d independently-answerable sub-topic(s). ", len(st))
 		b.WriteString("For each, call emit_answer_symbol with ONE anchor symbol — the load-bearing ")
 		b.WriteString("identifier that the finalizer's multi-paragraph summary will hang on. Each ")
-		b.WriteString("anchor needs a concrete file:line from the 'Files Turn A read' list above; ")
+		b.WriteString("anchor needs a concrete file:line from the 'Files the investigation read' list above; ")
 		b.WriteString("use the rationale field to name the sub-topic the anchor covers.\n\n")
 		for i, topic := range st {
 			summary := strings.TrimSpace(topic.Summary)
@@ -549,7 +549,7 @@ func axisAnchorRetryHint(ctx *types.AgentContext) string {
 	// Violation: build a concrete hint naming a matching evidence item.
 	top := matching[0]
 	return fmt.Sprintf(
-		"The question axis is %q but none of the %d emit_answer_symbol items you picked correlate with an AnchorKind=%s evidence item in Turn A's pool. Re-emit emit_answer_symbol INCLUDING at least one symbol whose file:line matches an axis-aligned evidence item, e.g. %s:%d (%s). The deterministic renderer needs a call-site anchor for the finalizer's prose to hang on.",
+		"The question axis is %q but none of the %d emit_answer_symbol items you picked correlate with an AnchorKind=%s evidence item in the investigation's pool. Re-emit emit_answer_symbol INCLUDING at least one symbol whose file:line matches an axis-aligned evidence item, e.g. %s:%d (%s). The deterministic renderer needs a call-site anchor for the final answer's prose to hang on.",
 		pa,
 		len(syms),
 		top.AnchorKind,
@@ -742,10 +742,10 @@ func (e *extractorEvaluator) Observe(ctx *types.AgentContext, obs LoopObservatio
 		switch {
 		case isListOfSymbolsShape(ctx):
 			missingParts = append(missingParts,
-				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files Turn A read' list)")
+				"call `emit_answer_symbol` with the symbols that answer this list_of_symbols question (cite each with a concrete file:line from the 'Files the investigation read' list)")
 		case isMultiTopicExplanation(ctx):
 			missingParts = append(missingParts,
-				"call `emit_answer_symbol` with ONE anchor symbol per sub-topic — the load-bearing identifier the finalizer's prose should hang on. Cite each with a concrete file:line from the 'Files Turn A read' list. The finalizer renders these as a Key Anchors skeleton beneath the summary")
+				"call `emit_answer_symbol` with ONE anchor symbol per sub-topic — the load-bearing identifier the final answer's prose should hang on. Cite each with a concrete file:line from the 'Files the investigation read' list. Downstream rendering presents these as a Key Anchors skeleton beneath the summary")
 		}
 	}
 	if missingVerdicts {

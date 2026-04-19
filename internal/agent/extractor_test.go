@@ -57,7 +57,7 @@ func TestExtractor_ExtractSkill_DeclaresToolContract(t *testing.T) {
 	}
 
 	// Goal must mention the one-line role.
-	if !strings.Contains(sk.Goal, "Turn A") || !strings.Contains(sk.Goal, "answer-symbol") {
+	if !strings.Contains(sk.Goal, "investigation") || !strings.Contains(sk.Goal, "answer-symbol") {
 		t.Errorf("extract-skill Goal must describe the role, got: %q", sk.Goal)
 	}
 
@@ -488,25 +488,25 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	if contains(prompt, "## User question") {
 		t.Error("prompt must not duplicate user question (builder.go handles it)")
 	}
-	// Turn A digest sections (the dynamic content this function is
+	// Investigation digest sections (the dynamic content this function is
 	// still responsible for post-cleanup)
 	for _, section := range []string{
 		"Investigation notes",
 		"iter 1: read reg.go",
-		"Files Turn A read",
+		"Files the investigation read",
 		"internal/reg.go",
-		"Deterministic evidence Turn A extracted",
+		"Deterministic evidence the investigation extracted",
 		"registration",
 		"Register",
 		"Cardinality baseline",
 	} {
 		if !contains(prompt, section) {
-			t.Errorf("prompt missing Turn A digest section/content %q", section)
+			t.Errorf("prompt missing investigation digest section/content %q", section)
 		}
 	}
-	// Baseline numbers surfaced
-	if !contains(prompt, "terminal-evidence count") || !contains(prompt, "MustInclude") {
-		t.Error("prompt must surface β and γ baselines by name")
+	// Baseline numbers surfaced — terminal-evidence count AND must-include count.
+	if !contains(prompt, "terminal-evidence count") || !contains(prompt, "must-include count") {
+		t.Error("prompt must surface the cardinality baselines by name")
 	}
 	// Effective floor = max(3, 2) = 3
 	if !contains(prompt, "Effective floor") || !contains(prompt, "3") {
