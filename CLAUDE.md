@@ -1,289 +1,147 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for Claude Code working in this repository.
 
 ## Project Overview
 
-Codrax is a read-only code analysis tool in Go. It takes a natural-language question about a repository, drives a deterministic 4-stage LLM pipeline (analyze → explore → extract → finalize), and emits a grounded structured answer. It does not modify source files.
+Codrax is a read-only code analysis tool in Go. It takes a natural-language question about a repository, drives a deterministic 4-stage LLM pipeline (analyze → explore → extract → finalize), and emits a grounded structured answer. It never modifies source files.
 
-The analyzer stage makes a single LLM call that classifies the request; everything else — TaskGraph, EvidencePlan, hypotheses, quality gate — is built deterministically by 14 sub-packages under `internal/analysis/`. Every field in the resulting `AnalysisIR` is either consumed at runtime by a typed evaluator (the `criterion` package evaluates `EntryConditions` / `SuccessCriteria` / `StopConditions` / `RequiredEvidence` / `FalsificationCondition` / `AcceptanceTests`) or carries an explicit `pending(artifact-exchange)` marker. The analyzer enforces a fail-loud contract: if the LLM fails to call `emit_analysis`, the stage errors immediately and is retried; there is no silent fallback to a zero-value IR.
+The analyzer makes one LLM call that classifies the request; everything else — TaskGraph, EvidencePlan, hypotheses, quality gate — is built deterministically by 14 sub-packages under `internal/analysis/`. Every `AnalysisIR` field is either consumed by a typed evaluator (the `criterion` package handles `EntryConditions` / `SuccessCriteria` / `StopConditions` / `RequiredEvidence` / `FalsificationCondition` / `AcceptanceTests`) or carries an explicit `pending(artifact-exchange)` marker. Fail-loud contract: if the LLM fails to call `emit_analysis`, the stage errors and retries — no silent fallback to a zero-value IR.
 
-## Build & Run Commands
+## Build & Run
 
 ```bash
-# Build (requires CGO for tree-sitter; outputs ./codrax)
-make
-
-# Static build (Linux only, musl)
-make static
-
-# Single-shot run (explicit flags; any omitted flag falls back to
-# <exeDir>/codrax.yaml then to the code default)
-./codrax -repo . -branch main -request "task" -pipeline-max-steps 50
-
-# Interactive REPL (no -request → enters multi-turn mode with
-# /exit /clear /history /compact /help slash commands, memory
-# persisted under <CWD>/.codrax/memory/)
-./codrax
-
-# Debug mode: full ReAct trace written to <CWD>/.codrax/logs/ and mirrored to stdout
-./codrax -log-level debug -log-stdout -request "task"
-
-# Run all tests
-make test
-
-# Run a single test
+make                          # CGO build → ./codrax
+make static                   # Linux musl static
+make test                     # Run all tests
 go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
+```
 
-# Run tests with verbose output
-make test-v
+```bash
+./codrax -repo . -branch main -request "task" -pipeline-max-steps 50
+./codrax                      # interactive REPL (/exit /clear /history /compact /help)
+./codrax -log-level debug -log-stdout -request "task"
 ```
 
 ## Architecture
 
-### Pipeline Flow
+### Pipeline
 
-User request → Orchestrator dispatches agents through 4 hardcoded stages. All tool invocation and LLM calls pass through an agent — the orchestrator never calls tools, MCP, or LLM directly. The pipeline has two phases: Phase 1 dispatches `analyze` (with fail-loud retry up to `MaxRetriesPerStage`); Phase 2 walks the analyzer's `TaskGraph` DAG via a criterion-aware window scheduler, dispatching `explore → extract → finalize` per round with per-node `EntryConditions` / `SuccessCriteria` evaluation and fine-grained `EdgeValidationFeedback` backtrack.
-
-### Pipeline Stages
-
-`analyze → explore → extract → finalize`
-
-Hardcoded in `internal/orchestrator/topology.go`. Every stage maps 1:1 to one agent and one default skill:
+`analyze → explore → extract → finalize`, hardcoded in `internal/orchestrator/topology.go`. The orchestrator never calls tools, MCP, or LLM directly — everything flows through an agent.
 
 | Stage | Agent | Default Skill | Purpose |
 |---|---|---|---|
-| analyze | analyzer | analysis-skill | 1-2 rounds of evidence-lite pre-scan (`repo_map` / `grep files_only=true` / `list_files`) to verify entities/terms exist in the repo, then emit `AnalysisIR` via `emit_analysis` (one LLM call). Analyzer is FORBIDDEN from calling `read_file` / `exec_command` — content reading is the explore stage's job. |
-| explore | explorer | explore-skill | Turn A investigation: read_file / grep / repo_map, emit evidence via `emit_evidence`, signal completion via `emit_investigation_complete` |
-| extract | extractor | extract-skill | Turn B structuring (dispatched once before finalize, not per-window): no file IO; drain Turn A's transcript into `emit_answer_symbol` / `emit_hypothesis_verdict` batches. `ShouldStop: iteration >= 2` (one retry window). Soft-stop correction hint for list_of_symbols questions |
-| finalize | finalizer | answer-document-skill | Emit one `emit_answer_document` tool call; deterministic renderer turns the struct into prose |
+| analyze | analyzer | analysis-skill | 1–2 pre-scan rounds (`repo_map` / `grep files_only=true` / `list_files`) then `emit_analysis`. Forbidden: `read_file` / `exec_command`. |
+| explore | explorer | explore-skill | Turn A investigation; emit via `emit_evidence` + `emit_investigation_complete`. |
+| extract | extractor | extract-skill | Turn B structuring, dispatched **once** before finalize; drains Turn A into `emit_answer_symbol` / `emit_hypothesis_verdict`. |
+| finalize | finalizer | answer-document-skill | Single `emit_answer_document` call; deterministic renderer prints prose. |
 
-The topology is hardcoded in `topology.go` — there is no priority-weighted transition graph, no task policy system, no per-task stage allowlist. The pipeline is a deterministic DAG walk.
+Phase 1 dispatches analyze with fail-loud retry (`MaxRetriesPerStage`). Phase 2 walks `AnalysisIR.TaskGraph` via a **criterion-aware window scheduler** (`runTaskGraph`):
 
-### Per-task DAG scheduler
-
-After analyze produces `AnalysisIR.TaskGraph`, `runTaskGraph` walks the graph with a **criterion-aware window scheduler**:
-
-0. At each round start, `stopcond.ShouldStop` (`internal/analysis/stopcond`) evaluates `EvidencePlan.StopConditions` — each `StopCondition{Kind, Expr}` is treated as a `Criterion` and evaluated via `criterion.Eval`. StopConditions are OR-ed: the first satisfied one fires → `forceCloseExploreWindow` marks remaining explore nodes done and directs the scheduler straight to finalize.
-1. `readyExplorerWindow` collects every pending/requeued non-finalize, non-counterfactual node whose `EntryConditions` (`[]Criterion`, evaluated by `criterion.EvalAll`) are all satisfied. Returns two lists: `ready` (dispatched as ONE `StageExplore` call) and `blocked` (entry conditions not yet met — surfaced in the retry hint so the LLM can see what criterion is stalling which node). The orchestrator installs an `ExploreBudget` on `MutableState` at the start of `runTaskGraph` (derived from `EvidencePlan.NodeBudgetHints`); during the explore dispatch, `BaseAgent.executeTool` checks `ctx.Mutable.BudgetRemaining(canonicalToolName)` before every tool call in `StageExplore` and blocks the call when the per-tool or overall cap is reached.
-2. After dispatch, `markSuccessCriteriaFailed` evaluates each window node's `SuccessCriteria` (`[]Criterion`) against the current `criterion.Env`. Nodes that pass are marked done; nodes that fail are requeued. A failed **validate** node additionally triggers `requeueValidationTargets`: the scheduler follows `EdgeValidationFeedback` edges from the validate node to its upstream evidence nodes and requeues **only** those specific nodes (fine-grained backtrack, not the whole window). After each explore window, `runAutoVerdicts` evaluates criterion-based hypothesis auto-verdicts **without an LLM call** (FalsificationCondition → rejected, RequiredEvidence all-pass → inconclusive), then `drainHypothesisVerdicts` writes them into the IR so subsequent windows' criterion evaluation sees updated hypothesis status. The full LLM-backed `StageExtract` dispatch runs **once, just before finalize** — not after every explore window.
-3. If a finalize node is ready (`firstFinalizeReadyMerged` — all non-finalize, non-counterfactual nodes are done), dispatch `StageExtract` (the single LLM-backed extract), then dispatch `StageFinalize`, then run the AnswerContract checker over the final answer. The extractor's `ParseOutput` also runs the same auto-verdict logic as a second pass. Note: `AnswerContract.AcceptanceTests` is `[]Criterion` but `contract/checker.go`'s `checkAcceptance` evaluates them via a local switch (contains_symbol / regex_match / citation_count_ge), not via the generic `criterion.Eval` dispatcher.
-   - Pass: mark finalize done, record the answer, return.
-   - Fail with retry budget remaining: requeue the finalize node and every explorer-window node that sits behind it, record one cross-window retry, inject the violation diagnostic into the next window's retry hint, loop.
-   - Fail with budget exhausted: prepend a fail-loud warning to the answer and return the original body beneath it.
-4. Loop until all nodes done or the per-task step budget is exhausted. On a scheduler stall (no ready window, no ready finalize, but not allDone — e.g. all remaining nodes blocked on entry conditions) the driver forces one finalize dispatch so the task always terminates with a result.
+1. `stopcond.ShouldStop` evaluates `EvidencePlan.StopConditions` (OR-ed) → force-close to finalize.
+2. `readyExplorerWindow` collects nodes with satisfied `EntryConditions`; dispatched as one `StageExplore` call. Blocked nodes surface in the retry hint. `ExploreBudget` on `MutableState` enforces per-tool caps from `EvidencePlan.NodeBudgetHints`.
+3. After dispatch, `markSuccessCriteriaFailed` requeues failing nodes; a failed `validate` node uses `EdgeValidationFeedback` to requeue only its upstream evidence nodes (fine-grained backtrack). `runAutoVerdicts` sets hypothesis verdicts without an LLM call.
+4. When finalize is ready (`firstFinalizeReadyMerged`), dispatch `StageExtract` once, then `StageFinalize`, then AnswerContract check. On fail-with-budget: requeue finalize + upstream, inject violation into next retry hint. Scheduler stall forces one finalize dispatch so the task always terminates.
 
 ### Key Data Structures (`internal/types/`)
 
-- **BusContext** — shared execution state (tasks, signals, facts, tool results, analysis IR). The `Mutable` region is the only part tools may write to during the ReAct loop.
-- **AgentContext** (`internal/context/builder.go`) — narrowed BusContext view built per agent. The prompt renderer (`BuildPromptContext`) assembles a Turn B user prompt from structured channels (Prior Stage Findings, Structured Evidence, Hypothesis Verdicts, Answer Symbols). Measurement-scalar questions (`ShapeValue + CitationReq.Required=false`) additionally get a **Raw Tool Outputs from Turn A** section sourced from `TurnAArtifacts.ToolResults` — rendered with head + always-preserved tail (shell tools put the summary scalar at the bottom: `wc -l total`, `grep -c`), skipping `emit_*` and `repo_map` results, total cap 4 KB. The section carries a preamble telling the LLM the outputs are scalar references — NOT repo files — so `value.citation_ref:-1` is the correct choice. This is the ONLY channel that surfaces command-level scalars to Turn B; `emit_evidence`'s schema requires `source + line_start + anchor_kind` which physically rules out scalar emission, so without the rendering the scalar is lost after Turn A. Gate details + tests in `shouldRenderRawToolOutputs` and `internal/context/builder_test.go`.
-- **StageOutput** — what agents return: data, signal updates, new facts, errors, analysis IR, final answer.
-- **AnalysisIR** (`internal/types/analysis_ir.go`) — the analyze stage's sole structured output: `RequestModel`, `TaskGraph`, `EvidencePlan`, `AnswerContract`, `HypothesisSet`, `QualityGate`. `TaskNode.EntryConditions` is now `[]Criterion` (typed, evaluated by the `internal/analysis/criterion` package at runtime — 19 registered Kinds). `AnswerContract.AcceptanceTests` is also `[]Criterion` (the old `Acceptance` type is deleted). `EvidencePlan` now has `NodeBudgetHints` alongside `SourceMix`. Analyzer is the sole writer; downstream stages mutate hypothesis status via the dedicated `MarkHypothesis` API and never rewrite structural fields.
-- **ExecutionSignals** — a single-field struct (`HasEnoughFacts bool`). All write-pipeline signals were deleted with the write pipeline.
-- **PipelineSettings** — budget knobs (`MaxRetriesPerStage`, `MaxStageVisits`) plus `GateThresholds` (coverage weights + hypothesis min priority) and `Explore` (per-tool default cap for sourcemix throttling). Loaded from `codrax.yaml`.
+- **BusContext** — shared execution state. `Mutable` is the only write surface during the ReAct loop.
+- **AgentContext** (`internal/context/builder.go`) — per-agent narrowed view. Turn B prompts assembled from structured channels (Prior Stage Findings, Structured Evidence, Hypothesis Verdicts, Answer Symbols). Measurement-scalar questions additionally get a **Raw Tool Outputs from Turn A** section — the only channel that surfaces command-level scalars (`wc -l`, `grep -c`) because `emit_evidence`'s schema requires `source + line_start + anchor_kind`.
+- **StageOutput** — agent return: data, signals, facts, errors, analysis IR, final answer.
+- **AnalysisIR** (`analysis_ir.go`) — `RequestModel`, `TaskGraph`, `EvidencePlan`, `AnswerContract`, `HypothesisSet`, `QualityGate`. `TaskNode.EntryConditions` and `AnswerContract.AcceptanceTests` are `[]Criterion`. Analyzer is the sole writer; downstream uses `MarkHypothesis` and never rewrites structural fields.
+- **ExecutionSignals** — single field `HasEnoughFacts bool`.
+- **PipelineSettings** — budget knobs + `GateThresholds` + `Explore` cap.
 
-### Agent System (`internal/agent/`)
+### Agent system (`internal/agent/`)
 
-All 4 agent types embed `BaseAgent` which provides the ReAct loop (Reason → Act → Observe). Each agent implements the `Evaluator` interface: `BuildInitialInstruction`, `ShouldStop`, `ParseOutput`, `DetermineMissingPiece`. Loop control — "continue vs stop vs inject hint" — flows through the optional `LoopController` interface (`Observe(ctx, obs) LoopSignal`), which replaces the historical `ContinuingEvaluator` + `MidLoopEvaluator` pair. Throttling, dedup, and budget rules live in `LoopPolicy` (`internal/agent/loop_policy.go`), not in the evaluators themselves — see `docs/architecture.md` §3.2 for the full contract.
+All 4 agents embed `BaseAgent` (ReAct loop). Evaluator contract: `BuildInitialInstruction`, `ShouldStop`, `ParseOutput`, `DetermineMissingPiece`. Loop control (continue / stop / inject hint) flows through the optional `LoopController` interface. Throttling, dedup, budget rules live in `LoopPolicy` (`loop_policy.go`). See `docs/architecture.md` §3.2.
 
-### Analyzer post-processing pipeline (`internal/agent/analyzer.go:buildAnalysisIR`)
+### Analyzer post-processing (`analyzer.go:buildAnalysisIR`)
 
-The analyzer makes ONE LLM call that emits a `RequestModel` via `emit_analysis`. `ParseOutput` then runs a deterministic chain:
+One LLM call emits `RequestModel`, then a deterministic chain:
 
-1. `normalizer.Normalize` — canonical TermGraph from the raw request
-1a. `analyzer_complexity.reconcileComplexity` + `analyzer_intent.reconcileIntent` — two sanity rules that override the LLM's Complexity / Intent on strong structural signals (sub-topic floor, cross-component cue, single-entity lookup shape, multi-entity upgrade, sparse-prompt floor for complexity; leading count-verb prefix on `enumerate + simple` for intent). Log lines share the `[analyzer] * reconciled:` prefix so every automatic override is grep-able.
-2. `compiler.InferScenario` + `compiler.Compile(rm, budget.BudgetSignals)` — scenario template → TaskGraph + EvidencePlan + AnswerContract. Budget is multi-dimensional (Complexity × TermCount × HypothesisCount × PrescanHitRatio) via the `internal/analysis/budget` package, replacing the old single-axis `defaultBudget`. `sourcemix.FromTemplateMix` compiles `EvidencePlan.SourceMix` ratios into `NodeBudgetHints` (per-tool caps). InferScenario reads `rm.Ambiguities` to route moderate/complex requests with ambiguity clauses to reconcile-node scenarios. **Measurement-scalar carve-out**: the `isMeasurementScalar` signal — `isMeasurementScalarRequest` in `analyzer_intent.go`, which tests `complexity == simple + intent ∈ {enumerate, return_value} + leading count-verb prefix` — fires on BOTH the reconciled-downgrade case AND the LLM-picked-return-value-directly case (same signal, both populations need the same fix). When true, a post-compile block rewrites `out.AnswerContract.RequiredAnswerShape = ShapeValue` (plus `rm.AnalyzerHints.Shape` for downstream consistency) and strips `CritCitationCountGE` from **all three independent citation-gate surfaces** — `AnswerContract.CitationReq` + `AnswerContract.AcceptanceTests` + every `TaskNode.SuccessCriteria`. A scalar from `find | wc -l` has no file:line to cite; leaving any one gate enabled would loop the retry budget. Single flag → single block → five effects, all in `buildAnalysisIR`'s "Measurement-scalar carve-out" comment block. **Grep-able invariant**: `CitationReq.Required = false` has exactly ONE producer in the production tree (`analyzer.go:635`); downstream consumers (context/builder.go's Raw Tool Outputs gate, contract_check waiver logic) key off that pair. No other code path sets Required=false, so the discriminator cannot drift.
-3. `risk.Evaluate` — 6-dimension risk matrix (Security / DataIntegrity / Compatibility / Performance / Ops / Compliance)
-4. `hdp.Plan` — hypotheses scored by `priority.Score` (weights: IntentMatch=0.35, RiskElevation=0.30, TermCardinality=0.20, AmbiguityResolution=0.15; packed as `round(raw*100)*1000 - idx` for stable sorting). Budget is recomputed with the real hypothesis count via `compiler.RecomputeBudget`. Binding by `binder.BindByRelevance` (Jaccard overlap on term IDs + surface mentions + kind-family affinity between falsification kind and node type).
-5. `counterfactual.Expand` — optional branch expansion for complex+ambiguous explain/root_cause. When expansion adds new nodes, `binder.BindByRelevance` runs a second time to cover the new evidence nodes.
-6. `gate.Run` — deterministic quality gate with 7 checks in order: (1) `coverage` — weighted (Symbol=1.0, Config=0.7, Concept=0.4); (2) `dag_closure` — no cycles, no dangling edges, finalize node present; (3) `budget_sanity` — min/max files and react iters; (4) `contract_complete` — required fields present; (5) `hypothesis_coverage` — every binding-eligible node has ≥1 hypothesis, at least one hypothesis above min priority; (6) `criterion_resolvable` — scans all `[]Criterion` fields for unregistered Kinds; (7) `pending_fields_wellformed` — format hygiene on pending artifact-exchange fields (Inputs/Outputs/ExitArtifacts slot names, SourceMix sum). All checks except `pending_fields_wellformed` are **hard**; `pending_fields_wellformed` is the only **soft** check. Thresholds configurable via `gate.GlobalThresholds()` (set by `cmd/root.go` from `codrax.yaml` `gate_*` keys).
-
-Gate failures are retryable via analyze re-entry; the analyzer retries once on a retryable reject and fails loud otherwise.
+1. `normalizer.Normalize` — canonical TermGraph.
+1a. `analyzer_complexity.reconcileComplexity` + `analyzer_intent.reconcileIntent` — structural overrides on the LLM's classification. Log prefix `[analyzer] * reconciled:`.
+2. `compiler.InferScenario` + `compiler.Compile` — scenario template → TaskGraph + EvidencePlan + AnswerContract. Budget is multi-dimensional (`internal/analysis/budget`). `sourcemix.FromTemplateMix` → `NodeBudgetHints`. **Measurement-scalar carve-out** (signal: `isMeasurementScalarRequest`) rewrites `RequiredAnswerShape = ShapeValue` and strips `CritCitationCountGE` from all three citation-gate surfaces (`CitationReq` + `AcceptanceTests` + every `TaskNode.SuccessCriteria`). Grep-able invariant: `CitationReq.Required = false` has **one** producer in production.
+3. `risk.Evaluate` — 6-dimension matrix.
+4. `hdp.Plan` → `priority.Score` (IntentMatch 0.35 / RiskElevation 0.30 / TermCardinality 0.20 / AmbiguityResolution 0.15). Bindings via `binder.BindByRelevance`.
+5. `counterfactual.Expand` — optional branch expansion for complex+ambiguous explain/root_cause; triggers a second `BindByRelevance` pass.
+6. `gate.Run` — 7 checks in order: coverage (weighted 1.0/0.7/0.4), dag_closure, budget_sanity, contract_complete, hypothesis_coverage, criterion_resolvable, pending_fields_wellformed (soft; the rest hard). Retryable rejects re-enter analyze once.
 
 ### Analysis sub-packages (`internal/analysis/`)
 
-The analyzer's deterministic post-processing chain is decomposed into independent packages under `internal/analysis/`. Each is called from `analyzer.go:buildAnalysisIR` (or indirectly via `compiler.Compile`):
-
 | Package | Entry point | Purpose |
 |---|---|---|
-| `normalizer` | `Normalize(raw, opts)` | Canonical TermGraph from raw request text |
-| `compiler` | `Compile(rm, sig)` / `InferScenario(rm)` | Scenario template → TaskGraph + EvidencePlan + AnswerContract |
-| `budget` | `Compute(rm, sig)` | Multi-dimensional EvidenceBudget scaling |
-| `sourcemix` | `FromTemplateMix(mix, budget)` | Compile SourceMix ratios into NodeBudgetHints; `BudgetForTool` for per-tool throttling |
-| `risk` | `Evaluate(rm, matrix)` | 6-dimension risk matrix decoration |
-| `hdp` | `Plan(rm)` / `Validate(tg)` | Hypothesis generation + coverage invariant check |
-| `priority` | `Score(h, rm, idx)` | 4-dimension hypothesis scoring (0–100 raw scale) |
-| `binder` | `BindByRelevance(tg, hs, opts)` | Relevance-based hypothesis → node binding |
-| `counterfactual` | `ShouldExpand(rm)` / `Expand(tg, rm, opts)` | Optional branch expansion for ambiguous requests |
-| `gate` | `Run(ir, th)` | 7-check deterministic quality gate |
-| `stopcond` | `ShouldStop(plan, env)` | EvidencePlan.StopConditions evaluation |
-| `criterion` | `Eval(c, env)` / `EvalAll(cs, env)` | 19-Kind executable-contract evaluator |
-| `contract` | `Check(draft, contract)` | AnswerContract validation (shape, citations, must_include, acceptance tests) |
-| `dataflow` | `Analyze(evidence)` | Source→sink chain discovery from evidence items |
+| `normalizer` | `Normalize` | Canonical TermGraph |
+| `compiler` | `Compile` / `InferScenario` | Template → TaskGraph + EvidencePlan + AnswerContract |
+| `budget` | `Compute` | Multi-dim EvidenceBudget |
+| `sourcemix` | `FromTemplateMix` / `BudgetForTool` | Per-tool caps |
+| `risk` | `Evaluate` | 6-dim risk matrix |
+| `hdp` | `Plan` / `Validate` | Hypothesis gen + coverage |
+| `priority` | `Score` | 4-dim hypothesis scoring |
+| `binder` | `BindByRelevance` | Hypothesis ↔ node binding |
+| `counterfactual` | `ShouldExpand` / `Expand` | Branch expansion |
+| `gate` | `Run` | 7-check quality gate |
+| `stopcond` | `ShouldStop` | StopConditions evaluation |
+| `criterion` | `Eval` / `EvalAll` | 19-Kind contract evaluator |
+| `contract` | `Check` | AnswerContract validation |
+| `dataflow` | `Analyze` | Source→sink chains |
 
-### Evidence Chain System (`internal/agent/explorer.go`)
+### Explorer evidence chain (`explorer.go`)
 
-The explorer agent supplements LLM investigation with deterministic, source-code-derived facts. This addresses a systemic LLM weakness: the ability to read code files and extract individual facts, but the inability to chain those facts across files to reach specific conclusions (multi-hop reasoning).
+Supplements LLM investigation with deterministic source-derived facts. Three phases:
 
-**Three-phase investigation model:**
+1. **Breadth scan** — `keywordSearch` combines `repo_map` structural ranking with grep IDF scoring. Entity boost 1.3×–1.6×. Complexity-aware top-N cap (simple=15, moderate=20, complex=30). Uses ripgrep when available (`tool.SearchCommand()`), falls back to GNU grep.
+2. **Evidence collection** — LLM reads files and emits tagged evidence (`[DIRECT]`, `[CONDITIONAL]`, `[REGISTRATION]`, `[MECHANISM]`, `[RELATIONSHIP]`). Mid-loop hint `detectCrossFileSymbolGaps` pushes on symbol references in notes whose defining files aren't in ReadSet.
+3. **Synthesis** — `SynthesisPrompt` layers five programmatic sections: Concrete Values table, Resolution Chains, Type Hierarchy Chains, Cross-reference map, Unresolved Conditions, Evidence Catalog. `extractConcreteValues` scans source for return-literal / registration / map-entry / decorator / config-leaf patterns across Go/Java/Python/JS/TS/Rust/Ruby. `HasEnoughFacts` = toolDiversity ∧ fileCoverage ∧ evidenceQuality; `emit_investigation_complete` overrides all heuristics.
 
-1. **Phase 0 — Breadth Scan.** Keyword search (`keywordSearch` / `keywordSearchWithOptions` in `keyword_search.go`) combines repo_map structural ranking with grep IDF scoring. Produces a ranked file list with symbol tables. Uses ripgrep when available (auto-detected at startup via `tool.SearchCommand()`), falling back to GNU grep. **Entity boost (T1a)**: files whose path or indexed symbols match any analyzer-emitted entity get a 1.3x-1.6x multiplicative score boost via `entityBoostFactor`. Entities are the highest-confidence tokens (verbatim from user question), so a path+symbol match (1.6x) outranks grep-IDF noise from large implementation files. **Complexity-aware cap (T1b)**: `MaxFilesForComplexity` maps the analyzer's classified `Complexity` to the returned top-N (simple=15, moderate=20, complex=30). Complex cross-component questions (6+ files) need a wider candidate pool so dispatch-path files don't drop below the 20-file cap. **Early evidence exit**: when the LLM's first voluntary stop (`firstSoftStop`) has already gathered high-confidence evidence from ANY tool (`hasHighConfidenceEvidence`: confidence > 0.5, tool-agnostic), the Phase 0 quality gate (grep + repo_map/list_files + discovered>=3) is bypassed entirely — the LLM answered without needing the two-phase model. Covers exec_command, grep-only, read_file-only, list_files-only scenarios. If evidence is insufficient, AnswerContract backtrack catches it.
-
-2. **Phase 1 — Evidence Collection.** LLM reads files and extracts structured evidence entries tagged `[DIRECT]`, `[CONDITIONAL]`, `[REGISTRATION]`, `[MECHANISM]`, `[RELATIONSHIP]`. The evaluator tracks investigation notes, cross-references, and file coverage with escalating read prompts (3-level: gentle → forceful → final). On first voluntary stop with evidence, the stop is accepted without injecting a completion-tool-reminder hint; only when NO evidence was gathered does the reminder fire. **Cross-file symbol push (T3b)**: the `observeMidLoop` Check 4 scans `investigationNotes` for exported symbol references (≥6 chars), cross-references them against `graph.SymbolDefs`, and emits a mid-loop hint pointing at the defining files when those files are NOT in ReadSet. Caps at 3 suggestions per hint via `detectCrossFileSymbolGaps`; fires at most once per dispatch (`midLoopSymbolRefInjected`). Closes the gap where the LLM wrote a note mentioning `SubAgentRuntime` after reading `agent.go` but never followed the reference to `subagent_runtime.go` — the exact 2026-04-18 "explorer→subagent" dispatch-chain miss.
-
-3. **Synthesis.** `SynthesisPrompt` assembles a prompt with five programmatic layers, each independent — when upper layers produce no output, lower layers still function:
-
-| Layer | Source | Deterministic? | What it provides |
-|-------|--------|:-:|---|
-| Concrete Values table | `buildConcreteValuesSection` | Yes | Return values, registrations, config entries, **cross-package method calls (T2a)** — rows where Fact starts with `calls →` surface control-flow dispatch (e.g. `dispatchStage()` → `calls → subRuntime.Run`) |
-| Resolution Chains | same function | Yes | `RegisterX binds NewFoo → Foo.Name() returns "bar"` or `dispatchStage calls SubAgentRuntime.Run → Run calls SubExplorer.Run` (T2b) |
-| Type Hierarchy Chains | graph `embedding`+`inheritance` relations | Yes | `ExecCommand embeds ReadOnly → IsWrite() returns false` |
-| Cross-reference map | `buildCrossReferenceMap` | Yes | Symbols spanning 2+ evidence sets |
-| Unresolved Conditions | notes scan | Semi | `[CONDITIONAL]` entries with no matching concrete value |
-| Evidence Catalog | LLM investigation notes | No | Structured facts the LLM extracted from files |
-
-**Concrete value extraction (`extractConcreteValues`)** scans source code for patterns that establish ground-truth facts. Recognized patterns, cross-language:
-
-| Pattern | Languages | Example |
-|---------|-----------|---------|
-| `return "literal"` / `return 'literal'` | All | `Name() → "explorer"` |
-| `return true/false/nil/null` | All | `IsWrite() → false` |
-| Inline return: `func() { return X }` | Go, Java | single-line methods |
-| Arrow function: `() => "value"` | JS/TS | `getName = () => "explorer"` |
-| Implicit return (last expression) | Rust, Ruby | `"explorer"` as bare string |
-| Constructor-passing call: `verb(NewFoo())` | Go, Java, Python, JS | `Register(NewHandler())` |
-| `new Xxx(...)` | Java, JS | `add(new UserController())` |
-| Capitalized class instantiation | Python, JS | `register(UserHandler)` |
-| Map/dict literal entries: `key: value,` | Go, Python, JS | `AgentExplorer: NewExplorerAgent` |
-| Decorator/annotation: `@route("/path")` | Python, Java | `@app.get("/api") → handler` |
-| YAML/JSON config leaf values | Config files | `default_agent = explorer` |
-
-**File scanning scope:** all keyword-search scored files + all LLM-read files + files defining symbols mentioned in investigation notes. Short methods (≤3 lines) are fully extracted; longer functions (≤30 lines) are scanned only for registrations/mappings when their name contains `Register`, `Defaults`, `Routes`, `Handlers`, `Config`, `Map`, or `Init`. Config files (YAML/JSON/TOML) are parsed with `yaml.v3`/`encoding/json` and flattened to dotted key paths.
-
-**Runtime file coverage (`extractFileCoverage`).** Extracts two sets from tool history: `discovered` (files found by grep + exec_command best-effort path extraction) and `readSet` (files read by read_file). The exec_command case parses output line-by-line through `isValidFilePath` + `isNoisePath` filters — handles `find`/`ls`/`tree` output; non-path lines (counts, errors) are silently dropped.
-
-**HasEnoughFacts quality floor.** `ParseOutput` computes `HasEnoughFacts` from three sub-checks ANDed together: `toolDiversity` (≥2 distinct evidence tool types), `fileCoverage` (≥50% or ≥3 files read), `evidenceQuality` (≥2 `[DIRECT]`/`[REGISTRATION]` tags). **Single-source investigation bypass**: when `len(sources) == 1` (only one type of high-confidence tool was used), all three floors are set to true — the LLM answered using a single tool type (exec_command, grep, read_file, or list_files). If the answer is insufficient, the AnswerContract checker backtracks via retry budget. `emit_investigation_complete` remains the most authoritative signal — when called, it unconditionally overrides all heuristic checks.
-
-**Resolution chain tracing** is multi-pass (up to 5 iterations): when a concrete value mentions a type name T, all of T's concrete values are pulled into the relevant set and linked. This supports chains of arbitrary depth: `RegisterX binds NewFoo → Foo returns NewBar → Bar.Name returns "baz"`.
-
-**Search backend (`internal/tool/search.go`).** At first use, `SearchCommand()` probes for `rg` via `exec.LookPath` and caches the result. When ripgrep is available: `.gitignore` auto-exclusion (logs, memory, build artifacts), binary skip, smart-case, and batch keyword search via `rg --json` with multi-pattern (`-e kw1 -e kw2 ...`). JSON match output is parsed with lightweight string scanning to build per-keyword file lists for IDF scoring — no file reads, no truncation, large-repo safe. Falls back to GNU grep with manual `--exclude-dir` flags from the shared `tool.ExcludeDirs` list.
-
-**Shared exclude list (`tool.ExcludeDirs`).** Single authoritative directory exclusion list used by GrepTool, keyword search, and `isNoisePath`: `.git`, `.hg`, `.svn`, `node_modules`, `vendor`, `__pycache__`, `.tox`, `logs`, `memory`, `target`, `dist`, `build`.
-
-**Complexity-aware ERM thresholds (T1c).** `checkRequirementSatisfaction` in `explorer_erm.go` takes a `types.Complexity` parameter and routes its per-kind count floors through `thresholdForKind`. At `ComplexityComplex`, the satisfied floor for `mechanism` rises from 2 → 4, `enumeration` from 3 → 5, `config_mapping` from 2 → 3, `call_chain` from 2 → 3, `conditional` from 1 → 2. Simple and moderate keep the historical floors. The explorer caches `irComplexity(ctx)` in `e.complexity` at `BuildInitialInstruction` time; `ShouldStop`, `observeSoftStop`, `ParseOutput`, and `ensureStructuredEvidence` all pass this through on every `checkRequirementSatisfaction` call. Closes the "mechanism-satisfied-at-2-evidence" blind spot where a complex cross-package question would declare the requirement resolved after the LLM read 2 of 6 dispatch-path files.
-
-**Analyzer RequiredFiles channel (T3a).** `EvidencePlan.RequiredFiles` carries the analyzer's upfront list of repo-relative file paths that the explorer SHOULD consider relevant. Populated in `analyzer.go:buildAnalysisIR` via `analyzerRequiredFiles` which runs a `repo_map.BuildOrLoadGraph` query with the analyzer-extracted entities and pulls the top-10 scored paths from `Graph.QueryScores`. Consumed on the explorer side in two places: (1) rendered as a "Analyzer's Required Files" prompt section in `BuildInitialInstruction` so the LLM sees "start here" guidance before the longer keyword_search ranking; (2) merged into `Phase1Ranking` at a median score so the CGEC phase1-unread pre-complete gate counts them as first-class coverage targets. Zero-value-safe: an empty `RequiredFiles` skips both paths, preserving the pre-T3a behavior.
+Complexity-aware ERM thresholds (`checkRequirementSatisfaction` via `thresholdForKind`) raise per-kind floors at `ComplexityComplex`. `EvidencePlan.RequiredFiles` is rendered into the explorer's initial prompt and merged into Phase1Ranking so the CGEC pre-complete gate counts it as first-class coverage.
 
 ### Configuration
 
-Two YAML files live **flat next to the binary** (no `config/` subdirectory), strictly non-overlapping:
+Two YAML files live flat next to the binary:
 
-- **`providers.yaml`** — LLM provider credentials and per-agent model routing. Loaded by `internal/config/providers.go`. Secrets, never committed.
-- **`codrax.yaml`** — per-process runtime knobs. Five flat groups by prefix: bare keys (`log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `providers_config`); `log_*` keys for log retention (`log_max_files`); `blob_*` keys for tool output sizing and session retention (`blob_max_inline_bytes`, `blob_preview_head_bytes`, `blob_preview_tail_bytes`, `blob_max_sessions`); `pipeline_*` keys for per-run budget limits (`pipeline_max_steps`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`); `analysis_*` keys for emit_analysis runtime validation (`analysis_warn_below_keywords`, `analysis_reject_below_keywords`, `analysis_generic_entity_blocklist`, `analysis_reject_multiple_emit`, `analysis_max_prescan_rounds`, `analysis_warn_below_keyword_hit_ratio`, `analysis_warn_below_entity_hit_ratio`). Loaded by `internal/config/runtime.go`. All fields are pointer-typed so the merge in `cmd/root.go` can distinguish "absent" from "explicit zero value".
+- **`providers.yaml`** — LLM credentials + per-agent model routing (`internal/config/providers.go`). Secret, never committed.
+- **`codrax.yaml`** — runtime knobs (`internal/config/runtime.go`). All fields pointer-typed so the merge can distinguish "absent" from "explicit zero". Key groups by prefix:
+  - bare: `log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `providers_config`
+  - `log_*` — retention
+  - `blob_*` — tool-output sizing and session retention
+  - `pipeline_*` — per-run budget (`max_steps`, `max_retries_per_stage`, `max_stage_visits`)
+  - `analysis_*` — `emit_analysis` runtime validation (keyword floors, entity blocklist, multi-emit, `max_prescan_rounds`, hit-ratio floors)
+  - `gate_*` — quality-gate thresholds (loaded via `gate.SetGlobalThresholds`)
+  - `explore_*` — explorer mid-loop / soft-stop heuristics (`types.DefaultExploreHeuristics`)
+  - `agent_*` — per-agent loop limits and sub-topic scaling (`types.DefaultAgentSettings`)
+  - `memory_*` — REPL memory-store buffers (`types.DefaultMemorySettings`)
 
-The pipeline topology (stages + agents + skills) is hardcoded in `internal/orchestrator/topology.go` and has no YAML counterpart.
+Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.
 
-**Path anchors.** `cmd/root.go` uses two anchors to resolve relative paths:
+**`codrax.yaml` lookup**: `$CODRAX_SETTINGS` → `<exeDir>/codrax.yaml` → `<exeDir>/codrax/codrax.yaml` → three legacy `config/` paths (deprecation warning). Stops at first hit.
 
-- `configAnchor = exeDir` — `providers_config` and any other configuration file path resolves here. One bin + one config tree, wherever the binary lives.
-- `runtimeAnchor = <CWD>/.codrax/` — `log_dir`, `memory_dir`, `cache_dir`, and the blob session root resolve here. Runtime artifacts follow the user's workspace, not the install location. The directory is created on startup.
+**Precedence** (lowest wins last): code default → `codrax.yaml` → CLI flag (only `bare` and `pipeline_*` groups have CLI overrides).
 
-**`codrax.yaml` lookup order.** `cmd/root.go` walks this list and stops at the first hit; paths marked *legacy* print a deprecation warning once the logger is up:
+**Path anchors** (`cmd/root.go`, resolved to absolute paths before flag registration):
 
-1. `$CODRAX_SETTINGS` (absolute override; errors out loudly if set but missing)
-2. `<exeDir>/codrax.yaml` ← canonical flat location
-3. `<exeDir>/codrax/codrax.yaml`
-4. `<exeDir>/config/codrax.yaml` — *legacy*
-5. `<exeDir>/../config/codrax.yaml` — *legacy*
-6. `<CWD>/config/codrax.yaml` — *legacy*
+- `configAnchor = exeDir` — `providers_config`.
+- `runtimeAnchor = <CWD>/.codrax/` — `log_dir`, `memory_dir`, `cache_dir`, blob session root.
+- `-repo` is not anchored (its default `.` means CWD).
 
-**Precedence** for the bare keys (lowest wins last): code default → `<exeDir>/codrax.yaml` → command-line flag.
+**Per-repo namespacing**: default `log_dir` / `memory_dir` get a `<basename>-<fnv32>` suffix from the resolved absolute `-repo` path, so multi-repo use keeps logs and memory disjoint. Blob sessions are not per-repo — they're content-addressed (`<tool>-<sha8>.txt`).
 
-**Precedence** for the `pipeline_*` keys (lowest wins last): code default → `codrax.yaml` `pipeline_*` keys → command-line flags (`-pipeline-max-steps`, `-pipeline-max-retries`, `-pipeline-max-stage-visits`).
+**Multi-instance safety** (pure stdlib, no `golang.org/x/sys`): log filenames carry PID; retention skips live-PID files. Memory dir uses `MEMORY.md.lock` (per-op flock, reload-after-acquire) + `.instance.lock` (lifetime shared, non-blocking-exclusive probe to gate orphan recovery). Turn IDs include PID. Windows file locks via `syscall.NewLazyDLL("kernel32.dll")`.
 
-**Precedence** for the `blob_*` keys (lowest wins last): code default in `internal/tool/blob.go` → `codrax.yaml` `blob_*` keys. No CLI overrides.
+**Evidence-lite runtime gate**: `BaseAgent.executeTool` → `validateAnalyzerPrescanToolCall` rejects `grep` in `StageAnalyze` when `files_only` is not true. Hard constraint: line-level matches overflow analyze's context budget. Other stages unaffected.
 
-**Precedence** for the `analysis_*` keys (lowest wins last): code default in `internal/tool/analysis_limits.go` (`DefaultAnalysisLimits`) → `codrax.yaml` `analysis_*` keys. No CLI overrides. `analysis_warn_below_keywords` (default 8) tags `emit_analysis` summaries with a soft warning when the LLM emits fewer keywords; `analysis_reject_below_keywords` (default 0 = never reject) fails the tool call when the keyword count is below a hard floor; `analysis_generic_entity_blocklist` (default: `count`, `function`, `thing`, `agent`, `handler`, `module`, and a handful of nearby generic nouns) is the lowercase word list the validator drops from `emit_analysis.entities` so ERM ranking is not poisoned by domain-neutral tokens. Set the blocklist to `[]` to disable the filter. `analysis_reject_multiple_emit` (default false) drives the analyzer's call-count gate in `analyzer.ParseOutput`: when the LLM invokes `emit_analysis` more than once in a single analyze dispatch, false logs a warning and keeps the last write, true additionally sets `StageOutput.Error` so eval harnesses see a loud signal. The 0-call branch is never gated by this knob — when the LLM fails to call emit_analysis, the analyzer returns a hard `StageOutput.Error`. The orchestrator's `runAnalyzePhase` retries up to `MaxRetriesPerStage` times; after the budget is exhausted the entire Run terminates without entering the task phase. `analysis_max_prescan_rounds` (default 2) is the runtime hard-enforcement of the analyze stage's "1-2 rounds then emit_analysis" ceiling — `analyzerEvaluator.Observe` counts PhaseMidLoop iterations whose last-executed tool was a pre-scan navigation tool (`repo_map` / `grep` / `list_files`), and once the count strictly exceeds this value the next pre-scan triggers a `LoopSignal{StopRequested: true}` that BaseAgent honors as a force-stop. The ParseOutput failsafe then returns a hard `StageOutput.Error` (same code path as the 0-call branch), and the two diagnostic keys `analysis_prescan_rounds` / `analysis_prescan_budget_exhausted` on `StageOutput.Data` tell the operator whether the runtime gate fired. Set to 0 to disable the gate entirely (escape hatch for tuning). Mixed batches where `emit_analysis` runs after a pre-scan tool in the same iteration are NOT counted as pre-scan rounds because `obs.LastToolResult` points at whichever tool ran last — `emit_analysis` as "last" is the desired end state. `gate_coverage_min`, `gate_coverage_weight_symbol`, `gate_coverage_weight_config`, `gate_coverage_weight_concept`, `gate_hypothesis_min_priority` tune the analyzer quality gate thresholds (loaded via `gate.SetGlobalThresholds` in `cmd/root.go`). `explore_per_tool_default_cap` sets the default per-tool ceiling for the sourcemix throttler in explore windows. `analysis_warn_below_keyword_hit_ratio` and `analysis_warn_below_entity_hit_ratio` (both default 0 = disabled) are the soft floors for the runtime quality probe: during `emit_analysis.Execute`, the validator counts how many of the submitted keywords / entities appear as lowercase substrings in `Mutable.PrescanSummaryBlob` (populated by `analyzerEvaluator.Observe` at each successful pre-scan round), and when the fraction drops below the configured floor it attaches a `[warn: keyword_hit_ratio=0.25 (1/4) below floor 0.50]` line to the tool's Summary. The full probe is surfaced as `analysis_quality_probe` on `StageOutput.Data` regardless of threshold settings, so the explorer stage and eval harnesses can read keyword/entity hit counts and ratios from a single structured field. The probe also drives the **verified-entity whitelist** exception in `filterGenericEntitiesWithWhitelist`: when the LLM emits a generic-blocklist term (e.g. `Agent`, `Handler`) that ALSO appears in the pre-scan seen-blob, the validator KEEPS the entity (recording it under the `kept_generic_verified_entities` warning) instead of dropping it — a real symbol named `Agent` is rescued whenever the pre-scan confirmed it exists in the target repo. When `Mutable.PrescanSummaryBlob` is empty (no pre-scan fired, or analyzer ran on a fresh Mutable), the whitelist is inactive and the historical strict drop behavior is preserved byte-for-byte.
+### Runtime subsystems
 
-**Precedence** for the `explore_*` heuristic keys (lowest wins last): code default in `types.DefaultExploreHeuristics()` → `codrax.yaml` `explore_*` keys. No CLI overrides. These keys tune the explorer evaluator's mid-loop (`observeMidLoop`) and soft-stop (`observeSoftStop`) detection branches. Zero or omitted means "use code default". The full list:
+- **`internal/logging`** — leveled logger, 4 MB rotation, default 7-file retention (`log_max_files`). Files named `codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`. `IsPidAlive` + `FileTimeLayout` reused by `internal/tool/blob`.
+- **`internal/memory`** — multi-turn REPL store. Recent turns on disk under `turns/turn-<unix-nano>-<pid>.md`; oldest LLM-summarized into `MEMORY.md` when recent buffer exceeds limits. `BuildContext(request)` prepends recent + keyword-matched compacted turns as `## Prior conversation\n...\n\n## Current request\n...`.
+- **`internal/repl`** — line-by-line interactive loop. History flows as part of the request string; no BusContext changes.
+- **`internal/tool/blob`** — per-process blob storage. Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`, assigned to `BusContext.WorkDir`. `PruneBlobSessions` honors live-PID.
 
-| YAML key | Default | What it controls |
-|---|---|---|
-| `explore_midloop_min_iteration` | 2 | Mid-loop checks skipped for iterations below this value |
-| `explore_serial_batch_threshold` | 2 | Batch size ≤ this counts as "serial-ish"; > this resets streak. Catches 1-grep + 1-read pairs |
-| `explore_serial_streak_threshold` | 2 | Parallel-batching cue fires after this many consecutive serial-ish rounds |
-| `explore_partial_read_line_threshold` | 150 | Unread lines ≤ this → direct read_file hint; above → grep-then-read hint (both mid-loop and soft-stop) |
-| `explore_midloop_enum_coverage` | 0.6 | Mid-loop enumeration early warning fires when file coverage < this ratio |
-| `explore_softstop_enum_coverage` | 0.8 | Soft-stop enumeration hard gate fires when file coverage < this ratio |
-| `explore_phase0_min_discovered_files` | 3 | Phase 0 quality gate requires at least this many discovered files before transitioning to Phase 1 |
-| `explore_phase0_max_broaden_attempts` | 2 | Maximum "broaden your search" hints when Phase 0 discovers zero files |
-| `explore_symbol_min_len_method` | 3 | Minimum symbol name length for methods/functions in the unanalyzed-symbol detector |
-| `explore_symbol_min_len_other` | 8 | Minimum symbol name length for types/constants in the unanalyzed-symbol detector |
-| `explore_max_prescanned_pushes` | 3 | Maximum "read unread files" pushes before stopping idle-streak resets |
-| `explore_cv_preview_max_len` | 1500 | Maximum byte length for concrete-values preview in soft-stop coverage hint |
-| `explore_parallel_unread_floor` | 2 | Minimum unread files for parallel-batching cue to fire |
-| `explore_enum_midloop_unread_floor` | 2 | Minimum unread files for mid-loop enumeration check to fire |
-| `explore_erm_suggest_limit` | 3 | Maximum ERM file suggestions in the gap-directed hint |
+### Response language
 
-**Precedence** for the `agent_*` keys (lowest wins last): code default in `types.DefaultAgentSettings()` → `codrax.yaml` `agent_*` keys. No CLI overrides. These keys tune per-agent behavioral limits (iteration caps, loop policy, correction retries). Zero or omitted means "use code default". The full list:
-
-| YAML key | Default | What it controls |
-|---|---|---|
-| `agent_max_iterations` | 20 | ReAct loop ceiling for all agents |
-| `agent_max_tool_history_bytes` | 153600 | Cumulative byte budget for "tool" role messages kept verbatim; older messages are stubbed |
-| `agent_loop_min_inject_interval` | 3 | Minimum iterations between two accepted LoopPolicy hint injections |
-| `agent_loop_max_continuations` | 5 | Maximum soft-stop continuation hints per dispatch |
-| `agent_loop_max_midloop_injects` | 6 | Maximum mid-loop hint injections per dispatch |
-| `agent_loop_idle_stop_threshold` | 2 | Consecutive idle iterations before LoopPolicy force-stops the loop |
-| `agent_finalizer_max_correction_retries` | 2 | Soft-stop correction retries when emit_answer_document is missing |
-| `agent_extractor_max_correction_retries` | 1 | Soft-stop correction retries when emit_answer_symbol is missing on list_of_symbols questions |
-| `agent_investigation_complete_policy` | `soft` | How the DAG scheduler treats explore nodes when emit_investigation_complete was called. `soft` = lower evidence_count threshold to >=1; `override` = skip criteria entirely, mark all explore nodes done; `strict` = ignore the signal, enforce template thresholds unconditionally |
-| `agent_subtopic_prescan_extra` | 1 | Extra prescan rounds per 2 sub-topics when `RequestModel.SubTopics > 1`. Adjusted prescan budget capped at base+2 (max 4 total) |
-| `agent_subtopic_explorer_extra` | 3 | Extra explorer ReAct iterations per sub-topic. Adjusted MaxIterations capped at 35 |
-| `agent_subtopic_pipeline_extra` | 5 | Extra pipeline steps per sub-topic. Adjusted step budget capped at 100 |
-| `agent_subtopic_retry_extra` | 1 | Extra retry budget per 2 sub-topics. Adjusted retry budget capped at 5 |
-
-**Precedence** for the `memory_*` keys (lowest wins last): code default in `types.DefaultMemorySettings()` → `codrax.yaml` `memory_*` keys. No CLI overrides. These keys tune the multi-turn REPL memory store's buffer sizes and context-building limits. Zero or omitted means "use code default". The full list:
-
-| YAML key | Default | What it controls |
-|---|---|---|
-| `memory_max_recent_turns` | 6 | Number of recent turns kept verbatim before the oldest is LLM-summarized into MEMORY.md |
-| `memory_max_recent_bytes` | 20480 | Total byte budget for the recent turn buffer; exceeded → oldest compacted |
-| `memory_max_turn_body_bytes` | 65536 | Maximum size of a single turn's request+response stored to disk; larger turns are tail-truncated |
-| `memory_max_build_context_matches` | 3 | Maximum compacted index entries inlined into BuildContext per request |
-| `memory_max_inlined_turn_bytes` | 8192 | Maximum bytes from a single matched compacted turn inlined into BuildContext |
-| `memory_max_build_context_total_bytes` | 32768 | Total byte budget for all inlined compacted turns in BuildContext |
-
-**Evidence-lite runtime enforcement (pre-execution gate).** In addition to the `MaxPrescanRounds` round-count gate, `BaseAgent.executeTool` runs a pre-execution parameter check at `internal/agent/agent.go` (`validateAnalyzerPrescanToolCall`) that rejects a `grep` tool call when the current dispatch is `StageAnalyze` AND the call omits `files_only=true`. Line-level grep results overflow the analyze stage's context budget and pollute the pre-scan seen-blob with irrelevant code snippets, so this is a hard constraint rather than a prompt-only hint. The violation path synthesizes a failed `ToolResult` with a descriptive Summary — the LLM sees a normal tool-error in the next iteration's message stream and can retry within the same dispatch. Other stages (explore, extract, finalize) are unaffected: the explorer routinely needs line-level grep matches for deep investigation.
-
-`cmd/root.go` applies the runtime overrides into a local `types.PipelineSettings` and via `tool.SetBlobLimits` + `tool.SetAnalysisLimits` immediately after `LoadRuntimeSettings`, before any agent or tool runs. Override the entry file with `CODRAX_SETTINGS=path/to/codrax.yaml` to bootstrap an entire environment (since `providers_config` paths can live in `codrax.yaml`).
-
-**Path anchoring (two domains).** `cmd/root.go` resolves relative paths against one of two anchors depending on what the path names:
-
-- `configAnchor = exeDir` — applied to `providers_config`. Configuration files live next to the binary so one install maps to one config tree, regardless of CWD.
-- `runtimeAnchor = <CWD>/.codrax/` — applied to `log_dir`, `memory_dir`, `cache_dir`, and the blob session root. Runtime artifacts follow the user's current workspace, not the install location. The directory is created at startup via `os.MkdirAll`.
-
-Both anchors are resolved to absolute paths *before* flag registration, so `-h` shows the final path. User-supplied flag values are passed through verbatim. `-repo` is excluded from anchoring — its default `.` always means CWD because it names a target, not tool state. Legacy `config/` lookup paths (see the lookup order table above) still work and emit a one-time deprecation warning.
-
-**Per-target-repo namespacing.** Default `log_dir` and `memory_dir` get an extra `<basename>-<fnv32>` suffix derived from the absolute, symlink-resolved `-repo` path, so multiple target repos sharing one codrax install keep their logs and conversation memory in disjoint subtrees (`<CWD>/.codrax/logs/foo-a3f9c2b1/`, `<CWD>/.codrax/memory/foo-a3f9c2b1/`). The slug is baked into the flag default so `-h` shows the final path; if the user overrides `-repo` on the command line and leaves `-log-dir`/`-memory-dir` defaulted, `cmd/root.go` re-slugs after flag parse. Explicit `-log-dir`/`-memory-dir` always wins — opting out is one flag away. The slug uses the resolved absolute path so reaching the same repo via different CWDs or symlinks lands in the same memory bucket. The blob session root is *not* per-repo-namespaced: all runs from the same process share one `<CWD>/.codrax/blob/<timestamp>-<pid>/` directory, because blob files are content-addressed (`<tool>-<sha8>.txt`) and identical output across repos deduplicates naturally.
-
-**Multi-instance concurrency model.** Once two codrax processes can land in the same repo slug, the logging and memory subsystems both have to tolerate concurrent writers. The contract is enforced at two layers, both pure stdlib (no `golang.org/x/sys`):
-
-- *Logging.* Filenames carry the writer's PID: `codrax-<timestamp>-<pid>.log`. Every `NewFromFlags` call always opens a fresh file (the legacy "resume into the newest existing file" path was removed because the PID suffix already isolates each process). The retention sweeper in `pruneOldFiles` parses the PID out of each filename and skips deletion if `isPidAlive` reports the owning process is still running, so instance A's rotation never tears instance B's active log file out from under it. PID liveness is `syscall.Kill(pid, 0)` on Unix and `OpenProcess` + `GetExitCodeProcess` on Windows, both behind `//go:build` tags in `internal/logging/pid_{unix,windows}.go`.
-
-- *Memory.* Two file locks govern the directory: `MEMORY.md.lock` is a per-operation flock — shared for `loadIndex`/`BuildContext`, exclusive for `appendIndexEntry`/`Clear`/`compactOldest`. Every operation reloads `s.index` from disk after acquiring the lock so the in-process cache never lags behind a peer's writes. `.instance.lock` is a *lifetime* shared lock used purely for presence detection: at `NewStore` time we try a non-blocking exclusive on it; success means we are the only Store on this directory and may safely run `loadOrphanRecent` to recover the tail of a crashed previous session. Failure means peers exist, the un-compacted turn files in `turns/` belong to their recent buffers, and orphan recovery is skipped to avoid double-compaction. After recovery the alone-Store atomically downgrades to shared (Linux: `flock(LOCK_SH)` in place; Windows: unlock+re-lock with a window that is harmless because no `Append` has happened yet). Turn IDs include the PID (`turn-<unix-nano>-<pid>`) so two processes never collide on a turn filename. The Windows file-lock primitives (`LockFileEx`/`UnlockFileEx`) are not exported by stdlib `syscall` in Go 1.22, so `internal/memory/lock_windows.go` calls them through `syscall.NewLazyDLL("kernel32.dll")` to keep the dependency footprint at zero.
-
-### Runtime subsystems (`internal/logging`, `internal/memory`, `internal/repl`, `internal/tool/blob`)
-
-- **`internal/logging`** — leveled logger (`error/warning/info/debug`) writing to `<CWD>/.codrax/logs/<repo-slug>/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log` with 4 MB rotation and a default 7-file retention cap (overridable via `log_max_files` in `codrax.yaml`; `logging.SetMaxTotalFiles` is called from `cmd/root.go` before the first logger constructs). Each process always opens a fresh PID-stamped file; `pruneOldFiles` skips files whose embedded PID is still a live process. The `logging.IsPidAlive` and `logging.FileTimeLayout` exports are reused by `internal/tool/blob.go` so blob session pruning follows the same multi-instance safety rules as log retention. Package-level `Error/Warning/Info/Debug` free functions delegate to `logging.Default`, initialized from `cmd/root.go`. A debug-gated `[diag ...]` trace in `BaseAgent.Execute` dumps the full ReAct loop (initial prompt, assistant turns, tool results, stop reason) when `-log-level debug` is set.
-- **`internal/memory`** — multi-turn REPL store. Recent turns live in-memory + verbatim on disk under `<CWD>/.codrax/memory/<repo-slug>/turns/<id>.md` where `<id>` = `turn-<unix-nano>-<pid>`. Once the recent buffer exceeds 6 turns or 20 KB, the oldest is LLM-summarized into a `{topic, keywords, summary, full_ref}` entry appended to `MEMORY.md` in the same directory. Cross-process safety: a per-operation flock on `MEMORY.md.lock` serializes mutations and reloads the in-process index after each acquire so peers' writes are immediately visible; a lifetime shared lock on `.instance.lock` lets `NewStore` decide via a non-blocking exclusive try whether it's alone in the directory and may safely run orphan recovery — when peers are present, recovery is skipped to prevent double compaction. On a *true* fresh start (alone, previous session crashed or exited), `NewStore` parses `MEMORY.md` *and* resurrects orphan turns into the recent buffer so the tail of the last session survives crash/Ctrl-C. `BuildContext(request)` assembles a prompt block with recent turns plus keyword-matching compacted entries (index entry + inlined full turn).
-- **`internal/repl`** — interactive loop. Reads one line at a time, injects prior conversation via `Store.BuildContext` prepended as `## Prior conversation\n...\n\n## Current request\n...` (zero changes to BusContext or any agent — history flows as part of the request string). Slash commands: `/exit /quit /clear /history /compact /help`.
-- **`internal/tool/blob`** — per-process blob storage for large tool outputs. `cmd/root.go` creates one session directory `<CWD>/.codrax/blob/<timestamp>-<pid>/` at startup (named via `tool.SessionDirName()`, aligned with `logging.FileTimeLayout`) and passes it to the orchestrator via `SetBlobSessionDir`. `Orchestrator.Run` assigns it to `BusContext.WorkDir` for every Run in this process; no per-Run teardown, so debugging can inspect the blob tree after the fact. `tool.PruneBlobSessions(base, N)` runs once at startup and deletes the oldest session directories until only `blob_max_sessions` remain, skipping any session whose embedded PID is still a live peer process (same multi-instance safety as log retention). Setting `blob_max_sessions: 0` disables the persistent layout entirely and reverts to the legacy per-trace `os.MkdirTemp + RemoveAll` behavior.
-
-### Response language switch
-
-`cmd/root.go` passes a `-lang` (default `zh`) through `orchestrator.SetLanguage`. Inside `Run()`, a language directive is appended to `BusContext.Preferences`, which `context/builder.go` renders as a "User Preferences" system section on every agent prompt. The directive always includes a fallback clause so a question asked in another language is answered in that language. Set `-lang=off` (or `none`) to revert to the pre-feature behavior.
+`-lang` (default `zh`) → `orchestrator.SetLanguage` → appended to `BusContext.Preferences` → rendered as a "User Preferences" system section. Always includes a fallback clause so a question in another language is answered in that language. `-lang=off` / `none` reverts.
 
 ## Dependencies
 
-Minimal: only `gopkg.in/yaml.v3`. Go 1.22.5. No external build tools, linters, or CI configuration.
+`gopkg.in/yaml.v3` only. Go 1.22.5. No linters, no CI config.
