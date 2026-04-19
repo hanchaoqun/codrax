@@ -136,7 +136,81 @@ var versionCmd = &cobra.Command{
 
 // Execute runs the root command.
 func Execute() error {
+	return ExecuteArgs(os.Args[1:])
+}
+
+// ExecuteArgs runs the root command with an explicit argv slice.
+// A small compatibility normalizer rewrites accidentally-single-dashed
+// long flags like `-request` to their canonical `--request` form so
+// historical docs and muscle memory do not silently corrupt the value
+// into `-r equest`.
+func ExecuteArgs(args []string) error {
+	rootCmd.SetArgs(normalizeCompatArgs(args))
 	return rootCmd.Execute()
+}
+
+// compatLongFlagNames is the allowlist of long-form codrax flags we
+// accept in the legacy single-dash form for CLI compatibility.
+var compatLongFlagNames = map[string]struct{}{
+	"providers":                 {},
+	"repo":                      {},
+	"branch":                    {},
+	"request":                   {},
+	"pipeline-max-steps":        {},
+	"log-dir":                   {},
+	"log-level":                 {},
+	"log-stdout":                {},
+	"memory-dir":                {},
+	"cache-dir":                 {},
+	"lang":                      {},
+	"pipeline-max-retries":      {},
+	"pipeline-max-stage-visits": {},
+}
+
+// normalizeCompatArgs rewrites known codrax long flags from the
+// historical single-dash spelling (`-request`) to the canonical POSIX
+// form (`--request`). It is intentionally narrow:
+//
+//   - only names in compatLongFlagNames are rewritten
+//   - short flags like `-r` are left untouched
+//   - `--` terminates rewriting, preserving positional args verbatim
+func normalizeCompatArgs(args []string) []string {
+	if len(args) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(args))
+	stop := false
+	for _, arg := range args {
+		if stop || arg == "--" {
+			out = append(out, arg)
+			if arg == "--" {
+				stop = true
+			}
+			continue
+		}
+		if !strings.HasPrefix(arg, "-") || strings.HasPrefix(arg, "--") || arg == "-" {
+			out = append(out, arg)
+			continue
+		}
+
+		name, value, hasEq := strings.Cut(strings.TrimPrefix(arg, "-"), "=")
+		if len(name) <= 1 {
+			out = append(out, arg)
+			continue
+		}
+		if _, ok := compatLongFlagNames[name]; !ok {
+			out = append(out, arg)
+			continue
+		}
+
+		if hasEq {
+			out = append(out, "--"+name+"="+value)
+			continue
+		}
+		out = append(out, "--"+name)
+	}
+	return out
 }
 
 // rootRun dispatches to single-shot or REPL mode.

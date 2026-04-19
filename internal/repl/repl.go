@@ -1,6 +1,6 @@
 // Package repl implements the interactive multi-turn loop for codrax.
 //
-// When the binary is launched with no -request, main.go hands control
+// When the binary is launched with no --request, main.go hands control
 // to this package. Each user line is dispatched as a fresh
 // orchestrator.Run, with prior conversation injected into the request
 // string via memory.Store.BuildContext. Slash commands manipulate the

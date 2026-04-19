@@ -18,9 +18,9 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 ```
 
 ```bash
-./codrax -repo . -branch main -request "task" -pipeline-max-steps 50
+./codrax --repo . --branch main --request "task" --pipeline-max-steps 50
 ./codrax                      # interactive REPL (/exit /clear /history /compact /help)
-./codrax -log-level debug -log-stdout -request "task"
+./codrax --log-level debug --log-stdout --request "task"
 ```
 
 ## Architecture

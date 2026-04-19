@@ -206,6 +206,7 @@ var canonicalSystemSectionOrder = []string{
 	"Think Aloud",
 	"Constraints",
 	"User Preferences",
+	"Pipeline State",
 	"Skill Goal",
 	"Workflow",
 	"Output Format",
@@ -233,7 +234,6 @@ var canonicalUserSectionOrder = []string{
 	"Dataflow Findings",
 	"Hypothesis Verdicts",
 	"Relevant Files",
-	"Missing Piece",
 }
 
 // BuildPromptContext assembles the final prompt payload from an
@@ -245,8 +245,10 @@ var canonicalUserSectionOrder = []string{
 // constraints, preferences, the skill's declarative sections (Goal /
 // Workflow / Output Format / Prohibitions), and the generic per-
 // dispatch context (user request, retry directive, prior findings,
-// facts, evidence, flow findings, hypothesis verdicts, relevant files,
-// missing piece). The canonical titles and their relative order are
+// facts, evidence, flow findings, hypothesis verdicts, relevant files).
+// Internal orchestration state like MissingPiece is rendered in the
+// system block as Pipeline State so it cannot be mistaken for user
+// wording. The canonical titles and their relative order are
 // pinned by canonicalSystemSectionOrder and canonicalUserSectionOrder
 // above so additions stay grep-visible from both the builder and the
 // evaluator sides.
@@ -316,6 +318,18 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	}
 
 	// Skill instructions — merged into system sections
+	if ac.MissingPiece != types.MissingNone {
+		pc.SystemSections = append(pc.SystemSections, types.PromptSection{
+			Title: "Pipeline State",
+			Content: fmt.Sprintf(
+				"Current missing piece for scheduler state: %s.\n"+
+					"Treat this as internal orchestration metadata, NOT as part of the user's request, "+
+					"NOT as a code entity, and NOT as a search keyword unless the user explicitly asked about it.",
+				ac.MissingPiece,
+			),
+		})
+	}
+
 	pc.SystemSections = append(pc.SystemSections,
 		types.PromptSection{
 			Title:   "Skill Goal",
@@ -639,13 +653,6 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Relevant Files",
 			Content: strings.Join(ac.RelevantFiles, "\n"),
-		})
-	}
-
-	if ac.MissingPiece != types.MissingNone {
-		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Missing Piece",
-			Content: fmt.Sprintf("Currently missing: %s", ac.MissingPiece),
 		})
 	}
 
@@ -1111,14 +1118,14 @@ const (
 // information. repo_map's raw output is a structural digest already
 // covered by the Investigation Summary.
 var rawToolOutputSkipTools = map[string]bool{
-	"emit_evidence":                true,
-	"emit_investigation_complete":  true,
-	"emit_answer_symbol":           true,
-	"emit_hypothesis_verdict":      true,
-	"emit_answer_document":         true,
-	"emit_analysis":                true,
-	"propose_sub_agents":           true,
-	"repo_map":                     true,
+	"emit_evidence":               true,
+	"emit_investigation_complete": true,
+	"emit_answer_symbol":          true,
+	"emit_hypothesis_verdict":     true,
+	"emit_answer_document":        true,
+	"emit_analysis":               true,
+	"propose_sub_agents":          true,
+	"repo_map":                    true,
 }
 
 // rawToolOutputPreamble instructs the finalizer on how to consume the

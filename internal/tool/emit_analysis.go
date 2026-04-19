@@ -239,6 +239,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	entities = val.FilteredEntities
+	if reason := rejectDegenerateClassification(intent, kind, shape, keywords, entities); reason != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + reason,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
@@ -281,6 +289,32 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+// rejectDegenerateClassification blocks the fully-collapsed
+// classification that otherwise passes emit_analysis and only dies
+// later in the analyzer quality gate. The check is intentionally
+// narrow so genuinely ambiguous but term-bearing requests still flow.
+func rejectDegenerateClassification(
+	intent types.Intent,
+	kind string,
+	shape string,
+	keywords []string,
+	entities []string,
+) string {
+	if intent != types.IntentUnknown {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(kind), "unknown") {
+		return ""
+	}
+	if !strings.EqualFold(strings.TrimSpace(shape), "none") {
+		return ""
+	}
+	if len(keywords) > 0 || len(entities) > 0 {
+		return ""
+	}
+	return "degenerate classification (intent=unknown, question_kind=unknown, answer_shape=none, keywords=0, entities=0). Re-read the User Request section only and emit at least one real keyword/entity or choose a concrete question_kind/answer_shape."
 }
 
 // parseAnswerSubject coerces the optional emit_analysis.answer_subject
@@ -508,17 +542,17 @@ var subTopicPollutionMarkers = []string{
 
 // sanitizeSubTopics scrubs every sub-topic summary through:
 //
-//   1. types.StripConversationPrefix — strips a full REPL prefix
-//      when the LLM pasted the whole effective-request wrapper.
-//   2. Pollution-marker check on what remains. When any marker is
-//      still present, the summary is considered unusable prose and
-//      is replaced by a comma-joined entity list if available, else
-//      emptied. An empty summary causes compiler.expandEvidenceNodes
-//      and the renderer to fall back to the node ID — ugly, but less
-//      misleading than rendering "## Prior conversation ..." as a
-//      sub-topic title.
-//   3. Whitespace + length cap at subTopicSummaryMaxChars so a
-//      pasted paragraph cannot dominate the live task-row width.
+//  1. types.StripConversationPrefix — strips a full REPL prefix
+//     when the LLM pasted the whole effective-request wrapper.
+//  2. Pollution-marker check on what remains. When any marker is
+//     still present, the summary is considered unusable prose and
+//     is replaced by a comma-joined entity list if available, else
+//     emptied. An empty summary causes compiler.expandEvidenceNodes
+//     and the renderer to fall back to the node ID — ugly, but less
+//     misleading than rendering "## Prior conversation ..." as a
+//     sub-topic title.
+//  3. Whitespace + length cap at subTopicSummaryMaxChars so a
+//     pasted paragraph cannot dominate the live task-row width.
 //
 // The original slice is not mutated — callers get a freshly-allocated
 // sub-topic list with the cleaned Summary fields.

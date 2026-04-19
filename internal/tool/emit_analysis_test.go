@@ -671,6 +671,36 @@ func TestEmitAnalysis_Execute_RejectPathDoesNotPersist(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_Execute_RejectsDegenerateClassification(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "unknown",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": [],
+		"entities": [],
+		"question_kind": "unknown",
+		"answer_shape": "none"
+	}`
+	res, mu := runEmitAnalysis(t, payload)
+
+	if res.Success {
+		t.Fatalf("degenerate classification must fail, got summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "degenerate classification") {
+		t.Errorf("reject Summary should name the degenerate classification, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "User Request section only") {
+		t.Errorf("reject Summary should point the model back to the User Request, got %q", res.Summary)
+	}
+	if rm := mu.RequestModel(); rm != nil {
+		t.Errorf("degenerate reject must not persist RequestModel, got %+v", rm)
+	}
+}
+
 func TestEmitAnalysis_Execute_GenericEntitiesDropped(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })

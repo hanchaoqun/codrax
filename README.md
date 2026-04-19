@@ -48,21 +48,21 @@ make test
 ## 运行
 
 ```bash
-# 交互模式（默认，无 -request 即进入）
+# 交互模式（默认，无 --request 即进入）
 ./codrax
 #   You> 提示符，支持 /exit /clear /history /compact /help 斜杠命令
 #   多轮对话自动保存到 memory/<repo-slug>/MEMORY.md + .../turns/，重启续接
 #   /clear 会显示当前还有几个其它实例在用同一份 memory，并要求确认
 
 # 单次运行
-./codrax -request "解释 explorer 的 ShouldStop 是怎么决定的"
+./codrax --request "解释 explorer 的 ShouldStop 是怎么决定的"
 
 # 诊断模式（debug 级别 ReAct trace 写入 logs/ 同时镜像到 stdout）
-./codrax -log-level debug -log-stdout -request "your question"
+./codrax --log-level debug --log-stdout --request "your question"
 
 # 多目标仓使用：日志和 memory 自动按 -repo 路径生成 hash slug 隔离
-./codrax -repo /path/to/repoA -request "..."
-./codrax -repo /path/to/repoB -request "..."   # 不会和 repoA 混在一起
+./codrax --repo /path/to/repoA --request "..."
+./codrax --repo /path/to/repoB --request "..."   # 不会和 repoA 混在一起
 ```
 
 ## 配置

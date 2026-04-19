@@ -16,7 +16,7 @@ func TestBuildAgentContext(t *testing.T) {
 		RepoRoot:      "/tmp/repo",
 		Branch:        "main",
 		Commit:        "abc123",
-		Mutable: types.NewMutableState("Fix the bug"),
+		Mutable:       types.NewMutableState("Fix the bug"),
 		TaskState: types.TaskState{
 			Stage:   types.StageExplore,
 			Missing: types.MissingFacts,
@@ -134,6 +134,22 @@ func TestBuildPromptContext(t *testing.T) {
 		}
 	})
 
+	t.Run("missing piece moves to pipeline state", func(t *testing.T) {
+		sec := findSystemSection(pc, "Pipeline State")
+		if sec == nil {
+			t.Fatal("system sections missing Pipeline State")
+		}
+		if !strings.Contains(sec.Content, string(types.MissingUnderstanding)) {
+			t.Errorf("Pipeline State missing missing-piece detail, got %q", sec.Content)
+		}
+		if !strings.Contains(sec.Content, "NOT as part of the user's request") {
+			t.Errorf("Pipeline State should explain the control/data boundary, got %q", sec.Content)
+		}
+		if findSectionTitle(pc, "Missing Piece") != nil {
+			t.Error("Missing Piece must not render as a user section")
+		}
+	})
+
 	t.Run("user sections include user request first", func(t *testing.T) {
 		if len(pc.UserSections) == 0 {
 			t.Fatal("expected user sections to be populated")
@@ -242,7 +258,7 @@ func TestE2E_PromptRelevantFilesContainsPaths(t *testing.T) {
 		PipelineStage: types.StageFinalize,
 		RepoRoot:      "/tmp/repo",
 		RepoFacts:     facts,
-		Mutable: types.NewMutableState("test"),
+		Mutable:       types.NewMutableState("test"),
 	}
 
 	ac := BuildAgentContext(bus, types.AgentFinalizer, types.StageFinalize)
@@ -346,8 +362,8 @@ func TestBuildSubAgentContextFilterScopeUsesLogicalSource(t *testing.T) {
 
 func TestBuildPromptContextIncludesStructuredEvidenceAndDataflow(t *testing.T) {
 	ac := &types.AgentContext{
-		AgentName:     types.AgentExplorer,
-		Stage:         types.StageExplore,
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
 		Objective: "Investigate registration flow",
 		EvidenceItems: []types.EvidenceItem{
 			{
@@ -654,10 +670,10 @@ func TestBuildPromptContext_RendersHypothesisVerdictsSection(t *testing.T) {
 		{HypothesisID: "H2", Status: types.HypInconclusive, Rationale: "no conclusive cite"},
 	})
 	ac := &types.AgentContext{
-		AgentName:   types.AgentFinalizer,
-		Stage:       types.StageFinalize,
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
 		Objective: "q",
-		Mutable:     mu,
+		Mutable:   mu,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "final-answer-skill"})
 
@@ -675,10 +691,10 @@ func TestBuildPromptContext_RendersHypothesisVerdictsSection(t *testing.T) {
 func TestBuildPromptContext_SkipsHypothesisVerdictsWhenEmpty(t *testing.T) {
 	mu := types.NewMutableState("")
 	ac := &types.AgentContext{
-		AgentName:   types.AgentFinalizer,
-		Stage:       types.StageFinalize,
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
 		Objective: "q",
-		Mutable:     mu,
+		Mutable:   mu,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 	if findSectionTitle(pc, "Hypothesis Verdicts") != nil {
@@ -688,10 +704,10 @@ func TestBuildPromptContext_SkipsHypothesisVerdictsWhenEmpty(t *testing.T) {
 
 func TestBuildPromptContext_SkipsHypothesisVerdictsWhenMutableNil(t *testing.T) {
 	ac := &types.AgentContext{
-		AgentName:   types.AgentFinalizer,
-		Stage:       types.StageFinalize,
+		AgentName: types.AgentFinalizer,
+		Stage:     types.StageFinalize,
 		Objective: "q",
-		Mutable:     nil,
+		Mutable:   nil,
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "s"})
 	if findSectionTitle(pc, "Hypothesis Verdicts") != nil {
