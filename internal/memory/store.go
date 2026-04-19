@@ -199,13 +199,23 @@ func NewStore(dir string, summarizer Summarizer, ms types.MemorySettings) (*Stor
 		_ = flock.close()
 		return nil, err
 	}
-	sidecar := filepath.Join(dir, fmt.Sprintf("%s%d-%d", sidecarPrefix, os.Getpid(), time.Now().UnixNano()))
-	if f, err := os.OpenFile(sidecar, os.O_CREATE|os.O_WRONLY|os.O_EXCL, 0o644); err == nil {
-		_ = f.Close()
-	} else if !errors.Is(err, os.ErrExist) {
+	// Use a create-temp pattern instead of pid+timestamp alone. On
+	// Windows multiple NewStore calls in the same process can land in
+	// the same clock tick, and silently sharing one sidecar would make
+	// LivePeerCount undercount peers and let one Close() remove another
+	// Store's marker.
+	sidecarFile, err := os.CreateTemp(dir, fmt.Sprintf("%s%d-", sidecarPrefix, os.Getpid()))
+	if err != nil {
 		_ = instanceLock.close()
 		_ = flock.close()
 		return nil, fmt.Errorf("create instance sidecar: %w", err)
+	}
+	sidecar := sidecarFile.Name()
+	if err := sidecarFile.Close(); err != nil {
+		_ = os.Remove(sidecar)
+		_ = instanceLock.close()
+		_ = flock.close()
+		return nil, fmt.Errorf("close instance sidecar: %w", err)
 	}
 	ms = types.ResolvedMemorySettings(ms)
 	s := &Store{
