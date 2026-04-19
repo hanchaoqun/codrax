@@ -279,6 +279,51 @@ func TestEmitAnswerDocument_StepList_RejectsNegativeIndex(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocument_StepList_RejectsEnglishProseWhenLanguageIsChinese(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "zh"
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "这是一个中文摘要。",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "If there is no cache, it calls fullScan.", "citation_ref": 0},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 10},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("english step prose under zh request: Success = true, want false")
+	}
+	if !strings.Contains(res.Summary, "steps[0].description") {
+		t.Fatalf("language rejection should name the offending field, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_StepList_AllowsChineseProseWithCodeIdentifiers(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Language = "zh"
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "`buildOrLoadGraph` 会根据缓存情况选择不同路径。",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "如果没有缓存，就调用 fullScan。", "citation_ref": 0},
+			{"index": 2, "description": "如果没有变更，就调用 loadFromCache。", "citation_ref": 1},
+		},
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 10},
+			{"file": "a.go", "line": 20},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("chinese prose with code identifiers should pass, got reject: %q", res.Summary)
+	}
+}
+
 // -------- value + config_value --------
 
 func TestEmitAnswerDocument_Value_Happy(t *testing.T) {
@@ -548,9 +593,9 @@ func TestEmitAnswerDocument_Caveats_RoundTrip(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
 	params := mustDocJSON(t, map[string]interface{}{
-		"shape":    "explanation",
-		"summary":  "x",
-		"caveats":  []string{"note 1", "note 2"},
+		"shape":   "explanation",
+		"summary": "x",
+		"caveats": []string{"note 1", "note 2"},
 	})
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
@@ -1148,7 +1193,7 @@ func TestBuildRelationDiagram_PrefersResolutionChainEvidence(t *testing.T) {
 			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
 		// Tier 1 resolution chain — THE one we want rendered.
 		{Kind: types.EvidenceDataflowPath, Predicate: "resolution_chain",
-			Summary: "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Run()` assigns sk := &skill.Config{",
+			Summary:         "`RegisterDefaultSubAgents()` binds ONLY NewSubExplorer(deps) → `SubExplorer.Run()` assigns sk := &skill.Config{",
 			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText},
 	})
 	got := buildRelationDiagram(ctx)

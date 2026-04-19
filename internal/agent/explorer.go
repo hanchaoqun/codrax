@@ -23,35 +23,38 @@ import (
 )
 
 type explorerEvaluator struct {
-	heuristics                types.ExploreHeuristics
-	tools                     *tool.Registry
-	phase                     int                  // 0 = breadth scan, 1 = depth read
-	broadenAttempts           int                  // times we pushed for broader grep in Phase 0
-	preScannedFiles           []string             // top files from keyword search, for coverage tracking
-	allScoredFiles            []string             // ALL files from keyword search (not just top 8), for supplementary evidence
-	fileSymbols               map[string][]string  // path → symbol summaries from repo_map
-	searchResult              *keywordSearchResult // full search result for cross-reference lookups
-	exactAnchorFiles          []string             // exact-entity anchor files from keyword search, in rank order
-	investigationNotes        []string             // assistant analysis messages from ReAct loop
-	userQuestion              string               // original user question, for focus alignment
-	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
-	preScannedPushCount       int                  // times we pushed for unread pre-scanned files without progress
-	lastPreScannedUnreadCount int                  // count of unread pre-scanned files at last push
-	grepRedirectedFiles       map[string]bool      // files that already received a large-file grep redirect
-	isEnumerationQuery        bool                 // true if user question asks to list/enumerate all items
-	phase0ExtraRound          bool                 // whether we already gave one extra Phase 0 round for quality gate
-	hasPrescanRepoMap         bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
-	structuredEvidence        []types.EvidenceItem
-	flowFindings              []types.FlowFindingDigest
-	ermRequirements           []EvidenceRequirement // evidence requirement model
-	cachedConcreteValues      *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
-	midLoopLastResultsLen     int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
-	midLoopSerialStreak       int                   // #34: consecutive iters observed as single-call rounds
-	midLoopParallelInjected   bool                  // #34: parallel-batching hint already pushed this dispatch
-	midLoopSymbolRefInjected  bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
-	primaryReadIter           int                   // df3-drift: iter at which a primary-entity file first entered readSet (0 = never)
-	notesLenAtPrimaryRead     int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete     bool                  // set when emit_investigation_complete tool was observed in MidLoop
+	heuristics                 types.ExploreHeuristics
+	tools                      *tool.Registry
+	phase                      int                  // 0 = breadth scan, 1 = depth read
+	broadenAttempts            int                  // times we pushed for broader grep in Phase 0
+	preScannedFiles            []string             // top files from keyword search, for coverage tracking
+	allScoredFiles             []string             // ALL files from keyword search (not just top 8), for supplementary evidence
+	fileSymbols                map[string][]string  // path → symbol summaries from repo_map
+	searchResult               *keywordSearchResult // full search result for cross-reference lookups
+	exactAnchorFiles           []string             // exact-entity anchor files from keyword search, in rank order
+	investigationNotes         []string             // assistant analysis messages from ReAct loop
+	userQuestion               string               // original user question, for focus alignment
+	repoRoot                   string               // repository root path, cached from BuildInitialInstruction
+	preScannedPushCount        int                  // times we pushed for unread pre-scanned files without progress
+	lastPreScannedUnreadCount  int                  // count of unread pre-scanned files at last push
+	grepRedirectedFiles        map[string]bool      // files that already received a large-file grep redirect
+	isEnumerationQuery         bool                 // true if user question asks to list/enumerate all items
+	phase0ExtraRound           bool                 // whether we already gave one extra Phase 0 round for quality gate
+	hasPrescanRepoMap          bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
+	structuredEvidence         []types.EvidenceItem
+	flowFindings               []types.FlowFindingDigest
+	ermRequirements            []EvidenceRequirement // evidence requirement model
+	cachedConcreteValues       *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
+	midLoopLastResultsLen      int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
+	midLoopSerialStreak        int                   // #34: consecutive iters observed as single-call rounds
+	midLoopParallelInjected    bool                  // #34: parallel-batching hint already pushed this dispatch
+	midLoopSymbolRefInjected   bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
+	midLoopPostPrimaryInjected bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
+	midLoopEvidenceRepairSent  bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
+	primaryReadSeen            bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter            int                   // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead      int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete      bool                  // set when emit_investigation_complete tool was observed in MidLoop
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -154,6 +157,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopSerialStreak = 0
 		e.midLoopParallelInjected = false
 		e.midLoopSymbolRefInjected = false
+		e.midLoopPostPrimaryInjected = false
+		e.midLoopEvidenceRepairSent = false
+		e.primaryReadSeen = false
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
@@ -201,6 +207,10 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopLastResultsLen = 0
 	e.midLoopSerialStreak = 0
 	e.midLoopParallelInjected = false
+	e.midLoopSymbolRefInjected = false
+	e.midLoopPostPrimaryInjected = false
+	e.midLoopEvidenceRepairSent = false
+	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
 	// Per-dispatch reset of the completion flag. Without this, a
@@ -1302,15 +1312,29 @@ func filterEvidenceByPrimaryFiles(items []types.EvidenceItem, primary []string) 
 	}
 	primarySet := make(map[string]bool, len(primary))
 	for _, p := range primary {
-		primarySet[p] = true
+		p = canonicalExplorerPath(p)
+		if p != "" {
+			primarySet[p] = true
+		}
 	}
 	out := items[:0:0] // new slice, preserve original order
 	for _, ev := range items {
-		if ev.Source == "" || primarySet[ev.Source] {
+		if ev.Source == "" || primarySet[canonicalEvidenceSourcePath(ev.Source)] {
 			out = append(out, ev)
 		}
 	}
 	return out
+}
+
+func canonicalEvidenceSourcePath(source string) string {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return ""
+	}
+	if strings.HasPrefix(source, "mechanism_scan:") {
+		source = strings.TrimSpace(strings.TrimPrefix(source, "mechanism_scan:"))
+	}
+	return canonicalExplorerPath(source)
 }
 
 // observePrimaryRead detects whether any primary-entity file has
@@ -1320,10 +1344,10 @@ func filterEvidenceByPrimaryFiles(items []types.EvidenceItem, primary []string) 
 // enforce: "primary file was read AND LLM subsequently wrote fresh
 // evidence notes from that read."
 //
-// Idempotent: once primaryReadIter is set, later calls are no-ops.
+// Idempotent: once primaryReadSeen is true, later calls are no-ops.
 // Called from MidLoopCheck (runs after every tool batch).
 func (e *explorerEvaluator) observePrimaryRead(iteration int, history []types.ToolResult) {
-	if e.primaryReadIter > 0 {
+	if e.primaryReadSeen {
 		return
 	}
 	primary := e.primaryEntityFiles()
@@ -1333,12 +1357,494 @@ func (e *explorerEvaluator) observePrimaryRead(iteration int, history []types.To
 	_, readSet, _ := extractFileCoverage(history)
 	for _, pf := range primary {
 		if readSetContains(readSet, pf) {
+			e.primaryReadSeen = true
 			e.primaryReadIter = iteration
 			e.notesLenAtPrimaryRead = len(e.investigationNotes)
 			logging.Debug("[explorer] primary-entity file read at iter=%d: %s (notesAtRead=%d)",
 				iteration, pf, e.notesLenAtPrimaryRead)
 			return
 		}
+	}
+}
+
+func (e *explorerEvaluator) unreadActiveFrontierFiles(readSet map[string]bool) []string {
+	frontier := e.activeFrontierFiles(readSet, "")
+	if len(frontier) == 0 {
+		return nil
+	}
+	var unread []string
+	for _, file := range frontier {
+		if !readSetContains(readSet, file) {
+			unread = append(unread, file)
+		}
+	}
+	return unread
+}
+
+func renderPartialReadHint(h partialReadHint, smallRemainderThreshold int) string {
+	unreadLines := h.symEnd - h.readEnd
+	if unreadLines <= 0 {
+		return ""
+	}
+	if smallRemainderThreshold <= 0 {
+		smallRemainderThreshold = types.ResolvedExploreHeuristics(types.ExploreHeuristics{}).PartialReadLineThreshold
+	}
+	if unreadLines <= smallRemainderThreshold {
+		return fmt.Sprintf("MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+			"If this function is relevant to the question, call read_file with path=%q offset=%d limit=%d to see the rest.\n",
+			h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
+			h.file, h.readEnd+1, unreadLines)
+	}
+	return fmt.Sprintf("MID-LOOP CHECK: you read `%s` in `%s` up to line %d but the function spans lines %d-%d (%.0f%% covered, %d lines remaining). "+
+		"If this function is relevant to the question, grep for key identifiers within `%s` (lines %d-%d) to find the important sections, then read those specific ranges.\n",
+		h.symbolName, h.file, h.readEnd, h.symStart, h.symEnd, h.coverage*100, unreadLines,
+		h.file, h.readEnd+1, h.symEnd)
+}
+
+type anchorNextHop struct {
+	symbol     string
+	line       int
+	targetFile string
+}
+
+type symbolSpan struct {
+	start int
+	end   int
+}
+
+type evidenceRepairTarget struct {
+	file  string
+	lines []int
+}
+
+func lineWithinAnySpan(line int, spans []symbolSpan) bool {
+	if line <= 0 || len(spans) == 0 {
+		return false
+	}
+	for _, span := range spans {
+		if line >= span.start && line <= span.end {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *explorerEvaluator) primaryAnchorNextHops() (local []anchorNextHop, external []anchorNextHop) {
+	anchor, ok := e.uniqueExactAnchorFile()
+	if !ok || e.searchResult == nil || e.searchResult.Graph == nil || len(e.ermRequirements) == 0 {
+		return nil, nil
+	}
+	graph := e.searchResult.Graph
+	fi := graph.FileIndex[anchor]
+	if fi == nil {
+		return nil, nil
+	}
+
+	entities := make(map[string]string)
+	exactEntities := make(map[string]bool)
+	for _, req := range e.ermRequirements {
+		for _, ent := range req.Entities {
+			ent = strings.TrimSpace(ent)
+			if ent == "" {
+				continue
+			}
+			entities[strings.ToLower(ent)] = ent
+			exactEntities[ent] = true
+		}
+	}
+	if len(entities) == 0 {
+		return nil, nil
+	}
+
+	var exactSpans []symbolSpan
+	var fallbackSpans []symbolSpan
+	forEachMatchingDef(entities, graph, func(_, _, _ string, d *repomap.Symbol) bool {
+		if d == nil || canonicalExplorerPath(d.File) != anchor {
+			return true
+		}
+		kind := strings.ToLower(d.Kind)
+		if kind != "function" && kind != "method" {
+			return true
+		}
+		start := d.Line
+		end := d.EndLine
+		if end < start {
+			end = start
+		}
+		if start > 0 {
+			span := symbolSpan{start: start, end: end}
+			fallbackSpans = append(fallbackSpans, span)
+			if exactEntities[d.Name] {
+				exactSpans = append(exactSpans, span)
+			}
+		}
+		return true
+	})
+	spans := fallbackSpans
+	if len(exactSpans) > 0 {
+		spans = exactSpans
+	}
+	if len(spans) == 0 {
+		return nil, nil
+	}
+
+	seen := make(map[string]bool)
+	add := func(dst *[]anchorNextHop, hop anchorNextHop) {
+		if hop.symbol == "" || hop.line <= 0 {
+			return
+		}
+		key := fmt.Sprintf("%d\x00%s\x00%s", hop.line, hop.symbol, hop.targetFile)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		*dst = append(*dst, hop)
+	}
+
+	for _, rel := range fi.Relations {
+		if rel.Kind != "call" || !lineWithinAnySpan(rel.Line, spans) {
+			continue
+		}
+		symbol := strings.TrimSpace(rel.ToEP.Name)
+		if symbol == "" {
+			symbol = strings.TrimSpace(rel.To)
+		}
+		if symbol == "" {
+			continue
+		}
+		var targetFile string
+		if target := graph.ResolveCallTarget(fi, rel); target != nil {
+			if symbol == "" {
+				symbol = strings.TrimSpace(target.Name)
+			}
+			targetFile = canonicalExplorerPath(target.File)
+		}
+		if targetFile == "" {
+			if files := exactSymbolFiles(graph, symbol); len(files) == 1 {
+				resolved := canonicalExplorerPath(files[0])
+				targetFile = resolved
+			}
+		}
+		hop := anchorNextHop{
+			symbol:     symbol,
+			line:       rel.Line,
+			targetFile: targetFile,
+		}
+		if targetFile == anchor {
+			add(&local, hop)
+			continue
+		}
+		if isNoisePath(targetFile) {
+			continue
+		}
+		add(&external, hop)
+	}
+
+	sort.SliceStable(local, func(i, j int) bool {
+		if local[i].line != local[j].line {
+			return local[i].line < local[j].line
+		}
+		return local[i].symbol < local[j].symbol
+	})
+	sort.SliceStable(external, func(i, j int) bool {
+		if external[i].line != external[j].line {
+			return external[i].line < external[j].line
+		}
+		if external[i].targetFile != external[j].targetFile {
+			return external[i].targetFile < external[j].targetFile
+		}
+		return external[i].symbol < external[j].symbol
+	})
+	return local, external
+}
+
+func renderAnchorLocalGroundingHint(anchor string, hops []anchorNextHop) string {
+	if len(hops) == 0 {
+		return ""
+	}
+	if anchor == "" {
+		anchor = hops[0].targetFile
+	}
+	maxList := 4
+	if len(hops) < maxList {
+		maxList = len(hops)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Before widening to other files, stay in `%s` and ground these branch/call sites from the anchor itself:\n", anchor)
+	for _, hop := range hops[:maxList] {
+		fmt.Fprintf(&b, "  - line %d: `%s`\n", hop.line, hop.symbol)
+	}
+	b.WriteString("\nFor call evidence from these lines, keep the current containing function as `subject` and the callee on that line as `object` (caller -> callee). ")
+	b.WriteString("Use grep/read_file within the anchor around these exact lines if you still need precise gutters or snippets. Expand to other files only after these anchor-local branches are grounded.")
+	return b.String()
+}
+
+func unreadAnchorExternalTargetFiles(readSet map[string]bool, hops []anchorNextHop) []string {
+	if len(hops) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	files := make([]string, 0, len(hops))
+	for _, hop := range hops {
+		file := canonicalExplorerPath(hop.targetFile)
+		if file == "" || seen[file] || readSetContains(readSet, file) {
+			continue
+		}
+		seen[file] = true
+		files = append(files, file)
+	}
+	return files
+}
+
+func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
+	if !strings.Contains(summary, "emit_evidence accepted") {
+		return nil
+	}
+	targets := make(map[string]map[int]bool)
+	currentFile := ""
+	currentLine := 0
+	for _, raw := range strings.Split(summary, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" {
+			continue
+		}
+		if strings.HasPrefix(line, "[") {
+			at := strings.Index(line, " @ ")
+			if at < 0 {
+				currentFile = ""
+				currentLine = 0
+				continue
+			}
+			loc := strings.TrimSpace(line[at+3:])
+			if dash := strings.Index(loc, " — "); dash >= 0 {
+				loc = loc[:dash]
+			} else if dash := strings.Index(loc, " - "); dash >= 0 {
+				loc = loc[:dash]
+			}
+			colon := strings.LastIndex(loc, ":")
+			if colon < 0 {
+				currentFile = ""
+				currentLine = 0
+				continue
+			}
+			n, err := strconv.Atoi(strings.TrimSpace(loc[colon+1:]))
+			if err != nil || n <= 0 {
+				currentFile = ""
+				currentLine = 0
+				continue
+			}
+			currentFile = canonicalExplorerPath(strings.TrimSpace(loc[:colon]))
+			currentLine = n
+			continue
+		}
+		if currentFile == "" || currentLine <= 0 {
+			continue
+		}
+		if !strings.Contains(line, "recovered") && !strings.Contains(line, "ungrounded") {
+			continue
+		}
+		if targets[currentFile] == nil {
+			targets[currentFile] = make(map[int]bool)
+		}
+		targets[currentFile][currentLine] = true
+	}
+	if len(targets) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(targets))
+	for file := range targets {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	out := make([]evidenceRepairTarget, 0, len(files))
+	for _, file := range files {
+		var lines []int
+		for line := range targets[file] {
+			lines = append(lines, line)
+		}
+		sort.Ints(lines)
+		out = append(out, evidenceRepairTarget{file: file, lines: lines})
+	}
+	return out
+}
+
+func filterEvidenceRepairTargetsByFiles(targets []evidenceRepairTarget, preferred []string) []evidenceRepairTarget {
+	if len(targets) == 0 || len(preferred) == 0 {
+		return targets
+	}
+	allowed := make(map[string]bool, len(preferred))
+	for _, file := range preferred {
+		file = canonicalExplorerPath(file)
+		if file != "" {
+			allowed[file] = true
+		}
+	}
+	var kept []evidenceRepairTarget
+	for _, target := range targets {
+		if allowed[canonicalExplorerPath(target.file)] {
+			kept = append(kept, target)
+		}
+	}
+	if len(kept) > 0 {
+		return kept
+	}
+	return targets
+}
+
+func renderRepairLineList(lines []int, max int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	if max <= 0 || max > len(lines) {
+		max = len(lines)
+	}
+	parts := make([]string, 0, max+1)
+	for _, line := range lines[:max] {
+		parts = append(parts, strconv.Itoa(line))
+	}
+	if len(lines) > max {
+		parts = append(parts, "...")
+	}
+	return strings.Join(parts, ", ")
+}
+
+func renderEmitEvidenceRepairHint(targets []evidenceRepairTarget) string {
+	if len(targets) == 0 {
+		return ""
+	}
+	maxFiles := 2
+	if len(targets) < maxFiles {
+		maxFiles = len(targets)
+	}
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: some evidence you just emitted is only recovered or ungrounded, not line-text grounded yet.\n")
+	b.WriteString("Before reading other files, re-read these exact source locations and re-emit grounded evidence:\n")
+	for _, target := range targets[:maxFiles] {
+		lines := renderRepairLineList(target.lines, 4)
+		if lines == "" {
+			fmt.Fprintf(&b, "  - `%s`\n", target.file)
+			continue
+		}
+		fmt.Fprintf(&b, "  - `%s` near lines %s\n", target.file, lines)
+	}
+	b.WriteString("\nDo the repair in the existing anchor file first; only widen scope after those items ground cleanly.")
+	return b.String()
+}
+
+func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopEvidenceRepairSent || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_evidence" || !obs.LastToolResult.Success {
+		return LoopSignal{}
+	}
+	targets := parseEmitEvidenceRepairTargets(obs.LastToolResult.Summary)
+	if len(targets) == 0 {
+		return LoopSignal{}
+	}
+	if anchor, ok := e.uniqueExactAnchorFile(); ok {
+		targets = filterEvidenceRepairTargetsByFiles(targets, []string{anchor})
+	} else if primary := e.primaryEntityFiles(); len(primary) > 0 {
+		targets = filterEvidenceRepairTargetsByFiles(targets, primary)
+	}
+	if len(targets) == 0 {
+		return LoopSignal{}
+	}
+	e.midLoopEvidenceRepairSent = true
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        "explorer.mid-loop.evidence-repair",
+		Hint:           renderEmitEvidenceRepairHint(targets),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) LoopSignal {
+	if e.phase != 1 || e.midLoopPostPrimaryInjected || !e.primaryReadSeen {
+		return LoopSignal{}
+	}
+	if len(e.investigationNotes) > e.notesLenAtPrimaryRead {
+		return LoopSignal{}
+	}
+	// Only fire immediately after the first anchor-file read, before
+	// the model has had a chance to drift into a text-only soft-stop.
+	if obs.Iteration > e.primaryReadIter+1 {
+		return LoopSignal{}
+	}
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return LoopSignal{}
+	}
+	_, readSet, _ := extractFileCoverage(obs.AllToolResults)
+	if len(readSet) == 0 {
+		return LoopSignal{}
+	}
+	if partials := detectPartiallyReadSymbols(obs.AllToolResults, e.searchResult.Graph); len(partials) > 0 {
+		allowed := e.activeFrontierFileSet(readSet, "")
+		var chosen partialReadHint
+		found := false
+		for _, partial := range partials {
+			if len(allowed) > 0 && !allowed[canonicalExplorerPath(partial.file)] {
+				continue
+			}
+			chosen = partial
+			found = true
+			break
+		}
+		if !found {
+			chosen = partials[0]
+		}
+		e.midLoopPostPrimaryInjected = true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.mid-loop.post-primary-read",
+			Hint: "MID-LOOP CHECK: you just reached the primary anchor file. Do NOT stop with a prose summary yet. " +
+				"Keep using tools and finish the most relevant unread code first.\n" +
+				renderPartialReadHint(chosen, e.heuristics.PartialReadLineThreshold),
+			Progress: true,
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString("MID-LOOP CHECK: you just reached the primary anchor file. Do NOT stop with a prose summary yet. Continue with tools.\n")
+	if obs.LastToolResult != nil && obs.LastToolResult.ToolName == "read_file" {
+		b.WriteString("First, emit grounded evidence from what you just read if you have not done so yet. ")
+	} else {
+		b.WriteString("You already have first-pass evidence from the anchor. ")
+	}
+
+	anchor, _ := e.uniqueExactAnchorFile()
+	localHops, externalHops := e.primaryAnchorNextHops()
+	if len(localHops) > 0 {
+		b.WriteString(renderAnchorLocalGroundingHint(anchor, localHops))
+		e.midLoopPostPrimaryInjected = true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.mid-loop.post-primary-read",
+			Hint:          b.String(),
+			Progress:      true,
+		}
+	}
+
+	unread := unreadAnchorExternalTargetFiles(readSet, externalHops)
+	if len(unread) == 0 {
+		unread = e.unreadActiveFrontierFiles(readSet)
+	}
+	if len(unread) == 0 {
+		return LoopSignal{}
+	}
+	maxList := 3
+	if len(unread) < maxList {
+		maxList = len(unread)
+	}
+	b.WriteString("Keep tracing the mechanism through one of these next-hop files:\n")
+	for _, file := range unread[:maxList] {
+		fmt.Fprintf(&b, "  - `%s`\n", file)
+	}
+	b.WriteString("\nRead one of these files now, or grep within the anchor's unresolved callees / conditions before stopping.")
+	e.midLoopPostPrimaryInjected = true
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "explorer.mid-loop.post-primary-read",
+		Hint:          b.String(),
+		Progress:      true,
 	}
 }
 
@@ -1374,7 +1880,7 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 		return false
 	}
 	if primary := e.primaryEntityFiles(); len(primary) > 0 {
-		if e.primaryReadIter == 0 || len(e.investigationNotes) <= e.notesLenAtPrimaryRead {
+		if !e.primaryReadSeen || len(e.investigationNotes) <= e.notesLenAtPrimaryRead {
 			return false
 		}
 	}
@@ -1465,9 +1971,21 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// Track primary-entity file reads for S1's df3-drift gate. Runs
 	// unconditionally so even "quiet" observeMidLoop calls still
 	// update the read tracking — ShouldStop's gate depends on this
-	// state being current. Idempotent: once primaryReadIter is set,
+	// state being current. Idempotent: once primaryReadSeen is set,
 	// later calls are no-ops.
 	e.observePrimaryRead(iteration, allResults)
+
+	// Immediate post-anchor push: the most common drift after the
+	// first primary-file read is a text-only recap ("I now understand
+	// the function...") before the LLM has followed any next hop.
+	// Fire a one-shot tool-first hint as soon as the anchor enters the
+	// readSet, even before the generic mid-loop min-iteration gate.
+	if sig := e.postPrimaryReadMidLoopSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postEmitEvidenceRepairSignal(obs); sig.HintRequested {
+		return sig
+	}
 
 	// Infer the current batch size from the allResults growth delta.
 	// observeMidLoop is called once per ReAct iteration, after all
@@ -1775,22 +2293,35 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// when no hint fires. The final return copies it into
 	// LoopSignal.Progress.
 	progress := false
-	// Capture assistant analysis messages from the ReAct loop.
-	// These contain the LLM's processed understanding of the files
-	// it read — essential for synthesis, where raw files get truncated.
-	if resp.Content != "" && e.phase == 1 {
-		e.investigationNotes = append(e.investigationNotes, resp.Content)
-		// Cross-reference tracking: scan the note for symbol names
-		// that are defined in other files. If the LLM mentions
-		// "NewSubExplorer" and repo_map knows it's defined in
-		// sub_explorer.go, add that file to coverage tracking.
-		e.trackCrossReferences(resp.Content)
-	}
 
 	// If the LLM already called emit_investigation_complete, accept
 	// the soft-stop immediately — no continuation prompts needed.
 	if e.investigationComplete {
 		return LoopSignal{Progress: progress}
+	}
+
+	note := normalizeExplorationNote(resp.Content)
+	if meta := softStopMetaDialogue(resp.Content); meta {
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.phase1.no-meta-dialogue",
+			Hint: "Do not ask the user whether to continue investigating or which area to inspect next. " +
+				"Continue the investigation yourself: follow the latest repair / retry directive, use tools, and either emit grounded evidence or call emit_investigation_complete if the evidence is already sufficient. " +
+				"Keep the response in the user's language and avoid `Answer:` / `Evidence:` style headings.",
+			Progress: progress,
+		}
+	}
+
+	// Capture assistant analysis messages from the ReAct loop.
+	// These contain the LLM's processed understanding of the files
+	// it read — essential for synthesis, where raw files get truncated.
+	if note != "" && e.phase == 1 {
+		e.investigationNotes = append(e.investigationNotes, note)
+		// Cross-reference tracking: scan the note for symbol names
+		// that are defined in other files. If the LLM mentions
+		// "NewSubExplorer" and repo_map knows it's defined in
+		// sub_explorer.go, add that file to coverage tracking.
+		e.trackCrossReferences(note)
 	}
 
 	if e.phase == 0 {
@@ -1910,6 +2441,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			"- NEVER skip simple methods (`getName() { return \"x\" }`) — record them as evidence with exact return values\n" +
 			"- For [REGISTRATION]: note EXACT concrete values, not just 'including X'\n" +
 			"- For [CONDITIONAL]: note the exact condition, not 'when configured'\n" +
+			"- For call-like evidence (`calls` / `invokes` / `dispatches`): `subject` = caller, `object` = callee\n" +
 			"- Read function BODIES, not just signatures\n\n" +
 			"Start investigating now."
 		// Phase-transition is a HARD progress signal — the LLM has
@@ -2374,9 +2906,9 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			HintRequested: true,
 			HintKey:       "explorer.completion-tool-reminder",
 			Hint: "You stopped without calling emit_investigation_complete. " +
-				"If you have collected enough evidence to answer the user's question, " +
-				"call emit_investigation_complete(reason, confidence) now. " +
-				"If you still need more evidence, continue reading files and running greps.",
+				"Continue the investigation yourself — do not ask the user what to do next. " +
+				"If you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence) now. " +
+				"If you still need more evidence, keep reading files / running greps, and avoid `Answer:` / `Evidence:` style headings in your notes.",
 			Progress: progress,
 		}
 	}
@@ -2438,6 +2970,68 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		Hint:          hint.String(),
 		Progress:      progress,
 	}
+}
+
+func normalizeExplorationNote(content string) string {
+	if strings.TrimSpace(content) == "" {
+		return ""
+	}
+	var kept []string
+	for _, rawLine := range strings.Split(content, "\n") {
+		line := stripExplorationNarrativeLabel(rawLine)
+		if line != "" {
+			kept = append(kept, line)
+		}
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n"))
+}
+
+func stripExplorationNarrativeLabel(line string) string {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return ""
+	}
+	stripped := strings.TrimLeft(trimmed, "* ")
+	lower := strings.ToLower(stripped)
+	for _, label := range []string{"answer", "evidence", "summary", "caveat", "question", "workflow"} {
+		if !strings.HasPrefix(lower, label) {
+			continue
+		}
+		rest := stripped[len(label):]
+		rest = strings.TrimLeft(rest, "* ")
+		if !strings.HasPrefix(rest, ":") {
+			continue
+		}
+		return strings.TrimSpace(strings.TrimLeft(strings.TrimPrefix(rest, ":"), "* "))
+	}
+	return trimmed
+}
+
+func softStopMetaDialogue(content string) bool {
+	text := strings.ToLower(strings.TrimSpace(content))
+	if text == "" {
+		return false
+	}
+	if containsAnySubstr(text,
+		"would you like me to", "do you want me to", "should i continue",
+		"let me know if you want me to", "continue investigating or address a different area",
+		"address a different area",
+		"是否继续", "要我继续", "继续调查还是", "换个方向", "其他方向") {
+		return true
+	}
+	return containsAnySubstr(text,
+		"i encountered an error", "i ran into an error", "there was an error") &&
+		containsAnySubstr(text,
+			"continue investigating", "different area", "let me know", "would you like")
+}
+
+func containsAnySubstr(text string, needles ...string) bool {
+	for _, needle := range needles {
+		if needle != "" && strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func evidenceLikeSoftStop(content string) bool {
@@ -7219,7 +7813,13 @@ func detectCrossFileSymbolGaps(notes []string, graph *repomap.Graph, readSet map
 	if graph == nil || len(notes) == 0 || max <= 0 {
 		return nil
 	}
-	joined := strings.Join(notes, "\n")
+	normalized := make([]string, 0, len(notes))
+	for _, note := range notes {
+		if cleaned := normalizeExplorationNote(note); cleaned != "" {
+			normalized = append(normalized, cleaned)
+		}
+	}
+	joined := strings.Join(normalized, "\n")
 	if joined == "" {
 		return nil
 	}
@@ -7238,15 +7838,7 @@ func detectCrossFileSymbolGaps(notes []string, graph *repomap.Graph, readSet map
 			if def == nil {
 				continue
 			}
-			if readSet[def.File] {
-				// Canonical match — the file IS read.
-				continue
-			}
-			// Also check common canonicalisation variants (readSet
-			// keys sometimes carry a leading "./"). This mirrors the
-			// logic at explorer.go:3415 where readSet lookups
-			// normalize "./path" → "path".
-			if readSet["./"+def.File] || readSet[strings.TrimPrefix(def.File, "./")] {
+			if readSetContains(readSet, def.File) {
 				continue
 			}
 			key := def.File + "\x00" + symName

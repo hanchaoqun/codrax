@@ -141,10 +141,15 @@ type loopPolicyState struct {
 	// Reset to 0 on any of those signals.
 	idleStreak int
 
-	// lastInjectIter is the iteration index of the most recently
-	// accepted hint injection. -1 means "no hint injected yet so
-	// the MinInjectInterval check is a no-op".
-	lastInjectIter int
+	// lastMidLoopInjectIter / lastSoftStopInjectIter record the
+	// most recently accepted hint injection per phase. Keeping the
+	// throttle buckets separate prevents a PhaseMidLoop hint from
+	// accidentally suppressing a later PhaseSoftStop repair hint
+	// (or vice versa) when both happen within the global interval.
+	// -1 means "no hint injected yet so the MinInjectInterval
+	// check is a no-op" for that phase.
+	lastMidLoopInjectIter  int
+	lastSoftStopInjectIter int
 
 	// continuations counts soft-stop hints already accepted.
 	continuations int
@@ -206,12 +211,14 @@ type loopPolicyState struct {
 }
 
 // newLoopPolicyState constructs a fresh counter set under the given
-// policy. Uses lastInjectIter=-1 so the MinInjectInterval check
-// works correctly at iteration 0 (no previous inject yet).
+// policy. Uses per-phase inject indices = -1 so the
+// MinInjectInterval check works correctly at iteration 0 (no
+// previous inject yet).
 func newLoopPolicyState(p LoopPolicy) *loopPolicyState {
 	return &loopPolicyState{
-		policy:         p,
-		lastInjectIter: -1,
+		policy:                 p,
+		lastMidLoopInjectIter:  -1,
+		lastSoftStopInjectIter: -1,
 	}
 }
 
@@ -223,6 +230,24 @@ func newLoopPolicyState(p LoopPolicy) *loopPolicyState {
 // this iteration's update.
 func (s *loopPolicyState) snapshot() (idle, conts, midLoop int) {
 	return s.idleStreak, s.continuations, s.midLoopInjects
+}
+
+func (s *loopPolicyState) lastInjectIterForPhase(phase LoopPhase) int {
+	switch phase {
+	case PhaseSoftStop:
+		return s.lastSoftStopInjectIter
+	default:
+		return s.lastMidLoopInjectIter
+	}
+}
+
+func (s *loopPolicyState) setLastInjectIterForPhase(phase LoopPhase, iter int) {
+	switch phase {
+	case PhaseSoftStop:
+		s.lastSoftStopInjectIter = iter
+	default:
+		s.lastMidLoopInjectIter = iter
+	}
 }
 
 // LoopOutcome is the final decision Apply returns to BaseAgent. Four
@@ -429,12 +454,13 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 				Reason:  "hint deduped: " + sig.HintKey,
 			}
 		}
-		if s.policy.MinInjectInterval > 0 && s.lastInjectIter >= 0 &&
-			obs.Iteration-s.lastInjectIter < s.policy.MinInjectInterval {
+		lastInjectIter := s.lastInjectIterForPhase(phase)
+		if !sig.BypassThrottle && s.policy.MinInjectInterval > 0 && lastInjectIter >= 0 &&
+			obs.Iteration-lastInjectIter < s.policy.MinInjectInterval {
 			return LoopResult{
 				Outcome: OutcomeContinue,
 				Reason: fmt.Sprintf("hint throttled (last at iter %d, min interval %d)",
-					s.lastInjectIter, s.policy.MinInjectInterval),
+					lastInjectIter, s.policy.MinInjectInterval),
 			}
 		}
 		switch phase {
@@ -457,7 +483,7 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 			}
 			s.midLoopInjects++
 		}
-		s.lastInjectIter = obs.Iteration
+		s.setLastInjectIterForPhase(phase, obs.Iteration)
 		s.lastAcceptedKey = sig.HintKey
 		return LoopResult{Outcome: OutcomeInjectHint, Hint: sig.Hint}
 	}

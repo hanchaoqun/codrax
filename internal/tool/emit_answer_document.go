@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
@@ -84,15 +85,15 @@ func emitAnswerDocumentBooleanDecision(s string) (bool, bool) {
 // Decoding directly into the types.* structs avoids a separate layer
 // of wire-format shims; the only translation step left is Boolean.
 type emitAnswerDocumentParams struct {
-	Shape               string                       `json:"shape"`
-	Summary             string                       `json:"summary"`
-	Steps               []types.AnswerStep           `json:"steps,omitempty"`
-	Symbols             []emitAnswerSymbolItem       `json:"symbols,omitempty"`
-	SymbolsCompleteness string                       `json:"symbols_completeness,omitempty"`
-	Value               *types.AnswerValue           `json:"value,omitempty"`
-	Boolean             *emitAnswerDocumentBoolean   `json:"boolean,omitempty"`
-	Citations           []types.Citation             `json:"citations,omitempty"`
-	Caveats             []string                     `json:"caveats,omitempty"`
+	Shape               string                     `json:"shape"`
+	Summary             string                     `json:"summary"`
+	Steps               []types.AnswerStep         `json:"steps,omitempty"`
+	Symbols             []emitAnswerSymbolItem     `json:"symbols,omitempty"`
+	SymbolsCompleteness string                     `json:"symbols_completeness,omitempty"`
+	Value               *types.AnswerValue         `json:"value,omitempty"`
+	Boolean             *emitAnswerDocumentBoolean `json:"boolean,omitempty"`
+	Citations           []types.Citation           `json:"citations,omitempty"`
+	Caveats             []string                   `json:"caveats,omitempty"`
 }
 
 // emitAnswerDocumentBoolean carries the JSON form of the boolean
@@ -436,6 +437,10 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			len(p.Summary), summaryCap, shape)
 	}
 
+	if err := validateAnswerDocumentNaturalLanguage(ctx, shape, p); err != nil {
+		return failEmit(t.Name(), now, "%s", err.Error())
+	}
+
 	workDir := strings.TrimSpace(ctx.WorkDir)
 	// Grounding context: read_file gutter index + repomap graph from
 	// Mutable.SearchGraph. Citations that fail grounding are either
@@ -714,6 +719,77 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}, nil
 }
 
+func requestedAnswerDocumentLanguage(ctx *types.BusContext) string {
+	if ctx == nil {
+		return ""
+	}
+	if ctx.AnalysisIR != nil {
+		if lang := strings.ToLower(strings.TrimSpace(ctx.AnalysisIR.AnswerContract.Language)); lang != "" {
+			return lang
+		}
+	}
+	return strings.ToLower(strings.TrimSpace(ctx.Language))
+}
+
+func answerDocumentRequiresChinese(lang string) bool {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "zh", "zh-cn", "cn", "chinese":
+		return true
+	}
+	return false
+}
+
+func containsHanRune(s string) bool {
+	for _, r := range s {
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+	}
+	return false
+}
+
+func validateAnswerDocumentNaturalLanguage(ctx *types.BusContext, shape types.AnswerShape, p emitAnswerDocumentParams) error {
+	if !answerDocumentRequiresChinese(requestedAnswerDocumentLanguage(ctx)) {
+		return nil
+	}
+	checkChinese := func(field, value string) error {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			return nil
+		}
+		if containsHanRune(value) {
+			return nil
+		}
+		return fmt.Errorf("%s must be written in Simplified Chinese for this request; keep code identifiers as-is but rewrite the natural-language prose in Chinese", field)
+	}
+
+	if err := checkChinese("summary", p.Summary); err != nil {
+		return err
+	}
+	for i, step := range p.Steps {
+		if err := checkChinese(fmt.Sprintf("steps[%d].description", i), step.Description); err != nil {
+			return err
+		}
+	}
+	for i, sym := range p.Symbols {
+		if err := checkChinese(fmt.Sprintf("symbols[%d].rationale", i), sym.Rationale); err != nil {
+			return err
+		}
+	}
+	if p.Boolean != nil {
+		if err := checkChinese("boolean.rationale", p.Boolean.Rationale); err != nil {
+			return err
+		}
+	}
+	for i, caveat := range p.Caveats {
+		if err := checkChinese(fmt.Sprintf("caveats[%d]", i), caveat); err != nil {
+			return err
+		}
+	}
+	_ = shape
+	return nil
+}
+
 // countDroppedCitations returns the number of -1 entries in a
 // citation remap — i.e. the count of citations that failed grounding
 // and were pulled from the pool. Zero when every citation grounded
@@ -769,7 +845,7 @@ func countDroppedCitations(remap []int) int {
 type forbidBitset uint
 
 const (
-	forbidSteps   forbidBitset = 1 << iota
+	forbidSteps forbidBitset = 1 << iota
 	forbidSymbols
 	forbidValue
 	forbidBoolean
@@ -909,25 +985,26 @@ func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int)
 // and runs the grounder against the current BusContext. Three-way
 // outcome per citation:
 //
-//   Valid + QuoteMatched  → kept as-is.
-//   Valid + !QuoteMatched → kept with Quote cleared (prevents a
-//                           fabricated excerpt from reaching the user
-//                           while preserving the real file:line anchor).
-//   !Valid                → dropped from the pool; any downstream
-//                           CitationRef that pointed at it is remapped
-//                           to CitationRefUnset (-1) by the caller.
+//	Valid + QuoteMatched  → kept as-is.
+//	Valid + !QuoteMatched → kept with Quote cleared (prevents a
+//	                        fabricated excerpt from reaching the user
+//	                        while preserving the real file:line anchor).
+//	!Valid                → dropped from the pool; any downstream
+//	                        CitationRef that pointed at it is remapped
+//	                        to CitationRefUnset (-1) by the caller.
 //
 // Returns (kept, remap, warnings, err):
 //   - kept:  the surviving citations in the new pool (may be shorter
-//            than `in` if some were dropped).
+//     than `in` if some were dropped).
 //   - remap: old-index → new-index, or -1 for dropped entries. Always
-//            len(remap) == len(in) so callers can mapRef() safely.
+//     len(remap) == len(in) so callers can mapRef() safely.
 //   - warnings: per-citation messages surfaced in the tool Summary so
-//            the LLM can correct on the next turn.
+//     the LLM can correct on the next turn.
 //   - err:   only set on a STRUCTURAL error (empty file, bad path,
-//            line <= 0, quote too long, blob-leak) that should
-//            reject the whole call; grounding failures never return
-//            err — they are surfaced via drop/clear + warnings.
+//     line <= 0, quote too long, blob-leak) that should
+//     reject the whole call; grounding failures never return
+//     err — they are surfaced via drop/clear + warnings.
+//
 // simulateCitationGrounding is the CGEC G1 pre-finalize dry-run. It
 // runs the ReadSet whitelist check against every incoming citation
 // without touching the gutter / symbol-table / quote layers. When

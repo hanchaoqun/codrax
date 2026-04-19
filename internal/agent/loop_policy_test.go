@@ -152,6 +152,50 @@ func TestLoopPolicy_ThrottleGapsConsecutiveHints(t *testing.T) {
 	}
 }
 
+func TestLoopPolicy_ThrottleTracksMidLoopAndSoftStopSeparately(t *testing.T) {
+	s := newTestPolicyState(LoopPolicy{MinInjectInterval: 3})
+
+	if r := s.Apply(PhaseMidLoop, midLoopObs(1, nil), LoopSignal{
+		HintRequested: true,
+		Hint:          "mid",
+		HintKey:       "mid",
+	}); r.Outcome != OutcomeInjectHint {
+		t.Fatalf("mid-loop inject should pass, got %s", r.Outcome)
+	}
+
+	// Soft-stop uses its own throttle bucket, so a repair hint here
+	// must not be suppressed by the earlier mid-loop injection.
+	if r := s.Apply(PhaseSoftStop, softStopObsFixture(2, nil), LoopSignal{
+		HintRequested: true,
+		Hint:          "soft",
+		HintKey:       "soft",
+	}); r.Outcome != OutcomeInjectHint {
+		t.Fatalf("soft-stop inject should not be throttled by prior mid-loop hint, got %s (%s)",
+			r.Outcome, r.Reason)
+	}
+}
+
+func TestLoopPolicy_BypassThrottleAllowsUrgentMidLoopRepair(t *testing.T) {
+	s := newTestPolicyState(LoopPolicy{MinInjectInterval: 3})
+
+	if r := s.Apply(PhaseMidLoop, midLoopObs(0, nil), LoopSignal{
+		HintRequested: true,
+		Hint:          "first pass anchor follow-up",
+		HintKey:       "explorer.mid-loop.post-primary-read",
+	}); r.Outcome != OutcomeInjectHint {
+		t.Fatalf("first mid-loop hint should inject, got %s (%s)", r.Outcome, r.Reason)
+	}
+
+	if r := s.Apply(PhaseMidLoop, midLoopObs(1, nil), LoopSignal{
+		HintRequested:  true,
+		Hint:           "repair those recovered lines now",
+		HintKey:        "explorer.mid-loop.evidence-repair",
+		BypassThrottle: true,
+	}); r.Outcome != OutcomeInjectHint {
+		t.Fatalf("urgent repair hint should bypass throttle, got %s (%s)", r.Outcome, r.Reason)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // Budget: PhaseMidLoop drops, PhaseSoftStop force-stops
 // -----------------------------------------------------------------------------
@@ -396,8 +440,8 @@ func midLoopObsWithCalls(iter int, calls []llm.ToolCall, lastResult *types.ToolR
 	}
 }
 
-func successResult() *types.ToolResult   { return &types.ToolResult{Success: true} }
-func failureResult() *types.ToolResult   { return &types.ToolResult{Success: false} }
+func successResult() *types.ToolResult { return &types.ToolResult{Success: true} }
+func failureResult() *types.ToolResult { return &types.ToolResult{Success: false} }
 
 // TestLoopPolicy_IdenticalAfterSuccess_StopsImmediately — after the
 // previous tool call SUCCEEDED and the LLM sends a byte-identical
@@ -584,9 +628,9 @@ func TestLoopPolicy_IdenticalErrorStreak_ResetsOnSuccess(t *testing.T) {
 
 	// iter=2: success. Streak must reset.
 	successObs := LoopObservation{
-		Phase:     PhaseMidLoop,
-		Iteration: 2,
-		Response:  llm.Response{ToolCalls: []llm.ToolCall{{Name: "other", Params: []byte(`{}`)}}},
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		Response:       llm.Response{ToolCalls: []llm.ToolCall{{Name: "other", Params: []byte(`{}`)}}},
 		LastToolResult: &types.ToolResult{Success: true, Summary: "accepted"},
 		AllToolResults: make([]types.ToolResult, 3),
 	}

@@ -330,6 +330,11 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
+	outputTitle := "Output Format"
+	if sk.Name == "explore-skill" {
+		outputTitle = "Exploration Contract"
+	}
+
 	pc.SystemSections = append(pc.SystemSections,
 		types.PromptSection{
 			Title:   "Skill Goal",
@@ -340,7 +345,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Content: formatNumberedList(sk.Workflow),
 		},
 		types.PromptSection{
-			Title:   "Output Format",
+			Title:   outputTitle,
 			Content: sk.OutputFormat,
 		},
 	)
@@ -1401,14 +1406,14 @@ func renderAnswerChainForPrompt(c types.AnswerChain) string {
 // Priority model (config wins):
 //   - lang == "" / "off" / "none"  → no directive, LLM chooses freely
 //   - lang == "auto"               → follow the user's question language
-//                                    (hard assertion prepended when detectable;
-//                                     base "same-language" rule as fallback)
+//     (hard assertion prepended when detectable;
+//     base "same-language" rule as fallback)
 //   - any other value              → HARD imperative locked to that language,
-//                                    regardless of the question language.
-//                                    This is the config-priority path: a
-//                                    persistent "lang: zh" config forces
-//                                    Chinese output even when the user asks
-//                                    in English.
+//     regardless of the question language.
+//     This is the config-priority path: a
+//     persistent "lang: zh" config forces
+//     Chinese output even when the user asks
+//     in English.
 //
 // question is the user's current request (after conversation-prefix
 // strip). Only consulted on the `auto` path; ignored when the config

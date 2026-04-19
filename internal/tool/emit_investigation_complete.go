@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -778,6 +779,7 @@ type evidenceTally struct {
 	recovered       int
 	ungrounded      int
 	ungroundedItems []types.EvidenceItem
+	tier2Items      []types.EvidenceItem
 	recoveredItems  []types.EvidenceItem
 }
 
@@ -794,6 +796,7 @@ func tallyEvidence(evidence []types.EvidenceItem) evidenceTally {
 				t.tier1++
 			} else {
 				t.tier2Grounded++
+				t.tier2Items = append(t.tier2Items, e)
 			}
 		case types.GroundingRecovered:
 			t.recovered++
@@ -815,6 +818,87 @@ func (t evidenceTally) acceptedTotal() int { return t.tier1 + t.tier2Grounded + 
 // hasAny reports whether at least one item is grounded or recovered.
 // Powers the absence-vs-grounded contradiction gate.
 func (t evidenceTally) hasAny() bool { return t.acceptedTotal() > 0 }
+
+type tier1RepairTarget struct {
+	File  string
+	Lines []int
+}
+
+func buildTier1RepairTargets(ctx *types.BusContext, items []types.EvidenceItem) []tier1RepairTarget {
+	if ctx == nil || len(items) == 0 {
+		return nil
+	}
+	byFile := make(map[string]map[int]bool)
+	for _, it := range items {
+		file := ground.CanonicalRepoRelative(it.Source, ctx.RepoRoot)
+		if file == "" {
+			continue
+		}
+		if byFile[file] == nil {
+			byFile[file] = make(map[int]bool)
+		}
+		if it.LineStart > 0 {
+			byFile[file][it.LineStart] = true
+		}
+	}
+	if len(byFile) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(byFile))
+	for file := range byFile {
+		files = append(files, file)
+	}
+	sort.Strings(files)
+	out := make([]tier1RepairTarget, 0, len(files))
+	for _, file := range files {
+		target := tier1RepairTarget{File: file}
+		for line := range byFile[file] {
+			target.Lines = append(target.Lines, line)
+		}
+		sort.Ints(target.Lines)
+		out = append(out, target)
+	}
+	return out
+}
+
+func tier1LineList(lines []int, max int) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	if max <= 0 || max > len(lines) {
+		max = len(lines)
+	}
+	var parts []string
+	for _, line := range lines[:max] {
+		parts = append(parts, fmt.Sprintf("%d", line))
+	}
+	if len(lines) > max {
+		parts = append(parts, fmt.Sprintf("+%d more", len(lines)-max))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func queueTier1ReadRepairs(ctx *types.BusContext, targets []tier1RepairTarget) {
+	if ctx == nil || ctx.Mutable == nil || len(targets) == 0 {
+		return
+	}
+	closure := ctx.Mutable.EvidenceClosure()
+	if closure == nil {
+		return
+	}
+	for _, target := range targets {
+		rationale := "Tier-1 floor: read_file this source to convert non-line_text evidence into grounded evidence."
+		if lines := tier1LineList(target.Lines, 4); lines != "" {
+			rationale = fmt.Sprintf("Tier-1 floor: read_file %s near lines %s to convert non-line_text evidence into grounded evidence.", target.File, lines)
+		}
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairReadFile,
+			Files:     []string{target.File},
+			Rationale: rationale,
+			Origin:    "emit_investigation_complete.tier1_floor",
+		})
+	}
+}
 
 // groundingGateReject returns (message, ok). When ok=false, the
 // returned message describes the gate miss and lists the ungrounded
@@ -896,26 +980,45 @@ func tier1GateReject(ctx *types.BusContext, floor float64) (string, bool) {
 	if ratio >= floor {
 		return "", true
 	}
+	targets := buildTier1RepairTargets(ctx, append(append([]types.EvidenceItem(nil), t.tier2Items...), t.recoveredItems...))
+	queueTier1ReadRepairs(ctx, targets)
 	var b strings.Builder
 	fmt.Fprintf(&b,
 		"emit_investigation_complete rejected: Tier-1 proven ratio %.0f%% (%d grounded-via-line_text / %d total) < floor %.0f%%.\n\n",
 		ratio*100, t.tier1, t.total, floor*100)
-	b.WriteString("The pipeline's finalizer grounder enforces a STRICTER citation check than the evidence grounder: ")
-	b.WriteString("the finalizer only accepts citations whose file:line falls inside a known symbol's body OR is corroborated by your read_file history. ")
-	b.WriteString("An investigation that never read_file'd the sources it cited (pure repomap-graph recovery) will have its citations dropped at finalize time, leaving the pipeline in a retry loop.\n\n")
-	b.WriteString("Repair: call read_file on the sources for the items below so Tier 1 (line_text) can re-ground them.\n")
+	b.WriteString("The pipeline's finalizer grounder is stricter than the evidence grounder: if the explorer never read_file'd the cited sources, finalize time will drop those citations and bounce the pipeline.\n\n")
+	if len(targets) > 0 {
+		b.WriteString("Repair: structured read_file repairs have been queued for the non-line_text sources below. Read them, emit grounded evidence, then retry completion.\n")
+	} else {
+		b.WriteString("Repair: call read_file on the sources below so Tier 1 (line_text) can re-ground them.\n")
+	}
 	maxList := 6
-	for i, it := range t.recoveredItems {
+	for i, target := range targets {
 		if i >= maxList {
-			fmt.Fprintf(&b, "  ... and %d more recovered-only items\n", len(t.recoveredItems)-maxList)
+			fmt.Fprintf(&b, "  ... and %d more non-line_text sources\n", len(targets)-maxList)
 			break
 		}
-		anchor := it.AnchorSymbol
-		if anchor == "" {
-			anchor = "-"
+		lines := tier1LineList(target.Lines, 4)
+		if lines == "" {
+			fmt.Fprintf(&b, "  [%d] %s — read_file %s and re-emit grounded evidence\n", i+1, target.File, target.File)
+			continue
 		}
-		fmt.Fprintf(&b, "  [%d] %s @ %s:%d (anchor_kind=%s, anchor_symbol=%s) — read_file %s near line %d to convert Recovered → Grounded\n",
-			i+1, it.Kind, it.Source, it.LineStart, it.AnchorKind, anchor, it.Source, it.LineStart)
+		fmt.Fprintf(&b, "  [%d] %s — read_file near lines %s, then re-emit grounded evidence\n",
+			i+1, target.File, lines)
+	}
+	if len(targets) == 0 {
+		for i, it := range t.recoveredItems {
+			if i >= maxList {
+				fmt.Fprintf(&b, "  ... and %d more recovered-only items\n", len(t.recoveredItems)-maxList)
+				break
+			}
+			anchor := it.AnchorSymbol
+			if anchor == "" {
+				anchor = "-"
+			}
+			fmt.Fprintf(&b, "  [%d] %s @ %s:%d (anchor_kind=%s, anchor_symbol=%s) — read_file %s near line %d to convert Recovered → Grounded\n",
+				i+1, it.Kind, it.Source, it.LineStart, it.AnchorKind, anchor, it.Source, it.LineStart)
+		}
 	}
 	return b.String(), false
 }

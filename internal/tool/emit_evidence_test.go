@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -130,6 +131,106 @@ func TestEmitEvidence_RejectsRelationshipWithoutObject(t *testing.T) {
 	res, _ := tool.Execute(ctx, params)
 	if res.Success {
 		t.Fatal("expected failure: relationship needs object")
+	}
+}
+
+func TestEmitEvidence_NormalizesCallDirectionToCallerCallee(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/tool/repomap/tool.go": {
+				RelPath: "internal/tool/repomap/tool.go",
+				Symbols: []repomap.Symbol{
+					{Name: "buildOrLoadGraph", Kind: "function", File: "internal/tool/repomap/tool.go", Line: 121, EndLine: 170},
+					{Name: "fullScan", Kind: "function", File: "internal/tool/repomap/tool.go", Line: 172, EndLine: 220},
+				},
+				Relations: []repomap.Relation{
+					{
+						Kind: "call",
+						File: "internal/tool/repomap/tool.go",
+						Line: 149,
+						To:   "fullScan",
+						ToEP: repomap.RelationEndpoint{Name: "fullScan", File: "internal/tool/repomap/tool.go", Line: 149},
+					},
+				},
+			},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(graph)
+	params := json.RawMessage(`{"items":[{"kind":"conditional","subject":"fullScan","predicate":"calls","object":"buildOrLoadGraph","source":"internal/tool/repomap/tool.go","line_start":149,"condition":"index.NeedsFullRescan(cacheDir)","summary":"If cache directory needs a full rescan, it calls fullScan.","anchor_kind":"call","anchor_symbol":"fullScan","snippet":"return fullScan(repoRoot, cacheDir, entries, query)"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].Subject != "buildOrLoadGraph" {
+		t.Fatalf("subject = %q, want buildOrLoadGraph", got[0].Subject)
+	}
+	if got[0].Object != "fullScan" {
+		t.Fatalf("object = %q, want fullScan", got[0].Object)
+	}
+	if got[0].Predicate != "calls" {
+		t.Fatalf("predicate = %q, want calls", got[0].Predicate)
+	}
+}
+
+func TestEmitEvidence_NormalizeCallDirection_DoesNotFallbackToWrongSameLineCall(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/tool/repomap/tool.go": {
+				RelPath: "internal/tool/repomap/tool.go",
+				Symbols: []repomap.Symbol{
+					{Name: "buildOrLoadGraph", Kind: "function", File: "internal/tool/repomap/tool.go", Line: 121, EndLine: 170},
+					{Name: "fullScan", Kind: "function", File: "internal/tool/repomap/tool.go", Line: 172, EndLine: 220},
+				},
+				Relations: []repomap.Relation{
+					{
+						Kind: "call",
+						File: "internal/tool/repomap/tool.go",
+						Line: 147,
+						To:   "NeedsFullRescan",
+						ToEP: repomap.RelationEndpoint{Name: "NeedsFullRescan", Receiver: "index", File: "internal/tool/repomap/tool.go", Line: 147},
+					},
+					{
+						Kind: "call",
+						File: "internal/tool/repomap/tool.go",
+						Line: 149,
+						To:   "fullScan",
+						ToEP: repomap.RelationEndpoint{Name: "fullScan", File: "internal/tool/repomap/tool.go", Line: 149},
+					},
+				},
+			},
+		},
+	}
+	ctx.Mutable.SetSearchGraph(graph)
+	params := json.RawMessage(`{"items":[{"kind":"conditional","subject":"buildOrLoadGraph","predicate":"calls","object":"fullScan","source":"internal/tool/repomap/tool.go","line_start":147,"condition":"index.NeedsFullRescan(cacheDir)","summary":"Calls fullScan if no cache is found or a full scan is needed.","anchor_kind":"call","anchor_symbol":"fullScan","snippet":"if index.NeedsFullRescan(cacheDir) {\n    logging.Info(\"repo_map: full scan (%d files, no cache)\", len(entries))\n    return fullScan(repoRoot, cacheDir, entries, query)"}]}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].Object != "fullScan" {
+		t.Fatalf("object = %q, want fullScan", got[0].Object)
+	}
+	if got[0].LineStart != 149 {
+		t.Fatalf("line_start = %d, want recovery to 149", got[0].LineStart)
 	}
 }
 
