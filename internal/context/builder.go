@@ -1391,36 +1391,57 @@ func renderAnswerChainForPrompt(c types.AnswerChain) string {
 // languageDirective maps a language code to a concise prompt
 // directive. Returns "" when the feature is disabled.
 //
+// Priority model (config wins):
+//   - lang == "" / "off" / "none"  → no directive, LLM chooses freely
+//   - lang == "auto"               → follow the user's question language
+//                                    (hard assertion prepended when detectable;
+//                                     base "same-language" rule as fallback)
+//   - any other value              → HARD imperative locked to that language,
+//                                    regardless of the question language.
+//                                    This is the config-priority path: a
+//                                    persistent "lang: zh" config forces
+//                                    Chinese output even when the user asks
+//                                    in English.
+//
 // question is the user's current request (after conversation-prefix
-// strip). When non-empty and its natural-language script is
-// detectable, a HARD assertion is prepended — "The user's question
-// is in Chinese. Write your answer in Simplified Chinese." — because
-// LLMs reliably follow direct assertions about the observed language
-// but often ignore conditional "reply in the same language" rules
-// when the surrounding context (code, tool outputs, skill prompts)
-// is mostly English.
+// strip). Only consulted on the `auto` path; ignored when the config
+// names a concrete language.
 func languageDirective(lang, question string) string {
-	base := languageDirectiveBase(lang)
-	if base == "" {
-		return ""
-	}
-	if assertion := detectedLanguageAssertion(question); assertion != "" {
-		return assertion + "\n\n" + base
-	}
-	return base
-}
-
-func languageDirectiveBase(lang string) string {
 	switch lang {
 	case "", "off", "none":
 		return ""
-	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms (e.g. `explorer`, `subagent`, `internal/agent/foo.go`) when judging the question's language — a Chinese sentence that mentions English symbols is still a Chinese question. When the question is ambiguous or contains no natural-language prose, default to Simplified Chinese (简体中文). Always keep code identifiers, file paths, and technical terms in their original form in your reply."
-	case "en", "en-US", "english":
-		return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms when judging the question's language. When the question is ambiguous or contains no natural-language prose, default to English. Always keep code identifiers, file paths, and technical terms in their original form."
+	case "auto", "follow":
+		base := languageDirectiveAutoBase()
+		if assertion := detectedLanguageAssertion(question); assertion != "" {
+			return assertion + "\n\n" + base
+		}
+		return base
 	default:
-		return fmt.Sprintf("Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms when judging the question's language. When the question is ambiguous or contains no natural-language prose, default to %s. Always keep code identifiers, file paths, and technical terms in their original form.", lang)
+		return lockedLanguageDirective(lang)
 	}
+}
+
+// lockedLanguageDirective is the config-priority directive: a hard
+// imperative to write in `lang` regardless of what language the user
+// asked in. Used when `codrax.yaml` names a concrete language (zh /
+// en / fr / ...). The directive never consults question language.
+func lockedLanguageDirective(lang string) string {
+	switch lang {
+	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
+		return "You MUST write every natural-language response in Simplified Chinese (简体中文). This is a hard requirement set by the project configuration — do not switch to English prose even if the user writes the question in English. Summaries, step descriptions, rationales, captions, and any other natural-language content are all in Chinese. Always keep code identifiers, file paths, type names, and function names in their original form."
+	case "en", "en-US", "english":
+		return "You MUST write every natural-language response in English. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form."
+	default:
+		return fmt.Sprintf("You MUST write every natural-language response in %s. This is a hard requirement set by the project configuration — do not switch to another language even if the user writes the question in a different language. Always keep code identifiers, file paths, type names, and function names in their original form.", lang)
+	}
+}
+
+// languageDirectiveAutoBase is the conditional "same-language" rule
+// used on the `auto` path when the question script is not
+// confidently detectable (too short, pure code). detect-from-question
+// assertion, when it fires, is prepended to this by languageDirective.
+func languageDirectiveAutoBase() string {
+	return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms (e.g. `explorer`, `subagent`, `internal/agent/foo.go`) when judging the question's language — a sentence whose prose is Chinese but which mentions English symbols is still a Chinese question. When the question is ambiguous or contains no natural-language prose, default to Simplified Chinese (简体中文). Always keep code identifiers, file paths, and technical terms in their original form in your reply."
 }
 
 // detectedLanguageAssertion returns a hard-assertion directive when

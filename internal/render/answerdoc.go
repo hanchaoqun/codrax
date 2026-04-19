@@ -3,6 +3,7 @@ package render
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -189,14 +190,14 @@ func renderAnswerDocListOfSymbols(b *strings.Builder, doc *types.AnswerDocument,
 	}
 	b.WriteString("|---|---|---|\n")
 	for _, s := range doc.Symbols {
-		name := "**" + s.Name + "**"
+		name := tableCell("**" + s.Name + "**")
 		loc := ""
 		if s.File != "" && s.Line > 0 {
-			loc = fmt.Sprintf("`%s:%d`", s.File, s.Line)
+			loc = tableCell(fmt.Sprintf("`%s:%d`", s.File, s.Line))
 		} else if s.File != "" {
-			loc = fmt.Sprintf("`%s`", s.File)
+			loc = tableCell(fmt.Sprintf("`%s`", s.File))
 		}
-		desc := strings.TrimSpace(s.Rationale)
+		desc := tableCell(s.Rationale)
 		fmt.Fprintf(b, "| %s | %s | %s |\n", name, loc, desc)
 	}
 }
@@ -223,14 +224,14 @@ func renderAnswerDocExplanationSkeleton(b *strings.Builder, doc *types.AnswerDoc
 	}
 	b.WriteString("|---|---|---|\n")
 	for _, s := range doc.Symbols {
-		name := "`" + s.Name + "`"
+		name := tableCell("`" + s.Name + "`")
 		loc := ""
 		if s.File != "" && s.Line > 0 {
-			loc = fmt.Sprintf("`%s:%d`", s.File, s.Line)
+			loc = tableCell(fmt.Sprintf("`%s:%d`", s.File, s.Line))
 		} else if s.File != "" {
-			loc = fmt.Sprintf("`%s`", s.File)
+			loc = tableCell(fmt.Sprintf("`%s`", s.File))
 		}
-		desc := strings.TrimSpace(s.Rationale)
+		desc := tableCell(s.Rationale)
 		fmt.Fprintf(b, "| %s | %s | %s |\n", name, loc, desc)
 	}
 }
@@ -251,10 +252,7 @@ func renderAnswerDocStepList(b *strings.Builder, doc *types.AnswerDocument, lang
 			b.WriteString("**Flow overview:**\n\n```\n")
 		}
 		for i, step := range doc.Steps {
-			desc := strings.TrimSpace(step.Description)
-			if len(desc) > 40 {
-				desc = desc[:40] + "…"
-			}
+			desc := flowLabel(step.Description)
 			fmt.Fprintf(b, "  [%d] %s", step.Index, desc)
 			if i < len(doc.Steps)-1 {
 				b.WriteString("\n   │\n   ▼\n")
@@ -458,4 +456,76 @@ func lookupCitation(doc *types.AnswerDocument, ref int) *types.Citation {
 	}
 	c := doc.Citations[ref]
 	return &c
+}
+
+// tableCell sanitises a string for safe use inside a markdown table
+// cell. The three things that break a table row are embedded
+// newlines (split the row), literal `|` characters (split a column
+// mid-cell), and leading/trailing whitespace (break the header
+// separator alignment). Newlines become spaces, `|` becomes `\|`
+// (markdown escape), and consecutive whitespace is collapsed so a
+// long rationale with internal line breaks doesn't blow the row
+// up. Empty input returns empty.
+func tableCell(s string) string {
+	if s == "" {
+		return ""
+	}
+	// Normalise every whitespace variant (newline, tab, CR, NBSP) to
+	// a single space before collapsing duplicates. Avoids an LLM-
+	// emitted tab or U+00A0 leaking through strings.Fields.
+	var b strings.Builder
+	b.Grow(len(s))
+	prevSpace := false
+	for _, r := range s {
+		switch r {
+		case '\n', '\r', '\t', '\v', '\f', '\u00A0':
+			if !prevSpace {
+				b.WriteByte(' ')
+				prevSpace = true
+			}
+		case '|':
+			b.WriteString(`\|`)
+			prevSpace = false
+		case ' ':
+			if !prevSpace {
+				b.WriteByte(' ')
+				prevSpace = true
+			}
+		default:
+			b.WriteRune(r)
+			prevSpace = false
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+// flowLabel shortens a step description for the fixed-width step-
+// flow ASCII diagram. Rune-sliced (not byte-sliced) so multi-byte
+// characters — which include CJK and every accented Latin letter —
+// are never cut mid-sequence, which would produce garbage bytes on
+// the wire. Trailing ellipsis signals truncation; the full
+// description still appears in the "Detailed steps" list below the
+// flow. Cap at 80 runes — fits inside a standard 100-column terminal
+// after the "  [N] " prefix and the surrounding code-fence.
+func flowLabel(desc string) string {
+	desc = strings.TrimSpace(desc)
+	// Strip newlines so a multi-line description doesn't rip the
+	// ASCII flow.
+	desc = strings.ReplaceAll(desc, "\n", " ")
+	desc = strings.ReplaceAll(desc, "\r", " ")
+	const cap = 80
+	if utf8.RuneCountInString(desc) <= cap {
+		return desc
+	}
+	// Rune-slice to avoid breaking multi-byte chars.
+	var b strings.Builder
+	n := 0
+	for _, r := range desc {
+		if n >= cap {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String() + "…"
 }

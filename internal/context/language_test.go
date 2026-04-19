@@ -36,57 +36,82 @@ func TestLanguageDirective(t *testing.T) {
 		if !strings.Contains(got, c.mustHave) {
 			t.Errorf("languageDirective(%q) = %q, want substring %q", c.in, got, c.mustHave)
 		}
-		if !strings.Contains(strings.ToLower(got), "same natural language") {
-			t.Errorf("languageDirective(%q) missing language-match clause: %q", c.in, got)
+		// Locked directive must be imperative: "MUST write" + "hard
+		// requirement set by the project configuration".
+		if !strings.Contains(got, "MUST write") {
+			t.Errorf("languageDirective(%q) missing imperative MUST: %q", c.in, got)
 		}
-		if !strings.Contains(strings.ToLower(got), "technical terms") {
+		if !strings.Contains(got, "hard requirement set by the project configuration") {
+			t.Errorf("languageDirective(%q) missing config-locked clause: %q", c.in, got)
+		}
+		if !strings.Contains(strings.ToLower(got), "code identifiers") {
 			t.Errorf("languageDirective(%q) missing term-preservation clause: %q", c.in, got)
-		}
-		if !strings.Contains(strings.ToLower(got), "default to") {
-			t.Errorf("languageDirective(%q) missing ambiguous-default clause: %q", c.in, got)
 		}
 	}
 }
 
-// TestLanguageDirective_AssertionFromQuestion pins the hard-assertion
-// path: when the user's question has dominant CJK or Latin prose,
-// the directive is prefixed with an imperative "The user's question
-// is in X. You MUST write your answer in X." The 2026-04-19
-// regression was that the conditional base directive, while clear,
-// was ignored when surrounding context (tool outputs, skill prompts)
-// was English-heavy; the assertion removes that ambiguity.
-func TestLanguageDirective_AssertionFromQuestion(t *testing.T) {
-	// Chinese question with English code identifiers — classic mixed
-	// shape. Must still fire the CJK assertion.
+// TestLanguageDirective_ConfigWinsOverQuestionLanguage pins the
+// config-priority model. A persistent `lang: zh` config forces
+// Chinese output even when the user asks in English, and vice
+// versa. Question-driven language matching is only active on the
+// `auto` / `follow` sentinel values.
+func TestLanguageDirective_ConfigWinsOverQuestionLanguage(t *testing.T) {
+	// Config lang=zh + English question → Chinese lock wins.
+	enQ := "how does the explorer agent invoke the subagent mechanism"
+	got := languageDirective("zh", enQ)
+	if !strings.Contains(got, "Simplified Chinese") {
+		t.Errorf("expected Chinese lock, got: %q", got)
+	}
+	if strings.Contains(got, "question is written in English") {
+		t.Errorf("config-lock path must NOT emit a question-language assertion, got: %q", got)
+	}
+	// Config lang=en + Chinese question → English lock wins.
 	zhQ := "explorer是怎么调用subagent的？"
-	got := languageDirective("zh", zhQ)
+	gotEn := languageDirective("en", zhQ)
+	if !strings.Contains(gotEn, "in English") {
+		t.Errorf("expected English lock, got: %q", gotEn)
+	}
+	if strings.Contains(gotEn, "question is written in Chinese") {
+		t.Errorf("config-lock path must NOT emit a question-language assertion, got: %q", gotEn)
+	}
+}
+
+// TestLanguageDirective_AutoFollowsQuestionLanguage pins the
+// opt-in follow-question path. `lang: auto` is the only sentinel
+// that consults question language.
+func TestLanguageDirective_AutoFollowsQuestionLanguage(t *testing.T) {
+	zhQ := "explorer是怎么调用subagent的？"
+	got := languageDirective("auto", zhQ)
 	if !strings.Contains(got, "question is written in Chinese") {
 		t.Errorf("expected CJK assertion prefix, got: %q", got)
 	}
 	if !strings.Contains(got, "MUST write your answer in Simplified Chinese") {
 		t.Errorf("expected imperative MUST clause, got: %q", got)
 	}
-	// English question — Latin assertion fires when letters >= 20
-	// and CJK == 0.
 	enQ := "how does the explorer agent invoke the subagent mechanism"
-	gotEn := languageDirective("zh", enQ)
+	gotEn := languageDirective("auto", enQ)
 	if !strings.Contains(gotEn, "question is written in English") {
-		t.Errorf("expected Latin assertion prefix for English question, got: %q", gotEn)
+		t.Errorf("expected Latin assertion for English question, got: %q", gotEn)
 	}
-	// Pure code / too-short question → no assertion, falls through
-	// to the base conditional directive.
+	// Too-short question on auto → no assertion, falls through to
+	// the base "same-language" rule with a default.
 	shortQ := "Foo()"
-	gotShort := languageDirective("zh", shortQ)
+	gotShort := languageDirective("auto", shortQ)
 	if strings.Contains(gotShort, "question is written") {
 		t.Errorf("assertion should not fire on too-short question, got: %q", gotShort)
 	}
 	if !strings.Contains(gotShort, "same natural language") {
-		t.Errorf("base directive missing on short input, got: %q", gotShort)
+		t.Errorf("base conditional directive missing on short input, got: %q", gotShort)
 	}
-	// Empty question — no assertion, base directive only.
-	gotEmpty := languageDirective("zh", "")
+	// Empty question on auto → no assertion, base directive only.
+	gotEmpty := languageDirective("auto", "")
 	if strings.Contains(gotEmpty, "question is written") {
 		t.Errorf("assertion should not fire on empty question")
+	}
+	// `follow` is an alias for `auto`.
+	gotFollow := languageDirective("follow", zhQ)
+	if !strings.Contains(gotFollow, "question is written in Chinese") {
+		t.Errorf("`follow` alias did not trigger assertion, got: %q", gotFollow)
 	}
 }
 

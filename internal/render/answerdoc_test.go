@@ -382,6 +382,81 @@ func TestRenderAnswerDocument_RelationDiagram(t *testing.T) {
 	}
 }
 
+func TestTableCell(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"plain", "hello world", "hello world"},
+		{"pipe escaped", "a|b|c", `a\|b\|c`},
+		{"newline becomes space", "line1\nline2", "line1 line2"},
+		{"CRLF collapsed", "line1\r\nline2", "line1 line2"},
+		{"tab becomes space", "col1\tcol2", "col1 col2"},
+		{"multiple whitespace collapsed", "a   b\n\nc", "a b c"},
+		{"NBSP normalised", "a\u00A0b", "a b"},
+		{"leading/trailing trim", "  x  ", "x"},
+		{"CJK preserved with pipe", "名称 | 值", `名称 \| 值`},
+		{"backticks kept", "`code`", "`code`"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := tableCell(c.in)
+			if got != c.want {
+				t.Errorf("tableCell(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+func TestFlowLabel(t *testing.T) {
+	short := "short step"
+	if got := flowLabel(short); got != short {
+		t.Errorf("short label should pass through, got %q", got)
+	}
+	exact := strings.Repeat("a", 80)
+	if got := flowLabel(exact); got != exact {
+		t.Errorf("80-rune label should not be truncated, got len=%d", len(got))
+	}
+	over := strings.Repeat("a", 81)
+	got := flowLabel(over)
+	if !strings.HasSuffix(got, "…") {
+		t.Errorf("over-cap label should end with …, got %q", got)
+	}
+	// CJK rune-safe truncation: 81+ CJK chars triggers ellipsis
+	// without producing invalid UTF-8.
+	cjk := strings.Repeat("测", 90)
+	gotCJK := flowLabel(cjk)
+	if !strings.HasSuffix(gotCJK, "…") {
+		t.Errorf("over-cap CJK label should end with …, got %q", gotCJK)
+	}
+	for _, r := range gotCJK {
+		if r == 0xFFFD {
+			t.Errorf("flowLabel produced invalid UTF-8 in CJK output: %q", gotCJK)
+		}
+	}
+	// Newlines folded so the ASCII flow doesn't split mid-flow.
+	multi := "first line\nsecond line"
+	if got := flowLabel(multi); strings.Contains(got, "\n") {
+		t.Errorf("newline should be folded, got %q", got)
+	}
+}
+
+// TestRenderAnswerDocument_ListOfSymbols_PipeInRationaleEscaped:
+// a rationale containing `|` must not break the table row.
+func TestRenderAnswerDocument_ListOfSymbols_PipeInRationaleEscaped(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeListOfSymbols,
+		Summary: "s",
+		Symbols: []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1, Rationale: "handles a | b cases"}},
+	}
+	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, `handles a \| b cases`) {
+		t.Errorf("pipe in rationale should be escaped, got:\n%s", out)
+	}
+}
+
 // TestRenderAnswerDocument_NoSnippetsNoRenderBlock — empty Snippets
 // skips the Key snippets section entirely (no blank header).
 func TestRenderAnswerDocument_NoSnippetsNoRenderBlock(t *testing.T) {
