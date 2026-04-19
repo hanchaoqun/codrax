@@ -122,3 +122,34 @@ func TestIsContinuation(t *testing.T) {
 		})
 	}
 }
+
+func TestNormalizeREPLCommandAlias(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"/quit", "/quit"},
+		{" /exit ", "/exit"},
+		{"\\q", "/quit"},
+		{"\\help", "/help"},
+		{"/history now", "/history now"},
+		{"how does explorer work", ""},
+	}
+	for _, c := range cases {
+		if got := NormalizeREPLCommandAlias(c.in); got != c.want {
+			t.Errorf("NormalizeREPLCommandAlias(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestIsREPLControlInput(t *testing.T) {
+	if !IsREPLControlInput("\\q") {
+		t.Error(`\q must be treated as a REPL control input`)
+	}
+	if !IsREPLControlInput("/help") {
+		t.Error(`/help must be treated as a REPL control input`)
+	}
+	if IsREPLControlInput("buildOrLoadGraph 是如何构建图的？") {
+		t.Error("normal user question must not be treated as a control input")
+	}
+}

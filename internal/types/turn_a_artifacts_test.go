@@ -259,3 +259,25 @@ func TestHypothesisVerdictBuffer_IndependentFromTurnAArtifacts(t *testing.T) {
 		t.Error("verdict reset must NOT touch turn-a artifacts")
 	}
 }
+
+func TestHypothesisVerdictBuffer_LastWriteWinsByID(t *testing.T) {
+	m := NewMutableState("")
+	m.AppendEmittedHypothesisVerdicts([]HypothesisVerdict{
+		{HypothesisID: "H1", Status: HypInconclusive, Rationale: "early"},
+		{HypothesisID: "H2", Status: HypConfirmed, Rationale: "stable"},
+	})
+	m.AppendEmittedHypothesisVerdicts([]HypothesisVerdict{
+		{HypothesisID: "H1", Status: HypRejected, Rationale: "final", Citation: "a.go:10"},
+	})
+
+	got := m.EmittedHypothesisVerdicts()
+	if len(got) != 2 {
+		t.Fatalf("verdict buffer should dedupe by ID, got %d items: %+v", len(got), got)
+	}
+	if got[0].HypothesisID != "H1" || got[0].Status != HypRejected || got[0].Citation != "a.go:10" {
+		t.Errorf("H1 should be overwritten in place by the last verdict, got %+v", got[0])
+	}
+	if got[1].HypothesisID != "H2" || got[1].Status != HypConfirmed {
+		t.Errorf("H2 should remain unchanged, got %+v", got[1])
+	}
+}

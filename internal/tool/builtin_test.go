@@ -308,7 +308,8 @@ func TestExecCommand(t *testing.T) {
 		if !strings.Contains(result.Summary, "[exec_command: $ echo hello]") {
 			t.Fatalf("expected params banner, got %q", result.Summary)
 		}
-		if !strings.Contains(result.Summary, "hello\n") {
+		normalized := strings.ReplaceAll(result.Summary, "\r\n", "\n")
+		if !strings.Contains(normalized, "hello\n") {
 			t.Fatalf("expected stdout 'hello', got %q", result.Summary)
 		}
 	})
@@ -923,4 +924,3 @@ func TestGitLog(t *testing.T) {
 		t.Skip("not in a git repo")
 	})
 }
-

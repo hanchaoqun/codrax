@@ -497,9 +497,9 @@ func TestSetAnalysisLimits_RoundTrip(t *testing.T) {
 // Execute + Summary tests (exercise the full tool contract)
 // -----------------------------------------------------------------------------
 
-func runEmitAnalysis(t *testing.T, payload string) (types.ToolResult, *types.MutableState) {
+func runEmitAnalysisWithObjective(t *testing.T, objective, payload string) (types.ToolResult, *types.MutableState) {
 	t.Helper()
-	mu := types.NewMutableState("trace the pipeline through analyze")
+	mu := types.NewMutableState(objective)
 	busCtx := &types.BusContext{Mutable: mu}
 	tool := &EmitAnalysis{}
 	res, err := tool.Execute(busCtx, json.RawMessage(payload))
@@ -507,6 +507,11 @@ func runEmitAnalysis(t *testing.T, payload string) (types.ToolResult, *types.Mut
 		t.Fatalf("Execute: %v", err)
 	}
 	return res, mu
+}
+
+func runEmitAnalysis(t *testing.T, payload string) (types.ToolResult, *types.MutableState) {
+	t.Helper()
+	return runEmitAnalysisWithObjective(t, "trace the pipeline through analyze", payload)
 }
 
 func TestEmitAnalysis_Execute_PersistsNormalizedRequestModel(t *testing.T) {
@@ -734,6 +739,37 @@ func TestEmitAnalysis_Execute_GenericEntitiesDropped(t *testing.T) {
 	}
 	if len(rm.AnalyzerHints.Entities) != 1 || rm.AnalyzerHints.Entities[0] != "Orchestrator" {
 		t.Errorf("Entities should only retain Orchestrator, got %v", rm.AnalyzerHints.Entities)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsControlInput(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["build", "load", "graph"],
+		"entities": ["buildOrLoadGraph"],
+		"question_kind": "mechanism",
+		"answer_shape": "step_list"
+	}`
+	objective := "## Prior conversation\nold topic\n\n## Current request\n\\q"
+	res, mu := runEmitAnalysisWithObjective(t, objective, payload)
+
+	if res.Success {
+		t.Fatalf("control input must be rejected, got summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "control command") {
+		t.Errorf("reject summary should mention control command, got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "Prior Conversation") {
+		t.Errorf("reject summary should mention Prior Conversation bleed, got %q", res.Summary)
+	}
+	if rm := mu.RequestModel(); rm != nil {
+		t.Errorf("control-input reject must not persist RequestModel, got %+v", rm)
 	}
 }
 

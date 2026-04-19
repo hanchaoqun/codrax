@@ -280,6 +280,29 @@ func TestMultilineThreeLines(t *testing.T) {
 	}
 }
 
+func TestBackslashQuitAliasHandledLocally(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("\\q\n")
+	out := &bytes.Buffer{}
+	r := newTestREPL(store, in, out)
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if got := len(store.Recent()); got != 0 {
+		t.Fatalf("\\q should exit before dispatch, persisted turns=%d", got)
+	}
+	if !strings.Contains(out.String(), "Goodbye!") {
+		t.Errorf("expected goodbye output for \\q, got:\n%s", out.String())
+	}
+}
+
 // TestHumanByteSize pins the banner digest's unit selection so a
 // tiny memory (a few bytes) does not show up as "0.0 KB" and a
 // real multi-MB directory does not overflow the single-line format.

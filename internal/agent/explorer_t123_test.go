@@ -36,8 +36,8 @@ func TestMaxFilesForComplexity(t *testing.T) {
 		{types.ComplexitySimple, 15},
 		{types.ComplexityModerate, 20},
 		{types.ComplexityComplex, 30},
-		{"", 20},        // zero value → moderate default
-		{"bogus", 20},   // unknown value → moderate default
+		{"", 20},      // zero value → moderate default
+		{"bogus", 20}, // unknown value → moderate default
 	}
 	for _, tc := range cases {
 		got := MaxFilesForComplexity(tc.complexity)
@@ -145,6 +145,61 @@ func TestEntityBoostFactor(t *testing.T) {
 	})
 }
 
+func TestExactEntityAnchors_UniqueSymbolOnly(t *testing.T) {
+	target := &repotypes.Symbol{Name: "buildOrLoadGraph", File: "internal/tool/repomap/tool.go"}
+	otherA := &repotypes.Symbol{Name: "Execute", File: "internal/agent/agent.go"}
+	otherB := &repotypes.Symbol{Name: "Execute", File: "internal/repl/repl.go"}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"internal/tool/repomap/tool.go": {RelPath: "internal/tool/repomap/tool.go"},
+			"internal/agent/agent.go":       {RelPath: "internal/agent/agent.go"},
+			"internal/repl/repl.go":         {RelPath: "internal/repl/repl.go"},
+		},
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"buildOrLoadGraph": {target},
+			"Execute":          {otherA, otherB},
+		},
+	}
+
+	anchors := exactEntityAnchors(graph, []string{"buildOrLoadGraph", "Execute"})
+	anchor, ok := anchors["internal/tool/repomap/tool.go"]
+	if !ok {
+		t.Fatalf("unique exact symbol should anchor tool.go, got %+v", anchors)
+	}
+	if anchor.Rank != 2 || anchor.Hit != "symbol_exact" {
+		t.Errorf("tool.go anchor = %+v, want rank=2 hit=symbol_exact", anchor)
+	}
+	if _, ok := anchors["internal/agent/agent.go"]; ok {
+		t.Errorf("ambiguous Execute symbol must not anchor agent.go, got %+v", anchors["internal/agent/agent.go"])
+	}
+}
+
+func TestKeywordSearchCandidatePaths_IncludeAnchorOnlyFiles(t *testing.T) {
+	candidates := keywordSearchCandidatePaths(
+		map[string]float64{"internal/context/builder.go": 42},
+		map[string]exactEntityAnchor{
+			"internal/tool/repomap/tool.go": {Rank: 2, Hit: "symbol_exact"},
+		},
+	)
+	if len(candidates) != 2 {
+		t.Fatalf("candidate union should keep grep + anchor-only files, got %v", candidates)
+	}
+	if candidates[0] != "internal/context/builder.go" || candidates[1] != "internal/tool/repomap/tool.go" {
+		t.Errorf("candidate paths sorted unexpectedly: %v", candidates)
+	}
+}
+
+func TestSortKeywordResults_PrefersExactEntityAnchor(t *testing.T) {
+	results := []keywordFileScore{
+		{Path: "internal/context/builder.go", Score: 100},
+		{Path: "internal/tool/repomap/tool.go", Score: 5, ExactEntityRank: 2},
+	}
+	sortKeywordResults(results)
+	if got := results[0].Path; got != "internal/tool/repomap/tool.go" {
+		t.Fatalf("exact entity anchor should outrank broad keyword score, got %s first", got)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // T1c
 // -----------------------------------------------------------------------------
@@ -164,10 +219,10 @@ func TestThresholdForKind(t *testing.T) {
 		partialModera int
 	}
 	cases := []struct {
-		kind                       types.RequirementKind
-		simpleSat, simplePart      int
-		moderateSat, moderatePart  int
-		complexSat, complexPart    int
+		kind                      types.RequirementKind
+		simpleSat, simplePart     int
+		moderateSat, moderatePart int
+		complexSat, complexPart   int
 	}{
 		{types.ReqMechanism, 2, 1, 2, 1, 4, 2},
 		{types.ReqEnumeration, 3, 1, 3, 1, 5, 2},
@@ -258,11 +313,11 @@ func TestExtractCallTargets_BasicRecognition(t *testing.T) {
 		`merged, err := o.subRuntime.Run(proposal)`,
 		`result := b.deps.Tools.Execute(ctx, name, params)`,
 		`sub.Run(req)`,
-		`fmt.Sprintf("%d", x)`,                    // stdlib noise
-		`strings.Contains(s, "x")`,                // stdlib noise
-		`logging.Debug("hello")`,                  // internal noise
-		`x.String()`,                              // method blocklist
-		`return foo()`,                            // bare call, no dot
+		`fmt.Sprintf("%d", x)`,     // stdlib noise
+		`strings.Contains(s, "x")`, // stdlib noise
+		`logging.Debug("hello")`,   // internal noise
+		`x.String()`,               // method blocklist
+		`return foo()`,             // bare call, no dot
 	}
 	got := extractCallTargets(lines, 6)
 	wantPrefixes := []string{"subRuntime.Run", "Tools.Execute", "sub.Run"}

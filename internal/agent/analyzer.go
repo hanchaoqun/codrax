@@ -128,6 +128,9 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 // Returns empty string on any error — the analyzer proceeds without
 // it and the LLM calls repo_map itself (graceful degrade).
 func buildAnalyzerRepoOverview(repoRoot, objective string) string {
+	if types.IsREPLControlInput(objective) {
+		return ""
+	}
 	// Extract code identifiers from the question to use as the graph
 	// query. extractQuestionEntities pulls CamelCase/snake_case tokens
 	// — exactly the kind of tokens that match file and symbol names.
@@ -869,6 +872,9 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 // directly so a nil slice is a valid zero value.
 func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []string {
 	if ctx == nil || ctx.RepoRoot == "" {
+		return nil
+	}
+	if types.IsREPLControlInput(types.StripConversationPrefix(rm.RawRequest)) {
 		return nil
 	}
 	entities := rm.AnalyzerHints.Entities

@@ -41,6 +41,63 @@ func SplitConversation(s string) (prior, current string) {
 	return prior, current
 }
 
+// replCommandAliases maps the REPL's accepted slash and backslash
+// command spellings onto the canonical slash form that handleSlash
+// consumes. Keeping this in types lets the REPL, orchestrator, and
+// analyzer share one definition of "this line is a control input, not
+// a code question".
+var replCommandAliases = map[string]string{
+	"/q":        "/quit",
+	"/quit":     "/quit",
+	"/exit":     "/exit",
+	"/clear":    "/clear",
+	"/history":  "/history",
+	"/compact":  "/compact",
+	"/help":     "/help",
+	"/h":        "/help",
+	"\\q":       "/quit",
+	"\\quit":    "/quit",
+	"\\exit":    "/exit",
+	"\\clear":   "/clear",
+	"\\history": "/history",
+	"\\compact": "/compact",
+	"\\help":    "/help",
+	"\\h":       "/help",
+}
+
+// NormalizeREPLCommandAlias returns the canonical slash-command form
+// for a known REPL control input, preserving any trailing arguments.
+// Returns "" when the line is not a known local REPL command.
+func NormalizeREPLCommandAlias(line string) string {
+	line = strings.TrimSpace(line)
+	if line == "" {
+		return ""
+	}
+	fields := strings.Fields(line)
+	if len(fields) == 0 {
+		return ""
+	}
+	cmd, ok := replCommandAliases[strings.ToLower(fields[0])]
+	if !ok {
+		return ""
+	}
+	if len(fields) == 1 {
+		return cmd
+	}
+	rest := strings.TrimSpace(line[len(fields[0]):])
+	if rest == "" {
+		return cmd
+	}
+	return cmd + " " + rest
+}
+
+// IsREPLControlInput reports whether the line is a local REPL command
+// such as `/quit` or `\q`. Control inputs are not analyzable user
+// requests and should not inherit entities from Prior Conversation.
+func IsREPLControlInput(line string) bool {
+	return NormalizeREPLCommandAlias(line) != ""
+}
+
 // continuationPrefixes are leading tokens that strongly suggest the
 // current request is a continuation of the prior conversation rather
 // than a new self-contained question. Matched case-insensitively as a

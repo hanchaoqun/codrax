@@ -59,9 +59,9 @@ type MutableState struct {
 	// result is the finalizer's final answer for the run, written
 	// by recordTaskFinalize after the per-task pipeline completes.
 	// Replaces the old TaskItem.Result field.
-	result                   string
-	requestModel             *RequestModel
-	emittedEvidence          []EvidenceItem
+	result          string
+	requestModel    *RequestModel
+	emittedEvidence []EvidenceItem
 	// emittedAnswerSymbols + emittedAnswerSymbolCompleteness are
 	// written as a set via SetEmittedAnswerSymbols and read via
 	// EmittedAnswerSymbolSet (P2.1 Phase 9). The two fields are always
@@ -71,10 +71,10 @@ type MutableState struct {
 	// the claim, which is the exact foot-gun we want to rule out.
 	// Retry semantics: a subsequent Set call REPLACES both fields
 	// atomically under the write lock.
-	emittedAnswerSymbols         []AnswerSymbol
+	emittedAnswerSymbols            []AnswerSymbol
 	emittedAnswerSymbolCompleteness CompletenessClaim
-	emittedHypothesisVerdicts []HypothesisVerdict
-	turnAArtifacts           *TurnAArtifacts
+	emittedHypothesisVerdicts       []HypothesisVerdict
+	turnAArtifacts                  *TurnAArtifacts
 	// searchGraph is an opaque handle to the repomap.Graph produced by
 	// explorer.keywordSearch. Carried as `any` so internal/types stays
 	// decoupled from internal/tool/repomap — consumers (emit_evidence,
@@ -620,19 +620,39 @@ func (m *MutableState) ResetEmittedAnswerSymbols() {
 	m.emittedAnswerSymbolCompleteness = CompletenessUnknown
 }
 
-// AppendEmittedHypothesisVerdicts appends LLM-emitted hypothesis
-// verdicts (P2.1 Turn B emit_hypothesis_verdict channel) to the
-// per-run buffer. The extractor's ParseOutput drains this buffer at
-// end-of-stage and routes the verdicts through MutableState.MarkHypothesis
-// (the D7 carve-out API on AnalysisIR). Sister API to AppendEvidence
-// and AppendEmittedAnswerSymbols.
+// AppendEmittedHypothesisVerdicts merges LLM-emitted hypothesis
+// verdicts (P2.1 Turn B emit_hypothesis_verdict channel) into the
+// per-run buffer. Non-empty HypothesisID entries use last-wins
+// semantics so repeated auto-verdict / override cycles do not spam
+// duplicate verdict lines into downstream prompts; malformed empty-ID
+// entries still append verbatim so diagnostics are not hidden. The
+// extractor's ParseOutput drains this buffer at end-of-stage and
+// routes the verdicts through MutableState.MarkHypothesis (the D7
+// carve-out API on AnalysisIR). Sister API to AppendEvidence and
+// AppendEmittedAnswerSymbols.
 func (m *MutableState) AppendEmittedHypothesisVerdicts(items []HypothesisVerdict) {
 	if m == nil || len(items) == 0 {
 		return
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.emittedHypothesisVerdicts = append(m.emittedHypothesisVerdicts, items...)
+	for _, item := range items {
+		if strings.TrimSpace(item.HypothesisID) == "" {
+			m.emittedHypothesisVerdicts = append(m.emittedHypothesisVerdicts, item)
+			continue
+		}
+		replaced := false
+		for i := range m.emittedHypothesisVerdicts {
+			if m.emittedHypothesisVerdicts[i].HypothesisID == item.HypothesisID {
+				m.emittedHypothesisVerdicts[i] = item
+				replaced = true
+				break
+			}
+		}
+		if !replaced {
+			m.emittedHypothesisVerdicts = append(m.emittedHypothesisVerdicts, item)
+		}
+	}
 }
 
 // EmittedHypothesisVerdicts returns a snapshot of the verdict buffer.
@@ -848,12 +868,12 @@ func (m *MutableState) ResetPrescanSummary() {
 // without the classification signal ever leaking into TurnAArtifacts
 // or EvidenceClosure.
 type ClassificationObs struct {
-	Pattern string     // grep pattern
-	Path    string     // file the match came from (repo-relative)
-	Line    int        // 1-indexed line number
-	Text    string     // matched line content (trimmed)
-	Kind    string     // declarative.Kind string label (informational)
-	TS      time.Time  // capture time (for diagnostics)
+	Pattern string    // grep pattern
+	Path    string    // file the match came from (repo-relative)
+	Line    int       // 1-indexed line number
+	Text    string    // matched line content (trimmed)
+	Kind    string    // declarative.Kind string label (informational)
+	TS      time.Time // capture time (for diagnostics)
 }
 
 // SetClassificationGrepTriggered flips the gate flag. Called by
@@ -1196,7 +1216,7 @@ type BusContext struct {
 	RepoFacts     []RepoFact          `json:"repo_facts,omitempty"`
 	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
 	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
-	AnswerChains  []AnswerChain       `json:"answer_chains,omitempty"` // deterministic answer-relevance envelopes (typed)
+	AnswerChains  []AnswerChain       `json:"answer_chains,omitempty"`  // deterministic answer-relevance envelopes (typed)
 	AnswerSymbols []AnswerSymbol      `json:"answer_symbols,omitempty"` // L0-2: structured terminal symbols extracted from AnswerChains
 	// AnswerSymbolCompleteness is the P2.1 set-level authority claim
 	// attached to AnswerSymbols. It is written by whichever stage
@@ -1208,9 +1228,9 @@ type BusContext struct {
 	// fail-closed default. See types.CompletenessClaim for the three-
 	// level authority ladder.
 	AnswerSymbolCompleteness CompletenessClaim `json:"answer_symbol_completeness,omitempty"`
-	ToolResults   []ToolResult        `json:"tool_results,omitempty"`
-	MCPResponses  []MCPResponse       `json:"mcp_responses,omitempty"`
-	StageReports  []StageReport       `json:"stage_reports,omitempty"`
+	ToolResults              []ToolResult      `json:"tool_results,omitempty"`
+	MCPResponses             []MCPResponse     `json:"mcp_responses,omitempty"`
+	StageReports             []StageReport     `json:"stage_reports,omitempty"`
 
 	Signals ExecutionSignals `json:"signals"`
 
@@ -1246,19 +1266,19 @@ type AgentContext struct {
 	// consumers MUST nil-check before reading.
 	AnalysisIR *AnalysisIR `json:"-"`
 
-	RelevantFacts         []string            `json:"relevant_facts,omitempty"`
-	RelevantFiles         []string            `json:"relevant_files,omitempty"`
-	EvidenceItems         []EvidenceItem      `json:"evidence_items,omitempty"`
-	FlowFindings          []FlowFindingDigest `json:"flow_findings,omitempty"`
-	AnswerChains          []AnswerChain       `json:"answer_chains,omitempty"`
-	AnswerSymbols         []AnswerSymbol      `json:"answer_symbols,omitempty"`
+	RelevantFacts []string            `json:"relevant_facts,omitempty"`
+	RelevantFiles []string            `json:"relevant_files,omitempty"`
+	EvidenceItems []EvidenceItem      `json:"evidence_items,omitempty"`
+	FlowFindings  []FlowFindingDigest `json:"flow_findings,omitempty"`
+	AnswerChains  []AnswerChain       `json:"answer_chains,omitempty"`
+	AnswerSymbols []AnswerSymbol      `json:"answer_symbols,omitempty"`
 	// AnswerSymbolCompleteness mirrors BusContext.AnswerSymbolCompleteness
 	// for the narrowed agent view. Read by finalize's prompt builder
 	// to pick Translation / softened-floor / shape-based rendering.
 	AnswerSymbolCompleteness CompletenessClaim `json:"answer_symbol_completeness,omitempty"`
-	RelevantToolSummaries []string            `json:"relevant_tool_summaries,omitempty"`
-	RelevantMCPNotes      []string            `json:"relevant_mcp_notes,omitempty"`
-	PriorReports          []StageReport       `json:"prior_reports,omitempty"`
+	RelevantToolSummaries    []string          `json:"relevant_tool_summaries,omitempty"`
+	RelevantMCPNotes         []string          `json:"relevant_mcp_notes,omitempty"`
+	PriorReports             []StageReport     `json:"prior_reports,omitempty"`
 
 	// UnverifiedAnalyzerFindings is populated from
 	// EvidenceClosure.UnverifiedFindings() at BuildAgentContext time.

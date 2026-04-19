@@ -116,6 +116,30 @@ func TestDrainHypothesisVerdicts_EmptyBuffer_NoOp(t *testing.T) {
 	}
 }
 
+func TestDrainHypothesisVerdicts_LastWriteWinsPerHypothesis(t *testing.T) {
+	ir := &types.AnalysisIR{
+		HypothesisSet: []types.Hypothesis{{ID: "H1", Status: types.HypUnknown}},
+	}
+	verdicts := []types.HypothesisVerdict{
+		{HypothesisID: "H1", Status: types.HypInconclusive, Rationale: "early"},
+		{HypothesisID: "H1", Status: types.HypRejected, Rationale: "final", Citation: "a.go:10"},
+	}
+	o := newOrchestratorForDrain(ir, verdicts)
+
+	o.drainHypothesisVerdicts()
+
+	if ir.HypothesisSet[0].Status != types.HypRejected {
+		t.Fatalf("last verdict should win, got %q", ir.HypothesisSet[0].Status)
+	}
+	retained := o.busCtx.Mutable.EmittedHypothesisVerdicts()
+	if len(retained) != 1 {
+		t.Fatalf("buffer should retain one deduped verdict, got %d: %+v", len(retained), retained)
+	}
+	if retained[0].Rationale != "final" || retained[0].Citation != "a.go:10" {
+		t.Errorf("retained verdict should be the final override, got %+v", retained[0])
+	}
+}
+
 func TestDrainHypothesisVerdicts_NilMutable_NoOp(t *testing.T) {
 	// Defensive: a BusContext with nil Mutable must not panic. The
 	// orchestrator never constructs one this way in production, but

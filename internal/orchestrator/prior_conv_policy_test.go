@@ -83,3 +83,14 @@ func TestPriorConvVisibleForStage_UnknownFallback(t *testing.T) {
 		t.Error("unknown policy must default to visible (always fallback)")
 	}
 }
+
+func TestPriorConvVisibleForStage_ControlInputAlwaysHidden(t *testing.T) {
+	obj := "## Prior conversation\nold\n\n## Current request\n\\q"
+	for _, stage := range []types.PipelineStage{
+		types.StageAnalyze, types.StageExplore, types.StageExtract, types.StageFinalize,
+	} {
+		if priorConvVisibleForStage(types.PriorConvPolicyAlways, stage, obj) {
+			t.Errorf("control input must hide Prior for stage=%s", stage)
+		}
+	}
+}

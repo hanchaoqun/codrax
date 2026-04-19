@@ -159,8 +159,8 @@ func (r *REPL) Loop() error {
 			pterm.FgLightCyan.Printf("  > %s\n", line)
 			pterm.FgDarkGray.Println("  ─────────────────────────────────────")
 		}
-		if strings.HasPrefix(line, "/") {
-			if quit := r.handleSlash(line); quit {
+		if cmd := types.NormalizeREPLCommandAlias(line); cmd != "" {
+			if quit := r.handleSlash(cmd); quit {
 				return nil
 			}
 			continue

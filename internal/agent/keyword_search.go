@@ -33,11 +33,12 @@ const searchTimeout = 60 * time.Second
 
 // keywordFileScore records how a file scored across multi-level keyword matching.
 type keywordFileScore struct {
-	Path         string
-	Score        float64
-	RepoMapScore float64           // raw repo_map structural score (for coverage selection)
-	Hits         map[string]string // keyword → best match level for debugging
-	Symbols      []string          // symbol summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
+	Path            string
+	Score           float64
+	RepoMapScore    float64           // raw repo_map structural score (for coverage selection)
+	Hits            map[string]string // keyword → best match level for debugging
+	Symbols         []string          // symbol summaries from repo_map (e.g. "RegisterDefaultSubAgents function:63")
+	ExactEntityRank int               // >0 when a unique exact entity anchor matched this file
 }
 
 // keywordSearchResult wraps the scored files plus the repo_map graph
@@ -121,9 +122,9 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 //
 // Strategy:
 //  1. Build/load the repo_map graph (cached, fast) and rank files using
-//     the keywords as query. This gives structural signal: files that
-//     DEFINE matching symbols score higher than files that merely mention
-//     them in comments.
+//     the keywords PLUS analyzer entities as query. This gives structural
+//     signal: files that DEFINE matching symbols score higher than files
+//     that merely mention them in comments.
 //  2. Run grep for each expanded keyword and compute IDF-weighted scores.
 //     Keywords matching fewer files are more informative (IDF = log(N/df)).
 //  3. Merge: repo_map score (normalized) + grep IDF score, with repo_map
@@ -134,7 +135,10 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 //     Entities are high-confidence identifier tokens copied verbatim
 //     from the user question, so they carry strictly stronger signal
 //     than the expanded keyword list.
-//  5. Cap the result list at `opts.MaxFiles` (or the historical 20
+//  5. Rescue unique exact entity anchors from the repo graph even when
+//     grep misses them, then sort anchored files ahead of broad keyword
+//     matches so an explicitly named symbol reaches the LLM's eyeline.
+//  6. Cap the result list at `opts.MaxFiles` (or the historical 20
 //     when opts.MaxFiles is zero).
 func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSearchOptions) *keywordSearchResult {
 	if len(keywords) == 0 || repoRoot == "" {
@@ -144,7 +148,8 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	keywords = expandKeywords(keywords)
 
 	// --- Phase 1: repo_map structural ranking ---
-	repoMapScores, graph := repoMapRank(keywords, repoRoot)
+	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot)
+	exactAnchors := exactEntityAnchors(graph, opts.Entities)
 
 	// --- Phase 2: grep IDF-weighted scoring ---
 	grepScores, grepHits := grepIDFSearch(keywords, repoRoot)
@@ -164,11 +169,13 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 		}
 	}
 
-	results := make([]keywordFileScore, 0, len(grepScores))
-	for f, grepScore := range grepScores {
+	candidates := keywordSearchCandidatePaths(grepScores, exactAnchors)
+	results := make([]keywordFileScore, 0, len(candidates))
+	for _, f := range candidates {
 		if isNoisePath(f) {
 			continue
 		}
+		grepScore := grepScores[f]
 
 		// Repo_map boost: files with higher structural importance
 		// get a multiplier on their grep score. The boost ranges
@@ -178,6 +185,17 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 			boost = 1.0 + (repoMapScores[f]/maxRM)*1.0
 		}
 		combined := grepScore * boost
+		if combined == 0 {
+			// Unique exact-entity anchor rescue path: if grep missed the
+			// file entirely but the repo graph proves a unique exact
+			// symbol/path match, seed it from structural signal so it can
+			// still enter the candidate pool.
+			if maxRM > 0 && repoMapScores[f] > 0 {
+				combined = 1.0 + repoMapScores[f]/maxRM
+			} else if _, ok := exactAnchors[f]; ok {
+				combined = 1.0
+			}
+		}
 
 		// Session 11 R1 DeclarativeBoost — declarative filenames
 		// (topology, defaults, registry, routes, wire, init,
@@ -218,6 +236,11 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 		if repoMapScores[f] > 0 {
 			hits["repo_map"] = fmt.Sprintf("%.0f", repoMapScores[f])
 		}
+		exactRank := 0
+		if anchor, ok := exactAnchors[f]; ok {
+			hits["exact_entity"] = anchor.Hit
+			exactRank = anchor.Rank
+		}
 
 		// Extract symbol summaries from repo_map graph.
 		var syms []string
@@ -240,17 +263,16 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 		}
 
 		results = append(results, keywordFileScore{
-			Path:         f,
-			Score:        combined,
-			RepoMapScore: repoMapScores[f],
-			Hits:         hits,
-			Symbols:      syms,
+			Path:            f,
+			Score:           combined,
+			RepoMapScore:    repoMapScores[f],
+			Hits:            hits,
+			Symbols:         syms,
+			ExactEntityRank: exactRank,
 		})
 	}
 
-	sort.Slice(results, func(i, j int) bool {
-		return results[i].Score > results[j].Score
-	})
+	sortKeywordResults(results)
 	maxFiles := opts.MaxFiles
 	if maxFiles <= 0 {
 		maxFiles = defaultKeywordSearchMaxFiles
@@ -262,6 +284,50 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
 		len(keywords), len(opts.Entities), len(results), maxFiles)
 	return &keywordSearchResult{Files: results, Graph: graph}
+}
+
+type exactEntityAnchor struct {
+	Rank int
+	Hit  string
+}
+
+// keywordSearchCandidatePaths returns the union of grep-discovered
+// files and unique exact-entity anchors from the repo graph.
+func keywordSearchCandidatePaths(
+	grepScores map[string]float64,
+	exactAnchors map[string]exactEntityAnchor,
+) []string {
+	seen := make(map[string]bool, len(grepScores)+len(exactAnchors))
+	paths := make([]string, 0, len(seen))
+	for path := range grepScores {
+		if !seen[path] {
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	}
+	for path := range exactAnchors {
+		if !seen[path] {
+			seen[path] = true
+			paths = append(paths, path)
+		}
+	}
+	sort.Strings(paths)
+	return paths
+}
+
+// sortKeywordResults orders files so uniquely exact-anchored entity
+// hits outrank broad keyword matches, then falls back to score and
+// path for stability.
+func sortKeywordResults(results []keywordFileScore) {
+	sort.Slice(results, func(i, j int) bool {
+		if results[i].ExactEntityRank != results[j].ExactEntityRank {
+			return results[i].ExactEntityRank > results[j].ExactEntityRank
+		}
+		if results[i].Score != results[j].Score {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Path < results[j].Path
+	})
 }
 
 // entityBoostFactor returns the multiplicative score factor for a
@@ -319,12 +385,144 @@ func entityBoostFactor(path string, graph *repomap.Graph, entities []string) flo
 	}
 }
 
+// exactEntityAnchors returns files that uniquely and exactly match an
+// analyzer-emitted entity by symbol definition or file path. These
+// anchors are stronger than broad keyword matches and are used to keep
+// the user-named implementation file near the top of the first-round
+// ranking.
+func exactEntityAnchors(graph *repomap.Graph, entities []string) map[string]exactEntityAnchor {
+	if graph == nil || len(entities) == 0 {
+		return nil
+	}
+	out := make(map[string]exactEntityAnchor)
+	add := func(paths []string, rank int, hit string) {
+		if len(paths) != 1 {
+			return
+		}
+		path := paths[0]
+		if cur, ok := out[path]; ok && cur.Rank >= rank {
+			return
+		}
+		out[path] = exactEntityAnchor{Rank: rank, Hit: hit}
+	}
+	for _, ent := range entities {
+		ent = strings.TrimSpace(ent)
+		if len(ent) < 4 {
+			continue
+		}
+		if strings.Contains(ent, ".") {
+			add(exactQualifiedSymbolFiles(graph, ent), 3, "qualified_symbol_exact")
+		}
+		add(exactSymbolFiles(graph, ent), 2, "symbol_exact")
+		add(exactPathFiles(graph, ent), 2, "path_exact")
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func exactQualifiedSymbolFiles(graph *repomap.Graph, entity string) []string {
+	if graph == nil || entity == "" {
+		return nil
+	}
+	var files []string
+	seen := make(map[string]bool)
+	for path, fi := range graph.FileIndex {
+		if fi == nil {
+			continue
+		}
+		for _, sym := range fi.Symbols {
+			qualified := sym.Name
+			switch {
+			case sym.Receiver != "":
+				qualified = sym.Receiver + "." + sym.Name
+			case sym.Parent != "":
+				qualified = sym.Parent + "." + sym.Name
+			}
+			if !strings.EqualFold(qualified, entity) {
+				continue
+			}
+			if !seen[path] {
+				seen[path] = true
+				files = append(files, path)
+			}
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
+func exactSymbolFiles(graph *repomap.Graph, entity string) []string {
+	if graph == nil || entity == "" {
+		return nil
+	}
+	var defs []*repomap.Symbol
+	if exact := graph.SymbolDefs[entity]; len(exact) > 0 {
+		defs = exact
+	} else {
+		for name, candidate := range graph.SymbolDefs {
+			if strings.EqualFold(name, entity) {
+				defs = candidate
+				break
+			}
+		}
+	}
+	if len(defs) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var files []string
+	for _, def := range defs {
+		if def == nil || def.File == "" || seen[def.File] {
+			continue
+		}
+		seen[def.File] = true
+		files = append(files, def.File)
+	}
+	sort.Strings(files)
+	return files
+}
+
+func exactPathFiles(graph *repomap.Graph, entity string) []string {
+	if graph == nil || entity == "" {
+		return nil
+	}
+	ent := strings.ToLower(filepath.ToSlash(strings.TrimSpace(entity)))
+	var files []string
+	for path := range graph.FileIndex {
+		normPath := strings.ToLower(filepath.ToSlash(path))
+		base := strings.ToLower(filepath.Base(normPath))
+		stem := strings.TrimSuffix(base, filepath.Ext(base))
+		switch {
+		case normPath == ent, base == ent, stem == ent:
+			files = append(files, path)
+		}
+	}
+	sort.Strings(files)
+	return files
+}
+
 // repoMapRank uses the repo_map graph to rank files by structural relevance.
 // Only returns files that matched the query (QueryScores > 0), so
 // infrastructure files with high structural scores but no query relevance
 // are excluded. Also returns the graph for symbol extraction.
-func repoMapRank(keywords []string, repoRoot string) (scores map[string]float64, graph *repomap.Graph) {
-	query := strings.Join(keywords, " ")
+func repoMapRank(keywords []string, entities []string, repoRoot string) (scores map[string]float64, graph *repomap.Graph) {
+	terms := make([]string, 0, len(keywords)+len(entities))
+	seen := make(map[string]bool, len(keywords)+len(entities))
+	for _, term := range append(append([]string(nil), keywords...), entities...) {
+		trimmed := strings.TrimSpace(term)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		terms = append(terms, trimmed)
+	}
+	query := strings.Join(terms, " ")
 	var err error
 	graph, err = repomap.BuildOrLoadGraph(repoRoot, query)
 	if err != nil {

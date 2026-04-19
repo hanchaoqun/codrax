@@ -258,6 +258,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// the current question. In single-shot mode the strip is a
 	// no-op (no marker present).
 	raw := types.StripConversationPrefix(ctx.Mutable.Objective())
+	if types.IsREPLControlInput(raw) {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("emit_analysis rejected: current user request %q looks like a local REPL control command, not a code question. Do NOT mine entities from Prior Conversation for control inputs.", raw),
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Sub-topic summaries sometimes copy chunks of the REPL
 	// conversation prefix verbatim when the LLM is over-eager to

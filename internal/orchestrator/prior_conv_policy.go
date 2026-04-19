@@ -27,6 +27,10 @@ import (
 // produce, but we degrade safely here too so this helper can be
 // invoked on a partially-initialised config without panicking.
 func priorConvVisibleForStage(policy string, stage types.PipelineStage, objective string) bool {
+	_, current := types.SplitConversation(objective)
+	if types.IsREPLControlInput(current) {
+		return false
+	}
 	switch policy {
 	case types.PriorConvPolicyNever:
 		return false
