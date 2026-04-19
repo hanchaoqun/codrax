@@ -60,15 +60,12 @@ type emitAnalysisParams struct {
 	// / predicateVerbMap) with cross-language LLM judgement. All
 	// predicate fields are required to be explicit (true OR false) — a
 	// missing field is fail-loud, not a silent default.
-	IntentConfidence     float64                 `json:"intent_confidence"`
-	ComplexityConfidence float64                 `json:"complexity_confidence"`
-	KindConfidence       float64                 `json:"kind_confidence"`
-	ShapeConfidence      float64                 `json:"shape_confidence"`
-	IntentAlternatives   []string                `json:"intent_alternatives,omitempty"`
-	KindAlternatives     []string                `json:"kind_alternatives,omitempty"`
-	ShapeAlternatives    []string                `json:"shape_alternatives,omitempty"`
-	Predicates           *emitPredicatesParam    `json:"predicates"`
-	PredicateAxis        string                  `json:"predicate_axis,omitempty"`
+	IntentConfidence     float64              `json:"intent_confidence"`
+	ComplexityConfidence float64              `json:"complexity_confidence"`
+	KindConfidence       float64              `json:"kind_confidence"`
+	ShapeConfidence      float64              `json:"shape_confidence"`
+	Predicates           *emitPredicatesParam `json:"predicates"`
+	PredicateAxis        string               `json:"predicate_axis,omitempty"`
 }
 
 // emitPredicatesParam is the wire shape of the required `predicates`
@@ -169,21 +166,6 @@ func buildEmitAnalysisSchema() {
 			"complexity_confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the complexity classification, in [0, 1]."},
 			"kind_confidence":       map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the question_kind classification, in [0, 1]."},
 			"shape_confidence":      map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the answer_shape classification, in [0, 1]."},
-			"intent_alternatives": map[string]any{
-				"type":        "array",
-				"description": "Runner-up intent value(s) when you hesitated; same enum as intent. Empty when confident. Up to 2 entries.",
-				"items":       map[string]any{"type": "string", "enum": skill.AnalysisIntentValues()},
-			},
-			"kind_alternatives": map[string]any{
-				"type":        "array",
-				"description": "Runner-up question_kind value(s) when you hesitated. Empty when confident. Up to 2 entries.",
-				"items":       map[string]any{"type": "string", "enum": skill.AnalysisQuestionKindValues()},
-			},
-			"shape_alternatives": map[string]any{
-				"type":        "array",
-				"description": "Runner-up answer_shape value(s) when you hesitated. Empty when confident. Up to 2 entries.",
-				"items":       map[string]any{"type": "string", "enum": skill.AnalysisAnswerShapeValues()},
-			},
 			"predicates": map[string]any{
 				"type":        "object",
 				"description": "Cross-language semantic self-assessment of the question. Every field is required; emit true OR false explicitly. A missing field is fail-loud rejection, not a silent default.",
@@ -405,9 +387,6 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ComplexityConfidence: p.ComplexityConfidence,
 		KindConfidence:       p.KindConfidence,
 		ShapeConfidence:      p.ShapeConfidence,
-		IntentAlternatives:   trimStringSlice(p.IntentAlternatives),
-		KindAlternatives:     trimStringSlice(p.KindAlternatives),
-		ShapeAlternatives:    trimStringSlice(p.ShapeAlternatives),
 		Predicates:           predicates,
 		PredicateAxis:        axis,
 	}

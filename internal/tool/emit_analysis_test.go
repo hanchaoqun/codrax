@@ -1117,9 +1117,6 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 		"complexity_confidence": 0.85,
 		"kind_confidence": 0.78,
 		"shape_confidence": 0.88,
-		"intent_alternatives": ["enumerate"],
-		"kind_alternatives": ["enumeration"],
-		"shape_alternatives": ["list_of_symbols"],
 		"predicate_axis": "register",
 		"predicates": {
 			"is_scalar_answer": true,
@@ -1148,8 +1145,5 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 	}
 	if rm.PredicateAxis != types.AxisRegister {
 		t.Errorf("PredicateAxis = %q, want register", rm.PredicateAxis)
-	}
-	if len(rm.IntentAlternatives) != 1 || rm.IntentAlternatives[0] != "enumerate" {
-		t.Errorf("IntentAlternatives = %v, want [enumerate]", rm.IntentAlternatives)
 	}
 }

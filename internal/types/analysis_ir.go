@@ -64,16 +64,6 @@ type RequestModel struct {
 	KindConfidence       float64 `json:"kind_confidence,omitempty"`
 	ShapeConfidence      float64 `json:"shape_confidence,omitempty"`
 
-	// IntentAlternatives / KindAlternatives / ShapeAlternatives carry
-	// the LLM's runner-up classifications when it hesitated. Empty when
-	// confident. Downstream consumers (extractor literal fallback,
-	// explorer chain ranker) can fall back to alt without re-invoking
-	// the LLM. Format: each slice element is the canonical enum string
-	// (same vocabulary as the primary value).
-	IntentAlternatives []string `json:"intent_alternatives,omitempty"`
-	KindAlternatives   []string `json:"kind_alternatives,omitempty"`
-	ShapeAlternatives  []string `json:"shape_alternatives,omitempty"`
-
 	// Predicates carries the LLM's semantic self-assessment of the
 	// question along axes that the prose-cue tables used to detect
 	// (count question, scalar answer, cross-component, …). Replaces
