@@ -93,7 +93,7 @@ Scale the answer depth to the question: one sentence for a lookup/count, multipl
 			"For step_list shape: emit steps[] with one entry per distinct branch or mechanism hop; each step carries a positive index, a one-sentence description drawn from evidence, and a citation_ref into the shared citations pool (or -1 when no citation backs the step)",
 			"For value / config_value shape: emit value{literal} (plus key for config_value) with a citation_ref into the pool",
 			"For boolean shape: emit boolean{decision, rationale, citation_ref}; decision must be one of true/false/yes/no/是/否 — no hedging",
-			"For explanation shape: fill summary with a thorough multi-paragraph explanation that fully answers the user's question — include mechanism details, code-level specifics, cross-file relationships. Populate citations[] for every file:line you reference",
+			"For explanation shape: fill summary with a thorough multi-paragraph explanation. Structure with ### sub-headers for each major topic/stage. Start with a 1-2 sentence TL;DR overview. Include mechanism details with inline `code` references, cross-file relationships, and an ASCII box-drawing diagram (using ┌─┐│└─┘▼→ characters inside a fenced code block) when the answer describes a call chain or dispatch flow. Populate citations[] for every file:line you reference",
 			"Declare every file:line you cite ONCE in the citations[] array; other fields reference it by zero-based integer index (or -1 for no cite). One cited line can serve multiple steps without duplication",
 		},
 		ToolSuggestions: []string{
@@ -134,7 +134,12 @@ Summary field (per-shape length caps enforced by the schema):
 - shape=list_of_symbols / step_list / boolean — Summary is a 1-3 sentence lead-in framing the structured payload. Up to 500 chars. Keep it brief; the structured fields carry the answer.
 - shape=value / config_value — Summary is a 1-sentence lead-in before the scalar literal. Up to 300 chars.
 
-Diagrams: when a visual would clarify the answer, use Mermaid fenced code blocks in the summary field. Prefer flowchart for control flow, sequenceDiagram for call chains, classDiagram for type hierarchies. Keep diagrams concise — collapse trivial nodes, label edges. Only use when it adds clarity.
+Visual structure (IMPORTANT — users need to understand logic at a glance):
+- For explanation shape: organize summary with ### sub-headers when covering multiple topics or stages. Lead with a 1-2 sentence TL;DR before the detailed explanation.
+- For mechanism / call-chain questions: include an ASCII box-drawing diagram in the summary inside a fenced code block showing the dispatch chain. Use box-drawing characters to draw boxes around node names and arrows between them. This renders correctly in ANY terminal or markdown viewer without needing a special renderer. Draw horizontal flows with arrows, vertical flows with pipes and down-arrows. Always wrap the diagram in triple-backtick fences.
+- For step_list shape: the renderer auto-generates a visual step flow from your steps[] array — focus on clear one-sentence descriptions with the action verb first.
+- Use markdown tables when comparing attributes across entities (e.g. "| Entity | Attribute | Value |") — keep column headers abstract; do not copy the question's literal entities or predicates into the headers.
+- Use inline code backticks for every function name, type name, and file path — never write them as plain text.
 
 Caveats field: an optional string array for honesty markers. When writing caveats, use the same language as the user's question.`,
 		Prohibitions: []string{

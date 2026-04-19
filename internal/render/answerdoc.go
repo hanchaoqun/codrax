@@ -175,22 +175,29 @@ func normalizeAnswerDocLang(lang string) answerDocLang {
 // -------- Shape: list_of_symbols --------
 
 func renderAnswerDocListOfSymbols(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	// No header — the completeness claim is rendered as a quiet
-	// footer by the caller. Symbols are listed directly after the
-	// summary so the answer reads cleanly.
-	_ = lang
+	if len(doc.Symbols) == 0 {
+		return
+	}
+	// Render as a markdown table for scanability. Tables are
+	// visually denser than bullet lists and let the reader quickly
+	// find a symbol by scanning the Name column.
+	switch lang {
+	case answerDocLangZH:
+		b.WriteString("| 名称 | 位置 | 说明 |\n")
+	default:
+		b.WriteString("| Name | Location | Description |\n")
+	}
+	b.WriteString("|---|---|---|\n")
 	for _, s := range doc.Symbols {
+		name := "**" + s.Name + "**"
+		loc := ""
 		if s.File != "" && s.Line > 0 {
-			fmt.Fprintf(b, "- **%s** (`%s:%d`)", s.Name, s.File, s.Line)
+			loc = fmt.Sprintf("`%s:%d`", s.File, s.Line)
 		} else if s.File != "" {
-			fmt.Fprintf(b, "- **%s** (`%s`)", s.Name, s.File)
-		} else {
-			fmt.Fprintf(b, "- **%s**", s.Name)
+			loc = fmt.Sprintf("`%s`", s.File)
 		}
-		if r := strings.TrimSpace(s.Rationale); r != "" {
-			fmt.Fprintf(b, " — %s", r)
-		}
-		b.WriteString("\n")
+		desc := strings.TrimSpace(s.Rationale)
+		fmt.Fprintf(b, "| %s | %s | %s |\n", name, loc, desc)
 	}
 }
 
@@ -202,35 +209,68 @@ func renderAnswerDocListOfSymbols(b *strings.Builder, doc *types.AnswerDocument,
 // can jump from the summary prose to the concrete code location.
 // Invoked only when doc.Symbols is non-empty on ShapeExplanation.
 func renderAnswerDocExplanationSkeleton(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
+	if len(doc.Symbols) == 0 {
+		return
+	}
+	// Render key anchors as a compact table for quick reference.
 	switch lang {
 	case answerDocLangZH:
 		b.WriteString("\n**关键锚点**：\n\n")
+		b.WriteString("| 组件 | 位置 | 作用 |\n")
 	default:
 		b.WriteString("\n**Key anchors:**\n\n")
+		b.WriteString("| Component | Location | Role |\n")
 	}
+	b.WriteString("|---|---|---|\n")
 	for _, s := range doc.Symbols {
+		name := "`" + s.Name + "`"
+		loc := ""
 		if s.File != "" && s.Line > 0 {
-			fmt.Fprintf(b, "- **%s** (`%s:%d`)", s.Name, s.File, s.Line)
+			loc = fmt.Sprintf("`%s:%d`", s.File, s.Line)
 		} else if s.File != "" {
-			fmt.Fprintf(b, "- **%s** (`%s`)", s.Name, s.File)
-		} else {
-			fmt.Fprintf(b, "- **%s**", s.Name)
+			loc = fmt.Sprintf("`%s`", s.File)
 		}
-		if r := strings.TrimSpace(s.Rationale); r != "" {
-			fmt.Fprintf(b, " — %s", r)
-		}
-		b.WriteString("\n")
+		desc := strings.TrimSpace(s.Rationale)
+		fmt.Fprintf(b, "| %s | %s | %s |\n", name, loc, desc)
 	}
 }
 
 // -------- Shape: step_list --------
 
 func renderAnswerDocStepList(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
+	if len(doc.Steps) == 0 {
+		return
+	}
+	// Visual step flow diagram first — gives the reader an at-a-glance
+	// overview before the detailed numbered list.
+	if len(doc.Steps) >= 2 {
+		switch lang {
+		case answerDocLangZH:
+			b.WriteString("**流程概览**：\n\n```\n")
+		default:
+			b.WriteString("**Flow overview:**\n\n```\n")
+		}
+		for i, step := range doc.Steps {
+			desc := strings.TrimSpace(step.Description)
+			if len(desc) > 40 {
+				desc = desc[:40] + "…"
+			}
+			fmt.Fprintf(b, "  [%d] %s", step.Index, desc)
+			if i < len(doc.Steps)-1 {
+				b.WriteString("\n   │\n   ▼\n")
+			} else {
+				b.WriteString("\n")
+			}
+		}
+		b.WriteString("```\n\n")
+	}
+
+	// Detailed numbered list with file:line citations.
 	switch lang {
 	case answerDocLangZH:
-		b.WriteString("**步骤**：\n\n")
+		b.WriteString("**详细步骤**：\n\n")
 	default:
-		b.WriteString("**Steps:**\n\n")
+		b.WriteString("**Detailed steps:**\n\n")
 	}
 	for _, step := range doc.Steps {
 		fmt.Fprintf(b, "%d. %s", step.Index, strings.TrimSpace(step.Description))
@@ -365,7 +405,7 @@ func renderAnswerDocSnippets(b *strings.Builder, doc *types.AnswerDocument, lang
 func renderAnswerDocRelationDiagram(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
 	switch lang {
 	case answerDocLangZH:
-		b.WriteString("\n**关系图**：\n\n")
+		b.WriteString("\n**调用/关系链路图**：\n\n")
 	default:
 		b.WriteString("\n**Flow:**\n\n")
 	}
