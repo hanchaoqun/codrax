@@ -300,7 +300,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// plus the dynamic language directive derived from BusContext.Language.
 	var prefs []string
 	prefs = append(prefs, ac.Preferences...)
-	if langPref := languageDirective(ac.Language); langPref != "" {
+	// Extract the current-turn question for language detection. The
+	// REPL may have packed prior conversation into Objective; only
+	// the current request should drive detection (otherwise a cross-
+	// language history turn would flip the assertion).
+	_, currentReq := types.SplitConversation(ac.Objective)
+	if langPref := languageDirective(ac.Language, currentReq); langPref != "" {
 		prefs = append(prefs, langPref)
 	}
 	if len(prefs) > 0 {
@@ -1385,7 +1390,27 @@ func renderAnswerChainForPrompt(c types.AnswerChain) string {
 
 // languageDirective maps a language code to a concise prompt
 // directive. Returns "" when the feature is disabled.
-func languageDirective(lang string) string {
+//
+// question is the user's current request (after conversation-prefix
+// strip). When non-empty and its natural-language script is
+// detectable, a HARD assertion is prepended — "The user's question
+// is in Chinese. Write your answer in Simplified Chinese." — because
+// LLMs reliably follow direct assertions about the observed language
+// but often ignore conditional "reply in the same language" rules
+// when the surrounding context (code, tool outputs, skill prompts)
+// is mostly English.
+func languageDirective(lang, question string) string {
+	base := languageDirectiveBase(lang)
+	if base == "" {
+		return ""
+	}
+	if assertion := detectedLanguageAssertion(question); assertion != "" {
+		return assertion + "\n\n" + base
+	}
+	return base
+}
+
+func languageDirectiveBase(lang string) string {
 	switch lang {
 	case "", "off", "none":
 		return ""
@@ -1396,4 +1421,40 @@ func languageDirective(lang string) string {
 	default:
 		return fmt.Sprintf("Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms when judging the question's language. When the question is ambiguous or contains no natural-language prose, default to %s. Always keep code identifiers, file paths, and technical terms in their original form.", lang)
 	}
+}
+
+// detectedLanguageAssertion returns a hard-assertion directive when
+// the question's dominant natural-language script is detectable, or
+// "" when the question is empty / purely code / ambiguous. Script
+// detection is deliberately simple: count Han/Hiragana/Katakana/
+// Hangul codepoints vs Latin letters. CJK dominance → Chinese/
+// Japanese/Korean assertion; Latin dominance → English. Mixed or
+// sparse prose falls through to the conditional base directive.
+func detectedLanguageAssertion(question string) string {
+	cjk, latin := 0, 0
+	for _, r := range question {
+		switch {
+		case r >= 0x4E00 && r <= 0x9FFF, // Han
+			r >= 0x3040 && r <= 0x309F, // Hiragana
+			r >= 0x30A0 && r <= 0x30FF, // Katakana
+			r >= 0xAC00 && r <= 0xD7AF: // Hangul syllables
+			cjk++
+		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+			latin++
+		}
+	}
+	// CJK assertion: any non-trivial Han/kana/hangul presence wins.
+	// A single CJK character in a question like "explorer是怎么调用
+	// subagent的？" (6 CJK) reliably signals a Chinese question even
+	// when technical symbols push latin count higher.
+	if cjk >= 3 {
+		return "The user's question is written in Chinese. You MUST write your answer in Simplified Chinese (简体中文). This is a hard requirement — do not switch to English prose for the summary, step descriptions, rationales, captions, or any other natural-language content. Keep code identifiers, file paths, type names, and function names in their original form."
+	}
+	// Latin assertion: require enough letters to avoid flagging a
+	// single-word query. 20 letters is roughly a short English
+	// sentence.
+	if latin >= 20 && cjk == 0 {
+		return "The user's question is written in English. You MUST write your answer in English. Keep code identifiers, file paths, type names, and function names in their original form."
+	}
+	return ""
 }
