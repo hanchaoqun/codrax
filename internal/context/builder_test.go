@@ -1239,6 +1239,21 @@ func TestBuildPromptContext_ExplorerSkill_KeepsBothSections(t *testing.T) {
 	}
 }
 
+func TestBuildPromptContext_ExplorerSkill_UsesExplorationContractTitle(t *testing.T) {
+	pc := BuildPromptContext(&types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "q",
+	}, explorerSkill())
+
+	if findSystemSection(pc, "Exploration Contract") == nil {
+		t.Fatal("explore-skill must render Exploration Contract")
+	}
+	if findSystemSection(pc, "Output Format") != nil {
+		t.Fatal("explore-skill must not render the generic Output Format title")
+	}
+}
+
 func TestIsExtractorSkill_Table(t *testing.T) {
 	cases := []struct {
 		name string

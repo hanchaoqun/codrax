@@ -322,6 +322,13 @@ type LoopSignal struct {
 	// so the dedup window catches "same problem two iters in a row"
 	// without suppressing legitimately different corrections.
 	HintKey string
+
+	// BypassThrottle skips the MinInjectInterval spacing rule while
+	// still honoring HintKey dedup and the phase-specific inject
+	// budgets. Reserve this for urgent corrective hints that must be
+	// delivered immediately after a prior accepted hint, such as
+	// "repair the evidence you just emitted before widening scope".
+	BypassThrottle bool
 }
 
 // LoopController is the unified replacement for ContinuingEvaluator +

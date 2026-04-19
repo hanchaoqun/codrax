@@ -50,12 +50,12 @@ func TestMaxFilesForComplexity(t *testing.T) {
 
 // TestEntityBoostFactor exercises the entity-boost multiplier ladder.
 // The tested invariants pin:
-//   1. path-only match → 1.3x (tie-breaker for files named after the entity)
-//   2. symbol-only match → 1.3x (file whose symbol table contains the entity)
-//   3. both → 1.6x (strongest signal)
-//   4. neither → 1.0x (no boost)
-//   5. short entities (< 4 chars) are skipped (false-positive guard)
-//   6. empty entities / nil graph → 1.0x (safe default)
+//  1. path-only match → 1.3x (tie-breaker for files named after the entity)
+//  2. symbol-only match → 1.3x (file whose symbol table contains the entity)
+//  3. both → 1.6x (strongest signal)
+//  4. neither → 1.0x (no boost)
+//  5. short entities (< 4 chars) are skipped (false-positive guard)
+//  6. empty entities / nil graph → 1.0x (safe default)
 func TestEntityBoostFactor(t *testing.T) {
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repotypes.FileInfo{
@@ -507,6 +507,23 @@ func TestDetectCrossFileSymbolGaps(t *testing.T) {
 		gaps := detectCrossFileSymbolGaps(nil, graph, nil, 5)
 		if gaps != nil {
 			t.Errorf("nil notes should yield nil gaps, got %+v", gaps)
+		}
+	})
+
+	t.Run("narrative labels do not create fake symbol gaps", func(t *testing.T) {
+		graph.SymbolDefs["Answer"] = []*repotypes.Symbol{
+			{Name: "Answer", File: "internal/analysis/contract/checker.go"},
+		}
+		notes := []string{
+			"Answer: The explorer builds a SubAgentRuntime and calls its Run method.",
+			"Evidence:",
+			"- SubExplorer coordinates the sub-task.",
+		}
+		gaps := detectCrossFileSymbolGaps(notes, graph, nil, 5)
+		for _, g := range gaps {
+			if g.Symbol == "Answer" {
+				t.Fatalf("narrative label should not surface as a symbol gap: %+v", gaps)
+			}
 		}
 	})
 }

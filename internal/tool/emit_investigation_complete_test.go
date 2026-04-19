@@ -123,6 +123,7 @@ func TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery(t *testing.T) {
 	t.Cleanup(func() { SetGroundingPolicy(prev) })
 
 	mut := types.NewMutableState("q")
+	closure := mut.EvidenceClosure()
 	// 3 recovered items — grounded+recovered ratio = 100% (passes
 	// GroundingFloor) but Tier-1 ratio = 0% (fails Tier1Floor).
 	for i := 0; i < 3; i++ {
@@ -146,6 +147,19 @@ func TestEmitInvestigationComplete_Tier1FloorRejectsPureRecovery(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "read_file") {
 		t.Errorf("rejection must suggest read_file repair: %q", res.Summary)
+	}
+	if repairs := closure.PendingRepairs(); len(repairs) != 1 {
+		t.Fatalf("expected one deduped RepairReadFile directive, got %d: %+v", len(repairs), repairs)
+	} else if repairs[0].Kind != types.RepairReadFile || len(repairs[0].Files) != 1 || repairs[0].Files[0] != "a.go" {
+		t.Fatalf("unexpected repair payload: %+v", repairs[0])
+	}
+	if pending := closure.PendingReads(); len(pending) != 1 {
+		t.Fatalf("expected one mirrored PendingRead, got %d: %+v", len(pending), pending)
+	} else if pending[0].File != "a.go" {
+		t.Fatalf("pending read file = %q, want a.go", pending[0].File)
+	}
+	if !strings.Contains(res.Summary, "10, 11, 12") {
+		t.Errorf("summary should collapse same-file line hints, got: %q", res.Summary)
 	}
 }
 
@@ -205,5 +219,32 @@ func TestEmitInvestigationComplete_Tier1FloorDisabledWhenZero(t *testing.T) {
 	res, _ := tool.Execute(bus, params)
 	if !res.Success {
 		t.Errorf("Tier1Floor=0 must disable the gate; got rejection: %s", res.Summary)
+	}
+}
+
+func TestEmitInvestigationComplete_Tier1FloorQueuesTier2GroundedReads(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.3})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("q")
+	closure := mut.EvidenceClosure()
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceMechanism, Source: "internal/tool/repomap/tool.go", LineStart: 133,
+		AnchorKind: types.AnchorDefinition, AnchorSymbol: "buildOrLoadGraph",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierFQNameSameFile,
+	}})
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"done","confidence":"high"}`)
+	res, _ := tool.Execute(bus, params)
+	if res.Success {
+		t.Fatalf("tier2-only investigation must be rejected; got success=%q", res.Summary)
+	}
+	if repairs := closure.PendingRepairs(); len(repairs) != 1 {
+		t.Fatalf("expected one RepairReadFile for tier2 grounded item, got %d: %+v", len(repairs), repairs)
+	} else if repairs[0].Files[0] != "internal/tool/repomap/tool.go" {
+		t.Fatalf("repair file = %q, want internal/tool/repomap/tool.go", repairs[0].Files[0])
 	}
 }

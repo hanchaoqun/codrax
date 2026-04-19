@@ -56,6 +56,13 @@ type answerDocumentEvaluator struct {
 	// bounded by e.maxRetries.
 	retriesUsed int
 
+	// rejectHintsUsed tracks targeted mid-loop repair hints after a
+	// failed emit_answer_document tool call. Kept separate from the
+	// soft-stop retry budget so a tool-level schema rejection can be
+	// corrected immediately without burning the "missing document"
+	// fallback path.
+	rejectHintsUsed int
+
 	// Shrinkage-salvage knobs, populated from AgentSettings at
 	// construction. See salvagePriorDraftIntoSummary for the
 	// triggering conditions and the salvage contract.
@@ -94,6 +101,7 @@ type answerDocumentEvaluator struct {
 // repeats the skill's contract text.
 func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	e.retriesUsed = 0
+	e.rejectHintsUsed = 0
 	e.language = extractAnswerDocLang(ctx)
 	if ctx != nil {
 		e.mu = ctx.Mutable
@@ -267,6 +275,9 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
 			}
 		}
+		if sig := e.emitAnswerDocumentRejectSignal(obs); sig.HintRequested {
+			return sig
+		}
 		return LoopSignal{}
 	}
 	if obs.Phase != PhaseSoftStop {
@@ -303,6 +314,38 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 			"shape's character cap). Derive the remaining required structured fields (citations[] " +
 			"and any shape-specific payload) from the same draft. Do NOT rewrite, compress, or " +
 			"paraphrase the content — the richness of the original draft is the answer.",
+	}
+}
+
+func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObservation) LoopSignal {
+	if obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_answer_document" || obs.LastToolResult.Success {
+		return LoopSignal{}
+	}
+	if e.maxRetries > 0 && e.rejectHintsUsed >= e.maxRetries {
+		return LoopSignal{}
+	}
+	summary := strings.TrimSpace(obs.LastToolResult.Summary)
+	if summary == "" {
+		return LoopSignal{}
+	}
+
+	hint := "Your last `emit_answer_document` call was rejected by the tool. Fix the exact validation error from the tool result and re-emit `emit_answer_document` now. Do not write free-form prose outside the tool call."
+	reasonKey := "tool-reject"
+
+	var summaryLen, cap int
+	var shape string
+	if _, err := fmt.Sscanf(summary, "summary length %d exceeds cap %d for shape=%s", &summaryLen, &cap, &shape); err == nil && cap > 0 {
+		reasonKey = "summary-cap"
+		hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long for shape `%s` (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Cut large diagrams, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", strings.TrimSpace(shape), cap, summaryLen, cap)
+	}
+
+	e.rejectHintsUsed++
+	return LoopSignal{
+		HintRequested:  true,
+		HintKey:        fmt.Sprintf("finalizer.reject.%s.%d", reasonKey, e.rejectHintsUsed),
+		Hint:           hint,
+		Progress:       true,
+		BypassThrottle: true,
 	}
 }
 

@@ -12,7 +12,7 @@ func RegisterDefaults(r *Registry) {
 
 	r.Register(&Config{
 		Name: "explore-skill",
-		Goal: "Investigate the user's question and answer it directly using evidence from the code.",
+		Goal: "Investigate the user's question by reading code, collecting grounded evidence, and handing a well-supported evidence record to downstream synthesis.",
 		Workflow: []string{
 			"PHASE 1 — Breadth scan: use repo_map and grep (files_only=true) to discover ALL relevant files. Do not read files yet. Output a prioritized list of 3-6 files to investigate. For non-English questions, search with BOTH the original terms AND their English programming equivalents. Try multiple keyword variants (word roots, synonyms, abbreviations) — do not rely on a single search term per concept.",
 			"PHASE 2 — Depth investigation: use grep (for targeted pattern search) and read_file (for full context) — pick the most efficient tool for each situation. After each file, call emit_evidence with ALL facts in one batch. For each file extract: (a) key data structures, (b) control flow, (c) configuration-driven behavior, (d) cross-component interactions",
@@ -29,48 +29,31 @@ func RegisterDefaults(r *Registry) {
 			"list_files",
 			"exec_command",
 		},
-		// OutputFormat is shape-by-example, not shape-by-rule. The previous
-		// abstract description ("Direct answer ... plus file:line citations")
-		// failed to bind the LLM away from its training-distribution default
-		// of cataloger sections. A single concrete example fixed that, but
-		// over-fit in two ways: (1) the example was the trigger query's
-		// answer verbatim, contaminating the very query it was supposed to
-		// validate, and (2) it pinned the answer length at "one or two
-		// sentences", which compresses any genuine multi-paragraph
-		// explanation request into a degenerate two-sentence summary plus
-		// file list.
-		//
-		// The fix is three concrete examples covering three answer scales
-		// (lookup, count, multi-paragraph explanation), all using content
-		// completely unrelated to this codebase. The principle "scale the
-		// answer to the question" is stated above the examples in plain
-		// English. The examples teach format flexibility (the Answer block
-		// scales) without teaching specific content (the LLM can't copy any
-		// of these because none of them are about this repo).
-		OutputFormat: `The shape of your answer must match the shape of the question. Lead with the direct answer at the right level of detail — one sentence for a count, name, or yes/no question; multiple paragraphs for an explanation, walkthrough, or comparison. Match the answer's depth to the question's depth: do not pad a one-sentence answer into prose, and do not compress a multi-paragraph explanation into two sentences. Always ground load-bearing claims in a file:line citation.
+		// The explorer is not the final answer writer anymore. The useful
+		// output at this stage is tool use plus grounded evidence. Keep the
+		// contract explicit here so the LLM does not fall back to generic
+		// "Answer:/Evidence:" prose that pollutes later heuristics.
+		OutputFormat: `Your valuable output in this stage is tool use plus structured evidence, not polished answer prose.
 
-Use this shape — Answer first, then Evidence (this is the structure, adapt content to your findings):
+Preferred behavior per turn:
+- If you know the next file or search to run, call the tool directly instead of drafting an answer.
+- Optional assistant text between tool calls should be 1-3 short working notes about what the last read established.
+- Do NOT use narrative labels such as "Answer:", "Evidence:", "Summary:", or "Caveat:" in those notes.
+- After reading a file, call emit_evidence(items=[...]) with the grounded facts you learned from that file.
+- When you truly have enough evidence, call emit_investigation_complete(reason, confidence). That tool call — not your prose — is the completion signal.
 
-Answer: <direct answer at the right depth>
-Evidence:
-- <file:line> — <what this establishes>
-- <file:line> — <what this establishes>
+Working-note examples (illustrative shape only — use generic abstract names, not literal identifiers from the code under investigation):
+- "fnA" first checks a cached state, then falls back to a fresh computation when the cache is stale.
+- "fnB" reprocesses only the changed inputs and merges them into the cached state.
 
-If part of the question genuinely cannot be answered from the code you read, add one short sentence naming the missing piece — do not substitute "further analysis required" for an answer the evidence supports.
-
-Example (hypothetical, unrelated codebase — copy the shape, not the content):
-
-Answer: There are 4 HTTP handlers registered on the public router.
-Evidence:
-- src/routes.py:18-21 — route registrations for /health, /users, /orders, /metrics
-- src/routes.py:42 — no registrations after line 21
-
-Scale the answer depth to the question: one sentence for a lookup/count, multiple paragraphs for an explanation.`,
+Keep any prose brief and operational; save the final user-facing answer for later stages.`,
 		Prohibitions: []string{
 			"do not modify any files",
 			"do not make assumptions without evidence",
 			"do not stop at 'the answer would require checking X' — go check X yourself",
 			"do not write about what would be done next or what the user should do — answer only what was asked",
+			"do not ask the user whether to continue investigating or what area to inspect next — decide from the evidence and use tools",
+			"do not write `Answer:` / `Evidence:` / `Summary:` headings during exploration",
 			"do not treat repo_map output as evidence — it is a cached navigation index that tells you where to look, not what is true. After consulting repo_map, always read_file or grep the actual source files to establish facts. list_files is fine as evidence since it reads the real directory",
 		},
 	})

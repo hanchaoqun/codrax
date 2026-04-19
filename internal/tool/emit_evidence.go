@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -83,11 +85,11 @@ type emitEvidenceParams struct {
 }
 
 type emitEvidenceItem struct {
-	Kind         string  `json:"kind"`
-	Subject      string  `json:"subject,omitempty"`
-	Predicate    string  `json:"predicate,omitempty"`
-	Object       string  `json:"object,omitempty"`
-	Source       string  `json:"source"`
+	Kind      string `json:"kind"`
+	Subject   string `json:"subject,omitempty"`
+	Predicate string `json:"predicate,omitempty"`
+	Object    string `json:"object,omitempty"`
+	Source    string `json:"source"`
 	// LineStart / LineEnd use FlexInt so LLMs that emit numeric
 	// strings ("42") or floats (42.0) pass strict schema validation
 	// instead of failing the whole batch on format pedantry.
@@ -128,6 +130,11 @@ func (t *EmitEvidence) Description() string {
 		"method call 'x.Execute()' at line 42 the anchor_symbol is 'Execute' and anchor_kind is 'call'. " +
 		"For a struct type declaration 'type Orchestrator struct' the anchor_symbol is 'Orchestrator' " +
 		"and anchor_kind is 'definition'.\n\n" +
+		"For call-like evidence (`predicate` = calls / invokes / dispatches / delegates to) with " +
+		"`anchor_kind=\"call\"`, the semantic direction is ALWAYS caller -> callee: `subject` must be " +
+		"the containing function/method and `object` must be the callee on that line. Example: if " +
+		"`outer()` contains `return inner(...)`, emit `subject=\"outer\"`, `predicate=\"calls\"`, " +
+		"`object=\"inner\"`.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
@@ -154,9 +161,9 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
         "type": "object",
         "properties": {
           "kind":          {"type": "string", "enum": %s, "description": "Evidence shape. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). absent = expected pattern was looked for and NOT found."},
-          "subject":       {"type": "string", "description": "Primary semantic symbol the item is about (function name, type, key)."},
+          "subject":       {"type": "string", "description": "Primary semantic symbol the item is about (function name, type, key). For call-like predicates with anchor_kind='call', subject MUST be the caller / containing function at that line."},
           "predicate":     {"type": "string", "description": "Lowercase verb tying subject to object. PREFER these canonical verbs so the finalizer's deterministic relation-diagram renderer picks the edge up — anything outside this list is rendered as unstructured prose: calls, invokes, dispatches, delegates to, binds, binds ONLY, registers, wires, provides, returns, yields, constructs, instantiates, defines, implements, extends, embeds, maps, config, decorates. Optional; defaults to the lower-cased kind."},
-          "object":        {"type": "string", "description": "Secondary symbol or value. Required for relationship; optional otherwise."},
+          "object":        {"type": "string", "description": "Secondary symbol or value. Required for relationship; optional otherwise. For call-like predicates with anchor_kind='call', object MUST be the callee symbol on that line."},
           "source":        {"type": "string", "description": "Repository-relative file path the fact comes from. Required."},
           "line_start":    {"type": "integer", "description": "Exact gutter line number from read_file — NEVER estimated. The grounder uses this to verify the claim; wrong numbers are flagged as ungrounded or auto-recovered."},
           "line_end":      {"type": "integer", "description": "Last line of the cited range. Defaults to line_start when omitted."},
@@ -280,6 +287,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	reports := make([]ground.Report, len(built))
 	for i := range built {
 		r := ground.GroundItem(&built[i], gc)
+		normalizeCallEvidenceDirection(&built[i], gc)
 		// Recovery can rewrite LineStart/Source; keep the stable ID
 		// in sync so merge-by-ID downstream coalesces correctly.
 		built[i].ID = types.StableEvidenceID(
@@ -424,6 +432,166 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	}
 	item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
 	return item, nil
+}
+
+var callLikePredicates = map[string]bool{
+	"call":         true,
+	"calls":        true,
+	"invoke":       true,
+	"invokes":      true,
+	"dispatch":     true,
+	"dispatches":   true,
+	"delegates":    true,
+	"delegates to": true,
+}
+
+// normalizeCallEvidenceDirection canonicalises call-site evidence to
+// the single semantic direction the rest of the pipeline expects:
+// caller -> callee. The LLM occasionally inverts this
+// (subject=callee, object=caller) because the visible callee name is
+// more salient than the containing function. We already have the
+// authoritative callsite and symbol windows in the grounding graph, so
+// reuse that existing structure here instead of asking downstream
+// stages to infer direction from prose.
+func normalizeCallEvidenceDirection(it *types.EvidenceItem, gc *ground.Context) bool {
+	if it == nil || gc == nil || gc.Graph == nil || it.AnchorKind != types.AnchorCall {
+		return false
+	}
+	if !callLikePredicates[strings.ToLower(strings.TrimSpace(it.Predicate))] {
+		return false
+	}
+	fi, ok := gc.Graph.FileIndex[it.Source]
+	if !ok || fi == nil {
+		return false
+	}
+	rel, ok := findCallRelationAtLine(fi, it.LineStart, it.AnchorSymbol)
+	if !ok {
+		return false
+	}
+	caller := enclosingCallableSymbolName(fi, it.LineStart)
+	callee := callRelationTargetName(gc.Graph, fi, rel)
+	if caller == "" || callee == "" {
+		return false
+	}
+	changed := false
+	if strings.TrimSpace(it.Subject) != caller {
+		it.Subject = caller
+		changed = true
+	}
+	if strings.TrimSpace(it.Object) != callee {
+		it.Object = callee
+		changed = true
+	}
+	if changed {
+		logging.Debug("[emit_evidence] normalized call direction at %s:%d -> %s %s %s",
+			it.Source, it.LineStart, it.Subject, it.Predicate, it.Object)
+	}
+	return changed
+}
+
+func findCallRelationAtLine(fi *repomap.FileInfo, line int, anchorSymbol string) (*repomap.Relation, bool) {
+	if fi == nil || line <= 0 {
+		return nil, false
+	}
+	anchorSymbol = strings.TrimSpace(anchorSymbol)
+	shortAnchor := emitLastDotSegment(anchorSymbol)
+	var fallback *repomap.Relation
+	for i := range fi.Relations {
+		rel := &fi.Relations[i]
+		if rel.Kind != "call" || rel.Line != line {
+			continue
+		}
+		if fallback == nil {
+			fallback = rel
+		}
+		relName := strings.TrimSpace(rel.ToEP.Name)
+		if relName == "" {
+			relName = strings.TrimSpace(rel.To)
+		}
+		if anchorSymbol == "" || relName == anchorSymbol || relName == shortAnchor {
+			return rel, true
+		}
+	}
+	if anchorSymbol == "" && fallback != nil {
+		return fallback, true
+	}
+	return nil, false
+}
+
+func enclosingCallableSymbolName(fi *repomap.FileInfo, line int) string {
+	if fi == nil || line <= 0 {
+		return ""
+	}
+	var best *repomap.Symbol
+	bestPriority := math.MaxInt
+	bestSpan := math.MaxInt
+	for i := range fi.Symbols {
+		sym := &fi.Symbols[i]
+		if sym.Line <= 0 {
+			continue
+		}
+		end := sym.EndLine
+		if end < sym.Line {
+			end = sym.Line
+		}
+		if line < sym.Line || line > end {
+			continue
+		}
+		priority := 1
+		if sym.Kind == "function" || sym.Kind == "method" {
+			priority = 0
+		}
+		span := end - sym.Line
+		if best == nil || priority < bestPriority || (priority == bestPriority && span < bestSpan) {
+			best = sym
+			bestPriority = priority
+			bestSpan = span
+		}
+	}
+	return qualifiedEvidenceSymbolName(best)
+}
+
+func callRelationTargetName(graph *repomap.Graph, fi *repomap.FileInfo, rel *repomap.Relation) string {
+	if rel == nil {
+		return ""
+	}
+	if graph != nil && fi != nil {
+		if target := graph.ResolveCallTarget(fi, *rel); target != nil {
+			if name := qualifiedEvidenceSymbolName(target); name != "" {
+				return name
+			}
+		}
+	}
+	name := strings.TrimSpace(rel.ToEP.Name)
+	if recv := strings.TrimSpace(rel.ToEP.Receiver); recv != "" && name != "" {
+		return recv + "." + name
+	}
+	if name != "" {
+		return name
+	}
+	return strings.TrimSpace(rel.To)
+}
+
+func qualifiedEvidenceSymbolName(sym *repomap.Symbol) string {
+	if sym == nil {
+		return ""
+	}
+	switch {
+	case strings.TrimSpace(sym.Receiver) != "":
+		return strings.TrimSpace(sym.Receiver) + "." + strings.TrimSpace(sym.Name)
+	case strings.TrimSpace(sym.Parent) != "":
+		return strings.TrimSpace(sym.Parent) + "." + strings.TrimSpace(sym.Name)
+	default:
+		return strings.TrimSpace(sym.Name)
+	}
+}
+
+func emitLastDotSegment(s string) string {
+	s = strings.TrimSpace(s)
+	if idx := strings.LastIndex(s, "."); idx >= 0 && idx+1 < len(s) {
+		return s[idx+1:]
+	}
+	return s
 }
 
 // findAnchorKind lookups an AnchorKind by its lowercase string form.

@@ -1935,6 +1935,7 @@ func TestShouldStop_PrimaryFileReadGate_BlocksOnStaleNotes(t *testing.T) {
 		searchResult:          &keywordSearchResult{Graph: driftFixGraph()},
 		ermRequirements:       []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}, Status: "satisfied"}},
 		investigationNotes:    []string{driftFakeEvidenceNotes},
+		primaryReadSeen:       true,
 		primaryReadIter:       4,
 		notesLenAtPrimaryRead: 1,
 	}
@@ -1958,6 +1959,7 @@ func TestShouldStop_PrimaryFileReadGate_AllowsAfterFreshNotes(t *testing.T) {
 		searchResult:          &keywordSearchResult{Graph: driftFixGraph()},
 		ermRequirements:       []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"ContinuationPrompt"}, Status: "satisfied"}},
 		investigationNotes:    []string{driftFakeEvidenceNotes, freshNotes},
+		primaryReadSeen:       true,
 		primaryReadIter:       4,
 		notesLenAtPrimaryRead: 1, // only 1 note existed when primary was read; now there are 2
 	}
@@ -2176,20 +2178,21 @@ func TestBuildPrimaryTargetBanner_NilGraph(t *testing.T) {
 // (general facts without location). Empty primary set is a no-op.
 func TestFilterEvidenceByPrimaryFiles(t *testing.T) {
 	items := []types.EvidenceItem{
-		{Source: "internal/agent/explorer.go", LineStart: 774, Summary: "two-phase model"},       // keep
-		{Source: "internal/agent/sub_explorer.go", LineStart: 169, Summary: `returns "", false`}, // drop
-		{Source: "cmd/root.go", LineStart: 96, Summary: "CLI flag"},                              // drop
-		{Source: "", Summary: "no-source general fact"},                                          // keep
-		{Source: "internal/agent/explorer.go", LineStart: 856, Summary: "partial read push"},     // keep
-		{Source: "internal/agent/finalizer.go", LineStart: 182, Summary: "finalizer string"},     // drop
+		{Source: "internal/agent/explorer.go", LineStart: 774, Summary: "two-phase model"},                // keep
+		{Source: "mechanism_scan:internal/agent/explorer.go", LineStart: 810, Summary: "mechanism block"}, // keep
+		{Source: "internal/agent/sub_explorer.go", LineStart: 169, Summary: `returns "", false`},          // drop
+		{Source: "cmd/root.go", LineStart: 96, Summary: "CLI flag"},                                       // drop
+		{Source: "", Summary: "no-source general fact"},                                                   // keep
+		{Source: "internal/agent/explorer.go", LineStart: 856, Summary: "partial read push"},              // keep
+		{Source: "internal/agent/finalizer.go", LineStart: 182, Summary: "finalizer string"},              // drop
 	}
 	primary := []string{"internal/agent/explorer.go"}
 	out := filterEvidenceByPrimaryFiles(items, primary)
-	if len(out) != 3 {
-		t.Fatalf("expected 3 filtered items, got %d: %+v", len(out), out)
+	if len(out) != 4 {
+		t.Fatalf("expected 4 filtered items, got %d: %+v", len(out), out)
 	}
 	// Order must be preserved.
-	if out[0].LineStart != 774 || out[1].Source != "" || out[2].LineStart != 856 {
+	if out[0].LineStart != 774 || out[1].LineStart != 810 || out[2].Source != "" || out[3].LineStart != 856 {
 		t.Errorf("filtered items in wrong order: %+v", out)
 	}
 	// Empty primary = no-op.
@@ -2215,6 +2218,9 @@ func TestObservePrimaryRead_IdempotentAndSnapshots(t *testing.T) {
 	}
 	// Empty history → no detection.
 	eval.observePrimaryRead(3, nil)
+	if eval.primaryReadSeen {
+		t.Fatal("primaryReadSeen must stay false on empty history")
+	}
 	if eval.primaryReadIter != 0 {
 		t.Fatalf("primaryReadIter must stay 0 on empty history, got %d", eval.primaryReadIter)
 	}
@@ -2224,6 +2230,9 @@ func TestObservePrimaryRead_IdempotentAndSnapshots(t *testing.T) {
 		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-500 of 5000]\npackage agent\n"},
 	}
 	eval.observePrimaryRead(4, history)
+	if !eval.primaryReadSeen {
+		t.Fatal("primaryReadSeen should be true after first detection")
+	}
 	if eval.primaryReadIter != 4 {
 		t.Fatalf("primaryReadIter should be 4 after first detection, got %d", eval.primaryReadIter)
 	}
@@ -2241,10 +2250,265 @@ func TestObservePrimaryRead_IdempotentAndSnapshots(t *testing.T) {
 	}
 }
 
+func TestObservePrimaryRead_IterZeroLatches(t *testing.T) {
+	eval := &explorerEvaluator{
+		searchResult:    &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements: []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"explorerEvaluator"}, Status: "unsatisfied"}},
+	}
+	history := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/agent/explorer.go: showing lines 1-120 of 5000]\npackage agent\n"},
+	}
+
+	eval.observePrimaryRead(0, history)
+	if !eval.primaryReadSeen {
+		t.Fatal("iter=0 detection must latch primaryReadSeen")
+	}
+	if eval.primaryReadIter != 0 {
+		t.Fatalf("iter=0 detection should record primaryReadIter=0, got %d", eval.primaryReadIter)
+	}
+
+	eval.observePrimaryRead(1, history)
+	if eval.primaryReadIter != 0 {
+		t.Fatalf("iter=0 detection must remain latched on later calls, got %d", eval.primaryReadIter)
+	}
+}
+
+func TestMidLoopCheck_PostPrimaryReadBypassesIterationFloor(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"buildOrLoadGraph": {{
+				Name:    "buildOrLoadGraph",
+				Kind:    "function",
+				File:    "internal/tool/repomap/tool.go",
+				Line:    100,
+				EndLine: 200,
+			}},
+		},
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/tool/repomap/tool.go": {
+				RelPath: "internal/tool/repomap/tool.go",
+				Symbols: []repomap.Symbol{{
+					Name:    "buildOrLoadGraph",
+					Kind:    "function",
+					File:    "internal/tool/repomap/tool.go",
+					Line:    100,
+					EndLine: 200,
+				}},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		phase:           1,
+		userQuestion:    "buildOrLoadGraph 是如何构建或加载图形的？",
+		searchResult:    &keywordSearchResult{Graph: graph},
+		ermRequirements: []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"buildOrLoadGraph"}, Status: "unsatisfied"}},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/tool/repomap/tool.go: showing lines 100-120 of 323 total]\nfunc buildOrLoadGraph(...)",
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("post-primary-read gate should bypass MidLoopMinIteration after the first anchor read, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.post-primary-read" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.post-primary-read", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "Do NOT stop with a prose summary yet") {
+		t.Fatalf("hint should explicitly block prose soft-stop drift, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "call read_file") {
+		t.Fatalf("hint should direct the LLM back into tools, got: %s", sig.Hint)
+	}
+
+	// One-shot latch: the same post-primary window should not keep
+	// firing once the hint has already been injected.
+	if again := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      1,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	}); again.HintRequested {
+		t.Fatalf("post-primary-read gate should be one-shot, got %+v", again)
+	}
+}
+
 // TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor verifies the
 // cue does not fire when fewer than 2 files remain unread. With only
 // 1 unread file there is nothing to parallelize — nudging the LLM
 // would be counterproductive (it should just read the one file).
+func TestMidLoopCheck_PostPrimaryReadPrefersAnchorLocalGrounding(t *testing.T) {
+	graph := &repomap.Graph{
+		SymbolDefs: map[string][]*repomap.Symbol{
+			"buildOrLoadGraph": {{
+				Name:    "buildOrLoadGraph",
+				Kind:    "function",
+				File:    "internal/tool/repomap/tool.go",
+				Line:    133,
+				EndLine: 170,
+			}},
+			"loadFromCache": {{
+				Name:    "loadFromCache",
+				Kind:    "function",
+				File:    "internal/tool/repomap/tool.go",
+				Line:    172,
+				EndLine: 186,
+			}},
+			"fullScan": {{
+				Name:    "fullScan",
+				Kind:    "function",
+				File:    "internal/tool/repomap/tool.go",
+				Line:    265,
+				EndLine: 323,
+			}},
+			"incrementalScan": {{
+				Name:    "incrementalScan",
+				Kind:    "function",
+				File:    "internal/tool/repomap/tool.go",
+				Line:    188,
+				EndLine: 263,
+			}},
+		},
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/tool/repomap/tool.go": {
+				RelPath: "internal/tool/repomap/tool.go",
+				Symbols: []repomap.Symbol{{
+					Name:    "buildOrLoadGraph",
+					Kind:    "function",
+					File:    "internal/tool/repomap/tool.go",
+					Line:    133,
+					EndLine: 170,
+				}},
+				Relations: []repomap.Relation{
+					{
+						Kind: "call",
+						File: "internal/tool/repomap/tool.go",
+						Line: 149,
+						To:   "fullScan",
+						ToEP: repomap.RelationEndpoint{Name: "fullScan", File: "internal/tool/repomap/tool.go", Line: 149},
+					},
+					{
+						Kind: "call",
+						File: "internal/tool/repomap/tool.go",
+						Line: 158,
+						To:   "loadFromCache",
+						ToEP: repomap.RelationEndpoint{Name: "loadFromCache", File: "internal/tool/repomap/tool.go", Line: 158},
+					},
+					{
+						Kind: "call",
+						File: "internal/tool/repomap/tool.go",
+						Line: 164,
+						To:   "fullScan",
+						ToEP: repomap.RelationEndpoint{Name: "fullScan", File: "internal/tool/repomap/tool.go", Line: 164},
+					},
+					{
+						Kind: "call",
+						File: "internal/tool/repomap/tool.go",
+						Line: 169,
+						To:   "incrementalScan",
+						ToEP: repomap.RelationEndpoint{Name: "incrementalScan", File: "internal/tool/repomap/tool.go", Line: 169},
+					},
+				},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		phase:            1,
+		userQuestion:     "buildOrLoadGraph 是如何构建或加载图形的？",
+		searchResult:     &keywordSearchResult{Graph: graph},
+		exactAnchorFiles: []string{"internal/tool/repomap/tool.go"},
+		preScannedFiles:  []string{"internal/tool/repomap/facade.go"},
+		requiredFiles:    []string{"internal/tool/repomap/facade.go"},
+		allScoredFiles:   []string{"internal/tool/repomap/facade.go"},
+		ermRequirements:  []EvidenceRequirement{{Kind: "mechanism", Entities: []string{"buildOrLoadGraph"}, Status: "unsatisfied"}},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/tool/repomap/tool.go: showing lines 201-323 of 323 total]\nfunc incrementalScan(...)",
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      0,
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("post-primary-read hint should still fire, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "stay in `internal/tool/repomap/tool.go`") {
+		t.Fatalf("hint should keep exploration inside the anchor first, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "`fullScan`") || !strings.Contains(sig.Hint, "`loadFromCache`") || !strings.Contains(sig.Hint, "`incrementalScan`") {
+		t.Fatalf("hint should name anchor-local mechanism branches, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "caller -> callee") {
+		t.Fatalf("hint should spell out call evidence direction, got: %s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "`CacheDir`") || strings.Contains(sig.Hint, "`ScanFiles`") || strings.Contains(sig.Hint, "`Errorf`") {
+		t.Fatalf("hint should prefer the anchor's mechanism branches over wrapper/setup calls, got: %s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "facade.go") {
+		t.Fatalf("hint should not drift to wrapper files before anchor-local grounding, got: %s", sig.Hint)
+	}
+}
+
+func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:            1,
+		userQuestion:     "buildOrLoadGraph 是如何构建或加载图形的？",
+		exactAnchorFiles: []string{"internal/tool/repomap/tool.go"},
+		searchResult:     &keywordSearchResult{Graph: &repomap.Graph{}},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/tool/repomap/tool.go: showing lines 121-220 of 323 total]\nfunc buildOrLoadGraph(...)",
+		},
+		{
+			ToolName: "emit_evidence",
+			Success:  true,
+			Summary: "emit_evidence accepted 4 item(s)\n\n" +
+				"  [1] conditional fullScan @ internal/tool/repomap/tool.go:149 — Conducts a full scan when there is no cache or a full rescan is needed.\n" +
+				"      → recovered (tier=fqname_same_file, you claimed line 148, adjusted to 149)\n" +
+				"  [2] conditional loadFromCache @ internal/tool/repomap/tool.go:158 — Loads the graph from cache when no files have changed.\n" +
+				"      → recovered (tier=fqname_same_file, you claimed line 156, adjusted to 158)\n",
+		},
+	}
+
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      1,
+		LastToolResult: &history[1],
+		AllToolResults: history,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("emit_evidence recovery should trigger a repair hint, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.evidence-repair" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.evidence-repair", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "internal/tool/repomap/tool.go") || !strings.Contains(sig.Hint, "149") || !strings.Contains(sig.Hint, "158") {
+		t.Fatalf("repair hint should target the recovered anchor lines, got: %s", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "re-emit grounded evidence") {
+		t.Fatalf("repair hint should direct the model to re-emit grounded evidence, got: %s", sig.Hint)
+	}
+}
+
 func TestMidLoopCheck_ParallelCueSkippedBelowUnreadFloor(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:                 1,
@@ -2419,6 +2683,27 @@ func TestExplorerSoftStop_FirstStop_EvidenceLikeContentRequestsEmitEvidence(t *t
 	}
 	if sig.HintKey != "explorer.phase1.emit-evidence" {
 		t.Fatalf("HintKey = %q, want explorer.phase1.emit-evidence", sig.HintKey)
+	}
+}
+
+func TestExplorerSoftStop_MetaDialogueRequestsNoMetaHintAndSkipsNotes(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:              1,
+		userQuestion:       "buildOrLoadGraph 是如何构建或加载图形的？",
+		investigationNotes: []string{"buildOrLoadGraph loads a cached graph before scanning."},
+	}
+
+	content := "I encountered an error while trying to complete the investigation. " +
+		"Would you like me to continue investigating or address a different area?"
+	sig := softStopWithContinuations(eval, content, 3, 0, nil)
+	if !sig.HintRequested {
+		t.Fatalf("meta-dialogue soft-stop should request a correction hint, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.phase1.no-meta-dialogue" {
+		t.Fatalf("HintKey = %q, want explorer.phase1.no-meta-dialogue", sig.HintKey)
+	}
+	if got := len(eval.investigationNotes); got != 1 {
+		t.Fatalf("meta-dialogue content must not be appended to investigation notes, got %d notes: %+v", got, eval.investigationNotes)
 	}
 }
 

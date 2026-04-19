@@ -192,6 +192,50 @@ func TestAnswerDocumentEvaluator_Observe_RetriesWhenDocMissing(t *testing.T) {
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargetedHint(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary; cap is per-shape (see SummaryCapByShape)",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("summary-cap reject should request a correction hint, got %+v", sig)
+	}
+	if !sig.BypassThrottle {
+		t.Fatalf("summary-cap reject hint should bypass throttle, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "2500") || !strings.Contains(sig.Hint, "explanation") {
+		t.Fatalf("targeted summary-cap hint missing cap/shape detail: %q", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "emit_answer_document") {
+		t.Fatalf("targeted summary-cap hint must tell the model to re-emit the tool call: %q", sig.Hint)
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopRejectStopsHintingAfterBudget(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 1}
+	obs := LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary; cap is per-shape (see SummaryCapByShape)",
+		},
+	}
+	if sig := e.Observe(nil, obs); !sig.HintRequested {
+		t.Fatalf("first reject should request a correction hint, got %+v", sig)
+	}
+	if sig := e.Observe(nil, obs); sig.HintRequested {
+		t.Fatalf("after reject-hint budget, evaluator should stay silent, got %+v", sig)
+	}
+}
+
 // TestAnswerDocumentEvaluator_ParseOutput_Happy — a fully-populated
 // AnswerDocument in Mutable is rendered into FinalAnswer.
 func TestAnswerDocumentEvaluator_ParseOutput_Happy(t *testing.T) {
@@ -199,8 +243,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_Happy(t *testing.T) {
 		Mutable: types.NewMutableState(""),
 	}
 	doc := &types.AnswerDocument{
-		Shape:   types.ShapeValue,
-		Value:   &types.AnswerValue{Literal: "explorer", CitationRef: 0},
+		Shape:     types.ShapeValue,
+		Value:     &types.AnswerValue{Literal: "explorer", CitationRef: 0},
 		Citations: []types.Citation{{File: "a.go", Line: 42}},
 	}
 	ctx.Mutable.SetAnswerDocument(doc)
