@@ -205,6 +205,46 @@ func hasLeadingEnumerationCue(lower string) bool {
 	return false
 }
 
+// categoryEnumerationCues are phrases that ask "how many kinds / types
+// of X" — a DISCRETE-CATEGORY count rather than a raw scalar count.
+// Semantically, the user wants each category's name and a short
+// description, not just a number. "pipeline 的状态有几种" is the
+// canonical case: the answer is more useful when rendered as a list
+// with each state named and briefly explained, even though the
+// literal ask is a count.
+//
+// Unlike enumerationCuePrefixes these use SUBSTRING matching because
+// the cues are lexically distinctive (multi-character CJK compounds
+// or multi-word English phrases) and naturally appear mid-clause.
+// "pipeline的状态有几种" puts "有几种" after the subject — a prefix-
+// only check would miss this.
+var categoryEnumerationCues = []string{
+	"有几种",
+	"几种",
+	"哪几种",
+	"有几类",
+	"几类",
+	"哪几类",
+	"多少种",
+	"多少类",
+	"what kinds of ",
+	"what types of ",
+	"how many kinds",
+	"how many types",
+}
+
+// containsCategoryEnumerationCue reports whether the question asks
+// for a count of discrete categories (each with a name worth listing)
+// rather than a raw scalar count.
+func containsCategoryEnumerationCue(lower string) bool {
+	for _, cue := range categoryEnumerationCues {
+		if strings.Contains(lower, cue) {
+			return true
+		}
+	}
+	return false
+}
+
 // relationalVerbCues are verbs that imply the enumeration target is
 // defined by its relationship to another symbol, not by intrinsic
 // attributes. Pure "how many files over 100 lines" has no relational
@@ -472,9 +512,27 @@ func reconcileShape(declared types.AnswerShape, subject types.AnswerSubject, raw
 	if declared == types.ShapeValue || declared == types.ShapeConfigValue {
 		lower := strings.ToLower(strings.TrimSpace(rawRequest))
 		lower = stripPolitenessPrefix(lower)
-		if lower != "" && hasLeadingEnumerationCue(lower) && containsRelationalVerbCue(lower) {
-			return types.ShapeListOfSymbols,
-				"conditional-enumeration (count over filtered set) — use list_of_symbols so count = len(symbols)"
+		if lower != "" {
+			// Rule 1a: leading enumeration cue + relational verb →
+			// filtered count. "有几个 agent 可以 调用 subagent" needs
+			// explicit enumeration + filter, not a raw scalar.
+			if hasLeadingEnumerationCue(lower) && containsRelationalVerbCue(lower) {
+				return types.ShapeListOfSymbols,
+					"conditional-enumeration (count over filtered set) — use list_of_symbols so count = len(symbols)"
+			}
+			// Rule 1b: category-kind enumeration. "pipeline的状态有
+			// 几种" / "有哪几类 handler" — the user is asking how many
+			// DISCRETE CATEGORIES exist, and each category has a name
+			// worth listing. Raw scalar (shape=value) answers the
+			// literal count but loses the names; list_of_symbols
+			// renders each category as a table row so the user sees
+			// the names and short descriptions alongside the count.
+			// No relational-verb requirement — category cues are
+			// distinctive enough on their own.
+			if containsCategoryEnumerationCue(lower) {
+				return types.ShapeListOfSymbols,
+					"category enumeration — each kind deserves a named table row, count = len(symbols)"
+			}
 		}
 	}
 

@@ -409,6 +409,22 @@ func TestReconcileShape(t *testing.T) {
 		{"config_value + config-key subject stays", types.ShapeConfigValue,
 			types.AnswerSubject{Kind: types.SubjectConfigKey},
 			"what is log_dir set to", types.ShapeConfigValue, false},
+		// Rule 1b: category-kind enumeration lifts without requiring
+		// a relational verb. User wants each category named + described.
+		{"有几种 category enumeration lifts", types.ShapeValue, types.AnswerSubject{Kind: types.SubjectEnumValue},
+			"pipeline的状态有几种？", types.ShapeListOfSymbols, true},
+		{"有几类 category enumeration lifts", types.ShapeValue, types.AnswerSubject{},
+			"该系统有几类 handler", types.ShapeListOfSymbols, true},
+		{"what kinds of lifts", types.ShapeValue, types.AnswerSubject{},
+			"what kinds of tools does the explorer use", types.ShapeListOfSymbols, true},
+		{"how many types lifts", types.ShapeValue, types.AnswerSubject{},
+			"how many types of events does the dispatcher handle", types.ShapeListOfSymbols, true},
+		// Rule 1b negatives: raw count (多少 / how many) without
+		// "kind/type/种/类" stays as scalar value.
+		{"有多少 without kind stays value", types.ShapeValue, types.AnswerSubject{},
+			"pipeline 里有多少 stages", types.ShapeValue, false},
+		{"how many without kinds stays value", types.ShapeValue, types.AnswerSubject{},
+			"how many files are in the repo", types.ShapeValue, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
