@@ -228,6 +228,23 @@ func Debug(format string, args ...interface{})   { Default.Debug(format, args...
 // IsDebug reports whether the Default logger would emit debug records.
 func IsDebug() bool { return Default.IsDebug() }
 
+// HintBodyMax is the byte cap shared by every hint-body Debug log
+// (analyzer must-emit, orchestrator window hint, explorer mid-loop,
+// explorer end-of-stage retry, agent mid-loop inject). Centralising
+// the cap keeps the trace stream uniform regardless of which subsystem
+// produced the hint.
+const HintBodyMax = 1000
+
+// Truncate clips s to max bytes and appends a marker noting how many
+// bytes were dropped. The marker is essential so a downstream reader
+// can tell "the hint really ended here" from "the log truncated".
+func Truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + fmt.Sprintf("...[truncated %d bytes]", len(s)-max)
+}
+
 // rotatingWriter is a size-bounded file writer that names each file
 // after its creation timestamp and the owning process's PID:
 //

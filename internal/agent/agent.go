@@ -427,10 +427,7 @@ func looksLikeEmbeddedToolCall(content string) bool {
 }
 
 func truncForLog(s string, max int) string {
-	if len(s) <= max {
-		return s
-	}
-	return s[:max] + fmt.Sprintf("...[truncated %d bytes]", len(s)-max)
+	return logging.Truncate(s, max)
 }
 
 // maxToolHistoryBytes caps the cumulative size of "tool" role messages
@@ -695,6 +692,8 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 						Role:    "user",
 						Content: result.Hint,
 					})
+					logging.Debug("[diag %s] iter=%d SOFT-STOP inject len=%d:\n%s\n---",
+						b.name, i, len(result.Hint), logging.Truncate(result.Hint, logging.HintBodyMax))
 					continue
 				}
 				// OutcomeStop or OutcomeContinue at PhaseSoftStop
@@ -897,7 +896,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					Content: result.Hint,
 				})
 				logging.Debug("[diag %s] iter=%d MIDLOOP inject len=%d:\n%s\n---",
-					b.name, i, len(result.Hint), truncForLog(result.Hint, 1000))
+					b.name, i, len(result.Hint), logging.Truncate(result.Hint, logging.HintBodyMax))
 			case OutcomeStop:
 				// Policy decided to terminate — e.g. idle-streak
 				// force-stop or evaluator StopRequested. Record the

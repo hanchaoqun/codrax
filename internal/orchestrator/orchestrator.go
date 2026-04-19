@@ -912,6 +912,13 @@ func (o *Orchestrator) emitCGECSummary() {
 // fields. Empty hint clears the slot.
 func (o *Orchestrator) applyWindowHint(hint string) {
 	o.busCtx.TaskState.RetryHint = hint
+	const hintKey = "orchestrator.dag-window"
+	if hint == "" {
+		logging.Debug("[orchestrator] window hint cleared key=%q", hintKey)
+		return
+	}
+	logging.Debug("[orchestrator] window hint applied key=%q len=%d body=%q",
+		hintKey, len(hint), logging.Truncate(hint, logging.HintBodyMax))
 }
 
 // emitAnalysisReady projects AnalysisIR.TaskGraph into the renderer-

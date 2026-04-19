@@ -281,13 +281,17 @@ func (e *analyzerEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation
 	// model-compliant LLMs a chance to course-correct while
 	// preserving the fail-loud contract when they do not.
 	if e.prescanRounds == max {
+		const hintKey = "analyzer.must-emit"
+		hint := fmt.Sprintf(
+			"Pre-scan budget reached (%d of %d rounds used). Your NEXT response MUST call emit_analysis with the fields you have — any additional prescan tool call (repo_map / grep / list_files) will exhaust the budget and fail the analyze stage. If you still need to verify an entity, batch the grep call in the SAME response as emit_analysis, not before it.",
+			e.prescanRounds, max)
+		logging.Debug("[analyzer] must-emit hint built key=%q rounds=%d/%d len=%d body=%q",
+			hintKey, e.prescanRounds, max, len(hint), logging.Truncate(hint, logging.HintBodyMax))
 		return LoopSignal{
 			HintRequested: true,
 			Progress:      true,
-			HintKey:       "analyzer.must-emit",
-			Hint: fmt.Sprintf(
-				"Pre-scan budget reached (%d of %d rounds used). Your NEXT response MUST call emit_analysis with the fields you have — any additional prescan tool call (repo_map / grep / list_files) will exhaust the budget and fail the analyze stage. If you still need to verify an entity, batch the grep call in the SAME response as emit_analysis, not before it.",
-				e.prescanRounds, max),
+			HintKey:       hintKey,
+			Hint:          hint,
 		}
 	}
 	if e.prescanRounds <= max {

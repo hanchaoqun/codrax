@@ -1694,9 +1694,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if b.Len() == 0 {
 		return LoopSignal{}
 	}
+	hint := b.String()
+	logging.Debug("[explorer] mid-loop hint built key=%q len=%d body=%q",
+		hintKey, len(hint), logging.Truncate(hint, logging.HintBodyMax))
 	return LoopSignal{
 		HintRequested: true,
-		Hint:          b.String(),
+		Hint:          hint,
 		HintKey:       hintKey,
 	}
 }
@@ -2946,15 +2949,22 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	}
 
 	if !signals.HasEnoughFacts {
+		var hintKey string
 		if !toolDiversity {
+			hintKey = "explorer.retry.tool-diversity"
 			out.RetryHint = "Previous attempt used fewer than 2 distinct evidence tool types. Use both grep and read_file."
 		} else if !evidenceQuality {
+			hintKey = "explorer.retry.evidence-quality"
 			out.RetryHint = fmt.Sprintf("Previous attempt collected only %d [DIRECT]/[REGISTRATION] evidence entries (need ≥2). Read more files and extract structured evidence with [DIRECT], [REGISTRATION], [CONDITIONAL] tags.", directCount)
 		} else if len(e.ermRequirements) > 0 && !ermAllSatisfied(e.ermRequirements) {
+			hintKey = "explorer.retry.erm-unsatisfied"
 			out.RetryHint = "Previous attempt left evidence requirements unsatisfied. " + ermUnsatisfiedGaps(e.ermRequirements)
 		} else {
+			hintKey = "explorer.retry.file-coverage"
 			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", len(readSet), len(discovered), coverage*100, relevantRead)
 		}
+		logging.Debug("[explorer] retry hint built key=%q len=%d body=%q",
+			hintKey, len(out.RetryHint), logging.Truncate(out.RetryHint, logging.HintBodyMax))
 	}
 
 	return out, nil
