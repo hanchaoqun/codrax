@@ -1625,3 +1625,102 @@ func TestErmAutoSatisfyUnresolvable_NilGraph(t *testing.T) {
 		t.Errorf("nil graph must be a no-op, got status=%q", out[0].Status)
 	}
 }
+
+// TestExtractEvidenceRequirementsWithHint_CategoryCueAddsEnumeration
+// pins the hybrid-kind path: analyzer tagged the question as
+// return_value (single scalar), but the "有几种" cue structurally
+// asks for categories. The ERM must carry BOTH kinds so
+// enumeration thresholds (≥3 distinct evidence items per complexity
+// tier) fire alongside the return_value floor.
+func TestExtractEvidenceRequirementsWithHint_CategoryCueAddsEnumeration(t *testing.T) {
+	question := "pipeline 的状态有几种？"
+	reqs := extractEvidenceRequirementsWithHint(question, []string{"PipelineStage"}, "return_value")
+
+	kinds := make(map[types.RequirementKind]bool)
+	for _, r := range reqs {
+		kinds[r.Kind] = true
+	}
+	if !kinds[types.ReqReturnValue] {
+		t.Errorf("missing primary return_value requirement; got kinds=%v", kinds)
+	}
+	if !kinds[types.ReqEnumeration] {
+		t.Errorf("missing secondary enumeration requirement; got kinds=%v", kinds)
+	}
+	// Reason field carries the "hybrid" marker so operators can
+	// grep for which reqs were deterministically added.
+	found := false
+	for _, r := range reqs {
+		if r.Kind == types.ReqEnumeration && strings.Contains(r.Reason, "hybrid") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("secondary enumeration req missing hybrid reason marker")
+	}
+}
+
+// Category cue alongside an already-enumeration primary kind must
+// NOT duplicate: the de-dup set in appendSecondaryKinds catches it.
+func TestExtractEvidenceRequirementsWithHint_CategoryCueNoDuplicate(t *testing.T) {
+	question := "how many kinds of handler are registered"
+	reqs := extractEvidenceRequirementsWithHint(question, []string{"handler"}, "enumeration")
+	enumCount := 0
+	for _, r := range reqs {
+		if r.Kind == types.ReqEnumeration {
+			enumCount++
+		}
+	}
+	if enumCount == 0 {
+		t.Errorf("enumeration requirement missing entirely; reqs=%+v", reqs)
+	}
+	// Multi-path inference can add multiple enumeration entries with
+	// different Entities scopes; what matters is none is the
+	// hybrid-secondary. The secondary path de-dups against the set,
+	// so no hybrid-tagged req should appear.
+	for _, r := range reqs {
+		if r.Kind == types.ReqEnumeration && strings.Contains(r.Reason, "hybrid") {
+			t.Errorf("hybrid secondary enumeration req should be suppressed (already covered by primary/keyword path); got reason=%q", r.Reason)
+		}
+	}
+}
+
+// Non-hybrid questions (no category cue) produce no secondary
+// kinds — ERM behaviour preserved byte-for-byte.
+func TestExtractEvidenceRequirementsWithHint_NoCategoryCueNoSecondary(t *testing.T) {
+	question := "how does the router dispatch requests"
+	reqs := extractEvidenceRequirementsWithHint(question, []string{"router"}, "mechanism")
+	for _, r := range reqs {
+		if strings.Contains(r.Reason, "hybrid") {
+			t.Errorf("no category cue should yield no hybrid-reason requirement; got %+v", r)
+		}
+	}
+}
+
+func TestInferSecondaryKinds(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want []types.RequirementKind
+	}{
+		{"category cue 有几种", "pipeline 的状态有几种", []types.RequirementKind{types.ReqEnumeration}},
+		{"category cue 几类", "该系统几类 handler", []types.RequirementKind{types.ReqEnumeration}},
+		{"category cue what kinds of", "what kinds of tools are exposed", []types.RequirementKind{types.ReqEnumeration}},
+		{"no cue plain mechanism", "how does X call Y", nil},
+		{"no cue plain count", "how many files are in the repo", nil},
+		{"empty", "", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := inferSecondaryKinds(c.in)
+			if len(got) != len(c.want) {
+				t.Fatalf("length mismatch: got %v, want %v", got, c.want)
+			}
+			for i, k := range c.want {
+				if got[i] != k {
+					t.Errorf("kind[%d] = %q, want %q", i, got[i], k)
+				}
+			}
+		})
+	}
+}

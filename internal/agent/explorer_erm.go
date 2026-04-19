@@ -96,51 +96,87 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 func extractEvidenceRequirementsWithHint(question string, entities []string, declaredKindRaw string) []EvidenceRequirement {
 	declaredKind := types.NormalizeRequirementKind(declaredKindRaw)
 	if declaredKind == types.ReqUnknown {
-		return extractEvidenceRequirementsWithEntities(question, entities)
+		reqs := extractEvidenceRequirementsWithEntities(question, entities)
+		return appendSecondaryKinds(reqs, question, entities)
 	}
 
 	// Build the keyword-inferred set first so we can merge.
 	reqs := extractEvidenceRequirementsWithEntities(question, entities)
 
-	// Check whether the declared kind already appears. If so, the
-	// keyword path has already covered it; nothing more to do.
+	// Track whether the declared kind already appeared in the keyword
+	// path — if so, the keyword path has already covered it.
+	declaredPresent := false
 	for _, r := range reqs {
 		if r.Kind == declaredKind {
-			return reqs
+			declaredPresent = true
+			break
 		}
 	}
 
-	// The declared kind was missed by keyword inference — add it
-	// explicitly. This is the "analyzer saves us" path: e.g. a
-	// Chinese mechanism question whose English rewrite used idioms
-	// the keyword tables don't cover.
-	reason := fmt.Sprintf("analyzer declared question_kind=%s", declaredKind)
-	switch declaredKind {
-	case types.ReqRegistration, types.ReqReturnValue:
-		// Registration and return_value requirements are per-entity
-		// in the keyword path; match that convention so downstream
-		// checkRequirementSatisfaction works uniformly.
-		if len(entities) == 0 {
-			reqs = append(reqs, EvidenceRequirement{
-				Kind: declaredKind, Reason: reason, Status: "unsatisfied",
-			})
-		} else {
-			for _, ent := range entities {
+	if !declaredPresent {
+		// The declared kind was missed by keyword inference — add it
+		// explicitly. This is the "analyzer saves us" path: e.g. a
+		// Chinese mechanism question whose English rewrite used idioms
+		// the keyword tables don't cover.
+		reason := fmt.Sprintf("analyzer declared question_kind=%s", declaredKind)
+		switch declaredKind {
+		case types.ReqRegistration, types.ReqReturnValue:
+			// Registration and return_value requirements are per-entity
+			// in the keyword path; match that convention so downstream
+			// checkRequirementSatisfaction works uniformly.
+			if len(entities) == 0 {
 				reqs = append(reqs, EvidenceRequirement{
-					Kind: declaredKind, Entities: []string{ent},
-					Reason: reason + " (per-entity)", Status: "unsatisfied",
+					Kind: declaredKind, Reason: reason, Status: "unsatisfied",
 				})
+			} else {
+				for _, ent := range entities {
+					reqs = append(reqs, EvidenceRequirement{
+						Kind: declaredKind, Entities: []string{ent},
+						Reason: reason + " (per-entity)", Status: "unsatisfied",
+					})
+				}
 			}
+		default:
+			// mechanism / conditional / config_mapping / enumeration /
+			// call_chain all take the entity set as a single group.
+			reqs = append(reqs, EvidenceRequirement{
+				Kind: declaredKind, Entities: append([]string(nil), entities...),
+				Reason: reason, Status: "unsatisfied",
+			})
 		}
-	default:
-		// mechanism / conditional / config_mapping / enumeration /
-		// call_chain all take the entity set as a single group.
-		reqs = append(reqs, EvidenceRequirement{
-			Kind: declaredKind, Entities: append([]string(nil), entities...),
-			Reason: reason, Status: "unsatisfied",
-		})
 	}
 
+	return appendSecondaryKinds(reqs, question, entities)
+}
+
+// appendSecondaryKinds consults inferSecondaryKinds for structural
+// hybrid-kind cues (e.g. category-enumeration questions that the
+// analyzer tagged as scalar return_value but which also need
+// enumeration thresholds) and appends missing kinds. De-duped
+// against whatever primary / keyword-inferred kinds already sit in
+// reqs — a question that already has ReqEnumeration from the
+// analyzer or keyword path gets no duplicate.
+func appendSecondaryKinds(reqs []EvidenceRequirement, question string, entities []string) []EvidenceRequirement {
+	secondary := inferSecondaryKinds(question)
+	if len(secondary) == 0 {
+		return reqs
+	}
+	present := make(map[types.RequirementKind]bool, len(reqs))
+	for _, r := range reqs {
+		present[r.Kind] = true
+	}
+	for _, k := range secondary {
+		if present[k] {
+			continue
+		}
+		reqs = append(reqs, EvidenceRequirement{
+			Kind:     k,
+			Entities: append([]string(nil), entities...),
+			Reason:   fmt.Sprintf("secondary kind inferred from structural cues (hybrid question)"),
+			Status:   "unsatisfied",
+		})
+		present[k] = true
+	}
 	return reqs
 }
 

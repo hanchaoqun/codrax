@@ -245,6 +245,39 @@ func containsCategoryEnumerationCue(lower string) bool {
 	return false
 }
 
+// inferSecondaryKinds returns RequirementKinds that should be tracked
+// alongside the analyzer's primary question_kind when the question
+// structurally implies multiple kinds of investigation.
+//
+// The analyzer schema forces a single question_kind per emit — a
+// hybrid question like "pipeline 的状态有几种" is tagged either
+// enumeration OR return_value but not both, and whichever the LLM
+// picks, the ERM gets one kind's thresholds instead of the union.
+// This function is the deterministic bridge: it inspects the raw
+// question for cues that imply additional kinds, and the caller
+// merges the result into the ERM requirement set.
+//
+// Returns kinds in a stable order; the caller is responsible for
+// de-duping against whatever primary kind is already in the ERM.
+func inferSecondaryKinds(rawRequest string) []types.RequirementKind {
+	lower := strings.ToLower(strings.TrimSpace(rawRequest))
+	lower = stripPolitenessPrefix(lower)
+	if lower == "" {
+		return nil
+	}
+	var out []types.RequirementKind
+	// Rule 1: category cue → ReqEnumeration. "有几种 / 几类 /
+	// what kinds of" signals the user wants each category named,
+	// not just a count. Even when the analyzer tagged this as
+	// return_value (scalar count), enumeration thresholds ensure
+	// the explorer actually reads enough files to name every
+	// category.
+	if containsCategoryEnumerationCue(lower) {
+		out = append(out, types.ReqEnumeration)
+	}
+	return out
+}
+
 // relationalVerbCues are verbs that imply the enumeration target is
 // defined by its relationship to another symbol, not by intrinsic
 // attributes. Pure "how many files over 100 lines" has no relational
