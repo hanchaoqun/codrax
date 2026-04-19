@@ -537,29 +537,44 @@ func renderASCIIChain(chain []diagramNode) string {
 	if len(chain) < 2 {
 		return ""
 	}
+	// Compute max label width for consistent box sizing.
 	maxLabel := 0
 	for _, n := range chain {
 		if l := displayWidth(n.label); l > maxLabel {
 			maxLabel = l
 		}
 	}
-	// Pad to at least 10 so short labels don't render flush-left.
 	if maxLabel < 10 {
 		maxLabel = 10
 	}
+	// Box width = label + 2 padding chars on each side.
+	boxInner := maxLabel + 2
 	var b strings.Builder
 	for i, n := range chain {
-		// Center the label within maxLabel columns.
-		padLeft := (maxLabel - displayWidth(n.label)) / 2
-		fmt.Fprintf(&b, "%s%s\n", strings.Repeat(" ", padLeft), n.label)
+		// ┌────────────────────┐
+		// │  label             │
+		// └────────────────────┘
+		labelW := displayWidth(n.label)
+		padLeft := (boxInner - labelW) / 2
+		padRight := boxInner - labelW - padLeft
+		centerOffset := (boxInner + 2 - boxInner) / 2 // for connector alignment
+
+		b.WriteString("┌" + strings.Repeat("─", boxInner) + "┐\n")
+		fmt.Fprintf(&b, "│%s%s%s│\n",
+			strings.Repeat(" ", padLeft), n.label, strings.Repeat(" ", padRight))
+		b.WriteString("└" + strings.Repeat("─", boxInner) + "┘\n")
+
 		if i < len(chain)-1 {
-			barCol := strings.Repeat(" ", maxLabel/2)
+			// Draw the connector: centered bar + edge label + arrow
+			_ = centerOffset
+			mid := boxInner / 2
 			edge := n.edge
 			if edge == "" {
 				edge = "→"
 			}
-			fmt.Fprintf(&b, "%s│ %s\n", barCol, edge)
-			fmt.Fprintf(&b, "%s▼\n", barCol)
+			fmt.Fprintf(&b, "%s│\n", strings.Repeat(" ", mid))
+			fmt.Fprintf(&b, "%s│ %s\n", strings.Repeat(" ", mid), edge)
+			fmt.Fprintf(&b, "%s▼\n", strings.Repeat(" ", mid))
 		}
 	}
 	return strings.TrimRight(b.String(), "\n")

@@ -377,7 +377,7 @@ func TestRenderAnswerDocument_RelationDiagram(t *testing.T) {
 	}
 
 	outZH := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(outZH, "关系图") {
+	if !strings.Contains(outZH, "调用/关系链路图") {
 		t.Errorf("Chinese flow header missing: %q", outZH)
 	}
 }
