@@ -460,6 +460,16 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// the file content BEFORE its first iteration and can
 			// immediately start extracting evidence.
 			//
+			// Commit B: when the repomap graph is available, prefer
+			// symbolGuidedPreRead — it selects per-file slices
+			// centred on the symbols that matched the analyzer's
+			// entities, so a 500-line file whose answer sits at line
+			// 350 still reaches the LLM. The graph comes from the
+			// analyzer stage (Mutable.SearchGraph()) so the second
+			// BuildOrLoadGraph call is free. Falls back to the
+			// head-only preReadRequiredFiles when the graph is
+			// unavailable (sub-agent path, unit tests, bare runs).
+			//
 			// Successful injections (path + line ranges actually
 			// shown) are stashed on e.preReadInjections so
 			// ParseOutput can merge them into the EvidenceClosure's
@@ -468,7 +478,20 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// because extractFileCoverage only consults the tool
 			// history (the LLM never issued a read_file for these
 			// files).
-			preReadInjected, preReadInjs := preReadRequiredFiles(ctx.RepoRoot, reqFiles, 2, 200)
+			preReadInjected, preReadInjs := "", []preReadInjection(nil)
+			if graph := repomapGraphFromCtx(ctx); graph != nil && ctx.AnalysisIR != nil {
+				entities := ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities
+				preReadInjected, preReadInjs = symbolGuidedPreRead(
+					ctx.RepoRoot, reqFiles, graph, entities, preReadMaxFiles,
+				)
+			}
+			if preReadInjected == "" {
+				// Fallback: head-only preRead keeps the pre-Commit-B
+				// behaviour intact for callers without a graph.
+				preReadInjected, preReadInjs = preReadRequiredFiles(
+					ctx.RepoRoot, reqFiles, preReadMaxFiles, preReadLineBudgetPerFile,
+				)
+			}
 			e.preReadInjections = preReadInjs
 			if preReadInjected != "" {
 				b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")

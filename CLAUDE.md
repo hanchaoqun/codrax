@@ -97,6 +97,8 @@ Supplements LLM investigation with deterministic source-derived facts. Three pha
 
 Complexity-aware ERM thresholds (`checkRequirementSatisfaction` via `thresholdForKind`) raise per-kind floors at `ComplexityComplex`. `EvidencePlan.RequiredFiles` is rendered into the explorer's initial prompt and merged into Phase1Ranking so the CGEC pre-complete gate counts it as first-class coverage.
 
+**Pre-read windowing (`preread.go`)** — when complexity is not simple and the analyzer produced non-empty `RequiredFiles`, the explorer injects content from the top 2 files (≤200 lines each) into the initial prompt. `symbolGuidedPreRead` picks slices centred on symbols that match `AnalyzerHints.Entities` (head 40 lines + anchor windows at `sym.Line ± 8` capped at 144 lines); `planAnchorWindows` merges overlaps and degrades to head-only when no symbol matches or the graph is unavailable. Per-file `preReadInjection{Path, Ranges}` flows into `EvidenceClosure.SetReadRanges` so CGEC's range-aware chain promotion (see §CGEC) sees the exact slices the LLM saw. Reuses `repomap.SymbolsInFile` + `retrieve.TokenizeQuery` for symbol scoring — no bespoke tokenizer.
+
 ### Configuration
 
 Two YAML files live flat next to the binary:
