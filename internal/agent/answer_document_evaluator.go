@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -277,9 +278,17 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 	return LoopSignal{
 		HintRequested: true,
 		HintKey:       fmt.Sprintf("finalizer.missing_document.%d", e.retriesUsed),
-		Hint: "You must produce the final answer by calling `emit_answer_document` exactly once. " +
-			"Do not write prose outside the tool call. Review the shape-specific instructions in the " +
-			"initial prompt and emit the tool call now.",
+		// Instruct the model to REUSE its prior prose rather than rewrite it.
+		// Without this directive, the second pass tends to produce a
+		// compressed paraphrase instead of copying the richer draft into
+		// the `summary` field — a measurable shrinkage of answer quality.
+		Hint: "The answer must be delivered through the `emit_answer_document` tool call — text " +
+			"written outside it does not ship. You already drafted the answer in your previous " +
+			"message; treat that draft as your final text. Call `emit_answer_document` now and copy " +
+			"your previous answer VERBATIM into the `summary` field (trim only if it exceeds the " +
+			"shape's character cap). Derive the remaining required structured fields (citations[] " +
+			"and any shape-specific payload) from the same draft. Do NOT rewrite, compress, or " +
+			"paraphrase the content — the richness of the original draft is the answer.",
 	}
 }
 
@@ -342,6 +351,8 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 	}
 
+	salvagePriorDraftIntoSummary(doc, messages, e.language)
+
 	prose := render.RenderAnswerDocument(doc, e.language)
 
 	out.Data = marshalStageData(answerDocumentStageData{
@@ -369,4 +380,78 @@ func marshalStageData(payload answerDocumentStageData) json.RawMessage {
 
 func (e *answerDocumentEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *StageOutput) types.MissingPiece {
 	return types.MissingNone
+}
+
+// Shrinkage-salvage thresholds. The LLM occasionally writes a rich
+// answer as plain prose in its first attempt, fails to call the
+// emit_answer_document tool, and then — on the correction retry —
+// submits a visibly compressed paraphrase as `summary`. When the
+// prior draft is substantial AND the emitted summary is under half
+// its length, the richer draft is copied into `summary` so the user
+// sees the full answer. Constants are v1; expose via codrax.yaml if
+// misfires appear in practice.
+const (
+	shrinkageMinPriorProseLen = 400
+	shrinkageRatio            = 0.5
+)
+
+// salvagePriorDraftIntoSummary mutates doc.Summary when the
+// finalizer LLM dropped significant content between its pre-tool-call
+// draft and its final emit_answer_document.summary. Scoped to
+// ShapeExplanation because that is the only shape where the Summary
+// field carries the answer body verbatim; for other shapes, the
+// structured fields carry the answer and the prose draft does not
+// map cleanly into a single field.
+func salvagePriorDraftIntoSummary(doc *types.AnswerDocument, messages []llm.Message, language string) {
+	if doc == nil || doc.Shape != types.ShapeExplanation {
+		return
+	}
+	priorProse := findLastPreToolCallDraft(messages)
+	if len(priorProse) < shrinkageMinPriorProseLen {
+		return
+	}
+	if float64(len(doc.Summary)) >= shrinkageRatio*float64(len(priorProse)) {
+		return
+	}
+	recovered := priorProse
+	if cap := types.SummaryCapFor(types.ShapeExplanation); len(recovered) > cap {
+		// Trim at a UTF-8 rune boundary so CJK prose does not end in
+		// a partial multi-byte sequence (which would render as a
+		// replacement glyph in the final answer).
+		cut := cap
+		for cut > 0 && !utf8.RuneStart(recovered[cut]) {
+			cut--
+		}
+		recovered = recovered[:cut]
+	}
+	logging.Info("[finalizer/shrinkage] recovered prior draft into summary: prior=%d summary=%d → %d",
+		len(priorProse), len(doc.Summary), len(recovered))
+	doc.Summary = recovered
+	caveat := "richer prior draft was preserved in place of a compressed summary"
+	if language == "zh" {
+		caveat = "已保留更丰富的前一轮草稿，替代被压缩的概述"
+	}
+	doc.Caveats = append(doc.Caveats, caveat)
+}
+
+// findLastPreToolCallDraft returns the most recent assistant message
+// Content that is accompanied by NO tool calls. This uniquely
+// identifies a free-text draft the model wrote before it emitted a
+// tool call — the assistant message that fires a tool call carries
+// a non-empty ToolCalls slice and is skipped.
+func findLastPreToolCallDraft(messages []llm.Message) string {
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+		if m.Role != "assistant" {
+			continue
+		}
+		if m.Content == "" {
+			continue
+		}
+		if len(m.ToolCalls) > 0 {
+			continue
+		}
+		return m.Content
+	}
+	return ""
 }

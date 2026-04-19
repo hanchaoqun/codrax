@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -325,6 +326,287 @@ func TestAnswerDocumentEvaluator_ParseOutput_NoDowngrade(t *testing.T) {
 	}
 	if !strings.Contains(out.FinalAnswer, "**Alpha**") {
 		t.Errorf("symbol missing: %q", out.FinalAnswer)
+	}
+}
+
+// richDraftProse is a ~1500-char explanation the LLM writes as plain
+// prose in its first attempt — the kind of answer the shrinkage
+// salvage must preserve when the correction retry emits a compressed
+// paraphrase. Kept as a test helper so every shrinkage case shares
+// one fixture and the length floor matches the 400-char threshold.
+func richDraftProse() string {
+	return strings.Repeat(
+		"The dispatcher walks the handler chain and delegates to the registered listener. ",
+		20) // 20 * ~78 chars = ~1560 chars, well above the 400-char floor
+}
+
+// parseStageDoc reads the mutated AnswerDocument back out of the
+// StageOutput's JSON Data payload. MutableState.AnswerDocument()
+// returns a defensive clone on every call, so the mutations the
+// salvage applies inside ParseOutput are only observable through the
+// StageOutput it returns.
+func parseStageDoc(t *testing.T, out *StageOutput) *types.AnswerDocument {
+	t.Helper()
+	var payload struct {
+		AnswerDocument *types.AnswerDocument `json:"answer_document"`
+	}
+	if err := json.Unmarshal(out.Data, &payload); err != nil {
+		t.Fatalf("unmarshal stage data: %v", err)
+	}
+	if payload.AnswerDocument == nil {
+		t.Fatal("stage data.answer_document is nil")
+	}
+	return payload.AnswerDocument
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage — the
+// positive case. Explanation shape + rich pre-tool-call draft + a
+// short compressed summary in the emitted AnswerDocument. ParseOutput
+// must overwrite Summary with the prior draft (trimmed to the
+// explanation cap) and append a user-visible caveat.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeExplanation,
+		Summary: "The dispatcher delegates to the listener.", // ~41 chars, way under 50% of ~1560
+	}
+	ctx.Mutable.SetAnswerDocument(doc)
+
+	messages := []llm.Message{
+		{Role: "user", Content: "explain the dispatch flow"},
+		{Role: "assistant", Content: richDraftProse()}, // no ToolCalls — pre-tool-call draft
+		{Role: "user", Content: "[correction hint elided]"},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+
+	e := &answerDocumentEvaluator{language: "en"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if len(got.Summary) < 400 {
+		t.Errorf("summary not salvaged: len=%d, expected prior draft copied in", len(got.Summary))
+	}
+	if !strings.Contains(got.Summary, "dispatcher") {
+		t.Errorf("summary does not contain prior draft content: %q", got.Summary)
+	}
+	foundCaveat := false
+	for _, c := range got.Caveats {
+		if strings.Contains(c, "richer prior draft") {
+			foundCaveat = true
+		}
+	}
+	if !foundCaveat {
+		t.Errorf("salvage caveat missing: %v", got.Caveats)
+	}
+	if !strings.Contains(out.FinalAnswer, "dispatcher") {
+		t.Errorf("FinalAnswer missing salvaged content: %q", out.FinalAnswer)
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_OnlyExplanation —
+// negative scope check. The salvage is deliberately scoped to
+// explanation shape because other shapes carry the answer in
+// structured fields, not in Summary. A list_of_symbols answer with a
+// rich prior prose draft must NOT have its Summary replaced.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_OnlyExplanation(t *testing.T) {
+	otherShapes := []types.AnswerShape{
+		types.ShapeListOfSymbols, types.ShapeStepList,
+		types.ShapeValue, types.ShapeConfigValue, types.ShapeBoolean,
+	}
+	for _, shape := range otherShapes {
+		t.Run(string(shape), func(t *testing.T) {
+			ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+			origSummary := "one-line lead-in"
+			doc := &types.AnswerDocument{Shape: shape, Summary: origSummary}
+			// Populate a minimum-required structured field so the
+			// renderer doesn't reject the doc for missing payload —
+			// we only care that Summary stays untouched.
+			switch shape {
+			case types.ShapeListOfSymbols:
+				doc.Symbols = []types.AnswerSymbol{{Name: "X", File: "a.go", Line: 1}}
+			case types.ShapeStepList:
+				doc.Steps = []types.AnswerStep{{Index: 1, Description: "d", CitationRef: types.CitationRefUnset}}
+			case types.ShapeValue, types.ShapeConfigValue:
+				doc.Value = &types.AnswerValue{Literal: "v", CitationRef: types.CitationRefUnset}
+			case types.ShapeBoolean:
+				doc.Boolean = &types.AnswerBoolean{Decision: true, Rationale: "r", CitationRef: types.CitationRefUnset}
+			}
+			ctx.Mutable.SetAnswerDocument(doc)
+			messages := []llm.Message{
+				{Role: "assistant", Content: richDraftProse()},
+				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+			}
+			e := &answerDocumentEvaluator{language: "en"}
+			out, err := e.ParseOutput(ctx, messages, nil, nil)
+			if err != nil {
+				t.Fatalf("ParseOutput err: %v", err)
+			}
+			got := parseStageDoc(t, out)
+			if got.Summary != origSummary {
+				t.Errorf("shape=%s: Summary was overwritten (%q → %q) — salvage must be scoped to explanation",
+					shape, origSummary, got.Summary)
+			}
+		})
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_ShortPriorDraft —
+// negative length-floor check. When the prior draft is below the
+// minimum prose length (400 chars), the salvage must not fire.
+// Otherwise a one-line placeholder pre-tool-call content would start
+// overwriting every answer.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_ShortPriorDraft(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	origSummary := "The dispatcher delegates to the listener."
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: origSummary}
+	ctx.Mutable.SetAnswerDocument(doc)
+	messages := []llm.Message{
+		{Role: "assistant", Content: "short draft, well under 400 chars"},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	e := &answerDocumentEvaluator{language: "en"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if got.Summary != origSummary {
+		t.Errorf("Summary was overwritten despite short prior draft: %q", got.Summary)
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NotShrunk —
+// negative ratio check. When the emitted Summary is already at least
+// half the length of the prior draft, the salvage must not fire —
+// the LLM did NOT compress this time.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NotShrunk(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	// Emitted summary is 80% of prior draft — within tolerance, no salvage.
+	prior := richDraftProse()
+	origSummary := prior[:int(float64(len(prior))*0.8)]
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: origSummary}
+	ctx.Mutable.SetAnswerDocument(doc)
+	messages := []llm.Message{
+		{Role: "assistant", Content: prior},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	e := &answerDocumentEvaluator{language: "en"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if got.Summary != origSummary {
+		t.Errorf("Summary was overwritten despite ratio above threshold: len=%d → %d", len(origSummary), len(got.Summary))
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CapTrim —
+// the prior draft exceeding SummaryCapFor(ShapeExplanation) must be
+// trimmed, not rejected — the salvage's job is best-effort recovery.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CapTrim(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	cap := types.SummaryCapFor(types.ShapeExplanation)
+	// Build a draft 1.5x the cap.
+	prior := strings.Repeat("a", cap*3/2)
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: "x"}
+	ctx.Mutable.SetAnswerDocument(doc)
+	messages := []llm.Message{
+		{Role: "assistant", Content: prior},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	e := &answerDocumentEvaluator{language: "en"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if len(got.Summary) != cap {
+		t.Errorf("Summary not trimmed to cap: len=%d, cap=%d", len(got.Summary), cap)
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CJKRuneBoundary —
+// the cap trim must land on a rune boundary so the tail of a CJK
+// answer does not end mid-codepoint (which would display as an
+// invalid glyph). Build a prior draft of 3-byte CJK characters long
+// enough to overshoot the cap, then verify the trimmed summary is
+// still valid UTF-8.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CJKRuneBoundary(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	// 中 is 3 bytes UTF-8. 1000 copies = 3000 bytes, overshoots the 2500 cap.
+	prior := strings.Repeat("中", 1000)
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: "短"}
+	ctx.Mutable.SetAnswerDocument(doc)
+	messages := []llm.Message{
+		{Role: "assistant", Content: prior},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if !utf8.ValidString(got.Summary) {
+		t.Errorf("trimmed summary has invalid UTF-8 tail: len=%d last8=%x",
+			len(got.Summary), got.Summary[max(0, len(got.Summary)-8):])
+	}
+	// Trimmed length should be close to 2500, never exceed it.
+	if len(got.Summary) > types.SummaryCapFor(types.ShapeExplanation) {
+		t.Errorf("trimmed summary exceeds cap: len=%d", len(got.Summary))
+	}
+	// At 3 bytes/rune, trimming 2500 bytes should preserve at least
+	// 833 runes (2500 / 3 = 833.33).
+	if got := utf8.RuneCountInString(got.Summary); got < 830 {
+		t.Errorf("trimmed summary lost too many runes: got %d runes, expected ~833", got)
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_ZhCaveat —
+// bilingual caveat check: when language=zh, the appended caveat is
+// rendered in Chinese.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_ZhCaveat(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: "short"}
+	ctx.Mutable.SetAnswerDocument(doc)
+	messages := []llm.Message{
+		{Role: "assistant", Content: richDraftProse()},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	foundZh := false
+	for _, c := range got.Caveats {
+		if strings.Contains(c, "更丰富的前一轮草稿") {
+			foundZh = true
+		}
+	}
+	if !foundZh {
+		t.Errorf("zh caveat missing: %v", got.Caveats)
+	}
+}
+
+// TestFindLastPreToolCallDraft_IgnoresToolCallTurns — the helper
+// must SKIP assistant messages that have tool calls, since those
+// represent "tool call fired" turns, not pre-tool-call drafts. The
+// target is the draft from BEFORE the emit landed.
+func TestFindLastPreToolCallDraft_IgnoresToolCallTurns(t *testing.T) {
+	messages := []llm.Message{
+		{Role: "user", Content: "q"},
+		{Role: "assistant", Content: "pre-tool-call draft"}, // no ToolCalls
+		{Role: "user", Content: "hint"},
+		{Role: "assistant", Content: "tool-call turn preamble", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit"}}},
+	}
+	got := findLastPreToolCallDraft(messages)
+	if got != "pre-tool-call draft" {
+		t.Errorf("findLastPreToolCallDraft = %q, want pre-tool-call draft", got)
 	}
 }
 
