@@ -755,8 +755,7 @@ func detectSubjectShapeMismatch(ir *types.AnalysisIR) (bool, types.AnswerShape, 
 	default:
 		return false, "", ""
 	}
-	switch shape {
-	case types.ShapeValue, types.ShapeConfigValue:
+	if shape != types.ShapeConfigValue {
 		return false, "", ""
 	}
 	return true, shape, types.ShapeValue

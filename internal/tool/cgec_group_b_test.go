@@ -7,12 +7,11 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// TestDetectSubjectShapeMismatch_LiteralSubjects is the B2b pure-
-// function regression: every source-code literal AnswerSubject kind
-// paired with a non-literal AnswerShape MUST report mismatch, with
-// the target shape always ShapeValue. Non-literal subjects and
-// literal-friendly shapes return (false, "", "").
-func TestDetectSubjectShapeMismatch_LiteralSubjects(t *testing.T) {
+// TestDetectSubjectShapeMismatch_ConfigValueBackstop is the narrow
+// B2b regression: source-code literal subjects cannot legitimately
+// use ShapeConfigValue, so the pre-complete backstop must recommend
+// ShapeValue.
+func TestDetectSubjectShapeMismatch_ConfigValueBackstop(t *testing.T) {
 	literalKinds := []types.AnswerSubjectKind{
 		types.SubjectFunctionName,
 		types.SubjectTypeName,
@@ -22,38 +21,37 @@ func TestDetectSubjectShapeMismatch_LiteralSubjects(t *testing.T) {
 		types.SubjectHandlerRoute,
 		types.SubjectReturnValue,
 	}
-	badShapes := []types.AnswerShape{
-		types.ShapeExplanation,
-		types.ShapeStepList,
-		types.ShapeBoolean,
-		types.ShapeListOfSymbols,
-	}
 	for _, subj := range literalKinds {
-		for _, shape := range badShapes {
-			ir := &types.AnalysisIR{}
-			ir.RequestModel.AnswerSubject.Kind = subj
-			ir.AnswerContract.RequiredAnswerShape = shape
-			m, from, to := detectSubjectShapeMismatch(ir)
-			if !m {
-				t.Errorf("subj=%s shape=%s: expected mismatch", subj, shape)
-				continue
-			}
-			if from != shape {
-				t.Errorf("subj=%s shape=%s: from=%s, want %s", subj, shape, from, shape)
-			}
-			if to != types.ShapeValue {
-				t.Errorf("subj=%s shape=%s: to=%s, want ShapeValue", subj, shape, to)
-			}
+		ir := &types.AnalysisIR{}
+		ir.RequestModel.AnswerSubject.Kind = subj
+		ir.AnswerContract.RequiredAnswerShape = types.ShapeConfigValue
+		m, from, to := detectSubjectShapeMismatch(ir)
+		if !m {
+			t.Errorf("subj=%s shape=%s: expected mismatch", subj, types.ShapeConfigValue)
+			continue
+		}
+		if from != types.ShapeConfigValue {
+			t.Errorf("subj=%s: from=%s, want %s", subj, from, types.ShapeConfigValue)
+		}
+		if to != types.ShapeValue {
+			t.Errorf("subj=%s: to=%s, want ShapeValue", subj, to)
 		}
 	}
 }
 
-// TestDetectSubjectShapeMismatch_GoodShapes asserts that when the
-// declared shape is already ShapeValue or ShapeConfigValue (the
-// only two literal-carrying shapes), no mismatch is reported even
-// for literal subjects.
-func TestDetectSubjectShapeMismatch_GoodShapes(t *testing.T) {
-	for _, shape := range []types.AnswerShape{types.ShapeValue, types.ShapeConfigValue} {
+// TestDetectSubjectShapeMismatch_ExplanationAndListsAllowed locks
+// the false-positive fix from the buildOrLoadGraph replay: a
+// question can be anchored on a function/type name while honestly
+// asking for an explanation, step list, list of matching symbols,
+// or boolean decision. B2b must not rewrite those shapes.
+func TestDetectSubjectShapeMismatch_ExplanationAndListsAllowed(t *testing.T) {
+	for _, shape := range []types.AnswerShape{
+		types.ShapeValue,
+		types.ShapeExplanation,
+		types.ShapeStepList,
+		types.ShapeBoolean,
+		types.ShapeListOfSymbols,
+	} {
 		ir := &types.AnalysisIR{}
 		ir.RequestModel.AnswerSubject.Kind = types.SubjectFunctionName
 		ir.AnswerContract.RequiredAnswerShape = shape
@@ -96,7 +94,7 @@ func TestSimulateCitationGrounding_AllMiss_Rejects(t *testing.T) {
 		{File: "internal/agent/agent.go", Line: 919},
 	}
 	readFiles := map[string]bool{
-		"cmd/root.go":               true,
+		"cmd/root.go":                true,
 		"internal/skill/defaults.go": true,
 	}
 	msg := simulateCitationGrounding(citations, readFiles, nil, nil)

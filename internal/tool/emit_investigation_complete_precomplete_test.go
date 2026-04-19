@@ -147,6 +147,62 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPasses(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ExplanationFunctionSubject_NoShapeSwap(t *testing.T) {
+	mut := types.NewMutableState("test")
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"internal/tool/repomap/tool.go": true})
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Source:    "internal/tool/repomap/tool.go",
+			LineStart: 133,
+			LineEnd:   133,
+			Kind:      types.EvidenceDirect,
+		},
+	})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+				CitationReq: types.CitationReq{
+					Required:     true,
+					MinCitations: 1,
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "traced the mechanism",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("unexpected downgrade: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set when explanation preflight passes")
+	}
+	if got := closure.Stats().ShapeSwapRaised; got != 0 {
+		t.Fatalf("ShapeSwapRaised=%d, want 0 for explanation anchored on a function", got)
+	}
+	for _, repair := range closure.PendingRepairs() {
+		if repair.Origin == "pre_complete.subject_shape_mismatch" {
+			t.Fatalf("unexpected shape-swap repair: %+v", repair)
+		}
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks
 // reproduces the 2026-04-18 "explorer calls subagent how" bug at the
 // tool level. When the explorer's keyword-search top-K ranked files
