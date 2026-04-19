@@ -44,6 +44,26 @@ type EvidenceRequirement struct {
 	Entities []string // key entities from the question this requirement relates to
 	Reason   string   // human-readable reason for this requirement
 	Status   string   // "unsatisfied", "partial", "satisfied"
+
+	// DependsOn lists the IDs (Kind + entity key) of requirements
+	// that must be satisfied before this requirement can be
+	// evaluated. Used by the sequential step ordering: the explorer
+	// only pushes the LLM to work on a requirement whose
+	// dependencies are all satisfied. Empty = ready immediately.
+	//
+	// This is the first of two "real increment" additions from the
+	// investigation planner audit (issues/investigation-planner-
+	// duplicates-erm.md). The second is RetryCount below.
+	DependsOn []string
+
+	// RetryCount tracks how many times the explorer's soft-stop
+	// loop pushed back on this requirement without it advancing
+	// from its current status. When RetryCount exceeds a threshold
+	// (replanRetryThreshold), the explorer splits this requirement
+	// into per-entity sub-requirements so each entity gets its own
+	// satisfaction check — the "retry-triggered refinement" from
+	// the planner audit.
+	RetryCount int
 }
 
 // extractEvidenceRequirements analyzes the user's question and produces
@@ -593,6 +613,85 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 		}
 	}
 	return reqs
+}
+
+// replanRetryThreshold is the number of soft-stop retries on a
+// single requirement before the explorer's refinement logic kicks
+// in. Set to 3 so the LLM gets 3 attempts before the system
+// intervenes.
+const replanRetryThreshold = 3
+
+// ermReadyRequirements returns the requirements whose DependsOn
+// prerequisites are all satisfied. Used by the explorer's
+// observeSoftStop to determine which requirements to push the LLM
+// toward — only ready requirements generate gap hints.
+func ermReadyRequirements(reqs []EvidenceRequirement) []EvidenceRequirement {
+	satisfied := make(map[string]bool, len(reqs))
+	for _, r := range reqs {
+		if r.Status == "satisfied" {
+			satisfied[ermRequirementID(r)] = true
+		}
+	}
+	var ready []EvidenceRequirement
+	for _, r := range reqs {
+		if r.Status == "satisfied" {
+			continue
+		}
+		allDeps := true
+		for _, dep := range r.DependsOn {
+			if !satisfied[dep] {
+				allDeps = false
+				break
+			}
+		}
+		if allDeps {
+			ready = append(ready, r)
+		}
+	}
+	return ready
+}
+
+// ermRequirementID produces a stable string key for a requirement,
+// used by DependsOn references. Format: "kind:entity1,entity2".
+func ermRequirementID(r EvidenceRequirement) string {
+	return string(r.Kind) + ":" + strings.Join(r.Entities, ",")
+}
+
+// ermMaybeRefine checks whether any stalled requirement should be
+// split into per-entity sub-requirements. Returns true if any
+// refinement was performed (caller should re-read the requirements).
+//
+// Refinement rule: when a multi-entity requirement (e.g.
+// mechanism(explorer,subagent)) has RetryCount >= replanRetryThreshold
+// and Status is still "unsatisfied" or "partial", split it into
+// per-entity sub-requirements that each track independently. This
+// is the "retry-triggered refinement" from the investigation
+// planner audit — it reuses the existing Kind and thresholdForKind
+// so no new enum or threshold table is needed.
+func ermMaybeRefine(reqs []EvidenceRequirement) ([]EvidenceRequirement, bool) {
+	refined := false
+	var result []EvidenceRequirement
+	for _, r := range reqs {
+		if r.RetryCount >= replanRetryThreshold &&
+			r.Status != "satisfied" &&
+			len(r.Entities) > 1 {
+			// Split into per-entity sub-requirements.
+			for _, ent := range r.Entities {
+				result = append(result, EvidenceRequirement{
+					Kind:     r.Kind,
+					Entities: []string{ent},
+					Reason:   r.Reason + " (refined per-entity after " + fmt.Sprintf("%d", r.RetryCount) + " retries)",
+					Status:   "unsatisfied",
+				})
+			}
+			refined = true
+			logging.Debug("[erm] refined %s(%s) into %d per-entity sub-requirements after %d retries",
+				r.Kind, strings.Join(r.Entities, ","), len(r.Entities), r.RetryCount)
+		} else {
+			result = append(result, r)
+		}
+	}
+	return result, refined
 }
 
 // normalizeForMatch is the package-local alias for the canonical
