@@ -49,6 +49,19 @@ type EvidenceClosure struct {
 	// extractFileCoverage on the full tool history.
 	readSet map[string]bool
 
+	// readRanges is the line-level companion to readSet: file →
+	// merged sorted [Start, End] intervals the LLM actually saw.
+	// Populated from read_file banner ranges (extractFileCoverage)
+	// and preRead slices. Empty entry for a file still in readSet
+	// means "touched but we did not record a specific range", in
+	// which case HasReadLine grants the file wholesale (backward
+	// compatible with tests that only set readSet). The chain
+	// promotion enforcer opts into HasReadLine when the anchor
+	// carries a line number so partial-read scenarios (paginated
+	// read_file, symbol-guided preRead) can correctly demote chains
+	// whose anchor falls outside any fetched range.
+	readRanges map[string][]LineRange
+
 	// scannedSet is the broader set of files the deterministic
 	// concrete-value scanner consulted from disk (keyword-scored
 	// files + symbol-definition files mentioned in investigation
@@ -216,6 +229,7 @@ type ClosureFingerprint struct {
 func NewEvidenceClosure() *EvidenceClosure {
 	return &EvidenceClosure{
 		readSet:        make(map[string]bool),
+		readRanges:     make(map[string][]LineRange),
 		scannedSet:     make(map[string]bool),
 		citedRefs:      make(map[string][]int),
 		subjectMatches: make(map[string]float64),
@@ -262,6 +276,95 @@ func (c *EvidenceClosure) HasRead(file string) bool {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.readSet[file]
+}
+
+// AddReadRanges merges the supplied ranges into the existing per-file
+// records. Caller semantics: "the LLM just fetched these line slices".
+// Multiple calls accumulate (read_file pagination, preRead slices, a
+// later forced-read all merge into one canonical sorted slice per
+// file). Empty or malformed ranges are silently dropped by the merge
+// pass — callers do not need to pre-validate.
+func (c *EvidenceClosure) AddReadRanges(ranges map[string][]LineRange) {
+	if c == nil || len(ranges) == 0 {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.readRanges == nil {
+		c.readRanges = make(map[string][]LineRange, len(ranges))
+	}
+	for file, rngs := range ranges {
+		if file == "" || len(rngs) == 0 {
+			continue
+		}
+		combined := append([]LineRange{}, c.readRanges[file]...)
+		combined = append(combined, rngs...)
+		c.readRanges[file] = mergeLineRanges(combined)
+	}
+}
+
+// SetReadRanges atomically replaces the entire range map. Used by
+// explorer.ParseOutput once per round, paralleling SetReadSet, so a
+// fresh extractFileCoverage pass fully refreshes the snapshot without
+// inheriting stale per-file ranges from a prior dispatch.
+func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.readRanges = make(map[string][]LineRange, len(ranges))
+	for file, rngs := range ranges {
+		if file == "" || len(rngs) == 0 {
+			continue
+		}
+		c.readRanges[file] = mergeLineRanges(append([]LineRange{}, rngs...))
+	}
+}
+
+// ReadRanges returns a defensive copy of the merged ranges recorded
+// for `file`, or nil if none are tracked.
+func (c *EvidenceClosure) ReadRanges(file string) []LineRange {
+	if c == nil || file == "" {
+		return nil
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return cloneLineRanges(c.readRanges[file])
+}
+
+// HasReadLine is the row-level complement to HasRead. Semantics:
+//
+//  1. file not in readSet                      → false (never saw it)
+//  2. file in readSet, no range records kept   → true  (backward
+//     compatible: old callers that only populate readSet still grant
+//     file-level coverage)
+//  3. file in readSet, line within a range     → true
+//  4. file in readSet, line outside all ranges → false (partial read,
+//     anchor in unread section)
+//
+// The chain promotion enforcer opts into this API when the chain
+// anchor carries a Line > 0; other ReadSet consumers (pre-complete
+// gate, stall detector, F1 hierarchy promotion) keep calling HasRead
+// because their semantics are "the file was touched at all", not
+// "this specific line was seen".
+func (c *EvidenceClosure) HasReadLine(file string, line int) bool {
+	if c == nil || file == "" {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.readSet[file] {
+		return false
+	}
+	if line <= 0 {
+		return true
+	}
+	rngs := c.readRanges[file]
+	if len(rngs) == 0 {
+		return true
+	}
+	return rangesContain(rngs, line)
 }
 
 // SetScannedSet atomically replaces the ScannedSet snapshot.
@@ -778,6 +881,7 @@ func (c *EvidenceClosure) Reset() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.readSet = make(map[string]bool)
+	c.readRanges = make(map[string][]LineRange)
 	c.scannedSet = make(map[string]bool)
 	c.citedRefs = make(map[string][]int)
 	c.pendingReads = nil

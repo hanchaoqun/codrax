@@ -188,7 +188,7 @@ func (e *subExplorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservatio
 	}
 
 	// File coverage within scope.
-	_, readSet := extractFileCoverage(obs.AllToolResults)
+	_, readSet, _ := extractFileCoverage(obs.AllToolResults)
 
 	// If we haven't read any files yet, push HARD.
 	if len(readSet) == 0 && obs.ContinuationsUsed < 3 {
@@ -264,7 +264,7 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 
 	// Multi-dimensional quality check (same criteria as main explorer,
 	// but with relaxed thresholds for scoped sub-tasks).
-	_, readSet := extractFileCoverage(toolResults)
+	_, readSet, _ := extractFileCoverage(toolResults)
 	directCount := 0
 	for _, note := range e.investigationNotes {
 		for _, line := range strings.Split(note, "\n") {
@@ -366,7 +366,7 @@ func buildScopedSearchGraph(ctx *types.AgentContext, toolResults []types.ToolRes
 		}
 		graph = g
 	}
-	_, readSet := extractFileCoverage(toolResults)
+	_, readSet, _ := extractFileCoverage(toolResults)
 	candidateSet := make(map[string]bool)
 	for file := range readSet {
 		candidateSet[file] = true

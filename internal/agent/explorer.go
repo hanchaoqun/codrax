@@ -22,6 +22,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// preReadInjection records a single file + the exact line ranges
+// whose content preReadRequiredFiles pushed into the initial prompt.
+// Introduced by Commit A (range-aware CGEC): ParseOutput feeds Path
+// into cvReadSet and Ranges into cvReadRanges so HasReadLine can
+// answer row-level queries about what the LLM actually saw. Commit B
+// populates Ranges with symbol-guided windows (e.g. head + anchor);
+// Commit A emits a single [1, N] range per file matching the current
+// head-only preRead.
+type preReadInjection struct {
+	Path   string
+	Ranges []types.LineRange
+}
+
 type explorerEvaluator struct {
 	heuristics                types.ExploreHeuristics
 	tools                     *tool.Registry
@@ -78,6 +91,19 @@ type explorerEvaluator struct {
 	// follow-up) to push the LLM toward reading analyzer-identified
 	// files before stopping.
 	requiredFiles []string
+
+	// preReadInjections records what preReadRequiredFiles pushed into
+	// the initial prompt: per-file path plus the exact line ranges the
+	// LLM saw. These reads never pass through the tool history (no
+	// read_file call), so extractFileCoverage cannot observe them.
+	// ParseOutput merges Path into cvReadSet and Ranges into
+	// cvReadRanges so CGEC I1 can (a) promote chains whose anchor
+	// sits inside an injected slice and (b) demote chains anchored
+	// in an un-injected section of the same file (Commit B's
+	// symbol-guided preRead can show only two 80-line windows out
+	// of a 500-line file, and range-aware HasReadLine is what keeps
+	// the enforcer honest about what the LLM actually saw).
+	preReadInjections []preReadInjection
 
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
@@ -158,6 +184,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
 		e.requiredFiles = nil
+		e.preReadInjections = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -432,7 +459,17 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// "let me read_file X → observe → decide". The LLM sees
 			// the file content BEFORE its first iteration and can
 			// immediately start extracting evidence.
-			preReadInjected := preReadRequiredFiles(ctx.RepoRoot, reqFiles, 2, 200)
+			//
+			// Successful injections (path + line ranges actually
+			// shown) are stashed on e.preReadInjections so
+			// ParseOutput can merge them into the EvidenceClosure's
+			// readSet + readRanges. Without this merge, CGEC I1
+			// demotes every chain anchored in pre-read content
+			// because extractFileCoverage only consults the tool
+			// history (the LLM never issued a read_file for these
+			// files).
+			preReadInjected, preReadInjs := preReadRequiredFiles(ctx.RepoRoot, reqFiles, 2, 200)
+			e.preReadInjections = preReadInjs
 			if preReadInjected != "" {
 				b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
 				b.WriteString(preReadInjected)
@@ -884,7 +921,7 @@ func (e *explorerEvaluator) observePrimaryRead(iteration int, history []types.To
 	if len(primary) == 0 {
 		return
 	}
-	_, readSet := extractFileCoverage(history)
+	_, readSet, _ := extractFileCoverage(history)
 	for _, pf := range primary {
 		if readSet[pf] {
 			e.primaryReadIter = iteration
@@ -1111,7 +1148,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// tuning — they are tied to the enumeration question class, not
 	// df1.
 	if e.isEnumerationQuery {
-		discovered, readSet := extractFileCoverage(allResults)
+		discovered, readSet, _ := extractFileCoverage(allResults)
 		if len(discovered) > 0 {
 			coverage := float64(len(readSet)) / float64(len(discovered))
 			if coverage < e.heuristics.MidLoopEnumCoverage && len(discovered)-len(readSet) >= e.heuristics.EnumMidLoopUnreadFloor {
@@ -1171,7 +1208,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// took an earlier injection slot.
 	if !e.midLoopSymbolRefInjected &&
 		len(e.investigationNotes) >= e.heuristics.MidLoopMinIteration {
-		_, readSet := extractFileCoverage(allResults)
+		_, readSet, _ := extractFileCoverage(allResults)
 		gaps := detectCrossFileSymbolGaps(
 			e.investigationNotes, e.searchResult.Graph, readSet, 3)
 		if len(gaps) > 0 {
@@ -1225,7 +1262,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// independence; we just break the implicit low-parallelism
 	// rhythm that the prior iterations established.
 	if b.Len() == 0 && !e.midLoopParallelInjected && e.midLoopSerialStreak >= e.heuristics.SerialStreakThreshold {
-		discovered, readSet := extractFileCoverage(allResults)
+		discovered, readSet, _ := extractFileCoverage(allResults)
 		unreadCount := 0
 		for _, f := range discovered {
 			if !readSet[f] && !isNoisePath(f) {
@@ -1362,7 +1399,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// Before transitioning to Phase 2, check if Phase 1 actually
 		// discovered any files. If all greps returned zero results,
 		// push the LLM to retry with broader patterns before moving on.
-		discovered, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history)
 		if len(discovered) == 0 && e.broadenAttempts < e.heuristics.Phase0MaxBroadenAttempts {
 			e.broadenAttempts++
 			return LoopSignal{
@@ -1393,7 +1430,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// 3-1=2 < MinInjectInterval=3) and the explorer exits Phase 0
 		// without ever delivering Phase 2 instructions to the LLM.
 		if !e.phase0ExtraRound {
-			discovered, _ = extractFileCoverage(history)
+			discovered, _, _ = extractFileCoverage(history)
 			usedGrep := false
 			usedOtherDiscovery := false
 			for _, r := range history {
@@ -1477,7 +1514,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// Phase 1 (depth read): use runtime file coverage as guidance.
 	// Merge grep-discovered files with pre-scanned top files so the
 	// coverage check catches high-scoring files the LLM didn't grep.
-	discovered, readSet := extractFileCoverage(history)
+	discovered, readSet, _ := extractFileCoverage(history)
 	// Inject pre-scanned files that aren't already in discovered.
 	seen := make(map[string]bool, len(discovered))
 	for _, f := range discovered {
@@ -2111,7 +2148,22 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Merge concrete values into structured evidence. Before the
 	// synthesis-LLM removal (2026-04-16) this merge lived inside
 	// SynthesisPrompt; now ParseOutput is the sole owner.
-	_, cvReadSet := extractFileCoverage(toolResults)
+	_, cvReadSet, cvReadRanges := extractFileCoverage(toolResults)
+	// S2a: merge pre-read files into the readSet. Pre-read content
+	// is injected into the initial prompt (see preReadRequiredFiles)
+	// and never passes through the tool history, so
+	// extractFileCoverage cannot see it. Without this merge, CGEC
+	// I1 demotes every chain anchored in pre-read content because
+	// the anchor file is not in ReadSet — which contradicts what
+	// the LLM can actually see in its prompt. preReadRanges carries
+	// the symbol-guided slice ranges (see preread.go) so the
+	// range-aware chain promotion enforcer can distinguish "anchor
+	// inside an injected slice" (promote) from "anchor in an
+	// un-injected section of the same file" (demote + PendingRead).
+	for _, inj := range e.preReadInjections {
+		cvReadSet[inj.Path] = true
+		cvReadRanges[inj.Path] = append(cvReadRanges[inj.Path], inj.Ranges...)
+	}
 	// CGEC: pass the per-Run EvidenceClosure so the chain promotion
 	// enforcer can demote chains anchored outside ReadSet and queue
 	// the missing files as PendingReads on the closure. Update the
@@ -2121,6 +2173,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	if ctx.Mutable != nil {
 		cvClosure = ctx.Mutable.EvidenceClosure()
 		cvClosure.SetReadSet(cvReadSet)
+		cvClosure.SetReadRanges(cvReadRanges)
 	}
 	// CGEC B1a: Phase 0 broaden attempts exhausted with 0 file
 	// matches → emit RepairExpandSearch so the next retry's prompt
@@ -2130,7 +2183,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// already been trying (so the retry hint can surface them as
 	// "these didn't work — try different forms"). De-dup by
 	// AddRepair chokepoint.
-	discoveredFiles, _ := extractFileCoverage(toolResults)
+	discoveredFiles, _, _ := extractFileCoverage(toolResults)
 	if cvClosure != nil &&
 		e.phase == 0 &&
 		e.broadenAttempts >= e.heuristics.Phase0MaxBroadenAttempts &&
@@ -2158,7 +2211,18 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// 3. Evidence quality: count structured evidence tags in notes.
 	//    Require at least 2 [DIRECT]/[REGISTRATION] entries (ground-truth facts).
 	// 4. File relevance: weight read files by their keyword search rank.
-	discovered, readSet := extractFileCoverage(toolResults)
+	discovered, readSet, _ := extractFileCoverage(toolResults)
+	// S2a: same preRead merge as the cvReadSet branch above. Without
+	// it, the HasEnoughFacts coverage ratio below understates what
+	// the LLM has actually seen — pre-read files count as discovered
+	// (via keyword_search) but not as read, which can push the
+	// explorer into needless extra iterations. Only the file-level
+	// readSet is merged here; row-level ranges live on
+	// EvidenceClosure and are not re-derived for the HasEnoughFacts
+	// heuristic (coverage ratio is file-granular).
+	for _, inj := range e.preReadInjections {
+		readSet[inj.Path] = true
+	}
 	coverage := 0.0
 	if len(discovered) > 0 {
 		coverage = float64(len(readSet)) / float64(len(discovered))
@@ -2522,7 +2586,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		return
 	}
 
-	_, readSet := extractFileCoverage(toolResults)
+	_, readSet, _ := extractFileCoverage(toolResults)
 
 	// T1.1: two-phase dataflow decision. Build concrete values + chains
 	// early, merge with parsed LLM evidence, run ERM satisfaction check on
@@ -2910,7 +2974,17 @@ type concreteValuesResult struct {
 type chainAnchorInfo struct {
 	Summary string
 	Files   []string
-	Origin  string // "concrete_values_tracer", "bridge_literal", "hierarchy"
+	// FileLines is a parallel slice aligned 1:1 with Files: entry i
+	// holds the 1-based source line the chain terminal (or producer)
+	// actually sits on, or 0 when the producer has no line metadata
+	// (bridge-literal chains built from graph relations have no
+	// point-of-use). The chain promotion enforcer calls
+	// closure.HasReadLine(Files[i], FileLines[i]) so a partial read
+	// — e.g. read_file pagination that fetched lines 1-200 while
+	// the terminal lives at line 350 — correctly demotes the chain.
+	// A zero line degrades to the file-level HasRead grant.
+	FileLines []int
+	Origin    string // "concrete_values_tracer", "bridge_literal", "hierarchy"
 }
 
 // getConcreteValuesCached builds concrete values once per Execute and
@@ -2971,11 +3045,31 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 	keptSummaries := make(map[string]bool, len(in.chainAnchors))
 	demotedSummaries := make(map[string]bool, len(in.chainAnchors))
 	for _, anchor := range in.chainAnchors {
+		// Row-level check: for each anchor file, require either
+		//   (a) file-level readSet[f] covers it (pure fallback for
+		//       callers / tests that do not populate ranges), OR
+		//   (b) closure.HasReadLine(f, line) confirms the specific
+		//       terminal line sits inside a fetched slice.
+		// (b) subsumes (a) when the closure is non-nil and range
+		// info is tracked — HasReadLine grants file-level coverage
+		// for any file in readSet without range records. This keeps
+		// the semantics backward-compatible for chain_promotion_test.go
+		// suites that never touched ranges, while letting symbol-
+		// guided preRead + paginated read_file catch partial reads.
 		allRead := true
-		for _, f := range anchor.Files {
-			if !readSet[f] {
-				allRead = false
+		for i, f := range anchor.Files {
+			line := 0
+			if i < len(anchor.FileLines) {
+				line = anchor.FileLines[i]
 			}
+			if closure.HasReadLine(f, line) {
+				continue
+			}
+			if readSet[f] && line == 0 {
+				continue
+			}
+			allRead = false
+			break
 		}
 		if allRead {
 			keptSummaries[anchor.Summary] = true
@@ -2997,8 +3091,15 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		// for old tests / analyzer-only dispatches), the PendingRead
 		// is enqueued as before; if false, we skip and log so the
 		// operator can see the filter fired.
-		for _, f := range anchor.Files {
-			if readSet[f] {
+		for i, f := range anchor.Files {
+			line := 0
+			if i < len(anchor.FileLines) {
+				line = anchor.FileLines[i]
+			}
+			if closure.HasReadLine(f, line) {
+				continue
+			}
+			if readSet[f] && line == 0 {
 				continue
 			}
 			if !closure.IsScanned(f) {
@@ -3871,10 +3972,15 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					v.method, v.kind, v.value,
 					rv.method, rv.kind, rv.value)
 				chains = append(chains, summary)
+				files, lines := dedupeAnchorFilesWithLines(
+					anchorFileLine{File: v.file, Line: v.line},
+					anchorFileLine{File: rv.file, Line: rv.line},
+				)
 				chainAnchors = append(chainAnchors, chainAnchorInfo{
-					Summary: summary,
-					Files:   dedupeAnchorFiles(v.file, rv.file),
-					Origin:  "concrete_values_tracer",
+					Summary:   summary,
+					Files:     files,
+					FileLines: lines,
+					Origin:    "concrete_values_tracer",
 				})
 			}
 		}
@@ -4126,10 +4232,15 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if it.Source == "" {
 				continue
 			}
+			// Bridge-literal evidence carries a LineStart so the row-
+			// level enforcer can demote a chain whose definition sits
+			// in a paginated-unread slice. LineStart==0 degrades to
+			// the file-level grant via HasReadLine.
 			chainAnchors = append(chainAnchors, chainAnchorInfo{
-				Summary: it.Summary,
-				Files:   []string{it.Source},
-				Origin:  "bridge_literal",
+				Summary:   it.Summary,
+				Files:     []string{it.Source},
+				FileLines: []int{it.LineStart},
+				Origin:    "bridge_literal",
 			})
 		}
 		cvEvidence = append(cvEvidence, bridgeItems...)
@@ -4342,6 +4453,43 @@ func dedupeAnchorFiles(files ...string) []string {
 		out = append(out, f)
 	}
 	return out
+}
+
+// anchorFileLine binds a per-file line number so chainAnchorInfo can
+// carry Files + FileLines in lock-step. Used by
+// dedupeAnchorFilesWithLines to dedupe on path while preferring the
+// first non-zero line a given file appears with.
+type anchorFileLine struct {
+	File string
+	Line int
+}
+
+// dedupeAnchorFilesWithLines is the range-aware counterpart of
+// dedupeAnchorFiles. It dedupes by path (same semantics as the
+// original) and records a representative line per retained file.
+// When the same file is contributed twice with different lines, the
+// first non-zero line wins — a later zero-line entry cannot overwrite
+// a real line, and a later non-zero entry cannot overwrite an earlier
+// non-zero one (deterministic, avoids insertion-order flip-flop).
+// Returns parallel slices aligned by index: files[i] ↔ lines[i].
+func dedupeAnchorFilesWithLines(in ...anchorFileLine) (files []string, lines []int) {
+	seenIdx := make(map[string]int, len(in))
+	for _, af := range in {
+		f := strings.TrimSpace(af.File)
+		if f == "" {
+			continue
+		}
+		if idx, ok := seenIdx[f]; ok {
+			if lines[idx] == 0 && af.Line > 0 {
+				lines[idx] = af.Line
+			}
+			continue
+		}
+		seenIdx[f] = len(files)
+		files = append(files, f)
+		lines = append(lines, af.Line)
+	}
+	return files, lines
 }
 
 // normalizeChainKey extracts a semantic identity for a resolution
@@ -6089,8 +6237,76 @@ func isValidFilePath(p string) bool {
 	return false
 }
 
-func extractFileCoverage(history []types.ToolResult) (discovered []string, readSet map[string]bool) {
+// parseReadFileBanner is the single parser for the banner the
+// read_file tool prepends to every Summary. Two canonical shapes
+// need to be recognised (see internal/tool/builtin.go):
+//
+//	[path: showing lines X-Y of Z total]
+//	[path: showing all N lines (B bytes); limit=M expanded to full file (...)]
+//
+// Returns the repo-relative path and the [startLine, endLine] range
+// the banner describes (1-based inclusive). totalLines is Z (or N for
+// the "all" shape) when parseable, 0 otherwise. ok is false for any
+// malformed banner so callers can skip the entry without defensive
+// string checks at the call site. Extracted from three duplicated
+// inline parsers (extractFileCoverage, detectTruncatedUngrepped,
+// detectPartiallyReadSymbols) so all three share the same "showing
+// all" coverage; without that, inline-expanded reads were invisible
+// to coverage accounting even though the LLM saw the whole file.
+func parseReadFileBanner(summary string) (path string, rng types.LineRange, totalLines int, ok bool) {
+	first := strings.SplitN(summary, "\n", 2)[0]
+	if !strings.HasPrefix(first, "[") {
+		return "", types.LineRange{}, 0, false
+	}
+	// "showing all" shape (inline-expanded full-file read).
+	if idx := strings.Index(first, ": showing all "); idx > 1 {
+		path = first[1:idx]
+		if path == "" {
+			return "", types.LineRange{}, 0, false
+		}
+		rest := first[idx+len(": showing all "):]
+		spaceIdx := strings.Index(rest, " ")
+		if spaceIdx < 1 {
+			return "", types.LineRange{}, 0, false
+		}
+		n, err := strconv.Atoi(rest[:spaceIdx])
+		if err != nil || n <= 0 {
+			return "", types.LineRange{}, 0, false
+		}
+		return path, types.LineRange{Start: 1, End: n}, n, true
+	}
+	// "showing lines X-Y of Z total" shape.
+	colonIdx := strings.Index(first, ": showing lines ")
+	if colonIdx <= 1 {
+		return "", types.LineRange{}, 0, false
+	}
+	path = first[1:colonIdx]
+	rest := first[colonIdx+len(": showing lines "):]
+	dashIdx := strings.Index(rest, "-")
+	ofIdx := strings.Index(rest, " of ")
+	if dashIdx < 0 || ofIdx < 0 || dashIdx > ofIdx {
+		return "", types.LineRange{}, 0, false
+	}
+	startLine, err1 := strconv.Atoi(strings.TrimSpace(rest[:dashIdx]))
+	endLine, err2 := strconv.Atoi(strings.TrimSpace(rest[dashIdx+1 : ofIdx]))
+	if err1 != nil || err2 != nil {
+		return "", types.LineRange{}, 0, false
+	}
+	totalStr := strings.TrimSuffix(strings.TrimSuffix(rest[ofIdx+4:], "]"), " total")
+	total, _ := strconv.Atoi(strings.TrimSpace(totalStr)) // total optional
+	if startLine <= 0 || endLine < startLine {
+		return "", types.LineRange{}, 0, false
+	}
+	return path, types.LineRange{Start: startLine, End: endLine}, total, true
+}
+
+func extractFileCoverage(history []types.ToolResult) (
+	discovered []string,
+	readSet map[string]bool,
+	readRanges map[string][]types.LineRange,
+) {
 	readSet = make(map[string]bool)
+	readRanges = make(map[string][]types.LineRange)
 	discoveredSet := make(map[string]bool)
 
 	for _, r := range history {
@@ -6149,13 +6365,16 @@ func extractFileCoverage(history []types.ToolResult) (discovered []string, readS
 				}
 			}
 		case "read_file":
-			// read_file summary starts with "[path: ...]" banner.
-			first := strings.SplitN(r.Summary, "\n", 2)[0]
-			if strings.HasPrefix(first, "[") {
-				// Extract path from "[path: showing ...]"
-				if idx := strings.Index(first, ":"); idx > 1 {
-					path := strings.TrimSpace(first[1:idx])
+			// The banner carries both the path and the line range the
+			// LLM actually saw. Record the path into readSet (file-
+			// level, backward-compatible) AND the range into
+			// readRanges so CGEC I1 chain promotion can distinguish a
+			// partial paginated read from a full read.
+			if path, rng, _, ok := parseReadFileBanner(r.Summary); ok {
+				path = strings.TrimSpace(path)
+				if path != "" {
 					readSet[path] = true
+					readRanges[path] = append(readRanges[path], rng)
 				}
 			}
 		case "exec_command":
@@ -6456,42 +6675,69 @@ type partialReadHint struct {
 // initial prompt, saving 1-2 LLM round-trips that would otherwise
 // be spent on explicit read_file calls.
 //
-// Returns empty string when no files can be read (missing files,
-// empty repoRoot, etc.). Each file gets a header with the path
-// so the LLM knows where the content came from.
-func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines int) string {
+// Returns the rendered prompt section and one preReadInjection per
+// file whose content was actually injected. Caller stashes the
+// injection list on explorerEvaluator.preReadInjections so
+// ParseOutput can merge each injection's Path into cvReadSet and
+// its Ranges into cvReadRanges — otherwise CGEC I1 demotes every
+// chain anchored in pre-read content as "outside ReadSet",
+// defeating the whole point of pre-reading. Returns ("", nil) when
+// no files can be read (missing files, empty repoRoot, etc.).
+//
+// For each injected file the returned Ranges contain a single
+// [1, N] entry where N is the count of lines actually shown —
+// totalLines for files that fit under maxLines, maxLines for
+// truncated reads. Commit B swaps this head-only windowing for a
+// symbol-guided multi-slice strategy while keeping the same
+// Ranges shape, so the ParseOutput merge does not need to change.
+//
+// The truncation banner always discloses the total line count
+// ("first N of M total lines") so the LLM knows more content
+// exists and can issue a read_file with offset if needed — the
+// prior "(first N lines)" phrasing let the model mistake a head
+// slice for the whole file.
+func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines int) (string, []preReadInjection) {
 	if repoRoot == "" || len(files) == 0 || maxFiles <= 0 {
-		return ""
+		return "", nil
 	}
 	var b strings.Builder
-	injected := 0
+	var injections []preReadInjection
 	for _, f := range files {
-		if injected >= maxFiles {
+		if len(injections) >= maxFiles {
 			break
 		}
 		absPath := filepath.Join(repoRoot, f)
 		content, err := os.ReadFile(absPath)
 		if err != nil {
+			logging.Debug("[explorer] preRead skipped %q: %v (analyzer RequiredFiles may contain ghost path)", f, err)
 			continue
 		}
 		lines := strings.Split(string(content), "\n")
+		totalLines := len(lines)
+		shown := totalLines
 		truncated := false
-		if len(lines) > maxLines {
+		if totalLines > maxLines {
 			lines = lines[:maxLines]
+			shown = maxLines
 			truncated = true
 		}
 		fmt.Fprintf(&b, "#### `%s`", f)
 		if truncated {
-			fmt.Fprintf(&b, " (first %d lines)", maxLines)
+			fmt.Fprintf(&b, " (first %d of %d total lines — issue read_file with offset to see the rest)", maxLines, totalLines)
+		} else {
+			fmt.Fprintf(&b, " (full file, %d lines)", totalLines)
 		}
 		b.WriteString("\n```\n")
 		for i, line := range lines {
 			fmt.Fprintf(&b, "%d\t%s\n", i+1, line)
 		}
 		b.WriteString("```\n\n")
-		injected++
+		injections = append(injections, preReadInjection{
+			Path:   f,
+			Ranges: []types.LineRange{{Start: 1, End: shown}},
+		})
 	}
-	return b.String()
+	return b.String(), injections
 }
 
 // filterPartialReadsByRelevance removes partial-read hints for

@@ -992,7 +992,7 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 3 matching files]\ninternal/agent/explorer.go\ninternal/agent/agent.go\ninternal/agent/planner.go"},
 		}
-		discovered, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history)
 		if len(discovered) != 3 {
 			t.Fatalf("expected 3 discovered files, got %d: %v", len(discovered), discovered)
 		}
@@ -1003,7 +1003,7 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 3 matching lines]\ninternal/agent/explorer.go:157: func ShouldStop\ninternal/agent/agent.go:92: type Evaluator\ninternal/agent/explorer.go:200: return false"},
 		}
-		discovered, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history)
 		// Should extract unique paths: explorer.go, agent.go (deduplicated)
 		if len(discovered) != 2 {
 			t.Fatalf("expected 2 discovered files (deduplicated), got %d: %v", len(discovered), discovered)
@@ -1024,7 +1024,7 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 2 matching lines]\ninternal/agent/planner.go:20: func ShouldStop\ninternal/agent/explorer.go:118: return false"},
 		}
-		discovered, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history)
 		// Should have 3 unique paths: explorer.go, agent.go, planner.go
 		if len(discovered) != 3 {
 			t.Fatalf("expected 3 discovered (mixed formats), got %d: %v", len(discovered), discovered)
@@ -1036,7 +1036,7 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 			{ToolName: "grep", Success: true,
 				Summary: "[grep: 1 matching files]\ninternal/agent/explorer.go"},
 		}
-		discovered, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history)
 		if len(discovered) != 1 {
 			t.Fatalf("expected 1 (header skipped), got %d: %v", len(discovered), discovered)
 		}
@@ -1061,7 +1061,7 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 				"--\n" +
 				"242-\t// context line with no path\n"},
 		}
-		discovered, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history)
 		if len(discovered) != 0 {
 			t.Errorf("expected 0 discovered from unprefixed grep output, got %d: %v", len(discovered), discovered)
 		}
@@ -1079,7 +1079,7 @@ func TestExtractFileCoverageGrepFormats(t *testing.T) {
 				"internal/agent/explorer.go-102-\t// more context\n" +
 				"internal/agent/agent.go:50:\ttype Evaluator\n"},
 		}
-		discovered, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history)
 		if len(discovered) != 2 {
 			t.Fatalf("expected 2 discovered (deduped), got %d: %v", len(discovered), discovered)
 		}
