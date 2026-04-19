@@ -1,0 +1,21 @@
+# Grid B — U5 Test coverage (negative enumeration)
+#
+# Gap target: test-coverage answers require enumerating functions
+# WITHOUT matching _test.go counterparts — no scenario for
+# "absence" enumeration, no evidence kind for test artifacts. This
+# case measures whether the pipeline can reach that differential
+# answer.
+#
+# Ground truth: subject to drift (tests are added over time). The
+# case leans on EXPECT_CONTAINS="compiler" to establish scope and
+# negative anchors to block lazy "all covered" answers. Absolute
+# correctness requires manual inspection — this case's value is in
+# forcing the shape, not pinning the list.
+#
+# Anti-hallucination: "no gaps / fully covered" is dispositive of
+# the LLM not having actually read compile.go + templates.go.
+ID="u5a"
+NAME="test coverage — uncovered exported functions in compiler package"
+QUESTION="internal/analysis/compiler 包里哪些导出函数（首字母大写）目前没有对应的 _test.go 测试覆盖？逐一列出函数名。"
+EXPECT_CONTAINS="compiler"
+EXPECT_NOT_CONTAINS="all.covered no.gaps fully.tested"

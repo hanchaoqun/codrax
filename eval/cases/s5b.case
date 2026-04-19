@@ -1,0 +1,18 @@
+# Grid A — S5 Enumerate (sub-package entry points)
+#
+# Targets: generic + ShapeListOfSymbols + ReqEnumeration. Exercises
+# the enumerator's ability to resolve a DIRECTORY into its children
+# (structural traversal) rather than symbol-by-symbol keyword search.
+#
+# Ground truth (CLAUDE.md §Analysis sub-packages table): 14 sub-
+# packages live under internal/analysis/ and each has a single
+# entry-point function. Positive anchor picks 4 of the 14 canonical
+# package names that every reasonable enumeration must contain. The
+# gate intentionally is 4-of-14 (not all 14) so an answer phrased as
+# "... and 10 others" can still pass, but any answer missing all four
+# anchors is definitionally incomplete.
+ID="s5b"
+NAME="enumerate — internal/analysis sub-packages"
+QUESTION="列出 internal/analysis/ 下所有子包的目录名，以及每个子包的单一入口函数（entry-point function）。"
+EXPECT_CONTAINS="normalizer compiler criterion gate"
+EXPECT_NOT_CONTAINS=".java .py"

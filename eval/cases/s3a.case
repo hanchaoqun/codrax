@@ -1,0 +1,19 @@
+# Grid A — S3 Config trace (effective-value precedence)
+#
+# Targets: config_trace scenario + ReqConfigMapping + ShapeConfigValue.
+# Validates the config resolution chain explanation: code-default →
+# codrax.yaml → CLI flag precedence, with DefaultExploreHeuristics
+# as the concrete example the user picked.
+#
+# Ground truth (CLAUDE.md §Configuration + internal/types/config.go):
+# explore_* group merges onto types.DefaultExploreHeuristics; only
+# bare + pipeline_* groups accept CLI flags, so explore_* is
+# YAML-only. Positive anchor requires both the YAML filename and the
+# default struct to be named. Negative anchor blocks the generic
+# "read from environment variables" hallucination — codrax does not
+# use env vars for this group.
+ID="s3a"
+NAME="config trace — explore_mid_loop_hint_budget precedence"
+QUESTION="explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。"
+EXPECT_CONTAINS="codrax.yaml DefaultExploreHeuristics"
+EXPECT_NOT_CONTAINS="os.Getenv environment.variable .env"

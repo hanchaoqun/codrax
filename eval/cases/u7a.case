@@ -1,0 +1,19 @@
+# Grid B — U7 History / Authorship (commit lookup)
+#
+# Gap target: no ReqHistory RequirementKind, no temporal evidence
+# kind. The git_log tool exists (internal/tool has git_log support)
+# but the analyzer does not automatically route "when was X
+# introduced" questions through it. This case measures the gap.
+#
+# Ground truth (verified via `git log -- internal/types/evidence_closure.go`):
+# first commit is 01e0864, subject "feat(cgec): Citation-Grounded
+# Evidence Closure — 4-invariant cross-stage contract". A correct
+# answer must include a 7+ char hex hash (pinned by regex) AND the
+# struct name (proving it found the right file). Asking for both
+# protects against a "cannot determine" hedge.
+ID="u7a"
+NAME="history — first commit introducing EvidenceClosure"
+QUESTION="EvidenceClosure 结构体是哪次 commit 第一次引入本项目的？给出 commit 的短哈希（前 7 位）和 subject 首行。"
+EXPECT_CONTAINS="EvidenceClosure"
+EXPECT_NOT_CONTAINS="cannot.determine no.history"
+EXPECT_MATCHES_REGEX="\b[0-9a-f]{7,}\b"

@@ -1,0 +1,18 @@
+# Grid B — U4 Change-impact via reverse dependency
+#
+# Gap target: change-impact reasoning has no scenario template —
+# closest is "trace" intent but it only follows forward flow, not
+# reverse. The adversarial framing ("what breaks") forces the LLM
+# to enumerate consumers rather than describe the package.
+#
+# Ground truth: internal/tool/ground exports Context, LineIndex,
+# GroundItem, GroundCitation (see internal/tool/ground/ground.go).
+# Consumers include emit_evidence, emit_answer_document, and the
+# explorer's evidence synthesis. At least 3 call-site packages must
+# be named for the answer to be usable.
+ID="u4b"
+NAME="reverse dependency — change-impact of deleting internal/tool/ground"
+QUESTION="If I delete the package internal/tool/ground, which source files would stop compiling? List the call sites with file paths."
+EXPECT_CONTAINS="internal/tool/ground"
+EXPECT_NOT_CONTAINS="nothing no.impact safely"
+EXPECT_MATCHES_REGEX="emit_[a-z_]+\.go"

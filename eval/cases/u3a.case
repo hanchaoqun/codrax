@@ -1,0 +1,24 @@
+# Grid B — U3 Comparison (A vs B across two files)
+#
+# Gap target: no comparison_table shape; complexity detects "对比"
+# cue but still compiles to architecture_explain with a single
+# narrative shape. This case measures symmetry — answer must cover
+# BOTH sides in structurally equal depth, not lean to one file.
+#
+# EXPECT_SECTIONS is the main gate: both file names must appear.
+# This is stricter than EXPECT_CONTAINS (which only checks that ALL
+# needles appear) in intent — sections are semantic requirements, so
+# summary.md shows "missing_section:X" rather than "missing:X" when
+# symmetry is violated.
+#
+# Ground truth: explorer.go's ShouldStop consults LLM-provided
+# completion signals plus heuristics (idle streak, iteration cap).
+# extractor.go's ShouldStop is one-shot — it stops after the first
+# emit_answer_symbol / emit_hypothesis_verdict call. Any correct
+# answer will contrast "multi-round heuristic" vs "one-shot emit".
+ID="u3a"
+NAME="comparison — explorer vs extractor ShouldStop conditions"
+QUESTION="对比 explorer.go 和 extractor.go 的 ReAct 循环终止条件有何不同？给出两个文件里 ShouldStop 方法的行为对比，逐条列出差异。"
+EXPECT_CONTAINS="ShouldStop"
+EXPECT_NOT_CONTAINS="identical same.behavior .java"
+EXPECT_SECTIONS="explorer.go extractor.go"

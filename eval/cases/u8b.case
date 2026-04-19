@@ -1,0 +1,17 @@
+# Grid B — U8 API surface (enum listing across a package)
+#
+# Gap target: enumerating PUBLIC enum types (not their values) is a
+# meta-enumeration the current taxonomy has no SubjectKind for —
+# SubjectTypeName is the closest but it does not distinguish
+# string-typed enum aliases from regular type declarations.
+#
+# Ground truth (internal/types/analysis_ir.go + enums.go): public
+# enum types in internal/types include Intent, Scenario, Complexity,
+# AnswerShape, AnswerSubjectKind, TermKind, TaskNodeType, PipelineStage,
+# AgentName, EdgeType, RequirementKind, PredicateAxis, etc. Positive
+# anchor requires 4 of the most load-bearing to appear.
+ID="u8b"
+NAME="API surface — public enum types in internal/types"
+QUESTION="列出 internal/types 包里所有公开（首字母大写）的字符串枚举类型名（例如 Intent 这类 'type X string' 加上 const 集合的）。"
+EXPECT_CONTAINS="Intent Scenario Complexity AnswerShape"
+EXPECT_NOT_CONTAINS="private lowercase int.enum"

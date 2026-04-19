@@ -1,0 +1,18 @@
+# Grid A — S5 Enumerate (interface implementations)
+#
+# Targets: generic scenario + ShapeListOfSymbols + ReqEnumeration.
+# Validates that the pipeline returns the SET of identifiers
+# implementing a named interface, not a prose summary or a count.
+#
+# Ground truth (internal/agent/loop_policy.go): LoopController is the
+# optional interface agents implement. The set of implementers is
+# small and grep-discoverable. Positive anchor is the interface name
+# itself (must appear in any correct enumeration answer to establish
+# grounding). Negative anchors block Java-distribution leaks and the
+# "Evaluator" drift mode (a sibling interface that sometimes
+# contaminates the answer when the LLM conflates interfaces).
+ID="s5a"
+NAME="enumerate — LoopController implementers"
+QUESTION="列出本仓库里所有实现了 LoopController 接口的具体类型，逐个给出类型名和所在文件。"
+EXPECT_CONTAINS="LoopController"
+EXPECT_NOT_CONTAINS=".java .py Evaluator.java BaseAgent.java"

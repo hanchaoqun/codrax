@@ -1,0 +1,19 @@
+# Grid B — U10 Change-impact (type-shape change, not rename)
+#
+# Gap target: changing a struct field's type (bool → enum) requires
+# enumerating every consumer of the field AND classifying which
+# consumers do value comparison vs type assertion. The pipeline has
+# no type-inspection evidence kind.
+#
+# Ground truth: CitationReq.Required is read in the analyzer
+# (where the measurement-scalar carve-out sets it to false — see
+# feedback memory), in emit_answer_document.go (gating citation
+# enforcement), and in the orchestrator's contract_check.go. Tests
+# also compare it. A correct answer must name at least 3 production
+# sites, not just "tests".
+ID="u10b"
+NAME="change impact — CitationReq.Required bool → enum upgrade"
+QUESTION="Which production code sites (non-test) would need changes if CitationReq.Required were changed from bool to an enum type with three states (required / optional / disabled)? List the files."
+EXPECT_CONTAINS="CitationReq"
+EXPECT_NOT_CONTAINS="trivial safe no.changes"
+EXPECT_MATCHES_REGEX="internal/[a-z/_]+\.go"

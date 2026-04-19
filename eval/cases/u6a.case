@@ -1,0 +1,19 @@
+# Grid B — U6 Code convention (error wrapping idiom)
+#
+# Gap target: no scenario for "what's the convention for X in this
+# repo?" — requires pattern aggregation across files. The current
+# pipeline answers by reading one or two sites and extrapolating,
+# which is fragile. This case measures that failure mode.
+#
+# Ground truth: codrax uses fmt.Errorf with %w verb. It does NOT
+# depend on github.com/pkg/errors (see go.mod — the only dep is
+# gopkg.in/yaml.v3). A correct answer both names the idiom AND
+# gives at least one call-site example.
+#
+# Negative anchors block the common training-distribution leak
+# toward pkg/errors, which is unrelated to this project.
+ID="u6a"
+NAME="code convention — Go error wrapping idiom used in this repo"
+QUESTION="本仓库里 Go error 是怎么 wrap 的？用的是标准库 fmt.Errorf 的 %w 动词，还是第三方库比如 github.com/pkg/errors？给一个最常见的 call-site 样例。"
+EXPECT_CONTAINS="fmt.Errorf"
+EXPECT_NOT_CONTAINS="pkg/errors github.com/pkg/errors"

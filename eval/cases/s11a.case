@@ -1,0 +1,17 @@
+# Grid A — S11 Boolean / Existence (tool-call gating)
+#
+# Targets: ShapeBoolean + generic scenario. The answer must be
+# a clear yes/no, not a hedge. Question targets a known hard rule:
+# evidence-lite pre-scan explicitly FORBIDS read_file at stage=analyze,
+# and validateAnalyzerPrescanToolCall is the enforcer.
+#
+# Ground truth (internal/agent/agent.go + analyzer_classification_grep_test.go):
+# the analyzer cannot call read_file. Correct answer is "no". Positive
+# anchor keeps the answer anchored on the check function. Negative
+# anchors block the classic hedge phrases that mean the LLM didn't
+# actually verify.
+ID="s11a"
+NAME="boolean — does the analyzer stage allow read_file?"
+QUESTION="Explorer stage 之前的 analyzer stage 里是否允许调用 read_file？"
+EXPECT_CONTAINS="analyze read_file"
+EXPECT_NOT_CONTAINS="it.depends sometimes maybe"

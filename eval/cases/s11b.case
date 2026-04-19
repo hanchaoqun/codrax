@@ -1,0 +1,18 @@
+# Grid A — S11 Boolean / Existence (retry mechanism wired)
+#
+# Targets: ShapeBoolean. Answer must name the retry budget to
+# prove it reached the enforcement site, not just speculate.
+#
+# Ground truth (internal/orchestrator/orchestrator.go): Phase 1
+# dispatches analyze with fail-loud retry governed by
+# MaxRetriesPerStage. If emit_analysis is never called, StageOutput
+# carries an Error, the retry loop reruns analyze up to budget,
+# then terminates. Positive anchor requires both the budget name
+# and the tool name. Negative anchor blocks the "silent fallback"
+# failure mode — codrax deliberately does NOT silently fall back to
+# a zero-value AnalysisIR.
+ID="s11b"
+NAME="boolean — is there a retry wired for missing emit_analysis?"
+QUESTION="Is there a retry mechanism wired to the analyze stage when emit_analysis is never called? If yes, what is the retry budget parameter called?"
+EXPECT_CONTAINS="MaxRetriesPerStage emit_analysis"
+EXPECT_NOT_CONTAINS="silent fallback zero-value default"

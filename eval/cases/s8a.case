@@ -1,0 +1,17 @@
+# Grid A — S8 Call chain (analyzer post-processing)
+#
+# Targets: architecture_explain + ReqCallChain + ShapeStepList.
+# The buildAnalysisIR → ... → gate.Run chain is the canonical
+# analyzer post-processing pipeline (CLAUDE.md §Analyzer
+# post-processing: 6 numbered steps). A correct answer walks the
+# steps in order; a wrong answer either skips middle nodes or
+# conflates it with the runtime scheduler.
+#
+# Positive anchor pins the two endpoints. Negative anchor blocks the
+# common failure: conflating the analyzer's static pipeline with the
+# orchestrator's runTaskGraph dynamic scheduler.
+ID="s8a"
+NAME="call chain — analyzer post-processing buildAnalysisIR → gate.Run"
+QUESTION="从 analyzer.go 的 buildAnalysisIR 到 gate.Run 之间的确定性处理链都经过哪几步？按调用顺序列出中间的关键函数。"
+EXPECT_CONTAINS="buildAnalysisIR gate.Run"
+EXPECT_NOT_CONTAINS="runTaskGraph DesignReviewer"

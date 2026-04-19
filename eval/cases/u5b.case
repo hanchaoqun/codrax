@@ -1,0 +1,18 @@
+# Grid B — U5 Test coverage (does a specific code path have a test?)
+#
+# Gap target: boolean-shape question about test existence. The answer
+# must either cite a specific test function name (proving the LLM
+# found it) or explicitly say "no test" (proving it looked and came
+# up empty). A hedge like "probably / likely" is dispositive of not
+# having actually looked.
+#
+# Ground truth: runTaskGraph has scheduler_test.go coverage. The
+# stall-forces-finalize branch is a specific edge case — whether it
+# has a dedicated test is a factual lookup. Regardless of the
+# answer, the response must name the test file or clearly state
+# absence.
+ID="u5b"
+NAME="test coverage — runTaskGraph stall-forces-finalize path"
+QUESTION="Does runTaskGraph's stall-forces-finalize fallback path (the branch described in CLAUDE.md as 'scheduler stall forces one finalize dispatch so the task always terminates') have a dedicated unit test? If yes, which test file and function?"
+EXPECT_CONTAINS="runTaskGraph"
+EXPECT_NOT_CONTAINS="probably likely assumption"

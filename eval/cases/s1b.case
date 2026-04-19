@@ -1,0 +1,19 @@
+# Grid A — S1 Explain / Mechanism drill-down (runTaskGraph failure path)
+#
+# Targets: architecture_explain + ReqCallChain + ShapeStepList.
+# Validate node failure has a fine-grained backtrack that requeues
+# only upstream evidence nodes (not the whole graph), using
+# EdgeValidationFeedback guards. Answer must name the specific
+# functions involved so we can verify it reached the right code.
+#
+# Ground truth (internal/orchestrator/scheduler.go): a failed validate
+# node calls markSuccessCriteriaFailed on the node, and uses
+# EdgeValidationFeedback edges to requeue upstream evidence nodes.
+# Negative anchors block the "whole graph restarts" hallucination
+# and the deleted write-pipeline roles (CodeReviewer / Planner /
+# DesignReviewer) that the LLM sometimes invents from training data.
+ID="s1b"
+NAME="mechanism drill-down — runTaskGraph validate failure fine-grained backtrack"
+QUESTION="How does runTaskGraph's criterion-aware window scheduler handle a failed validate node — which upstream nodes get requeued, and does the whole DAG restart?"
+EXPECT_CONTAINS="runTaskGraph EdgeValidationFeedback markSuccessCriteriaFailed"
+EXPECT_NOT_CONTAINS="CodeReviewer Planner DesignReviewer .java"

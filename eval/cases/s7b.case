@@ -1,0 +1,20 @@
+# Grid A — S7 Measurement scalar (count of declared Criterion Kinds)
+#
+# Targets: generic + ShapeValue + return_value intent. Counting a set
+# of declared const values is a different carve-out trigger path
+# than LOC — it hits ReqEnumeration before reconcileIntent downgrades
+# to return_value. Answer must be a single integer, not the full list.
+#
+# Ground truth: internal/analysis/criterion/grammar.go declares the
+# Kind const block with ~19 entries (see CLAUDE.md "19-Kind contract
+# evaluator"). EXPECT_MATCHES_REGEX="\b(1[5-9]|2[0-5])\b" admits the
+# range 15–25 so a +/- drift after new Kinds are added does not
+# require case churn; the spec is "approximately 19" not a literal.
+#
+# Negative gate blocks lists — the answer should be a scalar.
+ID="s7b"
+NAME="measurement scalar — count of Criterion Kind constants"
+QUESTION="How many distinct Criterion Kind constants are declared in internal/analysis/criterion/grammar.go? Give the exact count."
+EXPECT_CONTAINS="criterion"
+EXPECT_NOT_CONTAINS="approximately roughly estimated"
+EXPECT_MATCHES_REGEX="\b(1[5-9]|2[0-5])\b"

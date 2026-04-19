@@ -1,0 +1,18 @@
+# Grid B — U10 Change-impact (rename propagation)
+#
+# Gap target: "what breaks if I rename X" is a reverse-symbol-
+# reference question with no structural axis. The pipeline falls
+# through to architecture_explain which narrates the symbol but
+# does not enumerate call sites.
+#
+# Ground truth: ShapeValue is declared in internal/types/analysis_ir.go
+# and consumed by internal/tool/emit_answer_document.go, the
+# compiler template (generic fallback), the orchestrator's
+# contract_check.go, and tests. At least 3 distinct file paths must
+# appear in any actionable answer.
+ID="u10a"
+NAME="change impact — renaming ShapeValue to ShapeScalar"
+QUESTION="如果把 internal/types/analysis_ir.go 里的 ShapeValue 常量改名为 ShapeScalar，还需要改哪些文件？列出文件路径以及改动的大致类型。"
+EXPECT_CONTAINS="ShapeValue"
+EXPECT_NOT_CONTAINS="none nothing.else only.one.file"
+EXPECT_MATCHES_REGEX="internal/[a-z/]+\.go"

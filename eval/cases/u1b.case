@@ -1,0 +1,18 @@
+# Grid B — U1 Security audit (path traversal in REPL → filesystem)
+#
+# Gap target: taint-tracking through REPL input → file operations
+# without a dedicated security scenario. This case is deliberately
+# adversarial: the answer should name specific code paths where
+# user-controlled strings reach filesystem APIs, not abstract advice.
+#
+# Ground truth: the REPL passes the user's free-text request into
+# the pipeline; the analyzer and explorer only treat it as content.
+# File paths that touch the FS (log_dir, memory_dir) are resolved
+# from CLI flags / YAML at boot time, so there is no direct REPL
+# → FS path. A grounded answer will say that; a hallucinated answer
+# will invent unchecked paths.
+ID="u1b"
+NAME="security audit — REPL input reaching filesystem operations"
+QUESTION="Which code paths in internal/repl pass raw user input into a filesystem operation (open / write / mkdir) without sanitization? Name the files and line ranges."
+EXPECT_CONTAINS="repl"
+EXPECT_NOT_CONTAINS="assumed stereotype generally no risk"

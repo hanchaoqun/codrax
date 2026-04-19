@@ -1,0 +1,17 @@
+# Grid B — U9 Error handling (per-item vs batch failure)
+#
+# Gap target: granularity of failure (single-item reject vs whole-
+# batch fail) is a specific error-handling dimension with no
+# dedicated template. Answer must state a definite behavior, not
+# speculate.
+#
+# Ground truth (internal/tool/emit_evidence.go): per-item reject
+# was shipped in session 7 (see memory: "emit_evidence per-item
+# reject + line_end auto-swap"). Items with missing anchor_kind are
+# rejected individually; the rest of the batch proceeds. A correct
+# answer must state this clearly with file:line reference.
+ID="u9b"
+NAME="error handling — emit_evidence per-item vs batch rejection"
+QUESTION="When emit_evidence receives a batch where exactly one item is missing the anchor_kind field, does the whole call fail, or does the rest of the batch succeed and only the bad item get rejected?"
+EXPECT_CONTAINS="emit_evidence anchor_kind"
+EXPECT_NOT_CONTAINS="unclear maybe depends"

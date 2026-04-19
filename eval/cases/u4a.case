@@ -1,0 +1,21 @@
+# Grid B — U4 Reverse dependency (who imports X?)
+#
+# Gap target: no import-graph scenario, no AxisImport predicate.
+# This case asks for a reverse dependency listing — callers of a
+# package — which the current pipeline has no structural support
+# for. Best-effort path: grep "\"github.com/...\"" across the repo.
+#
+# Ground truth: internal/analysis/criterion is imported by
+# internal/analysis/gate, internal/agent, internal/orchestrator,
+# internal/tool (at least 4 packages). A correct answer enumerates
+# at least 3 of those; a wrong answer either hedges ("several
+# packages") or invents non-existent paths.
+#
+# EXPECT_MATCHES_REGEX="internal/[a-z]+" admits any correct package
+# path form.
+ID="u4a"
+NAME="reverse dependency — importers of internal/analysis/criterion"
+QUESTION="哪些包 import 了 internal/analysis/criterion？逐一列出包的路径，按数量排序。"
+EXPECT_CONTAINS="internal/analysis/criterion"
+EXPECT_NOT_CONTAINS="several some .java"
+EXPECT_MATCHES_REGEX="internal/[a-z]+"

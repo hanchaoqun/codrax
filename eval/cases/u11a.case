@@ -1,0 +1,21 @@
+# Grid B — U11 Locate by role (role → identifier)
+#
+# Gap target: role descriptions ("the entry function that does X")
+# have no subject kind. The pipeline has SubjectFunctionName but
+# no role-indexed search; the explorer has to guess keywords from
+# the role description.
+#
+# Ground truth: buildAnalysisIR in internal/agent/analyzer.go is the
+# canonical single entry point that turns a user request into an
+# AnalysisIR via the 6-step deterministic chain. Correct answer is
+# exactly that function; wrong answers include "analyze" (too
+# generic), "Planner" (deleted role), or "Execute" (BaseAgent
+# method — wrong abstraction level).
+#
+# Negative anchors catch the specific drift toward deleted write-
+# pipeline roles.
+ID="u11a"
+NAME="locate by role — entry for parsing request into structured IR"
+QUESTION="仓库里负责「解析用户请求并产出结构化 AnalysisIR」的那个入口函数具体叫什么名字？在哪个文件？"
+EXPECT_CONTAINS="buildAnalysisIR"
+EXPECT_NOT_CONTAINS="Planner CodeReviewer DesignReviewer"

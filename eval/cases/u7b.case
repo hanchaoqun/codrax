@@ -1,0 +1,18 @@
+# Grid B — U7 History (churn count in recent window)
+#
+# Gap target: "how many of the last N commits touched X" is a
+# counting + filtering question against git log — there is no
+# axis that routes this to git_log as the primary evidence tool.
+# The measurement-scalar carve-out does NOT extend to history
+# because git_log output is not in the Raw Tool Outputs allowlist
+# (context/builder.go skips git_log — verify before shipping).
+#
+# Ground truth: subject to drift. The case leans on the numeric
+# regex to enforce "gave a number" and on the function name to
+# enforce scope.
+ID="u7b"
+NAME="history — recent commits touching runTaskGraph"
+QUESTION="最近 20 次修改 internal/orchestrator/ 目录的 commit 中，有多少个直接涉及 runTaskGraph 函数？给出数字。"
+EXPECT_CONTAINS="runTaskGraph"
+EXPECT_NOT_CONTAINS="estimate approximately roughly"
+EXPECT_MATCHES_REGEX="\b[0-9]{1,2}\b"

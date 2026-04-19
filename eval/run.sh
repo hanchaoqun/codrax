@@ -7,8 +7,13 @@
 #   eval/run.sh eval/cases/df1.case 5
 #
 # Runs the case N times (default 3), captures stdout/log per run, checks
-# EXPECT_CONTAINS / EXPECT_NOT_CONTAINS substrings, extracts mechanism
-# trace metrics from each run's debug log, and prints a markdown summary.
+# EXPECT_CONTAINS / EXPECT_NOT_CONTAINS substrings, and optionally
+# EXPECT_MATCHES_REGEX (ERE, ALL must match — useful for numeric
+# scalar answers like "at least 4 digits somewhere in the answer")
+# and EXPECT_SECTIONS (space-sep tokens, ALL must appear as literal
+# substrings — useful for comparison questions that require both
+# sides of "A vs B" to be mentioned). Extracts mechanism trace
+# metrics from each run's debug log, and prints a markdown summary.
 #
 # Output layout:
 #   eval/results/<case-id>-<timestamp>/
@@ -39,6 +44,8 @@ source "$CASE_FILE"
 : "${QUESTION:?case must define QUESTION}"
 EXPECT_CONTAINS="${EXPECT_CONTAINS:-}"
 EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
+EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
+EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -140,6 +147,37 @@ run_one() {
       if grep -qF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("banned:$needle")
+      fi
+    done
+  fi
+
+  # EXPECT_MATCHES_REGEX: newline-separated ERE patterns (IFS hack so
+  # whitespace inside a pattern is preserved — regex alternation
+  # typically has no spaces but user patterns might). ALL must match.
+  if [[ -n "$EXPECT_MATCHES_REGEX" ]]; then
+    local old_ifs="$IFS"
+    IFS=$'\n'
+    for rx in $EXPECT_MATCHES_REGEX; do
+      [[ -z "$rx" ]] && continue
+      if ! grep -Eq -- "$rx" <<<"$cleaned"; then
+        pass=0
+        reasons+=("no_regex_match:${rx}")
+      fi
+    done
+    IFS="$old_ifs"
+  fi
+
+  # EXPECT_SECTIONS: space-separated literal tokens; ALL must appear.
+  # Intended for comparison-shape questions where the answer must
+  # symmetrically mention both sides (A AND B). Semantically identical
+  # to EXPECT_CONTAINS but spelled separately so summary reasons
+  # distinguish "missing symmetric section" from "missing load-bearing
+  # identifier".
+  if [[ -n "$EXPECT_SECTIONS" ]]; then
+    for needle in $EXPECT_SECTIONS; do
+      if ! grep -qF -- "$needle" <<<"$cleaned"; then
+        pass=0
+        reasons+=("missing_section:$needle")
       fi
     done
   fi

@@ -1,0 +1,18 @@
+# Grid B — U11 Locate by role (uniqueness claim)
+#
+# Gap target: "which function is the SINGLE producer of X" is a
+# uniqueness lookup — stronger than "who sets X". No axis forces
+# the pipeline to verify uniqueness (grep can count). This case
+# measures the failure mode where the LLM names one producer and
+# claims uniqueness without counting.
+#
+# Ground truth (memory feedback_citation_gate_three_surfaces.md and
+# grep-verified against HEAD): CitationReq.Required = false has
+# exactly one production call site — the measurement-scalar carve-
+# out in internal/agent/analyzer.go:781. A correct answer must name
+# both the file AND the fact of uniqueness.
+ID="u11b"
+NAME="locate by role — single producer of CitationReq.Required=false"
+QUESTION="本仓库里，把 CitationReq.Required 设置为 false 的生产代码位点一共有几处？在哪个文件？给出文件路径和行号。"
+EXPECT_CONTAINS="analyzer.go"
+EXPECT_NOT_CONTAINS="multiple.places several.places many.places"

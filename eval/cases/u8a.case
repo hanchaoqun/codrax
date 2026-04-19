@@ -1,0 +1,19 @@
+# Grid B — U8 API surface (public exports of a package)
+#
+# Gap target: no export-visibility taxonomy. A correct "API surface"
+# answer must distinguish exported (capitalized) from unexported
+# identifiers, which the pipeline currently has no structural axis
+# for. Best effort path is grep "^func [A-Z]" / "^type [A-Z]".
+#
+# Ground truth: internal/analysis/criterion exports:
+#   - Eval, EvalAll, IsRegistered, RegisteredKinds (functions)
+#   - Kind, Env, Result (types)
+#   - ErrUnknownKind (var)
+#   - ~19 Kind* const values
+# Positive anchor picks 3 distinctive function names that survive
+# paraphrase (Eval/EvalAll/RegisteredKinds).
+ID="u8a"
+NAME="API surface — public exports of internal/analysis/criterion"
+QUESTION="internal/analysis/criterion 对外导出的全部 API（函数、类型、常量、变量）共有哪些？分类列出。"
+EXPECT_CONTAINS="Eval EvalAll RegisteredKinds"
+EXPECT_NOT_CONTAINS="private internal.use"

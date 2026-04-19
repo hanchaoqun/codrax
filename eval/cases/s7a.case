@@ -1,0 +1,22 @@
+# Grid A — S7 Measurement scalar (line count across directory)
+#
+# Targets: generic scenario + ShapeValue + measurement-scalar
+# carve-out (session 6) that strips the 3-layer citation gate and
+# renders Raw Tool Outputs from Turn A into the Turn B prompt.
+#
+# Ground truth: actual line count depends on repo state and will
+# drift; EXPECT_MATCHES_REGEX pins only that a 4+ digit number
+# appears (any non-trivial codebase gives ≥1000 lines in
+# internal/tool). This is the pattern session 6 targeted — LLM must
+# reach a wc -l / find-pipe output from the exec_command tool and
+# quote the number rather than estimate.
+#
+# Negative anchors block the classic failure modes: "approximately",
+# "roughly", "estimated" — all signs the LLM guessed rather than
+# executed.
+ID="s7a"
+NAME="measurement scalar — total .go LOC under internal/tool (non-test)"
+QUESTION="internal/tool 目录下所有 .go 文件（不含 _test.go）的总行数是多少？请给出准确数字。"
+EXPECT_CONTAINS="internal/tool"
+EXPECT_NOT_CONTAINS="approximately roughly estimated"
+EXPECT_MATCHES_REGEX="[0-9]{4,}"

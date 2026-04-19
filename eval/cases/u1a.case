@@ -1,0 +1,23 @@
+# Grid B — U1 Security audit (command injection surface)
+#
+# Gap target: no security_audit scenario exists (see scenario.go
+# comments referencing aspirational security_audit / refactor_design
+# that were never wired). This case measures whether the pipeline
+# can reach a taint-source → sink answer via the architecture_explain
+# fallback path.
+#
+# Ground truth (internal/tool/builtin.go:108): ExecCommand.Execute
+# shells out via the exec_command tool. The relevant audit question
+# is whether user input paths can reach exec_command without
+# sanitization, and the known defense is that REPL requests are
+# passed as --request arg, not into a shell pipeline.
+#
+# Positive anchor pins the tool name the audit must be scoped to.
+# Negative anchors block the "no risk" brush-off and the opposite
+# "sql injection" hallucination from training-distribution leakage
+# (codrax has no database).
+ID="u1a"
+NAME="security audit — exec_command injection surface"
+QUESTION="codrax 的 exec_command 工具是否存在命令注入风险？请给出实际的 taint source 和 sink，以及现有的防护点。"
+EXPECT_CONTAINS="exec_command"
+EXPECT_NOT_CONTAINS="no.risk SQL.injection sql"

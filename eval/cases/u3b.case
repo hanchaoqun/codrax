@@ -1,0 +1,24 @@
+# Grid B — U3 Comparison (template-level differences)
+#
+# Gap target: same as u3a but comparing two compiler templates
+# rather than two files. This tests whether the LLM can read two
+# function bodies in the same file and compare three structural
+# dimensions (node count, citation floor, retry budget).
+#
+# Ground truth (internal/analysis/compiler/templates.go):
+#   - templateArchitectureExplain: 5 node types (probe / evidence /
+#     validate / reconcile / final), CitationCountHigh=3,
+#     RetryBudgetMedium=3.
+#   - templateRootCause: same 5 node shape but RetryBudgetVeryHigh=4
+#     (the highest in the system), CitationCountMedium=2.
+#
+# EXPECT_SECTIONS enforces symmetry; EXPECT_MATCHES_REGEX pins that
+# concrete numeric parameters appear (any correct answer has at
+# least one single-digit in the "3 / 4 / 2" range quoted verbatim).
+ID="u3b"
+NAME="comparison — templateArchitectureExplain vs templateRootCause"
+QUESTION="compiler.templateArchitectureExplain 和 compiler.templateRootCause 在 TaskGraph 节点数、citation 下限、retry budget 上分别有什么差异？逐项对比并给出具体数值。"
+EXPECT_CONTAINS="templateArchitectureExplain templateRootCause"
+EXPECT_NOT_CONTAINS="identical same.values"
+EXPECT_SECTIONS="templateArchitectureExplain templateRootCause"
+EXPECT_MATCHES_REGEX="\b[2-5]\b"

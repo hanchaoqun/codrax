@@ -1,0 +1,18 @@
+# Grid B — U9 Error-handling surface (prospective, not reactive)
+#
+# Gap target: the root_cause scenario is reactive ("why did X
+# fail") — prospective error-surface questions ("how does X handle
+# Y") get squeezed into root_cause or architecture_explain, neither
+# of which builds the evidence plan around enumerating error branches.
+#
+# Ground truth (internal/agent/agent.go): executeTool calls
+# validateAnalyzerPrescanToolCall before dispatching the tool in
+# StageAnalyze. When the validator returns non-nil, the tool call is
+# rejected and the LLM gets an error message back. Answer must name
+# both functions + the rejection path (error message returned to LLM,
+# not silently dropped).
+ID="u9a"
+NAME="error handling — validateAnalyzerPrescanToolCall rejection path"
+QUESTION="BaseAgent.executeTool 调用 validateAnalyzerPrescanToolCall 返回非 nil 错误时，调用流程走哪条分支？tool 调用被直接 reject，还是先执行再 override？"
+EXPECT_CONTAINS="executeTool validateAnalyzerPrescanToolCall"
+EXPECT_NOT_CONTAINS="ignore swallow silent"
