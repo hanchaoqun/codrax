@@ -36,11 +36,14 @@ func TestLanguageDirective(t *testing.T) {
 		if !strings.Contains(got, c.mustHave) {
 			t.Errorf("languageDirective(%q) = %q, want substring %q", c.in, got, c.mustHave)
 		}
-		if !strings.Contains(strings.ToLower(got), "another language") {
-			t.Errorf("languageDirective(%q) missing fallback clause: %q", c.in, got)
+		if !strings.Contains(strings.ToLower(got), "same natural language") {
+			t.Errorf("languageDirective(%q) missing language-match clause: %q", c.in, got)
 		}
 		if !strings.Contains(strings.ToLower(got), "technical terms") {
 			t.Errorf("languageDirective(%q) missing term-preservation clause: %q", c.in, got)
+		}
+		if !strings.Contains(strings.ToLower(got), "default to") {
+			t.Errorf("languageDirective(%q) missing ambiguous-default clause: %q", c.in, got)
 		}
 	}
 }

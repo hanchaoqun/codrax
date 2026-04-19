@@ -89,6 +89,38 @@ func TestEmitAnswerSymbol_RejectsLineNegative(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerSymbol_PartialDropKeepsValidItems(t *testing.T) {
+	// 2026-04-19 regression: one line=0 hallucination used to kill the
+	// whole batch, leaving the finalizer with no symbols. Now the
+	// invalid item is dropped and the valid one survives.
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "Bad",  "file": "a.go", "line": 0,  "kind": "function"},
+          {"name": "Good", "file": "a.go", "line": 42, "kind": "function"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected partial success, got failure: %s", res.Summary)
+	}
+	got, _ := ctx.Mutable.EmittedAnswerSymbols()
+	if len(got) != 1 || got[0].Name != "Good" {
+		t.Fatalf("expected only valid item kept, got %d items: %+v", len(got), got)
+	}
+	if !strings.Contains(res.Summary, "dropped 1 invalid item") {
+		t.Errorf("expected drop note in summary, got: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "line must be > 0") {
+		t.Errorf("expected dropped-item reason in summary, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerSymbol_RejectsBlobPath(t *testing.T) {
 	// Blob-file path leak gate. ctx.WorkDir is the per-trace temp
 	// directory where StoreBlob persists large tool outputs. If the

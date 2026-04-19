@@ -4183,9 +4183,20 @@ func rankChainsBySubject(chains []string, anchors []chainAnchorInfo, expected ty
 	}
 	const (
 		alpha         = 2.0
+		beta          = 3.0
 		rebindFloor   = 0.4
 		highConfFloor = 0.5
 	)
+	// Topical tokens from analyzer-emitted EntityAxes. When the
+	// expected subject kind is SubjectGeneric (Score returns 0.5 for
+	// every token), subject match alone cannot differentiate chains —
+	// a chain terminating at an unrelated symbol like
+	// `checkRequirementSatisfaction` ties with a chain terminating at
+	// `RegisterDefaultSubAgents` for a "how does explorer call
+	// subagent" question. Topical relevance (token overlap between
+	// chain text and question entities) breaks those ties and penalises
+	// off-topic chains that otherwise leak into the citation pool.
+	topicTokens := extractChainTopicTokens(expected.EntityAxes)
 	type ranked struct {
 		summary  string
 		anchor   chainAnchorInfo
@@ -4209,11 +4220,12 @@ func rankChainsBySubject(chains []string, anchors []chainAnchorInfo, expected ty
 			bestMatch = match
 		}
 		baseRank := float64(len(chains) - i)
+		relevance := chainTopicRelevance(c, anchor, topicTokens)
 		rs[i] = ranked{
 			summary:  c,
 			anchor:   anchor,
 			match:    match,
-			adjusted: baseRank * (1.0 + alpha*match),
+			adjusted: baseRank * (1.0 + alpha*match) * (1.0 + beta*relevance),
 			origIdx:  i,
 		}
 	}
@@ -4247,6 +4259,57 @@ func rankChainsBySubject(chains []string, anchors []chainAnchorInfo, expected ty
 	logging.Debug("[explorer] subject-aware ranking: kind=%s reordered %d chains (top: %q)",
 		expected.Kind, len(outChains), firstChainPreview(outChains))
 	return outChains, outAnchors
+}
+
+// extractChainTopicTokens parses the analyzer-emitted EntityAxes
+// (strings shaped "A → B" or "A -> B" or bare "A") into a lowercase
+// token set suitable for substring matching against chain text. Short
+// tokens (< 3 chars) are dropped so noise like "A" / "of" doesn't
+// pollute the match.
+func extractChainTopicTokens(axes []string) map[string]bool {
+	tokens := make(map[string]bool, len(axes)*2)
+	for _, axis := range axes {
+		for _, field := range strings.FieldsFunc(axis, func(r rune) bool {
+			return r == '→' || r == ' ' || r == '\t' || r == ',' || r == ';'
+		}) {
+			t := strings.ToLower(strings.TrimSpace(field))
+			t = strings.ReplaceAll(t, "->", "")
+			t = strings.TrimFunc(t, func(r rune) bool {
+				return r == '"' || r == '\'' || r == '`' || r == '.' || r == ':'
+			})
+			if len(t) >= 3 {
+				tokens[t] = true
+			}
+		}
+	}
+	return tokens
+}
+
+// chainTopicRelevance returns the fraction of topic tokens that
+// appear (case-insensitive substring) in the chain summary text.
+// Range [0, 1]. Empty token set returns 0 (neutral — no topical
+// signal means no re-ranking, leave subject match in charge).
+//
+// Anchor file paths are deliberately EXCLUDED: a file named
+// `explorer_erm.go` matches the token "explorer" but its chain
+// content is unrelated to an explorer-dispatch question. The
+// summary is what the finalizer will render and must be the sole
+// source of topical signal.
+//
+// Used as an α/β multiplier in rankChainsBySubject to penalise
+// chains that mention none of the question entities.
+func chainTopicRelevance(chain string, _ chainAnchorInfo, topicTokens map[string]bool) float64 {
+	if len(topicTokens) == 0 {
+		return 0
+	}
+	hay := strings.ToLower(chain)
+	hit := 0
+	for tok := range topicTokens {
+		if strings.Contains(hay, tok) {
+			hit++
+		}
+	}
+	return float64(hit) / float64(len(topicTokens))
 }
 
 // firstChainPreview returns a short prefix of the first chain (or

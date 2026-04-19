@@ -191,12 +191,23 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
 	built := make([]types.AnswerSymbol, 0, len(p.Items))
+	var dropped []string
 	for i, in := range p.Items {
 		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
 		if perr != nil {
-			return failEmit(t.Name(), now, "%v", perr)
+			dropped = append(dropped, perr.Error())
+			continue
 		}
 		built = append(built, sym)
+	}
+
+	// Partial-drop: when some items are invalid but others survive,
+	// accept the valid slate and surface the drop reasons in Summary.
+	// Hard-fail only when every item was rejected. This closes the
+	// 2026-04-19 regression where one `line=0` hallucination killed
+	// the whole ProposeSubAgents list → finalizer answered 0.
+	if len(built) == 0 && len(dropped) > 0 {
+		return failEmit(t.Name(), now, "%s", strings.Join(dropped, "; "))
 	}
 
 	// Set semantics: this REPLACES any previous slate + claim. On a
@@ -210,7 +221,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	return types.ToolResult{
 		ToolName:  t.Name(),
 		Success:   true,
-		Summary:   renderEmitAnswerSymbolSummary(built, claim),
+		Summary:   renderEmitAnswerSymbolSummary(built, claim, dropped),
 		Timestamp: now,
 	}, nil
 }
@@ -278,7 +289,7 @@ func isInsideWorkDir(filePath, workDir string) bool {
 	return strings.HasPrefix(filePath, clean+"/")
 }
 
-func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.CompletenessClaim) string {
+func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.CompletenessClaim, dropped []string) string {
 	var b strings.Builder
 	claimText := string(claim)
 	if claimText == "" {
@@ -287,6 +298,12 @@ func renderEmitAnswerSymbolSummary(items []types.AnswerSymbol, claim types.Compl
 	fmt.Fprintf(&b, "emit_answer_symbol accepted %d item(s) with completeness=%s\n", len(items), claimText)
 	for _, it := range items {
 		fmt.Fprintf(&b, "  %s (%s:%d) [%s]\n", it.Name, it.File, it.Line, it.Kind)
+	}
+	if len(dropped) > 0 {
+		fmt.Fprintf(&b, "dropped %d invalid item(s):\n", len(dropped))
+		for _, d := range dropped {
+			fmt.Fprintf(&b, "  - %s\n", d)
+		}
 	}
 	return b.String()
 }

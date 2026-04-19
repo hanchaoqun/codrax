@@ -1390,10 +1390,10 @@ func languageDirective(lang string) string {
 	case "", "off", "none":
 		return ""
 	case "zh", "zh-CN", "zh-cn", "cn", "chinese":
-		return "Reply in Simplified Chinese (简体中文). Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead."
+		return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms (e.g. `explorer`, `subagent`, `internal/agent/foo.go`) when judging the question's language — a Chinese sentence that mentions English symbols is still a Chinese question. When the question is ambiguous or contains no natural-language prose, default to Simplified Chinese (简体中文). Always keep code identifiers, file paths, and technical terms in their original form in your reply."
 	case "en", "en-US", "english":
-		return "Reply in English. Keep code identifiers and technical terms in their original form. If the user writes in another language, reply in that language instead."
+		return "Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms when judging the question's language. When the question is ambiguous or contains no natural-language prose, default to English. Always keep code identifiers, file paths, and technical terms in their original form."
 	default:
-		return fmt.Sprintf("Reply in %s. Keep code identifiers, file paths, and technical terms in their original form. If the user writes in another language, reply in that language instead.", lang)
+		return fmt.Sprintf("Reply in the same natural language as the user's question. Ignore code identifiers, file paths, and technical terms when judging the question's language. When the question is ambiguous or contains no natural-language prose, default to %s. Always keep code identifiers, file paths, and technical terms in their original form.", lang)
 	}
 }

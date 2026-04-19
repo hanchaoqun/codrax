@@ -366,3 +366,62 @@ func TestHasLeadingCountVerb(t *testing.T) {
 		}
 	}
 }
+
+// TestReconcileShape pins the two reconcile rules: conditional
+// enumeration lift and config_value → value for source-code
+// literals.
+func TestReconcileShape(t *testing.T) {
+	type row struct {
+		name     string
+		declared types.AnswerShape
+		subject  types.AnswerSubject
+		raw      string
+		want     types.AnswerShape
+		wantFire bool
+	}
+	cases := []row{
+		// Rule 1: conditional-enumeration lift (value → list_of_symbols).
+		{"有几个 + relational verb 调用", types.ShapeValue, types.AnswerSubject{},
+			"有几个agent可以调用subagent", types.ShapeListOfSymbols, true},
+		{"which + relational verb implement", types.ShapeValue, types.AnswerSubject{},
+			"which handlers implement the Closer interface", types.ShapeListOfSymbols, true},
+		{"config_value + enumeration cue + relational verb", types.ShapeConfigValue,
+			types.AnswerSubject{Kind: types.SubjectFunctionName},
+			"哪些 agent 注册了 propose_sub_agents", types.ShapeListOfSymbols, true},
+		// Rule 1 negatives.
+		{"有多少 without relational verb stays value", types.ShapeValue, types.AnswerSubject{},
+			"有多少 python 文件", types.ShapeValue, false},
+		{"relational verb without enumeration cue stays value", types.ShapeValue, types.AnswerSubject{},
+			"explain how the router calls handlers", types.ShapeValue, false},
+		{"non-value shape untouched", types.ShapeExplanation, types.AnswerSubject{},
+			"有几个 agent 可以调用 subagent", types.ShapeExplanation, false},
+		// Rule 2: config_value → value for source-code literal subjects.
+		{"config_value + function subject → value", types.ShapeConfigValue,
+			types.AnswerSubject{Kind: types.SubjectFunctionName},
+			"what function binds the handler", types.ShapeValue, true},
+		{"config_value + type subject → value", types.ShapeConfigValue,
+			types.AnswerSubject{Kind: types.SubjectTypeName},
+			"what is the receiver type", types.ShapeValue, true},
+		{"config_value + return subject → value", types.ShapeConfigValue,
+			types.AnswerSubject{Kind: types.SubjectReturnValue},
+			"what does Name return", types.ShapeValue, true},
+		// Rule 2 negatives.
+		{"config_value + config-key subject stays", types.ShapeConfigValue,
+			types.AnswerSubject{Kind: types.SubjectConfigKey},
+			"what is log_dir set to", types.ShapeConfigValue, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got, reason := reconcileShape(c.declared, c.subject, c.raw)
+			if got != c.want {
+				t.Errorf("shape = %q, want %q (reason=%q)", got, c.want, reason)
+			}
+			if c.wantFire && reason == "" {
+				t.Errorf("expected rule to fire with a non-empty reason")
+			}
+			if !c.wantFire && reason != "" {
+				t.Errorf("unexpected fire: reason=%q", reason)
+			}
+		})
+	}
+}

@@ -451,7 +451,36 @@ func inferAnswerSubject(rm types.RequestModel, rawRequest string) (types.AnswerS
 //
 // Returns the resolved shape + a short reason for the log line.
 // Empty reason means no rule fired.
-func reconcileShape(declared types.AnswerShape, subject types.AnswerSubject) (types.AnswerShape, string) {
+func reconcileShape(declared types.AnswerShape, subject types.AnswerSubject, rawRequest string) (types.AnswerShape, string) {
+	// Rule 1: conditional-enumeration lift. When the LLM picked
+	// ShapeValue or ShapeConfigValue for a question shaped "有几个 X
+	// (verb) Y" / "how many X (verb) Y", the answer is a count OVER A
+	// FILTERED SET, not a raw scalar. Shape=value skips the enumeration
+	// step — the finalizer has no symbols[] to count from and either
+	// fabricates a number or falls back to 0 (the 2026-04-19 "有几个
+	// agent 可以调用subagent" log answered 0 for this exact reason,
+	// though the only qualifying agent, explorer, was visible in
+	// evidence).
+	//
+	// Runs BEFORE the config-value rule so "有几个 X 可以 Y" classified
+	// as config_value also lifts to list_of_symbols instead of falling
+	// through to ShapeValue.
+	//
+	// Both signals required: leading enumeration cue AND relational
+	// verb anywhere. Without the relational verb the scalar path is
+	// correct ("有多少 python 文件" → find | wc -l; no filtering).
+	if declared == types.ShapeValue || declared == types.ShapeConfigValue {
+		lower := strings.ToLower(strings.TrimSpace(rawRequest))
+		lower = stripPolitenessPrefix(lower)
+		if lower != "" && hasLeadingEnumerationCue(lower) && containsRelationalVerbCue(lower) {
+			return types.ShapeListOfSymbols,
+				"conditional-enumeration (count over filtered set) — use list_of_symbols so count = len(symbols)"
+		}
+	}
+
+	// Rule 2: config_value → value when the answer subject is a
+	// source-code literal (skill/agent/function/type/interface/handler/
+	// return value) rather than a YAML key.
 	if declared != types.ShapeConfigValue {
 		return declared, ""
 	}

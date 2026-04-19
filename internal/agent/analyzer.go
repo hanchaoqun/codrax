@@ -801,14 +801,18 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// by reconcile picking a different shape; the two rules are
 	// disjoint in practice (measurement requires count-verb prefix;
 	// reconcile requires source-code-literal subject).
-	if reconciled, reason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject); reconciled != out.AnswerContract.RequiredAnswerShape {
-		logShapeReconciled(out.AnswerContract.RequiredAnswerShape, reconciled, reason)
+	rawForShape := types.StripConversationPrefix(rm.RawRequest)
+	if reconciled, reason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rawForShape); reconciled != out.AnswerContract.RequiredAnswerShape {
+		before := out.AnswerContract.RequiredAnswerShape
+		logShapeReconciled(before, reconciled, reason)
 		out.AnswerContract.RequiredAnswerShape = reconciled
 		// Also align the AnalyzerHints surface so downstream readers
 		// (ir_accessor.irAnswerShape, answer_document_evaluator,
 		// emit_answer_document shape auto-correct) see the
-		// reconciled shape.
-		if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeConfigValue {
+		// reconciled shape. Cover both the config_value→value and the
+		// new conditional-enumeration→list_of_symbols swap.
+		legacy := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
+		if legacy == types.ShapeConfigValue || legacy == before {
 			rm.AnalyzerHints.Shape = string(reconciled)
 		}
 	}
