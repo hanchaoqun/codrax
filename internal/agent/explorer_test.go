@@ -1539,11 +1539,21 @@ func TestFilterRequiredFiles_UniqueExactAnchorKeepsNeighborhood(t *testing.T) {
 		exactAnchorFiles: []string{"internal/tool/repomap/tool.go"},
 		searchResult: &keywordSearchResult{
 			Graph: &repomap.Graph{
-				ImportGraph: map[string][]string{
-					"internal/tool/repomap/tool.go": {"internal/tool/repomap/index/build.go"},
+				FileIndex: map[string]*repomap.FileInfo{
+					"internal/tool/repomap/tool.go": {
+						RelPath: "internal/tool/repomap/tool.go",
+						Relations: []repomap.Relation{
+							{
+								Kind: "call",
+								ToEP: repomap.RelationEndpoint{
+									File: "internal/tool/repomap/index/build.go",
+								},
+							},
+						},
+					},
 				},
 				ReverseImports: map[string][]string{
-					"internal/tool/repomap/tool.go": {"internal/tool/repomap/facade.go"},
+					"internal/tool/repomap/tool.go": {"internal/tool/repomap/facade.go", "internal/agent/explorer.go"},
 				},
 			},
 		},
@@ -1552,11 +1562,27 @@ func TestFilterRequiredFiles_UniqueExactAnchorKeepsNeighborhood(t *testing.T) {
 	got := eval.filterRequiredFiles([]string{
 		"internal/tool/repomap/facade.go",
 		"internal/tool/repomap/index/build.go",
+		"internal/agent/explorer.go",
 		"internal/context/builder.go",
 		"internal/tool/repomap/tool_test.go",
 	})
 	if strings.Join(got, ",") != "internal/tool/repomap/facade.go,internal/tool/repomap/index/build.go" {
 		t.Fatalf("focused required files should stay on anchor neighbors, got %v", got)
+	}
+}
+
+func TestFilterEvidenceItemsByFileSet_DropsBridgeLiteralNoise(t *testing.T) {
+	items := []types.EvidenceItem{
+		{Source: "internal/tool/repomap/tool.go", Summary: "keep"},
+		{Source: "internal/tool/defaults.go", Summary: "drop"},
+	}
+	allowed := map[string]bool{
+		"internal/tool/repomap/tool.go": true,
+	}
+
+	got := filterEvidenceItemsByFileSet(items, allowed)
+	if len(got) != 1 || got[0].Summary != "keep" {
+		t.Fatalf("bridge-literal filtering should keep only frontier files, got %+v", got)
 	}
 }
 
@@ -2369,6 +2395,30 @@ func TestExplorerSoftStop_FirstStop_SoftBranch_PrescannedSuppressed(t *testing.T
 	if !sig.HintRequested || sig.HintKey != "explorer.completion-tool-reminder" {
 		t.Errorf("first soft-stop should fire completion-tool-reminder; got HintRequested=%v HintKey=%q",
 			sig.HintRequested, sig.HintKey)
+	}
+}
+
+func TestExplorerSoftStop_FirstStop_EvidenceLikeContentRequestsEmitEvidence(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "buildOrLoadGraph 是如何构建或加载图形的？",
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/tool/repomap/tool.go: showing lines 133-180 of 323 total]\nfunc buildOrLoadGraph(...)",
+		},
+	}
+
+	content := "[DIRECT] buildOrLoadGraph line 133: constructs or loads the graph\n" +
+		"[CONDITIONAL] buildOrLoadGraph line 156: reuses cache IF there are no changed files"
+	sig := softStopWithContinuations(eval, content, 2, 0, history)
+	if !sig.HintRequested {
+		t.Fatalf("evidence-like first soft-stop should request emit_evidence, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.phase1.emit-evidence" {
+		t.Fatalf("HintKey = %q, want explorer.phase1.emit-evidence", sig.HintKey)
 	}
 }
 

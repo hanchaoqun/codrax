@@ -2,6 +2,7 @@ package types
 
 import (
 	"hash/fnv"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -246,8 +247,11 @@ func (c *EvidenceClosure) SetReadSet(files map[string]bool) {
 	defer c.mu.Unlock()
 	c.readSet = make(map[string]bool, len(files))
 	for f, v := range files {
-		if v {
-			c.readSet[f] = true
+		if !v {
+			continue
+		}
+		if canon := canonicalizeRepoPath(f); canon != "" {
+			c.readSet[canon] = true
 		}
 	}
 }
@@ -273,6 +277,10 @@ func (c *EvidenceClosure) HasRead(file string) bool {
 	if c == nil || file == "" {
 		return false
 	}
+	file = canonicalizeRepoPath(file)
+	if file == "" {
+		return false
+	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.readSet[file]
@@ -294,6 +302,7 @@ func (c *EvidenceClosure) AddReadRanges(ranges map[string][]LineRange) {
 		c.readRanges = make(map[string][]LineRange, len(ranges))
 	}
 	for file, rngs := range ranges {
+		file = canonicalizeRepoPath(file)
 		if file == "" || len(rngs) == 0 {
 			continue
 		}
@@ -315,6 +324,7 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 	defer c.mu.Unlock()
 	c.readRanges = make(map[string][]LineRange, len(ranges))
 	for file, rngs := range ranges {
+		file = canonicalizeRepoPath(file)
 		if file == "" || len(rngs) == 0 {
 			continue
 		}
@@ -326,6 +336,10 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 // for `file`, or nil if none are tracked.
 func (c *EvidenceClosure) ReadRanges(file string) []LineRange {
 	if c == nil || file == "" {
+		return nil
+	}
+	file = canonicalizeRepoPath(file)
+	if file == "" {
 		return nil
 	}
 	c.mu.RLock()
@@ -350,6 +364,10 @@ func (c *EvidenceClosure) ReadRanges(file string) []LineRange {
 // "this specific line was seen".
 func (c *EvidenceClosure) HasReadLine(file string, line int) bool {
 	if c == nil || file == "" {
+		return false
+	}
+	file = canonicalizeRepoPath(file)
+	if file == "" {
 		return false
 	}
 	c.mu.RLock()
@@ -910,15 +928,33 @@ func (c *EvidenceClosure) Stats() ClosureStats {
 // batch operations (e.g. one applyChainPromotion call demoting N
 // chains) increment in one mutex acquire.
 
-func (c *EvidenceClosure) BumpChainsDemoted(n int)         { c.bumpStat(func(s *ClosureStats) { s.ChainsDemoted += n }) }
-func (c *EvidenceClosure) BumpUnverifiedFinds(n int)       { c.bumpStat(func(s *ClosureStats) { s.UnverifiedFinds += n }) }
-func (c *EvidenceClosure) BumpRepairsRaised(n int)         { c.bumpStat(func(s *ClosureStats) { s.RepairsRaised += n }) }
-func (c *EvidenceClosure) BumpExpandSearchRaised(n int)    { c.bumpStat(func(s *ClosureStats) { s.ExpandSearchRaised += n }) }
-func (c *EvidenceClosure) BumpShapeSwapRaised(n int)       { c.bumpStat(func(s *ClosureStats) { s.ShapeSwapRaised += n }) }
-func (c *EvidenceClosure) BumpPreCompleteDowngrades(n int) { c.bumpStat(func(s *ClosureStats) { s.PreCompleteDowngrades += n }) }
-func (c *EvidenceClosure) BumpForcedReads(n int)           { c.bumpStat(func(s *ClosureStats) { s.ForcedReads += n }) }
-func (c *EvidenceClosure) BumpStallSoftHits(n int)         { c.bumpStat(func(s *ClosureStats) { s.StallSoftHits += n }) }
-func (c *EvidenceClosure) BumpStallHardHits(n int)         { c.bumpStat(func(s *ClosureStats) { s.StallHardHits += n }) }
+func (c *EvidenceClosure) BumpChainsDemoted(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.ChainsDemoted += n })
+}
+func (c *EvidenceClosure) BumpUnverifiedFinds(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.UnverifiedFinds += n })
+}
+func (c *EvidenceClosure) BumpRepairsRaised(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.RepairsRaised += n })
+}
+func (c *EvidenceClosure) BumpExpandSearchRaised(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.ExpandSearchRaised += n })
+}
+func (c *EvidenceClosure) BumpShapeSwapRaised(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.ShapeSwapRaised += n })
+}
+func (c *EvidenceClosure) BumpPreCompleteDowngrades(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.PreCompleteDowngrades += n })
+}
+func (c *EvidenceClosure) BumpForcedReads(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.ForcedReads += n })
+}
+func (c *EvidenceClosure) BumpStallSoftHits(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.StallSoftHits += n })
+}
+func (c *EvidenceClosure) BumpStallHardHits(n int) {
+	c.bumpStat(func(s *ClosureStats) { s.StallHardHits += n })
+}
 
 func (c *EvidenceClosure) bumpStat(mut func(*ClosureStats)) {
 	if c == nil || mut == nil {
@@ -1042,8 +1078,8 @@ func (m *MutableState) ResetEvidenceClosure() {
 // canonicaliser in internal/tool/ground/path.go but does not touch
 // repo-root resolution (closure stores repo-relative paths only).
 func canonicalizeRepoPath(p string) string {
-	p = strings.TrimSpace(p)
-	if strings.HasPrefix(p, "./") {
+	p = filepath.ToSlash(strings.TrimSpace(p))
+	for strings.HasPrefix(p, "./") {
 		p = p[2:]
 	}
 	return p

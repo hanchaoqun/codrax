@@ -48,7 +48,7 @@ func TestHasReadLine_WithRanges(t *testing.T) {
 		},
 	})
 	cases := map[int]bool{
-		1:   true,  // boundary
+		1:   true, // boundary
 		15:  true,
 		30:  true,  // right boundary slice 1
 		31:  false, // in gap
@@ -125,6 +125,25 @@ func TestSetReadRanges_ReplacesSnapshot(t *testing.T) {
 	}
 	if !c.HasReadLine("a.go", 250) {
 		t.Error("new range [200-300] must be active after SetReadRanges")
+	}
+}
+
+func TestReadSetAndRanges_CanonicalizeWindowsPaths(t *testing.T) {
+	c := NewEvidenceClosure()
+	c.SetReadSet(map[string]bool{".\\internal\\tool\\repomap\\tool.go": true})
+	c.AddReadRanges(map[string][]LineRange{
+		".\\internal\\tool\\repomap\\tool.go": {{Start: 10, End: 20}},
+	})
+	if !c.HasRead("internal/tool/repomap/tool.go") {
+		t.Fatal("HasRead should match the canonical slash form")
+	}
+	if !c.HasReadLine("internal/tool/repomap/tool.go", 15) {
+		t.Fatal("HasReadLine should match canonicalized range keys")
+	}
+	got := c.CanonicalReadFiles()
+	want := []string{"internal/tool/repomap/tool.go"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("CanonicalReadFiles: got %v, want %v", got, want)
 	}
 }
 

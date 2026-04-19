@@ -103,14 +103,15 @@ func parseEvidenceHeaderSource(line string) string {
 }
 
 func parseEvidenceLine(line, source, producer string) (types.EvidenceItem, bool) {
-	if !strings.HasPrefix(line, "- [") {
+	line, ok := normalizeEvidenceLine(line)
+	if !ok {
 		return types.EvidenceItem{}, false
 	}
 	close := strings.Index(line, "]")
 	if close < 3 {
 		return types.EvidenceItem{}, false
 	}
-	tag := strings.TrimSpace(line[3:close])
+	tag := strings.TrimSpace(line[1:close])
 	rest := strings.TrimSpace(line[close+1:])
 	if rest == "" {
 		return types.EvidenceItem{}, false
@@ -166,6 +167,20 @@ func parseEvidenceLine(line, source, producer string) (types.EvidenceItem, bool)
 	}
 	item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
 	return item, true
+}
+
+func normalizeEvidenceLine(line string) (string, bool) {
+	line = strings.TrimSpace(line)
+	switch {
+	case strings.HasPrefix(line, "- ["):
+		return strings.TrimSpace(strings.TrimPrefix(line, "-")), true
+	case strings.HasPrefix(line, "* ["):
+		return strings.TrimSpace(strings.TrimPrefix(line, "*")), true
+	case strings.HasPrefix(line, "["):
+		return line, true
+	default:
+		return "", false
+	}
 }
 
 func parseEvidenceSubjectObject(tag, rest string) (string, string) {
@@ -370,8 +385,6 @@ func buildCrossReferenceMapFromEvidence(items []types.EvidenceItem, findings []t
 	b.WriteString("\n")
 	return b.String()
 }
-
-
 
 // rankEvidenceByRelevance scores and sorts evidence items by their
 // relevance to the user's question. The ranking is question-aware,
@@ -793,8 +806,6 @@ func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64
 
 	return entityScore * brevity * confidence
 }
-
-
 
 // extractRankingEntitiesWithGraph is the graph-aware variant. When
 // graph is non-nil, pure-lowercase tokens shorter than 8 chars are

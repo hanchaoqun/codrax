@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -159,6 +160,17 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// so the LLM sees the error and corrects in the same dispatch.
 	justification := strings.TrimSpace(p.AbsenceJustification)
 	if justification != "" {
+		if !looksLikeHonestZeroClaim(reason, justification) {
+			return types.ToolResult{
+				ToolName: t.Name(),
+				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero / not-found answers. " +
+					"Your reason/justification reads like a positive completion claim rather than an absence claim. " +
+					"Remove absence_justification for normal answers, or rewrite it as a real zero-result statement such as " +
+					"'grep found zero matches' or 'no handler with that name exists'.",
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
 		if evidence := ctx.Mutable.EmittedEvidence(); hasGroundedOrRecovered(evidence) {
 			return types.ToolResult{
 				ToolName: t.Name(),
@@ -306,6 +318,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		return ""
 	}
 	closure := ctx.Mutable.EvidenceClosure()
+	refreshClosureReadSnapshot(ctx, closure)
 
 	// Session 12 phase1-unread gate. When the LLM calls complete on a
 	// breadth-intent question (mechanism / call_chain / conditional)
@@ -444,7 +457,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		if e.Source == "" || e.LineStart <= 0 {
 			continue
 		}
-		if len(readSet) > 0 && !readSet[e.Source] {
+		if len(readSet) > 0 && !closure.HasRead(e.Source) {
 			continue
 		}
 		eligible++
@@ -552,6 +565,31 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	return b.String()
 }
 
+func refreshClosureReadSnapshot(ctx *types.BusContext, closure *types.EvidenceClosure) {
+	if ctx == nil || ctx.Mutable == nil || closure == nil {
+		return
+	}
+	gc := ground.BuildContext(ctx)
+	if gc == nil || len(gc.LineIndex) == 0 {
+		return
+	}
+	readSet := closure.ReadSet()
+	if len(readSet) == 0 {
+		readSet = make(map[string]bool, len(gc.LineIndex))
+	}
+	changed := false
+	for file := range gc.LineIndex {
+		if file == "" || readSet[file] {
+			continue
+		}
+		readSet[file] = true
+		changed = true
+	}
+	if changed {
+		closure.SetReadSet(readSet)
+	}
+}
+
 func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.EvidenceClosure) {
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
@@ -559,7 +597,6 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 	if !strings.EqualFold(strings.TrimSpace(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind), "mechanism") {
 		return
 	}
-	readSet := closure.ReadSet()
 	for _, ranked := range ctx.Mutable.Phase1Ranking() {
 		if ranked.ExactEntityRank <= 0 {
 			continue
@@ -568,7 +605,7 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 		if canon == "" {
 			continue
 		}
-		if readSet[canon] || readSet["./"+canon] || readSet[ranked.Path] {
+		if closure.HasRead(canon) {
 			continue
 		}
 		closure.AddPendingRead(types.PendingRead{
@@ -634,7 +671,6 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if topK > len(ranking) {
 		topK = len(ranking)
 	}
-	readSet := closure.ReadSet()
 	minUnread := limits.Phase1UnreadMinUnread
 	if minUnread < 1 {
 		minUnread = 1
@@ -650,7 +686,7 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		if canon == "" {
 			continue
 		}
-		if readSet[canon] || readSet["./"+canon] || readSet[f.Path] {
+		if closure.HasRead(canon) {
 			continue
 		}
 		f.Path = canon
@@ -890,4 +926,31 @@ func tier1GateReject(ctx *types.BusContext, floor float64) (string, bool) {
 // Drives the absence-vs-grounded contradiction gate in Execute.
 func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
 	return tallyEvidence(items).hasAny()
+}
+
+func looksLikeHonestZeroClaim(reason, justification string) bool {
+	text := strings.ToLower(strings.TrimSpace(reason + "\n" + justification))
+	if text == "" {
+		return false
+	}
+	if containsAnySubstr(text,
+		"enough evidence", "sufficient evidence", "collected enough evidence", "found enough evidence",
+		"fully traced", "fully track", "already found enough", "all necessary evidence",
+		"充分的证据", "找到充分", "已经找到", "已收集", "完全追踪", "完整追踪", "证据均已") {
+		return false
+	}
+	return containsAnySubstr(text,
+		"no such", "does not exist", "doesn't exist", "not found", "nothing found",
+		"none", "zero", "zero hit", "zero match", "0 hit", "0 match", "0 file", "0 files",
+		"no handler", "no symbol", "no file", "absent",
+		"不存在", "没有", "未找到", "找不到", "无此", "无该", "零", "0 个", "0个", "空结果")
+}
+
+func containsAnySubstr(text string, needles ...string) bool {
+	for _, needle := range needles {
+		if needle != "" && strings.Contains(text, needle) {
+			return true
+		}
+	}
+	return false
 }

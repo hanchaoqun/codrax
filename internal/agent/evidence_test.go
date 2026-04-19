@@ -52,6 +52,24 @@ func TestParseEvidenceItems(t *testing.T) {
 	}
 }
 
+func TestParseEvidenceItems_BareTagLinesWithoutBullet(t *testing.T) {
+	notes := []string{
+		"[DIRECT] `Name()` line 12: returns \"explorer\"\n" +
+			"[CONDITIONAL] `Register()` line 20: dispatches IF `Enabled()` == true",
+	}
+
+	items := parseEvidenceItems(notes, "explorer.llm")
+	if len(items) != 2 {
+		t.Fatalf("parseEvidenceItems bare-tag count = %d, want 2", len(items))
+	}
+	if items[0].Kind != types.EvidenceDirect {
+		t.Fatalf("first bare-tag kind = %q, want %q", items[0].Kind, types.EvidenceDirect)
+	}
+	if items[1].Kind != types.EvidenceConditional {
+		t.Fatalf("second bare-tag kind = %q, want %q", items[1].Kind, types.EvidenceConditional)
+	}
+}
+
 func TestMergeEvidenceItemsDedupesByStableID(t *testing.T) {
 	a := types.EvidenceItem{
 		Kind:       types.EvidenceConcrete,
@@ -241,7 +259,7 @@ func TestRankEvidenceByRelevance(t *testing.T) {
 		{ // Relevant: agent calls subagent
 			Kind: types.EvidenceRelationship, Subject: "buildToolSchemas", Object: "SubAgents.Get",
 			Summary: "injects propose_sub_agents tool only if a sub-agent with the same name is registered",
-			Source: "internal/agent/agent.go",
+			Source:  "internal/agent/agent.go",
 		},
 		{ // Somewhat relevant: mentions agent
 			Kind: types.EvidenceMechanism, Subject: "Orchestrator", Object: "dispatchStage",
@@ -282,17 +300,17 @@ func TestRankFindingsByRelevance(t *testing.T) {
 
 	findings := []types.FlowFindingDigest{
 		{ // Irrelevant
-			Path: []string{"Logger.Close", "TestMultilineThreeLines"},
+			Path:    []string{"Logger.Close", "TestMultilineThreeLines"},
 			Sources: []string{"logging/logger.go"}, Sinks: []string{"repl_test.go"},
 			Confidence: 0.81,
 		},
 		{ // Relevant: subagent registration chain
-			Path: []string{"RegisterDefaultSubAgents", "NewSubExplorer"},
+			Path:    []string{"RegisterDefaultSubAgents", "NewSubExplorer"},
 			Sources: []string{"internal/agent/subagent.go"}, Sinks: []string{"SubExplorer"},
 			Confidence: 0.84,
 		},
 		{ // Irrelevant long chain
-			Path: []string{"expandKeywords", "trySplitConcatenated", "normalizeStrings", "mergeStrings"},
+			Path:    []string{"expandKeywords", "trySplitConcatenated", "normalizeStrings", "mergeStrings"},
 			Sources: []string{"keyword_search.go"}, Sinks: []string{"evidence.go"},
 			Confidence: 0.82,
 		},
@@ -515,13 +533,13 @@ func TestNeedsDataflowAnalysis_ChineseKeywords(t *testing.T) {
 		question string
 		want     bool
 	}{
-		{"有多少个agent可以调用subagent?", true},           // 调用 + 多少
-		{"请列出哪些agent注册了subagent", true},              // 哪些 + 注册
-		{"这个配置项是怎么传播到handler的?", true},              // 配置 + 传播 + 怎么
-		{"What is the project name?", false},             // no trigger keywords
+		{"有多少个agent可以调用subagent?", true},                        // 调用 + 多少
+		{"请列出哪些agent注册了subagent", true},                         // 哪些 + 注册
+		{"这个配置项是怎么传播到handler的?", true},                          // 配置 + 传播 + 怎么
+		{"What is the project name?", false},                    // no trigger keywords
 		{"How does the value flow through the pipeline?", true}, // flow + through
-		{"列出所有注册的路由", true},                           // 注册 + 路由
-		{"代码风格好不好", false},                             // no trigger keywords
+		{"列出所有注册的路由", true},                                     // 注册 + 路由
+		{"代码风格好不好", false},                                      // no trigger keywords
 	}
 	for _, tt := range tests {
 		got := needsDataflowAnalysis(tt.question, nil)

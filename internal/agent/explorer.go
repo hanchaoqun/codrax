@@ -80,7 +80,6 @@ type explorerEvaluator struct {
 	// files before stopping.
 	requiredFiles []string
 
-
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
 	// BuildInitialInstruction time. T1c: drives ERM threshold
@@ -767,6 +766,17 @@ func canonicalExplorerPath(path string) string {
 	return strings.TrimPrefix(path, "./")
 }
 
+func readSetContains(readSet map[string]bool, path string) bool {
+	if len(readSet) == 0 {
+		return false
+	}
+	path = canonicalExplorerPath(path)
+	if path == "" {
+		return false
+	}
+	return readSet[path]
+}
+
 func sameRepoDir(a, b string) bool {
 	a = canonicalExplorerPath(a)
 	b = canonicalExplorerPath(b)
@@ -793,11 +803,19 @@ func (e *explorerEvaluator) focusedAnchorNeighborhood() map[string]bool {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return files
 	}
-	for _, path := range e.searchResult.Graph.FilesImportedBy(anchor) {
-		add(path)
-	}
-	for _, path := range e.searchResult.Graph.FilesImporting(anchor) {
-		add(path)
+	graph := e.searchResult.Graph
+	if fi := graph.FileIndex[anchor]; fi != nil {
+		for _, rel := range fi.Relations {
+			if rel.Kind != "call" {
+				continue
+			}
+			if rel.ToEP.File != "" {
+				add(rel.ToEP.File)
+			}
+			if target := graph.ResolveCallTarget(fi, rel); target != nil {
+				add(target.File)
+			}
+		}
 	}
 	return files
 }
@@ -881,7 +899,7 @@ func (e *explorerEvaluator) tightenFocusedFrontier() {
 	seen := make(map[string]bool)
 	var narrowed []string
 	add := func(path string) {
-		path = strings.TrimPrefix(strings.TrimSpace(path), "./")
+		path = canonicalExplorerPath(path)
 		if path == "" || seen[path] {
 			return
 		}
@@ -1085,6 +1103,21 @@ func (e *explorerEvaluator) activeFrontierFiles(readSet map[string]bool, notesJo
 		out = append(out, file)
 	}
 	sort.Strings(out)
+	return out
+}
+
+func filterEvidenceItemsByFileSet(items []types.EvidenceItem, allowed map[string]bool) []types.EvidenceItem {
+	if len(items) == 0 || len(allowed) == 0 {
+		return items
+	}
+	out := make([]types.EvidenceItem, 0, len(items))
+	for _, item := range items {
+		source := canonicalExplorerPath(item.Source)
+		if source != "" && !allowed[source] {
+			continue
+		}
+		out = append(out, item)
+	}
 	return out
 }
 
@@ -1299,7 +1332,7 @@ func (e *explorerEvaluator) observePrimaryRead(iteration int, history []types.To
 	}
 	_, readSet, _ := extractFileCoverage(history)
 	for _, pf := range primary {
-		if readSet[pf] {
+		if readSetContains(readSet, pf) {
 			e.primaryReadIter = iteration
 			e.notesLenAtPrimaryRead = len(e.investigationNotes)
 			logging.Debug("[explorer] primary-entity file read at iter=%d: %s (notesAtRead=%d)",
@@ -1529,7 +1562,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			if coverage < e.heuristics.MidLoopEnumCoverage && len(discovered)-len(readSet) >= e.heuristics.EnumMidLoopUnreadFloor {
 				var unread []string
 				for _, f := range discovered {
-					if !readSet[f] && !isNoisePath(f) {
+					if !readSetContains(readSet, f) && !isNoisePath(f) {
 						unread = append(unread, f)
 					}
 					if len(unread) >= 5 {
@@ -1640,7 +1673,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		discovered, readSet, _ := extractFileCoverage(allResults)
 		unreadCount := 0
 		for _, f := range discovered {
-			if !readSet[f] && !isNoisePath(f) {
+			if !readSetContains(readSet, f) && !isNoisePath(f) {
 				unreadCount++
 			}
 		}
@@ -1886,6 +1919,19 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		}
 	}
 
+	if evidenceLikeSoftStop(resp.Content) {
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.phase1.emit-evidence",
+			Hint: "You wrote evidence-like `[DIRECT]` / `[REGISTRATION]` / `[CONDITIONAL]` lines in text, " +
+				"but those facts are NOT recorded until you call `emit_evidence(items=[...])`. " +
+				"Re-emit those facts now with `source`, exact `line_start`, `anchor_kind`, and `anchor_symbol`. " +
+				"After `emit_evidence` succeeds, either continue investigating or call `emit_investigation_complete(reason, confidence)`. " +
+				"Do NOT use `absence_justification` unless the answer is genuinely zero / no-such-symbol / not found.",
+			Progress: true,
+		}
+	}
+
 	// Phase 1 (depth read): use runtime file coverage as guidance.
 	// Merge grep-discovered files with pre-scanned top files so the
 	// coverage check catches high-scoring files the LLM didn't grep.
@@ -1903,7 +1949,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 	var unread []string
 	for _, f := range discovered {
-		if !readSet[f] {
+		if !readSetContains(readSet, f) {
 			unread = append(unread, f)
 		}
 	}
@@ -1985,8 +2031,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	if reqFiles := e.requiredFiles; len(reqFiles) > 0 {
 		var unreadReq []string
 		for _, rf := range reqFiles {
-			canon := strings.TrimPrefix(rf, "./")
-			if !readSet[rf] && !readSet[canon] && !readSet["./"+canon] {
+			if !readSetContains(readSet, rf) {
 				unreadReq = append(unreadReq, rf)
 			}
 		}
@@ -2125,7 +2170,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// Check which pre-scanned high-priority files are still unread.
 	var preScannedUnread []string
 	for _, f := range e.preScannedFiles {
-		if !readSet[f] && !isNoisePath(f) {
+		if !readSetContains(readSet, f) && !isNoisePath(f) {
 			preScannedUnread = append(preScannedUnread, f)
 		}
 	}
@@ -2392,6 +2437,27 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 }
 
+func evidenceLikeSoftStop(content string) bool {
+	if strings.TrimSpace(content) == "" {
+		return false
+	}
+	for _, rawLine := range strings.Split(content, "\n") {
+		line, ok := normalizeEvidenceLine(rawLine)
+		if !ok {
+			continue
+		}
+		close := strings.Index(line, "]")
+		if close < 2 {
+			continue
+		}
+		switch strings.ToUpper(strings.TrimSpace(line[1:close])) {
+		case "DIRECT", "REGISTRATION", "CONDITIONAL", "MECHANISM", "RELATIONSHIP", "ABSENT":
+			return true
+		}
+	}
+	return false
+}
+
 // formatReadFileOffsetGuidance renders a concise multi-line hint
 // fragment reminding the LLM that read_file supports offset+limit
 // and showing, for the given file, the top 3 symbols with their
@@ -2583,17 +2649,14 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		coverage = float64(len(readSet)) / float64(len(discovered))
 	}
 
-	// Count evidence tags in investigation notes.
+	// Count structured evidence quality after merging both channels:
+	// emit_evidence items plus any markdown/bare-tag evidence that
+	// survived parsing in ensureStructuredEvidence.
 	directCount := 0
-	conditionalCount := 0
-	for _, note := range e.investigationNotes {
-		for _, line := range strings.Split(note, "\n") {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "- [DIRECT]") || strings.HasPrefix(trimmed, "- [REGISTRATION]") {
-				directCount++
-			} else if strings.HasPrefix(trimmed, "- [CONDITIONAL]") {
-				conditionalCount++
-			}
+	for _, item := range e.structuredEvidence {
+		switch item.Kind {
+		case types.EvidenceDirect, types.EvidenceRegistration:
+			directCount++
 		}
 	}
 
@@ -4558,6 +4621,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// this pass is graph-wide and bounded by symbol-name matching.
 	// See memory/project_baseline_2026_04_13_post_phase4.md.
 	bridgeItems := extractBridgeLiteralChains(graph, repoRoot, allRelevantForEvidence)
+	bridgeItems = filterEvidenceItemsByFileSet(bridgeItems, filesToScan)
 	if len(bridgeItems) > 0 {
 		logging.Debug("[explorer] bridge literal chains: %d items", len(bridgeItems))
 		// CGEC: record per-item anchor file so the promotion helper
@@ -6671,8 +6735,6 @@ func extractFileCoverage(history []types.ToolResult) (
 				if path == "" || path[0] == '[' || path == "--" {
 					continue
 				}
-				// Normalize: strip leading ./
-				path = strings.TrimPrefix(path, "./")
 				// Detect "path:linenum:content" (match line) or
 				// "path-linenum-content" (context line). For both
 				// separators we look for the first occurrence, verify
@@ -6681,6 +6743,7 @@ func extractFileCoverage(history []types.ToolResult) (
 				if idx := firstSeparatorBeforeLineno(path); idx > 0 {
 					path = path[:idx]
 				}
+				path = canonicalExplorerPath(path)
 				// Defense-in-depth: reject anything that doesn't look
 				// like a real file path. A real path has either a
 				// directory separator or a file extension (a `.` after
@@ -6705,7 +6768,7 @@ func extractFileCoverage(history []types.ToolResult) (
 			// readRanges so CGEC I1 chain promotion can distinguish a
 			// partial paginated read from a full read.
 			if path, rng, _, ok := parseReadFileBanner(r.Summary); ok {
-				path = strings.TrimSpace(path)
+				path = canonicalExplorerPath(path)
 				if path != "" {
 					readSet[path] = true
 					readRanges[path] = append(readRanges[path], rng)

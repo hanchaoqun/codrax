@@ -204,7 +204,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadHonorsCanonicalR
 		{Path: "internal/tool/repomap/tool.go", Score: 42, ExactEntityRank: 2},
 	})
 	closure := mut.EvidenceClosure()
-	closure.SetReadSet(map[string]bool{"./internal/tool/repomap/tool.go": true})
+	closure.SetReadSet(map[string]bool{".\\internal\\tool\\repomap\\tool.go": true})
 	bus := &types.BusContext{
 		Mutable:  mut,
 		RepoRoot: t.TempDir(),
@@ -265,6 +265,43 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t 
 	}
 	if mut.IsInvestigationComplete() {
 		t.Errorf("InvestigationComplete must remain false when primary anchor is unread")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorHonorsDispatchReadHistory(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/tool/repomap/tool.go", Score: 42, ExactEntityRank: 2},
+	})
+	mut.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/tool/repomap/tool.go: showing lines 141-160 of 323 total]\n",
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "traced the mechanism",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "internal/tool/repomap/tool.go") {
+		t.Fatalf("dispatch read history should satisfy the primary anchor gate, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Errorf("InvestigationComplete should be set when the dispatch already read the anchor")
 	}
 }
 

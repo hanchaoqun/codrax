@@ -66,6 +66,27 @@ func TestEmitInvestigationComplete_AbsenceWithoutEvidenceAccepted(t *testing.T) 
 	}
 }
 
+func TestEmitInvestigationComplete_AbsenceRequiresHonestZeroPhrasing(t *testing.T) {
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"all necessary evidence has been collected","confidence":"high","absence_justification":"already found enough evidence to explain it"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("positive completion text must not be accepted as absence: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "honest-zero") {
+		t.Errorf("rejection should explain honest-zero contract: %s", res.Summary)
+	}
+	if mut.AbsenceJustification() != "" {
+		t.Errorf("absence must NOT be stored on rejection")
+	}
+}
+
 // TestEmitInvestigationComplete_CompletionWithoutAbsenceOnEvidenceAccepted
 // — the normal happy path: grounded evidence exists, LLM signals
 // completion WITHOUT absence_justification. Must succeed.

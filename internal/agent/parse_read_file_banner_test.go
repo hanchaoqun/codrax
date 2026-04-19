@@ -77,17 +77,17 @@ func TestParseReadFileBanner_NoBanner(t *testing.T) {
 
 func TestParseReadFileBanner_MalformedShapes(t *testing.T) {
 	cases := []string{
-		"[a.go: showing lines 10-5 of 100 total]\n",    // End < Start
-		"[a.go: showing lines NaN-25 of 100 total]\n",  // non-numeric Start
-		"[a.go: showing lines 10-NaN of 100 total]\n",  // non-numeric End
-		"[a.go: showing stuff 10-25 of 100 total]\n",   // wrong marker
-		"[a.go: showing all zero lines (0 bytes)]\n",   // zero lines
-		"[: showing lines 10-25 of 100 total]\n",       // empty path (colonIdx == 1 → fails colonIdx > 1)
-		"[a.go: showing lines 10 of 100 total]\n",      // no dash
-		"[a.go: showing lines 10-25 total]\n",          // no "of"
-		"[a.go: showing lines 10-25 of total]\n",       // non-numeric total (total optional so this is ok) — actually this should NOT be malformed because total is optional
-		"[a.go: showing all abc lines (1 bytes)]\n",    // non-numeric N in "showing all"
-		"[a.go: showing all -5 lines (1 bytes)]\n",     // negative N
+		"[a.go: showing lines 10-5 of 100 total]\n",   // End < Start
+		"[a.go: showing lines NaN-25 of 100 total]\n", // non-numeric Start
+		"[a.go: showing lines 10-NaN of 100 total]\n", // non-numeric End
+		"[a.go: showing stuff 10-25 of 100 total]\n",  // wrong marker
+		"[a.go: showing all zero lines (0 bytes)]\n",  // zero lines
+		"[: showing lines 10-25 of 100 total]\n",      // empty path (colonIdx == 1 → fails colonIdx > 1)
+		"[a.go: showing lines 10 of 100 total]\n",     // no dash
+		"[a.go: showing lines 10-25 total]\n",         // no "of"
+		"[a.go: showing lines 10-25 of total]\n",      // non-numeric total (total optional so this is ok) — actually this should NOT be malformed because total is optional
+		"[a.go: showing all abc lines (1 bytes)]\n",   // non-numeric N in "showing all"
+		"[a.go: showing all -5 lines (1 bytes)]\n",    // negative N
 	}
 	for i, s := range cases {
 		path, rng, _, ok := parseReadFileBanner(s)
@@ -131,5 +131,23 @@ func TestExtractFileCoverage_PopulatesRanges(t *testing.T) {
 	bRanges := ranges["b.go"]
 	if len(bRanges) != 1 || bRanges[0].Start != 1 || bRanges[0].End != 30 {
 		t.Errorf("b.go ranges: got %+v, want [{1, 30}]", bRanges)
+	}
+}
+
+func TestExtractFileCoverage_CanonicalizesWindowsReadFilePaths(t *testing.T) {
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[.\\internal\\tool\\repomap\\tool.go: showing lines 1-25 of 200 total]\n",
+		},
+	}
+
+	_, readSet, ranges := extractFileCoverage(history)
+	if !readSet["internal/tool/repomap/tool.go"] {
+		t.Fatalf("readSet should store canonical slash path, got %v", readSet)
+	}
+	if got := ranges["internal/tool/repomap/tool.go"]; len(got) != 1 || got[0].Start != 1 || got[0].End != 25 {
+		t.Fatalf("ranges should follow the canonical path, got %v", got)
 	}
 }
