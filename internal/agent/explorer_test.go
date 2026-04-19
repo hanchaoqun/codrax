@@ -2,6 +2,7 @@ package agent
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -79,21 +80,21 @@ func TestContainsIdentifier(t *testing.T) {
 		{"BarFoo", "Foo", false},
 
 		// Underscore is an ident char
-		{"my_handler", "handler", false}, // preceded by _
+		{"my_handler", "handler", false},   // preceded by _
 		{"handler_test", "handler", false}, // followed by _
 		{"my handler test", "handler", true},
 
 		// Cross-language factory prefixes
-		{"createHandler()", "Handler", true},   // Python/JS factory
-		{"CreateHandler()", "Handler", true},    // C#/Go factory
-		{"makeHandler()", "Handler", true},      // Ruby/functional style
-		{"MakeHandler()", "Handler", true},      // Go alternate factory
-		{"buildHandler()", "Handler", true},     // Builder pattern
+		{"createHandler()", "Handler", true}, // Python/JS factory
+		{"CreateHandler()", "Handler", true}, // C#/Go factory
+		{"makeHandler()", "Handler", true},   // Ruby/functional style
+		{"MakeHandler()", "Handler", true},   // Go alternate factory
+		{"buildHandler()", "Handler", true},  // Builder pattern
 		{"BuildHandler()", "Handler", true},
-		{"getHandler()", "Handler", true},       // Accessor factory
+		{"getHandler()", "Handler", true}, // Accessor factory
 		{"GetHandler()", "Handler", true},
-		{"destroyHandler()", "Handler", false},  // Not a factory prefix
-		{"useHandler()", "Handler", false},      // Not a factory prefix
+		{"destroyHandler()", "Handler", false}, // Not a factory prefix
+		{"useHandler()", "Handler", false},     // Not a factory prefix
 	}
 
 	for _, tt := range tests {
@@ -199,28 +200,28 @@ func TestIsEvidenceLine(t *testing.T) {
 		{`"key": NewHandler(),`, true},
 		{`Register(NewFoo())`, true},
 		{`append(list, item)`, true},
-		{`handler := &Handler{}`, true},       // Go struct literal
-		{`new Handler()`, true},                // Java/JS constructor
-		{`srv := NewServer(config)`, true},     // Go factory
+		{`handler := &Handler{}`, true},    // Go struct literal
+		{`new Handler()`, true},            // Java/JS constructor
+		{`srv := NewServer(config)`, true}, // Go factory
 		// Cross-language constructor patterns
-		{`handler := &Handler{}`, true},           // Go struct literal
-		{`new Handler()`, true},                   // Java/JS constructor
-		{`srv := NewServer(config)`, true},        // Go factory
-		{`handler = CreateHandler()`, true},       // Python/JS factory
-		{`obj = MakeWidget()`, true},              // Ruby/functional factory
-		{`svc := BuildService(deps)`, true},       // Builder pattern
-		{`yield some_value`, true},                // Python generator
-		{`subscribe(handler)`, true},              // Event subscription
-		{`provide(ServiceToken, factory)`, true},  // Angular DI
+		{`handler := &Handler{}`, true},          // Go struct literal
+		{`new Handler()`, true},                  // Java/JS constructor
+		{`srv := NewServer(config)`, true},       // Go factory
+		{`handler = CreateHandler()`, true},      // Python/JS factory
+		{`obj = MakeWidget()`, true},             // Ruby/functional factory
+		{`svc := BuildService(deps)`, true},      // Builder pattern
+		{`yield some_value`, true},               // Python generator
+		{`subscribe(handler)`, true},             // Event subscription
+		{`provide(ServiceToken, factory)`, true}, // Angular DI
 		// Should NOT match — cross-language false positive prevention
 		{`x := 42`, false},
 		{`// just a comment`, false},
 		{`fmt.Println("hello")`, false},
-		{`if a && b {`, false},                    // JS/Go logical AND — not a constructor
-		{`x := y & 0xFF`, false},                  // bitwise AND
-		{`&amp; entity`, false},                   // HTML entity
-		{`newspaper := "daily"`, false},           // "new" embedded in word
-		{`renewable := true`, false},              // "new" embedded in word
+		{`if a && b {`, false},          // JS/Go logical AND — not a constructor
+		{`x := y & 0xFF`, false},        // bitwise AND
+		{`&amp; entity`, false},         // HTML entity
+		{`newspaper := "daily"`, false}, // "new" embedded in word
+		{`renewable := true`, false},    // "new" embedded in word
 	}
 	for _, tt := range tests {
 		got := isEvidenceLine(tt.line)
@@ -1465,6 +1466,100 @@ func TestBuildInitialInstruction_SameQuestionKeepsRetryState(t *testing.T) {
 	}
 }
 
+func TestBuildInitialInstruction_UniqueExactAnchorStartsFocusedDepth(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "repo.go"), []byte(`package sample
+
+func buildOrLoadGraph() {}
+`), 0o644); err != nil {
+		t.Fatalf("write repo.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "helper.go"), []byte("package sample\n"), 0o644); err != nil {
+		t.Fatalf("write helper.go: %v", err)
+	}
+
+	question := "buildOrLoadGraph 是如何构建或加载图形的？"
+	ctx := &types.AgentContext{
+		Objective: question,
+		RepoRoot:  repo,
+		Mutable:   types.NewMutableState(question),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Complexity: types.ComplexityModerate,
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"buildOrLoadGraph", "build", "load", "graph"},
+					Entities: []string{"buildOrLoadGraph"},
+					Kind:     "mechanism",
+				},
+			},
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: []string{"helper.go", "repo_test.go", "internal/context/builder.go"},
+			},
+		},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("unique exact anchor should start in depth phase, got phase=%d", eval.phase)
+	}
+	if !strings.Contains(prompt, "Focused Depth Start") {
+		t.Fatalf("focused-depth prompt missing, got: %s", prompt)
+	}
+	if strings.Contains(prompt, "Breadth Scan") {
+		t.Fatalf("focused-depth start should bypass breadth prompt, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "repo.go") {
+		t.Fatalf("anchor file missing from focused prompt: %s", prompt)
+	}
+	if !strings.Contains(prompt, "helper.go") {
+		t.Fatalf("same-directory required file should remain visible in focused prompt: %s", prompt)
+	}
+	if strings.Contains(prompt, "repo_test.go") || strings.Contains(prompt, "internal/context/builder.go") {
+		t.Fatalf("focused prompt should drop noisy required files outside the anchor neighborhood: %s", prompt)
+	}
+}
+
+func TestActiveFrontierFiles_ExcludesAllScoredNoiseWhenExactAnchorPresent(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactAnchorFiles: []string{"target.go"},
+		requiredFiles:    []string{"neighbor.go"},
+		preScannedFiles:  []string{"target.go", "neighbor.go", "noise.go"},
+		allScoredFiles:   []string{"target.go", "neighbor.go", "noise.go", "other_noise.go"},
+	}
+
+	got := eval.activeFrontierFiles(map[string]bool{"read.go": true}, "")
+	if strings.Join(got, ",") != "neighbor.go,read.go,target.go" {
+		t.Fatalf("active frontier should stay focused on read+anchor files, got %v", got)
+	}
+}
+
+func TestFilterRequiredFiles_UniqueExactAnchorKeepsNeighborhood(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactAnchorFiles: []string{"internal/tool/repomap/tool.go"},
+		searchResult: &keywordSearchResult{
+			Graph: &repomap.Graph{
+				ImportGraph: map[string][]string{
+					"internal/tool/repomap/tool.go": {"internal/tool/repomap/index/build.go"},
+				},
+				ReverseImports: map[string][]string{
+					"internal/tool/repomap/tool.go": {"internal/tool/repomap/facade.go"},
+				},
+			},
+		},
+	}
+
+	got := eval.filterRequiredFiles([]string{
+		"internal/tool/repomap/facade.go",
+		"internal/tool/repomap/index/build.go",
+		"internal/context/builder.go",
+		"internal/tool/repomap/tool_test.go",
+	})
+	if strings.Join(got, ",") != "internal/tool/repomap/facade.go,internal/tool/repomap/index/build.go" {
+		t.Fatalf("focused required files should stay on anchor neighbors, got %v", got)
+	}
+}
+
 func TestBuildInitialInstruction_RetryInjectsPriorSynthesis(t *testing.T) {
 	// All sub-tests simulate an intra-Run explore → explore self-loop
 	// where the SAME question is retried. The 2026-04-12 REPL audit
@@ -1507,7 +1602,7 @@ func TestBuildInitialInstruction_RetryInjectsPriorSynthesis(t *testing.T) {
 		}
 		ctx := &types.AgentContext{
 			Objective: "investigate",
-			RetryHint:   "Previous attempt had low file coverage.",
+			RetryHint: "Previous attempt had low file coverage.",
 			PriorReports: []types.StageReport{
 				{
 					Stage:    types.StageExplore,
@@ -2055,12 +2150,12 @@ func TestBuildPrimaryTargetBanner_NilGraph(t *testing.T) {
 // (general facts without location). Empty primary set is a no-op.
 func TestFilterEvidenceByPrimaryFiles(t *testing.T) {
 	items := []types.EvidenceItem{
-		{Source: "internal/agent/explorer.go", LineStart: 774, Summary: "two-phase model"},    // keep
+		{Source: "internal/agent/explorer.go", LineStart: 774, Summary: "two-phase model"},       // keep
 		{Source: "internal/agent/sub_explorer.go", LineStart: 169, Summary: `returns "", false`}, // drop
 		{Source: "cmd/root.go", LineStart: 96, Summary: "CLI flag"},                              // drop
-		{Source: "", Summary: "no-source general fact"},                                            // keep
+		{Source: "", Summary: "no-source general fact"},                                          // keep
 		{Source: "internal/agent/explorer.go", LineStart: 856, Summary: "partial read push"},     // keep
-		{Source: "internal/agent/finalizer.go", LineStart: 182, Summary: "finalizer string"},    // drop
+		{Source: "internal/agent/finalizer.go", LineStart: 182, Summary: "finalizer string"},     // drop
 	}
 	primary := []string{"internal/agent/explorer.go"}
 	out := filterEvidenceByPrimaryFiles(items, primary)

@@ -304,6 +304,13 @@ type Phase1RankedFile struct {
 	// explorer.keywordSearch. Higher = more keyword / repomap evidence.
 	// Carried so retry hints can cite a concrete ranking position.
 	Score float64
+
+	// ExactEntityRank is >0 when keyword_search found a unique exact
+	// entity anchor for this file (symbol_exact / path_exact /
+	// qualified_symbol_exact). Carried through MutableState so
+	// pre-complete gates can distinguish a true user-named anchor from
+	// broader structural hints such as RequiredFiles.
+	ExactEntityRank int
 }
 
 // HypothesisVerdict is the structured verdict the extractor (Turn B)

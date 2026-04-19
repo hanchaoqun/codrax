@@ -316,6 +316,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	// the real answer-bearing file never produced a ghost anchor (the
 	// LLM simply never read it, so no chain could reference it).
 	if justification == "" {
+		raisePrimaryAnchorPendingRead(ctx, closure)
 		raisePhase1UnreadPendingReads(ctx, closure)
 	}
 
@@ -551,6 +552,41 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	return b.String()
 }
 
+func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.EvidenceClosure) {
+	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	if !strings.EqualFold(strings.TrimSpace(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind), "mechanism") {
+		return
+	}
+	readSet := closure.ReadSet()
+	for _, ranked := range ctx.Mutable.Phase1Ranking() {
+		if ranked.ExactEntityRank <= 0 {
+			continue
+		}
+		canon := strings.TrimPrefix(strings.TrimSpace(ranked.Path), "./")
+		if canon == "" {
+			continue
+		}
+		if readSet[canon] || readSet["./"+canon] || readSet[ranked.Path] {
+			continue
+		}
+		closure.AddPendingRead(types.PendingRead{
+			File:      canon,
+			Rationale: "Exact entity anchor remains unread — mechanism answers must read the anchor implementation file before completion",
+			Origin:    "pre_complete.primary_anchor",
+		})
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Files:     []string{canon},
+			Rationale: "Read the exact-entity anchor file before re-calling emit_investigation_complete",
+			Origin:    "pre_complete.primary_anchor",
+		})
+		logging.Info("[CGEC] primary_anchor_unread: queued forced-read file=%s", canon)
+		return
+	}
+}
+
 // raisePhase1UnreadPendingReads is the session-12 CGEC gate that
 // catches the "LLM declares complete while ignoring high-ranked pre-
 // scan files" failure mode. The R5 ghost-anchor promotion covers the
@@ -603,26 +639,33 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if minUnread < 1 {
 		minUnread = 1
 	}
-	var unread []types.Phase1RankedFile
+	type unreadRankedFile struct {
+		rank int
+		file types.Phase1RankedFile
+	}
+	var unread []unreadRankedFile
 	for i := 0; i < topK; i++ {
 		f := ranking[i]
-		if f.Path == "" {
+		canon := strings.TrimPrefix(strings.TrimSpace(f.Path), "./")
+		if canon == "" {
 			continue
 		}
-		if readSet[f.Path] {
+		if readSet[canon] || readSet["./"+canon] || readSet[f.Path] {
 			continue
 		}
-		unread = append(unread, f)
+		f.Path = canon
+		unread = append(unread, unreadRankedFile{rank: i + 1, file: f})
 	}
 	if len(unread) < minUnread {
 		return
 	}
 
 	files := make([]string, 0, len(unread))
-	for rank, f := range unread {
+	for _, item := range unread {
+		f := item.file
 		rationale := fmt.Sprintf(
 			"Top-%d pre-scan ranked file (score=%.1f) remains unread — breadth-intent question (kind=%s) needs cross-component evidence",
-			rank+1, f.Score, kind,
+			item.rank, f.Score, kind,
 		)
 		closure.AddPendingRead(types.PendingRead{
 			File:      f.Path,
@@ -694,11 +737,11 @@ func detectSubjectShapeMismatch(ir *types.AnalysisIR) (bool, types.AnswerShape, 
 // scans) count as Tier-1-grounded — they are deterministic facts, not
 // LLM claims, and should NOT push either floor down.
 type evidenceTally struct {
-	total         int
-	tier1         int
-	tier2Grounded int // GroundingGrounded but GroundingTier != TierLineText
-	recovered     int
-	ungrounded    int
+	total           int
+	tier1           int
+	tier2Grounded   int // GroundingGrounded but GroundingTier != TierLineText
+	recovered       int
+	ungrounded      int
 	ungroundedItems []types.EvidenceItem
 	recoveredItems  []types.EvidenceItem
 }

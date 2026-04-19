@@ -198,6 +198,76 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadHonorsCanonicalReadSet(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/tool/repomap/tool.go", Score: 42, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"./internal/tool/repomap/tool.go": true})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "traced the mechanism",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("canonical read-set match should prevent phase1_unread downgrade, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Errorf("InvestigationComplete should be set when the ranked file was already read")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/tool/repomap/tool.go", Score: 42, ExactEntityRank: 2},
+		{Path: "internal/context/builder.go", Score: 41},
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "traced the mechanism",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("expected DOWNGRADED when primary anchor is unread, got: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "internal/tool/repomap/tool.go") {
+		t.Fatalf("expected primary anchor file in downgrade message, got: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Errorf("InvestigationComplete must remain false when primary anchor is unread")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_Registration
 // is the negative control: a non-breadth intent (registration) must
 // NOT be blocked by the phase1-unread gate even when ranked files are
@@ -287,8 +357,8 @@ func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testin
 	}
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":               "the system has no such handler",
-		"confidence":           "high",
+		"reason":                "the system has no such handler",
+		"confidence":            "high",
 		"absence_justification": "no handler with that name exists in the repo",
 	})
 	res, err := tool.Execute(bus, params)

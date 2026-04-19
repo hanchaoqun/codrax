@@ -31,6 +31,7 @@ type explorerEvaluator struct {
 	allScoredFiles            []string             // ALL files from keyword search (not just top 8), for supplementary evidence
 	fileSymbols               map[string][]string  // path → symbol summaries from repo_map
 	searchResult              *keywordSearchResult // full search result for cross-reference lookups
+	exactAnchorFiles          []string             // exact-entity anchor files from keyword search, in rank order
 	investigationNotes        []string             // assistant analysis messages from ReAct loop
 	userQuestion              string               // original user question, for focus alignment
 	repoRoot                  string               // repository root path, cached from BuildInitialInstruction
@@ -116,7 +117,6 @@ func (e *explorerEvaluator) ensureHeuristics() {
 	e.heuristics = types.ResolvedExploreHeuristics(e.heuristics)
 }
 
-
 func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	// CROSS-RUN STATE RESET (REPL turn boundary fix).
 	//
@@ -158,6 +158,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
 		e.requiredFiles = nil
+		e.exactAnchorFiles = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -349,6 +350,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			MaxFiles: MaxFilesForComplexity(irComplexity(ctx)),
 		})
 		e.searchResult = sr
+		if sr != nil {
+			e.exactAnchorFiles = exactAnchorFilesFromScores(sr.Files)
+			e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
+		}
+		results := e.filterKeywordResults(sr.Files)
 		// Publish the graph to MutableState so tools running later in
 		// this dispatch (notably emit_evidence's synchronous grounder)
 		// can consult it without re-invoking BuildOrLoadGraph. The
@@ -375,14 +381,15 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// RequiredFiles get a sentinel score that places them just
 		// above the median so they're prioritized without
 		// completely displacing high-grep-IDF matches.
-		if ctx != nil && ctx.Mutable != nil && sr != nil && len(sr.Files) > 0 {
-			seen := make(map[string]bool, len(sr.Files))
-			ranked := make([]types.Phase1RankedFile, 0, len(sr.Files))
-			for _, f := range sr.Files {
+		if ctx != nil && ctx.Mutable != nil && (len(results) > 0 || len(e.requiredFiles) > 0) {
+			seen := make(map[string]bool, len(results)+len(e.requiredFiles))
+			ranked := make([]types.Phase1RankedFile, 0, len(results)+len(e.requiredFiles))
+			for _, f := range results {
 				canon := ground.CanonicalRepoRelative(f.Path, ctx.RepoRoot)
 				ranked = append(ranked, types.Phase1RankedFile{
-					Path:  canon,
-					Score: f.Score,
+					Path:            canon,
+					Score:           f.Score,
+					ExactEntityRank: f.ExactEntityRank,
 				})
 				seen[canon] = true
 			}
@@ -393,7 +400,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// but the analyzer's picks can't be pushed out of the
 			// top-N by noise.
 			medianScore := phase1MedianScore(ranked)
-			for _, p := range analyzerRequiredFilesFromIR(ctx) {
+			for _, p := range e.requiredFiles {
 				canon := ground.CanonicalRepoRelative(p, ctx.RepoRoot)
 				if seen[canon] {
 					continue
@@ -406,7 +413,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			}
 			ctx.Mutable.SetPhase1Ranking(ranked)
 		}
-		results := sr.Files
 		// Record that pre-scan produced a repo_map-derived ranked file
 		// list the LLM can see. Read by the Phase 0 quality gate.
 		e.hasPrescanRepoMap = len(results) > 0
@@ -416,7 +422,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// before scanning the longer keyword_search ranking below.
 		// Only render when non-empty AND complexity is not simple
 		// (simple questions don't need the multi-file push).
-		if reqFiles := analyzerRequiredFilesFromIR(ctx); len(reqFiles) > 0 &&
+		if reqFiles := e.requiredFiles; len(reqFiles) > 0 &&
 			irComplexity(ctx) != types.ComplexitySimple {
 			b.WriteString("### Analyzer's Required Files\n\n")
 			b.WriteString("The analyzer's repo_map query over the question's entities " +
@@ -611,7 +617,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// chain anchor just made up". Without ScannedSet, a ghost
 			// path that sneaks into a chain anchor would otherwise be
 			// force-read by the framework (wasting a read and
-            // polluting ReadSet). Also include symbol-definition files
+			// polluting ReadSet). Also include symbol-definition files
 			// from repo_map so any file the graph could have surfaced
 			// counts as scanned — keeps the scope aligned with the
 			// ScannedSet design in architecture.md §8.
@@ -635,6 +641,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// items. Tracked in the df3 eval at 190611 (2/3 runs drifted).
 			if banner := e.buildPrimaryTargetBanner(); banner != "" {
 				b.WriteString(banner)
+			}
+			if e.shouldStartFocusedDepth(analyzerKind) {
+				e.phase = 1
+				e.tightenFocusedFrontier()
+				return e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords)
 			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
@@ -736,6 +747,418 @@ func (e *explorerEvaluator) primaryEntityFiles() []string {
 		return true
 	})
 	return files
+}
+
+func exactAnchorFilesFromScores(results []keywordFileScore) []string {
+	if len(results) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var files []string
+	for _, r := range results {
+		if r.ExactEntityRank <= 0 || r.Path == "" || seen[r.Path] {
+			continue
+		}
+		seen[r.Path] = true
+		files = append(files, r.Path)
+	}
+	return files
+}
+
+func (e *explorerEvaluator) uniqueExactAnchorFile() (string, bool) {
+	if len(e.exactAnchorFiles) != 1 {
+		return "", false
+	}
+	return e.exactAnchorFiles[0], true
+}
+
+func canonicalExplorerPath(path string) string {
+	path = filepath.ToSlash(strings.TrimSpace(path))
+	return strings.TrimPrefix(path, "./")
+}
+
+func sameRepoDir(a, b string) bool {
+	a = canonicalExplorerPath(a)
+	b = canonicalExplorerPath(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return filepath.Dir(a) == filepath.Dir(b)
+}
+
+func (e *explorerEvaluator) focusedAnchorNeighborhood() map[string]bool {
+	anchor, ok := e.uniqueExactAnchorFile()
+	if !ok {
+		return nil
+	}
+	files := make(map[string]bool)
+	add := func(path string) {
+		path = canonicalExplorerPath(path)
+		if path == "" || isNoisePath(path) {
+			return
+		}
+		files[path] = true
+	}
+	add(anchor)
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return files
+	}
+	for _, path := range e.searchResult.Graph.FilesImportedBy(anchor) {
+		add(path)
+	}
+	for _, path := range e.searchResult.Graph.FilesImporting(anchor) {
+		add(path)
+	}
+	return files
+}
+
+func (e *explorerEvaluator) focusedAnchorAllowsFile(path string) bool {
+	path = canonicalExplorerPath(path)
+	if path == "" || isNoisePath(path) {
+		return false
+	}
+	focused := e.focusedAnchorNeighborhood()
+	if len(focused) == 0 {
+		return true
+	}
+	if focused[path] {
+		return true
+	}
+	anchor, ok := e.uniqueExactAnchorFile()
+	return ok && sameRepoDir(anchor, path)
+}
+
+func (e *explorerEvaluator) filterRequiredFiles(files []string) []string {
+	if len(files) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(files))
+	out := make([]string, 0, len(files))
+	for _, path := range files {
+		canon := canonicalExplorerPath(path)
+		if canon == "" || isNoisePath(canon) || seen[canon] {
+			continue
+		}
+		if !e.focusedAnchorAllowsFile(canon) {
+			continue
+		}
+		seen[canon] = true
+		out = append(out, canon)
+	}
+	return out
+}
+
+func (e *explorerEvaluator) filterKeywordResults(results []keywordFileScore) []keywordFileScore {
+	if len(results) == 0 {
+		return nil
+	}
+	out := make([]keywordFileScore, 0, len(results))
+	for _, result := range results {
+		result.Path = canonicalExplorerPath(result.Path)
+		if result.Path == "" || isNoisePath(result.Path) {
+			continue
+		}
+		if !e.focusedAnchorAllowsFile(result.Path) {
+			continue
+		}
+		out = append(out, result)
+	}
+	return out
+}
+
+func (e *explorerEvaluator) shouldStartFocusedDepth(questionKind string) bool {
+	if _, ok := e.uniqueExactAnchorFile(); !ok {
+		return false
+	}
+	if e.isEnumerationQuery {
+		return false
+	}
+	return !strings.EqualFold(strings.TrimSpace(questionKind), "enumeration")
+}
+
+func (e *explorerEvaluator) tightenFocusedFrontier() {
+	anchor, ok := e.uniqueExactAnchorFile()
+	if !ok {
+		return
+	}
+	limit := tool.CurrentAnalysisLimits().Phase1UnreadTopK
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit > 3 {
+		limit = 3
+	}
+	seen := make(map[string]bool)
+	var narrowed []string
+	add := func(path string) {
+		path = strings.TrimPrefix(strings.TrimSpace(path), "./")
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		narrowed = append(narrowed, path)
+	}
+	add(anchor)
+	var focusedNeighbors []string
+	for file := range e.focusedAnchorNeighborhood() {
+		file = canonicalExplorerPath(file)
+		if file == "" || file == anchor {
+			continue
+		}
+		focusedNeighbors = append(focusedNeighbors, file)
+	}
+	sort.Strings(focusedNeighbors)
+	for _, file := range focusedNeighbors {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(file)
+	}
+	for _, f := range e.requiredFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(f)
+	}
+	for _, f := range e.preScannedFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(f)
+	}
+	if len(narrowed) > 0 {
+		e.preScannedFiles = narrowed
+	}
+}
+
+func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentContext, analyzerKeywords []string) string {
+	anchor, ok := e.uniqueExactAnchorFile()
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Focused Depth Start\n\n")
+	b.WriteString("A unique exact entity anchor was found in the repo. ")
+	b.WriteString("Skip repo-wide breadth search and start with direct depth investigation.\n\n")
+	fmt.Fprintf(&b, "**Read `%s` first.** This file is the exact anchor for the user-named entity.\n\n", anchor)
+	b.WriteString("Workflow:\n")
+	b.WriteString("- Use `read_file` on the anchor file immediately. If it is large, first use `grep` WITHIN that file (`files_only=false`) to locate the exact symbol body.\n")
+	b.WriteString("- Extract direct evidence about the named entity before widening the search.\n")
+	b.WriteString("- Expand outward only to files directly referenced by the anchor, the analyzer's required files, or files named by unresolved symbols from your notes.\n")
+	b.WriteString("- Do NOT run broad repo-wide synonym/variant grep until after you have read the anchor file.\n\n")
+	if banner := e.buildPrimaryTargetBanner(); banner != "" {
+		b.WriteString(banner)
+	}
+	if len(e.requiredFiles) > 0 {
+		b.WriteString("### Analyzer's Required Files\n\n")
+		b.WriteString("Trace outward from the anchor through these structurally relevant files only as needed:\n\n")
+		count := 0
+		for _, f := range e.requiredFiles {
+			f = strings.TrimPrefix(f, "./")
+			if f == "" || f == anchor {
+				continue
+			}
+			b.WriteString("- `" + f + "`\n")
+			count++
+			if count >= 4 {
+				break
+			}
+		}
+		if count > 0 {
+			b.WriteString("\n")
+		}
+	}
+	if len(analyzerKeywords) > 0 {
+		display := analyzerKeywords
+		if len(display) > 12 {
+			display = display[:12]
+		}
+		b.WriteString("### Search Terms\n\n")
+		b.WriteString("Use these terms inside the anchor file and its direct neighbors before widening scope:\n`")
+		b.WriteString(strings.Join(display, "`, `"))
+		b.WriteString("`\n\n")
+	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		preReadFiles := []string{anchor}
+		for _, f := range e.requiredFiles {
+			f = strings.TrimPrefix(f, "./")
+			if f == "" || f == anchor {
+				continue
+			}
+			preReadFiles = append(preReadFiles, f)
+		}
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200); preReadInjected != "" {
+			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
+			b.WriteString(preReadInjected)
+		}
+	}
+	b.WriteString("Evidence format:\n")
+	b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
+	b.WriteString("- `[REGISTRATION] functionName line N: <what is registered, EXACT values>`\n")
+	b.WriteString("- `[CONDITIONAL] functionName line N: <what happens> IF <condition>`\n")
+	b.WriteString("- `[ABSENT] <what was expected but NOT found>`\n\n")
+	b.WriteString("Read the anchor now and collect evidence before expanding.\n")
+	return b.String()
+}
+
+func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notesJoined string) map[string]bool {
+	files := make(map[string]bool)
+	focused := e.focusedAnchorNeighborhood()
+	add := func(path string) {
+		path = canonicalExplorerPath(path)
+		if path == "" || isNoisePath(path) {
+			return
+		}
+		files[path] = true
+	}
+	for file := range readSet {
+		add(file)
+	}
+	for _, file := range e.exactAnchorFiles {
+		add(file)
+	}
+	for file := range focused {
+		add(file)
+	}
+	for _, file := range e.primaryEntityFiles() {
+		add(file)
+	}
+	for _, file := range e.requiredFiles {
+		if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+			continue
+		}
+		add(file)
+	}
+	limit := tool.CurrentAnalysisLimits().Phase1UnreadTopK
+	if limit <= 0 {
+		limit = 3
+	}
+	if len(e.exactAnchorFiles) == 1 && limit > 2 {
+		limit = 2
+	}
+	for i, file := range e.preScannedFiles {
+		if i >= limit {
+			break
+		}
+		if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+			continue
+		}
+		add(file)
+	}
+	if e.searchResult != nil && e.searchResult.Graph != nil && notesJoined != "" {
+		for symName, defs := range e.searchResult.Graph.SymbolDefs {
+			if len(symName) < 6 || !strings.Contains(notesJoined, symName) {
+				continue
+			}
+			for _, def := range defs {
+				if def != nil {
+					if len(focused) > 0 && !e.focusedAnchorAllowsFile(def.File) {
+						continue
+					}
+					add(def.File)
+				}
+			}
+		}
+	}
+	if len(files) == 0 {
+		for i, file := range e.preScannedFiles {
+			if i >= 2 {
+				break
+			}
+			if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+				continue
+			}
+			add(file)
+		}
+	}
+	if len(files) == 0 {
+		for i, file := range e.allScoredFiles {
+			if i >= 2 {
+				break
+			}
+			if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+				continue
+			}
+			add(file)
+		}
+	}
+	return files
+}
+
+func (e *explorerEvaluator) activeFrontierFiles(readSet map[string]bool, notesJoined string) []string {
+	files := e.activeFrontierFileSet(readSet, notesJoined)
+	if len(files) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(files))
+	for file := range files {
+		out = append(out, file)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func (e *explorerEvaluator) concreteValueFocusSymbols(graph *repomap.Graph, filesToScan map[string]bool) map[string]map[string]bool {
+	if graph == nil || len(filesToScan) == 0 || len(e.ermRequirements) == 0 {
+		return nil
+	}
+	entities := make(map[string]string)
+	for _, req := range e.ermRequirements {
+		for _, ent := range req.Entities {
+			ent = strings.TrimSpace(ent)
+			if ent == "" {
+				continue
+			}
+			entities[strings.ToLower(ent)] = ent
+		}
+	}
+	if len(entities) == 0 {
+		return nil
+	}
+	out := make(map[string]map[string]bool)
+	forEachMatchingDef(entities, graph, func(_, _, _ string, d *repomap.Symbol) bool {
+		if d == nil {
+			return true
+		}
+		file := strings.TrimPrefix(d.File, "./")
+		if file == "" || !filesToScan[file] {
+			return true
+		}
+		kind := strings.ToLower(d.Kind)
+		if kind != "function" && kind != "method" {
+			return true
+		}
+		if out[file] == nil {
+			out[file] = make(map[string]bool)
+		}
+		out[file][strings.ToLower(d.Name)] = true
+		owner := d.Receiver
+		if owner == "" {
+			owner = d.Parent
+		}
+		if owner != "" {
+			out[file][strings.ToLower(owner+"."+d.Name)] = true
+		}
+		return true
+	})
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func concreteValueMatchesFocus(sym *repomap.Symbol, focus map[string]bool) bool {
+	if len(focus) == 0 || sym == nil {
+		return true
+	}
+	if focus[strings.ToLower(sym.Name)] {
+		return true
+	}
+	owner := sym.Receiver
+	if owner == "" {
+		owner = sym.Parent
+	}
+	return owner != "" && focus[strings.ToLower(owner+"."+sym.Name)]
 }
 
 // buildPrimaryTargetBanner returns a prompt block that names the single
@@ -903,7 +1326,6 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 		logging.Debug("[explorer] ShouldStop iter=%d: investigation complete (explicit tool call)", iteration)
 		return true
 	}
-
 
 	// Fallback S1: when the LLM soft-stops (no tool calls) in Phase 1
 	// with ERM fully satisfied + terminal evidence, accept the stop even
@@ -1271,7 +1693,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 // local `progress` flag and returns it as LoopSignal.Progress; the
 // policy reacts by resetting its counter on the active signal.
 //
-// The old "if e.idleStreakInDepth >= 2 { return '', false }"
+// The old "if e.idleStreakInDepth >= 2 { return ”, false }"
 // terminal check is GONE: LoopPolicy.IdleStopThreshold enforces it
 // at the policy layer so every evaluator gets the same termination
 // semantics without re-implementing the count.
@@ -2000,12 +2422,12 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 //
 // Output shape:
 //
-//	  → Tip: read_file supports offset+limit for targeted reads.
-//	    Symbols in <path>:
-//	      - NewSubExplorer (lines 25-34)
-//	      - SubExplorer.Run (lines 35-65)
-//	      - subExplorerEvaluator (lines 67-107)
-//	    Example: read_file path=<path> offset=25 limit=83 to cover lines 25-107.
+//	→ Tip: read_file supports offset+limit for targeted reads.
+//	  Symbols in <path>:
+//	    - NewSubExplorer (lines 25-34)
+//	    - SubExplorer.Run (lines 35-65)
+//	    - subExplorerEvaluator (lines 67-107)
+//	  Example: read_file path=<path> offset=25 limit=83 to cover lines 25-107.
 func (e *explorerEvaluator) formatReadFileOffsetGuidance(path string) string {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return ""
@@ -2574,16 +2996,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		logging.Debug("[explorer] T1.1 gate: ERM unsatisfied (%d/%d) — running dataflow.Analyze: %s",
 			len(unsat), len(reqsCopy), strings.Join(unsat, ","))
 	}
-	candidateSet := make(map[string]bool)
-	for file := range readSet {
-		candidateSet[file] = true
-	}
-	for _, file := range e.preScannedFiles {
-		candidateSet[file] = true
-	}
-	for _, file := range e.allScoredFiles {
-		candidateSet[file] = true
-	}
+	candidateSet := e.activeFrontierFileSet(readSet, strings.Join(e.investigationNotes, "\n"))
 	// Expand candidates with ERM-directed files that may have been
 	// missed by keyword search ranking but contain gap-filling evidence.
 	if len(e.ermRequirements) > 0 {
@@ -3007,9 +3420,9 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 				// aggregator can promote repeated ghost anchors on the
 				// same file to a RetrievalGap signal (→ R5 expand_search).
 				closure.AppendViolation(types.Violation{
-					Kind:   types.ViolGhostAnchor,
-					Detail: fmt.Sprintf("chain anchor file=%s origin=%s not in ScannedSet", f, anchor.Origin),
-					Stage:  string(types.StageExplore),
+					Kind:         types.ViolGhostAnchor,
+					Detail:       fmt.Sprintf("chain anchor file=%s origin=%s not in ScannedSet", f, anchor.Origin),
+					Stage:        string(types.StageExplore),
 					EvidenceRefs: []string{f, "origin:" + anchor.Origin},
 					SuspectedRoot: types.SuspectedRoot{
 						IRField:    "ScannedSet",
@@ -3152,25 +3565,12 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 
 	var allValues []concreteValue
 
-	// Build the set of files to scan: all scored files + all read files +
-	// files that define symbols mentioned in investigation notes.
-	filesToScan := make(map[string]bool)
-	for file := range readSet {
-		filesToScan[file] = true
-	}
-	for _, f := range e.allScoredFiles {
-		filesToScan[f] = true
-	}
-	for _, f := range e.preScannedFiles {
-		filesToScan[f] = true
-	}
-	for symName, defs := range graph.SymbolDefs {
-		if len(symName) >= 6 && strings.Contains(notesJoined, symName) {
-			for _, def := range defs {
-				filesToScan[def.File] = true
-			}
-		}
-	}
+	// Build the active frontier: files we have read, the exact/primary
+	// anchors, analyzer-required files, and direct note-referenced
+	// neighbors. Deliberately excludes the whole allScoredFiles tail so
+	// first-round ranking noise does not become second-round scan scope.
+	filesToScan := e.activeFrontierFileSet(readSet, notesJoined)
+	focusSymbols := e.concreteValueFocusSymbols(graph, filesToScan)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.
 	fileLines := make(map[string][]string)
@@ -3241,6 +3641,9 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		st.symTotal = len(fi.Symbols)
 		for _, sym := range fi.Symbols {
+			if focus := focusSymbols[strings.TrimPrefix(file, "./")]; len(focus) > 0 && !concreteValueMatchesFocus(&sym, focus) {
+				continue
+			}
 			if sym.Kind != "method" && sym.Kind != "function" {
 				st.symWrongKind++
 				continue
@@ -3457,28 +3860,27 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		allValues = clean
 	}
 
-	// Build pre-scanned set for filtering.
+	// Build pre-scanned/frontier sets for filtering.
 	preScannedSet := make(map[string]bool, len(e.preScannedFiles))
 	for _, f := range e.preScannedFiles {
 		preScannedSet[f] = true
 	}
-	// All keyword-search-scored files are question-relevant by
-	// construction; their short returns are deterministic facts and
-	// must not be gated on whether the LLM happened to mention the
-	// receiver in its investigation notes.
-	allScoredSet := make(map[string]bool, len(e.allScoredFiles))
-	for _, f := range e.allScoredFiles {
-		allScoredSet[f] = true
+	// Frontier files are the converged scan scope for this run. Short
+	// deterministic returns from these files are safe to keep even when
+	// the LLM has not yet mentioned the receiver explicitly in notes.
+	frontierSet := make(map[string]bool, len(filesToScan))
+	for f := range filesToScan {
+		frontierSet[f] = true
 	}
 
 	// Filter to keep only values relevant to the investigation:
 	// 1. Registrations — always kept (rule A)
-	// 2. Short string returns from pre-scanned/read/scored files — always kept (rule B1)
+	// 2. Short string returns from pre-scanned/read/frontier files — always kept (rule B1)
 	// 3. Short string returns from other files — only if receiver is in notes (rule B2)
 	// 4. Values referencing symbols from the investigation notes (rule C)
 	var relevant []concreteValue
 	// Per-rule counters for observability: split B1 by which file-set
-	// triggered retention so P1 (allScoredSet path) impact is visible.
+	// triggered retention so the active-frontier path stays visible.
 	var cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip int
 	for _, v := range allValues {
 		if strings.Contains(v.kind, "binds") || v.kind == "maps" || v.kind == "config" || v.kind == "decorates" || v.kind == "assigns" {
@@ -3509,7 +3911,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 					cntB1PreScan++
 					continue
 				}
-				if allScoredSet[v.file] {
+				if frontierSet[v.file] {
 					relevant = append(relevant, v)
 					cntB1Scored++
 					continue
@@ -3534,7 +3936,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 	}
 
-	logging.Debug("[explorer] concrete values filter: total=%d relevant=%d (A/reg=%d, B1/read=%d, B1/preScan=%d, B1/scored=%d, B2/notes-recv=%d, C/notes-word=%d, longSkip=%d)",
+	logging.Debug("[explorer] concrete values filter: total=%d relevant=%d (A/reg=%d, B1/read=%d, B1/preScan=%d, B1/frontier=%d, B2/notes-recv=%d, C/notes-word=%d, longSkip=%d)",
 		len(allValues), len(relevant), cntA, cntB1Read, cntB1PreScan, cntB1Scored, cntB2, cntC, cntLongSkip)
 
 	// Multi-pass reference tracing: follow type references in values
@@ -4084,17 +4486,17 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		kind := types.EvidenceConcrete
 		predicate := v.kind
 		cvEvidence = append(cvEvidence, types.EvidenceItem{
-			ID: types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
-			Kind:      kind,
-			Subject:   v.method,
-			Predicate: predicate,
-			Object:    v.value,
-			Source:    v.file,
-			LineStart: v.line,
-			LineEnd:   v.line,
+			ID:         types.StableEvidenceID(kind, v.method, predicate, v.value, "", v.file, v.line, v.line),
+			Kind:       kind,
+			Subject:    v.method,
+			Predicate:  predicate,
+			Object:     v.value,
+			Source:     v.file,
+			LineStart:  v.line,
+			LineEnd:    v.line,
 			Confidence: 0.95,
-			Producer:  "concrete_values",
-			Summary:   fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
+			Producer:   "concrete_values",
+			Summary:    fmt.Sprintf("`%s()` %s %s", v.method, predicate, v.value),
 		})
 	}
 	for _, c := range allChainsForEvidence {
@@ -5116,7 +5518,7 @@ func parseTargetClassFromBinding(token string) string {
 //   - Go/Java/JS/TS/C/Rust:   `//` line, `/* ... */` block, `* ...`
 //     continuation lines inside block comments
 //   - Python/Ruby/Shell/YAML: `#` line
-//   - Python docstrings:      `"""` / `'''` multi-line string blocks
+//   - Python docstrings:      `"""` / `”'` multi-line string blocks
 //
 // A real code line that happens to start with `*` (e.g. a C pointer
 // deref `*ptr = 5`) is not blanked: the helper only strips the
@@ -5853,8 +6255,9 @@ func resolveCallTargetReceivers(callValue string, graph *repomap.Graph) []string
 // resolved receiver types for the call target equals targetReceiver.
 //
 // Example: value="subRuntime.Run", targetReceiver="SubAgentRuntime"
-//   → resolves "Run" → SymbolDefs → [SubAgentRuntime, SomeOtherRunnable]
-//   → matches SubAgentRuntime → true
+//
+//	→ resolves "Run" → SymbolDefs → [SubAgentRuntime, SomeOtherRunnable]
+//	→ matches SubAgentRuntime → true
 func callValueMatchesReceiver(callValue, targetReceiver string, graph *repomap.Graph) bool {
 	// Path 1: graph-assisted exact type resolution (Go-optimal).
 	for _, recv := range resolveCallTargetReceivers(callValue, graph) {
@@ -5928,8 +6331,6 @@ func phase1MedianScore(ranked []types.Phase1RankedFile) float64 {
 	sort.Float64s(scores)
 	return scores[(len(scores)-1)/2]
 }
-
-
 
 // extractFileCoverage analyzes tool history to determine which files
 // were discovered (via grep files_only) and which were actually read
