@@ -184,6 +184,9 @@ type RuntimeSettings struct {
 	AgentLoopMaxMidLoopInjects        *int `yaml:"agent_loop_max_midloop_injects"`
 	AgentLoopIdleStopThreshold        *int `yaml:"agent_loop_idle_stop_threshold"`
 	AgentFinalizerMaxCorrectionRetries  *int    `yaml:"agent_finalizer_max_correction_retries"`
+	AgentFinalizerPreservePriorProse    *bool    `yaml:"agent_finalizer_preserve_prior_prose"`
+	AgentFinalizerShrinkageMinProseLen  *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
+	AgentFinalizerShrinkageRatio        *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
 	AgentExtractorMaxCorrectionRetries *int    `yaml:"agent_extractor_max_correction_retries"`
 	AgentSubTopicPrescanExtra          *int    `yaml:"agent_subtopic_prescan_extra"`
 	AgentSubTopicExplorerExtra         *int    `yaml:"agent_subtopic_explorer_extra"`

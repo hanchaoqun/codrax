@@ -10,6 +10,9 @@ import (
 // tool and renders it through internal/render/answerdoc.go.
 func NewFinalizerAgent(deps *Dependencies) Agent {
 	return NewBaseAgent(types.AgentFinalizer, deps, &answerDocumentEvaluator{
-		maxRetries: deps.AgentSettings.FinalizerMaxCorrectionRetries,
+		maxRetries:           deps.AgentSettings.FinalizerMaxCorrectionRetries,
+		preservePriorProse:   deps.AgentSettings.FinalizerPreservePriorProse,
+		shrinkageMinProseLen: deps.AgentSettings.FinalizerShrinkageMinProseLen,
+		shrinkageRatio:       deps.AgentSettings.FinalizerShrinkageRatio,
 	})
 }

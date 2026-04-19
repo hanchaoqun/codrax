@@ -174,6 +174,29 @@ type AgentSettings struct {
 	// retry to clear the field before the real answer lands.
 	FinalizerMaxCorrectionRetries int `yaml:"finalizer_max_correction_retries"`
 
+	// FinalizerPreservePriorProse toggles the pre-tool-call draft
+	// salvage in the finalizer ParseOutput. When the model writes a
+	// rich answer as plain prose, fails to call emit_answer_document,
+	// and then on the correction retry emits a compressed paraphrase
+	// as `summary`, the salvage replaces the shrunken summary with
+	// the richer prior draft. Pointer-typed so nil (the absent-YAML
+	// state) is distinguishable from an explicit false. Default true.
+	FinalizerPreservePriorProse *bool `yaml:"finalizer_preserve_prior_prose"`
+
+	// FinalizerShrinkageMinProseLen is the minimum length (bytes) of
+	// the prior prose draft that qualifies for shrinkage salvage.
+	// Drafts shorter than this are treated as placeholder content,
+	// not a real answer body, and are not copied into the summary.
+	// Default 400.
+	FinalizerShrinkageMinProseLen int `yaml:"finalizer_shrinkage_min_prose_len"`
+
+	// FinalizerShrinkageRatio is the ratio threshold below which the
+	// emitted summary is considered "shrunken" relative to the prior
+	// prose draft. When len(summary) / len(prior) falls under this
+	// value AND the prior draft meets the min-length floor, the
+	// salvage replaces the summary. Default 0.5.
+	FinalizerShrinkageRatio float64 `yaml:"finalizer_shrinkage_ratio"`
+
 	// ExtractorMaxCorrectionRetries: soft-stop correction retries when
 	// emit_answer_symbol is missing on list_of_symbols questions.
 	// Default 1.
@@ -268,6 +291,7 @@ const (
 
 // DefaultAgentSettings returns the code defaults for all agent limits.
 func DefaultAgentSettings() AgentSettings {
+	t := true
 	return AgentSettings{
 		MaxIterations:                 20,
 		MaxToolHistoryBytes:           150 * 1024,
@@ -276,6 +300,9 @@ func DefaultAgentSettings() AgentSettings {
 		LoopMaxMidLoopInjects:         6,
 		LoopIdleStopThreshold:         2,
 		FinalizerMaxCorrectionRetries: 3,
+		FinalizerPreservePriorProse:   &t,
+		FinalizerShrinkageMinProseLen: 400,
+		FinalizerShrinkageRatio:       0.5,
 		ExtractorMaxCorrectionRetries: 1,
 		SubTopicPrescanBudgetExtra:    1,
 		SubTopicExplorerBudgetExtra:   3,
@@ -310,6 +337,15 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	}
 	if s.FinalizerMaxCorrectionRetries == 0 {
 		s.FinalizerMaxCorrectionRetries = d.FinalizerMaxCorrectionRetries
+	}
+	if s.FinalizerPreservePriorProse == nil {
+		s.FinalizerPreservePriorProse = d.FinalizerPreservePriorProse
+	}
+	if s.FinalizerShrinkageMinProseLen == 0 {
+		s.FinalizerShrinkageMinProseLen = d.FinalizerShrinkageMinProseLen
+	}
+	if s.FinalizerShrinkageRatio == 0 {
+		s.FinalizerShrinkageRatio = d.FinalizerShrinkageRatio
 	}
 	if s.ExtractorMaxCorrectionRetries == 0 {
 		s.ExtractorMaxCorrectionRetries = d.ExtractorMaxCorrectionRetries

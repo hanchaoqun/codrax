@@ -305,6 +305,24 @@
 # Finalizer: max correction retries when emit_answer_document is missing.
 # agent_finalizer_max_correction_retries: 2
 
+# Finalizer shrinkage salvage: when the model first writes a rich prose
+# answer outside the tool call, then on the correction retry emits a
+# compressed paraphrase as `summary`, ParseOutput replaces the shrunken
+# summary with the richer prior draft. Scoped to shape=explanation only.
+#
+# Master switch. Default true. Set to false to disable the salvage
+# entirely (the retry's shorter summary is rendered as-is).
+# agent_finalizer_preserve_prior_prose: true
+
+# Minimum bytes the prior prose draft must have to qualify for salvage.
+# Shorter drafts are treated as placeholder content, not a real answer.
+# Default 400.
+# agent_finalizer_shrinkage_min_prose_len: 400
+
+# Ratio threshold len(summary)/len(prior) below which the summary is
+# considered "shrunken" and the prior draft is copied in. Default 0.5.
+# agent_finalizer_shrinkage_ratio: 0.5
+
 # Extractor: max correction retries when emit_answer_symbol is missing.
 # agent_extractor_max_correction_retries: 1
 

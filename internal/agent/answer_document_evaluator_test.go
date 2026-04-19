@@ -593,6 +593,99 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_ZhCaveat(t *testin
 	}
 }
 
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_KillSwitch —
+// when AgentSettings.FinalizerPreservePriorProse is explicitly false
+// (set via codrax.yaml: agent_finalizer_preserve_prior_prose: false),
+// the salvage must NOT fire even under conditions that would normally
+// trigger it. This pins the config knob end-to-end: the *bool field
+// propagates from YAML → AgentSettings → evaluator struct → runtime
+// decision. A silent drift at any hop would re-enable the salvage
+// against the operator's wishes.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_KillSwitch(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	origSummary := "short compressed paraphrase"
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: origSummary}
+	ctx.Mutable.SetAnswerDocument(doc)
+	messages := []llm.Message{
+		{Role: "assistant", Content: richDraftProse()},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	disabled := false
+	e := &answerDocumentEvaluator{
+		language:           "en",
+		preservePriorProse: &disabled,
+	}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if got.Summary != origSummary {
+		t.Errorf("kill switch violated: Summary was overwritten %q → %q even though preservePriorProse=&false",
+			origSummary, got.Summary)
+	}
+	if len(got.Caveats) != 0 {
+		t.Errorf("kill switch violated: caveat appended despite preservePriorProse=&false: %v", got.Caveats)
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NilMeansDefault —
+// when preservePriorProse is nil (test default / evaluator constructed
+// without explicit settings), the salvage must treat it as enabled.
+// The production call-path always non-nil via ResolvedAgentSettings,
+// but test constructors and edge cases pass through nil; the
+// evaluator must not interpret that as "disabled".
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NilMeansDefault(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: "short"}
+	ctx.Mutable.SetAnswerDocument(doc)
+	messages := []llm.Message{
+		{Role: "assistant", Content: richDraftProse()},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	// No explicit preservePriorProse, no explicit thresholds.
+	e := &answerDocumentEvaluator{language: "en"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if len(got.Summary) < 400 {
+		t.Errorf("nil preservePriorProse should behave as enabled; salvage did not fire. Summary: %q", got.Summary)
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CustomThresholds —
+// custom shrinkageMinProseLen / shrinkageRatio from AgentSettings must
+// override the package-level defaults. Build a scenario that fires
+// under the default thresholds (min=400, ratio=0.5) but is BLOCKED
+// under stricter custom thresholds (min=2000) — that proves the
+// evaluator reads its per-instance field instead of the const.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CustomThresholds(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	origSummary := "compressed"
+	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: origSummary}
+	ctx.Mutable.SetAnswerDocument(doc)
+	// richDraftProse is ~1560 bytes; a min floor of 2000 must block salvage.
+	messages := []llm.Message{
+		{Role: "assistant", Content: richDraftProse()},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	e := &answerDocumentEvaluator{
+		language:             "en",
+		shrinkageMinProseLen: 2000, // raised above prior-draft length
+		shrinkageRatio:       0.5,
+	}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if got.Summary != origSummary {
+		t.Errorf("custom floor of 2000 should block salvage, but Summary was overwritten: %q", got.Summary)
+	}
+}
+
 // TestFindLastPreToolCallDraft_IgnoresToolCallTurns — the helper
 // must SKIP assistant messages that have tool calls, since those
 // represent "tool call fired" turns, not pre-tool-call drafts. The

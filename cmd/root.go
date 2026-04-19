@@ -743,6 +743,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentFinalizerMaxCorrectionRetries != nil {
 			a.FinalizerMaxCorrectionRetries = *rs.AgentFinalizerMaxCorrectionRetries
 		}
+		if rs.AgentFinalizerPreservePriorProse != nil {
+			a.FinalizerPreservePriorProse = rs.AgentFinalizerPreservePriorProse
+		}
+		if rs.AgentFinalizerShrinkageMinProseLen != nil {
+			a.FinalizerShrinkageMinProseLen = *rs.AgentFinalizerShrinkageMinProseLen
+		}
+		if rs.AgentFinalizerShrinkageRatio != nil {
+			a.FinalizerShrinkageRatio = *rs.AgentFinalizerShrinkageRatio
+		}
 		if rs.AgentExtractorMaxCorrectionRetries != nil {
 			a.ExtractorMaxCorrectionRetries = *rs.AgentExtractorMaxCorrectionRetries
 		}

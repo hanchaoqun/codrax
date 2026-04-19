@@ -55,6 +55,20 @@ type answerDocumentEvaluator struct {
 	// retriesUsed tracks correction rounds across the ReAct loop,
 	// bounded by e.maxRetries.
 	retriesUsed int
+
+	// Shrinkage-salvage knobs, populated from AgentSettings at
+	// construction. See salvagePriorDraftIntoSummary for the
+	// triggering conditions and the salvage contract.
+	//
+	// preservePriorProse is the master switch; nil means "use the
+	// code default (enabled)", *false disables the salvage outright.
+	preservePriorProse *bool
+	// shrinkageMinProseLen is the prior-draft length floor in bytes.
+	// Zero falls back to the package-level default constant.
+	shrinkageMinProseLen int
+	// shrinkageRatio is the len(summary) / len(prior) ceiling below
+	// which the salvage fires. Zero falls back to the default.
+	shrinkageRatio float64
 }
 
 // BuildInitialInstruction renders ONLY the dynamic per-dispatch data the
@@ -351,7 +365,7 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 		}
 	}
 
-	salvagePriorDraftIntoSummary(doc, messages, e.language)
+	e.salvagePriorDraftIntoSummary(doc, messages)
 
 	prose := render.RenderAnswerDocument(doc, e.language)
 
@@ -382,17 +396,17 @@ func (e *answerDocumentEvaluator) DetermineMissingPiece(_ *types.AgentContext, _
 	return types.MissingNone
 }
 
-// Shrinkage-salvage thresholds. The LLM occasionally writes a rich
+// Shrinkage-salvage defaults. The LLM occasionally writes a rich
 // answer as plain prose in its first attempt, fails to call the
 // emit_answer_document tool, and then — on the correction retry —
 // submits a visibly compressed paraphrase as `summary`. When the
-// prior draft is substantial AND the emitted summary is under half
-// its length, the richer draft is copied into `summary` so the user
-// sees the full answer. Constants are v1; expose via codrax.yaml if
-// misfires appear in practice.
+// prior draft is substantial AND the emitted summary is under the
+// configured fraction of its length, the richer draft is copied
+// into `summary` so the user sees the full answer. These constants
+// are the fallback used when AgentSettings does not override them.
 const (
-	shrinkageMinPriorProseLen = 400
-	shrinkageRatio            = 0.5
+	defaultShrinkageMinPriorProseLen = 400
+	defaultShrinkageRatio            = 0.5
 )
 
 // salvagePriorDraftIntoSummary mutates doc.Summary when the
@@ -402,15 +416,26 @@ const (
 // field carries the answer body verbatim; for other shapes, the
 // structured fields carry the answer and the prose draft does not
 // map cleanly into a single field.
-func salvagePriorDraftIntoSummary(doc *types.AnswerDocument, messages []llm.Message, language string) {
+func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.AnswerDocument, messages []llm.Message) {
+	if e.preservePriorProse != nil && !*e.preservePriorProse {
+		return
+	}
 	if doc == nil || doc.Shape != types.ShapeExplanation {
 		return
 	}
+	minLen := e.shrinkageMinProseLen
+	if minLen <= 0 {
+		minLen = defaultShrinkageMinPriorProseLen
+	}
+	ratio := e.shrinkageRatio
+	if ratio <= 0 {
+		ratio = defaultShrinkageRatio
+	}
 	priorProse := findLastPreToolCallDraft(messages)
-	if len(priorProse) < shrinkageMinPriorProseLen {
+	if len(priorProse) < minLen {
 		return
 	}
-	if float64(len(doc.Summary)) >= shrinkageRatio*float64(len(priorProse)) {
+	if float64(len(doc.Summary)) >= ratio*float64(len(priorProse)) {
 		return
 	}
 	recovered := priorProse
@@ -428,7 +453,7 @@ func salvagePriorDraftIntoSummary(doc *types.AnswerDocument, messages []llm.Mess
 		len(priorProse), len(doc.Summary), len(recovered))
 	doc.Summary = recovered
 	caveat := "richer prior draft was preserved in place of a compressed summary"
-	if language == "zh" {
+	if e.language == "zh" {
 		caveat = "已保留更丰富的前一轮草稿，替代被压缩的概述"
 	}
 	doc.Caveats = append(doc.Caveats, caveat)
