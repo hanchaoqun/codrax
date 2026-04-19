@@ -868,6 +868,30 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 // names to symbols in the graph. Non-authoritative — a soft hint,
 // not a hard requirement.
 //
+// Ranking is two-tiered so verbatim user intent dominates diffuse
+// doc-comment matches:
+//
+//  1. Exact anchors first. `exactEntityAnchors` (see
+//     internal/agent/keyword_search.go) promotes files whose path
+//     or unique symbol definition matches an entity verbatim —
+//     e.g. entity "explorer.go" → `internal/agent/explorer.go`
+//     (path_exact, rank 2); entity "ValidateFoo" → the file that
+//     uniquely defines it (symbol_exact, rank 2); entity "Foo.Bar"
+//     → the file defining Bar on receiver Foo (qualified_symbol_
+//     exact, rank 3). Uniqueness — not any match — is what keeps
+//     the tier from amplifying noisy entities (e.g. "ShouldStop"
+//     matches many files, so it never anchors).
+//
+//  2. Then QueryScore hits. Everything the anchor tier did not
+//     catch falls through to the historical score-sorted list,
+//     which covers the common case where no entity names a
+//     file/symbol verbatim.
+//
+// The 5-Q audit (2026-04-19) showed the score-only path ranking
+// user-named files 6th–10th below doc-comment-heavy unrelated
+// files; the anchor tier flips those back to the top without
+// affecting the noise-driven cases it can't help with.
+//
 // Returns nil on any error or missing input; the caller assigns
 // directly so a nil slice is a valid zero value.
 func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []string {
@@ -895,18 +919,44 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	if err != nil || graph == nil {
 		return nil
 	}
-	// Walk QueryScores, keep non-zero entries, sort by score desc,
-	// cap at maxAnalyzerRequiredFiles. The cap is deliberately
-	// small (10) because this is a soft prompt-level hint — the
-	// explorer's own keyword_search runs a more thorough ranking
-	// and will see many more candidates.
+	return rankAnalyzerRequiredFiles(graph, entities)
+}
+
+// rankAnalyzerRequiredFiles implements the two-tier ranking
+// described on analyzerRequiredFiles. Split into its own function
+// so unit tests can exercise the ranker directly with a mock
+// *repomap.Graph without going through BuildOrLoadGraph.
+func rankAnalyzerRequiredFiles(graph *repomap.Graph, entities []string) []string {
+	const maxAnalyzerRequiredFiles = 10
+	if graph == nil {
+		return nil
+	}
+
+	// Tier 1: exact anchors. Rank is whatever exactEntityAnchors
+	// assigned (qualified_symbol_exact=3, path_exact/symbol_exact=2).
+	// Only files with a UNIQUE verbatim hit appear here; that
+	// uniqueness is the tier's guardrail against amplifying noisy
+	// entities.
+	anchors := exactEntityAnchors(graph, entities)
+
 	type scored struct {
 		path  string
-		score float64
+		tier  int     // >0 for anchored, 0 for pure QueryScore
+		rank  int     // anchor.Rank when tier>0, 0 otherwise
+		score float64 // QueryScore when tier==0, 0 otherwise
 	}
+	seen := make(map[string]bool, len(anchors))
 	var hits []scored
+	for path, a := range anchors {
+		hits = append(hits, scored{path: path, tier: 1, rank: a.Rank})
+		seen[path] = true
+	}
+
+	// Tier 2: QueryScore fallthrough. Skip files already anchored
+	// so they are not demoted below their tier-1 slot by a weaker
+	// tie-break.
 	for path, qs := range graph.QueryScores {
-		if qs <= 0 {
+		if qs <= 0 || seen[path] {
 			continue
 		}
 		hits = append(hits, scored{path: path, score: qs})
@@ -914,10 +964,23 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	if len(hits) == 0 {
 		return nil
 	}
+
 	sort.Slice(hits, func(i, j int) bool {
-		return hits[i].score > hits[j].score
+		if hits[i].tier != hits[j].tier {
+			return hits[i].tier > hits[j].tier
+		}
+		if hits[i].rank != hits[j].rank {
+			return hits[i].rank > hits[j].rank
+		}
+		if hits[i].score != hits[j].score {
+			return hits[i].score > hits[j].score
+		}
+		// Deterministic tie-break for identical scores so the
+		// prompt text is stable across runs. Important for the
+		// "Analyzer's Required Files" rendering to avoid reshuffle
+		// noise between otherwise-equivalent runs.
+		return hits[i].path < hits[j].path
 	})
-	const maxAnalyzerRequiredFiles = 10
 	if len(hits) > maxAnalyzerRequiredFiles {
 		hits = hits[:maxAnalyzerRequiredFiles]
 	}
