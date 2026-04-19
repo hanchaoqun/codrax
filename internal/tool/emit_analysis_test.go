@@ -8,6 +8,40 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// withV4Required injects the schema-v4 required fields (predicates +
+// per-classification confidences) into a partial JSON payload that
+// only sets the v3 fields. Tests that need to exercise different v4
+// values inline them directly instead. Implemented as a string append
+// so the fixture syntax stays raw-JSON for readability.
+//
+// The defaults express a conservative, "no special predicates fired,
+// LLM is moderately confident" baseline so the call passes validation
+// without forcing every test to think about v4 semantics it does not
+// care about.
+const v4DefaultsJSON = `,
+	"intent_confidence": 0.7,
+	"complexity_confidence": 0.7,
+	"kind_confidence": 0.7,
+	"shape_confidence": 0.7,
+	"predicates": {
+		"is_scalar_answer": false,
+		"is_count_question": false,
+		"is_cross_component": false,
+		"is_relational_lookup": false,
+		"is_category_enumeration": false
+	}
+`
+
+func withV4Required(partial string) string {
+	trimmed := strings.TrimSpace(partial)
+	if !strings.HasSuffix(trimmed, "}") {
+		// Pre-condition: partial must be a JSON object literal. Tests
+		// that violate this should be rewritten, not silently patched.
+		panic("withV4Required: payload is not a JSON object literal: " + partial)
+	}
+	return trimmed[:len(trimmed)-1] + v4DefaultsJSON + "}"
+}
+
 // -----------------------------------------------------------------------------
 // Validator tests (pure, no tool wiring)
 // -----------------------------------------------------------------------------
@@ -366,7 +400,7 @@ func TestEmitAnalysis_Execute_ReadsPrescanBlobFromMutable(t *testing.T) {
 	}`
 
 	tl := &EmitAnalysis{}
-	res, err := tl.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	res, err := tl.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -502,7 +536,11 @@ func runEmitAnalysisWithObjective(t *testing.T, objective, payload string) (type
 	mu := types.NewMutableState(objective)
 	busCtx := &types.BusContext{Mutable: mu}
 	tool := &EmitAnalysis{}
-	res, err := tool.Execute(busCtx, json.RawMessage(payload))
+	// Auto-inject the schema-v4 required fields (predicates +
+	// per-classification confidences) so the v3-style payloads in
+	// existing tests stay readable. Tests that exercise v4-specific
+	// failure modes call Execute directly with a raw payload.
+	res, err := tool.Execute(busCtx, json.RawMessage(withV4Required(payload)))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -793,5 +831,187 @@ func TestEmitAnalysis_Execute_MissingMutableFails(t *testing.T) {
 	}
 	if !strings.Contains(res.Summary, "Mutable") {
 		t.Errorf("failure Summary should mention Mutable, got %q", res.Summary)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// Schema v4 fail-loud tests — the LLM MUST emit predicates + confidences.
+// A missing field rejects the call so retry exhausts cleanly rather than
+// silently defaulting to "no predicates fired" (which would mask the
+// classification miss the prose-cue tables used to catch).
+// -----------------------------------------------------------------------------
+
+func TestEmitAnalysis_Execute_RejectsMissingPredicatesObject(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explain the analyzer")
+	tool := &EmitAnalysis{}
+	// Confidences present but the whole `predicates` object missing.
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["a"],
+		"entities": ["Foo"],
+		"question_kind": "mechanism",
+		"answer_shape": "explanation",
+		"intent_confidence": 0.7,
+		"complexity_confidence": 0.7,
+		"kind_confidence": 0.7,
+		"shape_confidence": 0.7
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("missing predicates object must reject")
+	}
+	if !strings.Contains(res.Summary, "predicates object missing") {
+		t.Errorf("reject summary should name the missing predicates object, got %q", res.Summary)
+	}
+	if mu.RequestModel() != nil {
+		t.Error("missing-predicates reject must not persist RequestModel")
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explain the analyzer")
+	tool := &EmitAnalysis{}
+	// is_count_question intentionally omitted from the otherwise-complete
+	// predicates object. Pointer fields catch this; a value type would
+	// silently default to false here.
+	payload := `{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["a"],
+		"entities": ["Foo"],
+		"question_kind": "mechanism",
+		"answer_shape": "explanation",
+		"intent_confidence": 0.7,
+		"complexity_confidence": 0.7,
+		"kind_confidence": 0.7,
+		"shape_confidence": 0.7,
+		"predicates": {
+			"is_scalar_answer": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("missing predicate field must reject")
+	}
+	if !strings.Contains(res.Summary, "is_count_question") {
+		t.Errorf("reject summary should name the missing field, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsConfidenceOutOfRange(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explain the analyzer")
+	tool := &EmitAnalysis{}
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["a"],
+		"entities": ["Foo"],
+		"question_kind": "mechanism",
+		"answer_shape": "explanation"
+	}`)
+	// Tamper: replace one valid confidence with an out-of-range value.
+	payload = strings.Replace(payload, `"intent_confidence": 0.7`, `"intent_confidence": 1.5`, 1)
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("out-of-range confidence must reject")
+	}
+	if !strings.Contains(res.Summary, "intent_confidence") || !strings.Contains(res.Summary, "1.50") {
+		t.Errorf("reject summary should name the bad field + value, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsInvalidPredicateAxis(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("explain the analyzer")
+	tool := &EmitAnalysis{}
+	payload := withV4Required(`{
+		"intent": "explain",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["a"],
+		"entities": ["Foo"],
+		"question_kind": "mechanism",
+		"answer_shape": "explanation",
+		"predicate_axis": "ponder"
+	}`)
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("invalid axis must reject")
+	}
+	if !strings.Contains(res.Summary, "predicate_axis") {
+		t.Errorf("reject summary should name predicate_axis, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("count the agents")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["agent", "count"],
+		"entities": ["Agent"],
+		"question_kind": "return_value",
+		"answer_shape": "value",
+		"intent_confidence": 0.92,
+		"complexity_confidence": 0.85,
+		"kind_confidence": 0.78,
+		"shape_confidence": 0.88,
+		"intent_alternatives": ["enumerate"],
+		"kind_alternatives": ["enumeration"],
+		"shape_alternatives": ["list_of_symbols"],
+		"predicate_axis": "register",
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": true,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.IntentConfidence != 0.92 {
+		t.Errorf("IntentConfidence = %f, want 0.92", rm.IntentConfidence)
+	}
+	if !rm.Predicates.IsScalarAnswer || !rm.Predicates.IsCountQuestion {
+		t.Errorf("Predicates not plumbed, got %+v", rm.Predicates)
+	}
+	if rm.Predicates.IsCrossComponent {
+		t.Errorf("IsCrossComponent should be false, got %+v", rm.Predicates)
+	}
+	if rm.PredicateAxis != types.AxisRegister {
+		t.Errorf("PredicateAxis = %q, want register", rm.PredicateAxis)
+	}
+	if len(rm.IntentAlternatives) != 1 || rm.IntentAlternatives[0] != "enumerate" {
+		t.Errorf("IntentAlternatives = %v, want [enumerate]", rm.IntentAlternatives)
 	}
 }

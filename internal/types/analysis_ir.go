@@ -37,7 +37,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v3"
+const AnalysisIRVersion = "v4"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -50,6 +50,37 @@ type RequestModel struct {
 	TermGraph   TermGraph   `json:"term_graph"`
 	Ambiguities []Ambiguity `json:"ambiguities,omitempty"`
 	RiskMatrix  RiskMatrix  `json:"risk_matrix"`
+
+	// IntentConfidence / ComplexityConfidence / KindConfidence /
+	// ShapeConfidence are LLM-emitted certainty scores in [0.0, 1.0]
+	// for each classification dimension. Zero = "no opinion" (unusual
+	// — the schema asks the LLM to rate explicitly). Downstream
+	// consumers gate aggressive narrowing on confidence (e.g. the
+	// explorer's tightenDeclarativeFrontier only fires when
+	// KindConfidence ≥ 0.7) so a hesitant classification cannot
+	// over-narrow the read set.
+	IntentConfidence     float64 `json:"intent_confidence,omitempty"`
+	ComplexityConfidence float64 `json:"complexity_confidence,omitempty"`
+	KindConfidence       float64 `json:"kind_confidence,omitempty"`
+	ShapeConfidence      float64 `json:"shape_confidence,omitempty"`
+
+	// IntentAlternatives / KindAlternatives / ShapeAlternatives carry
+	// the LLM's runner-up classifications when it hesitated. Empty when
+	// confident. Downstream consumers (extractor literal fallback,
+	// explorer chain ranker) can fall back to alt without re-invoking
+	// the LLM. Format: each slice element is the canonical enum string
+	// (same vocabulary as the primary value).
+	IntentAlternatives []string `json:"intent_alternatives,omitempty"`
+	KindAlternatives   []string `json:"kind_alternatives,omitempty"`
+	ShapeAlternatives  []string `json:"shape_alternatives,omitempty"`
+
+	// Predicates carries the LLM's semantic self-assessment of the
+	// question along axes that the prose-cue tables used to detect
+	// (count question, scalar answer, cross-component, …). Replaces
+	// language-specific keyword tables with cross-language LLM judgement.
+	// Schema requires every field present (true or false) so a missing
+	// field is a fail-loud signal, not a silent false.
+	Predicates SemanticPredicates `json:"predicates"`
 
 	// SubTopics lists independently-answerable sub-topics detected by
 	// the analyzer. When non-empty, the compiler generates one evidence
@@ -232,6 +263,52 @@ func (a PredicateAxis) IsValid() bool {
 		}
 	}
 	return false
+}
+
+// SemanticPredicates carries the LLM's semantic self-assessment of the
+// user's question along orthogonal axes that are language-neutral. It
+// replaces the historical prose-cue tables (countVerbPrefixes,
+// crossComponentCues, enumerationCuePrefixes, relationalVerbCues,
+// categoryEnumerationCues) which only covered ZH+EN and required
+// per-language curation. The LLM, by contrast, can read any language
+// the user writes in.
+//
+// All fields are required in the emit_analysis schema (LLM must
+// explicitly emit true OR false) — a missing field rejects the call
+// and triggers analyzer retry. This is the fail-loud contract: we
+// never silently default a predicate to false (which could mask a
+// classification miss) — the LLM must affirm one way or the other.
+//
+// Each predicate is consumed by exactly one downstream dispatch site;
+// add a new predicate only when an existing prose-cue table needs to
+// be deleted and an LLM-judgement is the replacement signal.
+type SemanticPredicates struct {
+	// IsScalarAnswer: the answer is a single scalar value (a number, a
+	// literal, a path), not a set or sequence. Drives the
+	// measurement-scalar carve-out that strips the citation gate.
+	IsScalarAnswer bool `json:"is_scalar_answer"`
+
+	// IsCountQuestion: the user is asking "how many X" / "X 的数量" /
+	// equivalent in any language. Implies IsScalarAnswer=true.
+	// Drives intent downgrade enumerate→return_value and the
+	// measurement-scalar carve-out.
+	IsCountQuestion bool `json:"is_count_question"`
+
+	// IsCrossComponent: the user is comparing or relating two distinct
+	// subsystems / components / types. Drives complexity upgrade to
+	// Complex regardless of declared complexity.
+	IsCrossComponent bool `json:"is_cross_component"`
+
+	// IsRelationalLookup: the user is filtering set X by a relationship
+	// to Y ("functions that return Z", "agents that use skill Y").
+	// Combined with IsCategoryEnumeration drives the conditional-
+	// enumeration shape rule.
+	IsRelationalLookup bool `json:"is_relational_lookup"`
+
+	// IsCategoryEnumeration: the user is asking "what kinds / types /
+	// categories of X exist". Drives shape selection toward
+	// list_of_symbols even when declared shape was value/config_value.
+	IsCategoryEnumeration bool `json:"is_category_enumeration"`
 }
 
 // AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto

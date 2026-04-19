@@ -162,6 +162,29 @@ func AnalysisAnswerSubjectChoices() []AnalysisEnumChoice { return analysisAnswer
 // in canonical order. The emit_analysis JSON schema reads this slice.
 func AnalysisAnswerSubjectValues() []string { return enumValues(analysisAnswerSubjects) }
 
+// analysisPredicateAxes is the canonical predicate_axis enum. Values
+// match types.PredicateAxis constants. The LLM emits this directly in
+// emit_analysis.predicate_axis (schema v4) — no more prose verb
+// matching in Go code. Empty string means "no clear verb cue", which
+// disables the axis-aware evidence-ranker boost.
+var analysisPredicateAxes = []AnalysisEnumChoice{
+	{string(types.AxisCall), "question is about who CALLs / invokes something"},
+	{string(types.AxisRegister), "question is about REGISTRATION / binding / wiring"},
+	{string(types.AxisDefine), "question is about DEFINITIONS / declarations"},
+	{string(types.AxisReturn), "question is about RETURN values / outputs"},
+	{string(types.AxisConfigure), "question is about CONFIGURATION / settings"},
+	{string(types.AxisCondition), "question is about CONDITIONS / when something fires"},
+	{string(types.AxisImplement), "question is about IMPLEMENTATION of an interface / contract"},
+	{string(types.AxisUnknown), "no clear verb cue in the question"},
+}
+
+// AnalysisPredicateAxisChoices returns the canonical predicate_axis enum table.
+func AnalysisPredicateAxisChoices() []AnalysisEnumChoice { return analysisPredicateAxes }
+
+// AnalysisPredicateAxisValues returns the predicate_axis enum values
+// in canonical order. The emit_analysis JSON schema reads this slice.
+func AnalysisPredicateAxisValues() []string { return enumValues(analysisPredicateAxes) }
+
 // AnalysisIntentChoices returns the canonical intent enum table.
 // Callers must not mutate the returned slice.
 func AnalysisIntentChoices() []AnalysisEnumChoice { return analysisIntents }
@@ -315,6 +338,23 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString(renderEnumTable("answer_subject.kind", analysisAnswerSubjects))
 	of.WriteString("\n")
 	of.WriteString("answer_subject is OPTIONAL — it tells downstream stages WHAT KIND of source-code literal the answer should be (a skill name, an agent name, a config key, ...). When the question clearly resolves to one of the listed kinds, set kind explicitly so the chain ranker can demote chains whose terminal token is the wrong kind. When unsure, leave the field unset; the system has a deterministic fallback that infers from question_kind. entity_axes is a short array describing the relational shape (e.g. [\"agent → skill\"] for \"what skill does the explorer agent use\").\n\n")
+	of.WriteString(renderEnumTable("predicate_axis", analysisPredicateAxes))
+	of.WriteString("\n")
+	of.WriteString("predicate_axis names the action verb of the question (\"how is X CALLed\" → call; \"how is X REGISTERed\" → register). Pick the value that matches the user's verb regardless of language; leave empty when no clear verb cue exists.\n\n")
+	of.WriteString("## Confidence and alternatives\n\n")
+	of.WriteString("For intent / complexity / question_kind / answer_shape, also emit a confidence float in [0.0, 1.0]:\n")
+	of.WriteString("- 0.9+ when the user's wording unambiguously dictates the value\n")
+	of.WriteString("- 0.5-0.7 when a plausible runner-up exists\n")
+	of.WriteString("- below 0.5 when you are genuinely guessing\n\n")
+	of.WriteString("When you hesitate between two values, also list the runner-up(s) in `intent_alternatives` / `kind_alternatives` / `shape_alternatives` (up to 2 entries each). Empty when confident. Use the same enum vocabulary as the primary value.\n\n")
+	of.WriteString("## Semantic predicates (REQUIRED, all five fields)\n\n")
+	of.WriteString("In `predicates`, judge the user's question along five language-neutral axes. Every field MUST be present and MUST be true OR false (no missing fields). Read the user's wording in whatever language they wrote it:\n")
+	of.WriteString("- `is_scalar_answer`: true when the answer is a single scalar (a number, a literal, a path), not a set or sequence\n")
+	of.WriteString("- `is_count_question`: true when the user is asking 'how many X' (or the equivalent in their language). Implies is_scalar_answer\n")
+	of.WriteString("- `is_cross_component`: true when the user is comparing or relating two distinct subsystems / components / types\n")
+	of.WriteString("- `is_relational_lookup`: true when the user is filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')\n")
+	of.WriteString("- `is_category_enumeration`: true when the user is asking 'what kinds / types / categories of X exist'\n\n")
+	of.WriteString("These predicates replace the system's old prose-keyword tables. Be honest — `false` is a valid answer. The system uses these to pick the right downstream behaviour; a wrong predicate produces a wrong answer downstream.\n\n")
 	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
 	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. The analyzer is the only stage that sees Prior Conversation by default; downstream stages work off the AnalysisIR you produce here, so any Prior-derived disambiguation MUST land in entities or the downstream stages will lose the subject.\n\n")
 	of.WriteString("Keyword generation — target ≥8 diverse stems. For each concept, generate multiple variants:\n")

@@ -146,11 +146,15 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	if AnalysisIRVersion != "v3" {
+	// v4 added: SemanticPredicates (required), per-classification
+	// confidence floats, *Alternatives slices, LLM-emitted PredicateAxis.
+	// Replaces the prose-cue reconcile tables with cross-language LLM
+	// judgement.
+	if AnalysisIRVersion != "v4" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v3" {
+	if ir.Version != "v4" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

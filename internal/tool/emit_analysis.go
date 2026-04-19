@@ -52,6 +52,36 @@ type emitAnalysisParams struct {
 	Language      string                  `json:"language,omitempty"`
 	SubTopics     []types.SubTopic        `json:"sub_topics,omitempty"`
 	AnswerSubject *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
+
+	// Schema v4 — confidence + alternatives + LLM semantic predicates +
+	// LLM-emitted predicate axis. These replace the historical prose-cue
+	// reconciliation tables (countVerbPrefixes / crossComponentCues /
+	// enumerationCuePrefixes / relationalVerbCues / categoryEnumerationCues
+	// / predicateVerbMap) with cross-language LLM judgement. All
+	// predicate fields are required to be explicit (true OR false) — a
+	// missing field is fail-loud, not a silent default.
+	IntentConfidence     float64                 `json:"intent_confidence"`
+	ComplexityConfidence float64                 `json:"complexity_confidence"`
+	KindConfidence       float64                 `json:"kind_confidence"`
+	ShapeConfidence      float64                 `json:"shape_confidence"`
+	IntentAlternatives   []string                `json:"intent_alternatives,omitempty"`
+	KindAlternatives     []string                `json:"kind_alternatives,omitempty"`
+	ShapeAlternatives    []string                `json:"shape_alternatives,omitempty"`
+	Predicates           *emitPredicatesParam    `json:"predicates"`
+	PredicateAxis        string                  `json:"predicate_axis,omitempty"`
+}
+
+// emitPredicatesParam is the wire shape of the required `predicates`
+// object. Pointer-typed so missing object can be detected via nil
+// (validation rejects nil with a fail-loud error). Each bool field
+// must be explicitly emitted by the LLM — JSON omission would parse
+// to false silently which would mask a classification miss.
+type emitPredicatesParam struct {
+	IsScalarAnswer        *bool `json:"is_scalar_answer"`
+	IsCountQuestion       *bool `json:"is_count_question"`
+	IsCrossComponent      *bool `json:"is_cross_component"`
+	IsRelationalLookup    *bool `json:"is_relational_lookup"`
+	IsCategoryEnumeration *bool `json:"is_category_enumeration"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -135,9 +165,47 @@ func buildEmitAnalysisSchema() {
 					"confidence":  map[string]string{"type": "number"},
 				},
 			},
+			"intent_confidence":     map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the intent classification, in [0, 1]. 0.9+ = unambiguous; 0.5-0.7 = plausible alternative exists; < 0.5 = guessing."},
+			"complexity_confidence": map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the complexity classification, in [0, 1]."},
+			"kind_confidence":       map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the question_kind classification, in [0, 1]."},
+			"shape_confidence":      map[string]any{"type": "number", "minimum": 0.0, "maximum": 1.0, "description": "Your certainty about the answer_shape classification, in [0, 1]."},
+			"intent_alternatives": map[string]any{
+				"type":        "array",
+				"description": "Runner-up intent value(s) when you hesitated; same enum as intent. Empty when confident. Up to 2 entries.",
+				"items":       map[string]any{"type": "string", "enum": skill.AnalysisIntentValues()},
+			},
+			"kind_alternatives": map[string]any{
+				"type":        "array",
+				"description": "Runner-up question_kind value(s) when you hesitated. Empty when confident. Up to 2 entries.",
+				"items":       map[string]any{"type": "string", "enum": skill.AnalysisQuestionKindValues()},
+			},
+			"shape_alternatives": map[string]any{
+				"type":        "array",
+				"description": "Runner-up answer_shape value(s) when you hesitated. Empty when confident. Up to 2 entries.",
+				"items":       map[string]any{"type": "string", "enum": skill.AnalysisAnswerShapeValues()},
+			},
+			"predicates": map[string]any{
+				"type":        "object",
+				"description": "Cross-language semantic self-assessment of the question. Every field is required; emit true OR false explicitly. A missing field is fail-loud rejection, not a silent default.",
+				"properties": map[string]any{
+					"is_scalar_answer":        map[string]any{"type": "boolean", "description": "True if the answer is a single scalar (a number, a literal, a path) rather than a set or sequence."},
+					"is_count_question":       map[string]any{"type": "boolean", "description": "True if the user is asking 'how many X' / a count question, in any language. Implies is_scalar_answer."},
+					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question compares or relates two distinct subsystems / components / types."},
+					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
+					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
+				},
+				"required": []string{"is_scalar_answer", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration"},
+			},
+			"predicate_axis": map[string]any{
+				"type":        "string",
+				"enum":        skill.AnalysisPredicateAxisValues(),
+				"description": "Action-direction axis of the question (call / register / define / return / configure / condition / implement). Empty when no clear verb cue. Used by the evidence ranker to bias items whose anchor matches the axis.",
+			},
 		},
 		"required": []string{
 			"intent", "scenario", "complexity", "keywords", "entities", "question_kind", "answer_shape",
+			"intent_confidence", "complexity_confidence", "kind_confidence", "shape_confidence",
+			"predicates",
 		},
 	}
 
@@ -247,6 +315,37 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	// Schema v4 fail-loud: predicates is the cross-language replacement
+	// for prose-cue tables. Every field must be present and explicit;
+	// the analyzer LLM cannot silently default to "no" and have the
+	// downstream dispatch silently degrade. Parse + validate before
+	// building the RequestModel.
+	predicates, predErr := parsePredicates(p.Predicates)
+	if predErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + predErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	if reason := validateConfidenceRange(p.IntentConfidence, p.ComplexityConfidence, p.KindConfidence, p.ShapeConfidence); reason != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + reason,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	axis, axisErr := parsePredicateAxis(p.PredicateAxis)
+	if axisErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + axisErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Raw objective — the analyzer gets it from Mutable seeded by
 	// the REPL/orchestrator before dispatch. Normalizer builds the
@@ -287,7 +386,16 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Kind:     kind,
 			Shape:    shape,
 		},
-		AnswerSubject: parseAnswerSubject(p.AnswerSubject),
+		AnswerSubject:        parseAnswerSubject(p.AnswerSubject),
+		IntentConfidence:     p.IntentConfidence,
+		ComplexityConfidence: p.ComplexityConfidence,
+		KindConfidence:       p.KindConfidence,
+		ShapeConfidence:      p.ShapeConfidence,
+		IntentAlternatives:   trimStringSlice(p.IntentAlternatives),
+		KindAlternatives:     trimStringSlice(p.KindAlternatives),
+		ShapeAlternatives:    trimStringSlice(p.ShapeAlternatives),
+		Predicates:           predicates,
+		PredicateAxis:        axis,
 	}
 	ctx.Mutable.SetRequestModel(rm)
 
@@ -323,6 +431,90 @@ func rejectDegenerateClassification(
 		return ""
 	}
 	return "degenerate classification (intent=unknown, question_kind=unknown, answer_shape=none, keywords=0, entities=0). Re-read the User Request section only and emit at least one real keyword/entity or choose a concrete question_kind/answer_shape."
+}
+
+// parsePredicates enforces the schema-v4 fail-loud contract for the
+// `predicates` object: the LLM must explicitly emit every field as
+// true OR false. A nil pointer means the LLM omitted the whole object;
+// a non-nil pointer with any nil bool field means the LLM forgot one.
+// Both cases reject and trigger analyzer retry — the rationale is
+// that we deleted the prose-cue tables which used to detect these
+// classifications from surface text, so the LLM judgment is now the
+// only signal. Silently defaulting any field to false would mask a
+// classification miss the same way the old prose-cue tables silently
+// missed non-ZH/EN questions.
+func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) {
+	if p == nil {
+		return types.SemanticPredicates{},
+			"predicates object missing — emit `predicates` with is_scalar_answer / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration each set to true or false"
+	}
+	missing := []string{}
+	if p.IsScalarAnswer == nil {
+		missing = append(missing, "is_scalar_answer")
+	}
+	if p.IsCountQuestion == nil {
+		missing = append(missing, "is_count_question")
+	}
+	if p.IsCrossComponent == nil {
+		missing = append(missing, "is_cross_component")
+	}
+	if p.IsRelationalLookup == nil {
+		missing = append(missing, "is_relational_lookup")
+	}
+	if p.IsCategoryEnumeration == nil {
+		missing = append(missing, "is_category_enumeration")
+	}
+	if len(missing) > 0 {
+		return types.SemanticPredicates{}, fmt.Sprintf(
+			"predicates missing required field(s): %s — every field must be set explicitly to true or false (no silent default)",
+			strings.Join(missing, ", "),
+		)
+	}
+	return types.SemanticPredicates{
+		IsScalarAnswer:        *p.IsScalarAnswer,
+		IsCountQuestion:       *p.IsCountQuestion,
+		IsCrossComponent:      *p.IsCrossComponent,
+		IsRelationalLookup:    *p.IsRelationalLookup,
+		IsCategoryEnumeration: *p.IsCategoryEnumeration,
+	}, ""
+}
+
+// validateConfidenceRange enforces the [0, 1] domain on every
+// confidence field. Out-of-range values reject the call so a
+// prompt-injection or schema-misread cannot smuggle a 99.0 confidence
+// past the downstream guards (which gate aggressive narrowing on
+// confidence ≥ 0.7).
+func validateConfidenceRange(intentConf, compConf, kindConf, shapeConf float64) string {
+	for _, c := range [...]struct {
+		name string
+		val  float64
+	}{
+		{"intent_confidence", intentConf},
+		{"complexity_confidence", compConf},
+		{"kind_confidence", kindConf},
+		{"shape_confidence", shapeConf},
+	} {
+		if c.val < 0.0 || c.val > 1.0 {
+			return fmt.Sprintf("%s = %.2f out of [0.0, 1.0]", c.name, c.val)
+		}
+	}
+	return ""
+}
+
+// parsePredicateAxis coerces the optional predicate_axis enum string
+// into a typed PredicateAxis. Empty string is a legitimate "no axis
+// extracted" signal (AxisUnknown). An unrecognised non-empty value
+// is rejected so a typo cannot silently downgrade to AxisUnknown
+// and disable the axis-aware ranker boost.
+func parsePredicateAxis(s string) (types.PredicateAxis, string) {
+	axis := types.PredicateAxis(strings.TrimSpace(s))
+	if !axis.IsValid() {
+		return types.AxisUnknown, fmt.Sprintf(
+			"predicate_axis = %q is not a recognised axis — use one of the enum values or omit the field",
+			s,
+		)
+	}
+	return axis, ""
 }
 
 // parseAnswerSubject coerces the optional emit_analysis.answer_subject
