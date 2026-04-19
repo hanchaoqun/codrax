@@ -22,19 +22,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// preReadInjection records a single file + the exact line ranges
-// whose content preReadRequiredFiles pushed into the initial prompt.
-// Introduced by Commit A (range-aware CGEC): ParseOutput feeds Path
-// into cvReadSet and Ranges into cvReadRanges so HasReadLine can
-// answer row-level queries about what the LLM actually saw. Commit B
-// populates Ranges with symbol-guided windows (e.g. head + anchor);
-// Commit A emits a single [1, N] range per file matching the current
-// head-only preRead.
-type preReadInjection struct {
-	Path   string
-	Ranges []types.LineRange
-}
-
 type explorerEvaluator struct {
 	heuristics                types.ExploreHeuristics
 	tools                     *tool.Registry
@@ -92,18 +79,6 @@ type explorerEvaluator struct {
 	// files before stopping.
 	requiredFiles []string
 
-	// preReadInjections records what preReadRequiredFiles pushed into
-	// the initial prompt: per-file path plus the exact line ranges the
-	// LLM saw. These reads never pass through the tool history (no
-	// read_file call), so extractFileCoverage cannot observe them.
-	// ParseOutput merges Path into cvReadSet and Ranges into
-	// cvReadRanges so CGEC I1 can (a) promote chains whose anchor
-	// sits inside an injected slice and (b) demote chains anchored
-	// in an un-injected section of the same file (Commit B's
-	// symbol-guided preRead can show only two 80-line windows out
-	// of a 500-line file, and range-aware HasReadLine is what keeps
-	// the enforcer honest about what the LLM actually saw).
-	preReadInjections []preReadInjection
 
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
@@ -184,7 +159,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
 		e.requiredFiles = nil
-		e.preReadInjections = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -453,50 +427,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				b.WriteString("- `" + p + "`\n")
 			}
 			b.WriteString("\n")
-			// S2a: pre-read the top 2 required files and inject their
-			// content directly into the initial prompt. This saves
-			// 1-2 LLM round-trips that would otherwise be spent on
-			// "let me read_file X → observe → decide". The LLM sees
-			// the file content BEFORE its first iteration and can
-			// immediately start extracting evidence.
-			//
-			// Commit B: when the repomap graph is available, prefer
-			// symbolGuidedPreRead — it selects per-file slices
-			// centred on the symbols that matched the analyzer's
-			// entities, so a 500-line file whose answer sits at line
-			// 350 still reaches the LLM. The graph comes from the
-			// analyzer stage (Mutable.SearchGraph()) so the second
-			// BuildOrLoadGraph call is free. Falls back to the
-			// head-only preReadRequiredFiles when the graph is
-			// unavailable (sub-agent path, unit tests, bare runs).
-			//
-			// Successful injections (path + line ranges actually
-			// shown) are stashed on e.preReadInjections so
-			// ParseOutput can merge them into the EvidenceClosure's
-			// readSet + readRanges. Without this merge, CGEC I1
-			// demotes every chain anchored in pre-read content
-			// because extractFileCoverage only consults the tool
-			// history (the LLM never issued a read_file for these
-			// files).
-			preReadInjected, preReadInjs := "", []preReadInjection(nil)
-			if graph := repomapGraphFromCtx(ctx); graph != nil && ctx.AnalysisIR != nil {
-				entities := ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities
-				preReadInjected, preReadInjs = symbolGuidedPreRead(
-					ctx.RepoRoot, reqFiles, graph, entities, preReadMaxFiles,
-				)
-			}
-			if preReadInjected == "" {
-				// Fallback: head-only preRead keeps the pre-Commit-B
-				// behaviour intact for callers without a graph.
-				preReadInjected, preReadInjs = preReadRequiredFiles(
-					ctx.RepoRoot, reqFiles, preReadMaxFiles, preReadLineBudgetPerFile,
-				)
-			}
-			e.preReadInjections = preReadInjs
-			if preReadInjected != "" {
-				b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
-				b.WriteString(preReadInjected)
-			}
 		}
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
@@ -2171,22 +2101,13 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Merge concrete values into structured evidence. Before the
 	// synthesis-LLM removal (2026-04-16) this merge lived inside
 	// SynthesisPrompt; now ParseOutput is the sole owner.
+	// cvReadRanges tracks the per-file [Start, End] slices the LLM
+	// actually fetched via read_file (see parseReadFileBanner): the
+	// range-aware chain promotion enforcer consults this via
+	// EvidenceClosure.HasReadLine so a paginated read that covered
+	// only lines 1-200 cannot grant coverage to a chain anchored at
+	// line 500.
 	_, cvReadSet, cvReadRanges := extractFileCoverage(toolResults)
-	// S2a: merge pre-read files into the readSet. Pre-read content
-	// is injected into the initial prompt (see preReadRequiredFiles)
-	// and never passes through the tool history, so
-	// extractFileCoverage cannot see it. Without this merge, CGEC
-	// I1 demotes every chain anchored in pre-read content because
-	// the anchor file is not in ReadSet — which contradicts what
-	// the LLM can actually see in its prompt. preReadRanges carries
-	// the symbol-guided slice ranges (see preread.go) so the
-	// range-aware chain promotion enforcer can distinguish "anchor
-	// inside an injected slice" (promote) from "anchor in an
-	// un-injected section of the same file" (demote + PendingRead).
-	for _, inj := range e.preReadInjections {
-		cvReadSet[inj.Path] = true
-		cvReadRanges[inj.Path] = append(cvReadRanges[inj.Path], inj.Ranges...)
-	}
 	// CGEC: pass the per-Run EvidenceClosure so the chain promotion
 	// enforcer can demote chains anchored outside ReadSet and queue
 	// the missing files as PendingReads on the closure. Update the
@@ -2235,17 +2156,6 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	//    Require at least 2 [DIRECT]/[REGISTRATION] entries (ground-truth facts).
 	// 4. File relevance: weight read files by their keyword search rank.
 	discovered, readSet, _ := extractFileCoverage(toolResults)
-	// S2a: same preRead merge as the cvReadSet branch above. Without
-	// it, the HasEnoughFacts coverage ratio below understates what
-	// the LLM has actually seen — pre-read files count as discovered
-	// (via keyword_search) but not as read, which can push the
-	// explorer into needless extra iterations. Only the file-level
-	// readSet is merged here; row-level ranges live on
-	// EvidenceClosure and are not re-derived for the HasEnoughFacts
-	// heuristic (coverage ratio is file-granular).
-	for _, inj := range e.preReadInjections {
-		readSet[inj.Path] = true
-	}
 	coverage := 0.0
 	if len(discovered) > 0 {
 		coverage = float64(len(readSet)) / float64(len(discovered))
@@ -3077,8 +2987,8 @@ func applyChainPromotion(in concreteValuesResult, readSet map[string]bool, closu
 		// info is tracked — HasReadLine grants file-level coverage
 		// for any file in readSet without range records. This keeps
 		// the semantics backward-compatible for chain_promotion_test.go
-		// suites that never touched ranges, while letting symbol-
-		// guided preRead + paginated read_file catch partial reads.
+		// suites that never touched ranges, while letting paginated
+		// read_file calls catch partial reads.
 		allRead := true
 		for i, f := range anchor.Files {
 			line := 0
@@ -6688,79 +6598,6 @@ type partialReadHint struct {
 	symEnd     int     // symbol.EndLine (1-based)
 	readEnd    int     // max line the LLM read in this file
 	coverage   float64 // fraction of function body covered (0.0-1.0)
-}
-
-// detectPartiallyReadSymbols checks whether any function/method in the
-// read files was only partially covered by the LLM's read_file calls.
-// preReadRequiredFiles reads the first `maxFiles` required files
-// (each capped at `maxLines` lines) and formats them as a prompt
-// section. Used by S2a to inject file content into the explorer's
-// initial prompt, saving 1-2 LLM round-trips that would otherwise
-// be spent on explicit read_file calls.
-//
-// Returns the rendered prompt section and one preReadInjection per
-// file whose content was actually injected. Caller stashes the
-// injection list on explorerEvaluator.preReadInjections so
-// ParseOutput can merge each injection's Path into cvReadSet and
-// its Ranges into cvReadRanges — otherwise CGEC I1 demotes every
-// chain anchored in pre-read content as "outside ReadSet",
-// defeating the whole point of pre-reading. Returns ("", nil) when
-// no files can be read (missing files, empty repoRoot, etc.).
-//
-// For each injected file the returned Ranges contain a single
-// [1, N] entry where N is the count of lines actually shown —
-// totalLines for files that fit under maxLines, maxLines for
-// truncated reads. Commit B swaps this head-only windowing for a
-// symbol-guided multi-slice strategy while keeping the same
-// Ranges shape, so the ParseOutput merge does not need to change.
-//
-// The truncation banner always discloses the total line count
-// ("first N of M total lines") so the LLM knows more content
-// exists and can issue a read_file with offset if needed — the
-// prior "(first N lines)" phrasing let the model mistake a head
-// slice for the whole file.
-func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines int) (string, []preReadInjection) {
-	if repoRoot == "" || len(files) == 0 || maxFiles <= 0 {
-		return "", nil
-	}
-	var b strings.Builder
-	var injections []preReadInjection
-	for _, f := range files {
-		if len(injections) >= maxFiles {
-			break
-		}
-		absPath := filepath.Join(repoRoot, f)
-		content, err := os.ReadFile(absPath)
-		if err != nil {
-			logging.Debug("[explorer] preRead skipped %q: %v (analyzer RequiredFiles may contain ghost path)", f, err)
-			continue
-		}
-		lines := strings.Split(string(content), "\n")
-		totalLines := len(lines)
-		shown := totalLines
-		truncated := false
-		if totalLines > maxLines {
-			lines = lines[:maxLines]
-			shown = maxLines
-			truncated = true
-		}
-		fmt.Fprintf(&b, "#### `%s`", f)
-		if truncated {
-			fmt.Fprintf(&b, " (first %d of %d total lines — issue read_file with offset to see the rest)", maxLines, totalLines)
-		} else {
-			fmt.Fprintf(&b, " (full file, %d lines)", totalLines)
-		}
-		b.WriteString("\n```\n")
-		for i, line := range lines {
-			fmt.Fprintf(&b, "%d\t%s\n", i+1, line)
-		}
-		b.WriteString("```\n\n")
-		injections = append(injections, preReadInjection{
-			Path:   f,
-			Ranges: []types.LineRange{{Start: 1, End: shown}},
-		})
-	}
-	return b.String(), injections
 }
 
 // filterPartialReadsByRelevance removes partial-read hints for
