@@ -79,15 +79,6 @@ type explorerEvaluator struct {
 	// files before stopping.
 	requiredFiles []string
 
-	// investigationPlan is the step-by-step investigation plan
-	// produced by DecomposeQuestion at BuildInitialInstruction time.
-	// The step-aware soft-stop logic in observeSoftStop navigates
-	// through steps sequentially: only when the current step's
-	// structural criterion is met does the explorer advance to the
-	// next. For single-step plans (simple questions), this degrades
-	// to the pre-step behavior.
-	investigationPlan *types.InvestigationPlan
-
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
 	// BuildInitialInstruction time. T1c: drives ERM threshold
@@ -167,7 +158,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
 		e.requiredFiles = nil
-		e.investigationPlan = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -183,15 +173,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// the analyzer stage hasn't run yet (unit tests, sub-agent paths).
 	e.complexity = irComplexity(ctx)
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
-	// P1: decompose the question into an investigation plan. The
-	// plan drives the step-aware soft-stop logic: instead of a
-	// global "count >= N" threshold, each step has its own
-	// structural completion criterion.
-	if ctx.AnalysisIR != nil {
-		e.investigationPlan = DecomposeQuestion(ctx.AnalysisIR.RequestModel)
-	} else {
-		e.investigationPlan = nil
-	}
 	// CGEC: capture the analyzer's AnswerSubject classification so
 	// the chain ranker can score chain terminals against the
 	// expected subject kind. Empty when AnalysisIR not yet available
@@ -348,24 +329,6 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			b.WriteString("3. **Count only the qualifying ones** — do NOT use a total registration/declaration count as the answer\n\n")
 			b.WriteString("Common mistake: treating the total number of declared items as the answer without filtering by the condition. The qualifying count is often strictly smaller — possibly 0 or 1.\n\n")
 		}
-	}
-
-	// Render the investigation plan so the LLM sees the step
-	// structure. Multi-step plans guide the LLM through a
-	// structured investigation; single-step plans render as a
-	// simple "Investigation goal" line that doesn't change the
-	// existing behavior.
-	if e.investigationPlan != nil && len(e.investigationPlan.Steps) > 1 {
-		b.WriteString("### Investigation Plan\n\n")
-		b.WriteString("This question requires a multi-step investigation. Complete each step before moving to the next:\n\n")
-		for i, step := range e.investigationPlan.Steps {
-			deps := ""
-			if len(step.DependsOn) > 0 {
-				deps = " (after " + strings.Join(step.DependsOn, ", ") + ")"
-			}
-			fmt.Fprintf(&b, "%d. **[%s]** %s%s\n", i+1, step.Strategy, step.Objective, deps)
-		}
-		b.WriteString("\nStart with step 1. When you have enough evidence for the current step, move to the next.\n\n")
 	}
 
 	if len(analyzerKeywords) > 0 {
@@ -941,16 +904,6 @@ func (e *explorerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 		return true
 	}
 
-	// S2b: early exit when the investigation plan's ALL steps are
-	// satisfied. This catches the case where the step-aware midLoop
-	// auto-advancement marked all steps satisfied but the LLM keeps
-	// calling tools (e.g. redundant grep after the chain is complete).
-	// Saves 1-2 wasted iterations at the tail of the investigation.
-	if e.investigationPlan != nil && len(e.investigationPlan.Steps) > 1 &&
-		e.investigationPlan.AllSatisfied() {
-		logging.Debug("[explorer] ShouldStop iter=%d: investigation plan all steps satisfied", iteration)
-		return true
-	}
 
 	// Fallback S1: when the LLM soft-stops (no tool calls) in Phase 1
 	// with ERM fully satisfied + terminal evidence, accept the stop even
@@ -1070,21 +1023,6 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// state being current. Idempotent: once primaryReadIter is set,
 	// later calls are no-ops.
 	e.observePrimaryRead(iteration, allResults)
-
-	// P2: auto-advance investigation plan steps. At each midLoop,
-	// check if the current step's structural criterion is met. If
-	// so, mark it satisfied and activate the next step. This runs
-	// BEFORE the hint checks below so the hints can use the
-	// updated plan state (e.g. "step-0 done, now focus on step-1").
-	if e.investigationPlan != nil && len(e.investigationPlan.Steps) > 1 {
-		if current := e.investigationPlan.CurrentStep(); current != nil {
-			if CheckStepSatisfaction(current, e.structuredEvidence, e.investigationNotes) {
-				e.investigationPlan.MarkSatisfied(current.ID, "midloop auto-satisfied")
-				logging.Debug("[planner] step %s satisfied at iter=%d, plan=%s",
-					current.ID, iteration, e.investigationPlan.Summary())
-			}
-		}
-	}
 
 	// Infer the current batch size from the allResults growth delta.
 	// observeMidLoop is called once per ReAct iteration, after all
@@ -1607,53 +1545,25 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		}
 	}
 
-	// RequiredFiles coverage (HARD evidence, T3a follow-up): when the
-	// analyzer pre-computed a RequiredFiles list (from repo_map entity
-	// Investigation plan step check (P2, HARD evidence): when the
-	// explorer has a multi-step investigation plan, check whether
-	// the current step is satisfied. If not, push the LLM to
-	// continue working on the current step's objective. If yes,
-	// advance to the next step and push with the new objective.
-	// This replaces the global "count >= N" threshold with per-step
-	// structural completion criteria.
-	//
-	// Fires even on firstSoftStop because it's structural (the plan
-	// was derived deterministically from question classification).
-	// Single-step plans skip this check entirely (AllSatisfied
-	// returns true for 1-step plans after the ERM gate handles it).
-	if e.investigationPlan != nil && len(e.investigationPlan.Steps) > 1 {
-		if !e.investigationPlan.AllSatisfied() {
-			current := e.investigationPlan.CurrentStep()
-			if current != nil {
-				// Auto-activate the current step if it's still pending.
-				if current.Status == types.StepPending {
-					e.investigationPlan.Activate(current.ID)
-				}
-				// P4: bump retry counter for the current step. If it
-				// exceeds the threshold, attempt dynamic refinement.
-				e.investigationPlan.IncrRetry(current.ID)
-				if MaybeRefinePlan(e.investigationPlan) {
-					// Plan was refined — re-read the current step.
-					current = e.investigationPlan.CurrentStep()
-				}
-				if current != nil {
-					progress = true
-					var hint strings.Builder
-					fmt.Fprintf(&hint, "**Investigation step incomplete.** Current step: %s\n\n", current.Objective)
-					fmt.Fprintf(&hint, "Strategy: %s\n", stepStrategyGuidance(current.Strategy))
-					hint.WriteString("\nDo NOT stop until this step has sufficient evidence. ")
-					hint.WriteString("Then call emit_evidence with the findings for this step.\n")
-					return LoopSignal{
-						HintRequested: true,
-						HintKey:       "explorer.phase1.investigation-step",
-						Hint:          hint.String(),
-						Progress:      progress,
-					}
-				}
+	// Retry-triggered refinement: bump RetryCount on unsatisfied
+	// requirements each time the soft-stop fires. When RetryCount
+	// exceeds replanRetryThreshold, split multi-entity requirements
+	// into per-entity sub-requirements via ermMaybeRefine.
+	if len(e.ermRequirements) > 0 && !ermAllSatisfied(e.ermRequirements) {
+		for i := range e.ermRequirements {
+			if e.ermRequirements[i].Status != "satisfied" {
+				e.ermRequirements[i].RetryCount++
 			}
+		}
+		if refined, changed := ermMaybeRefine(e.ermRequirements); changed {
+			e.ermRequirements = refined
+			e.ermRequirements = checkRequirementSatisfaction(
+				e.ermRequirements, e.investigationNotes, e.structuredEvidence, e.complexity)
 		}
 	}
 
+	// RequiredFiles coverage (HARD evidence, T3a follow-up): when the
+	// analyzer pre-computed a RequiredFiles list (from repo_map entity
 	// query) and < 50% of those files have been read, push the LLM
 	// to read the unread ones. This is a hard-evidence branch — the
 	// RequiredFiles list is structurally derived from entity matches,
@@ -6519,29 +6429,6 @@ func preReadRequiredFiles(repoRoot string, files []string, maxFiles, maxLines in
 		injected++
 	}
 	return b.String()
-}
-
-// stepStrategyGuidance returns a one-sentence instruction for the
-// LLM based on the investigation step's strategy. This is the
-// "how to investigate" complement to the step's Objective ("what
-// to investigate").
-func stepStrategyGuidance(strategy types.InvestStrategy) string {
-	switch strategy {
-	case types.StrategyLocate:
-		return "Use grep(files_only=true) and repo_map to find where the target entities are defined. Read their definition files."
-	case types.StrategyTraceChain:
-		return "Trace the COMPLETE call/dispatch chain hop by hop. Each hop must have a file:line citation. Follow cross-file references until you reach the target entity."
-	case types.StrategyEnumerate:
-		return "Find ALL instances of the subject type. Check registration files, factories, and dispatch tables. Do NOT stop at the first few — enumerate exhaustively."
-	case types.StrategyVerifyCondition:
-		return "For EACH candidate from the previous step, read its implementation and check whether the condition holds. Record a yes/no verdict per candidate."
-	case types.StrategyAggregate:
-		return "Summarise the findings from previous steps. Count, compare, or synthesise as the question requires."
-	case types.StrategyCompare:
-		return "Collect evidence about EACH entity independently, then identify similarities and differences."
-	default:
-		return "Investigate the question using grep, read_file, and repo_map."
-	}
 }
 
 // filterPartialReadsByRelevance removes partial-read hints for
