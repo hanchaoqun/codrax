@@ -1520,6 +1520,74 @@ func buildOrLoadGraph() {}
 	}
 }
 
+func TestBuildInitialInstruction_DeclarativeAnchorsStartFocusedDepth(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(repo, "config"), 0o755); err != nil {
+		t.Fatalf("mkdir config: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo, "internal"), 0o755); err != nil {
+		t.Fatalf("mkdir internal: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "config", "defaults.go"), []byte(`package config
+
+func RegisterDefaults(r *Registry) {
+	r.Register(BuildWidget())
+}
+`), 0o644); err != nil {
+		t.Fatalf("write defaults.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "config", "routes.go"), []byte(`package config
+
+var defaultRoutes = map[string]string{
+	"widget": "/widgets",
+}
+`), 0o644); err != nil {
+		t.Fatalf("write routes.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "internal", "server.go"), []byte("package internal\n"), 0o644); err != nil {
+		t.Fatalf("write server.go: %v", err)
+	}
+
+	question := "Which widgets are registered by default?"
+	mutable := types.NewMutableState(question)
+	mutable.SetRequestModel(types.RequestModel{PredicateAxis: types.AxisRegister})
+	ctx := &types.AgentContext{
+		Objective: question,
+		RepoRoot:  repo,
+		Mutable:   mutable,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Complexity: types.ComplexityModerate,
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"register", "default", "widget", "route"},
+					Kind:     "enumeration",
+				},
+			},
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: []string{"config/routes.go", "internal/server.go"},
+			},
+		},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("declarative anchors should start in depth phase, got phase=%d", eval.phase)
+	}
+	if !strings.Contains(prompt, "Declarative Registration Start") {
+		t.Fatalf("declarative-focused prompt missing, got: %s", prompt)
+	}
+	if strings.Contains(prompt, "Breadth Scan") {
+		t.Fatalf("declarative-focused start should bypass breadth prompt, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "config/defaults.go") || !strings.Contains(prompt, "config/routes.go") {
+		t.Fatalf("declarative prompt should surface the registry surfaces, got: %s", prompt)
+	}
+	if strings.Contains(prompt, "internal/server.go") {
+		t.Fatalf("declarative prompt should drop unrelated required files outside the declarative neighborhood: %s", prompt)
+	}
+}
+
 func TestActiveFrontierFiles_ExcludesAllScoredNoiseWhenExactAnchorPresent(t *testing.T) {
 	eval := &explorerEvaluator{
 		exactAnchorFiles: []string{"target.go"},
@@ -1531,6 +1599,47 @@ func TestActiveFrontierFiles_ExcludesAllScoredNoiseWhenExactAnchorPresent(t *tes
 	got := eval.activeFrontierFiles(map[string]bool{"read.go": true}, "")
 	if strings.Join(got, ",") != "neighbor.go,read.go,target.go" {
 		t.Fatalf("active frontier should stay focused on read+anchor files, got %v", got)
+	}
+}
+
+func TestActiveFrontierFiles_ExcludesAllScoredNoiseWhenDeclarativeAnchorsPresent(t *testing.T) {
+	eval := &explorerEvaluator{
+		declarativeAnchorFiles: []string{"config/defaults.go", "config/routes.go"},
+		requiredFiles:          []string{"config/builders.go", "internal/server.go"},
+		preScannedFiles:        []string{"config/defaults.go", "config/routes.go", "config/builders.go", "internal/noise.go"},
+		allScoredFiles:         []string{"config/defaults.go", "config/routes.go", "config/builders.go", "internal/noise.go", "other/noise.go"},
+	}
+
+	got := eval.activeFrontierFiles(map[string]bool{"config/read.go": true}, "")
+	if strings.Join(got, ",") != "config/builders.go,config/defaults.go,config/read.go,config/routes.go" {
+		t.Fatalf("declarative frontier should stay focused on read+registry files, got %v", got)
+	}
+}
+
+func TestCoverageScopeFiles_UsesFocusedDeclarativeFrontier(t *testing.T) {
+	eval := &explorerEvaluator{
+		declarativeAnchorFiles: []string{"internal/skill/defaults.go", "internal/skill/providers.go"},
+		allScoredFiles:         []string{"internal/skill/defaults.go", "internal/skill/providers.go", "internal/tool/defaults.go", "internal/agent/explorer.go"},
+	}
+
+	readSet := map[string]bool{
+		"internal/skill/defaults.go":  true,
+		"internal/skill/providers.go": true,
+	}
+	discovered := []string{
+		"internal/skill/defaults.go",
+		"internal/skill/providers.go",
+		"internal/tool/defaults.go",
+		"internal/agent/explorer.go",
+	}
+
+	scope := eval.coverageScopeFiles(discovered, readSet, "")
+	if strings.Join(scope, ",") != "internal/skill/defaults.go,internal/skill/providers.go" {
+		t.Fatalf("coverage scope should stay on the declarative frontier, got %v", scope)
+	}
+	readCount, coverage, unread := coverageSnapshot(scope, readSet)
+	if readCount != 2 || coverage != 1 || len(unread) != 0 {
+		t.Fatalf("focused coverage should treat the frontier as complete, got read=%d coverage=%.2f unread=%v", readCount, coverage, unread)
 	}
 }
 
@@ -1583,6 +1692,56 @@ func TestFilterEvidenceItemsByFileSet_DropsBridgeLiteralNoise(t *testing.T) {
 	got := filterEvidenceItemsByFileSet(items, allowed)
 	if len(got) != 1 || got[0].Summary != "keep" {
 		t.Fatalf("bridge-literal filtering should keep only frontier files, got %+v", got)
+	}
+}
+
+func TestExtractBridgeLiteralChains_ResolvesBuilderReturnedIdentity(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "registry.go"), []byte(`package sample
+
+func InstallDefaults(r *Registry) {
+	r.Register(BuildWidget())
+}
+`), 0o644); err != nil {
+		t.Fatalf("write registry.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "builder.go"), []byte(`package sample
+
+func BuildWidget() *Config {
+	return &Config{
+		Name: "widget",
+		Goal: "serve widget traffic",
+	}
+}
+`), 0o644); err != nil {
+		t.Fatalf("write builder.go: %v", err)
+	}
+
+	graph := &repomap.Graph{
+		Files: []*repomap.FileInfo{
+			{
+				RelPath:  "registry.go",
+				Language: "go",
+				Symbols: []repomap.Symbol{
+					{Name: "InstallDefaults", Kind: "function", File: "registry.go", Line: 3, EndLine: 5},
+				},
+			},
+			{
+				RelPath:  "builder.go",
+				Language: "go",
+				Symbols: []repomap.Symbol{
+					{Name: "BuildWidget", Kind: "function", File: "builder.go", Line: 3, EndLine: 8},
+				},
+			},
+		},
+	}
+
+	items := extractBridgeLiteralChains(graph, repo, nil)
+	if len(items) != 1 {
+		t.Fatalf("expected one bridge literal item, got %d (%+v)", len(items), items)
+	}
+	if !strings.Contains(items[0].Summary, "BuildWidget") || !strings.Contains(items[0].Summary, `"widget"`) {
+		t.Fatalf("builder-return identity chain missing expected terminal literal, got %q", items[0].Summary)
 	}
 }
 
@@ -2924,5 +3083,48 @@ func TestFormatReadFileOffsetGuidance_NoGraphReturnsEmpty(t *testing.T) {
 	}
 	if got := e2.formatReadFileOffsetGuidance("a.go"); got != "" {
 		t.Errorf("zero-symbol file must return empty guidance, got %q", got)
+	}
+}
+
+func TestExplorerSoftStop_SecondStop_CoverageUsesFocusedDeclarativeScope(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:                  1,
+		userQuestion:           "Which skills are registered by default?",
+		isEnumerationQuery:     true,
+		predicateAxis:          types.AxisRegister,
+		declarativeAnchorFiles: []string{"internal/skill/defaults.go", "internal/skill/providers.go"},
+		allScoredFiles:         []string{"internal/skill/defaults.go", "internal/skill/providers.go", "internal/tool/defaults.go", "internal/agent/explorer.go"},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "grep",
+			Success:  true,
+			Summary: "[grep: 4 matching files]\n" +
+				"internal/skill/defaults.go\n" +
+				"internal/skill/providers.go\n" +
+				"internal/tool/defaults.go\n" +
+				"internal/agent/explorer.go",
+		},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/skill/defaults.go: showing lines 1-80 of 80]\npackage skill\n",
+		},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/skill/providers.go: showing lines 1-60 of 60]\npackage skill\n",
+		},
+	}
+
+	sig := softStopWithContinuations(eval, "I have checked the registration files.", 5, 1, history)
+	if !sig.HintRequested || sig.HintKey != "explorer.phase1.coverage" {
+		t.Fatalf("focused declarative coverage should fall through to the generic coverage hint, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "File coverage: 2 read out of 2 discovered.") {
+		t.Fatalf("coverage hint should use the focused scope, got: %s", sig.Hint)
+	}
+	if strings.Contains(sig.Hint, "internal/tool/defaults.go") || strings.Contains(sig.Hint, "internal/agent/explorer.go") {
+		t.Fatalf("coverage hint should not drag unrelated discovered files back into scope, got: %s", sig.Hint)
 	}
 }

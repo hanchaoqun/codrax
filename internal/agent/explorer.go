@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/dataflow"
+	"github.com/hanchaoqun/codrax/internal/analysis/declarative"
 	"github.com/hanchaoqun/codrax/internal/analysis/subject"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -32,6 +33,7 @@ type explorerEvaluator struct {
 	fileSymbols                map[string][]string  // path → symbol summaries from repo_map
 	searchResult               *keywordSearchResult // full search result for cross-reference lookups
 	exactAnchorFiles           []string             // exact-entity anchor files from keyword search, in rank order
+	declarativeAnchorFiles     []string             // declarative registry/defaults/routes anchors for enumeration questions
 	investigationNotes         []string             // assistant analysis messages from ReAct loop
 	userQuestion               string               // original user question, for focus alignment
 	repoRoot                   string               // repository root path, cached from BuildInitialInstruction
@@ -165,6 +167,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.complexity = ""
 		e.requiredFiles = nil
 		e.exactAnchorFiles = nil
+		e.declarativeAnchorFiles = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -213,6 +216,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
+	e.declarativeAnchorFiles = nil
 	// Per-dispatch reset of the completion flag. Without this, a
 	// Window 2 explore dispatch inherits Window 1's emit_investigation_complete
 	// state and observeSoftStop immediately accepts the stop even if the
@@ -362,6 +366,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.searchResult = sr
 		if sr != nil {
 			e.exactAnchorFiles = exactAnchorFilesFromScores(sr.Files)
+			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
 			e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
 		}
 		results := e.filterKeywordResults(sr.Files)
@@ -646,6 +651,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				e.tightenFocusedFrontier()
 				return e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords)
 			}
+			if e.shouldStartDeclarativeDepth(analyzerKind) {
+				e.phase = 1
+				e.tightenDeclarativeFrontier()
+				return e.buildDeclarativeFocusedStartInstruction(ctx, analyzerKeywords)
+			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
 			// can try its own grep strategies.
@@ -771,6 +781,70 @@ func (e *explorerEvaluator) uniqueExactAnchorFile() (string, bool) {
 	return e.exactAnchorFiles[0], true
 }
 
+func declarativeFocusRelevant(questionKind string, isEnumeration bool, axis types.PredicateAxis) bool {
+	switch strings.ToLower(strings.TrimSpace(questionKind)) {
+	case "registration", "config_mapping":
+		return true
+	case "enumeration":
+		return isEnumeration || axis == types.AxisRegister
+	}
+	return isEnumeration && axis == types.AxisRegister
+}
+
+func declarativeAllowedKinds(questionKind string, axis types.PredicateAxis) map[declarative.Kind]bool {
+	allowed := map[declarative.Kind]bool{
+		declarative.KindRegistry: true,
+		declarative.KindDefaults: true,
+		declarative.KindWire:     true,
+		declarative.KindTopology: true,
+	}
+	switch strings.ToLower(strings.TrimSpace(questionKind)) {
+	case "config_mapping":
+		allowed[declarative.KindSchema] = true
+		allowed[declarative.KindManifest] = true
+	case "registration", "enumeration":
+		allowed[declarative.KindRoutes] = true
+		if axis == types.AxisConfigure {
+			allowed[declarative.KindSchema] = true
+		}
+	}
+	return allowed
+}
+
+func declarativeAnchorFilesFromScores(results []keywordFileScore, questionKind string, axis types.PredicateAxis, isEnumeration bool) []string {
+	if len(results) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
+		return nil
+	}
+	allowed := declarativeAllowedKinds(questionKind, axis)
+	collect := func(anyDeclarative bool) []string {
+		seen := make(map[string]bool)
+		var out []string
+		for _, result := range results {
+			path := canonicalExplorerPath(result.Path)
+			if path == "" || isNoisePath(path) || seen[path] {
+				continue
+			}
+			kind, _ := declarativeClassifier.ClassifyPath(path)
+			if kind == declarative.KindNone {
+				continue
+			}
+			if !anyDeclarative && !allowed[kind] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+			if len(out) >= 3 {
+				break
+			}
+		}
+		return out
+	}
+	if anchors := collect(false); len(anchors) > 0 {
+		return anchors
+	}
+	return collect(true)
+}
+
 func canonicalExplorerPath(path string) string {
 	// Unconditional backslash → slash normalization: filepath.ToSlash
 	// is a no-op on Linux (separator is already '/'), so a Windows-
@@ -800,6 +874,19 @@ func sameRepoDir(a, b string) bool {
 		return false
 	}
 	return filepath.Dir(a) == filepath.Dir(b)
+}
+
+func sameRepoDirAny(anchors []string, candidate string) bool {
+	candidate = canonicalExplorerPath(candidate)
+	if candidate == "" {
+		return false
+	}
+	for _, anchor := range anchors {
+		if sameRepoDir(anchor, candidate) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) focusedAnchorNeighborhood() map[string]bool {
@@ -852,6 +939,71 @@ func (e *explorerEvaluator) focusedAnchorAllowsFile(path string) bool {
 	return ok && sameRepoDir(anchor, path)
 }
 
+func (e *explorerEvaluator) declarativeFocusNeighborhood() map[string]bool {
+	if _, ok := e.uniqueExactAnchorFile(); ok || len(e.declarativeAnchorFiles) == 0 {
+		return nil
+	}
+	files := make(map[string]bool)
+	add := func(path string) {
+		path = canonicalExplorerPath(path)
+		if path == "" || isNoisePath(path) {
+			return
+		}
+		files[path] = true
+	}
+	for _, anchor := range e.declarativeAnchorFiles {
+		add(anchor)
+	}
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return files
+	}
+	graph := e.searchResult.Graph
+	for _, anchor := range e.declarativeAnchorFiles {
+		fi := graph.FileIndex[anchor]
+		if fi == nil {
+			continue
+		}
+		for _, rel := range fi.Relations {
+			if rel.Kind != "call" {
+				continue
+			}
+			if rel.ToEP.File != "" {
+				add(rel.ToEP.File)
+			}
+			if target := graph.ResolveCallTarget(fi, rel); target != nil {
+				add(target.File)
+			}
+		}
+	}
+	return files
+}
+
+func (e *explorerEvaluator) declarativeAnchorAllowsFile(path string) bool {
+	path = canonicalExplorerPath(path)
+	if path == "" || isNoisePath(path) {
+		return false
+	}
+	anchors := e.declarativeAnchorFiles
+	if len(anchors) == 0 {
+		return true
+	}
+	neighborhood := e.declarativeFocusNeighborhood()
+	if neighborhood[path] {
+		return true
+	}
+	return sameRepoDirAny(anchors, path)
+}
+
+func (e *explorerEvaluator) activeFocusAllowsFile(path string) bool {
+	if _, ok := e.uniqueExactAnchorFile(); ok {
+		return e.focusedAnchorAllowsFile(path)
+	}
+	if len(e.declarativeAnchorFiles) > 0 {
+		return e.declarativeAnchorAllowsFile(path)
+	}
+	return true
+}
+
 func (e *explorerEvaluator) filterRequiredFiles(files []string) []string {
 	if len(files) == 0 {
 		return nil
@@ -863,7 +1015,7 @@ func (e *explorerEvaluator) filterRequiredFiles(files []string) []string {
 		if canon == "" || isNoisePath(canon) || seen[canon] {
 			continue
 		}
-		if !e.focusedAnchorAllowsFile(canon) {
+		if !e.activeFocusAllowsFile(canon) {
 			continue
 		}
 		seen[canon] = true
@@ -882,7 +1034,7 @@ func (e *explorerEvaluator) filterKeywordResults(results []keywordFileScore) []k
 		if result.Path == "" || isNoisePath(result.Path) {
 			continue
 		}
-		if !e.focusedAnchorAllowsFile(result.Path) {
+		if !e.activeFocusAllowsFile(result.Path) {
 			continue
 		}
 		out = append(out, result)
@@ -898,6 +1050,16 @@ func (e *explorerEvaluator) shouldStartFocusedDepth(questionKind string) bool {
 		return false
 	}
 	return !strings.EqualFold(strings.TrimSpace(questionKind), "enumeration")
+}
+
+func (e *explorerEvaluator) shouldStartDeclarativeDepth(questionKind string) bool {
+	if _, ok := e.uniqueExactAnchorFile(); ok {
+		return false
+	}
+	if len(e.declarativeAnchorFiles) == 0 {
+		return false
+	}
+	return declarativeFocusRelevant(questionKind, e.isEnumerationQuery, e.predicateAxis)
 }
 
 func (e *explorerEvaluator) tightenFocusedFrontier() {
@@ -933,6 +1095,65 @@ func (e *explorerEvaluator) tightenFocusedFrontier() {
 	}
 	sort.Strings(focusedNeighbors)
 	for _, file := range focusedNeighbors {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(file)
+	}
+	for _, f := range e.requiredFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(f)
+	}
+	for _, f := range e.preScannedFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(f)
+	}
+	if len(narrowed) > 0 {
+		e.preScannedFiles = narrowed
+	}
+}
+
+func (e *explorerEvaluator) tightenDeclarativeFrontier() {
+	if len(e.declarativeAnchorFiles) == 0 {
+		return
+	}
+	limit := tool.CurrentAnalysisLimits().Phase1UnreadTopK
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit < len(e.declarativeAnchorFiles) {
+		limit = len(e.declarativeAnchorFiles)
+	}
+	if limit > 4 {
+		limit = 4
+	}
+	seen := make(map[string]bool)
+	var narrowed []string
+	add := func(path string) {
+		path = canonicalExplorerPath(path)
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		narrowed = append(narrowed, path)
+	}
+	for _, anchor := range e.declarativeAnchorFiles {
+		add(anchor)
+	}
+	var neighbors []string
+	for file := range e.declarativeFocusNeighborhood() {
+		file = canonicalExplorerPath(file)
+		if file == "" || seen[file] {
+			continue
+		}
+		neighbors = append(neighbors, file)
+	}
+	sort.Strings(neighbors)
+	for _, file := range neighbors {
 		if len(narrowed) >= limit {
 			break
 		}
@@ -1025,9 +1246,79 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 	return b.String()
 }
 
+func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.AgentContext, analyzerKeywords []string) string {
+	if len(e.declarativeAnchorFiles) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Declarative Registration Start\n\n")
+	b.WriteString("This question likely resolves to declarative registration / defaults / routing surfaces. ")
+	b.WriteString("Start by reading those surfaces directly instead of widening to generic implementation files.\n\n")
+	b.WriteString("Read these files first:\n")
+	for _, anchor := range e.declarativeAnchorFiles {
+		b.WriteString("- `" + anchor + "`\n")
+	}
+	b.WriteString("\nWorkflow:\n")
+	b.WriteString("- Enumerate every registration / binding / mapping entry in these files before widening scope.\n")
+	b.WriteString("- If an entry registers a builder or factory call, resolve the builder's stable terminal identity (for example Name / Key / Type / Route) before concluding that the item is known.\n")
+	b.WriteString("- Expand only to builders, factories, or direct neighbors referenced by these surfaces.\n")
+	b.WriteString("- Do NOT broaden to the full keyword-search tail until the declarative surfaces and their direct builder references are exhausted.\n\n")
+	if len(e.requiredFiles) > 0 {
+		b.WriteString("### Analyzer's Required Files\n\n")
+		b.WriteString("Trace outward through these structurally relevant neighbors only as needed:\n\n")
+		count := 0
+		for _, f := range e.requiredFiles {
+			f = strings.TrimPrefix(f, "./")
+			if f == "" {
+				continue
+			}
+			b.WriteString("- `" + f + "`\n")
+			count++
+			if count >= 4 {
+				break
+			}
+		}
+		if count > 0 {
+			b.WriteString("\n")
+		}
+	}
+	if len(analyzerKeywords) > 0 {
+		display := analyzerKeywords
+		if len(display) > 12 {
+			display = display[:12]
+		}
+		b.WriteString("### Search Terms\n\n")
+		b.WriteString("Use these inside the declarative surfaces and their direct builder neighbors before widening scope:\n`")
+		b.WriteString(strings.Join(display, "`, `"))
+		b.WriteString("`\n\n")
+	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		preReadFiles := append([]string(nil), e.declarativeAnchorFiles...)
+		for _, f := range e.requiredFiles {
+			f = strings.TrimPrefix(f, "./")
+			if f == "" {
+				continue
+			}
+			preReadFiles = append(preReadFiles, f)
+		}
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 220); preReadInjected != "" {
+			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
+			b.WriteString(preReadInjected)
+		}
+	}
+	b.WriteString("Evidence format:\n")
+	b.WriteString("- `[DIRECT] symbol line N: <what this declaration establishes>`\n")
+	b.WriteString("- `[REGISTRATION] symbol line N: <what is registered or bound, EXACT values>`\n")
+	b.WriteString("- `[CONDITIONAL] symbol line N: <what happens> IF <condition>`\n")
+	b.WriteString("- `[ABSENT] <what was expected but NOT found>`\n\n")
+	b.WriteString("Read the declarative surfaces now and collect evidence before expanding.\n")
+	return b.String()
+}
+
 func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notesJoined string) map[string]bool {
 	files := make(map[string]bool)
 	focused := e.focusedAnchorNeighborhood()
+	declarativeFocused := e.declarativeFocusNeighborhood()
 	add := func(path string) {
 		path = canonicalExplorerPath(path)
 		if path == "" || isNoisePath(path) {
@@ -1041,14 +1332,20 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 	for _, file := range e.exactAnchorFiles {
 		add(file)
 	}
+	for _, file := range e.declarativeAnchorFiles {
+		add(file)
+	}
 	for file := range focused {
+		add(file)
+	}
+	for file := range declarativeFocused {
 		add(file)
 	}
 	for _, file := range e.primaryEntityFiles() {
 		add(file)
 	}
 	for _, file := range e.requiredFiles {
-		if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+		if !e.activeFocusAllowsFile(file) {
 			continue
 		}
 		add(file)
@@ -1059,12 +1356,14 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 	}
 	if len(e.exactAnchorFiles) == 1 && limit > 2 {
 		limit = 2
+	} else if len(e.declarativeAnchorFiles) > 0 && limit > 3 {
+		limit = 3
 	}
 	for i, file := range e.preScannedFiles {
 		if i >= limit {
 			break
 		}
-		if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+		if !e.activeFocusAllowsFile(file) {
 			continue
 		}
 		add(file)
@@ -1076,7 +1375,7 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 			}
 			for _, def := range defs {
 				if def != nil {
-					if len(focused) > 0 && !e.focusedAnchorAllowsFile(def.File) {
+					if !e.activeFocusAllowsFile(def.File) {
 						continue
 					}
 					add(def.File)
@@ -1089,7 +1388,7 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 			if i >= 2 {
 				break
 			}
-			if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+			if !e.activeFocusAllowsFile(file) {
 				continue
 			}
 			add(file)
@@ -1100,7 +1399,7 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 			if i >= 2 {
 				break
 			}
-			if len(focused) > 0 && !e.focusedAnchorAllowsFile(file) {
+			if !e.activeFocusAllowsFile(file) {
 				continue
 			}
 			add(file)
@@ -1120,6 +1419,43 @@ func (e *explorerEvaluator) activeFrontierFiles(readSet map[string]bool, notesJo
 	}
 	sort.Strings(out)
 	return out
+}
+
+func (e *explorerEvaluator) coverageScopeFiles(discovered []string, readSet map[string]bool, notesJoined string) []string {
+	if _, ok := e.uniqueExactAnchorFile(); ok || len(e.declarativeAnchorFiles) > 0 {
+		if scope := e.activeFrontierFiles(readSet, notesJoined); len(scope) > 0 {
+			return scope
+		}
+	}
+	if len(discovered) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(discovered))
+	out := make([]string, 0, len(discovered))
+	for _, file := range discovered {
+		file = canonicalExplorerPath(file)
+		if file == "" || isNoisePath(file) || seen[file] {
+			continue
+		}
+		seen[file] = true
+		out = append(out, file)
+	}
+	return out
+}
+
+func coverageSnapshot(scope []string, readSet map[string]bool) (readCount int, coverage float64, unread []string) {
+	if len(scope) == 0 {
+		return 0, 0, nil
+	}
+	for _, file := range scope {
+		if readSetContains(readSet, file) {
+			readCount++
+			continue
+		}
+		unread = append(unread, file)
+	}
+	coverage = float64(readCount) / float64(len(scope))
+	return readCount, coverage, unread
 }
 
 func filterEvidenceItemsByFileSet(items []types.EvidenceItem, allowed map[string]bool) []types.EvidenceItem {
@@ -2081,28 +2417,21 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// df1.
 	if e.isEnumerationQuery {
 		discovered, readSet, _ := extractFileCoverage(allResults)
-		if len(discovered) > 0 {
-			coverage := float64(len(readSet)) / float64(len(discovered))
-			if coverage < e.heuristics.MidLoopEnumCoverage && len(discovered)-len(readSet) >= e.heuristics.EnumMidLoopUnreadFloor {
-				var unread []string
-				for _, f := range discovered {
-					if !readSetContains(readSet, f) && !isNoisePath(f) {
-						unread = append(unread, f)
-					}
-					if len(unread) >= 5 {
-						break
-					}
+		scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
+		if len(scope) > 0 {
+			readCount, coverage, unread := coverageSnapshot(scope, readSet)
+			if coverage < e.heuristics.MidLoopEnumCoverage && len(unread) >= e.heuristics.EnumMidLoopUnreadFloor {
+				if len(unread) > 5 {
+					unread = unread[:5]
 				}
-				if len(unread) > 0 {
-					if b.Len() > 0 {
-						b.WriteString("\n")
-					}
-					fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d discovered files (%.0f%%). "+
-						"Read these next: %s\n",
-						len(readSet), len(discovered), coverage*100, strings.Join(unread, ", "))
-					if hintKey == "" {
-						hintKey = "explorer.mid-loop.enumeration"
-					}
+				if b.Len() > 0 {
+					b.WriteString("\n")
+				}
+				fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d discovered files (%.0f%%). "+
+					"Read these next: %s\n",
+					readCount, len(scope), coverage*100, strings.Join(unread, ", "))
+				if hintKey == "" {
+					hintKey = "explorer.mid-loop.enumeration"
 				}
 			}
 		}
@@ -2488,12 +2817,10 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			seen[f] = true
 		}
 	}
-	var unread []string
-	for _, f := range discovered {
-		if !readSetContains(readSet, f) {
-			unread = append(unread, f)
-		}
-	}
+	notesJoined := strings.Join(e.investigationNotes, "\n")
+	scope := e.coverageScopeFiles(discovered, readSet, notesJoined)
+	scopeReadCount, scopeCoverage, scopeUnread := coverageSnapshot(scope, readSet)
+	unread := append([]string(nil), scopeUnread...)
 
 	// Function-boundary read guidance: when the LLM reads part of a
 	// function but stops before the end, inject exact read ranges.
@@ -2599,14 +2926,14 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// Enumeration completeness: when the question asks to "list all X",
 	// verify that the LLM has analyzed enough of the discovered files.
 	// A coverage gap here means the enumeration will be incomplete.
-	if e.isEnumerationQuery && len(discovered) > 0 {
-		enumCoverage := float64(len(readSet)) / float64(len(discovered))
+	if e.isEnumerationQuery && len(scope) > 0 {
+		enumCoverage := scopeCoverage
 		if enumCoverage < e.heuristics.SoftStopEnumCoverage && len(unread) > 0 {
 			var hint strings.Builder
 			fmt.Fprintf(&hint, "**Enumeration completeness check:** This question asks to list ALL items. "+
 				"You found %d matching files but only read %d (%.0f%% coverage). "+
 				"For enumeration queries you must achieve ≥%.0f%% coverage.\n\n"+
-				"Unread files:\n", len(discovered), len(readSet), enumCoverage*100, e.heuristics.SoftStopEnumCoverage*100)
+				"Unread files:\n", len(scope), scopeReadCount, enumCoverage*100, e.heuristics.SoftStopEnumCoverage*100)
 			for _, f := range unread {
 				hint.WriteString("- " + f + "\n")
 			}
@@ -2730,7 +3057,6 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		missedSymbols []string
 	}
 	var unanalyzed []unanalyzedFile
-	notesJoined := strings.Join(e.investigationNotes, "\n")
 	for f := range readSet {
 		syms := e.fileSymbols[f]
 		if len(syms) == 0 {
@@ -2795,7 +3121,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 
 		var hint strings.Builder
 		fmt.Fprintf(&hint,
-			"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
+			"File coverage: %d read out of %d discovered.\n", scopeReadCount, len(scope))
 		fmt.Fprintf(&hint, "\nReminder — user question: %s\n\n", e.userQuestion)
 
 		if e.preScannedPushCount >= e.heuristics.MaxPreScannedPushes {
@@ -2938,7 +3264,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// Show remaining coverage for grep-discovered files.
 	var hint strings.Builder
 	fmt.Fprintf(&hint,
-		"File coverage: %d read out of %d discovered.\n", len(readSet), len(discovered))
+		"File coverage: %d read out of %d discovered.\n", scopeReadCount, len(scope))
 	if len(unread) > 0 {
 		hint.WriteString("Unread files that matched the query (may or may not be relevant):\n")
 		for _, f := range unread {
@@ -3247,8 +3573,12 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	//    Require at least 2 [DIRECT]/[REGISTRATION] entries (ground-truth facts).
 	// 4. File relevance: weight read files by their keyword search rank.
 	discovered, readSet, _ := extractFileCoverage(toolResults)
+	scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
+	scopeReadCount, scopeCoverage, _ := coverageSnapshot(scope, readSet)
 	coverage := 0.0
-	if len(discovered) > 0 {
+	if len(scope) > 0 {
+		coverage = scopeCoverage
+	} else if len(discovered) > 0 {
 		coverage = float64(len(readSet)) / float64(len(discovered))
 	}
 
@@ -3284,8 +3614,11 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Enumeration queries need stricter thresholds: higher file coverage
 	// and more evidence entries to ensure exhaustive listing.
 	if e.isEnumerationQuery {
-		fileCoverage = coverage >= 0.8 || len(readSet) >= len(discovered)
-		minDirect := len(discovered) / 3
+		fileCoverage = coverage >= 0.8 || (len(scope) > 0 && scopeReadCount >= len(scope))
+		minDirect := len(scope) / 3
+		if minDirect == 0 {
+			minDirect = len(discovered) / 3
+		}
 		if minDirect < 2 {
 			minDirect = 2
 		}
@@ -3561,7 +3894,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			out.RetryHint = "Previous attempt left evidence requirements unsatisfied. " + ermUnsatisfiedGaps(e.ermRequirements)
 		} else {
 			hintKey = "explorer.retry.file-coverage"
-			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", len(readSet), len(discovered), coverage*100, relevantRead)
+			out.RetryHint = fmt.Sprintf("Previous attempt read only %d of %d discovered relevant files (%.0f%% coverage, %d relevant). Read more of the discovered files.", scopeReadCount, max(len(scope), len(discovered)), coverage*100, relevantRead)
 		}
 		logging.Debug("[explorer] retry hint built key=%q len=%d body=%q",
 			hintKey, len(out.RetryHint), logging.Truncate(out.RetryHint, logging.HintBodyMax))
@@ -5939,18 +6272,28 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 	}
 
 	type binding struct {
-		fnQual      string
-		file        string
-		line        int
-		targetClass string
+		fnQual        string
+		file          string
+		line          int
+		verb          string
+		targetClass   string
+		targetFactory string
 	}
 	type identity struct {
 		class   string
 		method  string
 		literal string
 	}
+	type builderIdentity struct {
+		factory string
+		field   string
+		literal string
+		file    string
+		line    int
+	}
 	var bindings []binding
 	var identities []identity
+	var builderIdentities []builderIdentity
 
 	for _, fi := range graph.Files {
 		if fi == nil {
@@ -5978,29 +6321,56 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 							qual = sym.Receiver + "." + sym.Name
 						}
 						for _, part := range strings.Split(cv.value, ",") {
+							part = strings.TrimSpace(part)
 							tgt := parseTargetClassFromBinding(part)
-							if tgt == "" {
+							factory := parseBindingFactoryName(part)
+							if tgt == "" && factory == "" {
 								continue
 							}
 							bindings = append(bindings, binding{
-								fnQual:      qual,
-								file:        fi.RelPath,
-								line:        sym.Line,
-								targetClass: tgt,
+								fnQual:        qual,
+								file:          fi.RelPath,
+								line:          sym.Line,
+								verb:          cv.kind,
+								targetClass:   tgt,
+								targetFactory: factory,
 							})
 						}
 					}
 				}
 			}
-			// Pass B — identity-method scan. Methods on any class/struct
-			// (Go uses sym.Receiver, Java/Python/JS/Rust use sym.Parent;
-			// mirrors the owner fallback in buildConcreteValuesSection),
-			// short body (≤10 lines).
+		}
+	}
+
+	neededClasses := make(map[string]bool, len(bindings))
+	neededFactories := make(map[string]bool, len(bindings))
+	for _, b := range bindings {
+		if b.targetClass != "" {
+			neededClasses[b.targetClass] = true
+		}
+		if b.targetFactory != "" {
+			neededFactories[b.targetFactory] = true
+		}
+	}
+	for _, fi := range graph.Files {
+		if fi == nil {
+			continue
+		}
+		for i := range fi.Symbols {
+			sym := &fi.Symbols[i]
+			if sym.Kind != "function" && sym.Kind != "method" {
+				continue
+			}
+			if sym.EndLine == 0 {
+				continue
+			}
+			bodyLen := sym.EndLine - sym.Line
 			owner := sym.Receiver
 			if owner == "" {
 				owner = sym.Parent
 			}
 			if sym.Kind == "method" && owner != "" &&
+				neededClasses[owner] &&
 				isIdentityMethod(sym.Name) && bodyLen <= 10 {
 				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
 				if body != "" {
@@ -6028,6 +6398,20 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 					}
 				}
 			}
+			if sym.Kind == "function" && neededFactories[sym.Name] && bodyLen <= 160 {
+				body := loadBody(fi.RelPath, sym.Line, sym.EndLine)
+				field, lit, line := extractStableBuilderIdentity(body, sym.Line)
+				if field == "" || lit == "" {
+					continue
+				}
+				builderIdentities = append(builderIdentities, builderIdentity{
+					factory: sym.Name,
+					field:   field,
+					literal: lit,
+					file:    fi.RelPath,
+					line:    line,
+				})
+			}
 		}
 	}
 
@@ -6035,22 +6419,49 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 	for _, id := range identities {
 		idByClass[id.class] = append(idByClass[id.class], id)
 	}
+	builderByFactory := make(map[string][]builderIdentity, len(builderIdentities))
+	for _, id := range builderIdentities {
+		builderByFactory[id.factory] = append(builderByFactory[id.factory], id)
+	}
 	var items []types.EvidenceItem
 	seen := make(map[string]bool)
 
 	// Pass C — Join on class identifier (existing bridge_literal chains).
 	// Requires BOTH bindings AND identities; skips silently if either
 	// is empty so Pass D can still fire on bindings alone.
-	if len(bindings) > 0 && len(identities) > 0 {
+	if len(bindings) > 0 {
 		for _, b := range bindings {
 			ids := idByClass[b.targetClass]
-			if len(ids) == 0 {
+			if len(ids) > 0 {
+				for _, id := range ids {
+					summary := fmt.Sprintf(
+						"`%s()` %s New%s(...) → `%s.%s()` returns %q",
+						b.fnQual, b.verb, b.targetClass, b.targetClass, id.method, id.literal)
+					if seen[summary] {
+						continue
+					}
+					seen[summary] = true
+					items = append(items, types.EvidenceItem{
+						ID: types.StableEvidenceID(
+							types.EvidenceDataflowPath, summary, "resolution_chain",
+							"", "", b.file, b.line, b.line),
+						Kind:       types.EvidenceDataflowPath,
+						Subject:    summary,
+						Predicate:  "resolution_chain",
+						Summary:    summary,
+						Source:     b.file,
+						LineStart:  b.line,
+						LineEnd:    b.line,
+						Confidence: 0.9,
+						Producer:   "bridge_literal",
+					})
+				}
 				continue
 			}
-			for _, id := range ids {
+			for _, id := range builderByFactory[b.targetFactory] {
 				summary := fmt.Sprintf(
-					"`%s()` binds ONLY New%s(...) → `%s.%s()` returns %q",
-					b.fnQual, b.targetClass, b.targetClass, id.method, id.literal)
+					"`%s()` %s `%s()` → `%s()` returns %s=%q",
+					b.fnQual, b.verb, b.targetFactory, b.targetFactory, id.field, id.literal)
 				if seen[summary] {
 					continue
 				}
@@ -6066,7 +6477,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 					Source:     b.file,
 					LineStart:  b.line,
 					LineEnd:    b.line,
-					Confidence: 0.9,
+					Confidence: 0.88,
 					Producer:   "bridge_literal",
 				})
 			}
@@ -6190,17 +6601,107 @@ func singularize(s string) string {
 	return s
 }
 
-// parseTargetClassFromBinding extracts the class identifier from a
-// binding value token like "NewSubExplorer(deps)", "new Handler()",
-// "UserHandler", or "&Config{}". Returns the class name with the
-// "New"/"new " constructor prefixes stripped and parenthesized args
-// removed. Empty string if the shape is not a constructor reference.
-func parseTargetClassFromBinding(token string) string {
+var stableIdentityFieldPriority = []string{
+	"name", "id", "key", "type", "kind", "label", "slug", "path", "route",
+}
+
+var stableIdentityFieldRank = func() map[string]int {
+	out := make(map[string]int, len(stableIdentityFieldPriority))
+	for i, field := range stableIdentityFieldPriority {
+		out[field] = i
+	}
+	return out
+}()
+
+func extractStableBuilderIdentity(body string, startLine int) (field, literal string, line int) {
+	if body == "" {
+		return "", "", 0
+	}
+	lines := stripCommentLines(strings.Split(body, "\n"))
+	bestRank := len(stableIdentityFieldPriority) + 1
+	bestLine := 0
+	bestField := ""
+	bestLiteral := ""
+	for i, raw := range lines {
+		f, lit, ok := parseStableIdentityLiteral(raw)
+		if !ok {
+			continue
+		}
+		rank, ok := stableIdentityFieldRank[f]
+		if !ok || rank >= bestRank {
+			continue
+		}
+		bestRank = rank
+		bestField = f
+		bestLiteral = lit
+		bestLine = startLine + i
+		if rank == 0 {
+			break
+		}
+	}
+	if bestField == "" || bestLiteral == "" {
+		return "", "", 0
+	}
+	return bestField, bestLiteral, bestLine
+}
+
+func parseStableIdentityLiteral(line string) (field, literal string, ok bool) {
+	trimmed := strings.TrimSpace(line)
+	if trimmed == "" {
+		return "", "", false
+	}
+	for _, sep := range []string{":", "="} {
+		idx := strings.Index(trimmed, sep)
+		if idx <= 0 {
+			continue
+		}
+		lhs := strings.TrimSpace(trimmed[:idx])
+		rhs := strings.TrimSpace(trimmed[idx+1:])
+		if sep == ":" && strings.HasPrefix(strings.ToLower(lhs), "case ") {
+			continue
+		}
+		field = stableIdentityFieldName(lhs)
+		if field == "" {
+			continue
+		}
+		lits := extractQuotedLiterals(rhs)
+		if len(lits) == 0 || strings.TrimSpace(lits[0]) == "" {
+			continue
+		}
+		return field, lits[0], true
+	}
+	return "", "", false
+}
+
+func stableIdentityFieldName(lhs string) string {
+	lhs = strings.TrimSpace(lhs)
+	if lhs == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(lhs, "."); idx >= 0 {
+		lhs = lhs[idx+1:]
+	}
+	if strings.HasPrefix(lhs, "[") && strings.Contains(lhs, "]") {
+		lhs = lhs[1:strings.Index(lhs, "]")]
+	}
+	lhs = strings.TrimSpace(strings.Trim(lhs, "`\"' "))
+	lhs = strings.TrimLeft(lhs, "&*")
+	lower := strings.ToLower(lhs)
+	if _, ok := stableIdentityFieldRank[lower]; ok {
+		return lower
+	}
+	return ""
+}
+
+func parseBindingFactoryName(token string) string {
 	t := strings.TrimSpace(token)
 	t = strings.TrimLeft(t, "&,()")
 	t = strings.TrimSpace(t)
 	if t == "" {
 		return ""
+	}
+	if strings.HasPrefix(t, "new ") {
+		t = strings.TrimSpace(t[4:])
 	}
 	if paren := strings.IndexByte(t, '('); paren >= 0 {
 		t = t[:paren]
@@ -6208,44 +6709,31 @@ func parseTargetClassFromBinding(token string) string {
 	if brace := strings.IndexByte(t, '{'); brace >= 0 {
 		t = t[:brace]
 	}
-	t = strings.TrimSpace(t)
-	// Java: "new Xxx"
-	if strings.HasPrefix(t, "new ") {
-		t = strings.TrimSpace(t[4:])
-	}
-	// Qualified name disambiguation — walks separator-split segments
-	// and returns the rightmost one that begins with an uppercase
-	// letter (the type, regardless of which side it's on). Handles:
-	//   pkg.Xxx         (Go/Python/JS: pkg is module, Xxx is type)
-	//   a.b.UserHandler (chained module access)
-	//   pkg::Xxx        (Rust/C++ module path)
-	//   Handler::new    (Rust static factory: Handler is the type)
-	//   Handler<T>      (generics: <T> gets trimmed by the leading-id
-	//                    walk below)
 	if strings.ContainsAny(t, ".:") {
 		splits := strings.FieldsFunc(t, func(r rune) bool {
 			return r == '.' || r == ':'
 		})
 		picked := ""
 		for i := len(splits) - 1; i >= 0; i-- {
-			s := splits[i]
-			if len(s) > 0 && s[0] >= 'A' && s[0] <= 'Z' {
-				picked = s
+			part := strings.TrimSpace(splits[i])
+			if len(part) > 0 && part[0] >= 'A' && part[0] <= 'Z' {
+				picked = part
 				break
+			}
+		}
+		if picked == "" {
+			for i := len(splits) - 1; i >= 0; i-- {
+				part := strings.TrimSpace(splits[i])
+				if len(part) > 0 {
+					picked = part
+					break
+				}
 			}
 		}
 		if picked != "" {
 			t = picked
 		}
 	}
-	// Factory prefix: "NewXxx" → "Xxx" (common Go/C# idiom). Only
-	// strips if the remaining name starts with an uppercase letter,
-	// keeping words like "News" / "Newer" intact.
-	if strings.HasPrefix(t, "New") && len(t) > 3 && t[3] >= 'A' && t[3] <= 'Z' {
-		t = t[3:]
-	}
-	// Take the leading identifier only: stop at the first non-ident
-	// char (covers `Xxx::new`, `Xxx()`, `Xxx{}`, `Xxx<T>`, etc.).
 	end := 0
 	for end < len(t) {
 		c := t[end]
@@ -6255,7 +6743,29 @@ func parseTargetClassFromBinding(token string) string {
 		}
 		break
 	}
-	t = t[:end]
+	t = strings.TrimSpace(t[:end])
+	if t == "" || t[0] < 'A' || t[0] > 'Z' {
+		return ""
+	}
+	return t
+}
+
+// parseTargetClassFromBinding extracts the class identifier from a
+// binding value token like "NewSubExplorer(deps)", "new Handler()",
+// "UserHandler", or "&Config{}". Returns the class name with the
+// "New"/"new " constructor prefixes stripped and parenthesized args
+// removed. Empty string if the shape is not a constructor reference.
+func parseTargetClassFromBinding(token string) string {
+	t := parseBindingFactoryName(token)
+	if t == "" {
+		return ""
+	}
+	// Factory prefix: "NewXxx" → "Xxx" (common Go/C# idiom). Only
+	// strips if the remaining name starts with an uppercase letter,
+	// keeping words like "News" / "Newer" intact.
+	if strings.HasPrefix(t, "New") && len(t) > 3 && t[3] >= 'A' && t[3] <= 'Z' {
+		t = t[3:]
+	}
 	if t == "" || t[0] < 'A' || t[0] > 'Z' {
 		return ""
 	}

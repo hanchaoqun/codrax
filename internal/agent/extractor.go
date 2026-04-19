@@ -34,10 +34,13 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/axis"
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
+	"github.com/hanchaoqun/codrax/internal/analysis/subject"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -47,11 +50,11 @@ import (
 // Extractor prompt display caps. Named constants so the limits are
 // grep-visible and changeable in one place.
 const (
-	extractorMaxNotes       = 6    // max investigation note entries shown in prompt
-	extractorMaxNoteChars   = 1200 // max chars per note before truncation
-	extractorMaxEvidence    = 24   // max ranked evidence items shown
-	extractorMaxEvidenceSummary = 200 // max summary chars per evidence item
-	extractorMaxFlowFindings = 10  // max dataflow findings shown
+	extractorMaxNotes           = 6    // max investigation note entries shown in prompt
+	extractorMaxNoteChars       = 1200 // max chars per note before truncation
+	extractorMaxEvidence        = 24   // max ranked evidence items shown
+	extractorMaxEvidenceSummary = 200  // max summary chars per evidence item
+	extractorMaxFlowFindings    = 10   // max dataflow findings shown
 )
 
 // extractorEvaluator is the Turn B evaluator. It is a separate type
@@ -327,6 +330,29 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 
 	// Answer-symbol drain + cardinality validator.
 	syms, claim := ctx.Mutable.EmittedAnswerSymbols()
+	fallback := extractorDeclarativeLiteralFallback(ctx)
+	if len(syms) == 0 && len(fallback) > 0 {
+		syms = fallback
+		claim = types.CompletenessLowerBound
+		logging.Info("[extractor] synthesized %d declarative literal answer symbol(s) from grounded evidence fallback", len(syms))
+	} else {
+		if augmented := mergeDeclarativeFallbackSymbols(syms, fallback); len(augmented) > len(syms) {
+			logging.Info("[extractor] augmented answer-symbol slate from %d to %d item(s) using declarative literal fallback", len(syms), len(augmented))
+			syms = augmented
+			if claim == types.CompletenessUnknown {
+				claim = types.CompletenessLowerBound
+			}
+		}
+		if refined := trimDeclarativeSlateToTerminals(syms, fallback); len(refined) > 0 && len(refined) < len(syms) {
+			logging.Info("[extractor] pruned answer-symbol slate from %d to %d item(s) using declarative terminal filter", len(syms), len(refined))
+			syms = refined
+			if claim == types.CompletenessUnknown {
+				claim = types.CompletenessLowerBound
+			}
+		} else if len(syms) > 0 && len(fallback) > 0 && claim == types.CompletenessUnknown {
+			claim = types.CompletenessLowerBound
+		}
+	}
 	if len(syms) > 0 {
 		validatedClaim := validateCompletenessClaim(ctx, syms, claim)
 		out.AnswerSymbols = syms
@@ -465,6 +491,316 @@ func validateCompletenessClaim(ctx *types.AgentContext, syms []types.AnswerSymbo
 	logging.Warning("[extractor] completeness=complete DOWNGRADED to lower_bound: %d items < baseline %d (termCount=%d mustInclude=%d). The slate is preserved as a floor; the finalizer will use the softened prompt.",
 		len(syms), baseline, termCount, mustInclude)
 	return types.CompletenessLowerBound
+}
+
+func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.AnswerSymbol {
+	if !declarativeLiteralFallbackRelevant(ctx) {
+		return nil
+	}
+	pool := mergeEvidenceForAxisCheck(ctx)
+	if len(pool) == 0 {
+		return nil
+	}
+	subj := extractorAnswerSubjectKind(ctx)
+	lineIndex := extractorReadFileLineIndex(ctx)
+	seen := make(map[string]bool, len(pool))
+	out := make([]types.AnswerSymbol, 0, len(pool))
+	add := func(raw string, quoted bool, source string, line int, chain, rationale string) {
+		name := normalizeExtractorFallbackToken(raw)
+		if name == "" || source == "" || line <= 0 {
+			return
+		}
+		if !extractorFallbackTokenMatchesSubject(name, quoted, subj) {
+			return
+		}
+		key := name + "\x1f" + source + "\x1f" + fmt.Sprintf("%d", line)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, types.AnswerSymbol{
+			Name:      name,
+			File:      source,
+			Line:      line,
+			Kind:      types.KindLiteral,
+			Chain:     strings.TrimSpace(chain),
+			Rationale: rationale,
+		})
+	}
+
+	for _, ev := range pool {
+		if ev.Kind == types.EvidenceDataflowPath && ev.Predicate == "resolution_chain" {
+			add(subject.ChainTerminalToken(ev.Summary), false, ev.Source, ev.LineStart, ev.Summary, "terminal literal inferred from resolution chain")
+		}
+		for _, lit := range extractQuotedLiterals(ev.Summary) {
+			add(lit, true, ev.Source, ev.LineStart, ev.Summary, "literal extracted from grounded evidence")
+		}
+		for _, lit := range extractQuotedLiterals(ev.Object) {
+			add(lit, true, ev.Source, ev.LineStart, ev.Object, "literal extracted from grounded evidence")
+		}
+		if ev.Kind == types.EvidenceRegistration {
+			add(extractorSingleTokenCandidate(ev.Object), false, ev.Source, ev.LineStart, ev.Object, "terminal literal extracted from registration evidence")
+		}
+		for _, near := range extractorReadFileLiteralCandidates(lineIndex, ev.Source, ev.LineStart, ev.LineEnd) {
+			add(near.token, true, ev.Source, near.line, near.text, "literal extracted from read_file lines near grounded evidence")
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func mergeDeclarativeFallbackSymbols(current, fallback []types.AnswerSymbol) []types.AnswerSymbol {
+	if len(current) == 0 || len(fallback) == 0 {
+		return current
+	}
+	seen := make(map[string]bool, len(current))
+	out := append([]types.AnswerSymbol(nil), current...)
+	for _, sym := range current {
+		if sym.Name != "" {
+			seen[sym.Name] = true
+		}
+	}
+	for _, sym := range fallback {
+		if sym.Name == "" || seen[sym.Name] {
+			continue
+		}
+		seen[sym.Name] = true
+		out = append(out, sym)
+	}
+	return out
+}
+
+func trimDeclarativeSlateToTerminals(current, fallback []types.AnswerSymbol) []types.AnswerSymbol {
+	if len(current) == 0 || len(fallback) == 0 {
+		return current
+	}
+	allow := make(map[string]bool, len(fallback))
+	for _, sym := range fallback {
+		allow[sym.Name] = true
+	}
+	out := make([]types.AnswerSymbol, 0, len(current))
+	for _, sym := range current {
+		if sym.Kind == types.KindLiteral || allow[sym.Name] {
+			out = append(out, sym)
+		}
+	}
+	if len(out) == 0 {
+		return current
+	}
+	return out
+}
+
+func declarativeLiteralFallbackRelevant(ctx *types.AgentContext) bool {
+	if ctx == nil {
+		return false
+	}
+	axis := types.AxisUnknown
+	if ctx.AnalysisIR != nil {
+		axis = ctx.AnalysisIR.RequestModel.PredicateAxis
+	}
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil && rm.PredicateAxis != types.AxisUnknown {
+			axis = rm.PredicateAxis
+		}
+	}
+	isEnumeration := isListOfSymbolsShape(ctx) || detectEnumerationIntent(types.StripConversationPrefix(ctx.Objective))
+	if !declarativeFocusRelevant(irQuestionKind(ctx), isEnumeration, axis) {
+		return false
+	}
+	kind := extractorAnswerSubjectKind(ctx)
+	if extractorAnswerSubjectSupportsLiteralFallback(kind) {
+		return true
+	}
+	return extractorGenericDeclarativeLiteralFallbackAllowed(ctx, kind)
+}
+
+func extractorAnswerSubjectKind(ctx *types.AgentContext) types.AnswerSubjectKind {
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.AnswerSubject.Kind != "" {
+		return ctx.AnalysisIR.RequestModel.AnswerSubject.Kind
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm.AnswerSubject.Kind
+		}
+	}
+	return types.SubjectUnknown
+}
+
+func extractorAnswerSubjectSupportsLiteralFallback(kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectStringLiteral,
+		types.SubjectHandlerRoute,
+		types.SubjectConfigKey,
+		types.SubjectFilePath,
+		types.SubjectReturnValue:
+		return true
+	}
+	return false
+}
+
+func extractorGenericDeclarativeLiteralFallbackAllowed(ctx *types.AgentContext, kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectUnknown, types.SubjectGeneric:
+		return isListOfSymbolsShape(ctx)
+	}
+	return false
+}
+
+func extractorFallbackTokenMatchesSubject(token string, quoted bool, kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectStringLiteral:
+		return quoted || looksLikeDeclarativeLiteralToken(token)
+	case types.SubjectReturnValue:
+		return quoted || looksLikeDeclarativeLiteralToken(token)
+	case types.SubjectHandlerRoute, types.SubjectConfigKey, types.SubjectFilePath:
+		return subject.Score(token, kind, nil) >= 0.4 || looksLikeDeclarativeLiteralToken(token)
+	case types.SubjectUnknown, types.SubjectGeneric:
+		return quoted || looksLikeDeclarativeLiteralToken(token)
+	}
+	return false
+}
+
+func normalizeExtractorFallbackToken(token string) string {
+	token = strings.TrimSpace(strings.Trim(token, "`\"'"))
+	if token == "" || len(token) > 120 || strings.ContainsAny(token, "\r\n\t") {
+		return ""
+	}
+	return token
+}
+
+func extractorSingleTokenCandidate(token string) string {
+	token = normalizeExtractorFallbackToken(token)
+	if token == "" || strings.ContainsAny(token, " {}()[],:") {
+		return ""
+	}
+	return token
+}
+
+type extractorReadFileLiteral struct {
+	line  int
+	text  string
+	token string
+}
+
+func extractorReadFileLiteralCandidates(index map[string]map[int]string, source string, lineStart, lineEnd int) []extractorReadFileLiteral {
+	source = canonicalExplorerPath(source)
+	if source == "" || lineStart <= 0 {
+		return nil
+	}
+	lines := index[source]
+	if len(lines) == 0 {
+		return nil
+	}
+	if lineEnd < lineStart {
+		lineEnd = lineStart
+	}
+	seen := make(map[string]bool)
+	out := make([]extractorReadFileLiteral, 0, 4)
+	for line := lineStart; line <= lineEnd+2; line++ {
+		text, ok := lines[line]
+		if !ok {
+			continue
+		}
+		for _, lit := range extractQuotedLiterals(text) {
+			key := fmt.Sprintf("%d\x1f%s", line, lit)
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, extractorReadFileLiteral{
+				line:  line,
+				text:  text,
+				token: lit,
+			})
+		}
+	}
+	return out
+}
+
+func extractorReadFileLineIndex(ctx *types.AgentContext) map[string]map[int]string {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil || len(ta.ToolResults) == 0 {
+		return nil
+	}
+	index := make(map[string]map[int]string)
+	for _, r := range ta.ToolResults {
+		if !r.Success || r.ToolName != "read_file" {
+			continue
+		}
+		path, _, _, ok := parseReadFileBanner(r.Summary)
+		if !ok {
+			continue
+		}
+		path = canonicalExplorerPath(path)
+		bodyStart := strings.IndexByte(r.Summary, '\n')
+		if path == "" || bodyStart < 0 || bodyStart >= len(r.Summary)-1 {
+			continue
+		}
+		for _, raw := range strings.Split(r.Summary[bodyStart+1:], "\n") {
+			line, text, ok := extractorParseGutterLine(raw)
+			if !ok {
+				continue
+			}
+			if index[path] == nil {
+				index[path] = make(map[int]string)
+			}
+			index[path][line] = text
+		}
+	}
+	if len(index) == 0 {
+		return nil
+	}
+	return index
+}
+
+func extractorParseGutterLine(raw string) (line int, text string, ok bool) {
+	raw = strings.TrimLeft(raw, " ")
+	if raw == "" {
+		return 0, "", false
+	}
+	i := 0
+	for i < len(raw) && raw[i] >= '0' && raw[i] <= '9' {
+		i++
+	}
+	if i == 0 {
+		return 0, "", false
+	}
+	n, err := strconv.Atoi(raw[:i])
+	if err != nil || n <= 0 {
+		return 0, "", false
+	}
+	rest := raw[i:]
+	space := strings.IndexByte(rest, ' ')
+	if space < 0 || space >= len(rest)-1 {
+		return 0, "", false
+	}
+	return n, rest[space+1:], true
+}
+
+func looksLikeDeclarativeLiteralToken(token string) bool {
+	token = normalizeExtractorFallbackToken(token)
+	if token == "" || strings.ContainsAny(token, " {}()[],:") {
+		return false
+	}
+	if strings.ContainsAny(token, "/._-") {
+		return true
+	}
+	hasLetter := false
+	hasUpper := false
+	for _, r := range token {
+		if unicode.IsLetter(r) {
+			hasLetter = true
+		}
+		if unicode.IsUpper(r) {
+			hasUpper = true
+		}
+	}
+	return hasLetter && !hasUpper
 }
 
 // axisStrongAffinityThreshold is the affinity-matrix cell value above
@@ -622,9 +958,9 @@ func mergeEvidenceForAxisCheck(ctx *types.AgentContext) []types.EvidenceItem {
 		return nil
 	}
 	type key struct {
-		src                  string
-		lineStart, lineEnd   int
-		anchorSym            string
+		src                string
+		lineStart, lineEnd int
+		anchorSym          string
 	}
 	seen := make(map[key]bool, 16)
 	var out []types.EvidenceItem

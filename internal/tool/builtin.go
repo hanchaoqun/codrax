@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -81,10 +82,27 @@ func resolveToolPath(ctx *types.BusContext, p string) string {
 	if p == "" || p == "." {
 		return ctx.RepoRoot
 	}
-	if filepath.IsAbs(p) {
+	if toolPathIsAbs(p) {
 		return p
 	}
 	return filepath.Join(ctx.RepoRoot, p)
+}
+
+func toolPathIsAbs(p string) bool {
+	if filepath.IsAbs(p) {
+		return true
+	}
+	slash := strings.ReplaceAll(p, "\\", "/")
+	if path.IsAbs(slash) {
+		return true
+	}
+	if len(p) >= 3 &&
+		((p[0] >= 'A' && p[0] <= 'Z') || (p[0] >= 'a' && p[0] <= 'z')) &&
+		p[1] == ':' &&
+		(p[2] == '\\' || p[2] == '/') {
+		return true
+	}
+	return strings.HasPrefix(p, `\\`) || strings.HasPrefix(p, `//`)
 }
 
 // kvBanner renders a tool call's parameters as a single-line banner

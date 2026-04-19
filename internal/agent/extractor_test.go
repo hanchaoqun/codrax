@@ -218,7 +218,7 @@ func extractorCtxWithBaseline(termCount int, mustInclude []string, syms []types.
 	mu.SetEmittedAnswerSymbols(syms, claim)
 	return &types.AgentContext{
 		Objective: "q",
-		Mutable:     mu,
+		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{
 				MustInclude: mustInclude,
@@ -464,9 +464,9 @@ func TestExtractor_R4Gate_OnlyNonKeyEvidence_FailsLoud(t *testing.T) {
 func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{
-		UserQuestion:          "which handlers register Foo?",
-		InvestigationNotes:    []string{"iter 1: read reg.go, found Register calls"},
-		ReadFiles:             []string{"internal/reg.go", "internal/a.go"},
+		UserQuestion:       "which handlers register Foo?",
+		InvestigationNotes: []string{"iter 1: read reg.go, found Register calls"},
+		ReadFiles:          []string{"internal/reg.go", "internal/a.go"},
 		EvidenceItems: []types.EvidenceItem{
 			{Kind: types.EvidenceRegistration, Subject: "Register", Object: "NewHandlerA", Source: "internal/reg.go", LineStart: 12},
 		},
@@ -474,7 +474,7 @@ func TestExtractor_BuildPrompt_DigestsTurnAArtifacts(t *testing.T) {
 	})
 	ctx := &types.AgentContext{
 		Objective: "which handlers register Foo?",
-		Mutable:     mu,
+		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			AnswerContract: types.AnswerContract{MustInclude: []string{"HandlerA", "HandlerB"}},
 		},
@@ -579,7 +579,7 @@ func TestExtractor_BuildPrompt_IncludesHypothesisSet(t *testing.T) {
 	mu.SetTurnAArtifacts(types.TurnAArtifacts{UserQuestion: "q"})
 	ctx := &types.AgentContext{
 		Objective: "q",
-		Mutable:     mu,
+		Mutable:   mu,
 		AnalysisIR: &types.AnalysisIR{
 			HypothesisSet: []types.Hypothesis{
 				{ID: "H1", Statement: "Foo calls Bar", Status: types.HypUnknown},
@@ -605,7 +605,7 @@ func TestExtractor_Validator_EmptySlate_LeavesCompletenessZero(t *testing.T) {
 	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
 	ctx := &types.AgentContext{
 		Objective: "q",
-		Mutable:     mu,
+		Mutable:   mu,
 	}
 	e := &extractorEvaluator{}
 	out, _ := e.ParseOutput(ctx, nil, nil, nil)
@@ -1052,5 +1052,284 @@ func TestExtractor_SingleTopicExplanationNoSkeleton(t *testing.T) {
 	ctx := &types.AgentContext{AnalysisIR: ir, Mutable: types.NewMutableState("q")}
 	if isMultiTopicExplanation(ctx) {
 		t.Errorf("isMultiTopicExplanation must be false without sub_topics")
+	}
+}
+
+func TestExtractor_ParseOutput_EmptySlateFallsBackToDeclarativeLiterals(t *testing.T) {
+	mu := types.NewMutableState("Which skills are registered by default?")
+	mu.SetRequestModel(types.RequestModel{
+		PredicateAxis: types.AxisRegister,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+	})
+	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
+	ctx := &types.AgentContext{
+		Objective: "Which skills are registered by default?",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+				PredicateAxis: types.AxisRegister,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:      types.EvidenceRegistration,
+				Object:    "analysis-skill",
+				Summary:   `RegisterDefaults registers "analysis-skill"`,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 12,
+			},
+			{
+				Kind:      types.EvidenceRegistration,
+				Object:    "explore-skill",
+				Summary:   `RegisterDefaults registers "explore-skill"`,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 13,
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Fatalf("fallback slate should be lower_bound, got %q", out.AnswerSymbolCompleteness)
+	}
+	if len(out.AnswerSymbols) != 2 {
+		t.Fatalf("fallback should synthesize two literal symbols, got %+v", out.AnswerSymbols)
+	}
+	got := make(map[string]bool, len(out.AnswerSymbols))
+	for _, sym := range out.AnswerSymbols {
+		got[sym.Name] = true
+		if sym.Kind != types.KindLiteral {
+			t.Fatalf("fallback symbol %q should be literal, got %q", sym.Name, sym.Kind)
+		}
+	}
+	for _, want := range []string{"analysis-skill", "explore-skill"} {
+		if !got[want] {
+			t.Fatalf("fallback slate missing %q: %+v", want, out.AnswerSymbols)
+		}
+	}
+}
+
+func TestExtractor_ParseOutput_PrunesDeclarativeHelperSymbols(t *testing.T) {
+	mu := types.NewMutableState("Which skills are registered by default?")
+	mu.SetRequestModel(types.RequestModel{
+		PredicateAxis: types.AxisRegister,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+	})
+	mu.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "RegisterDefaults", File: "internal/skill/defaults.go", Line: 8, Kind: types.KindFunction},
+		{Name: "analysis-skill", File: "internal/skill/defaults.go", Line: 12, Kind: types.KindLiteral},
+		{Name: "Registry", File: "internal/skill/defaults.go", Line: 2, Kind: types.KindStruct},
+		{Name: "explore-skill", File: "internal/skill/defaults.go", Line: 13, Kind: types.KindLiteral},
+	}, types.CompletenessUnknown)
+	ctx := &types.AgentContext{
+		Objective: "Which skills are registered by default?",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "enumeration"},
+				PredicateAxis: types.AxisRegister,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:      types.EvidenceRegistration,
+				Object:    "analysis-skill",
+				Summary:   `RegisterDefaults registers "analysis-skill"`,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 12,
+			},
+			{
+				Kind:      types.EvidenceRegistration,
+				Object:    "explore-skill",
+				Summary:   `RegisterDefaults registers "explore-skill"`,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 13,
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Fatalf("pruned declarative slate should be lower_bound, got %q", out.AnswerSymbolCompleteness)
+	}
+	if len(out.AnswerSymbols) != 2 {
+		t.Fatalf("helper pruning should leave only the literal terminals, got %+v", out.AnswerSymbols)
+	}
+	for _, sym := range out.AnswerSymbols {
+		if sym.Kind != types.KindLiteral {
+			t.Fatalf("pruned symbol %q should stay literal, got %q", sym.Name, sym.Kind)
+		}
+		if sym.Name != "analysis-skill" && sym.Name != "explore-skill" {
+			t.Fatalf("helper symbol %q should have been pruned", sym.Name)
+		}
+	}
+}
+
+func TestExtractor_ParseOutput_EmptySlateFallsBackForGenericRegistrationLists(t *testing.T) {
+	mu := types.NewMutableState("Which skills are registered by default?")
+	mu.SetRequestModel(types.RequestModel{
+		PredicateAxis: types.AxisRegister,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
+	})
+	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
+	ctx := &types.AgentContext{
+		Objective: "Which skills are registered by default?",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "registration"},
+				PredicateAxis: types.AxisRegister,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:      types.EvidenceRegistration,
+				Object:    "analysis-skill",
+				Summary:   `RegisterDefaults registers "analysis-skill"`,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 12,
+			},
+			{
+				Kind:      types.EvidenceRegistration,
+				Object:    "explore-skill",
+				Summary:   `RegisterDefaults registers "explore-skill"`,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 13,
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Fatalf("generic registration fallback should be lower_bound, got %q", out.AnswerSymbolCompleteness)
+	}
+	if len(out.AnswerSymbols) != 2 {
+		t.Fatalf("generic registration fallback should synthesize literal terminals, got %+v", out.AnswerSymbols)
+	}
+	for _, sym := range out.AnswerSymbols {
+		if sym.Kind != types.KindLiteral {
+			t.Fatalf("generic registration fallback should keep literal terminals, got %q", sym.Kind)
+		}
+	}
+}
+
+func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *testing.T) {
+	mu := types.NewMutableState("Which skills are registered by default?")
+	mu.SetRequestModel(types.RequestModel{
+		PredicateAxis: types.AxisRegister,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
+	})
+	mu.SetEmittedAnswerSymbols([]types.AnswerSymbol{
+		{Name: "analysis-skill", File: "internal/skill/defaults.go", Line: 11, Kind: types.KindLiteral},
+		{Name: "explore-skill", File: "internal/skill/defaults.go", Line: 13, Kind: types.KindLiteral},
+	}, types.CompletenessUnknown)
+	mu.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/skill/defaults.go", "internal/skill/analysis_contract.go"},
+		ToolResults: []types.ToolResult{
+			buildGutterReadResult("internal/skill/defaults.go", 11, []string{
+				`\tr.Register(BuildAnalysisSkill())`,
+				``,
+				`\tr.Register(&Config{`,
+				`\t\tName: "explore-skill",`,
+			}, 200),
+			buildGutterReadResult("internal/skill/defaults.go", 69, []string{
+				`\tr.Register(&Config{`,
+				`\t\tName: "answer-document-skill",`,
+			}, 200),
+			buildGutterReadResult("internal/skill/defaults.go", 155, []string{
+				`\tr.Register(&Config{`,
+				`\t\tName: "extract-skill",`,
+			}, 200),
+			buildGutterReadResult("internal/skill/analysis_contract.go", 339, []string{
+				`\t\tName: "analysis-skill",`,
+			}, 354),
+		},
+	})
+	ctx := &types.AgentContext{
+		Objective: "Which skills are registered by default?",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "registration"},
+				PredicateAxis: types.AxisRegister,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:      types.EvidenceRegistration,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 11,
+				Summary:   "RegisterDefaults registers analysis skill via BuildAnalysisSkill",
+			},
+			{
+				Kind:      types.EvidenceRegistration,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 13,
+				Summary:   "RegisterDefaults registers explore skill",
+			},
+			{
+				Kind:      types.EvidenceRegistration,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 69,
+				Summary:   "RegisterDefaults registers answer document skill",
+			},
+			{
+				Kind:      types.EvidenceRegistration,
+				Source:    "internal/skill/defaults.go",
+				LineStart: 155,
+				Summary:   "RegisterDefaults registers extract skill",
+			},
+			{
+				Kind:      types.EvidenceDirect,
+				Source:    "internal/skill/analysis_contract.go",
+				LineStart: 339,
+				Summary:   "BuildAnalysisSkill sets Name field",
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessLowerBound {
+		t.Fatalf("augmented declarative slate should be lower_bound, got %q", out.AnswerSymbolCompleteness)
+	}
+	if len(out.AnswerSymbols) != 4 {
+		t.Fatalf("read_file-backed fallback should augment the slate to four items, got %+v", out.AnswerSymbols)
+	}
+	got := make(map[string]bool, len(out.AnswerSymbols))
+	for _, sym := range out.AnswerSymbols {
+		got[sym.Name] = true
+		if sym.Kind != types.KindLiteral {
+			t.Fatalf("augmented symbol %q should be literal, got %q", sym.Name, sym.Kind)
+		}
+	}
+	for _, want := range []string{"analysis-skill", "explore-skill", "extract-skill", "answer-document-skill"} {
+		if !got[want] {
+			t.Fatalf("augmented slate missing %q: %+v", want, out.AnswerSymbols)
+		}
 	}
 }

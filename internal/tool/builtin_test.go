@@ -944,6 +944,8 @@ func TestResolveToolPath_RootsRelativeAtRepoRoot(t *testing.T) {
 		{"relative_file", "internal/foo.go", filepath.Join(repoRoot, "internal/foo.go")},
 		{"relative_dir", "subdir", filepath.Join(repoRoot, "subdir")},
 		{"absolute_passthrough", "/etc/hostname", "/etc/hostname"},
+		{"windows_drive_passthrough", `C:\temp\foo.txt`, `C:\temp\foo.txt`},
+		{"unc_passthrough", `\\server\share\foo.txt`, `\\server\share\foo.txt`},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
