@@ -616,18 +616,27 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			rm.AnalyzerHints.Kind)
 		if resolved != rm.Complexity {
 			logComplexityReconcile(rm.Complexity, resolved, reason)
-			rm.Complexity = resolved
 		}
+		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+			"complexity", string(rm.Complexity), string(resolved),
+			rm.ComplexityConfidence, reason, rm.Predicates,
+		))
+		rm.Complexity = resolved
 		// Intent sanity rule. Runs AFTER reconcileComplexity so the
 		// simple-only gate reads the post-reconcile complexity. Patches
 		// the "count / 统计 / how many" → enumerate mis-classification
 		// that otherwise locks the pipeline into ShapeListOfSymbols
 		// and an unsatisfiable file:line citation floor.
 		// See internal/agent/analyzer_intent.go for the rule body.
-		if intentResolved, intentReason := reconcileIntent(rm.Intent, rawForComplexity, rm.Complexity); intentResolved != rm.Intent {
+		intentResolved, intentReason := reconcileIntent(rm.Intent, rawForComplexity, rm.Complexity)
+		if intentResolved != rm.Intent {
 			logIntentReconcile(rm.Intent, intentResolved, intentReason)
-			rm.Intent = intentResolved
 		}
+		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+			"intent", string(rm.Intent), string(intentResolved),
+			rm.IntentConfidence, intentReason, rm.Predicates,
+		))
+		rm.Intent = intentResolved
 		// Broader measurement-scalar signal — captures both the
 		// reconciled-downgrade case above AND the case where the LLM
 		// picked IntentReturnValue directly on the same count-verb
@@ -646,8 +655,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// is the wrong kind, and reconcileShape (post-compile)
 		// consults it to swap config_value→value for source-code
 		// literals that have no YAML key surface.
-		if subject, reason := inferAnswerSubject(rm, rawForComplexity); subject.Kind != types.SubjectUnknown {
-			logSubjectInferred(subject, reason)
+		subject, subjReason := inferAnswerSubject(rm, rawForComplexity)
+		if subject.Kind != types.SubjectUnknown {
+			logSubjectInferred(subject, subjReason)
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"subject", string(rm.AnswerSubject.Kind), string(subject.Kind),
+				rm.AnswerSubject.Confidence, subjReason, rm.Predicates,
+			))
 			rm.AnswerSubject = subject
 		}
 		// PredicateAxis extraction. Orthogonal to AnswerSubject: this
@@ -658,8 +672,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// (AxisUnknown) is a clean no-op; reconcilePredicateAxis only
 		// FILLS empty and never overrides.
 		// See internal/agent/analyzer_predicate.go for the rule body.
-		if axis, axisReason := reconcilePredicateAxis(rm.PredicateAxis, rawForComplexity); axis != rm.PredicateAxis {
+		axis, axisReason := reconcilePredicateAxis(rm.PredicateAxis, rawForComplexity)
+		if axis != rm.PredicateAxis {
 			logPredicateAxisReconcile(rm.PredicateAxis, axis, axisReason)
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"axis", string(rm.PredicateAxis), string(axis),
+				0, axisReason, rm.Predicates,
+			))
 			rm.PredicateAxis = axis
 		}
 		// Merge sub-topic entities into main entity list.
@@ -834,10 +853,15 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// disjoint in practice (measurement requires count-verb prefix;
 	// reconcile requires source-code-literal subject).
 	rawForShape := types.StripConversationPrefix(rm.RawRequest)
-	if reconciled, reason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rawForShape); reconciled != out.AnswerContract.RequiredAnswerShape {
+	reconciledShape, shapeReason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rawForShape)
+	if reconciledShape != out.AnswerContract.RequiredAnswerShape {
 		before := out.AnswerContract.RequiredAnswerShape
-		logShapeReconciled(before, reconciled, reason)
-		out.AnswerContract.RequiredAnswerShape = reconciled
+		logShapeReconciled(before, reconciledShape, shapeReason)
+		recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+			"shape", string(before), string(reconciledShape),
+			rm.ShapeConfidence, shapeReason, rm.Predicates,
+		))
+		out.AnswerContract.RequiredAnswerShape = reconciledShape
 		// Also align the AnalyzerHints surface so downstream readers
 		// (ir_accessor.irAnswerShape, answer_document_evaluator,
 		// emit_answer_document shape auto-correct) see the
@@ -845,7 +869,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// new conditional-enumeration→list_of_symbols swap.
 		legacy := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
 		if legacy == types.ShapeConfigValue || legacy == before {
-			rm.AnalyzerHints.Shape = string(reconciled)
+			rm.AnalyzerHints.Shape = string(reconciledShape)
 		}
 	}
 
@@ -886,6 +910,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if ctx != nil && ctx.Mutable != nil {
 		ctx.Mutable.SetRequestModel(rm)
 	}
+
+	// Schema-v4 observability: render a single [reconcile-shadow]
+	// summary line aggregating every reconcile event recorded above.
+	// Always emits — even on a quiet run — so the absence of the line
+	// is a positive signal that the analyzer never ran (broken Mutable
+	// threading) rather than ambiguous silence.
+	EmitReconcileSummary(ctxMutable(ctx))
 
 	return ir, nil
 }

@@ -188,6 +188,29 @@ type MutableState struct {
 	classificationGrepCalls     int // count of line-level calls made in Round 2
 	classificationGrepBytes     int // cumulative match bytes returned
 	classificationObservations  []ClassificationObs
+
+	// reconcileObservations records every reconcile / inference event
+	// the analyzer pipeline made during this dispatch. Consumed by
+	// EmitReconcileSummary at run end so operators can grep
+	// "[reconcile-shadow]" for the observability snapshot. Schema-v4
+	// observability layer — separate channel from CGEC enforcers
+	// because reconcile is upstream of evidence closure and runs even
+	// when no enforcer fires.
+	reconcileObservations []ReconcileObservation
+}
+
+// ReconcileObservation is one decision the analyzer pipeline made
+// while reconciling LLM-emitted classification against deterministic
+// rules and predicates. Recorded centrally so the per-Run summary can
+// surface confidence distribution + rule firing rate without each
+// reconcile site reaching into observability state directly.
+type ReconcileObservation struct {
+	Field      string             `json:"field"`           // intent / complexity / shape / subject / axis
+	Before     string             `json:"before"`          // LLM-emitted value (canonical form)
+	After      string             `json:"after"`           // post-reconcile value
+	Confidence float64            `json:"confidence"`      // LLM-emitted confidence on this dimension
+	RuleFired  string             `json:"rule_fired"`      // human-readable rule name (or "none" when no override)
+	Predicates SemanticPredicates `json:"predicates"`      // snapshot of LLM predicates at decision time
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
@@ -975,6 +998,48 @@ func (m *MutableState) ClassificationObservations() []ClassificationObs {
 	out := make([]ClassificationObs, len(m.classificationObservations))
 	copy(out, m.classificationObservations)
 	return out
+}
+
+// AppendReconcileObservation records one reconcile event into the
+// observability channel. Safe to call concurrently. Empty Field is
+// silently dropped (the field name is the index key in the per-Run
+// summary).
+func (m *MutableState) AppendReconcileObservation(obs ReconcileObservation) {
+	if m == nil || obs.Field == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reconcileObservations = append(m.reconcileObservations, obs)
+}
+
+// ReconcileObservations returns a defensive copy of the recorded
+// reconcile events. Consumed by analyzer EmitReconcileSummary at
+// run end. Empty slice means no reconcile rule fired AND no
+// observation was recorded (a clean LLM classification).
+func (m *MutableState) ReconcileObservations() []ReconcileObservation {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.reconcileObservations) == 0 {
+		return nil
+	}
+	out := make([]ReconcileObservation, len(m.reconcileObservations))
+	copy(out, m.reconcileObservations)
+	return out
+}
+
+// ResetReconcileObservations clears the channel at the start of a
+// new analyze dispatch.
+func (m *MutableState) ResetReconcileObservations() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.reconcileObservations = nil
 }
 
 // ResetClassificationGrep clears every C0' gate/budget/observation
