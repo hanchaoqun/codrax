@@ -686,6 +686,7 @@ func TestExtractEvidenceRequirementsWithHint_DeclaredKindHonoured(t *testing.T) 
 		"the XMLParser thing",
 		[]string{"XMLParser"},
 		"mechanism",
+		types.SemanticPredicates{},
 	)
 	seen := false
 	for _, r := range reqs {
@@ -707,6 +708,7 @@ func TestExtractEvidenceRequirementsWithHint_UnknownFallsBack(t *testing.T) {
 		"how does the ContinuationPrompt mechanism work?",
 		[]string{"ContinuationPrompt"},
 		"unknown",
+		types.SemanticPredicates{},
 	)
 	// Keyword path should still detect mechanism via "how does" / "mechanism".
 	seen := false
@@ -730,6 +732,7 @@ func TestExtractEvidenceRequirementsWithHint_RegistrationPerEntity(t *testing.T)
 		"just show me Foo and Bar",
 		[]string{"Foo", "Bar"},
 		"registration",
+		types.SemanticPredicates{},
 	)
 	perEntityCount := 0
 	for _, r := range reqs {
@@ -1634,7 +1637,11 @@ func TestErmAutoSatisfyUnresolvable_NilGraph(t *testing.T) {
 // tier) fire alongside the return_value floor.
 func TestExtractEvidenceRequirementsWithHint_CategoryCueAddsEnumeration(t *testing.T) {
 	question := "pipeline 的状态有几种？"
-	reqs := extractEvidenceRequirementsWithHint(question, []string{"PipelineStage"}, "return_value")
+	// Schema-v4 trigger: LLM emitted is_category_enumeration=true. The
+	// old code keyed off the prose cue; the new code reads the LLM
+	// predicate, language-neutral.
+	reqs := extractEvidenceRequirementsWithHint(question, []string{"PipelineStage"}, "return_value",
+		types.SemanticPredicates{IsCategoryEnumeration: true})
 
 	kinds := make(map[types.RequirementKind]bool)
 	for _, r := range reqs {
@@ -1664,7 +1671,8 @@ func TestExtractEvidenceRequirementsWithHint_CategoryCueAddsEnumeration(t *testi
 // NOT duplicate: the de-dup set in appendSecondaryKinds catches it.
 func TestExtractEvidenceRequirementsWithHint_CategoryCueNoDuplicate(t *testing.T) {
 	question := "how many kinds of handler are registered"
-	reqs := extractEvidenceRequirementsWithHint(question, []string{"handler"}, "enumeration")
+	reqs := extractEvidenceRequirementsWithHint(question, []string{"handler"}, "enumeration",
+		types.SemanticPredicates{IsCategoryEnumeration: true})
 	enumCount := 0
 	for _, r := range reqs {
 		if r.Kind == types.ReqEnumeration {
@@ -1689,7 +1697,7 @@ func TestExtractEvidenceRequirementsWithHint_CategoryCueNoDuplicate(t *testing.T
 // kinds — ERM behaviour preserved byte-for-byte.
 func TestExtractEvidenceRequirementsWithHint_NoCategoryCueNoSecondary(t *testing.T) {
 	question := "how does the router dispatch requests"
-	reqs := extractEvidenceRequirementsWithHint(question, []string{"router"}, "mechanism")
+	reqs := extractEvidenceRequirementsWithHint(question, []string{"router"}, "mechanism", types.SemanticPredicates{})
 	for _, r := range reqs {
 		if strings.Contains(r.Reason, "hybrid") {
 			t.Errorf("no category cue should yield no hybrid-reason requirement; got %+v", r)
@@ -1699,20 +1707,26 @@ func TestExtractEvidenceRequirementsWithHint_NoCategoryCueNoSecondary(t *testing
 
 func TestInferSecondaryKinds(t *testing.T) {
 	cases := []struct {
-		name string
-		in   string
-		want []types.RequirementKind
+		name  string
+		preds types.SemanticPredicates
+		want  []types.RequirementKind
 	}{
-		{"category cue 有几种", "pipeline 的状态有几种", []types.RequirementKind{types.ReqEnumeration}},
-		{"category cue 几类", "该系统几类 handler", []types.RequirementKind{types.ReqEnumeration}},
-		{"category cue what kinds of", "what kinds of tools are exposed", []types.RequirementKind{types.ReqEnumeration}},
-		{"no cue plain mechanism", "how does X call Y", nil},
-		{"no cue plain count", "how many files are in the repo", nil},
-		{"empty", "", nil},
+		{"is_category_enumeration → ReqEnumeration",
+			types.SemanticPredicates{IsCategoryEnumeration: true},
+			[]types.RequirementKind{types.ReqEnumeration}},
+		{"category + relational still produces ReqEnumeration",
+			types.SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
+			[]types.RequirementKind{types.ReqEnumeration}},
+		{"only count question — no secondary kind",
+			types.SemanticPredicates{IsCountQuestion: true},
+			nil},
+		{"no predicates set — no secondary kind",
+			types.SemanticPredicates{},
+			nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := inferSecondaryKinds(c.in)
+			got := inferSecondaryKinds(c.preds)
 			if len(got) != len(c.want) {
 				t.Fatalf("length mismatch: got %v, want %v", got, c.want)
 			}

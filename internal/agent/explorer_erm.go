@@ -93,11 +93,11 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 // mechanism question that also needs a registration lookup) that the
 // analyzer did not think to declare. The declared kind is always
 // represented at least once in the output.
-func extractEvidenceRequirementsWithHint(question string, entities []string, declaredKindRaw string) []EvidenceRequirement {
+func extractEvidenceRequirementsWithHint(question string, entities []string, declaredKindRaw string, preds types.SemanticPredicates) []EvidenceRequirement {
 	declaredKind := types.NormalizeRequirementKind(declaredKindRaw)
 	if declaredKind == types.ReqUnknown {
 		reqs := extractEvidenceRequirementsWithEntities(question, entities)
-		return appendSecondaryKinds(reqs, question, entities)
+		return appendSecondaryKinds(reqs, entities, preds)
 	}
 
 	// Build the keyword-inferred set first so we can merge.
@@ -146,7 +146,7 @@ func extractEvidenceRequirementsWithHint(question string, entities []string, dec
 		}
 	}
 
-	return appendSecondaryKinds(reqs, question, entities)
+	return appendSecondaryKinds(reqs, entities, preds)
 }
 
 // appendSecondaryKinds consults inferSecondaryKinds for structural
@@ -156,8 +156,8 @@ func extractEvidenceRequirementsWithHint(question string, entities []string, dec
 // against whatever primary / keyword-inferred kinds already sit in
 // reqs — a question that already has ReqEnumeration from the
 // analyzer or keyword path gets no duplicate.
-func appendSecondaryKinds(reqs []EvidenceRequirement, question string, entities []string) []EvidenceRequirement {
-	secondary := inferSecondaryKinds(question)
+func appendSecondaryKinds(reqs []EvidenceRequirement, entities []string, preds types.SemanticPredicates) []EvidenceRequirement {
+	secondary := inferSecondaryKinds(preds)
 	if len(secondary) == 0 {
 		return reqs
 	}

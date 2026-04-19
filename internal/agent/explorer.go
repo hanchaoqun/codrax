@@ -580,8 +580,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// Pass the analyzer's declared question_kind (may be empty or
 			// "unknown"; the hint-aware path handles both by falling
 			// back to pure keyword inference).
+			var ermPreds types.SemanticPredicates
+			if ctx != nil && ctx.AnalysisIR != nil {
+				ermPreds = ctx.AnalysisIR.RequestModel.Predicates
+			}
 			e.ermRequirements = extractEvidenceRequirementsWithHint(
-				ermKeywordSource, ermEntities, analyzerKind,
+				ermKeywordSource, ermEntities, analyzerKind, ermPreds,
 			)
 			// Auto-satisfy requirements whose entities don't match any
 			// symbol in the codebase — prevents generic English words from

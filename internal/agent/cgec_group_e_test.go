@@ -34,7 +34,7 @@ func TestInferAnswerSubject_QuestionKindFallback(t *testing.T) {
 	for _, tt := range tests {
 		rm := types.RequestModel{}
 		rm.AnalyzerHints.Kind = tt.kind
-		subj, reason := inferAnswerSubject(rm, "totally neutral prose that matches nothing")
+		subj, reason := inferAnswerSubject(rm)
 		if subj.Kind != tt.wantSubj {
 			t.Errorf("kind=%s: got %s, want %s (reason=%s)", tt.kind, subj.Kind, tt.wantSubj, reason)
 		}
@@ -51,7 +51,7 @@ func TestInferAnswerSubject_QuestionKindFallback(t *testing.T) {
 func TestInferAnswerSubject_HardFallback_NeverUnknown(t *testing.T) {
 	rm := types.RequestModel{}
 	rm.AnalyzerHints.Kind = "unknown"
-	subj, reason := inferAnswerSubject(rm, "unmatched prose with no cue and no question_kind")
+	subj, reason := inferAnswerSubject(rm)
 	if subj.Kind == types.SubjectUnknown {
 		t.Errorf("hard fallback must NEVER return SubjectUnknown, got empty")
 	}
@@ -71,7 +71,7 @@ func TestInferAnswerSubject_HardFallback_NeverUnknown(t *testing.T) {
 // land on SubjectGeneric rather than the zero value.
 func TestInferAnswerSubject_EmptyQuestionKind(t *testing.T) {
 	rm := types.RequestModel{}
-	subj, _ := inferAnswerSubject(rm, "plain text")
+	subj, _ := inferAnswerSubject(rm)
 	if subj.Kind != types.SubjectGeneric {
 		t.Errorf("empty question_kind + no cue must fallback to Generic, got %s", subj.Kind)
 	}

@@ -610,10 +610,9 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// Raw request stripped of the REPL conversation prefix — otherwise
 		// "## Current request\nrepomap的作用" would show simple-lookup
 		// cues even for a complex question re-asked in REPL mode.
-		rawForComplexity := types.StripConversationPrefix(rm.RawRequest)
-		resolved, reason := reconcileComplexity(rm.Complexity, rawForComplexity,
+		resolved, reason := reconcileComplexity(rm.Complexity,
 			rm.AnalyzerHints.Entities, rm.AnalyzerHints.Keywords, len(rm.SubTopics),
-			rm.AnalyzerHints.Kind)
+			rm.AnalyzerHints.Kind, rm.Predicates)
 		if resolved != rm.Complexity {
 			logComplexityReconcile(rm.Complexity, resolved, reason)
 		}
@@ -628,7 +627,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// that otherwise locks the pipeline into ShapeListOfSymbols
 		// and an unsatisfiable file:line citation floor.
 		// See internal/agent/analyzer_intent.go for the rule body.
-		intentResolved, intentReason := reconcileIntent(rm.Intent, rawForComplexity, rm.Complexity)
+		intentResolved, intentReason := reconcileIntent(rm.Intent, rm.Predicates)
 		if intentResolved != rm.Intent {
 			logIntentReconcile(rm.Intent, intentResolved, intentReason)
 		}
@@ -644,7 +643,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// strips) is applied in one post-compile block below, keyed
 		// off this single flag. Keeps "one signal, one response"
 		// grep-able.
-		isMeasurementScalar = isMeasurementScalarRequest(rm, rawForComplexity)
+		isMeasurementScalar = isMeasurementScalarRequest(rm)
 
 		// CGEC: AnswerSubject inference. Classifies what kind of
 		// source-code literal the answer should be (skill_name,
@@ -655,7 +654,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// is the wrong kind, and reconcileShape (post-compile)
 		// consults it to swap config_value→value for source-code
 		// literals that have no YAML key surface.
-		subject, subjReason := inferAnswerSubject(rm, rawForComplexity)
+		subject, subjReason := inferAnswerSubject(rm)
 		if subject.Kind != types.SubjectUnknown {
 			logSubjectInferred(subject, subjReason)
 			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
@@ -672,7 +671,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// (AxisUnknown) is a clean no-op; reconcilePredicateAxis only
 		// FILLS empty and never overrides.
 		// See internal/agent/analyzer_predicate.go for the rule body.
-		axis, axisReason := reconcilePredicateAxis(rm.PredicateAxis, rawForComplexity)
+		axis, axisReason := reconcilePredicateAxis(rm.PredicateAxis)
 		if axis != rm.PredicateAxis {
 			logPredicateAxisReconcile(rm.PredicateAxis, axis, axisReason)
 			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
@@ -852,8 +851,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// by reconcile picking a different shape; the two rules are
 	// disjoint in practice (measurement requires count-verb prefix;
 	// reconcile requires source-code-literal subject).
-	rawForShape := types.StripConversationPrefix(rm.RawRequest)
-	reconciledShape, shapeReason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rawForShape)
+	reconciledShape, shapeReason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rm.Predicates)
 	if reconciledShape != out.AnswerContract.RequiredAnswerShape {
 		before := out.AnswerContract.RequiredAnswerShape
 		logShapeReconciled(before, reconciledShape, shapeReason)
