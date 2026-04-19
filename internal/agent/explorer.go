@@ -97,6 +97,14 @@ type explorerEvaluator struct {
 	// BuildInitialInstruction see no behavior change.
 	complexity types.Complexity
 
+	// kindConfidence caches RequestModel.KindConfidence at
+	// BuildInitialInstruction. Schema-v4 downstream guard: gates
+	// aggressive narrowing such as tightenDeclarativeFrontier so a
+	// low-confidence question_kind cannot over-narrow the read set
+	// to wrong files. Zero (LLM declined to rate) is treated as low
+	// confidence — the guard refuses to narrow.
+	kindConfidence float64
+
 	// Loop-control state that USED to live here has been lifted into
 	// LoopPolicy:
 	//   - idleStreakInDepth → obs.IdleStreak (policy-owned counter)
@@ -165,6 +173,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
 		e.complexity = ""
+		e.kindConfidence = 0
 		e.requiredFiles = nil
 		e.exactAnchorFiles = nil
 		e.declarativeAnchorFiles = nil
@@ -191,6 +200,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		if rm := ctx.Mutable.RequestModel(); rm != nil {
 			e.answerSubject = rm.AnswerSubject
 			e.predicateAxis = rm.PredicateAxis
+			e.kindConfidence = rm.KindConfidence
 		}
 	}
 	// Strip the REPL-assembled Prior Conversation prefix before
@@ -1063,8 +1073,31 @@ func (e *explorerEvaluator) shouldStartDeclarativeDepth(questionKind string) boo
 	if len(e.declarativeAnchorFiles) == 0 {
 		return false
 	}
+	// Schema-v4 confidence guard: tightenDeclarativeFrontier
+	// aggressively narrows the read set to declarative-anchor files
+	// keyed off the LLM's question_kind. When the LLM is unsure about
+	// the kind (KindConfidence < kindConfidenceFloorForNarrowing),
+	// declining to narrow keeps the broader read set so a
+	// misclassification cannot drop the answer-bearing files. Zero
+	// confidence (LLM declined to rate) is treated as low — guard
+	// refuses to narrow.
+	if e.kindConfidence > 0 && e.kindConfidence < kindConfidenceFloorForNarrowing {
+		return false
+	}
 	return declarativeFocusRelevant(questionKind, e.isEnumerationQuery, e.predicateAxis)
 }
+
+// kindConfidenceFloorForNarrowing is the minimum LLM-emitted
+// KindConfidence at which the explorer is allowed to apply
+// aggressive narrowing rules (tightenDeclarativeFrontier in
+// particular). Below this floor, the explorer keeps the broader read
+// set so a hesitant classification cannot drop answer-bearing files.
+//
+// 0.7 is chosen so the LLM has to be more than "leaning" — it has to
+// be confident — before downstream behaviour collapses the search
+// surface. The pre-v4 code had no guard at all; this floor is the
+// safety net for the prose-cue tables we deleted.
+const kindConfidenceFloorForNarrowing = 0.7
 
 func (e *explorerEvaluator) tightenFocusedFrontier() {
 	anchor, ok := e.uniqueExactAnchorFile()
