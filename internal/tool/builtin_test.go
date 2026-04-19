@@ -924,3 +924,133 @@ func TestGitLog(t *testing.T) {
 		t.Skip("not in a git repo")
 	})
 }
+
+// TestResolveToolPath_RootsRelativeAtRepoRoot pins the boundary
+// behavior that fixes the Q2 glamour-vs-codrax bug: when the LLM passes
+// "." or a relative path, tools must operate against ctx.RepoRoot, not
+// the codrax process CWD. A regression here means foreign-repo
+// analysis silently scans codrax itself.
+func TestResolveToolPath_RootsRelativeAtRepoRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", repoRoot},
+		{"dot", ".", repoRoot},
+		{"relative_file", "internal/foo.go", filepath.Join(repoRoot, "internal/foo.go")},
+		{"relative_dir", "subdir", filepath.Join(repoRoot, "subdir")},
+		{"absolute_passthrough", "/etc/hostname", "/etc/hostname"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := resolveToolPath(ctx, tc.in)
+			if got != tc.want {
+				t.Fatalf("resolveToolPath(%q): got %q, want %q", tc.in, got, tc.want)
+			}
+		})
+	}
+
+	// Zero-value RepoRoot must pass the path through unchanged so
+	// existing unit tests that build a bare BusContext keep working.
+	t.Run("empty_RepoRoot_unchanged", func(t *testing.T) {
+		got := resolveToolPath(&types.BusContext{}, "internal/foo.go")
+		if got != "internal/foo.go" {
+			t.Fatalf("with empty RepoRoot expected pass-through, got %q", got)
+		}
+	})
+}
+
+// TestReadFile_ResolvesAgainstRepoRoot confirms that a foreign-repo
+// scenario (codrax CWD ≠ --repo) opens the right file. Without the
+// fix, read_file(path="hello.txt") would try to open hello.txt in the
+// codrax process CWD — invariably failing or, worse, silently reading
+// a same-named file from codrax itself.
+func TestReadFile_ResolvesAgainstRepoRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	target := "hello.txt"
+	want := "from the right repo\n"
+	if err := os.WriteFile(filepath.Join(repoRoot, target), []byte(want), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	tool := &ReadFile{}
+	params, _ := json.Marshal(readFileParams{Path: target})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, want) {
+		t.Fatalf("expected file content in summary, got: %s", result.Summary)
+	}
+	// Banner echoes the LLM-supplied (relative) path so downstream
+	// extractFileCoverage / canonicaliser keep operating on
+	// repo-relative keys.
+	if !strings.Contains(result.Summary, "["+target+":") {
+		t.Fatalf("banner should echo LLM-supplied relative path %q, got: %s", target, result.Summary)
+	}
+}
+
+// TestListFiles_ResolvesAgainstRepoRoot confirms the same boundary
+// for list_files. The output paths preserve the LLM's relative form
+// so the LLM can feed them straight back into read_file / grep.
+func TestListFiles_ResolvesAgainstRepoRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	for _, name := range []string{"a.go", "b.go"} {
+		if err := os.WriteFile(filepath.Join(repoRoot, name), []byte("x"), 0o644); err != nil {
+			t.Fatalf("setup: %v", err)
+		}
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	tool := &ListFiles{}
+	params, _ := json.Marshal(listFilesParams{Path: "."})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	for _, want := range []string{"a.go", "b.go"} {
+		if !strings.Contains(result.Summary, want) {
+			t.Fatalf("expected listing to contain %q, got: %s", want, result.Summary)
+		}
+	}
+	// Output should NOT carry the absolute repoRoot prefix — the LLM
+	// expects repo-relative paths it can immediately reuse.
+	if strings.Contains(result.Summary, repoRoot) {
+		t.Fatalf("listing leaked absolute repoRoot prefix, got: %s", result.Summary)
+	}
+}
+
+// TestGrep_ResolvesAgainstRepoRoot exercises the grep tool through
+// the same boundary. The matched line must come from the file in
+// ctx.RepoRoot, not from any same-named file in the process CWD.
+func TestGrep_ResolvesAgainstRepoRoot(t *testing.T) {
+	repoRoot := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repoRoot, "needle.txt"), []byte("UNIQUE_TOKEN_X9Q\n"), 0o644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	ctx := &types.BusContext{RepoRoot: repoRoot}
+	tool := &GrepTool{}
+	params, _ := json.Marshal(grepToolParams{Pattern: "UNIQUE_TOKEN_X9Q", Path: "."})
+	result, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("expected success, got: %s", result.Summary)
+	}
+	if !strings.Contains(result.Summary, "needle.txt") {
+		t.Fatalf("grep should find needle.txt in RepoRoot, got: %s", result.Summary)
+	}
+}

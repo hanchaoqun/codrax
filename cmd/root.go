@@ -541,6 +541,19 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Resolve --repo to an absolute path before any tool / orchestrator
+	// reads it. Tools key file-system access off BusContext.RepoRoot, so
+	// a literal "." here would silently fall through to the process CWD
+	// at every Execute (codrax's own dir, not the user's --repo target).
+	// EvalSymlinks normalizes module-cache paths so two -repo invocations
+	// pointing at the same content produce the same canonical RepoRoot.
+	if abs, err := filepath.Abs(flagRepo); err == nil {
+		if resolved, err2 := filepath.EvalSymlinks(abs); err2 == nil {
+			flagRepo = resolved
+		} else {
+			flagRepo = abs
+		}
+	}
 	repomap.SetCacheDir(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
 

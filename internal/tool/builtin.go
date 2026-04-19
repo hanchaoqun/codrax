@@ -56,6 +56,37 @@ func sanitizeForBanner(s string) string {
 	return out
 }
 
+// resolveToolPath maps an LLM-supplied path to a real filesystem path
+// rooted at ctx.RepoRoot. The LLM treats the repo root as its own
+// CWD ("." means "the repo I'm investigating"), but the codrax process
+// CWD is wherever the user invoked the binary — typically a different
+// directory. Without this resolution, a tool call like
+// `repo_map(path=".")` or `read_file(path="internal/foo.go")` would
+// scan or open the wrong tree, and the LLM would faithfully cite
+// content from the wrong repo (the Q2 glamour-vs-codrax confusion).
+//
+// Rules:
+//   - ctx.RepoRoot empty (zero-value BusContext in unit tests) →
+//     return p unchanged so existing tests keep working without a fake
+//     RepoRoot.
+//   - p empty or "." → return ctx.RepoRoot.
+//   - p absolute → return as-is. The LLM occasionally pastes a path
+//     it saw in earlier output (already absolute); re-rooting it would
+//     produce a nonsense `RepoRoot/abs/path/...`.
+//   - p relative → join under ctx.RepoRoot.
+func resolveToolPath(ctx *types.BusContext, p string) string {
+	if ctx == nil || ctx.RepoRoot == "" {
+		return p
+	}
+	if p == "" || p == "." {
+		return ctx.RepoRoot
+	}
+	if filepath.IsAbs(p) {
+		return p
+	}
+	return filepath.Join(ctx.RepoRoot, p)
+}
+
 // kvBanner renders a tool call's parameters as a single-line banner
 // of the shape `[<name>: k1=v1 k2=v2]\n`. Empty values are dropped so
 // the banner stays tight. Values are sanitised via sanitizeForBanner.
@@ -140,6 +171,14 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	defer cancel()
 
 	cmd := NewShellCommandContext(execCtx, p.Command)
+	// Anchor the shell at the repo root so `find .`, `wc -l *.go`,
+	// `git ls-files` etc. operate on the user's --repo target rather
+	// than the codrax process CWD. exec_command has no path param —
+	// the LLM expresses the working directory through its command
+	// (e.g. `cd subpkg && ...`) and that `cd` is relative to RepoRoot.
+	if ctx != nil && ctx.RepoRoot != "" {
+		cmd.Dir = ctx.RepoRoot
+	}
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
@@ -226,7 +265,12 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
-	searchPath := p.Path
+	// Resolve relative / "." paths against ctx.RepoRoot so a search
+	// rooted at the LLM's notion of "the repo" hits the actual --repo
+	// target. The banner below still echoes the LLM-supplied p.Path
+	// (relative form) because downstream extractFileCoverage and the
+	// path canonicaliser key on repo-relative paths, not absolute.
+	searchPath := resolveToolPath(ctx, p.Path)
 	if searchPath == "" {
 		searchPath = "."
 	}
@@ -541,7 +585,12 @@ func (t *ReadFile) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("invalid params: %v", err), Timestamp: time.Now()}, err
 	}
 
-	data, err := os.ReadFile(p.Path)
+	// Resolve relative paths against ctx.RepoRoot. The LLM cites paths
+	// in repo-relative form (the canonicaliser also stores them that
+	// way); the banner below echoes p.Path verbatim so those downstream
+	// keys stay aligned.
+	fsPath := resolveToolPath(ctx, p.Path)
+	data, err := os.ReadFile(fsPath)
 	if err != nil {
 		return types.ToolResult{ToolName: t.Name(), Success: false, Summary: fmt.Sprintf("read failed: %v", err), Timestamp: time.Now()}, nil
 	}
@@ -766,35 +815,52 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 		"recursive", recursiveStr,
 	)
 
+	// Resolve "." / relative paths against ctx.RepoRoot. The LLM walks
+	// the repo by saying `list_files(path=".")`, which without resolution
+	// would scan the codrax process CWD instead of the user's --repo.
+	// Output paths keep the LLM's relative form (or "." when no prefix
+	// was supplied) so downstream parsers and citation matching stay
+	// repo-relative.
+	fsPath := resolveToolPath(ctx, p.Path)
+	displayPath := p.Path
+	if displayPath == "" {
+		displayPath = "."
+	}
+
 	var files []string
 
 	if p.Recursive {
-		err := filepath.WalkDir(p.Path, func(path string, d fs.DirEntry, err error) error {
+		err := filepath.WalkDir(fsPath, func(path string, d fs.DirEntry, err error) error {
 			if err != nil {
 				return err
 			}
 			// Skip well-known noise directories that explode the walk
 			// without yielding useful entries (VCS metadata, dependency
 			// caches, hidden tooling). Mirrors RepoMap's behavior.
-			if d.IsDir() && path != p.Path {
+			if d.IsDir() && path != fsPath {
 				name := d.Name()
 				if name == ".git" || name == "node_modules" || name == "vendor" || name == ".venv" || strings.HasPrefix(name, ".") {
 					return filepath.SkipDir
 				}
 			}
-			files = append(files, path)
+			rel, relErr := filepath.Rel(fsPath, path)
+			if relErr != nil || rel == "." {
+				files = append(files, displayPath)
+			} else {
+				files = append(files, filepath.Join(displayPath, rel))
+			}
 			return nil
 		})
 		if err != nil {
 			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + fmt.Sprintf("walk failed: %v", err), Timestamp: time.Now()}, nil
 		}
 	} else {
-		entries, err := os.ReadDir(p.Path)
+		entries, err := os.ReadDir(fsPath)
 		if err != nil {
 			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + fmt.Sprintf("readdir failed: %v", err), Timestamp: time.Now()}, nil
 		}
 		for _, e := range entries {
-			files = append(files, filepath.Join(p.Path, e.Name()))
+			files = append(files, filepath.Join(displayPath, e.Name()))
 		}
 	}
 
@@ -866,8 +932,11 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 	}
 
 	cmd := exec.Command("git", args...)
-	if p.Path != "" {
-		cmd.Dir = p.Path
+	// Anchor at ctx.RepoRoot when the LLM didn't specify a path.
+	// Otherwise resolve the LLM-supplied path against RepoRoot so a
+	// relative `path: "subpkg"` works.
+	if dir := resolveToolPath(ctx, p.Path); dir != "" {
+		cmd.Dir = dir
 	}
 
 	var stdout, stderr bytes.Buffer
@@ -947,8 +1016,9 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 	args := []string{"log", fmt.Sprintf("-n%d", count), fmt.Sprintf("--format=%s", format)}
 
 	cmd := exec.Command("git", args...)
-	if p.Path != "" {
-		cmd.Dir = p.Path
+	// Same RepoRoot anchoring as GitDiff above.
+	if dir := resolveToolPath(ctx, p.Path); dir != "" {
+		cmd.Dir = dir
 	}
 
 	var stdout, stderr bytes.Buffer

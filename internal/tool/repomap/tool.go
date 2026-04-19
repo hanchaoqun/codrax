@@ -3,6 +3,7 @@ package repomap
 import (
 	"encoding/json"
 	"fmt"
+	"path/filepath"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -84,14 +85,30 @@ func (t *RepoMapV2) Execute(ctx *ctypes.BusContext, params json.RawMessage) (cty
 		}, err
 	}
 
-	if p.Path == "" {
-		p.Path = "."
-	}
 	if p.View == "" {
 		p.View = "overview"
 	}
 
+	// Resolve LLM-supplied path against ctx.RepoRoot. The LLM treats
+	// the repo root as its own CWD ("." = "the repo I'm investigating"),
+	// but the codrax process CWD is wherever the user invoked the
+	// binary. Without resolution, `repo_map(path=".")` scans the codrax
+	// process CWD instead of the user's --repo target — the LLM then
+	// faithfully cites content from the wrong tree (Q2 glamour-vs-codrax
+	// regression). Absolute paths from the LLM are honored as-is; an
+	// empty / "." / relative path is rooted at ctx.RepoRoot.
 	repoRoot := p.Path
+	if ctx != nil && ctx.RepoRoot != "" {
+		switch {
+		case repoRoot == "" || repoRoot == ".":
+			repoRoot = ctx.RepoRoot
+		case !filepath.IsAbs(repoRoot):
+			repoRoot = filepath.Join(ctx.RepoRoot, repoRoot)
+		}
+	}
+	if repoRoot == "" {
+		repoRoot = "."
+	}
 
 	// Build or load the graph
 	graph, err := buildOrLoadGraph(repoRoot, p.Query)

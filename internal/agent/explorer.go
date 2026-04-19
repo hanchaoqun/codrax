@@ -772,7 +772,13 @@ func (e *explorerEvaluator) uniqueExactAnchorFile() (string, bool) {
 }
 
 func canonicalExplorerPath(path string) string {
-	path = filepath.ToSlash(strings.TrimSpace(path))
+	// Unconditional backslash → slash normalization: filepath.ToSlash
+	// is a no-op on Linux (separator is already '/'), so a Windows-
+	// shaped banner like `[.\internal\foo.go: showing lines …]` would
+	// otherwise carry through with backslashes intact and miss every
+	// downstream slash-keyed map. Keep ToSlash too for Windows so the
+	// platform-native conversion still applies in addition.
+	path = strings.ReplaceAll(filepath.ToSlash(strings.TrimSpace(path)), "\\", "/")
 	return strings.TrimPrefix(path, "./")
 }
 

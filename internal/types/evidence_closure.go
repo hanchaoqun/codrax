@@ -2,7 +2,6 @@ package types
 
 import (
 	"hash/fnv"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -1077,8 +1076,16 @@ func (m *MutableState) ResetEvidenceClosure() {
 // stripped and trailing whitespace trimmed. Symmetric with the
 // canonicaliser in internal/tool/ground/path.go but does not touch
 // repo-root resolution (closure stores repo-relative paths only).
+//
+// The backslash → slash conversion is unconditional rather than
+// going through filepath.ToSlash because that helper is a no-op on
+// Linux (separator is already '/'), so Windows-shaped paths emitted
+// by a Windows binary or held in a cross-OS test fixture would
+// silently slip through and miss every map lookup keyed on the
+// slash form.
 func canonicalizeRepoPath(p string) string {
-	p = filepath.ToSlash(strings.TrimSpace(p))
+	p = strings.TrimSpace(p)
+	p = strings.ReplaceAll(p, "\\", "/")
 	for strings.HasPrefix(p, "./") {
 		p = p[2:]
 	}
