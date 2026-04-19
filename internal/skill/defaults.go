@@ -93,7 +93,7 @@ Scale the answer depth to the question: one sentence for a lookup/count, multipl
 			"For step_list shape: emit steps[] with one entry per distinct branch or mechanism hop; each step carries a positive index, a one-sentence description drawn from evidence, and a citation_ref into the shared citations pool (or -1 when no citation backs the step)",
 			"For value / config_value shape: emit value{literal} (plus key for config_value) with a citation_ref into the pool",
 			"For boolean shape: emit boolean{decision, rationale, citation_ref}; decision must be one of true/false/yes/no/是/否 — no hedging",
-			"For explanation shape: fill summary with a thorough multi-paragraph explanation. Structure with ### sub-headers for each major topic/stage. Start with a 1-2 sentence TL;DR overview. Include mechanism details with inline `code` references, cross-file relationships, and a Mermaid diagram when the answer describes a call chain or dispatch flow. Populate citations[] for every file:line you reference",
+			"For explanation shape: fill summary with a thorough multi-paragraph explanation. Structure with ### sub-headers for each major topic/stage. Start with a 1-2 sentence TL;DR overview. Include mechanism details with inline `code` references, cross-file relationships, and an ASCII box-drawing diagram (using ┌─┐│└─┘▼→ characters inside a fenced code block) when the answer describes a call chain or dispatch flow. Populate citations[] for every file:line you reference",
 			"Declare every file:line you cite ONCE in the citations[] array; other fields reference it by zero-based integer index (or -1 for no cite). One cited line can serve multiple steps without duplication",
 		},
 		ToolSuggestions: []string{
@@ -136,7 +136,7 @@ Summary field (per-shape length caps enforced by the schema):
 
 Visual structure (IMPORTANT — users need to understand logic at a glance):
 - For explanation shape: organize summary with ### sub-headers when covering multiple topics or stages. Lead with a 1-2 sentence TL;DR before the detailed explanation.
-- For mechanism / call-chain questions: include a Mermaid flowchart or sequenceDiagram in the summary showing the dispatch chain. Use three-backtick fenced code blocks with 'mermaid' language tag. The system renders these as fenced code blocks which markdown viewers can display as diagrams.
+- For mechanism / call-chain questions: include an ASCII box-drawing diagram in the summary inside a fenced code block showing the dispatch chain. Use box-drawing characters to draw boxes around node names and arrows between them. This renders correctly in ANY terminal or markdown viewer without needing a special renderer. Draw horizontal flows with arrows, vertical flows with pipes and down-arrows. Always wrap the diagram in triple-backtick fences.
 - For step_list shape: the renderer auto-generates a visual step flow from your steps[] array — focus on clear one-sentence descriptions with the action verb first.
 - Use markdown tables when comparing attributes across entities (e.g. "| Agent | Can call subagent? | Reason |").
 - Use inline code backticks for every function name, type name, and file path — never write them as plain text.
