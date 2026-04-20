@@ -401,6 +401,23 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	stepsUsed := 0
 	var lastFinalize *agent.StageOutput
 
+	// forceFinalizeTriggered latches once stopcond.ShouldStop has fired
+	// and forceCloseExploreWindow has marked every non-finalize node as
+	// done. Without this latch the same stop condition would re-fire on
+	// every subsequent iteration (the criterion.Env is pure-read and
+	// deterministic over the current BusContext), triggering a hot
+	// loop on the `stop→forceClose→continue` path — stepsUsed never
+	// increments inside that branch, so neither the step-budget exit
+	// nor allDone() (finalize still pending) ever fires.
+	//
+	// Once latched, stop checks are skipped for the remainder of
+	// runTaskGraph: the next iteration's readyExplorerWindow returns
+	// empty (everything was force-closed), firstFinalizeReadyMerged
+	// returns the finalize node, and the normal extract→finalize
+	// dispatch path runs — with retry budget tracked via stepsUsed so
+	// the outer loop always terminates.
+	forceFinalizeTriggered := false
+
 	buildEnv := func(draft string, draftCitations int) criterion.Env {
 		return criterion.Env{
 			IR:             ir,
@@ -419,10 +436,13 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	for stepsUsed < stepBudget && !state.allDone() {
 		env := buildEnv("", 0)
 
-		if stop, reason := stopcond.ShouldStop(ir.EvidencePlan, env); stop {
-			logging.Info("[orchestrator] stop condition fired: %s", reason)
-			state.forceCloseExploreWindow()
-			continue
+		if !forceFinalizeTriggered {
+			if stop, reason := stopcond.ShouldStop(ir.EvidencePlan, env); stop {
+				logging.Info("[orchestrator] stop condition fired: %s", reason)
+				state.forceCloseExploreWindow()
+				forceFinalizeTriggered = true
+				continue
+			}
 		}
 
 		window, blocked := state.readyExplorerWindow(env)
