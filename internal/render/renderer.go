@@ -159,8 +159,8 @@ func New(_ /* out */ interface{}, forceColor bool) *Renderer {
 // Every background-color slot glamour paints is cleared so the
 // answer and every element nested inside it — H1 headers, inline
 // code, fenced code blocks (which carry the "Key snippets" code and
-// the ASCII "Flow" relation diagram), chroma error tokens — fall
-// back to the terminal's own background. Glamour's baked-in greys /
+// any ASCII diagram the LLM authored in Summary), chroma error
+// tokens — fall back to the terminal's own background. Glamour's baked-in greys /
 // purples / reds clash with popular terminal themes; previous
 // iterations ("charcoal card", coloured H1 bar, grey inline pill)
 // have all been rejected as "太丑了". The user ask is: one flat

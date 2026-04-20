@@ -92,29 +92,25 @@ func RenderAnswerDocument(doc *types.AnswerDocument, lang string) string {
 		// citations if any.
 	}
 
-	// Session-8 render-only sections (deterministic, built by
-	// emit_answer_document from read_file history + evidence
-	// buffer). Rendered between shape-specific body and citation
-	// pool so the order is: prose → structured payload → code
-	// snippets → relation diagram → citations.
+	// Render-only Key snippets block (deterministic, built by
+	// emit_answer_document from read_file gutter at each cited line).
+	// Rendered between shape-specific body and citation pool so the
+	// order is: prose → structured payload → code snippets → citations.
 	//
 	// Skipped for scalar shapes (value / boolean / config_value) —
 	// those shapes have a hard character cap in contract.checkShape
-	// ("value answer too long" etc.) and appending snippets + diagram
-	// blows the cap, retrying into the fail-loud banner even when
-	// the literal answer is correct. Snippets belong to shapes whose
+	// ("value answer too long" etc.) and appending snippets blows
+	// the cap, retrying into the fail-loud banner even when the
+	// literal answer is correct. Snippets belong to shapes whose
 	// contract allows multi-paragraph prose (list_of_symbols /
 	// step_list / explanation). Also skipped when empty
-	// (non-read-backed answers / single-node chains).
+	// (non-read-backed answers).
 	switch doc.Shape {
 	case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
 		// scalar shapes: render nothing extra
 	default:
 		if len(doc.Snippets) > 0 {
 			renderAnswerDocSnippets(&b, doc, l)
-		}
-		if s := strings.TrimSpace(doc.RelationDiagram); s != "" {
-			renderAnswerDocRelationDiagram(&b, doc, l)
 		}
 	}
 
@@ -392,27 +388,6 @@ func renderAnswerDocSnippets(b *strings.Builder, doc *types.AnswerDocument, lang
 		}
 		b.WriteString("```\n\n")
 	}
-}
-
-// renderAnswerDocRelationDiagram renders the pre-built ASCII flow
-// under a "Flow" / "关系图" header. The diagram body is already
-// canonically laid out by buildRelationDiagram — the renderer only
-// prefixes the header and wraps in a ``` fence so the monospace
-// column math survives the markdown → terminal pipeline (pterm
-// collapses whitespace by default outside fences).
-func renderAnswerDocRelationDiagram(b *strings.Builder, doc *types.AnswerDocument, lang answerDocLang) {
-	switch lang {
-	case answerDocLangZH:
-		b.WriteString("\n**调用/关系链路图**：\n\n")
-	default:
-		b.WriteString("\n**Flow:**\n\n")
-	}
-	b.WriteString("```\n")
-	b.WriteString(doc.RelationDiagram)
-	if !strings.HasSuffix(doc.RelationDiagram, "\n") {
-		b.WriteByte('\n')
-	}
-	b.WriteString("```\n")
 }
 
 // completenessTag returns a short italic tag for the list_of_symbols

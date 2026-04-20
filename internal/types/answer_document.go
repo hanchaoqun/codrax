@@ -80,12 +80,6 @@ type AnswerDocument struct {
 	// pool so readers can see the relevant code without following
 	// file:line links.
 	Snippets []CodeSnippet `json:"snippets,omitempty"`
-
-	// RelationDiagram is an ASCII flow built from evidence
-	// relationship predicates (calls/binds/registers/returns). Empty
-	// when no clear chain exists. Populated by emit_answer_document
-	// post-dispatch; rendered under the Snippets section.
-	RelationDiagram string `json:"relation_diagram,omitempty"`
 }
 
 // CodeSnippet carries a contiguous code excerpt extracted from a

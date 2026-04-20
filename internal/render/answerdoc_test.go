@@ -355,33 +355,6 @@ func TestRenderAnswerDocument_Snippets(t *testing.T) {
 	}
 }
 
-// TestRenderAnswerDocument_RelationDiagram — RelationDiagram renders
-// wrapped in a plain ``` fence so the monospace column math
-// survives terminal rendering (pterm collapses whitespace outside
-// fences).
-func TestRenderAnswerDocument_RelationDiagram(t *testing.T) {
-	doc := &types.AnswerDocument{
-		Shape:           types.ShapeExplanation,
-		Summary:         "x",
-		RelationDiagram: "Foo\n │ calls\n ▼\nBar",
-	}
-	out := RenderAnswerDocument(doc, "en")
-	if !strings.Contains(out, "Flow:") {
-		t.Errorf("English flow header missing: %q", out)
-	}
-	if !strings.Contains(out, "Foo") || !strings.Contains(out, "Bar") {
-		t.Errorf("diagram body missing: %q", out)
-	}
-	if !strings.Contains(out, "```\nFoo") {
-		t.Errorf("diagram must be wrapped in a plain fence: %q", out)
-	}
-
-	outZH := RenderAnswerDocument(doc, "zh")
-	if !strings.Contains(outZH, "调用/关系链路图") {
-		t.Errorf("Chinese flow header missing: %q", outZH)
-	}
-}
-
 func TestTableCell(t *testing.T) {
 	cases := []struct {
 		name string
@@ -467,8 +440,5 @@ func TestRenderAnswerDocument_NoSnippetsNoRenderBlock(t *testing.T) {
 	out := RenderAnswerDocument(doc, "en")
 	if strings.Contains(out, "Key snippets") {
 		t.Errorf("empty Snippets must not render header: %q", out)
-	}
-	if strings.Contains(out, "Flow:") {
-		t.Errorf("empty diagram must not render header: %q", out)
 	}
 }

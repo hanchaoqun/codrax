@@ -700,14 +700,11 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		doc.Caveats = append([]string(nil), p.Caveats...)
 	}
 
-	// Session-8 feature: populate deterministic render-only fields
-	// (code snippets, relation diagram) from Mutable state. LLM
-	// never writes these — they are built from the read_file gutter
-	// index and the evidence buffer, so the values are verifiable
-	// against ground truth. See extractCodeSnippets /
-	// buildRelationDiagram for the algorithms.
+	// Populate deterministic render-only code snippets from the
+	// read_file gutter index at each citation line. The LLM never
+	// writes into doc.Snippets; it is verifiable against ground
+	// truth. See extractCodeSnippets for the algorithm.
 	doc.Snippets = extractCodeSnippets(ctx, doc, 5)
-	doc.RelationDiagram = buildRelationDiagram(ctx)
 
 	ctx.Mutable.SetAnswerDocument(doc)
 
