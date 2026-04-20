@@ -199,7 +199,7 @@ func (o *Orchestrator) runForcedReads() int {
 			Kind:      render.EventAgentReasoning,
 			Timestamp: time.Now(),
 			Agent:     "orchestrator",
-			Reasoning: fmt.Sprintf("⟳ Forced-read %d file(s) the LLM skipped (CGEC E2)", success),
+			Reasoning: softForcedReadMessage(o.busCtx.Language, success),
 		})
 	}
 	return success
@@ -292,7 +292,7 @@ func (o *Orchestrator) detectStallAndAct() bool {
 				Kind:      render.EventAgentReasoning,
 				Timestamp: time.Now(),
 				Agent:     "orchestrator",
-				Reasoning: "⚠️ CGEC I4: convergence stall — force-completing with current evidence",
+				Reasoning: softConvergenceStallMessage(o.busCtx.Language),
 			})
 			return true
 		}

@@ -858,11 +858,15 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 }
 
 // emitCGECSummary renders the per-task CGEC counter snapshot to the
-// trace + the renderer's reasoning event channel. Always emits a
-// single line so operators can grep [CGEC] summary even on no-op
-// tasks — a "no enforcer fired" line is a positive signal that the
-// closure is quiet, which is itself diagnostic information.
-// Called at the end of runTaskGraph after all stages have exited.
+// operator trace. Always emits a single line so operators can grep
+// [CGEC] summary even on no-op tasks — a "no enforcer fired" line
+// is a positive signal that the closure is quiet, which is itself
+// diagnostic information. Called at the end of runTaskGraph after
+// all stages have exited.
+//
+// This line is log-only: it carries internal counter names that are
+// noise to end users, and the renderer already surfaces task
+// completion via stage-end events. Operator-facing only.
 func (o *Orchestrator) emitCGECSummary() {
 	if o.busCtx == nil || o.busCtx.Mutable == nil {
 		return
@@ -896,12 +900,6 @@ func (o *Orchestrator) emitCGECSummary() {
 		}
 	}
 	logging.Info("%s", line)
-	o.emit(render.Event{
-		Kind:      render.EventAgentReasoning,
-		Timestamp: time.Now(),
-		Agent:     "orchestrator",
-		Reasoning: "📊 " + line,
-	})
 }
 
 // applyWindowHint writes the rendered DAG-window hint into the
