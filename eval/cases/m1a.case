@@ -1,0 +1,30 @@
+# Multi-subject — M1a Relation inquiry (explorer ↔ extractor collaboration)
+#
+# Targets the new HDP multi-subject dispatch + relation hypothesis
+# (CritRelationAbsent) introduced in commit b14cfde. Question names
+# two agents and asks how they collaborate — a pairwise relation the
+# LLM should either mark IsRelationalLookup=true (triggering the
+# relation hypothesis) or at minimum produce two anchored hypotheses
+# via explainSetHypothesis. Pre-b14cfde behavior: firstSymbol picked
+# one of the two and the other was effectively dropped from the
+# hypothesis set.
+#
+# Ground truth (internal/orchestrator/topology.go + explorer.go +
+# extractor.go): Explorer runs Turn A (emit_evidence +
+# emit_investigation_complete), drops EvidenceItems and
+# TurnAArtifacts.ToolResults onto MutableState; Extractor runs Turn B
+# (emit_answer_symbol + emit_hypothesis_verdict), reads the Turn A
+# output back via BusContext. The collaboration is producer/consumer
+# across the two stages, gated by extract being dispatched exactly
+# once just before finalize.
+#
+# EXPECT_SECTIONS enforces symmetry — both agent names must appear.
+# EXPECT_CONTAINS pins at least one concrete structural term from
+# each side's actual implementation so a vague "they collaborate"
+# answer fails.
+ID="m1a"
+NAME="relation inquiry — explorer and extractor collaboration"
+QUESTION="codrax 里的 explorer agent 和 extractor agent 是如何协作的？两者之间的数据是通过什么传递的？分别列出 Turn A 和 Turn B 产出的 emit_* 工具。"
+EXPECT_CONTAINS="emit_evidence emit_answer_symbol"
+EXPECT_NOT_CONTAINS=".java .py identical same.agent"
+EXPECT_SECTIONS="explorer extractor"

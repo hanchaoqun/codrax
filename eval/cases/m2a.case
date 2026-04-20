@@ -1,0 +1,37 @@
+# Multi-subject — M2a CamelCase dual-subject (trigger HDP new path)
+#
+# Companion to m1a/m1b. Those two cases passed but the new HDP
+# multi-subject branch did NOT fire because:
+#   - m1a: LLM emit is_relational_lookup=false → no relation hyp
+#   - m1a/m1b: entities were multi-word phrases ("explorer agent"),
+#     normalizer dual-gate A failed for standalone kindEnWord
+#     surfaces → topSymbols returned ≤1 → single-subject path
+#
+# This case picks TWO exported CamelCase identifiers so the
+# normalizer's kindCamel branch (canonicalize.go:52-75) bypasses the
+# dual-gate entirely and lands both as TermSymbol with Confidence≥0.9.
+# topSymbols must return ≥2, which forces Plan into the multi-subject
+# `default` branch → explainSetHypothesis fires with Statement
+# "anchored on the set {Criterion, Hypothesis}". The literal
+# substring "anchored on the set" in the log confirms the new path.
+#
+# Ground truth:
+#   Criterion (internal/types/analysis_ir.go:464) — 2-field struct
+#     {Kind, Expr}, the closed namespace lives at lines 476-495.
+#     Consumed by criterion.Eval (dispatch), gate.checkCriterionResolvable
+#     (registration check), stopcond.ShouldStop (OR-ed eval),
+#     scheduler EntryConditions, AcceptanceTests.
+#   Hypothesis (internal/types/analysis_ir.go:616) — 6 fields incl.
+#     RequiredEvidence []Criterion + FalsificationCondition Criterion,
+#     i.e. Hypothesis is the Criterion-container. Produced by
+#     hdp.Plan, bound by binder, verdicted via emit_hypothesis_verdict.
+#
+# The relationship is structural: Hypothesis *contains* Criterion.
+# EXPECT_SECTIONS enforces symmetry; EXPECT_CONTAINS pins the fact
+# that Hypothesis embeds Criterion lists.
+ID="m2a"
+NAME="dual-subject CamelCase — Criterion and Hypothesis roles"
+QUESTION="codrax 的 AnalysisIR 里 Criterion 和 Hypothesis 这两个结构体分别承担什么角色？各自有哪些字段？两者在结构上是什么关系？"
+EXPECT_CONTAINS="Criterion Hypothesis RequiredEvidence FalsificationCondition"
+EXPECT_NOT_CONTAINS=".java .py identical same.struct"
+EXPECT_SECTIONS="Criterion Hypothesis"

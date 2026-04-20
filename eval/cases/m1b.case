@@ -1,0 +1,26 @@
+# Multi-subject — M1b Parallel enumeration (analyzer vs finalizer emit channels)
+#
+# Companion to m1a. Where m1a asks about a RELATION between two
+# agents, m1b asks a PARALLEL ENUMERATION: name the single emit_*
+# tool each of analyzer and finalizer uses. IsRelationalLookup
+# should be false here (no relation being queried — two independent
+# lookups), so the new multi-subject path produces the set-anchored
+# explainHypothesis / two enumerate hypotheses WITHOUT the pairwise
+# relation hypothesis. That distinguishes this case from m1a and
+# tests the non-relation multi-subject branch.
+#
+# Ground truth (internal/orchestrator/topology.go + internal/tool/
+# emit_analysis.go + internal/tool/emit_answer_document.go):
+#   - analyzer → emit_analysis (single mandatory emit at analyze stage)
+#   - finalizer → emit_answer_document (single mandatory emit at finalize)
+#
+# EXPECT_SECTIONS requires both agent names. EXPECT_CONTAINS pins
+# the two tool names so neither side can be glossed over. A vague
+# answer listing "various emit_* tools" fails because it hedges on
+# the one-to-one mapping.
+ID="m1b"
+NAME="parallel enumeration — analyzer and finalizer emit tools"
+QUESTION="codrax 的 analyzer agent 和 finalizer agent 分别通过哪一个 emit_* 工具把本 stage 的结构化输出写出去？两个 agent 各列一个工具名。"
+EXPECT_CONTAINS="emit_analysis emit_answer_document"
+EXPECT_NOT_CONTAINS=".java .py same.tool"
+EXPECT_SECTIONS="analyzer finalizer"
