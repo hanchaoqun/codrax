@@ -112,3 +112,102 @@ func TestStopCondFired_TerminatesInsteadOfHotLooping(t *testing.T) {
 		t.Error("expected finalize to be dispatched after stop-condition force-close; got 0 calls")
 	}
 }
+
+// TestStopCondFired_RetryAfterFinalizeFailure_UsesExplorer is the
+// second-order regression that the forceFinalizeTriggered latch
+// specifically protects: once stop has fired and finalize proceeds,
+// a finalize contract violation must be able to requeue explore nodes
+// AND have them actually re-dispatched — the latch must NOT re-trigger
+// forceCloseExploreWindow on iter 2+ and re-close the retries.
+//
+// Pre-fix (hypothetical no-latch): iter 1 stop fires + forceClose +
+// finalize fails + requeue fin/explore; iter 2 stop fires AGAIN (env
+// unchanged) + forceClose RE-CLOSES the requeued explore nodes before
+// they can be dispatched; explorer never runs on retry → retries are
+// semantically dead.
+//
+// Post-fix: latch set on iter 1 means iter 2 skips the stop check;
+// readyExplorerWindow returns the requeued nodes; explorer dispatches
+// normally; pipeline gets a real retry cycle. The assertion here is
+// explorerCalls ≥ 1 after a forced stop + failed finalize.
+func TestStopCondFired_RetryAfterFinalizeFailure_UsesExplorer(t *testing.T) {
+	ir := &types.AnalysisIR{
+		Version: types.AnalysisIRVersion,
+		RequestModel: types.RequestModel{
+			Language: "en",
+			Intent:   types.IntentExplain,
+		},
+		TaskGraph: types.TaskGraph{
+			Nodes: []types.TaskNode{
+				{ID: "n0", Type: types.NodeEvidence, Objective: "collect"},
+				{ID: "n1", Type: types.NodeFinalize, Objective: "render"},
+			},
+			Edges: []types.TaskEdge{
+				{From: "n0", To: "n1", EdgeType: types.EdgeHardDependency},
+			},
+			ExecutionPolicy: types.ExecutionPolicy{
+				MaxParallelism: 1,
+				// Budget of 2 gives the retry path room to run explore
+				// at least once before exhausting.
+				RetryBudget:  2,
+				CriticalPath: []string{"n0", "n1"},
+			},
+		},
+		EvidencePlan: types.EvidencePlan{
+			Budget: types.EvidenceBudget{MaxReactIters: 10, MaxToolCalls: 20},
+			StopConditions: []types.StopCondition{
+				{Kind: types.CritAllHypothesesDecided},
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeExplanation,
+			Language:            "en",
+			// Answer will never contain this sentinel — forces contract
+			// violation on every finalize dispatch so the retry path
+			// engages.
+			MustInclude: []string{"SENTINEL_NEVER_IN_ANSWER"},
+		},
+	}
+
+	var explorerCalls, finalizeCalls int
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts, AnalysisIR: ir}, nil
+		},
+		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			return &agent.StageOutput{MissingPiece: types.MissingFacts}, nil
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "answer body without the sentinel",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = o.Run("test", "/tmp/repo", "main")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Expected — retry budget drains in finite time.
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not terminate within 5s under stop+retry scenario")
+	}
+
+	if finalizeCalls < 2 {
+		t.Errorf("finalize calls = %d, want ≥ 2 (initial + retry)", finalizeCalls)
+	}
+	if explorerCalls < 1 {
+		t.Errorf("explorer calls = %d, want ≥ 1 (latch must NOT re-force-close the requeued explore node)", explorerCalls)
+	}
+}

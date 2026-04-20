@@ -402,20 +402,34 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	var lastFinalize *agent.StageOutput
 
 	// forceFinalizeTriggered latches once stopcond.ShouldStop has fired
-	// and forceCloseExploreWindow has marked every non-finalize node as
-	// done. Without this latch the same stop condition would re-fire on
-	// every subsequent iteration (the criterion.Env is pure-read and
-	// deterministic over the current BusContext), triggering a hot
-	// loop on the `stop→forceClose→continue` path — stepsUsed never
-	// increments inside that branch, so neither the step-budget exit
-	// nor allDone() (finalize still pending) ever fires.
+	// and forceCloseExploreWindow has marked every non-finalize node
+	// as done. The flag serves two distinct purposes:
 	//
-	// Once latched, stop checks are skipped for the remainder of
-	// runTaskGraph: the next iteration's readyExplorerWindow returns
-	// empty (everything was force-closed), firstFinalizeReadyMerged
-	// returns the finalize node, and the normal extract→finalize
-	// dispatch path runs — with retry budget tracked via stepsUsed so
-	// the outer loop always terminates.
+	//  1. Prevent hot-loop. criterion.Env is pure-read over BusContext
+	//     and stopcond is deterministic over that env, so every later
+	//     iteration would re-fire the same stop condition trivially.
+	//     Without the latch, the stop path would loop forever because
+	//     forceCloseExploreWindow only mutates graph state, not
+	//     BusContext, leaving the predicate input unchanged.
+	//
+	//  2. Protect retry-after-finalize-failure semantics. Once the
+	//     user/IR has declared "explore is over, go to finalize", a
+	//     subsequent contract violation should be able to requeue
+	//     explore nodes and re-investigate — but WITHOUT the
+	//     force-close re-firing and closing those retries immediately.
+	//     The latch stays set for the remainder of runTaskGraph so
+	//     retries use the normal explore→extract→finalize flow.
+	//
+	// Design intent match: the `runTaskGraph` doc comment says "if
+	// stop fires, forceCloseExploreWindow and jump directly to
+	// finalize." The original code used `continue` after force-close
+	// which re-entered the loop head — that's NOT a direct jump, it's
+	// a loop restart. The fixed code falls through in the same
+	// iteration: readyExplorerWindow returns empty (all force-closed),
+	// firstFinalizeReadyMerged returns the finalize node, and the
+	// existing fin-branch dispatches extract + finalize immediately.
+	// This matches the doc's "jump directly" wording and saves one
+	// loop tick of no-op work.
 	forceFinalizeTriggered := false
 
 	buildEnv := func(draft string, draftCitations int) criterion.Env {
@@ -441,7 +455,12 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				logging.Info("[orchestrator] stop condition fired: %s", reason)
 				state.forceCloseExploreWindow()
 				forceFinalizeTriggered = true
-				continue
+				// No `continue` here — fall through in the SAME
+				// iteration so readyExplorerWindow (below) sees the
+				// just-closed nodes and firstFinalizeReadyMerged
+				// returns the ready finalize node immediately. This
+				// matches the "jump directly to finalize" wording in
+				// runTaskGraph's doc comment.
 			}
 		}
 
