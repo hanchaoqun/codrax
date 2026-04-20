@@ -1178,6 +1178,31 @@ func (m *MutableState) RecordToolCall(tool string) {
 	m.exploreBudget.OverallUsed++
 }
 
+// RefundToolCall decrements the per-tool and overall counters for
+// `tool` when a prior RecordToolCall should not have spent budget —
+// e.g. read_file that failed with a path-not-found error while the
+// LLM was still triangulating the repo layout. Clamps at zero so a
+// spurious refund never underflows into negative usage. No-op when
+// no budget is installed.
+func (m *MutableState) RefundToolCall(tool string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.exploreBudget == nil {
+		return
+	}
+	if m.exploreBudget.PerToolUsed != nil {
+		if m.exploreBudget.PerToolUsed[tool] > 0 {
+			m.exploreBudget.PerToolUsed[tool]--
+		}
+	}
+	if m.exploreBudget.OverallUsed > 0 {
+		m.exploreBudget.OverallUsed--
+	}
+}
+
 // BudgetRemaining returns the smaller of the per-tool and overall
 // remaining cap for `tool`. When no budget is installed, returns a
 // very large number so callers can treat the return as "plenty".
