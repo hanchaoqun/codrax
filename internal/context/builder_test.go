@@ -2,6 +2,8 @@ package context
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -109,6 +111,127 @@ func TestBuildAgentContext_AttachedLogEmpty_SafeDefault(t *testing.T) {
 		t.Errorf("empty BusContext.AttachedLog must mirror empty, got %q",
 			ac.AttachedLog)
 	}
+}
+
+// TestBuildPromptContext_AttachedLogSection_Rendered verifies the
+// session-19 eval-FAIL fix: when AttachedLog is non-empty, the user
+// prompt MUST include an "Attached Runtime Log" section containing the
+// log body so every LLM (explorer / extractor / finalizer) sees the
+// actual panic text — not just the Entities / RequiredFiles anchors
+// the analyzer extracted. Without this section the explorer LLM
+// interpreted "这个 panic 来自哪里" as asking about panics in general
+// and burned 20 iterations searching broadly instead of opening the
+// specific frame files.
+func TestBuildPromptContext_AttachedLogSection_Rendered(t *testing.T) {
+	mu := types.NewMutableState("这个 panic 来自哪里")
+	ac := &types.AgentContext{
+		AgentName:   types.AgentExplorer,
+		Stage:       types.StageExplore,
+		Objective:   "这个 panic 来自哪里",
+		Mutable:     mu,
+		AttachedLog: "panic: runtime error\n\ngoroutine 1 [running]:\nmain.crashy()\n\t/src/main.go:42 +0x1e\n",
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
+	var found *types.PromptSection
+	for i := range pc.UserSections {
+		if pc.UserSections[i].Title == "Attached Runtime Log" {
+			found = &pc.UserSections[i]
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("no 'Attached Runtime Log' section; sections = %v", sectionTitles(pc.UserSections))
+	}
+	if !strings.Contains(found.Content, "main.crashy") {
+		t.Errorf("section content missing frame func; got %q", found.Content)
+	}
+	if !strings.Contains(found.Content, "/src/main.go:42") {
+		t.Errorf("section content missing frame file:line; got %q", found.Content)
+	}
+}
+
+// TestBuildPromptContext_AttachedLogSection_OmittedWhenEmpty confirms
+// the section is skipped when no log is attached — zero noise for the
+// 99% of questions that are not log-triage queries.
+func TestBuildPromptContext_AttachedLogSection_OmittedWhenEmpty(t *testing.T) {
+	mu := types.NewMutableState("plain question")
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "plain question",
+		Mutable:   mu,
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "test"})
+	for _, s := range pc.UserSections {
+		if s.Title == "Attached Runtime Log" {
+			t.Fatalf("unexpected Attached Runtime Log section when AttachedLog empty")
+		}
+	}
+}
+
+// TestFormatAttachedLog_InlineSmall verifies the ≤ 4 KB fast path —
+// whole body rendered verbatim, no elision, no blob.
+func TestFormatAttachedLog_InlineSmall(t *testing.T) {
+	payload := "panic: boom\n\ngoroutine 1 [running]:\nmain.x()\n\t/src/a.go:1 +0x1\n"
+	got := formatAttachedLog(payload, "")
+	if !strings.Contains(got, "main.x()") || !strings.Contains(got, "/src/a.go:1") {
+		t.Errorf("small payload not rendered verbatim: %s", got)
+	}
+	if strings.Contains(got, "bytes elided") {
+		t.Errorf("small payload should not have elision marker")
+	}
+}
+
+// TestFormatAttachedLog_BlobOffload verifies the > 4 KB path: full body
+// written to WorkDir/attached_log.txt, preview shows head + tail + blob
+// path so the LLM can read_file to paginate through the elided middle.
+func TestFormatAttachedLog_BlobOffload(t *testing.T) {
+	dir := t.TempDir()
+	// 8 KB payload above the 4 KB inline cap.
+	const N = 8 * 1024
+	payload := strings.Repeat("A", N)
+	got := formatAttachedLog(payload, dir)
+	if !strings.Contains(got, "bytes elided") {
+		t.Errorf("large payload missing elision marker")
+	}
+	if !strings.Contains(got, AttachedLogBlobName) {
+		t.Errorf("blob path not referenced: %s", got)
+	}
+	// Blob file was written with the full payload.
+	written, err := os.ReadFile(filepath.Join(dir, AttachedLogBlobName))
+	if err != nil {
+		t.Fatalf("read blob: %v", err)
+	}
+	if len(written) != N {
+		t.Errorf("blob size = %d, want %d", len(written), N)
+	}
+}
+
+// TestFormatAttachedLog_NoWorkDirFallsBack confirms that when WorkDir
+// is empty (unit-test context / degraded runtime), the function still
+// returns a bounded head+tail rendering instead of dumping the full
+// payload or panicking.
+func TestFormatAttachedLog_NoWorkDirFallsBack(t *testing.T) {
+	const N = 10 * 1024
+	payload := strings.Repeat("B", N)
+	got := formatAttachedLog(payload, "")
+	if strings.Contains(got, AttachedLogBlobName) {
+		t.Errorf("no-workdir fallback should not reference blob path")
+	}
+	if !strings.Contains(got, "bytes elided") {
+		t.Errorf("no-workdir fallback missing elision marker")
+	}
+	if len(got) >= N {
+		t.Errorf("fallback length %d >= raw %d; cap did not fire", len(got), N)
+	}
+}
+
+func sectionTitles(sections []types.PromptSection) []string {
+	out := make([]string, 0, len(sections))
+	for _, s := range sections {
+		out = append(out, s.Title)
+	}
+	return out
 }
 
 func TestBuildPromptContext(t *testing.T) {

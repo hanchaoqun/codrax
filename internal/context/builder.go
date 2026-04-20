@@ -2,6 +2,8 @@ package context
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -399,6 +401,29 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 					priorConv,
 			})
 		}
+	}
+
+	// Session 19 log-triage: render the attached runtime log excerpt
+	// (panic / exception / sanitizer diagnostic / traceback) as its own
+	// user-prompt section right after User Request so the LLM sees the
+	// actual error context when investigating "这个 panic 来自哪里" /
+	// "analyze this crash" questions. AnalyzerHints.Entities and
+	// EvidencePlan.RequiredFiles already carry the parsed anchors, but
+	// the LLM needs the raw text to reason about error messages,
+	// signal types, and the order of frames.
+	//
+	// Size strategy (mirrors internal/tool/blob for tool results):
+	//   - ≤ inlineCap (4 KB): inline the whole body.
+	//   - > inlineCap: write to `<WorkDir>/attached_log.txt`, inline
+	//     head + tail preview, tell the LLM to read_file the blob path
+	//     for paginated access to the middle.
+	//
+	// Empty AttachedLog is a no-op.
+	if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Attached Runtime Log",
+			Content: section,
+		})
 	}
 
 	if len(ac.PriorReports) > 0 {
@@ -1245,6 +1270,89 @@ func formatNumberedList(items []string) string {
 		fmt.Fprintf(&b, "%d. %s\n", i+1, item)
 	}
 	return b.String()
+}
+
+// AttachedLogBlobName is the canonical filename codrax writes the
+// full log body to under `<WorkDir>/` when the attached log exceeds
+// the inline cap. Kept public so the read_file tool can recognise it
+// as a blob-backed attachment (avoids a repo path check false-positive).
+const AttachedLogBlobName = "attached_log.txt"
+
+const (
+	attachedLogInlineCap = 4 * 1024 // ≤ 4 KB → inline whole body
+	attachedLogHeadCap   = 2 * 1024 // head preview when blobbed
+	attachedLogTailCap   = 1 * 1024 // tail preview when blobbed
+)
+
+// formatAttachedLog renders the user-attached runtime log excerpt as a
+// prompt section. Two size regimes keep the overall prompt bounded:
+//
+//   - ≤ attachedLogInlineCap (4 KB): inline the whole body verbatim.
+//     Typical panic / short exception / single-stack sanitizer report
+//     lands here — LLM sees everything without indirection.
+//   - > attachedLogInlineCap: write the full body to
+//     `<workDir>/attached_log.txt` (mirrors the tool/blob pattern),
+//     inline a head+tail preview, and instruct the LLM to use
+//     `read_file` on the blob path for paginated access to the middle.
+//     The explorer has read_file in its tool allowlist; the analyzer
+//     does not, but also does not need the middle frames (its
+//     logparse.Detect pre-ran and already extracted them into
+//     EvidencePlan.RequiredFiles / AnalyzerHints.Entities).
+//
+// Returns "" for empty input so the caller can skip the section.
+// Falls back to head+tail inline when workDir is empty or the blob
+// write fails (no-op degrade, no error surfaces to the caller).
+func formatAttachedLog(raw, workDir string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	preamble := "The user attached the runtime log below alongside their question. " +
+		"The analyzer has already parsed stack frames from this log and seeded " +
+		"EvidencePlan.RequiredFiles + AnalyzerHints.Entities with the extracted " +
+		"file:line anchors and function names. Read the frames top-to-bottom " +
+		"(innermost failure first) and investigate those specific files rather " +
+		"than hunting for error sources generically.\n\n"
+
+	if len(raw) <= attachedLogInlineCap {
+		return preamble + "```\n" + raw + "\n```"
+	}
+
+	// Over cap — attempt blob offload.
+	blobPath := ""
+	if workDir != "" {
+		target := filepath.Join(workDir, AttachedLogBlobName)
+		if err := os.WriteFile(target, []byte(raw), 0o644); err == nil {
+			blobPath = target
+		} else {
+			logging.Warning("[context] attached-log blob write failed: %v (falling back to head+tail)", err)
+		}
+	}
+
+	head := raw[:attachedLogHeadCap]
+	tail := raw[len(raw)-attachedLogTailCap:]
+	elided := len(raw) - attachedLogHeadCap - attachedLogTailCap
+
+	if blobPath != "" {
+		return preamble +
+			fmt.Sprintf("Total log size: %d bytes. Preview below shows head (%d B) + tail (%d B); "+
+				"the middle (%d B) is elided. The complete log is saved to `%s` — "+
+				"use `read_file` with offset+limit on that path to paginate through the "+
+				"elided region if you need frames beyond the preview.\n\n",
+				len(raw), attachedLogHeadCap, attachedLogTailCap, elided, blobPath) +
+			"```\n" + head +
+			fmt.Sprintf("\n... [%d bytes elided — read %s for full log] ...\n", elided, blobPath) +
+			tail + "\n```"
+	}
+
+	// Fallback: no workDir or write failed. Degrade to head+tail with
+	// an elision marker so the caller still gets bounded rendering.
+	return preamble +
+		fmt.Sprintf("Total log size: %d bytes; showing head (%d B) + tail (%d B), middle elided.\n\n",
+			len(raw), attachedLogHeadCap, attachedLogTailCap) +
+		"```\n" + head +
+		fmt.Sprintf("\n... [%d bytes elided] ...\n", elided) +
+		tail + "\n```"
 }
 
 func formatStageReports(reports []types.StageReport) string {
