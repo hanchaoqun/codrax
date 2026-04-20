@@ -60,7 +60,7 @@ All 4 agents embed `BaseAgent` (ReAct loop). Evaluator contract: `BuildInitialIn
 
 One LLM call emits `RequestModel`, then a deterministic chain:
 
-1. `normalizer.Normalize` — canonical TermGraph.
+1. `normalizer.Normalize` with repomap-backed `SymbolResolver` + LLM `Entities` (session 17) — canonical TermGraph. `kindEnWord` surfaces promote to `TermSymbol` only under a **dual gate**: `NormalizeCodeKey(surface) ∈ AnalyzerHints.Entities` ∧ resolver returns ≥1 hit. Confidence scales via `1/(1+ln N)` rarity so generic words that match many definitions sink. Empty entities disables gate A (preserves pre-v3 behavior). `kindCamel`/`kindSnake` surfaces bypass gate A but still get Confidence=1.0 + Domain from resolver hits. Graph handle resolved via `analyzerGraphForNormalize` which first reads `Mutable.SearchGraph()` (writeback from `buildAnalyzerRepoOverview`), else falls back to `BuildOrLoadGraph`.
 1a. `analyzer_complexity.reconcileComplexity` + `analyzer_intent.reconcileIntent` — structural overrides on the LLM's classification. Log prefix `[analyzer] * reconciled:`.
 2. `compiler.InferScenario` + `compiler.Compile` — scenario template → TaskGraph + EvidencePlan + AnswerContract. Budget is multi-dimensional (`internal/analysis/budget`). `sourcemix.FromTemplateMix` → `NodeBudgetHints`. **Measurement-scalar carve-out** (signal: `isMeasurementScalarRequest`) rewrites `RequiredAnswerShape = ShapeValue` and strips `CritCitationCountGE` from all three citation-gate surfaces (`CitationReq` + `AcceptanceTests` + every `TaskNode.SuccessCriteria`). Grep-able invariant: `CitationReq.Required = false` has **one** producer in production.
 3. `risk.Evaluate` — 6-dimension matrix.
@@ -91,7 +91,7 @@ One LLM call emits `RequestModel`, then a deterministic chain:
 
 Supplements LLM investigation with deterministic source-derived facts. Three phases:
 
-1. **Breadth scan** — `keywordSearch` combines `repo_map` structural ranking with grep IDF scoring. Entity boost 1.3×–1.6×. Complexity-aware top-N cap (simple=15, moderate=20, complex=30). Uses ripgrep when available (`tool.SearchCommand()`), falls back to GNU grep.
+1. **Breadth scan** — `keywordSearch` combines `repo_map` structural ranking with grep IDF scoring. Entity boost 1.3×–1.6×. **Domain boost 1.15×** (session 17): files whose `FileInfo.Package` matches any TermSymbol `Domain` from the analyzer's TermGraph get a sibling-level lift. Strictly < entity boost by construction. Consumed via `irDomainHints(ctx)` → `keywordSearchOptions.DomainHints`. Complexity-aware top-N cap (simple=15, moderate=20, complex=30). Uses ripgrep when available (`tool.SearchCommand()`), falls back to GNU grep.
 2. **Evidence collection** — LLM reads files and emits tagged evidence (`[DIRECT]`, `[CONDITIONAL]`, `[REGISTRATION]`, `[MECHANISM]`, `[RELATIONSHIP]`). Mid-loop hint `detectCrossFileSymbolGaps` pushes on symbol references in notes whose defining files aren't in ReadSet.
 3. **Synthesis** — `SynthesisPrompt` layers five programmatic sections: Concrete Values table, Resolution Chains, Type Hierarchy Chains, Cross-reference map, Unresolved Conditions, Evidence Catalog. `extractConcreteValues` scans source for return-literal / registration / map-entry / decorator / config-leaf patterns across Go/Java/Python/JS/TS/Rust/Ruby. `HasEnoughFacts` = toolDiversity ∧ fileCoverage ∧ evidenceQuality; `emit_investigation_complete` overrides all heuristics.
 

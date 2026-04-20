@@ -110,7 +110,15 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// In REPL mode, strip the conversation prefix so the query
 		// only contains the current question, not prior-turn memory.
 		objective := types.StripConversationPrefix(ctx.Objective)
-		if overview := buildAnalyzerRepoOverview(ctx.RepoRoot, objective); overview != "" {
+		overview, graph := buildAnalyzerRepoOverview(ctx.RepoRoot, objective)
+		// Publish the graph to Mutable so analyzerGraphForNormalize
+		// (post-LLM, buildAnalysisIR) reuses this handle rather than
+		// calling BuildOrLoadGraph a second time. Safe to set even
+		// when overview is empty — the graph may still be usable.
+		if graph != nil && ctx.Mutable != nil {
+			ctx.Mutable.SetSearchGraph(graph)
+		}
+		if overview != "" {
 			return overview
 		}
 	}
@@ -125,11 +133,14 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 //     (query-relevant files and symbols).
 //  3. If no entities → render overview (general repo structure).
 //
-// Returns empty string on any error — the analyzer proceeds without
-// it and the LLM calls repo_map itself (graceful degrade).
-func buildAnalyzerRepoOverview(repoRoot, objective string) string {
+// Returns (empty string, nil) on any error — the analyzer proceeds
+// without an overview and the LLM calls repo_map itself (graceful
+// degrade). Returns the *repomap.Graph alongside the rendered string
+// so callers can publish it to Mutable.SearchGraph() and skip a
+// second BuildOrLoadGraph round-trip later in the pipeline.
+func buildAnalyzerRepoOverview(repoRoot, objective string) (string, *repomap.Graph) {
 	if types.IsREPLControlInput(objective) {
-		return ""
+		return "", nil
 	}
 	// Extract code identifiers from the question to use as the graph
 	// query. extractQuestionEntities pulls CamelCase/snake_case tokens
@@ -140,7 +151,7 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) string {
 	graph, err := repomap.BuildOrLoadGraph(repoRoot, query)
 	if err != nil {
 		logging.Debug("[analyzer] repo overview unavailable: %v", err)
-		return ""
+		return "", nil
 	}
 
 	var view, output, header string
@@ -167,7 +178,7 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) string {
 	}
 
 	if output == "" {
-		return ""
+		return "", graph
 	}
 	// Cap the overview to keep the initial prompt bounded.
 	const maxLen = 4096
@@ -175,7 +186,7 @@ func buildAnalyzerRepoOverview(repoRoot, objective string) string {
 		output = output[:maxLen] + "\n... [truncated]\n"
 	}
 	logging.Debug("[analyzer] pre-injected %s view (%d bytes, entities=%v)", view, len(output), entities)
-	return header + output
+	return header + output, graph
 }
 
 func (e *analyzerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {

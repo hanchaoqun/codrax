@@ -204,6 +204,48 @@ func TestNormalize_Deterministic(t *testing.T) {
 	}
 }
 
+// TestNormalize_CamelPathGetsResolverUpgrade pins the side-effect of
+// wiring the resolver. The kindCamel/kindSnake branch in
+// canonicalize.go was dead code while opts.Resolver was always nil;
+// session 17's resolver wiring activates it. CamelCase surfaces that
+// hit the repo symbol table now bump Confidence from 0.9 → 1.0 and
+// gain a Domain tag. No entity gate here — CamelCase tokens are
+// syntactically identifiers so they bypass the kindEnWord dual gate.
+func TestNormalize_CamelPathGetsResolverUpgrade(t *testing.T) {
+	resolver := fakeResolver{hits: map[string][]SymbolHit{
+		"TaskList": {{Canonical: "TaskList", Domain: "types"}},
+	}}
+	tg := Normalize("How does TaskList share state?", Options{Resolver: resolver})
+	term := findByID(tg, "code:tasklist")
+	if term == nil {
+		t.Fatalf("expected code:tasklist; ids=%v", canonicalIDs(tg))
+	}
+	if term.Confidence < 0.99 {
+		t.Fatalf("resolver hit on CamelCase should bump confidence to 1.0, got %v", term.Confidence)
+	}
+	if term.Domain != "types" {
+		t.Fatalf("resolver hit should set Domain, got %q", term.Domain)
+	}
+}
+
+func TestNormalize_CamelPathKeepsDefaultWithoutResolver(t *testing.T) {
+	// Safety net: no resolver (zero-value Options) must leave the
+	// pre-session-17 0.9 / empty-Domain defaults intact. Protects the
+	// graceful-degrade contract when analyzerGraphForNormalize
+	// returns nil (e.g., BuildOrLoadGraph failure).
+	tg := Normalize("How does TaskList share state?", Options{})
+	term := findByID(tg, "code:tasklist")
+	if term == nil {
+		t.Fatalf("expected code:tasklist; ids=%v", canonicalIDs(tg))
+	}
+	if term.Confidence > 0.91 {
+		t.Fatalf("no resolver should keep default confidence 0.9, got %v", term.Confidence)
+	}
+	if term.Domain != "" {
+		t.Fatalf("no resolver should leave Domain empty, got %q", term.Domain)
+	}
+}
+
 func TestNormalize_EntityGateOpensOnlyWhenEntityMatches(t *testing.T) {
 	resolver := fakeResolver{hits: map[string][]SymbolHit{
 		"blob": {{Canonical: "Blob", Domain: "types"}},
