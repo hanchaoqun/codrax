@@ -449,34 +449,86 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage(t *testing.T) {
 	}
 }
 
-// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_OnlyExplanation —
-// negative scope check. The salvage is deliberately scoped to
-// explanation shape because other shapes carry the answer in
-// structured fields, not in Summary. A list_of_symbols answer with a
-// rich prior prose draft must NOT have its Summary replaced.
-func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_OnlyExplanation(t *testing.T) {
-	otherShapes := []types.AnswerShape{
-		types.ShapeListOfSymbols, types.ShapeStepList,
-		types.ShapeValue, types.ShapeConfigValue, types.ShapeBoolean,
-	}
-	for _, shape := range otherShapes {
-		t.Run(string(shape), func(t *testing.T) {
-			ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
-			origSummary := "one-line lead-in"
-			doc := &types.AnswerDocument{Shape: shape, Summary: origSummary}
-			// Populate a minimum-required structured field so the
-			// renderer doesn't reject the doc for missing payload —
-			// we only care that Summary stays untouched.
-			switch shape {
-			case types.ShapeListOfSymbols:
-				doc.Symbols = []types.AnswerSymbol{{Name: "X", File: "a.go", Line: 1}}
-			case types.ShapeStepList:
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_AllShapes —
+// positive cross-shape check. Summary is framing text for every
+// shape (the body for explanation; a 1-3-sentence lead-in for
+// structured shapes). When the LLM compresses its prior draft well
+// below the per-shape floor + ratio, the salvage fires, Summary is
+// overwritten, caveat is appended, and the structured payload is
+// left untouched.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_AllShapes(t *testing.T) {
+	cases := []struct {
+		shape       types.AnswerShape
+		origSummary string
+		seed        func(doc *types.AnswerDocument)
+		check       func(t *testing.T, doc *types.AnswerDocument)
+	}{
+		{
+			shape:       types.ShapeStepList,
+			origSummary: "short lead-in",
+			seed: func(doc *types.AnswerDocument) {
 				doc.Steps = []types.AnswerStep{{Index: 1, Description: "d", CitationRef: types.CitationRefUnset}}
-			case types.ShapeValue, types.ShapeConfigValue:
-				doc.Value = &types.AnswerValue{Literal: "v", CitationRef: types.CitationRefUnset}
-			case types.ShapeBoolean:
+			},
+			check: func(t *testing.T, doc *types.AnswerDocument) {
+				if len(doc.Steps) != 1 || doc.Steps[0].Description != "d" {
+					t.Errorf("structured payload mutated by salvage: %+v", doc.Steps)
+				}
+			},
+		},
+		{
+			shape:       types.ShapeListOfSymbols,
+			origSummary: "short lead-in",
+			seed: func(doc *types.AnswerDocument) {
+				doc.Symbols = []types.AnswerSymbol{{Name: "X", File: "a.go", Line: 1}}
+			},
+			check: func(t *testing.T, doc *types.AnswerDocument) {
+				if len(doc.Symbols) != 1 || doc.Symbols[0].Name != "X" {
+					t.Errorf("structured payload mutated by salvage: %+v", doc.Symbols)
+				}
+			},
+		},
+		{
+			shape:       types.ShapeBoolean,
+			origSummary: "short lead-in",
+			seed: func(doc *types.AnswerDocument) {
 				doc.Boolean = &types.AnswerBoolean{Decision: true, Rationale: "r", CitationRef: types.CitationRefUnset}
-			}
+			},
+			check: func(t *testing.T, doc *types.AnswerDocument) {
+				if doc.Boolean == nil || !doc.Boolean.Decision || doc.Boolean.Rationale != "r" {
+					t.Errorf("structured payload mutated by salvage: %+v", doc.Boolean)
+				}
+			},
+		},
+		{
+			shape:       types.ShapeValue,
+			origSummary: "short",
+			seed: func(doc *types.AnswerDocument) {
+				doc.Value = &types.AnswerValue{Literal: "v", CitationRef: types.CitationRefUnset}
+			},
+			check: func(t *testing.T, doc *types.AnswerDocument) {
+				if doc.Value == nil || doc.Value.Literal != "v" {
+					t.Errorf("structured payload mutated by salvage: %+v", doc.Value)
+				}
+			},
+		},
+		{
+			shape:       types.ShapeConfigValue,
+			origSummary: "short",
+			seed: func(doc *types.AnswerDocument) {
+				doc.Value = &types.AnswerValue{Key: "k", Literal: "v", CitationRef: types.CitationRefUnset}
+			},
+			check: func(t *testing.T, doc *types.AnswerDocument) {
+				if doc.Value == nil || doc.Value.Key != "k" || doc.Value.Literal != "v" {
+					t.Errorf("structured payload mutated by salvage: %+v", doc.Value)
+				}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(string(c.shape), func(t *testing.T) {
+			ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+			doc := &types.AnswerDocument{Shape: c.shape, Summary: c.origSummary}
+			c.seed(doc)
 			ctx.Mutable.SetAnswerDocument(doc)
 			messages := []llm.Message{
 				{Role: "assistant", Content: richDraftProse()},
@@ -488,9 +540,80 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_OnlyExplanation(t 
 				t.Fatalf("ParseOutput err: %v", err)
 			}
 			got := parseStageDoc(t, out)
+			if got.Summary == c.origSummary {
+				t.Errorf("Summary was NOT overwritten — salvage did not fire for shape=%s", c.shape)
+			}
+			if !strings.Contains(got.Summary, "dispatcher") {
+				t.Errorf("Summary missing salvaged content: %q", got.Summary)
+			}
+			if cap := types.SummaryCapFor(c.shape); len(got.Summary) > cap {
+				t.Errorf("Summary exceeds cap: len=%d, cap=%d", len(got.Summary), cap)
+			}
+			foundCaveat := false
+			for _, cv := range got.Caveats {
+				if strings.Contains(cv, "richer prior draft") {
+					foundCaveat = true
+				}
+			}
+			if !foundCaveat {
+				t.Errorf("salvage caveat missing: %v", got.Caveats)
+			}
+			c.check(t, got)
+		})
+	}
+}
+
+// TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_BelowFloorPerShape —
+// per-shape floor check. shrinkageThresholdsForShape scales the
+// prior-draft length floor off Summary's role in each shape: 1.0×
+// for explanation, 0.5× for step_list/list_of_symbols, 3/8× for
+// boolean, 0.25× for value/config_value. A prior draft that falls
+// just under the scaled floor must NOT trigger salvage, even though
+// it would for a shape with a smaller floor.
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_BelowFloorPerShape(t *testing.T) {
+	cases := []struct {
+		shape     types.AnswerShape
+		priorLen  int // just below shape's scaled floor
+		seed      func(doc *types.AnswerDocument)
+	}{
+		// baseline = 400; step_list / list_of_symbols floor = 200; use 180.
+		{
+			shape:    types.ShapeStepList,
+			priorLen: 180,
+			seed: func(doc *types.AnswerDocument) {
+				doc.Steps = []types.AnswerStep{{Index: 1, Description: "d", CitationRef: types.CitationRefUnset}}
+			},
+		},
+		// value / config_value floor = 100; use 80.
+		{
+			shape:    types.ShapeValue,
+			priorLen: 80,
+			seed: func(doc *types.AnswerDocument) {
+				doc.Value = &types.AnswerValue{Literal: "v", CitationRef: types.CitationRefUnset}
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(string(c.shape), func(t *testing.T) {
+			ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+			origSummary := "short"
+			doc := &types.AnswerDocument{Shape: c.shape, Summary: origSummary}
+			c.seed(doc)
+			ctx.Mutable.SetAnswerDocument(doc)
+			prior := strings.Repeat("x", c.priorLen)
+			messages := []llm.Message{
+				{Role: "assistant", Content: prior},
+				{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+			}
+			e := &answerDocumentEvaluator{language: "en"}
+			out, err := e.ParseOutput(ctx, messages, nil, nil)
+			if err != nil {
+				t.Fatalf("ParseOutput err: %v", err)
+			}
+			got := parseStageDoc(t, out)
 			if got.Summary != origSummary {
-				t.Errorf("shape=%s: Summary was overwritten (%q → %q) — salvage must be scoped to explanation",
-					shape, origSummary, got.Summary)
+				t.Errorf("shape=%s: Summary was overwritten despite prior draft below scaled floor (len=%d): %q",
+					c.shape, c.priorLen, got.Summary)
 			}
 		})
 	}

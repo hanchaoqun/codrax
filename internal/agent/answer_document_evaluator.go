@@ -452,28 +452,61 @@ const (
 	defaultShrinkageRatio            = 0.5
 )
 
+// shrinkageThresholdsForShape returns the (minPriorProseLen, ratio)
+// floor for detecting prior-draft shrinkage. The ratio is shape-
+// independent (the LLM compresses by the same proportion regardless
+// of shape); only the "is the prior draft substantive enough to
+// bother salvaging?" floor scales with Summary's role in each shape:
+//
+//   - Explanation: Summary IS the body → full baseline floor.
+//   - StepList / ListOfSymbols: Summary is a 1-3-sentence lead-in
+//     above the structured payload → half baseline (prior prose is
+//     the merged narrative before the LLM split it into structure).
+//   - Boolean: Summary is a lead-in before YES/NO + rationale →
+//     3/8 baseline.
+//   - Value / ConfigValue: Summary is a 1-sentence lead-in before a
+//     scalar literal → quarter baseline (scalar prior drafts
+//     rarely exceed a paragraph).
+func shrinkageThresholdsForShape(shape types.AnswerShape, baselineMinLen int, baselineRatio float64) (int, float64) {
+	switch shape {
+	case types.ShapeExplanation:
+		return baselineMinLen, baselineRatio
+	case types.ShapeStepList, types.ShapeListOfSymbols:
+		return baselineMinLen / 2, baselineRatio
+	case types.ShapeBoolean:
+		return (baselineMinLen * 3) / 8, baselineRatio
+	case types.ShapeValue, types.ShapeConfigValue:
+		return baselineMinLen / 4, baselineRatio
+	default:
+		return baselineMinLen, baselineRatio
+	}
+}
+
 // salvagePriorDraftIntoSummary mutates doc.Summary when the
 // finalizer LLM dropped significant content between its pre-tool-call
-// draft and its final emit_answer_document.summary. Scoped to
-// ShapeExplanation because that is the only shape where the Summary
-// field carries the answer body verbatim; for other shapes, the
-// structured fields carry the answer and the prose draft does not
-// map cleanly into a single field.
+// draft and its final emit_answer_document.summary. Every shape uses
+// Summary as framing text — for explanation it is the body, for the
+// other shapes it is a lead-in above the structured payload — so
+// losing that framing between drafts visibly degrades the answer on
+// every shape. Per-shape thresholds from shrinkageThresholdsForShape
+// guard against over-aggressive salvage on scalar shapes whose
+// Summary role is smaller.
 func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.AnswerDocument, messages []llm.Message) {
 	if e.preservePriorProse != nil && !*e.preservePriorProse {
 		return
 	}
-	if doc == nil || doc.Shape != types.ShapeExplanation {
+	if doc == nil {
 		return
 	}
-	minLen := e.shrinkageMinProseLen
-	if minLen <= 0 {
-		minLen = defaultShrinkageMinPriorProseLen
+	baselineMin := e.shrinkageMinProseLen
+	if baselineMin <= 0 {
+		baselineMin = defaultShrinkageMinPriorProseLen
 	}
-	ratio := e.shrinkageRatio
-	if ratio <= 0 {
-		ratio = defaultShrinkageRatio
+	baselineRatio := e.shrinkageRatio
+	if baselineRatio <= 0 {
+		baselineRatio = defaultShrinkageRatio
 	}
+	minLen, ratio := shrinkageThresholdsForShape(doc.Shape, baselineMin, baselineRatio)
 	priorProse := findLastPreToolCallDraft(messages)
 	if len(priorProse) < minLen {
 		return
@@ -482,7 +515,7 @@ func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.Answer
 		return
 	}
 	recovered := priorProse
-	if cap := types.SummaryCapFor(types.ShapeExplanation); len(recovered) > cap {
+	if cap := types.SummaryCapFor(doc.Shape); len(recovered) > cap {
 		// Trim at a UTF-8 rune boundary so CJK prose does not end in
 		// a partial multi-byte sequence (which would render as a
 		// replacement glyph in the final answer).
@@ -492,8 +525,8 @@ func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.Answer
 		}
 		recovered = recovered[:cut]
 	}
-	logging.Info("[finalizer/shrinkage] recovered prior draft into summary: prior=%d summary=%d → %d",
-		len(priorProse), len(doc.Summary), len(recovered))
+	logging.Info("[finalizer/shrinkage] recovered prior draft into summary: shape=%s prior=%d summary=%d → %d",
+		doc.Shape, len(priorProse), len(doc.Summary), len(recovered))
 	doc.Summary = recovered
 	caveat := "richer prior draft was preserved in place of a compressed summary"
 	if e.language == "zh" {
