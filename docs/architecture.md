@@ -531,17 +531,19 @@ Turn B 看不到新文件 —— 所有信息在 Turn A transcript 快照里冻�
 | `HypothesisSet[i].Status` | **Extractor 写 buffer** | `emit_hypothesis_verdict` + `drainHypothesisVerdicts` hook |
 | `AnswerDocument` | **Finalizer 独占** | `emit_answer_document` + renderer |
 
-#### Summary 长度：shape-tiered cap（session 7）
+#### Summary 长度：shape-tiered cap
 
-`emit_answer_document` 的 `summary` 字段按 shape 分档，单一 `SummaryCapByShape` 表是三处（tool description / skill prompt / runtime check）的唯一真源：
+`emit_answer_document` 的 `summary` 字段按 shape 分档。真源是 `types.SummaryCapConfig` + `types.SummaryCapFor(shape, itemCount)`；固定上限的 shape 走 scalar 字段，`step_list` / `list_of_symbols` 随项数线性增长后封顶，这样 8 步的解释不会和 2 步的挤在同一个 budget 里：
 
 | shape | 上限 | 用途 |
 |---|---|---|
-| `explanation` | 2500 chars | Summary **IS** 答案正文 —— 多段 prose + 可选 Mermaid |
-| `list_of_symbols` / `step_list` / `boolean` | 500 chars | 1-3 句 lead-in，结构化字段承载真正答案 |
-| `value` / `config_value` | 300 chars | 单句 lead-in，before scalar literal |
+| `explanation` | `Explanation` (default 2500) | Summary **IS** 答案正文 —— 多段 prose + 可选 Mermaid |
+| `boolean` | `Boolean` (default 800) | 1-3 句 lead-in + rationale |
+| `value` / `config_value` | `Value` / `ConfigValue` (default 500) | 单句 lead-in，before scalar literal |
+| `step_list` | `min(StepListMax, StepListBase + n·StepListPerItem)` (default 1000 + 120·n, max 2500) | lead-in；随步数扩张 |
+| `list_of_symbols` | `min(SymbolsMax, SymbolsBase + n·SymbolsPerItem)` (default 1000 + 100·n, max 2500) | lead-in；随 symbol 数扩张 |
 
-历史上的 hard-coded 500 与 skill prompt 的 "No character limit" 产生口径矛盾，逼 finalizer 在 multi-paragraph explanation 上反复撞墙（trace `1776439797257469553` 烧了 3 轮）。`types.SummaryCapFor(shape)` 是新的唯一 lookup 入口；`AnswerDocumentMaxSummaryChars=500` 保留为 map 默认 fallback + 向后兼容别名。
+所有字段 runtime-tunable via codrax.yaml `summary_cap_*`（见 `codrax.yaml.example`）。`cmd/root.go` 在加载 YAML 后调 `types.SetSummaryCapConfig` 一次性替换 package-level config，下游 `emit_answer_document` + shrinkage-salvage trimmer 共用。
 
 #### Forbidden 字段：reject 不 scrub（session 7）
 

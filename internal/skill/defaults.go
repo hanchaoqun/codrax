@@ -113,10 +113,11 @@ Completeness honesty contract (list_of_symbols only):
 - "lower_bound" — symbols are confirmed present, more may exist. Honest default when you cannot confidently reach the floor.
 - "unknown" — investigated but no definitive slate. Renderer drops the section entirely and falls back to the shape-based prompt.
 
-Summary field (per-shape length caps enforced by the schema):
-- shape=explanation — Summary IS the answer body. Up to 2500 chars. Write a thorough multi-paragraph explanation that fully addresses the user's question: mechanism details, code-level specifics, cross-file relationships. Organize with short markdown headers when covering multiple sub-topics. Match the depth of the answer to the depth of the question.
-- shape=list_of_symbols / step_list / boolean — Summary is a 1-3 sentence lead-in framing the structured payload. Up to 500 chars. Keep it brief; the structured fields carry the answer.
-- shape=value / config_value — Summary is a 1-sentence lead-in before the scalar literal. Up to 300 chars.
+Summary field (per-shape length caps enforced by the tool — if your text exceeds the cap the tool call is rejected with the exact cap for that shape; no need to pre-estimate):
+- shape=explanation — Summary IS the answer body. Write a thorough multi-paragraph explanation that fully addresses the user's question: mechanism details, code-level specifics, cross-file relationships. Organize with short markdown headers when covering multiple sub-topics. Match the depth of the answer to the depth of the question.
+- shape=step_list / list_of_symbols — Summary is a 1-3 sentence lead-in framing the structured payload. The structured fields carry the answer; Summary's role is to introduce them.
+- shape=boolean — Summary is a lead-in before YES/NO + rationale. A sentence or two is enough.
+- shape=value / config_value — Summary is a 1-sentence lead-in before the scalar literal.
 
 Visual structure (IMPORTANT — users need to understand logic at a glance):
 - For explanation shape: organize summary with ### sub-headers when covering multiple topics or stages. Lead with a 1-2 sentence TL;DR before the detailed explanation.

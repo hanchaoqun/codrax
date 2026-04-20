@@ -200,7 +200,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargeted
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary; cap is per-shape (see SummaryCapByShape)",
+			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary",
 		},
 	})
 	if !sig.HintRequested {
@@ -225,7 +225,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopRejectStopsHintingAfterBudget(t 
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary; cap is per-shape (see SummaryCapByShape)",
+			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary",
 		},
 	}
 	if sig := e.Observe(nil, obs); !sig.HintRequested {
@@ -546,7 +546,8 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_AllShapes(t *testi
 			if !strings.Contains(got.Summary, "dispatcher") {
 				t.Errorf("Summary missing salvaged content: %q", got.Summary)
 			}
-			if cap := types.SummaryCapFor(c.shape); len(got.Summary) > cap {
+			itemCount := len(got.Steps) + len(got.Symbols)
+			if cap := types.SummaryCapFor(c.shape, itemCount); len(got.Summary) > cap {
 				t.Errorf("Summary exceeds cap: len=%d, cap=%d", len(got.Summary), cap)
 			}
 			foundCaveat := false
@@ -671,11 +672,11 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NotShrunk(t *testi
 }
 
 // TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CapTrim —
-// the prior draft exceeding SummaryCapFor(ShapeExplanation) must be
+// a prior draft exceeding SummaryCapFor(ShapeExplanation, 0) must be
 // trimmed, not rejected — the salvage's job is best-effort recovery.
 func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CapTrim(t *testing.T) {
 	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
-	cap := types.SummaryCapFor(types.ShapeExplanation)
+	cap := types.SummaryCapFor(types.ShapeExplanation, 0)
 	// Build a draft 1.5x the cap.
 	prior := strings.Repeat("a", cap*3/2)
 	doc := &types.AnswerDocument{Shape: types.ShapeExplanation, Summary: "x"}
@@ -722,7 +723,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CJKRuneBoundary(t 
 			len(got.Summary), got.Summary[max(0, len(got.Summary)-8):])
 	}
 	// Trimmed length should be close to 2500, never exceed it.
-	if len(got.Summary) > types.SummaryCapFor(types.ShapeExplanation) {
+	if len(got.Summary) > types.SummaryCapFor(types.ShapeExplanation, 0) {
 		t.Errorf("trimmed summary exceeds cap: len=%d", len(got.Summary))
 	}
 	// At 3 bytes/rune, trimming 2500 bytes should preserve at least

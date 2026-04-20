@@ -515,7 +515,8 @@ func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.Answer
 		return
 	}
 	recovered := priorProse
-	if cap := types.SummaryCapFor(doc.Shape); len(recovered) > cap {
+	itemCount := len(doc.Steps) + len(doc.Symbols)
+	if cap := types.SummaryCapFor(doc.Shape, itemCount); len(recovered) > cap {
 		// Trim at a UTF-8 rune boundary so CJK prose does not end in
 		// a partial multi-byte sequence (which would render as a
 		// replacement glyph in the final answer).

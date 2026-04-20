@@ -357,6 +357,50 @@
 # agent_investigation_complete_policy: soft
 
 # ---------------------------------------------------------------------------
+# Summary length caps (summary_cap_*)
+# ---------------------------------------------------------------------------
+# emit_answer_document enforces per-shape ceilings on the `summary`
+# field. Scalar shapes (explanation / value / config_value / boolean)
+# carry fixed ceilings; step_list and list_of_symbols scale with the
+# number of items so a long list is not compressed to the same budget
+# as a short one:
+#
+#   step_list        cap = min(step_list_max,  step_list_base  + n * step_list_per_item)
+#   list_of_symbols  cap = min(symbols_max,    symbols_base    + n * symbols_per_item)
+#
+# The caps are read from types.SummaryCapConfig at runtime; codrax.yaml
+# overrides here take effect at process start. Every key is optional —
+# omitted keys fall through to the code default.
+
+# Explanation shape: summary IS the answer body (thorough multi-paragraph
+# prose with code-level specifics + cross-file relationships). Default 2500.
+# summary_cap_explanation: 2500
+
+# Value / ConfigValue shapes: summary is a 1-sentence lead-in before a
+# scalar literal. Default 500.
+# summary_cap_value: 500
+# summary_cap_config_value: 500
+
+# Boolean shape: summary is a lead-in before YES/NO + rationale. Default 800.
+# summary_cap_boolean: 800
+
+# StepList shape: base + per-step slope, capped at max. Defaults produce
+# 1000 (0 steps) → 1240 (2 steps) → 2200 (10 steps) → 2500 (≥13 steps).
+# summary_cap_step_list_base: 1000
+# summary_cap_step_list_per_item: 120
+# summary_cap_step_list_max: 2500
+
+# ListOfSymbols shape: same shape of scaling as step_list, slightly
+# shallower per-item slope because the symbols carry most content.
+# Defaults: 1000 → 1200 (2 symbols) → 2000 (10 symbols) → 2500 (≥15).
+# summary_cap_symbols_base: 1000
+# summary_cap_symbols_per_item: 100
+# summary_cap_symbols_max: 2500
+
+# Fallback cap for any shape not covered above. Default 500.
+# summary_cap_default: 500
+
+# ---------------------------------------------------------------------------
 # Memory store limits (memory_*)
 # ---------------------------------------------------------------------------
 # Multi-turn REPL memory: buffer sizes and context-building caps.

@@ -576,6 +576,47 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			tool.SetReadFileSmallLimitThreshold(*rs.ReadFileSmallLimitThreshold)
 		}
 
+		// Per-shape Summary caps. Start from code defaults and
+		// overlay any non-nil yaml fields; a partial override leaves
+		// the other entries at their default.
+		{
+			scc := types.DefaultSummaryCapConfig()
+			if rs.SummaryCapExplanation != nil {
+				scc.Explanation = *rs.SummaryCapExplanation
+			}
+			if rs.SummaryCapValue != nil {
+				scc.Value = *rs.SummaryCapValue
+			}
+			if rs.SummaryCapConfigValue != nil {
+				scc.ConfigValue = *rs.SummaryCapConfigValue
+			}
+			if rs.SummaryCapBoolean != nil {
+				scc.Boolean = *rs.SummaryCapBoolean
+			}
+			if rs.SummaryCapStepListBase != nil {
+				scc.StepListBase = *rs.SummaryCapStepListBase
+			}
+			if rs.SummaryCapStepListPerItem != nil {
+				scc.StepListPerItem = *rs.SummaryCapStepListPerItem
+			}
+			if rs.SummaryCapStepListMax != nil {
+				scc.StepListMax = *rs.SummaryCapStepListMax
+			}
+			if rs.SummaryCapSymbolsBase != nil {
+				scc.SymbolsBase = *rs.SummaryCapSymbolsBase
+			}
+			if rs.SummaryCapSymbolsPerItem != nil {
+				scc.SymbolsPerItem = *rs.SummaryCapSymbolsPerItem
+			}
+			if rs.SummaryCapSymbolsMax != nil {
+				scc.SymbolsMax = *rs.SummaryCapSymbolsMax
+			}
+			if rs.SummaryCapDefault != nil {
+				scc.Default = *rs.SummaryCapDefault
+			}
+			types.SetSummaryCapConfig(scc)
+		}
+
 		// CGEC (Citation-Grounded Evidence Closure) tunables. Each
 		// is a positive integer; SetCGECPolicy ignores zero/negative
 		// values and keeps the current default, so a partial override

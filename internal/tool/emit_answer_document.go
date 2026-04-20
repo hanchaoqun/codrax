@@ -40,7 +40,7 @@ import (
 //     cite per step and accidentally drift" surface.
 //  4. Pattern 4 (prose → fact): every typed field is required to
 //     come from the evidence. The ONE prose escape hatch is Summary,
-//     and it is length-capped at AnswerDocumentMaxSummaryChars.
+//     and it is length-capped per shape via types.SummaryCapFor.
 type EmitAnswerDocument struct {
 	ReadOnly
 	NonEvidenceTool
@@ -422,18 +422,16 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		p.Boolean = nil
 	}
 
-	// Shape-tiered Summary cap. explanation shape uses Summary as
-	// the answer body and gets a generous ceiling (2500 chars, room
-	// for 4-6 paragraphs); other shapes use Summary as a lead-in
-	// and keep the historical tighter limit. See SummaryCapByShape
-	// for the per-shape table. The prior single-value 500-char cap
-	// contradicted the skill prompt's "no character limit for
-	// explanation" clause and forced the finalizer to burn retries
-	// trimming legitimate prose.
-	summaryCap := types.SummaryCapFor(shape)
+	// Shape-tiered Summary cap. Scalar shapes carry fixed ceilings;
+	// step_list and list_of_symbols scale with item count so an
+	// 8-step explanation is not compressed to the same budget as a
+	// 2-step one. Per-shape numbers live in types.SummaryCapConfig
+	// (runtime-tunable via codrax.yaml summary_cap_*).
+	itemCount := len(p.Steps) + len(p.Symbols)
+	summaryCap := types.SummaryCapFor(shape, itemCount)
 	if len(p.Summary) > summaryCap {
 		return failEmit(t.Name(), now,
-			"summary length %d exceeds cap %d for shape=%s — shorten the summary; cap is per-shape (see SummaryCapByShape)",
+			"summary length %d exceeds cap %d for shape=%s — shorten the summary",
 			len(p.Summary), summaryCap, shape)
 	}
 

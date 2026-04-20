@@ -36,7 +36,8 @@ package types
 // Field conventions:
 //
 //   - Shape: closed enum drawn from types.AnswerShape
-//   - Summary: LLM-authored 1-2 sentence prose, max 500 chars
+//   - Summary: LLM-authored prose, length-capped per shape by
+//     SummaryCapFor(shape, itemCount) — see SummaryCapConfig
 //   - Steps: non-empty for ShapeStepList, empty for all other shapes
 //   - Symbols: non-empty for ShapeListOfSymbols
 //   - SymbolsCompleteness: set-level authority (see CompletenessClaim);
@@ -99,55 +100,117 @@ type CodeSnippet struct {
 	Code     string `json:"code"`
 }
 
-// AnswerDocumentMaxSummaryChars caps the LLM-authored Summary field
-// for shapes where Summary is a lead-in, not the answer body. Kept as
-// a top-level const for backwards compatibility with tests that
-// explicitly reference the 500-char floor; new code should call
-// SummaryCapFor(shape) which dispatches off SummaryCapByShape.
-const AnswerDocumentMaxSummaryChars = 500
-
-// SummaryCapByShape is the per-shape Summary length ceiling enforced
-// by emit_answer_document. Different shapes use Summary for different
-// purposes so a single number misserves some of them:
+// SummaryCapConfig carries the per-shape Summary length ceilings
+// enforced by emit_answer_document. Each shape uses Summary for a
+// different purpose so a single number misserves some of them:
 //
-//   - ShapeExplanation: Summary IS the answer body. The LLM is
-//     instructed to produce a thorough, multi-paragraph explanation
-//     with code-level specifics, cross-file relationships, and
-//     mechanism details. 2500 chars comfortably fits 4-6 paragraphs
-//     plus a Mermaid diagram without opening summary as an unbounded
-//     prose escape. The earlier 500-char limit contradicted the
-//     skill prompt's "no character limit" clause and forced the
-//     finalizer to burn retry budget trimming a 900-char answer down
-//     to a 440-char summary that dropped half the content.
+//   - Explanation: Summary IS the answer body. Thorough multi-paragraph
+//     prose with code-level specifics, cross-file relationships, and
+//     mechanism details.
+//   - Value / ConfigValue: Summary is a short lead-in before a scalar
+//     literal. Kept tight.
+//   - Boolean: Summary is a lead-in before YES/NO + rationale. A little
+//     more room than Value because the rationale often justifies a
+//     non-trivial claim.
+//   - StepList: the user-visible answer is the step sequence; Summary
+//     is a lead-in whose useful length scales with the number of steps
+//     (more steps deserve a longer framing). Cap is
+//     min(StepListMax, StepListBase + n*StepListPerItem).
+//   - ListOfSymbols: same shape of scaling, slightly smaller per-item
+//     slope because the symbols themselves carry most of the content.
+//     Cap is min(SymbolsMax, SymbolsBase + n*SymbolsPerItem).
 //
-//   - ShapeValue / ShapeConfigValue: Summary is a 1-sentence lead-in
-//     before a scalar literal. 300 chars keeps it tight.
-//
-//   - ShapeListOfSymbols / ShapeStepList / ShapeBoolean: Summary is
-//     a 1-3 sentence lead-in before structured payload (the list,
-//     the step sequence, the boolean+rationale). 500 chars matches
-//     the old cap and works well for these shapes.
-//
-// ShapeNone is absent from the map by design — no-shape answers are
-// rejected upstream.
-var SummaryCapByShape = map[AnswerShape]int{
-	ShapeExplanation: 2500,
-	ShapeValue:       300,
-	ShapeConfigValue: 300,
-	ShapeListOfSymbols: AnswerDocumentMaxSummaryChars,
-	ShapeStepList:      AnswerDocumentMaxSummaryChars,
-	ShapeBoolean:       AnswerDocumentMaxSummaryChars,
+// All fields are runtime-tunable via codrax.yaml (summary_cap_*). The
+// package-level summaryCapConfig is the single source of truth for
+// emit_answer_document, the shrinkage-salvage trimmer, and the
+// per-shape test expectations; operators override it with
+// SetSummaryCapConfig at startup.
+type SummaryCapConfig struct {
+	Explanation     int
+	Value           int
+	ConfigValue     int
+	Boolean         int
+	StepListBase    int
+	StepListPerItem int
+	StepListMax     int
+	SymbolsBase     int
+	SymbolsPerItem  int
+	SymbolsMax      int
+	// Default applies to any shape not explicitly handled (currently
+	// ShapeNone, which is rejected upstream; kept so a future shape
+	// addition that forgets to extend this struct does not silently
+	// uncap).
+	Default int
 }
 
-// SummaryCapFor returns the Summary length ceiling for the given
-// shape. Unknown shapes fall back to AnswerDocumentMaxSummaryChars so
-// a future shape addition that forgets to extend the map does not
-// silently uncap.
-func SummaryCapFor(shape AnswerShape) int {
-	if cap, ok := SummaryCapByShape[shape]; ok {
-		return cap
+// DefaultSummaryCapConfig returns the baseline caps used when no
+// codrax.yaml override is present. Values derived from the per-shape
+// rationale above; changes here propagate to every call site
+// automatically via summaryCapConfig.
+func DefaultSummaryCapConfig() SummaryCapConfig {
+	return SummaryCapConfig{
+		Explanation:     2500,
+		Value:           500,
+		ConfigValue:     500,
+		Boolean:         800,
+		StepListBase:    1000,
+		StepListPerItem: 120,
+		StepListMax:     2500,
+		SymbolsBase:     1000,
+		SymbolsPerItem:  100,
+		SymbolsMax:      2500,
+		Default:         500,
 	}
-	return AnswerDocumentMaxSummaryChars
+}
+
+var summaryCapConfig = DefaultSummaryCapConfig()
+
+// SetSummaryCapConfig replaces the active per-shape caps. Called
+// once at startup from cmd/root.go after codrax.yaml merges; no
+// locking because later Runs do not mutate this.
+func SetSummaryCapConfig(cfg SummaryCapConfig) { summaryCapConfig = cfg }
+
+// SummaryCapForConfig returns the Summary length ceiling for the
+// given shape and item count under an explicit config. itemCount is
+// len(Steps) for ShapeStepList and len(Symbols) for ShapeListOfSymbols;
+// it is ignored for scalar shapes. A negative itemCount is clamped to
+// 0. Callers should prefer SummaryCapFor; this variant exists so tests
+// and the trimmer can reason about caps against arbitrary configs.
+func SummaryCapForConfig(cfg SummaryCapConfig, shape AnswerShape, itemCount int) int {
+	if itemCount < 0 {
+		itemCount = 0
+	}
+	switch shape {
+	case ShapeExplanation:
+		return cfg.Explanation
+	case ShapeValue:
+		return cfg.Value
+	case ShapeConfigValue:
+		return cfg.ConfigValue
+	case ShapeBoolean:
+		return cfg.Boolean
+	case ShapeStepList:
+		cap := cfg.StepListBase + itemCount*cfg.StepListPerItem
+		if cap > cfg.StepListMax {
+			cap = cfg.StepListMax
+		}
+		return cap
+	case ShapeListOfSymbols:
+		cap := cfg.SymbolsBase + itemCount*cfg.SymbolsPerItem
+		if cap > cfg.SymbolsMax {
+			cap = cfg.SymbolsMax
+		}
+		return cap
+	default:
+		return cfg.Default
+	}
+}
+
+// SummaryCapFor dispatches through the package-level summaryCapConfig.
+// itemCount is len(Steps) for ShapeStepList, len(Symbols) for
+// ShapeListOfSymbols, ignored otherwise.
+func SummaryCapFor(shape AnswerShape, itemCount int) int {
+	return SummaryCapForConfig(summaryCapConfig, shape, itemCount)
 }
 
 // CitationRefUnset is the sentinel value used when a typed field

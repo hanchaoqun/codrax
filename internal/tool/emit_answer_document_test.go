@@ -432,19 +432,19 @@ func TestEmitAnswerDocument_Explanation_Happy(t *testing.T) {
 // -------- cross-cutting validators --------
 
 func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {
-	// 2026-04-17: summary cap is now per-shape (SummaryCapByShape).
-	// Exercise all three tiers so a future shape addition that forgets
-	// to populate the map gets caught here (via the default fallback).
+	// Summary cap is per-shape via types.SummaryCapFor(shape, itemCount).
+	// Exercise scalar + item-scaled shapes so a future shape addition
+	// that forgets to extend SummaryCapConfig gets caught here.
 	cases := []struct {
 		shape types.AnswerShape
 		cap   int
 		extra map[string]interface{}
 	}{
-		{types.ShapeExplanation, types.SummaryCapFor(types.ShapeExplanation), nil},
-		{types.ShapeValue, types.SummaryCapFor(types.ShapeValue), map[string]interface{}{
+		{types.ShapeExplanation, types.SummaryCapFor(types.ShapeExplanation, 0), nil},
+		{types.ShapeValue, types.SummaryCapFor(types.ShapeValue, 0), map[string]interface{}{
 			"value": map[string]interface{}{"literal": "x", "citation_ref": -1},
 		}},
-		{types.ShapeBoolean, types.SummaryCapFor(types.ShapeBoolean), map[string]interface{}{
+		{types.ShapeBoolean, types.SummaryCapFor(types.ShapeBoolean, 0), map[string]interface{}{
 			"boolean": map[string]interface{}{"decision": "true", "rationale": "r", "citation_ref": -1},
 		}},
 	}
@@ -480,7 +480,7 @@ func TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation(t *testing.T) {
 	res, _ := tool.Execute(newDocBusCtx(""), params)
 	if !res.Success {
 		t.Errorf("1800-char explanation summary: must accept (cap=%d), got rejection: %s",
-			types.SummaryCapFor(types.ShapeExplanation), res.Summary)
+			types.SummaryCapFor(types.ShapeExplanation, 0), res.Summary)
 	}
 }
 

@@ -204,6 +204,23 @@ type RuntimeSettings struct {
 	MemoryMaxInlinedTurnBytes       *int `yaml:"memory_max_inlined_turn_bytes"`
 	MemoryMaxBuildContextTotalBytes *int `yaml:"memory_max_build_context_total_bytes"`
 
+	// Per-shape Summary length ceilings enforced by
+	// emit_answer_document and the shrinkage-salvage trimmer. All
+	// optional; nil → code default in types.DefaultSummaryCapConfig().
+	// StepList / ListOfSymbols scale with item count:
+	//   cap = min(Max, Base + n*PerItem).
+	SummaryCapExplanation        *int `yaml:"summary_cap_explanation"`
+	SummaryCapValue              *int `yaml:"summary_cap_value"`
+	SummaryCapConfigValue        *int `yaml:"summary_cap_config_value"`
+	SummaryCapBoolean            *int `yaml:"summary_cap_boolean"`
+	SummaryCapStepListBase       *int `yaml:"summary_cap_step_list_base"`
+	SummaryCapStepListPerItem    *int `yaml:"summary_cap_step_list_per_item"`
+	SummaryCapStepListMax        *int `yaml:"summary_cap_step_list_max"`
+	SummaryCapSymbolsBase        *int `yaml:"summary_cap_symbols_base"`
+	SummaryCapSymbolsPerItem     *int `yaml:"summary_cap_symbols_per_item"`
+	SummaryCapSymbolsMax         *int `yaml:"summary_cap_symbols_max"`
+	SummaryCapDefault            *int `yaml:"summary_cap_default"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /
