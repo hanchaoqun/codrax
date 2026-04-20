@@ -82,7 +82,8 @@ func intentMatch(h types.Hypothesis, rm types.RequestModel) float64 {
 			return 1.0
 		}
 	case types.IntentExplain, types.IntentTrace:
-		if strings.Contains(stmt, "architect") || strings.Contains(stmt, "evidence") || strings.Contains(stmt, "anchored") {
+		if strings.Contains(stmt, "architect") || strings.Contains(stmt, "evidence") || strings.Contains(stmt, "anchored") ||
+			strings.Contains(stmt, "relation") {
 			return 0.8
 		}
 	}

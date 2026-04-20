@@ -45,6 +45,7 @@ const (
 	KindContainsSymbol                Kind = Kind(types.CritContainsSymbol)
 	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
 	KindCounterfactualBranchesDecided Kind = Kind(types.CritCounterfactualBranchesDecided)
+	KindRelationAbsent                Kind = Kind(types.CritRelationAbsent)
 )
 
 // registered is the source of truth for legal Kind values. Gate's
@@ -70,6 +71,7 @@ var registered = map[Kind]bool{
 	KindContainsSymbol:                true,
 	KindRegexMatch:                    true,
 	KindCounterfactualBranchesDecided: true,
+	KindRelationAbsent:                true,
 }
 
 // IsRegistered reports whether k is in the closed namespace.

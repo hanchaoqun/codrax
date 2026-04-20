@@ -227,12 +227,12 @@ func kindAffinity(kind string, nodeType types.TaskNodeType) float64 {
 	fam := kindFamily(kind)
 	switch nodeType {
 	case types.NodeEvidence:
-		if fam == famPresence || fam == famAbsence {
+		if fam == famPresence || fam == famAbsence || fam == famRelation {
 			return 1.0
 		}
 		return 0.3
 	case types.NodeValidate:
-		if fam == famInvariant || fam == famFlow || fam == famResolution {
+		if fam == famInvariant || fam == famFlow || fam == famResolution || fam == famRelation {
 			return 1.0
 		}
 		return 0.3
@@ -253,6 +253,7 @@ const (
 	famResolution  = "resolution"
 	famCardinality = "cardinality"
 	famAmbiguity   = "ambiguity"
+	famRelation    = "relation"
 	famOther       = "other"
 )
 
@@ -272,6 +273,8 @@ func kindFamily(kind string) string {
 		return famCardinality
 	case types.CritUserClauseUnresolved:
 		return famAmbiguity
+	case types.CritRelationAbsent:
+		return famRelation
 	}
 	return famOther
 }

@@ -88,6 +88,8 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalRegexMatch(expr, env)
 	case KindCounterfactualBranchesDecided:
 		return evalCounterfactualBranchesDecided(env)
+	case KindRelationAbsent:
+		return evalRelationAbsent(expr, env)
 	}
 	return Result{UnknownKind: true,
 		Detail: fmt.Sprintf("no handler for kind %q (internal bug: registered but unreachable)", k)}
@@ -374,6 +376,41 @@ func evalCounterfactualBranchesDecided(env Env) Result {
 		}
 	}
 	return Result{Satisfied: true, Detail: "all counterfactual-bound hypotheses decided"}
+}
+
+// evalRelationAbsent is the falsification counterpart to the
+// anchored-on-set hypothesis the HDP planner emits for multi-subject
+// explain/trace questions (e.g. "A 和 B 的关系"). Expr is a
+// comma-separated pair "A,B"; the criterion fires (rejected) when no
+// evidence item mentions BOTH symbols in Subject / Object / Summary.
+// A single evidence row tying the two together is sufficient to keep
+// the relation hypothesis alive — we are only rejecting the cases
+// where an entire turn's worth of evidence failed to find any bridge.
+//
+// Malformed Expr (missing comma, empty side) falls loudly: the
+// criterion returns Satisfied=false with a Detail the retry hint can
+// surface.
+func evalRelationAbsent(expr string, env Env) Result {
+	parts := strings.SplitN(strings.TrimSpace(expr), ",", 2)
+	if len(parts) != 2 {
+		return Result{Satisfied: false,
+			Detail: fmt.Sprintf("malformed relation expr %q (expect \"A,B\")", expr)}
+	}
+	a := strings.ToLower(strings.TrimSpace(parts[0]))
+	b := strings.ToLower(strings.TrimSpace(parts[1]))
+	if a == "" || b == "" {
+		return Result{Satisfied: false,
+			Detail: fmt.Sprintf("malformed relation expr %q (empty side)", expr)}
+	}
+	for _, e := range env.Evidence {
+		blob := strings.ToLower(e.Subject + " " + e.Object + " " + e.Summary + " " + e.Predicate)
+		if strings.Contains(blob, a) && strings.Contains(blob, b) {
+			return Result{Satisfied: false,
+				Detail: fmt.Sprintf("evidence %q mentions both %q and %q", e.ID, a, b)}
+		}
+	}
+	return Result{Satisfied: true,
+		Detail: fmt.Sprintf("no evidence links %q and %q", a, b)}
 }
 
 // ── small helpers ──────────────────────────────────────────────

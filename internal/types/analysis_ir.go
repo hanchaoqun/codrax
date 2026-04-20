@@ -493,6 +493,7 @@ const (
 	CritContainsSymbol                = "contains_symbol"
 	CritRegexMatch                    = "regex_match"
 	CritCounterfactualBranchesDecided = "counterfactual_branches_decided"
+	CritRelationAbsent                = "relation_absent"
 )
 
 type SearchHints struct {

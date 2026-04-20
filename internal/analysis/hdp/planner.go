@@ -32,61 +32,61 @@ import (
 // Plan generates a set of candidate hypotheses from Intent,
 // TermGraph, Ambiguities, and RiskMatrix. The output is sorted by
 // priority desc with stable idx tie-breaking.
+//
+// Multi-subject dispatch: topSymbols picks up to 3 TermSymbols
+// ordered by Confidence desc; a sharp confidence gap (> 0.4) collapses
+// back to the single top subject to keep low-quality symbols from
+// diluting the hypothesis set. Each intent branch emits one hypothesis
+// per subject — so "blob 和 log 的关系" produces two anchored
+// hypotheses, not one merged statement. For explain/trace with
+// SemanticPredicates.IsRelationalLookup AND exactly two subjects, an
+// extra relation hypothesis is appended whose falsification is the
+// new CritRelationAbsent kind.
 func Plan(rm types.RequestModel) []types.Hypothesis {
 	var out []types.Hypothesis
 	nextID := func() string { return fmt.Sprintf("h%d", len(out)+1) }
 
-	topSymbol := firstSymbol(rm.TermGraph)
+	syms := topSymbols(rm.TermGraph, 3)
 
 	// 1. Intent-driven seed hypothesis.
 	switch rm.Intent {
 	case types.IntentRootCause:
-		out = append(out, types.Hypothesis{
-			ID: nextID(),
-			Statement: fmt.Sprintf(
-				"The observed symptom is caused by %s or a module it depends on.",
-				orDefault(topSymbol, "the primary subject of the request")),
-			RequiredEvidence: []types.Criterion{
-				{Kind: types.CritSymbolPresent, Expr: topSymbol},
-				{Kind: types.CritEvidenceCount, Expr: ">=2"},
-			},
-			FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: topSymbol},
-			Status:                 types.HypUnknown,
-		})
+		if len(syms) == 0 {
+			out = append(out, rootCauseHypothesis(nextID(), "the primary subject of the request"))
+		} else {
+			for _, sym := range syms {
+				out = append(out, rootCauseHypothesis(nextID(), sym))
+			}
+		}
 	case types.IntentConfigQuery:
-		out = append(out, types.Hypothesis{
-			ID: nextID(),
-			Statement: "The effective config value is resolved by a single deterministic chain from default to override.",
-			RequiredEvidence: []types.Criterion{
-				{Kind: types.CritEvidenceCount, Expr: ">=1"},
-			},
-			FalsificationCondition: types.Criterion{Kind: types.CritMultipleResolutionChains},
-			Status:                 types.HypUnknown,
-		})
+		if len(syms) <= 1 {
+			out = append(out, configQueryHypothesis(nextID(), orDefault(firstOf(syms), "")))
+		} else {
+			for _, sym := range syms {
+				out = append(out, configQueryHypothesis(nextID(), sym))
+			}
+		}
 	case types.IntentReturnValue, types.IntentEnumerate:
-		out = append(out, types.Hypothesis{
-			ID: nextID(),
-			Statement: fmt.Sprintf(
-				"The answer is a finite set of symbols anchored on %s.",
-				orDefault(topSymbol, "the subject")),
-			RequiredEvidence: []types.Criterion{
-				{Kind: types.CritAnswerSetBounded, Expr: "<=50"},
-			},
-			FalsificationCondition: types.Criterion{Kind: types.CritAnswerSetUnbounded},
-			Status:                 types.HypUnknown,
-		})
+		if len(syms) == 0 {
+			out = append(out, enumerateHypothesis(nextID(), "the subject"))
+		} else {
+			for _, sym := range syms {
+				out = append(out, enumerateHypothesis(nextID(), sym))
+			}
+		}
 	default:
-		out = append(out, types.Hypothesis{
-			ID: nextID(),
-			Statement: fmt.Sprintf(
-				"The request can be answered using evidence anchored on %s.",
-				orDefault(topSymbol, "repo symbols")),
-			RequiredEvidence: []types.Criterion{
-				{Kind: types.CritEvidenceCount, Expr: ">=1"},
-			},
-			FalsificationCondition: types.Criterion{Kind: types.CritNoRelevantEvidence},
-			Status:                 types.HypUnknown,
-		})
+		if len(syms) <= 1 {
+			out = append(out, explainHypothesis(nextID(), orDefault(firstOf(syms), "repo symbols")))
+		} else {
+			out = append(out, explainSetHypothesis(nextID(), syms))
+			// Pairwise relation hypothesis is only emitted when the
+			// LLM's IsRelationalLookup predicate fires AND there are
+			// exactly two subjects — N-ary relations would need an
+			// order-insensitive pairing scheme we don't have.
+			if rm.Predicates.IsRelationalLookup && len(syms) == 2 {
+				out = append(out, relationHypothesis(nextID(), syms[0], syms[1]))
+			}
+		}
 	}
 
 	// 2. Ambiguities — each becomes a hypothesis to resolve.
@@ -167,27 +167,170 @@ func requiresHypothesis(t types.TaskNodeType) bool {
 	return false
 }
 
-// firstSymbol returns the first TermSymbol's surface in the graph.
-func firstSymbol(tg types.TermGraph) string {
-	best := ""
-	bestConf := float32(-1)
-	for _, c := range tg.Canonical {
+// topSymbols returns up to k TermSymbol surfaces from the graph in
+// Confidence-desc order. A sharp confidence gap between the top match
+// and the runner-up (> 0.4) collapses the return to just the top one —
+// rarity-penalised kindEnWord matches can land at Confidence ≈ 0.3
+// while a direct CamelCase hit lands at 1.0, and we do not want the
+// weaker match to spawn a full hypothesis branch. Ties break on slice
+// index so the output is deterministic.
+func topSymbols(tg types.TermGraph, k int) []string {
+	if k <= 0 {
+		return nil
+	}
+	type pair struct {
+		surface string
+		conf    float32
+		idx     int
+	}
+	var ps []pair
+	for i, c := range tg.Canonical {
 		if c.Kind != types.TermSymbol {
 			continue
 		}
-		if c.Confidence > bestConf {
-			bestConf = c.Confidence
-			best = c.Surface
+		if strings.TrimSpace(c.Surface) == "" {
+			continue
 		}
+		ps = append(ps, pair{surface: c.Surface, conf: c.Confidence, idx: i})
 	}
-	return best
+	sort.SliceStable(ps, func(i, j int) bool {
+		if ps[i].conf != ps[j].conf {
+			return ps[i].conf > ps[j].conf
+		}
+		return ps[i].idx < ps[j].idx
+	})
+	if len(ps) >= 2 && ps[0].conf-ps[1].conf > 0.4 {
+		ps = ps[:1]
+	}
+	if len(ps) > k {
+		ps = ps[:k]
+	}
+	out := make([]string, 0, len(ps))
+	for _, p := range ps {
+		out = append(out, p.surface)
+	}
+	return out
 }
+
+// ── per-intent hypothesis constructors ──────────────────────────
+
+func rootCauseHypothesis(id, sym string) types.Hypothesis {
+	return types.Hypothesis{
+		ID: id,
+		Statement: fmt.Sprintf(
+			"The observed symptom is caused by %s or a module it depends on.",
+			sym),
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritSymbolPresent, Expr: sym},
+			{Kind: types.CritEvidenceCount, Expr: ">=2"},
+		},
+		FalsificationCondition: types.Criterion{Kind: types.CritNoCallSites, Expr: sym},
+		Status:                 types.HypUnknown,
+	}
+}
+
+func configQueryHypothesis(id, sym string) types.Hypothesis {
+	stmt := "The effective config value is resolved by a single deterministic chain from default to override."
+	if sym != "" {
+		stmt = fmt.Sprintf(
+			"The effective config for %s is resolved by a single deterministic chain from default to override.",
+			sym)
+	}
+	return types.Hypothesis{
+		ID:        id,
+		Statement: stmt,
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+		},
+		FalsificationCondition: types.Criterion{Kind: types.CritMultipleResolutionChains},
+		Status:                 types.HypUnknown,
+	}
+}
+
+func enumerateHypothesis(id, sym string) types.Hypothesis {
+	return types.Hypothesis{
+		ID: id,
+		Statement: fmt.Sprintf(
+			"The answer is a finite set of symbols anchored on %s.",
+			sym),
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritAnswerSetBounded, Expr: "<=50"},
+		},
+		FalsificationCondition: types.Criterion{Kind: types.CritAnswerSetUnbounded},
+		Status:                 types.HypUnknown,
+	}
+}
+
+func explainHypothesis(id, sym string) types.Hypothesis {
+	return types.Hypothesis{
+		ID: id,
+		Statement: fmt.Sprintf(
+			"The request can be answered using evidence anchored on %s.",
+			sym),
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+		},
+		FalsificationCondition: types.Criterion{Kind: types.CritNoRelevantEvidence},
+		Status:                 types.HypUnknown,
+	}
+}
+
+// explainSetHypothesis is the multi-subject counterpart of
+// explainHypothesis. The statement lists every subject in the set so
+// downstream priority / binder scoring picks up the full vocabulary,
+// but the falsification condition stays scalar — an empty evidence
+// list rejects regardless of which subject was meant.
+func explainSetHypothesis(id string, syms []string) types.Hypothesis {
+	return types.Hypothesis{
+		ID: id,
+		Statement: fmt.Sprintf(
+			"The request can be answered using evidence anchored on the set {%s}.",
+			strings.Join(syms, ", ")),
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritEvidenceCount, Expr: ">=1"},
+		},
+		FalsificationCondition: types.Criterion{Kind: types.CritNoRelevantEvidence},
+		Status:                 types.HypUnknown,
+	}
+}
+
+// relationHypothesis asserts the two subjects are actually linked in
+// the code base. RequiredEvidence demands both symbols plus ≥2
+// evidence rows so a single mention does not confirm the relation;
+// falsification is the new CritRelationAbsent kind.
+func relationHypothesis(id, a, b string) types.Hypothesis {
+	return types.Hypothesis{
+		ID: id,
+		Statement: fmt.Sprintf(
+			"A direct relation exists between %s and %s (shared call site, type hierarchy, or resolution chain).",
+			a, b),
+		RequiredEvidence: []types.Criterion{
+			{Kind: types.CritSymbolPresent, Expr: a},
+			{Kind: types.CritSymbolPresent, Expr: b},
+			{Kind: types.CritEvidenceCount, Expr: ">=2"},
+		},
+		FalsificationCondition: types.Criterion{
+			Kind: types.CritRelationAbsent,
+			Expr: a + "," + b,
+		},
+		Status: types.HypUnknown,
+	}
+}
+
+// ── misc helpers ───────────────────────────────────────────────
 
 func orDefault(s, fallback string) string {
 	if strings.TrimSpace(s) == "" {
 		return fallback
 	}
 	return s
+}
+
+func firstOf(xs []string) string {
+	if len(xs) == 0 {
+		return ""
+	}
+	return xs[0]
 }
 
 func firstOption(xs []string) string {

@@ -169,3 +169,160 @@ func TestPlan_Deterministic(t *testing.T) {
 		}
 	}
 }
+
+// ── multi-subject dispatch ──────────────────────────────────────
+
+func rmWithConf(intent types.Intent, pairs ...interface{}) types.RequestModel {
+	if len(pairs)%2 != 0 {
+		panic("rmWithConf expects alternating (surface string, conf float32) pairs")
+	}
+	out := types.RequestModel{Intent: intent}
+	for i := 0; i < len(pairs); i += 2 {
+		surface := pairs[i].(string)
+		conf := float32(pairs[i+1].(float64))
+		out.TermGraph.Canonical = append(out.TermGraph.Canonical, types.CanonicalTerm{
+			ID: "code:" + strings.ToLower(surface), Surface: surface,
+			Kind: types.TermSymbol, Confidence: conf,
+		})
+	}
+	return out
+}
+
+func countByFalsificationKind(hs []types.Hypothesis, kind string) int {
+	n := 0
+	for _, h := range hs {
+		if h.FalsificationCondition.Kind == kind {
+			n++
+		}
+	}
+	return n
+}
+
+func TestPlan_TwoSymbols_EnumerateEmitsPerSubject(t *testing.T) {
+	hs := Plan(rm(types.IntentEnumerate, "Blob", "Log"))
+	if n := countByFalsificationKind(hs, types.CritAnswerSetUnbounded); n != 2 {
+		t.Fatalf("enumerate with 2 subjects should produce 2 anchored hypotheses; got %d (full=%+v)", n, hs)
+	}
+	if findByStatement(hs, "anchored on Blob") == nil || findByStatement(hs, "anchored on Log") == nil {
+		t.Fatalf("each subject must get its own anchored statement; got %+v", hs)
+	}
+}
+
+func TestPlan_TwoSymbols_RootCauseEmitsPerSubject(t *testing.T) {
+	hs := Plan(rm(types.IntentRootCause, "Alpha", "Beta"))
+	if n := countByFalsificationKind(hs, types.CritNoCallSites); n != 2 {
+		t.Fatalf("root_cause with 2 subjects should produce 2 NoCallSites hypotheses; got %d (%+v)", n, hs)
+	}
+	// Each NoCallSites falsification expr should target its own subject.
+	seen := map[string]bool{}
+	for _, h := range hs {
+		if h.FalsificationCondition.Kind == types.CritNoCallSites {
+			seen[h.FalsificationCondition.Expr] = true
+		}
+	}
+	if !seen["Alpha"] || !seen["Beta"] {
+		t.Fatalf("falsification expr must include each subject; seen=%v", seen)
+	}
+}
+
+func TestPlan_TwoSymbols_ConfigQueryEmitsPerSubject(t *testing.T) {
+	hs := Plan(rm(types.IntentConfigQuery, "ApiKey", "Timeout"))
+	if n := countByFalsificationKind(hs, types.CritMultipleResolutionChains); n != 2 {
+		t.Fatalf("config_query with 2 subjects should produce 2 hypotheses; got %d (%+v)", n, hs)
+	}
+	if findByStatement(hs, "config for ApiKey") == nil || findByStatement(hs, "config for Timeout") == nil {
+		t.Fatalf("each subject must get its own config-resolution statement; got %+v", hs)
+	}
+}
+
+func TestPlan_ThreeSymbols_CappedAtKEquals3(t *testing.T) {
+	// Four symbols, equal Confidence. Expect exactly 3 anchored
+	// hypotheses + whatever else the intent adds.
+	hs := Plan(rm(types.IntentEnumerate, "A", "B", "C", "D"))
+	if n := countByFalsificationKind(hs, types.CritAnswerSetUnbounded); n != 3 {
+		t.Fatalf("top-K cap should be 3; got %d anchored hypotheses (%+v)", n, hs)
+	}
+	if findByStatement(hs, "anchored on D") != nil {
+		t.Fatalf("D fell outside top-3; should not appear in statements: %+v", hs)
+	}
+}
+
+func TestPlan_ConfidenceGap_DegradesToSingleSubject(t *testing.T) {
+	// Top symbol 1.0, runner-up 0.3 → gap 0.7 > 0.4 → collapse.
+	hs := Plan(rmWithConf(types.IntentEnumerate, "Strong", 1.0, "Weak", 0.3))
+	if n := countByFalsificationKind(hs, types.CritAnswerSetUnbounded); n != 1 {
+		t.Fatalf("confidence gap > 0.4 should collapse to single subject; got %d (%+v)", n, hs)
+	}
+	if findByStatement(hs, "anchored on Strong") == nil {
+		t.Fatalf("collapse must keep the top subject; got %+v", hs)
+	}
+	if findByStatement(hs, "anchored on Weak") != nil {
+		t.Fatalf("weak subject must not appear after collapse; got %+v", hs)
+	}
+}
+
+func TestPlan_ConfidenceGap_ShallowKeepsAll(t *testing.T) {
+	// Top 1.0, runner-up 0.7 → gap 0.3 ≤ 0.4 → keep both.
+	hs := Plan(rmWithConf(types.IntentEnumerate, "A", 1.0, "B", 0.7))
+	if n := countByFalsificationKind(hs, types.CritAnswerSetUnbounded); n != 2 {
+		t.Fatalf("shallow confidence gap should keep both subjects; got %d (%+v)", n, hs)
+	}
+}
+
+func TestPlan_RelationCue_AddsRelationHypothesis(t *testing.T) {
+	input := rm(types.IntentExplain, "Blob", "Log")
+	input.Predicates.IsRelationalLookup = true
+	hs := Plan(input)
+	rel := findByStatement(hs, "A direct relation exists between")
+	if rel == nil {
+		t.Fatalf("IsRelationalLookup=true + 2 subjects must emit relation hypothesis; got %+v", hs)
+	}
+	if rel.FalsificationCondition.Kind != types.CritRelationAbsent {
+		t.Fatalf("relation hypothesis must falsify via CritRelationAbsent; got %q", rel.FalsificationCondition.Kind)
+	}
+	if rel.FalsificationCondition.Expr != "Blob,Log" {
+		t.Fatalf("relation expr must be 'A,B'; got %q", rel.FalsificationCondition.Expr)
+	}
+}
+
+func TestPlan_RelationCue_SingleSubjectDoesNotTrigger(t *testing.T) {
+	input := rm(types.IntentExplain, "Solo")
+	input.Predicates.IsRelationalLookup = true
+	hs := Plan(input)
+	if findByStatement(hs, "A direct relation exists between") != nil {
+		t.Fatalf("1 subject must not trigger relation hypothesis; got %+v", hs)
+	}
+}
+
+func TestPlan_RelationCue_ThreeSubjectsDoesNotTrigger(t *testing.T) {
+	// N-ary relation is out of scope; only pairwise fires.
+	input := rm(types.IntentExplain, "A", "B", "C")
+	input.Predicates.IsRelationalLookup = true
+	hs := Plan(input)
+	if findByStatement(hs, "A direct relation exists between") != nil {
+		t.Fatalf("3 subjects must not trigger pairwise relation hypothesis; got %+v", hs)
+	}
+}
+
+func TestPlan_NoRelationCue_NoRelationHypothesis(t *testing.T) {
+	// Two subjects but LLM said not a relational lookup → no relation hyp.
+	hs := Plan(rm(types.IntentExplain, "A", "B"))
+	if findByStatement(hs, "A direct relation exists between") != nil {
+		t.Fatalf("IsRelationalLookup=false must not emit relation hypothesis; got %+v", hs)
+	}
+}
+
+// Multi-subject explain should still produce an anchored-on-set hypothesis
+// that names every subject — priority's intentMatch scans the statement
+// text, so losing a subject's surface means the hypothesis drops to the
+// 0.4 fallback.
+func TestPlan_MultiSubjectExplain_NamesAllSubjects(t *testing.T) {
+	hs := Plan(rm(types.IntentExplain, "First", "Second"))
+	h := findByStatement(hs, "anchored on the set")
+	if h == nil {
+		t.Fatalf("expected set-anchored explain hypothesis; got %+v", hs)
+	}
+	if !strings.Contains(h.Statement, "First") || !strings.Contains(h.Statement, "Second") {
+		t.Fatalf("set hypothesis must name every subject; got %q", h.Statement)
+	}
+}

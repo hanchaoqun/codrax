@@ -39,6 +39,9 @@ func TestRegisteredKindsAllDispatchable(t *testing.T) {
 		if k == KindUserClauseUnresolved {
 			c.Expr = "x"
 		}
+		if k == KindRelationAbsent {
+			c.Expr = "foo,bar"
+		}
 		r := Eval(c, env)
 		if r.UnknownKind {
 			t.Errorf("kind %q marked UnknownKind by dispatch", k)
@@ -103,5 +106,61 @@ func TestEvalAll_ReportsFailures(t *testing.T) {
 	}
 	if len(failed) != 1 {
 		t.Errorf("expected 1 failure, got %d", len(failed))
+	}
+}
+
+// Relation-absent fires when no single evidence row ties the two
+// subjects together. Used by multi-subject explain/trace hypotheses
+// (e.g. "blob 和 log 的关系") as the falsification criterion.
+func TestEval_RelationAbsent_BothInOneEvidence_NotAbsent(t *testing.T) {
+	env := Env{
+		Evidence: []types.EvidenceItem{
+			{ID: "ev1", Subject: "Blob", Summary: "Blob writes into log pipeline"},
+		},
+	}
+	r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: "Blob,log"}, env)
+	if r.Satisfied {
+		t.Errorf("expected NOT absent when one evidence mentions both; got detail=%q", r.Detail)
+	}
+}
+
+func TestEval_RelationAbsent_OnlyOneSideSeen_Absent(t *testing.T) {
+	env := Env{
+		Evidence: []types.EvidenceItem{
+			{ID: "ev1", Subject: "Blob", Summary: "Blob writes into a buffer"},
+			{ID: "ev2", Subject: "Log", Summary: "Log formats a line"},
+		},
+	}
+	r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: "Blob,Log"}, env)
+	if !r.Satisfied {
+		t.Errorf("expected absent when evidence mentions each side separately; got detail=%q", r.Detail)
+	}
+}
+
+func TestEval_RelationAbsent_EmptyEvidence_Absent(t *testing.T) {
+	r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: "A,B"}, Env{})
+	if !r.Satisfied {
+		t.Errorf("empty evidence must count as absent; got detail=%q", r.Detail)
+	}
+}
+
+func TestEval_RelationAbsent_MalformedExpr(t *testing.T) {
+	for _, expr := range []string{"", "A", ",B", "A,"} {
+		r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: expr}, Env{})
+		if r.Satisfied || r.UnknownKind {
+			t.Errorf("expr %q: malformed input must fail loudly (Satisfied=false, UnknownKind=false); got %+v", expr, r)
+		}
+	}
+}
+
+func TestEval_RelationAbsent_CaseInsensitive(t *testing.T) {
+	env := Env{
+		Evidence: []types.EvidenceItem{
+			{ID: "ev1", Object: "BLOB", Summary: "reads from Log store"},
+		},
+	}
+	r := Eval(types.Criterion{Kind: string(KindRelationAbsent), Expr: "blob,log"}, env)
+	if r.Satisfied {
+		t.Errorf("case-insensitive match should detect BOTH; got detail=%q", r.Detail)
 	}
 }
