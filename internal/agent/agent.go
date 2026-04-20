@@ -593,6 +593,22 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		})
 		resp, err := b.deps.LLM.Chat(messages, toolSchemas)
 		if err != nil {
+			// Salvage accumulated side-effects before bubbling the LLM
+			// error. Without this, an upstream 429 / 5xx / context-length
+			// spike in the middle of a long explore window erases every
+			// read_file / evidence / investigation-note accumulated so
+			// far: explorer.ParseOutput is the ONLY producer of
+			// TurnAArtifacts, and returning early skips it. The
+			// downstream extractor then sees `ta == nil`, renders
+			// "No transcript available", and trips R4 fail-loud for
+			// a worthless final answer.
+			//
+			// Side-effect only: ParseOutput writes onto the shared
+			// ctx.Mutable (SetTurnAArtifacts / EvidenceClosure / etc.).
+			// The returned StageOutput is discarded; the original LLM
+			// error still propagates so the orchestrator treats the
+			// window as failed and the force-finalize path engages.
+			b.salvagePartialDispatch(ctx, messages, allToolResults, allMCPResponses, i, err)
 			return &StageOutput{
 				Error:        fmt.Sprintf("LLM call failed: %v", err),
 				MissingPiece: ctx.MissingPiece,
@@ -947,6 +963,64 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 	return output, nil
 }
 
+// readFilePathMissMarkers lists substrings that identify a read_file
+// failure caused by the LLM naming a path that does not exist (or
+// pointing at a directory instead of a file). Matched case-insensitively
+// against the tool's Summary. Kept narrow on purpose: refund fires
+// only for the bucket of errors that a retry on a corrected path would
+// fix — permission denied, EIO, mmap failures, etc. stay charged
+// because they signal something the LLM cannot trivially work around.
+var readFilePathMissMarkers = []string{
+	"no such file or directory",
+	"no such file",
+	"is a directory",
+	"file does not exist",
+}
+
+// isReadFilePathMiss reports whether a tool result came back failed
+// from read_file for a reason the LLM can self-correct by supplying
+// a different path on the next iteration.
+func isReadFilePathMiss(name string, r *types.ToolResult) bool {
+	if r == nil || r.Success || r.ToolName == "" {
+		return false
+	}
+	if types.CanonicalToolName(name) != "read_file" {
+		return false
+	}
+	summary := strings.ToLower(r.Summary)
+	for _, m := range readFilePathMissMarkers {
+		if strings.Contains(summary, m) {
+			return true
+		}
+	}
+	return false
+}
+
+// salvagePartialDispatch runs the evaluator's ParseOutput for its
+// side-effects only, so a mid-loop LLM failure does not erase work
+// the dispatch already accumulated on shared ctx.Mutable. The
+// returned StageOutput is discarded — the caller still surfaces the
+// LLM error. A panic inside ParseOutput on incomplete data is
+// recovered and logged so the original error path remains reliable.
+func (b *BaseAgent) salvagePartialDispatch(
+	ctx *types.AgentContext,
+	messages []llm.Message,
+	toolResults []types.ToolResult,
+	mcpResponses []types.MCPResponse,
+	iter int,
+	llmErr error,
+) {
+	defer func() {
+		if r := recover(); r != nil {
+			logging.Warning("[agent/%s] ParseOutput panic during mid-loop salvage at iter=%d (ignored): %v",
+				b.name, iter, r)
+		}
+	}()
+	logging.Warning("[agent/%s] LLM call failed at iter=%d (%v) — salvaging accumulated artifacts via ParseOutput",
+		b.name, iter, llmErr)
+	_, _ = b.eval.ParseOutput(ctx, messages, toolResults, mcpResponses)
+}
+
 // buildToolSchemas assembles the tool-schema slice handed to the LLM
 // for this dispatch. The output is the UNION of:
 //
@@ -1135,6 +1209,19 @@ func (b *BaseAgent) executeTool(ctx *types.AgentContext, tc llm.ToolCall) (*type
 			// the only stage that takes this path; other stages
 			// short-circuit on the trigger flag being off.
 			analyzerPostProcessToolResult(ctx, tc, &result)
+			// Refund budget for read_file calls that failed because
+			// the LLM picked a path that doesn't exist (or named a
+			// directory). The LLM is still triangulating the repo
+			// layout and self-corrects on the next iteration; charging
+			// these exploratory misses against the cap drains the
+			// budget before any real file reads land. Only refund for
+			// explore-stage dispatches where the gate recorded the
+			// call to begin with.
+			if ctx != nil && ctx.Stage == types.StageExplore && ctx.Mutable != nil &&
+				isReadFilePathMiss(tc.Name, &result) {
+				ctx.Mutable.RefundToolCall(types.CanonicalToolName(tc.Name))
+				logging.Debug("[sourcemix] refunded read_file budget for path miss: %s", result.Summary)
+			}
 			return &result, nil
 		}
 	}

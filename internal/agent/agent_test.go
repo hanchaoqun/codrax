@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -222,3 +223,98 @@ func TestValidateAnalyzerPrescanToolCall(t *testing.T) {
 		}
 	})
 }
+
+// TestIsReadFilePathMiss covers the Summary-substring classifier that
+// decides whether a failed read_file call should refund its budget
+// slot. Path-resolution failures refund (LLM self-corrects on the
+// next iter); other failure modes (size, permission) stay charged
+// because they aren't trivially retryable by a different path.
+func TestIsReadFilePathMiss(t *testing.T) {
+	cases := []struct {
+		name    string
+		toolRaw string
+		success bool
+		summary string
+		want    bool
+	}{
+		{"ENOENT lowercase", "read_file", false, "read failed: open internal/foo.go: no such file or directory", true},
+		{"ENOENT mixed case", "read_file", false, "read failed: OPEN x: No Such File Or Directory", true},
+		{"is a directory", "read_file", false, "read failed: open dir: is a directory", true},
+		{"explicit does not exist", "read_file", false, "file does not exist: internal/foo.go", true},
+		{"alias read", "read", false, "read failed: no such file", true},
+		{"success is never a miss", "read_file", true, "some success summary", false},
+		{"permission denied stays charged", "read_file", false, "read failed: permission denied", false},
+		{"IO error stays charged", "read_file", false, "read failed: input/output error", false},
+		{"empty summary stays charged", "read_file", false, "", false},
+		{"other tool name", "grep", false, "read failed: no such file or directory", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			r := &types.ToolResult{
+				ToolName: c.toolRaw,
+				Success:  c.success,
+				Summary:  c.summary,
+			}
+			got := isReadFilePathMiss(c.toolRaw, r)
+			if got != c.want {
+				t.Errorf("isReadFilePathMiss(%q, %+v) = %v, want %v", c.toolRaw, *r, got, c.want)
+			}
+		})
+	}
+	// Nil result must not panic.
+	if isReadFilePathMiss("read_file", nil) {
+		t.Errorf("nil result must return false, not true")
+	}
+}
+
+// stubEvaluator is a trivial Evaluator that records ParseOutput
+// invocations and can be configured to panic. Kept local to this
+// test so salvagePartialDispatch's contract (run ParseOutput for
+// side-effects, recover panics) is verifiable without a full
+// BaseAgent.Execute integration.
+type stubEvaluator struct {
+	parseCalls   int
+	panicMessage string
+}
+
+func (s *stubEvaluator) BuildInitialInstruction(_ *types.AgentContext, _ *skill.Config) string {
+	return ""
+}
+func (s *stubEvaluator) ShouldStop(_ llm.Response, _ int) bool { return false }
+func (s *stubEvaluator) ParseOutput(
+	_ *types.AgentContext, _ []llm.Message, _ []types.ToolResult, _ []types.MCPResponse,
+) (*StageOutput, error) {
+	s.parseCalls++
+	if s.panicMessage != "" {
+		panic(s.panicMessage)
+	}
+	return &StageOutput{}, nil
+}
+func (s *stubEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *StageOutput) types.MissingPiece {
+	return types.MissingNone
+}
+
+func TestSalvagePartialDispatch_RunsParseOutput(t *testing.T) {
+	eval := &stubEvaluator{}
+	b := &BaseAgent{name: types.AgentExplorer, deps: &Dependencies{}, eval: eval}
+	b.salvagePartialDispatch(nil, nil, nil, nil, 3, errFake("upstream 429"))
+	if eval.parseCalls != 1 {
+		t.Errorf("ParseOutput should have been invoked once, got %d", eval.parseCalls)
+	}
+}
+
+func TestSalvagePartialDispatch_RecoversPanic(t *testing.T) {
+	eval := &stubEvaluator{panicMessage: "partial-data panic"}
+	b := &BaseAgent{name: types.AgentExplorer, deps: &Dependencies{}, eval: eval}
+	// Must not propagate the panic; the caller still returns the
+	// original LLM error through the normal path.
+	b.salvagePartialDispatch(nil, nil, nil, nil, 3, errFake("upstream 429"))
+	if eval.parseCalls != 1 {
+		t.Errorf("ParseOutput should have been invoked once even when it panics, got %d", eval.parseCalls)
+	}
+}
+
+type errFake string
+
+func (e errFake) Error() string { return string(e) }
+
