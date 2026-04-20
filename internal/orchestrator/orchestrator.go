@@ -33,6 +33,7 @@ type Orchestrator struct {
 	emit           render.EventEmitter
 	thinkAloudMap  map[types.AgentName]bool // per-agent think-aloud override
 	blobSessionDir string                   // persistent per-process blob dir; empty = tmpdir fallback
+	attachedLog    string                   // runtime log excerpt attached via --log / /log
 }
 
 // New creates a new Orchestrator.
@@ -90,6 +91,26 @@ func (o *Orchestrator) SetBlobSessionDir(dir string) {
 	o.blobSessionDir = dir
 }
 
+// SetAttachedLog stores a runtime log excerpt (panic, exception stack,
+// sanitizer diagnostic, traceback) that every subsequent Run() should
+// attach to BusContext.AttachedLog so the analyzer's logparse.Detect
+// can extract stack-frame anchors.
+//
+// REPL sticky lifetime: the REPL's /log command sets this once and it
+// persists across turns until the REPL's /log clear command passes
+// an empty string to reset it. CLI single-shot mode calls it at most
+// once with the --log / --log-text payload before the single Run().
+// Empty string clears any previously attached log.
+func (o *Orchestrator) SetAttachedLog(log string) {
+	o.attachedLog = log
+}
+
+// AttachedLog returns the current attached-log payload. Read surface
+// for the REPL's /log show handler.
+func (o *Orchestrator) AttachedLog() string {
+	return o.attachedLog
+}
+
 // Run executes the full pipeline for a user request.
 //
 // The pipeline runs in two phases:
@@ -121,6 +142,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	}
 
 	o.busCtx.Language = o.language
+	o.busCtx.AttachedLog = o.attachedLog
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 

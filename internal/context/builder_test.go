@@ -72,6 +72,45 @@ func TestBuildAgentContext(t *testing.T) {
 	})
 }
 
+// TestBuildAgentContext_AttachedLogMirrored pins the log-triage
+// plumbing contract: BusContext.AttachedLog MUST propagate into
+// AgentContext.AttachedLog via BuildAgentContext. Regressions here
+// silently disable the whole log-triage feature because logparse.Detect
+// would receive an empty string from analyzer.buildAnalysisIR.
+func TestBuildAgentContext_AttachedLogMirrored(t *testing.T) {
+	payload := "panic: oops\n\ngoroutine 1 [running]:\nmain.x()\n\t/src/app.go:7 +0x1\n"
+	bus := &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		RepoRoot:      "/tmp/repo",
+		Mutable:       types.NewMutableState("crash question"),
+		AttachedLog:   payload,
+		TaskState:     types.TaskState{Stage: types.StageAnalyze},
+	}
+	ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	if ac.AttachedLog != payload {
+		t.Fatalf("AttachedLog not mirrored: got %q, want %q",
+			ac.AttachedLog, payload)
+	}
+}
+
+// TestBuildAgentContext_AttachedLogEmpty_SafeDefault verifies the
+// negative case — when no log is attached, AgentContext.AttachedLog
+// stays empty and nothing else breaks. logparse.Detect is a no-op on
+// empty input, so this is the "feature disabled by absence" path.
+func TestBuildAgentContext_AttachedLogEmpty_SafeDefault(t *testing.T) {
+	bus := &types.BusContext{
+		PipelineStage: types.StageAnalyze,
+		RepoRoot:      "/tmp/repo",
+		Mutable:       types.NewMutableState("plain question"),
+		TaskState:     types.TaskState{Stage: types.StageAnalyze},
+	}
+	ac := BuildAgentContext(bus, types.AgentAnalyzer, types.StageAnalyze)
+	if ac.AttachedLog != "" {
+		t.Errorf("empty BusContext.AttachedLog must mirror empty, got %q",
+			ac.AttachedLog)
+	}
+}
+
 func TestBuildPromptContext(t *testing.T) {
 	ac := &types.AgentContext{
 		AgentName:     types.AgentAnalyzer,

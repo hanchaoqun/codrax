@@ -554,6 +554,59 @@ Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结
 
 `answer_document_evaluator` 对所有 shape 检测 "iter 0 rich prose → iter 1 压缩 summary" 模式：当 summary 明显少于前次 draft 的 `shrinkageRatio`（按 shape 缩放 floor：explanation 1.0×／list/step 0.5×／boolean 3/8×／value 0.25×），把 `findLastPreToolCallDraft(messages)` 选中的上一轮 draft verbatim 复制进 `summary[]`，UTF-8 rune-boundary trim 到 `SummaryCapFor(shape)`，追加双语 caveat，log `[finalizer/shrinkage]`。由 `agent_finalizer_*`（`preserve_prior_prose` / `shrinkage_min_prose_len` / `shrinkage_ratio`）控制。
 
+### 4.5 Log Triage — 用户粘贴日志 → analyzer 注入堆栈锚
+
+（Session 19 Tier 1 MVP）当用户通过 `--log <file|->` / `--log-text <inline>` / REPL `/log` 附加一条运行时日志（panic / exception / ASAN / UBSAN / gdb / Python traceback / Node.js stack）时，analyzer 把日志解析成结构化锚点注入 analyze 阶段下游，**不经过 normalizer 的 request 通道**——日志正文留在 `BusContext.AttachedLog`，不污染 TermGraph。
+
+**数据流**：
+
+```
+--log / /log  ──▶  BusContext.AttachedLog  ──▶  AgentContext.AttachedLog
+                                                       │
+                                                       ▼
+                                    analyzer.buildAnalysisIR
+                                        logparse.Detect(raw)
+                                           │
+                                           ▼
+                                       LogBundle{Lang, Frames, ErrorLiterals, HasStack}
+                                           │
+                  ┌────────────────────────┼────────────────────────────┐
+                  ▼                        ▼                            ▼
+  mergeLogTriageEntities        reconcileIntent                 resolveLogTriageFiles
+  (Func / Pkg / literals         (HasStack → RootCause)         (StripBuildPathPrefix +
+   → AnalyzerHints.Entities)                                     ResolveJavaFile + os.Stat)
+                                                                        │
+                                                                        ▼
+                                                        EvidencePlan.RequiredFiles ← 合并
+```
+
+**parser 清单**（`internal/analysis/logparse/`）：
+
+| 语言 | 识别锚 | 文件 | MVP 覆盖 |
+|------|--------|------|----------|
+| Go | `goroutine N [` + tab-indent `file:line +0xHH` | `parse_go.go` | panic / fatal error |
+| Java | `at pkg.Cls.m(File.java:NN)` + `Exception in thread` / `Caused by:` | `parse_java.go` | 完整 stacktrace + 异常链 |
+| C/C++ ASAN | `==NNN==ERROR: AddressSanitizer:` + `#N 0x.. in func file:line(:col)?` | `parse_cpp_asan.go` | ASAN / UBSAN / LSAN / TSAN / MSAN |
+| C/C++ gdb | `#N 0x.. in sym () at file:line` | `parse_cpp_gdb.go` | gdb `bt` / core-dump |
+| Python | `Traceback (most recent call last):` + `File "...", line N, in fn` | `parse_python.go` | CPython traceback |
+| Node.js | `at <fn> (file.js:line:col)` + anonymous 变体 | `parse_node.go` | V8 stack |
+
+**优先级**：`ASAN → gdb → Java → Go → Python → Node`（由最特异的 header 排前）。任一 parser 返回空 bundle 时 `Detect` 继续尝试下一个；全部失败 → 零值 bundle，pipeline 退化到普通 explain。
+
+**Path 还原**（`resolver.go`）：
+- `StripBuildPathPrefix` 按优先级剥 `/build/src/` / `/rpmbuild/BUILD/` / `/home/<user>/src/` 等 CI/build 前缀 + repo basename + CLI `--log-source-prefix` 覆盖。
+- `ResolveJavaFile(pkg, basename, candidates)` 因 Java frame 只带 basename（`Bar.java`）不带目录，用 package 后缀（`com.foo` → `**/com/foo/Bar.java`）消歧，tier 1 > tier 2 (`src/main/java/`) > tier 3 (基 basename)。
+- `IsRuntimeInternalFile` 过滤 Go runtime（`asm_amd64.s`）、Node `node:` URI、`java.base/*` —— 这些不是 user repo 文件。
+
+**Intent 覆盖**：`reconcileIntent` 在 `LogBundle.HasStack=true` 时强制 `IntentRootCause`，因为 LLM 看不到 `AttachedLog`（它只在 BusContext，不在 prompt），无法自己分类为 debug 查询。这是结构性覆盖，写在 `analyzer_intent.go`。
+
+**Feature gate**：`codrax.yaml` 里 `logparse_enabled: false` 或 `logparse.SetEnabled(false)` 让 `Detect` 短路，整条 log-triage 通路变 no-op（REPL 命令仍可用但不影响 pipeline）。
+
+**不做**（显式非目标）：
+- C/C++ glibc backtrace（只有地址，没 file:line）
+- 日志文件 tail / live stream / 远端源（Loki/ES/CloudWatch）—— Tier 2+
+- 自定义应用日志 schema —— 无通用 regex
+
 ---
 
 ## 5. 数据结构
@@ -1101,7 +1154,9 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 ### `internal/repl`
 
-交互式 REPL。逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command：`/exit` `/quit` `/clear` `/history` `/compact` `/help`。
+交互式 REPL。逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command：`/exit` `/quit` `/clear` `/history` `/compact` `/log` `/help`。
+
+**`/log` 子命令**（session 19 log-triage）：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。
 
 ### `internal/tool/blob`
 

@@ -50,7 +50,7 @@ make test
 ```bash
 # 交互模式（默认，无 --request 即进入）
 ./codrax
-#   You> 提示符，支持 /exit /clear /history /compact /help 斜杠命令
+#   You> 提示符，支持 /exit /clear /history /compact /log /help 斜杠命令
 #   多轮对话自动保存到 memory/<repo-slug>/MEMORY.md + .../turns/，重启续接
 #   /clear 会显示当前还有几个其它实例在用同一份 memory，并要求确认
 
@@ -64,6 +64,87 @@ make test
 ./codrax --repo /path/to/repoA --request "..."
 ./codrax --repo /path/to/repoB --request "..."   # 不会和 repoA 混在一起
 ```
+
+## 日志分诊（log triage）
+
+用户粘贴一段运行时日志（panic / exception 堆栈 / sanitizer 诊断 / traceback），codrax 的 analyzer 会**跨语言**解析其中的栈帧，把函数名、包名、错误字面量抽出来喂给关键词检索，并把栈帧的 `file:line` 作为强信号注入 `EvidencePlan.RequiredFiles`，explorer 优先读这些文件。当前支持：Go panic / Java stacktrace（含 `Caused by` 链）/ C/C++ ASAN+UBSAN+gdb / Python traceback / Node.js V8 stack。
+
+日志正文不混进问题字符串，走独立的 `BusContext.AttachedLog` 通道——normalizer 只看到你的提问，不会被日志里的噪声污染实体识别。
+
+### CLI
+
+```bash
+# 从文件加载
+./codrax --repo . --request "这个 panic 哪来的？" --log /tmp/panic.txt
+
+# 从 stdin 读（适合 `kubectl logs` 管道）
+kubectl logs pod/api | ./codrax --repo . --request "analyze this crash" --log -
+
+# 脚本化调用：内联日志
+./codrax --repo . --request "分析 ASAN 报告" --log-text "$(cat /tmp/asan.out)"
+
+# C/C++ 场景：build 机器的绝对路径不在目标仓里 → 给 codrax 一个前缀提示
+./codrax --repo . --request "trace" \
+  --log /tmp/asan.out \
+  --log-source-prefix /home/jenkins/workspace/build/src/
+```
+
+`--log` 和 `--log-text` 互斥；日志体超过 1 MB 自动截断到前 1 MB。
+
+### REPL 子命令
+
+```
+❯❯ /log /tmp/panic.txt           # 从文件载入（替换当前附加）
+❯❯ /log                          # 进入粘贴模式，以单独一行 /end 结束
+ctrl 粘贴 stack ...
+/end
+❯❯ /log show                     # 打印前 20 行 + 总字节
+❯❯ /log clear                    # 丢弃当前附加
+
+# 附加日志跨 turn 粘滞（sticky）——用户通常要围绕同一条 panic 问多个问题：
+❯❯ /log /tmp/crash.txt
+❯❯ 这个 panic 的根本原因是什么？
+❯❯ 修复方案呢？会不会有副作用？    # 附加日志仍在，无须重新粘贴
+❯❯ /clear                         # 只清对话历史，attached log 不动
+❯❯ /log clear                     # 显式清才丢日志
+```
+
+### 支持的日志格式示例
+
+```
+# Go panic
+panic: runtime error: index out of range [5] with length 3
+
+goroutine 1 [running]:
+main.crashy()
+        /src/app/main.go:42 +0x1e
+
+# Java
+Exception in thread "main" java.lang.NullPointerException: x
+        at com.example.Service.run(Service.java:42)
+Caused by: java.lang.IllegalStateException: y
+        at com.example.Inner.boom(Inner.java:5)
+
+# C/C++ ASAN
+==12345==ERROR: AddressSanitizer: heap-use-after-free on address 0x...
+    #0 0x401234 in Foo::bar() /src/repo/foo.cpp:42:5
+    #1 0x401567 in main       /src/repo/main.cpp:10:3
+
+# Python
+Traceback (most recent call last):
+  File "/src/app.py", line 42, in handle
+    result = compute(x)
+ValueError: bad input
+
+# Node.js
+TypeError: Cannot read property 'x' of undefined
+    at Object.handler (/src/app.js:42:13)
+    at async main (/src/main.js:10:5)
+```
+
+全局开关在 `codrax.yaml`：`logparse_enabled: false` 让整条通路退化成 no-op（`--log` 仍读文件但不解析）。`logparse_source_prefix` 等效于 CLI `--log-source-prefix`，CLI 显式传值时优先。
+
+明确**不做**：glibc backtrace（只有地址没 `file:line`）、实时日志 tail / 订阅、Loki/ES/CloudWatch 远端源、自定义应用日志格式——需要的话走 Tier 2/3 功能扩展。
 
 ## 配置
 
@@ -125,6 +206,7 @@ make test
 - **跨平台**：Linux / macOS 用 `flock(2)`，Windows 通过 `kernel32.dll!LockFileEx` 实现等价语义，全程零非 stdlib 依赖
 - **默认语言**：`-lang=zh` 默认简体中文作答；`-lang=off` 关闭；任一非空值都会保留"用户若用其他语言提问则跟随"的兜底
 - **Answer contract**：finalizer 输出结构化 `AnswerDocument`（typed symbols / steps / value / boolean / explanation + citation pool），cardinality 验证器会把"谎称 complete 但 slate 不足基线"的 claim 自动降级为 lower_bound 并附警告渲染
+- **日志分诊**：`--log / --log-text` 或 REPL `/log` 粘贴 panic / Java exception / C/C++ ASAN+UBSAN+gdb / Python traceback / Node.js stack，analyzer 跨语言解析栈帧并把 `file:line` 注入到 `EvidencePlan.RequiredFiles`，`reconcileIntent` 强制切到 root_cause 模式；日志正文走独立通道，不污染关键词识别
 
 ## 文档
 

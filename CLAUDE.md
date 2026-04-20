@@ -19,8 +19,15 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 
 ```bash
 ./codrax --repo . --branch main --request "task" --pipeline-max-steps 50
-./codrax                      # interactive REPL (/exit /clear /history /compact /help)
+./codrax                      # interactive REPL (/exit /clear /history /compact /log /help)
 ./codrax --log-level debug --log-stdout --request "task"
+
+# Log-triage (session 19): attach a runtime log so analyzer extracts
+# stack-frame anchors and seeds EvidencePlan.RequiredFiles.
+./codrax --repo . --request "这个 panic 哪来的" --log /tmp/panic.txt
+kubectl logs pod/foo | ./codrax --repo . --request "analyse this crash" --log -
+./codrax --repo . --request "trace this ASAN report" --log-source-prefix /build/src/ --log /tmp/asan.out
+# REPL sticky: /log <path>  |  /log (paste mode, end with /end)  |  /log clear  |  /log show
 ```
 
 ## Architecture
@@ -86,6 +93,21 @@ One LLM call emits `RequestModel`, then a deterministic chain:
 | `criterion` | `Eval` / `EvalAll` | 19-Kind contract evaluator |
 | `contract` | `Check` | AnswerContract validation |
 | `dataflow` | `Analyze` | Source→sink chains |
+| `logparse` | `Detect` / `StripBuildPathPrefix` / `ResolveJavaFile` | Runtime log excerpt → stack-frame anchors (Go panic / Java / C/C++ ASAN+UBSAN+gdb / Python traceback / Node.js). Session 19 log-triage. |
+
+### Log-triage (`AttachedLog` + `internal/analysis/logparse`)
+
+Session 19 Tier 1 MVP. User attaches a runtime log via `--log <file|->` / `--log-text <inline>` / REPL `/log`; the payload lives on `BusContext.AttachedLog` (and mirrors to `AgentContext.AttachedLog`) — **never injected into the request string** so `normalizer.Normalize` stays clean. `analyzer.buildAnalysisIR` calls `logparse.Detect(ctx.AttachedLog)`:
+
+1. **Entity augmentation** — `mergeLogTriageEntities` appends `Frame.Func` (last dotted segment) + `Frame.Pkg` + `ErrorLiterals` into `AnalyzerHints.Entities` (cap 32). Normalizer's dual-gate then promotes them to `TermSymbol` via the same path user-typed entities use.
+2. **Intent override** — `reconcileIntent` forces `IntentRootCause` when `bundle.HasStack` (LLM can't self-classify — it doesn't see AttachedLog). Ordered AFTER count-question downgrade.
+3. **RequiredFiles merge** — `resolveLogTriageFiles` strips build prefixes (`StripBuildPathPrefix` with repo basename + `--log-source-prefix` override), resolves Java basenames (`ResolveJavaFile` via repo-wide glob), filters runtime internals (Go stdlib, node: URIs, java.base/). `mergeLogTriageFiles` prepends log paths ahead of the structural ranker (cap 10).
+
+**Parsers**: Go panic / Java stacktrace+Caused-by / C/C++ ASAN+UBSAN / C/C++ gdb `bt` / Python traceback / Node.js V8 stack. Priority order in `Detect`: ASAN → gdb → Java → Go → Python → Node (most-specific header first). No-match returns zero-value bundle → pipeline unchanged.
+
+**Feature gate**: `codrax.yaml :: logparse_enabled` (default true). CLI `--log-source-prefix` override or YAML `logparse_source_prefix` supplies the user-known CI build root.
+
+**Out of scope for MVP**: glibc backtrace (no file:line), live log tail, remote log sources (Loki/ES/CloudWatch), custom application log schemas.
 
 ### Explorer evidence chain (`explorer.go`)
 

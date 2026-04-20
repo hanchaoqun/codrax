@@ -1349,6 +1349,25 @@ type BusContext struct {
 	// execution state through dedicated APIs; the top-level pointer
 	// itself stays read-only.
 	AnalysisIR *AnalysisIR `json:"analysis_ir,omitempty"`
+
+	// AttachedLog carries a runtime log excerpt (panic, exception
+	// stack, sanitizer diagnostic, traceback) the user attached to
+	// the current request via --log / --log-text or the REPL /log
+	// command. Empty when no log is attached. Populated once at
+	// orchestrator.Run entry; never rewritten mid-pipeline.
+	//
+	// Flows into the analyzer via AgentContext.AttachedLog, where
+	// internal/analysis/logparse.Detect extracts stack frames to seed
+	// AnalyzerHints.Entities (function names, error literals) and
+	// EvidencePlan.RequiredFiles (frame file paths). Other stages
+	// read the field for observability only; analyzer is the sole
+	// consumer today.
+	//
+	// Kept separate from the user's question string so the normalizer
+	// never sees raw log noise — a 2000-line panic pasted into
+	// `request` would otherwise flood TermGraph with hundreds of
+	// spurious kindLiteral surfaces.
+	AttachedLog string `json:"attached_log,omitempty"`
 }
 
 // AgentContext provides the narrowed view of BusContext for a single agent.
@@ -1451,6 +1470,12 @@ type AgentContext struct {
 	// MaxIterations for this single dispatch. Used by the orchestrator
 	// to grant extra explorer iterations for multi-topic questions.
 	MaxIterOverride int `json:"-"`
+
+	// AttachedLog mirrors BusContext.AttachedLog into the narrowed
+	// agent view. Consumed by the analyzer's buildAnalysisIR via
+	// internal/analysis/logparse.Detect. Empty for every stage that
+	// doesn't ingest logs.
+	AttachedLog string `json:"attached_log,omitempty"`
 
 	// PriorConvHidden gates whether the REPL-assembled Prior
 	// Conversation block is HIDDEN from this agent's user prompt.

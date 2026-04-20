@@ -41,7 +41,7 @@ type AnalysisEnumChoice struct {
 // internal/types/analysis_ir.go.
 var analysisIntents = []AnalysisEnumChoice{
 	{string(types.IntentExplain), "user wants to understand how something works"},
-	{string(types.IntentRootCause), "user is debugging, asks \"why does X fail\""},
+	{string(types.IntentRootCause), "user is debugging: asks \"why does X fail\" — OR pasted a runtime log excerpt (panic, exception trace, sanitizer diagnostic, traceback) and wants the code location / cause of the failure"},
 	{string(types.IntentTrace), "follow a data flow or call chain end to end"},
 	{string(types.IntentEnumerate), "list every X matching a predicate — the answer is a SET of names (\"list all X that do Y\", \"X matching pattern Y\"). Do NOT pick this when the user wants a count/size/total; that is return_value."},
 	{string(types.IntentConfigQuery), "look up what a config key controls"},

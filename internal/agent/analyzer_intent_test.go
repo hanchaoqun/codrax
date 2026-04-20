@@ -179,28 +179,38 @@ func TestBuildAnalysisIR_NonCountQuestionKeepsGates(t *testing.T) {
 // combination upstream and reconcileIntent never sees it.
 func TestReconcileIntent(t *testing.T) {
 	cases := []struct {
-		name       string
-		declared   types.Intent
-		preds      types.SemanticPredicates
-		want       types.Intent
-		wantReason bool
+		name        string
+		declared    types.Intent
+		preds       types.SemanticPredicates
+		hasLogStack bool
+		want        types.Intent
+		wantReason  bool
 	}{
 		{"enumerate + is_count_question downgrades to return_value",
-			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true},
+			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, false,
 			types.IntentReturnValue, true},
 		{"enumerate without is_count_question untouched",
-			types.IntentEnumerate, types.SemanticPredicates{},
+			types.IntentEnumerate, types.SemanticPredicates{}, false,
 			types.IntentEnumerate, false},
 		{"explain pass-through with is_count_question",
-			types.IntentExplain, types.SemanticPredicates{IsCountQuestion: true},
+			types.IntentExplain, types.SemanticPredicates{IsCountQuestion: true}, false,
 			types.IntentExplain, false},
 		{"return_value pass-through",
-			types.IntentReturnValue, types.SemanticPredicates{IsCountQuestion: true},
+			types.IntentReturnValue, types.SemanticPredicates{IsCountQuestion: true}, false,
 			types.IntentReturnValue, false},
+		{"log stack forces root_cause",
+			types.IntentExplain, types.SemanticPredicates{}, true,
+			types.IntentRootCause, true},
+		{"log stack no-op when already root_cause",
+			types.IntentRootCause, types.SemanticPredicates{}, true,
+			types.IntentRootCause, false},
+		{"count-question wins over log stack (exotic but ordered)",
+			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, true,
+			types.IntentReturnValue, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, reason := reconcileIntent(c.declared, c.preds)
+			got, reason := reconcileIntent(c.declared, c.preds, c.hasLogStack)
 			if got != c.want {
 				t.Errorf("intent = %q, want %q", got, c.want)
 			}

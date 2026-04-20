@@ -434,6 +434,28 @@
 # memory_max_build_context_total_bytes: 32768
 
 # ---------------------------------------------------------------------------
+# Log-triage (logparse_*)
+# ---------------------------------------------------------------------------
+# When the user attaches a runtime log excerpt via --log / --log-text /
+# REPL /log, the analyzer runs a multi-language parser (Go panic /
+# Java / C/C++ ASAN+UBSAN+gdb / Python / Node.js) over the payload and
+# seeds AnalyzerHints.Entities + EvidencePlan.RequiredFiles from the
+# stack-frame anchors.
+
+# Global feature gate. When false, the Detect call short-circuits and
+# every log-triage path becomes a no-op — the --log flag still reads
+# the file but the payload is never parsed. Default true.
+# logparse_enabled: true
+
+# User-provided build-path prefix for stack-frame files from CI /
+# build machines. C/C++ traces commonly carry absolute paths like
+# `/build/src/...` or `/home/jenkins/workspace/.../src/...` that the
+# built-in cascading stripper can miss. This override is tried FIRST
+# before the built-in CI root list. Mirrored by the CLI flag
+# --log-source-prefix — when both are set the CLI flag wins.
+# logparse_source_prefix: ""
+
+# ---------------------------------------------------------------------------
 # Path to providers config
 # ---------------------------------------------------------------------------
 # Keeping this here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`

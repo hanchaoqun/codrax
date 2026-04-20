@@ -41,6 +41,15 @@ type Runner interface {
 	Run(request, repoRoot, branch string) (*types.BusContext, error)
 }
 
+// attachedLogSetter is the optional capability the REPL probes on
+// its Runner to propagate a sticky /log attachment before dispatch.
+// Real orchestrators implement SetAttachedLog; test stubs that omit
+// it simply don't see log-triage attachments — the REPL falls back
+// to the pre-flag behaviour.
+type attachedLogSetter interface {
+	SetAttachedLog(string)
+}
+
 // ResultRenderer turns a finished BusContext into the user-facing
 // response text. main.go owns the canonical implementation.
 type ResultRenderer func(*types.BusContext) string
@@ -78,11 +87,18 @@ type REPL struct {
 	promptCont string
 	bannerText string
 	scanner    *bufio.Scanner // lazy-init for line-oriented mode
+
+	// attachedLog holds the runtime log excerpt the user attached via
+	// /log or `--log`. Sticky across turns until /log clear — users
+	// typically investigate the same panic from several angles
+	// ("root cause?" → "safe fix?" → "regression risk?"). Propagated
+	// to the runner via attachedLogSetter before each dispatch.
+	attachedLog string
 }
 
 // New constructs a REPL from a Config.
 func New(cfg Config) *REPL {
-	return &REPL{
+	r := &REPL{
 		runner:     cfg.Runner,
 		store:      cfg.Store,
 		render:     cfg.Render,
@@ -95,6 +111,14 @@ func New(cfg Config) *REPL {
 		promptCont: cfg.PromptCont,
 		bannerText: cfg.Banner,
 	}
+	// Seed sticky log from whatever the runner already has (CLI set
+	// `--log` before handing off to the REPL). Keeps the invariant
+	// "REPL.attachedLog is the single source of truth" from the
+	// first /log show onward.
+	if getter, ok := cfg.Runner.(interface{ AttachedLog() string }); ok {
+		r.attachedLog = getter.AttachedLog()
+	}
+	return r
 }
 
 // interactive returns true when the REPL is attached to an
@@ -332,6 +356,12 @@ func (r *REPL) dispatch(line string) {
 
 	logging.Info("[repl] dispatching request: %s", oneLine(line))
 
+	// Propagate sticky attached-log to the runner. Runners without
+	// SetAttachedLog simply skip this step (tests).
+	if setter, ok := r.runner.(attachedLogSetter); ok {
+		setter.SetAttachedLog(r.attachedLog)
+	}
+
 	if r.renderer != nil {
 		r.renderer.StartSpinner()
 	}
@@ -428,10 +458,17 @@ func (r *REPL) recordTurn(request, response string) {
 	}
 }
 
+// maxREPLAttachedLogBytes caps the /log paste-mode payload so a
+// runaway paste can't balloon memory. Matches cmd.maxAttachedLogBytes.
+const maxREPLAttachedLogBytes = 1 << 20 // 1 MB
+
 // handleSlash returns true if the loop should exit.
 func (r *REPL) handleSlash(line string) bool {
 	cmd := strings.Fields(line)[0]
 	switch cmd {
+	case "/log":
+		r.handleLogCmd(line)
+		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
@@ -500,12 +537,114 @@ func (r *REPL) handleSlash(line string) bool {
 			r.success(fmt.Sprintf("compaction done. recent=%d index=%d", len(r.store.Recent()), len(r.store.Index())))
 		}
 	case "/help":
-		r.info("commands: /exit /quit /clear /history /compact /help")
+		r.info("commands: /exit /quit /clear /history /compact /log /help")
 		r.info("tip: end a line with \\ for multi-line input")
+		r.info("log: /log <path> | /log (paste then /end) | /log clear | /log show")
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
 	}
 	return false
+}
+
+// handleLogCmd dispatches the `/log` subcommands. Recognised forms:
+//
+//	/log <path>   — load a log file from disk (replaces any current)
+//	/log clear    — drop the current attached log
+//	/log show     — print the first 20 lines + total byte count
+//	/log          — enter paste mode; subsequent lines form the log
+//	                until a lone `/end` line terminates capture
+//
+// Sticky semantics: an attachment survives across turns and across
+// /clear (which only wipes conversation memory). Only /log clear or
+// a new /log path/paste replaces it.
+func (r *REPL) handleLogCmd(line string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/log"))
+	switch {
+	case rest == "":
+		r.handleLogPaste()
+	case rest == "clear":
+		if r.attachedLog == "" {
+			r.info("no log attached")
+			return
+		}
+		r.attachedLog = ""
+		if setter, ok := r.runner.(attachedLogSetter); ok {
+			setter.SetAttachedLog("")
+		}
+		r.success("attached log cleared")
+	case rest == "show":
+		r.handleLogShow()
+	default:
+		r.handleLogLoad(rest)
+	}
+}
+
+// handleLogLoad reads a log file from disk into the sticky buffer.
+// Replaces any existing attachment (a `/log append` variant is a
+// future add; users can cat files together themselves for now).
+func (r *REPL) handleLogLoad(path string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		r.errorf("load log: %v\n", err)
+		return
+	}
+	if len(data) > maxREPLAttachedLogBytes {
+		r.warn("log truncated: %d → %d bytes\n", len(data), maxREPLAttachedLogBytes)
+		data = data[:maxREPLAttachedLogBytes]
+	}
+	r.attachedLog = string(data)
+	r.success(fmt.Sprintf("attached log loaded: %s (%d bytes)", path, len(data)))
+}
+
+// handleLogPaste enters a multi-line capture mode. Every subsequent
+// line is appended to the buffer until a sole `/end` line (or EOF)
+// terminates capture. Empty capture leaves the prior attachment
+// unchanged.
+func (r *REPL) handleLogPaste() {
+	r.info("paste log, terminate with a lone /end line")
+	var buf strings.Builder
+	for {
+		line, err := r.readInput("log>")
+		if err != nil {
+			break // EOF / huh abort
+		}
+		trim := strings.TrimSpace(line)
+		if trim == "/end" || trim == "\\end" {
+			break
+		}
+		buf.WriteString(line)
+		buf.WriteByte('\n')
+		if buf.Len() > maxREPLAttachedLogBytes {
+			r.warn("log paste hit %d-byte cap; stopping capture\n", maxREPLAttachedLogBytes)
+			break
+		}
+	}
+	if buf.Len() == 0 {
+		r.info("no input captured; attached log unchanged")
+		return
+	}
+	r.attachedLog = buf.String()
+	r.success(fmt.Sprintf("attached log captured: %d bytes", buf.Len()))
+}
+
+// handleLogShow prints a preview of the currently-attached log.
+func (r *REPL) handleLogShow() {
+	if r.attachedLog == "" {
+		r.info("no log attached")
+		return
+	}
+	lines := strings.Split(r.attachedLog, "\n")
+	head := lines
+	if len(head) > 20 {
+		head = lines[:20]
+	}
+	fmt.Fprintf(r.out, "  attached log: %d bytes, %d lines\n", len(r.attachedLog), len(lines))
+	for _, ln := range head {
+		fmt.Fprintf(r.out, "    | %s\n", ln)
+	}
+	if len(lines) > 20 {
+		fmt.Fprintf(r.out, "    | ... [%d more lines]\n", len(lines)-20)
+	}
 }
 
 var reANSI = regexp.MustCompile(`\x1b\[[0-9;]*m`)

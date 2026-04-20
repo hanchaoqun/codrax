@@ -46,6 +46,9 @@ EXPECT_CONTAINS="${EXPECT_CONTAINS:-}"
 EXPECT_NOT_CONTAINS="${EXPECT_NOT_CONTAINS:-}"
 EXPECT_MATCHES_REGEX="${EXPECT_MATCHES_REGEX:-}"
 EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
+# Log-triage eval cases may set LOG=<inline panic/trace> to attach a
+# runtime log excerpt to the request via --log-text. Empty = no log.
+LOG="${LOG:-}"
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -85,11 +88,20 @@ run_one() {
   local logdir="$OUTDIR/run-$i.logs"
   mkdir -p "$logdir"
 
-  ./codrax --repo . --branch main --pipeline-max-steps 15 \
-    --log-level debug \
-    --log-dir "$logdir" \
-    --request "$QUESTION" \
-    >"$out" 2>&1
+  if [[ -n "$LOG" ]]; then
+    ./codrax --repo . --branch main --pipeline-max-steps 15 \
+      --log-level debug \
+      --log-dir "$logdir" \
+      --log-text "$LOG" \
+      --request "$QUESTION" \
+      >"$out" 2>&1
+  else
+    ./codrax --repo . --branch main --pipeline-max-steps 15 \
+      --log-level debug \
+      --log-dir "$logdir" \
+      --request "$QUESTION" \
+      >"$out" 2>&1
+  fi
   local rc=$?
 
   # Pick the most recent log file in this run's dedicated logdir.

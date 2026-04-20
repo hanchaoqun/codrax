@@ -244,6 +244,16 @@ type RuntimeSettings struct {
 	CGECPhase1UnreadTopK      *int `yaml:"cgec_phase1_unread_top_k"`
 	CGECPhase1UnreadMinUnread *int `yaml:"cgec_phase1_unread_min_unread"`
 
+	// Log-triage knobs. `logparse_*` prefix groups the log-ingestion
+	// feature settings. When logparse_enabled=false the analyzer's
+	// Detect call short-circuits and every log_triage path is
+	// inert (the --log / /log commands silently set an unused
+	// AttachedLog). logparse_source_prefix mirrors the
+	// --log-source-prefix CLI flag for users who prefer persistent
+	// config over CLI flags; the CLI flag wins when both are set.
+	LogparseEnabled      *bool   `yaml:"logparse_enabled"`
+	LogparseSourcePrefix *string `yaml:"logparse_source_prefix"`
+
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire
 	// environment (dev, staging, prod) from one entry point.

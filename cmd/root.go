@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
+	"github.com/hanchaoqun/codrax/internal/analysis/logparse"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -78,7 +80,22 @@ var (
 	flagLang           string
 	flagMaxRetries     int
 	flagMaxStageVisits int
+
+	// Log-triage attach flags. --log reads a runtime log excerpt from
+	// a file path (or "-" for stdin), --log-text accepts an inline
+	// payload. Mutually exclusive. Both feed orchestrator.SetAttachedLog
+	// so the analyzer's logparse.Detect can extract stack-frame anchors.
+	flagAttachLog       string
+	flagAttachLogText   string
+	flagLogSourcePrefix string
 )
+
+// maxAttachedLogBytes caps the pasted log payload at 1 MB to prevent a
+// firehose (kubectl logs piping an entire day's output into --log=-)
+// from ballooning the orchestrator's memory. The analyzer's logparse
+// walks the full buffer, so the cap is also a defence against
+// pathological regex runtime.
+const maxAttachedLogBytes = 1 << 20 // 1 MB
 
 // appContext holds initialized state shared between subcommands.
 type appContext struct {
@@ -122,6 +139,9 @@ func init() {
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
+	f.StringVar(&flagAttachLog, "log", "", "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin; seeds log-triage entities for the analyzer")
+	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
+	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 
 	rootCmd.AddCommand(versionCmd)
 }
@@ -165,6 +185,9 @@ var compatLongFlagNames = map[string]struct{}{
 	"lang":                      {},
 	"pipeline-max-retries":      {},
 	"pipeline-max-stage-visits": {},
+	"log":                       {},
+	"log-text":                  {},
+	"log-source-prefix":         {},
 }
 
 // normalizeCompatArgs rewrites known codrax long flags from the
@@ -221,10 +244,65 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		request = args[0]
 	}
 
+	// Resolve attached log (file / stdin / inline text) before Run so
+	// both CLI single-shot and REPL sticky-log paths share one source.
+	attached, err := loadAttachedLog()
+	if err != nil {
+		return err
+	}
+	if attached != "" {
+		app.orch.SetAttachedLog(attached)
+		logging.Info("[cmd] attached runtime log: %d bytes", len(attached))
+	}
+	if flagLogSourcePrefix != "" {
+		logparse.SetSourcePrefix(flagLogSourcePrefix)
+		logging.Info("[cmd] log source prefix override: %s", flagLogSourcePrefix)
+	}
+
 	if request == "" {
 		return runREPL(cmd)
 	}
 	return runSingleShot(cmd, request)
+}
+
+// loadAttachedLog resolves the --log / --log-text flags into a single
+// payload string. Returns "" when no log was requested. Rules:
+//
+//   - --log and --log-text are mutually exclusive
+//   - --log=- reads from stdin (for pipe usage: `kubectl logs ... | codrax --log -`)
+//   - otherwise --log is a filesystem path to read
+//   - payload is capped at maxAttachedLogBytes; excess bytes are dropped
+//     with a warning so a truncated tail does not silently hide the
+//     actual error frames
+func loadAttachedLog() (string, error) {
+	if flagAttachLog != "" && flagAttachLogText != "" {
+		return "", fmt.Errorf("--log and --log-text are mutually exclusive")
+	}
+	if flagAttachLogText != "" {
+		return truncateAttachedLog(flagAttachLogText), nil
+	}
+	if flagAttachLog == "" {
+		return "", nil
+	}
+	var data []byte
+	var err error
+	if flagAttachLog == "-" {
+		data, err = io.ReadAll(io.LimitReader(os.Stdin, maxAttachedLogBytes+1))
+	} else {
+		data, err = os.ReadFile(flagAttachLog)
+	}
+	if err != nil {
+		return "", fmt.Errorf("load attached log: %w", err)
+	}
+	return truncateAttachedLog(string(data)), nil
+}
+
+func truncateAttachedLog(s string) string {
+	if len(s) <= maxAttachedLogBytes {
+		return s
+	}
+	logging.Warning("[cmd] attached log truncated: %d → %d bytes", len(s), maxAttachedLogBytes)
+	return s[:maxAttachedLogBytes]
 }
 
 // runSingleShot executes one pipeline run and prints the result.
@@ -389,6 +467,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	if rs != nil {
+		if rs.LogparseEnabled != nil {
+			logparse.SetEnabled(*rs.LogparseEnabled)
+		}
+		if rs.LogparseSourcePrefix != nil && *rs.LogparseSourcePrefix != "" {
+			// Flag --log-source-prefix still wins — rootRun applies
+			// it after initApp returns, so YAML sets the baseline and
+			// the CLI flag overrides only when explicitly passed.
+			logparse.SetSourcePrefix(*rs.LogparseSourcePrefix)
+		}
 		if rs.LogDir != nil {
 			mergedLogDir = *rs.LogDir
 		}

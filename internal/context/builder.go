@@ -32,6 +32,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		WorkDir:      bus.WorkDir,
 		Mutable:      bus.Mutable,
 		AnalysisIR:   bus.AnalysisIR,
+		AttachedLog:  bus.AttachedLog,
 	}
 
 	// Collect relevant facts
