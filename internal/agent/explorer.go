@@ -257,9 +257,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		var b strings.Builder
 		b.WriteString("## Retry: Depth Investigation (continued)\n\n")
 		b.WriteString("Your previous investigation of this question was insufficient.\n\n")
-		if ctx.RetryHint != "" {
-			fmt.Fprintf(&b, "**Retry directive:** %s\n\n", ctx.RetryHint)
-		}
+		// Retry hint is rendered by builder.go as the top-level
+		// "Retry Directive (READ FIRST)" user section; repeating it
+		// here just duplicated the same content in the prompt.
 
 		// Inject the previous synthesis conclusion so the retry builds on
 		// it rather than starting from scratch. Without this, the second

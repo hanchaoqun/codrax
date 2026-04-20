@@ -1606,3 +1606,56 @@ func TestExtractRelevantFacts_TrimsGrepPathListBody(t *testing.T) {
 		t.Errorf("non-grep fact must keep its value: %q", got[1])
 	}
 }
+
+// TestBuildPromptContext_NoDuplicateRetryDirective pins the invariant
+// documented on the Retry Directive section: the hint body MUST NOT
+// carry its own "Retry Directive" heading. The builder is the sole
+// owner of that title. Producers (hint.Composer.Render,
+// orchestrator contract-check hints) must emit structured bullets
+// only. A regression here would produce the double-H2 the prompt
+// audit flagged — the LLM sees
+// "## Retry Directive (READ FIRST)\n## Retry Directive\n**…**" —
+// which wastes tokens and visually fragments the directive.
+func TestBuildPromptContext_NoDuplicateRetryDirective(t *testing.T) {
+	// Case 1: hint body is a plain directive without any heading →
+	// one Retry Directive title in the final prompt.
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "q",
+		RetryHint: "your previous answer missed the registration site; re-read defaults.go",
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
+	msgs := ToMessages(pc)
+
+	userBody := ""
+	for _, m := range msgs {
+		if m.Role == "user" {
+			userBody += m.Content + "\n"
+		}
+	}
+	if strings.Count(userBody, "Retry Directive") != 1 {
+		t.Errorf("Retry Directive heading appears %d time(s) in rendered user prompt; want exactly 1\n\n%s",
+			strings.Count(userBody, "Retry Directive"), userBody)
+	}
+
+	// Case 2: verify a hint body that now comes from
+	// hint.Composer.Render — which no longer emits its own H2 —
+	// still produces exactly ONE Retry Directive heading. This is
+	// the realistic production path after the composer change; if a
+	// future commit reintroduces "## Retry Directive" into the hint
+	// body this assertion fires loud.
+	ac.RetryHint = "**What failed**: shape mismatch\n\n**How to fix now**: pick another shape"
+	pc = BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
+	msgs = ToMessages(pc)
+	userBody = ""
+	for _, m := range msgs {
+		if m.Role == "user" {
+			userBody += m.Content + "\n"
+		}
+	}
+	if strings.Count(userBody, "Retry Directive") != 1 {
+		t.Errorf("composer-style hint body produced %d Retry Directive heading(s); want exactly 1\n\n%s",
+			strings.Count(userBody, "Retry Directive"), userBody)
+	}
+}

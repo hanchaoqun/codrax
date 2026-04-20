@@ -362,6 +362,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// same stage flagged itself as insufficient, the corrective
 	// directive must override the model's instinct to repeat the
 	// same approach.
+	//
+	// Invariant: the hint body MUST NOT carry its own "Retry
+	// Directive" H2. The section title rendered below is the only
+	// heading the LLM should see; producers that populate RetryHint
+	// (hint.Composer.Render, orchestrator contract-check hints) must
+	// skip the heading. TestBuildPromptContext_NoDuplicateRetryDirective
+	// in builder_test.go locks this so a regression can't silently
+	// reintroduce the double heading.
 	if ac.RetryHint != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Retry Directive (READ FIRST)",

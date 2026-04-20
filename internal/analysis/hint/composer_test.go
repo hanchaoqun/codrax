@@ -8,8 +8,8 @@ import (
 )
 
 // G3 HintComposer tests — lock the 6-field contract and the
-// structured render path. Non-strict rendering always produces
-// SOME output; strict mode fails loud on missing fields.
+// structured render path. Non-strict rendering tolerates empty
+// input; strict mode fails loud on missing fields.
 
 func TestCompose_EmptyViolations_NonStrictReturnsEmptyHint(t *testing.T) {
 	c := New(DefaultConfig())
@@ -20,8 +20,33 @@ func TestCompose_EmptyViolations_NonStrictReturnsEmptyHint(t *testing.T) {
 	if h == nil {
 		t.Fatalf("non-strict should return non-nil Hint for empty input")
 	}
-	if got := c.Render(h); !strings.Contains(got, "Retry Directive") {
-		t.Errorf("even empty hint should still render header; got %q", got)
+	// Render must not contain a "Retry Directive" heading: that is
+	// now the prompt builder's job (section title). Emitting the
+	// same H2 here would nest two identical headings in the final
+	// user message.
+	got := c.Render(h)
+	if strings.Contains(got, "Retry Directive") {
+		t.Errorf("Render must NOT carry a Retry Directive heading; builder owns that title. got %q", got)
+	}
+}
+
+// TestRender_NoDuplicateHeader — positive check on a populated Hint:
+// whichever structured body bullets render (WhatFailed / WhyItFailed
+// / …) must do so without a leading H2 header, so the composer
+// output splices cleanly under the builder's
+// "Retry Directive (READ FIRST)" section title.
+func TestRender_NoDuplicateHeader(t *testing.T) {
+	c := New(DefaultConfig())
+	h := &Hint{
+		WhatFailed:  "contract mismatch",
+		ExactFix:    "pick another shape",
+	}
+	out := c.Render(h)
+	if strings.Contains(out, "## Retry Directive") {
+		t.Errorf("Render leaked a Retry Directive H2 heading into body: %q", out)
+	}
+	if !strings.Contains(out, "**What failed**") {
+		t.Errorf("Render dropped the WhatFailed bullet: %q", out)
 	}
 }
 

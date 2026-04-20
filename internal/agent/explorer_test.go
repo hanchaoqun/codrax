@@ -801,8 +801,13 @@ func TestBuildInitialInstructionRetry(t *testing.T) {
 	if !strings.Contains(prompt2, "Retry") {
 		t.Error("retry call should contain 'Retry'")
 	}
-	if !strings.Contains(prompt2, "Read more files about X") {
-		t.Error("retry call should include RetryHint")
+	// RetryHint itself is NOT expected in the evaluator's dynamic
+	// body: the prompt builder renders it as a separate "Retry
+	// Directive (READ FIRST)" user section, so reinjecting it here
+	// would duplicate the same content. The builder side is covered
+	// by context.TestBuildPromptContext_NoDuplicateRetryDirective.
+	if strings.Contains(prompt2, "Read more files about X") {
+		t.Error("retry evaluator prompt must NOT re-embed RetryHint content; builder owns that surface")
 	}
 }
 
@@ -1780,7 +1785,7 @@ func TestBuildInitialInstruction_RetryInjectsPriorSynthesis(t *testing.T) {
 		}
 	})
 
-	t.Run("retry with RetryHint includes both hint and synthesis", func(t *testing.T) {
+	t.Run("retry with RetryHint surfaces synthesis; RetryHint is owned by builder", func(t *testing.T) {
 		eval2 := &explorerEvaluator{
 			investigationNotes: []string{"[DIRECT] bar line 2: thing"},
 			userQuestion:       "investigate",
@@ -1798,8 +1803,11 @@ func TestBuildInitialInstruction_RetryInjectsPriorSynthesis(t *testing.T) {
 		}
 		prompt := eval2.BuildInitialInstruction(ctx, nil)
 
-		if !strings.Contains(prompt, "Previous attempt had low file coverage") {
-			t.Error("should contain RetryHint")
+		// RetryHint is rendered by the prompt builder as the
+		// "Retry Directive (READ FIRST)" section, NOT by the
+		// evaluator. Asserting its absence here pins the boundary.
+		if strings.Contains(prompt, "Previous attempt had low file coverage") {
+			t.Error("retry evaluator prompt must NOT re-embed RetryHint content; builder owns that surface")
 		}
 		if !strings.Contains(prompt, "Found 2 of 5 items") {
 			t.Error("should contain prior synthesis findings")

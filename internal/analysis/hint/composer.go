@@ -185,12 +185,18 @@ func (c *Composer) Compose(ctx Context, violations []types.Violation) (*Hint, er
 // Render turns a Hint into the markdown body. Empty fields are
 // skipped so a non-strict, partial Hint still produces a valid
 // (if terse) prompt section.
+//
+// No section heading is emitted here. The caller is expected to be
+// BusContext.TaskState.RetryHint, which the prompt builder
+// (internal/context/builder.go) wraps in a
+// "Retry Directive (READ FIRST)" user section. Emitting an extra
+// "## Retry Directive" at the top of the body would nest two H2
+// headings with near-identical text for the LLM to wade through.
 func (c *Composer) Render(h *Hint) string {
 	if h == nil {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("## Retry Directive\n\n")
 	if h.WhatFailed != "" {
 		fmt.Fprintf(&b, "**What failed**: %s\n\n", h.WhatFailed)
 	}
