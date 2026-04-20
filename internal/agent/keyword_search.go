@@ -72,7 +72,17 @@ var searchExcludeDirs = tool.ExcludeDirs
 //     dispatch-path files below the LLM's eyeline.
 type keywordSearchOptions struct {
 	Entities []string
-	MaxFiles int
+	// DomainHints is the set of TermSymbol Domain tags from the
+	// analyzer's TermGraph (non-empty only when the normalizer had a
+	// repo-grounded SymbolResolver). Files whose FileInfo.Package
+	// matches any hint get a small multiplicative boost — this
+	// amplifies siblings of the answer symbol in the same package,
+	// which frequently hold collaborating helpers and types without
+	// mentioning the symbol name verbatim. The boost is smaller than
+	// the entity boost by construction (entities are exact-name
+	// matches, domain is a coarser sibling signal).
+	DomainHints []string
+	MaxFiles    int
 }
 
 // defaultKeywordSearchMaxFiles is the historical cap preserved for
@@ -229,9 +239,24 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 			combined *= boost
 		}
 
+		// Domain boost — file whose declared package matches any
+		// TermSymbol Domain from the analyzer gets a sibling-level
+		// multiplier. Compounding with entity boost is intentional:
+		// the definition site (entity match) and its siblings in the
+		// same package (domain match) both deserve lift over
+		// unrelated files that merely share keywords.
+		domainHit := false
+		if boost := domainBoostFactor(f, graph, opts.DomainHints); boost > 1.0 {
+			combined *= boost
+			domainHit = true
+		}
+
 		hits := grepHits[f]
 		if hits == nil {
 			hits = make(map[string]string)
+		}
+		if domainHit {
+			hits["domain_match"] = "1"
 		}
 		if repoMapScores[f] > 0 {
 			hits["repo_map"] = fmt.Sprintf("%.0f", repoMapScores[f])
@@ -383,6 +408,40 @@ func entityBoostFactor(path string, graph *repomap.Graph, entities []string) flo
 	default:
 		return 1.0
 	}
+}
+
+// domainBoostFactor returns the multiplicative score factor for a
+// file whose declared package matches any analyzer-extracted Domain
+// hint. Domain hints come from TermGraph TermSymbol entries — they
+// represent the package context of symbols the user's question is
+// about, flowing from normalizer.SymbolResolver at analyze time.
+//
+// The boost magnitude (1.15) is intentionally smaller than
+// entityBoostFactor's 1.3/1.6 ladder: entities are exact-name matches
+// so they imply "this file is THE answer file"; domain matches only
+// imply "this file is a sibling of the answer file in the same
+// package", a coarser signal that still deserves lift over unrelated
+// keyword-only matches. The value is calibrated as
+// max(declarativeBoost) ≈ 0.15 additive and moved to the
+// multiplicative scale for composition with the other factors — not
+// tuned to any specific eval query.
+func domainBoostFactor(path string, graph *repomap.Graph, domains []string) float64 {
+	if graph == nil || len(domains) == 0 {
+		return 1.0
+	}
+	fi, ok := graph.FileIndex[path]
+	if !ok || fi == nil || fi.Package == "" {
+		return 1.0
+	}
+	for _, d := range domains {
+		if d == "" {
+			continue
+		}
+		if d == fi.Package {
+			return 1.15
+		}
+	}
+	return 1.0
 }
 
 // exactEntityAnchors returns files that uniquely and exactly match an

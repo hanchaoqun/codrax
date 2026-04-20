@@ -204,6 +204,117 @@ func TestNormalize_Deterministic(t *testing.T) {
 	}
 }
 
+func TestNormalize_EntityGateOpensOnlyWhenEntityMatches(t *testing.T) {
+	resolver := fakeResolver{hits: map[string][]SymbolHit{
+		"blob": {{Canonical: "Blob", Domain: "types"}},
+	}}
+	// Entities includes "Blob" — NormalizeCodeKey("blob") ==
+	// NormalizeCodeKey("Blob") → gate open, promote.
+	tg := Normalize("blob runs somewhere", Options{
+		Resolver: resolver,
+		Entities: []string{"Blob"},
+	})
+	if term := findByID(tg, "code:blob"); term == nil {
+		t.Fatalf("entity-matched word should promote; ids=%v", canonicalIDs(tg))
+	}
+}
+
+func TestNormalize_EntityGateClosedKeepsConcept(t *testing.T) {
+	resolver := fakeResolver{hits: map[string][]SymbolHit{
+		"config": {{Canonical: "Config", Domain: "config"}},
+	}}
+	// "config" hits the resolver but is NOT in entities ["Blob"].
+	// Gate A closed → stay en:concept even though gate B would have
+	// opened on its own. This is the protection against generic words
+	// getting upgraded just because they happen to appear in the repo.
+	tg := Normalize("the config file matters", Options{
+		Resolver: resolver,
+		Entities: []string{"Blob"},
+	})
+	if findByID(tg, "code:config") != nil {
+		t.Fatalf("non-entity word must stay concept even with resolver hit; ids=%v", canonicalIDs(tg))
+	}
+	if findByID(tg, "en:config") == nil {
+		t.Fatalf("expected en:config concept; ids=%v", canonicalIDs(tg))
+	}
+}
+
+func TestNormalize_EmptyEntitiesDisablesGate(t *testing.T) {
+	resolver := fakeResolver{hits: map[string][]SymbolHit{
+		"explorer": {{Canonical: "Explorer", Domain: "agent"}},
+	}}
+	// Zero-value Options.Entities ([]string(nil)) must preserve the
+	// pre-v3 behavior: any resolver hit promotes. This is what the
+	// existing TestNormalize_ResolverUpgradesEnConceptToCodeSymbol
+	// asserts; this test pins the intent explicitly.
+	tg := Normalize("how does the explorer stop", Options{Resolver: resolver})
+	if findByID(tg, "code:explorer") == nil {
+		t.Fatalf("empty entities should not block promotion; ids=%v", canonicalIDs(tg))
+	}
+}
+
+func TestNormalize_RarityConfidenceScalesWithHitCount(t *testing.T) {
+	single := fakeResolver{hits: map[string][]SymbolHit{
+		"blob": {{Canonical: "Blob", Domain: "types"}},
+	}}
+	many := fakeResolver{hits: map[string][]SymbolHit{
+		"config": {
+			{Canonical: "Config", Domain: "a"},
+			{Canonical: "Config", Domain: "b"},
+			{Canonical: "Config", Domain: "c"},
+			{Canonical: "Config", Domain: "d"},
+			{Canonical: "Config", Domain: "e"},
+			{Canonical: "Config", Domain: "f"},
+			{Canonical: "Config", Domain: "g"},
+			{Canonical: "Config", Domain: "h"},
+			{Canonical: "Config", Domain: "i"},
+			{Canonical: "Config", Domain: "j"},
+		},
+	}}
+
+	tgSingle := Normalize("blob somewhere", Options{
+		Resolver: single,
+		Entities: []string{"Blob"},
+	})
+	termSingle := findByID(tgSingle, "code:blob")
+	if termSingle == nil {
+		t.Fatalf("single-hit promotion missing")
+	}
+	if termSingle.Confidence < 0.99 {
+		t.Fatalf("single hit must keep confidence 1.0, got %v", termSingle.Confidence)
+	}
+
+	tgMany := Normalize("config somewhere", Options{
+		Resolver: many,
+		Entities: []string{"Config"},
+	})
+	termMany := findByID(tgMany, "code:config")
+	if termMany == nil {
+		t.Fatalf("many-hit promotion missing")
+	}
+	if termMany.Confidence >= termSingle.Confidence {
+		t.Fatalf("rarity penalty should make 10 hits < 1 hit; single=%v many=%v",
+			termSingle.Confidence, termMany.Confidence)
+	}
+	if termMany.Confidence >= 0.5 {
+		t.Fatalf("10 hits should push confidence below 0.5, got %v", termMany.Confidence)
+	}
+}
+
+func TestNormalize_NoResolverHitStaysConcept(t *testing.T) {
+	// Gate A open, gate B closed — resolver returns nothing for the
+	// surface. Term must stay a concept; we don't manufacture a
+	// TermSymbol just because the LLM put a word in entities.
+	resolver := fakeResolver{hits: map[string][]SymbolHit{}}
+	tg := Normalize("unicorn is nowhere", Options{
+		Resolver: resolver,
+		Entities: []string{"unicorn"},
+	})
+	if findByID(tg, "code:unicorn") != nil {
+		t.Fatalf("entity-claimed word without repo hit must not promote; ids=%v", canonicalIDs(tg))
+	}
+}
+
 // Over-fit audit: deletions. Removing the normalizer's knowledge of a
 // term must never cause crashes, only degraded recall. This test
 // ensures the normalizer degrades gracefully on a fully unknown input.

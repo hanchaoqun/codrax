@@ -53,6 +53,14 @@ type Options struct {
 	// false (default) literals are dropped because they are typically
 	// too specific to help search ranking.
 	PreserveLiterals bool
+
+	// Entities is the LLM-emitted subject list from emit_analysis.
+	// It gates the kindEnWord → TermSymbol promotion: an English word
+	// only upgrades when it also appears (case/underscore-insensitive)
+	// in this list AND the Resolver returns a hit. Empty or nil list
+	// disables the entity gate (resolver hit alone is enough), which
+	// matches the pre-v3 behavior and keeps zero-value Options valid.
+	Entities []string
 }
 
 // Normalize builds a TermGraph from a raw user request. It is pure

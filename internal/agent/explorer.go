@@ -370,8 +370,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// historical 20 that drops dispatch-path files below the
 		// LLM's eyeline.
 		sr := keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
-			Entities: analyzerEntities,
-			MaxFiles: MaxFilesForComplexity(irComplexity(ctx)),
+			Entities:    analyzerEntities,
+			DomainHints: irDomainHints(ctx),
+			MaxFiles:    MaxFilesForComplexity(irComplexity(ctx)),
 		})
 		e.searchResult = sr
 		if sr != nil {

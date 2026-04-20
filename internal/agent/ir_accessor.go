@@ -24,6 +24,29 @@ func irEntities(ctx *types.AgentContext) []string {
 	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities
 }
 
+// irDomainHints returns the unique non-empty Domain tags attached to
+// every TermSymbol in the analyzer's TermGraph. Populated by the
+// normalizer's SymbolResolver when a term is repo-grounded; empty when
+// the resolver was unavailable or the TermGraph has no symbol terms.
+// Consumed by keyword_search to boost files whose FileInfo.Package
+// matches any hint — i.e., siblings of the answer symbol in the same
+// package — without naming the symbol directly.
+func irDomainHints(ctx *types.AgentContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, c := range ctx.AnalysisIR.RequestModel.TermGraph.Canonical {
+		if c.Kind != types.TermSymbol || c.Domain == "" || seen[c.Domain] {
+			continue
+		}
+		seen[c.Domain] = true
+		out = append(out, c.Domain)
+	}
+	return out
+}
+
 func irQuestionKind(ctx *types.AgentContext) string {
 	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""

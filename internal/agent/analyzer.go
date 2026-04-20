@@ -697,8 +697,20 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			len(rm.SubTopics), rm.AnalyzerHints.Entities)
 	}
 
-	// Normalizer runs unconditionally on the raw objective.
-	rm.TermGraph = normalizer.Normalize(rm.RawRequest, normalizer.Options{})
+	// Normalizer runs unconditionally on the raw objective. When the
+	// repomap graph is available (cache warm from pre-scan or foreground
+	// BuildOrLoadGraph below) we pass a repo-grounded SymbolResolver so
+	// kindEnWord surfaces promote to TermSymbol only when the LLM named
+	// them as entities AND the repo actually defines that identifier.
+	// Graph failures degrade silently to the no-resolver path — a
+	// regression-free fallback with the same signature as before.
+	rm.TermGraph = normalizer.Normalize(
+		rm.RawRequest,
+		normalizer.Options{
+			Resolver: newRepomapSymbolResolver(analyzerGraphForNormalize(ctx, rm)),
+			Entities: rm.AnalyzerHints.Entities,
+		},
+	)
 
 	// Session 11 C0' step 1.5: reconcile classification from any
 	// line-level grep observations the analyzer captured in Round 2.
@@ -952,6 +964,40 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 //
 // Returns nil on any error or missing input; the caller assigns
 // directly so a nil slice is a valid zero value.
+// analyzerGraphForNormalize returns the repomap graph handle used to
+// back the normalizer SymbolResolver during buildAnalysisIR. It first
+// tries the already-loaded graph on Mutable (published by pre-scan or
+// a prior stage) and falls back to an eager BuildOrLoadGraph keyed by
+// the analyzer's entity list. Returns nil on any failure; the caller
+// treats nil graph as "resolver unavailable, use concept fallback".
+func analyzerGraphForNormalize(ctx *types.AgentContext, rm types.RequestModel) *repomap.Graph {
+	if ctx == nil || ctx.RepoRoot == "" {
+		return nil
+	}
+	if ctx.Mutable != nil {
+		if g, ok := ctx.Mutable.SearchGraph().(*repomap.Graph); ok && g != nil {
+			return g
+		}
+	}
+	entities := rm.AnalyzerHints.Entities
+	if len(entities) == 0 {
+		entities = extractQuestionEntities(
+			types.StripConversationPrefix(rm.RawRequest))
+	}
+	query := strings.Join(entities, " ")
+	g, err := repomap.BuildOrLoadGraph(ctx.RepoRoot, query)
+	if err != nil || g == nil {
+		return nil
+	}
+	// Publish so analyzerRequiredFiles + downstream stages skip a
+	// second BuildOrLoadGraph round-trip. Safe: SetSearchGraph accepts
+	// nil and is written-once-per-run by the main agent.
+	if ctx.Mutable != nil {
+		ctx.Mutable.SetSearchGraph(g)
+	}
+	return g
+}
+
 func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []string {
 	if ctx == nil || ctx.RepoRoot == "" {
 		return nil

@@ -1,6 +1,7 @@
 package normalizer
 
 import (
+	"math"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
@@ -120,9 +121,18 @@ func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 		}
 	case kindEnWord:
 		lower := strings.ToLower(s.text)
-		// If the lowercase form also exists as a code symbol (repo
-		// resolver says so), upgrade this to a symbol term.
-		if opts.Resolver != nil {
+		// Dual-gate promotion. An English word upgrades to TermSymbol
+		// only when both sides agree the word is a load-bearing code
+		// identifier in this query:
+		//   gate A (subject)  — NormalizeCodeKey(surface) ∈ opts.Entities
+		//   gate B (existence) — resolver returns ≥1 hit
+		// When opts.Entities is empty, gate A is disabled so zero-value
+		// Options still behave the pre-v3 way. Confidence is scaled by
+		// the hit count: a single unambiguous hit keeps 1.0; N hits pay
+		// a 1/(1+ln N) rarity penalty so common words (e.g. "config"
+		// matching 30 symbols) settle below unambiguous ones without a
+		// hand-curated allowlist.
+		if opts.Resolver != nil && entityGateOpen(s.text, opts.Entities) {
 			if hits := opts.Resolver.LookupSymbol(s.text); len(hits) > 0 {
 				id := "code:" + NormalizeCodeKey(hits[0].Canonical)
 				return id, types.CanonicalTerm{
@@ -131,7 +141,7 @@ func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 					Language:   "code",
 					Kind:       types.TermSymbol,
 					Domain:     hits[0].Domain,
-					Confidence: 1.0,
+					Confidence: rarityConfidence(len(hits)),
 				}
 			}
 		}
@@ -145,6 +155,40 @@ func classify(s surface, opts Options) (string, types.CanonicalTerm) {
 		}
 	}
 	return "", types.CanonicalTerm{}
+}
+
+// entityGateOpen reports whether the English surface qualifies for
+// promotion to TermSymbol under the dual-gate rule. Returns true when
+// the entity list is empty (gate disabled) or when any entry matches
+// surface under NormalizeCodeKey (case and underscore insensitive).
+func entityGateOpen(surface string, entities []string) bool {
+	if len(entities) == 0 {
+		return true
+	}
+	target := NormalizeCodeKey(surface)
+	if target == "" {
+		return false
+	}
+	for _, e := range entities {
+		if NormalizeCodeKey(e) == target {
+			return true
+		}
+	}
+	return false
+}
+
+// rarityConfidence maps the number of repomap definitions that match a
+// surface to a CanonicalTerm.Confidence in (0, 1]. A single definition
+// is unambiguous (1.0); the penalty follows 1/(1+ln N) so a 10-hit
+// generic word drops to ~0.30 without a hand-tuned threshold.
+func rarityConfidence(hits int) float32 {
+	if hits <= 0 {
+		return 0
+	}
+	if hits == 1 {
+		return 1.0
+	}
+	return float32(1.0 / (1.0 + math.Log(float64(hits))))
 }
 
 // NormalizeCodeKey strips underscores / hyphens and lowercases so
