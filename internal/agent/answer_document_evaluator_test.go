@@ -11,6 +11,19 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// enableSummaryCapsForTest flips summary-cap master switch on for the
+// duration of a test and restores the default (Enabled=false) on
+// cleanup. Needed by the shrinkage-salvage cap-trim cases — they
+// expect the trimmer to land at SummaryCapFor(shape, itemCount),
+// which returns SummaryCapUnlimited when the switch is off.
+func enableSummaryCapsForTest(t *testing.T) {
+	t.Helper()
+	cfg := types.DefaultSummaryCapConfig()
+	cfg.Enabled = true
+	types.SetSummaryCapConfig(cfg)
+	t.Cleanup(func() { types.SetSummaryCapConfig(types.DefaultSummaryCapConfig()) })
+}
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape
 // pins that the dynamic prompt surfaces the resolved target shape
 // (for operator visibility + diagnostic logs). The STATIC shape
@@ -675,6 +688,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NotShrunk(t *testi
 // a prior draft exceeding SummaryCapFor(ShapeExplanation, 0) must be
 // trimmed, not rejected — the salvage's job is best-effort recovery.
 func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CapTrim(t *testing.T) {
+	enableSummaryCapsForTest(t)
 	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
 	cap := types.SummaryCapFor(types.ShapeExplanation, 0)
 	// Build a draft 1.5x the cap.
@@ -703,6 +717,7 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CapTrim(t *testing
 // enough to overshoot the cap, then verify the trimmed summary is
 // still valid UTF-8.
 func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_CJKRuneBoundary(t *testing.T) {
+	enableSummaryCapsForTest(t)
 	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
 	// 中 is 3 bytes UTF-8. 1000 copies = 3000 bytes, overshoots the 2500 cap.
 	prior := strings.Repeat("中", 1000)

@@ -533,7 +533,7 @@ Turn B 看不到新文件 —— 所有信息在 Turn A transcript 快照里冻�
 
 #### Summary 长度：shape-tiered cap
 
-`emit_answer_document` 的 `summary` 字段按 shape 分档。真源是 `types.SummaryCapConfig` + `types.SummaryCapFor(shape, itemCount)`；固定上限的 shape 走 scalar 字段，`step_list` / `list_of_symbols` 随项数线性增长后封顶，这样 8 步的解释不会和 2 步的挤在同一个 budget 里：
+`emit_answer_document` 的 `summary` 字段可以按 shape 分档。真源是 `types.SummaryCapConfig` + `types.SummaryCapFor(shape, itemCount)`，但**默认 disabled**：`SummaryCapConfig.Enabled=false` 时 `SummaryCapFor` 返回 `SummaryCapUnlimited` (math.MaxInt)，reject / trim 两条路径全部静默，LLM 写多长就接受多长。`codrax.yaml` 的 `summary_cap_enabled: true` 才激活下面的数字。启用后固定上限的 shape 走 scalar 字段，`step_list` / `list_of_symbols` 随项数线性增长后封顶，这样 8 步的解释不会和 2 步的挤在同一个 budget 里：
 
 | shape | 上限 | 用途 |
 |---|---|---|

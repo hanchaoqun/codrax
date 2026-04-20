@@ -581,6 +581,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// the other entries at their default.
 		{
 			scc := types.DefaultSummaryCapConfig()
+			if rs.SummaryCapEnabled != nil {
+				scc.Enabled = *rs.SummaryCapEnabled
+			}
 			if rs.SummaryCapExplanation != nil {
 				scc.Explanation = *rs.SummaryCapExplanation
 			}

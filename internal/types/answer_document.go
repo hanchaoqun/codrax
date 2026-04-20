@@ -1,5 +1,7 @@
 package types
 
+import "math"
+
 // answer_document.go — structured answer payload.
 //
 // AnswerDocument is the typed replacement for the finalizer's free
@@ -120,12 +122,22 @@ type CodeSnippet struct {
 //     slope because the symbols themselves carry most of the content.
 //     Cap is min(SymbolsMax, SymbolsBase + n*SymbolsPerItem).
 //
-// All fields are runtime-tunable via codrax.yaml (summary_cap_*). The
-// package-level summaryCapConfig is the single source of truth for
+// Enabled is the master switch: when false (the default) every shape
+// reports SummaryCapUnlimited and no length enforcement runs anywhere.
+// Operators opt into length control by setting summary_cap_enabled:
+// true in codrax.yaml — the per-shape numbers below are only
+// consulted when the switch is on. Rationale: the finalizer's
+// tendency to "compress on retry" hurts far more user-visible answers
+// than runaway summaries do in practice, so the conservative default
+// is to let the LLM's own emission length stand.
+//
+// All numeric fields are runtime-tunable via codrax.yaml (summary_cap_*).
+// The package-level summaryCapConfig is the single source of truth for
 // emit_answer_document, the shrinkage-salvage trimmer, and the
 // per-shape test expectations; operators override it with
 // SetSummaryCapConfig at startup.
 type SummaryCapConfig struct {
+	Enabled         bool
 	Explanation     int
 	Value           int
 	ConfigValue     int
@@ -143,12 +155,20 @@ type SummaryCapConfig struct {
 	Default int
 }
 
+// SummaryCapUnlimited is the sentinel returned when length control
+// is disabled. math.MaxInt means every `len(s) > cap` comparison is
+// false and every trim-to-cap branch is a no-op, so disabled mode
+// behaves as "no cap" without special-casing every call site.
+const SummaryCapUnlimited = math.MaxInt
+
 // DefaultSummaryCapConfig returns the baseline caps used when no
-// codrax.yaml override is present. Values derived from the per-shape
-// rationale above; changes here propagate to every call site
-// automatically via summaryCapConfig.
+// codrax.yaml override is present. Enabled defaults to false — the
+// numeric fields describe what caps WOULD be applied if the switch
+// were flipped on, and changing them here propagates to every call
+// site automatically via summaryCapConfig once Enabled is set.
 func DefaultSummaryCapConfig() SummaryCapConfig {
 	return SummaryCapConfig{
+		Enabled:         false,
 		Explanation:     2500,
 		Value:           500,
 		ConfigValue:     500,
@@ -177,6 +197,9 @@ func SetSummaryCapConfig(cfg SummaryCapConfig) { summaryCapConfig = cfg }
 // 0. Callers should prefer SummaryCapFor; this variant exists so tests
 // and the trimmer can reason about caps against arbitrary configs.
 func SummaryCapForConfig(cfg SummaryCapConfig, shape AnswerShape, itemCount int) int {
+	if !cfg.Enabled {
+		return SummaryCapUnlimited
+	}
 	if itemCount < 0 {
 		itemCount = 0
 	}

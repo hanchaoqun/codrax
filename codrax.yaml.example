@@ -359,11 +359,16 @@
 # ---------------------------------------------------------------------------
 # Summary length caps (summary_cap_*)
 # ---------------------------------------------------------------------------
-# emit_answer_document enforces per-shape ceilings on the `summary`
-# field. Scalar shapes (explanation / value / config_value / boolean)
-# carry fixed ceilings; step_list and list_of_symbols scale with the
-# number of items so a long list is not compressed to the same budget
-# as a short one:
+# emit_answer_document can enforce per-shape ceilings on the `summary`
+# field. Length control is a MASTER-SWITCHED feature: the default is
+# OFF, so the finalizer's emitted summary is accepted as-is and the
+# shrinkage-salvage trimmer never trims. Flip summary_cap_enabled:true
+# to activate the per-shape numbers below.
+#
+# When enabled, scalar shapes (explanation / value / config_value /
+# boolean) carry fixed ceilings; step_list and list_of_symbols scale
+# with the number of items so a long list is not compressed to the
+# same budget as a short one:
 #
 #   step_list        cap = min(step_list_max,  step_list_base  + n * step_list_per_item)
 #   list_of_symbols  cap = min(symbols_max,    symbols_base    + n * symbols_per_item)
@@ -371,6 +376,11 @@
 # The caps are read from types.SummaryCapConfig at runtime; codrax.yaml
 # overrides here take effect at process start. Every key is optional —
 # omitted keys fall through to the code default.
+
+# Master switch. Default false — no length enforcement runs anywhere
+# and the numeric knobs below are inert. Set to true to activate
+# per-shape caps.
+# summary_cap_enabled: false
 
 # Explanation shape: summary IS the answer body (thorough multi-paragraph
 # prose with code-level specifics + cross-file relationships). Default 2500.

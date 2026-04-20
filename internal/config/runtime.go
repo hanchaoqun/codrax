@@ -209,6 +209,11 @@ type RuntimeSettings struct {
 	// optional; nil → code default in types.DefaultSummaryCapConfig().
 	// StepList / ListOfSymbols scale with item count:
 	//   cap = min(Max, Base + n*PerItem).
+	//
+	// summary_cap_enabled is the master switch. Default false → no
+	// length enforcement runs at all (the numeric knobs below are
+	// inert). Flip to true to activate the per-shape caps.
+	SummaryCapEnabled            *bool `yaml:"summary_cap_enabled"`
 	SummaryCapExplanation        *int `yaml:"summary_cap_explanation"`
 	SummaryCapValue              *int `yaml:"summary_cap_value"`
 	SummaryCapConfigValue        *int `yaml:"summary_cap_config_value"`

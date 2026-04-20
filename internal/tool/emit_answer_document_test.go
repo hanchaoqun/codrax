@@ -9,6 +9,19 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// enableSummaryCapsForTest flips the package-level summaryCapConfig's
+// master switch on for the duration of a test and restores the
+// default (Enabled=false) on cleanup. Needed because emit_answer_document
+// accepts any length when the switch is off — tests that exercise the
+// cap-reject path have to opt in.
+func enableSummaryCapsForTest(t *testing.T) {
+	t.Helper()
+	cfg := types.DefaultSummaryCapConfig()
+	cfg.Enabled = true
+	types.SetSummaryCapConfig(cfg)
+	t.Cleanup(func() { types.SetSummaryCapConfig(types.DefaultSummaryCapConfig()) })
+}
+
 // newDocGraph builds a minimal repomap.Graph indexing the given files
 // and symbols. Used by the Tier-1-peer pool-defence tests.
 func newDocGraph(files map[string][]docSymbol) *repomap.Graph {
@@ -432,6 +445,7 @@ func TestEmitAnswerDocument_Explanation_Happy(t *testing.T) {
 // -------- cross-cutting validators --------
 
 func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {
+	enableSummaryCapsForTest(t)
 	// Summary cap is per-shape via types.SummaryCapFor(shape, itemCount).
 	// Exercise scalar + item-scaled shapes so a future shape addition
 	// that forgets to extend SummaryCapConfig gets caught here.
