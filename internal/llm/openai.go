@@ -50,8 +50,17 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema) (Response, 
 	var resp Response
 	var lastErr error
 
-	// Retry up to 3 times for transient errors
-	for attempt := 0; attempt < 3; attempt++ {
+	// Retry transient errors with exponential backoff. 429 covers both
+	// true rate-limit and Azure-style "No deployments available for
+	// selected model" (deployment rotation); the latter can take 30-60s
+	// to clear, which the old 3-attempt × 1s/2s/4s schedule (~7s total)
+	// routinely burned through. Extending to 6 attempts with 2/4/8/16/32s
+	// backoff buys ~62s of coverage — enough for typical deployment
+	// rotations without tripping into a total stall when something is
+	// genuinely wrong upstream. 5xx errors reuse the same schedule
+	// because a brief server hiccup happily tolerates the longer wait.
+	const maxAttempts = 6
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		resp, err = o.doRequest(bodyBytes)
 		if err == nil {
 			return resp, nil
@@ -63,8 +72,12 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema) (Response, 
 			return Response{}, err
 		}
 
-		// Exponential backoff: 1s, 2s, 4s
-		time.Sleep(time.Duration(1<<uint(attempt)) * time.Second)
+		// Exponential backoff: 2s, 4s, 8s, 16s, 32s. The last attempt
+		// fires without a trailing sleep so the total wait matches the
+		// schedule above.
+		if attempt < maxAttempts-1 {
+			time.Sleep(time.Duration(2<<uint(attempt)) * time.Second)
+		}
 	}
 
 	return Response{}, fmt.Errorf("all retries failed: %w", lastErr)
