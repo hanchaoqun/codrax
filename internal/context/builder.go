@@ -1436,6 +1436,31 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		"the full raw log is still available in the next section for cross-checking " +
 		"quotes or reading context that did not fit the structured schema.\n\n")
 
+	// ── Front-loaded external-source directive ────────────────
+	//
+	// Session 22 fix: when the log_triage bundle carries ≥1 Error
+	// but ZERO ResolvedFiles, the attached log's stack frames do
+	// not resolve to any file in this repo — the customer-trace
+	// pattern where a Python/Node/foreign traceback is pasted into
+	// a Go repo's REPL. Without an upfront directive, the LLM
+	// spends a whole explore dispatch trying to ground log-frame
+	// literals against repo code, finds nothing, and at the
+	// finalize stage the emit_answer_document literal-grounding
+	// gate rejects the citation — burning a full cycle before the
+	// LLM learns to use citation_ref=-1 (observed: 16 min on
+	// the partial eval case).
+	//
+	// Surfacing the directive at the TOP of the log-triage section
+	// means every agent (analyzer / explorer / extractor /
+	// finalizer) sees it in iter 0 and can act before any tool
+	// call is burned on a dead-end.
+	if len(bundle.ResolvedFiles) == 0 && len(bundle.Errors) > 0 {
+		b.WriteString("⚠ **External-source log**: the attached log's stack frames do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the log's own semantics — do NOT open repo files hoping to ground the log's frame literals, they are not there.\n")
+		b.WriteString("  - For shape=value / shape=config_value, set `citation_ref=-1` and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
+		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; `-1` is the honest, tool-schema-legal escape.\n")
+		b.WriteString("  - For shape=step_list / shape=explanation, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n\n")
+	}
+
 	// ── Meta block ────────────────────────────────────────────
 	if bundle.Meta.Lang != "" {
 		fmt.Fprintf(&b, "- Language: %s\n", bundle.Meta.Lang)

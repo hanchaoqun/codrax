@@ -298,6 +298,81 @@ func TestBuildPromptContext_LogTriageSection_SkippedForLogTriager(t *testing.T) 
 	}
 }
 
+// TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZeroErrorsPositive
+// pins the session-22 front-loaded directive: when the LLM extracted
+// at least one Error from the log but NO frame resolved to a repo
+// file, the structured view must open with an "External-source
+// log" block telling the LLM upfront that repo files cannot ground
+// the literals. The customer-trace pattern (Python traceback into
+// a Go repo) lives here.
+//
+// Directive surfaces BEFORE the Meta block so every agent — not
+// just the finalizer — sees it at iter 0 and avoids burning
+// explore rounds fishing for ungroundable citations.
+func TestFormatLogTriageStructured_ExternalSourceDirective_FiresWhenResolvedZeroErrorsPositive(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{
+			Lang:    "python",
+			Signals: []types.LogSignal{types.SignalValidation},
+		},
+		Errors:        []types.LogError{{Type: "KeyError", Message: "'database'"}},
+		ResolvedFiles: nil, // ZERO resolved — frames outside this repo
+	}
+	got := formatLogTriageStructured(bundle)
+	for _, want := range []string{
+		"External-source log",
+		"resolved_files=0",
+		"citation_ref=-1",
+		"literal-grounding gate",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("directive missing %q in render:\n%s", want, got)
+		}
+	}
+	// The directive must come BEFORE the Meta block so iter 0 sees
+	// it immediately. Language line is the first Meta entry.
+	directiveIdx := strings.Index(got, "External-source log")
+	metaIdx := strings.Index(got, "Language:")
+	if directiveIdx < 0 || metaIdx < 0 || directiveIdx > metaIdx {
+		t.Errorf("External-source directive must appear before Meta block (directive at %d, Meta at %d):\n%s",
+			directiveIdx, metaIdx, got)
+	}
+}
+
+// TestFormatLogTriageStructured_ExternalSourceDirective_NoFireWhenResolvedNonEmpty
+// is the negative control: when frames DID resolve to repo files,
+// the directive must NOT fire — repo-code grounding is viable, the
+// LLM should pursue it normally.
+func TestFormatLogTriageStructured_ExternalSourceDirective_NoFireWhenResolvedNonEmpty(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta:          types.LogMeta{Lang: "go"},
+		Errors:        []types.LogError{{Type: "panic", Message: "runtime error"}},
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+	}
+	got := formatLogTriageStructured(bundle)
+	if strings.Contains(got, "External-source log") {
+		t.Errorf("directive must not fire when at least one frame resolves to the repo:\n%s", got)
+	}
+}
+
+// TestFormatLogTriageStructured_ExternalSourceDirective_NoFireWhenErrorsEmpty
+// is the second negative control: the "degraded" case (log that
+// parsed into no errors at all) must not tag the session as
+// external-source — it is a different pathology with its own
+// answer-path (graceful fall-through, no log-semantic answer).
+func TestFormatLogTriageStructured_ExternalSourceDirective_NoFireWhenErrorsEmpty(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Lang: "unknown"},
+		Residue: types.LogResidue{
+			UnknownChunks: []string{"lorem ipsum dolor sit amet"},
+		},
+	}
+	got := formatLogTriageStructured(bundle)
+	if strings.Contains(got, "External-source log") {
+		t.Errorf("directive must not fire on degraded (zero-errors) bundles:\n%s", got)
+	}
+}
+
 // TestBuildPromptContext_LogTriageSection_OmittedWhenNil confirms
 // the "no bundle → no section" invariant: agents get nothing when
 // no log was attached or the stage degraded.
