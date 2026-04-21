@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/hanchaoqun/codrax/internal/canonpath"
 )
 
 // EvidenceClosure is the per-Run cross-stage tracker for the four
@@ -40,6 +42,18 @@ import (
 // them to serialize. Internal locking; callers go through methods.
 type EvidenceClosure struct {
 	mu sync.RWMutex
+
+	// repoRoot is the absolute (or `.`-relative) repository root the
+	// orchestrator passed down. When non-empty the closure's internal
+	// canonicaliser strips an absolute-path prefix that matches this
+	// root so LLM-supplied paths like
+	// `/mnt/d/opt/codrax-main/internal/foo.go` collapse onto the
+	// same map keys as repo-relative forms (`internal/foo.go`).
+	// Empty repoRoot degrades to the historical
+	// canonicalizeRepoPath behaviour — strip `./` and normalise
+	// separators — so tests constructing with NewEvidenceClosure("")
+	// keep their pre-session-22 semantics.
+	repoRoot string
 
 	// readSet is the canonical set of repo-relative file paths Turn A
 	// successfully fetched via read_file (or the framework forced-read
@@ -226,14 +240,53 @@ type ClosureFingerprint struct {
 // NewEvidenceClosure constructs an empty closure. Callers should pin
 // the returned pointer onto MutableState via SetEvidenceClosure once
 // per Run.
-func NewEvidenceClosure() *EvidenceClosure {
+//
+// repoRoot threads the orchestrator's repo root through so the
+// closure's internal path canonicaliser can strip an absolute
+// prefix the LLM may use in read_file banners and evidence source
+// fields. Pass "" when the caller does not have a meaningful
+// repoRoot (unit tests) — canonicalisation then degrades to the
+// historical slash-normalise + strip-"./" behaviour.
+func NewEvidenceClosure(repoRoot string) *EvidenceClosure {
 	return &EvidenceClosure{
+		repoRoot:       repoRoot,
 		readSet:        make(map[string]bool),
 		readRanges:     make(map[string][]LineRange),
 		scannedSet:     make(map[string]bool),
 		citedRefs:      make(map[string][]int),
 		subjectMatches: make(map[string]float64),
 	}
+}
+
+// SetRepoRoot updates the closure's cached repo root. Called by
+// MutableState.SetRepoRoot when the orchestrator plumbs the root
+// through after construction, so any EvidenceClosure that was
+// lazy-init'd with an empty root can pick up the real root
+// retroactively. Idempotent.
+func (c *EvidenceClosure) SetRepoRoot(root string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	c.repoRoot = root
+	c.mu.Unlock()
+}
+
+// canonicalize reduces a file path to the closure's repo-relative
+// canonical form. When the closure was built with a repoRoot, the
+// platform-aware canonpath.CanonicalRepoRelative is used (handles
+// Windows volumes case-insensitively, keeps POSIX slashes, strips
+// an absolute prefix that matches repoRoot). Otherwise falls back
+// to canonicalizeRepoPath for the historical strip-"./" +
+// normalise-separators behaviour. Empty input returns empty.
+func (c *EvidenceClosure) canonicalize(p string) string {
+	if c == nil || p == "" {
+		return canonicalizeRepoPath(p)
+	}
+	if c.repoRoot != "" {
+		return canonpath.CanonicalRepoRelative(p, c.repoRoot)
+	}
+	return canonicalizeRepoPath(p)
 }
 
 // SetReadSet atomically replaces the current ReadSet snapshot. Called
@@ -249,7 +302,7 @@ func (c *EvidenceClosure) SetReadSet(files map[string]bool) {
 		if !v {
 			continue
 		}
-		if canon := canonicalizeRepoPath(f); canon != "" {
+		if canon := c.canonicalize(f); canon != "" {
 			c.readSet[canon] = true
 		}
 	}
@@ -276,7 +329,7 @@ func (c *EvidenceClosure) HasRead(file string) bool {
 	if c == nil || file == "" {
 		return false
 	}
-	file = canonicalizeRepoPath(file)
+	file = c.canonicalize(file)
 	if file == "" {
 		return false
 	}
@@ -301,7 +354,7 @@ func (c *EvidenceClosure) AddReadRanges(ranges map[string][]LineRange) {
 		c.readRanges = make(map[string][]LineRange, len(ranges))
 	}
 	for file, rngs := range ranges {
-		file = canonicalizeRepoPath(file)
+		file = c.canonicalize(file)
 		if file == "" || len(rngs) == 0 {
 			continue
 		}
@@ -323,7 +376,7 @@ func (c *EvidenceClosure) SetReadRanges(ranges map[string][]LineRange) {
 	defer c.mu.Unlock()
 	c.readRanges = make(map[string][]LineRange, len(ranges))
 	for file, rngs := range ranges {
-		file = canonicalizeRepoPath(file)
+		file = c.canonicalize(file)
 		if file == "" || len(rngs) == 0 {
 			continue
 		}
@@ -337,7 +390,7 @@ func (c *EvidenceClosure) ReadRanges(file string) []LineRange {
 	if c == nil || file == "" {
 		return nil
 	}
-	file = canonicalizeRepoPath(file)
+	file = c.canonicalize(file)
 	if file == "" {
 		return nil
 	}
@@ -365,7 +418,7 @@ func (c *EvidenceClosure) HasReadLine(file string, line int) bool {
 	if c == nil || file == "" {
 		return false
 	}
-	file = canonicalizeRepoPath(file)
+	file = c.canonicalize(file)
 	if file == "" {
 		return false
 	}
@@ -1041,7 +1094,7 @@ func (m *MutableState) EvidenceClosure() *EvidenceClosure {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.evidenceClosure == nil {
-		m.evidenceClosure = NewEvidenceClosure()
+		m.evidenceClosure = NewEvidenceClosure(m.repoRoot)
 	}
 	return m.evidenceClosure
 }
@@ -1106,7 +1159,7 @@ func (c *EvidenceClosure) CanonicalReadFiles() []string {
 		if f == "" {
 			continue
 		}
-		out = append(out, canonicalizeRepoPath(f))
+		out = append(out, c.canonicalize(f))
 	}
 	sort.Strings(out)
 	return out

@@ -31,7 +31,7 @@ func TestApplyChainPromotion_RangeAware_DemoteOutsideSlice(t *testing.T) {
 		}},
 	}
 	readSet := map[string]bool{file: true} // file touched, partial read
-	closure := types.NewEvidenceClosure()
+	closure := types.NewEvidenceClosure("")
 	closure.SetReadSet(readSet)
 	closure.SetReadRanges(map[string][]types.LineRange{
 		file: {{Start: 1, End: 50}, {Start: 100, End: 200}}, // excludes 350
@@ -78,7 +78,7 @@ func TestApplyChainPromotion_RangeAware_PromoteInsideSlice(t *testing.T) {
 		}},
 	}
 	readSet := map[string]bool{file: true}
-	closure := types.NewEvidenceClosure()
+	closure := types.NewEvidenceClosure("")
 	closure.SetReadSet(readSet)
 	closure.SetReadRanges(map[string][]types.LineRange{
 		file: {{Start: 1, End: 50}, {Start: 100, End: 200}},
@@ -118,7 +118,7 @@ func TestApplyChainPromotion_RangeAware_ZeroLineFallsBackToFileLevel(t *testing.
 		}},
 	}
 	readSet := map[string]bool{file: true}
-	closure := types.NewEvidenceClosure()
+	closure := types.NewEvidenceClosure("")
 	closure.SetReadSet(readSet)
 	// Even with ranges that exclude line 150, a zero-line anchor must
 	// still promote via the file-level short-circuit.
@@ -149,7 +149,7 @@ func TestApplyChainPromotion_RangeAware_OldTestsStillPass(t *testing.T) {
 		}},
 	}
 	readSet := map[string]bool{file: true}
-	closure := types.NewEvidenceClosure()
+	closure := types.NewEvidenceClosure("")
 	closure.SetReadSet(readSet)
 	// No SetReadRanges call: closure.HasReadLine grants file-level.
 

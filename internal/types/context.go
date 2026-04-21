@@ -56,6 +56,13 @@ type MutableState struct {
 	// wrapper — every stage reads this field as the load-bearing
 	// "what is the user asking" surface.
 	objective string
+	// repoRoot is the orchestrator's -repo flag value. Stored on
+	// MutableState so lazy-init of evidenceClosure can thread the
+	// same repo root through to the closure's path canonicaliser
+	// (session 22). SetRepoRoot propagates a later root to an
+	// already-existing closure if one was created before the
+	// orchestrator plumbed the root through.
+	repoRoot string
 	// result is the finalizer's final answer for the run, written
 	// by recordTaskFinalize after the per-task pipeline completes.
 	// Replaces the old TaskItem.Result field.
@@ -378,6 +385,29 @@ type HypothesisVerdict struct {
 // literals so the internal mutex is paired correctly with its data.
 func NewMutableState(objective string) *MutableState {
 	return &MutableState{objective: objective}
+}
+
+// SetRepoRoot caches the orchestrator's -repo root so lazy-init of
+// the evidenceClosure (via EvidenceClosure()) can pass the same
+// root into NewEvidenceClosure. Call once per Run right after
+// NewMutableState — multiple Runs of the same orchestrator
+// overwrite the previous value. Idempotent on equal roots.
+//
+// If the closure has already been lazy-init'd with an older root,
+// this propagates the new value in place so subsequent
+// canonicalisations use it. Safe to call with "" — canonicalisation
+// then degrades to the historical strip-"./" behaviour, matching
+// the pre-session-22 semantics that tests rely on.
+func (m *MutableState) SetRepoRoot(root string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.repoRoot = root
+	if m.evidenceClosure != nil {
+		m.evidenceClosure.SetRepoRoot(root)
+	}
 }
 
 // Objective returns the raw user question / task description.

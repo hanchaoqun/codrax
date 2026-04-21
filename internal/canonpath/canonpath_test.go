@@ -1,4 +1,4 @@
-package ground
+package canonpath
 
 import (
 	"os"
@@ -77,18 +77,11 @@ func TestCanonicalRepoRelative(t *testing.T) {
 // CWD before Rel. For this test we chdir into a temp dir that plays
 // the role of the iSulad repo.
 func TestCanonicalRepoRelative_RelativeRepoRoot(t *testing.T) {
-	// Create a directory to stand in for the repo root.
 	dir := t.TempDir()
-	// Resolve symlinks so /tmp vs /private/tmp on macOS agrees with
-	// the chdir result — otherwise filepath.Abs(".") can come back
-	// with a different prefix than `dir` and we'd be testing the
-	// wrong thing.
 	resolved, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		t.Fatalf("EvalSymlinks(%q): %v", dir, err)
 	}
-	// Chdir into the repo; restore on exit so other tests aren't
-	// affected by the CWD change.
 	origWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Getwd: %v", err)
@@ -100,18 +93,12 @@ func TestCanonicalRepoRelative_RelativeRepoRoot(t *testing.T) {
 
 	absFile := filepath.Join(resolved, "README.md")
 
-	// The canonicaliser must strip the absolute prefix even though
-	// repoRoot is the bare "." string — Abs(".") resolves to the
-	// current repo directory.
 	got := CanonicalRepoRelative(absFile, ".")
 	if got != "README.md" {
 		t.Errorf("relative repoRoot (`.`): CanonicalRepoRelative(%q, \".\") = %q, want %q",
 			absFile, got, "README.md")
 	}
 
-	// Symmetric case: relative citation + `-repo .` must also yield
-	// the canonical basename. The whitelist / LineIndex / FileIndex
-	// lookups will compare "README.md" == "README.md" and pass.
 	got = CanonicalRepoRelative("README.md", ".")
 	if got != "README.md" {
 		t.Errorf("relative citation + `-repo .`: got %q, want %q", got, "README.md")

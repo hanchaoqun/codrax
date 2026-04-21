@@ -7,7 +7,7 @@ import (
 )
 
 func buildClosure(events ...types.Violation) *types.EvidenceClosure {
-	c := types.NewEvidenceClosure()
+	c := types.NewEvidenceClosure("")
 	for _, v := range events {
 		c.AppendViolation(v)
 	}

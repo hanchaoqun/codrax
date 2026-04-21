@@ -56,7 +56,7 @@ func TestApplyChainPromotion_DropsChainsAnchoredOutsideReadSet(t *testing.T) {
 		"internal/skill/defaults.go": true,
 		// internal/agent/subagent.go intentionally absent
 	}
-	closure := types.NewEvidenceClosure()
+	closure := types.NewEvidenceClosure("")
 
 	out := applyChainPromotion(in, readSet, closure, "")
 
@@ -123,7 +123,7 @@ func TestApplyChainPromotion_AllAnchorsRead_NoOp(t *testing.T) {
 		},
 	}
 	readSet := map[string]bool{"internal/foo/bar.go": true}
-	closure := types.NewEvidenceClosure()
+	closure := types.NewEvidenceClosure("")
 
 	out := applyChainPromotion(in, readSet, closure, "")
 
@@ -153,7 +153,7 @@ func TestApplyChainPromotion_PartialAnchorMissing_Demoted(t *testing.T) {
 		},
 	}
 	readSet := map[string]bool{"internal/a.go": true} // b.go missing
-	closure := types.NewEvidenceClosure()
+	closure := types.NewEvidenceClosure("")
 
 	out := applyChainPromotion(in, readSet, closure, "")
 

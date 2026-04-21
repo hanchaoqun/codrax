@@ -11,7 +11,7 @@ import (
 // without first recording the file in readSet — the range data alone
 // is not a grant.
 func TestHasReadLine_FileNotInReadSet(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {{Start: 1, End: 100}},
 	})
@@ -25,7 +25,7 @@ func TestHasReadLine_FileNotInReadSet(t *testing.T) {
 // file-level grant from HasReadLine. Otherwise adding range support
 // would break every existing chain promotion test.
 func TestHasReadLine_FileInReadSetNoRanges(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	if !c.HasReadLine("a.go", 50) {
 		t.Error("HasReadLine must grant file-level coverage when no ranges are tracked")
@@ -39,7 +39,7 @@ func TestHasReadLine_FileInReadSetNoRanges(t *testing.T) {
 // inside a range = hit, outside = miss. This is the new behaviour that
 // lets CGEC I1 demote chains whose anchor falls in an unread segment.
 func TestHasReadLine_WithRanges(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {
@@ -69,7 +69,7 @@ func TestHasReadLine_WithRanges(t *testing.T) {
 // TestAddReadRanges_Accumulates mirrors read_file pagination: two
 // separate calls with disjoint ranges must both end up covered.
 func TestAddReadRanges_Accumulates(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {{Start: 1, End: 50}},
@@ -92,7 +92,7 @@ func TestAddReadRanges_Accumulates(t *testing.T) {
 // ([1-100] and [101-200]) should produce a single merged range so the
 // diagnostic dump stays clean.
 func TestAddReadRanges_MergesAdjacent(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {{Start: 1, End: 100}},
@@ -112,7 +112,7 @@ func TestAddReadRanges_MergesAdjacent(t *testing.T) {
 // ranges must not leak forward when the tool history is the
 // authoritative source.
 func TestSetReadRanges_ReplacesSnapshot(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {{Start: 1, End: 50}},
@@ -129,7 +129,7 @@ func TestSetReadRanges_ReplacesSnapshot(t *testing.T) {
 }
 
 func TestReadSetAndRanges_CanonicalizeWindowsPaths(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{".\\internal\\tool\\repomap\\tool.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		".\\internal\\tool\\repomap\\tool.go": {{Start: 10, End: 20}},
@@ -151,7 +151,7 @@ func TestReadSetAndRanges_CanonicalizeWindowsPaths(t *testing.T) {
 // records, otherwise a prior task's partial reads would grant
 // row-level coverage on the next task's unrelated files.
 func TestReset_ClearsReadRanges(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {{Start: 1, End: 50}},
@@ -168,7 +168,7 @@ func TestReset_ClearsReadRanges(t *testing.T) {
 // TestReadRanges_DefensiveCopy: mutating the returned slice must not
 // corrupt closure internals.
 func TestReadRanges_DefensiveCopy(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {{Start: 1, End: 50}},
@@ -183,7 +183,7 @@ func TestReadRanges_DefensiveCopy(t *testing.T) {
 // TestAddReadRanges_DropsInvalid: malformed ranges are filtered by
 // the merge pass, so callers do not need to pre-validate.
 func TestAddReadRanges_DropsInvalid(t *testing.T) {
-	c := NewEvidenceClosure()
+	c := NewEvidenceClosure("")
 	c.SetReadSet(map[string]bool{"a.go": true})
 	c.AddReadRanges(map[string][]LineRange{
 		"a.go": {

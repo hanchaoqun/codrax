@@ -141,6 +141,14 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		},
 	}
 
+	// Thread repoRoot into MutableState so the lazy-init
+	// EvidenceClosure canonicaliser (session 22) can strip an
+	// absolute-path prefix the LLM may use in read_file banners
+	// and evidence source fields. Without this call the closure
+	// falls back to the strip-"./" canonicaliser and absolute
+	// paths mismatch the repo-relative CGEC ReadSet.
+	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
 
