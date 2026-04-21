@@ -391,3 +391,91 @@ func TestBuildPromptContext_LogTriageSection_OmittedWhenNil(t *testing.T) {
 		}
 	}
 }
+
+// Session-22 F3.1: when Signals include panic / crash AND the primary
+// error has ≥2 resolved frames, a "### Call chain (innermost → outer)"
+// block must render below the Errors tree with each frame tagged as
+// innermost / caller / outermost, so the finalizer draws its call-DAG
+// diagram from the frames verbatim instead of inventing a caller from
+// the ranker's Auxiliary candidates.
+func TestFormatLogTriageStructured_RendersCallChainForPanic(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{
+			Lang:    "go",
+			Signals: []types.LogSignal{types.SignalPanic, types.SignalCrash},
+		},
+		Errors: []types.LogError{
+			{
+				Type:    "nil pointer dereference",
+				Message: "runtime error: invalid memory address or nil pointer dereference",
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 250, Func: "buildAnalysisIR", Confidence: 1.0},
+					{File: "internal/agent/analyzer.go", Line: 320, Func: "(*analyzerEvaluator).ParseOutput", Confidence: 1.0},
+				},
+			},
+		},
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		Coverage:      1.0,
+	}
+	got := formatLogTriageStructured(bundle)
+	if !strings.Contains(got, "### Call chain (innermost → outer)") {
+		t.Fatalf("panic+crash bundle with 2 resolved frames must render Call chain block; got:\n%s", got)
+	}
+	if !strings.Contains(got, "innermost failure: internal/agent/analyzer.go:250") {
+		t.Errorf("innermost frame label missing; got:\n%s", got)
+	}
+	if !strings.Contains(got, "caller (outermost): internal/agent/analyzer.go:320") {
+		t.Errorf("outermost-caller label missing; got:\n%s", got)
+	}
+	if !strings.Contains(got, "diagram grounding gate") {
+		t.Errorf("block must reference the diagram grounding gate so LLM knows the downstream contract; got:\n%s", got)
+	}
+}
+
+// Session-22 F3.1 (negative): non-crash bundles (oom / timeout /
+// validation / ...) do NOT get the Call chain block — the frames may
+// be a middleware chain rather than a failure call path.
+func TestFormatLogTriageStructured_SkipsCallChainForNonCrashSignals(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{
+			Lang:    "python",
+			Signals: []types.LogSignal{types.SignalValidation},
+		},
+		Errors: []types.LogError{
+			{
+				Type: "ValidationError",
+				Frames: []types.LogFrame{
+					{File: "a.py", Line: 10, Func: "validate", Confidence: 1.0},
+					{File: "b.py", Line: 20, Func: "parse", Confidence: 1.0},
+				},
+			},
+		},
+		ResolvedFiles: []string{"a.py", "b.py"},
+	}
+	got := formatLogTriageStructured(bundle)
+	if strings.Contains(got, "### Call chain") {
+		t.Errorf("non-crash signals must skip Call chain block; got:\n%s", got)
+	}
+}
+
+// Session-22 F3.1: a panic bundle with only one resolved frame yields
+// no Call chain — the chain needs at least a caller and a callee to
+// carry meaning.
+func TestFormatLogTriageStructured_SkipsCallChainWithSingleFrame(t *testing.T) {
+	bundle := &types.LogBundle{
+		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{
+			{
+				Type: "panic",
+				Frames: []types.LogFrame{
+					{File: "a.go", Line: 5, Func: "main", Confidence: 1.0},
+				},
+			},
+		},
+		ResolvedFiles: []string{"a.go"},
+	}
+	got := formatLogTriageStructured(bundle)
+	if strings.Contains(got, "### Call chain") {
+		t.Errorf("single-frame panic must skip Call chain block; got:\n%s", got)
+	}
+}

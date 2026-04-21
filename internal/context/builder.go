@@ -1503,6 +1503,26 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		}
 	}
 
+	// ── Call Chain (innermost → outer) ─────────────────────────
+	//
+	// Session 22 fix F3.1. The Errors tree renders frames as sibling
+	// bullets in stack order, but the caller→callee relationship is
+	// implicit: the LLM has to know Go panic / Java stack / Python
+	// traceback conventions to read which frame called which. When the
+	// attached log is a panic / crash, the frames ARE the call chain
+	// the answer's diagram should draw — rendering that chain
+	// explicitly, with roles spelled out, gives the LLM a ready-made
+	// skeleton and stops it from inventing callers from the ranker's
+	// "structurally relevant" neighbours.
+	//
+	// Gate on Signals ∩ {panic, crash}: stack-frame ordering is
+	// semantically meaningful for runtime crashes but NOT for e.g.
+	// validation / logic / db error logs where frames may be a
+	// middleware chain rather than a failure call path.
+	if section := renderLogCallChain(bundle); section != "" {
+		b.WriteString(section)
+	}
+
 	// ── Unknown chunks (brief) ─────────────────────────────────
 	if len(bundle.Residue.UnknownChunks) > 0 {
 		b.WriteString("### Unstructured residue\n\n")
@@ -1599,6 +1619,96 @@ func renderLogFrame(b *strings.Builder, f *types.LogFrame, depth int) {
 		fmt.Fprintf(b, "\n%s  raw: `%s`", indent, truncateForPrompt(raw, 200))
 	}
 	b.WriteString("\n")
+}
+
+// renderLogCallChain emits the "### Call Chain (innermost → outer)"
+// block when the bundle's Signals include panic or crash AND the
+// primary error has at least two resolved frames. The block spells
+// out the caller→callee roles one frame at a time so the finalizer
+// can draw the answer's call-DAG diagram verbatim from the block,
+// instead of inventing callers from the structural-ranker candidates
+// that landed in Analyzer's Required Files.
+//
+// Scope decisions:
+//
+//   - Signals gate: only {panic, crash}. For oom / timeout / validation
+//     / db / network / permission / logic, the frames may represent a
+//     middleware pipeline rather than a failure call path, so labeling
+//     them "caller" / "callee" would over-claim.
+//   - Errors[0] only: when the bundle carries multiple parallel
+//     snapshots (Go goroutine dump), the validator has already sorted
+//     them with the most-significant first. Rendering all parallel
+//     snapshots as separate chains would add noise for a small gain.
+//   - Resolved frames only: an unresolved frame's file cannot be
+//     cited, so putting it in the skeleton risks the literal-grounding
+//     gate rejecting the answer. Unresolved frames remain visible in
+//     the Errors tree above for context.
+//
+// Returns the empty string when no block is warranted so the caller
+// can simply `b.WriteString(section)` without a nil guard.
+func renderLogCallChain(bundle *types.LogBundle) string {
+	if bundle == nil || len(bundle.Errors) == 0 {
+		return ""
+	}
+	if !logBundleSignalsIncludeCrash(bundle) {
+		return ""
+	}
+	resolved := make([]types.LogFrame, 0, len(bundle.Errors[0].Frames))
+	for _, f := range bundle.Errors[0].Frames {
+		if f.File == "" || f.Line <= 0 {
+			continue
+		}
+		resolved = append(resolved, f)
+	}
+	if len(resolved) < 2 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("### Call chain (innermost → outer)\n\n")
+	b.WriteString("The panic / crash frames above describe the call chain the answer's " +
+		"ASCII diagram should draw. If your summary contains a call-chain / sequence / " +
+		"flow diagram, base it on these frames verbatim — the innermost frame is the " +
+		"failure site, each outer frame is its direct caller, and every file named in " +
+		"the diagram must appear in this list or in citations[] (the diagram grounding " +
+		"gate rejects unknown file names inside fenced code blocks).\n\n")
+	b.WriteString("```\n")
+	for i, f := range resolved {
+		name := f.Func
+		if name == "" {
+			if f.Pkg != "" {
+				name = "(" + f.Pkg + ")"
+			} else {
+				name = "(no symbol)"
+			}
+		}
+		switch {
+		case i == 0:
+			fmt.Fprintf(&b, "innermost failure: %s:%d  in %s\n", f.File, f.Line, name)
+		case i == len(resolved)-1:
+			fmt.Fprintf(&b, "  ↑ caller (outermost): %s:%d  in %s\n", f.File, f.Line, name)
+		default:
+			fmt.Fprintf(&b, "  ↑ caller:             %s:%d  in %s\n", f.File, f.Line, name)
+		}
+	}
+	b.WriteString("```\n\n")
+	return b.String()
+}
+
+// logBundleSignalsIncludeCrash reports whether Meta.Signals contains
+// panic or crash. Isolated for test clarity — the gate logic is
+// exactly one set-membership check but the intent (runtime failure vs.
+// middleware trace) is worth naming.
+func logBundleSignalsIncludeCrash(bundle *types.LogBundle) bool {
+	if bundle == nil {
+		return false
+	}
+	for _, s := range bundle.Meta.Signals {
+		if s == types.SignalPanic || s == types.SignalCrash {
+			return true
+		}
+	}
+	return false
 }
 
 // truncateForPrompt clips a string for prompt rendering. Unlike
