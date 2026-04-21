@@ -418,6 +418,30 @@ func (r *REPL) readInputLines() (string, error) {
 // dispatch runs one user request through the orchestrator and prints
 // the result, then records the turn in memory.
 func (r *REPL) dispatch(line string) {
+	// T1.1: auto-route pasted log content into AttachedLog so the
+	// log_triage pre-stage parses it with the LLM instead of letting
+	// the analyzer's TermGraph / keyword_search be poisoned by log
+	// timestamps and stack-frame literals. Only fires when the user
+	// has NOT already set an explicit log via /log — explicit > auto.
+	if r.attachedLog == "" {
+		cleaned, detected := splitPastedLog(line)
+		if detected != "" {
+			if len(detected) > maxREPLAttachedLogBytes {
+				r.warn("auto-detected log hit %d-byte cap; truncating\n", maxREPLAttachedLogBytes)
+				detected = detected[:maxREPLAttachedLogBytes]
+			}
+			r.attachedLog = detected
+			r.info(fmt.Sprintf("auto-attached log: %d bytes (/log clear to remove)", len(detected)))
+			line = cleaned
+			if strings.TrimSpace(line) == "" {
+				// All the user typed was the log. Supply a minimal
+				// placeholder so the analyzer still has a request
+				// string; log_triage will drive the intent.
+				line = "分析附带的日志"
+			}
+		}
+	}
+
 	prior := r.store.BuildContext(line)
 	effective := line
 	if prior != "" {
