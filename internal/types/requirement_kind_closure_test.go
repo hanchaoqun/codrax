@@ -84,7 +84,13 @@ func TestEvidenceKind_IsLLMEmittable_Partition(t *testing.T) {
 		EvidenceRegistration: true,
 		EvidenceMechanism:    true,
 		EvidenceRelationship: true,
-		EvidenceAbsent:       true,
+		// EvidenceAbsent: Schema-deprecated from the emit_evidence
+		// channel because the tool's validator requires line_start >
+		// 0 + anchor anchor_symbol for every kind, which is
+		// unsatisfiable for "searched and found nothing" claims. The
+		// type constant remains for the legacy <think>-block prose
+		// parser; the emit_evidence schema enum excludes it.
+		EvidenceAbsent:       false,
 		EvidenceConcrete:     false,
 		EvidenceDataflowPath: false,
 		EvidenceConflict:     false,

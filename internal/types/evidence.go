@@ -54,21 +54,42 @@ func AllEvidenceKinds() []EvidenceKind {
 }
 
 // IsLLMEmittable reports whether this EvidenceKind is one the LLM is
-// allowed to produce through the emit_evidence tool. The six
+// allowed to produce through the emit_evidence tool. The five
 // "investigation-shape" kinds (direct / conditional / registration /
-// mechanism / relationship / absent) are emittable; the five
-// deterministic-only kinds (concrete_value / dataflow_path /
-// conflict / unresolved / analysis_truncated) are not — they are
-// written exclusively by Go code that has already done the
-// structural work, so allowing the LLM to emit them would let it
-// launder unverified claims through a channel whose semantic contract
-// is "I ran a deterministic check". The emit_evidence tool derives
-// its schema enum and its accept-list from this predicate so the
-// canonical list and the tool contract cannot drift apart.
+// mechanism / relationship) are emittable; the six remaining kinds
+// are not — they fall into two families:
+//
+//  1. Deterministic-only: concrete_value / dataflow_path / conflict /
+//     unresolved / analysis_truncated are written exclusively by Go
+//     code that has already done the structural work, so allowing
+//     the LLM to emit them would let it launder unverified claims
+//     through a channel whose semantic contract is "I ran a
+//     deterministic check".
+//
+//  2. Schema-deprecated: absent. An absent item has no concrete file
+//     anchor (the whole point is "I searched and found nothing"),
+//     but the tool's validator requires line_start > 0 + anchor_kind +
+//     anchor_symbol uniformly across all kinds. The semantic
+//     contradiction produced the logtri_custom rejection loop
+//     (LLM retries kind=absent with line_start=0, gets uniformly
+//     rejected, eventually hacks around it by picking an arbitrary
+//     "related" file line). The proper absence channel is
+//     emit_investigation_complete.absence_justification, which is
+//     whole-answer scoped, has dedicated validation, and waives the
+//     citation floor by contract. Keeping EvidenceAbsent as a type
+//     constant for the legacy prose-tag parser (agent/evidence.go
+//     parseEvidenceLine reads `[ABSENT]` bracketed-tag notes from
+//     the LLM's <think> blocks, an independent pre-tool channel
+//     that never had the validator problem), while removing it from
+//     the emit_evidence tool schema.
+//
+// The emit_evidence tool derives its schema enum and its accept-list
+// from this predicate so the canonical list and the tool contract
+// cannot drift apart.
 func (k EvidenceKind) IsLLMEmittable() bool {
 	switch k {
 	case EvidenceDirect, EvidenceConditional, EvidenceRegistration,
-		EvidenceMechanism, EvidenceRelationship, EvidenceAbsent:
+		EvidenceMechanism, EvidenceRelationship:
 		return true
 	}
 	return false

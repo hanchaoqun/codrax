@@ -55,6 +55,7 @@ type explorerEvaluator struct {
 	midLoopEvidenceRepairSent  bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
 	midLoopIntentWindowSent    bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
 	midLoopRankerCoverageSent  bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
+	midLoopAbsentRedirectSent  bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
 	midLoopEnumInjected        bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	primaryReadSeen            bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter            int                   // df3-drift: iter at which a primary-entity file first entered readSet
@@ -184,6 +185,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopEvidenceRepairSent = false
 		e.midLoopIntentWindowSent = false
 		e.midLoopRankerCoverageSent = false
+		e.midLoopAbsentRedirectSent = false
 		e.midLoopEnumInjected = false
 		e.primaryReadSeen = false
 		e.primaryReadIter = 0
@@ -248,6 +250,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
+	e.midLoopAbsentRedirectSent = false
 	e.midLoopEnumInjected = false
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
@@ -2815,6 +2818,57 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				len(e.allScoredFiles), len(missing), topK, strings.Join(missing, ", "))
 			e.midLoopRankerCoverageSent = true
 			hintKey = "explorer.mid-loop.ranker-coverage"
+		}
+	}
+
+	// Check 7: emit_evidence kind=absent deprecation redirect
+	// (session-22 follow-up).
+	//
+	// The default analyze/explore prompts intentionally do not warn
+	// against kind=absent — it is a rare antipattern (maybe 1% of
+	// queries, where the LLM tries to emit per-fact "not found"
+	// claims through the evidence channel) and pre-declaring every
+	// deprecated kind in the skill would bloat the prompt. Instead,
+	// we detect the bug in situ: the tool's reject message already
+	// includes the full redirect to absence_justification, but
+	// some LLMs ignore the tool result and re-emit the same batch
+	// with a slight rewording.
+	//
+	// After we see the structured redirect string ("kind=absent is
+	// not emittable via emit_evidence") appear in 2 OR MORE failed
+	// tool results, inject a stronger orchestrator-level hint. The
+	// orchestrator channel is visually distinct from tool results —
+	// the LLM treats it as a system directive rather than
+	// tool-validation feedback, which increases the chance of
+	// course-correction.
+	//
+	// One-shot per dispatch; reset cross-dispatch so a later window
+	// can fire again if the LLM slips back.
+	if b.Len() == 0 && !e.midLoopAbsentRedirectSent {
+		const marker = "kind=absent is not emittable via emit_evidence"
+		hits := 0
+		for i := range allResults {
+			r := &allResults[i]
+			if r.Success || r.ToolName != "emit_evidence" {
+				continue
+			}
+			if strings.Contains(r.Summary, marker) {
+				hits++
+				if hits >= 2 {
+					break
+				}
+			}
+		}
+		if hits >= 2 {
+			b.WriteString(
+				"MID-LOOP CHECK: your emit_evidence batch has been rejected multiple times for including kind=absent items. " +
+					"This kind was deprecated from the emit_evidence channel because the tool's validator requires line_start > 0 + anchor_kind + anchor_symbol for every item — a 'searched and found nothing' claim cannot satisfy these. " +
+					"ACTION: re-emit the batch with kind=absent items REMOVED. " +
+					"If the overall answer is 'zero / no X' (whole-answer absence), declare it on emit_investigation_complete by setting `absence_justification` to a one-sentence explanation of what was searched and not found — that field waives the citation floor by contract. " +
+					"If the absence is per-fact inside a larger investigation, just omit the item from emit_evidence and describe the absence in your <think> notes (the finalizer's summary can pick it up from there). " +
+					"Do not retry kind=absent — the channel will keep rejecting.\n")
+			e.midLoopAbsentRedirectSent = true
+			hintKey = "explorer.mid-loop.absent-redirect"
 		}
 	}
 

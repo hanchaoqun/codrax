@@ -160,7 +160,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
       "items": {
         "type": "object",
         "properties": {
-          "kind":          {"type": "string", "enum": %s, "description": "Evidence shape. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). absent = expected pattern was looked for and NOT found."},
+          "kind":          {"type": "string", "enum": %s, "description": "Evidence shape. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). NOTE: for absence claims (searched and found nothing) do NOT emit via this tool — every kind requires a concrete file:line anchor, which is unsatisfiable for 'not found'. Use emit_investigation_complete.absence_justification for whole-answer absence, or simply omit the item for per-fact absence."},
           "subject":       {"type": "string", "description": "Primary semantic symbol the item is about (function name, type, key). For call-like predicates with anchor_kind='call', subject MUST be the caller / containing function at that line."},
           "predicate":     {"type": "string", "description": "Lowercase verb tying subject to object. PREFER these canonical verbs so the finalizer's deterministic relation-diagram renderer picks the edge up — anything outside this list is rendered as unstructured prose: calls, invokes, dispatches, delegates to, binds, binds ONLY, registers, wires, provides, returns, yields, constructs, instantiates, defines, implements, extends, embeds, maps, config, decorates. Optional; defaults to the lower-cased kind."},
           "object":        {"type": "string", "description": "Secondary symbol or value. Required for relationship; optional otherwise. For call-like predicates with anchor_kind='call', object MUST be the callee symbol on that line."},
@@ -355,6 +355,20 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	kindKey := strings.ToLower(strings.TrimSpace(in.Kind))
 	kind, ok := emitEvidenceAllowedKinds[kindKey]
 	if !ok {
+		// Schema-deprecation redirect (logtri_custom root cause):
+		// kind=absent used to live in the tool's enum but the
+		// validator always required line_start > 0 + anchor_kind +
+		// anchor_symbol, which an "I searched and found nothing"
+		// claim cannot satisfy. Rather than emit a bland "unknown
+		// kind" message that sends the LLM into retry-loop territory
+		// (trace 2026-04-21 logtri_custom: 10+ iters before the LLM
+		// reverse-engineered a hacky workaround), point it at the
+		// proper absence channel directly.
+		if kindKey == "absent" {
+			return types.EvidenceItem{}, fmt.Errorf(
+				"items[%d]: kind=absent is not emittable via emit_evidence — the tool requires line_start > 0 + anchor_kind + anchor_symbol for every evidence item, which is unsatisfiable for 'searched and found nothing' claims. For whole-answer absence (the user's question resolves to 'no X exists'), set `absence_justification` on emit_investigation_complete with a one-sentence explanation and skip emit_evidence for the zero result. For per-fact absence inside a larger investigation, simply omit the item — the finalizer's summary is the right place to describe what was absent. Allowed kinds via emit_evidence: %s.",
+				index, strings.Join(emitEvidenceAllowedKindNames(), ", "))
+		}
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown kind %q (allowed: %s)", index, in.Kind, strings.Join(emitEvidenceAllowedKindNames(), ", "))
 	}
 	source := strings.TrimSpace(in.Source)
