@@ -614,6 +614,15 @@ BusContext.AttachedLog     emit_log_triage├
                                                                        EvidencePlan.RequiredFiles
 ```
 
+**下游 prompt 渲染**：`Mutable.LogTriage()` 镜像到 `AgentContext.LogTriage`，`context/builder.go::formatLogTriageStructured` 对非 `log_triager` agent 渲染一个"Log Triage — Validated Extraction" prompt section,内容按审计友好结构:
+
+- **Meta 块**:`Language` / `Signals` / `Summary` / `Coverage` / `IntentHint` 逐行
+- **Errors 树**:顶层按平行快照编号,递归 `Cause` 链以 `↳ caused by` 缩进渲染。每帧带 `★ resolved` 标记(当 File+Line 都验证通过时)/`(unresolved)` 标记(当 File 被清空或 Confidence < 0.6 时),末尾附 `confidence 0.XX` + `raw:` 原日志行
+- **Unstructured residue**:`Residue.UnknownChunks` 显式标注"NOT citeable"
+- **Provenance legend**:明确告诉 LLM ★ 的含义、不带 ★ 的帧不得 cite、每条 `raw:` 用于 auditor 交叉比对
+
+该 section 放在 "Attached Runtime Log"(原始日志)**之前**,结构化视图优先,原文作为备查。修复了 Java / Python / Rust 多层 `Caused by` 链在 finalizer 重新 parse 原文时偶尔漏层的质量回退——LLM 直接读已验证的树而不是 re-derive。`log_triager` agent 自身跳过该 section(产品消费自环)。
+
 **两步自适应抽取**：默认单次 `emit_log_triage` 调用。当 `len(AttachedLog) >= log_triage_two_step_bytes`（默认 32 KB）或单次抽取结果 `Coverage < log_triage_two_step_coverage`（默认 0.3）时自动升级：先调 `emit_log_segmentation` 让 LLM 按 `stack` / `caused_by` / `header` / `context` / `trace` / `noise` 切片打字节坐标，再对每个 `stack` / `caused_by` / `trace` 段分别调 `emit_log_triage`，最后 `logtriage.MergeBundles` 合并——`Meta.Signals` 并集、`Errors[]` 平行拼接、Layer 4 基于合并后的 Layer 1-3 重新派生。全过程 LLM 调用次数受 `log_triage_max_llm_calls`（默认 8）硬上限。
 
 **路径解析与过滤**（`internal/analysis/logtriage/resolver.go`）：

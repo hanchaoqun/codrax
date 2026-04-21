@@ -412,14 +412,37 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		}
 	}
 
-	// Session 19 log-triage: render the attached runtime log excerpt
-	// (panic / exception / sanitizer diagnostic / traceback) as its own
-	// user-prompt section right after User Request so the LLM sees the
-	// actual error context when investigating "这个 panic 来自哪里" /
-	// "analyze this crash" questions. AnalyzerHints.Entities and
-	// EvidencePlan.RequiredFiles already carry the parsed anchors, but
-	// the LLM needs the raw text to reason about error messages,
-	// signal types, and the order of frames.
+	// Log-triage structured bundle. When the log_triage pre-stage
+	// produced a validated LogBundle, render it as a dedicated prompt
+	// section BEFORE the raw log — the structured view preserves the
+	// Cause chain's nesting (critical for Java Caused-by / Rust
+	// #[source] / Python __cause__) so the LLM does not need to
+	// re-parse multi-level causality from raw text. Skipped for the
+	// log_triager agent itself (it is the producer, not a consumer)
+	// and when no bundle was emitted.
+	//
+	// Size note: the structured section is typically much smaller
+	// than the raw log (no boilerplate, no repeated frames across
+	// parallel goroutines), so adding it alongside the raw section
+	// is a small prompt-budget cost in exchange for consistent
+	// causality rendering in downstream answers.
+	if ac.AgentName != types.AgentLogTriager {
+		if section := formatLogTriageStructured(ac.LogTriage); section != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   "Log Triage — Validated Extraction",
+				Content: section,
+			})
+		}
+	}
+
+	// Raw attached log body. Kept as a distinct section alongside the
+	// structured Validated Extraction above so the LLM can still read
+	// exact text when it needs a quote the structured view summarised,
+	// or when it wants to see non-stack context (log lines adjacent to
+	// the error that hint at timing / configuration / upstream state).
+	// AnalyzerHints.Entities and EvidencePlan.RequiredFiles already
+	// carry the parsed anchors; this section exists for narrative
+	// continuity and for auditor cross-check against quotes.
 	//
 	// Size strategy (mirrors internal/tool/blob for tool results):
 	//   - ≤ inlineCap (4 KB): inline the whole body.
@@ -1362,6 +1385,221 @@ func formatAttachedLog(raw, workDir string) string {
 		"```\n" + head +
 		fmt.Sprintf("\n... [%d bytes elided] ...\n", elided) +
 		tail + "\n```"
+}
+
+// formatLogTriageStructured renders the validated LogBundle as an
+// audit-friendly prompt section. Complements formatAttachedLog (raw
+// log body) by giving downstream agents — especially the finalizer
+// rendering multi-level Cause chains — a pre-structured view that
+// does not require re-parsing the raw text.
+//
+// Audit discipline the renderer follows:
+//
+//  1. Provenance is explicit. Frames whose File survived os.Stat
+//     verification in the repo are marked `★ resolved`; frames with
+//     File cleared (hallucination-filtered) show no star. The
+//     accompanying legend tells the LLM which frames may be cited as
+//     file:line and which must stay contextual.
+//  2. Raw field is always rendered. Every frame carries the original
+//     log text it was extracted from; an auditor reading a trace can
+//     cross-check the LLM's downstream answer against what the log
+//     actually said at each frame, without re-fetching the raw body.
+//  3. Confidence is surfaced. The LLM sees the 0.0-1.0 self-assessed
+//     certainty per frame and can soften its own claims when the
+//     confidence is below the 0.6 floor.
+//  4. Signals and Coverage are explicit. The LLM knows what
+//     categorical classification happened and how much of the log
+//     was left unstructured in Residue.
+//  5. Cause chain depth is visible. Nested "caused by" blocks show
+//     exception wrapping (Java Caused-by / Rust #[source] / Python
+//     __cause__) at the correct nesting level — no prose
+//     re-interpretation needed.
+//  6. No internal-pipeline leakage. The renderer does NOT mention
+//     the extractor agent, ValidateBundle, stage boundaries, or any
+//     scaffolding detail — just "this data was validated" + the
+//     provenance flags that back the claim.
+//
+// Returns "" when bundle is nil or entirely empty (zero Meta + zero
+// Errors + zero Residue). Caller uses that as the skip signal.
+func formatLogTriageStructured(bundle *types.LogBundle) string {
+	if bundle == nil {
+		return ""
+	}
+	if bundle.Meta.Lang == "" && len(bundle.Errors) == 0 &&
+		len(bundle.Residue.UnknownChunks) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("The attached runtime log was parsed into the structured view below. " +
+		"Prefer this view for citing frames and reasoning about the error chain — " +
+		"the full raw log is still available in the next section for cross-checking " +
+		"quotes or reading context that did not fit the structured schema.\n\n")
+
+	// ── Meta block ────────────────────────────────────────────
+	if bundle.Meta.Lang != "" {
+		fmt.Fprintf(&b, "- Language: %s\n", bundle.Meta.Lang)
+	}
+	if len(bundle.Meta.Signals) > 0 {
+		sigs := make([]string, len(bundle.Meta.Signals))
+		for i, s := range bundle.Meta.Signals {
+			sigs[i] = string(s)
+		}
+		fmt.Fprintf(&b, "- Signals: %s\n", strings.Join(sigs, ", "))
+	}
+	if bundle.Meta.Summary != "" {
+		fmt.Fprintf(&b, "- Summary: %s\n", bundle.Meta.Summary)
+	}
+	fmt.Fprintf(&b, "- Coverage: %.2f", bundle.Coverage)
+	residueBytes := 0
+	for _, c := range bundle.Residue.UnknownChunks {
+		residueBytes += len(c)
+	}
+	if residueBytes > 0 {
+		fmt.Fprintf(&b, " (unstructured residue: %d bytes in %d chunks)",
+			residueBytes, len(bundle.Residue.UnknownChunks))
+	}
+	b.WriteString("\n")
+	if bundle.IntentHint != "" {
+		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
+	}
+	b.WriteString("\n")
+
+	// ── Errors tree ────────────────────────────────────────────
+	if len(bundle.Errors) > 0 {
+		if len(bundle.Errors) > 1 {
+			fmt.Fprintf(&b, "### Errors (%d parallel snapshots)\n\n", len(bundle.Errors))
+		} else {
+			b.WriteString("### Error\n\n")
+		}
+		for i := range bundle.Errors {
+			renderLogError(&b, &bundle.Errors[i], 0, i+1)
+			b.WriteString("\n")
+		}
+	}
+
+	// ── Unknown chunks (brief) ─────────────────────────────────
+	if len(bundle.Residue.UnknownChunks) > 0 {
+		b.WriteString("### Unstructured residue\n\n")
+		b.WriteString("The extractor could not map these chunks to the error tree; " +
+			"they are included verbatim for context only and are NOT citeable anchors:\n\n")
+		for i, chunk := range bundle.Residue.UnknownChunks {
+			trimmed := strings.TrimSpace(chunk)
+			if trimmed == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "  %d. %s\n", i+1, truncateForPrompt(trimmed, 200))
+		}
+		b.WriteString("\n")
+	}
+
+	// ── Provenance legend (audit anchor) ───────────────────────
+	b.WriteString("### Provenance legend\n\n")
+	b.WriteString("- `★ resolved` on a frame means the file path was verified to " +
+		"exist in the repository. These frames are safe to cite as `file:line` " +
+		"in answers and evidence.\n")
+	b.WriteString("- Frames without `★ resolved` had their File cleared because " +
+		"the path could not be verified in the repo (build-prefix strip failed, " +
+		"path escaped the repo, file does not exist) or their confidence fell " +
+		"below the 0.6 cite floor. Use them for context (function name, package, " +
+		"error type) but do NOT cite their line numbers.\n")
+	b.WriteString("- Each frame carries the `raw:` original log text. Cross-check " +
+		"this against any quote you attribute to that frame in your answer.\n")
+
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// renderLogError walks a LogError and its Cause chain, writing the
+// markdown-like tree into b. depth is the current nesting level
+// (0 = top-level error); index is the human 1-based numbering for
+// the outermost-level sibling list. Cause chain depth is bounded by
+// logtriage.ValidateBundle (LogBundleCaps.MaxCauseDepth = 5) — this
+// function does not re-truncate; it trusts the upstream contract.
+func renderLogError(b *strings.Builder, e *types.LogError, depth, index int) {
+	if e == nil {
+		return
+	}
+	indent := strings.Repeat("   ", depth)
+	if depth == 0 {
+		fmt.Fprintf(b, "%d. **%s**", index, e.Type)
+	} else {
+		fmt.Fprintf(b, "%s↳ caused by **%s**", indent, e.Type)
+	}
+	if e.Message != "" {
+		fmt.Fprintf(b, " — %s", truncateForPrompt(e.Message, 200))
+	}
+	b.WriteString("\n")
+
+	for i := range e.Frames {
+		renderLogFrame(b, &e.Frames[i], depth)
+	}
+
+	if e.Cause != nil {
+		b.WriteString("\n")
+		renderLogError(b, e.Cause, depth+1, 0)
+	}
+}
+
+// renderLogFrame writes one frame with its provenance markers. Frames
+// whose File is non-empty passed the os.Stat repo-verification in
+// logtriage.ValidateBundle and are citeable; other frames render
+// without the ★ marker and without a file:line column so the LLM
+// cannot accidentally cite them as authoritative.
+func renderLogFrame(b *strings.Builder, f *types.LogFrame, depth int) {
+	indent := strings.Repeat("   ", depth+1)
+	resolved := f.File != "" && f.Line > 0
+	if resolved {
+		fmt.Fprintf(b, "%s- ★ resolved `%s:%d`", indent, f.File, f.Line)
+		if f.Func != "" {
+			fmt.Fprintf(b, " in `%s`", f.Func)
+		}
+	} else {
+		// Unresolved / low-confidence / partial frame.
+		var head string
+		switch {
+		case f.Func != "":
+			head = fmt.Sprintf("in `%s`", f.Func)
+		case f.Pkg != "":
+			head = fmt.Sprintf("in package `%s`", f.Pkg)
+		default:
+			head = "(no symbol)"
+		}
+		fmt.Fprintf(b, "%s- (unresolved) %s", indent, head)
+	}
+	if f.Pkg != "" && resolved {
+		fmt.Fprintf(b, " (pkg: `%s`)", f.Pkg)
+	}
+	fmt.Fprintf(b, " — confidence %.2f", f.Confidence)
+	if raw := strings.TrimSpace(f.Raw); raw != "" {
+		fmt.Fprintf(b, "\n%s  raw: `%s`", indent, truncateForPrompt(raw, 200))
+	}
+	b.WriteString("\n")
+}
+
+// truncateForPrompt clips a string for prompt rendering. Unlike
+// truncateStr (log-line digest), this one appends an explicit
+// ellipsis marker so the LLM sees that truncation happened and does
+// not assume the quoted text is complete.
+func truncateForPrompt(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	// Trim to a rune boundary so multibyte UTF-8 does not split.
+	trimmed := s
+	if max < len(s) {
+		trimmed = s[:max]
+		for len(trimmed) > 0 && !isUTF8Boundary(trimmed[len(trimmed)-1]) {
+			trimmed = trimmed[:len(trimmed)-1]
+		}
+	}
+	return trimmed + "…[truncated]"
+}
+
+// isUTF8Boundary reports whether b is a valid start of a UTF-8 rune
+// or a continuation byte's terminal slot. Used by truncateForPrompt
+// to avoid emitting broken multibyte sequences into the prompt.
+func isUTF8Boundary(b byte) bool {
+	return b < 0x80 || (b&0xC0) == 0xC0 || (b&0xC0) != 0x80
 }
 
 func formatStageReports(reports []types.StageReport) string {

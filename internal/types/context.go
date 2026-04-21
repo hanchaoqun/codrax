@@ -444,9 +444,11 @@ func (m *MutableState) LogTriage() *LogBundle {
 
 // SetLogTriage stores the validated LogBundle produced by the
 // log_triager agent. Called at most once per Run — the log_triage
-// pre-stage runs exactly once before analyze. Pass nil to explicitly
-// clear (used by tests and by ResetLogTriage for REPL per-turn
-// cleanup when a new /log replaces the previous payload).
+// pre-stage runs exactly once before analyze. The two-step controller
+// also calls SetLogTriage(nil) between partial-segment dispatches to
+// clear the slot before the next partial emit. Explicit per-turn
+// cleanup is not needed — each orchestrator.Run constructs a fresh
+// MutableState.
 func (m *MutableState) SetLogTriage(b *LogBundle) {
 	if m == nil {
 		return
@@ -454,21 +456,6 @@ func (m *MutableState) SetLogTriage(b *LogBundle) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logTriage = b
-}
-
-// ResetLogTriage clears the stored bundle. Used by the REPL loop at
-// the start of each turn so a prior /log invocation's triage does
-// not leak into the new turn. Mirrors the ResetTurnAArtifacts /
-// ResetAnswerDocument pattern. Also clears any segmentation scratch
-// from a previous two-step run.
-func (m *MutableState) ResetLogTriage() {
-	if m == nil {
-		return
-	}
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.logTriage = nil
-	m.logSegments = nil
 }
 
 // SetLogSegments stores the opaque JSON-marshalled segment payload
