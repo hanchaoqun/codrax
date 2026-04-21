@@ -14,7 +14,7 @@ import (
 // can drive directly.
 
 func newTestModel() *inputModel {
-	return newInputModel("❯❯", nil, false, 80)
+	return newInputModel("❯❯", nil, false, 80, 0) // 0 → DefaultPasteFoldMinChars
 }
 
 // Helper: send a rune-only key (e.g. ASCII char) through Update.
@@ -77,6 +77,58 @@ func TestPasteFolding_ShortSingleLine_Verbatim(t *testing.T) {
 	}
 }
 
+func TestPasteFolding_SingleLineAtDefaultThreshold_Folds(t *testing.T) {
+	// Default DefaultPasteFoldMinChars = 60. A 70-rune single-line
+	// ASCII paste must fold; a 59-rune paste must not.
+	m := newTestModel()
+	long := strings.Repeat("a", 70)
+	m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(long)}))
+	if !placeholderRE.MatchString(m.ti.Value()) {
+		t.Errorf("70-char paste should fold at default threshold, buf=%q", m.ti.Value())
+	}
+
+	m2 := newTestModel()
+	short := strings.Repeat("b", 59)
+	m2.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(short)}))
+	if placeholderRE.MatchString(m2.ti.Value()) {
+		t.Errorf("59-char paste must not fold, buf=%q", m2.ti.Value())
+	}
+}
+
+func TestPasteFolding_CJK_CountsRunesNotBytes(t *testing.T) {
+	// 30 Chinese chars = 30 runes (90 bytes in UTF-8). Under the
+	// 60-char floor, so must NOT fold.
+	m := newTestModel()
+	cjk := strings.Repeat("字", 30)
+	m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(cjk)}))
+	if placeholderRE.MatchString(m.ti.Value()) {
+		t.Errorf("30 CJK chars (< 60) must not fold, buf=%q", m.ti.Value())
+	}
+
+	// 65 chars → fold.
+	m2 := newTestModel()
+	big := strings.Repeat("字", 65)
+	m2.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune(big)}))
+	if !placeholderRE.MatchString(m2.ti.Value()) {
+		t.Errorf("65 CJK chars must fold, buf=%q", m2.ti.Value())
+	}
+}
+
+func TestPasteFolding_CustomThreshold_Respected(t *testing.T) {
+	// Caller-supplied threshold overrides the default.
+	m := newInputModel("❯❯", nil, false, 80, 10) // fold at ≥10 chars
+	m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune("abcdefghij")}))
+	if !placeholderRE.MatchString(m.ti.Value()) {
+		t.Errorf("10-char paste at custom threshold=10 should fold, buf=%q", m.ti.Value())
+	}
+
+	m2 := newInputModel("❯❯", nil, false, 80, 10)
+	m2.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune("abcdef")}))
+	if placeholderRE.MatchString(m2.ti.Value()) {
+		t.Errorf("6-char paste under threshold=10 must not fold, buf=%q", m2.ti.Value())
+	}
+}
+
 func TestPasteFolding_BackspaceDeletesWholeToken(t *testing.T) {
 	m := newTestModel()
 	sendRunes(m, 'h', 'i', ' ')
@@ -114,7 +166,7 @@ func TestCursorSnap_LeftInSideSpan_SnapsToStart(t *testing.T) {
 }
 
 func TestHistoryPrevNext_RestoresDraft(t *testing.T) {
-	m := newInputModel("❯❯", []string{"oldest", "middle", "newest"}, false, 80)
+	m := newInputModel("❯❯", []string{"oldest", "middle", "newest"}, false, 80, 0)
 	sendRunes(m, 'd', 'r', 'a', 'f', 't')
 
 	// Up → newest
@@ -151,7 +203,7 @@ func TestHistoryPrevNext_RestoresDraft(t *testing.T) {
 }
 
 func TestHistory_MultiLineEntryBecomesPlaceholder(t *testing.T) {
-	m := newInputModel("❯❯", []string{"single-line", "multi\nline\nentry"}, false, 80)
+	m := newInputModel("❯❯", []string{"single-line", "multi\nline\nentry"}, false, 80, 0)
 	// Up → newest is "multi\nline\nentry", should fold.
 	sendType(m, tea.KeyUp)
 	buf := m.ti.Value()

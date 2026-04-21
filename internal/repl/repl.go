@@ -64,29 +64,37 @@ type Config struct {
 	Renderer *render.Renderer
 	RepoRoot string
 	Branch   string
-	In       io.Reader // nil → interactive (huh); non-nil → line-oriented
+	In       io.Reader // nil → interactive (bubbletea); non-nil → line-oriented
 	Out      io.Writer
 
-	// UI customization (used by line-oriented mode; ignored for huh).
+	// UI customization (used by line-oriented mode).
 	Prompt     string // primary prompt, e.g. ">"
 	PromptCont string // continuation prompt, e.g. "."
 	Banner     string // printed once at start; empty → default badge
+
+	// PasteFoldMinChars is the rune-count threshold above which a
+	// single-line paste gets folded into a placeholder. Multi-line
+	// pastes always fold regardless of length. Zero or negative →
+	// DefaultPasteFoldMinChars. Surfaces
+	// codrax.yaml :: repl_paste_fold_min_chars.
+	PasteFoldMinChars int
 }
 
 // REPL drives the interactive prompt.
 type REPL struct {
-	runner     Runner
-	store      *memory.Store
-	render     ResultRenderer
-	renderer   *render.Renderer
-	repoRoot   string
-	branch     string
-	in         io.Reader
-	out        io.Writer
-	prompt     string
-	promptCont string
-	bannerText string
-	scanner    *bufio.Scanner // lazy-init for line-oriented mode
+	runner            Runner
+	store             *memory.Store
+	render            ResultRenderer
+	renderer          *render.Renderer
+	repoRoot          string
+	branch            string
+	in                io.Reader
+	out               io.Writer
+	prompt            string
+	promptCont        string
+	bannerText        string
+	scanner           *bufio.Scanner // lazy-init for line-oriented mode
+	pasteFoldMinChars int            // per-session paste-fold threshold (runes)
 
 	// attachedLog holds the runtime log excerpt the user attached via
 	// /log or `--log`. Sticky across turns until /log clear — users
@@ -99,17 +107,18 @@ type REPL struct {
 // New constructs a REPL from a Config.
 func New(cfg Config) *REPL {
 	r := &REPL{
-		runner:     cfg.Runner,
-		store:      cfg.Store,
-		render:     cfg.Render,
-		renderer:   cfg.Renderer,
-		repoRoot:   cfg.RepoRoot,
-		branch:     cfg.Branch,
-		in:         cfg.In,
-		out:        cfg.Out,
-		prompt:     cfg.Prompt,
-		promptCont: cfg.PromptCont,
-		bannerText: cfg.Banner,
+		runner:            cfg.Runner,
+		store:             cfg.Store,
+		render:            cfg.Render,
+		renderer:          cfg.Renderer,
+		repoRoot:          cfg.RepoRoot,
+		branch:            cfg.Branch,
+		in:                cfg.In,
+		out:               cfg.Out,
+		prompt:            cfg.Prompt,
+		promptCont:        cfg.PromptCont,
+		bannerText:        cfg.Banner,
+		pasteFoldMinChars: cfg.PasteFoldMinChars,
 	}
 	// Seed sticky log from whatever the runner already has (CLI set
 	// `--log` before handing off to the REPL). Keeps the invariant

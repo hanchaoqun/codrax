@@ -100,11 +100,12 @@ const maxAttachedLogBytes = 1 << 20 // 1 MB
 
 // appContext holds initialized state shared between subcommands.
 type appContext struct {
-	renderer       *render.Renderer
-	orch           *orchestrator.Orchestrator
-	defaultLLM     llm.Adapter
-	logger         *logging.Logger
-	memorySettings types.MemorySettings
+	renderer              *render.Renderer
+	orch                  *orchestrator.Orchestrator
+	defaultLLM            llm.Adapter
+	logger                *logging.Logger
+	memorySettings        types.MemorySettings
+	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
 }
 
 var app appContext
@@ -355,13 +356,14 @@ func runREPL(_ *cobra.Command) error {
 		return app.renderer.RenderResult(busCtx)
 	}
 	r := repl.New(repl.Config{
-		Runner:   app.orch,
-		Store:    store,
-		Render:   renderFn,
-		Renderer: app.renderer,
-		RepoRoot: flagRepo,
-		Branch:   flagBranch,
-		Out:      os.Stdout,
+		Runner:            app.orch,
+		Store:             store,
+		Render:            renderFn,
+		Renderer:          app.renderer,
+		RepoRoot:          flagRepo,
+		Branch:            flagBranch,
+		Out:               os.Stdout,
+		PasteFoldMinChars: app.replPasteFoldMinChars,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
@@ -507,6 +509,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 		if rs.ProvidersConfig != nil {
 			mergedProvidersConfig = *rs.ProvidersConfig
+		}
+		if rs.ReplPasteFoldMinChars != nil {
+			app.replPasteFoldMinChars = *rs.ReplPasteFoldMinChars
 		}
 	}
 

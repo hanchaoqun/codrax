@@ -114,11 +114,11 @@ type RuntimeSettings struct {
 	//     entity_hit_ratio. Entities are higher signal than
 	//     keywords so this is the stricter of the two knobs in
 	//     practice. 0 disables. Default 0.
-	AnalysisWarnBelowKeywords       *int     `yaml:"analysis_warn_below_keywords"`
-	AnalysisRejectBelowKeywords     *int     `yaml:"analysis_reject_below_keywords"`
-	AnalysisGenericEntityBlocklist  []string `yaml:"analysis_generic_entity_blocklist"`
-	AnalysisRejectMultipleEmit      *bool    `yaml:"analysis_reject_multiple_emit"`
-	AnalysisMaxPrescanRounds        *int     `yaml:"analysis_max_prescan_rounds"`
+	AnalysisWarnBelowKeywords        *int     `yaml:"analysis_warn_below_keywords"`
+	AnalysisRejectBelowKeywords      *int     `yaml:"analysis_reject_below_keywords"`
+	AnalysisGenericEntityBlocklist   []string `yaml:"analysis_generic_entity_blocklist"`
+	AnalysisRejectMultipleEmit       *bool    `yaml:"analysis_reject_multiple_emit"`
+	AnalysisMaxPrescanRounds         *int     `yaml:"analysis_max_prescan_rounds"`
 	AnalysisWarnBelowKeywordHitRatio *float64 `yaml:"analysis_warn_below_keyword_hit_ratio"`
 	AnalysisWarnBelowEntityHitRatio  *float64 `yaml:"analysis_warn_below_entity_hit_ratio"`
 
@@ -177,23 +177,23 @@ type RuntimeSettings struct {
 
 	// Agent-level limits. All optional; nil → code default in
 	// types.DefaultAgentSettings().
-	AgentMaxIterations                *int `yaml:"agent_max_iterations"`
-	AgentMaxToolHistoryBytes          *int `yaml:"agent_max_tool_history_bytes"`
-	AgentLoopMinInjectInterval        *int `yaml:"agent_loop_min_inject_interval"`
-	AgentLoopMaxContinuations         *int `yaml:"agent_loop_max_continuations"`
-	AgentLoopMaxMidLoopInjects        *int `yaml:"agent_loop_max_midloop_injects"`
-	AgentLoopIdleStopThreshold        *int `yaml:"agent_loop_idle_stop_threshold"`
-	AgentFinalizerMaxCorrectionRetries  *int    `yaml:"agent_finalizer_max_correction_retries"`
-	AgentFinalizerPreservePriorProse    *bool    `yaml:"agent_finalizer_preserve_prior_prose"`
-	AgentFinalizerShrinkageMinProseLen  *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
-	AgentFinalizerShrinkageRatio        *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
-	AgentExtractorMaxCorrectionRetries *int    `yaml:"agent_extractor_max_correction_retries"`
-	AgentSubTopicPrescanExtra          *int    `yaml:"agent_subtopic_prescan_extra"`
-	AgentSubTopicExplorerExtra         *int    `yaml:"agent_subtopic_explorer_extra"`
-	AgentSubTopicPipelineExtra         *int    `yaml:"agent_subtopic_pipeline_extra"`
-	AgentSubTopicRetryExtra            *int    `yaml:"agent_subtopic_retry_extra"`
-	AgentInvestigationCompletePolicy   *string `yaml:"agent_investigation_complete_policy"`
-	AgentPriorConvPolicy               *string `yaml:"agent_prior_conversation_policy"`
+	AgentMaxIterations                 *int     `yaml:"agent_max_iterations"`
+	AgentMaxToolHistoryBytes           *int     `yaml:"agent_max_tool_history_bytes"`
+	AgentLoopMinInjectInterval         *int     `yaml:"agent_loop_min_inject_interval"`
+	AgentLoopMaxContinuations          *int     `yaml:"agent_loop_max_continuations"`
+	AgentLoopMaxMidLoopInjects         *int     `yaml:"agent_loop_max_midloop_injects"`
+	AgentLoopIdleStopThreshold         *int     `yaml:"agent_loop_idle_stop_threshold"`
+	AgentFinalizerMaxCorrectionRetries *int     `yaml:"agent_finalizer_max_correction_retries"`
+	AgentFinalizerPreservePriorProse   *bool    `yaml:"agent_finalizer_preserve_prior_prose"`
+	AgentFinalizerShrinkageMinProseLen *int     `yaml:"agent_finalizer_shrinkage_min_prose_len"`
+	AgentFinalizerShrinkageRatio       *float64 `yaml:"agent_finalizer_shrinkage_ratio"`
+	AgentExtractorMaxCorrectionRetries *int     `yaml:"agent_extractor_max_correction_retries"`
+	AgentSubTopicPrescanExtra          *int     `yaml:"agent_subtopic_prescan_extra"`
+	AgentSubTopicExplorerExtra         *int     `yaml:"agent_subtopic_explorer_extra"`
+	AgentSubTopicPipelineExtra         *int     `yaml:"agent_subtopic_pipeline_extra"`
+	AgentSubTopicRetryExtra            *int     `yaml:"agent_subtopic_retry_extra"`
+	AgentInvestigationCompletePolicy   *string  `yaml:"agent_investigation_complete_policy"`
+	AgentPriorConvPolicy               *string  `yaml:"agent_prior_conversation_policy"`
 
 	// Memory store limits. All optional; nil → code default in
 	// types.DefaultMemorySettings().
@@ -213,18 +213,18 @@ type RuntimeSettings struct {
 	// summary_cap_enabled is the master switch. Default false → no
 	// length enforcement runs at all (the numeric knobs below are
 	// inert). Flip to true to activate the per-shape caps.
-	SummaryCapEnabled            *bool `yaml:"summary_cap_enabled"`
-	SummaryCapExplanation        *int `yaml:"summary_cap_explanation"`
-	SummaryCapValue              *int `yaml:"summary_cap_value"`
-	SummaryCapConfigValue        *int `yaml:"summary_cap_config_value"`
-	SummaryCapBoolean            *int `yaml:"summary_cap_boolean"`
-	SummaryCapStepListBase       *int `yaml:"summary_cap_step_list_base"`
-	SummaryCapStepListPerItem    *int `yaml:"summary_cap_step_list_per_item"`
-	SummaryCapStepListMax        *int `yaml:"summary_cap_step_list_max"`
-	SummaryCapSymbolsBase        *int `yaml:"summary_cap_symbols_base"`
-	SummaryCapSymbolsPerItem     *int `yaml:"summary_cap_symbols_per_item"`
-	SummaryCapSymbolsMax         *int `yaml:"summary_cap_symbols_max"`
-	SummaryCapDefault            *int `yaml:"summary_cap_default"`
+	SummaryCapEnabled         *bool `yaml:"summary_cap_enabled"`
+	SummaryCapExplanation     *int  `yaml:"summary_cap_explanation"`
+	SummaryCapValue           *int  `yaml:"summary_cap_value"`
+	SummaryCapConfigValue     *int  `yaml:"summary_cap_config_value"`
+	SummaryCapBoolean         *int  `yaml:"summary_cap_boolean"`
+	SummaryCapStepListBase    *int  `yaml:"summary_cap_step_list_base"`
+	SummaryCapStepListPerItem *int  `yaml:"summary_cap_step_list_per_item"`
+	SummaryCapStepListMax     *int  `yaml:"summary_cap_step_list_max"`
+	SummaryCapSymbolsBase     *int  `yaml:"summary_cap_symbols_base"`
+	SummaryCapSymbolsPerItem  *int  `yaml:"summary_cap_symbols_per_item"`
+	SummaryCapSymbolsMax      *int  `yaml:"summary_cap_symbols_max"`
+	SummaryCapDefault         *int  `yaml:"summary_cap_default"`
 
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
@@ -272,6 +272,18 @@ type RuntimeSettings struct {
 	LogTriageTwoStepBytes    *int     `yaml:"log_triage_two_step_bytes"`
 	LogTriageTwoStepCoverage *float64 `yaml:"log_triage_two_step_coverage"`
 	LogTriageMaxLLMCalls     *int     `yaml:"log_triage_max_llm_calls"`
+
+	// REPL interactive knobs. `repl_*` prefix groups runtime tweaks
+	// to the interactive prompt. Today only the paste-fold threshold
+	// is exposed; more can be added without breaking users.
+	//
+	//   ReplPasteFoldMinChars — pastes with >= this many runes fold
+	//                           to a `[Pasted text #N …]` placeholder.
+	//                           Multi-line pastes fold unconditionally
+	//                           regardless of length. Default 60 (≈2
+	//                           visual lines at typical widths).
+	//                           Unit is Unicode characters, not bytes.
+	ReplPasteFoldMinChars *int `yaml:"repl_paste_fold_min_chars"`
 
 	// Pointer to providers.yaml. A single
 	// `CODRAX_SETTINGS=path/to/codrax.yaml` bootstraps an entire

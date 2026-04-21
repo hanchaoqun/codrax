@@ -2,14 +2,15 @@
 //
 // Responsibilities beyond what bubbles/textinput gives us out of the box:
 //
-//   1. Up/Down history navigation (seeded from memory.Store).
-//   2. Reject Enter on whitespace-only / non-printable-only buffers.
-//   3. Slash-command suggestion panel when the buffer starts with "/".
-//   4. Bracketed-paste folding: a multi-line or large paste is replaced
-//      inline by a `[Pasted text #N +L lines +B bytes]` placeholder
-//      token, and the textinput widget treats the whole token as one
-//      atomic unit (cursor moves past it, Backspace deletes it whole).
-//      On submit, tokens expand back to the original pastes.
+//  1. Up/Down history navigation (seeded from memory.Store).
+//  2. Reject Enter on whitespace-only / non-printable-only buffers.
+//  3. Slash-command suggestion panel when the buffer starts with "/".
+//  4. Bracketed-paste folding: a multi-line or long single-line paste
+//     (≥ DefaultPasteFoldMinChars runes, configurable) is replaced
+//     inline by a `[Pasted text #N +L lines +C chars]` placeholder
+//     token, and the textinput widget treats the whole token as one
+//     atomic unit (cursor moves past it, Backspace deletes it whole).
+//     On submit, tokens expand back to the original pastes.
 //
 // Cross-platform: bubbletea handles Windows console, Unix termios, and
 // CJK widths; no OS-specific imports belong here.
@@ -48,12 +49,18 @@ var slashCommands = []struct {
 }
 
 // placeholderRE matches a folded-paste token. Group 1 is the id.
-var placeholderRE = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines \+\d+ bytes\]`)
+var placeholderRE = regexp.MustCompile(`\[Pasted text #(\d+) \+\d+ lines \+\d+ chars\]`)
 
-// foldPasteThreshold: pastes shorter than this and without a newline
-// are inserted verbatim (normal short paste UX). Anything longer or
-// containing '\n' is folded into a placeholder.
-const foldPasteThreshold = 200
+// DefaultPasteFoldMinChars is the fallback threshold (in Unicode
+// runes, not bytes) above which a single-line paste gets folded into
+// a placeholder. Multi-line pastes fold unconditionally. Kept as a
+// public constant so cmd/root.go can surface the same default in its
+// help text, and so tests stay insensitive to yaml plumbing.
+//
+// Runes, not bytes, because the user-facing setting is in characters
+// (pay attention, CJK users: "你好" is 2 chars, 6 bytes). Keeping the
+// internal comparison in runes makes the knob's unit match the UI.
+const DefaultPasteFoldMinChars = 60
 
 // maxHistoryItems caps how far Up/Down scrolls. Memory.Store.Recent
 // is already bounded, but this keeps the model honest even if the
@@ -79,17 +86,17 @@ type inputResult struct {
 // textinput. Keeping them in one place makes cross-platform fiddling
 // (e.g. macOS option-arrow quirks) a local edit.
 type inputKeyMap struct {
-	Submit          key.Binding
-	HistoryPrev     key.Binding
-	HistoryNext     key.Binding
-	Backspace       key.Binding
-	DeleteForward   key.Binding
-	Tab             key.Binding
-	Escape          key.Binding
-	Quit            key.Binding
-	SuggestionUp    key.Binding
-	SuggestionDown  key.Binding
-	SuggestionTake  key.Binding
+	Submit         key.Binding
+	HistoryPrev    key.Binding
+	HistoryNext    key.Binding
+	Backspace      key.Binding
+	DeleteForward  key.Binding
+	Tab            key.Binding
+	Escape         key.Binding
+	Quit           key.Binding
+	SuggestionUp   key.Binding
+	SuggestionDown key.Binding
+	SuggestionTake key.Binding
 }
 
 func defaultInputKeys() inputKeyMap {
@@ -110,24 +117,25 @@ func defaultInputKeys() inputKeyMap {
 
 // inputModel is the Bubble Tea model that backs one readInput call.
 type inputModel struct {
-	ti           textinput.Model
-	keys         inputKeyMap
-	history      []string
-	histIdx      int      // -1 = fresh draft; 0..len-1 = browsing (0 = newest)
-	draft        string   // saved when first entering history
-	pastes       []string // pastes[id] → original content
-	isContinue   bool     // set for the "…" continuation prompt
-	slashSel     int      // selected index in filtered suggestions
-	showSuggest  bool
-	doneDisplay  string // captured at Submit for echo
-	doneExpanded string
-	submitted    bool
-	aborted      bool
-	continues    bool
-	termWidth    int
+	ti                textinput.Model
+	keys              inputKeyMap
+	history           []string
+	histIdx           int      // -1 = fresh draft; 0..len-1 = browsing (0 = newest)
+	draft             string   // saved when first entering history
+	pastes            []string // pastes[id] → original content
+	isContinue        bool     // set for the "…" continuation prompt
+	slashSel          int      // selected index in filtered suggestions
+	showSuggest       bool
+	doneDisplay       string // captured at Submit for echo
+	doneExpanded      string
+	submitted         bool
+	aborted           bool
+	continues         bool
+	termWidth         int
+	pasteFoldMinChars int // per-instance threshold, in runes
 }
 
-func newInputModel(prompt string, history []string, isContinue bool, w int) *inputModel {
+func newInputModel(prompt string, history []string, isContinue bool, w, foldMinChars int) *inputModel {
 	ti := textinput.New()
 	ti.Prompt = prompt + " "
 	ti.PromptStyle = lipgloss.NewStyle().
@@ -151,13 +159,18 @@ func newInputModel(prompt string, history []string, isContinue bool, w int) *inp
 	// Freshest turn first → pressing Up once yields the most recent.
 	hist := historyReversed(history, maxHistoryItems)
 
+	if foldMinChars <= 0 {
+		foldMinChars = DefaultPasteFoldMinChars
+	}
+
 	return &inputModel{
-		ti:         ti,
-		keys:       defaultInputKeys(),
-		history:    hist,
-		histIdx:    -1,
-		isContinue: isContinue,
-		termWidth:  w,
+		ti:                ti,
+		keys:              defaultInputKeys(),
+		history:           hist,
+		histIdx:           -1,
+		isContinue:        isContinue,
+		termWidth:         w,
+		pasteFoldMinChars: foldMinChars,
 	}
 }
 
@@ -334,15 +347,18 @@ func (m *inputModel) handleSubmit() tea.Cmd {
 }
 
 // handlePaste decides verbatim-vs-folded and mutates the buffer.
+// Unit for the threshold is Unicode runes (characters), not bytes,
+// so a 60-char Chinese paste and a 60-char ASCII paste both fold.
 func (m *inputModel) handlePaste(pasted string) tea.Cmd {
-	shouldFold := strings.Contains(pasted, "\n") || len(pasted) >= foldPasteThreshold
+	chars := utf8.RuneCountInString(pasted)
+	shouldFold := strings.Contains(pasted, "\n") || chars >= m.pasteFoldMinChars
 	if !shouldFold {
 		return m.insertAtCursor(pasted)
 	}
 	id := len(m.pastes)
 	m.pastes = append(m.pastes, pasted)
 	lines := strings.Count(pasted, "\n") + 1
-	token := fmt.Sprintf("[Pasted text #%d +%d lines +%d bytes]", id, lines, len(pasted))
+	token := fmt.Sprintf("[Pasted text #%d +%d lines +%d chars]", id, lines, chars)
 	return m.insertAtCursor(token)
 }
 
@@ -483,8 +499,8 @@ func (m *inputModel) loadHistoryEntry(entry string) {
 		id := len(m.pastes)
 		m.pastes = append(m.pastes, entry)
 		lines := strings.Count(entry, "\n") + 1
-		token := fmt.Sprintf("[Pasted text #%d +%d lines +%d bytes]",
-			id, lines, len(entry))
+		token := fmt.Sprintf("[Pasted text #%d +%d lines +%d chars]",
+			id, lines, utf8.RuneCountInString(entry))
 		m.ti.SetValue(token)
 		m.ti.SetCursor(utf8.RuneCountInString(token))
 	} else {
@@ -620,7 +636,7 @@ func (r *REPL) readInputBubble(prompt string, isContinue bool) (inputResult, err
 		w = 80
 	}
 	hist := r.historyStrings()
-	model := newInputModel(prompt, hist, isContinue, w)
+	model := newInputModel(prompt, hist, isContinue, w, r.pasteFoldMinChars)
 
 	p := tea.NewProgram(model,
 		tea.WithOutput(r.out),
