@@ -53,6 +53,8 @@ type explorerEvaluator struct {
 	midLoopSymbolRefInjected   bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
 	midLoopPostPrimaryInjected bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
 	midLoopEvidenceRepairSent  bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
+	midLoopIntentWindowSent    bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
+	midLoopRankerCoverageSent  bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
 	primaryReadSeen            bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter            int                   // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead      int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
@@ -169,6 +171,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopSymbolRefInjected = false
 		e.midLoopPostPrimaryInjected = false
 		e.midLoopEvidenceRepairSent = false
+		e.midLoopIntentWindowSent = false
+		e.midLoopRankerCoverageSent = false
 		e.primaryReadSeen = false
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
@@ -223,6 +227,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopSymbolRefInjected = false
 	e.midLoopPostPrimaryInjected = false
 	e.midLoopEvidenceRepairSent = false
+	e.midLoopIntentWindowSent = false
+	e.midLoopRankerCoverageSent = false
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
@@ -2525,6 +2531,110 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			// Use a unique key so cross-file-ref dedup is independent
 			// of partial-read dedup.
 			hintKey = "explorer.mid-loop.cross-file-ref"
+		}
+	}
+
+	// Check 5: structural-intent vs narrow-window mismatch (session 22).
+	//
+	// Symptom from a customer trace: the LLM said in its iter content
+	// "最后确认 agent.go 中 ReAct 循环的大致结构" — a declared intent to
+	// grasp overall STRUCTURE — while the accompanying read_file call
+	// covered lines 527-586 of a 1549-line file (3.9%). A 60-line
+	// window cannot support a structural-overview conclusion; the LLM
+	// subsequently exited with a "未完整取证" caveat because its own
+	// coverage was demonstrably shallow.
+	//
+	// detectPartiallyReadSymbols only detects SYMBOL-RANGE gaps (LLM
+	// started reading a function at line N but did not reach its
+	// EndLine). A narrow targeted read that does NOT enter any
+	// function's entry zone — common when the LLM grep-directs a
+	// read_file to a specific offset — slips through that check.
+	//
+	// This branch triggers on the *semantic* mismatch: structural
+	// intent tokens in the assistant content AND a read_file window
+	// covering ≤ 15% of a file ≥ 300 lines. The hint directs the LLM
+	// to either list_files (to see the module layout) or a wider
+	// read_file window starting from the top.
+	//
+	// Fires at most once per dispatch (midLoopIntentWindowSent flag)
+	// so the hint does not recur on every subsequent read.
+	if b.Len() == 0 && !e.midLoopIntentWindowSent &&
+		obs.LastToolResult != nil && obs.LastToolResult.ToolName == "read_file" &&
+		obs.LastToolResult.Success && isStructuralIntent(obs.Response.Content) {
+		if path, rng, total, ok := parseReadFileBanner(obs.LastToolResult.Summary); ok && total >= 300 {
+			windowSize := rng.End - rng.Start + 1
+			if windowSize > 0 && float64(windowSize)/float64(total) < 0.15 {
+				windowPct := float64(windowSize) * 100 / float64(total)
+				fmt.Fprintf(&b,
+					"MID-LOOP CHECK: your note signals a structural / overview intent, "+
+						"but the read_file window covers lines %d-%d of %d total in `%s` "+
+						"(%.1f%% of the file). A narrow window cannot support a conclusion "+
+						"about the file's OVERALL structure. Before ending the investigation, "+
+						"either (a) call `list_files` on the containing directory plus a single "+
+						"read_file with offset=1 limit=200 to see the top-level imports + type "+
+						"declarations, or (b) issue a wider read_file (limit>=300) starting from "+
+						"offset=1 so the structural claim is grounded in actual coverage.\n",
+					rng.Start, rng.End, total, path, windowPct)
+				e.midLoopIntentWindowSent = true
+				hintKey = "explorer.mid-loop.intent-window-mismatch"
+			}
+		}
+	}
+
+	// Check 6: low ranker-coverage pushback (session 22).
+	//
+	// Symptom: the LLM closed explorer with readSet=4 while the
+	// keyword ranker had scored 36 files as relevant — 11% coverage.
+	// Non-enumeration queries had no mid-loop gate for this; the
+	// enumeration path has MidLoopEnumCoverage (0.6) but it keys off
+	// isEnumerationQuery, so mechanism / explain / root_cause questions
+	// slip through when the LLM opens only a handful of the top-
+	// ranked files.
+	//
+	// Criteria (all must hold):
+	//   1. Past early-loop phase (iter >= 2 * MidLoopMinIteration).
+	//   2. Ranker scored at least 6 files (small scopes don't need
+	//      the nudge — legitimate "only these files matter" cases).
+	//   3. Of the top-5 ranked files, at least 3 are NOT in readSet
+	//      (the LLM is demonstrably skipping the most relevant work).
+	//
+	// One-shot per dispatch so the hint does not re-fire every round.
+	// Complements Check 5: Check 5 catches a single narrow-window call;
+	// Check 6 catches aggregate coverage drift.
+	if b.Len() == 0 && !e.midLoopRankerCoverageSent &&
+		iteration >= e.heuristics.MidLoopMinIteration*2 &&
+		len(e.allScoredFiles) >= 6 {
+		_, readSet, _ := extractFileCoverage(allResults)
+		topK := 5
+		if topK > len(e.allScoredFiles) {
+			topK = len(e.allScoredFiles)
+		}
+		var missing []string
+		for _, f := range e.allScoredFiles[:topK] {
+			canon := canonicalExplorerPath(f)
+			if canon == "" {
+				canon = f
+			}
+			if isNoisePath(canon) {
+				continue
+			}
+			// scoredFileCovered handles both the repo-relative and the
+			// absolute-path forms the LLM may have used in read_file.
+			if scoredFileCovered(readSet, canon) {
+				continue
+			}
+			missing = append(missing, f)
+		}
+		if len(missing) >= 3 {
+			fmt.Fprintf(&b,
+				"MID-LOOP CHECK: the keyword ranker scored %d relevant files but %d of "+
+					"the top-%d remain unread: %s. Before declaring the investigation "+
+					"complete, open at least 2-3 of these if they correspond to the "+
+					"question's subject or mechanism — the ranker's top-K is where "+
+					"grounded evidence typically lives.\n",
+				len(e.allScoredFiles), len(missing), topK, strings.Join(missing, ", "))
+			e.midLoopRankerCoverageSent = true
+			hintKey = "explorer.mid-loop.ranker-coverage"
 		}
 	}
 
@@ -8559,6 +8669,72 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 		hints = hints[:5]
 	}
 	return hints
+}
+
+// scoredFileCovered reports whether a ranker-scored (repo-relative)
+// file is present in readSet under any canonicalisation — direct
+// hit OR absolute-path form where the scored path is a trailing
+// suffix.
+//
+// Why the suffix check matters: canonicalExplorerPath only strips
+// "./" and normalises separators; it does NOT strip a repo-root
+// prefix. When the LLM emits an absolute path in read_file (e.g.
+// `/mnt/d/opt/codrax-main/internal/agent/agent.go`, observed in a
+// session-22 customer trace) the readSet key carries that prefix
+// while allScoredFiles carries the repo-relative form
+// `internal/agent/agent.go`. Without suffix-matching, a legitimate
+// coverage hit looks like a miss and the Check 6 pushback
+// false-positives. Requiring a leading '/' before the scored
+// suffix prevents over-matching (e.g. "a.go" vs "noagent.go").
+func scoredFileCovered(readSet map[string]bool, scoredFile string) bool {
+	if scoredFile == "" {
+		return false
+	}
+	if readSet[scoredFile] {
+		return true
+	}
+	suffix := "/" + scoredFile
+	for k := range readSet {
+		if strings.HasSuffix(k, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// structuralIntentTokens are the surface forms the LLM uses when it
+// declares a "give me the big picture / overall structure" intent —
+// i.e. a goal that a 60-line targeted window over a 1500-line file
+// will answer poorly. zh-first because customer reports were
+// zh-dominant; the en forms cover parallel English phrasings.
+var structuralIntentTokens = []string{
+	// zh
+	"整体结构", "大致结构", "整个结构", "整体流程",
+	"整个流程", "大致流程", "整体架构", "大致架构",
+	"整体布局", "整体梳理", "全貌", "概览",
+	// en
+	"overall structure", "overall flow", "overall layout",
+	"overall architecture", "big picture", "high level",
+	"high-level overview", "full structure", "whole structure",
+	"whole flow", "whole file",
+}
+
+// isStructuralIntent reports whether an assistant message content
+// expresses a structural / overview intent — a goal that requires
+// broad file coverage rather than a narrow targeted read. Returns
+// false on empty content. Case-insensitive on English tokens; zh
+// tokens are matched verbatim (case does not apply to CJK).
+func isStructuralIntent(content string) bool {
+	if content == "" {
+		return false
+	}
+	lower := strings.ToLower(content)
+	for _, tok := range structuralIntentTokens {
+		if strings.Contains(lower, strings.ToLower(tok)) {
+			return true
+		}
+	}
+	return false
 }
 
 // trackCrossReferences scans an investigation note for symbol names
