@@ -17,5 +17,10 @@ freed by thread T0 here:
     #0 0x48b4c2 in operator delete(void*) (/app/bin+0x48b4c2)
     #1 0x4a0a12 in cleanup_request /home/builder/src/cleanup.cpp:15:5
 '
-EXPECT_CONTAINS="use-after-free"
-EXPECT_SECTIONS="memory"
+# LLM answers in Chinese default but may phrase the ASAN verb as
+# "use-after-free" (lowercase like the ASAN report), "Use-After-Free"
+# (title case when writing about the concept), or "使用后释放" (Chinese).
+# Regex gate with case-insensitive hit tolerates both English variants;
+# 堆 (Chinese for heap) + 释放 (freed) confirm memory-safety framing.
+EXPECT_MATCHES_REGEX='[Uu]se-[Aa]fter-[Ff]ree'
+EXPECT_SECTIONS="堆 释放"
