@@ -214,6 +214,32 @@ func IsValidLogSignal(s LogSignal) bool {
 	return false
 }
 
+// IsExternalSourceLog reports whether the bundle represents an
+// external-source log — one that carries structured errors but whose
+// stack frames did not resolve to any file in this repo. The
+// canonical case is a customer-trace paste (another service's Go
+// panic, a Java Caused-by chain from a microservice, a Python
+// traceback from a library) dropped into a codrax REPL.
+//
+// Downstream emit tools (emit_evidence, emit_answer_symbol,
+// emit_answer_document) use this flag to redirect their per-item
+// "line > 0" / "file required" rejections toward the proper
+// schema-legal escape (citation_ref=-1 for value shape,
+// symbols_completeness=unknown for list_of_symbols / multi-topic
+// explanation skeleton) rather than letting the LLM hammer the gates
+// with manufactured anchors. Pairs with the front-loaded "External-
+// source log" directive rendered at the top of the Log Triage
+// Validated Extraction section — same predicate, both sides.
+//
+// Nil-safe: returns false on a nil receiver so tool-side checks do
+// not need to nil-guard every call.
+func (b *LogBundle) IsExternalSource() bool {
+	if b == nil {
+		return false
+	}
+	return len(b.ResolvedFiles) == 0 && len(b.Errors) > 0
+}
+
 // LogBundleCaps collects the validator-enforced caps in one place so
 // they can be referenced from tests and schema generation without
 // hard-coding magic numbers across packages. Kept as package-level

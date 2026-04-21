@@ -89,6 +89,101 @@ func TestEmitAnswerSymbol_RejectsLineNegative(t *testing.T) {
 	}
 }
 
+// Session-22 follow-up: when an external-source log is attached, a
+// line=0 item must reject with a redirect that names
+// symbols_completeness=unknown as the proper escape — not the bland
+// "line must be > 0" message that historically sent the LLM into a
+// retry loop (2026-04-21 logtri_custom trace).
+func TestEmitAnswerSymbol_RejectsLineZero_ExternalLogRedirectsToUnknown(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	// Publish an external-source bundle: errors present, zero
+	// resolved files → IsExternalSource() returns true.
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalDB}},
+		Errors: []types.LogError{
+			{Type: "pool_exhausted"},
+		},
+	})
+	params := json.RawMessage(`{"items":[{"name":"pool_exhausted","file":"a.go","line":0,"kind":"literal"}],"completeness":"complete"}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("line=0 on external-source log must be rejected; got Success=true Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "symbols_completeness=\"unknown\"") {
+		t.Errorf("reject message must redirect to completeness=unknown; got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "external-source") {
+		t.Errorf("reject message must name the external-source cause; got %q", res.Summary)
+	}
+}
+
+// Companion: line=0 with NO log bundle attached falls through to the
+// historical bland line-hallucination message — the redirect is
+// scoped to the external-source case where unknown completeness is
+// semantically correct.
+func TestEmitAnswerSymbol_RejectsLineZero_NoBundleUsesHistoricalMessage(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx() // no SetLogTriage call
+	params := json.RawMessage(`{"items":[{"name":"Foo","file":"a.go","line":0,"kind":"function"}],"completeness":"complete"}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("line=0 must reject; got Success=true")
+	}
+	if strings.Contains(res.Summary, "external-source") {
+		t.Errorf("no-bundle path must not invoke external-source redirect; got %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "line must be > 0") {
+		t.Errorf("historical line-guard message missing; got %q", res.Summary)
+	}
+}
+
+// The happy path: when the log is external-source, the LLM sets
+// completeness=unknown and omits items[] — the tool accepts (the
+// partial-drop path's empty-items semantics for unknown
+// completeness pre-dated this fix).
+func TestEmitAnswerSymbol_ExternalSourceLog_UnknownEmptyItemsAccepted(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Meta:   types.LogMeta{Signals: []types.LogSignal{types.SignalDB}},
+		Errors: []types.LogError{{Type: "pool_exhausted"}},
+	})
+	params := json.RawMessage(`{"items":[],"completeness":"unknown"}`)
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("external-source + completeness=unknown + empty items must be accepted; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// IsExternalSource helper pin — used by multiple tool paths, must
+// stay honest about the (no resolved files AND has errors) predicate.
+func TestLogBundle_IsExternalSource(t *testing.T) {
+	cases := []struct {
+		name   string
+		bundle *types.LogBundle
+		want   bool
+	}{
+		{"nil bundle", nil, false},
+		{"empty bundle", &types.LogBundle{}, false},
+		{"errors present, no resolved", &types.LogBundle{
+			Errors: []types.LogError{{Type: "X"}},
+		}, true},
+		{"errors + resolved → not external", &types.LogBundle{
+			Errors:        []types.LogError{{Type: "X"}},
+			ResolvedFiles: []string{"a.go"},
+		}, false},
+		{"resolved but no errors (degraded) → not external", &types.LogBundle{
+			ResolvedFiles: []string{"a.go"},
+		}, false},
+	}
+	for _, c := range cases {
+		if got := c.bundle.IsExternalSource(); got != c.want {
+			t.Errorf("%s: IsExternalSource()=%v want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func TestEmitAnswerSymbol_PartialDropKeepsValidItems(t *testing.T) {
 	// 2026-04-19 regression: one line=0 hallucination used to kill the
 	// whole batch, leaving the finalizer with no symbols. Now the

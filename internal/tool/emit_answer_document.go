@@ -442,6 +442,17 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
+	// Log-triage bundle snapshot — passed to per-item validators so
+	// their rejection paths can redirect at the proper whole-shape
+	// escape (symbols_completeness=unknown for external-source logs)
+	// rather than emit a bland line-hallucination message that sends
+	// the LLM into retry-loop territory. Nil-safe: external-source
+	// gate on a nil bundle returns false, so non-log questions see
+	// the historical behaviour unchanged.
+	var docLogTriageBundle *types.LogBundle
+	if ctx.Mutable != nil {
+		docLogTriageBundle = ctx.Mutable.LogTriage()
+	}
 	// Grounding context: read_file gutter index + repomap graph from
 	// Mutable.SearchGraph. Citations that fail grounding are either
 	// dropped (file:line not in any source of truth) or keep the
@@ -651,7 +662,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		}
 		built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 		for i, in := range p.Symbols {
-			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
+			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle)
 			if perr != nil {
 				return failWithContext("symbols[%d]: %v", i, perr)
 			}
@@ -741,7 +752,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if len(p.Symbols) > 0 {
 			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 			for i, in := range p.Symbols {
-				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
+				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle)
 				if perr != nil {
 					return failWithContext("symbols[%d]: %v", i, perr)
 				}

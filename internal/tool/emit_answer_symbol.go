@@ -189,10 +189,14 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	}
 
 	workDir := strings.TrimSpace(ctx.WorkDir)
+	var bundle *types.LogBundle
+	if ctx.Mutable != nil {
+		bundle = ctx.Mutable.LogTriage()
+	}
 	built := make([]types.AnswerSymbol, 0, len(p.Items))
 	var dropped []string
 	for i, in := range p.Items {
-		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir)
+		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle)
 		if perr != nil {
 			dropped = append(dropped, perr.Error())
 			continue
@@ -228,13 +232,27 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 // buildEmitAnswerSymbolItem validates a single decoded item and
 // converts it into a types.AnswerSymbol. Validation is structural
 // (path-shape, prefix, line bounds), never wordlist-based.
-func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string) (types.AnswerSymbol, error) {
+//
+// bundle carries the log-triage context (nil when no log was
+// attached). When the bundle is flagged external-source — structured
+// errors extracted but zero frames resolved to repo files — the
+// "file required" and "line > 0" rejections redirect the LLM toward
+// symbols_completeness=unknown + empty items[] rather than letting
+// it hammer the gates with manufactured anchors derived from log
+// message names. This is the symmetric sibling of the kind=absent
+// retirement on emit_evidence: both channels reject an unsatisfiable
+// item and point at the proper whole-shape escape.
+func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle) (types.AnswerSymbol, error) {
+	externalSource := bundle.IsExternalSource()
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: name is required", index)
 	}
 	file := strings.TrimSpace(in.File)
 	if file == "" {
+		if externalSource {
+			return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): file is empty — the attached log is external-source (no frames resolved to this repo), so symbols cannot be anchored at a repo file:line. For list_of_symbols or multi-topic explanation answers drawn from external-log semantics, set symbols_completeness=\"unknown\" and omit items[] entirely; the summary prose carries the answer. Do NOT manufacture a file name for log-message identifiers that have no repo counterpart.", index, name)
+		}
 		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: file is required", index)
 	}
 	if !emitLooksLikePath(file) {
@@ -245,6 +263,9 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	}
 	lineN := in.Line.Int()
 	if lineN <= 0 {
+		if externalSource {
+			return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): line=0 is not valid — the attached log is external-source (no frames resolved to this repo), so symbols cannot be anchored at a concrete gutter line. For list_of_symbols or multi-topic explanation answers drawn from external-log semantics, set symbols_completeness=\"unknown\" and omit items[] entirely; the summary prose carries the answer. Do NOT manufacture a file:line for log-message identifiers that have no repo counterpart.", index, name)
+		}
 		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: line must be > 0 (got %d). Pattern 2 line-hallucination guard — every answer symbol needs a concrete gutter line.", index, lineN)
 	}
 	kind, ok := types.NormalizeAnswerSymbolKind(in.Kind)

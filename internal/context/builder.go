@@ -1454,11 +1454,12 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 	// means every agent (analyzer / explorer / extractor /
 	// finalizer) sees it in iter 0 and can act before any tool
 	// call is burned on a dead-end.
-	if len(bundle.ResolvedFiles) == 0 && len(bundle.Errors) > 0 {
+	if bundle.IsExternalSource() {
 		b.WriteString("⚠ **External-source log**: the attached log's stack frames do NOT resolve to any file in this repo (resolved_files=0). The answer must come from the log's own semantics — do NOT open repo files hoping to ground the log's frame literals, they are not there.\n")
 		b.WriteString("  - For shape=value / shape=config_value, set `citation_ref=-1` and state in `summary` that the literal is drawn from the attached log (no grounded repo source).\n")
 		b.WriteString("  - The literal-grounding gate on emit_answer_document rejects citations whose cited line does NOT contain the literal; `-1` is the honest, tool-schema-legal escape.\n")
-		b.WriteString("  - For shape=step_list / shape=explanation, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n\n")
+		b.WriteString("  - For shape=step_list / shape=explanation, cite log content by paraphrasing frames, not by inventing file:line anchors in this repo.\n")
+		b.WriteString("  - For shape=list_of_symbols or a multi-topic explanation answer-symbol skeleton: set symbols_completeness=\"unknown\" and omit items[] entirely — the emit_answer_symbol / emit_answer_document.symbols channels require repo-grounded file:line anchors, which external-log content cannot satisfy. The summary prose is the answer.\n\n")
 	}
 
 	// ── Meta block ────────────────────────────────────────────
