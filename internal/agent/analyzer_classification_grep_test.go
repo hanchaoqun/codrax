@@ -310,6 +310,92 @@ func TestReconcileFromObservations_NoObs_IsNoop(t *testing.T) {
 	}
 }
 
+// Session-22 follow-up B4: when the LLM rated its shape
+// classification at or above the confidence floor (0.7), C0'
+// reconcile must defer and leave AnalyzerHints.Shape alone. The
+// quoted-literal heuristic is a safety net for hedged classifications,
+// not a veto against confident ones. Mirrors the
+// kindConfidenceFloorForNarrowing = 0.7 pattern in explorer.go.
+func TestReconcileFromObservations_SkipsOnHighShapeConfidence(t *testing.T) {
+	rm := &types.RequestModel{
+		AnalyzerHints:   types.AnalyzerHints{Shape: "explanation"},
+		ShapeConfidence: 0.85, // LLM was confident
+	}
+	obs := []types.ClassificationObs{{
+		Pattern: "TurnA|TurnB",
+		Path:    "internal/agent/explorer.go",
+		Line:    4186,
+		Text:    `ctx.Mutable.SetTurnAArtifacts(artifacts) // "snapshot handoff"`,
+	}}
+	logs := reconcileFromObservations(rm, obs)
+	if rm.AnalyzerHints.Shape != "explanation" {
+		t.Errorf("high-confidence shape must survive C0' reconcile; got Shape=%q", rm.AnalyzerHints.Shape)
+	}
+	if len(logs) != 0 {
+		t.Errorf("high-confidence guard should suppress log entries; got %v", logs)
+	}
+}
+
+// B4 lower-bound: a confidence exactly at the floor still defers.
+// Guard uses `>= floor` so the threshold value itself is trusted.
+func TestReconcileFromObservations_SkipsAtConfidenceFloor(t *testing.T) {
+	rm := &types.RequestModel{
+		AnalyzerHints:   types.AnalyzerHints{Shape: "explanation"},
+		ShapeConfidence: shapeConfidenceFloorForC0Reconcile, // exactly 0.7
+	}
+	obs := []types.ClassificationObs{{
+		Path: "internal/orchestrator/topology.go", Line: 19,
+		Text: `"explore-skill"`,
+	}}
+	_ = reconcileFromObservations(rm, obs)
+	if rm.AnalyzerHints.Shape != "explanation" {
+		t.Errorf("confidence = floor (0.7) should still skip reconcile; got Shape=%q", rm.AnalyzerHints.Shape)
+	}
+}
+
+// B4 low-confidence path: below the floor, C0' still overrides
+// hedged classifications. This is the original design intent that
+// must survive the confidence-guard addition — the rule exists to
+// catch LLMs that were unsure about shape.
+func TestReconcileFromObservations_FiresOnLowShapeConfidence(t *testing.T) {
+	rm := &types.RequestModel{
+		AnalyzerHints:   types.AnalyzerHints{Shape: "config_value"},
+		ShapeConfidence: 0.4, // LLM was hedged
+	}
+	obs := []types.ClassificationObs{{
+		Path: "internal/orchestrator/topology.go", Line: 19,
+		Text: `"explore-skill"`,
+	}}
+	logs := reconcileFromObservations(rm, obs)
+	if rm.AnalyzerHints.Shape != "value" {
+		t.Errorf("low-confidence should allow reconcile; got Shape=%q", rm.AnalyzerHints.Shape)
+	}
+	if len(logs) == 0 {
+		t.Error("expected reconcile log entry when confidence is low")
+	}
+}
+
+// B4 zero-confidence (LLM declined to rate): treated as low —
+// matches the kindConfidenceFloorForNarrowing convention where
+// zero is distinct from "genuinely low" but still permits the
+// aggressive rule to fire. Without this branch, an LLM that forgot
+// to fill shape_confidence would be exempt from every safety net
+// the hint chain provides.
+func TestReconcileFromObservations_FiresOnZeroConfidence(t *testing.T) {
+	rm := &types.RequestModel{
+		AnalyzerHints:   types.AnalyzerHints{Shape: "config_value"},
+		ShapeConfidence: 0, // LLM declined to rate
+	}
+	obs := []types.ClassificationObs{{
+		Path: "internal/orchestrator/topology.go", Line: 19,
+		Text: `"explore-skill"`,
+	}}
+	_ = reconcileFromObservations(rm, obs)
+	if rm.AnalyzerHints.Shape != "value" {
+		t.Errorf("zero-confidence must NOT be treated as 'high'; reconcile should fire; got Shape=%q", rm.AnalyzerHints.Shape)
+	}
+}
+
 // TestResetClassificationGrep_ClearsAllFields verifies the per-
 // dispatch reset wipes trigger + budget + observations so
 // cross-dispatch retries start with a clean slate.
@@ -359,6 +445,107 @@ func TestPrescanHasDeclarativeCandidate_MatchesAndMisses(t *testing.T) {
 	for _, blob := range misses {
 		if prescanHasDeclarativeCandidate(strings.ToLower(blob)) {
 			t.Errorf("expected NO declarative candidate in blob: %q", blob)
+		}
+	}
+}
+
+// Session-22 follow-up root cause fix: the C0' observation sidecar
+// must ignore grep hits that land in test / spec / fixture files.
+// A test assertion string (e.g. `"flag=on must write TurnAArtifacts"`
+// inside an _test.go file) passes extractQuotedLiterals exactly the
+// same way a production declarative literal does, and the
+// first-match-wins reconciler cannot tell them apart. Pinning the
+// filter here so the m1a regression (shape=explanation silently
+// downgraded to shape=value because Round 2 grep hit a _test.go
+// file) cannot recur silently.
+func TestPostProcess_SkipsTestFileObservations(t *testing.T) {
+	saveAnalysisLimits(t)
+	tool.SetAnalysisLimits(tool.DefaultAnalysisLimits())
+
+	mut := types.NewMutableState("test")
+	mut.SetClassificationGrepTriggered(true)
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	tc := makeGrepCall(map[string]any{
+		"pattern":    "TurnA|TurnB",
+		"path":       "internal/agent",
+		"files_only": false,
+	})
+	// One production hit + one test-file hit, mirroring the m1a
+	// failure shape where a _test.go file quoted literal poisoned
+	// the reconciler.
+	result := &types.ToolResult{
+		ToolName: "grep",
+		Summary: "[grep: 2 matching lines]\n" +
+			"internal/agent/explorer.go:4186:ctx.Mutable.SetTurnAArtifacts(artifacts)\n" +
+			"internal/agent/explorer_evaluator_test.go:469:want := \"flag=on must write TurnAArtifacts\"\n",
+		Success: true,
+	}
+
+	analyzerPostProcessToolResult(ctx, tc, result)
+
+	obs := mut.ClassificationObservations()
+	if len(obs) != 1 {
+		t.Fatalf("expected exactly 1 obs (test-file line filtered), got %d: %+v", len(obs), obs)
+	}
+	if obs[0].Path != "internal/agent/explorer.go" {
+		t.Errorf("surviving obs must be the production-source line, got Path=%q", obs[0].Path)
+	}
+}
+
+// isTestFilePath dispatches cross-language test conventions; pin
+// each ecosystem explicitly so a future regression (e.g. the Go arm
+// shifting to filepath.Base and breaking on forward-slash paths)
+// fails visibly rather than silently re-admitting test files.
+func TestIsTestFilePath_CoversLanguageConventions(t *testing.T) {
+	testFiles := []string{
+		// Go
+		"internal/agent/foo_test.go",
+		"foo_test.go",
+		// Python (suffix + pytest prefix convention)
+		"pkg/bar_test.py",
+		"pkg/test_bar.py",
+		// Ruby
+		"spec/foo_spec.rb",
+		"test/foo_test.rb",
+		// JavaScript / TypeScript — .test.* and .spec.*, plus jsx/tsx.
+		"src/foo.test.js",
+		"src/foo.spec.ts",
+		"src/foo.test.jsx",
+		"src/foo.spec.tsx",
+		// Java / Kotlin — Test / Tests suffix + Test / IT prefix.
+		"src/main/FooTest.java",
+		"src/main/FooTests.java",
+		"src/main/TestFoo.java",
+		"src/main/ITFoo.java",
+		"src/main/FooTest.kt",
+		// C / C++ / google-test
+		"lib/foo_test.cc",
+		"lib/foo_test.cpp",
+		"lib/foo_unittest.cc",
+	}
+	for _, p := range testFiles {
+		if !isTestFilePath(p) {
+			t.Errorf("isTestFilePath(%q) = false, want true", p)
+		}
+	}
+	productionFiles := []string{
+		// Production code across the same ecosystems.
+		"internal/agent/foo.go",
+		"pkg/bar.py",
+		"lib/foo.rb",
+		"src/foo.js",
+		"src/foo.ts",
+		"src/main/Foo.java",
+		"src/main/Foo.kt",
+		"lib/foo.cc",
+		// Tricky near-misses: "test" in the middle or as a directory.
+		"internal/test/helpers.go", // directory named "test", file itself is production
+		"pkg/contest.py",           // not a test file despite "test" substring
+	}
+	for _, p := range productionFiles {
+		if isTestFilePath(p) {
+			t.Errorf("isTestFilePath(%q) = true, want false", p)
 		}
 	}
 }

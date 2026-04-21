@@ -1481,6 +1481,18 @@ func analyzerPostProcessToolResult(ctx *types.AgentContext, tc llm.ToolCall, res
 // converts each `path:line:text` match into a ClassificationObs
 // appended to MutableState.classificationObservations. Tolerates
 // banner lines and malformed rows by skipping them silently.
+//
+// Session-22 follow-up root-cause fix: lines whose `path` is a
+// test file are skipped. A test assertion string like
+// `"flag=on must write TurnAArtifacts"` matches extractQuotedLiterals
+// just as well as a production-source literal would, and C0'
+// reconcileFromObservations's first-match-wins downgrade rule cannot
+// tell the two apart. Leaking test observations caused the m1a
+// regression where an analyzer-emitted shape=explanation was
+// downgraded to shape=value because Round-2 line-level grep hit a
+// quoted string inside explorer_evaluator_test.go. The C0' pipeline
+// only needs declarative-source literals (const / map / registry /
+// routes) to make its call; test fixtures carry no such signal.
 func scanGrepLinesIntoClassificationObs(ctx *types.AgentContext, pattern, summary string) {
 	for _, line := range strings.Split(summary, "\n") {
 		line = strings.TrimSpace(line)
@@ -1502,6 +1514,9 @@ func scanGrepLinesIntoClassificationObs(ctx *types.AgentContext, pattern, summar
 			continue
 		}
 		path := line[:colonA]
+		if isTestFilePath(path) {
+			continue
+		}
 		lineNumStr := rest[:colonB]
 		text := rest[colonB+1:]
 		lineNum, err := strconv.Atoi(strings.TrimSpace(lineNumStr))
@@ -1516,6 +1531,89 @@ func scanGrepLinesIntoClassificationObs(ctx *types.AgentContext, pattern, summar
 			TS:      time.Now(),
 		})
 	}
+}
+
+// isTestFilePath reports whether a repo-relative path looks like a
+// test / spec file under the language conventions codrax supports.
+// Used by scanGrepLinesIntoClassificationObs to keep C0' observations
+// confined to production code — test assertion strings, fixture data
+// and example snippets carry quoted literals that the reconciler
+// would misread as answer-shape signal.
+//
+// Path form is always repo-relative with forward-slash separators
+// (codrax's grep tool and ground.CanonicalRepoRelative normalise both
+// platforms to /), so suffix matching on the full path is enough —
+// no need to extract the basename first.
+//
+// Covered conventions, by ecosystem:
+//
+//   - Go                      _test.go
+//   - Python (pytest/unittest) _test.py / test_<name>.py
+//   - Ruby (RSpec)             _spec.rb / _test.rb
+//   - JavaScript / TypeScript  .test.js / .test.ts / .spec.js / .spec.ts
+//                              plus .test.jsx / .spec.jsx / .test.tsx / .spec.tsx
+//   - Java / Kotlin            Test.java / Tests.java / Test.kt
+//                              plus common prefixes Test*.java /
+//                              IT*.java (integration tests)
+//   - C / C++                  _test.c / _test.cc / _test.cpp / _test.cxx
+//                              plus google-test convention *_unittest.cc
+//
+// The matcher is conservative: files that look like test helpers but
+// do not match a recognised suffix fall through and are treated as
+// production. Preferring false negatives here is deliberate — C0' is
+// already conservative about firing, and admitting a non-test helper
+// is harmless while mis-classifying a real declarative file as a
+// test would silently re-introduce the bug this helper solves.
+func isTestFilePath(p string) bool {
+	if p == "" {
+		return false
+	}
+	// Suffix checks on the full path. Cheaper than filepath.Base +
+	// repeated HasSuffix, and correct because every listed suffix
+	// includes either an underscore / dot boundary or a filename
+	// token so a production file with one of these endings would
+	// have to be named exactly that (e.g. a file literally called
+	// `_test.go` at the repo root — a vanishingly rare case we
+	// accept as a false positive).
+	suffixes := []string{
+		// Go.
+		"_test.go",
+		// Python.
+		"_test.py",
+		// Ruby.
+		"_spec.rb", "_test.rb",
+		// JavaScript / TypeScript.
+		".test.js", ".test.jsx", ".test.ts", ".test.tsx",
+		".spec.js", ".spec.jsx", ".spec.ts", ".spec.tsx",
+		// Java / Kotlin common conventions.
+		"Test.java", "Tests.java", "Test.kt", "Tests.kt",
+		// C / C++ / google-test.
+		"_test.c", "_test.cc", "_test.cpp", "_test.cxx",
+		"_unittest.cc", "_unittest.cpp",
+	}
+	for _, s := range suffixes {
+		if strings.HasSuffix(p, s) {
+			return true
+		}
+	}
+	// Python / Java prefix conventions.
+	// - `test_<x>.py` at the basename (pytest discovery default).
+	// - `Test<X>.java` / `IT<X>.java` at the basename (Maven
+	//   Surefire / Failsafe discovery defaults).
+	slash := strings.LastIndex(p, "/")
+	base := p
+	if slash >= 0 {
+		base = p[slash+1:]
+	}
+	switch {
+	case strings.HasSuffix(base, ".py") && strings.HasPrefix(base, "test_"):
+		return true
+	case strings.HasSuffix(base, ".java") && (strings.HasPrefix(base, "Test") || strings.HasPrefix(base, "IT")):
+		// Guard against a real Test<capital> class that does not
+		// end in Test.java: base-prefix match covers this case too.
+		return true
+	}
+	return false
 }
 
 // toolDetail extracts a short human-readable detail from tool parameters

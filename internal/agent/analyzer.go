@@ -1432,6 +1432,27 @@ func reconcileFromObservations(rm *types.RequestModel, obs []types.Classificatio
 	if rm == nil || len(obs) == 0 {
 		return nil
 	}
+
+	// Session-22 follow-up B4 — ShapeConfidence floor guard.
+	//
+	// C0' reconcile is a coarse, single-observation-triggered rule
+	// ("I saw a quoted literal, so the answer is probably a literal").
+	// It was designed as a safety net for LLMs that hedge or punt on
+	// shape classification. When the LLM rated its own shape
+	// classification at or above the floor, we should trust it —
+	// over-riding a confident classification on a single grep hit is
+	// the bug pattern we saw on m1a (ShapeConfidence=0.85 silently
+	// downgraded to `value` because Round-2 grep happened to land on
+	// a string-shaped match).
+	//
+	// Mirrors the `kindConfidenceFloorForNarrowing = 0.7` pattern in
+	// explorer.go: "zero = LLM declined to rate = treat as low", so
+	// the reconcile still fires for truly-unrated cases that C0' was
+	// originally designed for.
+	if rm.ShapeConfidence > 0 && rm.ShapeConfidence >= shapeConfidenceFloorForC0Reconcile {
+		return nil
+	}
+
 	var logs []string
 	// The analyzer's string shape hint lives in AnalyzerHints.Shape
 	// (a raw LLM-extracted label); the typed AnswerContract.
@@ -1473,6 +1494,22 @@ func reconcileFromObservations(rm *types.RequestModel, obs []types.Classificatio
 	return logs
 }
 
+// shapeConfidenceFloorForC0Reconcile is the minimum LLM-emitted
+// ShapeConfidence at which C0' reconcileFromObservations will defer
+// to the LLM's shape classification and skip the quoted-literal
+// downgrade rule. Below this floor (or at zero — LLM declined to
+// rate), the safety net still fires for the ambiguous-subject
+// scenarios the rule was originally designed to catch.
+//
+// 0.7 matches `kindConfidenceFloorForNarrowing` in explorer.go so
+// every confidence-gated downstream behaviour speaks the same
+// threshold language. The symmetric-direction convention (narrow ONLY
+// when high confidence vs. override ONLY when low confidence) does
+// not change the chosen threshold — in both cases 0.7 separates
+// "confident enough to be trusted" from "hedged enough to be
+// overridable".
+const shapeConfidenceFloorForC0Reconcile = 0.7
+
 // extractQuotedLiterals walks s and returns every single- or
 // double-quoted substring as a slice of unquoted tokens. Used by
 // the C0' reconciler to feed candidate literals into the subject
@@ -1509,6 +1546,17 @@ func extractQuotedLiterals(s string) []string {
 
 // (Ex-helpers containsSkillLiteral / containsNewAgentLiteral /
 // isASCII* removed in the Session 11 over-fitting audit.
-// reconcileFromObservations now delegates to subject.Score via
-// the existing taxonomy (internal/analysis/subject) and
-// extractQuotedLiterals for language-agnostic literal scanning.)
+// reconcileFromObservations is intentionally minimal: it scans
+// observations for any quoted literal via extractQuotedLiterals and
+// — on the first hit — downgrades AnalyzerHints.Shape to "value".
+// Picking a specific AnswerSubjectKind is inferAnswerSubject's job
+// (runs after this reconciler), so the subject.Score taxonomy is
+// consulted downstream rather than here.
+//
+// A prior version of this note claimed this function "delegates to
+// subject.Score"; that was an aspirational description of a design
+// that was never implemented, not a contract. Reconcile uses the
+// quoted-literal heuristic plus two guards: (a) test-file filter in
+// scanGrepLinesIntoClassificationObs keeps fixture strings out of
+// the obs pool, and (b) the ShapeConfidence >= 0.7 floor above keeps
+// confident LLM classifications from being blindly overridden.)
