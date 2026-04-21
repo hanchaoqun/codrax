@@ -125,11 +125,19 @@ func DefaultViolationBudgetSettings() ViolationBudgetSettings {
 }
 
 // DefaultRetryBudgetByKindSettings returns the full-design §4
-// per-kind budgets: 1/3/2/2/2/1.
+// per-kind budgets: 1/1/2/2/2/1.
+//
+// CitationViolation dropped from 3 → 1 after field data showed the
+// LLM re-emits the same citation set on every retry when it cannot
+// produce another grounded cite; MinRetryYield did not kill the
+// loop because explorer would often read one more file (nonzero
+// yield) that did not translate into an extra citation. The
+// fail-loud warning path preserves the original answer and surfaces
+// the gap honestly, so an extra retry only spends time.
 func DefaultRetryBudgetByKindSettings() RetryBudgetByKindSettings {
 	return RetryBudgetByKindSettings{
 		ShapeViolation:    1,
-		CitationViolation: 3,
+		CitationViolation: 1,
 		LiteralFormFailed: 2,
 		GhostAnchor:       2,
 		SelfRefLiteral:    2,

@@ -77,8 +77,8 @@ func TestRetryBudgetByKind_UsesKindSpecificCap(t *testing.T) {
 	if got := def.For(types.ViolShape, 99); got != 1 {
 		t.Errorf("ViolShape cap = %d, want 1 (default shape budget)", got)
 	}
-	if got := def.For(types.ViolCitation, 99); got != 3 {
-		t.Errorf("ViolCitation cap = %d, want 3", got)
+	if got := def.For(types.ViolCitation, 99); got != 1 {
+		t.Errorf("ViolCitation cap = %d, want 1", got)
 	}
 	if got := def.For(types.ViolGhostAnchor, 99); got != 2 {
 		t.Errorf("ViolGhostAnchor cap = %d, want 2", got)
