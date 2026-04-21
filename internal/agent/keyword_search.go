@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -125,6 +126,34 @@ func MaxFilesForComplexity(complexity types.Complexity) int {
 // entity list + the complexity-derived MaxFiles.
 func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 	return keywordSearchWithOptions(keywords, repoRoot, keywordSearchOptions{})
+}
+
+// keywordSearchFingerprint produces a stable string fingerprint of the
+// four inputs that determine keywordSearchWithOptions's output.
+// Callers (today: the explorer's BuildInitialInstruction) compare this
+// against a cached fingerprint to short-circuit recomputation when the
+// same Run re-dispatches explorer with identical analyzer output.
+// Order-independent: slices are sorted before joining so keyword
+// permutations produce the same key.
+func keywordSearchFingerprint(keywords, entities, domainHints []string, maxFiles int) string {
+	cp := func(s []string) []string {
+		if len(s) == 0 {
+			return nil
+		}
+		out := make([]string, len(s))
+		copy(out, s)
+		sort.Strings(out)
+		return out
+	}
+	var b strings.Builder
+	b.WriteString(strings.Join(cp(keywords), "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.Join(cp(entities), "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.Join(cp(domainHints), "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(maxFiles))
+	return b.String()
 }
 
 // keywordSearchWithOptions combines repo_map's structural ranking

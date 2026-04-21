@@ -131,3 +131,28 @@ func TestDomainBoostFactor_BoostSmallerThanEntityBoost(t *testing.T) {
 		t.Fatalf("domain boost %v must be strictly less than entity boost floor 1.3", got)
 	}
 }
+
+// T1.2 — keywordSearchFingerprint stability + order-independence.
+func TestKeywordSearchFingerprint_StableAndOrderIndependent(t *testing.T) {
+	a := keywordSearchFingerprint([]string{"foo", "bar"}, []string{"Baz"}, []string{"pkg"}, 30)
+	b := keywordSearchFingerprint([]string{"bar", "foo"}, []string{"Baz"}, []string{"pkg"}, 30)
+	if a != b {
+		t.Fatalf("fingerprint is sensitive to keyword order: a=%q b=%q", a, b)
+	}
+}
+
+func TestKeywordSearchFingerprint_DistinguishesInputs(t *testing.T) {
+	base := keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, []string{"pkg"}, 30)
+	cases := map[string]string{
+		"different keyword":  keywordSearchFingerprint([]string{"qux"}, []string{"Baz"}, []string{"pkg"}, 30),
+		"different entity":   keywordSearchFingerprint([]string{"foo"}, []string{"Other"}, []string{"pkg"}, 30),
+		"different domain":   keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, []string{"other"}, 30),
+		"different maxFiles": keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, []string{"pkg"}, 20),
+		"empty all":          keywordSearchFingerprint(nil, nil, nil, 0),
+	}
+	for name, fp := range cases {
+		if fp == base {
+			t.Errorf("%s should change fingerprint but matched base %q", name, fp)
+		}
+	}
+}

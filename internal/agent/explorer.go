@@ -32,6 +32,7 @@ type explorerEvaluator struct {
 	allScoredFiles             []string             // ALL files from keyword search (not just top 8), for supplementary evidence
 	fileSymbols                map[string][]string  // path → symbol summaries from repo_map
 	searchResult               *keywordSearchResult // full search result for cross-reference lookups
+	searchFingerprint          string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
 	exactAnchorFiles           []string             // exact-entity anchor files from keyword search, in rank order
 	declarativeAnchorFiles     []string             // declarative registry/defaults/routes anchors for enumeration questions
 	investigationNotes         []string             // assistant analysis messages from ReAct loop
@@ -169,6 +170,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.preScannedFiles = nil
 		e.allScoredFiles = nil
 		e.searchResult = nil
+		e.searchFingerprint = ""
 		e.ermRequirements = nil
 		e.fileSymbols = nil
 		e.phase0ExtraRound = false
@@ -398,12 +400,30 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// questions get a 30-file candidate pool instead of the
 		// historical 20 that drops dispatch-path files below the
 		// LLM's eyeline.
-		sr := keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
-			Entities:    analyzerEntities,
-			DomainHints: irDomainHints(ctx),
-			MaxFiles:    MaxFilesForComplexity(irComplexity(ctx)),
-		})
-		e.searchResult = sr
+		//
+		// T1.2: cache result across explorer redispatches within a
+		// Run. keyword_search is deterministic in its four inputs
+		// (keywords/entities/domain hints/maxFiles) and analyzer
+		// only runs once per pipeline, so the second+ explorer
+		// dispatch repeats identical work. Cross-run reset clears
+		// searchFingerprint so a fresh REPL turn still recomputes.
+		domainHints := irDomainHints(ctx)
+		maxFiles := MaxFilesForComplexity(irComplexity(ctx))
+		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, domainHints, maxFiles)
+		var sr *keywordSearchResult
+		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
+			logging.Debug("[keyword_search] cache hit fp=%s (%d files, %d keywords)",
+				fp, len(e.searchResult.Files), len(analyzerKeywords))
+			sr = e.searchResult
+		} else {
+			sr = keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
+				Entities:    analyzerEntities,
+				DomainHints: domainHints,
+				MaxFiles:    maxFiles,
+			})
+			e.searchResult = sr
+			e.searchFingerprint = fp
+		}
 		if sr != nil {
 			e.exactAnchorFiles = exactAnchorFilesFromScores(sr.Files)
 			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
