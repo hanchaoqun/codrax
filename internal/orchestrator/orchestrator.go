@@ -459,6 +459,24 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	// loop tick of no-op work.
 	forceFinalizeTriggered := false
 
+	// Shape-guard state for the scheduler's pure-read predicates.
+	// `lastStopShape` holds the envShape from the iteration where
+	// `stopcond.ShouldStop` was last evaluated — if the current shape
+	// equals it, re-evaluating would produce the same verdict and the
+	// call is skipped. `lastSCFailShape` tracks per-validate-node the
+	// envShape of the most recent SuccessCriteria failure; when a
+	// validate node fails again with an identical shape, re-investigation
+	// would not advance evidence (classic scenario: hypothesis about
+	// foreign code that the repo provably does not contain) so the
+	// scheduler escapes by auto-injecting HypInconclusive for the
+	// stuck hypotheses and marks the validate node done. Shape-guard
+	// is structural defence: it detects and breaks hot-loops whose
+	// predicate input is pure-read over BusContext — the session-20
+	// architectural fix that replaced the session-19 instance-specific
+	// latch approach.
+	var lastStopShape *envShape
+	lastSCFailShape := make(map[string]envShape)
+
 	buildEnv := func(draft string, draftCitations int) criterion.Env {
 		return criterion.Env{
 			IR:             ir,
@@ -478,16 +496,32 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		env := buildEnv("", 0)
 
 		if !forceFinalizeTriggered {
-			if stop, reason := stopcond.ShouldStop(ir.EvidencePlan, env); stop {
-				logging.Info("[orchestrator] stop condition fired: %s", reason)
-				state.forceCloseExploreWindow()
-				forceFinalizeTriggered = true
-				// No `continue` here — fall through in the SAME
-				// iteration so readyExplorerWindow (below) sees the
-				// just-closed nodes and firstFinalizeReadyMerged
-				// returns the ready finalize node immediately. This
-				// matches the "jump directly to finalize" wording in
-				// runTaskGraph's doc comment.
+			// Shape-gate: stopcond.ShouldStop is a pure function over
+			// criterion.Env; identical envShape → identical verdict.
+			// Skip re-evaluation when the Env cursor has not advanced
+			// since the last check. The forceFinalizeTriggered latch
+			// above still carries the one-shot "stop was terminal"
+			// business semantic (protects post-finalize retry from
+			// re-force-closing newly requeued explore nodes); the
+			// shape-gate is belt-and-suspenders protection against
+			// the same-shape hot-loop pattern at structural level, so
+			// any FUTURE pure-read predicate added to this tight loop
+			// automatically inherits the same protection without
+			// requiring a per-predicate latch.
+			currentStopShape := computeEnvShape(o.busCtx, env)
+			if lastStopShape == nil || !lastStopShape.equals(currentStopShape) {
+				if stop, reason := stopcond.ShouldStop(ir.EvidencePlan, env); stop {
+					logging.Info("[orchestrator] stop condition fired: %s", reason)
+					state.forceCloseExploreWindow()
+					forceFinalizeTriggered = true
+					// No `continue` here — fall through in the SAME
+					// iteration so readyExplorerWindow (below) sees the
+					// just-closed nodes and firstFinalizeReadyMerged
+					// returns the ready finalize node immediately. This
+					// matches the "jump directly to finalize" wording in
+					// runTaskGraph's doc comment.
+				}
+				lastStopShape = &currentStopShape
 			}
 		}
 
@@ -609,14 +643,48 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 					}
 				}
 				if valFailed != nil {
-					targets := state.requeueValidationTargets(valFailed.ID)
-					if len(targets) == 0 {
-						// No upstream evidence edges found — fall
-						// back to requeueing the validate node only.
-						state.requeue(valFailed.ID)
+					// Shape-stuck detection. If this validate node's
+					// SuccessCriteria failed on the same envShape as
+					// its previous failure, re-running explore over the
+					// same upstream evidence set would produce the same
+					// verdict — the pure-read predicate is deterministic
+					// over Env and the Env cursor has not advanced.
+					// Classic trigger: the validate node's
+					// all_hypotheses_decided criterion gates on a
+					// hypothesis whose RequiredEvidence cannot be found
+					// in the target repo (e.g. Java trace attached
+					// against a Go repo). Without this escape, the
+					// scheduler would requeue upstream evidence, explore
+					// would re-read the same files, find the same
+					// nothing, and loop until step budget drains.
+					currentShape := computeEnvShape(o.busCtx, envAfter)
+					if prev, seen := lastSCFailShape[valFailed.ID]; seen && prev.equals(currentShape) {
+						// Auto-inconclusive any still-unknown hypotheses
+						// so finalize can ship with an honest caveat.
+						injected := o.injectInconclusiveForStuckHypotheses(valFailed.ID)
+						state.markDone(valFailed.ID)
+						o.emitNodeEnd(valFailed.ID, true, "")
+						o.emit(render.Event{
+							Kind:      render.EventAgentReasoning,
+							Timestamp: time.Now(),
+							Agent:     "orchestrator",
+							Reasoning: fmt.Sprintf(
+								"✓ Node %s: evidence stable across retries — marked done with %d inconclusive verdict(s) to unblock finalize.",
+								valFailed.ID, injected),
+						})
 					} else {
-						pendingValidationTargets = targets
-						state.recordRetry()
+						// Shape changed since last failure (or first
+						// failure) — run the normal requeue path.
+						targets := state.requeueValidationTargets(valFailed.ID)
+						if len(targets) == 0 {
+							// No upstream evidence edges found — fall
+							// back to requeueing the validate node only.
+							state.requeue(valFailed.ID)
+						} else {
+							pendingValidationTargets = targets
+							state.recordRetry()
+						}
+						lastSCFailShape[valFailed.ID] = currentShape
 					}
 				}
 
@@ -1216,6 +1284,63 @@ func (o *Orchestrator) runAutoVerdicts() {
 		mu.AppendEmittedHypothesisVerdicts(injected)
 		logging.Info("[orchestrator] injected %d auto-verdict(s) from criterion evaluation", len(injected))
 	}
+}
+
+// injectInconclusiveForStuckHypotheses is the scheduler's escape hatch
+// for hypothesis-validate loops that cannot make progress. It mirrors
+// runAutoVerdicts' "inject inconclusive" path but IGNORES
+// RequiredEvidence — it applies when the scheduler has detected that
+// re-investigation would not advance the env (identical envShape across
+// two consecutive SuccessCriteria evaluations) and therefore no amount
+// of explore retries will resolve HypUnknown. Applied per validate
+// node, so only hypotheses the stuck validate gate's SC references
+// are affected; unrelated hypotheses stay untouched.
+//
+// The rationale is explicit about the give-up — downstream renderers
+// surface it as a caveat so the user sees that the answer shipped
+// with unresolved hypotheses. The scheduler logs a single
+// "[scheduler/stuck]" line at INFO level so operators can grep a
+// trace for the exact escape event.
+//
+// Returns the number of hypotheses newly marked inconclusive.
+func (o *Orchestrator) injectInconclusiveForStuckHypotheses(stuckNodeID string) int {
+	if o.busCtx == nil || o.busCtx.AnalysisIR == nil {
+		return 0
+	}
+	mu := o.busCtx.Mutable
+	if mu == nil {
+		return 0
+	}
+	existing := mu.EmittedHypothesisVerdicts()
+	byID := make(map[string]bool, len(existing))
+	for _, v := range existing {
+		byID[v.HypothesisID] = true
+	}
+	var injected []types.HypothesisVerdict
+	for _, h := range o.busCtx.AnalysisIR.HypothesisSet {
+		if h.Status != types.HypUnknown && h.Status != "" {
+			continue
+		}
+		if byID[h.ID] {
+			continue
+		}
+		injected = append(injected, types.HypothesisVerdict{
+			HypothesisID: h.ID,
+			Status:       types.HypInconclusive,
+			Rationale: fmt.Sprintf(
+				"re-investigation did not advance evidence "+
+					"(stuck at stable env shape on validate node %s); "+
+					"marking inconclusive to unblock finalize",
+				stuckNodeID),
+		})
+	}
+	if len(injected) == 0 {
+		return 0
+	}
+	mu.AppendEmittedHypothesisVerdicts(injected)
+	logging.Info("[scheduler/stuck] validate %s: injected %d inconclusive verdict(s) (evidence stable across retries)",
+		stuckNodeID, len(injected))
+	return len(injected)
 }
 
 // recordTaskFinalize copies the finalizer's FinalAnswer into

@@ -143,6 +143,114 @@ func TestGraphState_EntryConditionBlocks(t *testing.T) {
 	}
 }
 
+// ── envShape fingerprint tests ──────────────────────────────────
+
+// TestEnvShape_EmptyInput_IsZero verifies the baseline: zero Env,
+// nil BusContext → zero shape. This is the sentinel value the
+// scheduler uses when it has never evaluated a predicate before.
+func TestEnvShape_EmptyInput_IsZero(t *testing.T) {
+	shape := computeEnvShape(nil, criterion.Env{})
+	if shape != (envShape{}) {
+		t.Errorf("zero input → %+v, want zero shape", shape)
+	}
+}
+
+// TestEnvShape_EvidenceCountCaptured verifies the EvidenceCount
+// cursor changes when Env.Evidence grows.
+func TestEnvShape_EvidenceCountCaptured(t *testing.T) {
+	a := computeEnvShape(nil, criterion.Env{
+		Evidence: []types.EvidenceItem{{Subject: "a"}},
+	})
+	b := computeEnvShape(nil, criterion.Env{
+		Evidence: []types.EvidenceItem{{Subject: "a"}, {Subject: "b"}},
+	})
+	if a == b {
+		t.Errorf("shape should differ: a=%+v b=%+v", a, b)
+	}
+	if a.EvidenceCount != 1 || b.EvidenceCount != 2 {
+		t.Errorf("EvidenceCount cursor wrong: a=%d b=%d", a.EvidenceCount, b.EvidenceCount)
+	}
+}
+
+// TestEnvShape_DecidedHypothesesCursor verifies the HypothesisSet
+// decision cursor changes when a hypothesis is decided.
+func TestEnvShape_DecidedHypothesesCursor(t *testing.T) {
+	ir := &types.AnalysisIR{
+		HypothesisSet: []types.Hypothesis{
+			{ID: "h1", Status: types.HypUnknown},
+			{ID: "h2", Status: ""},
+			{ID: "h3", Status: types.HypConfirmed},
+		},
+	}
+	a := computeEnvShape(nil, criterion.Env{IR: ir})
+	if a.DecidedHypotheses != 1 {
+		t.Errorf("DecidedHypotheses = %d, want 1 (only h3 decided)", a.DecidedHypotheses)
+	}
+
+	ir.HypothesisSet[0].Status = types.HypRejected
+	b := computeEnvShape(nil, criterion.Env{IR: ir})
+	if b.DecidedHypotheses != 2 {
+		t.Errorf("DecidedHypotheses after h1 decided = %d, want 2", b.DecidedHypotheses)
+	}
+	if a.equals(b) {
+		t.Error("shapes should differ after hypothesis decision")
+	}
+}
+
+// TestEnvShape_FieldsAreIndependent pins that each field detects its
+// own source independently — a change to any one field produces a
+// distinct shape, so a false negative on one cursor does not mask
+// progress captured by another.
+func TestEnvShape_FieldsAreIndependent(t *testing.T) {
+	base := envShape{}
+	mods := []envShape{
+		{EvidenceCount: 1},
+		{AnswerSymbolCount: 1},
+		{AnswerChainCount: 1},
+		{ToolResultCount: 1},
+		{ReadSetSize: 1},
+		{PendingReadsSize: 1},
+		{DecidedHypotheses: 1},
+		{PrescanBytes: 1},
+	}
+	for i, m := range mods {
+		if base.equals(m) {
+			t.Errorf("mod %d: base equals modified shape %+v (field not load-bearing)", i, m)
+		}
+	}
+}
+
+// TestEnvShape_EqualsIsReflexive sanity-checks Go struct comparison.
+func TestEnvShape_EqualsIsReflexive(t *testing.T) {
+	s := envShape{EvidenceCount: 3, ToolResultCount: 5, DecidedHypotheses: 1}
+	if !s.equals(s) {
+		t.Error("shape should equal itself")
+	}
+}
+
+// TestEnvShape_ReadSetSourcedFromClosure verifies that ReadSetSize is
+// read through the BusContext.Mutable.EvidenceClosure() accessor and
+// updates when the closure's ReadSet grows.
+func TestEnvShape_ReadSetSourcedFromClosure(t *testing.T) {
+	bus := &types.BusContext{Mutable: types.NewMutableState("t")}
+	a := computeEnvShape(bus, criterion.Env{})
+	// ReadSetSize starts at 0.
+	if a.ReadSetSize != 0 {
+		t.Fatalf("baseline ReadSetSize = %d, want 0", a.ReadSetSize)
+	}
+
+	closure := bus.Mutable.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"file1.go": true, "file2.go": true})
+
+	b := computeEnvShape(bus, criterion.Env{})
+	if b.ReadSetSize != 2 {
+		t.Errorf("after SetReadSet: ReadSetSize = %d, want 2", b.ReadSetSize)
+	}
+	if a.equals(b) {
+		t.Error("shapes should differ after ReadSet growth")
+	}
+}
+
 func TestStageMapping_AllNodeTypes(t *testing.T) {
 	g := types.TaskGraph{}
 	cases := []struct {

@@ -435,3 +435,83 @@ func termSurfaceLookup(ir *types.AnalysisIR) func(string) string {
 		return idx[id]
 	}
 }
+
+// envShape is a cheap structural fingerprint of the inputs that feed
+// criterion.Env. The scheduler's tight loop uses it to decide whether
+// a pure-read predicate (stopcond.ShouldStop, SuccessCriteria
+// evaluation) would meaningfully re-evaluate vs. just return the same
+// verdict it did last tick.
+//
+// The rule the struct enforces: any branch in the scheduler that
+// evaluates a pure function over Env MUST compare the current shape
+// against a snapshot captured at the previous evaluation. If the
+// shape has not changed, re-evaluation is redundant at best and a
+// hot-loop risk at worst (when the branch body mutates only graph
+// state, not Env inputs, the predicate will fire indefinitely without
+// progress).
+//
+// Fields are all int so the struct is naturally Go-comparable with
+// `==` and `!=`, dedup/fingerprint without hashing. Every field is a
+// cursor on an append-only or monotone state source:
+//
+//   - EvidenceCount:      len(BusContext.EvidenceItems)
+//   - AnswerSymbolCount:  len(BusContext.AnswerSymbols)
+//   - AnswerChainCount:   len(BusContext.AnswerChains)
+//   - ToolResultCount:    len(BusContext.ToolResults)
+//   - ReadSetSize:        |EvidenceClosure.ReadSet|
+//   - PendingReadsSize:   |EvidenceClosure.PendingReads|
+//   - DecidedHypotheses:  count of HypothesisSet entries with a
+//                         non-unknown non-empty Status
+//   - PrescanBytes:       len(PrescanSummaryBlob)
+//
+// A change in any field means "something Env-visible advanced since
+// last snapshot" — the predicate may now return a different verdict
+// and re-evaluation is legitimate. All fields zero is the valid empty
+// shape (used as the sentinel "never evaluated" value via pointer nil
+// at call sites rather than zero-value confusion).
+type envShape struct {
+	EvidenceCount     int
+	AnswerSymbolCount int
+	AnswerChainCount  int
+	ToolResultCount   int
+	ReadSetSize       int
+	PendingReadsSize  int
+	DecidedHypotheses int
+	PrescanBytes      int
+}
+
+// computeEnvShape captures the current cursor positions of every
+// state source that feeds criterion.Env. Pure function; safe to call
+// from anywhere that has a BusContext + Env. Nil bus is tolerated for
+// unit-test ergonomics and returns the zero shape.
+func computeEnvShape(bus *types.BusContext, env criterion.Env) envShape {
+	s := envShape{
+		EvidenceCount:     len(env.Evidence),
+		AnswerSymbolCount: len(env.AnswerSymbols),
+		AnswerChainCount:  len(env.AnswerChains),
+		ToolResultCount:   len(env.ToolResults),
+		PrescanBytes:      len(env.PrescanBlob),
+	}
+	if env.IR != nil {
+		for _, h := range env.IR.HypothesisSet {
+			if h.Status != "" && h.Status != types.HypUnknown {
+				s.DecidedHypotheses++
+			}
+		}
+	}
+	if bus != nil && bus.Mutable != nil {
+		if closure := bus.Mutable.EvidenceClosure(); closure != nil {
+			s.ReadSetSize = len(closure.ReadSet())
+			s.PendingReadsSize = len(closure.PendingReads())
+		}
+	}
+	return s
+}
+
+// equals reports whether two shapes represent the same Env cursor
+// position. Struct comparison is sufficient since every field is a
+// scalar int and the fields cover all Env inputs the scheduler cares
+// about.
+func (a envShape) equals(b envShape) bool {
+	return a == b
+}
