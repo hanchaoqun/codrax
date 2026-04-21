@@ -25,4 +25,12 @@ main.writeSession(0x0, {0x140000a2090, 0x8})
 	internal/agent/analyzer.go:100 +0x1e
 '
 EXPECT_CONTAINS="concurrent"
-EXPECT_SECTIONS="race map"
+# "map" must literally appear (the specific data-structure is a
+# load-bearing anchor). "race" accepts any answer that recognises
+# this as a race / race condition / data race in any language the
+# analysed repo might respond in (English race condition/data race,
+# Chinese 竞态/数据竞争/竞争). Keeps the case's real intent — "did
+# the answer name this as a race bug?" — without over-constraining
+# the vocabulary the LLM may use.
+EXPECT_SECTIONS="map"
+EXPECT_MATCHES_REGEX="race|race condition|data race|竞态|数据竞争|竞争"
