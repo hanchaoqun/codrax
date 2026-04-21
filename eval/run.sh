@@ -125,10 +125,29 @@ run_one() {
     echo "answer_chain_lines=$(count_pattern 'answer_chain' "$log")"
   } >"$metrics"
 
-  # Verdict: check expectation substrings against the stdout. Strip ANSI
-  # codes first since codrax may color terminal output.
+  # Verdict: check expectation substrings against the final answer
+  # body. codrax mixes stderr (thinking trace with '💭' markers +
+  # progress updates + '━━━' separator) and stdout (final answer)
+  # into the same file because the runner uses '>"$out" 2>&1'.
+  # Without scoping, a substring check sees everything — including
+  # tool-error messages that the LLM quoted mid-reasoning but
+  # course-corrected in the final answer. The 2026-04-21 logtri_partial
+  # failure is the canonical trace: answer body never mentioned
+  # 'analyzer.go', but the <think> block quoted a grounder rejection
+  # that included the string, so EXPECT_NOT_CONTAINS='analyzer.go'
+  # wrongly reported a ban hit.
+  #
+  # Scope rule: strip ANSI, then take only content after the first
+  # '━━━' line (cmd/root.go prints it to stderr as the boundary
+  # between thinking trace and answer). If the marker is absent
+  # (pre-separator build, early error, no result produced), fall
+  # back to the whole file — the too-short sanity filter below
+  # will still catch empty / fragment answers.
   local cleaned
   cleaned="$(sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' "$out")"
+  if grep -qF '━━━' <<<"$cleaned"; then
+    cleaned="$(awk 'found{print; next} /━━━/{found=1}' <<<"$cleaned")"
+  fi
   local pass=1 reasons=()
 
   # Global min-length sanity filter (2026-04-14 deferred #10): any
@@ -146,9 +165,22 @@ run_one() {
     reasons+=("too_short:${#stripped}chars")
   fi
 
+  # Case-insensitive substring matching across all three lists.
+  # Case-sensitive matching (grep -F without -i) was historically
+  # chosen but produces false negatives when case conventions
+  # diverge between case-file authors (often lowercase tokens) and
+  # LLM answers (proper-noun / class-name capitalisation). The
+  # 2026-04-21 logtri_rust failure is the canonical trace:
+  # EXPECT_CONTAINS='rust' vs. answer 'Rust 运行时' — 25 hits
+  # case-insensitive, 0 case-sensitive. Using -iF uniformly treats
+  # EXPECT_CONTAINS / EXPECT_NOT_CONTAINS / EXPECT_SECTIONS as
+  # "this concept must appear" rather than "this exact byte
+  # sequence must appear"; if a case ever legitimately needs the
+  # latter, EXPECT_MATCHES_REGEX is the explicit case-sensitive
+  # channel.
   if [[ -n "$EXPECT_CONTAINS" ]]; then
     for needle in $EXPECT_CONTAINS; do
-      if ! grep -qF -- "$needle" <<<"$cleaned"; then
+      if ! grep -qiF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("missing:$needle")
       fi
@@ -156,7 +188,7 @@ run_one() {
   fi
   if [[ -n "$EXPECT_NOT_CONTAINS" ]]; then
     for needle in $EXPECT_NOT_CONTAINS; do
-      if grep -qF -- "$needle" <<<"$cleaned"; then
+      if grep -qiF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("banned:$needle")
       fi
@@ -187,7 +219,7 @@ run_one() {
   # identifier".
   if [[ -n "$EXPECT_SECTIONS" ]]; then
     for needle in $EXPECT_SECTIONS; do
-      if ! grep -qF -- "$needle" <<<"$cleaned"; then
+      if ! grep -qiF -- "$needle" <<<"$cleaned"; then
         pass=0
         reasons+=("missing_section:$needle")
       fi
