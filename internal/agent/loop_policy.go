@@ -3,6 +3,7 @@ package agent
 import (
 	"fmt"
 	"hash/fnv"
+	"regexp"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 )
@@ -416,8 +417,18 @@ func (s *loopPolicyState) Apply(phase LoopPhase, obs LoopObservation, sig LoopSi
 	// from prose decoration around it. Skips success cases and
 	// no-tool-result cases.
 	if phase == PhaseMidLoop && obs.LastToolResult != nil && !obs.LastToolResult.Success {
+		// Session-22 follow-up: normalize the hashed error class so
+		// per-item numeric indices (items[4]:, steps[12]:, (got 3),
+		// …) do not make two structurally-identical rejection
+		// messages look like different error classes. Without this,
+		// the LLM can batch-retry with 5 items instead of 4 (or
+		// rearrange order) and the streak counter resets every time
+		// — defeating the entire identical-error-streak safety net.
+		// logtri_custom 2026-04-21 exercise showed this pattern:
+		// 10+ iters of identical "line_start is required" errors
+		// across different items, none detected as a streak.
 		firstLine := firstLineOfString(obs.LastToolResult.Summary)
-		eh := hashString(firstLine)
+		eh := hashString(normalizeErrorClassForHash(firstLine))
 		if s.lastErrorHash != 0 && eh == s.lastErrorHash {
 			s.identicalErrorStreak++
 		} else {
@@ -551,6 +562,67 @@ func firstLineOfString(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// errorClassNumericFieldRe strips per-item numeric noise that makes
+// two structurally-identical rejection messages look different
+// across retries. The patterns are chosen from the actual emit-tool
+// error surface: items[N] / steps[N] / symbols[N] / citations[N]
+// indices, plus "(got N)" and "line X" reporters that quote the
+// offending input. Replacing them with a `[N]` / `#` placeholder
+// collapses the error class without losing the structural key phrase
+// (e.g. "line_start is required" stays intact).
+var errorClassNumericFieldRe = regexp.MustCompile(`(?:items|steps|symbols|citations)\[\d+\]|\(got \d+\)|line_?(?:start|end)?=\d+|line \d+|\(\d+\)|:\d+-\d+|:\d+`)
+
+// normalizeErrorClassForHash rewrites an error line so two failures
+// that share the same structural problem (e.g. "line_start required"
+// on different item indices) collapse to the same hash. Enables the
+// identical-error-streak detector at step 1d to actually trigger on
+// per-item reject loops like logtri_custom's emit_evidence pattern.
+//
+// Conservative rewrite rules:
+//
+//   - items[N] / steps[N] / symbols[N] / citations[N] → items[#] etc.
+//     The KIND of container matters for error class (items[#] vs.
+//     steps[#] are different problems); the INDEX does not.
+//   - (got N) → (got #). Preserves "value was wrong" sense.
+//   - line N / line_start=N / line_end=N → line #. Same logic.
+//   - :N or :N-M line-suffixes at end of path references → :# / :#-#.
+//
+// Rules intentionally leave error KEY PHRASES untouched — "is
+// required", "must be > 0", "unknown kind", "forbidden", etc. The
+// goal is to collapse numeric noise, not to merge semantically
+// different errors.
+func normalizeErrorClassForHash(s string) string {
+	return errorClassNumericFieldRe.ReplaceAllStringFunc(s, func(match string) string {
+		// Keep the container-kind prefix (items / steps / symbols /
+		// citations) so different-class errors stay distinct; only
+		// the index becomes a placeholder.
+		switch {
+		case len(match) > 0 && match[0] == '(':
+			// Covers "(got N)" and bare "(N)" — both collapse to
+			// "(got #)" since both represent a numeric value the
+			// error is quoting back to the caller. Using the same
+			// placeholder keeps the hash-collapse symmetric with
+			// the common emit-tool error phrasing.
+			return "(got #)"
+		case len(match) > 0 && match[0] == ':':
+			if i := indexByteZero(match[1:], '-'); i >= 0 {
+				return ":#-#"
+			}
+			return ":#"
+		case len(match) >= 4 && match[:4] == "line":
+			// line / line_start=N / line_end=N / line N.
+			// Collapse the whole token to "line #".
+			return "line #"
+		default:
+			// items[N] / steps[N] / symbols[N] / citations[N] form.
+			if br := indexByteZero(match, '['); br >= 0 {
+				return match[:br] + "[#]"
+			}
+			return match
+		}
+	})
 }
 
 // indexByteZero avoids the strings import here — loop_policy.go

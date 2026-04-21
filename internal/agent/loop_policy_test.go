@@ -661,6 +661,107 @@ func TestLoopPolicy_IdenticalErrorStreak_ResetsOnDifferentError(t *testing.T) {
 	}
 }
 
+// Session-22 follow-up: error-class hash must survive numeric-index
+// noise so per-item reject loops actually trigger the streak detector.
+// Pre-normalize: "items[0]: line_start is required" and "items[1]:
+// line_start is required" hashed differently because the index
+// changed, so identicalErrorStreak never climbed. Post-normalize:
+// both collapse to "items[#]: line_start is required", hashing
+// identically → streak increments, force-stop fires at threshold.
+func TestLoopPolicy_IdenticalErrorStreak_NormalizesItemIndex(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+
+	// Three consecutive rejections with SAME structural error but
+	// DIFFERENT item indices (simulating the logtri_custom loop
+	// where the LLM reordered / resized the batch each retry).
+	errs := []string{
+		"items[0]: line_start is required and must be > 0",
+		"items[4]: line_start is required and must be > 0",
+		"items[2]: line_start is required and must be > 0",
+	}
+	for i, e := range errs {
+		r := s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(i, e, byte('a'+i)), LoopSignal{})
+		if r.Outcome == OutcomeStop && strings.Contains(r.Reason, "same error class") {
+			t.Fatalf("iter=%d stopped too early: %s", i, r.Reason)
+		}
+	}
+	// iter=3: same class, different index again. At streak=3 (threshold),
+	// force-stop must fire.
+	r := s.Apply(PhaseMidLoop,
+		midLoopObsWithFailedTool(3, "items[9]: line_start is required and must be > 0", 'z'),
+		LoopSignal{})
+	if r.Outcome != OutcomeStop {
+		t.Fatalf("index-varying same-class streak must force-stop at threshold, got %v (%s)",
+			r.Outcome, r.Reason)
+	}
+	if !strings.Contains(r.Reason, "same error class") {
+		t.Errorf("stop reason must name error-class streak, got %q", r.Reason)
+	}
+}
+
+// Companion coverage: ensure the normalizer does NOT collapse
+// genuinely-different error classes. items[0] saying "line_start
+// required" and items[0] saying "anchor_symbol required" share an
+// index but describe different bugs; they must hash differently.
+func TestLoopPolicy_IdenticalErrorStreak_PreservesKeyPhraseDifference(t *testing.T) {
+	s := newTestPolicyState(DefaultLoopPolicy())
+	// Different key phrases across retries — streak must RESET
+	// (counter to zero), so no force-stop even at 10 iters.
+	msgs := []string{
+		"items[0]: line_start is required",
+		"items[0]: anchor_symbol is required",
+		"items[0]: unknown kind \"absent\"",
+		"items[0]: line_end (5) is before line_start (10)",
+	}
+	for i, m := range msgs {
+		r := s.Apply(PhaseMidLoop, midLoopObsWithFailedTool(i, m, byte('a'+i)), LoopSignal{})
+		if r.Outcome == OutcomeStop {
+			t.Fatalf("different key phrases must reset streak; got stop at iter=%d: %s", i, r.Reason)
+		}
+	}
+}
+
+// Directly exercise the normalizer so a future refactor can't
+// silently change the placeholder choice or pattern coverage.
+func TestNormalizeErrorClassForHash(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "items[N] collapses",
+			in:   "items[4]: line_start is required and must be > 0",
+			want: "items[#]: line_start is required and must be > 0",
+		},
+		{
+			name: "steps[N] / citations[N] / symbols[N] collapse",
+			in:   "steps[2]: description is required; citations[7]: file missing; symbols[11]: kind invalid",
+			want: "steps[#]: description is required; citations[#]: file missing; symbols[#]: kind invalid",
+		},
+		{
+			name: "(got N) collapses",
+			in:   "items[0]: line must be > 0 (got 5)",
+			want: "items[#]: line must be > 0 (got #)",
+		},
+		{
+			name: "line_start=N collapses",
+			in:   "items[0]: line_end (5) is before line_start (10)",
+			want: "items[#]: line_end (got #) is before line_start (got #)",
+		},
+		{
+			name: "different key phrases stay distinct",
+			in:   "items[0]: unknown kind \"absent\"",
+			want: "items[#]: unknown kind \"absent\"",
+		},
+	}
+	for _, c := range cases {
+		if got := normalizeErrorClassForHash(c.in); got != c.want {
+			t.Errorf("%s:\n in   = %q\n got  = %q\n want = %q", c.name, c.in, got, c.want)
+		}
+	}
+}
+
 // TestLoopPolicy_IdenticalErrorStreak_DisabledWhenZero — threshold=0
 // is the backward-compat escape hatch.
 func TestLoopPolicy_IdenticalErrorStreak_DisabledWhenZero(t *testing.T) {
