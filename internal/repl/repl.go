@@ -165,10 +165,14 @@ func (r *REPL) warn(format string, args ...interface{}) {
 }
 
 // Loop runs the prompt until /exit, /quit, or EOF.
+//
+// The interactive readInput session renders its own echo + divider
+// above the inline viewport via tea.Printf, so this function only
+// owns echo in the line-oriented (scripted/piped) branch.
 func (r *REPL) Loop() error {
 	r.banner()
 	for {
-		line, err := r.readInput("❯❯")
+		line, display, err := r.readInputPair("❯❯")
 		if err != nil {
 			fmt.Fprintln(r.out)
 			fmt.Fprintln(r.out, "  Goodbye!")
@@ -178,10 +182,10 @@ func (r *REPL) Loop() error {
 		if line == "" {
 			continue
 		}
-		if r.interactive() {
-			// Echo user input so it's visible after huh clears.
-			pterm.FgLightCyan.Printf("  > %s\n", line)
-			pterm.FgDarkGray.Println("  ─────────────────────────────────────")
+		if !r.interactive() {
+			// Scanner mode: preserve the old echo so piped test output
+			// still contains a "> …" marker for visual assertions.
+			fmt.Fprintf(r.out, "  > %s\n", display)
 		}
 		if cmd := types.NormalizeREPLCommandAlias(line); cmd != "" {
 			if quit := r.handleSlash(cmd); quit {
@@ -277,39 +281,53 @@ func inputTheme() *huh.Theme {
 }
 
 // readInput reads a (possibly multi-line) request from the user.
-// In interactive mode it delegates to charmbracelet/huh; when driven
-// by an io.Reader (tests, pipes) it reads lines via bufio.Scanner.
+// In interactive mode it delegates to a Bubble Tea session
+// (readInputInteractive) that carries paste-folding, history, and
+// slash-command autocomplete. When driven by an io.Reader (tests,
+// pipes) it reads lines via bufio.Scanner unchanged.
+//
+// Returned display/expanded split: expanded is what reaches the
+// orchestrator (placeholders inlined to their original pasted
+// payload); display is what the user actually saw on their input line
+// (placeholders kept compact). The Bubble Tea session echoes display
+// itself via tea.Printf, so Loop() no longer needs to echo in the
+// interactive branch.
 func (r *REPL) readInput(prompt string) (string, error) {
-	if r.interactive() {
-		return r.readInputHuh(prompt)
-	}
-	return r.readInputLines()
+	expanded, _, err := r.readInputPair(prompt)
+	return expanded, err
 }
 
-// readInputHuh uses charmbracelet/huh for interactive terminal input.
-func (r *REPL) readInputHuh(prompt string) (string, error) {
-	theme := inputTheme()
-	var parts []string
+// readInputPair returns (expanded, display, error). In line-oriented
+// mode expanded and display are identical.
+func (r *REPL) readInputPair(prompt string) (string, string, error) {
+	if r.interactive() {
+		return r.readInputInteractive(prompt)
+	}
+	s, err := r.readInputLines()
+	return s, s, err
+}
+
+// readInputInteractive runs the Bubble Tea input session, looping for
+// trailing-"\" continuation. Each invocation can fold its own pastes
+// into independent placeholder slots.
+func (r *REPL) readInputInteractive(prompt string) (string, string, error) {
 	cur := prompt
+	var expandedParts, displayParts []string
 	for {
-		var val string
-		err := huh.NewInput().
-			Prompt(cur + " ").
-			Value(&val).
-			WithTheme(theme).
-			Run()
+		res, err := r.readInputBubble(cur, len(expandedParts) > 0)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		// Empty input on first line → return empty so Loop skips it.
-		if val == "" && len(parts) == 0 {
-			return "", nil
+		if res.aborted {
+			return "", "", io.EOF
 		}
-		if !strings.HasSuffix(val, "\\") {
-			parts = append(parts, val)
-			return strings.TrimSpace(strings.Join(parts, "\n")), nil
+		expandedParts = append(expandedParts, res.expanded)
+		displayParts = append(displayParts, res.display)
+		if !res.continues {
+			expanded := strings.TrimSpace(strings.Join(expandedParts, "\n"))
+			display := strings.TrimSpace(strings.Join(displayParts, "\n"))
+			return expanded, display, nil
 		}
-		parts = append(parts, strings.TrimSuffix(val, "\\"))
 		cur = "…"
 	}
 }
@@ -600,14 +618,32 @@ func (r *REPL) handleLogLoad(path string) {
 // line is appended to the buffer until a sole `/end` line (or EOF)
 // terminates capture. Empty capture leaves the prior attachment
 // unchanged.
+//
+// Interactive capture deliberately bypasses the Bubble Tea input
+// session: placeholder folding would replace a large paste with a
+// token instead of storing the raw log content that log-triage
+// actually needs. We read straight from the caller's input stream
+// (os.Stdin in production, r.in in tests) one line at a time.
 func (r *REPL) handleLogPaste() {
 	r.info("paste log, terminate with a lone /end line")
+	src := r.in
+	if src == nil {
+		src = os.Stdin
+	}
+	scanner := bufio.NewScanner(src)
+	// Lines inside a real panic/stack/log can exceed bufio's default
+	// 64 KiB token cap; raise it to the same ceiling as the paste cap
+	// so a single absurdly long line doesn't silently truncate.
+	scanner.Buffer(make([]byte, 64*1024), maxREPLAttachedLogBytes+1)
 	var buf strings.Builder
 	for {
-		line, err := r.readInput("log>")
-		if err != nil {
-			break // EOF / huh abort
+		if r.interactive() {
+			fmt.Fprint(r.out, "  log> ")
 		}
+		if !scanner.Scan() {
+			break
+		}
+		line := scanner.Text()
 		trim := strings.TrimSpace(line)
 		if trim == "/end" || trim == "\\end" {
 			break
@@ -618,6 +654,9 @@ func (r *REPL) handleLogPaste() {
 			r.warn("log paste hit %d-byte cap; stopping capture\n", maxREPLAttachedLogBytes)
 			break
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		logging.Warning("[repl] log paste scan error: %v", err)
 	}
 	if buf.Len() == 0 {
 		r.info("no input captured; attached log unchanged")
