@@ -1578,6 +1578,186 @@ func TestEmitAnswerDocument_DiagramGate_HonoursLogTriageResolvedFiles(t *testing
 	}
 }
 
+// -------- log-triage coverage gate (session-22 follow-up) --------
+
+// TestEmitAnswerDocument_LogTriageCoverage_RejectsMissingCauseLink
+// pins the logtri_java failure: an answer that names one layer of a
+// Caused-by chain but omits others is rejected. The real trace had
+// RuntimeException → NullPointerException → IOException; the LLM
+// wrote a summary mentioning only NullPointerException and invented
+// an unrelated servlet stack, silently losing the root cause.
+func TestEmitAnswerDocument_LogTriageCoverage_RejectsMissingCauseLink(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{
+			Lang:    "java",
+			Signals: []types.LogSignal{types.SignalDB, types.SignalNetwork},
+		},
+		Errors: []types.LogError{
+			{
+				Type: "java.lang.RuntimeException",
+				Cause: &types.LogError{
+					Type: "java.lang.NullPointerException",
+					Cause: &types.LogError{
+						Type: "java.io.IOException",
+					},
+				},
+			},
+		},
+	})
+	// Summary mentions only the middle cause — root (IOException)
+	// and outer (RuntimeException) are silently dropped.
+	summary := "该异常是 NullPointerException，典型的空指针访问错误。答案来自附带日志。"
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": summary,
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("summary missing RuntimeException + IOException must be rejected; got Success=true Summary=%q", res.Summary)
+	}
+	// Reject message must list the specific missed types.
+	for _, want := range []string{"RuntimeException", "IOException"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("reject message must name missing type %q; got %q", want, res.Summary)
+		}
+	}
+}
+
+// TestEmitAnswerDocument_LogTriageCoverage_AcceptsFullCoverage is the
+// happy path: all three chain links named at least once, in any order,
+// passes the gate.
+func TestEmitAnswerDocument_LogTriageCoverage_AcceptsFullCoverage(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{Lang: "java", Signals: []types.LogSignal{types.SignalDB}},
+		Errors: []types.LogError{
+			{
+				Type: "java.lang.RuntimeException",
+				Cause: &types.LogError{
+					Type:  "java.lang.NullPointerException",
+					Cause: &types.LogError{Type: "java.io.IOException"},
+				},
+			},
+		},
+	})
+	summary := "RuntimeException 是顶层异常，其根因是由 IOException（数据库连接被拒绝）触发的 NullPointerException。外部日志，无仓库引用。"
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": summary,
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("full-coverage summary must pass gate; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_LogTriageCoverage_NoBundleNoCheck confirms
+// the gate is inert when there is no log-triage bundle (normal
+// non-log questions).
+func TestEmitAnswerDocument_LogTriageCoverage_NoBundleNoCheck(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("") // no SetLogTriage call
+	// Seed read_file so any citation path grounds if present.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[a.go: showing lines 1-3 of 10 total]\n     1│ package a\n",
+	})
+	summary := "Some answer with no error types at all."
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "explanation",
+		"summary":   summary,
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("no bundle → gate inert; got rejected Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_LogTriageCoverage_ShapeAgnostic verifies the
+// gate fires on every shape's summary, not just explanation. A
+// step_list answer whose summary ignores the log's error types must
+// also be rejected.
+func TestEmitAnswerDocument_LogTriageCoverage_ShapeAgnostic(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Meta: types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{
+			{Type: "python.TypeError"},
+		},
+	})
+	// step_list shape, summary deliberately omits TypeError.
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "Some unrelated walkthrough of runtime behaviour.",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "start", "citation_ref": -1},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("step_list missing log type must be rejected; got Success=true Summary=%q", res.Summary)
+	}
+}
+
+// TestCollectLogTriageTypes_WalksCauseChain pins the helper so a
+// future refactor cannot silently flatten the cause recursion.
+func TestCollectLogTriageTypes_WalksCauseChain(t *testing.T) {
+	bundle := &types.LogBundle{
+		Errors: []types.LogError{
+			{
+				Type: "A",
+				Cause: &types.LogError{
+					Type: "B",
+					Cause: &types.LogError{
+						Type: "C",
+					},
+				},
+			},
+			{Type: "D"},
+		},
+	}
+	got := collectLogTriageTypes(bundle)
+	want := []string{"A", "B", "C", "D"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, w := range want {
+		if got[i] != w {
+			t.Errorf("position %d: got %q, want %q", i, got[i], w)
+		}
+	}
+}
+
+// TestLogTriageTypeCovered_MultiTokenTypes covers the token-length
+// threshold and case-insensitive match directly.
+func TestLogTriageTypeCovered_MultiTokenTypes(t *testing.T) {
+	cases := []struct {
+		name    string
+		errType string
+		summary string
+		want    bool
+	}{
+		{"FQN class name matched verbatim", "java.io.IOException", "the ioexception was raised", true},
+		{"class name mixed case", "java.lang.NullPointerException", "A NullPointerException occurred.", true},
+		{"prose-shaped type matched on one keyword", "runtime error: invalid memory address or nil pointer dereference", "this is a pointer dereference", true},
+		{"prose-shaped type not matched", "runtime error: invalid memory address or nil pointer dereference", "generic panic crash observed", false},
+		{"short-only type falls back to substring match", "OOM", "oom triggered", true},
+		{"short-only type substring miss", "OOM", "memory pressure rose", false},
+	}
+	for _, c := range cases {
+		got := logTriageTypeCovered(c.errType, strings.ToLower(c.summary))
+		if got != c.want {
+			t.Errorf("%s: got %v want %v (type=%q summary=%q)", c.name, got, c.want, c.errType, c.summary)
+		}
+	}
+}
+
 // TestEmitAnswerDocument_DiagramGate_IgnoresNonCodeExtensions guards
 // against over-rejection on auxiliary prose: `error.log`, `output.txt`,
 // and similar non-code extensions inside a fence are treated as prose

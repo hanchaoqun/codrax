@@ -602,6 +602,30 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		return failWithContext("%v", err)
 	}
 
+	// Session-22 follow-up — log-triage coverage gate.
+	//
+	// When the user attached a runtime log and the log_triage
+	// pre-stage extracted structured errors with a Caused-by /
+	// Cause recursion chain, the answer MUST acknowledge every link
+	// in the chain by naming each error Type. A summary that names
+	// none of the real Types is almost certainly a hallucination
+	// (the 2026-04-21 logtri_java trace: LLM invented a servlet-
+	// container stack with fabricated file:line anchors, omitted
+	// both the RuntimeException outer frame and the IOException
+	// root cause from a 3-level Java Caused-by chain).
+	//
+	// Generalisation: works across every signal family (panic /
+	// crash / oom / timeout / db / network / validation / logic),
+	// every answer shape (explanation / step_list / value / boolean /
+	// list_of_symbols — coverage is checked against the `summary`
+	// text which every shape carries), and every runtime language
+	// (Java / Python / Go / Rust / ... — identifier-shape Type
+	// tokens survive translation into any natural language because
+	// class / exception names are not translated).
+	if err := validateSummaryLogTriageCoverage(p.Summary, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
+
 	// Shape-dispatch: each branch validates its own required fields,
 	// rejects fields that do not belong to this shape, and populates
 	// the AnswerDocument slot the renderer will read.
@@ -1322,6 +1346,147 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 			"or remove the unsupported file name from the diagram and describe the relationship in prose.",
 		strings.Join(violations, ", "),
 	)
+}
+
+// logTriageTypeIdentifierRe picks identifier-shape sub-tokens from
+// an error Type string. `java.io.IOException` yields
+// {"java", "io", "IOException"}; `runtime error: invalid memory
+// address or nil pointer dereference` yields every word. The
+// downstream coverage check filters for length ≥ 5 so single short
+// words do not dominate matching.
+var logTriageTypeIdentifierRe = regexp.MustCompile(`[A-Za-z][A-Za-z0-9_]*`)
+
+// logTriageCoverageMinTokenLen is the minimum identifier-length an
+// error-type sub-token must have to qualify as a coverage anchor.
+// Five filters out common short words (err, the, and, ...) and
+// keeps exception / class names (IOException, NullPointerException,
+// ValueError, runtime, pointer, dereference). Tuned by eyeballing
+// the eval corpus's real Types across Java / Go / Python / Rust.
+const logTriageCoverageMinTokenLen = 5
+
+// validateSummaryLogTriageCoverage enforces that when the attached
+// log's structured bundle identifies specific error Types, the
+// answer summary acknowledges each one. A summary that names NONE
+// of a given Type's identifier-shape tokens of length ≥ 5 — after
+// walking the full Cause chain depth-first — is rejected as
+// inconsistent with the log's structured extraction.
+//
+// This is the system-level contract complement to the LLM-facing
+// skill directive: skill tells the LLM WHAT to do, this gate
+// verifies it was done. Mirrors the shape-agnostic design of
+// validateSummaryDiagramGrounding (F4.1) — runs once, checks the
+// summary field, redirects to the structured Log Triage section
+// on failure.
+//
+// Scope rules:
+//
+//   - no bundle OR no Errors → nil (nothing to cover)
+//   - a Type with zero identifier-shape tokens of length ≥ 5 →
+//     fall back to substring match on the full trimmed Type
+//   - ANY token (or the fallback substring) appearing in summary
+//     satisfies coverage for that Type
+//   - EVERY Type in the Cause-chain traversal must be covered;
+//     the first Type that fails the check triggers the reject
+//     with a redirect that names every missed Type
+//
+// The "one token per Type" threshold is the minimal correct check:
+// it catches the pure-hallucination case (summary shares ZERO
+// tokens with the log's Types) without false-rejecting legitimate
+// answers that paraphrase or abbreviate. Case-insensitive match
+// because exception names may be referenced in lowercase in
+// non-technical answer prose (e.g. "a nullpointerexception is
+// raised when ...") — the semantic contract is presence, not
+// exact capitalisation.
+func validateSummaryLogTriageCoverage(summary string, ctx *types.BusContext) error {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	bundle := ctx.Mutable.LogTriage()
+	if bundle == nil || len(bundle.Errors) == 0 {
+		return nil
+	}
+	errorTypes := collectLogTriageTypes(bundle)
+	if len(errorTypes) == 0 {
+		return nil
+	}
+	lowerSummary := strings.ToLower(summary)
+	var missing []string
+	for _, t := range errorTypes {
+		if !logTriageTypeCovered(t, lowerSummary) {
+			missing = append(missing, t)
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"summary does not acknowledge the attached log's error type(s): %s. "+
+			"The log's structured Errors tree identifies these types (walk the top-level Errors and their Cause chain in the Log Triage section); "+
+			"the answer must name each one by its class / exception identifier at least once so the reader can connect the log to your explanation. "+
+			"Quote the Type literally from the structured extraction — do NOT paraphrase class names away or invent alternative stack traces. "+
+			"If the question resolves to just one layer of the chain (e.g. 'what does this panic mean?' when the chain is trivial), still include the single Type's identifier. "+
+			"Case-insensitive match; a single mention of the class / exception name anywhere in summary is sufficient coverage.",
+		strings.Join(missing, ", "))
+}
+
+// collectLogTriageTypes walks every top-level Error in the bundle
+// and its Cause recursion, returning the ordered list of Type
+// strings. Duplicates are preserved in declaration order so the
+// reject message reads naturally ("missing: RuntimeException,
+// NullPointerException, IOException"). Empty Types are skipped.
+func collectLogTriageTypes(bundle *types.LogBundle) []string {
+	if bundle == nil {
+		return nil
+	}
+	var out []string
+	seen := make(map[string]bool)
+	var walk func(*types.LogError)
+	walk = func(e *types.LogError) {
+		if e == nil {
+			return
+		}
+		t := strings.TrimSpace(e.Type)
+		if t != "" && !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+		walk(e.Cause)
+	}
+	for i := range bundle.Errors {
+		walk(&bundle.Errors[i])
+	}
+	return out
+}
+
+// logTriageTypeCovered reports whether lowerSummary mentions at
+// least one identifier-shape token of length ≥ 5 extracted from
+// the error Type, or (for Types with no such token) the trimmed
+// Type itself as a substring. Cross-checked case-insensitively —
+// lowerSummary is pre-lowered by the caller.
+func logTriageTypeCovered(errType, lowerSummary string) bool {
+	matches := logTriageTypeIdentifierRe.FindAllString(errType, -1)
+	hadQualifying := false
+	for _, m := range matches {
+		if len(m) < logTriageCoverageMinTokenLen {
+			continue
+		}
+		hadQualifying = true
+		if strings.Contains(lowerSummary, strings.ToLower(m)) {
+			return true
+		}
+	}
+	if hadQualifying {
+		return false
+	}
+	// Fallback for Types with only short tokens — require the full
+	// trimmed Type substring (case-insensitive). Defensive path:
+	// most real Types have at least one long token, but this keeps
+	// the gate from silently skipping exotic single-word Types.
+	trimmed := strings.TrimSpace(errType)
+	if trimmed == "" {
+		return true
+	}
+	return strings.Contains(lowerSummary, strings.ToLower(trimmed))
 }
 
 func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int) (*types.AnswerBoolean, error) {
