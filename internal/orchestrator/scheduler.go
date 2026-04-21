@@ -515,3 +515,71 @@ func computeEnvShape(bus *types.BusContext, env criterion.Env) envShape {
 func (a envShape) equals(b envShape) bool {
 	return a == b
 }
+
+// hypProgress is the per-validate-node hypothesis-scope progress
+// fingerprint. Complements envShape — session 22 extension.
+//
+// The bug envShape alone cannot catch: the explorer keeps emitting
+// evidence that does not satisfy any unknown hypothesis's
+// RequiredEvidence (e.g. traceback pasted with paths outside the
+// repo → explorer fishes in codrax's own infrastructure). envShape's
+// EvidenceCount / ToolResultCount / ReadSetSize advance each round,
+// so envShape.equals() never triggers and the validate loop runs
+// until step budget drains.
+//
+// hypProgress collapses the progress picture to two integers that
+// only move when an unknown hypothesis actually inches toward
+// decidable:
+//
+//   - UnknownCount:     count of hypotheses still in HypUnknown (or "")
+//   - SatisfiedReqSum:  sum over those unknowns of criterion.EvalAll
+//                       (h.RequiredEvidence, env) hits — the same
+//                       primitive runAutoVerdicts uses to promote
+//                       HypUnknown → HypInconclusive
+//
+// Two SC failures with equal hypProgress ⇒ no unknown hypothesis
+// advanced its RequiredEvidence satisfaction between them, even if
+// global env shape did. Scheduler treats this as stuck (identical
+// philosophy to envShape's full-env stall), with the OR semantics
+// applied at the call site.
+//
+// Reused primitive: criterion.EvalAll is the same function the
+// orchestrator already calls from runAutoVerdicts; adding a second
+// fingerprint is a composition over existing capability, not a new
+// evaluation pathway.
+type hypProgress struct {
+	UnknownCount    int
+	SatisfiedReqSum int
+}
+
+// computeHypProgress captures per-validate-node hypothesis progress
+// from the current Env. Pure function over the same Env the
+// scheduler already hands to criterion.EvalAll; safe to call from
+// any call site holding a buildEnv result.
+func computeHypProgress(env criterion.Env) hypProgress {
+	if env.IR == nil {
+		return hypProgress{}
+	}
+	p := hypProgress{}
+	for _, h := range env.IR.HypothesisSet {
+		if h.Status != types.HypUnknown && h.Status != "" {
+			continue
+		}
+		p.UnknownCount++
+		if len(h.RequiredEvidence) == 0 {
+			continue
+		}
+		for _, c := range h.RequiredEvidence {
+			if criterion.Eval(c, env).Satisfied {
+				p.SatisfiedReqSum++
+			}
+		}
+	}
+	return p
+}
+
+// equals reports whether two hypProgress fingerprints describe the
+// same hypothesis-scope progress cursor. Cheap struct ==.
+func (a hypProgress) equals(b hypProgress) bool {
+	return a == b
+}

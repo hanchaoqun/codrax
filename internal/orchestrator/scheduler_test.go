@@ -228,6 +228,144 @@ func TestEnvShape_EqualsIsReflexive(t *testing.T) {
 	}
 }
 
+// ── hypProgress fingerprint tests ───────────────────────────────
+
+// TestHypProgress_EmptyEnv_IsZero pins the baseline: nil IR → zero
+// fingerprint, the sentinel "never evaluated" value.
+func TestHypProgress_EmptyEnv_IsZero(t *testing.T) {
+	if p := computeHypProgress(criterion.Env{}); p != (hypProgress{}) {
+		t.Errorf("nil IR → %+v, want zero", p)
+	}
+}
+
+// TestHypProgress_UnknownCountCaptured verifies that unknown /
+// empty-status hypotheses are counted, decided ones are not.
+func TestHypProgress_UnknownCountCaptured(t *testing.T) {
+	ir := &types.AnalysisIR{
+		HypothesisSet: []types.Hypothesis{
+			{ID: "h1", Status: types.HypUnknown},
+			{ID: "h2", Status: ""}, // also unknown per convention
+			{ID: "h3", Status: types.HypConfirmed},
+			{ID: "h4", Status: types.HypRejected},
+			{ID: "h5", Status: types.HypInconclusive},
+		},
+	}
+	p := computeHypProgress(criterion.Env{IR: ir})
+	if p.UnknownCount != 2 {
+		t.Errorf("UnknownCount = %d, want 2", p.UnknownCount)
+	}
+}
+
+// TestHypProgress_SatisfiedReqSumAdvancesOnRelevantEvidence is the
+// load-bearing property: SatisfiedReqSum moves when new evidence
+// actually satisfies an unknown hypothesis's RequiredEvidence.
+func TestHypProgress_SatisfiedReqSumAdvancesOnRelevantEvidence(t *testing.T) {
+	ir := &types.AnalysisIR{
+		HypothesisSet: []types.Hypothesis{
+			{
+				ID:     "h1",
+				Status: types.HypUnknown,
+				RequiredEvidence: []types.Criterion{
+					{Kind: types.CritSymbolPresent, Expr: "load_config"},
+				},
+			},
+		},
+	}
+	// No evidence → SatisfiedReqSum stays 0.
+	p0 := computeHypProgress(criterion.Env{IR: ir})
+	if p0.SatisfiedReqSum != 0 {
+		t.Errorf("baseline SatisfiedReqSum = %d, want 0", p0.SatisfiedReqSum)
+	}
+	// Evidence mentioning the target symbol → SatisfiedReqSum = 1.
+	p1 := computeHypProgress(criterion.Env{
+		IR:       ir,
+		Evidence: []types.EvidenceItem{{Subject: "load_config", Summary: "reads yaml"}},
+	})
+	if p1.SatisfiedReqSum != 1 {
+		t.Errorf("after relevant evidence SatisfiedReqSum = %d, want 1", p1.SatisfiedReqSum)
+	}
+	if p0.equals(p1) {
+		t.Error("fingerprints should differ after relevant evidence")
+	}
+}
+
+// TestHypProgress_IrrelevantEvidenceDoesNotAdvance is the bug-fix
+// property: evidence unrelated to any unknown hypothesis's
+// RequiredEvidence must NOT move SatisfiedReqSum, so the
+// fingerprint-match trigger fires on the "explorer fishes in unrelated
+// code" stall pattern even when envShape counters grow.
+func TestHypProgress_IrrelevantEvidenceDoesNotAdvance(t *testing.T) {
+	ir := &types.AnalysisIR{
+		HypothesisSet: []types.Hypothesis{
+			{
+				ID:     "h1",
+				Status: types.HypUnknown,
+				RequiredEvidence: []types.Criterion{
+					{Kind: types.CritSymbolPresent, Expr: "load_config"},
+				},
+			},
+		},
+	}
+	p0 := computeHypProgress(criterion.Env{IR: ir, Evidence: []types.EvidenceItem{
+		{Subject: "alpha"},
+	}})
+	// Add more evidence, none of it mentioning load_config.
+	p1 := computeHypProgress(criterion.Env{IR: ir, Evidence: []types.EvidenceItem{
+		{Subject: "alpha"},
+		{Subject: "beta"},
+		{Subject: "gamma"},
+	}})
+	if !p0.equals(p1) {
+		t.Errorf("SatisfiedReqSum should stay pinned when no evidence satisfies RequiredEvidence (p0=%+v p1=%+v)", p0, p1)
+	}
+}
+
+// TestHypProgress_DecidedHypothesesSkipped verifies that hypotheses
+// already confirmed / rejected / inconclusive don't contribute to
+// either field — only unknowns do.
+func TestHypProgress_DecidedHypothesesSkipped(t *testing.T) {
+	ir := &types.AnalysisIR{
+		HypothesisSet: []types.Hypothesis{
+			{
+				ID:     "h1",
+				Status: types.HypConfirmed,
+				RequiredEvidence: []types.Criterion{
+					{Kind: types.CritContainsSymbol, Expr: "alpha"},
+				},
+			},
+		},
+	}
+	p := computeHypProgress(criterion.Env{
+		IR:       ir,
+		Evidence: []types.EvidenceItem{{Subject: "alpha"}},
+	})
+	if p != (hypProgress{}) {
+		t.Errorf("decided-only hypotheses should produce zero fingerprint, got %+v", p)
+	}
+}
+
+// TestHypProgress_HypothesisWithoutRequiredEvidenceContributesZeroSum
+// pins that a hypothesis with no RequiredEvidence (e.g. the
+// session-18 explainSetHypothesis) counts toward UnknownCount but
+// contributes 0 to SatisfiedReqSum. envShape's DecidedHypotheses
+// dimension is the primary stuck signal for that family.
+func TestHypProgress_HypothesisWithoutRequiredEvidenceContributesZeroSum(t *testing.T) {
+	ir := &types.AnalysisIR{
+		HypothesisSet: []types.Hypothesis{
+			{ID: "h1", Status: types.HypUnknown, RequiredEvidence: nil},
+		},
+	}
+	p := computeHypProgress(criterion.Env{IR: ir, Evidence: []types.EvidenceItem{
+		{Subject: "anything"},
+	}})
+	if p.UnknownCount != 1 {
+		t.Errorf("UnknownCount = %d, want 1", p.UnknownCount)
+	}
+	if p.SatisfiedReqSum != 0 {
+		t.Errorf("SatisfiedReqSum = %d, want 0 for RequiredEvidence=nil", p.SatisfiedReqSum)
+	}
+}
+
 // TestEnvShape_ReadSetSourcedFromClosure verifies that ReadSetSize is
 // read through the BusContext.Mutable.EvidenceClosure() accessor and
 // updates when the closure's ReadSet grows.

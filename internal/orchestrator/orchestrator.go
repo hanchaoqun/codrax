@@ -476,6 +476,14 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	// latch approach.
 	var lastStopShape *envShape
 	lastSCFailShape := make(map[string]envShape)
+	// lastSCFailHypProgress is the session-22 companion to
+	// lastSCFailShape: it tracks hypothesis-scope progress per
+	// validate node so the scheduler also detects "global env
+	// advanced but no unknown hypothesis inched closer to decidable"
+	// stalls. Wired with OR semantics: either fingerprint matching
+	// prev triggers the inconclusive-injection escape. See
+	// scheduler.go::hypProgress for the rationale and field docs.
+	lastSCFailHypProgress := make(map[string]hypProgress)
 
 	buildEnv := func(draft string, draftCitations int) criterion.Env {
 		return criterion.Env{
@@ -600,7 +608,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 						Kind:      render.EventAgentReasoning,
 						Timestamp: time.Now(),
 						Agent:     "orchestrator",
-						Reasoning: "investigation_complete override: all explore nodes marked done (policy=override).",
+						Reasoning: softInvestigationReadyMessage(o.busCtx.Language),
 					})
 					o.runAutoVerdicts()
 					o.drainHypothesisVerdicts()
@@ -622,16 +630,15 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 						continue
 					}
 					logging.Info("[orchestrator] node %s success criteria failed: %+v", n.ID, failed)
-					// Surface the criterion failure to the user.
-					var details []string
-					for _, f := range failed {
-						details = append(details, fmt.Sprintf("%s %s: %s", f.Kind, f.Expr, f.Detail))
-					}
+					// Surface a soft user-facing retry cue. The full
+					// criterion kind / expr / detail breakdown is in
+					// the INFO log above — the user-facing event stays
+					// jargon-free per the user_messages.go contract.
 					o.emit(render.Event{
 						Kind:      render.EventAgentReasoning,
 						Timestamp: time.Now(),
 						Agent:     "orchestrator",
-						Reasoning: fmt.Sprintf("⟳ Node %s success criteria not met (%s) — requeuing.", n.ID, strings.Join(details, "; ")),
+						Reasoning: softRetryHintMessage(o.busCtx.Language),
 					})
 					// No EventTaskNodeEnd on requeue — the renderer treats
 					// the node as still "running" until the next
@@ -643,38 +650,79 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 					}
 				}
 				if valFailed != nil {
-					// Shape-stuck detection. If this validate node's
-					// SuccessCriteria failed on the same envShape as
-					// its previous failure, re-running explore over the
-					// same upstream evidence set would produce the same
-					// verdict — the pure-read predicate is deterministic
-					// over Env and the Env cursor has not advanced.
-					// Classic trigger: the validate node's
-					// all_hypotheses_decided criterion gates on a
-					// hypothesis whose RequiredEvidence cannot be found
-					// in the target repo (e.g. Java trace attached
-					// against a Go repo). Without this escape, the
-					// scheduler would requeue upstream evidence, explore
-					// would re-read the same files, find the same
-					// nothing, and loop until step budget drains.
+					// Shape-stuck detection — OR semantics across two
+					// complementary fingerprints:
+					//
+					//   envShape    — full BusContext cursor (8 dims).
+					//                 Catches "nothing advanced at all"
+					//                 stalls (original session-20 case:
+					//                 LLM kept emitting the same tool
+					//                 result so every counter pinned).
+					//
+					//   hypProgress — per-validate-node hypothesis-scope
+					//                 cursor (UnknownCount + sum of
+					//                 satisfied-RequiredEvidence hits
+					//                 over unknowns). Catches "global
+					//                 env advanced but no hypothesis
+					//                 inched closer" stalls (session-22
+					//                 case: traceback paths outside repo,
+					//                 explorer emits irrelevant evidence
+					//                 about codrax's own infrastructure
+					//                 so EvidenceCount/ToolResultCount
+					//                 grow but no unknown hypothesis
+					//                 gets nearer a decision).
+					//
+					// Either fingerprint matching its previous failure
+					// → stuck → inject HypInconclusive so finalize can
+					// ship with an honest caveat. Without this escape,
+					// the validate loop requeues explore, the explorer
+					// re-reads or fishes for more evidence, and the
+					// loop runs until step budget drains.
 					currentShape := computeEnvShape(o.busCtx, envAfter)
-					if prev, seen := lastSCFailShape[valFailed.ID]; seen && prev.equals(currentShape) {
-						// Auto-inconclusive any still-unknown hypotheses
-						// so finalize can ship with an honest caveat.
+					currentHyp := computeHypProgress(envAfter)
+					prevShape, seenShape := lastSCFailShape[valFailed.ID]
+					prevHyp, seenHyp := lastSCFailHypProgress[valFailed.ID]
+					shapeStuck := seenShape && prevShape.equals(currentShape)
+					// hypStuck guard: only fire when there is an unknown
+					// hypothesis to auto-inconclusive. Some validate
+					// templates carry non-hypothesis SC (e.g.
+					// ScenarioArchitectureExplain uses
+					// CritAnswerSetBounded). For those, a trivially-
+					// pinned {UnknownCount:0, SatisfiedReqSum:0}
+					// fingerprint would falsely match across two SC
+					// failures and mask the real SC failure by skipping
+					// the validate node to finalize. The envShape check
+					// already handles the "nothing at all advanced"
+					// case for those paths; hypStuck is scoped to the
+					// "global env advanced but no unknown hypothesis
+					// progressed" pathology.
+					hypStuck := seenHyp && prevHyp.equals(currentHyp) && currentHyp.UnknownCount > 0
+					if shapeStuck || hypStuck {
 						injected := o.injectInconclusiveForStuckHypotheses(valFailed.ID)
 						state.markDone(valFailed.ID)
 						o.emitNodeEnd(valFailed.ID, true, "")
+						// Operator breadcrumb — which fingerprint caught
+						// the stall (envShape / hypProgress / both) plus
+						// the inconclusive-injection count. User sees the
+						// softConvergenceStallMessage above instead.
+						trigger := "envShape"
+						switch {
+						case shapeStuck && hypStuck:
+							trigger = "envShape+hypProgress"
+						case hypStuck:
+							trigger = "hypProgress"
+						}
+						logging.Info("[scheduler/stuck] validate %s: trigger=%s injected=%d inconclusive verdict(s)",
+							valFailed.ID, trigger, injected)
 						o.emit(render.Event{
 							Kind:      render.EventAgentReasoning,
 							Timestamp: time.Now(),
 							Agent:     "orchestrator",
-							Reasoning: fmt.Sprintf(
-								"✓ Node %s: evidence stable across retries — marked done with %d inconclusive verdict(s) to unblock finalize.",
-								valFailed.ID, injected),
+							Reasoning: softConvergenceStallMessage(o.busCtx.Language),
 						})
 					} else {
-						// Shape changed since last failure (or first
-						// failure) — run the normal requeue path.
+						// Neither fingerprint matched — run the normal
+						// requeue path.
 						targets := state.requeueValidationTargets(valFailed.ID)
 						if len(targets) == 0 {
 							// No upstream evidence edges found — fall
@@ -685,6 +733,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 							state.recordRetry()
 						}
 						lastSCFailShape[valFailed.ID] = currentShape
+						lastSCFailHypProgress[valFailed.ID] = currentHyp
 					}
 				}
 
@@ -762,11 +811,17 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 				}
 				state.recordRetry()
 				pendingViolation = msg
+				// Tier-1 floor violation is semantically "we do not yet
+				// have enough evidence to build a trustworthy answer,
+				// running one more pass". The full msg (with tool-name
+				// / floor-threshold / intent-class jargon) is logged
+				// via the pendingViolation pathway and the WARN above,
+				// not leaked to the user-facing event.
 				o.emit(render.Event{
 					Kind:      render.EventAgentReasoning,
 					Timestamp: time.Now(),
 					Agent:     "orchestrator",
-					Reasoning: "⟳ " + msg + " — re-investigating.",
+					Reasoning: softRetryHintMessage(o.busCtx.Language),
 				})
 				continue
 			}
@@ -970,13 +1025,18 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		}
 		pendingViolation = renderViolations(res)
 
-		// Surface the backtrack to the user so they know
-		// the pipeline is re-investigating, not stalled.
+		// Surface the backtrack to the user so they know the pipeline
+		// is re-investigating, not stalled. The full violation
+		// breakdown (rendered by renderViolations) carries criterion
+		// kind names and internal field jargon; it's retained on
+		// pendingViolation (which the NEXT window hint will consume
+		// to target the retry) but stripped from the user-facing
+		// event per the user_messages.go contract.
 		o.emit(render.Event{
 			Kind:      render.EventAgentReasoning,
 			Timestamp: time.Now(),
 			Agent:     "orchestrator",
-			Reasoning: "⟳ Answer contract check failed: " + pendingViolation + " — re-investigating.",
+			Reasoning: softAnswerCheckRetryMessage(o.busCtx.Language),
 		})
 	}
 
@@ -1590,19 +1650,17 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 	// the start of the NEXT window via applyWindowHint.
 	if output.RetryHint != "" {
 		o.busCtx.TaskState.RetryHint = output.RetryHint
-	}
-	if output.RetryHint != "" {
-		// Surface the retry reason to the user so they know the
-		// pipeline is re-running, not stalled.
-		summary := output.RetryHint
-		if len(summary) > 200 {
-			summary = summary[:197] + "..."
-		}
+		// Surface a soft, localized retry cue so the user sees the
+		// pipeline is still working — NOT a verbatim dump of the
+		// LLM-directed RetryHint body, which leaks internal
+		// terminology (## Evidence Gaps / [MISSING] / (entities: …))
+		// users cannot interpret. The full body stays in the debug
+		// log via `[<agent>] retry hint built key=…` for operators.
 		o.emit(render.Event{
 			Kind:      render.EventAgentReasoning,
 			Timestamp: time.Now(),
 			Agent:     "orchestrator",
-			Reasoning: "⟳ Evidence insufficient — retrying: " + summary,
+			Reasoning: softRetryHintMessage(o.busCtx.Language),
 		})
 	}
 

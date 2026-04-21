@@ -116,19 +116,33 @@ func TestValidateStuck_SameShape_EscalatesToInconclusive(t *testing.T) {
 
 // TestValidateStuck_ShapeChanged_RequeuesNormally pins the NON-escape
 // path: when the env shape DOES change between validate-SC failures
-// (explorer actually pulled new evidence / read new files), the
-// scheduler must run the ORIGINAL requeue path — not the stuck
-// escape. Guards against false positives where the shape-guard would
-// pre-emptively give up on hypotheses that just needed one more
-// explore round.
+// AND the hypothesis's RequiredEvidence satisfaction advances (i.e.
+// the explorer is actually pulling evidence that edges the unknown
+// hypothesis toward decidable), the scheduler must run the ORIGINAL
+// requeue path — neither the envShape nor the hypProgress
+// fingerprint should match its previous failure.
 //
-// The mock explorer appends a fresh evidence item each time it runs
-// so the envShape advances. Expect multiple explorer dispatches (one
-// per requeue cycle) and the hypothesis to eventually reach
-// HypInconclusive ONLY via retry-budget exhaustion (or normal
-// termination via step budget), NOT via the shape-guard escape.
+// Guards against false positives where either shape-guard dimension
+// would pre-emptively give up on a hypothesis that is still making
+// progress.
+//
+// Test setup: the hypothesis carries 5 CritSymbolPresent requirements
+// keyed on "item-1".."item-5"; the mock explorer appends one new
+// evidence item per round naming the next token — so SatisfiedReqSum
+// grows by 1 every requeue cycle, hypProgress advances, and both
+// fingerprints remain moving targets.
 func TestValidateStuck_ShapeChanged_RequeuesNormally(t *testing.T) {
 	ir := buildStuckValidateIR()
+	// Session 22: give the hypothesis RequiredEvidence tied to a
+	// sequence of distinct Subject tokens so the mock explorer can
+	// advance hypProgress.SatisfiedReqSum one step per round.
+	ir.HypothesisSet[0].RequiredEvidence = []types.Criterion{
+		{Kind: types.CritSymbolPresent, Expr: "item-1"},
+		{Kind: types.CritSymbolPresent, Expr: "item-2"},
+		{Kind: types.CritSymbolPresent, Expr: "item-3"},
+		{Kind: types.CritSymbolPresent, Expr: "item-4"},
+		{Kind: types.CritSymbolPresent, Expr: "item-5"},
+	}
 
 	var explorerCalls int
 	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
@@ -137,9 +151,8 @@ func TestValidateStuck_ShapeChanged_RequeuesNormally(t *testing.T) {
 		},
 		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
 			explorerCalls++
-			// Append a DIFFERENT evidence item each call so the envShape
-			// cursor advances between validate-SC failures — this is
-			// the "still making progress, keep retrying" case.
+			// Append a DIFFERENT evidence item each call, matching the
+			// next RequiredEvidence needle so hypProgress advances.
 			return &agent.StageOutput{
 				MissingPiece: types.MissingFacts,
 				EvidenceItems: []types.EvidenceItem{
@@ -174,12 +187,192 @@ func TestValidateStuck_ShapeChanged_RequeuesNormally(t *testing.T) {
 		t.Fatal("Run did not terminate within 5s")
 	}
 
-	// When shape advances, the normal requeue path runs multiple
-	// times before finally exhausting retry budget. Assert explorer
-	// dispatched more than once — if shape-guard had fired on the
-	// first failure despite shape change, explorerCalls would be ≤ 1.
+	// When BOTH fingerprints advance each round, the normal requeue
+	// path runs multiple times before finally exhausting retry
+	// budget. Assert explorer dispatched more than once — if either
+	// shape-guard had fired on the first failure despite progress,
+	// explorerCalls would be ≤ 1.
 	if explorerCalls < 2 {
-		t.Errorf("explorer ran %d times — shape-guard fired too aggressively when shape was changing", explorerCalls)
+		t.Errorf("explorer ran %d times — shape-guard fired too aggressively when progress was being made", explorerCalls)
+	}
+}
+
+// TestValidateStuck_HypProgressPinned_EscalatesToInconclusive is the
+// session-22 regression test: envShape advances (new evidence added
+// each round) but hypProgress stays pinned because none of the new
+// evidence satisfies any unknown hypothesis's RequiredEvidence. This
+// is the "traceback paths outside repo → explorer fishes in codrax's
+// own infrastructure" pathology. Before A: envShape alone would see
+// progress and requeue forever until step budget drained. After A:
+// hypProgress fingerprint catches the stall because SatisfiedReqSum
+// stays at 0 across rounds — stuck escape fires on iter 2.
+func TestValidateStuck_HypProgressPinned_EscalatesToInconclusive(t *testing.T) {
+	ir := buildStuckValidateIR()
+	// Hypothesis demands a symbol that no emitted evidence will ever
+	// mention — satisfies RequiredEvidence.len > 0 so hypProgress is
+	// dimensional (distinguishes it from the original envShape-only
+	// case), but SatisfiedReqSum is forever 0.
+	ir.HypothesisSet[0].RequiredEvidence = []types.Criterion{
+		{Kind: types.CritSymbolPresent, Expr: "symbol_that_never_appears_in_this_repo"},
+	}
+
+	var explorerCalls, finalizeCalls int
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts, AnalysisIR: ir}, nil
+		},
+		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			// Every call appends a FRESH evidence item — envShape
+			// keeps advancing (EvidenceCount grows) but none of it
+			// satisfies the hypothesis's RequiredEvidence, so
+			// hypProgress.SatisfiedReqSum stays pinned at 0.
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{
+					{
+						Subject: "irrelevant-" + string(rune('0'+explorerCalls)),
+						Source:  "test.go",
+					},
+				},
+			}, nil
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			finalizeCalls++
+			return &agent.StageOutput{
+				MissingPiece: types.MissingNone,
+				FinalAnswer:  "answer despite hypProgress stall",
+			}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+
+	done := make(chan *types.BusContext)
+	go func() {
+		bus, _ := o.Run("test hyp progress stall", "/tmp/repo", "main")
+		done <- bus
+	}()
+
+	var bus *types.BusContext
+	select {
+	case bus = <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not terminate within 5s — hypProgress escape regression")
+	}
+	if bus == nil {
+		t.Fatal("nil BusContext")
+	}
+
+	if finalizeCalls == 0 {
+		t.Error("finalize was never dispatched after hypProgress escape")
+	}
+	// Explorer should have run only a few times — at least once to
+	// establish baseline, at most a handful before hypProgress catches
+	// the stall. Runaway count would mean the new dimension didn't
+	// engage.
+	if explorerCalls == 0 {
+		t.Error("explorer never ran — shape-guard fired too aggressively")
+	}
+	if explorerCalls > 5 {
+		t.Errorf("explorer ran %d times — hypProgress escape did not fire (regression)", explorerCalls)
+	}
+
+	// The hypothesis must have landed as HypInconclusive.
+	verdicts := bus.Mutable.EmittedHypothesisVerdicts()
+	foundInconclusive := false
+	for _, v := range verdicts {
+		if v.HypothesisID == "h1" && v.Status == types.HypInconclusive {
+			foundInconclusive = true
+			break
+		}
+	}
+	if !foundInconclusive {
+		t.Errorf("h1 not marked HypInconclusive after hypProgress escape; verdicts=%+v", verdicts)
+	}
+}
+
+// TestValidateStuck_NonHypothesisSC_HypProgressDoesNotFalseTrigger
+// pins the session-22 defensive guard on hypProgress-stuck detection.
+//
+// Some validate templates carry SC that are NOT about hypotheses
+// (e.g. ScenarioArchitectureExplain uses CritAnswerSetBounded). For
+// those, the hypothesis-scope fingerprint is trivially pinned at
+// {UnknownCount:0, SatisfiedReqSum:0} across every iteration — if
+// hypStuck fired on that match, it would falsely mark the validate
+// node done and skip to finalize on a genuine non-hypothesis SC
+// failure.
+//
+// The guard: hypStuck also requires currentHyp.UnknownCount > 0, so
+// "no hypothesis to inject inconclusive for" short-circuits to the
+// normal envShape-only behavior. The envShape check still catches
+// the "nothing at all advanced" case for non-hypothesis SC.
+//
+// Test construction: IR has ZERO hypotheses but the validate node
+// has CritAnswerSetBounded SC that will never be satisfied (mock
+// explorer emits too many answer symbols each round so envShape
+// advances). Expect the normal requeue path to run until retry
+// budget exhausts — NOT the hypProgress shortcut.
+func TestValidateStuck_NonHypothesisSC_HypProgressDoesNotFalseTrigger(t *testing.T) {
+	ir := buildStuckValidateIR()
+	// Wipe hypotheses — this test exercises the non-hypothesis SC
+	// branch of validate nodes.
+	ir.HypothesisSet = nil
+	// Override validate SC to non-hypothesis criterion.
+	for i := range ir.TaskGraph.Nodes {
+		if ir.TaskGraph.Nodes[i].ID == "n1" {
+			ir.TaskGraph.Nodes[i].SuccessCriteria = []types.Criterion{
+				{Kind: types.CritAnswerSetBounded, Expr: "<=1"},
+			}
+		}
+	}
+
+	var explorerCalls int
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingFacts, AnalysisIR: ir}, nil
+		},
+		types.AgentExplorer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			explorerCalls++
+			// Each call appends a fresh evidence item — envShape
+			// advances every round. hypProgress stays pinned at
+			// {0,0} because there are zero hypotheses in the set.
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				EvidenceItems: []types.EvidenceItem{
+					{Subject: "sym-" + string(rune('0'+explorerCalls)), Source: "test.go"},
+				},
+			}, nil
+		},
+		types.AgentFinalizer: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{MissingPiece: types.MissingNone, FinalAnswer: "ok"}, nil
+		},
+	}
+
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(15)
+
+	done := make(chan struct{})
+	go func() {
+		_, _ = o.Run("non-hyp sc progress", "/tmp/repo", "main")
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not terminate within 5s")
+	}
+
+	// With the guard, hypStuck is short-circuited by UnknownCount=0
+	// so the normal requeue path runs. Expect explorer to dispatch
+	// more than twice — if hypStuck had false-triggered, it would
+	// mark validate done after the 2nd SC failure (explorerCalls=2).
+	if explorerCalls < 3 {
+		t.Errorf("explorer ran %d times — hypStuck guard regression: empty hypothesis set false-triggered stuck escape", explorerCalls)
 	}
 }
 
