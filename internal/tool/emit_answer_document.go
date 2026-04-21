@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"path"
 	"regexp"
 	"sort"
 	"strconv"
@@ -577,6 +578,28 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		Shape:     shape,
 		Summary:   strings.TrimSpace(p.Summary),
 		Citations: citations,
+	}
+
+	// Session-22 fix F4.1 — diagram-block literal-grounding gate.
+	//
+	// The per-shape literal-grounding wrappers (value / steps / symbols
+	// / boolean) check that each citation's ±3-line window overlaps
+	// identifier tokens in the claim field, but they do NOT inspect
+	// summary prose; and ShapeExplanation intentionally skips per-cite
+	// corroboration because narrative prose shares identifier tokens
+	// with citations ambiently. That exemption opened a hole: ASCII
+	// call-chain / flow / sequence diagrams rendered inside fenced
+	// code blocks ARE structural claims about specific repo files, and
+	// the LLM can name a file there (e.g. "explorer.go (ParseOutput)
+	// └─▶ buildAnalysisIR") without putting it in citations[].
+	//
+	// This gate scans every triple-backtick block in summary for
+	// file-like tokens with known code extensions and rejects tokens
+	// that do not appear in citations[] or the attached-log
+	// ResolvedFiles allowlist. Applies to every shape — an explanation
+	// or step_list answer can carry the same hallucinated diagram.
+	if err := validateSummaryDiagramGrounding(p.Summary, citations, ctx); err != nil {
+		return failWithContext("%v", err)
 	}
 
 	// Shape-dispatch: each branch validates its own required fields,
@@ -1177,6 +1200,128 @@ func validateBooleanLiteralGrounding(b *types.AnswerBoolean, citations []types.C
 			"Otherwise cite a real file:line that contains an identifier named in the rationale.",
 	}
 	return requireCitationCorroboration(b.Rationale, cite.File, cite.Line, gc, cfg)
+}
+
+// diagramFileExtensions is the allow-list of code-file extensions the
+// fenced-block grounding gate treats as load-bearing. A token like
+// `analyzer.go` or `config.yaml` inside an ASCII diagram is a concrete
+// claim about a specific repo file, so the gate verifies it. Tokens
+// with extensions outside this set (log lines, stdout pastes, generic
+// nouns that happen to contain a dot) are skipped to avoid
+// false-positive rejections on auxiliary prose.
+var diagramFileExtensions = map[string]bool{
+	".go": true, ".py": true, ".java": true, ".js": true, ".ts": true,
+	".tsx": true, ".jsx": true, ".rs": true, ".rb": true, ".cpp": true,
+	".cc": true, ".cxx": true, ".c": true, ".h": true, ".hpp": true,
+	".kt": true, ".kts": true, ".swift": true, ".scala": true,
+	".php": true, ".sql": true, ".proto": true, ".yaml": true, ".yml": true,
+	".toml": true, ".json": true, ".sh": true, ".mk": true,
+}
+
+// diagramFileTokenRe matches file-like tokens inside fenced code
+// blocks: an optional slash-delimited path, a base name, a literal
+// dot, and a 1–6 letter extension, with an optional `:N` line suffix.
+// The extension arm requires letters only so identifier accesses like
+// `foo.Bar` or numeric patterns like `1.0.0` do not match.
+var diagramFileTokenRe = regexp.MustCompile(`[A-Za-z0-9_./-]+\.[A-Za-z]{1,6}(?::\d+)?`)
+
+// fencedCodeBlockRe captures the body of every triple-backtick fenced
+// block in the summary. The (?s) flag lets `.` cross newlines so the
+// full block body is returned in submatch[1]. Anchoring on `\n` after
+// the opening fence skips the optional language tag.
+var fencedCodeBlockRe = regexp.MustCompile("(?s)```[^\n]*\n(.*?)```")
+
+// validateSummaryDiagramGrounding scans every fenced code block in
+// the summary for file-like tokens and rejects any that are not
+// corroborated by citations[] or the attached-log ResolvedFiles
+// allowlist. Complements the per-shape literal-grounding wrappers,
+// which do not see summary prose.
+//
+// Design: the per-cite wrappers skip ShapeExplanation because prose
+// shares identifier tokens with citations ambiently; but ASCII
+// call-chain / sequence / architecture diagrams are structural
+// claims, so a filename tossed into a diagram without citation is
+// hallucination. The gate trades a pinhole false-positive risk
+// (citation-free block that names an unmentioned-but-real file) for
+// a clean system-level stop on the observed failure mode (see the
+// logtri_go run where the LLM wrote `explorer.go (ParseOutput) └─▶
+// buildAnalysisIR` despite the panic frames explicitly resolving at
+// `analyzer.go:320`).
+//
+// Contract:
+//   - no fenced blocks in summary → nil.
+//   - empty allowlist (zero citations, zero ResolvedFiles) → nil. This
+//     is the sub-agent / unit-test path; we refuse to mass-reject
+//     without a ground-truth set to check against.
+//   - fenced block contains only tokens whose extensions are outside
+//     diagramFileExtensions → nil.
+//   - any diagramFileTokenRe match whose basename and full-path form
+//     are both absent from the allowlist → error naming every
+//     offending token, with escape guidance.
+func validateSummaryDiagramGrounding(summary string, citations []types.Citation, ctx *types.BusContext) error {
+	blocks := fencedCodeBlockRe.FindAllStringSubmatch(summary, -1)
+	if len(blocks) == 0 {
+		return nil
+	}
+	allow := make(map[string]bool, len(citations)*2)
+	for _, c := range citations {
+		f := strings.TrimSpace(c.File)
+		if f == "" {
+			continue
+		}
+		allow[f] = true
+		allow[path.Base(f)] = true
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
+			for _, f := range bundle.ResolvedFiles {
+				f = strings.TrimSpace(f)
+				if f == "" {
+					continue
+				}
+				allow[f] = true
+				allow[path.Base(f)] = true
+			}
+		}
+	}
+	if len(allow) == 0 {
+		return nil
+	}
+
+	var violations []string
+	seen := make(map[string]bool)
+	for _, block := range blocks {
+		body := block[1]
+		for _, tok := range diagramFileTokenRe.FindAllString(body, -1) {
+			bare := tok
+			if idx := strings.LastIndex(bare, ":"); idx >= 0 {
+				bare = bare[:idx]
+			}
+			ext := strings.ToLower(path.Ext(bare))
+			if !diagramFileExtensions[ext] {
+				continue
+			}
+			if allow[bare] || allow[path.Base(bare)] {
+				continue
+			}
+			if seen[bare] {
+				continue
+			}
+			seen[bare] = true
+			violations = append(violations, bare)
+		}
+	}
+	if len(violations) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"summary fenced code block references file(s) not present in citations[] or attached-log frames: %s. "+
+			"ASCII diagrams are structural claims — every filename named inside a triple-backtick block "+
+			"must be a real repo file you have direct evidence for. "+
+			"Either add a citations[] entry for each named file (and reference it from steps / symbols / value as needed), "+
+			"or remove the unsupported file name from the diagram and describe the relationship in prose.",
+		strings.Join(violations, ", "),
+	)
 }
 
 func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int) (*types.AnswerBoolean, error) {

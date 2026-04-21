@@ -1476,3 +1476,132 @@ func TestExtractCodeSnippets_ClustersAdjacentCitations(t *testing.T) {
 	}
 }
 
+// -------- F4.1 diagram-block grounding gate --------
+
+// TestEmitAnswerDocument_DiagramGate_RejectsUngroundedFileInFence
+// pins the session-22 F4.1 fix. An explanation whose ASCII call-chain
+// diagram names a `.go` file not present in citations[] or the
+// log-triage ResolvedFiles must be rejected — that is the exact
+// hallucination pattern observed on logtri_go where the finalizer
+// wrote "explorer.go (ParseOutput) └─▶ buildAnalysisIR" even though
+// the panic frames resolved at analyzer.go:250 and analyzer.go:320.
+func TestEmitAnswerDocument_DiagramGate_RejectsUngroundedFileInFence(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Seed a read of analyzer.go so the cited line is grounded.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│ package agent\n     2│ \n     3│ import (\n     4│ \t\"context\"\n     5│ )\n",
+	})
+	summary := "The panic happens inside buildAnalysisIR. Call chain:\n\n" +
+		"```\n" +
+		"explorer.go (ParseOutput)\n" +
+		"  └─▶ buildAnalysisIR (analyzer.go:5)\n" +
+		"```\n" +
+		"The nil receiver bubbles up."
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "explanation",
+		"summary":   summary,
+		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 5}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("ungrounded `explorer.go` in fenced block must be rejected; got Success=true Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "explorer.go") {
+		t.Errorf("rejection must name the offending file, got: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_DiagramGate_AcceptsCitedFileInFence is the
+// allow-path complement: when every file token inside the fenced
+// block IS a citation, the gate passes.
+func TestEmitAnswerDocument_DiagramGate_AcceptsCitedFileInFence(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│ package agent\n     2│ \n     3│ import (\n     4│ \t\"context\"\n     5│ )\n",
+	})
+	summary := "The panic happens inside buildAnalysisIR in analyzer.go. Call chain:\n\n" +
+		"```\n" +
+		"innermost: buildAnalysisIR (internal/agent/analyzer.go:5)\n" +
+		"  ↑ caller: (*analyzerEvaluator).ParseOutput (internal/agent/analyzer.go:5)\n" +
+		"```\n" +
+		"The nil receiver bubbles up."
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "explanation",
+		"summary":   summary,
+		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 5}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("all-cited fenced block must pass the diagram gate; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_DiagramGate_HonoursLogTriageResolvedFiles
+// pins the allowlist's second source: a file-name in a fenced block
+// that is NOT in citations[] but IS in bundle.ResolvedFiles must pass.
+// Covers the log-triage authoritative path where the frame anchors
+// live in the log section rather than the citation pool.
+func TestEmitAnswerDocument_DiagramGate_HonoursLogTriageResolvedFiles(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Publish a log-triage bundle with analyzer.go resolved, but DO
+	// NOT cite it — the diagram should still pass because it names a
+	// ResolvedFiles entry.
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+	})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[cmd/root.go: showing lines 1-3 of 100 total]\n     1│ package cmd\n     2│ \n     3│ import \"context\"\n",
+	})
+	summary := "The log frame names analyzer.go as the failure site.\n\n" +
+		"```\n" +
+		"panic at analyzer.go:250 in buildAnalysisIR\n" +
+		"```\n" +
+		"Citing cmd/root.go for the dispatch entry."
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "explanation",
+		"summary":   summary,
+		"citations": []map[string]interface{}{{"file": "cmd/root.go", "line": 3}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("fenced block naming a log-triage ResolvedFile must pass; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_DiagramGate_IgnoresNonCodeExtensions guards
+// against over-rejection on auxiliary prose: `error.log`, `output.txt`,
+// and similar non-code extensions inside a fence are treated as prose
+// and never trigger the gate.
+func TestEmitAnswerDocument_DiagramGate_IgnoresNonCodeExtensions(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[a.go: showing lines 1-2 of 10 total]\n     1│ package main\n     2│ \n",
+	})
+	summary := "See the pipeline:\n\n" +
+		"```\n" +
+		"stdin → error.log → output.txt\n" +
+		"```\n" +
+		"Final step in a.go."
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "explanation",
+		"summary":   summary,
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("non-code extensions inside fence must be ignored; got Success=false Summary=%q", res.Summary)
+	}
+}
