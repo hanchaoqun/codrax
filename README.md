@@ -4,10 +4,11 @@
 
 ## 流水线
 
-`analyze → explore → extract → finalize`，每个阶段一个 agent、一个 skill，硬编码在 [`internal/orchestrator/topology.go`](internal/orchestrator/topology.go)：
+主流水线 `analyze → explore → extract → finalize`，每个阶段一个 agent、一个 skill，硬编码在 [`internal/orchestrator/topology.go`](internal/orchestrator/topology.go)。当用户附加了运行时日志时，analyze 之前会条件触发一个独立的 log_triage 阶段：
 
 | 阶段 | Agent | Skill | 做什么 |
 |---|---|---|---|
+| log_triage *(条件触发)* | log_triager | log-triage-skill | 仅当用户通过 `--log` / `/log` 附加运行时日志时运行。LLM 把日志解析成结构化 bundle（错误类型、栈帧、因果链、信号分类），系统做路径校验和派生；阶段失败不阻塞主流水线 |
 | analyze | analyzer | analysis-skill | 一次 LLM 调用，通过 `emit_analysis` 工具输出 `AnalysisIR`（意图/场景/复杂度 + TaskGraph + EvidencePlan + AnswerContract + HypothesisSet + 风险矩阵） |
 | explore | explorer | explore-skill | **Turn A** 调查：read_file / grep / repo_map ReAct 循环，通过 `emit_evidence` 累积证据，用 ERM（Evidence Requirement Model）跟踪"还缺哪些证据" |
 | extract | extractor | extract-skill | **Turn B** 结构化：无文件 IO，只读 Turn A 的冻结快照，通过 `emit_answer_symbol` / `emit_hypothesis_verdict` 产出带 completeness claim 的答案面板 |
@@ -67,9 +68,11 @@ make test
 
 ## 日志分诊（log triage）
 
-用户粘贴一段运行时日志（panic / exception 堆栈 / sanitizer 诊断 / traceback），codrax 的 analyzer 会**跨语言**解析其中的栈帧，把函数名、包名、错误字面量抽出来喂给关键词检索，并把栈帧的 `file:line` 作为强信号注入 `EvidencePlan.RequiredFiles`，explorer 优先读这些文件。当前支持：Go panic / Java stacktrace（含 `Caused by` 链）/ C/C++ ASAN+UBSAN+gdb / Python traceback / Node.js V8 stack。
+粘贴一段运行时日志（panic / exception 堆栈 / sanitizer 诊断 / traceback / 自研应用日志 / 编译器错误都可以），codrax 会在 analyze 之前先跑一个独立的 log_triage 阶段：LLM 把日志读成结构化数据（错误类型、栈帧、因果链、信号分类），系统做路径校验、仓内存在性过滤、重复消噪，然后把解析出来的文件定位和关键词喂给下游，explorer 优先读这些文件。
 
-日志正文不混进问题字符串，走独立的 `BusContext.AttachedLog` 通道——normalizer 只看到你的提问，不会被日志里的噪声污染实体识别。
+因为是 LLM 做抽取而不是写死的正则 parser，支持的格式不是一个固定列表——凡是模型能看懂的结构都能处理：Go panic、Java exception 含 `Caused by` 链、C/C++ ASAN / UBSAN / gdb、Python traceback（包含 `During handling` 嵌套）、Node.js V8 stack、Rust `#[source]` 链、Ruby backtrace、结构化 JSON 日志……都是一套代码路径。
+
+日志正文不会混进问题字符串，走独立通道——提问的实体识别只看你的问题本身，不会被日志噪声污染。系统侧把每个文件路径 `os.Stat` 验证一遍，仓外路径和运行时内部文件（Go stdlib、`node:` URI、`java.base/*` 等）会被过滤掉，不会影响答案。
 
 ### CLI
 
@@ -101,7 +104,7 @@ ctrl 粘贴 stack ...
 ❯❯ /log show                     # 打印前 20 行 + 总字节
 ❯❯ /log clear                    # 丢弃当前附加
 
-# 附加日志跨 turn 粘滞（sticky）——用户通常要围绕同一条 panic 问多个问题：
+# 附加日志跨轮次粘滞——通常围绕同一条 panic 会问多个问题：
 ❯❯ /log /tmp/crash.txt
 ❯❯ 这个 panic 的根本原因是什么？
 ❯❯ 修复方案呢？会不会有副作用？    # 附加日志仍在，无须重新粘贴
@@ -109,42 +112,28 @@ ctrl 粘贴 stack ...
 ❯❯ /log clear                     # 显式清才丢日志
 ```
 
-### 支持的日志格式示例
+### 长日志处理
 
-```
-# Go panic
-panic: runtime error: index out of range [5] with length 3
+单次抽取默认一次性读完日志。当日志体积超过阈值（默认 32 KB）或单次抽取覆盖率偏低时，系统自动切到两步模式：先让 LLM 按栈/因果块/上下文切片定位字节范围，再逐段抽取，最后合并结果。全流程 LLM 调用次数有硬上限（默认 8 次）。
 
-goroutine 1 [running]:
-main.crashy()
-        /src/app/main.go:42 +0x1e
+### 可调项
 
-# Java
-Exception in thread "main" java.lang.NullPointerException: x
-        at com.example.Service.run(Service.java:42)
-Caused by: java.lang.IllegalStateException: y
-        at com.example.Inner.boom(Inner.java:5)
+所有 log_triage 相关配置都在 `codrax.yaml`，前缀统一为 `log_triage_*`：
 
-# C/C++ ASAN
-==12345==ERROR: AddressSanitizer: heap-use-after-free on address 0x...
-    #0 0x401234 in Foo::bar() /src/repo/foo.cpp:42:5
-    #1 0x401567 in main       /src/repo/main.cpp:10:3
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `log_triage_enabled` | `true` | 关掉后附加日志只会被读入但不会触发抽取 |
+| `log_triage_source_prefix` | 空 | 提示 build 路径前缀；等价于 CLI `--log-source-prefix`，CLI 显式传值时优先 |
+| `log_triage_min_bytes` | 50 | 低于此字节数的日志直接跳过（太短往往没栈帧） |
+| `log_triage_two_step_bytes` | 32768 | 超过此大小直接走两步模式 |
+| `log_triage_two_step_coverage` | 0.3 | 单次抽取覆盖率低于此阈值升级到两步 |
+| `log_triage_max_llm_calls` | 8 | 单次请求内 log_triage 阶段的 LLM 调用次数硬上限 |
+| `log_triage_max_retries` | 1 | 抽取被 schema 拒绝后的重试次数 |
 
-# Python
-Traceback (most recent call last):
-  File "/src/app.py", line 42, in handle
-    result = compute(x)
-ValueError: bad input
+### 暂不支持
 
-# Node.js
-TypeError: Cannot read property 'x' of undefined
-    at Object.handler (/src/app.js:42:13)
-    at async main (/src/main.js:10:5)
-```
-
-全局开关在 `codrax.yaml`：`log_triage_enabled: false` 让 pre-stage Guard 直接跳过（`--log` 仍读文件但不触发抽取）。`log_triage_source_prefix` 等效于 CLI `--log-source-prefix`，CLI 显式传值时优先。架构上 LLM 是抽取器、系统做校验和消费——与 session 19 的 6 个手写正则 parser 相比，这版天然支持 Rust / Ruby / 自研 JSON 日志 / 编译器错误等任意格式,不再需要 per-format parser 代码。长日志或低覆盖场景自动走两步回退（`log_triage_two_step_*`）。
-
-明确**不做**：实时日志 tail / 订阅、Loki/ES/CloudWatch 远端源——后续 Tier 2/3 功能扩展。
+- 实时日志 tail / 订阅、远端日志源（Loki / ES / CloudWatch）
+- glibc 裸 backtrace（只有地址没有 file:line，缺少足够锚点）
 
 ## 配置
 
@@ -206,7 +195,7 @@ TypeError: Cannot read property 'x' of undefined
 - **跨平台**：Linux / macOS 用 `flock(2)`，Windows 通过 `kernel32.dll!LockFileEx` 实现等价语义，全程零非 stdlib 依赖
 - **默认语言**：`-lang=zh` 默认简体中文作答；`-lang=off` 关闭；任一非空值都会保留"用户若用其他语言提问则跟随"的兜底
 - **Answer contract**：finalizer 输出结构化 `AnswerDocument`（typed symbols / steps / value / boolean / explanation + citation pool），cardinality 验证器会把"谎称 complete 但 slate 不足基线"的 claim 自动降级为 lower_bound 并附警告渲染
-- **日志分诊**：`--log / --log-text` 或 REPL `/log` 粘贴 panic / Java exception / C/C++ ASAN+UBSAN+gdb / Python traceback / Node.js stack，analyzer 跨语言解析栈帧并把 `file:line` 注入到 `EvidencePlan.RequiredFiles`，`reconcileIntent` 强制切到 root_cause 模式；日志正文走独立通道，不污染关键词识别
+- **日志分诊**：`--log / --log-text` 或 REPL `/log` 附加运行时日志，LLM 驱动的 log_triage 阶段把任意格式的 panic / exception / sanitizer 诊断 / traceback / 结构化应用日志解析成结构化锚点（错误类型、栈帧、因果链、信号分类），系统侧做仓内路径校验把解析结果注入下游，explorer 优先读栈帧文件；超长或复杂日志自动走两步抽取；日志正文独立通道不污染提问的关键词识别
 
 ## 文档
 

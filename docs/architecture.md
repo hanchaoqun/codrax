@@ -1,6 +1,6 @@
 # 架构设计文档
 
-codrax 是一个**只读的代码分析工具**：接收关于代码仓库的自然语言问题，经 4 阶段 × 4 Agent 的确定性流水线产出结构化答案。流水线拓扑硬编码在 `internal/orchestrator/topology.go`，不存在运行时覆盖。
+codrax 是一个**只读的代码分析工具**：接收关于代码仓库的自然语言问题，经一条确定性的主流水线（`analyze → explore → extract → finalize`，4 阶段 × 4 Agent）产出结构化答案。当用户附加运行时日志时，主流水线前会先跑一个条件触发的 `log_triage` 阶段做结构化抽取。拓扑硬编码在 `internal/orchestrator/topology.go`，不存在运行时覆盖。
 
 ## 目录
 
@@ -22,7 +22,7 @@ codrax 是一个**只读的代码分析工具**：接收关于代码仓库的自
 
 ### 系统目标
 
-codrax 接受用户的自然语言问题，通过一条**确定性的四阶段流水线**分析目标仓库，产出结构化的答案文档。系统不修改代码，不调用有副作用的外部服务，只做：读文件、跑 grep、构建 repo map、执行 shell 查询。
+codrax 接受用户的自然语言问题，通过一条**确定性的主流水线（4 阶段 × 4 Agent）**分析目标仓库，产出结构化的答案文档。附加运行时日志时会额外跑一个条件触发的 `log_triage` 前置阶段做结构化抽取。系统不修改代码，不调用有副作用的外部服务，只做：读文件、跑 grep、构建 repo map、执行 shell 查询。
 
 ### 核心设计原则
 
@@ -116,33 +116,44 @@ graph TB
 
 ## 2. 四阶段流水线
 
-拓扑是**硬编码**的（`internal/orchestrator/topology.go`）：
+拓扑是**硬编码**的（`internal/orchestrator/topology.go`）：主流水线 4 阶段 × 4 agent 永远按序执行；log_triage 是条件前置阶段，`BusContext.AttachedLog` 非空时才触发（Guard 定义在同文件的 `preStages` 列表中），失败不阻塞主流水线。
 
 ```go
+// 主流水线（无条件）
 var pipelineTopology = map[types.PipelineStage]struct {
     Agent    types.AgentName
     Skill    string
     Terminal bool
 }{
-    types.StageAnalyze:  {Agent: types.AgentAnalyzer,  Skill: "analysis-skill"},
-    types.StageExplore:  {Agent: types.AgentExplorer,  Skill: "explore-skill"},
-    types.StageExtract:  {Agent: types.AgentExtractor, Skill: "extract-skill"},
-    types.StageFinalize: {Agent: types.AgentFinalizer, Skill: "answer-document-skill", Terminal: true},
+    types.StageLogTriage: {Agent: types.AgentLogTriager, Skill: "log-triage-skill"},
+    types.StageAnalyze:   {Agent: types.AgentAnalyzer,   Skill: "analysis-skill"},
+    types.StageExplore:   {Agent: types.AgentExplorer,   Skill: "explore-skill"},
+    types.StageExtract:   {Agent: types.AgentExtractor,  Skill: "extract-skill"},
+    types.StageFinalize:  {Agent: types.AgentFinalizer,  Skill: "answer-document-skill", Terminal: true},
+}
+
+// 条件前置阶段列表（按声明顺序依次尝试）
+var preStages = []preStageEntry{
+    {Stage: types.StageLogTriage, Guard: /* AttachedLog != "" */},
 }
 ```
 
-| 阶段 | 默认 Agent | 默认 Skill | Terminal |
-|------|-----------|-----------|:-:|
-| `analyze` | `analyzer` | `analysis-skill` | |
-| `explore` | `explorer` | `explore-skill` | |
-| `extract` | `extractor` | `extract-skill` | |
-| `finalize` | `finalizer` | `answer-document-skill` | ✅ |
+| 阶段 | 默认 Agent | 默认 Skill | 触发条件 | Terminal |
+|------|-----------|-----------|---------|:-:|
+| `log_triage` | `log_triager` | `log-triage-skill` | `AttachedLog` 非空 | |
+| `analyze` | `analyzer` | `analysis-skill` | 无条件 | |
+| `explore` | `explorer` | `explore-skill` | 无条件 | |
+| `extract` | `extractor` | `extract-skill` | 无条件 | |
+| `finalize` | `finalizer` | `answer-document-skill` | 无条件 | ✅ |
 
 ### 运行时流程
 
 ```mermaid
 stateDiagram-v2
-    [*] --> analyze
+    [*] --> logTriageGate
+    logTriageGate --> log_triage : AttachedLog 非空
+    logTriageGate --> analyze : AttachedLog 空或 log_triage 失败（降级）
+    log_triage --> analyze : bundle 写入 Mutable
     analyze --> taskLoop : AnalysisIR.TaskGraph 生成
     taskLoop --> explore : readyExplorerWindow 非空
     explore --> extract : 当前 window 全 done
@@ -152,6 +163,7 @@ stateDiagram-v2
     contractCheck --> [*] : 通过 / retry 耗尽（fail-loud）
 ```
 
+0. **Phase 0 — `log_triage`**（条件前置）：`BusContext.AttachedLog` 非空时触发。`log_triager` agent 读取日志原文，LLM 通过 `emit_log_triage` 发出四层结构化 bundle（`Meta` / `Errors` 含递归 `Cause` / `Residue`），系统调用 `logtriage.ValidateBundle` 做路径校验 + 仓内存在性过滤 + Layer 4 派生（`ResolvedFiles` / `Entities` / `IntentHint` / `Coverage`），写进 `Mutable.LogTriage()`。coverage 过低或日志体积超阈值（默认 32 KB）自动走两步升级（`emit_log_segmentation` → 逐段 `emit_log_triage` → `MergeBundles`）。阶段失败**不阻塞**主流水线——bundle 停留为 nil，每个下游消费者（analyzer 的 entity merge / intent override / RequiredFiles seed）都 nil-check 优雅降级。详见 §4.5。
 1. **Phase 1 — `analyze`** 跑一次。analyzer 先用 1-2 轮 evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`）验证用户提到的实体和术语是否在仓库里出现，然后一次 `emit_analysis` 调用写出 v4 `RequestModel`。`analyzer.ParseOutput` 随后确定性地跑后处理管线（见 §7）组装完整的 `AnalysisIR` 并写进 `BusContext.AnalysisIR`。analyzer **禁止**读文件内容（`read_file` / `exec_command` 不在它的 tool allowlist）。
 2. **Phase 2 — per-task DAG 执行**。`runTaskPhase` 调用 `runTaskGraph` 遍历 `AnalysisIR.TaskGraph.Nodes`：
    - **criterion-aware window schedule**：`readyExplorerWindow` 返回两个列表：`ready`（所有 `EntryConditions` 满足的 pending/requeued 非 finalize 非 counterfactual 节点）和 `blocked`（entry condition 未满足的节点——在 retry hint 中暴露阻塞的 criterion 诊断）。Ready 节点合并成**一次** `explore` dispatch。每轮开始前 `stopcond.ShouldStop` 评估 `EvidencePlan.StopConditions`（OR 语义），命中则跳到 finalize。编排器在入口从 `EvidencePlan.NodeBudgetHints` 安装 `ExploreBudget` 到 `MutableState`；explorer 的 `BaseAgent.executeTool` 在每次工具调用前检查剩余预算，超额返回失败 `ToolResult`。
@@ -554,58 +566,68 @@ Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结
 
 `answer_document_evaluator` 对所有 shape 检测 "iter 0 rich prose → iter 1 压缩 summary" 模式：当 summary 明显少于前次 draft 的 `shrinkageRatio`（按 shape 缩放 floor：explanation 1.0×／list/step 0.5×／boolean 3/8×／value 0.25×），把 `findLastPreToolCallDraft(messages)` 选中的上一轮 draft verbatim 复制进 `summary[]`，UTF-8 rune-boundary trim 到 `SummaryCapFor(shape)`，追加双语 caveat，log `[finalizer/shrinkage]`。由 `agent_finalizer_*`（`preserve_prior_prose` / `shrinkage_min_prose_len` / `shrinkage_ratio`）控制。
 
-### 4.5 Log Triage — 用户粘贴日志 → analyzer 注入堆栈锚
+### 4.5 Log Triage — 用户附加日志 → 结构化锚点注入下游
 
-（Session 19 Tier 1 MVP）当用户通过 `--log <file|->` / `--log-text <inline>` / REPL `/log` 附加一条运行时日志（panic / exception / ASAN / UBSAN / gdb / Python traceback / Node.js stack）时，analyzer 把日志解析成结构化锚点注入 analyze 阶段下游，**不经过 normalizer 的 request 通道**——日志正文留在 `BusContext.AttachedLog`，不污染 TermGraph。
+当用户通过 `--log <file|->` / `--log-text <inline>` / REPL `/log` 附加一条运行时日志时，在 analyze 之前会先跑一个独立的 `log_triage` 阶段。这个阶段是**条件触发**的（`BusContext.AttachedLog` 非空才激活），运行的是一个独立 agent（`log_triager`）而不是 analyzer 的 bolt-on；失败不阻塞主流水线。
+
+**责任边界**（硬契约）：
+
+| 侧 | 职责 | 不做的事 |
+|---|------|---------|
+| LLM（`log_triager` agent + `log-triage-skill`） | 读取 `AttachedLog` 正文，emit 结构化 `LogBundle` | 不做路径解析、不做仓内存在性验证、不填派生字段 |
+| 系统（`internal/analysis/logtriage.ValidateBundle`） | 路径归一化、`os.Stat` 校验、Java basename 仓内 glob、运行时内部文件过滤、派生 `ResolvedFiles`/`Entities`/`IntentHint`/`Coverage` | 不改 LLM 发出的 `Meta` / `Errors` / `Residue` 三层 |
+
+由 LLM 做抽取而不是写死的正则 parser，使得支持的日志格式不再是一个固定列表——Go panic、Java exception（含 `Caused by` 链 → 递归 `Cause` 指针）、C/C++ ASAN / UBSAN / gdb、Python traceback（含 `During handling` → 递归 `Cause`）、Node.js V8 stack、Rust `#[source]` 链、Ruby backtrace、结构化 JSON 应用日志、编译器错误报告都走同一套代码路径。
+
+**LogBundle 数据结构**（`internal/types/log_bundle.go`）分四层：
+
+| 层 | 来源 | 字段 | 说明 |
+|---|------|------|------|
+| 1. Meta | LLM | `Lang` / `Signals[]` / `Summary` | 日志整体分类。`Signals` 是 10 值 enum：`panic` / `crash` / `oom` / `timeout` / `permission` / `db` / `network` / `validation` / `logic` / `other` |
+| 2. Errors | LLM | `[]LogError{Type, Message, Frames[], Cause *LogError}` | 错误树。顶层 slice 是**平行快照**（Go goroutine dump 里多个同时 panic 的 goroutine），`Cause` 指针是**时序因果链**（Java `Caused by` / Rust `#[source]` / Python `__cause__`）。递归深度由系统兜底截到 5 层 |
+| 3. Residue | LLM | `UnknownChunks[]` | LLM 抽不进 `Errors` 的段（最多 8 段，每段 ≤ 500 字符） |
+| 4. Derived | 系统 | `ResolvedFiles[]` / `Entities[]` / `IntentHint` / `Coverage` | 系统侧派生：`ResolvedFiles` 是 `os.Stat` 校验过的仓内路径（按 `Confidence` 降序，上限 10）；`Entities` 是从 `Func` / `Pkg` / `Error.Type` / `Signals` 派生的关键词（上限 32）；`IntentHint` 在有真实栈帧或信号含 `panic`/`crash`/`oom` 时置为 `IntentRootCause`；`Coverage` = `1 - bytes(Residue)/bytes(raw)`，驱动两步升级决策 |
+
+每个 `LogFrame` 带 `File` / `Line` / `Func` / `Pkg` / `Raw`（原始日志行）/ `Confidence`（0.0-1.0）。系统侧把 `Confidence < 0.6` 或 `File == ""` / `Line == 0` 的帧保留在 bundle 中（贡献到 `Entities`）但不晋升到 `ResolvedFiles`——这是零信息丢失的恢复策略。
 
 **数据流**：
 
 ```
---log / /log  ──▶  BusContext.AttachedLog  ──▶  AgentContext.AttachedLog
-                                                       │
-                                                       ▼
-                                    analyzer.buildAnalysisIR
-                                        logparse.Detect(raw)
-                                           │
-                                           ▼
-                                       LogBundle{Lang, Frames, ErrorLiterals, HasStack}
-                                           │
-                  ┌────────────────────────┼────────────────────────────┐
-                  ▼                        ▼                            ▼
-  mergeLogTriageEntities        reconcileIntent                 resolveLogTriageFiles
-  (Func / Pkg / literals         (HasStack → RootCause)         (StripBuildPathPrefix +
-   → AnalyzerHints.Entities)                                     ResolveJavaFile + os.Stat)
-                                                                        │
-                                                                        ▼
-                                                        EvidencePlan.RequiredFiles ← 合并
+--log / /log                             ┌──▶ Meta (Lang, Signals, Summary)
+     │                                   │
+     ▼                                   ├──▶ Errors[] (递归 Cause)
+BusContext.AttachedLog     emit_log_triage├
+     │                         │         └──▶ Residue (UnknownChunks)
+     │              ┌──────────┘                         │
+     │              ▼                                    ▼
+     └──▶ log_triager agent ──▶ logtriage.ValidateBundle (os.Stat + 过滤 + 派生)
+                                            │
+                                            ▼
+                                    Mutable.LogTriage() (LogBundle)
+                                            │
+              ┌─────────────────────────────┼──────────────────────────────┐
+              ▼                             ▼                              ▼
+   analyzer 读 bundle.Entities       reconcileIntent                 analyzerRequiredFiles
+   union 进 AnalyzerHints.Entities   (IntentHint=RootCause →          读 bundle.ResolvedFiles
+                                      强制切 root_cause)               prepend 到
+                                                                       EvidencePlan.RequiredFiles
 ```
 
-**parser 清单**（`internal/analysis/logparse/`）：
+**两步自适应抽取**：默认单次 `emit_log_triage` 调用。当 `len(AttachedLog) >= log_triage_two_step_bytes`（默认 32 KB）或单次抽取结果 `Coverage < log_triage_two_step_coverage`（默认 0.3）时自动升级：先调 `emit_log_segmentation` 让 LLM 按 `stack` / `caused_by` / `header` / `context` / `trace` / `noise` 切片打字节坐标，再对每个 `stack` / `caused_by` / `trace` 段分别调 `emit_log_triage`，最后 `logtriage.MergeBundles` 合并——`Meta.Signals` 并集、`Errors[]` 平行拼接、Layer 4 基于合并后的 Layer 1-3 重新派生。全过程 LLM 调用次数受 `log_triage_max_llm_calls`（默认 8）硬上限。
 
-| 语言 | 识别锚 | 文件 | MVP 覆盖 |
-|------|--------|------|----------|
-| Go | `goroutine N [` + tab-indent `file:line +0xHH` | `parse_go.go` | panic / fatal error |
-| Java | `at pkg.Cls.m(File.java:NN)` + `Exception in thread` / `Caused by:` | `parse_java.go` | 完整 stacktrace + 异常链 |
-| C/C++ ASAN | `==NNN==ERROR: AddressSanitizer:` + `#N 0x.. in func file:line(:col)?` | `parse_cpp_asan.go` | ASAN / UBSAN / LSAN / TSAN / MSAN |
-| C/C++ gdb | `#N 0x.. in sym () at file:line` | `parse_cpp_gdb.go` | gdb `bt` / core-dump |
-| Python | `Traceback (most recent call last):` + `File "...", line N, in fn` | `parse_python.go` | CPython traceback |
-| Node.js | `at <fn> (file.js:line:col)` + anonymous 变体 | `parse_node.go` | V8 stack |
+**路径解析与过滤**（`internal/analysis/logtriage/resolver.go`）：
+- `StripBuildPathPrefix` 按优先级剥 `/build/src/` / `/rpmbuild/BUILD/` / `/home/<user>/src/` 等 CI / build 前缀 + repo basename + `log_triage_source_prefix` / `--log-source-prefix` 覆盖。
+- `ResolveJavaFile(pkg, basename, candidates)` 处理 Java frame 只带 basename（`Bar.java`）不带目录的情况：用 package 后缀（`com.foo` → `**/com/foo/Bar.java`）消歧，tier 1（精确后缀）> tier 2（`src/main/java/` 布局后匹配）> tier 3（仅 basename）。
+- `IsRuntimeInternalFile` 过滤 Go runtime（`asm_amd64.s` / `/go/src/runtime/`）、Node `node:` URI、`java.base/*`——这些不是 user repo 文件，不进 `ResolvedFiles`。
+- `ResolveFrameFile` 做 `filepath.Rel` + `..` 逃逸检查 + `os.Stat` 硬校验，所有存在性都在仓内验证。
 
-**优先级**：`ASAN → gdb → Java → Go → Python → Node`（由最特异的 header 排前）。任一 parser 返回空 bundle 时 `Detect` 继续尝试下一个；全部失败 → 零值 bundle，pipeline 退化到普通 explain。
+**Intent 覆盖**：`reconcileIntent(intent, predicates, *LogBundle)` 在 `bundle.IntentHint == IntentRootCause` 且 LLM declared 不是 `root_cause` 时强制切换。因为分析 agent 看得到 `AttachedLog` 原文（在 prompt section 里）但不是每次都会正确分类为调试查询，这里做 defence-in-depth。
 
-**Path 还原**（`resolver.go`）：
-- `StripBuildPathPrefix` 按优先级剥 `/build/src/` / `/rpmbuild/BUILD/` / `/home/<user>/src/` 等 CI/build 前缀 + repo basename + CLI `--log-source-prefix` 覆盖。
-- `ResolveJavaFile(pkg, basename, candidates)` 因 Java frame 只带 basename（`Bar.java`）不带目录，用 package 后缀（`com.foo` → `**/com/foo/Bar.java`）消歧，tier 1 > tier 2 (`src/main/java/`) > tier 3 (基 basename)。
-- `IsRuntimeInternalFile` 过滤 Go runtime（`asm_amd64.s`）、Node `node:` URI、`java.base/*` —— 这些不是 user repo 文件。
+**可调项**：全部在 `codrax.yaml` 的 `log_triage_*` 前缀下（`log_triage_enabled` / `log_triage_source_prefix` / `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`）。见 `codrax.yaml.example` 的逐项注释。
 
-**Intent 覆盖**：`reconcileIntent` 在 `LogBundle.HasStack=true` 时强制 `IntentRootCause`，因为 LLM 看不到 `AttachedLog`（它只在 BusContext，不在 prompt），无法自己分类为 debug 查询。这是结构性覆盖，写在 `analyzer_intent.go`。
-
-**Feature gate**：`codrax.yaml` 里 `logparse_enabled: false` 或 `logparse.SetEnabled(false)` 让 `Detect` 短路，整条 log-triage 通路变 no-op（REPL 命令仍可用但不影响 pipeline）。
-
-**不做**（显式非目标）：
-- C/C++ glibc backtrace（只有地址，没 file:line）
-- 日志文件 tail / live stream / 远端源（Loki/ES/CloudWatch）—— Tier 2+
-- 自定义应用日志 schema —— 无通用 regex
+**暂不支持**：
+- C/C++ glibc 裸 backtrace（只有返回地址，没 `file:line`，缺少足够锚点）
+- 日志文件 tail / live stream / 远端源（Loki / ES / CloudWatch）
 
 ---
 
@@ -621,18 +643,20 @@ Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结
 // internal/types/enums.go
 type PipelineStage string
 const (
-    StageAnalyze  PipelineStage = "analyze"
-    StageExplore  PipelineStage = "explore"
-    StageExtract  PipelineStage = "extract"
-    StageFinalize PipelineStage = "finalize"
+    StageLogTriage PipelineStage = "log_triage" // 条件前置；AttachedLog 非空才触发
+    StageAnalyze   PipelineStage = "analyze"
+    StageExplore   PipelineStage = "explore"
+    StageExtract   PipelineStage = "extract"
+    StageFinalize  PipelineStage = "finalize"
 )
 
 type AgentName string
 const (
-    AgentAnalyzer  AgentName = "analyzer"
-    AgentExplorer  AgentName = "explorer"   // Turn A
-    AgentExtractor AgentName = "extractor"  // Turn B
-    AgentFinalizer AgentName = "finalizer"
+    AgentLogTriager AgentName = "log_triager" // 仅 log_triage 阶段使用
+    AgentAnalyzer   AgentName = "analyzer"
+    AgentExplorer   AgentName = "explorer"   // Turn A
+    AgentExtractor  AgentName = "extractor"  // Turn B
+    AgentFinalizer  AgentName = "finalizer"
 )
 
 type Intent string      // IntentExplain / IntentRootCause / IntentTrace /
@@ -1156,7 +1180,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 交互式 REPL。逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command：`/exit` `/quit` `/clear` `/history` `/compact` `/log` `/help`。
 
-**`/log` 子命令**（session 19 log-triage）：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。
+**`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。
 
 ### `internal/tool/blob`
 
