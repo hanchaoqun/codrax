@@ -55,6 +55,7 @@ type explorerEvaluator struct {
 	midLoopEvidenceRepairSent  bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
 	midLoopIntentWindowSent    bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
 	midLoopRankerCoverageSent  bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
+	midLoopEnumInjected        bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	primaryReadSeen            bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter            int                   // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead      int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
@@ -173,6 +174,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopEvidenceRepairSent = false
 		e.midLoopIntentWindowSent = false
 		e.midLoopRankerCoverageSent = false
+		e.midLoopEnumInjected = false
 		e.primaryReadSeen = false
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
@@ -229,6 +231,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopEvidenceRepairSent = false
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
+	e.midLoopEnumInjected = false
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
@@ -2459,7 +2462,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// Both numbers encode "list ALL" semantics, not case-specific
 	// tuning — they are tied to the enumeration question class, not
 	// df1.
-	if e.isEnumerationQuery {
+	if e.isEnumerationQuery && !e.midLoopEnumInjected {
 		discovered, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
 		if len(scope) > 0 {
@@ -2474,6 +2477,17 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				fmt.Fprintf(&b, "MID-LOOP CHECK: the question asks for an enumeration but you have read only %d of %d discovered files (%.0f%%). "+
 					"Read these next: %s\n",
 					readCount, len(scope), coverage*100, strings.Join(unread, ", "))
+				// Session-22 one-shot lock. Without this gate, the
+				// enumeration check re-fired every post-throttle window
+				// while coverage sat below MidLoopEnumCoverage — 68
+				// firings observed in a single goroutine_dump run. The
+				// message payload is structurally stable (same "read
+				// these next" list as LLM inches coverage upward), so
+				// repeat fires are noise, not signal. Mirrors the
+				// pattern on Check 3 (parallelize), Check 4
+				// (cross-file-ref), Check 5 (intent-window) and Check 6
+				// (ranker-coverage). Reset cross-dispatch.
+				e.midLoopEnumInjected = true
 				if hintKey == "" {
 					hintKey = "explorer.mid-loop.enumeration"
 				}

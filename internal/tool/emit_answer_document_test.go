@@ -518,6 +518,184 @@ func TestEmitAnswerDocument_Value_NumericLiteralDegrades(t *testing.T) {
 	}
 }
 
+// TestEmitAnswerDocument_Symbols_RejectsFabricatedCitation pins the
+// session-22 literal-grounding gate on ShapeListOfSymbols. The
+// goroutine_dump trace shape: a log frame names `writeSession` at
+// `internal/agent/analyzer.go:100`, the file+line pair passes
+// os.Stat + the grounder's Tier-1 line-text check (analyzer.go
+// does have a line 100), but the LINE CONTENT has zero overlap
+// with `writeSession`. Before the per-shape gate, the items
+// shipped unchallenged.
+func TestEmitAnswerDocument_Symbols_RejectsFabricatedCitation(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 98-104 of 1500 total]\n    98│ }\n    99│ \n   100│ \n   101│ func SomeOtherThing() {\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":                 "list_of_symbols",
+		"symbols_completeness":  "lower_bound",
+		"symbols": []map[string]interface{}{
+			{
+				"name":  "writeSession",
+				"file":  "internal/agent/analyzer.go",
+				"line":  100,
+				"kind":  "function",
+				"chain": "crash site",
+			},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("fabricated symbol citation must be rejected; got Success=true, Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "writeSession") {
+		t.Errorf("rejection should name the symbol, got: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "not corroborated") {
+		t.Errorf("rejection should use the literal-grounding contract phrase, got: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Steps_RejectsCitationWithoutIdentifierOverlap
+// pins ShapeStepList: a step.Description that names identifiers
+// should cite a line where at least one of those identifiers
+// appears. Otherwise the cite is decorative at best, misleading
+// at worst.
+func TestEmitAnswerDocument_Steps_RejectsCitationWithoutIdentifierOverlap(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│ package agent\n     2│ \n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "step_list",
+		"steps": []map[string]interface{}{
+			{
+				"index":        1,
+				"description":  "ExplorerAgent dispatches SubAgent via SubAgentRegistry.Register",
+				"citation_ref": 0,
+			},
+		},
+		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("step citation without identifier overlap must be rejected; got Success=true, Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "steps[0]") {
+		t.Errorf("rejection should name the offending step index, got: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Steps_AcceptsNarrativeStepWithoutIdentifiers
+// is the graceful-skip path: a step whose description has no
+// identifier tokens (pure narrative) bypasses the gate because
+// the check cannot meaningfully cross-reference.
+func TestEmitAnswerDocument_Steps_AcceptsNarrativeStepWithoutIdentifiers(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[a.go: showing lines 1-3 of 10 total]\n     1│ package x\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "step_list",
+		"steps": []map[string]interface{}{
+			// Description with only numeric / non-identifier tokens —
+			// regex `[A-Za-z_][A-Za-z0-9_]{2,}` matches nothing, so
+			// the gate short-circuits before looking at the cited line.
+			{"index": 1, "description": "42 → 404", "citation_ref": 0},
+		},
+		"citations": []map[string]interface{}{{"file": "a.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("narrative step with no identifier tokens should bypass gate; got Success=false, Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Steps_AcceptsCitationRefMinusOneEscape pins
+// the escape hatch for steps that paraphrase external content:
+// citation_ref=-1 bypasses the gate entirely.
+func TestEmitAnswerDocument_Steps_AcceptsCitationRefMinusOneEscape(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "step_list",
+		"steps": []map[string]interface{}{
+			{
+				"index":        1,
+				"description":  "processRequest failed with nil pointer dereference",
+				"citation_ref": -1,
+			},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("step with citation_ref=-1 escape must be accepted; got Success=false, Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Boolean_RejectsUncorroboratedRationale pins
+// ShapeBoolean: when the rationale names identifiers that the
+// cited line does not mention, the gate fires.
+func TestEmitAnswerDocument_Boolean_RejectsUncorroboratedRationale(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[foo.go: showing lines 1-5 of 100 total]\n     1│ package foo\n     2│ \n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "boolean",
+		"boolean": map[string]interface{}{
+			"decision":     "yes",
+			"rationale":    "readyCheck returns true when the ConnectionPool is ready",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{{"file": "foo.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("boolean rationale without identifier overlap must be rejected; got Success=true, Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "boolean.rationale") {
+		t.Errorf("rejection should name the claim location, got: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Boolean_AcceptsCorroboratedRationale is the
+// positive path: rationale token appears in the cited window.
+func TestEmitAnswerDocument_Boolean_AcceptsCorroboratedRationale(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[foo.go: showing lines 10-15 of 100 total]\n    10│ func readyCheck() bool {\n    11│ \treturn true\n    12│ }\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "boolean",
+		"boolean": map[string]interface{}{
+			"decision":     "yes",
+			"rationale":    "readyCheck returns true unconditionally",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{{"file": "foo.go", "line": 10}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("corroborated boolean citation must be accepted; got Success=false, Summary=%q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_ConfigValue_RequiresKey(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{

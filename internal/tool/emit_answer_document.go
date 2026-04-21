@@ -610,6 +610,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			}
 			built = append(built, sym)
 		}
+		if err := validateSymbolsLiteralGrounding(built, groundCtx); err != nil {
+			return failWithContext("%v", err)
+		}
 		doc.Symbols = built
 		doc.SymbolsCompleteness = claim
 
@@ -622,6 +625,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 				return failWithContext("%v", err)
 			}
 			p.Steps[i].Description = strings.TrimSpace(p.Steps[i].Description)
+		}
+		if err := validateStepsLiteralGrounding(p.Steps, citations, groundCtx); err != nil {
+			return failWithContext("%v", err)
 		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
@@ -665,6 +671,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		bl, berr := buildEmitAnswerDocumentBoolean(p.Boolean, numCites)
 		if berr != nil {
 			return failWithContext("%v", berr)
+		}
+		if err := validateBooleanLiteralGrounding(bl, citations, groundCtx); err != nil {
+			return failWithContext("%v", err)
 		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidValue); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
@@ -963,82 +972,82 @@ func validateValueField(v *types.AnswerValue, requireKey bool, numCites int) err
 	return validateCitationRef("value", 0, v.CitationRef, numCites)
 }
 
-// valueLiteralTokenRe extracts identifier-shaped tokens from
-// value.Literal / cited line text for the session-22 literal-
-// corroboration gate. Matches ASCII identifier shape (letters /
-// digits / underscore, must start with letter/underscore, min 3
-// chars). Filters out trivial substrings that would false-match
-// almost anything.
+// valueLiteralTokenRe extracts identifier-shaped tokens from claim
+// text / cited line text for the session-22 literal-corroboration
+// gate. Matches ASCII identifier shape (letters / digits /
+// underscore, must start with letter/underscore, min 3 chars).
+// Filters out trivial substrings that would false-match almost
+// anything.
 var valueLiteralTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
 
-// validateValueLiteralGrounding enforces a system-level defence
-// against the "LLM fabricates a citation to satisfy the schema when
-// the literal originated from an external source" pattern observed
-// in the session-22 customer trace (attached log contained
-// "processRequest" which the LLM then cited against
-// internal/agent/analyzer.go:1 — the cited line was "package agent",
-// zero content overlap with the literal).
+// corroborationWindow is the ±N-line slack the literal-grounding
+// gate inspects around the cited line. Three captures a
+// reasonable "the cite points at a symbol's opening / definition
+// block" range (doc comment, signature, first body lines) without
+// opening the gate to false-positives on unrelated neighbouring
+// code.
+const corroborationWindow = 3
+
+// requireCitationCorroboration is the SHAPE-AGNOSTIC
+// literal-grounding gate shipped as part of the session-22 citation
+// fabrication defence. Given a text blob that represents a claim
+// (value.Literal, symbol.Name, step.Description, boolean.Rationale)
+// and the file:line the LLM chose to back it, the helper reports an
+// error when the cited ±3-line window contains NO identifier token
+// present in the claim text.
 //
-// Existing citation defences (file-in-ReadSet, line-text grounder,
-// Tier-1 peer rule) check structural validity of the file:line
-// anchor but DO NOT check that the cited text actually corroborates
-// the answer literal — for shape=value / shape=config_value the
-// literal IS the answer, so this is the only gate where literal /
-// citation coherence is enforceable.
+// Shape coverage (all 5 citation-carrying shapes):
 //
-// Contract:
-//   - CitationRef == -1 bypasses the check (the LLM is honestly
-//     declaring "no grounded repo source for this literal"). This
-//     is the escape hatch for answers sourced from the attached
-//     log, external docs, or inference beyond repo code.
-//   - empty LineIndex degrades to "skip" so legacy tests and
-//     sub-agent paths without a line index keep passing.
-//   - a cited line whose ±3-line window contains at least one
-//     identifier-shape token (≥3 chars) that matches an identifier
-//     token in the literal (exact case-sensitive) → grounded.
-//   - otherwise → reject with a hint that names the escape route
-//     (citation_ref=-1 + summary caveat).
+//   ShapeValue         → validateValueLiteralGrounding
+//   ShapeConfigValue   → validateValueLiteralGrounding (unions Key)
+//   ShapeListOfSymbols → validateSymbolsLiteralGrounding (per-item)
+//   ShapeStepList      → validateStepsLiteralGrounding  (per-item)
+//   ShapeBoolean       → validateBooleanLiteralGrounding
 //
-// For config_value the check unions literal tokens WITH key tokens
-// (either overlap is grounded) so a config leaf cited at the
-// definition line where only the key appears still passes.
-func validateValueLiteralGrounding(v *types.AnswerValue, citations []types.Citation, gc *ground.Context, isConfigValue bool) error {
-	if v == nil || v.CitationRef < 0 {
-		return nil
-	}
-	if v.CitationRef >= len(citations) {
-		// Out-of-range is handled by validateCitationRef upstream;
-		// do not double-report here.
-		return nil
-	}
+// ShapeExplanation intentionally skipped — summary is freeform prose
+// and citations[] are ad-lib references; per-citation corroboration
+// would over-match on identifier tokens the LLM mentions in narrative
+// unrelated to any specific cite.
+//
+// Contract (identical across all wrappers):
+//
+//   - unseedable anchor (citationRef == -1 for ref-based shapes, or
+//     File == "" / Line <= 0 for direct-anchor shapes like AnswerSymbol)
+//     → bypass. These are the LLM's honest escape hatches.
+//   - empty LineIndex or unindexed file → skip (degrades gracefully
+//     for sub-agent paths and unit tests without a line index).
+//   - claim text has no identifier-shape tokens → skip (numeric
+//     literals, short sentinels, prose with only noise words).
+//   - at least one token overlap in the ±3-line window → grounded.
+//   - otherwise → return a formatted error with the schema-legal
+//     escape spelled out.
+//
+// The caller supplies the shape-specific labels (what to call the
+// claim in the error message, how to name the escape route) so the
+// LLM sees actionable guidance no matter which shape it is emitting.
+func requireCitationCorroboration(claim, citeFile string, citeLine int, gc *ground.Context, cfg corroborationCfg) error {
 	if gc == nil || len(gc.LineIndex) == 0 {
 		return nil
 	}
-	cite := citations[v.CitationRef]
-	fileLines, ok := gc.LineIndex[cite.File]
+	if citeFile == "" || citeLine <= 0 {
+		return nil
+	}
+	fileLines, ok := gc.LineIndex[citeFile]
 	if !ok || len(fileLines) == 0 {
 		return nil
 	}
-
-	literalTokens := valueLiteralTokenRe.FindAllString(v.Literal, -1)
-	if isConfigValue && v.Key != "" {
-		literalTokens = append(literalTokens, valueLiteralTokenRe.FindAllString(v.Key, -1)...)
+	tokens := valueLiteralTokenRe.FindAllString(claim, -1)
+	for _, extra := range cfg.extraClaims {
+		tokens = append(tokens, valueLiteralTokenRe.FindAllString(extra, -1)...)
 	}
-	// If the literal has no identifier-shape tokens (e.g. a pure
-	// numeric literal, a single char, or a short sentinel) the
-	// check cannot meaningfully cross-reference; degrade to skip so
-	// the pre-existing checks (file-in-ReadSet, grounder) remain
-	// the only gate.
-	if len(literalTokens) == 0 {
+	if len(tokens) == 0 {
 		return nil
 	}
-	wanted := make(map[string]bool, len(literalTokens))
-	for _, tok := range literalTokens {
+	wanted := make(map[string]bool, len(tokens))
+	for _, tok := range tokens {
 		wanted[tok] = true
 	}
-
-	const window = 3
-	for line := cite.Line - window; line <= cite.Line+window; line++ {
+	for line := citeLine - corroborationWindow; line <= citeLine+corroborationWindow; line++ {
 		if line <= 0 {
 			continue
 		}
@@ -1052,13 +1061,122 @@ func validateValueLiteralGrounding(v *types.AnswerValue, citations []types.Citat
 			}
 		}
 	}
+	return fmt.Errorf("%s is not corroborated by %s (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the claim. %s",
+		cfg.claimLabel, cfg.citeLabel, citeFile, citeLine, corroborationWindow, cfg.escape)
+}
 
-	escape := "If this literal originates from the attached log / external source rather than repo code, " +
-		"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). " +
-		"Otherwise cite a real file:line where the literal appears."
-	return fmt.Errorf(
-		"value.literal %q is not corroborated by citations[%d] (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the literal. %s",
-		v.Literal, v.CitationRef, cite.File, cite.Line, window, escape)
+// corroborationCfg holds the shape-specific strings the
+// requireCitationCorroboration helper interpolates into error
+// messages. Kept on its own struct so every shape wrapper is a
+// single call with its own copy of labels and escape text.
+type corroborationCfg struct {
+	claimLabel  string   // e.g. `value.literal "X"`, `symbols[2].name "Y"`
+	citeLabel   string   // e.g. `citations[0]`, `symbols[2].file/line`
+	escape      string   // shape-specific retry guidance
+	extraClaims []string // additional tokens to union into the claim set (e.g. value.Key for ConfigValue)
+}
+
+// validateValueLiteralGrounding is the ShapeValue / ShapeConfigValue
+// wrapper. Retained for source compatibility — call sites in
+// Execute still call this by name.
+func validateValueLiteralGrounding(v *types.AnswerValue, citations []types.Citation, gc *ground.Context, isConfigValue bool) error {
+	if v == nil || v.CitationRef < 0 {
+		return nil
+	}
+	if v.CitationRef >= len(citations) {
+		return nil
+	}
+	cite := citations[v.CitationRef]
+	cfg := corroborationCfg{
+		claimLabel: fmt.Sprintf("value.literal %q", v.Literal),
+		citeLabel:  fmt.Sprintf("citations[%d]", v.CitationRef),
+		escape: "If this literal originates from the attached log / external source rather than repo code, " +
+			"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). " +
+			"Otherwise cite a real file:line where the literal appears.",
+	}
+	if isConfigValue && v.Key != "" {
+		cfg.extraClaims = []string{v.Key}
+	}
+	return requireCitationCorroboration(v.Literal, cite.File, cite.Line, gc, cfg)
+}
+
+// validateSymbolsLiteralGrounding is the ShapeListOfSymbols wrapper.
+// Each items[i] carries its own File/Line (no CitationRef indirection
+// on AnswerSymbol). The Name IS the literal being claimed — the
+// cited line should contain Name as an identifier token for the
+// citation to be grounded.
+//
+// Customer-trace pattern this closes: goroutine_dump paste declared
+// `main.writeSession` at `internal/agent/analyzer.go:100` in the
+// frames, but `writeSession` does not exist in the repo. The
+// path/line pair passed os.Stat + the grounder's Tier-1 check
+// because analyzer.go really does have a line 100 — but the line's
+// content has zero overlap with `writeSession`, so this gate fires.
+func validateSymbolsLiteralGrounding(symbols []types.AnswerSymbol, gc *ground.Context) error {
+	for i, s := range symbols {
+		if s.File == "" || s.Line <= 0 || s.Name == "" {
+			continue
+		}
+		cfg := corroborationCfg{
+			claimLabel: fmt.Sprintf("symbols[%d].name %q", i, s.Name),
+			citeLabel:  fmt.Sprintf("symbols[%d].file/line", i),
+			escape: "If this symbol name is drawn from the attached log / an external trace rather than real repo code, " +
+				"drop the item (or set answer_symbols_completeness='unknown') — do NOT invent a repo file:line for a symbol the repo does not define. " +
+				"Otherwise cite a real file:line where the symbol appears.",
+		}
+		if err := requireCitationCorroboration(s.Name, s.File, s.Line, gc, cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateStepsLiteralGrounding is the ShapeStepList wrapper. Each
+// steps[i].CitationRef points into citations[], and the step's
+// Description should contain identifier tokens the cited line also
+// mentions. Purely narrative steps ("the request is processed
+// asynchronously" with no identifiers) bypass via the
+// no-identifier-token skip.
+func validateStepsLiteralGrounding(steps []types.AnswerStep, citations []types.Citation, gc *ground.Context) error {
+	for i, s := range steps {
+		if s.CitationRef < 0 || s.CitationRef >= len(citations) {
+			continue
+		}
+		cite := citations[s.CitationRef]
+		cfg := corroborationCfg{
+			claimLabel: fmt.Sprintf("steps[%d].description %q", i, s.Description),
+			citeLabel:  fmt.Sprintf("citations[%d]", s.CitationRef),
+			escape: "If this step paraphrases an attached log / external source without a repo anchor, " +
+				"set citation_ref=-1 so the renderer drops the suffix. " +
+				"Otherwise cite a real file:line that contains an identifier named in the step's description.",
+		}
+		if err := requireCitationCorroboration(s.Description, cite.File, cite.Line, gc, cfg); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// validateBooleanLiteralGrounding is the ShapeBoolean wrapper. The
+// Rationale sentence is the claim; the cited line should mention
+// at least one identifier the rationale names. Fire / bypass rules
+// match the value branch.
+func validateBooleanLiteralGrounding(b *types.AnswerBoolean, citations []types.Citation, gc *ground.Context) error {
+	if b == nil || b.CitationRef < 0 {
+		return nil
+	}
+	if b.CitationRef >= len(citations) {
+		return nil
+	}
+	cite := citations[b.CitationRef]
+	cfg := corroborationCfg{
+		claimLabel: fmt.Sprintf("boolean.rationale %q", b.Rationale),
+		citeLabel:  fmt.Sprintf("citations[%d]", b.CitationRef),
+		escape: "If the rationale draws on attached-log / external-source content rather than repo code, " +
+			"set citation_ref=-1 and let the rationale stand on its own. " +
+			"Otherwise cite a real file:line that contains an identifier named in the rationale.",
+	}
+	return requireCitationCorroboration(b.Rationale, cite.File, cite.Line, gc, cfg)
 }
 
 func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int) (*types.AnswerBoolean, error) {

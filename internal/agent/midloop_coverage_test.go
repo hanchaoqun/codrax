@@ -507,6 +507,60 @@ func TestExtractFileCoverage_EmptyRepoRootDegradesGracefully(t *testing.T) {
 	}
 }
 
+// TestMidLoopCheck_Enumeration_OneShotWithinDispatch pins the
+// session-22 one-shot lock on the enumeration-coverage check.
+// Before the lock, the check re-fired every post-throttle window
+// (MinInjectInterval=3) while coverage sat below the threshold —
+// 68 firings observed across a single goroutine_dump run, 5
+// explorer dispatches × ~13.6 hints each, producing prompt noise
+// without new signal (same "read these next" payload as coverage
+// inched upward one file at a time). The one-shot matches the
+// pattern on Check 3/4/5/6.
+func TestMidLoopCheck_Enumeration_OneShotWithinDispatch(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:              1,
+		userQuestion:       "list all Register calls",
+		searchResult:       &keywordSearchResult{Graph: &repomap.Graph{}},
+		heuristics:         types.DefaultExploreHeuristics(),
+		isEnumerationQuery: true,
+	}
+	history := []types.ToolResult{
+		{ToolName: "grep", Success: true,
+			Summary: "[grep: 6 files]\n" +
+				"internal/skill/defaults.go\n" +
+				"internal/skill/providers.go\n" +
+				"internal/tool/defaults.go\n" +
+				"internal/agent/explorer.go\n" +
+				"internal/agent/analyzer.go\n" +
+				"internal/analysis/normalizer/normalizer.go"},
+		{ToolName: "read_file", Success: true,
+			Summary: "[internal/skill/defaults.go: showing lines 1-20 of 60 total]\n     1│ package skill\n"},
+	}
+	first := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      4,
+		Response:       llm.Response{Content: "reading next"},
+		LastToolResult: &history[len(history)-1],
+		AllToolResults: history,
+	})
+	if !first.HintRequested || first.HintKey != "explorer.mid-loop.enumeration" {
+		t.Fatalf("first call should fire enumeration hint, got %+v", first)
+	}
+	// Second call with the SAME under-covered state must NOT re-fire;
+	// LLM has already seen the hint this dispatch, and a repeat adds
+	// no new signal.
+	second := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      7,
+		Response:       llm.Response{Content: "still reading"},
+		LastToolResult: &history[len(history)-1],
+		AllToolResults: history,
+	})
+	if second.HintKey == "explorer.mid-loop.enumeration" {
+		t.Fatalf("enumeration hint must be one-shot per dispatch; got re-fire: %+v", second)
+	}
+}
+
 // One-shot: ranker-coverage hint should not re-fire on subsequent
 // iters even if coverage stays low — once is enough.
 func TestMidLoopCheck_RankerCoverage_OneShot(t *testing.T) {
