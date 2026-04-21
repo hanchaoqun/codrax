@@ -435,6 +435,98 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_AbsenceBypass(t
 	}
 }
 
+// TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce:
+// T2.1 — the phase1_unread gate must not keep re-firing on subsequent
+// emit_investigation_complete calls within the same pipeline. Once
+// the gate has surfaced the unread top-K files + raised the
+// RepairExpandSearch directive, a second firing adds no information
+// and only amplifies redispatches. The latch lives on EvidenceClosure,
+// reset on task entry.
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "a.go", Score: 50},
+		{Path: "b.go", Score: 40},
+		{Path: "c.go", Score: 30},
+		{Path: "d.go", Score: 20},
+		{Path: "e.go", Score: 10},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"a.go": true}) // only 1 of 5 read
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "mechanism"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "first attempt",
+		"confidence": "high",
+	})
+
+	// First call: gate fires, files queued, latch flips.
+	res1, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("first Execute returned error: %v", err)
+	}
+	if !strings.Contains(res1.Summary, "DOWNGRADED") {
+		t.Fatalf("first call must DOWNGRADE with top-K unread, got: %s", res1.Summary)
+	}
+	if !strings.Contains(res1.Summary, "b.go") || !strings.Contains(res1.Summary, "c.go") {
+		t.Errorf("first call summary must list unread top-K files, got: %s", res1.Summary)
+	}
+	if !closure.Phase1UnreadFired() {
+		t.Errorf("latch must be set after first firing")
+	}
+
+	// Clear any PendingReads that were queued so the SECOND pre-complete
+	// check isn't blocked by leftover state from the first — we want to
+	// isolate whether the gate itself fires a second time.
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "phase1_unread" || p.Origin == "pre_complete.primary_anchor" {
+			closure.ClearPendingReadFor(p.File)
+		}
+	}
+
+	// Second call with same unread top-K setup: gate must NOT re-fire.
+	// PendingReads from phase1_unread origin must remain empty.
+	res2, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("second Execute returned error: %v", err)
+	}
+	phase1Queued := false
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "phase1_unread" {
+			phase1Queued = true
+			break
+		}
+	}
+	if phase1Queued {
+		t.Errorf("latch must suppress second firing; found phase1_unread PendingRead: %s", res2.Summary)
+	}
+}
+
+// TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchResetOnTaskEntry:
+// T2.1 — the latch lives on EvidenceClosure and must be cleared when
+// the closure is reset for a new task. Otherwise a second pipeline on
+// the same REPL process would skip phase1_unread entirely.
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchResetOnTaskEntry(t *testing.T) {
+	closure := types.NewEvidenceClosure("")
+	closure.MarkPhase1UnreadFired()
+	if !closure.Phase1UnreadFired() {
+		t.Fatalf("precondition: latch should be set")
+	}
+	closure.Reset()
+	if closure.Phase1UnreadFired() {
+		t.Errorf("Reset must clear phase1UnreadFired latch")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesCitationFloor:
 // absence_justification skips check (b) by contract.
 func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testing.T) {

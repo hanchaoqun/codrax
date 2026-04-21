@@ -656,6 +656,17 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if ctx.AnalysisIR == nil {
 		return
 	}
+	// T2.1: once-per-pipeline latch. The first firing queues the
+	// unread top-K files + raises a RepairExpandSearch directive;
+	// the LLM has now been told. A second firing would list the same
+	// (or a subset of the same) files without surfacing any new
+	// information the first fire did not, while paying the cost of
+	// an extra explorer redispatch. Stall soft/hard detection still
+	// catches the "LLM keeps declaring complete without progress"
+	// case via fingerprint convergence.
+	if closure.Phase1UnreadFired() {
+		return
+	}
 	limits := CurrentAnalysisLimits()
 	if limits.Phase1UnreadTopK <= 0 {
 		return
@@ -718,6 +729,9 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		Rationale: fmt.Sprintf("%d of the top-%d keyword-search ranked files were not read before emit_investigation_complete — open them before re-declaring complete", len(unread), topK),
 		Origin:    "pre_complete.phase1_unread",
 	})
+	// T2.1: set the latch after the gate has produced its output, so
+	// a nil/zero-queue early return above does NOT burn the latch.
+	closure.MarkPhase1UnreadFired()
 }
 
 // isBreadthIntent reports whether the RequirementKind requires multi-

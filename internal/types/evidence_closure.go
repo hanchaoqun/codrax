@@ -152,6 +152,18 @@ type EvidenceClosure struct {
 	// writers) but filtered out by the F2 aggregator's confidence
 	// floor (default 0.5).
 	violations []Violation
+
+	// phase1UnreadFired latches the session-12 phase1_unread gate so
+	// it produces its PendingReads + RepairExpandSearch at most once
+	// per pipeline. Observed pathology: gate fires in dispatch N,
+	// orchestrator's runForcedReads reads the queued files, but the
+	// LLM's next emit_investigation_complete in dispatch N+1 still
+	// triggers the gate because some top-K file wasn't canonicalised
+	// into ReadSet (or runForcedReads failed). Re-firing doesn't add
+	// information the first fire didn't already surface — it just
+	// amplifies explorer redispatches. Stall soft/hard still guards
+	// the "explorer keeps spinning" case.
+	phase1UnreadFired bool
 }
 
 // ClosureStats is the structured per-task counter snapshot the
@@ -961,6 +973,30 @@ func (c *EvidenceClosure) Reset() {
 	c.repairs = nil
 	c.violations = nil
 	c.stats = ClosureStats{}
+	c.phase1UnreadFired = false
+}
+
+// Phase1UnreadFired reports whether the session-12 phase1_unread
+// gate has already produced its PendingReads + RepairExpandSearch in
+// the current pipeline. Callers use the latch to skip a second
+// firing; see the field comment on EvidenceClosure for rationale.
+func (c *EvidenceClosure) Phase1UnreadFired() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.phase1UnreadFired
+}
+
+// MarkPhase1UnreadFired sets the phase1_unread latch. Idempotent.
+func (c *EvidenceClosure) MarkPhase1UnreadFired() {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.phase1UnreadFired = true
 }
 
 // Stats returns a snapshot of the per-task counters. Cheap (struct
