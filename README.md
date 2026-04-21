@@ -51,7 +51,7 @@ make test
 ```bash
 # 交互模式（默认，无 --request 即进入）
 ./codrax
-#   You> 提示符，支持 /exit /clear /history /compact /log /help 斜杠命令
+#   You> 提示符，支持 /exit /clear /history /compact /log /paste /help 斜杠命令
 #   多轮对话自动保存到 memory/<repo-slug>/MEMORY.md + .../turns/，重启续接
 #   /clear 会显示当前还有几个其它实例在用同一份 memory，并要求确认
 
@@ -65,6 +65,19 @@ make test
 ./codrax --repo /path/to/repoA --request "..."
 ./codrax --repo /path/to/repoB --request "..."   # 不会和 repoA 混在一起
 ```
+
+### 粘贴兜底（SSH / tmux 环境）
+
+交互 REPL 默认依赖终端的 bracketed paste 把一次粘贴打包送进来，这样多行内容会被自动折叠成 `[Pasted text #N +L lines +C chars]` 占位 token。但在 SSH + 老版本 tmux、某些 `$TERM`、部分 SSH 客户端里，`\x1b[200~` / `\x1b[201~` 标记会被中途吃掉，粘贴以一连串普通按键的形式到达，自动折叠永远不触发。`/paste` 是这种场景的兜底：
+
+```
+❯❯ /paste                    # 进入采集模式
+  paste> <贴入多行内容>
+  paste> /end                 # 单独一行 /end 结束，或 Ctrl+C 放弃
+❯❯ 这个 stack trace 的根因是什么？   # 下一条提问会自动带上 [Pasted text #0] token
+```
+
+采集到的内容会在下一次输入时作为 `#0` 占位符注入输入行，光标停在 token 后面留一个空格位,可以继续输入问题再回车。单次有效：提交或 Ctrl+C 后即丢弃。与 `/log`（把日志粘贴到 attached-log 通道）不同——`/paste` 走的是和普通手敲问题完全一样的 request 通道，适合贴代码片段、错误消息、别人的诊断结论等。
 
 ## 日志分诊（log triage）
 

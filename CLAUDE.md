@@ -19,7 +19,7 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 
 ```bash
 ./codrax --repo . --branch main --request "task" --pipeline-max-steps 50
-./codrax                      # interactive REPL (/exit /clear /history /compact /log /help)
+./codrax                      # interactive REPL (/exit /clear /history /compact /log /paste /help)
 ./codrax --log-level debug --log-stdout --request "task"
 
 # Log-triage (session 19): attach a runtime log so analyzer extracts
@@ -28,6 +28,7 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 kubectl logs pod/foo | ./codrax --repo . --request "analyse this crash" --log -
 ./codrax --repo . --request "trace this ASAN report" --log-source-prefix /build/src/ --log /tmp/asan.out
 # REPL sticky: /log <path>  |  /log (paste mode, end with /end)  |  /log clear  |  /log show
+# Paste fallback (SSH/tmux that strips bracketed paste): /paste → lines → /end; next prompt seeds a [Pasted text #0] token
 ```
 
 ## Architecture
