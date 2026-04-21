@@ -230,6 +230,48 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargeted
 	}
 }
 
+// TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAction
+// pins the session-22 in-dispatch self-correction nudge: when the
+// literal-grounding gate rejects a value-shape citation, the
+// mid-loop reject hint must surface the single-action fix
+// ("citation_ref=-1 + summary caveat") at the TOP of the hint so
+// the LLM stops trying more fabrications and reaches for the
+// escape. Without this special-case, the generic "fix the exact
+// validation error" hint buried the action behind diagnostic
+// prose and the LLM burned the full retry budget on fresh
+// fabrications before the dispatch exited (observed: 16 min on
+// the partial eval case).
+func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 3}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary: `value.literal "processRequest" is not corroborated by citations[0] (internal/agent/analyzer.go:1): the cited line and ±3-line window contain no identifier overlap with the literal. If this literal originates from the attached log / external source rather than repo code, set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). Otherwise cite a real file:line where the literal appears.`,
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("literal-grounding reject should request a correction hint, got %+v", sig)
+	}
+	// The action must appear BEFORE the diagnostic prose so the LLM
+	// acts on it before scrolling past.
+	actionIdx := strings.Index(sig.Hint, "citation_ref = -1")
+	diagIdx := strings.Index(sig.Hint, "Full tool error")
+	if actionIdx < 0 || diagIdx < 0 || actionIdx > diagIdx {
+		t.Fatalf("citation_ref=-1 action must appear before diagnostic body "+
+			"(action at %d, diagnostic at %d); hint:\n%s",
+			actionIdx, diagIdx, sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "LITERAL-GROUNDING") {
+		t.Errorf("hint should name the gate so operators can trace the signal: %q", sig.Hint)
+	}
+	if !strings.Contains(sig.Hint, "external source") {
+		t.Errorf("hint should surface the 'external source' escape rationale: %q", sig.Hint)
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopRejectStopsHintingAfterBudget(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 1}
 	obs := LoopObservation{

@@ -339,6 +339,24 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 		hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long for shape `%s` (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Cut large diagrams, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", strings.TrimSpace(shape), cap, summaryLen, cap)
 	}
 
+	// Session-22 special-case: the literal-grounding gate on shape=
+	// value / shape=config_value fires when the cited line has zero
+	// identifier overlap with value.literal. The tool's error body
+	// already names citation_ref=-1 as the escape, but that's
+	// buried after diagnostic detail — the LLM sometimes keeps
+	// trying fresh fabrications instead of reaching for -1.
+	// Pattern-match the error substring here and surface the
+	// action-to-take at the top of the mid-loop hint so the LLM
+	// self-corrects in one round instead of burning the whole
+	// retry budget on more fabrications.
+	if strings.Contains(summary, "not corroborated by citations[") {
+		reasonKey = "literal-grounding"
+		hint = "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate: the cited file:line does NOT contain `value.literal`, i.e. the citation does not back the answer. " +
+			"The single-action fix: re-emit now with `value.citation_ref = -1` AND add a sentence to `summary` stating the literal is drawn from the attached log / external source (no grounded repo citation). " +
+			"Do NOT try to find a different file:line — if the literal came from an external trace (panic frame, log function name, etc.), no repo citation exists by definition and -1 is the tool-schema-legal escape. " +
+			"Full tool error: " + strings.SplitN(summary, "\n", 2)[0]
+	}
+
 	e.rejectHintsUsed++
 	return LoopSignal{
 		HintRequested:  true,
