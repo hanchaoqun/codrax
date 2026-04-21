@@ -1,0 +1,26 @@
+# Log-triage — Python traceback with __cause__ (During handling)
+#
+# Python's exception chain is expressed via "During handling of the
+# above exception, another exception occurred" — the LLM should map
+# this to the Cause pointer in the LogBundle schema.
+ID="logtri_python"
+NAME="log-triage Python traceback with During-handling chain"
+QUESTION="解释这个 traceback 发生了什么"
+LOG='Traceback (most recent call last):
+  File "/app/src/config.py", line 42, in load
+    return yaml.safe_load(f)
+  File "/usr/lib/python3.11/yaml/__init__.py", line 125, in safe_load
+    return load(stream, SafeLoader)
+KeyError: '"'"'database'"'"'
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/app/src/main.py", line 18, in <module>
+    cfg = load_config()
+  File "/app/src/loader.py", line 25, in load_config
+    raise RuntimeError("config unavailable")
+RuntimeError: config unavailable
+'
+EXPECT_CONTAINS="RuntimeError"
+EXPECT_SECTIONS="traceback"

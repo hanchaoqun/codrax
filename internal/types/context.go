@@ -197,6 +197,21 @@ type MutableState struct {
 	// because reconcile is upstream of evidence closure and runs even
 	// when no enforcer fires.
 	reconcileObservations []ReconcileObservation
+
+	// logTriage is the validated output of the log_triage pre-stage.
+	// Written once by the log_triager agent via SetLogTriage; read by
+	// the analyzer (entity merge, intent override, RequiredFiles seed)
+	// and by future consumers. Nil means "no log attached, stage
+	// skipped, or stage degraded" — every reader MUST nil-check.
+	logTriage *LogBundle
+
+	// logSegments is the opaque payload produced by the two-step
+	// log-triage controller's Step A (segmentation). It carries a
+	// JSON-marshalled []tool.LogSegment slice so the types package
+	// can hold it without importing internal/tool. The two-step
+	// controller unmarshals on read. Nil means either two-step was
+	// not invoked or the segmenter failed.
+	logSegments []byte
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
@@ -408,6 +423,87 @@ func (m *MutableState) SetSearchGraph(g any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.searchGraph = g
+}
+
+// LogTriage returns the validated LogBundle produced by the log_triage
+// pre-stage, or nil when no log was attached, the stage was skipped,
+// or the stage degraded. Readers MUST nil-check. Returns the stored
+// pointer directly (no defensive copy): the bundle is treated as
+// immutable after SetLogTriage, and both fields that readers mutate
+// (none exist today) would be a contract violation. Keeping the
+// pointer lets downstream consumers type-assert and cache without
+// an allocation.
+func (m *MutableState) LogTriage() *LogBundle {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.logTriage
+}
+
+// SetLogTriage stores the validated LogBundle produced by the
+// log_triager agent. Called at most once per Run — the log_triage
+// pre-stage runs exactly once before analyze. Pass nil to explicitly
+// clear (used by tests and by ResetLogTriage for REPL per-turn
+// cleanup when a new /log replaces the previous payload).
+func (m *MutableState) SetLogTriage(b *LogBundle) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logTriage = b
+}
+
+// ResetLogTriage clears the stored bundle. Used by the REPL loop at
+// the start of each turn so a prior /log invocation's triage does
+// not leak into the new turn. Mirrors the ResetTurnAArtifacts /
+// ResetAnswerDocument pattern. Also clears any segmentation scratch
+// from a previous two-step run.
+func (m *MutableState) ResetLogTriage() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.logTriage = nil
+	m.logSegments = nil
+}
+
+// SetLogSegments stores the opaque JSON-marshalled segment payload
+// produced by the two-step segmentation tool. The bytes are copied
+// so the caller can reuse its buffer after the call. Pass nil to
+// clear.
+func (m *MutableState) SetLogSegments(raw []byte) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(raw) == 0 {
+		m.logSegments = nil
+		return
+	}
+	cp := make([]byte, len(raw))
+	copy(cp, raw)
+	m.logSegments = cp
+}
+
+// LogSegments returns the stored segmentation payload, or nil when
+// none exists. Caller owns unmarshalling.
+func (m *MutableState) LogSegments() []byte {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.logSegments) == 0 {
+		return nil
+	}
+	out := make([]byte, len(m.logSegments))
+	copy(out, m.logSegments)
+	return out
 }
 
 // Phase1Ranking returns a defensive copy of the stored ranked file
@@ -1357,7 +1453,7 @@ type BusContext struct {
 	// orchestrator.Run entry; never rewritten mid-pipeline.
 	//
 	// Flows into the analyzer via AgentContext.AttachedLog, where
-	// internal/analysis/logparse.Detect extracts stack frames to seed
+	// internal/analysis/logtriage.ValidateBundle extracts stack frames to seed
 	// AnalyzerHints.Entities (function names, error literals) and
 	// EvidencePlan.RequiredFiles (frame file paths). Other stages
 	// read the field for observability only; analyzer is the sole
@@ -1472,10 +1568,18 @@ type AgentContext struct {
 	MaxIterOverride int `json:"-"`
 
 	// AttachedLog mirrors BusContext.AttachedLog into the narrowed
-	// agent view. Consumed by the analyzer's buildAnalysisIR via
-	// internal/analysis/logparse.Detect. Empty for every stage that
-	// doesn't ingest logs.
+	// agent view. Consumed by the log_triager agent and rendered as
+	// a prompt section for every stage (so the LLM sees the raw log
+	// body for narrative context). Empty when no log was attached.
 	AttachedLog string `json:"attached_log,omitempty"`
+
+	// LogTriage mirrors Mutable.LogTriage() into the narrowed agent
+	// view, so consumers that want the structured bundle (analyzer's
+	// entity merge, reconcileIntent, RequiredFiles seeding) can read
+	// it without reaching through Mutable. Nil when no log was
+	// attached, the triage stage was skipped, or the stage degraded.
+	// Readers MUST nil-check.
+	LogTriage *LogBundle `json:"-"`
 
 	// PriorConvHidden gates whether the REPL-assembled Prior
 	// Conversation block is HIDDEN from this agent's user prompt.

@@ -189,4 +189,102 @@ Completeness honesty contract for emit_answer_symbol:
 			"do not choose hypothesis status=confirmed or rejected without a file:line citation — use 'inconclusive' when no cite exists",
 		},
 	})
+
+	// The log_triager skill. The agent reads the user-attached runtime
+	// log and emits ONE emit_log_triage call with a structured view:
+	// layer 1 (Meta — lang, signals, summary), layer 2 (Errors — type,
+	// message, frames, optional recursive Cause chain), layer 3
+	// (Residue — unknown_chunks). The system validates paths against
+	// the repository and derives layer 4 (resolved_files, entities,
+	// intent_hint, coverage) automatically — the LLM cannot fill
+	// layer 4 because those fields are not in the tool's JSON schema.
+	//
+	// Tool allowlist is intentionally narrow: read_file only, for
+	// paginating large log blobs. No repo_map / list_files / grep —
+	// the LLM does not attempt path resolution; the system does that
+	// deterministically post-emit.
+	r.Register(&Config{
+		Name: "log-triage-skill",
+		Goal: "Read the attached runtime log and emit a structured triage bundle (errors + frames + signals + residue) via emit_log_triage exactly once. The system validates paths and derives the resolved-files list automatically — focus on extraction, not resolution.",
+		Workflow: []string{
+			"Read the attached runtime log from the 'Attached Runtime Log' section of the user prompt. If the log was oversized and blobbed to attached_log.txt, use read_file with offset/limit to paginate through the middle — the head+tail preview is already visible inline.",
+			"Identify every stack frame that names a source file with a line number. For each frame, emit: file (as it appears in the log, do NOT normalize paths — the system does this), line, func (best available identifier), pkg (module/namespace hint when obvious), lang, raw (the original log line for this frame, required), confidence (0.0-1.0, your certainty the frame is real).",
+			"Group frames under the error they belong to. Emit errors[] with one entry per logical error (per goroutine in a Go panic dump, per exception in a multi-exception traceback). For each error set type (exception class / panic type), message (the human-readable text), and frames[] (the stack for THIS error).",
+			"Chain causal errors via the cause pointer. When the log shows 'Caused by:' (Java), 'during handling of' (Python __cause__ / __context__), or '#[source]' (Rust), nest the upstream error in the cause field. Keep the chain shallow — practical depth 3 or so; the system caps at 5.",
+			"Set meta.lang to the dominant language (go/java/cpp/python/node/rust/ruby/csharp/unknown/other). Set meta.signals from the canonical enum (panic/crash/oom/timeout/permission/db/network/validation/logic/other) by matching the observed symptoms. Multiple signals are OK when the log describes compound failures. Summary is an optional one-line synopsis.",
+			"Log chunks that do NOT structure into an error (build noise, log-level prefixes, unrelated debug output, truncation markers) go into unknown_chunks. Do not punt everything there — only genuinely unparseable pieces. Each chunk capped at 500 chars, at most 8 chunks total.",
+			"Frames with uncertain line numbers or uncertain file paths should be emitted with line=0 or file='' and confidence < 0.5 — the system will keep the frame in the bundle but will NOT add it to the repo file list. Zero information loss on partials.",
+		},
+		ToolSuggestions: []string{
+			"read_file", // blob pagination only
+			"emit_log_triage",
+		},
+		OutputFormat: `You have ONE emit tool: emit_log_triage. You have ONE read tool: read_file, used SOLELY for paginating the attached log blob when it was too large to inline. You do NOT have grep / repo_map / list_files — path resolution is system work, not yours.
+
+Schema in one glance:
+- meta.lang        (required) — the dominant runtime language
+- meta.signals[]   (required, may be empty) — what-went-wrong enum values
+- meta.summary     (optional) — one-line synopsis, ≤ 200 chars
+- errors[]         (required, may be empty) — array of { type, message?, frames[], cause? }
+- errors[].frames[] — { lang?, file?, line?, func?, pkg?, raw (required), confidence (required) }
+- errors[].cause   — recursive error (same shape); for linear causal chains like Java Caused-by
+- unknown_chunks[] (optional) — ≤ 8 strings ≤ 500 chars each, for unstructurable text
+
+What the system does with your output:
+- Strips build-machine prefixes (/build/*, /home/user/src/*) from file paths
+- Resolves Java basename frames via repo glob
+- Drops frames whose file does not exist inside the repository (hallucination filter)
+- Filters out runtime-internal frames (Go stdlib, node: URIs, java.base/*)
+- Derives resolved_files, entities, intent_hint, and coverage from your emission
+- Caps entities at 32, resolved_files at 10, cause depth at 5
+
+You emit exactly one emit_log_triage call per dispatch. Do NOT write prose — the validated bundle is the deliverable.`,
+		Prohibitions: []string{
+			"do NOT resolve file paths yourself — emit frames with the file path AS IT APPEARS in the log; the system does StripBuildPathPrefix, Java basename glob, os.Stat, and runtime-internal filtering",
+			"do NOT use grep / list_files / repo_map / exec_command — the stage's tool allowlist explicitly excludes them; path verification is system work",
+			"do NOT invent frames that are not in the log — a frame with confidence 0.9 must correspond to a real log line whose text you can paste into the raw field",
+			"do NOT emit fields outside the documented schema (resolved_files, entities, intent_hint, coverage are LAYER 4 — system-derived, not LLM-emitted); the JSON schema rejects unknown fields",
+			"do NOT punt the entire log to unknown_chunks — extract every stack frame you can; unknown_chunks is for genuinely unparseable noise, not a fallback for lazy extraction",
+			"do NOT produce multiple emit_log_triage calls — exactly one emit per dispatch; a second call replaces the first",
+		},
+	})
+
+	// The log segmentation skill for the two-step fallback. Called
+	// when emit_log_triage either (a) failed schema validation, (b)
+	// returned with coverage below the threshold, or (c) the log
+	// exceeds the single-shot size cap. The LLM's only job is to
+	// scan the log once and return byte coordinates for the regions
+	// that look like stacks / traces / headers. The agent controller
+	// then re-dispatches emit_log_triage per stack-shaped segment
+	// and merges the partial bundles.
+	r.Register(&Config{
+		Name: "log-segmentation-skill",
+		Goal: "Segment the attached runtime log into byte-addressed regions by kind (stack / caused_by / header / context / trace / noise) so the downstream per-segment extractor can focus on one coherent block at a time. Emit exactly one emit_log_segmentation call.",
+		Workflow: []string{
+			"Read the attached runtime log. If the log was blobbed, use read_file to scan the full body — segmentation needs coordinates over the complete text.",
+			"Walk the log top-to-bottom. Identify byte ranges that contain: a cohesive stack trace (kind=stack); a 'Caused by' / '__cause__' block (kind=caused_by); an error header or panic message line (kind=header); contextual prose around the stack (kind=context); a more general trace segment (kind=trace); or unrelated noise (kind=noise).",
+			"Emit at most 10 segments. Overlap is NOT allowed — byte_end of segment N must be ≤ byte_start of segment N+1. Segments must be sorted by byte_start.",
+			"Use hint field to add a short (≤80 char) description so the downstream per-segment extractor has a pointer to what it is looking at (e.g. hint='Go goroutine 15 panic' or hint='SQLException Caused-by').",
+			"The system validates byte coordinates against the log length. Segments that are reversed, zero-length, or out of bounds are silently dropped.",
+		},
+		ToolSuggestions: []string{
+			"read_file", // for blobbed logs
+			"emit_log_segmentation",
+		},
+		OutputFormat: `Emit ONE emit_log_segmentation call with the full segments[] list.
+
+Schema in one glance:
+- segments[] (required, up to 10 entries)
+  - byte_start (required, integer ≥ 0)
+  - byte_end   (required, integer > byte_start)
+  - kind       (required, enum: stack | caused_by | header | context | trace | noise)
+  - hint       (optional, ≤ 80 chars)
+
+Do NOT emit any other tool call. Do NOT write prose.`,
+		Prohibitions: []string{
+			"do not call emit_log_triage — that is Step B, dispatched by the agent after Step A segmentation completes",
+			"do not overlap segments — ranges must be disjoint and sorted",
+			"do not produce more than 10 segments — coarsen if the log is granular enough to need more",
+		},
+	})
 }

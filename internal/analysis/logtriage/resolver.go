@@ -1,33 +1,33 @@
-package logparse
+package logtriage
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 )
 
-// Package-level user-provided source-prefix override. Set once at
-// startup from cmd/root.go's --log-source-prefix flag. Consumed by
-// StripBuildPathPrefix when the caller does not supply an explicit
-// extraPrefixes list. Kept here (not on a config struct) so the
-// analyzer doesn't need to plumb a new param through buildAnalysisIR
-// for a value that is set exactly once per process and read at every
-// log-triage dispatch.
+// sourcePrefix is the package-level user-provided build-path prefix
+// override. Installed once at process start by cmd/root.go from the
+// --log-source-prefix flag (or codrax.yaml's log_triage_source_prefix).
+// Consulted by StripBuildPathPrefix when the caller does not supply an
+// explicit extraPrefixes list. Kept here (not on a config struct) so
+// every call site picks it up without plumbing through.
 var (
 	sourcePrefixMu sync.RWMutex
 	sourcePrefix   string
 )
 
-// SetSourcePrefix installs a user-provided build-path prefix override.
-// The value is consulted by StripBuildPathPrefix when its extraPrefixes
-// argument is empty. Empty string clears the override.
+// SetSourcePrefix installs the user-provided build-path prefix
+// override. The value is consulted by StripBuildPathPrefix when the
+// caller's extraPrefixes is empty. Empty string clears the override.
 func SetSourcePrefix(p string) {
 	sourcePrefixMu.Lock()
 	defer sourcePrefixMu.Unlock()
 	sourcePrefix = strings.TrimSpace(p)
 }
 
-// SourcePrefix returns the currently-installed override, or empty when
+// SourcePrefix returns the currently-installed override, or "" when
 // none has been set.
 func SourcePrefix() string {
 	sourcePrefixMu.RLock()
@@ -35,50 +35,36 @@ func SourcePrefix() string {
 	return sourcePrefix
 }
 
-// StripBuildPathPrefix heuristically strips C/C++ build-machine path
-// prefixes from a log frame so the remainder has a chance of matching
-// a user-repo layout.
-//
-// Common prefixes (checked in declared order):
+// StripBuildPathPrefix heuristically strips CI / build-machine path
+// prefixes so the remainder has a chance of matching a user-repo
+// layout. Common prefixes checked in declared order:
 //
 //   - `/build/*/src/`, `/build/*/source/` — CI build roots
 //   - `/builddir/`, `/rpmbuild/BUILD/`     — distro build trees
 //   - `/workspace/`, `/tmp/build/`          — Jenkins / GitLab CI
 //   - `/home/*/*/src/`, `/home/*/src/`      — dev-machine home dirs
 //   - `<repoBaseName>/` when repoBaseName is non-empty and appears
-//     as a path component (supplied via the caller's knowledge of
-//     the target repo's basename)
+//     as a path component
 //
-// The stripped suffix is returned; callers should `os.Stat` it inside
+// The stripped suffix is returned; callers should os.Stat it inside
 // the repo to confirm it resolves. Empty input returns empty output.
-// If no prefix matches, the input is returned unchanged — the caller
-// decides whether to fall back to the Func-only degrade path.
+// If no prefix matches, the input is returned unchanged.
 //
-// extraPrefixes lets the CLI `--log-source-prefix` override supply
-// project-specific roots (users know their build path better than we
-// can guess). Order: extraPrefixes first, then the built-ins, then
-// the repoBaseName component scan.
+// extraPrefixes lets the CLI --log-source-prefix override supply
+// project-specific roots. Order: extraPrefixes first, then built-ins,
+// then home scan, then repo-basename.
 func StripBuildPathPrefix(path, repoBaseName string, extraPrefixes []string) string {
 	if path == "" {
 		return ""
 	}
-	// Normalise separators so Windows-shape absolute paths like
-	// `C:\build\src\foo.cpp` run through the same logic.
 	p := filepath.ToSlash(path)
 
-	// Fall back to the package-level override when no explicit extras
-	// were supplied. This lets cmd/root.go's --log-source-prefix flag
-	// reach every StripBuildPathPrefix caller without plumbing through.
 	if len(extraPrefixes) == 0 {
 		if global := SourcePrefix(); global != "" {
 			extraPrefixes = []string{global}
 		}
 	}
 
-	// Strip in cascading passes: extra-prefix → built-ins → home scan
-	// → repo-basename. Each pass operates on the result of the
-	// previous so a build path like `/rpmbuild/BUILD/pkg-1.0/src/foo.cpp`
-	// with repoBaseName="pkg-1.0" reduces all the way to `src/foo.cpp`.
 	p = stripExtraPrefixes(p, extraPrefixes)
 	p = stripBuiltinPrefixes(p)
 	p = stripHomeSourceScan(p)
@@ -154,24 +140,19 @@ func stripRepoBasename(p, repoBaseName string) string {
 // ResolveJavaFile ranks candidate repo-relative paths against a Java
 // frame's (package, baseName) pair and returns matches in descending
 // priority. The caller supplies the candidate list (typically the
-// result of a repomap Glob or keyword_search for the baseName so the
-// set is bounded).
+// result of a filesystem walk for the baseName so the set is bounded).
 //
 // Ranking tiers:
 //
 //  1. Exact package-path match: the file's directory ends with the
-//     package-as-path form (`com.example.foo` → "com/example/foo").
-//     Most specific — always preferred when present.
-//  2. Source-layout prefix match: the file lies under a recognised
-//     Java source root (`src/main/java/`, `src/test/java/`) and the
-//     post-root portion ends with the package-as-path form.
-//  3. Baseline match: the candidate's basename matches and neither
-//     of the package checks fired. Ordered by path length (shorter
-//     wins) so deeply-nested files do not outrank sibling modules.
+//     package-as-path form.
+//  2. Source-layout prefix match: the file lies under `src/main/java/`
+//     or `src/test/java/` and the post-root portion ends with the
+//     package path.
+//  3. Baseline match: basename matches but no package signal fired.
 //
-// Duplicates across tiers are resolved by keeping the higher tier.
-// The function does NOT call os.Stat — callers decide whether to
-// confirm existence or trust the repomap-sourced candidate list.
+// Duplicates across tiers collapse to the higher tier. The function
+// does NOT call os.Stat — callers own verification.
 func ResolveJavaFile(pkg, baseName string, candidates []string) []string {
 	if baseName == "" || len(candidates) == 0 {
 		return nil
@@ -181,7 +162,7 @@ func ResolveJavaFile(pkg, baseName string, candidates []string) []string {
 	type scored struct {
 		path string
 		tier int
-		sort int // shorter path wins at equal tier
+		sort int
 	}
 	var hits []scored
 	seen := make(map[string]bool, len(candidates))
@@ -221,8 +202,6 @@ func ResolveJavaFile(pkg, baseName string, candidates []string) []string {
 		return nil
 	}
 
-	// Sort tier asc (1 beats 3), then path length asc, then
-	// lexicographic for determinism.
 	for i := 0; i < len(hits); i++ {
 		for j := i + 1; j < len(hits); j++ {
 			if hits[j].tier < hits[i].tier ||
@@ -241,9 +220,9 @@ func ResolveJavaFile(pkg, baseName string, candidates []string) []string {
 
 // IsRuntimeInternalFile reports whether path references a language-
 // runtime source file rather than a user-repo file. Used to filter
-// `runtime/asm_amd64.s`, `node:internal/...`, `java.lang.*`,
-// `<python>/threading.py` out of the RequiredFiles seed so the
-// explorer does not burn budget reading stdlib internals.
+// `runtime/asm_amd64.s`, `node:internal/...`, `java.base/*`, and
+// similar stdlib/builtin entries out of the ResolvedFiles seed so
+// the explorer does not burn budget on stdlib internals.
 func IsRuntimeInternalFile(path string) bool {
 	if path == "" {
 		return true
@@ -260,11 +239,103 @@ func IsRuntimeInternalFile(path string) bool {
 	if strings.HasPrefix(p, "node:") {
 		return true
 	}
-	// JDK internals — no standard path (they're inside rt.jar), but
-	// frames like `java.base/java.lang.Thread.java` appear in some
-	// traces. Reject anything under `java.base/` or `java.lang.` file.
+	// JDK internals.
 	if strings.HasPrefix(p, "java.base/") {
 		return true
 	}
 	return false
+}
+
+// ResolveFrameFile returns the repo-relative form of cand when it
+// resolves to a file inside repoRoot. Handles two shapes:
+//
+//   - repo-relative ("internal/agent/foo.go") → os.Stat joined with
+//     repoRoot; accept when it is a regular file
+//   - absolute path that lives under repoRoot → filepath.Rel yields
+//     the repo-relative form (rejects "../" escape)
+//
+// repoRoot is resolved to an absolute path internally before Rel is
+// called — this handles the "-repo ." default where repoRoot is the
+// literal string "." and a naive Rel would fail. Returns "" when the
+// candidate cannot be verified.
+func ResolveFrameFile(repoRoot, cand string) string {
+	if cand == "" || repoRoot == "" {
+		return ""
+	}
+	cand = filepath.ToSlash(cand)
+	absRoot, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return ""
+	}
+	if filepath.IsAbs(cand) {
+		rel, err := filepath.Rel(absRoot, filepath.FromSlash(cand))
+		if err != nil || strings.HasPrefix(rel, "..") {
+			return ""
+		}
+		if info, err := os.Stat(filepath.Join(absRoot, rel)); err == nil && !info.IsDir() {
+			return filepath.ToSlash(rel)
+		}
+		return ""
+	}
+	if info, err := os.Stat(filepath.Join(absRoot, cand)); err == nil && !info.IsDir() {
+		return cand
+	}
+	return ""
+}
+
+// GlobByBasename walks repoRoot and returns every file whose basename
+// equals baseName. Capped at 64 matches; skips .git, node_modules,
+// vendor, and hidden directories. Used by the Java frame resolver when
+// the frame carries only a basename.
+func GlobByBasename(repoRoot, baseName string) ([]string, error) {
+	const maxHits = 64
+	var out []string
+	rootAbs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		return nil, err
+	}
+	err = filepath.Walk(rootAbs, func(path string, info os.FileInfo, werr error) error {
+		if werr != nil {
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			name := info.Name()
+			if name == ".git" || name == "node_modules" || name == "vendor" ||
+				(strings.HasPrefix(name, ".") && len(name) > 1 && path != rootAbs) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.Name() != baseName {
+			return nil
+		}
+		rel, rerr := filepath.Rel(rootAbs, path)
+		if rerr != nil {
+			return nil
+		}
+		out = append(out, filepath.ToSlash(rel))
+		if len(out) >= maxHits {
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return out, err
+}
+
+// isJavaBasename reports whether path looks like a bare Java
+// basename (no directory separator, ends with ".java"). Java stack
+// traces carry file names without paths, so this check tells the
+// validator to route the frame through the basename resolver instead
+// of direct os.Stat.
+func isJavaBasename(path string) bool {
+	if path == "" {
+		return false
+	}
+	if strings.ContainsAny(path, "/\\") {
+		return false
+	}
+	return strings.HasSuffix(path, ".java")
 }

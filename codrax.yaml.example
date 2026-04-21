@@ -434,26 +434,65 @@
 # memory_max_build_context_total_bytes: 32768
 
 # ---------------------------------------------------------------------------
-# Log-triage (logparse_*)
+# Log-triage (log_triage_*)
 # ---------------------------------------------------------------------------
 # When the user attaches a runtime log excerpt via --log / --log-text /
-# REPL /log, the analyzer runs a multi-language parser (Go panic /
-# Java / C/C++ ASAN+UBSAN+gdb / Python / Node.js) over the payload and
-# seeds AnalyzerHints.Entities + EvidencePlan.RequiredFiles from the
-# stack-frame anchors.
+# REPL /log, a conditional pre-stage (the log_triager agent) runs an
+# LLM-driven extractor that emits a structured LogBundle (errors +
+# frames + signals + residue). The system validates paths against the
+# repository and derives the resolved-file list. The analyzer then
+# reads the bundle to seed AnalyzerHints.Entities and
+# EvidencePlan.RequiredFiles.
+#
+# Generalization note: unlike session 19's regex-per-format approach,
+# the LLM extractor handles Rust / Ruby / custom application JSON
+# logs / compiler output uniformly with zero parser-per-format code.
+# The system guards against hallucinations via os.Stat path
+# verification and runtime-internal filters.
 
-# Global feature gate. When false, the Detect call short-circuits and
-# every log-triage path becomes a no-op — the --log flag still reads
-# the file but the payload is never parsed. Default true.
-# logparse_enabled: true
+# Global feature gate. When false, the log_triager agent's Guard
+# returns false regardless of AttachedLog and the pre-stage is skipped
+# entirely. The --log flag still reads the file but the payload is
+# not extracted. Default true.
+# log_triage_enabled: true
 
 # User-provided build-path prefix for stack-frame files from CI /
 # build machines. C/C++ traces commonly carry absolute paths like
 # `/build/src/...` or `/home/jenkins/workspace/.../src/...` that the
-# built-in cascading stripper can miss. This override is tried FIRST
-# before the built-in CI root list. Mirrored by the CLI flag
+# built-in cascading stripper can miss. Tried FIRST before the
+# built-in CI root list. Mirrored by the CLI flag
 # --log-source-prefix — when both are set the CLI flag wins.
-# logparse_source_prefix: ""
+# log_triage_source_prefix: ""
+
+# Minimum log size (bytes) below which the pre-stage is skipped.
+# Very short logs (a single error line) rarely contain extractable
+# frames; the LLM call cost outweighs the benefit. Default 50.
+# log_triage_min_bytes: 50
+
+# Fail-loud retry budget for emit_log_triage schema rejections.
+# 0 = never retry (degrade to nil bundle). Default 1.
+# log_triage_max_retries: 1
+
+# Two-step fallback master switch. When false, oversized / low-coverage
+# logs take the single-shot result (or nil on failure) without
+# attempting segmentation. Default true.
+# log_triage_two_step_enabled: true
+
+# Byte threshold above which the pre-stage goes straight to two-step
+# (bypasses single-shot). Conservative default so single-shot handles
+# the common short-panic case; only polyglot / multi-cycle / k8s
+# aggregated logs pay the segmentation cost. Default 32768 (32 KB).
+# log_triage_two_step_bytes: 32768
+
+# Coverage threshold below which a single-shot bundle escalates to
+# two-step. Coverage = 1 - bytes(unknown_chunks) / bytes(rawLog).
+# Default 0.3 (under 30% structured → escalate).
+# log_triage_two_step_coverage: 0.3
+
+# Hard cap on total LLM invocations for one pre-stage Run (covers
+# 1 single-shot + 1 segmentation + N per-segment extractions).
+# Defence against runaway segmentation. Default 8.
+# log_triage_max_llm_calls: 8
 
 # ---------------------------------------------------------------------------
 # Path to providers config

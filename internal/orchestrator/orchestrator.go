@@ -93,7 +93,7 @@ func (o *Orchestrator) SetBlobSessionDir(dir string) {
 
 // SetAttachedLog stores a runtime log excerpt (panic, exception stack,
 // sanitizer diagnostic, traceback) that every subsequent Run() should
-// attach to BusContext.AttachedLog so the analyzer's logparse.Detect
+// attach to BusContext.AttachedLog so the log_triage pre-stage
 // can extract stack-frame anchors.
 //
 // REPL sticky lifetime: the REPL's /log command sets this once and it
@@ -180,6 +180,33 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	}
 
 	stepsUsed := 0
+
+	// Pre-Phase-1: conditional pre-stages (log_triage today). Each
+	// pre-stage runs at most once. Guard decides whether the stage
+	// fires for this Run. Failure is non-fatal — the main pipeline
+	// continues with the stage's BusContext side-effect at zero
+	// (e.g. bus.Mutable.LogTriage() stays nil, and downstream
+	// nil-checks degrade cleanly to pre-session-20 behaviour).
+	//
+	// Steps consumed by pre-stages count toward the same o.maxSteps
+	// budget as main stages so a runaway pre-stage cannot starve the
+	// main pipeline.
+	for _, pre := range preStages {
+		if !pre.Guard(o.busCtx) {
+			continue
+		}
+		o.busCtx.PipelineStage = pre.Stage
+		o.busCtx.TaskState.Stage = pre.Stage
+		out, err := o.dispatchStage(pre.Stage)
+		if err != nil {
+			logging.Warning("[orchestrator] pre-stage %s failed: %v (main pipeline continues)",
+				pre.Stage, err)
+		} else if out != nil && out.Error != "" {
+			logging.Warning("[orchestrator] pre-stage %s degraded: %s (main pipeline continues)",
+				pre.Stage, out.Error)
+		}
+		stepsUsed++
+	}
 
 	// Phase 1: analyze. Fail-loud: when analyze exhausts its retry
 	// budget the whole Run terminates without entering phase 2.

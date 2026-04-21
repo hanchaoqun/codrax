@@ -155,6 +155,13 @@ type Dependencies struct {
 	// caps, tool-history budget, correction retries). Resolved from
 	// YAML in cmd/root.go before agent construction.
 	AgentSettings types.AgentSettings
+
+	// Skills is the skill registry. Agents that need to switch
+	// skill mid-dispatch (currently only log_triager for its two-step
+	// fallback: log-triage-skill → log-segmentation-skill → log-triage-skill
+	// per segment) read from this handle. Optional: agents that only
+	// use the skill the orchestrator passed in leave it nil.
+	Skills *skill.Registry
 }
 
 // BaseAgent provides the common ReAct loop implementation.

@@ -1,0 +1,17 @@
+# Log-triage — custom application JSON log (the real generalization win)
+#
+# Session 19's 6 regex parsers had zero coverage for this format. The
+# session-20 LLM-driven extractor is the whole point of the refactor:
+# it reads arbitrary structured application errors and produces the
+# same LogBundle. If this case produces useful extraction without any
+# dedicated parser code, the architecture change is vindicated.
+ID="logtri_custom"
+NAME="log-triage custom JSON application log"
+QUESTION="这些日志反映了什么系统故障？"
+LOG='{"ts":"2026-04-21T10:15:00Z","level":"error","svc":"api-gateway","msg":"downstream timeout","ctx":{"upstream":"user-svc","endpoint":"/users/123","latency_ms":5023,"deadline_ms":5000}}
+{"ts":"2026-04-21T10:15:01Z","level":"error","svc":"api-gateway","msg":"retry exhausted","ctx":{"attempts":3,"last_err":"context deadline exceeded","request_id":"req-abc-123"}}
+{"ts":"2026-04-21T10:15:01Z","level":"warn","svc":"api-gateway","msg":"circuit breaker opened","ctx":{"upstream":"user-svc","failure_rate":0.85,"window_sec":60}}
+{"ts":"2026-04-21T10:15:02Z","level":"error","svc":"user-svc","msg":"database connection pool exhausted","ctx":{"pool_size":20,"active":20,"wait_ms":2100}}
+'
+EXPECT_CONTAINS="timeout"
+EXPECT_SECTIONS="downstream"

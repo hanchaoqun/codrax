@@ -1,0 +1,14 @@
+# Log-triage — Ruby backtrace (generalization test)
+#
+# Ruby was not in session-19 regex coverage. The LLM-driven extractor
+# should handle it via the same pipeline.
+ID="logtri_ruby"
+NAME="log-triage Ruby backtrace (generalization)"
+QUESTION="这个 Ruby 错误根本原因是什么？"
+LOG='/app/services/user_service.rb:42:in `find_by_id'"'"': undefined method `active?'"'"' for nil:NilClass (NoMethodError)
+	from /app/controllers/user_controller.rb:15:in `show'"'"'
+	from /app/lib/rails/action_dispatch.rb:142:in `call'"'"'
+	from /gems/rack-2.2.3/lib/rack/handler/puma.rb:25:in `call'"'"'
+'
+EXPECT_CONTAINS="NoMethodError"
+EXPECT_SECTIONS="error"

@@ -34,11 +34,15 @@ func newMockAgent(name types.AgentName, fn func(*types.AgentContext, *skill.Conf
 }
 
 // buildRegistries creates agent and skill registries with mock
-// entries matching the 4-stage read-only pipeline. Skill names
-// match the hardcoded topology in topology.go.
+// entries matching the 4-stage read-only pipeline plus the
+// log_triage pre-stage. Skill names match the hardcoded topology
+// in topology.go. The log_triager mock is wired even for tests
+// that do not set AttachedLog, so a test that flips on the
+// attachment mid-setup does not trip on a missing agent lookup.
 func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)) (*agent.Registry, *skill.Registry, *agent.SubAgentRegistry) {
 	ar := agent.NewRegistry()
 	names := []types.AgentName{
+		types.AgentLogTriager,
 		types.AgentAnalyzer,
 		types.AgentExplorer,
 		types.AgentExtractor,
@@ -54,6 +58,8 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 
 	sr := skill.NewRegistry()
 	skillNames := []string{
+		"log-triage-skill",
+		"log-segmentation-skill",
 		"analysis-skill",
 		"explore-skill",
 		"extract-skill",

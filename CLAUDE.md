@@ -34,11 +34,12 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse this crash" --log -
 
 ### Pipeline
 
-`analyze → explore → extract → finalize`, hardcoded in `internal/orchestrator/topology.go`. The orchestrator never calls tools, MCP, or LLM directly — everything flows through an agent.
+`[log_triage] → analyze → explore → extract → finalize`, hardcoded in `internal/orchestrator/topology.go`. `[log_triage]` fires only when `BusContext.AttachedLog` is non-empty (Guard in `preStages` slice); the other four stages always run. The orchestrator never calls tools, MCP, or LLM directly — everything flows through an agent.
 
 | Stage | Agent | Default Skill | Purpose |
 |---|---|---|---|
-| analyze | analyzer | analysis-skill | 1–2 pre-scan rounds (`repo_map` / `grep files_only=true` / `list_files`) then `emit_analysis`. Forbidden: `read_file` / `exec_command`. |
+| log_triage (conditional) | log_triager | log-triage-skill | LLM-driven extraction: read `AttachedLog`, emit structured `LogBundle` (Meta/Errors/Residue) via `emit_log_triage`. System validates paths + derives Layer 4 (ResolvedFiles/Entities/IntentHint/Coverage). Two-step fallback (`log-segmentation-skill`) fires on coverage < threshold OR size > threshold. Failure is advisory — main pipeline continues. |
+| analyze | analyzer | analysis-skill | 1–2 pre-scan rounds (`repo_map` / `grep files_only=true` / `list_files`) then `emit_analysis`. Reads `bus.Mutable.LogTriage()` for Entities / Intent / RequiredFiles seeding. Forbidden: `read_file` / `exec_command`. |
 | explore | explorer | explore-skill | Turn A investigation; emit via `emit_evidence` + `emit_investigation_complete`. |
 | extract | extractor | extract-skill | Turn B structuring, dispatched **once** before finalize; drains Turn A into `emit_answer_symbol` / `emit_hypothesis_verdict`. |
 | finalize | finalizer | answer-document-skill | Single `emit_answer_document` call; deterministic renderer prints prose. |
@@ -93,21 +94,31 @@ One LLM call emits `RequestModel`, then a deterministic chain:
 | `criterion` | `Eval` / `EvalAll` | 19-Kind contract evaluator |
 | `contract` | `Check` | AnswerContract validation |
 | `dataflow` | `Analyze` | Source→sink chains |
-| `logparse` | `Detect` / `StripBuildPathPrefix` / `ResolveJavaFile` | Runtime log excerpt → stack-frame anchors (Go panic / Java / C/C++ ASAN+UBSAN+gdb / Python traceback / Node.js). Session 19 log-triage. |
+| `logtriage` | `ValidateBundle` / `StripBuildPathPrefix` / `ResolveJavaFile` / `MergeBundles` | System-side validation + Layer-4 derivation for the LLM-emitted `LogBundle`. Replaced the deleted `logparse` regex package (session 20). |
 
-### Log-triage (`AttachedLog` + `internal/analysis/logparse`)
+### Log-triage (`AttachedLog` + `log_triage` stage — session 20 LLM-driven)
 
-Session 19 Tier 1 MVP. User attaches a runtime log via `--log <file|->` / `--log-text <inline>` / REPL `/log`; the payload lives on `BusContext.AttachedLog` (and mirrors to `AgentContext.AttachedLog`) — **never injected into the request string** so `normalizer.Normalize` stays clean. `analyzer.buildAnalysisIR` calls `logparse.Detect(ctx.AttachedLog)`:
+Session 20 refactor. Extraction is LLM-driven; the system validates and consumes. The `log_triage` pre-stage fires before analyze when `BusContext.AttachedLog` is non-empty. User attaches a runtime log via `--log <file|->` / `--log-text <inline>` / REPL `/log`; the payload lives on `BusContext.AttachedLog` — **never injected into the request string** so `normalizer.Normalize` stays clean.
 
-1. **Entity augmentation** — `mergeLogTriageEntities` appends `Frame.Func` (last dotted segment) + `Frame.Pkg` + `ErrorLiterals` into `AnalyzerHints.Entities` (cap 32). Normalizer's dual-gate then promotes them to `TermSymbol` via the same path user-typed entities use.
-2. **Intent override** — `reconcileIntent` forces `IntentRootCause` when `bundle.HasStack` (LLM can't self-classify — it doesn't see AttachedLog). Ordered AFTER count-question downgrade.
-3. **RequiredFiles merge** — `resolveLogTriageFiles` strips build prefixes (`StripBuildPathPrefix` with repo basename + `--log-source-prefix` override), resolves Java basenames (`ResolveJavaFile` via repo-wide glob), filters runtime internals (Go stdlib, node: URIs, java.base/). `mergeLogTriageFiles` prepends log paths ahead of the structural ranker (cap 10).
+**Responsibility boundary** (load-bearing):
 
-**Parsers**: Go panic / Java stacktrace+Caused-by / C/C++ ASAN+UBSAN / C/C++ gdb `bt` / Python traceback / Node.js V8 stack. Priority order in `Detect`: ASAN → gdb → Java → Go → Python → Node (most-specific header first). No-match returns zero-value bundle → pipeline unchanged.
+- **LLM (log_triager agent)**: reads `AttachedLog`, emits a `LogBundle` via `emit_log_triage`. Fills exactly three layers:
+  - Layer 1 **Meta**: `lang` (enum), `signals[]` (10-value enum: panic/crash/oom/timeout/permission/db/network/validation/logic/other), optional `summary`
+  - Layer 2 **Errors**: recursive tree — top-level slice is parallel snapshots (e.g. Go goroutine dumps); each error carries optional `cause` pointer for chronological chains (Java Caused-by / Rust `#[source]` / Python `__cause__`)
+  - Layer 3 **Residue**: `unknown_chunks[]` for text the LLM could not structure (zero information loss)
+- **System (`internal/analysis/logtriage/ValidateBundle`)**: validates every path (`StripBuildPathPrefix` → `IsRuntimeInternalFile` filter → Java basename glob → `os.Stat` inside repo → reject "../" escapes) and derives Layer 4 from Layer 1-3: `ResolvedFiles`, `Entities` (cap 32), `IntentHint`, `Coverage`.
 
-**Feature gate**: `codrax.yaml :: logparse_enabled` (default true). CLI `--log-source-prefix` override or YAML `logparse_source_prefix` supplies the user-known CI build root.
+Downstream consumers (analyzer only, today):
 
-**Out of scope for MVP**: glibc backtrace (no file:line), live log tail, remote log sources (Loki/ES/CloudWatch), custom application log schemas.
+1. **Entity augmentation** — `logtriage.MergeEntities(rm.AnalyzerHints.Entities, bundle.Entities)` unions the derived tokens into the analyzer's entity list. Normalizer's dual-gate then promotes them to `TermSymbol`.
+2. **Intent override** — `reconcileIntent(intent, preds, bundle)` forces `IntentRootCause` when `bundle.IntentHint == IntentRootCause` (derived from `any(frame.line>0)` OR `Signals ∩ {panic, crash, oom}`).
+3. **RequiredFiles merge** — `analyzerRequiredFiles` prepends `bundle.ResolvedFiles` ahead of the structural ranker (cap 10) via `logtriage.MergeResolvedFiles`.
+
+**Two-step fallback**: when a single `emit_log_triage` call returns `coverage < log_triage_two_step_coverage` (default 0.3) or the input size exceeds `log_triage_two_step_bytes` (default 32 KB conservative), the log_triager escalates: dispatches the `log-segmentation-skill` which calls `emit_log_segmentation` to split the log into byte-addressed `stack/caused_by/header/context/trace/noise` regions; then re-dispatches `emit_log_triage` per stack-shaped segment. `logtriage.MergeBundles` combines the partial bundles (union of signals; concatenation of Errors[]; re-derived Layer 4). Total LLM calls capped at `log_triage_max_llm_calls` (default 8).
+
+**Feature gate**: `codrax.yaml :: log_triage_enabled` (default true). CLI `--log-source-prefix` or YAML `log_triage_source_prefix` supplies the CI build root. Other knobs: `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`.
+
+**Session 20 red lines held**: LLM is the extractor, system is the validator; no new `Criterion Kind` / `Hypothesis family` / `AnchorKind` / `Scenario`; analyzer carries zero log-triage bolt-on code (the 6 helpers session 19 added under `analyzer.go:1147-1373` are gone); `reconcileIntent` signature is `(intent, preds, *LogBundle)` — no tag-along booleans.
 
 ### Explorer evidence chain (`explorer.go`)
 

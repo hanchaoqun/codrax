@@ -77,8 +77,8 @@ func TestBuildAgentContext(t *testing.T) {
 // TestBuildAgentContext_AttachedLogMirrored pins the log-triage
 // plumbing contract: BusContext.AttachedLog MUST propagate into
 // AgentContext.AttachedLog via BuildAgentContext. Regressions here
-// silently disable the whole log-triage feature because logparse.Detect
-// would receive an empty string from analyzer.buildAnalysisIR.
+// silently disable the whole log-triage feature because the log_triager
+// agent would see no payload and degrade to a nil bundle.
 func TestBuildAgentContext_AttachedLogMirrored(t *testing.T) {
 	payload := "panic: oops\n\ngoroutine 1 [running]:\nmain.x()\n\t/src/app.go:7 +0x1\n"
 	bus := &types.BusContext{
@@ -97,8 +97,9 @@ func TestBuildAgentContext_AttachedLogMirrored(t *testing.T) {
 
 // TestBuildAgentContext_AttachedLogEmpty_SafeDefault verifies the
 // negative case — when no log is attached, AgentContext.AttachedLog
-// stays empty and nothing else breaks. logparse.Detect is a no-op on
-// empty input, so this is the "feature disabled by absence" path.
+// stays empty and nothing else breaks. The log_triage pre-stage
+// Guard short-circuits on empty AttachedLog, so this is the
+// "feature disabled by absence" path.
 func TestBuildAgentContext_AttachedLogEmpty_SafeDefault(t *testing.T) {
 	bus := &types.BusContext{
 		PipelineStage: types.StageAnalyze,

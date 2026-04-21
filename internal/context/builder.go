@@ -36,6 +36,15 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		AnalysisIR:   bus.AnalysisIR,
 		AttachedLog:  bus.AttachedLog,
 	}
+	// Mirror the validated log-triage bundle onto the AgentContext so
+	// analyzer / explorer / extractor / finalizer consumers can read
+	// it directly without reaching through ctx.Mutable. Nil-safe: when
+	// the log_triage pre-stage did not run (no AttachedLog) or
+	// degraded, the field stays nil and every consumer's nil-check is
+	// a no-op.
+	if bus.Mutable != nil {
+		ac.LogTriage = bus.Mutable.LogTriage()
+	}
 
 	// Collect relevant facts
 	ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
@@ -1296,7 +1305,7 @@ const (
 //     `read_file` on the blob path for paginated access to the middle.
 //     The explorer has read_file in its tool allowlist; the analyzer
 //     does not, but also does not need the middle frames (its
-//     logparse.Detect pre-ran and already extracted them into
+//     log_triage pre-stage already ran and extracted them into
 //     EvidencePlan.RequiredFiles / AnalyzerHints.Entities).
 //
 // Returns "" for empty input so the caller can skip the section.

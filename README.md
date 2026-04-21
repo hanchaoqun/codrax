@@ -142,9 +142,9 @@ TypeError: Cannot read property 'x' of undefined
     at async main (/src/main.js:10:5)
 ```
 
-全局开关在 `codrax.yaml`：`logparse_enabled: false` 让整条通路退化成 no-op（`--log` 仍读文件但不解析）。`logparse_source_prefix` 等效于 CLI `--log-source-prefix`，CLI 显式传值时优先。
+全局开关在 `codrax.yaml`：`log_triage_enabled: false` 让 pre-stage Guard 直接跳过（`--log` 仍读文件但不触发抽取）。`log_triage_source_prefix` 等效于 CLI `--log-source-prefix`，CLI 显式传值时优先。架构上 LLM 是抽取器、系统做校验和消费——与 session 19 的 6 个手写正则 parser 相比，这版天然支持 Rust / Ruby / 自研 JSON 日志 / 编译器错误等任意格式,不再需要 per-format parser 代码。长日志或低覆盖场景自动走两步回退（`log_triage_two_step_*`）。
 
-明确**不做**：glibc backtrace（只有地址没 `file:line`）、实时日志 tail / 订阅、Loki/ES/CloudWatch 远端源、自定义应用日志格式——需要的话走 Tier 2/3 功能扩展。
+明确**不做**：实时日志 tail / 订阅、Loki/ES/CloudWatch 远端源——后续 Tier 2/3 功能扩展。
 
 ## 配置
 

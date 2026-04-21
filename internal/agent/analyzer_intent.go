@@ -51,26 +51,29 @@ func isMeasurementScalarRequest(rm types.RequestModel) bool {
 // loosens the upstream check, the analyzer still produces the
 // correct downstream behaviour.
 //
-// Log-triage override (session 19): when the user attached a runtime
-// log excerpt with a real stack (hasLogStack=true), force
-// IntentRootCause regardless of the LLM's guess. The LLM does not see
-// AttachedLog (it lives on BusContext, not the prompt) so it cannot
-// classify correctly on its own — this is the structural override
-// that teaches the rest of the pipeline "this is a debugging query".
-// Ordered AFTER the count-question rule so a hypothetical count-about-
-// a-log question still downgrades to return_value; log + count is
-// exotic enough that we don't need to optimise it.
+// Log-triage override: when the log_triage pre-stage emitted a
+// bundle whose IntentHint is IntentRootCause (i.e. the log carried
+// at least one real stack frame with file+line, or a panic/crash/oom
+// signal), force IntentRootCause regardless of the LLM's guess. The
+// LLM sees the raw log in its prompt via formatAttachedLog and could
+// classify correctly on its own; this override is defence-in-depth
+// for the case where it misses. Ordered AFTER the count-question
+// rule so a hypothetical count-about-a-log question still downgrades
+// to return_value; log + count is exotic enough that we do not need
+// to optimise it.
 //
 // Returns the resolved intent + a short reason string. When resolved
 // == declared, the rule did not fire and reason is empty.
-func reconcileIntent(declared types.Intent, preds types.SemanticPredicates, hasLogStack bool) (types.Intent, string) {
+// bundle MAY be nil — the typical case for questions without an
+// attached log; the function nil-checks and skips the override.
+func reconcileIntent(declared types.Intent, preds types.SemanticPredicates, bundle *types.LogBundle) (types.Intent, string) {
 	if declared == types.IntentEnumerate && preds.IsCountQuestion {
 		return types.IntentReturnValue,
 			"predicates.is_count_question=true overrides intent=enumerate (defense-in-depth; should be caught by self-consistency)"
 	}
-	if hasLogStack && declared != types.IntentRootCause {
+	if bundle != nil && bundle.IntentHint == types.IntentRootCause && declared != types.IntentRootCause {
 		return types.IntentRootCause,
-			"attached log has a real stack trace → root_cause overrides LLM intent (log-triage override)"
+			"log_triage bundle.intent_hint=root_cause overrides LLM intent (log-triage override)"
 	}
 	return declared, ""
 }

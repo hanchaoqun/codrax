@@ -1,0 +1,28 @@
+# Log-triage — parallel Go goroutine dump
+#
+# Exercises the parallel Errors[] slice in the schema: multiple
+# goroutines at time of crash map to peer entries in Errors[], not
+# to Cause chains. The LLM should emit 3 errors (one per goroutine).
+ID="logtri_goroutine_dump"
+NAME="log-triage Go concurrent map writes — parallel goroutines"
+QUESTION="哪些 goroutine 同时出错？它们的共同问题是什么？"
+LOG='fatal error: concurrent map writes
+
+goroutine 15 [running]:
+runtime.throw({0x123, 0x5})
+	/usr/local/go/src/runtime/panic.go:1047 +0x5d
+runtime.mapassign_faststr(0x0, 0x0, {0x0, 0x0})
+	/usr/local/go/src/runtime/map_faststr.go:212 +0x37e
+main.writeSession(0x0, {0x140000a2080, 0x8})
+	internal/agent/analyzer.go:100 +0x1e
+
+goroutine 87 [running]:
+main.writeSession(0x0, {0x140000a2088, 0x8})
+	internal/agent/analyzer.go:100 +0x1e
+
+goroutine 120 [running]:
+main.writeSession(0x0, {0x140000a2090, 0x8})
+	internal/agent/analyzer.go:100 +0x1e
+'
+EXPECT_CONTAINS="concurrent"
+EXPECT_SECTIONS="race map"

@@ -6,10 +6,17 @@ package types
 type PipelineStage string
 
 const (
-	StageAnalyze  PipelineStage = "analyze"
-	StageExplore  PipelineStage = "explore"
-	StageExtract  PipelineStage = "extract"
-	StageFinalize PipelineStage = "finalize"
+	// StageLogTriage is a conditional pre-stage that runs before
+	// analyze when BusContext.AttachedLog is non-empty. It dispatches
+	// the log_triager agent to produce a validated LogBundle on
+	// MutableState, which downstream stages read as a read-only hint.
+	// Failure is non-fatal; the main 4-stage pipeline continues with
+	// bus.LogTriage()==nil.
+	StageLogTriage PipelineStage = "log_triage"
+	StageAnalyze   PipelineStage = "analyze"
+	StageExplore   PipelineStage = "explore"
+	StageExtract   PipelineStage = "extract"
+	StageFinalize  PipelineStage = "finalize"
 )
 
 // IsTerminal returns true only for the finalize stage.
@@ -22,8 +29,22 @@ func (s PipelineStage) String() string {
 	return string(s)
 }
 
-// AllStages returns all pipeline stages in order.
+// AllStages returns all pipeline stages in order, pre-stages first.
+// Callers that need only the main pipeline should use AllMainStages.
 func AllStages() []PipelineStage {
+	return []PipelineStage{
+		StageLogTriage,
+		StageAnalyze,
+		StageExplore,
+		StageExtract,
+		StageFinalize,
+	}
+}
+
+// AllMainStages returns the unconditional 4-stage pipeline, excluding
+// conditional pre-stages. Used by the orchestrator when iterating
+// the always-runs chain.
+func AllMainStages() []PipelineStage {
 	return []PipelineStage{
 		StageAnalyze,
 		StageExplore,
@@ -36,10 +57,11 @@ func AllStages() []PipelineStage {
 type AgentName string
 
 const (
-	AgentAnalyzer  AgentName = "analyzer"
-	AgentExplorer  AgentName = "explorer"
-	AgentExtractor AgentName = "extractor"
-	AgentFinalizer AgentName = "finalizer"
+	AgentAnalyzer   AgentName = "analyzer"
+	AgentExplorer   AgentName = "explorer"
+	AgentExtractor  AgentName = "extractor"
+	AgentFinalizer  AgentName = "finalizer"
+	AgentLogTriager AgentName = "log_triager"
 )
 
 // String returns the string representation of the AgentName.
@@ -54,6 +76,7 @@ func AllAgentNames() []AgentName {
 		AgentExplorer,
 		AgentExtractor,
 		AgentFinalizer,
+		AgentLogTriager,
 	}
 }
 

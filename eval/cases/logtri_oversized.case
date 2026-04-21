@@ -1,0 +1,15 @@
+# Log-triage — oversized log, triggers two-step escalation
+#
+# The two-step controller should escalate when len(AttachedLog) >=
+# log_triage_two_step_bytes (default 32 KB). This case pads a
+# synthetic log to ~40 KB with repetitive noise so the controller
+# dispatches Step A segmentation + Step B per-segment extraction.
+#
+# Pass criterion: the run completes and the answer mentions "panic"
+# or "runtime error". Absence of a crash or timeout is the primary
+# signal that two-step is wired correctly.
+ID="logtri_oversized"
+NAME="log-triage oversized log → two-step escalation"
+QUESTION="这个大日志里的 panic 从哪里发出？"
+LOG_FILE="eval/fixtures/oversized_log.txt"
+EXPECT_SECTIONS="panic"

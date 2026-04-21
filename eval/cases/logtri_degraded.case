@@ -1,0 +1,20 @@
+# Log-triage — degraded input (the LLM cannot extract, pipeline continues)
+#
+# Garbage / noise / truncated input should degrade gracefully. The
+# log_triager emits empty errors[] + chunks in unknown_chunks, validate
+# produces a bundle with zero ResolvedFiles and Coverage near zero,
+# two-step may escalate but still produces no useful output. The main
+# pipeline continues without the pre-stage blocking it.
+#
+# Pass criterion: the run completes (does NOT time out or error out),
+# and the answer discusses the question generically without citing
+# hallucinated files.
+ID="logtri_degraded"
+NAME="log-triage degraded (garbage input, graceful fall-through)"
+QUESTION="分析这个日志"
+LOG='lorem ipsum dolor sit amet
+consectetur adipiscing elit
+sed do eiusmod tempor incididunt
+ut labore et dolore magna aliqua
+'
+EXPECT_NOT_CONTAINS="analyzer.go"

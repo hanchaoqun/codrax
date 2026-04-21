@@ -1,0 +1,21 @@
+# Log-triage — C/C++ AddressSanitizer diagnostic
+#
+# ASAN diagnostics carry the "==NNN==ERROR:" header and a frame format
+# of "#0 0x... in func file.cpp:42:5". The LLM extracts signal=crash,
+# lang=cpp, and frames from this shape.
+ID="logtri_cpp_asan"
+NAME="log-triage C/C++ ASAN heap-use-after-free"
+QUESTION="这个 ASAN 报告说明了什么？"
+LOG='==12345==ERROR: AddressSanitizer: heap-use-after-free on address 0x602000000010 at pc 0x0000004a0b3f bp 0x7ffc8a5c6e20 sp 0x7ffc8a5c6e18
+READ of size 4 at 0x602000000010 thread T0
+    #0 0x4a0b3e in process_request /home/builder/src/server.cpp:42:15
+    #1 0x4a1234 in main /home/builder/src/main.cpp:18:5
+    #2 0x7f9abc123456 in __libc_start_main (/lib64/libc.so.6+0x23456)
+
+0x602000000010 is located 0 bytes inside of 8-byte region [0x602000000010,0x602000000018)
+freed by thread T0 here:
+    #0 0x48b4c2 in operator delete(void*) (/app/bin+0x48b4c2)
+    #1 0x4a0a12 in cleanup_request /home/builder/src/cleanup.cpp:15:5
+'
+EXPECT_CONTAINS="use-after-free"
+EXPECT_SECTIONS="memory"

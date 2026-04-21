@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"unicode"
@@ -18,7 +16,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/analysis/findings_validator"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
-	"github.com/hanchaoqun/codrax/internal/analysis/logparse"
+	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/analysis/normalizer"
 	"github.com/hanchaoqun/codrax/internal/analysis/risk"
 	"github.com/hanchaoqun/codrax/internal/llm"
@@ -584,24 +582,33 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		rm.Language = detectLanguage(rm.RawRequest, ctx.Preferences)
 	}
 
-	// Log-triage augmentation. When the user attached a runtime log
-	// excerpt (via --log / --log-text / /log), parse it for stack
-	// frames and merge the harvested function names, package hints,
-	// and error literals into AnalyzerHints.Entities so the
-	// normalizer's dual-gate + the explorer's keyword_search can
-	// reach them as first-class search terms. The bundle itself
-	// flows downward to reconcileIntent and analyzerRequiredFiles so
-	// those consumers can dispatch on HasStack / Frames without
-	// re-parsing. Empty when no log was attached (pure zero-value
-	// LogBundle) — every consumer is no-op on an empty bundle.
-	logBundle := logparse.Detect(ctx.AttachedLog)
-	if logBundle.HasStack || len(logBundle.ErrorLiterals) > 0 {
+	// Log-triage augmentation. The log_triage pre-stage has already
+	// run and written a validated LogBundle onto Mutable.LogTriage
+	// (or left it nil if no log was attached, the stage was skipped,
+	// or the stage degraded). The analyzer reads it read-only: every
+	// consumer below nil-checks and no-ops on absence.
+	//
+	// Consumers:
+	//   - Entities merge: deterministic keyword union into AnalyzerHints.Entities
+	//     so the normalizer's dual-gate and explorer's keyword_search can
+	//     reach the extracted Func / Pkg / Error.Type tokens.
+	//   - reconcileIntent: receives the bundle pointer and applies the
+	//     IntentHint=RootCause override when the LLM missed the debugging signal.
+	//   - analyzerRequiredFiles: reads bundle.ResolvedFiles as the first-class
+	//     file seed, merged with the structural ranker output.
+	var logBundle *types.LogBundle
+	if ctx.Mutable != nil {
+		logBundle = ctx.Mutable.LogTriage()
+	}
+	if logBundle != nil {
 		before := len(rm.AnalyzerHints.Entities)
-		rm.AnalyzerHints.Entities = mergeLogTriageEntities(
-			rm.AnalyzerHints.Entities, logBundle)
-		logging.Info("[analyzer] log-triage: lang=%s frames=%d literals=%d entities +%d",
-			logBundle.Lang, len(logBundle.Frames), len(logBundle.ErrorLiterals),
-			len(rm.AnalyzerHints.Entities)-before)
+		rm.AnalyzerHints.Entities = logtriage.MergeEntities(
+			rm.AnalyzerHints.Entities, logBundle.Entities)
+		logging.Info("[analyzer] log-triage: lang=%s errors=%d resolved=%d entities +%d intent=%q",
+			logBundle.Meta.Lang, len(logBundle.Errors),
+			len(logBundle.ResolvedFiles),
+			len(rm.AnalyzerHints.Entities)-before,
+			logBundle.IntentHint)
 	}
 
 	// Sub-topics post-processing: when the LLM detected multiple
@@ -661,7 +668,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// that otherwise locks the pipeline into ShapeListOfSymbols
 		// and an unsatisfiable file:line citation floor.
 		// See internal/agent/analyzer_intent.go for the rule body.
-		intentResolved, intentReason := reconcileIntent(rm.Intent, rm.Predicates, logBundle.HasStack)
+		intentResolved, intentReason := reconcileIntent(rm.Intent, rm.Predicates, logBundle)
 		if intentResolved != rm.Intent {
 			logIntentReconcile(rm.Intent, intentResolved, intentReason)
 		}
@@ -939,7 +946,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// AnalyzerHints.Entities, or a repomap.BuildOrLoadGraph failure
 	// all land on an empty RequiredFiles slice. Downstream consumers
 	// already handle the empty case.
-	ir.EvidencePlan.RequiredFiles = analyzerRequiredFiles(ctx, rm, logBundle)
+	ir.EvidencePlan.RequiredFiles = analyzerRequiredFiles(ctx, rm)
 	ir.QualityGate = gate.Run(ir, gate.GlobalThresholds())
 
 	// Writeback the reconciled RequestModel to Mutable so downstream
@@ -1032,7 +1039,7 @@ func analyzerGraphForNormalize(ctx *types.AgentContext, rm types.RequestModel) *
 	return g
 }
 
-func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel, logBundle logparse.LogBundle) []string {
+func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []string {
 	if ctx == nil || ctx.RepoRoot == "" {
 		return nil
 	}
@@ -1050,12 +1057,17 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel, logBu
 			types.StripConversationPrefix(rm.RawRequest))
 	}
 
-	// Log-triage augmentation — resolve stack-frame files into
-	// repo-relative paths (with build-prefix strip, Java basename
-	// resolver, runtime-internal filter). These paths are unioned
-	// with the structural ranker output below so the explorer treats
-	// them as first-class required reads.
-	logFiles := resolveLogTriageFiles(ctx, logBundle)
+	// Log-triage augmentation. The log_triage pre-stage has already
+	// resolved every stack-frame path against the repo (os.Stat,
+	// Java basename glob, runtime-internal filter) and stored the
+	// validated repo-relative list as bundle.ResolvedFiles. Read it
+	// read-only and prepend it to the structural ranker output.
+	var logFiles []string
+	if ctx.Mutable != nil {
+		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
+			logFiles = bundle.ResolvedFiles
+		}
+	}
 
 	if len(entities) == 0 && len(logFiles) == 0 {
 		return nil
@@ -1072,7 +1084,7 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel, logBu
 	if len(logFiles) == 0 {
 		return ranked
 	}
-	return mergeLogTriageFiles(logFiles, ranked)
+	return logtriage.MergeResolvedFiles(logFiles, ranked)
 }
 
 // rankAnalyzerRequiredFiles implements the two-tier ranking
@@ -1140,234 +1152,6 @@ func rankAnalyzerRequiredFiles(graph *repomap.Graph, entities []string) []string
 	out := make([]string, 0, len(hits))
 	for _, h := range hits {
 		out = append(out, h.path)
-	}
-	return out
-}
-
-// ── Log-triage helpers (session 19) ──────────────────────────────
-
-// mergeLogTriageEntities appends function-name / package / error-literal
-// tokens harvested from the attached log onto the existing entity list
-// without disturbing order. Dedup is case-sensitive (stack traces carry
-// case-correct identifiers). Per-bundle cap of 32 tokens so a 200-frame
-// trace doesn't drown the analyzer's keyword floor.
-func mergeLogTriageEntities(existing []string, bundle logparse.LogBundle) []string {
-	if len(bundle.Frames) == 0 && len(bundle.ErrorLiterals) == 0 {
-		return existing
-	}
-	const capAdd = 32
-	seen := make(map[string]bool, len(existing)+capAdd)
-	for _, e := range existing {
-		seen[e] = true
-	}
-	added := 0
-	push := func(tok string) {
-		tok = strings.TrimSpace(tok)
-		if tok == "" || seen[tok] || added >= capAdd {
-			return
-		}
-		seen[tok] = true
-		existing = append(existing, tok)
-		added++
-	}
-	for _, f := range bundle.Frames {
-		if f.Func != "" {
-			// Last dotted segment — the bare identifier is what
-			// keyword_search matches on best.
-			if idx := strings.LastIndex(f.Func, "."); idx >= 0 && idx < len(f.Func)-1 {
-				push(f.Func[idx+1:])
-			} else {
-				push(f.Func)
-			}
-		}
-		if f.Pkg != "" {
-			push(f.Pkg)
-		}
-	}
-	for _, lit := range bundle.ErrorLiterals {
-		// Single-word literals are worthwhile keywords
-		// (exception type names, panic messages).
-		if lit == "" {
-			continue
-		}
-		if len(lit) <= 80 {
-			push(lit)
-		}
-	}
-	return existing
-}
-
-// resolveLogTriageFiles turns stack-frame File paths into repo-relative
-// paths that exist on disk. Strategy:
-//
-//  1. Drop runtime-internal files (go stdlib, node: URIs, java.base/*)
-//  2. Apply StripBuildPathPrefix using the repo basename + the
-//     user-provided --log-source-prefix (consumed by logparse as a
-//     package-level default).
-//  3. For Java frames (File is a basename): glob the repo for the
-//     basename and rank candidates via ResolveJavaFile.
-//  4. For every other frame: os.Stat the candidate path; keep when it
-//     resolves inside RepoRoot.
-//
-// The returned list is deterministically ordered (frame order preserved,
-// de-duplicated) so the merge step produces stable output across runs.
-func resolveLogTriageFiles(ctx *types.AgentContext, bundle logparse.LogBundle) []string {
-	if len(bundle.Frames) == 0 || ctx == nil || ctx.RepoRoot == "" {
-		return nil
-	}
-	repoBase := filepath.Base(ctx.RepoRoot)
-
-	seen := make(map[string]bool)
-	var out []string
-	for _, frame := range bundle.Frames {
-		if frame.File == "" || frame.Line <= 0 {
-			continue
-		}
-		if logparse.IsRuntimeInternalFile(frame.File) {
-			continue
-		}
-		// Java path resolution: File is a basename, no directory.
-		if frame.Lang == "java" && !strings.ContainsAny(frame.File, "/\\") {
-			cand := resolveJavaFrameFile(ctx, frame)
-			if cand == "" {
-				continue
-			}
-			if !seen[cand] {
-				seen[cand] = true
-				out = append(out, cand)
-			}
-			continue
-		}
-		stripped := logparse.StripBuildPathPrefix(frame.File, repoBase, nil)
-		resolved := resolveFrameFile(ctx.RepoRoot, stripped)
-		if resolved == "" {
-			continue
-		}
-		if !seen[resolved] {
-			seen[resolved] = true
-			out = append(out, resolved)
-		}
-	}
-	return out
-}
-
-// resolveFrameFile returns a repo-relative path when the input candidate
-// resolves to a file inside RepoRoot. Handles the two common shapes:
-//
-//   - already repo-relative ("internal/agent/foo.go") → os.Stat joined
-//     with repoRoot; accept when the file exists
-//   - absolute path that happens to live under repoRoot → filepath.Rel
-//     yields the repo-relative form
-//
-// Returns "" when the candidate cannot be verified.
-func resolveFrameFile(repoRoot, cand string) string {
-	if cand == "" {
-		return ""
-	}
-	cand = filepath.ToSlash(cand)
-	if filepath.IsAbs(cand) {
-		rel, err := filepath.Rel(repoRoot, filepath.FromSlash(cand))
-		if err != nil || strings.HasPrefix(rel, "..") {
-			return ""
-		}
-		if info, err := os.Stat(filepath.Join(repoRoot, rel)); err == nil && !info.IsDir() {
-			return filepath.ToSlash(rel)
-		}
-		return ""
-	}
-	if info, err := os.Stat(filepath.Join(repoRoot, cand)); err == nil && !info.IsDir() {
-		return cand
-	}
-	return ""
-}
-
-// resolveJavaFrameFile globs the repo for files whose basename matches
-// the frame's File field (a basename with no directory in Java traces)
-// and ranks matches via logparse.ResolveJavaFile using the frame's Pkg
-// as the disambiguator. Returns the best candidate or "" when no repo
-// file matches.
-func resolveJavaFrameFile(ctx *types.AgentContext, frame logparse.Frame) string {
-	candidates, err := globReleativeByBasename(ctx.RepoRoot, frame.File)
-	if err != nil || len(candidates) == 0 {
-		return ""
-	}
-	ranked := logparse.ResolveJavaFile(frame.Pkg, frame.File, candidates)
-	if len(ranked) == 0 {
-		return ""
-	}
-	return ranked[0]
-}
-
-// globReleativeByBasename walks repoRoot and returns every file whose
-// basename equals baseName. Capped at 64 matches so a deeply-vendored
-// repo with hundreds of "Utils.java" clones doesn't blow the walk.
-// Skips .git, node_modules, and hidden directories for performance.
-func globReleativeByBasename(repoRoot, baseName string) ([]string, error) {
-	const maxHits = 64
-	var out []string
-	rootAbs, err := filepath.Abs(repoRoot)
-	if err != nil {
-		return nil, err
-	}
-	err = filepath.Walk(rootAbs, func(path string, info os.FileInfo, werr error) error {
-		if werr != nil {
-			// Unreadable directory; skip without failing the whole walk.
-			if info != nil && info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if info.IsDir() {
-			name := info.Name()
-			if name == ".git" || name == "node_modules" || name == "vendor" ||
-				(strings.HasPrefix(name, ".") && len(name) > 1 && path != rootAbs) {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		if info.Name() != baseName {
-			return nil
-		}
-		rel, rerr := filepath.Rel(rootAbs, path)
-		if rerr != nil {
-			return nil
-		}
-		out = append(out, filepath.ToSlash(rel))
-		if len(out) >= maxHits {
-			return filepath.SkipAll
-		}
-		return nil
-	})
-	return out, err
-}
-
-// mergeLogTriageFiles prepends log-derived paths (frame order preserved,
-// deduped) and then appends the structural ranker output with its own
-// dedup. Log paths outrank structural hits because a stack frame is the
-// highest-signal "read this file first" anchor we can produce.
-func mergeLogTriageFiles(logFiles, ranked []string) []string {
-	const maxFiles = 10
-	seen := make(map[string]bool, len(logFiles)+len(ranked))
-	out := make([]string, 0, maxFiles)
-	for _, p := range logFiles {
-		if p == "" || seen[p] {
-			continue
-		}
-		seen[p] = true
-		out = append(out, p)
-		if len(out) >= maxFiles {
-			return out
-		}
-	}
-	for _, p := range ranked {
-		if p == "" || seen[p] {
-			continue
-		}
-		seen[p] = true
-		out = append(out, p)
-		if len(out) >= maxFiles {
-			break
-		}
 	}
 	return out
 }

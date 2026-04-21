@@ -54,22 +54,32 @@ type LLMResolver func(name types.AgentName) llm.Adapter
 
 // RegisterDefaults registers all agent types. After the 2026-04-14
 // simplification the codrax pipeline is read-only: four agents
-// drive the analyze → explore → extract → finalize flow.
-// If resolver is non-nil, each agent gets its own LLM adapter;
-// otherwise all agents share deps.LLM.
-func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver) {
+// drive the analyze → explore → extract → finalize flow. The
+// log_triager is additionally registered as a conditional pre-stage
+// agent whose Guard in internal/orchestrator/topology.go decides
+// per Run whether it dispatches (fires only when AttachedLog is
+// non-empty). If resolver is non-nil, each agent gets its own LLM
+// adapter; otherwise all agents share deps.LLM.
+//
+// triageSettings carries the log_triager's per-stage tuning. Pass a
+// zero-value LogTriageSettings to inherit DefaultLogTriageSettings;
+// cmd/root.go merges codrax.yaml's log_triage_* knobs and passes the
+// resolved struct here.
+func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, triageSettings LogTriageSettings) {
 	agents := []types.AgentName{
 		types.AgentAnalyzer,
 		types.AgentExplorer,
 		types.AgentExtractor,
 		types.AgentFinalizer,
+		types.AgentLogTriager,
 	}
 
 	constructors := map[types.AgentName]func(*Dependencies) Agent{
-		types.AgentAnalyzer:  func(d *Dependencies) Agent { return NewAnalyzerAgent(d) },
-		types.AgentExplorer:  func(d *Dependencies) Agent { return NewExplorerAgent(d) },
-		types.AgentExtractor: func(d *Dependencies) Agent { return NewExtractorAgent(d) },
-		types.AgentFinalizer: func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
+		types.AgentAnalyzer:   func(d *Dependencies) Agent { return NewAnalyzerAgent(d) },
+		types.AgentExplorer:   func(d *Dependencies) Agent { return NewExplorerAgent(d) },
+		types.AgentExtractor:  func(d *Dependencies) Agent { return NewExtractorAgent(d) },
+		types.AgentFinalizer:  func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
+		types.AgentLogTriager: func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
 	}
 
 	for _, name := range agents {

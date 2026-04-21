@@ -1,0 +1,22 @@
+# Log-triage — partial frames (Line=0 / File='', recovery contract)
+#
+# Not every stack frame carries a file:line. The LLM should emit
+# frames where file/line are uncertain with line=0 and confidence<0.5;
+# the validator keeps them in the bundle (for Entities) but does NOT
+# add them to ResolvedFiles. This exercises the "zero information
+# loss on partials" guarantee.
+#
+# Ground truth: two lines reference a function name but lack file
+# info. The LLM should extract the function names as Entities while
+# correctly not hallucinating file paths.
+ID="logtri_partial"
+NAME="log-triage partial frames (no file:line)"
+QUESTION="这段日志里的错误函数是什么？"
+LOG='ERROR 2026-04-21 10:15:00 processRequest failed
+  at processRequest
+  at handleIncoming
+  caller: unknown (stripped binary)
+  reason: nil pointer
+'
+EXPECT_CONTAINS="processRequest"
+EXPECT_NOT_CONTAINS="analyzer.go"

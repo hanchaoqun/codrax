@@ -16,7 +16,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/analysis/gate"
-	"github.com/hanchaoqun/codrax/internal/analysis/logparse"
+	"github.com/hanchaoqun/codrax/internal/analysis/logtriage"
 	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -84,7 +84,7 @@ var (
 	// Log-triage attach flags. --log reads a runtime log excerpt from
 	// a file path (or "-" for stdin), --log-text accepts an inline
 	// payload. Mutually exclusive. Both feed orchestrator.SetAttachedLog
-	// so the analyzer's logparse.Detect can extract stack-frame anchors.
+	// so the log_triage pre-stage can extract stack-frame anchors.
 	flagAttachLog       string
 	flagAttachLogText   string
 	flagLogSourcePrefix string
@@ -92,9 +92,10 @@ var (
 
 // maxAttachedLogBytes caps the pasted log payload at 1 MB to prevent a
 // firehose (kubectl logs piping an entire day's output into --log=-)
-// from ballooning the orchestrator's memory. The analyzer's logparse
-// walks the full buffer, so the cap is also a defence against
-// pathological regex runtime.
+// from ballooning the orchestrator's memory. The log_triage pre-stage
+// would otherwise pay unbounded LLM token cost, and oversized logs
+// beyond this threshold are typically aggregated multi-day dumps
+// where the user should pre-filter before attaching.
 const maxAttachedLogBytes = 1 << 20 // 1 MB
 
 // appContext holds initialized state shared between subcommands.
@@ -255,7 +256,7 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		logging.Info("[cmd] attached runtime log: %d bytes", len(attached))
 	}
 	if flagLogSourcePrefix != "" {
-		logparse.SetSourcePrefix(flagLogSourcePrefix)
+		logtriage.SetSourcePrefix(flagLogSourcePrefix)
 		logging.Info("[cmd] log source prefix override: %s", flagLogSourcePrefix)
 	}
 
@@ -467,14 +468,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	if rs != nil {
-		if rs.LogparseEnabled != nil {
-			logparse.SetEnabled(*rs.LogparseEnabled)
-		}
-		if rs.LogparseSourcePrefix != nil && *rs.LogparseSourcePrefix != "" {
-			// Flag --log-source-prefix still wins — rootRun applies
-			// it after initApp returns, so YAML sets the baseline and
-			// the CLI flag overrides only when explicitly passed.
-			logparse.SetSourcePrefix(*rs.LogparseSourcePrefix)
+		// log_triage_source_prefix mirrors the --log-source-prefix CLI
+		// flag for users who prefer persistent config. The CLI flag
+		// still wins because rootRun applies it after initApp returns.
+		// The log_triage_enabled knob is read later into LogTriageSettings
+		// at agent construction, not here — the log_triager agent's
+		// per-Execute gate reads settings.Enabled rather than a
+		// package-level toggle.
+		if rs.LogTriageSourcePrefix != nil && *rs.LogTriageSourcePrefix != "" {
+			logtriage.SetSourcePrefix(*rs.LogTriageSourcePrefix)
 		}
 		if rs.LogDir != nil {
 			mergedLogDir = *rs.LogDir
@@ -1006,6 +1008,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		Tools:             toolRegistry,
 		MCPServers:        mcpRegistry,
 		SubAgents:         subAgentRegistry,
+		Skills:            skillRegistry,
 		MaxIterations:     agentCfg.MaxIterations,
 		Emit:              renderer.Emitter(),
 		ExploreHeuristics: pipelineSettings.Explore.Heuristics,
@@ -1029,8 +1032,36 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
+	// Build LogTriageSettings from codrax.yaml with defaults filling
+	// any missing knob. cmd/root.go's settings loader already populated
+	// rs with nil-pointer absence semantics — overlay selectively.
+	triageSettings := agent.DefaultLogTriageSettings()
+	if rs != nil {
+		if rs.LogTriageEnabled != nil {
+			triageSettings.Enabled = *rs.LogTriageEnabled
+		}
+		if rs.LogTriageMinBytes != nil {
+			triageSettings.MinBytes = *rs.LogTriageMinBytes
+		}
+		if rs.LogTriageMaxRetries != nil {
+			triageSettings.MaxRetries = *rs.LogTriageMaxRetries
+		}
+		if rs.LogTriageTwoStepEnabled != nil {
+			triageSettings.TwoStepEnabled = *rs.LogTriageTwoStepEnabled
+		}
+		if rs.LogTriageTwoStepBytes != nil {
+			triageSettings.TwoStepBytes = *rs.LogTriageTwoStepBytes
+		}
+		if rs.LogTriageTwoStepCoverage != nil {
+			triageSettings.TwoStepCoverage = *rs.LogTriageTwoStepCoverage
+		}
+		if rs.LogTriageMaxLLMCalls != nil {
+			triageSettings.MaxLLMCalls = *rs.LogTriageMaxLLMCalls
+		}
+	}
+
 	agentRegistry := agent.NewRegistry()
-	agent.RegisterDefaults(agentRegistry, deps, resolver)
+	agent.RegisterDefaults(agentRegistry, deps, resolver, triageSettings)
 	logging.Info("registered %d agents", len(agentRegistry.List()))
 
 	orch := orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)

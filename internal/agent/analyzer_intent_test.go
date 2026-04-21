@@ -177,40 +177,49 @@ func TestBuildAnalysisIR_NonCountQuestionKeepsGates(t *testing.T) {
 // is_count_question=true) slipping past self-consistency. In normal
 // operation validateSelfConsistency in emit_analysis rejects this
 // combination upstream and reconcileIntent never sees it.
+//
+// The bundle parameter (session 20) replaced the older hasLogStack
+// bool: reconcileIntent reads bundle.IntentHint directly. A nil
+// bundle is the no-log case; a bundle with IntentHint=RootCause is
+// the "log_triage stage emitted a bundle with a real stack" case.
 func TestReconcileIntent(t *testing.T) {
+	rootCauseBundle := &types.LogBundle{IntentHint: types.IntentRootCause}
 	cases := []struct {
-		name        string
-		declared    types.Intent
-		preds       types.SemanticPredicates
-		hasLogStack bool
-		want        types.Intent
-		wantReason  bool
+		name       string
+		declared   types.Intent
+		preds      types.SemanticPredicates
+		bundle     *types.LogBundle
+		want       types.Intent
+		wantReason bool
 	}{
 		{"enumerate + is_count_question downgrades to return_value",
-			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, false,
+			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, nil,
 			types.IntentReturnValue, true},
 		{"enumerate without is_count_question untouched",
-			types.IntentEnumerate, types.SemanticPredicates{}, false,
+			types.IntentEnumerate, types.SemanticPredicates{}, nil,
 			types.IntentEnumerate, false},
 		{"explain pass-through with is_count_question",
-			types.IntentExplain, types.SemanticPredicates{IsCountQuestion: true}, false,
+			types.IntentExplain, types.SemanticPredicates{IsCountQuestion: true}, nil,
 			types.IntentExplain, false},
 		{"return_value pass-through",
-			types.IntentReturnValue, types.SemanticPredicates{IsCountQuestion: true}, false,
+			types.IntentReturnValue, types.SemanticPredicates{IsCountQuestion: true}, nil,
 			types.IntentReturnValue, false},
-		{"log stack forces root_cause",
-			types.IntentExplain, types.SemanticPredicates{}, true,
+		{"log_triage bundle with root_cause hint forces root_cause",
+			types.IntentExplain, types.SemanticPredicates{}, rootCauseBundle,
 			types.IntentRootCause, true},
-		{"log stack no-op when already root_cause",
-			types.IntentRootCause, types.SemanticPredicates{}, true,
+		{"log_triage bundle no-op when already root_cause",
+			types.IntentRootCause, types.SemanticPredicates{}, rootCauseBundle,
 			types.IntentRootCause, false},
-		{"count-question wins over log stack (exotic but ordered)",
-			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, true,
+		{"count-question wins over log_triage bundle (exotic but ordered)",
+			types.IntentEnumerate, types.SemanticPredicates{IsCountQuestion: true}, rootCauseBundle,
 			types.IntentReturnValue, true},
+		{"nil bundle skips the log-triage override",
+			types.IntentExplain, types.SemanticPredicates{}, nil,
+			types.IntentExplain, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, reason := reconcileIntent(c.declared, c.preds, c.hasLogStack)
+			got, reason := reconcileIntent(c.declared, c.preds, c.bundle)
 			if got != c.want {
 				t.Errorf("intent = %q, want %q", got, c.want)
 			}

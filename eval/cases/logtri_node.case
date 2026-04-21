@@ -1,0 +1,12 @@
+# Log-triage — Node.js V8 stack
+ID="logtri_node"
+NAME="log-triage Node V8 stack"
+QUESTION="这个 Node 错误从哪来的？"
+LOG='TypeError: Cannot read properties of undefined (reading '"'"'name'"'"')
+    at processUser (/app/src/user.js:42:18)
+    at handleRequest (/app/src/server.js:15:5)
+    at Server.emit (node:events:527:28)
+    at parserOnIncoming (node:_http_server:905:12)
+'
+EXPECT_CONTAINS="TypeError"
+EXPECT_SECTIONS="error"

@@ -1,0 +1,32 @@
+# Log-triage — Java exception with Caused-by chain
+#
+# Exercises the recursive Cause pointer in the LogBundle schema. The
+# log_triager must emit a nested structure: RuntimeException wrapping
+# NullPointerException wrapping IOException. The analyzer's downstream
+# consumers read all three types into Entities and the Java basename
+# resolver locates the file via repo glob.
+#
+# Ground truth: this is a synthetic log against the codrax repo, so
+# the Java frame paths will not exist in-repo — the LLM should still
+# extract the error types as entities and the system's os.Stat gate
+# will correctly drop the non-existent Java paths. A passing run
+# reports IntentHint=RootCause and mentions "NullPointerException".
+ID="logtri_java"
+NAME="log-triage Java exception + Caused-by chain"
+QUESTION="这个异常栈显示什么问题？追溯根本原因。"
+LOG='java.lang.RuntimeException: Failed to process request
+	at com.example.service.UserService.process(UserService.java:142)
+	at com.example.controller.UserController.handle(UserController.java:58)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1149)
+Caused by: java.lang.NullPointerException: Cannot invoke "User.getId()" because "user" is null
+	at com.example.service.UserService.resolveUser(UserService.java:87)
+	at com.example.service.UserService.process(UserService.java:135)
+	... 2 more
+Caused by: java.io.IOException: Connection refused: /10.0.0.5:5432
+	at com.example.db.ConnectionPool.acquire(ConnectionPool.java:201)
+	at com.example.service.UserService.resolveUser(UserService.java:82)
+	... 3 more
+'
+EXPECT_CONTAINS="NullPointerException"
+EXPECT_NOT_CONTAINS="analyzer.go"
+EXPECT_SECTIONS="caused root"

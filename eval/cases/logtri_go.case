@@ -1,15 +1,20 @@
-# Log-triage Tier 1 — Go panic smoke (Session 19)
+# Log-triage — Go panic smoke (session 20 LLM-driven extractor)
 #
-# Targets the new log-triage MVP: user pastes a Go panic via --log-text
-# and asks where it originates. logparse.ParseGo extracts frames,
-# reconcileIntent forces IntentRootCause, analyzerRequiredFiles merges
-# the frame file paths, and the explorer reads them first.
+# Targets the log_triage pre-stage: user pastes a Go panic via
+# --log-text and asks where it originates. The LLM-driven log_triager
+# agent emits structured frames + signals via emit_log_triage, the
+# system validates paths against the repository, and the analyzer
+# reads bus.LogTriage() to seed EvidencePlan.RequiredFiles and force
+# IntentRootCause.
 #
-# Ground truth: the panic points at internal/agent/analyzer.go:250 (a
+# Ground truth: the panic points at internal/agent/analyzer.go (a
 # synthetic frame crafted for the test — the real analyzer never
 # panics, but the file exists so path resolution works). A passing run
 # must surface "analyzer.go" or "buildAnalysisIR" in the answer and
-# should NOT invent a different file as the culprit.
+# should NOT invent a different file as the culprit. Session-19
+# regression baseline; no behaviour change after the session-20
+# refactor except that extraction is now LLM-driven rather than
+# regex-based.
 ID="logtri_go"
 NAME="log-triage Go panic — file:line resolution"
 QUESTION="这个 panic 来自哪里？分析一下可能的原因。"

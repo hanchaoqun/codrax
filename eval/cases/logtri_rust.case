@@ -1,0 +1,28 @@
+# Log-triage — Rust panic (generalization test)
+#
+# Rust was explicitly out of scope in session 19 (only Go/Java/C++/
+# Python/Node regex parsers existed). The session-20 LLM-driven
+# extractor should handle it uniformly. This case validates the
+# generalization claim: no new parser code, Rust still works.
+#
+# Ground truth: synthetic Rust panic. The LLM should emit lang=rust
+# in Meta, extract frames (confidence may be lower since paths are
+# nonexistent in codrax repo — that's fine, the system drops them),
+# and set IntentHint=RootCause via signal=panic.
+ID="logtri_rust"
+NAME="log-triage Rust panic (generalization)"
+QUESTION="这是什么错误？"
+LOG='thread '"'"'main'"'"' panicked at '"'"'called `Option::unwrap()` on a `None` value'"'"', src/config.rs:42:28
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+stack backtrace:
+   0: rust_begin_unwind
+             at /rustc/abcdef/library/std/src/panicking.rs:584:5
+   1: core::panicking::panic_fmt
+             at /rustc/abcdef/library/core/src/panicking.rs:142:14
+   2: my_app::config::load
+             at ./src/config.rs:42:28
+   3: my_app::main
+             at ./src/main.rs:12:5
+'
+EXPECT_CONTAINS="rust"
+EXPECT_SECTIONS="panic"
