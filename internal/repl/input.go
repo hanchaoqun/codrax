@@ -44,6 +44,7 @@ var slashCommands = []struct {
 	{"/compact", "compact memory"},
 	{"/clear", "wipe conversation memory"},
 	{"/log", "attach/show/clear a runtime log"},
+	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)"},
 	{"/exit", "leave the REPL"},
 	{"/quit", "leave the REPL"},
 }
@@ -135,7 +136,16 @@ type inputModel struct {
 	pasteFoldMinChars int // per-instance threshold, in runes
 }
 
-func newInputModel(prompt string, history []string, isContinue bool, w, foldMinChars int) *inputModel {
+// pasteSeed is a single pre-captured paste the caller injects into a
+// freshly constructed inputModel. Used by the /paste fallback: each
+// seeded turn gets the pasted content as the model's first
+// placeholder (id=0) with the cursor positioned after the token so
+// the user can keep typing around it. Nil means "normal start".
+type pasteSeed struct {
+	content string
+}
+
+func newInputModel(prompt string, history []string, isContinue bool, w, foldMinChars int, seed *pasteSeed) *inputModel {
 	ti := textinput.New()
 	ti.Prompt = prompt + " "
 	ti.PromptStyle = lipgloss.NewStyle().
@@ -163,7 +173,7 @@ func newInputModel(prompt string, history []string, isContinue bool, w, foldMinC
 		foldMinChars = DefaultPasteFoldMinChars
 	}
 
-	return &inputModel{
+	m := &inputModel{
 		ti:                ti,
 		keys:              defaultInputKeys(),
 		history:           hist,
@@ -172,6 +182,24 @@ func newInputModel(prompt string, history []string, isContinue bool, w, foldMinC
 		termWidth:         w,
 		pasteFoldMinChars: foldMinChars,
 	}
+	if seed != nil && seed.content != "" {
+		m.injectPlaceholder(seed.content)
+	}
+	return m
+}
+
+// injectPlaceholder folds `content` into placeholder id 0 and seeds
+// the textinput with that token followed by a single space so the
+// caller lands with the cursor ready for additional prose.
+func (m *inputModel) injectPlaceholder(content string) {
+	id := len(m.pastes)
+	m.pastes = append(m.pastes, content)
+	lines := strings.Count(content, "\n") + 1
+	chars := utf8.RuneCountInString(content)
+	token := fmt.Sprintf("[Pasted text #%d +%d lines +%d chars]", id, lines, chars)
+	val := token + " "
+	m.ti.SetValue(val)
+	m.ti.SetCursor(utf8.RuneCountInString(val))
 }
 
 // historyReversed returns up to cap entries from newest to oldest.
@@ -636,7 +664,12 @@ func (r *REPL) readInputBubble(prompt string, isContinue bool) (inputResult, err
 		w = 80
 	}
 	hist := r.historyStrings()
-	model := newInputModel(prompt, hist, isContinue, w, r.pasteFoldMinChars)
+	var seed *pasteSeed
+	if !isContinue && r.pendingPaste != "" {
+		seed = &pasteSeed{content: r.pendingPaste}
+		r.pendingPaste = "" // single-use; consumed on inject
+	}
+	model := newInputModel(prompt, hist, isContinue, w, r.pasteFoldMinChars, seed)
 
 	p := tea.NewProgram(model,
 		tea.WithOutput(r.out),

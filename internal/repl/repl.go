@@ -102,6 +102,15 @@ type REPL struct {
 	// ("root cause?" → "safe fix?" → "regression risk?"). Propagated
 	// to the runner via attachedLogSetter before each dispatch.
 	attachedLog string
+
+	// pendingPaste is the line-oriented fallback for terminals /
+	// tmux configurations that swallow bracketed paste (most common
+	// in SSH → tmux environments). `/paste` captures lines via a
+	// plain bufio.Scanner until `/end`; the captured content is
+	// stashed here, and the next interactive readInput call injects
+	// it into the new Bubble Tea model as a placeholder seed. Single-
+	// use; cleared on consumption or on abort of the seeded turn.
+	pendingPaste string
 }
 
 // New constructs a REPL from a Config.
@@ -341,13 +350,47 @@ func (r *REPL) readInputInteractive(prompt string) (string, string, error) {
 	}
 }
 
+// scriptedScanner returns the single long-lived bufio.Scanner that
+// reads from r.in in scripted mode. Two callers share it:
+// readInputLines for normal lines and handle{Log,Paste}Cmd for the
+// multi-line capture loops. Creating a fresh Scanner inside the
+// capture helpers would conflict with readInputLines' prior read-
+// ahead buffering (the capture's Scan() would see EOF because the
+// outer scanner has already consumed bytes into its internal buffer).
+// Caller must check r.in != nil first.
+func (r *REPL) scriptedScanner() *bufio.Scanner {
+	if r.scanner == nil {
+		r.scanner = bufio.NewScanner(r.in)
+		// Lift the token cap from bufio's 64 KiB default so a single
+		// long pasted line (a minified JSON blob, a flattened stack
+		// trace) doesn't silently truncate — matches the paste/log
+		// capture ceiling enforced elsewhere.
+		r.scanner.Buffer(make([]byte, 64*1024), maxREPLAttachedLogBytes+1)
+	}
+	return r.scanner
+}
+
+// captureScanner is the bufio.Scanner used by /log paste and /paste
+// for multi-line capture. In scripted mode it reuses r.scanner so
+// reads pick up where readInputLines left off (a second scanner would
+// miss any bytes the first has already buffered ahead). In
+// interactive mode the Bubble Tea session has already quit and
+// restored cooked mode, so a fresh os.Stdin scanner is fine — nothing
+// else is reading from stdin during capture.
+func (r *REPL) captureScanner() *bufio.Scanner {
+	if r.in != nil {
+		return r.scriptedScanner()
+	}
+	s := bufio.NewScanner(os.Stdin)
+	s.Buffer(make([]byte, 64*1024), maxREPLAttachedLogBytes+1)
+	return s
+}
+
 // readInputLines reads from r.in using a scanner. Supports multi-line
 // continuation (trailing \) and prints prompt/promptCont to r.out so
 // test assertions can verify continuation behavior.
 func (r *REPL) readInputLines() (string, error) {
-	if r.scanner == nil {
-		r.scanner = bufio.NewScanner(r.in)
-	}
+	r.scriptedScanner()
 	prompt := r.prompt
 	if prompt != "" {
 		fmt.Fprint(r.out, prompt)
@@ -496,6 +539,9 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/log":
 		r.handleLogCmd(line)
 		return false
+	case "/paste":
+		r.handlePasteCmd()
+		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
@@ -564,9 +610,10 @@ func (r *REPL) handleSlash(line string) bool {
 			r.success(fmt.Sprintf("compaction done. recent=%d index=%d", len(r.store.Recent()), len(r.store.Index())))
 		}
 	case "/help":
-		r.info("commands: /exit /quit /clear /history /compact /log /help")
+		r.info("commands: /exit /quit /clear /history /compact /log /paste /help")
 		r.info("tip: end a line with \\ for multi-line input")
 		r.info("log: /log <path> | /log (paste then /end) | /log clear | /log show")
+		r.info("paste: /paste (terminal-independent fallback when bracketed paste is stripped)")
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
 	}
@@ -635,15 +682,7 @@ func (r *REPL) handleLogLoad(path string) {
 // (os.Stdin in production, r.in in tests) one line at a time.
 func (r *REPL) handleLogPaste() {
 	r.info("paste log, terminate with a lone /end line")
-	src := r.in
-	if src == nil {
-		src = os.Stdin
-	}
-	scanner := bufio.NewScanner(src)
-	// Lines inside a real panic/stack/log can exceed bufio's default
-	// 64 KiB token cap; raise it to the same ceiling as the paste cap
-	// so a single absurdly long line doesn't silently truncate.
-	scanner.Buffer(make([]byte, 64*1024), maxREPLAttachedLogBytes+1)
+	scanner := r.captureScanner()
 	var buf strings.Builder
 	for {
 		if r.interactive() {
@@ -673,6 +712,54 @@ func (r *REPL) handleLogPaste() {
 	}
 	r.attachedLog = buf.String()
 	r.success(fmt.Sprintf("attached log captured: %d bytes", buf.Len()))
+}
+
+// handlePasteCmd is the terminal-independent fallback for the main
+// input. bracketed paste is stripped in common SSH/tmux setups; when
+// that happens an auto-fold never fires because the paste arrives as
+// individual KeyRunes instead of one tea.KeyMsg{Paste:true}. This
+// command reads lines straight from the caller's input stream until
+// a lone `/end`, stores the collected bytes in r.pendingPaste, and
+// lets the next readInputBubble inject it as a pre-seeded placeholder
+// token. User can then edit around the token and submit normally.
+func (r *REPL) handlePasteCmd() {
+	r.info("paste content, terminate with a lone /end line; press Enter to cancel an empty capture")
+	scanner := r.captureScanner()
+	var buf strings.Builder
+	for {
+		if r.interactive() {
+			fmt.Fprint(r.out, "  paste> ")
+		}
+		if !scanner.Scan() {
+			break
+		}
+		line := scanner.Text()
+		trim := strings.TrimSpace(line)
+		if trim == "/end" || trim == "\\end" {
+			break
+		}
+		buf.WriteString(line)
+		buf.WriteByte('\n')
+		if buf.Len() > maxREPLAttachedLogBytes {
+			r.warn("paste hit %d-byte cap; stopping capture\n", maxREPLAttachedLogBytes)
+			break
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		logging.Warning("[repl] /paste scan error: %v", err)
+	}
+	captured := strings.TrimRight(buf.String(), "\n")
+	if captured == "" {
+		r.info("no input captured")
+		return
+	}
+	r.pendingPaste = captured
+	chars := 0
+	for range captured {
+		chars++
+	}
+	lines := strings.Count(captured, "\n") + 1
+	r.success(fmt.Sprintf("captured %d lines, %d chars → placed as [Pasted text #0] in next prompt", lines, chars))
 }
 
 // handleLogShow prints a preview of the currently-attached log.

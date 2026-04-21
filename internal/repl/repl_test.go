@@ -217,6 +217,60 @@ func renderErrorFromBus(bc *types.BusContext) string {
 	return ""
 }
 
+// TestPasteSlashCapturesToPending verifies the /paste command
+// collects lines via bufio until `/end`, and stashes the capture in
+// r.pendingPaste ready for the next interactive readInput to
+// consume. Scripted mode skips the bubbletea seeding step but the
+// capture path is identical.
+func TestPasteSlashCapturesToPending(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("/paste\nfunc foo() {\n    return 42\n}\n/end\n/exit\n")
+	out := &bytes.Buffer{}
+	r := newTestREPL(store, in, out)
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	want := "func foo() {\n    return 42\n}"
+	if r.pendingPaste != want {
+		t.Errorf("pendingPaste = %q, want %q", r.pendingPaste, want)
+	}
+	if !strings.Contains(out.String(), "captured 3 lines") {
+		t.Errorf("expected 'captured 3 lines' in output, got:\n%s", out.String())
+	}
+}
+
+// TestPasteSlashEmptyCaptureNoOp verifies that pressing /end
+// immediately without content leaves pendingPaste empty.
+func TestPasteSlashEmptyCaptureNoOp(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("/paste\n/end\n/exit\n")
+	out := &bytes.Buffer{}
+	r := newTestREPL(store, in, out)
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if r.pendingPaste != "" {
+		t.Errorf("pendingPaste should be empty on no-input capture, got %q", r.pendingPaste)
+	}
+	if !strings.Contains(out.String(), "no input captured") {
+		t.Errorf("expected 'no input captured' in output, got:\n%s", out.String())
+	}
+}
+
 // TestMultilineInput verifies that lines ending with \ are joined
 // into a single multi-line request.
 func TestMultilineInput(t *testing.T) {

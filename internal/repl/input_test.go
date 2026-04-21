@@ -14,7 +14,7 @@ import (
 // can drive directly.
 
 func newTestModel() *inputModel {
-	return newInputModel("❯❯", nil, false, 80, 0) // 0 → DefaultPasteFoldMinChars
+	return newInputModel("❯❯", nil, false, 80, 0, nil) // 0 → DefaultPasteFoldMinChars
 }
 
 // Helper: send a rune-only key (e.g. ASCII char) through Update.
@@ -116,13 +116,13 @@ func TestPasteFolding_CJK_CountsRunesNotBytes(t *testing.T) {
 
 func TestPasteFolding_CustomThreshold_Respected(t *testing.T) {
 	// Caller-supplied threshold overrides the default.
-	m := newInputModel("❯❯", nil, false, 80, 10) // fold at ≥10 chars
+	m := newInputModel("❯❯", nil, false, 80, 10, nil) // fold at ≥10 chars
 	m.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune("abcdefghij")}))
 	if !placeholderRE.MatchString(m.ti.Value()) {
 		t.Errorf("10-char paste at custom threshold=10 should fold, buf=%q", m.ti.Value())
 	}
 
-	m2 := newInputModel("❯❯", nil, false, 80, 10)
+	m2 := newInputModel("❯❯", nil, false, 80, 10, nil)
 	m2.Update(tea.KeyMsg(tea.Key{Type: tea.KeyRunes, Paste: true, Runes: []rune("abcdef")}))
 	if placeholderRE.MatchString(m2.ti.Value()) {
 		t.Errorf("6-char paste under threshold=10 must not fold, buf=%q", m2.ti.Value())
@@ -166,7 +166,7 @@ func TestCursorSnap_LeftInSideSpan_SnapsToStart(t *testing.T) {
 }
 
 func TestHistoryPrevNext_RestoresDraft(t *testing.T) {
-	m := newInputModel("❯❯", []string{"oldest", "middle", "newest"}, false, 80, 0)
+	m := newInputModel("❯❯", []string{"oldest", "middle", "newest"}, false, 80, 0, nil)
 	sendRunes(m, 'd', 'r', 'a', 'f', 't')
 
 	// Up → newest
@@ -203,7 +203,7 @@ func TestHistoryPrevNext_RestoresDraft(t *testing.T) {
 }
 
 func TestHistory_MultiLineEntryBecomesPlaceholder(t *testing.T) {
-	m := newInputModel("❯❯", []string{"single-line", "multi\nline\nentry"}, false, 80, 0)
+	m := newInputModel("❯❯", []string{"single-line", "multi\nline\nentry"}, false, 80, 0, nil)
 	// Up → newest is "multi\nline\nentry", should fold.
 	sendType(m, tea.KeyUp)
 	buf := m.ti.Value()
@@ -284,6 +284,25 @@ func TestHistoryReversed_TrimsAndCaps(t *testing.T) {
 	}
 	if got := historyReversed(cappedSrc, 50); len(got) != 50 {
 		t.Errorf("cap not applied, got %d", len(got))
+	}
+}
+
+func TestPasteSeed_InjectsAsFirstPlaceholder(t *testing.T) {
+	content := "line A\nline B\nline C"
+	m := newInputModel("❯❯", nil, false, 80, 0, &pasteSeed{content: content})
+
+	buf := m.ti.Value()
+	if !placeholderRE.MatchString(buf) {
+		t.Fatalf("seed should produce a placeholder token, buf=%q", buf)
+	}
+	if !strings.HasSuffix(buf, " ") {
+		t.Errorf("seed should leave a trailing space for continued typing, buf=%q", buf)
+	}
+	if len(m.pastes) != 1 || m.pastes[0] != content {
+		t.Errorf("seeded paste not stored in pastes[0], got %v", m.pastes)
+	}
+	if exp := m.expand(buf); strings.TrimRight(exp, " ") != content {
+		t.Errorf("expand(buf) = %q, want content", exp)
 	}
 }
 
