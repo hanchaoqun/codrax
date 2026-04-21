@@ -383,39 +383,6 @@ func TestTableCell(t *testing.T) {
 	}
 }
 
-func TestFlowLabel(t *testing.T) {
-	short := "short step"
-	if got := flowLabel(short); got != short {
-		t.Errorf("short label should pass through, got %q", got)
-	}
-	exact := strings.Repeat("a", 80)
-	if got := flowLabel(exact); got != exact {
-		t.Errorf("80-rune label should not be truncated, got len=%d", len(got))
-	}
-	over := strings.Repeat("a", 81)
-	got := flowLabel(over)
-	if !strings.HasSuffix(got, "…") {
-		t.Errorf("over-cap label should end with …, got %q", got)
-	}
-	// CJK rune-safe truncation: 81+ CJK chars triggers ellipsis
-	// without producing invalid UTF-8.
-	cjk := strings.Repeat("测", 90)
-	gotCJK := flowLabel(cjk)
-	if !strings.HasSuffix(gotCJK, "…") {
-		t.Errorf("over-cap CJK label should end with …, got %q", gotCJK)
-	}
-	for _, r := range gotCJK {
-		if r == 0xFFFD {
-			t.Errorf("flowLabel produced invalid UTF-8 in CJK output: %q", gotCJK)
-		}
-	}
-	// Newlines folded so the ASCII flow doesn't split mid-flow.
-	multi := "first line\nsecond line"
-	if got := flowLabel(multi); strings.Contains(got, "\n") {
-		t.Errorf("newline should be folded, got %q", got)
-	}
-}
-
 // TestRenderAnswerDocument_ListOfSymbols_PipeInRationaleEscaped:
 // a rationale containing `|` must not break the table row.
 func TestRenderAnswerDocument_ListOfSymbols_PipeInRationaleEscaped(t *testing.T) {

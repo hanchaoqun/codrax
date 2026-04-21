@@ -3,7 +3,6 @@ package render
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -238,28 +237,13 @@ func renderAnswerDocStepList(b *strings.Builder, doc *types.AnswerDocument, lang
 	if len(doc.Steps) == 0 {
 		return
 	}
-	// Visual step flow diagram first — gives the reader an at-a-glance
-	// overview before the detailed numbered list.
-	if len(doc.Steps) >= 2 {
-		switch lang {
-		case answerDocLangZH:
-			b.WriteString("**流程概览**：\n\n```\n")
-		default:
-			b.WriteString("**Flow overview:**\n\n```\n")
-		}
-		for i, step := range doc.Steps {
-			desc := flowLabel(step.Description)
-			fmt.Fprintf(b, "  [%d] %s", step.Index, desc)
-			if i < len(doc.Steps)-1 {
-				b.WriteString("\n   │\n   ▼\n")
-			} else {
-				b.WriteString("\n")
-			}
-		}
-		b.WriteString("```\n\n")
-	}
-
-	// Detailed numbered list with file:line citations.
+	// Detailed numbered list with file:line citations. Previously the
+	// renderer also auto-generated a "Flow overview" ASCII chain from
+	// steps[], but that shape assumed steps are linear — when the
+	// answer's step topology is a DAG (branches / parallel / fan-out),
+	// the auto-chain misrepresented the structure. The LLM now owns
+	// non-linear diagrams via the answer-document-skill, placing them
+	// in Summary where the full Unicode palette survives.
 	switch lang {
 	case answerDocLangZH:
 		b.WriteString("**详细步骤**：\n\n")
@@ -474,33 +458,3 @@ func tableCell(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// flowLabel shortens a step description for the fixed-width step-
-// flow ASCII diagram. Rune-sliced (not byte-sliced) so multi-byte
-// characters — which include CJK and every accented Latin letter —
-// are never cut mid-sequence, which would produce garbage bytes on
-// the wire. Trailing ellipsis signals truncation; the full
-// description still appears in the "Detailed steps" list below the
-// flow. Cap at 80 runes — fits inside a standard 100-column terminal
-// after the "  [N] " prefix and the surrounding code-fence.
-func flowLabel(desc string) string {
-	desc = strings.TrimSpace(desc)
-	// Strip newlines so a multi-line description doesn't rip the
-	// ASCII flow.
-	desc = strings.ReplaceAll(desc, "\n", " ")
-	desc = strings.ReplaceAll(desc, "\r", " ")
-	const cap = 80
-	if utf8.RuneCountInString(desc) <= cap {
-		return desc
-	}
-	// Rune-slice to avoid breaking multi-byte chars.
-	var b strings.Builder
-	n := 0
-	for _, r := range desc {
-		if n >= cap {
-			break
-		}
-		b.WriteRune(r)
-		n++
-	}
-	return b.String() + "…"
-}
