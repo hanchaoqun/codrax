@@ -49,3 +49,50 @@ func softConvergenceStallMessage(lang string) string {
 	}
 	return "– Finalizing with current leads"
 }
+
+// softRetryHintMessage renders the user-visible line for the generic
+// stage-retry cue ("the previous agent turn did not cover every
+// evidence requirement the question needs; running one more pass").
+// Replaces the raw RetryHint body dump that used to land in the
+// reasoning feed — the body is an internal LLM-directed prompt
+// (with `## Evidence Gaps`, `[MISSING]`, `(entities: ...)` markup)
+// that leaks terminology users cannot interpret. The full body
+// remains in the debug log via `[explorer] retry hint built key=…`.
+//
+// Also used for the scheduler-level node SC retry cue (when an
+// evidence/validate node's SuccessCriteria fails and the scheduler
+// requeues for another pass) and the pre-finalize Tier-1 floor
+// backtrack — both are "need more evidence before answering" from
+// the user's point of view.
+func softRetryHintMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "⟳ 正在补齐调查证据"
+	}
+	return "⟳ Gathering more evidence"
+}
+
+// softInvestigationReadyMessage renders the user-visible line for
+// the investigation_complete override path: the active agent
+// called emit_investigation_complete to signal it has collected
+// enough facts, and the orchestrator skips remaining explore gates
+// to move to the answer stage.
+func softInvestigationReadyMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "› 调查就绪，准备作答"
+	}
+	return "› Investigation ready, preparing answer"
+}
+
+// softAnswerCheckRetryMessage renders the user-visible line for
+// the post-finalize answer contract backtrack: the finalizer
+// produced a draft that did not pass the quality checks, and the
+// pipeline is running another pass with tightened hints. Distinct
+// from softRetryHintMessage because the scope is different — this
+// retry starts AFTER a candidate answer was produced, so the user
+// message emphasises "answer" rather than "evidence".
+func softAnswerCheckRetryMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "⟳ 答案待完善，再跑一轮"
+	}
+	return "⟳ Answer needs another pass"
+}
