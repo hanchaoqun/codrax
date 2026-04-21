@@ -360,6 +360,164 @@ func TestEmitAnswerDocument_Value_Happy(t *testing.T) {
 	}
 }
 
+// TestEmitAnswerDocument_Value_RejectsFabricatedCitation is the
+// session-22 regression for the "partial" eval case: the attached
+// log named an error function (processRequest) that does not exist
+// anywhere in the repo, but the LLM fabricated a citation at
+// `internal/agent/analyzer.go:1` (which actually starts with
+// `package agent`) to satisfy the tool schema. The new literal-
+// grounding gate must catch the mismatch BEFORE the answer ships
+// and direct the LLM toward the honest escape (citation_ref=-1 +
+// summary caveat for externally-sourced literals).
+func TestEmitAnswerDocument_Value_RejectsFabricatedCitation(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Seed a read_file result so the grounder's LineIndex picks up
+	// the cited file at line 1. The line content has zero overlap
+	// with the claimed literal. Banner uses the gutter format
+	// `N│ text` that ground.buildLineIndex parses.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│ package agent\n     2│ \n     3│ import (\n     4│ \t\"context\"\n     5│ )\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "value",
+		"value": map[string]interface{}{
+			"literal":      "processRequest",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("fabricated citation must be rejected; got Success=true, Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "not corroborated") {
+		t.Errorf("rejection message must name the corroboration failure, got: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "citation_ref=-1") {
+		t.Errorf("rejection message must name the citation_ref=-1 escape, got: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Value_AcceptsCitationRefMinusOneEscape is
+// the defensive-allow complement: when the LLM honestly declares
+// no grounded source (CitationRef=-1), the literal-grounding gate
+// must bypass entirely. Mirrors the customer trace's correct fix
+// — the LLM paraphrases from the attached log, acknowledges no
+// repo code backs the literal, and ships.
+func TestEmitAnswerDocument_Value_AcceptsCitationRefMinusOneEscape(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Even with a read_file populating LineIndex, CitationRef=-1
+	// short-circuits the new gate.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│ package agent\n     2│ \n     3│ import (\n     4│ \t\"context\"\n     5│ )\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "value",
+		"summary": "基于附带的运行时日志，错误函数是 processRequest。仓库内未包含该函数定义（属于外部应用）。",
+		"value": map[string]interface{}{
+			"literal":      "processRequest",
+			"citation_ref": -1,
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("CitationRef=-1 honest escape must be accepted; got Success=false, Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Value_AcceptsCorroboratedCitation is the
+// happy path under the new gate: a value.literal whose identifier
+// token DOES appear in the cited file's ±3-line window passes
+// through. Guards against the gate becoming over-restrictive.
+func TestEmitAnswerDocument_Value_AcceptsCorroboratedCitation(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Seed read_file with a line whose text contains the literal
+	// as a whole identifier token. The cited line is :12 and the
+	// literal "explorer" appears at line 10 — within the ±3 window.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/skill/defaults.go: showing lines 10-15 of 200 total]\n    10│ skill.Register(\"explorer\", ...)\n    11│ \n    12│ // explorer is the Turn A agent\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "value",
+		"value": map[string]interface{}{
+			"literal":      "explorer",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{{"file": "internal/skill/defaults.go", "line": 12}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("corroborated citation must be accepted; got Success=false, Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_ConfigValue_KeyCorroboratesAsLiteral pins
+// the config_value branch: the literal-grounding gate unions
+// literal tokens WITH key tokens, so a config leaf cited at a
+// definition line where only the key appears still passes. Common
+// pattern: YAML leaf at line N has `database_url: "postgres://..."`
+// — citing that line with value={key="database_url", literal="postgres://..."}
+// must match even though "postgres" may not be tokenised identically.
+func TestEmitAnswerDocument_ConfigValue_KeyCorroboratesAsLiteral(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Cited line contains the KEY but not the literal.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[config/app.yaml: showing lines 1-5 of 50 total]\n     1│ database_url: \"postgres://localhost\"\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "config_value",
+		"value": map[string]interface{}{
+			"key":          "database_url",
+			"literal":      "postgres://localhost",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{{"file": "config/app.yaml", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("config_value key corroboration must be accepted; got Success=false, Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerDocument_Value_NumericLiteralDegrades pins the
+// degrade path for literals with no identifier-shape tokens
+// (numeric / single-character). The gate cannot meaningfully
+// cross-reference so it skips, letting the pre-existing checks
+// (file-in-ReadSet, grounder) remain the gates.
+func TestEmitAnswerDocument_Value_NumericLiteralDegrades(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/types/config.go: showing lines 1-5 of 100 total]\n     1│ const MaxRetries = 5\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "value",
+		"value": map[string]interface{}{
+			"literal":      "5",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{{"file": "internal/types/config.go", "line": 1}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("numeric literal must skip the literal-grounding gate; got Success=false, Summary=%q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_ConfigValue_RequiresKey(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	params := mustDocJSON(t, map[string]interface{}{

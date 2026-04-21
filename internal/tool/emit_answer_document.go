@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -634,6 +635,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if err := validateValueField(p.Value, false, numCites); err != nil {
 			return failWithContext("%v", err)
 		}
+		if err := validateValueLiteralGrounding(p.Value, citations, groundCtx, false); err != nil {
+			return failWithContext("%v", err)
+		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
@@ -644,6 +648,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			return failWithContext("shape=config_value requires value{key, literal, citation_ref}")
 		}
 		if err := validateValueField(p.Value, true, numCites); err != nil {
+			return failWithContext("%v", err)
+		}
+		if err := validateValueLiteralGrounding(p.Value, citations, groundCtx, true); err != nil {
 			return failWithContext("%v", err)
 		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
@@ -954,6 +961,104 @@ func validateValueField(v *types.AnswerValue, requireKey bool, numCites int) err
 		return fmt.Errorf("shape=config_value requires value.key (the config-key path)")
 	}
 	return validateCitationRef("value", 0, v.CitationRef, numCites)
+}
+
+// valueLiteralTokenRe extracts identifier-shaped tokens from
+// value.Literal / cited line text for the session-22 literal-
+// corroboration gate. Matches ASCII identifier shape (letters /
+// digits / underscore, must start with letter/underscore, min 3
+// chars). Filters out trivial substrings that would false-match
+// almost anything.
+var valueLiteralTokenRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
+
+// validateValueLiteralGrounding enforces a system-level defence
+// against the "LLM fabricates a citation to satisfy the schema when
+// the literal originated from an external source" pattern observed
+// in the session-22 customer trace (attached log contained
+// "processRequest" which the LLM then cited against
+// internal/agent/analyzer.go:1 — the cited line was "package agent",
+// zero content overlap with the literal).
+//
+// Existing citation defences (file-in-ReadSet, line-text grounder,
+// Tier-1 peer rule) check structural validity of the file:line
+// anchor but DO NOT check that the cited text actually corroborates
+// the answer literal — for shape=value / shape=config_value the
+// literal IS the answer, so this is the only gate where literal /
+// citation coherence is enforceable.
+//
+// Contract:
+//   - CitationRef == -1 bypasses the check (the LLM is honestly
+//     declaring "no grounded repo source for this literal"). This
+//     is the escape hatch for answers sourced from the attached
+//     log, external docs, or inference beyond repo code.
+//   - empty LineIndex degrades to "skip" so legacy tests and
+//     sub-agent paths without a line index keep passing.
+//   - a cited line whose ±3-line window contains at least one
+//     identifier-shape token (≥3 chars) that matches an identifier
+//     token in the literal (exact case-sensitive) → grounded.
+//   - otherwise → reject with a hint that names the escape route
+//     (citation_ref=-1 + summary caveat).
+//
+// For config_value the check unions literal tokens WITH key tokens
+// (either overlap is grounded) so a config leaf cited at the
+// definition line where only the key appears still passes.
+func validateValueLiteralGrounding(v *types.AnswerValue, citations []types.Citation, gc *ground.Context, isConfigValue bool) error {
+	if v == nil || v.CitationRef < 0 {
+		return nil
+	}
+	if v.CitationRef >= len(citations) {
+		// Out-of-range is handled by validateCitationRef upstream;
+		// do not double-report here.
+		return nil
+	}
+	if gc == nil || len(gc.LineIndex) == 0 {
+		return nil
+	}
+	cite := citations[v.CitationRef]
+	fileLines, ok := gc.LineIndex[cite.File]
+	if !ok || len(fileLines) == 0 {
+		return nil
+	}
+
+	literalTokens := valueLiteralTokenRe.FindAllString(v.Literal, -1)
+	if isConfigValue && v.Key != "" {
+		literalTokens = append(literalTokens, valueLiteralTokenRe.FindAllString(v.Key, -1)...)
+	}
+	// If the literal has no identifier-shape tokens (e.g. a pure
+	// numeric literal, a single char, or a short sentinel) the
+	// check cannot meaningfully cross-reference; degrade to skip so
+	// the pre-existing checks (file-in-ReadSet, grounder) remain
+	// the only gate.
+	if len(literalTokens) == 0 {
+		return nil
+	}
+	wanted := make(map[string]bool, len(literalTokens))
+	for _, tok := range literalTokens {
+		wanted[tok] = true
+	}
+
+	const window = 3
+	for line := cite.Line - window; line <= cite.Line+window; line++ {
+		if line <= 0 {
+			continue
+		}
+		text, ok := fileLines[line]
+		if !ok {
+			continue
+		}
+		for _, tok := range valueLiteralTokenRe.FindAllString(text, -1) {
+			if wanted[tok] {
+				return nil
+			}
+		}
+	}
+
+	escape := "If this literal originates from the attached log / external source rather than repo code, " +
+		"set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). " +
+		"Otherwise cite a real file:line where the literal appears."
+	return fmt.Errorf(
+		"value.literal %q is not corroborated by citations[%d] (%s:%d): the cited line and ±%d-line window contain no identifier overlap with the literal. %s",
+		v.Literal, v.CitationRef, cite.File, cite.Line, window, escape)
 }
 
 func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int) (*types.AnswerBoolean, error) {
