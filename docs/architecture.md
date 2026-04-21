@@ -202,6 +202,7 @@ stateDiagram-v2
 
 | Agent | Stage | 工具权限 | 职责 |
 |-------|-------|----------|------|
+| `log_triager`（条件前置） | `log_triage` | `read_file`（仅用于分页读 attached log blob） + `emit_log_triage` + `emit_log_segmentation`（两步升级才激活） | 仅在 `BusContext.AttachedLog` 非空时触发。读原始日志，emit 结构化 `LogBundle` 的 Layer 1-3（Meta / Errors / Residue）；系统侧 `logtriage.ValidateBundle` 做路径校验并派生 Layer 4。失败不阻塞主流水线（§4.5） |
 | `analyzer` | `analyze` | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`） | 1-2 轮预扫验证实体，然后一次 `emit_analysis` LLM 调用产出 v4 `RequestModel`；`ParseOutput` 跑确定性管线组装 `AnalysisIR` |
 | `explorer`（Turn A） | `explore` | `grep` / `read_file` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` / `emit_investigation_complete` / `propose_sub_agents` | 两阶段调查（Phase 0 Breadth → Phase 1 Depth），独占写 `EvidenceItems` / `AnswerChains` / `FlowFindings`，把投影快照写入 `TurnAArtifacts` |
 | `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | 一次性 LLM 调用产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO、禁止 `emit_evidence`**。工具参数校验失败有一次 retry 窗口（`ShouldStop: iteration >= 2`） |
@@ -234,6 +235,7 @@ graph TD
 
   | Agent | 终态工具 | Stop 条件 |
   |-------|---------|-----------|
+  | log_triager | `emit_log_triage`（单步）或两步 fallback 的第二轮 `emit_log_triage` | 成功 emit 并 `logtriage.ValidateBundle` 通过；两步升级由 agent controller 驱动（§4.5） |
   | analyzer | `emit_analysis` | `LastToolResult.Success == true` |
   | explorer | `emit_investigation_complete` | `LastToolResult.Success == true` |
   | extractor | 任何 emit_* | `AllToolResults` 中存在 `Success == true` |
@@ -263,12 +265,16 @@ canonicalSystemSectionOrder:
 
 canonicalUserSectionOrder:
   Retry Directive (READ FIRST), User Request,
-  Prior Conversation (reference only), Prior Stage Findings,
-  Known Facts, Extracted Answer Symbols (deterministic, authoritative),
+  Prior Conversation (reference only),
+  Log Triage — Validated Extraction, Attached Runtime Log,
+  Prior Stage Findings, Known Facts,
+  Extracted Answer Symbols (deterministic, authoritative),
   Answer Symbols (deterministic floor, may extend with cited evidence),
   Structured Evidence, Unverified Leads (not for citation),
   Dataflow Findings, Hypothesis Verdicts, Relevant Files
 ```
+
+`Log Triage — Validated Extraction` 由 `formatLogTriageStructured(ac.LogTriage)` 渲染，仅对非 `log_triager` agent 生效（producer 自己不消费自己的输出）；`Attached Runtime Log` 渲染 `AttachedLog` 原文。两段永远成对出现——结构化视图优先、原文备查。详见 §4.5。
 
 #### 子 Agent
 
@@ -291,6 +297,8 @@ type Config struct {
 
 | Skill | 所属 Agent | 核心约束 |
 |-------|-----------|----------|
+| `log-triage-skill` | log_triager | Tool allowlist：`read_file`（仅 blob pagination） + `emit_log_triage`。Prohibitions：禁止自己做路径解析（系统工作）、禁止 grep / list_files / repo_map（`logtriage.ValidateBundle` 负责仓内验证）、禁止一次 dispatch 多个 emit |
+| `log-segmentation-skill` | log_triager（两步升级） | Tool allowlist：`read_file` + `emit_log_segmentation`。当单次抽取 `Coverage < 0.3` 或日志 ≥ 32 KB 时激活；只按字节坐标切 `stack`/`caused_by`/`header`/`context`/`trace`/`noise` 段，agent controller 再逐段重调 `emit_log_triage` |
 | `analysis-skill` | analyzer | 由 `internal/skill/analysis_contract.go::BuildAnalysisSkill` 构造，字段枚举来自同文件 SSOT 表（`emit_analysis` schema 从这里读枚举）。Tool allowlist：仅 `emit_analysis` + 3 个 evidence-lite 预扫工具 |
 | `explore-skill` | explorer | 两阶段 workflow；Tool allowlist：6 个只读工具 + 3 个 emit_*。Prohibitions：无假设、无 "next steps"、无纯 prose headings |
 | `extract-skill` | extractor | Prohibition 显式禁 `emit_evidence`（Turn B 不能侵犯 Turn A 的 evidence 通道）；Tool allowlist：**仅** `emit_answer_symbol` + `emit_hypothesis_verdict` |
@@ -319,6 +327,8 @@ type Config struct {
 
 | 工具 | 独占 Agent | 作用 |
 |------|-----------|------|
+| `emit_log_triage` | log_triager | 写 `LogBundle` 的 Layer 1-3：`Meta`（lang / signals / summary） + `Errors[]`（递归 `Cause` 链） + `Residue`（未结构化的 `unknown_chunks`）。Execute 调 `logtriage.ValidateBundle` 做路径 `os.Stat` 校验并派生 Layer 4（`ResolvedFiles` / `Entities` / `IntentHint` / `Coverage`），结果挂到 `Mutable.LogTriage()` 供分析 + explorer + extractor + finalizer 消费 |
+| `emit_log_segmentation` | log_triager（两步升级 Step A） | 写按字节坐标切好的 segment 列表（kind = `stack` / `caused_by` / `header` / `context` / `trace` / `noise`），agent controller 随后对每个 `stack` / `caused_by` / `trace` 段逐段重调 `emit_log_triage`，`logtriage.MergeBundles` 合并结果 |
 | `emit_analysis` | analyzer | 一次性写 `RequestModel`（intent / scenario / complexity / keywords / entities / question_kind / answer_shape / sub_topics / answer_subject / predicates / predicate_axis）；`ParseOutput` 随后跑确定性管线组装完整 `AnalysisIR` |
 | `emit_evidence` | explorer | 批量写 `EvidenceItem`（kind / subject / object / source / line_start / line_end / anchor_kind / anchor_symbol / condition / summary）。`kind` 为 6 种 `IsLLMEmittable` 值之一。Execute 内同步调 `ground.GroundItem` 做 tier 验证 |
 | `emit_investigation_complete` | explorer | 显式完成信号。需要 `reason` + `confidence`（high/medium），`low` 被拒。Execute 内跑 **CGEC I3** `preCompleteContractCheck`（6 条预检）并在失败时 downgrade + emit Repair |
