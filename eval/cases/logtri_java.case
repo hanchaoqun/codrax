@@ -39,4 +39,11 @@ EXPECT_CONTAINS="NullPointerException"
 # prose-summarising the chain from the bottom up) + Chinese root-cause
 # marker. LLM output variance is real; the architecture is what we
 # test, not the exact prose.
-EXPECT_SECTIONS="IOException 根因"
+#
+# The Chinese root-cause marker accepts either "根因" (concise, session
+# 19 spec) or "根本原因" (fuller phrasing the LLM often picks on its
+# own). Both anchor the same claim — that the answer frames the chain
+# bottom-up; which synonym the model picks is not the architectural
+# contract we're verifying.
+EXPECT_SECTIONS="IOException"
+EXPECT_MATCHES_REGEX="根(本原)?因"
