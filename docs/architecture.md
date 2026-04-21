@@ -334,7 +334,7 @@ type Config struct {
 | `emit_investigation_complete` | explorer | 显式完成信号。需要 `reason` + `confidence`（high/medium），`low` 被拒。Execute 内跑 **CGEC I3** `preCompleteContractCheck`（6 条预检）并在失败时 downgrade + emit Repair |
 | `emit_answer_symbol` | extractor | 写答案符号 slate + `CompletenessClaim`（`complete` / `lower_bound` / `unknown`）。`extractor.ParseOutput` 跑 cardinality validator 自动降级不诚实的 `complete` claim（基线 `max(β=TerminalEvidenceCount, γ=len(MustInclude))`） |
 | `emit_hypothesis_verdict` | extractor | 为 `AnalysisIR.HypothesisSet` 的每条 hypothesis 写 status（`confirmed` / `rejected` / `inconclusive`）+ rationale + `file:line` citation。编排器 post-extract hook 通过 `AnalysisIR.MarkHypothesis` 写回 IR |
-| `emit_answer_document` | finalizer | 按 shape 写 typed `AnswerDocument`。Execute 内同步调 `ground.GroundCitation` 验证 citations（**CGEC I2**），失败时 `AddRepair(RepairReadFile)` |
+| `emit_answer_document` | finalizer | 按 shape 写 typed `AnswerDocument`。Execute 内同步调 `ground.GroundCitation` 验证 citations（**CGEC I2**），失败时 `AddRepair(RepairReadFile)`。**Literal-grounding gate (session 22)**：每个带 citation 的 shape 都要求 claim 文本（`value.literal` / `symbols[i].name` / `steps[i].description` / `boolean.rationale`）与 cited file 的 ±3 行窗口至少有一个 identifier token 重叠；否则 Execute 返回 error + 指引使用 `citation_ref=-1`。覆盖 5/6 shape（explanation 例外，prose 全域不适用） |
 | `propose_sub_agents` | explorer | 向编排器申请派生并行 sub-agent |
 
 #### ToolResult 与 blob 机制
