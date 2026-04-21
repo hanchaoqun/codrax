@@ -999,6 +999,8 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	toolRegistry.Register(&tool.EmitAnswerSymbol{})
 	toolRegistry.Register(&tool.EmitHypothesisVerdict{})
 	toolRegistry.Register(&tool.EmitAnswerDocument{})
+	toolRegistry.Register(&tool.EmitLogTriage{})
+	toolRegistry.Register(&tool.EmitLogSegmentation{})
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 
