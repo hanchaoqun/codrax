@@ -1063,10 +1063,35 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	// validated repo-relative list as bundle.ResolvedFiles. Read it
 	// read-only and prepend it to the structural ranker output.
 	var logFiles []string
+	var logAuthoritative bool
 	if ctx.Mutable != nil {
 		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
 			logFiles = bundle.ResolvedFiles
+			logAuthoritative = logBundleAuthoritativeFrames(bundle)
 		}
+	}
+
+	// Session-22 fix F1.1 — authoritative log ceiling.
+	//
+	// When the attached log is a runtime panic / crash (Signals ∩
+	// {panic, crash} non-empty) AND it resolved to ≥1 repo file,
+	// bundle.ResolvedFiles IS the answer's file set. Every frame in
+	// the stack is a concrete file:line; there is no other file the
+	// call chain could live in. Running the structural ranker would
+	// only drown the authoritative anchor under noise — the ranker's
+	// exact-anchor tier matches common method names (e.g. ParseOutput
+	// is defined on six evaluators) and promotes unrelated siblings
+	// into "Analyzer's Required Files", which the explorer then reads
+	// and the finalizer hallucinates into the answer's call-chain
+	// diagram. Observed on logtri_go-20260421-112818.
+	//
+	// For log-triage bundles with non-crash signals (oom / timeout /
+	// validation / db / network / permission / logic), the resolved
+	// files are usually seeds rather than a complete call chain, so
+	// we still run the ranker and merge — those queries benefit from
+	// ranker breadth the same way no-log queries do.
+	if logAuthoritative && len(logFiles) > 0 {
+		return append([]string(nil), logFiles...)
 	}
 
 	if len(entities) == 0 && len(logFiles) == 0 {
@@ -1087,12 +1112,39 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	return logtriage.MergeResolvedFiles(logFiles, ranked)
 }
 
+// logBundleAuthoritativeFrames reports whether a log-triage bundle
+// should be treated as the file-set ceiling: at least one runtime
+// crash signal (panic / crash) AND at least one resolved frame. The
+// predicate is shared by analyzerRequiredFiles (F1.1 ceiling) and
+// the explorer's Check 6 ranker-coverage gate (F2.1 skip) so both
+// sites read the same log-triage authority contract.
+func logBundleAuthoritativeFrames(bundle *types.LogBundle) bool {
+	if bundle == nil || len(bundle.ResolvedFiles) == 0 {
+		return false
+	}
+	for _, s := range bundle.Meta.Signals {
+		if s == types.SignalPanic || s == types.SignalCrash {
+			return true
+		}
+	}
+	return false
+}
+
 // rankAnalyzerRequiredFiles implements the two-tier ranking
 // described on analyzerRequiredFiles. Split into its own function
 // so unit tests can exercise the ranker directly with a mock
 // *repomap.Graph without going through BuildOrLoadGraph.
 func rankAnalyzerRequiredFiles(graph *repomap.Graph, entities []string) []string {
-	const maxAnalyzerRequiredFiles = 10
+	// Session-22 fix F1.2 — cap lowered from 10 to 3. The original
+	// ceiling was set when "Required Files" meant a soft hint; it now
+	// feeds the explorer's "Analyzer's Required Files" prompt block
+	// and the Check-6 ranker-coverage gate, both of which treat every
+	// entry as a first-class read target. Ten files was enough to
+	// swamp the prompt with ranker-noise siblings whenever an entity
+	// name (e.g. ParseOutput, defined on six evaluators) matched
+	// multiple exact anchors. Three matches how many candidates an
+	// operator realistically checks in a focused investigation.
+	const maxAnalyzerRequiredFiles = 3
 	if graph == nil {
 		return nil
 	}

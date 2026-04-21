@@ -205,7 +205,11 @@ func TestRankAnalyzerRequiredFiles_EmptyInputs(t *testing.T) {
 }
 
 // TestRankAnalyzerRequiredFiles_CapAtMaxFiles: the slice is capped at
-// maxAnalyzerRequiredFiles (10) regardless of tier composition.
+// maxAnalyzerRequiredFiles (3 after session-22 F1.2, down from 10 —
+// the cap now matches how many candidates a focused investigation
+// realistically opens; ten was letting ranker-noise siblings into the
+// explorer's RequiredFiles prompt and the Check-6 ranker-coverage
+// gate) regardless of tier composition.
 func TestRankAnalyzerRequiredFiles_CapAtMaxFiles(t *testing.T) {
 	fileSymbols := make(map[string][]repomap.Symbol, 20)
 	queryScores := make(map[string]float64, 20)
@@ -216,8 +220,8 @@ func TestRankAnalyzerRequiredFiles_CapAtMaxFiles(t *testing.T) {
 	}
 	graph := buildRankerGraph(fileSymbols, queryScores)
 	got := rankAnalyzerRequiredFiles(graph, []string{"nothing-matches"})
-	if len(got) > 10 {
-		t.Errorf("result must be capped at 10, got %d", len(got))
+	if len(got) > 3 {
+		t.Errorf("result must be capped at 3 (session-22 F1.2), got %d", len(got))
 	}
 }
 
