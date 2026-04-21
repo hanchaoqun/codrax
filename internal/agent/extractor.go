@@ -44,6 +44,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -541,7 +542,7 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 		if ev.Kind == types.EvidenceRegistration {
 			add(extractorSingleTokenCandidate(ev.Object), false, ev.Source, ev.LineStart, ev.Object, "terminal literal extracted from registration evidence")
 		}
-		for _, near := range extractorReadFileLiteralCandidates(lineIndex, ev.Source, ev.LineStart, ev.LineEnd) {
+		for _, near := range extractorReadFileLiteralCandidates(lineIndex, ev.Source, ctx.RepoRoot, ev.LineStart, ev.LineEnd) {
 			add(near.token, true, ev.Source, near.line, near.text, "literal extracted from read_file lines near grounded evidence")
 		}
 	}
@@ -684,8 +685,20 @@ type extractorReadFileLiteral struct {
 	token string
 }
 
-func extractorReadFileLiteralCandidates(index map[string]map[int]string, source string, lineStart, lineEnd int) []extractorReadFileLiteral {
-	source = canonicalExplorerPath(source)
+func extractorReadFileLiteralCandidates(index map[string]map[int]string, source, repoRoot string, lineStart, lineEnd int) []extractorReadFileLiteral {
+	// Canonicalise the source path against repoRoot so an evidence
+	// item citing `/abs/<root>/pkg/foo.go` resolves against a
+	// lineIndex keyed by the repo-relative `pkg/foo.go` form (and
+	// vice-versa). Without repoRoot threading the two sides landed
+	// on disjoint map keys whenever the LLM emitted a path shape
+	// different from the read_file banner's path shape. Empty
+	// repoRoot degrades to canonicalExplorerPath (historical
+	// behaviour) so tests with no real root keep passing.
+	if repoRoot != "" {
+		source = ground.CanonicalRepoRelative(source, repoRoot)
+	} else {
+		source = canonicalExplorerPath(source)
+	}
 	if source == "" || lineStart <= 0 {
 		return nil
 	}
@@ -736,7 +749,11 @@ func extractorReadFileLineIndex(ctx *types.AgentContext) map[string]map[int]stri
 		if !ok {
 			continue
 		}
-		path = canonicalExplorerPath(path)
+		if ctx.RepoRoot != "" {
+			path = ground.CanonicalRepoRelative(path, ctx.RepoRoot)
+		} else {
+			path = canonicalExplorerPath(path)
+		}
 		bodyStart := strings.IndexByte(r.Summary, '\n')
 		if path == "" || bodyStart < 0 || bodyStart >= len(r.Summary)-1 {
 			continue
