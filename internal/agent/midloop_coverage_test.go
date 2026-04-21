@@ -464,6 +464,98 @@ func TestMidLoopCheck_RankerCoverage_HandlesAbsolutePathReadSet(t *testing.T) {
 	}
 }
 
+// Session-22 F2.1: when the attached log is an authoritative panic /
+// crash AND every one of its ResolvedFiles has entered readSet, the
+// ranker-coverage nudge must stay silent — the panic frames are the
+// file-set ceiling, and pushing for more top-K reads would only drag
+// the LLM into ranker-noise siblings. Covers the logtri_go root cause
+// where `ParseOutput` (defined on six evaluators) bumped explorer.go
+// / extractor.go / sub_explorer.go into top-5 even though the panic
+// frames explicitly pointed at analyzer.go:250 and analyzer.go:320.
+func TestMidLoopCheck_RankerCoverage_SkipsOnAuthoritativeLogTriage(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "这个 panic 来自哪里？",
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		heuristics:   types.DefaultExploreHeuristics(),
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic, types.SignalCrash}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
+		// Ranker flagged 6 files — top-5 has only 1 covered (the log
+		// frame). Pre-fix this would fire and push the other 4.
+		allScoredFiles: []string{
+			"internal/agent/analyzer.go",
+			"internal/agent/explorer.go",
+			"internal/agent/extractor.go",
+			"internal/agent/sub_explorer.go",
+			"internal/agent/agent.go",
+			"internal/tool/dispatch.go",
+		},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/analyzer.go: showing lines 240-330 of 1463 total]\n...",
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      10,
+		Response:       llm.Response{Content: "frame files covered"},
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if sig.HintKey == "explorer.mid-loop.ranker-coverage" {
+		t.Fatalf("authoritative panic log with all ResolvedFiles in readSet must skip Check 6; got %+v", sig)
+	}
+}
+
+// Session-22 F2.1 (negative): when ResolvedFiles is NOT fully covered,
+// the gate should still fire even on a panic-signalled bundle — the
+// frames authority only suppresses ranker noise, it does not wave
+// away legitimate "you have not opened the anchor yet" pushback.
+func TestMidLoopCheck_RankerCoverage_FiresWhenLogFrameUnread(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "这个 panic 来自哪里？",
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		heuristics:   types.DefaultExploreHeuristics(),
+		logTriage: &types.LogBundle{
+			Meta:          types.LogMeta{Signals: []types.LogSignal{types.SignalPanic}},
+			ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		},
+		allScoredFiles: []string{
+			"internal/agent/analyzer.go",
+			"internal/agent/explorer.go",
+			"internal/agent/extractor.go",
+			"internal/agent/sub_explorer.go",
+			"internal/agent/agent.go",
+			"internal/tool/dispatch.go",
+		},
+	}
+	// Read some unrelated file — analyzer.go (the log frame) is NOT
+	// in readSet yet, so F2.1's "covered" side is unsatisfied.
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/tool/dispatch.go: showing lines 1-100 of 200 total]\n...",
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      10,
+		Response:       llm.Response{Content: "checking"},
+		LastToolResult: &history[0],
+		AllToolResults: history,
+	})
+	if sig.HintKey != "explorer.mid-loop.ranker-coverage" {
+		t.Fatalf("authoritative panic log with unread ResolvedFiles must still fire Check 6; got %+v", sig)
+	}
+}
+
 // TestExtractFileCoverage_CanonicalizesAbsoluteReadFilePath is a
 // focused unit regression: the platform-aware canonicaliser must
 // strip the repoRoot prefix from a read_file banner that carries

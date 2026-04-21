@@ -88,6 +88,16 @@ type explorerEvaluator struct {
 	// files before stopping.
 	requiredFiles []string
 
+	// logTriage is a cached pointer to the log-triage bundle from
+	// BusContext.Mutable.LogTriage(), captured at BuildInitialInstruction
+	// time. Nil when no log was attached or the pre-stage degraded.
+	// Session-22 fix F2.1: Check 6 (ranker-coverage) reads
+	// bundle.Meta.Signals + bundle.ResolvedFiles to skip the nudge when
+	// the log is an authoritative panic/crash AND the LLM has already
+	// covered every resolved frame's file — in that state the ranker's
+	// remaining top-K are noise siblings sharing method names.
+	logTriage *types.LogBundle
+
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
 	// BuildInitialInstruction time. T1c: drives ERM threshold
@@ -198,6 +208,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// the analyzer stage hasn't run yet (unit tests, sub-agent paths).
 	e.complexity = irComplexity(ctx)
 	e.requiredFiles = analyzerRequiredFilesFromIR(ctx)
+	// Session-22 fix F2.1: cache the log-triage bundle so Check 6's
+	// mid-loop gate can consult bundle.Meta.Signals + ResolvedFiles
+	// without re-reading ctx (observeMidLoop takes only a
+	// LoopObservation, which does not carry the bus context).
+	if ctx.Mutable != nil {
+		e.logTriage = ctx.Mutable.LogTriage()
+	}
 	// CGEC: capture the analyzer's AnswerSubject classification so
 	// the chain ranker can score chain terminals against the
 	// expected subject kind. Empty when AnalysisIR not yet available
@@ -459,14 +476,39 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// (simple questions don't need the multi-file push).
 		if reqFiles := e.requiredFiles; len(reqFiles) > 0 &&
 			irComplexity(ctx) != types.ComplexitySimple {
-			b.WriteString("### Analyzer's Required Files\n\n")
-			b.WriteString("The analyzer's repo_map query over the question's entities " +
-				"identified these files as structurally relevant. Start your investigation " +
-				"here and trace cross-file references outward:\n\n")
-			for _, p := range reqFiles {
-				b.WriteString("- `" + p + "`\n")
+			// Session-22 F2.2: split log-frame files from ranker files
+			// so the LLM treats panic/exception anchors as authoritative
+			// (must-read) and ranker candidates as opt-in cross-refs.
+			logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(reqFiles)
+			if len(logFiles) > 0 {
+				b.WriteString("### Frames from the attached log\n\n")
+				b.WriteString("The attached runtime log's stack frames resolved to these repo files. " +
+					"They are the authoritative anchors for the failure — read them first and base " +
+					"any call-chain / sequence diagram in the answer on the Call chain block in the " +
+					"Log Triage section, not on the Auxiliary candidates below.\n\n")
+				for _, p := range logFiles {
+					b.WriteString("- `" + p + "`\n")
+				}
+				b.WriteString("\n")
 			}
-			b.WriteString("\n")
+			if len(rankerFiles) > 0 {
+				if len(logFiles) > 0 {
+					b.WriteString("### Auxiliary candidates (opt-in cross-references)\n\n")
+					b.WriteString("The keyword ranker flagged these files as entity matches. " +
+						"Open them ONLY when the evidence chain visibly crosses file boundaries " +
+						"beyond the log-frame anchors above. Do NOT cite these in the answer's " +
+						"call-chain diagram unless you observed a direct call to or from them.\n\n")
+				} else {
+					b.WriteString("### Analyzer's Required Files\n\n")
+					b.WriteString("The analyzer's repo_map query over the question's entities " +
+						"identified these files as structurally relevant. Start your investigation " +
+						"here and trace cross-file references outward:\n\n")
+				}
+				for _, p := range rankerFiles {
+					b.WriteString("- `" + p + "`\n")
+				}
+				b.WriteString("\n")
+			}
 		}
 		if len(results) > 0 {
 			b.WriteString(formatKeywordResults(results))
@@ -1028,6 +1070,77 @@ func (e *explorerEvaluator) activeFocusAllowsFile(path string) bool {
 	return true
 }
 
+// partitionRequiredFilesByLogTriage splits files into two ordered
+// slices:
+//
+//   - logFiles: entries that came from the log-triage bundle's
+//     ResolvedFiles. These are authoritative: panic/exception frames
+//     the validator already os.Stat-verified against the repo.
+//   - rankerFiles: the remaining entries, contributed by
+//     rankAnalyzerRequiredFiles (exact-anchor tier + QueryScore
+//     fallthrough).
+//
+// Used by the three "Analyzer's Required Files" prompt blocks (F2.2)
+// to render the two groups under distinct headers with distinct
+// framing, so the LLM treats log-frame files as must-read anchors
+// and ranker files as opt-in cross-references. Shared logic prevents
+// the three blocks from drifting apart. When no log-triage bundle
+// exists OR it has no ResolvedFiles, logFiles is nil and rankerFiles
+// is a shallow copy of files (historical rendering preserved).
+func (e *explorerEvaluator) partitionRequiredFilesByLogTriage(files []string) (logFiles, rankerFiles []string) {
+	if e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 {
+		return nil, append([]string(nil), files...)
+	}
+	set := make(map[string]bool, len(e.logTriage.ResolvedFiles))
+	for _, f := range e.logTriage.ResolvedFiles {
+		set[f] = true
+	}
+	for _, f := range files {
+		if set[f] {
+			logFiles = append(logFiles, f)
+		} else {
+			rankerFiles = append(rankerFiles, f)
+		}
+	}
+	return
+}
+
+// logTriageAuthoritativeAndCovered reports whether the cached
+// log-triage bundle is an authoritative panic/crash AND every one of
+// its ResolvedFiles has entered readSet. When both hold, the Check 6
+// ranker-coverage pushback is skipped: the authoritative file set is
+// already covered, so pushing for more top-K reads would only drag
+// the LLM into ranker-noise siblings (method names like ParseOutput
+// that match many unrelated files). Mirrors the logBundleAuthoritative
+// check in analyzerRequiredFiles so both sites speak the same
+// contract.
+func (e *explorerEvaluator) logTriageAuthoritativeAndCovered(allResults []types.ToolResult) bool {
+	if e.logTriage == nil || len(e.logTriage.ResolvedFiles) == 0 {
+		return false
+	}
+	hasCrash := false
+	for _, s := range e.logTriage.Meta.Signals {
+		if s == types.SignalPanic || s == types.SignalCrash {
+			hasCrash = true
+			break
+		}
+	}
+	if !hasCrash {
+		return false
+	}
+	_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
+	for _, f := range e.logTriage.ResolvedFiles {
+		canon := canonicalExplorerPath(f)
+		if canon == "" {
+			canon = f
+		}
+		if !readSet[canon] {
+			return false
+		}
+	}
+	return true
+}
+
 func (e *explorerEvaluator) filterRequiredFiles(files []string) []string {
 	if len(files) == 0 {
 		return nil
@@ -1242,23 +1355,44 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 		b.WriteString(banner)
 	}
 	if len(e.requiredFiles) > 0 {
-		b.WriteString("### Analyzer's Required Files\n\n")
-		b.WriteString("Trace outward from the anchor through these structurally relevant files only as needed:\n\n")
-		count := 0
-		for _, f := range e.requiredFiles {
-			f = strings.TrimPrefix(f, "./")
-			if f == "" || f == anchor {
-				continue
+		// Session-22 F2.2: distinguish log-frame anchors from ranker
+		// candidates so the LLM does not conflate "ranker scored this
+		// high" with "this is part of the failure call chain".
+		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(e.requiredFiles)
+		writeGroup := func(title, framing string, group []string, cap int) int {
+			count := 0
+			for _, f := range group {
+				f = strings.TrimPrefix(f, "./")
+				if f == "" || f == anchor {
+					continue
+				}
+				if count == 0 {
+					b.WriteString(title)
+					b.WriteString(framing)
+				}
+				b.WriteString("- `" + f + "`\n")
+				count++
+				if count >= cap {
+					break
+				}
 			}
-			b.WriteString("- `" + f + "`\n")
-			count++
-			if count >= 4 {
-				break
+			if count > 0 {
+				b.WriteString("\n")
 			}
+			return count
 		}
-		if count > 0 {
-			b.WriteString("\n")
+		logWritten := writeGroup(
+			"### Frames from the attached log\n\n",
+			"These repo files resolved from the attached log's stack frames. Read them before any ranker candidates, and base the answer's call-chain diagram on the Log Triage Call chain block, not on the Auxiliary candidates:\n\n",
+			logFiles, 4,
+		)
+		auxTitle := "### Analyzer's Required Files\n\n"
+		auxFraming := "Trace outward from the anchor through these structurally relevant files only as needed:\n\n"
+		if logWritten > 0 {
+			auxTitle = "### Auxiliary candidates (opt-in cross-references)\n\n"
+			auxFraming = "Open these ONLY if the evidence chain visibly crosses file boundaries beyond the log-frame anchors above. Do NOT cite them in the answer's call-chain diagram unless you observed a direct call to or from them:\n\n"
 		}
+		writeGroup(auxTitle, auxFraming, rankerFiles, 4)
 	}
 	if len(analyzerKeywords) > 0 {
 		display := analyzerKeywords
@@ -1311,23 +1445,44 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 	b.WriteString("- Expand only to builders, factories, or direct neighbors referenced by these surfaces.\n")
 	b.WriteString("- Do NOT broaden to the full keyword-search tail until the declarative surfaces and their direct builder references are exhausted.\n\n")
 	if len(e.requiredFiles) > 0 {
-		b.WriteString("### Analyzer's Required Files\n\n")
-		b.WriteString("Trace outward through these structurally relevant neighbors only as needed:\n\n")
-		count := 0
-		for _, f := range e.requiredFiles {
-			f = strings.TrimPrefix(f, "./")
-			if f == "" {
-				continue
+		// Session-22 F2.2: same split as buildFocusedDepthStartInstruction
+		// — log-frame files get strong framing, ranker files get opt-in
+		// framing. Declarative path has no anchor-dedupe so we pass "".
+		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(e.requiredFiles)
+		writeGroup := func(title, framing string, group []string, cap int) int {
+			count := 0
+			for _, f := range group {
+				f = strings.TrimPrefix(f, "./")
+				if f == "" {
+					continue
+				}
+				if count == 0 {
+					b.WriteString(title)
+					b.WriteString(framing)
+				}
+				b.WriteString("- `" + f + "`\n")
+				count++
+				if count >= cap {
+					break
+				}
 			}
-			b.WriteString("- `" + f + "`\n")
-			count++
-			if count >= 4 {
-				break
+			if count > 0 {
+				b.WriteString("\n")
 			}
+			return count
 		}
-		if count > 0 {
-			b.WriteString("\n")
+		logWritten := writeGroup(
+			"### Frames from the attached log\n\n",
+			"These repo files resolved from the attached log's stack frames. Read them before any ranker candidates, and base the answer's call-chain diagram on the Log Triage Call chain block, not on the Auxiliary candidates:\n\n",
+			logFiles, 4,
+		)
+		auxTitle := "### Analyzer's Required Files\n\n"
+		auxFraming := "Trace outward through these structurally relevant neighbors only as needed:\n\n"
+		if logWritten > 0 {
+			auxTitle = "### Auxiliary candidates (opt-in cross-references)\n\n"
+			auxFraming = "Open these ONLY if the evidence chain visibly crosses file boundaries beyond the log-frame anchors above. Do NOT cite them in the answer's call-chain diagram unless you observed a direct call to or from them:\n\n"
 		}
+		writeGroup(auxTitle, auxFraming, rankerFiles, 4)
 	}
 	if len(analyzerKeywords) > 0 {
 		display := analyzerKeywords
@@ -2611,13 +2766,20 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	//      the nudge — legitimate "only these files matter" cases).
 	//   3. Of the top-5 ranked files, at least 3 are NOT in readSet
 	//      (the LLM is demonstrably skipping the most relevant work).
+	//   4. Session-22 F2.1: when the attached log is an authoritative
+	//      panic / crash AND the LLM has read every ResolvedFiles
+	//      entry, SKIP the nudge — the panic frames define the
+	//      file-set ceiling; the ranker's remaining top-K are noise
+	//      siblings sharing common method names. Pushing to read more
+	//      of them caused the logtri_go hallucination chain.
 	//
 	// One-shot per dispatch so the hint does not re-fire every round.
 	// Complements Check 5: Check 5 catches a single narrow-window call;
 	// Check 6 catches aggregate coverage drift.
 	if b.Len() == 0 && !e.midLoopRankerCoverageSent &&
 		iteration >= e.heuristics.MidLoopMinIteration*2 &&
-		len(e.allScoredFiles) >= 6 {
+		len(e.allScoredFiles) >= 6 &&
+		!e.logTriageAuthoritativeAndCovered(allResults) {
 		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		topK := 5
 		if topK > len(e.allScoredFiles) {
