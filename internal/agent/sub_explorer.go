@@ -88,6 +88,7 @@ type subExplorerEvaluator struct {
 	tools              *tool.Registry
 	objective          string   // user objective, cached for prompts
 	scope              []string // scoped directories
+	repoRoot           string   // repository root, cached from BuildInitialInstruction so Observe can canonicalise read_file banners with absolute paths (session 22)
 	investigationNotes []string // assistant analysis messages
 	structuredEvidence []types.EvidenceItem
 	flowFindings       []types.FlowFindingDigest
@@ -107,6 +108,7 @@ func (e *subExplorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, 
 	}
 	e.objective = ctx.Objective
 	e.scope = ctx.Constraints // scope passed as constraints in sub-agent context
+	e.repoRoot = ctx.RepoRoot
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 
@@ -188,7 +190,7 @@ func (e *subExplorerEvaluator) Observe(_ *types.AgentContext, obs LoopObservatio
 	}
 
 	// File coverage within scope.
-	_, readSet, _ := extractFileCoverage(obs.AllToolResults)
+	_, readSet, _ := extractFileCoverage(obs.AllToolResults, e.repoRoot)
 
 	// If we haven't read any files yet, push HARD.
 	if len(readSet) == 0 && obs.ContinuationsUsed < 3 {
@@ -264,7 +266,7 @@ func (e *subExplorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []l
 
 	// Multi-dimensional quality check (same criteria as main explorer,
 	// but with relaxed thresholds for scoped sub-tasks).
-	_, readSet, _ := extractFileCoverage(toolResults)
+	_, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
 	directCount := 0
 	for _, note := range e.investigationNotes {
 		for _, line := range strings.Split(note, "\n") {
@@ -366,7 +368,7 @@ func buildScopedSearchGraph(ctx *types.AgentContext, toolResults []types.ToolRes
 		}
 		graph = g
 	}
-	_, readSet, _ := extractFileCoverage(toolResults)
+	_, readSet, _ := extractFileCoverage(toolResults, ctx.RepoRoot)
 	candidateSet := make(map[string]bool)
 	for file := range readSet {
 		candidateSet[file] = true

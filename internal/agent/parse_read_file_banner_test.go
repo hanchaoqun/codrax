@@ -116,7 +116,7 @@ func TestExtractFileCoverage_PopulatesRanges(t *testing.T) {
 		{ToolName: "read_file", Success: false, // failed read is ignored
 			Summary: "[c.go: showing lines 1-10 of 10 total]\n"},
 	}
-	_, readSet, ranges := extractFileCoverage(history)
+	_, readSet, ranges := extractFileCoverage(history, "")
 	if !readSet["a.go"] || !readSet["b.go"] {
 		t.Fatalf("readSet missing entries: %v", readSet)
 	}
@@ -143,7 +143,7 @@ func TestExtractFileCoverage_CanonicalizesWindowsReadFilePaths(t *testing.T) {
 		},
 	}
 
-	_, readSet, ranges := extractFileCoverage(history)
+	_, readSet, ranges := extractFileCoverage(history, "")
 	if !readSet["internal/tool/repomap/tool.go"] {
 		t.Fatalf("readSet should store canonical slash path, got %v", readSet)
 	}

@@ -1740,7 +1740,7 @@ func (e *explorerEvaluator) observePrimaryRead(iteration int, history []types.To
 	if len(primary) == 0 {
 		return
 	}
-	_, readSet, _ := extractFileCoverage(history)
+	_, readSet, _ := extractFileCoverage(history, e.repoRoot)
 	for _, pf := range primary {
 		if readSetContains(readSet, pf) {
 			e.primaryReadSeen = true
@@ -2158,7 +2158,7 @@ func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) Lo
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return LoopSignal{}
 	}
-	_, readSet, _ := extractFileCoverage(obs.AllToolResults)
+	_, readSet, _ := extractFileCoverage(obs.AllToolResults, e.repoRoot)
 	if len(readSet) == 0 {
 		return LoopSignal{}
 	}
@@ -2460,7 +2460,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// tuning — they are tied to the enumeration question class, not
 	// df1.
 	if e.isEnumerationQuery {
-		discovered, readSet, _ := extractFileCoverage(allResults)
+		discovered, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
 		if len(scope) > 0 {
 			readCount, coverage, unread := coverageSnapshot(scope, readSet)
@@ -2513,7 +2513,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// took an earlier injection slot.
 	if !e.midLoopSymbolRefInjected &&
 		len(e.investigationNotes) >= e.heuristics.MidLoopMinIteration {
-		_, readSet, _ := extractFileCoverage(allResults)
+		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		gaps := detectCrossFileSymbolGaps(
 			e.investigationNotes, e.searchResult.Graph, readSet, 3)
 		if len(gaps) > 0 {
@@ -2604,13 +2604,19 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if b.Len() == 0 && !e.midLoopRankerCoverageSent &&
 		iteration >= e.heuristics.MidLoopMinIteration*2 &&
 		len(e.allScoredFiles) >= 6 {
-		_, readSet, _ := extractFileCoverage(allResults)
+		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		topK := 5
 		if topK > len(e.allScoredFiles) {
 			topK = len(e.allScoredFiles)
 		}
 		var missing []string
 		for _, f := range e.allScoredFiles[:topK] {
+			// allScoredFiles entries are always repo-relative (keyword
+			// search emits relative paths). readSet is now also always
+			// repo-relative because extractFileCoverage canonicalises
+			// via ground.CanonicalRepoRelative with e.repoRoot. Both
+			// map keys speak the same form, so a direct lookup works
+			// without an absolute-vs-relative reconciliation layer.
 			canon := canonicalExplorerPath(f)
 			if canon == "" {
 				canon = f
@@ -2618,9 +2624,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 			if isNoisePath(canon) {
 				continue
 			}
-			// scoredFileCovered handles both the repo-relative and the
-			// absolute-path forms the LLM may have used in read_file.
-			if scoredFileCovered(readSet, canon) {
+			if readSet[canon] {
 				continue
 			}
 			missing = append(missing, f)
@@ -2671,7 +2675,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// independence; we just break the implicit low-parallelism
 	// rhythm that the prior iterations established.
 	if b.Len() == 0 && !e.midLoopParallelInjected && e.midLoopSerialStreak >= e.heuristics.SerialStreakThreshold {
-		discovered, readSet, _ := extractFileCoverage(allResults)
+		discovered, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 		unreadCount := 0
 		for _, f := range discovered {
 			if !readSetContains(readSet, f) && !isNoisePath(f) {
@@ -2824,7 +2828,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// Before transitioning to Phase 2, check if Phase 1 actually
 		// discovered any files. If all greps returned zero results,
 		// push the LLM to retry with broader patterns before moving on.
-		discovered, _, _ := extractFileCoverage(history)
+		discovered, _, _ := extractFileCoverage(history, e.repoRoot)
 		if len(discovered) == 0 && e.broadenAttempts < e.heuristics.Phase0MaxBroadenAttempts {
 			e.broadenAttempts++
 			return LoopSignal{
@@ -2855,7 +2859,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 		// 3-1=2 < MinInjectInterval=3) and the explorer exits Phase 0
 		// without ever delivering Phase 2 instructions to the LLM.
 		if !e.phase0ExtraRound {
-			discovered, _, _ = extractFileCoverage(history)
+			discovered, _, _ = extractFileCoverage(history, e.repoRoot)
 			usedGrep := false
 			usedOtherDiscovery := false
 			for _, r := range history {
@@ -2953,7 +2957,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	// Phase 1 (depth read): use runtime file coverage as guidance.
 	// Merge grep-discovered files with pre-scanned top files so the
 	// coverage check catches high-scoring files the LLM didn't grep.
-	discovered, readSet, _ := extractFileCoverage(history)
+	discovered, readSet, _ := extractFileCoverage(history, e.repoRoot)
 	// Inject pre-scanned files that aren't already in discovered.
 	seen := make(map[string]bool, len(discovered))
 	for _, f := range discovered {
@@ -3672,7 +3676,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// EvidenceClosure.HasReadLine so a paginated read that covered
 	// only lines 1-200 cannot grant coverage to a chain anchored at
 	// line 500.
-	_, cvReadSet, cvReadRanges := extractFileCoverage(toolResults)
+	_, cvReadSet, cvReadRanges := extractFileCoverage(toolResults, e.repoRoot)
 	// CGEC: pass the per-Run EvidenceClosure so the chain promotion
 	// enforcer can demote chains anchored outside ReadSet and queue
 	// the missing files as PendingReads on the closure. Update the
@@ -3692,7 +3696,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// already been trying (so the retry hint can surface them as
 	// "these didn't work — try different forms"). De-dup by
 	// AddRepair chokepoint.
-	discoveredFiles, _, _ := extractFileCoverage(toolResults)
+	discoveredFiles, _, _ := extractFileCoverage(toolResults, e.repoRoot)
 	if cvClosure != nil &&
 		e.phase == 0 &&
 		e.broadenAttempts >= e.heuristics.Phase0MaxBroadenAttempts &&
@@ -3720,7 +3724,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// 3. Evidence quality: count structured evidence tags in notes.
 	//    Require at least 2 [DIRECT]/[REGISTRATION] entries (ground-truth facts).
 	// 4. File relevance: weight read files by their keyword search rank.
-	discovered, readSet, _ := extractFileCoverage(toolResults)
+	discovered, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
 	scope := e.coverageScopeFiles(discovered, readSet, strings.Join(e.investigationNotes, "\n"))
 	scopeReadCount, scopeCoverage, _ := coverageSnapshot(scope, readSet)
 	coverage := 0.0
@@ -4095,7 +4099,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		return
 	}
 
-	_, readSet, _ := extractFileCoverage(toolResults)
+	_, readSet, _ := extractFileCoverage(toolResults, e.repoRoot)
 
 	// T1.1: two-phase dataflow decision. Build concrete values + chains
 	// early, merge with parsed LLM evidence, run ERM satisfaction check on
@@ -7966,7 +7970,29 @@ func parseReadFileBanner(summary string) (path string, rng types.LineRange, tota
 	return path, types.LineRange{Start: startLine, End: endLine}, total, true
 }
 
-func extractFileCoverage(history []types.ToolResult) (
+// extractFileCoverage walks a tool-result history and extracts the
+// discovered/read file sets the explorer uses for coverage gates.
+//
+// repoRoot upgrade (session 22): an LLM-supplied read_file path
+// may be absolute (`/mnt/d/opt/codrax-main/internal/...`), a
+// leading-./ relative form (`./internal/...`), or already
+// repo-relative. Without a repo-root-aware canonicaliser these
+// forms land on DIFFERENT map keys — readSet ends up with
+// `/mnt/d/opt/codrax-main/internal/agent/agent.go` while the
+// explorer's allScoredFiles / preScannedFiles / ERM closure all
+// speak in `internal/agent/agent.go`. Every coverage check keyed
+// off readSet then silently misses legitimate reads, and the
+// explorer exits with demonstrably low coverage despite the LLM
+// having actually opened the file.
+//
+// ground.CanonicalRepoRelative is the platform-aware canonicaliser
+// (Windows volumes case-insensitive, POSIX slash-form preserved,
+// strips an absolute-prefix that matches repoRoot). An empty
+// repoRoot is a safe default — the function degrades to slash-form
+// cleanup, matching the pre-session-22 behaviour, so unit tests
+// that don't care about repo roots keep passing with
+// repoRoot="".
+func extractFileCoverage(history []types.ToolResult, repoRoot string) (
 	discovered []string,
 	readSet map[string]bool,
 	readRanges map[string][]types.LineRange,
@@ -7974,6 +8000,15 @@ func extractFileCoverage(history []types.ToolResult) (
 	readSet = make(map[string]bool)
 	readRanges = make(map[string][]types.LineRange)
 	discoveredSet := make(map[string]bool)
+	canon := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		if repoRoot != "" {
+			return ground.CanonicalRepoRelative(p, repoRoot)
+		}
+		return canonicalExplorerPath(p)
+	}
 
 	for _, r := range history {
 		if !r.Success {
@@ -8011,7 +8046,7 @@ func extractFileCoverage(history []types.ToolResult) (
 				if idx := firstSeparatorBeforeLineno(path); idx > 0 {
 					path = path[:idx]
 				}
-				path = canonicalExplorerPath(path)
+				path = canon(path)
 				// Defense-in-depth: reject anything that doesn't look
 				// like a real file path. A real path has either a
 				// directory separator or a file extension (a `.` after
@@ -8036,7 +8071,7 @@ func extractFileCoverage(history []types.ToolResult) (
 			// readRanges so CGEC I1 chain promotion can distinguish a
 			// partial paginated read from a full read.
 			if path, rng, _, ok := parseReadFileBanner(r.Summary); ok {
-				path = canonicalExplorerPath(path)
+				path = canon(path)
 				if path != "" {
 					readSet[path] = true
 					readRanges[path] = append(readRanges[path], rng)
@@ -8052,7 +8087,7 @@ func extractFileCoverage(history []types.ToolResult) (
 				if path == "" || path[0] == '[' {
 					continue
 				}
-				path = strings.TrimPrefix(path, "./")
+				path = canon(path)
 				if !isValidFilePath(path) || isNoisePath(path) {
 					continue
 				}
@@ -8669,37 +8704,6 @@ func detectPartiallyReadSymbols(history []types.ToolResult, graph *repomap.Graph
 		hints = hints[:5]
 	}
 	return hints
-}
-
-// scoredFileCovered reports whether a ranker-scored (repo-relative)
-// file is present in readSet under any canonicalisation — direct
-// hit OR absolute-path form where the scored path is a trailing
-// suffix.
-//
-// Why the suffix check matters: canonicalExplorerPath only strips
-// "./" and normalises separators; it does NOT strip a repo-root
-// prefix. When the LLM emits an absolute path in read_file (e.g.
-// `/mnt/d/opt/codrax-main/internal/agent/agent.go`, observed in a
-// session-22 customer trace) the readSet key carries that prefix
-// while allScoredFiles carries the repo-relative form
-// `internal/agent/agent.go`. Without suffix-matching, a legitimate
-// coverage hit looks like a miss and the Check 6 pushback
-// false-positives. Requiring a leading '/' before the scored
-// suffix prevents over-matching (e.g. "a.go" vs "noagent.go").
-func scoredFileCovered(readSet map[string]bool, scoredFile string) bool {
-	if scoredFile == "" {
-		return false
-	}
-	if readSet[scoredFile] {
-		return true
-	}
-	suffix := "/" + scoredFile
-	for k := range readSet {
-		if strings.HasSuffix(k, suffix) {
-			return true
-		}
-	}
-	return false
 }
 
 // structuralIntentTokens are the surface forms the LLM uses when it

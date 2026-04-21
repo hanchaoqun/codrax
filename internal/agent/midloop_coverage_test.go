@@ -397,19 +397,37 @@ func TestMidLoopCheck_RankerCoverage_NoFireEarly(t *testing.T) {
 }
 
 // TestMidLoopCheck_RankerCoverage_HandlesAbsolutePathReadSet pins
-// the session-22 defensive fix on Check 6: when the LLM reads via
-// an absolute path (e.g. "/mnt/d/opt/codrax-main/internal/agent/…"
-// observed in a customer trace), the readSet key carries the
-// absolute prefix while allScoredFiles stays repo-relative. Without
-// the suffix-matcher in scoredFileCovered, Check 6 would
-// false-positive the scored file as "unread" and push back on a
-// coverage gap that does not exist.
+// the session-22 canonicalisation fix on Check 6: when the LLM
+// reads via an absolute path (e.g.
+// "/mnt/d/opt/codrax-main/internal/agent/…" observed in a customer
+// trace), the historical canonicalExplorerPath only stripped "./"
+// and normalised separators — it left the absolute-prefix intact,
+// so readSet keys and allScoredFiles (repo-relative) ended up on
+// disjoint map keys and every legitimate coverage match was
+// invisible.
+//
+// After the fix, extractFileCoverage takes repoRoot and routes
+// every path through ground.CanonicalRepoRelative, which is the
+// same platform-aware canonicaliser session 8 introduced for
+// read-file banners, evidence sources, and citation paths. The
+// explorer evaluator stores repoRoot on the struct (e.repoRoot)
+// and passes it to extractFileCoverage; readSet keys are then
+// always repo-relative and a direct readSet[f] lookup just works.
+//
+// This test pins that reading via absolute path with e.repoRoot
+// set does NOT false-positive the ranker-coverage hint — the same
+// repo-relative allScoredFiles entries resolve against the
+// absolute-banner readSet correctly.
 func TestMidLoopCheck_RankerCoverage_HandlesAbsolutePathReadSet(t *testing.T) {
 	eval := &explorerEvaluator{
 		phase:        1,
 		userQuestion: "explorer 是怎么调用 subagent 的",
 		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		heuristics:   types.DefaultExploreHeuristics(),
+		// Key to the test: repoRoot mirrors the customer-trace
+		// absolute prefix. extractFileCoverage will now strip this
+		// prefix from every read_file banner path.
+		repoRoot: "/mnt/d/opt/codrax-main",
 		allScoredFiles: []string{
 			"internal/agent/sub_explorer.go",
 			"internal/agent/subagent_runtime.go",
@@ -442,23 +460,50 @@ func TestMidLoopCheck_RankerCoverage_HandlesAbsolutePathReadSet(t *testing.T) {
 		AllToolResults: history,
 	})
 	if sig.HintKey == "explorer.mid-loop.ranker-coverage" {
-		t.Fatalf("absolute-path readSet should still match repo-relative allScoredFiles; got false-positive %+v", sig)
+		t.Fatalf("absolute-path readSet with repoRoot set should resolve against repo-relative allScoredFiles; got false-positive %+v", sig)
 	}
 }
 
-// TestScoredFileCovered_SuffixMatchDoesNotOverMatch is a focused
-// unit test: the suffix matcher must require a leading '/' before
-// the scored path so shorter-path false positives (e.g. "a.go"
-// matching "noagent.go") do not occur.
-func TestScoredFileCovered_SuffixMatchDoesNotOverMatch(t *testing.T) {
-	readSet := map[string]bool{
-		"internal/tool/noagent.go": true,
+// TestExtractFileCoverage_CanonicalizesAbsoluteReadFilePath is a
+// focused unit regression: the platform-aware canonicaliser must
+// strip the repoRoot prefix from a read_file banner that carries
+// an absolute path, so readSet entries match the repo-relative
+// form every other explorer index speaks. Without repoRoot
+// threading, this was the root cause of the customer-trace
+// coverage mismatch.
+func TestExtractFileCoverage_CanonicalizesAbsoluteReadFilePath(t *testing.T) {
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[/mnt/d/opt/codrax-main/internal/agent/agent.go: showing lines 527-586 of 1549 total]\n...",
+		},
 	}
-	// "agent.go" must NOT be reported as covered just because
-	// "noagent.go" contains it as a tail substring — the suffix
-	// check requires a leading '/'.
-	if scoredFileCovered(readSet, "agent.go") {
-		t.Errorf("suffix matcher should require a leading / separator; 'agent.go' matched 'noagent.go' which is wrong")
+	_, readSet, _ := extractFileCoverage(history, "/mnt/d/opt/codrax-main")
+	if !readSet["internal/agent/agent.go"] {
+		t.Fatalf("absolute path under repoRoot must be reduced to repo-relative form; got readSet=%v", readSet)
+	}
+	if readSet["/mnt/d/opt/codrax-main/internal/agent/agent.go"] {
+		t.Errorf("readSet should not retain the absolute form after canonicalisation; got %v", readSet)
+	}
+}
+
+// TestExtractFileCoverage_EmptyRepoRootDegradesGracefully pins the
+// backward-compatible behaviour: callers that pass "" (unit tests
+// without a real repo root, pre-session-22 call sites) should see
+// the historical canonicalExplorerPath behaviour (strip "./" +
+// normalise separators). No panic, no regression.
+func TestExtractFileCoverage_EmptyRepoRootDegradesGracefully(t *testing.T) {
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[./internal/agent/agent.go: showing lines 1-10 of 100 total]\n...",
+		},
+	}
+	_, readSet, _ := extractFileCoverage(history, "")
+	if !readSet["internal/agent/agent.go"] {
+		t.Fatalf("empty repoRoot must still strip './' via canonicalExplorerPath; got %v", readSet)
 	}
 }
 
