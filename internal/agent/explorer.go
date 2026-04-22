@@ -4177,18 +4177,33 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Fail-open: if filtering removes everything (no primary-file
 	// evidence survived — unusual, implies the investigation never
 	// touched the target file), the unfiltered list is used so we
-	// don't block the finalizer on an empty set. Only applied for
-	// mechanism; enumeration / registration / call_chain are unaffected.
-	if strings.EqualFold(strings.TrimSpace(irQuestionKind(ctx)), "mechanism") {
+	// don't block the finalizer on an empty set.
+	//
+	// Extended to single-subject enumeration (2026-04-22 s1a audit):
+	// questions like "gate.Run 的 7 项检查" resolve to exactly one
+	// primary file (gate.go). Consumers and orthogonal-concept files
+	// (classifyGateFailure / HypRejected / extractor.go) leaked into
+	// Structured Evidence via the LLM's second-half emit_evidence burst
+	// and drowned the enumeration items for the finalizer. When
+	// primary file set size is 1 the answer is structurally confined
+	// to that file, so the filter is safe to apply; when primary > 1
+	// (cross-package enumeration like "list all agents") the filter
+	// would incorrectly narrow scope — registration/call_chain/
+	// multi-primary enumeration stay unaffected.
+	questionKind := strings.ToLower(strings.TrimSpace(irQuestionKind(ctx)))
+	if questionKind == "mechanism" || questionKind == "enumeration" {
 		if primary := e.primaryEntityFiles(); len(primary) > 0 {
-			filtered := filterEvidenceByPrimaryFiles(rankedEvidence, primary)
-			if len(filtered) > 0 {
-				logging.Debug("[explorer] mechanism-kind evidence filter: %d → %d items (primary files: %v)",
-					len(rankedEvidence), len(filtered), primary)
-				rankedEvidence = filtered
-			} else {
-				logging.Debug("[explorer] mechanism-kind evidence filter: 0 items match primary files %v, keeping full set (%d)",
-					primary, len(rankedEvidence))
+			applyFilter := questionKind == "mechanism" || len(primary) == 1
+			if applyFilter {
+				filtered := filterEvidenceByPrimaryFiles(rankedEvidence, primary)
+				if len(filtered) > 0 {
+					logging.Debug("[explorer] %s-kind evidence filter: %d → %d items (primary files: %v)",
+						questionKind, len(rankedEvidence), len(filtered), primary)
+					rankedEvidence = filtered
+				} else {
+					logging.Debug("[explorer] %s-kind evidence filter: 0 items match primary files %v, keeping full set (%d)",
+						questionKind, primary, len(rankedEvidence))
+				}
 			}
 		}
 	}
