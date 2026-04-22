@@ -284,12 +284,13 @@
 # Per-agent behavioral limits: iteration caps, tool-history budget,
 # LoopPolicy defaults, correction retries, investigation_complete policy.
 
-# ReAct loop ceiling for all agents. Default 15 — observed explorer
-# completes in 6–13 iterations on healthy runs. Multi-topic scaling
-# in orchestrator.go adds SubTopicExplorerBudgetExtra × subTopics on
-# top, capped at 35. Bump back to 20+ if your repo regularly needs
-# deeper investigation per dispatch.
-# agent_max_iterations: 15
+# ReAct loop ceiling for all agents. Default 20. When the loop hits
+# this ceiling while the LLM is still tool-calling, the dispatch is
+# hard-cut — Fallback S1 only rescues soft-stops, not ceiling cuts.
+# Multi-topic scaling in orchestrator.go adds SubTopicExplorerBudgetExtra
+# × subTopics on top, capped at 35; single-topic questions get no
+# scaling, so lowering this trades iteration headroom for wall time.
+# agent_max_iterations: 20
 
 # Cumulative byte budget for "tool" role messages before pruning.
 # agent_max_tool_history_bytes: 153600

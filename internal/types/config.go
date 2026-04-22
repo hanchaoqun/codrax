@@ -149,14 +149,13 @@ func DefaultRetryBudgetByKindSettings() RetryBudgetByKindSettings {
 // "use code default" — see DefaultAgentSettings().
 type AgentSettings struct {
 	// MaxIterations is the ReAct loop ceiling for all agents.
-	// Default 15 — observed explorer completes in 6–13 iterations
-	// on healthy runs; iter>15 activity is almost always redundant
-	// re-emit of existing evidence. Fallback S1 (ERM satisfied +
-	// terminal evidence present) accepts an evaluator stop without
-	// emit_investigation_complete, so a hard iter=15 ceiling does
-	// not strand runs that forgot the tool call. Multi-topic scaling
-	// in orchestrator.go adds SubTopicExplorerBudgetExtra × subTopics
-	// on top, capped at 35.
+	// Default 20. When i reaches maxIter the ReAct for-loop exits
+	// directly and ParseOutput builds StageOutput from whatever was
+	// collected — there is NO fallback at the ceiling (explorer's
+	// Fallback S1 only fires on LLM soft-stop, not on hard truncation
+	// of an actively tool-calling dispatch). Multi-topic scaling in
+	// orchestrator.go adds SubTopicExplorerBudgetExtra × subTopics
+	// on top, capped at 35; single-topic questions get no scaling.
 	MaxIterations int `yaml:"max_iterations"`
 
 	// MaxToolHistoryBytes is the cumulative byte budget for "tool"
@@ -308,7 +307,7 @@ const (
 func DefaultAgentSettings() AgentSettings {
 	t := true
 	return AgentSettings{
-		MaxIterations:                 15,
+		MaxIterations:                 20,
 		MaxToolHistoryBytes:           150 * 1024,
 		LoopMinInjectInterval:         3,
 		LoopMaxContinuations:          5,
