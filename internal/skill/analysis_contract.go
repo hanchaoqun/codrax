@@ -349,7 +349,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("## Semantic predicates (REQUIRED, all five fields)\n\n")
 	of.WriteString("In `predicates`, judge the user's question along five language-neutral axes. Every field MUST be present and MUST be true OR false (no missing fields). Read the user's wording in whatever language they wrote it:\n")
 	of.WriteString("- `is_scalar_answer`: true when the answer is a single scalar (a number, a literal, a path), not a set or sequence\n")
-	of.WriteString("- `is_count_question`: true when the user is asking 'how many X' (or the equivalent in their language). Implies is_scalar_answer\n")
+	of.WriteString("- `is_count_question`: true when the answer is a single number that must be computed by aggregating values across multiple source units (counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree). Implies is_scalar_answer. False when the answer is a number that already exists as a single source-code literal (const declaration, default value, enum ordinal) — that case is is_scalar_answer=true without is_count_question\n")
 	of.WriteString("- `is_cross_component`: true when the user is comparing or relating two distinct subsystems / components / types\n")
 	of.WriteString("- `is_relational_lookup`: true when the user is filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')\n")
 	of.WriteString("- `is_category_enumeration`: true when the user is asking 'what kinds / types / categories of X exist'\n\n")

@@ -278,10 +278,17 @@ type SemanticPredicates struct {
 	// measurement-scalar carve-out that strips the citation gate.
 	IsScalarAnswer bool `json:"is_scalar_answer"`
 
-	// IsCountQuestion: the user is asking "how many X" / "X 的数量" /
-	// equivalent in any language. Implies IsScalarAnswer=true.
-	// Drives intent downgrade enumerate→return_value and the
-	// measurement-scalar carve-out.
+	// IsCountQuestion: the answer is a single number that must be
+	// computed by aggregating values across multiple source units —
+	// counting items, summing lines of code, totalling bytes across a
+	// directory tree, or any similar aggregation where no single
+	// source-code literal holds the answer. Implies IsScalarAnswer=true.
+	// False when the answer is a number that already exists as a single
+	// literal (a const declaration, a default value, an enum ordinal):
+	// that case is IsScalarAnswer=true without IsCountQuestion. Drives
+	// intent downgrade enumerate→return_value and the measurement-scalar
+	// carve-out (which strips the citation gate because an aggregated
+	// number has no file:line to cite).
 	IsCountQuestion bool `json:"is_count_question"`
 
 	// IsCrossComponent: the user is comparing or relating two distinct
