@@ -9,11 +9,9 @@ import (
 // every registered skill config for implementation-jargon tokens from
 // InternalTermsBlocklist.
 //
-// Batch 1 (report-only): violations are reported via t.Log but do not
-// fail the build. The collected violation list becomes the work queue
-// for batches 2/3/4. Each later batch purges its category, then flips
-// the corresponding tokens to t.Errorf so a regression cannot be
-// re-introduced.
+// Batch 1 (report-only): violations were reported via t.Log. Batch 2A
+// cleaned the skill-config surfaces and batch 4B flipped this gate to
+// t.Fatal so any regression aborts the test run.
 //
 // Scope:
 //   - skill.BuildAnalysisSkill() — the analyzer's declarative contract
@@ -50,13 +48,18 @@ func TestNoInternalTermsInPrompts(t *testing.T) {
 	}
 
 	// Batches 2A/2B purged the categories currently covered here; the
-	// gate is now t.Errorf so any regression fails CI. Adding a new
+	// gate is t.Fatal so any regression fails CI. Adding a new
 	// blocklist token without first cleaning the existing surfaces
 	// will also fail — by design, so the one-sided cleanup cannot land.
-	t.Errorf("TestNoInternalTermsInPrompts found %d violation(s); see docs/prompt_glossary.md for replacements:", len(hits))
+	//
+	// The per-violation lines are reported via t.Errorf before the
+	// closing t.Fatalf so the full violation list is visible in a
+	// single test run (t.Fatalf on the summary first would abort
+	// before the list prints).
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
+	t.Fatalf("TestNoInternalTermsInPrompts found %d violation(s); see docs/prompt_glossary.md for replacements", len(hits))
 }
 
 // scanConfig walks every LLM-facing string in a Config and returns

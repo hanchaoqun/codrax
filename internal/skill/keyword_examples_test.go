@@ -78,10 +78,12 @@ func TestNoKeywordExamplesInEnums(t *testing.T) {
 		return
 	}
 
-	t.Errorf("TestNoKeywordExamplesInEnums found %d keyword-example leak(s); replace with structural descriptions per docs/prompt_glossary.md §7:", len(hits))
+	// Per-violation lines via t.Errorf first, summary via t.Fatalf
+	// last so the full list is visible in a single test run.
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
+	t.Fatalf("TestNoKeywordExamplesInEnums found %d keyword-example leak(s); replace with structural descriptions per docs/prompt_glossary.md §7", len(hits))
 }
 
 // phraseQuote wraps a phrase in quotes, doubled if the phrase itself

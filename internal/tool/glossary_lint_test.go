@@ -19,8 +19,8 @@ import (
 // map[string]any tree so descriptions nested inside properties /
 // items / anyOf / oneOf are all covered.
 //
-// Batch 1 policy: report-only (t.Log). Batch 2B promotes the already
-// cleaned categories to t.Errorf.
+// Batch 1 policy: report-only (t.Log). Batch 2B cleaned the tool-schema
+// surfaces and batch 4B promoted the gate to t.Fatal.
 func TestNoInternalTermsInToolSchemas(t *testing.T) {
 	// The list of emit_* tools the LLM sees. Kept explicit rather
 	// than pulling from the Registry so this test does not depend on
@@ -62,10 +62,12 @@ func TestNoInternalTermsInToolSchemas(t *testing.T) {
 		return
 	}
 
-	t.Errorf("TestNoInternalTermsInToolSchemas found %d violation(s); see docs/prompt_glossary.md for replacements:", len(hits))
+	// Per-violation lines via t.Errorf first, summary via t.Fatalf
+	// last so the full list is visible in a single test run.
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
+	t.Fatalf("TestNoInternalTermsInToolSchemas found %d violation(s); see docs/prompt_glossary.md for replacements", len(hits))
 }
 
 // scanJSONDescriptions walks a decoded JSON schema tree and scans

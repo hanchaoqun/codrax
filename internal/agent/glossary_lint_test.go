@@ -37,8 +37,8 @@ import (
 // Comment-only mentions (Go line / block comments) are not
 // BasicLit(STRING) nodes, so they are implicitly ignored.
 //
-// Batch 1 policy: report-only (t.Log). Batch 2B/4B promote cleaned
-// categories to t.Errorf.
+// Batch 1 policy: report-only (t.Log). Batch 2B cleaned the hint/error
+// surfaces and batch 4B promoted the gate to t.Fatal.
 func TestNoInternalTermsInHints(t *testing.T) {
 	files, err := listAgentGoFiles(".")
 	if err != nil {
@@ -97,10 +97,12 @@ func TestNoInternalTermsInHints(t *testing.T) {
 		return
 	}
 
-	t.Errorf("TestNoInternalTermsInHints found %d violation(s) (logger-arg literals excluded); see docs/prompt_glossary.md for replacements:", len(hits))
+	// Per-violation lines via t.Errorf first, summary via t.Fatalf
+	// last so the full list is visible in a single test run.
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
+	t.Fatalf("TestNoInternalTermsInHints found %d violation(s) (logger-arg literals excluded); see docs/prompt_glossary.md for replacements", len(hits))
 }
 
 // collectLoggedStringPositions walks the AST once and returns the
