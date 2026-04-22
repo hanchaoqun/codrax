@@ -344,7 +344,8 @@ func TestEmitAnswerDocument_Value_Happy(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
 	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "value",
+		"shape":   "value",
+		"summary": "the explorer agent's identifier name in the skill registry, derived from the registration call at the cited location.",
 		"value": map[string]interface{}{
 			"literal":      "explorer",
 			"citation_ref": 0,
@@ -448,7 +449,8 @@ func TestEmitAnswerDocument_Value_AcceptsCorroboratedCitation(t *testing.T) {
 		Summary:  "[internal/skill/defaults.go: showing lines 10-15 of 200 total]\n    10│ skill.Register(\"explorer\", ...)\n    11│ \n    12│ // explorer is the Turn A agent\n",
 	})
 	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "value",
+		"shape":   "value",
+		"summary": "the explorer agent name as registered with the skill bus, looked up via the Register call at the cited file:line.",
 		"value": map[string]interface{}{
 			"literal":      "explorer",
 			"citation_ref": 0,
@@ -478,7 +480,8 @@ func TestEmitAnswerDocument_ConfigValue_KeyCorroboratesAsLiteral(t *testing.T) {
 		Summary:  "[config/app.yaml: showing lines 1-5 of 50 total]\n     1│ database_url: \"postgres://localhost\"\n",
 	})
 	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "config_value",
+		"shape":   "config_value",
+		"summary": "the database connection URL configured for the application via the database_url key in config/app.yaml.",
 		"value": map[string]interface{}{
 			"key":          "database_url",
 			"literal":      "postgres://localhost",
@@ -506,7 +509,8 @@ func TestEmitAnswerDocument_Value_NumericLiteralDegrades(t *testing.T) {
 		Summary:  "[internal/types/config.go: showing lines 1-5 of 100 total]\n     1│ const MaxRetries = 5\n",
 	})
 	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "value",
+		"shape":   "value",
+		"summary": "the MaxRetries constant defined at internal/types/config.go controls the retry loop ceiling for outbound calls.",
 		"value": map[string]interface{}{
 			"literal":      "5",
 			"citation_ref": 0,
@@ -888,7 +892,8 @@ func TestEmitAnswerDocument_ZeroIsValidCitationRef(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
 	params := mustDocJSON(t, map[string]interface{}{
-		"shape": "value",
+		"shape":   "value",
+		"summary": "the literal 42 returned at a.go:1 is the load-bearing constant the question asks about, cited via pool index 0.",
 		"value": map[string]interface{}{
 			"literal":      "42",
 			"citation_ref": 0,
@@ -916,8 +921,9 @@ func TestEmitAnswerDocument_Replaces(t *testing.T) {
 		t.Fatal("first call failed")
 	}
 	second := mustDocJSON(t, map[string]interface{}{
-		"shape": "value",
-		"value": map[string]interface{}{"literal": "42", "citation_ref": -1},
+		"shape":   "value",
+		"summary": "the literal 42 supersedes the previous explanation answer; this set-semantics replace test confirms second-write wins.",
+		"value":   map[string]interface{}{"literal": "42", "citation_ref": -1},
 	})
 	if res, _ := tool.Execute(ctx, second); !res.Success {
 		t.Fatal("second call failed")
@@ -1952,6 +1958,58 @@ func TestEmitEvidence_CodenameGate_RejectsUngroundedLabel(t *testing.T) {
 	// rejection message must name the offending codename.
 	if !strings.Contains(res.Summary, "S2") {
 		t.Errorf("evidence summary containing ungrounded `S2` must be flagged; got Summary=%q Success=%v", res.Summary, res.Success)
+	}
+}
+
+// TestEmitAnswerDocument_ValueShape_RejectsEmptySummary pins Fix G1:
+// shape=value with empty (or too-short) summary is hard-rejected so
+// the answer body cannot ship as just "值为 `<literal>`." (10 chars).
+// The Fix F prompt change ("ALWAYS fill summary") was advisory and
+// the LLM honoured it ~50% on s7a evals; this validator brings the
+// failure rate to 0% by forcing a fill or accepting the reject.
+func TestEmitAnswerDocument_ValueShape_RejectsEmptySummary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "value",
+		// summary intentionally omitted
+		"value": map[string]interface{}{
+			"literal":      "17677",
+			"citation_ref": -1,
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("empty-summary on shape=value must reject; got Success=true Summary=%q", res.Summary)
+	}
+	for _, want := range []string{
+		"shape=value requires summary",
+		"subject",
+		"methodology",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("rejection message missing %q.\nFull rejection:\n%s", want, res.Summary)
+		}
+	}
+}
+
+// TestEmitAnswerDocument_ValueShape_AcceptsFilledSummary is the
+// positive companion: a 1-2 sentence summary naming subject + how
+// passes the Fix G1 validator.
+func TestEmitAnswerDocument_ValueShape_AcceptsFilledSummary(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "value",
+		"summary": "the total line count of all non-test .go files under internal/tool, computed via `find internal/tool -name '*.go' ! -name '*_test.go' -exec wc -l {} + | tail -1`.",
+		"value": map[string]interface{}{
+			"literal":      "17677",
+			"citation_ref": -1,
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("filled summary on shape=value must accept; got Success=false Summary=%q", res.Summary)
 	}
 }
 

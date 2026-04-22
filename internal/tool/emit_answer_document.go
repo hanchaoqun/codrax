@@ -742,6 +742,16 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if err := validateValueLiteralGrounding(p.Value, citations, groundCtx, false); err != nil {
 			return failWithContext("%v", err)
 		}
+		// Fix G1: hard-reject empty / too-short summary on shape=value.
+		// The Fix F prompt change ("ALWAYS fill summary with 1-2 sentences
+		// naming subject + methodology") was advisory and the LLM honoured
+		// it ~50% of the time; the bare-literal answer "值为 \`<literal>\`."
+		// rendered as 10 chars and failed every downstream readability gate.
+		// Hard validator forces a fill so the answer body always names
+		// what was measured and how, not just the scalar.
+		if err := validateValueShapeSummary(p.Summary, p.Value); err != nil {
+			return failWithContext("%v", err)
+		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
@@ -755,6 +765,10 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 			return failWithContext("%v", err)
 		}
 		if err := validateValueLiteralGrounding(p.Value, citations, groundCtx, true); err != nil {
+			return failWithContext("%v", err)
+		}
+		// Fix G1 mirror: same summary requirement for config_value.
+		if err := validateValueShapeSummary(p.Summary, p.Value); err != nil {
 			return failWithContext("%v", err)
 		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
@@ -1172,6 +1186,34 @@ type corroborationCfg struct {
 	citeLabel   string   // e.g. `citations[0]`, `symbols[2].file/line`
 	escape      string   // shape-specific retry guidance
 	extraClaims []string // additional tokens to union into the claim set (e.g. value.Key for ConfigValue)
+}
+
+// validateValueShapeSummary enforces a non-empty Summary on shape=value
+// and shape=config_value answers. The bare literal alone is rarely
+// useful — the reader needs to know WHAT was measured (the subject
+// path / symbol / directory) and HOW (the command, chain, lookup) so
+// the answer body is auditable. Fix G1 hard-gates this contract:
+// the prompt-only Fix F instruction was advisory and the LLM honoured
+// it ~50% of the time; a hard validator brings the failure mode to
+// 0% by forcing the LLM to either fill summary or accept the reject.
+//
+// The threshold (40 visible chars) is set so a one-sentence summary
+// containing the subject + verb + measurement target clears it
+// (typical: "internal/tool 目录下所有非测试 .go 文件总行数为 17677，
+// 由 find+wc 命令测得" = ~40+ chars). Bare "值为 \`X\`." (10 chars)
+// fails. Single-word qualifiers like "总行数" alone (3 chars) fail.
+func validateValueShapeSummary(summary string, v *types.AnswerValue) error {
+	trimmed := strings.TrimSpace(summary)
+	const minSummaryChars = 40
+	if len([]rune(trimmed)) < minSummaryChars {
+		literal := ""
+		if v != nil {
+			literal = v.Literal
+		}
+		return fmt.Errorf("shape=value requires summary to name the subject (file path / symbol / directory / measurement target) AND the methodology (command, chain, lookup) that produced the literal — the bare literal %q alone is not a complete answer (current summary length %d runes, minimum %d). The renderer prints summary first, then the literal — readers need both to act on or audit the value. Examples of acceptable summary content: state what was measured (the entity from the question), how it was measured (the find/grep/wc/exec command or chain that produced the value), and any non-obvious scope notes (excluded files, traversal direction, etc.)",
+			literal, len([]rune(trimmed)), minSummaryChars)
+	}
+	return nil
 }
 
 // validateValueLiteralGrounding is the ShapeValue / ShapeConfigValue
