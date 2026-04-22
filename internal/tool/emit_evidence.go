@@ -299,6 +299,41 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		reports[i] = r
 	}
 
+	// Session-24 codename-grounding filter.
+	//
+	// The explorer-side peer of the emit_answer_document gate. u3a
+	// run-2 of 2026-04-22 showed explorer.go:iter=7 emitting an
+	// evidence item with summary="S2 终止条件：..." where the cited
+	// line range (explorer.go:2432) contains zero `S2` substring —
+	// a pattern-completion fabrication sitting inside a structurally
+	// correct evidence anchor. extract/finalize happened to filter
+	// that item out downstream in that run, but the next run could
+	// just as easily propagate it. Reject here so the LLM re-emits
+	// the item without the invented label rather than letting the
+	// fabrication travel through the pipeline.
+	//
+	// Uses the same LineIndex (gc) already built above, so no extra
+	// I/O. The item's own Source/LineStart/LineEnd IS the cited
+	// window — narrower than emit_answer_document's citations-pool
+	// check because each evidence item is a single-anchor claim.
+	filteredBuilt := built[:0]
+	filteredReports := reports[:0]
+	for i := range built {
+		if err := validateEvidenceSummaryCodenameGrounding(&built[i], gc); err != nil {
+			rejectedItems = append(rejectedItems, fmt.Sprintf("items[id=%s]: %v", built[i].ID, err))
+			continue
+		}
+		filteredBuilt = append(filteredBuilt, built[i])
+		filteredReports = append(filteredReports, reports[i])
+	}
+	built = filteredBuilt
+	reports = filteredReports
+	if len(built) == 0 {
+		return failEmit(t.Name(), now,
+			"all items rejected post-grounding (codename-grounding gate):\n%s",
+			strings.Join(rejectedItems, "\n"))
+	}
+
 	ctx.Mutable.AppendEvidence(built)
 
 	summary := renderEmitSummary(built, reports, ctx.Mutable.EmittedEvidence())

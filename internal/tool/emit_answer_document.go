@@ -637,6 +637,22 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		return failWithContext("%v", err)
 	}
 
+	// Session-24 — codename-grounding gate.
+	//
+	// The LLM pattern-completes sequence labels from its prior: given
+	// `Fallback S1` in the source it will often write `Fallback S2`
+	// in the answer, populating an invented semantic ("max iterations
+	// reached" / "phase==1 accepts stop") for the non-existent label.
+	// End-to-end trace (2026-04-22) confirmed the finalizer USER prompt
+	// contains zero evidence of the extended label in these failing
+	// runs — so the confabulation is generation-side, not channel-leak.
+	// This gate scans summary prose for codename-shape tokens and
+	// rejects those absent from every citation's ±3-line window.
+	// See project_session24_codename_confab_trace for trace evidence.
+	if err := validateSummaryCodenameGrounding(p.Summary, citations, groundCtx); err != nil {
+		return failWithContext("%v", err)
+	}
+
 	// Shape-dispatch: each branch validates its own required fields,
 	// rejects fields that do not belong to this shape, and populates
 	// the AnswerDocument slot the renderer will read.
@@ -686,6 +702,15 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		}
 		if err := validateStepsLiteralGrounding(p.Steps, citations, groundCtx); err != nil {
 			return failWithContext("%v", err)
+		}
+		// Session-24 codename gate on step descriptions. Each step's
+		// prose is a mini-summary and tends to carry the fabricated
+		// label (u3a-20260422-010419 run-5 had `S2回退...` inside
+		// steps[3].description, not in the top-level summary).
+		for i, s := range p.Steps {
+			if err := validateSummaryCodenameGrounding(s.Description, citations, groundCtx); err != nil {
+				return failWithContext("steps[%d]: %v", i, err)
+			}
 		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSymbols|forbidValue|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
@@ -1498,6 +1523,188 @@ func logTriageTypeCovered(errType, lowerSummary string) bool {
 		return true
 	}
 	return strings.Contains(lowerSummary, strings.ToLower(trimmed))
+}
+
+// codenameTokenRe matches "opaque enumeration label" tokens — the
+// narrow class of identifiers a reader cannot verify by form alone,
+// only by source lookup. Three sub-forms (composite alternation):
+//
+//  1. Prefix-wrapped codename: `Fallback S2` / `Check 6` / `Gate 3`
+//  2. Enum-word + digit: `Phase 0` / `Tier 2` / `Step 3` / `Layer 1`
+//  3. Letter+digit codename: `S1` / `T11` / `P0` / `Q2`
+//
+// Not matched: CamelCase identifiers (`ShouldStop`), snake_case
+// (`erm_all_satisfied`), multi-letter acronyms (`HTTP2`, `SHA256`)
+// because `\b[A-Z]\d+\b` requires word boundary after the digits.
+//
+// Theory: these are Kripke-rigid designators — meaning derives purely
+// from source referent, not compositional morphology. So verification
+// MUST go through source lookup; pattern-completion from the LLM's
+// prior (`S1 exists → S2 must too`) is not admissible.
+//
+// See project_session24_codename_confab_trace for the empirical
+// failure mode this gate defends against.
+var codenameTokenRe = regexp.MustCompile(
+	`\b(?:` +
+		`(?:Fallback|Check|Gate|Case)\s+[A-Z]?\d+` +
+		`|` +
+		`(?:Phase|Stage|Step|Tier|Level|Round|Pass|Layer|Rule)\s+\d+` +
+		`|` +
+		`[A-Z]\d+` +
+		`)\b`)
+
+// codenameGroundedInWindow reports whether the exact token substring
+// appears inside `file`'s LineIndex in the inclusive range
+// [lineStart-corroborationWindow .. max(lineStart,lineEnd)+corroborationWindow].
+// lineEnd may be 0 (single-line cite) — treated as lineStart.
+// Returns false on unknown file / empty index (degrade safely).
+func codenameGroundedInWindow(token, file string, lineStart, lineEnd int, gc *ground.Context) bool {
+	if gc == nil {
+		return false
+	}
+	fileLines, ok := gc.LineIndex[file]
+	if !ok || len(fileLines) == 0 {
+		return false
+	}
+	lo, hi := lineStart, lineEnd
+	if hi <= 0 {
+		hi = lo
+	}
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	for line := lo - corroborationWindow; line <= hi+corroborationWindow; line++ {
+		if line <= 0 {
+			continue
+		}
+		if text, ok := fileLines[line]; ok && strings.Contains(text, token) {
+			return true
+		}
+	}
+	return false
+}
+
+// validateSummaryCodenameGrounding scans the summary text for
+// codename-shape tokens (see codenameTokenRe) and rejects any token
+// absent from every citation's ±corroborationWindow-line range in the
+// ground-truth LineIndex.
+//
+// Why: LLM pattern-completion produces sequence extensions (S1 → S2,
+// Phase 0 → Phase 1 / 2 / ...) from prior alone, even when the input
+// prompt contains zero evidence of the extended label. Information
+// hiding at context-assembly time cannot prevent this; emission-time
+// rejection forces a retry without the fabricated label. Complementary
+// to the literal-grounding wrappers (which only inspect structural
+// fields, not summary prose) and the diagram-grounding gate (which
+// only inspects fenced blocks).
+//
+// Contract:
+//
+//   - gc == nil OR empty LineIndex → skip (sub-agent / test path)
+//   - zero codename tokens in summary → skip (no claim to verify)
+//   - every token present in at least one citation's ±3-line window → OK
+//   - otherwise → reject with violations list and escape guidance
+//
+// Scope: applies across every shape that carries a summary — the
+// hallucination is prose-level (not structural-field-level) so the
+// gate runs on summary universally, paralleling the diagram and
+// log-triage coverage gates.
+func validateSummaryCodenameGrounding(summary string, citations []types.Citation, gc *ground.Context) error {
+	if gc == nil || len(gc.LineIndex) == 0 {
+		return nil
+	}
+	matches := codenameTokenRe.FindAllString(summary, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(matches))
+	ordered := make([]string, 0, len(matches))
+	for _, t := range matches {
+		if !seen[t] {
+			seen[t] = true
+			ordered = append(ordered, t)
+		}
+	}
+	var ungrounded []string
+	for _, tok := range ordered {
+		grounded := false
+		for _, c := range citations {
+			if c.File == "" || c.Line <= 0 {
+				continue
+			}
+			if codenameGroundedInWindow(tok, c.File, c.Line, 0, gc) {
+				grounded = true
+				break
+			}
+		}
+		if !grounded {
+			ungrounded = append(ungrounded, tok)
+		}
+	}
+	if len(ungrounded) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"summary introduces codename label(s) not present in any citation's ±%d-line window: %s. "+
+			"Short enumeration labels (S1/S2/Phase 0/Fallback X) are source-level identifiers — the exact token MUST "+
+			"appear in the cited line range. Either cite the line where each label is defined, or remove the label "+
+			"and describe the mechanism by its real behavior; do NOT extrapolate from an existing label by pattern "+
+			"(e.g. 'S1 exists so S2 must too' is not admissible).",
+		corroborationWindow, strings.Join(ungrounded, ", "))
+}
+
+// validateEvidenceSummaryCodenameGrounding is the emit_evidence-side
+// sibling: it inspects a single evidence item's Summary text and
+// rejects any codename token absent from the item's own
+// Source:[LineStart..LineEnd] ±corroborationWindow range in the
+// LineIndex. This closes the upstream leak point — explorer itself
+// confabulates numbered labels inside emit_evidence items (observed
+// in u3a-20260422-014410/run-2 where the explorer emitted an invented
+// `S2 终止条件` evidence item that extract/finalize had to filter out).
+//
+// Contract mirrors validateSummaryCodenameGrounding; returns nil on
+// degraded context (no LineIndex, no Source, no codename tokens).
+func validateEvidenceSummaryCodenameGrounding(item *types.EvidenceItem, gc *ground.Context) error {
+	if gc == nil || len(gc.LineIndex) == 0 {
+		return nil
+	}
+	if item == nil || item.Source == "" || item.LineStart <= 0 || item.Summary == "" {
+		return nil
+	}
+	matches := codenameTokenRe.FindAllString(item.Summary, -1)
+	if len(matches) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(matches))
+	var ungrounded []string
+	for _, t := range matches {
+		if seen[t] {
+			continue
+		}
+		seen[t] = true
+		if !codenameGroundedInWindow(t, item.Source, item.LineStart, item.LineEnd, gc) {
+			ungrounded = append(ungrounded, t)
+		}
+	}
+	if len(ungrounded) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"summary introduces codename(s) %s absent from %s:%d-%d±%d. "+
+			"Either remove the fabricated label or re-anchor on a line range where the token actually appears; "+
+			"do NOT extrapolate by pattern from other labels you've seen.",
+		strings.Join(ungrounded, ", "), item.Source, item.LineStart, max0(item.LineEnd, item.LineStart), corroborationWindow)
+}
+
+// max0 returns the first non-zero-positive of a, b (with b as fallback).
+// Internal helper to render evidence line ranges honestly: LineEnd can
+// be zero when the item is single-line; the error message should then
+// show `lineStart-lineStart` not `lineStart-0`.
+func max0(a, b int) int {
+	if a > 0 {
+		return a
+	}
+	return b
 }
 
 func buildEmitAnswerDocumentBoolean(in *emitAnswerDocumentBoolean, numCites int) (*types.AnswerBoolean, error) {
