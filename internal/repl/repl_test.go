@@ -357,6 +357,73 @@ func TestBackslashQuitAliasHandledLocally(t *testing.T) {
 	}
 }
 
+// TestVersionSlashCommand verifies the /version REPL command prints
+// the build identifier passed in via Config and continues the loop.
+// Also covers the /v alias and the legacy backslash form.
+func TestVersionSlashCommand(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("/version\n/v\n\\version\n/exit\n")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner:     stubRunner{},
+		Store:      store,
+		Render:     renderNothing,
+		RepoRoot:   ".",
+		Branch:     "main",
+		In:         in,
+		Out:        out,
+		Prompt:     ">",
+		PromptCont: ".",
+		Banner:     "test-banner",
+		Version:    "1.2.3-test",
+		BuildTime:  "2026-04-22T00:00:00Z",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	got := out.String()
+	want := "codrax 1.2.3-test (built 2026-04-22T00:00:00Z)"
+	if c := strings.Count(got, want); c != 3 {
+		t.Errorf("expected /version output to appear 3 times (one per alias), got %d:\n%s", c, got)
+	}
+	if n := len(store.Recent()); n != 0 {
+		t.Errorf("/version must not record a turn, recent=%d", n)
+	}
+}
+
+// TestVersionConfigDefaults verifies an empty Version/BuildTime in
+// Config falls back to "dev" / "unknown" so a `go run` build still
+// produces a coherent /version line.
+func TestVersionConfigDefaults(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	in := strings.NewReader("/version\n/exit\n")
+	out := &bytes.Buffer{}
+	r := New(Config{
+		Runner: stubRunner{}, Store: store, Render: renderNothing,
+		RepoRoot: ".", Branch: "main", In: in, Out: out,
+		Prompt: ">", PromptCont: ".", Banner: "test-banner",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+	if !strings.Contains(out.String(), "codrax dev (built unknown)") {
+		t.Errorf("expected dev/unknown fallback, got:\n%s", out.String())
+	}
+}
+
 // TestHumanByteSize pins the banner digest's unit selection so a
 // tiny memory (a few bytes) does not show up as "0.0 KB" and a
 // real multi-MB directory does not overflow the single-line format.

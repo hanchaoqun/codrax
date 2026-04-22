@@ -24,22 +24,23 @@ ifeq ($(OS),Windows_NT)
   .SHELLFLAGS := -NoProfile -Command
   EXEEXT := .exe
   OUT := $(BINARY)$(EXEEXT)
-  VERSION_RAW := $(shell git describe --tags --always --dirty 2>$$null)
+  VERSION_DATE := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyyMMdd')")
+  GIT_DIRTY := $(shell powershell -NoProfile -Command "if ((git status --porcelain 2>$$null)) { '-dirty' }")
   BUILD_TIME := $(shell powershell -NoProfile -Command "(Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')")
   WSL_REPO := $(shell powershell -NoProfile -Command "'/mnt/' + (Resolve-Path '.').Path.Substring(0,1).ToLower() + (Resolve-Path '.').Path.Substring(2).Replace('\','/')")
 else
   HOST_OS := unix
   EXEEXT :=
   OUT := $(BINARY)
-  VERSION_RAW := $(shell git describe --tags --always --dirty 2>/dev/null)
+  VERSION_DATE := $(shell date -u '+%Y%m%d')
+  GIT_DIRTY := $(shell test -n "$$(git status --porcelain 2>/dev/null)" && echo -dirty)
   BUILD_TIME := $(shell date -u '+%Y-%m-%dT%H:%M:%SZ')
 endif
 
-ifeq ($(strip $(VERSION_RAW)),)
-  VERSION := dev
-else
-  VERSION := $(strip $(VERSION_RAW))
-endif
+# CalVer-style placeholder until we cut a real semver tag: 0.1.<UTC YYYYMMDD>,
+# with -dirty when the working tree has uncommitted changes.
+VERSION_BASE := 0.1
+VERSION := $(VERSION_BASE).$(strip $(VERSION_DATE))$(strip $(GIT_DIRTY))
 
 LD_VERSION := -X github.com/hanchaoqun/codrax/cmd.version=$(VERSION) -X github.com/hanchaoqun/codrax/cmd.buildTime=$(BUILD_TIME)
 

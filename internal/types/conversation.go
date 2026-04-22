@@ -57,6 +57,8 @@ var replCommandAliases = map[string]string{
 	"/h":        "/help",
 	"/log":      "/log",
 	"/paste":    "/paste",
+	"/version":  "/version",
+	"/v":        "/version",
 	"\\q":       "/quit",
 	"\\quit":    "/quit",
 	"\\exit":    "/exit",
@@ -67,6 +69,8 @@ var replCommandAliases = map[string]string{
 	"\\h":       "/help",
 	"\\log":     "/log",
 	"\\paste":   "/paste",
+	"\\version": "/version",
+	"\\v":       "/version",
 }
 
 // NormalizeREPLCommandAlias returns the canonical slash-command form

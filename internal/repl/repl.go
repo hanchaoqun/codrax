@@ -78,6 +78,12 @@ type Config struct {
 	// DefaultPasteFoldMinChars. Surfaces
 	// codrax.yaml :: repl_paste_fold_min_chars.
 	PasteFoldMinChars int
+
+	// Version and BuildTime are the build-stamped identifiers passed
+	// from cmd. Empty strings render as "dev" / "unknown" so a bare
+	// `go run` still produces a coherent banner / /version line.
+	Version   string
+	BuildTime string
 }
 
 // REPL drives the interactive prompt.
@@ -95,6 +101,8 @@ type REPL struct {
 	bannerText        string
 	scanner           *bufio.Scanner // lazy-init for line-oriented mode
 	pasteFoldMinChars int            // per-session paste-fold threshold (runes)
+	version           string
+	buildTime         string
 
 	// attachedLog holds the runtime log excerpt the user attached via
 	// /log or `--log`. Sticky across turns until /log clear — users
@@ -128,6 +136,14 @@ func New(cfg Config) *REPL {
 		promptCont:        cfg.PromptCont,
 		bannerText:        cfg.Banner,
 		pasteFoldMinChars: cfg.PasteFoldMinChars,
+		version:           cfg.Version,
+		buildTime:         cfg.BuildTime,
+	}
+	if r.version == "" {
+		r.version = "dev"
+	}
+	if r.buildTime == "" {
+		r.buildTime = "unknown"
 	}
 	// Seed sticky log from whatever the runner already has (CLI set
 	// `--log` before handing off to the REPL). Keeps the invariant
@@ -221,8 +237,13 @@ func (r *REPL) banner() {
 		return
 	}
 	badge := pterm.NewStyle(pterm.BgBlue, pterm.FgWhite, pterm.Bold).Sprint(" CODRAX ")
+	// Compact banner version: strip the -dirty build-state suffix so a
+	// long-running interactive session isn't dominated by build noise.
+	// The full identifier is still available via /version.
+	shortVer := strings.TrimSuffix(r.version, "-dirty")
+	ver := pterm.FgGray.Sprintf("v%s", shortVer)
 	hint := pterm.FgDarkGray.Sprint("/help · /exit")
-	fmt.Fprintf(r.out, "\n  %s  %s\n", badge, hint)
+	fmt.Fprintf(r.out, "\n  %s %s  %s\n", badge, ver, hint)
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
 	}
@@ -633,11 +654,14 @@ func (r *REPL) handleSlash(line string) bool {
 		} else {
 			r.success(fmt.Sprintf("compaction done. recent=%d index=%d", len(r.store.Recent()), len(r.store.Index())))
 		}
+	case "/version":
+		r.info(fmt.Sprintf("codrax %s (built %s)", r.version, r.buildTime))
 	case "/help":
-		r.info("commands: /exit /quit /clear /history /compact /log /paste /help")
+		r.info("commands: /exit /quit /clear /history /compact /log /paste /version /help")
 		r.info("tip: end a line with \\ for multi-line input")
 		r.info("log: /log <path> | /log (paste then /end) | /log clear | /log show")
 		r.info("paste: /paste (terminal-independent fallback when bracketed paste is stripped)")
+		r.info("version: /version (or /v) prints the build identifier")
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
 	}

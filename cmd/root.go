@@ -124,6 +124,10 @@ When invoked with no arguments, enters interactive REPL mode.`,
 	RunE:              rootRun,
 	SilenceUsage:      true,
 	SilenceErrors:     true,
+	// Version powers cobra's auto-wired --version / -v flag. Format
+	// matches the dedicated `codrax version` subcommand so the two
+	// surfaces are interchangeable.
+	Version: fmt.Sprintf("%s (built %s)", version, buildTime),
 }
 
 func init() {
@@ -146,6 +150,11 @@ func init() {
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 
 	rootCmd.AddCommand(versionCmd)
+
+	// Match the `codrax version` subcommand output exactly so the two
+	// surfaces are interchangeable; cobra's default template prepends
+	// "codrax version " which would otherwise diverge.
+	rootCmd.SetVersionTemplate(fmt.Sprintf("codrax %s (built %s)\n", version, buildTime))
 }
 
 var versionCmd = &cobra.Command{
@@ -364,6 +373,8 @@ func runREPL(_ *cobra.Command) error {
 		Branch:            flagBranch,
 		Out:               os.Stdout,
 		PasteFoldMinChars: app.replPasteFoldMinChars,
+		Version:           version,
+		BuildTime:         buildTime,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
