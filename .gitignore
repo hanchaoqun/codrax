@@ -23,3 +23,7 @@
 # question verbatim — committing them would also re-introduce the
 # keyword-search contamination that ExcludeDirs already guards against.
 /eval/results/
+
+# Claude Code runtime state — session-specific scheduling lock + local
+# settings overlay; both regenerate per machine and must not ship.
+/.claude/
