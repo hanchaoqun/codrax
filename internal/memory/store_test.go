@@ -46,6 +46,9 @@ func TestAppendCompactsOldest(t *testing.T) {
 			t.Fatalf("append %d: %v", i, err)
 		}
 	}
+	// Compaction is async — wait for the background goroutine to
+	// drain before asserting on Recent/Index state.
+	s.compactWG.Wait()
 
 	if got := len(s.Recent()); got != 6 {
 		t.Errorf("recent len = %d, want 6", got)
@@ -89,6 +92,7 @@ func TestBuildContextInlinesMatchingTurn(t *testing.T) {
 			Response: fmt.Sprintf("answer %d", i),
 		})
 	}
+	s.compactWG.Wait()
 	// Should match the first compacted entry whose keyword is "kw0".
 	out := s.BuildContext("how about kw0 again?")
 	if !strings.Contains(out, "topic-t0") {
@@ -398,6 +402,7 @@ func TestParseIndexRoundTrip(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		_ = s.Append(Turn{ID: fmt.Sprintf("t%d", i), Request: fmt.Sprintf("kw%d q", i)})
 	}
+	s.compactWG.Wait()
 	// Re-open and ensure the index reloads.
 	s2, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
@@ -773,6 +778,7 @@ func TestCompactOldestBypassesSummarizerForErrorTurn(t *testing.T) {
 			Response: fmt.Sprintf("clean answer %d", i),
 		})
 	}
+	s.compactWG.Wait()
 
 	idx := s.Index()
 	if len(idx) != 1 {
@@ -829,6 +835,7 @@ func TestIndexEntryWasErrorRoundTrip(t *testing.T) {
 			Response: fmt.Sprintf("answer %d", i),
 		})
 	}
+	s.compactWG.Wait()
 
 	// Sanity: MEMORY.md has the was_error line.
 	data, err := os.ReadFile(filepath.Join(dir, "MEMORY.md"))

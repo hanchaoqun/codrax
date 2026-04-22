@@ -31,6 +31,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -159,6 +160,14 @@ type Store struct {
 	maxBytes   int
 	bcLimits   buildContextLimits
 	summarizer Summarizer
+
+	// compactInFlight is a single-flight latch: at most one
+	// background compaction goroutine runs at a time. Guarded by
+	// s.mu. compactWG lets Close (and tests) wait for in-flight
+	// compactions to settle before tearing the store down or asserting
+	// on index state.
+	compactInFlight bool
+	compactWG       sync.WaitGroup
 }
 
 // sidecarPrefix is the filename prefix for per-Store presence
@@ -300,6 +309,11 @@ func (s *Store) Close() error {
 	if s == nil {
 		return nil
 	}
+	// Wait for any in-flight background compaction to finish before
+	// tearing down the flock / sidecar. compactOldest uses the same
+	// flock, so closing it while a goroutine still holds a reference
+	// would surface as a spurious lock error on the tail summarize.
+	s.compactWG.Wait()
 	var firstErr error
 	if s.sidecarPath != "" {
 		if err := os.Remove(s.sidecarPath); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
@@ -544,11 +558,76 @@ func (s *Store) Append(turn Turn) error {
 	s.recent = append(s.recent, turn)
 	s.mu.Unlock()
 
-	return s.maybeCompact()
+	// Compaction runs in a background goroutine so the REPL's
+	// next prompt isn't blocked on a slow LLM summarizer call.
+	// On abrupt exit any un-compacted turn file is rehydrated
+	// by loadOrphanRecent on next startup — worst case we
+	// re-run a summarize that was about to finish anyway.
+	s.scheduleCompact()
+	return nil
+}
+
+// scheduleCompact starts a background compaction if one isn't already
+// running and the recent buffer is over budget. Single-flight via
+// s.compactInFlight under s.mu: at most one goroutine is live, but
+// Appends that arrive during compaction still get serviced via the
+// re-check loop inside the goroutine.
+func (s *Store) scheduleCompact() {
+	s.mu.Lock()
+	if !s.needCompactLocked() || s.compactInFlight {
+		s.mu.Unlock()
+		return
+	}
+	s.compactInFlight = true
+	s.compactWG.Add(1)
+	s.mu.Unlock()
+
+	go func() {
+		defer s.compactWG.Done()
+		for {
+			if err := s.maybeCompact(); err != nil {
+				logging.Error("[memory] background compaction failed: %v", err)
+				// On error, exit the loop so we don't spin on a
+				// persistent fault (full disk, dead summarizer).
+				// The next Append re-triggers scheduleCompact, which
+				// gives transient faults room to recover.
+				s.mu.Lock()
+				s.compactInFlight = false
+				s.mu.Unlock()
+				return
+			}
+			// maybeCompact brought us under budget; re-check under
+			// the lock to catch any Append that slipped in during
+			// the previous round. Still holding the latch so
+			// concurrent Append.scheduleCompact calls short-circuit.
+			s.mu.Lock()
+			if s.needCompactLocked() {
+				s.mu.Unlock()
+				continue
+			}
+			s.compactInFlight = false
+			s.mu.Unlock()
+			return
+		}
+	}()
+}
+
+// needCompactLocked reports whether the recent buffer is over budget
+// and can actually shed a turn (the newest turn is always kept).
+// Caller must hold s.mu.
+func (s *Store) needCompactLocked() bool {
+	over := len(s.recent) > s.maxRecent || s.recentBytesLocked() > s.maxBytes
+	return over && len(s.recent) > 1
 }
 
 // Compact forces compaction of all but the newest turn. Used by /compact.
+//
+// Waits for any background compaction to drain first so the synchronous
+// loop doesn't race it for the same turn heads, then runs compactOldest
+// directly (not via scheduleCompact) — callers of /compact want the
+// work done before control returns.
 func (s *Store) Compact() error {
+	s.compactWG.Wait()
 	for {
 		s.mu.Lock()
 		if len(s.recent) <= 1 {
@@ -569,7 +648,14 @@ func (s *Store) Compact() error {
 // recent buffers are unaffected — Clear has no way to reach into
 // another process's memory — so a peer will continue its current
 // conversation thread until its own next /clear or restart.
+//
+// Waits for any in-flight background compaction first: compactOldest
+// samples oldest outside the flock and then re-acquires it to append
+// to MEMORY.md, so a Clear that interleaved between those two steps
+// would be immediately followed by the goroutine re-appending a
+// stale entry.
 func (s *Store) Clear() error {
+	s.compactWG.Wait()
 	return s.withExclusiveLock(func() error {
 		s.mu.Lock()
 		defer s.mu.Unlock()
