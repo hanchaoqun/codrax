@@ -2,6 +2,77 @@
 
 一个只读代码分析工具，由 LLM 驱动的 4 阶段确定性流水线组成。输入一个关于仓库的自然语言问题，输出一份有 citation 的结构化答案。不修改源文件。
 
+## 快速开始
+
+```bash
+# 1. 构建（仅一次；CGO 依赖见下方 “构建” 一节）
+git clone https://github.com/hanchaoqun/codrax.git && cd codrax
+make
+# 输出 ./codrax
+
+# 2. 把 codrax 所在目录加进 PATH（让任意工作目录都能直接调用）
+echo "export PATH=\"$PWD:\$PATH\"" >> ~/.bashrc      # bash
+echo "export PATH=\"$PWD:\$PATH\"" >> ~/.zshrc       # zsh
+exec "$SHELL" -l                                       # 重载 shell，立即生效
+
+# 3. 配置 LLM 凭证 —— providers.yaml 必须和 codrax 二进制同目录
+cp providers.yaml.example providers.yaml
+$EDITOR providers.yaml                                 # 填 api_key + model
+
+# 4. 进入任意目标仓库启动 REPL
+cd /path/to/your/repo
+codrax                                                  # 进入交互模式
+```
+
+REPL 里直接发问：
+
+```
+   CODRAX  v0.1.20260422  /help · /exit
+
+❯❯ explorer 的 ShouldStop 是怎么决定的？
+```
+
+回答会带文件 + 行号 citation；`/help` 看全部斜杠命令，`/version` 看构建版本，`/exit` 退出。
+
+### 最精简 `providers.yaml`
+
+所有 4 个 agent 共用同一个 provider 即可起跑：
+
+```yaml
+llm:
+  default:
+    provider: openai          # 仅实现 openai 协议；deepseek / qwen / vllm / Ollama
+                              # 等兼容此协议的服务用同一段 + base_url 切走
+    api_key: "sk-xxx"
+    model: "gpt-4o"
+    base_url: ""              # 空 → https://api.openai.com/v1
+```
+
+需要给单个 agent 单独换模型再加 `agents:` 段，未列出的 agent 自动继承 `default`：
+
+```yaml
+llm:
+  default:
+    provider: openai
+    api_key: "sk-xxx"
+    model: "gpt-4o-mini"      # 便宜模型跑 explorer / extractor
+  agents:
+    analyzer:
+      model: "gpt-4o"         # 任务分类用更强的模型
+    finalizer:
+      model: "gpt-4o"
+```
+
+合法 agent 名：`analyzer` · `explorer` · `extractor` · `finalizer` · `log_triager`。
+
+### `providers.yaml` 放在哪
+
+二进制同目录优先（`<exeDir>/providers.yaml`），完整查找规则与 `codrax.yaml` 一致 — 见下文 **配置 → 路径锚点 / 查找顺序**。临时切换可用环境变量：
+
+```bash
+CODRAX_SETTINGS=/etc/codrax/team-shared.yaml codrax    # 从 codrax.yaml 反向指向 providers.yaml
+```
+
 ## 流水线
 
 主流水线 `analyze → explore → extract → finalize`，每个阶段一个 agent、一个 skill，硬编码在 [`internal/orchestrator/topology.go`](internal/orchestrator/topology.go)。当用户附加了运行时日志时，analyze 之前会条件触发一个独立的 log_triage 阶段：

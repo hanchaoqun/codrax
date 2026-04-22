@@ -1,16 +1,24 @@
+# Minimal viable config — all 4 agents share one provider.
+# Place this file next to the codrax binary as `providers.yaml`.
 llm:
-  # Default provider used by all agents unless overridden below.
   default:
-    provider: openai
+    provider: openai          # only `openai` is implemented; any
+                              # OpenAI-compatible backend works
+                              # via base_url (deepseek, qwen,
+                              # vllm/Ollama, together, etc.)
     api_key: "sk-xxx"
     model: "gpt-4o"
-    base_url: ""              # empty = https://api.openai.com/v1
+    base_url: ""              # empty → https://api.openai.com/v1
 
-  # Per-agent overrides. Only set fields you want to change;
-  # unset fields inherit from default, then from env vars.
-  agents:
-    planner:
-      model: "o3"             # use a stronger model for planning
-    # implementer:
-    #   base_url: "http://localhost:11434/v1"
-    #   model: "deepseek-coder"
+  # Optional: per-agent overrides. Only set fields you want to change;
+  # unset fields inherit from default. Valid agent keys are
+  # `analyzer`, `explorer`, `extractor`, `finalizer`, `log_triager`.
+  #
+  # agents:
+  #   analyzer:
+  #     model: "gpt-4o"        # smarter model for the classification step
+  #   extractor:
+  #     model: "gpt-4o-mini"   # cheaper model for the structuring step
+  #   finalizer:
+  #     base_url: "http://localhost:11434/v1"
+  #     model: "llama3.1:70b"
