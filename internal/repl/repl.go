@@ -111,6 +111,15 @@ type REPL struct {
 	// to the runner via attachedLogSetter before each dispatch.
 	attachedLog string
 
+	// attachedLogAutoRouted marks attachedLog as installed by the
+	// splitPastedLog auto-routing path (pasted log body detected
+	// inline in a request), as opposed to the explicit /log or
+	// --log flow. Auto-routed attachments are one-shot: cleared
+	// after the dispatch that consumed them so log_triage does not
+	// re-run on every subsequent turn. Explicit /log remains sticky
+	// because the user's intent there is a sustained investigation.
+	attachedLogAutoRouted bool
+
 	// pendingPaste is the line-oriented fallback for terminals /
 	// tmux configurations that swallow bracketed paste (most common
 	// in SSH → tmux environments). `/paste` captures lines via a
@@ -458,7 +467,8 @@ func (r *REPL) dispatch(line, display string) {
 				detected = detected[:maxREPLAttachedLogBytes]
 			}
 			r.attachedLog = detected
-			r.info(fmt.Sprintf("auto-attached log: %d bytes (/log clear to remove)", len(detected)))
+			r.attachedLogAutoRouted = true
+			r.info(fmt.Sprintf("auto-attached log: %d bytes (one-shot; use /log <path> to attach persistently)", len(detected)))
 			line = cleaned
 			// Apply the same cleanup to display. When display holds a
 			// paste placeholder (interactive bracketed paste), the
@@ -480,6 +490,21 @@ func (r *REPL) dispatch(line, display string) {
 			}
 		}
 	}
+
+	// One-shot semantics for auto-routed logs: after this turn
+	// completes via any path (success, pipeline error, empty
+	// response), drop the attachment so subsequent turns don't
+	// re-run log_triage against the same bytes. Explicit /log is
+	// unaffected; only the auto-routed bit triggers the clear.
+	defer func() {
+		if r.attachedLogAutoRouted {
+			r.attachedLog = ""
+			r.attachedLogAutoRouted = false
+			if setter, ok := r.runner.(attachedLogSetter); ok {
+				setter.SetAttachedLog("")
+			}
+		}
+	}()
 
 	prior := r.store.BuildContext(line)
 	effective := line
@@ -719,6 +744,7 @@ func (r *REPL) handleLogCmd(line string) {
 			return
 		}
 		r.attachedLog = ""
+		r.attachedLogAutoRouted = false
 		if setter, ok := r.runner.(attachedLogSetter); ok {
 			setter.SetAttachedLog("")
 		}
@@ -744,6 +770,7 @@ func (r *REPL) handleLogLoad(path string) {
 		data = data[:maxREPLAttachedLogBytes]
 	}
 	r.attachedLog = string(data)
+	r.attachedLogAutoRouted = false
 	r.success(fmt.Sprintf("attached log loaded: %s (%d bytes)", path, len(data)))
 }
 
@@ -788,6 +815,7 @@ func (r *REPL) handleLogPaste() {
 		return
 	}
 	r.attachedLog = buf.String()
+	r.attachedLogAutoRouted = false
 	r.success(fmt.Sprintf("attached log captured: %d bytes", buf.Len()))
 }
 

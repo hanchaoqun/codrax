@@ -20,6 +20,25 @@ func (stubRunner) Run(_, _, _ string) (*types.BusContext, error) {
 	return &types.BusContext{}, nil
 }
 
+// logAwareRunner captures every SetAttachedLog propagation plus the
+// attachedLog value visible to Run, so tests can prove that REPL's
+// one-shot auto-route semantics fire on the dispatch after a paste
+// and only on that dispatch.
+type logAwareRunner struct {
+	setCalls []string // each SetAttachedLog argument, in call order
+	seenLogs []string // attachedLog observed at Run() entry per dispatch
+	curLog   string
+}
+
+func (r *logAwareRunner) Run(_, _, _ string) (*types.BusContext, error) {
+	r.seenLogs = append(r.seenLogs, r.curLog)
+	return &types.BusContext{}, nil
+}
+func (r *logAwareRunner) SetAttachedLog(s string) {
+	r.setCalls = append(r.setCalls, s)
+	r.curLog = s
+}
+
 // errorRunner simulates a pipeline that failed with a LastError
 // — used to verify the REPL sanitizes what it persists to memory.
 type errorRunner struct{ errText string }
@@ -268,6 +287,70 @@ func TestPasteSlashEmptyCaptureNoOp(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no input captured") {
 		t.Errorf("expected 'no input captured' in output, got:\n%s", out.String())
+	}
+}
+
+// TestAutoRoutedLogIsOneShot verifies C5: a log body auto-detected
+// inside a request is attached for that single dispatch and then
+// cleared, so subsequent turns do not re-run log_triage against the
+// same bytes. Explicit /log path stays sticky (covered separately).
+func TestAutoRoutedLogIsOneShot(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	// Turn 1 embeds a 3-line timestamped log block that splitPastedLog
+	// detects. Turn 2 is an unrelated follow-up. Line continuations
+	// ("\\") let a single logical request span multiple input lines.
+	input := "analyze this log \\\n" +
+		"2026-04-21T14:54:37.362 INFO [x] dispatching agent=a skill=s \\\n" +
+		"2026-04-21T14:54:56.671 INFO [x] dispatching agent=b skill=t \\\n" +
+		"2026-04-21T14:56:00.822 INFO [x] dispatching agent=c skill=u\n" +
+		"follow-up question\n" +
+		"/exit\n"
+	in := strings.NewReader(input)
+	out := &bytes.Buffer{}
+	runner := &logAwareRunner{}
+	r := New(Config{
+		Runner:     runner,
+		Store:      store,
+		Render:     renderNothing,
+		RepoRoot:   ".",
+		Branch:     "main",
+		In:         in,
+		Out:        out,
+		Prompt:     ">",
+		PromptCont: ".",
+		Banner:     "test-banner",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	// Two dispatches happened.
+	if got := len(runner.seenLogs); got != 2 {
+		t.Fatalf("expected 2 dispatches, got %d: %v", got, runner.seenLogs)
+	}
+	// Turn 1 saw the log at Run() entry.
+	if runner.seenLogs[0] == "" {
+		t.Errorf("turn 1 should have seen auto-routed log; got empty")
+	}
+	if !strings.Contains(runner.seenLogs[0], "14:54:37") {
+		t.Errorf("turn 1 log missing expected timestamp; got %q", runner.seenLogs[0])
+	}
+	// Turn 2 saw an empty log — one-shot clear fired.
+	if runner.seenLogs[1] != "" {
+		t.Errorf("turn 2 should see no attached log after one-shot clear; got %q", runner.seenLogs[1])
+	}
+	// REPL internal state after exit: both flag and value cleared.
+	if r.attachedLog != "" {
+		t.Errorf("attachedLog not cleared after one-shot turn; got %q", r.attachedLog)
+	}
+	if r.attachedLogAutoRouted {
+		t.Errorf("attachedLogAutoRouted should be false after clear")
 	}
 }
 
