@@ -594,25 +594,15 @@ type MemorySettings struct {
 	// MaxBuildContextMatches: maximum number of compacted index entries
 	// to inline in BuildContext. Default 3.
 	MaxBuildContextMatches int `yaml:"max_build_context_matches"`
-
-	// MaxInlinedTurnBytes: maximum bytes from a single matched turn
-	// file to inline in BuildContext. Default 8192 (8 KB).
-	MaxInlinedTurnBytes int `yaml:"max_inlined_turn_bytes"`
-
-	// MaxBuildContextTotalBytes: total byte budget for all inlined
-	// compacted turns in BuildContext. Default 32768 (32 KB).
-	MaxBuildContextTotalBytes int `yaml:"max_build_context_total_bytes"`
 }
 
 // DefaultMemorySettings returns the code defaults for memory store limits.
 func DefaultMemorySettings() MemorySettings {
 	return MemorySettings{
-		MaxRecentTurns:            6,
-		MaxRecentBytes:            20 * 1024,
-		MaxTurnBodyBytes:          64 * 1024,
-		MaxBuildContextMatches:    3,
-		MaxInlinedTurnBytes:       8 * 1024,
-		MaxBuildContextTotalBytes: 32 * 1024,
+		MaxRecentTurns:         6,
+		MaxRecentBytes:         20 * 1024,
+		MaxTurnBodyBytes:       64 * 1024,
+		MaxBuildContextMatches: 3,
 	}
 }
 
@@ -631,12 +621,6 @@ func ResolvedMemorySettings(s MemorySettings) MemorySettings {
 	}
 	if s.MaxBuildContextMatches == 0 {
 		s.MaxBuildContextMatches = d.MaxBuildContextMatches
-	}
-	if s.MaxInlinedTurnBytes == 0 {
-		s.MaxInlinedTurnBytes = d.MaxInlinedTurnBytes
-	}
-	if s.MaxBuildContextTotalBytes == 0 {
-		s.MaxBuildContextTotalBytes = d.MaxBuildContextTotalBytes
 	}
 	return s
 }

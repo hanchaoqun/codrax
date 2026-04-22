@@ -197,12 +197,10 @@ type RuntimeSettings struct {
 
 	// Memory store limits. All optional; nil → code default in
 	// types.DefaultMemorySettings().
-	MemoryMaxRecentTurns            *int `yaml:"memory_max_recent_turns"`
-	MemoryMaxRecentBytes            *int `yaml:"memory_max_recent_bytes"`
-	MemoryMaxTurnBodyBytes          *int `yaml:"memory_max_turn_body_bytes"`
-	MemoryMaxBuildContextMatches    *int `yaml:"memory_max_build_context_matches"`
-	MemoryMaxInlinedTurnBytes       *int `yaml:"memory_max_inlined_turn_bytes"`
-	MemoryMaxBuildContextTotalBytes *int `yaml:"memory_max_build_context_total_bytes"`
+	MemoryMaxRecentTurns         *int `yaml:"memory_max_recent_turns"`
+	MemoryMaxRecentBytes         *int `yaml:"memory_max_recent_bytes"`
+	MemoryMaxTurnBodyBytes       *int `yaml:"memory_max_turn_body_bytes"`
+	MemoryMaxBuildContextMatches *int `yaml:"memory_max_build_context_matches"`
 
 	// Per-shape Summary length ceilings enforced by
 	// emit_answer_document and the shrinkage-salvage trimmer. All

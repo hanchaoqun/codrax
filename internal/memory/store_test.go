@@ -92,10 +92,17 @@ func TestBuildContextInlinesMatchingTurn(t *testing.T) {
 	// Should match the first compacted entry whose keyword is "kw0".
 	out := s.BuildContext("how about kw0 again?")
 	if !strings.Contains(out, "topic-t0") {
-		t.Errorf("BuildContext should surface matching index entry; got %q", out)
+		t.Errorf("BuildContext should surface matching index entry topic; got %q", out)
 	}
-	if !strings.Contains(out, "answer 0") {
-		t.Errorf("BuildContext should inline full turn for matching entry; got %q", out)
+	if !strings.Contains(out, "summary of kw0 question") {
+		t.Errorf("BuildContext should render index entry summary; got %q", out)
+	}
+	// Full turn text must NEVER be inlined — only Summary.
+	if strings.Contains(out, "answer 0") {
+		t.Errorf("BuildContext must not inline full turn text; got %q", out)
+	}
+	if strings.Contains(out, "Full turn:") {
+		t.Errorf("BuildContext must not emit Full turn: block; got %q", out)
 	}
 	// Recent turns are always included.
 	if !strings.Contains(out, "kw7") {
@@ -301,12 +308,12 @@ func TestReadTurnFileSanitizesLegacyFile(t *testing.T) {
 	}
 }
 
-// TestBuildContextCapsInlinedFullRef locks the BuildContext contract
-// for pre-existing oversized turn files that matchIndex surfaces. Even
-// if ten compacted entries match a common keyword and each full_ref
-// file is 1 MB, the assembled context must stay within the three
-// brakes: top-3 matches, 8 KB per entry, 32 KB total.
-func TestBuildContextCapsInlinedFullRef(t *testing.T) {
+// TestBuildContextSummaryOnly locks the BuildContext contract: even
+// when many compacted entries match the same keyword and each on-disk
+// turn file is 1 MB, BuildContext emits ONLY the LLM-generated Summary
+// line (one bullet per match, capped by MaxBuildContextMatches). Full
+// turn text stays on disk — never in the prompt.
+func TestBuildContextSummaryOnly(t *testing.T) {
 	dir := t.TempDir()
 	turnsDir := filepath.Join(dir, "turns")
 	if err := os.MkdirAll(turnsDir, 0o755); err != nil {
@@ -318,8 +325,9 @@ func TestBuildContextCapsInlinedFullRef(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		fmt.Fprintf(&idx, "---\nid: legacy-%d\ntopic: %q\nkeywords: [pipeline]\nfull_ref: turns/legacy-%d.md\nsummary: s\n---\n%s\n\n",
 			i, fmt.Sprintf("topic %d", i), i, "short summary")
-		// Hand-write a 1 MB turn file, bypassing sanitizer so we
-		// exercise the BuildContext-side cap in isolation.
+		// Hand-write a 1 MB turn file, bypassing sanitizer. If
+		// BuildContext ever regresses to inlining full turns, the
+		// assembled context will explode past the size assertion.
 		big := strings.Repeat("Z", 1024*1024)
 		content := fmt.Sprintf("# legacy-%d\n\n_2026-04-12T00:00:00Z_\n\n## Request\n\nq\n\n## Response\n\n%s\n", i, big)
 		if err := os.WriteFile(filepath.Join(turnsDir, fmt.Sprintf("legacy-%d.md", i)), []byte(content), 0o644); err != nil {
@@ -340,19 +348,22 @@ func TestBuildContextCapsInlinedFullRef(t *testing.T) {
 	}
 
 	ctx := s.BuildContext("how many pipeline stages are there")
-	// Total size must be well under the model-context-window pain
-	// point. Header + 3 × (bullet + ≤8 KB) + recent-turns header
-	// fits comfortably under 40 KB.
-	if len(ctx) > 40*1024 {
-		t.Errorf("BuildContext output size %d exceeds total budget", len(ctx))
+	// Summary-only means the assembled block is tiny regardless of
+	// how many 1 MB turn files sit on disk. 2 KB is generous headroom
+	// for the 3-bullet header + topic lines.
+	if len(ctx) > 2*1024 {
+		t.Errorf("BuildContext output size %d exceeds summary-only budget", len(ctx))
 	}
-	// Must include exactly 3 matches, not 10.
-	if n := strings.Count(ctx, "Full turn:"); n > 3 {
-		t.Errorf("inlined %d full turns, want ≤ 3", n)
+	// Must include exactly MaxBuildContextMatches=3 bullets.
+	if n := strings.Count(ctx, "**topic "); n != 3 {
+		t.Errorf("emitted %d topic bullets, want 3", n)
 	}
-	// Must include a truncation marker since each file is 1 MB.
-	if !strings.Contains(ctx, "[truncated]") {
-		t.Errorf("expected per-entry truncation marker")
+	// No full turn inlining ever.
+	if strings.Contains(ctx, "Full turn:") {
+		t.Errorf("BuildContext must not emit Full turn: block; got %q", ctx)
+	}
+	if strings.Contains(ctx, "ZZZZZZ") {
+		t.Errorf("BuildContext leaked raw turn body; got %q", ctx)
 	}
 }
 

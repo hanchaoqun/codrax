@@ -429,14 +429,10 @@
 # Max size of a single turn's request+response stored to disk.
 # memory_max_turn_body_bytes: 65536
 
-# Max compacted index entries inlined into BuildContext per request.
+# Max compacted index entries whose Summary is inlined into
+# BuildContext per request. Full turn text is never inlined — only
+# the LLM-generated one-line summary.
 # memory_max_build_context_matches: 3
-
-# Max bytes from a single matched compacted turn inlined into context.
-# memory_max_inlined_turn_bytes: 8192
-
-# Total byte budget for all inlined compacted turns in BuildContext.
-# memory_max_build_context_total_bytes: 32768
 
 # ---------------------------------------------------------------------------
 # Log-triage (log_triage_*)

@@ -959,12 +959,6 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.MemoryMaxBuildContextMatches != nil {
 			memCfg.MaxBuildContextMatches = *rs.MemoryMaxBuildContextMatches
 		}
-		if rs.MemoryMaxInlinedTurnBytes != nil {
-			memCfg.MaxInlinedTurnBytes = *rs.MemoryMaxInlinedTurnBytes
-		}
-		if rs.MemoryMaxBuildContextTotalBytes != nil {
-			memCfg.MaxBuildContextTotalBytes = *rs.MemoryMaxBuildContextTotalBytes
-		}
 	}
 	app.memorySettings = types.ResolvedMemorySettings(memCfg)
 

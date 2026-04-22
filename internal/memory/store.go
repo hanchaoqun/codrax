@@ -35,7 +35,7 @@ import (
 )
 
 // Hard caps that bound how much historical turn content ever reaches
-// an LLM prompt. Two independent layers:
+// an LLM prompt.
 //
 //   - maxTurnBodyBytes caps what we ever persist (and what readTurnFile
 //     surfaces back from pre-existing oversized files). Set at ~one
@@ -43,18 +43,16 @@ import (
 //     trip it; when a tool floods the response buffer the tail is
 //     dropped instead of poisoning every subsequent BuildContext call.
 //
-//   - maxBuildContext* caps the size of the inlined "Relevant compacted
-//     memory" block itself. Even if turn files happen to be within
-//     maxTurnBodyBytes, a pathological request that matches many
-//     entries would still blow the model window. Top-K + per-entry +
-//     total-budget gives three independent brakes.
+//   - maxBuildContextMatches is the top-K brake on keyword-matched
+//     compacted entries. Only the LLM-generated Summary line is ever
+//     emitted to the prompt — full turn files stay on disk and are
+//     available via /history.
+//
 // buildContextLimits holds the per-dispatch caps for BuildContext.
 // Populated from MemorySettings at NewStore time.
 type buildContextLimits struct {
-	maxTurnBodyBytes          int
-	maxBuildContextMatches    int
-	maxInlinedTurnBytes       int
-	maxBuildContextTotalBytes int
+	maxTurnBodyBytes       int
+	maxBuildContextMatches int
 }
 
 // ansiEscapeRE matches the CSI ("ESC[…letter") sequences that leak into
@@ -229,10 +227,8 @@ func NewStore(dir string, summarizer Summarizer, ms types.MemorySettings) (*Stor
 		maxRecent:    ms.MaxRecentTurns,
 		maxBytes:     ms.MaxRecentBytes,
 		bcLimits: buildContextLimits{
-			maxTurnBodyBytes:          ms.MaxTurnBodyBytes,
-			maxBuildContextMatches:    ms.MaxBuildContextMatches,
-			maxInlinedTurnBytes:       ms.MaxInlinedTurnBytes,
-			maxBuildContextTotalBytes: ms.MaxBuildContextTotalBytes,
+			maxTurnBodyBytes:       ms.MaxTurnBodyBytes,
+			maxBuildContextMatches: ms.MaxBuildContextMatches,
 		},
 		summarizer: summarizer,
 	}
@@ -619,8 +615,9 @@ func (s *Store) Index() []IndexEntry {
 //
 //   - all recent (uncompacted) turns verbatim, in order;
 //   - any IndexEntry whose keywords overlap with the current request,
-//     each followed by the inlined contents of its full_ref turn file
-//     so the model can recover the original detail.
+//     rendered as a single bullet with Topic + LLM-generated Summary.
+//     Full turn text is never inlined — callers who want the detail
+//     read turns/<id>.md directly or via /history.
 //
 // The empty string is returned when there is no prior context.
 //
@@ -642,14 +639,11 @@ func (s *Store) BuildContext(currentRequest string) string {
 	var b strings.Builder
 	if len(idx) > 0 {
 		matches := matchIndex(idx, currentRequest)
-		// Top-K by score. matchIndex already returns score-sorted, so
-		// this is the cheapest of the three brakes and runs first.
 		if len(matches) > s.bcLimits.maxBuildContextMatches {
 			matches = matches[:s.bcLimits.maxBuildContextMatches]
 		}
 		if len(matches) > 0 {
-			b.WriteString("### Relevant compacted memory\n")
-			inlined := 0
+			emitted := 0
 			for _, e := range matches {
 				// Defense in depth: WasError entries carry empty
 				// Keywords, so matchIndex should never surface them.
@@ -658,35 +652,15 @@ func (s *Store) BuildContext(currentRequest string) string {
 				if e.WasError {
 					continue
 				}
+				if emitted == 0 {
+					b.WriteString("### Relevant compacted memory\n")
+				}
 				fmt.Fprintf(&b, "- **%s** (%s) — %s\n", e.Topic, e.ID, e.Summary)
-				// Total-budget brake: once we're over the overall cap,
-				// stop inlining full turns but keep emitting the bullet
-				// line so the model at least knows the topic existed.
-				if inlined >= s.bcLimits.maxBuildContextTotalBytes {
-					b.WriteString("  (full turn elided: context budget exhausted)\n")
-					continue
-				}
-				full, err := os.ReadFile(filepath.Join(s.dir, e.FullRef))
-				if err != nil {
-					continue
-				}
-				// Per-entry brake: cap one turn file's contribution
-				// regardless of its on-disk size. Cuts on a rune
-				// boundary so we never split a multibyte character.
-				text := string(full)
-				if len(text) > s.bcLimits.maxInlinedTurnBytes {
-					cut := s.bcLimits.maxInlinedTurnBytes
-					for cut > 0 && (text[cut]&0xC0) == 0x80 {
-						cut--
-					}
-					text = text[:cut] + "\n…[truncated]"
-				}
-				b.WriteString("  Full turn:\n  ")
-				b.WriteString(strings.ReplaceAll(text, "\n", "\n  "))
-				b.WriteString("\n")
-				inlined += len(text)
+				emitted++
 			}
-			b.WriteString("\n")
+			if emitted > 0 {
+				b.WriteString("\n")
+			}
 		}
 	}
 	if len(recent) > 0 {
