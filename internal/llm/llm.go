@@ -56,6 +56,16 @@ type ChatOptions struct {
 	// finalizer / log_triager) so the protocol itself rejects the
 	// failure mode, instead of burning the continuation retry budget.
 	ToolChoice string
+
+	// OnContentDelta is an optional callback fired by a streaming
+	// adapter every time a chunk of assistant content arrives. Delta
+	// is the NEW text only (not the accumulated buffer). The final
+	// accumulated content is still returned on the Response. Non-
+	// streaming adapters never invoke this callback, even when
+	// non-nil. Tool-call argument deltas are NOT surfaced — they
+	// arrive as partial JSON that makes no sense until the stream
+	// finishes.
+	OnContentDelta func(delta string)
 }
 
 // Adapter defines the interface for LLM backends.

@@ -472,6 +472,81 @@ func truncForLog(s string, max int) string {
 // LLM's own reasoning and tool-call plans, are tiny by comparison, and
 // removing them would erase the thread the model is working with.
 //
+// streamPreviewBuffer throttles content-chunk events from a streaming
+// LLM adapter. onDelta is called per chunk by the adapter; it appends
+// to the running buffer and emits an EventAgentContent at most every
+// throttleInterval. flush fires one last emission at stream end so
+// the user sees the final tail. Nil emit (tests, headless) makes the
+// whole thing a no-op.
+type streamPreviewBuffer struct {
+	emit       render.EventEmitter
+	agent      types.AgentName
+	stage      types.PipelineStage
+	iter       int
+	buf        strings.Builder
+	lastEmitAt time.Time
+}
+
+// streamPreviewThrottle is the minimum gap between consecutive
+// EventAgentContent emissions. 250ms keeps the UI feel responsive
+// (~4 updates/sec) without flooding pterm.Area redraws or the
+// logging pipeline.
+const streamPreviewThrottle = 250 * time.Millisecond
+
+func newStreamPreviewBuffer(emit render.EventEmitter, agent types.AgentName, stage types.PipelineStage, iter int) *streamPreviewBuffer {
+	return &streamPreviewBuffer{emit: emit, agent: agent, stage: stage, iter: iter}
+}
+
+func (b *streamPreviewBuffer) onDelta(delta string) {
+	if b == nil || b.emit == nil || delta == "" {
+		return
+	}
+	b.buf.WriteString(delta)
+	if time.Since(b.lastEmitAt) < streamPreviewThrottle {
+		return
+	}
+	b.lastEmitAt = time.Now()
+	b.emit(render.Event{
+		Kind:      render.EventAgentContent,
+		Timestamp: b.lastEmitAt,
+		Agent:     b.agent,
+		Stage:     b.stage,
+		Iteration: b.iter,
+		Reasoning: b.buf.String(),
+	})
+}
+
+// flush emits one last event so the tail of the stream always reaches
+// the renderer. Safe to call even if no deltas arrived.
+func (b *streamPreviewBuffer) flush() {
+	if b == nil || b.emit == nil || b.buf.Len() == 0 {
+		return
+	}
+	b.emit(render.Event{
+		Kind:      render.EventAgentContent,
+		Timestamp: time.Now(),
+		Agent:     b.agent,
+		Stage:     b.stage,
+		Iteration: b.iter,
+		Reasoning: b.buf.String(),
+	})
+}
+
+// softNoToolCallMessage renders the user-visible line fired when a
+// must-emit stage gets an LLM response with zero tool calls. The
+// orchestrator's soft-message contract is to stay zh/en aware and
+// never leak internal jargon; this helper mirrors that convention.
+// Lives in agent rather than orchestrator because the agent layer
+// is where the empty-ToolCalls observation actually happens (and
+// importing orchestrator from agent would reverse the dependency).
+func softNoToolCallMessage(lang string) string {
+	switch strings.ToLower(strings.TrimSpace(lang)) {
+	case "zh", "zh-cn", "cn", "chinese", "简体中文":
+		return "⟳ 模型本轮未调用工具，重新引导中"
+	}
+	return "⟳ Model declined to call a tool this turn; re-prompting"
+}
+
 // toolChoiceForStage returns the OpenAI-style tool_choice value to
 // attach to the LLM request for this dispatch stage. The stages whose
 // terminal action is a specific emit_* call — analyze, extract,
@@ -620,9 +695,17 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			Stage:     ctx.Stage,
 			Iteration: i,
 		})
+		// Streaming preview: when the LLM adapter supports streaming,
+		// each content chunk fires onDelta. Buffer the chunks and emit
+		// an EventAgentContent event at most every 250ms so the row
+		// detail updates live without flooding the renderer with
+		// per-token events. Non-streaming adapters never call onDelta.
+		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i)
 		resp, err := b.deps.LLM.Chat(messages, toolSchemas, llm.ChatOptions{
-			ToolChoice: toolChoiceForStage(ctx.Stage),
+			ToolChoice:     toolChoiceForStage(ctx.Stage),
+			OnContentDelta: streamBuf.onDelta,
 		})
+		streamBuf.flush()
 		if err != nil {
 			// Salvage accumulated side-effects before bubbling the LLM
 			// error. Without this, an upstream 429 / 5xx / context-length
@@ -667,6 +750,28 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		for j, tc := range resp.ToolCalls {
 			logging.Debug("[diag %s] iter=%d call[%d] tool=%s params=%s",
 				b.name, i, j, tc.Name, string(tc.Params))
+		}
+
+		// Must-emit stage visibility: when the stage's tool_choice is
+		// "required" but the provider still returned zero tool_calls
+		// (some self-hosted gateways and fine-tuned chat models
+		// quietly ignore tool_choice), the UI would otherwise go
+		// silent for the entire continuation retry budget. Emit a
+		// localized soft message each time it happens so the user
+		// sees exactly why the stage is looping.
+		if toolChoiceForStage(ctx.Stage) == "required" && len(resp.ToolCalls) == 0 {
+			lang := ""
+			if ctx != nil {
+				lang = ctx.Language
+			}
+			b.deps.Emit(render.Event{
+				Kind:      render.EventAgentReasoning,
+				Timestamp: time.Now(),
+				Agent:     "orchestrator",
+				Stage:     ctx.Stage,
+				Iteration: i,
+				Reasoning: softNoToolCallMessage(lang),
+			})
 		}
 
 		// Hard stop from the evaluator (e.g., finalizer always stops at iter=0).

@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/tls"
 	"crypto/x509"
@@ -9,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -20,6 +22,7 @@ type OpenAIAdapter struct {
 	model      string
 	baseURL    string
 	maxTokens  int
+	stream     bool
 	httpClient *http.Client
 }
 
@@ -36,18 +39,18 @@ type TLSOptions struct {
 	InsecureSkipVerify bool
 }
 
-// NewOpenAIAdapter creates a new OpenAI adapter.
-// baseURL defaults to "https://api.openai.com/v1" if empty.
-// This also works with Azure OpenAI, DeepSeek, Ollama, and other compatible APIs.
-func NewOpenAIAdapter(apiKey, model, baseURL string, tlsOpts TLSOptions) *OpenAIAdapter {
-	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
-	}
+// NewOpenAIAdapter creates a new OpenAI adapter. apiKey, model, and
+// baseURL are all required — the factory layer is responsible for
+// rejecting configs that omit any of them. This also works with
+// Azure OpenAI, DeepSeek, Ollama, and other OpenAI-compatible APIs.
+// stream toggles SSE streaming on the chat/completions endpoint.
+func NewOpenAIAdapter(apiKey, model, baseURL string, stream bool, tlsOpts TLSOptions) *OpenAIAdapter {
 	return &OpenAIAdapter{
 		apiKey:     apiKey,
 		model:      model,
 		baseURL:    baseURL,
 		maxTokens:  4096,
+		stream:     stream,
 		httpClient: buildHTTPClient(tlsOpts, baseURL),
 	}
 }
@@ -129,7 +132,11 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOp
 	// because a brief server hiccup happily tolerates the longer wait.
 	const maxAttempts = 6
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		resp, err = o.doRequest(bodyBytes)
+		if o.stream {
+			resp, err = o.doStreamRequest(bodyBytes, opts.OnContentDelta)
+		} else {
+			resp, err = o.doRequest(bodyBytes)
+		}
 		if err == nil {
 			return resp, nil
 		}
@@ -181,6 +188,180 @@ func (o *OpenAIAdapter) doRequest(bodyBytes []byte) (Response, error) {
 	return o.parseResponse(respBody)
 }
 
+// doStreamRequest POSTs a streaming chat completion and accumulates
+// the incremental SSE chunks into a single Response. Content deltas
+// fire the optional onDelta callback as they arrive so the agent
+// layer can surface a live preview. Tool-call argument deltas are
+// accumulated silently — they arrive as partial JSON that cannot be
+// parsed until the stream closes, and mid-stream surfacing would
+// leak broken JSON into logs / UI.
+func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) (Response, error) {
+	req, err := http.NewRequest("POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return Response{}, fmt.Errorf("create request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+o.apiKey)
+	req.Header.Set("Accept", "text/event-stream")
+
+	httpResp, err := o.httpClient.Do(req)
+	if err != nil {
+		return Response{}, fmt.Errorf("http request: %w", err)
+	}
+	defer httpResp.Body.Close()
+
+	if httpResp.StatusCode != http.StatusOK {
+		// Non-OK responses are returned as a single JSON body, not SSE.
+		body, _ := io.ReadAll(httpResp.Body)
+		return Response{}, &apiError{
+			StatusCode: httpResp.StatusCode,
+			Body:       string(body),
+		}
+	}
+
+	return parseSSEStream(httpResp.Body, onDelta)
+}
+
+// parseSSEStream reads SSE frames from r and folds them into a single
+// Response. Factored out so the parser is unit-testable without a
+// live HTTP server.
+//
+// Wire format (per OpenAI streaming spec):
+//
+//	data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}
+//	data: {"choices":[{"delta":{"tool_calls":[{"index":0,"id":"call_x","function":{"name":"emit_analysis","arguments":""}}]}}]}
+//	data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"k\""}}]}}]}
+//	data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}
+//	data: [DONE]
+//
+// Key rules the accumulator enforces:
+//   - delta.content chunks are appended to the running buffer
+//   - delta.tool_calls[].index identifies which tool call the deltas
+//     belong to; id and name usually arrive on the first chunk,
+//     arguments accumulate across subsequent chunks
+//   - finish_reason appears in the last non-DONE chunk
+//   - usage typically ships in a dedicated last chunk (stream_options),
+//     but providers vary; we read it when present
+func parseSSEStream(r io.Reader, onDelta func(string)) (Response, error) {
+	br := bufio.NewScanner(r)
+	// Single SSE frames can exceed bufio's default 64 KB line cap when
+	// a provider batches many deltas into one frame; raise to 1 MB to
+	// match the upstream response size budget.
+	br.Buffer(make([]byte, 64*1024), 1<<20)
+
+	var contentBuf strings.Builder
+	toolCalls := map[int]*openaiToolCall{}
+	toolCallOrder := []int{}
+	finishReason := ""
+	usage := openaiUsage{}
+	gotAnyChunk := false
+
+	for br.Scan() {
+		line := br.Text()
+		// SSE lines before the data payload are event names / comments
+		// / blank separators. Only "data: <payload>" lines matter for
+		// chat-completion streams.
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" || payload == "[DONE]" {
+			continue
+		}
+		gotAnyChunk = true
+
+		var chunk struct {
+			Choices []struct {
+				Delta struct {
+					Content   string                `json:"content"`
+					ToolCalls []openaiToolCallDelta `json:"tool_calls"`
+				} `json:"delta"`
+				FinishReason string `json:"finish_reason"`
+			} `json:"choices"`
+			Usage *openaiUsage `json:"usage"`
+		}
+		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
+			// A malformed chunk is not fatal — some providers emit
+			// heartbeats / keep-alive comments outside the spec. Log
+			// and skip; if the stream never produces a usable chunk
+			// the final gotAnyChunk check fails loudly.
+			logging.Debug("[llm/stream] skip malformed chunk: %v payload=%q", err, payload)
+			continue
+		}
+
+		if chunk.Usage != nil {
+			usage = *chunk.Usage
+		}
+
+		for _, ch := range chunk.Choices {
+			if ch.Delta.Content != "" {
+				contentBuf.WriteString(ch.Delta.Content)
+				if onDelta != nil {
+					onDelta(ch.Delta.Content)
+				}
+			}
+			for i, tc := range ch.Delta.ToolCalls {
+				// Per-chunk index is authoritative. Providers that
+				// ship a single tool_call put index 0 on every chunk
+				// of that call; multi-tool responses interleave
+				// indexes. A missing "index" field decodes as 0 which
+				// is the correct default for a single-tool stream —
+				// but for robustness use the position in the chunk
+				// as a tie-breaker if tc.Index conflicts with state.
+				idx := tc.Index
+				if idx < 0 {
+					idx = i
+				}
+				agg, seen := toolCalls[idx]
+				if !seen {
+					agg = &openaiToolCall{Type: "function"}
+					toolCalls[idx] = agg
+					toolCallOrder = append(toolCallOrder, idx)
+				}
+				if tc.ID != "" {
+					agg.ID = tc.ID
+				}
+				if tc.Type != "" {
+					agg.Type = tc.Type
+				}
+				if tc.Function.Name != "" {
+					agg.Function.Name = tc.Function.Name
+				}
+				if tc.Function.Arguments != "" {
+					agg.Function.Arguments += tc.Function.Arguments
+				}
+			}
+			if ch.FinishReason != "" {
+				finishReason = ch.FinishReason
+			}
+		}
+	}
+	if err := br.Err(); err != nil {
+		return Response{}, fmt.Errorf("read stream: %w", err)
+	}
+	if !gotAnyChunk {
+		return Response{}, fmt.Errorf("empty stream — provider closed the connection before any chunk")
+	}
+
+	resp := Response{
+		Content:    contentBuf.String(),
+		StopReason: mapFinishReason(finishReason),
+		Usage: TokenUsage{
+			InputTokens:  usage.PromptTokens,
+			OutputTokens: usage.CompletionTokens,
+		},
+	}
+	for _, idx := range toolCallOrder {
+		tc := toolCalls[idx]
+		resp.ToolCalls = append(resp.ToolCalls, ToolCall{
+			ID:     tc.ID,
+			Name:   tc.Function.Name,
+			Params: json.RawMessage(tc.Function.Arguments),
+		})
+	}
+	return resp, nil
+}
+
 // --- request types ---
 
 type openaiRequest struct {
@@ -189,6 +370,7 @@ type openaiRequest struct {
 	Tools      []openaiTool    `json:"tools,omitempty"`
 	ToolChoice json.RawMessage `json:"tool_choice,omitempty"`
 	MaxTokens  int             `json:"max_tokens,omitempty"`
+	Stream     bool            `json:"stream,omitempty"`
 }
 
 type openaiMessage struct {
@@ -210,6 +392,18 @@ type openaiFunction struct {
 }
 
 type openaiToolCall struct {
+	ID       string             `json:"id"`
+	Type     string             `json:"type"`
+	Function openaiToolCallFunc `json:"function"`
+}
+
+// openaiToolCallDelta is the streaming-only variant. The server emits
+// a per-chunk `index` that identifies which tool call the delta
+// belongs to when multiple tools arrive interleaved; zero is a valid
+// index (single-tool streams always use 0) so the decoder must not
+// use `omitempty`. Request-side code never emits this type.
+type openaiToolCallDelta struct {
+	Index    int                `json:"index"`
 	ID       string             `json:"id"`
 	Type     string             `json:"type"`
 	Function openaiToolCallFunc `json:"function"`
@@ -287,6 +481,10 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 		req.ToolChoice = json.RawMessage(fmt.Sprintf("%q", opts.ToolChoice))
 	}
 
+	if o.stream {
+		req.Stream = true
+	}
+
 	return req
 }
 
@@ -343,7 +541,7 @@ type apiError struct {
 }
 
 func (e *apiError) Error() string {
-	return fmt.Sprintf("OpenAI API error (status %d): %s", e.StatusCode, e.Body)
+	return fmt.Sprintf("LLM API error (status %d): %s", e.StatusCode, e.Body)
 }
 
 func isRetryable(err error) bool {

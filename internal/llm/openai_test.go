@@ -142,6 +142,145 @@ func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 	})
 }
 
+// TestParseSSEStream covers the streaming accumulator: content deltas
+// append in order, tool-call arguments accumulate across chunks keyed
+// by index, finish_reason lands in StopReason, and the final Response
+// is shape-identical to what a non-streaming call would return.
+func TestParseSSEStream(t *testing.T) {
+	t.Run("content-only stream", func(t *testing.T) {
+		sse := "data: {\"choices\":[{\"delta\":{\"content\":\"Hello \"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"content\":\"world\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+			"data: [DONE]\n"
+		var deltas []string
+		resp, err := parseSSEStream(strings.NewReader(sse), func(d string) { deltas = append(deltas, d) })
+		if err != nil {
+			t.Fatalf("parseSSEStream: %v", err)
+		}
+		if resp.Content != "Hello world" {
+			t.Errorf("Content = %q, want %q", resp.Content, "Hello world")
+		}
+		if resp.StopReason != "end_turn" {
+			t.Errorf("StopReason = %q, want end_turn", resp.StopReason)
+		}
+		if len(resp.ToolCalls) != 0 {
+			t.Errorf("ToolCalls = %v, want none", resp.ToolCalls)
+		}
+		if got := strings.Join(deltas, "|"); got != "Hello |world" {
+			t.Errorf("onDelta ordering = %q, want %q", got, "Hello |world")
+		}
+	})
+
+	t.Run("single tool call across chunks", func(t *testing.T) {
+		sse := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_a\",\"function\":{\"name\":\"emit_analysis\",\"arguments\":\"\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"k\\\"\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":42}\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n"
+		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		if err != nil {
+			t.Fatalf("parseSSEStream: %v", err)
+		}
+		if resp.StopReason != "tool_use" {
+			t.Errorf("StopReason = %q, want tool_use", resp.StopReason)
+		}
+		if len(resp.ToolCalls) != 1 {
+			t.Fatalf("ToolCalls len = %d, want 1", len(resp.ToolCalls))
+		}
+		tc := resp.ToolCalls[0]
+		if tc.ID != "call_a" || tc.Name != "emit_analysis" {
+			t.Errorf("tool call meta = %+v, want id=call_a name=emit_analysis", tc)
+		}
+		if string(tc.Params) != `{"k":42}` {
+			t.Errorf("tool call arguments = %q, want %q", string(tc.Params), `{"k":42}`)
+		}
+	})
+
+	t.Run("multi tool calls interleaved by index", func(t *testing.T) {
+		sse := "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"A\",\"function\":{\"name\":\"grep\",\"arguments\":\"\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"id\":\"B\",\"function\":{\"name\":\"read_file\",\"arguments\":\"\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\"{\\\"p\\\":1}\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"{\\\"f\\\":\\\"a.go\\\"}\"}}]}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
+			"data: [DONE]\n"
+		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		if err != nil {
+			t.Fatalf("parseSSEStream: %v", err)
+		}
+		if len(resp.ToolCalls) != 2 {
+			t.Fatalf("ToolCalls len = %d, want 2", len(resp.ToolCalls))
+		}
+		if resp.ToolCalls[0].Name != "grep" || resp.ToolCalls[1].Name != "read_file" {
+			t.Errorf("order = [%s, %s], want [grep, read_file]", resp.ToolCalls[0].Name, resp.ToolCalls[1].Name)
+		}
+		if string(resp.ToolCalls[0].Params) != `{"p":1}` {
+			t.Errorf("grep params = %q", string(resp.ToolCalls[0].Params))
+		}
+		if string(resp.ToolCalls[1].Params) != `{"f":"a.go"}` {
+			t.Errorf("read_file params = %q", string(resp.ToolCalls[1].Params))
+		}
+	})
+
+	t.Run("empty stream errors", func(t *testing.T) {
+		_, err := parseSSEStream(strings.NewReader(""), nil)
+		if err == nil || !strings.Contains(err.Error(), "empty stream") {
+			t.Errorf("expected empty-stream error, got %v", err)
+		}
+	})
+
+	t.Run("malformed chunk skipped without crash", func(t *testing.T) {
+		sse := "data: not-json\n\n" +
+			"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+			"data: [DONE]\n"
+		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		if err != nil {
+			t.Fatalf("parseSSEStream: %v", err)
+		}
+		if resp.Content != "ok" {
+			t.Errorf("Content = %q, want ok", resp.Content)
+		}
+	})
+
+	t.Run("usage chunk captured", func(t *testing.T) {
+		sse := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}\n\n" +
+			"data: [DONE]\n"
+		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		if err != nil {
+			t.Fatalf("parseSSEStream: %v", err)
+		}
+		if resp.Usage.InputTokens != 12 || resp.Usage.OutputTokens != 3 {
+			t.Errorf("usage = %+v, want 12/3", resp.Usage)
+		}
+	})
+}
+
+// TestBuildRequest_StreamWireFormat locks the stream flag on the wire:
+// streaming adapters set it to true, non-streaming omit it entirely
+// so the payload is byte-identical to the pre-streaming implementation.
+func TestBuildRequest_StreamWireFormat(t *testing.T) {
+	msgs := []Message{{Role: "user", Content: "hi"}}
+
+	t.Run("non_streaming_omits_field", func(t *testing.T) {
+		a := &OpenAIAdapter{model: "m", stream: false}
+		req := a.buildRequest(msgs, nil, ChatOptions{})
+		b, _ := json.Marshal(req)
+		if strings.Contains(string(b), `"stream"`) {
+			t.Errorf("non-streaming payload must omit stream field, got: %s", b)
+		}
+	})
+
+	t.Run("streaming_sets_true", func(t *testing.T) {
+		a := &OpenAIAdapter{model: "m", stream: true}
+		req := a.buildRequest(msgs, nil, ChatOptions{})
+		b, _ := json.Marshal(req)
+		if !strings.Contains(string(b), `"stream":true`) {
+			t.Errorf("streaming payload must contain \"stream\":true, got: %s", b)
+		}
+	})
+}
+
 // generateTestCAPEM produces a valid self-signed certificate in PEM
 // form. The cert is only used for the pool.AppendCertsFromPEM parse
 // path; no TLS handshake actually touches it.

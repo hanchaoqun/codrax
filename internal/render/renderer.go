@@ -395,6 +395,28 @@ func (r *Renderer) Emitter() EventEmitter {
 				r.current.detailStart = ev.Timestamp
 			}
 
+		case EventAgentContent:
+			// Streaming content preview: update the row's detail line
+			// in place with the latest sliver of assistant text so the
+			// user sees the reply being typed while the LLM is still
+			// responding. Never prints a new line above the area —
+			// that would stack dozens of deltas per second.
+			if r.current != nil && ev.Reasoning != "" {
+				preview := stripMarkdown(ev.Reasoning)
+				// Take the tail: users want the most recent thought,
+				// not the whole message.
+				const previewMax = 80
+				if len(preview) > previewMax {
+					preview = "…" + preview[len(preview)-previewMax:]
+				}
+				// Collapse newlines / repeated spaces so the row stays
+				// on one visual line even if the delta contains `\n`.
+				preview = strings.Join(strings.Fields(preview), " ")
+				r.current.detail = "thinking: " + preview
+				r.current.detailDone = false
+				r.current.detailStart = ev.Timestamp
+			}
+
 		case EventToolCallStart:
 			if r.current != nil {
 				r.current.detail = ev.ToolName

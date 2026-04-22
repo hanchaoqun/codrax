@@ -61,6 +61,14 @@ const (
 	// drive node-row transitions (pending → running → done/failed).
 	EventTaskNodeStart
 	EventTaskNodeEnd
+
+	// Live preview of streaming assistant content. Emitted by
+	// BaseAgent when the LLM adapter surfaces content chunks mid-
+	// response (streaming opt-in). Renderer updates the current
+	// task row's detail line in place — does NOT print a new line
+	// above the area — so the user sees the reply being typed out
+	// without the reasoning feed ballooning.
+	EventAgentContent
 )
 
 // TaskNodeInfo is the renderable summary of a TaskGraph node carried

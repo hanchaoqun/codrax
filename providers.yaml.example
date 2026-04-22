@@ -1,14 +1,23 @@
 # Minimal viable config — all 4 agents share one provider.
 # Place this file next to the codrax binary as `providers.yaml`.
+#
+# All four fields are REQUIRED on the default provider. codrax will
+# refuse to start if any is missing — no silent fallback to public
+# endpoints or hard-coded model IDs. Per-agent overrides inherit any
+# field you do not explicitly set.
 llm:
   default:
-    provider: openai          # only `openai` is implemented; any
-                              # OpenAI-compatible backend works
-                              # via base_url (deepseek, qwen,
-                              # vllm/Ollama, together, etc.)
-    api_key: "sk-xxx"
-    model: "gpt-4o"
-    base_url: ""              # empty → https://api.openai.com/v1
+    provider: openai                      # only `openai` is implemented; any
+                                          # compatible chat-completions backend
+                                          # plugs in via base_url (deepseek,
+                                          # qwen, vllm/Ollama, together, etc.)
+    api_key: "sk-xxx"                     # required
+    model: "your-model-id"                # required; no default assumed
+    base_url: "https://your-endpoint/v1"  # required; no default assumed
+    # stream: false                       # opt-in SSE streaming; when true the
+                                          # REPL task row shows a live content
+                                          # preview while the LLM is still
+                                          # responding
 
   # Optional TLS knobs for HTTPS endpoints with custom / self-signed
   # CAs. The system trust pool is used by default; set either field
@@ -28,9 +37,10 @@ llm:
   #
   # agents:
   #   analyzer:
-  #     model: "gpt-4o"        # smarter model for the classification step
+  #     model: "stronger-model"    # smarter model for the classification step
   #   extractor:
-  #     model: "gpt-4o-mini"   # cheaper model for the structuring step
+  #     model: "cheaper-model"     # cheaper model for the structuring step
   #   finalizer:
   #     base_url: "http://localhost:11434/v1"
   #     model: "llama3.1:70b"
+  #     stream: true               # per-agent streaming opt-in

@@ -1038,10 +1038,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 
 	resolver := func(name types.AgentName) llm.Adapter {
 		resolved := config.ResolveProvider(providersCfg, string(name))
-		if adapter := llm.NewFromConfig(resolved); adapter != nil {
-			return adapter
+		adapter, err := llm.NewFromConfig(resolved)
+		if err != nil {
+			logging.Error("[llm] resolver for agent=%s: %v", name, err)
+			return nil
 		}
-		return nil
+		return adapter
 	}
 
 	// Build LogTriageSettings from codrax.yaml with defaults filling
@@ -1170,10 +1172,13 @@ func anchorPath(anchor, p string) string {
 
 func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
 	resolved := config.ResolveProvider(cfg, "")
-	if adapter := llm.NewFromConfig(resolved); adapter != nil {
-		return adapter
+	adapter, err := llm.NewFromConfig(resolved)
+	if err != nil {
+		logging.Error("[llm] default adapter: %v", err)
+		fmt.Fprintf(os.Stderr, "  ⚠ %v\n", err)
+		return &placeholderAdapter{}
 	}
-	return &placeholderAdapter{}
+	return adapter
 }
 
 // placeholderAdapter is a minimal LLM adapter for testing the pipeline structure.

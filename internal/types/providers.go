@@ -19,6 +19,16 @@ type LLMProviderConfig struct {
 	BaseURL    string `yaml:"base_url"`
 	ThinkAloud *bool  `yaml:"think_aloud"` // nil = inherit from default; true/false = per-agent override
 
+	// Stream enables SSE streaming of the chat completion response.
+	// When true the adapter sets `stream: true` on the wire, parses
+	// server-sent events, and accumulates content + tool_calls into
+	// the same Response shape a non-streaming call produces. Runtime-
+	// observable difference: intermediate content chunks can surface
+	// in the REPL task-row preview while the call is still in flight.
+	// nil/false = classic single-shot request. Per-agent override
+	// uses the same nil-sentinel pattern as ThinkAloud.
+	Stream *bool `yaml:"stream"`
+
 	// TLSCAFile is an optional path to a PEM-encoded CA bundle that gets
 	// appended to the system trust pool. Useful when the endpoint is
 	// signed by a corporate / self-hosted CA the OS does not know

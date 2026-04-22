@@ -54,6 +54,9 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.ThinkAloud != nil {
 		dst.ThinkAloud = src.ThinkAloud
 	}
+	if src.Stream != nil {
+		dst.Stream = src.Stream
+	}
 	if src.TLSCAFile != "" {
 		dst.TLSCAFile = src.TLSCAFile
 	}
