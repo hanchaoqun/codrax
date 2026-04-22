@@ -201,6 +201,17 @@ func formatEvidenceLineForReport(ev types.EvidenceItem) string {
 
 	if loc := ev.DisplayLocation(true); loc != "" {
 		parts = append(parts, "— "+loc)
+		// Anchor-kind suffix disambiguates what the cited line is for
+		// downstream consumers. Without this, "[relationship] X calls
+		// Y — file:line" was previously read by the extractor LLM as
+		// "X is defined at line", because the line is in fact the
+		// call site (line text contains Y, not X). The tag makes the
+		// semantic explicit so emit_answer_symbol items derived from
+		// these evidence rows pick a real definition line, not the
+		// call-site line.
+		if tag := anchorKindDisplayTag(ev.AnchorKind); tag != "" {
+			parts = append(parts, tag)
+		}
 	}
 
 	switch ev.GroundingStatus {
@@ -211,6 +222,30 @@ func formatEvidenceLineForReport(ev types.EvidenceItem) string {
 	}
 
 	return strings.Join(parts, " ")
+}
+
+// anchorKindDisplayTag returns the parenthetical suffix appended to
+// each rendered evidence line. The tag tells downstream LLMs what the
+// cited line is so they cannot mistake e.g. a call-site line for the
+// caller's definition line. Empty AnchorKind (legacy items that
+// pre-date the anchor contract) renders no tag — preserves backward
+// compat for any producer that has not been updated.
+func anchorKindDisplayTag(k types.AnchorKind) string {
+	switch k {
+	case types.AnchorCall:
+		return "(call site)"
+	case types.AnchorDefinition:
+		return "(definition)"
+	case types.AnchorCondition:
+		return "(condition)"
+	case types.AnchorReturn:
+		return "(return)"
+	case types.AnchorAssignment:
+		return "(assignment)"
+	case types.AnchorImport:
+		return "(import)"
+	}
+	return ""
 }
 
 func emptyAsDash(s string) string {

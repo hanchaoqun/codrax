@@ -73,6 +73,8 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 			0.5,
 			"dataflow.engine",
 			fmt.Sprintf("dataflow candidate set exceeded budget and was truncated to %d files", opts.MaxFiles),
+			"",
+			"",
 		))
 	}
 
@@ -579,6 +581,8 @@ func evidenceFromFindings(findings []types.FlowFindingDigest) []types.EvidenceIt
 			finding.Confidence,
 			"dataflow.finding",
 			summary,
+			"",
+			"",
 		)
 		item.DerivedFrom = append(item.DerivedFrom, finding.EvidenceIDs...)
 		items = append(items, item)
@@ -649,6 +653,8 @@ func lowerConfigFile(repoRoot, relPath string) []types.EvidenceItem {
 			0.9,
 			"dataflow.config",
 			fmt.Sprintf("config %s = %s", entry.Key, entry.Value),
+			types.AnchorDefinition,
+			entry.Key,
 		))
 	}
 	return items

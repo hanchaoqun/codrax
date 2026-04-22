@@ -209,6 +209,48 @@ func TestRenderExplorerStageReport_RecoveredTagPreserved(t *testing.T) {
 	}
 }
 
+// TestRenderExplorerStageReport_AnchorKindTag pins the Fix C
+// contract: formatEvidenceLineForReport appends an anchor-kind
+// suffix — "(call site)", "(definition)", etc. — after the cited
+// location so downstream LLM consumers cannot confuse a call-site
+// line with the caller's definition line. Regression target was the
+// u3a run-1 failure (eval/results/u3a-20260422-171414/run-1) where
+// the extractor read "[relationship] X calls Y — file:992" as "X is
+// at 992", derived 10 wrong-line emit_answer_symbol items, and all
+// finalizer citations failed grounding.
+func TestRenderExplorerStageReport_AnchorKindTag(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			Kind:         types.EvidenceRelationship,
+			Subject:      "internal/agent/explorer.go:explorerEvaluator.focusedAnchorNeighborhood",
+			Predicate:    "calls",
+			Object:       "canonicalExplorerPath",
+			Source:       "internal/agent/explorer.go",
+			LineStart:    992,
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: "canonicalExplorerPath",
+		},
+		{
+			Kind:         types.EvidenceConcrete,
+			Subject:      "explorerEvaluator.ShouldStop",
+			Predicate:    "defined",
+			Source:       "internal/agent/explorer.go",
+			LineStart:    2478,
+			AnchorKind:   types.AnchorDefinition,
+			AnchorSymbol: "ShouldStop",
+		},
+	}
+	got := renderExplorerStageReport("mechanism", "step_list",
+		evidence, nil, nil, nil, nil, false)
+
+	if !strings.Contains(got, "internal/agent/explorer.go:992 (call site)") {
+		t.Errorf("call-site anchor tag missing; render:\n%s", got)
+	}
+	if !strings.Contains(got, "internal/agent/explorer.go:2478 (definition)") {
+		t.Errorf("definition anchor tag missing; render:\n%s", got)
+	}
+}
+
 func TestRenderExplorerStageReport_KindAgnostic(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{Kind: types.EvidenceConcrete, Subject: "X", Source: "a.go", LineStart: 1},

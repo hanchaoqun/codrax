@@ -97,6 +97,8 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 				0.8,
 				"dataflow.lowerer."+file.Language,
 				fmt.Sprintf("`%s` line %d guards execution IF %s", symbolKey, lineNo, guard),
+				types.AnchorCondition,
+				firstIdentifier(guard),
 			))
 		}
 
@@ -119,6 +121,8 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 					0.92,
 					"dataflow.lowerer."+file.Language,
 					fmt.Sprintf("`%s` line %d returns %s", symbolKey, lineNo, lit),
+					types.AnchorReturn,
+					firstIdentifier(lit),
 				))
 			}
 		}
@@ -139,6 +143,8 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 					0.85,
 					"dataflow.lowerer."+file.Language,
 					fmt.Sprintf("`%s` line %d reads config key %q", symbolKey, lineNo, key),
+					types.AnchorCall,
+					key,
 				))
 			}
 		}
@@ -165,6 +171,8 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 					0.78,
 					"dataflow.lowerer."+file.Language,
 					fmt.Sprintf("`%s` line %d writes field `%s`", symbolKey, lineNo, field),
+					types.AnchorAssignment,
+					field,
 				))
 			}
 		}
@@ -184,6 +192,8 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 					0.75,
 					"dataflow.lowerer."+file.Language,
 					fmt.Sprintf("`%s` line %d reads field `%s`", symbolKey, lineNo, field),
+					types.AnchorAssignment,
+					field,
 				))
 			}
 		}
@@ -220,6 +230,8 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 				0.82,
 				"dataflow.lowerer."+file.Language,
 				fmt.Sprintf("`%s` line %d calls `%s`", symbolKey, lineNo, rel.To),
+				types.AnchorCall,
+				callerLeafName(rel.To),
 			))
 		}
 	}
@@ -238,6 +250,8 @@ func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, 
 			0.45,
 			"dataflow.lowerer."+file.Language,
 			fmt.Sprintf("`%s` has an unresolved effect: %s", symbolKey, summary.UnknownReason),
+			types.AnchorDefinition,
+			sym.Name,
 		))
 	}
 
@@ -446,20 +460,63 @@ func contains(items []string, want string) bool {
 	return false
 }
 
-func newEvidenceItem(kind types.EvidenceKind, subject, predicate, object, condition, source, ref string, lineStart, lineEnd int, confidence float64, producer, summary string) types.EvidenceItem {
+// firstIdentifier returns the leading identifier-like token of an
+// expression (stops at the first non-identifier character). Used as
+// the best-effort anchor symbol for guard / return expressions where
+// the full span is available but the grounder needs a single
+// identifier token to verify against line text.
+func firstIdentifier(expr string) string {
+	expr = strings.TrimSpace(expr)
+	for i, r := range expr {
+		isAlpha := (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_'
+		isDigit := r >= '0' && r <= '9'
+		if isAlpha || (i > 0 && isDigit) {
+			continue
+		}
+		if i == 0 {
+			return ""
+		}
+		return expr[:i]
+	}
+	return expr
+}
+
+// callerLeafName returns the last dot-separated segment of a callee
+// reference (e.g. "pkg.Func" → "Func", "Type.Method" → "Method") so
+// the grounder's line-text identifier search hits the token most
+// likely to appear verbatim at the call site.
+func callerLeafName(ref string) string {
+	ref = strings.TrimSpace(ref)
+	if idx := strings.LastIndex(ref, "."); idx >= 0 && idx+1 < len(ref) {
+		return ref[idx+1:]
+	}
+	return ref
+}
+
+// newEvidenceItem constructs a deterministic evidence item. anchorKind
+// and anchorSymbol mirror the emit_evidence tool's required fields so
+// downstream renderers and the grounder treat deterministic items and
+// LLM-emitted items on equal footing: the line_start semantic (is it
+// a call site, a definition, a guard, etc.) is explicit, and the
+// identifier the grounder looks for at line_start is named. Without
+// these, "X calls Y — source:line" rendered unlabeled and downstream
+// consumers could mistake the call-site line for X's own definition.
+func newEvidenceItem(kind types.EvidenceKind, subject, predicate, object, condition, source, ref string, lineStart, lineEnd int, confidence float64, producer, summary string, anchorKind types.AnchorKind, anchorSymbol string) types.EvidenceItem {
 	item := types.EvidenceItem{
-		Kind:        kind,
-		Subject:     subject,
-		Predicate:   predicate,
-		Object:      object,
-		Condition:   condition,
-		Source:      filepath.ToSlash(source),
-		EvidenceRef: ref,
-		LineStart:   lineStart,
-		LineEnd:     lineEnd,
-		Confidence:  confidence,
-		Producer:    producer,
-		Summary:     summary,
+		Kind:         kind,
+		Subject:      subject,
+		Predicate:    predicate,
+		Object:       object,
+		Condition:    condition,
+		Source:       filepath.ToSlash(source),
+		EvidenceRef:  ref,
+		LineStart:    lineStart,
+		LineEnd:      lineEnd,
+		Confidence:   confidence,
+		Producer:     producer,
+		Summary:      summary,
+		AnchorKind:   anchorKind,
+		AnchorSymbol: anchorSymbol,
 	}
 	item.ID = types.StableEvidenceID(kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
 	return item
