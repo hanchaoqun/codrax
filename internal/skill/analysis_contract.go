@@ -232,25 +232,23 @@ func enumValues(choices []AnalysisEnumChoice) []string {
 // Prohibitions section by BuildAnalysisSkill so the analyzer agent
 // never needs to restate them in its own prompt.
 //
-// The evidence-lite pre-scan rules (no read_file, grep must use
-// files_only=true, no deep content reasoning) are grouped together
-// at the end so the contract between the analyzer and the explorer
-// stays grep-visible: the analyzer verifies that symbols and terms
-// EXIST in the repo; the explorer does the content reading.
+// The pre-scan workflow (Round 1 / Round 2 / the ClassificationGrep
+// exception) lives in the Workflow slice in BuildAnalysisSkill, not
+// here — duplicating it with absolute prohibitions used to create
+// contradictions (Prohibitions said "ALWAYS files_only=true" while
+// the Round 2 ClassificationGrep explicitly permits files_only=false
+// for declarative-file verification). Only the one genuinely
+// absolute rule survives here: no content-reading tools ever.
 var AnalysisHardRules = []string{
 	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
 	"do not invent an intent by stretching a category; if two fit equally, pick the one that matches the user's verb; if none fit, use \"unknown\"",
 	"answer_shape=list_of_symbols ONLY when the user asks for the NAMES of items in a SET (\"list all X that match Y\"); if the user asks for a COUNT / SIZE / TOTAL (\"how many X\", \"统计…数量\", \"total of Y\"), the shape is value and the intent is return_value — a scalar cannot satisfy the list_of_symbols shape contract; \"is X registered\" is boolean; \"explain X\" is step_list or explanation",
 	"call emit_analysis EXACTLY ONCE — multiple calls trigger a warning (or a hard reject when analysis_reject_multiple_emit=true) and only the last write is effective",
-	"do NOT write free-form prose before the emit_analysis call beyond what the evidence-lite pre-scan requires — emit_analysis is the final output channel of the analyze stage",
+	"do not defer emit_analysis by writing open-ended analysis prose — the moment you have enough information to classify, call the tool; brief reasoning paired with pre-scan tool calls is fine, a standalone \"let me think about this\" paragraph is not",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
-	"do not make assumptions about code structure — classify only what the user's text plus the evidence-lite pre-scan support",
-	// Evidence-lite pre-scan boundary rules.
-	"EVIDENCE-LITE BOUNDARY: do NOT call read_file, exec_command, or any tool that reads file CONTENT — the analyze stage is existence + location verification only, not content inspection; the explore stage owns deep reading",
-	"EVIDENCE-LITE BOUNDARY: when calling grep, ALWAYS pass files_only=true — line-level results are noise at the analyze stage and will overflow the budget",
-	"EVIDENCE-LITE BOUNDARY: pre-scan is limited to 1-2 rounds of lightweight calls (repo_map, grep files_only=true, list_files) before emit_analysis; do NOT loop on pre-scan tools — two rounds is the hard ceiling",
-	"EVIDENCE-LITE BOUNDARY: the pre-scan answers \"does X exist / in which files does term Y appear\" and nothing else; do not draw conclusions about how code WORKS from file paths alone — save that for the explorer",
+	"do not make assumptions about code structure — classify only what the user's text plus the pre-scan results support",
+	"do NOT call read_file, exec_command, or any tool that reads file CONTENT — the analyze stage is existence + location verification only; the explore stage owns deep reading",
 }
 
 // renderEnumTable formats one enum table as the bulleted block the
@@ -304,26 +302,20 @@ var AnalysisToolSuggestions = []string{
 func BuildAnalysisSkill() *Config {
 	var of strings.Builder
 
-	// Evidence-lite pre-scan preamble. Runs BEFORE the field-enum
-	// tables so the LLM sees the workflow framing first: pre-scan,
-	// then classify, then emit_analysis.
-	of.WriteString("## Pre-scan: verify entities exist, then classify immediately\n\n")
-	of.WriteString("You are a CLASSIFIER. Your only job before calling emit_analysis is to verify that the entities from the user's wording exist in this repo. You are NOT investigating the question — the explorer stage does that next.\n\n")
-	of.WriteString("**One 'round' = one LLM response.** Each response can contain MULTIPLE parallel tool calls. Batch all your verification grep calls into a single response.\n\n")
-	of.WriteString("Available tools (ONLY these):\n")
-	of.WriteString("  - `grep` — Round 1 MUST use `files_only=true` (evidence-lite). Round 2 MAY use `files_only=false` for classification verification when the pre-scan has surfaced declarative files (topology/defaults/registry/routes/wire/init/manifest/schema/enum). Line-level matches stay in a sidecar channel — they refine classification only, never leak into downstream evidence.\n")
-	of.WriteString("  - `repo_map` — structural index for discovering relevant files.\n")
-	of.WriteString("  - `list_files` — fallback when grep/repo_map return nothing.\n\n")
-	of.WriteString("FORBIDDEN: `read_file`, `exec_command`, or anything that reads file CONTENT.\n\n")
-	of.WriteString("**Budget: at most 2 rounds (2 LLM responses with tool calls).** The moment you have enough info to classify, call emit_analysis — do NOT spend extra rounds on redundant verification. A runtime gate force-stops after 2 pre-scan rounds.\n\n")
-	of.WriteString("**Round 2 ClassificationGrep (optional)**: after Round 1 surfaces a declarative file (topology.go / defaults.go / registry.go / routes.go / schema.yaml / etc.), you MAY call `grep(files_only=false, max_count=20)` up to 3 times on those files to peek at the literal forms inside map/struct/enum bodies. Use this ONLY to lock the answer axis when your Round-1 classification is uncertain. Then call emit_analysis. Budget: 3 calls × 20 matches × 8 KB total.\n\n")
-	of.WriteString("Typical flow:\n")
-	of.WriteString("  Round 1: batch grep(files_only=true) for ALL entities → results confirm they exist\n")
-	of.WriteString("  → Immediately call emit_analysis (skip round 2)\n")
-	of.WriteString("  Round 2 (only if classification is uncertain): broader grep OR `grep(files_only=false)` on declarative files surfaced in Round 1 → then emit_analysis regardless\n\n")
+	// OutputFormat is the emit_analysis output contract — what the LLM
+	// produces, not what it does. The workflow (how to pre-scan, when
+	// Round 2 is allowed, which tools are forbidden) lives in the
+	// Workflow slice above so the two surfaces do not drift or
+	// contradict each other, and so the reader can find pre-scan
+	// guidance in one place.
 	of.WriteString("## emit_analysis contract\n\n")
-	of.WriteString("Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape. " +
-		"Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
+	of.WriteString("Call emit_analysis EXACTLY ONCE. The required fields are:\n")
+	of.WriteString("- intent, scenario, complexity, question_kind, answer_shape — one enum value each (tables below).\n")
+	of.WriteString("- keywords, entities — string arrays (may be empty).\n")
+	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence, shape_confidence — floats in [0.0, 1.0].\n")
+	of.WriteString("- predicates — object with five required booleans (see Semantic predicates below).\n\n")
+	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), language.\n\n")
+	of.WriteString("Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
 	of.WriteString("Field enums:\n\n")
 	of.WriteString(renderEnumTable("intent", analysisIntents))
 	of.WriteString("\n")
@@ -378,12 +370,12 @@ func BuildAnalysisSkill() *Config {
 		Name: "analysis-skill",
 		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request along seven fields (intent, scenario, complexity, keywords, entities, question_kind, answer_shape), then call emit_analysis exactly once. The explorer stage does the actual investigation — your job is only to verify entity existence and classify.",
 		Workflow: []string{
-			"Read the user input and detect its language",
-			"Round 1 pre-scan: batch ALL entity verification into ONE response — call repo_map and/or multiple grep(files_only=true) calls together as parallel tool calls. A 'round' is one LLM response, which can contain multiple tool calls",
-			"If round 1 confirmed the entities exist → SKIP round 2, go directly to emit_analysis",
-			"Round 2 (only if round 1 came up empty on a key entity): broaden search with stems/variants, then emit_analysis REGARDLESS of result",
-			"If the question covers multiple independent topics, fill sub_topics with each topic's summary and entities; set answer_shape to explanation",
-			"Call emit_analysis EXACTLY ONCE with: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, sub_topics",
+			"Detect the request's language.",
+			"Round 1 pre-scan: in a single response, issue parallel calls to repo_map and grep(files_only=true) for each candidate entity. A 'round' is one LLM response — multiple tool calls per response are normal and expected.",
+			"If Round 1 resolved every entity, call emit_analysis now — skip Round 2.",
+			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain AND Round 1 surfaced a declarative file (e.g. a name matching topology / defaults / registry / routes / wire / init / manifest / schema / enum patterns) → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls targeting those declarative files, to peek at the literal forms inside map/struct/enum bodies. Then call emit_analysis regardless of the Round 2 result.",
+			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) and set answer_shape=explanation.",
+			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (five booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration). Optional: sub_topics, answer_subject, predicate_axis, language.",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

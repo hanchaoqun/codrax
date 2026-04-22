@@ -433,14 +433,81 @@ func TestAnalysisSkill_PromptDocumentsFilesOnlyGuard(t *testing.T) {
 	}
 }
 
-// TestAnalysisSkill_PromptDocumentsPreScanBudget pins the
-// "1-2 rounds, then emit_analysis" budget language so a future
-// edit cannot silently drop the ceiling. Without an explicit
-// budget, the LLM will happily loop on repo_map calls forever.
+// TestAnalysisSkill_PromptDocumentsPreScanBudget pins the pre-scan
+// budget ceiling somewhere the LLM actually reads. Batch 3A moved
+// the pre-scan workflow out of OutputFormat into Workflow, so the
+// assertion scans the full rendered corpus (Goal + Workflow +
+// OutputFormat + Prohibitions) instead of OutputFormat alone.
+//
+// Without a round-limit phrase the LLM will loop on repo_map /
+// grep calls forever, burning the pre-scan budget without ever
+// emitting.
 func TestAnalysisSkill_PromptDocumentsPreScanBudget(t *testing.T) {
 	sk := skill.BuildAnalysisSkill()
-	if !strings.Contains(sk.OutputFormat, "2 rounds") && !strings.Contains(sk.OutputFormat, "two rounds") && !strings.Contains(sk.OutputFormat, "2 pre-scan rounds") {
-		t.Errorf("analysis-skill OutputFormat must document the pre-scan budget ceiling")
+
+	var corpus strings.Builder
+	corpus.WriteString(sk.Goal)
+	corpus.WriteString("\n")
+	for _, w := range sk.Workflow {
+		corpus.WriteString(w)
+		corpus.WriteString("\n")
+	}
+	corpus.WriteString(sk.OutputFormat)
+	corpus.WriteString("\n")
+	for _, p := range sk.Prohibitions {
+		corpus.WriteString(p)
+		corpus.WriteString("\n")
+	}
+	rendered := corpus.String()
+
+	phrases := []string{
+		"Round 2 is allowed at most once", // the canonical batch-3A phrasing
+		"at most one round of pre-scan",
+		"2 rounds",
+		"two rounds",
+		"2 pre-scan rounds",
+	}
+	for _, p := range phrases {
+		if strings.Contains(rendered, p) {
+			return
+		}
+	}
+	t.Errorf("analysis-skill prompt must document the pre-scan budget ceiling somewhere (Workflow / OutputFormat / Prohibitions); searched for any of: %v", phrases)
+}
+
+// TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere is the batch
+// 3A 3-way consistency gate: every top-level required field in the
+// emit_analysis JSON schema must also be named in the skill's
+// Workflow text and in the OutputFormat text, so the LLM sees the
+// same required-field set from three independent surfaces. Previously
+// the three surfaces drifted: Workflow step 6 listed sub_topics as
+// required, OutputFormat omitted the four confidence floats, and
+// the JSON schema was the only complete list. A field missing from
+// two of three surfaces is why the LLM sometimes emits partial
+// classifications without the predicates object.
+func TestAnalysisSkill_RequiredFieldsEnumeratedEverywhere(t *testing.T) {
+	sk := skill.BuildAnalysisSkill()
+
+	workflowCorpus := strings.Join(sk.Workflow, "\n")
+
+	// Canonical required set — matches emit_analysis.go schema
+	// "required" array (verified by TestEmitAnalysisSchemaMatchesContract
+	// in internal/tool). Keep this list in sync if the schema changes.
+	required := []string{
+		"intent", "scenario", "complexity",
+		"keywords", "entities",
+		"question_kind", "answer_shape",
+		"intent_confidence", "complexity_confidence",
+		"kind_confidence", "shape_confidence",
+		"predicates",
+	}
+	for _, f := range required {
+		if !strings.Contains(workflowCorpus, f) {
+			t.Errorf("Workflow does not name required emit_analysis field %q — the LLM reads Workflow first and will omit it", f)
+		}
+		if !strings.Contains(sk.OutputFormat, f) {
+			t.Errorf("OutputFormat does not name required emit_analysis field %q — the contract section must enumerate every required field", f)
+		}
 	}
 }
 
