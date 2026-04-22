@@ -274,6 +274,15 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 				if item.Confidence > existing.Confidence {
 					existing.Confidence = item.Confidence
 				}
+				// Merge Producer too: when two producers contribute to the
+				// same item, prefer the question-relevant one (non-dataflow)
+				// so the rank below still treats the merged item as LLM-
+				// emitted. Without this, a dataflow.* item that happens to
+				// collide with an LLM emit could downgrade the merged
+				// entry's rank.
+				if evidenceSortRank(existing) > evidenceSortRank(item) {
+					existing.Producer = item.Producer
+				}
 				existing.DerivedFrom = mergeStrings(existing.DerivedFrom, item.DerivedFrom)
 				merged[item.ID] = existing
 				continue
@@ -287,6 +296,18 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 		result = append(result, item)
 	}
 	sort.Slice(result, func(i, j int) bool {
+		// Rank first: question-relevant items (LLM emit_evidence,
+		// concrete_values, bridge_literal, consumer_gate) come before
+		// dataflow-derived items. Dataflow scans reachable files in
+		// graph order and produces alphabetically-early sources like
+		// cmd/root.go that would otherwise fill the downstream top-18
+		// Structured Evidence slot before any on-topic file appears.
+		// Within each rank, keep the historical (Source, LineStart,
+		// ID) tiebreakers for deterministic output and test stability.
+		ri, rj := evidenceSortRank(result[i]), evidenceSortRank(result[j])
+		if ri != rj {
+			return ri < rj
+		}
 		if result[i].Source != result[j].Source {
 			return result[i].Source < result[j].Source
 		}
@@ -296,6 +317,24 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 		return result[i].ID < result[j].ID
 	})
 	return result
+}
+
+// evidenceSortRank maps an item to a band used as the primary sort
+// key. Rank 0 items are authored to answer the current question
+// (LLM emit_evidence, explorer-side deterministic analysis that
+// targets the specific entities/intents); rank 1 items are
+// structural background the dataflow engine auto-harvested from
+// whatever files happened to be in the candidate set.
+//
+// Promoting rank 0 keeps the Structured Evidence top-N rendering
+// on-topic even when dataflow contributes thousands of bullets from
+// alphabetically-early files (cmd/*, api/*) that the question does
+// not ask about.
+func evidenceSortRank(item types.EvidenceItem) int {
+	if strings.HasPrefix(item.Producer, "dataflow.") {
+		return 1
+	}
+	return 0
 }
 
 // MergeFlowFindings is the exported variant of the internal merger,

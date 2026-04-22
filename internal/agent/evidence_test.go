@@ -98,6 +98,106 @@ func TestMergeEvidenceItemsDedupesByStableID(t *testing.T) {
 	}
 }
 
+// TestMergeEvidenceItems_LLMEmitOutranksDataflow locks the C16 fix:
+// items produced by emit_evidence (or other question-targeted
+// explorer analysis) must sort ahead of dataflow.* items, regardless
+// of file path. The s1a eval regression showed dataflow scanning
+// cmd/root.go fill the downstream top-18 Structured Evidence slot
+// (cmd/ sorts before internal/) and burying the real gate.go
+// checkXxx items the LLM had just emitted. Rank-before-path fixes
+// it without giving up deterministic output.
+func TestMergeEvidenceItems_LLMEmitOutranksDataflow(t *testing.T) {
+	// Alphabetically-early dataflow item (the failure case's shape).
+	df := types.EvidenceItem{
+		Kind:      types.EvidenceDirect,
+		Subject:   "init",
+		Predicate: "calls",
+		Object:    "PersistentFlags",
+		Source:    "cmd/root.go",
+		LineStart: 134,
+		Producer:  "dataflow.engine",
+	}
+	// Alphabetically-later LLM emit item.
+	llm := types.EvidenceItem{
+		Kind:         types.EvidenceDirect,
+		Subject:      "Run",
+		Predicate:    "calls",
+		Object:       "checkCoverage",
+		Source:       "internal/analysis/gate/gate.go",
+		LineStart:    106,
+		AnchorSymbol: "checkCoverage",
+		Producer:     "explorer.emit_evidence",
+	}
+
+	merged := mergeEvidenceItems([]types.EvidenceItem{df}, []types.EvidenceItem{llm})
+	if len(merged) != 2 {
+		t.Fatalf("merged len = %d, want 2", len(merged))
+	}
+	if merged[0].Producer != "explorer.emit_evidence" {
+		t.Errorf("merged[0].Producer = %q, want explorer.emit_evidence (LLM emit must outrank dataflow)", merged[0].Producer)
+	}
+	if merged[1].Producer != "dataflow.engine" {
+		t.Errorf("merged[1].Producer = %q, want dataflow.engine", merged[1].Producer)
+	}
+}
+
+// TestMergeEvidenceItems_WithinRankKeepsPathSort verifies the
+// secondary tiebreaker: within a single rank (all LLM emits, or all
+// dataflow), sort is still (Source, LineStart, ID) — the historical
+// deterministic output callers depend on.
+func TestMergeEvidenceItems_WithinRankKeepsPathSort(t *testing.T) {
+	earlier := types.EvidenceItem{
+		Kind:      types.EvidenceDirect,
+		Subject:   "A",
+		Source:    "cmd/root.go",
+		LineStart: 100,
+		Producer:  "dataflow.engine",
+	}
+	later := types.EvidenceItem{
+		Kind:      types.EvidenceDirect,
+		Subject:   "B",
+		Source:    "internal/orchestrator/orchestrator.go",
+		LineStart: 50,
+		Producer:  "dataflow.finding",
+	}
+	merged := mergeEvidenceItems([]types.EvidenceItem{later}, []types.EvidenceItem{earlier})
+	if merged[0].Source != "cmd/root.go" {
+		t.Errorf("merged[0].Source = %q, want cmd/root.go (within-rank alphabetical tiebreaker)", merged[0].Source)
+	}
+}
+
+// TestMergeEvidenceItems_CollidingIDPromotesRank verifies the edge
+// case where a dataflow.* item and an LLM emit happen to hash to the
+// same stable ID: the merged entry must carry the LLM-emit Producer
+// so it still ranks ahead of pure-dataflow entries. Without this
+// promotion the merged item would keep whichever Producer arrived
+// first and potentially downrank itself.
+func TestMergeEvidenceItems_CollidingIDPromotesRank(t *testing.T) {
+	id := types.StableEvidenceID(types.EvidenceDirect, "Run", "calls", "checkCoverage", "", "internal/analysis/gate/gate.go", 106, 0)
+	llm := types.EvidenceItem{
+		ID:        id,
+		Kind:      types.EvidenceDirect,
+		Subject:   "Run",
+		Predicate: "calls",
+		Object:    "checkCoverage",
+		Source:    "internal/analysis/gate/gate.go",
+		LineStart: 106,
+		Producer:  "explorer.emit_evidence",
+	}
+	df := llm
+	df.Producer = "dataflow.engine"
+
+	// Feed dataflow first so it lands in the map with dataflow.Producer
+	// first. The LLM item arrives second — rank-promotion must kick in.
+	merged := mergeEvidenceItems([]types.EvidenceItem{df}, []types.EvidenceItem{llm})
+	if len(merged) != 1 {
+		t.Fatalf("merged len = %d, want 1", len(merged))
+	}
+	if merged[0].Producer != "explorer.emit_evidence" {
+		t.Errorf("collided-ID merge must promote Producer to the LLM-emit band, got %q", merged[0].Producer)
+	}
+}
+
 func TestBuildCrossReferenceMapFromEvidenceUsesFlowFindings(t *testing.T) {
 	findings := []types.FlowFindingDigest{
 		{
