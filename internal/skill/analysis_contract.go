@@ -40,12 +40,12 @@ type AnalysisEnumChoice struct {
 // types.Intent constants — keep in sync with
 // internal/types/analysis_ir.go.
 var analysisIntents = []AnalysisEnumChoice{
-	{string(types.IntentExplain), "user wants to understand how something works"},
-	{string(types.IntentRootCause), "user is debugging: asks \"why does X fail\" — OR pasted a runtime log excerpt (panic, exception trace, sanitizer diagnostic, traceback) and wants the code location / cause of the failure"},
-	{string(types.IntentTrace), "follow a data flow or call chain end to end"},
-	{string(types.IntentEnumerate), "list every X matching a predicate — the answer is a SET of names (\"list all X that do Y\", \"X matching pattern Y\"). Do NOT pick this when the user wants a count/size/total; that is return_value."},
-	{string(types.IntentConfigQuery), "look up what a config key controls"},
-	{string(types.IntentReturnValue), "asks for a single scalar answer: a function return, a literal name, a count / size / total / version number (\"how many X\", \"size of Y\", \"what does X return\"). One value, not a list."},
+	{string(types.IntentExplain), "the user wants to understand how something works — the answer describes mechanism or behaviour"},
+	{string(types.IntentRootCause), "the user is debugging a failure and wants its cause, OR has attached a runtime log (panic / exception trace / sanitizer diagnostic / traceback) and wants the code location responsible"},
+	{string(types.IntentTrace), "the user wants a data flow or call chain followed end to end"},
+	{string(types.IntentEnumerate), "the answer is a set of distinct named items, each independently valid — mutually exclusive with return_value (see predicates.is_count_question for the scalar/set boundary)"},
+	{string(types.IntentConfigQuery), "the subject is a configuration key and the answer describes what the key controls"},
+	{string(types.IntentReturnValue), "the answer is a single scalar: a count, a size, a function return, a literal value, a version number — one value, not a set"},
 	{string(types.IntentUnknown), "genuinely ambiguous — the system's deterministic fallback will decide"},
 }
 
@@ -60,17 +60,15 @@ var analysisScenarios = []AnalysisEnumChoice{
 }
 
 // analysisComplexities is the canonical complexity enum. Values match
-// types.Complexity constants.
-//
-// Descriptions carry TWO signals so the LLM can pick a level at
-// analyze-time — before any file is read. File-count estimates alone
-// are brittle (the LLM guesses) so each level also lists the
-// question-shape cues that reliably predict investigation breadth.
-// Language-neutral: cues are semantic patterns, not syntax.
+// types.Complexity constants. Descriptions describe the structural
+// shape of the subject (entity count + component count + file-count
+// estimate) rather than the surface wording of the question — the
+// latter was a keyword-matching prompt hint that fought schema
+// predicates when the two disagreed.
 var analysisComplexities = []AnalysisEnumChoice{
-	{string(types.ComplexitySimple), "1 entity, 1-2 files. Question-shape cues: \"what is X\", \"where is X defined\", \"does X exist\", \"X 是什么\", \"X 在哪定义\", literal lookups, single-symbol return/boolean queries."},
-	{string(types.ComplexityModerate), "1 entity / 1 component, 3-5 files. Question-shape cues: \"how does X work\", \"what does X do\", \"explain X\", \"X 怎么工作\", \"X 的作用\", single-component mechanism/explanation questions with no cross-system comparison."},
-	{string(types.ComplexityComplex), "2+ entities OR cross-component reasoning, 6+ files. Question-shape cues: \"compare A and B\", \"how does X affect Y\", \"trace flow from A to B across M and N\", \"对比 A 和 B\", \"从 A 到 B 如何传递\", multi-symbol diffs, control-flow / dataflow spanning 2+ components."},
+	{string(types.ComplexitySimple), "single entity, single component, 1-2 files; a literal lookup or single-symbol return / boolean query that does not cross subsystems"},
+	{string(types.ComplexityModerate), "single entity or single component, 3-5 files; a mechanism / explanation question contained within one subsystem, no cross-component comparison"},
+	{string(types.ComplexityComplex), "two or more entities OR cross-component reasoning, 6+ files; control flow or dataflow spanning two or more subsystems, or a comparison between distinct entities (predicates.is_cross_component is typically true here)"},
 }
 
 // analysisQuestionKinds is the canonical question_kind enum. Values
@@ -90,13 +88,13 @@ var analysisQuestionKinds = buildAnalysisQuestionKinds()
 // (not in internal/types) avoids leaking prompt copy into the type
 // definition.
 var questionKindDescriptions = map[types.RequirementKind]string{
-	types.ReqRegistration:  "\"which/how many X register/bind Y\", \"X 是在哪注册的\"",
-	types.ReqMechanism:     "\"how does X work\", \"explain the process of X\", \"X 怎么实现\"",
-	types.ReqReturnValue:   "\"what does X return\", \"X.Name() 是什么\"",
-	types.ReqConditional:   "\"when does X fire\", \"under what condition\", \"什么时候\"",
-	types.ReqConfigMapping: "\"what does config key K control\"",
-	types.ReqEnumeration:   "\"list all X\", \"count of X\"",
-	types.ReqCallChain:     "\"which X calls Y\", \"从 A 到 B 怎么调用的\"",
+	types.ReqRegistration:  "the subject is a registration / binding relationship between two entities (which X registers / binds / wires Y)",
+	types.ReqMechanism:     "the subject is the internal mechanism of a named component (how it works, how it is implemented)",
+	types.ReqReturnValue:   "the subject is the return value of a named function / method / expression",
+	types.ReqConditional:   "the subject is the guard or condition under which a named behaviour fires",
+	types.ReqConfigMapping: "the subject is a configuration key and the answer describes what the key controls",
+	types.ReqEnumeration:   "the subject is a set of distinct named items; the answer enumerates the set",
+	types.ReqCallChain:     "the subject is a caller → callee relationship between two named entities",
 }
 
 func buildAnalysisQuestionKinds() []AnalysisEnumChoice {
@@ -243,7 +241,7 @@ var AnalysisHardRules = []string{
 	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
 	"do not invent an intent by stretching a category; if two fit equally, pick the one that matches the user's verb; if none fit, use \"unknown\"",
-	"answer_shape=list_of_symbols ONLY when the user asks for the NAMES of items in a SET (\"list all X that match Y\"); if the user asks for a COUNT / SIZE / TOTAL (\"how many X\", \"统计…数量\", \"total of Y\"), the shape is value and the intent is return_value — a scalar cannot satisfy the list_of_symbols shape contract; \"is X registered\" is boolean; \"explain X\" is step_list or explanation",
+	"answer_shape must match the answer's structural shape: list_of_symbols when the answer is a SET of distinct named items; value when the answer is a single scalar aggregated across source units (predicates.is_count_question=true) or a single source-code literal; boolean when the answer is yes/no; step_list or explanation when the answer describes a mechanism. A scalar cannot satisfy the list_of_symbols shape contract — pick value + return_value for any count / size / total",
 	"call emit_analysis EXACTLY ONCE — multiple calls trigger a warning (or a hard reject when analysis_reject_multiple_emit=true) and only the last write is effective",
 	"do not defer emit_analysis by writing open-ended analysis prose — the moment you have enough information to classify, call the tool; brief reasoning paired with pre-scan tool calls is fine, a standalone \"let me think about this\" paragraph is not",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
@@ -359,8 +357,8 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("## Sub-topic detection (sub_topics field)\n\n")
 	of.WriteString("When the user's question contains multiple independently-answerable sub-topics, list each in sub_topics. Rules:\n")
 	of.WriteString("- Each sub_topic has a one-sentence summary and its own entities\n")
-	of.WriteString("- Do NOT split topics that depend on each other (e.g. \"X是什么，它怎么影响Y\" → one topic)\n")
-	of.WriteString("- DO split genuinely independent questions (e.g. \"快速排序的平均时间复杂度是多少？它是稳定排序吗？\" → two topics — one asks for a complexity class, the other asks for a boolean property)\n")
+	of.WriteString("- Do NOT split topics when the second depends on the first (e.g. a definition followed by its downstream effects belongs to one topic, not two)\n")
+	of.WriteString("- DO split when the topics are structurally independent — different answer shapes, different subjects, or different subsystems — and each could stand as its own separate question\n")
 	of.WriteString("- When sub_topics is non-empty, answer_shape MUST be explanation\n")
 	of.WriteString("- When unsure, do NOT split (empty array is safe)\n")
 	of.WriteString("- Maximum 5 sub-topics\n\n")
