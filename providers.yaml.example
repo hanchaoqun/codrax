@@ -10,6 +10,18 @@ llm:
     model: "gpt-4o"
     base_url: ""              # empty → https://api.openai.com/v1
 
+  # Optional TLS knobs for HTTPS endpoints with custom / self-signed
+  # CAs. The system trust pool is used by default; set either field
+  # only if you hit an `x509: certificate signed by unknown authority`
+  # error.
+  #
+  # tls_ca_file: /etc/pki/ca-trust/extracted/pem/corp-bundle.pem
+  #                                  # path to extra CA; appended to system pool
+  # tls_insecure_skip_verify: false  # nuclear escape — disables ALL
+  #                                  # certificate validation; any on-path
+  #                                  # attacker can steal the API key.
+  #                                  # Only use for short-lived debugging.
+
   # Optional: per-agent overrides. Only set fields you want to change;
   # unset fields inherit from default. Valid agent keys are
   # `analyzer`, `explorer`, `extractor`, `finalizer`, `log_triager`.

@@ -14,7 +14,10 @@ func NewFromConfig(cfg types.LLMProviderConfig) Adapter {
 		if model == "" {
 			model = "gpt-4o"
 		}
-		return NewOpenAIAdapter(cfg.APIKey, model, cfg.BaseURL)
+		return NewOpenAIAdapter(cfg.APIKey, model, cfg.BaseURL, TLSOptions{
+			CAFile:             cfg.TLSCAFile,
+			InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
+		})
 	default:
 		return nil
 	}

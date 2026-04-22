@@ -54,6 +54,19 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.ThinkAloud != nil {
 		dst.ThinkAloud = src.ThinkAloud
 	}
+	if src.TLSCAFile != "" {
+		dst.TLSCAFile = src.TLSCAFile
+	}
+	// TLSInsecureSkipVerify is a bool, not a pointer, so it has no
+	// nil sentinel to distinguish "agent explicitly set false" from
+	// "agent didn't mention it." An agent-level true wins over a
+	// default-level false (security escape should be opt-in, not
+	// silently inherited); an agent-level false cannot turn off a
+	// default-level true (the operator who set true at default level
+	// did so on purpose, so agents inherit the looser setting).
+	if src.TLSInsecureSkipVerify {
+		dst.TLSInsecureSkipVerify = true
+	}
 }
 
 // mergeEnv fills empty fields from environment variables.

@@ -2,11 +2,16 @@ package llm
 
 import (
 	"bytes"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
+
+	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
 // OpenAIAdapter implements the Adapter interface for OpenAI-compatible APIs.
@@ -18,20 +23,83 @@ type OpenAIAdapter struct {
 	httpClient *http.Client
 }
 
+// TLSOptions carries the per-provider TLS knobs loaded from
+// providers.yaml. Zero value = system defaults.
+type TLSOptions struct {
+	// CAFile is a path to a PEM-encoded CA bundle appended to the
+	// system trust pool. When set the http.Client's TLS config uses a
+	// RootCAs pool seeded from the system pool + this file.
+	CAFile string
+	// InsecureSkipVerify disables certificate validation entirely.
+	// Only use against an endpoint you fully control for short-lived
+	// debugging — any on-path attacker can steal the API key.
+	InsecureSkipVerify bool
+}
+
 // NewOpenAIAdapter creates a new OpenAI adapter.
 // baseURL defaults to "https://api.openai.com/v1" if empty.
 // This also works with Azure OpenAI, DeepSeek, Ollama, and other compatible APIs.
-func NewOpenAIAdapter(apiKey, model, baseURL string) *OpenAIAdapter {
+func NewOpenAIAdapter(apiKey, model, baseURL string, tlsOpts TLSOptions) *OpenAIAdapter {
 	if baseURL == "" {
 		baseURL = "https://api.openai.com/v1"
 	}
 	return &OpenAIAdapter{
-		apiKey:    apiKey,
-		model:     model,
-		baseURL:   baseURL,
-		maxTokens: 4096,
-		httpClient: &http.Client{
-			Timeout: 120 * time.Second,
+		apiKey:     apiKey,
+		model:      model,
+		baseURL:    baseURL,
+		maxTokens:  4096,
+		httpClient: buildHTTPClient(tlsOpts, baseURL),
+	}
+}
+
+// buildHTTPClient assembles the per-provider http.Client. When the
+// caller supplies TLS overrides, a fresh Transport is attached with
+// the requested TLS config; otherwise the default Transport is used
+// (http.DefaultTransport won't be modified, so concurrent providers
+// don't stomp each other). Errors loading the CA file surface as
+// startup warnings and fall back to the system trust pool, matching
+// the precedent of "never block on a misconfigured optional field."
+func buildHTTPClient(tlsOpts TLSOptions, baseURL string) *http.Client {
+	if tlsOpts.CAFile == "" && !tlsOpts.InsecureSkipVerify {
+		return &http.Client{Timeout: 120 * time.Second}
+	}
+
+	tlsCfg := &tls.Config{}
+
+	if tlsOpts.CAFile != "" {
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		pem, readErr := os.ReadFile(tlsOpts.CAFile)
+		if readErr != nil {
+			logging.Warning("[llm/tls] could not read tls_ca_file %q: %v — falling back to system trust pool", tlsOpts.CAFile, readErr)
+		} else if !pool.AppendCertsFromPEM(pem) {
+			logging.Warning("[llm/tls] tls_ca_file %q contained no valid PEM certificates — falling back to system trust pool", tlsOpts.CAFile)
+		} else {
+			logging.Info("[llm/tls] appended custom CA bundle %q to system trust pool for %s", tlsOpts.CAFile, baseURL)
+			tlsCfg.RootCAs = pool
+		}
+	}
+
+	if tlsOpts.InsecureSkipVerify {
+		tlsCfg.InsecureSkipVerify = true
+		logging.Warning("[llm/tls] ⚠ tls_insecure_skip_verify=true for %s — certificate validation DISABLED, API key is vulnerable to on-path interception", baseURL)
+		fmt.Fprintf(os.Stderr, "  ⚠ TLS verification DISABLED for %s (tls_insecure_skip_verify=true)\n", baseURL)
+	}
+
+	return &http.Client{
+		Timeout: 120 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: tlsCfg,
+			// Mirror the non-TLS knobs of http.DefaultTransport so a
+			// TLS-overriding client doesn't silently regress on
+			// connection pooling, proxy detection, etc.
+			Proxy:                 http.ProxyFromEnvironment,
+			MaxIdleConns:          100,
+			IdleConnTimeout:       90 * time.Second,
+			TLSHandshakeTimeout:   10 * time.Second,
+			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
 }
