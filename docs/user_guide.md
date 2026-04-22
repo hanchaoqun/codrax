@@ -1,0 +1,825 @@
+# codrax 使用指南
+
+本文档面向从未用过 codrax 的用户,讲清楚:**怎么装、怎么配、怎么用、两种模式怎么选、界面怎么看、典型场景怎么跑**。不讨论编译和内部实现。
+
+- [1. codrax 是什么](#1-codrax-是什么)
+- [2. 安装与启动](#2-安装与启动)
+- [3. 配置](#3-配置)
+  - [3.1 `providers.yaml` — 精简版](#31-providersyaml--精简版)
+  - [3.2 `providers.yaml` — 复杂版](#32-providersyaml--复杂版)
+  - [3.3 `codrax.yaml` — 运行时参数](#33-codraxyaml--运行时参数)
+  - [3.4 配置文件查找顺序](#34-配置文件查找顺序)
+- [4. 两种使用模式](#4-两种使用模式)
+  - [4.1 REPL 交互模式](#41-repl-交互模式)
+  - [4.2 单次命令模式](#42-单次命令模式)
+- [5. 命令速查](#5-命令速查)
+  - [5.1 CLI 命令行参数](#51-cli-命令行参数)
+  - [5.2 REPL 斜杠命令](#52-repl-斜杠命令)
+- [6. 输出界面速读](#6-输出界面速读)
+- [7. 场景实操](#7-场景实操)
+  - [7.1 问一段代码的行为](#71-问一段代码的行为)
+  - [7.2 分析 panic / 异常日志](#72-分析-panic--异常日志)
+  - [7.3 脚本化批处理](#73-脚本化批处理)
+  - [7.4 同一台机器操作多个仓库](#74-同一台机器操作多个仓库)
+  - [7.5 长对话与记忆管理](#75-长对话与记忆管理)
+- [8. 常见问题](#8-常见问题)
+
+---
+
+## 1. codrax 是什么
+
+codrax 是一个**只读**的代码分析工具:
+
+- **输入**:关于某个代码仓库的自然语言问题(中文 / 英文均可)。可选地附带一段运行时日志(panic、异常栈、编译错误、traceback 等)。
+- **输出**:结构化的答案,每个结论都带有 `file:line` 级别的 citation(可点可查)。
+- **不会做的事**:不修改任何源文件;不执行有副作用的外部调用;不上传你的代码到任何第三方(除你在 `providers.yaml` 里指定的 LLM)。
+
+使用 codrax 前,你只需要准备:
+
+1. 一个 codrax 可执行文件(见下一节)。
+2. 一把能访问 OpenAI 兼容接口的 LLM API key(OpenAI、DeepSeek、Qwen、Ollama、vLLM、Together 等都兼容)。
+3. 一份想问问题的代码仓库。
+
+---
+
+## 2. 安装与启动
+
+### 拿到可执行文件
+
+从官方 Release 下载对应平台的二进制,或请团队管理员给你一份。文件名通常是 `codrax`(Linux/macOS)或 `codrax.exe`(Windows)。本指南统称为 `codrax`。
+
+> 编译源码不在本文档范围;如需自行编译请参见 [README.md](../README.md) 的"构建"一节。
+
+### 推荐目录布局
+
+把 `codrax` 放在一个固定目录(例子用 `~/tools/codrax/`),两份配置文件**紧挨着二进制**:
+
+```
+~/tools/codrax/
+├── codrax              ← 可执行文件
+├── codrax.yaml         ← 运行时参数(可选,首次可跳过)
+└── providers.yaml      ← LLM 凭证(必填)
+```
+
+### 把 codrax 加进 PATH(一次性操作)
+
+```bash
+# bash
+echo 'export PATH="$HOME/tools/codrax:$PATH"' >> ~/.bashrc
+exec "$SHELL" -l
+
+# zsh
+echo 'export PATH="$HOME/tools/codrax:$PATH"' >> ~/.zshrc
+exec "$SHELL" -l
+```
+
+加进 PATH 后,无论你 `cd` 到哪个仓库,都可以直接敲 `codrax` 启动;运行时产物(日志、对话记忆、工具输出)都会**自动生成在当前工作目录下的 `.codrax/` 文件夹**里,不会污染到源码仓本身,也不会和其它仓库混在一起。
+
+### 首次启动
+
+```bash
+cd /path/to/your/repo
+codrax
+```
+
+看到类似下面的 banner 就说明启动成功:
+
+```
+   CODRAX  v0.1.20260422  /help · /exit
+
+❯❯
+```
+
+如果启动报 "providers config not found" 之类的错误,回到 [3.1 精简版](#31-providersyaml--精简版) 配一份最小的 `providers.yaml` 即可。
+
+---
+
+## 3. 配置
+
+codrax 有两份配置文件,分工严格不重叠:
+
+| 文件 | 负责 | 是否必填 |
+|---|---|---|
+| `providers.yaml` | LLM 凭证(API key)、每个 agent 用哪个模型 | **必填** |
+| `codrax.yaml` | 语言偏好、日志目录、流水线预算、各种阈值、其他调参 | 可选,默认值开箱即用 |
+
+### 3.1 `providers.yaml` — 精简版
+
+所有 4 个 agent(`analyzer` / `explorer` / `extractor` / `finalizer`,日志分诊时还有 `log_triager`)共用同一个模型就能跑:
+
+```yaml
+llm:
+  default:
+    provider: openai              # 只实现 openai 协议;deepseek / qwen /
+                                  # vllm / Ollama 等兼容此协议的服务用同一段
+                                  # 加 base_url 切换即可
+    api_key: "sk-xxx"             # 换成你自己的 API key
+    model: "gpt-4o"               # 换成你要用的模型名
+    base_url: ""                  # 留空 → https://api.openai.com/v1
+```
+
+**常见第三方 provider 的改法**(只改 `base_url` + `model`):
+
+```yaml
+# DeepSeek
+llm:
+  default:
+    provider: openai
+    api_key: "sk-deepseek-xxx"
+    model: "deepseek-chat"
+    base_url: "https://api.deepseek.com/v1"
+
+# 阿里云 DashScope / Qwen
+llm:
+  default:
+    provider: openai
+    api_key: "sk-qwen-xxx"
+    model: "qwen-max"
+    base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+# 本地 Ollama / vLLM
+llm:
+  default:
+    provider: openai
+    api_key: "ollama"             # 随便填非空字符串
+    model: "llama3.1:70b"
+    base_url: "http://localhost:11434/v1"
+```
+
+### 3.2 `providers.yaml` — 复杂版
+
+精简版对 4 个 agent 一视同仁。复杂版让你**针对每个 agent 单独选模型**(例如把便宜模型用在做文件摘要的 `explorer`,把强模型留给做问题分类的 `analyzer` 和写最终答案的 `finalizer`):
+
+```yaml
+llm:
+  # default 永远必须存在;未在 agents 里显式覆盖的 agent 都继承它
+  default:
+    provider: openai
+    api_key: "sk-shared-xxx"
+    model: "gpt-4o-mini"          # 便宜快速的基准模型
+
+  agents:
+    analyzer:
+      model: "gpt-4o"             # 问题分类 / 场景推断 → 用强模型
+    finalizer:
+      model: "gpt-4o"             # 组织最终答案 → 用强模型
+    log_triager:
+      model: "gpt-4o-mini"        # 日志抽取 → 中等模型就够
+    # explorer + extractor 没写,自动继承 default(gpt-4o-mini)
+```
+
+**合法的 agent 键**(每个字段都是可选,空字段继承 default):
+
+| agent | 作用 | 典型推荐 |
+|---|---|---|
+| `analyzer` | 对问题做一次性分类,决定答案形态与 TaskGraph | 最强模型,调用次数最少 |
+| `explorer` | 反复读文件 / grep,收集证据;多轮调用 | 性价比模型,次数最多 |
+| `extractor` | 把 explorer 收集到的证据结构化成答案素材 | 中等模型即可 |
+| `finalizer` | 组织最终答案的散文与结构化字段 | 强模型,直接影响体验 |
+| `log_triager` | 粘贴日志后,抽取错误类型 / 栈帧 / 因果链 | 中等模型即可,仅在附日志时启用 |
+
+**在 agent 级别同时改 base_url**(例如让某个 agent 走本地模型):
+
+```yaml
+llm:
+  default:
+    provider: openai
+    api_key: "sk-cloud-xxx"
+    model: "gpt-4o"
+
+  agents:
+    explorer:
+      # 文件翻阅量大,放到本地省钱
+      api_key: "ollama"
+      model: "qwen2.5:32b"
+      base_url: "http://localhost:11434/v1"
+```
+
+### 3.3 `codrax.yaml` — 运行时参数
+
+这份文件**完全可选**。没有它的时候一切走默认,也能正常使用。仅当你需要调优某条行为时才动。
+
+完整示例请见 [`codrax.yaml.example`](../codrax.yaml.example)。下面按主题分组列出所有可调键。
+
+#### 3.3.1 日志与诊断
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `log_dir` | `logs` | 日志目录。相对路径相对于 `<CWD>/.codrax/` |
+| `log_level` | `debug` | `error` / `warning` / `info` / `debug` 四档 |
+| `log_stdout` | `false` | 设为 true 同时把日志打到 stdout(调试用) |
+| `log_max_files` | `7` | 每个目录保留的日志文件数(按时间滚动) |
+
+#### 3.3.2 对话记忆(REPL 场景)
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `memory_dir` | `memory` | 记忆目录。相对路径相对于 `<CWD>/.codrax/` |
+| `memory_max_recent_turns` | `6` | 最近多少轮对话逐字保留 |
+| `memory_max_recent_bytes` | `20480` | 最近对话缓冲的总字节上限,任一边先超就压缩最旧轮次 |
+| `memory_max_turn_body_bytes` | `16384` | 单轮对话 request + response 的最大字节,超过会尾部截断 |
+| `memory_max_build_context_matches` | `3` | 每次提问最多召回多少条压缩历史作上下文 |
+
+#### 3.3.3 响应语言与目标仓
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `lang` | `zh` | 默认答案语言。`zh` / `en` / 任意字符串 / `off` / `none` |
+| `repo` | `.` | 目标仓库路径(CLI `--repo` 覆盖) |
+| `branch` | `main` | 默认分支(CLI `--branch` 覆盖) |
+
+> `lang=zh` 时若用户用其他语言提问,codrax 会跟随用户语言作答(有兜底)。设 `off` / `none` 则完全让模型自选。
+
+#### 3.3.4 流水线预算
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `pipeline_max_steps` | `50` | 单次 Run 总步数上限(每个 LLM 调用或工具调用 = 1 步) |
+| `pipeline_max_retries_per_stage` | `3` | 某个阶段连续失败多少次后放弃 |
+| `pipeline_max_stage_visits` | `4` | 同一阶段最多被调度几次(防死循环) |
+
+以上三个都有同名 CLI flag 可临时覆盖。
+
+#### 3.3.5 工具产物(blob)大小
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `blob_max_sessions` | `7` | 保留多少个历史 blob 会话目录(每次启动一个)。`0` 关闭持久化 |
+| `blob_max_inline_bytes` | `32768` | 工具输出大于此阈值时转存为 blob,只在对话里保留头尾预览 |
+| `blob_preview_head_bytes` | `24576` | 预览的头部字节数 |
+| `blob_preview_tail_bytes` | `4096` | 预览的尾部字节数 |
+
+#### 3.3.6 文件读取(`read_file`)
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `readfile_small_limit_threshold` | `100` | 小文件读全保护阈值;`0` 禁用此保护,让 LLM 的 `offset/limit` 永远生效 |
+
+#### 3.3.7 analyze 阶段质量门(`gate_*`)
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `gate_coverage_min` | `0.6` | analyze 后的覆盖率下限,不达标会触发重试 |
+| `gate_coverage_weight_symbol` | `1.0` | 符号类覆盖的权重 |
+| `gate_coverage_weight_config` | `0.7` | 配置类覆盖的权重 |
+| `gate_coverage_weight_concept` | `0.4` | 概念类覆盖的权重 |
+| `gate_hypothesis_min_priority` | `0` | 假设优先级下限 |
+
+#### 3.3.8 analyze 阶段运行时校验(`analysis_*`)
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `analysis_warn_below_keywords` | `8` | 关键词低于此值打 warn |
+| `analysis_reject_below_keywords` | `0` | 关键词低于此值直接拒 emit_analysis;`0` 禁用 |
+| `analysis_generic_entity_blocklist` | `[count, function, thing, agent, handler, module]` | 通用名词黑名单,防止污染实体图。`[]` 关闭 |
+| `analysis_reject_multiple_emit` | `false` | 同一 dispatch 内第二次 emit_analysis 是否直接拒 |
+| `analysis_max_prescan_rounds` | `2` | analyze 阶段最多 pre-scan 轮次;`0` 禁用 |
+| `analysis_warn_below_keyword_hit_ratio` | `0` | 关键词命中率下限告警;`0` 禁用 |
+| `analysis_warn_below_entity_hit_ratio` | `0` | 实体命中率下限告警;`0` 禁用 |
+
+#### 3.3.9 证据 grounding(`evidence_*`)
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `evidence_grounding_floor` | `0.5` | 证据落地率下限;低于此值 `emit_investigation_complete` 不被接受。`0` 关闭,`1` 要求所有证据都必须落地 |
+
+#### 3.3.10 CGEC 证据闭环(`cgec_*`)
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `cgec_forced_reads_per_round` | `3` | 每轮 explore 最多"代读" 几个待读文件。`0` 关闭 |
+| `cgec_stall_threshold_soft` | `2` | 连续多少轮 fingerprint 相同触发软停 + 补读。`0` 关闭 |
+| `cgec_stall_threshold_hard` | `3` | 连续多少轮且未触发补读时降级完成。`0` 关闭强制完成 |
+
+#### 3.3.11 agent 行为控制(`agent_*`)
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `agent_max_iterations` | `20` | 每个 agent 单次 ReAct 循环最大轮次 |
+| `agent_max_tool_history_bytes` | `153600` | 累积工具调用输出的字节上限,超出裁剪 |
+| `agent_loop_min_inject_interval` | `3` | 两次 mid-loop hint 之间最少间隔轮次 |
+| `agent_loop_max_continuations` | `5` | soft-stop 后最多追加多少条 continuation hint |
+| `agent_loop_max_midloop_injects` | `6` | mid-loop hint 单次 dispatch 内最多注入次数 |
+| `agent_loop_idle_stop_threshold` | `2` | 连续几轮空转就强停 |
+| `agent_finalizer_max_correction_retries` | `2` | finalizer 缺 emit_answer_document 时最多再试几次 |
+| `agent_finalizer_preserve_prior_prose` | `true` | 当 finalizer 重试时把前一版草稿保留到 summary |
+| `agent_finalizer_shrinkage_min_prose_len` | `400` | 草稿长度下限,低于此长度不触发保留 |
+| `agent_finalizer_shrinkage_ratio` | `0.5` | `len(summary)/len(prior)` 低于此值视作被压缩,触发保留 |
+| `agent_extractor_max_correction_retries` | `1` | extractor 缺 emit_answer_symbol 时最多再试几次 |
+| `agent_investigation_complete_policy` | `soft` | `soft` / `override` / `strict`;决定调度器如何处理 `emit_investigation_complete` |
+
+**多 sub-topic 自适应预算**(当 analyzer 产出多话题时自动放大预算):
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `agent_subtopic_prescan_extra` | `1` | 每 2 个 sub-topic 加几轮 pre-scan |
+| `agent_subtopic_explorer_extra` | `3` | 每个 sub-topic 加几轮 explorer 迭代 |
+| `agent_subtopic_pipeline_extra` | `5` | 每个 sub-topic 加几步 pipeline |
+| `agent_subtopic_retry_extra` | `1` | 每 2 个 sub-topic 加几次 retry |
+
+#### 3.3.12 explorer 启发式(`explore_*`)
+
+常见默认都能用。调优时参考 [`codrax.yaml.example`](../codrax.yaml.example) 的完整注释。最常用的:
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `explore_midloop_min_iteration` | `2` | 第几轮开始启用 mid-loop 启发式 |
+| `explore_softstop_enum_coverage` | `0.8` | 枚举类问题的软停覆盖率阈值 |
+| `explore_erm_suggest_limit` | `3` | 单次 mid-loop 最多建议几个证据缺口 |
+
+#### 3.3.13 答案 summary 字数上限(`summary_cap_*`)
+
+**默认全关**,finalizer 写多长就多长。需要严控长度时打开:
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `summary_cap_enabled` | `false` | 主开关。`true` 才启用下面所有 summary 上限 |
+| `summary_cap_explanation` | `2500` | 解释类答案正文字数上限 |
+| `summary_cap_value` / `summary_cap_config_value` | `500` | 值/配置类答案 summary 字数上限 |
+| `summary_cap_boolean` | `800` | 布尔类答案 summary 字数上限 |
+| `summary_cap_step_list_base` / `_per_item` / `_max` | `1000/120/2500` | 步骤列表按条数滑动 |
+| `summary_cap_symbols_base` / `_per_item` / `_max` | `1000/100/2500` | 符号列表按条数滑动 |
+| `summary_cap_default` | `500` | 未分类 shape 的兜底上限 |
+
+#### 3.3.14 日志分诊(`log_triage_*`)
+
+仅当使用 `--log` / `/log` 附加日志时生效。
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `log_triage_enabled` | `true` | 主开关。关闭后附加的日志只保存不分诊 |
+| `log_triage_source_prefix` | `""` | CI 构建机绝对路径前缀(C/C++ 场景有用);CLI `--log-source-prefix` 覆盖 |
+| `log_triage_min_bytes` | `50` | 小于此字节数的日志直接跳过 |
+| `log_triage_two_step_enabled` | `true` | 大日志 / 低覆盖时是否启用两步抽取 |
+| `log_triage_two_step_bytes` | `32768` | 日志超此大小直接走两步模式 |
+| `log_triage_two_step_coverage` | `0.3` | 单次抽取覆盖低于此值升级两步 |
+| `log_triage_max_llm_calls` | `8` | 单次 log_triage 阶段 LLM 调用次数硬上限 |
+| `log_triage_max_retries` | `1` | emit_log_triage schema 拒后的重试次数 |
+
+#### 3.3.15 REPL 交互
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `repl_paste_fold_min_chars` | `100` | 单行粘贴超过此字符数才折叠成 `[Pasted text #N]` 占位 |
+
+#### 3.3.16 providers.yaml 路径
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `providers_config` | `providers.yaml` | 相对路径相对于 `<exeDir>`;绝对路径直接使用 |
+
+### 3.4 配置文件查找顺序
+
+**`providers.yaml`**:只看 `codrax.yaml` 里的 `providers_config` 字段(默认 `<exeDir>/providers.yaml`)。通过 `CODRAX_SETTINGS=/path/to/codrax.yaml` 可以一键切换整套环境。
+
+**`codrax.yaml`** 按下列顺序查找,找到第一个就停:
+
+1. 环境变量 `CODRAX_SETTINGS`(绝对路径)
+2. `<exeDir>/codrax.yaml` ← 推荐位置
+3. `<exeDir>/codrax/codrax.yaml`(bin + share 分离布局)
+4. 以下为历史路径,找到会打 deprecation warning:
+   - `<exeDir>/config/codrax.yaml`
+   - `<exeDir>/../config/codrax.yaml`
+   - `<CWD>/config/codrax.yaml`
+
+**`.codrax/` 运行产物目录**永远在 `<CWD>`(当前工作目录)下。因此同一个 codrax 二进制在不同仓库启动,日志和对话记忆会**自动隔离**到各自仓库的 `.codrax/` 里,互不污染。
+
+---
+
+## 4. 两种使用模式
+
+### 4.1 REPL 交互模式
+
+**何时用**:想就一个话题反复追问,或者先让 codrax 给个大致答案再深挖细节。
+
+**怎么用**(不传 `--request` 就进 REPL):
+
+```bash
+cd /path/to/your/repo
+codrax
+```
+
+启动后输入问题,回车即分析。随后的 `❯❯` 继续提问,codrax **自动把前几轮对话作为上下文**一起喂给 LLM。典型一次完整会话像这样:
+
+```
+   CODRAX  v0.1.20260422  /help · /exit
+
+❯❯ explorer 的 ShouldStop 是怎么决定的?
+
+   ┌── analyze (analyzer) ⠋ thinking                       0.8s ──┐
+   ... (流水线进行中的实时任务列表)
+   └───────────────────────────────────────────────────────────────┘
+
+  │ <最终答案文本,带文件:行号 citation>
+  │
+
+❯❯ 如果 ERM 要求未满足,会怎样?
+   ... (会带上一轮问题作为上下文)
+
+❯❯ /exit
+  Goodbye!
+```
+
+**REPL 里的多行输入**:一行末尾加 `\`(反斜杠)可以续行,下一行出现 `…` 提示符,直到某一行不以 `\` 结尾才提交:
+
+```
+❯❯ 帮我对比 explorer.go 里 \
+…  ShouldStop 和 PerformLookahead \
+…  两个函数的逻辑差异
+```
+
+**粘贴多行内容**:多数终端支持 bracketed paste,贴一段 ≥ 100 字符(默认阈值)的文本会自动折叠成 `[Pasted text #0 +N lines +C chars]` 占位符,提交后完整内容依然会送给 LLM。SSH / 老版 tmux 场景 bracketed paste 会被吃掉,这时用 `/paste` 子命令兜底(详见 [5.2](#52-repl-斜杠命令))。
+
+### 4.2 单次命令模式
+
+**何时用**:脚本批处理、CI 流水线、快速验证一个问题。
+
+**怎么用**(传 `--request` / `-r`):
+
+```bash
+# 完整形式
+codrax --request "explorer 的 ShouldStop 是怎么决定的?"
+
+# 简写形式
+codrax -r "explorer 的 ShouldStop 是怎么决定的?"
+
+# 指定仓库与分支
+codrax --repo /path/to/repo --branch develop -r "你的问题"
+```
+
+**输出特点**:
+- 流水线执行期间任务列表实时刷新到 stderr,最终 **markdown 格式**的答案打到 stdout。
+- 适合重定向:`codrax -r "..." > answer.md`。
+- 单次运行完成后进程立即退出,不会进入交互。
+
+**诊断模式**:遇到问题想看细节时加两个参数:
+
+```bash
+codrax --log-level debug --log-stdout -r "你的问题"
+```
+
+- `--log-level debug` — 打开 debug 级别日志(默认 `debug` 但写到文件里)
+- `--log-stdout` — 把日志同步打到 stdout,便于一眼看到调度决策
+
+---
+
+## 5. 命令速查
+
+### 5.1 CLI 命令行参数
+
+所有参数对 REPL 和单次模式通用。
+
+| 参数 | 简写 | 默认 | 作用 |
+|---|---|---|---|
+| `--request` | `-r` | (空) | 单次提问;传此参数即单次模式,不传即 REPL |
+| `--repo` | | `.` | 目标仓库路径 |
+| `--branch` | | `main` | 分支名 |
+| `--lang` | | `zh` | 答案语言,`off` / `none` 关闭 |
+| `--providers` | | (代码默认路径) | `providers.yaml` 显式路径 |
+| `--log-dir` | | (代码默认) | 日志目录 |
+| `--log-level` | | `debug` | `error` / `warning` / `info` / `debug` |
+| `--log-stdout` | | `false` | 日志镜像到 stdout |
+| `--memory-dir` | | (代码默认) | REPL 对话记忆目录 |
+| `--cache-dir` | | 平台默认 | repo map 缓存目录 |
+| `--pipeline-max-steps` | | `50` | 单次运行总步数上限 |
+| `--pipeline-max-retries` | | `0` | 阶段重试上限;`0` 继承 codrax.yaml |
+| `--pipeline-max-stage-visits` | | `0` | 阶段访问次数上限;`0` 继承 |
+| `--log` | | (空) | 附加运行时日志:文件路径,或 `-` 从 stdin 读 |
+| `--log-text` | | (空) | 附加内联日志字符串(与 `--log` 互斥) |
+| `--log-source-prefix` | | (空) | CI 绝对路径前缀,适合 C/C++ 场景 |
+| `--version` / `-v` | | | 打印构建版本并退出 |
+
+`--log` / `--log-text` 都只能用其一;日志体超过 1 MB 自动截断。
+
+### 5.2 REPL 斜杠命令
+
+进入 REPL 后输入这些命令(**每条都支持反斜杠替代**,如 `\exit` 等价 `/exit`):
+
+| 命令 | 别名 | 作用 |
+|---|---|---|
+| `/exit` / `/quit` | `/q` | 退出 REPL |
+| `/help` | `/h` | 显示斜杠命令列表 |
+| `/version` | `/v` | 打印构建版本 |
+| `/history` | | 列出当前记忆里的最近轮次 + 压缩索引 |
+| `/clear` | | 清对话记忆(会二次确认,且提示当前几个对等进程在用同一份记忆) |
+| `/compact` | | 主动把所有旧轮次压缩到 MEMORY.md(保留最新一轮) |
+| `/log <path>` | | 加载文件为附加日志(会替换现有附加) |
+| `/log` | | 进入日志粘贴模式,以单独一行 `/end` 结束 |
+| `/log show` | | 打印附加日志的前 20 行 + 总字节数 |
+| `/log clear` | | 清除附加日志(不清对话记忆) |
+| `/paste` | | 通用粘贴兜底(与 `/log` 不同,内容会作为下一次提问的输入) |
+
+**粘贴兜底的两种场景对比**:
+
+| 子命令 | 内容去向 | 何时用 |
+|---|---|---|
+| `/log` (粘贴模式) | **附加日志通道** — 会被 log_triage 分诊,结构化后喂下游 | 贴 panic、异常栈、traceback、编译错误、应用运行时日志 |
+| `/paste` | **普通请求通道** — 作为下一条 prompt 的一部分,等价于手敲 | 贴代码片段、错误消息、别人的诊断结论等 |
+
+自动路由:如果你直接在提问里粘了一段**明显的日志**(连续 3 行以上时间戳/栈帧),codrax 会**自动**识别并把那部分搬到附加日志通道,只保留本轮生效(一次性)。想让附加日志在后续多轮持久,用显式 `/log` 命令。
+
+---
+
+## 6. 输出界面速读
+
+### 6.1 REPL 启动 banner
+
+```
+   CODRAX  v0.1.20260422  /help · /exit
+   memory: 4 recent turn(s) + 12 compacted, 8.3 KB total
+
+❯❯
+```
+
+- 第一行:蓝底白字 badge + 构建版本 + 最常用的两条提示
+- 第二行(可选):当前仓库下记忆摘要(最近几轮 + 压缩条数 + 总大小),为空时不显示
+
+### 6.2 流水线进行时的任务列表
+
+每次提问后,codrax 会在 stderr(REPL 下直接在界面上,单次模式下会打到 stderr)绘制一块**可原地刷新的任务列表**:
+
+```
+   ┌────────────────────────────────────────────────────────────┐
+   │ ⠋ analyze    (analyzer)        thinking              2.3s  │
+   │ ✓ analyze    (analyzer)        done                  3.7s  │
+   │ ⠹ explore[1] objective "...".  read_file foo.go     12.1s  │
+   │ ...                                                         │
+   └────────────────────────────────────────────────────────────┘
+```
+
+- `⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏` 是 braille spinner,提示该条正在运行
+- `✓` 表示该条已完成
+- 每行末尾是该条已运行的时间
+
+### 6.3 实时推理 / 系统事件提示
+
+流水线内部的调度决策会以**暗灰色 `💭` 行**打印在任务列表之上,不影响最终答案排版:
+
+```
+  💭 [analyzer-1] I need to classify the question subject first before...
+  💭 [orchestrator] ⟳ 正在补齐调查证据
+  💭 [orchestrator] › 调查就绪,准备作答
+  💭 [orchestrator] ⟳ 正在组织最终答案
+```
+
+- `[<agent>-<iter>]` 是某个 agent 的 ReAct 轮次(`iter` 从 1 开始)
+- `[orchestrator]` 是系统事件(补读、重试、准备答案、组织答案等),这些是**中英文本地化**的简短提示
+
+### 6.4 最终答案
+
+所有阶段完成后,答案渲染在一个**带左侧竖线**的块里:
+
+```
+  │
+  │ # 回答
+  │
+  │ `explorer.ShouldStop` 的判定由若干布尔条件组合决定...
+  │
+  │ **关键位置**:
+  │ - `internal/agent/explorer.go:382`  主入口
+  │ - ...
+  │
+```
+
+- 带 `#` 的 markdown 会被解析成终端可读的加粗 / 标题
+- 所有 `file:line` 引用都可以被 VSCode / JetBrains 等终端点击跳转
+- 代码块会保持等宽字体对齐
+
+---
+
+## 7. 场景实操
+
+下面的例子全部以 codrax 本身为目标仓库,你可以原样复现。
+
+### 7.1 问一段代码的行为
+
+**目标**:了解一个函数做什么,找到它的关键位置。
+
+```bash
+cd ~/code/codrax
+codrax
+```
+
+```
+❯❯ explorer 的 ShouldStop 什么时候会返回 true?
+```
+
+流水线走完(通常 1-3 分钟,取决于你的 LLM)后,你会得到一段带具体 `file:line` 的散文答案,例如:
+
+```
+  │ `explorer.ShouldStop()` 在以下情况返回 true:
+  │
+  │ 1. **软停信号满足** — 当 `hasEnoughFacts` 为 true 且 ...
+  │    ([explorer.go:382])
+  │
+  │ 2. **ERM 要求满足** — ...
+  │    ([explorer.go:405])
+  │
+  │ 3. **Fallback S1 触发** — ...
+  │    ([explorer.go:441])
+```
+
+### 7.2 分析 panic / 异常日志
+
+**目标**:贴一段 Go panic 或 Java 异常栈,让 codrax 找出根因。
+
+**方式 A:从文件加载**
+
+```bash
+# 保存日志到文件
+kubectl logs pod/my-api > /tmp/panic.txt
+
+# 启动 REPL 并附加
+cd ~/code/my-service
+codrax
+```
+
+```
+❯❯ /log /tmp/panic.txt
+  attached log loaded: /tmp/panic.txt (2843 bytes)
+
+❯❯ 这个 panic 的根本原因是什么?
+```
+
+附加日志后每一次提问都会带上日志,直到 `/log clear` 或重启。这让你可以就同一个日志反复从不同角度提问:
+
+```
+❯❯ 修复方案呢?会不会有副作用?
+❯❯ 有没有 regression 风险?
+❯❯ /log clear          # 问完了清掉
+```
+
+**方式 B:直接在提问里贴**
+
+如果日志不长(或从浏览器复制一段短栈),可以直接贴进 REPL:
+
+```
+❯❯ 帮我分析这段 panic:
+…  goroutine 12 [running]:
+…  main.handleRequest(0xc0001a8000)
+…          /src/main.go:142 +0x1a5
+…  panic: runtime error: invalid memory address
+…  ...
+```
+
+codrax 会自动识别**连续时间戳 / 栈帧**,把日志部分搬到附加日志通道(只对本轮有效),剩下的"帮我分析这段 panic"作为提问主体。
+
+**方式 C:管道 / 脚本**
+
+```bash
+# 单次运行,日志从 stdin 读
+kubectl logs pod/my-api | codrax -r "分析这段 crash" --log -
+
+# 或者内联字符串(适合短日志)
+codrax -r "analyze this ASAN report" --log-text "$(cat /tmp/asan.out)"
+```
+
+**C/C++ 场景**:栈帧里的文件是构建机绝对路径(如 `/home/jenkins/workspace/build/src/foo.cpp:42`),你的本地仓库路径不一样,需要告诉 codrax 怎么剥离前缀:
+
+```bash
+codrax -r "trace this crash" --log /tmp/asan.out \
+  --log-source-prefix /home/jenkins/workspace/build/src/
+```
+
+### 7.3 脚本化批处理
+
+**目标**:对一批问题跑回归 / 自动化生成代码概要。
+
+```bash
+#!/usr/bin/env bash
+cd ~/code/my-repo
+
+while IFS= read -r question; do
+  echo "---- $question ----"
+  codrax -r "$question" --lang en 2>/dev/null
+  echo
+done < questions.txt > report.md
+```
+
+- `2>/dev/null` 把实时任务列表丢弃,只留最终 markdown
+- `--lang en` 强制英文输出(覆盖 `codrax.yaml` 里的 `lang: zh`)
+
+### 7.4 同一台机器操作多个仓库
+
+codrax 会**自动用 `--repo` 的绝对路径生成 hash slug**,把日志和对话记忆分目录。同一个 codrax 二进制可以服务多个仓库而互不污染:
+
+```bash
+# 仓库 A 的工作
+cd ~/code/repoA
+codrax
+
+# 另开一个终端,仓库 B 的工作
+cd ~/code/repoB
+codrax
+# 看到的记忆摘要是 repoB 自己的,不会混入 repoA 的历史
+```
+
+生成的目录结构:
+
+```
+~/code/repoA/.codrax/
+  logs/repoA-a3f9c2b1/
+  memory/repoA-a3f9c2b1/
+
+~/code/repoB/.codrax/
+  logs/repoB-7d51e04f/
+  memory/repoB-7d51e04f/
+```
+
+甚至可以同一个仓库**多个 codrax 实例并发**,日志按 PID 隔离、记忆写入用 flock 串行化,`/clear` 前会提示当前还有几个 peer 在用。
+
+### 7.5 长对话与记忆管理
+
+REPL 模式下默认保留最近 6 轮(或 20 KB 总字节,哪个先到)。超出后最旧的一轮会被 LLM 压成一行 summary 放进 `MEMORY.md`,后续提问时若关键词匹配,这些历史 summary 会被重新召回作为上下文。
+
+**查看当前记忆状态**:
+
+```
+❯❯ /history
+   compacted index:
+     - [turn-17321...] topic-t3  — keywords: explorer, ShouldStop, ERM
+     - [turn-17321...] topic-t5  — keywords: analyzer, TaskGraph, complexity
+   recent (4 turns):
+     ...
+```
+
+**主动压缩**(大段粘贴 / 攒了很多轮后,想节省下一次提问的 token):
+
+```
+❯❯ /compact
+  compaction done. recent=1 index=8
+```
+
+**清空重开**(注意会二次确认;若有对等进程在用同一份记忆会警告):
+
+```
+❯❯ /clear
+  1 peer(s) currently using this memory directory.
+  Type 'y' to confirm: y
+  conversation memory cleared.
+```
+
+**附加日志独立于对话记忆**。`/clear` 不清附加日志,反之 `/log clear` 不清对话记忆,各走各的生命周期。
+
+---
+
+## 8. 常见问题
+
+**Q: 启动报 `providers config not found`,怎么办?**
+A: 去 `~/tools/codrax/`(或你放二进制的地方)检查有没有 `providers.yaml`。没有的话参考 [3.1 精简版](#31-providersyaml--精简版) 创建一份。查找路径可以在启动时用 `--providers /absolute/path/to/providers.yaml` 显式指定。
+
+**Q: LLM 返回错误(`401 Unauthorized` / `403 Forbidden`),提问永远卡住或报错?**
+A: 多半是 `api_key` / `base_url` / `model` 配错。用 `curl` 手动验证一下:
+```bash
+curl $BASE_URL/chat/completions \
+  -H "Authorization: Bearer $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"YOUR_MODEL","messages":[{"role":"user","content":"hi"}]}'
+```
+
+**Q: 答案里引用的 `file:line` 是错的,怎么办?**
+A: 常见原因是 `--repo` 没指对(比如在 `~/code` 启动但想问 `~/code/my-project`)。codrax 默认把当前工作目录 `.` 当仓库根,所以**务必先 `cd` 到目标仓库再启动**,或者显式 `codrax --repo /abs/path`。
+
+**Q: 想让 codrax 写英文回答?**
+A: 两种方式:
+- 临时:`codrax --lang en -r "..."`
+- 永久:`codrax.yaml` 里写 `lang: en`
+
+**Q: 我的 LLM 不稳定,经常超时;能不能加大重试?**
+A: `codrax.yaml` 里:
+```yaml
+pipeline_max_retries_per_stage: 5
+pipeline_max_stage_visits: 6
+agent_max_iterations: 30
+```
+
+**Q: 想换一批便宜的模型节省开支?**
+A: 见 [3.2 复杂版](#32-providersyaml--复杂版)。把 `explorer` 和 `extractor` 换成便宜模型 / 本地模型,保留 `analyzer` 和 `finalizer` 为强模型,是最常见的省钱配置。
+
+**Q: 粘贴多行总是变成 `[Pasted text]` 占位符,想粘代码的时候很不方便?**
+A: 默认单行 ≥ 100 字符才会折叠,代码片段多在这个量级。想更激进地折叠 / 完全禁用:
+```yaml
+repl_paste_fold_min_chars: 9999    # 等于禁用折叠
+```
+
+**Q: `.codrax/` 目录越来越大,怎么清?**
+A: 直接 `rm -rf .codrax/`。codrax 会在下一次启动重建。内部已经有滚动策略(日志 7 份、blob 会话 7 个),所以正常不会爆。
+
+**Q: 我的日志格式比较特殊(自研 JSON 应用日志),能分析吗?**
+A: 可以。log_triage 是 LLM 驱动的,不依赖固定正则 parser。支持 Go panic / Java exception(包括 `Caused by` 链)/ Python traceback / Node V8 / Rust `#[source]` / Ruby backtrace / 结构化 JSON / C/C++ ASAN/UBSAN/gdb / 编译器错误等。模型能看懂的结构都能处理。只有仓内真实存在的文件才会被注入下游,外部路径会被过滤掉。
+
+**Q: 想把 codrax 接进 CI,怎么保证输出稳定?**
+A:
+1. 固定 model(不要用 `-latest` 等别名)
+2. 用单次模式 `codrax -r "..." 2>/dev/null > out.md`
+3. 把 `codrax.yaml` 纳入 CI 环境(或用 `CODRAX_SETTINGS=ci.yaml`)
+4. 对答案做基于 `file:line` 的结构化断言,比对着散文更稳定
+
+---
+
+更多细节请看:
+
+- [README.md](../README.md) — 项目概览 + 快速开始
+- [architecture.md](architecture.md) — 完整架构设计(面向想理解内部原理的读者)
+- [codrax.yaml.example](../codrax.yaml.example) — 所有可调参数的带注释示例
+- [providers.yaml.example](../providers.yaml.example) — LLM 凭证配置模板
