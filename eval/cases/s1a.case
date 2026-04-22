@@ -2,18 +2,24 @@
 #
 # Targets: architecture_explain scenario + ReqMechanism + ShapeStepList.
 # Question asks for the 7 gate checks in order. Correct answers must
-# enumerate the check names as Go identifiers; hand-wavy
-# "validates many things" answers fail both positive and negative.
+# enumerate the check names; hand-wavy "validates many things" answers
+# fail both positive and negative.
 #
 # Ground truth (internal/analysis/gate/gate.go): the 7 checks in
 # registration order are coverage, dag_closure, budget_sanity,
 # contract_complete, hypothesis_coverage, criterion_resolvable,
-# pending_fields_wellformed. Positive anchor picks 3 of the 7 that
-# survive bilingual paraphrase (check names are code literals, not
-# translated). The retry-continuation detail is a subtle follow-up
-# that distinguishes a grounded answer from generic prose.
+# pending_fields_wellformed. Each check has two equally-valid
+# references: the registered GateCheck.Name string (snake_case) and
+# the Go function identifier (CamelCase, check<Name>). LLM answers
+# routinely pick one or the other depending on prose voice; both
+# forms are grounded in gate.go, so the gate accepts either via
+# EXPECT_MATCHES_REGEX alternation. The retry-continuation detail is a
+# subtle follow-up that distinguishes a grounded answer from generic
+# prose.
 ID="s1a"
 NAME="mechanism enumeration — gate.Run ordered checks"
 QUESTION="gate.Run 的 7 项检查是按什么顺序跑的？遇到 retryable reject 时后续检查是否继续执行？"
-EXPECT_CONTAINS="gate.Run coverage dag_closure contract_complete"
+EXPECT_CONTAINS="gate.Run coverage"
+EXPECT_MATCHES_REGEX='(dag_closure|DAGClosure)
+(contract_complete|ContractComplete)'
 EXPECT_NOT_CONTAINS=".java .py BaseAgent.java"
