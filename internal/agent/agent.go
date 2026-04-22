@@ -472,6 +472,28 @@ func truncForLog(s string, max int) string {
 // LLM's own reasoning and tool-call plans, are tiny by comparison, and
 // removing them would erase the thread the model is working with.
 //
+// toolChoiceForStage returns the OpenAI-style tool_choice value to
+// attach to the LLM request for this dispatch stage. The stages whose
+// terminal action is a specific emit_* call — analyze, extract,
+// finalize, log_triage — set "required" so the LLM protocol itself
+// rejects a no-tool-call response. Without this, a model that
+// chooses prose over tool-calling (observed on some GLM / MiniMax
+// variants, especially with Think Aloud enabled) burns the whole
+// continuation retry budget (5+ minutes of wall time) before the
+// soft-stop handler finally fails the stage.
+//
+// Explore stays "auto" because the explorer's ReAct loop legitimately
+// alternates between tool-calling and reasoning — forcing a tool
+// call on every iteration would push the LLM into redundant reads.
+// The empty string falls through to the OpenAI default (also "auto").
+func toolChoiceForStage(stage types.PipelineStage) string {
+	switch stage {
+	case types.StageAnalyze, types.StageExtract, types.StageFinalize, types.StageLogTriage:
+		return "required"
+	}
+	return ""
+}
+
 // Returns true when at least one message was stubbed, so the caller
 // can log the event.
 func pruneToolHistory(messages []llm.Message, budget int) bool {
@@ -598,7 +620,9 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			Stage:     ctx.Stage,
 			Iteration: i,
 		})
-		resp, err := b.deps.LLM.Chat(messages, toolSchemas)
+		resp, err := b.deps.LLM.Chat(messages, toolSchemas, llm.ChatOptions{
+			ToolChoice: toolChoiceForStage(ctx.Stage),
+		})
 		if err != nil {
 			// Salvage accumulated side-effects before bubbling the LLM
 			// error. Without this, an upstream 429 / 5xx / context-length

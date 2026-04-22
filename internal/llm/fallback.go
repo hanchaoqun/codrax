@@ -11,10 +11,10 @@ func NewFallbackAdapter(adapters ...Adapter) *FallbackAdapter {
 	return &FallbackAdapter{adapters: adapters}
 }
 
-func (f *FallbackAdapter) Chat(messages []Message, tools []ToolSchema) (Response, error) {
+func (f *FallbackAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
 	var lastErr error
 	for _, a := range f.adapters {
-		resp, err := a.Chat(messages, tools)
+		resp, err := a.Chat(messages, tools, opts)
 		if err == nil {
 			return resp, nil
 		}

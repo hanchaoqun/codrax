@@ -39,8 +39,8 @@ func NewOpenAIAdapter(apiKey, model, baseURL string) *OpenAIAdapter {
 func (o *OpenAIAdapter) ModelID() string       { return o.model }
 func (o *OpenAIAdapter) MaxContextTokens() int { return 128000 }
 
-func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema) (Response, error) {
-	reqBody := o.buildRequest(messages, tools)
+func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
+	reqBody := o.buildRequest(messages, tools, opts)
 
 	bodyBytes, err := json.Marshal(reqBody)
 	if err != nil {
@@ -116,10 +116,11 @@ func (o *OpenAIAdapter) doRequest(bodyBytes []byte) (Response, error) {
 // --- request types ---
 
 type openaiRequest struct {
-	Model     string          `json:"model"`
-	Messages  []openaiMessage `json:"messages"`
-	Tools     []openaiTool    `json:"tools,omitempty"`
-	MaxTokens int             `json:"max_tokens,omitempty"`
+	Model      string          `json:"model"`
+	Messages   []openaiMessage `json:"messages"`
+	Tools      []openaiTool    `json:"tools,omitempty"`
+	ToolChoice json.RawMessage `json:"tool_choice,omitempty"`
+	MaxTokens  int             `json:"max_tokens,omitempty"`
 }
 
 type openaiMessage struct {
@@ -170,7 +171,7 @@ type openaiUsage struct {
 
 // --- conversion ---
 
-func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema) openaiRequest {
+func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opts ChatOptions) openaiRequest {
 	req := openaiRequest{
 		Model:     o.model,
 		MaxTokens: o.maxTokens,
@@ -207,6 +208,15 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema) ope
 				Parameters:  t.Parameters,
 			},
 		})
+	}
+
+	// tool_choice is only meaningful when at least one tool is declared.
+	// "auto" matches the provider default and is omitted (keeps the
+	// wire payload identical for callers that pass ChatOptions{}). A
+	// caller that wants the provider's default explicitly can still
+	// set "auto" — nothing breaks, we just don't send the field.
+	if len(req.Tools) > 0 && opts.ToolChoice != "" && opts.ToolChoice != "auto" {
+		req.ToolChoice = json.RawMessage(fmt.Sprintf("%q", opts.ToolChoice))
 	}
 
 	return req

@@ -1179,7 +1179,7 @@ func createDefaultAdapter(cfg *types.ProvidersConfig) llm.Adapter {
 // placeholderAdapter is a minimal LLM adapter for testing the pipeline structure.
 type placeholderAdapter struct{}
 
-func (p *placeholderAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema) (llm.Response, error) {
+func (p *placeholderAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema, _ llm.ChatOptions) (llm.Response, error) {
 	var lastMsg string
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role == "user" || messages[i].Role == "system" {
@@ -1238,7 +1238,7 @@ func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.I
 	}
 	resp, err := s.adapter.Chat([]llm.Message{
 		{Role: "user", Content: prompt.String()},
-	}, nil)
+	}, nil, llm.ChatOptions{})
 	if err != nil {
 		logging.Warning("[memory] summarizer LLM error, using fallback: %v", err)
 		return fallback, nil

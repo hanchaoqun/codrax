@@ -318,3 +318,28 @@ type errFake string
 
 func (e errFake) Error() string { return string(e) }
 
+// TestToolChoiceForStage pins the per-stage tool_choice mapping. The
+// stages whose evaluator treats "no tool call this turn" as a retry
+// trigger (analyze / extract / finalize / log_triage) must emit
+// "required" so the protocol layer rejects the failure mode instead
+// of burning the continuation retry budget on a chatty model.
+// Explore stays "" (auto) because its ReAct loop legitimately
+// intermixes reasoning turns with tool-calling turns.
+func TestToolChoiceForStage(t *testing.T) {
+	cases := []struct {
+		stage types.PipelineStage
+		want  string
+	}{
+		{types.StageAnalyze, "required"},
+		{types.StageExtract, "required"},
+		{types.StageFinalize, "required"},
+		{types.StageLogTriage, "required"},
+		{types.StageExplore, ""},
+	}
+	for _, c := range cases {
+		if got := toolChoiceForStage(c.stage); got != c.want {
+			t.Errorf("toolChoiceForStage(%q) = %q, want %q", c.stage, got, c.want)
+		}
+	}
+}
+
