@@ -561,6 +561,37 @@ func (c *EvidenceClosure) ClearPendingReadFor(file string) {
 	c.pendingReads = kept
 }
 
+// DrainSatisfiedPendingReads removes every PendingRead whose File is
+// already in the current ReadSet. Returns the count of drained
+// entries. Used by preCompleteContractCheck after syncing ReadSet
+// from ground-context LineIndex: without this drain, a PendingRead
+// enqueued once by an enforcer (primary_anchor_unread, phase1_unread,
+// chain promotion, grounder reject) lingers across every iteration
+// of a single dispatch even after the LLM reads the file on its own,
+// because the only other drain site (runForcedReads) runs at window
+// boundaries, not within a ReAct loop.
+func (c *EvidenceClosure) DrainSatisfiedPendingReads() int {
+	if c == nil {
+		return 0
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.pendingReads) == 0 {
+		return 0
+	}
+	kept := c.pendingReads[:0]
+	drained := 0
+	for _, p := range c.pendingReads {
+		if c.readSet[c.canonicalize(p.File)] {
+			drained++
+			continue
+		}
+		kept = append(kept, p)
+	}
+	c.pendingReads = kept
+	return drained
+}
+
 // AppendUnverifiedFinding records one analyzer hallucination probe
 // failure. Idempotent: same Token+Kind tuple is recorded once.
 func (c *EvidenceClosure) AppendUnverifiedFinding(u UnverifiedFinding) {

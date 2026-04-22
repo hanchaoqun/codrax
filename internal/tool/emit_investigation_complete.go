@@ -331,6 +331,15 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	}
 	closure := ctx.Mutable.EvidenceClosure()
 	refreshClosureReadSnapshot(ctx, closure)
+	// Drain PendingReads the LLM has already satisfied via its own
+	// read_file calls during this dispatch. Without this, an enforcer-
+	// enqueued PendingRead (primary_anchor_unread, phase1_unread, chain
+	// promotion, grounder reject) re-renders in every subsequent retry
+	// hint until the next window boundary, falsely signalling "still
+	// unread" and burning retries on a loop the LLM cannot exit.
+	if drained := closure.DrainSatisfiedPendingReads(); drained > 0 {
+		logging.Debug("[CGEC] drained %d satisfied PendingRead(s) after ReadSet refresh", drained)
+	}
 
 	// Session 12 phase1-unread gate. When the LLM calls complete on a
 	// breadth-intent question (mechanism / call_chain / conditional)

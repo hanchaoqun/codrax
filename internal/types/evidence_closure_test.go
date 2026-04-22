@@ -496,3 +496,67 @@ func TestContractResultRoundTrip_ViolationAliasing(t *testing.T) {
 		t.Errorf("Confidence=%.2f, want 0.90", got[0].SuspectedRoot.Confidence)
 	}
 }
+
+// TestDrainSatisfiedPendingReads pins the fix for the 2026-04-22
+// s1a-115146 run-1 bug: an enforcer-enqueued PendingRead lingered
+// across every iteration of a single dispatch after the LLM had
+// already satisfied it via its own read_file call, because the only
+// drain site (runForcedReads) runs at window boundaries, not within
+// a ReAct loop. preCompleteContractCheck now drains satisfied entries
+// after refreshing ReadSet from ground-context LineIndex.
+func TestDrainSatisfiedPendingReads(t *testing.T) {
+	c := NewEvidenceClosure("")
+	c.AddPendingRead(PendingRead{File: "a.go", Origin: "pre_complete.primary_anchor", Rationale: "anchor unread"})
+	c.AddPendingRead(PendingRead{File: "b.go", Origin: "phase1_unread", Rationale: "top-K unread"})
+	c.AddPendingRead(PendingRead{File: "c.go", Origin: "auto_bridge.emit_answer_document.grounder", Rationale: "chain promotion"})
+	c.SetReadSet(map[string]bool{"a.go": true, "c.go": true})
+
+	drained := c.DrainSatisfiedPendingReads()
+	if drained != 2 {
+		t.Errorf("drained=%d, want 2 (a.go and c.go satisfied by ReadSet)", drained)
+	}
+	pr := c.PendingReads()
+	if len(pr) != 1 {
+		t.Fatalf("remaining PendingReads=%d, want 1 (only b.go should survive)", len(pr))
+	}
+	if pr[0].File != "b.go" {
+		t.Errorf("surviving PendingRead.File=%q, want b.go", pr[0].File)
+	}
+	// Idempotent — second drain call with no further changes drains 0.
+	if again := c.DrainSatisfiedPendingReads(); again != 0 {
+		t.Errorf("second drain without ReadSet changes: got=%d, want 0", again)
+	}
+}
+
+// TestDrainSatisfiedPendingReads_Canonicalize pins that the drain
+// resolves PendingRead.File through the same canonicaliser used by
+// ReadSet lookups, so absolute / "./"-prefixed / repo-relative forms
+// all match. Mirrors the session-22 symmetry that
+// TestEvidenceClosure_AbsolutePathCanonicalizesAgainstRepoRoot pins
+// for HasRead.
+func TestDrainSatisfiedPendingReads_Canonicalize(t *testing.T) {
+	c := NewEvidenceClosure("/repo")
+	c.AddPendingRead(PendingRead{File: "./a.go", Origin: "enforcer"})
+	c.AddPendingRead(PendingRead{File: "/repo/b.go", Origin: "enforcer"})
+	c.SetReadSet(map[string]bool{"a.go": true, "b.go": true})
+
+	if drained := c.DrainSatisfiedPendingReads(); drained != 2 {
+		t.Errorf("drained=%d, want 2 (both entries canonicalise into ReadSet keys)", drained)
+	}
+	if pr := c.PendingReads(); len(pr) != 0 {
+		t.Errorf("PendingReads after drain=%d, want 0", len(pr))
+	}
+}
+
+// TestDrainSatisfiedPendingReads_NilAndEmpty guards the nil-closure
+// and empty-queue paths — both must degrade quietly.
+func TestDrainSatisfiedPendingReads_NilAndEmpty(t *testing.T) {
+	var nilC *EvidenceClosure
+	if got := nilC.DrainSatisfiedPendingReads(); got != 0 {
+		t.Errorf("nil closure: got=%d, want 0", got)
+	}
+	c := NewEvidenceClosure("")
+	if got := c.DrainSatisfiedPendingReads(); got != 0 {
+		t.Errorf("empty PendingReads: got=%d, want 0", got)
+	}
+}
