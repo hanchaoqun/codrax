@@ -1333,3 +1333,99 @@ func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *t
 		}
 	}
 }
+
+// TestMergeDeclarativeFallback_CrossFileSameName pins the s1a-20260422
+// audit regression: dedup by sym.Name alone silently dropped fallback
+// symbols when the answer is a cross-file collection of same-name
+// methods (e.g. "list all Run methods in the agent package"). The key
+// must incorporate File + Line so each definition site counts as a
+// distinct answer.
+func TestMergeDeclarativeFallback_CrossFileSameName(t *testing.T) {
+	current := []types.AnswerSymbol{
+		{Name: "Run", File: "internal/agent/analyzer.go", Line: 450, Kind: types.KindMethod},
+	}
+	fallback := []types.AnswerSymbol{
+		{Name: "Run", File: "internal/agent/explorer.go", Line: 1200, Kind: types.KindMethod},
+		{Name: "Run", File: "internal/agent/extractor.go", Line: 310, Kind: types.KindMethod},
+		{Name: "Run", File: "internal/agent/finalizer.go", Line: 85, Kind: types.KindMethod},
+		{Name: "Run", File: "internal/agent/analyzer.go", Line: 450, Kind: types.KindMethod}, // exact dup, must drop
+	}
+	got := mergeDeclarativeFallbackSymbols(current, fallback)
+	if len(got) != 4 {
+		t.Fatalf("cross-file same-name merge: got %d symbols, want 4 (1 current + 3 distinct fallback files, exact-dup drops)", len(got))
+	}
+	seen := make(map[string]bool, len(got))
+	for _, sym := range got {
+		seen[sym.File+":"+sym.Name] = true
+	}
+	wantFiles := []string{
+		"internal/agent/analyzer.go:Run",
+		"internal/agent/explorer.go:Run",
+		"internal/agent/extractor.go:Run",
+		"internal/agent/finalizer.go:Run",
+	}
+	for _, want := range wantFiles {
+		if !seen[want] {
+			t.Errorf("missing %q in merged slate: %+v", want, got)
+		}
+	}
+}
+
+// TestMergeDeclarativeFallback_SameSiteDedupStillHolds pins that the
+// (Name, File, Line) key still collapses truly identical entries —
+// the coarse-key loosening must not become a no-op.
+func TestMergeDeclarativeFallback_SameSiteDedupStillHolds(t *testing.T) {
+	current := []types.AnswerSymbol{
+		{Name: "Run", File: "a.go", Line: 10, Kind: types.KindMethod},
+	}
+	fallback := []types.AnswerSymbol{
+		{Name: "Run", File: "a.go", Line: 10, Kind: types.KindMethod},
+		{Name: "Run", File: "a.go", Line: 10, Kind: types.KindMethod},
+	}
+	got := mergeDeclarativeFallbackSymbols(current, fallback)
+	if len(got) != 1 {
+		t.Fatalf("same-site dedup: got %d, want 1", len(got))
+	}
+}
+
+// TestTrimDeclarativeSlate_CrossFileSameNameSurvives pins the inverse:
+// when the fallback has N distinct (Name,File,Line) entries sharing a
+// name, a current slate entry for any one of those sites must survive
+// the terminal-filter. Name-only keying would have accepted any entry
+// named Run regardless of file — technically permissive, but it kept
+// unrelated Runs alive. With the tri-field key, a current entry
+// survives iff its exact site appears in the fallback terminal set.
+func TestTrimDeclarativeSlate_CrossFileSameNameSurvives(t *testing.T) {
+	current := []types.AnswerSymbol{
+		{Name: "Run", File: "a.go", Line: 10, Kind: types.KindMethod},
+		{Name: "Run", File: "b.go", Line: 20, Kind: types.KindMethod},
+		{Name: "Helper", File: "c.go", Line: 30, Kind: types.KindMethod}, // not in fallback — drop
+		{Name: "InternalStr", File: "c.go", Line: 40, Kind: types.KindLiteral}, // literals always kept
+	}
+	fallback := []types.AnswerSymbol{
+		{Name: "Run", File: "a.go", Line: 10, Kind: types.KindMethod},
+		{Name: "Run", File: "b.go", Line: 20, Kind: types.KindMethod},
+	}
+	got := trimDeclarativeSlateToTerminals(current, fallback)
+	if len(got) != 3 {
+		t.Fatalf("trim: got %d, want 3 (2 matching Runs + 1 literal)", len(got))
+	}
+	var kept []string
+	for _, sym := range got {
+		kept = append(kept, sym.Name+"@"+sym.File)
+	}
+	want := map[string]bool{
+		"Run@a.go":         true,
+		"Run@b.go":         true,
+		"InternalStr@c.go": true,
+	}
+	for _, k := range kept {
+		if !want[k] {
+			t.Errorf("unexpected survivor %q in %v", k, kept)
+		}
+		delete(want, k)
+	}
+	for k := range want {
+		t.Errorf("missing expected survivor %q", k)
+	}
+}

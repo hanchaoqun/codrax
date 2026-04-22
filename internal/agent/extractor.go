@@ -552,6 +552,34 @@ func extractorDeclarativeLiteralFallback(ctx *types.AgentContext) []types.Answer
 	return out
 }
 
+// answerSymbolDedupKey identifies an AnswerSymbol for merge / trim
+// dedup. Kind drives the granularity:
+//
+//   - KindLiteral: Name alone. Literal-kind symbols carry the answer as
+//     their Name ("explore-skill", "DEBUG", config keys, route strings);
+//     same-Name different-line extractions are the same fact quoted
+//     from adjacent grounded rows, and merging collapses duplicates
+//     into a single answer entry. Matches the semantic the registration
+//     / enumeration-of-literals cases rely on
+//     (TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals
+//     pins this invariant: 2 current + 4 fallback extractions of skill
+//     name strings → 4 unique answers).
+//
+//   - symbol kinds (method / function / type / ...): (Name, File, Line).
+//     Name alone collapsed cross-file same-name methods (Run on
+//     explorerEvaluator / subExplorerEvaluator / extractorEvaluator —
+//     four distinct facts sharing the Name "Run"), silently dropping
+//     fallback-synthesized answers for the enumeration questions where
+//     the slate is supposed to grow. The tri-field key mirrors the
+//     (name, source, line) schema the internal fallback synthesiser
+//     already uses at extractor.go:517.
+func answerSymbolDedupKey(sym types.AnswerSymbol) string {
+	if sym.Kind == types.KindLiteral {
+		return sym.Name
+	}
+	return sym.Name + "\x1f" + sym.File + "\x1f" + strconv.Itoa(sym.Line)
+}
+
 func mergeDeclarativeFallbackSymbols(current, fallback []types.AnswerSymbol) []types.AnswerSymbol {
 	if len(current) == 0 || len(fallback) == 0 {
 		return current
@@ -560,14 +588,18 @@ func mergeDeclarativeFallbackSymbols(current, fallback []types.AnswerSymbol) []t
 	out := append([]types.AnswerSymbol(nil), current...)
 	for _, sym := range current {
 		if sym.Name != "" {
-			seen[sym.Name] = true
+			seen[answerSymbolDedupKey(sym)] = true
 		}
 	}
 	for _, sym := range fallback {
-		if sym.Name == "" || seen[sym.Name] {
+		if sym.Name == "" {
 			continue
 		}
-		seen[sym.Name] = true
+		key := answerSymbolDedupKey(sym)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
 		out = append(out, sym)
 	}
 	return out
@@ -579,11 +611,11 @@ func trimDeclarativeSlateToTerminals(current, fallback []types.AnswerSymbol) []t
 	}
 	allow := make(map[string]bool, len(fallback))
 	for _, sym := range fallback {
-		allow[sym.Name] = true
+		allow[answerSymbolDedupKey(sym)] = true
 	}
 	out := make([]types.AnswerSymbol, 0, len(current))
 	for _, sym := range current {
-		if sym.Kind == types.KindLiteral || allow[sym.Name] {
+		if sym.Kind == types.KindLiteral || allow[answerSymbolDedupKey(sym)] {
 			out = append(out, sym)
 		}
 	}
