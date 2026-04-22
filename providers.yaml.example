@@ -1,46 +1,84 @@
-# Minimal viable config — all 4 agents share one provider.
-# Place this file next to the codrax binary as `providers.yaml`.
+# =============================================================================
+# codrax provider credentials — copy to providers.yaml next to the binary.
+# =============================================================================
 #
-# All four fields are REQUIRED on the default provider. codrax will
-# refuse to start if any is missing — no silent fallback to public
-# endpoints or hard-coded model IDs. Per-agent overrides inherit any
-# field you do not explicitly set.
+# All four required fields listed below MUST be set on the default
+# provider. codrax refuses to start if any is missing — there is no
+# silent fallback to a public endpoint or a hard-coded model ID.
+# Per-agent overrides inherit any field you do not explicitly set.
+#
+# Two dimensions you can toggle per provider:
+#
+#   1. protocol    — HTTP vs HTTPS is decided purely by the
+#                    base_url scheme. No separate switch exists.
+#   2. streaming   — stream: true / false enables SSE; the REPL
+#                    surfaces a live content preview when on.
+#
+# Stream on/off and HTTP/HTTPS combine freely. See the end of this
+# file for the full scenario matrix.
+
 llm:
   default:
+    # --- Required fields --------------------------------------------------
     provider: openai                      # only `openai` is implemented; any
                                           # compatible chat-completions backend
                                           # plugs in via base_url (deepseek,
                                           # qwen, vllm/Ollama, together, etc.)
     api_key: "sk-xxx"                     # required
     model: "your-model-id"                # required; no default assumed
-    base_url: "https://your-endpoint/v1"  # required; no default assumed
-    # stream: false                       # opt-in SSE streaming; when true the
-                                          # REPL task row shows a live content
-                                          # preview while the LLM is still
-                                          # responding
+    base_url: "https://your-endpoint/v1"  # required; no default assumed.
+                                          # `https://` → TLS; `http://` → plain
+                                          # HTTP. codrax switches transparently.
 
-  # Optional TLS knobs for HTTPS endpoints with custom / self-signed
-  # CAs. The system trust pool is used by default; set either field
-  # only if you hit an `x509: certificate signed by unknown authority`
-  # error.
-  #
-  # tls_ca_file: /etc/pki/ca-trust/extracted/pem/corp-bundle.pem
-  #                                  # path to extra CA; appended to system pool
-  # tls_insecure_skip_verify: false  # nuclear escape — disables ALL
-  #                                  # certificate validation; any on-path
-  #                                  # attacker can steal the API key.
-  #                                  # Only use for short-lived debugging.
+    # --- Streaming -------------------------------------------------------
+    # Default: false (non-streaming). When true, codrax sets
+    # `stream: true` on the wire, parses SSE, and the REPL task row
+    # shows a live preview of the assistant's output as it arrives.
+    # Non-streaming providers that quietly return SSE are auto-
+    # detected on the JSON path, so leaving this unset still works.
+    # stream: false
 
-  # Optional: per-agent overrides. Only set fields you want to change;
-  # unset fields inherit from default. Valid agent keys are
-  # `analyzer`, `explorer`, `extractor`, `finalizer`, `log_triager`.
+    # --- TLS (HTTPS endpoints only) --------------------------------------
+    # These fields have no effect when base_url uses `http://`.
+    # Set tls_ca_file only when the endpoint uses a corporate /
+    # self-signed CA not in the system trust pool (typical symptom:
+    # `x509: certificate signed by unknown authority`).
+    # tls_ca_file: /etc/pki/ca-trust/extracted/pem/corp-bundle.pem
+
+    # Nuclear escape — disables ALL certificate validation; any on-path
+    # attacker can steal the API key. Only use for short-lived
+    # debugging against an endpoint you fully control, and prefer
+    # tls_ca_file whenever possible. codrax logs a high-visibility
+    # warning on stderr + log every startup while true.
+    # tls_insecure_skip_verify: false
+
+  # --- Per-agent overrides ------------------------------------------------
+  # Valid agent keys are `analyzer`, `explorer`, `extractor`,
+  # `finalizer`, `log_triager`. Set only the fields you want to
+  # change; unset fields inherit from default.
   #
   # agents:
   #   analyzer:
-  #     model: "stronger-model"    # smarter model for the classification step
+  #     model: "stronger-model"           # smarter model for classification
   #   extractor:
-  #     model: "cheaper-model"     # cheaper model for the structuring step
+  #     model: "cheaper-model"            # cheaper model for structuring
   #   finalizer:
   #     base_url: "http://localhost:11434/v1"
   #     model: "llama3.1:70b"
-  #     stream: true               # per-agent streaming opt-in
+  #     stream: true                      # per-agent streaming opt-in
+
+# =============================================================================
+# Scenario matrix
+# =============================================================================
+# | Deployment                  | base_url     | stream      | tls_*               |
+# |-----------------------------|--------------|-------------|---------------------|
+# | Public cloud LLM (OpenAI,   | https://…    | true/false  | —                   |
+# |  DeepSeek, Qwen, Anthropic  |              |             |                     |
+# |  via proxy, …)              |              |             |                     |
+# | Corporate HTTPS + self-CA   | https://…    | true/false  | tls_ca_file         |
+# | HTTPS cert unresolvable,    | https://…    | true/false  | tls_insecure_skip_  |
+# |  temporary debugging        |              |             |  verify: true       |
+# | Local Ollama / vLLM         | http://…     | true/false  | —                   |
+# | Internal HTTP proxy         | http://…     | true/false  | —                   |
+# | Provider forces SSE even    | either       | either      | —                   |
+# |  when stream: false         |              |             | (auto-detected)     |

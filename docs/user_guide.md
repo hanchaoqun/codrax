@@ -6,6 +6,9 @@
 - [2. 安装与启动](#2-安装与启动)
 - [3. 配置](#3-配置)
   - [3.1 `providers.yaml` — 精简版](#31-providersyaml--精简版)
+    - [3.1.1 HTTP / HTTPS 开关](#311-http--https-开关--靠-base_url-协议头决定)
+    - [3.1.2 流式开关](#312-流式开关--stream)
+    - [3.1.3 场景速查表](#313-场景速查表)
   - [3.2 `providers.yaml` — 复杂版](#32-providersyaml--复杂版)
   - [3.3 `codrax.yaml` — 运行时参数](#33-codraxyaml--运行时参数)
   - [3.4 配置文件查找顺序](#34-配置文件查找顺序)
@@ -105,17 +108,19 @@ codrax 有两份配置文件,分工严格不重叠:
 
 ### 3.1 `providers.yaml` — 精简版
 
+> **硬性规则**:`provider` / `api_key` / `model` / `base_url` **四个字段必填**,缺一个 codrax 就直接拒启动并打印缺失字段名 —— 不会偷偷用任何公网 endpoint 或默认模型。
+
 所有 4 个 agent(`analyzer` / `explorer` / `extractor` / `finalizer`,日志分诊时还有 `log_triager`)共用同一个模型就能跑:
 
 ```yaml
 llm:
   default:
-    provider: openai              # 只实现 openai 协议;deepseek / qwen /
-                                  # vllm / Ollama 等兼容此协议的服务用同一段
-                                  # 加 base_url 切换即可
-    api_key: "sk-xxx"             # 换成你自己的 API key
-    model: "gpt-4o"               # 换成你要用的模型名
-    base_url: ""                  # 留空 → https://api.openai.com/v1
+    provider: openai                       # 只实现 openai 协议;deepseek /
+                                           # qwen / vllm / Ollama 等兼容此协议
+                                           # 的服务共用同一段,换 base_url 即可
+    api_key: "sk-xxx"                      # 换成你自己的 API key
+    model: "your-model-id"                 # 换成你要用的模型名
+    base_url: "https://your-endpoint/v1"   # http:// 或 https:// 都行
 ```
 
 **常见第三方 provider 的改法**(只改 `base_url` + `model`):
@@ -141,10 +146,59 @@ llm:
 llm:
   default:
     provider: openai
-    api_key: "ollama"             # 随便填非空字符串
+    api_key: "ollama"                      # 非空即可
     model: "llama3.1:70b"
     base_url: "http://localhost:11434/v1"
 ```
+
+#### 3.1.1 HTTP / HTTPS 开关 —— 靠 `base_url` 协议头决定
+
+codrax **不另外加** HTTP vs HTTPS 开关。协议由你 `base_url` 写的是 `http://` 还是 `https://` 自动决定:
+
+```yaml
+base_url: "https://api.provider.com/v1"   # → TLS(走系统 CA 池校验)
+base_url: "http://internal-proxy:3000/v1" # → 明文 HTTP,无 TLS
+base_url: "http://127.0.0.1:11434/v1"     # → 本地 Ollama,明文
+```
+
+HTTPS 遇到**企业自签 CA** / **私有 CA** 时,可以加两个额外字段(只在 `https://` 时生效;`http://` 会被忽略):
+
+```yaml
+llm:
+  default:
+    # ...
+    tls_ca_file: /etc/ssl/my-corp-ca.pem        # 追加一份 CA 到系统 trust pool
+    # 临时绕证书验证(**不安全**;会在启动打醒目 warning)
+    # tls_insecure_skip_verify: true
+```
+
+#### 3.1.2 流式开关 —— `stream`
+
+| 值 | 行为 |
+|---|---|
+| `stream: true` | 走 SSE 流式,REPL 任务行会**实时显示** LLM 正在输出的内容(250ms 节流,80 字符 tail 预览) |
+| `stream: false` | 一次性收完整个响应(默认) |
+| 不写 | 等同 `stream: false` |
+
+```yaml
+llm:
+  default:
+    # ...
+    stream: true
+```
+
+即使你写 `stream: false`,部分 provider 依然会返 SSE(企业网关、特殊微调模型)。codrax 会**自动嗅探**响应开头,遇到 `data: ...` 直接走 SSE parser,不会因此报 `invalid character 'd'` 失败。
+
+#### 3.1.3 场景速查表
+
+| 部署形态 | `base_url` | `stream` | TLS 字段 |
+|---|---|---|---|
+| 公网大厂(OpenAI / DeepSeek / Qwen / Anthropic 代理 / ...) | `https://…` | 随意 | 通常不用 |
+| 企业自签 CA 的 HTTPS | `https://…` | 随意 | `tls_ca_file` |
+| HTTPS 证书一时搞不定,临时跑通 | `https://…` | 随意 | `tls_insecure_skip_verify: true`(用完关) |
+| 本地 Ollama / vLLM | `http://…` | 随意 | 不用 |
+| 内网不加密代理 | `http://…` | 随意 | 不用 |
+| Provider 强制 SSE(我关了 stream 还报 JSON 错) | 任意 | 任意 | — (自动识别) |
 
 ### 3.2 `providers.yaml` — 复杂版
 
@@ -156,16 +210,18 @@ llm:
   default:
     provider: openai
     api_key: "sk-shared-xxx"
-    model: "gpt-4o-mini"          # 便宜快速的基准模型
+    model: "your-cheap-model"              # 便宜快速的基准模型
+    base_url: "https://api.provider.com/v1"
 
   agents:
     analyzer:
-      model: "gpt-4o"             # 问题分类 / 场景推断 → 用强模型
+      model: "your-strong-model"           # 问题分类 / 场景推断 → 用强模型
     finalizer:
-      model: "gpt-4o"             # 组织最终答案 → 用强模型
+      model: "your-strong-model"           # 组织最终答案 → 用强模型
+      stream: true                         # 单独让 finalizer 走流式
     log_triager:
-      model: "gpt-4o-mini"        # 日志抽取 → 中等模型就够
-    # explorer + extractor 没写,自动继承 default(gpt-4o-mini)
+      model: "your-mid-model"              # 日志抽取 → 中等模型就够
+    # explorer + extractor 没写,自动继承 default
 ```
 
 **合法的 agent 键**(每个字段都是可选,空字段继承 default):
@@ -178,6 +234,15 @@ llm:
 | `finalizer` | 组织最终答案的散文与结构化字段 | 强模型,直接影响体验 |
 | `log_triager` | 粘贴日志后,抽取错误类型 / 栈帧 / 因果链 | 中等模型即可,仅在附日志时启用 |
 
+**per-agent 可覆盖的全部字段**(等同 3.1 里 `default` 能设的字段):
+
+| 字段 | 说明 |
+|---|---|
+| `provider` / `api_key` / `model` / `base_url` | 凭证与模型路由 |
+| `stream` | 每个 agent 独立开/关流式 |
+| `tls_ca_file` / `tls_insecure_skip_verify` | 每个 agent 独立 TLS 策略(仅对走不同 `https://` endpoint 的 agent 有意义) |
+| `think_aloud` | 是否注入 think-aloud 指令(对不带原生 reasoning 的模型有用) |
+
 **在 agent 级别同时改 base_url**(例如让某个 agent 走本地模型):
 
 ```yaml
@@ -185,14 +250,17 @@ llm:
   default:
     provider: openai
     api_key: "sk-cloud-xxx"
-    model: "gpt-4o"
+    model: "your-strong-cloud-model"
+    base_url: "https://api.cloud-provider.com/v1"
+    stream: true
 
   agents:
     explorer:
       # 文件翻阅量大,放到本地省钱
       api_key: "ollama"
       model: "qwen2.5:32b"
-      base_url: "http://localhost:11434/v1"
+      base_url: "http://localhost:11434/v1"   # ← 改走明文 HTTP
+      stream: false                            # 本地模型不开流式,一次性取
 ```
 
 ### 3.3 `codrax.yaml` — 运行时参数
@@ -814,6 +882,32 @@ A:
 2. 用单次模式 `codrax -r "..." 2>/dev/null > out.md`
 3. 把 `codrax.yaml` 纳入 CI 环境(或用 `CODRAX_SETTINGS=ci.yaml`)
 4. 对答案做基于 `file:line` 的结构化断言,比对着散文更稳定
+
+**Q: 怎么开流式响应?有什么区别?**
+A: `providers.yaml` 里写 `stream: true`。开了之后:
+- 任务行实时显示模型正在产出的内容 tail(250ms 节流,80 字符)
+- 慢模型 / 长响应下用户不再干瞪 30s 空 spinner
+- 功能等价,只是 UX 更快反馈
+见 [3.1.2 流式开关](#312-流式开关--stream)。
+
+**Q: 启动报 `x509: certificate signed by unknown authority`?**
+A: 你的 HTTPS endpoint 用了系统不信任的 CA。两条路:
+1. **正路**(推荐):把对方 CA 抓到本地,`providers.yaml` 里 `tls_ca_file: /path/to/ca.pem`
+2. **紧急路**:`tls_insecure_skip_verify: true`(关证书验证,API key 可能被嗅探;debug 完立刻关掉)
+抓 CA:
+```bash
+openssl s_client -showcerts -servername $HOST -connect $HOST:443 </dev/null 2>/dev/null \
+  | awk '/BEGIN CERT/,/END CERT/' > /tmp/their-bundle.pem
+```
+
+**Q: 启动报 `invalid character 'd' looking for beginning of value`?**
+A: 是你用了一个**强制返 SSE** 的 provider(即使你 `stream: false` 它也流)。新版 codrax 已经有 **SSE 自动嗅探**,响应开头是 `data:` 时自动走流式 parser,一般不用手动处理。若还出现,确认 `git pull && make` 拉的是最新代码(commit `eac38af` 或更新)。
+
+**Q: HTTP 和 HTTPS 怎么切换?**
+A: 不存在"切换 flag",由 `base_url` 开头决定:
+- `base_url: "https://api.xxx.com/v1"` → TLS
+- `base_url: "http://localhost:8080/v1"` → 明文 HTTP
+见 [3.1.1 HTTP / HTTPS 开关](#311-http--https-开关--靠-base_url-协议头决定)。
 
 ---
 
