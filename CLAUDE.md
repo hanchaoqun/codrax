@@ -168,7 +168,7 @@ Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.
 ### Runtime subsystems
 
 - **`internal/logging`** — leveled logger, 4 MB rotation, default 7-file retention (`log_max_files`). Files named `codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`. `IsPidAlive` + `FileTimeLayout` reused by `internal/tool/blob`.
-- **`internal/memory`** — multi-turn REPL store. Recent turns on disk under `turns/turn-<unix-nano>-<pid>.md`; oldest LLM-summarized into `MEMORY.md` when recent buffer exceeds limits. `BuildContext(request)` prepends recent + keyword-matched compacted turns as `## Prior conversation\n...\n\n## Current request\n...`.
+- **`internal/memory`** — multi-turn REPL store. Recent turns on disk under `turns/turn-<unix-nano>-<pid>.md`; oldest LLM-summarized into `MEMORY.md` when recent buffer exceeds `MaxRecentTurns` / `MaxRecentBytes`. Compaction runs in a background goroutine (single-flight via `compactInFlight` + `compactWG`); `Close`/`Clear`/`Compact` wait on the WG. REPL persists the paste-folded `display` text; `Turn.RequestForSummary` carries the expanded paste to the summarizer so `IndexEntry.Summary/Keywords` reflect real content, not a `[Pasted text #N]` placeholder. `BuildContext(request)` prepends recent-turn previews + keyword-matched compacted entries (Topic + Summary **only**; full turn text stays on disk) as `## Prior conversation\n...\n\n## Current request\n...`.
 - **`internal/repl`** — line-by-line interactive loop. History flows as part of the request string; no BusContext changes.
 - **`internal/tool/blob`** — per-process blob storage. Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`, assigned to `BusContext.WorkDir`. `PruneBlobSessions` honors live-PID.
 

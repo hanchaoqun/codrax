@@ -144,7 +144,12 @@ func TestSummarizerSeesExpandedRequest(t *testing.T) {
 	}
 }
 
-func TestBuildContextInlinesMatchingTurn(t *testing.T) {
+// TestBuildContextSurfacesMatchingEntrySummary locks the post-C1
+// behavior: when a compacted IndexEntry's keywords match the
+// current request, BuildContext renders ONLY its Topic + Summary
+// bullet. Full turn text is never inlined, no matter how large the
+// on-disk turn file is.
+func TestBuildContextSurfacesMatchingEntrySummary(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
 	if err != nil {
@@ -319,7 +324,7 @@ func TestSanitizeStripsANSIAndCapsSize(t *testing.T) {
 	if strings.Contains(string(raw), "\x1b[") {
 		t.Errorf("ANSI escape leaked to disk")
 	}
-	// Header adds ~100 bytes; cap is 64 KB body + truncation marker.
+	// Header adds ~100 bytes; cap is MaxTurnBodyBytes body + truncation marker.
 	if len(raw) > types.DefaultMemorySettings().MaxTurnBodyBytes+512 {
 		t.Errorf("turn file size %d exceeds cap %d", len(raw), types.DefaultMemorySettings().MaxTurnBodyBytes)
 	}
