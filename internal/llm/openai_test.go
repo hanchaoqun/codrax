@@ -256,6 +256,56 @@ func TestParseSSEStream(t *testing.T) {
 	})
 }
 
+// TestParseResponse_AutoDetectsSSE covers the fallback path for
+// providers that return SSE even when `stream: false` was requested.
+// parseResponse should recognise the `data:` prefix and route to the
+// same accumulator used by the streaming path, so the caller gets a
+// normal Response without knowing the provider was misbehaving.
+func TestParseResponse_AutoDetectsSSE(t *testing.T) {
+	a := &OpenAIAdapter{model: "m"}
+
+	t.Run("real_sse_body_routed_to_stream_parser", func(t *testing.T) {
+		body := []byte(
+			"data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" +
+				"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+				"data: [DONE]\n")
+		resp, err := a.parseResponse(body)
+		if err != nil {
+			t.Fatalf("parseResponse: %v", err)
+		}
+		if resp.Content != "hi" {
+			t.Errorf("Content = %q, want hi", resp.Content)
+		}
+	})
+
+	t.Run("normal_json_body_still_works", func(t *testing.T) {
+		body := []byte(`{"choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`)
+		resp, err := a.parseResponse(body)
+		if err != nil {
+			t.Fatalf("parseResponse: %v", err)
+		}
+		if resp.Content != "ok" {
+			t.Errorf("Content = %q, want ok", resp.Content)
+		}
+	})
+
+	t.Run("leading_newlines_before_sse", func(t *testing.T) {
+		// Blank lines before the first `data:` are legal SSE preamble
+		// (some servers send heartbeats). looksLikeSSEResponse has to
+		// trim leading whitespace; parseSSEStream handles blank lines
+		// natively by ignoring any line that isn't prefixed with
+		// `data:` at column 0.
+		body := []byte("\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"x\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n")
+		resp, err := a.parseResponse(body)
+		if err != nil {
+			t.Fatalf("parseResponse: %v", err)
+		}
+		if resp.Content != "x" {
+			t.Errorf("Content = %q, want x", resp.Content)
+		}
+	})
+}
+
 // TestBuildRequest_StreamWireFormat locks the stream flag on the wire:
 // streaming adapters set it to true, non-streaming omit it entirely
 // so the payload is byte-identical to the pre-streaming implementation.

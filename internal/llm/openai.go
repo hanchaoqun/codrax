@@ -489,6 +489,19 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 }
 
 func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
+	// Graceful fallback: some providers return SSE even on a non-
+	// streaming request. Common cases: corporate gateways that always
+	// stream, fine-tuned chat servers with no "stream: false" branch,
+	// ollama deployments behind certain proxies. When we detect the
+	// `data: ` prefix we hand the body to the same SSE parser the
+	// streaming path uses so the caller still gets a normal Response.
+	// Non-stream callback remains nil — nothing to surface mid-stream
+	// because the body is already fully buffered by doRequest.
+	if looksLikeSSEResponse(body) {
+		logging.Debug("[llm] non-streaming request returned SSE; parsing as stream")
+		return parseSSEStream(bytes.NewReader(body), nil)
+	}
+
 	var oResp openaiResponse
 	if err := json.Unmarshal(body, &oResp); err != nil {
 		return Response{}, fmt.Errorf("unmarshal response: %w", err)
@@ -549,4 +562,17 @@ func isRetryable(err error) bool {
 		return ae.StatusCode == 429 || ae.StatusCode >= 500
 	}
 	return false
+}
+
+// looksLikeSSEResponse reports whether body is formatted as a
+// Server-Sent Events stream. Used by parseResponse to auto-redirect
+// when a provider returns SSE on a non-streaming request. Detection
+// is deliberately conservative: trim leading whitespace and check
+// for the canonical `data:` line prefix. A JSON response starts with
+// `{` or `[`; a malformed response that happens to begin with `d`
+// (e.g. `deadbeef`) will still fail here because the SSE parser
+// itself requires at least one `data: ` line and errors loudly.
+func looksLikeSSEResponse(body []byte) bool {
+	trimmed := bytes.TrimLeft(body, " \t\r\n")
+	return bytes.HasPrefix(trimmed, []byte("data:"))
 }
