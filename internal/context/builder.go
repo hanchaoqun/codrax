@@ -970,12 +970,62 @@ func filterFlowFindingsByEvidence(items []types.EvidenceItem, findings []types.F
 // historical "(file:line) [recovered]" format ships so the explorer
 // itself (self-referencing earlier windows) still sees its own
 // recovered lines.
+// producerRank mirrors agent.evidenceSortRank locally so
+// formatEvidenceItems can re-apply the rank ordering at render time
+// without introducing an import cycle or exposing a package-boundary
+// helper purely for cosmetics. Both sides must agree on the band
+// mapping; any change to one requires the same change in the other.
+func producerRank(item types.EvidenceItem) int {
+	switch {
+	case item.Producer == "explorer.emit_evidence":
+		return 0
+	case strings.HasPrefix(item.Producer, "dataflow."):
+		return 2
+	default:
+		return 1
+	}
+}
+
 func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation bool) string {
 	if len(items) == 0 {
 		return ""
 	}
 	if limit <= 0 || limit > len(items) {
 		limit = len(items)
+	}
+	// Defensive re-sort by producer-rank before taking the top-N slice.
+	// The upstream pool is already merge-sorted by rank, but several
+	// explorer paths (rankEvidenceByRelevanceWithSubject, diversity
+	// cap) re-order the slice between the merge and this render step.
+	// Without this safety net, rank-1 programmatic items (concrete_values
+	// on alphabetically-early files like cmd/root.go) flood the top-N
+	// before any LLM-emitted item gets a slot, even though the LLM's
+	// emissions are the most on-topic facts available.
+	//
+	// Copy the slice rather than sorting in place so we don't mutate
+	// ac.EvidenceItems for the leads / findings sections that iterate
+	// the same backing array further down in BuildAgentContext.
+	sorted := make([]types.EvidenceItem, len(items))
+	copy(sorted, items)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		ri, rj := producerRank(sorted[i]), producerRank(sorted[j])
+		return ri < rj
+	})
+	items = sorted
+	// Diagnostic: top-25 producer histogram. Retained because operators
+	// investigating "why didn't my emit show up in Structured Evidence"
+	// benefit from the real producer distribution at the rendering site.
+	if len(items) > 0 {
+		counts := map[string]int{}
+		for i, it := range items {
+			if i >= 25 {
+				break
+			}
+			logging.Debug("[trace/fev] %d producer=%q src=%s:%d subj=%q kind=%q grounding=%s",
+				i, it.Producer, it.Source, it.LineStart, it.Subject, it.Kind, it.GroundingStatus)
+			counts[it.Producer]++
+		}
+		logging.Debug("[trace/fev] total=%d top25 producer histogram: %v", len(items), counts)
 	}
 	var b strings.Builder
 	written := 0

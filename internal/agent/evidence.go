@@ -320,21 +320,37 @@ func mergeEvidenceItems(groups ...[]types.EvidenceItem) []types.EvidenceItem {
 }
 
 // evidenceSortRank maps an item to a band used as the primary sort
-// key. Rank 0 items are authored to answer the current question
-// (LLM emit_evidence, explorer-side deterministic analysis that
-// targets the specific entities/intents); rank 1 items are
-// structural background the dataflow engine auto-harvested from
-// whatever files happened to be in the candidate set.
+// key, lower rank = higher priority.
 //
-// Promoting rank 0 keeps the Structured Evidence top-N rendering
-// on-topic even when dataflow contributes thousands of bullets from
-// alphabetically-early files (cmd/*, api/*) that the question does
-// not ask about.
+//   - rank 0 — explorer.emit_evidence: LLM-authored on-topic facts.
+//     The LLM read the file, judged the fact relevant to the user's
+//     question, and explicitly emitted it. Highest priority because
+//     the selection is intent-aware.
+//   - rank 1 — concrete_values / bridge_literal / consumer_gate:
+//     explorer-side programmatic extractors. Question-aware (they
+//     scan the ERM candidate set), but without LLM judgment about
+//     whether a given literal is load-bearing. In practice they
+//     produce many items from every readSet file, alphabetically
+//     sorted cmd/* sources would still fill the top-N before any
+//     internal/* source appears.
+//   - rank 2 — dataflow.engine / dataflow.finding / dataflow.config:
+//     bulk structural graph analysis of the candidate files. Zero
+//     question-awareness — harvests every call / guard / assign /
+//     return in the reachable set.
+//
+// Three bands so the Structured Evidence top-N slot a downstream
+// agent sees always prefers LLM emits, with programmatic
+// extraction as the secondary source and bulk dataflow as the
+// last-resort filler.
 func evidenceSortRank(item types.EvidenceItem) int {
-	if strings.HasPrefix(item.Producer, "dataflow.") {
+	switch {
+	case item.Producer == "explorer.emit_evidence":
+		return 0
+	case strings.HasPrefix(item.Producer, "dataflow."):
+		return 2
+	default:
 		return 1
 	}
-	return 0
 }
 
 // MergeFlowFindings is the exported variant of the internal merger,
