@@ -795,6 +795,168 @@ func TestConcurrentStoresShareMemoryMd(t *testing.T) {
 	}
 }
 
+// blockingSummarizer lets a test pause the summarizer inside
+// Summarize, snapshot concurrent-call count, and release it later.
+// Used to prove Append is non-blocking (compaction runs async) and
+// that at most one goroutine is in flight at a time (single-flight
+// latch).
+type blockingSummarizer struct {
+	entered chan struct{} // sends once per Summarize entry
+	release chan struct{} // closed by the test to unblock all entries
+
+	mu            sync.Mutex
+	concurrent    int // current in-flight count
+	maxConcurrent int // peak in-flight count across the run
+	seen          []string
+}
+
+func (b *blockingSummarizer) Summarize(_ context.Context, t Turn) (IndexEntry, error) {
+	b.mu.Lock()
+	b.concurrent++
+	if b.concurrent > b.maxConcurrent {
+		b.maxConcurrent = b.concurrent
+	}
+	b.seen = append(b.seen, t.ID)
+	b.mu.Unlock()
+
+	b.entered <- struct{}{}
+	<-b.release
+
+	b.mu.Lock()
+	b.concurrent--
+	b.mu.Unlock()
+	return IndexEntry{
+		ID:       t.ID,
+		Topic:    "topic-" + t.ID,
+		Keywords: []string{strings.Fields(t.Request)[0]},
+		Summary:  "summary of " + t.Request,
+	}, nil
+}
+
+// TestAppendIsNonBlocking proves C3 invariant 1: Append returns
+// before the backing Summarize completes. A synchronous
+// implementation would deadlock on this test because Append would
+// block waiting on b.release, which is only closed after the test
+// reads past the blocked Append.
+func TestAppendIsNonBlocking(t *testing.T) {
+	dir := t.TempDir()
+	b := &blockingSummarizer{
+		entered: make(chan struct{}, 16),
+		release: make(chan struct{}),
+	}
+	s, err := NewStore(dir, b, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer func() {
+		// Close waits on WG; unblock the pending summarize first
+		// so Close doesn't hang.
+		close(b.release)
+		s.Close()
+	}()
+
+	// Fill past maxRecent=6 to trigger compaction.
+	for i := 0; i < 7; i++ {
+		if err := s.Append(Turn{
+			ID:       fmt.Sprintf("t%d", i),
+			Request:  fmt.Sprintf("kw%d question", i),
+			Response: fmt.Sprintf("answer %d", i),
+		}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	// The background goroutine must have entered Summarize — proves
+	// scheduleCompact actually spawned a worker and that Append
+	// returned without waiting for it.
+	select {
+	case <-b.entered:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("Summarize was not entered asynchronously within 2s; Append likely ran synchronously")
+	}
+
+	// At this point Summarize is still blocked inside release, but
+	// all 7 Appends already returned. The recent buffer still carries
+	// the oldest turn (pop happens only after Summarize returns).
+	if got := len(s.Recent()); got != 7 {
+		t.Errorf("pre-release recent len = %d, want 7 (compaction still blocked)", got)
+	}
+	if got := len(s.Index()); got != 0 {
+		t.Errorf("pre-release index len = %d, want 0 (compaction still blocked)", got)
+	}
+}
+
+// TestCompactionIsSingleFlight proves C3 invariant 2: no matter how
+// many Appends push the buffer over budget, at most one summarizer
+// call is in flight at a time (the compactInFlight latch prevents
+// scheduleCompact from firing a second goroutine while one is
+// already running; the worker's internal re-check loop still picks
+// up Appends that arrived mid-run).
+func TestCompactionIsSingleFlight(t *testing.T) {
+	dir := t.TempDir()
+	b := &blockingSummarizer{
+		entered: make(chan struct{}, 64),
+		release: make(chan struct{}), // unbuffered: one send = one wake
+	}
+	s, err := NewStore(dir, b, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+
+	// Push enough turns to require multiple compactions. Default
+	// maxRecent=6 so 10 appends => 4 expected compactions.
+	const N = 10
+	expectCompactions := N - s.maxRecent
+	for i := 0; i < N; i++ {
+		if err := s.Append(Turn{
+			ID:       fmt.Sprintf("t%d", i),
+			Request:  fmt.Sprintf("kw%d question", i),
+			Response: fmt.Sprintf("answer %d", i),
+		}); err != nil {
+			t.Fatalf("append %d: %v", i, err)
+		}
+	}
+
+	// Drain each expected compaction: wait for entry, assert only one
+	// is in-flight, release it, loop. An unbuffered release channel
+	// means b.release <- struct{}{} blocks until Summarize's <-release
+	// is ready, which is the correct pairing.
+	for i := 0; i < expectCompactions; i++ {
+		select {
+		case <-b.entered:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for compaction %d of %d", i+1, expectCompactions)
+		}
+		b.mu.Lock()
+		cur := b.concurrent
+		b.mu.Unlock()
+		if cur != 1 {
+			t.Errorf("expected 1 in-flight summarize at entry %d, got %d", i, cur)
+		}
+		select {
+		case b.release <- struct{}{}:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out releasing compaction %d", i+1)
+		}
+	}
+	// Belt-and-suspenders for the case where the worker makes one
+	// more loop iteration than expected: close so any lingering
+	// <-b.release returns immediately.
+	close(b.release)
+	s.Close()
+
+	b.mu.Lock()
+	peak := b.maxConcurrent
+	seen := len(b.seen)
+	b.mu.Unlock()
+	if peak > 1 {
+		t.Errorf("maxConcurrent = %d, want 1 (single-flight latch broken)", peak)
+	}
+	if seen < expectCompactions {
+		t.Errorf("seen=%d summarizer invocations, want ≥ %d", seen, expectCompactions)
+	}
+}
+
 // recordingSummarizer remembers every turn it was asked to summarize
 // so the WasError short-circuit can be proven by absence.
 type recordingSummarizer struct {
