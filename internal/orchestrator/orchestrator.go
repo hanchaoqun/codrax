@@ -864,6 +864,16 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 		if o.busCtx.Mutable != nil {
 			o.busCtx.Mutable.ResetAnswerDocument()
 		}
+		// Pre-dispatch cue: finalize runs one synchronous LLM call
+		// without intermediate tool activity, so without this the task
+		// row sits silent on "thinking" for the full composition
+		// window. Users lose any signal that the answer is imminent.
+		o.emit(render.Event{
+			Kind:      render.EventAgentReasoning,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+			Reasoning: softFinalizingMessage(o.busCtx.Language),
+		})
 		stepsUsed++
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {
@@ -1065,6 +1075,15 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 
 		o.busCtx.PipelineStage = types.StageFinalize
 		o.busCtx.TaskState.Stage = types.StageFinalize
+		// Same pre-dispatch cue as the normal DAG path — the stall
+		// escape still runs a composition-only LLM call with no tool
+		// activity.
+		o.emit(render.Event{
+			Kind:      render.EventAgentReasoning,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+			Reasoning: softFinalizingMessage(o.busCtx.Language),
+		})
 		stepsUsed++
 		out, err := o.dispatchStage(types.StageFinalize)
 		if err != nil {

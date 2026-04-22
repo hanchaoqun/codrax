@@ -80,6 +80,17 @@ func TestSoftMessages_LocalizeOnLanguage(t *testing.T) {
 			if !c.zh && !strings.Contains(got, "Answer") {
 				t.Errorf("en: answer-check must be English, got %q", got)
 			}
+
+			got = softFinalizingMessage(c.lang)
+			if strings.HasPrefix(got, "⟳") == false {
+				t.Errorf("finalizing must start with the ⟳ soft symbol, got %q", got)
+			}
+			if c.zh && !strings.Contains(got, "组织") {
+				t.Errorf("zh: finalizing must be Chinese, got %q", got)
+			}
+			if !c.zh && !strings.Contains(got, "Composing") {
+				t.Errorf("en: finalizing must be English, got %q", got)
+			}
 		})
 	}
 }
@@ -141,6 +152,8 @@ func TestSoftMessages_NoInternalJargon(t *testing.T) {
 		softInvestigationReadyMessage("zh"),
 		softAnswerCheckRetryMessage("en"),
 		softAnswerCheckRetryMessage("zh"),
+		softFinalizingMessage("en"),
+		softFinalizingMessage("zh"),
 	}
 	for _, m := range messages {
 		lower := strings.ToLower(m)

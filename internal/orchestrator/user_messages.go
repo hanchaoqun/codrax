@@ -96,3 +96,18 @@ func softAnswerCheckRetryMessage(lang string) string {
 	}
 	return "⟳ Answer needs another pass"
 }
+
+// softFinalizingMessage renders the user-visible line emitted just
+// before the finalizer LLM call starts. Unlike explore / extract
+// which cycle through tool calls at visible cadence, the finalizer
+// runs one synchronous LLM call that composes the whole answer, so
+// the task row would otherwise sit on "thinking" for 20-60s with no
+// other signal. This cue tells the user the answer is being
+// composed right now — shipped immediately after the row transitions
+// into the finalize stage.
+func softFinalizingMessage(lang string) string {
+	if preferZhMessage(lang) {
+		return "⟳ 正在组织最终答案"
+	}
+	return "⟳ Composing the final answer"
+}
