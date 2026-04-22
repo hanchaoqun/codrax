@@ -24,22 +24,43 @@ import (
 // isMeasurementScalarRequest reports whether the request is asking for
 // a single scalar produced by a tool query (count / total / size)
 // where the answer has no file:line to cite, and the citation gate
-// should be lifted. The driving signal is the LLM-emitted
+// should be lifted. The primary signal is the LLM-emitted
 // is_count_question predicate — the LLM judges this for any language.
 //
-// Why is_count_question and not is_scalar_answer: a scalar answer
-// like "the version string is 1.2.3" CAN be cited (the const lives
-// at a file:line), so the gate should stay on. Only count / measurement
-// questions ("how many X", "total bytes of Y") have no file:line to
-// cite — that's exactly what is_count_question marks.
+// Structural coherence fallback. When the LLM emits
+// is_count_question=false but three independent structural signals
+// coincide — answer_shape=value, intent=return_value, and
+// answer_subject.kind=numeric — the triple together describes a single
+// numeric answer to a return-value question, which is the same
+// population the primary signal targets. The fallback catches the
+// case where the LLM was internally inconsistent (emitted all three
+// structural signals for a measurement-scalar question but still
+// picked is_count_question=false). Pattern-consistent with
+// reconcileShape, which already fuses multiple LLM signals to override
+// a single field; no surface-word matching.
 //
-// The complexity / intent gates the v3 implementation layered on top
-// of the prose check are gone — self-consistency in emit_analysis
-// already rejects (is_count_question=true + intent=enumerate) and
-// (is_count_question=true + shape=list_of_symbols), so by the time
-// this function runs the combination is internally consistent.
+// Over-trigger tradeoff. A citable-numeric-constant question
+// ("default value of MAX_STEPS") also satisfies the triple; for that
+// population the carve-out strips citation enforcement even though a
+// file:line exists. The LLM typically self-cites when it can, so the
+// net effect is a soft gate, not a corrupted answer. The alternative
+// (no fallback) makes a misclassified measurement-scalar question
+// exhaust the retry budget on an unfixable citation gap, which is
+// strictly worse.
+//
+// Upstream self-consistency (validateSelfConsistency in
+// emit_analysis) already rejects (is_count_question=true +
+// intent=enumerate) and (is_count_question=true +
+// shape=list_of_symbols); this function runs on a LLM output that has
+// already cleared those checks.
 func isMeasurementScalarRequest(rm types.RequestModel) bool {
-	return rm.Predicates.IsCountQuestion
+	if rm.Predicates.IsCountQuestion {
+		return true
+	}
+	shape := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
+	return shape == types.ShapeValue &&
+		rm.Intent == types.IntentReturnValue &&
+		rm.AnswerSubject.Kind == types.SubjectNumeric
 }
 
 // reconcileIntent is preserved as a thin sanity check that traps the

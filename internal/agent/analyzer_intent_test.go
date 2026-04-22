@@ -318,3 +318,102 @@ func TestReconcileShape(t *testing.T) {
 		})
 	}
 }
+
+// TestIsMeasurementScalarRequest_Coverage pins the primary predicate
+// signal AND the structural-coherence fallback added 2026-04-22 to
+// catch LLM inter-run inconsistency on is_count_question.
+//
+// Fallback triple: answer_shape=value AND intent=return_value AND
+// answer_subject.kind=numeric. All three must co-occur.
+//
+// Over-trigger is intentional: a citable-numeric question ("what is
+// MAX_STEPS") that trips the triple loses only citation enforcement,
+// not correctness; the alternative (under-trigger) exhausts retries
+// on misclassified measurement-scalar questions.
+func TestIsMeasurementScalarRequest_Coverage(t *testing.T) {
+	triple := func(base types.RequestModel) types.RequestModel {
+		base.Intent = types.IntentReturnValue
+		base.AnalyzerHints.Shape = string(types.ShapeValue)
+		base.AnswerSubject = types.AnswerSubject{Kind: types.SubjectNumeric}
+		return base
+	}
+
+	cases := []struct {
+		name string
+		rm   types.RequestModel
+		want bool
+	}{
+		{
+			name: "primary: IsCountQuestion=true alone fires",
+			rm: types.RequestModel{
+				Predicates: types.SemanticPredicates{IsCountQuestion: true},
+			},
+			want: true,
+		},
+		{
+			name: "primary beats all: IsCountQuestion trumps mismatched signals",
+			rm: types.RequestModel{
+				Intent:        types.IntentExplain,
+				AnalyzerHints: types.AnalyzerHints{Shape: string(types.ShapeStepList)},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectGeneric},
+				Predicates:    types.SemanticPredicates{IsCountQuestion: true},
+			},
+			want: true,
+		},
+		{
+			name: "fallback triple fires when IsCountQuestion=false",
+			rm: triple(types.RequestModel{
+				Predicates: types.SemanticPredicates{IsCountQuestion: false},
+			}),
+			want: true,
+		},
+		{
+			name: "fallback requires shape=value — step_list declines",
+			rm: func() types.RequestModel {
+				rm := triple(types.RequestModel{})
+				rm.AnalyzerHints.Shape = string(types.ShapeStepList)
+				return rm
+			}(),
+			want: false,
+		},
+		{
+			name: "fallback requires intent=return_value — explain declines",
+			rm: func() types.RequestModel {
+				rm := triple(types.RequestModel{})
+				rm.Intent = types.IntentExplain
+				return rm
+			}(),
+			want: false,
+		},
+		{
+			name: "fallback requires numeric subject — function_name declines",
+			rm: func() types.RequestModel {
+				rm := triple(types.RequestModel{})
+				rm.AnswerSubject = types.AnswerSubject{Kind: types.SubjectFunctionName}
+				return rm
+			}(),
+			want: false,
+		},
+		{
+			name: "fallback: fully zero RequestModel declines",
+			rm:   types.RequestModel{},
+			want: false,
+		},
+		{
+			name: "fallback: legacy shape casing + whitespace still normalizes",
+			rm: func() types.RequestModel {
+				rm := triple(types.RequestModel{})
+				rm.AnalyzerHints.Shape = "  VALUE  "
+				return rm
+			}(),
+			want: true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isMeasurementScalarRequest(c.rm); got != c.want {
+				t.Errorf("isMeasurementScalarRequest = %v, want %v", got, c.want)
+			}
+		})
+	}
+}

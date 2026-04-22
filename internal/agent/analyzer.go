@@ -677,14 +677,6 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			rm.IntentConfidence, intentReason, rm.Predicates,
 		))
 		rm.Intent = intentResolved
-		// Broader measurement-scalar signal — captures both the
-		// reconciled-downgrade case above AND the case where the LLM
-		// picked IntentReturnValue directly on the same count-verb
-		// prefix. Every consequence (shape override, 3 citation-gate
-		// strips) is applied in one post-compile block below, keyed
-		// off this single flag. Keeps "one signal, one response"
-		// grep-able.
-		isMeasurementScalar = isMeasurementScalarRequest(rm)
 
 		// CGEC: AnswerSubject inference. Classifies what kind of
 		// source-code literal the answer should be (skill_name,
@@ -721,6 +713,20 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			))
 			rm.PredicateAxis = axis
 		}
+		// Measurement-scalar signal — captures the reconciled-Intent
+		// case (LLM picked enumerate, reconcileIntent downgraded to
+		// return_value via IsCountQuestion), the LLM-direct case
+		// (IntentReturnValue + IsCountQuestion true on first emit), AND
+		// the structural-coherence fallback (shape=value + intent=
+		// return_value + answer_subject.kind=numeric co-occur even
+		// when IsCountQuestion slipped through as false). Computed
+		// after inferAnswerSubject so the fallback sees the inferred
+		// subject kind. Every consequence (shape override, 3 citation-
+		// gate strips) is applied in one post-compile block below,
+		// keyed off this single flag. Keeps "one signal, one response"
+		// grep-able.
+		isMeasurementScalar = isMeasurementScalarRequest(rm)
+
 		// Merge sub-topic entities into main entity list. Snapshot the
 		// pre-merge top-level list into PrimaryEntities first: consumers
 		// that need "user-named only" semantics (keyword_search's
