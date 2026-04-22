@@ -112,7 +112,7 @@ func (t *EmitEvidence) Name() string { return "emit_evidence" }
 
 func (t *EmitEvidence) Description() string {
 	return "Emit one or more structured evidence items as the result of reading a source file. " +
-		"Call this AFTER you have read a file in Phase 2 of the explore stage, with one item per " +
+		"Call this AFTER you have read a file during the depth-investigation stage, with one item per " +
 		"fact you want the synthesis layer to see. The batched 'items' array preserves the " +
 		"existing 'one tool call per file' write pattern; do not call this tool once per item.\n\n" +
 		"Each item MUST set: source (repo-relative path), line_start (exact gutter line number, " +

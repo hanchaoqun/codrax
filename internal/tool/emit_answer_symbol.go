@@ -103,8 +103,9 @@ func (t *EmitAnswerSymbol) Description() string {
 		"the slate: 'complete' (these are ALL the answers), 'lower_bound' (these are confirmed " +
 		"present but more may exist), or 'unknown' (investigated but no definitive claim). Claiming " +
 		"'complete' is a falsifiable honesty assertion — it is cross-checked against the " +
-		"investigation's terminal-evidence count and the analyzer's must-include list, and " +
-		"downgraded to 'lower_bound' on mismatch with a warning."
+		"expected answer count (the larger of: how many items the investigation found, and " +
+		"how many the classification declared required), and downgraded to 'lower_bound' on " +
+		"mismatch with a warning."
 }
 
 func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
@@ -134,7 +135,7 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
     "completeness": {
       "type": "string",
       "enum": ["complete", "lower_bound", "unknown"],
-      "description": "Set-level authority claim for the slate. REQUIRED. 'complete' = these are ALL the answers (cross-checked against the investigation's terminal-evidence count and the analyzer's must-include list; downgraded to lower_bound on mismatch). 'lower_bound' = these are confirmed present but more may exist (honest default when a partial slate is the best available). 'unknown' = investigated but no definitive verdict (downstream rendering drops the section entirely)."
+      "description": "Set-level authority claim for the slate. REQUIRED. 'complete' = these are ALL the answers (cross-checked against the expected answer count — the larger of: how many items the investigation found, and how many the classification declared required; downgraded to lower_bound on mismatch). 'lower_bound' = these are confirmed present but more may exist (honest default when a partial slate is the best available). 'unknown' = investigated but no definitive verdict (downstream rendering drops the section entirely)."
     }
   },
   "required": ["items", "completeness"]

@@ -97,9 +97,9 @@ func TestNoInternalTermsInHints(t *testing.T) {
 		return
 	}
 
-	t.Logf("TestNoInternalTermsInHints report (batch 1 = report-only, %d violations — logger-arg literals excluded):", len(hits))
+	t.Errorf("TestNoInternalTermsInHints found %d violation(s) (logger-arg literals excluded); see docs/prompt_glossary.md for replacements:", len(hits))
 	for _, h := range hits {
-		t.Logf("  %s", h)
+		t.Errorf("  %s", h)
 	}
 }
 

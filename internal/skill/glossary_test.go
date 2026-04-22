@@ -49,11 +49,13 @@ func TestNoInternalTermsInPrompts(t *testing.T) {
 		return
 	}
 
-	// Batch 1 policy: report only. Later batches promote this to
-	// t.Errorf once the corresponding category is scrubbed.
-	t.Logf("TestNoInternalTermsInPrompts report (batch 1 = report-only, %d violations):", len(hits))
+	// Batches 2A/2B purged the categories currently covered here; the
+	// gate is now t.Errorf so any regression fails CI. Adding a new
+	// blocklist token without first cleaning the existing surfaces
+	// will also fail — by design, so the one-sided cleanup cannot land.
+	t.Errorf("TestNoInternalTermsInPrompts found %d violation(s); see docs/prompt_glossary.md for replacements:", len(hits))
 	for _, h := range hits {
-		t.Logf("  %s", h)
+		t.Errorf("  %s", h)
 	}
 }
 

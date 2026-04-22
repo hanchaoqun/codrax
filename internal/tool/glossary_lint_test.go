@@ -62,9 +62,9 @@ func TestNoInternalTermsInToolSchemas(t *testing.T) {
 		return
 	}
 
-	t.Logf("TestNoInternalTermsInToolSchemas report (batch 1 = report-only, %d violations):", len(hits))
+	t.Errorf("TestNoInternalTermsInToolSchemas found %d violation(s); see docs/prompt_glossary.md for replacements:", len(hits))
 	for _, h := range hits {
-		t.Logf("  %s", h)
+		t.Errorf("  %s", h)
 	}
 }
 

@@ -145,7 +145,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
 	return json.RawMessage(fmt.Sprintf(`{
   "type": "object",
   "properties": {
-    "shape": {"type": "string", "enum": ["list_of_symbols", "step_list", "value", "boolean", "config_value", "explanation"], "description": "Closed enum of answer shapes. REQUIRED. Choose the shape the analyzer declared in the prompt's AnswerContract section."},
+    "shape": {"type": "string", "enum": ["list_of_symbols", "step_list", "value", "boolean", "config_value", "explanation"], "description": "Closed enum of answer shapes. REQUIRED. Choose the shape declared in the prompt's Target answer shape section."},
     "summary": {"type": "string", "description": "LLM-authored prose. Per-shape cap: explanation ≤2500 chars (Summary IS the answer body — multi-paragraph OK), list_of_symbols / step_list / boolean ≤500 chars (lead-in only), value / config_value ≤300 chars (lead-in only). REQUIRED for 'explanation'; optional for all others."},
     "steps": {
       "type": "array",
@@ -176,7 +176,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
         "required": ["name", "file", "line", "kind"]
       }
     },
-    "symbols_completeness": {"type": "string", "enum": ["", "complete", "lower_bound", "unknown"], "description": "Set-level authority for the symbols slate. REQUIRED when shape=list_of_symbols. 'complete' is cross-checked against the investigation's terminal-evidence count and the analyzer's must-include list; mismatches downgrade to 'lower_bound'."},
+    "symbols_completeness": {"type": "string", "enum": ["", "complete", "lower_bound", "unknown"], "description": "Set-level authority for the symbols slate. REQUIRED when shape=list_of_symbols. 'complete' is cross-checked against the expected answer count (the larger of: how many items the investigation found, and how many the classification declared required); mismatches downgrade to 'lower_bound'."},
     "value": {
       "type": "object",
       "description": "Concrete value payload. REQUIRED for shape=value (literal only) and shape=config_value (key + literal).",
