@@ -58,6 +58,7 @@ type explorerEvaluator struct {
 	midLoopRankerCoverageSent  bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
 	midLoopAbsentRedirectSent  bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
 	midLoopEnumInjected        bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
+	midLoopNoEmitPushSent      bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
 	primaryReadSeen            bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
 	primaryReadIter            int                   // df3-drift: iter at which a primary-entity file first entered readSet
 	notesLenAtPrimaryRead      int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
@@ -189,6 +190,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopRankerCoverageSent = false
 		e.midLoopAbsentRedirectSent = false
 		e.midLoopEnumInjected = false
+		e.midLoopNoEmitPushSent = false
 		e.primaryReadSeen = false
 		e.primaryReadIter = 0
 		e.notesLenAtPrimaryRead = 0
@@ -254,6 +256,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
 	e.midLoopEnumInjected = false
+	e.midLoopNoEmitPushSent = false
 	e.primaryReadSeen = false
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
@@ -2324,6 +2327,62 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 	}
 }
 
+// postReadWithoutEmitSignal fires a one-shot mid-loop nudge when the
+// LLM has read multiple files but has not called emit_evidence yet.
+//
+// This closes the gap where the LLM jumps from a read_file batch
+// straight to emit_investigation_complete, skipping the evidence-
+// emission step. When that happens, Structured Evidence is empty,
+// Turn B has nothing to quote, and the finalizer falls back to prose
+// synthesis of the investigation notes — exactly the "explorer didn't
+// emit_evidence" pathology observed on the 10:04 run.
+//
+// The tool-side pre-complete simulator also downgrades completion in
+// that state (zero cite-eligible items < MinCitations floor), but
+// that fires AFTER the LLM has already tried to complete; this hint
+// fires BEFORE, letting the LLM emit first and complete cleanly. A
+// one-shot guard prevents repeated firing within a single dispatch.
+//
+// Thresholds are conservative: 3+ iterations and 3+ successful
+// read_file calls must have accumulated before the nudge fires, so
+// early exploration is never interrupted.
+func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopNoEmitPushSent {
+		return LoopSignal{}
+	}
+	if obs.Iteration < 3 {
+		return LoopSignal{}
+	}
+	var reads, emits int
+	for _, r := range obs.AllToolResults {
+		if !r.Success {
+			continue
+		}
+		switch r.ToolName {
+		case "read_file":
+			reads++
+		case "emit_evidence":
+			emits++
+		}
+	}
+	if reads < 3 || emits > 0 {
+		return LoopSignal{}
+	}
+	e.midLoopNoEmitPushSent = true
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "explorer.mid-loop.read-without-emit",
+		Hint: fmt.Sprintf(
+			"MID-LOOP CHECK: you have read %d file(s) this round but have not called `emit_evidence` yet. "+
+				"Facts left only in your prose notes are NOT recorded — downstream stages cannot see any concrete value, definition, call-site, or condition that is not passed through `emit_evidence(items=[...])`. "+
+				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
+				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence)`.",
+			reads),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
 func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) LoopSignal {
 	if e.phase != 1 || e.midLoopPostPrimaryInjected || !e.primaryReadSeen {
 		return LoopSignal{}
@@ -2529,10 +2588,24 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	// emit_investigation_complete is the explorer's terminal action —
 	// stop immediately instead of burning one extra LLM round that
 	// ShouldStop would catch anyway.
+	//
+	// The tool soft-downgrades failed completions (pending forced
+	// reads / cite-floor miss / unverified anchor paths) with
+	// Success=true and a DOWNGRADED-prefixed Summary so the LLM sees
+	// the explanation in its tool-result history. MutableState's
+	// InvestigationComplete flag stays FALSE in that case. Observers
+	// must skip the terminal branch on downgrade — otherwise a soft
+	// keep-alive is mistaken for completion and the loop exits before
+	// the LLM can re-invest (and, critically, before it has a chance
+	// to call emit_evidence if it skipped that step altogether).
 	if obs.LastToolResult != nil && obs.LastToolResult.ToolName == "emit_investigation_complete" && obs.LastToolResult.Success {
-		e.investigationComplete = true
-		logging.Info("[explorer] emit_investigation_complete observed at iter=%d", iteration)
-		return LoopSignal{StopRequested: true, StopReason: "emit_investigation_complete called"}
+		if strings.HasPrefix(obs.LastToolResult.Summary, tool.EmitInvestigationCompleteDowngradePrefix) {
+			logging.Info("[explorer] emit_investigation_complete DOWNGRADED at iter=%d — loop continues", iteration)
+		} else {
+			e.investigationComplete = true
+			logging.Info("[explorer] emit_investigation_complete observed at iter=%d", iteration)
+			return LoopSignal{StopRequested: true, StopReason: "emit_investigation_complete called"}
+		}
 	}
 
 	// Track primary-entity file reads for S1's df3-drift gate. Runs
@@ -2551,6 +2624,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postEmitEvidenceRepairSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postReadWithoutEmitSignal(obs); sig.HintRequested {
 		return sig
 	}
 

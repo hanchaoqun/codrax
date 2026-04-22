@@ -12,6 +12,17 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
+// EmitInvestigationCompleteDowngradePrefix is the Summary prefix this
+// tool writes when preCompleteContractCheck rejects a completion
+// attempt. The tool returns Success=true (so the LLM sees the
+// explanation in its tool-result history) while leaving
+// MutableState.InvestigationComplete FALSE. Mid-loop observers that
+// branch on "Success=true + emit_investigation_complete" must filter
+// this prefix out — otherwise a soft keep-alive signal is mistaken
+// for a terminal completion and the ReAct loop ends before the LLM
+// gets to re-invest.
+const EmitInvestigationCompleteDowngradePrefix = "emit_investigation_complete DOWNGRADED"
+
 // EmitInvestigationComplete is the explorer's explicit completion
 // signal. When the LLM has collected enough evidence to answer the
 // user's question, it calls this tool to tell the system "move on
@@ -376,7 +387,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 				})
 				logging.Info("[CGEC] C2 downgrade: evidence cites unverified path(s) count=%d", len(hits))
 				var b strings.Builder
-				b.WriteString("emit_investigation_complete DOWNGRADED — evidence cites files the analyzer findings_validator flagged as unverified.\n\n")
+				b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — evidence cites files the analyzer findings_validator flagged as unverified.\n\n")
 				b.WriteString("The following evidence sources were unable to be verified against the repo graph:\n")
 				for _, h := range hits {
 					b.WriteString("  - " + h + "\n")
@@ -407,7 +418,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 			}
 		}
 		var b strings.Builder
-		b.WriteString("emit_investigation_complete DOWNGRADED — pending forced reads block the closure.\n\n")
+		b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — pending forced reads block the closure.\n\n")
 		max := 6
 		if len(scanned) > 0 {
 			b.WriteString("## Forced Read List (scanned files the LLM has not read yet)\n")
@@ -559,7 +570,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		logging.Info("[CGEC] B1c expand_search: origin=pre_complete.citation_floor_low eligible=%d min=%d keywords=%d", eligible, min, len(kws))
 	}
 	var b strings.Builder
-	b.WriteString("emit_investigation_complete DOWNGRADED — pre-complete citation preflight failed.\n\n")
+	b.WriteString(EmitInvestigationCompleteDowngradePrefix + " — pre-complete citation preflight failed.\n\n")
 	fmt.Fprintf(&b, "The answer contract requires ≥%d citation(s) but the current evidence buffer has only %d cite-eligible item(s) (Source non-empty AND in the read-files list).\n",
 		min, eligible)
 	b.WriteString("Continue the investigation: emit more file:line evidence anchored in files you actually read, or read additional files first.")

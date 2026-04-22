@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -1984,6 +1985,10 @@ func TestMidLoopCheck_ParallelCueSkippedOnParallelBatch(t *testing.T) {
 		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
 		midLoopSerialStreak:   2,
 		midLoopLastResultsLen: 1,
+		// Pre-suppress the read-without-emit nudge so this test covers
+		// ONLY the parallel-cue reset path. The 3-read 0-emit fixture
+		// would otherwise legitimately trip postReadWithoutEmitSignal.
+		midLoopNoEmitPushSent: true,
 	}
 	// Simulate a 3-call parallel batch: allResults grew by 3 since
 	// the previous observeMidLoop call.
@@ -3135,4 +3140,183 @@ func TestExplorerSoftStop_SecondStop_CoverageUsesFocusedDeclarativeScope(t *test
 	if strings.Contains(sig.Hint, "internal/tool/defaults.go") || strings.Contains(sig.Hint, "internal/agent/explorer.go") {
 		t.Fatalf("coverage hint should not drag unrelated discovered files back into scope, got: %s", sig.Hint)
 	}
+}
+
+// TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive
+// pins the fix for the explorer.go:2532 contract violation: the
+// emit_investigation_complete tool returns Success=true with a
+// DOWNGRADED-prefixed Summary when preCompleteContractCheck rejects
+// the completion attempt (pending forced reads / cite-floor miss /
+// unverified anchor paths). The tool intends this as a soft keep-
+// alive — MutableState.InvestigationComplete stays FALSE — so the
+// observer must skip the terminal branch when it sees the prefix.
+// Before this fix the observer set investigationComplete=true and
+// issued StopRequested, terminating the loop before the LLM could
+// recover (notably, before it could emit_evidence for anchors it had
+// already read).
+func TestObserveMidLoop_EmitInvestigationCompleteDowngradeKeepsLoopAlive(t *testing.T) {
+	t.Run("DOWNGRADED summary leaves investigationComplete false", func(t *testing.T) {
+		eval := &explorerEvaluator{phase: 1}
+		downgradeResult := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  true,
+			Summary:  tool.EmitInvestigationCompleteDowngradePrefix + " — pending forced reads block the closure.\n\n## Forced Read List …",
+		}
+		results := []types.ToolResult{downgradeResult}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      5,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if sig.StopRequested {
+			t.Fatalf("downgraded emit_investigation_complete must NOT request stop (soft keep-alive), got %+v", sig)
+		}
+		if eval.investigationComplete {
+			t.Error("evaluator.investigationComplete must stay false on downgrade; tool's MutableState.InvestigationComplete is not flipped either")
+		}
+	})
+
+	t.Run("non-downgrade success stops the loop as before", func(t *testing.T) {
+		eval := &explorerEvaluator{phase: 1}
+		completeResult := types.ToolResult{
+			ToolName: "emit_investigation_complete",
+			Success:  true,
+			Summary:  "Investigation marked complete (confidence=high): all evidence collected",
+		}
+		results := []types.ToolResult{completeResult}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      5,
+			LastToolResult: &results[0],
+			AllToolResults: results,
+		})
+		if !sig.StopRequested {
+			t.Fatalf("real emit_investigation_complete success must request stop, got %+v", sig)
+		}
+		if !eval.investigationComplete {
+			t.Error("evaluator.investigationComplete must be set on real success")
+		}
+	})
+}
+
+// TestObserveMidLoop_ReadWithoutEmitNudge covers the B-side fix:
+// when the LLM has read 3+ files but has NOT called emit_evidence
+// yet, a one-shot mid-loop hint fires telling the LLM to emit the
+// facts it already found. This prevents the "jump straight from
+// read_file batch to emit_investigation_complete, skip emit_evidence
+// entirely" pathology — observed on the 10:04 run where the LLM
+// read 3 files, wrote prose notes about them, then tried to
+// complete with zero Structured Evidence to hand off to Turn B.
+func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
+	newReadResult := func(path string) types.ToolResult {
+		return types.ToolResult{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[" + path + ": showing lines 1-20 of 20]\npackage fixture\n",
+		}
+	}
+
+	t.Run("fires once when 3 read_file successes with 0 emit_evidence", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results := []types.ToolResult{
+			newReadResult("a.go"),
+			newReadResult("b.go"),
+			newReadResult("c.go"),
+		}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      3,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if !sig.HintRequested {
+			t.Fatalf("read-without-emit nudge should fire at iter=3 reads=3 emits=0, got %+v", sig)
+		}
+		if sig.HintKey != "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("HintKey = %q, want explorer.mid-loop.read-without-emit", sig.HintKey)
+		}
+		if !strings.Contains(sig.Hint, "emit_evidence") {
+			t.Fatalf("hint should name emit_evidence explicitly, got: %s", sig.Hint)
+		}
+		if !eval.midLoopNoEmitPushSent {
+			t.Error("one-shot guard should be set after firing")
+		}
+
+		again := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      4,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if again.HintRequested && again.HintKey == "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("read-without-emit nudge must be one-shot, fired again: %+v", again)
+		}
+	})
+
+	t.Run("suppressed when emit_evidence already succeeded", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results := []types.ToolResult{
+			newReadResult("a.go"),
+			newReadResult("b.go"),
+			newReadResult("c.go"),
+			{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
+		}
+
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      4,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("nudge must be suppressed once emit_evidence has succeeded, got %+v", sig)
+		}
+	})
+
+	t.Run("suppressed below iteration or read floor", func(t *testing.T) {
+		eval := &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		// iter=2 < 3: suppressed even with 3 reads.
+		results := []types.ToolResult{
+			newReadResult("a.go"),
+			newReadResult("b.go"),
+			newReadResult("c.go"),
+		}
+		sig := eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      2,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("nudge must not fire before iter=3, got %+v", sig)
+		}
+		// Reset state; reads=2 < 3: suppressed even at iter=5.
+		eval = &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results = []types.ToolResult{newReadResult("a.go"), newReadResult("b.go")}
+		sig = eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      5,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("nudge must not fire below read floor of 3, got %+v", sig)
+		}
+	})
 }
