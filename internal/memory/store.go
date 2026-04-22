@@ -84,6 +84,16 @@ type Turn struct {
 	Request   string
 	Response  string
 	Timestamp time.Time
+
+	// RequestForSummary is the expanded-paste form of Request. Only
+	// the REPL sets it; it lives in s.recent until this turn is
+	// compacted, then feeds into Summarize so the LLM can generate
+	// keywords/topic from the actual paste content. It is never
+	// persisted to turns/<id>.md — restart loses it, which is fine
+	// because compaction normally consumes the turn before restart.
+	// Empty means "no expansion; Request is authoritative" (scripted
+	// mode, orphan-recovered turns).
+	RequestForSummary string
 }
 
 // IndexEntry is a compacted summary of a Turn that lives in MEMORY.md.
@@ -550,6 +560,14 @@ func (s *Store) Append(turn Turn) error {
 	// compactOldest → Summarize) never see the raw glamour output.
 	turn.Request = sanitizeTurnText(turn.Request, s.bcLimits.maxTurnBodyBytes)
 	turn.Response = sanitizeTurnText(turn.Response, s.bcLimits.maxTurnBodyBytes)
+	// RequestForSummary is bounded by the same cap so a 40 KB paste
+	// doesn't linger unbounded in s.recent awaiting compaction, and so
+	// the LLM summarizer call has a predictable upper bound regardless
+	// of how large the user's paste was. The first N KB of a paste is
+	// usually plenty for the summarizer to produce topic/keywords.
+	if turn.RequestForSummary != "" {
+		turn.RequestForSummary = sanitizeTurnText(turn.RequestForSummary, s.bcLimits.maxTurnBodyBytes)
+	}
 	if err := s.writeTurnFile(turn); err != nil {
 		return err
 	}
@@ -792,7 +810,7 @@ func (s *Store) maybeCompact() error {
 func (s *Store) recentBytesLocked() int {
 	n := 0
 	for _, t := range s.recent {
-		n += len(t.Request) + len(t.Response)
+		n += len(t.Request) + len(t.Response) + len(t.RequestForSummary)
 	}
 	return n
 }
@@ -843,8 +861,16 @@ func (s *Store) compactOldest() error {
 		if s.summarizer == nil {
 			return errors.New("memory: no summarizer configured")
 		}
+		// Swap in the expanded-paste form for summarization only.
+		// Request (display) is what persists; RequestForSummary is
+		// the source of keyword/topic signal when paste folding hid
+		// the actual content from what we store.
+		summarizeInput := oldest
+		if oldest.RequestForSummary != "" {
+			summarizeInput.Request = oldest.RequestForSummary
+		}
 		var err error
-		entry, err = s.summarizer.Summarize(context.Background(), oldest)
+		entry, err = s.summarizer.Summarize(context.Background(), summarizeInput)
 		if err != nil {
 			return fmt.Errorf("summarize turn %s: %w", oldest.ID, err)
 		}

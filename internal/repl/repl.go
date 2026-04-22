@@ -536,7 +536,7 @@ func (r *REPL) dispatch(line, display string) {
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
 		fmt.Fprintln(r.out, "  ??")
-		r.recordTurn(display, memResponse)
+		r.recordTurn(display, line, memResponse)
 		return
 	}
 
@@ -576,20 +576,26 @@ func (r *REPL) dispatch(line, display string) {
 	}
 	fmt.Fprintf(r.out, "  %s\n\n", bar)
 
-	r.recordTurn(display, memResponse)
+	r.recordTurn(display, line, memResponse)
 }
 
 // recordTurn persists the user-visible form of a request plus the
-// sanitized response into memory. The caller passes the display
-// string (with paste placeholders preserved) so prior-conversation
-// blocks in future BuildContext calls stay compact regardless of
-// paste size.
-func (r *REPL) recordTurn(request, response string) {
+// sanitized response into memory. display is what gets stored so
+// prior-conversation blocks in future BuildContext calls stay
+// compact; expanded is the paste-expanded form handed to the
+// summarizer at compaction time so the resulting IndexEntry
+// keywords/topic reflect actual paste content, not the
+// "[Pasted text #N]" placeholder. expanded==display in scripted
+// mode and when no paste happened.
+func (r *REPL) recordTurn(request, expanded, response string) {
 	turn := memory.Turn{
 		ID:        fmt.Sprintf("turn-%d", time.Now().UnixNano()),
 		Request:   request,
 		Response:  response,
 		Timestamp: time.Now(),
+	}
+	if expanded != "" && expanded != request {
+		turn.RequestForSummary = expanded
 	}
 	if err := r.store.Append(turn); err != nil {
 		logging.Warning("[repl] memory append failed: %v", err)

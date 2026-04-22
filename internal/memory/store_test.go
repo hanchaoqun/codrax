@@ -78,6 +78,72 @@ func TestAppendCompactsOldest(t *testing.T) {
 	}
 }
 
+// TestSummarizerSeesExpandedRequest locks C4: when a Turn carries a
+// paste-expanded RequestForSummary, the summarizer must be called with
+// that expanded form, not the display-folded Request. Otherwise the
+// resulting IndexEntry Summary/Keywords would be derived from a
+// "[Pasted text #N]" placeholder and future keyword-matched retrieval
+// would never surface the turn by paste-content keywords.
+func TestSummarizerSeesExpandedRequest(t *testing.T) {
+	dir := t.TempDir()
+	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer s.Close()
+
+	// Turn 0 has a display-folded Request and an expanded form that
+	// begins with a unique token the stub summarizer will elevate to
+	// the IndexEntry keyword.
+	expanded := "REALCONTENTKW0 followed by a long paste body"
+	_ = s.Append(Turn{
+		ID:                "t0",
+		Request:           "[Pasted text #0 +42 lines +500 chars]",
+		RequestForSummary: expanded,
+		Response:          "answer 0",
+	})
+	// Pad until t0 rolls out of the recent buffer and compacts.
+	for i := 1; i < 8; i++ {
+		_ = s.Append(Turn{
+			ID:       fmt.Sprintf("t%d", i),
+			Request:  fmt.Sprintf("kw%d question", i),
+			Response: fmt.Sprintf("answer %d", i),
+		})
+	}
+	s.compactWG.Wait()
+
+	idx := s.Index()
+	if len(idx) < 1 {
+		t.Fatalf("expected at least one compacted entry; got %d", len(idx))
+	}
+	var t0Entry *IndexEntry
+	for i := range idx {
+		if idx[i].ID == "t0" {
+			t0Entry = &idx[i]
+			break
+		}
+	}
+	if t0Entry == nil {
+		t.Fatalf("t0 not compacted; idx=%v", idx)
+	}
+	if !strings.Contains(t0Entry.Summary, "REALCONTENTKW0") {
+		t.Errorf("Summary should derive from expanded request; got %q", t0Entry.Summary)
+	}
+	if strings.Contains(t0Entry.Summary, "Pasted text") {
+		t.Errorf("Summary should NOT contain display placeholder; got %q", t0Entry.Summary)
+	}
+	if len(t0Entry.Keywords) == 0 || t0Entry.Keywords[0] != "REALCONTENTKW0" {
+		t.Errorf("Keywords should surface expanded-form token; got %v", t0Entry.Keywords)
+	}
+
+	// BuildContext, given a query that matches the paste keyword, must
+	// still find t0 — proves the summarizer swap plumbed end to end.
+	out := s.BuildContext("what was REALCONTENTKW0 about?")
+	if !strings.Contains(out, "topic-t0") {
+		t.Errorf("BuildContext should surface t0 by expanded-form keyword; got %q", out)
+	}
+}
+
 func TestBuildContextInlinesMatchingTurn(t *testing.T) {
 	dir := t.TempDir()
 	s, err := NewStore(dir, stubSummarizer{}, types.MemorySettings{})
