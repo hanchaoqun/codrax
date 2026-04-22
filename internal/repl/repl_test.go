@@ -354,6 +354,63 @@ func TestAutoRoutedLogIsOneShot(t *testing.T) {
 	}
 }
 
+// TestExplicitLogStaysStickyAcrossTurns is the positive counterpart
+// to TestAutoRoutedLogIsOneShot: an explicit /log paste-capture
+// attachment must survive into subsequent dispatches so users can
+// keep asking about the same panic from different angles.
+func TestExplicitLogStaysStickyAcrossTurns(t *testing.T) {
+	dir := t.TempDir()
+	store, err := memory.NewStore(dir, stubSummarizer{}, types.MemorySettings{})
+	if err != nil {
+		t.Fatalf("NewStore: %v", err)
+	}
+	defer store.Close()
+
+	// /log (paste mode) captures three log lines, then two questions
+	// run back to back. Both dispatches must see the same attachedLog.
+	input := "/log\n" +
+		"2026-04-21T14:54:37.362 INFO [x] dispatching\n" +
+		"2026-04-21T14:54:56.671 INFO [x] dispatching\n" +
+		"2026-04-21T14:56:00.822 INFO [x] dispatching\n" +
+		"/end\n" +
+		"first question about the log\n" +
+		"second question about the log\n" +
+		"/exit\n"
+	in := strings.NewReader(input)
+	out := &bytes.Buffer{}
+	runner := &logAwareRunner{}
+	r := New(Config{
+		Runner:     runner,
+		Store:      store,
+		Render:     renderNothing,
+		RepoRoot:   ".",
+		Branch:     "main",
+		In:         in,
+		Out:        out,
+		Prompt:     ">",
+		PromptCont: ".",
+		Banner:     "test-banner",
+	})
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if got := len(runner.seenLogs); got != 2 {
+		t.Fatalf("expected 2 dispatches, got %d: %v", got, runner.seenLogs)
+	}
+	for i, got := range runner.seenLogs {
+		if !strings.Contains(got, "14:54:37") {
+			t.Errorf("turn %d should see sticky log with timestamp; got %q", i+1, got)
+		}
+	}
+	if r.attachedLogAutoRouted {
+		t.Errorf("explicit /log should never set attachedLogAutoRouted")
+	}
+	if r.attachedLog == "" {
+		t.Errorf("attachedLog should still be set after /exit")
+	}
+}
+
 // TestMultilineInput verifies that lines ending with \ are joined
 // into a single multi-line request.
 func TestMultilineInput(t *testing.T) {

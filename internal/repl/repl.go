@@ -104,11 +104,16 @@ type REPL struct {
 	version           string
 	buildTime         string
 
-	// attachedLog holds the runtime log excerpt the user attached via
-	// /log or `--log`. Sticky across turns until /log clear — users
-	// typically investigate the same panic from several angles
-	// ("root cause?" → "safe fix?" → "regression risk?"). Propagated
-	// to the runner via attachedLogSetter before each dispatch.
+	// attachedLog holds the runtime log excerpt the user attached.
+	// Lifetime depends on how it got here:
+	//   - explicit /log or `--log`: sticky across turns until /log
+	//     clear — users typically investigate the same panic from
+	//     several angles ("root cause?" → "safe fix?" → "regression
+	//     risk?").
+	//   - splitPastedLog auto-route: one-shot, cleared after the
+	//     dispatch it was attached for (see attachedLogAutoRouted).
+	// Propagated to the runner via attachedLogSetter before each
+	// dispatch.
 	attachedLog string
 
 	// attachedLogAutoRouted marks attachedLog as installed by the
@@ -468,7 +473,7 @@ func (r *REPL) dispatch(line, display string) {
 			}
 			r.attachedLog = detected
 			r.attachedLogAutoRouted = true
-			r.info(fmt.Sprintf("auto-attached log: %d bytes (one-shot; use /log <path> to attach persistently)", len(detected)))
+			r.info(fmt.Sprintf("auto-attached log: %d bytes (one-shot for this request; use /log to attach persistently across turns)", len(detected)))
 			line = cleaned
 			// Apply the same cleanup to display. When display holds a
 			// paste placeholder (interactive bracketed paste), the

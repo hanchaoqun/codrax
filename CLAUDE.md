@@ -27,7 +27,8 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 ./codrax --repo . --request "这个 panic 哪来的" --log /tmp/panic.txt
 kubectl logs pod/foo | ./codrax --repo . --request "analyse this crash" --log -
 ./codrax --repo . --request "trace this ASAN report" --log-source-prefix /build/src/ --log /tmp/asan.out
-# REPL sticky: /log <path>  |  /log (paste mode, end with /end)  |  /log clear  |  /log show
+# REPL sticky /log (survives across turns): /log <path>  |  /log (paste mode, end with /end)  |  /log clear  |  /log show
+# REPL auto-route (one-shot, cleared after dispatch): paste a log body inside a request, splitPastedLog detects and routes it to AttachedLog for this turn only
 # Paste fallback (SSH/tmux that strips bracketed paste): /paste → lines → /end; next prompt seeds a [Pasted text #0] token
 ```
 
