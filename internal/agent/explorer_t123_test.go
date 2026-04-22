@@ -137,6 +137,22 @@ func TestEntityBoostFactor(t *testing.T) {
 		}
 	})
 
+	t.Run("short generic entity does not match compound path", func(t *testing.T) {
+		got := entityBoostFactor("internal/agent/subagent.go", nil,
+			[]string{"Agent"})
+		if got != 1.0 {
+			t.Errorf("boost = %v, want 1.0 (Agent must not match subagent.go)", got)
+		}
+	})
+
+	t.Run("short generic entity matches standalone basename", func(t *testing.T) {
+		got := entityBoostFactor("internal/agent/agent.go", nil,
+			[]string{"Agent"})
+		if got != 1.3 {
+			t.Errorf("boost = %v, want 1.3 (Agent should match agent.go)", got)
+		}
+	})
+
 	t.Run("empty entities → 1.0x", func(t *testing.T) {
 		got := entityBoostFactor("internal/agent/subagent_runtime.go", graph, nil)
 		if got != 1.0 {
@@ -567,6 +583,28 @@ func TestDetectCrossFileSymbolGaps(t *testing.T) {
 			if g.Symbol == "Answer" {
 				t.Fatalf("narrative label should not surface as a symbol gap: %+v", gaps)
 			}
+		}
+	})
+
+	t.Run("file filter applied before cap", func(t *testing.T) {
+		graph := &repomap.Graph{
+			SymbolDefs: map[string][]*repotypes.Symbol{
+				"VeryLongNoisyBuilder": {
+					{Name: "VeryLongNoisyBuilder", File: "internal/context/builder.go"},
+				},
+				"FocusedHelper": {
+					{Name: "FocusedHelper", File: "internal/agent/helper.go"},
+				},
+			},
+		}
+		notes := []string{
+			"VeryLongNoisyBuilder and FocusedHelper both appear in notes.",
+		}
+		gaps := detectCrossFileSymbolGapsWithFileFilter(notes, graph, nil, 1, func(path string) bool {
+			return strings.HasPrefix(path, "internal/agent/")
+		})
+		if len(gaps) != 1 || gaps[0].File != "internal/agent/helper.go" {
+			t.Fatalf("focus filter should preserve the allowed gap before cap, got %+v", gaps)
 		}
 	})
 }

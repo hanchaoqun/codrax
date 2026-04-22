@@ -98,6 +98,64 @@ func TestMergeEvidenceItemsDedupesByStableID(t *testing.T) {
 	}
 }
 
+func TestEntityHitsBoundsShortGenericEntities(t *testing.T) {
+	cases := []struct {
+		name     string
+		haystack string
+		entity   string
+		want     bool
+	}{
+		{
+			name:     "agent does not match subagent",
+			haystack: normalizeEntityHaystack("subagent"),
+			entity:   "agent",
+			want:     false,
+		},
+		{
+			name:     "handler does not match routehandler",
+			haystack: normalizeEntityHaystack("routehandler"),
+			entity:   "handler",
+			want:     false,
+		},
+		{
+			name:     "agent matches standalone token",
+			haystack: normalizeEntityHaystack("base agent runtime"),
+			entity:   "agent",
+			want:     true,
+		},
+		{
+			name:     "agent matches simple plural",
+			haystack: normalizeEntityHaystack("agents coordinate"),
+			entity:   "agent",
+			want:     true,
+		},
+		{
+			name:     "compound entity keeps substring behavior",
+			haystack: normalizeEntityHaystack("sub_agents runtime"),
+			entity:   "subagent",
+			want:     true,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := entityHits(c.haystack, c.entity); got != c.want {
+				t.Fatalf("entityHits(%q, %q) = %v, want %v", c.haystack, c.entity, got, c.want)
+			}
+		})
+	}
+}
+
+func TestFindingRelevanceScoreDoesNotTreatSubAgentAsAgent(t *testing.T) {
+	f := types.FlowFindingDigest{
+		Path:       []string{"SubAgentRuntime", "execute"},
+		Confidence: 1.0,
+	}
+	score := findingRelevanceScore(f, []string{"agent"})
+	if score != 0 {
+		t.Fatalf("short entity Agent must not match SubAgentRuntime, score=%v", score)
+	}
+}
+
 // TestMergeEvidenceItems_LLMEmitOutranksDataflow locks the C16 fix:
 // items produced by emit_evidence (or other question-targeted
 // explorer analysis) must sort ahead of dataflow.* items, regardless

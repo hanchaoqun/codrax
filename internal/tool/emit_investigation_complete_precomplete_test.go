@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -251,6 +252,76 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 	}
 	if mut.IsInvestigationComplete() {
 		t.Errorf("InvestigationComplete must remain false on downgrade")
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadSkipsKeywordOnlyAfterReadFocus(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/explorer.go", Score: 60},
+		{Path: "internal/agent/sub_explorer.go", Score: 50},
+		{Path: "internal/agent/explorer_erm.go", Score: 49},
+		{Path: "internal/agent/agent.go", Score: 48},
+		{Path: "internal/agent/answer_document_evaluator.go", Score: 47},
+	})
+	mut.SetSearchGraph(&repotypes.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"internal/agent/explorer.go": {
+				RelPath: "internal/agent/explorer.go",
+			},
+			"internal/agent/explorer_erm.go": {
+				RelPath: "internal/agent/explorer_erm.go",
+			},
+			"internal/agent/sub_explorer.go": {
+				RelPath: "internal/agent/sub_explorer.go",
+			},
+			"internal/agent/agent.go": {
+				RelPath: "internal/agent/agent.go",
+			},
+			"internal/agent/answer_document_evaluator.go": {
+				RelPath: "internal/agent/answer_document_evaluator.go",
+			},
+		},
+		ImportGraph: map[string][]string{
+			"internal/agent/explorer.go": {"internal/agent/explorer_erm.go"},
+		},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"internal/agent/explorer.go": true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:     "mechanism",
+					Entities: []string{"ContinuationPrompt"},
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "traced the mechanism",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("keyword-only siblings should not trip phase1_unread after graph focus, got: %s", res.Summary)
+	}
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" {
+			t.Fatalf("phase1_unread should not queue keyword-only siblings after focus: %+v", pending)
+		}
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Errorf("InvestigationComplete should be set when only non-mandatory ranked files remain unread")
 	}
 }
 

@@ -488,9 +488,9 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// stages — the explorer already consulted the ranker directly in
 	// its synthesis; surfacing it again to the explorer prompt
 	// would be redundant. Renders nothing when the cache is empty
-	// or the expected subject is SubjectUnknown (ranker contract
-	// says match=0 for every chain in that state, so there is no
-	// signal to render).
+	// or the expected subject is SubjectUnknown/SubjectGeneric. Generic
+	// subject matches are intentionally weak, passive hints; rendering
+	// their uniform scores as a ranking directive amplifies noise.
 	if ac.Stage == types.StageExtract || ac.Stage == types.StageFinalize {
 		if sm := formatSubjectMatchSummary(ac.SubjectMatches, ac.ExpectedAnswerSubject); sm != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
@@ -679,7 +679,7 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		})
 	}
 
-	if findings != "" {
+	if findings != "" && !(ac.Stage == types.StageFinalize && priorReportsContainSection(ac.PriorReports, "## Dataflow Findings")) {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Dataflow Findings",
 			Content: findings,
@@ -1799,6 +1799,18 @@ func formatStageReports(reports []types.StageReport) string {
 	return b.String()
 }
 
+func priorReportsContainSection(reports []types.StageReport, heading string) bool {
+	if heading == "" {
+		return false
+	}
+	for _, r := range reports {
+		if strings.Contains(r.Findings, heading) {
+			return true
+		}
+	}
+	return false
+}
+
 // subjectMatchRenderCap bounds the number of top chains rendered in
 // the Subject Match Summary section.
 const subjectMatchRenderCap = 5
@@ -1816,7 +1828,7 @@ const subjectMatchFloor = 0.2
 // the expected subject kind so the LLM knows what "match" means.
 // Returns "" when nothing meaningful to render.
 func formatSubjectMatchSummary(matches map[string]float64, expected types.AnswerSubject) string {
-	if len(matches) == 0 || expected.Kind == types.SubjectUnknown {
+	if len(matches) == 0 || expected.Kind == types.SubjectUnknown || expected.Kind == types.SubjectGeneric {
 		return ""
 	}
 	type scored struct {

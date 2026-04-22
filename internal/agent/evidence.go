@@ -745,12 +745,70 @@ func normalizeEntityHaystack(s string) string {
 	return string(b)
 }
 
+// shortEntityStrictMatchLen is the cutoff below which entity matching
+// must respect identifier boundaries. Short generic nouns such as
+// `agent`, `handler`, and `config` are useful when they are standalone
+// tokens, but disastrous as raw substrings (`subagent`, `routehandler`,
+// `configuration`). Longer compound identifiers keep substring
+// behavior so `subagent` still hits `SubAgentRuntime` and
+// `sub_agents`.
+const shortEntityStrictMatchLen = 8
+
 // entityHits reports whether the normalised haystack contains the
-// entity token. Thin wrapper kept separate from strings.Contains so
-// future refinements (word-boundary checks, synonym expansion) live
-// in one place.
+// entity token. For short/generic entities it requires identifier
+// boundaries; for longer compound entities it keeps the historical
+// substring match that handles CamelCase/snake_case expansions.
 func entityHits(haystack, entity string) bool {
-	return strings.Contains(haystack, entity)
+	entity = normalizeEntityHaystack(strings.ToLower(strings.TrimSpace(entity)))
+	if entity == "" {
+		return false
+	}
+	if len(entity) >= shortEntityStrictMatchLen {
+		return strings.Contains(haystack, entity)
+	}
+	return boundedEntityHit(haystack, entity)
+}
+
+func boundedEntityHit(haystack, entity string) bool {
+	start := 0
+	for {
+		idx := strings.Index(haystack[start:], entity)
+		if idx < 0 {
+			return false
+		}
+		idx += start
+		if entityHitHasBoundaries(haystack, idx, len(entity)) {
+			return true
+		}
+		start = idx + len(entity)
+	}
+}
+
+func entityHitHasBoundaries(haystack string, idx, n int) bool {
+	if idx > 0 && isEntityIdentByte(haystack[idx-1]) {
+		return false
+	}
+	end := idx + n
+	if end >= len(haystack) {
+		return true
+	}
+	after := haystack[end]
+	if !isEntityIdentByte(after) {
+		return true
+	}
+	// Permit simple plural mentions like "agents" while still rejecting
+	// compounds such as "agentservice".
+	if after == 's' {
+		pluralEnd := end + 1
+		return pluralEnd >= len(haystack) || !isEntityIdentByte(haystack[pluralEnd])
+	}
+	return false
+}
+
+func isEntityIdentByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_'
 }
 
 // mechanismConcretePatterns lists the lowercase method-call
@@ -844,11 +902,11 @@ func rankFindingsByRelevance(question string, findings []types.FlowFindingDigest
 
 func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64 {
 	// 1. Path entity overlap.
-	allText := strings.ToLower(strings.Join(f.Path, " ") + " " +
-		strings.Join(f.Sources, " ") + " " + strings.Join(f.Sinks, " "))
+	allText := normalizeEntityHaystack(stripPathTokens(strings.ToLower(strings.Join(f.Path, " ") + " " +
+		strings.Join(f.Sources, " ") + " " + strings.Join(f.Sinks, " "))))
 	overlap := 0
 	for _, ent := range entities {
-		if strings.Contains(allText, ent) {
+		if entityHits(allText, ent) {
 			overlap++
 		}
 	}

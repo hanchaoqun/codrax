@@ -143,6 +143,32 @@ func TestPruneToolHistoryUnderBudgetNoop(t *testing.T) {
 	}
 }
 
+func TestSanitizeToolCallsForHistory_ReplacesInvalidParamsOnlyInHistory(t *testing.T) {
+	calls := []llm.ToolCall{
+		{ID: "call-good", Name: "read_file", Params: json.RawMessage(`{"path":"a.go"}`)},
+		{ID: "call-bad", Name: "emit_evidence", Params: json.RawMessage(`{"items":`)},
+		{ID: "call-empty", Name: "repo_map", Params: json.RawMessage(`   `)},
+	}
+
+	sanitized := sanitizeToolCallsForHistory(calls)
+
+	if got := string(sanitized[0].Params); got != `{"path":"a.go"}` {
+		t.Fatalf("valid params mutated: %q", got)
+	}
+	if got := string(sanitized[1].Params); got != `{}` {
+		t.Fatalf("invalid params should be replaced with {}, got %q", got)
+	}
+	if got := string(sanitized[2].Params); got != `{}` {
+		t.Fatalf("empty params should be replaced with {}, got %q", got)
+	}
+	if got := string(calls[1].Params); got != `{"items":` {
+		t.Fatalf("original tool call params must stay unchanged for tool execution, got %q", got)
+	}
+	if sanitized[1].ID != "call-bad" || sanitized[1].Name != "emit_evidence" {
+		t.Fatalf("tool-call identity must be preserved for pairing, got %+v", sanitized[1])
+	}
+}
+
 func toolID(i int) string {
 	return "call-" + string(rune('a'+i%26)) + string(rune('0'+i/10))
 }
@@ -342,4 +368,3 @@ func TestToolChoiceForStage(t *testing.T) {
 		}
 	}
 }
-

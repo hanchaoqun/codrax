@@ -116,6 +116,14 @@ func TestFormatSubjectMatchSummary_UnknownSubject_NoRender(t *testing.T) {
 	}
 }
 
+func TestFormatSubjectMatchSummary_GenericSubject_NoRender(t *testing.T) {
+	matches := map[string]float64{"chain A": 0.5}
+	got := formatSubjectMatchSummary(matches, types.AnswerSubject{Kind: types.SubjectGeneric, Confidence: 0.5})
+	if got != "" {
+		t.Errorf("SubjectGeneric must return empty because it is a weak fallback signal, got %q", got)
+	}
+}
+
 // TestFormatSubjectMatchSummary_TopKSorted covers the primary
 // E4+E5 render path: chains sorted by score descending, capped
 // at subjectMatchRenderCap (5), preceded by the expected subject

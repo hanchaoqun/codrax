@@ -9,6 +9,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
+	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -664,6 +665,13 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 //   - Phase1Ranking has at least Phase1UnreadTopK entries
 //   - top-K minus ReadSet has at least Phase1UnreadMinUnread entries
 //
+// When a repo graph and a concrete ReadSet focus are available, the
+// gate narrows the unread list to hard anchors only. Generic graph
+// adjacency remains a navigation signal for the explorer, but is too
+// broad to become a completion blocker on its own (same-package
+// interface/type references otherwise pull sibling implementations into
+// the Forced Read List).
+//
 // When it fires: append PendingReads for each unread top-K file (with
 // origin="phase1_unread" so trace inspection can tell this gate from
 // chain-promotion D2) and raise a RepairExpandSearch directive. The
@@ -707,6 +715,7 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	if minUnread < 1 {
 		minUnread = 1
 	}
+	filter := newPhase1UnreadFilter(ctx, closure)
 	type unreadRankedFile struct {
 		rank int
 		file types.Phase1RankedFile
@@ -714,11 +723,15 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	var unread []unreadRankedFile
 	for i := 0; i < topK; i++ {
 		f := ranking[i]
-		canon := strings.TrimPrefix(strings.TrimSpace(f.Path), "./")
+		canon := phase1UnreadCanonPath(f.Path, ctx.RepoRoot)
 		if canon == "" {
 			continue
 		}
 		if closure.HasRead(canon) {
+			continue
+		}
+		if filter.enabled && !filter.hasMandatoryReadSignal(f, canon) {
+			logging.Debug("[CGEC] phase1_unread: skip non-mandatory ranked file=%s after read focus", canon)
 			continue
 		}
 		f.Path = canon
@@ -752,6 +765,62 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 	// T2.1: set the latch after the gate has produced its output, so
 	// a nil/zero-queue early return above does NOT burn the latch.
 	closure.MarkPhase1UnreadFired()
+}
+
+type phase1UnreadFilter struct {
+	enabled   bool
+	repoRoot  string
+	graph     *repotypes.Graph
+	readFiles []string
+}
+
+func newPhase1UnreadFilter(ctx *types.BusContext, closure *types.EvidenceClosure) phase1UnreadFilter {
+	var out phase1UnreadFilter
+	if ctx == nil || ctx.Mutable == nil || closure == nil {
+		return out
+	}
+	out.repoRoot = ctx.RepoRoot
+	if g, ok := ctx.Mutable.SearchGraph().(*repotypes.Graph); ok && g != nil && len(g.FileIndex) > 0 {
+		out.graph = g
+	}
+	for file := range closure.ReadSet() {
+		if canon := phase1UnreadCanonPath(file, ctx.RepoRoot); canon != "" {
+			out.readFiles = append(out.readFiles, canon)
+		}
+	}
+	sort.Strings(out.readFiles)
+	if out.graph == nil || len(out.readFiles) == 0 {
+		return out
+	}
+	for _, file := range out.readFiles {
+		if _, ok := out.graph.FileIndex[file]; ok {
+			out.enabled = true
+			break
+		}
+	}
+	return out
+}
+
+func (f phase1UnreadFilter) hasMandatoryReadSignal(ranked types.Phase1RankedFile, file string) bool {
+	file = phase1UnreadCanonPath(file, f.repoRoot)
+	if file == "" {
+		return false
+	}
+	return ranked.ExactEntityRank > 0
+}
+
+func phase1UnreadCanonPath(path, repoRoot string) string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return ""
+	}
+	path = ground.CanonicalRepoRelative(path, repoRoot)
+	path = strings.ReplaceAll(path, "\\", "/")
+	path = strings.TrimPrefix(path, "./")
+	if path == "." {
+		return ""
+	}
+	return path
 }
 
 // isBreadthIntent reports whether the RequirementKind requires multi-

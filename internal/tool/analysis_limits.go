@@ -569,8 +569,8 @@ func writeFloat2(b *strings.Builder, f float64) {
 
 // filterGenericEntitiesWithWhitelist removes blocklist-matching
 // words from ents in a single pass, with one exception: when a
-// blocklisted word ALSO appears as a substring in seenBlob
-// (lowercased concatenation of the analyzer's pre-scan summaries),
+// blocklisted word ALSO appears as a standalone code/prose token in
+// seenBlob (lowercased concatenation of the analyzer's pre-scan summaries),
 // it is KEPT in a separate `keptVerified` slice. The caller gets
 // three disjoint buckets:
 //
@@ -590,9 +590,11 @@ func writeFloat2(b *strings.Builder, f float64) {
 // matters for callers that have no pre-scan history (tests,
 // fallback paths) — they get the historical strict filtering.
 //
-// Match is case-insensitive on the trimmed word; surviving entries
-// keep their original spelling so downstream ERM ranking sees the
-// verbatim token from the user's input.
+// Match is case-insensitive on the trimmed word; the whitelist is
+// deliberately token-aware rather than substring-aware so path-only
+// hits like `internal/agent/...` cannot rescue generic entities such
+// as `Agent`. Surviving entries keep their original spelling so
+// downstream ERM ranking sees the verbatim token from the user's input.
 func filterGenericEntitiesWithWhitelist(ents, blocklist []string, seenBlob string) (kept, dropped, keptVerified []string) {
 	if len(ents) == 0 || len(blocklist) == 0 {
 		return append([]string(nil), ents...), nil, nil
@@ -607,7 +609,7 @@ func filterGenericEntitiesWithWhitelist(ents, blocklist []string, seenBlob strin
 			continue
 		}
 		if deny[norm] {
-			if seenBlob != "" && strings.Contains(seenBlob, norm) {
+			if genericEntityVerifiedInBlob(seenBlob, norm) {
 				// Pre-scan verified: keep the entry but record it in
 				// keptVerified so a distinct warning fires. Append to
 				// `kept` too so downstream consumers see the full
@@ -622,6 +624,55 @@ func filterGenericEntitiesWithWhitelist(ents, blocklist []string, seenBlob strin
 		kept = append(kept, e)
 	}
 	return kept, dropped, keptVerified
+}
+
+func genericEntityVerifiedInBlob(seenBlob, term string) bool {
+	term = strings.ToLower(strings.TrimSpace(term))
+	if seenBlob == "" || term == "" {
+		return false
+	}
+	haystack := strings.ToLower(seenBlob)
+	start := 0
+	for {
+		idx := strings.Index(haystack[start:], term)
+		if idx < 0 {
+			return false
+		}
+		idx += start
+		end := idx + len(term)
+		var before, after byte
+		if idx > 0 {
+			before = haystack[idx-1]
+		}
+		if end < len(haystack) {
+			after = haystack[end]
+		}
+		if genericEntityOccurrenceLooksVerified(before, after) {
+			return true
+		}
+		start = end
+	}
+}
+
+func genericEntityOccurrenceLooksVerified(before, after byte) bool {
+	if isASCIIIdentByte(before) || isASCIIIdentByte(after) {
+		return false
+	}
+	if isPathDelimiterByte(before) || isPathDelimiterByte(after) {
+		return false
+	}
+	return true
+}
+
+func isASCIIIdentByte(b byte) bool {
+	return (b >= 'a' && b <= 'z') ||
+		(b >= 'A' && b <= 'Z') ||
+		(b >= '0' && b <= '9') ||
+		b == '_'
+}
+
+func isPathDelimiterByte(b byte) bool {
+	return b == '/' || b == '\\' || b == '.'
 }
 
 // formatKeywordFloorMsg renders a compact "keywords=N<M" diagnostic

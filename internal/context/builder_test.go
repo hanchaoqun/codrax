@@ -1389,6 +1389,35 @@ func TestBuildPromptContext_FinalizerSkill_KeepsKnownFactsAndStructuredEvidence(
 	}
 }
 
+func TestBuildPromptContext_FinalizerSkill_SkipsDuplicateDataflowFindings(t *testing.T) {
+	ac := acWithFactsAndEvidence()
+	ac.AgentName = types.AgentFinalizer
+	ac.Stage = types.StageFinalize
+	ac.PriorReports = []types.StageReport{
+		{
+			Stage:    types.StageExplore,
+			Agent:    types.AgentExplorer,
+			Findings: "## Dataflow Findings\n- prior path",
+		},
+	}
+	ac.FlowFindings = []types.FlowFindingDigest{
+		{
+			Path:       []string{"A", "B"},
+			Sources:    []string{"A"},
+			Sinks:      []string{"B"},
+			Confidence: 0.8,
+		},
+	}
+
+	pc := BuildPromptContext(ac, finalizerSkill())
+	if findSectionTitle(pc, "Prior Stage Findings") == nil {
+		t.Fatal("test setup should render prior reports")
+	}
+	if findSectionTitle(pc, "Dataflow Findings") != nil {
+		t.Fatal("finalizer should not render a second standalone Dataflow Findings section when prior reports already contain one")
+	}
+}
+
 func TestBuildPromptContext_ExplorerSkill_KeepsBothSections(t *testing.T) {
 	ac := acWithFactsAndEvidence()
 	ac.AgentName = types.AgentExplorer

@@ -18,6 +18,7 @@ package agent
 // coverage.
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -260,6 +261,33 @@ func TestParseOutput_ERMAllSatisfiedPromotes(t *testing.T) {
 	}
 }
 
+func TestParseOutput_ERMAllSatisfiedDoesNotPromoteWithoutEvidence(t *testing.T) {
+	// A malformed emit_evidence call can leave ERM notes satisfied
+	// while structured evidence is empty. That must not terminate the
+	// explorer: Turn B would otherwise receive a 0-evidence handoff and
+	// the finalizer may infer an absence answer from missing citations.
+	eval := &explorerEvaluator{
+		userQuestion:       "question",
+		investigationNotes: []string{"Requirement Foo was investigated"},
+		ermRequirements: []EvidenceRequirement{
+			{Kind: "mechanism", Entities: []string{"Foo"}, Status: "satisfied"},
+		},
+	}
+	out, err := eval.ParseOutput(parseOutputCtx("mechanism", "step_list"), nil, []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "a.go:1"},
+		{ToolName: "read_file", Success: true, Summary: "a.go (full file)"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	if out.SignalUpdates == nil || out.SignalUpdates.HasEnoughFacts {
+		t.Fatal("ERM all-satisfied must not promote hasEnough=true with zero structured evidence")
+	}
+	if !strings.Contains(out.RetryHint, "[DIRECT]") {
+		t.Errorf("RetryHint should ask for structured evidence, got: %q", out.RetryHint)
+	}
+}
+
 func TestParseOutput_MechanismKindDropsAnswerChains(t *testing.T) {
 	// Mechanism questions feed the finalizer Evidence Items, not
 	// answer chains. ParseOutput must drop AnswerChains/strict items
@@ -283,7 +311,9 @@ func TestParseOutput_MechanismKindDropsAnswerChains(t *testing.T) {
 			"## Evidence from internal/agent/explorer.go\n- [REGISTRATION] line 100: Register binds Foo\n- [DIRECT] Foo line 200: returns true",
 		},
 	}
-	out, err := eval.ParseOutput(parseOutputCtx("mechanism", "step_list"), nil, []types.ToolResult{
+	ctx := parseOutputCtx("mechanism", "step_list")
+	ctx.Mutable = types.NewMutableState("question")
+	out, err := eval.ParseOutput(ctx, nil, []types.ToolResult{
 		{ToolName: "grep", Success: true, Summary: "internal/agent/explorer.go:100\ninternal/agent/explorer.go:200"},
 		{ToolName: "read_file", Success: true, Summary: "internal/agent/explorer.go (full file)"},
 	}, nil)
@@ -295,6 +325,43 @@ func TestParseOutput_MechanismKindDropsAnswerChains(t *testing.T) {
 	}
 	if len(out.AnswerSymbols) != 0 {
 		t.Errorf("mechanism-kind must also drop AnswerSymbols (built from strictAnswerItems), got %d", len(out.AnswerSymbols))
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil {
+		t.Fatal("mechanism-kind must still write TurnAArtifacts")
+	}
+	if len(ta.EvidenceItems) != 2 {
+		t.Fatalf("mechanism-kind handoff must keep ranked evidence after dropping answer chains, got %d", len(ta.EvidenceItems))
+	}
+}
+
+func TestParseOutput_MechanismHandoffCapsRankedEvidence(t *testing.T) {
+	var items []types.EvidenceItem
+	for i := 0; i < extractorMaxEvidence+5; i++ {
+		items = append(items, pinnedEvidenceItem("a.go", fmt.Sprintf("Foo%d", i), i+1))
+	}
+	eval := &explorerEvaluator{
+		userQuestion:       "how does Foo continue?",
+		structuredEvidence: items,
+		investigationNotes: []string{
+			"## Evidence from a.go\n- [DIRECT] Foo line 1: returns true\n- [DIRECT] Foo line 2: returns false",
+		},
+	}
+	ctx := parseOutputCtx("mechanism", "step_list")
+	ctx.Mutable = types.NewMutableState("how does Foo continue?")
+	_, err := eval.ParseOutput(ctx, nil, []types.ToolResult{
+		{ToolName: "grep", Success: true, Summary: "a.go:1\na.go:2"},
+		{ToolName: "read_file", Success: true, Summary: "[a.go: showing lines 1-100 of 100]"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput error: %v", err)
+	}
+	ta := ctx.Mutable.TurnAArtifacts()
+	if ta == nil {
+		t.Fatal("mechanism-kind must write TurnAArtifacts")
+	}
+	if len(ta.EvidenceItems) != extractorMaxEvidence {
+		t.Fatalf("mechanism handoff evidence = %d, want cap %d", len(ta.EvidenceItems), extractorMaxEvidence)
 	}
 }
 

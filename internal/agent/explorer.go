@@ -332,19 +332,19 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 
 	var b strings.Builder
 	b.WriteString("## Breadth Scan\n\n")
-	b.WriteString("Your goal is to MAP the relevant territory — find ALL files related to the question. ")
+	b.WriteString("Your goal is to map a bounded candidate set for the user's question, not every broadly related file. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
 	b.WriteString("- grep with files_only=true to find WHICH FILES contain key terms (just filenames, not lines). Use `file_type` when the language is obvious; do not use --include so you discover all relevant file types\n")
 	b.WriteString("- list_files to understand directory structure\n\n")
 	b.WriteString("**Non-English questions:** When the user's question is not in English, search with BOTH the original terms AND their English programming equivalents. Most codebases use English identifiers, so always include the translated English terms alongside the original. Batch both versions as parallel grep calls.\n\n")
-	b.WriteString("**Keyword variants:** For each search term, generate multiple variants and search them all:\n")
+	b.WriteString("**Keyword variants:** Start with exact identifiers and high-confidence translations. Broaden only when those searches return zero or too few useful files:\n")
 	b.WriteString("- Word roots and inflections (e.g. send/sending/sent)\n")
 	b.WriteString("- Synonyms (e.g. send → emit, dispatch, publish, write)\n")
-	b.WriteString("- Antonyms when relevant (e.g. lock → unlock, enable → disable)\n")
+	b.WriteString("- Antonyms only when the user asks about absence, negation, disabling, or opposite behavior (e.g. lock → unlock, enable → disable)\n")
 	b.WriteString("- Abbreviations and full forms (e.g. config → configuration, ctx → context)\n")
 	b.WriteString("- CamelCase and snake_case variants (e.g. getUser, get_user, GetUser)\n")
-	b.WriteString("Do not rely solely on the suggested terms below — use your domain knowledge to generate additional relevant identifiers.\n\n")
+	b.WriteString("Keep variants tied to the user's concrete nouns, symbols, config keys, or error frames; do not let generic domain words expand the search frontier by themselves.\n\n")
 
 	analyzerKeywords := irKeywords(ctx)
 	analyzerEntities := irEntities(ctx)
@@ -1288,6 +1288,189 @@ func (e *explorerEvaluator) filterKeywordResults(results []keywordFileScore) []k
 	return out
 }
 
+func (e *explorerEvaluator) preScannedUnreadCandidates(readSet map[string]bool) []string {
+	if len(e.preScannedFiles) == 0 {
+		return nil
+	}
+	readFiles := make([]string, 0, len(readSet))
+	for f := range readSet {
+		if canon := e.repoRelativeExplorerPath(f); canon != "" {
+			readFiles = append(readFiles, canon)
+		}
+	}
+	sort.Strings(readFiles)
+
+	required := make(map[string]bool, len(e.requiredFiles))
+	for _, f := range e.requiredFiles {
+		if canon := e.repoRelativeExplorerPath(f); canon != "" {
+			required[canon] = true
+		}
+	}
+	exact := make(map[string]bool, len(e.exactAnchorFiles))
+	for _, f := range e.exactAnchorFiles {
+		if canon := e.repoRelativeExplorerPath(f); canon != "" {
+			exact[canon] = true
+		}
+	}
+
+	seen := make(map[string]bool, len(e.preScannedFiles))
+	var unread []string
+	for _, f := range e.preScannedFiles {
+		canon := e.repoRelativeExplorerPath(f)
+		if canon == "" || seen[canon] || isNoisePath(canon) || readSetContains(readSet, canon) {
+			continue
+		}
+		if !e.activeFocusAllowsFile(canon) {
+			continue
+		}
+		if len(readFiles) > 0 && !e.preScannedFileHasDepthSignal(canon, readFiles, required, exact) {
+			logging.Debug("[explorer] prescan unread: skip distant keyword-only file=%s", canon)
+			continue
+		}
+		seen[canon] = true
+		unread = append(unread, canon)
+	}
+	return unread
+}
+
+func (e *explorerEvaluator) repoRelativeExplorerPath(path string) string {
+	path = canonicalExplorerPath(path)
+	if path == "" {
+		return ""
+	}
+	if e.repoRoot != "" {
+		path = ground.CanonicalRepoRelative(path, e.repoRoot)
+	}
+	return canonicalExplorerPath(path)
+}
+
+func (e *explorerEvaluator) preScannedFileHasDepthSignal(file string, readFiles []string, required, exact map[string]bool) bool {
+	return e.fileHasDepthSignal(file, readFiles, required, exact, true)
+}
+
+func (e *explorerEvaluator) rankerFileHasDepthSignal(file string, readFiles []string, required, exact map[string]bool) bool {
+	return e.fileHasDepthSignal(file, readFiles, required, exact, false)
+}
+
+func (e *explorerEvaluator) fileHasDepthSignal(file string, readFiles []string, required, exact map[string]bool, allowSiblingDir bool) bool {
+	if required[file] || exact[file] {
+		return true
+	}
+	if e.preScannedFileMatchesEntities(file) {
+		return true
+	}
+	for _, read := range readFiles {
+		if read == "" || read == file {
+			continue
+		}
+		if (allowSiblingDir && sameRepoDir(read, file)) || e.graphConnectsFiles(read, file) {
+			return true
+		}
+	}
+	return false
+}
+
+func (e *explorerEvaluator) preScannedFileMatchesEntities(file string) bool {
+	entities := e.ermEntityList()
+	if len(entities) == 0 {
+		return false
+	}
+	if entityBoostFactor(file, e.searchGraph(), entities) > 1.0 {
+		return true
+	}
+	base := normalizeEntityHaystack(strings.ToLower(filepath.Base(file)))
+	for _, ent := range entities {
+		if entityHits(base, ent) {
+			return true
+		}
+	}
+	for _, sym := range e.fileSymbols[file] {
+		name := sym
+		if idx := strings.IndexByte(name, ' '); idx > 0 {
+			name = name[:idx]
+		}
+		name = normalizeEntityHaystack(strings.ToLower(name))
+		for _, ent := range entities {
+			if entityHits(name, ent) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func (e *explorerEvaluator) ermEntityList() []string {
+	seen := make(map[string]bool)
+	var entities []string
+	for _, req := range e.ermRequirements {
+		for _, ent := range req.Entities {
+			ent = strings.TrimSpace(ent)
+			key := strings.ToLower(ent)
+			if ent == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			entities = append(entities, ent)
+		}
+	}
+	return entities
+}
+
+func (e *explorerEvaluator) searchGraph() *repomap.Graph {
+	if e.searchResult == nil {
+		return nil
+	}
+	return e.searchResult.Graph
+}
+
+func (e *explorerEvaluator) graphConnectsFiles(a, b string) bool {
+	graph := e.searchGraph()
+	if graph == nil {
+		return false
+	}
+	a = e.repoRelativeExplorerPath(a)
+	b = e.repoRelativeExplorerPath(b)
+	if a == "" || b == "" {
+		return false
+	}
+	for _, dep := range graph.FilesImportedBy(a) {
+		if e.repoRelativeExplorerPath(dep) == b {
+			return true
+		}
+	}
+	for _, importer := range graph.FilesImporting(a) {
+		if e.repoRelativeExplorerPath(importer) == b {
+			return true
+		}
+	}
+	return fileInfoReferencesFile(graph.FileIndex[a], b) || fileInfoReferencesFile(graph.FileIndex[b], a)
+}
+
+func fileInfoReferencesFile(fi *repomap.FileInfo, target string) bool {
+	if fi == nil || target == "" {
+		return false
+	}
+	for _, rel := range fi.Relations {
+		if relationEndpointFile(rel.ToEP.File) == target ||
+			relationEndpointFile(rel.File) == target ||
+			relationEndpointFile(rel.To) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func relationEndpointFile(raw string) string {
+	raw = canonicalExplorerPath(raw)
+	if raw == "" {
+		return ""
+	}
+	if idx := strings.IndexByte(raw, ':'); idx > 0 {
+		raw = raw[:idx]
+	}
+	return raw
+}
+
 func (e *explorerEvaluator) shouldStartFocusedDepth(questionKind string) bool {
 	if _, ok := e.uniqueExactAnchorFile(); !ok {
 		return false
@@ -1937,6 +2120,59 @@ func (e *explorerEvaluator) rankerCoverageFiles() []string {
 		return append([]string(nil), e.allScoredFiles...)
 	}
 	return out
+}
+
+func (e *explorerEvaluator) rankerCoverageFilesForReadSet(readSet map[string]bool) []string {
+	ranked := e.rankerCoverageFiles()
+	if len(ranked) == 0 || len(readSet) == 0 {
+		return ranked
+	}
+	readFiles := make([]string, 0, len(readSet))
+	for f := range readSet {
+		if canon := e.repoRelativeExplorerPath(f); canon != "" {
+			readFiles = append(readFiles, canon)
+		}
+	}
+	sort.Strings(readFiles)
+	required := make(map[string]bool, len(e.requiredFiles))
+	for _, f := range e.requiredFiles {
+		if canon := e.repoRelativeExplorerPath(f); canon != "" {
+			required[canon] = true
+		}
+	}
+	exact := make(map[string]bool, len(e.exactAnchorFiles))
+	for _, f := range e.exactAnchorFiles {
+		if canon := e.repoRelativeExplorerPath(f); canon != "" {
+			exact[canon] = true
+		}
+	}
+	if !e.hasDepthSignalBasis(required, exact) || (e.logTriage != nil && len(e.logTriage.ResolvedFiles) > 0) {
+		return ranked
+	}
+
+	seen := make(map[string]bool, len(ranked))
+	out := make([]string, 0, len(ranked))
+	for _, f := range ranked {
+		canon := e.repoRelativeExplorerPath(f)
+		if canon == "" || seen[canon] || isNoisePath(canon) {
+			continue
+		}
+		if readSetContains(readSet, canon) || e.rankerFileHasDepthSignal(canon, readFiles, required, exact) {
+			seen[canon] = true
+			out = append(out, canon)
+		} else {
+			logging.Debug("[explorer] ranker coverage: skip keyword-only file=%s after read focus", canon)
+		}
+	}
+	return out
+}
+
+func (e *explorerEvaluator) hasDepthSignalBasis(required, exact map[string]bool) bool {
+	if len(required) > 0 || len(exact) > 0 || len(e.ermEntityList()) > 0 {
+		return true
+	}
+	graph := e.searchGraph()
+	return graph != nil && len(graph.FileIndex) > 0
 }
 
 func coverageSnapshot(scope []string, readSet map[string]bool) (readCount int, coverage float64, unread []string) {
@@ -3050,8 +3286,8 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 	if !e.midLoopSymbolRefInjected &&
 		len(e.investigationNotes) >= e.heuristics.MidLoopMinIteration {
 		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
-		gaps := detectCrossFileSymbolGaps(
-			e.investigationNotes, e.searchResult.Graph, readSet, 3)
+		gaps := detectCrossFileSymbolGapsWithFileFilter(
+			e.investigationNotes, e.searchResult.Graph, readSet, 3, e.activeFocusAllowsFile)
 		if len(gaps) > 0 {
 			if b.Len() > 0 {
 				b.WriteString("\n")
@@ -3147,9 +3383,9 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		iteration >= e.heuristics.MidLoopMinIteration*2 &&
 		len(e.allScoredFiles) >= 6 &&
 		!e.logTriageAuthoritativeAndCovered(allResults) {
-		rankedFiles := e.rankerCoverageFiles()
+		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
+		rankedFiles := e.rankerCoverageFilesForReadSet(readSet)
 		if len(rankedFiles) >= 6 {
-			_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
 			topK := 5
 			if topK > len(rankedFiles) {
 				topK = len(rankedFiles)
@@ -3785,12 +4021,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 	}
 
 	// Check which pre-scanned high-priority files are still unread.
-	var preScannedUnread []string
-	for _, f := range e.preScannedFiles {
-		if !readSetContains(readSet, f) && !isNoisePath(f) {
-			preScannedUnread = append(preScannedUnread, f)
-		}
-	}
+	preScannedUnread := e.preScannedUnreadCandidates(readSet)
 
 	// Check which read files have UNanalyzed symbols — symbols that
 	// the LLM didn't mention in its investigation notes. This catches
@@ -4345,7 +4576,7 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Compute relevance-weighted coverage: files in allScoredFiles
 	// (top keyword-search hits) count more than random grep results.
 	relevantRead := 0
-	rankedFiles := e.rankerCoverageFiles()
+	rankedFiles := e.rankerCoverageFilesForReadSet(readSet)
 	if len(rankedFiles) > 0 {
 		scoredSet := make(map[string]bool, len(rankedFiles))
 		for _, f := range rankedFiles {
@@ -4414,9 +4645,13 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 					hasEnough = false
 				}
 			} else if !hasEnough && allSat {
-				logging.Debug("[explorer] ERM all-satisfied promote: hasEnough=true (quantitative floors: toolDiv=%v fileCov=%v evQual=%v)",
-					toolDiversity, fileCoverage, evidenceQuality)
-				hasEnough = true
+				if len(e.structuredEvidence) > 0 {
+					logging.Debug("[explorer] ERM all-satisfied promote: hasEnough=true (quantitative floors: toolDiv=%v fileCov=%v evQual=%v)",
+						toolDiversity, fileCoverage, evidenceQuality)
+					hasEnough = true
+				} else {
+					logging.Debug("[explorer] ERM all-satisfied but not promoted: no structured evidence was captured")
+				}
 			}
 		}
 	}
@@ -4619,6 +4854,19 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 			if c.StrictOK {
 				strictEvidence = append(strictEvidence, c.Item)
 			}
+		}
+		if len(strictEvidence) == 0 && questionKind == "mechanism" && len(rankedEvidence) > 0 {
+			// Mechanism answers intentionally drop answer chains above:
+			// step-list finalization should read the grounded mechanism
+			// evidence directly, not a terminal-symbol slate. Preserve
+			// the same concise top-N digest Turn B renders, so it does
+			// not see an empty handoff while avoiding a noisy hundreds-
+			// item transcript snapshot from deterministic scanners.
+			limit := len(rankedEvidence)
+			if limit > extractorMaxEvidence {
+				limit = extractorMaxEvidence
+			}
+			strictEvidence = append(strictEvidence, rankedEvidence[:limit]...)
 		}
 		snapshot := types.TurnAArtifacts{
 			UserQuestion:          e.userQuestion,
@@ -9097,7 +9345,9 @@ type crossFileSymbolGap struct {
 
 // detectCrossFileSymbolGaps scans investigation notes for exported
 // symbol references and returns up to `max` files that define
-// referenced symbols but haven't been read yet (T3b).
+// referenced symbols but haven't been read yet (T3b). The explorer's
+// mid-loop call uses detectCrossFileSymbolGapsWithFileFilter so this
+// signal cannot widen beyond the active primary-entity frontier.
 //
 // Scoring:
 //   - A symbol name must be ≥ 6 characters to count. Shorter names
@@ -9122,6 +9372,10 @@ type crossFileSymbolGap struct {
 //
 // Returns nil when graph is nil or no gaps are found.
 func detectCrossFileSymbolGaps(notes []string, graph *repomap.Graph, readSet map[string]bool, max int) []crossFileSymbolGap {
+	return detectCrossFileSymbolGapsWithFileFilter(notes, graph, readSet, max, nil)
+}
+
+func detectCrossFileSymbolGapsWithFileFilter(notes []string, graph *repomap.Graph, readSet map[string]bool, max int, allowFile func(string) bool) []crossFileSymbolGap {
 	if graph == nil || len(notes) == 0 || max <= 0 {
 		return nil
 	}
@@ -9150,15 +9404,22 @@ func detectCrossFileSymbolGaps(notes []string, graph *repomap.Graph, readSet map
 			if def == nil {
 				continue
 			}
-			if readSetContains(readSet, def.File) {
+			file := canonicalExplorerPath(def.File)
+			if file == "" || isNoisePath(file) {
 				continue
 			}
-			key := def.File + "\x00" + symName
+			if readSetContains(readSet, file) {
+				continue
+			}
+			if allowFile != nil && !allowFile(file) {
+				continue
+			}
+			key := file + "\x00" + symName
 			if seen[key] {
 				continue
 			}
 			seen[key] = true
-			gaps = append(gaps, crossFileSymbolGap{File: def.File, Symbol: symName})
+			gaps = append(gaps, crossFileSymbolGap{File: file, Symbol: symName})
 			break // one entry per symbol — no need to enumerate further defs
 		}
 	}

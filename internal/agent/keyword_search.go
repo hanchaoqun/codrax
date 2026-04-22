@@ -415,17 +415,16 @@ func sortKeywordResults(results []keywordFileScore) {
 //   - symbol match only         → 1.3
 //   - neither                   → 1.0
 //
-// Matching is case-insensitive substring on the file basename for
-// the path channel and on exact symbol names in the repo_map graph
-// for the symbol channel. Short entities (< 4 chars) are skipped
-// to avoid false positives on 3-letter prefixes like "get", "run",
-// "new" — this is especially important because the analyzer's
-// generic-entity blocklist does NOT filter by length.
+// Matching is case-insensitive and entity-boundary-aware for short
+// generic nouns. Short entities (< 4 chars) are skipped to avoid false
+// positives on 3-letter prefixes like "get", "run", "new" — this is
+// especially important because the analyzer's generic-entity blocklist
+// does NOT filter by length.
 func entityBoostFactor(path string, graph *repomap.Graph, entities []string) float64 {
 	if len(entities) == 0 {
 		return 1.0
 	}
-	base := strings.ToLower(filepath.Base(path))
+	base := normalizeEntityHaystack(strings.ToLower(filepath.Base(path)))
 	pathHit := false
 	symbolHit := false
 	for _, ent := range entities {
@@ -433,13 +432,13 @@ func entityBoostFactor(path string, graph *repomap.Graph, entities []string) flo
 		if len(norm) < 4 {
 			continue
 		}
-		if !pathHit && strings.Contains(base, norm) {
+		if !pathHit && entityHits(base, norm) {
 			pathHit = true
 		}
 		if !symbolHit && graph != nil {
 			if fi, ok := graph.FileIndex[path]; ok {
 				for _, sym := range fi.Symbols {
-					if strings.Contains(strings.ToLower(sym.Name), norm) {
+					if entityHits(normalizeEntityHaystack(strings.ToLower(sym.Name)), norm) {
 						symbolHit = true
 						break
 					}
@@ -1292,11 +1291,14 @@ func splitCamelCase(s string) []string {
 
 // normalizeSearchPath strips the repo root prefix and leading ./ from paths.
 func normalizeSearchPath(path, repoRoot string) string {
+	path = strings.ReplaceAll(filepath.ToSlash(strings.TrimSpace(path)), "\\", "/")
 	abs, err := filepath.Abs(repoRoot)
 	if err == nil {
-		path = strings.TrimPrefix(path, abs+"/")
+		abs = strings.ReplaceAll(filepath.ToSlash(abs), "\\", "/")
+		path = strings.TrimPrefix(path, strings.TrimRight(abs, "/")+"/")
 	}
-	path = strings.TrimPrefix(path, repoRoot+"/")
+	repoRoot = strings.ReplaceAll(filepath.ToSlash(strings.TrimSpace(repoRoot)), "\\", "/")
+	path = strings.TrimPrefix(path, strings.TrimRight(repoRoot, "/")+"/")
 	path = strings.TrimPrefix(path, "./")
 	return path
 }

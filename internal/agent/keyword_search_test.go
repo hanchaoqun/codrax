@@ -62,6 +62,19 @@ func TestExpandKeywordsNoAbbrevForUnknown(t *testing.T) {
 	}
 }
 
+func TestNormalizeSearchPathStripsWindowsRepoRootWithSlashForms(t *testing.T) {
+	repoRoot := `C:\Users\ssccv\codrax`
+	got := normalizeSearchPath("C:/Users/ssccv/codrax/internal/skill/defaults.go", repoRoot)
+	if got != "internal/skill/defaults.go" {
+		t.Fatalf("normalizeSearchPath forward-slash Windows path = %q", got)
+	}
+
+	got = normalizeSearchPath(`C:\Users\ssccv\codrax\internal\agent\explorer.go`, "C:/Users/ssccv/codrax")
+	if got != "internal/agent/explorer.go" {
+		t.Fatalf("normalizeSearchPath backslash Windows path = %q", got)
+	}
+}
+
 func TestDomainBoostFactor_MatchingPackageReturnsBoost(t *testing.T) {
 	graph := &repomap.Graph{
 		FileIndex: map[string]*repomap.FileInfo{

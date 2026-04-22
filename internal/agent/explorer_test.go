@@ -1737,6 +1737,98 @@ func TestActiveFrontierFiles_UsesUniquePrimaryEntityFocus(t *testing.T) {
 	}
 }
 
+func TestPreScannedUnreadCandidates_SkipsDistantKeywordOnlyAfterRead(t *testing.T) {
+	eval := &explorerEvaluator{
+		preScannedFiles: []string{
+			"internal/agent/helper.go",
+			"internal/skill/defaults.go",
+		},
+		ermRequirements: []EvidenceRequirement{
+			{Entities: []string{"ContinuationPrompt"}},
+		},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{
+			FileIndex: map[string]*repomap.FileInfo{
+				"internal/agent/explorer.go":       {RelPath: "internal/agent/explorer.go"},
+				"internal/agent/helper.go":         {RelPath: "internal/agent/helper.go"},
+				"internal/skill/defaults.go":       {RelPath: "internal/skill/defaults.go"},
+				"internal/skill/other_defaults.go": {RelPath: "internal/skill/other_defaults.go"},
+			},
+		}},
+	}
+
+	got := eval.preScannedUnreadCandidates(map[string]bool{
+		"internal/agent/explorer.go": true,
+	})
+	joined := strings.Join(got, ",")
+	if !strings.Contains(joined, "internal/agent/helper.go") {
+		t.Fatalf("same-directory unread file should remain eligible, got %v", got)
+	}
+	if strings.Contains(joined, "internal/skill/defaults.go") {
+		t.Fatalf("distant keyword-only file should not be forced after focus is established, got %v", got)
+	}
+
+	eval.requiredFiles = []string{"internal/skill/defaults.go"}
+	got = eval.preScannedUnreadCandidates(map[string]bool{
+		"internal/agent/explorer.go": true,
+	})
+	if !strings.Contains(strings.Join(got, ","), "internal/skill/defaults.go") {
+		t.Fatalf("required file should still be eligible across directories, got %v", got)
+	}
+}
+
+func TestRankerCoverageFilesForReadSet_RequiresDepthSignalAfterRead(t *testing.T) {
+	eval := &explorerEvaluator{
+		allScoredFiles: []string{
+			"internal/agent/explorer.go",
+			"internal/agent/sub_explorer.go",
+			"internal/agent/explorer_erm.go",
+			"internal/agent/agent.go",
+			"internal/types/evidence_closure.go",
+			"internal/skill/defaults.go",
+		},
+		ermRequirements: []EvidenceRequirement{
+			{Entities: []string{"ContinuationPrompt"}},
+		},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{
+			FileIndex: map[string]*repomap.FileInfo{
+				"internal/agent/explorer.go": {
+					RelPath: "internal/agent/explorer.go",
+					Relations: []repomap.Relation{
+						{
+							Kind: "call",
+							ToEP: repomap.RelationEndpoint{File: "internal/agent/explorer_erm.go"},
+						},
+					},
+				},
+				"internal/agent/explorer_erm.go":     {RelPath: "internal/agent/explorer_erm.go"},
+				"internal/agent/sub_explorer.go":     {RelPath: "internal/agent/sub_explorer.go"},
+				"internal/agent/agent.go":            {RelPath: "internal/agent/agent.go"},
+				"internal/types/evidence_closure.go": {RelPath: "internal/types/evidence_closure.go"},
+				"internal/skill/defaults.go":         {RelPath: "internal/skill/defaults.go"},
+			},
+		}},
+	}
+
+	got := eval.rankerCoverageFilesForReadSet(map[string]bool{
+		"internal/agent/explorer.go": true,
+	})
+	joined := strings.Join(got, ",")
+	if !strings.Contains(joined, "internal/agent/explorer.go") ||
+		!strings.Contains(joined, "internal/agent/explorer_erm.go") {
+		t.Fatalf("read file and directly related files should remain in ranker coverage, got %v", got)
+	}
+	for _, noisy := range []string{
+		"internal/agent/sub_explorer.go",
+		"internal/agent/agent.go",
+		"internal/types/evidence_closure.go",
+		"internal/skill/defaults.go",
+	} {
+		if strings.Contains(joined, noisy) {
+			t.Fatalf("keyword-only file %s should not remain after read focus, got %v", noisy, got)
+		}
+	}
+}
+
 func TestCoverageScopeFiles_UsesUniquePrimaryEntityFrontier(t *testing.T) {
 	eval := &explorerEvaluator{
 		searchResult: &keywordSearchResult{Graph: driftFixGraph()},

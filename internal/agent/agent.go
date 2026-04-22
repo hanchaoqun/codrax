@@ -440,6 +440,46 @@ func looksLikeEmbeddedToolCall(content string) bool {
 	return false
 }
 
+// sanitizeToolCallsForHistory preserves OpenAI-style tool-call pairing
+// while preventing a malformed assistant arguments blob from poisoning
+// the next LLM request. Streaming gateways can occasionally return a
+// truncated function.arguments string (for example `{"items":`). We
+// still execute the original call so the tool returns its canonical
+// "invalid params" repair message, but the conversation history must
+// contain syntactically valid JSON or the provider rejects the next turn
+// before the model has a chance to self-correct.
+func sanitizeToolCallsForHistory(calls []llm.ToolCall) []llm.ToolCall {
+	if len(calls) == 0 {
+		return nil
+	}
+	var out []llm.ToolCall
+	for i, tc := range calls {
+		if toolCallParamsValidForHistory(tc.Params) {
+			if out != nil {
+				out[i] = tc
+			}
+			continue
+		}
+		if out == nil {
+			out = append([]llm.ToolCall(nil), calls...)
+		}
+		out[i].Params = json.RawMessage(`{}`)
+		logging.Warning("[diag] sanitized invalid tool-call arguments for history tool=%s id=%s len=%d",
+			tc.Name, tc.ID, len(tc.Params))
+	}
+	if out != nil {
+		return out
+	}
+	return calls
+}
+
+func toolCallParamsValidForHistory(params json.RawMessage) bool {
+	if strings.TrimSpace(string(params)) == "" {
+		return false
+	}
+	return json.Valid(params)
+}
+
 func truncForLog(s string, max int) string {
 	return logging.Truncate(s, max)
 }
@@ -751,6 +791,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			logging.Debug("[diag %s] iter=%d call[%d] tool=%s params=%s",
 				b.name, i, j, tc.Name, string(tc.Params))
 		}
+		historyToolCalls := sanitizeToolCallsForHistory(resp.ToolCalls)
 
 		// Must-emit stage visibility: when the stage's tool_choice is
 		// "required" but the provider still returned zero tool_calls
@@ -779,7 +820,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
 				Content:   resp.Content,
-				ToolCalls: resp.ToolCalls,
+				ToolCalls: historyToolCalls,
 			})
 			logging.Debug("[diag %s] STOP at iter=%d (eval)", b.name, i)
 			break
@@ -845,7 +886,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 					messages = append(messages, llm.Message{
 						Role:      "assistant",
 						Content:   resp.Content,
-						ToolCalls: resp.ToolCalls,
+						ToolCalls: historyToolCalls,
 					})
 					messages = append(messages, llm.Message{
 						Role:    "user",
@@ -862,7 +903,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 			messages = append(messages, llm.Message{
 				Role:      "assistant",
 				Content:   resp.Content,
-				ToolCalls: resp.ToolCalls,
+				ToolCalls: historyToolCalls,
 			})
 			logging.Debug("[diag %s] STOP at iter=%d (soft)", b.name, i)
 			break
@@ -872,7 +913,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		messages = append(messages, llm.Message{
 			Role:      "assistant",
 			Content:   resp.Content,
-			ToolCalls: resp.ToolCalls,
+			ToolCalls: historyToolCalls,
 		})
 
 		// Act — execute tool calls. When the batch contains only

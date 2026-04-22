@@ -171,8 +171,8 @@ func TestValidateAnalysisInput_EmptyBlocklistSkipsFilter(t *testing.T) {
 
 // TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity pins
 // the 2026-04-15 fix: when a generic-blocklist entity ALSO appears
-// in the pre-scan summary blob (lowercase substring match), it must
-// be kept instead of dropped so real symbols named `Agent` or
+// in the pre-scan summary blob as a standalone code/prose token, it
+// must be kept instead of dropped so real symbols named `Agent` or
 // `Handler` survive. A distinct `kept_generic_verified_entities`
 // warning fires so the operator can audit the rescue.
 func TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity(t *testing.T) {
@@ -183,10 +183,9 @@ func TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity(t *testing.T)
 	}
 	// seenBlob is what `AnalyzerEvaluator.Observe` would have appended:
 	// lowercased concatenation of successful pre-scan tool Summaries.
-	// Here we simulate a grep files_only=true hit on files that
-	// contain both `agent` and `handler` as real symbols, but NOT
-	// the word `count`.
-	seenBlob := "internal/agent/analyzer.go\ninternal/tool/handler.go\n"
+	// Here we simulate code/prose snippets that contain both `agent`
+	// and `handler` as standalone tokens, but NOT the word `count`.
+	seenBlob := "type agent struct {}\nfunc handler() {}\n"
 	ents := []string{"Orchestrator", "Agent", "Handler", "Count"}
 
 	res := validateAnalysisInput(nil, ents, limits, seenBlob, 1)
@@ -231,6 +230,40 @@ func TestValidateAnalysisInput_WhitelistKeepsVerifiedGenericEntity(t *testing.T)
 	}
 	if !haveKept {
 		t.Errorf("Warnings missing kept_generic_verified_entities line, got %v", res.Warnings)
+	}
+}
+
+func TestValidateAnalysisInput_WhitelistRejectsPathOnlyGenericEntity(t *testing.T) {
+	limits := AnalysisLimits{
+		WarnBelowKeywords:      0,
+		RejectBelowKeywords:    0,
+		GenericEntityBlocklist: []string{"agent", "handler"},
+	}
+	seenBlob := "internal/agent/analyzer.go\ninternal/tool/handler.go\n"
+	ents := []string{"Orchestrator", "Agent", "Handler"}
+
+	res := validateAnalysisInput(nil, ents, limits, seenBlob, 1)
+
+	if len(res.KeptVerifiedEntities) != 0 {
+		t.Fatalf("path-only hits must not be whitelisted, got kept=%v", res.KeptVerifiedEntities)
+	}
+	if len(res.DroppedEntities) != 2 {
+		t.Fatalf("DroppedEntities = %v, want Agent and Handler", res.DroppedEntities)
+	}
+	names := map[string]bool{}
+	for _, e := range res.FilteredEntities {
+		names[e] = true
+	}
+	if !names["Orchestrator"] {
+		t.Fatalf("non-generic entity should survive, got %v", res.FilteredEntities)
+	}
+	if names["Agent"] || names["Handler"] {
+		t.Fatalf("path-only generic entities should be dropped, got %v", res.FilteredEntities)
+	}
+	for _, w := range res.Warnings {
+		if strings.Contains(w, "kept_generic_verified_entities") {
+			t.Fatalf("path-only hits should not emit kept warning, got %v", res.Warnings)
+		}
 	}
 }
 
@@ -386,8 +419,10 @@ func TestEmitAnalysis_Execute_ReadsPrescanBlobFromMutable(t *testing.T) {
 
 	mu := types.NewMutableState("explore the agents")
 	// Simulate the analyzer's Observe having recorded a pre-scan
-	// grep files_only hit on files containing `agent`.
-	mu.AppendPrescanSummary("internal/agent/analyzer.go\ninternal/agent/explorer.go")
+	// snippet where `agent` appears as a standalone symbol/prose token.
+	// Path-only hits such as internal/agent/... are intentionally not
+	// enough to rescue a generic entity anymore.
+	mu.AppendPrescanSummary("type Agent struct {}\ninternal/agent/explorer.go")
 
 	payload := `{
 		"intent": "explain",
