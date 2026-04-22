@@ -567,12 +567,22 @@ func rankEvidenceByRelevanceWithSubject(question string, items []types.EvidenceI
 		return scored_items[i].score > scored_items[j].score
 	})
 
-	// Diversity: same (source_file, subject) max 2 entries.
-	type dedupKey struct{ source, subject string }
+	// Diversity: same (source_file, subject, anchor_symbol) max 2 entries.
+	// AnchorSymbol is part of the key so that when the LLM emits N distinct
+	// callees from the same parent function — subject=parent, anchor_symbol
+	// varies per call — each fact gets its own slot. Without the anchor
+	// component, a series like `Run → {checkCoverage, checkDAGClosure,
+	// checkBudgetSanity, ...}` (7 distinct calls, all subject=Run)
+	// collapsed to 2 survivors chosen by score, silently dropping 5/7
+	// enumeration-answer items. When AnchorSymbol is empty or equals
+	// Subject (definition-style emits where the defined symbol IS the
+	// subject), the effective key degenerates to (source, subject) and
+	// the original anti-monopoly cap still holds.
+	type dedupKey struct{ source, subject, anchor string }
 	counts := make(map[dedupKey]int)
 	result := make([]types.EvidenceItem, 0, len(items))
 	for _, si := range scored_items {
-		key := dedupKey{si.item.Source, si.item.Subject}
+		key := dedupKey{si.item.Source, si.item.Subject, si.item.AnchorSymbol}
 		if counts[key] >= 2 {
 			continue
 		}

@@ -611,20 +611,69 @@ func TestLooksLikeMechanismConcreteValue(t *testing.T) {
 
 func TestRankEvidenceDiversity(t *testing.T) {
 	question := "What does SubExplorer do?"
-	// 5 items from same source+subject — only 2 should survive per key
+	// 5 items from same source+subject+anchor — only 2 should survive per key.
+	// AnchorSymbol intentionally shared so the distinct-anchor escape hatch
+	// does not kick in; that case is covered by
+	// TestRankEvidenceDiversity_DistinctAnchorsBypass.
 	items := make([]types.EvidenceItem, 5)
 	for i := range items {
 		items[i] = types.EvidenceItem{
-			Kind:    types.EvidenceConcrete,
-			Subject: "SubExplorer.Run",
-			Object:  strings.Repeat("x", i+1),
-			Summary: "SubExplorer runs sub tasks",
-			Source:  "sub_explorer.go",
+			Kind:         types.EvidenceConcrete,
+			Subject:      "SubExplorer.Run",
+			Object:       strings.Repeat("x", i+1),
+			Summary:      "SubExplorer runs sub tasks",
+			Source:       "sub_explorer.go",
+			AnchorSymbol: "Run",
 		}
 	}
 	ranked := rankEvidenceByRelevance(question, items, nil)
 	if len(ranked) != 2 {
-		t.Errorf("diversity constraint: got %d items, want 2 (max 2 per source+subject)", len(ranked))
+		t.Errorf("diversity constraint: got %d items, want 2 (max 2 per source+subject+anchor)", len(ranked))
+	}
+}
+
+// TestRankEvidenceDiversity_DistinctAnchorsBypass pins the s1a-20260422
+// regression: the LLM correctly emit_evidence'd 7 call points at gate.go:
+// 106-112 with subject="Run" and distinct anchor_symbols (checkCoverage,
+// checkDAGClosure, ..., checkPendingFieldsWellformed) representing 7
+// genuinely different facts, and the diversity cap silently dropped 5/7
+// because the key was (source, subject) only. Distinct AnchorSymbol must
+// yield distinct dedup keys so every call point survives into the top-N.
+func TestRankEvidenceDiversity_DistinctAnchorsBypass(t *testing.T) {
+	question := "gate.Run 的 7 项检查是按什么顺序跑的？"
+	callees := []string{
+		"checkCoverage", "checkDAGClosure", "checkBudgetSanity",
+		"checkContractComplete", "checkHypothesisCoverage",
+		"checkCriterionResolvable", "checkPendingFieldsWellformed",
+	}
+	items := make([]types.EvidenceItem, len(callees))
+	for i, callee := range callees {
+		items[i] = types.EvidenceItem{
+			Kind:         types.EvidenceDirect,
+			Subject:      "Run",
+			Predicate:    "calls",
+			Object:       callee,
+			Source:       "internal/analysis/gate/gate.go",
+			LineStart:    106 + i,
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: callee,
+			Summary:      "第" + strings.Repeat("x", i+1) + "项检查",
+		}
+	}
+	ranked := rankEvidenceByRelevance(question, items, nil)
+	if len(ranked) != len(callees) {
+		t.Fatalf("distinct anchors: got %d survivors, want %d (diversity cap collapsed distinct call points)",
+			len(ranked), len(callees))
+	}
+	// Every callee must appear exactly once in the survivors.
+	seen := make(map[string]int, len(callees))
+	for _, it := range ranked {
+		seen[it.AnchorSymbol]++
+	}
+	for _, c := range callees {
+		if seen[c] != 1 {
+			t.Errorf("callee %q: got %d occurrences, want 1", c, seen[c])
+		}
 	}
 }
 
