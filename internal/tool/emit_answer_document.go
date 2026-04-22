@@ -154,7 +154,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
         "type": "object",
         "properties": {
           "index":         {"type": "integer", "description": "1-based step number. Must be positive."},
-          "description":   {"type": "string", "description": "One-sentence step body drawn from evidence. Do not collapse two steps into one."},
+          "description":   {"type": "string", "description": "The step body — describe what this step DOES in terms of behavior and outcome, reference load-bearing identifiers with inline `+"`"+`code`+"`"+`, and give the reader enough context to understand why it matters in the overall mechanism. Use as many sentences as accuracy and clarity require; one step is one logical hop, do not collapse two."},
           "citation_ref":  {"type": "integer", "description": "Index into citations[], or -1 when no citation backs this step."}
         },
         "required": ["index", "description", "citation_ref"]
@@ -171,7 +171,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
           "line":      {"type": "integer"},
           "kind":      {"type": "string", "enum": [%s], "description": "Closed cross-language taxonomy — see types.AllAnswerSymbolKinds. Use 'literal' when the answer terminal is a value (string/number/bool) rather than a code identifier."},
           "chain":     {"type": "string"},
-          "rationale": {"type": "string"}
+          "rationale": {"type": "string", "description": "Natural-prose description of what this symbol is and what role it plays in the mechanism. Reference load-bearing identifiers with inline `+"`"+`code`+"`"+`. Do not duplicate the location column — \"Defined at X. Used by Y\" is a regression, since file:line is already rendered as its own column in the output table."}
         },
         "required": ["name", "file", "line", "kind"]
       }
@@ -192,7 +192,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
       "description": "Boolean decision payload. REQUIRED for shape=boolean.",
       "properties": {
         "decision":     {"type": "string", "enum": ["true", "false", "yes", "no", "是", "否"], "description": "Boolean decision in closed form — no hedging."},
-        "rationale":    {"type": "string", "description": "One-sentence evidence citation for the decision."},
+        "rationale":    {"type": "string", "description": "The reasoning behind the decision — name the invariant or guard that forces the answer and explain the mechanism at whatever depth the subtlety requires. Reference load-bearing identifiers with inline `+"`"+`code`+"`"+`. A terse rationale on a non-trivial decision is a regression."},
         "citation_ref": {"type": "integer", "description": "Index into citations[], or -1 when no citation backs the decision."}
       },
       "required": ["decision", "rationale", "citation_ref"]

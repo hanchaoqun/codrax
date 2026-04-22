@@ -126,7 +126,7 @@ func (t *EmitAnswerSymbol) Parameters() json.RawMessage {
           "line":      {"type": "integer", "description": "First line of the symbol definition, taken EXACTLY from the read_file gutter. Required and must be > 0 — items with line == 0 are rejected."},
           "kind":      {"type": "string", "enum": [%s], "description": "Closed cross-language taxonomy. Canonical kinds cover callables (function/method), type-shape definitions (type/struct/class/interface/trait/enum/protocol), data bindings (const/var/field/property), module scopes (module/package/crate/namespace), metaprogramming (macro/decorator/annotation), and non-symbol terminals (literal). Language shorthand is accepted and normalised (func/fn → function). Use 'literal' when the terminal is a value (string/number/bool returned by a Name()/Type()/Kind() method, a config default, an enum value) rather than a code identifier."},
           "chain":     {"type": "string", "description": "Optional resolution chain text that yielded this symbol (e.g. 'X registers Y which returns Y.Name() = \"foo\"'). Empty when the symbol is a direct read."},
-          "rationale": {"type": "string", "description": "Optional one-sentence rationale for why this terminal was selected. Keep concise."}
+          "rationale": {"type": "string", "description": "Optional rationale for why this terminal answers the question — what role it plays, not just where it lives. Keep it concrete but natural; downstream rendering presents this as a column alongside the location, so restating file:line is a regression."}
         },
         "required": ["name", "file", "line", "kind"]
       }

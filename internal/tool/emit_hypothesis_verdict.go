@@ -89,7 +89,7 @@ func (t *EmitHypothesisVerdict) Parameters() json.RawMessage {
         "properties": {
           "hypothesis_id": {"type": "string", "description": "ID from AnalysisIR.HypothesisSet[*].ID. Required. Unknown IDs are diagnosed."},
           "status":        {"type": "string", "enum": ["confirmed", "rejected", "inconclusive"], "description": "Verdict. confirmed/rejected require a citation; inconclusive may omit it."},
-          "rationale":     {"type": "string", "description": "One-sentence rationale for the verdict. Optional but strongly recommended."},
+          "rationale":     {"type": "string", "description": "Rationale for the verdict — explain the mechanism or invariant that produced the status. Reference load-bearing identifiers with inline `+"`"+`code`+"`"+`. Strongly recommended."},
           "citation":      {"type": "string", "description": "Concrete code anchor in the form 'path:line' or 'path:line-end'. Required when status is confirmed or rejected."}
         },
         "required": ["hypothesis_id", "status"]
