@@ -744,6 +744,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				e.tightenFocusedFrontier()
 				return e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords)
 			}
+			if e.shouldStartPrimaryEntityDepth(analyzerKind) {
+				e.phase = 1
+				e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
+				e.tightenPrimaryEntityFrontier()
+				return e.buildPrimaryEntityDepthStartInstruction(ctx, analyzerKeywords)
+			}
 			if e.shouldStartDeclarativeDepth(analyzerKind) {
 				e.phase = 1
 				e.tightenDeclarativeFrontier()
@@ -851,6 +857,18 @@ func (e *explorerEvaluator) primaryEntityFiles() []string {
 	return files
 }
 
+func (e *explorerEvaluator) uniquePrimaryEntityFile() (string, bool) {
+	primary := e.primaryEntityFiles()
+	if len(primary) != 1 {
+		return "", false
+	}
+	path := canonicalExplorerPath(primary[0])
+	if path == "" {
+		return "", false
+	}
+	return path, true
+}
+
 func exactAnchorFilesFromScores(results []keywordFileScore) []string {
 	if len(results) == 0 {
 		return nil
@@ -872,6 +890,17 @@ func (e *explorerEvaluator) uniqueExactAnchorFile() (string, bool) {
 		return "", false
 	}
 	return e.exactAnchorFiles[0], true
+}
+
+func (e *explorerEvaluator) primaryEntityFocusRelevant() bool {
+	if _, ok := e.uniqueExactAnchorFile(); ok {
+		return false
+	}
+	if len(e.declarativeAnchorFiles) > 0 || e.isEnumerationQuery {
+		return false
+	}
+	_, ok := e.uniquePrimaryEntityFile()
+	return ok
 }
 
 func declarativeFocusRelevant(questionKind string, isEnumeration bool, axis types.PredicateAxis) bool {
@@ -1016,6 +1045,40 @@ func (e *explorerEvaluator) focusedAnchorNeighborhood() map[string]bool {
 	return files
 }
 
+func (e *explorerEvaluator) primaryEntityNeighborhood() map[string]bool {
+	anchor, ok := e.uniquePrimaryEntityFile()
+	if !ok {
+		return nil
+	}
+	files := make(map[string]bool)
+	add := func(path string) {
+		path = canonicalExplorerPath(path)
+		if path == "" || isNoisePath(path) {
+			return
+		}
+		files[path] = true
+	}
+	add(anchor)
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return files
+	}
+	graph := e.searchResult.Graph
+	if fi := graph.FileIndex[anchor]; fi != nil {
+		for _, rel := range fi.Relations {
+			if rel.Kind != "call" {
+				continue
+			}
+			if rel.ToEP.File != "" {
+				add(rel.ToEP.File)
+			}
+			if target := graph.ResolveCallTarget(fi, rel); target != nil {
+				add(target.File)
+			}
+		}
+	}
+	return files
+}
+
 func (e *explorerEvaluator) focusedAnchorAllowsFile(path string) bool {
 	path = canonicalExplorerPath(path)
 	if path == "" || isNoisePath(path) {
@@ -1029,6 +1092,22 @@ func (e *explorerEvaluator) focusedAnchorAllowsFile(path string) bool {
 		return true
 	}
 	anchor, ok := e.uniqueExactAnchorFile()
+	return ok && sameRepoDir(anchor, path)
+}
+
+func (e *explorerEvaluator) primaryEntityAllowsFile(path string) bool {
+	path = canonicalExplorerPath(path)
+	if path == "" || isNoisePath(path) {
+		return false
+	}
+	focused := e.primaryEntityNeighborhood()
+	if len(focused) == 0 {
+		return false
+	}
+	if focused[path] {
+		return true
+	}
+	anchor, ok := e.uniquePrimaryEntityFile()
 	return ok && sameRepoDir(anchor, path)
 }
 
@@ -1093,6 +1172,9 @@ func (e *explorerEvaluator) activeFocusAllowsFile(path string) bool {
 	}
 	if len(e.declarativeAnchorFiles) > 0 {
 		return e.declarativeAnchorAllowsFile(path)
+	}
+	if e.primaryEntityFocusRelevant() {
+		return e.primaryEntityAllowsFile(path)
 	}
 	return true
 }
@@ -1216,6 +1298,22 @@ func (e *explorerEvaluator) shouldStartFocusedDepth(questionKind string) bool {
 	return !strings.EqualFold(strings.TrimSpace(questionKind), "enumeration")
 }
 
+func (e *explorerEvaluator) shouldStartPrimaryEntityDepth(questionKind string) bool {
+	if _, ok := e.uniqueExactAnchorFile(); ok {
+		return false
+	}
+	if len(e.declarativeAnchorFiles) > 0 {
+		return false
+	}
+	if _, ok := e.uniquePrimaryEntityFile(); !ok {
+		return false
+	}
+	if e.isEnumerationQuery {
+		return false
+	}
+	return !strings.EqualFold(strings.TrimSpace(questionKind), "enumeration")
+}
+
 func (e *explorerEvaluator) shouldStartDeclarativeDepth(questionKind string) bool {
 	if _, ok := e.uniqueExactAnchorFile(); ok {
 		return false
@@ -1282,6 +1380,61 @@ func (e *explorerEvaluator) tightenFocusedFrontier() {
 	}
 	sort.Strings(focusedNeighbors)
 	for _, file := range focusedNeighbors {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(file)
+	}
+	for _, f := range e.requiredFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(f)
+	}
+	for _, f := range e.preScannedFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(f)
+	}
+	if len(narrowed) > 0 {
+		e.preScannedFiles = narrowed
+	}
+}
+
+func (e *explorerEvaluator) tightenPrimaryEntityFrontier() {
+	anchor, ok := e.uniquePrimaryEntityFile()
+	if !ok {
+		return
+	}
+	limit := tool.CurrentAnalysisLimits().Phase1UnreadTopK
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit > 3 {
+		limit = 3
+	}
+	seen := make(map[string]bool)
+	var narrowed []string
+	add := func(path string) {
+		path = canonicalExplorerPath(path)
+		if path == "" || seen[path] || !e.primaryEntityAllowsFile(path) {
+			return
+		}
+		seen[path] = true
+		narrowed = append(narrowed, path)
+	}
+	add(anchor)
+	var neighbors []string
+	for file := range e.primaryEntityNeighborhood() {
+		file = canonicalExplorerPath(file)
+		if file == "" || file == anchor {
+			continue
+		}
+		neighbors = append(neighbors, file)
+	}
+	sort.Strings(neighbors)
+	for _, file := range neighbors {
 		if len(narrowed) >= limit {
 			break
 		}
@@ -1454,6 +1607,94 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 	return b.String()
 }
 
+func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.AgentContext, analyzerKeywords []string) string {
+	anchor, ok := e.uniquePrimaryEntityFile()
+	if !ok {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Primary Entity Depth Start\n\n")
+	b.WriteString("The question's entities resolve to a single primary implementation file in the repo graph. ")
+	b.WriteString("Start with that file directly instead of doing a broad second-round sweep.\n\n")
+	fmt.Fprintf(&b, "**Read `%s` first.** This is the receiver-aware primary target for the user question.\n\n", anchor)
+	b.WriteString("Workflow:\n")
+	b.WriteString("- Use `read_file` on the primary file immediately. If it is large, first use `grep` WITHIN that file (`files_only=false`) to locate the exact symbol body.\n")
+	b.WriteString("- Extract direct evidence about the named entity before widening the search.\n")
+	b.WriteString("- Expand only to direct neighbors of the primary file, analyzer-required files that stay in the same focus area, or files named by unresolved symbols from your notes.\n")
+	b.WriteString("- Do NOT fall back to the full keyword-search tail until the primary file and its direct neighbors are exhausted.\n\n")
+	if banner := e.buildPrimaryTargetBanner(); banner != "" {
+		b.WriteString(banner)
+	}
+	if len(e.requiredFiles) > 0 {
+		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(e.requiredFiles)
+		writeGroup := func(title, framing string, group []string, cap int) int {
+			count := 0
+			for _, f := range group {
+				f = strings.TrimPrefix(f, "./")
+				if f == "" || f == anchor || !e.primaryEntityAllowsFile(f) {
+					continue
+				}
+				if count == 0 {
+					b.WriteString(title)
+					b.WriteString(framing)
+				}
+				b.WriteString("- `" + f + "`\n")
+				count++
+				if count >= cap {
+					break
+				}
+			}
+			if count > 0 {
+				b.WriteString("\n")
+			}
+			return count
+		}
+		logWritten := writeGroup(
+			"### Frames from the attached log\n\n",
+			"These repo files resolved from the attached log's stack frames. Read them before any ranker candidates, and base the answer's call-chain diagram on the Log Triage Call chain block, not on the Auxiliary candidates:\n\n",
+			logFiles, 4,
+		)
+		auxTitle := "### Analyzer's Required Files\n\n"
+		auxFraming := "Trace outward from the primary file through these structurally relevant files only as needed:\n\n"
+		if logWritten > 0 {
+			auxTitle = "### Auxiliary candidates (opt-in cross-references)\n\n"
+			auxFraming = "Open these ONLY if the evidence chain visibly crosses file boundaries beyond the log-frame anchors above. Do NOT cite them in the answer's call-chain diagram unless you observed a direct call to or from them:\n\n"
+		}
+		writeGroup(auxTitle, auxFraming, rankerFiles, 4)
+	}
+	if len(analyzerKeywords) > 0 {
+		display := analyzerKeywords
+		if len(display) > 12 {
+			display = display[:12]
+		}
+		b.WriteString("### Search Terms\n\n")
+		b.WriteString("Use these terms inside the primary file and its direct neighbors before widening scope:\n`")
+		b.WriteString(strings.Join(display, "`, `"))
+		b.WriteString("`\n\n")
+	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		preReadFiles := []string{anchor}
+		for _, f := range e.requiredFiles {
+			f = strings.TrimPrefix(f, "./")
+			if f == "" || f == anchor || !e.primaryEntityAllowsFile(f) {
+				continue
+			}
+			preReadFiles = append(preReadFiles, f)
+		}
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, preReadFiles, 2, 200); preReadInjected != "" {
+			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
+			b.WriteString(preReadInjected)
+		}
+	}
+	b.WriteString("Evidence format:\n")
+	b.WriteString("- `[DIRECT] functionName line N: <what this code establishes>`\n")
+	b.WriteString("- `[REGISTRATION] functionName line N: <what is registered, EXACT values>`\n")
+	b.WriteString("- `[CONDITIONAL] functionName line N: <what happens> IF <condition>`\n")
+	b.WriteString("- `[ABSENT] <what was expected but NOT found>`\n\n")
+	b.WriteString("Read the primary file now and collect evidence before expanding.\n")
+	return b.String()
+}
+
 func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.AgentContext, analyzerKeywords []string) string {
 	if len(e.declarativeAnchorFiles) == 0 {
 		return ""
@@ -1548,6 +1789,7 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 	files := make(map[string]bool)
 	focused := e.focusedAnchorNeighborhood()
 	declarativeFocused := e.declarativeFocusNeighborhood()
+	primaryFocused := e.primaryEntityNeighborhood()
 	add := func(path string) {
 		path = canonicalExplorerPath(path)
 		if path == "" || isNoisePath(path) {
@@ -1556,6 +1798,9 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 		files[path] = true
 	}
 	for file := range readSet {
+		if !e.activeFocusAllowsFile(file) {
+			continue
+		}
 		add(file)
 	}
 	for _, file := range e.exactAnchorFiles {
@@ -1568,6 +1813,9 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 		add(file)
 	}
 	for file := range declarativeFocused {
+		add(file)
+	}
+	for file := range primaryFocused {
 		add(file)
 	}
 	for _, file := range e.primaryEntityFiles() {
@@ -1651,7 +1899,7 @@ func (e *explorerEvaluator) activeFrontierFiles(readSet map[string]bool, notesJo
 }
 
 func (e *explorerEvaluator) coverageScopeFiles(discovered []string, readSet map[string]bool, notesJoined string) []string {
-	if _, ok := e.uniqueExactAnchorFile(); ok || len(e.declarativeAnchorFiles) > 0 {
+	if _, ok := e.uniqueExactAnchorFile(); ok || len(e.declarativeAnchorFiles) > 0 || e.primaryEntityFocusRelevant() {
 		if scope := e.activeFrontierFiles(readSet, notesJoined); len(scope) > 0 {
 			return scope
 		}
@@ -1668,6 +1916,25 @@ func (e *explorerEvaluator) coverageScopeFiles(discovered []string, readSet map[
 		}
 		seen[file] = true
 		out = append(out, file)
+	}
+	return out
+}
+
+func (e *explorerEvaluator) rankerCoverageFiles() []string {
+	if len(e.allScoredFiles) == 0 {
+		return nil
+	}
+	if _, ok := e.uniqueExactAnchorFile(); !ok && len(e.declarativeAnchorFiles) == 0 && !e.primaryEntityFocusRelevant() {
+		return append([]string(nil), e.allScoredFiles...)
+	}
+	out := make([]string, 0, len(e.allScoredFiles))
+	for _, f := range e.allScoredFiles {
+		if e.activeFocusAllowsFile(f) {
+			out = append(out, f)
+		}
+	}
+	if len(out) == 0 {
+		return append([]string(nil), e.allScoredFiles...)
 	}
 	return out
 }
@@ -2880,41 +3147,44 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		iteration >= e.heuristics.MidLoopMinIteration*2 &&
 		len(e.allScoredFiles) >= 6 &&
 		!e.logTriageAuthoritativeAndCovered(allResults) {
-		_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
-		topK := 5
-		if topK > len(e.allScoredFiles) {
-			topK = len(e.allScoredFiles)
-		}
-		var missing []string
-		for _, f := range e.allScoredFiles[:topK] {
-			// allScoredFiles entries are always repo-relative (keyword
-			// search emits relative paths). readSet is now also always
-			// repo-relative because extractFileCoverage canonicalises
-			// via ground.CanonicalRepoRelative with e.repoRoot. Both
-			// map keys speak the same form, so a direct lookup works
-			// without an absolute-vs-relative reconciliation layer.
-			canon := canonicalExplorerPath(f)
-			if canon == "" {
-				canon = f
+		rankedFiles := e.rankerCoverageFiles()
+		if len(rankedFiles) >= 6 {
+			_, readSet, _ := extractFileCoverage(allResults, e.repoRoot)
+			topK := 5
+			if topK > len(rankedFiles) {
+				topK = len(rankedFiles)
 			}
-			if isNoisePath(canon) {
-				continue
+			var missing []string
+			for _, f := range rankedFiles[:topK] {
+				// allScoredFiles entries are always repo-relative (keyword
+				// search emits relative paths). readSet is now also always
+				// repo-relative because extractFileCoverage canonicalises
+				// via ground.CanonicalRepoRelative with e.repoRoot. Both
+				// map keys speak the same form, so a direct lookup works
+				// without an absolute-vs-relative reconciliation layer.
+				canon := canonicalExplorerPath(f)
+				if canon == "" {
+					canon = f
+				}
+				if isNoisePath(canon) {
+					continue
+				}
+				if readSet[canon] {
+					continue
+				}
+				missing = append(missing, f)
 			}
-			if readSet[canon] {
-				continue
+			if len(missing) >= 3 {
+				fmt.Fprintf(&b,
+					"MID-LOOP CHECK: the keyword ranker scored %d relevant files but %d of "+
+						"the top-%d remain unread: %s. Before declaring the investigation "+
+						"complete, open at least 2-3 of these if they correspond to the "+
+						"question's subject or mechanism — the ranker's top-K is where "+
+						"grounded evidence typically lives.\n",
+					len(rankedFiles), len(missing), topK, strings.Join(missing, ", "))
+				e.midLoopRankerCoverageSent = true
+				hintKey = "explorer.mid-loop.ranker-coverage"
 			}
-			missing = append(missing, f)
-		}
-		if len(missing) >= 3 {
-			fmt.Fprintf(&b,
-				"MID-LOOP CHECK: the keyword ranker scored %d relevant files but %d of "+
-					"the top-%d remain unread: %s. Before declaring the investigation "+
-					"complete, open at least 2-3 of these if they correspond to the "+
-					"question's subject or mechanism — the ranker's top-K is where "+
-					"grounded evidence typically lives.\n",
-				len(e.allScoredFiles), len(missing), topK, strings.Join(missing, ", "))
-			e.midLoopRankerCoverageSent = true
-			hintKey = "explorer.mid-loop.ranker-coverage"
 		}
 	}
 
@@ -4075,9 +4345,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// Compute relevance-weighted coverage: files in allScoredFiles
 	// (top keyword-search hits) count more than random grep results.
 	relevantRead := 0
-	if len(e.allScoredFiles) > 0 {
-		scoredSet := make(map[string]bool, len(e.allScoredFiles))
-		for _, f := range e.allScoredFiles {
+	rankedFiles := e.rankerCoverageFiles()
+	if len(rankedFiles) > 0 {
+		scoredSet := make(map[string]bool, len(rankedFiles))
+		for _, f := range rankedFiles {
 			scoredSet[f] = true
 		}
 		for f := range readSet {

@@ -1594,6 +1594,74 @@ var defaultRoutes = map[string]string{
 	}
 }
 
+func TestBuildInitialInstruction_UniquePrimaryEntityStartsFocusedDepth(t *testing.T) {
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "explorer.go"), []byte(`package sample
+
+type explorerEvaluator struct{}
+
+func (e *explorerEvaluator) BuildInitialInstruction() string {
+	return helper()
+}
+`), 0o644); err != nil {
+		t.Fatalf("write explorer.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "sub_explorer.go"), []byte(`package sample
+
+type subExplorerEvaluator struct{}
+
+func (e *subExplorerEvaluator) BuildInitialInstruction() string {
+	return ""
+}
+`), 0o644); err != nil {
+		t.Fatalf("write sub_explorer.go: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "helper.go"), []byte(`package sample
+
+func helper() string { return "ok" }
+`), 0o644); err != nil {
+		t.Fatalf("write helper.go: %v", err)
+	}
+
+	question := "explorerEvaluator 的 BuildInitialInstruction 做了什么？"
+	ctx := &types.AgentContext{
+		Objective: question,
+		RepoRoot:  repo,
+		Mutable:   types.NewMutableState(question),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Complexity: types.ComplexityModerate,
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"BuildInitialInstruction", "build", "instruction"},
+					Entities: []string{"BuildInitialInstruction"},
+					Kind:     "mechanism",
+				},
+			},
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: []string{"helper.go", "internal/context/builder.go"},
+			},
+		},
+	}
+
+	eval := &explorerEvaluator{}
+	prompt := eval.BuildInitialInstruction(ctx, nil)
+	if eval.phase != 1 {
+		t.Fatalf("unique primary entity should start in depth phase, got phase=%d", eval.phase)
+	}
+	if !strings.Contains(prompt, "Primary Entity Depth Start") {
+		t.Fatalf("primary-entity focused prompt missing, got: %s", prompt)
+	}
+	if strings.Contains(prompt, "Breadth Scan") {
+		t.Fatalf("primary-entity focused start should bypass breadth prompt, got: %s", prompt)
+	}
+	if !strings.Contains(prompt, "explorer.go") {
+		t.Fatalf("primary target file missing from focused prompt: %s", prompt)
+	}
+	if strings.Contains(prompt, "internal/context/builder.go") {
+		t.Fatalf("primary-focused prompt should drop unrelated required files outside the primary neighborhood: %s", prompt)
+	}
+}
+
 func TestActiveFrontierFiles_ExcludesAllScoredNoiseWhenExactAnchorPresent(t *testing.T) {
 	eval := &explorerEvaluator{
 		exactAnchorFiles: []string{"target.go"},
@@ -1646,6 +1714,94 @@ func TestCoverageScopeFiles_UsesFocusedDeclarativeFrontier(t *testing.T) {
 	readCount, coverage, unread := coverageSnapshot(scope, readSet)
 	if readCount != 2 || coverage != 1 || len(unread) != 0 {
 		t.Fatalf("focused coverage should treat the frontier as complete, got read=%d coverage=%.2f unread=%v", readCount, coverage, unread)
+	}
+}
+
+func TestActiveFrontierFiles_UsesUniquePrimaryEntityFocus(t *testing.T) {
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements: []EvidenceRequirement{
+			{Entities: []string{"explorerEvaluator", "ContinuationPrompt"}},
+		},
+		requiredFiles:   []string{"internal/agent/helper.go", "internal/context/builder.go"},
+		preScannedFiles: []string{"internal/agent/helper.go", "internal/context/builder.go", "other/noise.go"},
+		allScoredFiles:  []string{"internal/agent/explorer.go", "internal/agent/helper.go", "internal/context/builder.go", "other/noise.go"},
+	}
+
+	got := eval.activeFrontierFiles(map[string]bool{
+		"internal/agent/current.go": true,
+		"other/legacy.go":           true,
+	}, "")
+	if strings.Join(got, ",") != "internal/agent/current.go,internal/agent/explorer.go,internal/agent/helper.go" {
+		t.Fatalf("primary-entity frontier should stay on the primary file and same-focus neighbors, got %v", got)
+	}
+}
+
+func TestCoverageScopeFiles_UsesUniquePrimaryEntityFrontier(t *testing.T) {
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements: []EvidenceRequirement{
+			{Entities: []string{"explorerEvaluator", "ContinuationPrompt"}},
+		},
+		requiredFiles:  []string{"internal/agent/helper.go", "internal/context/builder.go"},
+		allScoredFiles: []string{"internal/agent/explorer.go", "internal/agent/helper.go", "internal/context/builder.go", "other/noise.go"},
+	}
+
+	readSet := map[string]bool{
+		"internal/agent/explorer.go": true,
+	}
+	discovered := []string{
+		"internal/agent/explorer.go",
+		"internal/agent/helper.go",
+		"internal/context/builder.go",
+		"other/noise.go",
+	}
+
+	scope := eval.coverageScopeFiles(discovered, readSet, "")
+	if strings.Join(scope, ",") != "internal/agent/explorer.go,internal/agent/helper.go" {
+		t.Fatalf("coverage scope should stay on the primary frontier, got %v", scope)
+	}
+}
+
+func TestMidLoopCheck_RankerCoverage_UsesPrimaryEntityFocus(t *testing.T) {
+	eval := &explorerEvaluator{
+		phase:        1,
+		userQuestion: "explorerEvaluator 的 ContinuationPrompt 做什么？",
+		searchResult: &keywordSearchResult{Graph: driftFixGraph()},
+		ermRequirements: []EvidenceRequirement{
+			{Entities: []string{"explorerEvaluator", "ContinuationPrompt"}},
+		},
+		heuristics: types.DefaultExploreHeuristics(),
+		allScoredFiles: []string{
+			"internal/agent/explorer.go",
+			"internal/agent/helper.go",
+			"internal/context/builder.go",
+			"internal/tool/dispatch.go",
+			"pkg/noise.go",
+			"docs/noise.md",
+		},
+	}
+	history := []types.ToolResult{
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/explorer.go: showing lines 1-120 of 200 total]\n...",
+		},
+		{
+			ToolName: "read_file",
+			Success:  true,
+			Summary:  "[internal/agent/helper.go: showing lines 1-40 of 40 total]\n...",
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      10,
+		Response:       llm.Response{Content: "checking focused files"},
+		LastToolResult: &history[len(history)-1],
+		AllToolResults: history,
+	})
+	if sig.HintKey == "explorer.mid-loop.ranker-coverage" {
+		t.Fatalf("primary-entity focus should prevent unrelated ranked tail from re-inflating coverage, got %+v", sig)
 	}
 }
 
