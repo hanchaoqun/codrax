@@ -117,13 +117,21 @@ func buildAnalysisQuestionKinds() []AnalysisEnumChoice {
 
 // analysisAnswerShapes is the canonical answer_shape enum. Values
 // match types.AnswerShape constants (plus the "none" sentinel).
+//
+// Structural test for picking the shape: ask "can the user satisfy
+// their question by reading just the names of the items, with no
+// behavioral or relational prose?" If yes → list_of_symbols. If no →
+// step_list (when each behavioral hop is a discrete branch) or
+// explanation (when the answer needs multi-paragraph prose). A
+// question that compares two named subjects' behaviors is NOT
+// satisfied by reading names alone — pick step_list or explanation.
 var analysisAnswerShapes = []AnalysisEnumChoice{
-	{string(types.ShapeListOfSymbols), "answer is a set of identifier names found in the investigation's evidence"},
-	{string(types.ShapeStepList), "ordered steps of a mechanism"},
+	{string(types.ShapeListOfSymbols), "the user wants the NAMES of items in a set, and naming the items by themselves is the complete answer — no behavioral or relational prose needed for the reader to understand each item's role. NOT for: questions whose answer is a mechanism walk-through, a comparison between two named subjects' behaviors, an architectural overview, or anything where the reader needs prose to interpret each item beyond its name"},
+	{string(types.ShapeStepList), "the answer is an ordered or branched sequence of behavioral hops — a mechanism walked step by step, OR a comparison between two named subjects rendered as discrete differences (one step per difference, one step per branch). Pick this when each item is a behavioral hop the reader follows in order, not a standalone name"},
 	{string(types.ShapeValue), "a single literal / returned value"},
 	{string(types.ShapeBoolean), "yes/no"},
 	{string(types.ShapeConfigValue), "a resolved config key value"},
-	{string(types.ShapeExplanation), "long prose explanation"},
+	{string(types.ShapeExplanation), "answer requires multi-paragraph prose to explain a mechanism, an architecture, or how concepts relate to each other; default for any explain-intent question whose subject is too entangled for a clean step list"},
 	{string(types.ShapeNone), "no structured shape applies"},
 }
 
@@ -241,7 +249,7 @@ var AnalysisHardRules = []string{
 	"every field in emit_analysis is REQUIRED (keywords and entities may be empty arrays); missing required fields rejects the call",
 	"entities come from the user's ORIGINAL text only — \"ContinuationPrompt\" stays as \"ContinuationPrompt\", not \"continuation prompt\" or \"continuation_prompt\"",
 	"do not invent an intent by stretching a category; if two fit equally, pick the one that matches the user's verb; if none fit, use \"unknown\"",
-	"answer_shape must match the answer's structural shape: list_of_symbols when the answer is a SET of distinct named items; value when the answer is a single scalar aggregated across source units (predicates.is_count_question=true) or a single source-code literal; boolean when the answer is yes/no; step_list or explanation when the answer describes a mechanism. A scalar cannot satisfy the list_of_symbols shape contract — pick value + return_value for any count / size / total",
+	"answer_shape must match the answer's structural shape: list_of_symbols when the answer is a SET of distinct named items the user can satisfy by reading the NAMES ALONE (no behavioral prose per item); value when the answer is a single scalar aggregated across source units (predicates.is_count_question=true) or a single source-code literal; boolean when the answer is yes/no; step_list or explanation when the answer describes a mechanism, compares two named subjects' behaviors, or otherwise needs behavioral / relational prose. A scalar cannot satisfy the list_of_symbols shape contract — pick value + return_value for any count / size / total. A mechanism / comparison / architectural overview cannot satisfy the list_of_symbols shape contract either — when intent='explain' the shape MUST be step_list (discrete behavioral hops) or explanation (continuous prose), never list_of_symbols",
 	"call emit_analysis EXACTLY ONCE — multiple calls trigger a warning (or a hard reject when analysis_reject_multiple_emit=true) and only the last write is effective",
 	"do not defer emit_analysis by writing open-ended analysis prose — the moment you have enough information to classify, call the tool; brief reasoning paired with pre-scan tool calls is fine, a standalone \"let me think about this\" paragraph is not",
 	"do not translate or re-case entities — copy them verbatim from the user's text",
