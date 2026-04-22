@@ -497,6 +497,99 @@ func TestEmitEvidence_RejectsBlobSource(t *testing.T) {
 	}
 }
 
+// TestEmitAnswerSymbol_FloorGroundingDropsCallSiteLine pins the
+// Fix D contract: when the cited file was read_file'd in this
+// pipeline AND the claimed file:line (±2 window) does not contain
+// the symbol name as a code identifier, the item is dropped before
+// reaching the deterministic floor. Regression target was the u3a
+// run-1 case where the extractor LLM read evidence bullets of the
+// shape "[relationship] X calls Y — file:line" as "X is at line"
+// and emitted symbols whose file:line pointed at the call-site
+// line (Y's call inside X) rather than X's own definition; all 10
+// downstream finalizer citations failed grounding because the line
+// text contained Y's identifier, not X's.
+func TestEmitAnswerSymbol_FloorGroundingDropsCallSiteLine(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	// Simulate a prior read_file on explorer.go: line 992 is the call
+	// site of canonicalExplorerPath inside focusedAnchorNeighborhood
+	// (which is defined at line 985 in real source). The line text
+	// contains "canonicalExplorerPath", NOT "focusedAnchorNeighborhood".
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/explorer.go: showing lines 990-994 of 8000 total]\n   990│ \n   991│ func add(path string) {\n   992│ \tpath = canonicalExplorerPath(path)\n   993│ \tif path == \"\" {\n   994│ \t\treturn\n",
+	})
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "explorerEvaluator.focusedAnchorNeighborhood", "file": "internal/agent/explorer.go", "line": 992, "kind": "method"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("call-site-line item should be dropped; got Success=true Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "not corroborated") {
+		t.Errorf("rejection should explain via the literal-grounding contract phrase; got: %q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "call site") {
+		t.Errorf("rejection should mention the call-site mis-read failure mode; got: %q", res.Summary)
+	}
+}
+
+// TestEmitAnswerSymbol_FloorGroundingAcceptsRealDefinition is the
+// positive companion: when the cited line genuinely contains the
+// symbol's identifier, Fix D lets the item through.
+func TestEmitAnswerSymbol_FloorGroundingAcceptsRealDefinition(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/explorer.go: showing lines 983-987 of 8000 total]\n   983│ \n   984│ // focusedAnchorNeighborhood returns the focused subjects.\n   985│ func (e *explorerEvaluator) focusedAnchorNeighborhood() map[string]bool {\n   986│ \treturn e.focused\n   987│ }\n",
+	})
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "explorerEvaluator.focusedAnchorNeighborhood", "file": "internal/agent/explorer.go", "line": 985, "kind": "method"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("real-definition item should be accepted; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+// TestEmitAnswerSymbol_FloorGroundingSkippedWhenFileNotRead pins the
+// "let it through when we cannot verify" half of Fix D: when the
+// cited file was never read_file'd in this pipeline, we have no line
+// text to verify against — the item passes the new gate (downstream
+// finalizer grounding remains the second line of defence).
+func TestEmitAnswerSymbol_FloorGroundingSkippedWhenFileNotRead(t *testing.T) {
+	tool := &EmitAnswerSymbol{}
+	ctx := newAnswerSymbolCtx()
+	params := json.RawMessage(`{
+        "items": [
+          {"name": "SomeFunction", "file": "internal/agent/never_read.go", "line": 42, "kind": "function"}
+        ],
+        "completeness": "lower_bound"
+    }`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("item from never-read file should pass the floor gate; got Success=false Summary=%q", res.Summary)
+	}
+}
+
 // isInsideWorkDir unit boundary tests — the structural prefix logic
 // is load-bearing for both tools, so test it directly without going
 // through Execute.

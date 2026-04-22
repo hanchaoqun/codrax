@@ -563,6 +563,15 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	//   (3) every citation-grounding warning (whitelist miss, Tier 2
 	//       dead-zone, fabricated-quote drop, …)
 	// so one retry round has a shot at fixing all of it.
+	// Fix E: kept=0 escape-path block. When every LLM-supplied
+	// citation was dropped by grounding, the LLM has no read_file
+	// tool at finalize-time and cannot recover the cites by reading
+	// new files. Without explicit guidance the LLM tends to retry
+	// with byte-similar payloads (different framing, same wrong
+	// file:line) and burn the iteration budget into an API
+	// bad-request once a malformed-JSON retry slips through. Emit a
+	// dedicated section that names the escape paths so the next-iter
+	// retry has a direction.
 	failWithContext := func(format string, args ...interface{}) (types.ToolResult, error) {
 		var b strings.Builder
 		fmt.Fprintf(&b, format, args...)
@@ -576,6 +585,12 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 				b.WriteString("\n  - ")
 				b.WriteString(w)
 			}
+		}
+		if len(p.Citations) > 0 && numCites == 0 {
+			b.WriteString("\n\nALL citations failed grounding. The finalizer agent has no read_file tool — you cannot recover by reading more files in this retry. Pick one of the escape paths instead of resubmitting the same file:line addresses (which will fail the same way):")
+			b.WriteString("\n  (a) drop the un-citable items from the structured field (symbols[] / steps[] / value{} / boolean{}) and resubmit a smaller set with the appropriate completeness — the answer ships with whatever survives;")
+			b.WriteString("\n  (b) when nothing survives at all, set symbols_completeness='unknown' (for list_of_symbols), or switch to shape='explanation' with a prose summary that names the subject by behaviour rather than by file:line;")
+			b.WriteString("\n  (c) for a citation whose file:line came from prior-stage prose like '[relationship] X calls Y — file:line', that line is X's CALL SITE for Y, not X's definition — do not cite it as X's location.")
 		}
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -678,7 +693,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		}
 		built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 		for i, in := range p.Symbols {
-			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle)
+			sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx)
 			if perr != nil {
 				return failWithContext("symbols[%d]: %v", i, perr)
 			}
@@ -777,7 +792,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if len(p.Symbols) > 0 {
 			built := make([]types.AnswerSymbol, 0, len(p.Symbols))
 			for i, in := range p.Symbols {
-				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle)
+				sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, docLogTriageBundle, groundCtx)
 				if perr != nil {
 					return failWithContext("symbols[%d]: %v", i, perr)
 				}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tool/ground"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -194,10 +195,20 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 	if ctx.Mutable != nil {
 		bundle = ctx.Mutable.LogTriage()
 	}
+	// Fix D: floor grounding. Build the ground context (TurnA snapshot
+	// + dispatch buffer + bus tool results) so each item can be
+	// line-text verified against what the investigation actually read.
+	// When the cited file was read_file'd earlier in the pipeline and
+	// the claimed line ±2 does not contain the symbol name, the item
+	// is dropped before reaching the deterministic floor — catches the
+	// u3a regression class where the extractor LLM emitted items whose
+	// file:line pointed at a call-site line rather than the symbol's
+	// definition line.
+	groundCtx := ground.BuildContext(ctx)
 	built := make([]types.AnswerSymbol, 0, len(p.Items))
 	var dropped []string
 	for i, in := range p.Items {
-		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle)
+		sym, perr := buildEmitAnswerSymbolItem(in, i, workDir, bundle, groundCtx)
 		if perr != nil {
 			dropped = append(dropped, perr.Error())
 			continue
@@ -243,7 +254,7 @@ func (t *EmitAnswerSymbol) Execute(ctx *types.BusContext, params json.RawMessage
 // message names. This is the symmetric sibling of the kind=absent
 // retirement on emit_evidence: both channels reject an unsatisfiable
 // item and point at the proper whole-shape escape.
-func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle) (types.AnswerSymbol, error) {
+func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir string, bundle *types.LogBundle, groundCtx *ground.Context) (types.AnswerSymbol, error) {
 	externalSource := bundle.IsExternalSource()
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -272,6 +283,31 @@ func buildEmitAnswerSymbolItem(in emitAnswerSymbolItem, index int, workDir strin
 	kind, ok := types.NormalizeAnswerSymbolKind(in.Kind)
 	if !ok {
 		return types.AnswerSymbol{}, fmt.Errorf("items[%d]: unknown kind %q; see types.AllAnswerSymbolKinds for the closed taxonomy (function, method, type, struct, class, interface, trait, enum, protocol, const, var, field, property, module, package, crate, namespace, macro, decorator, annotation, literal)", index, in.Kind)
+	}
+
+	// Fix D: floor grounding. When the cited file was read_file'd
+	// earlier in the pipeline AND the claimed line (±2) does not bear
+	// the symbol name as a code identifier, drop the item. If the file
+	// was never read (HasFileInIndex=false), we cannot verify — let
+	// the item through and rely on downstream finalizer grounding.
+	//
+	// Leaf-name fallback: a name like "Type.Method" is accepted when
+	// the line bears either the full form or the "Method" segment
+	// alone (typical for method definitions where the receiver is
+	// already visible in the surrounding def line).
+	if groundCtx != nil && ground.HasFileInIndex(groundCtx, file) {
+		if _, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, name, 2); !ok {
+			leaf := name
+			if idx := strings.LastIndex(name, "."); idx >= 0 && idx+1 < len(name) {
+				leaf = name[idx+1:]
+			}
+			if leaf == name {
+				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain no identifier token matching it). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN)
+			}
+			if _, ok := ground.VerifyLineAnchor(groundCtx, file, lineN, leaf, 2); !ok {
+				return types.AnswerSymbol{}, fmt.Errorf("items[%d] (%s): name %q is not corroborated by the cited line (the line and ±2 neighbours at %s:%d contain neither %q nor its leaf %q). Cite the line where the symbol is DEFINED, not a line that merely references it (e.g. a call site). If you picked this line from an evidence bullet of the shape '[relationship] X calls Y — file:line', that line is the call site (Y's callsite), not X's definition — X is defined at a different line", index, name, name, file, lineN, name, leaf)
+			}
+		}
 	}
 
 	return types.AnswerSymbol{

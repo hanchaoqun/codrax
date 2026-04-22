@@ -857,6 +857,49 @@ func tier1LineText(it *types.EvidenceItem, gc *Context) bool {
 // center line when it matches; otherwise returns the nearest neighbour.
 // Matching accepts both the full anchor and its last dotted segment
 // (so `Receiver.Method` matches a line bearing just `Method`).
+// VerifyLineAnchor returns (matchedLine, true) when anchor appears as
+// a whole word at source:line ±radius and the matched line is not a
+// pure comment. Returns (_, false) when the file is not in the line
+// index (never read_file'd), when anchor is empty, or when no
+// non-comment line within ±radius contains anchor.
+//
+// This is the public entry point used by callers outside the grounder
+// itself — Fix D routes emit_answer_symbol item grounding through it
+// so extractor-stage hallucinations ("X calls Y at call site:line"
+// mis-read as "X defined at line") are rejected before they reach
+// Mutable.SetEmittedAnswerSymbols, rather than surfacing only at
+// finalizer citation time when the retry budget is already spent.
+func VerifyLineAnchor(gc *Context, source string, line int, anchor string, radius int) (int, bool) {
+	if gc == nil || source == "" || line <= 0 || anchor == "" {
+		return 0, false
+	}
+	fileLines, ok := gc.LineIndex[source]
+	if !ok {
+		return 0, false
+	}
+	matched, ok := findAnchorLine(fileLines, line, radius, anchor)
+	if !ok {
+		return 0, false
+	}
+	if isLineComment(fileLines, matched, source) {
+		return 0, false
+	}
+	return matched, true
+}
+
+// HasFileInIndex reports whether source has been read_file'd (or
+// otherwise materialised into the line index) in this context. Used
+// by callers that need to distinguish "line text disagreed with the
+// claim" (reject) from "we have no line text to check against" (let
+// the item through and rely on downstream grounding).
+func HasFileInIndex(gc *Context, source string) bool {
+	if gc == nil || source == "" {
+		return false
+	}
+	_, ok := gc.LineIndex[source]
+	return ok
+}
+
 func findAnchorLine(fileLines map[int]string, center, radius int, anchor string) (int, bool) {
 	seg := lastDotSegment(anchor)
 	// Center-first: if the claimed line matches, take it.

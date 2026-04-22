@@ -1954,3 +1954,65 @@ func TestEmitEvidence_CodenameGate_RejectsUngroundedLabel(t *testing.T) {
 		t.Errorf("evidence summary containing ungrounded `S2` must be flagged; got Summary=%q Success=%v", res.Summary, res.Success)
 	}
 }
+
+// TestEmitAnswerDocument_KeptZero_EmitsEscapePathBlock pins Fix E:
+// when (a) the call fails for any reason AND (b) every LLM-supplied
+// citation was dropped by grounding (kept=0 out of N>0), the
+// rejection text surfaces the escape-path block so the next-iter
+// retry has structured ways out instead of resubmitting the same
+// wrong file:line addresses. Regression target was
+// eval/results/u3a-20260422-171414/run-1 where the finalizer retried
+// 3× with identical-shape payloads, then triggered an LLM API 400
+// ("invalid function arguments json string") on the 4th attempt and
+// salvaged a half-answer.
+//
+// Setup: shape=list_of_symbols. symbols[i] cites a line that the
+// read_file gutter shows but does NOT contain the symbol name, so
+// validateSymbolsLiteralGrounding rejects the call. citations[i] use
+// lines OUTSIDE the gutter so the grounder drops them all → kept=0.
+// Both signals fire, the rejection runs through failWithContext, and
+// Fix E's escape block appears.
+func TestEmitAnswerDocument_KeptZero_EmitsEscapePathBlock(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	// Gutter shows lines 98-104; line 100 has neither writeSession
+	// nor any other identifier overlap with the symbol name claimed
+	// by symbols[0]. validateSymbolsLiteralGrounding rejects.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 98-104 of 1500 total]\n    98│ }\n    99│ \n   100│ \n   101│ func SomeOtherThing() {\n   102│ \treturn\n   103│ }\n   104│ \n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":                "list_of_symbols",
+		"summary":              "writeSession ferries the boundary",
+		"symbols_completeness": "lower_bound",
+		"symbols": []map[string]interface{}{
+			// Line 100 IS in the gutter (so Fix D's HasFileInIndex
+			// gate fires) but contains no `writeSession` identifier;
+			// validateSymbolsLiteralGrounding will then reject the
+			// call since the symbol literal does not corroborate.
+			{"name": "writeSession", "file": "internal/agent/analyzer.go", "line": 100, "kind": "function", "rationale": "the boundary helper"},
+		},
+		"citations": []map[string]interface{}{
+			// Lines 200/300 are OUTSIDE the gutter; grounder drops
+			// both (no Tier 1, no repomap graph in this test) → kept=0.
+			{"file": "internal/agent/analyzer.go", "line": 200, "quote": "writeSession at the boundary"},
+			{"file": "internal/agent/analyzer.go", "line": 300, "quote": "writeSession at the boundary"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("expected rejection; got Success=true Summary=%q", res.Summary)
+	}
+	for _, want := range []string{
+		"ALL citations failed grounding",
+		"finalizer agent has no read_file tool",
+		"completeness='unknown'",
+		"call site",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("Fix E escape-path block missing %q.\nFull rejection:\n%s", want, res.Summary)
+		}
+	}
+}
