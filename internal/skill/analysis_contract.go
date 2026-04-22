@@ -46,7 +46,7 @@ var analysisIntents = []AnalysisEnumChoice{
 	{string(types.IntentEnumerate), "list every X matching a predicate — the answer is a SET of names (\"list all X that do Y\", \"X matching pattern Y\"). Do NOT pick this when the user wants a count/size/total; that is return_value."},
 	{string(types.IntentConfigQuery), "look up what a config key controls"},
 	{string(types.IntentReturnValue), "asks for a single scalar answer: a function return, a literal name, a count / size / total / version number (\"how many X\", \"size of Y\", \"what does X return\"). One value, not a list."},
-	{string(types.IntentUnknown), "genuinely ambiguous (ERM will fall back to keyword inference)"},
+	{string(types.IntentUnknown), "genuinely ambiguous — the system's deterministic fallback will decide"},
 }
 
 // analysisScenarios is the canonical scenario enum. Values match
@@ -120,7 +120,7 @@ func buildAnalysisQuestionKinds() []AnalysisEnumChoice {
 // analysisAnswerShapes is the canonical answer_shape enum. Values
 // match types.AnswerShape constants (plus the "none" sentinel).
 var analysisAnswerShapes = []AnalysisEnumChoice{
-	{string(types.ShapeListOfSymbols), "answer is a set of identifier names (forbids symbols not in Ground Truth evidence)"},
+	{string(types.ShapeListOfSymbols), "answer is a set of identifier names found in the investigation's evidence"},
 	{string(types.ShapeStepList), "ordered steps of a mechanism"},
 	{string(types.ShapeValue), "a single literal / returned value"},
 	{string(types.ShapeBoolean), "yes/no"},
@@ -323,7 +323,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("  Round 2 (only if classification is uncertain): broader grep OR `grep(files_only=false)` on declarative files surfaced in Round 1 → then emit_analysis regardless\n\n")
 	of.WriteString("## emit_analysis contract\n\n")
 	of.WriteString("Call emit_analysis EXACTLY ONCE with all required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape. " +
-		"The system synthesises the TermGraph, TaskGraph, RiskMatrix, EvidencePlan, AnswerContract, and Hypotheses deterministically from your input — do not provide them.\n\n")
+		"Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
 	of.WriteString("Field enums:\n\n")
 	of.WriteString(renderEnumTable("intent", analysisIntents))
 	of.WriteString("\n")
@@ -354,8 +354,8 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- `is_relational_lookup`: true when the user is filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')\n")
 	of.WriteString("- `is_category_enumeration`: true when the user is asking 'what kinds / types / categories of X exist'\n\n")
 	of.WriteString("These predicates replace the system's old prose-keyword tables. Be honest — `false` is a valid answer. The system uses these to pick the right downstream behaviour; a wrong predicate produces a wrong answer downstream.\n\n")
-	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they poison ERM ranking. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
-	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. The analyzer is the only stage that sees Prior Conversation by default; downstream stages work off the AnalysisIR you produce here, so any Prior-derived disambiguation MUST land in entities or the downstream stages will lose the subject.\n\n")
+	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they degrade the downstream evidence search. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
+	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. The analyzer is the only stage that sees Prior Conversation by default; downstream stages only see the fields you emit here, so any Prior-derived disambiguation MUST land in entities or the downstream stages will lose the subject.\n\n")
 	of.WriteString("Keyword generation — target ≥8 diverse stems. For each concept, generate multiple variants:\n")
 	of.WriteString("- Word roots and inflections (e.g. send/sending/sent)\n")
 	of.WriteString("- Synonyms (e.g. send → emit, dispatch, publish, write)\n")
@@ -376,7 +376,7 @@ func BuildAnalysisSkill() *Config {
 
 	return &Config{
 		Name: "analysis-skill",
-		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request into a RequestModel (intent, scenario, complexity, keywords, entities, question_kind, answer_shape), then call emit_analysis exactly once. The explorer stage does the actual investigation — your job is only to verify entity existence and classify.",
+		Goal: "You are a CLASSIFIER, not an investigator. Classify the user request along seven fields (intent, scenario, complexity, keywords, entities, question_kind, answer_shape), then call emit_analysis exactly once. The explorer stage does the actual investigation — your job is only to verify entity existence and classify.",
 		Workflow: []string{
 			"Read the user input and detect its language",
 			"Round 1 pre-scan: batch ALL entity verification into ONE response — call repo_map and/or multiple grep(files_only=true) calls together as parallel tool calls. A 'round' is one LLM response, which can contain multiple tool calls",

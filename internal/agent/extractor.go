@@ -324,7 +324,7 @@ func (e *extractorEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Messag
 	// artifacts); keyEvidenceCount counts the LLM-emittable kinds
 	// that name a mechanism, not prose observations.
 	if e.extractorInvestigationEmpty(ctx) {
-		out.Error = "extractor gate: Turn A produced 0 files read and 0 key evidence (direct/registration/mechanism) — investigation is structurally empty"
+		out.Error = "extractor gate: the investigation stage produced 0 files read and 0 key evidence (direct/registration/mechanism) — investigation is structurally empty"
 		logging.Warning("[extractor] R4 fail-loud: %s", out.Error)
 		return out, nil
 	}
@@ -934,7 +934,7 @@ func axisAnchorRetryHint(ctx *types.AgentContext) string {
 	// Violation: build a concrete hint naming a matching evidence item.
 	top := matching[0]
 	return fmt.Sprintf(
-		"The question axis is %q but none of the %d emit_answer_symbol items you picked correlate with an AnchorKind=%s evidence item in the investigation's pool. Re-emit emit_answer_symbol INCLUDING at least one symbol whose file:line matches an axis-aligned evidence item, e.g. %s:%d (%s). The deterministic renderer needs a call-site anchor for the final answer's prose to hang on.",
+		"The question axis is %q but none of the %d emit_answer_symbol items you picked correlate with an evidence item of kind=%s in the investigation's pool. Re-emit emit_answer_symbol INCLUDING at least one symbol whose file:line matches an axis-aligned evidence item, e.g. %s:%d (%s). The final answer needs a call-site anchor for its prose to hang on.",
 		pa,
 		len(syms),
 		top.AnchorKind,

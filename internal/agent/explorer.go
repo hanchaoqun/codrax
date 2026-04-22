@@ -331,7 +331,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.phase = 0 // start in breadth-scan phase
 
 	var b strings.Builder
-	b.WriteString("## Phase 1: Breadth Scan\n\n")
+	b.WriteString("## Breadth Scan\n\n")
 	b.WriteString("Your goal is to MAP the relevant territory — find ALL files related to the question. ")
 	b.WriteString("Do NOT read files in full yet. Use lightweight tools:\n")
 	b.WriteString("- repo_map (task_map view) to get an overview of relevant files\n")
@@ -4035,8 +4035,8 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 		cvClosure.AddRepair(types.RepairDirective{
 			Kind:      types.RepairExpandSearch,
 			Keywords:  kws,
-			Rationale: fmt.Sprintf("Phase 0 exhausted %d broaden attempt(s) with 0 file matches — try stems, morphological variants, or conceptual synonyms of these keywords", e.broadenAttempts),
-			Origin:    "explorer.phase0.broaden_exhausted",
+			Rationale: fmt.Sprintf("breadth scan exhausted %d broaden attempt(s) with 0 file matches — try stems, morphological variants, or conceptual synonyms of these keywords", e.broadenAttempts),
+			Origin:    "explorer.breadth_scan.broaden_exhausted",
 		})
 		logging.Info("[CGEC] B1a expand_search: origin=phase0.broaden_exhausted attempts=%d keywords=%d", e.broadenAttempts, len(kws))
 	}

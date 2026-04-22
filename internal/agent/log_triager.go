@@ -143,7 +143,7 @@ func (e *logTriagerEvaluator) Observe(_ *types.AgentContext, obs LoopObservation
 func (e *logTriagerEvaluator) ParseOutput(ctx *types.AgentContext, _ []llm.Message, toolResults []types.ToolResult, _ []types.MCPResponse) (*StageOutput, error) {
 	if ctx == nil || ctx.Mutable == nil {
 		return &StageOutput{
-			Error: "log_triager requires BusContext.Mutable; the caller did not provide one",
+			Error: "log_triager requires a writable context; the caller did not provide one",
 		}, nil
 	}
 

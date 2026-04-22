@@ -113,16 +113,16 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	// section — no need to repeat it here.
 
 	shape := resolveAnswerDocShape(ctx)
-	fmt.Fprintf(&b, "## Target shape (resolved from AnalysisIR)\n\n`%s`\n\n", shape)
+	fmt.Fprintf(&b, "## Target answer shape\n\n`%s`\n\n", shape)
 
 	if shape == string(types.ShapeListOfSymbols) {
 		must := []string(nil)
 		if ctx != nil && ctx.AnalysisIR != nil {
 			must = ctx.AnalysisIR.AnswerContract.MustInclude
 		}
-		b.WriteString("## Cardinality baseline (symbols_completeness floor)\n\n")
+		b.WriteString("## Expected answer count (symbols_completeness floor)\n\n")
 		if len(must) > 0 {
-			fmt.Fprintf(&b, "Analyzer must-include floor: **%d name(s)** — %s\n\n",
+			fmt.Fprintf(&b, "Required-symbol floor: **%d name(s)** — %s\n\n",
 				len(must), strings.Join(must, ", "))
 			fmt.Fprintf(&b,
 				"A `symbols_completeness=complete` claim with fewer than %d items will be "+
@@ -130,7 +130,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 					"rendered answer. If you cannot reach the floor, choose `lower_bound` up "+
 					"front — it is the honest terminal state.\n\n", len(must))
 		} else {
-			b.WriteString("Analyzer must-include floor is empty. No floor is enforced for this dispatch — ")
+			b.WriteString("Required-symbol floor is empty. No floor is enforced for this dispatch — ")
 			b.WriteString("choose `complete` / `lower_bound` / `unknown` based on your own recall confidence.\n\n")
 		}
 
@@ -418,9 +418,9 @@ func (e *answerDocumentEvaluator) ParseOutput(ctx *types.AgentContext, messages 
 			doc.SymbolsCompleteness = validated
 			// Caveat surfaces the downgrade in the rendered prose
 			// instead of letting it happen silently.
-			caveat := "symbols list was marked complete but did not meet the cardinality baseline; downgraded to lower_bound"
+			caveat := "symbols list was marked complete but did not meet the expected answer count; downgraded to lower_bound"
 			if e.language == "zh" {
-				caveat = "符号列表声称完整但未达到基数基线，已自动降级为 lower_bound"
+				caveat = "符号列表声称完整但未达到预期数量，已自动降级为 lower_bound"
 			}
 			doc.Caveats = append(doc.Caveats, caveat)
 		}

@@ -106,9 +106,9 @@ func TestAxisAnchorRetryHint_RegressionCase(t *testing.T) {
 		_ = needle
 	}
 	// Deterministic assertions: names the axis ("call") and includes
-	// "AnchorKind=call" in the wording.
-	if !containsAll(hint, []string{`"call"`, "AnchorKind=call", "file:line"}) {
-		t.Errorf("hint should mention axis + AnchorKind=call + 'file:line'; got: %s", hint)
+	// "kind=call" in the wording.
+	if !containsAll(hint, []string{`"call"`, "kind=call", "file:line"}) {
+		t.Errorf("hint should mention axis + kind=call + 'file:line'; got: %s", hint)
 	}
 }
 

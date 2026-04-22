@@ -445,8 +445,8 @@ func (e *analyzerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 				closure.AddRepair(types.RepairDirective{
 					Kind:      types.RepairExpandSearch,
 					Keywords:  symbolTokens,
-					Rationale: fmt.Sprintf("analyzer referenced %d symbol(s) that findings_validator could not verify against the repo graph — grep these to confirm existence / disprove before acting on them", len(symbolTokens)),
-					Origin:    "findings_validator.unverified_symbols",
+					Rationale: fmt.Sprintf("%d symbol(s) referenced earlier could not be verified against the repo — grep these to confirm existence or disprove before acting on them", len(symbolTokens)),
+					Origin:    "analyzer.unverified_symbols",
 				})
 				logging.Info("[CGEC] C3 expand_search: origin=findings_validator.unverified_symbols symbols=%d", len(symbolTokens))
 			}
@@ -1498,7 +1498,7 @@ func reconcileFromObservations(rm *types.RequestModel, obs []types.Classificatio
 		}
 		if rm.AnalyzerHints.Shape != shapeValueLabel {
 			logs = append(logs, fmt.Sprintf(
-				"reconcile: AnalyzerHints.Shape %q → %q (C0' obs %s:%d contained quoted literal %q)",
+				"reconcile shape %q → %q (observation %s:%d contained quoted literal %q)",
 				rm.AnalyzerHints.Shape, shapeValueLabel, o.Path, o.Line, lits[0]))
 			rm.AnalyzerHints.Shape = shapeValueLabel
 			break // one reconcile per dispatch
