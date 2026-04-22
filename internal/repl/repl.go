@@ -227,7 +227,7 @@ func (r *REPL) Loop() error {
 			}
 			continue
 		}
-		r.dispatch(line)
+		r.dispatch(line, display)
 	}
 }
 
@@ -438,7 +438,13 @@ func (r *REPL) readInputLines() (string, error) {
 
 // dispatch runs one user request through the orchestrator and prints
 // the result, then records the turn in memory.
-func (r *REPL) dispatch(line string) {
+//
+// line is the placeholder-expanded text that reaches the orchestrator
+// (carries full pasted payloads). display is the placeholder-folded
+// view the user actually saw; it is what gets persisted to memory so
+// prior-conversation blocks in future turns stay compact regardless of
+// paste size.
+func (r *REPL) dispatch(line, display string) {
 	// T1.1: auto-route pasted log content into AttachedLog so the
 	// log_triage pre-stage parses it with the LLM instead of letting
 	// the analyzer's TermGraph / keyword_search be poisoned by log
@@ -454,11 +460,23 @@ func (r *REPL) dispatch(line string) {
 			r.attachedLog = detected
 			r.info(fmt.Sprintf("auto-attached log: %d bytes (/log clear to remove)", len(detected)))
 			line = cleaned
+			// Apply the same cleanup to display. When display holds a
+			// paste placeholder (interactive bracketed paste), the
+			// placeholder token doesn't match splitPastedLog's line-
+			// oriented patterns so this is a no-op. When the log was
+			// typed/streamed inline (scripted mode, terminals that
+			// swallow bracketed paste), display == line and both get
+			// trimmed identically.
+			cleanedDisplay, _ := splitPastedLog(display)
+			display = cleanedDisplay
 			if strings.TrimSpace(line) == "" {
 				// All the user typed was the log. Supply a minimal
 				// placeholder so the analyzer still has a request
 				// string; log_triage will drive the intent.
 				line = "分析附带的日志"
+			}
+			if strings.TrimSpace(display) == "" {
+				display = line
 			}
 		}
 	}
@@ -518,7 +536,7 @@ func (r *REPL) dispatch(line string) {
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
 		fmt.Fprintln(r.out, "  ??")
-		r.recordTurn(line, memResponse)
+		r.recordTurn(display, memResponse)
 		return
 	}
 
@@ -558,9 +576,14 @@ func (r *REPL) dispatch(line string) {
 	}
 	fmt.Fprintf(r.out, "  %s\n\n", bar)
 
-	r.recordTurn(line, memResponse)
+	r.recordTurn(display, memResponse)
 }
 
+// recordTurn persists the user-visible form of a request plus the
+// sanitized response into memory. The caller passes the display
+// string (with paste placeholders preserved) so prior-conversation
+// blocks in future BuildContext calls stay compact regardless of
+// paste size.
 func (r *REPL) recordTurn(request, response string) {
 	turn := memory.Turn{
 		ID:        fmt.Sprintf("turn-%d", time.Now().UnixNano()),

@@ -588,7 +588,10 @@ type MemorySettings struct {
 	MaxRecentBytes int `yaml:"max_recent_bytes"`
 
 	// MaxTurnBodyBytes: maximum size of a single turn's request+response
-	// stored to disk. Larger turns are tail-truncated. Default 65536 (64 KB).
+	// stored to disk. Larger turns are tail-truncated. Default 16384
+	// (16 KB) — REPL paste-folding already keeps display-form requests
+	// compact, so this is a defensive tail cap for scripted input and
+	// rare long glamour-rendered responses.
 	MaxTurnBodyBytes int `yaml:"max_turn_body_bytes"`
 
 	// MaxBuildContextMatches: maximum number of compacted index entries
@@ -601,7 +604,7 @@ func DefaultMemorySettings() MemorySettings {
 	return MemorySettings{
 		MaxRecentTurns:         6,
 		MaxRecentBytes:         20 * 1024,
-		MaxTurnBodyBytes:       64 * 1024,
+		MaxTurnBodyBytes:       16 * 1024,
 		MaxBuildContextMatches: 3,
 	}
 }

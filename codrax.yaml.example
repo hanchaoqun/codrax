@@ -427,7 +427,9 @@
 # memory_max_recent_bytes: 20480
 
 # Max size of a single turn's request+response stored to disk.
-# memory_max_turn_body_bytes: 65536
+# REPL paste-folding keeps request bodies compact; raise only if
+# scripted input legitimately needs larger turn bodies.
+# memory_max_turn_body_bytes: 16384
 
 # Max compacted index entries whose Summary is inlined into
 # BuildContext per request. Full turn text is never inlined — only
