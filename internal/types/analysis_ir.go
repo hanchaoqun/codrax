@@ -306,8 +306,18 @@ type SemanticPredicates struct {
 type AnalyzerHints struct {
 	Keywords []string `json:"keywords,omitempty"`
 	Entities []string `json:"entities,omitempty"`
-	Kind     string   `json:"kind,omitempty"`
-	Shape    string   `json:"shape,omitempty"`
+	// PrimaryEntities snapshots the pre-merge top-level Entities list
+	// from the LLM's emit_analysis call, before sub-topic entities
+	// (SubTopics[].Entities) are unioned into Entities for breadth
+	// consumers (normalizer / keyword_search ranker / entity boost).
+	// Consumers that need "user-named entities only" semantics — most
+	// notably keyword_search's exactEntityAnchors, which should never
+	// anchor on a planner-added sub_topic descriptor — read this
+	// instead of Entities. Empty when no sub-topics triggered the
+	// merge, in which case consumers fall back to Entities.
+	PrimaryEntities []string `json:"primary_entities,omitempty"`
+	Kind            string   `json:"kind,omitempty"`
+	Shape           string   `json:"shape,omitempty"`
 }
 
 type Intent string

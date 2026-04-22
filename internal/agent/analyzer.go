@@ -721,7 +721,14 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			))
 			rm.PredicateAxis = axis
 		}
-		// Merge sub-topic entities into main entity list.
+		// Merge sub-topic entities into main entity list. Snapshot the
+		// pre-merge top-level list into PrimaryEntities first: consumers
+		// that need "user-named only" semantics (keyword_search's
+		// exactEntityAnchors) read that so a planner-added descriptor
+		// (e.g. a sub-topic entity "check" that uniquely case-matches
+		// `func Check` in the repo) can't anchor the whole investigation
+		// onto a file the user never named.
+		rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
 		for _, e := range rm.AnalyzerHints.Entities {
 			seen[e] = true
@@ -734,8 +741,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 				}
 			}
 		}
-		logging.Info("[analyzer] multi-topic: %d sub-topics, merged entities=%v",
-			len(rm.SubTopics), rm.AnalyzerHints.Entities)
+		logging.Info("[analyzer] multi-topic: %d sub-topics, primary=%v merged=%v",
+			len(rm.SubTopics), rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities)
 	}
 
 	// Normalizer runs unconditionally on the raw objective. When the

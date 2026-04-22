@@ -73,6 +73,15 @@ var searchExcludeDirs = tool.ExcludeDirs
 //     dispatch-path files below the LLM's eyeline.
 type keywordSearchOptions struct {
 	Entities []string
+	// PrimaryEntities is the pre-merge top-level entity list captured
+	// by the analyzer before sub-topic entities were unioned into
+	// Entities. exactEntityAnchors consumes this when non-empty so the
+	// unique-anchor selector stays on user-named identifiers and does
+	// not latch onto a planner-added sub-topic descriptor that happens
+	// to case-match a repo symbol. Falls back to Entities when empty
+	// (no sub-topics, or tests that pre-date the split) — preserves
+	// pre-fix behaviour for every non-multi-topic call site.
+	PrimaryEntities []string
 	// DomainHints is the set of TermSymbol Domain tags from the
 	// analyzer's TermGraph (non-empty only when the normalizer had a
 	// repo-grounded SymbolResolver). Files whose FileInfo.Package
@@ -135,7 +144,7 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 // same Run re-dispatches explorer with identical analyzer output.
 // Order-independent: slices are sorted before joining so keyword
 // permutations produce the same key.
-func keywordSearchFingerprint(keywords, entities, domainHints []string, maxFiles int) string {
+func keywordSearchFingerprint(keywords, entities, primaryEntities, domainHints []string, maxFiles int) string {
 	cp := func(s []string) []string {
 		if len(s) == 0 {
 			return nil
@@ -149,6 +158,8 @@ func keywordSearchFingerprint(keywords, entities, domainHints []string, maxFiles
 	b.WriteString(strings.Join(cp(keywords), "\x00"))
 	b.WriteByte('|')
 	b.WriteString(strings.Join(cp(entities), "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.Join(cp(primaryEntities), "\x00"))
 	b.WriteByte('|')
 	b.WriteString(strings.Join(cp(domainHints), "\x00"))
 	b.WriteByte('|')
@@ -188,7 +199,17 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 
 	// --- Phase 1: repo_map structural ranking ---
 	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot)
-	exactAnchors := exactEntityAnchors(graph, opts.Entities)
+	// exactEntityAnchors wants user-named entities only. When the
+	// analyzer merged sub-topic entities into opts.Entities for breadth
+	// ranking, PrimaryEntities carries the pre-merge snapshot; prefer
+	// it so a planner-added descriptor cannot mis-anchor. Fall back to
+	// opts.Entities when PrimaryEntities is empty (no merge happened,
+	// or tests that pre-date the split).
+	anchorEntities := opts.PrimaryEntities
+	if len(anchorEntities) == 0 {
+		anchorEntities = opts.Entities
+	}
+	exactAnchors := exactEntityAnchors(graph, anchorEntities)
 
 	// --- Phase 2: grep IDF-weighted scoring ---
 	grepScores, grepHits := grepIDFSearch(keywords, repoRoot)

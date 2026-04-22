@@ -174,6 +174,49 @@ func TestExactEntityAnchors_UniqueSymbolOnly(t *testing.T) {
 	}
 }
 
+// TestExactEntityAnchors_SubTopicEntityHazard_NarrowingWithPrimary
+// pins the A' fix for the 2026-04-22 s1a-115146 run-1 anchor misroute.
+// The analyzer's multi-topic merge unions sub-topic entities into the
+// flat Entities list used for breadth ranking. An English-word sub-
+// topic entity ("check") can case-insensitively match a unique
+// PascalCase Go symbol in an unrelated file (here: `func Check` in
+// contract/checker.go), making that file the sole exact anchor and
+// mis-routing Focused Depth Start. exactEntityAnchors must be fed
+// the pre-merge PrimaryEntities list — which contains the user-named
+// entities only — so the planner-added "check" cannot latch on.
+func TestExactEntityAnchors_SubTopicEntityHazard_NarrowingWithPrimary(t *testing.T) {
+	checkSym := &repotypes.Symbol{Name: "Check", File: "internal/analysis/contract/checker.go"}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repotypes.FileInfo{
+			"internal/analysis/contract/checker.go": {RelPath: "internal/analysis/contract/checker.go"},
+			"internal/analysis/gate/gate.go":        {RelPath: "internal/analysis/gate/gate.go"},
+		},
+		SymbolDefs: map[string][]*repotypes.Symbol{
+			"Check": {checkSym},
+			// gate.Run is a qualified form; neither exactSymbolFiles nor
+			// exactQualifiedSymbolFiles resolves it on a plain "Run"
+			// symbol, so the only candidate anchor comes from "check".
+			"Run": {{Name: "Run", File: "internal/analysis/gate/gate.go"}},
+		},
+	}
+
+	// Merged-entity path (pre-fix): "check" case-folds to "Check" and
+	// anchors checker.go — the exact hazard run-1 tripped on.
+	merged := exactEntityAnchors(graph, []string{"gate.Run", "retryable", "reject", "check"})
+	if _, ok := merged["internal/analysis/contract/checker.go"]; !ok {
+		t.Fatalf("merged-entities path should reproduce the hazard (checker.go anchored), got %+v", merged)
+	}
+
+	// Primary-only path (post-fix): without "check" in the entity list
+	// passed to exactEntityAnchors, nothing case-matches a unique
+	// symbol so no anchor is produced — the Focused Depth Start
+	// preamble would not mis-route Explorer to checker.go.
+	primary := exactEntityAnchors(graph, []string{"gate.Run", "retryable", "reject"})
+	if _, ok := primary["internal/analysis/contract/checker.go"]; ok {
+		t.Errorf("primary-entities path must NOT anchor checker.go, got %+v", primary)
+	}
+}
+
 func TestKeywordSearchCandidatePaths_IncludeAnchorOnlyFiles(t *testing.T) {
 	candidates := keywordSearchCandidatePaths(
 		map[string]float64{"internal/context/builder.go": 42},

@@ -24,6 +24,18 @@ func irEntities(ctx *types.AgentContext) []string {
 	return ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities
 }
 
+// irPrimaryEntities returns the pre-merge top-level entity snapshot
+// captured by the analyzer before sub-topic entities were unioned into
+// Entities for breadth ranking. Returns nil when no sub-topic merge
+// ran (single-topic questions) or when IR is missing — callers should
+// fall back to irEntities for the merged list.
+func irPrimaryEntities(ctx *types.AgentContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities
+}
+
 // irDomainHints returns the unique non-empty Domain tags attached to
 // every TermSymbol in the analyzer's TermGraph. Populated by the
 // normalizer's SymbolResolver when a term is repo-grounded; empty when
