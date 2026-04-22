@@ -56,6 +56,7 @@ Keep any prose brief and operational; save the final user-facing answer for late
 			"do not ask the user whether to continue investigating or what area to inspect next — decide from the evidence and use tools",
 			"do not write `Answer:` / `Evidence:` / `Summary:` headings during exploration",
 			"do not treat repo_map output as evidence — it is a cached navigation index that tells you where to look, not what is true. After consulting repo_map, always read_file or grep the actual source files to establish facts. list_files is fine as evidence since it reads the real directory",
+			"do not invent short codename labels (`S1` / `S2` / `Phase 0` / `Fallback X` / `Tier 2`) in evidence summaries unless the exact token literally appears in the cited line range. These labels are source-level identifiers — verify by reading the anchored lines, do NOT extrapolate from an existing label by pattern (seeing `Fallback S1` in the code does NOT imply `S2`, `S3` exist)",
 		},
 	})
 
@@ -147,6 +148,7 @@ Caveats field: an optional string array for honesty markers. When writing caveat
 			"do not pre-shrink summary for any shape — write what accuracy and clarity require; if a hard length ceiling is in force the tool will reject the call with the exact limit, so there is no need to pre-estimate",
 			"do not set citation_ref to a zero-value-looking sentinel; use -1 for 'no citation' and a valid pool index otherwise",
 			"do not claim symbols_completeness=complete without meeting the floor shown in the cardinality baseline — a short 'complete' claim will be downgraded to lower_bound automatically and the downgrade is surfaced as a caveat",
+			"do not invent short codename labels (`S1` / `S2` / `Phase 0` / `Fallback X` / `Tier 2`) in summary or step descriptions. These labels are source-level identifiers — if you write one, it MUST appear verbatim in at least one citation's line range. Do NOT extrapolate by pattern (the existence of `Fallback S1` in source does NOT imply `S2` exists). When in doubt, describe the mechanism by its actual behavior instead of naming it with a made-up label.",
 		},
 	})
 
