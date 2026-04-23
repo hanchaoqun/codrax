@@ -42,7 +42,8 @@ import (
 //     cite per step and accidentally drift" surface.
 //  4. Pattern 4 (prose → fact): every typed field is required to
 //     come from the evidence. The ONE prose escape hatch is Summary,
-//     and it is length-capped per shape via types.SummaryCapFor.
+//     and it is length-capped per shape via types.SummaryCapFor only
+//     when summary_cap_enabled is true.
 type EmitAnswerDocument struct {
 	ReadOnly
 	NonEvidenceTool
@@ -111,6 +112,7 @@ type emitAnswerDocumentBoolean struct {
 func (t *EmitAnswerDocument) Name() string { return "emit_answer_document" }
 
 func (t *EmitAnswerDocument) Description() string {
+	capGuidance := emitAnswerDocumentSummaryCapGuidance(false)
 	return "Emit the final answer as a structured AnswerDocument in ONE call per finalizer dispatch. " +
 		"Choose 'shape' from: list_of_symbols, step_list, value, boolean, config_value, explanation. " +
 		"Shape-specific required fields: list_of_symbols → symbols[] + symbols_completeness; " +
@@ -119,10 +121,7 @@ func (t *EmitAnswerDocument) Description() string {
 		"SHARED POOL; every steps[].citation_ref / value.citation_ref / boolean.citation_ref / " +
 		"symbols is an integer INDEX into that pool (zero-based), or -1 when no citation backs " +
 		"the entry. Every citation MUST have file (repo-relative), line > 0, and file must NOT live " +
-		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field, with a per-shape " +
-		"length cap: explanation → up to 2500 chars (Summary IS the answer body — write a " +
-		"thorough multi-paragraph explanation), list_of_symbols / step_list / boolean → ≤500 " +
-		"chars lead-in, value / config_value → ≤300 chars lead-in. " +
+		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field. " + capGuidance + " " +
 		"\n\n" +
 		"IMPORTANT — citation quote field: the quote is OPTIONAL but when provided it MUST be a " +
 		"VERBATIM copy of the characters at file:line from the read_file gutter (exact whitespace " +
@@ -140,13 +139,15 @@ func (t *EmitAnswerDocument) Description() string {
 }
 
 func (t *EmitAnswerDocument) Parameters() json.RawMessage {
+	summaryDescription := "LLM-authored prose. " + emitAnswerDocumentSummaryCapGuidance(true) +
+		" REQUIRED for 'explanation'; optional for all others."
 	// symbols[].kind enum is sourced from types.AnswerSymbolKindSchemaEnum
 	// so schema stays in lockstep with emit_answer_symbol's validator.
 	return json.RawMessage(fmt.Sprintf(`{
   "type": "object",
   "properties": {
     "shape": {"type": "string", "enum": ["list_of_symbols", "step_list", "value", "boolean", "config_value", "explanation"], "description": "Closed enum of answer shapes. REQUIRED. Choose the shape declared in the prompt's Target answer shape section."},
-    "summary": {"type": "string", "description": "LLM-authored prose. Per-shape cap: explanation ≤2500 chars (Summary IS the answer body — multi-paragraph OK), list_of_symbols / step_list / boolean ≤500 chars (lead-in only), value / config_value ≤300 chars (lead-in only). REQUIRED for 'explanation'; optional for all others."},
+    "summary": {"type": "string", "description": %q},
     "steps": {
       "type": "array",
       "description": "Ordered steps for shape=step_list. REQUIRED for step_list; must be empty for all other shapes.",
@@ -217,7 +218,30 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     }
   },
   "required": ["shape"]
-}`, types.AnswerSymbolKindSchemaEnum()))
+}`, summaryDescription, types.AnswerSymbolKindSchemaEnum()))
+}
+
+func emitAnswerDocumentSummaryCapGuidance(schemaText bool) string {
+	explanation := types.SummaryCapFor(types.ShapeExplanation, 0)
+	value := types.SummaryCapFor(types.ShapeValue, 0)
+	configValue := types.SummaryCapFor(types.ShapeConfigValue, 0)
+	boolean := types.SummaryCapFor(types.ShapeBoolean, 0)
+	stepOne := types.SummaryCapFor(types.ShapeStepList, 1)
+	symbolOne := types.SummaryCapFor(types.ShapeListOfSymbols, 1)
+	if explanation == types.SummaryCapUnlimited &&
+		value == types.SummaryCapUnlimited &&
+		configValue == types.SummaryCapUnlimited &&
+		boolean == types.SummaryCapUnlimited &&
+		stepOne == types.SummaryCapUnlimited &&
+		symbolOne == types.SummaryCapUnlimited {
+		if schemaText {
+			return "No hard length cap is active in the current runtime config (default summary_cap_enabled=false); do not self-shorten below what accuracy and clarity require."
+		}
+		return "No hard length cap is active in the current runtime config (default summary_cap_enabled=false); write as much summary prose as the answer needs, and do not self-shorten for a pre-set budget."
+	}
+	return fmt.Sprintf(
+		"Active hard summary caps: explanation <= %d chars; value <= %d; config_value <= %d; boolean <= %d; step_list and list_of_symbols scale with item count (1 item caps: %d / %d). If exceeded, the tool rejects with the exact cap.",
+		explanation, value, configValue, boolean, stepOne, symbolOne)
 }
 
 func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessage) (types.ToolResult, error) {
@@ -424,11 +448,13 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		p.Boolean = nil
 	}
 
-	// Shape-tiered Summary cap. Scalar shapes carry fixed ceilings;
-	// step_list and list_of_symbols scale with item count so an
-	// 8-step explanation is not compressed to the same budget as a
-	// 2-step one. Per-shape numbers live in types.SummaryCapConfig
-	// (runtime-tunable via codrax.yaml summary_cap_*).
+	// Shape-tiered Summary cap. When summary_cap_enabled=false,
+	// SummaryCapFor returns SummaryCapUnlimited and this branch is a
+	// no-op. When enabled, scalar shapes carry fixed ceilings; step_list
+	// and list_of_symbols scale with item count so an 8-step answer is
+	// not compressed to the same budget as a 2-step one. Per-shape
+	// numbers live in types.SummaryCapConfig (runtime-tunable via
+	// codrax.yaml summary_cap_*).
 	itemCount := len(p.Steps) + len(p.Symbols)
 	summaryCap := types.SummaryCapFor(shape, itemCount)
 	if len(p.Summary) > summaryCap {
@@ -1110,11 +1136,11 @@ const corroborationWindow = 3
 //
 // Shape coverage (all 5 citation-carrying shapes):
 //
-//   ShapeValue         → validateValueLiteralGrounding
-//   ShapeConfigValue   → validateValueLiteralGrounding (unions Key)
-//   ShapeListOfSymbols → validateSymbolsLiteralGrounding (per-item)
-//   ShapeStepList      → validateStepsLiteralGrounding  (per-item)
-//   ShapeBoolean       → validateBooleanLiteralGrounding
+//	ShapeValue         → validateValueLiteralGrounding
+//	ShapeConfigValue   → validateValueLiteralGrounding (unions Key)
+//	ShapeListOfSymbols → validateSymbolsLiteralGrounding (per-item)
+//	ShapeStepList      → validateStepsLiteralGrounding  (per-item)
+//	ShapeBoolean       → validateBooleanLiteralGrounding
 //
 // ShapeExplanation intentionally skipped — summary is freeform prose
 // and citations[] are ad-lib references; per-citation corroboration

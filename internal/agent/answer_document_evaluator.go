@@ -310,8 +310,8 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 		Hint: "The answer must be delivered through the `emit_answer_document` tool call — text " +
 			"written outside it does not ship. You already drafted the answer in your previous " +
 			"message; treat that draft as your final text. Call `emit_answer_document` now and copy " +
-			"your previous answer VERBATIM into the `summary` field (trim only if it exceeds the " +
-			"shape's character cap). Derive the remaining required structured fields (citations[] " +
+			"your previous answer VERBATIM into the `summary` field. Do not trim for length unless " +
+			"a prior tool rejection named an active summary cap. Derive the remaining required structured fields (citations[] " +
 			"and any shape-specific payload) from the same draft. Do NOT rewrite, compress, or " +
 			"paraphrase the content — the richness of the original draft is the answer.",
 	}

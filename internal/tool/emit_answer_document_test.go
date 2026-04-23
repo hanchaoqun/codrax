@@ -540,8 +540,8 @@ func TestEmitAnswerDocument_Symbols_RejectsFabricatedCitation(t *testing.T) {
 		Summary:  "[internal/agent/analyzer.go: showing lines 98-104 of 1500 total]\n    98│ }\n    99│ \n   100│ \n   101│ func SomeOtherThing() {\n",
 	})
 	params := mustDocJSON(t, map[string]interface{}{
-		"shape":                 "list_of_symbols",
-		"symbols_completeness":  "lower_bound",
+		"shape":                "list_of_symbols",
+		"symbols_completeness": "lower_bound",
 		"symbols": []map[string]interface{}{
 			{
 				"name":  "writeSession",
@@ -819,11 +819,59 @@ func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocument_AcceptsLongSummaryWhenSummaryCapDisabled(t *testing.T) {
+	types.SetSummaryCapConfig(types.DefaultSummaryCapConfig())
+	t.Cleanup(func() { types.SetSummaryCapConfig(types.DefaultSummaryCapConfig()) })
+
+	tool := &EmitAnswerDocument{}
+	// Default summary_cap_enabled=false means there is no hard cap.
+	longerThanDefaultCap := strings.Repeat("abcde ", 600) // 3600 chars
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": longerThanDefaultCap,
+	})
+	res, _ := tool.Execute(newDocBusCtx(""), params)
+	if !res.Success {
+		t.Fatalf("disabled summary cap rejected long summary: %s", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_SchemaDoesNotAdvertiseCapsWhenDisabled(t *testing.T) {
+	types.SetSummaryCapConfig(types.DefaultSummaryCapConfig())
+	t.Cleanup(func() { types.SetSummaryCapConfig(types.DefaultSummaryCapConfig()) })
+
+	tool := &EmitAnswerDocument{}
+	desc := tool.Description()
+	params := string(tool.Parameters())
+	combined := desc + "\n" + params
+	if !strings.Contains(combined, "summary_cap_enabled=false") {
+		t.Fatalf("disabled summary cap guidance missing: %s", combined)
+	}
+	if strings.Contains(combined, "2500 chars") || strings.Contains(combined, "Per-shape cap") {
+		t.Fatalf("disabled schema still advertises concrete caps: %s", combined)
+	}
+}
+
+func TestEmitAnswerDocument_SchemaAdvertisesCapsWhenEnabled(t *testing.T) {
+	enableSummaryCapsForTest(t)
+
+	tool := &EmitAnswerDocument{}
+	combined := tool.Description() + "\n" + string(tool.Parameters())
+	if !strings.Contains(combined, "Active hard summary caps") {
+		t.Fatalf("enabled summary cap guidance missing: %s", combined)
+	}
+	if !strings.Contains(combined, "explanation <= 2500") {
+		t.Fatalf("enabled summary cap guidance missing explanation cap: %s", combined)
+	}
+}
+
 // TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation locks in the
 // 2026-04-17 change: explanation shape now accepts summaries up to
 // 2500 chars (multi-paragraph answer body). The old 500-char cap
 // forced finalizers to burn retries trimming legitimate prose.
 func TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation(t *testing.T) {
+	enableSummaryCapsForTest(t)
+
 	tool := &EmitAnswerDocument{}
 	// 1500 chars: above the historical 500 cap, well under the new
 	// 2500 cap. Proves the explanation path uses the generous cap.
