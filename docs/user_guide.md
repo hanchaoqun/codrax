@@ -673,6 +673,7 @@ codrax --log-level debug --log-stdout -r "你的问题"
 | `/log show` | | 打印附加日志的前 20 行 + 总字节数 |
 | `/log clear` | | 清除附加日志(不清对话记忆) |
 | `/paste` | | 通用粘贴兜底(与 `/log` 不同,内容会作为下一次提问的输入) |
+| `/chat <message>` | | 闲聊通道:本条消息不走 analyze→explore→extract→finalize 流水线,单次 LLM 直接回复。适合打招呼、问工具能力、不需要读仓库的对话。详见 [3.3.15](#3315-闲聊命令chitchat_enabled) |
 
 **粘贴兜底的两种场景对比**:
 

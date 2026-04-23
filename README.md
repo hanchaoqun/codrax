@@ -122,7 +122,7 @@ make test
 ```bash
 # 交互模式（默认，无 --request 即进入）
 ./codrax
-#   You> 提示符，支持 /exit /clear /history /compact /log /paste /help 斜杠命令
+#   You> 提示符，支持 /exit /clear /history /compact /log /paste /chat /version /help 斜杠命令
 #   多轮对话自动保存到 memory/<repo-slug>/MEMORY.md + .../turns/，重启续接
 #   /clear 会显示当前还有几个其它实例在用同一份 memory，并要求确认
 
