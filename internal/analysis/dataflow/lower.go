@@ -58,6 +58,91 @@ func (l genericLowerer) LowerFile(repoRoot string, file *repomap.FileInfo, sourc
 	return lowered
 }
 
+// prepareBiasTokens lowercases and trims the EntityBias slice once per
+// LowerFile call so the hot loop does not re-normalize on every
+// comparison. Empty tokens are dropped so callers that pass " " or ""
+// don't produce spurious matches against any haystack.
+func prepareBiasTokens(bias []string) []string {
+	if len(bias) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(bias))
+	for _, b := range bias {
+		b = strings.ToLower(strings.TrimSpace(b))
+		if b == "" {
+			continue
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
+// fileHitsBias reports whether any prepared bias token appears in the
+// lowercased file path. Mirrors the path-side half of sortByEntityBias
+// so the symbol-admission gate and the file-ranking gate agree on what
+// counts as a path match.
+func fileHitsBias(relPath string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	path := strings.ToLower(relPath)
+	for _, t := range tokens {
+		if strings.Contains(path, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// symbolHitsBias reports whether any prepared bias token appears in
+// the lowercased symbol name. Mirrors the symbol-side half of
+// sortByEntityBias for the same reason as fileHitsBias.
+func symbolHitsBias(symName string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	name := strings.ToLower(symName)
+	for _, t := range tokens {
+		if strings.Contains(name, t) {
+			return true
+		}
+	}
+	return false
+}
+
+// applyEvidenceRelevanceGate filters a file's producer evidence by
+// subject-aware relevance and enforces the per-file item cap. It is
+// applied by Analyze AFTER loadOrLowerFile so the on-disk dataflow
+// cache stays pinned to the pristine lowerer output — a second
+// question with different EntityBias must not see the first
+// question's filtered slate.
+//
+// Filtering is per-item: each EvidenceItem is admitted when either
+// the file path OR the item's Subject (the enclosing symbol name)
+// contains any bias token. Items that miss both are dropped. When
+// maxItems > 0 the admitted items are then truncated so a single
+// file cannot dominate the downstream Primary Evidence section
+// regardless of how many symbols it contains.
+//
+// With empty bias the relevance filter is a no-op; with zero cap the
+// truncation is a no-op. Both zero = pass-through (legacy behaviour).
+func applyEvidenceRelevanceGate(evidence []types.EvidenceItem, tokens []string, maxItems int, filePathHit bool) []types.EvidenceItem {
+	if len(tokens) == 0 && maxItems <= 0 {
+		return evidence
+	}
+	out := make([]types.EvidenceItem, 0, len(evidence))
+	for _, ev := range evidence {
+		if len(tokens) > 0 && !filePathHit && !symbolHitsBias(ev.Subject, tokens) {
+			continue
+		}
+		if maxItems > 0 && len(out) >= maxItems {
+			break
+		}
+		out = append(out, ev)
+	}
+	return out
+}
+
 func (l genericLowerer) lowerSymbol(file *repomap.FileInfo, sym repomap.Symbol, snippet []string, relsByLine map[int][]repomap.Relation) FunctionSummary {
 	symbolKey := repomap.SymbolKey(&sym)
 	summary := FunctionSummary{

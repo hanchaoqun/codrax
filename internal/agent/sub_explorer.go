@@ -340,6 +340,7 @@ func (e *subExplorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext,
 		MaxFiles:        40,
 		MaxIterations:   6,
 		MaxNodesPerFunc: 400,
+		MaxItemsPerFile: 50,
 	})
 	e.structuredEvidence = mergeEvidenceItems(parsed, result.Evidence)
 	e.flowFindings = mergeFlowFindings(result.Findings)

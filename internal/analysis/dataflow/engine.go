@@ -33,6 +33,7 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 	lowerers := newLowererRegistry()
 	lowered := make([]LoweredFile, 0, len(candidateFiles))
 	var evidence []types.EvidenceItem
+	biasTokens := prepareBiasTokens(opts.EntityBias)
 	for _, filePath := range candidateFiles {
 		fi := graph.FileIndex[filePath]
 		if fi == nil {
@@ -55,6 +56,16 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 		if loweredFile.File == "" {
 			continue
 		}
+		// Apply the subject-aware relevance gate and the per-file
+		// evidence cap here — AFTER the cache round-trip. The on-disk
+		// lowerer cache is keyed on file path + hash only; stashing
+		// the post-gate slice would mean a second question with
+		// different EntityBias would read the first question's
+		// filtered result. Mutating the in-memory return value is
+		// safe because saveLoweredFileCache has already run inside
+		// loadOrLowerFile on miss and it serialised the pristine set.
+		filePathHit := fileHitsBias(loweredFile.File, biasTokens)
+		loweredFile.Evidence = applyEvidenceRelevanceGate(loweredFile.Evidence, biasTokens, opts.MaxItemsPerFile, filePathHit)
 		lowered = append(lowered, loweredFile)
 		evidence = append(evidence, loweredFile.Evidence...)
 	}

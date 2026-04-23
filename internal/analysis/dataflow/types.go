@@ -138,7 +138,28 @@ type Options struct {
 	// in the file path OR in the file's symbol names, then sorts by
 	// score descending before truncating to MaxFiles. Files with no
 	// match still survive — the bias only re-ranks; it does not filter.
+	//
+	// When EntityBias is non-empty, it is also consulted at symbol
+	// granularity inside LowerFile: symbols whose name AND whose file
+	// path both miss every bias entity are skipped — their per-line
+	// evidence (guards, returns, calls, field reads/writes) is not
+	// produced. This is the producer-level relevance gate that prevents
+	// large files such as explorer.go (8k LOC, hundreds of symbols)
+	// from flooding the evidence stream when only a handful of symbols
+	// are on-topic. When EntityBias is empty the gate is a no-op so
+	// pre-bias callers keep legacy semantics.
 	EntityBias []string
+
+	// MaxItemsPerFile caps the number of ProducerEvidence items a
+	// single LowerFile call may emit. Deterministic lowerers like
+	// genericLowerer produce one EvidenceItem per guard / return
+	// literal / config key / field read/write / call site; a single
+	// long file can therefore emit thousands of items. The cap
+	// guarantees no individual file dominates downstream Primary
+	// Evidence selection and caps the total bus.Mutable.StructuredEvidence
+	// size regardless of how skewed the EntityBias gate's pass rate is
+	// across candidate files. Zero disables the cap (legacy behaviour).
+	MaxItemsPerFile int
 }
 
 // Result is the compact output consumed by explorer/sub-explorer.
@@ -167,6 +188,9 @@ func defaultOptions(opts Options) Options {
 	}
 	if opts.MaxNodesPerFunc <= 0 {
 		opts.MaxNodesPerFunc = 400
+	}
+	if opts.MaxItemsPerFile < 0 {
+		opts.MaxItemsPerFile = 0
 	}
 	return opts
 }

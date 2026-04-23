@@ -1303,3 +1303,307 @@ func TestE2E_RealRepo_CodraxSelfAnalysis(t *testing.T) {
 		}
 	})
 }
+
+// ─────────────────────────────────────────────────────────────
+// Scenario: EntityBias at symbol granularity — only symbols whose name
+// or file path hits at least one bias entity contribute evidence.
+// Cross-hop findings still work because Summaries are retained.
+// ─────────────────────────────────────────────────────────────
+
+func TestE2E_EntityBiasFiltersOffTopicSymbols(t *testing.T) {
+	root, graph := setupTestRepo(t, []testFile{
+		{
+			relPath: "explorer.go",
+			lang:    repomap.LangGo,
+			content: `package agent
+
+func ShouldStop() bool {
+	if done {
+		return true
+	}
+	return false
+}
+
+func unrelatedHelper() string {
+	if cond {
+		return "noise"
+	}
+	return "noise2"
+}
+`,
+			symbols: []repomap.Symbol{
+				{Name: "ShouldStop", Kind: "function", Line: 3, EndLine: 8},
+				{Name: "unrelatedHelper", Kind: "function", Line: 10, EndLine: 15},
+			},
+		},
+		{
+			relPath: "sibling.go",
+			lang:    repomap.LangGo,
+			content: `package agent
+
+func somethingElse() string {
+	if skip {
+		return "bye"
+	}
+	return "hi"
+}
+`,
+			symbols: []repomap.Symbol{
+				{Name: "somethingElse", Kind: "function", Line: 3, EndLine: 8},
+			},
+		},
+	})
+
+	result := Analyze(graph, Options{
+		RepoRoot:        root,
+		Question:        "how does ShouldStop decide",
+		CandidateFiles:  []string{"explorer.go", "sibling.go"},
+		WorkDir:         t.TempDir(),
+		EntityBias:      []string{"ShouldStop"},
+		MaxItemsPerFile: 50,
+	})
+
+	var sawShouldStop, sawUnrelated, sawSomethingElse bool
+	for _, ev := range result.Evidence {
+		if strings.Contains(ev.Subject, "ShouldStop") {
+			sawShouldStop = true
+		}
+		if strings.Contains(ev.Subject, "unrelatedHelper") {
+			sawUnrelated = true
+		}
+		if strings.Contains(ev.Subject, "somethingElse") {
+			sawSomethingElse = true
+		}
+	}
+	if !sawShouldStop {
+		t.Fatal("expected evidence for ShouldStop (bias-hit symbol on bias-hit path)")
+	}
+	if sawUnrelated {
+		t.Fatal("unrelatedHelper should be filtered: symbol name misses bias 'ShouldStop' and the file path 'explorer.go' also does not contain the bias token, so the gate drops it")
+	}
+	if sawSomethingElse {
+		t.Fatal("somethingElse should be filtered: neither sibling.go nor somethingElse hit any bias entity")
+	}
+}
+
+// Complementary test: when the file path hits a bias entity, every
+// symbol in that file is admitted (path-match shortcut). This is the
+// "lookup-style" question where the user names a whole file rather
+// than a specific symbol inside it.
+func TestE2E_EntityBiasAdmitsWholeFileOnPathHit(t *testing.T) {
+	root, graph := setupTestRepo(t, []testFile{
+		{
+			relPath: "explorer.go",
+			lang:    repomap.LangGo,
+			content: `package agent
+
+func ShouldStop() bool {
+	if done {
+		return true
+	}
+	return false
+}
+
+func helper() string {
+	if ok {
+		return "x"
+	}
+	return "y"
+}
+`,
+			symbols: []repomap.Symbol{
+				{Name: "ShouldStop", Kind: "function", Line: 3, EndLine: 8},
+				{Name: "helper", Kind: "function", Line: 10, EndLine: 15},
+			},
+		},
+	})
+
+	result := Analyze(graph, Options{
+		RepoRoot:        root,
+		Question:        "walk me through explorer.go",
+		CandidateFiles:  []string{"explorer.go"},
+		WorkDir:         t.TempDir(),
+		EntityBias:      []string{"explorer.go"},
+		MaxItemsPerFile: 50,
+	})
+
+	var sawShouldStop, sawHelper bool
+	for _, ev := range result.Evidence {
+		if strings.Contains(ev.Subject, "ShouldStop") {
+			sawShouldStop = true
+		}
+		if strings.Contains(ev.Subject, "helper") {
+			sawHelper = true
+		}
+	}
+	if !sawShouldStop {
+		t.Fatal("expected ShouldStop evidence on path-hit admission")
+	}
+	if !sawHelper {
+		t.Fatal("expected helper evidence on path-hit admission (whole-file admits when only file-level entity is named)")
+	}
+}
+
+// ─────────────────────────────────────────────────────────────
+// Scenario: MaxItemsPerFile caps runaway per-line evidence even when
+// every symbol passes the bias gate. Protects Primary Evidence from
+// single-file dominance (e.g. an 8k-LOC file emitting hundreds of
+// items when the question names two files).
+// ─────────────────────────────────────────────────────────────
+
+func TestE2E_MaxItemsPerFileCaps(t *testing.T) {
+	// Build a file whose body emits far more items than the cap.
+	var bodyBuilder strings.Builder
+	bodyBuilder.WriteString("package demo\n\nfunc Many() string {\n")
+	for i := 0; i < 80; i++ {
+		bodyBuilder.WriteString("\tif cond { return \"v\" }\n")
+	}
+	bodyBuilder.WriteString("}\n")
+	body := bodyBuilder.String()
+
+	root, graph := setupTestRepo(t, []testFile{
+		{
+			relPath: "big.go",
+			lang:    repomap.LangGo,
+			content: body,
+			symbols: []repomap.Symbol{
+				{Name: "Many", Kind: "function", Line: 3, EndLine: 83},
+			},
+		},
+	})
+
+	const cap = 10
+	result := Analyze(graph, Options{
+		RepoRoot:        root,
+		CandidateFiles:  []string{"big.go"},
+		WorkDir:         t.TempDir(),
+		MaxItemsPerFile: cap,
+		// Leave EntityBias empty so the cap is the only active gate.
+	})
+
+	// The cap bounds per-file ProducerEvidence. evidenceFromFindings may
+	// add cross-hop items (unbounded by MaxItemsPerFile), but without
+	// cross-file relations the count from big.go itself stays ≤ cap.
+	bigCount := 0
+	for _, ev := range result.Evidence {
+		if ev.Source == "big.go" {
+			bigCount++
+		}
+	}
+	if bigCount == 0 {
+		t.Fatal("expected some evidence from big.go before the cap")
+	}
+	if bigCount > cap {
+		t.Fatalf("evidence from big.go = %d, want ≤ %d (per-file cap)", bigCount, cap)
+	}
+}
+
+// TestE2E_EntityBiasCoherentAcrossRuns pins down the cache-coherence
+// contract: running Analyze against the same WorkDir but with
+// different EntityBias values must NOT reuse the first run's filtered
+// evidence. The cache key intentionally does not include EntityBias,
+// so the post-load gate (applyEvidenceRelevanceGate) must be run
+// every time on the pristine cached lowered output.
+func TestE2E_EntityBiasCoherentAcrossRuns(t *testing.T) {
+	root, graph := setupTestRepo(t, []testFile{
+		{
+			relPath: "target.go",
+			lang:    repomap.LangGo,
+			content: `package demo
+
+func FocusA() string {
+	if gateA {
+		return "a"
+	}
+	return "A"
+}
+
+func FocusB() string {
+	if gateB {
+		return "b"
+	}
+	return "B"
+}
+`,
+			symbols: []repomap.Symbol{
+				{Name: "FocusA", Kind: "function", Line: 3, EndLine: 8},
+				{Name: "FocusB", Kind: "function", Line: 10, EndLine: 15},
+			},
+		},
+	})
+
+	workDir := t.TempDir()
+
+	// First run biases on FocusA; FocusB evidence must be filtered out.
+	r1 := Analyze(graph, Options{
+		RepoRoot:        root,
+		CandidateFiles:  []string{"target.go"},
+		WorkDir:         workDir,
+		EntityBias:      []string{"FocusA"},
+		MaxItemsPerFile: 50,
+	})
+	var r1SawA, r1SawB bool
+	for _, ev := range r1.Evidence {
+		if strings.Contains(ev.Subject, "FocusA") {
+			r1SawA = true
+		}
+		if strings.Contains(ev.Subject, "FocusB") {
+			r1SawB = true
+		}
+	}
+	if !r1SawA || r1SawB {
+		t.Fatalf("run 1 biased on FocusA: want A=true B=false, got A=%v B=%v", r1SawA, r1SawB)
+	}
+
+	// Second run re-uses the cached lowered output (same WorkDir) but
+	// flips the bias to FocusB. If the gate is correctly applied AFTER
+	// the cache load, FocusB is admitted and FocusA is filtered.
+	r2 := Analyze(graph, Options{
+		RepoRoot:        root,
+		CandidateFiles:  []string{"target.go"},
+		WorkDir:         workDir,
+		EntityBias:      []string{"FocusB"},
+		MaxItemsPerFile: 50,
+	})
+	var r2SawA, r2SawB bool
+	for _, ev := range r2.Evidence {
+		if strings.Contains(ev.Subject, "FocusA") {
+			r2SawA = true
+		}
+		if strings.Contains(ev.Subject, "FocusB") {
+			r2SawB = true
+		}
+	}
+	if r2SawA || !r2SawB {
+		t.Fatalf("run 2 biased on FocusB (same WorkDir): want A=false B=true, got A=%v B=%v — cache is leaking the first run's filter", r2SawA, r2SawB)
+	}
+}
+
+// Unit test for the bias tokenizer / matchers. These helpers feed the
+// symbol-admission gate, so they need to agree with how sortByEntityBias
+// reads the same EntityBias slice.
+func TestLowerer_BiasHelpers(t *testing.T) {
+	tokens := prepareBiasTokens([]string{"  Explorer  ", "", "  ShouldStop"})
+	if len(tokens) != 2 {
+		t.Fatalf("prepareBiasTokens returned %v, want 2 non-empty lowercased tokens", tokens)
+	}
+	if tokens[0] != "explorer" || tokens[1] != "shouldstop" {
+		t.Fatalf("prepareBiasTokens returned %v, want lowercase trimmed", tokens)
+	}
+
+	if !fileHitsBias("internal/agent/explorer.go", tokens) {
+		t.Fatal("fileHitsBias: expected path hit on 'explorer' token")
+	}
+	if fileHitsBias("internal/agent/unrelated.go", tokens) {
+		t.Fatal("fileHitsBias: unrelated path should miss")
+	}
+	if !symbolHitsBias("ShouldStopLoop", tokens) {
+		t.Fatal("symbolHitsBias: ShouldStopLoop should hit 'shouldstop'")
+	}
+	if symbolHitsBias("filterKeywords", tokens) {
+		t.Fatal("symbolHitsBias: filterKeywords should miss both tokens")
+	}
+	if fileHitsBias("anywhere.go", nil) {
+		t.Fatal("fileHitsBias: empty tokens must always return false (gate is no-op)")
+	}
+}

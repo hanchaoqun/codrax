@@ -5041,6 +5041,7 @@ func (e *explorerEvaluator) ensureStructuredEvidence(ctx *types.AgentContext, to
 		MaxFiles:        40,
 		MaxIterations:   6,
 		MaxNodesPerFunc: 400,
+		MaxItemsPerFile: 50,
 		SkipFindings:    intent == IntentLookup,
 		EntityBias:      entityBias,
 	})
