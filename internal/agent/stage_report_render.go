@@ -34,8 +34,9 @@ package agent
 //   3. No word lists, no regex pattern matching, no language-specific
 //      heuristics. The structured fields are the source of truth;
 //      this file just formats them.
-//   4. No dropping or filtering. Upstream filters F5..F8 already did
-//      grounding/dedup/rank/scope. This renderer formats the survivors.
+//   4. No semantic re-ranking or LLM-style synthesis. Upstream filters
+//      F5..F8 already did grounding/dedup/rank/scope. The renderer formats
+//      the survivors and applies only the cross-stage trust boundary.
 //      "Honesty over cleverness" — empty inputs render as an explicit
 //      empty skeleton, not as silence.
 //   5. The output is human-readable markdown so the finalizer LLM can
@@ -88,7 +89,8 @@ func renderExplorerStageReport(
 	// internal/context/builder.go, top-18). This section is a
 	// compact recap so the finalizer prompt does not need to
 	// cross-reference two sections to see what the explorer found.
-	if len(evidence) > 0 {
+	primaryEvidence := primaryEvidenceForReport(evidence)
+	if len(primaryEvidence) > 0 {
 		b.WriteString("## Primary Evidence\n")
 		// topN was 8 pre-2026-04-17. Widened to 12 together with the
 		// mechanism-concrete ranking promotion in evidence.go so
@@ -98,14 +100,14 @@ func renderExplorerStageReport(
 		// extra ~4 bullets add ~400 bytes to the digest — negligible
 		// relative to the extractor's 10KB+ budget.
 		const topN = 12
-		for i, ev := range evidence {
+		for i, ev := range primaryEvidence {
 			if i >= topN {
 				break
 			}
 			b.WriteString("- " + formatEvidenceLineForReport(ev) + "\n")
 		}
-		if len(evidence) > topN {
-			fmt.Fprintf(&b, "- ... (+%d more in Structured Evidence section)\n", len(evidence)-topN)
+		if len(primaryEvidence) > topN {
+			fmt.Fprintf(&b, "- ... (+%d more in Structured Evidence section)\n", len(primaryEvidence)-topN)
 		}
 		b.WriteString("\n")
 	}
@@ -167,6 +169,24 @@ func renderExplorerStageReport(
 	}
 
 	return strings.TrimRight(b.String(), "\n") + "\n"
+}
+
+func primaryEvidenceForReport(items []types.EvidenceItem) []types.EvidenceItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]types.EvidenceItem, 0, len(items))
+	for _, item := range items {
+		if !item.IsCitable() {
+			continue
+		}
+		switch item.Kind {
+		case types.EvidenceUnresolved, types.EvidenceTruncated:
+			continue
+		}
+		out = append(out, item)
+	}
+	return out
 }
 
 // formatEvidenceLineForReport renders one EvidenceItem as a single

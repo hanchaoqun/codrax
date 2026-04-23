@@ -957,10 +957,10 @@ func filterFlowFindingsByEvidence(items []types.EvidenceItem, findings []types.F
 }
 
 // formatEvidenceItems renders evidence for Primary Evidence /
-// Structured Evidence sections. Ungrounded items (GroundingStatus ==
-// Ungrounded) are NOT rendered here — they flow through
+// Structured Evidence sections. Ungrounded and diagnostic-only items
+// are NOT rendered here; they flow through
 // formatUnverifiedLeads into a dedicated "Unverified Leads" section
-// so the finalizer cannot accidentally cite them.
+// so the finalizer cannot accidentally treat them as answer-grade citations.
 //
 // strictLocation toggles session-8 "no non-Tier-1 lines reach Turn B"
 // behaviour: when true, Recovered items show `(file)` without a line
@@ -1030,7 +1030,7 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 	var b strings.Builder
 	written := 0
 	for _, item := range items {
-		if item.GroundingStatus == types.GroundingUngrounded {
+		if !isStructuredEvidenceItem(item) {
 			continue
 		}
 		if written >= limit {
@@ -1070,7 +1070,7 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 		// Note the distinction: "items" here has already excluded the
 		// ungrounded entries for written purposes, but the tally still
 		// shows the full count of grounded/recovered items beyond limit.
-		over := countGroundedOrRecovered(items) - written
+		over := countStructuredEvidenceItems(items) - written
 		if over > 0 {
 			fmt.Fprintf(&b, "... and %d more evidence items\n", over)
 		}
@@ -1078,9 +1078,21 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 	return strings.TrimSpace(b.String())
 }
 
-// formatUnverifiedLeads renders items whose GroundingStatus is
-// Ungrounded. These are LLM claims the grounder could not validate:
-// treated as discussion hints, never emitted as citations.
+func isStructuredEvidenceItem(item types.EvidenceItem) bool {
+	if item.GroundingStatus == types.GroundingUngrounded {
+		return false
+	}
+	switch item.Kind {
+	case types.EvidenceUnresolved, types.EvidenceTruncated:
+		return false
+	}
+	return true
+}
+
+// formatUnverifiedLeads renders non-citation material: LLM claims
+// whose GroundingStatus is Ungrounded plus deterministic diagnostic
+// items such as unresolved dataflow or analysis truncation notices.
+// These are discussion hints, never emitted as citations.
 //
 // strictLocation gates the LineStart: when true (Turn B / finalize)
 // the LineStart is stripped entirely so downstream LLMs cannot even
@@ -1091,7 +1103,7 @@ func formatEvidenceItems(items []types.EvidenceItem, limit int, strictLocation b
 func formatUnverifiedLeads(items []types.EvidenceItem, limit int, strictLocation bool) string {
 	leads := make([]types.EvidenceItem, 0, len(items))
 	for _, it := range items {
-		if it.GroundingStatus == types.GroundingUngrounded {
+		if isUnverifiedLeadItem(it) {
 			leads = append(leads, it)
 		}
 	}
@@ -1102,7 +1114,7 @@ func formatUnverifiedLeads(items []types.EvidenceItem, limit int, strictLocation
 		limit = len(leads)
 	}
 	var b strings.Builder
-	b.WriteString("These items were proposed by the explorer but the grounder could not validate the file:line citation (anchor_symbol not found at the cited line, or the file was never read). Treat them as discussion hints — do NOT emit them in the answer's citations[] field.\n\n")
+	b.WriteString("These items are diagnostic leads, not answer-grade citations: either the grounder could not validate the file:line citation, or deterministic dataflow marked the path as unresolved/truncated. Treat them as discussion hints; do NOT emit them in the answer's citations[] field.\n\n")
 	for i, item := range leads {
 		if i >= limit {
 			break
@@ -1116,7 +1128,16 @@ func formatUnverifiedLeads(items []types.EvidenceItem, limit int, strictLocation
 			line = strings.Join(parts, " ")
 		}
 		if loc := item.DisplayLocation(strictLocation); loc != "" {
+			if item.Kind == types.EvidenceUnresolved || item.Kind == types.EvidenceTruncated {
+				loc = item.Source
+			}
 			line += " (" + loc + ")"
+		}
+		switch item.Kind {
+		case types.EvidenceUnresolved:
+			line += " [unresolved]"
+		case types.EvidenceTruncated:
+			line += " [analysis_truncated]"
 		}
 		if note := strings.TrimSpace(item.GroundingNote); note != "" {
 			line += " — " + note
@@ -1129,10 +1150,21 @@ func formatUnverifiedLeads(items []types.EvidenceItem, limit int, strictLocation
 	return strings.TrimSpace(b.String())
 }
 
-func countGroundedOrRecovered(items []types.EvidenceItem) int {
+func isUnverifiedLeadItem(item types.EvidenceItem) bool {
+	if item.GroundingStatus == types.GroundingUngrounded {
+		return true
+	}
+	switch item.Kind {
+	case types.EvidenceUnresolved, types.EvidenceTruncated:
+		return true
+	}
+	return false
+}
+
+func countStructuredEvidenceItems(items []types.EvidenceItem) int {
 	n := 0
 	for _, it := range items {
-		if it.GroundingStatus != types.GroundingUngrounded {
+		if isStructuredEvidenceItem(it) {
 			n++
 		}
 	}

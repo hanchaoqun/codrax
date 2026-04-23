@@ -615,7 +615,10 @@ func evidenceRelevanceScore(item types.EvidenceItem, entities []string, readFile
 			overlap++
 		}
 	}
-	entityScore := float64(overlap) / float64(len(entities))
+	entityScore := 1.0
+	if len(entities) > 0 {
+		entityScore = float64(overlap) / float64(len(entities))
+	}
 
 	// 2. Kind weight. LLM-emittable kinds (direct, conditional,
 	// registration, mechanism, relationship, absent) rank ABOVE
@@ -868,9 +871,10 @@ func looksLikeMechanismConcreteValue(item types.EvidenceItem, normText string, e
 	return false
 }
 
-// rankFindingsByRelevance scores and sorts dataflow findings by
-// relevance to the user's question, preferring findings whose path
-// nodes overlap with question entities and shorter, more specific chains.
+// rankFindingsByRelevance scores, filters, and sorts dataflow
+// findings by relevance to the user's question, preferring supported
+// findings whose path nodes overlap with question entities and shorter,
+// more specific chains.
 func rankFindingsByRelevance(question string, findings []types.FlowFindingDigest) []types.FlowFindingDigest {
 	if len(findings) == 0 {
 		return findings
@@ -884,16 +888,40 @@ func rankFindingsByRelevance(question string, findings []types.FlowFindingDigest
 		finding types.FlowFindingDigest
 		score   float64
 	}
-	scored_items := make([]scored, 0, len(findings))
+	supported := make([]scored, 0, len(findings))
+	unsupported := make([]scored, 0, len(findings))
 	for _, f := range findings {
 		s := findingRelevanceScore(f, entities)
-		scored_items = append(scored_items, scored{finding: f, score: s})
+		if s <= 0 {
+			continue
+		}
+		item := scored{finding: f, score: s}
+		if f.UnsupportedReason != "" {
+			unsupported = append(unsupported, item)
+			continue
+		}
+		supported = append(supported, item)
+	}
+
+	if len(supported) == 0 && len(unsupported) == 0 {
+		return nil
+	}
+
+	// Unsupported findings are useful as last-resort diagnostics, but
+	// they should not compete with proven flow paths in the context
+	// that feeds later LLM stages. If at least one supported finding is
+	// relevant, keep the supported slate only; otherwise return the
+	// relevant unsupported findings so the system remains honest about
+	// analysis gaps instead of pretending dataflow found nothing.
+	scored_items := supported
+	if len(scored_items) == 0 {
+		scored_items = unsupported
 	}
 	sort.SliceStable(scored_items, func(i, j int) bool {
 		return scored_items[i].score > scored_items[j].score
 	})
 
-	result := make([]types.FlowFindingDigest, 0, len(findings))
+	result := make([]types.FlowFindingDigest, 0, len(scored_items))
 	for _, si := range scored_items {
 		result = append(result, si.finding)
 	}
@@ -903,7 +931,9 @@ func rankFindingsByRelevance(question string, findings []types.FlowFindingDigest
 func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64 {
 	// 1. Path entity overlap.
 	allText := normalizeEntityHaystack(stripPathTokens(strings.ToLower(strings.Join(f.Path, " ") + " " +
-		strings.Join(f.Sources, " ") + " " + strings.Join(f.Sinks, " "))))
+		strings.Join(f.Sources, " ") + " " + strings.Join(f.Sinks, " ") + " " +
+		strings.Join(f.Hops, " ") + " " + strings.Join(f.Conditions, " ") + " " +
+		f.UnsupportedReason)))
 	overlap := 0
 	for _, ent := range entities {
 		if entityHits(allText, ent) {
@@ -925,6 +955,9 @@ func findingRelevanceScore(f types.FlowFindingDigest, entities []string) float64
 	confidence := f.Confidence
 	if confidence <= 0 {
 		confidence = 0.5
+	}
+	if f.UnsupportedReason != "" {
+		confidence *= 0.25
 	}
 
 	return entityScore * brevity * confidence

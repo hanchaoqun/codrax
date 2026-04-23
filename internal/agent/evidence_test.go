@@ -475,19 +475,81 @@ func TestRankFindingsByRelevance(t *testing.T) {
 	}
 
 	ranked := rankFindingsByRelevance(question, findings)
-	if len(ranked) != 3 {
-		t.Fatalf("got %d findings, want 3", len(ranked))
+	if len(ranked) != 1 {
+		t.Fatalf("got %d findings, want 1 relevant finding", len(ranked))
 	}
 
-	// The subagent registration finding should be first
+	// The subagent registration finding should be the only survivor;
+	// zero-overlap paths are context noise, not merely lower-priority
+	// findings.
 	if !strings.Contains(ranked[0].Path[0], "Register") {
 		t.Errorf("expected RegisterDefaultSubAgents finding first, got path=%v", ranked[0].Path)
 	}
+}
 
-	// Logger finding should be last (zero entity overlap)
-	if !strings.Contains(ranked[len(ranked)-1].Path[0], "Logger") &&
-		!strings.Contains(ranked[len(ranked)-1].Path[0], "expand") {
-		t.Errorf("expected irrelevant finding at bottom, got path=%v", ranked[len(ranked)-1].Path)
+func TestRankFindingsByRelevance_DropsUnsupportedWhenSupportedExists(t *testing.T) {
+	question := "How does Checkout flow to Payment?"
+	findings := []types.FlowFindingDigest{
+		{
+			Path:       []string{"Checkout.Start", "Payment.Authorize"},
+			Sources:    []string{"internal/checkout/flow.go"},
+			Sinks:      []string{"Payment.Authorize"},
+			Hops:       []string{"calls"},
+			Confidence: 0.55,
+		},
+		{
+			Path:              []string{"Checkout.Start"},
+			Sources:           []string{"internal/checkout/flow.go"},
+			Sinks:             []string{"Payment.Authorize"},
+			Hops:              []string{"unknown_effect"},
+			UnsupportedReason: "dynamic dispatch target unresolved",
+			Confidence:        0.99,
+		},
+		{
+			Path:       []string{"Logger.Close", "Metrics.Flush"},
+			Sources:    []string{"internal/logging/logger.go"},
+			Sinks:      []string{"Metrics.Flush"},
+			Confidence: 0.9,
+		},
+	}
+
+	ranked := rankFindingsByRelevance(question, findings)
+	if len(ranked) != 1 {
+		t.Fatalf("got %d findings, want only the supported relevant finding", len(ranked))
+	}
+	if ranked[0].UnsupportedReason != "" {
+		t.Fatalf("unsupported finding leaked ahead of supported dataflow: %+v", ranked[0])
+	}
+	if !strings.Contains(strings.Join(ranked[0].Path, " "), "Payment") {
+		t.Fatalf("wrong finding survived: %+v", ranked[0])
+	}
+}
+
+func TestRankFindingsByRelevance_KeepsUnsupportedAsLastResort(t *testing.T) {
+	question := "How does Checkout flow to Payment?"
+	findings := []types.FlowFindingDigest{
+		{
+			Path:              []string{"Checkout.Start"},
+			Sources:           []string{"internal/checkout/flow.go"},
+			Sinks:             []string{"Payment.Authorize"},
+			Hops:              []string{"unknown_effect"},
+			UnsupportedReason: "dynamic dispatch target unresolved",
+			Confidence:        0.99,
+		},
+		{
+			Path:       []string{"Logger.Close", "Metrics.Flush"},
+			Sources:    []string{"internal/logging/logger.go"},
+			Sinks:      []string{"Metrics.Flush"},
+			Confidence: 0.9,
+		},
+	}
+
+	ranked := rankFindingsByRelevance(question, findings)
+	if len(ranked) != 1 {
+		t.Fatalf("got %d findings, want the relevant unsupported fallback only", len(ranked))
+	}
+	if ranked[0].UnsupportedReason == "" {
+		t.Fatalf("expected unsupported fallback, got %+v", ranked[0])
 	}
 }
 
@@ -913,5 +975,34 @@ func TestRankEvidenceWithAxis_UnknownAxisIsNoOp(t *testing.T) {
 			t.Errorf("AxisUnknown should not change order; pos %d: base=%q axis=%q",
 				i, base[i].Subject, withUnknown[i].Subject)
 		}
+	}
+}
+
+func TestRankEvidenceWithAxis_NoEntitiesStillUsesAxis(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Kind:         types.EvidenceDirect,
+			Subject:      "DefinitionAnchor",
+			Source:       "internal/example.go",
+			AnchorKind:   types.AnchorDefinition,
+			AnchorSymbol: "DefinitionAnchor",
+			LineStart:    10,
+		},
+		{
+			Kind:         types.EvidenceDirect,
+			Subject:      "CallAnchor",
+			Source:       "internal/example.go",
+			AnchorKind:   types.AnchorCall,
+			AnchorSymbol: "CallAnchor",
+			LineStart:    20,
+		},
+	}
+
+	ranked := rankEvidenceByRelevanceWithSubject("???", items, nil, types.AnswerSubject{}, nil, types.AxisCall)
+	if len(ranked) != 2 {
+		t.Fatalf("got %d items, want 2", len(ranked))
+	}
+	if ranked[0].Subject != "CallAnchor" {
+		t.Fatalf("AxisCall should rank call evidence first even with no extracted entities; got %q", ranked[0].Subject)
 	}
 }

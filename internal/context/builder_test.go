@@ -656,11 +656,12 @@ func TestBuildSubAgentContextFiltersEvidenceItemsByScope(t *testing.T) {
 }
 
 // TestFormatEvidenceItemsExcludesUngrounded pins the 2026-04-17
-// redesign contract: items with GroundingStatus=Ungrounded are
-// intentionally EXCLUDED from the Structured Evidence section and
-// instead flow through formatUnverifiedLeads into a dedicated
-// "Unverified Leads (not for citation)" section. This prevents the
-// finalizer from citing claims the grounder could not validate.
+// redesign contract: items with GroundingStatus=Ungrounded, plus
+// diagnostic-only dataflow items, are intentionally EXCLUDED from the
+// Structured Evidence section and instead flow through
+// formatUnverifiedLeads into a dedicated "Unverified Leads (not for
+// citation)" section. This prevents the finalizer from citing claims
+// the grounder could not validate or paths dataflow could not prove.
 // Recovered items remain in Structured Evidence with a [recovered]
 // tag so the LLM can tell "my line was right" from "the grounder
 // adjusted my line".
@@ -684,6 +685,20 @@ func TestFormatEvidenceItemsExcludesUngrounded(t *testing.T) {
 			LineStart:       77,
 			GroundingStatus: types.GroundingUngrounded,
 		},
+		{
+			Kind:      types.EvidenceUnresolved,
+			Subject:   "DynamicDispatch",
+			Predicate: "unknown_effect",
+			Object:    "target unresolved",
+			Source:    "internal/agent/explorer.go",
+			LineStart: 99,
+		},
+		{
+			Kind:      types.EvidenceTruncated,
+			Subject:   "candidate_files",
+			Predicate: "truncated_to_budget",
+			Object:    "20",
+		},
 	}
 	out := formatEvidenceItems(items, 0, false)
 	if !strings.Contains(out, "Handler.Name") {
@@ -692,10 +707,19 @@ func TestFormatEvidenceItemsExcludesUngrounded(t *testing.T) {
 	if strings.Contains(out, "Register") {
 		t.Fatalf("ungrounded item leaked into Structured Evidence; must go to Unverified Leads:\n%s", out)
 	}
+	if strings.Contains(out, "DynamicDispatch") || strings.Contains(out, "candidate_files") {
+		t.Fatalf("diagnostic dataflow item leaked into Structured Evidence; must go to Unverified Leads:\n%s", out)
+	}
 	// Leads render is covered by formatUnverifiedLeads directly:
 	leads := formatUnverifiedLeads(items, 0, false)
 	if !strings.Contains(leads, "Register") {
 		t.Fatalf("ungrounded item missing from Unverified Leads:\n%s", leads)
+	}
+	if !strings.Contains(leads, "DynamicDispatch") || !strings.Contains(leads, "[unresolved]") {
+		t.Fatalf("unresolved diagnostic item missing from Unverified Leads:\n%s", leads)
+	}
+	if !strings.Contains(leads, "candidate_files") || !strings.Contains(leads, "[analysis_truncated]") {
+		t.Fatalf("analysis_truncated diagnostic item missing from Unverified Leads:\n%s", leads)
 	}
 	if !strings.Contains(leads, "not for citation") && !strings.Contains(leads, "do NOT emit") {
 		t.Fatalf("Unverified Leads section missing citation guard directive:\n%s", leads)

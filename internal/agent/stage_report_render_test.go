@@ -136,12 +136,12 @@ func TestRenderExplorerStageReport_EmptyInputs(t *testing.T) {
 func TestRenderExplorerStageReport_NoSiblingProseLeak(t *testing.T) {
 	evidence := []types.EvidenceItem{
 		{
-			Kind: types.EvidenceConcrete,
+			Kind:    types.EvidenceConcrete,
 			Subject: "explorerEvaluator", Predicate: "method", Object: "X",
 			Source: "internal/agent/explorer.go", LineStart: 100,
 		},
 		{
-			Kind: types.EvidenceMechanism,
+			Kind:    types.EvidenceMechanism,
 			Subject: "subExplorerEvaluator", Predicate: "method", Object: "Y",
 			Source: "internal/agent/sub_explorer.go", LineStart: 191,
 		},
@@ -163,38 +163,33 @@ func TestRenderExplorerStageReport_NoSiblingProseLeak(t *testing.T) {
 	}
 }
 
-func TestRenderExplorerStageReport_UngroundedTagPreserved(t *testing.T) {
+func TestFormatEvidenceLineForReport_UngroundedTagPreserved(t *testing.T) {
 	// Post 2026-04-17 redesign: GroundingStatus replaces the legacy
 	// "/ungrounded" Producer suffix. formatEvidenceLineForReport
 	// surfaces ungrounded items with a trailing [UNGROUNDED] tag so
-	// the finalizer still sees the trust-level marker.
-	evidence := []types.EvidenceItem{
-		{
-			Kind: types.EvidenceConcrete,
-			Subject: "X", Predicate: "Y", Object: "Z",
-			Source: "internal/agent/foo.go", LineStart: 10,
-			GroundingStatus: types.GroundingUngrounded,
-		},
+	// callers that render lower-trust evidence directly still keep
+	// the trust-level marker.
+	ev := types.EvidenceItem{
+		Kind:    types.EvidenceConcrete,
+		Subject: "X", Predicate: "Y", Object: "Z",
+		Source: "internal/agent/foo.go", LineStart: 10,
+		GroundingStatus: types.GroundingUngrounded,
 	}
-	got := renderExplorerStageReport("mechanism", "value",
-		evidence, nil, nil, nil, nil, false)
+	got := formatEvidenceLineForReport(ev)
 	if !strings.Contains(got, "[UNGROUNDED]") {
 		t.Errorf("ungrounded marker not preserved in render:\n%s", got)
 	}
 }
 
-func TestRenderExplorerStageReport_RecoveredTagPreserved(t *testing.T) {
-	evidence := []types.EvidenceItem{
-		{
-			Kind: types.EvidenceConcrete,
-			Subject: "X", Predicate: "Y", Object: "Z",
-			Source: "internal/agent/foo.go", LineStart: 42,
-			GroundingStatus: types.GroundingRecovered,
-			GroundingTier:   types.TierFQNameSameFile,
-		},
+func TestFormatEvidenceLineForReport_RecoveredTagPreserved(t *testing.T) {
+	ev := types.EvidenceItem{
+		Kind:    types.EvidenceConcrete,
+		Subject: "X", Predicate: "Y", Object: "Z",
+		Source: "internal/agent/foo.go", LineStart: 42,
+		GroundingStatus: types.GroundingRecovered,
+		GroundingTier:   types.TierFQNameSameFile,
 	}
-	got := renderExplorerStageReport("mechanism", "value",
-		evidence, nil, nil, nil, nil, false)
+	got := formatEvidenceLineForReport(ev)
 	// Session-8: recovered tag still rendered, with new "read_file
 	// before citing" guidance; LineStart (42) stripped so downstream
 	// cannot pick it up.
@@ -206,6 +201,52 @@ func TestRenderExplorerStageReport_RecoveredTagPreserved(t *testing.T) {
 	}
 	if !strings.Contains(got, "read_file before citing") {
 		t.Errorf("recovered tag must nudge the LLM to read_file:\n%s", got)
+	}
+}
+
+func TestRenderExplorerStageReport_PrimaryEvidenceExcludesNonCitableNoise(t *testing.T) {
+	evidence := []types.EvidenceItem{
+		{
+			Kind:    types.EvidenceUnresolved,
+			Subject: "DynamicDispatch", Predicate: "unknown_effect", Object: "target unresolved",
+			Source: "internal/agent/foo.go", LineStart: 10,
+		},
+		{
+			Kind:    types.EvidenceTruncated,
+			Subject: "candidate_files", Predicate: "truncated_to_budget", Object: "20",
+		},
+		{
+			Kind:    types.EvidenceConcrete,
+			Subject: "Ungrounded", Predicate: "returns", Object: "value",
+			Source: "internal/agent/foo.go", LineStart: 12,
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			Kind:    types.EvidenceConcrete,
+			Subject: "Recovered", Predicate: "returns", Object: "value",
+			Source: "internal/agent/foo.go", LineStart: 13,
+			GroundingStatus: types.GroundingRecovered,
+		},
+		{
+			Kind:    types.EvidenceDirect,
+			Subject: "Grounded", Predicate: "returns", Object: "value",
+			Source: "internal/agent/foo.go", LineStart: 14,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	}
+
+	got := renderExplorerStageReport("mechanism", "value",
+		evidence, nil, nil, nil, nil, false)
+	if !strings.Contains(got, "evidence_items: 5") {
+		t.Fatalf("summary should retain raw evidence count for auditability:\n%s", got)
+	}
+	if !strings.Contains(got, "Grounded returns value") {
+		t.Fatalf("grounded evidence missing from Primary Evidence:\n%s", got)
+	}
+	for _, noise := range []string{"DynamicDispatch", "candidate_files", "Ungrounded", "Recovered"} {
+		if strings.Contains(got, noise) {
+			t.Fatalf("non-primary evidence %q leaked into Primary Evidence:\n%s", noise, got)
+		}
 	}
 }
 
