@@ -19,7 +19,7 @@ go test ./internal/orchestrator/ -run TestRunTaskGraph_HappyPath
 
 ```bash
 ./codrax --repo . --branch main --request "task" --pipeline-max-steps 50
-./codrax                      # interactive REPL (/exit /clear /history /compact /log /paste /help)
+./codrax                      # interactive REPL (/exit /clear /history /compact /log /paste /chat /help)
 ./codrax --log-level debug --log-stdout --request "task"
 
 # Log-triage (session 19): attach a runtime log so analyzer extracts
@@ -149,6 +149,7 @@ Two YAML files live flat next to the binary:
   - `memory_*` — REPL memory-store buffers (`types.DefaultMemorySettings`)
   - `summary_cap_*` — master switch + per-shape Summary length ceilings (`types.SummaryCapConfig`, default disabled)
   - `citation_quote_max_chars` — single knob; Citation.Quote preview ceiling (`types.DefaultCitationMaxQuoteChars = 500`). Oversize Quotes truncate on UTF-8 boundary; file:line always preserved; prose defense via grounder token-match is orthogonal
+  - `chitchat_enabled` — REPL `/chat <msg>` slash command (default true). Single LLM Chat call bypasses pipeline for casual conversation. Provider routed via `providers.yaml :: agents.chitchat_responder` (falls back to default). REPL-only; single-shot `--request` never touches it
   - `cgec_*` — Citation-Grounded Evidence Closure tunables
 
 Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.

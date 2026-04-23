@@ -432,6 +432,35 @@
 # citation_quote_max_chars: 500
 
 # ---------------------------------------------------------------------------
+# Chit-chat REPL command (chitchat_enabled)
+# ---------------------------------------------------------------------------
+# The REPL recognises `/chat <message>` as a casual conversation slash
+# command that bypasses the analysis pipeline: a single LLM Chat call
+# replies to the user without running analyze → explore → extract →
+# finalize. Useful for greetings, tool-capability questions, and any
+# turn that does not need repository access.
+#
+# The feature is a user-triggered slash command, so simply making it
+# available imposes zero cost on users who never type /chat. Single-
+# shot (--request) mode never touches this path regardless of the
+# setting. Set to false to make /chat print a "not configured" warning
+# (e.g. restricted deployments where no chat companion is desired).
+#
+# Provider routing: operators can route the chit-chat responder to a
+# cheap model via providers.yaml:
+#
+#   llm:
+#     agents:
+#       chitchat_responder:
+#         model: gpt-4o-mini
+#         think_aloud: false
+#
+# Falls back to llm.default when no agent-specific entry exists.
+#
+# Default: true.
+# chitchat_enabled: true
+
+# ---------------------------------------------------------------------------
 # Memory store limits (memory_*)
 # ---------------------------------------------------------------------------
 # Multi-turn REPL memory: buffer sizes and context-building caps.

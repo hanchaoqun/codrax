@@ -106,6 +106,7 @@ type appContext struct {
 	logger                *logging.Logger
 	memorySettings        types.MemorySettings
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
+	chitchatResponder     repl.ChitchatResponder
 }
 
 var app appContext
@@ -376,6 +377,7 @@ func runREPL(_ *cobra.Command) error {
 		Version:           version,
 		BuildTime:         buildTime,
 		Language:          flagLang,
+		ChitchatResponder: app.chitchatResponder,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
@@ -1118,6 +1120,26 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	orch.SetThinkAloudMap(taMap)
 	app.orch = orch
+
+	// Chit-chat responder. Follows the llmSummarizer pattern: one
+	// direct adapter.Chat call, no agent framework. Default ON — the
+	// feature is a user-triggered /chat slash command, so simply
+	// making the responder available imposes zero cost on users who
+	// never type /chat. Operators disable via codrax.yaml
+	// `chitchat_enabled: false` when they want the command to print a
+	// "not configured" warning (e.g. restricted deployments).
+	chitchatEnabled := true
+	if rs != nil && rs.ChitchatEnabled != nil {
+		chitchatEnabled = *rs.ChitchatEnabled
+	}
+	if chitchatEnabled {
+		resolved := config.ResolveProvider(providersCfg, "chitchat_responder")
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[chitchat] responder adapter init failed; /chat will print a warning: %v", err)
+		} else {
+			app.chitchatResponder = repl.NewChitchatResponder(adapter)
+		}
+	}
 
 	return nil
 }

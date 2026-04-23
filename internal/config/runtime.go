@@ -234,6 +234,15 @@ type RuntimeSettings struct {
 	// ignored.
 	CitationQuoteMaxChars *int `yaml:"citation_quote_max_chars"`
 
+	// ChitchatEnabled gates the REPL's /chat slash command and the
+	// optional classifier that precedes dispatch. When false, /chat
+	// prints a "not configured" warning and the classifier (if
+	// independently enabled) is not constructed. Default true — /chat
+	// is explicit user action so the risk of enabling it is minimal.
+	// Affects only the REPL; single-shot --request mode never touches
+	// chit-chat paths regardless of this setting.
+	ChitchatEnabled *bool `yaml:"chitchat_enabled"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /

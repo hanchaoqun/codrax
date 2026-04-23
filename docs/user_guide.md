@@ -463,7 +463,27 @@ emit_answer_document 每条 citation 可以附一行源码 quote。超长 quote 
 |---|---|---|
 | `citation_quote_max_chars` | `500` | citation quote 预览字符上限;非正数忽略。调大适用于 Kotlin DSL / Scala implicits / 生成代码等长行常见的仓库 |
 
-#### 3.3.15 日志分诊(`log_triage_*`)
+#### 3.3.15 闲聊命令(`chitchat_enabled`)
+
+REPL 识别 `/chat <message>` 斜杠命令:不走 analyze→explore→extract→finalize 流水线,单次 LLM Chat 调用直接回复用户。适用于打招呼、问工具能力、不需要读仓库的对话。单次 `--request` 模式不受此开关影响——`/chat` 是 REPL-only 特性。
+
+providers.yaml 可选按便宜模型单独路由:
+
+```yaml
+llm:
+  agents:
+    chitchat_responder:
+      model: gpt-4o-mini
+      think_aloud: false
+```
+
+缺省配置时回落到 `llm.default`。
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `chitchat_enabled` | `true` | `/chat` 命令开关。`false` 时 `/chat` 打印"未配置"警告,不发 LLM 调用 |
+
+#### 3.3.16 日志分诊(`log_triage_*`)
 
 仅当使用 `--log` / `/log` 附加日志时生效。
 
@@ -478,13 +498,13 @@ emit_answer_document 每条 citation 可以附一行源码 quote。超长 quote 
 | `log_triage_max_llm_calls` | `8` | 单次 log_triage 阶段 LLM 调用次数硬上限 |
 | `log_triage_max_retries` | `1` | emit_log_triage schema 拒后的重试次数 |
 
-#### 3.3.16 REPL 交互
+#### 3.3.17 REPL 交互
 
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `repl_paste_fold_min_chars` | `100` | 单行粘贴超过此字符数才折叠成 `[Pasted text #N]` 占位 |
 
-#### 3.3.17 providers.yaml 路径
+#### 3.3.18 providers.yaml 路径
 
 | 键 | 默认值 | 作用 |
 |---|---|---|

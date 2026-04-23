@@ -91,6 +91,15 @@ type Config struct {
 	// flips to English; every other value — including empty, "zh",
 	// "off", "fr" — renders zh (the codrax.yaml default).
 	Language string
+
+	// ChitchatResponder handles the /chat slash command. When nil,
+	// /chat prints a "not configured" warning and takes no LLM action
+	// — the command is recognised but inert. cmd/root.go constructs
+	// the default LLM-backed responder from providers.yaml when
+	// codrax.yaml `chitchat_enabled: true` (the default). Exposing
+	// this as an interface lets unit tests inject a deterministic stub
+	// without needing an LLM.
+	ChitchatResponder ChitchatResponder
 }
 
 // REPL drives the interactive prompt.
@@ -141,6 +150,10 @@ type REPL struct {
 	// it into the new Bubble Tea model as a placeholder seed. Single-
 	// use; cleared on consumption or on abort of the seeded turn.
 	pendingPaste string
+
+	// chitchatResponder is the /chat handler; nil means the feature
+	// is disabled and /chat prints a warning. See Config for wiring.
+	chitchatResponder ChitchatResponder
 }
 
 // New constructs a REPL from a Config.
@@ -161,6 +174,7 @@ func New(cfg Config) *REPL {
 		version:           cfg.Version,
 		buildTime:         cfg.BuildTime,
 		language:          cfg.Language,
+		chitchatResponder: cfg.ChitchatResponder,
 	}
 	if r.version == "" {
 		r.version = "dev"
@@ -640,8 +654,15 @@ func (r *REPL) dispatch(line, display string) {
 		return
 	}
 
-	// Render model output with a continuous left border. Strip trailing
-	// ANSI escapes and whitespace so the bar aligns cleanly.
+	r.renderBordered(response)
+	r.recordTurn(display, line, memResponse)
+}
+
+// renderBordered prints model output with a continuous left border.
+// Shared by the pipeline dispatch path and the /chat chitchat path so
+// both answer surfaces get identical visual treatment. Trailing ANSI
+// escapes and whitespace are stripped so the bar aligns cleanly.
+func (r *REPL) renderBordered(response string) {
 	raw := strings.Split(response, "\n")
 	var lines []string
 	prevBlank := false
@@ -675,8 +696,6 @@ func (r *REPL) dispatch(line, display string) {
 		}
 	}
 	fmt.Fprintf(r.out, "  %s\n\n", bar)
-
-	r.recordTurn(display, line, memResponse)
 }
 
 // recordTurn persists the user-visible form of a request plus the
@@ -715,6 +734,14 @@ func (r *REPL) handleSlash(line string) bool {
 		return false
 	case "/paste":
 		r.handlePasteCmd()
+		return false
+	case "/chat":
+		args := strings.TrimSpace(strings.TrimPrefix(line, cmd))
+		if args == "" {
+			r.info("/chat <message> — reply without invoking the analysis pipeline")
+			return false
+		}
+		r.chitchatDispatch(args, args)
 		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
@@ -786,10 +813,11 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/version":
 		r.info(fmt.Sprintf("codrax %s (built %s)", r.version, r.buildTime))
 	case "/help":
-		r.info("commands: /exit /quit /clear /history /compact /log /paste /version /help")
+		r.info("commands: /exit /quit /clear /history /compact /log /paste /chat /version /help")
 		r.info("tip: end a line with \\ for multi-line input")
 		r.info("log: /log <path> | /log (paste then /end) | /log clear | /log show")
 		r.info("paste: /paste (terminal-independent fallback when bracketed paste is stripped)")
+		r.info("chat: /chat <message> (reply without invoking the analysis pipeline)")
 		r.info("version: /version (or /v) prints the build identifier")
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
