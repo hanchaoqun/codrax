@@ -494,6 +494,18 @@ llm:
       think_aloud: false
 ```
 
+记忆压缩 (memory compaction) 同样走一次独立的 LLM 调用(结构化 tool 输出 + 失败即回落启发式 IndexEntry);操作者可以单独路由到便宜模型:
+
+```yaml
+llm:
+  agents:
+    memory_summarizer:
+      model: gpt-4o-mini
+      think_aloud: false
+```
+
+没有 codrax.yaml 开关——加了 `memory_summarizer` 条目就生效,不加就复用 `llm.default`。
+
 #### 3.3.16 日志分诊(`log_triage_*`)
 
 仅当使用 `--log` / `/log` 附加日志时生效。

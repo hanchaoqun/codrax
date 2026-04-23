@@ -103,6 +103,7 @@ type appContext struct {
 	renderer              *render.Renderer
 	orch                  *orchestrator.Orchestrator
 	defaultLLM            llm.Adapter
+	memorySummarizerLLM   llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
 	logger                *logging.Logger
 	memorySettings        types.MemorySettings
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
@@ -357,7 +358,7 @@ func runSingleShot(_ *cobra.Command, request string) error {
 
 // runREPL starts the interactive multi-turn session.
 func runREPL(_ *cobra.Command) error {
-	summarizer := newLLMSummarizer(app.defaultLLM)
+	summarizer := newLLMSummarizer(app.memorySummarizerLLM)
 	store, err := memory.NewStore(flagMemoryDir, summarizer, app.memorySettings)
 	if err != nil {
 		logging.Error("memory store init failed: %v", err)
@@ -997,6 +998,24 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	app.defaultLLM = createDefaultAdapter(providersCfg)
 
+	// Memory summarizer adapter routing. When providers.yaml carries
+	// an explicit `agents.memory_summarizer` entry, route the one-shot
+	// memory compaction LLM call to its (typically cheaper) model;
+	// otherwise reuse app.defaultLLM so the pre-session-30 behaviour
+	// is preserved byte-for-byte. This is a pure cost knob — every
+	// summarizer failure path falls back to the heuristic IndexEntry,
+	// so a mis-routed or slow cheap model at worst reverts memory
+	// quality to the fallback, it cannot break the REPL.
+	app.memorySummarizerLLM = app.defaultLLM
+	if _, ok := providersCfg.LLM.Agents["memory_summarizer"]; ok {
+		resolved := config.ResolveProvider(providersCfg, "memory_summarizer")
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[memory] summarizer adapter init failed; falling back to default LLM: %v", err)
+		} else {
+			app.memorySummarizerLLM = adapter
+		}
+	}
+
 	// Initialize registries.
 	mcpRegistry := mcp.NewRegistry()
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
@@ -1269,7 +1288,37 @@ func truncate(s string, maxLen int) string {
 	return s[:maxLen] + "..."
 }
 
-// llmSummarizer adapts the default LLM into a memory.Summarizer.
+// memorySummarizerTool is the structured-output schema the LLM
+// emits to compact one conversation turn into a memory index entry.
+// Kept LOCAL (not registered in tool.Registry) because the summarizer
+// bypasses the agent framework entirely and calls adapter.Chat
+// directly — the main pipeline agents never see this tool. Same
+// pattern as internal/repl/chitchat.go :: chitchatClassifierTool.
+var memorySummarizerTool = llm.ToolSchema{
+	Name:        "emit_memory_summary",
+	Description: "Compact one conversation turn into a memory index entry. Exactly one call.",
+	Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "topic":    {"type": "string", "description": "Short phrase (≤ 12 words) naming the subject of the turn. Used as the header in prior-conversation lookups."},
+    "keywords": {"type": "array", "items": {"type": "string"}, "description": "Up to 8 concrete keywords — identifiers, file names, or domain terms — that future prior-conversation keyword matching should latch on. Prefer tokens that appeared verbatim in the request or response over invented synonyms."},
+    "summary":  {"type": "string", "description": "One-paragraph recap (~150 words) covering the question asked and the key facts from the assistant's answer. Stay grounded in the turn content; do not invent details that were not discussed."}
+  },
+  "required": ["topic", "keywords", "summary"]
+}`),
+}
+
+const memorySummarizerSystemPrompt = `You compact one conversation turn into a memory index entry.
+
+Emit exactly one call to emit_memory_summary. Do NOT return free-form text; the caller ignores assistant content and parses only the tool call arguments.
+
+Stay grounded in the turn content — topic and keywords must name things that actually appeared in the request or response, and the summary must describe what was asked and answered rather than speculating about adjacent topics.`
+
+// llmSummarizer adapts an LLM adapter into a memory.Summarizer. It
+// runs a single adapter.Chat call with tool_choice=required and the
+// local memorySummarizerTool schema; every failure path (nil adapter,
+// chat error, no tool call, malformed JSON) returns a heuristic
+// fallback IndexEntry so memory compaction cannot break the REPL.
 type llmSummarizer struct {
 	adapter llm.Adapter
 }
@@ -1279,16 +1328,6 @@ func newLLMSummarizer(adapter llm.Adapter) *llmSummarizer {
 }
 
 func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.IndexEntry, error) {
-	prompt := strings.Builder{}
-	prompt.WriteString("Summarize the following conversation turn into a compact JSON object with fields: ")
-	prompt.WriteString(`{"topic":"<short phrase>","keywords":["k1","k2"],"summary":"<~150 word recap>"}.`)
-	prompt.WriteString(" Reply with ONLY the JSON object — no prose, no fences.\n\n")
-	prompt.WriteString("USER REQUEST:\n")
-	prompt.WriteString(turn.Request)
-	prompt.WriteString("\n\nASSISTANT RESPONSE:\n")
-	prompt.WriteString(turn.Response)
-	prompt.WriteString("\n")
-
 	fallback := memory.IndexEntry{
 		ID:       turn.ID,
 		Topic:    truncate(strings.ReplaceAll(turn.Request, "\n", " "), 80),
@@ -1298,28 +1337,48 @@ func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.I
 	if s.adapter == nil {
 		return fallback, nil
 	}
-	resp, err := s.adapter.Chat([]llm.Message{
-		{Role: "user", Content: prompt.String()},
-	}, nil, llm.ChatOptions{})
+
+	userContent := "USER REQUEST:\n" + turn.Request + "\n\nASSISTANT RESPONSE:\n" + turn.Response
+	messages := []llm.Message{
+		{Role: "system", Content: memorySummarizerSystemPrompt},
+		{Role: "user", Content: userContent},
+	}
+	tools := []llm.ToolSchema{memorySummarizerTool}
+	resp, err := s.adapter.Chat(messages, tools, llm.ChatOptions{ToolChoice: "required"})
 	if err != nil {
 		logging.Warning("[memory] summarizer LLM error, using fallback: %v", err)
 		return fallback, nil
 	}
-
-	content := strings.TrimSpace(resp.Content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
-
+	if len(resp.ToolCalls) == 0 {
+		logging.Warning("[memory] summarizer LLM returned no tool_call, using fallback")
+		return fallback, nil
+	}
+	call := resp.ToolCalls[0]
+	if call.Name != memorySummarizerTool.Name {
+		logging.Warning("[memory] summarizer LLM emitted unexpected tool %q, using fallback", call.Name)
+		return fallback, nil
+	}
 	var parsed struct {
 		Topic    string   `json:"topic"`
 		Keywords []string `json:"keywords"`
 		Summary  string   `json:"summary"`
 	}
-	if err := json.Unmarshal([]byte(content), &parsed); err != nil {
+	if err := json.Unmarshal(call.Params, &parsed); err != nil {
 		logging.Warning("[memory] summarizer JSON parse error, using fallback: %v", err)
 		return fallback, nil
+	}
+	// Partial-fill defence: if the model emitted the tool call but
+	// left one of the fields empty, backfill from the heuristic so
+	// downstream matchIndex still has something to work with. Topic
+	// and Summary are independent so treat them independently.
+	if strings.TrimSpace(parsed.Topic) == "" {
+		parsed.Topic = fallback.Topic
+	}
+	if strings.TrimSpace(parsed.Summary) == "" {
+		parsed.Summary = fallback.Summary
+	}
+	if len(parsed.Keywords) == 0 {
+		parsed.Keywords = fallback.Keywords
 	}
 	return memory.IndexEntry{
 		ID:       turn.ID,

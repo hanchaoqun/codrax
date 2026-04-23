@@ -484,6 +484,28 @@
 # Memory store limits (memory_*)
 # ---------------------------------------------------------------------------
 # Multi-turn REPL memory: buffer sizes and context-building caps.
+#
+# Memory compaction (summarizing oldest recent turns into MEMORY.md
+# index entries) calls the LLM once per compaction. The call uses a
+# structured tool schema — LLM emits a single emit_memory_summary
+# tool call with {topic, keywords, summary} — so parsing can never
+# fail silently on prose-wrapped JSON. All failure paths (no tool
+# call, malformed JSON, chat error, nil adapter) fall back to a
+# heuristic IndexEntry built from the turn's request/response, so
+# compaction cannot break the REPL.
+#
+# Operators who want to route memory compaction to a cheap model
+# (without changing the main pipeline model) add an agent entry to
+# providers.yaml:
+#
+#   llm:
+#     agents:
+#       memory_summarizer:
+#         model: gpt-4o-mini
+#         think_aloud: false
+#
+# No codrax.yaml knob is needed — presence of the agent key is the
+# opt-in. Absent that key, the summarizer reuses llm.default.
 
 # Number of recent turns kept verbatim before LLM-summarization.
 # memory_max_recent_turns: 6
