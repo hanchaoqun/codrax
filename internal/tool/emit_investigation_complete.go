@@ -353,6 +353,7 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 	if justification == "" {
 		raisePrimaryAnchorPendingRead(ctx, closure)
 		raisePhase1UnreadPendingReads(ctx, closure)
+		raiseMultiPathCoverageParity(ctx, closure)
 	}
 
 	pending := closure.PendingReads()
@@ -643,6 +644,92 @@ func raisePrimaryAnchorPendingRead(ctx *types.BusContext, closure *types.Evidenc
 		})
 		logging.Info("[CGEC] primary_anchor_unread: queued forced-read file=%s", canon)
 		return
+	}
+}
+
+// multiPathCoverageParityFloor is the minimum relative coverage each
+// primary-anchor file must reach for emit_investigation_complete to
+// honour a completion call. 0.3 matches the session 27 G-followup
+// prompt directive (baf1f52) which said "investigate each path with
+// EQUIVALENT depth — equal read_file calls, proportional emit_evidence
+// per path". That was advisory and held ~90% of the time; this gate
+// promotes the same ratio to a hard validator so the miss-case goes
+// to 0% instead of noise-band probabilistic.
+const multiPathCoverageParityFloor = 0.3
+
+// raiseMultiPathCoverageParity queues PendingReads for primary-anchor
+// files whose read coverage is less than multiPathCoverageParityFloor
+// of the most-covered primary file. Applies only when ≥ 2 primary
+// anchors exist — single-subject questions have no balance target.
+//
+// "Primary anchor" is Phase1RankedFile.ExactEntityRank > 0: files the
+// keyword_search layer resolved as exact hits for a user-named entity
+// (file name, symbol name, qualified symbol). This is the same signal
+// ce02655's phase1UnreadFilter uses to decide which unread files are
+// mandatory-read — we reuse it so the two gates agree on "what counts
+// as a primary file".
+//
+// Coverage = sum(line_end - line_start + 1) across ReadRanges(file).
+// When min < floor * max the under-covered file gets a PendingRead +
+// RepairExpandSearch directive; the downstream PendingReads branch
+// emits the downgrade message so the LLM has to balance before the
+// next completion attempt. Relative (ratio) rather than absolute
+// (minimum lines) so small files at full coverage don't false-trigger
+// against large files at partial coverage.
+func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.EvidenceClosure) {
+	if ctx == nil || ctx.Mutable == nil || closure == nil {
+		return
+	}
+	ranked := ctx.Mutable.Phase1Ranking()
+	if len(ranked) == 0 {
+		return
+	}
+	type primaryAnchor struct {
+		file     string
+		coverage int
+	}
+	anchors := make([]primaryAnchor, 0, len(ranked))
+	maxCoverage := 0
+	for _, rf := range ranked {
+		if rf.ExactEntityRank <= 0 {
+			continue
+		}
+		canon := strings.TrimPrefix(strings.TrimSpace(rf.Path), "./")
+		if canon == "" {
+			continue
+		}
+		cov := 0
+		for _, r := range closure.ReadRanges(canon) {
+			if r.End >= r.Start {
+				cov += r.End - r.Start + 1
+			}
+		}
+		anchors = append(anchors, primaryAnchor{file: canon, coverage: cov})
+		if cov > maxCoverage {
+			maxCoverage = cov
+		}
+	}
+	if len(anchors) < 2 || maxCoverage == 0 {
+		return
+	}
+	floor := float64(maxCoverage) * multiPathCoverageParityFloor
+	for _, a := range anchors {
+		if float64(a.coverage) >= floor {
+			continue
+		}
+		closure.AddPendingRead(types.PendingRead{
+			File:      a.file,
+			Rationale: fmt.Sprintf("multi-path balance: primary anchor covers %d line(s), max primary covers %d (< %.0f%% parity) — read more of this file before completing so both paths get equivalent depth", a.coverage, maxCoverage, multiPathCoverageParityFloor*100),
+			Origin:    "pre_complete.multi_path_coverage",
+		})
+		closure.AddRepair(types.RepairDirective{
+			Kind:      types.RepairExpandSearch,
+			Files:     []string{a.file},
+			Rationale: fmt.Sprintf("Balance coverage across primary anchors before completing: %s has %d line(s) read vs %d at the most-covered primary", a.file, a.coverage, maxCoverage),
+			Origin:    "pre_complete.multi_path_coverage",
+		})
+		logging.Info("[CGEC] multi_path_coverage: queued forced-read file=%s coverage=%d max=%d floor=%.0f%%",
+			a.file, a.coverage, maxCoverage, multiPathCoverageParityFloor*100)
 	}
 }
 
