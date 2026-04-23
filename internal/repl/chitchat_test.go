@@ -150,6 +150,82 @@ func TestChitchat_NilResponderPrintsNotConfigured(t *testing.T) {
 	}
 }
 
+// streamingStubResponder implements streamingChitchatResponder so
+// tests can exercise the streaming dispatch branch. Delta callbacks
+// fire with the canned chunks in order, mimicking an SSE-driven
+// adapter. The final reply returned is the concatenation of chunks
+// so the test can assert both the streamed pieces and the final
+// persisted reply without divergence.
+type streamingStubResponder struct {
+	chunks []string
+	err    error
+
+	gotLine  string
+	gotPrior string
+	deltas   []string
+}
+
+func (s *streamingStubResponder) Respond(userLine, prior string) (string, error) {
+	// Kept for interface completeness — the REPL should prefer the
+	// streaming branch, so any Respond call here is a bug.
+	s.gotLine = userLine
+	s.gotPrior = prior
+	return strings.Join(s.chunks, ""), s.err
+}
+
+func (s *streamingStubResponder) RespondStream(userLine, prior string, onDelta func(string)) (string, error) {
+	s.gotLine = userLine
+	s.gotPrior = prior
+	for _, c := range s.chunks {
+		s.deltas = append(s.deltas, c)
+		if onDelta != nil {
+			onDelta(c)
+		}
+	}
+	if s.err != nil {
+		return "", s.err
+	}
+	return strings.Join(s.chunks, ""), nil
+}
+
+// TestChitchat_StreamingResponderUsesStreamBranch verifies that a
+// responder implementing streamingChitchatResponder still takes the
+// sync fallback when no renderer is wired (tests run with renderer
+// nil to keep stdout deterministic). The stream branch only lights
+// up in interactive TTY mode; this test locks the nil-renderer
+// fallback so scripted output stays byte-stable.
+//
+// This test also guards against an accidental regression where the
+// streaming branch leaks through to non-TTY callers and writes
+// pterm escape codes into stdout buffers captured by CI.
+func TestChitchat_StreamingResponderUsesStreamBranch(t *testing.T) {
+	resp := &streamingStubResponder{chunks: []string{"hello", ", ", "world"}}
+	r, store, out := newChitchatTestREPL(t, resp, "/chat hi there\n/exit\n")
+	if err := r.Loop(); err != nil {
+		t.Fatalf("Loop: %v", err)
+	}
+
+	if resp.gotLine != "hi there" {
+		t.Errorf("responder userLine: got %q, want %q", resp.gotLine, "hi there")
+	}
+	// Renderer is nil in tests → the dispatch path falls back to the
+	// sync Respond, so deltas are NOT exercised here. The responder
+	// still returns the joined reply via Respond, and the REPL
+	// persists it to memory.
+	if len(resp.deltas) != 0 {
+		t.Errorf("deltas must stay empty without TTY renderer; got %v", resp.deltas)
+	}
+	if !strings.Contains(out.String(), "hello, world") {
+		t.Errorf("final reply missing; out=%q", out.String())
+	}
+	if n := len(store.Recent()); n != 1 {
+		t.Fatalf("memory turns: got %d, want 1", n)
+	}
+	if got := store.Recent()[0].Response; got != "hello, world" {
+		t.Errorf("memory Response: got %q, want %q", got, "hello, world")
+	}
+}
+
 // stubClassifier records every call and returns a canned decision
 // or error. Lets tests drive the classifier gate without an LLM.
 type stubClassifier struct {

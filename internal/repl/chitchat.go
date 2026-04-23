@@ -4,6 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
+
+	"github.com/pterm/pterm"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -17,6 +21,19 @@ import (
 // context.
 type ChitchatResponder interface {
 	Respond(userLine, priorContext string) (reply string, err error)
+}
+
+// streamingChitchatResponder is an optional extension interface. When
+// the REPL detects that the configured responder also satisfies this,
+// it wires the callback into a live pterm.Area so the user sees the
+// reply token-by-token while the call is still in flight. The final
+// accumulated text is still returned, and the caller re-renders it
+// through the glamour-backed renderBordered path after the area
+// closes — so the streaming phase never competes with markdown
+// formatting. Callers that do not implement this fall back to the
+// synchronous Respond with a spinner.
+type streamingChitchatResponder interface {
+	RespondStream(userLine, priorContext string, onDelta func(string)) (reply string, err error)
 }
 
 // chitchatSystemPrompt is the responder's single source of persona.
@@ -82,6 +99,43 @@ func (r *llmChitchatResponder) Respond(userLine, priorContext string) (string, e
 	return reply, nil
 }
 
+// RespondStream is the streaming sibling of Respond. onDelta fires
+// on every content chunk the adapter surfaces; it is a no-op when
+// the underlying adapter is non-streaming (the delta callback is
+// simply never invoked and the final reply still arrives via the
+// return value). Implements streamingChitchatResponder so the REPL
+// can light up the pterm.Area live-reply path.
+func (r *llmChitchatResponder) RespondStream(userLine, priorContext string, onDelta func(string)) (string, error) {
+	if r.adapter == nil {
+		return "", fmt.Errorf("chitchat responder not configured: no LLM adapter")
+	}
+	userLine = strings.TrimSpace(userLine)
+	if userLine == "" {
+		return "", fmt.Errorf("chitchat responder: empty user line")
+	}
+
+	content := userLine
+	if prior := strings.TrimSpace(priorContext); prior != "" {
+		content = "## Prior conversation (for continuity)\n" + prior +
+			"\n\n## Current message\n" + userLine
+	}
+
+	messages := []llm.Message{
+		{Role: "system", Content: chitchatSystemPrompt},
+		{Role: "user", Content: content},
+	}
+
+	resp, err := r.adapter.Chat(messages, nil, llm.ChatOptions{OnContentDelta: onDelta})
+	if err != nil {
+		return "", fmt.Errorf("chitchat llm call: %w", err)
+	}
+	reply := strings.TrimSpace(resp.Content)
+	if reply == "" {
+		return "", fmt.Errorf("chitchat llm returned empty content")
+	}
+	return reply, nil
+}
+
 // chitchatDispatch runs one /chat turn. line is the substantive user
 // text (command prefix already stripped); display is the form shown
 // on the terminal and persisted to memory. This path deliberately
@@ -105,14 +159,27 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	prior := r.store.BuildContext(line)
 
 	logging.Info("[repl/chitchat] dispatching: %s", oneLine(line))
-	if r.renderer != nil {
-		r.renderer.StartSpinner()
-	}
 
-	response, err := r.chitchatResponder.Respond(line, prior)
+	// Streaming path is used when (a) the responder implements the
+	// optional streaming interface AND (b) we have a live renderer —
+	// i.e. interactive TTY mode. In tests (renderer nil) and in any
+	// non-TTY context we skip the pterm.Area and fall back to the
+	// spinner+sync path so scripted output stays byte-stable.
+	streamer, canStream := r.chitchatResponder.(streamingChitchatResponder)
+	streaming := canStream && r.renderer != nil
 
-	if r.renderer != nil {
-		r.renderer.StopSpinner()
+	var response string
+	var err error
+	if streaming {
+		response, err = r.runStreamingChitchat(streamer, line, prior)
+	} else {
+		if r.renderer != nil {
+			r.renderer.StartSpinner()
+		}
+		response, err = r.chitchatResponder.Respond(line, prior)
+		if r.renderer != nil {
+			r.renderer.StopSpinner()
+		}
 	}
 
 	if err != nil {
@@ -129,6 +196,95 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	}
 	r.renderBordered(response)
 	r.recordTurn(display, line, response)
+}
+
+// chitchatStreamRedrawInterval throttles pterm.Area redraws during a
+// streaming chit-chat reply. Every incoming delta appends to the
+// accumulator; a ticker drains the latest snapshot to the Area at
+// this cadence. 80ms (~12.5 fps) reads as smooth typewriter motion
+// without thrashing terminals that choke on rapid cursor-up redraws.
+const chitchatStreamRedrawInterval = 80 * time.Millisecond
+
+// runStreamingChitchat renders a live pterm.Area for the assistant's
+// reply while the LLM is still generating, then tears the area down
+// so the caller's renderBordered re-prints the accumulated text with
+// full glamour formatting. The area is WithRemoveWhenDone so Stop
+// wipes the raw stream preview — no double-printed text.
+//
+// Concurrency model: streamer.RespondStream runs on this goroutine
+// and invokes onDelta synchronously from the SSE read loop. A
+// separate ticker goroutine owns all pterm.Area writes; onDelta only
+// mutates the accumulator under a mutex. This keeps pterm off the
+// network goroutine (where a slow terminal could block SSE reads)
+// and ensures redraws happen at a bounded rate even when the model
+// emits chunks faster than the terminal can repaint.
+func (r *REPL) runStreamingChitchat(streamer streamingChitchatResponder, userLine, prior string) (string, error) {
+	area, err := pterm.DefaultArea.WithRemoveWhenDone(true).Start()
+	if err != nil {
+		// Falling back to the sync path keeps chit-chat usable when the
+		// terminal refuses to host a live area (uncommon; pterm starts
+		// succeed on every TTY we've seen).
+		logging.Warning("[repl/chitchat] pterm area start failed, falling back to sync: %v", err)
+		return r.chitchatResponder.Respond(userLine, prior)
+	}
+
+	var mu sync.Mutex
+	var buf strings.Builder
+	dirty := false
+	stopTicker := make(chan struct{})
+	tickerDone := make(chan struct{})
+
+	snapshot := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		if !dirty {
+			return ""
+		}
+		dirty = false
+		return buf.String()
+	}
+
+	go func() {
+		defer close(tickerDone)
+		ticker := time.NewTicker(chitchatStreamRedrawInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stopTicker:
+				return
+			case <-ticker.C:
+				if snap := snapshot(); snap != "" {
+					area.Update(snap)
+				}
+			}
+		}
+	}()
+
+	onDelta := func(delta string) {
+		if delta == "" {
+			return
+		}
+		mu.Lock()
+		buf.WriteString(delta)
+		dirty = true
+		mu.Unlock()
+	}
+
+	response, err := streamer.RespondStream(userLine, prior, onDelta)
+
+	close(stopTicker)
+	<-tickerDone
+	// Drain any final bytes the ticker missed. We still stop the area
+	// immediately after — renderBordered will redraw the full reply
+	// with glamour formatting, so this last Update is optional but
+	// avoids a visible blank frame on very short replies.
+	if snap := snapshot(); snap != "" {
+		area.Update(snap)
+	}
+	if stopErr := area.Stop(); stopErr != nil {
+		logging.Debug("[repl/chitchat] pterm area stop: %v", stopErr)
+	}
+	return response, err
 }
 
 // ChitchatClassifier decides whether a user turn should be routed to
