@@ -602,8 +602,10 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	}
 	if logBundle != nil {
 		before := len(rm.AnalyzerHints.Entities)
-		rm.AnalyzerHints.Entities = logtriage.MergeEntities(
-			rm.AnalyzerHints.Entities, logBundle.Entities)
+		if shouldMergeLogTriageEntities(logBundle) {
+			rm.AnalyzerHints.Entities = logtriage.MergeEntities(
+				rm.AnalyzerHints.Entities, logBundle.Entities)
+		}
 		logging.Info("[analyzer] log-triage: lang=%s errors=%d resolved=%d entities +%d intent=%q",
 			logBundle.Meta.Lang, len(logBundle.Errors),
 			len(logBundle.ResolvedFiles),
@@ -985,6 +987,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	return ir, nil
 }
 
+func shouldMergeLogTriageEntities(bundle *types.LogBundle) bool {
+	if bundle == nil {
+		return false
+	}
+	return !bundle.IsExternalSource()
+}
+
 // analyzerRequiredFiles queries the repo_map graph with the
 // analyzer-extracted entities and returns the top-N matching file
 // paths. These are the files the analyzer "expects" the explorer to
@@ -1077,10 +1086,12 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	// read-only and prepend it to the structural ranker output.
 	var logFiles []string
 	var logAuthoritative bool
+	var externalSource bool
 	if ctx.Mutable != nil {
 		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
 			logFiles = bundle.ResolvedFiles
 			logAuthoritative = logBundleAuthoritativeFrames(bundle)
+			externalSource = bundle.IsExternalSource()
 		}
 	}
 
@@ -1105,6 +1116,9 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 	// ranker breadth the same way no-log queries do.
 	if logAuthoritative && len(logFiles) > 0 {
 		return append([]string(nil), logFiles...)
+	}
+	if externalSource {
+		return nil
 	}
 
 	if len(entities) == 0 && len(logFiles) == 0 {

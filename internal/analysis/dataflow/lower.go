@@ -94,6 +94,35 @@ func fileHitsBias(relPath string, tokens []string) bool {
 	return false
 }
 
+// fileHitsExplicitBias reports whether the file path matches an
+// explicit file-oriented bias token (path separator, extension, or
+// dotted locator). This is stricter than fileHitsBias: generic entity
+// tokens like "explorer" may overlap a path incidentally, but only an
+// explicit file locator should admit every symbol in the file.
+func fileHitsExplicitBias(relPath string, tokens []string) bool {
+	if len(tokens) == 0 {
+		return false
+	}
+	path := strings.ToLower(relPath)
+	for _, t := range tokens {
+		if !isExplicitFileBiasToken(t) {
+			continue
+		}
+		if strings.Contains(path, t) {
+			return true
+		}
+	}
+	return false
+}
+
+func isExplicitFileBiasToken(tok string) bool {
+	tok = strings.TrimSpace(strings.ToLower(tok))
+	if tok == "" {
+		return false
+	}
+	return strings.ContainsAny(tok, `/\`) || strings.Contains(tok, ".")
+}
+
 // symbolHitsBias reports whether any prepared bias token appears in
 // the lowercased symbol name. Mirrors the symbol-side half of
 // sortByEntityBias for the same reason as fileHitsBias.
@@ -101,7 +130,10 @@ func symbolHitsBias(symName string, tokens []string) bool {
 	if len(tokens) == 0 {
 		return false
 	}
-	name := strings.ToLower(symName)
+	name := strings.ToLower(strings.TrimSpace(symName))
+	if idx := strings.LastIndex(name, ":"); idx >= 0 && idx+1 < len(name) {
+		name = name[idx+1:]
+	}
 	for _, t := range tokens {
 		if strings.Contains(name, t) {
 			return true
@@ -117,22 +149,36 @@ func symbolHitsBias(symName string, tokens []string) bool {
 // question with different EntityBias must not see the first
 // question's filtered slate.
 //
-// Filtering is per-item: each EvidenceItem is admitted when either
-// the file path OR the item's Subject (the enclosing symbol name)
-// contains any bias token. Items that miss both are dropped. When
-// maxItems > 0 the admitted items are then truncated so a single
-// file cannot dominate the downstream Primary Evidence section
-// regardless of how many symbols it contains.
+// Filtering is per-item. Explicit file locators (for example
+// "explorer.go" or "config/provider.xml") admit the whole file.
+// Generic path overlap is narrower: when the file path matches but at
+// least one symbol also matches, only the symbol-matching items are
+// kept. That prevents a large file from spilling unrelated helper
+// evidence into Primary Evidence just because one token overlaps its
+// basename. When no symbol matches and only the file path matches, the
+// gate falls back to whole-file admission so file/module-oriented
+// questions still get evidence instead of an empty slate.
 //
 // With empty bias the relevance filter is a no-op; with zero cap the
 // truncation is a no-op. Both zero = pass-through (legacy behaviour).
-func applyEvidenceRelevanceGate(evidence []types.EvidenceItem, tokens []string, maxItems int, filePathHit bool) []types.EvidenceItem {
+func applyEvidenceRelevanceGate(evidence []types.EvidenceItem, tokens []string, maxItems int, filePathHit, explicitPathHit bool) []types.EvidenceItem {
 	if len(tokens) == 0 && maxItems <= 0 {
 		return evidence
 	}
+	allowWholeFile := explicitPathHit
+	if len(tokens) > 0 && filePathHit && !allowWholeFile {
+		anySubjectHit := false
+		for _, ev := range evidence {
+			if symbolHitsBias(ev.Subject, tokens) {
+				anySubjectHit = true
+				break
+			}
+		}
+		allowWholeFile = !anySubjectHit
+	}
 	out := make([]types.EvidenceItem, 0, len(evidence))
 	for _, ev := range evidence {
-		if len(tokens) > 0 && !filePathHit && !symbolHitsBias(ev.Subject, tokens) {
+		if len(tokens) > 0 && !allowWholeFile && !symbolHitsBias(ev.Subject, tokens) {
 			continue
 		}
 		if maxItems > 0 && len(out) >= maxItems {

@@ -359,6 +359,60 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadHonorsCanonicalR
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_ConfigMappingMultiAnchorBlocks(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	limits := prev
+	limits.Phase1UnreadTopK = 2
+	limits.Phase1UnreadMinUnread = 1
+	SetAnalysisLimits(limits)
+
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "cmd/root.go", Score: 60, ExactEntityRank: 2},
+		{Path: "internal/types/config.go", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"cmd/root.go": true,
+	})
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "config_mapping"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "traced the config flow",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("multi-anchor config_mapping should trigger phase1_unread, got: %s", res.Summary)
+	}
+	var found bool
+	for _, pending := range closure.PendingReads() {
+		if pending.Origin == "phase1_unread" && pending.File == "internal/types/config.go" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected phase1_unread PendingRead for config anchor, got %+v", closure.PendingReads())
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete must remain false when config anchor is unread")
+	}
+}
+
 func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
@@ -726,11 +780,11 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Bala
 }
 
 // TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonBreadthIntent_NoOp
-// proves the breadth-intent filter: enumeration (and registration /
-// return_value / config_mapping) are single-lookup intents where
-// unequal coverage across anchors is expected and the gate must not
-// fire, otherwise "list all agents"-style questions would be blocked
-// by incidentally-named sibling files.
+// proves the non-multi-path filter: enumeration (and registration /
+// return_value) are single-lookup intents where unequal coverage
+// across anchors is expected and the gate must not fire, otherwise
+// "list all agents"-style questions would be blocked by
+// incidentally-named sibling files.
 func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonBreadthIntent_NoOp(t *testing.T) {
 	mut := types.NewMutableState("test")
 	mut.SetPhase1Ranking([]types.Phase1RankedFile{
@@ -768,6 +822,56 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonB
 		if p.Origin == "pre_complete.multi_path_coverage" {
 			t.Fatalf("enumeration intent must skip multi-path gate, got %+v", p)
 		}
+	}
+}
+
+func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_ConfigMappingMultiAnchorBlocks(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "cmd/root.go", Score: 60, ExactEntityRank: 2},
+		{Path: "internal/types/config.go", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"cmd/root.go":              true,
+		"internal/types/config.go": true,
+	})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"cmd/root.go":              {{Start: 1, End: 200}},
+		"internal/types/config.go": {{Start: 1, End: 20}},
+	})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{Kind: "config_mapping"},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "checked code default and config overlay",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("multi-anchor config_mapping should trigger multi-path coverage gate, got: %s", res.Summary)
+	}
+	var found bool
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_coverage" && p.File == "internal/types/config.go" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected multi_path_coverage PendingRead for config anchor, got %+v", closure.PendingReads())
 	}
 }
 

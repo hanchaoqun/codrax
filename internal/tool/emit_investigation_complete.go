@@ -680,15 +680,7 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
 		return
 	}
-	// Breadth-intent filter matches raisePhase1UnreadPendingReads:
-	// registration / return_value / enumeration / config_mapping are
-	// single-lookup intents where one file often carries the answer
-	// and the other anchors are peripheral, so requiring 30% coverage
-	// parity would spuriously block the completion.
 	kind := types.NormalizeRequirementKind(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind)
-	if !isBreadthIntent(kind) {
-		return
-	}
 	ranked := ctx.Mutable.Phase1Ranking()
 	if len(ranked) == 0 {
 		return
@@ -717,6 +709,9 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 		if cov > maxCoverage {
 			maxCoverage = cov
 		}
+	}
+	if !requiresCrossFileCoverage(kind, len(anchors)) {
+		return
 	}
 	if len(anchors) < 2 || maxCoverage == 0 {
 		return
@@ -754,10 +749,10 @@ func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.Evidence
 // Triggering conditions (all must hold):
 //   - analysisLimits.Phase1UnreadTopK > 0 (gate enabled)
 //   - ctx.AnalysisIR is non-nil (classification available)
-//   - the declared RequirementKind is a breadth-intent (mechanism /
-//     call_chain / conditional) — single-lookup intents (registration
-//     / return_value / enumeration / config_mapping) do not require
-//     breadth and would false-fire on them
+//   - the declared RequirementKind structurally benefits from
+//     cross-file coverage. mechanism / call_chain / conditional always
+//     do; config_mapping joins them when multiple primary anchors are
+//     present (for example code default + runtime overlay)
 //   - Phase1Ranking has at least Phase1UnreadTopK entries
 //   - top-K minus ReadSet has at least Phase1UnreadMinUnread entries
 //
@@ -796,11 +791,11 @@ func raisePhase1UnreadPendingReads(ctx *types.BusContext, closure *types.Evidenc
 		return
 	}
 	kind := types.NormalizeRequirementKind(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind)
-	if !isBreadthIntent(kind) {
-		return
-	}
 	ranking := ctx.Mutable.Phase1Ranking()
 	if len(ranking) == 0 {
+		return
+	}
+	if !requiresCrossFileCoverage(kind, countPrimaryAnchorFiles(ranking)) {
 		return
 	}
 	topK := limits.Phase1UnreadTopK
@@ -919,16 +914,38 @@ func phase1UnreadCanonPath(path, repoRoot string) string {
 	return path
 }
 
-// isBreadthIntent reports whether the RequirementKind requires multi-
-// file evidence to answer correctly. Breadth intents benefit from the
-// phase1-unread gate because skipping ranked files is the common root
-// cause of shallow answers. Single-lookup intents do not benefit.
-func isBreadthIntent(k types.RequirementKind) bool {
+// requiresCrossFileCoverage reports whether the question kind should
+// pay the cost of structural cross-file coverage guards. Pure breadth
+// intents always qualify. Config-mapping questions are conditional:
+// only multi-anchor cases need parity/unread protection.
+func requiresCrossFileCoverage(k types.RequirementKind, primaryAnchors int) bool {
 	switch k {
 	case types.ReqMechanism, types.ReqCallChain, types.ReqConditional:
 		return true
+	case types.ReqConfigMapping:
+		return primaryAnchors >= 2
 	}
 	return false
+}
+
+func countPrimaryAnchorFiles(ranked []types.Phase1RankedFile) int {
+	if len(ranked) == 0 {
+		return 0
+	}
+	seen := make(map[string]bool, len(ranked))
+	count := 0
+	for _, rf := range ranked {
+		if rf.ExactEntityRank <= 0 {
+			continue
+		}
+		path := strings.TrimPrefix(strings.TrimSpace(rf.Path), "./")
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		count++
+	}
+	return count
 }
 
 // detectSubjectShapeMismatch returns true when the AnswerSubject is

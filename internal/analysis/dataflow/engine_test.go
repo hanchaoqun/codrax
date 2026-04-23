@@ -27,10 +27,10 @@ func projectRoot(t *testing.T) string {
 // ─────────────────────────────────────────────────────────────
 
 type testFile struct {
-	relPath  string
-	lang     string
-	content  string
-	symbols  []repomap.Symbol
+	relPath   string
+	lang      string
+	content   string
+	symbols   []repomap.Symbol
 	relations []repomap.Relation
 }
 
@@ -1441,6 +1441,62 @@ func helper() string {
 	}
 	if !sawHelper {
 		t.Fatal("expected helper evidence on path-hit admission (whole-file admits when only file-level entity is named)")
+	}
+}
+
+// Generic path overlap should not become whole-file admission when the
+// same bias slice already names an on-topic symbol in that file.
+func TestE2E_EntityBias_GenericPathHitStillFiltersHelpers(t *testing.T) {
+	root, graph := setupTestRepo(t, []testFile{
+		{
+			relPath: "explorer.go",
+			lang:    repomap.LangGo,
+			content: `package agent
+
+func ExplorerLoop() bool {
+	if done {
+		return true
+	}
+	return false
+}
+
+func helperNoise() string {
+	if ok {
+		return "x"
+	}
+	return "y"
+}
+`,
+			symbols: []repomap.Symbol{
+				{Name: "ExplorerLoop", Kind: "function", Line: 3, EndLine: 8},
+				{Name: "helperNoise", Kind: "function", Line: 10, EndLine: 15},
+			},
+		},
+	})
+
+	result := Analyze(graph, Options{
+		RepoRoot:        root,
+		Question:        "how does explorer decide to stop",
+		CandidateFiles:  []string{"explorer.go"},
+		WorkDir:         t.TempDir(),
+		EntityBias:      []string{"explorer"},
+		MaxItemsPerFile: 50,
+	})
+
+	var sawLoop, sawHelper bool
+	for _, ev := range result.Evidence {
+		if strings.Contains(ev.Subject, "ExplorerLoop") {
+			sawLoop = true
+		}
+		if strings.Contains(ev.Subject, "helperNoise") {
+			sawHelper = true
+		}
+	}
+	if !sawLoop {
+		t.Fatal("expected ExplorerLoop evidence on generic path/entity overlap")
+	}
+	if sawHelper {
+		t.Fatal("generic path overlap should not admit helperNoise when a subject-level hit already exists")
 	}
 }
 

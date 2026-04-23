@@ -1,11 +1,18 @@
 package logtriage
 
 import (
+	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+var (
+	logFrameIdentifierRe = regexp.MustCompile(`[A-Za-z_][A-Za-z0-9_]{2,}`)
+	weakFuncTokenRe      = regexp.MustCompile(`^func\d+$`)
 )
 
 // ValidateInput is the raw LLM-emitted bundle before system validation.
@@ -68,9 +75,10 @@ func ValidateBundle(in ValidateInput, repoRoot string) *types.LogBundle {
 	// tree so nested causes benefit from the same validation.
 	if repoRoot != "" {
 		repoBase := filepath.Base(filepath.Clean(repoRoot))
+		fileIdentifiers := make(map[string]map[string]bool)
 		walkErrors(out.Errors, func(e *types.LogError) {
 			for j := range e.Frames {
-				validateFrame(&e.Frames[j], repoRoot, repoBase)
+				validateFrame(&e.Frames[j], repoRoot, repoBase, fileIdentifiers)
 			}
 		})
 	} else {
@@ -312,8 +320,9 @@ func walkError(e *types.LogError, fn func(*types.LogError)) {
 
 // validateFrame runs Pass 2 + 3 on one frame. Clamps Confidence,
 // strips build prefix, filters runtime internals, resolves via
-// filesystem. Mutates the frame in place.
-func validateFrame(f *types.LogFrame, repoRoot, repoBase string) {
+// filesystem, then cross-checks any stable function token against the
+// resolved file's identifiers. Mutates the frame in place.
+func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers map[string]map[string]bool) {
 	clampConfidence(f)
 	if f.Line < 0 {
 		f.Line = 0
@@ -349,6 +358,11 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string) {
 		return
 	}
 	f.File = resolved
+	if !frameFileCorroboratesFunc(*f, repoRoot, fileIdentifiers) {
+		// Keep Func/Raw/Line for auditability, but do not let a path-only
+		// coincidence seed ResolvedFiles or downstream file ceilings.
+		f.File = ""
+	}
 }
 
 func clampConfidence(f *types.LogFrame) {
@@ -358,6 +372,74 @@ func clampConfidence(f *types.LogFrame) {
 	if f.Confidence > 1 {
 		f.Confidence = 1
 	}
+}
+
+func frameFileCorroboratesFunc(f types.LogFrame, repoRoot string, fileIdentifiers map[string]map[string]bool) bool {
+	if repoRoot == "" || f.File == "" {
+		return true
+	}
+	tokens := stableFuncTokens(f.Func)
+	if len(tokens) == 0 {
+		return true
+	}
+	idents, ok := loadFileIdentifiers(repoRoot, f.File, fileIdentifiers)
+	if !ok || len(idents) == 0 {
+		// Do not over-reject on transient read failures.
+		return true
+	}
+	for _, tok := range tokens {
+		if idents[tok] {
+			return true
+		}
+	}
+	return false
+}
+
+func stableFuncTokens(fn string) []string {
+	raw := logFrameIdentifierRe.FindAllString(fn, -1)
+	if len(raw) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(raw))
+	out := make([]string, 0, len(raw))
+	for i := len(raw) - 1; i >= 0; i-- {
+		tok := strings.ToLower(strings.TrimSpace(raw[i]))
+		if tok == "" || seen[tok] || isWeakFuncToken(tok) {
+			continue
+		}
+		seen[tok] = true
+		out = append(out, tok)
+	}
+	return out
+}
+
+func isWeakFuncToken(tok string) bool {
+	switch tok {
+	case "", "main", "init":
+		return true
+	}
+	return weakFuncTokenRe.MatchString(tok)
+}
+
+func loadFileIdentifiers(repoRoot, relPath string, cache map[string]map[string]bool) (map[string]bool, bool) {
+	if cache != nil {
+		if ids, ok := cache[relPath]; ok {
+			return ids, true
+		}
+	}
+	absPath := filepath.Join(repoRoot, filepath.FromSlash(relPath))
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, false
+	}
+	ids := make(map[string]bool)
+	for _, tok := range logFrameIdentifierRe.FindAllString(string(data), -1) {
+		ids[strings.ToLower(tok)] = true
+	}
+	if cache != nil {
+		cache[relPath] = ids
+	}
+	return ids, true
 }
 
 // normaliseSignals dedupes signals and returns them in canonical enum

@@ -177,6 +177,55 @@ func TestValidateBundle_LowConfidenceExcludedFromResolvedFiles(t *testing.T) {
 	}
 }
 
+// TestValidateBundle_FunctionMismatchExcludedFromResolvedFiles guards
+// the "path exists but symbol is absent" failure mode: a frame that
+// points at a real repo file but names a function the file does not
+// contain must not seed ResolvedFiles.
+func TestValidateBundle_FunctionMismatchExcludedFromResolvedFiles(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "internal", "agent", "analyzer.go")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("package agent\n\nfunc runAnalyzer() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	in := ValidateInput{
+		Meta: types.LogMeta{Lang: "go", Signals: []types.LogSignal{types.SignalPanic}},
+		Errors: []types.LogError{{
+			Type: "panic",
+			Frames: []types.LogFrame{{
+				File:       "internal/agent/analyzer.go",
+				Line:       3,
+				Func:       "main.writeSession",
+				Raw:        "main.writeSession(0x0)",
+				Confidence: 0.9,
+			}},
+		}},
+	}
+	got := ValidateBundle(in, dir)
+	if got == nil {
+		t.Fatal("nil bundle")
+	}
+	if len(got.ResolvedFiles) != 0 {
+		t.Fatalf("mismatched function should stay out of ResolvedFiles: %v", got.ResolvedFiles)
+	}
+	if got.Errors[0].Frames[0].File != "" {
+		t.Fatalf("mismatched function should clear frame.File, got %q", got.Errors[0].Frames[0].File)
+	}
+	hasWriteSession := false
+	for _, e := range got.Entities {
+		if e == "writeSession" {
+			hasWriteSession = true
+			break
+		}
+	}
+	if !hasWriteSession {
+		t.Fatalf("function token should remain available to Entities, got %v", got.Entities)
+	}
+}
+
 // TestValidateBundle_EntitiesCapAt32 verifies the Entities cap holds
 // when the LLM emits a giant frame count.
 func TestValidateBundle_EntitiesCapAt32(t *testing.T) {

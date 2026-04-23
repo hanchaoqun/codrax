@@ -65,7 +65,8 @@ func Analyze(graph *repomap.Graph, opts Options) Result {
 		// safe because saveLoweredFileCache has already run inside
 		// loadOrLowerFile on miss and it serialised the pristine set.
 		filePathHit := fileHitsBias(loweredFile.File, biasTokens)
-		loweredFile.Evidence = applyEvidenceRelevanceGate(loweredFile.Evidence, biasTokens, opts.MaxItemsPerFile, filePathHit)
+		explicitPathHit := fileHitsExplicitBias(loweredFile.File, biasTokens)
+		loweredFile.Evidence = applyEvidenceRelevanceGate(loweredFile.Evidence, biasTokens, opts.MaxItemsPerFile, filePathHit, explicitPathHit)
 		lowered = append(lowered, loweredFile)
 		evidence = append(evidence, loweredFile.Evidence...)
 	}
@@ -540,8 +541,6 @@ func mergeStrings(parts ...[]string) []string {
 	}
 	return normalizeStrings(all)
 }
-
-
 
 func collectConfigEvidence(items []types.EvidenceItem) map[string][]types.EvidenceItem {
 	index := make(map[string][]types.EvidenceItem)

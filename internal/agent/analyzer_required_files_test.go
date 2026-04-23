@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Helper: build a minimal Graph with FileIndex / SymbolDefs /
@@ -222,6 +223,39 @@ func TestRankAnalyzerRequiredFiles_CapAtMaxFiles(t *testing.T) {
 	got := rankAnalyzerRequiredFiles(graph, []string{"nothing-matches"})
 	if len(got) > 3 {
 		t.Errorf("result must be capped at 3 (session-22 F1.2), got %d", len(got))
+	}
+}
+
+func TestAnalyzerRequiredFiles_ExternalSourceLogSkipsRepoSeeds(t *testing.T) {
+	ctx := &types.AgentContext{
+		RepoRoot: t.TempDir(),
+		Mutable:  types.NewMutableState("test"),
+	}
+	ctx.Mutable.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "panic"}},
+	})
+	rm := types.RequestModel{
+		RawRequest: "Which goroutines are failing together?",
+		AnalyzerHints: types.AnalyzerHints{
+			Entities: []string{"writeSession", "analyzer.go"},
+		},
+	}
+	if got := analyzerRequiredFiles(ctx, rm); got != nil {
+		t.Fatalf("external-source log should suppress repo required files, got %v", got)
+	}
+}
+
+func TestShouldMergeLogTriageEntities_SkipsExternalSource(t *testing.T) {
+	if shouldMergeLogTriageEntities(&types.LogBundle{
+		Errors: []types.LogError{{Type: "panic"}},
+	}) {
+		t.Fatal("external-source bundle should not merge frame-derived entities into analyzer hints")
+	}
+	if !shouldMergeLogTriageEntities(&types.LogBundle{
+		ResolvedFiles: []string{"internal/agent/analyzer.go"},
+		Errors:        []types.LogError{{Type: "panic"}},
+	}) {
+		t.Fatal("repo-resolved log bundle should still merge entities")
 	}
 }
 
