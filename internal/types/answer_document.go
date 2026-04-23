@@ -280,7 +280,8 @@ type AnswerBoolean struct {
 // The emit_answer_document schema requires File to be non-empty and
 // Line > 0; files inside BusContext.WorkDir are rejected (the blob
 // leak gate shared with emit_answer_symbol). Quote is optional free
-// text ≤ CitationMaxQuoteChars, useful when the renderer wants to
+// text; oversize Quotes are truncated on a UTF-8 boundary to the
+// current CitationMaxQuoteChars(), useful when the renderer wants to
 // surface the exact snippet the citation anchors on.
 type Citation struct {
 	File  string `json:"file"`
@@ -288,10 +289,36 @@ type Citation struct {
 	Quote string `json:"quote,omitempty"`
 }
 
-// CitationMaxQuoteChars bounds the optional Quote field. Long quotes
-// defeat the structural goal by giving the LLM a prose escape route;
-// 200 chars is enough for one dense code line.
-const CitationMaxQuoteChars = 200
+// DefaultCitationMaxQuoteChars is the baseline preview ceiling used
+// when no codrax.yaml override is present. The prose-smuggling defence
+// does not rely on this number — ground.GroundCitation's QuoteMatched
+// token check clears any Quote whose tokens do not corroborate the
+// cited line. This cap is purely the render-preview width; legit long
+// source lines (deep package imports, multi-arg fmt.Errorf, long SQL
+// or regex literals) routinely exceed 200 chars, so the default is
+// generous enough to preserve most of them intact. Operators can raise
+// it via citation_quote_max_chars for codebases with unusually long
+// lines (Kotlin DSLs, Scala implicits, generated code).
+const DefaultCitationMaxQuoteChars = 500
+
+var citationMaxQuoteChars = DefaultCitationMaxQuoteChars
+
+// CitationMaxQuoteChars returns the active preview ceiling. Callers
+// that trim or compare Quote lengths must go through this helper
+// rather than caching the value at init time — cmd/root.go replaces
+// it after codrax.yaml merges.
+func CitationMaxQuoteChars() int { return citationMaxQuoteChars }
+
+// SetCitationMaxQuoteChars replaces the active preview ceiling. No
+// locking: called once at startup from cmd/root.go; later Runs do not
+// mutate it. Non-positive input is ignored so a partial or malformed
+// override leaves the default intact.
+func SetCitationMaxQuoteChars(n int) {
+	if n <= 0 {
+		return
+	}
+	citationMaxQuoteChars = n
+}
 
 // IsZero reports whether the document is fully empty — no shape set
 // and no fields populated. Used by the finalizer's ParseOutput to

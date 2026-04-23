@@ -732,6 +732,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			types.SetSummaryCapConfig(scc)
 		}
 
+		// Citation Quote preview ceiling. Non-positive values are
+		// ignored by the setter so a malformed override leaves the
+		// default intact.
+		if rs.CitationQuoteMaxChars != nil {
+			types.SetCitationMaxQuoteChars(*rs.CitationQuoteMaxChars)
+		}
+
 		// CGEC (Citation-Grounded Evidence Closure) tunables. Each
 		// is a positive integer; SetCGECPolicy ignores zero/negative
 		// values and keeps the current default, so a partial override

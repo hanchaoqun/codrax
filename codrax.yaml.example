@@ -416,6 +416,22 @@
 # summary_cap_default: 500
 
 # ---------------------------------------------------------------------------
+# Citation quote preview ceiling (citation_quote_max_chars)
+# ---------------------------------------------------------------------------
+# Every emit_answer_document citation may carry an optional verbatim
+# Quote of the source line. Oversize Quotes are truncated on a UTF-8
+# boundary before being stored — file+line anchors are always preserved,
+# and the grounder's token-match still clears prose-smuggled Quotes
+# regardless of length, so this cap is purely the rendered preview
+# width, not a correctness gate.
+#
+# Raise this for codebases with routinely long source lines (Kotlin
+# DSLs, Scala implicits, deep package imports, multi-arg fmt.Errorf,
+# long SQL / regex literals). Non-positive values are ignored.
+# Default: 500.
+# citation_quote_max_chars: 500
+
+# ---------------------------------------------------------------------------
 # Memory store limits (memory_*)
 # ---------------------------------------------------------------------------
 # Multi-turn REPL memory: buffer sizes and context-building caps.

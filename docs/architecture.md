@@ -569,6 +569,12 @@ Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结
 
 全部字段通过 `codrax.yaml` 的 `summary_cap_*` 覆盖。`cmd/root.go` 加载 YAML 后调 `types.SetSummaryCapConfig` 一次性替换 package-level config，下游 `emit_answer_document` + shrinkage-salvage trimmer 共用。
 
+#### Citation Quote：preview 预览截断，锚点不丢
+
+`Citation.Quote` 是 optional 的 verbatim 源码预览，超过 `types.CitationMaxQuoteChars()`（默认 `DefaultCitationMaxQuoteChars = 500`）后**静默截到 UTF-8 边界**，`File` / `Line` 始终保留。Prose-smuggling 防御由 `ground.GroundCitation` 的 `QuoteMatched` token 匹配兜底（Quote token 跟源码行 ±2 行邻域无重合 → Quote 清空，走 `quoteCleared` → Tier-1-proven 闸决定是否丢掉整条 citation），跟长度无关。这条 cap 因此是纯渲染预览宽度，不是正确性门。运行时通过 `types.SetCitationMaxQuoteChars` 替换，`codrax.yaml :: citation_quote_max_chars` 单键覆盖；非正数忽略。
+
+历史注：session 30 之前这条 cap 固定 200 字符且是**硬拒**——一条过长 Quote 会把整个 `emit_answer_document` 打回重试，连带所有 peer citations 的 file:line 一起作废。深仓路径 / 长 `fmt.Errorf` / 长 SQL 字面量经常踩中。session 30 降级为静默截断 + 默认放宽到 500 + 暴露 yaml。
+
 #### Forbidden 字段：reject 不 scrub
 
 `rejectForbiddenFields`（`emit_answer_document.go`）**失败**整个 call 而不是静默清洗 —— shape=explanation 带着非零 `boolean{decision:"否", ...}` 会收到 `"shape=explanation forbids boolean{}; remove the field and retry"`，LLM 下一轮必清。零值字段（`value.Literal==""` / `boolean.Decision==""`）仍然静默 nil。`FinalizerMaxCorrectionRetries` default 3。
@@ -1251,6 +1257,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `agent_*` | `agent_max_iterations` / `agent_max_tool_history_bytes` / 4 个 `agent_loop_*` / 3 个 `agent_finalizer_shrinkage_*` + `agent_finalizer_max_correction_retries` + `agent_finalizer_preserve_prior_prose` / `agent_extractor_max_correction_retries` / 4 个 `agent_subtopic_*` / `agent_investigation_complete_policy` / `agent_prior_conversation_policy` |
 | `memory_*` | 6 key — REPL 多轮记忆存储限制 |
 | `summary_cap_*` | `summary_cap_enabled`（master switch，默认 false）+ 11 个 per-shape cap — Summary 长度上限 |
+| `citation_quote_max_chars` | citation quote 预览字符上限（默认 500，UTF-8 边界静默截断）。file+line 始终保留；prose 防御由 grounder token 匹配兜底，跟长度无关 |
 | `cgec_*` | `cgec_forced_reads_per_round` / `cgec_stall_threshold_soft` / `cgec_stall_threshold_hard` / `cgec_phase1_unread_top_k` / `cgec_phase1_unread_min_unread` — Citation-Grounded Evidence Closure 调节 |
 
 ### 优先级（precedence）

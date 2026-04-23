@@ -147,6 +147,9 @@ Two YAML files live flat next to the binary:
   - `explore_*` — explorer mid-loop / soft-stop heuristics (`types.DefaultExploreHeuristics`)
   - `agent_*` — per-agent loop limits and sub-topic scaling (`types.DefaultAgentSettings`)
   - `memory_*` — REPL memory-store buffers (`types.DefaultMemorySettings`)
+  - `summary_cap_*` — master switch + per-shape Summary length ceilings (`types.SummaryCapConfig`, default disabled)
+  - `citation_quote_max_chars` — single knob; Citation.Quote preview ceiling (`types.DefaultCitationMaxQuoteChars = 500`). Oversize Quotes truncate on UTF-8 boundary; file:line always preserved; prose defense via grounder token-match is orthogonal
+  - `cgec_*` — Citation-Grounded Evidence Closure tunables
 
 Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.
 

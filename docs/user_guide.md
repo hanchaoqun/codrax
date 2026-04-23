@@ -455,7 +455,15 @@ llm:
 | `summary_cap_symbols_base` / `_per_item` / `_max` | `1000/100/2500` | 符号列表按条数滑动 |
 | `summary_cap_default` | `500` | 未分类 shape 的兜底上限 |
 
-#### 3.3.14 日志分诊(`log_triage_*`)
+#### 3.3.14 Citation Quote 预览上限(`citation_quote_max_chars`)
+
+emit_answer_document 每条 citation 可以附一行源码 quote。超长 quote **不会丢整条引用**——只截断预览文字到此字符数(UTF-8 边界),file+line 锚点始终保留;prose-smuggling 防御依赖 grounder 的 token 匹配,跟这个长度无关。深仓路径、长 import、多参 `fmt.Errorf`、长 SQL/regex 字面量场景经常超 200 字符,所以默认放宽到 500。
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `citation_quote_max_chars` | `500` | citation quote 预览字符上限;非正数忽略。调大适用于 Kotlin DSL / Scala implicits / 生成代码等长行常见的仓库 |
+
+#### 3.3.15 日志分诊(`log_triage_*`)
 
 仅当使用 `--log` / `/log` 附加日志时生效。
 
@@ -470,13 +478,13 @@ llm:
 | `log_triage_max_llm_calls` | `8` | 单次 log_triage 阶段 LLM 调用次数硬上限 |
 | `log_triage_max_retries` | `1` | emit_log_triage schema 拒后的重试次数 |
 
-#### 3.3.15 REPL 交互
+#### 3.3.16 REPL 交互
 
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `repl_paste_fold_min_chars` | `100` | 单行粘贴超过此字符数才折叠成 `[Pasted text #N]` 占位 |
 
-#### 3.3.16 providers.yaml 路径
+#### 3.3.17 providers.yaml 路径
 
 | 键 | 默认值 | 作用 |
 |---|---|---|

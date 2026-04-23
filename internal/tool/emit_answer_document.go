@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/tool/ground"
@@ -206,7 +207,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
         "properties": {
           "file":  {"type": "string", "description": "Repository-relative file path. MUST NOT live inside the per-trace WorkDir (blob directory)."},
           "line":  {"type": "integer", "description": "Gutter line number from read_file output. Must be > 0."},
-          "quote": {"type": "string", "description": "OPTIONAL verbatim copy of the code at file:line from read_file, ≤200 chars. Rule: paste the literal source line, or LEAVE THIS FIELD EMPTY. Do NOT write prose, summaries, or paraphrases — the grounder compares quote tokens against the actual line text and strips any quote that does not overlap (prose will be automatically cleared). If you cannot paste the literal line, omit the field."}
+          "quote": {"type": "string", "description": "OPTIONAL verbatim copy of the code at file:line from read_file, ≤%d chars (longer previews are truncated on a UTF-8 boundary; file:line is always preserved). Rule: paste the literal source line, or LEAVE THIS FIELD EMPTY. Do NOT write prose, summaries, or paraphrases — the grounder compares quote tokens against the actual line text and strips any quote that does not overlap (prose will be automatically cleared). If you cannot paste the literal line, omit the field."}
         },
         "required": ["file", "line"]
       }
@@ -218,7 +219,7 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
     }
   },
   "required": ["shape"]
-}`, summaryDescription, types.AnswerSymbolKindSchemaEnum()))
+}`, summaryDescription, types.AnswerSymbolKindSchemaEnum(), types.CitationMaxQuoteChars()))
 }
 
 func emitAnswerDocumentSummaryCapGuidance(schemaText bool) string {
@@ -2053,8 +2054,26 @@ func buildEmitAnswerDocumentCitations(in []types.Citation, workDir string, gc *g
 			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: line must be > 0 (got %d) — Pattern 2 line-hallucination guard", i, c.Line)
 		}
 		c.Quote = strings.TrimSpace(c.Quote)
-		if len(c.Quote) > types.CitationMaxQuoteChars {
-			return nil, nil, nil, nil, fmt.Errorf("citations[%d]: quote length %d exceeds cap %d", i, len(c.Quote), types.CitationMaxQuoteChars)
+		quoteCap := types.CitationMaxQuoteChars()
+		if len(c.Quote) > quoteCap {
+			// Downgrade from hard-reject to silent truncate: the grounder's
+			// QuoteMatched token check (below) is the real anti-prose guard.
+			// A single oversize Quote used to abort the whole emit, taking
+			// every peer citation with it on retry — but legit long source
+			// lines (deep imports, long fmt.Errorf, long regex/SQL literals)
+			// routinely exceed the preview ceiling. Preserve file:line,
+			// truncate the preview on a UTF-8 boundary, and let grounder
+			// decide whether the remainder corroborates the source line.
+			// Prose Quotes fail the token check and are cleared below; long
+			// legit code keeps its anchor with a truncated preview.
+			end := quoteCap
+			for end > 0 && !utf8.RuneStart(c.Quote[end]) {
+				end--
+			}
+			warnings = append(warnings,
+				fmt.Sprintf("citations[%d] quote truncated (%s:%d) — %d chars exceeded %d-char preview ceiling",
+					i, c.File, c.Line, len(c.Quote), quoteCap))
+			c.Quote = c.Quote[:end]
 		}
 
 		// Grounding — pure function, never returns err.

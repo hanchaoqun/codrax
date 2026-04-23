@@ -917,19 +917,101 @@ func TestEmitAnswerDocument_RejectsZeroLineCitation(t *testing.T) {
 	}
 }
 
-func TestEmitAnswerDocument_RejectsQuoteOverCap(t *testing.T) {
+// TestEmitAnswerDocument_TruncatesOverCapQuote verifies that an
+// oversize Quote no longer aborts the whole emit. A single long
+// citation used to reject every peer in the pool on retry, but legit
+// long source lines (deep package imports, multi-arg fmt.Errorf, long
+// regex/SQL literals) routinely exceed the 200-char preview ceiling.
+// New contract: truncate the Quote preview on a UTF-8 boundary,
+// preserve file+line, and let the grounder's QuoteMatched token check
+// decide whether the remainder corroborates the line.
+func TestEmitAnswerDocument_TruncatesOverCapQuote(t *testing.T) {
 	tool := &EmitAnswerDocument{}
-	longQuote := strings.Repeat("x", types.CitationMaxQuoteChars+1)
+	ctx := newDocBusCtx("")
+	// Seed LineIndex so the grounder can reach Tier 1. The cited line
+	// shares the identifier "processRequest" with the (truncated) Quote
+	// so QuoteMatched=true and the Quote preview survives grounding.
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[a.go: showing lines 1-2 of 2 total]\n     1│ func processRequest(ctx context.Context) error { return nil }\n     2│ \n",
+	})
+	// Construct a Quote that is unambiguously long (> cap) yet still
+	// contains the shared identifier at the start so the retained
+	// prefix keeps tokens that overlap with line 1.
+	longQuote := "func processRequest(ctx context.Context) error { return nil } " + strings.Repeat("x", types.CitationMaxQuoteChars()+200)
+	if len(longQuote) <= types.CitationMaxQuoteChars() {
+		t.Fatalf("test fixture: longQuote is not actually over cap (len=%d, cap=%d)", len(longQuote), types.CitationMaxQuoteChars())
+	}
 	params := mustDocJSON(t, map[string]interface{}{
 		"shape":   "explanation",
-		"summary": "x",
+		"summary": "explanation summary long enough to exercise the preview truncation path without tripping the shape-specific validators or natural-language heuristics.",
 		"citations": []map[string]interface{}{
 			{"file": "a.go", "line": 1, "quote": longQuote},
 		},
 	})
-	res, _ := tool.Execute(newDocBusCtx(""), params)
-	if res.Success {
-		t.Error("over-cap quote: Success = true, want false")
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("over-cap quote must not reject the emit; Success=false Summary=%q", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "truncated") {
+		t.Errorf("Summary must surface truncation warning, got: %q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil || len(doc.Citations) != 1 {
+		t.Fatalf("citation must be kept in the pool; got doc=%+v", doc)
+	}
+	if doc.Citations[0].File != "a.go" || doc.Citations[0].Line != 1 {
+		t.Errorf("file+line must be preserved; got %+v", doc.Citations[0])
+	}
+	if got := len(doc.Citations[0].Quote); got > types.CitationMaxQuoteChars() {
+		t.Errorf("Quote must be ≤ cap after truncation; got len=%d cap=%d", got, types.CitationMaxQuoteChars())
+	}
+}
+
+// TestEmitAnswerDocument_OverCapProseQuoteKeepsAnchor verifies the
+// prose-smuggling path: when an oversize Quote is pure prose with no
+// identifier tokens shared with the cited line, truncation still runs
+// but the grounder's QuoteMatched check clears the Quote text. The
+// citation's file+line anchor must survive so the answer still
+// references the source, matching the existing behaviour for
+// non-oversize mismatched quotes.
+func TestEmitAnswerDocument_OverCapProseQuoteKeepsAnchor(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[a.go: showing lines 1-2 of 2 total]\n     1│ func processRequest(ctx context.Context) error { return nil }\n     2│ \n",
+	})
+	// A long prose quote with zero identifier overlap with line 1.
+	// Repeat count is deliberately generous so the fixture stays over
+	// the cap if operators raise the default ceiling.
+	prose := "this citation paraphrases behaviour in narrative form instead of pasting the literal source line the reader would see in the gutter, which violates the verbatim quote contract. "
+	longProse := strings.Repeat(prose, 8)
+	if len(longProse) <= types.CitationMaxQuoteChars() {
+		t.Fatalf("test fixture: longProse is not over cap (len=%d, cap=%d)", len(longProse), types.CitationMaxQuoteChars())
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "explanation summary long enough to exercise the prose-quote clearance path without tripping the shape-specific validators or natural-language heuristics.",
+		"citations": []map[string]interface{}{
+			{"file": "a.go", "line": 1, "quote": longProse},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("over-cap prose quote must not reject the emit; Success=false Summary=%q", res.Summary)
+	}
+	doc := ctx.Mutable.AnswerDocument()
+	if doc == nil || len(doc.Citations) != 1 {
+		t.Fatalf("file+line anchor must survive prose-quote clearance; got doc=%+v", doc)
+	}
+	if doc.Citations[0].File != "a.go" || doc.Citations[0].Line != 1 {
+		t.Errorf("file+line must be preserved; got %+v", doc.Citations[0])
+	}
+	if doc.Citations[0].Quote != "" {
+		t.Errorf("prose Quote must be cleared by grounder after truncation; got %q", doc.Citations[0].Quote)
 	}
 }
 

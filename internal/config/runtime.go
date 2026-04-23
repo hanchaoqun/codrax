@@ -224,6 +224,16 @@ type RuntimeSettings struct {
 	SummaryCapSymbolsMax      *int  `yaml:"summary_cap_symbols_max"`
 	SummaryCapDefault         *int  `yaml:"summary_cap_default"`
 
+	// CitationQuoteMaxChars bounds the preview length of each
+	// Citation.Quote rendered in answer footers. Oversize Quotes are
+	// truncated on a UTF-8 boundary; file+line anchors are always
+	// preserved. Optional; nil → types.DefaultCitationMaxQuoteChars.
+	// Raise this for codebases with routinely long source lines
+	// (Kotlin DSLs, Scala implicits, deep package imports, long
+	// fmt.Errorf / SQL / regex literals). Non-positive values are
+	// ignored.
+	CitationQuoteMaxChars *int `yaml:"citation_quote_max_chars"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /
