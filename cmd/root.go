@@ -375,6 +375,7 @@ func runREPL(_ *cobra.Command) error {
 		PasteFoldMinChars: app.replPasteFoldMinChars,
 		Version:           version,
 		BuildTime:         buildTime,
+		Language:          flagLang,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)

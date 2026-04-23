@@ -31,6 +31,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/memory"
 	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -84,6 +85,12 @@ type Config struct {
 	// `go run` still produces a coherent banner / /version line.
 	Version   string
 	BuildTime string
+
+	// Language toggles the banner hint text (e.g. degraded-env
+	// warnings) between Simplified Chinese and English. Mirrors the
+	// codrax.yaml `lang` / CLI `--lang` value; same tolerant matching
+	// as orchestrator.preferZhMessage. Empty → English.
+	Language string
 }
 
 // REPL drives the interactive prompt.
@@ -103,6 +110,7 @@ type REPL struct {
 	pasteFoldMinChars int            // per-session paste-fold threshold (runes)
 	version           string
 	buildTime         string
+	language          string
 
 	// attachedLog holds the runtime log excerpt the user attached.
 	// Lifetime depends on how it got here:
@@ -152,6 +160,7 @@ func New(cfg Config) *REPL {
 		pasteFoldMinChars: cfg.PasteFoldMinChars,
 		version:           cfg.Version,
 		buildTime:         cfg.BuildTime,
+		language:          cfg.Language,
 	}
 	if r.version == "" {
 		r.version = "dev"
@@ -261,7 +270,58 @@ func (r *REPL) banner() {
 	if summary := r.memorySummaryLine(); summary != "" {
 		fmt.Fprintf(r.out, "  %s\n", summary)
 	}
+	for _, h := range r.degradedEnvHints() {
+		fmt.Fprintf(r.out, "  %s\n", h)
+	}
 	fmt.Fprintln(r.out)
+}
+
+// preferZh mirrors orchestrator.preferZhMessage: the REPL banner
+// needs the same language matching for its degraded-env hints, and
+// the orchestrator helper lives behind a public-but-internal API we
+// don't want to cross-import here. Set kept in sync with
+// internal/orchestrator/user_messages.go.
+func (r *REPL) preferZh() bool {
+	switch strings.ToLower(strings.TrimSpace(r.language)) {
+	case "zh", "zh-cn", "cn", "chinese", "简体中文":
+		return true
+	}
+	return false
+}
+
+// degradedEnvHints returns zero-or-more lines describing environment
+// degradations (missing ripgrep/grep, missing git) that the operator
+// should notice at startup. Rendered under the memory summary line
+// so the banner stays empty on a healthy box.
+func (r *REPL) degradedEnvHints() []string {
+	return renderDegradedEnvHints(r.preferZh(), tool.UseNativeGrep(), !tool.GitAvailable())
+}
+
+// renderDegradedEnvHints is the pure renderer — split out from the
+// live accessor so tests can drive the bilingual output matrix
+// without stubbing tool package globals. Keeps the UI text localised
+// using the same matcher the orchestrator uses; order is
+// search-backend first, git second so the most user-visible
+// degradation is rendered on the top line.
+func renderDegradedEnvHints(zh, nativeGrep, gitMissing bool) []string {
+	var hints []string
+	warn := pterm.FgYellow.Sprint
+	dim := pterm.FgDarkGray.Sprint
+	if nativeGrep {
+		if zh {
+			hints = append(hints, warn("⚠ 搜索后端:Go 内置扫描器")+dim(" (装 ripgrep 可大幅提速)"))
+		} else {
+			hints = append(hints, warn("⚠ Search backend: native Go scanner")+dim(" (install ripgrep for a 10× speedup)"))
+		}
+	}
+	if gitMissing {
+		if zh {
+			hints = append(hints, warn("⚠ 未检测到 git")+dim(" (repomap 走文件遍历;git_diff / git_log 不可用)"))
+		} else {
+			hints = append(hints, warn("⚠ git not detected")+dim(" (repomap falls back to filesystem walk; git_diff / git_log disabled)"))
+		}
+	}
+	return hints
 }
 
 // memorySummaryLine returns a one-line dim-gray digest of the memory

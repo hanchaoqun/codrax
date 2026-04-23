@@ -638,6 +638,8 @@ codrax --log-level debug --log-stdout -r "你的问题"
 
 ### 6.1 REPL 启动 banner
 
+**正常环境**(rg + git 齐全):
+
 ```
    CODRAX  v0.1.20260422  /help · /exit
    memory: 4 recent turn(s) + 12 compacted, 8.3 KB total
@@ -647,6 +649,18 @@ codrax --log-level debug --log-stdout -r "你的问题"
 
 - 第一行:蓝底白字 badge + 构建版本 + 最常用的两条提示
 - 第二行(可选):当前仓库下记忆摘要(最近几轮 + 压缩条数 + 总大小),为空时不显示
+
+**降级环境**(缺 rg/grep 或 git,根据 `--lang` 自动中英):
+
+```
+   CODRAX  vdev  /help · /exit
+  ⚠ 搜索后端:Go 内置扫描器 (装 ripgrep 可大幅提速)
+  ⚠ 未检测到 git (repomap 走文件遍历;git_diff / git_log 不可用)
+
+❯❯
+```
+
+这几行只在**真的缺工具**时出现,健康环境完全不显示,不干扰日常使用。英文版(`--lang en`)相应渲染成 `Search backend: native Go scanner (install ripgrep for a 10× speedup)` 等。更多安装提示见 [2.1 运行环境依赖](#21-运行环境依赖)。
 
 ### 6.2 流水线进行时的任务列表
 

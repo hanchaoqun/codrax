@@ -4,10 +4,27 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
+
+var (
+	gitProbeOnce  sync.Once
+	gitProbeOk    bool
+	gitProbePath  string
+	gitProbeVerOK string // trimmed `git --version` output; "" when probe failed
+)
+
+// GitAvailable reports whether `git --version` succeeded during the
+// one-shot startup probe. Cached for the process lifetime so REPL
+// banner, probe logger, and any future consumer share one answer.
+// Safe to call before LogCapabilities (forces the probe on demand).
+func GitAvailable() bool {
+	runGitProbe()
+	return gitProbeOk
+}
 
 // LogCapabilities forces a one-shot probe of every external binary
 // codrax touches and emits one log line per backend. Each missing
@@ -35,8 +52,9 @@ func LogCapabilities() {
 	// Git — required for repomap scan speed and for git_diff / git_log.
 	// When missing, the repomap scanner falls back to filepath.Walk
 	// and the two user-facing git tools return structured errors.
-	if probeGit() {
-		// Already-logged in probeGit; nothing more to do.
+	runGitProbe()
+	if gitProbeOk {
+		logging.Info("git backend: %s (%s)", gitProbePath, gitProbeVerOK)
 		return
 	}
 	switch runtime.GOOS {
@@ -49,28 +67,31 @@ func LogCapabilities() {
 	}
 }
 
-// probeGit runs `git --version` with a 2s timeout and, if it
-// succeeds, logs the version. Returns true when git is usable.
-func probeGit() bool {
-	path, err := exec.LookPath("git")
-	if err != nil || path == "" {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, path, "--version").Output()
-	if err != nil {
-		logging.Warning("git detected at %s but `git --version` failed: %v", path, err)
-		return false
-	}
-	// git --version prints a single line like "git version 2.43.0"
-	version := ""
-	if len(out) > 0 {
-		version = string(out)
-		if n := len(version); n > 0 && version[n-1] == '\n' {
-			version = version[:n-1]
+// runGitProbe tries `git --version` with a 2s timeout and caches the
+// outcome in gitProbeOk / gitProbePath / gitProbeVerOK. Safe to call
+// repeatedly; only the first call actually probes.
+func runGitProbe() {
+	gitProbeOnce.Do(func() {
+		path, err := exec.LookPath("git")
+		if err != nil || path == "" {
+			return
 		}
-	}
-	logging.Info("git backend: %s (%s)", path, version)
-	return true
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, path, "--version").Output()
+		if err != nil {
+			logging.Warning("git detected at %s but `git --version` failed: %v", path, err)
+			return
+		}
+		version := ""
+		if len(out) > 0 {
+			version = string(out)
+			if n := len(version); n > 0 && version[n-1] == '\n' {
+				version = version[:n-1]
+			}
+		}
+		gitProbeOk = true
+		gitProbePath = path
+		gitProbeVerOK = version
+	})
 }
