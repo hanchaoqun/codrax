@@ -650,7 +650,23 @@ codrax --log-level debug --log-stdout -r "你的问题"
 - 第一行:蓝底白字 badge + 构建版本 + 最常用的两条提示
 - 第二行(可选):当前仓库下记忆摘要(最近几轮 + 压缩条数 + 总大小),为空时不显示
 
-**降级环境**(缺 rg/grep 或 git,根据 `--lang` 自动中英):
+**降级环境**(缺工具时才显示对应行,根据 `--lang` 自动中英):
+
+搜索后端分三档,**不是 rg 都会提示**:
+
+| 后端 | REPL 提示 |
+|---|---|
+| `rg` (健康) | 无提示 |
+| `grep` (rg 缺失) | `⚠ 搜索后端:grep (装 ripgrep 可进一步提速)` |
+| `native` (rg 和 grep 都缺失) | `⚠ 搜索后端:Go 内置扫描器 (装 ripgrep 可大幅提速)` |
+
+git 只要没装就报:
+
+```
+  ⚠ 未检测到 git (repomap 走文件遍历;git_diff / git_log 不可用)
+```
+
+完整的降级 banner 示例(两种都触发):
 
 ```
    CODRAX  vdev  /help · /exit
@@ -660,7 +676,7 @@ codrax --log-level debug --log-stdout -r "你的问题"
 ❯❯
 ```
 
-这几行只在**真的缺工具**时出现,健康环境完全不显示,不干扰日常使用。英文版(`--lang en`)相应渲染成 `Search backend: native Go scanner (install ripgrep for a 10× speedup)` 等。更多安装提示见 [2.1 运行环境依赖](#21-运行环境依赖)。
+英文版(`--lang en`)相应渲染成 `Search backend: grep (install ripgrep for faster scans)` / `Search backend: native Go scanner (install ripgrep for a 10× speedup)` / `git not detected (...)`。更多安装提示见 [2.1 运行环境依赖](#21-运行环境依赖)。
 
 ### 6.2 流水线进行时的任务列表
 

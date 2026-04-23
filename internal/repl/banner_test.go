@@ -6,33 +6,42 @@ import (
 )
 
 func TestRenderDegradedEnvHints_HealthyBox(t *testing.T) {
-	if got := renderDegradedEnvHints(false, false, false); len(got) != 0 {
+	if got := renderDegradedEnvHints(false, "rg", false); len(got) != 0 {
 		t.Fatalf("healthy box should produce no hints, got %v", got)
 	}
-	if got := renderDegradedEnvHints(true, false, false); len(got) != 0 {
+	if got := renderDegradedEnvHints(true, "rg", false); len(got) != 0 {
 		t.Fatalf("healthy box (zh) should produce no hints, got %v", got)
 	}
 }
 
 func TestRenderDegradedEnvHints_Bilingual(t *testing.T) {
 	cases := []struct {
-		name         string
-		zh           bool
-		nativeGrep   bool
-		gitMissing   bool
-		wantCount    int
-		wantContains []string
+		name          string
+		zh            bool
+		searchBackend string
+		gitMissing    bool
+		wantCount     int
+		wantContains  []string
 	}{
-		{"native en", false, true, false, 1, []string{"native Go scanner", "install ripgrep"}},
-		{"native zh", true, true, false, 1, []string{"Go 内置扫描器", "装 ripgrep"}},
-		{"git en", false, false, true, 1, []string{"git not detected", "filesystem walk"}},
-		{"git zh", true, false, true, 1, []string{"未检测到 git", "repomap 走文件遍历"}},
-		{"both en", false, true, true, 2, []string{"native Go scanner", "git not detected"}},
-		{"both zh", true, true, true, 2, []string{"Go 内置扫描器", "未检测到 git"}},
+		// rg missing, grep available — slow-ish nudge, not catastrophic.
+		{"grep en", false, "grep", false, 1, []string{"Search backend: grep", "faster scans"}},
+		{"grep zh", true, "grep", false, 1, []string{"搜索后端:grep", "进一步提速"}},
+
+		// Both missing — native Go walker.
+		{"native en", false, "native", false, 1, []string{"native Go scanner", "10×"}},
+		{"native zh", true, "native", false, 1, []string{"Go 内置扫描器", "大幅提速"}},
+
+		// Git-only degradation.
+		{"git en", false, "rg", true, 1, []string{"git not detected", "filesystem walk"}},
+		{"git zh", true, "rg", true, 1, []string{"未检测到 git", "repomap 走文件遍历"}},
+
+		// Combined degradations.
+		{"grep+git en", false, "grep", true, 2, []string{"Search backend: grep", "git not detected"}},
+		{"native+git zh", true, "native", true, 2, []string{"Go 内置扫描器", "未检测到 git"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := renderDegradedEnvHints(tc.zh, tc.nativeGrep, tc.gitMissing)
+			got := renderDegradedEnvHints(tc.zh, tc.searchBackend, tc.gitMissing)
 			if len(got) != tc.wantCount {
 				t.Fatalf("want %d hints, got %d: %v", tc.wantCount, len(got), got)
 			}
@@ -50,7 +59,7 @@ func TestRenderDegradedEnvHints_OrderIsStable(t *testing.T) {
 	// Both degradations present — search backend line must come first
 	// so the most user-visible (every search slower) lands on the
 	// top banner line.
-	got := renderDegradedEnvHints(false, true, true)
+	got := renderDegradedEnvHints(false, "native", true)
 	if len(got) != 2 {
 		t.Fatalf("want 2, got %d", len(got))
 	}
@@ -62,25 +71,35 @@ func TestRenderDegradedEnvHints_OrderIsStable(t *testing.T) {
 	}
 }
 
-func TestPreferZh_TolerantMatching(t *testing.T) {
-	cases := map[string]bool{
-		"":          false,
-		"en":        false,
-		"english":   false,
-		"zh":        true,
-		"ZH":        true,
-		"zh-CN":     true,
-		" zh-cn ":   true,
-		"cn":        true,
-		"chinese":   true,
-		"简体中文":    true,
-		"fr":        false,
-		"Japanese":  false,
+func TestRenderDegradedEnvHints_UnknownBackendNoPanic(t *testing.T) {
+	// Future-proof: if SearchCommand ever grows a fourth value, the
+	// renderer should just skip the search line rather than crash.
+	if got := renderDegradedEnvHints(false, "wat", false); len(got) != 0 {
+		t.Fatalf("unknown backend should produce no search hint, got %v", got)
 	}
-	for lang, want := range cases {
-		r := &REPL{language: lang}
-		if got := r.preferZh(); got != want {
-			t.Errorf("preferZh(%q): want %v, got %v", lang, want, got)
+}
+
+// TestDegradedEnvHints_LanguageGate pins the "only en flips to
+// English, every other value — including empty — stays zh" contract.
+// codrax.yaml's default is zh; the banner follows it so users who
+// never set --lang see Chinese text.
+func TestDegradedEnvHints_LanguageGate(t *testing.T) {
+	cases := map[string]bool{ // lang input → expected zh
+		"":   true, // empty → codrax.yaml default (zh)
+		"en": false,
+		"EN": false,
+		"zh": true,
+		"fr": true, // unknown → zh fallback
+	}
+	for lang, wantZh := range cases {
+		zh := !strings.EqualFold(strings.TrimSpace(lang), "en")
+		hints := renderDegradedEnvHints(zh, "grep", false)
+		if len(hints) != 1 {
+			t.Fatalf("lang=%q: expected 1 hint, got %d", lang, len(hints))
+		}
+		isZh := strings.Contains(hints[0], "搜索后端")
+		if isZh != wantZh {
+			t.Errorf("lang=%q: wantZh=%v, got %q", lang, wantZh, hints[0])
 		}
 	}
 }

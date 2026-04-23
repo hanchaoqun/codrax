@@ -86,10 +86,10 @@ type Config struct {
 	Version   string
 	BuildTime string
 
-	// Language toggles the banner hint text (e.g. degraded-env
-	// warnings) between Simplified Chinese and English. Mirrors the
-	// codrax.yaml `lang` / CLI `--lang` value; same tolerant matching
-	// as orchestrator.preferZhMessage. Empty → English.
+	// Language toggles banner hint text between zh and en. Mirrors
+	// codrax.yaml `lang` / CLI `--lang`. Only "en" (case-insensitive)
+	// flips to English; every other value — including empty, "zh",
+	// "off", "fr" — renders zh (the codrax.yaml default).
 	Language string
 }
 
@@ -276,25 +276,23 @@ func (r *REPL) banner() {
 	fmt.Fprintln(r.out)
 }
 
-// preferZh mirrors orchestrator.preferZhMessage: the REPL banner
-// needs the same language matching for its degraded-env hints, and
-// the orchestrator helper lives behind a public-but-internal API we
-// don't want to cross-import here. Set kept in sync with
-// internal/orchestrator/user_messages.go.
-func (r *REPL) preferZh() bool {
-	switch strings.ToLower(strings.TrimSpace(r.language)) {
-	case "zh", "zh-cn", "cn", "chinese", "简体中文":
-		return true
-	}
-	return false
-}
-
 // degradedEnvHints returns zero-or-more lines describing environment
-// degradations (missing ripgrep/grep, missing git) that the operator
-// should notice at startup. Rendered under the memory summary line
-// so the banner stays empty on a healthy box.
+// degradations (sub-optimal search backend, missing git) that the
+// operator should notice at startup. Rendered under the memory
+// summary line so the banner stays empty on a healthy box.
+//
+// The search-backend rung has three tiers — rg / grep / native —
+// mirroring the log line emitted by tool.SearchCommand. Anything
+// that is not rg triggers an install-ripgrep nudge; the text varies
+// so users can tell "slightly slower" from "much slower" at a glance.
+//
+// Language: banners are rendered in zh by default (matching
+// codrax.yaml's default) and only switch to en when --lang=en is set
+// explicitly. Any other value (fr, ja, off, …) falls back to zh —
+// the banner is UI chrome, not answer text.
 func (r *REPL) degradedEnvHints() []string {
-	return renderDegradedEnvHints(r.preferZh(), tool.UseNativeGrep(), !tool.GitAvailable())
+	zh := !strings.EqualFold(strings.TrimSpace(r.language), "en")
+	return renderDegradedEnvHints(zh, tool.SearchCommand(), !tool.GitAvailable())
 }
 
 // renderDegradedEnvHints is the pure renderer — split out from the
@@ -303,17 +301,29 @@ func (r *REPL) degradedEnvHints() []string {
 // using the same matcher the orchestrator uses; order is
 // search-backend first, git second so the most user-visible
 // degradation is rendered on the top line.
-func renderDegradedEnvHints(zh, nativeGrep, gitMissing bool) []string {
+func renderDegradedEnvHints(zh bool, searchBackend string, gitMissing bool) []string {
 	var hints []string
 	warn := pterm.FgYellow.Sprint
 	dim := pterm.FgDarkGray.Sprint
-	if nativeGrep {
+	switch searchBackend {
+	case "grep":
+		// ripgrep missing but GNU/BSD grep still usable — slow-ish,
+		// not catastrophic. Nudge toward ripgrep without crying wolf.
+		if zh {
+			hints = append(hints, warn("⚠ 搜索后端:grep")+dim(" (装 ripgrep 可进一步提速)"))
+		} else {
+			hints = append(hints, warn("⚠ Search backend: grep")+dim(" (install ripgrep for faster scans)"))
+		}
+	case "native":
+		// Both missing — Go regex walker. Correct but noticeably
+		// slower on large repos.
 		if zh {
 			hints = append(hints, warn("⚠ 搜索后端:Go 内置扫描器")+dim(" (装 ripgrep 可大幅提速)"))
 		} else {
 			hints = append(hints, warn("⚠ Search backend: native Go scanner")+dim(" (install ripgrep for a 10× speedup)"))
 		}
 	}
+	// "rg" → no hint
 	if gitMissing {
 		if zh {
 			hints = append(hints, warn("⚠ 未检测到 git")+dim(" (repomap 走文件遍历;git_diff / git_log 不可用)"))
