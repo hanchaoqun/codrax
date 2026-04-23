@@ -725,6 +725,52 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Bala
 	}
 }
 
+// TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonBreadthIntent_NoOp
+// proves the breadth-intent filter: enumeration (and registration /
+// return_value / config_mapping) are single-lookup intents where
+// unequal coverage across anchors is expected and the gate must not
+// fire, otherwise "list all agents"-style questions would be blocked
+// by incidentally-named sibling files.
+func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonBreadthIntent_NoOp(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetPhase1Ranking([]types.Phase1RankedFile{
+		{Path: "internal/agent/explorer.go", Score: 60, ExactEntityRank: 2},
+		{Path: "internal/agent/extractor.go", Score: 58, ExactEntityRank: 2},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{
+		"internal/agent/explorer.go":  true,
+		"internal/agent/extractor.go": true,
+	})
+	closure.SetReadRanges(map[string][]types.LineRange{
+		"internal/agent/explorer.go":  {{Start: 1, End: 200}},
+		"internal/agent/extractor.go": {{Start: 1, End: 5}}, // 2.5%
+	})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "enumeration",
+				},
+			},
+		},
+	}
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{"reason": "listed all", "confidence": "high"})
+	_, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	for _, p := range closure.PendingReads() {
+		if p.Origin == "pre_complete.multi_path_coverage" {
+			t.Fatalf("enumeration intent must skip multi-path gate, got %+v", p)
+		}
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_SingleAnchor_NoOp
 // guards against false-fire on single-subject questions — one primary
 // anchor has nothing to balance against.

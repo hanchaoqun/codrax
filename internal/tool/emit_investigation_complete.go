@@ -677,7 +677,16 @@ const multiPathCoverageParityFloor = 0.3
 // (minimum lines) so small files at full coverage don't false-trigger
 // against large files at partial coverage.
 func raiseMultiPathCoverageParity(ctx *types.BusContext, closure *types.EvidenceClosure) {
-	if ctx == nil || ctx.Mutable == nil || closure == nil {
+	if ctx == nil || ctx.Mutable == nil || closure == nil || ctx.AnalysisIR == nil {
+		return
+	}
+	// Breadth-intent filter matches raisePhase1UnreadPendingReads:
+	// registration / return_value / enumeration / config_mapping are
+	// single-lookup intents where one file often carries the answer
+	// and the other anchors are peripheral, so requiring 30% coverage
+	// parity would spuriously block the completion.
+	kind := types.NormalizeRequirementKind(ctx.AnalysisIR.RequestModel.AnalyzerHints.Kind)
+	if !isBreadthIntent(kind) {
 		return
 	}
 	ranked := ctx.Mutable.Phase1Ranking()
