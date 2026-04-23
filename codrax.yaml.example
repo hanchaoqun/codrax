@@ -478,6 +478,13 @@
 #         think_aloud: false
 #
 # Default: false (opt-in during rollout).
+#
+# Per-run override: the --chitchat-classifier CLI flag takes
+# precedence over this yaml value for one codrax invocation. Use it
+# to toggle the classifier on/off while debugging without editing
+# yaml. `--chitchat-classifier` / `--chitchat-classifier=true` →
+# force on; `--chitchat-classifier=false` → force off; flag omitted
+# → this yaml value wins.
 # chitchat_classifier_enabled: false
 
 # ---------------------------------------------------------------------------

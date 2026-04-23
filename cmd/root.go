@@ -88,6 +88,13 @@ var (
 	flagAttachLog       string
 	flagAttachLogText   string
 	flagLogSourcePrefix string
+
+	// Auto chit-chat classifier per-run toggle. When the flag is NOT
+	// passed on the command line, the initApp merge falls back to the
+	// codrax.yaml value (or the code default false). When passed,
+	// overrides both. Useful for debugging classifier misjudgements
+	// without editing yaml per run.
+	flagChitchatClassifier bool
 )
 
 // maxAttachedLogBytes caps the pasted log payload at 1 MB to prevent a
@@ -151,6 +158,7 @@ func init() {
 	f.StringVar(&flagAttachLog, "log", "", "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin; seeds log-triage entities for the analyzer")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
+	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
 
 	rootCmd.AddCommand(versionCmd)
 
@@ -202,6 +210,7 @@ var compatLongFlagNames = map[string]struct{}{
 	"log":                       {},
 	"log-text":                  {},
 	"log-source-prefix":         {},
+	"chitchat-classifier":       {},
 }
 
 // normalizeCompatArgs rewrites known codrax long flags from the
@@ -1168,9 +1177,20 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// is useless (would reroute turns to an inert /chat). Default
 	// off: adds one LLM call per REPL turn so operators opt in after
 	// they've seen the responder behave in their environment.
+	//
+	// Precedence (lowest wins last): code default → codrax.yaml →
+	// --chitchat-classifier CLI flag. The CLI override exists for
+	// debugging classifier misjudgements per-run without editing
+	// codrax.yaml; cmd.Flags().Changed() distinguishes "flag not
+	// passed" (yaml wins) from "flag passed with value false" (CLI
+	// forces off).
 	classifierEnabled := false
 	if rs != nil && rs.ChitchatClassifierEnabled != nil {
 		classifierEnabled = *rs.ChitchatClassifierEnabled
+	}
+	if cmd.Flags().Changed("chitchat-classifier") {
+		classifierEnabled = flagChitchatClassifier
+		logging.Info("[chitchat] classifier: %t (via --chitchat-classifier flag)", classifierEnabled)
 	}
 	if chitchatEnabled && classifierEnabled && app.chitchatResponder != nil {
 		resolved := config.ResolveProvider(providersCfg, "chitchat_classifier")

@@ -11,12 +11,14 @@ func TestNormalizeCompatArgs_RewritesLegacySingleDashLongFlags(t *testing.T) {
 		"-branch=main",
 		"-request", "trace analyzer",
 		"-pipeline-max-steps", "50",
+		"-chitchat-classifier=true",
 	})
 	want := []string{
 		"--repo", ".",
 		"--branch=main",
 		"--request", "trace analyzer",
 		"--pipeline-max-steps", "50",
+		"--chitchat-classifier=true",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("normalizeCompatArgs mismatch:\n  got:  %#v\n  want: %#v", got, want)

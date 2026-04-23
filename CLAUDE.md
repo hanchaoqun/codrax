@@ -150,7 +150,7 @@ Two YAML files live flat next to the binary:
   - `summary_cap_*` — master switch + per-shape Summary length ceilings (`types.SummaryCapConfig`, default disabled)
   - `citation_quote_max_chars` — single knob; Citation.Quote preview ceiling (`types.DefaultCitationMaxQuoteChars = 500`). Oversize Quotes truncate on UTF-8 boundary; file:line always preserved; prose defense via grounder token-match is orthogonal
   - `chitchat_enabled` — REPL `/chat <msg>` slash command (default true). Single LLM Chat call bypasses pipeline for casual conversation. Provider routed via `providers.yaml :: agents.chitchat_responder` (falls back to default). REPL-only; single-shot `--request` never touches it
-  - `chitchat_classifier_enabled` — auto-classifier gate before normal dispatch (default false). One LLM tool-call per turn emits `{chitchat, repo_question}`; chitchat reroutes to responder, anything else (incl. errors) falls through to pipeline. Skipped when attached log present. Provider routed via `providers.yaml :: agents.chitchat_classifier`
+  - `chitchat_classifier_enabled` — auto-classifier gate before normal dispatch (default false). One LLM tool-call per turn emits `{chitchat, repo_question}`; chitchat reroutes to responder, anything else (incl. errors) falls through to pipeline. Skipped when attached log present. Provider routed via `providers.yaml :: agents.chitchat_classifier`. **CLI override**: `--chitchat-classifier[=true|false]` flag takes precedence over yaml for one run (only classifier has a flag; `chitchat_enabled` is yaml-only — it's a deploy-time decision)
   - **No codrax.yaml knob for memory summarizer** — presence of `providers.yaml :: agents.memory_summarizer` is itself the opt-in; absent, reuses `llm.default`. Summarizer uses local `emit_memory_summary` tool schema (session 31); every failure path (no tool call / malformed JSON / chat error) falls back to heuristic IndexEntry so compaction cannot break the REPL
   - `cgec_*` — Citation-Grounded Evidence Closure tunables
 
@@ -158,7 +158,7 @@ Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.
 
 **`codrax.yaml` lookup**: `$CODRAX_SETTINGS` → `<exeDir>/codrax.yaml` → `<exeDir>/codrax/codrax.yaml` → three legacy `config/` paths (deprecation warning). Stops at first hit.
 
-**Precedence** (lowest wins last): code default → `codrax.yaml` → CLI flag (only `bare` and `pipeline_*` groups have CLI overrides).
+**Precedence** (lowest wins last): code default → `codrax.yaml` → CLI flag. Only `bare`, `pipeline_*`, log-triage attach (`--log` / `--log-text` / `--log-source-prefix`), and `--chitchat-classifier` have CLI overrides; every other yaml key is yaml-only.
 
 **Path anchors** (`cmd/root.go`, resolved to absolute paths before flag registration):
 
