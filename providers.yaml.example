@@ -11,8 +11,9 @@
 #
 #   1. protocol    — HTTP vs HTTPS is decided purely by the
 #                    base_url scheme. No separate switch exists.
-#   2. streaming   — stream: true / false enables SSE; the REPL
-#                    surfaces a live content preview when on.
+#   2. streaming   — stream: true (default) / false toggles SSE;
+#                    the REPL surfaces a live content preview when
+#                    on and /chat renders a live typewriter reply.
 #
 # Stream on/off and HTTP/HTTPS combine freely. See the end of this
 # file for the full scenario matrix.
@@ -31,11 +32,14 @@ llm:
                                           # HTTP. codrax switches transparently.
 
     # --- Streaming -------------------------------------------------------
-    # Default: false (non-streaming). When true, codrax sets
-    # `stream: true` on the wire, parses SSE, and the REPL task row
-    # shows a live preview of the assistant's output as it arrives.
-    # Non-streaming providers that quietly return SSE are auto-
-    # detected on the JSON path, so leaving this unset still works.
+    # Default: true (streaming ON). codrax sets `stream: true` on the
+    # wire, parses SSE, shows a live preview in the REPL task row, and
+    # renders /chat replies as a live typewriter. Providers that quietly
+    # return SSE are auto-detected on the JSON path as well, so even
+    # stream: false cannot break on an SSE-forcing provider. Set to
+    # false to fall back to the classic single-shot request-response
+    # (useful for local models where streaming adds no perceptible
+    # latency win, or for CI where byte-stable captures matter).
     # stream: false
 
     # --- TLS (HTTPS endpoints only) --------------------------------------
@@ -65,7 +69,7 @@ llm:
   #   finalizer:
   #     base_url: "http://localhost:11434/v1"
   #     model: "llama3.1:70b"
-  #     stream: true                      # per-agent streaming opt-in
+  #     stream: false                     # per-agent opt-out (default is on)
 
 # =============================================================================
 # Scenario matrix

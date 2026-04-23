@@ -222,15 +222,15 @@ llm:
 
 | 值 | 行为 |
 |---|---|
-| `stream: true` | 走 SSE 流式,REPL 任务行会**实时显示** LLM 正在输出的内容(250ms 节流,80 字符 tail 预览) |
-| `stream: false` | 一次性收完整个响应(默认) |
-| 不写 | 等同 `stream: false` |
+| `stream: true` | 走 SSE 流式,REPL 任务行会**实时显示** LLM 正在输出的内容(250ms 节流,80 字符 tail 预览),`/chat` 会以 typewriter 形式逐段上屏 |
+| `stream: false` | 一次性收完整个响应 |
+| 不写 | **默认 `stream: true`**(从 2026-04-23 起) |
 
 ```yaml
 llm:
   default:
     # ...
-    stream: true
+    stream: false      # 想恢复一次性响应就显式写 false
 ```
 
 即使你写 `stream: false`,部分 provider 依然会返 SSE(企业网关、特殊微调模型)。codrax 会**自动嗅探**响应开头,遇到 `data: ...` 直接走 SSE parser,不会因此报 `invalid character 'd'` 失败。
@@ -264,7 +264,7 @@ llm:
       model: "your-strong-model"           # 问题分类 / 场景推断 → 用强模型
     finalizer:
       model: "your-strong-model"           # 组织最终答案 → 用强模型
-      stream: true                         # 单独让 finalizer 走流式
+      # stream 默认继承 default(已经是 true),想关掉写 stream: false
     log_triager:
       model: "your-mid-model"              # 日志抽取 → 中等模型就够
     # explorer + extractor 没写,自动继承 default
@@ -306,7 +306,7 @@ llm:
       api_key: "ollama"
       model: "qwen2.5:32b"
       base_url: "http://localhost:11434/v1"   # ← 改走明文 HTTP
-      stream: false                            # 本地模型不开流式,一次性取
+      stream: false                            # 本地模型想一次性取就显式关流式(默认是开)
 ```
 
 ### 3.3 `codrax.yaml` — 运行时参数
@@ -1043,11 +1043,13 @@ A:
 4. 对答案做基于 `file:line` 的结构化断言,比对着散文更稳定
 
 **Q: 怎么开流式响应?有什么区别?**
-A: `providers.yaml` 里写 `stream: true`。开了之后:
+A: **默认就是开的**(2026-04-23 起)。开启后:
 - 任务行实时显示模型正在产出的内容 tail(250ms 节流,80 字符)
+- `/chat` 以 typewriter 形式逐段上屏,短回复也能秒响应
 - 慢模型 / 长响应下用户不再干瞪 30s 空 spinner
 - 功能等价,只是 UX 更快反馈
-见 [3.1.2 流式开关](#312-流式开关--stream)。
+
+想关回一次性响应(例如 CI 想要 byte-stable 输出、或者本地模型流式收益微乎其微):`providers.yaml` 里写 `stream: false`(可以写在 `llm.default` 也可以写在单个 agent 下)。见 [3.1.2 流式开关](#312-流式开关--stream)。
 
 **Q: 启动报 `x509: certificate signed by unknown authority`?**
 A: 你的 HTTPS endpoint 用了系统不信任的 CA。两条路:

@@ -23,10 +23,16 @@ type LLMProviderConfig struct {
 	// When true the adapter sets `stream: true` on the wire, parses
 	// server-sent events, and accumulates content + tool_calls into
 	// the same Response shape a non-streaming call produces. Runtime-
-	// observable difference: intermediate content chunks can surface
-	// in the REPL task-row preview while the call is still in flight.
-	// nil/false = classic single-shot request. Per-agent override
-	// uses the same nil-sentinel pattern as ThinkAloud.
+	// observable difference: intermediate content chunks surface in
+	// the REPL task-row preview and the /chat live typewriter view
+	// while the call is still in flight.
+	//
+	// Default: ON. nil resolves to true in factory.NewFromConfig so
+	// new deployments get streaming UX without touching providers.
+	// yaml. Operators who want the classic single-shot behaviour set
+	// `stream: false` explicitly (at default level or per-agent).
+	// Per-agent override uses the same nil-sentinel pattern as
+	// ThinkAloud — an agent-level nil inherits from default.
 	Stream *bool `yaml:"stream"`
 
 	// TLSCAFile is an optional path to a PEM-encoded CA bundle that gets

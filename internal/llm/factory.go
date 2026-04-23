@@ -40,7 +40,16 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 	if cfg.BaseURL == "" {
 		return nil, fmt.Errorf("providers.yaml: llm base_url is required — no default endpoint is assumed")
 	}
-	stream := false
+	// Streaming defaults to ON. An unset `stream` field (cfg.Stream ==
+	// nil) resolves to true, so new deployments get the live-output
+	// UX (REPL task row preview, /chat typewriter replies) without
+	// touching providers.yaml. Operators who need the classic single-
+	// shot behaviour must set `stream: false` explicitly — at either
+	// the default or per-agent level. Providers that silently return
+	// SSE even with `stream: false` on the wire are still handled by
+	// the JSON-path SSE auto-sniffer in openai.go, so this default
+	// flip cannot make any previously-working provider stop working.
+	stream := true
 	if cfg.Stream != nil {
 		stream = *cfg.Stream
 	}
