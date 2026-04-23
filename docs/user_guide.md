@@ -4,6 +4,7 @@
 
 - [1. codrax 是什么](#1-codrax-是什么)
 - [2. 安装与启动](#2-安装与启动)
+  - [2.1 运行环境依赖](#21-运行环境依赖)
 - [3. 配置](#3-配置)
   - [3.1 `providers.yaml` — 精简版](#31-providersyaml--精简版)
     - [3.1.1 HTTP / HTTPS 开关](#311-http--https-开关--靠-base_url-协议头决定)
@@ -94,6 +95,51 @@ codrax
 ```
 
 如果启动报 "providers config not found" 之类的错误,回到 [3.1 精简版](#31-providersyaml--精简版) 配一份最小的 `providers.yaml` 即可。
+
+### 2.1 运行环境依赖
+
+codrax 在调用外部命令行工具时坚持"能退则退":任何可选工具缺失都不会拒绝启动,但**具体能力会降级**。启动时 `--log-level info` 以上会打出三条 `*** backend:` 日志,直接告诉你当前用的哪一套。
+
+**必需 / 强推荐**
+
+| 工具 | 作用 | 缺失时的表现 |
+|---|---|---|
+| **POSIX shell** (`sh` / `bash` 或 Windows 的 `cmd`) | 承载 `exec_command` 工具 | Unix 上假设 `/bin/sh` 存在(几乎所有发行版保证);Windows 先尝试 Git for Windows 自带的 sh/bash,再退回 `cmd /C`(但 POSIX 语法命令会失败) |
+| **git** | `git_diff` / `git_log` 工具;repomap 扫描加速 | 两个 git 工具返回带错误信息的 ToolResult(不 crash);repomap 自动回退到 `filepath.Walk` 扫描,变慢但能跑 |
+
+**可选(有自动兜底)**
+
+| 工具 | 作用 | 缺失时的表现 |
+|---|---|---|
+| **ripgrep** (`rg`) | 最快的代码搜索后端 | 依次回退:`grep` → **内置 Go regex 扫描**(`native` backend)。所有层级都能跑,仅速度差异 |
+| **grep** (GNU / BSD) | ripgrep 缺失时的搜索后端 | 回退到内置 Go regex 扫描,仍然可用 |
+| **find** | `keyword_search` 按文件名定位的加速 | 自动使用 Go `filepath.WalkDir` 兜底,无感知 |
+
+> **最小可用环境**:没有 `rg` / `grep` / `find` 的裸 Linux(`FROM scratch` / `distroless`)启动后依然能跑,仅搜索阶段变慢(典型大仓 100-500 ms → 1-3 s)。
+>
+> **Windows 用户强烈建议**:装 [Git for Windows](https://git-scm.com/download/win) —— 它会同时提供 `git` / `sh` / `bash` / `grep` / `find` 这几个关键工具。再用 [ripgrep releases](https://github.com/BurntSushi/ripgrep/releases) 或 winget (`winget install BurntSushi.ripgrep.MSVC`) 装一下 ripgrep,搜索速度会有量级差。
+>
+> **macOS 用户**:系统自带 `git` / `sh` / `bash` / `grep` / `find`(BSD 版)。想获得最佳速度:`brew install ripgrep`。
+
+**启动时 banner(示例)**
+
+```
+2026-04-23 ... INFO  search backend: ripgrep (/usr/bin/rg)
+2026-04-23 ... INFO  shell backend: sh [-c]
+2026-04-23 ... INFO  git backend: /usr/bin/git (git version 2.43.0)
+```
+
+缺少某个工具时每行末尾会附带一条**平台相关的安装建议**,例如:
+
+```
+WARN  search backend: native Go scanner (neither ripgrep nor grep found on PATH — install ripgrep for faster scans; ...)
+WARN  git not found on PATH — repomap scanning falls back to filesystem walk; git_diff / git_log tools disabled.
+      Install via your distro package manager (apt/yum/apk install git).
+```
+
+这几条位于 "paths: ..." 之后、真正开始分析之前,按 info 级别打,平时走日志文件;用 `--log-stdout --log-level info` 可实时看到。
+
+**所有 git 调用都带 30-60 秒超时**,大仓即便 `git log --name-only` 扫到几十万提交也不会拖死 pipeline,超时后只丢失那一次调用的结果。
 
 ---
 
@@ -872,6 +918,36 @@ repl_paste_fold_min_chars: 9999    # 等于禁用折叠
 
 **Q: `.codrax/` 目录越来越大,怎么清?**
 A: 直接 `rm -rf .codrax/`。codrax 会在下一次启动重建。内部已经有滚动策略(日志 7 份、blob 会话 7 个),所以正常不会爆。
+
+**Q: 启动日志里看到 `search backend: native Go scanner` 的 WARN,严重吗?**
+A: 不严重 —— 只是 `rg` 和 `grep` 都没找到,codrax 已自动切到内置 Go 正则扫描兜底。功能等价,速度大概慢 5-20 倍(仍然在可接受范围)。想恢复最佳性能:
+- Linux:`apt install ripgrep`(或 `apk add ripgrep`)
+- macOS:`brew install ripgrep`
+- Windows:`winget install BurntSushi.ripgrep.MSVC` 或从 [ripgrep releases](https://github.com/BurntSushi/ripgrep/releases) 下 zip
+
+见 [2.1 运行环境依赖](#21-运行环境依赖)。
+
+**Q: 启动日志里看到 `git not found on PATH` 的 WARN,会影响什么?**
+A: 影响两点:`git_diff` / `git_log` 工具不可用(但不会 crash,会返回带错误说明的结果);repomap 构建时无法走 `git ls-files` 快路径,只能用 Go 的 `filepath.Walk`,在大仓上慢一些。装个 git(`apt install git` / Git for Windows)即可恢复。
+
+**Q: Windows 上跑 codrax 要装什么?**
+A: 强制装一个: [Git for Windows](https://git-scm.com/download/win) —— 它同时提供 `git` + `sh` + `bash` + `grep` + `find`,几乎覆盖 codrax 需要的所有外部工具。再可选装 ripgrep 提速:`winget install BurntSushi.ripgrep.MSVC`。装完后打开一个新的 PowerShell / CMD(让 PATH 生效),`codrax -r "..."` 就能跑。见 [2.1 运行环境依赖](#21-运行环境依赖)。
+
+**Q: 我把 codrax 放进 `FROM scratch` / distroless 容器,能跑吗?**
+A: 能跑,但有两个注意点:
+1. **必须在镜像里装 git**,否则 `git_diff` / `git_log` 工具失能,且 repomap 扫描会变慢。推荐底包 `gcr.io/distroless/base-debian12:debug` 或 `alpine:latest`(后者体积小)。
+2. **建议加装 ripgrep** 提搜索速度;不装也行,走 Go native fallback。
+3. Alpine 底包里 BusyBox `grep` 缺 ripgrep 的 `--json` 模式,但 codrax 的 keyword search 会自动选择 `grepFiles` 分支,不触发 `--json` 路径,**不影响功能**。
+
+典型 Dockerfile 片段:
+```dockerfile
+FROM alpine:latest
+RUN apk add --no-cache git ripgrep
+COPY codrax /usr/local/bin/
+COPY providers.yaml /etc/codrax/
+ENV CODRAX_SETTINGS=/etc/codrax/codrax.yaml
+ENTRYPOINT ["codrax"]
+```
 
 **Q: 我的日志格式比较特殊(自研 JSON 应用日志),能分析吗?**
 A: 可以。log_triage 是 LLM 驱动的,不依赖固定正则 parser。支持 Go panic / Java exception(包括 `Caused by` 链)/ Python traceback / Node V8 / Rust `#[source]` / Ruby backtrace / 结构化 JSON / C/C++ ASAN/UBSAN/gdb / 编译器错误等。模型能看懂的结构都能处理。只有仓内真实存在的文件才会被注入下游,外部路径会被过滤掉。
