@@ -248,3 +248,191 @@ func TestEmitInvestigationComplete_Tier1FloorQueuesTier2GroundedReads(t *testing
 		t.Fatalf("repair file = %q, want internal/tool/repomap/tool.go", repairs[0].Files[0])
 	}
 }
+
+func TestEmitInvestigationComplete_ConfigAbsenceAllowsContextualEvidence(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: "cmd/root.go", LineStart: 889,
+		Subject: "explore_midloop_min_iteration", AnchorKind: types.AnchorAssignment, AnchorSymbol: "ExploreMidLoopMinIteration",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"searched the repo and found no exact config key ` + missingKey + `; related budget keys are only context","confidence":"high","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("config-key absence with contextual related evidence should be accepted: %s", res.Summary)
+	}
+	if mut.AbsenceJustification() == "" {
+		t.Errorf("absence must be stored on acceptance")
+	}
+}
+
+func TestEmitInvestigationComplete_ConfigAbsenceBypassesGroundingFloorsForContextOnlyEvidence(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.3})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind: types.EvidenceDirect, Source: "cmd/root.go", LineStart: 889,
+			Subject: "explore_midloop_min_iteration", AnchorKind: types.AnchorAssignment, AnchorSymbol: "ExploreMidLoopMinIteration",
+			GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+		},
+		{
+			Kind: types.EvidenceUnresolved, Source: "internal/config/runtime.go",
+			Subject: "AgentLoopMaxMidLoopInjects", AnchorKind: types.AnchorDefinition, AnchorSymbol: "AgentLoopMaxMidLoopInjects",
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			Kind: types.EvidenceUnresolved, Source: "cmd/root.go",
+			Subject: "zz_absent_context_knob", AnchorKind: types.AnchorAssignment, AnchorSymbol: "zz_absent_context_knob",
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			Kind: types.EvidenceUnresolved, Source: "internal/config/runtime.go",
+			Subject: "AgentLoopMaxDocBytes", AnchorKind: types.AnchorDefinition, AnchorSymbol: "AgentLoopMaxDocBytes",
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			Kind: types.EvidenceUnresolved, Source: "codrax.yaml",
+			Subject: "zz_absent_config_knob_context", AnchorKind: types.AnchorAssignment, AnchorSymbol: "zz_absent_config_knob_context",
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			Kind: types.EvidenceUnresolved, Source: "internal/agent/explorer.go",
+			Subject: "context budget knob", AnchorKind: types.AnchorDefinition, AnchorSymbol: "contextBudgetKnob",
+			GroundingStatus: types.GroundingUngrounded,
+		},
+	})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+		StageReports: []types.StageReport{{
+			Stage:    types.StageAnalyze,
+			Agent:    types.AgentAnalyzer,
+			Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"found no exact config key ` + missingKey + `; related budget keys are context only","confidence":"high","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("honest config-key absence should bypass generic grounding floors: %s", res.Summary)
+	}
+	if mut.AbsenceJustification() == "" {
+		t.Fatalf("absence justification must be stored")
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("investigation should be marked complete")
+	}
+}
+
+func TestEmitInvestigationComplete_ConfigAbsenceRejectsExactEvidence(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: "codrax.yaml", LineStart: 12,
+		Subject: missingKey, AnchorKind: types.AnchorAssignment, AnchorSymbol: missingKey,
+		Snippet:         missingKey + ": 2",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"no exact config key ` + missingKey + ` exists","confidence":"high","absence_justification":"no config key named ` + missingKey + ` exists in the repo"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("absence must still be rejected when exact config-key evidence exists")
+	}
+	if mut.AbsenceJustification() != "" {
+		t.Errorf("absence must NOT be stored on rejection")
+	}
+}
+
+func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromPriorReport(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{{
+		Kind: types.EvidenceDirect, Source: "internal/config/runtime.go", LineStart: 184,
+		Subject: "AgentLoopMaxMidLoopInjects", AnchorKind: types.AnchorDefinition, AnchorSymbol: "AgentLoopMaxMidLoopInjects",
+		GroundingStatus: types.GroundingGrounded, GroundingTier: types.TierLineText,
+	}})
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+		StageReports: []types.StageReport{{
+			Stage:    types.StageAnalyze,
+			Agent:    types.AgentAnalyzer,
+			Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
+		}},
+	}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"positive chain is fully traced through AgentLoopMaxMidLoopInjects","confidence":"high"}`)
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("positive substitute completion must be rejected")
+	}
+	if !strings.Contains(res.Summary, "primary config key") {
+		t.Fatalf("rejection should explain exact-key guard: %s", res.Summary)
+	}
+	if mut.IsInvestigationComplete() {
+		t.Fatalf("completion flag must not fire on positive substitute rejection")
+	}
+}

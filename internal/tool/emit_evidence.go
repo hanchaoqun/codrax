@@ -236,6 +236,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// rankers demote it, and we log a ViolSelfRefLiteral to the
 	// ledger so F2 aggregator can weight it.
 	primaryEntity := extractPrimaryEntity(ctx)
+	configAbsenceSubjects := unverifiedPrimaryConfigSubjects(ctx)
 	for i, in := range p.Items {
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped)
 		if perr != nil {
@@ -288,6 +289,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i := range built {
 		r := ground.GroundItem(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
+		if demoteConfigAbsenceSubstituteEvidence(&built[i], configAbsenceSubjects) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
 		// Recovery can rewrite LineStart/Source; keep the stable ID
 		// in sync so merge-by-ID downstream coalesces correctly.
 		built[i].ID = types.StableEvidenceID(
@@ -819,6 +825,67 @@ func extractPrimaryEntity(ctx *types.BusContext) string {
 		return ""
 	}
 	return strings.TrimSpace(ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities[0])
+}
+
+func unverifiedPrimaryConfigSubjects(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
+		return nil
+	}
+	subjects := configAbsenceSubjects(rm)
+	if len(subjects) == 0 {
+		return nil
+	}
+	unverified := append(ctx.Mutable.EvidenceClosure().UnverifiedFindings(), unverifiedFindingsFromStageReports(ctx.StageReports)...)
+	unverified = dedupeUnverifiedFindings(unverified)
+	if len(unverified) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	for _, f := range unverified {
+		if !strings.EqualFold(strings.TrimSpace(f.Kind), "symbol") {
+			continue
+		}
+		key := normalizeConfigToken(f.Token)
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	out := make([]string, 0, len(subjects))
+	for _, subject := range subjects {
+		key := normalizeConfigToken(subject)
+		if key != "" && seen[key] {
+			out = append(out, subject)
+		}
+	}
+	return out
+}
+
+func demoteConfigAbsenceSubstituteEvidence(ev *types.EvidenceItem, subjects []string) bool {
+	if ev == nil || len(subjects) == 0 {
+		return false
+	}
+	for _, subject := range subjects {
+		if evidenceMentionsExactConfigToken([]types.EvidenceItem{*ev}, subject) {
+			return false
+		}
+	}
+	key := strings.Join(subjects, ", ")
+	note := fmt.Sprintf("primary config key %q is unverified; this related-key evidence is context only and must not be treated as a substitute", key)
+	ev.Kind = types.EvidenceUnresolved
+	ev.Confidence = 0
+	ev.GroundingStatus = types.GroundingUngrounded
+	ev.GroundingTier = ""
+	ev.GroundingNote = note
+	if strings.TrimSpace(ev.Summary) == "" {
+		ev.Summary = note
+	} else if !strings.Contains(ev.Summary, "context only") {
+		ev.Summary = ev.Summary + " [context only: " + note + "]"
+	}
+	return true
 }
 
 // isSelfRefEvidence tests the triple-condition R4 predicate:

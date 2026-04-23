@@ -760,6 +760,75 @@ func findSectionTitle(pc *types.PromptContext, title string) *types.PromptSectio
 	return nil
 }
 
+func TestBuildPromptContext_ConfigKeyAbsenceSection(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	ac := &types.AgentContext{
+		AgentName: types.AgentExplorer,
+		Stage:     types.StageExplore,
+		Objective: "q",
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token:  missingKey,
+			Kind:   "symbol",
+			Reason: "symbol not found in graph",
+		}},
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
+
+	sec := findSectionTitle(pc, "Exact Config Key Absence")
+	if sec == nil {
+		t.Fatalf("missing Exact Config Key Absence section")
+	}
+	for _, want := range []string{missingKey, "Do not rename", "Related keys may be used only as context", "absence_justification"} {
+		if !strings.Contains(sec.Content, want) {
+			t.Fatalf("section missing %q:\n%s", want, sec.Content)
+		}
+	}
+}
+
+func TestBuildAgentContext_MergesUnverifiedFindingsFromPriorStageReport(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	mut := types.NewMutableState("q")
+	bus := &types.BusContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		}},
+		StageReports: []types.StageReport{{
+			Stage:    types.StageAnalyze,
+			Agent:    types.AgentAnalyzer,
+			Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
+		}},
+	}
+	ac := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
+
+	if len(ac.UnverifiedAnalyzerFindings) != 1 {
+		t.Fatalf("unverified findings = %d, want 1", len(ac.UnverifiedAnalyzerFindings))
+	}
+	sec := findSectionTitle(pc, "Exact Config Key Absence")
+	if sec == nil {
+		t.Fatalf("prior stage unverified annotation should render exact config absence section")
+	}
+	if !strings.Contains(sec.Content, missingKey) {
+		t.Fatalf("absence section missing key:\n%s", sec.Content)
+	}
+}
+
 func TestBuildPromptContext_AnswerSymbols_Complete_RendersTranslationMode(t *testing.T) {
 	syms := []types.AnswerSymbol{
 		{Name: "Foo", File: "a.go", Line: 10, Kind: "registration"},

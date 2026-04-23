@@ -60,19 +60,18 @@ func critEntry(signal string) []types.Criterion {
 	return []types.Criterion{{Kind: types.CritSignalPresent, Expr: signal}}
 }
 
-
 // EvidenceNodeSpec carries the per-template fields expandEvidenceNodes
 // needs to build evidence-type TaskNodes. Every template supplies its
 // own IDPrefix / Inputs / Outputs / default Objective / default
 // Hints / EvidenceCount floor so the helper can handle both the
 // single-topic and multi-sub-topic cases uniformly.
 type EvidenceNodeSpec struct {
-	IDPrefix      string              // node ID prefix; multi-topic appends "_tN"
-	Inputs        []string            // default inputs (used by every emitted node)
-	Outputs       []string            // default outputs (used by every emitted node)
-	Objective     string              // used when len(SubTopics)<=1
-	Hints         types.SearchHints   // used when len(SubTopics)<=1
-	EvidenceCount int                 // floor for CritEvidenceCount success criterion
+	IDPrefix      string            // node ID prefix; multi-topic appends "_tN"
+	Inputs        []string          // default inputs (used by every emitted node)
+	Outputs       []string          // default outputs (used by every emitted node)
+	Objective     string            // used when len(SubTopics)<=1
+	Hints         types.SearchHints // used when len(SubTopics)<=1
+	EvidenceCount int               // floor for CritEvidenceCount success criterion
 }
 
 // expandEvidenceNodes returns one evidence node per sub-topic when
@@ -336,7 +335,7 @@ func templateConfigTrace(rm types.RequestModel) Output {
 	hints := hintsFromRM(rm)
 	probe := types.TaskNode{
 		ID: nodeID(0, "probe"), Type: types.NodeProbe,
-		Objective:   "Locate the config key in source and config files.",
+		Objective:   "Locate the exact config key in source and config files; if it is absent, preserve that absence as the primary finding before considering related keys.",
 		Inputs:      []string{"user_question", "config_key_hint"},
 		Outputs:     []string{"definition_sites"},
 		SearchHints: hints,
@@ -345,19 +344,19 @@ func templateConfigTrace(rm types.RequestModel) Output {
 		IDPrefix:      nodeID(1, "evidence"),
 		Inputs:        []string{"definition_sites"},
 		Outputs:       []string{"evidence_items", "resolution_chain"},
-		Objective:     "Trace default value, override precedence, and effective-value resolution.",
+		Objective:     "Trace default value, override precedence, and effective-value resolution for the exact key only; nearby keys are contextual leads, not substitutes.",
 		Hints:         hints,
 		EvidenceCount: TmplEvidenceCountLow,
 	})
 	val := types.TaskNode{
 		ID: nodeID(2, "validate"), Type: types.NodeValidate,
-		Objective: "Confirm the traced chain matches the user's scenario.",
+		Objective: "Confirm the traced chain matches the user's exact config key; reject substituting a nearby key when the requested key is absent.",
 		Inputs:    []string{"resolution_chain"},
 		Outputs:   []string{"validation_report"},
 	}
 	final := types.TaskNode{
 		ID: nodeID(3, "finalize"), Type: types.NodeFinalize,
-		Objective: "Report the concrete value with key path and file:line.",
+		Objective: "Report the concrete value with key path and file:line when the exact key exists; otherwise report the exact-key absence and clearly separate related knobs.",
 		Inputs:    []string{"validation_report"},
 		Outputs:   []string{"answer_document"},
 		SuccessCriteria: []types.Criterion{

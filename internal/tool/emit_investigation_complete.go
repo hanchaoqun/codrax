@@ -137,23 +137,43 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	//      anchors, leaving the pipeline in a loop.
 	//
 	// Items emitted before the gate apply cumulatively in this
-	// dispatch's Mutable buffer.
-	policy := CurrentGroundingPolicy()
-	if msg, ok := groundingGateReject(ctx, policy.GroundingFloor); !ok {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   msg,
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
-	}
-	if msg, ok := tier1GateReject(ctx, policy.Tier1Floor); !ok {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Summary:   msg,
-			Success:   false,
-			Timestamp: time.Now(),
-		}, nil
+	// dispatch's Mutable buffer. Honest-zero absence claims skip
+	// these floors, then pass through the dedicated absence validation
+	// below; otherwise absent targets can be rejected for having no
+	// positive evidence to cite.
+	justification := strings.TrimSpace(p.AbsenceJustification)
+	if justification == "" {
+		if subjects := configExactAbsencePendingSubjects(ctx); len(subjects) > 0 {
+			evidence := ctx.Mutable.EmittedEvidence()
+			if !evidenceMentionsAnyExactConfigToken(evidence, subjects) {
+				return types.ToolResult{
+					ToolName: t.Name(),
+					Summary: "emit_investigation_complete rejected: the primary config key was marked unverified/not-found, " +
+						"and the emitted evidence only supports nearby or related keys. Do not complete a positive substitute chain. " +
+						"Either find an explicit alias/parser mapping that names the exact key and emit that evidence, or re-call " +
+						"emit_investigation_complete with absence_justification explaining that the exact key was searched and not found.",
+					Success:   false,
+					Timestamp: time.Now(),
+				}, nil
+			}
+		}
+		policy := CurrentGroundingPolicy()
+		if msg, ok := groundingGateReject(ctx, policy.GroundingFloor); !ok {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   msg,
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if msg, ok := tier1GateReject(ctx, policy.Tier1Floor); !ok {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Summary:   msg,
+				Success:   false,
+				Timestamp: time.Now(),
+			}, nil
+		}
 	}
 
 	// Declarative absence claim. Stored on Mutable so the orchestrator
@@ -171,7 +191,6 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// The rejection message tells the LLM exactly what to do: drop
 	// the field and re-emit. This runs BEFORE SetInvestigationComplete
 	// so the LLM sees the error and corrects in the same dispatch.
-	justification := strings.TrimSpace(p.AbsenceJustification)
 	if justification != "" {
 		if !looksLikeHonestZeroClaim(reason, justification) {
 			return types.ToolResult{
@@ -184,7 +203,7 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
-		if evidence := ctx.Mutable.EmittedEvidence(); hasGroundedOrRecovered(evidence) {
+		if evidence := ctx.Mutable.EmittedEvidence(); hasGroundedOrRecovered(evidence) && !allowsContextualEvidenceForAbsence(ctx, reason, justification, evidence) {
 			return types.ToolResult{
 				ToolName: t.Name(),
 				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero answers " +
@@ -1246,6 +1265,237 @@ func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
 	return tallyEvidence(items).hasAny()
 }
 
+func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justification string, evidence []types.EvidenceItem) bool {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
+		return false
+	}
+	subjects := configAbsenceSubjects(rm)
+	if len(subjects) == 0 {
+		return false
+	}
+	text := reason + "\n" + justification
+	for _, subject := range subjects {
+		if !textMentionsConfigToken(text, subject) {
+			continue
+		}
+		if evidenceMentionsExactConfigToken(evidence, subject) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func configExactAbsencePendingSubjects(ctx *types.BusContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
+		return nil
+	}
+	subjects := configAbsenceSubjects(rm)
+	if len(subjects) == 0 {
+		return nil
+	}
+	unverified := unverifiedFindingsForCompletion(ctx)
+	if len(unverified) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	for _, f := range unverified {
+		if !strings.EqualFold(strings.TrimSpace(f.Kind), "symbol") {
+			continue
+		}
+		key := normalizeConfigToken(f.Token)
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	var out []string
+	for _, subject := range subjects {
+		key := normalizeConfigToken(subject)
+		if key != "" && seen[key] {
+			out = append(out, subject)
+		}
+	}
+	return out
+}
+
+func unverifiedFindingsForCompletion(ctx *types.BusContext) []types.UnverifiedFinding {
+	var out []types.UnverifiedFinding
+	if ctx == nil {
+		return nil
+	}
+	if ctx.Mutable != nil {
+		out = append(out, ctx.Mutable.EvidenceClosure().UnverifiedFindings()...)
+	}
+	out = append(out, unverifiedFindingsFromStageReports(ctx.StageReports)...)
+	return dedupeUnverifiedFindings(out)
+}
+
+func unverifiedFindingsFromStageReports(reports []types.StageReport) []types.UnverifiedFinding {
+	var out []types.UnverifiedFinding
+	for _, report := range reports {
+		text := report.Findings
+		for {
+			start := strings.Index(text, "~~")
+			if start < 0 {
+				break
+			}
+			rest := text[start+2:]
+			end := strings.Index(rest, "~~")
+			if end < 0 {
+				break
+			}
+			token := strings.TrimSpace(strings.Trim(rest[:end], "`\"' "))
+			after := rest[end+2:]
+			if token != "" && stageReportAnnotatedMissFollows(after) {
+				out = append(out, types.UnverifiedFinding{
+					Token:  token,
+					Kind:   inferStageReportFindingKind(token),
+					Reason: "unverified in prior stage report",
+				})
+			}
+			text = after
+		}
+	}
+	return out
+}
+
+func stageReportAnnotatedMissFollows(text string) bool {
+	if len(text) > 120 {
+		text = text[:120]
+	}
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "unverified") ||
+		strings.Contains(lower, "repo graph") ||
+		strings.Contains(text, "未验证") ||
+		strings.Contains(text, "未在 repo") ||
+		strings.Contains(text, "鏈獙")
+}
+
+func inferStageReportFindingKind(token string) string {
+	if strings.ContainsAny(token, `/\`) {
+		return "path"
+	}
+	return "symbol"
+}
+
+func dedupeUnverifiedFindings(in []types.UnverifiedFinding) []types.UnverifiedFinding {
+	seen := make(map[string]bool)
+	var out []types.UnverifiedFinding
+	for _, f := range in {
+		token := strings.TrimSpace(f.Token)
+		if token == "" {
+			continue
+		}
+		kind := strings.TrimSpace(f.Kind)
+		if kind == "" {
+			kind = "symbol"
+		}
+		key := kind + "\x00" + token
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		f.Token = token
+		f.Kind = kind
+		out = append(out, f)
+	}
+	return out
+}
+
+func configAbsenceSubjects(rm types.RequestModel) []string {
+	candidates := rm.AnalyzerHints.PrimaryEntities
+	if len(candidates) == 0 {
+		candidates = rm.AnalyzerHints.Entities
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || !looksLikeConfigToken(candidate) {
+			continue
+		}
+		key := normalizeConfigToken(candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func looksLikeConfigToken(s string) bool {
+	s = strings.TrimSpace(s)
+	return len(s) >= 3 && (strings.ContainsAny(s, "_.-") || hasCamelBoundary(s))
+}
+
+func hasCamelBoundary(s string) bool {
+	prevLower := false
+	for _, r := range s {
+		if r >= 'A' && r <= 'Z' && prevLower {
+			return true
+		}
+		prevLower = r >= 'a' && r <= 'z'
+	}
+	return false
+}
+
+func evidenceMentionsExactConfigToken(items []types.EvidenceItem, subject string) bool {
+	for _, it := range items {
+		switch it.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		if textMentionsConfigToken(strings.Join([]string{
+			it.Subject,
+			it.Predicate,
+			it.Object,
+			it.AnchorSymbol,
+			it.Condition,
+			it.Snippet,
+		}, "\n"), subject) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceMentionsAnyExactConfigToken(items []types.EvidenceItem, subjects []string) bool {
+	for _, subject := range subjects {
+		if evidenceMentionsExactConfigToken(items, subject) {
+			return true
+		}
+	}
+	return false
+}
+
+func textMentionsConfigToken(text, token string) bool {
+	normToken := normalizeConfigToken(token)
+	if normToken == "" {
+		return false
+	}
+	return strings.Contains(normalizeConfigToken(text), normToken)
+}
+
+func normalizeConfigToken(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
 func looksLikeHonestZeroClaim(reason, justification string) bool {
 	text := strings.ToLower(strings.TrimSpace(reason + "\n" + justification))
 	if text == "" {
@@ -1259,8 +1509,9 @@ func looksLikeHonestZeroClaim(reason, justification string) bool {
 	}
 	return containsAnySubstr(text,
 		"no such", "does not exist", "doesn't exist", "not found", "nothing found",
+		"found no", "not present",
 		"none", "zero", "zero hit", "zero match", "0 hit", "0 match", "0 file", "0 files",
-		"no handler", "no symbol", "no file", "absent",
+		"no handler", "no symbol", "no file", "no key", "no config key", "no exact", "absent",
 		"不存在", "没有", "未找到", "找不到", "无此", "无该", "零", "0 个", "0个", "空结果")
 }
 

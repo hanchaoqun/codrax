@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/skill"
+	repomap "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
@@ -391,6 +392,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		PredicateAxis:        axis,
 	}
 	ctx.Mutable.SetRequestModel(rm)
+	recordConfigTraceNoMatchFindings(ctx, rm, seenBlob)
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -398,6 +400,112 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Summary:   buildEmitAnalysisSummary(p, rm, val),
 		Timestamp: time.Now(),
 	}, nil
+}
+
+func recordConfigTraceNoMatchFindings(ctx *types.BusContext, rm types.RequestModel, seenBlob string) {
+	if ctx == nil || ctx.Mutable == nil {
+		return
+	}
+	if rm.Scenario != types.ScenarioConfigTrace &&
+		rm.AnalyzerHints.Kind != "config_mapping" &&
+		rm.AnswerSubject.Kind != types.SubjectConfigKey {
+		return
+	}
+	candidates := rm.AnalyzerHints.PrimaryEntities
+	if len(candidates) == 0 {
+		candidates = rm.AnalyzerHints.Entities
+	}
+	if len(candidates) == 0 {
+		return
+	}
+	graph, _ := ctx.Mutable.SearchGraph().(*repomap.Graph)
+	closure := ctx.Mutable.EvidenceClosure()
+	recorded := 0
+	for _, candidate := range candidates {
+		token := strings.TrimSpace(candidate)
+		if token == "" || !looksLikeConfigToken(token) {
+			continue
+		}
+		if graphHasExactSymbol(graph, token) {
+			continue
+		}
+		if !prescanShowsExactNoMatches(seenBlob, token) {
+			continue
+		}
+		closure.AppendUnverifiedFinding(types.UnverifiedFinding{
+			Token:  token,
+			Kind:   "symbol",
+			Reason: "exact config key had no prescan matches",
+		})
+		recorded++
+	}
+	if recorded > 0 {
+		closure.BumpUnverifiedFinds(recorded)
+	}
+}
+
+func graphHasExactSymbol(graph *repomap.Graph, token string) bool {
+	if graph == nil || token == "" {
+		return false
+	}
+	if defs := graph.SymbolDefs[token]; len(defs) > 0 {
+		return true
+	}
+	norm := normalizeConfigToken(token)
+	if norm == "" {
+		return false
+	}
+	for name, defs := range graph.SymbolDefs {
+		if len(defs) > 0 && normalizeConfigToken(name) == norm {
+			return true
+		}
+	}
+	return false
+}
+
+func prescanShowsExactNoMatches(seenBlob, token string) bool {
+	token = strings.ToLower(strings.TrimSpace(token))
+	if token == "" || !strings.Contains(seenBlob, "no matches found") {
+		return false
+	}
+	for _, block := range strings.Split(seenBlob, "[grep params:") {
+		pattern := grepPatternFromPrescanBlock(block)
+		if pattern == "" || !grepPatternHasExactToken(pattern, token) {
+			continue
+		}
+		if strings.Contains(block, "no matches found") {
+			return true
+		}
+	}
+	return false
+}
+
+func grepPatternFromPrescanBlock(block string) string {
+	idx := strings.Index(block, "pattern=")
+	if idx < 0 {
+		return ""
+	}
+	rest := block[idx+len("pattern="):]
+	end := strings.IndexAny(rest, " \n]")
+	if end >= 0 {
+		rest = rest[:end]
+	}
+	return strings.ToLower(strings.TrimSpace(rest))
+}
+
+func grepPatternHasExactToken(pattern, token string) bool {
+	pattern = strings.ToLower(strings.TrimSpace(pattern))
+	token = strings.ToLower(strings.TrimSpace(token))
+	if pattern == "" || token == "" {
+		return false
+	}
+	for _, alt := range strings.Split(pattern, "|") {
+		alt = strings.Trim(alt, "`\"'()^$")
+		if alt == token {
+			return true
+		}
+	}
+	return false
 }
 
 // rejectDegenerateClassification blocks the fully-collapsed

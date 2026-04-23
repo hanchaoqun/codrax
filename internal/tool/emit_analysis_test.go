@@ -468,6 +468,80 @@ func TestEmitAnalysis_Execute_ReadsPrescanBlobFromMutable(t *testing.T) {
 	}
 }
 
+func TestEmitAnalysis_ConfigTraceRecordsExactNoMatchAsUnverified(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	missingKey := "zz_absent_config_" + "knob"
+	mu := types.NewMutableState("how is " + missingKey + " resolved?")
+	mu.AppendPrescanSummary("[grep params: pattern=" + missingKey + " case_insensitive=true files_only=true]\nno matches found")
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "moderate",
+		"keywords": ["zz", "absent", "config", "knob"],
+		"entities": ["` + missingKey + `"],
+		"question_kind": "config_mapping",
+		"answer_shape": "explanation",
+		"answer_subject": {"kind": "config_key"}
+	}`
+
+	tl := &EmitAnalysis{}
+	res, err := tl.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	finds := mu.EvidenceClosure().UnverifiedFindings()
+	if len(finds) != 1 {
+		t.Fatalf("unverified findings = %d, want 1: %+v", len(finds), finds)
+	}
+	if finds[0].Token != missingKey || finds[0].Kind != "symbol" {
+		t.Fatalf("unexpected unverified finding: %+v", finds[0])
+	}
+}
+
+func TestEmitAnalysis_ConfigTraceNoMatchRequiresExactPatternToken(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{
+		WarnBelowKeywords:   0,
+		RejectBelowKeywords: 0,
+	})
+
+	key := "short_config_" + "knob"
+	mu := types.NewMutableState("how is " + key + " resolved?")
+	mu.AppendPrescanSummary("[grep params: pattern=short_config_knob_extra case_insensitive=true files_only=true]\nno matches found")
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "moderate",
+		"keywords": ["short", "config", "knob"],
+		"entities": ["` + key + `"],
+		"question_kind": "config_mapping",
+		"answer_shape": "explanation",
+		"answer_subject": {"kind": "config_key"}
+	}`
+
+	tl := &EmitAnalysis{}
+	res, err := tl.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	if finds := mu.EvidenceClosure().UnverifiedFindings(); len(finds) != 0 {
+		t.Fatalf("substring pattern should not mark exact key absent: %+v", finds)
+	}
+}
+
 // TestComputeAnalysisQualityProbe is a direct unit test of the
 // probe computation helper: case-insensitive substring match,
 // ratio handling, empty-input edge cases.

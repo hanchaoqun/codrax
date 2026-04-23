@@ -74,7 +74,10 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// agent's prompt. Copy is defensive; the closure's internal
 	// slice is not shared with the caller.
 	if bus.Mutable != nil {
-		ac.UnverifiedAnalyzerFindings = bus.Mutable.EvidenceClosure().UnverifiedFindings()
+		ac.UnverifiedAnalyzerFindings = mergeUnverifiedFindings(
+			bus.Mutable.EvidenceClosure().UnverifiedFindings(),
+			extractUnverifiedFindingsFromStageReports(bus.StageReports),
+		)
 		// CGEC E4+E5: surface SubjectMatch cache so extractor + finalizer
 		// prompt builders can render a "Subject Match Summary"
 		// directing Turn B's answer extraction / citation selection at
@@ -238,6 +241,8 @@ var canonicalUserSectionOrder = []string{
 	"User Request",
 	"Prior Conversation (reference only)",
 	"Prior Stage Findings", // carries the canonical Resolution Chains subsection
+	"Unverified Analyzer Findings",
+	"Exact Config Key Absence",
 	"Known Facts",
 	"Extracted Answer Symbols (deterministic, authoritative)",
 	"Answer Symbols (deterministic floor, may extend with cited evidence)",
@@ -477,6 +482,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Unverified Analyzer Findings",
 			Content: uf,
+		})
+	}
+	if cfgAbsence := formatExactConfigKeyAbsence(ac); cfgAbsence != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Exact Config Key Absence",
+			Content: cfgAbsence,
 		})
 	}
 
@@ -1952,6 +1963,163 @@ func formatUnverifiedFindings(finds []types.UnverifiedFinding) string {
 	}
 	if len(uniq) > max {
 		fmt.Fprintf(&b, "  ... and %d more.\n", len(uniq)-max)
+	}
+	return b.String()
+}
+
+func extractUnverifiedFindingsFromStageReports(reports []types.StageReport) []types.UnverifiedFinding {
+	var out []types.UnverifiedFinding
+	for _, report := range reports {
+		text := report.Findings
+		for {
+			start := strings.Index(text, "~~")
+			if start < 0 {
+				break
+			}
+			rest := text[start+2:]
+			end := strings.Index(rest, "~~")
+			if end < 0 {
+				break
+			}
+			token := strings.TrimSpace(strings.Trim(rest[:end], "`\"' "))
+			after := rest[end+2:]
+			if token != "" && annotatedMissFollows(after) {
+				out = append(out, types.UnverifiedFinding{
+					Token:  token,
+					Kind:   inferUnverifiedFindingKind(token),
+					Reason: "unverified in prior stage report",
+				})
+			}
+			text = after
+		}
+	}
+	return out
+}
+
+func annotatedMissFollows(text string) bool {
+	if len(text) > 120 {
+		text = text[:120]
+	}
+	lower := strings.ToLower(text)
+	return strings.Contains(lower, "unverified") ||
+		strings.Contains(lower, "repo graph") ||
+		strings.Contains(text, "未验证") ||
+		strings.Contains(text, "未在 repo") ||
+		strings.Contains(text, "鏈獙")
+}
+
+func inferUnverifiedFindingKind(token string) string {
+	if strings.ContainsAny(token, `/\`) {
+		return "path"
+	}
+	return "symbol"
+}
+
+func mergeUnverifiedFindings(groups ...[]types.UnverifiedFinding) []types.UnverifiedFinding {
+	seen := make(map[string]bool)
+	var out []types.UnverifiedFinding
+	for _, group := range groups {
+		for _, f := range group {
+			if strings.TrimSpace(f.Token) == "" {
+				continue
+			}
+			kind := strings.TrimSpace(f.Kind)
+			if kind == "" {
+				kind = "symbol"
+			}
+			key := kind + "\x00" + f.Token
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			f.Kind = kind
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+func formatExactConfigKeyAbsence(ac *types.AgentContext) string {
+	if ac == nil || ac.AnalysisIR == nil {
+		return ""
+	}
+	rm := ac.AnalysisIR.RequestModel
+	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
+		return ""
+	}
+	keys := unverifiedPrimaryConfigKeys(rm, ac.UnverifiedAnalyzerFindings)
+	if len(keys) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("The user's primary config key could not be verified against the repo graph:\n")
+	for _, key := range keys {
+		fmt.Fprintf(&b, "- `%s`\n", key)
+	}
+	b.WriteString("\nTreat this as an absence candidate for the exact key. Do not rename it, map it, or say it corresponds to a nearby key unless the repo contains an explicit alias, parser mapping, or documented synonym that names the exact key. Related keys may be used only as context. If no exact key or explicit alias exists, the answer should state that the exact key is absent before discussing nearby knobs.")
+	if ac.Stage == types.StageExplore {
+		b.WriteString(" Once you have run the necessary grep/read checks, close the investigation with `absence_justification` instead of completing a positive substitute chain.")
+	}
+	return b.String()
+}
+
+func unverifiedPrimaryConfigKeys(rm types.RequestModel, finds []types.UnverifiedFinding) []string {
+	if len(finds) == 0 {
+		return nil
+	}
+	candidates := rm.AnalyzerHints.PrimaryEntities
+	if len(candidates) == 0 {
+		candidates = rm.AnalyzerHints.Entities
+	}
+	seen := make(map[string]bool)
+	for _, f := range finds {
+		if !strings.EqualFold(strings.TrimSpace(f.Kind), "symbol") {
+			continue
+		}
+		key := normalizeContextConfigToken(f.Token)
+		if key != "" {
+			seen[key] = true
+		}
+	}
+	var out []string
+	emitted := make(map[string]bool)
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || !looksLikeContextConfigToken(candidate) {
+			continue
+		}
+		key := normalizeContextConfigToken(candidate)
+		if key == "" || !seen[key] || emitted[key] {
+			continue
+		}
+		emitted[key] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func looksLikeContextConfigToken(s string) bool {
+	s = strings.TrimSpace(s)
+	return len(s) >= 3 && (strings.ContainsAny(s, "_.-") || hasContextCamelBoundary(s))
+}
+
+func hasContextCamelBoundary(s string) bool {
+	prevLower := false
+	for _, r := range s {
+		if r >= 'A' && r <= 'Z' && prevLower {
+			return true
+		}
+		prevLower = r >= 'a' && r <= 'z'
+	}
+	return false
+}
+
+func normalizeContextConfigToken(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
 	}
 	return b.String()
 }

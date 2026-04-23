@@ -322,6 +322,52 @@ func TestEmitEvidence_MajorityRejectFailsEntireBatch(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_ConfigAbsentPrimaryDemotesSubstituteEvidence(t *testing.T) {
+	missingKey := "zz_absent_config_" + "knob"
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
+		Scenario: types.ScenarioConfigTrace,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:            "config_mapping",
+			PrimaryEntities: []string{missingKey},
+			Entities:        []string{missingKey},
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+	}}
+	ctx.StageReports = []types.StageReport{{
+		Stage:    types.StageAnalyze,
+		Agent:    types.AgentAnalyzer,
+		Findings: "The key ~~`" + missingKey + "`~~ [unverified: symbol not in repo graph] was not found exactly.",
+	}}
+	params := json.RawMessage(`{
+        "items": [
+          {"kind": "direct", "subject": "AgentLoopMaxMidLoopInjects", "source": "internal/config/runtime.go", "line_start": 184, "summary": "related YAML key controls midloop injection budget", "anchor_kind": "definition", "anchor_symbol": "AgentLoopMaxMidLoopInjects"}
+        ]
+    }`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].Kind != types.EvidenceUnresolved {
+		t.Fatalf("related substitute evidence kind=%q, want unresolved", got[0].Kind)
+	}
+	if got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("related substitute evidence grounding=%q, want ungrounded", got[0].GroundingStatus)
+	}
+	if !strings.Contains(got[0].Summary, "context only") {
+		t.Fatalf("summary should mark context-only evidence: %q", got[0].Summary)
+	}
+}
+
 func TestEmitEvidence_RejectsEmptyItems(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
