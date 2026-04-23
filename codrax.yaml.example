@@ -460,6 +460,26 @@
 # Default: true.
 # chitchat_enabled: true
 
+# Optional auto-classifier. When enabled, the REPL runs one LLM call
+# before every normal dispatch to decide whether the turn should go to
+# the chit-chat responder (bypassing the pipeline) without requiring
+# the user to prefix /chat. Fail-safe: any classifier error routes the
+# turn to the pipeline unchanged.
+#
+# Requires chitchat_enabled: true. Skipped when a runtime log is
+# attached (sticky /log or auto-routed paste) because a log is strong
+# evidence of a code question. Adds one cheap LLM call per turn, so
+# route to a small model via providers.yaml:
+#
+#   llm:
+#     agents:
+#       chitchat_classifier:
+#         model: gpt-4o-mini
+#         think_aloud: false
+#
+# Default: false (opt-in during rollout).
+# chitchat_classifier_enabled: false
+
 # ---------------------------------------------------------------------------
 # Memory store limits (memory_*)
 # ---------------------------------------------------------------------------

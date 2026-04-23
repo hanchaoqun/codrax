@@ -100,6 +100,15 @@ type Config struct {
 	// this as an interface lets unit tests inject a deterministic stub
 	// without needing an LLM.
 	ChitchatResponder ChitchatResponder
+
+	// ChitchatClassifier optionally runs a single LLM call before each
+	// normal dispatch to decide whether to reroute the turn to the
+	// chit-chat path. nil disables the gate; the REPL falls back to
+	// explicit /chat only. Requires ChitchatResponder to be non-nil;
+	// cmd/root.go ties both wires together via codrax.yaml
+	// `chitchat_classifier_enabled: true`. Fail-safe: any classifier
+	// error routes to the pipeline unchanged.
+	ChitchatClassifier ChitchatClassifier
 }
 
 // REPL drives the interactive prompt.
@@ -154,6 +163,11 @@ type REPL struct {
 	// chitchatResponder is the /chat handler; nil means the feature
 	// is disabled and /chat prints a warning. See Config for wiring.
 	chitchatResponder ChitchatResponder
+
+	// chitchatClassifier optionally runs before every normal dispatch
+	// to reroute casual turns to the chit-chat responder. nil disables
+	// the gate. See Config.ChitchatClassifier for wiring.
+	chitchatClassifier ChitchatClassifier
 }
 
 // New constructs a REPL from a Config.
@@ -174,7 +188,8 @@ func New(cfg Config) *REPL {
 		version:           cfg.Version,
 		buildTime:         cfg.BuildTime,
 		language:          cfg.Language,
-		chitchatResponder: cfg.ChitchatResponder,
+		chitchatResponder:  cfg.ChitchatResponder,
+		chitchatClassifier: cfg.ChitchatClassifier,
 	}
 	if r.version == "" {
 		r.version = "dev"
@@ -594,6 +609,24 @@ func (r *REPL) dispatch(line, display string) {
 			}
 		}
 	}()
+
+	// Auto chit-chat classification. Opt-in; nil classifier means the
+	// REPL falls back to explicit /chat only. An attached log (sticky
+	// or auto-routed) is strong evidence of a code question, so the
+	// classifier is skipped in that case to save an LLM call. Fail-
+	// safe: any classifier error (nil adapter, chat error, unparseable
+	// response, unknown decision) routes to the pipeline unchanged,
+	// so a broken classifier cannot silently misroute real questions.
+	if r.chitchatClassifier != nil && r.chitchatResponder != nil &&
+		!r.attachedLogAutoRouted && strings.TrimSpace(r.attachedLog) == "" {
+		if isChat, err := r.chitchatClassifier.Classify(line); err != nil {
+			logging.Warning("[repl/chitchat] classifier error: %v — falling back to pipeline", err)
+		} else if isChat {
+			logging.Info("[repl/chitchat] classifier routed turn to chit-chat: %s", oneLine(line))
+			r.chitchatDispatch(line, display)
+			return
+		}
+	}
 
 	prior := r.store.BuildContext(line)
 	effective := line

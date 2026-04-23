@@ -150,6 +150,7 @@ Two YAML files live flat next to the binary:
   - `summary_cap_*` — master switch + per-shape Summary length ceilings (`types.SummaryCapConfig`, default disabled)
   - `citation_quote_max_chars` — single knob; Citation.Quote preview ceiling (`types.DefaultCitationMaxQuoteChars = 500`). Oversize Quotes truncate on UTF-8 boundary; file:line always preserved; prose defense via grounder token-match is orthogonal
   - `chitchat_enabled` — REPL `/chat <msg>` slash command (default true). Single LLM Chat call bypasses pipeline for casual conversation. Provider routed via `providers.yaml :: agents.chitchat_responder` (falls back to default). REPL-only; single-shot `--request` never touches it
+  - `chitchat_classifier_enabled` — auto-classifier gate before normal dispatch (default false). One LLM tool-call per turn emits `{chitchat, repo_question}`; chitchat reroutes to responder, anything else (incl. errors) falls through to pipeline. Skipped when attached log present. Provider routed via `providers.yaml :: agents.chitchat_classifier`
   - `cgec_*` — Citation-Grounded Evidence Closure tunables
 
 Pipeline topology (stages/agents/skills) is code-only; no YAML counterpart.

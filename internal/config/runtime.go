@@ -243,6 +243,18 @@ type RuntimeSettings struct {
 	// chit-chat paths regardless of this setting.
 	ChitchatEnabled *bool `yaml:"chitchat_enabled"`
 
+	// ChitchatClassifierEnabled turns on an automatic LLM-backed
+	// classifier that runs once per REPL turn before the normal
+	// dispatch. When the classifier decides a turn is casual, the
+	// REPL reroutes it to the chit-chat responder without requiring
+	// the user to prefix /chat; otherwise the turn proceeds to the
+	// analysis pipeline exactly as before. Requires ChitchatEnabled
+	// to also be true — the classifier has no effect without a
+	// responder. Default false: this adds one LLM call per turn and
+	// is opt-in during the feature rollout period. Fail-safe: any
+	// classifier error falls through to the pipeline.
+	ChitchatClassifierEnabled *bool `yaml:"chitchat_classifier_enabled"`
+
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All
 	// optional; nil → code default in
 	// orchestrator.cgecForcedReadsPerRound /

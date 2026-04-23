@@ -107,6 +107,7 @@ type appContext struct {
 	memorySettings        types.MemorySettings
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
 	chitchatResponder     repl.ChitchatResponder
+	chitchatClassifier    repl.ChitchatClassifier
 }
 
 var app appContext
@@ -376,8 +377,9 @@ func runREPL(_ *cobra.Command) error {
 		PasteFoldMinChars: app.replPasteFoldMinChars,
 		Version:           version,
 		BuildTime:         buildTime,
-		Language:          flagLang,
-		ChitchatResponder: app.chitchatResponder,
+		Language:           flagLang,
+		ChitchatResponder:  app.chitchatResponder,
+		ChitchatClassifier: app.chitchatClassifier,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
@@ -1138,6 +1140,25 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			logging.Warning("[chitchat] responder adapter init failed; /chat will print a warning: %v", err)
 		} else {
 			app.chitchatResponder = repl.NewChitchatResponder(adapter)
+		}
+	}
+
+	// Optional auto-classifier. Only wired when both the feature
+	// master switch and the classifier switch are on AND the responder
+	// was constructed successfully — a classifier without a responder
+	// is useless (would reroute turns to an inert /chat). Default
+	// off: adds one LLM call per REPL turn so operators opt in after
+	// they've seen the responder behave in their environment.
+	classifierEnabled := false
+	if rs != nil && rs.ChitchatClassifierEnabled != nil {
+		classifierEnabled = *rs.ChitchatClassifierEnabled
+	}
+	if chitchatEnabled && classifierEnabled && app.chitchatResponder != nil {
+		resolved := config.ResolveProvider(providersCfg, "chitchat_classifier")
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[chitchat] classifier adapter init failed; auto-routing disabled: %v", err)
+		} else {
+			app.chitchatClassifier = repl.NewChitchatClassifier(adapter)
 		}
 	}
 

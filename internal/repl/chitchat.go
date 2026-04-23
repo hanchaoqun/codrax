@@ -1,6 +1,7 @@
 package repl
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -128,4 +129,149 @@ func (r *REPL) chitchatDispatch(line, display string) {
 	}
 	r.renderBordered(response)
 	r.recordTurn(display, line, response)
+}
+
+// ChitchatClassifier decides whether a user turn should be routed to
+// the chit-chat responder (bypassing the analysis pipeline) or to the
+// normal pipeline path. A non-nil error means "could not decide" and
+// the REPL's gate treats it as "fall through to pipeline" — the safe
+// default, because over-analyzing a casual greeting wastes cycles but
+// under-analyzing a real code question gives the wrong answer.
+type ChitchatClassifier interface {
+	Classify(userLine string) (isChitchat bool, err error)
+}
+
+// chitchatClassifierTool is the structured-output schema the LLM
+// classifier is required to emit. Kept LOCAL to this file — it is
+// NOT registered in tool.Registry because the classifier bypasses the
+// agent framework entirely and makes one direct adapter.Chat call
+// with this schema passed inline.
+//
+// Enum is 2-valued and exhaustive: every user turn is either
+// chitchat or repo_question. There is no "unknown" — when genuinely
+// uncertain, the schema description instructs the model to emit
+// repo_question (safer default). A structural enum with clear
+// non-keyword examples is the right mechanism for classification
+// disambiguation; the repo's red line forbids adding keyword tables
+// or reconcile-style overrides in Go code.
+var chitchatClassifierTool = llm.ToolSchema{
+	Name:        "emit_chitchat_classification",
+	Description: "Classify the user's turn as casual chit-chat or a repository question. Exactly one call per turn.",
+	Parameters: json.RawMessage(`{
+  "type": "object",
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["chitchat", "repo_question"],
+      "description": "chitchat = greetings, thanks, casual conversation, meta-questions about this tool's capabilities, off-topic chat. repo_question = any request that needs reading repository files, tracing logic, searching symbols, answering factual questions about code, investigating a crash, or analyzing behaviour. When uncertain, emit repo_question — over-analyzing is safe, under-analyzing is not."
+    },
+    "reason": {
+      "type": "string",
+      "description": "One short sentence naming the structural signal that justified the decision. Not shown to the user; used for debugging and telemetry only."
+    }
+  },
+  "required": ["decision", "reason"]
+}`),
+}
+
+const chitchatClassifierSystemPrompt = `You route each user turn to one of two handlers.
+
+Emit exactly one call to emit_chitchat_classification with a decision
+of "chitchat" or "repo_question". Never emit any other tool and never
+emit free-form text.
+
+Examples of chitchat (not exhaustive — use structural judgement):
+- "hello", "你好", "谢谢" without a follow-on code question
+- "what can you do?", "你是谁?"
+- pleasantries, acknowledgements, meta-conversation about the tool
+
+Examples of repo_question (not exhaustive):
+- "how does X work?", "X 在哪里被调用?"
+- "why did this panic happen?", "这个函数返回什么?"
+- any question that names a file, function, symbol, config key, or behaviour
+- any request to read, find, trace, compare, or explain code
+
+When a turn looks ambiguous (e.g. a continuation like "那它呢" without
+prior context), emit repo_question — the pipeline handles it safely
+and the cost of being wrong is higher for chitchat than for pipeline.`
+
+// llmChitchatClassifier is the default ChitchatClassifier. One
+// adapter.Chat call per turn, with tool_choice=required and the local
+// schema above.
+type llmChitchatClassifier struct {
+	adapter llm.Adapter
+}
+
+// NewChitchatClassifier builds the default classifier. Nil adapter
+// yields a classifier that errors on every Classify so the gate falls
+// through to the pipeline (fail-safe).
+func NewChitchatClassifier(adapter llm.Adapter) ChitchatClassifier {
+	return &llmChitchatClassifier{adapter: adapter}
+}
+
+// Classify makes one LLM call and parses the tool_call arguments.
+// ANY error path (nil adapter, chat error, no tool call emitted,
+// unparseable JSON, unknown decision value) returns (false, err).
+// The caller treats that as "fall through to pipeline", so the
+// classifier cannot silently reroute a real code question to the
+// chit-chat responder when it is genuinely confused.
+func (c *llmChitchatClassifier) Classify(userLine string) (bool, error) {
+	if c.adapter == nil {
+		return false, fmt.Errorf("chitchat classifier not configured: no LLM adapter")
+	}
+	userLine = strings.TrimSpace(userLine)
+	if userLine == "" {
+		return false, fmt.Errorf("chitchat classifier: empty user line")
+	}
+	messages := []llm.Message{
+		{Role: "system", Content: chitchatClassifierSystemPrompt},
+		{Role: "user", Content: userLine},
+	}
+	tools := []llm.ToolSchema{chitchatClassifierTool}
+	resp, err := c.adapter.Chat(messages, tools, llm.ChatOptions{ToolChoice: "required"})
+	if err != nil {
+		return false, fmt.Errorf("chitchat classifier llm call: %w", err)
+	}
+	if len(resp.ToolCalls) == 0 {
+		return false, fmt.Errorf("chitchat classifier: LLM returned no tool_call")
+	}
+	// Use the FIRST tool call — schema forbids more, but be liberal in
+	// what we accept. Downstream only cares about decision.
+	call := resp.ToolCalls[0]
+	if call.Name != chitchatClassifierTool.Name {
+		return false, fmt.Errorf("chitchat classifier: unexpected tool %q", call.Name)
+	}
+	var parsed struct {
+		Decision string `json:"decision"`
+		Reason   string `json:"reason"`
+	}
+	if err := json.Unmarshal(call.Params, &parsed); err != nil {
+		return false, fmt.Errorf("chitchat classifier: unmarshal tool params: %w", err)
+	}
+	switch parsed.Decision {
+	case "chitchat":
+		logging.Debug("[repl/chitchat] classifier → chitchat: %s", oneLineClamp(parsed.Reason, 120))
+		return true, nil
+	case "repo_question":
+		logging.Debug("[repl/chitchat] classifier → repo_question: %s", oneLineClamp(parsed.Reason, 120))
+		return false, nil
+	default:
+		return false, fmt.Errorf("chitchat classifier: unknown decision %q", parsed.Decision)
+	}
+}
+
+// oneLineClamp collapses a string to a single line and clips to n
+// runes. Used for classifier debug logging where a multi-line reason
+// would mangle log readability.
+func oneLineClamp(s string, n int) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.TrimSpace(s)
+	if n > 0 {
+		runes := []rune(s)
+		if len(runes) > n {
+			return string(runes[:n]) + "…"
+		}
+	}
+	return s
 }

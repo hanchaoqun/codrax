@@ -482,6 +482,17 @@ llm:
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `chitchat_enabled` | `true` | `/chat` 命令开关。`false` 时 `/chat` 打印"未配置"警告,不发 LLM 调用 |
+| `chitchat_classifier_enabled` | `false` | 自动分类器开关。`true` 时每轮 REPL dispatch 前跑一次廉价 LLM 分类,判为 chitchat 自动走 `/chat` 路径;`repo_question` 或分类错误回落到流水线(fail-safe)。有附加日志时自动跳过 |
+
+providers.yaml 分类器路由示例:
+
+```yaml
+llm:
+  agents:
+    chitchat_classifier:
+      model: gpt-4o-mini
+      think_aloud: false
+```
 
 #### 3.3.16 日志分诊(`log_triage_*`)
 
