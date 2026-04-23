@@ -2,11 +2,11 @@ package retrieve
 
 import (
 	"math"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
@@ -217,8 +217,9 @@ func TopFiles(g *types.Graph, topN int) []*types.FileInfo {
 
 // getRecentlyChanged returns files modified in the last N commits.
 func getRecentlyChanged(repoRoot string, n int) map[string]bool {
-	cmd := exec.Command("git", "-C", repoRoot, "log",
+	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "log",
 		"--pretty=format:", "--name-only", "-n", itoa(n))
+	defer cancel()
 	out, err := cmd.Output()
 	if err != nil {
 		return nil

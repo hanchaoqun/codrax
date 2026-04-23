@@ -2,7 +2,6 @@ package index
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -64,7 +63,8 @@ func ScanFiles(repoRoot string) ([]FileEntry, error) {
 }
 
 func scanGit(repoRoot string) ([]FileEntry, error) {
-	cmd := exec.Command("git", "-C", repoRoot, "ls-files", "--cached", "--others", "--exclude-standard")
+	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "ls-files", "--cached", "--others", "--exclude-standard")
+	defer cancel()
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, err

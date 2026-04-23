@@ -873,9 +873,26 @@ func fileTypeWeight(path string) float64 {
 
 // grepFiles runs grep/rg on the repo and returns matching file paths.
 // All commands are guarded by searchTimeout to prevent hangs.
+// When neither ripgrep nor grep is on PATH, falls through to the
+// Go-native regex scanner so breadth scans keep working on minimal
+// container images (see tool.UseNativeGrep).
 func grepFiles(pattern, repoRoot string, ignoreCase bool) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
+
+	if tool.UseNativeGrep() {
+		res, err := tool.NativeGrep(ctx, tool.NativeGrepOpts{
+			Pattern:     pattern,
+			Root:        repoRoot,
+			IgnoreCase:  ignoreCase,
+			FilesOnly:   true,
+			ExcludeDirs: searchExcludeDirs,
+		})
+		if err != nil {
+			return nil
+		}
+		return splitLines(res.Output)
+	}
 
 	var cmd *exec.Cmd
 
@@ -1047,30 +1064,73 @@ func parseRgMatchLine(line string) (filePath string, matchTexts []string) {
 	return
 }
 
-// findFilesByName uses find to locate files whose basename contains the keyword.
+// findFilesByName locates files whose basename contains the keyword.
+// Tries `find` first for speed on large trees, then falls back to a
+// Go-native walk so the same code path works on Windows (no POSIX
+// find) and inside stripped container images.
 // Guarded by searchTimeout to prevent hangs on large directory trees.
 func findFilesByName(keyword, repoRoot string, ignoreCase bool) []string {
 	ctx, cancel := context.WithTimeout(context.Background(), searchTimeout)
 	defer cancel()
 
-	// Build find command with directory exclusions.
-	args := []string{repoRoot}
-	for _, dir := range searchExcludeDirs {
-		args = append(args, "-path", "*/"+dir, "-prune", "-o")
-	}
-	nameFlag := "-name"
-	if ignoreCase {
-		nameFlag = "-iname"
-	}
-	args = append(args, nameFlag, "*"+keyword+"*", "-type", "f", "-print")
+	if _, err := exec.LookPath("find"); err == nil {
+		args := []string{repoRoot}
+		for _, dir := range searchExcludeDirs {
+			args = append(args, "-path", "*/"+dir, "-prune", "-o")
+		}
+		nameFlag := "-name"
+		if ignoreCase {
+			nameFlag = "-iname"
+		}
+		args = append(args, nameFlag, "*"+keyword+"*", "-type", "f", "-print")
 
-	cmd := exec.CommandContext(ctx, "find", args...)
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
-	if err := cmd.Run(); err != nil {
-		return nil
+		cmd := exec.CommandContext(ctx, "find", args...)
+		var stdout bytes.Buffer
+		cmd.Stdout = &stdout
+		if err := cmd.Run(); err == nil {
+			lines := splitLines(stdout.String())
+			if len(lines) > 0 {
+				return lines
+			}
+		}
+		// find failed or produced no output — fall through to the Go
+		// walker. The walker is also the sole path on Windows where
+		// POSIX `find` is usually absent (Windows ships a different
+		// find.exe that does not speak -path / -name).
 	}
-	return splitLines(stdout.String())
+
+	needle := keyword
+	if ignoreCase {
+		needle = strings.ToLower(needle)
+	}
+	excludeSet := make(map[string]bool, len(searchExcludeDirs))
+	for _, d := range searchExcludeDirs {
+		excludeSet[d] = true
+	}
+	var out []string
+	_ = filepath.WalkDir(repoRoot, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if d.IsDir() {
+			if excludeSet[d.Name()] {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		name := d.Name()
+		if ignoreCase {
+			name = strings.ToLower(name)
+		}
+		if strings.Contains(name, needle) {
+			out = append(out, path)
+		}
+		return nil
+	})
+	return out
 }
 
 // keywordStem extracts a shorter stem from a keyword for fuzzy matching.

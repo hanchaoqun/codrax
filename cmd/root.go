@@ -662,6 +662,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	repomap.SetCacheDir(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
 
+	// One-shot environment probe: logs which external binaries
+	// (rg/grep, sh/bash/cmd, git) were actually found. Each miss
+	// carries a platform-specific install hint so operators do not
+	// have to dig into runtime errors. Never aborts startup.
+	tool.LogCapabilities()
+
 	// Build pipeline settings from codrax.yaml overrides.
 	var pipelineSettings types.PipelineSettings
 	if rs != nil {

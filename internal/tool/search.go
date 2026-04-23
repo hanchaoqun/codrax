@@ -6,15 +6,24 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 )
 
-// searchBackend holds the detected search command ("rg" or "grep").
+// searchBackend holds the detected search command.
 // Detected once at first use; cached for the process lifetime.
+//
+// Tri-state:
+//   - "rg"     — ripgrep found and runnable
+//   - "grep"   — GNU/BSD grep found and runnable (or blind-call fallback)
+//   - "native" — neither found; use the Go-native scanner in nativegrep.go
+//
+// The "native" state guarantees codrax keeps working on minimal
+// environments (distroless/scratch containers, stripped CI images,
+// Windows without Git-for-Windows) at the cost of slower scans.
 var (
 	searchOnce    sync.Once
-	searchCommand string // "rg" or "grep"
-	searchPath    string // actual executable path used for the backend
+	searchCommand string // "rg" / "grep" / "native"
+	searchPath    string // actual executable path used for the backend; "" when native
 )
 
-// SearchCommand returns "rg" if ripgrep is available, "grep" otherwise.
+// SearchCommand returns the selected search backend identifier.
 // The result is cached after the first call.
 func SearchCommand() string {
 	searchOnce.Do(func() {
@@ -22,34 +31,40 @@ func SearchCommand() string {
 			searchCommand = "rg"
 			searchPath = path
 			logging.Info("search backend: ripgrep (%s)", path)
-		} else {
-			searchCommand = "grep"
-			searchPath = firstRunnablePath("grep", []string{"--version"}, windowsExtraCommandCandidates("grep")...)
-			if searchPath == "" {
-				searchPath = "grep"
-				logging.Info("search backend: grep (ripgrep not found)")
-			} else {
-				logging.Info("search backend: grep (%s)", searchPath)
-			}
+			return
 		}
+		if path := firstRunnablePath("grep", []string{"--version"}, windowsExtraCommandCandidates("grep")...); path != "" {
+			searchCommand = "grep"
+			searchPath = path
+			logging.Info("search backend: grep (%s; ripgrep not found — install ripgrep for faster scans)", path)
+			return
+		}
+		searchCommand = "native"
+		searchPath = ""
+		logging.Warning("search backend: native Go scanner (neither ripgrep nor grep found on PATH — install ripgrep for faster scans; codrax falls back to a pure-Go regex walker)")
 	})
 	return searchCommand
 }
 
 // SearchExecutable returns the actual executable path selected for the
-// current search backend. When no validated path is available, it falls
-// back to the backend name so Unix behavior stays unchanged.
+// current search backend. Returns "" when the backend is native —
+// callers MUST check UseNativeGrep() before shelling out.
 func SearchExecutable() string {
-	backend := SearchCommand()
-	if searchPath != "" {
-		return searchPath
-	}
-	return backend
+	SearchCommand()
+	return searchPath
 }
 
 // UseRipgrep returns true if ripgrep was detected as available.
 func UseRipgrep() bool {
 	return SearchCommand() == "rg"
+}
+
+// UseNativeGrep returns true when neither rg nor grep is on PATH and
+// the Go-native scanner must be used. Callers in this package and in
+// internal/agent check this to avoid exec.CommandContext on an empty
+// SearchExecutable(), which would fail to start.
+func UseNativeGrep() bool {
+	return SearchCommand() == "native"
 }
 
 // ExcludeDirs is the single authoritative list of directories that

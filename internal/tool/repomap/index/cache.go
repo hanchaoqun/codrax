@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
@@ -218,7 +218,8 @@ func gitHeadSHA(repoRoot string) string {
 	if repoRoot == "" {
 		return ""
 	}
-	cmd := exec.Command("git", "-C", repoRoot, "rev-parse", "--short", "HEAD")
+	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "rev-parse", "--short", "HEAD")
+	defer cancel()
 	out, err := cmd.Output()
 	if err != nil {
 		return ""
@@ -425,7 +426,8 @@ func gitChangedSince(repoRoot, cacheDir string) []string {
 
 	// Use modification time of cache as reference
 	since := info.ModTime().Format("2006-01-02T15:04:05")
-	cmd := exec.Command("git", "-C", repoRoot, "diff", "--name-only", "--diff-filter=ACMRD", "--since="+since)
+	cmd, cancel := tool.NewGitCommand(nil, "-C", repoRoot, "diff", "--name-only", "--diff-filter=ACMRD", "--since="+since)
+	defer cancel()
 	out, err := cmd.Output()
 	if err != nil {
 		return nil

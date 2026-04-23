@@ -329,6 +329,92 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 	}
 
+	// Native Go fallback — runs when neither ripgrep nor grep is on
+	// PATH (distroless / scratch containers / stripped CI images).
+	// Output format matches grep -rnH / grep -rl so the same count
+	// banner + params banner wrapper works unchanged below.
+	if UseNativeGrep() {
+		include := p.Include
+		if include == "" && p.FileType != "" {
+			// Best-effort: native scan applies the first glob only —
+			// keeps parity with single-glob Include semantics.
+			if globs := fileTypeToGlobs(p.FileType); len(globs) > 0 {
+				include = globs[0]
+			}
+		}
+		nres, nerr := NativeGrep(searchCtx, NativeGrepOpts{
+			Pattern:      p.Pattern,
+			Root:         searchPath,
+			IgnoreCase:   caseInsensitive,
+			FilesOnly:    p.FilesOnly,
+			ContextLines: contextLines,
+			Include:      include,
+			ExcludeDirs:  defaultExcludeDirs,
+		})
+		paramsBanner := kvBanner("grep params",
+			"pattern", p.Pattern,
+			"path", p.Path,
+			"file_type", p.FileType,
+			"include", p.Include,
+			"context_lines", func() string {
+				if contextLines > 0 {
+					return fmt.Sprintf("%d", contextLines)
+				}
+				return ""
+			}(),
+			"case_insensitive", func() string {
+				if caseInsensitive {
+					return "true"
+				}
+				return ""
+			}(),
+			"files_only", func() string {
+				if p.FilesOnly {
+					return "true"
+				}
+				return ""
+			}(),
+			"backend", "native",
+		)
+		if nerr != nil && searchCtx.Err() != context.DeadlineExceeded {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   paramsBanner + fmt.Sprintf("native grep failed: %v", nerr),
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if searchCtx.Err() == context.DeadlineExceeded {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   paramsBanner + "grep timed out after 60s — pattern may be too broad or repo too large",
+				Timestamp: time.Now(),
+			}, nil
+		}
+		if nres.Matches == 0 {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   true,
+				Summary:   paramsBanner + "no matches found",
+				Timestamp: time.Now(),
+			}, nil
+		}
+		unit := "matching lines"
+		if p.FilesOnly {
+			unit = "matching files"
+		}
+		countBanner := fmt.Sprintf("[grep: %d %s]\n", nres.Matches, unit)
+		summary, ref := StoreBlob(ctx, t.Name(), countBanner+paramsBanner+nres.Output)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   true,
+			Summary:   summary,
+			RawRef:    ref,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	if UseRipgrep() {
 		// ripgrep: ERE-compatible by default, auto-skips binary files,
 		// respects .gitignore (auto-excludes logs/, memory/, etc.).
@@ -949,7 +1035,8 @@ func (t *GitDiff) Execute(ctx *types.BusContext, params json.RawMessage) (types.
 		args = append(args, p.Ref)
 	}
 
-	cmd := exec.Command("git", args...)
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
 	// Anchor at ctx.RepoRoot when the LLM didn't specify a path.
 	// Otherwise resolve the LLM-supplied path against RepoRoot so a
 	// relative `path: "subpkg"` works.
@@ -1033,7 +1120,8 @@ func (t *GitLog) Execute(ctx *types.BusContext, params json.RawMessage) (types.T
 
 	args := []string{"log", fmt.Sprintf("-n%d", count), fmt.Sprintf("--format=%s", format)}
 
-	cmd := exec.Command("git", args...)
+	cmd, cancel := NewGitLongCommand(nil, args...)
+	defer cancel()
 	// Same RepoRoot anchoring as GitDiff above.
 	if dir := resolveToolPath(ctx, p.Path); dir != "" {
 		cmd.Dir = dir
