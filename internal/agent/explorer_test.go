@@ -2625,6 +2625,65 @@ func TestFilterEvidenceByPrimaryFiles(t *testing.T) {
 	}
 }
 
+// TestBalanceEvidenceAcrossPrimaryFiles pins the multi-path balance
+// contract: when ≥ 2 primary files are named, the leading entries of
+// the ranked evidence slice are round-robin across primary files so
+// no single file starves the Primary Evidence block in the finalizer
+// prompt. Non-primary items append at the end in original order.
+func TestBalanceEvidenceAcrossPrimaryFiles(t *testing.T) {
+	items := []types.EvidenceItem{
+		{Source: "internal/agent/explorer.go", LineStart: 100, Summary: "A1"},
+		{Source: "internal/agent/explorer.go", LineStart: 101, Summary: "A2"},
+		{Source: "internal/agent/explorer.go", LineStart: 102, Summary: "A3"},
+		{Source: "internal/agent/explorer.go", LineStart: 103, Summary: "A4"},
+		{Source: "internal/agent/extractor.go", LineStart: 200, Summary: "B1"},
+		{Source: "internal/agent/extractor.go", LineStart: 201, Summary: "B2"},
+		{Source: "internal/skill/defaults.go", LineStart: 300, Summary: "C1"},
+	}
+	primary := []string{"internal/agent/explorer.go", "internal/agent/extractor.go"}
+
+	out := balanceEvidenceAcrossPrimaryFiles(items, primary)
+	if len(out) != len(items) {
+		t.Fatalf("balance must preserve count: got %d want %d", len(out), len(items))
+	}
+
+	// Expected leading order: round-robin A, B, A, B, A, A (B exhausted), then non-primary C.
+	wantSummaries := []string{"A1", "B1", "A2", "B2", "A3", "A4", "C1"}
+	for i, want := range wantSummaries {
+		if out[i].Summary != want {
+			t.Errorf("position %d: got summary=%q want=%q (full: %+v)", i, out[i].Summary, want, summariesOf(out))
+		}
+	}
+}
+
+// TestBalanceEvidenceAcrossPrimaryFiles_SinglePrimary_NoOp guards
+// against accidentally reordering single-subject questions where
+// score-based ranking is the correct strategy.
+func TestBalanceEvidenceAcrossPrimaryFiles_SinglePrimary_NoOp(t *testing.T) {
+	items := []types.EvidenceItem{
+		{Source: "a.go", LineStart: 1, Summary: "x1"},
+		{Source: "a.go", LineStart: 2, Summary: "x2"},
+		{Source: "b.go", LineStart: 3, Summary: "y1"},
+	}
+	got := balanceEvidenceAcrossPrimaryFiles(items, []string{"a.go"})
+	if got == nil || len(got) != 3 {
+		t.Fatalf("expected pass-through, got %+v", got)
+	}
+	for i := range items {
+		if got[i].Summary != items[i].Summary {
+			t.Fatalf("expected no reorder for single primary, pos %d changed: %q vs %q", i, got[i].Summary, items[i].Summary)
+		}
+	}
+}
+
+func summariesOf(items []types.EvidenceItem) []string {
+	out := make([]string, len(items))
+	for i, it := range items {
+		out[i] = it.Summary
+	}
+	return out
+}
+
 // TestObservePrimaryRead_IdempotentAndSnapshots verifies that
 // observePrimaryRead records primaryReadIter and notesLenAtPrimaryRead
 // on the first detection of a primary-entity file in readSet and is

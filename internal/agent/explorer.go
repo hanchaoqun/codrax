@@ -2411,6 +2411,77 @@ func canonicalEvidenceSourcePath(source string) string {
 	return canonicalExplorerPath(source)
 }
 
+// balanceEvidenceAcrossPrimaryFiles rearranges the leading entries of
+// a ranked evidence slice so each primary file contributes in
+// round-robin order until every primary file is exhausted. Entries
+// whose source is not any primary file are appended at the end while
+// keeping their relative order.
+//
+// The motivation is multi-path comparison questions (u3a style:
+// "compare A.go vs B.go"): a count-heavy cluster from one file
+// (explorer.go at 87 items) would otherwise dominate the first 12
+// Primary Evidence slots and starve the other primary file
+// (extractor.go at 18 items), producing finalizer answers biased
+// toward whichever cluster fell first. Round-robin forces "some X,
+// some Y" ordering so every primary file appears near the top of the
+// finalizer's view.
+//
+// No-op when there is < 2 primary files — single-subject questions
+// keep their score-based ordering since there is no balance to
+// enforce. Stable within each file's group (relative ordering of a
+// single file's items preserved). Non-primary items retain their
+// relative order after the primary block.
+func balanceEvidenceAcrossPrimaryFiles(items []types.EvidenceItem, primary []string) []types.EvidenceItem {
+	if len(primary) < 2 || len(items) == 0 {
+		return items
+	}
+	primaryKey := make(map[string]int, len(primary))
+	primaryOrder := make([]string, 0, len(primary))
+	for _, p := range primary {
+		key := canonicalExplorerPath(p)
+		if key == "" {
+			continue
+		}
+		if _, seen := primaryKey[key]; seen {
+			continue
+		}
+		primaryKey[key] = len(primaryOrder)
+		primaryOrder = append(primaryOrder, key)
+	}
+	if len(primaryOrder) < 2 {
+		return items
+	}
+
+	groups := make([][]types.EvidenceItem, len(primaryOrder))
+	nonPrimary := make([]types.EvidenceItem, 0, len(items))
+	for _, ev := range items {
+		key := canonicalEvidenceSourcePath(ev.Source)
+		if idx, ok := primaryKey[key]; ok {
+			groups[idx] = append(groups[idx], ev)
+			continue
+		}
+		nonPrimary = append(nonPrimary, ev)
+	}
+
+	result := make([]types.EvidenceItem, 0, len(items))
+	cursors := make([]int, len(primaryOrder))
+	for {
+		progress := false
+		for gi, group := range groups {
+			if cursors[gi] < len(group) {
+				result = append(result, group[cursors[gi]])
+				cursors[gi]++
+				progress = true
+			}
+		}
+		if !progress {
+			break
+		}
+	}
+	result = append(result, nonPrimary...)
+	return result
+}
+
 // observePrimaryRead detects whether any primary-entity file has
 // just entered the readSet derived from the given tool history. On
 // first detection, it snapshots the current iteration and the
@@ -4698,8 +4769,10 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 	// would incorrectly narrow scope — registration/call_chain/
 	// multi-primary enumeration stay unaffected.
 	questionKind := strings.ToLower(strings.TrimSpace(irQuestionKind(ctx)))
+	var primaryFiles []string
 	if questionKind == "mechanism" || questionKind == "enumeration" {
 		if primary := e.primaryEntityFiles(); len(primary) > 0 {
+			primaryFiles = primary
 			applyFilter := questionKind == "mechanism" || len(primary) == 1
 			if applyFilter {
 				filtered := filterEvidenceByPrimaryFiles(rankedEvidence, primary)
@@ -4712,6 +4785,19 @@ func (e *explorerEvaluator) ParseOutput(ctx *types.AgentContext, messages []llm.
 						questionKind, primary, len(rankedEvidence))
 				}
 			}
+		}
+	}
+	// Multi-path balance: for questions naming ≥ 2 primary files
+	// (comparison / cross-file explain), round-robin the ranked
+	// evidence so each primary file surfaces in the leading entries.
+	// Without this, score-based ordering lets a count-heavy cluster
+	// from one file dominate Primary Evidence and bias the finalizer
+	// toward that side. Single-primary questions skip this — there is
+	// no imbalance to correct.
+	if len(primaryFiles) >= 2 {
+		balanced := balanceEvidenceAcrossPrimaryFiles(rankedEvidence, primaryFiles)
+		if len(balanced) == len(rankedEvidence) {
+			rankedEvidence = balanced
 		}
 	}
 
