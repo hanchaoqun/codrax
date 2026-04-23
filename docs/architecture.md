@@ -1206,7 +1206,7 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 交互式 REPL。逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command：`/exit` `/quit` `/clear` `/history` `/compact` `/log` `/paste` `/chat` `/version` `/help`。
 
-**`/chat <message>`**（session 30）：绕过 analyze→explore→extract→finalize 流水线，单次 `adapter.Chat` 直接给 LLM 回复。配合 `codrax.yaml :: chitchat_classifier_enabled` 开启自动分类（opt-in，默认关），分类器判为 chitchat 的轮次自动走此路径。失败路径：responder 错 → print warning + 不写 memory（不污染 prior conversation）；classifier 错 → 回落流水线（fail-safe）。
+**`/chat <message>`**（session 30）：绕过 analyze→explore→extract→finalize 流水线，单次 `adapter.Chat` 直接给 LLM 回复。配合 `codrax.yaml :: chitchat_classifier_enabled`（默认 `true`）每轮 REPL 前跑一次廉价 LLM 分类器，判为 chitchat 的轮次自动走此路径。想省成本就把 `chitchat_classifier` 在 `providers.yaml` 路由到小模型；想关就设 `false` 或启动时加 `--chitchat-classifier=false`。失败路径：responder 错 → print warning + 不写 memory（不污染 prior conversation）；classifier 错 → 回落流水线（fail-safe）。
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。
 

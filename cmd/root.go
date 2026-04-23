@@ -1174,17 +1174,23 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Optional auto-classifier. Only wired when both the feature
 	// master switch and the classifier switch are on AND the responder
 	// was constructed successfully — a classifier without a responder
-	// is useless (would reroute turns to an inert /chat). Default
-	// off: adds one LLM call per REPL turn so operators opt in after
-	// they've seen the responder behave in their environment.
+	// is useless (would reroute turns to an inert /chat).
 	//
-	// Precedence (lowest wins last): code default → codrax.yaml →
-	// --chitchat-classifier CLI flag. The CLI override exists for
-	// debugging classifier misjudgements per-run without editing
-	// codrax.yaml; cmd.Flags().Changed() distinguishes "flag not
-	// passed" (yaml wins) from "flag passed with value false" (CLI
-	// forces off).
-	classifierEnabled := false
+	// Default: ON. Every REPL turn makes one cheap LLM call (the
+	// classifier) before the normal pipeline decision. Fail-safe: any
+	// classifier error routes the turn to the pipeline unchanged, so
+	// a broken or slow classifier never silently misroutes a real code
+	// question. Operators wanting to cut cost should route
+	// `chitchat_classifier` to a small model in providers.yaml; those
+	// wanting to disable entirely set codrax.yaml
+	// chitchat_classifier_enabled: false or pass
+	// --chitchat-classifier=false.
+	//
+	// Precedence (lowest wins last): code default (true) → codrax.yaml
+	// → --chitchat-classifier CLI flag. cmd.Flags().Changed()
+	// distinguishes "flag not passed" (yaml wins) from "flag passed
+	// with value false" (CLI forces off).
+	classifierEnabled := true
 	if rs != nil && rs.ChitchatClassifierEnabled != nil {
 		classifierEnabled = *rs.ChitchatClassifierEnabled
 	}
@@ -1198,6 +1204,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			logging.Warning("[chitchat] classifier adapter init failed; auto-routing disabled: %v", err)
 		} else {
 			app.chitchatClassifier = repl.NewChitchatClassifier(adapter)
+			logging.Info("[chitchat] auto-classifier: ON (model=%s). Disable with codrax.yaml chitchat_classifier_enabled: false or --chitchat-classifier=false. Route to a cheap model via providers.yaml agents.chitchat_classifier", adapter.ModelID())
 		}
 	}
 

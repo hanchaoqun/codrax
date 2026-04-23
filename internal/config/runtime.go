@@ -250,9 +250,12 @@ type RuntimeSettings struct {
 	// the user to prefix /chat; otherwise the turn proceeds to the
 	// analysis pipeline exactly as before. Requires ChitchatEnabled
 	// to also be true — the classifier has no effect without a
-	// responder. Default false: this adds one LLM call per turn and
-	// is opt-in during the feature rollout period. Fail-safe: any
-	// classifier error falls through to the pipeline.
+	// responder. Default true: fail-safe wiring routes any classifier
+	// error back to the pipeline, so the worst case is a wasted LLM
+	// call, not a misrouted code question. Operators who want to cap
+	// the cost should route `chitchat_classifier` to a small model in
+	// providers.yaml; those who want to disable entirely set this to
+	// false or pass --chitchat-classifier=false at startup.
 	ChitchatClassifierEnabled *bool `yaml:"chitchat_classifier_enabled"`
 
 	// CGEC (Citation-Grounded Evidence Closure) tunables. All

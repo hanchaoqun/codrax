@@ -477,7 +477,11 @@
 #         model: gpt-4o-mini
 #         think_aloud: false
 #
-# Default: false (opt-in during rollout).
+# Default: true. Adds one cheap LLM call per REPL turn; fail-safe so
+# any classifier error routes the turn to the pipeline unchanged. To
+# keep the cost small, route the classifier to a small model via
+# providers.yaml agents.chitchat_classifier (see example above). To
+# disable entirely, set this to false.
 #
 # Per-run override: the --chitchat-classifier CLI flag takes
 # precedence over this yaml value for one codrax invocation. Use it
@@ -485,7 +489,7 @@
 # yaml. `--chitchat-classifier` / `--chitchat-classifier=true` →
 # force on; `--chitchat-classifier=false` → force off; flag omitted
 # → this yaml value wins.
-# chitchat_classifier_enabled: false
+# chitchat_classifier_enabled: true
 
 # ---------------------------------------------------------------------------
 # Memory store limits (memory_*)
