@@ -45,6 +45,7 @@ var slashCommands = []struct {
 	{"/clear", "wipe conversation memory"},
 	{"/log", "attach/show/clear a runtime log"},
 	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)"},
+	{"/chat", "reply without invoking the analysis pipeline"},
 	{"/version", "print build version"},
 	{"/exit", "leave the REPL"},
 	{"/quit", "leave the REPL"},

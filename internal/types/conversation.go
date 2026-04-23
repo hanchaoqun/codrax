@@ -108,6 +108,23 @@ func IsREPLControlInput(line string) bool {
 	return NormalizeREPLCommandAlias(line) != ""
 }
 
+// CanonicalREPLCommands returns the set of canonical slash commands
+// (the target side of replCommandAliases). Callers that maintain a
+// parallel list — notably internal/repl's autocomplete suggestions —
+// use this to lint against drift. Returning a fresh slice each call
+// so the caller cannot mutate the registry.
+func CanonicalREPLCommands() []string {
+	seen := map[string]bool{}
+	for _, target := range replCommandAliases {
+		seen[target] = true
+	}
+	out := make([]string, 0, len(seen))
+	for c := range seen {
+		out = append(out, c)
+	}
+	return out
+}
+
 // continuationPrefixes are leading tokens that strongly suggest the
 // current request is a continuation of the prior conversation rather
 // than a new self-contained question. Matched case-insensitively as a

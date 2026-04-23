@@ -1,11 +1,47 @@
 package repl
 
 import (
+	"sort"
 	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// TestSlashCommandsMatchCanonicalRegistry enforces the comment above
+// the slashCommands literal ("Kept in sync by hand with
+// replCommandAliases' target set"). The autocomplete panel is a
+// separate hardcoded list from the dispatch aliases map — any
+// /command added to one without the other produces a user-visible
+// drift (see session 30 /chat rollout, which shipped the dispatch
+// but missed the autocomplete surface and /help output twice).
+//
+// This test fires on every new or removed canonical command,
+// catching the mismatch at `go test` time rather than user report.
+func TestSlashCommandsMatchCanonicalRegistry(t *testing.T) {
+	autocompleteSet := map[string]bool{}
+	for _, c := range slashCommands {
+		autocompleteSet[c.Name] = true
+	}
+
+	canonical := types.CanonicalREPLCommands()
+	sort.Strings(canonical)
+
+	var missing []string
+	for _, cmd := range canonical {
+		if !autocompleteSet[cmd] {
+			missing = append(missing, cmd)
+		}
+	}
+	if len(missing) > 0 {
+		t.Errorf("slashCommands autocomplete list drifted from replCommandAliases target set.\n"+
+			"Missing from internal/repl/input.go :: slashCommands: %v\n"+
+			"Either add them (with a short help string) or — if a command is deliberately hidden from the panel — document the exclusion above this test.",
+			missing)
+	}
+}
 
 // These tests exercise the input model's pure logic (placeholder
 // atomicity, history navigation, slash suggestion visibility,
