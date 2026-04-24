@@ -115,11 +115,14 @@ func (e *verifierEvaluator) ParseOutput(
 		return out, nil
 	}
 
-	// Failed verify is NOT a B1 agent error — it's a structured
-	// outcome that the orchestrator surfaces as LastError. The
-	// verifier returns MissingFacts + an Error so runVerifyPhase
-	// renders the failure for the user, but the Run itself
-	// terminates cleanly (B1 Q3: no auto-retry; user re-plans).
+	// Failed verify is NOT an agent-level error — it's a structured
+	// outcome. The verifier returns MissingFacts + an Error so
+	// runVerifyPhase renders the failure for the user. When the
+	// orchestrator's verify→plan retry loop is enabled
+	// (pipeline_max_verify_retries > 0), runVerifyPhase's caller
+	// inspects the error and may dispatch a fresh planner round
+	// with PlanningHint seeded from this report; otherwise the Run
+	// terminates cleanly with the failure surfaced in LastError.
 	failSummary := report.FailureSummary
 	if failSummary == "" {
 		failSummary = fmt.Sprintf("%d test(s) failed", countFailedResults(report.TestResults))

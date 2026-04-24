@@ -20,8 +20,10 @@ import (
 // Stop condition: WriteClosure.AppliedSet must be a superset of
 // plan.TargetPaths. The evaluator does NOT try to be clever about
 // partial success — if the LLM skipped a path the coder reports
-// incompleteness and the orchestrator surfaces a fail-loud error
-// (B1 Q3 policy: apply failures don't auto-retry; user re-plans).
+// incompleteness and the orchestrator surfaces a fail-loud error.
+// The surrounding verify→plan retry loop (orchestrator B2.3) treats
+// that as a plan-level failure and may dispatch a fresh plan-apply-
+// verify cycle when the user has set pipeline_max_verify_retries > 0.
 //
 // ReAct iteration budget: N = len(plan.Changes) + 3. One turn per
 // apply_patch call (the LLM needs a turn to see each tool result)

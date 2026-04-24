@@ -106,7 +106,7 @@ func TestVerifier_ParseOutput_Failed(t *testing.T) {
 
 	out, err := ev.ParseOutput(ctx, nil, nil, nil)
 	if err == nil {
-		t.Fatal("ParseOutput should error on verify failure (B1 Q3 fail-loud)")
+		t.Fatal("ParseOutput should error on verify failure — fail-loud structured outcome")
 	}
 	if !strings.Contains(out.Error, "verify failed") {
 		t.Errorf("error should mention 'verify failed'; got %q", out.Error)

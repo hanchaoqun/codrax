@@ -611,9 +611,9 @@ func (o *Orchestrator) runPlanPhase(stepsUsed *int) error {
 		return fmt.Errorf("plan phase dispatch: %w", err)
 	}
 	if out != nil && out.Error != "" {
-		// Surface the planner's own diagnostic (includes B0 stub
-		// messages from the evaluator as well as real LLM-emitted
-		// errors). The caller writes to TaskState.LastError.
+		// Surface the planner's own diagnostic (typically an LLM-
+		// level error — malformed emit_change_plan, schema rejection,
+		// or no tool call at all). The caller writes to LastError.
 		o.busCtx.Mutable.SetResult(out.Error)
 		return fmt.Errorf("plan phase: %s", out.Error)
 	}

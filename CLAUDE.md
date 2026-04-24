@@ -4,7 +4,7 @@ Guidance for Claude Code working in this repository.
 
 ## Project Overview
 
-Codrax is a read-only code analysis tool in Go. It takes a natural-language question about a repository, drives a deterministic 4-stage LLM pipeline (analyze → explore → extract → finalize), and emits a grounded structured answer. It never modifies source files.
+Codrax is a code analysis + change-proposal tool in Go. In read mode (default), it takes a natural-language question about a repository, drives a deterministic 4-stage LLM pipeline (analyze → explore → extract → finalize), and emits a grounded structured answer without touching source files. In write mode (opt-in via `codrax.yaml :: write_enabled: true` + `--mode=plan|apply|verify`), it additionally drives a plan → apply → verify cycle inside a git worktree, so source-file changes stay sandboxed until the user explicitly approves them; main repo HEAD bytes never change automatically.
 
 The analyzer makes one LLM call that classifies the request; everything else — TaskGraph, EvidencePlan, hypotheses, quality gate — is built deterministically by 14 sub-packages under `internal/analysis/`. Every `AnalysisIR` field is either consumed by a typed evaluator (the `criterion` package handles `EntryConditions` / `SuccessCriteria` / `StopConditions` / `RequiredEvidence` / `FalsificationCondition` / `AcceptanceTests`) or carries an explicit `pending(artifact-exchange)` marker. Fail-loud contract: if the LLM fails to call `emit_analysis`, the stage errors and retries — no silent fallback to a zero-value IR.
 
@@ -30,6 +30,13 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse this crash" --log -
 # REPL sticky /log (survives across turns): /log <path>  |  /log (paste mode, end with /end)  |  /log clear  |  /log show
 # REPL auto-route (one-shot, cleared after dispatch): paste a log body inside a request, splitPastedLog detects and routes it to AttachedLog for this turn only
 # Paste fallback (SSH/tmux that strips bracketed paste): /paste → lines → /end; next prompt seeds a [Pasted text #0] token
+
+# Write mode (opt-in; requires codrax.yaml :: write_enabled: true):
+./codrax --mode=plan --request "add X feature" --plan-out /tmp/p.json  # single-shot: emit plan JSON, no edits
+./codrax --mode=apply --plan-file=/tmp/p.json --auto-apply              # apply + verify; worktree sandboxed
+./codrax --mode=verify --plan-file=/tmp/p.json                          # rerun verify against existing plan
+# REPL write mode: /mode [read|plan|apply|verify] (sticky); /plan [show|clear|list]; /approve; /reject [reason]
+# pipeline_max_verify_retries (yaml, default 0, cap 5): enables verify→plan retry loop with PlanningHint injection
 ```
 
 ## Architecture
@@ -52,6 +59,39 @@ Phase 1 dispatches analyze with fail-loud retry (`MaxRetriesPerStage`). Phase 2 
 2. `readyExplorerWindow` collects nodes with satisfied `EntryConditions`; dispatched as one `StageExplore` call. Blocked nodes surface in the retry hint. `ExploreBudget` on `MutableState` enforces per-tool caps from `EvidencePlan.NodeBudgetHints`.
 3. After dispatch, `markSuccessCriteriaFailed` requeues failing nodes; a failed `validate` node uses `EdgeValidationFeedback` to requeue only its upstream evidence nodes (fine-grained backtrack). `runAutoVerdicts` sets hypothesis verdicts without an LLM call.
 4. When finalize is ready (`firstFinalizeReadyMerged`), dispatch `StageExtract` once, then `StageFinalize`, then AnswerContract check. On fail-with-budget: requeue finalize + upstream, inject violation into next retry hint. Scheduler stall forces one finalize dispatch so the task always terminates.
+
+### Write mode (plan → apply → verify, opt-in)
+
+When `BusContext.Mode` is anything but `ModeRead`, the read pipeline still runs analyze as a classifier, then `Run()` branches to mode-specific phase functions that **bypass the scheduler entirely** (R6a design decision from session 33 B0 — `readyExplorerWindow` is unaware of write nodes by design, so write stages dispatch via `dispatchStage` directly).
+
+| Mode | Phases | Exit |
+|---|---|---|
+| `ModePlan` | analyze → `runPlanPhase` | Plan emitted on Mutable.ChangePlan; `cmd/root.go` writes JSON to `--plan-out` or `.codrax/plans/<id>.json`; REPL auto-saves via `PlanStore`. |
+| `ModeApply` | analyze → `runPlanPhase` (skipped when `PlanPath` is already set — R8a: the user has a reviewed plan, do not regenerate) → `runApplyPhase` → `runVerifyPhase` | Worktree discarded on exit; `ChangePlan.Status` flipped on disk (applied / applied_failed / verify_failed). |
+| `ModeVerify` | analyze → `runVerifyPhase` | Standalone re-verify against an existing plan. |
+
+**Agents**: planner (emit_change_plan), coder (per-unit apply_patch with W1/W1b), verifier (run_tests 4-language parser: Go go-test-json / Jest --json / pytest-json-report / Cargo text). All three embed `BaseAgent` like the read agents.
+
+**ChangePlan schema** (`internal/types/change_plan.go`): `FileChange.Kind` is one of `create` / `modify` / `delete` / `patch`. `patch` pipes `FileChange.Patch` (unified diff) to `git apply -` inside the worktree. `FileChange.DependsOn []string` is a path-based DAG (B1 Q1); `emit_change_plan` validates dup / unknown / cycle via DFS.
+
+**Write-closure invariants** (W1/W1b enforced at `apply_patch.Execute`): path must appear in `plan.TargetPaths`; every `unit.DependsOn` must already be in `WriteClosure.AppliedSet`. Idempotent: a second apply on the same path is a no-op success.
+
+**verify→plan retry loop** (B2.3, closes session-31 Q3): when `pipeline_max_verify_retries > 0` (yaml knob, default 0, hard-capped at 5), a verify failure seeds `Mutable.PlanningHint()` from `ChangeReport.FailureSummary` + first 3 failing test names, clears `ChangePlan` / `ChangeReport` / `WriteClosure.AppliedSet` / `PlanPath`, then loops plan → apply → verify. `plannerEvaluator.BuildInitialInstruction` consume-once reads the hint and prepends a "## Retry feedback" section to the dispatch.
+
+**Write-mode Criterion evaluators** (`internal/analysis/criterion/eval.go`): `CritPlanReady` reads `WriteClosure.PendingApplies`; `CritPatchApplies` intersects `AppliedSet ∩ TargetPaths`; `CritTestsPass` reads `ChangeReport.TestResults`; `CritNoRegression` diffs `BaselineReport` vs current + checks `MetricDelta.Threshold`. Read-mode shortcut: nil env slots → Satisfied=true under L3 byte-identity.
+
+**Approval flow**:
+- Single-shot: `--mode=apply --plan-file=<path>` loads + applies + verifies in one Run. `--auto-apply` required for safety.
+- REPL: `/mode plan` generates plan and auto-saves to PlanStore; `/plan show | clear | list` inspects; `/approve` triggers a second Run with `Mode=ModeApply` + `SetPlanPath`; `/reject [reason]` deletes the plan and records a `memory.KindPlan` turn.
+
+**PlanStatus lifecycle** (`types/change_plan.go`): `pending_approval` → `applied` / `applied_failed` / `verify_failed`, persisted via `UpdatePlanStatusOnDisk` called from `orchestrator.persistPlanStatus` at each decision point. `PlanInfo.Status` surfaces in `/plan list`; `/history` pairs each plan with its sibling `.report.json`.
+
+**Red lines** (enforced by structural tests):
+- L1: read mode is byte-identical to pre-B0 (runTaskPhase unchanged).
+- L2: `write_enabled: false` by default; write modes refuse to dispatch without the yaml gate.
+- L3: write tools MUST NOT call `ground.BuildContext` / `ground.GroundItem` (enforced by `internal/tool/write_mode_red_lines_test.go` via go/ast scan).
+- L5: worktree cleanup is unconditional — outer defer in `Run()` calls `worktree.DiscardByPath` on any exit path.
+- L6: write skills keep `exec_command` in `ToolSuggestions` (Q2 red line — worktree sandbox contains blast radius).
 
 ### Key Data Structures (`internal/types/`)
 
@@ -141,7 +181,8 @@ Two YAML files live flat next to the binary:
   - bare: `log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `providers_config`
   - `log_*` — retention
   - `blob_*` — tool-output sizing and session retention
-  - `pipeline_*` — per-run budget (`max_steps`, `max_retries_per_stage`, `max_stage_visits`)
+  - `pipeline_*` — per-run budget (`max_steps`, `max_retries_per_stage`, `max_stage_visits`, `max_verify_retries` for the B2.3 verify→plan loop)
+  - `write_enabled` — top-level gate for write mode; must be explicitly `true` before `--mode=plan|apply|verify` will dispatch
   - `analysis_*` — `emit_analysis` runtime validation (keyword floors, entity blocklist, multi-emit, `max_prescan_rounds`, hit-ratio floors)
   - `gate_*` — quality-gate thresholds (loaded via `gate.SetGlobalThresholds`)
   - `explore_*` — explorer mid-loop / soft-stop heuristics (`types.DefaultExploreHeuristics`)

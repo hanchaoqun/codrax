@@ -63,9 +63,10 @@ func (t *ApplyPatch) Description() string {
 		"Supports kind=create|modify|delete|patch. For patch, a unified-diff payload is piped to `git apply`."
 }
 
-// Parameters returns the tool's JSON schema. Shape unchanged from
-// the B0 stub so the coder agent's skill can declare it without
-// tracking B1-vs-B0 differences.
+// Parameters returns the tool's JSON schema. The four-way kind enum
+// (create / modify / delete / patch) covers every supported change
+// shape; `new_content` carries the full body for create+modify and
+// `patch` carries the unified diff for kind=patch.
 func (t *ApplyPatch) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",

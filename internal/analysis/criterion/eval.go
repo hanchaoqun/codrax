@@ -103,15 +103,17 @@ func dispatch(k Kind, expr string, env Env) Result {
 		Detail: fmt.Sprintf("no handler for kind %q (internal bug: registered but unreachable)", k)}
 }
 
-// ── Write-mode evaluators (B0 stubs; real bodies in Day 5 + B2/B3) ──
+// ── Write-mode evaluators (real implementations; B2 shipped them) ──
 //
-// Each evaluator returns Satisfied=true when env.WriteClosure is nil —
-// this preserves read-mode byte-identity under L3: a read-mode
-// pipeline never attaches WriteClosure to Env, so if an accidentally
-// mis-scheduled write-mode criterion reaches these evaluators the
-// result is trivially satisfied (no false negatives that would
-// perturb read-mode behavior). The Day 5 real implementation will
-// interrogate WriteClosure.AppliedSet / VerifyResults / PendingApplies.
+// Each evaluator short-circuits to Satisfied=true when its env slot
+// is zero-valued — this preserves read-mode byte-identity under L3:
+// read-mode pipelines never populate ChangePlan / ChangeReport /
+// WriteClosure, so an accidentally-scheduled write criterion cannot
+// produce a spurious false negative that would perturb the read
+// pipeline's retry budget. Real bodies interrogate
+// WriteClosure.AppliedSet (evalPatchApplies),
+// ChangeReport.TestResults (evalTestsPass), and the
+// BaselineReport vs ChangeReport diff (evalNoRegression).
 
 // evalPlanReady is satisfied when the planner has emitted a
 // ChangePlan and its PendingApplies queue is non-empty — i.e. there
@@ -147,9 +149,9 @@ func evalPlanReady(expr string, env Env) Result {
 			Detail:    fmt.Sprintf("plan_ready: %d pending applies", len(pending)),
 		}
 	}
-	// Parse `>=N` / `>N` / bare int forms. Reuse the eval.go
-	// comparator helper if/when B1 generalises this; B0 keeps it
-	// inline because every write evaluator is still a stub.
+	// Parse `>=N` / `>N` / bare int forms via the shared helper.
+	// Other write evaluators reuse substring filtering on expr
+	// instead of integer thresholds so they don't go through here.
 	threshold, op, ok := parseIntThreshold(expr)
 	if !ok {
 		return Result{

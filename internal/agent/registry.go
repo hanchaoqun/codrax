@@ -72,13 +72,14 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, tri
 		types.AgentExtractor,
 		types.AgentFinalizer,
 		types.AgentLogTriager,
-		// B0 write-mode agents. Planner is a real agent paired with
-		// change-plan-skill; coder + verifier are structural stubs
-		// that return fail-loud errors until their real bodies land
-		// in B2 / B3 respectively. Registered here so dispatchStage
-		// on StagePlan / StageApply / StageVerify finds them; the
-		// stubs stay inert for read-mode Runs because those stages
-		// only fire when BusContext.Mode is Plan / Apply / Verify.
+		// Write-mode agents. All three are real LLM-backed agents:
+		// planner emits a structured ChangePlan via emit_change_plan;
+		// coder walks plan.Changes via per-unit apply_patch calls
+		// inside the orchestrator-provisioned worktree; verifier
+		// drives run_tests (deterministic 4-language parser) and
+		// persists a ChangeReport. All three stay inert for
+		// read-mode Runs because those stages only fire when
+		// BusContext.Mode is Plan / Apply / Verify.
 		types.AgentPlanner,
 		types.AgentCoder,
 		types.AgentVerifier,

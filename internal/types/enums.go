@@ -18,15 +18,13 @@ const (
 	StageExtract   PipelineStage = "extract"
 	StageFinalize  PipelineStage = "finalize"
 
-	// B0 write-mode stages. Only fire when BusContext.Mode is
-	// ModePlan / ModeApply / ModeVerify respectively; Run()'s Mode
-	// switch dispatches to runPlanPhase / runApplyPhase /
-	// runVerifyPhase which set PipelineStage to the matching value
-	// for observability. In Day 3 those phase functions are stubs;
-	// Day 5 adds the corresponding agent bindings to pipelineTopology
-	// and scheduler stageMapping, at which point stageMapping can
-	// route NodePlan / NodeApply / NodeVerify TaskGraph nodes to
-	// the right stage.
+	// Write-mode stages. Only fire when BusContext.Mode is
+	// ModePlan / ModeApply / ModeVerify; Run()'s Mode switch
+	// dispatches to runPlanPhase / runApplyPhase / runVerifyPhase
+	// which set PipelineStage for observability. Each phase calls
+	// dispatchStage directly rather than routing through
+	// runTaskGraph (write mode bypasses the explore scheduler by
+	// design — see the R6a decision in session 33 B0).
 	StagePlan   PipelineStage = "plan"
 	StageApply  PipelineStage = "apply"
 	StageVerify PipelineStage = "verify"
@@ -76,12 +74,12 @@ const (
 	AgentFinalizer  AgentName = "finalizer"
 	AgentLogTriager AgentName = "log_triager"
 
-	// B0 write-mode agents. Each pairs with the matching Stage
+	// Write-mode agents. Each pairs with the matching Stage
 	// (StagePlan / StageApply / StageVerify) via pipelineTopology.
-	// Day 5 ships planner as a real LLM-backed agent; coder and
-	// verifier are stubs that return StageOutput.Error so their
-	// dispatch paths surface a clean "not yet implemented" message
-	// — B2/B3 replace the stub bodies with real agents.
+	// All three are real LLM-backed agents as of B2: planner emits
+	// a structured ChangePlan, coder walks plan.Changes via
+	// apply_patch calls inside a git worktree, verifier drives
+	// run_tests (4-language parser) and persists a ChangeReport.
 	AgentPlanner  AgentName = "planner"
 	AgentCoder    AgentName = "coder"
 	AgentVerifier AgentName = "verifier"
