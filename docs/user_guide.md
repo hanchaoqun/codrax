@@ -1,5 +1,10 @@
 # codrax 使用指南
 
+> **CODRAX — Code Of Deterministic Reasoning, Anchored eXplanation.**
+> **CODRAX —— 推理确定,解释锚定。**
+> 每条结论锚到字节,每段推理可被复核。
+> **确定性诚实,不是态度,是契约。**
+
 > **文档对应版本**:`0.1.20260424`(CalVer,`make` 产出的二进制 `codrax --version` 打印准确值)
 
 本文档面向从未用过 codrax 的用户,讲清楚:**怎么装、怎么配、怎么用、各模式怎么选、界面怎么看、典型场景怎么跑**。不讨论编译和内部实现。
