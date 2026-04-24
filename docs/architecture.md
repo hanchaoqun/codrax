@@ -1,6 +1,13 @@
 # 架构设计文档
 
-codrax 是一个**只读的代码分析工具**：接收关于代码仓库的自然语言问题，经一条确定性的主流水线（`analyze → explore → extract → finalize`，4 阶段 × 4 Agent）产出结构化答案。当用户附加运行时日志时，主流水线前会先跑一个条件触发的 `log_triage` 阶段做结构化抽取。拓扑硬编码在 `internal/orchestrator/topology.go`，不存在运行时覆盖。
+> **文档对应版本**：`0.1.20260424`（CalVer，`make` 产出的二进制 `codrax --version` 打印准确值）
+
+codrax 是一个**代码分析 + 变更提议**工具：
+
+- **读模式**（默认）：接收自然语言问题，经确定性主流水线 `analyze → explore → extract → finalize`（4 阶段 × 4 Agent）产出带 citation 的结构化答案；附加日志时条件触发 `log_triage` 前置阶段。**不触碰源文件**。
+- **写模式**（opt-in，需 `codrax.yaml :: write_enabled: true`）：沿用读模式的 analyze 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
+
+拓扑硬编码在 `internal/orchestrator/topology.go`，不存在运行时覆盖。
 
 ## 目录
 
@@ -200,6 +207,8 @@ stateDiagram-v2
 
 所有 Agent 嵌 `BaseAgent`，后者提供 ReAct 循环，通过 `Evaluator` 接口接入每个 Agent 的四个钩子：`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`。可选 `LoopController` 接口接入循环控制。
 
+读模式 5 个 agent：
+
 | Agent | Stage | 工具权限 | 职责 |
 |-------|-------|----------|------|
 | `log_triager`（条件前置） | `log_triage` | `read_file`（仅用于分页读 attached log blob） + `emit_log_triage` + `emit_log_segmentation`（两步升级才激活） | 仅在 `BusContext.AttachedLog` 非空时触发。读原始日志，emit 结构化 `LogBundle` 的 Layer 1-3（Meta / Errors / Residue）；系统侧 `logtriage.ValidateBundle` 做路径校验并派生 Layer 4。失败不阻塞主流水线（§4.5） |
@@ -207,6 +216,14 @@ stateDiagram-v2
 | `explorer`（Turn A） | `explore` | `grep` / `read_file` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` / `emit_investigation_complete` / `propose_sub_agents` | 两阶段调查（Phase 0 Breadth → Phase 1 Depth），独占写 `EvidenceItems` / `AnswerChains` / `FlowFindings`，把投影快照写入 `TurnAArtifacts` |
 | `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | 一次性 LLM 调用产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO、禁止 `emit_evidence`**。工具参数校验失败有一次 retry 窗口（`ShouldStop: iteration >= 2`） |
 | `finalizer` | `finalize` | `emit_answer_document` | 按 `AnswerShape` 渲染结构化答案文档，触发 contract check |
+
+写模式 3 个 agent（需 `write_enabled: true`，详见 §4.6）：
+
+| Agent | Stage | 工具权限 | 职责 |
+|-------|-------|----------|------|
+| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，一次 `emit_change_plan` 产出完整 ChangePlan；不写文件；3 次 iteration cap |
+| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch`；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发；纯执行，不重规划 |
+| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `run_tests` 同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail 来自 parser，不由 LLM 覆盖 |
 
 #### ReAct 循环
 
@@ -308,9 +325,9 @@ type Config struct {
 
 ### 3.4 Tool（`internal/tool`）
 
-工具通过嵌入 `tool.ReadOnly` 满足 `IsWrite() bool`——所有现存工具都是 read-only。`Execute` 收到的 `*BusContext` 是窄视图：只有 `RepoRoot` / `Branch` / `Commit` / `WorkDir` / `Mutable` 被填充，物理上限制工具只能修改 `Mutable`。
+工具通过嵌入 `tool.ReadOnly` 或 `tool.WriteCapable` 声明副作用语义：`IsWrite() bool` 返回 `false`（只读）或 `true`（写模式专属）。读模式 agent 的 skill allowlist **只**包含 read-only 工具；写模式 agent（`planner` / `coder` / `verifier`）才能看到 write-capable 工具。`Execute` 收到的 `*BusContext` 是窄视图：只有 `RepoRoot` / `Branch` / `Commit` / `WorkDir` / `Mutable` / （写模式额外的）`MainRepoRoot` / `WorktreePath` / `Mode` / `PlanPath` 被填充。
 
-#### 内置工具
+#### 内置 read-only 工具
 
 | 工具 | 描述 |
 |------|------|
@@ -323,6 +340,17 @@ type Config struct {
 
 工具分类（`toolConfidence` 接口）：`EvidenceTool` 0.8（grep/read_file/list_files/git_*/exec_command）/ `NavigationTool` 0.3（repo_map）/ `NonEvidenceTool` 0（其余）。
 
+#### 写模式工具（内置，`WriteCapable`）
+
+只在 Mode ∈ {plan, apply, verify} 且写模式 agent 的 skill allowlist 下暴露给 LLM。详见 §4.6。
+
+| 工具 | 独占 Agent | 行为 |
+|------|-----------|------|
+| `emit_change_plan` | planner | 校验 + 写 `Mutable.ChangePlan`。四步校验：dup path、空 dep、self dep、unknown dep、DFS 找环。任一失败返回 ToolResult 失败 Summary，planner 下轮 retry |
+| `apply_patch` | coder | 按 kind 写入 worktree：`create`（路径必须不存在）/ `modify`（必须存在）/ `delete`（缺失幂等）/ `patch`（pipe unified diff 到 `git apply -`）。每次调用前强 W1（path ∈ TargetPaths） + W1b（DependsOn 都已 applied） |
+| `run_tests` | verifier | 9 种 runner 自动探测（见 §4.6）；build 阶段挂时合成 `build` suite 单条失败结果；run tests 异常时 `RawRef` 指向完整输出 blob |
+| `emit_test_results` | verifier | 可选：LLM 写 FailureSummary narrative 叠加到 ChangeReport（不能覆盖 parser 产出的 Passed） |
+
 #### 结构化发射器（emit_* 系列）
 
 | 工具 | 独占 Agent | 作用 |
@@ -334,7 +362,7 @@ type Config struct {
 | `emit_investigation_complete` | explorer | 显式完成信号。需要 `reason` + `confidence`（high/medium），`low` 被拒。Execute 内跑 **CGEC I3** `preCompleteContractCheck`（6 条预检）并在失败时 downgrade + emit Repair |
 | `emit_answer_symbol` | extractor | 写答案符号 slate + `CompletenessClaim`（`complete` / `lower_bound` / `unknown`）。`extractor.ParseOutput` 跑 cardinality validator 自动降级不诚实的 `complete` claim（基线 `max(β=TerminalEvidenceCount, γ=len(MustInclude))`） |
 | `emit_hypothesis_verdict` | extractor | 为 `AnalysisIR.HypothesisSet` 的每条 hypothesis 写 status（`confirmed` / `rejected` / `inconclusive`）+ rationale + `file:line` citation。编排器 post-extract hook 通过 `AnalysisIR.MarkHypothesis` 写回 IR |
-| `emit_answer_document` | finalizer | 按 shape 写 typed `AnswerDocument`。Execute 内同步调 `ground.GroundCitation` 验证 citations（**CGEC I2**），失败时 `AddRepair(RepairReadFile)`。**Literal-grounding gate (session 22)**：每个带 citation 的 shape 都要求 claim 文本（`value.literal` / `symbols[i].name` / `steps[i].description` / `boolean.rationale`）与 cited file 的 ±3 行窗口至少有一个 identifier token 重叠；否则 Execute 返回 error + 指引使用 `citation_ref=-1`。覆盖 5/6 shape（explanation 例外，prose 全域不适用） |
+| `emit_answer_document` | finalizer | 按 shape 写 typed `AnswerDocument`。Execute 内同步调 `ground.GroundCitation` 验证 citations（**CGEC I2**），失败时 `AddRepair(RepairReadFile)`。**Literal-grounding gate**：每个带 citation 的 shape 都要求 claim 文本（`value.literal` / `symbols[i].name` / `steps[i].description` / `boolean.rationale`）与 cited file 的 ±3 行窗口至少有一个 identifier token 重叠；否则 Execute 返回 error + 指引使用 `citation_ref=-1`。覆盖 5/6 shape（explanation 例外，prose 全域不适用） |
 | `propose_sub_agents` | explorer | 向编排器申请派生并行 sub-agent |
 
 #### ToolResult 与 blob 机制
@@ -573,8 +601,6 @@ Turn B 看不到新文件——所有信息在 Turn A transcript 快照里冻结
 
 `Citation.Quote` 是 optional 的 verbatim 源码预览，超过 `types.CitationMaxQuoteChars()`（默认 `DefaultCitationMaxQuoteChars = 500`）后**静默截到 UTF-8 边界**，`File` / `Line` 始终保留。Prose-smuggling 防御由 `ground.GroundCitation` 的 `QuoteMatched` token 匹配兜底（Quote token 跟源码行 ±2 行邻域无重合 → Quote 清空，走 `quoteCleared` → Tier-1-proven 闸决定是否丢掉整条 citation），跟长度无关。这条 cap 因此是纯渲染预览宽度，不是正确性门。运行时通过 `types.SetCitationMaxQuoteChars` 替换，`codrax.yaml :: citation_quote_max_chars` 单键覆盖；非正数忽略。
 
-历史注：session 30 之前这条 cap 固定 200 字符且是**硬拒**——一条过长 Quote 会把整个 `emit_answer_document` 打回重试，连带所有 peer citations 的 file:line 一起作废。深仓路径 / 长 `fmt.Errorf` / 长 SQL 字面量经常踩中。session 30 降级为静默截断 + 默认放宽到 500 + 暴露 yaml。
-
 #### Forbidden 字段：reject 不 scrub
 
 `rejectForbiddenFields`（`emit_answer_document.go`）**失败**整个 call 而不是静默清洗 —— shape=explanation 带着非零 `boolean{decision:"否", ...}` 会收到 `"shape=explanation forbids boolean{}; remove the field and retry"`，LLM 下一轮必清。零值字段（`value.Literal==""` / `boolean.Decision==""`）仍然静默 nil。`FinalizerMaxCorrectionRetries` default 3。
@@ -654,6 +680,174 @@ BusContext.AttachedLog     emit_log_triage├
 **暂不支持**：
 - C/C++ glibc 裸 backtrace（只有返回地址，没 `file:line`，缺少足够锚点）
 - 日志文件 tail / live stream / 远端源（Loki / ES / CloudWatch）
+
+### 4.6 写模式 — plan → apply → verify
+
+**触发条件**：`codrax.yaml :: write_enabled: true` **并且** `BusContext.Mode ∈ {ModePlan, ModeApply, ModeVerify}`（CLI `--mode=plan|apply|verify` 或 REPL `/mode plan|apply|verify` 设置）。两个条件缺一，`Run()` 在入口处 fail-loud 拒绝，避免误改动。
+
+**与读模式的调度关系**：写模式的 3 个阶段（`plan` / `apply` / `verify`）**不经过** `runTaskGraph` 的 criterion-aware DAG scheduler。读模式的 analyze 先跑一次作为请求分类器，随后 `Run()` 分支到 mode-specific phase 函数，3 个 phase 通过 `dispatchStage` 直接分派：
+
+| Mode | 阶段链 | Run 退出点 |
+|---|---|---|
+| `ModePlan` | analyze → `runPlanPhase` | Plan 写入 `Mutable.ChangePlan`；cmd/root.go 写 `--plan-out` 或 `.codrax/plans/<id>.json`；REPL 走 PlanStore 自动保存 |
+| `ModeApply` | analyze → `runPlanPhase`（当 `PlanPath` 已设则跳过，复用 user-approved plan）→ `runApplyPhase` → `runVerifyPhase` | 三阶段任一失败 → fail-loud；全部成功 → `PlanStatus=applied`；worktree 默认销毁，开 `pipeline_keep_worktree_on_success` 则保留 |
+| `ModeVerify` | analyze → `runVerifyPhase` | 独立 re-verify：对已有 plan 的 worktree 重跑测试；不会重新 apply |
+
+读模式（`ModeRead`）继续走 `runTaskGraph`，字节级行为不变（L1 红线）。
+
+#### 四模式枚举
+
+`internal/types/pipeline_mode.go`：
+
+```go
+const (
+    ModeRead   PipelineMode = "read"
+    ModePlan   PipelineMode = "plan"
+    ModeApply  PipelineMode = "apply"
+    ModeVerify PipelineMode = "verify"
+)
+```
+
+BusContext 默认 `ModeRead`。Mode 是粘滞的：REPL `/mode plan` 之后所有提问都走 `ModePlan`，直到显式切回。
+
+#### Agent + 工具
+
+| Agent | Stage | 工具 | 职责 |
+|---|---|---|---|
+| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，一次 `emit_change_plan` 产出完整 ChangePlan（3 次 iteration cap）；不写文件 |
+| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch`；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发 |
+| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `run_tests` 自动探测 runner 并同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail verdict 来自 parser，不由 LLM 覆盖 |
+
+所有 3 个 agent 嵌 `BaseAgent`，沿用 ReAct 循环 + Evaluator 钩子（BuildInitialInstruction / ShouldStop / ParseOutput / DetermineMissingPiece），与读模式 agent 同构。
+
+| Tool | 所在 agent | 行为 |
+|---|---|---|
+| `emit_change_plan` | planner | 校验 Changes[]：dup-path / empty-dep / self-dep / unknown-dep / cycle-via-DFS，全过才写 `Mutable.ChangePlan`；`TargetPaths` 从 Changes 派生 |
+| `apply_patch` | coder | 四种 kind：`create`（`os.Stat` 必须不存在 → `os.WriteFile`）/ `modify`（必须存在 → `os.WriteFile`）/ `delete`（缺失视作幂等，带 warning）/ `patch`（`git apply -` 喂 stdin，失败把 git stderr 原样透传）。每次 Execute 前强制 W1 + W1b |
+| `run_tests` | verifier | 9 种 runner（Go / Node / Python / Rust / Java / Ruby / CMake / Meson / Make），通过 manifest 文件探测；支持 JUnit XML / JSON / 文本 / 退出码 4 类输出协议；build 阶段失败（XML 未产出 / exit≠0）合成 `build` suite 单条失败结果，`FailureDetail` 用 `extractBuildErrorExcerpt` 抽取 `[ERROR]` / `FAILURE:` / `error:` 等通用编译错误标记 |
+| `emit_test_results` | verifier | 可选；LLM 在 FailureSummary 里写人话（区分 REGRESSION / PRE-EXISTING / FIXED）。不能覆盖 parser 的 `Passed` 字段 |
+
+#### ChangePlan 数据结构（`internal/types/change_plan.go`）
+
+```go
+type ChangePlan struct {
+    ID              string          // plan-<unix-nano>-<pid>
+    Request         string          // 用户原始自然语言请求
+    Summary         string          // planner 写的 3-10 句总结
+    Changes         []FileChange    // 顺序敏感的文件级变更
+    AcceptanceTests []string        // 自然语言 AcceptanceTests（verifier prompt 可见）
+    TargetPaths     []string        // 声明的写作用域（W1 门）
+    Status          string          // pending_approval | applied | applied_failed | verify_failed | rejected
+    AppliedCommitSHA string         // worktree commit sha
+    WorktreePath    string          // 保留的 worktree 路径（keep_on_success 开启）
+    CreatedAt       time.Time
+    AppliedAt       *time.Time
+}
+
+type FileChange struct {
+    Path       string   // 仓库相对路径
+    Kind       string   // create | modify | delete | patch
+    NewContent string   // create / modify 的完整 body
+    Patch      string   // kind=patch 的 unified diff
+    Rationale  string   // 为什么要改这个文件
+    DependsOn  []string // 本 plan 内必须先 apply 的其他路径
+}
+```
+
+`LoadChangePlanFromFile` 读盘时重算 `TargetPaths` 为 `Changes[].Path` 的去重列表，并拒绝 `len(Changes)==0` / 重复 path 的 plan（兜底手改坏的 JSON）。`UpdatePlanStatusOnDisk(path, status, appliedAt, worktreePath)` 做局部更新，空 worktreePath 语义是"不动 WorktreePath 字段"，让后续生命周期更新（apply → verify_failed）不会抹掉之前 applied 时写入的 worktree 路径。
+
+#### CGEC-W：WriteClosure 写闭包（W1 / W1b）
+
+对应读模式的 CGEC（Citation-Grounded Evidence Closure），写模式有 **Write Closure** 两条不变量，由 `apply_patch.Execute` 在文件 I/O 之前强制：
+
+- **W1**：`params.Path` 必须在 `ChangePlan.TargetPaths` 里。违规 → 立即返回失败 ToolResult（`apply_patch rejected: path %q is not in plan.TargetPaths`），coder 下轮可见错误自修正。
+- **W1b**：当前 `ChangeUnit.DependsOn` 列的每个前置路径都必须已经在 `WriteClosure.AppliedSet` 里。违规 → `apply_patch rejected: depends_on %q is not yet applied`。
+
+成功 apply 后 `WriteClosure.MarkApplied(path)`。**幂等性**：二次 apply 同一路径是无操作 success。coder 的 ShouldStop 等价于 `WriteClosure.AppliedSet ⊇ plan.TargetPaths`。
+
+结构性测试 `internal/tool/write_mode_red_lines_test.go` 用 `go/ast` 扫描断言 `apply_patch` / `emit_change_plan` / `run_tests` **从不** import `internal/tool/ground`（L3：写路径不是 citation 路径，grounding 语义无意义）。
+
+#### Worktree 沙箱生命周期
+
+`internal/worktree/session.go`：
+
+1. `runApplyPhase` 入口 `worktree.Create(mainRoot, traceID, baseDir)` → `git worktree add` 生成 `<baseDir>/<trace-id>-<pid>/`，注册进 `activeSessions`。
+2. `BusContext.RepoRoot` 临时换到 worktree 路径，`coder` 的所有 `apply_patch` 都相对这个路径写。
+3. `runVerifyPhase` 继续复用 worktree（RepoRoot 仍指向 worktree），`run_tests` 在 worktree 里跑测试。
+4. `Run()` 顶层 defer 决定清理策略：
+   - 失败路径 → **无条件** `worktree.DiscardByPath`（避免磁盘堆积）
+   - 成功路径 + `pipeline_keep_worktree_on_success == true` + `Mode == ModeApply` + `TaskState.LastError == ""` → 跳过清理，`busCtx.WorktreePath` 暴露给 caller，`persistPlanStatus` 额外把路径写入 `plan.WorktreePath`
+   - 其他（成功但没开 keep knob，或读模式 Run 连 WorktreePath 都没设）→ 清理（读模式的 `DiscardByPath("")` short-circuit）
+5. SIGINT / SIGTERM **不触发 defer**（Go 默认 `os.Exit`），由 `internal/worktree/signal_exit_unix.go` / `signal_exit_windows.go` 装的进程级信号 handler 遍历 `activeSessions` 统一 Discard 再 re-raise。
+6. SIGKILL / 电源丢失无法在进程内清理 → 下次启动的 `worktree.PruneDeadSessions` 按嵌入 PID 的存活性扫 `baseDir` 回收孤儿。
+
+REPL `/worktree list` 扫 PlanStore 过滤 `Status=applied && WorktreePath != ""`；`/worktree discard <plan-id>` 调 `DiscardByPath` + 清 `plan.WorktreePath` 字段。
+
+#### 写模式 Criterion（`internal/analysis/criterion/eval.go`）
+
+读模式 19 种 Criterion Kind 之外，写模式新增 4 种，被 `AnswerContract.AcceptanceTests` / `TaskNode.SuccessCriteria` 消费：
+
+| Kind | 语义 | 评估输入 |
+|---|---|---|
+| `CritPlanReady` | `ChangePlan` 已发射且非空、`WriteClosure.PendingApplies > 0` | Mutable.ChangePlan |
+| `CritPatchApplies` | `AppliedSet ∩ TargetPaths == TargetPaths`（所有声明路径都已 applied） | Mutable.WriteClosure |
+| `CritTestsPass` | `ChangeReport != nil && ChangeReport.Passed` | Mutable.ChangeReport |
+| `CritNoRegression` | `BaselineReport` nil → Satisfied=true（无快照可比）；否则比较 baseline 与 current 的 `MetricDeltas`，超过每项 `Threshold` 视作回归 | Mutable.BaselineReport + Mutable.ChangeReport |
+
+读模式 Run 里这 4 个 env slot 都是 nil，`CritPlanReady` / `CritPatchApplies` 等对应 evaluator 直接返回 Satisfied=true（L3 byte-identity 红线）。
+
+#### 可选：verify→plan 重试循环
+
+`pipeline_max_verify_retries`（yaml，默认 0，硬上限 5）控制 `ModeApply` 里 `plan → apply → verify` 的最大迭代次数。第一次失败后：
+
+1. `orchestrator.prepareVerifyRetry(attempt)`：
+   - 调 `buildRetryHint(ChangeReport, ChangePlan, prevAttempt)` 合成 PlanningHint：失败 summary（≤300 字符）+ top-3 失败测试（AssertionID + Suite + FailureDetail 首行 ≤140 字符）+ `plan.TargetPaths`（cap 10）作"嫌疑文件清单"。上限 1500 字符。
+   - `worktree.DiscardByPath` 清掉上一 worktree，`busCtx.RepoRoot` 回归 `MainRepoRoot`
+   - `Mutable.ResetChangePlan` / `ResetChangeReport` / `WriteClosure.Reset` / 清 `o.planPath`（强制重新规划，即使 user 原本供了 plan-file）
+   - `BaselineReport` 保留（规范化的 pre-apply 快照，跨 retry 稳定）
+   - `Mutable.SetPlanningHint(hint)`
+2. `plannerEvaluator.BuildInitialInstruction` 消费一次 `Mutable.PlanningHint()` —— reset 完再取就是空（避免下个 sub-dispatch 重复注入）。
+3. 下一次 `runPlanPhase` 正常跑，planner 看到 hint 里的嫌疑文件 + 失败 narrative 修订 plan。
+
+失败到顶：`verifyErr > applyErr > planErr` 的优先级把最深的一层塞进 `TaskState.LastError`。
+
+#### 可选：Baseline 捕获
+
+`pipeline_baseline_capture_enabled`（yaml，默认 `false`）打开后，`runApplyPhase` 3b 步（coder dispatch 前、worktree 已 swap 但尚无任何写入）主动跑一次 `tool.RunTests{}.Execute` 作为 baseline：
+
+1. `run_tests` 正常 install 到 `Mutable.ChangeReport`
+2. 立即 `Mutable.SetBaselineReport(report)` + `ResetChangeReport`（腾出槽位给后续 verify）
+3. 可选持久化到 `.codrax/plans/<id>.baseline.json`（磁盘失败只 warning）
+4. Baseline **失败非致命**：`evalNoRegression` 见 nil baseline 短路为 Satisfied=true
+
+Verifier 的 `BuildInitialInstruction` 在 baseline 非 nil 且有失败测试时渲染 `## Pre-existing baseline failures` 段（cap 15 条），教 LLM 用 REGRESSION / PRE-EXISTING / FIXED 分类写 FailureSummary narrative；`test-execute-skill` 的 Workflow 也声明这条约束。
+
+#### 测试 runner 矩阵
+
+| Runner | Manifest | 命令 | 输出协议 |
+|---|---|---|---|
+| Go | `go.mod` | `go test -json ./...` | JSONL stream，`goTestEvent` 事件流 |
+| Node | `package.json` | `npm test -- --json --silent` | Jest/Vitest 共通的单 JSON 对象（`testResults[].assertionResults[]`） |
+| Python | `pyproject.toml` / `pytest.ini` / `setup.py` | `pytest --json-report --json-report-file=<tmp>` | `pytest-json-report` 插件写 JSON 到 extraFile |
+| Rust | `Cargo.toml` | `cargo test` | 文本：`test ... ok`/`FAILED`，`test result: FAILED. N passed; M failed`，失败块 `---- name stdout ----` |
+| Java Maven | `pom.xml` | `mvn -B -q test` | `target/surefire-reports/*.xml`（JUnit XML，post-exec 目录扫描） |
+| Java Gradle | `build.gradle` / `build.gradle.kts` | `./gradlew --no-daemon --console=plain test` | `build/test-results/test/*.xml`（JUnit XML） |
+| Ruby | `Gemfile` | `bundle exec rspec --format json` | 单 JSON 对象，`examples[].status` |
+| CMake | `CMakeLists.txt` + 已配置 build dir | `ctest --test-dir <build> --output-junit <tmp> --output-on-failure` | 单 JUnit XML 文件 |
+| Meson | `meson.build` + 已配置 build dir | `meson test -C <build> --xunit-file <tmp>` | 单 JUnit XML 文件 |
+| Make | `Makefile` / `makefile` / `GNUmakefile` | `make check` / `make test`（按 Makefile 首列扫择优） | 无结构化输出；`parseMakeOutput(stdout, runErr)` 用 exit code 判定 + `extractBuildErrorExcerpt` 抽取 stdout |
+
+CMake / Meson 要求 build dir 已配置（codrax 不跑 configure 步），探测的目录名：`build`（CMake / Meson）/ `Build` / `builddir`（Meson 默认）/ `out` / `cmake-build-debug` / `cmake-build-release`（CLion 默认）。每个候选必须含 `CMakeCache.txt`（CMake sentinel）或 `meson-info/`（Meson sentinel）才算数，避免空 `build/` 误判。
+
+**共用的 build-failure 合成**：Java / CMake / Meson 任何一个 runner 的 XML artifact 没产出（build 阶段就挂了）时，`synthesizeBuildFailureReport(ctx, toolName, runner, assertionID, label, output)` 合成一条 `{Passed: false, AssertionID: "<lang>-build", Suite: "build", FailureDetail: extractBuildErrorExcerpt(output)}`，写入 `Mutable.ChangeReport` 并在 ToolResult Summary 里带上截取的第一条错误行 —— retry loop 的 PlanningHint 因此总能拿到具体错误文本而不是"build 失败"这种空信号。
+
+#### 红线总结
+
+- **L1**：读模式 Run 字节级行为不变（`runTaskPhase` 不变）；写模式 opt-in 从不影响读模式。
+- **L2**：`write_enabled: false`（默认）下写模式阶段**拒绝启动**。
+- **L3**：写工具（`emit_change_plan` / `apply_patch` / `run_tests` / `emit_test_results`）**不得** import `internal/tool/ground`；由 `write_mode_red_lines_test.go` 结构性扫描固化。
+- **L5**：worktree 清理 defer 位于 `Run()` 顶层，失败路径**无条件**触发；keep-on-success 仅是成功路径的 opt-out。
+- **L6**：写模式的 skill（`change-plan-skill` / `code-write-skill` / `test-execute-skill`）在 `ToolSuggestions` 里**保留** `exec_command` —— worktree 沙箱已经把 blast radius 限住，LLM 偶尔用 `git status` / `ls` 诊断是合理的。
 
 ---
 
@@ -1204,9 +1398,16 @@ Debug-gated `[diag ...]` trace 在 `BaseAgent.Execute` 里 dump 完整的 ReAct 
 
 ### `internal/repl`
 
-交互式 REPL。逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command：`/exit` `/quit` `/clear` `/history` `/compact` `/log` `/paste` `/chat` `/version` `/help`。
+交互式 REPL。逐行读取，用 `Store.BuildContext` 把历史对话 prepend 成 `## Prior conversation\n...\n\n## Current request\n...` 注入请求字符串——零修改 BusContext 或 Agent。Slash command 分两组（每条都支持 `\` 前缀别名，如 `\exit` ≡ `/exit`）：
 
-**`/chat <message>`**（session 30）：绕过 analyze→explore→extract→finalize 流水线，单次 `adapter.Chat` 直接给 LLM 回复。配合 `codrax.yaml :: chitchat_classifier_enabled`（默认 `true`）每轮 REPL 前跑一次廉价 LLM 分类器，判为 chitchat 的轮次自动走此路径。想省成本就把 `chitchat_classifier` 在 `providers.yaml` 路由到小模型；想关就设 `false` 或启动时加 `--chitchat-classifier=false`。失败路径：responder 错 → print warning + 不写 memory（不污染 prior conversation）；classifier 错 → 回落流水线（fail-safe）。
+- **通用**：`/exit` `/quit` `/help` `/version` `/history` `/clear` `/compact` `/log` `/paste` `/chat`
+- **写模式**（需 `codrax.yaml :: write_enabled: true`）：`/mode` `/plan` `/approve` `/reject` `/verify` `/worktree`
+
+`slashCommands`（`internal/repl/input.go`）驱动 Tab 补齐面板；`replCommandAliases`（`internal/types/conversation.go`）是 `NormalizeREPLCommandAlias` 唯一的来源，`Loop` 先归一再派发给 `handleSlash`。两个列表的漂移由 `TestSlashCommandsMatchCanonicalRegistry` + `TestHandleSlashDispatchMatchesRegistry` 两个结构测试固化——任一新 `/xxx` 的 `case` 没同步到 `replCommandAliases` 都会在 `go test` 时 fail-loud。
+
+**`/chat <message>`**：绕过 analyze→explore→extract→finalize 流水线，单次 `adapter.Chat` 直接给 LLM 回复。配合 `codrax.yaml :: chitchat_classifier_enabled`（默认 `true`）每轮 REPL 前跑一次廉价 LLM 分类器，判为 chitchat 的轮次自动走此路径。想省成本就把 `chitchat_classifier` 在 `providers.yaml` 路由到小模型；想关就设 `false` 或启动时加 `--chitchat-classifier=false`。失败路径：responder 错 → print warning + 不写 memory（不污染 prior conversation）；classifier 错 → 回落流水线（fail-safe）。
+
+**写模式命令**：见 §4.6。`/mode` 切换粘滞 mode；`/plan show` 渲染 unified-diff 预览（per-change 4 KB、总计 16 KB 上限）；`/approve` 只接受 `Status == pending_approval` 的 plan（前置检查），触发第二次 Run 带 `Mode = ModeApply` + `SetPlanPath`；`/reject [reason]` 把 plan 从 PlanStore 清掉并记入 memory（`memory.KindPlan`）；`/verify [plan-id]` 对 `Status ∈ {applied, verify_failed}` 且有保留 worktree 的 plan 重跑 ModeVerify；`/worktree list / discard <plan-id>` 管理 `pipeline_keep_worktree_on_success` 保留下来的 worktree。
 
 **`/log` 子命令**：`/log <path>` 从文件载入 / `/log`（无参）进入粘贴模式以 `/end` 结束 / `/log clear` 丢弃 / `/log show` 预览前 20 行。attached log **跨 turn sticky**（用户通常同一条 panic 分多个问题问），只有显式 `/log clear` 或覆盖式 `/log <path>` 替换。`/clear`（清 conversation 历史）不动 attached log。
 
@@ -1253,7 +1454,8 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `readfile_*` | `readfile_small_limit_threshold` — read_file 懒惰 limit 保护 |
 | `analysis_*` | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` — emit_analysis 运行时验证 |
 | `evidence_*` | `evidence_grounding_floor` / `evidence_tier1_floor` — explorer completion gate |
-| `pipeline_*` | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算 |
+| `pipeline_*` | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算；`pipeline_max_verify_retries`（写模式 verify→plan 重试上限，默认 0 / 硬上限 5）/ `pipeline_baseline_capture_enabled`（写模式 apply 前测试快照）/ `pipeline_keep_worktree_on_success`（写模式成功后保留 worktree）|
+| `write_enabled` | 顶层写模式开关。`false`（默认）时 `--mode=plan|apply|verify` 和 REPL `/mode plan|apply|verify` 全部 fail-loud 拒绝 |
 | `gate_*` | `gate_coverage_min` / `gate_coverage_weight_{symbol,config,concept}` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
 | `explore_*` | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize） |
 | `agent_*` | `agent_max_iterations` / `agent_max_tool_history_bytes` / 4 个 `agent_loop_*` / 3 个 `agent_finalizer_shrinkage_*` + `agent_finalizer_max_correction_retries` + `agent_finalizer_preserve_prior_prose` / `agent_extractor_max_correction_retries` / 4 个 `agent_subtopic_*` / `agent_investigation_complete_policy` / `agent_prior_conversation_policy` |
@@ -1267,7 +1469,8 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | key 组 | 优先级（低 → 高） |
 |--------|------------------|
 | 裸 key | code default → `codrax.yaml` → CLI flag |
-| `pipeline_*` | code default → `codrax.yaml` → CLI flag（`-pipeline-max-steps` / `-pipeline-max-retries` / `-pipeline-max-stage-visits`）|
+| `pipeline_*` | code default → `codrax.yaml` → CLI flag（`--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits`）。`pipeline_max_verify_retries` / `pipeline_baseline_capture_enabled` / `pipeline_keep_worktree_on_success` 仅 yaml，无 CLI override |
+| `write_enabled` | 仅 yaml（部署时决策，不按 invocation）。`--mode` 是 CLI flag，但在 `write_enabled: false` 时拒绝;REPL `/mode` 同 gate |
 | 其他所有 `*_` 组 | code default → `codrax.yaml`。**无 CLI override** |
 
 ### Path anchoring

@@ -408,33 +408,33 @@ type writeModeInputs struct {
 //
 // Validation rules, evaluated in order:
 //
-//   1. If CLIFlagMode is non-empty, it must parse to a valid
-//      PipelineMode (read / plan / apply / verify). Unknown values
-//      are rejected with "unknown mode".
+//  1. If CLIFlagMode is non-empty, it must parse to a valid
+//     PipelineMode (read / plan / apply / verify). Unknown values
+//     are rejected with "unknown mode".
 //
-//   2. If YamlDefaultMode is non-empty, same validity check. Plus
-//      a yaml-specific rule: the defaults "apply" and "verify" are
-//      rejected because those modes have real side effects (git
-//      worktree creation, test execution) and must be opted into
-//      per-run via --mode rather than silently enabled by a shared
-//      config file.
+//  2. If YamlDefaultMode is non-empty, same validity check. Plus
+//     a yaml-specific rule: the defaults "apply" and "verify" are
+//     rejected because those modes have real side effects (git
+//     worktree creation, test execution) and must be opted into
+//     per-run via --mode rather than silently enabled by a shared
+//     config file.
 //
-//   3. If the resolved mode is a write mode (plan / apply / verify)
-//      and YamlEnabled is nil-or-false, the whole configuration is
-//      rejected with "write mode disabled". This is the L2 red line
-//      in session 33's B0 plan — operators must explicitly opt in
-//      via codrax.yaml :: write_enabled: true before any non-read
-//      mode can run.
+//  3. If the resolved mode is a write mode (plan / apply / verify)
+//     and YamlEnabled is nil-or-false, the whole configuration is
+//     rejected with "write mode disabled". This is the L2 red line
+//     in session 33's B0 plan — operators must explicitly opt in
+//     via codrax.yaml :: write_enabled: true before any non-read
+//     mode can run.
 //
-//   4. If HasRequest (single-shot) AND the resolved mode is
-//      ModeApply AND AutoApply is false, reject. The L4 red line:
-//      apply runs real side effects, so the single-shot workflow
-//      must confirm with --auto-apply. REPL mode skips this check
-//      because /approve provides interactive confirmation.
+//  4. If HasRequest (single-shot) AND the resolved mode is
+//     ModeApply AND AutoApply is false, reject. The L4 red line:
+//     apply runs real side effects, so the single-shot workflow
+//     must confirm with --auto-apply. REPL mode skips this check
+//     because /approve provides interactive confirmation.
 //
-//   5. If the resolved mode is ModeApply or ModeVerify, PlanFile
-//      must be non-empty — those modes consume an existing plan,
-//      they do not produce one.
+//  5. If the resolved mode is ModeApply or ModeVerify, PlanFile
+//     must be non-empty — those modes consume an existing plan,
+//     they do not produce one.
 //
 // On success returns the effective PipelineMode (possibly "" for
 // the default read case; caller passes it to orch.SetMode which
@@ -610,16 +610,16 @@ func runREPL(_ *cobra.Command) error {
 	}
 	planStore := repl.NewPlanStore(filepath.Join(runtimeAnchor, "plans"))
 	r := repl.New(repl.Config{
-		Runner:            app.orch,
-		Store:             store,
-		Render:            renderFn,
-		Renderer:          app.renderer,
-		RepoRoot:          flagRepo,
-		Branch:            flagBranch,
-		Out:               os.Stdout,
-		PasteFoldMinChars: app.replPasteFoldMinChars,
-		Version:           version,
-		BuildTime:         buildTime,
+		Runner:             app.orch,
+		Store:              store,
+		Render:             renderFn,
+		Renderer:           app.renderer,
+		RepoRoot:           flagRepo,
+		Branch:             flagBranch,
+		Out:                os.Stdout,
+		PasteFoldMinChars:  app.replPasteFoldMinChars,
+		Version:            version,
+		BuildTime:          buildTime,
 		Language:           flagLang,
 		ChitchatResponder:  app.chitchatResponder,
 		ChitchatClassifier: app.chitchatClassifier,
@@ -1092,6 +1092,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineBaselineCaptureEnabled != nil {
 			pipelineSettings.BaselineCaptureEnabled = *rs.PipelineBaselineCaptureEnabled
 		}
+		// Keep-worktree-on-success toggle (Fix 4 "try before merge").
+		// Same pointer-typed yaml shape so explicit false is
+		// distinguishable from unset.
+		if rs.PipelineKeepWorktreeOnSuccess != nil {
+			pipelineSettings.KeepWorktreeOnSuccess = *rs.PipelineKeepWorktreeOnSuccess
+		}
 
 		// Gate thresholds → package-global in gate package.
 		var gt gate.Thresholds
@@ -1400,6 +1406,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// Item 1: baseline capture for CritNoRegression. Default false
 	// (test-suite wall time doubles when enabled).
 	orch.SetBaselineCaptureEnabled(pipelineSettings.BaselineCaptureEnabled)
+	// Fix 4: preserve worktree after successful ModeApply. Default
+	// false; enable to keep the "try before merge" workflow.
+	orch.SetKeepWorktreeOnSuccess(pipelineSettings.KeepWorktreeOnSuccess)
 
 	// Resolve per-agent think_aloud from providers.yaml. The default
 	// is true (directive included); per-agent overrides can disable it.

@@ -28,8 +28,10 @@ import (
 // Stop condition: Mutable.ChangeReport != nil. run_tests installs
 // it synchronously in Execute, so the LLM typically sees a
 // populated report on its FIRST turn and either:
-//  (a) calls emit_test_results with narrative
-//  (b) returns empty content → soft-stop → ShouldStop fires
+//
+//	(a) calls emit_test_results with narrative
+//	(b) returns empty content → soft-stop → ShouldStop fires
+//
 // Either path ends the loop on iteration 0 or 1.
 type verifierEvaluator struct {
 	// mu is captured in BuildInitialInstruction. ShouldStop
@@ -39,10 +41,20 @@ type verifierEvaluator struct {
 }
 
 // BuildInitialInstruction captures Mutable and renders a dynamic
-// supplement that surfaces the plan's AcceptanceTests so the LLM
-// can gauge whether the run_tests output actually covered them.
-// B1.3 does NOT automate that matching (deferred to B3); the prose
-// hint is purely informative.
+// supplement with up to two sections:
+//
+//  1. AcceptanceTests — natural-language criteria the plan declared
+//     (when non-empty). Informational only; no automated matching.
+//
+//  2. Baseline failures — present ONLY when the orchestrator captured
+//     a pre-apply BaselineReport and that baseline had failing
+//     tests. Gives the LLM the data it needs to distinguish a
+//     regression (passed in baseline, fails now) from a pre-existing
+//     failure (failed in baseline AND now) when drafting its
+//     emit_test_results narrative.
+//
+// Returns "" when the plan has no acceptance tests AND there is no
+// baseline with failures — keeping the happy-path prompt clean.
 func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *skill.Config) string {
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
@@ -52,24 +64,70 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 	if plan == nil {
 		return "No ChangePlan installed — verify phase cannot proceed. Return without tool calls."
 	}
-	if len(plan.AcceptanceTests) == 0 {
+	baseline := ctx.Mutable.BaselineReport()
+	baselineFailures := collectBaselineFailures(baseline)
+	if len(plan.AcceptanceTests) == 0 && len(baselineFailures) == 0 {
 		return ""
 	}
-	// Single-purpose prompt supplement: remind the LLM what the
-	// plan's stated acceptance criteria are. The verifier may
-	// use this as context when drafting an emit_test_results
-	// FailureSummary (narrative-only; no automated matching).
 	var s string
-	s += "## Plan acceptance criteria\n\n"
-	s += "The plan declared these acceptance tests (natural-language):\n\n"
-	for _, a := range plan.AcceptanceTests {
-		s += "- " + a + "\n"
+	if len(plan.AcceptanceTests) > 0 {
+		s += "## Plan acceptance criteria\n\n"
+		s += "The plan declared these acceptance tests (natural-language):\n\n"
+		for _, a := range plan.AcceptanceTests {
+			s += "- " + a + "\n"
+		}
+		s += "\nAfter the run_tests tool has populated Mutable.ChangeReport, " +
+			"you may OPTIONALLY call emit_test_results to add a short FailureSummary " +
+			"narrative explaining how the actual test outcome relates to these criteria. " +
+			"If all tests passed, no narrative is needed — return without calling emit_test_results."
 	}
-	s += "\nAfter the run_tests tool has populated Mutable.ChangeReport, " +
-		"you may OPTIONALLY call emit_test_results to add a short FailureSummary " +
-		"narrative explaining how the actual test outcome relates to these criteria. " +
-		"If all tests passed, no narrative is needed — return without calling emit_test_results."
+	if len(baselineFailures) > 0 {
+		if s != "" {
+			s += "\n\n"
+		}
+		s += "## Pre-existing baseline failures\n\n"
+		s += "Before the plan was applied, the following test(s) were ALREADY failing " +
+			"(not caused by this change — the snapshot was taken against the unmodified worktree):\n\n"
+		const maxShown = 15
+		shown := 0
+		for _, r := range baselineFailures {
+			if shown >= maxShown {
+				s += fmt.Sprintf("- … (+%d more)\n", len(baselineFailures)-shown)
+				break
+			}
+			if r.Suite != "" {
+				s += fmt.Sprintf("- %s (%s)\n", r.AssertionID, r.Suite)
+			} else {
+				s += fmt.Sprintf("- %s\n", r.AssertionID)
+			}
+			shown++
+		}
+		s += "\nWhen drafting your emit_test_results narrative, classify each failing test in the " +
+			"current ChangeReport as either:\n" +
+			"  - REGRESSION: passed in baseline, fails now — this plan caused it\n" +
+			"  - PRE-EXISTING: failed in baseline AND fails now — unrelated to this plan\n" +
+			"  - (FIXED: failed in baseline, passes now — bonus; mention if relevant)\n\n" +
+			"The Passed verdict on Mutable.ChangeReport is authoritative (parser-driven) — do not " +
+			"try to override it. Use the narrative to tell the operator what's actually regressing."
+	}
 	return s
+}
+
+// collectBaselineFailures returns the subset of baseline TestResults
+// that failed, preserving order so the LLM sees the same ranking the
+// runner produced. Empty / nil baseline returns an empty slice; the
+// caller uses len(...) to gate section rendering.
+func collectBaselineFailures(baseline *types.ChangeReport) []types.TestResult {
+	if baseline == nil || len(baseline.TestResults) == 0 {
+		return nil
+	}
+	out := make([]types.TestResult, 0, len(baseline.TestResults))
+	for _, r := range baseline.TestResults {
+		if !r.Passed {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // ShouldStop terminates the ReAct loop as soon as a ChangeReport

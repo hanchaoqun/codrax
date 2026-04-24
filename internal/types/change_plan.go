@@ -299,19 +299,24 @@ func WriteChangeReportToFile(report *ChangeReport, path string) error {
 }
 
 // UpdatePlanStatusOnDisk reads the plan JSON at path, replaces
-// its Status (and optionally AppliedAt), and rewrites the file.
-// Used by runApplyPhase / runVerifyPhase to record transitions
-// (pending → applied / applied_failed / verify_failed) so
-// /plan list in the REPL shows current lifecycle state.
+// its Status (and optionally AppliedAt + WorktreePath), and
+// rewrites the file. Used by runApplyPhase / runVerifyPhase to
+// record transitions (pending → applied / applied_failed /
+// verify_failed) so /plan list in the REPL shows current lifecycle
+// state; worktreePath is populated when Fix 4's keep-on-success
+// preserves the worktree so /worktree list can later correlate
+// preserved trees back to their originating plans.
 //
 // Preserves all other fields byte-for-byte via unmarshal →
 // mutate → marshal; callers rely on this so AppliedCommitSHA /
-// WorktreePath / TriggerTurnID survive the update.
+// TriggerTurnID survive the update. An empty worktreePath means
+// "don't touch" so callers that don't care (verify_failed, reject,
+// etc.) can pass "" without clobbering a previously persisted path.
 //
 // Non-fatal: when path is empty or the file is missing, returns
 // an error that the caller typically logs and swallows (failing
 // to persist status must not break apply/verify itself).
-func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time) error {
+func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time, worktreePath string) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
 		return fmt.Errorf("UpdatePlanStatusOnDisk: empty path")
@@ -323,6 +328,9 @@ func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time) error {
 	plan.Status = status
 	if appliedAt != nil {
 		plan.AppliedAt = appliedAt
+	}
+	if worktreePath != "" {
+		plan.WorktreePath = worktreePath
 	}
 	data, err := json.MarshalIndent(plan, "", "  ")
 	if err != nil {

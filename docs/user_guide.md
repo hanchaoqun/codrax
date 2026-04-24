@@ -1,6 +1,8 @@
 # codrax 使用指南
 
-本文档面向从未用过 codrax 的用户,讲清楚:**怎么装、怎么配、怎么用、两种模式怎么选、界面怎么看、典型场景怎么跑**。不讨论编译和内部实现。
+> **文档对应版本**:`0.1.20260424`(CalVer,`make` 产出的二进制 `codrax --version` 打印准确值)
+
+本文档面向从未用过 codrax 的用户,讲清楚:**怎么装、怎么配、怎么用、各模式怎么选、界面怎么看、典型场景怎么跑**。不讨论编译和内部实现。
 
 - [1. codrax 是什么](#1-codrax-是什么)
 - [2. 安装与启动](#2-安装与启动)
@@ -13,9 +15,10 @@
   - [3.2 `providers.yaml` — 复杂版](#32-providersyaml--复杂版)
   - [3.3 `codrax.yaml` — 运行时参数](#33-codraxyaml--运行时参数)
   - [3.4 配置文件查找顺序](#34-配置文件查找顺序)
-- [4. 两种使用模式](#4-两种使用模式)
-  - [4.1 REPL 交互模式](#41-repl-交互模式)
-  - [4.2 单次命令模式](#42-单次命令模式)
+- [4. 使用模式](#4-使用模式)
+  - [4.1 REPL 交互模式(读模式)](#41-repl-交互模式读模式)
+  - [4.2 单次命令模式(读模式)](#42-单次命令模式读模式)
+  - [4.3 写模式 — plan → apply → verify](#43-写模式--plan--apply--verify)
 - [5. 命令速查](#5-命令速查)
   - [5.1 CLI 命令行参数](#51-cli-命令行参数)
   - [5.2 REPL 斜杠命令](#52-repl-斜杠命令)
@@ -23,26 +26,27 @@
 - [7. 场景实操](#7-场景实操)
   - [7.1 问一段代码的行为](#71-问一段代码的行为)
   - [7.2 分析 panic / 异常日志](#72-分析-panic--异常日志)
-  - [7.3 脚本化批处理](#73-脚本化批处理)
-  - [7.4 同一台机器操作多个仓库](#74-同一台机器操作多个仓库)
-  - [7.5 长对话与记忆管理](#75-长对话与记忆管理)
+  - [7.3 写模式:小步修复一个 bug](#73-写模式小步修复一个-bug)
+  - [7.4 脚本化批处理](#74-脚本化批处理)
+  - [7.5 同一台机器操作多个仓库](#75-同一台机器操作多个仓库)
+  - [7.6 长对话与记忆管理](#76-长对话与记忆管理)
 - [8. 常见问题](#8-常见问题)
 
 ---
 
 ## 1. codrax 是什么
 
-codrax 是一个**只读**的代码分析工具:
+codrax 是一个**代码分析 + 变更提议**工具,默认只读,可选写:
 
-- **输入**:关于某个代码仓库的自然语言问题(中文 / 英文均可)。可选地附带一段运行时日志(panic、异常栈、编译错误、traceback 等)。
-- **输出**:结构化的答案,每个结论都带有 `file:line` 级别的 citation(可点可查)。
-- **不会做的事**:不修改任何源文件;不执行有副作用的外部调用;不上传你的代码到任何第三方(除你在 `providers.yaml` 里指定的 LLM)。
+- **读模式**(默认 / 开箱即用):输入关于代码仓库的自然语言问题(中文 / 英文均可),可选附带一段运行时日志(panic、异常栈、编译错误、traceback 等);输出带 `file:line` 级别 citation 的结构化答案。**不修改**任何源文件。
+- **写模式**(opt-in,需 `codrax.yaml :: write_enabled: true`):驱动 `plan → apply → verify` 流水线在一个**沙箱 git worktree** 里完成文件写入 + 测试验证;主仓库 HEAD 字节永不自动变更,必须用户 `/approve` 显式审批才会落地进 worktree,合并到 main 仍由用户手动 `git cherry-pick` / `rebase`。
+- **共同规则**:不执行仓库外有副作用的外部调用;不上传代码到任何第三方(除你在 `providers.yaml` 里指定的 LLM)。
 
 使用 codrax 前,你只需要准备:
 
 1. 一个 codrax 可执行文件(见下一节)。
 2. 一把能访问 OpenAI 兼容接口的 LLM API key(OpenAI、DeepSeek、Qwen、Ollama、vLLM、Together 等都兼容)。
-3. 一份想问问题的代码仓库。
+3. 一份想问问题 / 改动的代码仓库。
 
 ---
 
@@ -89,7 +93,7 @@ codrax
 看到类似下面的 banner 就说明启动成功:
 
 ```
-   CODRAX  v0.1.20260422  /help · /exit
+   CODRAX  v0.1.20260424  /help · /exit
 
 ❯❯
 ```
@@ -224,7 +228,7 @@ llm:
 |---|---|
 | `stream: true` | 走 SSE 流式,REPL 任务行会**实时显示** LLM 正在输出的内容(250ms 节流,80 字符 tail 预览),`/chat` 会以 typewriter 形式逐段上屏 |
 | `stream: false` | 一次性收完整个响应 |
-| 不写 | **默认 `stream: true`**(从 2026-04-23 起) |
+| 不写 | **默认 `stream: true`** |
 
 ```yaml
 llm:
@@ -534,6 +538,32 @@ llm:
 |---|---|---|
 | `providers_config` | `providers.yaml` | 相对路径相对于 `<exeDir>`;绝对路径直接使用 |
 
+#### 3.3.19 写模式(`write_enabled` + `pipeline_*`)
+
+完整工作流程见 [4.3 写模式](#43-写模式--plan--apply--verify)。相关键:
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `write_enabled` | `false` | 顶层开关。默认关;为 `true` 才允许 `--mode=plan / apply / verify` 或 REPL `/mode plan / apply / verify` 触发。不开启的情况下即使显式传 `--mode=plan` 也会 fail-loud 拒绝(避免误开) |
+| `pipeline_max_verify_retries` | `0` | verify→plan 重试循环上限。`0` 保守(verify 失败直接报告);`>0` 启用重试 —— verify 失败后生成 PlanningHint(失败 summary + 失败测试 + 嫌疑文件)喂给 planner 二次规划。硬上限 5 |
+| `pipeline_baseline_capture_enabled` | `false` | apply 前跑一次测试套件作为 baseline 快照。verifier LLM 据此把失败归类为 REGRESSION / PRE-EXISTING / FIXED。测试墙钟时间翻倍,仓库有已知 pre-existing 失败时打开 |
+| `pipeline_keep_worktree_on_success` | `false` | apply + verify 双双成功时**不销毁** worktree,路径暴露给用户 review 或 cherry-pick。失败路径无条件销毁 |
+
+写模式用到的 agent(`planner` / `coder` / `verifier`)和分类器 / 闲聊 / 记忆摘要等辅助 agent 一样,都可以在 `providers.yaml :: agents.*` 下单独路由:
+
+```yaml
+llm:
+  agents:
+    planner:
+      model: your-strong-model   # plan 阶段要想清楚,多花点钱值得
+    coder:
+      model: your-cheap-model    # 照着 plan 机械执行,便宜就够
+    verifier:
+      model: your-cheap-model    # 可选给 FailureSummary 写个 narrative
+```
+
+不写就全继承 `default`。
+
 ### 3.4 配置文件查找顺序
 
 **`providers.yaml`**:只看 `codrax.yaml` 里的 `providers_config` 字段(默认 `<exeDir>/providers.yaml`)。通过 `CODRAX_SETTINGS=/path/to/codrax.yaml` 可以一键切换整套环境。
@@ -552,9 +582,11 @@ llm:
 
 ---
 
-## 4. 两种使用模式
+## 4. 使用模式
 
-### 4.1 REPL 交互模式
+codrax 有**读模式**(默认,分析代码 / 不动源文件)和**写模式**(opt-in,在沙箱 worktree 里提议 + 执行 + 验证代码变更)两套。读模式下还分 **REPL 交互**和**单次命令**两种触发方式。
+
+### 4.1 REPL 交互模式(读模式)
 
 **何时用**:想就一个话题反复追问,或者先让 codrax 给个大致答案再深挖细节。
 
@@ -568,7 +600,7 @@ codrax
 启动后输入问题,回车即分析。随后的 `❯❯` 继续提问,codrax **自动把前几轮对话作为上下文**一起喂给 LLM。典型一次完整会话像这样:
 
 ```
-   CODRAX  v0.1.20260422  /help · /exit
+   CODRAX  v0.1.20260424  /help · /exit
 
 ❯❯ explorer 的 ShouldStop 是怎么决定的?
 
@@ -596,7 +628,7 @@ codrax
 
 **粘贴多行内容**:多数终端支持 bracketed paste,贴一段 ≥ 100 字符(默认阈值)的文本会自动折叠成 `[Pasted text #0 +N lines +C chars]` 占位符,提交后完整内容依然会送给 LLM。SSH / 老版 tmux 场景 bracketed paste 会被吃掉,这时用 `/paste` 子命令兜底(详见 [5.2](#52-repl-斜杠命令))。
 
-### 4.2 单次命令模式
+### 4.2 单次命令模式(读模式)
 
 **何时用**:脚本批处理、CI 流水线、快速验证一个问题。
 
@@ -626,6 +658,178 @@ codrax --log-level debug --log-stdout -r "你的问题"
 
 - `--log-level debug` — 打开 debug 级别日志(默认 `debug` 但写到文件里)
 - `--log-stdout` — 把日志同步打到 stdout,便于一眼看到调度决策
+
+### 4.3 写模式 — plan → apply → verify
+
+写模式让 codrax **提议并执行**代码变更,但所有写动作都发生在一个 `git worktree add` 出来的**独立沙箱**里。主仓库 HEAD 字节永不自动变;你看到结果后决定要不要 `git cherry-pick` 合进 main。
+
+**启用**(一次性):在 `codrax.yaml` 里显式:
+
+```yaml
+write_enabled: true
+```
+
+没这一行所有写模式子命令都会 fail-loud 拒绝(避免误开)。
+
+#### 三个阶段 + 四种 Mode
+
+| Mode | 做什么 | 产出 |
+|---|---|---|
+| `read`(默认) | 走分析流水线,输出带 citation 的答案 | `AnswerDocument` |
+| `plan` | 读代码,产出一份"要改哪些文件、每个怎么改、先后依赖"的 ChangePlan | `.codrax/plans/<id>.json` |
+| `apply` | 在 git worktree 里执行 ChangePlan,每个单元一次 `apply_patch`(四种 kind:create / modify / delete / patch) | worktree 里的文件 + `ChangeReport` |
+| `verify` | 对 worktree 跑测试套件(9 种 runner 自动探测) | `.codrax/plans/<id>.report.json` |
+
+`apply` 自动紧跟 `verify`,二者成对;你通常不需要手工触发 `--mode=verify`,除非要**重跑 verify**(如 flakey 测试、修改配置后验证)。
+
+#### 两种触发通路
+
+**REPL(推荐,支持审阅)**:
+
+```
+❯❯ /mode plan                   # 粘滞切换到 plan 模式
+❯❯ 把 handleFoo 里 X 的处理从 A 改成 B    # 正常提问,会生成 ChangePlan
+  ... (流水线运行) ...
+  plan saved: .codrax/plans/plan-<id>.json  (3 change(s))
+
+❯❯ /plan show                   # 审阅 plan — 会渲染 unified diff 预览
+  current plan: .../plan-<id>.json
+    id:      plan-<id>
+    status:  pending_approval
+    changes: 3 file(s)
+    targets: internal/foo/handler.go, internal/foo/handler_test.go, ...
+    summary: <planner 写的 3-10 句话总结>
+
+  diff preview:
+
+  ─── internal/foo/handler.go (kind=patch) ───
+  rationale: 把 X 分支的 A 策略改为 B
+  --- a/internal/foo/handler.go
+  +++ b/internal/foo/handler.go
+  @@ -42,7 +42,7 @@
+   func handleFoo(x int) int {
+  -  return strategyA(x)
+  +  return strategyB(x)
+   }
+  ... (更多改动)
+
+❯❯ /approve                     # 二次确认后触发 apply + verify
+  Approve plan plan-<id> (3 change(s))? Apply inside a git worktree + run verify.
+  [Yes] / [No]
+
+❯❯ /reject [optional reason]    # 不想要了 — 丢弃 plan,记入 memory
+❯❯ /plan clear                  # 等价 reject 但不留记忆
+
+# 如果开了 pipeline_keep_worktree_on_success,apply+verify 成功后
+# worktree 会保留给你 review:
+  worktree preserved: /path/to/repo/.codrax/worktrees/<id>-<pid>
+
+❯❯ /worktree list               # 列出所有保留的 worktree
+❯❯ /worktree discard <plan-id>  # 手动清理某个
+
+❯❯ /verify <plan-id>            # 对某个已 applied 的 plan 重跑 verify
+                                # (需要 worktree 还在)
+```
+
+**单次命令(适合 CI / 自动化)**:
+
+```bash
+# 只生成 plan,不 apply(人工或脚本后续审查)
+codrax --mode=plan --request "描述变更" --plan-out /tmp/plan.json
+
+# 应用一份已有 plan(auto-apply 绕过交互确认;适合 CI)
+codrax --mode=apply --plan-file /tmp/plan.json --auto-apply
+
+# 只重跑 verify(需要已 applied 且 worktree 保留)
+codrax --mode=verify --plan-file /tmp/plan.json
+```
+
+#### 四种改动类型(FileChange.kind)
+
+| kind | 语义 | 要求 |
+|---|---|---|
+| `create` | 新建文件,写入 `new_content` 完整 body | 目标路径**必须不存在**,否则 apply 拒绝(避免误覆盖) |
+| `modify` | 覆盖整个文件 body,写入 `new_content` | 目标路径**必须存在**,否则 apply 拒绝(planner 若搞错应改成 `create`) |
+| `delete` | 删除文件 | 缺失文件视作幂等成功(带 warning 日志) |
+| `patch` | 把 `patch` 字段里的 unified diff 喂给 `git apply -` | git 会严格按上下文行号匹配;不匹配直接拒绝,coder 下轮自修正 |
+
+Planner 默认倾向于 `patch`(小改),需要整体重写时选 `modify`。
+
+#### 写闭包保护(W1 / W1b)
+
+每次 `apply_patch` 调用都经过:
+- **W1**:`path` 必须出现在 `ChangePlan.TargetPaths` 声明的写作用域内 —— 防止 coder 飘到未声明路径。
+- **W1b**:`DependsOn` 里每个前置单元必须已 applied(写入 `WriteClosure.AppliedSet`) —— 保证拓扑顺序。
+
+违规会被工具层直接拒绝,coder 在下一轮看到错误自修正。
+
+#### 可选:verify→plan 重试循环
+
+`pipeline_max_verify_retries`(yaml,默认 0,硬上限 5)大于 0 时,verify 失败会清空 plan + 生成一份 PlanningHint(失败 summary + 前 3 条失败测试名 + 每条的 FailureDetail 首行 + 前一 plan 的 `TargetPaths` 嫌疑清单),再 dispatch planner 做第二次规划。如果新 plan 也失败,继续 —— 直到成功或耗尽重试预算。
+
+默认 0 是为了保守(fail-loud);开启后会花更多 LLM token,适合你相信 planner 能在几轮内收敛的场景。
+
+#### 可选:baseline 测试快照
+
+`pipeline_baseline_capture_enabled`(yaml,默认 false)打开后,apply 之前先跑一遍测试套件作为 baseline。verifier LLM 在写 FailureSummary narrative 时会看到"这些测试在 apply 前就挂了"的清单,可以明确把失败分成:
+
+- **REGRESSION**:baseline 过,现在挂 — **这个 plan 造成的**
+- **PRE-EXISTING**:baseline 就挂,现在还挂 — 与本次变更无关
+- **FIXED**:baseline 挂,现在过 — 顺手修了(bonus)
+
+开启会让测试墙钟时间翻倍;适合你仓库本身有已知的 flakey 或 pre-existing 失败、否则容易把 pre-existing 误认为 regression。
+
+#### 可选:成功时保留 worktree
+
+`pipeline_keep_worktree_on_success`(yaml,默认 false)打开后,apply + verify 双双通过时,Run 结束**不销毁** worktree,把路径暴露给用户 review。失败路径无条件销毁(避免磁盘垃圾堆积)。
+
+典型工作流:
+
+```bash
+# 开启 keep-on-success 后走一轮 /approve
+❯❯ /approve
+  ... 成功 ...
+  worktree preserved: /path/to/repo/.codrax/worktrees/abc-123
+
+# 在另一个终端:
+cd /path/to/repo/.codrax/worktrees/abc-123
+git log --oneline      # 看 apply 产生的 commit
+git diff main          # 看 worktree 相对 main 的 diff
+git checkout <sha>     # 如果想 cherry-pick 回 main
+cd /path/to/repo
+git cherry-pick <sha>  # 合回去(codrax 不会自动做这步)
+
+# REPL 里也能随时看 / 清:
+❯❯ /worktree list
+❯❯ /worktree discard abc-123
+```
+
+#### 9 种测试 runner 自动探测
+
+verify 阶段通过仓根的 manifest 文件自动选 runner:
+
+| 探测文件 | Runner | 命令 |
+|---|---|---|
+| `go.mod` | Go | `go test -json ./...` |
+| `package.json` | Node | `npm test -- --json --silent`(兼容 jest / vitest) |
+| `pyproject.toml` / `pytest.ini` / `setup.py` | Python | `pytest --json-report` (需 `pytest-json-report` 插件) |
+| `Cargo.toml` | Rust | `cargo test` |
+| `pom.xml` | Java (Maven) | `mvn -B -q test`,读 `target/surefire-reports/*.xml` |
+| `build.gradle` / `build.gradle.kts` | Java (Gradle) | `./gradlew --no-daemon --console=plain test`,读 `build/test-results/test/*.xml` |
+| `Gemfile` | Ruby | `bundle exec rspec --format json` |
+| `CMakeLists.txt` | CMake | `ctest --output-junit`(需要 build 目录已配置,支持 `build/` / `builddir/` / `out/` / `cmake-build-debug/` / `cmake-build-release/`) |
+| `meson.build` | Meson | `meson test --xunit-file` |
+| `Makefile` / `makefile` / `GNUmakefile` | Make | 优先 `make check` 再 `make test`(读 Makefile 首行列扫),exit code 判定 |
+
+多 manifest 并存时按上表顺序取先找到的(例如 CMake 生成的 Makefile 会被 CMakeLists.txt 压过)。构建失败(测试还没开始跑)时会自动合成一条失败 `TestResult`,`FailureDetail` 里带从 stdout / stderr 提取的错误行,给 retry 循环的 PlanningHint 真正有用的信息。
+
+不在上表的语言 / 构建系统,`/verify` 会明确报错 "no supported test runner detected",并列出所有它查找过的文件名 —— 你可以补一份符合约定的 manifest,或者在 codrax.yaml 指定 Runner / 自行加装 wrapper。
+
+#### 当前限制
+
+- 写模式**不支持** multi-plan concurrency;同一仓库不要并行跑两个 `/approve`。
+- worktree 不会自动 push 到任何 remote;合并到主仓永远是用户的手动操作。
+- `git apply -` 失败时 git 的 stderr 会原样透传给 coder,但**不会**自动回退已 applied 的单元(符合 git 默认行为);如果你的 plan 有多文件依赖,建议用 `DependsOn` 明确排序,让失败单元及其下游整块被 retry。
 
 ---
 
@@ -659,14 +863,16 @@ codrax --log-level debug --log-stdout -r "你的问题"
 
 ### 5.2 REPL 斜杠命令
 
-进入 REPL 后输入这些命令(**每条都支持反斜杠替代**,如 `\exit` 等价 `/exit`):
+进入 REPL 后输入这些命令(**每条都支持反斜杠替代**,如 `\exit` 等价 `/exit`)。Tab 键触发自动补齐面板;对需要参数的命令,补齐后会自动留一个空格继续输入。
+
+**通用**
 
 | 命令 | 别名 | 作用 |
 |---|---|---|
 | `/exit` / `/quit` | `/q` | 退出 REPL |
 | `/help` | `/h` | 显示斜杠命令列表 |
 | `/version` | `/v` | 打印构建版本 |
-| `/history` | | 列出当前记忆里的最近轮次 + 压缩索引 |
+| `/history` | | 列出当前记忆里的最近轮次 + 压缩索引 + 写模式 plan 历史 |
 | `/clear` | | 清对话记忆(会二次确认,且提示当前几个对等进程在用同一份记忆) |
 | `/compact` | | 主动把所有旧轮次压缩到 MEMORY.md(保留最新一轮) |
 | `/log <path>` | | 加载文件为附加日志(会替换现有附加) |
@@ -674,9 +880,23 @@ codrax --log-level debug --log-stdout -r "你的问题"
 | `/log show` | | 打印附加日志的前 20 行 + 总字节数 |
 | `/log clear` | | 清除附加日志(不清对话记忆) |
 | `/paste` | | 通用粘贴兜底(与 `/log` 不同,内容会作为下一次提问的输入) |
-| `/chat <message>` | | 闲聊通道:本条消息不走 analyze→explore→extract→finalize 流水线,单次 LLM 直接回复。适合打招呼、问工具能力、不需要读仓库的对话。详见 [3.3.15](#3315-闲聊命令chitchat_enabled) |
+| `/chat <message>` | | 闲聊通道:本条消息不走分析流水线,单次 LLM 直接回复。适合打招呼、问工具能力、不需要读仓库的对话。详见 [3.3.15](#3315-闲聊命令chitchat_enabled) |
 
-**粘贴兜底的两种场景对比**:
+**写模式**(需 `codrax.yaml :: write_enabled: true`)
+
+| 命令 | 作用 |
+|---|---|
+| `/mode [read\|plan\|apply\|verify]` | 无参数查看当前 mode;有参数切换(粘滞,影响后续所有提问) |
+| `/plan show` | 审阅 pending plan(含 kind=patch / modify 的 unified diff 预览,per-change 4 KB、总计 16 KB 上限) |
+| `/plan list` | 列出 PlanStore 里所有 plan(显示状态:pending / applied / applied_failed / verify_failed / rejected) |
+| `/plan clear` | 丢弃 pending plan(不记 memory;要记 memory 用 `/reject`) |
+| `/approve` | 二次确认后触发 `apply + verify`。**只接受 Status=pending_approval 的 plan**,已 applied / rejected 的一律拒绝 |
+| `/reject [reason]` | 丢弃 pending plan 并把理由记入 memory 历史 |
+| `/verify [plan-id]` | 对已 applied 的 plan 重跑 verify(不重新 apply)。需要 plan 有保留的 worktree(即 Run 时开了 `pipeline_keep_worktree_on_success`)。无参数时用 pending plan |
+| `/worktree list` | 列出所有保留的 worktree(带 plan-id、worktree 路径、summary) |
+| `/worktree discard <plan-id>` | 手动清理指定 plan 的 worktree 并清 `plan.worktree_path` 字段(plan 状态保持 applied,历史不改) |
+
+**两种粘贴兜底的区别**:
 
 | 子命令 | 内容去向 | 何时用 |
 |---|---|---|
@@ -694,7 +914,7 @@ codrax --log-level debug --log-stdout -r "你的问题"
 **正常环境**(rg + git 齐全):
 
 ```
-   CODRAX  v0.1.20260422  /help · /exit
+   CODRAX  v0.1.20260424  /help · /exit
    memory: 4 recent turn(s) + 12 compacted, 8.3 KB total
 
 ❯❯
@@ -878,7 +1098,108 @@ codrax -r "trace this crash" --log /tmp/asan.out \
   --log-source-prefix /home/jenkins/workspace/build/src/
 ```
 
-### 7.3 脚本化批处理
+### 7.3 写模式:小步修复一个 bug
+
+**目标**:用 codrax 自动生成 + 应用一个小补丁,跑测试验证,review 后手动 cherry-pick 到主仓。
+
+**前置**:`codrax.yaml` 里开:
+
+```yaml
+write_enabled: true
+pipeline_keep_worktree_on_success: true   # 让 worktree 留下给你 review
+pipeline_max_verify_retries: 2            # 如果 plan 写得有问题允许自动再试两次
+```
+
+**操作**:
+
+```bash
+cd ~/code/codrax           # 或你自己的仓库
+codrax
+```
+
+```
+❯❯ /mode plan
+  mode → plan (sticky)
+
+❯❯ internal/repl/input.go 里 needsArg 缺了 /worktree,帮我把它加上,
+…  保持和其它几个命令同形状的 switch case
+
+   ... (planner 跑约 30-90 秒) ...
+
+  plan saved: /path/to/repo/.codrax/plans/plan-<id>.json  (1 change)
+
+❯❯ /plan show
+  current plan: .../plan-<id>.json
+    id:      plan-<id>
+    status:  pending_approval
+    changes: 1 file(s)
+    targets: internal/repl/input.go
+    summary: Add "/worktree" to needsArg switch so Tab-complete leaves
+             a trailing space for the subcommand argument.
+
+  diff preview:
+
+  ─── internal/repl/input.go (kind=patch) ───
+  rationale: 与其它接参命令保持一致
+  --- a/internal/repl/input.go
+  +++ b/internal/repl/input.go
+  @@ -620,7 +620,7 @@
+   func needsArg(cmd string) bool {
+    switch cmd {
+  -  case "/log", "/chat", "/mode", "/plan", "/reject", "/verify":
+  +  case "/log", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree":
+      return true
+    }
+    return false
+   }
+
+❯❯ /approve
+  Approve plan plan-<id> (1 change(s))? Apply inside a git worktree + run verify.
+  > Yes
+
+   ... (apply + verify 约 1-3 分钟) ...
+
+  │ ## 变更应用成功
+  │
+  │ 1 个文件已在 worktree 里更新; go test ./internal/repl/ 全部通过
+  │ (18 passed, 0 failed)
+
+  worktree preserved: /path/to/repo/.codrax/worktrees/<trace>-<pid>
+
+❯❯ /exit
+```
+
+**验收 + 合并**:
+
+```bash
+# review 一下 worktree 里的实际改动
+cd /path/to/repo/.codrax/worktrees/<trace>-<pid>
+git log --oneline main..HEAD
+git diff main
+
+# 满意就 cherry-pick 回主仓
+cd /path/to/repo
+git cherry-pick <worktree-commit-sha>
+
+# 不要了就手动清掉 worktree(或回 REPL 用 /worktree discard)
+rm -rf .codrax/worktrees/<trace>-<pid>
+```
+
+**出错示例**:如果 planner 生成的 kind=patch 因为行号漂移 `git apply` 失败了,`pipeline_max_verify_retries` 为 2 时你会看到:
+
+```
+   ... apply failed: hunk at @@ -620,7 +620,7 doesn't match ...
+   ... retry attempt 2: PlanningHint seeded with suspect file ...
+   ... planner 重新生成新 plan ...
+   ... apply + verify 成功 ...
+```
+
+**安全网**:
+- W1 写闭包保护 —— 哪怕 planner 想改未声明的文件,`apply_patch` 工具层也会拒绝。
+- 主仓 HEAD 字节永不被自动写;哪怕 worktree 里所有 commit 都已落盘,只要你不 cherry-pick,主仓就还是之前的样子。
+- 失败的 worktree 被自动销毁(`pipeline_keep_worktree_on_success` 只保留**成功**的)。
+
+### 7.4 脚本化批处理
 
 **目标**:对一批问题跑回归 / 自动化生成代码概要。
 
@@ -896,7 +1217,7 @@ done < questions.txt > report.md
 - `2>/dev/null` 把实时任务列表丢弃,只留最终 markdown
 - `--lang en` 强制英文输出(覆盖 `codrax.yaml` 里的 `lang: zh`)
 
-### 7.4 同一台机器操作多个仓库
+### 7.5 同一台机器操作多个仓库
 
 codrax 会**自动用 `--repo` 的绝对路径生成 hash slug**,把日志和对话记忆分目录。同一个 codrax 二进制可以服务多个仓库而互不污染:
 
@@ -925,7 +1246,7 @@ codrax
 
 甚至可以同一个仓库**多个 codrax 实例并发**,日志按 PID 隔离、记忆写入用 flock 串行化,`/clear` 前会提示当前还有几个 peer 在用。
 
-### 7.5 长对话与记忆管理
+### 7.6 长对话与记忆管理
 
 REPL 模式下默认保留最近 6 轮(或 20 KB 总字节,哪个先到)。超出后最旧的一轮会被 LLM 压成一行 summary 放进 `MEMORY.md`,后续提问时若关键词匹配,这些历史 summary 会被重新召回作为上下文。
 
@@ -1043,7 +1364,7 @@ A:
 4. 对答案做基于 `file:line` 的结构化断言,比对着散文更稳定
 
 **Q: 怎么开流式响应?有什么区别?**
-A: **默认就是开的**(2026-04-23 起)。开启后:
+A: **默认就是开的**。开启后:
 - 任务行实时显示模型正在产出的内容 tail(250ms 节流,80 字符)
 - `/chat` 以 typewriter 形式逐段上屏,短回复也能秒响应
 - 慢模型 / 长响应下用户不再干瞪 30s 空 spinner
@@ -1062,7 +1383,7 @@ openssl s_client -showcerts -servername $HOST -connect $HOST:443 </dev/null 2>/d
 ```
 
 **Q: 启动报 `invalid character 'd' looking for beginning of value`?**
-A: 是你用了一个**强制返 SSE** 的 provider(即使你 `stream: false` 它也流)。新版 codrax 已经有 **SSE 自动嗅探**,响应开头是 `data:` 时自动走流式 parser,一般不用手动处理。若还出现,确认 `git pull && make` 拉的是最新代码(commit `eac38af` 或更新)。
+A: 是你用了一个**强制返 SSE** 的 provider(即使你 `stream: false` 它也流)。codrax 有 **SSE 自动嗅探**,响应开头是 `data:` 时自动走流式 parser,一般不用手动处理。若仍然出现,通常说明你运行的是较早版本 —— 拉最新代码重编即可。
 
 **Q: HTTP 和 HTTPS 怎么切换?**
 A: 不存在"切换 flag",由 `base_url` 开头决定:

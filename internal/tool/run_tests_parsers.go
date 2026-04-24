@@ -17,10 +17,12 @@ import (
 
 // parseRunnerOutput dispatches to the runner-specific parser and
 // returns a populated ChangeReport. extraFile is a path the runner
-// wrote its JSON to (pytest workflow); empty for stdout parsers.
-// cmdStr is included in ChangeReport failure narratives so the
-// operator can see exactly what command ran.
-func parseRunnerOutput(runner, stdout, extraFile, cmdStr string) (*types.ChangeReport, error) {
+// wrote its JSON/XML to (pytest / ctest / meson); empty for stdout
+// parsers. cmdStr is included in ChangeReport failure narratives so
+// the operator can see exactly what command ran. runErr is the
+// *exec.Cmd.Run error — populated for every runner but only the
+// make parser (no structured output) inspects it.
+func parseRunnerOutput(runner, stdout, extraFile, cmdStr string, runErr error) (*types.ChangeReport, error) {
 	switch runner {
 	case "go":
 		return parseGoTestJSONLines(stdout)
@@ -34,23 +36,81 @@ func parseRunnerOutput(runner, stdout, extraFile, cmdStr string) (*types.ChangeR
 		// extraFile is the report directory (populated by
 		// locateJUnitReportDir in run_tests.go's Execute).
 		return parseJUnitXMLDir(extraFile, stdout)
+	case "cmake", "meson":
+		// extraFile is a single JUnit XML file written by
+		// ctest --output-junit or meson test --xunit-file.
+		// parseJUnitXMLDir's filepath.Walk handles a single-file
+		// root cleanly — the .xml suffix gate accepts our tmpfile.
+		return parseJUnitXMLDir(extraFile, stdout)
 	case "ruby":
 		return parseRSpecJSON(stdout)
+	case "make":
+		return parseMakeOutput(stdout, runErr)
 	}
 	return nil, fmt.Errorf("parseRunnerOutput: unknown runner %q", runner)
+}
+
+// parseMakeOutput synthesises a ChangeReport from `make <target>`
+// execution. Raw Makefiles have no structured test protocol so we
+// collapse the whole run into a single `make-test` TestResult whose
+// Passed flag is the process exit status. On failure, FailureDetail
+// carries an extract of the stdout/stderr error markers (same
+// generic scanner the Java/CMake build-failure paths use).
+//
+// This sacrifices per-test visibility — a `make check` that runs
+// 200 cases will produce one composite row — but it's faithful to
+// what Make tells us. Projects that want finer granularity should
+// configure their Makefile test target to emit JUnit XML and use
+// the cmake/meson runner shape; otherwise the aggregate verdict is
+// the only honest signal.
+//
+// runErr is the *exec.Cmd.Run result: nil → target succeeded, any
+// error → target failed (including exit codes, signal termination,
+// and "No rule to make target" from an absent `check`/`test`).
+func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
+	passed := runErr == nil
+	var (
+		detail      string
+		failSummary string
+	)
+	if !passed {
+		detail = extractBuildErrorExcerpt(stdout)
+		if detail == "" {
+			// Nothing marker-like in the output — at least carry the
+			// error string itself so the retry hint isn't empty.
+			detail = runErr.Error()
+		}
+		firstLine := strings.SplitN(detail, "\n", 2)[0]
+		if len(firstLine) > 200 {
+			firstLine = firstLine[:200] + "…"
+		}
+		failSummary = "make target failed: " + firstLine
+	}
+	report := &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			AssertionID:   "make-test",
+			Suite:         "make",
+			Passed:        passed,
+			FailureDetail: detail,
+		}},
+		Passed:         passed,
+		FailureSummary: failSummary,
+	}
+	return report, nil
 }
 
 // ── Go: go test -json ────────────────────────────────────────────
 //
 // Output format: one JSON object per line. Relevant Action values:
-//   "run"    — test is starting (ignore)
-//   "pass"   — test passed (record with Passed=true)
-//   "fail"   — test failed (record with Passed=false; subsequent
-//              "output" actions carry the failure message which we
-//              collect into FailureDetail)
-//   "skip"   — test was skipped (not counted as failure)
-//   "output" — arbitrary stdout line; we accumulate per-test output
-//              so failing tests get their t.Errorf messages preserved
+//
+//	"run"    — test is starting (ignore)
+//	"pass"   — test passed (record with Passed=true)
+//	"fail"   — test failed (record with Passed=false; subsequent
+//	           "output" actions carry the failure message which we
+//	           collect into FailureDetail)
+//	"skip"   — test was skipped (not counted as failure)
+//	"output" — arbitrary stdout line; we accumulate per-test output
+//	           so failing tests get their t.Errorf messages preserved
 //
 // Reference: https://pkg.go.dev/cmd/test2json
 type goTestEvent struct {
@@ -230,13 +290,13 @@ func buildGoFailureSummary(results []types.TestResult, pkgStatus map[string]stri
 // assertionResults[] per test case. vitest's JSON shape is jest-
 // compatible by design. One parser suffices.
 type jestJSON struct {
-	NumPassedTests int `json:"numPassedTests"`
-	NumFailedTests int `json:"numFailedTests"`
-	NumTotalTests  int `json:"numTotalTests"`
+	NumPassedTests int  `json:"numPassedTests"`
+	NumFailedTests int  `json:"numFailedTests"`
+	NumTotalTests  int  `json:"numTotalTests"`
 	Success        bool `json:"success"`
 	TestResults    []struct {
-		Name              string `json:"name"` // test file path
-		AssertionResults  []struct {
+		Name             string `json:"name"` // test file path
+		AssertionResults []struct {
 			Title           string   `json:"title"`           // test case name
 			Status          string   `json:"status"`          // passed | failed | skipped | pending
 			Duration        float64  `json:"duration"`        // milliseconds
@@ -316,9 +376,9 @@ type pytestJSON struct {
 		Total   int `json:"total"`
 	} `json:"summary"`
 	Tests []struct {
-		NodeID   string  `json:"nodeid"`      // e.g. "tests/test_foo.py::test_bar"
-		Outcome  string  `json:"outcome"`     // passed | failed | skipped | error
-		Duration float64 `json:"duration"`    // seconds
+		NodeID   string  `json:"nodeid"`   // e.g. "tests/test_foo.py::test_bar"
+		Outcome  string  `json:"outcome"`  // passed | failed | skipped | error
+		Duration float64 `json:"duration"` // seconds
 		Call     struct {
 			Longrepr string `json:"longrepr"` // failure traceback
 		} `json:"call"`
@@ -392,26 +452,26 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 // --format=json behind -Z unstable-options). We parse the text
 // output with regex. Cargo emits:
 //
-//   running 3 tests
-//   test tests::foo ... ok
-//   test tests::bar ... FAILED
-//   test tests::baz ... ignored
+//	running 3 tests
+//	test tests::foo ... ok
+//	test tests::bar ... FAILED
+//	test tests::baz ... ignored
 //
-//   failures:
+//	failures:
 //
-//   ---- tests::bar stdout ----
-//   ...traceback...
+//	---- tests::bar stdout ----
+//	...traceback...
 //
-//   failures:
-//       tests::bar
+//	failures:
+//	    tests::bar
 //
-//   test result: FAILED. 2 passed; 1 failed; 0 ignored; ...
+//	test result: FAILED. 2 passed; 1 failed; 0 ignored; ...
 //
 // Parser extracts each `test name ... status` line + the aggregate
 // `test result:` line. Failure details come from the "---- name
 // stdout ----" block.
 var (
-	reCargoTestLine = regexp.MustCompile(`^test ([\w:<>]+) \.\.\. (ok|FAILED|ignored)\b`)
+	reCargoTestLine  = regexp.MustCompile(`^test ([\w:<>]+) \.\.\. (ok|FAILED|ignored)\b`)
 	reCargoFailBlock = regexp.MustCompile(`(?s)---- ([\w:<>]+) stdout ----\n(.*?)(?:\n\n|\n-{4})`)
 	reCargoAggregate = regexp.MustCompile(`test result: (ok|FAILED)\. (\d+) passed; (\d+) failed`)
 )
@@ -528,6 +588,96 @@ func minInt(a, b int) int {
 	return b
 }
 
+// extractBuildErrorExcerpt scans build-tool stdout/stderr for lines
+// that plausibly describe a compile or configuration failure and
+// returns a bounded excerpt suitable for embedding in a TestResult's
+// FailureDetail. Used by runners whose build step precedes test
+// execution and can fail without producing a parseable artifact
+// (Maven/Gradle, today).
+//
+// Selection markers are deliberately generic across JVM-family build
+// tools rather than Maven-specific phrasing, so the same function
+// generalises to Gradle / Kotlin / Scala output:
+//
+//   - "[ERROR]"                 — Maven log prefix
+//   - "FAILURE:" / "* What went wrong:" — Gradle failure sections
+//   - "BUILD FAILURE" / "BUILD FAILED"   — either tool's verdict line
+//   - "error:" / "Error:"       — javac / scalac / most compilers
+//   - " e: "                    — kotlinc error line prefix
+//   - ":<line>: error:"         — the file:line error shape
+//
+// When no markers match (unlikely but possible with a totally
+// malformed command), falls back to the first few non-blank lines
+// of stdoutHead so the caller always has SOMETHING to show.
+//
+// Output bounded to ~1500 chars and at most 10 matched lines.
+func extractBuildErrorExcerpt(stdout string) string {
+	const (
+		maxLines = 10
+		maxChars = 1500
+	)
+	if strings.TrimSpace(stdout) == "" {
+		return ""
+	}
+	markers := []string{
+		"[ERROR]",
+		"FAILURE:",
+		"What went wrong",
+		"BUILD FAILURE",
+		"BUILD FAILED",
+		"error:",
+		"Error:",
+		" e: ",
+	}
+	seen := make(map[string]struct{})
+	picked := make([]string, 0, maxLines)
+	lines := strings.Split(stdout, "\n")
+	for _, raw := range lines {
+		line := strings.TrimRight(raw, "\r\t ")
+		if line == "" {
+			continue
+		}
+		match := false
+		for _, m := range markers {
+			if strings.Contains(line, m) {
+				match = true
+				break
+			}
+		}
+		if !match {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		picked = append(picked, trimmed)
+		if len(picked) >= maxLines {
+			break
+		}
+	}
+	if len(picked) == 0 {
+		// Marker-less fallback: first ~5 non-empty lines of head.
+		head := stdoutHead(stdout, maxChars)
+		for _, raw := range strings.Split(head, "\n") {
+			line := strings.TrimSpace(raw)
+			if line == "" {
+				continue
+			}
+			picked = append(picked, line)
+			if len(picked) >= 5 {
+				break
+			}
+		}
+	}
+	out := strings.Join(picked, "\n")
+	if len(out) > maxChars {
+		out = out[:maxChars] + "\n…[truncated]"
+	}
+	return out
+}
+
 // ── Java: JUnit XML (Maven surefire / Gradle testreport) ──────────
 //
 // Maven writes per-test-class XML under target/surefire-reports/
@@ -563,12 +713,12 @@ type junitTestSuites struct {
 }
 
 type junitTestCase struct {
-	Name      string         `xml:"name,attr"`
-	ClassName string         `xml:"classname,attr"`
-	Time      string         `xml:"time,attr"`
-	Failure   *junitFailure  `xml:"failure"`
-	Error     *junitFailure  `xml:"error"`
-	Skipped   *junitSkipped  `xml:"skipped"`
+	Name      string        `xml:"name,attr"`
+	ClassName string        `xml:"classname,attr"`
+	Time      string        `xml:"time,attr"`
+	Failure   *junitFailure `xml:"failure"`
+	Error     *junitFailure `xml:"error"`
+	Skipped   *junitSkipped `xml:"skipped"`
 }
 
 type junitFailure struct {

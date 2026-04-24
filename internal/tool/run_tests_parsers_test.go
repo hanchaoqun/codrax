@@ -435,7 +435,7 @@ func TestDetectRunner(t *testing.T) {
 // ── parseRunnerOutput dispatcher ─────────────────────────────────
 
 func TestParseRunnerOutput_UnknownRunner(t *testing.T) {
-	_, err := parseRunnerOutput("nonexistent", "output", "", "")
+	_, err := parseRunnerOutput("nonexistent", "output", "", "", nil)
 	if err == nil {
 		t.Error("should error on unknown runner")
 	}

@@ -1,97 +1,126 @@
 # codrax
 
-一个只读代码分析工具，由 LLM 驱动的 4 阶段确定性流水线组成。输入一个关于仓库的自然语言问题，输出一份有 citation 的结构化答案。不修改源文件。
+> **文档对应版本**：`0.1.20260424`(CalVer，`make` 产出的二进制 `codrax --version` 打印准确值)
+
+codrax 是一个 LLM 驱动的**代码分析 + 变更提议**工具。默认只读:输入一个关于仓库的自然语言问题,输出一份带 `file:line` citation 的结构化答案,不触碰源文件。开启写模式后,可以在一个**沙箱 git worktree** 里走完整的 `plan → apply → verify` 流程;主仓库 HEAD 字节永不自动变更,用户显式审批才会落地。
 
 ## 快速开始
 
 ```bash
-# 1. 构建（仅一次；CGO 依赖见下方 “构建” 一节）
+# 1. 构建(CGO 依赖见下方"构建"一节)
 git clone https://github.com/hanchaoqun/codrax.git && cd codrax
 make
 # 输出 ./codrax
 
-# 2. 把 codrax 所在目录加进 PATH（让任意工作目录都能直接调用）
+# 2. 加进 PATH
 echo "export PATH=\"$PWD:\$PATH\"" >> ~/.bashrc      # bash
 echo "export PATH=\"$PWD:\$PATH\"" >> ~/.zshrc       # zsh
-exec "$SHELL" -l                                       # 重载 shell，立即生效
+exec "$SHELL" -l
 
 # 3. 配置 LLM 凭证 —— providers.yaml 必须和 codrax 二进制同目录
 cp providers.yaml.example providers.yaml
-$EDITOR providers.yaml                                 # 填 api_key + model
+$EDITOR providers.yaml                               # 填 api_key + model
 
-# 4. 进入任意目标仓库启动 REPL
+# 4. 进入目标仓库启动 REPL
 cd /path/to/your/repo
-codrax                                                  # 进入交互模式
+codrax
 ```
 
-REPL 里直接发问：
+REPL 里直接发问:
 
 ```
-   CODRAX  v0.1.20260422  /help · /exit
+   CODRAX  v0.1.20260424  /help · /exit
 
-❯❯ explorer 的 ShouldStop 是怎么决定的？
+❯❯ explorer 的 ShouldStop 是怎么决定的?
 ```
 
-回答会带文件 + 行号 citation；`/help` 看全部斜杠命令，`/version` 看构建版本，`/exit` 退出。
+答案带 `file:line` citation;`/help` 列出全部斜杠命令,`/version` 看构建版本,`/exit` 退出。
 
 ### 最精简 `providers.yaml`
 
-所有 4 个 agent 共用同一个 provider 即可起跑：
+所有 agent 共用同一个 provider 即可起跑:
 
 ```yaml
 llm:
   default:
-    provider: openai          # 仅实现 openai 协议；deepseek / qwen / vllm / Ollama
-                              # 等兼容此协议的服务用同一段 + base_url 切走
+    provider: openai          # 仅实现 openai 协议;deepseek / qwen / vllm /
+                              # Ollama 等兼容此协议的服务共用同一段,换 base_url
     api_key: "sk-xxx"
     model: "gpt-4o"
     base_url: ""              # 空 → https://api.openai.com/v1
 ```
 
-需要给单个 agent 单独换模型再加 `agents:` 段，未列出的 agent 自动继承 `default`：
+需要按 agent 换模型,加 `agents:` 段;未列出的 agent 自动继承 `default`。合法的 agent 名:`analyzer` · `explorer` · `extractor` · `finalizer` · `log_triager` · `planner` · `coder` · `verifier` · `chitchat_responder` · `chitchat_classifier` · `memory_summarizer`。
 
-```yaml
-llm:
-  default:
-    provider: openai
-    api_key: "sk-xxx"
-    model: "gpt-4o-mini"      # 便宜模型跑 explorer / extractor
-  agents:
-    analyzer:
-      model: "gpt-4o"         # 任务分类用更强的模型
-    finalizer:
-      model: "gpt-4o"
-```
-
-合法 agent 名：`analyzer` · `explorer` · `extractor` · `finalizer` · `log_triager`。
+更多模板见 [`providers.yaml.example`](providers.yaml.example)。
 
 ### `providers.yaml` 放在哪
 
-二进制同目录优先（`<exeDir>/providers.yaml`），完整查找规则与 `codrax.yaml` 一致 — 见下文 **配置 → 路径锚点 / 查找顺序**。临时切换可用环境变量：
+二进制同目录优先(`<exeDir>/providers.yaml`)。临时切换用环境变量:
 
 ```bash
-CODRAX_SETTINGS=/etc/codrax/team-shared.yaml codrax    # 从 codrax.yaml 反向指向 providers.yaml
+CODRAX_SETTINGS=/etc/codrax/team-shared.yaml codrax
 ```
 
-## 流水线
+完整查找规则见 [用户指南](docs/user_guide.md#34-配置文件查找顺序)。
 
-主流水线 `analyze → explore → extract → finalize`，每个阶段一个 agent、一个 skill，硬编码在 [`internal/orchestrator/topology.go`](internal/orchestrator/topology.go)。当用户附加了运行时日志时，analyze 之前会条件触发一个独立的 log_triage 阶段：
+## 两种使用模式
 
-| 阶段 | Agent | Skill | 做什么 |
+### 读模式(默认)
+
+`analyze → explore → extract → finalize`,4 阶段 × 4 Agent 硬编码拓扑。当用户通过 `--log` / `/log` 附加了运行时日志时,analyze 前条件触发一个 `log_triage` 阶段。
+
+| 阶段 | Agent | 做什么 |
+|---|---|---|
+| `log_triage`(条件) | `log_triager` | LLM 把日志解析成结构化 bundle(错误类型 / 栈帧 / 因果链 / 信号分类),系统侧做路径校验 + 仓内存在性过滤;失败不阻塞主流水线 |
+| `analyze` | `analyzer` | 一次 `emit_analysis` 产出 `RequestModel`(意图 / 场景 / 复杂度),后处理管线确定性组装 `AnalysisIR`(TaskGraph + EvidencePlan + AnswerContract + HypothesisSet + 风险矩阵) |
+| `explore` | `explorer` | Turn A 调查:read_file / grep / repo_map ReAct 循环,通过 `emit_evidence` 累积证据 |
+| `extract` | `extractor` | Turn B 结构化:读 Turn A 冻结快照,产出带 completeness claim 的答案面板 |
+| `finalize` | `finalizer` | `emit_answer_document` 产出 typed `AnswerDocument`,渲染成用户可见散文 |
+
+Citation 由 finalizer 发射时同步校验(`internal/tool/ground/`),文件 / 行号 / 文本三重匹配,越界 / 编造 / 与源码不一致的引用会被打回重试。
+
+### 写模式(opt-in)
+
+默认关闭。在 `codrax.yaml` 里显式 `write_enabled: true` 才能启用;CLI 通过 `--mode=plan|apply|verify` 切换,REPL 通过 `/mode plan` 等切换(粘滞)。
+
+完整生命周期:
+
+```
+           /mode plan
+            或 --mode=plan                      /approve  或  --mode=apply
+read ────────────────────►  plan ────────────────►  apply  ────► verify ────► done
+                              │   (planner 写 ChangePlan)  │  (coder 在 worktree     │ (verifier 跑
+                              │                            │   里逐单元 apply_patch)  │  run_tests)
+                              ▼                            ▼
+                          /plan show              /worktree list / discard
+                          /reject [reason]        /verify [plan-id]
+```
+
+| 阶段 | Agent | 工具 | 产出 |
 |---|---|---|---|
-| log_triage *(条件触发)* | log_triager | log-triage-skill | 仅当用户通过 `--log` / `/log` 附加运行时日志时运行。LLM 把日志解析成结构化 bundle（错误类型、栈帧、因果链、信号分类），系统做路径校验和派生；阶段失败不阻塞主流水线 |
-| analyze | analyzer | analysis-skill | 一次 LLM 调用，通过 `emit_analysis` 工具输出 `AnalysisIR`（意图/场景/复杂度 + TaskGraph + EvidencePlan + AnswerContract + HypothesisSet + 风险矩阵） |
-| explore | explorer | explore-skill | **Turn A** 调查：read_file / grep / repo_map ReAct 循环，通过 `emit_evidence` 累积证据，用 ERM（Evidence Requirement Model）跟踪"还缺哪些证据" |
-| extract | extractor | extract-skill | **Turn B** 结构化：无文件 IO，只读 Turn A 的冻结快照，通过 `emit_answer_symbol` / `emit_hypothesis_verdict` 产出带 completeness claim 的答案面板 |
-| finalize | finalizer | answer-document-skill | 通过 `emit_answer_document` 产出 typed AnswerDocument，deterministic renderer 转成用户可见的散文/列表/代码块 |
+| `plan` | `planner` | `emit_change_plan` | `ChangePlan` JSON 落盘(`.codrax/plans/<id>.json`),包含 Changes[](path / kind / rationale / depends_on) + AcceptanceTests[] + TargetPaths[] |
+| `apply` | `coder` | `apply_patch`(每 ChangeUnit 一次) | 在 git worktree 里按拓扑序写文件;支持 `create` / `modify` / `delete` / `patch`(kind=patch 通过 `git apply -` 喂 unified diff) |
+| `verify` | `verifier` | `run_tests` + 可选 `emit_test_results` | 在 worktree 里跑测试套件,产出 `ChangeReport` |
 
-AnalysisIR 在 analyze 阶段之后走一条确定性后处理管线：`normalizer → compiler → risk → hdp → counterfactual → gate`（全部在 `internal/analysis/*` 子包）。
+**`run_tests` 识别 9 种 runner**:Go(`go test -json`)、Node(jest/vitest `--json`)、Python(pytest-json-report)、Rust(cargo test)、Java(Maven/Gradle JUnit XML)、Ruby(RSpec `--format json`)、CMake(ctest `--output-junit`)、Meson(`meson test --xunit-file`)、Make(`make check` / `make test`,exit-code 判定)。探测通过仓根的 manifest 文件(`go.mod` / `package.json` / `Cargo.toml` / `pom.xml` / `CMakeLists.txt` / `Makefile` 等),缺失 runner 会在 verify 阶段 fail-loud。
 
-分析答案的 AnswerContract（shape + cardinality + citation 约束）由 analyzer 产出、finalizer 响应；cardinality 违规会触发 Turn A + Turn B 的回溯重跑直到 retry budget 耗尽。
+**沙箱语义**:
+- 所有写操作都在 `git worktree add` 出来的独立 worktree 里执行,主仓库 HEAD 字节不变。
+- `apply_patch` 强制 W1(`path` 必须在 `ChangePlan.TargetPaths`)+ W1b(`DependsOn` 必须已 applied)。违规直接拒绝,coder 看到错误可在下一轮自修正。
+- 默认 Run 结束**销毁** worktree(清理磁盘)。开启 `pipeline_keep_worktree_on_success: true` 后,apply + verify 双双通过时保留 worktree,用户可 `cd` 进去 review / cherry-pick 到主仓。失败路径无条件清理。
+
+**verify→plan 重试循环**(可选):`pipeline_max_verify_retries` 大于 0 时,verify 失败会把失败 summary + top-3 失败测试 + 前一 plan 的 `TargetPaths`(嫌疑文件清单)喂给 planner 做二次规划。硬上限 5 次,默认 0(保守)。
+
+**baseline 捕获**(可选):`pipeline_baseline_capture_enabled: true` 会在 apply 前跑一遍测试套件作为 baseline 快照。verifier LLM 提示里会列出 baseline 已失败的测试,引导区分"这个 plan 造成的 REGRESSION"与"预存 PRE-EXISTING 失败"。默认关闭(测试墙钟时间翻倍)。
+
+**合并回主仓**:codrax 永远不自动推改动到主仓 HEAD。成功的 worktree(保留选项开启时)+ 用户的 `git cherry-pick` / `git rebase` 是规范通路;失败的 worktree 自动销毁。
+
+详见 [用户指南 · 写模式](docs/user_guide.md#43-写模式)。
 
 ## 构建
 
-Tree-sitter 语法解析需要 CGO：
+Tree-sitter 语法解析需要 CGO:
 
 ```bash
 # Linux (Debian/Ubuntu)
@@ -104,149 +133,129 @@ xcode-select --install
 ```
 
 ```bash
-# 编译（输出 ./codrax）
-make
-
-# 全静态 musl 链接（仅 Linux）
-make static
-
-# 交叉编译全平台到 dist/
-make release
-
-# 运行测试
-make test
+make               # 编译,输出 ./codrax
+make static        # 全静态 musl 链接(仅 Linux)
+make release       # 交叉编译全平台到 dist/
+make test          # 运行所有测试
 ```
 
 ## 运行
 
 ```bash
-# 交互模式（默认，无 --request 即进入）
+# 交互(默认,无 --request 即进入)
 ./codrax
-#   You> 提示符，支持 /exit /clear /history /compact /log /paste /chat /version /help 斜杠命令
-#   多轮对话自动保存到 memory/<repo-slug>/MEMORY.md + .../turns/，重启续接
-#   /clear 会显示当前还有几个其它实例在用同一份 memory，并要求确认
 
-# 单次运行
+# 单次运行(读模式)
 ./codrax --request "解释 explorer 的 ShouldStop 是怎么决定的"
 
-# 诊断模式（debug 级别 ReAct trace 写入 logs/ 同时镜像到 stdout）
+# 诊断(debug 级别 ReAct trace 写入 logs/ 同时镜像到 stdout)
 ./codrax --log-level debug --log-stdout --request "your question"
 
-# 多目标仓使用：日志和 memory 自动按 -repo 路径生成 hash slug 隔离
+# 多目标仓 — 日志和 memory 按 --repo 绝对路径 hash 自动隔离
 ./codrax --repo /path/to/repoA --request "..."
-./codrax --repo /path/to/repoB --request "..."   # 不会和 repoA 混在一起
+./codrax --repo /path/to/repoB --request "..."   # 不会和 repoA 混
+
+# 写模式单次(需 write_enabled: true)
+./codrax --mode=plan --request "add X feature" --plan-out /tmp/p.json
+./codrax --mode=apply --plan-file /tmp/p.json --auto-apply
+./codrax --mode=verify --plan-file /tmp/p.json
 ```
 
-### 粘贴兜底（SSH / tmux 环境）
+REPL 斜杠命令(支持 `\` 前缀别名,如 `\exit` ≡ `/exit`):
 
-交互 REPL 默认依赖终端的 bracketed paste 把一次粘贴打包送进来，这样多行内容会被自动折叠成 `[Pasted text #N +L lines +C chars]` 占位 token。但在 SSH + 老版本 tmux、某些 `$TERM`、部分 SSH 客户端里，`\x1b[200~` / `\x1b[201~` 标记会被中途吃掉，粘贴以一连串普通按键的形式到达，自动折叠永远不触发。`/paste` 是这种场景的兜底：
+```
+/help  /exit  /quit  /version  /history  /clear  /compact
+/log   /paste  /chat
+/mode  /plan   /approve  /reject  /verify  /worktree
+```
+
+每条都支持 Tab 补齐。
+
+### 粘贴兜底(SSH / tmux 环境)
+
+交互 REPL 默认依赖终端 bracketed paste 折叠多行粘贴成 `[Pasted text #N +L lines +C chars]` 占位 token。SSH + 老版 tmux / 某些 `$TERM` / 部分 SSH 客户端会吃掉 `\x1b[200~` / `\x1b[201~` 标记,`/paste` 是兜底:
 
 ```
 ❯❯ /paste                    # 进入采集模式
   paste> <贴入多行内容>
-  paste> /end                 # 单独一行 /end 结束，或 Ctrl+C 放弃
-❯❯ 这个 stack trace 的根因是什么？   # 下一条提问会自动带上 [Pasted text #0] token
+  paste> /end                 # 单独一行 /end 结束
+❯❯ 这个 stack trace 的根因是什么?   # 下一条提问自动带 [Pasted text #0] token
 ```
 
-采集到的内容会在下一次输入时作为 `#0` 占位符注入输入行，光标停在 token 后面留一个空格位,可以继续输入问题再回车。单次有效：提交或 Ctrl+C 后即丢弃。与 `/log`（把日志粘贴到 attached-log 通道）不同——`/paste` 走的是和普通手敲问题完全一样的 request 通道，适合贴代码片段、错误消息、别人的诊断结论等。
+单次有效;与 `/log`(把日志送进 attached-log 通道,触发结构化分诊)是完全不同的通路 —— `/paste` 走普通 request 通道。
 
-## 日志分诊（log triage）
+## 日志分诊(log triage)
 
-粘贴一段运行时日志（panic / exception 堆栈 / sanitizer 诊断 / traceback / 自研应用日志 / 编译器错误都可以），codrax 会在 analyze 之前先跑一个独立的 log_triage 阶段：LLM 把日志读成结构化数据（错误类型、栈帧、因果链、信号分类），系统做路径校验、仓内存在性过滤、重复消噪，然后把解析出来的文件定位和关键词喂给下游，explorer 优先读这些文件。
+粘贴一段运行时日志(panic / exception 堆栈 / sanitizer 诊断 / traceback / 自研应用日志 / 编译器错误都可以),codrax 会在 analyze 之前先跑一个独立的 `log_triage` 阶段:LLM 把日志读成结构化数据(错误类型、栈帧、因果链、信号分类),系统侧做路径校验 / 仓内存在性过滤 / 重复消噪,然后把解析出来的文件定位和关键词喂给下游,explorer 优先读这些文件。
 
-因为是 LLM 做抽取而不是写死的正则 parser，支持的格式不是一个固定列表——凡是模型能看懂的结构都能处理：Go panic、Java exception 含 `Caused by` 链、C/C++ ASAN / UBSAN / gdb、Python traceback（包含 `During handling` 嵌套）、Node.js V8 stack、Rust `#[source]` 链、Ruby backtrace、结构化 JSON 日志……都是一套代码路径。
-
-日志正文不会混进问题字符串，走独立通道——提问的实体识别只看你的问题本身，不会被日志噪声污染。系统侧把每个文件路径 `os.Stat` 验证一遍，仓外路径和运行时内部文件（Go stdlib、`node:` URI、`java.base/*` 等）会被过滤掉，不会影响答案。
-
-抽取后的结构化结果（错误类型、栈帧、因果链）会单独作为一个 prompt section 呈现给下游 agent（explorer / extractor / finalizer），每一帧带上"是否在仓内验证通过"的 `★` 标记和置信度——LLM 可以直接读这棵已验证的树做答案渲染（比如 Java `Caused by` 链的多层嵌套），不需要再从原始日志文本里重新解析。原始日志仍然在另一个 section 里保留供比对。
+因为是 LLM 做抽取而不是写死的正则,支持的格式不是一个固定列表 —— 模型能看懂的结构都能处理:Go panic、Java exception 含 `Caused by` 链、C/C++ ASAN / UBSAN / gdb、Python traceback(含 `During handling` 嵌套)、Node.js V8、Rust `#[source]` 链、Ruby backtrace、结构化 JSON 日志 …… 走一套代码。
 
 ### CLI
 
 ```bash
-# 从文件加载
-./codrax --repo . --request "这个 panic 哪来的？" --log /tmp/panic.txt
+# 从文件
+./codrax --repo . --request "这个 panic 哪来的?" --log /tmp/panic.txt
 
-# 从 stdin 读（适合 `kubectl logs` 管道）
+# 从 stdin(适合 kubectl logs 管道)
 kubectl logs pod/api | ./codrax --repo . --request "analyze this crash" --log -
 
-# 脚本化调用：内联日志
+# 脚本化:内联日志
 ./codrax --repo . --request "分析 ASAN 报告" --log-text "$(cat /tmp/asan.out)"
 
-# C/C++ 场景：build 机器的绝对路径不在目标仓里 → 给 codrax 一个前缀提示
+# C/C++ 场景:build 机器绝对路径
 ./codrax --repo . --request "trace" \
   --log /tmp/asan.out \
   --log-source-prefix /home/jenkins/workspace/build/src/
 ```
 
-`--log` 和 `--log-text` 互斥；日志体超过 1 MB 自动截断到前 1 MB。
+`--log` 与 `--log-text` 互斥;日志体超过 1 MB 自动截断。
 
-### REPL 子命令
+### REPL
 
 ```
-❯❯ /log /tmp/panic.txt           # 从文件载入（替换当前附加）
-❯❯ /log                          # 进入粘贴模式，以单独一行 /end 结束
-ctrl 粘贴 stack ...
-/end
+❯❯ /log /tmp/panic.txt           # 从文件载入
+❯❯ /log                          # 粘贴模式,以 /end 结束
 ❯❯ /log show                     # 打印前 20 行 + 总字节
-❯❯ /log clear                    # 丢弃当前附加
-
-# 附加日志跨轮次粘滞——通常围绕同一条 panic 会问多个问题：
-❯❯ /log /tmp/crash.txt
-❯❯ 这个 panic 的根本原因是什么？
-❯❯ 修复方案呢？会不会有副作用？    # 附加日志仍在，无须重新粘贴
-❯❯ /clear                         # 只清对话历史，attached log 不动
-❯❯ /log clear                     # 显式清才丢日志
+❯❯ /log clear                    # 丢弃
 ```
+
+附加日志跨轮次粘滞,`/clear` 只清对话历史不动 log;`/log clear` 才清日志。
 
 ### 长日志处理
 
-单次抽取默认一次性读完日志。当日志体积超过阈值（默认 32 KB）或单次抽取覆盖率偏低时，系统自动切到两步模式：先让 LLM 按栈/因果块/上下文切片定位字节范围，再逐段抽取，最后合并结果。全流程 LLM 调用次数有硬上限（默认 8 次）。
-
-### 可调项
-
-所有 log_triage 相关配置都在 `codrax.yaml`，前缀统一为 `log_triage_*`：
-
-| 键 | 默认值 | 作用 |
-|---|---|---|
-| `log_triage_enabled` | `true` | 关掉后附加日志只会被读入但不会触发抽取 |
-| `log_triage_source_prefix` | 空 | 提示 build 路径前缀；等价于 CLI `--log-source-prefix`，CLI 显式传值时优先 |
-| `log_triage_min_bytes` | 50 | 低于此字节数的日志直接跳过（太短往往没栈帧） |
-| `log_triage_two_step_bytes` | 32768 | 超过此大小直接走两步模式 |
-| `log_triage_two_step_coverage` | 0.3 | 单次抽取覆盖率低于此阈值升级到两步 |
-| `log_triage_max_llm_calls` | 8 | 单次请求内 log_triage 阶段的 LLM 调用次数硬上限 |
-| `log_triage_max_retries` | 1 | 抽取被 schema 拒绝后的重试次数 |
+单次抽取默认读完全文。日志 > 32 KB 或单次覆盖率偏低时自动切两步:先让 LLM 按栈/因果块/上下文切片定位字节范围,再逐段抽取,最后合并结果。全流程 LLM 调用次数有硬上限(默认 8)。
 
 ### 暂不支持
 
-- 实时日志 tail / 订阅、远端日志源（Loki / ES / CloudWatch）
-- glibc 裸 backtrace（只有地址没有 file:line，缺少足够锚点）
+- 实时日志 tail / 订阅、远端日志源(Loki / ES / CloudWatch)
+- glibc 裸 backtrace(只有地址没有 file:line,缺少足够锚点)
 
 ## 配置
 
-两个 YAML 文件平铺在二进制同目录，分工明确：
+两个 YAML 平铺在二进制同目录,分工明确:
 
 | 文件 | 负责 | 典型键 |
 |---|---|---|
-| [`providers.yaml`](providers.yaml.example) | **LLM 凭证与路由** — 每个 agent 用哪个 provider | API key, model ID |
-| [`codrax.yaml`](codrax.yaml.example) | **本次运行怎么跑** — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 工具 blob 大小 / 指向 providers.yaml 的路径 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_max_retries_per_stage`, `pipeline_max_stage_visits`, `blob_*`, `log_max_files`, `blob_max_sessions` |
+| [`providers.yaml`](providers.yaml.example) | LLM 凭证与路由 — 每个 agent 用哪个 provider | `api_key` / `model` / `base_url` / `stream` / `tls_*` |
+| [`codrax.yaml`](codrax.yaml.example) | 本次运行怎么跑 — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 写模式开关 + 写模式调优 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_max_verify_retries`, `pipeline_baseline_capture_enabled`, `pipeline_keep_worktree_on_success`, `write_enabled`, `blob_*`, `log_max_files` |
 
-流水线拓扑（4 阶段 × 4 agent）是硬编码的，没有 YAML 对应项。
+流水线拓扑(读模式 4 阶段 × 4 agent + 写模式 plan/apply/verify)是硬编码的,没有 YAML 对应项。
 
-优先级（低到高）：**代码默认 < `codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。通过 `CODRAX_SETTINGS=path/to/codrax.yaml` 环境变量可以一键切换整套环境（因为 `providers_config` 路径也可以写在 codrax.yaml 里）。
+优先级(低到高):**代码默认 < `codrax.yaml` < 命令行 flag**。每个字段都可以在任一层覆盖。
 
 ### 路径锚点
 
-一个二进制跨多目录、多仓库运行时需要两个锚点：
+一个二进制跨多目录、多仓库运行时的两个锚点:
 
-- **配置锚点**（`<exeDir>`，即二进制所在目录）：`providers_config` 的相对路径都在这里解析。部署时把 `codrax` + `codrax.yaml` + `providers.yaml` 三个文件扔一起就行。
-- **运行产物锚点**（`<CWD>/.codrax/`）：`log_dir` / `memory_dir` / `cache_dir` / blob 会话目录的相对路径都在这里解析。用户在哪个工作目录启动 codrax，日志就落在哪个工作目录的 `.codrax/` 下。
+- **配置锚点**(`<exeDir>`):`providers_config` 的相对路径在此解析。部署时把 `codrax` + `codrax.yaml` + `providers.yaml` 三个文件扔一起即可。
+- **运行产物锚点**(`<CWD>/.codrax/`):`log_dir` / `memory_dir` / `cache_dir` / blob 会话目录 / plans 目录在此解析。用户在哪个工作目录启动 codrax,日志就落在哪个工作目录的 `.codrax/` 下。
 
 ### `codrax.yaml` 查找顺序
 
-1. `$CODRAX_SETTINGS`（绝对路径，显式指定）
+1. `$CODRAX_SETTINGS`(绝对路径,显式)
 2. `<exeDir>/codrax.yaml` ← 主路径
-3. `<exeDir>/codrax/codrax.yaml`（bin + share 分离布局）
-4. 以下为 legacy 路径，找到时会打 deprecation warning：
+3. `<exeDir>/codrax/codrax.yaml`(bin + share 分离布局)
+4. Legacy 路径,找到时打 deprecation warning:
    - `<exeDir>/config/codrax.yaml`
    - `<exeDir>/../config/codrax.yaml`
    - `<CWD>/config/codrax.yaml`
@@ -259,32 +268,39 @@ ctrl 粘贴 stack ...
   codrax.yaml                    (复制自 codrax.yaml.example)
   providers.yaml                 (复制自 providers.yaml.example)
 
-<CWD>/.codrax/                   ← 运行产物（单个隐藏根，.gitignore 一条搞定）
+<CWD>/.codrax/                   ← 运行产物(单个隐藏根,.gitignore 一条搞定)
   logs/<repo-slug>/
     codrax-<timestamp>-<pid>.log
   memory/<repo-slug>/
     MEMORY.md
     turns/
-  blob/<timestamp>-<pid>/        (每个进程一个 session，保留最近 N 个)
+  blob/<timestamp>-<pid>/        (每进程一个 session,保留最近 N 个)
     <tool>-<sha8>.txt
+  plans/                         (写模式 ChangePlan + ChangeReport)
+    <plan-id>.json
+    <plan-id>.report.json
+  worktrees/                     (写模式 git worktree 根;默认 Run 结束销毁)
+    <trace-id>-<pid>/
 ```
 
-`log_max_files` 和 `blob_max_sessions` 两个 YAML 键控制保留数量（默认都是 7）；PID 还活着的 peer 永远不会被清理。
+`log_max_files` / `blob_max_sessions`(默认都是 7)控制滚动保留数量;存活 PID 的 peer 文件永不清理。
 
 ## 功能亮点
 
-- **分级日志**：error / warning / info / debug 四档，按 4MB 滚动、保留 7 份；文件名 `.codrax/logs/<repo-slug>/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`，每个 codrax 进程独占自己的文件，多实例并发也不会撕日志
-- **交互多轮**：REPL 模式下每一轮自动带前轮上下文；超过 6 轮或 20KB 触发 LLM 摘要压缩成 `MEMORY.md` 索引条目，下次问到相关话题可按关键词召回原文
-- **跨重启恢复**：单实例从崩溃中恢复时，`.codrax/memory/<repo-slug>/turns/` 里未压缩的最近 6 轮会自动回灌到 recent；多实例并发场景下检测到 peer 时跳过这一步，避免双方互相把对方的对话挪到自己头上
-- **多目标仓隔离**：log 和 memory 默认按 `-repo` 绝对路径的 hash slug 自动分目录（`.codrax/logs/foo-a3f9c2b1/...`），同一 codrax 安装可以服务多个目标仓而互不污染
-- **多实例并发安全**：同一目标仓多开 codrax 时，日志按 PID 隔离、`MEMORY.md` 周期写入由 `flock` 串行化、`/clear` 会提示当前还有几个 peer 在用、retention sweep 跳过仍存活进程的活跃文件
-- **跨平台**：Linux / macOS 用 `flock(2)`，Windows 通过 `kernel32.dll!LockFileEx` 实现等价语义，全程零非 stdlib 依赖
-- **默认语言**：`-lang=zh` 默认简体中文作答；`-lang=off` 关闭；任一非空值都会保留"用户若用其他语言提问则跟随"的兜底
-- **Answer contract**：finalizer 输出结构化 `AnswerDocument`（typed symbols / steps / value / boolean / explanation + citation pool），cardinality 验证器会把"谎称 complete 但 slate 不足基线"的 claim 自动降级为 lower_bound 并附警告渲染
-- **日志分诊**：`--log / --log-text` 或 REPL `/log` 附加运行时日志，LLM 驱动的 log_triage 阶段把任意格式的 panic / exception / sanitizer 诊断 / traceback / 结构化应用日志解析成结构化锚点（错误类型、栈帧、因果链、信号分类），系统侧做仓内路径校验把解析结果注入下游，explorer 优先读栈帧文件；超长或复杂日志自动走两步抽取；日志正文独立通道不污染提问的关键词识别
+- **分级日志**:error / warning / info / debug 四档,按 4 MB 滚动、保留 7 份;文件名 `.codrax/logs/<repo-slug>/codrax-YYYYMMDD-HHMMSS-mmm-<pid>.log`,每个进程独占自己的文件,多实例并发不撕日志
+- **交互多轮**:REPL 每一轮自动带前轮上下文;超过 6 轮或 20 KB 触发 LLM 摘要压缩成 `MEMORY.md` 索引条目,下次相关话题可按关键词召回
+- **跨重启恢复**:单实例崩溃恢复时,`.codrax/memory/<repo-slug>/turns/` 未压缩的最近 6 轮自动回灌;多实例并发下检测到 peer 时跳过,避免互抢对方轮次
+- **多目标仓隔离**:log / memory 默认按 `--repo` 绝对路径 hash slug 分目录,同一 codrax 安装可服务多仓互不污染
+- **多实例并发安全**:同一目标仓多开 codrax 时,日志按 PID 隔离、`MEMORY.md` 周期写入由 `flock` 串行化、`/clear` 提示对等进程数、retention sweep 跳过活进程文件
+- **跨平台**:Linux / macOS 用 `flock(2)`,Windows 通过 `kernel32.dll!LockFileEx` 实现等价语义,全程零非 stdlib 依赖
+- **默认语言**:`--lang=zh` 默认简体中文作答;`--lang=off` / `none` 关闭;任一非空值保留"用户若用其他语言提问则跟随"兜底
+- **Answer contract**:finalizer 输出结构化 `AnswerDocument`(typed symbols / steps / value / boolean / explanation + citation pool),cardinality 验证器把"谎称 complete 但 slate 不足基线"的 claim 自动降级为 lower_bound
+- **日志分诊**:`--log / --log-text` 或 REPL `/log` 附加运行时日志,LLM 驱动的 log_triage 阶段把任意格式 panic / exception / sanitizer / traceback / 结构化应用日志解析成结构化锚点;日志正文独立通道不污染提问关键词识别
+- **写模式沙箱**:`plan → apply → verify` 全部在 git worktree 里跑,主仓 HEAD 永不自动变;严格 W1/W1b 写闭包检查;可选 verify→plan 重试循环 + baseline 回归对比 + worktree 保留 + 9 种 test runner 自动探测
 
 ## 文档
 
-- **[架构设计文档](docs/architecture.md)** — 完整的系统规范，包括组件详情、数据结构、Turn A/Turn B 分离、分析后处理管线、运行时子系统
-- **[运行时配置示例](codrax.yaml.example)** — 所有可调项的完整列表与分工说明
+- **[用户指南](docs/user_guide.md)** — 面向使用者:安装、配置、两种模式、写模式全流程、场景实操、常见问题
+- **[架构设计](docs/architecture.md)** — 面向开发者:组件详情、数据结构、Turn A/Turn B 分离、分析后处理管线、运行时子系统、写模式内部机制
+- **[运行时配置示例](codrax.yaml.example)** — 所有可调项的完整列表
 - **[Providers 配置示例](providers.yaml.example)** — LLM provider 凭证 + 每 agent 模型路由

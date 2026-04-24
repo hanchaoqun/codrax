@@ -80,6 +80,19 @@ type Orchestrator struct {
 	// Mutable.BaselineReport so evalNoRegression can diff against
 	// the post-apply ChangeReport.
 	baselineCaptureEnabled bool
+
+	// keepWorktreeOnSuccess, when true, skips the post-Run worktree
+	// discard if the Run finished a successful ModeApply (apply +
+	// verify both passed). Default false preserves historical "Run
+	// ends, worktree gone" behaviour. When true, the user gets the
+	// worktree path in the Result so they can `cd` there, review
+	// the applied bytes, and cherry-pick / rebase to main manually
+	// — the "try before merge" workflow.
+	//
+	// Failure paths always discard regardless of this flag so a
+	// misbehaving planner cannot accumulate broken worktrees on
+	// disk. Only the happy path is preserved.
+	keepWorktreeOnSuccess bool
 }
 
 // New creates a new Orchestrator.
@@ -235,6 +248,18 @@ func (o *Orchestrator) BaselineCaptureEnabled() bool {
 	return o.baselineCaptureEnabled
 }
 
+// SetKeepWorktreeOnSuccess toggles the post-Run worktree preservation
+// on a successful ModeApply. Failure paths always discard regardless
+// of this flag.
+func (o *Orchestrator) SetKeepWorktreeOnSuccess(on bool) {
+	o.keepWorktreeOnSuccess = on
+}
+
+// KeepWorktreeOnSuccess returns the current setting.
+func (o *Orchestrator) KeepWorktreeOnSuccess() bool {
+	return o.keepWorktreeOnSuccess
+}
+
 // Run executes the full pipeline for a user request.
 //
 // The pipeline runs in two phases:
@@ -332,11 +357,17 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// Worktree cleanup (B0 write-mode). The plan / apply / verify
 	// stages may populate busCtx.WorktreePath + MainRepoRoot as they
 	// provision a git worktree to run write actions inside. We fire
-	// an unconditional defer here so both panic unwind and normal
-	// return reach worktree.DiscardByPath. Read-mode Runs never set
-	// either field, so DiscardByPath short-circuits and this block
-	// is a free no-op for them (protecting the L1 "read mode byte-
-	// identical" red line).
+	// a defer here so both panic unwind and normal return reach
+	// worktree.DiscardByPath. Read-mode Runs never set either field,
+	// so DiscardByPath short-circuits and this block is a free no-op
+	// for them (protecting the L1 "read mode byte-identical" red
+	// line).
+	//
+	// Preserve-on-success exception: when keepWorktreeOnSuccess is
+	// true AND the Run completed a ModeApply with no LastError, the
+	// discard is skipped so the user can review the applied bytes
+	// and cherry-pick to main manually. Failure paths always discard
+	// so a misbehaving planner cannot fill disk with broken trees.
 	//
 	// SIGINT / SIGTERM does NOT run this defer (Go's default signal
 	// disposition is os.Exit without unwind). The worktree package
@@ -346,6 +377,12 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// the handler covers signal paths.
 	defer func() {
 		if o.busCtx == nil || o.busCtx.WorktreePath == "" {
+			return
+		}
+		if o.keepWorktreeOnSuccess &&
+			o.busCtx.Mode == types.ModeApply &&
+			o.busCtx.TaskState.LastError == "" {
+			logging.Info("[orchestrator] worktree preserved (keep_on_success): %s", o.busCtx.WorktreePath)
 			return
 		}
 		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
@@ -907,7 +944,18 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 		// The REPL layer is responsible for that post-Run save.
 		return
 	}
-	if err := types.UpdatePlanStatusOnDisk(path, status, appliedAt); err != nil {
+	// Persist the worktree path alongside the status ONLY when
+	// Fix 4's preserve-on-success fires (status=applied + yaml knob
+	// on + real worktree). Any other status leaves the field
+	// untouched so a later /reject or retry doesn't leak a stale
+	// path onto the plan JSON.
+	wt := ""
+	if status == types.PlanStatusApplied &&
+		o.keepWorktreeOnSuccess &&
+		o.busCtx.WorktreePath != "" {
+		wt = o.busCtx.WorktreePath
+	}
+	if err := types.UpdatePlanStatusOnDisk(path, status, appliedAt, wt); err != nil {
 		logging.Warning("[orchestrator] plan status update failed: %v", err)
 	} else {
 		logging.Info("[orchestrator] plan status updated: %s → %s", path, status)
@@ -932,7 +980,14 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 //     reviewed plan was already tried and failed; the retry MUST
 //     regenerate.
 func (o *Orchestrator) prepareVerifyRetry(attempt int) {
-	hint := buildRetryHint(o.busCtx.Mutable.ChangeReport(), attempt-1)
+	// buildRetryHint consumes both ChangePlan (for suspect-file list)
+	// and ChangeReport (for failing-test narrative). Both are read
+	// BEFORE the subsequent Reset* calls below clear them.
+	hint := buildRetryHint(
+		o.busCtx.Mutable.ChangeReport(),
+		o.busCtx.Mutable.ChangePlan(),
+		attempt-1,
+	)
 
 	if o.busCtx.WorktreePath != "" {
 		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
@@ -962,37 +1017,97 @@ func (o *Orchestrator) prepareVerifyRetry(attempt int) {
 }
 
 // buildRetryHint synthesises the failure narrative the planner's
-// next dispatch will see. Kept small (<500 chars) so it doesn't
-// blow up the planner prompt: a few failing test names + any
-// top-level FailureSummary is enough signal to steer the revision.
-func buildRetryHint(report *types.ChangeReport, prevAttempt int) string {
-	if report == nil {
-		return fmt.Sprintf("Previous attempt %d failed without producing a ChangeReport. Revise the plan from scratch.", prevAttempt)
-	}
+// next dispatch will see. Kept bounded (<1500 chars total) so it
+// doesn't blow up the planner prompt while still carrying enough
+// signal to steer a useful revision:
+//
+//   - FailureSummary (trimmed to 300 chars) — runner-agnostic
+//     one-line verdict from the parser
+//   - Top 3 failing tests with their first-line FailureDetail
+//     excerpt (≤140 chars each) — specific errors the planner
+//     can diff against the code it just wrote
+//   - Files the previous plan modified (ChangePlan.TargetPaths,
+//     cap 10) — the suspect list. Planner doesn't have to guess
+//     which edits broke which test; every failing test touched
+//     one of these files (transitively, at minimum)
+//
+// plan may be nil when the retry fires after an apply-phase
+// failure that never produced a ChangeReport; report may be nil
+// in the same case. Both branches degrade gracefully.
+//
+// Generalisation: only uses fields present on every runner's
+// TestResult (AssertionID, Suite, FailureDetail) and on every
+// ChangePlan (TargetPaths). No language-specific parsing.
+func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAttempt int) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Previous attempt %d verify failed. ", prevAttempt)
-	if report.FailureSummary != "" {
-		// Trim to keep the hint bounded.
-		summary := report.FailureSummary
-		if len(summary) > 300 {
-			summary = summary[:300] + "…"
+	if report == nil {
+		fmt.Fprintf(&b, "Previous attempt %d failed without producing a ChangeReport (apply or runner error). ", prevAttempt)
+	} else {
+		fmt.Fprintf(&b, "Previous attempt %d verify failed. ", prevAttempt)
+		if report.FailureSummary != "" {
+			summary := report.FailureSummary
+			if len(summary) > 300 {
+				summary = summary[:300] + "…"
+			}
+			fmt.Fprintf(&b, "Summary: %s ", summary)
 		}
-		fmt.Fprintf(&b, "Summary: %s ", summary)
-	}
-	const maxFailingTests = 3
-	var failing []string
-	for _, tr := range report.TestResults {
-		if !tr.Passed {
-			failing = append(failing, tr.AssertionID)
-			if len(failing) >= maxFailingTests {
+		const (
+			maxFailingTests = 3
+			maxDetailChars  = 140
+		)
+		shown := 0
+		for _, tr := range report.TestResults {
+			if tr.Passed {
+				continue
+			}
+			if shown == 0 {
+				b.WriteString("Failing tests:")
+			}
+			shown++
+			// First line of FailureDetail — the actual error message
+			// row, no stack trace bloat.
+			detail := ""
+			if tr.FailureDetail != "" {
+				line := strings.SplitN(tr.FailureDetail, "\n", 2)[0]
+				line = strings.TrimSpace(line)
+				if len(line) > maxDetailChars {
+					line = line[:maxDetailChars] + "…"
+				}
+				detail = line
+			}
+			if tr.Suite != "" {
+				fmt.Fprintf(&b, "\n  - %s (%s)", tr.AssertionID, tr.Suite)
+			} else {
+				fmt.Fprintf(&b, "\n  - %s", tr.AssertionID)
+			}
+			if detail != "" {
+				fmt.Fprintf(&b, ": %s", detail)
+			}
+			if shown >= maxFailingTests {
 				break
 			}
 		}
+		if shown > 0 {
+			b.WriteString("\n")
+		}
 	}
-	if len(failing) > 0 {
-		fmt.Fprintf(&b, "Failing tests: %s.", strings.Join(failing, ", "))
+	if plan != nil && len(plan.TargetPaths) > 0 {
+		const maxPaths = 10
+		paths := plan.TargetPaths
+		extra := 0
+		if len(paths) > maxPaths {
+			extra = len(paths) - maxPaths
+			paths = paths[:maxPaths]
+		}
+		b.WriteString("\nFiles modified by the previous plan (suspect list — the regression is in the edits to these files):\n")
+		for _, p := range paths {
+			fmt.Fprintf(&b, "  - %s\n", p)
+		}
+		if extra > 0 {
+			fmt.Fprintf(&b, "  - … (+%d more)\n", extra)
+		}
 	}
-	b.WriteString(" Revise the plan to address these failures; do not repeat the same changes.")
+	b.WriteString("Revise the plan to address these failures; do not repeat the same changes.")
 	return b.String()
 }
 
@@ -2482,7 +2597,6 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	o.applyStageOutput(output)
 	o.busCtx.TaskState.Completed = append(o.busCtx.TaskState.Completed, string(stage))
 
-
 	stageErr := ""
 	if output.Error != "" {
 		stageErr = output.Error
@@ -2624,7 +2738,6 @@ func (o *Orchestrator) applyStageOutput(output *agent.StageOutput) {
 		o.busCtx.TaskState.LastError = output.Error
 	}
 }
-
 
 // BusContext returns the current bus context (for inspection/testing).
 func (o *Orchestrator) BusContext() *types.BusContext {

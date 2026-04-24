@@ -3,6 +3,7 @@ module github.com/hanchaoqun/codrax
 go 1.24.0
 
 require (
+	github.com/aymanbagabas/go-udiff v0.3.1
 	github.com/charmbracelet/bubbles v0.21.1-0.20250623103423-23b8fd6302d7
 	github.com/charmbracelet/bubbletea v1.3.6
 	github.com/charmbracelet/glamour v1.0.0

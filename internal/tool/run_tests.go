@@ -21,11 +21,11 @@ import (
 //   - Go:     `go test -json ./...` — native JSONL output
 //   - Node:   `npm test -- --json` (jest) / `vitest --reporter=json`
 //   - Python: `pytest --json-report --json-report-file=...`
-//              (requires the pytest-json-report plugin; falls back
-//              to fail-loud error on missing plugin so the operator
-//              knows to install it)
+//     (requires the pytest-json-report plugin; falls back
+//     to fail-loud error on missing plugin so the operator
+//     knows to install it)
 //   - Rust:   `cargo test` (stable text output; parser extracts
-//              pass/fail counts + failed test names via regex)
+//     pass/fail counts + failed test names via regex)
 //
 // The runner is detected by sniffing the worktree root for
 // language-tagged manifest files (go.mod / package.json /
@@ -67,7 +67,7 @@ func (t *RunTests) Name() string { return "run_tests" }
 // operators reading logs know the scope without reading code.
 func (t *RunTests) Description() string {
 	return "Run the project test suite inside the active worktree and emit a structured ChangeReport. " +
-		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), and Ruby (RSpec --format json)."
+		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), and raw Makefile (make check/test; pass/fail from exit code)."
 }
 
 // Parameters returns the JSON schema.
@@ -113,9 +113,23 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if runner == "" {
 		return errResult(t.Name(),
 			"run_tests: no supported test runner detected in "+ctx.RepoRoot+
-				" (looked for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / pom.xml / build.gradle[.kts] / Gemfile)"), nil
+				" (looked for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / pom.xml / build.gradle[.kts] / Gemfile / CMakeLists.txt / meson.build / Makefile)"), nil
 	}
 	logging.Info("[run_tests] detected runner=%s in %s", runner, ctx.RepoRoot)
+
+	// CMake and Meson require a pre-configured build directory;
+	// run_tests refuses early with actionable guidance rather than
+	// running a broken command. Checked here so Suite parsing /
+	// timeout setup don't waste cycles.
+	if runner == "cmake" || runner == "meson" {
+		if detectNativeBuildDir(ctx.RepoRoot) == "" {
+			return errResult(t.Name(),
+				fmt.Sprintf("run_tests: %s project detected but no configured build directory found "+
+					"(looked for build/, Build/, builddir/, out/, cmake-build-debug/, cmake-build-release/). "+
+					"Configure the project first (e.g. `cmake -S . -B build` or `meson setup builddir`) and build it, "+
+					"then re-run verify.", runner)), nil
+		}
+	}
 
 	timeout := 300 * time.Second
 	if p.TimeoutSeconds > 0 {
@@ -136,11 +150,13 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
-	// Non-zero exit is normal when tests fail — parser handles
-	// that case by populating per-test failures. We explicitly
-	// discard the command error; the parser is the source of
-	// truth for pass/fail.
-	_ = cmd.Run()
+	// For runners whose parser infers pass/fail from output markers
+	// (go / node / python / rust / java XML), the exit code is
+	// redundant and we preserve the prior behaviour of ignoring it.
+	// The make runner has no structured output, so the parser reads
+	// the exit error directly via parseRunnerOutput's new runErr
+	// parameter.
+	runErr := cmd.Run()
 	output := buf.String()
 
 	if execCtx.Err() == context.DeadlineExceeded {
@@ -157,35 +173,57 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}, nil
 	}
 
-	// Step 2b: post-exec hook for Java. Maven + Gradle write JUnit
-	// XML to a fixed subdirectory rather than stdout; after the
-	// command finishes we point extraFile at the newest report
-	// directory so the parser can walk it. Other runners ignore
-	// extraFile entirely (stdout-only) or have already set it
-	// via buildRunCommand (pytest).
+	// Step 2b: post-exec hooks for runners whose test reports live
+	// in a separate file/dir rather than on stdout.
+	//
+	//   - Java (Maven/Gradle): JUnit XML dir at target/surefire-reports
+	//     or build/test-results/test; locateJUnitReportDir picks.
+	//   - CMake: ctest --output-junit writes a single XML file we
+	//     passed as extraFile. If that file didn't appear, ctest
+	//     never reached the test phase (configure/build broken).
+	//   - Meson: meson test --xunit-file writes a single XML file.
+	//
+	// When the expected report artifact is absent we synthesise a
+	// build-failure ChangeReport so the retry hint + verifier prompt
+	// carry the actual error text instead of an opaque pointer to the
+	// stored blob. Mirrors the Rust cargo-build fallback in
+	// parseCargoOutput.
 	if runner == "java" {
 		reportDir := locateJUnitReportDir(ctx.RepoRoot)
 		if reportDir == "" {
-			// Command ran but no reports on disk — likely the build
-			// itself failed (compile error, missing dep). Surface
-			// that via the normal error path with the stdout blob.
-			_, ref := StoreBlob(ctx, t.Name()+"-no-reports", output)
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   "[run_tests: runner=java] no JUnit XML reports produced; the Maven/Gradle build likely failed before tests ran — inspect the stored output blob",
-				RawRef:    ref,
-				Timestamp: time.Now(),
-			}, nil
+			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "java-build", "Java", output)
 		}
 		extraFile = reportDir
+	}
+	if runner == "cmake" || runner == "meson" {
+		// extraFile is the tmpfile path; check it materialised and is
+		// non-empty. A zero-byte file means ctest/meson exited before
+		// writing any suite info (usually a configure/build regression
+		// surfaced as a stderr dump in output).
+		produced := false
+		if extraFile != "" {
+			if info, err := os.Stat(extraFile); err == nil && info.Size() > 0 {
+				produced = true
+			}
+		}
+		if !produced {
+			label := "CMake"
+			assertionID := "cmake-build"
+			if runner == "meson" {
+				label = "Meson"
+				assertionID = "meson-build"
+			}
+			return synthesizeBuildFailureReport(ctx, t.Name(), runner, assertionID, label, output)
+		}
 	}
 
 	// Step 3: parse output. runErr is typically non-nil when any
 	// test failed — the parser handles that case by returning a
 	// report with Passed=false + per-test details. Parse failures
-	// are a different class and surface as tool errors.
-	report, err := parseRunnerOutput(runner, output, extraFile, cmdStr)
+	// are a different class and surface as tool errors. runErr is
+	// forwarded so the make parser (which has no structured output)
+	// can derive pass/fail from exit status.
+	report, err := parseRunnerOutput(runner, output, extraFile, cmdStr, runErr)
 	if err != nil {
 		logging.Warning("[run_tests] parser error for runner=%s: %v", runner, err)
 		_, ref := StoreBlob(ctx, t.Name()+"-unparsed", output)
@@ -262,10 +300,69 @@ func detectRunner(repoRoot string) string {
 		{"build.gradle", "java"},
 		{"build.gradle.kts", "java"},
 		{"Gemfile", "ruby"},
+		// C / C++ / other native-build stacks. Ordered by specificity:
+		// a CMake project is more informative than a raw Makefile; a
+		// meson project typically also has a Makefile in its build
+		// dir but the top-level manifest is meson.build. Raw Makefile
+		// is the last fallback for bare Autotools / hand-rolled builds.
+		{"CMakeLists.txt", "cmake"},
+		{"meson.build", "meson"},
+		{"Makefile", "make"},
+		{"makefile", "make"},
+		{"GNUmakefile", "make"},
 	}
 	for _, c := range checks {
 		if _, err := os.Stat(filepath.Join(repoRoot, c.file)); err == nil {
 			return c.runner
+		}
+	}
+	return ""
+}
+
+// detectNativeBuildDir locates a pre-configured build directory for
+// a CMake or Meson project. Both tools require an out-of-tree build
+// dir with their generator artifacts (Ninja files / Makefiles /
+// CTestTestfile.cmake for CMake; meson-info/ for Meson); run_tests
+// does NOT run the configure step itself (too slow, too many knobs).
+// Returns the first match from the candidates list, or "" if the
+// project hasn't been configured yet.
+//
+// Candidates cover the common in-repo layouts:
+//
+//   - "build" / "Build"        — cmake -S . -B build convention
+//   - "builddir"               — meson default
+//   - "out"                    — Google/Android-style
+//   - "cmake-build-debug" and
+//     "cmake-build-release"    — CLion IDE defaults
+//
+// Operators using a non-standard layout (e.g. sibling build dirs
+// outside the repo root) can't be auto-detected; they must invoke
+// tests via a project-specific script and fall through to the
+// make runner.
+func detectNativeBuildDir(repoRoot string) string {
+	candidates := []string{
+		"build", "Build",
+		"builddir",
+		"out",
+		"cmake-build-debug",
+		"cmake-build-release",
+	}
+	for _, name := range candidates {
+		abs := filepath.Join(repoRoot, name)
+		info, err := os.Stat(abs)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		// Peek for a generator sentinel so an empty dir left over from
+		// a failed configure doesn't count. CMake drops
+		// CMakeCache.txt; Meson drops meson-info/. We accept either —
+		// the parser step tolerates whichever output shape the command
+		// produces.
+		if _, err := os.Stat(filepath.Join(abs, "CMakeCache.txt")); err == nil {
+			return abs
+		}
+		if _, err := os.Stat(filepath.Join(abs, "meson-info")); err == nil {
+			return abs
 		}
 	}
 	return ""
@@ -401,8 +498,112 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 			return "bundle exec rspec --format json", ""
 		}
 		return fmt.Sprintf("bundle exec rspec --format json %q", filter), ""
+	case "cmake":
+		// ctest emits JUnit XML via --output-junit (CMake >= 3.21).
+		// The build dir must already be configured + built; Execute
+		// falls back to a clear error when detectNativeBuildDir
+		// returns "". Filter maps to -R <regex> which ctest treats as
+		// a POSIX ERE applied to the test name.
+		buildDir := detectNativeBuildDir(repoRoot)
+		if buildDir == "" {
+			// Command will not be built; Execute refuses before
+			// reaching this path. Keep a harmless no-op here so a
+			// caller bypassing Execute sees a clear failure.
+			return "", ""
+		}
+		// Tmpfile must end in .xml so parseJUnitXMLDir's suffix gate
+		// accepts it when filepath.Walk passes it through.
+		tmpFile := filepath.Join(repoRoot, ".codrax-ctest-report.xml")
+		filter := strings.TrimSpace(suite)
+		if filter == "" {
+			return fmt.Sprintf("ctest --test-dir %q --output-junit %q --output-on-failure", buildDir, tmpFile), tmpFile
+		}
+		return fmt.Sprintf("ctest --test-dir %q --output-junit %q --output-on-failure -R %q",
+			buildDir, tmpFile, filter), tmpFile
+	case "meson":
+		// meson test writes JUnit XML when --xunit-file is set. The
+		// command runs from the build dir via -C. Filter maps to a
+		// trailing positional arg (test name substring).
+		buildDir := detectNativeBuildDir(repoRoot)
+		if buildDir == "" {
+			return "", ""
+		}
+		tmpFile := filepath.Join(repoRoot, ".codrax-meson-report.xml")
+		filter := strings.TrimSpace(suite)
+		if filter == "" {
+			return fmt.Sprintf("meson test -C %q --xunit-file %q --print-errorlogs", buildDir, tmpFile), tmpFile
+		}
+		return fmt.Sprintf("meson test -C %q --xunit-file %q --print-errorlogs %q",
+			buildDir, tmpFile, filter), tmpFile
+	case "make":
+		// Raw Makefile projects have no structured test output.
+		// Prefer `make check` (GNU convention) over `make test` by
+		// peeking at the Makefile for the target name; if neither is
+		// obvious, default to `check` since it's the autotools /
+		// GNU-ism most mature Makefile test suites follow. Parser
+		// uses exit code for pass/fail and stdout for failure detail.
+		target := detectMakeTestTarget(repoRoot)
+		filter := strings.TrimSpace(suite)
+		if filter != "" {
+			// User supplied a specific target name.
+			target = filter
+		}
+		return fmt.Sprintf("make %s", target), ""
 	}
 	return "", ""
+}
+
+// detectMakeTestTarget reads the Makefile head and returns the test
+// target name the project uses. Preference order: "check" (GNU /
+// autotools convention) > "test" (CMake-generated / npm-style) >
+// "tests" (occasional plural). Defaults to "check" when neither
+// target is present — `make check` is the widely-accepted standard
+// and a missing target surfaces a clean "No rule to make target
+// 'check'" error the parser can relay.
+//
+// Note: this is a best-effort grep for `^<target>:`. A Makefile that
+// builds its test target dynamically (via included fragments or
+// $(eval)) may hide the target from this scan; those projects can
+// override via the Suite parameter.
+func detectMakeTestTarget(repoRoot string) string {
+	candidates := []string{"Makefile", "makefile", "GNUmakefile"}
+	var makefilePath string
+	for _, name := range candidates {
+		p := filepath.Join(repoRoot, name)
+		if _, err := os.Stat(p); err == nil {
+			makefilePath = p
+			break
+		}
+	}
+	if makefilePath == "" {
+		return "check"
+	}
+	data, err := os.ReadFile(makefilePath)
+	if err != nil {
+		return "check"
+	}
+	// Scan for the first target named "check", "test", or "tests"
+	// that appears as a top-level rule line (starts at column 0).
+	preference := []string{"check", "test", "tests"}
+	lines := strings.Split(string(data), "\n")
+	found := map[string]bool{}
+	for _, ln := range lines {
+		if len(ln) == 0 || ln[0] == ' ' || ln[0] == '\t' || ln[0] == '#' {
+			continue
+		}
+		for _, target := range preference {
+			// "<target>:" at line start — Makefile target definition.
+			if strings.HasPrefix(ln, target+":") || strings.HasPrefix(ln, target+" :") {
+				found[target] = true
+			}
+		}
+	}
+	for _, target := range preference {
+		if found[target] {
+			return target
+		}
+	}
+	return "check"
 }
 
 // renderTestSummary builds the one-paragraph string for the
@@ -456,4 +657,58 @@ func countFailed(results []types.TestResult) int {
 		}
 	}
 	return n
+}
+
+// synthesizeBuildFailureReport installs a single-TestResult
+// ChangeReport describing a build/configure failure that short-
+// circuited test execution. Shared by java / cmake / meson branches
+// when their expected XML artifact never materialised. The excerpt
+// is extracted from stdout/stderr via extractBuildErrorExcerpt so
+// the retry hint and verifier prompt carry concrete error text
+// rather than pointing at an opaque blob.
+//
+// assertionID names the synthetic test case so the operator can
+// distinguish "cmake build failed" from "cmake test X failed" in
+// the /history listing. label is the human-readable toolchain name
+// ("Java", "CMake", "Meson") for the user-facing failure summary.
+//
+// The returned ToolResult is what run_tests.Execute should return
+// directly; caller does not call parseRunnerOutput when we short
+// out via this path.
+func synthesizeBuildFailureReport(
+	ctx *types.BusContext,
+	toolName, runner, assertionID, label, output string,
+) (types.ToolResult, error) {
+	excerpt := extractBuildErrorExcerpt(output)
+	_, ref := StoreBlob(ctx, toolName+"-no-reports", output)
+	failSummary := fmt.Sprintf("%s build failed before tests ran (no report produced).", label)
+	if excerpt != "" {
+		firstLine := strings.SplitN(excerpt, "\n", 2)[0]
+		if len(firstLine) > 200 {
+			firstLine = firstLine[:200] + "…"
+		}
+		failSummary = fmt.Sprintf("%s build failed before tests ran: %s", label, firstLine)
+	}
+	report := &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			AssertionID:   assertionID,
+			Suite:         "build",
+			Passed:        false,
+			FailureDetail: excerpt,
+		}},
+		Passed:         false,
+		FailureSummary: failSummary,
+		GeneratedAt:    time.Now(),
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		report.PlanID = plan.ID
+	}
+	ctx.Mutable.SetChangeReport(report)
+	return types.ToolResult{
+		ToolName:  toolName,
+		Success:   false,
+		Summary:   fmt.Sprintf("[run_tests: runner=%s] %s", runner, failSummary),
+		RawRef:    ref,
+		Timestamp: time.Now(),
+	}, nil
 }

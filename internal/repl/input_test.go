@@ -1,6 +1,8 @@
 package repl
 
 import (
+	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
@@ -39,6 +41,85 @@ func TestSlashCommandsMatchCanonicalRegistry(t *testing.T) {
 		t.Errorf("slashCommands autocomplete list drifted from replCommandAliases target set.\n"+
 			"Missing from internal/repl/input.go :: slashCommands: %v\n"+
 			"Either add them (with a short help string) or — if a command is deliberately hidden from the panel — document the exclusion above this test.",
+			missing)
+	}
+}
+
+// TestHandleSlashDispatchMatchesRegistry is the stronger twin of the
+// previous test. It guards against the far more dangerous drift
+// where handleSlash grows a new `case "/foo":` branch but the author
+// forgets to register /foo in replCommandAliases — which in the real
+// REPL Loop means NormalizeREPLCommandAlias returns "" for /foo and
+// the line falls through to r.dispatch(), sending the slash command
+// to the pipeline as if it were a user question.
+//
+// Session 33 B1 shipped /mode, /plan, /approve, /reject without
+// registering any of them; only tests calling handleXCmd directly
+// kept working. Session 35 discovered this while rolling out /verify
+// and /worktree. This test ensures no future addition repeats it.
+//
+// Implementation: parse repl.go's handleSlash function literal for
+// `case "/xyz":` tokens and compare against the canonical registry.
+// A minor parse failure (comment removed, syntax change) would also
+// surface here — acceptable given the alternative is silent breakage.
+func TestHandleSlashDispatchMatchesRegistry(t *testing.T) {
+	// Read repl.go and extract every `case "/<name>":` between the
+	// `func (r *REPL) handleSlash(` marker and the next closing brace
+	// at column 0. Skip the fall-through "/exit"/"/quit" alias pairs
+	// that share a case body.
+	data, err := os.ReadFile("repl.go")
+	if err != nil {
+		t.Fatalf("read repl.go: %v", err)
+	}
+	const startMarker = "func (r *REPL) handleSlash("
+	start := strings.Index(string(data), startMarker)
+	if start < 0 {
+		t.Fatalf("could not locate %q in repl.go — refactor?", startMarker)
+	}
+	body := string(data[start:])
+	end := strings.Index(body, "\n}\n")
+	if end < 0 {
+		t.Fatalf("could not locate end of handleSlash")
+	}
+	body = body[:end]
+
+	caseRE := regexp.MustCompile(`case\s+"(/[a-zA-Z]+)"`)
+	// Also catch multi-case lines like `case "/exit", "/quit":`.
+	multiCaseRE := regexp.MustCompile(`"(/[a-zA-Z]+)"`)
+	lines := strings.Split(body, "\n")
+	dispatchCommands := map[string]bool{}
+	for _, ln := range lines {
+		trimmed := strings.TrimSpace(ln)
+		if !strings.HasPrefix(trimmed, "case ") {
+			continue
+		}
+		for _, m := range multiCaseRE.FindAllStringSubmatch(trimmed, -1) {
+			dispatchCommands[m[1]] = true
+		}
+		_ = caseRE // retained for clarity; multiCaseRE subsumes it
+	}
+	if len(dispatchCommands) == 0 {
+		t.Fatal("extracted zero /commands from handleSlash — parser broke")
+	}
+
+	canonicalSet := map[string]bool{}
+	for _, c := range types.CanonicalREPLCommands() {
+		canonicalSet[c] = true
+	}
+
+	var missing []string
+	for cmd := range dispatchCommands {
+		if !canonicalSet[cmd] {
+			missing = append(missing, cmd)
+		}
+	}
+	sort.Strings(missing)
+	if len(missing) > 0 {
+		t.Errorf("handleSlash dispatches these commands but replCommandAliases doesn't register them.\n"+
+			"In the real REPL Loop, NormalizeREPLCommandAlias returns \"\" for an unregistered command,\n"+
+			"so the line falls through to the analysis pipeline — the dispatch case is DEAD.\n"+
+			"Missing from internal/types/conversation.go :: replCommandAliases: %v\n"+
+			"Add both '/foo' and '\\\\foo' entries mapping to '/foo'.",
 			missing)
 	}
 }

@@ -67,7 +67,7 @@ func TestNoInternalTermsInToolSchemas(t *testing.T) {
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
-	t.Fatalf("TestNoInternalTermsInToolSchemas found %d violation(s); see docs/prompt_glossary.md for replacements", len(hits))
+	t.Fatalf("TestNoInternalTermsInToolSchemas found %d violation(s); rephrase in user-facing language or extend internal/skill/glossary.go :: InternalTermsBlocklist", len(hits))
 }
 
 // scanJSONDescriptions walks a decoded JSON schema tree and scans

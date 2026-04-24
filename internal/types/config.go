@@ -36,6 +36,13 @@ type PipelineSettings struct {
 	// enable when the repo has test regressions to worry about.
 	BaselineCaptureEnabled bool `yaml:"baseline_capture_enabled"`
 
+	// KeepWorktreeOnSuccess preserves the git worktree after a
+	// successful ModeApply so the user can review the applied bytes
+	// and cherry-pick to main manually. Failure paths always discard
+	// regardless of this flag. Default false preserves historical
+	// "Run ends, worktree gone" behaviour.
+	KeepWorktreeOnSuccess bool `yaml:"keep_worktree_on_success"`
+
 	// GateThresholds tunes the analyzer quality gate's numeric
 	// cutoffs. Defaults live in internal/analysis/gate.Thresholds
 	// and are applied when the zero value is loaded.

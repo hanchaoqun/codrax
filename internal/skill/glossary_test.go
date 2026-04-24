@@ -59,7 +59,7 @@ func TestNoInternalTermsInPrompts(t *testing.T) {
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
-	t.Fatalf("TestNoInternalTermsInPrompts found %d violation(s); see docs/prompt_glossary.md for replacements", len(hits))
+	t.Fatalf("TestNoInternalTermsInPrompts found %d violation(s); rephrase in user-facing language or extend internal/skill/glossary.go :: InternalTermsBlocklist", len(hits))
 }
 
 // scanConfig walks every LLM-facing string in a Config and returns

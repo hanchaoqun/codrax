@@ -44,7 +44,7 @@ func TestUpdatePlanStatusOnDisk_HappyPath(t *testing.T) {
 	path := seedPlanFile(t, dir, plan)
 
 	now := time.Now()
-	if err := UpdatePlanStatusOnDisk(path, PlanStatusApplied, &now); err != nil {
+	if err := UpdatePlanStatusOnDisk(path, PlanStatusApplied, &now, ""); err != nil {
 		t.Fatalf("UpdatePlanStatusOnDisk: %v", err)
 	}
 
@@ -82,7 +82,7 @@ func TestUpdatePlanStatusOnDisk_NilAppliedAt(t *testing.T) {
 	}
 	path := seedPlanFile(t, dir, plan)
 
-	if err := UpdatePlanStatusOnDisk(path, PlanStatusVerifyFailed, nil); err != nil {
+	if err := UpdatePlanStatusOnDisk(path, PlanStatusVerifyFailed, nil, ""); err != nil {
 		t.Fatalf("UpdatePlanStatusOnDisk: %v", err)
 	}
 	reloaded, err := LoadChangePlanFromFile(path)
@@ -101,10 +101,54 @@ func TestUpdatePlanStatusOnDisk_NilAppliedAt(t *testing.T) {
 // input guard so misconfigured callers don't hit a confusing
 // "read /" error.
 func TestUpdatePlanStatusOnDisk_EmptyPathRejected(t *testing.T) {
-	if err := UpdatePlanStatusOnDisk("", PlanStatusApplied, nil); err == nil {
+	if err := UpdatePlanStatusOnDisk("", PlanStatusApplied, nil, ""); err == nil {
 		t.Fatal("empty path should error")
 	} else if !strings.Contains(err.Error(), "empty path") {
 		t.Errorf("error should explain empty path; got %q", err.Error())
+	}
+}
+
+// TestUpdatePlanStatusOnDisk_WorktreePath verifies the new
+// worktreePath parameter: non-empty sets the field; empty leaves
+// whatever was there alone so later lifecycle updates don't wipe
+// a preserved path.
+func TestUpdatePlanStatusOnDisk_WorktreePath(t *testing.T) {
+	dir := t.TempDir()
+	plan := &ChangePlan{
+		ID:          "plan-wt-1",
+		Request:     "x",
+		Summary:     "y",
+		Status:      PlanStatusPending,
+		Changes:     []FileChange{{Path: "a.go", Kind: "modify", Rationale: "r"}},
+		TargetPaths: []string{"a.go"},
+	}
+	path := seedPlanFile(t, dir, plan)
+
+	now := time.Now()
+	if err := UpdatePlanStatusOnDisk(path, PlanStatusApplied, &now, "/tmp/wt/abc-123"); err != nil {
+		t.Fatalf("first update: %v", err)
+	}
+	reloaded, err := LoadChangePlanFromFile(path)
+	if err != nil {
+		t.Fatalf("reload: %v", err)
+	}
+	if reloaded.WorktreePath != "/tmp/wt/abc-123" {
+		t.Errorf("WorktreePath = %q; want /tmp/wt/abc-123", reloaded.WorktreePath)
+	}
+
+	// Second update with empty worktreePath must PRESERVE the field.
+	if err := UpdatePlanStatusOnDisk(path, PlanStatusVerifyFailed, nil, ""); err != nil {
+		t.Fatalf("second update: %v", err)
+	}
+	reloaded, err = LoadChangePlanFromFile(path)
+	if err != nil {
+		t.Fatalf("reload 2: %v", err)
+	}
+	if reloaded.WorktreePath != "/tmp/wt/abc-123" {
+		t.Errorf("empty worktreePath should PRESERVE existing field; got %q", reloaded.WorktreePath)
+	}
+	if reloaded.Status != PlanStatusVerifyFailed {
+		t.Errorf("Status = %q; want %q", reloaded.Status, PlanStatusVerifyFailed)
 	}
 }
 
@@ -112,7 +156,7 @@ func TestUpdatePlanStatusOnDisk_EmptyPathRejected(t *testing.T) {
 // (caller typically logs + proceeds).
 func TestUpdatePlanStatusOnDisk_MissingFile(t *testing.T) {
 	err := UpdatePlanStatusOnDisk(filepath.Join(t.TempDir(), "nonexistent.json"),
-		PlanStatusApplied, nil)
+		PlanStatusApplied, nil, "")
 	if err == nil {
 		t.Fatal("missing file should error")
 	}

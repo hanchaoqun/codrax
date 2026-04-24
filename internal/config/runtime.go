@@ -159,6 +159,12 @@ type RuntimeSettings struct {
 	// Default false — the extra test run doubles wall time.
 	PipelineBaselineCaptureEnabled *bool `yaml:"pipeline_baseline_capture_enabled"`
 
+	// PipelineKeepWorktreeOnSuccess, when true, preserves the git
+	// worktree after a successful ModeApply so the user can review
+	// the applied bytes and cherry-pick to main manually. Failure
+	// paths always discard regardless of this flag. Default false.
+	PipelineKeepWorktreeOnSuccess *bool `yaml:"pipeline_keep_worktree_on_success"`
+
 	// Analyzer quality gate thresholds. Flat-prefixed `gate_*`.
 	// All optional; zero/nil → code default in gate.Thresholds.
 	GateCoverageMin           *float64 `yaml:"gate_coverage_min"`

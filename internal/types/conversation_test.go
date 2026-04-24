@@ -134,6 +134,24 @@ func TestNormalizeREPLCommandAlias(t *testing.T) {
 		{"\\help", "/help"},
 		{"/history now", "/history now"},
 		{"how does explorer work", ""},
+		// Write-mode commands (session 35 fix for the pre-existing
+		// drift bug). Every one of these was handled by
+		// handleSlash's switch but absent from this alias map — the
+		// real REPL Loop treated them as pipeline questions.
+		{"/mode", "/mode"},
+		{"/mode plan", "/mode plan"},
+		{"/plan", "/plan"},
+		{"/plan show", "/plan show"},
+		{"/approve", "/approve"},
+		{"/reject", "/reject"},
+		{"/reject too narrow", "/reject too narrow"},
+		{"/verify", "/verify"},
+		{"/verify plan-123", "/verify plan-123"},
+		{"/worktree", "/worktree"},
+		{"/worktree list", "/worktree list"},
+		{"\\plan", "/plan"},
+		{"\\approve", "/approve"},
+		{"\\worktree discard plan-1", "/worktree discard plan-1"},
 	}
 	for _, c := range cases {
 		if got := NormalizeREPLCommandAlias(c.in); got != c.want {

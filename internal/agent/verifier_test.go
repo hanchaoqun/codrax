@@ -28,6 +28,17 @@ func verifierFixtureCtx(report *types.ChangeReport, plan *types.ChangePlan) *typ
 	}
 }
 
+// verifierFixtureCtxWithBaseline is like verifierFixtureCtx but
+// additionally pre-populates Mutable.BaselineReport so tests can
+// exercise the pre-existing-failures prompt path.
+func verifierFixtureCtxWithBaseline(report, baseline *types.ChangeReport, plan *types.ChangePlan) *types.AgentContext {
+	ctx := verifierFixtureCtx(report, plan)
+	if baseline != nil {
+		ctx.Mutable.SetBaselineReport(baseline)
+	}
+	return ctx
+}
+
 // TestVerifier_ShouldStop_ReportInstalled verifies the evaluator
 // exits immediately when Mutable.ChangeReport is non-nil (run_tests
 // has populated it synchronously).
@@ -172,17 +183,138 @@ func TestVerifier_BuildInitialInstruction_NoPlan(t *testing.T) {
 }
 
 // TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests verifies
-// we don't emit a noise supplement when plan has no explicit tests.
+// we don't emit a noise supplement when plan has no explicit tests
+// AND no baseline has been captured.
 func TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:      "plan",
 		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
-		// AcceptanceTests empty.
+		// AcceptanceTests empty; no baseline set.
 	}
 	ctx := verifierFixtureCtx(nil, plan)
 	ev := &verifierEvaluator{}
 	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
 	if inst != "" {
-		t.Errorf("empty acceptance_tests should yield empty instruction; got %q", inst)
+		t.Errorf("empty acceptance_tests + no baseline should yield empty instruction; got %q", inst)
+	}
+}
+
+// TestVerifier_BuildInitialInstruction_BaselineFailuresRendered checks
+// that when the orchestrator captured a pre-apply baseline that
+// already had failing tests, the verifier prompt lists them so the
+// LLM can classify regression vs pre-existing.
+func TestVerifier_BuildInitialInstruction_BaselineFailuresRendered(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:      "plan-baseline",
+		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
+	}
+	baseline := &types.ChangeReport{
+		Passed: false,
+		TestResults: []types.TestResult{
+			{AssertionID: "TestPreExistingBroken", Suite: "legacy", Passed: false, FailureDetail: "was broken before"},
+			{AssertionID: "TestFine", Suite: "legacy", Passed: true},
+			{AssertionID: "TestAlsoBroken", Suite: "legacy", Passed: false},
+		},
+	}
+	ctx := verifierFixtureCtxWithBaseline(nil, baseline, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	if !strings.Contains(inst, "Pre-existing baseline failures") {
+		t.Errorf("instruction should include baseline section; got %q", inst)
+	}
+	if !strings.Contains(inst, "TestPreExistingBroken") {
+		t.Errorf("instruction should list pre-existing failure; got %q", inst)
+	}
+	if !strings.Contains(inst, "TestAlsoBroken") {
+		t.Errorf("instruction should list second failure; got %q", inst)
+	}
+	if strings.Contains(inst, "TestFine") {
+		t.Errorf("passing baseline tests should not render; got %q", inst)
+	}
+	for _, keyword := range []string{"REGRESSION", "PRE-EXISTING", "FIXED"} {
+		if !strings.Contains(inst, keyword) {
+			t.Errorf("instruction should teach LLM classification keyword %q; got %q", keyword, inst)
+		}
+	}
+}
+
+// TestVerifier_BuildInitialInstruction_BaselinePassing verifies we
+// DON'T noise up the prompt when the baseline was captured but all
+// tests passed (nothing interesting to say about pre-existing state).
+func TestVerifier_BuildInitialInstruction_BaselinePassing(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:      "plan-baseline-clean",
+		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
+	}
+	baseline := &types.ChangeReport{
+		Passed: true,
+		TestResults: []types.TestResult{
+			{AssertionID: "TestFine", Passed: true},
+		},
+	}
+	ctx := verifierFixtureCtxWithBaseline(nil, baseline, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	if strings.Contains(inst, "Pre-existing baseline failures") {
+		t.Errorf("clean baseline should NOT render the section; got %q", inst)
+	}
+	// Plan had no acceptance tests either → empty instruction.
+	if inst != "" {
+		t.Errorf("clean baseline + empty acceptance_tests should yield empty instruction; got %q", inst)
+	}
+}
+
+// TestVerifier_BuildInitialInstruction_BaselineFailureCap caps the
+// rendered list at 15 so a catastrophic baseline doesn't blow up
+// the prompt.
+func TestVerifier_BuildInitialInstruction_BaselineFailureCap(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:      "plan-baseline-many",
+		Changes: []types.FileChange{{Path: "x.go", Kind: "modify"}},
+	}
+	var results []types.TestResult
+	for i := 0; i < 25; i++ {
+		results = append(results, types.TestResult{
+			AssertionID: "TestBroken" + string(rune('A'+i%26)),
+			Passed:      false,
+		})
+	}
+	baseline := &types.ChangeReport{TestResults: results}
+	ctx := verifierFixtureCtxWithBaseline(nil, baseline, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	if !strings.Contains(inst, "+10 more") {
+		t.Errorf("cap at 15 should yield '+10 more' overflow marker; got %q", inst)
+	}
+}
+
+// TestVerifier_BuildInitialInstruction_AcceptanceAndBaselineBoth
+// verifies both sections render together when both inputs are
+// present.
+func TestVerifier_BuildInitialInstruction_AcceptanceAndBaselineBoth(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:              "plan-both",
+		AcceptanceTests: []string{"no regressions"},
+		Changes:         []types.FileChange{{Path: "x.go", Kind: "modify"}},
+	}
+	baseline := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{AssertionID: "TestOldBug", Passed: false},
+		},
+	}
+	ctx := verifierFixtureCtxWithBaseline(nil, baseline, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	if !strings.Contains(inst, "Plan acceptance criteria") {
+		t.Errorf("acceptance section missing; got %q", inst)
+	}
+	if !strings.Contains(inst, "Pre-existing baseline failures") {
+		t.Errorf("baseline section missing; got %q", inst)
+	}
+	if !strings.Contains(inst, "no regressions") {
+		t.Errorf("acceptance criterion missing; got %q", inst)
+	}
+	if !strings.Contains(inst, "TestOldBug") {
+		t.Errorf("baseline failure name missing; got %q", inst)
 	}
 }

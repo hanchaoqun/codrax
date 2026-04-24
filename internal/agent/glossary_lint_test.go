@@ -102,7 +102,7 @@ func TestNoInternalTermsInHints(t *testing.T) {
 	for _, h := range hits {
 		t.Errorf("  %s", h)
 	}
-	t.Fatalf("TestNoInternalTermsInHints found %d violation(s) (logger-arg literals excluded); see docs/prompt_glossary.md for replacements", len(hits))
+	t.Fatalf("TestNoInternalTermsInHints found %d violation(s) (logger-arg literals excluded); rephrase in user-facing language or extend internal/skill/glossary.go :: InternalTermsBlocklist", len(hits))
 }
 
 // collectLoggedStringPositions walks the AST once and returns the

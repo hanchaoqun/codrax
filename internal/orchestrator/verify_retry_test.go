@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -11,34 +12,34 @@ import (
 // before any ChangeReport was produced still yields a non-empty
 // hint so the planner knows "something broke, start over".
 func TestBuildRetryHint_NilReport(t *testing.T) {
-	got := buildRetryHint(nil, 1)
+	got := buildRetryHint(nil, nil, 1)
 	if got == "" {
 		t.Fatal("nil report should still yield a hint")
 	}
 	if !strings.Contains(got, "attempt 1") {
 		t.Errorf("hint should name the attempt; got %q", got)
 	}
-	if !strings.Contains(got, "from scratch") {
-		t.Errorf("hint should direct a scratch restart; got %q", got)
+	if !strings.Contains(got, "without producing a ChangeReport") {
+		t.Errorf("hint should explain missing report; got %q", got)
 	}
 }
 
 // TestBuildRetryHint_WithFailingTests checks that failing test
-// names show up (bounded) and a truncation marker appears when
-// the list exceeds the cap.
+// names + their Suite + their FailureDetail first line show up
+// (bounded) and the list is capped at 3.
 func TestBuildRetryHint_WithFailingTests(t *testing.T) {
 	report := &types.ChangeReport{
 		FailureSummary: "3 of 5 tests failed in handler module",
 		TestResults: []types.TestResult{
-			{AssertionID: "TestA", Passed: false},
+			{AssertionID: "TestA", Suite: "pkg", Passed: false, FailureDetail: "expected 42, got 7\nmore stack…"},
 			{AssertionID: "TestB", Passed: true},
-			{AssertionID: "TestC", Passed: false},
+			{AssertionID: "TestC", Suite: "pkg", Passed: false, FailureDetail: "nil pointer in handler.go:88"},
 			{AssertionID: "TestD", Passed: false},
 			{AssertionID: "TestE", Passed: false},
 			{AssertionID: "TestF", Passed: false},
 		},
 	}
-	got := buildRetryHint(report, 2)
+	got := buildRetryHint(report, nil, 2)
 	if !strings.Contains(got, "attempt 2") {
 		t.Errorf("hint should name the attempt; got %q", got)
 	}
@@ -55,6 +56,77 @@ func TestBuildRetryHint_WithFailingTests(t *testing.T) {
 	if strings.Contains(got, "TestF") {
 		t.Errorf("hint should truncate at 3 failing tests; got %q", got)
 	}
+	// FailureDetail first lines surfaced (first-line only, no stack).
+	if !strings.Contains(got, "expected 42, got 7") {
+		t.Errorf("hint should include FailureDetail first line for TestA; got %q", got)
+	}
+	if strings.Contains(got, "more stack") {
+		t.Errorf("hint should clip after first line of FailureDetail; got %q", got)
+	}
+	if !strings.Contains(got, "nil pointer in handler.go:88") {
+		t.Errorf("hint should include FailureDetail for TestC; got %q", got)
+	}
+	// Suite renders in parens when present.
+	if !strings.Contains(got, "TestA (pkg)") {
+		t.Errorf("hint should render Suite suffix; got %q", got)
+	}
+}
+
+// TestBuildRetryHint_WithSuspectFileList checks that when a plan is
+// passed, its TargetPaths render as a "suspect list" so the planner
+// knows which files to re-examine.
+func TestBuildRetryHint_WithSuspectFileList(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:          "plan-x",
+		TargetPaths: []string{"a.go", "b.go", "c.go"},
+	}
+	report := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{AssertionID: "TestBad", Passed: false, FailureDetail: "boom"},
+		},
+	}
+	got := buildRetryHint(report, plan, 1)
+	if !strings.Contains(got, "suspect list") {
+		t.Errorf("hint should flag paths as suspects; got %q", got)
+	}
+	for _, p := range []string{"a.go", "b.go", "c.go"} {
+		if !strings.Contains(got, p) {
+			t.Errorf("hint should include path %s; got %q", p, got)
+		}
+	}
+}
+
+// TestBuildRetryHint_SuspectFileListCap caps the path list at 10.
+func TestBuildRetryHint_SuspectFileListCap(t *testing.T) {
+	paths := make([]string, 15)
+	for i := range paths {
+		paths[i] = fmt.Sprintf("file%02d.go", i)
+	}
+	plan := &types.ChangePlan{TargetPaths: paths}
+	got := buildRetryHint(nil, plan, 1)
+	// First 10 render, last 5 collapse into "+N more".
+	if !strings.Contains(got, "file00.go") || !strings.Contains(got, "file09.go") {
+		t.Errorf("hint should include first 10 paths; got %q", got)
+	}
+	if strings.Contains(got, "file10.go") {
+		t.Errorf("hint should cap before file10.go; got %q", got)
+	}
+	if !strings.Contains(got, "(+5 more)") {
+		t.Errorf("hint should surface overflow count; got %q", got)
+	}
+}
+
+// TestBuildRetryHint_PlanWithoutReport exercises the apply-failure
+// case: the plan landed but verify never produced a report.
+func TestBuildRetryHint_PlanWithoutReport(t *testing.T) {
+	plan := &types.ChangePlan{TargetPaths: []string{"a.go"}}
+	got := buildRetryHint(nil, plan, 1)
+	if !strings.Contains(got, "without producing a ChangeReport") {
+		t.Errorf("hint should explain missing report; got %q", got)
+	}
+	if !strings.Contains(got, "a.go") {
+		t.Errorf("hint should still show suspect files; got %q", got)
+	}
 }
 
 // TestBuildRetryHint_LongSummaryTruncated verifies the 300-char
@@ -63,13 +135,32 @@ func TestBuildRetryHint_WithFailingTests(t *testing.T) {
 func TestBuildRetryHint_LongSummaryTruncated(t *testing.T) {
 	long := strings.Repeat("x", 500)
 	report := &types.ChangeReport{FailureSummary: long}
-	got := buildRetryHint(report, 1)
+	got := buildRetryHint(report, nil, 1)
 	if !strings.Contains(got, "…") {
 		t.Errorf("oversized summary should be truncated with ellipsis; got %q", got)
 	}
-	// Total hint stays bounded.
-	if len(got) > 700 {
+	// Total hint stays bounded (new enriched cap: 1500 chars).
+	if len(got) > 1500 {
 		t.Errorf("hint length %d exceeds safety cap; got %q", len(got), got)
+	}
+}
+
+// TestBuildRetryHint_LongDetailTruncated caps each failing test's
+// FailureDetail first line at 140 chars so a verbose stack row
+// doesn't swamp the hint.
+func TestBuildRetryHint_LongDetailTruncated(t *testing.T) {
+	long := strings.Repeat("z", 300)
+	report := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{AssertionID: "TestBig", Passed: false, FailureDetail: long},
+		},
+	}
+	got := buildRetryHint(report, nil, 1)
+	if !strings.Contains(got, "…") {
+		t.Errorf("oversized detail should be ellipsis-truncated; got %q", got)
+	}
+	if len(got) > 1500 {
+		t.Errorf("hint length %d exceeds safety cap", len(got))
 	}
 }
 
@@ -151,6 +242,12 @@ func TestPrepareVerifyRetry_ClearsStateAndSeedsHint(t *testing.T) {
 	}
 	if !strings.Contains(hint, "attempt 1") {
 		t.Errorf("hint should name the prior attempt; got %q", hint)
+	}
+	// ChangePlan was populated before prepareVerifyRetry ran, so the
+	// enriched hint must render the suspect-file list — proves the
+	// plan was read BEFORE the subsequent reset cleared it.
+	if !strings.Contains(hint, "a.go") {
+		t.Errorf("hint should include prior plan's TargetPaths as suspect list; got %q", hint)
 	}
 }
 

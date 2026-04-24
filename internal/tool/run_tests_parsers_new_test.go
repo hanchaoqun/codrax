@@ -240,7 +240,7 @@ func TestParseJUnitXMLDir_MixedFailuresAndSkipped(t *testing.T) {
 func TestParseJUnitXMLDir_MultiFileAggregation(t *testing.T) {
 	// Simulate Maven multi-module: two suites in separate files.
 	dir := seedJUnitDir(t, map[string]string{
-		"TEST-com.foo.BarTest.xml": junitTwoSuitesMixed, // 3 cases
+		"TEST-com.foo.BarTest.xml": junitTwoSuitesMixed,     // 3 cases
 		"TEST-com.foo.BazTest.xml": junitSingleSuiteAllPass, // 2 cases
 	})
 	report, err := parseJUnitXMLDir(dir, "")
@@ -456,5 +456,373 @@ func TestLocateJUnitReportDir_NoReports(t *testing.T) {
 	repo := t.TempDir()
 	if got := locateJUnitReportDir(repo); got != "" {
 		t.Errorf("bare repo should yield ''; got %q", got)
+	}
+}
+
+// ── extractBuildErrorExcerpt ──────────────────────────────────────
+
+func TestExtractBuildErrorExcerpt_MavenError(t *testing.T) {
+	stdout := `[INFO] Scanning for projects...
+[INFO] Building foo 1.0
+[INFO] --- maven-compiler-plugin:3.8.1:compile (default-compile) ---
+[ERROR] /home/ci/src/main/java/Foo.java:[17,23] cannot find symbol
+[ERROR]   symbol:   variable bar
+[ERROR]   location: class Foo
+[INFO] BUILD FAILURE
+[INFO] Total time: 2.1 s
+`
+	got := extractBuildErrorExcerpt(stdout)
+	if !strings.Contains(got, "[ERROR] /home/ci/src/main/java/Foo.java:[17,23] cannot find symbol") {
+		t.Errorf("excerpt should carry the primary [ERROR] line; got %q", got)
+	}
+	if !strings.Contains(got, "BUILD FAILURE") {
+		t.Errorf("excerpt should carry the BUILD FAILURE verdict; got %q", got)
+	}
+	if strings.Contains(got, "Scanning for projects") {
+		t.Errorf("excerpt should NOT include [INFO] scaffolding; got %q", got)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_GradleError(t *testing.T) {
+	stdout := `> Task :compileJava FAILED
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file '/ws/build.gradle' line: 42
+
+* What went wrong:
+Execution failed for task ':compileJava'.
+> Compilation failed; see the compiler error output for details.
+
+* Try:
+Run with --stacktrace option to get the stack trace.
+
+BUILD FAILED in 3s
+`
+	got := extractBuildErrorExcerpt(stdout)
+	if !strings.Contains(got, "FAILURE: Build failed with an exception") {
+		t.Errorf("excerpt should carry Gradle FAILURE header; got %q", got)
+	}
+	if !strings.Contains(got, "What went wrong") {
+		t.Errorf("excerpt should carry What-went-wrong marker; got %q", got)
+	}
+	if !strings.Contains(got, "BUILD FAILED") {
+		t.Errorf("excerpt should carry BUILD FAILED; got %q", got)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_JavacError(t *testing.T) {
+	stdout := `Foo.java:42: error: ';' expected
+    return 1
+           ^
+Bar.java:9: error: cannot find symbol
+1 error
+`
+	got := extractBuildErrorExcerpt(stdout)
+	if !strings.Contains(got, "Foo.java:42: error: ';' expected") {
+		t.Errorf("excerpt should pick up javac error lines; got %q", got)
+	}
+	if !strings.Contains(got, "Bar.java:9: error: cannot find symbol") {
+		t.Errorf("excerpt should pick up second javac error; got %q", got)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_KotlinError(t *testing.T) {
+	stdout := `> Task :compileKotlin
+ e: /src/Foo.kt: (12, 9): Unresolved reference: baz
+ e: /src/Foo.kt: (15, 1): Expecting '}'
+BUILD FAILED in 1s
+`
+	got := extractBuildErrorExcerpt(stdout)
+	if !strings.Contains(got, "Unresolved reference: baz") {
+		t.Errorf("excerpt should pick up kotlinc 'e:' error; got %q", got)
+	}
+	if !strings.Contains(got, "BUILD FAILED") {
+		t.Errorf("excerpt should carry BUILD FAILED; got %q", got)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_Dedup(t *testing.T) {
+	stdout := `[ERROR] foo broke
+[ERROR] foo broke
+[ERROR] foo broke
+[ERROR] bar also broke
+`
+	got := extractBuildErrorExcerpt(stdout)
+	// Dedup: only one "foo broke" line in the excerpt.
+	first := strings.Index(got, "foo broke")
+	last := strings.LastIndex(got, "foo broke")
+	if first == -1 || first != last {
+		t.Errorf("duplicate 'foo broke' lines should collapse to one; got %q", got)
+	}
+	if !strings.Contains(got, "bar also broke") {
+		t.Errorf("unique lines should still render; got %q", got)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_LineCap(t *testing.T) {
+	var sb strings.Builder
+	for i := 0; i < 30; i++ {
+		sb.WriteString("[ERROR] unique row ")
+		sb.WriteString(strings.Repeat("x", i+1))
+		sb.WriteString("\n")
+	}
+	got := extractBuildErrorExcerpt(sb.String())
+	n := strings.Count(got, "[ERROR]")
+	if n != 10 {
+		t.Errorf("should cap at 10 lines; got %d", n)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_Empty(t *testing.T) {
+	if got := extractBuildErrorExcerpt(""); got != "" {
+		t.Errorf("empty input should yield empty excerpt; got %q", got)
+	}
+	if got := extractBuildErrorExcerpt("   \n\n\t"); got != "" {
+		t.Errorf("whitespace-only input should yield empty excerpt; got %q", got)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_MarkerlessFallback(t *testing.T) {
+	// No known markers — should fall back to head lines so the
+	// operator always has SOMETHING to read.
+	stdout := `something unexpected happened
+cannot proceed
+giving up
+`
+	got := extractBuildErrorExcerpt(stdout)
+	if got == "" {
+		t.Fatal("marker-less input should still yield a non-empty excerpt")
+	}
+	if !strings.Contains(got, "something unexpected") {
+		t.Errorf("fallback should surface first non-empty line; got %q", got)
+	}
+}
+
+func TestExtractBuildErrorExcerpt_CharCap(t *testing.T) {
+	// A single matching line wider than the cap: must truncate.
+	huge := "[ERROR] " + strings.Repeat("y", 5000)
+	got := extractBuildErrorExcerpt(huge)
+	if len(got) > 1600 {
+		t.Errorf("excerpt should stay bounded; got %d chars", len(got))
+	}
+	if !strings.Contains(got, "truncated") {
+		t.Errorf("oversized excerpt should carry a truncation marker; got %q", got)
+	}
+}
+
+// ── parseMakeOutput ────────────────────────────────────────────────
+
+// fakeExitError implements error; enough to simulate a command that
+// exited non-zero without pulling in os/exec for the unit test.
+type fakeExitError struct{ msg string }
+
+func (e *fakeExitError) Error() string { return e.msg }
+
+func TestParseMakeOutput_SuccessExit(t *testing.T) {
+	report, err := parseMakeOutput("all 42 tests passed\n", nil)
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if !report.Passed {
+		t.Error("nil runErr should flip Passed=true")
+	}
+	if len(report.TestResults) != 1 {
+		t.Fatalf("want 1 synthetic result; got %d", len(report.TestResults))
+	}
+	if report.TestResults[0].AssertionID != "make-test" {
+		t.Errorf("AssertionID = %q; want make-test", report.TestResults[0].AssertionID)
+	}
+	if !report.TestResults[0].Passed {
+		t.Error("synthetic row should be Passed=true")
+	}
+	if report.FailureSummary != "" {
+		t.Errorf("passing run should have empty FailureSummary; got %q", report.FailureSummary)
+	}
+}
+
+func TestParseMakeOutput_FailureWithExcerpt(t *testing.T) {
+	stdout := `cc -c foo.c
+foo.c:42: error: undeclared identifier 'bar'
+make: *** [foo.o] Error 1
+`
+	report, err := parseMakeOutput(stdout, &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if report.Passed {
+		t.Error("non-nil runErr should flip Passed=false")
+	}
+	if !strings.Contains(report.TestResults[0].FailureDetail, "undeclared identifier") {
+		t.Errorf("FailureDetail should include javac-style error; got %q", report.TestResults[0].FailureDetail)
+	}
+	if !strings.Contains(report.FailureSummary, "make target failed") {
+		t.Errorf("FailureSummary should name 'make target failed'; got %q", report.FailureSummary)
+	}
+}
+
+func TestParseMakeOutput_FailureWithoutExcerpt(t *testing.T) {
+	// No marker-matching lines and a mostly empty stdout — parser
+	// must fall back to runErr's own text so the retry hint has
+	// something concrete.
+	report, err := parseMakeOutput("", &fakeExitError{msg: "exit status 2"})
+	if err != nil {
+		t.Fatalf("parseMakeOutput: %v", err)
+	}
+	if report.Passed {
+		t.Error("non-nil runErr should flip Passed=false")
+	}
+	if !strings.Contains(report.TestResults[0].FailureDetail, "exit status 2") {
+		t.Errorf("FailureDetail should fall back to runErr text; got %q", report.TestResults[0].FailureDetail)
+	}
+}
+
+// ── detectRunner additions ─────────────────────────────────────────
+
+func TestDetectRunner_CMake(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "CMakeLists.txt"), []byte("project(foo)\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if got := detectRunner(dir); got != "cmake" {
+		t.Errorf("CMakeLists.txt should map to 'cmake'; got %q", got)
+	}
+}
+
+func TestDetectRunner_Meson(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "meson.build"), []byte("project('foo','c')\n"), 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	if got := detectRunner(dir); got != "meson" {
+		t.Errorf("meson.build should map to 'meson'; got %q", got)
+	}
+}
+
+func TestDetectRunner_Makefile(t *testing.T) {
+	for _, name := range []string{"Makefile", "makefile", "GNUmakefile"} {
+		t.Run(name, func(t *testing.T) {
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, name), []byte("check:\n\ttrue\n"), 0o644); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+			if got := detectRunner(dir); got != "make" {
+				t.Errorf("%s should map to 'make'; got %q", name, got)
+			}
+		})
+	}
+}
+
+func TestDetectRunner_CMakeBeatsMakefile(t *testing.T) {
+	// A CMake project typically has a generated Makefile; CMake's
+	// top-level manifest must win so we produce structured XML
+	// instead of dropping to the Make fallback.
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "CMakeLists.txt"), []byte("x"), 0o644)
+	os.WriteFile(filepath.Join(dir, "Makefile"), []byte("check:\n"), 0o644)
+	if got := detectRunner(dir); got != "cmake" {
+		t.Errorf("CMakeLists.txt should win over Makefile; got %q", got)
+	}
+}
+
+// ── detectNativeBuildDir ──────────────────────────────────────────
+
+func TestDetectNativeBuildDir_CMakeBuild(t *testing.T) {
+	repo := t.TempDir()
+	build := filepath.Join(repo, "build")
+	os.MkdirAll(build, 0o755)
+	os.WriteFile(filepath.Join(build, "CMakeCache.txt"), []byte("#"), 0o644)
+	if got := detectNativeBuildDir(repo); got != build {
+		t.Errorf("expected build/ with CMakeCache.txt; got %q", got)
+	}
+}
+
+func TestDetectNativeBuildDir_MesonBuilddir(t *testing.T) {
+	repo := t.TempDir()
+	build := filepath.Join(repo, "builddir")
+	os.MkdirAll(filepath.Join(build, "meson-info"), 0o755)
+	if got := detectNativeBuildDir(repo); got != build {
+		t.Errorf("expected builddir/ with meson-info/; got %q", got)
+	}
+}
+
+func TestDetectNativeBuildDir_EmptyDirIgnored(t *testing.T) {
+	// A dir named 'build/' with no sentinel files (leftover from a
+	// failed configure run) should NOT be accepted — we'd run ctest
+	// against an empty dir and get confusing errors.
+	repo := t.TempDir()
+	os.MkdirAll(filepath.Join(repo, "build"), 0o755)
+	if got := detectNativeBuildDir(repo); got != "" {
+		t.Errorf("empty build/ should be rejected; got %q", got)
+	}
+}
+
+func TestDetectNativeBuildDir_IDEPattern(t *testing.T) {
+	// CLion's default is cmake-build-debug.
+	repo := t.TempDir()
+	d := filepath.Join(repo, "cmake-build-debug")
+	os.MkdirAll(d, 0o755)
+	os.WriteFile(filepath.Join(d, "CMakeCache.txt"), []byte("#"), 0o644)
+	if got := detectNativeBuildDir(repo); got != d {
+		t.Errorf("CLion-style dir should be accepted; got %q", got)
+	}
+}
+
+// ── detectMakeTestTarget ──────────────────────────────────────────
+
+func TestDetectMakeTestTarget_PrefersCheck(t *testing.T) {
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "Makefile"), []byte(`
+all: foo
+
+check:
+	@echo running tests
+
+test:
+	@echo wrong target
+`), 0o644)
+	if got := detectMakeTestTarget(repo); got != "check" {
+		t.Errorf("check should beat test; got %q", got)
+	}
+}
+
+func TestDetectMakeTestTarget_FallsToTest(t *testing.T) {
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "Makefile"), []byte(`
+all: foo
+
+test:
+	@echo running tests
+`), 0o644)
+	if got := detectMakeTestTarget(repo); got != "test" {
+		t.Errorf("test should be selected when check absent; got %q", got)
+	}
+}
+
+func TestDetectMakeTestTarget_DefaultsToCheck(t *testing.T) {
+	// Neither check nor test target present — we still default to
+	// `check` so a Makefile without a test suite surfaces a clean
+	// "No rule to make target 'check'" from make itself.
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "Makefile"), []byte("all:\n\ttrue\n"), 0o644)
+	if got := detectMakeTestTarget(repo); got != "check" {
+		t.Errorf("missing test target should default to 'check'; got %q", got)
+	}
+}
+
+func TestDetectMakeTestTarget_IgnoresIndentedLines(t *testing.T) {
+	// A `check:` appearing as a recipe line (preceded by tab) is NOT
+	// a target definition — must be skipped.
+	repo := t.TempDir()
+	os.WriteFile(filepath.Join(repo, "Makefile"), []byte(`
+all: foo
+	echo "check: this is a recipe, not a target"
+
+test:
+	@echo running tests
+`), 0o644)
+	if got := detectMakeTestTarget(repo); got != "test" {
+		t.Errorf("indented 'check:' should be ignored; got %q", got)
 	}
 }

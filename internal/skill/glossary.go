@@ -1,17 +1,9 @@
 package skill
 
 // glossary.go is the single source of truth for LLM-facing prompt
-// hygiene. The lists below drive:
-//
-//   - glossary_test.go's three lint tests (prompts, tool schemas,
-//     retry/mid-loop hints) that fail the build when any listed token
-//     surfaces in a rendered LLM prompt;
-//   - the planned four-batch prompt-cleanup refactor described in
-//     docs/prompt_glossary.md; entries graduate from "report-only"
-//     (t.Log) to "hard-fail" (t.Fatal) as batches 2/3/4 land.
-//
-// Batch 1 ships the file + lint skeleton in REPORT-ONLY mode. Later
-// batches purge the terms and flip the switches.
+// hygiene. The lists below drive glossary_test.go's three lint tests
+// (prompts, tool schemas, retry/mid-loop hints) — any listed token
+// appearing in a rendered LLM prompt fails the build.
 
 // InternalTermsBlocklist is the set of implementation-jargon tokens
 // that must NEVER appear in LLM-facing prompt text. Each entry is a
@@ -22,8 +14,8 @@ package skill
 //
 // Guidance for writers: if you need to reference an internal concept
 // in a prompt, either
-//   (a) rephrase in user-facing language (see docs/prompt_glossary.md
-//       for the replacement table), or
+//   (a) rephrase in user-facing language (e.g. "AnalysisIR" → "the
+//       analysis contract"; "TaskGraph" → "the evidence plan"), or
 //   (b) extend the vocabulary here with a new abstract name and keep
 //       the original token off-limits.
 //

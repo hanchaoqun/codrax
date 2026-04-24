@@ -234,21 +234,21 @@ type REPL struct {
 // New constructs a REPL from a Config.
 func New(cfg Config) *REPL {
 	r := &REPL{
-		runner:            cfg.Runner,
-		store:             cfg.Store,
-		render:            cfg.Render,
-		renderer:          cfg.Renderer,
-		repoRoot:          cfg.RepoRoot,
-		branch:            cfg.Branch,
-		in:                cfg.In,
-		out:               cfg.Out,
-		prompt:            cfg.Prompt,
-		promptCont:        cfg.PromptCont,
-		bannerText:        cfg.Banner,
-		pasteFoldMinChars: cfg.PasteFoldMinChars,
-		version:           cfg.Version,
-		buildTime:         cfg.BuildTime,
-		language:          cfg.Language,
+		runner:             cfg.Runner,
+		store:              cfg.Store,
+		render:             cfg.Render,
+		renderer:           cfg.Renderer,
+		repoRoot:           cfg.RepoRoot,
+		branch:             cfg.Branch,
+		in:                 cfg.In,
+		out:                cfg.Out,
+		prompt:             cfg.Prompt,
+		promptCont:         cfg.PromptCont,
+		bannerText:         cfg.Banner,
+		pasteFoldMinChars:  cfg.PasteFoldMinChars,
+		version:            cfg.Version,
+		buildTime:          cfg.BuildTime,
+		language:           cfg.Language,
 		chitchatResponder:  cfg.ChitchatResponder,
 		chitchatClassifier: cfg.ChitchatClassifier,
 		// Session ID embeds nano + pid so two codrax REPLs launched
@@ -895,6 +895,12 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/reject":
 		r.handleRejectCmd(line)
 		return false
+	case "/verify":
+		r.handleVerifyCmd(line)
+		return false
+	case "/worktree":
+		r.handleWorktreeCmd(line)
+		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
@@ -977,7 +983,7 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/version":
 		r.info(fmt.Sprintf("codrax %s (built %s)", r.version, r.buildTime))
 	case "/help":
-		r.info("commands: /exit /quit /clear /history /compact /log /paste /chat /mode /plan /version /help")
+		r.info("commands: /exit /quit /clear /history /compact /log /paste /chat /mode /plan /approve /reject /verify /worktree /version /help")
 		r.info("tip: end a line with \\ for multi-line input")
 		r.info("log: /log <path> | /log (paste then /end) | /log clear | /log show")
 		r.info("paste: /paste (terminal-independent fallback when bracketed paste is stripped)")
@@ -986,6 +992,8 @@ func (r *REPL) handleSlash(line string) bool {
 		r.info("plan: /plan [show|clear|list] (inspect/manage saved ChangePlans from write-mode Runs)")
 		r.info("approve: /approve (consume pending plan — triggers apply + verify inside a git worktree)")
 		r.info("reject:  /reject [reason] (discard pending plan without applying)")
+		r.info("verify:  /verify [plan-id] (re-run verify against an applied plan; requires preserved worktree)")
+		r.info("worktree: /worktree [list|discard <plan-id>] (manage preserved worktrees from successful applies)")
 		r.info("history: /history now lists plans applied/attempted alongside recent turns + compacted index")
 		r.info("version: /version (or /v) prints the build identifier")
 	default:
@@ -1074,6 +1082,13 @@ func (r *REPL) handlePlanCmd(line string) {
 		if plan.Summary != "" {
 			fmt.Fprintf(r.out, "    summary: %s\n", oneLine(plan.Summary))
 		}
+		// Per-change diff preview so the user /approves with full
+		// knowledge. Caps: 16 KB total / 4 KB per change — enough to
+		// inspect a small surgical plan, bounded so a monster plan
+		// doesn't flood the terminal; the cap message tells the user
+		// to read the plan JSON for full detail.
+		fmt.Fprintln(r.out, "\n  diff preview:")
+		fmt.Fprint(r.out, renderPlanDiff(plan, r.repoRoot, 16*1024, 4*1024))
 	case "clear":
 		if r.pendingPlanPath == "" {
 			r.info("no pending plan to clear")
@@ -1232,6 +1247,20 @@ func (r *REPL) handleApproveCmd(line string) {
 		return
 	}
 
+	// Only pending_approval plans are eligible for /approve. Anything
+	// past pending (applied / applied_failed / verify_failed / rejected)
+	// has already been through a terminal transition on disk; a second
+	// approve would re-provision a worktree and re-run apply+verify
+	// wastefully while muddling the Status lifecycle. Clear the pointer
+	// so the user can /mode plan a fresh one.
+	if plan.Status != "" && plan.Status != types.PlanStatusPending {
+		r.warn("approve refused: plan %s is in status %q, not %q. "+
+			"Run /mode plan to generate a fresh plan.\n",
+			plan.ID, plan.Status, types.PlanStatusPending)
+		r.pendingPlanPath = ""
+		return
+	}
+
 	// Probe both setters up-front. Running Mode=ModeApply against a
 	// runner without SetMode would silently fall through to read
 	// mode in the orchestrator; without SetPlanPath the apply phase
@@ -1305,6 +1334,13 @@ func (r *REPL) handleApproveCmd(line string) {
 		fmt.Fprintln(r.out, "  ??")
 	} else {
 		r.renderBordered(response)
+	}
+	// Surface preserved worktree path when Fix 4 (keep_on_success)
+	// fired — after a successful ModeApply with the yaml knob on,
+	// busCtx.WorktreePath survives the orchestrator defer so the
+	// user can `cd <path>` to review the applied bytes.
+	if busCtx != nil && busCtx.WorktreePath != "" && busCtx.TaskState.LastError == "" {
+		fmt.Fprintf(r.out, "  worktree preserved: %s\n", busCtx.WorktreePath)
 	}
 	// KindPlan classifies this turn distinctly from chitchat /
 	// pipeline so future /history filters + the memory retrieval

@@ -32,9 +32,10 @@ import (
 	"golang.org/x/term"
 )
 
-// slashCommands is the canonical autocomplete surface. Kept in sync by
-// hand with replCommandAliases' target set in internal/types. Shown
-// only when the buffer looks like a bare slash token.
+// slashCommands is the canonical autocomplete surface. Kept in sync
+// with replCommandAliases' target set in internal/types via the
+// TestSlashCommandsMatchCanonicalRegistry drift guard. Shown only
+// when the buffer looks like a bare slash token.
 var slashCommands = []struct {
 	Name string
 	Help string
@@ -46,6 +47,12 @@ var slashCommands = []struct {
 	{"/log", "attach/show/clear a runtime log"},
 	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)"},
 	{"/chat", "reply without invoking the analysis pipeline"},
+	{"/mode", "show/set sticky pipeline mode: read | plan | apply | verify"},
+	{"/plan", "inspect / list / clear saved ChangePlans (write-mode)"},
+	{"/approve", "consume the pending plan — apply + verify inside a git worktree"},
+	{"/reject", "discard the pending plan (optionally with a reason)"},
+	{"/verify", "re-run verify against an applied plan without re-applying"},
+	{"/worktree", "list or discard preserved worktrees from successful applies"},
 	{"/version", "print build version"},
 	{"/exit", "leave the REPL"},
 	{"/quit", "leave the REPL"},
@@ -620,8 +627,16 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }
 
+// needsArg reports whether Tab-completing this command should leave
+// a trailing space so the user can immediately type arguments (vs.
+// commands like /exit that take none). The list includes every
+// command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
-	return cmd == "/log"
+	switch cmd {
+	case "/log", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree":
+		return true
+	}
+	return false
 }
 
 // renderSuggestPanel lays the filtered list below the input.

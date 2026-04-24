@@ -208,6 +208,70 @@ func TestApprove_HappyPath(t *testing.T) {
 	_ = originalPath
 }
 
+// TestApprove_RefusesNonPendingStatus verifies /approve blocks when
+// the saved plan's Status has already transitioned out of
+// pending_approval (any of applied / applied_failed / verify_failed /
+// rejected). Blast radius: prevents a wasteful re-dispatch of apply +
+// verify against a plan the orchestrator already took to a terminal
+// state.
+func TestApprove_RefusesNonPendingStatus(t *testing.T) {
+	cases := []struct{ status string }{
+		{types.PlanStatusApplied},
+		{types.PlanStatusApplyFailed},
+		{types.PlanStatusVerifyFailed},
+		{types.PlanStatusRejected},
+	}
+	for _, tc := range cases {
+		t.Run(tc.status, func(t *testing.T) {
+			runner := &writeCapableRunner{}
+			store := NewPlanStore(t.TempDir())
+			plan := &types.ChangePlan{
+				ID:      "plan-status-" + tc.status,
+				Summary: "x",
+				Status:  tc.status,
+				Changes: []types.FileChange{{Path: "a.go", Kind: "modify"}},
+			}
+			path, err := store.Save(plan)
+			if err != nil {
+				t.Fatalf("Save: %v", err)
+			}
+			memStore, err := memory.NewStore(t.TempDir(), stubSummarizer{}, types.MemorySettings{})
+			if err != nil {
+				t.Fatalf("memory.NewStore: %v", err)
+			}
+			t.Cleanup(func() { memStore.Close() })
+			out := &bytes.Buffer{}
+			r := New(Config{
+				Runner:    runner,
+				Store:     memStore,
+				In:        strings.NewReader("y\n"), // shouldn't get this far
+				Out:       out,
+				RepoRoot:  "/tmp/repo",
+				Branch:    "main",
+				Render:    renderNothing,
+				PlanStore: store,
+			})
+			r.pendingPlanPath = path
+
+			r.handleApproveCmd("/approve")
+
+			if runner.runCalled {
+				t.Errorf("/approve should NOT dispatch Run when Status=%q", tc.status)
+			}
+			got := out.String()
+			if !strings.Contains(got, "approve refused") {
+				t.Errorf("output should include 'approve refused'; got %q", got)
+			}
+			if !strings.Contains(got, tc.status) {
+				t.Errorf("output should name the offending status %q; got %q", tc.status, got)
+			}
+			if r.pendingPlanPath != "" {
+				t.Errorf("pendingPlanPath should be cleared on non-pending refusal; got %q", r.pendingPlanPath)
+			}
+		})
+	}
+}
+
 // TestApprove_HappyPathSetters is a tighter variant that proves the
 // setters are hit in the expected order (Mode=Apply + planPath
 // seeded) BEFORE Run, by having the mock runner snapshot the
