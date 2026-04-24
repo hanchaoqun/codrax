@@ -1321,6 +1321,13 @@ func truncate(s string, maxLen int) string {
 // bypasses the agent framework entirely and calls adapter.Chat
 // directly — the main pipeline agents never see this tool. Same
 // pattern as internal/repl/chitchat.go :: chitchatClassifierTool.
+//
+// Session-32 additions: `entities` (stable symbol-level anchors,
+// weighted higher than keywords during retrieval) and `refs` (prior
+// turn IDs the turn explicitly references, used for 1-hop chain
+// traversal in BuildContext). Both are required fields in the schema
+// so the model always emits *something* — empty arrays are valid and
+// simply skip the boost paths in BuildContext.
 var memorySummarizerTool = llm.ToolSchema{
 	Name:        "emit_memory_summary",
 	Description: "Compact one conversation turn into a memory index entry. Exactly one call.",
@@ -1329,9 +1336,11 @@ var memorySummarizerTool = llm.ToolSchema{
   "properties": {
     "topic":    {"type": "string", "description": "Short phrase (≤ 12 words) naming the subject of the turn. Used as the header in prior-conversation lookups."},
     "keywords": {"type": "array", "items": {"type": "string"}, "description": "Up to 8 concrete keywords — identifiers, file names, or domain terms — that future prior-conversation keyword matching should latch on. Prefer tokens that appeared verbatim in the request or response over invented synonyms."},
+    "entities": {"type": "array", "items": {"type": "string"}, "description": "3-6 stable symbol-level anchors actually named in the turn: file paths, function or method names, class or type names, package names, identifiers. These weigh more than free-form keywords during retrieval, so prefer tokens that are unlikely to be typed accidentally elsewhere. Emit an empty array when the turn discussed no concrete symbols."},
+    "refs":     {"type": "array", "items": {"type": "string"}, "description": "Prior conversation turn IDs this turn explicitly continues or cites, if any. Leave empty when the turn stands alone (the common case). Do NOT invent IDs — only emit when the turn text literally references a prior exchange."},
     "summary":  {"type": "string", "description": "One-paragraph recap (~150 words) covering the question asked and the key facts from the assistant's answer. Stay grounded in the turn content; do not invent details that were not discussed."}
   },
-  "required": ["topic", "keywords", "summary"]
+  "required": ["topic", "keywords", "entities", "refs", "summary"]
 }`),
 }
 
@@ -1339,7 +1348,11 @@ const memorySummarizerSystemPrompt = `You compact one conversation turn into a m
 
 Emit exactly one call to emit_memory_summary. Do NOT return free-form text; the caller ignores assistant content and parses only the tool call arguments.
 
-Stay grounded in the turn content — topic and keywords must name things that actually appeared in the request or response, and the summary must describe what was asked and answered rather than speculating about adjacent topics.`
+Stay grounded in the turn content — topic, keywords, and entities must name things that actually appeared in the request or response, and the summary must describe what was asked and answered rather than speculating about adjacent topics.
+
+Keywords vs entities: keywords are free-form tokens that a future user might type when asking a follow-up ("authentication", "panic", "timeout"). Entities are concrete source-code or project-level anchors that appeared verbatim in the turn ("authService.Login", "internal/config/runtime.go", "ChitchatResponder"). Entities are more stable retrieval keys than keywords, so emit them whenever the turn discussed real symbols. Empty entities is legitimate only for purely conversational turns (greetings, meta-questions).
+
+Refs: emit a turn ID under refs only when the current turn text literally references a prior turn — e.g. "continuing from the memory-store discussion yesterday" quoting a concrete earlier topic. Do not fabricate IDs and do not emit refs when the turn stands alone (the common case).`
 
 // llmSummarizer adapts an LLM adapter into a memory.Summarizer. It
 // runs a single adapter.Chat call with tool_choice=required and the
@@ -1388,6 +1401,8 @@ func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.I
 	var parsed struct {
 		Topic    string   `json:"topic"`
 		Keywords []string `json:"keywords"`
+		Entities []string `json:"entities"`
+		Refs     []string `json:"refs"`
 		Summary  string   `json:"summary"`
 	}
 	if err := json.Unmarshal(call.Params, &parsed); err != nil {
@@ -1398,6 +1413,10 @@ func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.I
 	// left one of the fields empty, backfill from the heuristic so
 	// downstream matchIndex still has something to work with. Topic
 	// and Summary are independent so treat them independently.
+	// Entities / Refs are session-32 additions and may legitimately
+	// be empty (short casual turns with no symbols, or turns that
+	// stand alone) — leave them nil in that case so appendIndexEntry
+	// omits the frontmatter line rather than writing `entities: []`.
 	if strings.TrimSpace(parsed.Topic) == "" {
 		parsed.Topic = fallback.Topic
 	}
@@ -1412,6 +1431,11 @@ func (s *llmSummarizer) Summarize(_ context.Context, turn memory.Turn) (memory.I
 		Topic:    parsed.Topic,
 		Keywords: parsed.Keywords,
 		Summary:  parsed.Summary,
+		Entities: parsed.Entities,
+		Refs:     parsed.Refs,
+		// SessionID + Kind are propagated from Turn → IndexEntry by
+		// compactOldest so this function doesn't have to care about
+		// them. Leaving both empty here is correct.
 	}, nil
 }
 

@@ -11,6 +11,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/memory"
 )
 
 // ChitchatResponder generates a conversational reply to a REPL turn
@@ -171,7 +172,10 @@ func (r *REPL) chitchatDispatch(line, display string) {
 		return
 	}
 
-	prior := r.store.BuildContext(line)
+	prior := r.store.BuildContext(line, memory.BuildOpts{
+		Kind:      memory.KindChitchat,
+		SessionID: r.sessionID,
+	})
 
 	logging.Info("[repl/chitchat] dispatching: %s", oneLine(line))
 
@@ -210,7 +214,7 @@ func (r *REPL) chitchatDispatch(line, display string) {
 		return
 	}
 	r.renderBordered(response)
-	r.recordTurn(display, line, response)
+	r.recordTurn(display, line, response, memory.KindChitchat)
 }
 
 // chitchatStreamRedrawInterval throttles pterm.Area redraws during a

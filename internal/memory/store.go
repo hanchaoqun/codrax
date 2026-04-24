@@ -78,6 +78,30 @@ func sanitizeTurnText(s string, maxBytes int) string {
 	return s[:cut] + "\n…[truncated]"
 }
 
+// Kind classifies how a Turn was produced (and, transitively, which
+// retrieval policy BuildContext should use when assembling prior-
+// conversation context for a new turn of the same Kind).
+//
+// Empty-string Kind is the legacy value — used by any turn loaded
+// from a pre-upgrade MEMORY.md / turns/ file, and also the default
+// when BuildContext is called without an explicit BuildOpts.Kind.
+// Retrieval for empty Kind behaves byte-for-byte identically to the
+// pre-upgrade pre-session-32 BuildContext, preserving every existing
+// test and cross-version file on disk.
+type Kind string
+
+const (
+	// KindChitchat = casual /chat REPL turn. Retrieval favors
+	// keeping the recent session thread intact (3 same-session turns
+	// pinned verbatim up to 800 chars) over broad compacted recall.
+	KindChitchat Kind = "chitchat"
+	// KindPipeline = normal REPL analysis turn that goes through
+	// the full orchestrator pipeline. Retrieval biases toward
+	// entity-weighted compacted recall (entities count 3x keywords)
+	// because pipeline answers anchor on source symbols.
+	KindPipeline Kind = "pipeline"
+)
+
 // Turn is one user request + assembled assistant response.
 type Turn struct {
 	ID        string
@@ -94,6 +118,18 @@ type Turn struct {
 	// Empty means "no expansion; Request is authoritative" (scripted
 	// mode, orphan-recovered turns).
 	RequestForSummary string
+
+	// SessionID identifies the REPL session that produced this turn.
+	// Set by the REPL at New() time (format: sess-<unix-nano>).
+	// Empty for orphan-loaded legacy turns and for tests that append
+	// directly. Persisted to turns/<id>.md inside an HTML comment
+	// header so orphan recovery restores it across restarts.
+	SessionID string
+
+	// Kind is the routing classification (see Kind constants). Empty
+	// means "unclassified" and falls through to the legacy retrieval
+	// policy. Persisted alongside SessionID in the turn file header.
+	Kind Kind
 }
 
 // IndexEntry is a compacted summary of a Turn that lives in MEMORY.md.
@@ -106,13 +142,89 @@ type Turn struct {
 // The flag is persisted to MEMORY.md as `was_error: true` and
 // defaults to false when absent so pre-schema entries round-trip
 // unchanged.
+//
+// SessionID / Kind / Entities / Refs are session-32 additions:
+//   - SessionID lets BuildContext boost entries from the current
+//     REPL session so follow-up questions ("那个 bug 修了吗") surface
+//     their own thread even with no keyword overlap.
+//   - Kind mirrors Turn.Kind at the index-entry level.
+//   - Entities are stable symbol-level anchors (file paths, function
+//     names, identifiers). They match with higher weight than
+//     Keywords because pipeline answers anchor on source symbols.
+//   - Refs names prior turn IDs the turn explicitly referenced; used
+//     as a 1–2 hop chain traversal from primary matches.
+//
+// All four new fields are optional: absent-in-file parses to zero-
+// value, and absent-in-struct renders as no frontmatter line, so
+// pre-upgrade MEMORY.md files round-trip unchanged through parse→
+// append cycles.
 type IndexEntry struct {
-	ID       string
-	Topic    string
-	Keywords []string
-	Summary  string
-	FullRef  string
-	WasError bool
+	ID        string
+	Topic     string
+	Keywords  []string
+	Summary   string
+	FullRef   string
+	WasError  bool
+	SessionID string
+	Kind      Kind
+	Entities  []string
+	Refs      []string
+}
+
+// BuildOpts tunes BuildContext retrieval. All fields optional; zero-
+// value opts reproduce the pre-session-32 BuildContext behavior
+// byte-for-byte (policy lookup returns the default policy).
+type BuildOpts struct {
+	// Kind selects the retrieval policy (see Kind constants). Empty
+	// falls back to the legacy policy: 3 compacted matches, oneLine
+	// recent turns, no session pinning, no entity boost.
+	Kind Kind
+	// SessionID is the caller's current REPL session id. Entries and
+	// recent turns whose SessionID matches are preferred during
+	// retrieval: recent turns become session-pinned (kept even when
+	// keyword match would drop them), and compacted entries get a
+	// small score boost. Empty SessionID disables both behaviors.
+	SessionID string
+}
+
+// kindPolicy holds the per-Kind retrieval tuning. Assembled inline in
+// policyFor(Kind) so the defaults are version-controlled in-code; a
+// yaml knob can override values later without changing the shape.
+type kindPolicy struct {
+	// sessionPinCount: how many same-session recent turns to keep
+	// unconditionally (regardless of keyword match). 0 disables
+	// session pinning (legacy behavior).
+	sessionPinCount int
+	// recentBodyChars: rune-cap for same-session recent turn body
+	// rendering. 0 means "use oneLine" (the 200-char collapse that
+	// every pre-session-32 caller sees).
+	recentBodyChars int
+	// compactedMatchCap: top-K on the matched compacted-entry list.
+	// -1 means "use s.bcLimits.maxBuildContextMatches" (the 3-entry
+	// default that preserves legacy behavior).
+	compactedMatchCap int
+	// entityScoreMul: score multiplier for entity hits vs keyword
+	// hits in matchEntries. Pipeline weights entities higher because
+	// source symbols are more stable than free-form words.
+	entityScoreMul int
+	// refsChainDepth: how many hops of IndexEntry.Refs to follow
+	// after the primary match list is picked. 0 disables chain
+	// traversal entirely (legacy behavior + first-ship conservatism).
+	refsChainDepth int
+}
+
+// policyFor returns the retrieval policy for the given Kind. Empty
+// Kind returns the legacy policy so BuildContext callers that did not
+// pass BuildOpts see byte-identical output.
+func policyFor(k Kind) kindPolicy {
+	switch k {
+	case KindChitchat:
+		return kindPolicy{sessionPinCount: 3, recentBodyChars: 800, compactedMatchCap: 3, entityScoreMul: 2, refsChainDepth: 1}
+	case KindPipeline:
+		return kindPolicy{sessionPinCount: 2, recentBodyChars: 0, compactedMatchCap: 5, entityScoreMul: 3, refsChainDepth: 2}
+	default:
+		return kindPolicy{sessionPinCount: 0, recentBodyChars: 0, compactedMatchCap: -1, entityScoreMul: 2, refsChainDepth: 0}
+	}
 }
 
 // Summarizer compresses a Turn into an IndexEntry. Implementations are
@@ -526,6 +638,17 @@ func (s *Store) readTurnFile(id string) (Turn, error) {
 		}
 	}
 
+	// Session-32 metadata recovery. HTML comments sit between the
+	// timestamp and "## Request"; legacy files missing them leave
+	// Kind / SessionID as zero values, which makes BuildContext treat
+	// the turn as cross-session (the safe degradation).
+	headerRegion := text
+	if i := strings.Index(text, reqMarker); i > 0 {
+		headerRegion = text[:i]
+	}
+	kind := Kind(extractHTMLCommentValue(headerRegion, "kind"))
+	session := extractHTMLCommentValue(headerRegion, "session_id")
+
 	// Sanitize on read so a legacy oversized turn file (written before
 	// Append learned to cap) cannot smuggle multi-megabyte content into
 	// s.recent and from there into the summarizer. This is the
@@ -535,7 +658,28 @@ func (s *Store) readTurnFile(id string) (Turn, error) {
 		Request:   sanitizeTurnText(request, s.bcLimits.maxTurnBodyBytes),
 		Response:  sanitizeTurnText(response, s.bcLimits.maxTurnBodyBytes),
 		Timestamp: ts,
+		Kind:      kind,
+		SessionID: session,
 	}, nil
+}
+
+// extractHTMLCommentValue scans text for a line of the form
+// `<!-- <key>: <value> -->` and returns the trimmed value. Empty
+// when the key is absent; legacy turn files (no comments) always
+// hit this branch. Used by readTurnFile to round-trip Kind/SessionID
+// through orphan recovery.
+func extractHTMLCommentValue(text, key string) string {
+	prefix := "<!-- " + key + ":"
+	idx := strings.Index(text, prefix)
+	if idx < 0 {
+		return ""
+	}
+	rest := text[idx+len(prefix):]
+	end := strings.Index(rest, "-->")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(rest[:end])
 }
 
 // Append records a new turn. The full text is written to turns/<id>.md
@@ -717,11 +861,16 @@ func (s *Store) Index() []IndexEntry {
 // BuildContext returns a prompt block describing prior conversation
 // relevant to the current request. It includes:
 //
-//   - all recent (uncompacted) turns verbatim, in order;
-//   - any IndexEntry whose keywords overlap with the current request,
-//     rendered as a single bullet with Topic + LLM-generated Summary.
-//     Full turn text is never inlined — callers who want the detail
-//     read turns/<id>.md directly or via /history.
+//   - any IndexEntry whose keywords / entities overlap with the
+//     current request, rendered as a single bullet with Topic +
+//     LLM-generated Summary. Full turn text is never inlined —
+//     callers who want the detail read turns/<id>.md directly.
+//
+//   - recent (uncompacted) turns verbatim, in order. Rendering cap
+//     depends on the caller's BuildOpts.Kind: chitchat and pipeline
+//     have distinct policies (see policyFor); the no-opts caller
+//     gets oneLine truncation identical to the pre-session-32
+//     behavior.
 //
 // The empty string is returned when there is no prior context.
 //
@@ -729,7 +878,18 @@ func (s *Store) Index() []IndexEntry {
 // cross-process lock so a peer instance's compactions become visible
 // to this instance immediately. Recent turns stay per-process — each
 // REPL is its own conversation thread.
-func (s *Store) BuildContext(currentRequest string) string {
+//
+// BuildContext is variadic to preserve call-site compatibility with
+// every existing test and caller. Passing zero opts yields the
+// legacy retrieval policy (Kind="" in policyFor); passing a populated
+// BuildOpts switches to the session-pinned / entity-weighted path.
+func (s *Store) BuildContext(currentRequest string, optOverride ...BuildOpts) string {
+	var opts BuildOpts
+	if len(optOverride) > 0 {
+		opts = optOverride[0]
+	}
+	policy := policyFor(opts.Kind)
+
 	_ = s.withSharedLock(s.loadIndexLocked)
 	s.mu.Lock()
 	recent := append([]Turn(nil), s.recent...)
@@ -742,51 +902,206 @@ func (s *Store) BuildContext(currentRequest string) string {
 
 	var b strings.Builder
 	if len(idx) > 0 {
-		matches := matchIndex(idx, currentRequest)
-		if len(matches) > s.bcLimits.maxBuildContextMatches {
-			matches = matches[:s.bcLimits.maxBuildContextMatches]
+		compactedCap := policy.compactedMatchCap
+		if compactedCap < 0 {
+			compactedCap = s.bcLimits.maxBuildContextMatches
 		}
-		if len(matches) > 0 {
-			emitted := 0
-			for _, e := range matches {
-				// Defense in depth: WasError entries carry empty
-				// Keywords, so matchIndex should never surface them.
-				// This guard covers hand-edited MEMORY.md files and
-				// any future match rule that doesn't key on keywords.
-				if e.WasError {
-					continue
-				}
-				if emitted == 0 {
-					b.WriteString("### Relevant compacted memory\n")
-				}
-				fmt.Fprintf(&b, "- **%s** (%s) — %s\n", e.Topic, e.ID, e.Summary)
-				emitted++
+		matches := scoreIndex(idx, currentRequest, opts, policy)
+		if len(matches) > compactedCap {
+			matches = matches[:compactedCap]
+		}
+		if policy.refsChainDepth > 0 && len(matches) > 0 {
+			matches = expandRefsChain(matches, idx, policy.refsChainDepth)
+		}
+		emitted := 0
+		for _, e := range matches {
+			// Defense in depth: WasError entries carry empty
+			// Keywords / Entities, so scoreIndex should never
+			// surface them. This guard covers hand-edited
+			// MEMORY.md files and any future match rule that
+			// doesn't key on keywords.
+			if e.WasError {
+				continue
 			}
-			if emitted > 0 {
-				b.WriteString("\n")
+			if emitted == 0 {
+				b.WriteString("### Relevant compacted memory\n")
 			}
+			fmt.Fprintf(&b, "- **%s** (%s) — %s\n", e.Topic, e.ID, e.Summary)
+			emitted++
+		}
+		if emitted > 0 {
+			b.WriteString("\n")
 		}
 	}
 	if len(recent) > 0 {
 		b.WriteString("### Recent conversation\n")
-		for _, t := range recent {
-			fmt.Fprintf(&b, "- You (%s): %s\n", t.Timestamp.Format("15:04:05"), oneLine(t.Request))
-			// Read-side heuristic: sanitize error-ladenresponses from
-			// legacy turn files written before the write-side fix
-			// (repl.recordTurn memResponse) landed. Pre-fix turn files
-			// captured full "error: task X stuck at stage explore after
-			// 5 visits" text and full OpenAI 400 payloads; leaving them
-			// in the Recent conversation block leaks historical failure
-			// text into every subsequent analyzer prompt. Detection is
-			// structural — a leading "error:" prefix (the format
-			// RenderResult emits when `busCtx.TaskState.LastError != ""`)
-			// and a short list of well-known failure phrases. Matches
-			// are replaced with the same placeholder the write-side
-			// emits, so old and new turn files present the same shape.
-			fmt.Fprintf(&b, "  Codrax: %s\n", sanitizeErrorResponse(oneLine(t.Response)))
-		}
+		renderRecentTurns(&b, recent, opts, policy)
 	}
 	return b.String()
+}
+
+// scoreIndex ranks compacted entries by keyword-hit + weighted
+// entity-hit + optional same-session tie-breaker. Replaces the
+// pre-session-32 matchIndex while remaining byte-compatible with
+// its behavior when called with zero BuildOpts and legacy entries
+// (no Entities, no SessionID) — the new contributions all collapse
+// to zero in that case.
+//
+// Keyword matching is token-overlap (same as legacy). Entity
+// matching is substring containment against the lower-cased request
+// because entities often contain non-alphanumerics (file paths,
+// dotted names) that tokenize would split. Entities under 3 runes
+// are skipped to avoid spurious hits on sentinels like "go" / "id".
+func scoreIndex(idx []IndexEntry, request string, opts BuildOpts, policy kindPolicy) []IndexEntry {
+	if request == "" || len(idx) == 0 {
+		return nil
+	}
+	tokens := tokenize(request)
+	lowerReq := strings.ToLower(request)
+	if len(tokens) == 0 && lowerReq == "" {
+		return nil
+	}
+	type scored struct {
+		e     IndexEntry
+		score int
+	}
+	var out []scored
+	for _, e := range idx {
+		kwHits := 0
+		for _, kw := range e.Keywords {
+			if _, hit := tokens[strings.ToLower(kw)]; hit {
+				kwHits++
+			}
+		}
+		entHits := 0
+		if len(e.Entities) > 0 && policy.entityScoreMul > 0 {
+			for _, ent := range e.Entities {
+				le := strings.ToLower(strings.TrimSpace(ent))
+				if len([]rune(le)) < 3 {
+					continue
+				}
+				if strings.Contains(lowerReq, le) {
+					entHits++
+				}
+			}
+		}
+		s := kwHits + entHits*policy.entityScoreMul
+		// Same-session tie-breaker. Only applies when the entry
+		// already has some relevance signal (s > 0); bare session
+		// membership is not enough to surface an otherwise-
+		// irrelevant entry.
+		if s > 0 && opts.SessionID != "" && e.SessionID == opts.SessionID {
+			s++
+		}
+		if s > 0 {
+			out = append(out, scored{e, s})
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].score > out[j].score })
+	result := make([]IndexEntry, len(out))
+	for i, v := range out {
+		result[i] = v.e
+	}
+	return result
+}
+
+// expandRefsChain walks IndexEntry.Refs from the primary match list
+// up to depth hops, appending any target entries that were not
+// already in the primary list. Primary matches stay first; each hop
+// appends in discovery order. Cycles are broken by the `seen` set.
+func expandRefsChain(primary []IndexEntry, idx []IndexEntry, depth int) []IndexEntry {
+	byID := make(map[string]IndexEntry, len(idx))
+	for _, e := range idx {
+		byID[e.ID] = e
+	}
+	seen := make(map[string]bool, len(primary))
+	out := make([]IndexEntry, 0, len(primary))
+	for _, e := range primary {
+		if !seen[e.ID] {
+			seen[e.ID] = true
+			out = append(out, e)
+		}
+	}
+	frontier := append([]IndexEntry(nil), out...)
+	for hop := 0; hop < depth; hop++ {
+		var next []IndexEntry
+		for _, e := range frontier {
+			for _, ref := range e.Refs {
+				ref = strings.TrimSpace(ref)
+				if ref == "" || seen[ref] {
+					continue
+				}
+				target, ok := byID[ref]
+				if !ok {
+					continue
+				}
+				seen[ref] = true
+				out = append(out, target)
+				next = append(next, target)
+			}
+		}
+		if len(next) == 0 {
+			break
+		}
+		frontier = next
+	}
+	return out
+}
+
+// renderRecentTurns emits the "### Recent conversation" bullet list.
+// Turns whose SessionID matches opts.SessionID are considered in-
+// thread; up to policy.sessionPinCount of the most recent in-thread
+// turns get rendered with policy.recentBodyChars body cap (so a
+// chitchat /chat follow-up sees the prior exchange with enough
+// context to stay coherent). All other turns use oneLine collapse —
+// which is also the branch every no-opts caller hits, keeping
+// legacy output byte-identical.
+func renderRecentTurns(b *strings.Builder, recent []Turn, opts BuildOpts, policy kindPolicy) {
+	pinned := make([]bool, len(recent))
+	if opts.SessionID != "" && policy.sessionPinCount > 0 && policy.recentBodyChars > 0 {
+		// Walk newest → oldest so we pin the most recent in-thread
+		// turns; emit in forward order to keep chronology.
+		pinLeft := policy.sessionPinCount
+		for i := len(recent) - 1; i >= 0 && pinLeft > 0; i-- {
+			if recent[i].SessionID == opts.SessionID {
+				pinned[i] = true
+				pinLeft--
+			}
+		}
+	}
+	for i, t := range recent {
+		var reqLine, respLine string
+		if pinned[i] {
+			reqLine = capBody(t.Request, policy.recentBodyChars)
+			respLine = sanitizeErrorResponse(capBody(t.Response, policy.recentBodyChars))
+		} else {
+			reqLine = oneLine(t.Request)
+			// Read-side heuristic: sanitize error-laden responses
+			// from legacy turn files. Matches are replaced with
+			// the same placeholder the write-side emits so old and
+			// new turn files present the same shape in prompts.
+			respLine = sanitizeErrorResponse(oneLine(t.Response))
+		}
+		fmt.Fprintf(b, "- You (%s): %s\n", t.Timestamp.Format("15:04:05"), reqLine)
+		fmt.Fprintf(b, "  Codrax: %s\n", respLine)
+	}
+}
+
+// capBody truncates text on a UTF-8 rune boundary at maxRunes,
+// appending an ellipsis when truncation occurred, and collapses
+// embedded newlines to spaces so the rendered bullet stays single-
+// line. Falls back to oneLine when maxRunes <= 0.
+func capBody(s string, maxRunes int) string {
+	if maxRunes <= 0 {
+		return oneLine(s)
+	}
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	runes := []rune(s)
+	if len(runes) <= maxRunes {
+		return s
+	}
+	return string(runes[:maxRunes]) + "…"
 }
 
 // maybeCompact triggers compactOldest until the recent buffer is back
@@ -851,11 +1166,13 @@ func (s *Store) compactOldest() error {
 	// on disk as a historical marker only.
 	if sanitizeErrorResponse(oldest.Response) == errorResponsePlaceholder {
 		entry = IndexEntry{
-			ID:       oldest.ID,
-			Topic:    "(failed attempt)",
-			Summary:  errorResponsePlaceholder,
-			FullRef:  filepath.Join("turns", oldest.ID+".md"),
-			WasError: true,
+			ID:        oldest.ID,
+			Topic:     "(failed attempt)",
+			Summary:   errorResponsePlaceholder,
+			FullRef:   filepath.Join("turns", oldest.ID+".md"),
+			WasError:  true,
+			Kind:      oldest.Kind,
+			SessionID: oldest.SessionID,
 		}
 	} else {
 		if s.summarizer == nil {
@@ -880,6 +1197,17 @@ func (s *Store) compactOldest() error {
 		if entry.FullRef == "" {
 			entry.FullRef = filepath.Join("turns", oldest.ID+".md")
 		}
+		// Propagate session-32 routing metadata from the turn so the
+		// summarizer implementation doesn't have to care about these
+		// plumbing fields. Empty values (legacy or pre-upgrade turns)
+		// stay empty — the kind-aware retrieval paths degrade to the
+		// legacy behavior in that case.
+		if entry.Kind == "" {
+			entry.Kind = oldest.Kind
+		}
+		if entry.SessionID == "" {
+			entry.SessionID = oldest.SessionID
+		}
 	}
 
 	return s.withExclusiveLock(func() error {
@@ -902,11 +1230,27 @@ func (s *Store) compactOldest() error {
 }
 
 // writeTurnFile dumps a turn to turns/<id>.md.
+//
+// Session-32 metadata (Kind / SessionID) is emitted as HTML comments
+// between the timestamp and the Request section. HTML comments are
+// invisible when the markdown is rendered, don't disturb the existing
+// reqMarker / respMarker anchors that readTurnFile uses, and a legacy
+// file missing the comments round-trips with empty metadata so the
+// orphan-recovery path degrades gracefully.
 func (s *Store) writeTurnFile(turn Turn) error {
 	path := filepath.Join(s.turnsDir, turn.ID+".md")
 	var b strings.Builder
 	fmt.Fprintf(&b, "# %s\n\n", turn.ID)
 	fmt.Fprintf(&b, "_%s_\n\n", turn.Timestamp.Format(time.RFC3339))
+	if turn.Kind != "" {
+		fmt.Fprintf(&b, "<!-- kind: %s -->\n", turn.Kind)
+	}
+	if turn.SessionID != "" {
+		fmt.Fprintf(&b, "<!-- session_id: %s -->\n", turn.SessionID)
+	}
+	if turn.Kind != "" || turn.SessionID != "" {
+		b.WriteString("\n")
+	}
 	b.WriteString("## Request\n\n")
 	b.WriteString(turn.Request)
 	b.WriteString("\n\n## Response\n\n")
@@ -917,6 +1261,12 @@ func (s *Store) writeTurnFile(turn Turn) error {
 
 // appendIndexEntry appends an IndexEntry to MEMORY.md using the
 // frontmatter format documented at the top of the package.
+//
+// Session-32 fields (kind / session_id / entities / refs) are emitted
+// only when non-empty — an all-zero optional block keeps MEMORY.md
+// bytes identical to what the pre-upgrade writer produced, so a
+// MEMORY.md authored by either vintage round-trips cleanly through
+// the other's parser.
 func (s *Store) appendIndexEntry(e IndexEntry) error {
 	f, err := os.OpenFile(s.indexPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 	if err != nil {
@@ -931,6 +1281,18 @@ func (s *Store) appendIndexEntry(e IndexEntry) error {
 	fmt.Fprintf(w, "full_ref: %s\n", e.FullRef)
 	if e.WasError {
 		fmt.Fprintln(w, "was_error: true")
+	}
+	if e.Kind != "" {
+		fmt.Fprintf(w, "kind: %s\n", e.Kind)
+	}
+	if e.SessionID != "" {
+		fmt.Fprintf(w, "session_id: %s\n", e.SessionID)
+	}
+	if len(e.Entities) > 0 {
+		fmt.Fprintf(w, "entities: [%s]\n", strings.Join(e.Entities, ", "))
+	}
+	if len(e.Refs) > 0 {
+		fmt.Fprintf(w, "refs: [%s]\n", strings.Join(e.Refs, ", "))
 	}
 	fmt.Fprintln(w, "---")
 	fmt.Fprintln(w, e.Summary)
@@ -990,16 +1352,19 @@ func parseIndex(text string) []IndexEntry {
 			case "topic":
 				entry.Topic = strings.Trim(v, `"`)
 			case "keywords":
-				v = strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(v), "]"), "[")
-				for _, kw := range strings.Split(v, ",") {
-					if k := strings.TrimSpace(kw); k != "" {
-						entry.Keywords = append(entry.Keywords, k)
-					}
-				}
+				entry.Keywords = parseYAMLList(v)
 			case "full_ref":
 				entry.FullRef = strings.TrimSpace(v)
 			case "was_error":
 				entry.WasError = strings.EqualFold(strings.TrimSpace(v), "true")
+			case "kind":
+				entry.Kind = Kind(strings.TrimSpace(v))
+			case "session_id":
+				entry.SessionID = strings.TrimSpace(v)
+			case "entities":
+				entry.Entities = parseYAMLList(v)
+			case "refs":
+				entry.Refs = parseYAMLList(v)
 			}
 		}
 		i++ // past closing ---
@@ -1026,38 +1391,20 @@ func splitKV(line string) (string, string, bool) {
 	return strings.TrimSpace(line[:idx]), strings.TrimSpace(line[idx+1:]), true
 }
 
-// matchIndex returns entries whose keywords overlap with words in the
-// current request. Matching is case-insensitive whole-word containment;
-// matches are sorted by overlap count descending.
-func matchIndex(idx []IndexEntry, request string) []IndexEntry {
-	if request == "" {
-		return nil
-	}
-	tokens := tokenize(request)
-	if len(tokens) == 0 {
-		return nil
-	}
-	type scored struct {
-		e     IndexEntry
-		score int
-	}
-	var scoredOut []scored
-	for _, e := range idx {
-		s := 0
-		for _, kw := range e.Keywords {
-			lk := strings.ToLower(kw)
-			if _, hit := tokens[lk]; hit {
-				s++
-			}
+// parseYAMLList parses the `[a, b, c]` shorthand used by
+// appendIndexEntry for keywords / entities / refs. Missing brackets
+// and trailing whitespace are tolerated, empty entries are dropped,
+// and items are returned in file order so the entity weighting in
+// BuildContext stays deterministic.
+func parseYAMLList(v string) []string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(strings.TrimSuffix(v, "]"), "[")
+	parts := strings.Split(v, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if s := strings.TrimSpace(p); s != "" {
+			out = append(out, s)
 		}
-		if s > 0 {
-			scoredOut = append(scoredOut, scored{e, s})
-		}
-	}
-	sort.SliceStable(scoredOut, func(i, j int) bool { return scoredOut[i].score > scoredOut[j].score })
-	out := make([]IndexEntry, len(scoredOut))
-	for i, s := range scoredOut {
-		out[i] = s.e
 	}
 	return out
 }

@@ -168,6 +168,14 @@ type REPL struct {
 	// to reroute casual turns to the chit-chat responder. nil disables
 	// the gate. See Config.ChitchatClassifier for wiring.
 	chitchatClassifier ChitchatClassifier
+
+	// sessionID identifies this REPL session. Stamped onto every
+	// recorded Turn so memory.BuildContext can session-pin recent
+	// turns (keep them in prior-conversation context even when
+	// keyword matching would drop them). Set once at New() from
+	// time.Now().UnixNano() + pid; stable for the lifetime of the
+	// REPL. Format: sess-<nano>-<pid>.
+	sessionID string
 }
 
 // New constructs a REPL from a Config.
@@ -190,6 +198,10 @@ func New(cfg Config) *REPL {
 		language:          cfg.Language,
 		chitchatResponder:  cfg.ChitchatResponder,
 		chitchatClassifier: cfg.ChitchatClassifier,
+		// Session ID embeds nano + pid so two codrax REPLs launched
+		// in the same clock tick (test harness, race) still get
+		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
+		sessionID: fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
 	}
 	if r.version == "" {
 		r.version = "dev"
@@ -628,7 +640,10 @@ func (r *REPL) dispatch(line, display string) {
 		}
 	}
 
-	prior := r.store.BuildContext(line)
+	prior := r.store.BuildContext(line, memory.BuildOpts{
+		Kind:      memory.KindPipeline,
+		SessionID: r.sessionID,
+	})
 	effective := line
 	if prior != "" {
 		effective = "## Prior conversation\n" + prior + "\n\n## Current request\n" + line
@@ -683,12 +698,12 @@ func (r *REPL) dispatch(line, display string) {
 	// Skip rendering if no meaningful content.
 	if response == "" || response == "(no result)" {
 		fmt.Fprintln(r.out, "  ??")
-		r.recordTurn(display, line, memResponse)
+		r.recordTurn(display, line, memResponse, memory.KindPipeline)
 		return
 	}
 
 	r.renderBordered(response)
-	r.recordTurn(display, line, memResponse)
+	r.recordTurn(display, line, memResponse, memory.KindPipeline)
 }
 
 // renderBordered prints model output with a continuous left border.
@@ -739,12 +754,20 @@ func (r *REPL) renderBordered(response string) {
 // keywords/topic reflect actual paste content, not the
 // "[Pasted text #N]" placeholder. expanded==display in scripted
 // mode and when no paste happened.
-func (r *REPL) recordTurn(request, expanded, response string) {
+//
+// kind labels the turn as chitchat or pipeline so BuildContext can
+// later pick the right retrieval policy for a follow-up of the same
+// kind. The session id is the current REPL's r.sessionID — same for
+// every turn in one REPL lifetime — so BuildContext can session-pin
+// recent turns regardless of keyword match.
+func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) {
 	turn := memory.Turn{
 		ID:        fmt.Sprintf("turn-%d", time.Now().UnixNano()),
 		Request:   request,
 		Response:  response,
 		Timestamp: time.Now(),
+		SessionID: r.sessionID,
+		Kind:      kind,
 	}
 	if expanded != "" && expanded != request {
 		turn.RequestForSummary = expanded
