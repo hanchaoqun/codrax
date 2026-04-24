@@ -60,6 +60,13 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.TLSCAFile != "" {
 		dst.TLSCAFile = src.TLSCAFile
 	}
+	// ContextWindow uses the "non-zero overrides" pattern: an agent-
+	// level entry that leaves context_window at zero inherits the
+	// default. An agent pointing at a smaller model than default would
+	// declare its own context_window explicitly.
+	if src.ContextWindow != 0 {
+		dst.ContextWindow = src.ContextWindow
+	}
 	// TLSInsecureSkipVerify is a bool, not a pointer, so it has no
 	// nil sentinel to distinguish "agent explicitly set false" from
 	// "agent didn't mention it." An agent-level true wins over a

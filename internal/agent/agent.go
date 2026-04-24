@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/hanchaoqun/codrax/internal/analysis/hint"
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/mcp"
@@ -611,6 +612,138 @@ func toolChoiceForStage(stage types.PipelineStage) string {
 
 // Returns true when at least one message was stubbed, so the caller
 // can log the event.
+// contextPressureDirective renders the per-agent body the watchdog
+// injects when the ReAct loop crosses the hard-pressure threshold.
+//
+// Built on top of the internal/analysis/hint Composer so every
+// retry-style directive the orchestrator emits (contract-check
+// retries, CGEC dry-run, DAG window hints, and now context
+// pressure) shares one format — "**What failed** / **Why it
+// failed** / **What I already did** / **How to fix now** /
+// **Allowed** / **Do NOT**" — instead of one ad-hoc string per
+// producer.
+//
+// Each agent has a DIFFERENT terminal tool set; the AllowedSet
+// named below names ONLY tools the target agent has access to. A
+// sibling-stage tool name (e.g. "emit_change_plan" in the
+// verifier's directive) would drive the LLM into a tool-not-
+// available dead-end and waste the last iteration of a pressure-
+// bounded dispatch. Unknown / custom agent names fall through to a
+// generic wrap-up Hint so experimental agents still get the force-
+// stop nudge rather than a silent empty directive.
+//
+// Inputs promptBytes / byteBudget / hardRatio are folded into
+// WhyItFailed so the LLM sees the specific numeric threshold it
+// breached, not a vague "pressure is high."
+func contextPressureDirective(name types.AgentName, promptBytes, byteBudget int, hardRatio float64) string {
+	ratioPct := float64(promptBytes) / float64(byteBudget) * 100
+	h := &hint.Hint{
+		WhatFailed: "Context window approaching the model's limit",
+		WhyItFailed: fmt.Sprintf(
+			"Cumulative prompt bytes %d of %d estimated (%.1f%% ≥ hard threshold %.1f%%); next iteration risks a provider 400.",
+			promptBytes, byteBudget, ratioPct, hardRatio*100,
+		),
+		WhatSystemDid:     "Marked the ReAct loop forceStop=true — the iteration about to fire will be the last, so its output must close the stage.",
+		ForbiddenPatterns: contextPressureForbiddenPatterns(name),
+	}
+	h.ExactFix, h.AllowedSet = contextPressureFixAndAllowed(name)
+	return hint.New(hint.DefaultConfig()).Render(h)
+}
+
+// contextPressureFixAndAllowed returns the per-agent ExactFix +
+// AllowedSet pair for the pressure directive. Split out of the
+// parent so tests can assert the per-agent mapping without parsing
+// Markdown.
+func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed) {
+	switch name {
+	case types.AgentAnalyzer:
+		return "Call `emit_analysis` now with whatever classification you have (best-effort intent / scenario / complexity / keywords / entities / answer_shape / predicates). Downstream stages will adapt.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_analysis", Hint: "close the analyze stage"}}
+	case types.AgentExplorer:
+		return "Call `emit_investigation_complete` with `confidence=\"medium\"` and a `reason` explaining why the evidence is best-effort.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_investigation_complete", Hint: "close the exploration stage with existing evidence"}}
+	case types.AgentExtractor:
+		return "Emit `emit_answer_symbol` + `emit_hypothesis_verdict` (per hypothesis) with whatever you have. A `lower_bound` completeness claim is honest under pressure — do NOT claim `complete`.",
+			[]hint.Allowed{
+				{Kind: AllowedTerminalTool, Value: "emit_answer_symbol", Hint: "close the extraction stage (claim lower_bound, not complete)"},
+				{Kind: AllowedTerminalTool, Value: "emit_hypothesis_verdict", Hint: "verdict per hypothesis entry"},
+			}
+	case types.AgentFinalizer:
+		return "Call `emit_answer_document` with the cited evidence already collected. If citation grounding rejects an item, use `citation_ref=-1` and move on.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_answer_document", Hint: "produce the final structured answer now"}}
+	case types.AgentLogTriager:
+		return "Call `emit_log_triage` with whatever meta, errors and residue you have parsed so far. Incomplete bundles are tolerated by the validator (coverage low but non-zero).",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_log_triage", Hint: "emit best-effort log bundle"}}
+	case types.AgentPlanner:
+		return "Call `emit_change_plan` with the changes already drafted. If kind=patch units need regeneration, narrow the plan to kind=modify (full bodies) — the pre-flight gate still protects kind=patch units but kind=modify skips it.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_change_plan", Hint: "close the plan stage with best-effort ChangePlan"}}
+	case types.AgentCoder:
+		return "Apply the next remaining `plan.target_paths` entry via `apply_patch({path, kind})` — do NOT re-read files. The tool reads content directly from `Mutable.ChangePlan()`; you do not need extra context to make the call.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "apply_patch", Hint: "advance AppliedSet; content flows from Mutable"}}
+	case types.AgentVerifier:
+		return "Call `run_tests` with empty suite (run the whole project). Skip any `emit_test_results` narrative — the parser will populate `ChangeReport.Passed` authoritatively.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "run_tests", Hint: "sync-populate ChangeReport"}}
+	}
+	return "Produce this stage's terminal tool call now with whatever you have.",
+		[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "stage_terminal", Hint: "the tool that closes the current stage"}}
+}
+
+// contextPressureForbiddenPatterns returns the **Do NOT** list the
+// pressure directive appends — shared core plus per-agent extensions.
+// The shared core (investigate / read / search) covers every stage;
+// per-agent extensions call out stage-specific temptations the LLM
+// historically reaches for under pressure.
+func contextPressureForbiddenPatterns(name types.AgentName) []string {
+	patterns := []string{
+		"call new investigative / read / search tools — they only push us past the wire limit",
+		"attempt fresh grounding / citation recovery reads",
+	}
+	switch name {
+	case types.AgentExplorer:
+		patterns = append(patterns, "emit more `emit_evidence` items — the closure has enough; drain with investigation_complete")
+	case types.AgentExtractor:
+		patterns = append(patterns, "claim `complete` when evidence coverage is partial — use `lower_bound`")
+	case types.AgentCoder:
+		patterns = append(patterns, "re-read the file; `apply_patch` reads content from `Mutable.ChangePlan()` on its own")
+	case types.AgentPlanner:
+		patterns = append(patterns, "emit complex multi-kind plans; narrow to the single most-valuable change if any one unit is risky")
+	}
+	return patterns
+}
+
+// AllowedTerminalTool is the AllowedKind label the context-pressure
+// directive uses for its tool-name entries. The hint.Allowed struct
+// renders "`value` — hint (kind)" so the LLM sees "`emit_analysis` — close
+// the analyze stage (terminal_tool)" and recognises the category
+// separately from file-citation / literal / shape entries other
+// callers use.
+const AllowedTerminalTool hint.AllowedKind = "terminal_tool"
+
+// estimateMessagesBytes sums the serialised size of every message in
+// the slice so the BaseAgent context-pressure watchdog can compare
+// cumulative prompt bytes against (context_window × BytesPerToken).
+// Includes Content verbatim plus a JSON-serialised size for each
+// ToolCall (the adapter turns them into wire JSON, and the tool-call
+// arguments can dwarf the content body on a dense investigate turn).
+// Includes Role + ToolCallID surface because even one-character
+// overheads add up across a 50+ message conversation.
+//
+// The estimate is intentionally cheap — O(n) over message slice,
+// O(len(content)) per message, no reflection — because it runs every
+// iteration. It is an UPPER bound on the wire-level prompt size, not
+// an exact token count; the BytesPerToken constant converts to
+// tokens on the consuming side.
+func estimateMessagesBytes(messages []llm.Message) int {
+	total := 0
+	for _, m := range messages {
+		total += len(m.Role) + len(m.Content) + len(m.ToolCallID)
+		for _, tc := range m.ToolCalls {
+			total += len(tc.ID) + len(tc.Name) + len(tc.Params)
+		}
+	}
+	return total
+}
+
 func pruneToolHistory(messages []llm.Message, budget int) bool {
 	total := 0
 	cutoff := -1
@@ -725,6 +858,44 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		if pruneToolHistory(messages, toolHistBudget) {
 			logging.Debug("[diag %s] iter=%d TOOL HISTORY PRUNED (budget=%d bytes)",
 				b.name, i, toolHistBudget)
+		}
+
+		// Context-pressure watchdog. Measure the post-prune prompt
+		// byte total against the adapter's declared context window
+		// (× BytesPerToken). The soft ratio logs a warning; the hard
+		// ratio sets forceStop and appends a terminal directive to
+		// the user message list so the CURRENT iteration (the one
+		// about to fire below) is the last. The watchdog is quiet
+		// when any input is missing / pathological: zero window,
+		// zero budget, zero both ratios.
+		//
+		// The hard directive is **agent-specific** — each agent's
+		// terminal tool set differs, and naming tools an agent does
+		// not have access to (e.g. telling a verifier to call
+		// emit_answer_symbol) would actively harm the retry. The
+		// directive body is composed from contextPressureDirective
+		// below, which keys off the agent's name.
+		if ctxWindow := b.deps.LLM.MaxContextTokens(); ctxWindow > 0 {
+			byteBudget := ctxWindow * types.BytesPerToken
+			promptBytes := estimateMessagesBytes(messages)
+			soft := b.deps.AgentSettings.ContextPressureSoftRatio
+			hard := b.deps.AgentSettings.ContextPressureHardRatio
+			if byteBudget > 0 && (soft > 0 || hard > 0) {
+				ratio := float64(promptBytes) / float64(byteBudget)
+				switch {
+				case hard > 0 && ratio >= hard:
+					logging.Warning("[agent %s] context-pressure HARD: iter=%d prompt=%d/%d bytes (%.1f%% ≥ %.1f%%) — force-stopping after this iteration",
+						b.name, i, promptBytes, byteBudget, ratio*100, hard*100)
+					messages = append(messages, llm.Message{
+						Role:    "user",
+						Content: contextPressureDirective(b.name, promptBytes, byteBudget, hard),
+					})
+					forceStop = true
+				case soft > 0 && ratio >= soft:
+					logging.Warning("[agent %s] context-pressure SOFT: iter=%d prompt=%d/%d bytes (%.1f%% ≥ %.1f%%) — consider terminating soon",
+						b.name, i, promptBytes, byteBudget, ratio*100, soft*100)
+				}
+			}
 		}
 
 		// Reason — call LLM

@@ -10,8 +10,9 @@
 - [3. 配置](#3-配置)
   - [3.1 `providers.yaml` — 精简版](#31-providersyaml--精简版)
     - [3.1.1 HTTP / HTTPS 开关](#311-http--https-开关--靠-base_url-协议头决定)
-    - [3.1.2 流式开关](#312-流式开关--stream)
-    - [3.1.3 场景速查表](#313-场景速查表)
+    - [3.1.2 上下文窗口 — `context_window`](#312-上下文窗口--context_window)
+    - [3.1.3 流式开关](#313-流式开关--stream)
+    - [3.1.4 场景速查表](#314-场景速查表)
   - [3.2 `providers.yaml` — 复杂版](#32-providersyaml--复杂版)
   - [3.3 `codrax.yaml` — 运行时参数](#33-codraxyaml--运行时参数)
   - [3.4 配置文件查找顺序](#34-配置文件查找顺序)
@@ -222,7 +223,33 @@ llm:
     # tls_insecure_skip_verify: true
 ```
 
-#### 3.1.2 流式开关 —— `stream`
+#### 3.1.2 上下文窗口 —— `context_window`
+
+让 codrax 知道你模型的最大输入 token 窗口,用于:
+
+1. **fraction-form byte budget**(见 §3.3.5 / §3.3.7):`blob_max_inline_fraction` / `agent_max_tool_history_fraction` 这类"占比"配置依赖它做换算(fraction × context_window × 4 B/token)
+2. **context-pressure watchdog**(见 §3.3.7):ReAct 循环每轮估算 prompt 字节,接近 soft 阈值写 warning,到 hard 阈值强制收尾并注入针对当前 agent 的"用哪个 emit_* 工具关阶段"hint
+
+```yaml
+llm:
+  default:
+    # ...
+    context_window: 200000    # 模型的 input token 窗口(tokens)
+```
+
+缺省时 adapter 回落到 128000 的保守估计,所有 fraction-form / watchdog 逻辑仍可运作但不贴合模型真实能力。常见模型参考值:
+
+| 模型家族 | `context_window` 参考 |
+|---|---|
+| OpenAI gpt-4o / gpt-4.1 / o-series | `128000` / `200000` |
+| Claude 4 全家 | `200000`(Opus 4.6+ 1M 节流版可到 `1000000`) |
+| DeepSeek V3 | `64000`~`128000` |
+| Qwen 2.5 / 3.0 | 按具体型号文档 |
+| 本地 Ollama llama3.1 8B | `8192`(默认) |
+
+> agent-level override 遵循"非零覆盖"规则:`llm.agents.<name>.context_window` 非 0 时覆盖,0 时继承 default。典型场景:主 agent 跑大窗口模型、`memory_summarizer` 用便宜的小窗口模型,两者各自声明即可。
+
+#### 3.1.3 流式开关 —— `stream`
 
 | 值 | 行为 |
 |---|---|
@@ -239,7 +266,7 @@ llm:
 
 即使你写 `stream: false`,部分 provider 依然会返 SSE(企业网关、特殊微调模型)。codrax 会**自动嗅探**响应开头,遇到 `data: ...` 直接走 SSE parser,不会因此报 `invalid character 'd'` 失败。
 
-#### 3.1.3 场景速查表
+#### 3.1.4 场景速查表
 
 | 部署形态 | `base_url` | `stream` | TLS 字段 |
 |---|---|---|---|
@@ -364,6 +391,7 @@ llm:
 |---|---|---|
 | `blob_max_sessions` | `7` | 保留多少个历史 blob 会话目录(每次启动一个)。`0` 关闭持久化 |
 | `blob_max_inline_bytes` | `32768` | 工具输出大于此阈值时转存为 blob,只在对话里保留头尾预览 |
+| `blob_max_inline_fraction` | unset | 占比形式。`fraction × providers.yaml::context_window × 4 B/token` = 有效字节阈值;当 fraction 和 context_window **都**设置时覆盖 bytes 绝对值,否则回落到 bytes,再回落到代码默认。典型值 `0.02`(1M 窗口 → ~80 KB,8K 窗口 → ~640 B) |
 | `blob_preview_head_bytes` | `24576` | 预览的头部字节数 |
 | `blob_preview_tail_bytes` | `4096` | 预览的尾部字节数 |
 
@@ -415,6 +443,9 @@ llm:
 |---|---|---|
 | `agent_max_iterations` | `20` | 每个 agent 单次 ReAct 循环最大轮次 |
 | `agent_max_tool_history_bytes` | `153600` | 累积工具调用输出的字节上限,超出裁剪 |
+| `agent_max_tool_history_fraction` | unset | 占比形式(同 `blob_max_inline_fraction`):fraction × context_window × 4 B/token = 有效字节。典型值 `0.3`(200K 窗口 → 240 KB,8K 窗口 → 9.6 KB) |
+| `agent_context_pressure_soft_ratio` | `0.7` | 上下文压力软阈值。BaseAgent 每轮估 prompt 字节,`prompt / (context_window × 4) ≥ 此值` 时写 warning。置 `0` 关闭软告警 |
+| `agent_context_pressure_hard_ratio` | `0.9` | 上下文压力硬阈值。达到即 force-stop ReAct 循环并注入针对当前 agent 的 HintComposer 指令(分 8 种 agent 定制,每种只指向该 agent 能调的终结工具;如 verifier 只看到 `run_tests`,coder 只看到 `apply_patch`)。置 `0` 关闭硬强停 |
 | `agent_loop_min_inject_interval` | `3` | 两次 mid-loop hint 之间最少间隔轮次 |
 | `agent_loop_max_continuations` | `5` | soft-stop 后最多追加多少条 continuation hint |
 | `agent_loop_max_midloop_injects` | `6` | mid-loop hint 单次 dispatch 内最多注入次数 |

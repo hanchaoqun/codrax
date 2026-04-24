@@ -938,11 +938,21 @@ func initApp(cmd *cobra.Command, _ []string) error {
 
 	// Build pipeline settings from codrax.yaml overrides.
 	var pipelineSettings types.PipelineSettings
+	// Default-LLM context window for fraction-form byte budget
+	// resolution. The fallback path in MaxContextTokens guarantees a
+	// positive value (128 000 when providers.yaml didn't declare),
+	// so downstream resolvers always have a non-zero divisor.
+	ctxWindow := 0
+	if app.defaultLLM != nil {
+		ctxWindow = app.defaultLLM.MaxContextTokens()
+	}
 	if rs != nil {
-		blobMax, blobHead, blobTail := 0, 0, 0
-		if rs.BlobMaxInlineBytes != nil {
-			blobMax = *rs.BlobMaxInlineBytes
-		}
+		// Resolve blob_max_inline from fraction form → absolute form →
+		// code default. Fraction wins when both are set because it
+		// tracks the model's actual window; the absolute form is kept
+		// for deployments that know exactly how many bytes they want.
+		blobMax := config.ResolveByteBudget(rs.BlobMaxInlineFraction, rs.BlobMaxInlineBytes, 0, ctxWindow)
+		blobHead, blobTail := 0, 0
 		if rs.BlobPreviewHeadBytes != nil {
 			blobHead = *rs.BlobPreviewHeadBytes
 		}
@@ -950,6 +960,10 @@ func initApp(cmd *cobra.Command, _ []string) error {
 			blobTail = *rs.BlobPreviewTailBytes
 		}
 		tool.SetBlobLimits(blobMax, blobHead, blobTail)
+		if blobMax > 0 && rs.BlobMaxInlineFraction != nil && *rs.BlobMaxInlineFraction > 0 {
+			logging.Info("[config] blob_max_inline resolved: %d bytes (fraction=%.3f × context_window=%d × %d B/token)",
+				blobMax, *rs.BlobMaxInlineFraction, ctxWindow, config.BytesPerToken)
+		}
 
 		if rs.ReadFileSmallLimitThreshold != nil {
 			tool.SetReadFileSmallLimitThreshold(*rs.ReadFileSmallLimitThreshold)
@@ -1187,8 +1201,21 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentMaxIterations != nil {
 			a.MaxIterations = *rs.AgentMaxIterations
 		}
-		if rs.AgentMaxToolHistoryBytes != nil {
-			a.MaxToolHistoryBytes = *rs.AgentMaxToolHistoryBytes
+		// Resolve agent_max_tool_history from fraction → absolute →
+		// code default (0 = inherit BaseAgent's internal default).
+		// Same precedence rule as blob_max_inline. A non-zero absolute
+		// that is ALSO accompanied by a fraction means the operator
+		// declared both in case the adapter reports zero context_window
+		// — the fraction-form resolver prefers fraction and the
+		// absolute becomes a safety net.
+		if histBytes := config.ResolveByteBudget(
+			rs.AgentMaxToolHistoryFraction, rs.AgentMaxToolHistoryBytes, 0, ctxWindow,
+		); histBytes > 0 {
+			a.MaxToolHistoryBytes = histBytes
+			if rs.AgentMaxToolHistoryFraction != nil && *rs.AgentMaxToolHistoryFraction > 0 {
+				logging.Info("[config] agent_max_tool_history resolved: %d bytes (fraction=%.3f × context_window=%d × %d B/token)",
+					histBytes, *rs.AgentMaxToolHistoryFraction, ctxWindow, config.BytesPerToken)
+			}
 		}
 		if rs.AgentLoopMinInjectInterval != nil {
 			a.LoopMinInjectInterval = *rs.AgentLoopMinInjectInterval
@@ -1235,6 +1262,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentPriorConvPolicy != nil {
 			a.PriorConvPolicy = *rs.AgentPriorConvPolicy
 		}
+		if rs.AgentContextPressureSoftRatio != nil {
+			a.ContextPressureSoftRatio = *rs.AgentContextPressureSoftRatio
+		}
+		if rs.AgentContextPressureHardRatio != nil {
+			a.ContextPressureHardRatio = *rs.AgentContextPressureHardRatio
+		}
 	}
 	pipelineSettings.Agent = types.ResolvedAgentSettings(pipelineSettings.Agent)
 	// Mirror the resolved investigation_complete_policy into the
@@ -1278,6 +1311,17 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("failed to load providers config: %w", err)
 	}
 	app.defaultLLM = createDefaultAdapter(providersCfg)
+	// Surface the resolved context-window value at INFO level so
+	// operators can sanity-check their providers.yaml declaration
+	// against the actual adapter, and notice when context_window was
+	// omitted (adapter reports the 128K fallback). Downstream budget
+	// resolvers (fraction-form caps) and the pressure watchdog all
+	// consume this same value, so the startup log is the canonical
+	// "what codrax believes the model can take" breadcrumb.
+	if app.defaultLLM != nil {
+		logging.Info("[llm] default adapter: model=%s context_window=%d tokens",
+			app.defaultLLM.ModelID(), app.defaultLLM.MaxContextTokens())
+	}
 
 	// Memory summarizer adapter routing. When providers.yaml carries
 	// an explicit `agents.memory_summarizer` entry, route the one-shot

@@ -18,6 +18,32 @@ import (
 	"time"
 )
 
+// TestOpenAIAdapter_MaxContextTokens_Resolution pins the zero-
+// sentinel fallback contract: a zero contextWindow (legacy
+// providers.yaml without the field, or agent that forgot to
+// override) returns 128000 so any consumer assuming a positive
+// return value stays safe. A declared positive value flows
+// through unchanged.
+func TestOpenAIAdapter_MaxContextTokens_Resolution(t *testing.T) {
+	cases := []struct {
+		name string
+		in   int
+		want int
+	}{
+		{"zero falls back to 128K", 0, 128000},
+		{"explicit small value wins", 8000, 8000},
+		{"explicit large value wins", 1_000_000, 1_000_000},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a := NewOpenAIAdapter("k", "m", "http://x", false, c.in, TLSOptions{})
+			if got := a.MaxContextTokens(); got != c.want {
+				t.Errorf("MaxContextTokens()=%d, want %d", got, c.want)
+			}
+		})
+	}
+}
+
 // TestBuildRequest_ToolChoiceWire locks the wire-format contract for
 // ChatOptions.ToolChoice. The OpenAI API takes `tool_choice` as either
 // a string ("auto" / "required" / "none") or an object (force a

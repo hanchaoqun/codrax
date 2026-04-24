@@ -99,6 +99,206 @@ func TestPruneToolHistoryKeepsRecentAndStubsOlder(t *testing.T) {
 	}
 }
 
+// TestContextPressureDirective_AgentSpecific locks the per-agent
+// terminal-tool mapping. Each agent's AllowedSet MUST name ONLY
+// tools it actually has access to — suggesting "emit_change_plan"
+// to a verifier drives the LLM into tool-not-available dead-ends
+// and wastes the last iteration of a pressure-bounded dispatch.
+// The directive is rendered via internal/analysis/hint.Composer so
+// the format matches every other retry hint the orchestrator emits
+// (contract-check / CGEC / DAG window retries).
+func TestContextPressureDirective_AgentSpecific(t *testing.T) {
+	cases := []struct {
+		agent       types.AgentName
+		mustInclude []string
+		mustExclude []string
+	}{
+		{
+			agent:       types.AgentAnalyzer,
+			mustInclude: []string{"emit_analysis"},
+			mustExclude: []string{"emit_change_plan", "emit_answer_document", "run_tests"},
+		},
+		{
+			agent:       types.AgentExplorer,
+			mustInclude: []string{"emit_investigation_complete"},
+			mustExclude: []string{"emit_change_plan", "run_tests", "emit_analysis"},
+		},
+		{
+			agent:       types.AgentExtractor,
+			mustInclude: []string{"emit_answer_symbol", "emit_hypothesis_verdict"},
+			mustExclude: []string{"emit_change_plan", "run_tests", "emit_analysis"},
+		},
+		{
+			agent:       types.AgentFinalizer,
+			mustInclude: []string{"emit_answer_document"},
+			mustExclude: []string{"emit_change_plan", "run_tests", "emit_investigation_complete"},
+		},
+		{
+			agent:       types.AgentLogTriager,
+			mustInclude: []string{"emit_log_triage"},
+			mustExclude: []string{"emit_change_plan", "run_tests"},
+		},
+		{
+			agent:       types.AgentPlanner,
+			mustInclude: []string{"emit_change_plan"},
+			mustExclude: []string{"run_tests", "emit_investigation_complete", "emit_answer_symbol"},
+		},
+		{
+			agent:       types.AgentCoder,
+			mustInclude: []string{"apply_patch"},
+			mustExclude: []string{"emit_change_plan", "run_tests", "emit_investigation_complete"},
+		},
+		{
+			agent:       types.AgentVerifier,
+			mustInclude: []string{"run_tests"},
+			mustExclude: []string{"emit_change_plan", "apply_patch", "emit_answer_symbol"},
+		},
+	}
+	const (
+		testPromptBytes = 700_000
+		testByteBudget  = 800_000
+		testHardRatio   = 0.9
+	)
+	for _, c := range cases {
+		t.Run(string(c.agent), func(t *testing.T) {
+			got := contextPressureDirective(c.agent, testPromptBytes, testByteBudget, testHardRatio)
+			if got == "" {
+				t.Fatal("directive empty")
+			}
+			// Hint Composer sections:
+			for _, w := range []string{
+				"**What failed**", "**Why it failed**",
+				"**What I already did**", "**How to fix now**",
+				"**Allowed**", "**Do NOT**",
+			} {
+				if !strings.Contains(got, w) {
+					t.Errorf("%s directive missing hint section %q; got:\n%s", c.agent, w, got)
+				}
+			}
+			// Numeric threshold embedded in WhyItFailed.
+			if !strings.Contains(got, "700000 of 800000") && !strings.Contains(got, "700,000") {
+				// fmt prints %d without separators; loose check for 700000.
+				if !strings.Contains(got, "700000") {
+					t.Errorf("%s directive missing numeric prompt-byte context; got:\n%s", c.agent, got)
+				}
+			}
+			for _, w := range c.mustInclude {
+				if !strings.Contains(got, w) {
+					t.Errorf("%s directive missing expected tool %q; got:\n%s", c.agent, w, got)
+				}
+			}
+			for _, w := range c.mustExclude {
+				if strings.Contains(got, w) {
+					t.Errorf("%s directive mentions sibling-stage tool %q (cross-stage leak); got:\n%s", c.agent, w, got)
+				}
+			}
+		})
+	}
+}
+
+// TestContextPressureDirective_UnknownAgentFallback covers the
+// fallthrough path — an experimental / unregistered agent name still
+// receives a sensible force-stop message rather than an empty string
+// (which would disable the hard ratio for that agent silently).
+func TestContextPressureDirective_UnknownAgentFallback(t *testing.T) {
+	got := contextPressureDirective(types.AgentName("experimental_custom"), 1000, 2000, 0.5)
+	if got == "" {
+		t.Fatal("fallback directive empty")
+	}
+	if !strings.Contains(got, "**What failed**") {
+		t.Errorf("fallback missing hint-format section; got:\n%s", got)
+	}
+	if !strings.Contains(got, "terminal tool call") {
+		t.Errorf("fallback should prompt for generic terminal tool call; got:\n%s", got)
+	}
+}
+
+// TestContextPressureForbiddenPatterns_PerAgentExtension pins the
+// shared-core + per-agent-extension shape of the Do-NOT list. The
+// shared core applies to every agent; the extensions call out
+// stage-specific temptations (extractor reaching for `complete`,
+// coder re-reading files, etc.).
+func TestContextPressureForbiddenPatterns_PerAgentExtension(t *testing.T) {
+	// Shared core must appear for every agent.
+	for _, a := range []types.AgentName{
+		types.AgentAnalyzer, types.AgentExplorer, types.AgentExtractor,
+		types.AgentFinalizer, types.AgentLogTriager,
+		types.AgentPlanner, types.AgentCoder, types.AgentVerifier,
+	} {
+		p := contextPressureForbiddenPatterns(a)
+		if len(p) < 2 {
+			t.Errorf("%s forbidden patterns: got %d, want ≥ 2 (shared core)", a, len(p))
+		}
+		joined := strings.Join(p, "|")
+		if !strings.Contains(joined, "investigative") {
+			t.Errorf("%s forbidden patterns missing shared-core 'investigative'; got %v", a, p)
+		}
+	}
+
+	// Per-agent extensions: specific phrases must appear only for
+	// their target agent.
+	extCases := []struct {
+		agent types.AgentName
+		want  string
+	}{
+		{types.AgentExtractor, "complete"},
+		{types.AgentCoder, "re-read"},
+		{types.AgentExplorer, "emit_evidence"},
+		{types.AgentPlanner, "multi-kind"},
+	}
+	for _, c := range extCases {
+		joined := strings.Join(contextPressureForbiddenPatterns(c.agent), "|")
+		if !strings.Contains(joined, c.want) {
+			t.Errorf("%s forbidden patterns missing stage-specific %q; got %v",
+				c.agent, c.want, contextPressureForbiddenPatterns(c.agent))
+		}
+	}
+}
+
+// TestEstimateMessagesBytes_CountsRoleContentToolCallsAndParams pins
+// the contract the BaseAgent context-pressure watchdog relies on:
+// the estimate covers every byte that will flow on the wire. Drift
+// here silently makes the watchdog under-report pressure (the real
+// wire payload grows beyond what the estimator sees → context_length_
+// exceeded at the adapter).
+func TestEstimateMessagesBytes_CountsRoleContentToolCallsAndParams(t *testing.T) {
+	msgs := []llm.Message{
+		{Role: "system", Content: "sys-body"},
+		{Role: "user", Content: "user-body", ToolCallID: ""},
+		{Role: "assistant", Content: "assistant-body", ToolCalls: []llm.ToolCall{
+			{ID: "call-1", Name: "grep", Params: json.RawMessage(`{"pattern":"x"}`)},
+			{ID: "call-2", Name: "read_file", Params: json.RawMessage(`{"path":"a.go"}`)},
+		}},
+		{Role: "tool", Content: "tool-body", ToolCallID: "call-1"},
+	}
+	want := 0
+	// Manual roll-up mirrors the function so "what counts" stays
+	// explicit — the test is a ledger, not a re-implementation.
+	want += len("system") + len("sys-body")
+	want += len("user") + len("user-body")
+	want += len("assistant") + len("assistant-body")
+	want += len("call-1") + len("grep") + len(`{"pattern":"x"}`)
+	want += len("call-2") + len("read_file") + len(`{"path":"a.go"}`)
+	want += len("tool") + len("tool-body") + len("call-1")
+
+	if got := estimateMessagesBytes(msgs); got != want {
+		t.Errorf("estimateMessagesBytes = %d, want %d", got, want)
+	}
+}
+
+// TestEstimateMessagesBytes_EmptySliceIsZero is the degenerate guard:
+// a never-dispatched agent's messages slice starts empty, the
+// watchdog must see zero (not a nil-pointer panic or a negative
+// value that would trip the ratio check).
+func TestEstimateMessagesBytes_EmptySliceIsZero(t *testing.T) {
+	if got := estimateMessagesBytes(nil); got != 0 {
+		t.Errorf("nil slice: got %d, want 0", got)
+	}
+	if got := estimateMessagesBytes([]llm.Message{}); got != 0 {
+		t.Errorf("empty slice: got %d, want 0", got)
+	}
+}
+
 // TestPruneToolHistoryIdempotent verifies that running the pruner
 // twice doesn't keep shrinking already-stubbed placeholders. The loop
 // calls it every iteration, so a non-idempotent implementation would

@@ -53,7 +53,7 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 	if cfg.Stream != nil {
 		stream = *cfg.Stream
 	}
-	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, stream, TLSOptions{
+	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, stream, cfg.ContextWindow, TLSOptions{
 		CAFile:             cfg.TLSCAFile,
 		InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
 	}), nil

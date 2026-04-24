@@ -170,6 +170,20 @@ func DefaultRetryBudgetByKindSettings() RetryBudgetByKindSettings {
 	}
 }
 
+// BytesPerToken is the conservative byte-to-token estimate shared by
+// every byte-budget resolver (fraction-form caps in config.ResolveByteBudget)
+// AND the BaseAgent context-pressure watchdog in internal/agent. 4
+// covers typical English prose (~4 chars/token for OpenAI BPE) AND
+// most source code; over-estimates CJK-heavy content (1-2 bytes/token
+// after UTF-8) which yields a LARGER effective byte budget than the
+// model can absorb — acceptable because CJK-dominant deployments that
+// hit the wall can tighten the fraction explicitly.
+//
+// This constant is a shared runtime-configuration estimate, NOT a
+// tokenizer. Callers needing actual token counts must tokenize via
+// the provider's own tokenizer endpoint.
+const BytesPerToken = 4
+
 // AgentSettings carries per-agent tunable limits. Zero values mean
 // "use code default" — see DefaultAgentSettings().
 type AgentSettings struct {
@@ -305,6 +319,29 @@ type AgentSettings struct {
 	//   "never"    — no stage sees Prior. Extreme isolation, not
 	//                recommended outside stress tests.
 	PriorConvPolicy string `yaml:"prior_conversation_policy"`
+
+	// Context-pressure watchdog thresholds (BaseAgent per-iteration
+	// prompt-byte tracker). The watchdog only activates when the
+	// active adapter reports a positive context_window (either
+	// declared in providers.yaml or the 128 000 fallback); deployments
+	// on pure-unknown adapters skip pressure tracking altogether.
+	//
+	// SoftRatio = log a warning when prompt bytes / (window × 4) ≥
+	// this threshold — the model is approaching its window and
+	// retries are about to truncate tool history aggressively.
+	//
+	// HardRatio = force the current ReAct dispatch to stop next
+	// iteration AND inject a "context pressure" directive that asks
+	// the LLM to wrap up via emit_investigation_complete (or the
+	// stage-appropriate terminal tool). Callers can still finish
+	// the current in-flight call before the stop takes effect.
+	//
+	// Both zero (the absent-YAML state) inherits the code defaults
+	// below. Set Soft=0 explicitly to disable just the soft warning;
+	// Hard=0 disables the force-stop. Set both to 0 to fully disable
+	// the watchdog on a specific deployment.
+	ContextPressureSoftRatio float64 `yaml:"context_pressure_soft_ratio"`
+	ContextPressureHardRatio float64 `yaml:"context_pressure_hard_ratio"`
 }
 
 const (
@@ -349,6 +386,15 @@ func DefaultAgentSettings() AgentSettings {
 		SubTopicRetryBudgetExtra:      1,
 		InvestigationCompletePolicy:   ICPolicySoft,
 		PriorConvPolicy:               PriorConvPolicyAnalyzer,
+		// Context-pressure defaults: warn at 70 % of the estimated
+		// byte capacity, force-stop at 90 %. These are empirical —
+		// the watchdog uses a 4 B/token conservative multiplier so
+		// actual model behaviour stays comfortable at 90 % absolute
+		// (English-heavy text often tokenises at ~4 B/tok; CJK-heavy
+		// at ~2 B/tok runs out of headroom slightly earlier, which
+		// is why Hard kicks in before 100 %).
+		ContextPressureSoftRatio: 0.7,
+		ContextPressureHardRatio: 0.9,
 	}
 }
 
@@ -412,6 +458,15 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 		// valid
 	default:
 		s.PriorConvPolicy = d.PriorConvPolicy
+	}
+	// Context-pressure ratios use zero-as-sentinel for "inherit code
+	// default"; a caller that wants to fully disable one side sets
+	// a negative explicitly. ResolvedAgentSettings keeps zero → default.
+	if s.ContextPressureSoftRatio == 0 {
+		s.ContextPressureSoftRatio = d.ContextPressureSoftRatio
+	}
+	if s.ContextPressureHardRatio == 0 {
+		s.ContextPressureHardRatio = d.ContextPressureHardRatio
 	}
 	return s
 }

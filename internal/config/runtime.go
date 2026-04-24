@@ -58,6 +58,18 @@ type RuntimeSettings struct {
 	BlobPreviewTailBytes *int `yaml:"blob_preview_tail_bytes"`
 	BlobMaxSessions      *int `yaml:"blob_max_sessions"`
 
+	// Fraction-form version of blob_max_inline_bytes. When set AND the
+	// adapter reports a positive context_window, the effective byte
+	// threshold is `context_window * fraction * BytesPerToken` (conservative
+	// 4 bytes/token estimate). When either condition fails (fraction
+	// nil / adapter reports zero), resolution falls back to
+	// BlobMaxInlineBytes, then to the code default. Fraction form
+	// lets one providers.yaml switch drive the right blob budget
+	// across heterogeneous models without per-agent absolute tuning:
+	// a 1M-window model gets a 40 KB blob budget, an 8K-window model
+	// gets 328 bytes — both from `0.01`.
+	BlobMaxInlineFraction *float64 `yaml:"blob_max_inline_fraction"`
+
 	// Log retention knob. Flat-prefixed `log_*` alongside log_dir
 	// and log_level. Controls how many rotated log files are kept
 	// per log directory before the sweeper starts deleting the
@@ -199,6 +211,23 @@ type RuntimeSettings struct {
 	// types.DefaultAgentSettings().
 	AgentMaxIterations                 *int     `yaml:"agent_max_iterations"`
 	AgentMaxToolHistoryBytes           *int     `yaml:"agent_max_tool_history_bytes"`
+	// Fraction-form twin of AgentMaxToolHistoryBytes. Same resolution
+	// rule as BlobMaxInlineFraction: fraction × context_window × 4
+	// when both fraction and window present, else absolute, else code
+	// default. Tool-history is the second-largest share of an
+	// iteration's prompt (after the user message) so making it model-
+	// aware closes the biggest gap in byte-budget portability.
+	AgentMaxToolHistoryFraction        *float64 `yaml:"agent_max_tool_history_fraction"`
+	// Context-pressure thresholds (BaseAgent watchdog). When the
+	// adapter reports a positive context_window, the loop estimates
+	// each iteration's assembled-prompt bytes and compares against
+	// `context_window * BytesPerToken`. Breaching SoftRatio logs a
+	// warning so operators see the approach; breaching HardRatio
+	// force-stops the ReAct loop with an injected directive
+	// preferring emit_investigation_complete. Zero (or both nil) on
+	// a legacy yaml inherits the code default (0.7 / 0.9).
+	AgentContextPressureSoftRatio *float64 `yaml:"agent_context_pressure_soft_ratio"`
+	AgentContextPressureHardRatio *float64 `yaml:"agent_context_pressure_hard_ratio"`
 	AgentLoopMinInjectInterval         *int     `yaml:"agent_loop_min_inject_interval"`
 	AgentLoopMaxContinuations          *int     `yaml:"agent_loop_max_continuations"`
 	AgentLoopMaxMidLoopInjects         *int     `yaml:"agent_loop_max_midloop_injects"`

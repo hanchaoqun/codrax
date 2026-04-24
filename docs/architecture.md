@@ -344,6 +344,14 @@ graph TD
 
 - **ExploreHeuristics**（`types.DefaultExploreHeuristics()`）：explorer 的 mid-loop / soft-stop 检测用的 16 个阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize 等）全部通过 `codrax.yaml` 的 `explore_*` 键覆盖，零值用代码默认。
 
+- **Context-pressure 监控**（所有 agent 通用）：`BaseAgent.Execute` 在每轮 `pruneToolHistory` 之后立刻执行监控。若 `b.deps.LLM.MaxContextTokens() > 0` 且 `AgentSettings.ContextPressureSoftRatio/HardRatio` 有至少一项 > 0：
+  - `estimateMessagesBytes(messages)` 估算 wire-level prompt 字节（Role + Content + ToolCallID + ToolCalls[*].ID/Name/Params 的总 len）
+  - `byteBudget = ctxWindow × types.BytesPerToken` 作分母，算 `ratio`
+  - `ratio ≥ HardRatio` → `logging.Warning "HARD"` + append 一条 user-role hint（通过 `contextPressureDirective(name, promptBytes, byteBudget, hardRatio)` 生成，**复用 `internal/analysis/hint.Composer`** 的 "**What failed** / **Why it failed** / **What I already did** / **How to fix now** / **Allowed** / **Do NOT**" 6 段格式）+ 设 `forceStop = true`（本轮 LLM 调用照跑，下一轮就退出）
+  - `ratio ≥ SoftRatio` → 仅 `logging.Warning "SOFT"`（不改循环控制）
+  - AllowedSet / ForbiddenPatterns **per-agent 定制**：只列该 agent 能调用的终结工具（如 verifier 只看到 `run_tests`、coder 只看到 `apply_patch`、extractor 看到 `emit_answer_symbol`+`emit_hypothesis_verdict`），避免跨 stage 工具名误导；另加 shared-core "禁止更多调查/读/搜" + per-agent 补充（extractor "不能 claim complete"、coder "不要 re-read 文件" 等）
+  - 阈值默认 0.7 / 0.9，yaml 键 `agent_context_pressure_soft_ratio` / `_hard_ratio` 覆写；任一设 0 关对应那一侧
+
 #### Skill vs Evaluator 职责边界
 
 | 层级 | 归属 | 承载内容 | 物理位置 |
@@ -538,13 +546,23 @@ const (
 
 ```go
 type Adapter interface {
-    Chat(messages []Message, tools []ToolSchema) (Response, error)
+    Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error)
     ModelID() string
-    MaxContextTokens() int
+    MaxContextTokens() int   // 从 providers.yaml :: context_window 注入；0 → 回落 128000
 }
 ```
 
 Per-agent 模型路由在 `providers.yaml` 配（不同 Agent 可指向不同模型 / 不同 provider）。provider 级降级链（主模型 → fast 模型）也在 provider config 声明。
+
+**`context_window` 传播链**（`providers.yaml` 声明 → 全链路消费）：
+
+1. `types.LLMProviderConfig.ContextWindow int` 承载 yaml 值，merge 规则是"非零覆盖"，agent-level 非 0 覆盖 default-level
+2. `llm.NewOpenAIAdapter(..., contextWindow int, ...)` 在构造时存储；`MaxContextTokens()` 返回存储值，0 时回落 `128000` 作为保守默认（下游除数安全）
+3. `cmd/root.go` 启动时 `logging.Info("[llm] default adapter: model=%s context_window=%d tokens", ...)` —— 操作员 sanity-check"codrax 认为模型能吃多少"
+4. `config.ResolveByteBudget(fraction, absolute, codeDefault, contextWindow int)` 是 fraction-form 旋钮的单一真源：`fraction > 0 && contextWindow > 0` 时返回 `int(contextWindow * fraction * types.BytesPerToken)`，否则 absolute → codeDefault
+5. `BaseAgent` 的 context-pressure watchdog（见 §3.2）直接读 `b.deps.LLM.MaxContextTokens()` 作阈值分母
+
+**`types.BytesPerToken = 4`** 是整个项目的字节-token 换算常数，既用于 fraction-form 预算解析，也用于 watchdog 估算。保守（英文文本实际约 4 B/tok；CJK 约 2 B/tok，估算会过大所以更安全）。配置层 `config.BytesPerToken` 是类型别名，保证单一数值真源。
 
 ---
 
@@ -1696,7 +1714,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 |------|------|
 | 裸 key | `log_dir` / `log_level` / `log_stdout` / `memory_dir` / `cache_dir` / `lang` / `repo` / `branch` / `providers_config` — 进程级 UX |
 | `log_*` | `log_max_files` — 日志保留条数 |
-| `blob_*` | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` / `blob_max_sessions` — Tool 输出 offload 阈值 + 会话目录保留数 |
+| `blob_*` | `blob_max_inline_bytes` / `blob_preview_head_bytes` / `blob_preview_tail_bytes` / `blob_max_sessions` — Tool 输出 offload 阈值 + 会话目录保留数。**`blob_max_inline_fraction`** 是占比形式（`fraction × context_window × 4 B/token` → 有效字节阈值），fraction 设置时优先于 bytes 绝对值 |
 | `readfile_*` | `readfile_small_limit_threshold` — read_file 懒惰 limit 保护 |
 | `analysis_*` | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` — emit_analysis 运行时验证 |
 | `evidence_*` | `evidence_grounding_floor` / `evidence_tier1_floor` — explorer completion gate |
@@ -1707,7 +1725,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `write_plan_dir` | 覆盖 `.codrax/plans/` 作为 plan JSON 输出目录。绝对路径或 runtime-anchor 相对路径；非绝对形式由 cmd/root.go 锚定 |
 | `gate_*` | `gate_coverage_min` / `gate_coverage_weight_{symbol,config,concept}` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
 | `explore_*` | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize） |
-| `agent_*` | `agent_max_iterations` / `agent_max_tool_history_bytes` / 4 个 `agent_loop_*` / 3 个 `agent_finalizer_shrinkage_*` + `agent_finalizer_max_correction_retries` + `agent_finalizer_preserve_prior_prose` / `agent_extractor_max_correction_retries` / 4 个 `agent_subtopic_*` / `agent_investigation_complete_policy` / `agent_prior_conversation_policy` |
+| `agent_*` | `agent_max_iterations` / `agent_max_tool_history_bytes` / **`agent_max_tool_history_fraction`**（fraction × context_window × 4 B/token；同 `blob_max_inline_fraction` 的优先级规则） / 4 个 `agent_loop_*` / 3 个 `agent_finalizer_shrinkage_*` + `agent_finalizer_max_correction_retries` + `agent_finalizer_preserve_prior_prose` / `agent_extractor_max_correction_retries` / 4 个 `agent_subtopic_*` / `agent_investigation_complete_policy` / `agent_prior_conversation_policy` / **`agent_context_pressure_soft_ratio`** / **`agent_context_pressure_hard_ratio`**（context-pressure 监控软/硬阈值，默认 0.7 / 0.9）|
 | `memory_*` | 6 key — REPL 多轮记忆存储限制 |
 | `summary_cap_*` | `summary_cap_enabled`（master switch，默认 false）+ 11 个 per-shape cap — Summary 长度上限 |
 | `citation_quote_max_chars` | citation quote 预览字符上限（默认 500，UTF-8 边界静默截断）。file+line 始终保留；prose 防御由 grounder token 匹配兜底，跟长度无关 |

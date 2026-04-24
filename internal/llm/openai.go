@@ -22,8 +22,15 @@ type OpenAIAdapter struct {
 	model      string
 	baseURL    string
 	maxTokens  int
-	stream     bool
-	httpClient *http.Client
+	// contextWindow is the deploy-time-declared max input token window
+	// from providers.yaml :: context_window. Zero means "unknown" and
+	// MaxContextTokens returns the historical 128000 fallback so
+	// downstream consumers that assume a positive value (agent
+	// pressure watchdog, fraction-form byte cap resolver) degrade
+	// gracefully rather than divide by zero.
+	contextWindow int
+	stream        bool
+	httpClient    *http.Client
 }
 
 // TLSOptions carries the per-provider TLS knobs loaded from
@@ -44,14 +51,17 @@ type TLSOptions struct {
 // rejecting configs that omit any of them. This also works with
 // Azure OpenAI, DeepSeek, Ollama, and other OpenAI-compatible APIs.
 // stream toggles SSE streaming on the chat/completions endpoint.
-func NewOpenAIAdapter(apiKey, model, baseURL string, stream bool, tlsOpts TLSOptions) *OpenAIAdapter {
+// contextWindow is the declared max input token window (0 = unknown);
+// see the struct docblock for the zero-handling rules.
+func NewOpenAIAdapter(apiKey, model, baseURL string, stream bool, contextWindow int, tlsOpts TLSOptions) *OpenAIAdapter {
 	return &OpenAIAdapter{
-		apiKey:     apiKey,
-		model:      model,
-		baseURL:    baseURL,
-		maxTokens:  4096,
-		stream:     stream,
-		httpClient: buildHTTPClient(tlsOpts, baseURL),
+		apiKey:        apiKey,
+		model:         model,
+		baseURL:       baseURL,
+		maxTokens:     4096,
+		contextWindow: contextWindow,
+		stream:        stream,
+		httpClient:    buildHTTPClient(tlsOpts, baseURL),
 	}
 }
 
@@ -107,8 +117,21 @@ func buildHTTPClient(tlsOpts TLSOptions, baseURL string) *http.Client {
 	}
 }
 
-func (o *OpenAIAdapter) ModelID() string       { return o.model }
-func (o *OpenAIAdapter) MaxContextTokens() int { return 128000 }
+func (o *OpenAIAdapter) ModelID() string { return o.model }
+
+// MaxContextTokens returns the configured context_window from
+// providers.yaml. When zero (not declared), returns the historical
+// 128000 fallback so any consumer that treats a positive return
+// value as ground truth (divide-by in fraction cap resolver, ratio
+// check in pressure watchdog) keeps working. Callers that need to
+// distinguish "unknown" from "128K" should consult the struct field
+// directly via a capability query rather than parsing this return.
+func (o *OpenAIAdapter) MaxContextTokens() int {
+	if o.contextWindow > 0 {
+		return o.contextWindow
+	}
+	return 128000
+}
 
 func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
 	reqBody := o.buildRequest(messages, tools, opts)

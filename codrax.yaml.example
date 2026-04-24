@@ -116,6 +116,15 @@
 # blob_preview_head_bytes: 24576
 # blob_preview_tail_bytes: 4096
 
+# Fraction form of blob_max_inline_bytes. When set AND providers.yaml
+# declares context_window, effective bytes = context_window × fraction
+# × 4 (B/token). Takes precedence over blob_max_inline_bytes; falls
+# back to that absolute when context_window is unknown, then to code
+# default. This lets one value scale across heterogeneous models —
+# on a 1M-window model 0.02 yields ~80 KB, on an 8K-window model
+# the same 0.02 yields ~640 B.
+# blob_max_inline_fraction: 0.02
+
 # ---------------------------------------------------------------------------
 # read_file tool
 # ---------------------------------------------------------------------------
@@ -349,6 +358,28 @@
 
 # Cumulative byte budget for "tool" role messages before pruning.
 # agent_max_tool_history_bytes: 153600
+
+# Fraction form of agent_max_tool_history_bytes. When set AND
+# providers.yaml declares context_window, effective bytes =
+# context_window × fraction × 4 (B/token). Same precedence rule
+# as blob_max_inline_fraction (fraction > absolute > code default).
+# Tool-history is the second-largest share of an iteration's prompt
+# (after the user message) so making it model-aware is the largest
+# single portability win: 0.3 on a 200K-window model → 240 KB tool
+# history; same 0.3 on an 8K-window model → 9.6 KB.
+# agent_max_tool_history_fraction: 0.3
+
+# Context-pressure watchdog thresholds. BaseAgent estimates each
+# iteration's cumulative prompt bytes and compares against
+# (context_window × 4 B/token). Soft logs a warning so the operator
+# sees the approach; hard force-stops the ReAct loop at the next
+# iteration and injects an agent-specific hint (rendered via
+# internal/analysis/hint.Composer) naming ONLY the terminal tool(s)
+# the current agent can actually call. Both zero disables just that
+# side (set both to 0 to fully skip pressure tracking). Watchdog
+# activates only when the adapter reports a positive context_window.
+# agent_context_pressure_soft_ratio: 0.7
+# agent_context_pressure_hard_ratio: 0.9
 
 # LoopPolicy: minimum iterations between two accepted hint injections.
 # agent_loop_min_inject_interval: 3
