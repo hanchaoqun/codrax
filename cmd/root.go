@@ -601,6 +601,14 @@ func runREPL(_ *cobra.Command) error {
 	renderFn := func(busCtx *types.BusContext) string {
 		return app.renderer.RenderResult(busCtx)
 	}
+	// PlanStore persistence directory: <runtime-anchor>/plans.
+	// Mirror the blob session path anchoring so operators see the
+	// write-mode plan files next to their logs and memory.
+	runtimeAnchor := runtimeAnchorDir
+	if abs, err := filepath.Abs(runtimeAnchor); err == nil {
+		runtimeAnchor = abs
+	}
+	planStore := repl.NewPlanStore(filepath.Join(runtimeAnchor, "plans"))
 	r := repl.New(repl.Config{
 		Runner:            app.orch,
 		Store:             store,
@@ -615,6 +623,7 @@ func runREPL(_ *cobra.Command) error {
 		Language:           flagLang,
 		ChitchatResponder:  app.chitchatResponder,
 		ChitchatClassifier: app.chitchatClassifier,
+		PlanStore:          planStore,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)

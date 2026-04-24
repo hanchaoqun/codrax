@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
@@ -49,6 +50,16 @@ type Runner interface {
 // to the pre-flag behaviour.
 type attachedLogSetter interface {
 	SetAttachedLog(string)
+}
+
+// modeSetter is the optional capability the REPL probes on its
+// Runner to propagate the current pipeline Mode before dispatch.
+// Real orchestrators implement SetMode; test stubs that omit it
+// simply always run read-mode regardless of the REPL's /mode
+// state — the REPL degrades cleanly to pre-B0 behaviour. Session
+// 33 Day 3 added SetMode to the real Orchestrator.
+type modeSetter interface {
+	SetMode(types.PipelineMode)
 }
 
 // ResultRenderer turns a finished BusContext into the user-facing
@@ -109,6 +120,13 @@ type Config struct {
 	// `chitchat_classifier_enabled: true`. Fail-safe: any classifier
 	// error routes to the pipeline unchanged.
 	ChitchatClassifier ChitchatClassifier
+
+	// PlanStore persists B0 write-mode ChangePlans for the REPL
+	// session. Nil disables the /plan slash command family —
+	// useful for tests and for single-shot invocations that never
+	// construct a REPL. cmd/root.go wires a real store under
+	// <runtime-anchor>/plans when the REPL starts.
+	PlanStore *PlanStore
 }
 
 // REPL drives the interactive prompt.
@@ -176,6 +194,30 @@ type REPL struct {
 	// time.Now().UnixNano() + pid; stable for the lifetime of the
 	// REPL. Format: sess-<nano>-<pid>.
 	sessionID string
+
+	// currentMode is the B0 sticky pipeline mode for this REPL
+	// session. Zero value is ModeRead (preserves pre-B0 REPL
+	// behaviour). `/mode <x>` rewrites it; every subsequent
+	// dispatch calls runner.SetMode(currentMode) before Run so
+	// the orchestrator sees the up-to-date value. The REPL never
+	// auto-downgrades — once user enters plan mode they stay there
+	// until explicit /mode read.
+	currentMode types.PipelineMode
+
+	// pendingPlanPath is the filesystem path of the last plan
+	// auto-saved by this REPL (via planStore.Save after a
+	// successful plan-mode dispatch). Used by /plan show to
+	// display the current pending plan without re-reading the
+	// filesystem. Cleared by /plan clear or by a fresh plan
+	// emission. Empty string means "no pending plan in this
+	// session".
+	pendingPlanPath string
+
+	// planStore persists ChangePlans to disk so /plan show / clear
+	// survive across REPL turns. Nil disables the /plan command
+	// family — cmd/root.go always wires a real store in runREPL,
+	// but tests that bypass cmd/ keep it nil.
+	planStore *PlanStore
 }
 
 // New constructs a REPL from a Config.
@@ -201,7 +243,9 @@ func New(cfg Config) *REPL {
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
-		sessionID: fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
+		sessionID:   fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
+		currentMode: types.ModeRead, // B0 sticky mode; /mode rewrites
+		planStore:   cfg.PlanStore,
 	}
 	if r.version == "" {
 		r.version = "dev"
@@ -657,6 +701,16 @@ func (r *REPL) dispatch(line, display string) {
 		setter.SetAttachedLog(r.attachedLog)
 	}
 
+	// Propagate sticky pipeline mode. Runners without SetMode
+	// (test stubs) fall through to the pre-B0 read-only path
+	// regardless of r.currentMode — the user's /mode selection is
+	// ignored silently there, which is the correct degradation
+	// because a test runner that does not implement SetMode was
+	// not designed to exercise write-mode behaviour.
+	if setter, ok := r.runner.(modeSetter); ok {
+		setter.SetMode(r.currentMode)
+	}
+
 	if r.renderer != nil {
 		r.renderer.StartSpinner()
 	}
@@ -672,6 +726,25 @@ func (r *REPL) dispatch(line, display string) {
 		logging.Error("[repl] orchestrator error: %v", err)
 		r.errorf("error: %v\n", err)
 		return
+	}
+
+	// Plan-mode auto-save. When Mode=ModePlan produced a
+	// ChangePlan, persist it via PlanStore so /plan show + /plan
+	// clear survive subsequent turns. Failure is non-fatal — the
+	// plan summary still prints to stdout, the error goes to the
+	// REPL's warn channel. PlanStore nil (test runners, planless
+	// configs) silently skips this path.
+	if r.planStore != nil && busCtx != nil && busCtx.Mutable != nil &&
+		busCtx.Mode == types.ModePlan {
+		if plan := busCtx.Mutable.ChangePlan(); plan != nil {
+			if path, saveErr := r.planStore.Save(plan); saveErr != nil {
+				logging.Warning("[repl] plan auto-save failed: %v", saveErr)
+				r.warn("plan auto-save failed: %v\n", saveErr)
+			} else {
+				r.pendingPlanPath = path
+				r.info(fmt.Sprintf("plan saved: %s", path))
+			}
+		}
 	}
 
 	response := strings.TrimSpace(r.render(busCtx))
@@ -799,6 +872,12 @@ func (r *REPL) handleSlash(line string) bool {
 		}
 		r.chitchatDispatch(args, args)
 		return false
+	case "/mode":
+		r.handleModeCmd(line)
+		return false
+	case "/plan":
+		r.handlePlanCmd(line)
+		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
@@ -869,16 +948,130 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/version":
 		r.info(fmt.Sprintf("codrax %s (built %s)", r.version, r.buildTime))
 	case "/help":
-		r.info("commands: /exit /quit /clear /history /compact /log /paste /chat /version /help")
+		r.info("commands: /exit /quit /clear /history /compact /log /paste /chat /mode /plan /version /help")
 		r.info("tip: end a line with \\ for multi-line input")
 		r.info("log: /log <path> | /log (paste then /end) | /log clear | /log show")
 		r.info("paste: /paste (terminal-independent fallback when bracketed paste is stripped)")
 		r.info("chat: /chat <message> (reply without invoking the analysis pipeline)")
+		r.info("mode: /mode [read|plan|apply|verify] (show/set; read default; write modes require codrax.yaml :: write_enabled: true)")
+		r.info("plan: /plan [show|clear|list] (inspect/manage saved ChangePlans from write-mode Runs)")
 		r.info("version: /version (or /v) prints the build identifier")
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
 	}
 	return false
+}
+
+// handleModeCmd dispatches the `/mode` subcommands. Recognised forms:
+//
+//	/mode                  — print current mode
+//	/mode read|plan|apply|verify — set current mode
+//
+// The /mode state is sticky for the REPL session; every subsequent
+// dispatch calls runner.SetMode(currentMode) so the orchestrator
+// observes the selection. Entering plan / apply / verify before
+// codrax.yaml has write_enabled=true will silently stay local to
+// REPL state — the orchestrator's resolveWriteMode validation runs
+// at initApp time (CLI layer), not per-turn, so REPL-level /mode
+// does NOT re-validate. The orchestrator's runPlanPhase /
+// runApplyPhase / runVerifyPhase dispatch is what eventually
+// surfaces any issue (e.g. "planner agent not wired").
+func (r *REPL) handleModeCmd(line string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/mode"))
+	if rest == "" {
+		r.info(fmt.Sprintf("current mode: %s (use /mode <read|plan|apply|verify> to change)",
+			r.currentMode))
+		return
+	}
+	target := types.PipelineMode(strings.ToLower(rest))
+	if !target.IsValid() {
+		r.warn("unknown mode %q — expected one of: read, plan, apply, verify\n", rest)
+		return
+	}
+	if target == "" {
+		target = types.ModeRead
+	}
+	// Apply / verify modes normally require a --plan-file; in REPL
+	// the user is expected to first /mode plan → generate plan →
+	// then /mode apply. B0 does not prevent the transition at
+	// /mode time because /approve (B1) will be the real dispatcher
+	// for apply; /mode alone is harmless — the apply stage is a
+	// stub and will fail-loud on the next dispatch.
+	r.currentMode = target
+	r.success(fmt.Sprintf("mode set to %s", target))
+}
+
+// handlePlanCmd dispatches the `/plan` subcommands. Recognised forms:
+//
+//	/plan                — synonym for /plan show
+//	/plan show           — display the current pending plan from disk
+//	/plan clear          — remove the pending plan's file
+//	/plan list           — enumerate every saved plan (newest first)
+//
+// All subcommands require a non-nil PlanStore (cmd/root.go wires
+// one for the real REPL; tests that bypass cmd/ leave it nil and
+// see a "/plan disabled" message).
+func (r *REPL) handlePlanCmd(line string) {
+	if r.planStore == nil {
+		r.info("/plan disabled (no PlanStore configured)")
+		return
+	}
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/plan"))
+	if rest == "" {
+		rest = "show"
+	}
+	switch rest {
+	case "show":
+		if r.pendingPlanPath == "" {
+			r.info("no pending plan — run a /mode plan dispatch to generate one")
+			return
+		}
+		id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
+		plan, err := r.planStore.Load(id)
+		if err != nil {
+			r.errorf("plan show: %v\n", err)
+			return
+		}
+		fmt.Fprintf(r.out, "  current plan: %s\n", r.pendingPlanPath)
+		fmt.Fprintf(r.out, "    id:      %s\n", plan.ID)
+		fmt.Fprintf(r.out, "    status:  %s\n", plan.Status)
+		fmt.Fprintf(r.out, "    changes: %d file(s)\n", len(plan.Changes))
+		if len(plan.TargetPaths) > 0 {
+			fmt.Fprintf(r.out, "    targets: %s\n", strings.Join(plan.TargetPaths, ", "))
+		}
+		if plan.Summary != "" {
+			fmt.Fprintf(r.out, "    summary: %s\n", oneLine(plan.Summary))
+		}
+	case "clear":
+		if r.pendingPlanPath == "" {
+			r.info("no pending plan to clear")
+			return
+		}
+		id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
+		if err := r.planStore.Clear(id); err != nil {
+			r.errorf("plan clear: %v\n", err)
+			return
+		}
+		r.success(fmt.Sprintf("pending plan cleared: %s", r.pendingPlanPath))
+		r.pendingPlanPath = ""
+	case "list":
+		infos, err := r.planStore.List()
+		if err != nil {
+			r.errorf("plan list: %v\n", err)
+			return
+		}
+		if len(infos) == 0 {
+			r.info("no plans saved in " + r.planStore.PlanDir())
+			return
+		}
+		fmt.Fprintf(r.out, "  %d plan(s) in %s (newest first):\n", len(infos), r.planStore.PlanDir())
+		for _, inf := range infos {
+			ts := time.Unix(0, inf.ModTime).Format("2006-01-02 15:04:05")
+			fmt.Fprintf(r.out, "    - [%s] %s (%d bytes)\n", ts, inf.ID, inf.SizeB)
+		}
+	default:
+		r.warn("unknown /plan subcommand %q — expected: show, clear, list\n", rest)
+	}
 }
 
 // handleLogCmd dispatches the `/log` subcommands. Recognised forms:
