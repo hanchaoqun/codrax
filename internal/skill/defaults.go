@@ -365,23 +365,28 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 
 	r.Register(&Config{
 		Name: "code-write-skill",
-		Goal: "Apply a ChangePlan's ChangeUnits to the active git worktree. B0 SKELETON — the apply_patch tool currently returns 'not yet implemented'; this skill's workflow is wired forward-compatibly for B2.",
+		Goal: "Apply every ChangeUnit from the installed ChangePlan to the active git worktree by calling apply_patch once per unit. The evaluator's ShouldStop fires when WriteClosure.AppliedSet ⊇ plan.TargetPaths.",
 		Workflow: []string{
-			"Read the ChangePlan from the input (supplied via --plan-file or the REPL /plan state).",
-			"Iterate plan.changes[] in order. For each ChangeUnit, call apply_patch with the path / kind / content payload the unit declares.",
-			"If a unit fails apply (apply_patch returns Success=false), record the failure and proceed cautiously — B2 will add rollback semantics.",
-			"B0 behavior: apply_patch always returns an error so this skill surfaces a clean 'not yet implemented' message via the coder agent's ParseOutput.",
+			"The orchestrator has already loaded the ChangePlan onto Mutable and swapped ctx.RepoRoot to a git worktree checkout. Your job is purely mechanical: iterate plan.changes[] and emit one apply_patch call per ChangeUnit.",
+			"Emit apply_patch with the EXACT fields from the plan's ChangeUnit: path (repo-relative), kind (create|modify|delete), and new_content for create/modify. Do NOT rewrite, trim, or re-format the new_content — the planner already produced the final body.",
+			"Respect depends_on ordering: apply a unit ONLY after every path in its depends_on list is already in AppliedSet (visible because those apply_patch calls returned Success=true earlier in this dispatch). The apply_patch tool re-enforces W1b and rejects out-of-order calls, so a mistake surfaces as a clean error you can self-correct in the next turn.",
+			"When a turn's response lists multiple apply_patch calls in parallel (tool_use blocks), make sure no two units in the batch have a depends_on relationship — the batch executes concurrently and ordering is not guaranteed within a batch. If unsure, emit one apply_patch per turn.",
+			"If apply_patch returns Success=false for a unit, read the error summary carefully. Common rejections: W1 (path not in plan.TargetPaths — you drifted), W1b (depends_on not yet applied — reorder), kind mismatch (you sent a different kind than plan declares). Correct the parameters and retry on the NEXT turn.",
+			"Stop when every plan.target_paths entry is present in AppliedSet. The evaluator checks automatically; you don't need to signal completion explicitly. Extra turns after completion waste tokens and may trigger the iteration cap.",
+			"B1 limitation: kind=patch (unified-diff apply) is not yet implemented. If the plan contains a patch-kind change, apply_patch returns a clear 'not yet implemented' error — surface that in the turn's prose so the orchestrator records an incomplete apply.",
 		},
 		ToolSuggestions: []string{
 			"read_file",
 			"apply_patch",
-			"exec_command", // Q2 red line (see package-level comment above)
+			"exec_command", // Q2 red line: preserved for debugging (e.g. verify file wrote) — worktree sandbox contains blast radius
 		},
-		OutputFormat: "No emit tool in B0 (apply_patch returns stub errors). The coder agent's ParseOutput will flag the stub path until B2 lands.",
+		OutputFormat: "Your ONLY structured output is apply_patch tool calls. One call per ChangeUnit; the evaluator stops when every plan.target_paths entry is applied. Any prose is ignored — do not draft 'I'll now apply X' narration; just emit the tool call.",
 		Prohibitions: []string{
-			"do not modify files outside plan.target_paths — the W1 invariant refuses unknown paths",
-			"do not run tests here — that is the verify stage's job",
-			"do not invoke emit_change_plan — the plan was already emitted upstream",
+			"do NOT modify files outside plan.target_paths — W1 will reject and your dispatch burns turns",
+			"do NOT run tests here — verify stage owns that",
+			"do NOT invoke emit_change_plan — the plan was already emitted upstream and this stage consumes it",
+			"do NOT send a different kind than the ChangeUnit declares — plan says create, you send create; plan says modify, you send modify",
+			"do NOT paraphrase or shorten new_content — copy the plan's field verbatim, bytes exactly",
 		},
 	})
 

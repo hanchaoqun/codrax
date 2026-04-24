@@ -1469,6 +1469,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 	orch.SetMode(effectiveMode)
+	// B1.2 wiring: plumb the --plan-file value + the worktree base
+	// directory into the orchestrator so runApplyPhase can load the
+	// ChangePlan and provision a worktree. Both calls are safe to
+	// invoke with empty arguments (read-mode callers pass empty
+	// flagPlanFile and the orch setters simply record them; the
+	// apply-phase guards surface a clear error when the values
+	// are genuinely missing at apply time).
+	orch.SetPlanPath(flagPlanFile)
+	orch.SetWorktreeBase(worktreeBase)
 
 	// Chit-chat responder. Follows the llmSummarizer pattern: one
 	// direct adapter.Chat call, no agent framework. Default ON — the

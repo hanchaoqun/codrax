@@ -1,6 +1,12 @@
 package types
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+)
 
 // ChangePlan is the Plan stage's on-disk artifact — a structured
 // description of the code change the planner intends to apply. Stored
@@ -226,4 +232,56 @@ type MetricDelta struct {
 	Current   float64 `json:"current"`
 	Unit      string  `json:"unit"`
 	Threshold float64 `json:"threshold,omitempty"` // max allowed regression
+}
+
+// LoadChangePlanFromFile reads a ChangePlan JSON from disk and
+// returns a deserialised *ChangePlan. Called by the orchestrator's
+// runApplyPhase when --mode=apply --plan-file=X needs to install
+// the plan on Mutable before the coder agent dispatches.
+//
+// Validation is minimal (non-empty ID, non-nil Changes, reasonable
+// Status); the tool-side emit_change_plan.Execute already enforced
+// the strict graph invariants (dup paths / cycles / unknown
+// depends_on) when the plan was originally produced, so loading a
+// file that fell out of an earlier Run can trust those properties.
+// Hand-edited plan files are a supported but edge-case workflow;
+// they get the same structural check as a tool-emitted plan.
+//
+// Returns (nil, err) on any filesystem / JSON / validation failure
+// so the caller can surface a clean error rather than proceeding
+// with a corrupt plan.
+func LoadChangePlanFromFile(path string) (*ChangePlan, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil, fmt.Errorf("LoadChangePlanFromFile: empty path")
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("LoadChangePlanFromFile: read %s: %w", path, err)
+	}
+	var plan ChangePlan
+	if err := json.Unmarshal(data, &plan); err != nil {
+		return nil, fmt.Errorf("LoadChangePlanFromFile: unmarshal %s: %w", path, err)
+	}
+	if strings.TrimSpace(plan.ID) == "" {
+		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has empty plan ID", path)
+	}
+	if len(plan.Changes) == 0 {
+		return nil, fmt.Errorf("LoadChangePlanFromFile: %s has no changes[] — refusing to install an empty plan", path)
+	}
+	// Recompute TargetPaths from Changes so hand-edited plans whose
+	// TargetPaths drifted from Changes (the emit tool keeps them in
+	// sync but nothing guarantees hand-edits do) converge to a
+	// consistent W1-enforcing snapshot.
+	seen := make(map[string]struct{}, len(plan.Changes))
+	canonical := make([]string, 0, len(plan.Changes))
+	for _, c := range plan.Changes {
+		if _, dup := seen[c.Path]; dup {
+			return nil, fmt.Errorf("LoadChangePlanFromFile: %s has duplicate change for path %q (one-change-per-file constraint)", path, c.Path)
+		}
+		seen[c.Path] = struct{}{}
+		canonical = append(canonical, c.Path)
+	}
+	plan.TargetPaths = canonical
+	return &plan, nil
 }

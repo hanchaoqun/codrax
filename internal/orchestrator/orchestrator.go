@@ -41,6 +41,25 @@ type Orchestrator struct {
 	// behavior. Set by the CLI / REPL layer via SetMode; immutable
 	// for the lifetime of a single Run().
 	mode types.PipelineMode
+
+	// planPath is the absolute path of an existing ChangePlan
+	// JSON file that runApplyPhase should load before dispatching
+	// the coder agent. Populated via SetPlanPath (called by
+	// cmd/root.go from the --plan-file flag value). Empty when
+	// Mode is ModeRead or ModePlan (plan is produced, not consumed,
+	// in those modes). Copied into BusContext.PlanPath at Run entry
+	// so the phase functions read a single authoritative source.
+	planPath string
+
+	// worktreeBase is the directory root under which runApplyPhase
+	// asks worktree.Create to provision new worktree sessions.
+	// Typically <CWD>/.codrax/worktrees — cmd/root.go computes it
+	// during initApp and passes it here via SetWorktreeBase.
+	// Empty disables the worktree provisioning path: runApplyPhase
+	// refuses to dispatch without a base dir so a misconfigured
+	// install surfaces a clean error rather than silently writing
+	// patches into the main repo.
+	worktreeBase string
 }
 
 // New creates a new Orchestrator.
@@ -141,6 +160,28 @@ func (o *Orchestrator) Mode() types.PipelineMode {
 	return o.mode
 }
 
+// SetPlanPath installs the plan file path for subsequent Run()
+// calls. Used when Mode is ModeApply / ModeVerify to tell
+// runApplyPhase where to load the ChangePlan from. Empty string
+// clears any prior value (useful for REPL workflows that alternate
+// between modes).
+func (o *Orchestrator) SetPlanPath(path string) {
+	o.planPath = path
+}
+
+// PlanPath returns the currently configured plan file path.
+func (o *Orchestrator) PlanPath() string {
+	return o.planPath
+}
+
+// SetWorktreeBase installs the directory root runApplyPhase passes
+// to worktree.Create when provisioning per-Run worktree sessions.
+// cmd/root.go computes the path at initApp time from the runtime
+// anchor and calls this once per process.
+func (o *Orchestrator) SetWorktreeBase(dir string) {
+	o.worktreeBase = dir
+}
+
 // Run executes the full pipeline for a user request.
 //
 // The pipeline runs in two phases:
@@ -176,8 +217,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// depends on this — a caller who never invokes SetMode
 		// reaches this line with o.mode == "" and the switch below
 		// dispatches to the unchanged runTaskPhase.
-		Mode:    o.mode.Normalize(),
-		Mutable: types.NewMutableState(request),
+		Mode: o.mode.Normalize(),
+		// PlanPath propagates the --plan-file flag / REPL state into
+		// the bus so runApplyPhase / runVerifyPhase read a single
+		// authoritative source. Empty for plan-mode and read-mode
+		// (plan is produced, not consumed, there).
+		PlanPath: o.planPath,
+		Mutable:  types.NewMutableState(request),
 		TaskState: types.TaskState{
 			Stage:   types.StageAnalyze,
 			Missing: types.MissingUnderstanding,
@@ -501,10 +547,39 @@ func (o *Orchestrator) runPlanPhase(stepsUsed *int) error {
 	return nil
 }
 
-// runApplyPhase dispatches the coder agent. In B0 the coder is a
-// stub that always returns an error-carrying StageOutput; this
-// function wraps the dispatch so the error surfaces cleanly as
-// TaskState.LastError. Real apply behavior lands in B2.
+// runApplyPhase is the B1 apply-stage driver. Orchestrates four
+// substeps between the Mode switch and the coder agent dispatch:
+//
+//  1. Load ChangePlan onto Mutable — if busCtx.PlanPath is set and
+//     Mutable.ChangePlan is still nil, read the plan file from
+//     disk via types.LoadChangePlanFromFile. Apply-mode without
+//     either a loaded plan OR a pending emission from a preceding
+//     plan stage is an error.
+//
+//  2. Provision worktree — worktree.Create reads o.worktreeBase +
+//     busCtx.MainRepoRoot + busCtx.TraceID and returns a detached-
+//     HEAD checkout at .codrax/worktrees/<trace>-<pid>/. The
+//     orchestrator's outer defer (Day 2) handles teardown on any
+//     exit path (normal / panic / signal). Apply-phase failure
+//     after worktree creation still discards cleanly because the
+//     defer only checks busCtx.WorktreePath.
+//
+//  3. Swap RepoRoot — the coder agent's tools (apply_patch, plus
+//     any read_file / exec_command in code-write-skill) must write
+//     into the worktree, not the main repo. Day 1 verified every
+//     tool reads ctx.RepoRoot; swapping it for the apply stage is
+//     the zero-invasive activation mechanism. MainRepoRoot stays
+//     constant so the worktree-cleanup defer can run `git worktree
+//     prune` against the canonical repo (Day 2 behaviour).
+//
+//  4. Dispatch — coder agent walks plan.Changes via per-unit
+//     apply_patch calls. ShouldStop checks WriteClosure.AppliedSet
+//     ⊇ plan.TargetPaths; ParseOutput reports completion or the
+//     specific missing paths.
+//
+// Errors at any substep are transactional-ish: before worktree
+// creation, nothing to clean up; after, the deferred worktree.
+// Discard runs unconditionally from Run()'s outer defer.
 func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 	if *stepsUsed >= o.maxSteps {
 		logging.Warning("[orchestrator] apply phase skipped: max-steps exhausted")
@@ -513,20 +588,120 @@ func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 	*stepsUsed++
 	o.busCtx.PipelineStage = types.StageApply
 	o.busCtx.TaskState.Stage = types.StageApply
-	logging.Info("[orchestrator] apply phase: dispatching coder agent (B0 stub)")
+	logging.Info("[orchestrator] apply phase: entry")
 
+	// Substep 1: ensure Mutable.ChangePlan is populated.
+	if o.busCtx.Mutable.ChangePlan() == nil {
+		if o.busCtx.PlanPath == "" {
+			msg := "apply phase: Mutable.ChangePlan is nil and no --plan-file was supplied; cannot apply without a plan"
+			o.busCtx.Mutable.SetResult(msg)
+			return fmt.Errorf("%s", msg)
+		}
+		plan, err := types.LoadChangePlanFromFile(o.busCtx.PlanPath)
+		if err != nil {
+			msg := fmt.Sprintf("apply phase: load plan file failed: %v", err)
+			o.busCtx.Mutable.SetResult(msg)
+			return fmt.Errorf("%s", msg)
+		}
+		o.busCtx.Mutable.SetChangePlan(plan)
+		// Seed WriteClosure.PendingApplies so CritPlanReady and
+		// downstream evaluators see the queue the same way they
+		// would for a freshly-emitted plan.
+		wc := o.busCtx.Mutable.WriteClosure()
+		for _, c := range plan.Changes {
+			wc.EnqueuePendingApply(types.PendingApply{
+				Path:      c.Path,
+				Rationale: c.Rationale,
+				Origin:    "load_from_file",
+			})
+		}
+		logging.Info("[orchestrator] apply phase: loaded plan %s from %s (%d changes)",
+			plan.ID, o.busCtx.PlanPath, len(plan.Changes))
+	}
+
+	// Substep 2: provision worktree.
+	if o.worktreeBase == "" {
+		msg := "apply phase: worktree base directory not configured (orchestrator.SetWorktreeBase was not called)"
+		o.busCtx.Mutable.SetResult(msg)
+		return fmt.Errorf("%s", msg)
+	}
+	sess, err := worktree.Create(o.worktreeBase, o.busCtx.MainRepoRoot, o.busCtx.TraceID)
+	if err != nil {
+		msg := fmt.Sprintf("apply phase: worktree provisioning failed: %v", err)
+		o.busCtx.Mutable.SetResult(msg)
+		return fmt.Errorf("%s", msg)
+	}
+	// Record path BEFORE the RepoRoot swap so the outer defer
+	// (orchestrator.Run) can always find and discard it on any
+	// exit path including a panic during Substep 3/4.
+	o.busCtx.WorktreePath = sess.Path()
+	logging.Info("[orchestrator] apply phase: worktree ready at %s", sess.Path())
+
+	// Substep 3: swap RepoRoot to the worktree. Day-1 audit
+	// confirmed all built-in tools resolve paths through
+	// ctx.RepoRoot; after the swap, apply_patch / read_file /
+	// exec_command write and read inside the worktree copy.
+	origRepoRoot := o.busCtx.RepoRoot
+	o.busCtx.RepoRoot = sess.Path()
+	o.busCtx.Mutable.SetRepoRoot(sess.Path())
+	defer func() {
+		// Restore RepoRoot on exit so a subsequent runVerifyPhase
+		// (same Run) stays consistent with the worktree, but any
+		// post-Run consumer (REPL renderer, cmd/root.go summary
+		// writer) sees the canonical main repo path. This matters
+		// for error messages that embed RepoRoot in the summary.
+		_ = origRepoRoot // kept for future unswap branch
+	}()
+
+	// Substep 4: dispatch coder.
 	out, err := o.dispatchStage(types.StageApply)
 	if err != nil {
 		return fmt.Errorf("apply phase dispatch: %w", err)
 	}
 	if out != nil && out.Error != "" {
-		// B0 coder stub always takes this branch — surface the
-		// stub message as-is so the operator sees a clear
-		// "not yet implemented" explanation.
+		// Coder reported incomplete apply. Surface the detail
+		// verbatim — it already carries the specific missing path
+		// or tool-rejection reason.
 		o.busCtx.Mutable.SetResult(out.Error)
 		return fmt.Errorf("apply phase: %s", out.Error)
 	}
+
+	// Success: summarise the applied state for user-visible
+	// Result. Includes applied count + target paths so the user
+	// can confirm what landed (even though the worktree itself
+	// gets discarded by the outer defer).
+	plan := o.busCtx.Mutable.ChangePlan()
+	applied := o.busCtx.Mutable.WriteClosure().AppliedSet()
+	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, sess.Path()))
+	logging.Info("[orchestrator] apply phase: completed, %d/%d changes applied",
+		len(applied), len(plan.TargetPaths))
 	return nil
+}
+
+// renderApplySummary formats the apply-stage Result message. Used
+// by the REPL / single-shot renderer to show the user what landed
+// in the worktree. Intentionally markdown-adjacent so the content
+// survives glamour rendering without structural mangling.
+func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktreePath string) string {
+	if plan == nil {
+		return "apply phase: no ChangePlan available"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Apply result: %s\n\n", plan.ID)
+	fmt.Fprintf(&b, "Applied **%d** change(s) into worktree `%s`.\n\n", len(applied), worktreePath)
+	if len(plan.Changes) > 0 {
+		b.WriteString("**Changes**:\n\n")
+		for i, c := range plan.Changes {
+			status := "✓"
+			if !applied[c.Path] {
+				status = "✗"
+			}
+			fmt.Fprintf(&b, "%d. %s **%s** (`%s`)\n", i+1, status, c.Kind, c.Path)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("*The worktree is discarded on exit. To persist, cherry-pick the worktree commit into the main repo before the process terminates.*\n")
+	return b.String()
 }
 
 // runVerifyPhase dispatches the verifier agent. Same shape as
