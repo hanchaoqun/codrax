@@ -139,7 +139,7 @@ graph TB
     P -->|调用| W
     C -->|调用| W
     V -->|调用| W
-    W -->|git apply → patch\(1\) fallback| FB
+    W -->|"git apply → patch(1) fallback"| FB
     E -->|同步调用| G
     LT & A1 & A2 & A3 & A4 & P & C & V -->|调用 LLM| LLM[LLM internal/llm]
     A1 -->|buildAnalysisIR| AN
