@@ -305,6 +305,38 @@ type RuntimeSettings struct {
 	LogTriageTwoStepCoverage *float64 `yaml:"log_triage_two_step_coverage"`
 	LogTriageMaxLLMCalls     *int     `yaml:"log_triage_max_llm_calls"`
 
+	// B0 write-mode knobs. `write_*` prefix groups the write-mode
+	// lifecycle settings (plan / apply / verify stages). All
+	// optional; nil values coerce to safe-by-default behavior so
+	// pre-B0 codrax.yaml files continue to produce read-mode-only
+	// behavior byte-identically.
+	//
+	//   WriteEnabled       — master switch. When false (default),
+	//                        any --mode=plan|apply|verify is
+	//                        rejected at flag-parse time. YAML-only
+	//                        by design (no --write-enabled CLI flag);
+	//                        deploy-time configuration, not per-run.
+	//   WriteDefaultMode   — default --mode value when the CLI flag
+	//                        is omitted. Legal values: "read", "plan".
+	//                        "apply" / "verify" are REJECTED here
+	//                        because they are inherently side-effecting
+	//                        and must be opted into per-run via CLI.
+	//                        Empty / nil coerces to "read" at Run
+	//                        entry via PipelineMode.Normalize.
+	//   WriteAutoApproval  — yaml-level default for --auto-apply.
+	//                        Today unused in B0 scope (single-shot
+	//                        L4 gate uses the CLI flag directly).
+	//                        Reserved for REPL /approve interactive
+	//                        default and batch-mode workflows post B0.
+	//   WritePlanDir       — override the default .codrax/plans/
+	//                        directory where ChangePlan JSONs land.
+	//                        Absolute or runtime-anchor-relative;
+	//                        cmd/root.go anchors non-absolute paths.
+	WriteEnabled      *bool   `yaml:"write_enabled"`
+	WriteDefaultMode  *string `yaml:"write_default_mode"`
+	WriteAutoApproval *bool   `yaml:"write_auto_approval"`
+	WritePlanDir      *string `yaml:"write_plan_dir"`
+
 	// REPL interactive knobs. `repl_*` prefix groups runtime tweaks
 	// to the interactive prompt. Today only the paste-fold threshold
 	// is exposed; more can be added without breaking users.
