@@ -218,6 +218,41 @@ func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
 // bool: reconcileIntent reads bundle.IntentHint directly. A nil
 // bundle is the no-log case; a bundle with IntentHint=RootCause is
 // the "log_triage stage emitted a bundle with a real stack" case.
+func TestBuildAnalysisIR_ExactResolutionContractPropagates(t *testing.T) {
+	mut := types.NewMutableState("where is explore_mid_loop_hint_budget defined")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "where is explore_mid_loop_hint_budget defined",
+		Intent:     types.IntentConfigQuery,
+		Scenario:   types.ScenarioConfigTrace,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Kind:            "config_mapping",
+			PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
+			Entities:        []string{"explore_mid_loop_hint_budget"},
+			Shape:           string(types.ShapeConfigValue),
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.AnswerContract.ExactResolution == nil {
+		t.Fatal("AnswerContract.ExactResolution = nil, want contract")
+	}
+	if got := ir.AnswerContract.ExactResolution.TargetLabel; got != "config key" {
+		t.Fatalf("TargetLabel = %q, want config key", got)
+	}
+	if got := ir.AnswerContract.ExactResolution.Targets; len(got) != 1 || got[0] != "explore_mid_loop_hint_budget" {
+		t.Fatalf("Targets = %v, want [explore_mid_loop_hint_budget]", got)
+	}
+	if got := ir.AnswerContract.ExactResolution.RelatedContextPolicy; got != types.ExactContextSameFamilyGrounded {
+		t.Fatalf("RelatedContextPolicy = %q, want %q", got, types.ExactContextSameFamilyGrounded)
+	}
+}
+
 func TestReconcileIntent(t *testing.T) {
 	rootCauseBundle := &types.LogBundle{IntentHint: types.IntentRootCause}
 	cases := []struct {

@@ -22,6 +22,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"unicode/utf8"
 
@@ -136,6 +137,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		if seeds := renderAnswerDocDiagramSeeds(ctx, dc); seeds != "" {
 			b.WriteString(seeds)
 		}
+	}
+	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
+		b.WriteString(exact)
 	}
 
 	if shape == string(types.ShapeListOfSymbols) {
@@ -270,6 +274,13 @@ func answerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {
 		return nil
 	}
 	return ctx.AnalysisIR.AnswerContract.Diagram
+}
+
+func answerDocExactResolutionContract(ctx *types.AgentContext) *types.ExactResolutionContract {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.ExactResolution == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.AnswerContract.ExactResolution
 }
 
 func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
@@ -431,6 +442,246 @@ func renderAnswerDocDiagramChainSeed(chains []types.AnswerChain) string {
 	return strings.TrimSpace(b.String())
 }
 
+func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	contract := answerDocExactResolutionContract(ctx)
+	if contract == nil || len(contract.Targets) == 0 {
+		return ""
+	}
+	label := strings.TrimSpace(contract.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	pending := types.ExactResolutionPendingTargets(contract, ctx.UnverifiedAnalyzerFindings)
+	justification := strings.TrimSpace(ctx.Mutable.AbsenceJustification())
+	stateAbsent := contract.AllowAbsence && justification != "" && len(pending) > 0
+
+	var b strings.Builder
+	b.WriteString("## Exact Resolution Contract\n\n")
+	fmt.Fprintf(&b, "- Requested exact %s: %s\n", label, backtickJoin(contract.Targets))
+	b.WriteString("- Resolve the requested exact target directly. Do not answer with a nearby item unless you have explicit alias / synonym / parser-mapping proof.\n")
+	if contract.RequireTargetMention {
+		b.WriteString("- Name the requested exact target explicitly in `summary`.\n")
+	}
+	if contract.AllowAbsence {
+		b.WriteString("- Absence-only is acceptable if the investigation shows the exact target is absent.\n")
+	}
+	if contract.AliasRequiresProof {
+		b.WriteString("- Any alias / equivalent / substitute claim requires explicit grounded proof, not lexical similarity or \"closest match\" reasoning.\n")
+	}
+	if hint := strings.TrimSpace(contract.RelatedContextScopeHint); hint != "" {
+		fmt.Fprintf(&b, "- If you add related context, keep it within the %s and ground it.\n", hint)
+	} else {
+		b.WriteString("- If you add related context, keep it grounded and clearly separate it from the exact target resolution.\n")
+	}
+	if stateAbsent {
+		b.WriteString("- Investigation state: the exact target is currently absent in the repo / branch under inspection.\n")
+		fmt.Fprintf(&b, "- Absence justification: %s\n", justification)
+		b.WriteString("- Lead with the exact absence before any related context.\n")
+	}
+	b.WriteString("\n")
+	if seeds := renderAnswerDocExactResolutionSeeds(ctx, contract); seeds != "" {
+		b.WriteString(seeds)
+	}
+	return b.String()
+}
+
+type exactResolutionSeed struct {
+	Key   string
+	Text  string
+	Score int
+}
+
+func renderAnswerDocExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	seeds := collectExactResolutionSeeds(ctx, contract)
+	if len(seeds) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Exact Resolution Seeds\n\n")
+	b.WriteString("These grounded anchors are related to the requested exact target. Use them as related context only unless you can prove an explicit alias / synonym mapping.\n\n")
+	for _, seed := range seeds {
+		fmt.Fprintf(&b, "- %s\n", seed.Text)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
+	if ctx == nil || contract == nil {
+		return nil
+	}
+	targetTerms := types.ExactResolutionTerms(contract)
+	scopeTerms := types.ExactResolutionScopeTerms(contract)
+	if len(targetTerms) == 0 && len(scopeTerms) == 0 {
+		return nil
+	}
+
+	type candidate struct {
+		ev    types.EvidenceItem
+		score int
+	}
+	var candidates []candidate
+	appendCandidate := func(ev types.EvidenceItem, base int) {
+		if ev.Source == "" {
+			return
+		}
+		score := base + scoreExactResolutionEvidence(ev, contract, targetTerms, scopeTerms)
+		if score < 12 {
+			return
+		}
+		candidates = append(candidates, candidate{ev: ev, score: score})
+	}
+	for _, chain := range ctx.AnswerChains {
+		appendCandidate(chain.Item, 6)
+	}
+	for _, ev := range ctx.EvidenceItems {
+		appendCandidate(ev, 0)
+	}
+	if len(candidates) == 0 {
+		return nil
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score != candidates[j].score {
+			return candidates[i].score > candidates[j].score
+		}
+		if candidates[i].ev.Source != candidates[j].ev.Source {
+			return candidates[i].ev.Source < candidates[j].ev.Source
+		}
+		return candidates[i].ev.LineStart < candidates[j].ev.LineStart
+	})
+
+	seen := make(map[string]bool)
+	out := make([]exactResolutionSeed, 0, 4)
+	for _, cand := range candidates {
+		key := fmt.Sprintf("%s:%d:%s:%s:%s:%s", cand.ev.Source, cand.ev.LineStart, cand.ev.Subject, cand.ev.Predicate, cand.ev.Object, cand.ev.Summary)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, exactResolutionSeed{
+			Key:   key,
+			Text:  formatExactResolutionSeed(cand.ev),
+			Score: cand.score,
+		})
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
+}
+
+func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactResolutionContract, targetTerms, scopeTerms []string) int {
+	score := 0
+	if contract == nil {
+		return score
+	}
+	text := strings.ToLower(strings.Join([]string{
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Source,
+	}, " "))
+	sourceLower := strings.ToLower(ev.Source)
+	isTestLike := strings.HasSuffix(sourceLower, "_test.go") || strings.Contains(sourceLower, "/testdata/") || strings.Contains(sourceLower, "\\testdata\\")
+	exactMention := false
+	for _, target := range contract.Targets {
+		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
+			exactMention = true
+			break
+		}
+	}
+	if exactMention {
+		if isTestLike {
+			score += 4
+		} else {
+			score += 18
+		}
+	}
+	targetMatches := 0
+	for _, term := range targetTerms {
+		if strings.Contains(text, term) {
+			targetMatches++
+		}
+	}
+	if targetMatches > 3 {
+		targetMatches = 3
+	}
+	score += targetMatches * 3
+	scopeMatches := 0
+	for _, term := range scopeTerms {
+		if strings.Contains(text, term) {
+			scopeMatches++
+		}
+	}
+	if scopeMatches > 3 {
+		scopeMatches = 3
+	}
+	score += scopeMatches * 4
+	switch ev.Kind {
+	case types.EvidenceMechanism, types.EvidenceRelationship, types.EvidenceRegistration:
+		score += 6
+	case types.EvidenceDirect, types.EvidenceConcrete:
+		score += 4
+	}
+	switch strings.TrimSpace(strings.ToLower(ev.Predicate)) {
+	case "maps", "config", "binds", "binds only", "defines", "registers", "wires", "calls", "dispatches", "delegates to", "returns", "constructs":
+		score += 4
+	}
+	if ev.LineStart > 0 {
+		score += 2
+	}
+	if isTestLike {
+		score -= 8
+	}
+	return score
+}
+
+func formatExactResolutionSeed(ev types.EvidenceItem) string {
+	parts := make([]string, 0, 3)
+	if triple := strings.TrimSpace(strings.Join(filterEmptyStrings(ev.Subject, ev.Predicate, ev.Object), " ")); triple != "" {
+		parts = append(parts, triple)
+	}
+	if summary := strings.TrimSpace(ev.Summary); summary != "" {
+		if len(parts) == 0 || !strings.Contains(summary, parts[0]) {
+			parts = append(parts, summary)
+		}
+	}
+	text := strings.Join(parts, " — ")
+	if text == "" {
+		text = strings.TrimSpace(ev.Source)
+	}
+	if ev.Source != "" {
+		if ev.LineStart > 0 {
+			text += fmt.Sprintf(" (%s:%d)", ev.Source, ev.LineStart)
+		} else {
+			text += fmt.Sprintf(" (%s)", ev.Source)
+		}
+	}
+	return text
+}
+
+func filterEmptyStrings(items ...string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item != "" {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func backtickJoin(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(items))
+	for _, item := range items {
+		quoted = append(quoted, "`"+item+"`")
+	}
+	return strings.Join(quoted, ", ")
+}
+
 // ShouldStop always returns false so the BaseAgent's soft-stop path
 // delegates the accept/retry decision to ContinuationPrompt.
 func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
@@ -535,6 +786,10 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 	if strings.Contains(summary, "diagram required for this dispatch") {
 		reasonKey = "missing-diagram"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded diagram in `summary`. Re-emit `emit_answer_document` now with the same answer shape and payload fields, but add at least one grounded triple-backtick diagram to `summary`. This obligation is independent of answer shape. Keep every filename inside the diagram grounded by citations[] or the Log Triage frames; do not write free-form prose outside the tool call."
+	}
+	if strings.Contains(summary, "exact-resolution contract violated:") {
+		reasonKey = "exact-resolution"
+		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with the same grounded answer, but make `summary` explicitly name the requested exact target and resolve it first. If the investigation concluded the exact target is absent, lead with that absence; absence-only is acceptable. Any nearby context must stay clearly labeled as related context, not as an equivalent, alias, or substitute without explicit proof. Do not write free-form prose outside the tool call."
 	}
 
 	// Session-22 special-case: the literal-grounding gate on shape=

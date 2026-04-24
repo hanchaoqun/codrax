@@ -37,7 +37,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v5"
+const AnalysisIRVersion = "v6"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -654,13 +654,14 @@ type StopCondition struct {
 // ── AnswerContract ──────────────────────────────────────────────────────
 
 type AnswerContract struct {
-	RequiredAnswerShape AnswerShape      `json:"required_answer_shape"`
-	Diagram             *DiagramContract `json:"diagram,omitempty"`
-	MustInclude         []string         `json:"must_include,omitempty"`
-	MustExclude         []string         `json:"must_exclude,omitempty"`
-	CitationReq         CitationReq      `json:"citation_requirements"`
-	AcceptanceTests     []Criterion      `json:"acceptance_tests,omitempty"`
-	Language            string           `json:"language"`
+	RequiredAnswerShape AnswerShape              `json:"required_answer_shape"`
+	Diagram             *DiagramContract         `json:"diagram,omitempty"`
+	ExactResolution     *ExactResolutionContract `json:"exact_resolution,omitempty"`
+	MustInclude         []string                 `json:"must_include,omitempty"`
+	MustExclude         []string                 `json:"must_exclude,omitempty"`
+	CitationReq         CitationReq              `json:"citation_requirements"`
+	AcceptanceTests     []Criterion              `json:"acceptance_tests,omitempty"`
+	Language            string                   `json:"language"`
 }
 
 type DiagramKind string
@@ -733,6 +734,52 @@ type DiagramContract struct {
 	PreferredKinds []DiagramKind `json:"preferred_kinds,omitempty"`
 	ScopeHint      DiagramScope  `json:"scope_hint,omitempty"`
 	Reasons        []string      `json:"reasons,omitempty"`
+}
+
+type ExactResolutionContextPolicy string
+
+const (
+	ExactContextGroundedOnly          ExactResolutionContextPolicy = "grounded_only"
+	ExactContextSameFamilyGrounded    ExactResolutionContextPolicy = "same_family_grounded"
+	ExactContextSameDirectoryGrounded ExactResolutionContextPolicy = "same_directory_grounded"
+)
+
+func AllExactResolutionContextPolicies() []ExactResolutionContextPolicy {
+	return []ExactResolutionContextPolicy{
+		ExactContextGroundedOnly,
+		ExactContextSameFamilyGrounded,
+		ExactContextSameDirectoryGrounded,
+	}
+}
+
+func (p ExactResolutionContextPolicy) IsValid() bool {
+	for _, declared := range AllExactResolutionContextPolicies() {
+		if p == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// ExactResolutionContract is the finalizer-facing contract for
+// exact-target questions where the user named a concrete config key,
+// file path, symbol, route, or literal and the answer must resolve
+// THAT exact target before any nearby context is discussed.
+//
+// The contract is intentionally orthogonal to answer shape. A scalar
+// or explanation answer may still need to (a) explicitly name the
+// requested target, (b) allow honest "absent" outcomes, and
+// (c) require explicit proof before claiming a nearby item is an
+// alias / equivalent / substitute.
+type ExactResolutionContract struct {
+	TargetKind              AnswerSubjectKind            `json:"target_kind,omitempty"`
+	TargetLabel             string                       `json:"target_label,omitempty"`
+	Targets                 []string                     `json:"targets,omitempty"`
+	AllowAbsence            bool                         `json:"allow_absence,omitempty"`
+	RequireTargetMention    bool                         `json:"require_target_mention,omitempty"`
+	AliasRequiresProof      bool                         `json:"alias_requires_proof,omitempty"`
+	RelatedContextPolicy    ExactResolutionContextPolicy `json:"related_context_policy,omitempty"`
+	RelatedContextScopeHint string                       `json:"related_context_scope_hint,omitempty"`
 }
 
 type AnswerShape string

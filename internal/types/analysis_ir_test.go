@@ -109,6 +109,16 @@ func sampleAnalysisIR() AnalysisIR {
 				ScopeHint:      DiagramScopeOverall,
 				Reasons:        []string{"trace_intent", "axis_call"},
 			},
+			ExactResolution: &ExactResolutionContract{
+				TargetKind:              SubjectFunctionName,
+				TargetLabel:             "symbol",
+				Targets:                 []string{"ShouldStop"},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    ExactContextGroundedOnly,
+				RelatedContextScopeHint: "grounded nearby context only",
+			},
 			MustInclude: []string{"t2"},
 			MustExclude: nil,
 			CitationReq: CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
@@ -162,14 +172,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v5 adds DiagramHint on RequestModel plus DiagramContract on
-	// AnswerContract, making "diagram required" a first-class contract
-	// independent of answer shape.
-	if AnalysisIRVersion != "v5" {
+	// v6 adds ExactResolutionContract on AnswerContract, making
+	// exact-target resolution a first-class contract independent of
+	// answer shape.
+	if AnalysisIRVersion != "v6" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v5" {
+	if ir.Version != "v6" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

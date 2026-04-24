@@ -766,15 +766,29 @@ func TestBuildPromptContext_ConfigKeyAbsenceSection(t *testing.T) {
 		AgentName: types.AgentExplorer,
 		Stage:     types.StageExplore,
 		Objective: "q",
-		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Scenario: types.ScenarioConfigTrace,
-			AnalyzerHints: types.AnalyzerHints{
-				Kind:            "config_mapping",
-				PrimaryEntities: []string{missingKey},
-				Entities:        []string{missingKey},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "config_mapping",
+					PrimaryEntities: []string{missingKey},
+					Entities:        []string{missingKey},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 			},
-			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
-		}},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:              types.SubjectConfigKey,
+					TargetLabel:             "config key",
+					Targets:                 []string{missingKey},
+					AllowAbsence:            true,
+					RequireTargetMention:    true,
+					AliasRequiresProof:      true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+		},
 		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
 			Token:  missingKey,
 			Kind:   "symbol",
@@ -783,11 +797,11 @@ func TestBuildPromptContext_ConfigKeyAbsenceSection(t *testing.T) {
 	}
 	pc := BuildPromptContext(ac, &skill.Config{Name: "explore-skill"})
 
-	sec := findSectionTitle(pc, "Exact Config Key Absence")
+	sec := findSectionTitle(pc, "Exact Resolution")
 	if sec == nil {
-		t.Fatalf("missing Exact Config Key Absence section")
+		t.Fatalf("missing Exact Resolution section")
 	}
-	for _, want := range []string{missingKey, "Do not rename", "Related keys may be used only as context", "absence_justification"} {
+	for _, want := range []string{missingKey, "Do not rename", "same namespace / prefix family", "absence_justification"} {
 		if !strings.Contains(sec.Content, want) {
 			t.Fatalf("section missing %q:\n%s", want, sec.Content)
 		}
@@ -799,15 +813,29 @@ func TestBuildAgentContext_MergesUnverifiedFindingsFromPriorStageReport(t *testi
 	mut := types.NewMutableState("q")
 	bus := &types.BusContext{
 		Mutable: mut,
-		AnalysisIR: &types.AnalysisIR{RequestModel: types.RequestModel{
-			Scenario: types.ScenarioConfigTrace,
-			AnalyzerHints: types.AnalyzerHints{
-				Kind:            "config_mapping",
-				PrimaryEntities: []string{missingKey},
-				Entities:        []string{missingKey},
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "config_mapping",
+					PrimaryEntities: []string{missingKey},
+					Entities:        []string{missingKey},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 			},
-			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
-		}},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:              types.SubjectConfigKey,
+					TargetLabel:             "config key",
+					Targets:                 []string{missingKey},
+					AllowAbsence:            true,
+					RequireTargetMention:    true,
+					AliasRequiresProof:      true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+		},
 		StageReports: []types.StageReport{{
 			Stage:    types.StageAnalyze,
 			Agent:    types.AgentAnalyzer,
@@ -820,9 +848,9 @@ func TestBuildAgentContext_MergesUnverifiedFindingsFromPriorStageReport(t *testi
 	if len(ac.UnverifiedAnalyzerFindings) != 1 {
 		t.Fatalf("unverified findings = %d, want 1", len(ac.UnverifiedAnalyzerFindings))
 	}
-	sec := findSectionTitle(pc, "Exact Config Key Absence")
+	sec := findSectionTitle(pc, "Exact Resolution")
 	if sec == nil {
-		t.Fatalf("prior stage unverified annotation should render exact config absence section")
+		t.Fatalf("prior stage unverified annotation should render exact-resolution section")
 	}
 	if !strings.Contains(sec.Content, missingKey) {
 		t.Fatalf("absence section missing key:\n%s", sec.Content)

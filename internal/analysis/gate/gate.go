@@ -20,6 +20,7 @@ package gate
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
 	"github.com/hanchaoqun/codrax/internal/analysis/hdp"
@@ -236,6 +237,18 @@ func checkContractComplete(ir *types.AnalysisIR, th Thresholds) types.GateCheck 
 	}
 	if c.CitationReq.Required && c.CitationReq.MinCitations < 0 {
 		return types.GateCheck{Name: "contract_complete", Passed: false, Detail: "negative min_citations"}
+	}
+	if c.ExactResolution != nil {
+		if len(c.ExactResolution.Targets) == 0 {
+			return types.GateCheck{Name: "contract_complete", Passed: false, Detail: "exact_resolution.targets missing"}
+		}
+		if strings.TrimSpace(c.ExactResolution.TargetLabel) == "" {
+			return types.GateCheck{Name: "contract_complete", Passed: false, Detail: "exact_resolution.target_label missing"}
+		}
+		if policy := c.ExactResolution.RelatedContextPolicy; policy != "" && !policy.IsValid() {
+			return types.GateCheck{Name: "contract_complete", Passed: false,
+				Detail: fmt.Sprintf("invalid exact_resolution.related_context_policy %q", policy)}
+		}
 	}
 	return types.GateCheck{Name: "contract_complete", Passed: true, Score: 1.0, Threshold: 1.0}
 }

@@ -1,0 +1,458 @@
+param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [string]$CaseFile,
+
+    [Parameter(Position = 1)]
+    [int]$Runs = 3,
+
+    [string]$Branch = "",
+    [int]$PipelineMaxSteps = 15,
+    [switch]$SkipBuild
+)
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = "Stop"
+
+function Resolve-PathRelativeToRepo {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$RepoRoot
+    )
+    if ([System.IO.Path]::IsPathRooted($Path)) {
+        return (Resolve-Path -LiteralPath $Path).Path
+    }
+    return (Resolve-Path -LiteralPath (Join-Path $RepoRoot $Path)).Path
+}
+
+function Parse-CaseFile {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path
+    )
+
+    $text = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    $text = $text -replace "`r", ""
+    $lines = $text -split "`n"
+    $vars = [ordered]@{}
+
+    for ($i = 0; $i -lt $lines.Count; $i++) {
+        $line = $lines[$i].TrimEnd()
+        if ([string]::IsNullOrWhiteSpace($line)) {
+            continue
+        }
+        if ($line.TrimStart().StartsWith("#")) {
+            continue
+        }
+        if ($line -notmatch '^(?<key>[A-Za-z_][A-Za-z0-9_]*)=(?<rest>.*)$') {
+            continue
+        }
+
+        $key = $Matches["key"]
+        $rest = $Matches["rest"].TrimStart()
+        if ([string]::IsNullOrEmpty($rest)) {
+            $vars[$key] = ""
+            continue
+        }
+
+        $quote = $rest[0]
+        if ($quote -eq '"' -or $quote -eq "'") {
+            $value = $rest.Substring(1)
+            while ($true) {
+                if ($value.EndsWith([string]$quote)) {
+                    $value = $value.Substring(0, $value.Length - 1)
+                    break
+                }
+                $i++
+                if ($i -ge $lines.Count) {
+                    throw "unterminated quoted value for key '$key' in $Path"
+                }
+                $value += "`n" + $lines[$i]
+            }
+            $vars[$key] = $value
+            continue
+        }
+
+        $vars[$key] = $rest
+    }
+
+    return $vars
+}
+
+function Split-WhitespaceTokens {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return @()
+    }
+    return @($Text -split '\s+' | Where-Object { $_ -ne "" })
+}
+
+function Split-RegexPatterns {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) {
+        return @()
+    }
+    return @(($Text -replace "`r", "") -split "`n" | Where-Object { $_.Trim() -ne "" })
+}
+
+function Get-CurrentBranch {
+    param([string]$RepoRoot)
+    try {
+        $current = (& git -C $RepoRoot branch --show-current 2>$null | Out-String).Trim()
+        if (-not [string]::IsNullOrWhiteSpace($current)) {
+            return $current
+        }
+    } catch {
+    }
+    return "main"
+}
+
+function Sanitize-PathComponent {
+    param([string]$Text)
+    $clean = ($Text -replace "`r", "" -replace "`n", " ").Trim()
+    if ([string]::IsNullOrWhiteSpace($clean)) {
+        return "case"
+    }
+    return ($clean -replace '[^\p{L}\p{Nd}._-]', '_')
+}
+
+function Normalize-DisplayText {
+    param([string]$Text)
+    if ($null -eq $Text) {
+        return ""
+    }
+    return (($Text -replace "`r", "" -replace "`n", " ").Trim())
+}
+
+function Remove-Ansi {
+    param([string]$Text)
+    if ($null -eq $Text) {
+        return ""
+    }
+    return [regex]::Replace($Text, "\x1B\[[0-9;]*[A-Za-z]", "")
+}
+
+function Extract-AnswerBody {
+    param([string]$Text)
+    $cleaned = Remove-Ansi $Text
+    $match = [regex]::Match($cleaned, "鈹佲攣鈹.")
+    if ($match.Success) {
+        return $cleaned.Substring($match.Index + $match.Length).Trim()
+    }
+    return $cleaned.Trim()
+}
+
+function Count-RegexMatchesInFile {
+    param(
+        [string]$Path,
+        [string]$Pattern
+    )
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) {
+        return 0
+    }
+    $content = Get-Content -LiteralPath $Path -Raw -Encoding UTF8
+    return ([regex]::Matches($content, $Pattern, [System.Text.RegularExpressions.RegexOptions]::Multiline)).Count
+}
+
+function Contains-LiteralInsensitive {
+    param(
+        [string]$Haystack,
+        [string]$Needle
+    )
+    if ([string]::IsNullOrEmpty($Needle)) {
+        return $true
+    }
+    return $Haystack.IndexOf($Needle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+}
+
+function Get-Median {
+    param([int[]]$Values)
+    if ($null -eq $Values -or $Values.Count -eq 0) {
+        return 0
+    }
+    $sorted = @($Values | Sort-Object)
+    $index = [int][math]::Floor(($sorted.Count - 1) / 2)
+    return $sorted[$index]
+}
+
+function Quote-WindowsArgument {
+    param([string]$Text)
+    if ($null -eq $Text) {
+        return '""'
+    }
+    if ($Text.Length -eq 0) {
+        return '""'
+    }
+    if ($Text -notmatch '[\s"]') {
+        return $Text
+    }
+
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.Append('"')
+    $backslashes = 0
+    foreach ($ch in $Text.ToCharArray()) {
+        if ($ch -eq '\') {
+            $backslashes++
+            continue
+        }
+        if ($ch -eq '"') {
+            if ($backslashes -gt 0) {
+                [void]$sb.Append(('\' * ($backslashes * 2)))
+                $backslashes = 0
+            }
+            [void]$sb.Append('\"')
+            continue
+        }
+        if ($backslashes -gt 0) {
+            [void]$sb.Append(('\' * $backslashes))
+            $backslashes = 0
+        }
+        [void]$sb.Append($ch)
+    }
+    if ($backslashes -gt 0) {
+        [void]$sb.Append(('\' * ($backslashes * 2)))
+    }
+    [void]$sb.Append('"')
+    return $sb.ToString()
+}
+
+function Join-WindowsArguments {
+    param([string[]]$Items)
+    return (($Items | ForEach-Object { Quote-WindowsArgument ([string]$_) }) -join ' ')
+}
+
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$repoRoot = (Resolve-Path -LiteralPath (Join-Path $scriptRoot "..")).Path
+$casePath = Resolve-PathRelativeToRepo -Path $CaseFile -RepoRoot $repoRoot
+$case = Parse-CaseFile -Path $casePath
+
+foreach ($required in @("ID", "QUESTION")) {
+    if (-not $case.Contains($required) -or [string]::IsNullOrWhiteSpace([string]$case[$required])) {
+        throw "case file must define $required"
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($Branch)) {
+    $Branch = Get-CurrentBranch -RepoRoot $repoRoot
+}
+
+$binaryPath = Join-Path $repoRoot "codrax.exe"
+if (-not $SkipBuild) {
+    Write-Host "building codrax..."
+    Push-Location $repoRoot
+    try {
+        & go build -o $binaryPath .
+        if ($LASTEXITCODE -ne 0) {
+            throw "go build failed with exit code $LASTEXITCODE"
+        }
+    } finally {
+        Pop-Location
+    }
+}
+
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$caseId = Sanitize-PathComponent ([string]$case["ID"])
+$outDir = Join-Path $repoRoot ("eval/results/{0}-{1}" -f $caseId, $timestamp)
+New-Item -ItemType Directory -Force -Path $outDir | Out-Null
+
+$displayName = Normalize-DisplayText ([string]($case["NAME"]))
+$displayQuestion = Normalize-DisplayText ([string]($case["QUESTION"]))
+Write-Host ("case: {0}  ({1})" -f $caseId, $displayName)
+Write-Host ("question: {0}" -f $displayQuestion)
+Write-Host ("runs: {0}" -f $Runs)
+Write-Host ("outdir: {0}" -f $outDir)
+Write-Host ""
+
+$metricPatterns = [ordered]@{
+    tool_read_file            = 'tool=read_file'
+    concrete_values           = 'concrete values'
+    synthesis_runs            = 'SYNTHESIS prompt'
+    function_boundary_push    = 'CRITICAL.*Incomplete'
+    enumeration_push          = 'Enumeration completeness'
+    focus_warning             = 'Potential Focus'
+    t11_gate_skip             = 'T1.1 gate.*skipping'
+    t11_gate_run              = 'T1.1 gate.*running'
+    dataflow_intent_lookup    = 'dataflowIntent=lookup'
+    dataflow_intent_propagate = 'dataflowIntent=propagate'
+    midloop_inject            = 'MIDLOOP inject'
+    answer_chain_lines        = 'answer_chain'
+}
+
+$results = New-Object System.Collections.Generic.List[object]
+
+for ($run = 1; $run -le $Runs; $run++) {
+    $runOut = Join-Path $outDir ("run-{0}.out" -f $run)
+    $runMetrics = Join-Path $outDir ("run-{0}.metrics.txt" -f $run)
+    $runVerdict = Join-Path $outDir ("run-{0}.verdict" -f $run)
+    $runLogDir = Join-Path $outDir ("run-{0}.logs" -f $run)
+    New-Item -ItemType Directory -Force -Path $runLogDir | Out-Null
+
+    $cmdArgs = @(
+        "--repo", ".",
+        "--branch", $Branch,
+        "--pipeline-max-steps", [string]$PipelineMaxSteps,
+        "--log-level", "debug",
+        "--log-dir", $runLogDir,
+        "--request", [string]$case["QUESTION"]
+    )
+    if ($case.Contains("LOG") -and -not [string]::IsNullOrWhiteSpace([string]$case["LOG"])) {
+        $cmdArgs += @("--log-text", [string]$case["LOG"])
+    }
+
+    Push-Location $repoRoot
+    $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        $stdoutPath = Join-Path $runLogDir "native.stdout.txt"
+        $stderrPath = Join-Path $runLogDir "native.stderr.txt"
+        $quotedArgs = Join-WindowsArguments $cmdArgs
+        $process = Start-Process -FilePath $binaryPath `
+            -ArgumentList $quotedArgs `
+            -WorkingDirectory $repoRoot `
+            -NoNewWindow `
+            -Wait `
+            -PassThru `
+            -RedirectStandardOutput $stdoutPath `
+            -RedirectStandardError $stderrPath
+        $stdoutText = if (Test-Path -LiteralPath $stdoutPath) { Get-Content -LiteralPath $stdoutPath -Raw -Encoding UTF8 } else { "" }
+        $stderrText = if (Test-Path -LiteralPath $stderrPath) { Get-Content -LiteralPath $stderrPath -Raw -Encoding UTF8 } else { "" }
+        if ($stderrText -and $stdoutText) {
+            $output = $stderrText + "`n" + $stdoutText
+        } else {
+            $output = $stderrText + $stdoutText
+        }
+        $exitCode = $process.ExitCode
+    } finally {
+        $stopwatch.Stop()
+        Pop-Location
+    }
+    Set-Content -LiteralPath $runOut -Value $output -Encoding UTF8
+
+    $logFile = Get-ChildItem -LiteralPath $runLogDir -Filter "codrax-*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        Select-Object -First 1
+    $logPath = if ($logFile) { $logFile.FullName } else { "" }
+
+    $metricLines = foreach ($metricName in $metricPatterns.Keys) {
+        "{0}={1}" -f $metricName, (Count-RegexMatchesInFile -Path $logPath -Pattern $metricPatterns[$metricName])
+    }
+    $metricLines = @(
+        "exit_code=$exitCode"
+        "log_file=$logPath"
+    ) + $metricLines
+    Set-Content -LiteralPath $runMetrics -Value ($metricLines -join "`n") -Encoding UTF8
+
+    $answerBody = Extract-AnswerBody $output
+    $stripped = ($answerBody -replace '\s+', "")
+    $passed = $true
+    $reasons = New-Object System.Collections.Generic.List[string]
+
+    if ($stripped.Length -lt 20) {
+        $passed = $false
+        $reasons.Add(("too_short:{0}chars" -f $stripped.Length))
+    }
+
+    foreach ($needle in (Split-WhitespaceTokens ([string]($case["EXPECT_CONTAINS"])))) {
+        if (-not (Contains-LiteralInsensitive -Haystack $answerBody -Needle $needle)) {
+            $passed = $false
+            $reasons.Add(("missing:{0}" -f $needle))
+        }
+    }
+
+    foreach ($needle in (Split-WhitespaceTokens ([string]($case["EXPECT_NOT_CONTAINS"])))) {
+        if (Contains-LiteralInsensitive -Haystack $answerBody -Needle $needle) {
+            $passed = $false
+            $reasons.Add(("banned:{0}" -f $needle))
+        }
+    }
+
+    foreach ($regexPattern in (Split-RegexPatterns ([string]($case["EXPECT_MATCHES_REGEX"])))) {
+        if (-not [regex]::IsMatch($answerBody, $regexPattern)) {
+            $passed = $false
+            $reasons.Add(("no_regex_match:{0}" -f $regexPattern))
+        }
+    }
+
+    foreach ($needle in (Split-WhitespaceTokens ([string]($case["EXPECT_SECTIONS"])))) {
+        if (-not (Contains-LiteralInsensitive -Haystack $answerBody -Needle $needle)) {
+            $passed = $false
+            $reasons.Add(("missing_section:{0}" -f $needle))
+        }
+    }
+
+    $verdictText = if ($passed) { "PASS" } else { "FAIL " + ($reasons -join " ") }
+    Set-Content -LiteralPath $runVerdict -Value $verdictText -Encoding UTF8
+    Write-Host ("run {0}: {1}" -f $run, $verdictText)
+
+    $results.Add([pscustomobject]@{
+        run       = $run
+        case      = $caseId
+        exit_code = $exitCode
+        seconds   = [math]::Round($stopwatch.Elapsed.TotalSeconds, 1)
+        pass      = $passed
+        reasons   = ($reasons -join " ")
+        out_dir   = $outDir
+        log_file  = $logPath
+    })
+}
+
+$summaryPath = Join-Path $outDir "summary.md"
+$summaryJsonPath = Join-Path $outDir "summary.json"
+$passCount = @($results | Where-Object { $_.pass }).Count
+
+$summaryLines = New-Object System.Collections.Generic.List[string]
+$summaryLines.Add("# Eval results - $caseId")
+$summaryLines.Add("")
+$summaryLines.Add("- case: ``$displayName``")
+$summaryLines.Add("- question: ``$displayQuestion``")
+$summaryLines.Add("- runs: $Runs")
+$summaryLines.Add("- timestamp: $timestamp")
+$summaryLines.Add("")
+$summaryLines.Add("## Verdicts")
+$summaryLines.Add("")
+$summaryLines.Add("| run | result | reasons |")
+$summaryLines.Add("|----:|--------|---------|")
+foreach ($result in $results) {
+    if ($result.pass) {
+        $summaryLines.Add("| $($result.run) | PASS | - |")
+    } else {
+        $summaryLines.Add("| $($result.run) | FAIL | $($result.reasons) |")
+    }
+}
+$summaryLines.Add("")
+$summaryLines.Add("**pass rate: $passCount / $Runs**")
+$summaryLines.Add("")
+$summaryLines.Add("## Mechanism trace metrics")
+$summaryLines.Add("")
+
+$metricHeader = "| metric | " + ((1..$Runs | ForEach-Object { "run $_" }) -join " | ") + " | median |"
+$metricDivider = "|--------|" + (((1..$Runs | ForEach-Object { "---" }) -join "|")) + "|------|"
+$summaryLines.Add($metricHeader)
+$summaryLines.Add($metricDivider)
+foreach ($metricName in $metricPatterns.Keys) {
+    $values = New-Object System.Collections.Generic.List[int]
+    $rowParts = New-Object System.Collections.Generic.List[string]
+    $rowParts.Add("| $metricName |")
+    foreach ($result in $results) {
+        $metricsFile = Join-Path $outDir ("run-{0}.metrics.txt" -f $result.run)
+        $metricValue = 0
+        if (Test-Path -LiteralPath $metricsFile) {
+            $line = Select-String -LiteralPath $metricsFile -Pattern ("^{0}=" -f [regex]::Escape($metricName)) | Select-Object -First 1
+            if ($line) {
+                $metricValue = [int]($line.Line.Split("=", 2)[1])
+            }
+        }
+        $values.Add($metricValue)
+        $rowParts.Add(" $metricValue |")
+    }
+    $rowParts.Add((" {0} |" -f (Get-Median -Values $values.ToArray())))
+    $summaryLines.Add(($rowParts -join ""))
+}
+$summaryLines.Add("")
+
+Set-Content -LiteralPath $summaryPath -Value ($summaryLines -join "`n") -Encoding UTF8
+$results | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $summaryJsonPath -Encoding UTF8
+
+Write-Host ""
+Write-Host ("summary written: {0}" -f $summaryPath)
+Get-Content -LiteralPath $summaryPath -Encoding UTF8

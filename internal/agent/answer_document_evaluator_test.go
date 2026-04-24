@@ -161,6 +161,66 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionContract(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:              types.SubjectConfigKey,
+					TargetLabel:             "config key",
+					Targets:                 []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:            true,
+					RequireTargetMention:    true,
+					AliasRequiresProof:      true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:            "config_mapping",
+					PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+		},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token: "explore_mid_loop_hint_budget",
+			Kind:  "symbol",
+		}},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:       types.EvidenceMechanism,
+				Subject:    "DefaultExploreHeuristics",
+				Predicate:  "defines",
+				Object:     "ExploreHeuristics defaults",
+				Summary:    "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
+				Source:     "internal/types/config.go",
+				LineStart:  520,
+				AnchorKind: types.AnchorDefinition,
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Exact Resolution Contract",
+		"explore_mid_loop_hint_budget",
+		"Absence-only is acceptable",
+		"same namespace / prefix family",
+		"## Exact Resolution Seeds",
+		"DefaultExploreHeuristics",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_LanguageCapture reads language from
 // AgentContext.Language (set by BuildAgentContext from -lang flag).
 func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
@@ -321,6 +381,32 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesActi
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("missing-diagram hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionRejectSurfacesAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "exact-resolution contract violated: summary must explicitly name the requested exact config key and lead with its absence before any nearby context.",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("exact-resolution reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"absence-only is acceptable",
+		"requested exact target",
+		"related context",
+		"equivalent, alias, or substitute",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("exact-resolution hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }

@@ -783,6 +783,95 @@ func TestEmitAnswerDocument_Explanation_Happy(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocument_RejectsExactTargetSubstituteFramingAfterAbsence(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	missingKey := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{missingKey},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token: missingKey,
+		Kind:  "symbol",
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "仓库里不存在 `explore_mid_loop_hint_budget` 这个配置键；最接近的等价字段是 `loop_max_midloop_injects`。",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("substitute framing after exact-target absence must reject")
+	}
+	if !strings.Contains(res.Summary, "exact-resolution contract violated") {
+		t.Fatalf("reject should name exact-resolution contract, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_AcceptsExactTargetAbsenceWithContextOnlyFraming(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	missingKey := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:            "config_mapping",
+				PrimaryEntities: []string{missingKey},
+				Entities:        []string{missingKey},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{missingKey},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token: missingKey,
+		Kind:  "symbol",
+	})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "仓库里不存在 `explore_mid_loop_hint_budget` 这个配置键。相关的同族 explore 启发式默认值在 `DefaultExploreHeuristics()` 中定义，这只是背景上下文，不是该 exact key 的替代项。",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("absence-first context-only framing should pass, got: %q", res.Summary)
+	}
+}
+
 // -------- cross-cutting validators --------
 
 func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {

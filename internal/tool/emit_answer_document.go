@@ -697,6 +697,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateSummaryCodenameGrounding(p.Summary, citations, groundCtx); err != nil {
 		return failWithContext("%v", err)
 	}
+	if err := validateSummaryExactResolution(p.Summary, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
 
 	// Shape-dispatch: each branch validates its own required fields,
 	// rejects fields that do not belong to this shape, and populates
@@ -1394,6 +1397,13 @@ func answerDiagramContract(ctx *types.BusContext) *types.DiagramContract {
 	return ctx.AnalysisIR.AnswerContract.Diagram
 }
 
+func answerExactResolutionContract(ctx *types.BusContext) *types.ExactResolutionContract {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.ExactResolution == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.AnswerContract.ExactResolution
+}
+
 func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error {
 	dc := answerDiagramContract(ctx)
 	if dc == nil || !dc.Required {
@@ -1827,6 +1837,138 @@ func validateSummaryCodenameGrounding(summary string, citations []types.Citation
 //
 // Contract mirrors validateSummaryCodenameGrounding; returns nil on
 // degraded context (no LineIndex, no Source, no codename tokens).
+var exactTargetSubstituteCues = []string{
+	"closest equivalent",
+	"nearest equivalent",
+	"closest matching",
+	"equivalent field",
+	"equivalent key",
+	"equivalent setting",
+	"equivalent knob",
+	"substitute for",
+	"same as",
+	"对应字段",
+	"等价字段",
+	"等价配置",
+	"最接近的等价",
+	"最接近的字段",
+	"最近邻字段",
+	"替代字段",
+	"替代配置",
+	"以该最近邻字段为准",
+}
+
+func validateSummaryExactResolution(summary string, ctx *types.BusContext) error {
+	if ctx == nil || ctx.Mutable == nil {
+		return nil
+	}
+	contract := answerExactResolutionContract(ctx)
+	if contract == nil || len(contract.Targets) == 0 {
+		return nil
+	}
+	label := strings.TrimSpace(contract.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	if contract.RequireTargetMention {
+		var missing []string
+		for _, target := range contract.Targets {
+			if !types.ExactResolutionTextMentionsTarget(contract, summary, target) {
+				missing = append(missing, target)
+			}
+		}
+		if len(missing) > 0 {
+			return fmt.Errorf(
+				"exact-resolution contract violated: summary must explicitly name the requested exact %s %s. Resolve the exact target before discussing nearby context.",
+				label, exactTargetListForError(missing))
+		}
+	}
+	justification := strings.TrimSpace(ctx.Mutable.AbsenceJustification())
+	pending := types.ExactResolutionPendingTargets(contract, unverifiedFindingsForCompletion(ctx))
+	if !contract.AllowAbsence || justification == "" || len(pending) == 0 {
+		return nil
+	}
+	if !looksLikeHonestZeroClaim(summary, "") {
+		return fmt.Errorf(
+			"exact-resolution contract violated: summary names the requested exact %s but does not clearly state it is absent / not found. Lead with the exact absence before any nearby context. Absence-only is acceptable.",
+			label)
+	}
+	if contract.AliasRequiresProof && containsPositiveAliasClaim(summary) {
+		return fmt.Errorf(
+			"exact-resolution contract violated: the investigation concluded the exact %s is absent, so nearby knobs / symbols may appear only as related context, not as equivalents, aliases, or substitutes for the requested target without explicit proof.",
+			label)
+	}
+	return nil
+}
+
+func containsPositiveAliasClaim(summary string) bool {
+	lower := strings.ToLower(summary)
+	englishPositive := []string{
+		"is an alias",
+		"alias of",
+		"equivalent to",
+		"equivalent field",
+		"equivalent key",
+		"equivalent setting",
+		"equivalent knob",
+		"closest equivalent",
+		"closest match",
+		"nearest equivalent",
+		"nearest match",
+		"substitute for",
+		"same as",
+	}
+	for _, cue := range englishPositive {
+		idx := strings.Index(lower, cue)
+		for idx >= 0 {
+			windowStart := idx - 24
+			if windowStart < 0 {
+				windowStart = 0
+			}
+			window := lower[windowStart:idx]
+			if !strings.Contains(window, "not ") && !strings.Contains(window, "n't ") && !strings.Contains(window, "without ") {
+				return true
+			}
+			next := strings.Index(lower[idx+len(cue):], cue)
+			if next < 0 {
+				break
+			}
+			idx += len(cue) + next
+		}
+	}
+	chinesePositive := []string{"别名", "等价", "替代", "对应字段", "对应配置"}
+	for _, cue := range chinesePositive {
+		idx := strings.Index(summary, cue)
+		for idx >= 0 {
+			prefixRunes := []rune(summary[:idx])
+			if len(prefixRunes) > 20 {
+				prefixRunes = prefixRunes[len(prefixRunes)-20:]
+			}
+			window := string(prefixRunes)
+			if !strings.Contains(window, "不") && !strings.Contains(window, "非") {
+				return true
+			}
+			next := strings.Index(summary[idx+len(cue):], cue)
+			if next < 0 {
+				break
+			}
+			idx += len(cue) + next
+		}
+	}
+	return false
+}
+
+func exactTargetListForError(targets []string) string {
+	if len(targets) == 0 {
+		return ""
+	}
+	quoted := make([]string, 0, len(targets))
+	for _, target := range targets {
+		quoted = append(quoted, "`"+target+"`")
+	}
+	return strings.Join(quoted, ", ")
+}
+
 func validateEvidenceSummaryCodenameGrounding(item *types.EvidenceItem, gc *ground.Context) error {
 	if gc == nil || len(gc.LineIndex) == 0 {
 		return nil

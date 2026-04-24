@@ -204,6 +204,19 @@ func TestRun_ContractMissingLanguage_Rejected(t *testing.T) {
 	}
 }
 
+func TestRun_ContractInvalidExactResolution_Rejected(t *testing.T) {
+	ir := validIR()
+	ir.AnswerContract.ExactResolution = &types.ExactResolutionContract{
+		TargetLabel:          "config key",
+		Targets:              []string{"foo.bar"},
+		RelatedContextPolicy: "not_a_real_policy",
+	}
+	report := Run(ir, Thresholds{})
+	if findCheck(report, "contract_complete").Passed {
+		t.Fatal("invalid exact-resolution policy must fail")
+	}
+}
+
 func TestRun_Coverage_FailsWhenSymbolsMissing(t *testing.T) {
 	ir := validIR()
 	// Strip hints from all nodes so no symbol is covered.

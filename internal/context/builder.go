@@ -242,7 +242,7 @@ var canonicalUserSectionOrder = []string{
 	"Prior Conversation (reference only)",
 	"Prior Stage Findings", // carries the canonical Resolution Chains subsection
 	"Unverified Analyzer Findings",
-	"Exact Config Key Absence",
+	"Exact Resolution",
 	"Known Facts",
 	"Extracted Answer Symbols (deterministic, authoritative)",
 	"Answer Symbols (deterministic floor, may extend with cited evidence)",
@@ -484,9 +484,9 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Content: uf,
 		})
 	}
-	if cfgAbsence := formatExactConfigKeyAbsence(ac); cfgAbsence != "" {
+	if cfgAbsence := formatExactResolutionHint(ac); cfgAbsence != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Exact Config Key Absence",
+			Title:   "Exact Resolution",
 			Content: cfgAbsence,
 		})
 	}
@@ -2039,87 +2039,36 @@ func mergeUnverifiedFindings(groups ...[]types.UnverifiedFinding) []types.Unveri
 	return out
 }
 
-func formatExactConfigKeyAbsence(ac *types.AgentContext) string {
-	if ac == nil || ac.AnalysisIR == nil {
+func formatExactResolutionHint(ac *types.AgentContext) string {
+	if ac == nil || ac.AnalysisIR == nil || ac.AnalysisIR.AnswerContract.ExactResolution == nil {
 		return ""
 	}
-	rm := ac.AnalysisIR.RequestModel
-	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
+	contract := ac.AnalysisIR.AnswerContract.ExactResolution
+	pending := types.ExactResolutionPendingTargets(contract, ac.UnverifiedAnalyzerFindings)
+	if len(pending) == 0 {
 		return ""
 	}
-	keys := unverifiedPrimaryConfigKeys(rm, ac.UnverifiedAnalyzerFindings)
-	if len(keys) == 0 {
-		return ""
+	label := strings.TrimSpace(contract.TargetLabel)
+	if label == "" {
+		label = "target"
 	}
 	var b strings.Builder
-	b.WriteString("The user's primary config key could not be verified against the repo graph:\n")
-	for _, key := range keys {
-		fmt.Fprintf(&b, "- `%s`\n", key)
+	fmt.Fprintf(&b, "The user's requested exact %s could not yet be verified against the repo graph:\n", label)
+	for _, target := range pending {
+		fmt.Fprintf(&b, "- `%s`\n", target)
 	}
-	b.WriteString("\nTreat this as an absence candidate for the exact key. Do not rename it, map it, or say it corresponds to a nearby key unless the repo contains an explicit alias, parser mapping, or documented synonym that names the exact key. Related keys may be used only as context. If no exact key or explicit alias exists, the answer should state that the exact key is absent before discussing nearby knobs.")
+	b.WriteString("\nTreat this as an exact-resolution / absence-candidate task. Do not rename the target, map it to a nearby item, or say it corresponds to a different key / symbol / path unless the repo contains explicit alias, parser-mapping, or documented-synonym proof that names the exact target.")
+	if contract.AllowAbsence {
+		b.WriteString(" If no exact target or explicit alias exists, the answer may end in an exact-absence conclusion.")
+	}
+	if hint := strings.TrimSpace(contract.RelatedContextScopeHint); hint != "" {
+		fmt.Fprintf(&b, " When you inspect nearby context, keep it within the %s before jumping to unrelated namespaces.", hint)
+	}
+	if scopeTerms := types.ExactResolutionScopeTerms(contract); len(scopeTerms) > 0 {
+		fmt.Fprintf(&b, " Useful local-scope terms for focused follow-up: %s.", strings.Join(scopeTerms, ", "))
+	}
 	if ac.Stage == types.StageExplore {
-		b.WriteString(" Once you have run the necessary grep/read checks, close the investigation with `absence_justification` instead of completing a positive substitute chain.")
-	}
-	return b.String()
-}
-
-func unverifiedPrimaryConfigKeys(rm types.RequestModel, finds []types.UnverifiedFinding) []string {
-	if len(finds) == 0 {
-		return nil
-	}
-	candidates := rm.AnalyzerHints.PrimaryEntities
-	if len(candidates) == 0 {
-		candidates = rm.AnalyzerHints.Entities
-	}
-	seen := make(map[string]bool)
-	for _, f := range finds {
-		if !strings.EqualFold(strings.TrimSpace(f.Kind), "symbol") {
-			continue
-		}
-		key := normalizeContextConfigToken(f.Token)
-		if key != "" {
-			seen[key] = true
-		}
-	}
-	var out []string
-	emitted := make(map[string]bool)
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || !looksLikeContextConfigToken(candidate) {
-			continue
-		}
-		key := normalizeContextConfigToken(candidate)
-		if key == "" || !seen[key] || emitted[key] {
-			continue
-		}
-		emitted[key] = true
-		out = append(out, candidate)
-	}
-	return out
-}
-
-func looksLikeContextConfigToken(s string) bool {
-	s = strings.TrimSpace(s)
-	return len(s) >= 3 && (strings.ContainsAny(s, "_.-") || hasContextCamelBoundary(s))
-}
-
-func hasContextCamelBoundary(s string) bool {
-	prevLower := false
-	for _, r := range s {
-		if r >= 'A' && r <= 'Z' && prevLower {
-			return true
-		}
-		prevLower = r >= 'a' && r <= 'z'
-	}
-	return false
-}
-
-func normalizeContextConfigToken(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
-		}
+		b.WriteString(" Read same-scope anchors first, then close the investigation with `absence_justification` instead of completing a positive substitute chain if the exact target remains absent.")
 	}
 	return b.String()
 }

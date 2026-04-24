@@ -940,6 +940,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	}
 
 	out.AnswerContract.Diagram = reconcileDiagramContract(rm, out.AnswerContract.RequiredAnswerShape, logBundle)
+	out.AnswerContract.ExactResolution = types.BuildExactResolutionContract(rm)
 
 	ir := &types.AnalysisIR{
 		Version:        types.AnalysisIRVersion,
