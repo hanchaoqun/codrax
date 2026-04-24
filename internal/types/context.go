@@ -131,6 +131,18 @@ type MutableState struct {
 	// stage mutates.
 	changePlan *ChangePlan
 
+	// changeReport is the B1.3 verify-stage structured artifact.
+	// run_tests populates it directly (tool-level deterministic
+	// parse of the language-specific test runner output);
+	// emit_test_results optionally decorates it with an LLM-
+	// authored FailureSummary narrative. Consumed by
+	// runVerifyPhase (writes to Mutable.Result + disk-side JSON
+	// under .codrax/plans/<plan-id>.report.json).
+	//
+	// Lifecycle mirrors changePlan: write-once-read-many, reset
+	// at per-task entry.
+	changeReport *ChangeReport
+
 	// investigationComplete is set by the emit_investigation_complete
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
@@ -934,6 +946,45 @@ func (m *MutableState) ResetChangePlan() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.changePlan = nil
+}
+
+// SetChangeReport atomically installs the B1.3 verify-stage
+// ChangeReport. run_tests calls this after parsing the test
+// runner output; emit_test_results (optional LLM narrative)
+// may replace it with a decorated version. Pointer storage
+// mirrors SetChangePlan — no deep copy because ChangeReport
+// is conceptually write-once-read-many.
+func (m *MutableState) SetChangeReport(report *ChangeReport) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.changeReport = report
+}
+
+// ChangeReport returns the buffered verify-stage report, or nil
+// when verify has not run (or when it ran but produced no report
+// — the latter is a bug worth logging). Read by runVerifyPhase
+// to render Result + call WriteChangeReportToFile.
+func (m *MutableState) ChangeReport() *ChangeReport {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.changeReport
+}
+
+// ResetChangeReport clears the report buffer at per-task entry.
+// Mirror of ResetChangePlan.
+func (m *MutableState) ResetChangeReport() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.changeReport = nil
 }
 
 // SetTurnAArtifacts stores the P2.1 handoff snapshot from the

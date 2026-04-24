@@ -392,24 +392,27 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 
 	r.Register(&Config{
 		Name: "test-execute-skill",
-		Goal: "Run the project's test suite inside the active worktree and emit the parsed results. B0 SKELETON — run_tests and emit_test_results both return 'not yet implemented' stubs until B3 lands.",
+		Goal: "Run the project's test suite inside the active worktree and produce a structured ChangeReport. run_tests is deterministic — it auto-detects the runner (Go / Node / Python / Rust), executes the command, parses the output, and installs Mutable.ChangeReport. Your role is optional: call emit_test_results to add a human-readable FailureSummary narrative when failures need context beyond aggregate counts.",
 		Workflow: []string{
-			"Read the ChangePlan's acceptance_tests[] to know which assertions MUST pass.",
-			"Call run_tests with the language-appropriate suite selector (empty = all tests). B3 wires real per-language parsers; B0 returns a stub error.",
-			"Parse the runner output into per-assertion TestResult entries and call emit_test_results with the structured bundle.",
-			"B0 behavior: both run_tests and emit_test_results return errors, so the verifier agent's ParseOutput surfaces a clean 'not yet implemented' message.",
+			"Call run_tests with empty suite (run all tests) or a language-appropriate selector. The tool auto-detects the runner from project manifests (go.mod / package.json / pyproject.toml / pytest.ini / Cargo.toml) and uses the corresponding command + parser. One call is usually enough — the full suite outcome lands on Mutable.ChangeReport.",
+			"Read the ChangePlan's acceptance_tests[] (rendered in the prompt) for context. B1.3 does NOT automate acceptance matching; the criteria are informational for the narrative you may draft.",
+			"When all tests pass: return without any tool call. The verify stage automatically promotes the passing report to a success outcome, and the orchestrator renders the summary.",
+			"When tests fail: optionally call emit_test_results with a 1-4 sentence failure_summary narrative explaining the root cause (e.g. 'all failures are in the new handler's error path — the edge-case test expected a wrapped error but got the raw one'). This replaces the parser's auto-generated count summary with your more useful context. Do NOT try to override the Passed verdict — it comes from the parser and the tool ignores LLM overrides.",
+			"Do NOT re-run the tests multiple times or try to 'fix' them from this stage — B1 policy is fail-loud, and verify failures surface to the user to drive a re-plan. Apply/verify does NOT auto-retry in B1.",
 		},
 		ToolSuggestions: []string{
 			"read_file",
 			"run_tests",
 			"emit_test_results",
-			"exec_command", // Q2 red line (see package-level comment above)
+			"exec_command", // Q2 red line: preserved for diagnostic commands (git status, ls) — worktree sandbox contains blast radius
 		},
-		OutputFormat: "In B3: structured TestResult[] via emit_test_results. In B0: stub errors surface via the verifier agent.",
+		OutputFormat: "No required tool call. run_tests is usually enough; emit_test_results is OPTIONAL narrative. If you don't emit either, the evaluator's ShouldStop fires on ChangeReport presence (which run_tests installs synchronously). Free-form prose between tool calls is discarded.",
 		Prohibitions: []string{
-			"do not modify files — verify is read-only w.r.t. the worktree",
-			"do not invoke apply_patch — that is the apply stage's job",
-			"do not invoke emit_change_plan — the plan was already emitted upstream",
+			"do NOT modify files — verify is strictly read-only w.r.t. the worktree",
+			"do NOT invoke apply_patch — that is the apply stage's job",
+			"do NOT invoke emit_change_plan — the plan was emitted upstream",
+			"do NOT try to override the Passed verdict via emit_test_results — the parser is authoritative; divergent LLM claims are logged as a warning and ignored",
+			"do NOT re-run tests multiple times to hunt for flakiness — B1 treats any failure as fail-loud; re-planning is the correct response",
 		},
 	})
 }

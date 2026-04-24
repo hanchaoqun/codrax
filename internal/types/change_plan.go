@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -232,6 +233,43 @@ type MetricDelta struct {
 	Current   float64 `json:"current"`
 	Unit      string  `json:"unit"`
 	Threshold float64 `json:"threshold,omitempty"` // max allowed regression
+}
+
+// WriteChangeReportToFile serialises a ChangeReport as indented
+// JSON to path. Parent directories are created if missing.
+// B1.3 runVerifyPhase calls this after the run_tests parser
+// populates the report so operators can inspect outcome post-Run
+// even though the worktree itself is discarded.
+//
+// The companion plan file under .codrax/plans/<plan-id>.json
+// already exists (written by B0 Day-6 emit_change_plan →
+// PlanStore.Save or cmd/root.go writePlanFile); the report
+// conventionally lives at the same directory with a .report.json
+// suffix so the plan+report pair stays grep-able.
+//
+// Failure is non-fatal for verify stage completion — the caller
+// logs a warning and continues. The ChangeReport still lives on
+// Mutable, which is what the REPL renderer / single-shot stdout
+// summary actually consumes for user display.
+func WriteChangeReportToFile(report *ChangeReport, path string) error {
+	if report == nil {
+		return fmt.Errorf("WriteChangeReportToFile: nil report")
+	}
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("WriteChangeReportToFile: empty path")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("WriteChangeReportToFile: mkdir %s: %w", filepath.Dir(path), err)
+	}
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("WriteChangeReportToFile: marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("WriteChangeReportToFile: write %s: %w", path, err)
+	}
+	return nil
 }
 
 // LoadChangePlanFromFile reads a ChangePlan JSON from disk and

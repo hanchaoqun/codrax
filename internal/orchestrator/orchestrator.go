@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -704,8 +705,18 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 	return b.String()
 }
 
-// runVerifyPhase dispatches the verifier agent. Same shape as
-// runApplyPhase: B0 stub → clear error, real impl in B3.
+// runVerifyPhase dispatches the verifier agent and persists the
+// resulting ChangeReport to disk. B1.3 real implementation:
+// verifier drives run_tests (deterministic parse) + optional LLM
+// narrative via emit_test_results. The ChangeReport is saved as
+// <plan-id>.report.json beside the plan file for post-Run
+// inspection (the worktree itself gets discarded on outer defer).
+//
+// Q3 policy: a verify failure is NOT auto-retried in B1. The
+// verifier's ParseOutput returns StageOutput.Error containing the
+// failure narrative; this function surfaces it as LastError so
+// cmd/root.go prints the reason to stderr and the user re-plans
+// with new understanding.
 func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
 	if *stepsUsed >= o.maxSteps {
 		logging.Warning("[orchestrator] verify phase skipped: max-steps exhausted")
@@ -714,17 +725,125 @@ func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
 	*stepsUsed++
 	o.busCtx.PipelineStage = types.StageVerify
 	o.busCtx.TaskState.Stage = types.StageVerify
-	logging.Info("[orchestrator] verify phase: dispatching verifier agent (B0 stub)")
+	logging.Info("[orchestrator] verify phase: dispatching verifier agent")
 
 	out, err := o.dispatchStage(types.StageVerify)
 	if err != nil {
 		return fmt.Errorf("verify phase dispatch: %w", err)
 	}
+
+	// Persist the report regardless of pass/fail — failures are
+	// as valuable as passes for debugging. The report lives next
+	// to the plan file so /plan show can pair them in a future UX
+	// pass (B1.5).
+	report := o.busCtx.Mutable.ChangeReport()
+	if report != nil {
+		o.saveChangeReport(report)
+	}
+
 	if out != nil && out.Error != "" {
-		o.busCtx.Mutable.SetResult(out.Error)
+		// B1 Q3: fail-loud, no auto-retry. Surface the verifier's
+		// narrative (which usually already contains the failing
+		// test names + any LLM-added context).
+		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error))
 		return fmt.Errorf("verify phase: %s", out.Error)
 	}
+
+	// Success: render a summary that complements the apply-stage
+	// summary already on Mutable.Result. Appends rather than
+	// overwrites so the user sees BOTH "what was applied" and
+	// "what tests passed".
+	existing := o.busCtx.Mutable.Result()
+	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report))
 	return nil
+}
+
+// saveChangeReport writes the verify-stage report to disk. Target
+// path convention: same directory as the plan (typically
+// <runtime-anchor>/plans/) with a .report.json suffix keyed off
+// plan.ID. Failures are logged but do not abort verify — the
+// report still lives on Mutable and the stdout summary.
+func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
+	if report == nil {
+		return
+	}
+	if report.PlanID == "" {
+		logging.Warning("[orchestrator] skipping ChangeReport disk save: PlanID empty")
+		return
+	}
+	// Derive the plan directory: busCtx.PlanPath when provided
+	// (apply-mode from --plan-file), else default under
+	// runtime-anchor. The orchestrator doesn't hold the runtime
+	// anchor directly; fall back to the plan-file directory when
+	// available, otherwise skip the save with a log (rare).
+	var planDir string
+	if o.busCtx.PlanPath != "" {
+		planDir = filepath.Dir(o.busCtx.PlanPath)
+	}
+	if planDir == "" {
+		logging.Warning("[orchestrator] skipping ChangeReport disk save: no plan dir resolvable (plan-mode e2e path)")
+		return
+	}
+	reportPath := filepath.Join(planDir, report.PlanID+".report.json")
+	if err := types.WriteChangeReportToFile(report, reportPath); err != nil {
+		logging.Warning("[orchestrator] ChangeReport disk save failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] ChangeReport saved: %s", reportPath)
+}
+
+// renderVerifyFailure builds the Mutable.Result message for a
+// verify-stage failure. Includes the failure summary + a short
+// list of failing test names so the user has actionable context
+// without opening the report JSON.
+func renderVerifyFailure(report *types.ChangeReport, agentError string) string {
+	var b strings.Builder
+	b.WriteString("## Verify FAILED\n\n")
+	if report == nil {
+		b.WriteString(agentError + "\n")
+		return b.String()
+	}
+	if report.FailureSummary != "" {
+		fmt.Fprintf(&b, "%s\n\n", report.FailureSummary)
+	} else {
+		fmt.Fprintf(&b, "%s\n\n", agentError)
+	}
+	failed := 0
+	for _, r := range report.TestResults {
+		if !r.Passed {
+			failed++
+		}
+	}
+	if failed > 0 {
+		fmt.Fprintf(&b, "**Failing tests** (%d):\n\n", failed)
+		shown := 0
+		for _, r := range report.TestResults {
+			if r.Passed {
+				continue
+			}
+			shown++
+			if shown > 10 {
+				fmt.Fprintf(&b, "- …(+%d more)\n", failed-10)
+				break
+			}
+			fmt.Fprintf(&b, "- `%s` (`%s`)\n", r.AssertionID, r.Suite)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("*Re-plan with `--mode=plan` or REPL `/mode plan` incorporating this failure context.*\n")
+	return b.String()
+}
+
+// renderVerifySuccess renders a short "all good" note appended to
+// the apply summary. Kept compact so it pairs visually with the
+// apply-phase output already in Mutable.Result.
+func renderVerifySuccess(report *types.ChangeReport) string {
+	if report == nil {
+		return "\n## Verify PASSED\n\nNo ChangeReport produced; verify stage completed without explicit output.\n"
+	}
+	total := len(report.TestResults)
+	return fmt.Sprintf("\n## Verify PASSED\n\n%d test(s) passed. Report saved to .codrax/plans/%s.report.json.\n",
+		total, report.PlanID)
 }
 
 // renderChangePlanSummary formats a ChangePlan as a human-readable
