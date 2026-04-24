@@ -63,23 +63,29 @@ graph TB
     User([用户请求])
 
     subgraph Orchestrator["编排器 internal/orchestrator"]
-        Orch["criterion-aware DAG scheduler
-        + fail-loud retry
-        + CGEC enforcers (I1-I4)"]
+        Orch["读模式：criterion-aware DAG scheduler
+        + fail-loud retry + CGEC enforcers I1-I4
+        写模式：plan / apply / verify phase 直分派
+        （绕过 scheduler）"]
     end
 
     subgraph Agents["Agent internal/agent"]
+        LT["log_triager · 条件前置"]
         A1["analyzer"]
         A2["explorer · Turn A"]
         A3["extractor · Turn B"]
         A4["finalizer"]
+        P["planner · write"]
+        C["coder · write"]
+        V["verifier · write"]
     end
 
     subgraph Skills["Skill internal/skill · 声明式配置"]
-        S["analysis-skill
-        explore-skill
-        extract-skill
-        answer-document-skill"]
+        S["log-triage-skill / analysis-skill
+        explore-skill / extract-skill
+        answer-document-skill
+        change-plan-skill / code-write-skill
+        test-execute-skill"]
     end
 
     subgraph Tools["Tool internal/tool"]
@@ -88,14 +94,31 @@ graph TB
         repo_map / exec_command
         git_diff / git_log"]
         E["结构化发射器
+        emit_log_triage / emit_log_segmentation
         emit_analysis / emit_evidence
         emit_answer_symbol / emit_hypothesis_verdict
         emit_answer_document
         emit_investigation_complete
         propose_sub_agents"]
+        W["写模式工具 · WriteCapable
+        emit_change_plan（含 git apply --check 预检）
+        apply_patch（schema {path, kind}；内容源于 Mutable）
+        run_tests（9 种 runner）
+        emit_test_results"]
         G["internal/tool/ground
         citation / evidence 落地验证
         T1 / T2 + R1-R5 recovery"]
+        FB["internal/tool/feedback
+        composePatchRejection
+        conflictContextSnippet"]
+    end
+
+    subgraph Subsystems["运行时子系统"]
+        WT["internal/worktree
+        git worktree 沙箱会话
+        活跃集 + PID 回收"]
+        PS["internal/repl/planstore
+        ChangePlan 持久化"]
     end
 
     subgraph Analysis["Analysis internal/analysis · 21 确定性子包"]
@@ -108,15 +131,22 @@ graph TB
     end
 
     User --> Orch
-    Orch -->|dispatch| A1 & A2 & A3 & A4
-    A1 & A2 & A3 & A4 -.->|读配置| S
-    A1 & A2 -->|调用| T
-    A1 & A2 & A3 & A4 -->|调用| E
+    Orch -->|读模式 dispatch| LT & A1 & A2 & A3 & A4
+    Orch -->|写模式 dispatch| P & C & V
+    LT & A1 & A2 & A3 & A4 & P & C & V -.->|读配置| S
+    LT & A1 & A2 & P & C & V -->|调用| T
+    LT & A1 & A2 & A3 & A4 -->|调用| E
+    P -->|调用| W
+    C -->|调用| W
+    V -->|调用| W
+    W -->|git apply → patch\(1\) fallback| FB
     E -->|同步调用| G
-    A1 & A2 & A3 & A4 -->|调用 LLM| LLM[LLM internal/llm]
+    LT & A1 & A2 & A3 & A4 & P & C & V -->|调用 LLM| LLM[LLM internal/llm]
     A1 -->|buildAnalysisIR| AN
     Orch -->|stopcond / criterion / cgec| AN
     A3 -->|criterion auto-verdict| AN
+    Orch -->|provision / discard| WT
+    Orch -->|持久化 / 加载| PS
 ```
 
 ---
@@ -155,6 +185,8 @@ var preStages = []preStageEntry{
 
 ### 运行时流程
 
+**读模式（`Mode == ModeRead`）**：
+
 ```mermaid
 stateDiagram-v2
     [*] --> logTriageGate
@@ -168,6 +200,56 @@ stateDiagram-v2
     finalize --> contractCheck
     contractCheck --> taskLoop : 失败且 retry budget 有余（requeue）
     contractCheck --> [*] : 通过 / retry 耗尽（fail-loud）
+```
+
+**写模式（`Mode ∈ {ModePlan, ModeApply, ModeVerify}`）**：不经 `runTaskGraph`，`Run()` 根据 Mode 直接分派到 phase 函数；analyze 仍跑一次作为分类器。
+
+```mermaid
+stateDiagram-v2
+    [*] --> writeGate
+    writeGate --> [*] : write_enabled=false → fail-loud
+    writeGate --> analyze : write_enabled=true
+
+    analyze --> planPhase : Mode=ModePlan
+    analyze --> applyPhase : Mode=ModeApply 且 PlanPath 已设
+    analyze --> planPhase2 : Mode=ModeApply 且 PlanPath 未设
+    analyze --> verifyPhase : Mode=ModeVerify
+
+    planPhase --> emitChangePlan : planner dispatch
+    emitChangePlan --> preflightCheck : 每个 kind=patch
+    preflightCheck --> emitChangePlan : 拒收（planner 下轮重试 / cap=6）
+    preflightCheck --> planDone : git apply --check --recount 通过
+    emitChangePlan --> planDone : 无 kind=patch 或全通过
+    planDone --> persistPlan : .codrax/plans/<id>.json
+    persistPlan --> [*] : pending_approval
+
+    planPhase2 --> emitChangePlan
+    applyPhase --> worktreeProvision : git worktree add
+    worktreeProvision --> baselineCapture : pipeline_baseline_capture_enabled=true
+    worktreeProvision --> coderDispatch : 默认
+    baselineCapture --> coderDispatch : BaselineReport 挂载
+    coderDispatch --> applyPatch : 每个 change 一次
+    applyPatch --> applyPatch : W1 / W1b / kind match 失败 → 下轮重试
+    applyPatch --> coderDispatch : AppliedSet ⊇ TargetPaths？
+    coderDispatch --> verifyPhase : 是
+    coderDispatch --> verifyRetry : 否 → apply_failed
+
+    verifyPhase --> runTests : run_tests 自动探测 runner
+    runTests --> changeReportInstalled : parser 产出 ChangeReport
+    changeReportInstalled --> verifySuccess : Passed=true
+    changeReportInstalled --> verifyRetryGate : Passed=false
+
+    verifyRetryGate --> verifyRetry : pipeline_max_verify_retries > attempts
+    verifyRetryGate --> verifyFailed : 重试耗尽
+    verifyRetry --> planPhase : PlanningHint 注入 → reset plan/report/worktree
+
+    verifySuccess --> worktreeDecide
+    worktreeDecide --> preserved : pipeline_keep_worktree_on_success=true
+    worktreeDecide --> discarded : 默认
+    preserved --> [*] : PlanStatus=applied; plan.WorktreePath 暴露
+    discarded --> [*] : PlanStatus=applied; worktree 销毁
+
+    verifyFailed --> [*] : PlanStatus=verify_failed; worktree 无条件销毁
 ```
 
 0. **Phase 0 — `log_triage`**（条件前置）：`BusContext.AttachedLog` 非空时触发。`log_triager` agent 读取日志原文，LLM 通过 `emit_log_triage` 发出四层结构化 bundle（`Meta` / `Errors` 含递归 `Cause` / `Residue`），系统调用 `logtriage.ValidateBundle` 做路径校验 + 仓内存在性过滤 + Layer 4 派生（`ResolvedFiles` / `Entities` / `IntentHint` / `Coverage`），写进 `Mutable.LogTriage()`。coverage 过低或日志体积超阈值（默认 32 KB）自动走两步升级（`emit_log_segmentation` → 逐段 `emit_log_triage` → `MergeBundles`）。阶段失败**不阻塞**主流水线——bundle 停留为 nil，每个下游消费者（analyzer 的 entity merge / intent override / RequiredFiles seed）都 nil-check 优雅降级。详见 §4.5。
@@ -221,9 +303,11 @@ stateDiagram-v2
 
 | Agent | Stage | 工具权限 | 职责 |
 |-------|-------|----------|------|
-| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，一次 `emit_change_plan` 产出完整 ChangePlan；不写文件；3 次 iteration cap |
-| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch`；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发；纯执行，不重规划 |
-| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `run_tests` 同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail 来自 parser，不由 LLM 覆盖 |
+| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，产出完整 ChangePlan；不写文件；6 次 iteration cap（`emit_change_plan` 的 `git apply --check --recount` 预检可能把一次调用变成多次重试，cap 给足余量）|
+| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch(path, kind)`；工具从 `Mutable.ChangePlan()` 读取 `NewContent`/`Patch`（LLM 不转抄内容，schema 禁止）；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发 |
+| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `BuildInitialInstruction` 总是发射"## Verify phase"阶段定向指令（即使 plan 无 AcceptanceTests 也不返回空串）；`run_tests` 同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail 来自 parser，不由 LLM 覆盖 |
+
+**读→写 context 隔离**（`internal/context/builder.go`）：`PipelineStage.IsWrite() ∈ {StagePlan, StageApply, StageVerify}` 为 true 时，`BuildAgentContext` 跳过所有读模式字段的传播（`RelevantFacts` / `EvidenceItems` / `AnswerChains` / `AnswerSymbols` / `PriorReports` / `UnverifiedAnalyzerFindings` / `SubjectMatches` / `ExpectedAnswerSubject` 等）；`BuildPromptContext` 对 `StageApply` / `StageVerify` 另外抑制 "User Request" 段（用户的原始自然语言请求通常是 plan-shaped，会干扰 apply/verify 的机械执行角色；plan 意图已在 `Mutable.ChangePlan` 上供 stage-specific 使用）。`StageAnalyze` 即便在写模式下也视为读模式（它仍需分类器输入）。这些边界由 `internal/types/pipeline_stage_test.go::TestPipelineStage_IsWrite` 和 `internal/context/builder_test.go::TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts` 硬编码测试固化。`formatStageReports` 额外剥 `<think>…</think>` 片段作为 defense-in-depth，读模式也受益（explorer / extractor / finalizer 不再看到 analyzer 的内部推理）。
 
 #### ReAct 循环
 
@@ -346,10 +430,12 @@ type Config struct {
 
 | 工具 | 独占 Agent | 行为 |
 |------|-----------|------|
-| `emit_change_plan` | planner | 校验 + 写 `Mutable.ChangePlan`。四步校验：dup path、空 dep、self dep、unknown dep、DFS 找环。任一失败返回 ToolResult 失败 Summary，planner 下轮 retry |
-| `apply_patch` | coder | 按 kind 写入 worktree：`create`（路径必须不存在）/ `modify`（必须存在）/ `delete`（缺失幂等）/ `patch`（pipe unified diff 到 `git apply -`）。每次调用前强 W1（path ∈ TargetPaths） + W1b（DependsOn 都已 applied） |
+| `emit_change_plan` | planner | 校验 + 写 `Mutable.ChangePlan`。五步校验：（1）dup path、（2）empty / self / unknown dep、（3）depends_on DFS 找环、（4）kind=patch 时 Patch 非空、（5）**patch 预检**：每个 kind=patch 对 `ctx.RepoRoot` 跑 `git apply --check --recount`（带 patch(1) fallback），拒收在 emission 时暴露 git 错误 + `internal/tool/feedback.go::composePatchRejection` 附上冲突点 ±5 行真实文件片段 + 诊断建议。任一失败返回 ToolResult 失败 Summary，planner 下轮 retry（iteration cap 6）|
+| `apply_patch` | coder | JSON schema 仅 `{path, kind}`，`DisallowUnknownFields` 拒绝任何内容字段。Execute 从 `Mutable.ChangePlan().Changes[i]` 直接取 `NewContent`/`Patch`，LLM 物理上无法转抄错内容。按 kind：`create`（`os.Stat` 必须不存在 → `os.WriteFile(unit.NewContent)`）/ `modify`（必须存在 → `os.WriteFile(unit.NewContent)`）/ `delete`（缺失视作幂等，warning）/ `patch`（pipe `unit.Patch` 到 `runUnifiedDiff`）。每次调用前强 W1（path ∈ TargetPaths；失败 Summary 枚举 valid 路径）+ W1b（DependsOn 都已 applied；失败 Summary 枚举当前 AppliedSet）。kind=patch 失败时 `composeApplyRejection` 带冲突文件片段 |
 | `run_tests` | verifier | 9 种 runner 自动探测（见 §4.6）；build 阶段挂时合成 `build` suite 单条失败结果；run tests 异常时 `RawRef` 指向完整输出 blob |
 | `emit_test_results` | verifier | 可选：LLM 写 FailureSummary narrative 叠加到 ChangeReport（不能覆盖 parser 产出的 Passed） |
+
+**统一 diff 应用链**（`apply_patch.go::runUnifiedDiff` / `CheckUnifiedDiff`）：先 `git apply --recount`（pre-processor 对非 `\n` 结尾的 patch 文本补一个 `\n`；`--recount` 让 git 从 body 重算 `@@ -X,Y +X,Y @@` header，容忍 LLM 的 off-by-one 计数错误），失败回退 `patch -p1 --force --no-backup-if-mismatch --silent`（GNU patch(1) 的 fuzz 匹配挽救 git 严格模式拒绝但语义等价的 LLM-slop 形状：缺尾部 context、header 计数严重不符等）。`checkOnly=true` 时两条路径分别加 `--check` / `--dry-run`。rejection message 统一走 `internal/tool/feedback.go`，把 git stderr 里的 `patch failed: <file>:<N>` 解析后读文件 ±5 行带 `▶` 标记嵌入。
 
 #### 结构化发射器（emit_* 系列）
 
@@ -714,18 +800,39 @@ BusContext 默认 `ModeRead`。Mode 是粘滞的：REPL `/mode plan` 之后所�
 
 | Agent | Stage | 工具 | 职责 |
 |---|---|---|---|
-| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，一次 `emit_change_plan` 产出完整 ChangePlan（3 次 iteration cap）；不写文件 |
-| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch`；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发 |
-| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `run_tests` 自动探测 runner 并同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail verdict 来自 parser，不由 LLM 覆盖 |
+| `planner` | `plan` | `read_file` / `grep` / `list_files` / `repo_map` / `exec_command` / `emit_change_plan` | 读代码理解当前结构，产出完整 ChangePlan；不写文件；iteration cap 6（预检拒收让每次调用可能变成多轮重试，cap 给足余量）；`BuildInitialInstruction` 消费一次 `Mutable.PlanningHint()`（verify→plan retry loop 注入） |
+| `coder` | `apply` | `read_file` / `apply_patch` / `exec_command` | 按 `plan.Changes[]` 逐单元调用 `apply_patch(path, kind)`；工具从 `Mutable.ChangePlan()` 读内容，LLM 不转抄；ShouldStop 在 `WriteClosure.AppliedSet ⊇ plan.TargetPaths` 时触发；iteration cap = `len(TargetPaths) + 3` |
+| `verifier` | `verify` | `read_file` / `run_tests` / `emit_test_results`（可选） / `exec_command` | `BuildInitialInstruction` 总是发射 `## Verify phase` 定向指令（即使 plan 无 AcceptanceTests 也不返回空串，避免 LLM 落到 system prompt 之外的次级信号）；`run_tests` 自动探测 runner 并同步 install `ChangeReport`；`emit_test_results` 是可选 LLM narrative；权威 pass/fail verdict 来自 parser，不由 LLM 覆盖 |
 
-所有 3 个 agent 嵌 `BaseAgent`，沿用 ReAct 循环 + Evaluator 钩子（BuildInitialInstruction / ShouldStop / ParseOutput / DetermineMissingPiece），与读模式 agent 同构。
+所有 3 个 agent 嵌 `BaseAgent`，沿用 ReAct 循环 + Evaluator 钩子（BuildInitialInstruction / ShouldStop / ParseOutput / DetermineMissingPiece），与读模式 agent 同构。3 个 agent 均**不**实现 `LoopController`（写阶段无 mid-loop 注入逻辑）。
 
 | Tool | 所在 agent | 行为 |
 |---|---|---|
-| `emit_change_plan` | planner | 校验 Changes[]：dup-path / empty-dep / self-dep / unknown-dep / cycle-via-DFS，全过才写 `Mutable.ChangePlan`；`TargetPaths` 从 Changes 派生 |
-| `apply_patch` | coder | 四种 kind：`create`（`os.Stat` 必须不存在 → `os.WriteFile`）/ `modify`（必须存在 → `os.WriteFile`）/ `delete`（缺失视作幂等，带 warning）/ `patch`（`git apply -` 喂 stdin，失败把 git stderr 原样透传）。每次 Execute 前强制 W1 + W1b |
+| `emit_change_plan` | planner | 校验 Changes[] 五步：（1）dup-path / （2）empty / self / unknown dep / （3）cycle-via-DFS / （4）kind=patch 要求 Patch 非空 / （5）**patch 预检**：每个 kind=patch 对 `ctx.RepoRoot` 跑 `CheckUnifiedDiff`（`git apply --check --recount`，失败回退 `patch -p1 --dry-run`）。全过才写 `Mutable.ChangePlan`；`TargetPaths` 从 Changes 派生 |
+| `apply_patch` | coder | JSON schema 仅 `{path, kind}`（`new_content` / `patch` 被 `DisallowUnknownFields` 拒绝）。Execute 从 `Mutable.ChangePlan().Changes[i]` 直接取 `NewContent` / `Patch`。四种 kind：`create`（`os.Stat` 必须不存在 → `os.WriteFile(unit.NewContent)`）/ `modify`（必须存在 → `os.WriteFile(unit.NewContent)`）/ `delete`（缺失幂等 + warning）/ `patch`（`runUnifiedDiff(ctx.RepoRoot, unit.Patch)`）。每次 Execute 前强制 W1 + W1b，失败 Summary 枚举当前 valid 集（TargetPaths 或 AppliedSet） |
 | `run_tests` | verifier | 9 种 runner（Go / Node / Python / Rust / Java / Ruby / CMake / Meson / Make），通过 manifest 文件探测；支持 JUnit XML / JSON / 文本 / 退出码 4 类输出协议；build 阶段失败（XML 未产出 / exit≠0）合成 `build` suite 单条失败结果，`FailureDetail` 用 `extractBuildErrorExcerpt` 抽取 `[ERROR]` / `FAILURE:` / `error:` 等通用编译错误标记 |
 | `emit_test_results` | verifier | 可选；LLM 在 FailureSummary 里写人话（区分 REGRESSION / PRE-EXISTING / FIXED）。不能覆盖 parser 的 `Passed` 字段 |
+
+#### Patch 应用链（`internal/tool/apply_patch.go`）
+
+`CheckUnifiedDiff`（预检，emit 时） / `applyUnifiedDiff`（落盘，apply 时）共用 `runUnifiedDiff`：
+
+1. **Pre-processor**：非 `\n` 结尾的 patch 文本补一个 `\n`，防止 git 把未终结的尾行当 EOF。
+2. **Primary**：`git apply --recount [--check]`。`--recount` 让 git 从 body 重算 `@@ -X,Y +X,Y @@` 的 line 数，容忍 LLM 的 off-by-one 计数错误（git 官方文档称此 flag 专为"hand-edited patch header 没更新"设计）。
+3. **Fallback**：primary 失败后试 `patch -p1 --force --no-backup-if-mismatch --silent [--dry-run]`。GNU patch(1) 的 fuzz 匹配挽救 git 严格模式拒绝但语义等价的 LLM-slop 形状（缺尾部 context、context 行有空格漂移等）。
+4. **错误透传**：两条路径都失败时返回 git 的 stderr（它是更严格 validator，诊断信息量更大）。
+
+#### Rejection 增强（`internal/tool/feedback.go`）
+
+LLM 失败时 retry 的唯一"事实源"是 tool 的 rejection Summary。两条专用 composer 把 git stderr 解析成带文件真实内容的诊断，让 LLM 的下一次尝试有 ground truth 而非再次凭记忆生成：
+
+- `parseGitConflictLocator(gitErr)` 抽 `patch failed: <file>:<N>` 的 `(file, line)`
+- `conflictContextSnippet(repoRoot, gitErr)` 读文件 ±5 行，用 `▶` 标记 claim line 产出 markdown 片段
+- `composePatchRejection(repoRoot, path, gitErr)` — emit_change_plan 预检失败用；prefix "emit_change_plan rejected"
+- `composeApplyRejection(repoRoot, path, gitErr)` — apply_patch 运行时失败用；prefix "apply_patch: git apply failed"
+- 无 `patch failed: <file>:<N>` 可解析时（如 "corrupt patch at line N" 这类指 patch body 内部而非文件的错误）fallback 到通用 hint string
+
+W1 / W1b 失败的 Summary 同样枚举参考集（W1 → valid TargetPaths；W1b → current AppliedSet），LLM 看到完整的修正空间，不需再读 plan 或猜。
 
 #### ChangePlan 数据结构（`internal/types/change_plan.go`）
 
@@ -760,8 +867,10 @@ type FileChange struct {
 
 对应读模式的 CGEC（Citation-Grounded Evidence Closure），写模式有 **Write Closure** 两条不变量，由 `apply_patch.Execute` 在文件 I/O 之前强制：
 
-- **W1**：`params.Path` 必须在 `ChangePlan.TargetPaths` 里。违规 → 立即返回失败 ToolResult（`apply_patch rejected: path %q is not in plan.TargetPaths`），coder 下轮可见错误自修正。
-- **W1b**：当前 `ChangeUnit.DependsOn` 列的每个前置路径都必须已经在 `WriteClosure.AppliedSet` 里。违规 → `apply_patch rejected: depends_on %q is not yet applied`。
+- **W1**：`params.Path` 必须在 `ChangePlan.TargetPaths` 里。违规 → 失败 ToolResult，Summary **枚举当前 valid TargetPaths 全集** + 指令 "pick one of the listed paths or abandon this target"，coder 下轮可见错误自修正。
+- **W1b**：当前 `ChangeUnit.DependsOn` 列的每个前置路径都必须已经在 `WriteClosure.AppliedSet` 里。违规 → 失败 ToolResult，Summary **枚举当前 AppliedSet 全集** + 指令 "apply X first, then retry Y"。
+
+此外 Execute 还做 kind 一致性检查（tool call 的 kind 必须等于 `unit.Kind`）、path 越界检查（traversal via `..` 拒绝）。
 
 成功 apply 后 `WriteClosure.MarkApplied(path)`。**幂等性**：二次 apply 同一路径是无操作 success。coder 的 ShouldStop 等价于 `WriteClosure.AppliedSet ⊇ plan.TargetPaths`。
 
@@ -863,20 +972,61 @@ CMake / Meson 要求 build dir 已配置（codrax 不跑 configure 步），探�
 // internal/types/enums.go
 type PipelineStage string
 const (
+    // 读模式阶段
     StageLogTriage PipelineStage = "log_triage" // 条件前置；AttachedLog 非空才触发
     StageAnalyze   PipelineStage = "analyze"
     StageExplore   PipelineStage = "explore"
     StageExtract   PipelineStage = "extract"
     StageFinalize  PipelineStage = "finalize"
+    // 写模式阶段（Mode ∈ {ModePlan, ModeApply, ModeVerify} 时才触发；
+    // runPlanPhase / runApplyPhase / runVerifyPhase 直分派，不走
+    // runTaskGraph scheduler）
+    StagePlan   PipelineStage = "plan"
+    StageApply  PipelineStage = "apply"
+    StageVerify PipelineStage = "verify"
 )
+
+// IsWrite 是读→写 context 隔离的单一真源。context.BuildAgentContext
+// 对 write stage 跳过所有读模式字段传播；BuildPromptContext 对
+// StageApply / StageVerify 抑制 User Request 段。StageAnalyze 即使
+// 在写管线里也视为读模式（分类器仍需其读模式输入）。
+func (s PipelineStage) IsWrite() bool {
+    return s == StagePlan || s == StageApply || s == StageVerify
+}
 
 type AgentName string
 const (
+    // 读模式 agent
     AgentLogTriager AgentName = "log_triager" // 仅 log_triage 阶段使用
     AgentAnalyzer   AgentName = "analyzer"
     AgentExplorer   AgentName = "explorer"   // Turn A
     AgentExtractor  AgentName = "extractor"  // Turn B
     AgentFinalizer  AgentName = "finalizer"
+    // 写模式 agent
+    AgentPlanner  AgentName = "planner"
+    AgentCoder    AgentName = "coder"
+    AgentVerifier AgentName = "verifier"
+)
+
+// internal/types/pipeline_mode.go — 写模式粘滞状态
+type PipelineMode string
+const (
+    ModeRead   PipelineMode = "read"   // 默认
+    ModePlan   PipelineMode = "plan"
+    ModeApply  PipelineMode = "apply"
+    ModeVerify PipelineMode = "verify"
+)
+
+// IsWrite 区分读 vs 写（空串和 ModeRead 均为读）
+// ModePlan 虽然不改主仓字节，但产出 ChangePlan 副作用，仍算写
+
+// internal/types/change_plan.go — ChangePlan 生命周期状态
+const (
+    PlanStatusPending      = "pending_approval" // emit_change_plan 刚写
+    PlanStatusApplied      = "applied"           // apply + verify 双双成功
+    PlanStatusApplyFailed  = "applied_failed"    // apply 阶段 fail
+    PlanStatusVerifyFailed = "verify_failed"     // apply 成功但 verify fail
+    PlanStatusRejected     = "rejected"          // REPL /reject
 )
 
 type Intent string      // IntentExplain / IntentRootCause / IntentTrace /
@@ -1087,6 +1237,8 @@ type AgentContext struct {
 
 ## 6. 请求生命周期
 
+**读模式（`Mode == ModeRead`）**：
+
 ```mermaid
 sequenceDiagram
     participant User
@@ -1143,6 +1295,100 @@ sequenceDiagram
     end
 
     Orch-->>User: BusContext(每个 task 自带 Result)
+```
+
+**写模式（`Mode == ModeApply`，单次完整 plan → apply → verify 生命周期）**：
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Orch as Orchestrator
+    participant A as analyzer
+    participant P as planner
+    participant C as coder
+    participant V as verifier
+    participant WT as worktree
+    participant Tool
+    participant LLM
+
+    User->>Orch: --mode=apply + --plan-file (已有 plan) 或 --mode=plan 后 /approve
+    Note over Orch: writeGate：write_enabled=true？否则 fail-loud
+
+    rect rgb(245,245,245)
+    Note over Orch: analyze（分类器复用；仅读模式字段）
+    Orch->>A: dispatchStage(analyze)
+    A-->>Orch: AnalysisIR（分类信号）
+    end
+
+    opt PlanPath 未设
+    rect rgb(255,250,235)
+    Note over Orch: runPlanPhase
+    Orch->>P: dispatchStage(plan)
+    loop 最多 6 iter
+        P->>Tool: read_file / grep / repo_map / ...
+        P->>LLM: 起草 ChangePlan
+        P->>Tool: emit_change_plan
+        Tool->>Tool: 5 步校验 + 每个 kind=patch 跑 CheckUnifiedDiff (git apply --check --recount → patch(1) fallback)
+        alt 校验通过
+            Tool->>Orch: Mutable.SetChangePlan
+        else 校验失败
+            Tool-->>P: 失败 Summary（含 conflictContextSnippet 真实文件片段）
+        end
+    end
+    P-->>Orch: ChangePlan 就位
+    end
+    end
+
+    rect rgb(235,250,255)
+    Note over Orch: runApplyPhase
+    Orch->>WT: worktree.Create(MainRepoRoot, traceID, baseDir)
+    WT-->>Orch: sess.Path()
+    Orch->>Orch: RepoRoot 临时切到 worktree
+    opt pipeline_baseline_capture_enabled
+        Orch->>Tool: RunTests{}.Execute（pre-apply）
+        Tool-->>Orch: BaselineReport → Mutable.SetBaselineReport
+    end
+    Orch->>C: dispatchStage(apply)
+    loop len(TargetPaths)+3 iter cap
+        C->>Tool: apply_patch({path, kind})
+        Tool->>Tool: W1 / W1b / kind match 校验
+        alt kind=patch
+            Tool->>Tool: runUnifiedDiff(RepoRoot, unit.Patch)：git apply --recount，失败回退 patch -p1
+        else kind=create/modify/delete
+            Tool->>Tool: os.WriteFile(unit.NewContent) / os.Remove
+        end
+        Tool-->>C: Success=true → WriteClosure.MarkApplied(path)；或失败 Summary（含冲突点文件片段 / valid-path 枚举）
+    end
+    C-->>Orch: AppliedSet ⊇ TargetPaths？
+    end
+
+    rect rgb(240,255,240)
+    Note over Orch: runVerifyPhase
+    Orch->>V: dispatchStage(verify)
+    V->>Tool: run_tests（9 runner 自动探测；build 失败合成 build suite 单条结果）
+    Tool-->>Orch: Mutable.SetChangeReport
+    opt 可选 narrative
+        V->>Tool: emit_test_results（FailureSummary；不能覆盖 Passed）
+    end
+    V-->>Orch: Passed=true ？
+    alt Passed=true
+        Orch->>Orch: persistPlanStatus(applied)
+        alt pipeline_keep_worktree_on_success=true
+            Note over Orch,WT: 保留 worktree；plan.WorktreePath 写盘
+        else 默认
+            Orch->>WT: worktree.DiscardByPath
+        end
+    else Passed=false
+        alt pipeline_max_verify_retries > attempts
+            Orch->>Orch: prepareVerifyRetry：buildRetryHint → Mutable.SetPlanningHint；reset ChangePlan/ChangeReport/WriteClosure；discard 当前 worktree；回到 runPlanPhase
+        else 耗尽
+            Orch->>Orch: persistPlanStatus(verify_failed)
+            Orch->>WT: worktree.DiscardByPath（失败路径无条件）
+        end
+    end
+    end
+
+    Orch-->>User: BusContext（PlanStatus + 可选 WorktreePath）
 ```
 
 ---
@@ -1456,6 +1702,9 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `evidence_*` | `evidence_grounding_floor` / `evidence_tier1_floor` — explorer completion gate |
 | `pipeline_*` | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算；`pipeline_max_verify_retries`（写模式 verify→plan 重试上限，默认 0 / 硬上限 5）/ `pipeline_baseline_capture_enabled`（写模式 apply 前测试快照）/ `pipeline_keep_worktree_on_success`（写模式成功后保留 worktree）|
 | `write_enabled` | 顶层写模式开关。`false`（默认）时 `--mode=plan|apply|verify` 和 REPL `/mode plan|apply|verify` 全部 fail-loud 拒绝 |
+| `write_default_mode` | `--mode` 不传时的默认值。合法值：`read`（默认）/ `plan`。`apply` / `verify` 在这里被**拒绝**（必须 per-run opt-in） |
+| `write_auto_approval` | 预留给 REPL `/approve` 的交互默认值和 batch 工作流。单次调用不读此字段（直接看 `--auto-apply` CLI flag） |
+| `write_plan_dir` | 覆盖 `.codrax/plans/` 作为 plan JSON 输出目录。绝对路径或 runtime-anchor 相对路径；非绝对形式由 cmd/root.go 锚定 |
 | `gate_*` | `gate_coverage_min` / `gate_coverage_weight_{symbol,config,concept}` / `gate_hypothesis_min_priority` — analyzer 质量门阈值 |
 | `explore_*` | `explore_per_tool_default_cap` + 15 个 `ExploreHeuristics` 阈值（mid-loop / soft-stop / Phase 0 / enumeration / parallelize） |
 | `agent_*` | `agent_max_iterations` / `agent_max_tool_history_bytes` / 4 个 `agent_loop_*` / 3 个 `agent_finalizer_shrinkage_*` + `agent_finalizer_max_correction_retries` + `agent_finalizer_preserve_prior_prose` / `agent_extractor_max_correction_retries` / 4 个 `agent_subtopic_*` / `agent_investigation_complete_policy` / `agent_prior_conversation_policy` |

@@ -143,6 +143,61 @@
 # pipeline_max_retries_per_stage: 3
 # pipeline_max_stage_visits: 4
 
+# Write-mode-only pipeline knobs. No-op when write_enabled: false.
+
+# verify→plan retry loop. When >0 and the verify stage fails, the
+# orchestrator seeds a PlanningHint from the ChangeReport's failure
+# summary + top-3 failing tests + plan.TargetPaths (suspect files),
+# resets ChangePlan / ChangeReport / WriteClosure / plan-path, and
+# re-enters plan. Default 0 preserves the fail-loud-on-first-fail
+# behaviour. Hard cap 5 guards against typo'd large numbers.
+# pipeline_max_verify_retries: 0
+
+# Baseline capture. When true, runApplyPhase runs run_tests against
+# the worktree BEFORE the coder dispatches (post-provision, pre-apply)
+# so the CritNoRegression criterion can compare pre/post MetricDeltas.
+# Doubles test-suite wall time — leave false unless the repo has known
+# pre-existing regressions to distinguish from newly-introduced ones.
+# pipeline_baseline_capture_enabled: false
+
+# Preserve the apply-phase worktree when Mode=ModeApply completes with
+# LastError=="". Failure paths (apply failed / verify failed) always
+# discard to avoid disk clutter. When preserved, the absolute worktree
+# path is written to plan.WorktreePath so /worktree list and cherry-
+# pick workflows can find it. Default false — worktree is an internal
+# sandbox, not a user artefact.
+# pipeline_keep_worktree_on_success: false
+
+# ---------------------------------------------------------------------------
+# Write mode (write_*)
+# ---------------------------------------------------------------------------
+# Write-mode is the plan → apply → verify pipeline that proposes and
+# executes code changes inside a sandboxed git worktree. The master
+# switch is yaml-only by design — write mode is a deploy-time
+# decision, not per-run. With write_enabled: false (the default) any
+# --mode=plan|apply|verify or REPL /mode plan|apply|verify is rejected
+# fail-loud at flag-parse / command-handler time.
+
+# Master switch. MUST be true for --mode=plan|apply|verify to dispatch.
+# write_enabled: false
+
+# Default --mode when the CLI flag is omitted. Legal values: "read"
+# (default) or "plan". "apply" and "verify" are inherently side-
+# effecting and MUST be opted into per-run via CLI — the yaml layer
+# rejects them here with a clear error.
+# write_default_mode: read
+
+# Reserved for REPL /approve interactive default and batch workflows.
+# Unused in single-shot today; the --auto-apply CLI flag is the
+# authoritative gate for single-shot --mode=apply.
+# write_auto_approval: false
+
+# Override for the plan-JSON output directory. Default is
+# <runtime-anchor>/plans/ (i.e. <CWD>/.codrax/plans/). Accepts absolute
+# or runtime-anchor-relative paths; non-absolute forms are anchored in
+# cmd/root.go.
+# write_plan_dir: ""
+
 # ---------------------------------------------------------------------------
 # Analyzer quality gate (gate_*)
 # ---------------------------------------------------------------------------
