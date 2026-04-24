@@ -119,13 +119,23 @@ var (
 	flagPlanFile  string
 )
 
-// maxAttachedLogBytes caps the pasted log payload at 1 MB to prevent a
-// firehose (kubectl logs piping an entire day's output into --log=-)
-// from ballooning the orchestrator's memory. The log_triage pre-stage
-// would otherwise pay unbounded LLM token cost, and oversized logs
-// beyond this threshold are typically aggregated multi-day dumps
-// where the user should pre-filter before attaching.
-const maxAttachedLogBytes = 1 << 20 // 1 MB
+// defaultAttachedLogMaxBytes is the out-of-the-box 1 MB cap on
+// attached-log payloads. initApp overrides maxAttachedLogBytes from
+// codrax.yaml :: log_attach_max_bytes; this const is both the default
+// when the yaml key is absent and the fallback when the user sets
+// a non-positive value. Rationale for the default: a firehose (e.g.
+// `kubectl logs` for an entire day piped into `--log=-`) would
+// otherwise balloon the orchestrator's memory and inflate LLM token
+// cost, and oversized logs beyond 1 MB are typically aggregated multi-
+// day dumps where the user should pre-filter before attaching.
+const defaultAttachedLogMaxBytes = 1 << 20 // 1 MB
+
+// maxAttachedLogBytes is the live cap read by loadAttachedLog +
+// truncateAttachedLog. Initialised to defaultAttachedLogMaxBytes so
+// unit tests that bypass initApp (e.g. call truncateAttachedLog
+// directly) see the historic 1 MB behaviour; initApp mutates it
+// after merging codrax.yaml.
+var maxAttachedLogBytes = defaultAttachedLogMaxBytes
 
 // appContext holds initialized state shared between subcommands.
 type appContext struct {
@@ -344,7 +354,7 @@ func loadAttachedLog() (string, error) {
 	var data []byte
 	var err error
 	if flagAttachLog == "-" {
-		data, err = io.ReadAll(io.LimitReader(os.Stdin, maxAttachedLogBytes+1))
+		data, err = io.ReadAll(io.LimitReader(os.Stdin, int64(maxAttachedLogBytes)+1))
 	} else {
 		data, err = os.ReadFile(flagAttachLog)
 	}
@@ -610,20 +620,21 @@ func runREPL(_ *cobra.Command) error {
 	}
 	planStore := repl.NewPlanStore(filepath.Join(runtimeAnchor, "plans"))
 	r := repl.New(repl.Config{
-		Runner:             app.orch,
-		Store:              store,
-		Render:             renderFn,
-		Renderer:           app.renderer,
-		RepoRoot:           flagRepo,
-		Branch:             flagBranch,
-		Out:                os.Stdout,
-		PasteFoldMinChars:  app.replPasteFoldMinChars,
-		Version:            version,
-		BuildTime:          buildTime,
-		Language:           flagLang,
-		ChitchatResponder:  app.chitchatResponder,
-		ChitchatClassifier: app.chitchatClassifier,
-		PlanStore:          planStore,
+		Runner:              app.orch,
+		Store:               store,
+		Render:              renderFn,
+		Renderer:            app.renderer,
+		RepoRoot:            flagRepo,
+		Branch:              flagBranch,
+		Out:                 os.Stdout,
+		PasteFoldMinChars:   app.replPasteFoldMinChars,
+		Version:             version,
+		BuildTime:           buildTime,
+		Language:            flagLang,
+		ChitchatResponder:   app.chitchatResponder,
+		ChitchatClassifier:  app.chitchatClassifier,
+		PlanStore:           planStore,
+		AttachedLogMaxBytes: maxAttachedLogBytes,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
@@ -739,6 +750,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// package-level toggle.
 		if rs.LogTriageSourcePrefix != nil && *rs.LogTriageSourcePrefix != "" {
 			logtriage.SetSourcePrefix(*rs.LogTriageSourcePrefix)
+		}
+		// log_attach_max_bytes drives both loadAttachedLog (CLI / stdin)
+		// and the REPL paste caps. Non-positive values (incl. explicit 0)
+		// fall back to the default rather than degrading to zero-byte
+		// truncation, which would silently break every /log path.
+		if rs.LogAttachMaxBytes != nil && *rs.LogAttachMaxBytes > 0 {
+			maxAttachedLogBytes = *rs.LogAttachMaxBytes
 		}
 		if rs.LogDir != nil {
 			mergedLogDir = *rs.LogDir

@@ -354,6 +354,26 @@ type RuntimeSettings struct {
 	LogTriageTwoStepCoverage *float64 `yaml:"log_triage_two_step_coverage"`
 	LogTriageMaxLLMCalls     *int     `yaml:"log_triage_max_llm_calls"`
 
+	// Log-attach knob. `log_attach_*` prefix groups the ingestion
+	// caps that fire BEFORE log_triage sees the payload. Applies to
+	// every attach surface — `--log <file>`, `--log -` (stdin),
+	// `--log-text <inline>`, REPL `/log <path>`, REPL `/log` paste
+	// mode, and the REPL auto-route pasted-log detector. Fires even
+	// when log_triage_enabled=false; the cap is about memory safety,
+	// not triage quality.
+	//
+	//   LogAttachMaxBytes — hard ceiling on the attached-log byte
+	//                       length. Oversize payloads truncate to
+	//                       the first N bytes with a WARN log line;
+	//                       stdin uses io.LimitReader(N+1) so the
+	//                       process never buffers more than N+1
+	//                       bytes even for multi-GB pipes. Default:
+	//                       1 MB (1048576). Raising this lets you
+	//                       attach larger logs but multiplies the
+	//                       downstream LLM token cost linearly.
+	//                       Values ≤ 0 fall back to the default.
+	LogAttachMaxBytes *int `yaml:"log_attach_max_bytes"`
+
 	// B0 write-mode knobs. `write_*` prefix groups the write-mode
 	// lifecycle settings (plan / apply / verify stages). All
 	// optional; nil values coerce to safe-by-default behavior so

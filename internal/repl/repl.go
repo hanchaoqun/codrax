@@ -138,6 +138,14 @@ type Config struct {
 	// construct a REPL. cmd/root.go wires a real store under
 	// <runtime-anchor>/plans when the REPL starts.
 	PlanStore *PlanStore
+
+	// AttachedLogMaxBytes caps every REPL attach surface (`/log
+	// <path>`, `/log` paste mode, splitPastedLog auto-route) so a
+	// runaway paste cannot balloon the REPL process memory. Mirrors
+	// cmd's maxAttachedLogBytes — both are driven by
+	// codrax.yaml :: log_attach_max_bytes. Zero or negative →
+	// DefaultAttachedLogMaxBytes (1 MB), matching the CLI default.
+	AttachedLogMaxBytes int
 }
 
 // REPL drives the interactive prompt.
@@ -229,6 +237,13 @@ type REPL struct {
 	// family — cmd/root.go always wires a real store in runREPL,
 	// but tests that bypass cmd/ keep it nil.
 	planStore *PlanStore
+
+	// attachedLogMaxBytes is the per-session cap on every attach
+	// surface (/log <path>, /log paste, splitPastedLog auto-route).
+	// Seeded from Config.AttachedLogMaxBytes in New; a non-positive
+	// config value falls back to DefaultAttachedLogMaxBytes so tests
+	// that construct a zero-value Config see the historic 1 MB limit.
+	attachedLogMaxBytes int
 }
 
 // New constructs a REPL from a Config.
@@ -254,15 +269,19 @@ func New(cfg Config) *REPL {
 		// Session ID embeds nano + pid so two codrax REPLs launched
 		// in the same clock tick (test harness, race) still get
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
-		sessionID:   fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
-		currentMode: types.ModeRead, // B0 sticky mode; /mode rewrites
-		planStore:   cfg.PlanStore,
+		sessionID:           fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
+		currentMode:         types.ModeRead, // B0 sticky mode; /mode rewrites
+		planStore:           cfg.PlanStore,
+		attachedLogMaxBytes: cfg.AttachedLogMaxBytes,
 	}
 	if r.version == "" {
 		r.version = "dev"
 	}
 	if r.buildTime == "" {
 		r.buildTime = "unknown"
+	}
+	if r.attachedLogMaxBytes <= 0 {
+		r.attachedLogMaxBytes = DefaultAttachedLogMaxBytes
 	}
 	// Seed sticky log from whatever the runner already has (CLI set
 	// `--log` before handing off to the REPL). Keeps the invariant
@@ -566,7 +585,7 @@ func (r *REPL) scriptedScanner() *bufio.Scanner {
 		// long pasted line (a minified JSON blob, a flattened stack
 		// trace) doesn't silently truncate — matches the paste/log
 		// capture ceiling enforced elsewhere.
-		r.scanner.Buffer(make([]byte, 64*1024), maxREPLAttachedLogBytes+1)
+		r.scanner.Buffer(make([]byte, 64*1024), r.attachedLogMaxBytes+1)
 	}
 	return r.scanner
 }
@@ -583,7 +602,7 @@ func (r *REPL) captureScanner() *bufio.Scanner {
 		return r.scriptedScanner()
 	}
 	s := bufio.NewScanner(os.Stdin)
-	s.Buffer(make([]byte, 64*1024), maxREPLAttachedLogBytes+1)
+	s.Buffer(make([]byte, 64*1024), r.attachedLogMaxBytes+1)
 	return s
 }
 
@@ -633,9 +652,9 @@ func (r *REPL) dispatch(line, display string) {
 	if r.attachedLog == "" {
 		cleaned, detected := splitPastedLog(line)
 		if detected != "" {
-			if len(detected) > maxREPLAttachedLogBytes {
-				r.warn("auto-detected log hit %d-byte cap; truncating\n", maxREPLAttachedLogBytes)
-				detected = detected[:maxREPLAttachedLogBytes]
+			if len(detected) > r.attachedLogMaxBytes {
+				r.warn("auto-detected log hit %d-byte cap; truncating\n", r.attachedLogMaxBytes)
+				detected = detected[:r.attachedLogMaxBytes]
 			}
 			r.attachedLog = detected
 			r.attachedLogAutoRouted = true
@@ -861,9 +880,12 @@ func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) 
 	}
 }
 
-// maxREPLAttachedLogBytes caps the /log paste-mode payload so a
-// runaway paste can't balloon memory. Matches cmd.maxAttachedLogBytes.
-const maxREPLAttachedLogBytes = 1 << 20 // 1 MB
+// DefaultAttachedLogMaxBytes is the out-of-the-box 1 MB cap on every
+// REPL attach surface. Consumed by New when Config.AttachedLogMaxBytes
+// is not set; the cmd layer populates Config from codrax.yaml
+// :: log_attach_max_bytes so both CLI and REPL paths honour the same
+// override. Mirrors cmd/root.go :: defaultAttachedLogMaxBytes.
+const DefaultAttachedLogMaxBytes = 1 << 20 // 1 MB
 
 // handleSlash returns true if the loop should exit.
 func (r *REPL) handleSlash(line string) bool {
@@ -1440,9 +1462,9 @@ func (r *REPL) handleLogLoad(path string) {
 		r.errorf("load log: %v\n", err)
 		return
 	}
-	if len(data) > maxREPLAttachedLogBytes {
-		r.warn("log truncated: %d → %d bytes\n", len(data), maxREPLAttachedLogBytes)
-		data = data[:maxREPLAttachedLogBytes]
+	if len(data) > r.attachedLogMaxBytes {
+		r.warn("log truncated: %d → %d bytes\n", len(data), r.attachedLogMaxBytes)
+		data = data[:r.attachedLogMaxBytes]
 	}
 	r.attachedLog = string(data)
 	r.attachedLogAutoRouted = false
@@ -1477,8 +1499,8 @@ func (r *REPL) handleLogPaste() {
 		}
 		buf.WriteString(line)
 		buf.WriteByte('\n')
-		if buf.Len() > maxREPLAttachedLogBytes {
-			r.warn("log paste hit %d-byte cap; stopping capture\n", maxREPLAttachedLogBytes)
+		if buf.Len() > r.attachedLogMaxBytes {
+			r.warn("log paste hit %d-byte cap; stopping capture\n", r.attachedLogMaxBytes)
 			break
 		}
 	}
@@ -1520,8 +1542,8 @@ func (r *REPL) handlePasteCmd() {
 		}
 		buf.WriteString(line)
 		buf.WriteByte('\n')
-		if buf.Len() > maxREPLAttachedLogBytes {
-			r.warn("paste hit %d-byte cap; stopping capture\n", maxREPLAttachedLogBytes)
+		if buf.Len() > r.attachedLogMaxBytes {
+			r.warn("paste hit %d-byte cap; stopping capture\n", r.attachedLogMaxBytes)
 			break
 		}
 	}

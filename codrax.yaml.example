@@ -682,6 +682,34 @@
 # log_triage_max_llm_calls: 8
 
 # ---------------------------------------------------------------------------
+# Log attach cap (log_attach_*)
+# ---------------------------------------------------------------------------
+# Hard ceiling on the byte length of any attached log, applied BEFORE
+# log_triage sees the payload. Covers every attach surface:
+#   - CLI: --log <file>, --log -, --log-text <inline>
+#   - REPL: /log <path>, /log paste mode, splitPastedLog auto-route
+# Stdin (`--log -`) uses io.LimitReader(N+1) so the process never
+# buffers more than N+1 bytes even when a multi-GB pipe is upstream.
+# Files and inline text truncate to the first N bytes with a WARN
+# log line; the tail (often the actual error frames) is lost, so
+# pre-filter with grep before attaching multi-day dumps.
+#
+# Fires even when log_triage_enabled=false — this knob is about
+# memory safety, not triage quality. Raising it lets you attach
+# bigger logs but multiplies downstream LLM token cost linearly
+# (every byte past the first 32 KB two-step threshold also drives
+# more per-segment extraction calls up to log_triage_max_llm_calls).
+#
+# Non-positive values (incl. explicit 0) fall back to the default
+# rather than degrading to zero-byte truncation, which would
+# silently break every /log surface.
+#
+# Default 1048576 (1 MB). Typical range 256 KB - 8 MB; beyond 8 MB
+# the single-shot + two-step LLM budget is usually the real
+# bottleneck, not this cap.
+# log_attach_max_bytes: 1048576
+
+# ---------------------------------------------------------------------------
 # Path to providers config
 # ---------------------------------------------------------------------------
 # Keeping this here means `CODRAX_SETTINGS=envs/prod/codrax.yaml`

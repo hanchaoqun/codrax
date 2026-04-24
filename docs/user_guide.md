@@ -557,6 +557,14 @@ llm:
 | `log_triage_max_llm_calls` | `8` | 单次 log_triage 阶段 LLM 调用次数硬上限 |
 | `log_triage_max_retries` | `1` | emit_log_triage schema 拒后的重试次数 |
 
+**接入上限(`log_attach_*`,在 log_triage **之前**生效)**
+
+| 键 | 默认值 | 作用 |
+|---|---|---|
+| `log_attach_max_bytes` | `1048576`(1 MB) | 每个附加日志的字节上限。适用于 `--log <file>` / `--log -` / `--log-text` / REPL `/log <path>` / `/log` 粘贴 / 行内自动识别 5 条路径。超限尾部截断并打 `WARN [cmd] attached log truncated`;stdin 用 `io.LimitReader(N+1)` 保证进程内存不因多 GB 管道爆表。`log_triage_enabled: false` 下也会生效(管的是内存,不管分诊)。非正值(含显式 0)视为"使用默认",避免意外把 cap 调成 0 后所有 `/log` 静默失效 |
+
+> ⚠️ **10 M 以上日志怎么办**:调高 `log_attach_max_bytes` 只解决"能喂进来"这一步;真正的瓶颈在 LLM 侧。建议先用 `grep -A50 -B5 'panic\|Exception\|FATAL'` 预过滤关键段,或同时把 `log_triage_max_llm_calls` 提到 16(给分段-提取更多预算)。分页读取**不是**靠 LLM `read_file offset/limit`,而是系统侧按字节窗口切片,每轮 LLM 只看一个窗口(见 `§4.5 日志分诊` 两步法)。
+
 #### 3.3.17 REPL 交互
 
 | 键 | 默认值 | 作用 |

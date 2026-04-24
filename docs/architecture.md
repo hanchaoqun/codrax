@@ -779,7 +779,12 @@ BusContext.AttachedLog     emit_log_triage├
 
 **Intent 覆盖**：`reconcileIntent(intent, predicates, *LogBundle)` 在 `bundle.IntentHint == IntentRootCause` 且 LLM declared 不是 `root_cause` 时强制切换。因为分析 agent 看得到 `AttachedLog` 原文（在 prompt section 里）但不是每次都会正确分类为调试查询，这里做 defence-in-depth。
 
-**可调项**：全部在 `codrax.yaml` 的 `log_triage_*` 前缀下（`log_triage_enabled` / `log_triage_source_prefix` / `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`）。见 `codrax.yaml.example` 的逐项注释。
+**可调项**：
+
+- **Triage 侧（`log_triage_*`）**：`log_triage_enabled` / `log_triage_source_prefix` / `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`。
+- **接入侧（`log_attach_*`，在 log_triage 之前生效）**：`log_attach_max_bytes`（默认 `1048576` = 1 MB）限制每条附加日志的字节上限。覆盖 `--log <file>` / `--log -`（stdin 用 `io.LimitReader(N+1)`，不会因为多 GB 管道把进程内存打爆）/ `--log-text` / REPL `/log <path>` / `/log` 粘贴模式 / `splitPastedLog` 自动识别路径共 5 条入口。超限尾部 `s[:N]` 截断并打 `WARN [cmd] attached log truncated`。在 `log_triage_enabled: false` 下也会生效——这是内存安全 knob,不是分诊 knob。非正值(含显式 0)回退到默认;显式把 cap 调到 0 不会静默废掉所有 `/log` 路径。
+
+见 `codrax.yaml.example` 的逐项注释。
 
 **暂不支持**：
 - C/C++ glibc 裸 backtrace（只有返回地址，没 `file:line`，缺少足够锚点）

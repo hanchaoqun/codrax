@@ -160,6 +160,8 @@ Downstream consumers (analyzer only, today):
 
 **Feature gate**: `codrax.yaml :: log_triage_enabled` (default true). CLI `--log-source-prefix` or YAML `log_triage_source_prefix` supplies the CI build root. Other knobs: `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`.
 
+**Attach cap** (distinct family, `log_attach_*`): `log_attach_max_bytes` (default `1 << 20` = 1 MB) hard-caps every attach surface BEFORE log_triage sees the payload — `--log <file>`, `--log -` (stdin uses `io.LimitReader(N+1)` so multi-GB pipes never swell process memory), `--log-text`, REPL `/log <path>`, `/log` paste mode, `splitPastedLog` auto-route. Oversize → tail-truncate + `WARN [cmd] attached log truncated`. Fires even when `log_triage_enabled: false` (it's about memory safety, not triage). Non-positive values (incl. explicit 0) fall back to the default so a misconfigured 0 can't silently brick every `/log` path. cmd writes it to a package-level `maxAttachedLogBytes` var; REPL receives it via `Config.AttachedLogMaxBytes`.
+
 **Session 20 red lines held**: LLM is the extractor, system is the validator; no new `Criterion Kind` / `Hypothesis family` / `AnchorKind` / `Scenario`; analyzer carries zero log-triage bolt-on code (the 6 helpers session 19 added under `analyzer.go:1147-1373` are gone); `reconcileIntent` signature is `(intent, preds, *LogBundle)` — no tag-along booleans.
 
 ### Explorer evidence chain (`explorer.go`)
@@ -179,7 +181,8 @@ Two YAML files live flat next to the binary:
 - **`providers.yaml`** — LLM credentials + per-agent model routing (`internal/config/providers.go`). Secret, never committed.
 - **`codrax.yaml`** — runtime knobs (`internal/config/runtime.go`). All fields pointer-typed so the merge can distinguish "absent" from "explicit zero". Key groups by prefix:
   - bare: `log_dir`, `memory_dir`, `lang`, `repo`, `branch`, `providers_config`
-  - `log_*` — retention
+  - `log_*` — retention (own log files)
+  - `log_attach_*` — input caps for user-attached logs (applies before log_triage; covers CLI `--log` + REPL `/log` + auto-route)
   - `blob_*` — tool-output sizing and session retention
   - `pipeline_*` — per-run budget (`max_steps`, `max_retries_per_stage`, `max_stage_visits`, `max_verify_retries` for the B2.3 verify→plan loop)
   - `write_enabled` — top-level gate for write mode; must be explicitly `true` before `--mode=plan|apply|verify` will dispatch
