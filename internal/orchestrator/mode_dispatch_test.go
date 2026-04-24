@@ -1,6 +1,8 @@
 package orchestrator
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 
@@ -264,6 +266,71 @@ func TestMode_MainRepoRootPopulated(t *testing.T) {
 	if busCtx.RepoRoot != busCtx.MainRepoRoot {
 		t.Errorf("read-mode RepoRoot and MainRepoRoot should match: %q vs %q",
 			busCtx.RepoRoot, busCtx.MainRepoRoot)
+	}
+}
+
+// TestMode_ApplyWithPlanPathSkipsPlanPhase pins the B1.5 invariant
+// that `ModeApply` with a pre-supplied PlanPath skips runPlanPhase
+// entirely. Without this skip, /approve (REPL) and single-shot
+// `--mode=apply --plan-file=<path>` would re-dispatch the planner
+// and overwrite the reviewed plan with a fresh emission.
+//
+// Signal: a planner mock that marks the test failed if invoked,
+// combined with an assertion that PipelineStage advances past
+// StagePlan (here: StageApply, failing because no worktreeBase is
+// configured — that is the next-phase error we WANT to see).
+func TestMode_ApplyWithPlanPathSkipsPlanPhase(t *testing.T) {
+	// Write a dummy plan file to disk so runApplyPhase's substep-1
+	// loader succeeds.
+	planDir := t.TempDir()
+	planPath := planDir + "/plan-skip-test.json"
+	plan := &types.ChangePlan{
+		ID:          "plan-skip-test",
+		Summary:     "plan-skip invariant test",
+		Status:      "pending_approval",
+		Changes:     []types.FileChange{{Path: "main.go", Kind: "modify", NewContent: "x"}},
+		TargetPaths: []string{"main.go"},
+	}
+	data, err := json.Marshal(plan)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if err := os.WriteFile(planPath, data, 0o644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols, Language: "en"})
+	plannerCalled := false
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentPlanner: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			plannerCalled = true
+			return &agent.StageOutput{MissingPiece: types.MissingNone}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetMode(types.ModeApply)
+	o.SetPlanPath(planPath)
+	// Intentionally omit SetWorktreeBase — apply phase will fail
+	// with "worktree base not configured" which is the signal we
+	// reached StageApply without going through plan.
+
+	busCtx, err := o.Run("/approve plan-skip-test", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if plannerCalled {
+		t.Fatal("planner agent must NOT be dispatched when PlanPath is pre-set")
+	}
+	if busCtx.PipelineStage != types.StageApply {
+		t.Errorf("PipelineStage should advance past plan (stage=apply); got %q",
+			busCtx.PipelineStage)
+	}
+	if !strings.Contains(busCtx.TaskState.LastError, "worktree") {
+		t.Errorf("apply phase should fail on missing worktree base; got LastError=%q",
+			busCtx.TaskState.LastError)
 	}
 }
 

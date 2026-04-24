@@ -62,6 +62,16 @@ type modeSetter interface {
 	SetMode(types.PipelineMode)
 }
 
+// planPathSetter is the companion capability for /approve: when the
+// REPL triggers a second Run to consume a pending ChangePlan, it
+// must first hand the file path to the orchestrator so
+// runApplyPhase's type.LoadChangePlanFromFile step picks it up.
+// B1.2 added SetPlanPath to the real Orchestrator; test stubs that
+// omit it make /approve a no-op with a warning.
+type planPathSetter interface {
+	SetPlanPath(string)
+}
+
 // ResultRenderer turns a finished BusContext into the user-facing
 // response text. main.go owns the canonical implementation.
 type ResultRenderer func(*types.BusContext) string
@@ -878,6 +888,12 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/plan":
 		r.handlePlanCmd(line)
 		return false
+	case "/approve":
+		r.handleApproveCmd(line)
+		return false
+	case "/reject":
+		r.handleRejectCmd(line)
+		return false
 	case "/exit", "/quit":
 		fmt.Fprintln(r.out, "  Goodbye!")
 		return true
@@ -955,6 +971,8 @@ func (r *REPL) handleSlash(line string) bool {
 		r.info("chat: /chat <message> (reply without invoking the analysis pipeline)")
 		r.info("mode: /mode [read|plan|apply|verify] (show/set; read default; write modes require codrax.yaml :: write_enabled: true)")
 		r.info("plan: /plan [show|clear|list] (inspect/manage saved ChangePlans from write-mode Runs)")
+		r.info("approve: /approve (consume pending plan — triggers apply + verify inside a git worktree)")
+		r.info("reject:  /reject [reason] (discard pending plan without applying)")
 		r.info("version: /version (or /v) prints the build identifier")
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
@@ -1072,6 +1090,177 @@ func (r *REPL) handlePlanCmd(line string) {
 	default:
 		r.warn("unknown /plan subcommand %q — expected: show, clear, list\n", rest)
 	}
+}
+
+// handleApproveCmd consumes the REPL's pending ChangePlan by triggering
+// a one-shot Run with Mode=ModeApply + PlanPath pre-seeded. The
+// orchestrator's ModeApply branch skips runPlanPhase when PlanPath is
+// set (see orchestrator.go:case types.ModeApply), so the saved plan
+// is applied as-is rather than regenerated.
+//
+// Preconditions probed in order:
+//  1. PlanStore configured — no store means the single-shot path
+//     never persisted a plan; nothing to approve.
+//  2. pendingPlanPath non-empty — user must run a /mode plan
+//     dispatch first (or have one from a prior session).
+//  3. Plan file still loadable — user may have /plan clear'd or
+//     removed the file by hand since emission.
+//  4. Runner implements modeSetter + planPathSetter — test stubs
+//     that omit these make /approve a no-op with a warning so
+//     tests don't accidentally run real apply.
+//
+// After those checks, an interactive huh.NewConfirm (or scripted
+// y/n read) gives the user a final abort. On confirm, the handler:
+//   - saves the sticky mode
+//   - calls SetMode(ModeApply) + SetPlanPath(pendingPlanPath)
+//   - dispatches Run with a synthetic request string
+//   - restores SetMode(originalMode) + SetPlanPath("") in a defer
+//   - renders the Result, records the turn, and clears
+//     pendingPlanPath regardless of success (apply is terminal;
+//     the user re-plans if they want to try again)
+func (r *REPL) handleApproveCmd(line string) {
+	_ = line // /approve takes no arguments today
+	if r.planStore == nil {
+		r.info("/approve disabled (no PlanStore configured)")
+		return
+	}
+	if r.pendingPlanPath == "" {
+		r.info("no pending plan — run a /mode plan dispatch to generate one")
+		return
+	}
+
+	id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
+	plan, err := r.planStore.Load(id)
+	if err != nil {
+		r.errorf("approve: %v\n", err)
+		// Stale pendingPlanPath: file was removed out-of-band. Clear
+		// the pointer so /plan show / /approve stop nagging.
+		r.pendingPlanPath = ""
+		return
+	}
+
+	// Probe both setters up-front. Running Mode=ModeApply against a
+	// runner without SetMode would silently fall through to read
+	// mode in the orchestrator; without SetPlanPath the apply phase
+	// would error trying to load nil. Fail loud rather than dispatching.
+	mSetter, mOK := r.runner.(modeSetter)
+	pSetter, pOK := r.runner.(planPathSetter)
+	if !mOK || !pOK {
+		r.warn("/approve requires a runner with SetMode + SetPlanPath (stub runner detected)\n")
+		return
+	}
+
+	title := fmt.Sprintf("Approve plan %s (%d change(s))? Apply inside a git worktree + run verify.",
+		plan.ID, len(plan.Changes))
+	confirmed := false
+	if r.interactive() {
+		if err := huh.NewConfirm().
+			Title(title).
+			Affirmative("Yes").
+			Negative("No").
+			Value(&confirmed).
+			Run(); err != nil {
+			confirmed = false
+		}
+	} else {
+		fmt.Fprintln(r.out, title)
+		s, err := r.readInputLines()
+		if err == nil {
+			confirmed = strings.TrimSpace(strings.ToLower(s)) == "y"
+		}
+	}
+	if !confirmed {
+		r.info("approve cancelled")
+		return
+	}
+
+	originalMode := r.currentMode
+	mSetter.SetMode(types.ModeApply)
+	pSetter.SetPlanPath(r.pendingPlanPath)
+	defer func() {
+		mSetter.SetMode(originalMode)
+		pSetter.SetPlanPath("")
+	}()
+
+	request := fmt.Sprintf("/approve %s", plan.ID)
+	logging.Info("[repl] dispatching approve: plan=%s path=%s", plan.ID, r.pendingPlanPath)
+
+	if r.renderer != nil {
+		r.renderer.StartSpinner()
+	}
+	busCtx, runErr := r.runner.Run(request, r.repoRoot, r.branch)
+	if r.renderer != nil {
+		r.renderer.StopSpinner()
+	}
+	if runErr != nil {
+		logging.Error("[repl] approve failed: %v", runErr)
+		r.errorf("approve: %v\n", runErr)
+		// Drop pendingPlanPath so the user /mode plan's a fresh plan
+		// rather than re-running a known-broken apply.
+		r.pendingPlanPath = ""
+		return
+	}
+
+	response := strings.TrimSpace(r.render(busCtx))
+	logging.Info("[repl] approve result:\n%s", response)
+
+	memResponse := response
+	if busCtx != nil && busCtx.TaskState.LastError != "" {
+		memResponse = "(approve ended in error — details omitted from memory)"
+	}
+	if response == "" || response == "(no result)" {
+		fmt.Fprintln(r.out, "  ??")
+	} else {
+		r.renderBordered(response)
+	}
+	r.recordTurn(request, request, memResponse, memory.KindPipeline)
+
+	// Apply is terminal. On success, the worktree has been discarded
+	// (orchestrator defer); on partial failure, TaskState.LastError
+	// already surfaced. Clear pendingPlanPath either way — replan if
+	// you want to try again.
+	r.pendingPlanPath = ""
+}
+
+// handleRejectCmd discards the pending ChangePlan without invoking
+// the runner. Optional reason text trailing /reject is recorded in
+// memory so the conversation's prior-turns block reflects why this
+// plan was dropped.
+//
+// Behaviour mirrors /plan clear with two differences:
+//  1. Accepts a free-form reason argument.
+//  2. Records a memory turn so /history shows the rejection.
+func (r *REPL) handleRejectCmd(line string) {
+	if r.planStore == nil {
+		r.info("/reject disabled (no PlanStore configured)")
+		return
+	}
+	if r.pendingPlanPath == "" {
+		r.info("no pending plan to reject")
+		return
+	}
+	reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
+	id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
+	if err := r.planStore.Clear(id); err != nil {
+		r.errorf("reject: %v\n", err)
+		return
+	}
+	rejectedPath := r.pendingPlanPath
+	r.pendingPlanPath = ""
+
+	var msg string
+	if reason == "" {
+		msg = fmt.Sprintf("plan rejected: %s", rejectedPath)
+	} else {
+		msg = fmt.Sprintf("plan rejected: %s (reason: %s)", rejectedPath, reason)
+	}
+	r.success(msg)
+
+	request := "/reject"
+	if reason != "" {
+		request = "/reject " + reason
+	}
+	r.recordTurn(request, request, msg, memory.KindPipeline)
 }
 
 // handleLogCmd dispatches the `/log` subcommands. Recognised forms:

@@ -379,10 +379,21 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			}
 		}
 	case types.ModeApply:
-		if err := o.runPlanPhase(&stepsUsed); err != nil {
-			logging.Error("[orchestrator] plan phase error: %v", err)
+		// When a plan file is already supplied (REPL /approve after
+		// a prior /mode plan dispatch, or single-shot
+		// --mode=apply --plan-file=<path>), the planner must NOT run
+		// again — re-dispatching would overwrite the reviewed plan
+		// with a fresh emission and defeat the whole approve-a-
+		// reviewed-plan workflow. runApplyPhase's substep-1 loader
+		// will read the file off disk in that case.
+		var planErr error
+		if o.planPath == "" {
+			planErr = o.runPlanPhase(&stepsUsed)
+		}
+		if planErr != nil {
+			logging.Error("[orchestrator] plan phase error: %v", planErr)
 			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = err.Error()
+				o.busCtx.TaskState.LastError = planErr.Error()
 			}
 		} else if err := o.runApplyPhase(&stepsUsed); err != nil {
 			logging.Error("[orchestrator] apply phase error: %v", err)
