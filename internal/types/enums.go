@@ -17,6 +17,19 @@ const (
 	StageExplore   PipelineStage = "explore"
 	StageExtract   PipelineStage = "extract"
 	StageFinalize  PipelineStage = "finalize"
+
+	// B0 write-mode stages. Only fire when BusContext.Mode is
+	// ModePlan / ModeApply / ModeVerify respectively; Run()'s Mode
+	// switch dispatches to runPlanPhase / runApplyPhase /
+	// runVerifyPhase which set PipelineStage to the matching value
+	// for observability. In Day 3 those phase functions are stubs;
+	// Day 5 adds the corresponding agent bindings to pipelineTopology
+	// and scheduler stageMapping, at which point stageMapping can
+	// route NodePlan / NodeApply / NodeVerify TaskGraph nodes to
+	// the right stage.
+	StagePlan   PipelineStage = "plan"
+	StageApply  PipelineStage = "apply"
+	StageVerify PipelineStage = "verify"
 )
 
 // IsTerminal returns true only for the finalize stage.

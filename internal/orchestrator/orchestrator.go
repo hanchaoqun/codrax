@@ -35,6 +35,12 @@ type Orchestrator struct {
 	thinkAloudMap  map[types.AgentName]bool // per-agent think-aloud override
 	blobSessionDir string                   // persistent per-process blob dir; empty = tmpdir fallback
 	attachedLog    string                   // runtime log excerpt attached via --log / /log
+	// mode controls the B0 write-mode dispatch in Run(). Zero value
+	// ("") is treated as ModeRead by busCtx.Mode.Normalize at Run
+	// entry, so every pre-B0 caller sees identical read-only
+	// behavior. Set by the CLI / REPL layer via SetMode; immutable
+	// for the lifetime of a single Run().
+	mode types.PipelineMode
 }
 
 // New creates a new Orchestrator.
@@ -112,6 +118,29 @@ func (o *Orchestrator) AttachedLog() string {
 	return o.attachedLog
 }
 
+// SetMode installs the pipeline mode for subsequent Run() calls. Any
+// invalid value (not one of ModeRead / ModePlan / ModeApply /
+// ModeVerify and not empty) is still stored verbatim — SetMode does
+// NOT silently coerce or reject, because the CLI layer needs to
+// surface a clean "unknown mode" error to the user before Run() even
+// starts. Empty string is explicitly valid and coerces to ModeRead
+// at Run() entry via PipelineMode.Normalize.
+//
+// For the L1 red line (read-mode byte-identity) the important
+// invariant is that a caller who never invokes SetMode has
+// o.mode == "", which Normalize → ModeRead, which the Mode switch
+// dispatches to the unchanged runTaskPhase call path.
+func (o *Orchestrator) SetMode(m types.PipelineMode) {
+	o.mode = m
+}
+
+// Mode returns the currently configured pipeline mode (post-
+// SetMode, pre-Normalize). Useful for logging / CLI echo. The
+// empty string is returned when SetMode has never been called.
+func (o *Orchestrator) Mode() types.PipelineMode {
+	return o.mode
+}
+
 // Run executes the full pipeline for a user request.
 //
 // The pipeline runs in two phases:
@@ -133,8 +162,21 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	o.busCtx = &types.BusContext{
 		PipelineStage: types.StageAnalyze,
 		RepoRoot:      repoRoot,
-		Branch:        branch,
-		TraceID:       fmt.Sprintf("trace-%d", time.Now().UnixNano()),
+		// MainRepoRoot mirrors RepoRoot at Run entry and stays
+		// constant for the lifetime of the Run. Write-mode phases
+		// may swap RepoRoot to a worktree path; MainRepoRoot
+		// preserves the original so the worktree-cleanup defer can
+		// run `git worktree prune` against the canonical repo.
+		// Read-mode Runs see MainRepoRoot == RepoRoot throughout.
+		MainRepoRoot: repoRoot,
+		Branch:       branch,
+		TraceID:      fmt.Sprintf("trace-%d", time.Now().UnixNano()),
+		// Mode normalization turns zero-value ("") into ModeRead so
+		// downstream switch equality is exact. The L1 red line
+		// depends on this — a caller who never invokes SetMode
+		// reaches this line with o.mode == "" and the switch below
+		// dispatches to the unchanged runTaskPhase.
+		Mode:    o.mode.Normalize(),
 		Mutable: types.NewMutableState(request),
 		TaskState: types.TaskState{
 			Stage:   types.StageAnalyze,
@@ -263,12 +305,64 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		o.emitAnalysisReady()
 	}
 
-	// Phase 2: per-task execution.
-	if err := o.runTaskPhase(&stepsUsed); err != nil {
-		logging.Error("[orchestrator] task phase error: %v", err)
-		if o.busCtx.TaskState.LastError == "" {
-			o.busCtx.TaskState.LastError = err.Error()
+	// Phase 2: per-mode execution. Read mode walks the existing
+	// per-task scheduler (runTaskPhase); write modes dispatch to
+	// dedicated phase functions. Each path is responsible for
+	// populating Mutable.Result so the EventPipelineEnd emit below
+	// sees something coherent.
+	//
+	// L1 red line: the ModeRead branch is the EXACT unchanged call
+	// to runTaskPhase — no new logs, no new emits, no extra state
+	// mutation. A zero-value Mode was normalized to ModeRead at
+	// Run entry, so every legacy caller lands on this branch
+	// byte-identically to the pre-B0 code path.
+	switch o.busCtx.Mode {
+	case types.ModeRead:
+		if err := o.runTaskPhase(&stepsUsed); err != nil {
+			logging.Error("[orchestrator] task phase error: %v", err)
+			if o.busCtx.TaskState.LastError == "" {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
 		}
+	case types.ModePlan:
+		if err := o.runPlanPhase(&stepsUsed); err != nil {
+			logging.Error("[orchestrator] plan phase error: %v", err)
+			if o.busCtx.TaskState.LastError == "" {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+		}
+	case types.ModeApply:
+		if err := o.runPlanPhase(&stepsUsed); err != nil {
+			logging.Error("[orchestrator] plan phase error: %v", err)
+			if o.busCtx.TaskState.LastError == "" {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+		} else if err := o.runApplyPhase(&stepsUsed); err != nil {
+			logging.Error("[orchestrator] apply phase error: %v", err)
+			if o.busCtx.TaskState.LastError == "" {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+		} else if err := o.runVerifyPhase(&stepsUsed); err != nil {
+			logging.Error("[orchestrator] verify phase error: %v", err)
+			if o.busCtx.TaskState.LastError == "" {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+		}
+	case types.ModeVerify:
+		if err := o.runVerifyPhase(&stepsUsed); err != nil {
+			logging.Error("[orchestrator] verify phase error: %v", err)
+			if o.busCtx.TaskState.LastError == "" {
+				o.busCtx.TaskState.LastError = err.Error()
+			}
+		}
+	default:
+		// Unknown mode — surface a clear error rather than silently
+		// falling through to read mode. Should be unreachable
+		// because PipelineMode.Normalize is called at Run entry
+		// and only coerces empty; an invalid value stays invalid
+		// and lands here.
+		logging.Error("[orchestrator] unknown pipeline mode %q", o.busCtx.Mode)
+		o.busCtx.TaskState.LastError = fmt.Sprintf("unknown pipeline mode %q", o.busCtx.Mode)
 	}
 
 	o.busCtx.TaskState.IsTerminal = true
@@ -352,6 +446,72 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 
 	used := o.runTaskGraph(o.maxSteps - *stepsUsed)
 	*stepsUsed += used
+	return nil
+}
+
+// runPlanPhase is the B0 Day-3 stub for the plan stage. The real
+// implementation lands Day 5 with the planner agent + emit_change_plan
+// tool + change-plan-skill. Today's stub exists so the Mode=ModePlan
+// dispatch path compiles, runs, and produces a clearly-marked
+// placeholder Result that the REPL renderer shows honestly instead
+// of "(no result)".
+//
+// Side effects (minimal, reproducible):
+//   - Increments *stepsUsed by 1 (so the max-steps budget observes
+//     that the plan phase consumed a slot).
+//   - Sets busCtx.PipelineStage + TaskState.Stage to StagePlan so
+//     observability tooling reflects the intended stage.
+//   - Writes a placeholder Result so the caller sees a non-empty
+//     answer describing B0 scope.
+//
+// Does NOT call dispatchStage — the plan-stage agent / skill /
+// topology entry does not exist until Day 5. Skipping dispatch keeps
+// Day 3 orthogonal to the agent layer.
+func (o *Orchestrator) runPlanPhase(stepsUsed *int) error {
+	if *stepsUsed >= o.maxSteps {
+		logging.Warning("[orchestrator] plan phase skipped: max-steps exhausted")
+		return nil
+	}
+	*stepsUsed++
+	o.busCtx.PipelineStage = types.StagePlan
+	o.busCtx.TaskState.Stage = types.StagePlan
+	logging.Info("[orchestrator] plan phase (B0 skeleton stub — real planner wires in Day 5)")
+	o.busCtx.Mutable.SetResult("[B0 skeleton] plan mode: planner agent not yet wired. " +
+		"Day 5 replaces this stub with a real ChangePlan emission via emit_change_plan.")
+	return nil
+}
+
+// runApplyPhase is the B0 Day-3 stub for the apply stage. Same
+// rationale as runPlanPhase — structural plumbing now, real
+// behavior Day 5 + B2. Today it records that Apply was reached
+// in the log, leaves the plan-phase Result in place (the switch
+// in Run calls runPlanPhase first when Mode=ModeApply, so Result
+// already reflects the plan stub).
+func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
+	if *stepsUsed >= o.maxSteps {
+		logging.Warning("[orchestrator] apply phase skipped: max-steps exhausted")
+		return nil
+	}
+	*stepsUsed++
+	o.busCtx.PipelineStage = types.StageApply
+	o.busCtx.TaskState.Stage = types.StageApply
+	logging.Info("[orchestrator] apply phase (B0 skeleton stub — apply_patch + coder agent wire in Day 5)")
+	return nil
+}
+
+// runVerifyPhase is the B0 Day-3 stub for the verify stage. Real
+// test-runner + emit_test_results wiring lands Day 5 + B3. The
+// stub keeps Mode=ModeApply / Mode=ModeVerify dispatch paths
+// healthy without requiring the full verify machinery.
+func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
+	if *stepsUsed >= o.maxSteps {
+		logging.Warning("[orchestrator] verify phase skipped: max-steps exhausted")
+		return nil
+	}
+	*stepsUsed++
+	o.busCtx.PipelineStage = types.StageVerify
+	o.busCtx.TaskState.Stage = types.StageVerify
+	logging.Info("[orchestrator] verify phase (B0 skeleton stub — run_tests + verifier agent wire in Day 5+B3)")
 	return nil
 }
 
