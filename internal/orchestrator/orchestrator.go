@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/worktree"
 )
 
 // Orchestrator is the Layer 1 component that drives the pipeline state
@@ -186,6 +187,30 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			}
 		}()
 	}
+
+	// Worktree cleanup (B0 write-mode). The plan / apply / verify
+	// stages may populate busCtx.WorktreePath + MainRepoRoot as they
+	// provision a git worktree to run write actions inside. We fire
+	// an unconditional defer here so both panic unwind and normal
+	// return reach worktree.DiscardByPath. Read-mode Runs never set
+	// either field, so DiscardByPath short-circuits and this block
+	// is a free no-op for them (protecting the L1 "read mode byte-
+	// identical" red line).
+	//
+	// SIGINT / SIGTERM does NOT run this defer (Go's default signal
+	// disposition is os.Exit without unwind). The worktree package
+	// installs a signal handler at process start that walks its
+	// own activeSessions registry and discards outstanding sessions
+	// before re-raising. This defer covers normal-return and panic;
+	// the handler covers signal paths.
+	defer func() {
+		if o.busCtx == nil || o.busCtx.WorktreePath == "" {
+			return
+		}
+		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
+			logging.Warning("[orchestrator] worktree cleanup failed: %v", err)
+		}
+	}()
 
 	stepsUsed := 0
 

@@ -29,6 +29,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/worktree"
 )
 
 // Build-time variables injected via -ldflags.
@@ -676,6 +677,25 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	}
 	repomap.SetCacheDir(flagCacheDir)
 	logging.Info("paths: repo=%s log-dir=%s memory-dir=%s cache-dir=%s blob-session=%s", flagRepo, flagLogDir, flagMemoryDir, flagCacheDir, blobSessionDir)
+
+	// B0 write-mode startup housekeeping.
+	//
+	// PruneDeadSessions reaps worktree directories under
+	// <runtime-anchor>/worktrees/ whose embedded PID is no longer a
+	// live process. Covers the SIGKILL path where the outer
+	// orchestrator defer never ran. Missing base dir is tolerated
+	// silently; read-mode users who never exercise write-mode see
+	// zero side effect (no empty directory ever created).
+	//
+	// InstallSignalHandler adds a process-wide SIGINT/SIGTERM
+	// handler that walks the worktree package's active-sessions
+	// registry, calls Discard on each, then re-raises the signal so
+	// the process still exits with the canonical signal exit code.
+	// Idempotent — calling twice is a no-op. Install once at
+	// startup, before any Run() has a chance to create a worktree.
+	worktreeBase := filepath.Join(runtimeAnchor, "worktrees")
+	worktree.PruneDeadSessions(worktreeBase, flagRepo)
+	worktree.InstallSignalHandler()
 
 	// One-shot environment probe: logs which external binaries
 	// (rg/grep, sh/bash/cmd, git) were actually found. Each miss
