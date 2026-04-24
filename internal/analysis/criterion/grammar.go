@@ -46,6 +46,15 @@ const (
 	KindRegexMatch                    Kind = Kind(types.CritRegexMatch)
 	KindCounterfactualBranchesDecided Kind = Kind(types.CritCounterfactualBranchesDecided)
 	KindRelationAbsent                Kind = Kind(types.CritRelationAbsent)
+	// Write-mode kinds (B0). Evaluator bodies land in Day 5; B0
+	// just registers the constants so gate's criterion_resolvable
+	// check doesn't reject templateWriteProposal IRs, and so
+	// downstream code using them against a read-mode Env won't
+	// panic with ErrUnknownKind.
+	KindPlanReady                     Kind = Kind(types.CritPlanReady)
+	KindPatchApplies                  Kind = Kind(types.CritPatchApplies)
+	KindTestsPass                     Kind = Kind(types.CritTestsPass)
+	KindNoRegression                  Kind = Kind(types.CritNoRegression)
 )
 
 // registered is the source of truth for legal Kind values. Gate's
@@ -72,6 +81,10 @@ var registered = map[Kind]bool{
 	KindRegexMatch:                    true,
 	KindCounterfactualBranchesDecided: true,
 	KindRelationAbsent:                true,
+	KindPlanReady:                     true,
+	KindPatchApplies:                  true,
+	KindTestsPass:                     true,
+	KindNoRegression:                  true,
 }
 
 // IsRegistered reports whether k is in the closed namespace.
@@ -116,6 +129,13 @@ type Env struct {
 	// emit_investigation_complete. Under the "soft" policy, this
 	// lowers evidence_count thresholds to >=1.
 	InvestigationComplete bool
+	// WriteClosure is the write-mode ground truth for Kind{PlanReady,
+	// PatchApplies, TestsPass, NoRegression}. Nil in read-only
+	// pipelines (the corresponding evaluators short-circuit to
+	// Satisfied=true under the L3 read-mode byte-identity rule).
+	// Populated by scheduler at evaluator-call time when Mode is
+	// ModePlan / ModeApply / ModeVerify.
+	WriteClosure *types.WriteClosure
 }
 
 // Result is the outcome of evaluating a single Criterion.

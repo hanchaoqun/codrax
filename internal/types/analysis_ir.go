@@ -336,6 +336,14 @@ const (
 	IntentEnumerate     Intent = "enumerate"
 	IntentConfigQuery   Intent = "config_query"
 	IntentReturnValue   Intent = "return_value"
+	// IntentWriteCode is the B0 write-mode intent. Analyzer emits it
+	// when the user explicitly asks for a code change ("fix the bug",
+	// "add a test for X", "refactor Y"). compiler.InferScenario maps
+	// it to ScenarioWriteProposal. In pure read-mode Runs
+	// (Mode=ModeRead) analyzer never emits this intent regardless of
+	// the user request — write-phase scenarios are opt-in via
+	// --mode=plan|apply|verify.
+	IntentWriteCode     Intent = "write_code"
 	IntentUnknown       Intent = "unknown"
 )
 
@@ -347,6 +355,13 @@ const (
 	ScenarioConfigTrace           Scenario = "config_trace"
 	ScenarioPerformanceBottleneck Scenario = "performance_bottleneck"
 	ScenarioGeneric               Scenario = "generic"
+
+	// ScenarioWriteProposal is the B0 write-mode scenario. Compiler's
+	// templateWriteProposal produces a TaskGraph with the full
+	// Probe → Evidence → Plan → Apply → Verify → Finalize chain,
+	// AnswerContract defaults to ShapeChangeReport. Analyzer selects
+	// this scenario when Intent=IntentWriteCode.
+	ScenarioWriteProposal Scenario = "write_proposal"
 )
 
 type Complexity string
@@ -455,6 +470,14 @@ const (
 	NodeValidate  TaskNodeType = "validate"
 	NodeReconcile TaskNodeType = "reconcile"
 	NodeFinalize  TaskNodeType = "finalize"
+
+	// Write-mode node types (B0). Each maps to a dedicated
+	// PipelineStage via orchestrator/scheduler.go::stageMapping.
+	// Plan/Apply/Verify run sequentially in ScenarioWriteProposal
+	// and never fire in read-only scenarios.
+	NodePlan   TaskNodeType = "plan"   // planner emits ChangePlan artifact
+	NodeApply  TaskNodeType = "apply"  // coder applies ChangeUnits inside worktree
+	NodeVerify TaskNodeType = "verify" // verifier runs tests + asserts no regression
 )
 
 type TaskEdge struct {
@@ -470,6 +493,13 @@ const (
 	EdgeHardDependency     EdgeType = "hard_dependency"
 	EdgeSoftDependency     EdgeType = "soft_dependency"
 	EdgeValidationFeedback EdgeType = "validation_feedback"
+
+	// EdgeVerifyFeedback wires a verify node back to its upstream
+	// apply node. When the verify stage's SuccessCriteria fail the
+	// scheduler uses this edge (same fine-grained backtrack
+	// machinery as EdgeValidationFeedback) to requeue only the
+	// affected apply node rather than redoing the full plan.
+	EdgeVerifyFeedback EdgeType = "verify_feedback"
 )
 
 type ExecutionPolicy struct {
@@ -511,6 +541,36 @@ const (
 	CritRegexMatch                    = "regex_match"
 	CritCounterfactualBranchesDecided = "counterfactual_branches_decided"
 	CritRelationAbsent                = "relation_absent"
+
+	// Write-mode criteria (B0). Evaluators live in
+	// internal/analysis/criterion/eval.go and read
+	// MutableState.WriteClosure for their ground truth. B0 ships
+	// grammar constants + registered entries only; real evaluator
+	// bodies land with emit_change_plan / apply_patch / run_tests
+	// (Day 5, plus B2/B3 for the verify-level assertions).
+	//
+	//   - CritPlanReady: a ChangePlan artifact exists (either in
+	//     WriteClosure.pendingApplies or on disk at PlanPath) and
+	//     its Status is "approved". Used as EntryCondition on
+	//     NodeApply to gate Apply on Plan completion.
+	//
+	//   - CritPatchApplies: every ChangeUnit in the current plan
+	//     has landed successfully in the worktree (WriteClosure
+	//     .AppliedSet ⊇ plan.TargetPaths). Used as SuccessCriterion
+	//     on NodeApply.
+	//
+	//   - CritTestsPass: every assertion named in plan.AcceptanceTests
+	//     has a WriteClosure.VerifyResult with Passed=true. Used as
+	//     SuccessCriterion on NodeVerify.
+	//
+	//   - CritNoRegression: no MetricDelta in ChangeReport regressed
+	//     past its configured threshold. Used as SuccessCriterion on
+	//     NodeVerify. Expr is either empty (check all metrics) or a
+	//     specific metric name.
+	CritPlanReady     = "plan_ready"
+	CritPatchApplies  = "patch_applies"
+	CritTestsPass     = "tests_pass"
+	CritNoRegression  = "no_regression"
 )
 
 type SearchHints struct {
@@ -607,6 +667,23 @@ const (
 	ShapeConfigValue   AnswerShape = "config_value"
 	ShapeExplanation   AnswerShape = "explanation"
 	ShapeNone          AnswerShape = "none"
+
+	// Write-mode shapes (B0).
+	//
+	//   - ShapeChangePlan is the plan-stage output shape. The
+	//     AnswerDocument's Summary renders the planner's prose
+	//     explanation; the ChangePlan JSON lives as a sidecar under
+	//     .codrax/plans/<id>.json (referenced via Citations).
+	//     Emitted when RequiredAnswerShape is ShapeChangePlan; used
+	//     in --mode=plan Runs.
+	//
+	//   - ShapeChangeReport is the apply+verify combined output.
+	//     Summary renders a short "applied X files, N/M tests
+	//     passing, no regression" line; the full ChangeReport JSON
+	//     lives at .codrax/plans/<plan-id>.report.json. Emitted in
+	//     --mode=apply Runs after verify completes.
+	ShapeChangePlan   AnswerShape = "change_plan"
+	ShapeChangeReport AnswerShape = "change_report"
 )
 
 // IsEmittable reports whether the shape is one a producer (finalizer
@@ -617,7 +694,8 @@ const (
 func (s AnswerShape) IsEmittable() bool {
 	switch s {
 	case ShapeListOfSymbols, ShapeStepList, ShapeValue,
-		ShapeBoolean, ShapeConfigValue, ShapeExplanation:
+		ShapeBoolean, ShapeConfigValue, ShapeExplanation,
+		ShapeChangePlan, ShapeChangeReport:
 		return true
 	}
 	return false

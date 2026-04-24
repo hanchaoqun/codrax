@@ -181,6 +181,16 @@ type MutableState struct {
 	// All accessor methods live in evidence_closure.go.
 	evidenceClosure *EvidenceClosure
 
+	// writeClosure is the write-phase mirror of evidenceClosure — the
+	// per-Run CGEC-W tracker for the four write-mode invariants W1-W4.
+	// Populated by the apply (W1, W3), verify (W2, W4), and plan
+	// (PendingApplies queue) stages; zero-valued in pure read-mode
+	// Runs so the memory footprint cost for legacy callers is one
+	// nil pointer. Lazily initialized by WriteClosure(); reset at
+	// task entry by ResetWriteClosure (mirror of ResetEvidenceClosure).
+	// Accessor methods live in write_closure.go.
+	writeClosure *WriteClosure
+
 	// Session 11 C0' ClassificationGrep state — reset per analyze
 	// dispatch via ResetClassificationGrep. classificationGrepTriggered
 	// is flipped to true in Round 2 when the trigger conditions fire
@@ -1481,6 +1491,36 @@ type BusContext struct {
 	// `request` would otherwise flood TermGraph with hundreds of
 	// spurious kindLiteral surfaces.
 	AttachedLog string `json:"attached_log,omitempty"`
+
+	// Mode is the pipeline's execution mode for this Run(). Zero-value
+	// ("" / ModeRead) preserves pre-B0 read-only behavior byte-
+	// identically — the orchestrator's Mode-dispatch switch falls
+	// through to the existing runTaskPhase path when Mode is ModeRead
+	// or the empty string. Set once at Run() entry from the CLI/yaml
+	// layer; immutable for the rest of the Run. See
+	// internal/types/pipeline_mode.go for constants.
+	Mode PipelineMode `json:"mode,omitempty"`
+
+	// MainRepoRoot is the original target repo root the user passed
+	// via --repo. In read-only mode equals RepoRoot throughout the
+	// Run. In write modes the apply/verify stages swap RepoRoot to
+	// the worktree checkout path while the plan and finalize stages
+	// see MainRepoRoot. Empty in pre-B0 callers (tests) — code that
+	// needs the "original root" falls back to RepoRoot in that case.
+	MainRepoRoot string `json:"main_repo_root,omitempty"`
+
+	// WorktreePath is the git worktree directory the apply/verify
+	// stages operate inside. Populated by the Plan / Apply stage
+	// entry; cleared (via worktree.Discard) by the orchestrator's
+	// global defer at Run end. Empty in read-only mode. Same
+	// canonicalization discipline as RepoRoot (absolute path).
+	WorktreePath string `json:"worktree_path,omitempty"`
+
+	// PlanPath is the absolute path of the ChangePlan JSON the
+	// apply/verify stages consume, supplied by --plan-file or the
+	// REPL /plan state. Empty in plan mode (the plan stage
+	// produces a plan; it does not consume one) and in read mode.
+	PlanPath string `json:"plan_path,omitempty"`
 }
 
 // AgentContext provides the narrowed view of BusContext for a single agent.

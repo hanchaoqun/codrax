@@ -90,9 +90,81 @@ func dispatch(k Kind, expr string, env Env) Result {
 		return evalCounterfactualBranchesDecided(env)
 	case KindRelationAbsent:
 		return evalRelationAbsent(expr, env)
+	case KindPlanReady:
+		return evalPlanReady(expr, env)
+	case KindPatchApplies:
+		return evalPatchApplies(expr, env)
+	case KindTestsPass:
+		return evalTestsPass(expr, env)
+	case KindNoRegression:
+		return evalNoRegression(expr, env)
 	}
 	return Result{UnknownKind: true,
 		Detail: fmt.Sprintf("no handler for kind %q (internal bug: registered but unreachable)", k)}
+}
+
+// ── Write-mode evaluators (B0 stubs; real bodies in Day 5 + B2/B3) ──
+//
+// Each evaluator returns Satisfied=true when env.WriteClosure is nil —
+// this preserves read-mode byte-identity under L3: a read-mode
+// pipeline never attaches WriteClosure to Env, so if an accidentally
+// mis-scheduled write-mode criterion reaches these evaluators the
+// result is trivially satisfied (no false negatives that would
+// perturb read-mode behavior). The Day 5 real implementation will
+// interrogate WriteClosure.AppliedSet / VerifyResults / PendingApplies.
+
+// evalPlanReady is satisfied when a ChangePlan has been emitted for
+// the current task. B0 stub always satisfies (planner stage is the
+// sole producer; EntryCondition on NodeApply fires after plan node
+// is done so the gate is redundant for the happy path).
+func evalPlanReady(expr string, env Env) Result {
+	_ = expr
+	if env.WriteClosure == nil {
+		return Result{Satisfied: true, Detail: "plan_ready: no WriteClosure attached (read mode); trivially satisfied"}
+	}
+	// Day 5: check env.WriteClosure.PendingApplies() or
+	// (IR.AnswerContract.RequiredAnswerShape == ShapeChangePlan
+	// && env.DraftAnswer != "")
+	return Result{Satisfied: true, Detail: "plan_ready: B0 stub"}
+}
+
+// evalPatchApplies is satisfied when every ChangeUnit in the current
+// plan has landed in the worktree. B0 stub always satisfies.
+// Expr is either empty (check all TargetPaths) or a glob.
+func evalPatchApplies(expr string, env Env) Result {
+	_ = expr
+	if env.WriteClosure == nil {
+		return Result{Satisfied: true, Detail: "patch_applies: no WriteClosure attached (read mode); trivially satisfied"}
+	}
+	// Day 5: intersect WriteClosure.AppliedSet() with plan.TargetPaths
+	return Result{Satisfied: true, Detail: "patch_applies: B0 stub"}
+}
+
+// evalTestsPass is satisfied when every AcceptanceTest assertion has
+// a VerifyResult with Passed=true. B0 stub always satisfies.
+// Expr is either empty (all AcceptanceTests) or a regex pattern.
+func evalTestsPass(expr string, env Env) Result {
+	_ = expr
+	if env.WriteClosure == nil {
+		return Result{Satisfied: true, Detail: "tests_pass: no WriteClosure attached (read mode); trivially satisfied"}
+	}
+	// B3: iterate env.WriteClosure.VerifyResults(), compare against
+	// regex in expr, fail if any matched assertion has Passed=false
+	return Result{Satisfied: true, Detail: "tests_pass: B0 stub"}
+}
+
+// evalNoRegression is satisfied when no observed MetricDelta in the
+// current ChangeReport exceeds its threshold. B0 stub always
+// satisfies. Expr is either empty (check all metrics) or a specific
+// metric name.
+func evalNoRegression(expr string, env Env) Result {
+	_ = expr
+	if env.WriteClosure == nil {
+		return Result{Satisfied: true, Detail: "no_regression: no WriteClosure attached (read mode); trivially satisfied"}
+	}
+	// B3: read ChangeReport.MetricDeltas, compare each current-vs-
+	// baseline against threshold, fail if any regression observed
+	return Result{Satisfied: true, Detail: "no_regression: B0 stub"}
 }
 
 // ── individual evaluators ─────────────────────────────────────────
