@@ -12,6 +12,7 @@ package repl
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -939,7 +940,8 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/history":
 		recent := r.store.Recent()
 		idx := r.store.Index()
-		if len(recent) == 0 && len(idx) == 0 {
+		planRows := r.collectPlanHistory()
+		if len(recent) == 0 && len(idx) == 0 && len(planRows) == 0 {
 			r.info("(empty)")
 			return false
 		}
@@ -952,7 +954,18 @@ func (r *REPL) handleSlash(line string) bool {
 		if len(recent) > 0 {
 			fmt.Fprintln(r.out, "  recent turns:")
 			for _, t := range recent {
-				fmt.Fprintf(r.out, "    - [%s] %s\n", t.Timestamp.Format("15:04:05"), oneLine(t.Request))
+				kindLabel := ""
+				if t.Kind != "" {
+					kindLabel = " [" + string(t.Kind) + "]"
+				}
+				fmt.Fprintf(r.out, "    - [%s]%s %s\n",
+					t.Timestamp.Format("15:04:05"), kindLabel, oneLine(t.Request))
+			}
+		}
+		if len(planRows) > 0 {
+			fmt.Fprintln(r.out, "  plans applied/attempted:")
+			for _, row := range planRows {
+				fmt.Fprintln(r.out, "    - "+row)
 			}
 		}
 	case "/compact":
@@ -973,6 +986,7 @@ func (r *REPL) handleSlash(line string) bool {
 		r.info("plan: /plan [show|clear|list] (inspect/manage saved ChangePlans from write-mode Runs)")
 		r.info("approve: /approve (consume pending plan — triggers apply + verify inside a git worktree)")
 		r.info("reject:  /reject [reason] (discard pending plan without applying)")
+		r.info("history: /history now lists plans applied/attempted alongside recent turns + compacted index")
 		r.info("version: /version (or /v) prints the build identifier")
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
@@ -1085,11 +1099,90 @@ func (r *REPL) handlePlanCmd(line string) {
 		fmt.Fprintf(r.out, "  %d plan(s) in %s (newest first):\n", len(infos), r.planStore.PlanDir())
 		for _, inf := range infos {
 			ts := time.Unix(0, inf.ModTime).Format("2006-01-02 15:04:05")
-			fmt.Fprintf(r.out, "    - [%s] %s (%d bytes)\n", ts, inf.ID, inf.SizeB)
+			status := inf.Status
+			if status == "" {
+				status = "unknown"
+			}
+			fmt.Fprintf(r.out, "    - [%s] %s  status=%s  (%d bytes)\n",
+				ts, inf.ID, status, inf.SizeB)
 		}
 	default:
 		r.warn("unknown /plan subcommand %q — expected: show, clear, list\n", rest)
 	}
+}
+
+// collectPlanHistory enumerates saved plans and pairs each with its
+// sibling ChangeReport (if one exists on disk). Returns one oneLine
+// row per plan for /history rendering. An empty return means no
+// plans exist OR PlanStore is nil (B-polish.6).
+//
+// Example row shapes:
+//
+//	plan-abc  status=applied           tests=12/12 passed
+//	plan-def  status=verify_failed     tests=3/5 passed: TestA, TestB
+//	plan-ghi  status=pending_approval  (no report)
+func (r *REPL) collectPlanHistory() []string {
+	if r.planStore == nil {
+		return nil
+	}
+	infos, err := r.planStore.List()
+	if err != nil {
+		logging.Warning("[repl] plan history: list failed: %v", err)
+		return nil
+	}
+	if len(infos) == 0 {
+		return nil
+	}
+	var rows []string
+	for _, inf := range infos {
+		status := inf.Status
+		if status == "" {
+			status = "unknown"
+		}
+		reportPath := strings.TrimSuffix(inf.Path, ".json") + ".report.json"
+		row := fmt.Sprintf("%s  status=%s", inf.ID, status)
+		if data, rerr := os.ReadFile(reportPath); rerr == nil {
+			// Minimal JSON probe so we don't pull the full
+			// types.ChangeReport shape into this package beyond
+			// what /history needs to render.
+			var probe struct {
+				Passed      bool `json:"passed"`
+				TestResults []struct {
+					AssertionID string `json:"assertion_id"`
+					Passed      bool   `json:"passed"`
+				} `json:"test_results"`
+			}
+			if jerr := json.Unmarshal(data, &probe); jerr == nil {
+				total := len(probe.TestResults)
+				passed := 0
+				var failed []string
+				for _, tr := range probe.TestResults {
+					if tr.Passed {
+						passed++
+					} else {
+						failed = append(failed, tr.AssertionID)
+					}
+				}
+				row += fmt.Sprintf("  tests=%d/%d passed", passed, total)
+				if len(failed) > 0 {
+					const maxFailingShown = 3
+					shown := failed
+					suffix := ""
+					if len(shown) > maxFailingShown {
+						shown = shown[:maxFailingShown]
+						suffix = fmt.Sprintf(" (+%d more)", len(failed)-maxFailingShown)
+					}
+					row += ": " + strings.Join(shown, ", ") + suffix
+				}
+			} else {
+				row += "  (report unreadable)"
+			}
+		} else {
+			row += "  (no report)"
+		}
+		rows = append(rows, row)
+	}
+	return rows
 }
 
 // handleApproveCmd consumes the REPL's pending ChangePlan by triggering
@@ -1213,7 +1306,10 @@ func (r *REPL) handleApproveCmd(line string) {
 	} else {
 		r.renderBordered(response)
 	}
-	r.recordTurn(request, request, memResponse, memory.KindPipeline)
+	// KindPlan classifies this turn distinctly from chitchat /
+	// pipeline so future /history filters + the memory retrieval
+	// policy can surface plan outcomes explicitly.
+	r.recordTurn(request, request, memResponse, memory.KindPlan)
 
 	// Apply is terminal. On success, the worktree has been discarded
 	// (orchestrator defer); on partial failure, TaskState.LastError
@@ -1260,7 +1356,9 @@ func (r *REPL) handleRejectCmd(line string) {
 	if reason != "" {
 		request = "/reject " + reason
 	}
-	r.recordTurn(request, request, msg, memory.KindPipeline)
+	// Reject is still a plan-lifecycle event; use KindPlan so it
+	// shows up in the same /history filter as approvals.
+	r.recordTurn(request, request, msg, memory.KindPlan)
 }
 
 // handleLogCmd dispatches the `/log` subcommands. Recognised forms:

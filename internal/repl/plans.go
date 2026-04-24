@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -138,6 +139,9 @@ type PlanInfo struct {
 	Path    string // absolute file path
 	SizeB   int64  // file size in bytes
 	ModTime int64  // last modification unix-nano
+	Status  string // PlanStatus* from types/change_plan.go; empty when JSON
+	// was unreadable (List logs + continues so one corrupt file
+	// doesn't break enumeration).
 }
 
 // List enumerates every <id>.json file under planDir and returns
@@ -171,17 +175,37 @@ func (s *PlanStore) List() ([]PlanInfo, error) {
 		if !strings.HasSuffix(name, ".json") {
 			continue
 		}
+		// Skip sibling ChangeReport files; they live next to plans
+		// as <id>.report.json and would otherwise double each plan
+		// row in /plan list + /history.
+		if strings.HasSuffix(name, ".report.json") {
+			continue
+		}
 		info, err := e.Info()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "PlanStore.List: stat %s: %v\n", name, err)
 			continue
 		}
 		id := strings.TrimSuffix(name, ".json")
+		// Peek into the plan JSON for Status. List already walks
+		// the whole dir so one extra read per plan is cheap; the
+		// alternative (holding an in-memory cache) adds complexity
+		// without speed benefit at typical plan counts (<100).
+		status := ""
+		if data, rerr := os.ReadFile(filepath.Join(s.planDir, name)); rerr == nil {
+			var probe struct {
+				Status string `json:"status"`
+			}
+			if jerr := json.Unmarshal(data, &probe); jerr == nil {
+				status = probe.Status
+			}
+		}
 		out = append(out, PlanInfo{
 			ID:      id,
 			Path:    filepath.Join(s.planDir, name),
 			SizeB:   info.Size(),
 			ModTime: info.ModTime().UnixNano(),
+			Status:  status,
 		})
 	}
 	// Newest-first so the user's recent plans appear at the top of
@@ -190,6 +214,41 @@ func (s *PlanStore) List() ([]PlanInfo, error) {
 		return out[i].ModTime > out[j].ModTime
 	})
 	return out, nil
+}
+
+// UpdateStatus reads the plan JSON, mutates the Status (and
+// optionally AppliedCommitSHA / WorktreePath / AppliedAt when
+// the caller passes non-zero values), and rewrites the file.
+// Used by runApplyPhase + runVerifyPhase to track plan lifecycle
+// so /plan list can show which plans were applied vs failed.
+//
+// Idempotent: calling with the same status re-serialises without
+// behavioural change. Missing plan file → error with the path;
+// the caller typically logs and proceeds because failure to
+// persist status doesn't break the apply / verify flow itself.
+//
+// Thread-safe against concurrent reads via s.mu but NOT against
+// concurrent writers; the REPL is single-goroutine so this is
+// fine for codrax's current usage model.
+func (s *PlanStore) UpdateStatus(id, status string, appliedAt *time.Time) error {
+	if s == nil {
+		return fmt.Errorf("PlanStore.UpdateStatus: nil store")
+	}
+	if strings.TrimSpace(id) == "" {
+		return fmt.Errorf("PlanStore.UpdateStatus: empty id")
+	}
+	plan, err := s.Load(id)
+	if err != nil {
+		return fmt.Errorf("UpdateStatus load: %w", err)
+	}
+	plan.Status = status
+	if appliedAt != nil {
+		plan.AppliedAt = appliedAt
+	}
+	if _, err := s.Save(plan); err != nil {
+		return fmt.Errorf("UpdateStatus save: %w", err)
+	}
+	return nil
 }
 
 // Clear removes <id>.json from the plan directory. Returns nil when

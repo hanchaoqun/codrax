@@ -739,6 +739,7 @@ func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 	// Substep 4: dispatch coder.
 	out, err := o.dispatchStage(types.StageApply)
 	if err != nil {
+		o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
 		return fmt.Errorf("apply phase dispatch: %w", err)
 	}
 	if out != nil && out.Error != "" {
@@ -746,6 +747,7 @@ func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 		// verbatim — it already carries the specific missing path
 		// or tool-rejection reason.
 		o.busCtx.Mutable.SetResult(out.Error)
+		o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
 		return fmt.Errorf("apply phase: %s", out.Error)
 	}
 
@@ -758,6 +760,10 @@ func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, sess.Path()))
 	logging.Info("[orchestrator] apply phase: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
+	// Apply landed — verify will decide the final status. Intermediate
+	// state is intentionally NOT persisted here because a verify-
+	// failure path flips to PlanStatusVerifyFailed a few milliseconds
+	// later, and a two-write sequence would double up on stat noise.
 	return nil
 }
 
@@ -824,10 +830,12 @@ func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
 	}
 
 	if out != nil && out.Error != "" {
-		// B1 Q3: fail-loud, no auto-retry. Surface the verifier's
-		// narrative (which usually already contains the failing
-		// test names + any LLM-added context).
+		// Surface the verifier's narrative (failing test names +
+		// any LLM-added context). B2.3 retry loop may catch this
+		// and dispatch another plan→apply→verify cycle; when the
+		// retry budget is exhausted the user sees the message here.
 		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error))
+		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
 		return fmt.Errorf("verify phase: %s", out.Error)
 	}
 
@@ -837,7 +845,36 @@ func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
 	// "what tests passed".
 	existing := o.busCtx.Mutable.Result()
 	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report))
+	now := time.Now()
+	o.persistPlanStatus(types.PlanStatusApplied, &now)
 	return nil
+}
+
+// persistPlanStatus updates the on-disk plan JSON's Status field
+// (+ AppliedAt when provided) so /plan list reflects the current
+// lifecycle state. Non-fatal: every failure is a warning because
+// losing the status update doesn't invalidate the Run's actual
+// apply/verify behaviour, just its audit trail.
+//
+// Skips silently when PlanPath is empty (Mutable-only plan mode
+// without an on-disk sibling, typical of pure-memory tests) or
+// when Mutable has no plan at all.
+func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
+	if o.busCtx == nil {
+		return
+	}
+	path := o.busCtx.PlanPath
+	if path == "" {
+		// In REPL plan-mode flow, the PlanStore writes the file AFTER
+		// Run returns, so there's nothing on disk to update from here.
+		// The REPL layer is responsible for that post-Run save.
+		return
+	}
+	if err := types.UpdatePlanStatusOnDisk(path, status, appliedAt); err != nil {
+		logging.Warning("[orchestrator] plan status update failed: %v", err)
+	} else {
+		logging.Info("[orchestrator] plan status updated: %s → %s", path, status)
+	}
 }
 
 // prepareVerifyRetry cleans write-mode state between retry

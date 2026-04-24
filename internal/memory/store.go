@@ -100,6 +100,14 @@ const (
 	// entity-weighted compacted recall (entities count 3x keywords)
 	// because pipeline answers anchor on source symbols.
 	KindPipeline Kind = "pipeline"
+	// KindPlan = REPL turn that consumed a ChangePlan via /approve
+	// (or rejected via /reject). Recorded by handleApproveCmd /
+	// handleRejectCmd so the memory index chains plan outcomes to
+	// their originating user requests (via Turn.Refs →
+	// ChangePlan.TriggerTurnID). Retrieval shares the pipeline
+	// policy for now — plan turns are infrequent but behave like
+	// pipeline turns for entity-based recall.
+	KindPlan Kind = "plan"
 )
 
 // Turn is one user request + assembled assistant response.

@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,10 +13,9 @@ import (
 	"github.com/hanchaoqun/codrax/internal/types"
 )
 
-// ApplyPatch is the apply-stage's structured write tool. B1 ships
-// real implementations for kind=create / modify / delete; kind=patch
-// remains a fail-loud stub pending B2's unified-diff apply path
-// (git-apply integration).
+// ApplyPatch is the apply-stage's structured write tool. Supports
+// all four change kinds: create / modify (full body), delete, and
+// patch (unified diff piped through `git apply` inside the worktree).
 //
 // Control flow per successful apply:
 //  1. Decode params (strict: DisallowUnknownFields).
@@ -27,7 +27,8 @@ import (
 //     without touching the filesystem (LLM re-emission is a no-op).
 //  6. File I/O against ctx.RepoRoot (which runApplyPhase swapped to
 //     the worktree directory). create / modify write a full body;
-//     delete removes the file; patch returns "not implemented in B1".
+//     delete removes the file; patch feeds `git apply -` a unified
+//     diff.
 //  7. On success, WriteClosure.MarkApplied(path) so subsequent W1b
 //     checks on units that depend on this one pass.
 //
@@ -55,11 +56,11 @@ type applyPatchParams struct {
 // Name returns the tool's stable identifier.
 func (t *ApplyPatch) Name() string { return "apply_patch" }
 
-// Description — one sentence + B1 scope note so operators reading
-// tool logs know the kind=patch stub boundary.
+// Description — one sentence scope line that matches the current
+// four-way dispatch (create / modify / delete / patch).
 func (t *ApplyPatch) Description() string {
 	return "Apply a single ChangeUnit from the active ChangePlan to the worktree. " +
-		"Supports kind=create|modify|delete in B1; kind=patch returns 'not yet implemented' until B2."
+		"Supports kind=create|modify|delete|patch. For patch, a unified-diff payload is piped to `git apply`."
 }
 
 // Parameters returns the tool's JSON schema. Shape unchanged from
@@ -85,7 +86,7 @@ func (t *ApplyPatch) Parameters() json.RawMessage {
     },
     "patch": {
       "type": "string",
-      "description": "Unified-diff payload for kind=patch. Not yet implemented in B1 — use kind=create|modify|delete for the apply path instead."
+      "description": "Unified-diff payload for kind=patch. Piped to git apply inside the worktree; must apply cleanly against the current file content."
     }
   },
   "required": ["path", "kind"]
@@ -182,12 +183,27 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			fmt.Sprintf("apply_patch: %q already applied (idempotent no-op)", path)), nil
 	}
 
-	// Patch kind — B1 stub, B2 implements via `git apply`.
+	// Patch kind — B2: pipe the unified diff into `git apply -` inside
+	// the worktree. Path-level W1/W1b/idempotency already passed; git
+	// apply additionally validates the hunks match the current file
+	// content and refuses to partially-apply on conflict.
 	if kind == "patch" {
-		return errResult(t.Name(),
-			fmt.Sprintf("apply_patch rejected: kind=patch not yet implemented in B1 (path %q). "+
-				"Use kind=modify with full file body as a temporary workaround, or wait for B2.",
-				path)), nil
+		if strings.TrimSpace(p.Patch) == "" {
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch rejected: kind=patch requires non-empty 'patch' (unified diff) for %q", path)), nil
+		}
+		if p.NewContent != "" {
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch rejected: kind=patch must not carry new_content (%q); use one or the other", path)), nil
+		}
+		if err := applyUnifiedDiff(ctx.RepoRoot, p.Patch); err != nil {
+			return errResult(t.Name(),
+				fmt.Sprintf("apply_patch: git apply failed for %q: %v", path, err)), nil
+		}
+		ctx.Mutable.WriteClosure().MarkApplied(path)
+		logging.Info("[apply_patch] patch %s (worktree=%s)", path, ctx.RepoRoot)
+		return okResult(t.Name(),
+			fmt.Sprintf("apply_patch: patch %q applied to worktree via git apply", path)), nil
 	}
 
 	// Resolve absolute path against the swapped RepoRoot. Day-2
@@ -306,4 +322,58 @@ func okResult(name, summary string) types.ToolResult {
 		Summary:   summary,
 		Timestamp: time.Now(),
 	}
+}
+
+// applyUnifiedDiff pipes a unified-diff text into `git apply -`
+// running inside worktreeRoot, returning a combined-output error
+// when git rejects the patch. The caller guarantees worktreeRoot
+// is a valid git checkout (the orchestrator's worktree session).
+//
+// Failure modes surfaced verbatim: context mismatch ("patch does
+// not apply"), malformed hunk headers, path escape, binary
+// patches (unsupported — planner should use kind=modify for those).
+//
+// Why `git apply` rather than `patch(1)`: git apply understands
+// git-specific diff metadata (a/ b/ prefixes, mode changes, rename
+// hints) that the emit_change_plan schema allows in the Patch
+// field. Falling back to patch(1) would require stripping that
+// metadata, breaking non-trivial diffs.
+func applyUnifiedDiff(worktreeRoot, patchText string) error {
+	cmd, cancel, stdin, err := NewGitCommandWithStdin(nil, "apply", "-")
+	if err != nil {
+		return fmt.Errorf("setup stdin pipe: %w", err)
+	}
+	defer cancel()
+	cmd.Dir = worktreeRoot
+	// Feed the patch + close stdin in a goroutine so the outer
+	// CombinedOutput can read stderr simultaneously — a wedged
+	// git writer would otherwise deadlock.
+	var feedErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, werr := io.WriteString(stdin, patchText)
+		if werr != nil {
+			feedErr = werr
+		}
+		if cerr := stdin.Close(); cerr != nil && feedErr == nil {
+			feedErr = cerr
+		}
+	}()
+	out, runErr := cmd.CombinedOutput()
+	<-done
+	if feedErr != nil {
+		return fmt.Errorf("pipe patch to git apply: %w", feedErr)
+	}
+	if runErr != nil {
+		// git apply emits the rejection reason on stderr; surface
+		// it verbatim so the retry-hint / user error message names
+		// the actual hunk / context that failed.
+		outTrim := strings.TrimSpace(string(out))
+		if outTrim == "" {
+			outTrim = runErr.Error()
+		}
+		return fmt.Errorf("%s", outTrim)
+	}
+	return nil
 }

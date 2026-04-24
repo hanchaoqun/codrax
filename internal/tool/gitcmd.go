@@ -2,6 +2,7 @@ package tool
 
 import (
 	"context"
+	"io"
 	"os/exec"
 	"time"
 )
@@ -42,4 +43,31 @@ func newGitCommand(parent context.Context, timeout time.Duration, args ...string
 	}
 	ctx, cancel := context.WithTimeout(parent, timeout)
 	return exec.CommandContext(ctx, "git", args...), cancel
+}
+
+// NewGitCommandWithStdin is like NewGitCommand but the caller can
+// feed the command's stdin via the returned io.Writer. Used by
+// apply_patch's kind=patch branch: `git apply -` reads a unified
+// diff from stdin and applies it to the working tree.
+//
+// The pipe is set up via cmd.StdinPipe(); callers MUST Close it
+// after writing so `git apply` knows the patch is complete. Typical
+// usage:
+//
+//	cmd, cancel, stdin, err := NewGitCommandWithStdin(nil, "apply", "-")
+//	if err != nil { ... }
+//	defer cancel()
+//	go func() { io.WriteString(stdin, patchText); stdin.Close() }()
+//	out, runErr := cmd.CombinedOutput()
+//
+// Returns (cmd, cancel, stdinPipe, pipeError). When pipeError is
+// non-nil the cmd is unusable; callers still must call cancel
+// (which is safe even when the context fires before Run).
+func NewGitCommandWithStdin(parent context.Context, args ...string) (*exec.Cmd, context.CancelFunc, io.WriteCloser, error) {
+	cmd, cancel := newGitCommand(parent, gitMetadataTimeout, args...)
+	pipe, err := cmd.StdinPipe()
+	if err != nil {
+		return cmd, cancel, nil, err
+	}
+	return cmd, cancel, pipe, nil
 }

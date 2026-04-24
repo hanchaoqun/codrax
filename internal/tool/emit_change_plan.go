@@ -267,7 +267,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		SessionID:     "", // same as above
 		Request:       strings.TrimSpace(p.Request),
 		Summary:       strings.TrimSpace(p.Summary),
-		Status:        "pending_approval",
+		Status:        types.PlanStatusPending,
 		CreatedAt:     now,
 	}
 	paths := make(map[string]struct{})

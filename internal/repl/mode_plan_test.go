@@ -174,11 +174,11 @@ func TestHandlePlan_ClearEmpty(t *testing.T) {
 }
 
 // TestHandlePlan_List verifies /plan list enumerates saved plans
-// with newest first.
+// with newest first AND renders the per-plan Status column.
 func TestHandlePlan_List(t *testing.T) {
 	store := NewPlanStore(t.TempDir())
-	p1 := &types.ChangePlan{ID: "plan-a", Summary: "first", Status: "pending_approval"}
-	p2 := &types.ChangePlan{ID: "plan-b", Summary: "second", Status: "pending_approval"}
+	p1 := &types.ChangePlan{ID: "plan-a", Summary: "first", Status: types.PlanStatusPending}
+	p2 := &types.ChangePlan{ID: "plan-b", Summary: "second", Status: types.PlanStatusApplied}
 	if _, err := store.Save(p1); err != nil {
 		t.Fatalf("Save p1: %v", err)
 	}
@@ -197,6 +197,54 @@ func TestHandlePlan_List(t *testing.T) {
 	}
 	if !strings.Contains(rendered, "2 plan(s)") {
 		t.Errorf("expected '2 plan(s)' header, got: %q", rendered)
+	}
+	// Status column must show each plan's state, not just the ID.
+	if !strings.Contains(rendered, "status=pending_approval") {
+		t.Errorf("expected pending_approval status; got: %q", rendered)
+	}
+	if !strings.Contains(rendered, "status=applied") {
+		t.Errorf("expected applied status; got: %q", rendered)
+	}
+}
+
+// TestPlanStore_ListCarriesStatus exercises the JSON probe inside
+// List: after Save, a subsequent List must surface the plan's
+// Status field.
+func TestPlanStore_ListCarriesStatus(t *testing.T) {
+	store := NewPlanStore(t.TempDir())
+	plan := &types.ChangePlan{ID: "plan-probe", Summary: "x", Status: types.PlanStatusVerifyFailed}
+	if _, err := store.Save(plan); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	infos, err := store.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	if len(infos) != 1 {
+		t.Fatalf("want 1 PlanInfo; got %d", len(infos))
+	}
+	if infos[0].Status != types.PlanStatusVerifyFailed {
+		t.Errorf("PlanInfo.Status = %q, want %q", infos[0].Status, types.PlanStatusVerifyFailed)
+	}
+}
+
+// TestPlanStore_UpdateStatus_PersistsToDisk verifies PlanStore's
+// UpdateStatus wrapper round-trips through the on-disk JSON.
+func TestPlanStore_UpdateStatus_PersistsToDisk(t *testing.T) {
+	store := NewPlanStore(t.TempDir())
+	plan := &types.ChangePlan{ID: "plan-upd", Summary: "x", Status: types.PlanStatusPending}
+	if _, err := store.Save(plan); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.UpdateStatus("plan-upd", types.PlanStatusRejected, nil); err != nil {
+		t.Fatalf("UpdateStatus: %v", err)
+	}
+	reloaded, err := store.Load("plan-upd")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if reloaded.Status != types.PlanStatusRejected {
+		t.Errorf("Status = %q, want %q", reloaded.Status, types.PlanStatusRejected)
 	}
 }
 

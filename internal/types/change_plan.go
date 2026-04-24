@@ -9,6 +9,30 @@ import (
 	"time"
 )
 
+// Plan status enum — legal values of ChangePlan.Status. The plan
+// moves through these monotonically during a single apply Run;
+// /plan list reads the string back to colour each row. Values are
+// baked into the JSON schema so external tools (CI hooks that
+// scan .codrax/plans/ for auditing) can filter deterministically.
+const (
+	// PlanStatusPending is the plan's initial state emitted by the
+	// planner. Awaiting /approve (REPL) or --auto-apply (single-shot).
+	PlanStatusPending = "pending_approval"
+	// PlanStatusApplied means apply + verify both succeeded.
+	PlanStatusApplied = "applied"
+	// PlanStatusApplyFailed means apply_patch rejected a change
+	// (W1 / W1b violation, git-apply refusal, stat error). Verify
+	// never ran.
+	PlanStatusApplyFailed = "applied_failed"
+	// PlanStatusVerifyFailed means apply landed but verify's tests
+	// failed. Distinct from applied_failed so operators can tell
+	// "plan was broken" from "plan applied but surface regressed".
+	PlanStatusVerifyFailed = "verify_failed"
+	// PlanStatusRejected is set by /reject — user reviewed the
+	// plan and decided not to approve it.
+	PlanStatusRejected = "rejected"
+)
+
 // ChangePlan is the Plan stage's on-disk artifact — a structured
 // description of the code change the planner intends to apply. Stored
 // as .codrax/plans/<id>.json by emit_change_plan.Execute, consumed by
@@ -75,8 +99,10 @@ type ChangePlan struct {
 	// reaches outside this list.
 	TargetPaths []string `json:"target_paths"`
 
-	// Status transitions: "pending_approval" → "approved" → "applied"
-	// (on success) or "rejected" / "applied_failed" on failure.
+	// Status transitions — see the PlanStatus* constants below.
+	// Legal values: pending_approval, approved, applied,
+	// applied_failed (apply tool failed), verify_failed (tests
+	// failed post-apply), rejected.
 	Status string `json:"status"`
 
 	// AppliedCommitSHA is the git commit SHA produced inside the
@@ -268,6 +294,42 @@ func WriteChangeReportToFile(report *ChangeReport, path string) error {
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		return fmt.Errorf("WriteChangeReportToFile: write %s: %w", path, err)
+	}
+	return nil
+}
+
+// UpdatePlanStatusOnDisk reads the plan JSON at path, replaces
+// its Status (and optionally AppliedAt), and rewrites the file.
+// Used by runApplyPhase / runVerifyPhase to record transitions
+// (pending → applied / applied_failed / verify_failed) so
+// /plan list in the REPL shows current lifecycle state.
+//
+// Preserves all other fields byte-for-byte via unmarshal →
+// mutate → marshal; callers rely on this so AppliedCommitSHA /
+// WorktreePath / TriggerTurnID survive the update.
+//
+// Non-fatal: when path is empty or the file is missing, returns
+// an error that the caller typically logs and swallows (failing
+// to persist status must not break apply/verify itself).
+func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time) error {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return fmt.Errorf("UpdatePlanStatusOnDisk: empty path")
+	}
+	plan, err := LoadChangePlanFromFile(path)
+	if err != nil {
+		return fmt.Errorf("UpdatePlanStatusOnDisk load: %w", err)
+	}
+	plan.Status = status
+	if appliedAt != nil {
+		plan.AppliedAt = appliedAt
+	}
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return fmt.Errorf("UpdatePlanStatusOnDisk marshal: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		return fmt.Errorf("UpdatePlanStatusOnDisk write %s: %w", path, err)
 	}
 	return nil
 }

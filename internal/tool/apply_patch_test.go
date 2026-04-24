@@ -227,18 +227,157 @@ func TestApplyPatch_NoPlan(t *testing.T) {
 	}
 }
 
-// TestApplyPatch_PatchKindStubbed verifies B1 stubbing of kind=patch.
-func TestApplyPatch_PatchKindStubbed(t *testing.T) {
+// gitWorktreeFixture initialises a git repo inside t.TempDir() with
+// a single committed file, then returns a BusContext rooted at that
+// path + a ChangePlan declaring "file.txt" as a patch target. Skips
+// the test when git isn't available. Used by the kind=patch tests
+// so they can exercise `git apply` end-to-end.
+func gitWorktreeFixture(t *testing.T, seedContent string) *types.BusContext {
+	t.Helper()
+	if !GitAvailable() {
+		t.Skip("git not available; skipping kind=patch tests")
+	}
+	dir := t.TempDir()
+	run := func(args ...string) {
+		t.Helper()
+		cmd, cancel := NewGitCommand(nil, args...)
+		defer cancel()
+		cmd.Dir = dir
+		// Suppress author prompts — git commit needs identity.
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=test", "GIT_AUTHOR_EMAIL=test@example.com",
+			"GIT_COMMITTER_NAME=test", "GIT_COMMITTER_EMAIL=test@example.com")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	run("init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte(seedContent), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+	run("add", "file.txt")
+	run("commit", "-q", "-m", "seed")
+
+	ctx := &types.BusContext{
+		RepoRoot: dir,
+		Mutable:  types.NewMutableState("test"),
+	}
+	ctx.Mutable.SetChangePlan(&types.ChangePlan{
+		ID: "plan-patch",
+		Changes: []types.FileChange{
+			{Path: "file.txt", Kind: "patch", Rationale: "test"},
+		},
+		TargetPaths: []string{"file.txt"},
+	})
+	return ctx
+}
+
+// TestApplyPatch_PatchHappyPath verifies a valid unified diff
+// applies cleanly and WriteClosure records the path.
+func TestApplyPatch_PatchHappyPath(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "hello\nworld\n")
+	tool := &ApplyPatch{}
+
+	// Unified diff: change "world" → "codrax".
+	patch := `--- a/file.txt
++++ b/file.txt
+@@ -1,2 +1,2 @@
+ hello
+-world
++codrax
+`
+	params, err := json.Marshal(map[string]string{
+		"path":  "file.txt",
+		"kind":  "patch",
+		"patch": patch,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	res, _ := tool.Execute(ctx, json.RawMessage(params))
+	if !res.Success {
+		t.Fatalf("Success=false; summary=%q", res.Summary)
+	}
+	got, err := os.ReadFile(filepath.Join(ctx.RepoRoot, "file.txt"))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(got) != "hello\ncodrax\n" {
+		t.Errorf("file content = %q, want %q", string(got), "hello\ncodrax\n")
+	}
+	if !ctx.Mutable.WriteClosure().HasApplied("file.txt") {
+		t.Error("WriteClosure should record the patched path")
+	}
+}
+
+// TestApplyPatch_PatchEmpty verifies we reject an empty patch
+// payload (LLM forgot to fill the field).
+func TestApplyPatch_PatchEmpty(t *testing.T) {
 	plan := simplePlan("patch", "file.go", "")
 	ctx := applyPatchFixture(t, plan)
 	tool := &ApplyPatch{}
-	params := json.RawMessage(`{"path":"file.go","kind":"patch","patch":"@@ ... @@"}`)
+	params := json.RawMessage(`{"path":"file.go","kind":"patch","patch":""}`)
 	res, _ := tool.Execute(ctx, params)
 	if res.Success {
-		t.Fatal("kind=patch should return stub error in B1")
+		t.Fatal("empty patch should be rejected")
 	}
-	if !strings.Contains(res.Summary, "B2") {
-		t.Errorf("summary should reference B2; got %q", res.Summary)
+	if !strings.Contains(res.Summary, "non-empty") {
+		t.Errorf("summary should explain the empty-patch rejection; got %q", res.Summary)
+	}
+}
+
+// TestApplyPatch_PatchWithNewContentRejected verifies we refuse the
+// "both fields set" ambiguity — exactly one of patch / new_content.
+func TestApplyPatch_PatchWithNewContentRejected(t *testing.T) {
+	plan := simplePlan("patch", "file.go", "")
+	ctx := applyPatchFixture(t, plan)
+	tool := &ApplyPatch{}
+	params := json.RawMessage(`{"path":"file.go","kind":"patch","patch":"diff","new_content":"body"}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("patch + new_content ambiguity should be rejected")
+	}
+	if !strings.Contains(res.Summary, "new_content") {
+		t.Errorf("summary should name the conflicting field; got %q", res.Summary)
+	}
+}
+
+// TestApplyPatch_PatchRejectedByGit verifies a context-mismatched
+// patch surfaces git's own rejection reason, not a silent success.
+func TestApplyPatch_PatchRejectedByGit(t *testing.T) {
+	ctx := gitWorktreeFixture(t, "hello\nworld\n")
+	tool := &ApplyPatch{}
+
+	// Patch targets lines that don't exist ("foo" / "bar" not in seed).
+	badPatch := `--- a/file.txt
++++ b/file.txt
+@@ -1,2 +1,2 @@
+ foo
+-bar
++baz
+`
+	params, err := json.Marshal(map[string]string{
+		"path":  "file.txt",
+		"kind":  "patch",
+		"patch": badPatch,
+	})
+	if err != nil {
+		t.Fatalf("marshal params: %v", err)
+	}
+	res, _ := tool.Execute(ctx, json.RawMessage(params))
+	if res.Success {
+		t.Fatal("mismatched-context patch should fail")
+	}
+	if !strings.Contains(res.Summary, "git apply failed") {
+		t.Errorf("summary should mention git apply failure; got %q", res.Summary)
+	}
+	// File should be unchanged.
+	got, err := os.ReadFile(filepath.Join(ctx.RepoRoot, "file.txt"))
+	if err != nil {
+		t.Fatalf("read file: %v", err)
+	}
+	if string(got) != "hello\nworld\n" {
+		t.Errorf("file should be unchanged after failed patch; got %q", string(got))
 	}
 }
 
