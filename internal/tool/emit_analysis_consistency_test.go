@@ -81,3 +81,44 @@ func TestEmitAnalysisSchemaMatchesContract(t *testing.T) {
 			parsed.Required, wantRequired)
 	}
 }
+
+func TestEmitAnalysisSchemaIncludesDiagramHintEnum(t *testing.T) {
+	var parsed struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	raw := (&EmitAnalysis{}).Parameters()
+	if err := json.Unmarshal(raw, &parsed); err != nil {
+		t.Fatalf("emit_analysis schema is not valid JSON: %v\nraw=%s", err, string(raw))
+	}
+	propRaw, ok := parsed.Properties["diagram_hint"]
+	if !ok {
+		t.Fatal("emit_analysis schema is missing property \"diagram_hint\"")
+	}
+	var prop struct {
+		Type       string `json:"type"`
+		Properties map[string]struct {
+			Type string   `json:"type"`
+			Enum []string `json:"enum"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(propRaw, &prop); err != nil {
+		t.Fatalf("diagram_hint property is not valid JSON schema: %v\nraw=%s", err, string(propRaw))
+	}
+	if prop.Type != "object" {
+		t.Fatalf("diagram_hint type = %q, want object", prop.Type)
+	}
+	kindProp, ok := prop.Properties["kind"]
+	if !ok {
+		t.Fatal("diagram_hint.kind missing from schema")
+	}
+	if kindProp.Type != "string" {
+		t.Fatalf("diagram_hint.kind type = %q, want string", kindProp.Type)
+	}
+	if !reflect.DeepEqual(kindProp.Enum, skill.AnalysisDiagramKindValues()) {
+		t.Fatalf("diagram_hint.kind enum drift:\n  schema:   %v\n  contract: %v", kindProp.Enum, skill.AnalysisDiagramKindValues())
+	}
+	if len(prop.Required) != 1 || prop.Required[0] != "kind" {
+		t.Fatalf("diagram_hint required = %v, want [kind]", prop.Required)
+	}
+}

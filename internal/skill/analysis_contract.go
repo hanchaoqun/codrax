@@ -168,6 +168,26 @@ func AnalysisAnswerSubjectChoices() []AnalysisEnumChoice { return analysisAnswer
 // in canonical order. The emit_analysis JSON schema reads this slice.
 func AnalysisAnswerSubjectValues() []string { return enumValues(analysisAnswerSubjects) }
 
+// analysisDiagramKinds is the canonical diagram_hint.kind enum. The
+// analyzer LLM may suggest a diagram family, but the deterministic
+// compiler still derives the final DiagramContract from stronger
+// structural signals (shape / intent / predicate_axis / log-triage /
+// cross-component predicates). Omit the field when there is no clear
+// diagram preference.
+var analysisDiagramKinds = []AnalysisEnumChoice{
+	{string(types.DiagramCallDAG), "call chain / dispatch / fan-out / root-to-callee structure"},
+	{string(types.DiagramFlow), "flow / branch / guard / fallback / retry logic"},
+	{string(types.DiagramSequence), "actor-to-actor temporal ordering over time"},
+	{string(types.DiagramArchitecture), "component / layer / subsystem relationship view"},
+}
+
+// AnalysisDiagramKindChoices returns the canonical diagram_hint.kind enum table.
+func AnalysisDiagramKindChoices() []AnalysisEnumChoice { return analysisDiagramKinds }
+
+// AnalysisDiagramKindValues returns the diagram_hint.kind enum values
+// in canonical order. The emit_analysis JSON schema reads this slice.
+func AnalysisDiagramKindValues() []string { return enumValues(analysisDiagramKinds) }
+
 // analysisPredicateAxes is the canonical predicate_axis enum. Values
 // match types.PredicateAxis constants. The LLM emits this directly in
 // emit_analysis.predicate_axis (schema v4) — no more prose verb
@@ -320,7 +340,7 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- keywords, entities — string arrays (may be empty).\n")
 	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence, shape_confidence — floats in [0.0, 1.0].\n")
 	of.WriteString("- predicates — object with five required booleans (see Semantic predicates below).\n\n")
-	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), language.\n\n")
+	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), language.\n\n")
 	of.WriteString("Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
 	of.WriteString("Field enums:\n\n")
 	of.WriteString(renderEnumTable("intent", analysisIntents))
@@ -339,6 +359,9 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString(renderEnumTable("predicate_axis", analysisPredicateAxes))
 	of.WriteString("\n")
 	of.WriteString("predicate_axis names the action verb of the question (\"how is X CALLed\" → call; \"how is X REGISTERed\" → register). Pick the value that matches the user's verb regardless of language; leave empty when no clear verb cue exists.\n\n")
+	of.WriteString(renderEnumTable("diagram_hint.kind", analysisDiagramKinds))
+	of.WriteString("\n")
+	of.WriteString("diagram_hint is OPTIONAL. Use it when the question clearly benefits from a structural diagram: `call_dag` for call chains / dispatch / fan-out, `flow` for branches / guards / fallback / retry, `sequence` for actor-to-actor ordering over time, `architecture` for component / layer / subsystem relationships. The deterministic compiler derives the final diagram contract, so omit the field when unsure.\n\n")
 	of.WriteString("## Confidence\n\n")
 	of.WriteString("For intent / complexity / question_kind / answer_shape, also emit a confidence float in [0.0, 1.0]:\n")
 	of.WriteString("- 0.9+ when the user's wording unambiguously dictates the value\n")
@@ -382,7 +405,7 @@ func BuildAnalysisSkill() *Config {
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain AND Round 1 surfaced a declarative file (e.g. a name matching topology / defaults / registry / routes / wire / init / manifest / schema / enum patterns) → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls targeting those declarative files, to peek at the literal forms inside map/struct/enum bodies. Then call emit_analysis regardless of the Round 2 result.",
 			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + answer_shape=value + predicates.is_count_question=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
 			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) and set answer_shape=explanation.",
-			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (five booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration). Optional: sub_topics, answer_subject, predicate_axis, language.",
+			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (five booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, language.",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

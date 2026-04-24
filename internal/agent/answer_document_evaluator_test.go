@@ -110,6 +110,57 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_NoFloorWithoutMustInclu
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractAndSeeds(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeStepList,
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+					ScopeHint:      types.DiagramScopeOverall,
+					Reasons:        []string{"axis_call"},
+				},
+			},
+		},
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/a.go", Line: 10, Func: "inner"},
+					{File: "internal/b.go", Line: 20, Func: "outer"},
+				},
+			}},
+		},
+		FlowFindings: []types.FlowFindingDigest{{
+			Path:       []string{"Dispatch", "Handler"},
+			Conditions: []string{"kind == call"},
+		}},
+		AnswerChains: []types.AnswerChain{{
+			Item: types.EvidenceItem{
+				Summary:   "Dispatch routes to Handler",
+				Source:    "internal/a.go",
+				LineStart: 10,
+			},
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Diagram Contract",
+		"Required: yes",
+		"Preferred kinds: call_dag",
+		"## Diagram Seeds",
+		"### Log Triage",
+		"### Flow Findings",
+		"### Answer Chains",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_LanguageCapture reads language from
 // AgentContext.Language (set by BuildAgentContext from -lang flag).
 func TestAnswerDocumentEvaluator_LanguageCapture(t *testing.T) {
@@ -230,6 +281,50 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectRequestsTargeted
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_MidLoopSummaryCapRejectPreservesRequiredDiagram(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2, diagramRequired: true}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "summary length 2782 exceeds cap 2500 for shape=explanation — shorten the summary",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("summary-cap reject should request a correction hint, got %+v", sig)
+	}
+	if !strings.Contains(sig.Hint, "Preserve the required grounded diagram") {
+		t.Fatalf("diagram-required summary-cap hint must preserve the diagram: %q", sig.Hint)
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "diagram required for this dispatch (preferred kinds: call_dag); summary must include at least 1 grounded triple-backtick diagram block. This obligation is independent of answer shape.",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("missing-diagram reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"grounded diagram",
+		"independent of answer shape",
+		"emit_answer_document",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("missing-diagram hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
 // TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAction
 // pins the session-22 in-dispatch self-correction nudge: when the
 // literal-grounding gate rejects a value-shape citation, the
@@ -249,7 +344,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAc
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary: `value.literal "processRequest" is not corroborated by citations[0] (internal/agent/analyzer.go:1): the cited line and ±3-line window contain no identifier overlap with the literal. If this literal originates from the attached log / external source rather than repo code, set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). Otherwise cite a real file:line where the literal appears.`,
+			Summary:  `value.literal "processRequest" is not corroborated by citations[0] (internal/agent/analyzer.go:1): the cited line and ±3-line window contain no identifier overlap with the literal. If this literal originates from the attached log / external source rather than repo code, set citation_ref=-1 and state in summary that the answer is derived from log semantics (no grounded repo source). Otherwise cite a real file:line where the literal appears.`,
 		},
 	})
 	if !sig.HintRequested {
@@ -628,9 +723,9 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_AllShapes(t *testi
 // it would for a shape with a smaller floor.
 func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_BelowFloorPerShape(t *testing.T) {
 	cases := []struct {
-		shape     types.AnswerShape
-		priorLen  int // just below shape's scaled floor
-		seed      func(doc *types.AnswerDocument)
+		shape    types.AnswerShape
+		priorLen int // just below shape's scaled floor
+		seed     func(doc *types.AnswerDocument)
 	}{
 		// baseline = 400; step_list / list_of_symbols floor = 200; use 180.
 		{

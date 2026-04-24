@@ -29,8 +29,8 @@ func applyPatchFixture(t *testing.T, plan *types.ChangePlan) *types.BusContext {
 // simplePlan is a minimal 1-file plan factory for the happy-path tests.
 func simplePlan(kind, path, content string) *types.ChangePlan {
 	return &types.ChangePlan{
-		ID:      "plan-test",
-		Status:  "pending_approval",
+		ID:     "plan-test",
+		Status: "pending_approval",
 		Changes: []types.FileChange{
 			{Path: path, Kind: kind, NewContent: content, Rationale: "test"},
 		},
@@ -252,6 +252,11 @@ func gitWorktreeFixture(t *testing.T, seedContent string) *types.BusContext {
 		}
 	}
 	run("init", "-q")
+	// Keep patch fixtures deterministic across developer machines:
+	// global autocrlf settings would otherwise rewrite the worktree
+	// content differently on Windows vs. Linux.
+	run("config", "core.autocrlf", "false")
+	run("config", "core.eol", "lf")
 	if err := os.WriteFile(filepath.Join(dir, "file.txt"), []byte(seedContent), 0o644); err != nil {
 		t.Fatalf("seed file: %v", err)
 	}

@@ -255,6 +255,131 @@ func reconcileShape(declared types.AnswerShape, subject types.AnswerSubject, pre
 	return declared, ""
 }
 
+// reconcileDiagramContract derives the finalizer-facing diagram
+// obligation from structural signals. The key design rule is that
+// diagram requirement is orthogonal to answer shape: step_list,
+// explanation, boolean, value, and config_value may all require a
+// grounded diagram when the user is really asking about flow, call
+// relationships, timing, or architecture.
+func reconcileDiagramContract(rm types.RequestModel, shape types.AnswerShape, bundle *types.LogBundle) *types.DiagramContract {
+	var preferred []types.DiagramKind
+	var reasons []string
+	required := false
+
+	addKind := func(kind types.DiagramKind) {
+		if kind == types.DiagramNone || !kind.IsValid() {
+			return
+		}
+		for _, existing := range preferred {
+			if existing == kind {
+				return
+			}
+		}
+		preferred = append(preferred, kind)
+	}
+	addReason := func(reason string) {
+		if reason == "" {
+			return
+		}
+		for _, existing := range reasons {
+			if existing == reason {
+				return
+			}
+		}
+		reasons = append(reasons, reason)
+	}
+	require := func(reason string, kinds ...types.DiagramKind) {
+		required = true
+		addReason(reason)
+		for _, kind := range kinds {
+			addKind(kind)
+		}
+	}
+
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != types.DiagramNone {
+		require("llm_hint", rm.DiagramHint.Kind)
+	}
+	if rm.Intent == types.IntentTrace {
+		require("trace_intent", types.DiagramCallDAG, types.DiagramSequence)
+	}
+	if rm.Scenario == types.ScenarioArchitectureExplain {
+		require("architecture_scenario", types.DiagramArchitecture)
+	}
+	if rm.Predicates.IsCrossComponent {
+		require("cross_component", types.DiagramArchitecture)
+	}
+	if resolvedLogFrameCount(bundle) >= 2 {
+		require("log_call_chain", types.DiagramCallDAG, types.DiagramSequence)
+	}
+
+	switch rm.PredicateAxis {
+	case types.AxisCall:
+		require("axis_call", types.DiagramCallDAG, types.DiagramSequence)
+	case types.AxisCondition:
+		require("axis_condition", types.DiagramFlow)
+	case types.AxisRegister:
+		require("axis_register", types.DiagramArchitecture, types.DiagramCallDAG)
+	case types.AxisConfigure:
+		require("axis_configure", types.DiagramArchitecture, types.DiagramFlow)
+	case types.AxisImplement:
+		require("axis_implement", types.DiagramArchitecture)
+	}
+
+	switch rm.AnalyzerHints.Kind {
+	case "call_chain":
+		require("question_kind_call_chain", types.DiagramCallDAG, types.DiagramSequence)
+	case "conditional":
+		require("question_kind_conditional", types.DiagramFlow)
+	case "registration":
+		require("question_kind_registration", types.DiagramArchitecture, types.DiagramCallDAG)
+	}
+	if shape == types.ShapeStepList {
+		require("step_list_shape", types.DiagramFlow)
+	}
+
+	if !required {
+		return nil
+	}
+	if len(preferred) == 0 {
+		addKind(types.DiagramFlow)
+	}
+	scope := types.DiagramScopeOverall
+	if len(rm.SubTopics) > 1 {
+		scope = types.DiagramScopePerSubTopic
+		addReason("multi_topic_scope")
+	}
+	return &types.DiagramContract{
+		Required:       true,
+		Minimum:        1,
+		PreferredKinds: preferred,
+		ScopeHint:      scope,
+		Reasons:        reasons,
+	}
+}
+
+func resolvedLogFrameCount(bundle *types.LogBundle) int {
+	if bundle == nil {
+		return 0
+	}
+	count := 0
+	var walk func(err *types.LogError)
+	walk = func(err *types.LogError) {
+		if err == nil {
+			return
+		}
+		for _, frame := range err.Frames {
+			if frame.File != "" && frame.Line > 0 {
+				count++
+			}
+		}
+		walk(err.Cause)
+	}
+	for i := range bundle.Errors {
+		walk(&bundle.Errors[i])
+	}
+	return count
+}
+
 // logSubjectInferred + logShapeReconciled are the structural twins of
 // logIntentReconcile. One warning line per actual override. Silent
 // when the rule did not fire.

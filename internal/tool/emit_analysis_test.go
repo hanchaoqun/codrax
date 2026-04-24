@@ -542,6 +542,43 @@ func TestEmitAnalysis_ConfigTraceNoMatchRequiresExactPatternToken(t *testing.T) 
 	}
 }
 
+func TestEmitAnalysis_Execute_PersistsDiagramHint(t *testing.T) {
+	mu := types.NewMutableState("trace the dispatch path")
+	payload := `{
+		"intent": "trace",
+		"scenario": "architecture_explain",
+		"complexity": "moderate",
+		"keywords": ["dispatch", "handler"],
+		"entities": ["Dispatch", "Handler"],
+		"question_kind": "call_chain",
+		"answer_shape": "step_list",
+		"predicate_axis": "call",
+		"diagram_hint": {"kind": "call_dag"}
+	}`
+
+	tool := &EmitAnalysis{}
+	res, err := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(withV4Required(payload)))
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if rm.DiagramHint == nil {
+		t.Fatal("DiagramHint not persisted")
+	}
+	if rm.DiagramHint.Kind != types.DiagramCallDAG {
+		t.Fatalf("DiagramHint.Kind = %q, want %q", rm.DiagramHint.Kind, types.DiagramCallDAG)
+	}
+	if !strings.Contains(res.Summary, "diagram_hint=call_dag") {
+		t.Fatalf("summary missing diagram hint echo: %q", res.Summary)
+	}
+}
+
 // TestComputeAnalysisQualityProbe is a direct unit test of the
 // probe computation helper: case-insensitive substring match,
 // ratio handling, empty-input edge cases.

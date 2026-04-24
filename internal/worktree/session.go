@@ -339,14 +339,10 @@ func InstallSignalHandler() {
 			sig, activeSessionCount())
 		cleanActiveSessions()
 		signal.Stop(ch)
-		// Re-raise so the process dies with the canonical signal
-		// exit code (130 for SIGINT, 143 for SIGTERM). Callers
-		// expecting os.Exit(130) behavior still see it.
-		if ssig, ok := sig.(syscall.Signal); ok {
-			_ = syscall.Kill(os.Getpid(), ssig)
-		} else {
-			os.Exit(1)
-		}
+		// Terminate after cleanup. Unix can re-raise the original
+		// signal so the shell sees the canonical status; Windows
+		// falls back to an equivalent exit code.
+		terminateProcessAfterCleanup(sig)
 	}()
 }
 
@@ -379,6 +375,24 @@ func activeSessionCount() int {
 		return true
 	})
 	return n
+}
+
+// signalExitCode maps the cleanup signal to the shell-visible exit
+// code we preserve when the platform cannot re-raise the signal on
+// itself (for example Windows).
+func signalExitCode(sig os.Signal) int {
+	ssig, ok := sig.(syscall.Signal)
+	if !ok {
+		return 1
+	}
+	switch ssig {
+	case syscall.SIGINT:
+		return 130
+	case syscall.SIGTERM:
+		return 143
+	default:
+		return 1
+	}
 }
 
 // runGitPrune runs `git worktree prune` in mainRoot. Errors are

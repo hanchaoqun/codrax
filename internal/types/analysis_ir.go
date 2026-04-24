@@ -37,7 +37,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v4"
+const AnalysisIRVersion = "v5"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -114,6 +114,13 @@ type RequestModel struct {
 	// axis boost entirely and preserves historical ranking for
 	// questions without a clear verb cue.
 	PredicateAxis PredicateAxis `json:"predicate_axis,omitempty"`
+
+	// DiagramHint is the analyzer LLM's optional suggestion for the
+	// kind of structural diagram that would best communicate the
+	// answer. The deterministic analyzer compiler reconciles this hint
+	// with the resolved shape, predicate axis, intent, cross-component
+	// signals, and log-triage data to derive AnswerContract.Diagram.
+	DiagramHint *DiagramHint `json:"diagram_hint,omitempty"`
 }
 
 // AnswerSubjectKind enumerates the distinct kinds of source-code
@@ -132,19 +139,19 @@ type RequestModel struct {
 type AnswerSubjectKind string
 
 const (
-	SubjectUnknown        AnswerSubjectKind = ""
-	SubjectFunctionName   AnswerSubjectKind = "function_name"
-	SubjectTypeName       AnswerSubjectKind = "type_name"
-	SubjectHandlerRoute   AnswerSubjectKind = "handler_route"
-	SubjectConfigKey      AnswerSubjectKind = "config_key"
-	SubjectReturnValue    AnswerSubjectKind = "return_value"
-	SubjectFilePath       AnswerSubjectKind = "file_path"
-	SubjectStringLiteral  AnswerSubjectKind = "string_literal"
-	SubjectNumeric        AnswerSubjectKind = "numeric"
-	SubjectEnumValue      AnswerSubjectKind = "enum_value"
-	SubjectStructField    AnswerSubjectKind = "struct_field"
-	SubjectInterface      AnswerSubjectKind = "interface_name"
-	SubjectGeneric        AnswerSubjectKind = "generic"
+	SubjectUnknown       AnswerSubjectKind = ""
+	SubjectFunctionName  AnswerSubjectKind = "function_name"
+	SubjectTypeName      AnswerSubjectKind = "type_name"
+	SubjectHandlerRoute  AnswerSubjectKind = "handler_route"
+	SubjectConfigKey     AnswerSubjectKind = "config_key"
+	SubjectReturnValue   AnswerSubjectKind = "return_value"
+	SubjectFilePath      AnswerSubjectKind = "file_path"
+	SubjectStringLiteral AnswerSubjectKind = "string_literal"
+	SubjectNumeric       AnswerSubjectKind = "numeric"
+	SubjectEnumValue     AnswerSubjectKind = "enum_value"
+	SubjectStructField   AnswerSubjectKind = "struct_field"
+	SubjectInterface     AnswerSubjectKind = "interface_name"
+	SubjectGeneric       AnswerSubjectKind = "generic"
 )
 
 // AllAnswerSubjectKinds returns every declared kind in declaration
@@ -565,10 +572,10 @@ const (
 	//     past its configured threshold. Used as SuccessCriterion on
 	//     NodeVerify. Expr is either empty (check all metrics) or a
 	//     specific metric name.
-	CritPlanReady     = "plan_ready"
-	CritPatchApplies  = "patch_applies"
-	CritTestsPass     = "tests_pass"
-	CritNoRegression  = "no_regression"
+	CritPlanReady    = "plan_ready"
+	CritPatchApplies = "patch_applies"
+	CritTestsPass    = "tests_pass"
+	CritNoRegression = "no_regression"
 )
 
 type SearchHints struct {
@@ -647,12 +654,85 @@ type StopCondition struct {
 // ── AnswerContract ──────────────────────────────────────────────────────
 
 type AnswerContract struct {
-	RequiredAnswerShape AnswerShape `json:"required_answer_shape"`
-	MustInclude         []string    `json:"must_include,omitempty"`
-	MustExclude         []string    `json:"must_exclude,omitempty"`
-	CitationReq         CitationReq `json:"citation_requirements"`
-	AcceptanceTests     []Criterion `json:"acceptance_tests,omitempty"`
-	Language            string      `json:"language"`
+	RequiredAnswerShape AnswerShape      `json:"required_answer_shape"`
+	Diagram             *DiagramContract `json:"diagram,omitempty"`
+	MustInclude         []string         `json:"must_include,omitempty"`
+	MustExclude         []string         `json:"must_exclude,omitempty"`
+	CitationReq         CitationReq      `json:"citation_requirements"`
+	AcceptanceTests     []Criterion      `json:"acceptance_tests,omitempty"`
+	Language            string           `json:"language"`
+}
+
+type DiagramKind string
+
+const (
+	DiagramNone         DiagramKind = ""
+	DiagramFlow         DiagramKind = "flow"
+	DiagramSequence     DiagramKind = "sequence"
+	DiagramCallDAG      DiagramKind = "call_dag"
+	DiagramArchitecture DiagramKind = "architecture"
+)
+
+func AllDiagramKinds() []DiagramKind {
+	return []DiagramKind{
+		DiagramNone,
+		DiagramFlow,
+		DiagramSequence,
+		DiagramCallDAG,
+		DiagramArchitecture,
+	}
+}
+
+func (k DiagramKind) IsValid() bool {
+	for _, declared := range AllDiagramKinds() {
+		if k == declared {
+			return true
+		}
+	}
+	return false
+}
+
+type DiagramScope string
+
+const (
+	DiagramScopeOverall     DiagramScope = "overall"
+	DiagramScopePerSubTopic DiagramScope = "per_subtopic"
+)
+
+func AllDiagramScopes() []DiagramScope {
+	return []DiagramScope{
+		DiagramScopeOverall,
+		DiagramScopePerSubTopic,
+	}
+}
+
+func (s DiagramScope) IsValid() bool {
+	for _, declared := range AllDiagramScopes() {
+		if s == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// DiagramHint is the analyzer LLM's optional pre-contract suggestion.
+// The compiler consumes it as one signal among several stronger
+// structural signals when deriving the final DiagramContract.
+type DiagramHint struct {
+	Kind DiagramKind `json:"kind"`
+}
+
+// DiagramContract is the finalizer-facing presentation contract for
+// answers that need a grounded structural diagram in summary. It is
+// intentionally orthogonal to AnswerShape: a scalar / boolean answer
+// may still require a diagram when the question is fundamentally about
+// flow, call relationships, timing, or architecture.
+type DiagramContract struct {
+	Required       bool          `json:"required"`
+	Minimum        int           `json:"minimum,omitempty"`
+	PreferredKinds []DiagramKind `json:"preferred_kinds,omitempty"`
+	ScopeHint      DiagramScope  `json:"scope_hint,omitempty"`
+	Reasons        []string      `json:"reasons,omitempty"`
 }
 
 type AnswerShape string

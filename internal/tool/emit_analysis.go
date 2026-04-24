@@ -61,12 +61,13 @@ type emitAnalysisParams struct {
 	// / predicateVerbMap) with cross-language LLM judgement. All
 	// predicate fields are required to be explicit (true OR false) — a
 	// missing field is fail-loud, not a silent default.
-	IntentConfidence     float64              `json:"intent_confidence"`
-	ComplexityConfidence float64              `json:"complexity_confidence"`
-	KindConfidence       float64              `json:"kind_confidence"`
-	ShapeConfidence      float64              `json:"shape_confidence"`
-	Predicates           *emitPredicatesParam `json:"predicates"`
-	PredicateAxis        string               `json:"predicate_axis,omitempty"`
+	IntentConfidence     float64               `json:"intent_confidence"`
+	ComplexityConfidence float64               `json:"complexity_confidence"`
+	KindConfidence       float64               `json:"kind_confidence"`
+	ShapeConfidence      float64               `json:"shape_confidence"`
+	Predicates           *emitPredicatesParam  `json:"predicates"`
+	PredicateAxis        string                `json:"predicate_axis,omitempty"`
+	DiagramHint          *emitDiagramHintParam `json:"diagram_hint,omitempty"`
 }
 
 // emitPredicatesParam is the wire shape of the required `predicates`
@@ -91,6 +92,14 @@ type emitAnswerSubjectParam struct {
 	Kind       string   `json:"kind"`
 	EntityAxes []string `json:"entity_axes,omitempty"`
 	Confidence float64  `json:"confidence,omitempty"`
+}
+
+// emitDiagramHintParam is the wire shape of the optional
+// diagram_hint field. It lets the analyzer LLM suggest the diagram
+// family that best matches the question, while the deterministic
+// compiler still derives the final contract from stronger signals.
+type emitDiagramHintParam struct {
+	Kind string `json:"kind"`
 }
 
 func (t *EmitAnalysis) Name() string { return "emit_analysis" }
@@ -183,6 +192,14 @@ func buildEmitAnalysisSchema() {
 				"type":        "string",
 				"enum":        skill.AnalysisPredicateAxisValues(),
 				"description": "Action-direction axis of the question (call / register / define / return / configure / condition / implement). Empty when no clear verb cue. Used by the evidence ranker to bias items whose anchor matches the axis.",
+			},
+			"diagram_hint": map[string]any{
+				"type":        "object",
+				"description": "Optional. Suggests the diagram family that would best explain the answer. The deterministic analyzer compiler derives the final diagram contract from stronger structural signals, so omit when unsure.",
+				"properties": map[string]any{
+					"kind": stringProp{Type: "string", Enum: skill.AnalysisDiagramKindValues()},
+				},
+				"required": []string{"kind"},
 			},
 		},
 		"required": []string{
@@ -329,6 +346,15 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	diagramHint, diagramHintErr := parseDiagramHint(p.DiagramHint)
+	if diagramHintErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + diagramHintErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 	// Self-consistency: when the LLM's chosen intent / shape contradicts
 	// its own predicates, that is a sign the LLM did not actually
 	// inspect the question carefully (the predicates flagged "this is a
@@ -390,6 +416,7 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		ShapeConfidence:      p.ShapeConfidence,
 		Predicates:           predicates,
 		PredicateAxis:        axis,
+		DiagramHint:          diagramHint,
 	}
 	ctx.Mutable.SetRequestModel(rm)
 	recordConfigTraceNoMatchFindings(ctx, rm, seenBlob)
@@ -668,6 +695,27 @@ func parsePredicateAxis(s string) (types.PredicateAxis, string) {
 	return axis, ""
 }
 
+// parseDiagramHint coerces the optional emit_analysis.diagram_hint
+// field into a typed DiagramHint. Empty / nil means "no hint". An
+// unrecognised non-empty value is rejected so a typo cannot silently
+// degrade to no hint.
+func parseDiagramHint(p *emitDiagramHintParam) (*types.DiagramHint, string) {
+	if p == nil {
+		return nil, ""
+	}
+	kind := types.DiagramKind(strings.TrimSpace(p.Kind))
+	if kind == types.DiagramNone {
+		return nil, ""
+	}
+	if !kind.IsValid() {
+		return nil, fmt.Sprintf(
+			"diagram_hint.kind = %q is not a recognised diagram kind — use one of the enum values or omit the field",
+			p.Kind,
+		)
+	}
+	return &types.DiagramHint{Kind: kind}, ""
+}
+
 // parseAnswerSubject coerces the optional emit_analysis.answer_subject
 // field into a typed AnswerSubject. Returns the zero value when the
 // LLM omitted the field; the analyzer's deterministic
@@ -716,6 +764,12 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 		rm.Intent, rm.Scenario, rm.Complexity,
 		len(h.Keywords), len(h.Entities),
 		h.Kind, h.Shape)
+	if rm.PredicateAxis != types.AxisUnknown {
+		fmt.Fprintf(&b, " axis=%s", rm.PredicateAxis)
+	}
+	if rm.DiagramHint != nil && rm.DiagramHint.Kind != types.DiagramNone {
+		fmt.Fprintf(&b, " diagram_hint=%s", rm.DiagramHint.Kind)
+	}
 
 	// Normalization delta — only fields where raw ≠ canonical get
 	// listed, so a clean classification stays silent.

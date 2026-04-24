@@ -40,6 +40,15 @@ func sampleAnalysisIR() AnalysisIR {
 				Ops:           RiskLevel{Level: 0},
 				Compliance:    RiskLevel{Level: 0},
 			},
+			AnalyzerHints: AnalyzerHints{
+				Keywords: []string{"explorer", "ShouldStop"},
+				Entities: []string{"explorer", "ShouldStop"},
+				Kind:     "call_chain",
+				Shape:    string(ShapeExplanation),
+			},
+			AnswerSubject: AnswerSubject{Kind: SubjectFunctionName, Confidence: 0.8},
+			PredicateAxis: AxisCall,
+			DiagramHint:   &DiagramHint{Kind: DiagramCallDAG},
 		},
 		TaskGraph: TaskGraph{
 			Nodes: []TaskNode{
@@ -93,9 +102,16 @@ func sampleAnalysisIR() AnalysisIR {
 		},
 		AnswerContract: AnswerContract{
 			RequiredAnswerShape: ShapeExplanation,
-			MustInclude:         []string{"t2"},
-			MustExclude:         nil,
-			CitationReq:         CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
+			Diagram: &DiagramContract{
+				Required:       true,
+				Minimum:        1,
+				PreferredKinds: []DiagramKind{DiagramCallDAG, DiagramSequence},
+				ScopeHint:      DiagramScopeOverall,
+				Reasons:        []string{"trace_intent", "axis_call"},
+			},
+			MustInclude: []string{"t2"},
+			MustExclude: nil,
+			CitationReq: CitationReq{Required: true, Granularity: "file_line", MinCitations: 2},
 			AcceptanceTests: []Criterion{
 				{Kind: CritContainsSymbol, Expr: "ShouldStop"},
 				{Kind: CritCitationCountGE, Expr: "2"},
@@ -146,15 +162,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v4 added: SemanticPredicates (required), per-classification
-	// confidence floats, *Alternatives slices, LLM-emitted PredicateAxis.
-	// Replaces the prose-cue reconcile tables with cross-language LLM
-	// judgement.
-	if AnalysisIRVersion != "v4" {
+	// v5 adds DiagramHint on RequestModel plus DiagramContract on
+	// AnswerContract, making "diagram required" a first-class contract
+	// independent of answer shape.
+	if AnalysisIRVersion != "v5" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v4" {
+	if ir.Version != "v5" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

@@ -37,9 +37,9 @@ func TestDropCitationCountGE(t *testing.T) {
 // a count question (predicates.is_count_question=true) produces zero
 // citation gate anywhere in the IR:
 //
-//   1. AnswerContract.CitationReq.Required == false
-//   2. No CritCitationCountGE entries in AnswerContract.AcceptanceTests
-//   3. No CritCitationCountGE entries on any TaskNode.SuccessCriteria
+//  1. AnswerContract.CitationReq.Required == false
+//  2. No CritCitationCountGE entries in AnswerContract.AcceptanceTests
+//  3. No CritCitationCountGE entries on any TaskNode.SuccessCriteria
 //
 // Schema-v4 rewrite: the trigger was the leading count-verb prose cue
 // in v3; now the LLM emits is_count_question=true directly and the
@@ -170,6 +170,42 @@ func TestBuildAnalysisIR_NonCountQuestionKeepsGates(t *testing.T) {
 	}
 	if !foundSC {
 		t.Error("At least one TaskNode.SuccessCriteria should still carry CritCitationCountGE")
+	}
+}
+
+func TestBuildAnalysisIR_DiagramContractPropagates(t *testing.T) {
+	mut := types.NewMutableState("trace how request dispatch reaches the handler")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest:    "trace how request dispatch reaches the handler",
+		Intent:        types.IntentTrace,
+		Scenario:      types.ScenarioArchitectureExplain,
+		Complexity:    types.ComplexityModerate,
+		PredicateAxis: types.AxisCall,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"dispatch", "handler"},
+			Entities: []string{"Dispatch", "Handler"},
+			Kind:     "call_chain",
+			Shape:    string(types.ShapeStepList),
+		},
+		DiagramHint: &types.DiagramHint{Kind: types.DiagramCallDAG},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+	if ir.AnswerContract.Diagram == nil {
+		t.Fatal("AnswerContract.Diagram = nil, want contract")
+	}
+	if !ir.AnswerContract.Diagram.Required {
+		t.Fatalf("Diagram.Required = false, want true")
+	}
+	if ir.AnswerContract.Diagram.Minimum != 1 {
+		t.Fatalf("Diagram.Minimum = %d, want 1", ir.AnswerContract.Diagram.Minimum)
+	}
+	if len(ir.AnswerContract.Diagram.PreferredKinds) == 0 || ir.AnswerContract.Diagram.PreferredKinds[0] != types.DiagramCallDAG {
+		t.Fatalf("Diagram.PreferredKinds = %v, want first call_dag", ir.AnswerContract.Diagram.PreferredKinds)
 	}
 }
 
@@ -314,6 +350,118 @@ func TestReconcileShape(t *testing.T) {
 			}
 			if !c.wantFire && reason != "" {
 				t.Errorf("unexpected fire: reason=%q", reason)
+			}
+		})
+	}
+}
+
+func TestReconcileDiagramContract(t *testing.T) {
+	logBundle := &types.LogBundle{
+		Errors: []types.LogError{{
+			Frames: []types.LogFrame{
+				{File: "internal/a.go", Line: 10, Func: "inner"},
+				{File: "internal/b.go", Line: 20, Func: "outer"},
+			},
+		}},
+	}
+
+	cases := []struct {
+		name      string
+		rm        types.RequestModel
+		shape     types.AnswerShape
+		bundle    *types.LogBundle
+		wantNil   bool
+		wantKind  types.DiagramKind
+		wantScope types.DiagramScope
+	}{
+		{
+			name:      "step_list always requires a diagram",
+			rm:        types.RequestModel{},
+			shape:     types.ShapeStepList,
+			wantKind:  types.DiagramFlow,
+			wantScope: types.DiagramScopeOverall,
+		},
+		{
+			name: "trace intent prefers call dag",
+			rm: types.RequestModel{
+				Intent: types.IntentTrace,
+			},
+			shape:     types.ShapeExplanation,
+			wantKind:  types.DiagramCallDAG,
+			wantScope: types.DiagramScopeOverall,
+		},
+		{
+			name: "architecture scenario prefers architecture diagram",
+			rm: types.RequestModel{
+				Scenario: types.ScenarioArchitectureExplain,
+			},
+			shape:     types.ShapeExplanation,
+			wantKind:  types.DiagramArchitecture,
+			wantScope: types.DiagramScopeOverall,
+		},
+		{
+			name: "scalar call question still requires diagram",
+			rm: types.RequestModel{
+				PredicateAxis: types.AxisCall,
+			},
+			shape:     types.ShapeValue,
+			wantKind:  types.DiagramCallDAG,
+			wantScope: types.DiagramScopeOverall,
+		},
+		{
+			name:      "log call chain requires diagram",
+			rm:        types.RequestModel{},
+			shape:     types.ShapeBoolean,
+			bundle:    logBundle,
+			wantKind:  types.DiagramCallDAG,
+			wantScope: types.DiagramScopeOverall,
+		},
+		{
+			name: "multi-topic scopes diagram per subtopic",
+			rm: types.RequestModel{
+				Intent: types.IntentTrace,
+				SubTopics: []types.SubTopic{
+					{Summary: "A"},
+					{Summary: "B"},
+				},
+			},
+			shape:     types.ShapeExplanation,
+			wantKind:  types.DiagramCallDAG,
+			wantScope: types.DiagramScopePerSubTopic,
+		},
+		{
+			name: "plain scalar without structural cues stays nil",
+			rm: types.RequestModel{
+				Intent: types.IntentReturnValue,
+			},
+			shape:   types.ShapeValue,
+			wantNil: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := reconcileDiagramContract(tc.rm, tc.shape, tc.bundle)
+			if tc.wantNil {
+				if got != nil {
+					t.Fatalf("expected nil contract, got %+v", got)
+				}
+				return
+			}
+			if got == nil {
+				t.Fatal("expected non-nil diagram contract")
+			}
+			if !got.Required {
+				t.Fatalf("Required = false, want true (%+v)", got)
+			}
+			if got.Minimum != 1 {
+				t.Fatalf("Minimum = %d, want 1", got.Minimum)
+			}
+			if len(got.PreferredKinds) == 0 || got.PreferredKinds[0] != tc.wantKind {
+				t.Fatalf("PreferredKinds = %v, want first %q", got.PreferredKinds, tc.wantKind)
+			}
+			if got.ScopeHint != tc.wantScope {
+				t.Fatalf("ScopeHint = %q, want %q", got.ScopeHint, tc.wantScope)
 			}
 		})
 	}

@@ -939,6 +939,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		}
 	}
 
+	out.AnswerContract.Diagram = reconcileDiagramContract(rm, out.AnswerContract.RequiredAnswerShape, logBundle)
+
 	ir := &types.AnalysisIR{
 		Version:        types.AnalysisIRVersion,
 		RequestModel:   rm,

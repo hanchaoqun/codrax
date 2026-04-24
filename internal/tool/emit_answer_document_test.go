@@ -1615,6 +1615,100 @@ func TestExtractCodeSnippets_ClustersAdjacentCitations(t *testing.T) {
 
 // -------- F4.1 diagram-block grounding gate --------
 
+func TestEmitAnswerDocument_DiagramRequired_RejectsMissingDiagram(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				Minimum:        1,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "step_list",
+		"summary": "The sequence starts at dispatch and ends in the handler, but this summary has no fenced diagram.",
+		"steps": []map[string]interface{}{
+			{"index": 1, "description": "dispatch", "citation_ref": -1},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("missing required diagram must reject, got success")
+	}
+	if !strings.Contains(res.Summary, "diagram required for this dispatch") {
+		t.Fatalf("rejection must name the missing diagram contract, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_DiagramRequired_RejectsPlainCodeFence(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				Minimum:        1,
+				PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+			},
+		},
+	}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"summary": "This answer includes a fenced block, but it is just code.\n\n" +
+			"```go\n" +
+			"return value\n" +
+			"nextLine()\n" +
+			"```",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("plain code fence must not satisfy diagram requirement")
+	}
+	if !strings.Contains(res.Summary, "diagram required for this dispatch") {
+		t.Fatalf("rejection must stay on the missing-diagram gate, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_DiagramRequired_AcceptsScalarShapeWithGroundedDiagram(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			Diagram: &types.DiagramContract{
+				Required:       true,
+				Minimum:        1,
+				PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+			},
+		},
+	}
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│package agent\n     2│\n     3│import (\n     4│\t\"context\"\n     5│)\n",
+	})
+	summary := "The scalar answer comes from the traced dispatch path rather than a standalone constant.\n\n" +
+		"```\n" +
+		"entry: internal/agent/analyzer.go:5\n" +
+		"  -> internal/agent/analyzer.go:5\n" +
+		"```\n" +
+		"This summary stays long enough to satisfy the value-shape readability contract."
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "value",
+		"summary": summary,
+		"value":   map[string]interface{}{"literal": "explorer", "citation_ref": -1},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 5},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("scalar shape with grounded required diagram must pass, got %q", res.Summary)
+	}
+}
+
 // TestEmitAnswerDocument_DiagramGate_RejectsUngroundedFileInFence
 // pins the session-22 F4.1 fix. An explanation whose ASCII call-chain
 // diagram names a `.go` file not present in citations[] or the

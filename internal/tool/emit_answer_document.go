@@ -651,6 +651,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	// that do not appear in citations[] or the attached-log
 	// ResolvedFiles allowlist. Applies to every shape — an explanation
 	// or step_list answer can carry the same hallucinated diagram.
+	if err := validateSummaryRequiredDiagram(p.Summary, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
 	if err := validateSummaryDiagramGrounding(p.Summary, citations, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
@@ -1374,6 +1377,82 @@ var diagramFileTokenRe = regexp.MustCompile(`[A-Za-z0-9_./-]+\.[A-Za-z]{1,6}(?::
 // full block body is returned in submatch[1]. Anchoring on `\n` after
 // the opening fence skips the optional language tag.
 var fencedCodeBlockRe = regexp.MustCompile("(?s)```[^\n]*\n(.*?)```")
+
+// diagramCueTokens is the lightweight structural heuristic for the
+// missing-diagram gate. We intentionally keep the gate generic: any
+// fenced block with at least two non-empty lines plus one of these
+// cues counts as a diagram-like block, regardless of answer shape.
+var diagramCueTokens = []string{
+	"->", "<-", "=>", "<=", "──", "│", "├", "└", "┌", "┐", "┘", "┤",
+	"┬", "┴", "◀", "▶", "▲", "▼",
+}
+
+func answerDiagramContract(ctx *types.BusContext) *types.DiagramContract {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.Diagram == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.AnswerContract.Diagram
+}
+
+func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error {
+	dc := answerDiagramContract(ctx)
+	if dc == nil || !dc.Required {
+		return nil
+	}
+	minimum := dc.Minimum
+	if minimum <= 0 {
+		minimum = 1
+	}
+	if summaryDiagramFenceCount(summary) >= minimum {
+		return nil
+	}
+	kinds := make([]string, 0, len(dc.PreferredKinds))
+	for _, kind := range dc.PreferredKinds {
+		if kind == types.DiagramNone {
+			continue
+		}
+		kinds = append(kinds, string(kind))
+	}
+	if len(kinds) == 0 {
+		kinds = append(kinds, string(types.DiagramFlow))
+	}
+	return fmt.Errorf(
+		"diagram required for this dispatch (preferred kinds: %s); summary must include at least %d grounded triple-backtick diagram block(s). This obligation is independent of answer shape.",
+		strings.Join(kinds, ", "), minimum,
+	)
+}
+
+func summaryDiagramFenceCount(summary string) int {
+	blocks := fencedCodeBlockRe.FindAllStringSubmatch(summary, -1)
+	count := 0
+	for _, block := range blocks {
+		if len(block) < 2 {
+			continue
+		}
+		if isDiagramLikeFence(block[1]) {
+			count++
+		}
+	}
+	return count
+}
+
+func isDiagramLikeFence(body string) bool {
+	lines := 0
+	for _, line := range strings.Split(body, "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines++
+		}
+	}
+	if lines < 2 {
+		return false
+	}
+	for _, cue := range diagramCueTokens {
+		if strings.Contains(body, cue) {
+			return true
+		}
+	}
+	return false
+}
 
 // validateSummaryDiagramGrounding scans every fenced code block in
 // the summary for file-like tokens and rejects any that are not

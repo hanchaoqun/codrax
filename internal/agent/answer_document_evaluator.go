@@ -76,6 +76,13 @@ type answerDocumentEvaluator struct {
 	// shrinkageRatio is the len(summary) / len(prior) ceiling below
 	// which the salvage fires. Zero falls back to the default.
 	shrinkageRatio float64
+
+	// diagramRequired captures the resolved DiagramContract so retry
+	// hints can preserve required diagrams instead of suggesting they
+	// be deleted during summary-cap repair.
+	diagramRequired bool
+	diagramMinimum  int
+	diagramKinds    []types.DiagramKind
 }
 
 // BuildInitialInstruction renders ONLY the dynamic per-dispatch data the
@@ -103,6 +110,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.retriesUsed = 0
 	e.rejectHintsUsed = 0
 	e.language = extractAnswerDocLang(ctx)
+	e.diagramRequired = false
+	e.diagramMinimum = 0
+	e.diagramKinds = nil
 	if ctx != nil {
 		e.mu = ctx.Mutable
 	}
@@ -114,6 +124,19 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 
 	shape := resolveAnswerDocShape(ctx)
 	fmt.Fprintf(&b, "## Target answer shape\n\n`%s`\n\n", shape)
+
+	if dc := answerDocDiagramContract(ctx); dc != nil && dc.Required {
+		e.diagramRequired = true
+		e.diagramMinimum = dc.Minimum
+		if e.diagramMinimum <= 0 {
+			e.diagramMinimum = 1
+		}
+		e.diagramKinds = append([]types.DiagramKind(nil), dc.PreferredKinds...)
+		b.WriteString(renderAnswerDocDiagramContract(dc))
+		if seeds := renderAnswerDocDiagramSeeds(ctx, dc); seeds != "" {
+			b.WriteString(seeds)
+		}
+	}
 
 	if shape == string(types.ShapeListOfSymbols) {
 		must := []string(nil)
@@ -213,16 +236,16 @@ func extractAnswerDocLang(ctx *types.AgentContext) string {
 // resolveAnswerDocShape picks the shape string the finalizer prompt
 // should target. Preference order:
 //
-//   1. AnalysisIR.AnswerContract.RequiredAnswerShape — the canonical
-//      source wired by P1.3. Typed + non-empty means the analyzer
-//      reached a decision.
-//   2. irAnswerShape(ctx) — the legacy AnalyzerHints.Shape field,
-//      kept as a fallback for pre-P1.3 call paths and REPL turns
-//      where the IR is nil.
-//   3. Presence of ctx.AnswerSymbols → list_of_symbols (an upstream
-//      extraction pipeline found candidates, so the shape is clearly
-//      a symbol list).
-//   4. Explanation — the safe default.
+//  1. AnalysisIR.AnswerContract.RequiredAnswerShape — the canonical
+//     source wired by P1.3. Typed + non-empty means the analyzer
+//     reached a decision.
+//  2. irAnswerShape(ctx) — the legacy AnalyzerHints.Shape field,
+//     kept as a fallback for pre-P1.3 call paths and REPL turns
+//     where the IR is nil.
+//  3. Presence of ctx.AnswerSymbols → list_of_symbols (an upstream
+//     extraction pipeline found candidates, so the shape is clearly
+//     a symbol list).
+//  4. Explanation — the safe default.
 //
 // Returning a string (rather than types.AnswerShape) keeps the callers
 // — prompt assembly + shape-specific instructions — uniform against
@@ -240,6 +263,172 @@ func resolveAnswerDocShape(ctx *types.AgentContext) string {
 		return string(types.ShapeListOfSymbols)
 	}
 	return string(types.ShapeExplanation)
+}
+
+func answerDocDiagramContract(ctx *types.AgentContext) *types.DiagramContract {
+	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.Diagram == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.AnswerContract.Diagram
+}
+
+func renderAnswerDocDiagramContract(dc *types.DiagramContract) string {
+	if dc == nil || !dc.Required {
+		return ""
+	}
+	minimum := dc.Minimum
+	if minimum <= 0 {
+		minimum = 1
+	}
+	scope := dc.ScopeHint
+	if scope == "" {
+		scope = types.DiagramScopeOverall
+	}
+
+	var b strings.Builder
+	b.WriteString("## Diagram Contract\n\n")
+	b.WriteString("- Required: yes\n")
+	fmt.Fprintf(&b, "- Minimum diagrams: %d\n", minimum)
+	if len(dc.PreferredKinds) > 0 {
+		kinds := make([]string, 0, len(dc.PreferredKinds))
+		for _, kind := range dc.PreferredKinds {
+			kinds = append(kinds, string(kind))
+		}
+		fmt.Fprintf(&b, "- Preferred kinds: %s\n", strings.Join(kinds, ", "))
+	}
+	fmt.Fprintf(&b, "- Scope: %s\n", scope)
+	if len(dc.Reasons) > 0 {
+		fmt.Fprintf(&b, "- Reasons: %s\n", strings.Join(dc.Reasons, ", "))
+	}
+	b.WriteString("- This requirement is independent of answer shape: if it says `Required: yes`, `summary` must contain at least one grounded triple-backtick diagram.\n\n")
+	return b.String()
+}
+
+func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContract) string {
+	if ctx == nil || dc == nil || !dc.Required {
+		return ""
+	}
+	var b strings.Builder
+	wrote := false
+	appendSection := func(title, body string) {
+		body = strings.TrimSpace(body)
+		if body == "" {
+			return
+		}
+		if !wrote {
+			b.WriteString("## Diagram Seeds\n\n")
+			b.WriteString("Use these grounded structures as the starting skeleton for the required diagram. Filenames inside the fenced block must come from citations[] or the Log Triage frames.\n\n")
+			wrote = true
+		}
+		fmt.Fprintf(&b, "### %s\n\n%s\n\n", title, body)
+	}
+
+	appendSection("Log Triage", renderAnswerDocDiagramLogSeed(ctx.LogTriage))
+	appendSection("Flow Findings", renderAnswerDocDiagramFlowSeed(ctx.FlowFindings))
+	appendSection("Answer Chains", renderAnswerDocDiagramChainSeed(ctx.AnswerChains))
+
+	if !wrote {
+		return ""
+	}
+	return b.String()
+}
+
+func renderAnswerDocDiagramLogSeed(bundle *types.LogBundle) string {
+	if bundle == nil || len(bundle.Errors) == 0 {
+		return ""
+	}
+	resolved := make([]types.LogFrame, 0, 8)
+	for _, err := range bundle.Errors {
+		for _, frame := range err.Frames {
+			if frame.File == "" || frame.Line <= 0 {
+				continue
+			}
+			resolved = append(resolved, frame)
+			if len(resolved) >= 8 {
+				break
+			}
+		}
+		if len(resolved) >= 8 {
+			break
+		}
+	}
+	if len(resolved) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("When you draw a call-chain / sequence diagram, start from these resolved frames:\n\n```\n")
+	for i, frame := range resolved {
+		name := strings.TrimSpace(frame.Func)
+		if name == "" {
+			name = "(no symbol)"
+		}
+		switch {
+		case i == 0:
+			fmt.Fprintf(&b, "innermost failure: %s:%d in %s\n", frame.File, frame.Line, name)
+		case i == len(resolved)-1:
+			fmt.Fprintf(&b, "  -> caller (outermost): %s:%d in %s\n", frame.File, frame.Line, name)
+		default:
+			fmt.Fprintf(&b, "  -> caller:            %s:%d in %s\n", frame.File, frame.Line, name)
+		}
+	}
+	b.WriteString("```")
+	return b.String()
+}
+
+func renderAnswerDocDiagramFlowSeed(findings []types.FlowFindingDigest) string {
+	if len(findings) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	limit := len(findings)
+	if limit > 3 {
+		limit = 3
+	}
+	for i := 0; i < limit; i++ {
+		ff := findings[i]
+		parts := make([]string, 0, 3)
+		if len(ff.Path) > 0 {
+			parts = append(parts, "path="+strings.Join(ff.Path, " -> "))
+		}
+		if len(ff.Hops) > 0 {
+			parts = append(parts, "hops="+strings.Join(ff.Hops, " -> "))
+		}
+		if len(ff.Conditions) > 0 {
+			parts = append(parts, "conditions="+strings.Join(ff.Conditions, "; "))
+		}
+		if len(parts) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "- %s\n", strings.Join(parts, " | "))
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func renderAnswerDocDiagramChainSeed(chains []types.AnswerChain) string {
+	if len(chains) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	limit := len(chains)
+	if limit > 3 {
+		limit = 3
+	}
+	for i := 0; i < limit; i++ {
+		ev := chains[i].Item
+		display := ev.Summary
+		if display == "" {
+			display = fmt.Sprintf("[%s] %s %s %s", ev.Kind, ev.Subject, ev.Predicate, ev.Object)
+		}
+		if ev.Source != "" {
+			if ev.LineStart > 0 {
+				display += fmt.Sprintf(" (%s:%d)", ev.Source, ev.LineStart)
+			} else {
+				display += fmt.Sprintf(" (%s)", ev.Source)
+			}
+		}
+		fmt.Fprintf(&b, "- %s\n", display)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // ShouldStop always returns false so the BaseAgent's soft-stop path
@@ -336,7 +525,16 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 	var shape string
 	if _, err := fmt.Sscanf(summary, "summary length %d exceeds cap %d for shape=%s", &summaryLen, &cap, &shape); err == nil && cap > 0 {
 		reasonKey = "summary-cap"
-		hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long for shape `%s` (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Cut large diagrams, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", strings.TrimSpace(shape), cap, summaryLen, cap)
+		if e.diagramRequired {
+			hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long for shape `%s` (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Preserve the required grounded diagram; compress prose, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", strings.TrimSpace(shape), cap, summaryLen, cap)
+		} else {
+			hint = fmt.Sprintf("Your last `emit_answer_document` call was rejected because `summary` was too long for shape `%s` (cap %d chars, current %d). Re-emit `emit_answer_document` now with the same grounded answer but shorten `summary` below %d chars. Cut large diagrams, repeated headings, and repeated citation prose first. Keep the facts in the tool fields and `citations[]`; do not write free-form prose outside the tool call.", strings.TrimSpace(shape), cap, summaryLen, cap)
+		}
+	}
+
+	if strings.Contains(summary, "diagram required for this dispatch") {
+		reasonKey = "missing-diagram"
+		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded diagram in `summary`. Re-emit `emit_answer_document` now with the same answer shape and payload fields, but add at least one grounded triple-backtick diagram to `summary`. This obligation is independent of answer shape. Keep every filename inside the diagram grounded by citations[] or the Log Triage frames; do not write free-form prose outside the tool call."
 	}
 
 	// Session-22 special-case: the literal-grounding gate on shape=
