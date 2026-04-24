@@ -1085,6 +1085,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineMaxVerifyRetries != nil {
 			pipelineSettings.MaxVerifyRetries = *rs.PipelineMaxVerifyRetries
 		}
+		// Baseline capture toggle for CritNoRegression (Item 1).
+		// Pointer-typed yaml so explicit false is distinguishable
+		// from unset; both resolve to false on the orch but the
+		// distinction matters for yaml-merge precedence.
+		if rs.PipelineBaselineCaptureEnabled != nil {
+			pipelineSettings.BaselineCaptureEnabled = *rs.PipelineBaselineCaptureEnabled
+		}
 
 		// Gate thresholds → package-global in gate package.
 		var gt gate.Thresholds
@@ -1390,6 +1397,9 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetBlobSessionDir(blobSessionDir)
 	// B2.3 verify→plan retry cap. Zero keeps B1 fail-loud semantics.
 	orch.SetMaxVerifyRetries(pipelineSettings.MaxVerifyRetries)
+	// Item 1: baseline capture for CritNoRegression. Default false
+	// (test-suite wall time doubles when enabled).
+	orch.SetBaselineCaptureEnabled(pipelineSettings.BaselineCaptureEnabled)
 
 	// Resolve per-agent think_aloud from providers.yaml. The default
 	// is true (directive included); per-agent overrides can disable it.

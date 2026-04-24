@@ -152,6 +152,13 @@ type RuntimeSettings struct {
 	// burn an unbounded LLM budget on an unfixable plan.
 	PipelineMaxVerifyRetries *int `yaml:"pipeline_max_verify_retries"`
 
+	// PipelineBaselineCaptureEnabled toggles the pre-apply test
+	// snapshot that feeds CritNoRegression. When true, runApplyPhase
+	// runs run_tests BEFORE the coder dispatches so the subsequent
+	// verify stage has a Baseline vs Current diff to compare.
+	// Default false — the extra test run doubles wall time.
+	PipelineBaselineCaptureEnabled *bool `yaml:"pipeline_baseline_capture_enabled"`
+
 	// Analyzer quality gate thresholds. Flat-prefixed `gate_*`.
 	// All optional; zero/nil → code default in gate.Thresholds.
 	GateCoverageMin           *float64 `yaml:"gate_coverage_min"`

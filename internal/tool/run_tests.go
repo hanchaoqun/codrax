@@ -64,10 +64,10 @@ type runTestsParams struct {
 func (t *RunTests) Name() string { return "run_tests" }
 
 // Description is one sentence + the supported-runner list so
-// operators reading logs know the B1.3 scope without reading code.
+// operators reading logs know the scope without reading code.
 func (t *RunTests) Description() string {
 	return "Run the project test suite inside the active worktree and emit a structured ChangeReport. " +
-		"B1.3 supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), and Rust (cargo test text)."
+		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), and Ruby (RSpec --format json)."
 }
 
 // Parameters returns the JSON schema.
@@ -113,7 +113,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if runner == "" {
 		return errResult(t.Name(),
 			"run_tests: no supported test runner detected in "+ctx.RepoRoot+
-				" (looked for go.mod / package.json / pyproject.toml / pytest.ini / Cargo.toml)"), nil
+				" (looked for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / pom.xml / build.gradle[.kts] / Gemfile)"), nil
 	}
 	logging.Info("[run_tests] detected runner=%s in %s", runner, ctx.RepoRoot)
 
@@ -155,6 +155,30 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, nil
+	}
+
+	// Step 2b: post-exec hook for Java. Maven + Gradle write JUnit
+	// XML to a fixed subdirectory rather than stdout; after the
+	// command finishes we point extraFile at the newest report
+	// directory so the parser can walk it. Other runners ignore
+	// extraFile entirely (stdout-only) or have already set it
+	// via buildRunCommand (pytest).
+	if runner == "java" {
+		reportDir := locateJUnitReportDir(ctx.RepoRoot)
+		if reportDir == "" {
+			// Command ran but no reports on disk — likely the build
+			// itself failed (compile error, missing dep). Surface
+			// that via the normal error path with the stdout blob.
+			_, ref := StoreBlob(ctx, t.Name()+"-no-reports", output)
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   "[run_tests: runner=java] no JUnit XML reports produced; the Maven/Gradle build likely failed before tests ran — inspect the stored output blob",
+				RawRef:    ref,
+				Timestamp: time.Now(),
+			}, nil
+		}
+		extraFile = reportDir
 	}
 
 	// Step 3: parse output. runErr is typically non-nil when any
@@ -209,14 +233,20 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 // string means "no supported runner found". Priority order when
 // multiple manifests coexist (polyglot repo):
 //
-//   1. go.mod → "go"        (Go preferred for dogfooding)
-//   2. package.json → "node" (check scripts.test to infer jest/vitest/mocha)
-//   3. pyproject.toml / pytest.ini / setup.py → "python"
-//   4. Cargo.toml → "rust"
+//  1. go.mod → "go"        (Go preferred for dogfooding)
+//  2. package.json → "node" (check scripts.test to infer jest/vitest/mocha)
+//  3. pyproject.toml / pytest.ini / setup.py → "python"
+//  4. Cargo.toml → "rust"
+//  5. pom.xml / build.gradle / build.gradle.kts → "java"
+//  6. Gemfile → "ruby"
 //
 // Operators with a non-standard layout can hand-edit the
 // test-execute-skill prompt to force a specific runner, but the
 // default sniff should cover 95%+ of single-language repos.
+//
+// Polyglot caveat: Maven is preferred over Gradle when both pom.xml
+// and build.gradle coexist (industry norm; a polyglot repo with
+// mixed build systems typically scripts its own test runner anyway).
 func detectRunner(repoRoot string) string {
 	checks := []struct {
 		file   string
@@ -228,10 +258,69 @@ func detectRunner(repoRoot string) string {
 		{"pytest.ini", "python"},
 		{"setup.py", "python"},
 		{"Cargo.toml", "rust"},
+		{"pom.xml", "java"},
+		{"build.gradle", "java"},
+		{"build.gradle.kts", "java"},
+		{"Gemfile", "ruby"},
 	}
 	for _, c := range checks {
 		if _, err := os.Stat(filepath.Join(repoRoot, c.file)); err == nil {
 			return c.runner
+		}
+	}
+	return ""
+}
+
+// detectJavaBuildSystem returns "maven" when pom.xml exists, else
+// "gradle" when build.gradle[.kts] exists. Called by
+// buildRunCommand when runner=="java" so the command and the
+// post-exec report locator both know which layout to target.
+func detectJavaBuildSystem(repoRoot string) string {
+	if _, err := os.Stat(filepath.Join(repoRoot, "pom.xml")); err == nil {
+		return "maven"
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot, "build.gradle")); err == nil {
+		return "gradle"
+	}
+	if _, err := os.Stat(filepath.Join(repoRoot, "build.gradle.kts")); err == nil {
+		return "gradle"
+	}
+	return ""
+}
+
+// locateJUnitReportDir walks the two well-known JUnit XML output
+// locations and returns the FIRST non-empty directory it finds.
+// Returns "" when neither directory exists or both are empty
+// (build failed before tests ran; caller surfaces a clear error).
+//
+// Priority: Maven's target/surefire-reports (checked first so
+// Maven projects with a stale build/ dir don't accidentally pick
+// the wrong tree), then Gradle's build/test-results/test.
+//
+// Multi-module caveat: polyglot Java repos may have multiple
+// surefire-reports directories under submodules. The parser's
+// XML walk handles that — we return the root "target" /
+// "build/test-results/test" and let parseJUnitXMLDir recurse.
+func locateJUnitReportDir(repoRoot string) string {
+	candidates := []string{
+		filepath.Join(repoRoot, "target", "surefire-reports"),
+		filepath.Join(repoRoot, "build", "test-results", "test"),
+	}
+	for _, dir := range candidates {
+		info, err := os.Stat(dir)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		// Peek for at least one .xml entry so an empty dir left
+		// over from a previous half-built run doesn't look valid.
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".xml") {
+				return dir
+			}
 		}
 	}
 	return ""
@@ -275,6 +364,43 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 			return "cargo test", ""
 		}
 		return fmt.Sprintf("cargo test %q", filter), ""
+	case "java":
+		// Maven + Gradle both write JUnit XML to a fixed
+		// subdirectory; the parser's post-exec hook walks those
+		// dirs regardless of which tool ran. The "extraFile"
+		// channel isn't used here because the XML files are
+		// multi-file in a directory, not one named file. The
+		// command itself just needs to be `mvn test` / `gradle
+		// test` so the reports get produced.
+		filter := strings.TrimSpace(suite)
+		build := detectJavaBuildSystem(repoRoot)
+		switch build {
+		case "maven":
+			if filter == "" {
+				// -Dsurefire.useFile=true is the Maven default;
+				// we rely on target/surefire-reports/*.xml.
+				return "mvn -B -q test", ""
+			}
+			return fmt.Sprintf("mvn -B -q -Dtest=%q test", filter), ""
+		case "gradle":
+			if filter == "" {
+				return "./gradlew --no-daemon --console=plain test", ""
+			}
+			return fmt.Sprintf("./gradlew --no-daemon --console=plain test --tests %q", filter), ""
+		}
+		// Unknown Java layout — let command fail and the parser
+		// surface a clear error. Shouldn't happen because
+		// detectRunner matched one of pom.xml / build.gradle[.kts].
+		return "mvn -B -q test", ""
+	case "ruby":
+		// RSpec with --format json prints a single top-level
+		// JSON object to stdout. `bundle exec` ensures the
+		// project's Gemfile-pinned rspec version is used.
+		filter := strings.TrimSpace(suite)
+		if filter == "" {
+			return "bundle exec rspec --format json", ""
+		}
+		return fmt.Sprintf("bundle exec rspec --format json %q", filter), ""
 	}
 	return "", ""
 }

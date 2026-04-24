@@ -17,6 +17,7 @@ import (
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/render"
 	"github.com/hanchaoqun/codrax/internal/skill"
+	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/types"
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
@@ -71,6 +72,14 @@ type Orchestrator struct {
 	// defensively so an adversarial test harness cannot burn the
 	// LLM token budget on an unfixable plan.
 	maxVerifyRetries int
+
+	// baselineCaptureEnabled gates the pre-apply test snapshot
+	// that feeds CritNoRegression. Default false (test doubling
+	// is opt-in). When true, runApplyPhase dispatches run_tests
+	// once before the coder + moves the result to
+	// Mutable.BaselineReport so evalNoRegression can diff against
+	// the post-apply ChangeReport.
+	baselineCaptureEnabled bool
 }
 
 // New creates a new Orchestrator.
@@ -211,6 +220,19 @@ func (o *Orchestrator) SetMaxVerifyRetries(n int) {
 // MaxVerifyRetries returns the currently configured retry cap.
 func (o *Orchestrator) MaxVerifyRetries() int {
 	return o.maxVerifyRetries
+}
+
+// SetBaselineCaptureEnabled toggles the pre-apply test snapshot.
+// Pointer-typed parameter so callers can distinguish "explicit
+// false" from "yaml absent"; absent falls through to code default
+// (false).
+func (o *Orchestrator) SetBaselineCaptureEnabled(on bool) {
+	o.baselineCaptureEnabled = on
+}
+
+// BaselineCaptureEnabled returns the current setting.
+func (o *Orchestrator) BaselineCaptureEnabled() bool {
+	return o.baselineCaptureEnabled
 }
 
 // Run executes the full pipeline for a user request.
@@ -736,6 +758,21 @@ func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 		_ = origRepoRoot // kept for future unswap branch
 	}()
 
+	// Substep 3b: baseline capture (opt-in). Runs run_tests against
+	// the fresh worktree BEFORE the coder dispatches — at this point
+	// the worktree is byte-identical to main repo HEAD, so the test
+	// outcome snapshots the pre-apply state. The result moves from
+	// the shared ChangeReport slot to BaselineReport so the post-
+	// apply run_tests (in runVerifyPhase) can populate ChangeReport
+	// and CritNoRegression has both halves to diff. Capture failures
+	// are non-fatal: a baseline that errors (missing runner, suite
+	// already broken) surfaces a warning and verify proceeds
+	// without a regression check — that's safer than aborting apply
+	// on a diagnostic that only informs one of several criteria.
+	if o.baselineCaptureEnabled {
+		o.captureBaseline()
+	}
+
 	// Substep 4: dispatch coder.
 	out, err := o.dispatchStage(types.StageApply)
 	if err != nil {
@@ -957,6 +994,86 @@ func buildRetryHint(report *types.ChangeReport, prevAttempt int) string {
 	}
 	b.WriteString(" Revise the plan to address these failures; do not repeat the same changes.")
 	return b.String()
+}
+
+// captureBaseline runs the project's test suite against the
+// pre-apply worktree and installs the result on
+// Mutable.BaselineReport. Called from runApplyPhase substep 3b
+// when baselineCaptureEnabled is true.
+//
+// Data flow:
+//  1. Call tool.RunTests{}.Execute — it installs the report on
+//     Mutable.ChangeReport (the shared slot verify will populate
+//     later) and returns a ToolResult that we ignore here
+//     (Mutable is the source of truth).
+//  2. Move the installed report from ChangeReport → BaselineReport
+//     via SetBaselineReport + ResetChangeReport. The post-apply
+//     verify phase will then fill ChangeReport fresh, and
+//     CritNoRegression in criterion.Env will see both halves.
+//  3. Optionally persist the baseline to disk as
+//     <plan-id>.baseline.json beside the plan file for operator
+//     audit. Disk failure is a warning, not fatal.
+//
+// Non-fatal on error: a missing test runner, a pre-existing test
+// failure, or an unparseable output surfaces a warning and we
+// proceed without a baseline. evalNoRegression short-circuits to
+// Satisfied=true when BaselineReport is nil, so the missing data
+// does not perturb the verify gate.
+//
+// Concurrency: called while RepoRoot is swapped to the worktree,
+// so run_tests executes inside the sandboxed copy (same invariant
+// verify relies on). The swap is restored by the outer defer.
+func (o *Orchestrator) captureBaseline() {
+	logging.Info("[orchestrator] apply phase: capturing pre-apply baseline test snapshot")
+	runTests := &tool.RunTests{}
+	// Empty params → run all tests with default timeout.
+	res, err := runTests.Execute(o.busCtx, nil)
+	if err != nil {
+		logging.Warning("[orchestrator] baseline capture: run_tests error: %v", err)
+		return
+	}
+	if !res.Success {
+		// "Not success" here includes the normal case of a test
+		// suite that has some pre-existing failures. That's still
+		// a valid baseline — we want to record it so evalNoRegression
+		// can distinguish "was already broken" from "regressed".
+		logging.Info("[orchestrator] baseline capture: %s", res.Summary)
+	}
+	baseline := o.busCtx.Mutable.ChangeReport()
+	if baseline == nil {
+		logging.Warning("[orchestrator] baseline capture: run_tests returned but ChangeReport slot is empty; skipping")
+		return
+	}
+	// Move ChangeReport → BaselineReport. After this, the slot is
+	// empty again and runVerifyPhase populates it fresh from the
+	// post-apply test run.
+	o.busCtx.Mutable.SetBaselineReport(baseline)
+	o.busCtx.Mutable.ResetChangeReport()
+	logging.Info("[orchestrator] baseline captured: %d test results, passed=%v",
+		len(baseline.TestResults), baseline.Passed)
+	o.saveBaselineReport(baseline)
+}
+
+// saveBaselineReport persists the pre-apply snapshot to disk as
+// <plan-dir>/<plan-id>.baseline.json, paired with the plan JSON
+// and the later .report.json. Failure is logged as warning and
+// the in-memory baseline stays intact — evalNoRegression consumes
+// Mutable.BaselineReport directly, not the disk file.
+func (o *Orchestrator) saveBaselineReport(baseline *types.ChangeReport) {
+	if baseline == nil || baseline.PlanID == "" {
+		return
+	}
+	if o.busCtx == nil || o.busCtx.PlanPath == "" {
+		// No plan dir resolvable (plan-mode e2e without --plan-file);
+		// skip silently because the REPL will never re-read this file.
+		return
+	}
+	path := filepath.Join(filepath.Dir(o.busCtx.PlanPath), baseline.PlanID+".baseline.json")
+	if err := types.WriteChangeReportToFile(baseline, path); err != nil {
+		logging.Warning("[orchestrator] baseline disk save failed: %v", err)
+		return
+	}
+	logging.Info("[orchestrator] baseline report saved: %s", path)
 }
 
 // saveChangeReport writes the verify-stage report to disk. Target

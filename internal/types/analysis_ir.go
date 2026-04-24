@@ -330,21 +330,21 @@ type AnalyzerHints struct {
 type Intent string
 
 const (
-	IntentExplain       Intent = "explain"
-	IntentRootCause     Intent = "root_cause"
-	IntentTrace         Intent = "trace"
-	IntentEnumerate     Intent = "enumerate"
-	IntentConfigQuery   Intent = "config_query"
-	IntentReturnValue   Intent = "return_value"
-	// IntentWriteCode is the B0 write-mode intent. Analyzer emits it
-	// when the user explicitly asks for a code change ("fix the bug",
-	// "add a test for X", "refactor Y"). compiler.InferScenario maps
-	// it to ScenarioWriteProposal. In pure read-mode Runs
-	// (Mode=ModeRead) analyzer never emits this intent regardless of
-	// the user request — write-phase scenarios are opt-in via
-	// --mode=plan|apply|verify.
-	IntentWriteCode     Intent = "write_code"
-	IntentUnknown       Intent = "unknown"
+	IntentExplain     Intent = "explain"
+	IntentRootCause   Intent = "root_cause"
+	IntentTrace       Intent = "trace"
+	IntentEnumerate   Intent = "enumerate"
+	IntentConfigQuery Intent = "config_query"
+	IntentReturnValue Intent = "return_value"
+	IntentUnknown     Intent = "unknown"
+	// Write-mode note: there is no IntentWriteCode constant today.
+	// Write-mode dispatch is signalled entirely by BusContext.Mode
+	// (ModePlan / ModeApply / ModeVerify) — the analyzer stage runs
+	// unchanged in write mode and its Intent classification describes
+	// the user's request in read-mode terms. When a future B3 wires
+	// ScenarioWriteProposal into the compiler, add a "write_code"
+	// Intent case back alongside normalizeIntent + analyzer prompt
+	// updates; until then, absence of the constant is deliberate.
 )
 
 type Scenario string
@@ -355,13 +355,12 @@ const (
 	ScenarioConfigTrace           Scenario = "config_trace"
 	ScenarioPerformanceBottleneck Scenario = "performance_bottleneck"
 	ScenarioGeneric               Scenario = "generic"
-
-	// ScenarioWriteProposal is the B0 write-mode scenario. Compiler's
-	// templateWriteProposal produces a TaskGraph with the full
-	// Probe → Evidence → Plan → Apply → Verify → Finalize chain,
-	// AnswerContract defaults to ShapeChangeReport. Analyzer selects
-	// this scenario when Intent=IntentWriteCode.
-	ScenarioWriteProposal Scenario = "write_proposal"
+	// Write-mode note: there is no ScenarioWriteProposal constant
+	// today. Write mode bypasses compiler.Compile entirely; the
+	// analyzer's scenario selection applies to read-mode TaskGraph
+	// generation. Adding a write scenario requires templateWriteProposal
+	// + scheduler stageMapping + readyExplorerWindow integration —
+	// see the B3 follow-up in project_session34_b2_shipped.md.
 )
 
 type Complexity string
@@ -493,13 +492,12 @@ const (
 	EdgeHardDependency     EdgeType = "hard_dependency"
 	EdgeSoftDependency     EdgeType = "soft_dependency"
 	EdgeValidationFeedback EdgeType = "validation_feedback"
-
-	// EdgeVerifyFeedback wires a verify node back to its upstream
-	// apply node. When the verify stage's SuccessCriteria fail the
-	// scheduler uses this edge (same fine-grained backtrack
-	// machinery as EdgeValidationFeedback) to requeue only the
-	// affected apply node rather than redoing the full plan.
-	EdgeVerifyFeedback EdgeType = "verify_feedback"
+	// Write-mode feedback-edge note: verify→plan requeue is handled
+	// today by orchestrator.prepareVerifyRetry + PlanningHint (B2.3)
+	// rather than a scheduler edge, because write mode bypasses
+	// runTaskGraph. A future B3 that wires write nodes into the DAG
+	// would re-introduce a feedback edge constant modeled on
+	// EdgeValidationFeedback + requeueValidationTargets.
 )
 
 type ExecutionPolicy struct {

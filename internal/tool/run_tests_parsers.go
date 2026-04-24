@@ -3,8 +3,10 @@ package tool
 import (
 	"bufio"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -28,6 +30,12 @@ func parseRunnerOutput(runner, stdout, extraFile, cmdStr string) (*types.ChangeR
 		return parsePytestJSONReport(extraFile, stdout, cmdStr)
 	case "rust":
 		return parseCargoTestText(stdout)
+	case "java":
+		// extraFile is the report directory (populated by
+		// locateJUnitReportDir in run_tests.go's Execute).
+		return parseJUnitXMLDir(extraFile, stdout)
+	case "ruby":
+		return parseRSpecJSON(stdout)
 	}
 	return nil, fmt.Errorf("parseRunnerOutput: unknown runner %q", runner)
 }
@@ -518,4 +526,282 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// ── Java: JUnit XML (Maven surefire / Gradle testreport) ──────────
+//
+// Maven writes per-test-class XML under target/surefire-reports/
+// named TEST-<fully-qualified-class>.xml. Gradle's equivalent lives
+// under build/test-results/test/. Both share the de-facto Ant
+// JUnit schema:
+//
+//	<testsuite name="com.foo.BarTest" tests="3" failures="1" errors="0" skipped="0" time="0.42">
+//	  <testcase name="testHappy" classname="com.foo.BarTest" time="0.12"/>
+//	  <testcase name="testFail" classname="com.foo.BarTest" time="0.20">
+//	    <failure message="expected X got Y" type="AssertionError">stack trace…</failure>
+//	  </testcase>
+//	  <testcase name="testSkipped" classname="com.foo.BarTest" time="0.0">
+//	    <skipped/>
+//	  </testcase>
+//	</testsuite>
+//
+// We recurse the report dir (multi-module repos have nested output)
+// and aggregate every <testcase> into a single ChangeReport.
+type junitTestSuite struct {
+	XMLName   xml.Name        `xml:"testsuite"`
+	Name      string          `xml:"name,attr"`
+	Tests     int             `xml:"tests,attr"`
+	Failures  int             `xml:"failures,attr"`
+	Errors    int             `xml:"errors,attr"`
+	Skipped   int             `xml:"skipped,attr"`
+	TestCases []junitTestCase `xml:"testcase"`
+}
+
+type junitTestSuites struct {
+	XMLName xml.Name         `xml:"testsuites"`
+	Suites  []junitTestSuite `xml:"testsuite"`
+}
+
+type junitTestCase struct {
+	Name      string         `xml:"name,attr"`
+	ClassName string         `xml:"classname,attr"`
+	Time      string         `xml:"time,attr"`
+	Failure   *junitFailure  `xml:"failure"`
+	Error     *junitFailure  `xml:"error"`
+	Skipped   *junitSkipped  `xml:"skipped"`
+}
+
+type junitFailure struct {
+	Message string `xml:"message,attr"`
+	Type    string `xml:"type,attr"`
+	Body    string `xml:",chardata"`
+}
+
+type junitSkipped struct {
+	Message string `xml:"message,attr"`
+}
+
+// parseJUnitXMLDir walks reportDir, parses every .xml file, and
+// returns a combined ChangeReport. Files that don't parse as
+// either <testsuite> or <testsuites> are skipped with a log line —
+// IDE-plugin-generated XML sometimes slips non-conforming files
+// into the output dir, and we don't want one bad file to fail the
+// whole verify stage.
+//
+// reportDir is the directory returned by locateJUnitReportDir in
+// run_tests.go (typically target/surefire-reports or
+// build/test-results/test). stdout is included in the failure
+// summary when the XML walk found zero testcases so the operator
+// can see what mvn/gradle printed.
+func parseJUnitXMLDir(reportDir, stdout string) (*types.ChangeReport, error) {
+	if reportDir == "" {
+		return nil, fmt.Errorf("parseJUnitXMLDir: empty report directory")
+	}
+	var results []types.TestResult
+	walkErr := filepath.Walk(reportDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil // skip unreadable; we'd rather partial than zero
+		}
+		if info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(strings.ToLower(info.Name()), ".xml") {
+			return nil
+		}
+		data, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return nil
+		}
+		// Try <testsuites> wrapper first (Gradle + newer Maven), then
+		// single <testsuite> (older Maven + plain Ant). Either shape
+		// is legal; we try both rather than peeking at the root tag.
+		var suitesWrap junitTestSuites
+		if err := xml.Unmarshal(data, &suitesWrap); err == nil && len(suitesWrap.Suites) > 0 {
+			for _, s := range suitesWrap.Suites {
+				results = append(results, junitCasesToResults(s)...)
+			}
+			return nil
+		}
+		var single junitTestSuite
+		if err := xml.Unmarshal(data, &single); err == nil && single.Name != "" {
+			results = append(results, junitCasesToResults(single)...)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return nil, fmt.Errorf("parseJUnitXMLDir: walk %s: %w", reportDir, walkErr)
+	}
+	if len(results) == 0 {
+		return nil, fmt.Errorf("parseJUnitXMLDir: no test cases parsed from %s (stdout head: %s)",
+			reportDir, stdoutHead(stdout, 200))
+	}
+
+	failed := 0
+	for _, r := range results {
+		if !r.Passed {
+			failed++
+		}
+	}
+	report := &types.ChangeReport{
+		TestResults: results,
+		Passed:      failed == 0,
+	}
+	if !report.Passed {
+		report.FailureSummary = fmt.Sprintf(
+			"%d of %d Java test cases failed (JUnit XML from %s).",
+			failed, len(results), filepath.Base(reportDir))
+	}
+	return report, nil
+}
+
+// junitCasesToResults converts one testsuite's cases into
+// codrax-shape TestResult entries. AssertionID format is
+// "<className>#<testName>" so duplicates across suites collide
+// correctly (the reverse — "<testName> @ <className>" — would be
+// ambiguous when two classes share a method name).
+//
+// Skipped cases are Passed=true per the codrax convention (they
+// don't block the verify gate). Failure AND Error elements both
+// map to Passed=false; their content is concatenated into
+// FailureDetail with type + message + body if present.
+func junitCasesToResults(s junitTestSuite) []types.TestResult {
+	out := make([]types.TestResult, 0, len(s.TestCases))
+	for _, tc := range s.TestCases {
+		id := tc.Name
+		if tc.ClassName != "" {
+			id = tc.ClassName + "#" + tc.Name
+		}
+		passed := tc.Failure == nil && tc.Error == nil
+		detail := ""
+		switch {
+		case tc.Failure != nil:
+			detail = junitFailureDetail("failure", tc.Failure)
+		case tc.Error != nil:
+			detail = junitFailureDetail("error", tc.Error)
+		case tc.Skipped != nil:
+			// Skipped is not a failure; leave detail empty.
+		}
+		// Duration — attribute is a decimal string of seconds.
+		dur := time.Duration(0)
+		if secs, err := strconv.ParseFloat(tc.Time, 64); err == nil && secs > 0 {
+			dur = time.Duration(secs * float64(time.Second))
+		}
+		out = append(out, types.TestResult{
+			AssertionID:   id,
+			Suite:         s.Name,
+			Passed:        passed,
+			Duration:      dur,
+			FailureDetail: detail,
+		})
+	}
+	return out
+}
+
+// junitFailureDetail composes "<kind> [type]: message\n<body>" with
+// the same 4000-char truncation the other parsers use so the Turn B
+// prompt stays bounded.
+func junitFailureDetail(kind string, f *junitFailure) string {
+	if f == nil {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(kind)
+	if f.Type != "" {
+		b.WriteString(" [" + f.Type + "]")
+	}
+	if f.Message != "" {
+		b.WriteString(": " + f.Message)
+	}
+	if body := strings.TrimSpace(f.Body); body != "" {
+		b.WriteString("\n")
+		b.WriteString(body)
+	}
+	out := b.String()
+	if len(out) > 4000 {
+		out = out[:4000] + "\n…[failure detail truncated]"
+	}
+	return out
+}
+
+// ── Ruby: rspec --format json ──────────────────────────────────────
+//
+// RSpec emits a single top-level JSON object on stdout when invoked
+// with `--format json`. Relevant fields:
+//
+//	summary.example_count    — total test cases
+//	summary.failure_count    — failed count
+//	summary.pending_count    — skipped / pending count
+//	examples[].full_description — "Foo#bar does baz" (AssertionID)
+//	examples[].file_path     — spec/foo_spec.rb (Suite)
+//	examples[].status        — "passed" | "failed" | "pending"
+//	examples[].run_time      — seconds (float)
+//	examples[].exception     — {class, message, backtrace} on failure
+//
+// RSpec mixes progress dots with JSON when the project has a
+// custom `.rspec` file; we find the outer JSON object the same way
+// parseJestJSON does.
+type rspecJSON struct {
+	Summary struct {
+		ExampleCount int `json:"example_count"`
+		FailureCount int `json:"failure_count"`
+		PendingCount int `json:"pending_count"`
+	} `json:"summary"`
+	Examples []struct {
+		FullDescription string  `json:"full_description"`
+		FilePath        string  `json:"file_path"`
+		Status          string  `json:"status"`
+		RunTime         float64 `json:"run_time"`
+		Exception       *struct {
+			Class   string `json:"class"`
+			Message string `json:"message"`
+		} `json:"exception,omitempty"`
+	} `json:"examples"`
+}
+
+func parseRSpecJSON(stdout string) (*types.ChangeReport, error) {
+	start := strings.Index(stdout, "{")
+	end := strings.LastIndex(stdout, "}")
+	if start < 0 || end < start {
+		return nil, fmt.Errorf("parseRSpecJSON: no JSON object found in output (len=%d)", len(stdout))
+	}
+	payload := stdout[start : end+1]
+
+	var r rspecJSON
+	if err := json.Unmarshal([]byte(payload), &r); err != nil {
+		return nil, fmt.Errorf("parseRSpecJSON: unmarshal: %w", err)
+	}
+
+	results := make([]types.TestResult, 0, r.Summary.ExampleCount)
+	for _, ex := range r.Examples {
+		// RSpec considers "pending" neither pass nor fail — we
+		// treat it as Passed=true so it doesn't trigger
+		// regression / tests_pass failure gates. Only the
+		// "failed" status flips Passed to false.
+		passed := ex.Status != "failed"
+		detail := ""
+		if !passed && ex.Exception != nil {
+			detail = ex.Exception.Class + ": " + ex.Exception.Message
+			if len(detail) > 4000 {
+				detail = detail[:4000] + "\n…[failure detail truncated]"
+			}
+		}
+		results = append(results, types.TestResult{
+			AssertionID:   ex.FullDescription,
+			Suite:         ex.FilePath,
+			Passed:        passed,
+			Duration:      time.Duration(ex.RunTime * float64(time.Second)),
+			FailureDetail: detail,
+		})
+	}
+
+	report := &types.ChangeReport{
+		TestResults: results,
+		Passed:      r.Summary.FailureCount == 0,
+	}
+	if !report.Passed {
+		report.FailureSummary = fmt.Sprintf(
+			"%d of %d Ruby examples failed (rspec --format json).",
+			r.Summary.FailureCount, r.Summary.ExampleCount)
+	}
+	return report, nil
 }

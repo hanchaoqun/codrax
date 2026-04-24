@@ -25,6 +25,17 @@ type PipelineSettings struct {
 	// 5 by orchestrator.SetMaxVerifyRetries.
 	MaxVerifyRetries int `yaml:"max_verify_retries"`
 
+	// BaselineCaptureEnabled toggles the pre-apply test snapshot
+	// that feeds CritNoRegression. When true, runApplyPhase runs
+	// run_tests once BEFORE the coder dispatches (against the fresh
+	// worktree which is still byte-identical to main repo HEAD),
+	// stores the result as Mutable.BaselineReport, and the
+	// post-apply verify phase populates Mutable.ChangeReport as
+	// usual — evalNoRegression then diffs the two. Default false
+	// because baseline runs double the test-suite wall time; only
+	// enable when the repo has test regressions to worry about.
+	BaselineCaptureEnabled bool `yaml:"baseline_capture_enabled"`
+
 	// GateThresholds tunes the analyzer quality gate's numeric
 	// cutoffs. Defaults live in internal/analysis/gate.Thresholds
 	// and are applied when the zero value is loaded.
