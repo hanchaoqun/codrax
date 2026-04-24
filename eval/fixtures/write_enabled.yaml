@@ -1,0 +1,25 @@
+# Write-mode eval settings.
+#
+# Consumed by eval/run.sh for any .case that sets MODE=plan|apply. The
+# runner exports CODRAX_SETTINGS=<absolute path to this file> before
+# invoking the codrax binary, overriding the default
+# <exeDir>/codrax.yaml lookup for the duration of the eval run only.
+#
+# Minimal on purpose: the only knob a write-mode eval actually needs
+# is the master switch. Everything else (log_dir, memory_dir,
+# plan-out path) is injected per-run via CLI flags from run.sh so
+# results land under eval/results/<id>-<ts>/ in isolation.
+#
+# providers_config is intentionally omitted — the default
+# "providers.yaml" anchors to <exeDir> = codrax repo root, which is
+# exactly where the real providers.yaml lives.
+
+write_enabled: true
+
+# Keep the apply-phase worktree on disk after a successful Run so the
+# eval harness can inspect the post-apply file state. Default behaviour
+# is unconditional discard (safety: no stray worktrees under .codrax/).
+# Eval is a controlled context so this trade-off is the correct one
+# here; run.sh reads ChangePlan.WorktreePath from the emitted plan.json
+# to locate the surviving worktree.
+pipeline_keep_worktree_on_success: true

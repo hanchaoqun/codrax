@@ -256,6 +256,52 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
+	// 4) Patch pre-flight. For every kind=patch change, dry-run
+	//    `git apply --check` against the current RepoRoot (pre-apply
+	//    main repo HEAD). A malformed unified diff (wrong hunk counts,
+	//    missing trailing newline, drifted context) fails this check
+	//    verbatim with git's stderr — session-35 root cause of
+	//    intermittent apply-phase blowups, where 2/3 of planner-
+	//    generated diffs had structurally invalid hunk headers and
+	//    the coder could not recover (apply_patch sources from Mutable,
+	//    so retries re-read the same bad diff).
+	//
+	//    Pre-flight rejection returns a clear tool-result error,
+	//    letting the planner's ShouldStop loop retry (cap 3) within
+	//    the same dispatch so a single planner call gets multiple
+	//    diff attempts before giving up. Happy-path cost is one git
+	//    invocation per patch unit — cheap relative to the LLM dispatch.
+	//
+	//    Skipped silently when GitAvailable() is false (test harness /
+	//    container without git). Skipped when RepoRoot is empty
+	//    (unexpected in write mode, but belt-and-suspenders for
+	//    tool-layer unit tests that don't set it).
+	if GitAvailable() && strings.TrimSpace(ctx.RepoRoot) != "" {
+		for _, c := range p.Changes {
+			kind := strings.TrimSpace(c.Kind)
+			if kind != "patch" {
+				continue
+			}
+			if strings.TrimSpace(c.Patch) == "" {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q has kind=patch but Patch is empty (unified-diff required)", strings.TrimSpace(c.Path)),
+					Timestamp: time.Now(),
+				}, nil
+			}
+			if err := CheckUnifiedDiff(ctx.RepoRoot, c.Patch); err != nil {
+				msg := composePatchRejection(ctx.RepoRoot, strings.TrimSpace(c.Path), err.Error())
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   msg,
+					Timestamp: time.Now(),
+				}, nil
+			}
+		}
+	}
+
 	// Build the internal ChangePlan + populate target_paths from
 	// the changes array. Plan IDs embed trace + nano + pid so two
 	// concurrent codrax processes never collide on the same plan

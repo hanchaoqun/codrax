@@ -35,6 +35,26 @@ func (s PipelineStage) IsTerminal() bool {
 	return s == StageFinalize
 }
 
+// IsWrite reports whether the stage belongs to the write-mode
+// pipeline (plan / apply / verify). Load-bearing: the single source
+// of truth used by BuildAgentContext to gate propagation of
+// read-mode stage artifacts (PriorReports / EvidenceItems /
+// AnswerChains / AnswerSymbols / FlowFindings / UnverifiedAnalyzer-
+// Findings) into planner/coder/verifier prompts. When those bled
+// through untyped (session-35 audit), the analyzer's narrative
+// (including <think> preamble like "Let me emit the analysis…")
+// caused the planner LLM to pattern-match and skip
+// emit_change_plan. Keep this method the only discriminator so
+// future drift lights up one test, not a dozen render sites.
+//
+// StageAnalyze is NOT a write stage even though it runs inside the
+// write pipeline as a classifier — its read-mode inputs (AnalysisIR
+// assembly, repo_map, etc.) are required for correct classification
+// regardless of the outer mode.
+func (s PipelineStage) IsWrite() bool {
+	return s == StagePlan || s == StageApply || s == StageVerify
+}
+
 // String returns the string representation of the PipelineStage.
 func (s PipelineStage) String() string {
 	return string(s)

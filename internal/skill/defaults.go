@@ -368,25 +368,25 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 		Goal: "Apply every ChangeUnit from the installed ChangePlan to the active git worktree by calling apply_patch once per unit. The evaluator's ShouldStop fires when WriteClosure.AppliedSet ⊇ plan.TargetPaths.",
 		Workflow: []string{
 			"The orchestrator has already loaded the ChangePlan onto Mutable and swapped ctx.RepoRoot to a git worktree checkout. Your job is purely mechanical: iterate plan.changes[] and emit one apply_patch call per ChangeUnit.",
-			"Emit apply_patch with the EXACT fields from the plan's ChangeUnit: path (repo-relative); kind (create|modify|delete|patch); new_content for create/modify (full body as-is, no re-format); patch for kind=patch (the unified-diff text from the plan, verbatim). Do NOT rewrite, trim, or re-format — the planner already produced the final body or diff. For kind=patch, DO NOT also send new_content; the tool rejects the ambiguity.",
+			"Emit apply_patch with {path, kind} ONLY. The tool reads new_content / patch / delete directly from the plan on Mutable — you do NOT re-emit or re-derive the content. Attempting to send new_content or patch as parameters fails the schema (DisallowUnknownFields). Read a file only if you need to understand it for a later retry turn; the apply call itself needs nothing but the ChangeUnit's path and kind.",
 			"Respect depends_on ordering: apply a unit ONLY after every path in its depends_on list is already in AppliedSet (visible because those apply_patch calls returned Success=true earlier in this dispatch). The apply_patch tool re-enforces W1b and rejects out-of-order calls, so a mistake surfaces as a clean error you can self-correct in the next turn.",
 			"When a turn's response lists multiple apply_patch calls in parallel (tool_use blocks), make sure no two units in the batch have a depends_on relationship — the batch executes concurrently and ordering is not guaranteed within a batch. If unsure, emit one apply_patch per turn.",
 			"If apply_patch returns Success=false for a unit, read the error summary carefully. Common rejections: W1 (path not in plan.TargetPaths — you drifted), W1b (depends_on not yet applied — reorder), kind mismatch (you sent a different kind than plan declares). Correct the parameters and retry on the NEXT turn.",
 			"Stop when every plan.target_paths entry is present in AppliedSet. The evaluator checks automatically; you don't need to signal completion explicitly. Extra turns after completion waste tokens and may trigger the iteration cap.",
-			"kind=patch is applied via `git apply -` inside the worktree. When git rejects a hunk (context mismatch, fuzzy match disabled), apply_patch surfaces git's own stderr verbatim so you can see which hunk failed — re-read the file to understand why the context shifted, then a fresh plan can regenerate the diff. Do NOT retry the same patch blindly.",
+			"kind=patch is applied via `git apply -` inside the worktree against the plan's unified diff (sourced from Mutable, not your call). When git rejects a hunk (context mismatch, fuzzy match disabled), apply_patch surfaces git's own stderr verbatim so you can see which hunk failed. Retry is NOT a plan change — the plan's diff is authoritative; a failure means the planner's diff did not match the worktree state and the verify→plan retry loop (or a fresh plan) is the remedy.",
 		},
 		ToolSuggestions: []string{
 			"read_file",
 			"apply_patch",
 			"exec_command", // Q2 red line: preserved for debugging (e.g. verify file wrote) — worktree sandbox contains blast radius
 		},
-		OutputFormat: "Your ONLY structured output is apply_patch tool calls. One call per ChangeUnit; the evaluator stops when every plan.target_paths entry is applied. Any prose is ignored — do not draft 'I'll now apply X' narration; just emit the tool call.",
+		OutputFormat: "Your ONLY structured output is apply_patch tool calls with {path, kind}. One call per ChangeUnit; the evaluator stops when every plan.target_paths entry is applied. Any prose is ignored — do not draft 'I'll now apply X' narration; just emit the tool call.",
 		Prohibitions: []string{
 			"do NOT modify files outside plan.target_paths — W1 will reject and your dispatch burns turns",
 			"do NOT run tests here — verify stage owns that",
 			"do NOT invoke emit_change_plan — the plan was already emitted upstream and this stage consumes it",
 			"do NOT send a different kind than the ChangeUnit declares — plan says create, you send create; plan says modify, you send modify",
-			"do NOT paraphrase or shorten new_content — copy the plan's field verbatim, bytes exactly",
+			"do NOT send new_content or patch as apply_patch parameters — schema rejects them; the tool hydrates from the plan on Mutable so transcription errors are impossible",
 		},
 	})
 

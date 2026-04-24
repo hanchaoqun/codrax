@@ -65,9 +65,11 @@ func (e *coderEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *sk
 	fmt.Fprintf(&b, "Plan ID: `%s`\n", plan.ID)
 	fmt.Fprintf(&b, "Target paths (W1-enforced): %d total, %d remaining.\n\n",
 		len(plan.TargetPaths), len(pending))
-	b.WriteString("For each remaining change, call `apply_patch` EXACTLY ONCE with the fields from the plan. " +
-		"Do not invent paths — only those listed below are authorized (W1 rejects drift). " +
-		"Respect depends_on order: apply a unit only after every path in its depends_on list has already been applied.\n\n")
+	b.WriteString("For each remaining change, call `apply_patch` EXACTLY ONCE with `{path, kind}` — nothing else. " +
+		"The tool hydrates new_content / patch / delete from the plan on Mutable; the schema rejects content " +
+		"parameters so you cannot (and must not) re-emit them. Do not invent paths — only those listed below are " +
+		"authorized (W1 rejects drift). Respect depends_on order: apply a unit only after every path in its " +
+		"depends_on list has already been applied.\n\n")
 	b.WriteString("Remaining changes (ordered by plan declaration; respect depends_on):\n\n")
 	for _, c := range orderedUnappliedChanges(plan, applied) {
 		fmt.Fprintf(&b, "- `%s` (kind=%s)", c.Path, c.Kind)

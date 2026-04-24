@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -64,53 +65,75 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 	if plan == nil {
 		return "No ChangePlan installed — verify phase cannot proceed. Return without tool calls."
 	}
+	// Session-35 invariant: always emit a stage-stating directive so
+	// the verifier LLM has an unambiguous anchor even when the plan
+	// declares no AcceptanceTests and no baseline captured. The prior
+	// "return empty string in the trivial case" shape left the
+	// verifier leaning on the raw User Request section, which in
+	// write mode carries the user's plan-shaped phrasing ("please
+	// generate a plan to fix X") and conflicts with the verifier's
+	// actual role (run tests). The User Request section is now
+	// suppressed for StageVerify in builder.go, but the positive
+	// directive belt + suspenders is worth keeping — the LLM should
+	// never need to triangulate the stage intent from the system
+	// prompt alone.
+	var s strings.Builder
+	s.WriteString("## Verify phase\n\n")
+	s.WriteString("The plan on Mutable.ChangePlan has been applied to the worktree. " +
+		"Your job: call run_tests once to execute the project test suite. The tool " +
+		"auto-detects the runner (Go / Node / Python / Rust / Java / Ruby / CMake / " +
+		"Meson / Make) from manifests in the worktree root, runs it, parses the output, " +
+		"and installs Mutable.ChangeReport. On return the evaluator's ShouldStop fires " +
+		"on ChangeReport presence and the stage completes.\n\n" +
+		"Do NOT emit_change_plan (that was the plan stage; your role is only to verify). " +
+		"Do NOT read files or shell out to construct a diff — the plan is already applied.\n")
 	baseline := ctx.Mutable.BaselineReport()
 	baselineFailures := collectBaselineFailures(baseline)
 	if len(plan.AcceptanceTests) == 0 && len(baselineFailures) == 0 {
-		return ""
+		return s.String()
 	}
-	var s string
+	s.WriteString("\n")
 	if len(plan.AcceptanceTests) > 0 {
-		s += "## Plan acceptance criteria\n\n"
-		s += "The plan declared these acceptance tests (natural-language):\n\n"
+		s.WriteString("## Plan acceptance criteria\n\n")
+		s.WriteString("The plan declared these acceptance tests (natural-language):\n\n")
 		for _, a := range plan.AcceptanceTests {
-			s += "- " + a + "\n"
+			s.WriteString("- " + a + "\n")
 		}
-		s += "\nAfter the run_tests tool has populated Mutable.ChangeReport, " +
+		s.WriteString("\nAfter the run_tests tool has populated Mutable.ChangeReport, " +
 			"you may OPTIONALLY call emit_test_results to add a short FailureSummary " +
 			"narrative explaining how the actual test outcome relates to these criteria. " +
-			"If all tests passed, no narrative is needed — return without calling emit_test_results."
+			"If all tests passed, no narrative is needed — return without calling emit_test_results.")
 	}
 	if len(baselineFailures) > 0 {
-		if s != "" {
-			s += "\n\n"
+		if s.Len() > 0 {
+			s.WriteString("\n\n")
 		}
-		s += "## Pre-existing baseline failures\n\n"
-		s += "Before the plan was applied, the following test(s) were ALREADY failing " +
-			"(not caused by this change — the snapshot was taken against the unmodified worktree):\n\n"
+		s.WriteString("## Pre-existing baseline failures\n\n")
+		s.WriteString("Before the plan was applied, the following test(s) were ALREADY failing " +
+			"(not caused by this change — the snapshot was taken against the unmodified worktree):\n\n")
 		const maxShown = 15
 		shown := 0
 		for _, r := range baselineFailures {
 			if shown >= maxShown {
-				s += fmt.Sprintf("- … (+%d more)\n", len(baselineFailures)-shown)
+				fmt.Fprintf(&s, "- … (+%d more)\n", len(baselineFailures)-shown)
 				break
 			}
 			if r.Suite != "" {
-				s += fmt.Sprintf("- %s (%s)\n", r.AssertionID, r.Suite)
+				fmt.Fprintf(&s, "- %s (%s)\n", r.AssertionID, r.Suite)
 			} else {
-				s += fmt.Sprintf("- %s\n", r.AssertionID)
+				fmt.Fprintf(&s, "- %s\n", r.AssertionID)
 			}
 			shown++
 		}
-		s += "\nWhen drafting your emit_test_results narrative, classify each failing test in the " +
+		s.WriteString("\nWhen drafting your emit_test_results narrative, classify each failing test in the " +
 			"current ChangeReport as either:\n" +
 			"  - REGRESSION: passed in baseline, fails now — this plan caused it\n" +
 			"  - PRE-EXISTING: failed in baseline AND fails now — unrelated to this plan\n" +
 			"  - (FIXED: failed in baseline, passes now — bonus; mention if relevant)\n\n" +
 			"The Passed verdict on Mutable.ChangeReport is authoritative (parser-driven) — do not " +
-			"try to override it. Use the narrative to tell the operator what's actually regressing."
+			"try to override it. Use the narrative to tell the operator what's actually regressing.")
 	}
-	return s
+	return s.String()
 }
 
 // collectBaselineFailures returns the subset of baseline TestResults

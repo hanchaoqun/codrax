@@ -1,0 +1,16 @@
+# Write-mode eval — end-to-end kind=patch on a C typo.
+#
+# Full plan→apply→verify. Uses gcc + GNU Make (verified available in
+# the sandbox). The fixture's Makefile has a `test:` target that
+# compiles main.c and runs the binary; pre-apply the build fails
+# (typo blocks compilation), post-apply it succeeds.
+ID="patch_c_typo"
+NAME="plan+apply emits kind=patch for C typo and git apply lands it"
+MODE="apply"
+FIXTURE="eval/fixtures/testdata/patch_typo_c"
+POST_APPLY_FILE="main.c"
+QUESTION="仓库里的 main.c 有一个导致编译失败的 typo（greet 函数里的 return 关键字被误写成了 retrun）。请生成一个改动计划把它修好，改动范围尽量精准，只改那一行。"
+PLAN_EXPECT_REGEX='"kind":[[:space:]]*"patch"'
+EXPECT_CONTAINS="return"
+EXPECT_NOT_CONTAINS="retrun"
+EXPECT_MATCHES_REGEX='^[[:space:]]+return buf;$'

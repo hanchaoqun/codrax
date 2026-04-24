@@ -1,0 +1,16 @@
+# Write-mode eval — plan-stage kind=patch on a Python typo.
+#
+# Plan-only (sandbox lacks pytest + pytest-json-report). Verifies the
+# planner produces a unified diff for Python source that passes
+# emit_change_plan's pre-flight `git apply --check --recount`. A
+# successful plan.json with kind=patch + the expected +/- pair
+# demonstrates the planner correctly diffs Python syntax (4-space
+# indent, colon blocks, no curly braces).
+ID="patch_python_typo"
+NAME="plan emits kind=patch with valid unified diff for Python typo"
+MODE="plan"
+FIXTURE="eval/fixtures/testdata/patch_typo_python"
+QUESTION="仓库里的 main.py 有一个导致导入失败的 typo（greet 函数里的 return 关键字被误写成了 retrun）。请生成一个改动计划把它修好，改动范围尽量精准，只改那一行。"
+PLAN_EXPECT_REGEX='"kind":[[:space:]]*"patch"
+-.*retrun
+[+].*return '

@@ -76,9 +76,17 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if e.mu != nil && e.mu.ChangePlan() != nil {
 		return true
 	}
-	// Defensive cap: without a plan after 3 iterations the skill /
-	// LLM is deadlocked. ParseOutput will then return a clean error.
-	return iteration >= 3
+	// Defensive cap: without a plan after 6 iterations the skill /
+	// LLM is deadlocked. The original cap was 3, chosen when plan
+	// emission was single-shot. emit_change_plan's session-35
+	// pre-flight gate (`git apply --check --recount`) rejects
+	// malformed diffs AT emission — that turns every rejected attempt
+	// into a retry, so the cap needs to match "how many corrections
+	// can the LLM reasonably make". Session-35 Java eval saw 3/3
+	// dispatches succeed on attempt 2 when given 5+ iterations;
+	// bumping to 6 gives clear headroom without inviting truly
+	// stuck loops.
+	return iteration >= 6
 }
 
 // ParseOutput reads the installed ChangePlan, or reports a clean

@@ -1,0 +1,53 @@
+# Write-mode eval — end-to-end kind=patch on a Go typo.
+#
+# Session 34 shipped the B2.4 machinery for FileChange.Kind="patch":
+# emit_change_plan accepts patch + unified-diff, apply_patch pipes
+# the diff through `git apply -` inside the sandboxed worktree, and
+# /approve + /reject surface the lifecycle in the REPL. Every unit
+# test on that wiring is green, but no real LLM had been driven
+# end-to-end to see whether it (a) picks kind=patch for a small
+# surgical edit, and (b) emits a context-correct unified diff that
+# git apply accepts without "corrupt patch" / "does not apply"
+# errors. This case is that smoke test.
+#
+# FIXTURE: eval/fixtures/patch_typo_go — 25-line greeting CLI with
+# one compile-breaking typo ('retrun' instead of 'return'). The
+# single-line scope + two-digit file size should strongly bias the
+# planner toward kind=patch per the change-plan-skill prompt
+# ("Prefer patch for small/surgical edits … prefer modify when
+# you're rewriting most of the file").
+#
+# Verdict layers:
+#   1. PLAN_EXPECT_REGEX — plan.json must contain '"kind": "patch"'
+#      somewhere. If the LLM emitted kind=modify with a full-file
+#      rewrite, this FAILS with 'no_plan_regex:...' and the rest of
+#      the verdict is moot (the "can the LLM produce a patch at all"
+#      question is answered negatively).
+#   2. EXPECT_NOT_CONTAINS="retrun" — post-apply main.go must have
+#      the typo gone. Catches the failure mode where plan.json had
+#      kind=patch but the diff's context didn't match and git apply
+#      silently no-op'd (wouldn't happen today — apply_patch errors
+#      on non-zero git apply exit — but the belt-and-suspenders check
+#      is cheap).
+#   3. EXPECT_CONTAINS="return" — post-apply file must contain the
+#      correct keyword. Paired with the NOT_CONTAINS above.
+#   4. Implicit: apply_exit must be 0 (added as extra_reason by
+#      run.sh when the CLI exits non-zero).
+#
+# Three-sample N is the right default — LLM variance is real
+# (kind=patch vs modify is a coin-flip on some models), and the case
+# is cheap to run once the fixture is seeded.
+ID="patch_go_typo"
+NAME="plan+apply emits kind=patch for Go typo and git apply lands it"
+MODE="apply"
+FIXTURE="eval/fixtures/testdata/patch_typo_go"
+POST_APPLY_FILE="main.go"
+QUESTION="仓库里的 main.go 有一个导致编译失败的 typo (greet 函数里的 return 关键字被误写成了 retrun)。请生成一个改动计划把它修好，改动范围尽量精准，只改那一行。"
+PLAN_EXPECT_REGEX='"kind":[[:space:]]*"patch"'
+# Post-apply verdict: look for the corrected line (tabs preserved by
+# the EXPECT_MATCHES_REGEX ERE engine) AND confirm the typo string is
+# gone. The fixture comments were stripped of the literal "retrun" so
+# NOT_CONTAINS is now a safe belt-and-suspenders scope check.
+EXPECT_CONTAINS="return"
+EXPECT_NOT_CONTAINS="retrun"
+EXPECT_MATCHES_REGEX='^	return fmt\.Sprintf\("Hello, %s!", name\)$'

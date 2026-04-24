@@ -1972,3 +1972,209 @@ func TestBuildPromptContext_NoDuplicateRetryDirective(t *testing.T) {
 			strings.Count(userBody, "Retry Directive"), userBody)
 	}
 }
+
+// TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts pins the
+// session-35 red line: no read-mode stage artifact may travel into a
+// planner / coder / verifier AgentContext. The bus below is seeded
+// with every known leak vector (5 confirmed + 2 benign-but-
+// conceptually-read-mode) per the audit. All MUST be empty on the
+// built context for each write-mode stage.
+//
+// Drift here silently reintroduces the emit_change_plan bypass bug
+// (analyzer's <think> preamble tricking planner LLM into emitting
+// analysis JSON prose).
+func TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts(t *testing.T) {
+	seedBus := func() *types.BusContext {
+		mut := types.NewMutableState("seed")
+		// Populate the closure with unverified findings + subject
+		// matches so the Mutable-backed side of the cut is exercised.
+		closure := mut.EvidenceClosure()
+		closure.AppendUnverifiedFinding(types.UnverifiedFinding{
+			Token: "nonexistent.go", Kind: "path", Reason: "not in graph",
+		})
+		closure.SetSubjectMatch("chain-1", 0.42)
+		return &types.BusContext{
+			RepoRoot: "/tmp/repo",
+			Mutable:  mut,
+			AnalysisIR: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey, Confidence: 0.9},
+				},
+			},
+			// Read-mode artifact seeds — all should be stripped for
+			// write stages.
+			RepoFacts: []types.RepoFact{
+				{Key: "entrypoint", Value: "cmd/main.go", Source: "repo_map", Confidence: 0.9},
+			},
+			EvidenceItems: []types.EvidenceItem{{Source: "a.go", LineStart: 1}},
+			FlowFindings:  []types.FlowFindingDigest{{ID: "ff1", Sources: []string{"a.go"}}},
+			AnswerChains:  []types.AnswerChain{{Item: types.EvidenceItem{Source: "a.go", LineStart: 1}, Score: 1.0}},
+			AnswerSymbols: []types.AnswerSymbol{
+				{Name: "Foo", File: "a.go", Line: 10, Kind: "registration"},
+			},
+			AnswerSymbolCompleteness: types.CompletenessComplete,
+			ToolResults: []types.ToolResult{
+				{ToolName: "grep", Summary: "3 hits", Success: true},
+			},
+			StageReports: []types.StageReport{{
+				Stage:    types.StageAnalyze,
+				Agent:    types.AgentAnalyzer,
+				Findings: "<think>Let me emit the analysis.</think>\n\nThe request is clear.",
+			}},
+		}
+	}
+
+	writeStages := []struct {
+		stage types.PipelineStage
+		agent types.AgentName
+	}{
+		{types.StagePlan, types.AgentPlanner},
+		{types.StageApply, types.AgentCoder},
+		{types.StageVerify, types.AgentVerifier},
+	}
+	for _, c := range writeStages {
+		c := c
+		t.Run(string(c.stage), func(t *testing.T) {
+			bus := seedBus()
+			ac := BuildAgentContext(bus, c.agent, c.stage)
+
+			assertEmpty := func(name string, length int) {
+				t.Helper()
+				if length != 0 {
+					t.Errorf("ac.%s for write stage %s: got len=%d, want 0 (read-mode artifact leak)", name, c.stage, length)
+				}
+			}
+			assertEmpty("RelevantFacts", len(ac.RelevantFacts))
+			assertEmpty("RelevantFiles", len(ac.RelevantFiles))
+			assertEmpty("EvidenceItems", len(ac.EvidenceItems))
+			assertEmpty("FlowFindings", len(ac.FlowFindings))
+			assertEmpty("AnswerChains", len(ac.AnswerChains))
+			assertEmpty("AnswerSymbols", len(ac.AnswerSymbols))
+			assertEmpty("RelevantToolSummaries", len(ac.RelevantToolSummaries))
+			assertEmpty("RelevantMCPNotes", len(ac.RelevantMCPNotes))
+			assertEmpty("PriorReports", len(ac.PriorReports))
+			assertEmpty("UnverifiedAnalyzerFindings", len(ac.UnverifiedAnalyzerFindings))
+			assertEmpty("SubjectMatches", len(ac.SubjectMatches))
+
+			if ac.AnswerSymbolCompleteness != types.CompletenessUnknown {
+				t.Errorf("ac.AnswerSymbolCompleteness for write stage %s: got %v, want CompletenessUnknown", c.stage, ac.AnswerSymbolCompleteness)
+			}
+			if ac.ExpectedAnswerSubject.Kind != types.SubjectUnknown {
+				t.Errorf("ac.ExpectedAnswerSubject.Kind for write stage %s: got %v, want SubjectUnknown", c.stage, ac.ExpectedAnswerSubject.Kind)
+			}
+
+			// Prompt-level assertion: BuildPromptContext must not
+			// render any of the read-mode-only section titles.
+			pc := BuildPromptContext(ac, &skill.Config{Name: "change-plan-skill"})
+			leakSections := []string{
+				"Prior Stage Findings",
+				"Unverified Analyzer Findings",
+				"Structured Evidence",
+				"Dataflow Findings",
+				"Extracted Answer Symbols (deterministic, authoritative)",
+				"Extracted Answer Symbols (lower-bound)",
+				"Subject Match Summary",
+			}
+			for _, title := range leakSections {
+				if sec := findSectionTitle(pc, title); sec != nil {
+					t.Errorf("write stage %s rendered read-mode section %q (body=%q)", c.stage, title, sec.Content)
+				}
+			}
+		})
+	}
+}
+
+// TestBuildAgentContext_ReadStage_PropagatesArtifacts confirms the
+// gate is one-sided: read-mode stages still see the artifacts they
+// were designed to consume. Paired with
+// TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts — if this
+// test passes and that one fails, the gate polarity is correct but
+// write-side is broken; if this one fails, the gate broke read-mode
+// (a regression no one wants).
+func TestBuildAgentContext_ReadStage_PropagatesArtifacts(t *testing.T) {
+	bus := &types.BusContext{
+		RepoRoot: "/tmp/repo",
+		Mutable:  types.NewMutableState("seed"),
+		RepoFacts: []types.RepoFact{
+			{Key: "entrypoint", Value: "cmd/main.go", Source: "repo_map", Confidence: 0.9},
+		},
+		AnswerChains: []types.AnswerChain{{Item: types.EvidenceItem{Source: "a.go", LineStart: 1}, Score: 1.0}},
+		StageReports: []types.StageReport{{
+			Stage: types.StageAnalyze, Agent: types.AgentAnalyzer, Findings: "analysis narrative",
+		}},
+	}
+	// StageExplore is a canonical read-mode stage.
+	ac := BuildAgentContext(bus, types.AgentExplorer, types.StageExplore)
+
+	if len(ac.RelevantFacts) == 0 {
+		t.Error("RelevantFacts empty for read stage — gate leaked into read mode")
+	}
+	if len(ac.AnswerChains) == 0 {
+		t.Error("AnswerChains empty for read stage — gate leaked into read mode")
+	}
+	if len(ac.PriorReports) == 0 {
+		t.Error("PriorReports empty for read stage — gate leaked into read mode")
+	}
+}
+
+// TestStripThinkBlocks covers the Category-4 defense-in-depth: reasoning
+// traces leaking into downstream prompts. Even for read-mode stages
+// (which keep PriorReports), the analyzer's internal deliberation
+// should not travel as a plain-text preamble.
+func TestStripThinkBlocks(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"empty", "", ""},
+		{"no tags", "plain narrative", "plain narrative"},
+		{"single block", "<think>internal</think>visible", "visible"},
+		{"trailing whitespace after close tag stripped",
+			"<think>a</think>\n\nbody",
+			"body"},
+		{"multi-line block (DOTALL)",
+			"before <think>line1\nline2\nline3</think> after",
+			"before after"},
+		{"multiple blocks",
+			"<think>one</think>middle<think>two</think>end",
+			"middleend"},
+		{"case-insensitive close tag",
+			"<think>x</Think>y",
+			"y"},
+		{"unclosed think block preserved (regex demands close)",
+			"<think>runaway",
+			"<think>runaway"},
+		{"mixed with code fences",
+			"```go\nfunc main() {}\n```\n<think>why?</think>\nsummary",
+			"```go\nfunc main() {}\n```\nsummary"},
+	}
+	for _, c := range cases {
+		if got := stripThinkBlocks(c.in); got != c.want {
+			t.Errorf("stripThinkBlocks(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+// TestFormatStageReports_StripsThinkBlocks integration-tests that the
+// full render pipeline silently drops <think> spans. This closes the
+// session-35 root cause: the analyzer's "Let me emit the analysis…"
+// preamble that tricked the planner LLM into skipping
+// emit_change_plan.
+func TestFormatStageReports_StripsThinkBlocks(t *testing.T) {
+	reports := []types.StageReport{{
+		Stage:    types.StageAnalyze,
+		Agent:    types.AgentAnalyzer,
+		Findings: "<think>Let me emit the analysis.</think>\n\nmain.go confirmed present.",
+	}}
+	out := formatStageReports(reports)
+	if strings.Contains(out, "<think>") || strings.Contains(out, "Let me emit the analysis") {
+		t.Errorf("formatStageReports leaked think-block content:\n%s", out)
+	}
+	if !strings.Contains(out, "main.go confirmed present") {
+		t.Errorf("formatStageReports dropped visible content:\n%s", out)
+	}
+	if !strings.Contains(out, "### [analyze / analyzer]") {
+		t.Errorf("formatStageReports dropped section header:\n%s", out)
+	}
+}

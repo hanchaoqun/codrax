@@ -49,6 +49,34 @@ EXPECT_SECTIONS="${EXPECT_SECTIONS:-}"
 # Log-triage eval cases may set LOG=<inline panic/trace> to attach a
 # runtime log excerpt to the request via --log-text. Empty = no log.
 LOG="${LOG:-}"
+# Write-mode eval vars (session 35). MODE=plan|apply switches the
+# runner from the default read-mode dispatch to the write pipeline;
+# FIXTURE points at a source tree under eval/fixtures/ that gets
+# cloned into a scratch git repo per-run. PLAN_EXPECT_REGEX runs
+# against the emitted ChangePlan JSON (always checked when MODE is
+# non-empty). POST_APPLY_FILE scopes the EXPECT_* verdict checks to
+# a single file's post-apply content for MODE=apply; when unset, the
+# verdict reads the concatenation of all tracked fixture files.
+MODE="${MODE:-}"
+FIXTURE="${FIXTURE:-}"
+PLAN_EXPECT_REGEX="${PLAN_EXPECT_REGEX:-}"
+POST_APPLY_FILE="${POST_APPLY_FILE:-}"
+
+case "$MODE" in
+  "" | read | plan | apply) ;;
+  *)
+    echo "case MODE=$MODE invalid (allowed: plan, apply, or empty for read)" >&2
+    exit 2
+    ;;
+esac
+if [[ -n "$MODE" && "$MODE" != "read" && -z "$FIXTURE" ]]; then
+  echo "case MODE=$MODE requires FIXTURE=<path under eval/fixtures>" >&2
+  exit 2
+fi
+if [[ -n "$FIXTURE" && ! -d "$FIXTURE" ]]; then
+  # Resolve after we cd into $ROOT below; defer the dir-exists check.
+  :
+fi
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
@@ -79,15 +107,42 @@ count_pattern() {
   echo "${n:-0}"
 }
 
-run_one() {
-  local i="$1"
-  local out="$OUTDIR/run-$i.out"
-  local metrics="$OUTDIR/run-$i.metrics.txt"
-  local verdict="$OUTDIR/run-$i.verdict"
-  # Per-run log dir so we don't accidentally pick up an unrelated log.
-  local logdir="$OUTDIR/run-$i.logs"
-  mkdir -p "$logdir"
+# scope_stdout <out-file> → prints ANSI-stripped, post-'━━━'-only body.
+# Read-mode only: cmd/root.go prints the separator on stderr between
+# thinking trace and final answer. Write-mode outputs (plan.json,
+# post-apply files) are raw bytes and MUST NOT be scoped this way.
+scope_stdout() {
+  local out="$1" cleaned
+  cleaned="$(sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' "$out")"
+  if grep -qF '━━━' <<<"$cleaned"; then
+    cleaned="$(awk 'found{print; next} /━━━/{found=1}' <<<"$cleaned")"
+  fi
+  printf '%s' "$cleaned"
+}
 
+# setup_scratch <scratch-dir> — copies $ROOT/$FIXTURE into scratch and
+# initialises it as a git repo with a single seed commit (write mode
+# requires a git worktree). Wipes any prior contents. Uses a detached
+# committer identity so no global git config is needed on CI hosts.
+setup_scratch() {
+  local scratch="$1"
+  rm -rf "$scratch"
+  mkdir -p "$scratch"
+  cp -r "$ROOT/$FIXTURE/." "$scratch/"
+  (
+    cd "$scratch"
+    git init -q -b main
+    git -c user.email=eval@codrax -c user.name=eval add -A
+    git -c user.email=eval@codrax -c user.name=eval commit -q -m "seed"
+  ) || return $?
+}
+
+# run_read_step / run_plan_step / run_apply_step — the three pipeline
+# invocations. All accept (run-i, out-file, log-dir) as positional args
+# plus any mode-specific extras. Each appends to $out (read mode uses
+# '>' to truncate on first call; write-mode apply appends after plan).
+run_read_step() {
+  local i="$1" out="$2" logdir="$3"
   if [[ -n "$LOG" ]]; then
     ./codrax --repo . --branch main --pipeline-max-steps 15 \
       --log-level debug \
@@ -102,12 +157,38 @@ run_one() {
       --request "$QUESTION" \
       >"$out" 2>&1
   fi
-  local rc=$?
+}
 
-  # Pick the most recent log file in this run's dedicated logdir.
-  local log
-  log="$(ls -t "$logdir"/codrax-*.log 2>/dev/null | head -1)"
+run_plan_step() {
+  local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
+  echo "=== plan step (run $i) ===" >"$out"
+  ./codrax --repo "$scratch" --branch main --pipeline-max-steps 15 \
+    --mode=plan --plan-out "$plan" \
+    --log-level debug \
+    --log-dir "$logdir" \
+    --request "$QUESTION" \
+    >>"$out" 2>&1
+}
 
+run_apply_step() {
+  local i="$1" out="$2" logdir="$3" scratch="$4" plan="$5"
+  echo "" >>"$out"
+  echo "=== apply step (run $i) ===" >>"$out"
+  ./codrax --repo "$scratch" --branch main --pipeline-max-steps 15 \
+    --mode=apply --plan-file "$plan" --auto-apply \
+    --log-level debug \
+    --log-dir "$logdir" \
+    --request "$QUESTION" \
+    >>"$out" 2>&1
+}
+
+# write_metrics <run-i> <exit-code> <log-file> — writes the mechanism
+# trace counter file. Read-mode focused; write-mode cases see zeroes
+# for analyzer/explorer counters (expected — write stages don't emit
+# those log lines).
+write_metrics() {
+  local i="$1" rc="$2" log="$3"
+  local metrics="$OUTDIR/run-$i.metrics.txt"
   {
     echo "exit_code=$rc"
     echo "log_file=$log"
@@ -124,40 +205,37 @@ run_one() {
     echo "midloop_inject=$(count_pattern 'MIDLOOP inject' "$log")"
     echo "answer_chain_lines=$(count_pattern 'answer_chain' "$log")"
   } >"$metrics"
+}
 
-  # Verdict: check expectation substrings against the final answer
-  # body. codrax mixes stderr (thinking trace with '💭' markers +
-  # progress updates + '━━━' separator) and stdout (final answer)
-  # into the same file because the runner uses '>"$out" 2>&1'.
-  # Without scoping, a substring check sees everything — including
-  # tool-error messages that the LLM quoted mid-reasoning but
-  # course-corrected in the final answer. The 2026-04-21 logtri_partial
-  # failure is the canonical trace: answer body never mentioned
-  # 'analyzer.go', but the <think> block quoted a grounder rejection
-  # that included the string, so EXPECT_NOT_CONTAINS='analyzer.go'
-  # wrongly reported a ban hit.
-  #
-  # Scope rule: strip ANSI, then take only content after the first
-  # '━━━' line (cmd/root.go prints it to stderr as the boundary
-  # between thinking trace and answer). If the marker is absent
-  # (pre-separator build, early error, no result produced), fall
-  # back to the whole file — the too-short sanity filter below
-  # will still catch empty / fragment answers.
-  local cleaned
-  cleaned="$(sed -r 's/\x1B\[[0-9;]*[A-Za-z]//g' "$out")"
-  if grep -qF '━━━' <<<"$cleaned"; then
-    cleaned="$(awk 'found{print; next} /━━━/{found=1}' <<<"$cleaned")"
+# write_verdict <verdict-file> <cleaned-string> [extra-reasons...]
+#
+# Shared EXPECT_CONTAINS / EXPECT_NOT_CONTAINS / EXPECT_MATCHES_REGEX /
+# EXPECT_SECTIONS matcher. cleaned is the bytes the verdict checks
+# against — mode-specific upstream (scope_stdout output for read, plan
+# JSON for plan, post-apply fixture bytes for apply). extra-reasons
+# are pre-seeded failure tokens from mode-specific pre-checks (e.g.
+# "no_plan_regex:...", "apply_exit:1"); any non-empty value forces
+# FAIL even if EXPECT_* all match.
+write_verdict() {
+  local verdict_file="$1" cleaned="$2"
+  shift 2
+  local extra_reasons=("$@")
+  local pass=1
+  local reasons=()
+  if (( ${#extra_reasons[@]} > 0 )); then
+    reasons=("${extra_reasons[@]}")
+    pass=0
   fi
-  local pass=1 reasons=()
 
   # Global min-length sanity filter (2026-04-14 deferred #10): any
   # answer body shorter than 20 non-whitespace characters is a
   # fragment — "type" (Go keyword picked by bug #14), "3" (df1 count
-  # hallucination), "• **type" (round-4 truncation), etc. These are
-  # produced by the S3 correction loop when the slate is wrong AND
-  # the case gate is empty. The threshold is low enough to allow a
-  # legitimate short single-symbol answer like "explorer (foo.go:12)"
-  # (~25 chars) to pass.
+  # hallucination), "• **type" (round-4 truncation), etc. The
+  # threshold is low enough to allow a legitimate short single-symbol
+  # answer like "explorer (foo.go:12)" (~25 chars) to pass. For
+  # write-mode plan.json / post-apply source files the 20-char floor
+  # is also safe: an empty plan JSON is 2 bytes ('{}') and a
+  # post-apply file erased to zero bytes would obviously fail here.
   local stripped
   stripped="$(tr -d '[:space:]' <<<"$cleaned")"
   if (( ${#stripped} < 20 )); then
@@ -227,10 +305,135 @@ run_one() {
   fi
 
   if [[ $pass -eq 1 ]]; then
-    echo "PASS" >"$verdict"
+    echo "PASS" >"$verdict_file"
   else
-    printf 'FAIL %s\n' "${reasons[*]}" >"$verdict"
+    printf 'FAIL %s\n' "${reasons[*]}" >"$verdict_file"
   fi
+}
+
+run_one() {
+  local i="$1"
+  local out="$OUTDIR/run-$i.out"
+  local verdict="$OUTDIR/run-$i.verdict"
+  # Per-run log dir so we don't accidentally pick up an unrelated log.
+  local logdir="$OUTDIR/run-$i.logs"
+  mkdir -p "$logdir"
+
+  local rc=0
+  local scratch=""
+  local plan=""
+
+  case "$MODE" in
+    plan|apply)
+      scratch="$OUTDIR/run-$i.repo"
+      plan="$OUTDIR/run-$i.plan.json"
+      if ! setup_scratch "$scratch"; then
+        echo "FAIL setup_fail" >"$verdict"
+        echo "run $i: FAIL setup_fail" >&2
+        return
+      fi
+      # write_enabled is yaml-only (no CLI flag). Export the fixture
+      # yaml only for the write steps; unset on exit so a subsequent
+      # read-mode run in the same process would not inherit the gate.
+      export CODRAX_SETTINGS="$ROOT/eval/fixtures/write_enabled.yaml"
+      run_plan_step "$i" "$out" "$logdir" "$scratch" "$plan"
+      rc=$?
+      if [[ "$MODE" == "apply" && $rc -eq 0 && -f "$plan" ]]; then
+        run_apply_step "$i" "$out" "$logdir" "$scratch" "$plan"
+        rc=$?
+      fi
+      unset CODRAX_SETTINGS
+      ;;
+    *)
+      run_read_step "$i" "$out" "$logdir"
+      rc=$?
+      ;;
+  esac
+
+  # Pick the most recent log file in this run's dedicated logdir. For
+  # MODE=apply this is the apply step's log (the plan step's log is
+  # shadowed by filename timestamp — acceptable trade-off; metrics
+  # section is read-mode focused anyway).
+  local log
+  log="$(ls -t "$logdir"/codrax-*.log 2>/dev/null | head -1)"
+  write_metrics "$i" "$rc" "$log"
+
+  # Verdict source bytes selection by MODE.
+  local cleaned=""
+  local extra_reasons=()
+  case "$MODE" in
+    plan)
+      if [[ -f "$plan" ]]; then
+        cleaned="$(cat "$plan")"
+      else
+        extra_reasons+=("plan_not_written")
+      fi
+      ;;
+    apply)
+      # Apply happens inside a worktree (L5 red line: worktree is the
+      # write sandbox; the scratch/ main repo HEAD bytes never change
+      # automatically). Post-apply content therefore lives under the
+      # worktree path, NOT the scratch repo root. ChangePlan records
+      # the worktree path in WorktreePath once apply fires, provided
+      # pipeline_keep_worktree_on_success: true in the yaml (which
+      # eval/fixtures/write_enabled.yaml sets).
+      #
+      # Strategy:
+      #   1. Read worktree_path from plan.json.
+      #   2. If present + dir exists, that's the apply source of truth.
+      #   3. Fall back to scratch if worktree missing (surfaces the
+      #      keep-on-success misconfiguration as post_apply_file_missing,
+      #      not a silent false-pass against pre-apply fixture bytes).
+      apply_source="$scratch"
+      if [[ -f "$plan" ]]; then
+        wt=$(grep -oE '"worktree_path":[[:space:]]*"[^"]+"' "$plan" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/')
+        if [[ -n "$wt" && -d "$wt" ]]; then
+          apply_source="$wt"
+        else
+          extra_reasons+=("worktree_discarded_or_missing")
+        fi
+      fi
+      if [[ -n "$POST_APPLY_FILE" ]]; then
+        if [[ -f "$apply_source/$POST_APPLY_FILE" ]]; then
+          cleaned="$(cat "$apply_source/$POST_APPLY_FILE")"
+        else
+          extra_reasons+=("post_apply_file_missing:$POST_APPLY_FILE")
+        fi
+      else
+        if [[ -d "$apply_source/.git" ]]; then
+          cleaned="$(cd "$apply_source" && git ls-files -z 2>/dev/null | xargs -0 cat 2>/dev/null)"
+        fi
+      fi
+      ;;
+    *)
+      cleaned="$(scope_stdout "$out")"
+      ;;
+  esac
+
+  # PLAN_EXPECT_REGEX always runs against plan.json when MODE is
+  # plan|apply. Newline-separated ERE patterns; ALL must match.
+  if [[ -n "$MODE" && "$MODE" != "read" && -n "$PLAN_EXPECT_REGEX" ]]; then
+    if [[ ! -f "$plan" ]]; then
+      extra_reasons+=("no_plan_file")
+    else
+      local old_ifs="$IFS"
+      IFS=$'\n'
+      for rx in $PLAN_EXPECT_REGEX; do
+        [[ -z "$rx" ]] && continue
+        if ! grep -Eq -- "$rx" "$plan"; then
+          extra_reasons+=("no_plan_regex:${rx}")
+        fi
+      done
+      IFS="$old_ifs"
+    fi
+  fi
+
+  # Apply exit code must be 0 for verdict to pass.
+  if [[ "$MODE" == "apply" && $rc -ne 0 ]]; then
+    extra_reasons+=("apply_exit:$rc")
+  fi
+
+  write_verdict "$verdict" "$cleaned" "${extra_reasons[@]:+${extra_reasons[@]}}"
   echo "run $i: $(cat "$verdict")" >&2
 }
 
@@ -266,6 +469,69 @@ SUMMARY="$OUTDIR/summary.md"
   echo
   echo "**pass rate: $pass_count / $N**"
   echo
+
+  # Write-mode plan artifact summary. Extracts Kind / Path / Patch-len
+  # per ChangeUnit from plan.json — the primary diagnostic for
+  # answering "did the LLM emit kind=patch end-to-end?". Omitted for
+  # read-mode cases (no plan files produced).
+  if [[ -n "$MODE" && "$MODE" != "read" ]]; then
+    echo "## Plan artifacts"
+    echo
+    echo "| run | plan written | changes | kinds | paths |"
+    echo "|----:|:-------------|--------:|:------|:------|"
+    for i in $(seq 1 "$N"); do
+      plan_path="$OUTDIR/run-$i.plan.json"
+      if [[ ! -f "$plan_path" ]]; then
+        echo "| $i | no | — | — | — |"
+        continue
+      fi
+      # "$N changes" where N = count of '"kind":' occurrences.
+      change_count=$(grep -c '"kind":' "$plan_path" 2>/dev/null || echo 0)
+      kinds="$(grep -oE '"kind":[[:space:]]*"[^"]+"' "$plan_path" 2>/dev/null | sed -E 's/.*"([a-z]+)"$/\1/' | paste -sd, -)"
+      kinds="${kinds:-—}"
+      paths="$(grep -oE '"path":[[:space:]]*"[^"]+"' "$plan_path" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/' | paste -sd, -)"
+      paths="${paths:-—}"
+      # Collapse overly-long path lists (table readability).
+      if [[ ${#paths} -gt 60 ]]; then paths="${paths:0:57}…"; fi
+      echo "| $i | yes | $change_count | $kinds | $paths |"
+    done
+    echo
+    if [[ "$MODE" == "apply" ]]; then
+      # Post-apply file snapshot for the primary file (when
+      # POST_APPLY_FILE is set). Reads from the worktree (via
+      # plan.json worktree_path) because apply is sandboxed there;
+      # scratch-repo bytes are unchanged by construction (L5 red line).
+      # Truncated to 20 lines per run so the summary stays scannable.
+      if [[ -n "$POST_APPLY_FILE" ]]; then
+        echo "## Post-apply file — \`$POST_APPLY_FILE\` (first 20 lines, from worktree)"
+        echo
+        for i in $(seq 1 "$N"); do
+          echo "### run $i"
+          echo
+          plan_path="$OUTDIR/run-$i.plan.json"
+          src=""
+          if [[ -f "$plan_path" ]]; then
+            wt=$(grep -oE '"worktree_path":[[:space:]]*"[^"]+"' "$plan_path" 2>/dev/null | sed -E 's/.*"([^"]+)"$/\1/')
+            if [[ -n "$wt" && -f "$wt/$POST_APPLY_FILE" ]]; then
+              src="$wt/$POST_APPLY_FILE"
+            fi
+          fi
+          if [[ -z "$src" && -f "$OUTDIR/run-$i.repo/$POST_APPLY_FILE" ]]; then
+            src="$OUTDIR/run-$i.repo/$POST_APPLY_FILE"
+          fi
+          if [[ -n "$src" ]]; then
+            echo '```'
+            head -20 "$src"
+            echo '```'
+          else
+            echo "_(file missing — apply likely did not land or worktree was discarded)_"
+          fi
+          echo
+        done
+      fi
+    fi
+  fi
+
   echo "## Mechanism trace metrics"
   echo
   echo "| metric | $(seq 1 "$N" | sed 's|^|run |' | tr '\n' '|' | sed 's/|$//') | median |"

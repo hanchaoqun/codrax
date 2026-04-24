@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -46,46 +47,68 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		ac.LogTriage = bus.Mutable.LogTriage()
 	}
 
-	// Collect relevant facts
-	ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
+	// Read-mode stage artifact propagation. The explore→extract→
+	// finalize chain writes RepoFacts, EvidenceItems, AnswerChains,
+	// AnswerSymbols, FlowFindings, StageReports, UnverifiedFindings,
+	// SubjectMatches; downstream read-mode agents render them as
+	// dedicated prompt sections.
+	//
+	// Write-mode stages (plan / apply / verify) are hard-excluded
+	// from this block — the single chokepoint enforcing the
+	// session-35 red line "no read-mode stage artifacts in
+	// planner/coder/verifier prompts". Prior attempt (B0 — session
+	// 33) left this block ungated; the analyzer's StageReport.Findings
+	// (raw LLM lastContent, including <think> preamble like "Let me
+	// emit the analysis…") leaked into the planner's Prior Stage
+	// Findings section, causing the planner LLM to pattern-match on
+	// the analyzer's emit verb and skip emit_change_plan entirely.
+	//
+	// StageAnalyze is NOT a write stage even when it runs inside
+	// the write pipeline as a classifier — see PipelineStage.IsWrite
+	// docblock. Analyzer still needs RepoFacts / prior artifacts for
+	// its pre-scan rounds, so this gate correctly allows them through.
+	if !ac.Stage.IsWrite() {
+		// Collect relevant facts
+		ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
 
-	// Collect relevant files from facts
-	ac.RelevantFiles = extractRelevantFiles(bus.RepoFacts)
-	ac.EvidenceItems = append([]types.EvidenceItem(nil), bus.EvidenceItems...)
-	ac.FlowFindings = append([]types.FlowFindingDigest(nil), bus.FlowFindings...)
-	ac.AnswerChains = append([]types.AnswerChain(nil), bus.AnswerChains...)
-	ac.AnswerSymbols = append([]types.AnswerSymbol(nil), bus.AnswerSymbols...)
-	ac.AnswerSymbolCompleteness = bus.AnswerSymbolCompleteness
+		// Collect relevant files from facts
+		ac.RelevantFiles = extractRelevantFiles(bus.RepoFacts)
+		ac.EvidenceItems = append([]types.EvidenceItem(nil), bus.EvidenceItems...)
+		ac.FlowFindings = append([]types.FlowFindingDigest(nil), bus.FlowFindings...)
+		ac.AnswerChains = append([]types.AnswerChain(nil), bus.AnswerChains...)
+		ac.AnswerSymbols = append([]types.AnswerSymbol(nil), bus.AnswerSymbols...)
+		ac.AnswerSymbolCompleteness = bus.AnswerSymbolCompleteness
 
-	// Collect tool summaries
-	ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
+		// Collect tool summaries
+		ac.RelevantToolSummaries = extractToolSummaries(bus.ToolResults)
 
-	// Collect MCP notes
-	ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
+		// Collect MCP notes
+		ac.RelevantMCPNotes = extractMCPNotes(bus.MCPResponses)
 
-	// Carry forward all prior stage reports so this agent can read
-	// what earlier stages concluded instead of re-deriving it from
-	// raw tool dumps. Append-only; the prompt builder formats them.
-	ac.PriorReports = bus.StageReports
+		// Carry forward all prior stage reports so this agent can read
+		// what earlier stages concluded instead of re-deriving it from
+		// raw tool dumps. Append-only; the prompt builder formats them.
+		ac.PriorReports = bus.StageReports
 
-	// CGEC C1: surface UnverifiedFindings written by the analyzer's
-	// findings_validator into the AgentContext so BuildPromptContext
-	// can render a dedicated warning section in every downstream
-	// agent's prompt. Copy is defensive; the closure's internal
-	// slice is not shared with the caller.
-	if bus.Mutable != nil {
-		ac.UnverifiedAnalyzerFindings = mergeUnverifiedFindings(
-			bus.Mutable.EvidenceClosure().UnverifiedFindings(),
-			extractUnverifiedFindingsFromStageReports(bus.StageReports),
-		)
-		// CGEC E4+E5: surface SubjectMatch cache so extractor + finalizer
-		// prompt builders can render a "Subject Match Summary"
-		// directing Turn B's answer extraction / citation selection at
-		// the chain the framework believes best matches the question.
-		ac.SubjectMatches = bus.Mutable.EvidenceClosure().AllSubjectMatches()
-	}
-	if bus.AnalysisIR != nil {
-		ac.ExpectedAnswerSubject = bus.AnalysisIR.RequestModel.AnswerSubject
+		// CGEC C1: surface UnverifiedFindings written by the analyzer's
+		// findings_validator into the AgentContext so BuildPromptContext
+		// can render a dedicated warning section in every downstream
+		// agent's prompt. Copy is defensive; the closure's internal
+		// slice is not shared with the caller.
+		if bus.Mutable != nil {
+			ac.UnverifiedAnalyzerFindings = mergeUnverifiedFindings(
+				bus.Mutable.EvidenceClosure().UnverifiedFindings(),
+				extractUnverifiedFindingsFromStageReports(bus.StageReports),
+			)
+			// CGEC E4+E5: surface SubjectMatch cache so extractor + finalizer
+			// prompt builders can render a "Subject Match Summary"
+			// directing Turn B's answer extraction / citation selection at
+			// the chain the framework believes best matches the question.
+			ac.SubjectMatches = bus.Mutable.EvidenceClosure().AllSubjectMatches()
+		}
+		if bus.AnalysisIR != nil {
+			ac.ExpectedAnswerSubject = bus.AnalysisIR.RequestModel.AnswerSubject
+		}
 	}
 
 	// Propagate any pending retry hint from the previous self-looped
@@ -399,7 +422,23 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// cannot confuse conversation continuity with the question to answer.
 	// In single-shot mode prior is empty and this degenerates to the
 	// historical one-section layout.
-	if ac.Objective != "" {
+	//
+	// Write-mode apply/verify stages (NOT plan — planner needs the
+	// request as its primary input) suppress the User Request section.
+	// The raw user phrasing is a PLANNER-shaped directive ("please
+	// generate a plan to fix X"); feeding it to the coder or verifier
+	// creates role conflict — the session-35 verifier regression was
+	// exactly this: user said "generate a plan", verifier's system
+	// prompt said "run tests", the empty BuildInitialInstruction
+	// supplement left the User Request section as the dominant signal,
+	// and the LLM tried to emit_change_plan (not in its tool list) or
+	// shelled out with exec_command writing a diff document to stdin.
+	//
+	// Apply and verify operate purely on Mutable.ChangePlan; the
+	// distilled intent is in plan.Request + plan.Summary which the
+	// stage's BuildInitialInstruction can surface if needed.
+	suppressUserRequest := ac.Stage == types.StageApply || ac.Stage == types.StageVerify
+	if ac.Objective != "" && !suppressUserRequest {
 		priorConv, currentReq := types.SplitConversation(ac.Objective)
 		if currentReq != "" {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
@@ -1831,13 +1870,35 @@ func isUTF8Boundary(b byte) bool {
 	return b < 0x80 || (b&0xC0) == 0xC0 || (b&0xC0) != 0x80
 }
 
+// stripThinkBlocks removes any <think>…</think> spans (case-insensitive,
+// DOTALL — content may span newlines) from LLM narrative text before
+// it enters a downstream prompt section. Reasoning traces are agent-
+// internal; letting them flow into Prior Stage Findings lets a later
+// LLM pattern-match on verbs like "Let me emit the analysis" and
+// take actions meant for the earlier stage — the session-35
+// regression that motivated PipelineStage.IsWrite(). The strip is
+// defense-in-depth alongside the IsWrite gate: if a future refactor
+// accidentally surfaces StageReports for write-mode stages again,
+// the absence of <think> preamble still reduces the attack surface.
+// Read-mode agents benefit too (explorer / extractor / finalizer no
+// longer see the analyzer's internal deliberation).
+var thinkBlockRe = regexp.MustCompile(`(?is)<think>.*?</think>\s*`)
+
+func stripThinkBlocks(s string) string {
+	if s == "" || !strings.Contains(strings.ToLower(s), "<think>") {
+		return s
+	}
+	return thinkBlockRe.ReplaceAllString(s, "")
+}
+
 func formatStageReports(reports []types.StageReport) string {
 	var b strings.Builder
 	for i, r := range reports {
 		if i > 0 {
 			b.WriteString("\n\n")
 		}
-		fmt.Fprintf(&b, "### [%s / %s]\n%s", r.Stage, r.Agent, r.Findings)
+		findings := stripThinkBlocks(r.Findings)
+		fmt.Fprintf(&b, "### [%s / %s]\n%s", r.Stage, r.Agent, findings)
 	}
 	return b.String()
 }

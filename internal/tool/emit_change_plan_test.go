@@ -469,3 +469,240 @@ func TestDetectDepsCycle_UnitTable(t *testing.T) {
 		})
 	}
 }
+
+// TestEmitChangePlan_PatchPreflight_RejectsCorruptDiff pins the
+// session-35 fix: a kind=patch change whose unified diff fails
+// `git apply --check` is rejected at emit time. The session-35 e2e
+// run saw 2/3 planner dispatches produce diffs with mismatched @@
+// hunk counts — those landed in plan.json, were persisted + approved,
+// and blew up only at apply time inside the worktree, with no retry
+// path (the coder's retries re-read the same corrupt diff from Mutable).
+//
+// With the pre-flight gate, the same malformed diff fails emit_change_plan
+// → planner's ShouldStop doesn't fire (no plan installed) → planner
+// retries within the same dispatch, seeing git's error verbatim. The
+// failure is caught at the stage that can actually fix it.
+func TestEmitChangePlan_PatchPreflight_RejectsCorruptDiff(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; pre-flight check skipped")
+	}
+	// Seed a real git repo with known content so the pre-flight check
+	// has a baseline to validate against.
+	ctx := gitWorktreeFixture(t, "line1\nline2\nline3\n")
+	// Clear the seeded plan — gitWorktreeFixture installs one, but we
+	// want emit_change_plan.Execute to install its own from our params.
+	ctx.Mutable = types.NewMutableState("test")
+
+	tool := &EmitChangePlan{}
+	// Corrupt diff: @@ header claims 6 lines but body has 7 content
+	// lines — the same malformed shape the session-35 planner produced.
+	corruptDiff := `--- a/file.txt
++++ b/file.txt
+@@ -1,6 +1,6 @@
+ line1
+-line2
++lineTWO
+ line3
+ extra1
+ extra2
+ extra3
+`
+	params := json.RawMessage(`{
+		"request": "rename line2",
+		"summary": "Fix line2 naming. Pre-flight check should reject a malformed hunk header.",
+		"changes": [
+			{"path": "file.txt", "kind": "patch", "patch": ` + jsonString(corruptDiff) + `, "rationale": "test"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if res.Success {
+		t.Fatalf("corrupt diff should be rejected at emit time; got Success=true")
+	}
+	for _, want := range []string{"git apply", "kind=patch", "file.txt"} {
+		if !strings.Contains(res.Summary, want) {
+			t.Errorf("rejection summary should carry %q; got %q", want, res.Summary)
+		}
+	}
+	// No ChangePlan should have been installed — rejection is
+	// pre-mutation so state stays clean.
+	if ctx.Mutable.ChangePlan() != nil {
+		t.Error("rejected emit must not install a ChangePlan on Mutable")
+	}
+}
+
+// TestEmitChangePlan_PatchPreflight_AcceptsValidDiff confirms the
+// gate is one-sided: a well-formed diff with correct hunk counts
+// passes emit cleanly.
+func TestEmitChangePlan_PatchPreflight_AcceptsValidDiff(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; pre-flight check skipped")
+	}
+	ctx := gitWorktreeFixture(t, "line1\nline2\nline3\n")
+	ctx.Mutable = types.NewMutableState("test")
+
+	tool := &EmitChangePlan{}
+	validDiff := `--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,3 @@
+ line1
+-line2
++lineTWO
+ line3
+`
+	params := json.RawMessage(`{
+		"request": "rename line2",
+		"summary": "Fix line2 naming. Well-formed diff, pre-flight should accept.",
+		"changes": [
+			{"path": "file.txt", "kind": "patch", "patch": ` + jsonString(validDiff) + `, "rationale": "test"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("valid diff should pass pre-flight; got FAIL: %s", res.Summary)
+	}
+	if ctx.Mutable.ChangePlan() == nil {
+		t.Error("accepted emit must install a ChangePlan on Mutable")
+	}
+}
+
+// TestEmitChangePlan_PatchPreflight_TolerantToMiscountedHeader pins
+// the --recount tolerance: a diff with a structurally-correct BODY
+// but a WRONG @@ hunk-header line count must pass pre-flight. The
+// session-35 eval repeatedly saw LLMs produce 5-line hunks declared
+// as ",6" (or 7-line declared as ",6") — the body was byte-correct,
+// the metadata wasn't. Failing those would burn planner retries on
+// a mechanical counting error the system can trivially recover from.
+// --recount is git's own blessed path for this scenario.
+func TestEmitChangePlan_PatchPreflight_TolerantToMiscountedHeader(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; pre-flight check skipped")
+	}
+	ctx := gitWorktreeFixture(t, "line1\nline2\nline3\n")
+	ctx.Mutable = types.NewMutableState("test")
+
+	tool := &EmitChangePlan{}
+	// Body is correct (3 old lines, 3 new lines — matches the file
+	// exactly), but header declares ",6" for each side. Pre --recount
+	// this would fail; post --recount it's accepted.
+	miscountedDiff := `--- a/file.txt
++++ b/file.txt
+@@ -1,6 +1,6 @@
+ line1
+-line2
++lineTWO
+ line3
+`
+	params := json.RawMessage(`{
+		"request": "rename line2",
+		"summary": "Fix line2 naming. Header line count is wrong but body matches — --recount should fix.",
+		"changes": [
+			{"path": "file.txt", "kind": "patch", "patch": ` + jsonString(miscountedDiff) + `, "rationale": "test"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("miscounted-header diff should pass pre-flight via --recount; got FAIL: %s", res.Summary)
+	}
+	if ctx.Mutable.ChangePlan() == nil {
+		t.Error("accepted emit must install a ChangePlan on Mutable")
+	}
+}
+
+// TestEmitChangePlan_PatchPreflight_TolerantToMissingTrailingNewline
+// pins the newline-normalisation tolerance: a diff whose BODY is
+// correct but whose FINAL LINE is missing its `\n` terminator must
+// pass pre-flight. Session-35 eval saw 1/3 LLM dispatches drop the
+// final newline, causing git to report "corrupt patch at line N"
+// where N is the body length. This is a failure of mechanical
+// serialisation, not semantics.
+func TestEmitChangePlan_PatchPreflight_TolerantToMissingTrailingNewline(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; pre-flight check skipped")
+	}
+	ctx := gitWorktreeFixture(t, "line1\nline2\nline3\n")
+	ctx.Mutable = types.NewMutableState("test")
+
+	tool := &EmitChangePlan{}
+	// Body is correct; note the deliberate missing \n at end.
+	noTrailingNewline := `--- a/file.txt
++++ b/file.txt
+@@ -1,3 +1,3 @@
+ line1
+-line2
++lineTWO
+ line3`
+	params := json.RawMessage(`{
+		"request": "rename line2",
+		"summary": "Fix line2 naming. Body complete but final line missing its terminating newline.",
+		"changes": [
+			{"path": "file.txt", "kind": "patch", "patch": ` + jsonString(noTrailingNewline) + `, "rationale": "test"}
+		]
+	}`)
+
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("missing-trailing-newline diff should pass pre-flight; got FAIL: %s", res.Summary)
+	}
+	// Confirm the plan stored the ORIGINAL (not normalised) patch so
+	// re-applying it via apply_patch lands bytes-correct too. The
+	// tool layer normalises at the edge; Mutable state stays as-is.
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("accepted emit must install a ChangePlan on Mutable")
+	}
+}
+
+// TestEmitChangePlan_PatchPreflight_EmptyPatchRejected confirms the
+// emit-time check catches a missing Patch field for kind=patch
+// (previously only the apply_patch tool would reject this — too late).
+func TestEmitChangePlan_PatchPreflight_EmptyPatchRejected(t *testing.T) {
+	if !GitAvailable() {
+		t.Skip("git not available; pre-flight check skipped")
+	}
+	ctx := gitWorktreeFixture(t, "x\n")
+	ctx.Mutable = types.NewMutableState("test")
+
+	tool := &EmitChangePlan{}
+	params := json.RawMessage(`{
+		"request": "noop",
+		"summary": "Empty patch must be rejected at emit time.",
+		"changes": [
+			{"path": "file.txt", "kind": "patch", "patch": "", "rationale": "test"}
+		]
+	}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("kind=patch with empty Patch must be rejected")
+	}
+	if !strings.Contains(res.Summary, "empty") || !strings.Contains(res.Summary, "patch") {
+		t.Errorf("rejection should name empty patch; got %q", res.Summary)
+	}
+}
+
+// jsonString produces a valid JSON-encoded string literal (with
+// escaping) for injection into a raw JSON template. The test data
+// includes newlines + tabs that need JSON escaping; building the
+// params map via json.Marshal and re-encoding would lose readability.
+func jsonString(s string) string {
+	b, err := json.Marshal(s)
+	if err != nil {
+		// Unreachable for normal strings.
+		panic(err)
+	}
+	return string(b)
+}

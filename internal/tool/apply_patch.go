@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -46,11 +47,17 @@ type ApplyPatch struct {
 
 // applyPatchParams mirrors the tool's JSON schema. DisallowUnknownFields
 // in Execute prevents schema drift.
+//
+// Content fields (`new_content` / `patch`) were dropped in the session-
+// 35 hardening. The plan's canonical copy lives on
+// Mutable.ChangePlan().Changes[i] and the tool now hydrates from it
+// directly — this eliminates LLM transcription errors (the sentinel
+// failure was a 1-byte `\n` loss on `func main() {` that crashed
+// `git apply` with "corrupt patch at line 11" even though the plan
+// contained a byte-perfect diff). Schema is now {path, kind} only.
 type applyPatchParams struct {
-	Path       string `json:"path"`
-	Kind       string `json:"kind"`
-	NewContent string `json:"new_content,omitempty"`
-	Patch      string `json:"patch,omitempty"`
+	Path string `json:"path"`
+	Kind string `json:"kind"`
 }
 
 // Name returns the tool's stable identifier.
@@ -63,10 +70,11 @@ func (t *ApplyPatch) Description() string {
 		"Supports kind=create|modify|delete|patch. For patch, a unified-diff payload is piped to `git apply`."
 }
 
-// Parameters returns the tool's JSON schema. The four-way kind enum
-// (create / modify / delete / patch) covers every supported change
-// shape; `new_content` carries the full body for create+modify and
-// `patch` carries the unified diff for kind=patch.
+// Parameters returns the tool's JSON schema. Only {path, kind} —
+// content (new_content / patch) is sourced from the authoritative
+// Mutable.ChangePlan() slot so the LLM cannot introduce
+// transcription errors. See applyPatchParams docblock for the
+// session-35 failure that motivated the cut.
 func (t *ApplyPatch) Parameters() json.RawMessage {
 	return json.RawMessage(`{
   "type": "object",
@@ -74,20 +82,12 @@ func (t *ApplyPatch) Parameters() json.RawMessage {
   "properties": {
     "path": {
       "type": "string",
-      "description": "Repo-relative file path to modify (must be declared in plan.target_paths; W1 invariant)."
+      "description": "Repo-relative file path to apply. Must be declared in plan.target_paths; the tool hydrates the corresponding ChangeUnit (new_content / patch / delete flag) from Mutable.ChangePlan() — do NOT emit content fields, the schema rejects them."
     },
     "kind": {
       "type": "string",
       "enum": ["create", "modify", "delete", "patch"],
-      "description": "Change type; must match the ChangeUnit's declared Kind."
-    },
-    "new_content": {
-      "type": "string",
-      "description": "Full file body for kind=create|modify. Ignored for kind=delete; rejected for kind=patch."
-    },
-    "patch": {
-      "type": "string",
-      "description": "Unified-diff payload for kind=patch. Piped to git apply inside the worktree; must apply cleanly against the current file content."
+      "description": "Change type; must match the ChangeUnit's declared Kind (sanity check — the tool compares against plan.Changes[path].Kind)."
     }
   },
   "required": ["path", "kind"]
@@ -128,11 +128,19 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 				"This tool is apply-stage only; calling it from another stage is a skill-configuration bug."), nil
 	}
 
-	// W1: path must be in plan.TargetPaths.
+	// W1: path must be in plan.TargetPaths. Message enumerates the
+	// valid TargetPaths so the LLM doesn't have to re-read the plan
+	// or guess — the plan's declared set is exhausively listed and
+	// the corrective action ("pick one of these") is mechanical.
 	if !containsPath(plan.TargetPaths, path) {
+		valid := "none"
+		if len(plan.TargetPaths) > 0 {
+			valid = strings.Join(plan.TargetPaths, ", ")
+		}
 		return errResult(t.Name(),
-			fmt.Sprintf("apply_patch rejected: path %q is not in plan.TargetPaths (W1 violation; "+
-				"the planner must have emitted a ChangeUnit for this path before the coder may apply it)", path)), nil
+			fmt.Sprintf("apply_patch rejected: path %q is not in plan.TargetPaths (W1 violation). "+
+				"Valid target paths for this plan: [%s]. The planner must emit a ChangeUnit for a path before the coder may apply it; pick one of the listed paths or abandon this target.",
+				path, valid)), nil
 	}
 
 	// Find the matching ChangeUnit for the path. Constant lookup
@@ -164,13 +172,24 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	// stage's coder agent is responsible for emitting calls in
 	// topological order, but the tool re-enforces so a bug in the
 	// ordering logic surfaces as a clean error rather than a
-	// broken build.
+	// broken build. Message enumerates the applied set so the LLM
+	// sees exactly what's unblocked — no guessing which call to
+	// retry first.
 	applied := ctx.Mutable.WriteClosure().AppliedSet()
 	for _, dep := range unit.DependsOn {
 		if !applied[dep] {
+			var appliedList []string
+			for p := range applied {
+				appliedList = append(appliedList, p)
+			}
+			appliedStr := "none"
+			if len(appliedList) > 0 {
+				appliedStr = strings.Join(appliedList, ", ")
+			}
 			return errResult(t.Name(),
-				fmt.Sprintf("apply_patch rejected: %q depends_on %q but %q has not been applied yet "+
-					"(W1b ordering violation; apply %q first)", path, dep, dep, dep)), nil
+				fmt.Sprintf("apply_patch rejected: %q depends_on %q but %q has not been applied yet (W1b ordering violation). "+
+					"Currently-applied paths: [%s]. Apply %q first, then retry %q.",
+					path, dep, dep, appliedStr, dep, path)), nil
 		}
 	}
 
@@ -188,18 +207,19 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	// the worktree. Path-level W1/W1b/idempotency already passed; git
 	// apply additionally validates the hunks match the current file
 	// content and refuses to partially-apply on conflict.
+	//
+	// Source of truth is unit.Patch (the planner's emitted diff),
+	// NOT an LLM-supplied parameter. The LLM cannot corrupt content
+	// it never touches (session-35 regression was a lost trailing
+	// `\n` during re-emission that `git apply` reports as "corrupt
+	// patch at line N").
 	if kind == "patch" {
-		if strings.TrimSpace(p.Patch) == "" {
+		if strings.TrimSpace(unit.Patch) == "" {
 			return errResult(t.Name(),
-				fmt.Sprintf("apply_patch rejected: kind=patch requires non-empty 'patch' (unified diff) for %q", path)), nil
+				fmt.Sprintf("apply_patch rejected: plan ChangeUnit for %q has empty Patch (planner bug — kind=patch must carry a unified diff)", path)), nil
 		}
-		if p.NewContent != "" {
-			return errResult(t.Name(),
-				fmt.Sprintf("apply_patch rejected: kind=patch must not carry new_content (%q); use one or the other", path)), nil
-		}
-		if err := applyUnifiedDiff(ctx.RepoRoot, p.Patch); err != nil {
-			return errResult(t.Name(),
-				fmt.Sprintf("apply_patch: git apply failed for %q: %v", path, err)), nil
+		if err := applyUnifiedDiff(ctx.RepoRoot, unit.Patch); err != nil {
+			return errResult(t.Name(), composeApplyRejection(ctx.RepoRoot, path, err.Error())), nil
 		}
 		ctx.Mutable.WriteClosure().MarkApplied(path)
 		logging.Info("[apply_patch] patch %s (worktree=%s)", path, ctx.RepoRoot)
@@ -248,7 +268,7 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 		if err := os.MkdirAll(filepath.Dir(absPathCanonical), 0o755); err != nil {
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: mkdir parent of %s: %v", path, err)), err
 		}
-		if err := os.WriteFile(absPathCanonical, []byte(p.NewContent), 0o644); err != nil {
+		if err := os.WriteFile(absPathCanonical, []byte(unit.NewContent), 0o644); err != nil {
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: write %s: %v", path, err)), err
 		}
 	case "modify":
@@ -263,7 +283,7 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 			}
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: stat %s: %v", path, err)), err
 		}
-		if err := os.WriteFile(absPathCanonical, []byte(p.NewContent), 0o644); err != nil {
+		if err := os.WriteFile(absPathCanonical, []byte(unit.NewContent), 0o644); err != nil {
 			return errResult(t.Name(), fmt.Sprintf("apply_patch: write %s: %v", path, err)), err
 		}
 	case "delete":
@@ -330,25 +350,147 @@ func okResult(name, summary string) types.ToolResult {
 // when git rejects the patch. The caller guarantees worktreeRoot
 // is a valid git checkout (the orchestrator's worktree session).
 //
-// Failure modes surfaced verbatim: context mismatch ("patch does
-// not apply"), malformed hunk headers, path escape, binary
-// patches (unsupported — planner should use kind=modify for those).
+// Tolerance chain (session-35): try `git apply --recount` first, and
+// if git rejects with a "patch failed" / "corrupt patch" / "while
+// searching for" shape, fall back to GNU `patch(1) -p1`. git apply
+// is preferred because it understands git-specific metadata (a/ b/
+// prefixes, mode changes, rename hints); patch(1) is the safety net
+// because its fuzz-matching tolerates the shapes LLMs reliably
+// produce and git rejects — miscounted hunk headers with truncated
+// body, missing trailing context lines, and small whitespace drift.
+// Session-34 rejected patch(1) outright for metadata-loss reasons;
+// session-35 walks that back to "git first, patch fallback" because
+// the real-LLM eval showed 1/3 Python dispatches dropping trailing
+// context, and no amount of --recount / --ignore-whitespace / header
+// re-normalization recovers that in git.
 //
-// Why `git apply` rather than `patch(1)`: git apply understands
-// git-specific diff metadata (a/ b/ prefixes, mode changes, rename
-// hints) that the emit_change_plan schema allows in the Patch
-// field. Falling back to patch(1) would require stripping that
-// metadata, breaking non-trivial diffs.
+// Binary patches, mode changes, and renames — none of which LLMs
+// emit today — keep working because git handles them on the
+// primary path. The fallback only fires when git rejects; at that
+// point the diff is plain-text content (no git-specific features
+// to preserve).
 func applyUnifiedDiff(worktreeRoot, patchText string) error {
-	cmd, cancel, stdin, err := NewGitCommandWithStdin(nil, "apply", "-")
+	return runUnifiedDiff(worktreeRoot, patchText, false)
+}
+
+// CheckUnifiedDiff runs an apply-in-dry-run against repoRoot without
+// mutating the worktree. Returns nil if the patch would apply cleanly
+// via either git apply or the patch(1) fallback, else an error
+// carrying the primary (git) stderr so the planner retry sees the
+// strictest diagnostic available.
+//
+// Used by emit_change_plan as a pre-flight gate on kind=patch units:
+// rejecting a malformed diff at emission time lets the planner retry
+// within the same dispatch (fail-loud, LLM sees git's error verbatim
+// and can regenerate), instead of the malformed diff being persisted
+// to plan.json and exploding at apply time after user approval — the
+// session-35 failure mode where 2/3 of patches were rejected by git
+// apply AFTER a successful-looking plan emission.
+func CheckUnifiedDiff(repoRoot, patchText string) error {
+	return runUnifiedDiff(repoRoot, patchText, true)
+}
+
+// runUnifiedDiff is the chained applier: git apply first, patch(1)
+// fallback. Both honor checkOnly (git uses --check, patch uses
+// --dry-run). On success returns nil with no side-effect info; on
+// failure returns the git error (strictest, most-diagnostic) rather
+// than patch(1)'s error — surfacing the git message gives the LLM
+// precise guidance for regeneration, and we only landed in the
+// fallback because git rejected.
+func runUnifiedDiff(repoRoot, patchText string, checkOnly bool) error {
+	gitErr := runGitApply(repoRoot, patchText, checkOnly)
+	if gitErr == nil {
+		return nil
+	}
+	// Fallback to patch(1). If patch(1) succeeds, the content is
+	// semantically fine — git's rejection was an LLM-diff-artifact
+	// we can tolerate. Log the fallback so operators see the signal.
+	if err := runPatchTool(repoRoot, patchText, checkOnly); err == nil {
+		logging.Info("[apply_patch] git rejected but patch(1) accepted; applied via fallback")
+		return nil
+	}
+	// Both rejected — report the git error as primary. It's the
+	// strictest validator and its stderr ("patch failed: file:line",
+	// "corrupt patch at line N") is what the planner-retry pipeline
+	// is wired to consume in composePatchRejection.
+	return gitErr
+}
+
+// runPatchTool runs GNU `patch(1) -p1` against repoRoot with the
+// given patch text. checkOnly=true adds --dry-run. Returns nil on
+// success, combined-output error on failure. Not exported: callers
+// should use runUnifiedDiff which chains this after git apply.
+func runPatchTool(repoRoot, patchText string, checkOnly bool) error {
+	if patchText != "" && !strings.HasSuffix(patchText, "\n") {
+		patchText += "\n"
+	}
+	// -p1 strips the a/ b/ prefix that unified diffs carry.
+	// --no-backup-if-mismatch keeps the worktree clean on failure.
+	// --silent suppresses verbose progress; we want the stderr only
+	// on rejection.
+	// --force avoids interactive prompts when patching non-existent
+	// files or already-patched hunks.
+	args := []string{"-p1", "--no-backup-if-mismatch", "--silent", "--force"}
+	if checkOnly {
+		args = append(args, "--dry-run")
+	}
+	cmd := exec.Command("patch", args...)
+	cmd.Dir = repoRoot
+	cmd.Stdin = strings.NewReader(patchText)
+	out, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		outTrim := strings.TrimSpace(string(out))
+		if outTrim == "" {
+			outTrim = runErr.Error()
+		}
+		return fmt.Errorf("%s", outTrim)
+	}
+	return nil
+}
+
+// runGitApply shared implementation. checkOnly=true adds --check.
+// The deadlock-safe stdin feed pattern mirrors the existing
+// apply_patch apply path.
+//
+// Tolerance surface — targets the full class of LLM-generated
+// unified-diff imperfections, not one sampled bug. The session-35
+// e2e run surfaced two failure modes across N=3:
+//
+//   (1) hunk header line-count off by one (@@ -22,6 +22,6 @@ over
+//       5 actual body lines). The body was byte-correct; only the
+//       redundant metadata was wrong.
+//
+//   (2) patch body missing its final `\n` terminator. Git's parser
+//       treats a non-terminated last line as EOF rather than a
+//       content line, which surfaced as "corrupt patch at line N"
+//       in the trace where N was the body length.
+//
+// Fix (1) via git's own `--recount` flag — git's man page frames
+// this exactly as the workaround for "hand-edited patches that
+// didn't have the header updated". Fix (2) by normalising the
+// patch text before piping: append `\n` when the caller omitted
+// one. We intentionally do NOT pass --inaccurate-eof; that flag
+// alters git's tolerance for actual missing-EOL-at-end-of-file
+// bytes in the target, which breaks well-formed patches that
+// legitimately declare the file DOES end with a newline.
+// Normalising only the patch's outer terminator is enough to
+// close the session-35 failure mode without widening the
+// acceptance surface to corner cases we don't understand.
+func runGitApply(repoRoot, patchText string, checkOnly bool) error {
+	if patchText != "" && !strings.HasSuffix(patchText, "\n") {
+		patchText += "\n"
+	}
+	args := []string{"apply", "--recount"}
+	if checkOnly {
+		args = append(args, "--check")
+	}
+	args = append(args, "-")
+	cmd, cancel, stdin, err := NewGitCommandWithStdin(nil, args...)
 	if err != nil {
 		return fmt.Errorf("setup stdin pipe: %w", err)
 	}
 	defer cancel()
-	cmd.Dir = worktreeRoot
-	// Feed the patch + close stdin in a goroutine so the outer
-	// CombinedOutput can read stderr simultaneously — a wedged
-	// git writer would otherwise deadlock.
+	cmd.Dir = repoRoot
 	var feedErr error
 	done := make(chan struct{})
 	go func() {
@@ -367,9 +509,6 @@ func applyUnifiedDiff(worktreeRoot, patchText string) error {
 		return fmt.Errorf("pipe patch to git apply: %w", feedErr)
 	}
 	if runErr != nil {
-		// git apply emits the rejection reason on stderr; surface
-		// it verbatim so the retry-hint / user error message names
-		// the actual hunk / context that failed.
 		outTrim := strings.TrimSpace(string(out))
 		if outTrim == "" {
 			outTrim = runErr.Error()

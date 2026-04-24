@@ -1,0 +1,16 @@
+# Write-mode eval — plan-stage kind=patch on a C++ typo.
+#
+# Plan-only (sandbox lacks g++). Verifies the planner produces a
+# structurally valid unified diff for C++ source that passes
+# emit_change_plan's pre-flight `git apply --check --recount`. The
+# pre-flight gate rejects miscounted or malformed diffs before they
+# persist, so a successful plan.json with kind=patch is strong
+# evidence the planner's output applies cleanly.
+ID="patch_cpp_typo"
+NAME="plan emits kind=patch with valid unified diff for C++ typo"
+MODE="plan"
+FIXTURE="eval/fixtures/testdata/patch_typo_cpp"
+QUESTION="仓库里的 main.cpp 有一个导致编译失败的 typo（greet 函数里的 return 关键字被误写成了 retrun）。请生成一个改动计划把它修好，改动范围尽量精准，只改那一行。"
+PLAN_EXPECT_REGEX='"kind":[[:space:]]*"patch"
+-.*retrun
+[+].*return '

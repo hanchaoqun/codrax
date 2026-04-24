@@ -183,8 +183,12 @@ func TestVerifier_BuildInitialInstruction_NoPlan(t *testing.T) {
 }
 
 // TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests verifies
-// we don't emit a noise supplement when plan has no explicit tests
-// AND no baseline has been captured.
+// the session-35 invariant: even without acceptance tests or baseline,
+// the supplement MUST carry a stage-stating directive so the LLM has
+// an unambiguous anchor. Prior to session-35 this case returned empty
+// string, leaving the verifier leaning on the raw User Request (which
+// in write mode is plan-shaped phrasing) and getting confused into
+// trying emit_change_plan — the exact regression the e2e run caught.
 func TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:      "plan",
@@ -194,8 +198,21 @@ func TestVerifier_BuildInitialInstruction_EmptyAcceptanceTests(t *testing.T) {
 	ctx := verifierFixtureCtx(nil, plan)
 	ev := &verifierEvaluator{}
 	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
-	if inst != "" {
-		t.Errorf("empty acceptance_tests + no baseline should yield empty instruction; got %q", inst)
+	if inst == "" {
+		t.Fatal("empty acceptance_tests + no baseline must still yield a stage-stating directive")
+	}
+	// Must pin the verifier's role and the authoritative tool.
+	for _, want := range []string{"## Verify phase", "run_tests", "Do NOT emit_change_plan"} {
+		if !strings.Contains(inst, want) {
+			t.Errorf("instruction missing %q anchor; got %q", want, inst)
+		}
+	}
+	// No acceptance / baseline sections when both are empty — the
+	// stage-stating directive is the whole content.
+	for _, unwanted := range []string{"## Plan acceptance criteria", "Pre-existing baseline failures"} {
+		if strings.Contains(inst, unwanted) {
+			t.Errorf("instruction should not render %q when both slots are empty; got %q", unwanted, inst)
+		}
 	}
 }
 
@@ -239,8 +256,10 @@ func TestVerifier_BuildInitialInstruction_BaselineFailuresRendered(t *testing.T)
 }
 
 // TestVerifier_BuildInitialInstruction_BaselinePassing verifies we
-// DON'T noise up the prompt when the baseline was captured but all
-// tests passed (nothing interesting to say about pre-existing state).
+// DON'T render the "Pre-existing baseline failures" section when the
+// baseline was captured but all tests passed. Post session-35: the
+// stage-stating directive is always present, but the conditional
+// baseline/acceptance blocks stay gated by their slot's content.
 func TestVerifier_BuildInitialInstruction_BaselinePassing(t *testing.T) {
 	plan := &types.ChangePlan{
 		ID:      "plan-baseline-clean",
@@ -256,11 +275,11 @@ func TestVerifier_BuildInitialInstruction_BaselinePassing(t *testing.T) {
 	ev := &verifierEvaluator{}
 	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
 	if strings.Contains(inst, "Pre-existing baseline failures") {
-		t.Errorf("clean baseline should NOT render the section; got %q", inst)
+		t.Errorf("clean baseline should NOT render the baseline-failures section; got %q", inst)
 	}
-	// Plan had no acceptance tests either → empty instruction.
-	if inst != "" {
-		t.Errorf("clean baseline + empty acceptance_tests should yield empty instruction; got %q", inst)
+	// Stage-stating directive must still be present (session-35 invariant).
+	if !strings.Contains(inst, "## Verify phase") || !strings.Contains(inst, "run_tests") {
+		t.Errorf("stage-stating directive missing; got %q", inst)
 	}
 }
 

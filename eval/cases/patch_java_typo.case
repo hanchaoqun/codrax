@@ -1,0 +1,16 @@
+# Write-mode eval — plan-stage kind=patch on a Java typo.
+#
+# Plan-only (sandbox lacks javac). Verifies the planner produces a
+# unified diff for Java source that passes emit_change_plan's
+# pre-flight `git apply --check --recount`. A successful plan.json
+# with kind=patch + the expected +/- pair demonstrates the planner
+# correctly diffs Java syntax (4-space indent, class / method
+# braces, semicolons).
+ID="patch_java_typo"
+NAME="plan emits kind=patch with valid unified diff for Java typo"
+MODE="plan"
+FIXTURE="eval/fixtures/testdata/patch_typo_java"
+QUESTION="仓库里的 Main.java 有一个导致编译失败的 typo（greet 方法里的 return 关键字被误写成了 retrun）。请生成一个改动计划把它修好，改动范围尽量精准，只改那一行。"
+PLAN_EXPECT_REGEX='"kind":[[:space:]]*"patch"
+-.*retrun
+[+].*return '
