@@ -307,4 +307,100 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 			"do not produce more than 10 segments — coarsen if the log is granular enough to need more",
 		},
 	})
+
+	// ── B0 write-mode skills ───────────────────────────────────
+	//
+	// Three skills paired with the planner / coder / verifier agents.
+	// Registered AFTER the 5 read-mode skills so their presence in the
+	// registry cannot perturb read-mode skill resolution (no shared
+	// name; explicit lookup by stage → skill name in topology.go).
+	//
+	// L6 red line: each write skill intentionally keeps exec_command
+	// in its ToolSuggestions. Safety comes from the git worktree
+	// sandbox (Day 2 landed): plan / apply / verify stages run inside
+	// a detached worktree so a runaway rm -rf hits the worktree copy,
+	// never the user's main checkout. Stripping exec_command would
+	// break the flexibility promise (Q2) without adding security
+	// — worktree isolation is the safety surface, not skill
+	// allowlisting.
+	//
+	// L3 red line: the three write-mode emit tools (emit_change_plan,
+	// apply_patch, emit_test_results) are listed in these skills but
+	// each one's Execute method is structurally forbidden from calling
+	// ground.BuildContext. Enforced by
+	// internal/tool/write_mode_red_lines_test.go (go/ast scan at
+	// build time).
+
+	r.Register(&Config{
+		Name: "change-plan-skill",
+		Goal: "Produce a concrete ChangePlan for the user's requested code change by reading the relevant source and emitting emit_change_plan exactly once.",
+		Workflow: []string{
+			"Read the files and identifiers named in the user's request. Use read_file / grep / repo_map to understand the current shape of what the change has to touch.",
+			"Identify the MINIMAL set of files that must be modified to address the request. A good plan touches the fewest files that still completely solves the problem.",
+			"For each target file decide the Kind: create (new file), modify (overwrite body), delete (remove), or patch (unified-diff — B2 only; leave empty in B0).",
+			"Emit exactly one emit_change_plan call. request must restate the user's ask, summary must be 3-10 sentences describing what the plan does and why, and changes[] must include one entry per target file with a Rationale explaining WHY that file needs that change.",
+			"Optionally list acceptance_tests[] — natural-language test assertions the apply stage's verify phase should confirm. Empty is legal (no explicit tests to check).",
+			"Do NOT invoke apply_patch or run_tests from the plan stage — those belong to the apply / verify stages that consume the plan later.",
+		},
+		ToolSuggestions: []string{
+			"read_file",
+			"grep",
+			"list_files",
+			"repo_map",
+			"exec_command", // Q2 red line: kept deliberately; worktree sandbox guards runaway commands
+			"emit_change_plan",
+		},
+		OutputFormat: "Your only structured output is the single emit_change_plan tool call. Any prose around the call is discarded — compose the plan body directly inside the tool's summary / changes[] fields. Call the tool once; a second call overwrites the first.",
+		Prohibitions: []string{
+			"do not modify any file during the plan stage — this stage produces the proposal, it does not execute it",
+			"do not invent file paths that do not exist in the repository — read_file or grep to verify paths first",
+			"do not emit apply_patch or run_tests — those are for downstream stages",
+			"do not write a plan whose changes[] array is empty — a plan without any proposed change is meaningless",
+		},
+	})
+
+	r.Register(&Config{
+		Name: "code-write-skill",
+		Goal: "Apply a ChangePlan's ChangeUnits to the active git worktree. B0 SKELETON — the apply_patch tool currently returns 'not yet implemented'; this skill's workflow is wired forward-compatibly for B2.",
+		Workflow: []string{
+			"Read the ChangePlan from the input (supplied via --plan-file or the REPL /plan state).",
+			"Iterate plan.changes[] in order. For each ChangeUnit, call apply_patch with the path / kind / content payload the unit declares.",
+			"If a unit fails apply (apply_patch returns Success=false), record the failure and proceed cautiously — B2 will add rollback semantics.",
+			"B0 behavior: apply_patch always returns an error so this skill surfaces a clean 'not yet implemented' message via the coder agent's ParseOutput.",
+		},
+		ToolSuggestions: []string{
+			"read_file",
+			"apply_patch",
+			"exec_command", // Q2 red line (see package-level comment above)
+		},
+		OutputFormat: "No emit tool in B0 (apply_patch returns stub errors). The coder agent's ParseOutput will flag the stub path until B2 lands.",
+		Prohibitions: []string{
+			"do not modify files outside plan.target_paths — the W1 invariant refuses unknown paths",
+			"do not run tests here — that is the verify stage's job",
+			"do not invoke emit_change_plan — the plan was already emitted upstream",
+		},
+	})
+
+	r.Register(&Config{
+		Name: "test-execute-skill",
+		Goal: "Run the project's test suite inside the active worktree and emit the parsed results. B0 SKELETON — run_tests and emit_test_results both return 'not yet implemented' stubs until B3 lands.",
+		Workflow: []string{
+			"Read the ChangePlan's acceptance_tests[] to know which assertions MUST pass.",
+			"Call run_tests with the language-appropriate suite selector (empty = all tests). B3 wires real per-language parsers; B0 returns a stub error.",
+			"Parse the runner output into per-assertion TestResult entries and call emit_test_results with the structured bundle.",
+			"B0 behavior: both run_tests and emit_test_results return errors, so the verifier agent's ParseOutput surfaces a clean 'not yet implemented' message.",
+		},
+		ToolSuggestions: []string{
+			"read_file",
+			"run_tests",
+			"emit_test_results",
+			"exec_command", // Q2 red line (see package-level comment above)
+		},
+		OutputFormat: "In B3: structured TestResult[] via emit_test_results. In B0: stub errors surface via the verifier agent.",
+		Prohibitions: []string{
+			"do not modify files — verify is read-only w.r.t. the worktree",
+			"do not invoke apply_patch — that is the apply stage's job",
+			"do not invoke emit_change_plan — the plan was already emitted upstream",
+		},
+	})
 }

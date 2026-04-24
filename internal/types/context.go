@@ -121,6 +121,16 @@ type MutableState struct {
 	// multi-task run.
 	answerDocument *AnswerDocument
 
+	// changePlan is the B0 write-mode structured artifact produced
+	// by the planner agent (emit_change_plan tool writes it). Read
+	// by runPlanPhase after dispatchStage returns to render a
+	// human-visible summary into Result and by cmd/root.go to
+	// serialize the plan JSON to disk. Nil in read-mode and
+	// apply-mode (apply consumes a plan file, not this field).
+	// Write-once-read-many: emit_change_plan sets it; no later
+	// stage mutates.
+	changePlan *ChangePlan
+
 	// investigationComplete is set by the emit_investigation_complete
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
@@ -879,6 +889,51 @@ func (m *MutableState) ResetAnswerDocument() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.answerDocument = nil
+}
+
+// SetChangePlan atomically installs the B0 write-mode ChangePlan
+// produced by the planner's emit_change_plan tool. Set-replace
+// semantics mirror SetAnswerDocument: a later call overwrites any
+// previous plan from a correction retry; a nil argument clears.
+//
+// Unlike SetAnswerDocument, the input is stored by pointer without
+// a deep copy — ChangePlan is conceptually write-once-read-many and
+// no caller ever mutates a ChangePlan in place. Downstream readers
+// (runPlanPhase, cmd/root.go's plan-out writer) treat the pointer
+// as immutable.
+func (m *MutableState) SetChangePlan(plan *ChangePlan) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.changePlan = plan
+}
+
+// ChangePlan returns the buffered write-mode plan, or nil when no
+// plan has been emitted. Read by runPlanPhase after the planner
+// agent completes; cmd/root.go reads it post-Run to serialize
+// JSON to disk via --plan-out.
+func (m *MutableState) ChangePlan() *ChangePlan {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.changePlan
+}
+
+// ResetChangePlan clears the plan buffer at the start of a fresh
+// per-task dispatch. Mirror of ResetAnswerDocument so a multi-task
+// Run cannot leak a plan from a prior task into a later one. Safe
+// to call with nil receiver and when no plan has been set.
+func (m *MutableState) ResetChangePlan() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.changePlan = nil
 }
 
 // SetTurnAArtifacts stores the P2.1 handoff snapshot from the

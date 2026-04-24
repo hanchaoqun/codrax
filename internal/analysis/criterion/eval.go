@@ -113,19 +113,93 @@ func dispatch(k Kind, expr string, env Env) Result {
 // perturb read-mode behavior). The Day 5 real implementation will
 // interrogate WriteClosure.AppliedSet / VerifyResults / PendingApplies.
 
-// evalPlanReady is satisfied when a ChangePlan has been emitted for
-// the current task. B0 stub always satisfies (planner stage is the
-// sole producer; EntryCondition on NodeApply fires after plan node
-// is done so the gate is redundant for the happy path).
+// evalPlanReady is satisfied when the planner has emitted a
+// ChangePlan and its PendingApplies queue is non-empty — i.e. there
+// are concrete file-level changes staged for the apply stage to
+// consume. Day-5 real implementation: reads
+// env.WriteClosure.PendingApplies length, which emit_change_plan
+// populates on every successful emission.
+//
+// Read-mode short-circuit: when env.WriteClosure is nil the caller
+// is a read-mode pipeline and has no concept of "plan ready". The
+// trivially-satisfied branch preserves the L1 byte-identity rule.
+//
+// Expr is optional; when set to a non-empty string the evaluator
+// additionally enforces that at least that many pending applies
+// exist (e.g. `>=3` or the integer `3`). B0 only supports bare
+// integer thresholds — regex / glob comparators land with B1.
 func evalPlanReady(expr string, env Env) Result {
-	_ = expr
 	if env.WriteClosure == nil {
 		return Result{Satisfied: true, Detail: "plan_ready: no WriteClosure attached (read mode); trivially satisfied"}
 	}
-	// Day 5: check env.WriteClosure.PendingApplies() or
-	// (IR.AnswerContract.RequiredAnswerShape == ShapeChangePlan
-	// && env.DraftAnswer != "")
-	return Result{Satisfied: true, Detail: "plan_ready: B0 stub"}
+	pending := env.WriteClosure.PendingApplies()
+	if len(pending) == 0 {
+		return Result{
+			Satisfied: false,
+			Detail:    "plan_ready: no pending applies — planner has not emitted a ChangePlan yet",
+		}
+	}
+	// Optional threshold. "" or invalid int = no threshold check.
+	expr = strings.TrimSpace(expr)
+	if expr == "" {
+		return Result{
+			Satisfied: true,
+			Detail:    fmt.Sprintf("plan_ready: %d pending applies", len(pending)),
+		}
+	}
+	// Parse `>=N` / `>N` / bare int forms. Reuse the eval.go
+	// comparator helper if/when B1 generalises this; B0 keeps it
+	// inline because every write evaluator is still a stub.
+	threshold, op, ok := parseIntThreshold(expr)
+	if !ok {
+		return Result{
+			Satisfied: true, // tolerant: bad threshold syntax falls back to non-empty check
+			Detail:    fmt.Sprintf("plan_ready: %d pending applies (threshold %q unparseable, treating as non-empty check)", len(pending), expr),
+		}
+	}
+	got := len(pending)
+	var pass bool
+	switch op {
+	case ">=":
+		pass = got >= threshold
+	case ">":
+		pass = got > threshold
+	case "<=":
+		pass = got <= threshold
+	case "<":
+		pass = got < threshold
+	case "==", "=":
+		pass = got == threshold
+	default:
+		pass = got >= threshold
+	}
+	return Result{
+		Satisfied: pass,
+		Detail:    fmt.Sprintf("plan_ready: %d pending applies %s %d", got, op, threshold),
+	}
+}
+
+// parseIntThreshold extracts a comparator + integer from a
+// criterion Expr like `>=3`, `>5`, or `3`. Returns (value, op, ok).
+// Used today by evalPlanReady; extracted so B1's wider write-mode
+// evaluators can reuse without re-parsing.
+func parseIntThreshold(expr string) (int, string, bool) {
+	expr = strings.TrimSpace(expr)
+	ops := []string{">=", "<=", "==", ">", "<", "="}
+	for _, op := range ops {
+		if strings.HasPrefix(expr, op) {
+			n, err := strconv.Atoi(strings.TrimSpace(expr[len(op):]))
+			if err != nil {
+				return 0, "", false
+			}
+			return n, op, true
+		}
+	}
+	n, err := strconv.Atoi(expr)
+	if err != nil {
+		return 0, "", false
+	}
+	return n, ">=", true
 }
 
 // evalPatchApplies is satisfied when every ChangeUnit in the current

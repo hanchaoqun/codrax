@@ -134,68 +134,100 @@ func TestRunMode_ReadByteIdentical(t *testing.T) {
 	}
 }
 
-// TestMode_PlanReachesStub locks that Mode=ModePlan dispatches
-// through runPlanPhase, which in Day 3 writes a recognizable
-// B0-skeleton placeholder. This is the smoke-test side of the Day
-// 3 -> Day 5 transition: when Day 5 replaces the stub body, this
-// test will fail and should be updated to expect real plan output.
-func TestMode_PlanReachesStub(t *testing.T) {
+// TestMode_PlanReachesDispatch locks that Mode=ModePlan dispatches
+// through runPlanPhase, which in Day 5 calls dispatchStage(StagePlan).
+// In this test no AgentPlanner stub is wired (buildRegistries only
+// covers the 5 read-mode agents + 3 write-mode stubs registered with
+// nil execFn), so the mock planner returns a zero-value StageOutput
+// with no ChangePlan on Mutable. runPlanPhase then surfaces a
+// fail-loud "no ChangePlan was installed" error into LastError.
+//
+// The invariant this test locks is that dispatch REACHES the plan
+// stage. Real planner output quality is covered by the dedicated
+// planner_test.go / plan_mode_e2e_test.go files in Day 5.
+func TestMode_PlanReachesDispatch(t *testing.T) {
 	busCtx := readModeRun(t, types.ModePlan)
 	if busCtx.Mode != types.ModePlan {
 		t.Errorf("Mode should stay ModePlan, got %q", busCtx.Mode)
 	}
-	result := busCtx.Mutable.Result()
-	if !strings.Contains(result, "B0 skeleton") {
-		t.Errorf("plan mode Result should contain B0 stub marker; got %q", result)
-	}
-	if !strings.Contains(result, "plan mode") {
-		t.Errorf("plan mode Result should mention plan mode; got %q", result)
-	}
-	// PipelineStage should reflect the plan stage (the stub sets it).
+	// PipelineStage reflects the plan stage (runPlanPhase sets it).
 	if busCtx.PipelineStage != types.StagePlan {
 		t.Errorf("PipelineStage should be StagePlan, got %q", busCtx.PipelineStage)
 	}
+	// With no planner stub wiring a ChangePlan, runPlanPhase
+	// surfaces an error message to Result + LastError.
+	result := busCtx.Mutable.Result()
+	if !strings.Contains(result, "ChangePlan") && !strings.Contains(result, "emit_change_plan") {
+		t.Errorf("plan mode Result should describe why no plan was produced; got %q", result)
+	}
+	if busCtx.TaskState.LastError == "" {
+		t.Errorf("plan mode without a ChangePlan should populate LastError")
+	}
 }
 
-// TestMode_ApplyReachesAllStubs locks that Mode=ModeApply walks
-// plan → apply → verify sequentially. All three stubs run in order;
-// the final PipelineStage reflects the last one (verify).
-func TestMode_ApplyReachesAllStubs(t *testing.T) {
+// TestMode_ApplyReachesDispatch locks that Mode=ModeApply walks
+// plan → apply → verify in order. The apply and verify stages are
+// implemented as fail-loud stubs (coderEvaluator / verifierEvaluator)
+// — each returns a StageOutput.Error describing the B0 stub state.
+// The plan phase fails first (no planner stub), so run aborts
+// before apply fires and PipelineStage stays at Plan.
+func TestMode_ApplyReachesDispatch(t *testing.T) {
 	busCtx := readModeRun(t, types.ModeApply)
 	if busCtx.Mode != types.ModeApply {
 		t.Errorf("Mode should stay ModeApply, got %q", busCtx.Mode)
 	}
-	// After all three stubs ran, PipelineStage reflects the LAST
-	// one (verify) because each stub sets busCtx.PipelineStage
-	// to its own stage.
-	if busCtx.PipelineStage != types.StageVerify {
-		t.Errorf("PipelineStage after apply-mode should be StageVerify (last stub), got %q",
+	// Apply mode runs plan first; plan fails (no ChangePlan), so
+	// the switch short-circuits before apply+verify. PipelineStage
+	// stays at StagePlan. This is the correct "fail-loud" semantic.
+	if busCtx.PipelineStage != types.StagePlan {
+		t.Errorf("PipelineStage after apply-mode should be StagePlan (plan failed first), got %q",
 			busCtx.PipelineStage)
 	}
-	// Plan stub set the Result; apply / verify don't overwrite it.
-	result := busCtx.Mutable.Result()
-	if !strings.Contains(result, "B0 skeleton") {
-		t.Errorf("apply mode Result should carry the plan-stub placeholder; got %q", result)
+	if busCtx.TaskState.LastError == "" {
+		t.Errorf("apply mode without a ChangePlan should populate LastError")
 	}
 }
 
 // TestMode_VerifyReachesStub covers the standalone verify path
 // (e.g. a rerun against an existing plan). Only runVerifyPhase
-// fires; plan and apply are skipped.
+// fires; the B0 verifier stub returns a fail-loud error that
+// surfaces as LastError.
+//
+// Because mockAgent does NOT route through verifierEvaluator (the
+// mock returns its execFn's StageOutput directly, bypassing the
+// agent's Evaluator), this test wires a mock-verifier that mimics
+// the real stub — returning a StageOutput.Error with the B0
+// skeleton marker. This keeps the test isolated from LLM state
+// while still locking the runVerifyPhase → StageOutput.Error →
+// LastError path.
 func TestMode_VerifyReachesStub(t *testing.T) {
-	busCtx := readModeRun(t, types.ModeVerify)
+	ir := dagIR(types.AnswerContract{RequiredAnswerShape: types.ShapeListOfSymbols, Language: "en"})
+	agentFns := map[types.AgentName]func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error){
+		types.AgentAnalyzer: dagAnalyzerFn(ir),
+		types.AgentVerifier: func(_ *types.AgentContext, _ *skill.Config) (*agent.StageOutput, error) {
+			return &agent.StageOutput{
+				MissingPiece: types.MissingFacts,
+				Error:        "[B0 skeleton] verify stage stub — mimicking verifierEvaluator output for test isolation",
+			}, nil
+		},
+	}
+	ar, sr, sar := buildRegistries(agentFns)
+	o := New(types.PipelineSettings{}, ar, sr, sar)
+	o.SetMaxSteps(20)
+	o.SetMode(types.ModeVerify)
+	busCtx, err := o.Run("rerun verify", "/tmp/repo", "main")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
 	if busCtx.Mode != types.ModeVerify {
 		t.Errorf("Mode should stay ModeVerify, got %q", busCtx.Mode)
 	}
 	if busCtx.PipelineStage != types.StageVerify {
 		t.Errorf("PipelineStage should be StageVerify, got %q", busCtx.PipelineStage)
 	}
-	// Result stays empty — verify stub doesn't write one. Day 5
-	// will populate it from emit_test_results + a rendered
-	// ChangeReport.
-	if busCtx.Mutable.Result() != "" {
-		t.Errorf("verify-only mode Result should be empty in B0 stub; got %q",
-			busCtx.Mutable.Result())
+	result := busCtx.Mutable.Result()
+	if !strings.Contains(result, "B0 skeleton") && !strings.Contains(result, "verify") {
+		t.Errorf("verify mode Result should describe stub state; got %q", result)
 	}
 }
 

@@ -75,6 +75,16 @@ const (
 	AgentExtractor  AgentName = "extractor"
 	AgentFinalizer  AgentName = "finalizer"
 	AgentLogTriager AgentName = "log_triager"
+
+	// B0 write-mode agents. Each pairs with the matching Stage
+	// (StagePlan / StageApply / StageVerify) via pipelineTopology.
+	// Day 5 ships planner as a real LLM-backed agent; coder and
+	// verifier are stubs that return StageOutput.Error so their
+	// dispatch paths surface a clean "not yet implemented" message
+	// — B2/B3 replace the stub bodies with real agents.
+	AgentPlanner  AgentName = "planner"
+	AgentCoder    AgentName = "coder"
+	AgentVerifier AgentName = "verifier"
 )
 
 // String returns the string representation of the AgentName.
@@ -90,6 +100,9 @@ func AllAgentNames() []AgentName {
 		AgentExtractor,
 		AgentFinalizer,
 		AgentLogTriager,
+		AgentPlanner,
+		AgentCoder,
+		AgentVerifier,
 	}
 }
 

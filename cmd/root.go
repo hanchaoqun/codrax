@@ -514,6 +514,28 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	if busCtx.TaskState.LastError != "" {
 		fmt.Fprintf(os.Stderr, "error: %s\n", busCtx.TaskState.LastError)
 	}
+
+	// Plan-mode disk writer (B0 Day 5). When the orchestrator ran
+	// ModePlan and the planner successfully emitted a ChangePlan,
+	// serialize it to disk at the user-requested --plan-out path or
+	// the default .codrax/plans/<id>.json. Failure here is non-
+	// fatal for single-shot: the summary still prints to stdout,
+	// and the error goes to stderr so scripts can detect the
+	// partial success. REPL Runs bypass this path — PlanStore
+	// (Day 6) handles REPL plan persistence.
+	if busCtx.Mutable != nil && busCtx.Mode == types.ModePlan {
+		if plan := busCtx.Mutable.ChangePlan(); plan != nil {
+			path, perr := writePlanFile(plan)
+			if perr != nil {
+				logging.Warning("[cmd] plan file write failed: %v", perr)
+				fmt.Fprintf(os.Stderr, "plan file write failed: %v\n", perr)
+			} else {
+				fmt.Fprintf(os.Stderr, "\n[plan written: %s]\n", path)
+				logging.Info("[cmd] plan written: %s", path)
+			}
+		}
+	}
+
 	if busCtx.Mutable != nil {
 		if result := busCtx.Mutable.Result(); result != "" {
 			logging.Info("final answer:\n%s", result)
@@ -530,6 +552,42 @@ func runSingleShot(_ *cobra.Command, request string) error {
 	}
 	fmt.Println("(no result)")
 	return nil
+}
+
+// writePlanFile serializes a ChangePlan to disk as JSON. Target path
+// precedence: --plan-out flag > codrax.yaml :: write_plan_dir / <id>.json
+// > default <runtime-anchor>/plans/<id>.json. Ensures the parent
+// directory exists (MkdirAll idempotent). Returns the absolute path
+// written or an error with context.
+//
+// JSON format is compact-with-indent for readability — operators
+// inspecting a plan by hand see structured output, not a single line.
+// Day 6 REPL PlanStore will reuse this helper for sticky-plan persistence.
+func writePlanFile(plan *types.ChangePlan) (string, error) {
+	if plan == nil {
+		return "", fmt.Errorf("writePlanFile: nil plan")
+	}
+	targetPath := strings.TrimSpace(flagPlanOut)
+	if targetPath == "" {
+		// Default: <runtime-anchor>/plans/<id>.json. The
+		// runtime-anchor was already absolutised at initApp entry.
+		runtimeAnchor := runtimeAnchorDir
+		if abs, err := filepath.Abs(runtimeAnchor); err == nil {
+			runtimeAnchor = abs
+		}
+		targetPath = filepath.Join(runtimeAnchor, "plans", plan.ID+".json")
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0o755); err != nil {
+		return "", fmt.Errorf("mkdir %s: %w", filepath.Dir(targetPath), err)
+	}
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("marshal plan: %w", err)
+	}
+	if err := os.WriteFile(targetPath, data, 0o644); err != nil {
+		return "", fmt.Errorf("write %s: %w", targetPath, err)
+	}
+	return targetPath, nil
 }
 
 // runREPL starts the interactive multi-turn session.

@@ -449,24 +449,24 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	return nil
 }
 
-// runPlanPhase is the B0 Day-3 stub for the plan stage. The real
-// implementation lands Day 5 with the planner agent + emit_change_plan
-// tool + change-plan-skill. Today's stub exists so the Mode=ModePlan
-// dispatch path compiles, runs, and produces a clearly-marked
-// placeholder Result that the REPL renderer shows honestly instead
-// of "(no result)".
+// runPlanPhase dispatches the planner agent and installs the
+// emitted ChangePlan's human-readable summary on Mutable.Result so
+// the REPL / single-shot renderers see a real answer. The planner
+// writes the full ChangePlan struct to Mutable.ChangePlan via
+// emit_change_plan; this function reads that back and formats a
+// summary. Mode=ModePlan Runs exit after this phase without
+// visiting runTaskPhase / finalize — the plan IS the final answer.
 //
-// Side effects (minimal, reproducible):
-//   - Increments *stepsUsed by 1 (so the max-steps budget observes
-//     that the plan phase consumed a slot).
-//   - Sets busCtx.PipelineStage + TaskState.Stage to StagePlan so
-//     observability tooling reflects the intended stage.
-//   - Writes a placeholder Result so the caller sees a non-empty
-//     answer describing B0 scope.
+// Side effects:
+//   - Increments *stepsUsed by the agent's consumed budget.
+//   - Sets busCtx.PipelineStage + TaskState.Stage to StagePlan.
+//   - Writes a rendered plan summary into Mutable.Result.
 //
-// Does NOT call dispatchStage — the plan-stage agent / skill /
-// topology entry does not exist until Day 5. Skipping dispatch keeps
-// Day 3 orthogonal to the agent layer.
+// Errors from dispatchStage propagate upward (the Mode switch in
+// Run routes them to TaskState.LastError). When the planner
+// succeeds but the ChangePlan is still nil (schema-rejected emit
+// or no tool call at all), this function surfaces a fail-loud
+// error rather than a silent empty result.
 func (o *Orchestrator) runPlanPhase(stepsUsed *int) error {
 	if *stepsUsed >= o.maxSteps {
 		logging.Warning("[orchestrator] plan phase skipped: max-steps exhausted")
@@ -475,18 +475,36 @@ func (o *Orchestrator) runPlanPhase(stepsUsed *int) error {
 	*stepsUsed++
 	o.busCtx.PipelineStage = types.StagePlan
 	o.busCtx.TaskState.Stage = types.StagePlan
-	logging.Info("[orchestrator] plan phase (B0 skeleton stub — real planner wires in Day 5)")
-	o.busCtx.Mutable.SetResult("[B0 skeleton] plan mode: planner agent not yet wired. " +
-		"Day 5 replaces this stub with a real ChangePlan emission via emit_change_plan.")
+	logging.Info("[orchestrator] plan phase: dispatching planner agent")
+
+	out, err := o.dispatchStage(types.StagePlan)
+	if err != nil {
+		return fmt.Errorf("plan phase dispatch: %w", err)
+	}
+	if out != nil && out.Error != "" {
+		// Surface the planner's own diagnostic (includes B0 stub
+		// messages from the evaluator as well as real LLM-emitted
+		// errors). The caller writes to TaskState.LastError.
+		o.busCtx.Mutable.SetResult(out.Error)
+		return fmt.Errorf("plan phase: %s", out.Error)
+	}
+
+	plan := o.busCtx.Mutable.ChangePlan()
+	if plan == nil {
+		msg := "plan phase completed but no ChangePlan was installed on Mutable (planner did not call emit_change_plan)"
+		o.busCtx.Mutable.SetResult(msg)
+		return fmt.Errorf("%s", msg)
+	}
+	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan))
+	logging.Info("[orchestrator] plan phase completed: id=%s changes=%d",
+		plan.ID, len(plan.Changes))
 	return nil
 }
 
-// runApplyPhase is the B0 Day-3 stub for the apply stage. Same
-// rationale as runPlanPhase — structural plumbing now, real
-// behavior Day 5 + B2. Today it records that Apply was reached
-// in the log, leaves the plan-phase Result in place (the switch
-// in Run calls runPlanPhase first when Mode=ModeApply, so Result
-// already reflects the plan stub).
+// runApplyPhase dispatches the coder agent. In B0 the coder is a
+// stub that always returns an error-carrying StageOutput; this
+// function wraps the dispatch so the error surfaces cleanly as
+// TaskState.LastError. Real apply behavior lands in B2.
 func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 	if *stepsUsed >= o.maxSteps {
 		logging.Warning("[orchestrator] apply phase skipped: max-steps exhausted")
@@ -495,14 +513,24 @@ func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
 	*stepsUsed++
 	o.busCtx.PipelineStage = types.StageApply
 	o.busCtx.TaskState.Stage = types.StageApply
-	logging.Info("[orchestrator] apply phase (B0 skeleton stub — apply_patch + coder agent wire in Day 5)")
+	logging.Info("[orchestrator] apply phase: dispatching coder agent (B0 stub)")
+
+	out, err := o.dispatchStage(types.StageApply)
+	if err != nil {
+		return fmt.Errorf("apply phase dispatch: %w", err)
+	}
+	if out != nil && out.Error != "" {
+		// B0 coder stub always takes this branch — surface the
+		// stub message as-is so the operator sees a clear
+		// "not yet implemented" explanation.
+		o.busCtx.Mutable.SetResult(out.Error)
+		return fmt.Errorf("apply phase: %s", out.Error)
+	}
 	return nil
 }
 
-// runVerifyPhase is the B0 Day-3 stub for the verify stage. Real
-// test-runner + emit_test_results wiring lands Day 5 + B3. The
-// stub keeps Mode=ModeApply / Mode=ModeVerify dispatch paths
-// healthy without requiring the full verify machinery.
+// runVerifyPhase dispatches the verifier agent. Same shape as
+// runApplyPhase: B0 stub → clear error, real impl in B3.
 func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
 	if *stepsUsed >= o.maxSteps {
 		logging.Warning("[orchestrator] verify phase skipped: max-steps exhausted")
@@ -511,8 +539,58 @@ func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
 	*stepsUsed++
 	o.busCtx.PipelineStage = types.StageVerify
 	o.busCtx.TaskState.Stage = types.StageVerify
-	logging.Info("[orchestrator] verify phase (B0 skeleton stub — run_tests + verifier agent wire in Day 5+B3)")
+	logging.Info("[orchestrator] verify phase: dispatching verifier agent (B0 stub)")
+
+	out, err := o.dispatchStage(types.StageVerify)
+	if err != nil {
+		return fmt.Errorf("verify phase dispatch: %w", err)
+	}
+	if out != nil && out.Error != "" {
+		o.busCtx.Mutable.SetResult(out.Error)
+		return fmt.Errorf("verify phase: %s", out.Error)
+	}
 	return nil
+}
+
+// renderChangePlanSummary formats a ChangePlan as a human-readable
+// multi-line string suitable for the REPL or single-shot stdout.
+// Day 5 ships a deliberately simple format (markdown-adjacent) —
+// richer rendering can land later if user feedback demands it.
+// Kept internal to orchestrator because no downstream package
+// consumes the rendered form.
+func renderChangePlanSummary(plan *types.ChangePlan) string {
+	if plan == nil {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "## Proposed change plan: %s\n\n", plan.ID)
+	if plan.Request != "" {
+		fmt.Fprintf(&b, "**Request**: %s\n\n", plan.Request)
+	}
+	if plan.Summary != "" {
+		fmt.Fprintf(&b, "**Summary**: %s\n\n", plan.Summary)
+	}
+	if len(plan.Changes) > 0 {
+		b.WriteString("**Changes**:\n\n")
+		for i, c := range plan.Changes {
+			fmt.Fprintf(&b, "%d. **%s** (`%s`) — %s\n", i+1, c.Kind, c.Path, c.Rationale)
+		}
+		b.WriteString("\n")
+	}
+	if len(plan.TargetPaths) > 0 {
+		fmt.Fprintf(&b, "**Target paths**: %d file(s) — %s\n\n",
+			len(plan.TargetPaths), strings.Join(plan.TargetPaths, ", "))
+	}
+	if len(plan.AcceptanceTests) > 0 {
+		b.WriteString("**Acceptance tests**:\n\n")
+		for _, t := range plan.AcceptanceTests {
+			fmt.Fprintf(&b, "- %s\n", t)
+		}
+		b.WriteString("\n")
+	}
+	fmt.Fprintf(&b, "Status: %s. Approve with `--mode=apply --plan-file=<saved path>` or REPL `/approve`.\n",
+		plan.Status)
+	return b.String()
 }
 
 // runTaskGraph walks AnalysisIR.TaskGraph with criterion-aware

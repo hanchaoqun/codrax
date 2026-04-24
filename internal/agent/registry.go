@@ -72,6 +72,16 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, tri
 		types.AgentExtractor,
 		types.AgentFinalizer,
 		types.AgentLogTriager,
+		// B0 write-mode agents. Planner is a real agent paired with
+		// change-plan-skill; coder + verifier are structural stubs
+		// that return fail-loud errors until their real bodies land
+		// in B2 / B3 respectively. Registered here so dispatchStage
+		// on StagePlan / StageApply / StageVerify finds them; the
+		// stubs stay inert for read-mode Runs because those stages
+		// only fire when BusContext.Mode is Plan / Apply / Verify.
+		types.AgentPlanner,
+		types.AgentCoder,
+		types.AgentVerifier,
 	}
 
 	constructors := map[types.AgentName]func(*Dependencies) Agent{
@@ -80,6 +90,9 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, tri
 		types.AgentExtractor:  func(d *Dependencies) Agent { return NewExtractorAgent(d) },
 		types.AgentFinalizer:  func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
 		types.AgentLogTriager: func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
+		types.AgentPlanner:    func(d *Dependencies) Agent { return NewPlannerAgent(d) },
+		types.AgentCoder:      func(d *Dependencies) Agent { return NewCoderAgent(d) },
+		types.AgentVerifier:   func(d *Dependencies) Agent { return NewVerifierAgent(d) },
 	}
 
 	for _, name := range agents {

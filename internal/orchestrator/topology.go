@@ -31,6 +31,18 @@ var pipelineTopology = map[types.PipelineStage]struct {
 	types.StageExplore:   {Agent: types.AgentExplorer, Skill: "explore-skill"},
 	types.StageExtract:   {Agent: types.AgentExtractor, Skill: "extract-skill"},
 	types.StageFinalize:  {Agent: types.AgentFinalizer, Skill: "answer-document-skill", Terminal: true},
+
+	// B0 write-mode stages. Only dispatched when BusContext.Mode is
+	// Plan / Apply / Verify — runPlanPhase / runApplyPhase /
+	// runVerifyPhase are the exclusive callers, and they invoke
+	// dispatchStage directly rather than routing through
+	// runTaskGraph (the scheduler never sees these stages, so no
+	// stageMapping entry is needed). This keeps write-mode
+	// orthogonal to the read-mode scheduler and preserves the L1
+	// byte-identity red line.
+	types.StagePlan:   {Agent: types.AgentPlanner, Skill: "change-plan-skill"},
+	types.StageApply:  {Agent: types.AgentCoder, Skill: "code-write-skill"},
+	types.StageVerify: {Agent: types.AgentVerifier, Skill: "test-execute-skill"},
 }
 
 // preStageEntry describes one conditional pre-stage. Guard is called

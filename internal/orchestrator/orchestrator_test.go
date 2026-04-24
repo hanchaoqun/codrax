@@ -47,6 +47,16 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		types.AgentExplorer,
 		types.AgentExtractor,
 		types.AgentFinalizer,
+		// B0 write-mode agents. Registered here so tests exercising
+		// Mode=ModePlan / ModeApply / ModeVerify do not crash in
+		// dispatchStage with an "agent not registered" error. Tests
+		// that care about the write-mode behavior either supply an
+		// agentFns entry to drive the mock or rely on the default
+		// zero-value StageOutput (which runPlanPhase then interprets
+		// as "no ChangePlan produced" and surfaces fail-loud).
+		types.AgentPlanner,
+		types.AgentCoder,
+		types.AgentVerifier,
 	}
 	for _, n := range names {
 		var fn func(*types.AgentContext, *skill.Config) (*agent.StageOutput, error)
@@ -64,6 +74,10 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 		"explore-skill",
 		"extract-skill",
 		"answer-document-skill",
+		// B0 write-mode skills (mirror topology.go entries).
+		"change-plan-skill",
+		"code-write-skill",
+		"test-execute-skill",
 	}
 	for _, s := range skillNames {
 		sr.Register(&skill.Config{Name: s, Goal: s + " goal"})
