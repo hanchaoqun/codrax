@@ -233,3 +233,239 @@ func TestEmitChangePlan_IsWriteMarker(t *testing.T) {
 		t.Error("emit_change_plan should be classified ReadOnly (mutates BusContext, not repo)")
 	}
 }
+
+// TestEmitChangePlan_DuplicatePathRejected locks the B1-Q1
+// decision: one change per file per plan. A planner that emits
+// two entries for the same path is buggy; the tool rejects rather
+// than silently losing one (or worse, applying both in undefined
+// order).
+func TestEmitChangePlan_DuplicatePathRejected(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "touch foo.go twice",
+		"summary": "illegal plan shape: two changes for one file.",
+		"changes": [
+			{"path": "foo.go", "kind": "modify", "new_content": "A", "rationale": "first"},
+			{"path": "foo.go", "kind": "patch", "patch": "B", "rationale": "second"}
+		]
+	}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("expected Success=false for duplicate path")
+	}
+	if !strings.Contains(res.Summary, "duplicate") {
+		t.Errorf("summary should mention 'duplicate', got: %s", res.Summary)
+	}
+	if plan := ctx.Mutable.ChangePlan(); plan != nil {
+		t.Error("ChangePlan must not be installed when validation fails")
+	}
+}
+
+// TestEmitChangePlan_UnknownDependsOnRejected locks the B1-Q1
+// rule: every depends_on entry must resolve to another change in
+// the plan. A dangling reference is silently non-functional (the
+// apply-stage W1 check would reject later, but earlier is better).
+func TestEmitChangePlan_UnknownDependsOnRejected(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "add a test",
+		"summary": "foo.go depends on a path that isn't in this plan.",
+		"changes": [
+			{"path": "foo.go", "kind": "modify", "new_content": "X", "rationale": "uses bar",
+			 "depends_on": ["bar.go"]}
+		]
+	}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("expected Success=false for unknown depends_on")
+	}
+	if !strings.Contains(res.Summary, "bar.go") {
+		t.Errorf("summary should name the missing target; got: %s", res.Summary)
+	}
+}
+
+// TestEmitChangePlan_SelfDependRejected locks the degenerate
+// self-edge case. A change depending on itself is always a bug
+// (the planner model confused this-edit with this-file) and the
+// cycle detector would catch it anyway, but this test documents
+// the intent separately from the multi-node cycle test below.
+func TestEmitChangePlan_SelfDependRejected(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "self-loop",
+		"summary": "illegal: a change depending on its own path.",
+		"changes": [
+			{"path": "foo.go", "kind": "modify", "new_content": "X",
+			 "rationale": "self", "depends_on": ["foo.go"]}
+		]
+	}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("expected Success=false for self-dependency")
+	}
+	if !strings.Contains(res.Summary, "itself") {
+		t.Errorf("summary should mention 'itself'; got: %s", res.Summary)
+	}
+}
+
+// TestEmitChangePlan_CycleRejected verifies multi-node depends_on
+// cycles are rejected with the specific cycle path in the error
+// message. The planner's retry hint can then identify which edges
+// to break instead of guessing.
+func TestEmitChangePlan_CycleRejected(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	// a -> b -> c -> a cycle
+	params := json.RawMessage(`{
+		"request": "3-node cycle",
+		"summary": "illegal: depends_on forms a cycle a → b → c → a.",
+		"changes": [
+			{"path": "a.go", "kind": "modify", "new_content": "A",
+			 "rationale": "a", "depends_on": ["c.go"]},
+			{"path": "b.go", "kind": "modify", "new_content": "B",
+			 "rationale": "b", "depends_on": ["a.go"]},
+			{"path": "c.go", "kind": "modify", "new_content": "C",
+			 "rationale": "c", "depends_on": ["b.go"]}
+		]
+	}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("expected Success=false for depends_on cycle")
+	}
+	if !strings.Contains(res.Summary, "cycle") {
+		t.Errorf("summary should mention 'cycle'; got: %s", res.Summary)
+	}
+	// Cycle path should name all three files.
+	for _, p := range []string{"a.go", "b.go", "c.go"} {
+		if !strings.Contains(res.Summary, p) {
+			t.Errorf("cycle description should mention %q; got: %s", p, res.Summary)
+		}
+	}
+}
+
+// TestEmitChangePlan_ValidDependsOnHappyPath locks that a legal
+// DAG of depends_on edges passes validation and the DependsOn
+// field survives to the installed ChangePlan (so the apply stage
+// can read it for topological sorting).
+func TestEmitChangePlan_ValidDependsOnHappyPath(t *testing.T) {
+	tool := &EmitChangePlan{}
+	ctx := newTestBusCtx()
+	params := json.RawMessage(`{
+		"request": "create helper + modify caller",
+		"summary": "Create helper.go first, then modify main.go to import it. Declares the ordering via depends_on.",
+		"changes": [
+			{"path": "helper.go", "kind": "create",
+			 "new_content": "package main\nfunc Helper() {}\n",
+			 "rationale": "new helper function"},
+			{"path": "main.go", "kind": "modify",
+			 "new_content": "package main\nfunc main() { Helper() }\n",
+			 "rationale": "call the helper",
+			 "depends_on": ["helper.go"]}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected Success=true, got summary: %s", res.Summary)
+	}
+
+	plan := ctx.Mutable.ChangePlan()
+	if plan == nil {
+		t.Fatal("expected ChangePlan installed")
+	}
+	if len(plan.Changes) != 2 {
+		t.Fatalf("expected 2 changes, got %d", len(plan.Changes))
+	}
+	// Find the main.go change and check DependsOn.
+	var mainCh *types.FileChange
+	for i := range plan.Changes {
+		if plan.Changes[i].Path == "main.go" {
+			mainCh = &plan.Changes[i]
+			break
+		}
+	}
+	if mainCh == nil {
+		t.Fatal("main.go change missing from plan")
+	}
+	if len(mainCh.DependsOn) != 1 || mainCh.DependsOn[0] != "helper.go" {
+		t.Errorf("main.go depends_on = %v, want [helper.go]", mainCh.DependsOn)
+	}
+	// helper.go should have no depends_on (the "leaf" of the graph).
+	var helperCh *types.FileChange
+	for i := range plan.Changes {
+		if plan.Changes[i].Path == "helper.go" {
+			helperCh = &plan.Changes[i]
+			break
+		}
+	}
+	if helperCh == nil {
+		t.Fatal("helper.go change missing from plan")
+	}
+	if len(helperCh.DependsOn) != 0 {
+		t.Errorf("helper.go depends_on should be empty, got %v", helperCh.DependsOn)
+	}
+}
+
+// TestDetectDepsCycle_UnitTable exercises the cycle helper
+// directly on a handful of graph shapes so the surface-level
+// tests above stay focused on tool-Execute integration, not
+// graph-theory edge cases.
+func TestDetectDepsCycle_UnitTable(t *testing.T) {
+	cases := []struct {
+		name    string
+		changes []emitChangePlanChange
+		wantCyc bool // true → any non-empty cycle string is acceptable
+	}{
+		{
+			name: "empty graph",
+			changes: []emitChangePlanChange{},
+			wantCyc: false,
+		},
+		{
+			name: "single node no deps",
+			changes: []emitChangePlanChange{
+				{Path: "a.go"},
+			},
+			wantCyc: false,
+		},
+		{
+			name: "two-node chain",
+			changes: []emitChangePlanChange{
+				{Path: "a.go"},
+				{Path: "b.go", DependsOn: []string{"a.go"}},
+			},
+			wantCyc: false,
+		},
+		{
+			name: "two-node cycle",
+			changes: []emitChangePlanChange{
+				{Path: "a.go", DependsOn: []string{"b.go"}},
+				{Path: "b.go", DependsOn: []string{"a.go"}},
+			},
+			wantCyc: true,
+		},
+		{
+			name: "diamond (legal DAG)",
+			changes: []emitChangePlanChange{
+				{Path: "a.go"},
+				{Path: "b.go", DependsOn: []string{"a.go"}},
+				{Path: "c.go", DependsOn: []string{"a.go"}},
+				{Path: "d.go", DependsOn: []string{"b.go", "c.go"}},
+			},
+			wantCyc: false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := detectDepsCycle(c.changes)
+			if (got != "") != c.wantCyc {
+				t.Errorf("detectDepsCycle = %q, wantCyc=%v", got, c.wantCyc)
+			}
+		})
+	}
+}

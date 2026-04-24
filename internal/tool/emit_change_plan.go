@@ -49,11 +49,12 @@ type emitChangePlanParams struct {
 // package so the wire-format is independent of the internal struct
 // (which may grow new fields post-B0 without breaking old plans).
 type emitChangePlanChange struct {
-	Path      string `json:"path"`
-	Kind      string `json:"kind"`
-	NewContent string `json:"new_content,omitempty"`
-	Patch     string `json:"patch,omitempty"`
-	Rationale string `json:"rationale"`
+	Path       string   `json:"path"`
+	Kind       string   `json:"kind"`
+	NewContent string   `json:"new_content,omitempty"`
+	Patch      string   `json:"patch,omitempty"`
+	Rationale  string   `json:"rationale"`
+	DependsOn  []string `json:"depends_on,omitempty"`
 }
 
 // Name returns the tool's stable identifier. Used by the planner
@@ -113,6 +114,11 @@ func (t *EmitChangePlan) Parameters() json.RawMessage {
           "rationale": {
             "type": "string",
             "description": "1-3 sentence explanation for WHY this specific file needs this specific change."
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {"type": "string"},
+            "description": "Repo-relative paths of OTHER changes in THIS plan that must apply before this one. Empty or omitted = no explicit ordering (declaration order wins). Use when a create or modify here relies on the output of another change (e.g. modify Y imports new-created X → Y depends_on [X]). Every entry MUST appear as another changes[].path; cycles are rejected."
           }
         },
         "required": ["path", "kind", "rationale"]
@@ -178,6 +184,78 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
+	// B1 Q1 validation — three checks on the changes[] + depends_on
+	// graph. All three run BEFORE any Mutable mutation so a rejected
+	// emit leaves no partial state.
+	//
+	// 1) Duplicate-path check. Session-33-Q1 decision: one change
+	//    per file per plan. If a planner needs two semantic edits to
+	//    the same file, they must be composed into one FileChange
+	//    (kind=modify with full content, or kind=patch with combined
+	//    diff). Rejecting duplicates keeps DependsOn unambiguously
+	//    path-identified and removes a whole class of apply-stage
+	//    ordering pathologies.
+	seenPaths := make(map[string]int, len(p.Changes))
+	for i, c := range p.Changes {
+		path := strings.TrimSpace(c.Path)
+		if _, dup := seenPaths[path]; dup {
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("emit_change_plan rejected: duplicate change for path %q (one-change-per-file constraint; combine into a single FileChange)", path),
+				Timestamp: time.Now(),
+			}, nil
+		}
+		seenPaths[path] = i
+	}
+
+	// 2) Unknown-depends_on check. Every DependsOn entry must
+	//    appear as another change's Path. A dangling reference is a
+	//    planner bug that would silently turn into an unapplied
+	//    ordering constraint at apply time.
+	for _, c := range p.Changes {
+		path := strings.TrimSpace(c.Path)
+		for _, dep := range c.DependsOn {
+			dep = strings.TrimSpace(dep)
+			if dep == "" {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q has an empty depends_on entry", path),
+					Timestamp: time.Now(),
+				}, nil
+			}
+			if dep == path {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q depends_on itself", path),
+					Timestamp: time.Now(),
+				}, nil
+			}
+			if _, ok := seenPaths[dep]; !ok {
+				return types.ToolResult{
+					ToolName:  t.Name(),
+					Success:   false,
+					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q depends_on %q but %q is not in changes[]", path, dep, dep),
+					Timestamp: time.Now(),
+				}, nil
+			}
+		}
+	}
+
+	// 3) Cycle detection. A cyclic DependsOn graph has no valid
+	//    apply order — reject with the specific cycle path so the
+	//    planner's retry (B1 fail-loud surface) can fix it.
+	if cycle := detectDepsCycle(p.Changes); cycle != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   fmt.Sprintf("emit_change_plan rejected: depends_on cycle detected: %s", cycle),
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	// Build the internal ChangePlan + populate target_paths from
 	// the changes array. Plan IDs embed trace + nano + pid so two
 	// concurrent codrax processes never collide on the same plan
@@ -212,12 +290,23 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 				Timestamp: time.Now(),
 			}, nil
 		}
+		// Carry DependsOn through to the internal struct, trimming
+		// each entry. Duplicates / unknowns / cycles are already
+		// rejected above, so the slice here is clean.
+		var deps []string
+		if len(c.DependsOn) > 0 {
+			deps = make([]string, 0, len(c.DependsOn))
+			for _, d := range c.DependsOn {
+				deps = append(deps, strings.TrimSpace(d))
+			}
+		}
 		plan.Changes = append(plan.Changes, types.FileChange{
 			Path:       path,
 			Kind:       kind,
 			NewContent: c.NewContent,
 			Patch:      c.Patch,
 			Rationale:  strings.TrimSpace(c.Rationale),
+			DependsOn:  deps,
 		})
 		paths[path] = struct{}{}
 	}
@@ -268,4 +357,89 @@ func isLegalChangeKind(k string) bool {
 		return true
 	}
 	return false
+}
+
+// detectDepsCycle returns a non-empty string describing a cycle in
+// the DependsOn graph when one exists, or "" when the graph is a
+// valid DAG. The returned string is the cycle path joined with
+// " -> " (e.g. "a.go -> b.go -> a.go") so the rejection message
+// names the specific cycle rather than a generic "cycle detected".
+//
+// Algorithm: classic DFS with three-color marking. For small plans
+// (typical N ≤ 20 changes) the O(V+E) cost is negligible and the
+// implementation stays readable. Self-edges and multi-step cycles
+// are both detected by the same gray-encounter check.
+//
+// Callers have already validated that every DependsOn entry refers
+// to a real change in the plan (see the "Unknown-depends_on" check
+// above); detectDepsCycle assumes that precondition and does not
+// re-verify. If the assumption is violated the worst case is an
+// early return with "" (dep refers to a path not in the graph →
+// the walk just stops at that branch) which is still safe.
+func detectDepsCycle(changes []emitChangePlanChange) string {
+	// Build path -> deps adjacency map.
+	deps := make(map[string][]string, len(changes))
+	for _, c := range changes {
+		path := strings.TrimSpace(c.Path)
+		trimmed := make([]string, 0, len(c.DependsOn))
+		for _, d := range c.DependsOn {
+			trimmed = append(trimmed, strings.TrimSpace(d))
+		}
+		deps[path] = trimmed
+	}
+
+	const (
+		white = 0 // unvisited
+		gray  = 1 // on current DFS stack (cycle candidate if revisited)
+		black = 2 // fully explored
+	)
+	color := make(map[string]int, len(deps))
+	for p := range deps {
+		color[p] = white
+	}
+
+	var stack []string // DFS path for cycle-path reconstruction
+	var visit func(p string) string
+	visit = func(p string) string {
+		switch color[p] {
+		case gray:
+			// Cycle reached — find where p first appears on stack
+			// so the returned path is exactly the cycle, no prefix.
+			start := 0
+			for i, s := range stack {
+				if s == p {
+					start = i
+					break
+				}
+			}
+			return strings.Join(append(append([]string(nil), stack[start:]...), p), " -> ")
+		case black:
+			return ""
+		}
+		color[p] = gray
+		stack = append(stack, p)
+		for _, dep := range deps[p] {
+			// Skip deps not in graph — upstream validation already
+			// rejected them, but be defensive: if called on a
+			// malformed input we don't want to panic.
+			if _, ok := color[dep]; !ok {
+				continue
+			}
+			if cyc := visit(dep); cyc != "" {
+				return cyc
+			}
+		}
+		color[p] = black
+		stack = stack[:len(stack)-1]
+		return ""
+	}
+
+	for p := range deps {
+		if color[p] == white {
+			if cyc := visit(p); cyc != "" {
+				return cyc
+			}
+		}
+	}
+	return ""
 }

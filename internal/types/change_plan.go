@@ -126,6 +126,26 @@ type FileChange struct {
 	// specific file needs this specific change. Rendered in the
 	// approval UI per-file. 1-3 sentences typical.
 	Rationale string `json:"rationale"`
+
+	// DependsOn is the list of repo-relative paths of OTHER changes
+	// in the same plan that MUST apply before this one. Empty slice
+	// means "no explicit ordering" — the apply stage walks plan.
+	// Changes in declaration order. Typical shape: a create(X) that
+	// must land before modify(Y) where Y imports X.
+	//
+	// Validation (B1, emit_change_plan.Execute):
+	//  - every entry must appear as another Changes[].Path
+	//  - no cycles (DFS rejects circular depends_on graph)
+	//  - one-change-per-file constraint means each DependsOn entry
+	//    unambiguously identifies its target ChangeUnit
+	//
+	// Apply-stage uses DependsOn to drive a topological sort so
+	// LLM-emitted per-unit apply_patch calls satisfy ordering
+	// constraints even when the LLM picks a different emission
+	// order. The W1 invariant (apply_patch.Execute) double-checks
+	// at runtime that every DependsOn target is already in
+	// WriteClosure.AppliedSet before the tool accepts the unit.
+	DependsOn []string `json:"depends_on,omitempty"`
 }
 
 // ChangeReport is the Verify stage's output — a structured summary
