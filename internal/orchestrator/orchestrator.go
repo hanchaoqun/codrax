@@ -61,6 +61,16 @@ type Orchestrator struct {
 	// install surfaces a clean error rather than silently writing
 	// patches into the main repo.
 	worktreeBase string
+
+	// maxVerifyRetries caps the number of verify→plan retry cycles
+	// within ModeApply. Default 0 preserves B1 fail-loud semantics
+	// (one attempt, surface failure). Values >0 enable the B2.3
+	// verify→plan loop: a failed verify seeds PlanningHint with
+	// the failure narrative and re-dispatches the planner for a
+	// revised ChangePlan, then apply + verify again. Capped at 5
+	// defensively so an adversarial test harness cannot burn the
+	// LLM token budget on an unfixable plan.
+	maxVerifyRetries int
 }
 
 // New creates a new Orchestrator.
@@ -181,6 +191,26 @@ func (o *Orchestrator) PlanPath() string {
 // anchor and calls this once per process.
 func (o *Orchestrator) SetWorktreeBase(dir string) {
 	o.worktreeBase = dir
+}
+
+// SetMaxVerifyRetries installs the B2.3 retry cap. Zero disables
+// retry (B1 fail-loud semantics). Values are clamped to [0, 5] —
+// anything higher is almost certainly a misconfiguration that
+// would burn LLM tokens on an unfixable plan.
+func (o *Orchestrator) SetMaxVerifyRetries(n int) {
+	if n < 0 {
+		n = 0
+	}
+	const hardCap = 5
+	if n > hardCap {
+		n = hardCap
+	}
+	o.maxVerifyRetries = n
+}
+
+// MaxVerifyRetries returns the currently configured retry cap.
+func (o *Orchestrator) MaxVerifyRetries() int {
+	return o.maxVerifyRetries
 }
 
 // Run executes the full pipeline for a user request.
@@ -379,31 +409,72 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 			}
 		}
 	case types.ModeApply:
-		// When a plan file is already supplied (REPL /approve after
-		// a prior /mode plan dispatch, or single-shot
-		// --mode=apply --plan-file=<path>), the planner must NOT run
-		// again — re-dispatching would overwrite the reviewed plan
-		// with a fresh emission and defeat the whole approve-a-
-		// reviewed-plan workflow. runApplyPhase's substep-1 loader
-		// will read the file off disk in that case.
-		var planErr error
-		if o.planPath == "" {
-			planErr = o.runPlanPhase(&stepsUsed)
+		// B2.3 verify→plan retry loop. Runs up to (maxVerifyRetries+1)
+		// plan→apply→verify cycles. A failure triggers retry only when
+		// the failure is recoverable by re-planning:
+		//   - plan failure → no retry (planner couldn't even produce
+		//     one; re-dispatching is unlikely to help within one Run)
+		//   - apply failure → retry with fresh plan (broken plan is
+		//     the usual cause)
+		//   - verify failure → retry with PlanningHint seeded from
+		//     the failure summary (Q3 answered)
+		//
+		// First-attempt special case: when user supplied --plan-file
+		// OR approved a REPL-saved plan, skip runPlanPhase so the
+		// reviewed plan is honoured. On retry, that shortcut goes
+		// away (o.planPath cleared inside prepareVerifyRetry) because
+		// a retry needs a NEW plan informed by the failure.
+		var lastPlanErr, lastApplyErr, lastVerifyErr error
+		totalAttempts := o.maxVerifyRetries + 1
+		for attempt := 1; attempt <= totalAttempts; attempt++ {
+			if attempt > 1 {
+				o.prepareVerifyRetry(attempt)
+			}
+			// Plan phase: skip on attempt 1 when user supplied a
+			// reviewed plan. Subsequent attempts always re-plan.
+			lastPlanErr = nil
+			if !(attempt == 1 && o.planPath != "") {
+				lastPlanErr = o.runPlanPhase(&stepsUsed)
+			}
+			if lastPlanErr != nil {
+				break // planner hard-failed; cannot proceed this Run
+			}
+
+			lastApplyErr = o.runApplyPhase(&stepsUsed)
+			if lastApplyErr != nil {
+				if attempt < totalAttempts {
+					// Keep looping; prepareVerifyRetry on next
+					// iteration cleans up partial worktree state.
+					continue
+				}
+				break
+			}
+
+			lastVerifyErr = o.runVerifyPhase(&stepsUsed)
+			if lastVerifyErr == nil {
+				break // success path
+			}
+			if attempt >= totalAttempts {
+				break // out of retries; surface failure as-is
+			}
+			// Verify failed with budget remaining → loop.
 		}
-		if planErr != nil {
-			logging.Error("[orchestrator] plan phase error: %v", planErr)
+		// Surface whichever phase broke. Precedence: verify > apply > plan.
+		switch {
+		case lastVerifyErr != nil:
+			logging.Error("[orchestrator] verify phase error: %v", lastVerifyErr)
 			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = planErr.Error()
+				o.busCtx.TaskState.LastError = lastVerifyErr.Error()
 			}
-		} else if err := o.runApplyPhase(&stepsUsed); err != nil {
-			logging.Error("[orchestrator] apply phase error: %v", err)
+		case lastApplyErr != nil:
+			logging.Error("[orchestrator] apply phase error: %v", lastApplyErr)
 			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = err.Error()
+				o.busCtx.TaskState.LastError = lastApplyErr.Error()
 			}
-		} else if err := o.runVerifyPhase(&stepsUsed); err != nil {
-			logging.Error("[orchestrator] verify phase error: %v", err)
+		case lastPlanErr != nil:
+			logging.Error("[orchestrator] plan phase error: %v", lastPlanErr)
 			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = err.Error()
+				o.busCtx.TaskState.LastError = lastPlanErr.Error()
 			}
 		}
 	case types.ModeVerify:
@@ -769,6 +840,88 @@ func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
 	return nil
 }
 
+// prepareVerifyRetry cleans write-mode state between retry
+// iterations of the ModeApply loop. Called before each attempt >1.
+// Five jobs, in order:
+//  1. Build a PlanningHint from the previous ChangeReport so the
+//     next planner dispatch reads it in BuildInitialInstruction.
+//  2. Discard the previous worktree (if one was provisioned) via
+//     worktree.DiscardByPath. Idempotent; absent worktree is a no-op.
+//  3. Restore busCtx.RepoRoot to MainRepoRoot so runApplyPhase's
+//     next worktree.Create doesn't nest a worktree-of-a-worktree.
+//  4. Reset ChangePlan + ChangeReport + WriteClosure so the retry
+//     starts clean. BaselineReport is preserved — it's a pre-apply
+//     snapshot and remains the ground truth for regression
+//     comparisons regardless of how many retries we attempt.
+//  5. Clear o.planPath so a user-supplied --plan-file doesn't
+//     override the fresh plan the retry is about to produce. The
+//     reviewed plan was already tried and failed; the retry MUST
+//     regenerate.
+func (o *Orchestrator) prepareVerifyRetry(attempt int) {
+	hint := buildRetryHint(o.busCtx.Mutable.ChangeReport(), attempt-1)
+
+	if o.busCtx.WorktreePath != "" {
+		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
+			logging.Warning("[orchestrator] retry worktree discard failed: %v", err)
+		}
+		o.busCtx.WorktreePath = ""
+	}
+	// Swap RepoRoot back to the main repo path; the subsequent
+	// runApplyPhase will swap it to a fresh worktree.
+	if o.busCtx.MainRepoRoot != "" {
+		o.busCtx.RepoRoot = o.busCtx.MainRepoRoot
+		o.busCtx.Mutable.SetRepoRoot(o.busCtx.MainRepoRoot)
+	}
+
+	o.busCtx.Mutable.ResetChangePlan()
+	o.busCtx.Mutable.ResetChangeReport()
+	o.busCtx.Mutable.WriteClosure().Reset()
+
+	// Subsequent attempts always re-plan — drop the user-supplied
+	// plan file pointer so runPlanPhase is not skipped.
+	o.planPath = ""
+	o.busCtx.PlanPath = ""
+
+	o.busCtx.Mutable.SetPlanningHint(hint)
+
+	logging.Info("[orchestrator] verify→plan retry attempt %d: hint=%q", attempt, hint)
+}
+
+// buildRetryHint synthesises the failure narrative the planner's
+// next dispatch will see. Kept small (<500 chars) so it doesn't
+// blow up the planner prompt: a few failing test names + any
+// top-level FailureSummary is enough signal to steer the revision.
+func buildRetryHint(report *types.ChangeReport, prevAttempt int) string {
+	if report == nil {
+		return fmt.Sprintf("Previous attempt %d failed without producing a ChangeReport. Revise the plan from scratch.", prevAttempt)
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "Previous attempt %d verify failed. ", prevAttempt)
+	if report.FailureSummary != "" {
+		// Trim to keep the hint bounded.
+		summary := report.FailureSummary
+		if len(summary) > 300 {
+			summary = summary[:300] + "…"
+		}
+		fmt.Fprintf(&b, "Summary: %s ", summary)
+	}
+	const maxFailingTests = 3
+	var failing []string
+	for _, tr := range report.TestResults {
+		if !tr.Passed {
+			failing = append(failing, tr.AssertionID)
+			if len(failing) >= maxFailingTests {
+				break
+			}
+		}
+	}
+	if len(failing) > 0 {
+		fmt.Fprintf(&b, "Failing tests: %s.", strings.Join(failing, ", "))
+	}
+	b.WriteString(" Revise the plan to address these failures; do not repeat the same changes.")
+	return b.String()
+}
+
 // saveChangeReport writes the verify-stage report to disk. Target
 // path convention: same directory as the plan (typically
 // <runtime-anchor>/plans/) with a .report.json suffix keyed off
@@ -1062,7 +1215,7 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	lastSCFailHypProgress := make(map[string]hypProgress)
 
 	buildEnv := func(draft string, draftCitations int) criterion.Env {
-		return criterion.Env{
+		env := criterion.Env{
 			IR:             ir,
 			Evidence:       o.busCtx.EvidenceItems,
 			AnswerSymbols:  o.busCtx.AnswerSymbols,
@@ -1074,6 +1227,22 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 			DraftCitations: draftCitations,
 			ReactItersUsed: stepsUsed,
 		}
+		// Write-mode fields: populated for every Run. In read-only
+		// pipelines these remain nil / zero-valued because the
+		// write stages never ran; the corresponding evaluators
+		// (CritPlanReady / PatchApplies / TestsPass / NoRegression)
+		// short-circuit to Satisfied=true when the slot is empty.
+		if o.busCtx.Mutable != nil {
+			env.ChangePlan = o.busCtx.Mutable.ChangePlan()
+			env.ChangeReport = o.busCtx.Mutable.ChangeReport()
+			env.BaselineReport = o.busCtx.Mutable.BaselineReport()
+			// WriteClosure is lazily-initialized; always non-nil for
+			// a valid Mutable. Evaluators still check for zero-value
+			// state (empty AppliedSet / empty VerifyResults) because
+			// a closure in read-mode is alive but unused.
+			env.WriteClosure = o.busCtx.Mutable.WriteClosure()
+		}
+		return env
 	}
 
 	for stepsUsed < stepBudget && !state.allDone() {

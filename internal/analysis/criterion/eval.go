@@ -203,42 +203,185 @@ func parseIntThreshold(expr string) (int, string, bool) {
 }
 
 // evalPatchApplies is satisfied when every ChangeUnit in the current
-// plan has landed in the worktree. B0 stub always satisfies.
-// Expr is either empty (check all TargetPaths) or a glob.
+// plan has landed in the worktree — i.e.
+// `AppliedSet ⊇ plan.TargetPaths`. Read-mode short-circuits to
+// satisfied because no plan exists to apply.
+//
+// Expr semantics:
+//   - empty     — check all plan.TargetPaths
+//   - non-empty — treat as a path substring; only target paths
+//     containing the substring are checked (useful for a SuccessCriteria
+//     that only cares about a subset of the plan, e.g. `only the
+//     config file changes landed`). Full-glob support is B4.
 func evalPatchApplies(expr string, env Env) Result {
-	_ = expr
-	if env.WriteClosure == nil {
-		return Result{Satisfied: true, Detail: "patch_applies: no WriteClosure attached (read mode); trivially satisfied"}
+	if env.ChangePlan == nil {
+		return Result{Satisfied: true, Detail: "patch_applies: no ChangePlan in env (read mode or pre-plan dispatch); trivially satisfied"}
 	}
-	// Day 5: intersect WriteClosure.AppliedSet() with plan.TargetPaths
-	return Result{Satisfied: true, Detail: "patch_applies: B0 stub"}
+	if env.WriteClosure == nil {
+		return Result{Satisfied: true, Detail: "patch_applies: no WriteClosure in env; trivially satisfied"}
+	}
+	applied := env.WriteClosure.AppliedSet()
+	targets := env.ChangePlan.TargetPaths
+	filter := strings.TrimSpace(expr)
+	var considered, missing []string
+	for _, p := range targets {
+		if filter != "" && !strings.Contains(p, filter) {
+			continue
+		}
+		considered = append(considered, p)
+		if !applied[p] {
+			missing = append(missing, p)
+		}
+	}
+	if len(considered) == 0 {
+		return Result{
+			Satisfied: true,
+			Detail:    fmt.Sprintf("patch_applies: filter %q matched 0/%d target paths; trivially satisfied", filter, len(targets)),
+		}
+	}
+	if len(missing) == 0 {
+		return Result{
+			Satisfied: true,
+			Detail:    fmt.Sprintf("patch_applies: %d/%d target paths applied", len(considered), len(targets)),
+		}
+	}
+	return Result{
+		Satisfied: false,
+		Detail: fmt.Sprintf("patch_applies: %d of %d target paths not yet applied: %s",
+			len(missing), len(considered), strings.Join(missing, ", ")),
+	}
 }
 
-// evalTestsPass is satisfied when every AcceptanceTest assertion has
-// a VerifyResult with Passed=true. B0 stub always satisfies.
-// Expr is either empty (all AcceptanceTests) or a regex pattern.
+// evalTestsPass is satisfied when every TestResult in the current
+// ChangeReport has Passed=true. Read-mode / pre-verify short-
+// circuits to satisfied because no report exists yet.
+//
+// Expr semantics:
+//   - empty     — require every test in report to pass
+//   - non-empty — treat as a substring filter on AssertionID;
+//     only matching tests must pass (useful when a SuccessCriteria
+//     names a specific test suite). Full regex is B4.
 func evalTestsPass(expr string, env Env) Result {
-	_ = expr
-	if env.WriteClosure == nil {
-		return Result{Satisfied: true, Detail: "tests_pass: no WriteClosure attached (read mode); trivially satisfied"}
+	if env.ChangeReport == nil {
+		return Result{Satisfied: true, Detail: "tests_pass: no ChangeReport in env (read mode or pre-verify); trivially satisfied"}
 	}
-	// B3: iterate env.WriteClosure.VerifyResults(), compare against
-	// regex in expr, fail if any matched assertion has Passed=false
-	return Result{Satisfied: true, Detail: "tests_pass: B0 stub"}
+	filter := strings.TrimSpace(expr)
+	report := env.ChangeReport
+	var considered, failed []string
+	for _, tr := range report.TestResults {
+		if filter != "" && !strings.Contains(tr.AssertionID, filter) {
+			continue
+		}
+		considered = append(considered, tr.AssertionID)
+		if !tr.Passed {
+			failed = append(failed, tr.AssertionID)
+		}
+	}
+	if len(considered) == 0 {
+		return Result{
+			Satisfied: true,
+			Detail:    fmt.Sprintf("tests_pass: filter %q matched 0/%d test results; trivially satisfied", filter, len(report.TestResults)),
+		}
+	}
+	if len(failed) == 0 {
+		return Result{
+			Satisfied: true,
+			Detail:    fmt.Sprintf("tests_pass: %d/%d tests passed", len(considered), len(report.TestResults)),
+		}
+	}
+	// Cap the names list so a massive failure doesn't balloon the
+	// retry-hint message. The full list is always recoverable from
+	// Mutable.ChangeReport for richer surfaces.
+	const maxNamesInDetail = 5
+	shown := failed
+	if len(shown) > maxNamesInDetail {
+		shown = shown[:maxNamesInDetail]
+	}
+	return Result{
+		Satisfied: false,
+		Detail: fmt.Sprintf("tests_pass: %d of %d tests failed: %s%s",
+			len(failed), len(considered),
+			strings.Join(shown, ", "),
+			func() string {
+				if len(failed) > maxNamesInDetail {
+					return fmt.Sprintf(" (+%d more)", len(failed)-maxNamesInDetail)
+				}
+				return ""
+			}()),
+	}
 }
 
-// evalNoRegression is satisfied when no observed MetricDelta in the
-// current ChangeReport exceeds its threshold. B0 stub always
-// satisfies. Expr is either empty (check all metrics) or a specific
-// metric name.
+// evalNoRegression is satisfied when no test that passed in the
+// baseline now fails, AND no MetricDelta exceeds its threshold.
+// Read-mode / missing-baseline short-circuits to satisfied.
+//
+// Expr semantics:
+//   - empty     — check all tests + metrics
+//   - non-empty — substring filter on AssertionID / metric name
+//
+// Design note: pre-apply baseline capture is opt-in (runApplyPhase
+// skips it when codrax.yaml has baseline_capture_enabled: false or
+// no test runner was detected). Absence of a baseline is NOT a
+// regression — if we can't compare, we can't assert regression.
 func evalNoRegression(expr string, env Env) Result {
-	_ = expr
-	if env.WriteClosure == nil {
-		return Result{Satisfied: true, Detail: "no_regression: no WriteClosure attached (read mode); trivially satisfied"}
+	if env.ChangeReport == nil {
+		return Result{Satisfied: true, Detail: "no_regression: no ChangeReport (read mode or pre-verify); trivially satisfied"}
 	}
-	// B3: read ChangeReport.MetricDeltas, compare each current-vs-
-	// baseline against threshold, fail if any regression observed
-	return Result{Satisfied: true, Detail: "no_regression: B0 stub"}
+	if env.BaselineReport == nil {
+		return Result{Satisfied: true, Detail: "no_regression: no BaselineReport captured; regression check skipped (trivially satisfied)"}
+	}
+	filter := strings.TrimSpace(expr)
+	// Build baseline index: AssertionID → Passed
+	baselinePassed := make(map[string]bool, len(env.BaselineReport.TestResults))
+	for _, tr := range env.BaselineReport.TestResults {
+		baselinePassed[tr.AssertionID] = tr.Passed
+	}
+	var regressed []string
+	for _, tr := range env.ChangeReport.TestResults {
+		if filter != "" && !strings.Contains(tr.AssertionID, filter) {
+			continue
+		}
+		if !tr.Passed && baselinePassed[tr.AssertionID] {
+			regressed = append(regressed, tr.AssertionID)
+		}
+	}
+	// Metric regressions. MetricDelta.Threshold > 0 means operator
+	// supplied a ceiling; skip metrics with zero threshold (not
+	// configured). Regressed when (Current - Baseline) > Threshold.
+	var metricRegressions []string
+	for name, md := range env.ChangeReport.MetricDeltas {
+		if filter != "" && !strings.Contains(name, filter) {
+			continue
+		}
+		if md.Threshold <= 0 {
+			continue
+		}
+		if (md.Current - md.Baseline) > md.Threshold {
+			metricRegressions = append(metricRegressions,
+				fmt.Sprintf("%s: %.3g→%.3g (+%.3g > %.3g)", name, md.Baseline, md.Current, md.Current-md.Baseline, md.Threshold))
+		}
+	}
+	if len(regressed) == 0 && len(metricRegressions) == 0 {
+		return Result{Satisfied: true, Detail: "no_regression: no test or metric regression detected"}
+	}
+	var parts []string
+	if len(regressed) > 0 {
+		const maxNames = 5
+		shown := regressed
+		suffix := ""
+		if len(shown) > maxNames {
+			shown = shown[:maxNames]
+			suffix = fmt.Sprintf(" (+%d more)", len(regressed)-maxNames)
+		}
+		parts = append(parts, fmt.Sprintf("%d test(s) regressed: %s%s", len(regressed), strings.Join(shown, ", "), suffix))
+	}
+	if len(metricRegressions) > 0 {
+		parts = append(parts, "metric regressions: "+strings.Join(metricRegressions, "; "))
+	}
+	return Result{
+		Satisfied: false,
+		Detail:    "no_regression: " + strings.Join(parts, " | "),
+	}
 }
 
 // ── individual evaluators ─────────────────────────────────────────

@@ -143,6 +143,22 @@ type MutableState struct {
 	// at per-task entry.
 	changeReport *ChangeReport
 
+	// baselineReport is the B2 pre-apply test snapshot captured by
+	// runApplyPhase before dispatching the coder agent. Consumed by
+	// CritNoRegression to detect tests that passed before apply but
+	// fail after. Separate from changeReport (post-apply) so the
+	// diff is explicit and never confused. Nil when baseline
+	// capture is disabled via codrax.yaml or when runApplyPhase
+	// skipped it (e.g. no test runner detected).
+	baselineReport *ChangeReport
+
+	// planningHint carries structured feedback from a failed verify
+	// run back to the planner on B2.3 retry dispatches. Non-empty
+	// only during retry iterations; cleared on first retry entry.
+	// The planner's BuildInitialInstruction checks this slot and
+	// prepends a "Previous attempt failed — revise" section.
+	planningHint string
+
 	// investigationComplete is set by the emit_investigation_complete
 	// tool when the LLM explicitly declares that it has collected
 	// enough evidence to answer the user's question. The explorer's
@@ -985,6 +1001,76 @@ func (m *MutableState) ResetChangeReport() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.changeReport = nil
+}
+
+// SetBaselineReport installs the pre-apply test snapshot. Called by
+// runApplyPhase before coder dispatch when baseline capture is
+// enabled. Pointer storage mirrors SetChangeReport.
+func (m *MutableState) SetBaselineReport(report *ChangeReport) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.baselineReport = report
+}
+
+// BaselineReport returns the pre-apply test snapshot, or nil when
+// baseline capture was skipped. Consumed by CritNoRegression.
+func (m *MutableState) BaselineReport() *ChangeReport {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.baselineReport
+}
+
+// ResetBaselineReport clears the baseline slot at per-task entry.
+// Mirror of ResetChangeReport.
+func (m *MutableState) ResetBaselineReport() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.baselineReport = nil
+}
+
+// SetPlanningHint installs the retry feedback text the planner's
+// next dispatch should fold into its instruction. Called by the
+// verify→plan retry loop (B2.3) after a verify failure with
+// remaining retry budget.
+func (m *MutableState) SetPlanningHint(hint string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.planningHint = hint
+}
+
+// PlanningHint returns the retry feedback text, or "" when no
+// retry hint is pending. Read by the planner's
+// BuildInitialInstruction on retry dispatches.
+func (m *MutableState) PlanningHint() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.planningHint
+}
+
+// ResetPlanningHint clears the retry hint; called after the
+// planner has consumed it.
+func (m *MutableState) ResetPlanningHint() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.planningHint = ""
 }
 
 // SetTurnAArtifacts stores the P2.1 handoff snapshot from the

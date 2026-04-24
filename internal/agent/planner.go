@@ -39,15 +39,30 @@ type plannerEvaluator struct {
 }
 
 // BuildInitialInstruction captures the Mutable pointer for later
-// ShouldStop inspection and returns no dynamic supplement — the
-// skill's Workflow + Goal + Prohibitions are self-contained for
-// the plan stage (the agent knows its job from the skill).
+// ShouldStop inspection and returns the PlanningHint supplement
+// when the orchestrator's verify→plan retry loop (B2.3) has
+// seeded one. The hint carries failure context from the previous
+// ChangeReport so the planner knows what to avoid on this retry.
+// When no hint is set (first attempt, or retry disabled), returns
+// empty string and the skill's Workflow/Goal/Prohibitions drive
+// the dispatch unchanged.
 func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
 	if ctx != nil {
 		e.mu = ctx.Mutable
 	}
-	return ""
+	if ctx == nil || ctx.Mutable == nil {
+		return ""
+	}
+	hint := ctx.Mutable.PlanningHint()
+	if hint == "" {
+		return ""
+	}
+	// Consume-once: clear the hint so a subsequent sub-dispatch
+	// within the same retry iteration does not double-apply it.
+	ctx.Mutable.ResetPlanningHint()
+	return "\n\n## Retry feedback\n\n" + hint +
+		"\n\nThe previous ChangePlan's verify stage failed. Read the feedback above, diagnose what was wrong with the plan (not the test runner, which is deterministic), and emit a revised ChangePlan that fixes the root cause."
 }
 
 // ShouldStop terminates the ReAct loop as soon as a ChangePlan has

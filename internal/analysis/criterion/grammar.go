@@ -133,9 +133,27 @@ type Env struct {
 	// PatchApplies, TestsPass, NoRegression}. Nil in read-only
 	// pipelines (the corresponding evaluators short-circuit to
 	// Satisfied=true under the L3 read-mode byte-identity rule).
-	// Populated by scheduler at evaluator-call time when Mode is
-	// ModePlan / ModeApply / ModeVerify.
+	// Populated by buildEnv at evaluator-call time; non-nil in write
+	// phases (MutableState always allocates via lazy getter).
 	WriteClosure *types.WriteClosure
+
+	// ChangePlan is the plan currently being applied/verified. Nil
+	// in read-only pipelines and during the plan stage before
+	// emit_change_plan fires. evalPatchApplies dereferences this
+	// to intersect TargetPaths with WriteClosure.AppliedSet.
+	ChangePlan *types.ChangePlan
+
+	// ChangeReport is the verify-stage test outcome. Nil until
+	// run_tests populates it. evalTestsPass reads .Passed +
+	// per-TestResult status from here.
+	ChangeReport *types.ChangeReport
+
+	// BaselineReport is the pre-apply test snapshot (captured by
+	// runApplyPhase before the coder agent dispatches) used by
+	// evalNoRegression to detect tests that passed pre-apply but
+	// fail post-apply. Nil when baseline capture was skipped or
+	// the feature is disabled.
+	BaselineReport *types.ChangeReport
 }
 
 // Result is the outcome of evaluating a single Criterion.

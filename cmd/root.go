@@ -1079,6 +1079,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineMaxStageVisits != nil {
 			pipelineSettings.MaxStageVisits = *rs.PipelineMaxStageVisits
 		}
+		// B2.3: verify→plan retry cap. Stored alongside the rest of
+		// the pipelineSettings snapshot; orchestrator.SetMaxVerifyRetries
+		// applies it below where other orch getters are wired.
+		if rs.PipelineMaxVerifyRetries != nil {
+			pipelineSettings.MaxVerifyRetries = *rs.PipelineMaxVerifyRetries
+		}
 
 		// Gate thresholds → package-global in gate package.
 		var gt gate.Thresholds
@@ -1382,6 +1388,8 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetLanguage(flagLang)
 	orch.SetEmitter(renderer.Emitter())
 	orch.SetBlobSessionDir(blobSessionDir)
+	// B2.3 verify→plan retry cap. Zero keeps B1 fail-loud semantics.
+	orch.SetMaxVerifyRetries(pipelineSettings.MaxVerifyRetries)
 
 	// Resolve per-agent think_aloud from providers.yaml. The default
 	// is true (directive included); per-agent overrides can disable it.

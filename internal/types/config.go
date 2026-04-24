@@ -18,6 +18,13 @@ type PipelineSettings struct {
 	// forces finalize. A value <= 0 falls back to DefaultMaxStageVisits.
 	MaxStageVisits int `yaml:"max_stage_visits"`
 
+	// MaxVerifyRetries caps B2.3's verify→plan retry loop inside
+	// ModeApply. Zero preserves B1 fail-loud semantics (one attempt,
+	// surface failure). Positive values enable retry with
+	// PlanningHint seeded from the failure summary. Hard-capped at
+	// 5 by orchestrator.SetMaxVerifyRetries.
+	MaxVerifyRetries int `yaml:"max_verify_retries"`
+
 	// GateThresholds tunes the analyzer quality gate's numeric
 	// cutoffs. Defaults live in internal/analysis/gate.Thresholds
 	// and are applied when the zero value is loaded.
