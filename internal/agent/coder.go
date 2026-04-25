@@ -34,6 +34,12 @@ type coderEvaluator struct {
 	// check the applied-set without needing ctx passed through.
 	// Mirror of plannerEvaluator.mu pattern.
 	mu *types.MutableState
+
+	// Iteration cap knobs populated from AgentSettings at construction.
+	// softIterSlack is added to len(plan.TargetPaths) to form the soft
+	// cap; hardIterRecovery is the post-soft-cap recovery window.
+	softIterSlack    int
+	hardIterRecovery int
 }
 
 // BuildInitialInstruction captures the Mutable pointer and returns
@@ -126,8 +132,13 @@ func (e *coderEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *sk
 // is tolerant of one or two correction retries, and a large plan
 // (say 10 changes) gets 13 total turns — plenty for the LLM to
 // make 10 apply_patch calls plus slack.
+//
+// Two-stage cap: at the soft cap, spare 3 extra iters when the LLM
+// is calling apply_patch — the per-call payload is just `{path, kind}`
+// (lightweight after Q2's "dumb marshaller" refactor) but a multi-file
+// plan can still see one streaming hiccup near the boundary; flat cap
+// would discard a clean retry. Hard cap = soft cap + 3.
 func (e *coderEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	_ = resp
 	if e.mu == nil {
 		return true // no mutable to check against — stop to avoid a loop
 	}
@@ -139,9 +150,14 @@ func (e *coderEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if isAppliedComplete(plan, applied) {
 		return true
 	}
-	cap := len(plan.TargetPaths) + 3
-	return iteration >= cap
+	softCap := len(plan.TargetPaths) + e.softIterSlack
+	hardCap := softCap + e.hardIterRecovery
+	return iterationCapShouldStop(resp, iteration,
+		softCap, hardCap,
+		applyPatchToolName)
 }
+
+const applyPatchToolName = "apply_patch"
 
 // ParseOutput inspects Mutable's AppliedSet vs plan.TargetPaths
 // and returns success when the set is complete, or a structured
@@ -207,7 +223,10 @@ func (e *coderEvaluator) DetermineMissingPiece(_ *types.AgentContext, output *St
 
 // NewCoderAgent constructs the B1 apply-stage agent.
 func NewCoderAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentCoder, deps, &coderEvaluator{})
+	return NewBaseAgent(types.AgentCoder, deps, &coderEvaluator{
+		softIterSlack:    deps.AgentSettings.CoderSoftIterSlack,
+		hardIterRecovery: deps.AgentSettings.CoderHardIterRecovery,
+	})
 }
 
 // ── helpers ────────────────────────────────────────────────────

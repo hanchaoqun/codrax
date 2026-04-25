@@ -36,6 +36,12 @@ type plannerEvaluator struct {
 	// without needing ctx at every Evaluator entry. Mirror of
 	// answerDocumentEvaluator.mu.
 	mu *types.MutableState
+
+	// Iteration caps populated from AgentSettings at construction.
+	// See types.AgentSettings.PlannerSoftIterCap / PlannerHardIterCap
+	// for the streaming-truncation recovery rationale.
+	softIterCap int
+	hardIterCap int
 }
 
 // BuildInitialInstruction captures the Mutable pointer for later
@@ -72,22 +78,23 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 // expected to be single-shot; a runaway loop is a sign of a broken
 // skill prompt that should surface as a fail-loud error upstream.
 func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	_ = resp
 	if e.mu != nil && e.mu.ChangePlan() != nil {
 		return true
 	}
-	// Defensive cap: without a plan after 6 iterations the skill /
-	// LLM is deadlocked. The original cap was 3, chosen when plan
-	// emission was single-shot. emit_change_plan's session-35
-	// pre-flight gate (`git apply --check --recount`) rejects
-	// malformed diffs AT emission — that turns every rejected attempt
-	// into a retry, so the cap needs to match "how many corrections
-	// can the LLM reasonably make". Session-35 Java eval saw 3/3
-	// dispatches succeed on attempt 2 when given 5+ iterations;
-	// bumping to 6 gives clear headroom without inviting truly
-	// stuck loops.
-	return iteration >= 6
+	// Two-stage cap: soft cap is the normal stop; the soft→hard window
+	// spares one extra iteration whenever the LLM is actively calling
+	// emit_change_plan. Streaming gateways occasionally truncate the
+	// function.arguments of a large emit_change_plan payload (~5 KB
+	// JSON), the tool rejects with `unexpected EOF`, and the LLM's
+	// next iteration is a clean retry. ShouldStop runs BEFORE tool
+	// execution, so a flat soft-cap break would discard that recovery
+	// before it ever runs.
+	return iterationCapShouldStop(resp, iteration,
+		e.softIterCap, e.hardIterCap,
+		emitChangePlanToolName)
 }
+
+const emitChangePlanToolName = "emit_change_plan"
 
 // ParseOutput reads the installed ChangePlan, or reports a clean
 // failure if emit_change_plan was never called successfully. The
@@ -114,7 +121,7 @@ func (e *plannerEvaluator) ParseOutput(
 		reason := "planner did not call emit_change_plan"
 		for i := len(toolResults) - 1; i >= 0; i-- {
 			tr := toolResults[i]
-			if tr.ToolName == "emit_change_plan" && !tr.Success {
+			if tr.ToolName == emitChangePlanToolName && !tr.Success {
 				reason = "planner's emit_change_plan call was rejected: " + tr.Summary
 				break
 			}
@@ -147,5 +154,8 @@ func (e *plannerEvaluator) DetermineMissingPiece(_ *types.AgentContext, output *
 // prompt and ToolSuggestions (read_file / grep / list_files /
 // repo_map / exec_command / emit_change_plan).
 func NewPlannerAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentPlanner, deps, &plannerEvaluator{})
+	return NewBaseAgent(types.AgentPlanner, deps, &plannerEvaluator{
+		softIterCap: deps.AgentSettings.PlannerSoftIterCap,
+		hardIterCap: deps.AgentSettings.PlannerHardIterCap,
+	})
 }

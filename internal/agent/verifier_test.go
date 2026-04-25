@@ -61,17 +61,28 @@ func TestVerifier_ShouldStop_ReportInstalled(t *testing.T) {
 // iteration cap fires when run_tests never populated a report.
 func TestVerifier_ShouldStop_ReportMissingCap(t *testing.T) {
 	ctx := verifierFixtureCtx(nil, nil)
-	ev := &verifierEvaluator{}
+	s := types.ResolvedAgentSettings(types.AgentSettings{})
+	ev := &verifierEvaluator{
+		softIterCap: s.VerifierSoftIterCap,
+		hardIterCap: s.VerifierHardIterCap,
+	}
 	ev.BuildInitialInstruction(ctx, &skill.Config{})
-	// Iterations 0-4: no report, below cap.
-	for i := 0; i < 5; i++ {
+	// Below soft cap: no stop when no report.
+	for i := 0; i < s.VerifierSoftIterCap; i++ {
 		if ev.ShouldStop(llm.Response{}, i) {
-			t.Errorf("iter %d: should not stop (no report, below cap)", i)
+			t.Errorf("iter %d: should not stop (no report, below soft cap %d)", i, s.VerifierSoftIterCap)
 		}
 	}
-	// Iteration 5 hits cap.
-	if !ev.ShouldStop(llm.Response{}, 5) {
-		t.Error("iter 5: should stop at cap (defense against runaway loop)")
+	// Soft cap idle → stop.
+	if !ev.ShouldStop(llm.Response{}, s.VerifierSoftIterCap) {
+		t.Errorf("iter %d: should stop at soft cap when LLM idle", s.VerifierSoftIterCap)
+	}
+	// Hard cap stops unconditionally even with emit_test_results in flight.
+	if !ev.ShouldStop(
+		llm.Response{ToolCalls: []llm.ToolCall{{Name: emitTestResultsToolName}}},
+		s.VerifierHardIterCap,
+	) {
+		t.Errorf("iter %d: should stop at hard cap regardless of tool calls", s.VerifierHardIterCap)
 	}
 }
 

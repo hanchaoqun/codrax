@@ -59,18 +59,28 @@ func TestCoder_ShouldStop_IterationCap(t *testing.T) {
 		TargetPaths: []string{"x.go"},
 	}
 	ctx := coderFixtureCtx(plan)
-	ev := &coderEvaluator{}
+	s := types.ResolvedAgentSettings(types.AgentSettings{})
+	ev := &coderEvaluator{
+		softIterSlack:    s.CoderSoftIterSlack,
+		hardIterRecovery: s.CoderHardIterRecovery,
+	}
 	ev.BuildInitialInstruction(ctx, &skill.Config{})
 
-	// Cap is len(TargetPaths) + 3 = 4. Iterations 0..3 should
-	// keep going (nothing applied, cap not hit). Iteration 4 hits cap.
-	for i := 0; i < 4; i++ {
+	// Soft cap = len(TargetPaths) + slack. Below soft cap, no stop.
+	softCap := len(plan.TargetPaths) + s.CoderSoftIterSlack
+	for i := 0; i < softCap; i++ {
 		if ev.ShouldStop(llm.Response{}, i) {
-			t.Errorf("iter %d: should not stop (below cap, nothing applied)", i)
+			t.Errorf("iter %d: should not stop (below soft cap %d, nothing applied)", i, softCap)
 		}
 	}
-	if !ev.ShouldStop(llm.Response{}, 4) {
-		t.Error("iter 4: should stop at cap (len(TargetPaths)+3)")
+	// At/past soft cap with no apply_patch in flight → stop.
+	if !ev.ShouldStop(llm.Response{}, softCap) {
+		t.Errorf("iter %d: should stop at soft cap when LLM idle", softCap)
+	}
+	// Hard cap stops unconditionally.
+	hardCap := softCap + s.CoderHardIterRecovery
+	if !ev.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: applyPatchToolName}}}, hardCap) {
+		t.Errorf("iter %d: should stop at hard cap regardless of tool calls", hardCap)
 	}
 }
 

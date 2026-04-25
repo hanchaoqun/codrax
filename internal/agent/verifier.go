@@ -39,6 +39,11 @@ type verifierEvaluator struct {
 	// consults Mutable.ChangeReport to decide when the report
 	// is complete.
 	mu *types.MutableState
+
+	// Iteration caps populated from AgentSettings at construction.
+	// See types.AgentSettings.VerifierSoftIterCap / VerifierHardIterCap.
+	softIterCap int
+	hardIterCap int
 }
 
 // BuildInitialInstruction captures Mutable and renders a dynamic
@@ -176,15 +181,26 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 // is installed on Mutable. run_tests populates it on first call
 // so this is typically iter=0 or iter=1. Defensive cap at iter=5
 // prevents runaway loops if the runner is mis-configured.
-func (e *verifierEvaluator) ShouldStop(_ llm.Response, iteration int) bool {
+//
+// Two-stage cap: at the soft cap (5), spare one extra iter when the
+// LLM is retrying emit_test_results — the narrative payload can run
+// kilobytes (Maven/Gradle test stdout summaries) and is occasionally
+// truncated by streaming gateways. Without the recovery window, a
+// flat cap here would discard the iter=5 clean retry before it
+// installs the ChangeReport.
+func (e *verifierEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if e.mu == nil {
 		return true
 	}
 	if e.mu.ChangeReport() != nil {
 		return true
 	}
-	return iteration >= 5
+	return iterationCapShouldStop(resp, iteration,
+		e.softIterCap, e.hardIterCap,
+		emitTestResultsToolName)
 }
+
+const emitTestResultsToolName = "emit_test_results"
 
 // ParseOutput reads Mutable.ChangeReport and surfaces the verdict.
 // When the report is missing (run_tests never ran or failed
@@ -242,7 +258,10 @@ func (e *verifierEvaluator) DetermineMissingPiece(_ *types.AgentContext, output 
 
 // NewVerifierAgent constructs the B1 verify-stage agent.
 func NewVerifierAgent(deps *Dependencies) Agent {
-	return NewBaseAgent(types.AgentVerifier, deps, &verifierEvaluator{})
+	return NewBaseAgent(types.AgentVerifier, deps, &verifierEvaluator{
+		softIterCap: deps.AgentSettings.VerifierSoftIterCap,
+		hardIterCap: deps.AgentSettings.VerifierHardIterCap,
+	})
 }
 
 // countFailedResults — helper (duplicated from tool.countFailed to

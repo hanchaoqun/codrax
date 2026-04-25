@@ -71,6 +71,11 @@ type extractorEvaluator struct {
 	// maxRetries caps correction rounds. Set from
 	// AgentSettings.ExtractorMaxCorrectionRetries at construction.
 	maxRetries int
+
+	// Iteration caps populated from AgentSettings at construction.
+	// See types.AgentSettings.ExtractorSoftIterCap / ExtractorHardIterCap.
+	softIterCap int
+	hardIterCap int
 }
 
 // BuildInitialInstruction implements Evaluator.
@@ -281,9 +286,21 @@ func (e *extractorEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk
 // caps this at: iter=0 partial emit, iter=1 soft-stop+correction,
 // iter=2 LLM emits the missing tool, iter=3 break. Parallel-batch
 // case still terminates in one call.
+//
+// Two-stage cap: at the soft cap (3), spare 2 extra iters when the
+// LLM is retrying one of the structured emits — answer-symbol slates
+// can run kilobytes when many candidates are surfaced, and a streaming
+// truncation on iter=2 would otherwise be discarded by the flat cap.
 func (e *extractorEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
-	return iteration >= 3
+	return iterationCapShouldStop(resp, iteration,
+		e.softIterCap, e.hardIterCap,
+		emitAnswerSymbolToolName, emitHypothesisVerdictToolName)
 }
+
+const (
+	emitAnswerSymbolToolName      = "emit_answer_symbol"
+	emitHypothesisVerdictToolName = "emit_hypothesis_verdict"
+)
 
 // ParseOutput implements Evaluator. The extractor's two unique
 // responsibilities drain here:
@@ -1163,7 +1180,9 @@ func (e *extractorEvaluator) DetermineMissingPiece(_ *types.AgentContext, _ *Sta
 // uniform.
 func NewExtractorAgent(deps *Dependencies) Agent {
 	return NewBaseAgent(types.AgentExtractor, deps, &extractorEvaluator{
-		maxRetries: deps.AgentSettings.ExtractorMaxCorrectionRetries,
+		maxRetries:  deps.AgentSettings.ExtractorMaxCorrectionRetries,
+		softIterCap: deps.AgentSettings.ExtractorSoftIterCap,
+		hardIterCap: deps.AgentSettings.ExtractorHardIterCap,
 	})
 }
 

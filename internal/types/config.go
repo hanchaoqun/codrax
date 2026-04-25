@@ -257,6 +257,49 @@ type AgentSettings struct {
 	// Default 1.
 	ExtractorMaxCorrectionRetries int `yaml:"extractor_max_correction_retries"`
 
+	// Per-evaluator iteration caps for the streaming-truncation
+	// recovery pattern. Each evaluator's ShouldStop runs BEFORE the
+	// current iteration's tool calls execute; a flat hard cap therefore
+	// discards a clean retry that lands exactly on the cap iter (e.g.
+	// when the previous attempt's emit_X arguments were truncated by
+	// the LLM streaming gateway). The two-stage cap pattern:
+	//
+	//   iter < SoftIterCap                     → continue
+	//   SoftIterCap <= iter < HardIterCap      → continue ONLY when
+	//       the LLM is currently calling that evaluator's structured
+	//       emit tool (recovery window)
+	//   iter >= HardIterCap                    → stop unconditionally
+	//
+	// HardIterCap MUST be > SoftIterCap, otherwise the recovery window
+	// collapses to zero. ResolvedAgentSettings enforces this and falls
+	// back to defaults when violated.
+	//
+	// All zero (the absent-YAML state) inherits the code defaults
+	// from DefaultAgentSettings(). Common adjustment: bump SoftIterCap
+	// when investigation prep regularly runs long, OR raise HardIterCap
+	// when streaming truncation rates are elevated on a slow gateway.
+
+	// PlannerSoftIterCap / PlannerHardIterCap — emit_change_plan loop.
+	// Default 6 / 9.
+	PlannerSoftIterCap int `yaml:"planner_soft_iter_cap"`
+	PlannerHardIterCap int `yaml:"planner_hard_iter_cap"`
+
+	// CoderSoftIterSlack / CoderHardIterRecovery — apply_patch loop.
+	// Soft cap = len(plan.TargetPaths) + CoderSoftIterSlack; hard cap
+	// = soft cap + CoderHardIterRecovery. Default slack=3, recovery=3.
+	CoderSoftIterSlack    int `yaml:"coder_soft_iter_slack"`
+	CoderHardIterRecovery int `yaml:"coder_hard_iter_recovery"`
+
+	// VerifierSoftIterCap / VerifierHardIterCap — emit_test_results
+	// loop. Default 5 / 8.
+	VerifierSoftIterCap int `yaml:"verifier_soft_iter_cap"`
+	VerifierHardIterCap int `yaml:"verifier_hard_iter_cap"`
+
+	// ExtractorSoftIterCap / ExtractorHardIterCap — emit_answer_symbol
+	// + emit_hypothesis_verdict loop. Default 3 / 5.
+	ExtractorSoftIterCap int `yaml:"extractor_soft_iter_cap"`
+	ExtractorHardIterCap int `yaml:"extractor_hard_iter_cap"`
+
 	// SubTopicPrescanBudgetExtra is the number of extra prescan rounds
 	// granted per 2 sub-topics when RequestModel.SubTopics > 1.
 	// Default 1. The adjusted prescan budget is capped at base + 2.
@@ -382,6 +425,14 @@ func DefaultAgentSettings() AgentSettings {
 		FinalizerShrinkageMinProseLen: 400,
 		FinalizerShrinkageRatio:       0.5,
 		ExtractorMaxCorrectionRetries: 1,
+		PlannerSoftIterCap:            6,
+		PlannerHardIterCap:            9,
+		CoderSoftIterSlack:            3,
+		CoderHardIterRecovery:         3,
+		VerifierSoftIterCap:           5,
+		VerifierHardIterCap:           8,
+		ExtractorSoftIterCap:          3,
+		ExtractorHardIterCap:          5,
 		SubTopicPrescanBudgetExtra:    1,
 		SubTopicExplorerBudgetExtra:   3,
 		SubTopicPipelineStepsExtra:    5,
@@ -436,6 +487,45 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	}
 	if s.ExtractorMaxCorrectionRetries == 0 {
 		s.ExtractorMaxCorrectionRetries = d.ExtractorMaxCorrectionRetries
+	}
+	// Per-evaluator iteration caps. Zero → default. Recovery-window
+	// invariant: hard > soft; violations fall back to defaults rather
+	// than erroring (mis-tuned yaml shouldn't crash startup).
+	if s.PlannerSoftIterCap <= 0 {
+		s.PlannerSoftIterCap = d.PlannerSoftIterCap
+	}
+	if s.PlannerHardIterCap <= 0 {
+		s.PlannerHardIterCap = d.PlannerHardIterCap
+	}
+	if s.PlannerHardIterCap <= s.PlannerSoftIterCap {
+		s.PlannerSoftIterCap = d.PlannerSoftIterCap
+		s.PlannerHardIterCap = d.PlannerHardIterCap
+	}
+	if s.CoderSoftIterSlack <= 0 {
+		s.CoderSoftIterSlack = d.CoderSoftIterSlack
+	}
+	if s.CoderHardIterRecovery <= 0 {
+		s.CoderHardIterRecovery = d.CoderHardIterRecovery
+	}
+	if s.VerifierSoftIterCap <= 0 {
+		s.VerifierSoftIterCap = d.VerifierSoftIterCap
+	}
+	if s.VerifierHardIterCap <= 0 {
+		s.VerifierHardIterCap = d.VerifierHardIterCap
+	}
+	if s.VerifierHardIterCap <= s.VerifierSoftIterCap {
+		s.VerifierSoftIterCap = d.VerifierSoftIterCap
+		s.VerifierHardIterCap = d.VerifierHardIterCap
+	}
+	if s.ExtractorSoftIterCap <= 0 {
+		s.ExtractorSoftIterCap = d.ExtractorSoftIterCap
+	}
+	if s.ExtractorHardIterCap <= 0 {
+		s.ExtractorHardIterCap = d.ExtractorHardIterCap
+	}
+	if s.ExtractorHardIterCap <= s.ExtractorSoftIterCap {
+		s.ExtractorSoftIterCap = d.ExtractorSoftIterCap
+		s.ExtractorHardIterCap = d.ExtractorHardIterCap
 	}
 	if s.SubTopicPrescanBudgetExtra == 0 {
 		s.SubTopicPrescanBudgetExtra = d.SubTopicPrescanBudgetExtra

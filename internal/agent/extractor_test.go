@@ -136,16 +136,30 @@ func TestExtractor_ShouldStopFiresAfterRetryBudget(t *testing.T) {
 	// Turn B happy path is a single parallel-batch LLM call at iter=0.
 	// Non-parallel paths need more room: iter=0 partial emit, iter=1
 	// soft-stop + correction hint, iter=2 LLM fills the gap,
-	// iter>=3 hard stop.
-	e := &extractorEvaluator{}
-	for _, i := range []int{0, 1, 2} {
+	// iter>=soft cap idle → stop. Recovery window between soft and
+	// hard cap allows one streaming-truncation retry of emit_answer_symbol
+	// or emit_hypothesis_verdict.
+	s := types.ResolvedAgentSettings(types.AgentSettings{})
+	e := &extractorEvaluator{
+		softIterCap: s.ExtractorSoftIterCap,
+		hardIterCap: s.ExtractorHardIterCap,
+	}
+	for i := 0; i < s.ExtractorSoftIterCap; i++ {
 		if e.ShouldStop(llm.Response{}, i) {
-			t.Errorf("must NOT stop at iteration %d", i)
+			t.Errorf("must NOT stop at iteration %d (below soft cap %d)", i, s.ExtractorSoftIterCap)
 		}
 	}
-	for _, i := range []int{3, 5, 10} {
-		if !e.ShouldStop(llm.Response{}, i) {
-			t.Errorf("must stop at iteration %d (≥3 cap)", i)
+	// Soft cap idle → stop.
+	if !e.ShouldStop(llm.Response{}, s.ExtractorSoftIterCap) {
+		t.Errorf("must stop at soft cap %d when LLM idle", s.ExtractorSoftIterCap)
+	}
+	// Hard cap stops unconditionally.
+	for _, i := range []int{s.ExtractorHardIterCap, s.ExtractorHardIterCap + 5} {
+		if !e.ShouldStop(
+			llm.Response{ToolCalls: []llm.ToolCall{{Name: emitAnswerSymbolToolName}}},
+			i,
+		) {
+			t.Errorf("must stop at iteration %d (hard cap %d)", i, s.ExtractorHardIterCap)
 		}
 	}
 }
