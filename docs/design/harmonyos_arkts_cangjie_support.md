@@ -1,1116 +1,957 @@
-# HarmonyOS / ArkTS / 仓颉(Cangjie) 全面支持 —— 设计文档
+# HarmonyOS / Android / ArkTS / Cangjie / Kotlin 全栈支持 — 设计文档
 
-**状态**：设计审查（rev3 已锁）。**未开始实现**。
-**目标 PR 范围**：`PR-(-1) 调研` + `PR-0 ArkTS grammar` + `PR-0c 仓颉 grammar` + `PR-A log_triage 扩展` + `PR-B HiTrace 性能` + `PR-C runner+skill`，共 ~76 commits / 约 7-9 周。
-**场景**：客户大量使用鸿蒙系统（HarmonyOS Stage Model + 仓颉 Native 模块），需要 codrax 在 ArkTS 与仓颉两种语言上提供与现有 Go/Java/TS 等价的 first-class 能力 —— repomap、问题分析、代码生成；并消化 hdc 抓回的 hilog 日志、HiTrace 性能数据。
+**状态**：已实现，与 main 分支代码同步。
 
----
+**覆盖目标**：
+- HarmonyOS 生态：ArkTS UI 代码 + Cangjie 原生代码 + hilog 运行时日志 + HiTrace 性能 trace + hvigor 测试运行
+- Android 生态：Kotlin / Java 代码 + logcat 日志 + atrace / systrace / perfetto 性能 trace + Gradle 测试运行
+- 通用能力：repomap 抽取 / 问题分析 / 写模式代码生成 / runtime 故障归因
 
-## 0. 目录
-
-- [1. 目标 / 非目标](#1-目标--非目标)
-- [2. 现状审计](#2-现状审计)
-- [3. 决策记录（5 项已锁）](#3-决策记录5-项已锁)
-- [4. 架构总览](#4-架构总览)
-- [5. PR-(-1) — 公开资料调研 + 设计落定](#5-pr-1--公开资料调研--设计落定)
-- [6. PR-0 — tree-sitter-arkts 内置 + 4 层 fallback](#6-pr-0--tree-sitter-arkts-内置--4-层-fallback)
-- [7. PR-0c — tree-sitter-cangjie 内置 + 3 层 fallback](#7-pr-0c--tree-sitter-cangjie-内置--3-层-fallback)
-- [8. PR-A — log_triage 扩展（hilog + 双语言栈帧）](#8-pr-a--log_triage-扩展hilog--双语言栈帧)
-- [9. PR-B — HiTrace + emit_perf_trace 性能分析](#9-pr-b--hitrace--emit_perf_trace-性能分析)
-- [10. PR-C — hvigor / cjpm runner + 双语言 skill prompt](#10-pr-c--hvigor--cjpm-runner--双语言-skill-prompt)
-- [11. 全栈 fallback 规范](#11-全栈-fallback-规范)
-- [12. 红线（5 条）](#12-红线5-条)
-- [13. 测试计划](#13-测试计划)
-- [14. 开工顺序与里程碑](#14-开工顺序与里程碑)
-- [15. 未决项 / 风险](#15-未决项--风险)
+代码层面所有改动落在 `internal/` 与 `cmd/`，无新顶层包。新依赖 0（json5 / TOML 解析为本地手写实现，~520 LOC）。
 
 ---
 
-## 1. 目标 / 非目标
+## 目录
 
-### 目标
-
-1. **ArkTS 严格模式 first-class**：自维护 tree-sitter-arkts grammar；repomap 抽 `@Component struct` / `@Builder` / `@State` 等 21 装饰器与 ArkUI 链式调用；写模式通过既有 `git apply -` 路径直接可用，附 ArkTS 严格风格 skill prompt
-2. **仓颉(Cangjie) 全面支持**：自维护 tree-sitter-cangjie grammar；repomap 抽 `func` / `class` / `struct` / `interface` / `extend` / `foreign func` / `enum`；包路径走 `package_clause` 而非路径推断
-3. **hdc 日志消化**：log_triage 识别 hilog 行格式 + ArkTS V8 栈帧 + 仓颉 JVM-like 栈帧 + ArkTS↔Cangjie 互调链
-4. **HiTrace 性能分析**：新工具 `emit_perf_trace` 抽 `PerfBundle{ Frames, JankSpans, ColdStart, MainThreadStalls }`；与 LogBundle 平行的独立通道
-5. **hvigor / cjpm runner**：写模式 verifier 识别 ArkTS / 仓颉工程；标准输出走 JUnit XML / cjpm JSON，缺失时 exit-code 兜底（复用既有 CMake/Cargo 路径）
-6. **全栈 fallback 退化**：每一层都有跨技术栈降级路径；降级非静默（WARN 日志 + tier 折扣 + 启动 banner）
-
-### 非目标（本系列 PR 明确不做）
-
-- 自维护 grammar 仓外发独立项目（grammar 内置 codrax 仓，决策 #2）
-- ArkTS 1.0 / 1.1 lenient 兼容（仅严格模式，决策 #1）
-- HarmonyOS Native (C/C++) 专项支持（既有 C/Cpp grammar 已覆盖；本系列不动）
-- DevEco Studio 项目模板生成（codrax 不替代 IDE）
-- HiTrace 二进制格式 native 解析（decode 走 perfetto 离线，codrax 不嚼二进制）
-- ArkTS 跨平台输出（ArkUI-X 等）的特殊处理（grammar surface 一致即可）
-- MCP / 外部 skill overlay（已在 `mcp_integration.md` 单独立项，与本系列并行不阻塞）
+- [1. 系统架构总览](#1-系统架构总览)
+- [2. Repomap 语言扩展](#2-repomap-语言扩展)
+  - [2.1 ArkTS 抽取器](#21-arkts-抽取器)
+  - [2.2 Cangjie 抽取器](#22-cangjie-抽取器)
+  - [2.3 Kotlin 抽取器](#23-kotlin-抽取器)
+  - [2.4 Tier 折扣 + Banner 阈值](#24-tier-折扣--banner-阈值)
+  - [2.5 Resolver 设计](#25-resolver-设计)
+- [3. Log Triage 通道扩展](#3-log-triage-通道扩展)
+- [4. Perf Triage 独立通道（详细设计）](#4-perf-triage-独立通道详细设计)
+  - [4.1 数据流总览](#41-数据流总览)
+  - [4.2 PerfBundle 数据结构](#42-perfbundle-数据结构)
+  - [4.3 emit_perf_trace 工具契约](#43-emit_perf_trace-工具契约)
+  - [4.4 perf_triager Agent 控制器](#44-perf_triager-agent-控制器)
+  - [4.5 Two-step Fallback 详细设计](#45-two-step-fallback-详细设计)
+  - [4.6 PerfBundle 合并算法](#46-perfbundle-合并算法)
+  - [4.7 阈值与启发式](#47-阈值与启发式)
+  - [4.8 Skill Prompt 设计](#48-skill-prompt-设计)
+  - [4.9 与 LogTriage 的关系](#49-与-logtriage-的关系)
+- [5. 测试运行器集成（hvigor / cjpm）](#5-测试运行器集成hvigor--cjpm)
+- [6. 写模式 Skill Prompt](#6-写模式-skill-prompt)
+- [7. 多文件附加 + 字节上限](#7-多文件附加--字节上限)
+- [8. 配置 Knob 总览](#8-配置-knob-总览)
+- [9. 红线（不变量）](#9-红线不变量)
 
 ---
 
-## 2. 现状审计
+## 1. 系统架构总览
 
-### 已有支撑面
+```
+                       ┌────────────────────────────────────┐
+       --log / /log    │                                    │
+       (StringArrayVar │  BusContext.AttachedLog (text)     │
+        + concat)      │                                    │
+   ────────────────────►                                    │
+                       │                                    │
+       --htrace        │  BusContext.AttachedHitrace (text) │
+       --atrace alias  │                                    │
+       /htrace /atrace │                                    │
+   ────────────────────►                                    │
+                       └─────┬──────────────────────────────┘
+                             │
+                             ▼  (orchestrator preStages 顺序触发)
+                   ┌──────────────────────────────┐
+                   │  log_triage (条件)           │
+                   │  Guard: AttachedLog != ""    │
+                   │  Agent: log_triager          │
+                   │  Output: Mutable.LogTriage() │
+                   └──────────────┬───────────────┘
+                                  │
+                                  ▼
+                   ┌──────────────────────────────┐
+                   │  perf_triage (条件)          │
+                   │  Guard: AttachedHitrace != ""│
+                   │  Agent: perf_triager         │
+                   │  Output: Mutable.PerfTrace() │
+                   └──────────────┬───────────────┘
+                                  │
+                                  ▼
+                  analyze → explore → extract → finalize
+                  (主流水线，4 阶段 × 4 Agent)
+```
 
-| 组件 | 现状 | 鸿蒙缺口 |
+两条 pre-stage 互相独立，可以同时触发或单独触发。失败均为 advisory，不阻塞主流水线（`Mutable.LogTriage()` / `Mutable.PerfTrace()` 停留 `nil`，下游消费者全部 nil-safe）。
+
+**Analyzer 同时消费两份 bundle**（`internal/agent/analyzer.go`）：
+- `logtriage.MergeEntities` 把 LogBundle.Entities + PerfBundle.Entities union 进 `AnalyzerHints.Entities`
+- `analyzerRequiredFiles` 取 `LogBundle.ResolvedFiles ∪ PerfBundle.ResolvedFiles`（cap 10）作 first-class 文件锚点
+
+---
+
+## 2. Repomap 语言扩展
+
+`internal/tool/repomap/types/lang.go` 注册 4 个新语言常量 + 扩展名映射；`internal/tool/repomap/index/` 新增对应抽取器与 resolver。
+
+### 2.1 ArkTS 抽取器
+
+`internal/tool/repomap/index/extract_arkts.go`
+
+**实现策略**：复用既有 `tree-sitter-typescript`（已是依赖）+ ArkTS 后处理 pass。理由：
+- TS 是 ArkTS 严格模式的近超集（class / function / module / decorators 全部共享）
+- ArkTS-specific surface（`struct` 关键字 / 21 装饰器 / ArkUI 链式调用 + trailing block）走 regex 后处理
+- 无需自维护 tree-sitter-arkts 的 grammar.js + parser.c（外发版本管理风险高，无 tree-sitter CLI 不可生成）
+
+**ArkTS 装饰器白名单**（21 个，单一权威列表）：
+- ArkUI 结构：`@Component @Entry @Preview @CustomDialog @Observed @Reusable`
+- 函数级 UI：`@Builder @BuilderParam @Styles @Extend`
+- 状态管理：`@State @Prop @Link @Provide @Consume @Watch @ObjectLink @StorageLink @StorageProp @LocalStorageLink @LocalStorageProp`
+
+**抽取规则**：
+
+| Symbol.Kind | 触发模式 | 备注 |
 |---|---|---|
-| repomap tree-sitter | Go/Python/JS/TS/Java/Rust/C/C++ 8 语言 | `.ets` 未注册；ArkTS 装饰器未识别；仓颉零支持 |
-| repomap resolver | Go/JS/Python/Rust/Java/C++ 解析包路径与 import | oh-package.json5 未支持；cjpm.toml 未支持 |
-| log_triage `lang` 枚举 | go/java/python/rust/javascript/typescript/c/cpp/ruby/other | arkts/cangjie 未列；hilog 行格式未教过 LLM |
-| log_triage 验证器 | `ResolveJavaFile` basename glob | ArkTS / 仓颉 basename glob 缺失 |
-| verifier runner | 9 个（Go/Node/Python/Rust/Java/Ruby/CMake/Meson/Make）| hvigor / cjpm 缺失 |
-| 写模式 coder | `git apply -` 与语言无关，透明工作 | skill prompt 无 ArkTS 严格 / 仓颉风格指引 |
-| `log_attach_max_bytes` | 1 MB 默认，覆盖所有 attach 入口 | hdc 日志可能 GB 级，需评估默认是否抬高 |
+| `component` | `(@Decorator(\([^)]*\))? \s+)* struct <Name>` | 装饰器可同行可跨行 |
+| `ui-entry` | struct body 内 `build()` 方法 | Parent 设为外围 component |
+| `state-field` | `@State <name>: <type>` | 同样路径处理 @Prop / @Link / @Provide / @Consume / @ObjectLink |
+| `prop-field` | `@Prop <name>: <type>` | |
+| `link-field` | `@Link <name>: <type>` | |
+| `provide-field` / `consume-field` | `@Provide <name>` / `@Consume <name>` | |
+| `object-link-field` | `@ObjectLink <name>` | |
+| `storage-field` | `@StorageLink` / `@StorageProp` | 两类合并到一个 kind |
+| `local-storage-field` | `@LocalStorageLink` / `@LocalStorageProp` | |
+| `watch-binding` | `@Watch('handler') <name>` | |
+| `builder` | `@Builder function <name>(` 或同行变体 | |
+| `styles` | `@Styles function <name>()` | |
+| `extend` | `@Extend(<Type>) function <name>()` | Parent = 被扩展类型 |
 
-### 现有依赖
+**.ts 文件的归属**：scanner 探测到任意祖先目录有 `oh-package.json5` 时把 `LangTypeScript` 升级为 `LangArkTS`。`types.IsArkTSProject(repoRoot, relPath)` 是单一权威函数，向上 12 层目录扫描。纯 TypeScript 仓库不会被污染（红线 L-ArkTS-2）。
 
-- tree-sitter Go binding：`github.com/smacker/go-tree-sitter`（已在 `internal/tool/repomap/types/lang.go` 引入）
-- TypeScript grammar：`github.com/smacker/go-tree-sitter/typescript/typescript`（PR-0 Tier2 fallback 复用，无需新引入）
-- 唯一非 stdlib YAML 依赖：`gopkg.in/yaml.v3`
+### 2.2 Cangjie 抽取器
 
-### 本系列新增依赖
+`internal/tool/repomap/index/cangjie_lexer.go` + `cangjie_parser.go`
 
-- `github.com/titanous/json5`（解析 oh-package.json5；轻量 ~200 LOC）
-- `github.com/pelletier/go-toml/v2`（解析 cjpm.toml；标准 TOML，活跃维护）
+**实现策略**：手写 token 流 + 递归下降 parser。理由：
+- 仓颉无近邻 tree-sitter grammar 可复用（Rust / Swift / Java grammar surface 偏差太大）
+- 仓颉 surface 中等复杂（`func / class / struct / interface / enum / extend / match / operator / foreign`）
+- 自维护 tree-sitter-cangjie 需 Rust CLI + 持续 grammar 维护，ROI 低
+- `parser.go` 的 BaseAgent 路由层留出"`GetSitterLanguage` 返回 nil 时走 native"的口子
+
+**Lexer**（`cangjie_lexer.go`）：
+
+输入字节流，输出 `cangjieToken{ Kind, Text, Offset, Line }` 流。
+- 跳过单行 `//` 与块 `/* */` 注释（保留换行符以维持行号）
+- 字符串 `"..."`（含 `\` 转义）+ Rune `'...'`（Cangjie 单引号是 Rune 而非 String）整段消化
+- 标点：`{ } ( ) [ ] , : ; . @ < > = ->`
+- 关键字白名单：`package import class struct interface enum extend func init main operator foreign public private protected internal open static sealed abstract override redef mut const unsafe let var as where`
+- 其余文字归 `cjTokIdent` 或 `cjTokOther`
+
+**Parser**（`cangjie_parser.go`）：
+
+递归下降 + 状态栈 + 平衡 token 跳过。
+
+```
+run() → consumeDecorators() → consumeModifiers() → 关键字 dispatch
+  ├── parsePackage()       // 写 FileInfo.Package（红线 L-Cangjie-2）
+  ├── parseImport()
+  ├── parseTypeDecl(class|struct|interface|enum, parent)
+  │     └── parseBody(name) → 递归下降处理 body 内 nested decl
+  ├── parseExtendDecl()        // extend Type [<: Trait]* { ... }
+  ├── parseFuncDecl(parent)    // func Name<G>(p: T): R where C? body?
+  ├── parseForeignFunc()       // foreign func Name(...)
+  ├── parseOperatorFunc(parent) // operator func + / >> / [] / ==
+  ├── parseInit(parent)        // init(...) (Cangjie 构造函数无 func)
+  └── parseMainEntry()         // main(): Int64 (无 func 修饰)
+```
+
+**关键设计点**：
+1. **enclosing-type 栈**：`parseTypeDecl` 调用 `parseBody(typeName)`，body 内的 `func` / `init` / `operator` 全部带上 `parent=typeName` → Symbol.Parent 正确写到所属类
+2. **`<:` 与 generic `<` 区分**：`skipGenerics()` peek 下一 token，若是 `:` 则视为 `<:` 继承运算符 left here，否则进入泛型平衡跳过
+3. **operator 名识别**：`+ / >> / == / [] / .` 都是合法 operator 字符，token 流可能产出 `<`/`>` 也被接受
+4. **return type 跳过**：`skipReturnType()` 在 `:` 后吞类型表达式直到遇到 body 起点 `{` / `=` / `where` / 上层 `)` / `}`
+5. **`<:` 双形态**：lexer 看到 `<` 紧跟 `:` 输出两 token，parser 同时处理 `<:` 与不带 `<` 的 `:` 继承形式
+
+**Cangjie 红线**：
+- `FileInfo.Package` 必须从 `package_clause` 来，禁止路径推断（L-Cangjie-2，`TestExtractCangjie_PackageMustComeFromClause` 守护）
+- `.cjo` 编译产物 scanner 显式 deny（L-Cangjie-1，`TestApplyHarmonyOSPostProcess_CjoDeny` 守护）
+
+### 2.3 Kotlin 抽取器
+
+`internal/tool/repomap/index/extract_kotlin.go`
+
+**实现策略**：tree-sitter-kotlin（已 vendored 在 `github.com/smacker/go-tree-sitter/kotlin`）+ AST walk。无后处理 regex（grammar 已完整）。
+
+**节点 → Symbol 映射**（实测 vendored grammar）：
+
+| AST 节点 | Symbol.Kind 推导 | Modifier 细化 |
+|---|---|---|
+| `package_header` | 写 `FileInfo.Package` | — |
+| `import_header` | `types.Import`（path / alias / wildcard `.*`） | — |
+| `class_declaration` | `class` / `data-class` / `sealed-class` / `enum` / `annotation` / `interface`（细化由 modifiers + `interface` 字面 token 决定） | — |
+| `object_declaration` | `object` | — |
+| `companion_object` | `companion-object`，匿名时合成 `Companion` 名 | — |
+| `function_declaration` | `function` / `method` / `suspend-function` / `operator` / `extension-function` | extension fn 检测：第一个 named child 是 `user_type` / `nullable_type` 在 `simple_identifier` 之前 |
+| `property_declaration` | `field` / `var` / `val` / `const` | name 来自 `variable_declaration > simple_identifier` |
+| `type_alias` | `type` | — |
+
+**Inheritance 边**：`delegation_specifier` 子节点穿透 — `constructor_invocation > user_type` 是 class 父类构造形态（`: ComponentActivity()`），裸 `user_type` 是 interface 实现，`explicit_delegation` 是 `by xxx`。三种都产 `Relation{Kind:"inheritance"}`。
+
+**关键 quirks**：
+- tree-sitter-kotlin 不暴露 `class_declaration > body` 字段名（`ChildByFieldName("body")` 返回 nil）。代码迭代 `NamedChildren` 找 `class_body` / `enum_class_body`
+- `companion_object` 节点不属于 `object_declaration` switch case，单独处理
+- `property_declaration` 的 name 在 `variable_declaration > simple_identifier`，不是直接子 simple_identifier
+
+### 2.4 Tier 折扣 + Banner 阈值
+
+`internal/tool/repomap/index/parse_fallback.go`
+
+```go
+func TierDiscount(tier int) float64 {
+    case 0, 1: return 1.0
+    case 2:    return 0.85
+    case 3:    return 0.6
+    default:   return 0.3   // 4+
+}
+```
+
+`retrieve.rank.go::parseTierDiscount` 内联同曲线（避免跨包 import cycle），rank score 末尾 `score *= parseTierDiscount(fi.ParseTier)`。Tier 2+ 文件不可能在相同证据下超过 Tier 1 同名兄弟。
+
+**Repo 级 banner 阈值**：
+
+| Lang | 阈值 | 触发条件 |
+|---|---|---|
+| ArkTS | 0.4 | Tier-2 占比 > 40% → 启动一次 WARN，提示 grammar 升级 |
+| Cangjie | 0.5 | 同上 0.5 阈值（仓颉 surface 演进快，更宽容）|
+
+`reportFallbackRatios(files []*types.FileInfo)` 在 `BuildGraph` 后调用，每个 lang 至多一行 WARN。
+
+### 2.5 Resolver 设计
+
+`internal/tool/repomap/index/resolver_arkts.go` + `resolver_cangjie.go` + `resolver_kotlin.go`
+
+**ArkTS Resolver**（`arkTSImportResolver`）：
+
+- 包装既有 `jsImportResolver`（共享 tsconfig alias 路径 + relative 解析逻辑）
+- 5 类 builtin 黑洞前缀：`@ohos.*` / `@kit.*` / `@hms.*` / `@arkui.*` / `@system.*` —— 这些是 HarmonyOS 运行时 API，永不映射仓内文件
+- `@bundle:<name>[/sub]` 解析：`Prepare` 扫所有 `oh-package.json5`（用本地 `json5_parser.go`），建 `bundleMap[name] = manifestDir`，`Resolve` 时 `bundleMap[bundle] + sub` → 走 `resolveJsCandidate` 探 `.ets/.ts/.d.ts/.js` 扩展 + `Index.ets/index.ets` 目录入口
+
+**Cangjie Resolver**（`cangjieImportResolver`）：
+
+- 5 类 builtin 黑洞：`std.*` / `core.*` / `runtime.*` / `ohos.*`（仓颉侧的 ohos 互操作，与 ArkTS `@ohos.*` 区分）
+- `Prepare` 扫所有 `cjpm.toml`（用本地 `toml_parser.go`），建 `externalDeps`（`[dependencies]` 段声明的依赖名 → 视为外部不解析）+ `modulePkgs`（`[package].name → manifestDir` 映射）
+- `Resolve` 优先级：external dep 黑洞 → `PkgToFiles[exact path]` → 模块名匹配（取目录下所有 `.cj`）→ 包前缀逐级缩短匹配 → 最后 `BasenameIndex` 末段匹配（限 `.cj`）
+
+**Kotlin Resolver**（`kotlinImportResolver`）：
+
+- 与 Java resolver 同形态：`Prepare` 建 `packageIndex[Package] → []RelPath` + `declInFile[pkg+"."+name] → []RelPath`
+- `Resolve` 优先精确 decl 命中，其次同包目录，wildcard import (`a.b.*`) 整包返回
+- 与 Java resolver 共存于同一 graph（混合 Android 项目同时含 Java + Kotlin 文件，两 resolver 各自处理自己 Lang 的文件）
+
+**JSON5 / TOML 解析器**（`json5_parser.go` + `toml_parser.go`）：
+
+stdlib-only 手写实现。理由：
+- 唯一使用点是 `oh-package.json5` / `cjpm.toml`，feature surface 窄
+- 第三方依赖增加供应链风险，得益薄
+
+JSON5 支持：行 / 块注释、尾逗号、未引号 key、单引号 string、hex 数、leading-dot float、`\u` 转义。
+TOML 子集支持：`[section]` 头、`key = value`、字符串/整型/浮点/布尔/扁平数组、行尾注释、`'literal'` string。多行 string 与 inline table 显式不支持（cjpm.toml 不需要）。
 
 ---
 
-## 3. 决策记录（5 项已锁）
+## 3. Log Triage 通道扩展
 
-| # | 议题 | 选中 | 论据 |
+`internal/analysis/logtriage/`
+
+**新增 lang 枚举**（`emit_log_triage.go::langEnum`）：在 `go / java / cpp / python / node / rust / ruby / csharp` 之上加 `kotlin / arkts / cangjie`。skill prompt 教 LLM 三种新栈格式：
+- ArkTS：V8 风格 `at IndexPage.build (entry/src/main/ets/pages/Index.ets:128:9)`
+- Cangjie：JVM-like `at demo.cart.Cart.itemAt(src/cart/Cart.cj:78)`
+- Kotlin：JVM 同 Java 但扩展名 `.kt` `at com.example.Foo$bar(Foo.kt:42)`
+
+**hilog / logcat 行格式**（同构）：
+```
+<MM-DD HH:MM:SS.mmm> <PID> <TID> <LEVEL> <DOMAIN/TAG>: <body>
+```
+- HarmonyOS：`01-26 11:01:06.870 1051 1051 W 00201/test: Failed to ...`
+- Android：`04-15 14:32:18.421  5821  5821 E JsApp: ...`
+
+skill 教 LLM 同一处解析；message 体进 frame.raw，DOMAIN/TAG 进 entity 候选。
+
+**新增 ResolveFile**：
+
+| 函数 | Tier 1 | Tier 2 | Tier 3 |
 |---|---|---|---|
-| 1 | ArkTS 版本目标 | **仅严格模式（API 12+ Stable）**；禁 `any` / `as` / `index_signature` / `Function` 类型；grammar 层 reject 不放宽 | 严格模式是华为推力方向；lenient 兜底反而模糊降级触发点；遇到旧语法走 Tier2 显式降级而非 Tier1 内放过 |
-| 2 | grammar 仓归属 | **内置 codrax 仓**：`internal/thirdparty/tree-sitter-arkts/` + `internal/thirdparty/tree-sitter-cangjie/` | 不外发独立仓简化分发；产物（parser.c/scanner.c）checkin 避免下游用户装 tree-sitter CLI；版本与 codrax 主体同步 |
-| 3 | 仓颉版本目标 | **Cangjie 1.0.0 LTS (cjnative)** —— 已锁；cangjie-lang.cn 官方 LTS 版本，VS Code 插件 1.0.0；编译器后端基于 LLVM；Ubuntu/macOS x86_64+aarch64 支持 | 公开最新 LTS；用户只指 "公开最新"；锁版后写死避免 grammar 反复返工。后续若 1.1+ 发布且引入新 surface，单独评估升级 |
-| 4 | 真实样本来源 | **公开资料**（developer.huawei.com / gitee openharmony 工程）；不要客户脱敏样本 | 客户回复 "根据网上公开资料查询"；公开样本足以驱动 corpus；后续若客户工程命中 fallback 高比例可二次校准 |
-| 5 | Fallback 策略 | **全栈 4 层退化**：grammar Tier1→Tier2→Tier3→Tier4 / resolver 二级 / log_triage 三级 / HiTrace 三级 / runner exit-code 兜底 | 客户明确要求；鸿蒙生态演进快，grammar 不可能永远跟得上；降级是稳态运营前提 |
+| `ResolveArkTSFile(baseName, candidates)` | `entry/src/main/ets/...` Stage Model 路径 | `<module>/src/main/ets/...` 子模块 / `commons/...` | basename baseline |
+| `ResolveCangjieFile(pkg, baseName, candidates)` | dir 后缀匹配 `pkg→pkgPath` 的精确 | `src/main/cangjie/` / `src/cangjie/` / `cangjie/` / `src/` 源根 + 目录后缀 | baseline |
+| `ResolveKotlinFile(pkg, baseName, candidates)` | dir 后缀精确匹配 | Android Gradle 路径（`src/main/kotlin/`、`src/main/java/`、JB MPP `commonMain/`、`androidMain/`、`jvmMain/`、`test/kotlin/`） | baseline |
 
-### 论据补充（避免下 session 忘了为什么）
+`validate.go::validateFrame` 按 lang 分发（`f.Lang == "arkts"` / `isArkTSBasename(f.File)` 等启发式 + 路径形态判断），basename-only 走 `GlobByBasename` + 对应 Resolve；带路径的走 `StripBuildPathPrefix` + `ResolveFrameFile`。
 
-- **为什么 ArkTS 不复用 TS grammar 走 fallback 而要自维护**：TS grammar 的 `class_declaration` 与 ArkTS `struct` 是不同节点类型，ArkUI 链式调用 + trailing block（`Column() { ... }.width('100%')`）TS grammar 语法上不接受 —— 不自维护就抽不到 build() / @State / 装饰器实参。Tier2 用 TS grammar 是降级（拿不到 ArkUI 特性），不是平替。
-- **为什么仓颉无 Tier2 grammar**：仓颉 surface 与 Rust/Swift/Java 都不同（`func` / `package_clause` 首行 / `extend` / `match` 模式 / trait-like `interface`）；任何既有 grammar 强行套用都会大量 parse error，不如直接走 regex Tier2。
-- **为什么 grammar 产物 checkin 而非 go generate**：tree-sitter CLI 是 Rust 二进制 + npm 依赖，强制下游用户装太重；checkin parser.c 后用户只需 `go build` 一行；开发者改 grammar 时手动 `go generate ./internal/thirdparty/...`。
+**多文件附加边界识别**：log-triage-skill prompt 教 LLM 把 `# codrax-source: <path>` 行视为独立 capture 边界（不同进程 panic / 不同时间窗口）。
 
 ---
 
-## 4. 架构总览
+## 4. Perf Triage 独立通道（详细设计）
 
-### 4.1 数据流（鸿蒙工程读模式）
-
-```
-用户 hdc 抓日志 ─┐
-                 ├─→ codrax --log <file> --request "..."
-ArkTS+Cangjie 工程 ─┘
-                              ↓
-                    [log_triage 阶段]
-                    ├─ Tier1: emit_log_triage (ArkTS V8 栈 / 仓颉 JVM-like 栈)
-                    ├─ Tier2: log-segmentation-skill 切片再 triage
-                    └─ Tier3: regex 抽 (\S+\.(ets|cj)):(\d+) 兜底
-                              ↓
-                    [analyze 阶段] —— 用 LogBundle.ResolvedFiles 种 EvidencePlan.RequiredFiles
-                              ↓
-                    [explore 阶段] —— repomap.ParseWithFallback
-                                        ├─ ArkTS: arkts(strict) → typescript → regex → path-only
-                                        └─ Cangjie: cangjie → regex → path-only
-                              ↓
-                    [extract 阶段] —— 含 ArkTS 装饰器 / 仓颉 extend 关系
-                              ↓
-                    [finalize 阶段]
-```
-
-### 4.2 数据流（鸿蒙工程写模式 plan→apply→verify）
+### 4.1 数据流总览
 
 ```
-analyze (classifier) ─→ runPlanPhase (planner agent + ArkTS/仓颉 skill prompt)
-                          ↓
-                       runApplyPhase (worktree + git apply -)
-                          ↓
-                       runVerifyPhase
-                       ├─ detectLanguage:
-                       │    oh-package.json5 / build-profile.json5 / hvigorfile.ts → arkts
-                       │    cjpm.toml                                              → cangjie
-                       │    既有 9 detector                                          → 既有路径
-                       ├─ runner:
-                       │    arkts: hvigorw test → JUnit XML 解析 (复用 Java JUnit 路径)
-                       │    cangjie: cjpm test --json → 解析；缺失走 cargo 文本路径
-                       └─ exit-code 兜底（runner 全失败时）
+        ┌──────────────────────────────────────────────────┐
+        │  CLI / REPL 输入                                 │
+        │  --htrace / --atrace / --htrace-text / --atrace-text │
+        │  /htrace / /atrace + append + show + clear       │
+        │  (StringArrayVar 可重复，多文件加 # codrax-source 头) │
+        └──────────────────────┬───────────────────────────┘
+                               │
+                               ▼
+        ┌──────────────────────────────────────────────────┐
+        │  cmd/root.go::loadAttachedTrace                  │
+        │  - 互斥校验 (htrace vs atrace 别名 + file vs text)│
+        │  - stdin 全局只读一次                            │
+        │  - loadMultiPathSlice 拼接 + 头分隔               │
+        │  - truncateAttachedToCap(maxAttachedTraceBytes)  │
+        └──────────────────────┬───────────────────────────┘
+                               │
+                               ▼
+        Orchestrator.SetAttachedHitrace(body)
+        → busCtx.AttachedHitrace
+        → AgentContext.AttachedHitrace（context/builder.go 镜像）
+                               │
+                               ▼
+        ┌──────────────────────────────────────────────────┐
+        │  StagePerfTriage 前置阶段                         │
+        │  Guard: bus.AttachedHitrace != ""                │
+        │  Agent: perf_triager                             │
+        │  Skill: perf-triage-skill (单段) or              │
+        │         perf-segmentation-skill + 重调          │
+        │         (两步)                                   │
+        └──────────────────────┬───────────────────────────┘
+                               │
+                               ▼
+        ┌──────────────────────────────────────────────────┐
+        │  emit_perf_trace 工具                            │
+        │  - 解析 PerfBundle Layer 1-3                     │
+        │  - derivePerfLayer4 (entities / signals /        │
+        │    ResolvedFiles / IntentHint)                   │
+        │  - Mutable.SetPerfTrace(bundle)                  │
+        └──────────────────────┬───────────────────────────┘
+                               │
+                               ▼
+        ┌──────────────────────────────────────────────────┐
+        │  Analyzer 消费                                   │
+        │  - rm.AnalyzerHints.Entities ∪ perf.Entities     │
+        │  - analyzerRequiredFiles ∪ perf.ResolvedFiles    │
+        │  - log.LogBundle.IntentHint OR perf.IntentHint   │
+        └──────────────────────────────────────────────────┘
 ```
 
-### 4.3 性能分析数据流（HiTrace）
+### 4.2 PerfBundle 数据结构
 
-```
-hdc shell hitrace ─→ trace 文件
-                       ↓
-                    codrax --htrace <file>
-                       ↓
-                    [log_triage 阶段] — 无关；HiTrace 走独立通道
-                       ↓
-                    [perf_triage 阶段（新增）]
-                    ├─ Tier1: emit_perf_trace → PerfBundle
-                    ├─ Tier2: 退到 log_triage 走文本路径（损失结构）
-                    └─ Tier3: 二进制无法 utf-8 解码 → 提示用户 perfetto 离线
-                       ↓
-                    Mutable.PerfTrace() 通道
-                       ↓
-                    [analyze] 性能 hypothesis 模板（jank/cold-start/main-thread-stall）
-                       ↓
-                    [explore]→[extract]→[finalize]
-```
-
----
-
-## 5. PR-(-1) — 公开资料调研 + 设计落定
-
-**估时**：2-3 天 / 1 commit。
-**依赖**：无。
-
-### 5.1 调研产出清单
-
-| 文件 | 内容 | 来源 |
-|---|---|---|
-| `docs/design/harmonyos_arkts_cangjie_support.md` | 本文档（合并设计） | 本次 session 写就 |
-| `internal/thirdparty/tree-sitter-arkts/corpus/*.txt` | 30 例严格模式样本 | gitee openharmony / developer.huawei.com codelabs |
-| `internal/thirdparty/tree-sitter-cangjie/corpus/*.txt` | 40 例样本 | cangjie-lang.cn / gitee cangjie SIG |
-| `eval/cases/harmony/hilog_arkts_panic.case` | ArkTS panic 端到端 | OpenHarmony forum 真实崩溃 |
-| `eval/cases/harmony/hilog_cangjie_panic.case` | 仓颉 panic 端到端 | 同上 |
-| `eval/cases/harmony/hitrace_jank.case` | jank trace | 调研期手抓 |
-| `eval/cases/harmony/arkts_repomap.case` | ArkTS repomap | 拉公开 ArkTS 工程 |
-| `eval/cases/harmony/cangjie_repomap.case` | 仓颉 repomap | 拉公开仓颉工程 |
-
-### 5.2 调研已锁事实（rev3 完成）
-
-- [x] **仓颉公开最新版本**：Cangjie 1.0.0 LTS (cjnative)；编译器后端 LLVM；Ubuntu/macOS x86_64+aarch64；VS Code 插件 1.0.0 → §3 决策 #3 已写入
-- [x] **仓颉栈帧格式**（公开样本归纳）：`at <package>.<func>(<file.cj>:<line>)` JVM-like → §8.2 已写入
-- [x] **hilog 行格式**（来自 openharmony/hiviewdfx_hilog README.md）：`MM-DD HH:MM:SS.mmm PID TID LEVEL DOMAIN/TAG: MESSAGE` → §8.1 已写入；literal 例 `01-26 11:01:06.870 1051 1051 W 00201/test: Failed to visit ...`
-- [x] **HiTrace 文本格式**：底层 ftrace + bytrace/hiTraceMeter CLI；输出格式与 Linux ftrace 兼容（含 `tracing_mark_write: B|<pid>|<tag>` / `E|<pid>` 事件）→ §9.2 已写入
-- [x] **hvigor 测试输出**：DevEco Testing 基于 JUnit5；输出含 `junit.xml` + `report.html` → §10.1 已写入；JUnit XML 复用既有 Java 路径
-- [x] **cjpm `--json`**：官方文档未列出 `--json` flag；主路径走文本解析（cargo 风格）；future-proof 在 PR-C 启动时 `cjpm test --help` 探测 → §10.2 已写入
-- [x] **`oh-package.json5`**：实际工程多含 json5 注释 + 单引号 + 尾逗号 → 必须引 json5 库；strict-JSON 兜底走 Tier2 fallback；§6.5 已写入
-
-### 5.3 公开资料证据链（来源 URL）
-
-ArkTS：
-- https://github.com/HarmonyOS-Next/awesome-harmonyos/blob/main/Adaptation_rules_from_TypeScript_to_ArkTS.md（严格模式禁 any/as 规则）
-- https://developer.huawei.com/consumer/en/doc/harmonyos-guides/arkts-overview（Application Framework）
-- https://docs.oniroproject.org/application-development/basic-concepts/introduction-to-arkts/（基础语法）
-
-Cangjie：
-- https://cangjie-lang.cn/en（官方）
-- https://docs.cangjie-lang.cn/cjnative/user_manual/（语言文档）
-- https://github.com/Cangjie-Pub/cangjie_compiler（编译器源码）
-- https://docs.cangjie-lang.cn/cjnative/user_manual/source_zh_cn/Compile-And-Build/cjpm_usage_OHOS.html（cjpm 用法）
-
-hilog / HiTrace：
-- https://github.com/openharmony/hiviewdfx_hilog/blob/master/README.md（hilog 行格式）
-- https://github.com/openharmony/hiviewdfx_hitrace（HiTrace 实现）
-
-hvigor / DevEco Testing：
-- https://dev.to/moyantianwang/deveco-testing-official-automation-testing-tool-for-harmonyos-applications-5g95（JUnit XML + report.html 输出）
-
-### 5.3 调研期间 grammar.js 不动手
-
-PR-(-1) 不写 grammar 代码；只产出调研结果与 corpus。grammar.js 写代码是 PR-0 / PR-0c 的事，**前提是 corpus 充分**。
-
----
-
-## 6. PR-0 — tree-sitter-arkts 内置 + 4 层 fallback
-
-**估时**：~14 commits / 2.5 周。
-**依赖**：PR-(-1) v0.1 corpus。
-
-### 6.1 grammar 仓内布局
-
-```
-internal/thirdparty/tree-sitter-arkts/
-├── grammar.js             # tree-sitter grammar DSL
-├── src/
-│   ├── parser.c           # tree-sitter generate 产物（checkin）
-│   ├── scanner.c          # 自定义 scanner（处理 ArkUI trailing block）
-│   ├── tree_sitter/       # 头文件
-│   └── grammar.json       # generate 产物
-├── corpus/
-│   └── *.txt              # 测试用例（来自 PR-(-1)）
-├── package.json           # tree-sitter 元信息（仅给 generate 用）
-├── README.md              # 何时升级 grammar / 如何 generate
-└── go_binding.go          # cgo wrapper，暴露 GetLanguage()
-```
-
-`go generate` 注释写在 `internal/thirdparty/tree-sitter-arkts/generate.go`（仅文档作用）：
-```go
-//go:build generate
-//go:generate tree-sitter generate
-package arkts
-```
-
-### 6.2 grammar.js 严格模式 surface
-
-**核心节点**：
-
-```js
-struct_declaration:           // 替代 class
-  // @Component / @Entry / @Preview / @Observed 必含至少一个
-  // body 必含 build() 函数（@Component 强制）
-  decorator+ 'struct' identifier (extends_clause)? class_body
-
-build_method:                 // ArkUI 渲染入口
-  'build' '(' ')' '{' ui_call+ '}'
-
-ui_call:                      // ArkUI 链式 + trailing block
-  call_expression ('.' identifier '(' argument_list ')')* trailing_block?
-trailing_block:
-  '{' (ui_call | if_else | foreach | lazy_foreach)* '}'
-
-decorator_with_arg:           // 21 装饰器白名单
-  '@' decorator_name ('(' decorator_arg ')')?
-decorator_name:
-  // ArkUI 装饰器
-  'Component' | 'Entry' | 'Preview' | 'CustomDialog' | 'Observed' |
-  'Reusable' | 'Builder' | 'BuilderParam' | 'Styles' | 'Extend' |
-  // 状态管理
-  'State' | 'Prop' | 'Link' | 'Provide' | 'Consume' | 'Watch' |
-  'ObjectLink' | 'StorageLink' | 'StorageProp' |
-  'LocalStorageLink' | 'LocalStorageProp'
-  // 非白名单 → parse error
-
-styled_block:                 // @Styles 内属性方法链
-  '@Styles' 'function' identifier '(' ')' '{' style_attr_call+ '}'
-
-// 严格门：以下规则不存在 / 显式 reject
-//   any_type, as_expression, index_signature, function_type
-```
-
-**严格门实现**：在 grammar 中不为 `any` 关键字定义 token；`as` 表达式不进 `expression` choice；遇到立即 ERROR 节点。
-
-### 6.3 corpus 用例分布（30 例）
-
-- 10 例 @Component struct + build()
-- 5 例 @Builder / @BuilderParam
-- 5 例 @State / @Prop / @Link / @Provide / @Consume 状态管理
-- 3 例 @Styles / @Extend
-- 3 例 LazyForEach / ForEach 嵌套 UI
-- 2 例 Stage Model 入口（EntryAbility）
-- 2 例 import / export（含 oh-package 路径）
-
-### 6.4 Go binding（`internal/thirdparty/tree-sitter-arkts/binding.go`）
+`internal/types/perf_bundle.go`
 
 ```go
-package arkts
-
-// #cgo CFLAGS: -std=c11 -fPIC
-// #include "src/parser.c"
-// #include "src/scanner.c"
-// extern TSLanguage *tree_sitter_arkts(void);
-import "C"
-import (
-    "unsafe"
-    sitter "github.com/smacker/go-tree-sitter"
-)
-
-func GetLanguage() *sitter.Language {
-    ptr := unsafe.Pointer(C.tree_sitter_arkts())
-    return sitter.NewLanguage(ptr)
-}
-```
-
-### 6.5 codrax 接入
-
-**`internal/tool/repomap/types/lang.go`**：
-```go
-const LangArkTS = "arkts"
-
-// extToLang[".ets"] = LangArkTS
-// extToLang[".ts"]  在 ArkTS 工程探测到时由 build.go 动态归类
-```
-
-**`internal/tool/repomap/index/parser.go`** switch 加：
-```go
-case types.LangArkTS:
-    return arkts.GetLanguage(), extractArkTS
-```
-
-**`internal/tool/repomap/index/extract_arkts.go`**（新）抽：
-- `struct_declaration` → `Symbol{ Kind: "component", Name: ... }`
-- `build_method` → `Symbol{ Kind: "ui-entry", Name: "build", Parent: <component> }`
-- `decorator_with_arg` → `Symbol.Decorators []string`
-- `@State` / `@Prop` 等字段 → `Symbol{ Kind: "state-field" / "prop-field" }` 独立 SymbolKind
-- import → `types.Import{ Path: <oh-package 解析后> }`
-
-**`internal/tool/repomap/index/resolver_arkts.go`**（新）：
-- 找仓库根 `oh-package.json5` / 子模块 `oh-package.json5`
-- 解析依赖：`@ohos.*` / `@kit.*` / `@hms.*` 进 builtin 黑洞跳过
-- `@bundle:<bundle>` 走 bundle map
-- `../` 相对路径走 fs（与 JS resolver 复用 `pickFsCandidate` 风格）
-- json5 解析失败 → 退到 strict-JSON 二次尝试 → 再失败 → basename glob 兜底
-
-**`internal/tool/repomap/index/build.go`** 扫描扩展加 `.ets`；探测到 `oh-package.json5` 时 `.ts` 文件归 `LangArkTS`（红线 L-ArkTS-2）。
-
-**`internal/tool/repomap/retrieve/rank.go`**：
-- 入口名加权：`Index.ets` / `EntryAbility.ts` / `entry/src/main/ets/` 路径前缀
-- 装饰器加权：含 `@Entry` 文件 +0.15
-
-### 6.6 4 层 fallback chain（`internal/tool/repomap/index/parse_fallback.go` 新文件）
-
-```go
-type ParseAttempt struct {
-    Lang     string
-    Tier     int    // 1..4
-    Symbols  []types.Symbol
-    Imports  []types.Import
-    Pkg      string
-    Reason   string // 降级原因首行（不超过 200 字符）
-}
-
-func ParseWithFallback(path string, content []byte) ParseAttempt {
-    // 仅 .ets/.ts (in ArkTS 工程) 走此 chain；其它语言保持原 parser.go 路径
-
-    // Tier 1: tree-sitter-arkts 严格
-    if attempt, ok := tryParseTier1ArkTS(path, content); ok {
-        return attempt
-    }
-
-    // Tier 2: tree-sitter-typescript lenient
-    logger.Warnf("[repomap] %s arkts→typescript (tier 1→2): %s", path, lastErr.Reason)
-    if attempt, ok := tryParseTier2TS(path, content); ok {
-        attempt.Tier = 2
-        attempt.Reason = lastErr.Reason
-        return attempt
-    }
-
-    // Tier 3: regex 抽取器
-    logger.Warnf("[repomap] %s arkts→regex (tier 2→3): %s", path, lastErr.Reason)
-    if attempt, ok := tryParseTier3Regex(path, content); ok {
-        attempt.Tier = 3
-        return attempt
-    }
-
-    // Tier 4: 仅文件路径
-    logger.Warnf("[repomap] %s arkts→path-only (tier 3→4): %s", path, lastErr.Reason)
-    return ParseAttempt{Lang: "arkts", Tier: 4, Reason: lastErr.Reason}
-}
-```
-
-**Tier 3 regex 抽取**（覆盖率目标 70%+ 关键 symbol）：
-- `@(\w+)\s*\([^)]*\)\s*struct\s+(\w+)` → component
-- `@State\s+(\w+):` / `@Prop\s+(\w+):` / `@Link\s+(\w+):` → state/prop/link
-- `function\s+build\s*\(\s*\)` → ui-entry
-- `import\s+\{([^}]+)\}\s+from\s+['"]([^'"]+)['"]` → imports
-- `@Builder\s+function?\s*(\w+)` → builder
-
-**`FileInfo.ParseTier int`**（新字段）：rank.go 折扣
-```go
-const (
-    parseTier1Weight = 1.0
-    parseTier2Weight = 0.85
-    parseTier3Weight = 0.6
-    parseTier4Weight = 0.3
-)
-```
-
-**仓库级阈值**：`build.go` 扫描完后统计 ArkTS 文件 Tier2 占比 > 0.4 → 启动 banner 一次：
-```
-[repomap] WARN: 47% of .ets files fell back to TypeScript grammar — consider tree-sitter-arkts grammar update
-```
-
-### 6.7 PR-0 commits 拆分（14 个）
-
-1. `feat(repomap): add LangArkTS constant + .ets ext registration`
-2. `feat(thirdparty): vendor tree-sitter-arkts grammar.js skeleton`
-3. `feat(thirdparty): tree-sitter-arkts decorator + struct rules`
-4. `feat(thirdparty): tree-sitter-arkts build() + ui_call_chain`
-5. `feat(thirdparty): tree-sitter-arkts strict gates (any/as/index_signature)`
-6. `feat(thirdparty): tree-sitter-arkts checkin parser.c + scanner.c + Go binding`
-7. `feat(repomap): extract_arkts.go — struct/build/decorators/state-fields`
-8. `feat(repomap): resolver_arkts.go — oh-package.json5 + @ohos black-hole`
-9. `feat(repomap): build.go scan .ets + dynamic .ts→ArkTS in ArkTS projects`
-10. `feat(repomap): rank.go — ArkTS entry + decorator weighting`
-11. `feat(repomap): parse_fallback.go — Tier 1→2→3→4 chain + ParseTier field`
-12. `feat(repomap): rank discount by ParseTier + repo-level banner`
-13. `test(repomap): TestParseFallback_Tier1_Strict / Tier2_TSGrammar / Tier3_Regex / Tier4_PathOnly`
-14. `docs: update CLAUDE.md + architecture.md with ArkTS support`
-
----
-
-## 7. PR-0c — tree-sitter-cangjie 内置 + 3 层 fallback
-
-**估时**：~16 commits / 3 周。
-**依赖**：PR-(-1) v0.1 corpus；与 PR-0 并行。
-
-### 7.1 grammar.js 关键节点（surface）
-
-```js
-package_clause:               // 首行 package xxx.yyy
-  'package' qualified_identifier
-
-import_declaration:
-  'import' qualified_identifier ('as' identifier)?
-
-function_declaration:
-  modifier* 'func' identifier generic_params? '(' parameter_list ')' return_type? where_clause? block?
-
-class_declaration:
-  modifier* 'class' identifier generic_params? superclass_clause? interface_list? where_clause? class_body
-struct_declaration:
-  modifier* 'struct' identifier generic_params? interface_list? struct_body
-interface_declaration:
-  modifier* 'interface' identifier generic_params? superinterface_list? where_clause? interface_body
-enum_declaration:
-  modifier* 'enum' identifier generic_params? where_clause? enum_body
-
-extend_declaration:           // 关键 —— 扩展类型方法
-  'extend' type_expression interface_list? where_clause? extend_body
-
-modifier:
-  'public' | 'private' | 'protected' | 'internal' |
-  'open' | 'static' | 'operator' | 'sealed' | 'abstract' |
-  'foreign' | 'override' | 'redef' | 'mut' | 'const' | 'unsafe'
-
-decorator:
-  '@' identifier ('(' argument_list ')')?
-  // 白名单：@When / @CallingThread / @CJOH / 用户自定义不限制
-
-pattern_match:                // match 表达式
-  'match' '(' expression ')' '{' match_arm+ '}'
-
-operator_overload:
-  modifier* 'operator' 'func' operator_token '(' parameter_list ')' return_type? block
-
-foreign_block:
-  'foreign' 'func' identifier '(' parameter_list ')' return_type?
-```
-
-### 7.2 corpus 用例分布（40 例）
-
-- 8 例 func / class 基础
-- 5 例 struct / interface / enum
-- 5 例 extend 关键字（含 extend Trait for Type）
-- 4 例 generic + where_clause
-- 4 例 pattern_match
-- 4 例 operator overload
-- 3 例 foreign func（含 @CJOH 与 ArkTS 互调）
-- 3 例 modifier 组合（open / sealed / abstract 等）
-- 2 例 package + import
-- 2 例 lambda + closure
-
-### 7.3 Go binding
-
-同 PR-0 §6.4 风格，路径 `internal/thirdparty/tree-sitter-cangjie/binding.go`。
-
-### 7.4 codrax 接入
-
-**`types/lang.go`**：
-```go
-const LangCangjie = "cangjie"
-extToLang[".cj"] = LangCangjie
-// .cjo 不进 extToLang —— 编译产物，scanner 显式 deny-list (L-Cangjie-1)
-```
-
-**`extract_cangjie.go`**：
-- `package_clause` → `FileInfo.Package`（**红线 L-Cangjie-2**：必须从此读，禁止路径推断）
-- `function_declaration` / `class_declaration` / `struct_declaration` / `interface_declaration` / `enum_declaration` → 各对应 `Symbol.Kind`
-- `extend_declaration` → 特殊 SymbolKind=`extend`，附 `ExtendsType` 边到被扩展类型
-- `operator_overload` → `Symbol.Kind="operator"`
-- `foreign_block` → `Symbol.Kind="foreign-func"`
-- `modifier` 含 `public` / `open` / `protected` → `Exported=true`
-
-**`resolver_cangjie.go`**：
-- 找根 `cjpm.toml` 或子包 `cjpm.toml`
-- 解析 `[dependencies]` → 包名 → 路径
-- `import std.*` / `import core.*` 进 builtin 黑洞
-- toml 解析失败 → line-by-line `[dependencies]` 段抓取 → 再失败 → basename glob
-
-**`build.go`**：扫描扩展加 `.cj`；scanner 黑名单 `*.cjo` / `target/` / `.cangjie-cache/`。
-**`rank.go`**：`main.cj` / `src/main/cangjie/` 路径加权。
-**`IsExported` 加 LangCangjie 分支**：modifier 含 `public` / `open` → 否则 false（与 Java 不同 —— 仓颉默认包内可见）。
-
-### 7.5 3 层 fallback chain
-
-```go
-// internal/tool/repomap/index/parse_fallback_cangjie.go
-func parseCangjieWithFallback(path string, content []byte) ParseAttempt {
-    if attempt, ok := tryParseTier1Cangjie(path, content); ok {
-        return attempt
-    }
-    logger.Warnf("[repomap] %s cangjie→regex (tier 1→2): %s", path, lastErr.Reason)
-    if attempt, ok := tryParseTier2RegexCangjie(path, content); ok {
-        attempt.Tier = 2
-        return attempt
-    }
-    logger.Warnf("[repomap] %s cangjie→path-only (tier 2→3): %s", path, lastErr.Reason)
-    return ParseAttempt{Lang: "cangjie", Tier: 3, Reason: lastErr.Reason}
-}
-```
-
-**Tier 2 regex**：
-- `^package\s+([\w.]+)` → package
-- `^\s*(public|open|protected|internal)?\s*func\s+(\w+)` → function（modifier 抓 export 状态）
-- `^\s*(public|open|protected|internal)?\s*(class|struct|interface|enum)\s+(\w+)` → 类型
-- `^\s*extend\s+(\w+)` → extend
-- `^\s*foreign\s+func\s+(\w+)` → foreign-func
-- `^\s*import\s+([\w.]+)` → import
-
-**仓库级阈值**：Tier2 占比 > 0.5 → 启动 banner（仓颉无 Tier2 grammar，阈值更宽容）。
-
-### 7.6 PR-0c commits 拆分（16 个）
-
-1. `feat(repomap): add LangCangjie constant + .cj ext + .cjo deny-list`
-2. `feat(thirdparty): vendor tree-sitter-cangjie grammar.js skeleton`
-3. `feat(thirdparty): cangjie package_clause + import + modifier`
-4. `feat(thirdparty): cangjie function/class/struct/interface/enum`
-5. `feat(thirdparty): cangjie extend_declaration + operator_overload`
-6. `feat(thirdparty): cangjie generic + where_clause`
-7. `feat(thirdparty): cangjie pattern_match + foreign_block`
-8. `feat(thirdparty): cangjie checkin parser.c + Go binding`
-9. `feat(repomap): extract_cangjie.go — package/func/types/extend/foreign`
-10. `feat(repomap): IsExported cangjie branch (public/open modifier)`
-11. `feat(repomap): resolver_cangjie.go — cjpm.toml + std/core black-hole`
-12. `feat(repomap): build.go scan .cj + .cjo/target/.cangjie-cache deny`
-13. `feat(repomap): rank.go cangjie entry weighting`
-14. `feat(repomap): parse_fallback_cangjie.go — Tier 1→2→3 chain`
-15. `test(repomap): TestParseFallback_Cangjie_Tier1/Tier2/Tier3 + IsExported cangjie`
-16. `docs: update CLAUDE.md with Cangjie support + L-Cangjie-1/2 red lines`
-
----
-
-## 8. PR-A — log_triage 扩展（hilog + 双语言栈帧）
-
-**估时**：~14 commits。
-**依赖**：PR-0 + PR-0c（需要 ArkTS / 仓颉 grammar 已上线，validator 才能 ResolveFile 找到真文件）。
-
-### 8.1 hilog 行格式（已锁，来自 openharmony/hiviewdfx_hilog README.md）
-
-```
-MM-DD HH:MM:SS.mmm PID TID LEVEL DOMAIN/TAG: MESSAGE
-```
-
-literal 例：
-```
-01-26 11:01:06.870 1051 1051 W 00201/test: Failed to visit <private>, reason:503.
-```
-
-字段：
-- `MM-DD HH:MM:SS.mmm` —— 时间戳（月-日 时:分:秒.毫秒）
-- `PID` / `TID` —— 进程 / 线程 ID
-- `LEVEL` —— 单字符 D/I/W/E/F（Debug/Info/Warn/Error/Fatal）
-- `DOMAIN/TAG` —— 4 位 hex 域 + 应用自定 tag
-- `MESSAGE` —— 应用日志消息；release 模式中 `%{public}` 标记的字段保留，未标记字段被替换为 `<private>`
-
-`emit_log_triage` prompt 加教 LLM：
-- 识别 hilog 行格式，把 tag + level 写入 `LogBundle.Meta.Tags[]` / 严重度推 `signals`
-- ArkTS 应用日志通常 tag 形如 `OHRunner` / `ace_napi` / 应用包名
-
-### 8.2 ArkTS 栈帧（V8 格式，复用既有 JS 路径）
-
-```
-ErrorMessage: ...
-  at Foo.bar (entry/src/main/ets/pages/Index.ets:42:10)
-  at FooComponent.build (entry/src/main/ets/pages/Index.ets:30:5)
-  at __ELEMENT_invoke (...)
-```
-
-LLM 直接抽 `(file:line:col)`；validator 走 `ResolveArkTSFile`：
-```go
-// internal/analysis/logtriage/resolve_arkts.go
-func ResolveArkTSFile(repoRoot, raw string) (string, bool) {
-    // 1. 严格匹配 entry/src/main/ets/<...>.ets
-    // 2. basename glob 在 entry/src/main/ets/ 下
-    // 3. basename glob 在 commons/*/src/main/ets/ 下
-    // 4. fallback: 任意位置 <basename>
-}
-```
-
-### 8.3 仓颉栈帧（已锁，公开样本归纳）
-
-```
-panic: <msg>
-  at <package>.<func>(<file.cj>:<line>)
-  at <package>.<func>(<file.cj>:<line>)
-  at <native>
-```
-
-literal 例（同 `eval/cases/harmony/hilog_cangjie_panic.case`）：
-```
-04-15 14:35:42.108 6128 6128 F A0c0d/CjApp: panic: index out of bounds: index=5, size=3
-04-15 14:35:42.108 6128 6128 F A0c0d/CjApp:     at demo.cart.Cart.itemAt(src/cart/Cart.cj:78)
-04-15 14:35:42.108 6128 6128 F A0c0d/CjApp:     at demo.cart.Cart.checkout(src/cart/Cart.cj:42)
-```
-
-特征：JVM-like 栈帧（`<package>.<func>` 点分），与 Java 栈帧近似但路径含 `.cj` 扩展名。`ResolveCangjieFile` 抓取 `(\S+\.cj):(\d+)` 即可。
-
-`ResolveCangjieFile`：
-```go
-// internal/analysis/logtriage/resolve_cangjie.go
-func ResolveCangjieFile(repoRoot, raw string) (string, bool) {
-    // 1. basename glob 在 src/ 下
-    // 2. basename glob 在 cangjie/ 下
-    // 3. 任意位置 <basename>
-}
-```
-
-### 8.4 lang 枚举扩展（`internal/analysis/logtriage/types.go`）
-
-```go
-const (
-    LangArkTS    = "arkts"
-    LangCangjie  = "cangjie"
-    // ... 既有 9 个
-)
-```
-
-`ValidateBundle` switch 加：
-```go
-case LangArkTS:
-    if path, ok := ResolveArkTSFile(repoRoot, f.File); ok { ... }
-case LangCangjie:
-    if path, ok := ResolveCangjieFile(repoRoot, f.File); ok { ... }
-```
-
-### 8.5 Tier 3 regex 兜底（仓颉栈帧 LLM 失败时）
-
-`emit_log_triage` 失败 + 重试用尽 → 系统旁路 regex `(\S+\.cj):(\d+)` 抓所有 cj:line 对，写入 `LogBundle.Errors[].Frames[]`，`Coverage` 标 0.3，IntentHint 留空。
-
-### 8.6 PR-A commits 拆分（14 个）
-
-1. `feat(logtriage): lang enum +arkts +cangjie`
-2. `feat(logtriage): resolve_arkts.go — entry/src/main/ets glob`
-3. `feat(logtriage): resolve_cangjie.go — src/cangjie glob`
-4. `feat(logtriage): ValidateBundle switch arkts/cangjie`
-5. `feat(logtriage): hilog formatter prompt update`
-6. `feat(logtriage): ArkTS V8 stack frame prompt examples`
-7. `feat(logtriage): cangjie stack frame prompt examples`
-8. `feat(logtriage): regex Tier3 fallback for cangjie frames`
-9. `test(logtriage): TestResolveArkTSFile + TestResolveCangjieFile`
-10. `test(logtriage): TestValidateBundle_HilogArkTS`
-11. `test(logtriage): TestValidateBundle_HilogCangjie`
-12. `test(logtriage): TestRegexFallback_CangjieFrames`
-13. `feat(eval): cases/harmony/hilog_arkts_panic.case + hilog_cangjie_panic.case`
-14. `docs: update CLAUDE.md log_triage section with hilog + arkts/cangjie`
-
----
-
-## 9. PR-B — HiTrace + emit_perf_trace 性能分析
-
-**估时**：~10 commits。
-**依赖**：PR-A。
-
-### 9.1 PerfBundle 数据结构
-
-```go
-// internal/types/perf_bundle.go
 type PerfBundle struct {
-    Meta       PerfMeta       `json:"meta"`
-    Frames     []FrameInfo    `json:"frames"`         // 渲染帧
-    JankSpans  []JankSpan     `json:"jank_spans"`     // 卡顿区段
-    ColdStart  *ColdStartInfo `json:"cold_start,omitempty"`
-    MainStalls []StallSpan    `json:"main_stalls"`    // 主线程 block
-    Residue    []string       `json:"residue"`        // 未结构化的原始片段
-    Coverage   float64        `json:"coverage"`
+    Meta     PerfMeta      `json:"meta"`
+    Frames   []PerfFrame   `json:"frames,omitempty"`
+    Janks    []PerfJank    `json:"janks,omitempty"`
+    Stalls   []PerfStall   `json:"stalls,omitempty"`
+    Startup  *PerfStartup  `json:"startup,omitempty"`
+    Residue  []string      `json:"residue,omitempty"`
+    Coverage float64       `json:"coverage,omitempty"`
+
+    // Layer 4 — 验证器派生，LLM 不可写
+    ResolvedFiles []string `json:"resolved_files,omitempty"`
+    Entities      []string `json:"entities,omitempty"`
+    IntentHint    string   `json:"intent_hint,omitempty"`
 }
 
 type PerfMeta struct {
-    Source   string  `json:"source"`    // hitrace / perfetto / systrace
-    Duration float64 `json:"duration"`  // ms
-    AppPID   int     `json:"app_pid,omitempty"`
+    Source     string   // hitrace / atrace / systrace / perfetto / unknown
+    DurationMs float64  // 0 = unknown
+    AppPID     int      // 0 = not detectable
+    Signals    []string // jank / cold-start-slow / main-thread-stall / io-block / gc-pause / render-miss
+    Summary    string   // ≤ 200 chars
 }
 
-type FrameInfo struct {
-    Timestamp float64 `json:"timestamp"`
-    Duration  float64 `json:"duration_ms"`
-    Janky     bool    `json:"janky"`
-    Phase     string  `json:"phase"` // measure/layout/draw/composite
+type PerfFrame struct {
+    FrameNo    int
+    TsMs       float64
+    DurationMs float64
+    Phase      string // measure / layout / draw / composite / ""
+    Janky      bool
 }
 
-type JankSpan struct {
-    StartMs    float64  `json:"start_ms"`
-    DurationMs float64  `json:"duration_ms"`
-    Cause      string   `json:"cause"`
-    Frames     []string `json:"frames"` // 触发帧（call site）
+type PerfJank struct {
+    StartTsMs   float64
+    DurationMs  float64
+    TriggerSpan string   // 最内层 B|...|tag 的 tag
+    Reason      string   // io / lock / sync-call / heavy-compute / ""
+    Tags        []string // 完整 tag 栈，外层到内层
 }
 
-type ColdStartInfo struct {
-    AppLaunchMs   float64 `json:"app_launch_ms"`
-    AbilityInitMs float64 `json:"ability_init_ms"`
-    FirstDrawMs   float64 `json:"first_draw_ms"`
+type PerfStall struct {
+    StartTsMs  float64
+    DurationMs float64
+    Kind       string // io / lock / sync-rpc / native-call / ""
+    Symbol     string // 函数符号
+    File       string // 解析后的源文件（可空）
+    Line       int
 }
 
-type StallSpan struct {
-    StartMs    float64 `json:"start_ms"`
-    DurationMs float64 `json:"duration_ms"`
-    Reason     string  `json:"reason"` // io/lock/sync-call/heavy-compute
-    Symbol     string  `json:"symbol,omitempty"`
+type PerfStartup struct {
+    Mode          string  // cold / warm / hot
+    AppLaunchMs   float64
+    AbilityInitMs float64 // HarmonyOS Stage Model 专有
+    FirstFrameMs  float64
 }
 ```
 
-### 9.2 HiTrace 文本格式（已锁，来自 openharmony/hiviewdfx_hitrace + ftrace 兼容子集）
-
-`hdc shell hitrace -t <duration>` 输出 ftrace 兼容文本，关键事件：
-```
-   <task>-<pid> [<cpu>] ...1 <ts>: tracing_mark_write: B|<pid>|<tag>   # begin span
-   <task>-<pid> [<cpu>] ...1 <ts>: tracing_mark_write: E|<pid>          # end span
-   <task>-<pid> [<cpu>] ...1 <ts>: tracing_mark_write: C|<pid>|<name>|<value>  # counter
-   <task>-<pid> [<cpu>] ...1 <ts>: tracing_mark_write: S|<pid>|<tag>|<cookie>  # async start
-```
-
-literal 例（同 `eval/cases/harmony/hitrace_jank.case`）：
-```
-   com.example-5821 [001] ...1 12345.678901: tracing_mark_write: B|5821|H:RenderService:DoFrame
-   com.example-5821 [001] ...1 12345.679512: tracing_mark_write: B|5821|H:Layout:measure
-   com.example-5821 [001] ...1 12345.681203: tracing_mark_write: B|5821|H:DataLoader:fetchSync
-   com.example-5821 [001] ...1 12345.764812: tracing_mark_write: E|5821
-```
-
-`emit_perf_trace` LLM prompt 教模型：
-- 配对 `B|...|<tag>` 与 `E|...`，提取 span 名 + 持续时间
-- `H:RenderService:DoFrame` 为帧边界；超过 16.67ms 的帧标 Janky=true
-- 同步嵌套 span 在主线程上 = MainStalls
-
-### 9.3 emit_perf_trace 工具
-
-新增 `internal/tool/emit_perf_trace.go`：与 `emit_log_triage` 同形态，schema 暴露给 `perf_triager` agent。
-
-新 agent `internal/agent/perf_triager.go`：复用 `BaseAgent` ReAct loop；LLM 读 trace 文本，emit PerfBundle。
-
-### 9.4 attach 入口
-
-CLI：`--htrace <file|->` / `--htrace-text <inline>`，与 `--log` 同形态。
-REPL：`/htrace <path>` / `/htrace clear` / `/htrace show`。
-共享 `log_attach_max_bytes` cap（不重复定义）。
-
-### 9.5 Mutable.PerfTrace() 通道
-
-新增 setter / getter 与 `LogTriage()` 平行：
-```go
-func (m *MutableState) SetPerfTrace(b *PerfBundle)
-func (m *MutableState) PerfTrace() *PerfBundle
-```
-
-analyzer 读 PerfTrace 与 LogTriage 同等：注入 RequiredFiles + Entities + IntentHint=`IntentPerformance`（新 IntentKind）。
-
-### 9.6 性能 hypothesis 模板
-
-`internal/analysis/compiler` 新 scenario template `ScenarioPerformance`：
-- 默认 hypotheses：`H_main_thread_block` / `H_layout_thrash` / `H_cold_start_io` / `H_render_overdraw`
-- 默认 RequiredEvidence：`StallSpan.Symbol` 反查 repomap
-
-### 9.7 3 层 fallback
-
-- Tier 1：`emit_perf_trace` 成功
-- Tier 2：失败/超时 → 把 trace 当文本走 `log_triage`（loss 性能结构）
-- Tier 3：trace utf-8 解码失败 → 用户提示 `use perfetto offline; codrax does not parse binary trace`，pipeline 跳过
-
-### 9.8 PR-B commits 拆分（10 个）
-
-1. `feat(types): PerfBundle + FrameInfo + JankSpan + ColdStart + StallSpan`
-2. `feat(tool): emit_perf_trace.go + schema`
-3. `feat(agent): perf_triager.go + perf-triage-skill`
-4. `feat(state): Mutable.SetPerfTrace + PerfTrace`
-5. `feat(cmd): --htrace + --htrace-text + REPL /htrace`
-6. `feat(analysis): IntentPerformance + ScenarioPerformance + 4 default hypotheses`
-7. `feat(perf): Tier2 fallback (perf→log_triage text) + Tier3 utf-8 fail surface`
-8. `test(perf): TestEmitPerfTrace_HappyPath + TestPerfFallback_Tier2_LogTriage`
-9. `feat(eval): cases/harmony/hitrace_jank.case`
-10. `docs: architecture.md HiTrace section + CLAUDE.md PerfTrace channel`
-
----
-
-## 10. PR-C — hvigor / cjpm runner + 双语言 skill prompt
-
-**估时**：~8 commits。
-**依赖**：PR-A（与 PR-B 并行）。
-
-### 10.1 hvigor runner（ArkTS 写模式）
-
-`internal/tool/run_tests.go` 新增 detector：
-```go
-{"oh-package.json5",     "arkts"},
-{"build-profile.json5",  "arkts"},
-{"hvigorfile.ts",        "arkts"},
-```
-
-测试命令（待 §5 调研确认）：
-```go
-case "arkts":
-    return "hvigorw test", junitXMLPath
-```
-
-JUnit XML 输出复用既有 Java 路径（`internal/tool/run_tests.go::parseJUnitXML`）。
-
-**Tier 2 兜底**：JUnit XML 缺失 → exit-code only PASS/FAIL（复用 CMake/Meson 路径）。
-
-### 10.2 cjpm runner（仓颉写模式，已锁）
+**阈值常量**（公开导出，渲染端可读取）：
 
 ```go
-{"cjpm.toml", "cangjie"},
+PerfFrameBudget60HzMs = 16.67  // 60fps 帧预算
+PerfStartupSlowColdMs = 1200.0 // 慢冷启动门
+PerfMainThreadStallMs = 100.0  // 主线程阻塞门
 ```
 
-测试命令（cjpm 1.0.0 LTS 公开文档**未列 `--json` flag**；主路径走文本解析，启动时 `cjpm test --help` 一次性探测 future-proof）：
-```go
-case "cangjie":
-    if probedHasJSONReporter {
-        return "cjpm test --json", "" // future-proof：仓颉 1.1+ 若加 --json 自动启用
-    }
-    return "cjpm test", "" // 默认走文本输出，cargo 风格解析（test result: ok. X passed, Y failed）
-```
+### 4.3 emit_perf_trace 工具契约
 
-**Tier 2 兜底**：JSON / 文本均失败 → exit-code only（复用 CMake 路径）。
+`internal/tool/emit_perf_trace.go`
 
-### 10.3 ArkTS 严格模式 skill prompt（11 条 checklist）
+**JSON Schema**（`additionalProperties: false` 全层强制）：
 
-`internal/skill/code_write.go` 加 ArkTS 段：
-1. 不写 `any` 类型，全部显式标注
-2. 不写 `as` 强制类型转换
-3. 不写索引签名 `{[k:string]: T}`
-4. 不写函数式 `Function` 类型
-5. import 必须含扩展名（`.ets` / `.ts`）
-6. class field 必须显式类型
-7. `Object.keys()` 等返回 `string[]` 不能反向索引未声明字段
-8. struct 不是 class，不能用 `new`
-9. 装饰器仅限 21 白名单
-10. UI build() 返回必须是单根（Column/Row/Stack）
-11. 不引 `@ohos.commonEvent` 老 API（用 `@ohos.commonEventManager`）
+- `meta` object，required `source`（enum 5 值），optional `duration_ms` / `app_pid` / `signals[]`（最多 8，enum 6 值）/ `summary`（≤200）
+- `frames[]` 最多 200 项，每项 required `duration_ms`
+- `janks[]` 最多 50 项，每项 required `start_ts_ms` + `duration_ms`，`tags[]` 最多 16
+- `stalls[]` 最多 50 项，每项 required `start_ts_ms` + `duration_ms`
+- `startup` optional，required `mode`（enum 3）
+- `residue[]` 最多 8 项，每项 ≤500 字节
 
-### 10.4 仓颉风格 skill prompt
+Schema **拒绝** Layer-4 字段（`resolved_files / entities / intent_hint / coverage`）—— LLM 不可写。
 
-1. `func` 而非 `function`
-2. 包声明必须（首行 `package xxx.yyy`）
-3. `public` 显式标记 export
-4. `extend` 用法（不是 trait impl 也不是 class）
-5. `@CallingThread` 在主线程检查
-6. 模式匹配用 `match` 而非 `switch`
-7. trait-like `interface`（不是 Java interface）
-8. operator overload 用 `operator func`
-9. FFI 用 `foreign func` + `@CJOH`
-10. `var` 可变 / `let` 不可变（与 Rust 一致）
+**Execute 流程**：
+1. `json.NewDecoder(...).DisallowUnknownFields()` 解参数
+2. 跨字段 sanity：`frames + janks + stalls + startup` 不可全空（meta-only 视为空 emission，强制重试）
+3. `toPerfBundle` 复制成 PerfBundle，`Frames` 自动按 `PerfFrameBudget60HzMs` 标 Janky
+4. `derivePerfLayer4` 派生 Layer 4
+5. `Mutable.SetPerfTrace(bundle)`
+6. ToolResult Summary 渲染 frames/janks/stalls/signals 计数 + IntentHint
 
-### 10.5 PR-C commits 拆分（8 个）
+**`derivePerfLayer4` 算法**（同步逻辑，非 LLM）：
+- `IntentHint = "performance"` 当 `len(Janks) > 0 || len(Stalls) > 0 || (Startup != nil && Startup.AppLaunchMs > PerfStartupSlowColdMs)`
+- `Entities`（cap 32）：jank.TriggerSpan + jank.Tags[] + stall.Symbol + stall.Kind + (startup.Mode + "-start")，去重，trim
+- 自动 signals 增补：
+  - `len(Janks) > 0` → push `"jank"`
+  - `any(stall.DurationMs >= PerfMainThreadStallMs)` → push `"main-thread-stall"`
+  - `Startup.Mode == "cold" && Startup.AppLaunchMs > PerfStartupSlowColdMs` → push `"cold-start-slow"`
+- `ResolvedFiles`（cap 10）：unique stall.File（非空）
 
-1. `feat(verifier): detect oh-package.json5/build-profile.json5/hvigorfile.ts → arkts`
-2. `feat(verifier): hvigorw test runner + JUnit XML reuse`
-3. `feat(verifier): detect cjpm.toml → cangjie + cjpm test runner`
-4. `feat(verifier): cjpm JSON parser + cargo-style text fallback`
-5. `feat(verifier): exit-code Tier2 fallback for both runners`
-6. `feat(skill): ArkTS strict-mode 11-rule checklist in code_write_skill`
-7. `feat(skill): Cangjie style guide in code_write_skill`
-8. `test(verifier): TestRunTests_Arkts_Hvigor + TestRunTests_Cangjie_Cjpm + Tier2 exit-code`
+### 4.4 perf_triager Agent 控制器
 
----
+`internal/agent/perf_triager.go`
 
-## 11. 全栈 fallback 规范
+**Settings**（`PerfTriageSettings`，全部 yaml 可调）：
 
-### 11.1 5 个 fallback 域
-
-| 域 | Tier 数 | 主路径 | 降级路径 |
-|---|---|---|---|
-| ArkTS grammar | 4 | tree-sitter-arkts | tree-sitter-typescript → regex → path-only |
-| 仓颉 grammar | 3 | tree-sitter-cangjie | regex → path-only |
-| 配置文件 resolver | 3 | json5/toml | strict-JSON / line-by-line → basename glob |
-| log_triage stack frames | 3 | LLM emit_log_triage | log-segmentation-skill → regex |
-| HiTrace 性能 | 3 | LLM emit_perf_trace | text→log_triage → 提示 perfetto |
-| runner | 2 | JUnit XML / JSON | exit-code only |
-
-### 11.2 共享原则（红线 L-Fallback-*）
-
-1. **每次降级必须打 WARN 日志**：`[<subsystem>] %s X→Y (tier N→M): %s`，含文件名 + tier 转移 + 原因首行
-2. **Tier3/Tier4 文件 rank 强折扣**：防"语法越烂越优先"反激励
-3. **仓库级阈值告警**：grammar 整体降级占比超阈值 → 启动 banner 一次（不阻塞，不重复）
-4. **fail-loud 不被违反**：fallback 是"主路径失败时降级保持可用"，不是"主路径偷偷不跑"。Tier1 的 LLM 必须严格 fail-loud；其失败才触发 Tier2
-
-### 11.3 监控埋点（不入 PR-0/-0c，留 §15 待办）
-
-未来可加：每次启动汇总 `<lang> tier1: N% / tier2: N% / tier3: N% / tier4: N%`，写 metrics 文件供运维看。本系列 PR 不实现，仅留 hook 点。
-
----
-
-## 12. 红线（5 条）
-
-### L-ArkTS-2：`.ts` 语言归属动态切换
-`extToLang[".ts"] → LangArkTS` 仅在 `build.go` 探测到工程根 / 任意子目录 `oh-package.json5` 时生效。纯 TypeScript 工程必须保持 `LangTypeScript`，不污染。
-**测试**：`TestBuild_PureTSProject_KeepsTypeScript` + `TestBuild_ArkTSProject_PromotesTSToArkTS`。
-
-### L-ArkTS-3：grammar Tier1 不放宽
-tree-sitter-arkts grammar 严格模式不接受 `any` / `as` / `index_signature` / `Function` 类型；遇到立即 ERROR 节点；Tier2 切换是显式降级（必有 WARN），不是 Tier1 内偷偷放过。
-**测试**：`TestArkTSGrammar_RejectsAnyType` + `TestArkTSGrammar_RejectsAsExpression`。
-
-### L-Cangjie-1：`.cjo` 编译产物不进 repomap
-scanner 显式 deny-list：`*.cjo` / `target/` / `.cangjie-cache/` / `build/`。
-**测试**：`TestScanner_CjoFiles_Excluded`。
-
-### L-Cangjie-2：包路径必须从 package_clause 读
-仓颉 `FileInfo.Package` 不允许从路径推断（与 Go/Java 不同 —— 路径不是仓颉的包路径来源）。`extract_cangjie.go` 必须先扫顶部 `package xxx.yyy` 写入 `FileInfo.Package`；resolver 跨文件 import 用此字段。
-**测试**：`TestExtractCangjie_PackageFromClause` + `TestExtractCangjie_NoPackageClause_EmptyPkg`（不允许 fallback 到路径）。
-
-### L-Fallback-1/2/3：降级非静默
-1. 每次降级必有 WARN 日志（含 tier 转移 + 原因）
-2. Tier3/Tier4 强折扣（防反激励）
-3. 仓库级 Tier2 占比超阈值启动 banner（grammar 该升级的告警）
-**测试**：`TestParseFallback_LogsWarnOnDegrade` + `TestRank_DiscountByParseTier` + `TestBuild_BannerOnHighFallbackRatio`。
-
----
-
-## 13. 测试计划
-
-### 13.1 单元测试
-
-| 文件 | 用例数 | 覆盖 |
+| 字段 | 默认 | 作用 |
 |---|---|---|
-| `extract_arkts_test.go` | ~20 | struct/build/装饰器/状态字段/import |
-| `extract_cangjie_test.go` | ~25 | func/class/extend/foreign/operator/match |
-| `resolver_arkts_test.go` | ~10 | oh-package.json5 + 黑洞 + json5→strict-JSON 降级 |
-| `resolver_cangjie_test.go` | ~10 | cjpm.toml + std/core 黑洞 + 降级 |
-| `parse_fallback_test.go` | ~15 | ArkTS 4 tier + 仓颉 3 tier + WARN 验证 |
-| `logtriage/resolve_arkts_test.go` | ~8 | basename glob 各种路径形态 |
-| `logtriage/resolve_cangjie_test.go` | ~8 | 同上 |
-| `agent/perf_triager_test.go` | ~6 | PerfBundle 结构 + Tier2/3 fallback |
-| `verifier_arkts_test.go` | ~5 | hvigor JUnit XML + exit-code |
-| `verifier_cangjie_test.go` | ~5 | cjpm JSON / 文本 / exit-code |
+| `Enabled` | true | 总开关 |
+| `MinBytes` | 200 | 小于此字节直接跳过（200 字节以下 trace 通常只是 banner） |
+| `MaxRetries` | 1 | 单次 emit 失败重试次数 |
+| `TwoStepEnabled` | true | 是否允许两步升级 |
+| `TwoStepBytes` | 65536 | trace ≥ 此值直接走两步（不试单段） |
+| `TwoStepCoverage` | 0.3 | 单段返回 coverage < 此值升级 |
+| `MaxLLMCalls` | 12 | 总 LLM 调用上限（1 单段 + 1 分段 + 10 per-segment） |
 
-### 13.2 集成测试（eval cases）
+**Execute 决策树**：
 
-| 用例 | 期望 |
-|---|---|
-| `eval/cases/harmony/arkts_repomap.case` | repomap 抽出 N 个 @Component / N 个 @Builder |
-| `eval/cases/harmony/cangjie_repomap.case` | repomap 抽出 N 个 func / N 个 extend |
-| `eval/cases/harmony/hilog_arkts_panic.case` | LogBundle.ResolvedFiles 含 entry/src/main/ets/...ets |
-| `eval/cases/harmony/hilog_cangjie_panic.case` | LogBundle.ResolvedFiles 含 .cj |
-| `eval/cases/harmony/hitrace_jank.case` | PerfBundle.JankSpans 非空 |
+```
+if !Enabled: return skipped("disabled")
+if AttachedHitrace == "": return skipped("empty")
+if len(AttachedHitrace) < MinBytes: return skipped("too short")
 
-### 13.3 红线结构测试（go/ast scan）
+if TwoStepEnabled && len(AttachedHitrace) >= TwoStepBytes:
+    return runTwoStep("oversized")
 
-`internal/tool/repomap/index/red_lines_arkts_test.go`：
-- L-ArkTS-2：grep `extToLang[".ts"] = LangArkTS` 必须在 `build.go` 的 hasOhPackage 分支内
-- L-Cangjie-1：grep scanner 黑名单含 `.cjo`
-- L-Cangjie-2：grep `extract_cangjie.go` 必须有 `FileInfo.Package = ` 来自 package_clause 的路径
+# 单段尝试
+out := base.Execute(ctx, perf-triage-skill)
+bundle := Mutable.PerfTrace()
 
-### 13.4 性能测试（benchmark）
+if bundle != nil && bundle.Coverage >= TwoStepCoverage:
+    return out  # 单段成功
+
+if !TwoStepEnabled:
+    return out  # 单段结果（即使低覆盖）
+
+# 升级两步
+Mutable.SetPerfTrace(nil)  # 清单段结果，让两步从空状态合并
+return runTwoStep(...)
+```
+
+**ReAct 循环**：BaseAgent + `perfTriagerEvaluator`，`MaxIterations=6`（与 log_triager 同级）。`Observe` hook 监听 `emit_perf_trace` 或 `emit_perf_segmentation` 任一成功即停。
+
+### 4.5 Two-step Fallback 详细设计
+
+#### Step A：分段
+
+调用 `perf-segmentation-skill` 让 LLM emit 一次 `emit_perf_segmentation`：
+
+```json
+{
+  "segments": [
+    {"byte_start": 0,    "byte_end": 1200, "kind": "context",      "hint": "..."},
+    {"byte_start": 1200, "byte_end": 4500, "kind": "startup",      "hint": "Application#onCreate cold start"},
+    {"byte_start": 4500, "byte_end": 7800, "kind": "frame_window", "hint": "Choreographer doFrame 16ms"},
+    {"byte_start": 7800, "byte_end": 9500, "kind": "jank_region",  "hint": "performTraversals 85ms"}
+  ]
+}
+```
+
+**Kind enum** 6 值（专为 perf 设计，与 log segmentation 6 值正交）：
+- `frame_window` — 完整渲染帧 envelope
+- `jank_region` — 连续多帧 jank 或 stall 区段
+- `startup` — 进程/Activity 启动窗口
+- `thread_run` — 长时间 CPU/IO 单线程占用
+- `context` — header / banner / 元数据
+- `noise` — 不相关 / 非 actionable
+
+Schema 限制：≤10 段，按 `byte_start` 升序，禁止重叠（`byte_end[N] ≤ byte_start[N+1]`）。
+
+`emit_perf_segmentation.go::Execute` 校验：每段 `0 ≤ start < end ≤ len(AttachedHitrace)`，违规段静默丢弃。合法段写入 `Mutable.SetPerfSegments(rawJSON)`。
+
+#### Step B：逐段抽取
 
 ```go
-BenchmarkParseArkTS_Tier1     // 严格 grammar 解 100 个 .ets 文件
-BenchmarkParseArkTS_Tier2     // 全降到 TS grammar
-BenchmarkParseArkTS_Tier3     // 全 regex
-BenchmarkParseCangjie_Tier1
-BenchmarkParseCangjie_Tier2
+perSegBudget := MaxLLMCalls - 2  // 减去 1 次 single-shot + 1 次 segmentation
+origTrace := ctx.AttachedHitrace
+for _, seg := range segments:
+    if calls >= perSegBudget: break
+    if !IsExtractablePerfSegment(seg.Kind): continue  // 跳过 context / noise
+    
+    ctx.AttachedHitrace = origTrace[seg.ByteStart:seg.ByteEnd]
+    Mutable.SetPerfTrace(nil)  # 给本段空白槽
+    eval.emitSeen = false
+    
+    subOut := base.Execute(ctx, perf-triage-skill)
+    calls++
+    if subOut.OK && Mutable.PerfTrace() != nil:
+        partials = append(partials, Mutable.PerfTrace())
+ctx.AttachedHitrace = origTrace  # 恢复
+Mutable.SetPerfSegments(nil)
 ```
 
-目标：Tier1 < 10× 单 .go 文件解析耗时；Tier2/3 不能比 Tier1 慢（避免反向激励）。
+**为什么不并行 fan-out**：BaseAgent + LLM 适配器是单线程友好；并行需要 N 份 BusContext.Mutable 实例隔离 + merge — 复杂度收益不匹配。串行 + budget cap 已能覆盖绝大多数场景。
+
+#### Step C：合并
+
+`internal/analysis/perftriage.MergePerfBundles(parts, rawTraceBytes)` 输出最终 PerfBundle，写入 `Mutable.SetPerfTrace`。详见 §4.6。
+
+#### 降级路径
+
+| 失败点 | 行为 |
+|---|---|
+| Segmenter 失败 / 0 段 | 返回 `StageReport: "two-step produced no segments — degraded"`，bundle 为 nil，主流水线继续 |
+| Segments JSON 解析失败 | `"two-step malformed segmentation — degraded"` |
+| 所有 segments emit 全失败 | `"two-step produced no per-segment bundles — degraded"` |
+| Merge 返回 nil | `"two-step merge produced nil bundle — degraded"` |
+| Skill 未注册（perf-segmentation-skill / perf-triage-skill 缺失）| WARN log + degraded report，不 panic |
+
+每条降级路径都是 advisory（StageOutput.Error 为空，StageReport 写明状态）—— 主流水线 analyzer 看 `Mutable.PerfTrace() == nil` 自然跳过 perf 路径。
+
+### 4.6 PerfBundle 合并算法
+
+`internal/analysis/perftriage/merge.go`
+
+**输入**：`parts []*PerfBundle` + `rawTraceBytes int`（原始 trace 总字节数，用于 Coverage 派生）
+
+**合并策略**：
+
+| 字段 | 策略 |
+|---|---|
+| `Meta.Source` | 多数票；并列则取首次出现 |
+| `Meta.DurationMs` | 所有非零值的最大值（trace 实际跨度） |
+| `Meta.AppPID` | 多数票，并列首次 |
+| `Meta.Signals` | 集合并集，按字典序排序（保证幂等） |
+| `Meta.Summary` | 所有非空摘要 `; ` 拼接，截 ≤200 字节 |
+| `Frames` | 按 `(FrameNo, TsMs, DurationMs)` 三元组去重，保留输入序 |
+| `Janks` | 按 `(StartTsMs, DurationMs, TriggerSpan)` 去重 |
+| `Stalls` | 按 `(StartTsMs, DurationMs, Symbol)` 去重 |
+| `Startup` | 取 `AppLaunchMs` 最大的（Cold 启动比 Warm 慢，"最大"即最确定 cold 信号）|
+| `Residue` | 全字符串相等去重 |
+| Layer 4 | 基于合并后的 Layer 1-3 重新 derive（`mergedDeriveEntities` / `mergedDeriveResolvedFiles` / `mergedDeriveIntentHint` / `mergedDeriveCoverage`） |
+
+**Coverage 公式**：
+```
+Coverage = 1 - sum(len(residue[i])) / rawTraceBytes
+```
+clamp 到 `[0, 1]`。`rawTraceBytes == 0` 退化为 `1.0`（无信息时不主动报低覆盖）。
+
+**幂等性**：相同输入 parts（顺序无关）→ 相同输出（signals 排序、startup 选最大、frames/janks/stalls 唯一签名）。`merge_test.go::TestMergePerfBundles_SignalsUnion_FramesConcatDedup` 守护。
+
+**N=1 短路**：单段输入直接 pass-through 同一指针（避免无意义复制）。
+
+### 4.7 阈值与启发式
+
+| 常量 | 值 | 用途 |
+|---|---|---|
+| `PerfFrameBudget60HzMs` | 16.67 ms | 帧预算；`emit_perf_trace.toPerfBundle` 自动 set Janky；skill prompt 教 LLM 同阈值识别 jank_region 段 |
+| `PerfStartupSlowColdMs` | 1200 ms | 慢冷启动；`derivePerfLayer4` 触发 `cold-start-slow` signal + `IntentHint=performance` |
+| `PerfMainThreadStallMs` | 100 ms | 主线程阻塞；`derivePerfLayer4` 触发 `main-thread-stall` signal |
+| `TwoStepBytes` | 64 KiB | 两步升级阈值；超过单段 LLM context 已力不从心 |
+| `TwoStepCoverage` | 0.3 | 单段覆盖率门；低于此说明 trace 没读懂 |
+| `MaxLLMCalls` | 12 | 总预算（1+1+10 配 segmenter cap） |
+| `MinBytes` | 200 | 启动门；< 200 字节 trace 通常只是 banner |
+
+为什么不让 LLM 输出阈值：阈值是设备/部署语义（60Hz/120Hz/144Hz、Tier-1 SoC vs 低端机），不该 per-call 漂移。yaml 静态配置，prompt 不打。
+
+### 4.8 Skill Prompt 设计
+
+#### perf-triage-skill
+
+`internal/skill/defaults.go`
+
+**Goal**：单次 `emit_perf_trace` 调用产出 PerfBundle。
+
+**Workflow**（11 条）核心要点：
+1. 读 "Attached Performance Trace" section；多文件 `# codrax-source:` 头视为独立 capture
+2. 识别 source：`# tracer: nop` ftrace header / `TASK-PID CPU# TIMESTAMP FUNCTION` header → hitrace/atrace/systrace；perfetto banner → perfetto
+3. 配对 `tracing_mark_write: B|<pid>|<tag>` 与 `E|<pid>` end，δ ≥ 16.67ms 标 Janky
+4. UI-thread tag 启发：HarmonyOS `H:RenderService:DoFrame` / `H:Layout:measure` / `H:DataLoader:fetchSync`；Android `Choreographer#doFrame` / `performTraversals` / `RenderThread`
+5. 为 jank 帧产 `PerfJank`：trigger_span = 最内层 active tag；tags[] = 完整 outer→inner 栈；reason = io/lock/sync-call/heavy-compute 启发
+6. 主线程阻塞 > 100 ms 产 `PerfStall`：kind / symbol / file / line（tag 含路径时抽）
+7. cold-start 检测：HarmonyOS `ActivityTaskManager / AppInit / WindowStage.loadContent`；Android `ActivityThread / Application#onCreate` → 产 PerfStartup
+8. residue[] 装不可结构化的 chunks，≤8 项 ≤500 字节
+9. 空信号 trace：frames/janks/stalls 全空 + meta.summary 解释 → 验证器视为"无可报告"非失败
+10. 严禁 emit Layer-4 字段（schema 拒绝）
+11. 一次 dispatch 一次 emit
+
+**Prohibitions**（4 条）：
+- 不要把 trace 当 panic log 解析（这是时序 span 数据）
+- 不用 grep / list_files / repo_map（未在 allowlist）
+- 不要伪造 spans（每个 PerfJank 必须对应可观察的 B/E 对）
+- 不要多次 emit_perf_trace（第二次替换第一次）
+
+#### perf-segmentation-skill
+
+**Goal**：单次 `emit_perf_segmentation` 切 ≤10 段。
+
+**Workflow**（5 条）：
+1. 读 trace（blob 时用 read_file 翻全文，分段需要全局坐标）
+2. Top-down 走 trace，识别 6 类区段：
+   - `frame_window`：单 B|...|H:RenderService:DoFrame ... E| 帧 envelope
+   - `jank_region`：连续 jank 帧或 stall
+   - `startup`：进程 / Activity 启动窗口
+   - `thread_run`：长 CPU/IO 单线程占用
+   - `context`：header / 元数据
+   - `noise`：不相关
+3. ≤10 段，禁重叠（按 byte_start 升序）
+4. `hint` 字段 ≤80 字符，per-segment 标签（"cold-start ActivityTaskManager 1.2s"）
+5. context / noise 段 Step B 跳过，仍保留供诊断
+
+**Prohibitions**：
+- 不调 `emit_perf_trace`（那是 Step B 工作）
+- 不重叠段
+- 不超 10 段（粒度过细就 coarsen）
+- kind enum 外的值会被 schema 拒绝
+
+### 4.9 与 LogTriage 的关系
+
+| 维度 | log_triage | perf_triage |
+|---|---|---|
+| 触发条件 | `AttachedLog != ""` | `AttachedHitrace != ""` |
+| BusContext 字段 | `AttachedLog string` | `AttachedHitrace string` |
+| Mutable 槽 | `LogTriage() *LogBundle` | `PerfTrace() *PerfBundle` |
+| 主要 emit 工具 | `emit_log_triage` | `emit_perf_trace` |
+| 分段工具 | `emit_log_segmentation` | `emit_perf_segmentation` |
+| Skill | `log-triage-skill` + `log-segmentation-skill` | `perf-triage-skill` + `perf-segmentation-skill` |
+| 段 kind enum | stack / caused_by / header / context / trace / noise | frame_window / jank_region / startup / thread_run / context / noise |
+| 两步阈值 | 32 KiB / coverage 0.3 / max 12 calls | 64 KiB / coverage 0.3 / max 12 calls |
+| 合并函数 | `logtriage.MergeBundles` | `perftriage.MergePerfBundles` |
+| Analyzer 消费 | Entities ∪ + RequiredFiles ∪ + IntentHint=root_cause | Entities ∪ + RequiredFiles ∪ + IntentHint=performance |
+
+两通道**结构同形态**但**数据正交**：log 是 chronological text 含 stack frames + cause chains，perf 是 timestamp-indexed span events。所以 segmentation kind 不复用，merge 算法不复用，但**控制流形态完全一致**（preStage Guard → BaseAgent + Evaluator → emit_* tool → derive Layer 4 → Mutable.Set*Trace → analyzer consume）。
 
 ---
 
-## 14. 开工顺序与里程碑
+## 5. 测试运行器集成（hvigor / cjpm）
+
+`internal/tool/run_tests.go`
+
+**Detector 优先级**（前几条已加 HarmonyOS / Cangjie 优先）：
 
 ```
-Week 1     PR-(-1) 调研 + 设计落定 (本文档 + corpus + eval cases)
-Week 1.5–4 PR-0  ArkTS grammar + repomap + 4 层 fallback        ┐
-Week 1.5–4 PR-0c 仓颉 grammar + repomap + 3 层 fallback         ┘ 并行
-Week 4–6   PR-A  log_triage 扩展 (hilog + 双语言栈)
-Week 6–7   PR-B  HiTrace + emit_perf_trace                       ┐
-Week 6–7   PR-C  hvigor + cjpm runner + skill prompt             ┘ 并行
-Week 7–9   缓冲 / 客户验证 / 调优
+go.mod                       → go
+oh-package.json5             → hvigor
+build-profile.json5          → hvigor
+hvigorfile.ts                → hvigor
+cjpm.toml                    → cjpm
+package.json                 → node
+pyproject.toml / pytest.ini  → python
+Cargo.toml                   → rust
+pom.xml                      → java
+build.gradle / *.gradle.kts  → java (Gradle 路径同 Java，Kotlin 项目走这里)
+Gemfile                      → ruby
+CMakeLists.txt               → cmake
+meson.build                  → meson
+Makefile                     → make
 ```
 
-总估时：~7-9 周，76 commits。
+**hvigor 命令构造**：
+- 检测 `hvigorw` 在 repo 根 → 用本地 wrapper；否则降级到 PATH `hvigor`
+- 命令：`<wrapper> --no-daemon test [--tests <filter>]`
+- 输出格式：JUnit XML（DevEco Testing 基于 JUnit5），输出目录与 Gradle 同 → 复用 `parseJUnitXMLDir`
+- Build 失败检测：`locateJUnitReportDir` 返回空 → `synthesizeBuildFailureReport(..., "hvigor-build", "hvigor", output)`，stdout 抽错误行进 ChangeReport.FailureDetail
 
-### 阶段验收标准
+**cjpm 命令构造**：
+- 命令：`cjpm test [--filter <selector>]`
+- 输出格式：cargo 风格文本（`test result: ok. X passed; Y failed`）→ 复用 `parseCargoTestText`
+- 不假设 `--json` 标志（官方 1.0.0 LTS 未文档化）
 
-- **PR-(-1) 完成**：corpus 30+40 全部为真实公开样本；eval cases 5 个能在 mock LLM 下跑通；本文档 §3 决策 #3 仓颉版本号锁定
-- **PR-0 完成**：跑客户/公开 ArkTS 工程 `repomap`，Tier1 占比 > 80%；fallback 日志可观察；Tier2 banner 不误报
-- **PR-0c 完成**：跑公开仓颉工程 `repomap`，Tier1 占比 > 75%；package_clause 全部解析；extend 关系正确挂回
-- **PR-A 完成**：hilog ArkTS panic + 仓颉 panic 各 1 个 eval case 端到端绿
-- **PR-B 完成**：jank trace 能抽出 PerfBundle.JankSpans；perfetto 提示对二进制 trace 触发
-- **PR-C 完成**：写模式对 ArkTS 工程能 plan→apply→verify 跑通；exit-code 兜底验证
+**Parser 路由**（`run_tests_parsers.go::parseRunnerOutput`）：
+
+```go
+case "hvigor":
+    return parseJUnitXMLDir(extraFile, stdout)  // 直接复用 Java 路径
+case "cjpm":
+    return parseCargoTestText(stdout)            // 直接复用 Cargo 路径
+```
+
+零新 parser，零新依赖。
 
 ---
 
-## 15. 未决项 / 风险
+## 6. 写模式 Skill Prompt
 
-### 15.1 待 PR-(-1) 调研锁定的事实
+`internal/skill/defaults.go::code-write-skill::Workflow`
 
-- 仓颉公开最新版本号（语言规范 + 编译器）
-- 仓颉栈帧实际格式
-- HiTrace 文本输出格式（systrace 兼容 / 独立 / json）
-- hvigor 测试输出格式（JUnit XML 路径 / 私有 JSON / 文本）
-- cjpm `--json` 是否可用
-- `oh-package.json5` 实际是否多用 strict-JSON 子集
+新增 11+10+10 条三语言风格 checklist 作为第一条 workflow 项。LLM 在 apply 阶段对照 ChangePlan.target_paths 文件扩展名选择对应风格集。
 
-### 15.2 已知风险
+**ArkTS 严格模式 11 条**：
+- 禁 `any` / `unknown` / `as` 强制类型转换 / 索引签名 / `Function` 类型
+- import 必须含扩展名 (`.ets` / `.ts`)
+- class field 必须显式类型
+- 装饰器仅用 21 白名单
+- struct 是 ArkUI 组件载体，不能用 `new`
+- build() 返回必须单根
+- 不用过期 `@ohos.commonEvent`
 
-- **R1 ArkTS 演进快**：API 13/14 引入新装饰器或语法 → grammar 频繁返工。**缓解**：Tier2 TS grammar 兜底；启动 banner 提示升级
-- **R2 仓颉社区资料少**：corpus 来源主要靠官方文档与少量 SIG 工程 → grammar 真实场景覆盖不足。**缓解**：Tier2 regex 兜底；仓库级阈值告警放宽到 50%
-- **R3 hdc 日志 GB 级**：`log_attach_max_bytes` 默认 1MB 直接被截 → 客户感知差。**缓解**：调研期评估默认值是否抬高（如 8MB），写模式启动时 banner 提示 `--log-source-prefix` 用法
-- **R4 ArkTS↔Cangjie 互调链栈帧**：mixed 工程崩溃同时含两种格式栈 → LLM 可能漏抽。**缓解**：prompt 加 mixed example；regex Tier3 兜底
-- **R5 grammar 产物 checkin 体积**：parser.c 单文件可能 2-5MB。**缓解**：单文件不影响 git；如果超 10MB 再考虑 git LFS
+**Cangjie 风格 10 条**：
+- `func` 而非 `function`
+- 首行 `package xxx.yyy` 必含
+- `public` / `open` 显式标记 export
+- `extend` 是类型扩展，非 trait impl
+- `match` 而非 cascaded if/else
+- trait-like `interface` 非 Java interface
+- operator overload 用 `operator func`
+- FFI 用 `foreign func` + `@CJOH`
+- `var` 可变 / `let` 不可变
+- `@CallingThread` 主线程检查
 
-### 15.3 留待后续（不在本系列 PR）
-
-- ArkUI-X 跨平台特殊处理（Android/iOS 输出）
-- HarmonyOS Native (C/C++) 与 ArkTS NAPI 桥接专项
-- DevEco Studio 项目模板生成
-- HiTrace 二进制 native 解析
-- MCP server 提供华为内部诊断工具（在 mcp_integration.md 体系中扩展，不在本系列）
-
----
-
-## 附录 A — 文件结构总览（实施后）
-
-```
-docs/design/
-├── mcp_integration.md
-└── harmonyos_arkts_cangjie_support.md     # 本文档
-
-internal/thirdparty/                        # 新顶级目录
-├── tree-sitter-arkts/
-│   ├── grammar.js
-│   ├── src/{parser,scanner}.c + tree_sitter/
-│   ├── corpus/*.txt
-│   ├── package.json
-│   ├── README.md
-│   └── binding.go
-└── tree-sitter-cangjie/
-    └── (同上结构)
-
-internal/tool/repomap/
-├── index/
-│   ├── extract_arkts.go               # 新
-│   ├── extract_cangjie.go             # 新
-│   ├── resolver_arkts.go              # 新
-│   ├── resolver_cangjie.go            # 新
-│   ├── parse_fallback.go              # 新（ArkTS 4 tier）
-│   ├── parse_fallback_cangjie.go      # 新（仓颉 3 tier）
-│   └── (既有文件 build.go / parser.go / rank.go 修改)
-└── types/lang.go                      # 加 LangArkTS / LangCangjie
-
-internal/analysis/logtriage/
-├── resolve_arkts.go                   # 新
-├── resolve_cangjie.go                 # 新
-└── validate.go                        # switch 加 arkts/cangjie
-
-internal/types/
-├── perf_bundle.go                     # 新（PerfBundle 等）
-└── mutable_state.go                   # 加 SetPerfTrace / PerfTrace
-
-internal/agent/
-├── perf_triager.go                    # 新
-
-internal/tool/
-├── emit_perf_trace.go                 # 新
-└── run_tests.go                       # 加 arkts/cangjie detector
-
-internal/skill/
-└── code_write.go                      # 加 ArkTS 严格 11 条 + 仓颉风格
-
-eval/cases/harmony/                    # 新目录
-├── arkts_repomap.case
-├── cangjie_repomap.case
-├── hilog_arkts_panic.case
-├── hilog_cangjie_panic.case
-└── hitrace_jank.case
-```
+**Kotlin 风格 10 条**：
+- 默认 public，跨模块用 `internal` / `private`
+- 优先 `val` over `var`
+- `data class` value carriers
+- `sealed class` closed hierarchies
+- `suspend fun` 不要包阻塞 IO
+- 优先扩展函数 over utility class
+- `when` over switch
+- Activity/Fragment 引用包在 lifecycle-aware scope
 
 ---
 
-**文档版本**：rev3.1（2026-04-25，6 项调研事实已锁）
-**已交付**（PR-(-1).b 进行中）：
-- corpus 种子：`internal/thirdparty/tree-sitter-arkts/corpus/sources/` 6 文件 + `tree-sitter-cangjie/corpus/sources/` 8 文件
-- eval cases：`eval/cases/harmony/` 6 个（hilog ArkTS + Cangjie + mixed + HiTrace + ArkTS repomap + Cangjie repomap）
-- 决策 #3 仓颉版本号已锁 1.0.0 LTS；hilog/HiTrace/cjpm/hvigor 格式全部锁定
+## 7. 多文件附加 + 字节上限
 
-**下一步**：PR-(-1).b 收尾（corpus 扩到 30+40 全量；本 session 先种 6+8）→ commit → PR-0 / PR-0c 并行开工。
+### 7.1 CLI 多文件
+
+`cmd/root.go`
+
+```go
+flagAttachLog       []string  // StringArrayVar
+flagAttachLogText   string
+
+flagAttachHitrace     []string  // StringArrayVar
+flagAttachHitraceText string
+flagAttachAtrace      []string  // alias of --htrace
+flagAttachAtraceText  string
+```
+
+`loadMultiPathSlice(kind, paths, inlineText, cap)` 读每个 path（或 inline），按 CLI 顺序拼接，文件之间插入 `# codrax-source: <path>\n` 头。
+
+**stdin 全局唯一**：`enforceStdinExclusivity()` 计数 `len(slice == "-")` 跨 log + htrace + atrace 三组，>1 报错 "only one of --log/--htrace/--atrace can consume stdin per run"。
+
+**互斥矩阵**：
+- `--log` ⊕ `--log-text`
+- `--htrace` ⊕ `--htrace-text`
+- `--atrace` ⊕ `--atrace-text`
+- (`--htrace` ∨ `--htrace-text`) ⊕ (`--atrace` ∨ `--atrace-text`) — 别名整体互斥（避免歧义优先级）
+
+### 7.2 REPL 多文件
+
+`internal/repl/repl.go`
+
+```
+/log <path>          替换
+/log append <path>   追加（同样的 # codrax-source: 头）
+/log show
+/log clear
+/htrace <path>       替换
+/htrace append <path>
+/htrace show
+/htrace clear
+/atrace ...          完全等价 /htrace（NormalizeREPLCommandAlias 归一化）
+```
+
+`replCommandAliases["/atrace"] = "/htrace"`（含 `\atrace`），`handleSlash` 只 case `"/htrace"`，drift-guard 测试同时验证 dispatch + autocomplete 一致。
+
+### 7.3 字节上限
+
+**两通道独立 cap**：
+
+```go
+maxAttachedLogBytes   = defaultAttachedLogMaxBytes  // 50 MiB
+maxAttachedTraceBytes = defaultAttachedLogMaxBytes  // 默认继承 log
+```
+
+**继承逻辑**（`cmd/root.go::initApp`）：
+
+```go
+if rs.LogAttachMaxBytes != nil && *rs.LogAttachMaxBytes > 0:
+    maxAttachedLogBytes = clamp(*rs.LogAttachMaxBytes, ..., maxAttachedLogHardCeiling)
+maxAttachedTraceBytes = maxAttachedLogBytes  // 默认对称
+if rs.TraceAttachMaxBytes != nil && *rs.TraceAttachMaxBytes > 0:
+    maxAttachedTraceBytes = clamp(*rs.TraceAttachMaxBytes, ..., maxAttachedLogHardCeiling)
+```
+
+显式 0 / 负数 / 未设 → 走默认（防止意外把 cap 调成 0 后所有 attach 静默失效）。
+
+**1 GiB 硬顶**（`maxAttachedLogHardCeiling`）：超过则 WARN clamp 到 1 GiB，防 OOM。
+
+**REPL 同形态**：`Config.AttachedTraceMaxBytes` 0 → 继承 `AttachedLogMaxBytes`（先解析 log，再 fallback trace）。
+
+### 7.4 字节计入点
+
+`truncateAttachedToCap(s string, cap int, kind string)` 是单一入口。`kind` 字符串区分 WARN 消息：
+- `[cmd] attached log truncated: N → M bytes`
+- `[cmd] attached trace truncated: N → M bytes`
+
+stdin 读取用 `io.LimitReader(os.Stdin, int64(cap)+1)` 确保进程内存上限严格。
+
+---
+
+## 8. 配置 Knob 总览
+
+所有 knob 都是 `*T` pointer 字段（保持"absent vs explicit zero"语义），全部 yaml 可调，全部走既有 RuntimeSettings 机制，无新加载代码。
+
+### Attach（接入侧，triage 之前生效）
+
+| YAML 键 | 默认 | 作用 |
+|---|---|---|
+| `log_attach_max_bytes` | 52428800 (50 MiB) | 日志通道字节上限 |
+| `trace_attach_max_bytes` | 0 → 继承 log | 性能 trace 通道字节上限 |
+
+### Log Triage
+
+| YAML 键 | 默认 | 作用 |
+|---|---|---|
+| `log_triage_enabled` | true | 总开关 |
+| `log_triage_source_prefix` | "" | CI 绝对路径前缀剥离（`StripBuildPathPrefix` extra 列表）|
+| `log_triage_min_bytes` | 50 | 触发下限 |
+| `log_triage_max_retries` | 1 | 单次 emit 重试 |
+| `log_triage_two_step_enabled` | true | 两步开关 |
+| `log_triage_two_step_bytes` | 32768 (32 KiB) | 直转两步阈值 |
+| `log_triage_two_step_coverage` | 0.3 | 升级两步的覆盖率门 |
+| `log_triage_max_llm_calls` | 12 | 总 LLM 调用上限 |
+
+### Perf Triage
+
+| YAML 键 | 默认 | 作用 |
+|---|---|---|
+| `perf_triage_enabled` | true | 总开关 |
+| `perf_triage_min_bytes` | 200 | 触发下限 |
+| `perf_triage_max_retries` | 1 | 单次 emit 重试 |
+| `perf_triage_two_step_enabled` | true | 两步开关 |
+| `perf_triage_two_step_bytes` | 65536 (64 KiB) | 直转两步阈值 |
+| `perf_triage_two_step_coverage` | 0.3 | 升级两步的覆盖率门 |
+| `perf_triage_max_llm_calls` | 12 | 总 LLM 调用上限 |
+
+### Repomap Fallback
+
+| 常量（代码） | 值 | 作用 |
+|---|---|---|
+| `parseTier1Weight` / `parseTier2Weight` / `parseTier3Weight` / `parseTier4Weight` | 1.0 / 0.85 / 0.6 / 0.3 | rank score 折扣曲线 |
+| `fallbackBannerThreshold[LangArkTS]` | 0.4 | Tier-2 占比超此值启动 banner |
+| `fallbackBannerThreshold[LangCangjie]` | 0.5 | 同上（仓颉宽容） |
+
+### Provider Routing
+
+`providers.yaml :: agents.<name>` 对所有 agent 名都生效，包括新增的 `perf_triager`：
+
+```yaml
+llm:
+  agents:
+    perf_triager:
+      model: "cheaper-model"  # HiTrace 解析结构简单，可路便宜模型
+```
+
+---
+
+## 9. 红线（不变量）
+
+代码里的红线均有结构性测试守护。任何改动违反红线 → CI 红。
+
+| 红线 | 守护测试 |
+|---|---|
+| **L-ArkTS-2** `.ts → LangArkTS` 仅在 `IsArkTSProject` 探测到 `oh-package.json5` 时切换 | `TestApplyHarmonyOSPostProcess_PromotesTSInArkTSProject` |
+| **L-ArkTS-3** ArkTS Tier 1 不放宽语法（严格 grammar reject 即 reject）| extract_arkts_test 的 NonArkTSFallback 场景 |
+| **L-Cangjie-1** `.cjo` 编译产物 scanner 显式 deny | `TestApplyHarmonyOSPostProcess_CjoDeny` |
+| **L-Cangjie-2** `FileInfo.Package` 必须从 `package_clause` 来 | `TestExtractCangjie_PackageMustComeFromClause` |
+| **L-Fallback-1** 所有降级写 WARN log | `recordFallback` 内联，结构层 `parse_fallback_test.go` |
+| **L-Fallback-2** Tier ≥ 2 文件 rank 强折扣 | `TestTierDiscount` 钉曲线 |
+| **L-Fallback-3** 仓库级 Tier 2 占比超阈值启动 banner | `TestFallbackBannerThresholds` 钉值 |
+| **L-Perf-1** PerfBundle Layer 4 字段（resolved_files / entities / intent_hint / coverage）schema 显式拒绝 LLM 写入 | `emit_perf_trace.go::buildEmitPerfTraceSchema` 不列；测试覆盖 |
+| **L-Perf-2** 两步降级路径全部 advisory（StageOutput.Error 为空，主流水线不阻塞） | `perf_triager.go::runTwoStep` 各失败分支 + log_triage 同形态 |
+| **L-Perf-3** stdin 全局唯一消费者（log + htrace + atrace 三组中至多一个 `-`） | `TestEnforceStdinExclusivity` |
+| **L-Multi-1** 多文件 attach 必含 `# codrax-source: <path>` 头分隔 | `TestLoadMultiPathSlice_HeaderedConcat` |
+| **L-Cap-1** 用户配置的 cap 超 1 GiB 硬顶则 clamp + WARN | `TestHardCeilingClamp` |
+| **L-Drift-1** REPL 命令 alias 注册 ↔ handleSlash dispatch ↔ slashCommands autocomplete 三处一致 | `TestHandleSlashDispatchMatchesRegistry` + `TestSlashCommandsMatchCanonicalRegistry` |
+
+---
+
+## 附录 A — 代码索引
+
+- 主体语言抽取：`internal/tool/repomap/index/extract_arkts.go` / `cangjie_lexer.go` + `cangjie_parser.go` / `extract_kotlin.go`
+- Resolver：`internal/tool/repomap/index/resolver_arkts.go` / `resolver_cangjie.go` / `resolver_kotlin.go`
+- 嵌入式解析器：`internal/tool/repomap/index/json5_parser.go` / `toml_parser.go`
+- Fallback 框架：`internal/tool/repomap/index/parse_fallback.go`
+- Log triage 扩展：`internal/analysis/logtriage/resolver_harmonyos.go`（ArkTS/Cangjie/Kotlin Resolve 全在此）
+- Perf 通道核心：`internal/types/perf_bundle.go` + `internal/tool/emit_perf_trace.go` + `internal/tool/emit_perf_segmentation.go` + `internal/agent/perf_triager.go` + `internal/analysis/perftriage/merge.go`
+- Skill：`internal/skill/defaults.go`（perf-triage-skill / perf-segmentation-skill / log-triage-skill 教学 / code-write-skill ArkTS+Cangjie+Kotlin checklist）
+- Pipeline 接入：`internal/orchestrator/topology.go::preStages` + `internal/types/enums.go` 的 `StagePerfTriage` / `AgentPerfTriager`
+- CLI / REPL：`cmd/root.go` 多文件 attach + cap inheritance + alias merge；`internal/repl/repl.go` `/htrace` + `/atrace` 处理；`internal/types/conversation.go` 命令 alias 表
+- Verifier runner：`internal/tool/run_tests.go`（hvigor / cjpm 探测 + 命令构造）+ `run_tests_parsers.go`（路由复用既有 parser）
+
+---
+
+## 附录 B — 用户面命令速查
+
+```bash
+# 基础读模式
+codrax --request "...question..."
+
+# 单日志附加
+codrax --log /tmp/panic.txt --request "..."
+
+# 多日志附加（panic 对比）
+codrax --log a.log --log b.log --request "对比两次崩溃"
+
+# stdin 日志（kubectl / docker）
+kubectl logs pod/api | codrax --log - --request "..."
+
+# 单 trace 附加
+codrax --htrace /tmp/perf.atrace --request "where is the jank?"
+codrax --atrace /tmp/perf.atrace --request "..."  # 别名
+
+# 多 trace 附加
+codrax --htrace boot1.trace --htrace boot2.trace --request "对比冷启动"
+
+# 双通道（panic + perf）
+codrax --log /tmp/hilog.txt --htrace /tmp/jank.atrace --request "卡顿后 crash 的根因"
+
+# 写模式（HarmonyOS ArkTS 工程）
+codrax --mode=plan --request "把这个页面改成响应式布局"
+codrax --mode=apply --plan-file=.codrax/plans/<id>.json --auto-apply
+```
+
+REPL 同等命令通过 `/log` / `/htrace` / `/atrace` 实现，支持 `append` 子命令多文件累加。
