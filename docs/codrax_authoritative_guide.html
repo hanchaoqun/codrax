@@ -1,0 +1,1387 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CODRAX 权威使用与技术说明 - 象牙白版</title>
+  <style>
+    /* 极致温润象牙 (Warm Ivory)：护眼、高级、学术感 */
+    :root {
+      --body-bg: #d6d3d1;           /* 视口外围底色：暖灰 */
+      --bg-main: #fdfcf8;           /* 视口主背景：象牙白 */
+      --bg-panel: #f4f1eb;          /* 面板背景：微暖灰 */
+      --border-color: rgba(0, 0, 0, 0.06); /* 克制的极弱分割线 */
+      --title-text: #27272a;        /* 标题：暖黑 */
+      --text-main: #3f3f46;         /* 正文：暖深灰，高对比度防刺眼 */
+      --text-muted: #71717a;        /* 辅助字：中性灰 */
+      --accent-orange: #d97706;     /* 强调色：琥珀橙 */
+      --accent-cyan: #0f766e;       /* 术语色：青墨色 */
+      --code-bg: #ebe9e4;           /* 代码块：纸张灰底 */
+      --shadow-color: rgba(0, 0, 0, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; cursor: default; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+
+    /* 外围底色 */
+    body {
+      display: grid;
+      place-items: center;
+      background: var(--body-bg); 
+      color: var(--text-main);
+      font-family: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 严格 16:9 视口 */
+    .viewport {
+      position: relative;
+      width: 90vw;
+      aspect-ratio: 16 / 9;
+      max-height: 90vh;
+      overflow: hidden;
+      background: var(--bg-main);
+      border: 1px solid var(--border-color);
+      border-radius: 6px; 
+      box-shadow: 0 25px 60px var(--shadow-color);
+    }
+
+    .slide {
+      position: absolute;
+      inset: 0;
+      padding: 4% 5.5% 3.8%;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 1.5rem;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.25s ease-in-out;
+    }
+
+    .slide.active { opacity: 1; visibility: visible; }
+
+    /* 顶部导航与标记 */
+    .slide-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+    }
+
+    .kicker {
+      display: inline-flex;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    .page-no {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 76px;
+      padding: 0.38rem 0.7rem;
+      border-radius: 999px;
+      border: 1px solid rgba(15, 118, 110, 0.14);
+      background: rgba(244, 241, 235, 0.92);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.06);
+      color: var(--title-text);
+      font-size: 0.92rem;
+      font-family: monospace;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+    }
+
+    /* 统一的标题体系：左侧琥珀橙锚点线 */
+    h1, h2 {
+      border-left: 8px solid var(--accent-orange);
+      padding-left: 20px;
+      line-height: 1.2;
+      color: var(--title-text);
+    }
+
+    h1 { font-size: 3.2rem; font-weight: 700; margin-bottom: 1rem; letter-spacing: -0.02em;}
+    h2 { font-size: 2.2rem; font-weight: 600; margin-bottom: 1.2rem; }
+
+    .lead {
+      font-size: 1.1rem;
+      line-height: 1.6;
+      color: var(--title-text);
+      max-width: 95%;
+      margin-bottom: 1.2rem;
+    }
+
+    /* 内联强调 */
+    .accent { color: var(--accent-orange); font-weight: 600; }
+    .accent-cyan { color: var(--accent-cyan); font-weight: 600; }
+
+    .content {
+      display: grid;
+      align-content: flex-start;
+      gap: 1.2rem;
+      min-height: 0;
+    }
+    
+    .centered { align-content: center; }
+
+    /* 栅格 */
+    .cols-2 { display: grid; gap: 1.5rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .cols-3 { display: grid; gap: 1.2rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .cols-4 { display: grid; gap: 1rem; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+    /* 统一的面板样式 */
+    .panel {
+      padding: 1.2rem 1.5rem;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-panel);
+    }
+
+    .panel h3 {
+      font-size: 1.15rem;
+      color: var(--title-text);
+      margin-bottom: 0.8rem;
+      font-weight: 600;
+    }
+
+    .panel p {
+      font-size: 0.95rem;
+      line-height: 1.6;
+      color: var(--text-main);
+    }
+
+    /* 列表体系统一 */
+    .list { list-style: none; display: grid; gap: 0.8rem; }
+    .list li {
+      position: relative;
+      padding-left: 20px;
+      font-size: 0.95rem;
+      line-height: 1.5;
+    }
+    .list li::before {
+      content: "■";
+      position: absolute;
+      left: 0;
+      top: 0.25rem;
+      font-size: 0.6rem;
+      color: var(--accent-cyan);
+    }
+
+    .mini-list { list-style: none; display: grid; gap: 0.6rem; }
+    .mini-list li { font-size: 0.9rem; padding-left: 14px; position: relative; color: var(--text-main); line-height: 1.4;}
+    .mini-list li::before { content: "-"; position: absolute; left: 0; color: var(--text-muted); font-weight: bold;}
+
+    /* 数据统计块 */
+    .stat {
+      padding: 1.2rem;
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-panel);
+      text-align: center;
+    }
+    .stat strong {
+      display: block;
+      color: var(--accent-orange);
+      font-size: 2.2rem;
+      line-height: 1;
+      margin-bottom: 0.5rem;
+    }
+
+    /* 代码块与引用 */
+    .code-line {
+      border-radius: 6px;
+      border: 1px solid var(--border-color);
+      background: var(--code-bg);
+      padding: 1rem;
+      font-family: "Cascadia Code", Consolas, monospace;
+      font-size: 0.9rem;
+      line-height: 1.5;
+      color: var(--accent-cyan);
+      white-space: pre-wrap;
+    }
+
+    .quote-box {
+      font-size: 1.2rem;
+      line-height: 1.6;
+      color: var(--title-text);
+      border-left: 6px solid var(--accent-orange);
+      padding-left: 1.5rem;
+      margin: 0.5rem 0;
+    }
+
+    /* 流程图节点（线框风格） */
+    .flow {
+      display: flex;
+      gap: 0.8rem;
+      align-items: center;
+      margin: 1rem 0;
+    }
+    .node {
+      flex: 1 1 0;
+      padding: 0.8rem 0.5rem;
+      border-radius: 6px;
+      text-align: center;
+      border: 1px solid var(--border-color);
+      background: var(--bg-panel);
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--title-text);
+    }
+    .node.highlight { border-color: var(--accent-orange); color: var(--accent-orange); background: transparent; }
+    .arrow { flex: 0 0 20px; text-align: center; font-size: 1.2rem; color: var(--text-muted); }
+
+    /* 隐藏每页底部说明，避免占用画面 */
+    .slide > .footer { display: none !important; }
+
+    /* 小标签 */
+    .tag-row { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+    .tag {
+      padding: 3px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      background: var(--bg-main);
+      font-size: 0.8rem;
+      color: var(--text-main);
+    }
+
+    /* 高密度页面收紧节奏，避免内容贴边或溢出 */
+    .slide.compact-slide {
+      padding: 3.5% 5.2% 3.1%;
+      gap: 1rem;
+    }
+    .slide.compact-slide .content { gap: 0.85rem; }
+    .slide.compact-slide h2 { font-size: 1.95rem; margin-bottom: 0.75rem; }
+    .slide.compact-slide .lead { font-size: 1rem; line-height: 1.5; max-width: 100%; margin-bottom: 0.8rem; }
+    .slide.compact-slide .cols-2 { gap: 1rem; }
+    .slide.compact-slide .cols-3 { gap: 0.9rem; }
+    .slide.compact-slide .panel { padding: 1rem 1.2rem; }
+    .slide.compact-slide .panel h3 { font-size: 1.03rem; margin-bottom: 0.55rem; }
+    .slide.compact-slide .panel p,
+    .slide.compact-slide .list li,
+    .slide.compact-slide .mini-list li { font-size: 0.84rem; line-height: 1.35; }
+    .slide.compact-slide .code-line { padding: 0.75rem 0.85rem; font-size: 0.82rem; line-height: 1.4; }
+    .slide.compact-slide .quote-box { font-size: 1rem; line-height: 1.45; padding-left: 1.1rem; margin: 0.1rem 0; }
+    .slide.compact-slide .tag-row { gap: 0.35rem; }
+    .slide.compact-slide .tag { padding: 2px 7px; font-size: 0.74rem; }
+
+    /* 纯色进度条 */
+    .progress-wrap {
+      position: absolute;
+      left: 0; right: 0; bottom: 0;
+      height: 3px;
+      background: var(--bg-panel);
+    }
+    .progress {
+      height: 100%;
+      width: 0;
+      background: var(--accent-orange);
+      transition: width 0.3s ease-out;
+    }
+
+    /* 右下角物理导航按钮 */
+    .nav {
+      position: absolute;
+      bottom: 1.2rem;
+      right: 1.5rem;
+      display: flex;
+      gap: 0.5rem;
+      z-index: 10;
+    }
+    .nav button {
+      min-width: 62px;
+      height: 38px;
+      padding: 0 0.9rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--bg-main);
+      color: var(--text-muted);
+      font-size: 0.86rem;
+      font-weight: 700;
+      transition: 0.2s;
+      cursor: pointer;
+    }
+    .nav button:hover {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+      background: var(--code-bg);
+    }
+    .nav button.is-paused {
+      background: var(--accent-cyan);
+      color: #fffdf8;
+      border-color: transparent;
+    }
+
+    html.embed-mode body {
+      background: transparent;
+    }
+
+    html.embed-mode .viewport {
+      width: 100vw;
+      height: 100vh;
+      max-height: none;
+      border: 0;
+      border-radius: 0;
+      box-shadow: none;
+    }
+
+    html.embed-mode .progress-wrap,
+    html.embed-mode .nav,
+    html.embed-mode .slide > .footer {
+      display: none !important;
+    }
+
+    @media (max-width: 900px) {
+      html, body {
+        height: auto;
+        min-height: 100%;
+        overflow: auto;
+      }
+
+      body {
+        display: block;
+      }
+
+      .viewport {
+        width: 100vw;
+        height: 100dvh;
+        max-height: none;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .slide {
+        padding: 0.72rem 0.68rem calc(1.3rem + env(safe-area-inset-bottom));
+        gap: 0.58rem;
+        overflow-y: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+      }
+
+      .slide::-webkit-scrollbar {
+        display: none;
+      }
+
+      .slide-head {
+        position: static;
+        z-index: auto;
+        padding-bottom: 0.16rem;
+        background: none;
+      }
+
+      .kicker {
+        font-size: 0.62rem;
+        letter-spacing: 0.12em;
+      }
+
+      .page-no {
+        min-width: 58px;
+        padding: 0.24rem 0.5rem;
+        font-size: 0.72rem;
+      }
+
+      h1 {
+        font-size: clamp(1.6rem, 7.2vw, 2.2rem);
+        margin-bottom: 0.5rem;
+      }
+
+      h2 {
+        font-size: clamp(1.02rem, 4.8vw, 1.28rem);
+        margin-bottom: 0.5rem;
+        padding-left: 12px;
+        border-left-width: 4px;
+      }
+
+      .lead {
+        font-size: 0.82rem;
+        line-height: 1.42;
+        max-width: 100%;
+        margin-bottom: 0.54rem;
+      }
+
+      .content {
+        gap: 0.56rem;
+      }
+
+      .cols-2,
+      .cols-3,
+      .cols-4 {
+        grid-template-columns: 1fr;
+        gap: 0.72rem;
+      }
+
+      .panel {
+        padding: 0.72rem 0.76rem;
+      }
+
+      .panel h3 {
+        font-size: 0.84rem;
+        margin-bottom: 0.34rem;
+      }
+
+      .panel p,
+      .list li,
+      .mini-list li {
+        font-size: 0.74rem;
+        line-height: 1.32;
+      }
+
+      .code-line {
+        padding: 0.58rem 0.62rem;
+        font-size: 0.66rem;
+        line-height: 1.24;
+      }
+
+      .quote-box {
+        font-size: 0.82rem;
+        line-height: 1.3;
+        padding-left: 0.74rem;
+        border-left-width: 4px;
+      }
+
+      .stat {
+        padding: 0.66rem;
+      }
+
+      .stat strong {
+        font-size: 1.28rem;
+      }
+
+      .tag-row {
+        gap: 0.28rem;
+      }
+
+      .tag {
+        font-size: 0.64rem;
+        padding: 2px 5px;
+      }
+
+      .flow {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.34rem;
+        margin: 0.52rem 0;
+      }
+
+      .node {
+        padding: 0.56rem;
+        font-size: 0.72rem;
+      }
+
+      .arrow {
+        flex: 0 0 auto;
+        transform: rotate(90deg);
+        align-self: center;
+      }
+
+      .slide.compact-slide {
+        padding: 0.72rem 0.68rem calc(1.3rem + env(safe-area-inset-bottom));
+        gap: 0.58rem;
+      }
+
+      .slide.compact-slide .content {
+        gap: 0.56rem;
+      }
+
+      .slide.compact-slide h2 {
+        font-size: clamp(1rem, 4.6vw, 1.22rem);
+      }
+
+      .slide.compact-slide .lead,
+      .slide.compact-slide .panel p,
+      .slide.compact-slide .list li,
+      .slide.compact-slide .mini-list li {
+        font-size: 0.72rem;
+      }
+
+      .slide.compact-slide .code-line {
+        font-size: 0.66rem;
+      }
+
+      .slide:first-of-type .content {
+        gap: 0.72rem;
+        justify-content: center !important;
+      }
+
+      .slide:first-of-type h1 {
+        font-size: clamp(1.9rem, 10vw, 2.6rem) !important;
+        margin-bottom: 0.8rem !important;
+        line-height: 1.02 !important;
+      }
+
+      .slide:first-of-type .content > div:nth-of-type(1) {
+        font-size: clamp(0.78rem, 4.2vw, 0.94rem) !important;
+        margin-bottom: 1.1rem !important;
+        line-height: 1.34 !important;
+        letter-spacing: 0.02em !important;
+      }
+
+      .slide:first-of-type .content > div:nth-of-type(2) {
+        font-size: clamp(0.92rem, 5vw, 1.12rem) !important;
+        line-height: 1.48 !important;
+        letter-spacing: 0.04em !important;
+      }
+
+      .slide:first-of-type .content > div:nth-of-type(2) span {
+        font-size: clamp(1.08rem, 5.8vw, 1.28rem) !important;
+        margin-top: 0.7rem !important;
+      }
+
+      .slide:last-of-type .content > div:first-of-type {
+        font-size: clamp(1rem, 5.2vw, 1.24rem) !important;
+        line-height: 1.42 !important;
+        margin-bottom: 0.9rem !important;
+      }
+
+      .slide:last-of-type .content > div:last-of-type {
+        font-size: clamp(0.88rem, 4.8vw, 1.02rem) !important;
+      }
+
+      .nav {
+        bottom: calc(0.72rem + env(safe-area-inset-bottom));
+        right: 0.72rem;
+        gap: 0.34rem;
+      }
+
+      .nav button {
+        min-width: 56px;
+        height: 34px;
+        padding: 0 0.72rem;
+        font-size: 0.78rem;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .slide {
+        padding: 0.58rem 0.56rem calc(1.5rem + env(safe-area-inset-bottom));
+      }
+
+      .slide.compact-slide {
+        padding: 0.58rem 0.56rem calc(1.5rem + env(safe-area-inset-bottom));
+      }
+
+      .kicker {
+        font-size: 0.58rem;
+      }
+
+      .page-no {
+        min-width: 52px;
+        font-size: 0.68rem;
+      }
+
+      .panel {
+        padding: 0.64rem 0.68rem;
+      }
+
+      .code-line {
+        font-size: 0.62rem;
+      }
+
+      .slide:first-of-type h1 {
+        font-size: clamp(1.6rem, 9.4vw, 2.1rem) !important;
+      }
+
+      .slide:first-of-type .content > div:nth-of-type(1) {
+        font-size: 0.72rem !important;
+      }
+
+      .slide:first-of-type .content > div:nth-of-type(2) {
+        font-size: 0.86rem !important;
+        line-height: 1.42 !important;
+      }
+
+      .slide:first-of-type .content > div:nth-of-type(2) span {
+        font-size: 1rem !important;
+      }
+
+      .slide:last-of-type .content > div:first-of-type {
+        font-size: 0.94rem !important;
+      }
+
+      .slide:last-of-type .content > div:last-of-type {
+        font-size: 0.82rem !important;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="viewport" id="deck">
+
+    <section class="slide active">
+      <div class="content centered" style="text-align: center; justify-content: center;">
+        
+        <h1 style="border: none; padding: 0; font-size: 4.8rem; margin-bottom: 3rem; letter-spacing: -0.02em;">
+          CODRAX 使用与技术说明
+        </h1>
+        
+        <div style="font-family: 'Cascadia Code', Consolas, monospace; color: var(--accent-cyan); font-size: 1.4rem; letter-spacing: 1px; margin-bottom: 4rem;">
+          CODRAX — Code Of Deterministic Reasoning, Anchored eXplanation.
+        </div>
+
+        <div style="font-size: 2rem; line-height: 2.2; color: var(--text-main); letter-spacing: 2px;">
+          CODRAX —— 推理确定, 解释锚定。<br>
+          每条结论锚到字节, 每段推理可被复核。<br>
+          <span style="color: var(--title-text); font-weight: 700; font-size: 2.5rem; display: block; margin-top: 1.5rem;">
+            确定性诚实, 不是态度, 是契约。
+          </span>
+        </div>
+
+      </div>
+      <div class="footer" style="justify-content: center; padding: 0; border: none; position: absolute; bottom: 20px; width: 100%; text-align: center;">
+        <span>Press Space / Arrows to navigate</span>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Part I / Position</div>
+        <div class="page-no">02 / 16</div>
+      </div>
+      <div class="content">
+        <h2>一句话定义 CODRAX</h2>
+        <p class="lead">
+          CODRAX 是一个<span class="accent">代码分析 + 变更提议</span>工具。默认运行在<span class="accent-cyan">读模式</span>，围绕可复核证据回答代码行为、panic 根因、性能卡顿、默认配置、模块职责等问题；开启写模式后，还可以在<span class="accent-cyan">沙箱 Git Worktree</span> 中走完整的 <code>plan → apply → verify</code> 闭环。
+        </p>
+        <div class="cols-3">
+          <div class="panel">
+            <h3>你可以把它当成什么</h3>
+            <ul class="list">
+              <li>一个会读仓库、会追证据、会给引用的高级分析助手。</li>
+              <li>一个既适合 onboarding / 排障 / 架构讲解，也支持审批后进入写模式闭环验证的工程工作台。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>你不该把它当成什么</h3>
+            <ul class="list">
+              <li>不是“模型直连仓库”的聊天壳。</li>
+              <li>不是靠文风自信来制造正确感的问答器。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>一个正确预期</h3>
+            <ul class="list">
+              <li>它承诺的不是“永远秒答”，而是“能证实的尽量证实，证不实的明确标边界”。</li>
+              <li>价值在于更稳地把复杂问题拆清楚。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="cols-4" style="margin-top: 0.5rem;">
+          <div class="stat"><strong>2</strong><span class="muted">入口：交互 / 单次</span></div>
+          <div class="stat"><strong>2</strong><span class="muted">前置：日志 / trace</span></div>
+          <div class="stat"><strong>2</strong><span class="muted">模式：读 / 写(opt-in)</span></div>
+          <div class="stat"><strong>0</strong><span class="muted">主仓自动写入</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Quick Start</div>
+        <div class="page-no">03 / 16</div>
+      </div>
+      <div class="content">
+        <h2>最快上手的 4 条路径</h2>
+        <div class="cols-4">
+          <div class="panel">
+            <h3>方式一：REPL 交互</h3>
+            <div class="code-line" style="margin: 0.8rem 0;">codrax
+explorer 的 ShouldStop 是怎么决定的？
+AnalysisIR 哪些字段会影响后续调查？</div>
+            <p class="muted">适合陌生仓库摸底、连续追问、边看边缩小范围。自动保留上下文记忆。</p>
+          </div>
+          <div class="panel">
+            <h3>方式二：单次请求</h3>
+            <div class="code-line" style="margin: 0.8rem 0;">codrax -r "explorer 默认使用哪个 skill？
+如果证据不足请明确说明。"</div>
+            <p class="muted">适合脚本、CI、批量分析，或者只要一个明确答案就结束的场景。</p>
+          </div>
+          <div class="panel">
+            <h3>方式三：日志 / Trace 分诊</h3>
+            <div class="code-line" style="margin: 0.8rem 0;">codrax --log crash.log -r "解释最可能根因"
+codrax --htrace perf.trace -r "为什么这里会掉帧？"</div>
+            <p class="muted">日志先走 <code>log_triage</code>，性能 trace 先走 <code>perf_triage</code>；两者也可以一起挂载。</p>
+          </div>
+          <div class="panel">
+            <h3>方式四：写模式闭环</h3>
+            <div class="code-line" style="margin: 0.8rem 0;">codrax --mode=plan -r "修复 /worktree
+参数处理并补测试" --plan-out plan.json</div>
+            <p class="muted">适合已经明确要改什么。进入 apply / verify 时，写入都只发生沙箱 worktree。</p>
+          </div>
+        </div>
+        <div class="quote-box" style="margin-top: 1rem; font-size: 1rem; line-height: 1.48;">
+          把 REPL 当成探索工作台，把单次请求 (`-r`) 当成稳定分析 API；把 `--log/--htrace` 当成现场输入；把写模式看成“先计划、再审批、最后沙箱验证”的工程闭环。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Usage Scenarios</div>
+        <div class="page-no">04 / 16</div>
+      </div>
+      <div class="content">
+        <h2>用户场景一：理解代码与机制追问</h2>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>A：新同事快速读懂陌生模块</h3>
+            <div class="code-line" style="margin: 0.8rem 0;">codrax
+analyze 阶段会产出什么？
+AnalysisIR 哪些字段约束了后续步骤？
+如果我要理解 Grounding，先看哪几个文件？</div>
+            <p class="muted">先搭骨架，再钻细节。得到的是有证据支撑的分层解释，而非项目大杂烩。</p>
+          </div>
+          <div class="panel">
+            <h3>B：解释一个具体行为</h3>
+            <div class="code-line" style="margin: 0.8rem 0;">codrax -r "ShouldStop 是怎么决定的？
+请给关键条件、调用位置、仍未证实的部分。"</div>
+            <p class="muted">这是高价值用法。系统会围绕条件、调用路径和边界组织答案，而不只是复述函数名。</p>
+          </div>
+        </div>
+        <div class="cols-3" style="margin-top: 0.5rem;">
+          <div class="panel">
+            <h3>为何适合 CODRAX</h3>
+            <p class="muted">因为它要读代码并说明“逻辑决定条件”，天然需要物理证据支撑。</p>
+          </div>
+          <div class="panel">
+            <h3>推荐追问方式</h3>
+            <p class="muted">“这是直接条件还是旁路？”“哪个分支会短路它？”</p>
+          </div>
+          <div class="panel">
+            <h3>产出价值</h3>
+            <p class="muted">带具体 `file:line` 引用的答案，极适合做 Code Review 或架构文档底稿。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide compact-slide">
+      <div class="slide-head">
+        <div class="kicker">Usage Scenarios</div>
+        <div class="page-no">05 / 16</div>
+      </div>
+      <div class="content">
+        <h2>用户场景二：日志、性能 trace 与写模式闭环</h2>
+        <div class="cols-3">
+          <div class="panel">
+            <h3>C：Panic / Exception 排障</h3>
+            <div class="code-line" style="margin: 0.5rem 0;">codrax --log crash.log -r "结合日志解释最可能根因，并指出仍缺什么证据"</div>
+            <p class="muted">系统会给出候选根因、已排除项和仍缺失的证据，不只是“猜一个答案”。</p>
+          </div>
+          <div class="panel">
+            <h3>D：性能 Trace / 掉帧分诊</h3>
+            <div class="code-line" style="margin: 0.5rem 0;">codrax --atrace perf.atrace -r "where is the jank coming from?"</div>
+            <p class="muted">支持 HiTrace / atrace / systrace / perfetto 文本，自动抽出 Frames / Janks / Stalls / Startup。</p>
+          </div>
+          <div class="panel">
+            <h3>E：多文件 / 双通道联合排障</h3>
+            <div class="code-line" style="margin: 0.5rem 0;">codrax --log a.log --log b.log -r "对比两次崩溃差异"
+codrax --log hilog.txt --htrace jank.trace -r "卡顿后 crash 的根因"</div>
+            <p class="muted">支持多文件 append，也支持日志 + trace 两路现场同时挂载。</p>
+          </div>
+        </div>
+        <div class="cols-2" style="margin-top: 0.2rem;">
+          <div class="panel">
+            <h3>写模式起手式</h3>
+            <ul class="mini-list">
+              <li><code>/mode plan</code> 先生成计划和 diff 预览。</li>
+              <li><code>/approve</code> 后才进入 apply + verify。</li>
+              <li>失败可回灌 planner，成功可保留 worktree 继续 review。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>REPL 常用控制</h3>
+            <div class="tag-row" style="margin-bottom: 0.5rem;">
+              <span class="tag">/log</span><span class="tag">/htrace</span><span class="tag">/mode</span><span class="tag">/plan</span><span class="tag">/approve</span><span class="tag">/worktree</span>
+            </div>
+            <p class="muted">前两个挂现场，后四个管计划、审批和 worktree 生命周期。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Ask Better</div>
+        <div class="page-no">06 / 16</div>
+      </div>
+      <div class="content">
+        <h2>高质量提问与阅读，是使用效果的分水岭</h2>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>更推荐这样提问</h3>
+            <ul class="list" style="margin-bottom: 1rem;">
+              <li><span class="accent-cyan">是什么 + 由什么决定 + 失败边界在哪</span></li>
+              <li><span class="accent-cyan">请区分显式定义、推断补全和证据不足</span></li>
+            </ul>
+            <div class="code-line">explorer 默认使用哪个 skill？
+如果找不到，请明确说明是推断，还是当前证据不足。</div>
+          </div>
+          <div class="panel">
+            <h3>更推荐这样阅读</h3>
+            <ul class="list" style="margin-bottom: 1rem;">
+              <li>先看它引用了什么文件，再看它怎么总结。</li>
+              <li>分清哪些是已证实的，哪些是 best-effort 猜测的。</li>
+            </ul>
+            <div class="code-line">启动 Banner → 任务列表 / Spinner → 系统决策推演 → 最终答案 + 引用</div>
+          </div>
+        </div>
+        <div class="quote-box" style="margin-top: 1rem;">
+          不要只问“这是什么”，尽量问“它怎么工作、由什么决定、哪些情况会让它失效”。这能迫使问题转化为系统可执行的严密分析。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Part II / Architecture</div>
+        <div class="page-no">07 / 16</div>
+      </div>
+      <div class="content">
+        <h2>为什么不直接“把问题丢给大模型”？</h2>
+        <p class="lead">
+          在 CODRAX 中，大模型（LLM）被物理**剥夺了直接拼凑最终答案的权力**。它仅负责两件事：<span class="accent">意图分类</span>，以及在 ReAct 循环里<span class="accent-cyan">调用受限工具</span>。决定分析轨迹和最终质量的，是 21 个纯 Go 编写的确定性代码包；日志与性能 trace 会先各自走条件前置分诊，再交给 analyzer 消化。
+        </p>
+        <div class="flow" style="margin: 2rem 0;">
+          <div class="node">用户请求</div>
+          <div class="arrow">→</div>
+          <div class="node">analyze</div>
+          <div class="arrow">→</div>
+          <div class="node">explore</div>
+          <div class="arrow">→</div>
+          <div class="node">extract</div>
+          <div class="arrow">→</div>
+          <div class="node">finalize</div>
+          <div class="arrow">→</div>
+          <div class="node highlight">带引用的答案</div>
+        </div>
+        <div class="cols-3">
+          <div class="panel">
+            <h3>两条主链 + 两条前置</h3>
+            <p class="muted">读模式走 <span class="accent-cyan">analyze → explore → extract → finalize</span>；写模式在 analyze 后分流到 <span class="accent-cyan">plan → apply → verify</span>；<code>--log</code> 与 <code>--htrace/--atrace</code> 则分别触发 <code>log_triage</code> / <code>perf_triage</code>。</p>
+          </div>
+          <div class="panel">
+            <h3>传递强类型结构</h3>
+            <p class="muted">层间传递的是 IR 和任务图，拒绝非结构化文本乱飞。</p>
+          </div>
+          <div class="panel">
+            <h3>可停、可失败</h3>
+            <p class="muted">宁可因为证据不足而报错，也绝不为了“有问必答”去捏造事实。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide compact-slide">
+      <div class="slide-head">
+        <div class="kicker">Semantic → IR</div>
+        <div class="page-no">08 / 16</div>
+      </div>
+      <div class="content">
+        <h2>技术一：语义到 IR，把一句话编译成分析协议</h2>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>避免“望文生义”</h3>
+            <div class="code-line" style="margin: 0.5rem 0;">“explorer 的 ShouldStop 是怎么决定的？”</div>
+            <ul class="mini-list">
+              <li>这不是简单检索题，而是<span class="accent-cyan">机制解释题</span>。</li>
+              <li>系统必须先识别：这是在问<span class="accent-cyan">条件</span>、<span class="accent-cyan">停止边界</span>和<span class="accent-cyan">调用路径</span>。</li>
+              <li>如果按“找符号定义”去盲搜，整条分析链都会错位。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>这份 AnalysisIR v6 的核心层次</h3>
+            <ul class="mini-list">
+              <li><span class="accent-cyan">RequestModel</span>：意图、谓词、主体、动作轴、风险。</li>
+              <li><span class="accent-cyan">TaskGraph</span>：节点、依赖、验证回路。</li>
+              <li><span class="accent-cyan">EvidencePlan + AnswerContract</span>：调查约束、停机条件、答案形态。</li>
+              <li><span class="accent-cyan">HypothesisSet + QualityGate</span>：待证伪假设、质量闸门、是否允许开跑。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 0;">
+          <h3>沿着这个例子，IR 实际拆出了这些东西</h3>
+          <div class="cols-2" style="gap: 0.8rem; margin-top: 0.1rem;">
+            <ul class="mini-list">
+              <li><span class="accent-cyan">意图</span>：解释机制。</li>
+              <li><span class="accent-cyan">主体</span>：<code>ShouldStop</code>。</li>
+              <li><span class="accent-cyan">谓词</span>：条件、边界、调用链。</li>
+              <li><span class="accent-cyan">动作轴</span>：<code>condition</code> + <code>call</code>。</li>
+              <li><span class="accent-cyan">子话题</span>：停止条件 / 预算 / 证据完备度。</li>
+            </ul>
+            <ul class="mini-list">
+              <li><span class="accent-cyan">优先文件</span>：写入 <code>RequiredFiles</code>。</li>
+              <li><span class="accent-cyan">答案主体</span>：<code>ShouldStop</code> 的判停机制。</li>
+              <li><span class="accent-cyan">停止条件</span>：facts enough / hypotheses decided。</li>
+              <li><span class="accent-cyan">图示提示</span>：要不要画判停链路。</li>
+              <li><span class="accent-cyan">质量门</span>：coverage、假设绑定、criterion 可求值。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="quote-box" style="margin-top: 0.45rem;">
+          后续阶段拿到的已不是原句，而是一套可执行协议。它会继续经过 <span class="accent-cyan">normalize → compile → risk → HDP → binder → reconcile → gate</span>。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">HDP</div>
+        <div class="page-no">09 / 16</div>
+      </div>
+      <div class="content">
+        <h2>技术二：HDP 假设驱动规划，先立可证伪的假说</h2>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>实战切入：拒绝思维惰性</h3>
+            <div class="code-line" style="margin: 0.5rem 0;">“结合 panic 解释触发链路”</div>
+            <ul class="mini-list">
+              <li>大模型最容易“看哪个顺眼就认哪个”。</li>
+              <li>HDP 强制先生成多条<span class="accent-cyan">可证伪假设</span>。</li>
+              <li>自动进行 <span class="accent-cyan">6 维风险矩阵评估</span>（安全性、数据完整性等），决定调查优先级。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>Counterfactual 反事实推理</h3>
+            <p class="muted">对于高风险场景（如鉴权、路由越权），HDP 会自动触发反事实路径，强迫系统思考：“如果不是这样会怎样？” 彻底遏制 LLM 的盲目自信。</p>
+            <p class="muted" style="margin-top: 0.8rem;">排序也不是拍脑袋，而是用确定性权重计算：<span class="accent-cyan">IntentMatch 0.35 + RiskElevation 0.30 + TermCardinality 0.20 + AmbiguityResolution 0.15</span>。</p>
+          </div>
+        </div>
+        <div class="cols-3" style="margin-top: 1rem;">
+          <div class="panel">
+            <h3>假设 A：空值穿透</h3>
+            <ul class="mini-list"><li>需证据：上游传 nil</li><li>证伪：内部有 guard</li></ul>
+          </div>
+          <div class="panel">
+            <h3>假设 B：恢复失败</h3>
+            <ul class="mini-list"><li>需证据：绕过 recover</li><li>证伪：链路被提前拦截</li></ul>
+          </div>
+          <div class="panel">
+            <h3>假设 C：缺省降级</h3>
+            <ul class="mini-list"><li>需证据：走危险 fallback</li><li>证伪：默认配置已补全</li></ul>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Turn A / Turn B</div>
+        <div class="page-no">10 / 16</div>
+      </div>
+      <div class="content">
+        <h2>技术三：读模式中的 Turn A/B，调查与总结的物理隔离</h2>
+        <div class="quote-box" style="margin-bottom: 1.5rem;">
+          物理上切断“边查边编”的可能，确保**调查**与**总结**相互独立。
+        </div>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>Turn A：Explorer (只调查)</h3>
+            <ul class="list">
+              <li>拿着 analyzer、<code>log_triage</code>、<code>perf_triage</code> 给出的线索，再去读真实源码收集证据快照。</li>
+              <li><span class="accent-cyan">绝对禁令</span>：被物理剥夺了直接输出答案的权限，防止边造假边写。</li>
+            </ul>
+          </div>
+          <div class="panel">
+            <h3>Turn B：Extractor (只总结)</h3>
+            <ul class="list">
+              <li>只能看到 Turn A 冻结的 <code>TurnAArtifacts</code> 证据快照。</li>
+              <li><span class="accent-cyan">绝对禁令</span>：被物理剥夺所有文件 I/O 权限。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 1rem;">
+          <h3>隔离效果验证</h3>
+          <p class="muted">如果 Turn A 漏查了某个关键文件，Turn B 绝对无法凭空捏造该文件的内容。即使前置 triage 给了很多线索，Turn B 也只能消费 Turn A 真正落盘的证据。它只能受限于 cardinality validator，被迫向用户承认“找不到”或“证据不足”。写模式则对应 planner / coder / verifier 的分工隔离，各自也只拿到自己被允许的工具边界。</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Grounding</div>
+        <div class="page-no">11 / 16</div>
+      </div>
+      <div class="content">
+        <h2>技术四：物理级证据锚定 (Grounding)</h2>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>不仅是“看过”，必须能“指认”</h3>
+            <p class="muted">如果系统给出结论，它必须能物理证明：这个结论到底锚在代码的哪个文件、哪一行。这分为证据落地和引用校验两层。</p>
+          </div>
+          <div class="panel">
+            <h3>弹性挽救机制 (R1-R5)</h3>
+            <p class="muted">如果因版本变更导致行号漂移，系统不直接报错，而是执行同名、片段模糊搜索、最近调用点等 5 级挽救，全部失败才坚决丢弃该引用。</p>
+          </div>
+        </div>
+        <div class="cols-2" style="margin-top: 1rem;">
+          <div class="panel">
+            <h3>T1 校验：字面量重叠 (Line Text)</h3>
+            <p class="muted">直接验证读取的文件原文，要求答案的 Token 与源码真实行的邻域 (±1行) 存在物理级的字符重叠，否则判定无效。</p>
+          </div>
+          <div class="panel">
+            <h3>T2 校验：符号表匹配 (Symbol Table)</h3>
+            <p class="muted">基于 AST（抽象语法树）解析，验证该引用确实落在定义的函数、类型或方法的逻辑作用域内部。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">CGEC</div>
+        <div class="page-no">12 / 16</div>
+      </div>
+      <div class="content">
+        <h2>技术五：CGEC 引用闭环契约，最严苛的诚实守则</h2>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>权限世界的严格划分</h3>
+            <ul class="mini-list">
+              <li><span class="accent-cyan">ScannedSet</span>：仅仅是通过文件树/Grep扫描到的候选范围。</li>
+              <li><span class="accent-orange">ReadSet</span>：模型真实调工具读取过正文的集合。</li>
+            </ul>
+            <p class="muted" style="margin-top: 0.8rem;">扫描看到名字不等于读到了事实。只有进入 ReadSet 的代码，才允许被写进答案。</p>
+          </div>
+          <div class="panel">
+            <h3>四大强制防线 (I1 - I4)</h3>
+            <ul class="mini-list">
+              <li><strong>I1 真实原则</strong>：所有表面引用的 <code>file:line</code> 必须 ⊆ ReadSet。</li>
+              <li><strong>I2 Dry-run 预检</strong>：生成答案前做模拟渲染，违规引用直接拦截并触发 <code>RepairReadFile</code>。</li>
+              <li><strong>I4 破局代读</strong>：推理卡死时触发 <span class="accent-cyan">Lazy Auto-Read</span>，框架强行代读文件打破认知瓶颈。</li>
+            </ul>
+          </div>
+        </div>
+        <div class="quote-box" style="margin-top: 1.5rem;">
+          闭环意味着：提出说法 → 找到来源 → 来源确实被读过 → 引用 Token 合法 → 契约验收通过。少任何一环，系统都将被强制拦截。
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Criterion</div>
+        <div class="page-no">13 / 16</div>
+      </div>
+      <div class="content">
+        <h2>技术六：Criterion 可执行合约</h2>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>去除主观的“裁判”</h3>
+            <p class="muted">任务是否完成，不是靠大模型自己回复 "I have finished"，而是交由系统底层的 <span class="accent-cyan">19 种读模式 Criterion + 4 种写模式 Criterion</span>做纯逻辑和数学求值。</p>
+          </div>
+          <div class="panel">
+            <h3>特例彰显诚实：统计计数题</h3>
+            <p class="muted">问“仓库有多少处实现接口？” 答案是统计值。CODRAX 识别为 <code>measurement-scalar</code> 后，承认结果源自聚合，<span class="accent-orange">绝不伪造某行假引用</span>去伪装精确。</p>
+            <p class="muted" style="margin-top: 0.8rem;">同样地，问“explorer 默认 skill 是什么？”时，若 <span class="accent-cyan">ExactResolution</span> 没闭环，系统必须说“还不能精确确认”，不能拿附近配置项充当精确默认值。</p>
+          </div>
+        </div>
+        <div class="cols-3" style="margin-top: 1rem;">
+          <div class="panel">
+            <h3>找到显式证据</h3>
+            <p class="muted">指标亮绿灯，允许输出答案并携带合法锚点。</p>
+          </div>
+          <div class="panel">
+            <h3>只看到相邻近似</h3>
+            <p class="muted">指标阻断，严禁把“附近看起来像”包装成精确结果。</p>
+          </div>
+          <div class="panel">
+            <h3>未知类型</h3>
+            <p class="muted">触发 <span class="accent-cyan">Fail-loud</span>，显式抛出警告让信任降级，绝不默默骗人。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide compact-slide">
+      <div class="slide-head">
+        <div class="kicker">Write Mode Sandbox</div>
+        <div class="page-no">14 / 16</div>
+      </div>
+      <div class="content">
+        <h2>延伸：写模式的物理沙箱与 W1/W1b 写闭包</h2>
+        <p class="lead">写模式走 <code>plan → apply → verify</code>，但所有写入都只发生在独立 Git Worktree，主仓 HEAD 不会被自动改写。</p>
+        <div class="cols-2">
+          <div class="panel">
+            <h3>REPL 演示流</h3>
+            <div class="code-line" style="margin: 0.5rem 0;">/mode plan
+/plan show
+/approve</div>
+            <p class="muted">先看 plan 和 diff，再决定是否 apply；成功后可保留 worktree 继续 review。</p>
+          </div>
+          <div class="panel">
+            <h3>CLI 演示流</h3>
+            <div class="code-line" style="margin: 0.5rem 0;">codrax --mode=plan -r "修复 bug 并补测试" --plan-out plan.json
+codrax --mode=apply --plan-file plan.json --auto-apply
+codrax --mode=verify --plan-file plan.json</div>
+            <p class="muted">适合脚本和流水线，plan / apply / verify 可串接，runner 会按仓库类型自动探测。</p>
+          </div>
+        </div>
+        <div class="panel" style="margin-top: 0.35rem;">
+          <h3>为什么它能写，但仍然安全</h3>
+          <ul class="mini-list">
+            <li><span class="accent-cyan">W1</span>：只能改 plan 里声明过的目标文件。</li>
+            <li><span class="accent-cyan">W1b</span>：依赖顺序不能乱，先后关系错了就拒绝。</li>
+            <li><span class="accent-cyan">pipeline_write_retry_budget</span>：verify 失败会回灌摘要、失败测试与嫌疑文件。</li>
+            <li><span class="accent-cyan">pipeline_baseline_capture_enabled</span>：区分 REGRESSION / PRE-EXISTING，<code>run_tests</code> 自动探测 11 类 runner。</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide compact-slide">
+      <div class="slide-head">
+        <div class="kicker">End-to-End Workflow</div>
+        <div class="page-no">15 / 16</div>
+      </div>
+      <div class="content">
+        <h2>技术链全景：一次“先掉帧后 crash”的问题如何被拆解</h2>
+        <div class="code-line">问题：应用先掉帧再 crash，结合日志和 atrace 解释最可能根因。</div>
+        <div class="flow" style="margin: 2rem 0;">
+          <div class="node">log/perf triage</div>
+          <div class="arrow">→</div>
+          <div class="node">语义转 IR</div>
+          <div class="arrow">→</div>
+          <div class="node">HDP 铺假设</div>
+          <div class="arrow">→</div>
+          <div class="node">Grounding 找落点</div>
+          <div class="arrow">→</div>
+          <div class="node">CGEC + Criterion</div>
+          <div class="arrow">→</div>
+          <div class="node highlight">交付诊断</div>
+        </div>
+        <div class="cols-3">
+          <div class="panel">
+            <h3>1. 先把现场编成结构化 bundle</h3>
+            <p class="muted">日志变成 Error / Cause / Frame，trace 变成 Frames / Janks / Stalls / Startup，两路都先结构化。</p>
+          </div>
+          <div class="panel">
+            <h3>2. analyzer 合并两路线索</h3>
+            <p class="muted">entities 与 ResolvedFiles 一起喂给 IR，所以后续不再只是围绕正文盲搜。</p>
+          </div>
+          <div class="panel">
+            <h3>3. 交付工程级诊断</h3>
+            <p class="muted">回答的不只是“谁像根因”，而是“根因 A、B 已排除、C 仍缺证据”的闭环结论。</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="slide">
+      <div class="slide-head">
+        <div class="kicker">Closing</div>
+        <div class="page-no">16 / 16</div>
+      </div>
+      <div class="content centered" style="text-align: center;">
+        
+        <div style="font-size: 2.2rem; font-weight: 700; color: var(--title-text); line-height: 1.6; margin-bottom: 2.5rem;">
+          CODRAX 不是让模型替你“装懂代码”，<br>
+          而是让系统在<span class="accent-cyan">可验证契约</span>里，<br>
+          把分析做实、把引用做牢、把不确定说清。
+        </div>
+
+        <div style="font-family: 'Cascadia Code', Consolas, monospace; color: var(--accent-orange); font-size: 1.5rem; letter-spacing: 2px;">
+          /EOF
+        </div>
+        
+      </div>
+    </section>
+
+    <div class="progress-wrap"><div class="progress" id="progress"></div></div>
+    <div class="nav">
+      <button id="prevBtn" type="button" aria-label="上一页">上页</button>
+      <button id="pauseBtn" type="button" aria-label="暂停自动播放">暂停</button>
+      <button id="nextBtn" type="button" aria-label="下一页">下页</button>
+    </div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const embedMode = ["1", "true", "yes"].includes((params.get("embed") || "").toLowerCase());
+    const autoplayConfigured = ["1", "true", "yes"].includes((params.get("autoplay") || "").toLowerCase());
+    const loopEnabled = ["1", "true", "yes"].includes((params.get("loop") || "").toLowerCase());
+    const autoplayInterval = Math.max(1500, parseInt(params.get("interval") || "6000", 10) || 6000);
+
+    if (embedMode) {
+      document.documentElement.classList.add("embed-mode");
+    }
+
+    const slides = Array.from(document.querySelectorAll(".slide"));
+    const progress = document.getElementById("progress");
+    const deck = document.getElementById("deck");
+    const prevBtn = document.getElementById("prevBtn");
+    const pauseBtn = document.getElementById("pauseBtn");
+    const nextBtn = document.getElementById("nextBtn");
+    let current = 0;
+    let autoplayTimer = null;
+    let autoplayActive = autoplayConfigured;
+
+    function emitState() {
+      try {
+        window.parent.postMessage({
+          type: "codrax-deck-state",
+          current,
+          total: slides.length,
+          autoplayActive,
+        }, "*");
+      } catch (error) {
+        // Ignore parent messaging failures in standalone mode.
+      }
+    }
+
+    function updatePauseButton() {
+      if (!pauseBtn) return;
+      pauseBtn.textContent = autoplayActive ? "暂停" : "继续";
+      pauseBtn.classList.toggle("is-paused", !autoplayActive);
+      pauseBtn.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "继续自动播放");
+    }
+
+    function render() {
+      slides.forEach((slide, index) => {
+        slide.classList.toggle("active", index === current);
+      });
+      if (progress) {
+        progress.style.width = `${((current + 1) / slides.length) * 100}%`;
+      }
+      if (prevBtn) {
+        prevBtn.style.opacity = current === 0 ? "0.2" : "1";
+        prevBtn.style.pointerEvents = current === 0 ? "none" : "auto";
+      }
+      if (nextBtn) {
+        nextBtn.style.opacity = current === slides.length - 1 ? "0.2" : "1";
+        nextBtn.style.pointerEvents = current === slides.length - 1 ? "none" : "auto";
+      }
+      updatePauseButton();
+      emitState();
+    }
+
+    function nextSlide() {
+      if (current < slides.length - 1) {
+        current += 1;
+        render();
+        return;
+      }
+      if (loopEnabled) {
+        current = 0;
+        render();
+      }
+    }
+
+    function prevSlide() {
+      if (current > 0) {
+        current -= 1;
+        render();
+      }
+    }
+
+    function stopAutoplay() {
+      if (autoplayTimer) {
+        clearInterval(autoplayTimer);
+        autoplayTimer = null;
+      }
+    }
+
+    function syncAutoplay() {
+      stopAutoplay();
+      if (!autoplayActive || slides.length <= 1 || document.hidden) return;
+      autoplayTimer = setInterval(() => {
+        nextSlide();
+      }, autoplayInterval);
+    }
+
+    function setAutoplay(active) {
+      autoplayActive = Boolean(active);
+      updatePauseButton();
+      syncAutoplay();
+      emitState();
+    }
+
+    function toggleAutoplay() {
+      setAutoplay(!autoplayActive);
+    }
+
+    function handleKeyNavigation(event) {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      const interactiveTarget = event.target && typeof event.target.closest === "function"
+        ? event.target.closest("input, textarea, select, button, a")
+        : null;
+      if (interactiveTarget) return;
+
+      if (["ArrowRight", "ArrowDown", " ", "Enter", "PageDown"].includes(event.key)) {
+        event.preventDefault();
+        nextSlide();
+        return;
+      }
+
+      if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        prevSlide();
+      }
+    }
+
+    deck.addEventListener("click", (event) => {
+      if (event.target.closest("button") || event.target.closest("a")) return;
+      nextSlide();
+    });
+
+    deck.addEventListener("touchstart", () => {
+      if (autoplayActive) {
+        setAutoplay(false);
+      }
+    }, { passive: true });
+
+    if (prevBtn) {
+      prevBtn.addEventListener("click", prevSlide);
+    }
+    if (pauseBtn) {
+      pauseBtn.addEventListener("click", toggleAutoplay);
+    }
+    if (nextBtn) {
+      nextBtn.addEventListener("click", nextSlide);
+    }
+
+    window.addEventListener("keydown", handleKeyNavigation);
+
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+      if (!data || data.type !== "codrax-deck") return;
+
+      if (data.action === "next") {
+        nextSlide();
+        return;
+      }
+      if (data.action === "prev") {
+        prevSlide();
+        return;
+      }
+      if (data.action === "toggleAutoplay") {
+        toggleAutoplay();
+        return;
+      }
+      if (data.action === "setAutoplay") {
+        setAutoplay(data.value);
+        return;
+      }
+      if (data.action === "reportState") {
+        emitState();
+      }
+    });
+
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopAutoplay();
+      } else {
+        syncAutoplay();
+      }
+      emitState();
+    });
+
+    window.addEventListener("blur", stopAutoplay);
+    window.addEventListener("focus", syncAutoplay);
+
+    render();
+    syncAutoplay();
+  </script>
+</body>
+</html>

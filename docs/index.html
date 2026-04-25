@@ -1,0 +1,438 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CODRAX</title>
+  <style>
+    :root {
+      --body-bg: #d6d3d1;
+      --bg-main: #fdfcf8;
+      --bg-panel: #f4f1eb;
+      --border-color: rgba(0, 0, 0, 0.06);
+      --title-text: #27272a;
+      --text-main: #3f3f46;
+      --text-muted: #71717a;
+      --accent-orange: #d97706;
+      --accent-cyan: #0f766e;
+      --shadow-color: rgba(0, 0, 0, 0.08);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+
+    body {
+      background: radial-gradient(circle at top left, rgba(253, 252, 248, 0.9), rgba(214, 211, 209, 0.92) 46%, rgba(214, 211, 209, 1) 100%);
+      color: var(--text-main);
+      font-family: "Inter", -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .shell {
+      width: 100vw;
+      height: 100vh;
+      padding: 10px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 8px;
+    }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.85rem;
+      padding: 10px 14px;
+      border: 1px solid var(--border-color);
+      border-radius: 18px;
+      background: rgba(253, 252, 248, 0.82);
+      backdrop-filter: blur(10px);
+      box-shadow: 0 18px 40px var(--shadow-color);
+      min-height: 58px;
+    }
+
+    .brand {
+      min-width: 0;
+      display: grid;
+      gap: 0.18rem;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      width: fit-content;
+      padding: 0.34rem 0.72rem;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+      color: #fffdf8;
+      font-size: 0.74rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      font-weight: 800;
+      box-shadow: 0 10px 22px rgba(217, 119, 6, 0.18);
+    }
+
+    h1 {
+      color: var(--text-muted);
+      font-size: clamp(0.84rem, 1.12vw, 1.08rem);
+      line-height: 1.14;
+      letter-spacing: -0.01em;
+      font-weight: 600;
+      opacity: 0.78;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 0.48rem;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      flex-shrink: 0;
+    }
+
+    .link-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.48rem;
+      flex-wrap: wrap;
+    }
+
+    .action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 0.64rem 0.94rem;
+      min-width: 100px;
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      background: var(--bg-main);
+      color: var(--title-text);
+      text-decoration: none;
+      font-size: 0.88rem;
+      font-weight: 700;
+      transition: 0.2s ease;
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.05);
+    }
+
+    .action:hover {
+      transform: translateY(-1px);
+      border-color: rgba(15, 118, 110, 0.22);
+      background: #f7f4ee;
+    }
+
+    .action-primary {
+      background: var(--accent-orange);
+      color: #fffdf8;
+      border-color: transparent;
+    }
+
+    .action-primary:hover {
+      background: #c96d06;
+    }
+
+    .deck-controls {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.18rem;
+      padding: 0.18rem;
+      border: 1px solid var(--border-color);
+      border-radius: 999px;
+      background: rgba(253, 252, 248, 0.86);
+      box-shadow: 0 10px 22px rgba(0, 0, 0, 0.05);
+    }
+
+    .control-btn {
+      appearance: none;
+      border: 0;
+      background: transparent;
+      color: var(--title-text);
+      min-width: 58px;
+      padding: 0.5rem 0.76rem;
+      border-radius: 999px;
+      font: inherit;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: 0.2s ease;
+    }
+
+    .control-btn:hover {
+      background: #f1ede5;
+      color: var(--accent-cyan);
+    }
+
+    .control-btn.is-paused {
+      background: var(--accent-cyan);
+      color: #fffdf8;
+    }
+
+    .stage {
+      position: relative;
+      min-height: 0;
+      border: 1px solid var(--border-color);
+      border-radius: 22px;
+      overflow: hidden;
+      background: rgba(253, 252, 248, 0.74);
+      backdrop-filter: blur(12px);
+      box-shadow: 0 28px 70px var(--shadow-color);
+    }
+
+    iframe {
+      width: 100%;
+      height: 100%;
+      border: 0;
+      display: block;
+      background: transparent;
+    }
+
+    @media (max-width: 1040px) {
+      .shell {
+        padding: 8px;
+        gap: 8px;
+      }
+
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .actions {
+        width: 100%;
+        justify-content: flex-start;
+      }
+
+      .link-actions {
+        width: 100%;
+      }
+
+      h1 {
+        white-space: normal;
+      }
+    }
+
+    @media (max-width: 900px) {
+      html, body {
+        height: auto;
+        min-height: 100%;
+        overflow: auto;
+      }
+
+      body {
+        padding-bottom: env(safe-area-inset-bottom);
+      }
+
+      .shell {
+        height: auto;
+        min-height: 100dvh;
+        grid-template-rows: auto 1fr;
+        padding: 6px 6px calc(env(safe-area-inset-bottom) + 16px);
+        gap: 6px;
+      }
+
+      .topbar {
+        align-items: stretch;
+        min-height: 0;
+        padding: 6px 8px 8px;
+        gap: 0.4rem;
+        border-radius: 14px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 0;
+      }
+
+      .eyebrow {
+        padding: 0.22rem 0.5rem;
+        font-size: 0.62rem;
+      }
+
+      h1 {
+        display: none;
+      }
+
+      .actions {
+        width: 100%;
+        align-items: stretch;
+        gap: 0.34rem;
+      }
+
+      .link-actions {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 0.34rem;
+      }
+
+      .link-actions .action {
+        width: 100%;
+        min-width: 0;
+        min-height: 36px;
+        padding: 0.46rem 0.24rem;
+        font-size: 0.74rem;
+      }
+
+      .deck-controls {
+        width: 100%;
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        justify-content: stretch;
+        gap: 0.16rem;
+        padding: 0.12rem;
+      }
+
+      .control-btn {
+        min-width: 0;
+        padding: 0.42rem 0.18rem;
+        min-height: 34px;
+        font-size: 0.7rem;
+      }
+
+      .stage {
+        min-height: 79dvh;
+        border-radius: 14px;
+      }
+    }
+
+    @media (max-width: 520px) {
+      .shell {
+        padding: 4px 4px calc(env(safe-area-inset-bottom) + 18px);
+        gap: 6px;
+      }
+
+      .topbar {
+        min-height: 0;
+        padding: 5px 6px 6px;
+        border-radius: 12px;
+        gap: 0.34rem;
+      }
+
+      .eyebrow {
+        padding: 0.2rem 0.46rem;
+        font-size: 0.58rem;
+      }
+
+      .link-actions {
+        grid-template-columns: 1fr;
+      }
+
+      .action,
+      .control-btn {
+        min-height: 34px;
+        font-size: 0.72rem;
+      }
+
+      .stage {
+        min-height: 81dvh;
+        border-radius: 12px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="eyebrow">CODRAX</div>
+        <h1>推理确定，解释锚定。</h1>
+      </div>
+      <div class="actions">
+        <nav class="link-actions" aria-label="主导航">
+          <a class="action action-primary" href="./download/index.html">下载安装</a>
+          <a class="action" href="./user_guide.html">使用手册</a>
+        </nav>
+        <div class="deck-controls" role="group" aria-label="演示控制">
+          <button class="control-btn" id="deckPrevBtn" type="button">上页</button>
+          <button class="control-btn" id="deckToggleBtn" type="button" aria-pressed="false">暂停</button>
+          <button class="control-btn" id="deckNextBtn" type="button">下页</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="stage" aria-label="自动播放演示">
+      <iframe
+        id="deckFrame"
+        src="./codrax_authoritative_guide.html?embed=1&autoplay=1&loop=1&interval=6000"
+        title="CODRAX authoritative guide"
+        loading="eager"
+        referrerpolicy="no-referrer"
+      ></iframe>
+    </section>
+  </main>
+
+  <script>
+    const deckFrame = document.getElementById("deckFrame");
+    const deckPrevBtn = document.getElementById("deckPrevBtn");
+    const deckToggleBtn = document.getElementById("deckToggleBtn");
+    const deckNextBtn = document.getElementById("deckNextBtn");
+    let autoplayActive = true;
+
+    function sendDeckAction(action, value) {
+      if (!deckFrame || !deckFrame.contentWindow) return;
+      deckFrame.contentWindow.postMessage({ type: "codrax-deck", action, value }, "*");
+    }
+
+    function syncToggleButton() {
+      if (!deckToggleBtn) return;
+      deckToggleBtn.textContent = autoplayActive ? "暂停" : "继续";
+      deckToggleBtn.classList.toggle("is-paused", !autoplayActive);
+      deckToggleBtn.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "继续自动播放");
+      deckToggleBtn.setAttribute("aria-pressed", String(!autoplayActive));
+    }
+
+    function handleDeckHotkeys(event) {
+      if (event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) return;
+      const interactiveTarget = event.target && typeof event.target.closest === "function"
+        ? event.target.closest("input, textarea, select, button, a")
+        : null;
+      if (interactiveTarget) return;
+
+      if (["ArrowRight", "ArrowDown", " ", "Enter", "PageDown"].includes(event.key)) {
+        event.preventDefault();
+        sendDeckAction("next");
+        return;
+      }
+
+      if (["ArrowLeft", "ArrowUp", "PageUp"].includes(event.key)) {
+        event.preventDefault();
+        sendDeckAction("prev");
+      }
+    }
+
+    if (deckPrevBtn) {
+      deckPrevBtn.addEventListener("click", () => sendDeckAction("prev"));
+    }
+    if (deckToggleBtn) {
+      deckToggleBtn.addEventListener("click", () => sendDeckAction("toggleAutoplay"));
+    }
+    if (deckNextBtn) {
+      deckNextBtn.addEventListener("click", () => sendDeckAction("next"));
+    }
+
+    if (deckFrame) {
+      deckFrame.addEventListener("pointerdown", () => sendDeckAction("setAutoplay", false));
+      deckFrame.addEventListener("touchstart", () => sendDeckAction("setAutoplay", false), { passive: true });
+    }
+
+    if (deckFrame) {
+      deckFrame.addEventListener("load", () => {
+        window.setTimeout(() => sendDeckAction("reportState"), 180);
+      });
+    }
+
+    window.addEventListener("message", (event) => {
+      const data = event.data;
+      if (!data || data.type !== "codrax-deck-state") return;
+      autoplayActive = Boolean(data.autoplayActive);
+      syncToggleButton();
+    });
+
+    window.addEventListener("keydown", handleDeckHotkeys);
+    syncToggleButton();
+  </script>
+</body>
+</html>
