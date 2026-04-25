@@ -1140,19 +1140,13 @@ func (r *REPL) handleSlash(line string) bool {
 	case "/version":
 		r.info(fmt.Sprintf("codrax %s (built %s)", r.version, r.buildTime))
 	case "/help":
-		r.info("commands: /exit /quit /clear /history /compact /log /paste /chat /mode /plan /approve /reject /verify /worktree /version /help")
-		r.info("tip: end a line with \\ for multi-line input")
-		r.info("log: /log <path> | /log (paste then /end) | /log clear | /log show")
-		r.info("paste: /paste (terminal-independent fallback when bracketed paste is stripped)")
-		r.info("chat: /chat <message> (reply without invoking the analysis pipeline)")
-		r.info("mode: /mode [read|plan|apply|verify] (show/set; read default; write modes require codrax.yaml :: write_enabled: true)")
-		r.info("plan: /plan [show|clear|list] (inspect/manage saved ChangePlans from write-mode Runs)")
-		r.info("approve: /approve (consume pending plan — triggers apply + verify inside a git worktree)")
-		r.info("reject:  /reject [reason] (discard pending plan without applying)")
-		r.info("verify:  /verify [plan-id] (re-run verify against an applied plan; requires preserved worktree)")
-		r.info("worktree: /worktree [list|discard <plan-id>] (manage preserved worktrees from successful applies)")
-		r.info("history: /history now lists plans applied/attempted alongside recent turns + compacted index")
-		r.info("version: /version (or /v) prints the build identifier")
+		// Auto-generated from slashCommands so the /help output and
+		// the autocomplete panel can never drift apart. Table-driven
+		// keeps the bilingual contract and lists EVERY command — the
+		// pre-T4 hardcoded list omitted /htrace and /atrace.
+		for _, line := range helpLines(r.language) {
+			r.info(line)
+		}
 	default:
 		r.warn("unknown command %q — try /help\n", cmd)
 	}

@@ -182,6 +182,69 @@ func promptStickyTag(mode string, hasLog, hasTrace, hasPendingPlan, memPressure 
 	return b.String()
 }
 
+// helpLines auto-generates the /help command's bilingual output from
+// the canonical slashCommands table. Returns one line per command
+// followed by a generic multi-line-input tip. Drift-proof: a new
+// command added to slashCommands shows up here automatically.
+//
+// Format per line: "  <name>  <padding>  <help>" with name padded to
+// the longest command width so the help columns line up. Header is
+// localized; per-command help text comes from slashCommand.Help(lang).
+func helpLines(lang string) []string {
+	// Width of widest command name for column alignment.
+	maxName := 0
+	for _, c := range slashCommands {
+		if n := len(c.Name); n > maxName {
+			maxName = n
+		}
+	}
+	pad := func(s string) string {
+		if len(s) >= maxName {
+			return s
+		}
+		return s + strings.Repeat(" ", maxName-len(s))
+	}
+	out := make([]string, 0, len(slashCommands)+2)
+	if isZh(lang) {
+		out = append(out, "可用命令(共 "+itoa(len(slashCommands))+" 条):")
+	} else {
+		out = append(out, "available commands ("+itoa(len(slashCommands))+"):")
+	}
+	for _, c := range slashCommands {
+		out = append(out, "  "+pad(c.Name)+"  "+c.Help(lang))
+	}
+	if isZh(lang) {
+		out = append(out, "提示:行尾加 \\ 进入多行输入。")
+	} else {
+		out = append(out, "tip: end a line with \\ for multi-line input.")
+	}
+	return out
+}
+
+// itoa is a tiny stdlib-free int-to-string helper; messages.go
+// avoids importing strconv to keep the dependency surface minimal.
+func itoa(n int) string {
+	if n == 0 {
+		return "0"
+	}
+	neg := n < 0
+	if neg {
+		n = -n
+	}
+	var buf [12]byte
+	pos := len(buf)
+	for n > 0 {
+		pos--
+		buf[pos] = byte('0' + n%10)
+		n /= 10
+	}
+	if neg {
+		pos--
+		buf[pos] = '-'
+	}
+	return string(buf[pos:])
+}
+
 // memoryPressureHint returns a one-line nudge surfaced when the
 // memory store crosses a soft pressure threshold (e.g. recent-turns
 // buffer full / index entries past N). zh-default; pairs with the

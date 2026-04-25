@@ -36,28 +36,56 @@ import (
 // with replCommandAliases' target set in internal/types via the
 // TestSlashCommandsMatchCanonicalRegistry drift guard. Shown only
 // when the buffer looks like a bare slash token.
-var slashCommands = []struct {
-	Name string
-	Help string
-}{
-	{"/help", "show available commands"},
-	{"/history", "show recent turns"},
-	{"/compact", "compact memory"},
-	{"/clear", "wipe conversation memory"},
-	{"/log", "attach/show/clear a runtime log"},
-	{"/htrace", "attach/show/clear an ftrace-compatible trace (HiTrace / atrace / systrace / perfetto)"},
-	{"/atrace", "alias of /htrace — Android atrace / systrace spelling"},
-	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)"},
-	{"/chat", "reply without invoking the analysis pipeline"},
-	{"/mode", "show/set sticky pipeline mode: read | plan | apply | verify"},
-	{"/plan", "inspect / list / clear saved ChangePlans (write-mode)"},
-	{"/approve", "consume the pending plan — apply + verify inside a git worktree"},
-	{"/reject", "discard the pending plan (optionally with a reason)"},
-	{"/verify", "re-run verify against an applied plan without re-applying"},
-	{"/worktree", "list or discard preserved worktrees from successful applies"},
-	{"/version", "print build version"},
-	{"/exit", "leave the REPL"},
-	{"/quit", "leave the REPL"},
+// slashCommand carries autocomplete metadata for one /command. Help
+// strings are bilingual: HelpEn shows when --lang=en, HelpZh shows
+// for everything else (zh-default convention shared with banner /
+// messages.go). Adding a new command: fill BOTH variants — leaving
+// HelpZh empty will fall back to HelpEn at render time, but that
+// defeats the bilingual contract.
+type slashCommand struct {
+	Name   string
+	HelpEn string
+	HelpZh string
+}
+
+// Help returns the language-appropriate help string. zh-default;
+// only `en` flips to English.
+func (c slashCommand) Help(lang string) string {
+	if isZh(lang) && c.HelpZh != "" {
+		return c.HelpZh
+	}
+	return c.HelpEn
+}
+
+var slashCommands = []slashCommand{
+	{"/help", "show available commands", "显示可用命令"},
+	{"/history", "show recent turns", "显示最近会话"},
+	{"/compact", "compact memory", "压缩 memory(整理索引,腾出空间)"},
+	{"/clear", "wipe conversation memory", "清空会话 memory"},
+	{"/log", "attach/show/clear a runtime log", "附加 / 查看 / 清除运行时日志"},
+	{"/htrace", "attach/show/clear an ftrace-compatible trace (HiTrace / atrace / systrace / perfetto)",
+		"附加 / 查看 / 清除 trace(HiTrace / atrace / systrace / perfetto)"},
+	{"/atrace", "alias of /htrace — Android atrace / systrace spelling",
+		"/htrace 的别名 — Android atrace / systrace 拼法"},
+	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)",
+		"粘贴模式 — 适用于 SSH / tmux 吞掉 bracketed paste 的环境"},
+	{"/chat", "reply without invoking the analysis pipeline",
+		"闲聊回复(不走分析流水线)"},
+	{"/mode", "show/set sticky pipeline mode: read | plan | apply | verify",
+		"显示 / 设置粘滞模式:read | plan | apply | verify"},
+	{"/plan", "inspect / list / clear saved ChangePlans (write-mode)",
+		"查看 / 列出 / 清除已保存的 ChangePlan(写模式)"},
+	{"/approve", "consume the pending plan — apply + verify inside a git worktree",
+		"批准待处理的 plan — 在 git worktree 内 apply + verify"},
+	{"/reject", "discard the pending plan (optionally with a reason)",
+		"拒绝待处理的 plan(可选附理由)"},
+	{"/verify", "re-run verify against an applied plan without re-applying",
+		"对已 apply 的 plan 重跑 verify(不再重跑 apply)"},
+	{"/worktree", "list or discard preserved worktrees from successful applies",
+		"列出 / 销毁成功 apply 时保留的 worktree"},
+	{"/version", "print build version", "打印构建版本"},
+	{"/exit", "leave the REPL", "退出 REPL"},
+	{"/quit", "leave the REPL", "退出 REPL"},
 }
 
 // placeholderRE matches a folded-paste token. Group 1 is the id.
@@ -144,7 +172,8 @@ type inputModel struct {
 	aborted           bool
 	continues         bool
 	termWidth         int
-	pasteFoldMinChars int // per-instance threshold, in runes
+	pasteFoldMinChars int    // per-instance threshold, in runes
+	lang              string // zh | en — drives slash-command help language
 }
 
 // pasteSeed is a single pre-captured paste the caller injects into a
@@ -156,7 +185,7 @@ type pasteSeed struct {
 	content string
 }
 
-func newInputModel(prompt string, history []string, isContinue bool, w, foldMinChars int, seed *pasteSeed) *inputModel {
+func newInputModel(prompt string, history []string, isContinue bool, w, foldMinChars int, seed *pasteSeed, lang string) *inputModel {
 	ti := textinput.New()
 	ti.Prompt = prompt + " "
 	ti.PromptStyle = lipgloss.NewStyle().
@@ -192,6 +221,7 @@ func newInputModel(prompt string, history []string, isContinue bool, w, foldMinC
 		isContinue:        isContinue,
 		termWidth:         w,
 		pasteFoldMinChars: foldMinChars,
+		lang:              lang,
 	}
 	if seed != nil && seed.content != "" {
 		m.injectPlaceholder(seed.content)
@@ -667,7 +697,7 @@ func (m *inputModel) renderSuggestPanel() string {
 		b.WriteString(prefix)
 		b.WriteString(nm)
 		b.WriteString("  ")
-		b.WriteString(helpStyle.Render(c.Help))
+		b.WriteString(helpStyle.Render(c.Help(m.lang)))
 		if i < len(matches)-1 {
 			b.WriteByte('\n')
 		}
@@ -688,7 +718,7 @@ func (r *REPL) readInputBubble(prompt string, isContinue bool) (inputResult, err
 		seed = &pasteSeed{content: r.pendingPaste}
 		r.pendingPaste = "" // single-use; consumed on inject
 	}
-	model := newInputModel(prompt, hist, isContinue, w, r.pasteFoldMinChars, seed)
+	model := newInputModel(prompt, hist, isContinue, w, r.pasteFoldMinChars, seed, r.language)
 
 	p := tea.NewProgram(model,
 		tea.WithOutput(r.out),

@@ -165,6 +165,53 @@ func TestMemoryPressureHint_BothLangs(t *testing.T) {
 	}
 }
 
+// /help drift guard: every command in slashCommands must appear
+// in helpLines() output. Catches the historical bug where /htrace
+// and /atrace were missing from the hardcoded /help list.
+func TestHelpLines_CoversEveryCommand(t *testing.T) {
+	for _, lang := range []string{"zh", "en"} {
+		t.Run(lang, func(t *testing.T) {
+			lines := helpLines(lang)
+			joined := strings.Join(lines, "\n")
+			for _, c := range slashCommands {
+				if !strings.Contains(joined, c.Name) {
+					t.Errorf("/help (%s) missing command %q; full output:\n%s", lang, c.Name, joined)
+				}
+			}
+		})
+	}
+}
+
+// /help renders bilingual: zh by default, en only with explicit lang.
+func TestHelpLines_BothLangs(t *testing.T) {
+	zhLines := helpLines("zh")
+	enLines := helpLines("en")
+	zhJoined := strings.Join(zhLines, "\n")
+	enJoined := strings.Join(enLines, "\n")
+	if !strings.Contains(zhJoined, "可用命令") {
+		t.Errorf("zh header missing 可用命令; got %q", zhJoined)
+	}
+	if !strings.Contains(enJoined, "available commands") {
+		t.Errorf("en header missing 'available commands'; got %q", enJoined)
+	}
+	if zhJoined == enJoined {
+		t.Error("zh and en help output should differ")
+	}
+}
+
+// slashCommand.Help honors lang; both variants must be non-empty
+// so a missing translation never silently falls back.
+func TestSlashCommand_HelpBothVariantsNonEmpty(t *testing.T) {
+	for _, c := range slashCommands {
+		if c.HelpEn == "" {
+			t.Errorf("command %q: HelpEn is empty", c.Name)
+		}
+		if c.HelpZh == "" {
+			t.Errorf("command %q: HelpZh is empty (would fall back to HelpEn at render time)", c.Name)
+		}
+	}
+}
+
 func TestVerifyDispatching_BothLangs(t *testing.T) {
 	zh := verifyDispatching("zh", "plan-V")
 	en := verifyDispatching("en", "plan-V")
