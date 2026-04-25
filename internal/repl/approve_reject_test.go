@@ -71,6 +71,10 @@ func newApprovalREPL(t *testing.T, confirmInput string, runner Runner) (*REPL, *
 		Branch:    "main",
 		Render:    renderNothing,
 		PlanStore: store,
+		// English to keep the historical "approve cancelled" /
+		// "plan rejected" substring assertions deterministic across
+		// the bilingual messages.go rollout.
+		Language: "en",
 	})
 	r.pendingPlanPath = path
 	return r, store, out
@@ -374,6 +378,7 @@ func newMemREPL(t *testing.T, planStore *PlanStore) (*REPL, *bytes.Buffer) {
 		Branch:    "main",
 		Render:    renderNothing,
 		PlanStore: planStore,
+		Language:  "en",
 	})
 	return r, out
 }
@@ -402,7 +407,7 @@ func TestReject_ClearsPlanAndPath(t *testing.T) {
 	if _, err := store.Load("plan-reject-1"); err == nil {
 		t.Errorf("plan file should be removed after /reject")
 	}
-	if !strings.Contains(out.String(), "plan rejected") {
+	if !strings.Contains(out.String(), "rejected plan ") {
 		t.Errorf("expected 'plan rejected' message, got: %q", out.String())
 	}
 }
@@ -424,7 +429,7 @@ func TestReject_WithReason(t *testing.T) {
 	r.handleRejectCmd("/reject scope too wide")
 
 	got := out.String()
-	if !strings.Contains(got, "plan rejected") {
+	if !strings.Contains(got, "rejected plan ") {
 		t.Errorf("expected 'plan rejected' message, got: %q", got)
 	}
 	if !strings.Contains(got, "scope too wide") {

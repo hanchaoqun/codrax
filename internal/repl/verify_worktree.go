@@ -105,6 +105,7 @@ func (r *REPL) handleVerifyCmd(line string) {
 
 	request := fmt.Sprintf("/verify %s", plan.ID)
 	logging.Info("[repl] dispatching verify: plan=%s path=%s", plan.ID, planPath)
+	r.info(verifyDispatching(r.language, plan.ID))
 	if r.renderer != nil {
 		r.renderer.StartSpinner()
 	}

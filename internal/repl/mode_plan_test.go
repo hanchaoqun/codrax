@@ -14,6 +14,12 @@ import (
 // strings.Reader and read output from the returned *bytes.Buffer.
 // Store is nil — tests that touch memory must opt in via a real
 // store or skip the persistence path.
+//
+// Language is forced to English here so the historical assertions
+// ("no pending plan", "approve cancelled", "mode set to plan")
+// stay deterministic across the bilingual messages.go rollout.
+// Tests that want to exercise the zh path explicitly should set
+// r.language = "zh" before driving the handler.
 func newScriptedREPL(t *testing.T, planStore *PlanStore) (*REPL, *bytes.Buffer) {
 	t.Helper()
 	in := strings.NewReader("") // unused but non-nil triggers line-oriented mode
@@ -25,6 +31,7 @@ func newScriptedREPL(t *testing.T, planStore *PlanStore) (*REPL, *bytes.Buffer) 
 		Branch:    "main",
 		Prompt:    "",
 		PlanStore: planStore,
+		Language:  "en",
 	})
 	return r, out
 }
@@ -48,7 +55,7 @@ func TestHandleMode_SetPlan(t *testing.T) {
 	if r.currentMode != types.ModePlan {
 		t.Errorf("currentMode = %q, want %q", r.currentMode, types.ModePlan)
 	}
-	if !strings.Contains(out.String(), "mode set to plan") {
+	if !strings.Contains(out.String(), "switched to plan mode") {
 		t.Errorf("expected success message, got: %q", out.String())
 	}
 }

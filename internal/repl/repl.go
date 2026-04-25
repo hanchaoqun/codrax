@@ -392,6 +392,38 @@ func (r *REPL) warn(format string, args ...interface{}) {
 	}
 }
 
+// memoryUnderPressure reports whether the in-memory recent-turns
+// buffer or index has crossed a soft threshold beyond which retrieval
+// quality begins to degrade. The thresholds are deliberately generous
+// — they're meant to catch "pasted three 50KB stack traces over an
+// hour" pathologies, not normal usage.
+//
+// Heuristic: 30+ recent turns OR 60+ index entries. Both are well
+// above typical session sizes (most sessions stop at <10 turns) but
+// well below the hard memory-store cap. Once tripped, the prompt
+// shows [mem!] and a one-shot nudge runs.
+func (r *REPL) memoryUnderPressure() bool {
+	if r.store == nil {
+		return false
+	}
+	const (
+		recentThreshold = 30
+		indexThreshold  = 60
+	)
+	return len(r.store.Recent()) >= recentThreshold ||
+		len(r.store.Index()) >= indexThreshold
+}
+
+// memoryStats returns (recentTurns, indexEntries) for the pressure
+// nudge to surface concrete counts. Returns (0, 0) when the store
+// isn't wired (test fixtures).
+func (r *REPL) memoryStats() (int, int) {
+	if r.store == nil {
+		return 0, 0
+	}
+	return len(r.store.Recent()), len(r.store.Index())
+}
+
 // Loop runs the prompt until /exit, /quit, or EOF.
 //
 // The interactive readInput session renders its own echo + divider
@@ -399,8 +431,33 @@ func (r *REPL) warn(format string, args ...interface{}) {
 // owns echo in the line-oriented (scripted/piped) branch.
 func (r *REPL) Loop() error {
 	r.banner()
+	memNudgeShown := false
 	for {
-		line, display, err := r.readInputPair("❯❯")
+		// Sticky-state tag prepended to the prompt so the user has a
+		// constant visual reminder of what attachments / mode / plan
+		// are live for this turn. Empty when nothing sticky.
+		tag := promptStickyTag(
+			string(r.currentMode),
+			r.attachedLog != "",
+			r.attachedHitrace != "",
+			r.pendingPlanPath != "",
+			r.memoryUnderPressure(),
+		)
+		// One-shot memory pressure hint — surface ABOVE the prompt
+		// the first time the threshold trips per session, so the
+		// nudge is unmissable but doesn't spam every turn. The
+		// [mem!] tag in the prompt remains visible after that.
+		if !memNudgeShown && r.memoryUnderPressure() {
+			recent, idx := r.memoryStats()
+			r.warn("%s\n", memoryPressureHint(r.language, recent, idx))
+			memNudgeShown = true
+		}
+		// Reset the one-shot latch when the user actually compacts
+		// or clears, so a fresh accumulation re-warns once.
+		if memNudgeShown && !r.memoryUnderPressure() {
+			memNudgeShown = false
+		}
+		line, display, err := r.readInputPair(tag + "❯❯")
 		if err != nil {
 			fmt.Fprintln(r.out)
 			fmt.Fprintln(r.out, "  Goodbye!")
@@ -1138,7 +1195,7 @@ func (r *REPL) handleModeCmd(line string) {
 	// for apply; /mode alone is harmless — the apply stage is a
 	// stub and will fail-loud on the next dispatch.
 	r.currentMode = target
-	r.success(fmt.Sprintf("mode set to %s", target))
+	r.success(modeSwitched(r.language, string(target)))
 }
 
 // handlePlanCmd dispatches the `/plan` subcommands. Recognised forms:
@@ -1163,7 +1220,7 @@ func (r *REPL) handlePlanCmd(line string) {
 	switch rest {
 	case "show":
 		if r.pendingPlanPath == "" {
-			r.info("no pending plan — run a /mode plan dispatch to generate one")
+			r.info(noPendingPlan(r.language))
 			return
 		}
 		id := strings.TrimSuffix(filepath.Base(r.pendingPlanPath), ".json")
@@ -1333,7 +1390,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		return
 	}
 	if r.pendingPlanPath == "" {
-		r.info("no pending plan — run a /mode plan dispatch to generate one")
+		r.info(noPendingPlan(r.language))
 		return
 	}
 
@@ -1372,8 +1429,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		return
 	}
 
-	title := fmt.Sprintf("Approve plan %s (%d change(s))? Apply inside a git worktree + run verify.",
-		plan.ID, len(plan.Changes))
+	title := approveTitlePrompt(r.language, plan.ID, len(plan.Changes))
 	confirmed := false
 	if r.interactive() {
 		if err := huh.NewConfirm().
@@ -1392,7 +1448,7 @@ func (r *REPL) handleApproveCmd(line string) {
 		}
 	}
 	if !confirmed {
-		r.info("approve cancelled")
+		r.info(approveCancelled(r.language))
 		return
 	}
 
@@ -1442,6 +1498,19 @@ func (r *REPL) handleApproveCmd(line string) {
 	if busCtx != nil && busCtx.WorktreePath != "" && busCtx.TaskState.LastError == "" {
 		fmt.Fprintf(r.out, "  worktree preserved: %s\n", busCtx.WorktreePath)
 	}
+	// Failure path nudge — the orchestrator's renderVerifyFailure
+	// adds an italic "Re-plan with /mode plan..." line INSIDE the
+	// markdown body, but bordered+italic is easy to miss. Print a
+	// plain stderr-style hint OUTSIDE the bordered render so the
+	// next-steps are unambiguous. /approve does NOT auto-retry-replan
+	// (intentional: the approve gate's contract is "exactly the plan
+	// I reviewed lands"), so the recovery path is explicit user
+	// action — re-run plan-mode incorporating the failure.
+	if busCtx != nil && busCtx.TaskState.LastError != "" {
+		for _, line := range approveFailedNudge(r.language) {
+			r.info(line)
+		}
+	}
 	// KindPlan classifies this turn distinctly from chitchat /
 	// pipeline so future /history filters + the memory retrieval
 	// policy can surface plan outcomes explicitly.
@@ -1468,7 +1537,7 @@ func (r *REPL) handleRejectCmd(line string) {
 		return
 	}
 	if r.pendingPlanPath == "" {
-		r.info("no pending plan to reject")
+		r.info(noPendingPlanReject(r.language))
 		return
 	}
 	reason := strings.TrimSpace(strings.TrimPrefix(line, "/reject"))
@@ -1477,14 +1546,13 @@ func (r *REPL) handleRejectCmd(line string) {
 		r.errorf("reject: %v\n", err)
 		return
 	}
-	rejectedPath := r.pendingPlanPath
 	r.pendingPlanPath = ""
 
 	var msg string
 	if reason == "" {
-		msg = fmt.Sprintf("plan rejected: %s", rejectedPath)
+		msg = rejectConfirmedNoReason(r.language, id)
 	} else {
-		msg = fmt.Sprintf("plan rejected: %s (reason: %s)", rejectedPath, reason)
+		msg = rejectConfirmedWithReason(r.language, id, reason)
 	}
 	r.success(msg)
 
