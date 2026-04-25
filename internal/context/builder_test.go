@@ -2084,6 +2084,132 @@ func TestBuildAgentContext_WriteStage_ScrubsReadModeArtifacts(t *testing.T) {
 	}
 }
 
+// TestBuildPromptContext_PlanStage_RendersAnalyzerPrescan locks the
+// architecturally-correct B fix for the planner cold-start failure
+// mode (planner STOP at iter=6 (eval) on legitimate feature-add
+// requests because the prompt only contained the 80-char user
+// request and the LLM had to re-discover everything the analyzer
+// already knew). Source data is structured AnalysisIR fields only —
+// no StageReports / Mutable.EvidenceClosure access — so the
+// session-35 leak vector cannot reappear through this path.
+func TestBuildPromptContext_PlanStage_RendersAnalyzerPrescan(t *testing.T) {
+	bus := &types.BusContext{
+		RepoRoot: "/tmp/repo",
+		Mutable:  types.NewMutableState("add ssh-mcp downloader"),
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					PrimaryEntities: []string{"mcp", "ssh", "StdioServer"},
+					Entities:        []string{"mcp", "ssh", "StdioServer", "Registry"},
+					Keywords:        []string{"sftp", "scp"},
+				},
+				SubTopics: []types.SubTopic{
+					{Summary: "Add new MCP server for SSH file download", Entities: []string{"mcp", "ssh"}},
+				},
+			},
+			EvidencePlan: types.EvidencePlan{
+				RequiredFiles: []string{"internal/mcp/mcp.go", "internal/mcp/stdio.go"},
+			},
+		},
+	}
+	bus.Mutable.SetObjective("add ssh-mcp downloader")
+
+	ac := BuildAgentContext(bus, types.AgentPlanner, types.StagePlan)
+	pc := BuildPromptContext(ac, &skill.Config{Name: "change-plan-skill"})
+
+	sec := findSectionTitle(pc, "Analyzer Pre-scan Findings")
+	if sec == nil {
+		t.Fatal("StagePlan: expected 'Analyzer Pre-scan Findings' section, got none")
+	}
+	wantSubstrings := []string{
+		"Sub-topics",
+		"Add new MCP server for SSH file download",
+		"Code entities (analyzer-extracted)",
+		"- mcp",
+		"- StdioServer",
+		"Pre-scored relevant files",
+		"internal/mcp/mcp.go",
+	}
+	for _, want := range wantSubstrings {
+		if !strings.Contains(sec.Content, want) {
+			t.Errorf("Analyzer Pre-scan Findings missing %q\n--- section ---\n%s", want, sec.Content)
+		}
+	}
+}
+
+// TestBuildPromptContext_NonPlanStages_SuppressAnalyzerPrescan locks
+// that the section is StagePlan-only. Apply/verify consume Mutable.
+// ChangePlan directly and any analyzer hints would be off-task signal;
+// read stages have their own richer Prior Stage Findings channel.
+func TestBuildPromptContext_NonPlanStages_SuppressAnalyzerPrescan(t *testing.T) {
+	mkBus := func() *types.BusContext {
+		bus := &types.BusContext{
+			RepoRoot: "/tmp/repo",
+			Mutable:  types.NewMutableState("seed"),
+			AnalysisIR: &types.AnalysisIR{
+				RequestModel: types.RequestModel{
+					AnalyzerHints: types.AnalyzerHints{
+						PrimaryEntities: []string{"foo"},
+					},
+				},
+				EvidencePlan: types.EvidencePlan{RequiredFiles: []string{"a.go"}},
+			},
+		}
+		bus.Mutable.SetObjective("seed")
+		return bus
+	}
+
+	cases := []struct {
+		stage types.PipelineStage
+		agent types.AgentName
+	}{
+		{types.StageApply, types.AgentCoder},
+		{types.StageVerify, types.AgentVerifier},
+		{types.StageExplore, types.AgentExplorer},
+		{types.StageExtract, types.AgentExtractor},
+		{types.StageFinalize, types.AgentFinalizer},
+		{types.StageAnalyze, types.AgentAnalyzer},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(string(c.stage), func(t *testing.T) {
+			ac := BuildAgentContext(mkBus(), c.agent, c.stage)
+			pc := BuildPromptContext(ac, &skill.Config{Name: "test-skill"})
+			if sec := findSectionTitle(pc, "Analyzer Pre-scan Findings"); sec != nil {
+				t.Errorf("stage %s rendered StagePlan-only section (body=%q)", c.stage, sec.Content)
+			}
+		})
+	}
+}
+
+// TestFormatAnalyzerPrescanForPlan_EmptyReturnsEmpty pins the
+// degenerate path: no entities, no sub-topics, no required files →
+// empty string so the caller skips section emission entirely. Without
+// this an analyzer that returned only AnswerSubject (e.g. on a tiny
+// rephrase request) would render an unhelpful "use the structured
+// findings below" header with no body.
+func TestFormatAnalyzerPrescanForPlan_EmptyReturnsEmpty(t *testing.T) {
+	cases := []struct {
+		name string
+		ir   *types.AnalysisIR
+	}{
+		{"nil IR", nil},
+		{"empty IR", &types.AnalysisIR{}},
+		{"only AnswerSubject", &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := formatAnalyzerPrescanForPlan(c.ir); got != "" {
+				t.Errorf("expected empty string, got: %q", got)
+			}
+		})
+	}
+}
+
 // TestBuildAgentContext_ReadStage_PropagatesArtifacts confirms the
 // gate is one-sided: read-mode stages still see the artifacts they
 // were designed to consume. Paired with

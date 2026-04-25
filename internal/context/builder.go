@@ -69,6 +69,16 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// the write pipeline as a classifier — see PipelineStage.IsWrite
 	// docblock. Analyzer still needs RepoFacts / prior artifacts for
 	// its pre-scan rounds, so this gate correctly allows them through.
+	//
+	// Note on the structured AnalysisIR exception: ac.AnalysisIR is
+	// set unconditionally above (line ~37). It is NOT a "stage
+	// artifact" — it is the analyzer's typed structured output
+	// (entities, sub-topics, required files), which by construction
+	// contains no raw LLM prose and therefore cannot reintroduce the
+	// session-35 leak. BuildPromptContext renders a small, write-safe
+	// subset of it ("Analyzer Pre-scan Findings") for StagePlan only
+	// to give the planner a warm start instead of a 5+ iter cold-
+	// discovery prelude. See formatAnalyzerPrescanForPlan.
 	if !ac.Stage.IsWrite() {
 		// Collect relevant facts
 		ac.RelevantFacts = extractRelevantFacts(bus.RepoFacts)
@@ -264,6 +274,7 @@ var canonicalSystemSectionOrder = []string{
 var canonicalUserSectionOrder = []string{
 	"Retry Directive (READ FIRST)",
 	"User Request",
+	"Analyzer Pre-scan Findings", // write-mode (StagePlan) only — structured fields from AnalysisIR
 	"Prior Conversation (reference only)",
 	"Prior Stage Findings", // carries the canonical Resolution Chains subsection
 	"Unverified Analyzer Findings",
@@ -447,6 +458,39 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 				Title:   "User Request",
 				Content: currentReq,
 			})
+		}
+		// Analyzer Pre-scan Findings — write-mode StagePlan only.
+		//
+		// Architecture: in write mode the analyzer runs as a classifier
+		// and its TaskGraph is replaced by the linear plan→apply→verify
+		// graph (orchestrator.go:498-520). Without this section the
+		// planner starts COLD with only the 80-100 char user request,
+		// burning 5+ ReAct iterations re-discovering entities, files,
+		// and sub-topics the analyzer already extracted — a structural
+		// waste that hits the planner's iteration cap on legitimate
+		// feature-add tasks before emit_change_plan can fire.
+		//
+		// Source: structured fields on AnalysisIR only. Specifically
+		//   - RequestModel.AnalyzerHints.{Entities,PrimaryEntities,Keywords}
+		//   - RequestModel.SubTopics[]
+		//   - EvidencePlan.RequiredFiles
+		// All four are validated string lists (emit_analysis tool
+		// params) or repo_map graph derivations — none carry raw LLM
+		// prose. The session-35 leak vector was StageReports.Findings
+		// (raw lastContent including <think> preamble); this section
+		// touches NEITHER StageReports NOR Mutable.EvidenceClosure,
+		// so it cannot reintroduce the emit_change_plan bypass bug.
+		//
+		// Stage gate: StagePlan only. Apply/verify consume Mutable.
+		// ChangePlan directly and have no use for analyzer hints; the
+		// stage's BuildInitialInstruction renders plan-derived context.
+		if ac.Stage == types.StagePlan {
+			if section := formatAnalyzerPrescanForPlan(ac.AnalysisIR); section != "" {
+				pc.UserSections = append(pc.UserSections, types.PromptSection{
+					Title:   "Analyzer Pre-scan Findings",
+					Content: section,
+				})
+			}
 		}
 		if priorConv != "" && !ac.PriorConvHidden {
 			pc.UserSections = append(pc.UserSections, types.PromptSection{
@@ -2265,6 +2309,77 @@ func mergeUnverifiedFindings(groups ...[]types.UnverifiedFinding) []types.Unveri
 		}
 	}
 	return out
+}
+
+// formatAnalyzerPrescanForPlan renders the structured analyzer
+// pre-scan signals that the planner needs to skip its own re-discovery
+// of entities, sub-topics, and relevant files. Only fields that are
+// LLM-validated string lists or repo_map graph derivations are
+// surfaced — never raw lastContent (which carries <think> preamble
+// and is the session-35 leak vector).
+//
+// Returns "" when the IR is nil or every field is empty so the
+// caller can skip the section unconditionally.
+func formatAnalyzerPrescanForPlan(ir *types.AnalysisIR) string {
+	if ir == nil {
+		return ""
+	}
+	rm := ir.RequestModel
+	hints := rm.AnalyzerHints
+	requiredFiles := ir.EvidencePlan.RequiredFiles
+
+	// Prefer PrimaryEntities (pre-merge user-named) over the merged
+	// Entities; fall back when the analyzer ran without sub-topic
+	// merging (single-topic question).
+	entities := hints.PrimaryEntities
+	if len(entities) == 0 {
+		entities = hints.Entities
+	}
+
+	if len(entities) == 0 && len(hints.Keywords) == 0 &&
+		len(rm.SubTopics) == 0 && len(requiredFiles) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("The analyze stage already classified the request and ran an entity/file pre-scan against the repo graph. ")
+	b.WriteString("Use the structured findings below to jump straight to the files and symbols that matter — you do NOT need to re-discover them with repo_map / list_files / grep before reading.\n")
+
+	if len(rm.SubTopics) > 0 {
+		b.WriteString("\n### Sub-topics\n")
+		for _, st := range rm.SubTopics {
+			summary := strings.TrimSpace(st.Summary)
+			if summary == "" {
+				continue
+			}
+			fmt.Fprintf(&b, "- %s", summary)
+			if len(st.Entities) > 0 {
+				fmt.Fprintf(&b, " — entities: %s", strings.Join(st.Entities, ", "))
+			}
+			b.WriteByte('\n')
+		}
+	}
+
+	if len(entities) > 0 {
+		b.WriteString("\n### Code entities (analyzer-extracted)\n")
+		for _, e := range entities {
+			if e = strings.TrimSpace(e); e != "" {
+				fmt.Fprintf(&b, "- %s\n", e)
+			}
+		}
+	}
+
+	if len(requiredFiles) > 0 {
+		b.WriteString("\n### Pre-scored relevant files (top of repo_map ranking)\n")
+		b.WriteString("These paths scored highest for the analyzer's entity query — read them first if your plan needs to touch this area.\n")
+		for _, f := range requiredFiles {
+			if f = strings.TrimSpace(f); f != "" {
+				fmt.Fprintf(&b, "- %s\n", f)
+			}
+		}
+	}
+
+	return b.String()
 }
 
 func formatExactResolutionHint(ac *types.AgentContext) string {

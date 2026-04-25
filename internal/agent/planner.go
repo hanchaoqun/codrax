@@ -74,9 +74,11 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 // ShouldStop terminates the ReAct loop as soon as a ChangePlan has
 // been installed on Mutable (emit_change_plan's happy path) or when
 // the loop has burned through its defensive iteration cap. The cap
-// is kept intentionally small (3) because plan-stage LLM calls are
-// expected to be single-shot; a runaway loop is a sign of a broken
-// skill prompt that should surface as a fail-loud error upstream.
+// is the two-stage soft/hard pair from AgentSettings (default 6/9 —
+// see types/config.go::DefaultAgentSettings); the planner's prompt
+// includes the structured "Analyzer Pre-scan Findings" section so
+// the LLM does not need to spend most of its budget re-discovering
+// entities/files the analyze stage already extracted.
 func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if e.mu != nil && e.mu.ChangePlan() != nil {
 		return true
