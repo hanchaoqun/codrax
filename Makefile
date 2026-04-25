@@ -18,6 +18,31 @@ MUSL_CC      ?= musl-gcc
 WSL_GOPROXY  ?= https://proxy.golang.org,direct
 WSL_GOSUMDB  ?= sum.golang.org
 
+# CGO_CFLAGS injection silences gcc/clang/musl-gcc warnings from the
+# vendored tree-sitter parser packages. Specifically, tree-sitter-lua
+# parser.c embeds a literal `"\0"` string at index 254 (parser-
+# generator artifact, harmless at runtime) which trips:
+#
+#   parser.c:254:17: warning: null character(s) preserved in literal
+#     254 |   [anon_sym_] = " ",
+#         |                 ^
+#
+# That specific warning comes from libcpp and is NOT addressable via
+# `-Wno-null-character` (gcc rejects the flag with "unrecognized
+# command-line option"). The only certain suppressor is `-w` which
+# silences all warnings for vendored C compilation.
+#
+# Scope: the project has zero hand-written C — every CGO surface is
+# vendored tree-sitter or the cgo runtime. Suppressing all warnings
+# in vendored C means we lose nothing we own; real bugs surface in
+# Go code via `go vet` and `go build` errors anyway.
+#
+# `export CGO_CFLAGS` makes every spawned compile recipe (build,
+# static, cross-*, test, eval) inherit the flag without per-line
+# edits. The append form preserves any user-supplied CGO_CFLAGS so
+# an operator chasing a real warning can override via env.
+export CGO_CFLAGS := $(CGO_CFLAGS) -w
+
 ifeq ($(OS),Windows_NT)
   HOST_OS := windows
   SHELL := powershell.exe
