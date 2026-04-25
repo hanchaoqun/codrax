@@ -248,10 +248,13 @@ func TestVerifier_BuildInitialInstruction_BaselineFailuresRendered(t *testing.T)
 	if strings.Contains(inst, "TestFine") {
 		t.Errorf("passing baseline tests should not render; got %q", inst)
 	}
-	for _, keyword := range []string{"REGRESSION", "PRE-EXISTING", "FIXED"} {
+	for _, keyword := range []string{"regression_assertions", "preexisting_assertions", "fixed_assertions"} {
 		if !strings.Contains(inst, keyword) {
-			t.Errorf("instruction should teach LLM classification keyword %q; got %q", keyword, inst)
+			t.Errorf("instruction should teach the LLM about the structured field %q; got %q", keyword, inst)
 		}
+	}
+	if !strings.Contains(inst, "## Output requirement") {
+		t.Errorf("structured-classification contract section missing; got %q", inst)
 	}
 }
 
@@ -335,5 +338,75 @@ func TestVerifier_BuildInitialInstruction_AcceptanceAndBaselineBoth(t *testing.T
 	}
 	if !strings.Contains(inst, "TestOldBug") {
 		t.Errorf("baseline failure name missing; got %q", inst)
+	}
+}
+
+// TestVerifier_BuildInitialInstruction_BuildFailureSurfaced verifies
+// the new "Build failures (this run)" section: when ChangeReport
+// carries BuildFailed=true with structured BuildErrors[], the prompt
+// renders concrete file:line targets for the LLM to act on.
+func TestVerifier_BuildInitialInstruction_BuildFailureSurfaced(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:      "plan-build-fail",
+		Changes: []types.FileChange{{Path: "src/Foo.java", Kind: "modify"}},
+	}
+	report := &types.ChangeReport{
+		Passed:         false,
+		BuildFailed:    true,
+		FailureSummary: "Java build failed: 2 compile error(s)",
+		TestResults: []types.TestResult{{
+			Kind:        types.TestResultKindBuildError,
+			AssertionID: "/src/Foo.java:42",
+			Suite:       "build",
+			Passed:      false,
+			BuildErrors: []types.BuildError{
+				{File: "/src/Foo.java", Line: 42, Column: 5, Message: "cannot find symbol"},
+				{File: "/src/Foo.java", Line: 99, Message: "missing return"},
+			},
+		}},
+	}
+	ctx := verifierFixtureCtx(report, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	if !strings.Contains(inst, "## Build failures (this run)") {
+		t.Errorf("Build failures section missing; got %q", inst)
+	}
+	if !strings.Contains(inst, "/src/Foo.java:42:5") {
+		t.Errorf("first error file:line:col missing; got %q", inst)
+	}
+	if !strings.Contains(inst, "cannot find symbol") {
+		t.Errorf("first error message missing; got %q", inst)
+	}
+	if !strings.Contains(inst, "/src/Foo.java:99") {
+		t.Errorf("second error missing; got %q", inst)
+	}
+}
+
+// When BuildFailed is true but BuildErrors[] is empty (markerless
+// build output), the prompt should still render the section header
+// + a fallback note pointing at FailureDetail. No silent omission.
+func TestVerifier_BuildInitialInstruction_BuildFailureNoStructured(t *testing.T) {
+	plan := &types.ChangePlan{
+		ID:      "plan-build-fail-mu",
+		Changes: []types.FileChange{{Path: "x", Kind: "modify"}},
+	}
+	report := &types.ChangeReport{
+		BuildFailed: true,
+		Passed:      false,
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			Suite:         "build",
+			Passed:        false,
+			FailureDetail: "Could not resolve dependency foo:bar:1.0",
+		}},
+	}
+	ctx := verifierFixtureCtx(report, plan)
+	ev := &verifierEvaluator{}
+	inst := ev.BuildInitialInstruction(ctx, &skill.Config{})
+	if !strings.Contains(inst, "## Build failures (this run)") {
+		t.Errorf("Build failures section should render even without structured errors; got %q", inst)
+	}
+	if !strings.Contains(inst, "No structured compile errors parsed") {
+		t.Errorf("fallback note missing; got %q", inst)
 	}
 }

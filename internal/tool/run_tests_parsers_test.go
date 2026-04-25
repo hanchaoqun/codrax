@@ -393,9 +393,19 @@ func TestParseCargoTestText_BuildError(t *testing.T) {
 	if report.Passed {
 		t.Error("build error should not Passed")
 	}
-	// Should synthesize a "cargo-build" failure entry.
-	if len(report.TestResults) != 1 || report.TestResults[0].AssertionID != "cargo-build" {
-		t.Errorf("expected synthetic cargo-build failure; got %+v", report.TestResults)
+	if !report.BuildFailed {
+		t.Error("ChangeReport.BuildFailed should be true on cargo build failure")
+	}
+	// Should synthesize a Kind=BuildError row (no string convention).
+	if len(report.TestResults) != 1 {
+		t.Fatalf("expected exactly one synthetic build-error row; got %d", len(report.TestResults))
+	}
+	tr := report.TestResults[0]
+	if tr.Kind != types.TestResultKindBuildError {
+		t.Errorf("Kind = %q; want %q", tr.Kind, types.TestResultKindBuildError)
+	}
+	if tr.Suite != "build" {
+		t.Errorf("Suite = %q; want \"build\"", tr.Suite)
 	}
 }
 

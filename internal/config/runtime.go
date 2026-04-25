@@ -157,12 +157,15 @@ type RuntimeSettings struct {
 	PipelineMaxRetriesPerStage *int `yaml:"pipeline_max_retries_per_stage"`
 	PipelineMaxStageVisits     *int `yaml:"pipeline_max_stage_visits"`
 
-	// PipelineMaxVerifyRetries enables the B2.3 verify→plan retry
-	// loop inside ModeApply. Default 0 preserves B1 fail-loud
-	// semantics (one attempt, surface failure). Hard-capped to 5
-	// by orchestrator.SetMaxVerifyRetries so operator typos can't
-	// burn an unbounded LLM budget on an unfixable plan.
-	PipelineMaxVerifyRetries *int `yaml:"pipeline_max_verify_retries"`
+	// PipelineWriteRetryBudget caps the verify→plan retry cycle in
+	// ModeApply, expressed as the number of retry rounds AFTER the
+	// initial attempt (so 2 = up to 3 total attempts). T4 renamed
+	// from PipelineMaxVerifyRetries when write modes folded into the
+	// scheduler. Default 0 preserves fail-loud semantics (one
+	// attempt, surface failure). Hard-capped to 5 by
+	// orchestrator.SetWriteRetryBudget so operator typos can't burn
+	// an unbounded LLM budget on an unfixable plan.
+	PipelineWriteRetryBudget *int `yaml:"pipeline_write_retry_budget"`
 
 	// PipelineBaselineCaptureEnabled toggles the pre-apply test
 	// snapshot that feeds CritNoRegression. When true, runApplyPhase

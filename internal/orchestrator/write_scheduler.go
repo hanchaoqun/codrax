@@ -1,0 +1,227 @@
+package orchestrator
+
+import (
+	"time"
+
+	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
+	"github.com/hanchaoqun/codrax/internal/logging"
+	"github.com/hanchaoqun/codrax/internal/render"
+	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// runWriteSchedulerLoop walks the linear plan→apply→verify TaskGraph
+// emitted by BuildWriteTaskGraph. Mirrors the read scheduler's
+// graphState + criterion.Env machinery but skips the read-mode
+// chunks (Tier1Floor, contract retry, extract dispatch, finalize
+// backtrack) — write mode has none of those.
+//
+// Each round:
+//
+//  1. Build criterion.Env from current Mutable state.
+//  2. readyWriteWindow returns the single ready write node (write
+//     graphs are linear, so at most one is ready at a time).
+//  3. Dispatch via stageMapping → stage. Pre-hook fires before
+//     dispatch; post-hook after. A pre-hook error terminates the
+//     Run with that error in TaskState.LastError.
+//  4. SuccessCriteria check on the dispatched node. Pass: markDone.
+//     Fail on verify (TestsPass / NoRegression): the only retryable
+//     case — clearForReplan + requeueValidationTargets to re-run
+//     plan→apply→verify with PlanningHint context. Other SC failures
+//     are terminal (apply SC fail = patches didn't land, no retry
+//     useful inside the same Run).
+//  5. Loop until allDone or step budget exhausted.
+//
+// Return value is the steps consumed (counted toward o.maxSteps).
+func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
+	g := o.busCtx.AnalysisIR.TaskGraph
+	if len(g.Nodes) == 0 {
+		return 0
+	}
+	state := newGraphState(g)
+	stepsUsed := 0
+	retryAttempt := 0
+
+	buildEnv := func() criterion.Env {
+		env := criterion.Env{
+			IR:             o.busCtx.AnalysisIR,
+			Evidence:       o.busCtx.EvidenceItems,
+			AnswerSymbols:  o.busCtx.AnswerSymbols,
+			AnswerChains:   o.busCtx.AnswerChains,
+			ToolResults:    o.busCtx.ToolResults,
+			Signals:        o.busCtx.Signals,
+			ReactItersUsed: stepsUsed,
+		}
+		if o.busCtx.Mutable != nil {
+			env.ChangePlan = o.busCtx.Mutable.ChangePlan()
+			env.ChangeReport = o.busCtx.Mutable.ChangeReport()
+			env.BaselineReport = o.busCtx.Mutable.BaselineReport()
+			env.WriteClosure = o.busCtx.Mutable.WriteClosure()
+		}
+		return env
+	}
+
+	for stepsUsed < stepBudget && !state.allDone() {
+		env := buildEnv()
+		ready, blocked := state.readyWriteWindow(env)
+		if len(ready) == 0 {
+			if len(blocked) > 0 {
+				// Every remaining node is blocked on EntryConditions
+				// that won't resolve without a prior dispatch (which
+				// would have produced one). This is a terminal stall —
+				// surface it and bail.
+				logging.Warning("[orchestrator] write scheduler stalled: %d node(s) blocked on entry conditions", len(blocked))
+			}
+			break
+		}
+		// Linear graph: only one node ready at a time. Defensive — if
+		// the graph ever grew parallel branches, dispatch the first
+		// and revisit the rest next round.
+		n := ready[0]
+		stage, err := stageMapping(g, n, true)
+		if err != nil {
+			logging.Error("[orchestrator] write scheduler: %s has no stage mapping: %v", n.ID, err)
+			state.markFailed(n.ID)
+			continue
+		}
+
+		o.busCtx.PipelineStage = stage
+		o.busCtx.TaskState.Stage = stage
+		state.markRunning(n.ID)
+		o.emitNodeStart(n.ID)
+
+		// Pre-hook: worktree provision, plan load, baseline capture.
+		// A failure terminates the Run.
+		if err := runStagePreHook(o, stage); err != nil {
+			logging.Error("[orchestrator] %s pre-hook: %v", stage, err)
+			o.busCtx.TaskState.LastError = err.Error()
+			state.markFailed(n.ID)
+			o.emitNodeEnd(n.ID, false, err.Error())
+			break
+		}
+
+		stepsUsed++
+		out, dispatchErr := o.dispatchStage(stage)
+		// Post-hook fires regardless of dispatchErr — it persists
+		// status / Result side-effects from whatever happened.
+		runStagePostHook(o, stage, out)
+
+		if dispatchErr != nil {
+			logging.Error("[orchestrator] %s dispatch: %v", stage, dispatchErr)
+			o.busCtx.TaskState.LastError = dispatchErr.Error()
+			state.markFailed(n.ID)
+			o.emitNodeEnd(n.ID, false, dispatchErr.Error())
+			break
+		}
+		// StageOutput.Error is the agent's structured failure
+		// (e.g. coder's "missing path X", verifier's "verify failed:
+		// 3 of 5 tests failed"). Treat it like a SuccessCriteria
+		// failure for routing purposes.
+		envAfter := buildEnv()
+		ok, failed := state.markSuccessCriteriaFailed(n, envAfter)
+		stageErrText := ""
+		if out != nil {
+			stageErrText = out.Error
+		}
+		if ok && stageErrText == "" {
+			state.markDone(n.ID)
+			o.emitNodeEnd(n.ID, true, "")
+			continue
+		}
+
+		// SC failed (or stage returned an Error). Routing:
+		//   - verify SC fail with budget remaining → retry cycle
+		//   - any other failure → terminal
+		if n.Type == types.NodeVerify {
+			if state.retryUsed < g.ExecutionPolicy.RetryBudget {
+				retryAttempt++
+				clearForReplan(o, retryAttempt)
+				targets := state.requeueValidationTargets(n.ID)
+				if len(targets) > 0 {
+					state.recordRetry()
+					logging.Info("[orchestrator] verify SC failed; requeued %v for retry %d/%d",
+						targets, state.retryUsed, g.ExecutionPolicy.RetryBudget)
+					o.emit(render.Event{
+						Kind:      render.EventAgentReasoning,
+						Timestamp: time.Now(),
+						Agent:     "orchestrator",
+						Reasoning: softRetryHintMessage(o.busCtx.Language),
+					})
+					o.emitNodeEnd(n.ID, false, "verify failed; retrying")
+					continue
+				}
+				logging.Warning("[orchestrator] verify SC failed but no validation_feedback targets; giving up")
+			}
+		}
+		// Terminal failure path.
+		errSummary := stageErrText
+		if errSummary == "" && len(failed) > 0 {
+			errSummary = failed[0].Detail
+		}
+		if errSummary == "" {
+			errSummary = string(n.Type) + " stage failed"
+		}
+		if o.busCtx.TaskState.LastError == "" {
+			o.busCtx.TaskState.LastError = errSummary
+		}
+		state.markFailed(n.ID)
+		o.emitNodeEnd(n.ID, false, errSummary)
+		break
+	}
+	return stepsUsed
+}
+
+// readyWriteWindow returns ready write-mode nodes. Mirrors
+// readyExplorerWindow's contract but tolerates write node types and
+// honors the OneShot flag — a OneShot node already done doesn't get
+// re-yielded even if its EntryConditions still pass.
+//
+// Counterfactual nodes are skipped (write graphs don't carry them
+// today, but the shape stays consistent). Hard-dependency edges are
+// honored: a node is only ready if every From in its incoming
+// EdgeHardDependency edges is nodeDone.
+func (s *graphState) readyWriteWindow(env criterion.Env) (ready []*types.TaskNode, blocked []nodeBlock) {
+	if s == nil || len(s.graph.Nodes) == 0 {
+		return nil, nil
+	}
+	for i := range s.graph.Nodes {
+		n := &s.graph.Nodes[i]
+		if n.IsCounterfactual {
+			continue
+		}
+		st := s.status[n.ID]
+		// OneShot nodes already done: never re-yield.
+		if n.OneShot && st == nodeDone {
+			continue
+		}
+		if st != nodePending && st != nodeRequeued {
+			continue
+		}
+		// Hard-dependency check.
+		depsOK := true
+		for _, e := range s.graph.Edges {
+			if e.EdgeType != types.EdgeHardDependency {
+				continue
+			}
+			if e.To != n.ID {
+				continue
+			}
+			if s.status[e.From] != nodeDone {
+				depsOK = false
+				break
+			}
+		}
+		if !depsOK {
+			continue
+		}
+		if len(n.EntryConditions) > 0 {
+			ok, failed := criterion.EvalAll(n.EntryConditions, env)
+			if !ok {
+				blocked = append(blocked, nodeBlock{NodeID: n.ID, FailedCriteria: failed})
+				continue
+			}
+		}
+		ready = append(ready, n)
+	}
+	return ready, blocked
+}
+

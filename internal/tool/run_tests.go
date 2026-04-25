@@ -191,7 +191,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	if runner == "java" {
 		reportDir := locateJUnitReportDir(ctx.RepoRoot)
 		if reportDir == "" {
-			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "java-build", "Java", output)
+			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "Java", output)
 		}
 		extraFile = reportDir
 	}
@@ -203,7 +203,7 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		// failed before the test phase — surface as build failure.
 		reportDir := locateJUnitReportDir(ctx.RepoRoot)
 		if reportDir == "" {
-			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "hvigor-build", "hvigor", output)
+			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "hvigor", output)
 		}
 		extraFile = reportDir
 	}
@@ -220,12 +220,10 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		if !produced {
 			label := "CMake"
-			assertionID := "cmake-build"
 			if runner == "meson" {
 				label = "Meson"
-				assertionID = "meson-build"
 			}
-			return synthesizeBuildFailureReport(ctx, t.Name(), runner, assertionID, label, output)
+			return synthesizeBuildFailureReport(ctx, t.Name(), runner, label, output)
 		}
 	}
 
@@ -715,42 +713,42 @@ func countFailed(results []types.TestResult) int {
 
 // synthesizeBuildFailureReport installs a single-TestResult
 // ChangeReport describing a build/configure failure that short-
-// circuited test execution. Shared by java / cmake / meson branches
-// when their expected XML artifact never materialised. The excerpt
-// is extracted from stdout/stderr via extractBuildErrorExcerpt so
-// the retry hint and verifier prompt carry concrete error text
-// rather than pointing at an opaque blob.
+// circuited test execution. Shared by java / hvigor / cmake / meson
+// branches when their expected XML artifact never materialised.
 //
-// assertionID names the synthetic test case so the operator can
-// distinguish "cmake build failed" from "cmake test X failed" in
-// the /history listing. label is the human-readable toolchain name
-// ("Java", "CMake", "Meson") for the user-facing failure summary.
+// The TestResult carries Kind=TestResultKindBuildError and structured
+// BuildErrors[] parsed from stdout via parseBuildErrors (handles
+// Maven javac, Kotlin, generic javac, TypeScript, Cangjie). When
+// no patterns match, BuildErrors is nil but FailureDetail still
+// holds a human-readable excerpt via narrativeBuildErrorExcerpt.
+// ChangeReport.BuildFailed is set so evalTestsPass surfaces a clean
+// "build failed before tests ran" message instead of "1 of 1 tests
+// failed: <synthetic-id>".
 //
-// The returned ToolResult is what run_tests.Execute should return
-// directly; caller does not call parseRunnerOutput when we short
-// out via this path.
+// label is the human-readable toolchain name ("Java", "hvigor",
+// "CMake", "Meson") for the user-facing failure summary. The
+// returned ToolResult is what run_tests.Execute returns directly;
+// caller does not call parseRunnerOutput when we short out here.
 func synthesizeBuildFailureReport(
 	ctx *types.BusContext,
-	toolName, runner, assertionID, label, output string,
+	toolName, runner, label, output string,
 ) (types.ToolResult, error) {
-	excerpt := extractBuildErrorExcerpt(output)
+	excerpt := narrativeBuildErrorExcerpt(output)
+	buildErrs := parseBuildErrors(output)
 	_, ref := StoreBlob(ctx, toolName+"-no-reports", output)
-	failSummary := fmt.Sprintf("%s build failed before tests ran (no report produced).", label)
-	if excerpt != "" {
-		firstLine := strings.SplitN(excerpt, "\n", 2)[0]
-		if len(firstLine) > 200 {
-			firstLine = firstLine[:200] + "…"
-		}
-		failSummary = fmt.Sprintf("%s build failed before tests ran: %s", label, firstLine)
-	}
+	failSummary := renderBuildFailureSummary(label, buildErrs,
+		strings.SplitN(excerpt, "\n", 2)[0])
 	report := &types.ChangeReport{
 		TestResults: []types.TestResult{{
-			AssertionID:   assertionID,
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
 			Suite:         "build",
 			Passed:        false,
 			FailureDetail: excerpt,
+			BuildErrors:   buildErrs,
 		}},
 		Passed:         false,
+		BuildFailed:    true,
 		FailureSummary: failSummary,
 		GeneratedAt:    time.Now(),
 	}

@@ -88,8 +88,10 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		"Do NOT emit_change_plan (that was the plan stage; your role is only to verify). " +
 		"Do NOT read files or shell out to construct a diff — the plan is already applied.\n")
 	baseline := ctx.Mutable.BaselineReport()
-	baselineFailures := collectBaselineFailures(baseline)
-	if len(plan.AcceptanceTests) == 0 && len(baselineFailures) == 0 {
+	baselineFailures := types.CollectBaselineFailures(baseline)
+	report := ctx.Mutable.ChangeReport()
+	buildFailed := report != nil && report.BuildFailed
+	if len(plan.AcceptanceTests) == 0 && len(baselineFailures) == 0 && !buildFailed {
 		return s.String()
 	}
 	s.WriteString("\n")
@@ -111,46 +113,63 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 		s.WriteString("## Pre-existing baseline failures\n\n")
 		s.WriteString("Before the plan was applied, the following test(s) were ALREADY failing " +
 			"(not caused by this change — the snapshot was taken against the unmodified worktree):\n\n")
-		const maxShown = 15
+		s.WriteString(types.RenderBaselineFailureList(baselineFailures, 15))
+		s.WriteString("\n## Output requirement\n\n" +
+			"You MUST call emit_test_results with three classified arrays so downstream evaluators " +
+			"have a structured signal:\n" +
+			"  - regression_assertions: tests that PASSED in baseline but FAIL now (this plan caused them)\n" +
+			"  - preexisting_assertions: tests in BOTH baseline-fail AND current-fail (unrelated to this plan)\n" +
+			"  - fixed_assertions: tests in baseline-fail BUT PASSING now (a bonus side-effect)\n\n" +
+			"Empty arrays are valid; the field is required-required (the schema rejects missing keys). " +
+			"Do not narrate the classification in failure_summary — use the structured fields. " +
+			"The Passed verdict on Mutable.ChangeReport is authoritative (parser-driven) — do not try " +
+			"to override it.")
+	}
+	// Build failures (this run) — surfaced when run_tests synthesised
+	// a TestResultKindBuildError row because the build/compile step
+	// failed before any test could run. Section is independent of
+	// baseline; render whenever the current ChangeReport carries
+	// BuildFailed=true so the LLM has concrete file:line targets.
+	if buildFailed {
+		if s.Len() > 0 {
+			s.WriteString("\n\n")
+		}
+		s.WriteString("## Build failures (this run)\n\n")
+		s.WriteString("The plan diff caused the build/compile step to fail. " +
+			"Tests did NOT run. Below are the parsed compile errors — fix these first; " +
+			"the verify gate cannot be passed until the build succeeds.\n\n")
+		var errs []types.BuildError
+		for _, tr := range report.TestResults {
+			if tr.Kind == types.TestResultKindBuildError {
+				errs = append(errs, tr.BuildErrors...)
+			}
+		}
+		const maxBuildShown = 15
 		shown := 0
-		for _, r := range baselineFailures {
-			if shown >= maxShown {
-				fmt.Fprintf(&s, "- … (+%d more)\n", len(baselineFailures)-shown)
+		for _, e := range errs {
+			if shown >= maxBuildShown {
+				fmt.Fprintf(&s, "- … (+%d more)\n", len(errs)-shown)
 				break
 			}
-			if r.Suite != "" {
-				fmt.Fprintf(&s, "- %s (%s)\n", r.AssertionID, r.Suite)
+			loc := e.File
+			if e.Line > 0 {
+				loc = fmt.Sprintf("%s:%d", e.File, e.Line)
+			}
+			if e.Column > 0 {
+				loc = fmt.Sprintf("%s:%d", loc, e.Column)
+			}
+			if e.Symbol != "" {
+				fmt.Fprintf(&s, "- %s — %s: %s\n", loc, e.Symbol, e.Message)
 			} else {
-				fmt.Fprintf(&s, "- %s\n", r.AssertionID)
+				fmt.Fprintf(&s, "- %s — %s\n", loc, e.Message)
 			}
 			shown++
 		}
-		s.WriteString("\nWhen drafting your emit_test_results narrative, classify each failing test in the " +
-			"current ChangeReport as either:\n" +
-			"  - REGRESSION: passed in baseline, fails now — this plan caused it\n" +
-			"  - PRE-EXISTING: failed in baseline AND fails now — unrelated to this plan\n" +
-			"  - (FIXED: failed in baseline, passes now — bonus; mention if relevant)\n\n" +
-			"The Passed verdict on Mutable.ChangeReport is authoritative (parser-driven) — do not " +
-			"try to override it. Use the narrative to tell the operator what's actually regressing.")
-	}
-	return s.String()
-}
-
-// collectBaselineFailures returns the subset of baseline TestResults
-// that failed, preserving order so the LLM sees the same ranking the
-// runner produced. Empty / nil baseline returns an empty slice; the
-// caller uses len(...) to gate section rendering.
-func collectBaselineFailures(baseline *types.ChangeReport) []types.TestResult {
-	if baseline == nil || len(baseline.TestResults) == 0 {
-		return nil
-	}
-	out := make([]types.TestResult, 0, len(baseline.TestResults))
-	for _, r := range baseline.TestResults {
-		if !r.Passed {
-			out = append(out, r)
+		if len(errs) == 0 {
+			s.WriteString("(No structured compile errors parsed; see ChangeReport.TestResults[0].FailureDetail for the raw build-tool excerpt.)\n")
 		}
 	}
-	return out
+	return s.String()
 }
 
 // ShouldStop terminates the ReAct loop as soon as a ChangeReport

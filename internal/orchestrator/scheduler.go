@@ -326,6 +326,11 @@ func (s *graphState) markSuccessCriteriaFailed(n *types.TaskNode, env criterion.
 }
 
 // stageMapping returns the pipeline stage for a given TaskNode type.
+// Read-mode node types (Probe / Evidence / Validate / Reconcile) all
+// route to StageExplore — the read scheduler batches them into a
+// single explorer dispatch per round. Write-mode node types each map
+// to their own stage so the write scheduler dispatches one at a time
+// with stage-specific pre/post hooks.
 func stageMapping(g types.TaskGraph, n *types.TaskNode, writing bool) (types.PipelineStage, error) {
 	_ = g
 	_ = writing
@@ -334,6 +339,12 @@ func stageMapping(g types.TaskGraph, n *types.TaskNode, writing bool) (types.Pip
 		return types.StageExplore, nil
 	case types.NodeFinalize:
 		return types.StageFinalize, nil
+	case types.NodePlan:
+		return types.StagePlan, nil
+	case types.NodeApply:
+		return types.StageApply, nil
+	case types.NodeVerify:
+		return types.StageVerify, nil
 	}
 	return "", fmt.Errorf("scheduler: unknown task node type %q", n.Type)
 }

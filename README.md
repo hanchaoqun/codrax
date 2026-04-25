@@ -116,7 +116,7 @@ read ────────────────────►  plan ─�
 - `apply_patch` 强制 W1(`path` 必须在 `ChangePlan.TargetPaths`)+ W1b(`DependsOn` 必须已 applied)。违规直接拒绝,coder 看到错误可在下一轮自修正。
 - 默认 Run 结束**销毁** worktree(清理磁盘)。开启 `pipeline_keep_worktree_on_success: true` 后,apply + verify 双双通过时保留 worktree,用户可 `cd` 进去 review / cherry-pick 到主仓。失败路径无条件清理。
 
-**verify→plan 重试循环**(可选):`pipeline_max_verify_retries` 大于 0 时,verify 失败会把失败 summary + top-3 失败测试 + 前一 plan 的 `TargetPaths`(嫌疑文件清单)喂给 planner 做二次规划。硬上限 5 次,默认 0(保守)。
+**verify→plan 重试循环**(可选):`pipeline_write_retry_budget` 大于 0 时,verify 失败会把失败 summary + top-3 失败测试 + 前一 plan 的 `TargetPaths`(嫌疑文件清单)喂给 planner 做二次规划。硬上限 5 次,默认 0(保守)。
 
 **baseline 捕获**(可选):`pipeline_baseline_capture_enabled: true` 会在 apply 前跑一遍测试套件作为 baseline 快照。verifier LLM 提示里会列出 baseline 已失败的测试,引导区分"这个 plan 造成的 REGRESSION"与"预存 PRE-EXISTING 失败"。默认关闭(测试墙钟时间翻倍)。
 
@@ -259,7 +259,7 @@ REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clea
 | 文件 | 负责 | 典型键 |
 |---|---|---|
 | [`providers.yaml`](providers.yaml.example) | LLM 凭证与路由 — 每个 agent 用哪个 provider | `api_key` / `model` / `base_url` / `stream` / `tls_*` |
-| [`codrax.yaml`](codrax.yaml.example) | 本次运行怎么跑 — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 写模式开关 + 写模式调优 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_max_verify_retries`, `pipeline_baseline_capture_enabled`, `pipeline_keep_worktree_on_success`, `write_enabled`, `blob_*`, `log_max_files` |
+| [`codrax.yaml`](codrax.yaml.example) | 本次运行怎么跑 — 日志 / memory / 语言 / 目标 repo / 流水线预算 / 写模式开关 + 写模式调优 | `log_level`, `memory_dir`, `lang`, `repo`, `branch`, `pipeline_max_steps`, `pipeline_write_retry_budget`, `pipeline_baseline_capture_enabled`, `pipeline_keep_worktree_on_success`, `write_enabled`, `blob_*`, `log_max_files` |
 
 流水线拓扑(读模式 4 阶段 × 4 agent + 写模式 plan/apply/verify)是硬编码的,没有 YAML 对应项。
 

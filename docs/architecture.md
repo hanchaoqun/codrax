@@ -249,7 +249,7 @@ stateDiagram-v2
     changeReportInstalled --> verifySuccess : Passed=true
     changeReportInstalled --> verifyRetryGate : Passed=false
 
-    verifyRetryGate --> verifyRetry : pipeline_max_verify_retries > attempts
+    verifyRetryGate --> verifyRetry : pipeline_write_retry_budget > attempts
     verifyRetryGate --> verifyFailed : 重试耗尽
     verifyRetry --> planPhase : PlanningHint 注入 → reset plan/report/worktree
 
@@ -963,7 +963,7 @@ REPL `/worktree list` 扫 PlanStore 过滤 `Status=applied && WorktreePath != ""
 
 #### 可选：verify→plan 重试循环
 
-`pipeline_max_verify_retries`（yaml，默认 0，硬上限 5）控制 `ModeApply` 里 `plan → apply → verify` 的最大迭代次数。第一次失败后：
+`pipeline_write_retry_budget`（yaml，默认 0，硬上限 5）控制 `ModeApply` 里 `plan → apply → verify` 的最大迭代次数。第一次失败后：
 
 1. `orchestrator.prepareVerifyRetry(attempt)`：
    - 调 `buildRetryHint(ChangeReport, ChangePlan, prevAttempt)` 合成 PlanningHint：失败 summary（≤300 字符）+ top-3 失败测试（AssertionID + Suite + FailureDetail 首行 ≤140 字符）+ `plan.TargetPaths`（cap 10）作"嫌疑文件清单"。上限 1500 字符。
@@ -1435,7 +1435,7 @@ sequenceDiagram
             Orch->>WT: worktree.DiscardByPath
         end
     else Passed=false
-        alt pipeline_max_verify_retries > attempts
+        alt pipeline_write_retry_budget > attempts
             Orch->>Orch: prepareVerifyRetry：buildRetryHint → Mutable.SetPlanningHint；reset ChangePlan/ChangeReport/WriteClosure；discard 当前 worktree；回到 runPlanPhase
         else 耗尽
             Orch->>Orch: persistPlanStatus(verify_failed)
@@ -1756,7 +1756,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | `readfile_*` | `readfile_small_limit_threshold` — read_file 懒惰 limit 保护 |
 | `analysis_*` | `analysis_warn_below_keywords` / `analysis_reject_below_keywords` / `analysis_generic_entity_blocklist` / `analysis_reject_multiple_emit` / `analysis_max_prescan_rounds` / `analysis_warn_below_keyword_hit_ratio` / `analysis_warn_below_entity_hit_ratio` — emit_analysis 运行时验证 |
 | `evidence_*` | `evidence_grounding_floor` / `evidence_tier1_floor` — explorer completion gate |
-| `pipeline_*` | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算；`pipeline_max_verify_retries`（写模式 verify→plan 重试上限，默认 0 / 硬上限 5）/ `pipeline_baseline_capture_enabled`（写模式 apply 前测试快照）/ `pipeline_keep_worktree_on_success`（写模式成功后保留 worktree）|
+| `pipeline_*` | `pipeline_max_steps` / `pipeline_max_retries_per_stage` / `pipeline_max_stage_visits` — 流水线预算；`pipeline_write_retry_budget`（写模式 verify→plan 重试上限，默认 0 / 硬上限 5）/ `pipeline_baseline_capture_enabled`（写模式 apply 前测试快照）/ `pipeline_keep_worktree_on_success`（写模式成功后保留 worktree）|
 | `write_enabled` | 顶层写模式开关。`false`（默认）时 `--mode=plan|apply|verify` 和 REPL `/mode plan|apply|verify` 全部 fail-loud 拒绝 |
 | `write_default_mode` | `--mode` 不传时的默认值。合法值：`read`（默认）/ `plan`。`apply` / `verify` 在这里被**拒绝**（必须 per-run opt-in） |
 | `write_auto_approval` | 预留给 REPL `/approve` 的交互默认值和 batch 工作流。单次调用不读此字段（直接看 `--auto-apply` CLI flag） |
@@ -1774,7 +1774,7 @@ per-process blob 存储。Session dir `<CWD>/.codrax/blob/<timestamp>-<pid>/`，
 | key 组 | 优先级（低 → 高） |
 |--------|------------------|
 | 裸 key | code default → `codrax.yaml` → CLI flag |
-| `pipeline_*` | code default → `codrax.yaml` → CLI flag（`--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits`）。`pipeline_max_verify_retries` / `pipeline_baseline_capture_enabled` / `pipeline_keep_worktree_on_success` 仅 yaml，无 CLI override |
+| `pipeline_*` | code default → `codrax.yaml` → CLI flag（`--pipeline-max-steps` / `--pipeline-max-retries` / `--pipeline-max-stage-visits`）。`pipeline_write_retry_budget` / `pipeline_baseline_capture_enabled` / `pipeline_keep_worktree_on_success` 仅 yaml，无 CLI override |
 | `write_enabled` | 仅 yaml（部署时决策，不按 invocation）。`--mode` 是 CLI flag，但在 `write_enabled: false` 时拒绝;REPL `/mode` 同 gate |
 | 其他所有 `*_` 组 | code default → `codrax.yaml`。**无 CLI override** |
 

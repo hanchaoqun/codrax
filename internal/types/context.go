@@ -463,6 +463,19 @@ func NewMutableState(objective string) *MutableState {
 // canonicalisations use it. Safe to call with "" — canonicalisation
 // then degrades to the historical strip-"./" behaviour, matching
 // the pre-session-22 semantics that tests rely on.
+// RepoRoot returns the cached -repo root. Useful for agent code that
+// has only the Mutable handle but needs to know the active worktree
+// path (write-mode apply/verify dispatches swap RepoRoot to the
+// worktree via SetRepoRoot).
+func (m *MutableState) RepoRoot() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.repoRoot
+}
+
 func (m *MutableState) SetRepoRoot(root string) {
 	if m == nil {
 		return

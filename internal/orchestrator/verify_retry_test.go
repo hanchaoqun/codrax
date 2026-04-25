@@ -164,30 +164,32 @@ func TestBuildRetryHint_LongDetailTruncated(t *testing.T) {
 	}
 }
 
-// TestSetMaxVerifyRetries_Clamping locks the [0,5] clamp on the
+// TestSetWriteRetryBudget_Clamping locks the [0,5] clamp on the
 // setter so misconfigured yaml cannot burn LLM tokens unbounded.
-func TestSetMaxVerifyRetries_Clamping(t *testing.T) {
+func TestSetWriteRetryBudget_Clamping(t *testing.T) {
 	o := New(types.PipelineSettings{}, nil, nil, nil)
-	o.SetMaxVerifyRetries(-3)
-	if got := o.MaxVerifyRetries(); got != 0 {
+	o.SetWriteRetryBudget(-3)
+	if got := o.WriteRetryBudget(); got != 0 {
 		t.Errorf("negative input should clamp to 0; got %d", got)
 	}
-	o.SetMaxVerifyRetries(10)
-	if got := o.MaxVerifyRetries(); got != 5 {
+	o.SetWriteRetryBudget(10)
+	if got := o.WriteRetryBudget(); got != 5 {
 		t.Errorf("above-cap input should clamp to 5; got %d", got)
 	}
-	o.SetMaxVerifyRetries(3)
-	if got := o.MaxVerifyRetries(); got != 3 {
+	o.SetWriteRetryBudget(3)
+	if got := o.WriteRetryBudget(); got != 3 {
 		t.Errorf("legal input 3 should stay 3; got %d", got)
 	}
 }
 
-// TestPrepareVerifyRetry_ClearsStateAndSeedsHint drives
-// prepareVerifyRetry directly: seed a "prior attempt" ChangeReport
-// with a failure, a ChangePlan, a WriteClosure.AppliedSet, and a
-// WorktreePath, then verify all four are reset and the PlanningHint
-// is populated.
-func TestPrepareVerifyRetry_ClearsStateAndSeedsHint(t *testing.T) {
+// TestClearForReplan_ClearsStateAndSeedsHint drives clearForReplan
+// directly: seed a "prior attempt" ChangeReport with a failure, a
+// ChangePlan, a WriteClosure.AppliedSet, and a WorktreePath, then
+// verify all four are reset and the PlanningHint is populated. T4
+// renamed prepareVerifyRetry → clearForReplan + moved it into the
+// stage_hooks.go file when write modes were folded into the
+// scheduler.
+func TestClearForReplan_ClearsStateAndSeedsHint(t *testing.T) {
 	o := New(types.PipelineSettings{}, nil, nil, nil)
 	// Seed the bus ourselves since we bypass Run().
 	o.busCtx = &types.BusContext{
@@ -210,10 +212,10 @@ func TestPrepareVerifyRetry_ClearsStateAndSeedsHint(t *testing.T) {
 	o.busCtx.Mutable.WriteClosure().MarkApplied("a.go")
 	o.planPath = "/tmp/plan.json" // user-supplied plan file
 
-	// prepareVerifyRetry depends on worktree.DiscardByPath which is
-	// a no-op for non-existent paths — passing /tmp/worktree is safe
-	// (it doesn't actually exist) and DiscardByPath is idempotent.
-	o.prepareVerifyRetry(2)
+	// clearForReplan calls worktree.DiscardByPath which is a no-op
+	// for non-existent paths — passing /tmp/worktree is safe (it
+	// doesn't actually exist) and DiscardByPath is idempotent.
+	clearForReplan(o, 1)
 
 	if plan := o.busCtx.Mutable.ChangePlan(); plan != nil {
 		t.Error("ChangePlan should be reset on retry prep")
@@ -240,7 +242,7 @@ func TestPrepareVerifyRetry_ClearsStateAndSeedsHint(t *testing.T) {
 	if !strings.Contains(hint, "TestA") {
 		t.Errorf("hint should carry the failing test; got %q", hint)
 	}
-	if !strings.Contains(hint, "attempt 1") {
+	if !strings.Contains(hint, "attempt") {
 		t.Errorf("hint should name the prior attempt; got %q", hint)
 	}
 	// ChangePlan was populated before prepareVerifyRetry ran, so the

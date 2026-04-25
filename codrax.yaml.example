@@ -160,13 +160,14 @@
 # resets ChangePlan / ChangeReport / WriteClosure / plan-path, and
 # re-enters plan. Default 0 preserves the fail-loud-on-first-fail
 # behaviour. Hard cap 5 guards against typo'd large numbers.
-# pipeline_max_verify_retries: 0
+# pipeline_write_retry_budget: 0
 
-# Baseline capture. When true, runApplyPhase runs run_tests against
-# the worktree BEFORE the coder dispatches (post-provision, pre-apply)
-# so the CritNoRegression criterion can compare pre/post MetricDeltas.
-# Doubles test-suite wall time — leave false unless the repo has known
-# pre-existing regressions to distinguish from newly-introduced ones.
+# Baseline capture. When true, the apply pre-hook runs run_tests
+# against the worktree BEFORE the coder dispatches (post-provision,
+# pre-apply) so the CritNoRegression criterion can compare pre/post
+# MetricDeltas. Doubles test-suite wall time — leave false unless
+# the repo has known pre-existing regressions to distinguish from
+# newly-introduced ones.
 # pipeline_baseline_capture_enabled: false
 
 # Preserve the apply-phase worktree when Mode=ModeApply completes with

@@ -157,6 +157,58 @@ func TestEvalTestsPass_FilterIsolatesFailure(t *testing.T) {
 	}
 }
 
+// Build-failure fast-fail: when ChangeReport.BuildFailed is set,
+// evalTestsPass returns Satisfied=false with a build-summary message,
+// regardless of any per-test counts. Avoids the misleading "1 of 1
+// tests failed: <synthetic-build-id>" output.
+func TestEvalTestsPass_BuildFailedFastFail(t *testing.T) {
+	env := Env{
+		ChangeReport: &types.ChangeReport{
+			BuildFailed:    true,
+			FailureSummary: "Java build failed: 2 compile error(s) in 1 file(s); first: /src/Foo.java:42 — cannot find symbol",
+			TestResults: []types.TestResult{{
+				Kind:        types.TestResultKindBuildError,
+				AssertionID: "/src/Foo.java:42",
+				Suite:       "build",
+				Passed:      false,
+			}},
+		},
+	}
+	r := evalTestsPass("", env)
+	if r.Satisfied {
+		t.Error("BuildFailed must NOT be satisfied")
+	}
+	if !strings.Contains(r.Detail, "build failed") {
+		t.Errorf("detail should mention build failure; got %q", r.Detail)
+	}
+	if strings.Contains(r.Detail, "1 of 1 tests failed") {
+		t.Errorf("detail must NOT use the misleading per-test phrasing; got %q", r.Detail)
+	}
+}
+
+// Build-error rows mixed with passing unit tests: the build-error row
+// should not be counted as a failed unit test (skipped via Kind check).
+// Note: BuildFailed=false in this test because we're checking the
+// secondary skip — the report has a build-error row but Passed bool
+// flag isn't set globally.
+func TestEvalTestsPass_BuildErrorRowsSkipped(t *testing.T) {
+	env := Env{
+		ChangeReport: &types.ChangeReport{
+			TestResults: []types.TestResult{
+				{Kind: types.TestResultKindUnit, AssertionID: "TestA", Passed: true},
+				{Kind: types.TestResultKindBuildError, AssertionID: "/x.java:1", Passed: false},
+			},
+		},
+	}
+	r := evalTestsPass("", env)
+	// All unit tests passed; build-error rows are skipped because they
+	// represent a different failure class (BuildFailed flag would have
+	// fast-failed the criterion otherwise).
+	if !r.Satisfied {
+		t.Errorf("unit test passed and build-error rows should be skipped; got %+v", r)
+	}
+}
+
 func TestEvalTestsPass_ManyFailuresTruncatedDetail(t *testing.T) {
 	var results []types.TestResult
 	for i := 0; i < 20; i++ {
@@ -172,6 +224,102 @@ func TestEvalTestsPass_ManyFailuresTruncatedDetail(t *testing.T) {
 	}
 	if !strings.Contains(r.Detail, "more") {
 		t.Errorf("detail should elide long failure lists with '+N more'; got %q", r.Detail)
+	}
+}
+
+// When ChangeReport.RegressionAssertions is populated by the verifier
+// LLM (via emit_test_results), evalNoRegression trusts that
+// classification verbatim — the LLM saw both halves of the diff plus
+// the plan's TargetPaths, so its judgment beats the deterministic
+// baseline-vs-current map for borderline cases.
+func TestEvalNoRegression_StructuredFieldsTrumpDiff(t *testing.T) {
+	env := Env{
+		// Diff path WOULD say TestB regressed (passed in baseline,
+		// fails now). But the LLM's classification says only TestC
+		// is the regression; TestB is pre-existing under load.
+		BaselineReport: &types.ChangeReport{
+			TestResults: []types.TestResult{
+				{Kind: types.TestResultKindUnit, AssertionID: "TestA", Passed: true},
+				{Kind: types.TestResultKindUnit, AssertionID: "TestB", Passed: true},
+				{Kind: types.TestResultKindUnit, AssertionID: "TestC", Passed: true},
+			},
+		},
+		ChangeReport: &types.ChangeReport{
+			TestResults: []types.TestResult{
+				{Kind: types.TestResultKindUnit, AssertionID: "TestA", Passed: true},
+				{Kind: types.TestResultKindUnit, AssertionID: "TestB", Passed: false},
+				{Kind: types.TestResultKindUnit, AssertionID: "TestC", Passed: false},
+			},
+			RegressionAssertions:  []string{"TestC"},
+			PreexistingAssertions: []string{"TestB"},
+		},
+	}
+	r := evalNoRegression("", env)
+	if r.Satisfied {
+		t.Error("LLM said TestC regressed → criterion must NOT be satisfied")
+	}
+	if !strings.Contains(r.Detail, "TestC") {
+		t.Errorf("detail should report the LLM-classified regression; got %q", r.Detail)
+	}
+	if strings.Contains(r.Detail, "TestB") {
+		t.Errorf("detail must NOT include LLM-classified pre-existing failure as regression; got %q", r.Detail)
+	}
+}
+
+// Inverse: LLM says no regressions (empty array, but PRESENT).
+// evalNoRegression should return Satisfied=true even when the diff
+// would have flagged something.
+//
+// NOTE: empty regression_assertions doesn't currently distinguish "no
+// regressions" from "LLM didn't classify"; the schema-level required
+// keys make the LLM ALWAYS supply the array, so empty == "checked,
+// nothing regressed". Diff fallback only fires when the verifier
+// agent didn't run emit_test_results at all.
+func TestEvalNoRegression_StructuredEmptyTriggersDiffFallback(t *testing.T) {
+	// LLM didn't emit_test_results — RegressionAssertions/Preexisting
+	// stay nil (the report struct is fresh from the parser). Diff
+	// fallback should still detect the regression.
+	env := Env{
+		BaselineReport: &types.ChangeReport{
+			TestResults: []types.TestResult{
+				{Kind: types.TestResultKindUnit, AssertionID: "TestRegress", Passed: true},
+			},
+		},
+		ChangeReport: &types.ChangeReport{
+			TestResults: []types.TestResult{
+				{Kind: types.TestResultKindUnit, AssertionID: "TestRegress", Passed: false},
+			},
+			// RegressionAssertions intentionally nil.
+		},
+	}
+	r := evalNoRegression("", env)
+	if r.Satisfied {
+		t.Error("diff fallback should flag the regression when LLM didn't classify")
+	}
+}
+
+// Build-error rows in baseline are excluded — they're a different
+// failure class. Baseline build failures shouldn't masquerade as
+// passing tests in the diff path.
+func TestEvalNoRegression_SkipsBuildErrorBaseline(t *testing.T) {
+	env := Env{
+		BaselineReport: &types.ChangeReport{
+			TestResults: []types.TestResult{
+				{Kind: types.TestResultKindBuildError, AssertionID: "/x.java:1", Passed: false},
+				{Kind: types.TestResultKindUnit, AssertionID: "TestA", Passed: true},
+			},
+		},
+		ChangeReport: &types.ChangeReport{
+			TestResults: []types.TestResult{
+				// Build error in baseline must NOT be counted as a
+				// "now-passing" test that fixes regressions etc.
+				{Kind: types.TestResultKindUnit, AssertionID: "TestA", Passed: true},
+			},
+		},
+	}
+	r := evalNoRegression("", env)
+	if !r.Satisfied {
+		t.Errorf("clean post-apply should be satisfied; got %+v", r)
 	}
 }
 

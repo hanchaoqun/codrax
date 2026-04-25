@@ -466,6 +466,17 @@ type TaskNode struct {
 	SearchHints      SearchHints `json:"search_hints"`
 	IsCounterfactual bool        `json:"is_counterfactual,omitempty"`
 	MaxRetries       int         `json:"max_retries,omitempty"`
+
+	// OneShot caps the node at one successful dispatch. After
+	// markDone the scheduler skips it on subsequent ready-window
+	// scans even when the node still satisfies its EntryConditions.
+	// Used for terminal-shape nodes: NodeFinalize (read mode) and
+	// NodePlan (write mode); Apply/Verify are NOT OneShot so the
+	// verify→plan retry cycle can re-queue them via
+	// EdgeValidationFeedback. Defaults to false to preserve the
+	// pre-T4 yield-on-EntryConditions semantics for read explorer
+	// nodes.
+	OneShot bool `json:"one_shot,omitempty"`
 }
 
 type TaskNodeType string
@@ -499,12 +510,15 @@ const (
 	EdgeHardDependency     EdgeType = "hard_dependency"
 	EdgeSoftDependency     EdgeType = "soft_dependency"
 	EdgeValidationFeedback EdgeType = "validation_feedback"
-	// Write-mode feedback-edge note: verify→plan requeue is handled
-	// today by orchestrator.prepareVerifyRetry + PlanningHint (B2.3)
-	// rather than a scheduler edge, because write mode bypasses
-	// runTaskGraph. A future B3 that wires write nodes into the DAG
-	// would re-introduce a feedback edge constant modeled on
-	// EdgeValidationFeedback + requeueValidationTargets.
+	// EdgeValidationFeedback also drives the write-mode verify→plan
+	// retry cycle: BuildWriteTaskGraph emits an edge from the verify
+	// node back to the plan node so a verify SuccessCriteria failure
+	// (TestsPass / NoRegression) requeues the plan via
+	// requeueValidationTargets. The orchestrator's clearForReplan
+	// helper resets ChangePlan / WriteClosure.AppliedSet / PlanPath
+	// before the requeue and seeds Mutable.PlanningHint with the
+	// failure summary so the planner's next dispatch sees the
+	// retry rationale.
 )
 
 type ExecutionPolicy struct {

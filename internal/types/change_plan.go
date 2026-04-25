@@ -210,13 +210,76 @@ type ChangeReport struct {
 	// configured threshold. Read by CritNoRegression evaluator.
 	Passed bool `json:"passed"`
 
+	// BuildFailed is true when the test harness short-circuited
+	// because the build/compile step failed before any test could
+	// run. evalTestsPass uses this as a top-level fast-fail so
+	// "tests_pass: 1 of 1 tests failed: java-build" doesn't show up
+	// as the rejection reason — operators get a clear "build failed
+	// before tests ran" message instead. Always true for
+	// TestResults that contain a TestResultKindBuildError entry.
+	BuildFailed bool `json:"build_failed,omitempty"`
+
 	// FailureSummary is a human-readable explanation when
 	// Passed=false. Rendered in the user-visible AnswerDocument.
 	// Empty when Passed=true.
 	FailureSummary string `json:"failure_summary,omitempty"`
 
+	// RegressionAssertions lists test AssertionIDs the verifier LLM
+	// classified as "passed in baseline, fails now — caused by this
+	// plan". Authoritative for evalNoRegression — populated by
+	// emit_test_results when the verifier explicitly classifies
+	// failures, falling back to a baseline-vs-current diff in
+	// run_tests_parsers when the LLM doesn't. Empty when
+	// BaselineReport is absent (regression check skipped).
+	RegressionAssertions []string `json:"regression_assertions,omitempty"`
+
+	// PreexistingAssertions lists test AssertionIDs that failed
+	// in BOTH baseline AND current — unrelated to this plan.
+	// Surfaced in the answer document so the operator knows which
+	// failures predate the change. Populated alongside
+	// RegressionAssertions by emit_test_results / run_tests_parsers.
+	PreexistingAssertions []string `json:"preexisting_assertions,omitempty"`
+
+	// FixedAssertions lists test AssertionIDs that failed in
+	// baseline but pass now — a side-benefit of the plan. Bonus
+	// signal; not used by any criterion but rendered to the user.
+	FixedAssertions []string `json:"fixed_assertions,omitempty"`
+
 	// GeneratedAt is the verify-stage completion timestamp.
 	GeneratedAt time.Time `json:"generated_at"`
+}
+
+// TestResultKind tags a TestResult so downstream consumers can tell
+// "compile error before tests ran" apart from "unit test failed".
+// Replaces the earlier string convention (AssertionID="java-build" /
+// "cargo-build" / "hvigor-build" / etc.) with a structured field.
+type TestResultKind string
+
+const (
+	// TestResultKindUnit is a normal test case outcome from a
+	// language-specific test runner. Default value when not
+	// explicitly set.
+	TestResultKindUnit TestResultKind = "unit"
+
+	// TestResultKindBuildError is a synthetic TestResult emitted
+	// when the build/compile step failed before any test ran. The
+	// BuildErrors[] field carries structured file:line:msg entries
+	// extracted from build-tool stdout; FailureDetail still carries
+	// a free-form excerpt for human reading.
+	TestResultKindBuildError TestResultKind = "build_error"
+)
+
+// BuildError is one structured compile-error entry parsed from
+// build-tool stdout. Populated only on TestResultKindBuildError
+// entries. Consumers (verifier prompt, /history rendering) walk
+// BuildErrors[] to surface concrete file:line targets the LLM /
+// operator can act on.
+type BuildError struct {
+	File    string `json:"file"`              // repo-relative or absolute as printed by the tool
+	Line    int    `json:"line,omitempty"`    // 1-based; 0 = unknown
+	Column  int    `json:"column,omitempty"`  // 1-based; 0 = unknown
+	Symbol  string `json:"symbol,omitempty"`  // optional — e.g. "TS2304" / "AssertionError"
+	Message string `json:"message"`           // the compiler's error text (single line)
 }
 
 // TestResult is one row in ChangeReport.TestResults. Mirrors the
@@ -224,17 +287,25 @@ type ChangeReport struct {
 // mocha --reporter json) expose so the B3 parser surface is
 // minimal.
 type TestResult struct {
+	// Kind classifies this TestResult. TestResultKindUnit for
+	// normal test outcomes; TestResultKindBuildError for synthetic
+	// rows describing a pre-test build failure.
+	Kind TestResultKind `json:"kind,omitempty"`
+
 	// AssertionID is the canonical identifier used for matching
 	// against ChangePlan.AcceptanceTests. Format is framework-
 	// specific ("TestFoo", "test_module.TestClass.test_method").
+	// For build-error entries, conventionally "<file>:<line>" of
+	// the first error or empty when unparseable.
 	AssertionID string `json:"assertion_id"`
 
 	// Suite groups related assertions (Go package path, pytest
 	// module, etc.). Same suite on all tests from one
-	// run_tests invocation.
+	// run_tests invocation. "build" for build-error entries.
 	Suite string `json:"suite"`
 
-	// Passed is true when the framework reported success.
+	// Passed is true when the framework reported success. Always
+	// false for build-error entries.
 	Passed bool `json:"passed"`
 
 	// Duration is observed wall-clock time.
@@ -244,6 +315,12 @@ type TestResult struct {
 	// test failed; empty on pass. Bounded to ~2 KB per test so a
 	// ChangeReport stays readable.
 	FailureDetail string `json:"failure_detail,omitempty"`
+
+	// BuildErrors is populated only when Kind == TestResultKindBuildError.
+	// Each entry is a parsed file:line:msg compile error from build-tool
+	// stdout. Empty when the parser couldn't extract structured info —
+	// FailureDetail is then the only signal.
+	BuildErrors []BuildError `json:"build_errors,omitempty"`
 }
 
 // MetricDelta records one pre-vs-post change measurement the verify

@@ -171,6 +171,57 @@ test-v:
 endif
 
 # ---------------------------------------------------------------------------
+# kind=patch end-to-end eval suite
+#
+# Drives the real LLM through plan→apply→verify against five language
+# fixtures (C, C++, Go, Java, Python) each carrying a one-line typo
+# that breaks compilation. The case files (eval/cases/patch_*_typo.case)
+# require:
+#   - $PROVIDERS_CONFIG pointing at a providers.yaml with valid LLM
+#     credentials (the case shells out to ./codrax)
+#   - codrax.yaml (or env equivalents) with write_enabled: true
+#
+# Each case runs with the harness default N=3 samples; per-run logs
+# land under eval/results/<case-id>-<timestamp>/ for inspection. The
+# suite is intentionally shell-driven (not `go test`) because real
+# LLM calls have no place in `make test`.
+#
+# Override sample count: `make eval-patch SAMPLES=5`. Run a single
+# case via `bash eval/run.sh eval/cases/patch_go_typo.case 3`.
+# ---------------------------------------------------------------------------
+.PHONY: eval-patch eval-patch-go eval-patch-c eval-patch-cpp eval-patch-java eval-patch-python
+
+SAMPLES ?= 3
+
+ifeq ($(HOST_OS),windows)
+eval-patch:
+	@echo "eval-patch is unix-only (run.sh requires bash); use WSL or run cases manually"
+	@exit 1
+else
+eval-patch: build
+	@for case in eval/cases/patch_*_typo.case; do \
+		echo "=== $$case ==="; \
+		bash eval/run.sh $$case $(SAMPLES) || true; \
+	done
+	@echo "Done. Per-case results under eval/results/."
+
+eval-patch-go: build
+	bash eval/run.sh eval/cases/patch_go_typo.case $(SAMPLES)
+
+eval-patch-c: build
+	bash eval/run.sh eval/cases/patch_c_typo.case $(SAMPLES)
+
+eval-patch-cpp: build
+	bash eval/run.sh eval/cases/patch_cpp_typo.case $(SAMPLES)
+
+eval-patch-java: build
+	bash eval/run.sh eval/cases/patch_java_typo.case $(SAMPLES)
+
+eval-patch-python: build
+	bash eval/run.sh eval/cases/patch_python_typo.case $(SAMPLES)
+endif
+
+# ---------------------------------------------------------------------------
 # Clean
 # ---------------------------------------------------------------------------
 .PHONY: clean clean-dist

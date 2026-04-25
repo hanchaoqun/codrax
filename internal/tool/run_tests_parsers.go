@@ -87,7 +87,7 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 		failSummary string
 	)
 	if !passed {
-		detail = extractBuildErrorExcerpt(stdout)
+		detail = narrativeBuildErrorExcerpt(stdout)
 		if detail == "" {
 			// Nothing marker-like in the output — at least carry the
 			// error string itself so the retry hint isn't empty.
@@ -101,6 +101,7 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 	}
 	report := &types.ChangeReport{
 		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindUnit,
 			AssertionID:   "make-test",
 			Suite:         "make",
 			Passed:        passed,
@@ -233,6 +234,7 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 			}
 		}
 		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindUnit,
 			AssertionID:   a.name,
 			Suite:         a.suite,
 			Passed:        a.passed,
@@ -353,6 +355,7 @@ func parseJestJSON(stdout string) (*types.ChangeReport, error) {
 				}
 			}
 			results = append(results, types.TestResult{
+				Kind:          types.TestResultKindUnit,
 				AssertionID:   id,
 				Suite:         tr.Name,
 				Passed:        passed,
@@ -438,6 +441,7 @@ func parsePytestJSONReport(reportFile, stdout, cmdStr string) (*types.ChangeRepo
 			}
 		}
 		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindUnit,
 			AssertionID:   name,
 			Suite:         suite,
 			Passed:        passed,
@@ -531,6 +535,7 @@ func parseCargoTestText(stdout string) (*types.ChangeReport, error) {
 			detail = failureDetails[t.name]
 		}
 		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindUnit,
 			AssertionID:   t.name,
 			Suite:         "cargo",
 			Passed:        t.passed,
@@ -552,24 +557,44 @@ func parseCargoTestText(stdout string) (*types.ChangeReport, error) {
 		}
 	}
 
+	buildFailed := false
 	if len(results) == 0 && aggMatch == nil {
-		// Neither per-test nor aggregate lines — cargo probably
-		// failed to build. Return a single synthetic failure.
+		// Neither per-test nor aggregate lines — cargo / cjpm probably
+		// failed to build. Synthesise a structured build-error row.
+		buildErrs := parseBuildErrors(stdout)
 		results = append(results, types.TestResult{
-			AssertionID:   "cargo-build",
-			Suite:         "cargo",
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			Suite:         "build",
 			Passed:        false,
 			FailureDetail: truncateDetail(stdout, 4000),
+			BuildErrors:   buildErrs,
 		})
 		allPassed = false
+		buildFailed = true
+	}
+
+	// Tag every successful unit row with Kind=Unit so consumers
+	// reading `tr.Kind == TestResultKindUnit` (verifier prompt,
+	// criterion eval) match without falling through the empty-string
+	// default. Build-error rows already carry their kind above.
+	for i := range results {
+		if results[i].Kind == "" {
+			results[i].Kind = types.TestResultKindUnit
+		}
 	}
 
 	report := &types.ChangeReport{
 		TestResults: results,
 		Passed:      allPassed && len(results) > 0,
+		BuildFailed: buildFailed,
 	}
 	if !report.Passed {
-		if aggFailed > 0 {
+		if buildFailed {
+			report.FailureSummary = renderBuildFailureSummary("cargo/cjpm",
+				results[0].BuildErrors,
+				strings.SplitN(narrativeBuildErrorExcerpt(stdout), "\n", 2)[0])
+		} else if aggFailed > 0 {
 			report.FailureSummary = fmt.Sprintf("cargo test: %d failure(s); see per-test detail.", aggFailed)
 		} else {
 			report.FailureSummary = "cargo test reported failure (build error or test panic); see raw stdout."
@@ -601,30 +626,31 @@ func minInt(a, b int) int {
 	return b
 }
 
-// extractBuildErrorExcerpt scans build-tool stdout/stderr for lines
+// narrativeBuildErrorExcerpt scans build-tool stdout/stderr for lines
 // that plausibly describe a compile or configuration failure and
 // returns a bounded excerpt suitable for embedding in a TestResult's
 // FailureDetail. Used by runners whose build step precedes test
 // execution and can fail without producing a parseable artifact
-// (Maven/Gradle, today).
+// (Maven/Gradle/hvigor/cjpm/cmake/meson/make).
 //
-// Selection markers are deliberately generic across JVM-family build
-// tools rather than Maven-specific phrasing, so the same function
-// generalises to Gradle / Kotlin / Scala output:
+// Selection markers are deliberately generic across build tools so
+// one function covers JVM, native, and HarmonyOS toolchains:
 //
-//   - "[ERROR]"                 — Maven log prefix
-//   - "FAILURE:" / "* What went wrong:" — Gradle failure sections
-//   - "BUILD FAILURE" / "BUILD FAILED"   — either tool's verdict line
-//   - "error:" / "Error:"       — javac / scalac / most compilers
+//   - "[ERROR]"                 — Maven / Gradle log prefix
+//   - "FAILURE:" / "What went wrong"   — Gradle failure sections
+//   - "BUILD FAILURE" / "BUILD FAILED" — either tool's verdict line
+//   - "error:" / "Error:"       — javac / scalac / kotlinc / cjpm
 //   - " e: "                    — kotlinc error line prefix
-//   - ":<line>: error:"         — the file:line error shape
+//   - "TS"                      — TypeScript error code (TS2304 etc.)
 //
-// When no markers match (unlikely but possible with a totally
-// malformed command), falls back to the first few non-blank lines
-// of stdoutHead so the caller always has SOMETHING to show.
+// Pairs with parseBuildErrors which extracts structured file:line:msg
+// rows. The narrative excerpt is the human-readable companion that
+// retains marker-less context (e.g. "Could not resolve dependency
+// foo:bar:1.0").
 //
 // Output bounded to ~1500 chars and at most 10 matched lines.
-func extractBuildErrorExcerpt(stdout string) string {
+// When no markers match, falls back to the first 5 non-empty lines.
+func narrativeBuildErrorExcerpt(stdout string) string {
 	const (
 		maxLines = 10
 		maxChars = 1500
@@ -689,6 +715,192 @@ func extractBuildErrorExcerpt(stdout string) string {
 		out = out[:maxChars] + "\n…[truncated]"
 	}
 	return out
+}
+
+// Build-error regexes — five shapes covering the toolchains run_tests
+// supports. Order matters: more-specific patterns must match first so
+// a fragment like "Bar.java:42" doesn't get swallowed by the generic
+// fallback.
+//
+//   1. Maven javac: "[ERROR] /path/Foo.java:[42,5] cannot find symbol"
+//   2. Kotlin:      "e: file:///path/Foo.kt:42:5 Unresolved reference"
+//   3. Generic:     "/path/Foo.java:42: error: cannot find symbol"
+//                   (also covers Scala, plain javac/scalac, Gradle
+//                   compileJava task output)
+//   4. TS (paren):  "/path/foo.ts(42,5): error TS2304: …"
+//                   (also "ERROR: /path/foo.ts(42,5): TS2304: …")
+//   5. TS (colon):  "/path/foo.ts:42:5 - error TS2304: …"
+//   6. Cangjie:     "error: /path/Bar.cj:42:5: …"
+//
+// Each capture group: file, line, optional col, optional symbol/code,
+// message. parseBuildErrors normalises into BuildError rows and
+// dedups by (file, line, col).
+var (
+	reBuildMavenJavac = regexp.MustCompile(
+		`\[ERROR\]\s+(\S+\.(?:java|scala|kt|kts)):\[(\d+),(\d+)\]\s+(.+)`)
+	reBuildKotlin = regexp.MustCompile(
+		`(?m)^\s*e:\s+(?:file://)?(\S+\.(?:kt|kts)):(\d+):(\d+):?\s+(.+)`)
+	reBuildGenericFLine = regexp.MustCompile(
+		`(?m)^\s*(?:\[ERROR\]\s+)?(\S+\.(?:java|scala|kt|kts|ets|ts|tsx)):(\d+):(?:\s*\d+:)?\s*(?:error|ERROR):\s+(.+)`)
+	reBuildTSParen = regexp.MustCompile(
+		`(?m)^\s*(?:ERROR:\s+)?(\S+\.(?:ts|tsx|ets)):?\((\d+),(\d+)\):\s+(?:error\s+)?(?:(TS\d+):\s+)?(.+)`)
+	reBuildTSColon = regexp.MustCompile(
+		`(?m)^\s*(\S+\.(?:ts|tsx|ets)):(\d+):(\d+)\s+-\s+error\s+(?:(TS\d+):\s+)?(.+)`)
+	reBuildCangjie = regexp.MustCompile(
+		`(?m)^\s*(?:\[ERROR\]\s+|error:\s+)(\S+\.cj):(\d+):(\d+)?:?\s+(.+)`)
+)
+
+// parseBuildErrors extracts structured BuildError rows from build-
+// tool stdout. Returns nil when no patterns match (caller can still
+// rely on narrativeBuildErrorExcerpt for human-readable text).
+//
+// Bounded to maxBuildErrors entries — projects with hundreds of
+// compile errors after a typo only need the first handful surfaced
+// for the LLM to fix. Dedup is by (file, line, column) so the same
+// row matched by two regexes (e.g. Maven [ERROR] + the embedded
+// generic file:line:error: shape) appears once.
+//
+// File paths are NOT canonicalised here — they're whatever the
+// build tool emitted. Verifier/coder render them as-is so the LLM
+// sees the same identifier the operator would see in a terminal.
+func parseBuildErrors(stdout string) []types.BuildError {
+	const maxBuildErrors = 25
+	if strings.TrimSpace(stdout) == "" {
+		return nil
+	}
+	type key struct {
+		file string
+		line int
+		col  int
+	}
+	seen := make(map[key]struct{})
+	out := make([]types.BuildError, 0, 8)
+
+	add := func(file string, line, col int, symbol, message string) {
+		file = strings.TrimSpace(file)
+		message = strings.TrimSpace(message)
+		if file == "" || message == "" {
+			return
+		}
+		k := key{file: file, line: line, col: col}
+		if _, dup := seen[k]; dup {
+			return
+		}
+		seen[k] = struct{}{}
+		out = append(out, types.BuildError{
+			File: file, Line: line, Column: col,
+			Symbol: strings.TrimSpace(symbol), Message: message,
+		})
+	}
+
+	// 1. Maven javac
+	for _, m := range reBuildMavenJavac.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		col, _ := strconv.Atoi(m[3])
+		add(m[1], line, col, "", m[4])
+	}
+	// 2. Kotlin
+	for _, m := range reBuildKotlin.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		col, _ := strconv.Atoi(m[3])
+		add(m[1], line, col, "", m[4])
+	}
+	// 3. Generic javac/scalac/Gradle compile
+	for _, m := range reBuildGenericFLine.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		add(m[1], line, 0, "", m[3])
+	}
+	// 4. TypeScript paren-shape
+	for _, m := range reBuildTSParen.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		col, _ := strconv.Atoi(m[3])
+		add(m[1], line, col, m[4], m[5])
+	}
+	// 5. TypeScript colon-shape
+	for _, m := range reBuildTSColon.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		col, _ := strconv.Atoi(m[3])
+		add(m[1], line, col, m[4], m[5])
+	}
+	// 6. Cangjie
+	for _, m := range reBuildCangjie.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		line, _ := strconv.Atoi(m[2])
+		col := 0
+		if m[3] != "" {
+			col, _ = strconv.Atoi(m[3])
+		}
+		add(m[1], line, col, "", m[4])
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// renderBuildFailureSummary builds the FailureSummary string for a
+// build-failure ChangeReport. Pulls from structured BuildErrors[]
+// when available (concise file:line + first error), falling back to
+// the narrative excerpt's first line. Bounded to ~200 chars after
+// the prefix so the verifier prompt + REPL render cleanly.
+func renderBuildFailureSummary(label string, errs []types.BuildError, narrativeFirstLine string) string {
+	if len(errs) == 0 {
+		if narrativeFirstLine == "" {
+			return label + " build failed before tests ran (no recognized error markers; see FailureDetail)."
+		}
+		clipped := narrativeFirstLine
+		if len(clipped) > 200 {
+			clipped = clipped[:200] + "…"
+		}
+		return fmt.Sprintf("%s build failed before tests ran: %s", label, clipped)
+	}
+	files := map[string]struct{}{}
+	for _, e := range errs {
+		files[e.File] = struct{}{}
+	}
+	first := errs[0]
+	loc := first.File
+	if first.Line > 0 {
+		loc = fmt.Sprintf("%s:%d", first.File, first.Line)
+	}
+	msg := first.Message
+	if len(msg) > 160 {
+		msg = msg[:160] + "…"
+	}
+	return fmt.Sprintf("%s build failed: %d compile error(s) in %d file(s); first: %s — %s",
+		label, len(errs), len(files), loc, msg)
+}
+
+// firstBuildErrorAssertionID returns "<file>:<line>" of the first
+// BuildError, or "" when errs is empty. Used as a stable
+// AssertionID for build-error TestResults so /history rendering
+// shows operators where to look without inventing a string convention.
+func firstBuildErrorAssertionID(errs []types.BuildError) string {
+	if len(errs) == 0 {
+		return ""
+	}
+	e := errs[0]
+	if e.Line > 0 {
+		return fmt.Sprintf("%s:%d", e.File, e.Line)
+	}
+	return e.File
 }
 
 // ── Java: JUnit XML (Maven surefire / Gradle testreport) ──────────
@@ -850,6 +1062,7 @@ func junitCasesToResults(s junitTestSuite) []types.TestResult {
 			dur = time.Duration(secs * float64(time.Second))
 		}
 		out = append(out, types.TestResult{
+			Kind:          types.TestResultKindUnit,
 			AssertionID:   id,
 			Suite:         s.Name,
 			Passed:        passed,
@@ -949,6 +1162,7 @@ func parseRSpecJSON(stdout string) (*types.ChangeReport, error) {
 			}
 		}
 		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindUnit,
 			AssertionID:   ex.FullDescription,
 			Suite:         ex.FilePath,
 			Passed:        passed,

@@ -592,7 +592,7 @@ llm:
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `write_enabled` | `false` | 顶层开关。默认关;为 `true` 才允许 `--mode=plan / apply / verify` 或 REPL `/mode plan / apply / verify` 触发。不开启的情况下即使显式传 `--mode=plan` 也会 fail-loud 拒绝(避免误开) |
-| `pipeline_max_verify_retries` | `0` | verify→plan 重试循环上限。`0` 保守(verify 失败直接报告);`>0` 启用重试 —— verify 失败后生成 PlanningHint(失败 summary + 失败测试 + 嫌疑文件)喂给 planner 二次规划。硬上限 5 |
+| `pipeline_write_retry_budget` | `0` | verify→plan 重试循环上限。`0` 保守(verify 失败直接报告);`>0` 启用重试 —— verify 失败后生成 PlanningHint(失败 summary + 失败测试 + 嫌疑文件)喂给 planner 二次规划。硬上限 5 |
 | `pipeline_baseline_capture_enabled` | `false` | apply 前跑一次测试套件作为 baseline 快照。verifier LLM 据此把失败归类为 REGRESSION / PRE-EXISTING / FIXED。测试墙钟时间翻倍,仓库有已知 pre-existing 失败时打开 |
 | `pipeline_keep_worktree_on_success` | `false` | apply + verify 双双成功时**不销毁** worktree,路径暴露给用户 review 或 cherry-pick。失败路径无条件销毁 |
 
@@ -812,7 +812,7 @@ Planner 默认倾向于 `patch`(小改),需要整体重写时选 `modify`。
 
 #### 可选:verify→plan 重试循环
 
-`pipeline_max_verify_retries`(yaml,默认 0,硬上限 5)大于 0 时,verify 失败会清空 plan + 生成一份 PlanningHint(失败 summary + 前 3 条失败测试名 + 每条的 FailureDetail 首行 + 前一 plan 的 `TargetPaths` 嫌疑清单),再 dispatch planner 做第二次规划。如果新 plan 也失败,继续 —— 直到成功或耗尽重试预算。
+`pipeline_write_retry_budget`(yaml,默认 0,硬上限 5)大于 0 时,verify 失败会清空 plan + 生成一份 PlanningHint(失败 summary + 前 3 条失败测试名 + 每条的 FailureDetail 首行 + 前一 plan 的 `TargetPaths` 嫌疑清单),再 dispatch planner 做第二次规划。如果新 plan 也失败,继续 —— 直到成功或耗尽重试预算。
 
 默认 0 是为了保守(fail-loud);开启后会花更多 LLM token,适合你相信 planner 能在几轮内收敛的场景。
 
@@ -1213,7 +1213,7 @@ codrax -r "应用卡顿后 crash,根因是什么?" \
 ```yaml
 write_enabled: true
 pipeline_keep_worktree_on_success: true   # 让 worktree 留下给你 review
-pipeline_max_verify_retries: 2            # 如果 plan 写得有问题允许自动再试两次
+pipeline_write_retry_budget: 2            # 如果 plan 写得有问题允许自动再试两次
 ```
 
 **操作**:
@@ -1291,7 +1291,7 @@ git cherry-pick <worktree-commit-sha>
 rm -rf .codrax/worktrees/<trace>-<pid>
 ```
 
-**出错示例**:如果 planner 生成的 kind=patch 因为行号漂移 `git apply` 失败了,`pipeline_max_verify_retries` 为 2 时你会看到:
+**出错示例**:如果 planner 生成的 kind=patch 因为行号漂移 `git apply` 失败了,`pipeline_write_retry_budget` 为 2 时你会看到:
 
 ```
    ... apply failed: hunk at @@ -620,7 +620,7 doesn't match ...

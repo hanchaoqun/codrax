@@ -36,7 +36,7 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse this crash" --log -
 ./codrax --mode=apply --plan-file=/tmp/p.json --auto-apply              # apply + verify; worktree sandboxed
 ./codrax --mode=verify --plan-file=/tmp/p.json                          # rerun verify against existing plan
 # REPL write mode: /mode [read|plan|apply|verify] (sticky); /plan [show|clear|list]; /approve; /reject [reason]
-# pipeline_max_verify_retries (yaml, default 0, cap 5): enables verify→plan retry loop with PlanningHint injection
+# pipeline_write_retry_budget (yaml, default 0, cap 5): enables verify→plan retry loop with PlanningHint injection
 ```
 
 ## Architecture
@@ -63,13 +63,15 @@ Phase 1 dispatches analyze with fail-loud retry (`MaxRetriesPerStage`). Phase 2 
 
 ### Write mode (plan → apply → verify, opt-in)
 
-When `BusContext.Mode` is anything but `ModeRead`, the read pipeline still runs analyze as a classifier, then `Run()` branches to mode-specific phase functions that **bypass the scheduler entirely** (R6a design decision from session 33 B0 — `readyExplorerWindow` is unaware of write nodes by design, so write stages dispatch via `dispatchStage` directly).
+When `BusContext.Mode` is anything but `ModeRead`, the analyzer still runs as a classifier; then `Run()` substitutes the analyzer's read TaskGraph with a fixed plan→apply→verify graph from `BuildWriteTaskGraph` (`internal/orchestrator/write_graph.go`). The same `runTaskGraph` entry point dispatches to `runWriteSchedulerLoop` when `IsWriteGraph` is true (T4 fold-in — write nodes share the criterion env / EntryConditions / SuccessCriteria machinery with read nodes).
 
-| Mode | Phases | Exit |
+| Mode | TaskGraph shape | Exit |
 |---|---|---|
-| `ModePlan` | analyze → `runPlanPhase` | Plan emitted on Mutable.ChangePlan; `cmd/root.go` writes JSON to `--plan-out` or `.codrax/plans/<id>.json`; REPL auto-saves via `PlanStore`. |
-| `ModeApply` | analyze → `runPlanPhase` (skipped when `PlanPath` is already set — R8a: the user has a reviewed plan, do not regenerate) → `runApplyPhase` → `runVerifyPhase` | Worktree discarded on exit; `ChangePlan.Status` flipped on disk (applied / applied_failed / verify_failed). |
-| `ModeVerify` | analyze → `runVerifyPhase` | Standalone re-verify against an existing plan. |
+| `ModePlan` | single plan node, `OneShot=true`, SC=`CritPlanReady` | Plan emitted on Mutable.ChangePlan; `cmd/root.go` writes JSON to `--plan-out` or `.codrax/plans/<id>.json`; REPL auto-saves via `PlanStore`. |
+| `ModeApply` | plan → apply → verify (linear), with `EdgeValidationFeedback` from verify back to plan for the retry cycle. plan node skipped when `PlanPath` is set (R8a: do not regenerate a reviewed plan). | Worktree discarded on exit; `ChangePlan.Status` flipped on disk (applied / applied_failed / verify_failed). |
+| `ModeVerify` | single verify node | Standalone re-verify against an existing plan. |
+
+**Stage hooks** (`stage_hooks.go`): the write scheduler runs per-stage Pre/Post hooks around each `dispatchStage` call. `applyPreHook` provisions the worktree, swaps `RepoRoot`, and runs baseline capture. `applyPostHook` persists `applied_failed` on dispatch errors; `verifyPostHook` saves `ChangeReport` to disk + flips status to `applied` or `verify_failed`. `clearForReplan` runs on verify SuccessCriteria failure to reset state and seed `Mutable.PlanningHint` before the verify→plan requeue.
 
 **Agents**: planner (emit_change_plan), coder (per-unit apply_patch with W1/W1b), verifier (run_tests dispatch). All three embed `BaseAgent` like the read agents.
 
@@ -93,7 +95,7 @@ When `BusContext.Mode` is anything but `ModeRead`, the read pipeline still runs 
 
 **Write-closure invariants** (W1/W1b enforced at `apply_patch.Execute`): path must appear in `plan.TargetPaths`; every `unit.DependsOn` must already be in `WriteClosure.AppliedSet`. Idempotent: a second apply on the same path is a no-op success.
 
-**verify→plan retry loop** (B2.3, closes session-31 Q3): when `pipeline_max_verify_retries > 0` (yaml knob, default 0, hard-capped at 5), a verify failure seeds `Mutable.PlanningHint()` from `ChangeReport.FailureSummary` + first 3 failing test names, clears `ChangePlan` / `ChangeReport` / `WriteClosure.AppliedSet` / `PlanPath`, then loops plan → apply → verify. `plannerEvaluator.BuildInitialInstruction` consume-once reads the hint and prepends a "## Retry feedback" section to the dispatch.
+**verify→plan retry loop** (T4): when `pipeline_write_retry_budget > 0` (yaml knob, default 0, hard-capped at 5), a verify SuccessCriteria failure (TestsPass / NoRegression) requeues the plan node via `EdgeValidationFeedback`. Before the requeue, `clearForReplan` seeds `Mutable.PlanningHint()` from `ChangeReport.FailureSummary` + first 3 failing test names + the prior plan's TargetPaths, and clears `ChangePlan` / `ChangeReport` / `WriteClosure.AppliedSet` / `PlanPath`. `plannerEvaluator.BuildInitialInstruction` consume-once reads the hint and prepends a "## Retry feedback" section to the dispatch.
 
 **Write-mode Criterion evaluators** (`internal/analysis/criterion/eval.go`): `CritPlanReady` reads `WriteClosure.PendingApplies`; `CritPatchApplies` intersects `AppliedSet ∩ TargetPaths`; `CritTestsPass` reads `ChangeReport.TestResults`; `CritNoRegression` diffs `BaselineReport` vs current + checks `MetricDelta.Threshold`. Read-mode shortcut: nil env slots → Satisfied=true under L3 byte-identity.
 
@@ -104,10 +106,10 @@ When `BusContext.Mode` is anything but `ModeRead`, the read pipeline still runs 
 **PlanStatus lifecycle** (`types/change_plan.go`): `pending_approval` → `applied` / `applied_failed` / `verify_failed`, persisted via `UpdatePlanStatusOnDisk` called from `orchestrator.persistPlanStatus` at each decision point. `PlanInfo.Status` surfaces in `/plan list`; `/history` pairs each plan with its sibling `.report.json`.
 
 **Red lines** (enforced by structural tests):
-- L1: read mode is byte-identical to pre-B0 (runTaskPhase unchanged).
+- L1: read mode behaviour is preserved — the read scheduler loop (`runReadSchedulerLoop`) is byte-identical to the pre-T4 `runTaskGraph` body, only renamed.
 - L2: `write_enabled: false` by default; write modes refuse to dispatch without the yaml gate.
 - L3: write tools MUST NOT call `ground.BuildContext` / `ground.GroundItem` (enforced by `internal/tool/write_mode_red_lines_test.go` via go/ast scan).
-- L5: worktree cleanup is unconditional — outer defer in `Run()` calls `worktree.DiscardByPath` on any exit path.
+- L5: worktree cleanup is unconditional — outer defer in `Run()` calls `worktree.DiscardByPath` on any exit path. Stage hooks may CREATE worktrees but never destroy them.
 - L6: write skills keep `exec_command` in `ToolSuggestions` (Q2 red line — worktree sandbox contains blast radius).
 
 ### Key Data Structures (`internal/types/`)

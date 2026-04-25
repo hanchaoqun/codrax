@@ -43,6 +43,13 @@ type coderEvaluator struct {
 // discipline — a reminder stronger than skill.Workflow alone,
 // because this supplement is re-rendered each turn if mid-loop
 // observations fire.
+//
+// When baseline capture is enabled (Mutable.BaselineReport non-nil),
+// a "## Pre-existing failures" or "## Baseline status" section is
+// injected so the coder LLM has explicit context on what failures
+// are out of scope. Goal: keep the coder focused on plan.TargetPaths
+// and stop it from drifting into "let me also fix this unrelated
+// failing test" territory.
 func (e *coderEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
 	if ctx == nil || ctx.Mutable == nil {
@@ -77,6 +84,38 @@ func (e *coderEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *sk
 			fmt.Fprintf(&b, ", depends_on=%v", c.DependsOn)
 		}
 		b.WriteString("\n")
+	}
+	// Baseline guidance — three states:
+	//   1. baseline absent (capture disabled or no test runner): no
+	//      section. Coder behaves as before.
+	//   2. baseline present + has failing tests: list pre-existing
+	//      failures, instruct coder NOT to fix them.
+	//   3. baseline present + all green: positive signal — any new
+	//      failure post-apply IS a regression.
+	baseline := ctx.Mutable.BaselineReport()
+	if baseline != nil {
+		failures := types.CollectBaselineFailures(baseline)
+		b.WriteString("\n")
+		if len(failures) > 0 {
+			b.WriteString("## Pre-existing failures (out of scope)\n\n")
+			b.WriteString("These tests were ALREADY failing on the unmodified worktree — they predate your changes:\n\n")
+			b.WriteString(types.RenderBaselineFailureList(failures, 15))
+			b.WriteString("\n")
+			if len(plan.AcceptanceTests) > 0 {
+				b.WriteString("Plan acceptance tests (the ones you DO need to make pass):\n\n")
+				for _, a := range plan.AcceptanceTests {
+					fmt.Fprintf(&b, "- %s\n", a)
+				}
+				b.WriteString("\n")
+			}
+			b.WriteString("Stay within plan.TargetPaths. Failures outside the acceptance set are NOT your responsibility — " +
+				"do not invent extra apply_patch calls trying to fix them.")
+		} else {
+			b.WriteString("## Baseline status\n\n")
+			b.WriteString("The baseline test suite is fully green — every test passed on the unmodified worktree. " +
+				"Any new test failure after your changes IS a regression caused by this plan, so apply only what " +
+				"the plan declares and stop.")
+		}
 	}
 	return b.String()
 }

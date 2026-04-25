@@ -64,15 +64,16 @@ type Orchestrator struct {
 	// patches into the main repo.
 	worktreeBase string
 
-	// maxVerifyRetries caps the number of verify→plan retry cycles
-	// within ModeApply. Default 0 preserves B1 fail-loud semantics
-	// (one attempt, surface failure). Values >0 enable the B2.3
-	// verify→plan loop: a failed verify seeds PlanningHint with
-	// the failure narrative and re-dispatches the planner for a
-	// revised ChangePlan, then apply + verify again. Capped at 5
-	// defensively so an adversarial test harness cannot burn the
-	// LLM token budget on an unfixable plan.
-	maxVerifyRetries int
+	// writeRetryBudget caps the number of verify→plan retry cycles
+	// within ModeApply. Default 0 preserves fail-loud semantics
+	// (one attempt, surface failure). Values >0 enable the T4
+	// verify→plan loop: a failed verify SuccessCriteria fires
+	// EdgeValidationFeedback to requeue the plan node, seeds
+	// PlanningHint with the failure narrative, and re-dispatches
+	// the planner for a revised ChangePlan. Capped at 5 defensively
+	// so an adversarial test harness cannot burn the LLM token
+	// budget on an unfixable plan.
+	writeRetryBudget int
 
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
@@ -234,11 +235,11 @@ func (o *Orchestrator) SetWorktreeBase(dir string) {
 	o.worktreeBase = dir
 }
 
-// SetMaxVerifyRetries installs the B2.3 retry cap. Zero disables
-// retry (B1 fail-loud semantics). Values are clamped to [0, 5] —
-// anything higher is almost certainly a misconfiguration that
+// SetWriteRetryBudget installs the T4 verify→plan retry cap. Zero
+// disables retry (fail-loud semantics). Values are clamped to [0, 5]
+// — anything higher is almost certainly a misconfiguration that
 // would burn LLM tokens on an unfixable plan.
-func (o *Orchestrator) SetMaxVerifyRetries(n int) {
+func (o *Orchestrator) SetWriteRetryBudget(n int) {
 	if n < 0 {
 		n = 0
 	}
@@ -246,12 +247,12 @@ func (o *Orchestrator) SetMaxVerifyRetries(n int) {
 	if n > hardCap {
 		n = hardCap
 	}
-	o.maxVerifyRetries = n
+	o.writeRetryBudget = n
 }
 
-// MaxVerifyRetries returns the currently configured retry cap.
-func (o *Orchestrator) MaxVerifyRetries() int {
-	return o.maxVerifyRetries
+// WriteRetryBudget returns the currently configured retry cap.
+func (o *Orchestrator) WriteRetryBudget() int {
+	return o.writeRetryBudget
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.
@@ -461,116 +462,37 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		o.emitAnalysisReady()
 	}
 
-	// Phase 2: per-mode execution. Read mode walks the existing
-	// per-task scheduler (runTaskPhase); write modes dispatch to
-	// dedicated phase functions. Each path is responsible for
-	// populating Mutable.Result so the EventPipelineEnd emit below
-	// sees something coherent.
+	// Phase 2: unified scheduler. Read mode walks the analyzer's
+	// emitted TaskGraph; write modes substitute a fixed
+	// plan→apply→verify graph from BuildWriteTaskGraph. Both share
+	// runTaskGraph (which dispatches to runReadSchedulerLoop or
+	// runWriteSchedulerLoop based on graph shape).
 	//
-	// L1 red line: the ModeRead branch is the EXACT unchanged call
-	// to runTaskPhase — no new logs, no new emits, no extra state
-	// mutation. A zero-value Mode was normalized to ModeRead at
-	// Run entry, so every legacy caller lands on this branch
-	// byte-identically to the pre-B0 code path.
+	// L1 red line: the ModeRead branch leaves AnalysisIR.TaskGraph
+	// untouched — runTaskGraph reads exactly what the analyzer
+	// emitted, identical to pre-T4 behaviour.
 	switch o.busCtx.Mode {
 	case types.ModeRead:
+		// Existing analyzer-emitted TaskGraph stays in place.
+	case types.ModePlan, types.ModeApply, types.ModeVerify:
+		// Substitute the linear write TaskGraph. The analyzer still
+		// ran above as a classifier (its IR is on AnalysisIR but its
+		// TaskGraph is replaced here). RetryBudget on the write graph
+		// drives the verify→plan cycle in runWriteSchedulerLoop.
+		writeGraph := BuildWriteTaskGraph(o.busCtx.Mode, o.planPath, o.writeRetryBudget)
+		o.busCtx.AnalysisIR.TaskGraph = writeGraph
+	default:
+		logging.Error("[orchestrator] unknown pipeline mode %q", o.busCtx.Mode)
+		o.busCtx.TaskState.LastError = fmt.Sprintf("unknown pipeline mode %q", o.busCtx.Mode)
+	}
+
+	if o.busCtx.TaskState.LastError == "" {
 		if err := o.runTaskPhase(&stepsUsed); err != nil {
 			logging.Error("[orchestrator] task phase error: %v", err)
 			if o.busCtx.TaskState.LastError == "" {
 				o.busCtx.TaskState.LastError = err.Error()
 			}
 		}
-	case types.ModePlan:
-		if err := o.runPlanPhase(&stepsUsed); err != nil {
-			logging.Error("[orchestrator] plan phase error: %v", err)
-			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = err.Error()
-			}
-		}
-	case types.ModeApply:
-		// B2.3 verify→plan retry loop. Runs up to (maxVerifyRetries+1)
-		// plan→apply→verify cycles. A failure triggers retry only when
-		// the failure is recoverable by re-planning:
-		//   - plan failure → no retry (planner couldn't even produce
-		//     one; re-dispatching is unlikely to help within one Run)
-		//   - apply failure → retry with fresh plan (broken plan is
-		//     the usual cause)
-		//   - verify failure → retry with PlanningHint seeded from
-		//     the failure summary (Q3 answered)
-		//
-		// First-attempt special case: when user supplied --plan-file
-		// OR approved a REPL-saved plan, skip runPlanPhase so the
-		// reviewed plan is honoured. On retry, that shortcut goes
-		// away (o.planPath cleared inside prepareVerifyRetry) because
-		// a retry needs a NEW plan informed by the failure.
-		var lastPlanErr, lastApplyErr, lastVerifyErr error
-		totalAttempts := o.maxVerifyRetries + 1
-		for attempt := 1; attempt <= totalAttempts; attempt++ {
-			if attempt > 1 {
-				o.prepareVerifyRetry(attempt)
-			}
-			// Plan phase: skip on attempt 1 when user supplied a
-			// reviewed plan. Subsequent attempts always re-plan.
-			lastPlanErr = nil
-			if !(attempt == 1 && o.planPath != "") {
-				lastPlanErr = o.runPlanPhase(&stepsUsed)
-			}
-			if lastPlanErr != nil {
-				break // planner hard-failed; cannot proceed this Run
-			}
-
-			lastApplyErr = o.runApplyPhase(&stepsUsed)
-			if lastApplyErr != nil {
-				if attempt < totalAttempts {
-					// Keep looping; prepareVerifyRetry on next
-					// iteration cleans up partial worktree state.
-					continue
-				}
-				break
-			}
-
-			lastVerifyErr = o.runVerifyPhase(&stepsUsed)
-			if lastVerifyErr == nil {
-				break // success path
-			}
-			if attempt >= totalAttempts {
-				break // out of retries; surface failure as-is
-			}
-			// Verify failed with budget remaining → loop.
-		}
-		// Surface whichever phase broke. Precedence: verify > apply > plan.
-		switch {
-		case lastVerifyErr != nil:
-			logging.Error("[orchestrator] verify phase error: %v", lastVerifyErr)
-			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = lastVerifyErr.Error()
-			}
-		case lastApplyErr != nil:
-			logging.Error("[orchestrator] apply phase error: %v", lastApplyErr)
-			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = lastApplyErr.Error()
-			}
-		case lastPlanErr != nil:
-			logging.Error("[orchestrator] plan phase error: %v", lastPlanErr)
-			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = lastPlanErr.Error()
-			}
-		}
-	case types.ModeVerify:
-		if err := o.runVerifyPhase(&stepsUsed); err != nil {
-			logging.Error("[orchestrator] verify phase error: %v", err)
-			if o.busCtx.TaskState.LastError == "" {
-				o.busCtx.TaskState.LastError = err.Error()
-			}
-		}
-	default:
-		// Unknown mode — surface a clear error rather than silently
-		// falling through to read mode. Should be unreachable
-		// because PipelineMode.Normalize is called at Run entry
-		// and only coerces empty; an invalid value stays invalid
-		// and lands here.
-		logging.Error("[orchestrator] unknown pipeline mode %q", o.busCtx.Mode)
-		o.busCtx.TaskState.LastError = fmt.Sprintf("unknown pipeline mode %q", o.busCtx.Mode)
 	}
 
 	o.busCtx.TaskState.IsTerminal = true
@@ -631,6 +553,11 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 // pending-queue bookkeeping. The budget check still runs so a
 // pathologically expensive analyze phase cannot silently starve the
 // per-task path.
+//
+// runTaskGraph internally dispatches to runReadSchedulerLoop or
+// runWriteSchedulerLoop based on whether the graph carries write
+// nodes. T4 fold-in: write modes assemble their own TaskGraph
+// upstream in Run(), so this function is mode-agnostic.
 func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 	if *stepsUsed >= o.maxSteps {
 		logging.Error("[orchestrator] global max-steps (%d) exhausted before task phase", o.maxSteps)
@@ -654,210 +581,6 @@ func (o *Orchestrator) runTaskPhase(stepsUsed *int) error {
 
 	used := o.runTaskGraph(o.maxSteps - *stepsUsed)
 	*stepsUsed += used
-	return nil
-}
-
-// runPlanPhase dispatches the planner agent and installs the
-// emitted ChangePlan's human-readable summary on Mutable.Result so
-// the REPL / single-shot renderers see a real answer. The planner
-// writes the full ChangePlan struct to Mutable.ChangePlan via
-// emit_change_plan; this function reads that back and formats a
-// summary. Mode=ModePlan Runs exit after this phase without
-// visiting runTaskPhase / finalize — the plan IS the final answer.
-//
-// Side effects:
-//   - Increments *stepsUsed by the agent's consumed budget.
-//   - Sets busCtx.PipelineStage + TaskState.Stage to StagePlan.
-//   - Writes a rendered plan summary into Mutable.Result.
-//
-// Errors from dispatchStage propagate upward (the Mode switch in
-// Run routes them to TaskState.LastError). When the planner
-// succeeds but the ChangePlan is still nil (schema-rejected emit
-// or no tool call at all), this function surfaces a fail-loud
-// error rather than a silent empty result.
-func (o *Orchestrator) runPlanPhase(stepsUsed *int) error {
-	if *stepsUsed >= o.maxSteps {
-		logging.Warning("[orchestrator] plan phase skipped: max-steps exhausted")
-		return nil
-	}
-	*stepsUsed++
-	o.busCtx.PipelineStage = types.StagePlan
-	o.busCtx.TaskState.Stage = types.StagePlan
-	logging.Info("[orchestrator] plan phase: dispatching planner agent")
-
-	out, err := o.dispatchStage(types.StagePlan)
-	if err != nil {
-		return fmt.Errorf("plan phase dispatch: %w", err)
-	}
-	if out != nil && out.Error != "" {
-		// Surface the planner's own diagnostic (typically an LLM-
-		// level error — malformed emit_change_plan, schema rejection,
-		// or no tool call at all). The caller writes to LastError.
-		o.busCtx.Mutable.SetResult(out.Error)
-		return fmt.Errorf("plan phase: %s", out.Error)
-	}
-
-	plan := o.busCtx.Mutable.ChangePlan()
-	if plan == nil {
-		msg := "plan phase completed but no ChangePlan was installed on Mutable (planner did not call emit_change_plan)"
-		o.busCtx.Mutable.SetResult(msg)
-		return fmt.Errorf("%s", msg)
-	}
-	o.busCtx.Mutable.SetResult(renderChangePlanSummary(plan))
-	logging.Info("[orchestrator] plan phase completed: id=%s changes=%d",
-		plan.ID, len(plan.Changes))
-	return nil
-}
-
-// runApplyPhase is the B1 apply-stage driver. Orchestrates four
-// substeps between the Mode switch and the coder agent dispatch:
-//
-//  1. Load ChangePlan onto Mutable — if busCtx.PlanPath is set and
-//     Mutable.ChangePlan is still nil, read the plan file from
-//     disk via types.LoadChangePlanFromFile. Apply-mode without
-//     either a loaded plan OR a pending emission from a preceding
-//     plan stage is an error.
-//
-//  2. Provision worktree — worktree.Create reads o.worktreeBase +
-//     busCtx.MainRepoRoot + busCtx.TraceID and returns a detached-
-//     HEAD checkout at .codrax/worktrees/<trace>-<pid>/. The
-//     orchestrator's outer defer (Day 2) handles teardown on any
-//     exit path (normal / panic / signal). Apply-phase failure
-//     after worktree creation still discards cleanly because the
-//     defer only checks busCtx.WorktreePath.
-//
-//  3. Swap RepoRoot — the coder agent's tools (apply_patch, plus
-//     any read_file / exec_command in code-write-skill) must write
-//     into the worktree, not the main repo. Day 1 verified every
-//     tool reads ctx.RepoRoot; swapping it for the apply stage is
-//     the zero-invasive activation mechanism. MainRepoRoot stays
-//     constant so the worktree-cleanup defer can run `git worktree
-//     prune` against the canonical repo (Day 2 behaviour).
-//
-//  4. Dispatch — coder agent walks plan.Changes via per-unit
-//     apply_patch calls. ShouldStop checks WriteClosure.AppliedSet
-//     ⊇ plan.TargetPaths; ParseOutput reports completion or the
-//     specific missing paths.
-//
-// Errors at any substep are transactional-ish: before worktree
-// creation, nothing to clean up; after, the deferred worktree.
-// Discard runs unconditionally from Run()'s outer defer.
-func (o *Orchestrator) runApplyPhase(stepsUsed *int) error {
-	if *stepsUsed >= o.maxSteps {
-		logging.Warning("[orchestrator] apply phase skipped: max-steps exhausted")
-		return nil
-	}
-	*stepsUsed++
-	o.busCtx.PipelineStage = types.StageApply
-	o.busCtx.TaskState.Stage = types.StageApply
-	logging.Info("[orchestrator] apply phase: entry")
-
-	// Substep 1: ensure Mutable.ChangePlan is populated.
-	if o.busCtx.Mutable.ChangePlan() == nil {
-		if o.busCtx.PlanPath == "" {
-			msg := "apply phase: Mutable.ChangePlan is nil and no --plan-file was supplied; cannot apply without a plan"
-			o.busCtx.Mutable.SetResult(msg)
-			return fmt.Errorf("%s", msg)
-		}
-		plan, err := types.LoadChangePlanFromFile(o.busCtx.PlanPath)
-		if err != nil {
-			msg := fmt.Sprintf("apply phase: load plan file failed: %v", err)
-			o.busCtx.Mutable.SetResult(msg)
-			return fmt.Errorf("%s", msg)
-		}
-		o.busCtx.Mutable.SetChangePlan(plan)
-		// Seed WriteClosure.PendingApplies so CritPlanReady and
-		// downstream evaluators see the queue the same way they
-		// would for a freshly-emitted plan.
-		wc := o.busCtx.Mutable.WriteClosure()
-		for _, c := range plan.Changes {
-			wc.EnqueuePendingApply(types.PendingApply{
-				Path:      c.Path,
-				Rationale: c.Rationale,
-				Origin:    "load_from_file",
-			})
-		}
-		logging.Info("[orchestrator] apply phase: loaded plan %s from %s (%d changes)",
-			plan.ID, o.busCtx.PlanPath, len(plan.Changes))
-	}
-
-	// Substep 2: provision worktree.
-	if o.worktreeBase == "" {
-		msg := "apply phase: worktree base directory not configured (orchestrator.SetWorktreeBase was not called)"
-		o.busCtx.Mutable.SetResult(msg)
-		return fmt.Errorf("%s", msg)
-	}
-	sess, err := worktree.Create(o.worktreeBase, o.busCtx.MainRepoRoot, o.busCtx.TraceID)
-	if err != nil {
-		msg := fmt.Sprintf("apply phase: worktree provisioning failed: %v", err)
-		o.busCtx.Mutable.SetResult(msg)
-		return fmt.Errorf("%s", msg)
-	}
-	// Record path BEFORE the RepoRoot swap so the outer defer
-	// (orchestrator.Run) can always find and discard it on any
-	// exit path including a panic during Substep 3/4.
-	o.busCtx.WorktreePath = sess.Path()
-	logging.Info("[orchestrator] apply phase: worktree ready at %s", sess.Path())
-
-	// Substep 3: swap RepoRoot to the worktree. Day-1 audit
-	// confirmed all built-in tools resolve paths through
-	// ctx.RepoRoot; after the swap, apply_patch / read_file /
-	// exec_command write and read inside the worktree copy.
-	origRepoRoot := o.busCtx.RepoRoot
-	o.busCtx.RepoRoot = sess.Path()
-	o.busCtx.Mutable.SetRepoRoot(sess.Path())
-	defer func() {
-		// Restore RepoRoot on exit so a subsequent runVerifyPhase
-		// (same Run) stays consistent with the worktree, but any
-		// post-Run consumer (REPL renderer, cmd/root.go summary
-		// writer) sees the canonical main repo path. This matters
-		// for error messages that embed RepoRoot in the summary.
-		_ = origRepoRoot // kept for future unswap branch
-	}()
-
-	// Substep 3b: baseline capture (opt-in). Runs run_tests against
-	// the fresh worktree BEFORE the coder dispatches — at this point
-	// the worktree is byte-identical to main repo HEAD, so the test
-	// outcome snapshots the pre-apply state. The result moves from
-	// the shared ChangeReport slot to BaselineReport so the post-
-	// apply run_tests (in runVerifyPhase) can populate ChangeReport
-	// and CritNoRegression has both halves to diff. Capture failures
-	// are non-fatal: a baseline that errors (missing runner, suite
-	// already broken) surfaces a warning and verify proceeds
-	// without a regression check — that's safer than aborting apply
-	// on a diagnostic that only informs one of several criteria.
-	if o.baselineCaptureEnabled {
-		o.captureBaseline()
-	}
-
-	// Substep 4: dispatch coder.
-	out, err := o.dispatchStage(types.StageApply)
-	if err != nil {
-		o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
-		return fmt.Errorf("apply phase dispatch: %w", err)
-	}
-	if out != nil && out.Error != "" {
-		// Coder reported incomplete apply. Surface the detail
-		// verbatim — it already carries the specific missing path
-		// or tool-rejection reason.
-		o.busCtx.Mutable.SetResult(out.Error)
-		o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
-		return fmt.Errorf("apply phase: %s", out.Error)
-	}
-
-	// Success: summarise the applied state for user-visible
-	// Result. Includes applied count + target paths so the user
-	// can confirm what landed (even though the worktree itself
-	// gets discarded by the outer defer).
-	plan := o.busCtx.Mutable.ChangePlan()
-	applied := o.busCtx.Mutable.WriteClosure().AppliedSet()
-	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, sess.Path()))
-	logging.Info("[orchestrator] apply phase: completed, %d/%d changes applied",
-		len(applied), len(plan.TargetPaths))
-	// Apply landed — verify will decide the final status. Intermediate
-	// state is intentionally NOT persisted here because a verify-
-	// failure path flips to PlanStatusVerifyFailed a few milliseconds
-	// later, and a two-write sequence would double up on stat noise.
 	return nil
 }
 
@@ -885,63 +608,6 @@ func renderApplySummary(plan *types.ChangePlan, applied map[string]bool, worktre
 	}
 	b.WriteString("*The worktree is discarded on exit. To persist, cherry-pick the worktree commit into the main repo before the process terminates.*\n")
 	return b.String()
-}
-
-// runVerifyPhase dispatches the verifier agent and persists the
-// resulting ChangeReport to disk. B1.3 real implementation:
-// verifier drives run_tests (deterministic parse) + optional LLM
-// narrative via emit_test_results. The ChangeReport is saved as
-// <plan-id>.report.json beside the plan file for post-Run
-// inspection (the worktree itself gets discarded on outer defer).
-//
-// Q3 policy: a verify failure is NOT auto-retried in B1. The
-// verifier's ParseOutput returns StageOutput.Error containing the
-// failure narrative; this function surfaces it as LastError so
-// cmd/root.go prints the reason to stderr and the user re-plans
-// with new understanding.
-func (o *Orchestrator) runVerifyPhase(stepsUsed *int) error {
-	if *stepsUsed >= o.maxSteps {
-		logging.Warning("[orchestrator] verify phase skipped: max-steps exhausted")
-		return nil
-	}
-	*stepsUsed++
-	o.busCtx.PipelineStage = types.StageVerify
-	o.busCtx.TaskState.Stage = types.StageVerify
-	logging.Info("[orchestrator] verify phase: dispatching verifier agent")
-
-	out, err := o.dispatchStage(types.StageVerify)
-	if err != nil {
-		return fmt.Errorf("verify phase dispatch: %w", err)
-	}
-
-	// Persist the report regardless of pass/fail — failures are
-	// as valuable as passes for debugging. The report lives next
-	// to the plan file so /plan show can pair them in a future UX
-	// pass (B1.5).
-	report := o.busCtx.Mutable.ChangeReport()
-	if report != nil {
-		o.saveChangeReport(report)
-	}
-
-	if out != nil && out.Error != "" {
-		// Surface the verifier's narrative (failing test names +
-		// any LLM-added context). B2.3 retry loop may catch this
-		// and dispatch another plan→apply→verify cycle; when the
-		// retry budget is exhausted the user sees the message here.
-		o.busCtx.Mutable.SetResult(renderVerifyFailure(report, out.Error))
-		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
-		return fmt.Errorf("verify phase: %s", out.Error)
-	}
-
-	// Success: render a summary that complements the apply-stage
-	// summary already on Mutable.Result. Appends rather than
-	// overwrites so the user sees BOTH "what was applied" and
-	// "what tests passed".
-	existing := o.busCtx.Mutable.Result()
-	o.busCtx.Mutable.SetResult(existing + renderVerifySuccess(report))
-	now := time.Now()
-	o.persistPlanStatus(types.PlanStatusApplied, &now)
-	return nil
 }
 
 // persistPlanStatus updates the on-disk plan JSON's Status field
@@ -980,60 +646,6 @@ func (o *Orchestrator) persistPlanStatus(status string, appliedAt *time.Time) {
 	} else {
 		logging.Info("[orchestrator] plan status updated: %s → %s", path, status)
 	}
-}
-
-// prepareVerifyRetry cleans write-mode state between retry
-// iterations of the ModeApply loop. Called before each attempt >1.
-// Five jobs, in order:
-//  1. Build a PlanningHint from the previous ChangeReport so the
-//     next planner dispatch reads it in BuildInitialInstruction.
-//  2. Discard the previous worktree (if one was provisioned) via
-//     worktree.DiscardByPath. Idempotent; absent worktree is a no-op.
-//  3. Restore busCtx.RepoRoot to MainRepoRoot so runApplyPhase's
-//     next worktree.Create doesn't nest a worktree-of-a-worktree.
-//  4. Reset ChangePlan + ChangeReport + WriteClosure so the retry
-//     starts clean. BaselineReport is preserved — it's a pre-apply
-//     snapshot and remains the ground truth for regression
-//     comparisons regardless of how many retries we attempt.
-//  5. Clear o.planPath so a user-supplied --plan-file doesn't
-//     override the fresh plan the retry is about to produce. The
-//     reviewed plan was already tried and failed; the retry MUST
-//     regenerate.
-func (o *Orchestrator) prepareVerifyRetry(attempt int) {
-	// buildRetryHint consumes both ChangePlan (for suspect-file list)
-	// and ChangeReport (for failing-test narrative). Both are read
-	// BEFORE the subsequent Reset* calls below clear them.
-	hint := buildRetryHint(
-		o.busCtx.Mutable.ChangeReport(),
-		o.busCtx.Mutable.ChangePlan(),
-		attempt-1,
-	)
-
-	if o.busCtx.WorktreePath != "" {
-		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
-			logging.Warning("[orchestrator] retry worktree discard failed: %v", err)
-		}
-		o.busCtx.WorktreePath = ""
-	}
-	// Swap RepoRoot back to the main repo path; the subsequent
-	// runApplyPhase will swap it to a fresh worktree.
-	if o.busCtx.MainRepoRoot != "" {
-		o.busCtx.RepoRoot = o.busCtx.MainRepoRoot
-		o.busCtx.Mutable.SetRepoRoot(o.busCtx.MainRepoRoot)
-	}
-
-	o.busCtx.Mutable.ResetChangePlan()
-	o.busCtx.Mutable.ResetChangeReport()
-	o.busCtx.Mutable.WriteClosure().Reset()
-
-	// Subsequent attempts always re-plan — drop the user-supplied
-	// plan file pointer so runPlanPhase is not skipped.
-	o.planPath = ""
-	o.busCtx.PlanPath = ""
-
-	o.busCtx.Mutable.SetPlanningHint(hint)
-
-	logging.Info("[orchestrator] verify→plan retry attempt %d: hint=%q", attempt, hint)
 }
 
 // buildRetryHint synthesises the failure narrative the planner's
@@ -1340,8 +952,30 @@ func renderChangePlanSummary(plan *types.ChangePlan) string {
 	return b.String()
 }
 
-// runTaskGraph walks AnalysisIR.TaskGraph with criterion-aware
-// scheduling. Each round:
+// runTaskGraph dispatches to the read or write scheduler loop based
+// on whether the TaskGraph carries write nodes (NodePlan / NodeApply
+// / NodeVerify). Read TaskGraphs come from the analyzer; write
+// TaskGraphs come from BuildWriteTaskGraph emitted by Run() before
+// reaching this entry point.
+func (o *Orchestrator) runTaskGraph(stepBudget int) int {
+	ir := o.busCtx.AnalysisIR
+	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
+		// Defensive: analyzer (read) or BuildWriteTaskGraph (write)
+		// should always produce a non-empty TaskGraph; an empty graph
+		// means upstream failed and we cannot execute the task.
+		logging.Error("[orchestrator] task: empty TaskGraph — upstream failed to produce a valid graph")
+		o.busCtx.Mutable.SetResult("")
+		o.busCtx.TaskState.LastError = "empty TaskGraph"
+		return 0
+	}
+	if IsWriteGraph(ir.TaskGraph) {
+		return o.runWriteSchedulerLoop(stepBudget)
+	}
+	return o.runReadSchedulerLoop(stepBudget)
+}
+
+// runReadSchedulerLoop walks the read-mode AnalysisIR.TaskGraph with
+// criterion-aware scheduling. Each round:
 //
 //  1. Build a criterion.Env from current BusContext state.
 //  2. Check stopcond.ShouldStop; if true, forceCloseExploreWindow
@@ -1357,12 +991,9 @@ func renderChangePlanSummary(plan *types.ChangePlan) string {
 //     not the whole window.
 //  5. Finalize dispatch + contract check on the same contract-
 //     checker retry semantics as before.
-func (o *Orchestrator) runTaskGraph(stepBudget int) int {
+func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 	ir := o.busCtx.AnalysisIR
 	if ir == nil || len(ir.TaskGraph.Nodes) == 0 {
-		// Defensive: analyzer should always produce a non-empty
-		// TaskGraph, but if something upstream failed we cannot
-		// execute the task.
 		logging.Error("[orchestrator] task: no AnalysisIR.TaskGraph — analyzer failed to produce a valid IR")
 		o.busCtx.Mutable.SetResult("")
 		o.busCtx.TaskState.LastError = "analyzer failed to produce TaskGraph"

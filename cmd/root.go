@@ -1332,11 +1332,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineMaxStageVisits != nil {
 			pipelineSettings.MaxStageVisits = *rs.PipelineMaxStageVisits
 		}
-		// B2.3: verify→plan retry cap. Stored alongside the rest of
-		// the pipelineSettings snapshot; orchestrator.SetMaxVerifyRetries
+		// T4: verify→plan retry cap. Stored alongside the rest of the
+		// pipelineSettings snapshot; orchestrator.SetWriteRetryBudget
 		// applies it below where other orch getters are wired.
-		if rs.PipelineMaxVerifyRetries != nil {
-			pipelineSettings.MaxVerifyRetries = *rs.PipelineMaxVerifyRetries
+		if rs.PipelineWriteRetryBudget != nil {
+			pipelineSettings.WriteRetryBudget = *rs.PipelineWriteRetryBudget
 		}
 		// Baseline capture toggle for CritNoRegression (Item 1).
 		// Pointer-typed yaml so explicit false is distinguishable
@@ -1716,7 +1716,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetEmitter(renderer.Emitter())
 	orch.SetBlobSessionDir(blobSessionDir)
 	// B2.3 verify→plan retry cap. Zero keeps B1 fail-loud semantics.
-	orch.SetMaxVerifyRetries(pipelineSettings.MaxVerifyRetries)
+	orch.SetWriteRetryBudget(pipelineSettings.WriteRetryBudget)
 	// Item 1: baseline capture for CritNoRegression. Default false
 	// (test-suite wall time doubles when enabled).
 	orch.SetBaselineCaptureEnabled(pipelineSettings.BaselineCaptureEnabled)

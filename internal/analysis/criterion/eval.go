@@ -258,6 +258,12 @@ func evalPatchApplies(expr string, env Env) Result {
 // ChangeReport has Passed=true. Read-mode / pre-verify short-
 // circuits to satisfied because no report exists yet.
 //
+// Build-error fast-fail: when ChangeReport.BuildFailed is set, the
+// criterion fails with a build-summary message regardless of any
+// per-test counts. This avoids the misleading "1 of 1 tests failed:
+// <synthetic-build-id>" output and surfaces "build failed before
+// tests ran" directly to the retry-hint pipeline.
+//
 // Expr semantics:
 //   - empty     — require every test in report to pass
 //   - non-empty — treat as a substring filter on AssertionID;
@@ -267,10 +273,23 @@ func evalTestsPass(expr string, env Env) Result {
 	if env.ChangeReport == nil {
 		return Result{Satisfied: true, Detail: "tests_pass: no ChangeReport in env (read mode or pre-verify); trivially satisfied"}
 	}
+	if env.ChangeReport.BuildFailed {
+		summary := env.ChangeReport.FailureSummary
+		if summary == "" {
+			summary = "build failed before tests ran"
+		}
+		return Result{Satisfied: false, Detail: "tests_pass: " + summary}
+	}
 	filter := strings.TrimSpace(expr)
 	report := env.ChangeReport
 	var considered, failed []string
 	for _, tr := range report.TestResults {
+		if tr.Kind == types.TestResultKindBuildError {
+			// Build-error rows are not unit tests; the BuildFailed
+			// fast-fail above already handles them. Skip here so
+			// they don't show up in the per-test rejection list.
+			continue
+		}
 		if filter != "" && !strings.Contains(tr.AssertionID, filter) {
 			continue
 		}
@@ -333,18 +352,40 @@ func evalNoRegression(expr string, env Env) Result {
 		return Result{Satisfied: true, Detail: "no_regression: no BaselineReport captured; regression check skipped (trivially satisfied)"}
 	}
 	filter := strings.TrimSpace(expr)
-	// Build baseline index: AssertionID → Passed
+	// Build baseline index: AssertionID → Passed. Skip build-error
+	// rows because they aren't comparable with unit tests in the
+	// new structured Kind enum.
 	baselinePassed := make(map[string]bool, len(env.BaselineReport.TestResults))
 	for _, tr := range env.BaselineReport.TestResults {
+		if tr.Kind == types.TestResultKindBuildError {
+			continue
+		}
 		baselinePassed[tr.AssertionID] = tr.Passed
 	}
 	var regressed []string
-	for _, tr := range env.ChangeReport.TestResults {
-		if filter != "" && !strings.Contains(tr.AssertionID, filter) {
-			continue
+	// When emit_test_results populated structured RegressionAssertions,
+	// trust the LLM's classification — it has both halves of the diff
+	// + the plan's TargetPaths to judge whether a failure was caused
+	// by this change. The fallback baseline-vs-current map is the
+	// conservative path for runs where the verifier didn't classify.
+	if len(env.ChangeReport.RegressionAssertions) > 0 {
+		for _, id := range env.ChangeReport.RegressionAssertions {
+			if filter != "" && !strings.Contains(id, filter) {
+				continue
+			}
+			regressed = append(regressed, id)
 		}
-		if !tr.Passed && baselinePassed[tr.AssertionID] {
-			regressed = append(regressed, tr.AssertionID)
+	} else {
+		for _, tr := range env.ChangeReport.TestResults {
+			if tr.Kind == types.TestResultKindBuildError {
+				continue
+			}
+			if filter != "" && !strings.Contains(tr.AssertionID, filter) {
+				continue
+			}
+			if !tr.Passed && baselinePassed[tr.AssertionID] {
+				regressed = append(regressed, tr.AssertionID)
+			}
 		}
 	}
 	// Metric regressions. MetricDelta.Threshold > 0 means operator

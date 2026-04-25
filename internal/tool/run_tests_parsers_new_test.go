@@ -459,9 +459,9 @@ func TestLocateJUnitReportDir_NoReports(t *testing.T) {
 	}
 }
 
-// ── extractBuildErrorExcerpt ──────────────────────────────────────
+// ── narrativeBuildErrorExcerpt ──────────────────────────────────────
 
-func TestExtractBuildErrorExcerpt_MavenError(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_MavenError(t *testing.T) {
 	stdout := `[INFO] Scanning for projects...
 [INFO] Building foo 1.0
 [INFO] --- maven-compiler-plugin:3.8.1:compile (default-compile) ---
@@ -471,7 +471,7 @@ func TestExtractBuildErrorExcerpt_MavenError(t *testing.T) {
 [INFO] BUILD FAILURE
 [INFO] Total time: 2.1 s
 `
-	got := extractBuildErrorExcerpt(stdout)
+	got := narrativeBuildErrorExcerpt(stdout)
 	if !strings.Contains(got, "[ERROR] /home/ci/src/main/java/Foo.java:[17,23] cannot find symbol") {
 		t.Errorf("excerpt should carry the primary [ERROR] line; got %q", got)
 	}
@@ -483,7 +483,7 @@ func TestExtractBuildErrorExcerpt_MavenError(t *testing.T) {
 	}
 }
 
-func TestExtractBuildErrorExcerpt_GradleError(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_GradleError(t *testing.T) {
 	stdout := `> Task :compileJava FAILED
 
 FAILURE: Build failed with an exception.
@@ -500,7 +500,7 @@ Run with --stacktrace option to get the stack trace.
 
 BUILD FAILED in 3s
 `
-	got := extractBuildErrorExcerpt(stdout)
+	got := narrativeBuildErrorExcerpt(stdout)
 	if !strings.Contains(got, "FAILURE: Build failed with an exception") {
 		t.Errorf("excerpt should carry Gradle FAILURE header; got %q", got)
 	}
@@ -512,14 +512,14 @@ BUILD FAILED in 3s
 	}
 }
 
-func TestExtractBuildErrorExcerpt_JavacError(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_JavacError(t *testing.T) {
 	stdout := `Foo.java:42: error: ';' expected
     return 1
            ^
 Bar.java:9: error: cannot find symbol
 1 error
 `
-	got := extractBuildErrorExcerpt(stdout)
+	got := narrativeBuildErrorExcerpt(stdout)
 	if !strings.Contains(got, "Foo.java:42: error: ';' expected") {
 		t.Errorf("excerpt should pick up javac error lines; got %q", got)
 	}
@@ -528,13 +528,13 @@ Bar.java:9: error: cannot find symbol
 	}
 }
 
-func TestExtractBuildErrorExcerpt_KotlinError(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_KotlinError(t *testing.T) {
 	stdout := `> Task :compileKotlin
  e: /src/Foo.kt: (12, 9): Unresolved reference: baz
  e: /src/Foo.kt: (15, 1): Expecting '}'
 BUILD FAILED in 1s
 `
-	got := extractBuildErrorExcerpt(stdout)
+	got := narrativeBuildErrorExcerpt(stdout)
 	if !strings.Contains(got, "Unresolved reference: baz") {
 		t.Errorf("excerpt should pick up kotlinc 'e:' error; got %q", got)
 	}
@@ -543,13 +543,13 @@ BUILD FAILED in 1s
 	}
 }
 
-func TestExtractBuildErrorExcerpt_Dedup(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_Dedup(t *testing.T) {
 	stdout := `[ERROR] foo broke
 [ERROR] foo broke
 [ERROR] foo broke
 [ERROR] bar also broke
 `
-	got := extractBuildErrorExcerpt(stdout)
+	got := narrativeBuildErrorExcerpt(stdout)
 	// Dedup: only one "foo broke" line in the excerpt.
 	first := strings.Index(got, "foo broke")
 	last := strings.LastIndex(got, "foo broke")
@@ -561,37 +561,37 @@ func TestExtractBuildErrorExcerpt_Dedup(t *testing.T) {
 	}
 }
 
-func TestExtractBuildErrorExcerpt_LineCap(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_LineCap(t *testing.T) {
 	var sb strings.Builder
 	for i := 0; i < 30; i++ {
 		sb.WriteString("[ERROR] unique row ")
 		sb.WriteString(strings.Repeat("x", i+1))
 		sb.WriteString("\n")
 	}
-	got := extractBuildErrorExcerpt(sb.String())
+	got := narrativeBuildErrorExcerpt(sb.String())
 	n := strings.Count(got, "[ERROR]")
 	if n != 10 {
 		t.Errorf("should cap at 10 lines; got %d", n)
 	}
 }
 
-func TestExtractBuildErrorExcerpt_Empty(t *testing.T) {
-	if got := extractBuildErrorExcerpt(""); got != "" {
+func TestNarrativeBuildErrorExcerpt_Empty(t *testing.T) {
+	if got := narrativeBuildErrorExcerpt(""); got != "" {
 		t.Errorf("empty input should yield empty excerpt; got %q", got)
 	}
-	if got := extractBuildErrorExcerpt("   \n\n\t"); got != "" {
+	if got := narrativeBuildErrorExcerpt("   \n\n\t"); got != "" {
 		t.Errorf("whitespace-only input should yield empty excerpt; got %q", got)
 	}
 }
 
-func TestExtractBuildErrorExcerpt_MarkerlessFallback(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_MarkerlessFallback(t *testing.T) {
 	// No known markers — should fall back to head lines so the
 	// operator always has SOMETHING to read.
 	stdout := `something unexpected happened
 cannot proceed
 giving up
 `
-	got := extractBuildErrorExcerpt(stdout)
+	got := narrativeBuildErrorExcerpt(stdout)
 	if got == "" {
 		t.Fatal("marker-less input should still yield a non-empty excerpt")
 	}
@@ -600,10 +600,10 @@ giving up
 	}
 }
 
-func TestExtractBuildErrorExcerpt_CharCap(t *testing.T) {
+func TestNarrativeBuildErrorExcerpt_CharCap(t *testing.T) {
 	// A single matching line wider than the cap: must truncate.
 	huge := "[ERROR] " + strings.Repeat("y", 5000)
-	got := extractBuildErrorExcerpt(huge)
+	got := narrativeBuildErrorExcerpt(huge)
 	if len(got) > 1600 {
 		t.Errorf("excerpt should stay bounded; got %d chars", len(got))
 	}

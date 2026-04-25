@@ -18,12 +18,14 @@ type PipelineSettings struct {
 	// forces finalize. A value <= 0 falls back to DefaultMaxStageVisits.
 	MaxStageVisits int `yaml:"max_stage_visits"`
 
-	// MaxVerifyRetries caps B2.3's verify→plan retry loop inside
-	// ModeApply. Zero preserves B1 fail-loud semantics (one attempt,
-	// surface failure). Positive values enable retry with
-	// PlanningHint seeded from the failure summary. Hard-capped at
-	// 5 by orchestrator.SetMaxVerifyRetries.
-	MaxVerifyRetries int `yaml:"max_verify_retries"`
+	// WriteRetryBudget caps T4's verify→plan retry cycle inside
+	// ModeApply (the scheduler-driven write DAG runs verify → plan
+	// via EdgeValidationFeedback when verify SuccessCriteria fail).
+	// Zero preserves fail-loud semantics (one attempt, surface
+	// failure). Positive values enable retry with PlanningHint
+	// seeded from the failure summary. Hard-capped at 5 by
+	// orchestrator.SetWriteRetryBudget.
+	WriteRetryBudget int `yaml:"write_retry_budget"`
 
 	// BaselineCaptureEnabled toggles the pre-apply test snapshot
 	// that feeds CritNoRegression. When true, runApplyPhase runs
