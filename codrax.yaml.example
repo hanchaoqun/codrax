@@ -768,6 +768,16 @@
 # can.
 # log_attach_max_bytes: 52428800
 
+# Perf-channel cap. Bounds --htrace / --atrace / --htrace-text /
+# --atrace-text and the REPL /htrace + /atrace surfaces. When unset
+# (the recommended default), inherits whatever log_attach_max_bytes
+# resolves to, so a single yaml knob configures both channels
+# symmetrically. Set explicitly to break the symmetry — e.g. to
+# allow larger HiTrace bodies than logs:
+#   trace_attach_max_bytes: 209715200   # 200 MiB
+# Same 1 GiB hard ceiling applies.
+# trace_attach_max_bytes: 52428800
+
 # ---------------------------------------------------------------------------
 # Path to providers config
 # ---------------------------------------------------------------------------

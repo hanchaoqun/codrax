@@ -43,11 +43,12 @@ kubectl logs pod/foo | ./codrax --repo . --request "analyse this crash" --log -
 
 ### Pipeline
 
-`[log_triage] → analyze → explore → extract → finalize`, hardcoded in `internal/orchestrator/topology.go`. `[log_triage]` fires only when `BusContext.AttachedLog` is non-empty (Guard in `preStages` slice); the other four stages always run. The orchestrator never calls tools, MCP, or LLM directly — everything flows through an agent.
+`[log_triage] [perf_triage] → analyze → explore → extract → finalize`, hardcoded in `internal/orchestrator/topology.go`. The two pre-stages are independent: `[log_triage]` fires when `BusContext.AttachedLog` is non-empty; `[perf_triage]` fires when `BusContext.AttachedHitrace` is non-empty. Either, both, or neither may run. The other four stages always run. The orchestrator never calls tools, MCP, or LLM directly — everything flows through an agent.
 
 | Stage | Agent | Default Skill | Purpose |
 |---|---|---|---|
 | log_triage (conditional) | log_triager | log-triage-skill | LLM-driven extraction: read `AttachedLog`, emit structured `LogBundle` (Meta/Errors/Residue) via `emit_log_triage`. System validates paths + derives Layer 4 (ResolvedFiles/Entities/IntentHint/Coverage). Two-step fallback (`log-segmentation-skill`) fires on coverage < threshold OR size > threshold. Failure is advisory — main pipeline continues. |
+| perf_triage (conditional) | perf_triager | perf-triage-skill | LLM-driven extraction: read `AttachedHitrace` (HiTrace / atrace / systrace / perfetto), emit structured `PerfBundle` (Meta + Frames/Janks/Stalls/Startup + Residue) via `emit_perf_trace`. System derives Layer 4 (IntentHint=performance / Entities / ResolvedFiles / signals from threshold checks). Two-step fallback (`perf-segmentation-skill` + `emit_perf_segmentation`) fires on coverage < threshold OR size > threshold. Failure is advisory. |
 | analyze | analyzer | analysis-skill | 1–2 pre-scan rounds (`repo_map` / `grep files_only=true` / `list_files`) then `emit_analysis`. Reads `bus.Mutable.LogTriage()` for Entities / Intent / RequiredFiles seeding. Forbidden: `read_file` / `exec_command`. |
 | explore | explorer | explore-skill | Turn A investigation; emit via `emit_evidence` + `emit_investigation_complete`. |
 | extract | extractor | extract-skill | Turn B structuring, dispatched **once** before finalize; drains Turn A into `emit_answer_symbol` / `emit_hypothesis_verdict`. |
@@ -70,7 +71,23 @@ When `BusContext.Mode` is anything but `ModeRead`, the read pipeline still runs 
 | `ModeApply` | analyze → `runPlanPhase` (skipped when `PlanPath` is already set — R8a: the user has a reviewed plan, do not regenerate) → `runApplyPhase` → `runVerifyPhase` | Worktree discarded on exit; `ChangePlan.Status` flipped on disk (applied / applied_failed / verify_failed). |
 | `ModeVerify` | analyze → `runVerifyPhase` | Standalone re-verify against an existing plan. |
 
-**Agents**: planner (emit_change_plan), coder (per-unit apply_patch with W1/W1b), verifier (run_tests 4-language parser: Go go-test-json / Jest --json / pytest-json-report / Cargo text). All three embed `BaseAgent` like the read agents.
+**Agents**: planner (emit_change_plan), coder (per-unit apply_patch with W1/W1b), verifier (run_tests dispatch). All three embed `BaseAgent` like the read agents.
+
+**Test runners**: `internal/tool/run_tests.go` detects the project's manifest and routes to one of these runners (priority order from `detectRunner`):
+
+| Manifest | Runner tag | Command shape | Output parser |
+|---|---|---|---|
+| `go.mod` | go | `go test -json ./...` | go-test-json events |
+| `oh-package.json5` / `build-profile.json5` / `hvigorfile.ts` | hvigor | `hvigorw test` (or `hvigor` from PATH) | JUnit XML (reuses Java path) |
+| `cjpm.toml` | cjpm | `cjpm test` | cargo-style text footer |
+| `package.json` | node | `npm test -- --json --silent` | jest/vitest JSON |
+| `pyproject.toml` / `pytest.ini` / `setup.py` | python | `pytest --json-report` | pytest-json-report file |
+| `Cargo.toml` | rust | `cargo test` | cargo text |
+| `pom.xml` / `build.gradle[.kts]` | java | `mvn test` / `./gradlew test` | JUnit XML directory walk |
+| `Gemfile` | ruby | `bundle exec rspec --format json` | RSpec JSON |
+| `CMakeLists.txt` | cmake | `ctest --output-junit <tmp>` | JUnit XML single file |
+| `meson.build` | meson | `meson test --xunit-file <tmp>` | JUnit XML single file |
+| `Makefile` | make | `make check` (or grepped target) | exit-code synthesis |
 
 **ChangePlan schema** (`internal/types/change_plan.go`): `FileChange.Kind` is one of `create` / `modify` / `delete` / `patch`. `patch` pipes `FileChange.Patch` (unified diff) to `git apply -` inside the worktree. `FileChange.DependsOn []string` is a path-based DAG (B1 Q1); `emit_change_plan` validates dup / unknown / cycle via DFS.
 
@@ -136,11 +153,38 @@ One LLM call emits `RequestModel`, then a deterministic chain:
 | `criterion` | `Eval` / `EvalAll` | 19-Kind contract evaluator |
 | `contract` | `Check` | AnswerContract validation |
 | `dataflow` | `Analyze` | Source→sink chains |
-| `logtriage` | `ValidateBundle` / `StripBuildPathPrefix` / `ResolveJavaFile` / `MergeBundles` | System-side validation + Layer-4 derivation for the LLM-emitted `LogBundle`. Replaced the deleted `logparse` regex package (session 20). |
+| `logtriage` | `ValidateBundle` / `StripBuildPathPrefix` / `ResolveJavaFile` / `ResolveArkTSFile` / `ResolveCangjieFile` / `ResolveKotlinFile` / `MergeBundles` / `MergeEntities` / `MergeResolvedFiles` | System-side validation + Layer-4 derivation for the LLM-emitted `LogBundle`. Per-language basename resolvers handle stack frames whose path was minified to a bare basename. |
+| `perftriage` | `MergePerfBundles` | Two-step merge for the LLM-emitted `PerfBundle`: frame/jank/stall dedup by signature, startup picks largest app_launch_ms, signals/residue union, Layer 4 re-derived. |
 
-### Log-triage (`AttachedLog` + `log_triage` stage — session 20 LLM-driven)
+### Repomap language coverage
 
-Session 20 refactor. Extraction is LLM-driven; the system validates and consumes. The `log_triage` pre-stage fires before analyze when `BusContext.AttachedLog` is non-empty. User attaches a runtime log via `--log <file|->` / `--log-text <inline>` / REPL `/log`; the payload lives on `BusContext.AttachedLog` — **never injected into the request string** so `normalizer.Normalize` stays clean.
+Tree-sitter and Go-native extractors live under `internal/tool/repomap/index/`. `types/lang.go` registers the canonical lang ids and ext map.
+
+| Language | Lang id | Extensions | Extractor | Resolver |
+|---|---|---|---|---|
+| Go | `go` | `.go` | `extract_go.go` (tree-sitter) | `resolver_go.go` |
+| Python | `python` | `.py` `.pyi` | `extract_python.go` | `resolver_python.go` |
+| JavaScript | `javascript` | `.js` `.jsx` `.mjs` | `extract_javascript.go` | `resolver_javascript.go` (tsconfig-aware) |
+| TypeScript | `typescript` | `.ts` `.tsx` (when no `oh-package.json5` present) | `extract_javascript.go` | shared with JS |
+| Java | `java` | `.java` | `extract_java.go` | `resolver_java.go` |
+| Kotlin | `kotlin` | `.kt` `.kts` | `extract_kotlin.go` (tree-sitter-kotlin) | `resolver_kotlin.go` (package-decl aware) |
+| Rust | `rust` | `.rs` | `extract_rust.go` | `resolver_rust.go` |
+| C / C++ | `c` / `cpp` | `.c` `.h` `.cc` `.cpp` `.cxx` `.hpp` `.hh` | `extract_c.go` | `resolver_cpp.go` |
+| ArkTS | `arkts` | `.ets` (and `.ts` when `oh-package.json5` lives in any ancestor dir) | `extract_arkts.go` (TS grammar + post-pass for `struct` / 21-decorator whitelist) | `resolver_arkts.go` (oh-package.json5 bundle map via `json5_parser.go`; `@ohos.*` / `@kit.*` / `@hms.*` / `@arkui.*` / `@system.*` builtin black-hole) |
+| Cangjie | `cangjie` | `.cj` (`.cjo` denied at scan) | `cangjie_lexer.go` + `cangjie_parser.go` (recursive-descent Go-native, tracks enclosing-type stack) | `resolver_cangjie.go` (cjpm.toml deps via `toml_parser.go`; `std.*` / `core.*` / `runtime.*` / `ohos.*` builtin black-hole) |
+
+**Fallback chain** (`parse_fallback.go`): every parse records a `FileInfo.ParseTier` (1 = primary grammar, 2 = secondary salvage, 3 = regex-only, 4 = path-only). `retrieve.rank.go::parseTierDiscount` multiplies the rank score by 1.0/0.85/0.6/0.3 so degraded parses cannot outrank Tier 1 siblings. Per-language Tier 2+ ratios above `fallbackBannerThreshold` (ArkTS 0.4 / Cangjie 0.5) emit a one-shot WARN banner suggesting an extractor / grammar update.
+
+**Red lines**:
+- `extToLang[".ts"] → LangArkTS` only when `IsArkTSProject` finds an `oh-package.json5` in any ancestor dir. Pure TypeScript projects keep `LangTypeScript`.
+- ArkTS Tier 1 grammar reject is explicit; downgrade to Tier 2 fires a WARN — never silent.
+- `.cjo` Cangjie compiled artefact is denied at scanner time.
+- Cangjie `FileInfo.Package` MUST come from the source's `package_clause`; path inference is forbidden.
+- All fallbacks must log `repomap: <file> X→Y (tier N→M): <reason>` at WARN level; the banner ratio gates an aggregate signal on top.
+
+### Log-triage (`AttachedLog` + `log_triage` stage)
+
+Extraction is LLM-driven; the system validates and consumes. The `log_triage` pre-stage fires before analyze when `BusContext.AttachedLog` is non-empty. User attaches a runtime log via `--log <file|->` / `--log-text <inline>` / REPL `/log`; the payload lives on `BusContext.AttachedLog` — **never injected into the request string** so `normalizer.Normalize` stays clean.
 
 **Responsibility boundary** (load-bearing):
 
@@ -156,11 +200,31 @@ Downstream consumers (analyzer only, today):
 2. **Intent override** — `reconcileIntent(intent, preds, bundle)` forces `IntentRootCause` when `bundle.IntentHint == IntentRootCause` (derived from `any(frame.line>0)` OR `Signals ∩ {panic, crash, oom}`).
 3. **RequiredFiles merge** — `analyzerRequiredFiles` prepends `bundle.ResolvedFiles` ahead of the structural ranker (cap 10) via `logtriage.MergeResolvedFiles`.
 
-**Two-step fallback**: when a single `emit_log_triage` call returns `coverage < log_triage_two_step_coverage` (default 0.3) or the input size exceeds `log_triage_two_step_bytes` (default 32 KB conservative), the log_triager escalates: dispatches the `log-segmentation-skill` which calls `emit_log_segmentation` to split the log into byte-addressed `stack/caused_by/header/context/trace/noise` regions; then re-dispatches `emit_log_triage` per stack-shaped segment. `logtriage.MergeBundles` combines the partial bundles (union of signals; concatenation of Errors[]; re-derived Layer 4). Total LLM calls capped at `log_triage_max_llm_calls` (default 8).
+**Two-step fallback**: when a single `emit_log_triage` call returns `coverage < log_triage_two_step_coverage` (default 0.3) or the input size exceeds `log_triage_two_step_bytes` (default 32 KB conservative), the log_triager escalates: dispatches the `log-segmentation-skill` which calls `emit_log_segmentation` to split the log into byte-addressed `stack/caused_by/header/context/trace/noise` regions; then re-dispatches `emit_log_triage` per stack-shaped segment. `logtriage.MergeBundles` combines the partial bundles (union of signals; concatenation of Errors[]; re-derived Layer 4). Total LLM calls capped at `log_triage_max_llm_calls` (default 12 — sized so 1 single-shot + 1 segmentation + 10 per-segment covers the segmenter's 10-segment cap).
 
 **Feature gate**: `codrax.yaml :: log_triage_enabled` (default true). CLI `--log-source-prefix` or YAML `log_triage_source_prefix` supplies the CI build root. Other knobs: `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`.
 
-**Attach cap** (distinct family, `log_attach_*`): `log_attach_max_bytes` (default `1 << 20` = 1 MB) hard-caps every attach surface BEFORE log_triage sees the payload — `--log <file>`, `--log -` (stdin uses `io.LimitReader(N+1)` so multi-GB pipes never swell process memory), `--log-text`, REPL `/log <path>`, `/log` paste mode, `splitPastedLog` auto-route. Oversize → tail-truncate + `WARN [cmd] attached log truncated`. Fires even when `log_triage_enabled: false` (it's about memory safety, not triage). Non-positive values (incl. explicit 0) fall back to the default so a misconfigured 0 can't silently brick every `/log` path. cmd writes it to a package-level `maxAttachedLogBytes` var; REPL receives it via `Config.AttachedLogMaxBytes`.
+**Attach cap** (distinct family, `log_attach_*`): `log_attach_max_bytes` (default `50 * 1024 * 1024` = 50 MB) hard-caps every attach surface BEFORE triage sees the payload — applies INDEPENDENTLY to log channel (`--log` / `--log-text` / REPL `/log`) and to perf channel (`--htrace` / `--atrace` / REPL `/htrace` / `/atrace`); a single Run can carry up to 50 MB of each. stdin uses `io.LimitReader(N+1)` so multi-GB pipes never swell process memory. Oversize → tail-truncate + `WARN [cmd] attached log truncated`. Hard ceiling 1 GiB enforced (`maxAttachedLogHardCeiling`) — operators raising `log_attach_max_bytes` past 1 GiB get clamped with a WARN. Fires even when `log_triage_enabled: false` (it's about memory safety, not triage quality). Non-positive values fall back to the default. cmd writes the resolved cap to `maxAttachedLogBytes`; REPL receives it via `Config.AttachedLogMaxBytes`.
+
+### Perf-triage stage (`perf_triage`)
+
+Conditional pre-stage that fires before analyze when `BusContext.AttachedHitrace` is non-empty. The `perf_triager` agent reads the attached HiTrace / atrace / systrace / perfetto text (CLI `--htrace` / `--atrace` / `--htrace-text` / `--atrace-text`; REPL `/htrace` / `/atrace`) and produces a validated `PerfBundle` on `Mutable.PerfTrace()`.
+
+**Layers**:
+
+- Layer 1 **Meta**: `source` (enum: hitrace / atrace / systrace / perfetto / unknown), `duration_ms`, `app_pid`, `signals[]` (jank / cold-start-slow / main-thread-stall / io-block / gc-pause / render-miss), `summary`.
+- Layer 2 **Events**: `Frames[]` (FrameNo / TsMs / DurationMs / Phase / Janky), `Janks[]` (start_ts_ms / duration_ms / trigger_span / reason / tags[]), `Stalls[]` (symbol / file / line), `Startup` (mode / app_launch_ms / ability_init_ms / first_frame_ms).
+- Layer 3 **Residue**: `residue[]` for unstructurable chunks.
+- Layer 4 **Derivation** (system, `internal/tool/emit_perf_trace.go::derivePerfLayer4`): `IntentHint=performance` when any jank/stall/slow-cold-start is observed; `Entities` (cap 32) from trigger spans + tags + stall symbols + startup mode; `ResolvedFiles` (cap 10) from stall files; signals auto-augmented against thresholds `PerfFrameBudget60HzMs` (16.67 ms), `PerfStartupSlowColdMs` (1.2 s), `PerfMainThreadStallMs` (100 ms).
+
+**Two-step fallback**: when single-shot returns `coverage < perf_triage_two_step_coverage` (default 0.3) OR `len(AttachedHitrace) >= perf_triage_two_step_bytes` (default 64 KB), `perf-segmentation-skill` runs first via `emit_perf_segmentation` to split the trace into `frame_window/jank_region/startup/thread_run/context/noise` byte ranges; `emit_perf_trace` then runs once per actionable segment; `internal/analysis/perftriage.MergePerfBundles` unions the partials (frame/jank/stall dedup by signature, startup picks largest app_launch_ms, signals/residue union, Layer 4 re-derived). Total LLM calls capped at `perf_triage_max_llm_calls` (default 12 = 1 single-shot + 1 segmentation + 10 per-segment).
+
+**Downstream consumers** (analyzer):
+
+1. `logtriage.MergeEntities(rm.AnalyzerHints.Entities, perfBundle.Entities)` unions trigger spans + stall symbols into the analyzer's entity list.
+2. `analyzerRequiredFiles` unions `perfBundle.ResolvedFiles` with log-derived `ResolvedFiles` before the structural ranker (cap 10 total).
+
+**Feature gate**: `codrax.yaml :: perf_triage_enabled` (default true). Tuning knobs mirror `log_triage_*`: `perf_triage_min_bytes` (200) / `perf_triage_max_retries` (1) / `perf_triage_two_step_enabled` / `perf_triage_two_step_bytes` (64 KB) / `perf_triage_two_step_coverage` (0.3) / `perf_triage_max_llm_calls` (12). Failure of perf_triage is non-fatal — main pipeline continues with `bus.PerfTrace()==nil`.
 
 **Session 20 red lines held**: LLM is the extractor, system is the validator; no new `Criterion Kind` / `Hypothesis family` / `AnchorKind` / `Scenario`; analyzer carries zero log-triage bolt-on code (the 6 helpers session 19 added under `analyzer.go:1147-1373` are gone); `reconcileIntent` signature is `(intent, preds, *LogBundle)` — no tag-along booleans.
 

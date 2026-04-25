@@ -82,34 +82,35 @@ var (
 	flagMaxRetries     int
 	flagMaxStageVisits int
 
-	// Log-triage attach flags. --log reads a runtime log excerpt from
-	// a file path (or "-" for stdin), --log-text accepts an inline
-	// payload. Mutually exclusive. Both feed orchestrator.SetAttachedLog
-	// so the log_triage pre-stage can extract stack-frame anchors.
-	flagAttachLog       string
+	// Log-triage attach flags.
+	//
+	// `--log` is a REPEATABLE string slice: pass it multiple times
+	// to attach several files in one Run (`--log a.log --log b.log`).
+	// Each entry is either a filesystem path or `-` (stdin); only one
+	// `-` is allowed across the whole flag set (stdin can be consumed
+	// at most once per process). Files concatenate in CLI order with
+	// a `# codrax-source: <path>\n` header per entry so the LLM can
+	// distinguish boundaries.
+	//
+	// `--log-text` is a single inline payload (multi-paste is
+	// uncommon and trivially worked around by `cat … | --log -`).
+	// It and `--log` are mutually exclusive when both non-empty.
+	flagAttachLog       []string
 	flagAttachLogText   string
 	flagLogSourcePrefix string
 
-	// HarmonyOS HiTrace attach flag. --htrace reads an hdc-captured
-	// ftrace-compatible trace excerpt from a file path (or "-" for
-	// stdin) or --htrace-text accepts an inline payload. The trace
-	// body is routed through the same log_triage pre-stage as --log
-	// (a single canonical text-attachment channel), so no second
-	// LLM pipeline is spun up — the log-triage-skill prompt has been
-	// taught the HiTrace format so it can identify jank frames and
-	// main-thread stalls in the same emission. Mutually exclusive
-	// with each other and with --log / --log-text if both attach an
-	// anchor for the same run; otherwise they concatenate (trace
-	// first, then log).
-	flagAttachHitrace     string
+	// HiTrace / atrace / systrace / perfetto attach flags. Same
+	// repeatable semantics as `--log`. Multiple captures from
+	// different processes / time windows can be attached together;
+	// the perf_triager / segmenter prompts handle multi-source
+	// boundaries via the embedded `# codrax-source:` markers.
+	flagAttachHitrace     []string
 	flagAttachHitraceText string
-	// --atrace / --atrace-text: aliases of --htrace / --htrace-text.
-	// Same backing channel; users on Android pipelines can type the
-	// name that matches their muscle memory (`adb shell atrace` →
-	// `--atrace`). The merge step below resolves either-or; passing
-	// both spellings simultaneously is rejected the same way --log
-	// + --log-text is.
-	flagAttachAtrace     string
+	// --atrace / --atrace-text: aliases of --htrace / --htrace-text
+	// for Android-spelling muscle memory. loadAttachedTrace promotes
+	// either-or into the canonical flagAttachHitrace pipeline; setting
+	// both htrace AND atrace simultaneously is rejected.
+	flagAttachAtrace     []string
 	flagAttachAtraceText string
 
 	// Auto chit-chat classifier per-run toggle. When the flag is NOT
@@ -183,6 +184,19 @@ const maxAttachedLogHardCeiling = 1 << 30 // 1 GiB
 // after merging codrax.yaml.
 var maxAttachedLogBytes = defaultAttachedLogMaxBytes
 
+// maxAttachedTraceBytes is the live cap for the perf-channel
+// attachments (--htrace / --atrace / --htrace-text / --atrace-text /
+// REPL /htrace / /atrace). Mirrors maxAttachedLogBytes for the log
+// channel. Default behaviour is "inherit whatever log_attach_max_bytes
+// resolves to" so a user who only sets log_attach_max_bytes still
+// gets symmetric trace handling. When the yaml carries an explicit
+// trace_attach_max_bytes value, it overrides this slot independently
+// of the log cap.
+//
+// The hard ceiling clamp (maxAttachedLogHardCeiling, 1 GiB) applies
+// to BOTH caps — neither channel may exceed the OOM-protection bound.
+var maxAttachedTraceBytes = defaultAttachedLogMaxBytes
+
 // appContext holds initialized state shared between subcommands.
 type appContext struct {
 	renderer              *render.Renderer
@@ -233,15 +247,15 @@ func init() {
 	f.StringVar(&flagLang, "lang", defaultLang, "default response language (zh/en/...); 'off' to disable")
 	f.IntVar(&flagMaxRetries, "pipeline-max-retries", 0, "override max consecutive failures per stage; 0 = inherit from codrax.yaml")
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
-	f.StringVar(&flagAttachLog, "log", "", "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin; seeds log-triage entities for the analyzer")
+	f.StringArrayVar(&flagAttachLog, "log", nil, "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin. Repeatable: --log a.log --log b.log attaches both, joined with `# codrax-source: <path>` headers so the LLM can distinguish boundaries. Total bytes capped by codrax.yaml :: log_attach_max_bytes.")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
-	f.StringVar(&flagAttachHitrace, "htrace", "", "attach an ftrace-compatible trace excerpt from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace`, Android `adb shell atrace`, systrace, and perfetto text dumps — same channel for all four. Use --atrace as an Android-flavored alias.")
+	f.StringArrayVar(&flagAttachHitrace, "htrace", nil, "attach an ftrace-compatible trace from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace`, Android `adb shell atrace`, systrace, and perfetto text dumps. Repeatable: --htrace a.trace --htrace b.trace. --atrace is an alias.")
 	f.StringVar(&flagAttachHitraceText, "htrace-text", "", "inline trace payload (mutually exclusive with --htrace)")
 	// --atrace / --atrace-text: Android-flavored aliases. Backed by
 	// the same channel as --htrace; the merge in loadAttachedTrace
-	// rejects setting both. No CLI semantic difference — purely a
-	// usability accommodation so `adb` users don't have to translate.
-	f.StringVar(&flagAttachAtrace, "atrace", "", "alias of --htrace (ftrace-compatible trace from file or '-' for stdin). Choose whichever name matches your capture tool — both feed the perf_triage stage identically.")
+	// rejects setting both flavours. No CLI semantic difference —
+	// purely a usability accommodation so `adb` users don't translate.
+	f.StringArrayVar(&flagAttachAtrace, "atrace", nil, "alias of --htrace (repeatable). Use whichever name matches your capture tool — both feed the perf_triage stage identically.")
 	f.StringVar(&flagAttachAtraceText, "atrace-text", "", "alias of --htrace-text (inline trace payload)")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
@@ -401,123 +415,162 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	return runSingleShot(cmd, request)
 }
 
-// loadAttachedLog returns the --log / --log-text payload (size-
-// capped). Trace attachments are returned separately by
-// loadAttachedTrace so the orchestrator can feed them into the
-// independent StagePerfTriage pre-stage via SetAttachedHitrace.
+// loadAttachedLog returns the merged --log / --log-text payload
+// (size-capped at log_attach_max_bytes). Trace attachments are
+// loaded separately by loadAttachedTrace and bounded by the
+// independent trace_attach_max_bytes cap.
 //
 // Rules:
-//   - --log and --log-text are mutually exclusive
-//   - --log=- reads stdin; only one of --log=- / --htrace=- may
-//     consume stdin per run (enforced in loadAttachedTrace)
-//   - payload is capped at maxAttachedLogBytes; excess bytes are
-//     dropped with a warning
+//   - --log (slice) and --log-text are mutually exclusive when both
+//     are non-empty
+//   - exactly one `-` is allowed across BOTH --log and the trace
+//     entries combined (only one stdin consumer per Run); the
+//     stdin gate is enforced in this function before any read
+//   - multiple --log entries are concatenated in CLI order, each
+//     prefixed by a `# codrax-source: <path>\n` header so the LLM
+//     can distinguish file boundaries (e.g. multi-process panics)
+//   - the combined byte length is capped at maxAttachedLogBytes;
+//     excess bytes are tail-truncated with a WARN
 func loadAttachedLog() (string, error) {
-	if flagAttachLog != "" && flagAttachLogText != "" {
+	if len(flagAttachLog) > 0 && flagAttachLogText != "" {
 		return "", fmt.Errorf("--log and --log-text are mutually exclusive")
 	}
-	if flagAttachLog == "-" && flagAttachHitrace == "-" {
-		return "", fmt.Errorf("only one of --log=- / --htrace=- may consume stdin per run")
+	if err := enforceStdinExclusivity(); err != nil {
+		return "", err
 	}
-	body, err := loadAttachedLogBody()
+	body, err := loadMultiPathSlice("log", flagAttachLog, flagAttachLogText, maxAttachedLogBytes)
 	if err != nil {
 		return "", err
 	}
 	if body == "" {
 		return "", nil
 	}
-	return truncateAttachedLog(body), nil
+	return truncateAttachedToCap(body, maxAttachedLogBytes, "log"), nil
 }
 
-// loadAttachedTrace returns the trace payload (size-capped). Accepts
-// any of the four spellings (--htrace / --htrace-text / --atrace /
-// --atrace-text); the four are mutually exclusive in the canonical
-// pairing (file vs text on the SAME flavour) — but for cross-flavour
-// (e.g. --htrace + --atrace) the alias-merge below picks whichever
-// is set, with a hard error if both are set to non-empty distinct
-// values to avoid silent precedence bugs.
+// loadAttachedTrace returns the merged trace payload (size-capped).
+// Accepts any combination of --htrace / --atrace (slices) plus
+// --htrace-text / --atrace-text (single inline strings). Within-
+// flavour (file vs inline) and cross-flavour (htrace vs atrace) are
+// mutually exclusive when both are non-empty. Multiple --htrace
+// (or --atrace) entries concatenate with `# codrax-source:` headers
+// the same way --log does.
 func loadAttachedTrace() (string, error) {
-	// Within-flavour exclusivity (file vs inline-text).
-	if flagAttachHitrace != "" && flagAttachHitraceText != "" {
+	if len(flagAttachHitrace) > 0 && flagAttachHitraceText != "" {
 		return "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
 	}
-	if flagAttachAtrace != "" && flagAttachAtraceText != "" {
+	if len(flagAttachAtrace) > 0 && flagAttachAtraceText != "" {
 		return "", fmt.Errorf("--atrace and --atrace-text are mutually exclusive")
 	}
-	// Cross-flavour exclusivity (htrace vs atrace are aliases on
-	// the same channel).
-	if (flagAttachHitrace != "" || flagAttachHitraceText != "") &&
-		(flagAttachAtrace != "" || flagAttachAtraceText != "") {
+	if (len(flagAttachHitrace) > 0 || flagAttachHitraceText != "") &&
+		(len(flagAttachAtrace) > 0 || flagAttachAtraceText != "") {
 		return "", fmt.Errorf("--htrace and --atrace are aliases — set only one")
 	}
-	// Promote --atrace* into --htrace* so the rest of the loader
-	// (loadAttachedHitrace, stdin guards) only sees one shape.
-	if flagAttachAtrace != "" {
-		flagAttachHitrace = flagAttachAtrace
+	// Promote --atrace* into --htrace* so the rest of the loader only
+	// sees one shape.
+	paths := flagAttachHitrace
+	text := flagAttachHitraceText
+	if len(flagAttachAtrace) > 0 {
+		paths = flagAttachAtrace
 	}
 	if flagAttachAtraceText != "" {
-		flagAttachHitraceText = flagAttachAtraceText
+		text = flagAttachAtraceText
 	}
-	body, err := loadAttachedHitrace()
+	if err := enforceStdinExclusivity(); err != nil {
+		return "", err
+	}
+	body, err := loadMultiPathSlice("trace", paths, text, maxAttachedTraceBytes)
 	if err != nil {
 		return "", err
 	}
 	if body == "" {
 		return "", nil
 	}
-	return truncateAttachedLog(body), nil
+	return truncateAttachedToCap(body, maxAttachedTraceBytes, "trace"), nil
 }
 
-// loadAttachedLogBody returns the --log / --log-text body, stripped
-// of framing but NOT size-capped (the cap applies at combine time).
-func loadAttachedLogBody() (string, error) {
-	if flagAttachLogText != "" {
-		return flagAttachLogText, nil
+// enforceStdinExclusivity checks that at most one `-` appears across
+// every repeated --log / --htrace / --atrace entry. Returns an error
+// when two or more would consume stdin (impossible on a single
+// process). Called from both loaders before any actual read so the
+// failure is reported once at flag-validation time rather than on
+// the second read where stdin is already drained.
+func enforceStdinExclusivity() error {
+	stdinCount := 0
+	for _, p := range flagAttachLog {
+		if p == "-" {
+			stdinCount++
+		}
 	}
-	if flagAttachLog == "" {
-		return "", nil
+	for _, p := range flagAttachHitrace {
+		if p == "-" {
+			stdinCount++
+		}
 	}
-	var data []byte
-	var err error
-	if flagAttachLog == "-" {
-		data, err = io.ReadAll(io.LimitReader(os.Stdin, int64(maxAttachedLogBytes)+1))
-	} else {
-		data, err = os.ReadFile(flagAttachLog)
+	for _, p := range flagAttachAtrace {
+		if p == "-" {
+			stdinCount++
+		}
 	}
-	if err != nil {
-		return "", fmt.Errorf("load attached log: %w", err)
+	if stdinCount > 1 {
+		return fmt.Errorf("only one of --log/--htrace/--atrace can consume stdin (`-`) per run; got %d", stdinCount)
 	}
-	return string(data), nil
+	return nil
 }
 
-// loadAttachedHitrace returns the --htrace / --htrace-text body,
-// stripped of framing but NOT size-capped.
-func loadAttachedHitrace() (string, error) {
-	if flagAttachHitraceText != "" {
-		return flagAttachHitraceText, nil
+// loadMultiPathSlice reads every entry in `paths` (or returns
+// `inlineText` when the slice is empty), prefixing each file body
+// with `# codrax-source: <path>\n`. Per-file stdin read is bounded
+// by `cap` (channel-specific) so a single oversized file cannot OOM
+// the process; the final aggregate cap applies in
+// truncateAttachedToCap. `kind` is "log" / "trace" for error context.
+func loadMultiPathSlice(kind string, paths []string, inlineText string, cap int) (string, error) {
+	if inlineText != "" {
+		return inlineText, nil
 	}
-	if flagAttachHitrace == "" {
+	if len(paths) == 0 {
 		return "", nil
 	}
-	var data []byte
-	var err error
-	if flagAttachHitrace == "-" {
-		data, err = io.ReadAll(io.LimitReader(os.Stdin, int64(maxAttachedLogBytes)+1))
-	} else {
-		data, err = os.ReadFile(flagAttachHitrace)
+	var b strings.Builder
+	for _, p := range paths {
+		var data []byte
+		var err error
+		if p == "-" {
+			data, err = io.ReadAll(io.LimitReader(os.Stdin, int64(cap)+1))
+		} else {
+			data, err = os.ReadFile(p)
+		}
+		if err != nil {
+			return "", fmt.Errorf("load attached %s %q: %w", kind, p, err)
+		}
+		// Header keeps file boundaries visible to the LLM. Single-
+		// path attachments still get a header for symmetry; the
+		// log-triage / perf-triage skill prompts reference the
+		// `# codrax-source:` token by literal so this is part of
+		// the contract, not just decoration.
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "# codrax-source: %s\n", p)
+		b.Write(data)
 	}
-	if err != nil {
-		return "", fmt.Errorf("load attached hitrace: %w", err)
-	}
-	return string(data), nil
+	return b.String(), nil
 }
 
 func truncateAttachedLog(s string) string {
-	if len(s) <= maxAttachedLogBytes {
+	return truncateAttachedToCap(s, maxAttachedLogBytes, "log")
+}
+
+// truncateAttachedToCap is the per-channel truncation entry point.
+// Mirrors truncateAttachedLog but parameterised by cap + a label so
+// the WARN message names the right channel ("log" vs "trace") when
+// the caps differ.
+func truncateAttachedToCap(s string, cap int, kind string) string {
+	if len(s) <= cap {
 		return s
 	}
-	logging.Warning("[cmd] attached log truncated: %d → %d bytes", len(s), maxAttachedLogBytes)
-	return s[:maxAttachedLogBytes]
+	logging.Warning("[cmd] attached %s truncated: %d → %d bytes", kind, len(s), cap)
+	return s[:cap]
 }
 
 // writeModeInputs groups the parameters resolveWriteMode inspects
@@ -782,7 +835,8 @@ func runREPL(_ *cobra.Command) error {
 		ChitchatResponder:   app.chitchatResponder,
 		ChitchatClassifier:  app.chitchatClassifier,
 		PlanStore:           planStore,
-		AttachedLogMaxBytes: maxAttachedLogBytes,
+		AttachedLogMaxBytes:   maxAttachedLogBytes,
+		AttachedTraceMaxBytes: maxAttachedTraceBytes,
 	})
 	if err := r.Loop(); err != nil {
 		logging.Error("repl exited with error: %v", err)
@@ -909,6 +963,20 @@ func initApp(cmd *cobra.Command, _ []string) error {
 				logging.Warning("[cmd] log_attach_max_bytes=%d clamped to %d (hard ceiling)",
 					maxAttachedLogBytes, maxAttachedLogHardCeiling)
 				maxAttachedLogBytes = maxAttachedLogHardCeiling
+			}
+		}
+		// Trace cap inheritance: by default the trace channel
+		// shares the log cap (so a user who only sets
+		// log_attach_max_bytes gets symmetric behaviour). When
+		// trace_attach_max_bytes is set explicitly, it overrides
+		// independently. Same hard-ceiling clamp applies.
+		maxAttachedTraceBytes = maxAttachedLogBytes
+		if rs.TraceAttachMaxBytes != nil && *rs.TraceAttachMaxBytes > 0 {
+			maxAttachedTraceBytes = *rs.TraceAttachMaxBytes
+			if maxAttachedTraceBytes > maxAttachedLogHardCeiling {
+				logging.Warning("[cmd] trace_attach_max_bytes=%d clamped to %d (hard ceiling)",
+					maxAttachedTraceBytes, maxAttachedLogHardCeiling)
+				maxAttachedTraceBytes = maxAttachedLogHardCeiling
 			}
 		}
 		if rs.LogDir != nil {

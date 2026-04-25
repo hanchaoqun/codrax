@@ -395,6 +395,16 @@ type RuntimeSettings struct {
 	//                       Values ≤ 0 fall back to the default.
 	LogAttachMaxBytes *int `yaml:"log_attach_max_bytes"`
 
+	// TraceAttachMaxBytes is the perf-channel companion to
+	// LogAttachMaxBytes. Bounds every --htrace / --atrace /
+	// --htrace-text / --atrace-text / REPL /htrace / /atrace
+	// surface BEFORE perf_triage sees the payload. Defaults to
+	// the resolved log_attach_max_bytes value (so a user who only
+	// configures the log knob still gets symmetric trace handling);
+	// set explicitly to override independently. Same 1 GiB hard-
+	// ceiling clamp as the log cap.
+	TraceAttachMaxBytes *int `yaml:"trace_attach_max_bytes"`
+
 	// B0 write-mode knobs. `write_*` prefix groups the write-mode
 	// lifecycle settings (plan / apply / verify stages). All
 	// optional; nil values coerce to safe-by-default behavior so

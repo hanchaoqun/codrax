@@ -161,6 +161,13 @@ type Config struct {
 	// codrax.yaml :: log_attach_max_bytes. Zero or negative →
 	// DefaultAttachedLogMaxBytes (50 MB), matching the CLI default.
 	AttachedLogMaxBytes int
+
+	// AttachedTraceMaxBytes caps the perf-channel attach surface
+	// (`/htrace <path>` and `/htrace append <path>` and the
+	// `/atrace` aliases). Defaults to AttachedLogMaxBytes when zero
+	// or negative — a user who only configures the log cap still
+	// gets symmetric trace handling. Set independently to override.
+	AttachedTraceMaxBytes int
 }
 
 // REPL drives the interactive prompt.
@@ -259,12 +266,19 @@ type REPL struct {
 	// but tests that bypass cmd/ keep it nil.
 	planStore *PlanStore
 
-	// attachedLogMaxBytes is the per-session cap on every attach
-	// surface (/log <path>, /log paste, splitPastedLog auto-route).
-	// Seeded from Config.AttachedLogMaxBytes in New; a non-positive
-	// config value falls back to DefaultAttachedLogMaxBytes so tests
-	// that construct a zero-value Config see the documented 50 MB limit.
+	// attachedLogMaxBytes is the per-session cap on every log-channel
+	// attach surface (/log <path>, /log paste, /log append,
+	// splitPastedLog auto-route). Seeded from
+	// Config.AttachedLogMaxBytes; non-positive falls back to
+	// DefaultAttachedLogMaxBytes.
 	attachedLogMaxBytes int
+
+	// attachedTraceMaxBytes is the perf-channel companion. Used by
+	// /htrace and /atrace handlers. Seeded from
+	// Config.AttachedTraceMaxBytes; non-positive falls back to
+	// attachedLogMaxBytes (so the trace channel inherits whatever
+	// the log channel resolved to).
+	attachedTraceMaxBytes int
 }
 
 // New constructs a REPL from a Config.
@@ -292,8 +306,9 @@ func New(cfg Config) *REPL {
 		// disjoint IDs. Consumed by memory.BuildContext via BuildOpts.
 		sessionID:           fmt.Sprintf("sess-%d-%d", time.Now().UnixNano(), os.Getpid()),
 		currentMode:         types.ModeRead, // B0 sticky mode; /mode rewrites
-		planStore:           cfg.PlanStore,
-		attachedLogMaxBytes: cfg.AttachedLogMaxBytes,
+		planStore:             cfg.PlanStore,
+		attachedLogMaxBytes:   cfg.AttachedLogMaxBytes,
+		attachedTraceMaxBytes: cfg.AttachedTraceMaxBytes,
 	}
 	if r.version == "" {
 		r.version = "dev"
@@ -303,6 +318,13 @@ func New(cfg Config) *REPL {
 	}
 	if r.attachedLogMaxBytes <= 0 {
 		r.attachedLogMaxBytes = DefaultAttachedLogMaxBytes
+	}
+	// Trace cap inherits the (now-resolved) log cap when not
+	// explicitly set, so a caller that only configured
+	// AttachedLogMaxBytes still gets symmetric perf-channel
+	// behaviour.
+	if r.attachedTraceMaxBytes <= 0 {
+		r.attachedTraceMaxBytes = r.attachedLogMaxBytes
 	}
 	// Seed sticky log from whatever the runner already has (CLI set
 	// `--log` before handing off to the REPL). Keeps the invariant
@@ -1494,27 +1516,59 @@ func (r *REPL) handleLogCmd(line string) {
 		r.success("attached log cleared")
 	case rest == "show":
 		r.handleLogShow()
+	case strings.HasPrefix(rest, "append "):
+		r.handleLogAppend(strings.TrimSpace(strings.TrimPrefix(rest, "append")))
 	default:
 		r.handleLogLoad(rest)
 	}
 }
 
+// handleLogAppend reads `path` and APPENDS to the sticky log buffer
+// with a `# codrax-source: <path>\n` header — symmetric with the CLI
+// `--log a.log --log b.log` repeatable behaviour. Replaces the prior
+// attachment when no log is currently attached (`/log append` when
+// empty acts as `/log <path>`). Total bytes still capped by
+// attachedLogMaxBytes; excess tail-truncates with a WARN.
+func (r *REPL) handleLogAppend(path string) {
+	if path == "" {
+		r.errorf("/log append <path> — missing path argument\n")
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		r.errorf("append log: %v\n", err)
+		return
+	}
+	header := "# codrax-source: " + path + "\n"
+	combined := r.attachedLog
+	if combined != "" {
+		combined += "\n"
+	}
+	combined += header + string(data)
+	if len(combined) > r.attachedLogMaxBytes {
+		r.warn("appended log truncated: %d → %d bytes\n", len(combined), r.attachedLogMaxBytes)
+		combined = combined[:r.attachedLogMaxBytes]
+	}
+	r.attachedLog = combined
+	r.attachedLogAutoRouted = false
+	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedLog)))
+}
+
 // handleHitraceCmd is the perf-channel companion to handleLogCmd.
 // Mirrors the surface for HiTrace / Android-systrace attachments:
 //
-//	/htrace <path>   — load file from disk (sticky)
-//	/htrace clear    — clear the current attachment
-//	/htrace show     — print byte count + head of the attachment
-//	/htrace          — bare invocation prints usage; we do NOT enter
-//	                   paste mode for traces because realistic
-//	                   HiTrace bodies are megabytes and rarely typed
-//	                   by hand. Users who really want inline can
-//	                   `/log` paste instead.
+//	/htrace <path>          — load file from disk (replaces any prior)
+//	/htrace append <path>   — append additional file with source header
+//	/htrace clear           — clear the current attachment
+//	/htrace show            — print byte count + head of the attachment
+//	/htrace                 — bare invocation prints usage; no paste
+//	                          mode (traces are usually multi-MB hdc
+//	                          / adb dumps, not hand-typed)
 func (r *REPL) handleHitraceCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/htrace"))
 	switch {
 	case rest == "":
-		r.info("/htrace <path> | clear | show — attach a HiTrace / atrace file")
+		r.info("/htrace <path> | append <path> | clear | show — attach a HiTrace / atrace / systrace / perfetto file")
 	case rest == "clear":
 		if r.attachedHitrace == "" {
 			r.info("no hitrace attached")
@@ -1535,19 +1589,56 @@ func (r *REPL) handleHitraceCmd(line string) {
 			head = head[:800] + "…"
 		}
 		r.info(fmt.Sprintf("hitrace: %d bytes\n%s", len(r.attachedHitrace), head))
+	case strings.HasPrefix(rest, "append "):
+		r.handleHitraceAppend(strings.TrimSpace(strings.TrimPrefix(rest, "append")))
 	default:
 		data, err := os.ReadFile(rest)
 		if err != nil {
 			r.errorf("load hitrace: %v\n", err)
 			return
 		}
-		if len(data) > r.attachedLogMaxBytes {
-			r.warn("hitrace truncated: %d → %d bytes\n", len(data), r.attachedLogMaxBytes)
-			data = data[:r.attachedLogMaxBytes]
+		if len(data) > r.attachedTraceMaxBytes {
+			r.warn("hitrace truncated: %d → %d bytes\n", len(data), r.attachedTraceMaxBytes)
+			data = data[:r.attachedTraceMaxBytes]
 		}
-		r.attachedHitrace = string(data)
+		// Single-path load also gets the source header so the LLM
+		// sees a consistent boundary marker shape regardless of
+		// how the trace got attached (single load / append / CLI).
+		header := "# codrax-source: " + rest + "\n"
+		body := header + string(data)
+		if len(body) > r.attachedTraceMaxBytes {
+			body = body[:r.attachedTraceMaxBytes]
+		}
+		r.attachedHitrace = body
 		r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, len(data)))
 	}
+}
+
+// handleHitraceAppend mirrors handleLogAppend: read a trace file
+// and concatenate it onto the sticky buffer with a source header.
+// Bounded by attachedTraceMaxBytes (the perf-channel cap).
+func (r *REPL) handleHitraceAppend(path string) {
+	if path == "" {
+		r.errorf("/htrace append <path> — missing path argument\n")
+		return
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		r.errorf("append hitrace: %v\n", err)
+		return
+	}
+	header := "# codrax-source: " + path + "\n"
+	combined := r.attachedHitrace
+	if combined != "" {
+		combined += "\n"
+	}
+	combined += header + string(data)
+	if len(combined) > r.attachedTraceMaxBytes {
+		r.warn("appended hitrace truncated: %d → %d bytes\n", len(combined), r.attachedTraceMaxBytes)
+		combined = combined[:r.attachedTraceMaxBytes]
+	}
+	r.attachedHitrace = combined
+	r.success(fmt.Sprintf("appended %s (%d bytes added; total %d bytes)", path, len(data), len(r.attachedHitrace)))
 }
 
 // handleLogLoad reads a log file from disk into the sticky buffer.
