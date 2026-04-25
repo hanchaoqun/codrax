@@ -73,12 +73,13 @@ CODRAX_SETTINGS=/etc/codrax/team-shared.yaml codrax
 
 ### 读模式(默认)
 
-`analyze → explore → extract → finalize`,4 阶段 × 4 Agent 硬编码拓扑。当用户通过 `--log` / `/log` 附加了运行时日志时,analyze 前条件触发一个 `log_triage` 阶段。
+`analyze → explore → extract → finalize`,4 阶段 × 4 Agent 硬编码拓扑。两条独立条件前置阶段:`--log` / `/log` 附加运行时日志触发 `log_triage`;`--htrace` / `--atrace` / `/htrace` 附加性能 trace(HiTrace / atrace / systrace / perfetto)触发 `perf_triage`。两个前置阶段可同时触发。
 
 | 阶段 | Agent | 做什么 |
 |---|---|---|
-| `log_triage`(条件) | `log_triager` | LLM 把日志解析成结构化 bundle(错误类型 / 栈帧 / 因果链 / 信号分类),系统侧做路径校验 + 仓内存在性过滤;失败不阻塞主流水线 |
-| `analyze` | `analyzer` | 一次 `emit_analysis` 产出 `RequestModel`(意图 / 场景 / 复杂度),后处理管线确定性组装 `AnalysisIR`(TaskGraph + EvidencePlan + AnswerContract + HypothesisSet + 风险矩阵) |
+| `log_triage`(条件) | `log_triager` | LLM 把日志解析成结构化 bundle(错误类型 / 栈帧 / 因果链 / 信号分类),系统侧做路径校验 + 仓内存在性过滤;失败不阻塞主流水线。50 KB+ 自动两步分诊(`emit_log_segmentation` 切段 → 逐段 `emit_log_triage` → merge) |
+| `perf_triage`(条件) | `perf_triager` | LLM 把 HiTrace / atrace / systrace / perfetto 解析成 `PerfBundle`(Frames / Janks / Stalls / Startup),按 16.6 ms 帧预算 / 100 ms 主线程阻塞 / 1.2 s 冷启动阈值自动打 signals。64 KB+ 自动两步分诊。失败不阻塞主流水线 |
+| `analyze` | `analyzer` | 一次 `emit_analysis` 产出 `RequestModel`(意图 / 场景 / 复杂度),后处理管线确定性组装 `AnalysisIR`(TaskGraph + EvidencePlan + AnswerContract + HypothesisSet + 风险矩阵)。同时消费 `LogTriage` + `PerfTrace` 派生的 entities + ResolvedFiles |
 | `explore` | `explorer` | Turn A 调查:read_file / grep / repo_map ReAct 循环,通过 `emit_evidence` 累积证据 |
 | `extract` | `extractor` | Turn B 结构化:读 Turn A 冻结快照,产出带 completeness claim 的答案面板 |
 | `finalize` | `finalizer` | `emit_answer_document` 产出 typed `AnswerDocument`,渲染成用户可见散文 |
@@ -108,7 +109,7 @@ read ────────────────────►  plan ─�
 | `apply` | `coder` | `apply_patch`(每 ChangeUnit 一次) | 在 git worktree 里按拓扑序写文件;支持 `create` / `modify` / `delete` / `patch`(kind=patch 通过 `git apply -` 喂 unified diff) |
 | `verify` | `verifier` | `run_tests` + 可选 `emit_test_results` | 在 worktree 里跑测试套件,产出 `ChangeReport` |
 
-**`run_tests` 识别 9 种 runner**:Go(`go test -json`)、Node(jest/vitest `--json`)、Python(pytest-json-report)、Rust(cargo test)、Java(Maven/Gradle JUnit XML)、Ruby(RSpec `--format json`)、CMake(ctest `--output-junit`)、Meson(`meson test --xunit-file`)、Make(`make check` / `make test`,exit-code 判定)。探测通过仓根的 manifest 文件(`go.mod` / `package.json` / `Cargo.toml` / `pom.xml` / `CMakeLists.txt` / `Makefile` 等),缺失 runner 会在 verify 阶段 fail-loud。
+**`run_tests` 识别 11 种 runner**:Go(`go test -json`)、Node(jest/vitest `--json`)、Python(pytest-json-report)、Rust(cargo test)、Java / Kotlin(Maven `mvn test` 或 Gradle `./gradlew test`,JUnit XML)、Ruby(RSpec `--format json`)、CMake(ctest `--output-junit`)、Meson(`meson test --xunit-file`)、Make(`make check` / `make test`,exit-code 判定)、HarmonyOS hvigor(`hvigorw test`,JUnit XML 复用 Java 解析)、Cangjie cjpm(`cjpm test`,Cargo 风格文本)。探测通过仓根的 manifest 文件(`go.mod` / `oh-package.json5` / `cjpm.toml` / `package.json` / `Cargo.toml` / `pom.xml` / `build.gradle.kts` / `CMakeLists.txt` / `Makefile` 等),HarmonyOS / Cangjie manifest 优先级排在通用语言之前。缺失 runner 会在 verify 阶段 fail-loud。
 
 **沙箱语义**:
 - 所有写操作都在 `git worktree add` 出来的独立 worktree 里执行,主仓库 HEAD 字节不变。
@@ -189,51 +190,67 @@ REPL 斜杠命令(支持 `\` 前缀别名,如 `\exit` ≡ `/exit`):
 
 单次有效;与 `/log`(把日志送进 attached-log 通道,触发结构化分诊)是完全不同的通路 —— `/paste` 走普通 request 通道。
 
-## 日志分诊(log triage)
+## 日志分诊 + 性能 trace 分诊
 
-粘贴一段运行时日志(panic / exception 堆栈 / sanitizer 诊断 / traceback / 自研应用日志 / 编译器错误都可以),codrax 会在 analyze 之前先跑一个独立的 `log_triage` 阶段:LLM 把日志读成结构化数据(错误类型、栈帧、因果链、信号分类),系统侧做路径校验 / 仓内存在性过滤 / 重复消噪,然后把解析出来的文件定位和关键词喂给下游,explorer 优先读这些文件。
+两条独立的条件前置阶段。粘贴一段运行时日志或性能 trace,codrax 会在 analyze 之前先跑对应阶段把它读成结构化数据,然后把文件定位 / 关键词 / 性能信号喂给下游 explorer。
 
-因为是 LLM 做抽取而不是写死的正则,支持的格式不是一个固定列表 —— 模型能看懂的结构都能处理:Go panic、Java exception 含 `Caused by` 链、C/C++ ASAN / UBSAN / gdb、Python traceback(含 `During handling` 嵌套)、Node.js V8、Rust `#[source]` 链、Ruby backtrace、结构化 JSON 日志 …… 走一套代码。
+### 日志分诊(`log_triage`)
 
-### CLI
+支持的格式不是固定列表 —— LLM 抽取支持任意它能理解的栈格式:Go panic、Java exception 含 `Caused by` 链、Kotlin JVM 栈、C/C++ ASAN / UBSAN / gdb、Python traceback(含 `During handling` 嵌套)、Node.js V8、Rust `#[source]` 链、Ruby backtrace、HarmonyOS hilog、Android logcat、ArkTS V8 栈帧、Cangjie panic …… 走一套代码。
 
 ```bash
-# 从文件
-./codrax --repo . --request "这个 panic 哪来的?" --log /tmp/panic.txt
+# 单文件
+./codrax --request "这个 panic 哪来的?" --log /tmp/panic.txt
 
-# 从 stdin(适合 kubectl logs 管道)
-kubectl logs pod/api | ./codrax --repo . --request "analyze this crash" --log -
+# 多文件(可重复 --log)
+./codrax --request "对比两个 pod 的崩溃" --log a.log --log b.log
 
-# 脚本化:内联日志
-./codrax --repo . --request "分析 ASAN 报告" --log-text "$(cat /tmp/asan.out)"
+# 从 stdin
+kubectl logs pod/api | ./codrax --request "analyze this crash" --log -
 
-# C/C++ 场景:build 机器绝对路径
-./codrax --repo . --request "trace" \
-  --log /tmp/asan.out \
+# 内联
+./codrax --request "分析" --log-text "$(cat /tmp/asan.out)"
+
+# C/C++ build 路径前缀
+./codrax --request "trace" --log /tmp/asan.out \
   --log-source-prefix /home/jenkins/workspace/build/src/
 ```
 
-`--log` 与 `--log-text` 互斥;日志体超过 1 MB 自动截断。
+REPL:`/log <path>` / `/log append <path>` / `/log show` / `/log clear`,跨轮次粘滞。
 
-### REPL
+### 性能 trace 分诊(`perf_triage`)
 
+读 HiTrace / atrace / systrace / perfetto 文本输出,emit 结构化 `PerfBundle`(Frames / Janks / Stalls / Startup),按 16.6 ms 帧预算 / 100 ms 主线程阻塞 / 1.2 s 冷启动阈值自动打 signals。
+
+```bash
+# HarmonyOS
+hdc shell hitrace -t 10 ace graphic > /tmp/perf.trace
+./codrax --request "为什么这个页面打开有掉帧?" --htrace /tmp/perf.trace
+
+# Android(--atrace 是别名,等价 --htrace)
+adb shell atrace -t 10 view gfx app > /tmp/perf.atrace
+./codrax --request "where is the jank?" --atrace /tmp/perf.atrace
+
+# 多 trace 合并(对比多次冷启动)
+./codrax --request "对比这三次冷启动" --htrace boot1.trace --htrace boot2.trace --htrace boot3.trace
+
+# 同时挂 panic 日志 + 性能 trace
+./codrax --request "卡顿后 crash 的根因" --log /tmp/hilog.txt --htrace /tmp/jank.atrace
 ```
-❯❯ /log /tmp/panic.txt           # 从文件载入
-❯❯ /log                          # 粘贴模式,以 /end 结束
-❯❯ /log show                     # 打印前 20 行 + 总字节
-❯❯ /log clear                    # 丢弃
-```
 
-附加日志跨轮次粘滞,`/clear` 只清对话历史不动 log;`/log clear` 才清日志。
+REPL:`/htrace <path>` / `/htrace append <path>` / `/htrace show` / `/htrace clear`(`/atrace ...` 是别名)。
 
-### 长日志处理
+### 大日志 / 大 trace
 
-单次抽取默认读完全文。日志 > 32 KB 或单次覆盖率偏低时自动切两步:先让 LLM 按栈/因果块/上下文切片定位字节范围,再逐段抽取,最后合并结果。全流程 LLM 调用次数有硬上限(默认 8)。
+单次抽取默认读完全文。当超过两步阈值(`log_triage_two_step_bytes` 默认 32 KB / `perf_triage_two_step_bytes` 默认 64 KB)或单次覆盖率偏低时自动切两步:先让 LLM 按字节范围切片(`emit_log_segmentation` / `emit_perf_segmentation`),再逐段抽取,最后合并结果。LLM 调用次数有硬上限(`log_triage_max_llm_calls` / `perf_triage_max_llm_calls` 默认 12)。多文件附加之间会自动插入 `# codrax-source: <path>` 边界头。
+
+字节上限:`log_attach_max_bytes`(默认 50 MiB)、`trace_attach_max_bytes`(未设时继承 log)。硬顶 1 GiB。
 
 ### 暂不支持
 
 - 实时日志 tail / 订阅、远端日志源(Loki / ES / CloudWatch)
 - glibc 裸 backtrace(只有地址没有 file:line,缺少足够锚点)
+- 二进制 perfetto trace(只支持文本 dump;二进制需先用 `perfetto --query` / `traceconv` 转文本)
 
 ## 配置
 

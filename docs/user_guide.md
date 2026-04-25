@@ -562,13 +562,16 @@ llm:
 | `log_triage_max_llm_calls` | `8` | 单次 log_triage 阶段 LLM 调用次数硬上限 |
 | `log_triage_max_retries` | `1` | emit_log_triage schema 拒后的重试次数 |
 
-**接入上限(`log_attach_*`,在 log_triage **之前**生效)**
+**接入上限（`log_attach_*` / `trace_attach_max_bytes`,在 log_triage / perf_triage **之前**生效）**
 
 | 键 | 默认值 | 作用 |
 |---|---|---|
-| `log_attach_max_bytes` | `1048576`(1 MB) | 每个附加日志的字节上限。适用于 `--log <file>` / `--log -` / `--log-text` / REPL `/log <path>` / `/log` 粘贴 / 行内自动识别 5 条路径。超限尾部截断并打 `WARN [cmd] attached log truncated`;stdin 用 `io.LimitReader(N+1)` 保证进程内存不因多 GB 管道爆表。`log_triage_enabled: false` 下也会生效(管的是内存,不管分诊)。非正值(含显式 0)视为"使用默认",避免意外把 cap 调成 0 后所有 `/log` 静默失效 |
+| `log_attach_max_bytes` | `52428800`(50 MiB) | 日志通道字节上限,管 `--log <file>`(可重复) / `--log -` / `--log-text` / REPL `/log <path>` / `/log append <path>` / `/log` 粘贴 / 自动识别。超限尾部截断并打 `WARN [cmd] attached log truncated`;stdin 用 `io.LimitReader(N+1)`。`log_triage_enabled: false` 下也生效(管的是内存)。非正值视为默认,硬顶 1 GiB |
+| `trace_attach_max_bytes` | `0` → 继承 `log_attach_max_bytes` | 性能 trace 通道独立上限,管 `--htrace`(可重复) / `--atrace` / `--htrace-text` / `--atrace-text` / REPL `/htrace` + `/atrace` + `append`。0 或未设时与日志同上限;显式设非零值可独立调整(例如 trace 200 MB / log 50 MB)。同 1 GiB 硬顶 |
 
-> ⚠️ **10 M 以上日志怎么办**:调高 `log_attach_max_bytes` 只解决"能喂进来"这一步;真正的瓶颈在 LLM 侧。建议先用 `grep -A50 -B5 'panic\|Exception\|FATAL'` 预过滤关键段,或同时把 `log_triage_max_llm_calls` 提到 16(给分段-提取更多预算)。分页读取**不是**靠 LLM `read_file offset/limit`,而是系统侧按字节窗口切片,每轮 LLM 只看一个窗口(见 `§4.5 日志分诊` 两步法)。
+> 多文件附加：`--log a.log --log b.log`(或 REPL `/log append <path>`) 把多份独立日志拼成一个 attachment,文件之间自动加 `# codrax-source: <path>` 边界头方便 LLM 区分独立 capture。性能 trace 同样支持 `--htrace foo --htrace bar`。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次(同一进程不能消费两遍 stdin)。
+>
+> ⚠️ **超大日志/trace 怎么办**:调高 cap 只解决"能喂进来"这一步;LLM 侧仍受 `log_triage_max_llm_calls` / `perf_triage_max_llm_calls` 约束。建议先用 `grep -A50 -B5 'panic\|Exception\|FATAL'` 预过滤,或把上限调到 16-20。分页读取**不是**靠 LLM `read_file offset/limit`,而是系统按字节窗口切片,每轮 LLM 只看一个窗口(见 `§4.5 日志分诊 / 性能分诊` 两步法)。
 
 #### 3.3.17 REPL 交互
 
@@ -848,18 +851,20 @@ git cherry-pick <sha>  # 合回去(codrax 不会自动做这步)
 ❯❯ /worktree discard abc-123
 ```
 
-#### 9 种测试 runner 自动探测
+#### 11 种测试 runner 自动探测
 
-verify 阶段通过仓根的 manifest 文件自动选 runner:
+verify 阶段通过仓根的 manifest 文件自动选 runner(检测优先级见下表行序;HarmonyOS / Cangjie 的 manifest 排在通用语言之前,确保混合工程优先走 hvigor / cjpm):
 
 | 探测文件 | Runner | 命令 |
 |---|---|---|
 | `go.mod` | Go | `go test -json ./...` |
+| `oh-package.json5` / `build-profile.json5` / `hvigorfile.ts` | hvigor | `hvigorw --no-daemon test`,JUnit XML(复用 Java 解析器) |
+| `cjpm.toml` | cjpm | `cjpm test`,Cargo 风格文本输出 |
 | `package.json` | Node | `npm test -- --json --silent`(兼容 jest / vitest) |
 | `pyproject.toml` / `pytest.ini` / `setup.py` | Python | `pytest --json-report` (需 `pytest-json-report` 插件) |
 | `Cargo.toml` | Rust | `cargo test` |
 | `pom.xml` | Java (Maven) | `mvn -B -q test`,读 `target/surefire-reports/*.xml` |
-| `build.gradle` / `build.gradle.kts` | Java (Gradle) | `./gradlew --no-daemon --console=plain test`,读 `build/test-results/test/*.xml` |
+| `build.gradle` / `build.gradle.kts` | Java / Kotlin (Gradle) | `./gradlew --no-daemon --console=plain test`,读 `build/test-results/test/*.xml`(Kotlin/Android 项目的 build.gradle.kts 也走这条路径) |
 | `Gemfile` | Ruby | `bundle exec rspec --format json` |
 | `CMakeLists.txt` | CMake | `ctest --output-junit`(需要 build 目录已配置,支持 `build/` / `builddir/` / `out/` / `cmake-build-debug/` / `cmake-build-release/`) |
 | `meson.build` | Meson | `meson test --xunit-file` |
@@ -898,12 +903,16 @@ verify 阶段通过仓根的 manifest 文件自动选 runner:
 | `--pipeline-max-steps` | | `50` | 单次运行总步数上限 |
 | `--pipeline-max-retries` | | `0` | 阶段重试上限;`0` 继承 codrax.yaml |
 | `--pipeline-max-stage-visits` | | `0` | 阶段访问次数上限;`0` 继承 |
-| `--log` | | (空) | 附加运行时日志:文件路径,或 `-` 从 stdin 读 |
+| `--log` | | (空) | 附加运行时日志:文件路径,或 `-` 从 stdin 读。**可重复**(`--log a.log --log b.log`),多文件之间自动加 `# codrax-source: <path>` 边界头 |
 | `--log-text` | | (空) | 附加内联日志字符串(与 `--log` 互斥) |
 | `--log-source-prefix` | | (空) | CI 绝对路径前缀,适合 C/C++ 场景 |
+| `--htrace` | | (空) | 附加性能 trace(HiTrace / atrace / systrace / perfetto):文件路径或 `-`。**可重复**。`--atrace` 是别名(同一通道) |
+| `--htrace-text` | | (空) | 内联 trace 文本(与 `--htrace` 互斥) |
+| `--atrace` | | (空) | `--htrace` 的 Android 别名,等价用法 |
+| `--atrace-text` | | (空) | `--htrace-text` 的 Android 别名 |
 | `--version` / `-v` | | | 打印构建版本并退出 |
 
-`--log` / `--log-text` 都只能用其一;日志体超过 1 MB 自动截断。
+`--log` / `--log-text` 互斥;`--htrace` / `--atrace` 是同一通道的两个别名,设其一即可,跨别名同时设会报错。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。日志/trace 通道字节默认上限 50 MiB(`log_attach_max_bytes` / `trace_attach_max_bytes`,可独立配置),超限尾部截断。
 
 ### 5.2 REPL 斜杠命令
 
@@ -919,10 +928,16 @@ verify 阶段通过仓根的 manifest 文件自动选 runner:
 | `/history` | | 列出当前记忆里的最近轮次 + 压缩索引 + 写模式 plan 历史 |
 | `/clear` | | 清对话记忆(会二次确认,且提示当前几个对等进程在用同一份记忆) |
 | `/compact` | | 主动把所有旧轮次压缩到 MEMORY.md(保留最新一轮) |
-| `/log <path>` | | 加载文件为附加日志(会替换现有附加) |
+| `/log <path>` | | 加载文件为附加日志(替换现有附加) |
+| `/log append <path>` | | 把另一个文件追加到现有附加日志后,自动加 `# codrax-source: <path>` 边界头 |
 | `/log` | | 进入日志粘贴模式,以单独一行 `/end` 结束 |
 | `/log show` | | 打印附加日志的前 20 行 + 总字节数 |
 | `/log clear` | | 清除附加日志(不清对话记忆) |
+| `/htrace <path>` | | 加载性能 trace(HiTrace / atrace / systrace / perfetto)文件,替换现有 |
+| `/htrace append <path>` | | 追加 trace 文件,带 `# codrax-source:` 边界头 |
+| `/htrace show` | | 打印 trace 头 800 字节 |
+| `/htrace clear` | | 清除附加 trace |
+| `/atrace ...` | | `/htrace` 的 Android 别名(同一通道,所有子命令通用) |
 | `/paste` | | 通用粘贴兜底(与 `/log` 不同,内容会作为下一次提问的输入) |
 | `/chat <message>` | | 闲聊通道:本条消息不走分析流水线,单次 LLM 直接回复。适合打招呼、问工具能力、不需要读仓库的对话。详见 [3.3.15](#3315-闲聊命令chitchat_enabled) |
 
@@ -1141,6 +1156,53 @@ codrax -r "analyze this ASAN report" --log-text "$(cat /tmp/asan.out)"
 codrax -r "trace this crash" --log /tmp/asan.out \
   --log-source-prefix /home/jenkins/workspace/build/src/
 ```
+
+**多文件附加**:多份独立日志拼成一次分析:
+
+```bash
+codrax -r "对比两次 panic,找根因差异" \
+  --log /tmp/panic-pid-1234.txt --log /tmp/panic-pid-5678.txt
+```
+
+REPL:`/log /tmp/a.log` → `/log append /tmp/b.log`。两份之间会自动插入 `# codrax-source: <path>` 边界头让 LLM 区分独立 capture。
+
+### 7.2.1 HarmonyOS / Android 性能 trace 分析
+
+**目标**:贴一份 HiTrace(`hdc shell hitrace`) 或 Android atrace(`adb shell atrace`) / systrace / perfetto 文本输出,让 codrax 找出 jank / 主线程阻塞 / 冷启动慢点。
+
+**单次抽取**(适合 < 64 KB 的小 trace):
+
+```bash
+# HarmonyOS
+hdc shell hitrace -t 10 ace app_startup graphic > /tmp/perf.trace
+codrax -r "为什么这个页面打开有掉帧?" --htrace /tmp/perf.trace
+
+# Android(等价,用 alias 名更顺手)
+adb shell atrace -t 10 view gfx app > /tmp/perf.atrace
+codrax -r "where is the jank coming from?" --atrace /tmp/perf.atrace
+```
+
+**两步分诊**(自动触发,trace ≥ 64 KB 或单次 coverage < 0.3):codrax 先调 `emit_perf_segmentation` 把 trace 切成 `frame_window / jank_region / startup / thread_run` 段,再对每段单独调 `emit_perf_trace`,最后 merge。LLM 调用上限 `perf_triage_max_llm_calls`(默认 12)。
+
+**多 trace 合并**(多次抓样、多 PID、跨设备对比):
+
+```bash
+codrax -r "对比这三次冷启动" \
+  --htrace boot-1.atrace --htrace boot-2.atrace --htrace boot-3.atrace
+```
+
+REPL:`/htrace boot-1.atrace` → `/htrace append boot-2.atrace` → `/htrace append boot-3.atrace`。
+
+**双通道并行**(同时附 panic 日志 + 性能 trace,trace 内有相关 jank 帧时尤其有用):
+
+```bash
+codrax -r "应用卡顿后 crash,根因是什么?" \
+  --log /tmp/hilog.txt --htrace /tmp/jank.atrace
+```
+
+两个前置阶段独立运行,bundle 各自写到 `Mutable.LogTriage()` / `Mutable.PerfTrace()`,analyzer 同时消费两份的 entities + ResolvedFiles。
+
+**支持的来源**:HiTrace(HarmonyOS hdc) / atrace(Android adb) / systrace(Android 旧名) / perfetto 文本 dump,LLM 自动从 `# tracer: nop` 或 `tracing_mark_write: B|...|<tag>` 等头部判断 source 字段。
 
 ### 7.3 写模式:小步修复一个 bug
 

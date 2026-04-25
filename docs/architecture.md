@@ -4,7 +4,7 @@
 
 codrax 是一个**代码分析 + 变更提议**工具：
 
-- **读模式**（默认）：接收自然语言问题，经确定性主流水线 `analyze → explore → extract → finalize`（4 阶段 × 4 Agent）产出带 citation 的结构化答案；附加日志时条件触发 `log_triage` 前置阶段。**不触碰源文件**。
+- **读模式**（默认）：接收自然语言问题，经确定性主流水线 `analyze → explore → extract → finalize`（4 阶段 × 4 Agent）产出带 citation 的结构化答案；附加日志时条件触发 `log_triage` 前置阶段，附加性能 trace（HiTrace / atrace / systrace / perfetto）时条件触发 `perf_triage` 前置阶段。**不触碰源文件**。
 - **写模式**（opt-in，需 `codrax.yaml :: write_enabled: true`）：沿用读模式的 analyze 做请求分类，分流到 `plan → apply → verify` 阶段链（3 个专用 agent：`planner` / `coder` / `verifier`）；所有写动作发生在沙箱 git worktree 里，主仓库 HEAD 字节永不自动变更。
 
 拓扑硬编码在 `internal/orchestrator/topology.go`，不存在运行时覆盖。
@@ -29,7 +29,7 @@ codrax 是一个**代码分析 + 变更提议**工具：
 
 ### 系统目标
 
-codrax 接受用户的自然语言问题，通过一条**确定性的主流水线（4 阶段 × 4 Agent）**分析目标仓库，产出结构化的答案文档。附加运行时日志时会额外跑一个条件触发的 `log_triage` 前置阶段做结构化抽取。系统不修改代码，不调用有副作用的外部服务，只做：读文件、跑 grep、构建 repo map、执行 shell 查询。
+codrax 接受用户的自然语言问题，通过一条**确定性的主流水线（4 阶段 × 4 Agent）**分析目标仓库，产出结构化的答案文档。附加运行时日志时跑 `log_triage` 前置阶段做结构化抽取；附加性能 trace 时跑 `perf_triage` 前置阶段抽 jank / stall / startup 指标。两个前置阶段彼此独立，可同时触发。系统不修改代码，不调用有副作用的外部服务，只做：读文件、跑 grep、构建 repo map、执行 shell 查询。
 
 ### 核心设计原则
 
@@ -71,6 +71,7 @@ graph TB
 
     subgraph Agents["Agent internal/agent"]
         LT["log_triager · 条件前置"]
+        PT["perf_triager · 条件前置"]
         A1["analyzer"]
         A2["explorer · Turn A"]
         A3["extractor · Turn B"]
@@ -81,8 +82,9 @@ graph TB
     end
 
     subgraph Skills["Skill internal/skill · 声明式配置"]
-        S["log-triage-skill / analysis-skill
-        explore-skill / extract-skill
+        S["log-triage-skill / log-segmentation-skill
+        perf-triage-skill / perf-segmentation-skill
+        analysis-skill / explore-skill / extract-skill
         answer-document-skill
         change-plan-skill / code-write-skill
         test-execute-skill"]
@@ -95,6 +97,7 @@ graph TB
         git_diff / git_log"]
         E["结构化发射器
         emit_log_triage / emit_log_segmentation
+        emit_perf_trace / emit_perf_segmentation
         emit_analysis / emit_evidence
         emit_answer_symbol / emit_hypothesis_verdict
         emit_answer_document
@@ -103,7 +106,7 @@ graph TB
         W["写模式工具 · WriteCapable
         emit_change_plan（含 git apply --check 预检）
         apply_patch（schema {path, kind}；内容源于 Mutable）
-        run_tests（9 种 runner）
+        run_tests（11 种 runner：go / node / python / rust / java / kotlin via gradle / ruby / cmake / meson / make / hvigor / cjpm）
         emit_test_results"]
         G["internal/tool/ground
         citation / evidence 落地验证
@@ -131,17 +134,17 @@ graph TB
     end
 
     User --> Orch
-    Orch -->|读模式 dispatch| LT & A1 & A2 & A3 & A4
+    Orch -->|读模式 dispatch| LT & PT & A1 & A2 & A3 & A4
     Orch -->|写模式 dispatch| P & C & V
-    LT & A1 & A2 & A3 & A4 & P & C & V -.->|读配置| S
-    LT & A1 & A2 & P & C & V -->|调用| T
-    LT & A1 & A2 & A3 & A4 -->|调用| E
+    LT & PT & A1 & A2 & A3 & A4 & P & C & V -.->|读配置| S
+    LT & PT & A1 & A2 & P & C & V -->|调用| T
+    LT & PT & A1 & A2 & A3 & A4 -->|调用| E
     P -->|调用| W
     C -->|调用| W
     V -->|调用| W
     W -->|"git apply → patch(1) fallback"| FB
     E -->|同步调用| G
-    LT & A1 & A2 & A3 & A4 & P & C & V -->|调用 LLM| LLM[LLM internal/llm]
+    LT & PT & A1 & A2 & A3 & A4 & P & C & V -->|调用 LLM| LLM[LLM internal/llm]
     A1 -->|buildAnalysisIR| AN
     Orch -->|stopcond / criterion / cgec| AN
     A3 -->|criterion auto-verdict| AN
@@ -153,7 +156,7 @@ graph TB
 
 ## 2. 四阶段流水线
 
-拓扑是**硬编码**的（`internal/orchestrator/topology.go`）：主流水线 4 阶段 × 4 agent 永远按序执行；log_triage 是条件前置阶段，`BusContext.AttachedLog` 非空时才触发（Guard 定义在同文件的 `preStages` 列表中），失败不阻塞主流水线。
+拓扑是**硬编码**的（`internal/orchestrator/topology.go`）：主流水线 4 阶段 × 4 agent 永远按序执行；`log_triage` / `perf_triage` 是两条独立的条件前置阶段，`BusContext.AttachedLog` / `AttachedHitrace` 非空时分别触发（Guard 定义在同文件的 `preStages` 列表中），任一前置阶段失败都不阻塞主流水线。
 
 ```go
 // 主流水线（无条件）
@@ -171,17 +174,21 @@ var pipelineTopology = map[types.PipelineStage]struct {
 
 // 条件前置阶段列表（按声明顺序依次尝试）
 var preStages = []preStageEntry{
-    {Stage: types.StageLogTriage, Guard: /* AttachedLog != "" */},
+    {Stage: types.StageLogTriage,  Guard: /* AttachedLog != "" */},
+    {Stage: types.StagePerfTriage, Guard: /* AttachedHitrace != "" */},
 }
 ```
 
 | 阶段 | 默认 Agent | 默认 Skill | 触发条件 | Terminal |
 |------|-----------|-----------|---------|:-:|
 | `log_triage` | `log_triager` | `log-triage-skill` | `AttachedLog` 非空 | |
+| `perf_triage` | `perf_triager` | `perf-triage-skill` | `AttachedHitrace` 非空 | |
 | `analyze` | `analyzer` | `analysis-skill` | 无条件 | |
 | `explore` | `explorer` | `explore-skill` | 无条件 | |
 | `extract` | `extractor` | `extract-skill` | 无条件 | |
 | `finalize` | `finalizer` | `answer-document-skill` | 无条件 | ✅ |
+
+两条前置阶段彼此独立 —— 同一个 Run 可以同时挂日志（panic 栈）+ trace（性能事件），各自走自己的 triager 写出 `Mutable.LogTriage()` / `Mutable.PerfTrace()`，下游 analyzer 同时消费两份。
 
 ### 运行时流程
 
@@ -191,8 +198,11 @@ var preStages = []preStageEntry{
 stateDiagram-v2
     [*] --> logTriageGate
     logTriageGate --> log_triage : AttachedLog 非空
-    logTriageGate --> analyze : AttachedLog 空或 log_triage 失败（降级）
-    log_triage --> analyze : bundle 写入 Mutable
+    logTriageGate --> perfTriageGate : AttachedLog 空或 log_triage 失败（降级）
+    log_triage --> perfTriageGate : bundle 写入 Mutable.LogTriage
+    perfTriageGate --> perf_triage : AttachedHitrace 非空
+    perfTriageGate --> analyze : AttachedHitrace 空或 perf_triage 失败（降级）
+    perf_triage --> analyze : bundle 写入 Mutable.PerfTrace
     analyze --> taskLoop : AnalysisIR.TaskGraph 生成
     taskLoop --> explore : readyExplorerWindow 非空
     explore --> extract : 当前 window 全 done
@@ -289,11 +299,12 @@ stateDiagram-v2
 
 所有 Agent 嵌 `BaseAgent`，后者提供 ReAct 循环，通过 `Evaluator` 接口接入每个 Agent 的四个钩子：`BuildInitialInstruction` / `ShouldStop` / `ParseOutput` / `DetermineMissingPiece`。可选 `LoopController` 接口接入循环控制。
 
-读模式 5 个 agent：
+读模式 6 个 agent：
 
 | Agent | Stage | 工具权限 | 职责 |
 |-------|-------|----------|------|
 | `log_triager`（条件前置） | `log_triage` | `read_file`（仅用于分页读 attached log blob） + `emit_log_triage` + `emit_log_segmentation`（两步升级才激活） | 仅在 `BusContext.AttachedLog` 非空时触发。读原始日志，emit 结构化 `LogBundle` 的 Layer 1-3（Meta / Errors / Residue）；系统侧 `logtriage.ValidateBundle` 做路径校验并派生 Layer 4。失败不阻塞主流水线（§4.5） |
+| `perf_triager`（条件前置） | `perf_triage` | `read_file`（仅用于分页读 attached trace blob） + `emit_perf_trace` + `emit_perf_segmentation`（两步升级才激活） | 仅在 `BusContext.AttachedHitrace` 非空时触发。读 HiTrace / atrace / systrace / perfetto 文本，emit 结构化 `PerfBundle` 的 Layer 1-3（Meta / Frames+Janks+Stalls+Startup / Residue）；系统侧 `derivePerfLayer4` 派生 IntentHint=performance / Entities / ResolvedFiles / 自动 signals。两步升级用 `perf-segmentation-skill` 切 `frame_window/jank_region/startup/thread_run/context/noise` 段后逐段重抽。失败不阻塞主流水线 |
 | `analyzer` | `analyze` | `emit_analysis` + evidence-lite 预扫（`repo_map` / `grep files_only=true` / `list_files`） | 1-2 轮预扫验证实体，然后一次 `emit_analysis` LLM 调用产出 v4 `RequestModel`；`ParseOutput` 跑确定性管线组装 `AnalysisIR` |
 | `explorer`（Turn A） | `explore` | `grep` / `read_file` / `repo_map` / `list_files` / `exec_command` / `emit_evidence` / `emit_investigation_complete` / `propose_sub_agents` | 两阶段调查（Phase 0 Breadth → Phase 1 Depth），独占写 `EvidenceItems` / `AnswerChains` / `FlowFindings`，把投影快照写入 `TurnAArtifacts` |
 | `extractor`（Turn B） | `extract` | **仅** `emit_answer_symbol` + `emit_hypothesis_verdict` | 一次性 LLM 调用产出答案 slate + completeness claim + hypothesis verdict。**禁止文件 IO、禁止 `emit_evidence`**。工具参数校验失败有一次 retry 窗口（`ShouldStop: iteration >= 2`） |
@@ -451,6 +462,8 @@ type Config struct {
 |------|-----------|------|
 | `emit_log_triage` | log_triager | 写 `LogBundle` 的 Layer 1-3：`Meta`（lang / signals / summary） + `Errors[]`（递归 `Cause` 链） + `Residue`（未结构化的 `unknown_chunks`）。Execute 调 `logtriage.ValidateBundle` 做路径 `os.Stat` 校验并派生 Layer 4（`ResolvedFiles` / `Entities` / `IntentHint` / `Coverage`），结果挂到 `Mutable.LogTriage()` 供分析 + explorer + extractor + finalizer 消费 |
 | `emit_log_segmentation` | log_triager（两步升级 Step A） | 写按字节坐标切好的 segment 列表（kind = `stack` / `caused_by` / `header` / `context` / `trace` / `noise`），agent controller 随后对每个 `stack` / `caused_by` / `trace` 段逐段重调 `emit_log_triage`，`logtriage.MergeBundles` 合并结果 |
+| `emit_perf_trace` | perf_triager | 写 `PerfBundle` 的 Layer 1-3：`Meta`（source ∈ {hitrace/atrace/systrace/perfetto/unknown} / duration_ms / app_pid / signals / summary） + `Frames[]` / `Janks[]` / `Stalls[]` / `Startup` + `Residue`。Execute 调 `derivePerfLayer4` 派生 `IntentHint=performance`、`Entities`（trigger spans + tags + stall symbols）、`ResolvedFiles`（stall files），并按阈值（`PerfFrameBudget60HzMs` 16.67ms / `PerfStartupSlowColdMs` 1.2s / `PerfMainThreadStallMs` 100ms）自动追加 signals。结果挂到 `Mutable.PerfTrace()` |
+| `emit_perf_segmentation` | perf_triager（两步升级 Step A） | 写按字节坐标切好的 segment 列表（kind = `frame_window` / `jank_region` / `startup` / `thread_run` / `context` / `noise`），agent controller 对每个 `frame_window` / `jank_region` / `startup` / `thread_run` 段逐段重调 `emit_perf_trace`，`internal/analysis/perftriage.MergePerfBundles` 合并：frame/jank/stall 按签名去重、startup 取最大 `app_launch_ms`、signals/residue 并集、Layer 4 重派生 |
 | `emit_analysis` | analyzer | 一次性写 `RequestModel`（intent / scenario / complexity / keywords / entities / question_kind / answer_shape / sub_topics / answer_subject / predicates / predicate_axis）；`ParseOutput` 随后跑确定性管线组装完整 `AnalysisIR` |
 | `emit_evidence` | explorer | 批量写 `EvidenceItem`（kind / subject / object / source / line_start / line_end / anchor_kind / anchor_symbol / condition / summary）。`kind` 为 6 种 `IsLLMEmittable` 值之一。Execute 内同步调 `ground.GroundItem` 做 tier 验证 |
 | `emit_investigation_complete` | explorer | 显式完成信号。需要 `reason` + `confidence`（high/medium），`low` 被拒。Execute 内跑 **CGEC I3** `preCompleteContractCheck`（6 条预检）并在失败时 downgrade + emit Repair |
@@ -769,7 +782,9 @@ BusContext.AttachedLog     emit_log_triage├
 
 该 section 放在 "Attached Runtime Log"(原始日志)**之前**,结构化视图优先,原文作为备查。修复了 Java / Python / Rust 多层 `Caused by` 链在 finalizer 重新 parse 原文时偶尔漏层的质量回退——LLM 直接读已验证的树而不是 re-derive。`log_triager` agent 自身跳过该 section(产品消费自环)。
 
-**两步自适应抽取**：默认单次 `emit_log_triage` 调用。当 `len(AttachedLog) >= log_triage_two_step_bytes`（默认 32 KB）或单次抽取结果 `Coverage < log_triage_two_step_coverage`（默认 0.3）时自动升级：先调 `emit_log_segmentation` 让 LLM 按 `stack` / `caused_by` / `header` / `context` / `trace` / `noise` 切片打字节坐标，再对每个 `stack` / `caused_by` / `trace` 段分别调 `emit_log_triage`，最后 `logtriage.MergeBundles` 合并——`Meta.Signals` 并集、`Errors[]` 平行拼接、Layer 4 基于合并后的 Layer 1-3 重新派生。全过程 LLM 调用次数受 `log_triage_max_llm_calls`（默认 8）硬上限。
+**两步自适应抽取**：默认单次 `emit_log_triage` 调用。当 `len(AttachedLog) >= log_triage_two_step_bytes`（默认 32 KB）或单次抽取结果 `Coverage < log_triage_two_step_coverage`（默认 0.3）时自动升级：先调 `emit_log_segmentation` 让 LLM 按 `stack` / `caused_by` / `header` / `context` / `trace` / `noise` 切片打字节坐标，再对每个 `stack` / `caused_by` / `trace` 段分别调 `emit_log_triage`，最后 `logtriage.MergeBundles` 合并——`Meta.Signals` 并集、`Errors[]` 平行拼接、Layer 4 基于合并后的 Layer 1-3 重新派生。全过程 LLM 调用次数受 `log_triage_max_llm_calls`（默认 12，sized 1 single-shot + 1 segmentation + 10 per-segment）硬上限。
+
+**多文件附加**：`--log a.log --log b.log`（`StringArrayVar`，可重复）或 REPL `/log append <path>` 在多份日志间插入 `# codrax-source: <path>\n` 边界头；log-triage-skill 的 prompt 已教 LLM 把每段视为独立 capture（不同进程 panic / 不同时间窗口）。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。
 
 **路径解析与过滤**（`internal/analysis/logtriage/resolver.go`）：
 - `StripBuildPathPrefix` 按优先级剥 `/build/src/` / `/rpmbuild/BUILD/` / `/home/<user>/src/` 等 CI / build 前缀 + repo basename + `log_triage_source_prefix` / `--log-source-prefix` 覆盖。
@@ -782,7 +797,25 @@ BusContext.AttachedLog     emit_log_triage├
 **可调项**：
 
 - **Triage 侧（`log_triage_*`）**：`log_triage_enabled` / `log_triage_source_prefix` / `log_triage_min_bytes` / `log_triage_max_retries` / `log_triage_two_step_enabled` / `log_triage_two_step_bytes` / `log_triage_two_step_coverage` / `log_triage_max_llm_calls`。
-- **接入侧（`log_attach_*`，在 log_triage 之前生效）**：`log_attach_max_bytes`（默认 `1048576` = 1 MB）限制每条附加日志的字节上限。覆盖 `--log <file>` / `--log -`（stdin 用 `io.LimitReader(N+1)`，不会因为多 GB 管道把进程内存打爆）/ `--log-text` / REPL `/log <path>` / `/log` 粘贴模式 / `splitPastedLog` 自动识别路径共 5 条入口。超限尾部 `s[:N]` 截断并打 `WARN [cmd] attached log truncated`。在 `log_triage_enabled: false` 下也会生效——这是内存安全 knob,不是分诊 knob。非正值(含显式 0)回退到默认;显式把 cap 调到 0 不会静默废掉所有 `/log` 路径。
+- **Trace 容量（`trace_attach_max_bytes`）**：perf 通道独立的字节上限。未设时继承 `log_attach_max_bytes`，让"配一处即两通道对称"的常态符合默认；显式设置可独立调整（例如 trace 200 MB / log 50 MB）。同一 1 GiB 硬顶约束。
+
+### 4.5b Perf Triage — 用户附加 HiTrace / atrace / systrace / perfetto
+
+并行通道。当 `BusContext.AttachedHitrace` 非空时 `perf_triage` 阶段触发，`perf_triager` agent 用 `emit_perf_trace` 工具写出结构化 `PerfBundle`：
+
+- Layer 1 **Meta**：`source`（hitrace / atrace / systrace / perfetto / unknown） / `duration_ms` / `app_pid` / `signals[]`（jank / cold-start-slow / main-thread-stall / io-block / gc-pause / render-miss） / `summary`
+- Layer 2 **Events**：`Frames[]`（FrameNo / TsMs / DurationMs / Phase / Janky）、`Janks[]`（start_ts_ms / duration_ms / trigger_span / reason / tags[]）、`Stalls[]`（symbol / file / line）、`Startup`（mode=cold/warm/hot / app_launch_ms / ability_init_ms / first_frame_ms）
+- Layer 3 **Residue**：`residue[]`
+- Layer 4 **派生**（`tool/emit_perf_trace.go::derivePerfLayer4`）：任一 jank / stall / 慢冷启动 → `IntentHint=performance`；`Entities`（cap 32）从 trigger spans + tags + stall symbols + startup mode；`ResolvedFiles`（cap 10）从 stall files；signals 按阈值（`PerfFrameBudget60HzMs` 16.67ms / `PerfStartupSlowColdMs` 1.2s / `PerfMainThreadStallMs` 100ms）自动追加
+
+**两步自适应**：单次 `emit_perf_trace` 调用为默认。当 `len(AttachedHitrace) >= perf_triage_two_step_bytes`（默认 64 KB）或 `Coverage < perf_triage_two_step_coverage`（默认 0.3）时升级：先调 `emit_perf_segmentation` 切 `frame_window / jank_region / startup / thread_run / context / noise` 段，再对每个可抽取段（context / noise 跳过）逐段重调 `emit_perf_trace`，最后 `internal/analysis/perftriage.MergePerfBundles` 合并：frame / jank / stall 按签名去重，startup 取最大 `app_launch_ms`，signals/residue 并集，Layer 4 重派生。LLM 调用上限 `perf_triage_max_llm_calls`（默认 12）。
+
+**支持的来源**：HarmonyOS `hdc shell hitrace`、Android `adb shell atrace`、Android systrace（旧名）、perfetto 文本 dump。CLI flag `--htrace` / `--atrace` 是别名（同存储），`StringArrayVar` 可重复传多个文件，自动加 `# codrax-source: <path>` 头分隔。REPL `/htrace <path>` / `/htrace append <path>` 与 `/atrace` 别名同形态。
+
+**knobs（`perf_triage_*`，与 `log_triage_*` 同形态）**：`perf_triage_enabled` / `perf_triage_min_bytes`（默认 200）/ `perf_triage_max_retries`（默认 1）/ `perf_triage_two_step_enabled` / `perf_triage_two_step_bytes`（默认 64 KB）/ `perf_triage_two_step_coverage`（默认 0.3）/ `perf_triage_max_llm_calls`（默认 12）。
+
+**下游消费**：analyzer 同时读 LogTriage 和 PerfTrace —— `MergeEntities` 把 perf entities（trigger spans / stall symbols）union 进 `AnalyzerHints.Entities`；`analyzerRequiredFiles` 把 perf 的 `ResolvedFiles` 与 log 的 `ResolvedFiles` 取并集（cap 10），共同充当结构化 ranker 之前的 first-class 文件锚点。
+- **接入侧（`log_attach_*`，在 log_triage 之前生效）**：`log_attach_max_bytes`（默认 `52428800` = 50 MiB）限制日志通道的字节上限。覆盖 `--log <file>`（`StringArrayVar`，可重复）/ `--log -`（stdin 用 `io.LimitReader(N+1)`）/ `--log-text` / REPL `/log <path>` / `/log append <path>` / `/log` 粘贴模式 / 自动识别路径。多文件之间插入 `# codrax-source: <path>\n` 边界头方便 LLM 区分独立 capture。stdin (`-`) 跨 `--log` / `--htrace` / `--atrace` 整体只允许一次。超限尾部 `s[:N]` 截断并打 `WARN [cmd] attached log truncated`。`log_triage_enabled: false` 下也生效（这是内存安全 knob，不是分诊 knob）。非正值回退到默认。整体硬顶 `maxAttachedLogHardCeiling = 1 GiB`，超过则 WARN 钳到 1 GiB（防 OOM）。
 
 见 `codrax.yaml.example` 的逐项注释。
 
