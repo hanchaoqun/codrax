@@ -47,6 +47,14 @@ func TestCheck_Value_ShapeTooLong(t *testing.T) {
 	}
 }
 
+func TestCheck_Value_UsesShapeTextWhenPresent(t *testing.T) {
+	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
+	longRendered := strings.Repeat("说明文字", 80)
+	if !Check(Answer{Text: longRendered, ShapeText: "01e0864"}, c).Passed {
+		t.Fatal("short literal in ShapeText should satisfy value shape even when rendered answer is long")
+	}
+}
+
 func TestCheck_Value_EmptyRejected(t *testing.T) {
 	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
 	if Check(Answer{Text: "   "}, c).Passed {

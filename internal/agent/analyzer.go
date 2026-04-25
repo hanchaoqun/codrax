@@ -664,6 +664,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// picked return_value directly (LLM got it right) — both
 	// populations need the three-citation-gate carve-out.
 	isMeasurementScalar := false
+	isHistoryLookup := false
 
 	// Post-process complexity sanity check. The sub_topics rule above
 	// is one input; reconcileComplexity additionally cross-checks the
@@ -750,6 +751,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		// keyed off this single flag. Keeps "one signal, one response"
 		// grep-able.
 		isMeasurementScalar = isMeasurementScalarRequest(rm)
+		isHistoryLookup = isHistoryLookupRequest(rm)
 
 		// Merge sub-topic entities into main entity list. Snapshot the
 		// pre-merge top-level list into PrimaryEntities first: consumers
@@ -913,7 +915,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	//
 	//       Leaving any one enabled loops the retry budget on a
 	//       mismatch no amount of re-investigation can fix.
-	if isMeasurementScalar {
+	if isMeasurementScalar || isHistoryLookup {
 		out.AnswerContract.RequiredAnswerShape = types.ShapeValue
 		if mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols {
 			rm.AnalyzerHints.Shape = string(types.ShapeValue)

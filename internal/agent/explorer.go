@@ -2924,14 +2924,17 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 // fires BEFORE, letting the LLM emit first and complete cleanly. A
 // one-shot guard prevents repeated firing within a single dispatch.
 //
-// Thresholds are conservative: 3+ iterations and 3+ successful
-// read_file calls must have accumulated before the nudge fires, so
-// early exploration is never interrupted.
+// Thresholds are intentionally "early but not first-hop": 2+
+// iterations and 2+ successful read_file calls, with the current
+// iteration ending in a successful read_file. This catches the common
+// drift where the model keeps reading breadth files without ever
+// materializing the first evidence batch, while still avoiding a
+// premature nudge after the very first anchor read.
 func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopSignal {
 	if e.midLoopNoEmitPushSent {
 		return LoopSignal{}
 	}
-	if obs.Iteration < 3 {
+	if obs.Iteration < 2 || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "read_file" || !obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
 	var reads, emits int
@@ -2946,7 +2949,7 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 			emits++
 		}
 	}
-	if reads < 3 || emits > 0 {
+	if reads < 2 || emits > 0 {
 		return LoopSignal{}
 	}
 	e.midLoopNoEmitPushSent = true

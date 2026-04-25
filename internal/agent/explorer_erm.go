@@ -120,7 +120,7 @@ func extractEvidenceRequirementsWithHint(question string, entities []string, dec
 		// the keyword tables don't cover.
 		reason := fmt.Sprintf("analyzer declared question_kind=%s", declaredKind)
 		switch declaredKind {
-		case types.ReqRegistration, types.ReqReturnValue:
+		case types.ReqRegistration, types.ReqReturnValue, types.ReqHistory:
 			// Registration and return_value requirements are per-entity
 			// in the keyword path; match that convention so downstream
 			// checkRequirementSatisfaction works uniformly.
@@ -322,6 +322,56 @@ func extractEvidenceRequirementsWithEntities(question string, entities []string)
 		}
 	}
 
+	// --- History / authorship: "which commit", "introduced",
+	// "history", "blame", "首次引入", "谁提交的" ---
+	hasHistoryNoun := false
+	for _, kw := range []string{
+		"commit", "git log", "git blame", "history", "authorship",
+		"revision", "blame",
+	} {
+		if strings.Contains(lower, kw) {
+			hasHistoryNoun = true
+			break
+		}
+	}
+	if !hasHistoryNoun {
+		for _, kw := range []string{"提交", "历史", "版本", "修订"} {
+			if strings.Contains(question, kw) {
+				hasHistoryNoun = true
+				break
+			}
+		}
+	}
+	hasHistoryIntent := false
+	for _, kw := range []string{
+		"introduced", "first commit", "first added", "when added",
+		"who added", "who changed", "authored", "author",
+	} {
+		if strings.Contains(lower, kw) {
+			hasHistoryIntent = true
+			break
+		}
+	}
+	if !hasHistoryIntent {
+		for _, kw := range []string{"引入", "首次", "第一次", "添加", "谁提交", "谁改的", "什么时候"} {
+			if strings.Contains(question, kw) {
+				hasHistoryIntent = true
+				break
+			}
+		}
+	}
+	if hasHistoryNoun && hasHistoryIntent {
+		if len(entities) == 0 {
+			add(types.ReqHistory, "need repository history / authorship metadata for the requested target")
+		} else {
+			for _, ent := range entities {
+				add(types.ReqHistory,
+					fmt.Sprintf("need repository history / authorship metadata for %s", ent),
+					ent)
+			}
+		}
+	}
+
 	// --- Config mapping: "config", "configured", "配置" ---
 	for _, kw := range []string{"config", "configured", "configuration", "配置", "yaml", "json"} {
 		if strings.Contains(lower, kw) || strings.Contains(question, kw) {
@@ -446,6 +496,8 @@ func thresholdForKind(kind types.RequirementKind, complexity types.Complexity) e
 			return ermThresholds{Satisfied: 3, Partial: 2}
 		}
 		return ermThresholds{Satisfied: 2, Partial: 1}
+	case types.ReqHistory:
+		return ermThresholds{Satisfied: 1, Partial: 0}
 	default:
 		return ermThresholds{Satisfied: 1, Partial: 0}
 	}
@@ -598,6 +650,44 @@ func checkRequirementSatisfaction(reqs []EvidenceRequirement, notes []string, ev
 					if req.Status != "satisfied" {
 						req.Status = "partial"
 					}
+				}
+			}
+
+		case types.ReqHistory:
+			// History/authorship answers are often sourced from
+			// deterministic tool outputs (git log / blame) rather than
+			// file:line evidence. Treat concrete literal evidence as a
+			// strong signal when present, but also allow investigation
+			// notes that explicitly pair the target with commit/history
+			// metadata to satisfy the requirement.
+			if len(req.Entities) == 0 {
+				if strings.Contains(notesJoined, "commit") || strings.Contains(notesJoined, "history") ||
+					strings.Contains(notesJoined, "提交") || strings.Contains(notesJoined, "历史") {
+					req.Status = "satisfied"
+				}
+				break
+			}
+			for _, ent := range req.Entities {
+				entLower := normalizeForMatch(ent)
+				for _, ev := range evidence {
+					if ev.Kind == types.EvidenceConcrete &&
+						strings.Contains(normalizeForMatch(ev.Subject+ev.Summary), entLower) &&
+						ev.Object != "" {
+						req.Status = "satisfied"
+						break
+					}
+				}
+				if req.Status == "satisfied" {
+					break
+				}
+				if strings.Contains(notesJoined, entLower) &&
+					(strings.Contains(notesJoined, "commit") ||
+						strings.Contains(notesJoined, "history") ||
+						strings.Contains(notesJoined, "blame") ||
+						strings.Contains(notesJoined, "提交") ||
+						strings.Contains(notesJoined, "历史")) {
+					req.Status = "satisfied"
+					break
 				}
 			}
 
@@ -1574,7 +1664,6 @@ func hasTerminalEvidence(items []types.EvidenceItem) bool {
 	return false
 }
 
-
 // terminalPredicate reports whether a candidate answer chain's terminal
 // segment (the right-hand side of its last hop) is structurally
 // compatible with the question kind's answer shape. Used by
@@ -1594,6 +1683,7 @@ var terminalPredicateByKind = map[types.RequirementKind]terminalPredicate{
 	types.ReqRegistration: terminalIsConcreteSymbolRef,
 	types.ReqCallChain:    terminalIsConcreteSymbolRef,
 	types.ReqReturnValue:  terminalIsConcreteLiteral,
+	types.ReqHistory:      terminalIsConcreteLiteral,
 }
 
 // originPredicateByKind maps ERM Kind to an ORIGIN predicate on the

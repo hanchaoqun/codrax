@@ -1,12 +1,24 @@
 package orchestrator
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+func writePlanJSON(t *testing.T, path string, plan *types.ChangePlan) {
+	t.Helper()
+	data, err := json.MarshalIndent(plan, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal plan: %v", err)
+	}
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("write plan: %v", err)
+	}
+}
 
 // /verify <plan-id> regression: the verify pre-hook must swap
 // busCtx.RepoRoot to the preserved worktree path so run_tests
@@ -94,30 +106,7 @@ func TestVerifyPreHook_AutoPicksWorktreeFromPlanFile(t *testing.T) {
 		Changes:      []types.FileChange{{Path: "x.go", Kind: "modify"}},
 		TargetPaths:  []string{"x.go"},
 	}
-	// Marshal directly via the package's Write helper would write
-	// alongside another plan; tests use a one-shot WriteFile.
-	{
-		data, err := os.ReadFile(planPath)
-		_ = data
-		_ = err
-		// Use json.Marshal via the types helpers; LoadChangePlanFromFile
-		// re-canonicalizes TargetPaths, so an empty bytes write would
-		// fail. Hand-roll the minimal JSON.
-		body := `{
-  "id": "plan-cli-auto",
-  "request": "fix typo",
-  "summary": "auto-pickup test",
-  "changes": [{"path": "x.go", "kind": "modify", "rationale": "fix"}],
-  "target_paths": ["x.go"],
-  "status": "applied",
-  "worktree_path": "` + preserved + `",
-  "created_at": "2026-01-01T00:00:00Z"
-}`
-		if err := os.WriteFile(planPath, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	_ = plan
+	writePlanJSON(t, planPath, plan)
 
 	o := New(types.PipelineSettings{}, nil, nil, nil)
 	o.busCtx = &types.BusContext{

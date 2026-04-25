@@ -33,11 +33,11 @@ type EmitLogTriage struct {
 // The LLM cannot fill Layer 4 because those field names are not in
 // this struct and the JSON schema locks `additionalProperties: false`.
 type emitLogTriageParams struct {
-	Meta          emitLogTriageMeta     `json:"meta"`
-	Errors        []emitLogTriageError  `json:"errors,omitempty"`
-	UnknownChunks []string              `json:"unknown_chunks,omitempty"`
-	RawLogBytes   int                   `json:"-"` // filled by Execute from BusContext
-	_             map[string]struct{}   `json:"-"`
+	Meta          emitLogTriageMeta    `json:"meta"`
+	Errors        []emitLogTriageError `json:"errors,omitempty"`
+	UnknownChunks []string             `json:"unknown_chunks,omitempty"`
+	RawLogBytes   int                  `json:"-"` // filled by Execute from BusContext
+	_             map[string]struct{}  `json:"-"`
 }
 
 type emitLogTriageMeta struct {
@@ -47,10 +47,10 @@ type emitLogTriageMeta struct {
 }
 
 type emitLogTriageError struct {
-	Type    string                `json:"type"`
-	Message string                `json:"message,omitempty"`
-	Frames  []emitLogTriageFrame  `json:"frames,omitempty"`
-	Cause   *emitLogTriageError   `json:"cause,omitempty"`
+	Type    string               `json:"type"`
+	Message string               `json:"message,omitempty"`
+	Frames  []emitLogTriageFrame `json:"frames,omitempty"`
+	Cause   *emitLogTriageError  `json:"cause,omitempty"`
 }
 
 type emitLogTriageFrame struct {
@@ -118,7 +118,7 @@ func buildEmitLogTriageSchema() {
 	// `kotlin`  — Kotlin on Android / JVM; frames look like
 	//             `at com.example.Foo$bar(Foo.kt:42)` — same JVM
 	//             shape as Java, different extension
-	langEnum := []string{"go", "java", "cpp", "python", "node", "rust", "ruby", "csharp", "kotlin", "arkts", "cangjie", "unknown", "other"}
+	langEnum := []string{"go", "java", "cpp", "python", "node", "rust", "ruby", "swift", "lua", "proto", "csharp", "kotlin", "arkts", "cangjie", "unknown", "other"}
 
 	frameSchema := map[string]any{
 		"type":                 "object",

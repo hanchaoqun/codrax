@@ -94,7 +94,7 @@ func newResolverContext(g *types.Graph) *ResolverContext {
 // registration with a dedicated resolver_*.go implementation.
 type legacyResolver struct{ lang string }
 
-func (r *legacyResolver) Language() string                       { return r.lang }
+func (r *legacyResolver) Language() string                             { return r.lang }
 func (r *legacyResolver) Prepare(*types.Graph, *ResolverContext) error { return nil }
 
 func (r *legacyResolver) Resolve(g *types.Graph, fi *types.FileInfo, imp types.Import, ctx *ResolverContext) []string {
@@ -122,6 +122,10 @@ func defaultResolvers() map[string]ImportResolver {
 		types.LangArkTS:      newArkTSImportResolver(js),
 		types.LangCangjie:    &cangjieImportResolver{},
 		types.LangRust:       &rustImportResolver{},
+		types.LangRuby:       &rubyImportResolver{},
+		types.LangSwift:      &swiftImportResolver{},
+		types.LangLua:        &luaImportResolver{},
+		types.LangProto:      &protoImportResolver{},
 		types.LangC:          cpp,
 		types.LangCpp:        cpp,
 	}

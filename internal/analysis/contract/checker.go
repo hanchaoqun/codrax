@@ -41,6 +41,7 @@ const (
 // checkCitations skips MinCitations when the flag is set.
 type Answer struct {
 	Text      string
+	ShapeText string
 	Citations []Citation
 	IsAbsence bool
 }
@@ -139,6 +140,9 @@ func checkShape(draft Answer, c types.AnswerContract) []Violation {
 		return nil
 	}
 	text := draft.Text
+	if shapeText := strings.TrimSpace(draft.ShapeText); shapeText != "" {
+		text = shapeText
+	}
 	// shapeRoot is the common SuspectedRoot template for every
 	// checkShape violation: the finalizer emitted a shape the
 	// answer contract does not accept. F2 aggregates these events

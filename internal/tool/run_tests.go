@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 // worktree and stores a structured ChangeReport on Mutable. The
 // B1.3 implementation covers four runners deterministically:
 //
-//   - Go:     `go test -json ./...` — native JSONL output
+//   - Go:     `go test -json ./...` 鈥?native JSONL output
 //   - Node:   `npm test -- --json` (jest) / `vitest --reporter=json`
 //   - Python: `pytest --json-report --json-report-file=...`
 //     (requires the pytest-json-report plugin; falls back
@@ -30,19 +31,32 @@ import (
 // The runner is detected by sniffing the worktree root for
 // language-tagged manifest files (go.mod / package.json /
 // pyproject.toml or pytest.ini / Cargo.toml). Detection is purely
-// filesystem-based — no LLM judgment, no git blame.
+// filesystem-based 鈥?no LLM judgment, no git blame.
 //
 // L3 red line: Execute MUST NOT invoke ground.BuildContext or
 // ground.GroundItem. Test outputs are structured pass/fail data,
 // not citations. Enforced by write_mode_red_lines_test.go.
 //
 // Classified ReadOnly + NonEvidenceTool. Tests read the repo and
-// produce verdicts but do not mutate the worktree — the file I/O
+// produce verdicts but do not mutate the worktree 鈥?the file I/O
 // tests do happen through run_tests, but only under test-framework
 // control (e.g. tmpdir fixtures) which the runner owns, not codrax.
 type RunTests struct {
 	ReadOnly
 	NonEvidenceTool
+}
+
+type runnerPlan struct {
+	Runner   string
+	Root     string
+	Manifest string
+	Priority int
+}
+
+type runnerManifest struct {
+	File     string
+	Runner   string
+	Priority int
 }
 
 // runTestsParams is the wire-level payload. All fields optional.
@@ -66,8 +80,8 @@ func (t *RunTests) Name() string { return "run_tests" }
 // Description is one sentence + the supported-runner list so
 // operators reading logs know the scope without reading code.
 func (t *RunTests) Description() string {
-	return "Run the project test suite inside the active worktree and emit a structured ChangeReport. " +
-		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Kotlin (via the Java Gradle path — build.gradle.kts recognised), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), raw Makefile (make check/test; pass/fail from exit code), HarmonyOS ArkTS via hvigor (hvigorw test → JUnit XML), and HarmonyOS Cangjie via cjpm (cjpm test → cargo-style text)."
+	return "Run the detected project test suites inside the active worktree and emit a structured ChangeReport. " +
+		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Kotlin (via the Java Gradle path 鈥?build.gradle.kts recognised), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), raw Makefile (make check/test; pass/fail from exit code), HarmonyOS ArkTS via hvigor (hvigorw test 鈫?JUnit XML), and HarmonyOS Cangjie via cjpm (cjpm test 鈫?cargo-style text)."
 }
 
 // Parameters returns the JSON schema.
@@ -108,164 +122,127 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 	}
 
-	// Step 1: detect runner.
-	runner := detectRunner(ctx.RepoRoot)
-	if runner == "" {
-		return errResult(t.Name(),
-			"run_tests: no supported test runner detected in "+ctx.RepoRoot+
-				" (looked for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / pom.xml / build.gradle[.kts] / Gemfile / CMakeLists.txt / meson.build / Makefile)"), nil
-	}
-	logging.Info("[run_tests] detected runner=%s in %s", runner, ctx.RepoRoot)
-
-	// CMake and Meson require a pre-configured build directory;
-	// run_tests refuses early with actionable guidance rather than
-	// running a broken command. Checked here so Suite parsing /
-	// timeout setup don't waste cycles.
-	if runner == "cmake" || runner == "meson" {
-		if detectNativeBuildDir(ctx.RepoRoot) == "" {
-			return errResult(t.Name(),
-				fmt.Sprintf("run_tests: %s project detected but no configured build directory found "+
-					"(looked for build/, Build/, builddir/, out/, cmake-build-debug/, cmake-build-release/). "+
-					"Configure the project first (e.g. `cmake -S . -B build` or `meson setup builddir`) and build it, "+
-					"then re-run verify.", runner)), nil
-		}
-	}
-
 	timeout := 300 * time.Second
 	if p.TimeoutSeconds > 0 {
 		timeout = time.Duration(p.TimeoutSeconds) * time.Second
 	}
 
-	// Step 2: run command + capture output.
-	cmdStr, extraFile := buildRunCommand(runner, p.Suite, ctx.RepoRoot)
-	if extraFile != "" {
-		defer os.Remove(extraFile)
+	plans := detectRunnerPlans(ctx.RepoRoot)
+	if len(plans) == 0 {
+		return errResult(t.Name(),
+			"run_tests: no supported test runner detected in "+ctx.RepoRoot+
+				" (looked recursively for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / Package.swift / pom.xml / build.gradle[.kts] / Gemfile / CMakeLists.txt / meson.build / Makefile / oh-package.json5 / hvigorfile.ts / cjpm.toml)"), nil
 	}
+	logging.Info("[run_tests] detected %d runnable project(s) in %s", len(plans), ctx.RepoRoot)
 
-	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	var (
+		projectReports  []*types.ChangeReport
+		combinedOutputs []string
+	)
+	for _, plan := range plans {
+		runnerRoot := plan.Root
+		runner := plan.Runner
 
-	cmd := NewShellCommandContext(execCtx, cmdStr)
-	cmd.Dir = ctx.RepoRoot
-	var buf bytes.Buffer
-	cmd.Stdout = &buf
-	cmd.Stderr = &buf
-	// For runners whose parser infers pass/fail from output markers
-	// (go / node / python / rust / java XML), the exit code is
-	// redundant and we preserve the prior behaviour of ignoring it.
-	// The make runner has no structured output, so the parser reads
-	// the exit error directly via parseRunnerOutput's new runErr
-	// parameter.
-	runErr := cmd.Run()
-	output := buf.String()
-
-	if execCtx.Err() == context.DeadlineExceeded {
-		// Store full output for post-mortem; report includes the
-		// blob ref so the operator can inspect via /history or
-		// the blob directory.
-		_, ref := StoreBlob(ctx, t.Name()+"-timeout", output)
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("[run_tests: runner=%s] command timed out after %v (set timeout_seconds to bump)", runner, timeout),
-			RawRef:    ref,
-			Timestamp: time.Now(),
-		}, nil
-	}
-
-	// Step 2b: post-exec hooks for runners whose test reports live
-	// in a separate file/dir rather than on stdout.
-	//
-	//   - Java (Maven/Gradle): JUnit XML dir at target/surefire-reports
-	//     or build/test-results/test; locateJUnitReportDir picks.
-	//   - CMake: ctest --output-junit writes a single XML file we
-	//     passed as extraFile. If that file didn't appear, ctest
-	//     never reached the test phase (configure/build broken).
-	//   - Meson: meson test --xunit-file writes a single XML file.
-	//
-	// When the expected report artifact is absent we synthesise a
-	// build-failure ChangeReport so the retry hint + verifier prompt
-	// carry the actual error text instead of an opaque pointer to the
-	// stored blob. Mirrors the Rust cargo-build fallback in
-	// parseCargoOutput.
-	if runner == "java" {
-		reportDir := locateJUnitReportDir(ctx.RepoRoot)
-		if reportDir == "" {
-			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "Java", output)
+		if runner == "cmake" || runner == "meson" {
+			if detectNativeBuildDir(runnerRoot) == "" {
+				msg := fmt.Sprintf("%s project detected at %s but no configured build directory found "+
+					"(looked for build/, Build/, builddir/, out/, cmake-build-debug/, cmake-build-release/). "+
+					"Configure the project first (e.g. `cmake -S . -B build` or `meson setup builddir`) and build it, "+
+					"then re-run verify.", runner, runnerRoot)
+				projectReports = append(projectReports, qualifyChangeReport(makeExecutionFailureReport("build", msg, true), plan, ctx.RepoRoot))
+				combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, msg))
+				continue
+			}
 		}
-		extraFile = reportDir
-	}
-	if runner == "hvigor" {
-		// HarmonyOS hvigor emits JUnit XML into the same dir shapes
-		// as Gradle; the Java helper works as-is because it scans
-		// for `surefire-reports/` / `test-results/test/` inside any
-		// module sub-tree. A missing report means hvigor's build
-		// failed before the test phase — surface as build failure.
-		reportDir := locateJUnitReportDir(ctx.RepoRoot)
-		if reportDir == "" {
-			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "hvigor", output)
-		}
-		extraFile = reportDir
-	}
-	if runner == "cmake" || runner == "meson" {
-		// extraFile is the tmpfile path; check it materialised and is
-		// non-empty. A zero-byte file means ctest/meson exited before
-		// writing any suite info (usually a configure/build regression
-		// surfaced as a stderr dump in output).
-		produced := false
+
+		cmdStr, extraFile := buildRunCommand(runner, p.Suite, runnerRoot)
 		if extraFile != "" {
-			if info, err := os.Stat(extraFile); err == nil && info.Size() > 0 {
-				produced = true
+			defer os.Remove(extraFile)
+		}
+
+		execCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		cmd := NewShellCommandContext(execCtx, cmdStr)
+		cmd.Dir = runnerRoot
+		var buf bytes.Buffer
+		cmd.Stdout = &buf
+		cmd.Stderr = &buf
+		runErr := cmd.Run()
+		cancel()
+		output := buf.String()
+		combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, output))
+
+		if execCtx.Err() == context.DeadlineExceeded {
+			_, ref := StoreBlob(ctx, t.Name()+"-timeout", strings.Join(combinedOutputs, "\n\n"))
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("[run_tests: %s] command timed out after %v (set timeout_seconds to bump)", runnerPlanLabel(ctx.RepoRoot, plan), timeout),
+				RawRef:    ref,
+				Timestamp: time.Now(),
+			}, nil
+		}
+
+		if runner == "java" {
+			reportDir := locateJUnitReportDir(runnerRoot)
+			if reportDir == "" {
+				projectReports = append(projectReports, qualifyChangeReport(makeBuildFailureReport("Java", output), plan, ctx.RepoRoot))
+				continue
+			}
+			extraFile = reportDir
+		}
+		if runner == "hvigor" {
+			reportDir := locateJUnitReportDir(runnerRoot)
+			if reportDir == "" {
+				projectReports = append(projectReports, qualifyChangeReport(makeBuildFailureReport("hvigor", output), plan, ctx.RepoRoot))
+				continue
+			}
+			extraFile = reportDir
+		}
+		if runner == "cmake" || runner == "meson" {
+			produced := false
+			if extraFile != "" {
+				if info, err := os.Stat(extraFile); err == nil && info.Size() > 0 {
+					produced = true
+				}
+			}
+			if !produced {
+				label := "CMake"
+				if runner == "meson" {
+					label = "Meson"
+				}
+				projectReports = append(projectReports, qualifyChangeReport(makeBuildFailureReport(label, output), plan, ctx.RepoRoot))
+				continue
 			}
 		}
-		if !produced {
-			label := "CMake"
-			if runner == "meson" {
-				label = "Meson"
-			}
-			return synthesizeBuildFailureReport(ctx, t.Name(), runner, label, output)
+
+		report, err := parseRunnerOutput(runner, output, extraFile, cmdStr, runErr)
+		if err != nil {
+			logging.Warning("[run_tests] parser error for %s: %v", runnerPlanLabel(ctx.RepoRoot, plan), err)
+			_, ref := StoreBlob(ctx, t.Name()+"-unparsed", strings.Join(combinedOutputs, "\n\n"))
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("[run_tests: %s] output parser failed: %v — raw output stored for inspection", runnerPlanLabel(ctx.RepoRoot, plan), err),
+				RawRef:    ref,
+				Timestamp: time.Now(),
+			}, nil
 		}
+		projectReports = append(projectReports, qualifyChangeReport(report, plan, ctx.RepoRoot))
 	}
 
-	// Step 3: parse output. runErr is typically non-nil when any
-	// test failed — the parser handles that case by returning a
-	// report with Passed=false + per-test details. Parse failures
-	// are a different class and surface as tool errors. runErr is
-	// forwarded so the make parser (which has no structured output)
-	// can derive pass/fail from exit status.
-	report, err := parseRunnerOutput(runner, output, extraFile, cmdStr, runErr)
-	if err != nil {
-		logging.Warning("[run_tests] parser error for runner=%s: %v", runner, err)
-		_, ref := StoreBlob(ctx, t.Name()+"-unparsed", output)
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   fmt.Sprintf("[run_tests: runner=%s] output parser failed: %v — raw output stored for inspection", runner, err),
-			RawRef:    ref,
-			Timestamp: time.Now(),
-		}, nil
-	}
-
-	// Anchor the report to the current plan if one is installed.
-	// The verify-stage e2e flow always has a plan; standalone
-	// test runs (hypothetical future) may not.
+	report := mergeChangeReports(projectReports)
 	if plan := ctx.Mutable.ChangePlan(); plan != nil {
 		report.PlanID = plan.ID
 	}
 	report.GeneratedAt = time.Now()
 	ctx.Mutable.SetChangeReport(report)
 
-	// Build a summary for the tool-result return. Runner output
-	// can be multi-megabyte; we show only the aggregate counts +
-	// per-failure names so the LLM / REPL consumer doesn't drown.
-	summary := renderTestSummary(runner, report)
-	// Always blob the raw output so the operator can drill down if
-	// the summary is ambiguous.
-	_, ref := StoreBlob(ctx, t.Name(), output)
+	summary := renderAggregateTestSummary(ctx.RepoRoot, plans, projectReports, report)
+	_, ref := StoreBlob(ctx, t.Name(), strings.Join(combinedOutputs, "\n\n"))
 
 	success := report.Passed
-	logging.Info("[run_tests] runner=%s passed=%v total=%d failed=%d",
-		runner, report.Passed, len(report.TestResults), countFailed(report.TestResults))
+	logging.Info("[run_tests] projects=%d passed=%v total=%d failed=%d",
+		len(projectReports), report.Passed, len(report.TestResults), countFailed(report.TestResults))
 
 	return types.ToolResult{
 		ToolName:  t.Name(),
@@ -276,72 +253,275 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 	}, nil
 }
 
-// detectRunner sniffs the worktree root for language-tagged
-// manifest files and returns a short tag naming the runner. Empty
-// string means "no supported runner found". Priority order when
-// multiple manifests coexist (polyglot repo):
-//
-//  1. go.mod → "go"        (Go preferred for dogfooding)
-//  2. package.json → "node" (check scripts.test to infer jest/vitest/mocha)
-//  3. pyproject.toml / pytest.ini / setup.py → "python"
-//  4. Cargo.toml → "rust"
-//  5. pom.xml / build.gradle / build.gradle.kts → "java"
-//  6. Gemfile → "ruby"
-//
-// Operators with a non-standard layout can hand-edit the
-// test-execute-skill prompt to force a specific runner, but the
-// default sniff should cover 95%+ of single-language repos.
-//
-// Polyglot caveat: Maven is preferred over Gradle when both pom.xml
-// and build.gradle coexist (industry norm; a polyglot repo with
-// mixed build systems typically scripts its own test runner anyway).
+// detectRunner returns the first runnable project discovered under the
+// repo. Retained as a thin convenience wrapper for unit tests; Execute
+// uses detectRunnerPlans so multi-project repos are verified end-to-end.
 func detectRunner(repoRoot string) string {
-	checks := []struct {
-		file   string
-		runner string
-	}{
-		{"go.mod", "go"},
-		// HarmonyOS ArkTS + Cangjie manifests must be probed before
-		// package.json / build.gradle so a mixed HarmonyOS project
-		// (Stage Model + Cangjie native) is routed to the right
-		// runner. oh-package.json5 (ArkTS) and hvigorfile.ts mark
-		// the project as hvigor; cjpm.toml marks a Cangjie module.
-		{"oh-package.json5", "hvigor"},
-		{"build-profile.json5", "hvigor"},
-		{"hvigorfile.ts", "hvigor"},
-		{"cjpm.toml", "cjpm"},
-		{"package.json", "node"},
-		{"pyproject.toml", "python"},
-		{"pytest.ini", "python"},
-		{"setup.py", "python"},
-		{"Cargo.toml", "rust"},
-		// Swift / Apple ecosystems via Swift Package Manager. Older
-		// XCode-only projects with .xcodeproj are not auto-detected
-		// here — they typically need `xcodebuild test -scheme X` and
-		// the user wires that via a Makefile target. Package.swift
-		// is the cross-platform path SPM uses.
-		{"Package.swift", "swift"},
-		{"pom.xml", "java"},
-		{"build.gradle", "java"},
-		{"build.gradle.kts", "java"},
-		{"Gemfile", "ruby"},
-		// C / C++ / other native-build stacks. Ordered by specificity:
-		// a CMake project is more informative than a raw Makefile; a
-		// meson project typically also has a Makefile in its build
-		// dir but the top-level manifest is meson.build. Raw Makefile
-		// is the last fallback for bare Autotools / hand-rolled builds.
-		{"CMakeLists.txt", "cmake"},
-		{"meson.build", "meson"},
-		{"Makefile", "make"},
-		{"makefile", "make"},
-		{"GNUmakefile", "make"},
+	plans := detectRunnerPlans(repoRoot)
+	if len(plans) == 0 {
+		return ""
 	}
-	for _, c := range checks {
-		if _, err := os.Stat(filepath.Join(repoRoot, c.file)); err == nil {
-			return c.runner
+	return plans[0].Runner
+}
+
+func detectRunnerPlans(repoRoot string) []runnerPlan {
+	rootAbs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		rootAbs = repoRoot
+	}
+	manifests := supportedRunnerManifests()
+	manifestIndex := make(map[string]runnerManifest, len(manifests))
+	for _, m := range manifests {
+		manifestIndex[strings.ToLower(m.File)] = m
+	}
+
+	plansByRoot := make(map[string]runnerPlan)
+	_ = filepath.Walk(rootAbs, func(path string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			if info != nil && info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if info.IsDir() {
+			if shouldSkipRunnerDir(rootAbs, path, info.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		manifest, ok := manifestIndex[strings.ToLower(info.Name())]
+		if !ok {
+			return nil
+		}
+		root := filepath.Dir(path)
+		plan := runnerPlan{Runner: manifest.Runner, Root: root, Manifest: info.Name(), Priority: manifest.Priority}
+		if prev, ok := plansByRoot[root]; !ok || plan.Priority < prev.Priority || (plan.Priority == prev.Priority && plan.Manifest < prev.Manifest) {
+			plansByRoot[root] = plan
+		}
+		return nil
+	})
+
+	plans := make([]runnerPlan, 0, len(plansByRoot))
+	for _, plan := range plansByRoot {
+		plans = append(plans, plan)
+	}
+	sort.Slice(plans, func(i, j int) bool {
+		relI := runnerPlanRel(repoRoot, plans[i])
+		relJ := runnerPlanRel(repoRoot, plans[j])
+		if plans[i].Priority != plans[j].Priority {
+			return plans[i].Priority < plans[j].Priority
+		}
+		depthI := strings.Count(relI, "/")
+		depthJ := strings.Count(relJ, "/")
+		if relI == "." {
+			depthI = -1
+		}
+		if relJ == "." {
+			depthJ = -1
+		}
+		if depthI != depthJ {
+			return depthI < depthJ
+		}
+		return relI < relJ
+	})
+	return plans
+}
+
+func supportedRunnerManifests() []runnerManifest {
+	return []runnerManifest{
+		{File: "go.mod", Runner: "go", Priority: 1},
+		{File: "oh-package.json5", Runner: "hvigor", Priority: 2},
+		{File: "build-profile.json5", Runner: "hvigor", Priority: 3},
+		{File: "hvigorfile.ts", Runner: "hvigor", Priority: 4},
+		{File: "cjpm.toml", Runner: "cjpm", Priority: 5},
+		{File: "package.json", Runner: "node", Priority: 6},
+		{File: "pyproject.toml", Runner: "python", Priority: 7},
+		{File: "pytest.ini", Runner: "python", Priority: 8},
+		{File: "setup.py", Runner: "python", Priority: 9},
+		{File: "Cargo.toml", Runner: "rust", Priority: 10},
+		{File: "Package.swift", Runner: "swift", Priority: 11},
+		{File: "pom.xml", Runner: "java", Priority: 12},
+		{File: "build.gradle", Runner: "java", Priority: 13},
+		{File: "build.gradle.kts", Runner: "java", Priority: 14},
+		{File: "Gemfile", Runner: "ruby", Priority: 15},
+		{File: "CMakeLists.txt", Runner: "cmake", Priority: 16},
+		{File: "meson.build", Runner: "meson", Priority: 17},
+		{File: "Makefile", Runner: "make", Priority: 18},
+		{File: "makefile", Runner: "make", Priority: 19},
+		{File: "GNUmakefile", Runner: "make", Priority: 20},
+	}
+}
+
+func shouldSkipRunnerDir(rootAbs, path, name string) bool {
+	if samePath(path, rootAbs) {
+		return false
+	}
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch strings.ToLower(name) {
+	case "node_modules", "vendor", "dist", "target", "out", "build", "builddir",
+		"cmake-build-debug", "cmake-build-release", ".gradle", ".idea", ".vscode":
+		return true
+	}
+	return false
+}
+
+func samePath(a, b string) bool {
+	return strings.EqualFold(filepath.Clean(a), filepath.Clean(b))
+}
+
+func runnerPlanRel(repoRoot string, plan runnerPlan) string {
+	rootAbs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		rootAbs = repoRoot
+	}
+	rel, err := filepath.Rel(rootAbs, plan.Root)
+	if err != nil || rel == "" {
+		return "."
+	}
+	return filepath.ToSlash(rel)
+}
+
+func runnerPlanLabel(repoRoot string, plan runnerPlan) string {
+	return fmt.Sprintf("%s@%s", plan.Runner, runnerPlanRel(repoRoot, plan))
+}
+
+func renderRunnerOutputSection(plan runnerPlan, output string) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "### %s (%s)\n", plan.Runner, filepath.ToSlash(plan.Root))
+	b.WriteString(output)
+	return b.String()
+}
+
+func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot string) *types.ChangeReport {
+	if report == nil {
+		return nil
+	}
+	label := runnerPlanLabel(repoRoot, plan)
+	if runnerPlanRel(repoRoot, plan) == "." {
+		label = plan.Runner
+	}
+	if runnerPlanRel(repoRoot, plan) != "." {
+		for i := range report.TestResults {
+			if report.TestResults[i].AssertionID != "" {
+				report.TestResults[i].AssertionID = label + "::" + report.TestResults[i].AssertionID
+			}
+			if report.TestResults[i].Suite != "" {
+				report.TestResults[i].Suite = label + "::" + report.TestResults[i].Suite
+			}
 		}
 	}
-	return ""
+	if report.FailureSummary != "" {
+		report.FailureSummary = "[" + label + "] " + report.FailureSummary
+	}
+	return report
+}
+
+func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
+	out := &types.ChangeReport{Passed: true}
+	var failureSummaries []string
+	for _, report := range reports {
+		if report == nil {
+			continue
+		}
+		out.TestResults = append(out.TestResults, report.TestResults...)
+		if len(report.MetricDeltas) > 0 {
+			if out.MetricDeltas == nil {
+				out.MetricDeltas = make(map[string]types.MetricDelta, len(report.MetricDeltas))
+			}
+			for k, v := range report.MetricDeltas {
+				out.MetricDeltas[k] = v
+			}
+		}
+		out.RegressionAssertions = append(out.RegressionAssertions, report.RegressionAssertions...)
+		out.PreexistingAssertions = append(out.PreexistingAssertions, report.PreexistingAssertions...)
+		out.FixedAssertions = append(out.FixedAssertions, report.FixedAssertions...)
+		if !report.Passed {
+			out.Passed = false
+		}
+		if report.BuildFailed {
+			out.BuildFailed = true
+		}
+		if report.FailureSummary != "" {
+			failureSummaries = append(failureSummaries, report.FailureSummary)
+		}
+	}
+	out.RegressionAssertions = dedupStrings(out.RegressionAssertions)
+	out.PreexistingAssertions = dedupStrings(out.PreexistingAssertions)
+	out.FixedAssertions = dedupStrings(out.FixedAssertions)
+	if len(failureSummaries) > 0 {
+		out.FailureSummary = strings.Join(failureSummaries, " | ")
+	}
+	return out
+}
+
+func renderAggregateTestSummary(repoRoot string, plans []runnerPlan, reports []*types.ChangeReport, aggregate *types.ChangeReport) string {
+	if len(plans) == 1 && len(reports) == 1 {
+		return renderTestSummary(plans[0].Runner, reports[0])
+	}
+	passedProjects := 0
+	for _, report := range reports {
+		if report != nil && report.Passed {
+			passedProjects++
+		}
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "[run_tests: projects=%d] %d/%d project(s) passed; %d assertion(s), %d failed.",
+		len(plans), passedProjects, len(plans), len(aggregate.TestResults), countFailed(aggregate.TestResults))
+	failedShown := 0
+	for idx, report := range reports {
+		if report == nil || report.Passed || failedShown >= 3 {
+			continue
+		}
+		fmt.Fprintf(&b, " %s", runnerPlanLabel(repoRoot, plans[idx]))
+		if report.FailureSummary != "" {
+			fmt.Fprintf(&b, ": %s", report.FailureSummary)
+		}
+		failedShown++
+	}
+	return b.String()
+}
+
+func makeExecutionFailureReport(suite, detail string, buildFailed bool) *types.ChangeReport {
+	return &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   suite,
+			Suite:         suite,
+			Passed:        false,
+			FailureDetail: detail,
+		}},
+		Passed:         false,
+		BuildFailed:    buildFailed,
+		FailureSummary: detail,
+	}
+}
+
+func makeBuildFailureReport(label, output string) *types.ChangeReport {
+	excerpt := narrativeBuildErrorExcerpt(output)
+	buildErrs := parseBuildErrors(output)
+	snippet := ""
+	if excerpt != "" {
+		snippet = strings.SplitN(excerpt, "\n", 2)[0]
+	}
+	failSummary := renderBuildFailureSummary(label, buildErrs, snippet)
+	if excerpt == "" {
+		excerpt = failSummary
+	}
+	return &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			Suite:         "build",
+			Passed:        false,
+			FailureDetail: excerpt,
+			BuildErrors:   buildErrs,
+		}},
+		Passed:         false,
+		BuildFailed:    true,
+		FailureSummary: failSummary,
+	}
 }
 
 // detectNativeBuildDir locates a pre-configured build directory for
@@ -354,11 +534,11 @@ func detectRunner(repoRoot string) string {
 //
 // Candidates cover the common in-repo layouts:
 //
-//   - "build" / "Build"        — cmake -S . -B build convention
-//   - "builddir"               — meson default
-//   - "out"                    — Google/Android-style
+//   - "build" / "Build"        鈥?cmake -S . -B build convention
+//   - "builddir"               鈥?meson default
+//   - "out"                    鈥?Google/Android-style
 //   - "cmake-build-debug" and
-//     "cmake-build-release"    — CLion IDE defaults
+//     "cmake-build-release"    鈥?CLion IDE defaults
 //
 // Operators using a non-standard layout (e.g. sibling build dirs
 // outside the repo root) can't be auto-detected; they must invoke
@@ -380,7 +560,7 @@ func detectNativeBuildDir(repoRoot string) string {
 		}
 		// Peek for a generator sentinel so an empty dir left over from
 		// a failed configure doesn't count. CMake drops
-		// CMakeCache.txt; Meson drops meson-info/. We accept either —
+		// CMakeCache.txt; Meson drops meson-info/. We accept either 鈥?
 		// the parser step tolerates whichever output shape the command
 		// produces.
 		if _, err := os.Stat(filepath.Join(abs, "CMakeCache.txt")); err == nil {
@@ -433,13 +613,13 @@ func detectJavaBuildSystem(repoRoot string) string {
 //
 // Multi-module caveat: polyglot Java/Gradle repos may have multiple
 // surefire-reports directories under submodules. The parser's XML
-// walk handles that — we return the highest non-empty match and let
+// walk handles that 鈥?we return the highest non-empty match and let
 // parseJUnitXMLDir recurse.
 func locateJUnitReportDir(repoRoot string) string {
 	candidates := []string{
 		filepath.Join(repoRoot, "target", "surefire-reports"),
 		filepath.Join(repoRoot, "build", "test-results", "test"),
-		// HarmonyOS hvigor — Stage Model entry module.
+		// HarmonyOS hvigor 鈥?Stage Model entry module.
 		filepath.Join(repoRoot, "entry", "build", "default", "intermediates", "test", "test-results"),
 		filepath.Join(repoRoot, "entry", "build", "intermediates", "test", "test-results"),
 		filepath.Join(repoRoot, "build", "intermediates", "test", "test-results"),
@@ -461,7 +641,7 @@ func locateJUnitReportDir(repoRoot string) string {
 }
 
 // dirHasXML reports whether dir exists and contains at least one
-// `*.xml` file at its top level (we don't recurse — a directory with
+// `*.xml` file at its top level (we don't recurse 鈥?a directory with
 // only nested .xml is a hint we're at the wrong level and should
 // keep walking).
 func dirHasXML(dir string) bool {
@@ -572,7 +752,7 @@ func firstXMLDescendant(dir string, maxDepth int) bool {
 }
 
 // buildRunCommand assembles the shell command string for a runner.
-// Returns (command, extraFile) — extraFile is a temp file path
+// Returns (command, extraFile) 鈥?extraFile is a temp file path
 // the runner writes its JSON output to (pytest-json-report uses
 // a file argument; other runners print to stdout). Empty extraFile
 // means parse from stdout.
@@ -643,7 +823,7 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 			}
 			return fmt.Sprintf("./gradlew --no-daemon --console=plain test --tests %q", filter), ""
 		}
-		// Unknown Java layout — let command fail and the parser
+		// Unknown Java layout 鈥?let command fail and the parser
 		// surface a clear error. Shouldn't happen because
 		// detectRunner matched one of pom.xml / build.gradle[.kts].
 		return "mvn -B -q test", ""
@@ -748,7 +928,7 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 // target name the project uses. Preference order: "check" (GNU /
 // autotools convention) > "test" (CMake-generated / npm-style) >
 // "tests" (occasional plural). Defaults to "check" when neither
-// target is present — `make check` is the widely-accepted standard
+// target is present 鈥?`make check` is the widely-accepted standard
 // and a missing target surfaces a clean "No rule to make target
 // 'check'" error the parser can relay.
 //
@@ -783,7 +963,7 @@ func detectMakeTestTarget(repoRoot string) string {
 			continue
 		}
 		for _, target := range preference {
-			// "<target>:" at line start — Makefile target definition.
+			// "<target>:" at line start 鈥?Makefile target definition.
 			if strings.HasPrefix(ln, target+":") || strings.HasPrefix(ln, target+" :") {
 				found[target] = true
 			}
@@ -827,10 +1007,10 @@ func renderTestSummary(runner string, report *types.ChangeReport) string {
 			}
 			fmt.Fprintf(&b, "\n  - %s (%s)", r.AssertionID, r.Suite)
 			if r.FailureDetail != "" {
-				// Clip failure detail to first line + ≤160 chars.
+				// Clip failure detail to first line + 鈮?60 chars.
 				line := strings.SplitN(r.FailureDetail, "\n", 2)[0]
 				if len(line) > 160 {
-					line = line[:160] + "…"
+					line = line[:160] + "..."
 				}
 				fmt.Fprintf(&b, "\n    %s", line)
 			}

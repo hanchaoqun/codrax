@@ -83,6 +83,13 @@ var extractorVersions = map[string]int{
 	types.LangPython:     1,
 	types.LangJavaScript: 1,
 	types.LangTypeScript: 1,
+	types.LangArkTS:      2,
+	types.LangCangjie:    2,
+	types.LangKotlin:     2,
+	types.LangRuby:       1,
+	types.LangSwift:      2,
+	types.LangLua:        1,
+	types.LangProto:      1,
 	types.LangRust:       1,
 	types.LangC:          1,
 	types.LangCpp:        1,
@@ -95,12 +102,12 @@ var extractorVersions = map[string]int{
 // truncated SHA-256 checksum over the Files slice for corruption
 // detection.
 type cachePayload struct {
-	SchemaVersion     int            `json:"schema_version"`
-	ExtractorVersions map[string]int `json:"extractor_versions"`
-	RepoHead          string         `json:"repo_head,omitempty"`
-	WrittenAt         string         `json:"written_at,omitempty"`
-	Checksum          string         `json:"checksum,omitempty"`
-	Files             []*types.FileInfo    `json:"files"`
+	SchemaVersion     int               `json:"schema_version"`
+	ExtractorVersions map[string]int    `json:"extractor_versions"`
+	RepoHead          string            `json:"repo_head,omitempty"`
+	WrittenAt         string            `json:"written_at,omitempty"`
+	Checksum          string            `json:"checksum,omitempty"`
+	Files             []*types.FileInfo `json:"files"`
 }
 
 // SaveCache writes the graph index to markdown files and a JSON snapshot

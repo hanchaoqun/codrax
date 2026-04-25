@@ -111,6 +111,24 @@ func TestRunContractCheck_FailingShape(t *testing.T) {
 	}
 }
 
+func TestRunContractCheck_UsesAnswerDocumentLiteralForValueShape(t *testing.T) {
+	out := &agent.StageOutput{FinalAnswer: strings.Repeat("解释性总结", 80)}
+	mut := types.NewMutableState("history question")
+	mut.SetAnswerDocument(&types.AnswerDocument{
+		Shape:   types.ShapeValue,
+		Summary: strings.Repeat("解释性总结", 80),
+		Value: &types.AnswerValue{
+			Literal:     "01e0864",
+			CitationRef: -1,
+		},
+	})
+	c := types.AnswerContract{RequiredAnswerShape: types.ShapeValue}
+	res := runContractCheck(out, c, mut)
+	if !res.Passed {
+		t.Fatalf("value shape should validate against AnswerDocument literal, got %+v", res)
+	}
+}
+
 func TestRunContractCheck_CitationGap_SoftDegrade(t *testing.T) {
 	// Contract requires 3 file_line citations; answer has 1.
 	// Soft degradation: 1 > 0 → pass.
@@ -326,8 +344,8 @@ func TestIsJustifiedAbsenceAnswer_ShapeCheck(t *testing.T) {
 		{"empty symbols + lower_bound rejects (self-contradictory)", &types.AnswerDocument{
 			Shape: types.ShapeListOfSymbols, SymbolsCompleteness: types.CompletenessLowerBound}, false},
 		{"non-empty symbols rejects", &types.AnswerDocument{
-			Shape:   types.ShapeListOfSymbols,
-			Symbols: []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1}},
+			Shape:               types.ShapeListOfSymbols,
+			Symbols:             []types.AnswerSymbol{{Name: "Foo", File: "a.go", Line: 1}},
 			SymbolsCompleteness: types.CompletenessComplete}, false},
 	}
 	for _, c := range cases {

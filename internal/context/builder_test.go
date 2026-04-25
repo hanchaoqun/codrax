@@ -1627,8 +1627,8 @@ func TestReasoningHygiene_EveryStageProducesNonEmpty(t *testing.T) {
 }
 
 // measurementScalarIR builds a minimal AnalysisIR with the exact
-// AnswerContract state that analyzer.buildAnalysisIR's measurement-
-// scalar carve-out sets: ShapeValue + CitationReq disabled. Used by
+// AnswerContract state that analyzer.buildAnalysisIR's citation-free
+// value carve-out sets: ShapeValue + CitationReq disabled. Used by
 // the Raw Tool Outputs tests to mirror upstream state without pulling
 // in the full analyzer build pipeline.
 func measurementScalarIR() *types.AnalysisIR {
@@ -1809,6 +1809,25 @@ func TestBuildPromptContext_RawToolOutputs_WiredForMeasurementScalar(t *testing.
 	}
 	if !strings.Contains(sec.Content, "73396 total") {
 		t.Errorf("section missing the scalar tail:\n%s", sec.Content)
+	}
+}
+
+func TestBuildPromptContext_ToolSourcedValueGuidance_RenderedForExplore(t *testing.T) {
+	mu := types.NewMutableState("which commit introduced EvidenceClosure")
+	ac := &types.AgentContext{
+		AgentName:  types.AgentExplorer,
+		Stage:      types.StageExplore,
+		Objective:  "which commit introduced EvidenceClosure",
+		Mutable:    mu,
+		AnalysisIR: measurementScalarIR(),
+	}
+	pc := BuildPromptContext(ac, &skill.Config{Name: "explorer-skill"})
+	sec := findSectionTitle(pc, "Tool-Sourced Value")
+	if sec == nil {
+		t.Fatal("expected Tool-Sourced Value section to be present for citation-free value IR")
+	}
+	if !strings.Contains(sec.Content, "tool-only investigation") {
+		t.Fatalf("explore guidance should mention tool-only investigation, got:\n%s", sec.Content)
 	}
 }
 

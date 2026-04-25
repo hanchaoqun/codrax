@@ -55,6 +55,20 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 		Citations: extractCitationsFromAnswer(out.FinalAnswer),
 		IsAbsence: isJustifiedAbsenceAnswer(mut),
 	}
+	if mut != nil {
+		if doc := mut.AnswerDocument(); doc != nil {
+			draft.ShapeText = shapeTextForContractCheck(doc)
+			if len(doc.Citations) > 0 {
+				draft.Citations = make([]contract.Citation, 0, len(doc.Citations))
+				for _, c := range doc.Citations {
+					draft.Citations = append(draft.Citations, contract.Citation{
+						File: c.File,
+						Line: c.Line,
+					})
+				}
+			}
+		}
+	}
 	result := contract.Check(draft, c)
 	// Session 11 F1 ViolationLedger — mirror every contract.Check
 	// violation into the per-Run EvidenceClosure so the F2 aggregator
@@ -77,22 +91,50 @@ func runContractCheck(out *agent.StageOutput, c types.AnswerContract, mut *types
 	return result
 }
 
+func shapeTextForContractCheck(doc *types.AnswerDocument) string {
+	if doc == nil {
+		return ""
+	}
+	switch doc.Shape {
+	case types.ShapeValue:
+		if doc.Value != nil {
+			return doc.Value.Literal
+		}
+	case types.ShapeConfigValue:
+		if doc.Value != nil {
+			key := strings.TrimSpace(doc.Value.Key)
+			if key != "" {
+				return key + "=" + doc.Value.Literal
+			}
+			return doc.Value.Literal
+		}
+	case types.ShapeBoolean:
+		if doc.Boolean != nil {
+			if doc.Boolean.Decision {
+				return "yes"
+			}
+			return "no"
+		}
+	}
+	return ""
+}
+
 // isJustifiedAbsenceAnswer reports whether the finalized document is
 // an honest "zero" shape AND the investigation did enough work to
 // trust that zero. Both halves matter:
 //
-//   shape check — 0 symbols with completeness=complete, a value
-//                 literal that reads as zero/none, or boolean=false.
-//   trust check — shape-tiered: shallow shapes ("how many X",
-//                 "does X exist", "what is the value of K") are
-//                 honestly answered with ONE list_files / grep /
-//                 exec_command / repo_map — no file contents needed.
-//                 Deep shapes ("list all handlers that do X",
-//                 "explain the flow", "walk the call chain") demand
-//                 at least one real content read (read_file, or a
-//                 grep that returned line-bearing matches) so the
-//                 LLM cannot claim "no handler does X" without
-//                 opening any file.
+//	shape check — 0 symbols with completeness=complete, a value
+//	              literal that reads as zero/none, or boolean=false.
+//	trust check — shape-tiered: shallow shapes ("how many X",
+//	              "does X exist", "what is the value of K") are
+//	              honestly answered with ONE list_files / grep /
+//	              exec_command / repo_map — no file contents needed.
+//	              Deep shapes ("list all handlers that do X",
+//	              "explain the flow", "walk the call chain") demand
+//	              at least one real content read (read_file, or a
+//	              grep that returned line-bearing matches) so the
+//	              LLM cannot claim "no handler does X" without
+//	              opening any file.
 //
 // The shape-tiered gate replaces the earlier "read_file ≥ 3"
 // threshold which wrongly rejected legitimate one-call answers on
@@ -208,15 +250,15 @@ var investigationToolKinds = map[string]bool{
 // without reading file contents. The distinction tracks what the
 // question fundamentally asks:
 //
-//   shallow — the answer is a count, an existence decision, or a
-//             single config value. "How many .py files" is answered
-//             by a find / ls / list_files in one call; opening any
-//             file adds no information.
-//   deep    — the answer enumerates functions that do X, walks a
-//             flow, or explains a mechanism. Claiming "no handler
-//             does X" demands inspecting the candidate handlers'
-//             code — listing file names is not sufficient because
-//             the question is about behaviour, not identity.
+//	shallow — the answer is a count, an existence decision, or a
+//	          single config value. "How many .py files" is answered
+//	          by a find / ls / list_files in one call; opening any
+//	          file adds no information.
+//	deep    — the answer enumerates functions that do X, walks a
+//	          flow, or explains a mechanism. Claiming "no handler
+//	          does X" demands inspecting the candidate handlers'
+//	          code — listing file names is not sufficient because
+//	          the question is about behaviour, not identity.
 func isShallowShape(s types.AnswerShape) bool {
 	switch s {
 	case types.ShapeValue, types.ShapeBoolean, types.ShapeConfigValue:
@@ -252,12 +294,12 @@ func isContentRead(r types.ToolResult) bool {
 // hasInvestigationEvidence reports whether Turn A did enough work to
 // back an absence claim in the given shape. Two-tier rule:
 //
-//   shallow shape — any single successful investigation-class tool
-//                   call is sufficient. Rejects the "zero tools,
-//                   pure guess" failure mode and nothing else.
-//   deep shape    — at least one actual content read (read_file or
-//                   line-bearing grep). Rejects "I listed the files
-//                   and claim nothing inside does X" without looking.
+//	shallow shape — any single successful investigation-class tool
+//	                call is sufficient. Rejects the "zero tools,
+//	                pure guess" failure mode and nothing else.
+//	deep shape    — at least one actual content read (read_file or
+//	                line-bearing grep). Rejects "I listed the files
+//	                and claim nothing inside does X" without looking.
 func hasInvestigationEvidence(mut *types.MutableState, doc *types.AnswerDocument) bool {
 	if mut == nil {
 		return false

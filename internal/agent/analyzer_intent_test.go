@@ -87,6 +87,50 @@ func TestBuildAnalysisIR_CountQuestionStripsAllThreeGates(t *testing.T) {
 	}
 }
 
+func TestBuildAnalysisIR_HistoryLookupStripsAllThreeGates(t *testing.T) {
+	mut := types.NewMutableState("EvidenceClosure 结构体是哪次 commit 第一次引入本项目的")
+	mut.SetRequestModel(types.RequestModel{
+		RawRequest: "EvidenceClosure 结构体是哪次 commit 第一次引入本项目的",
+		Intent:     types.IntentReturnValue,
+		Complexity: types.ComplexitySimple,
+		AnalyzerHints: types.AnalyzerHints{
+			Keywords: []string{"EvidenceClosure", "commit", "history", "introduced"},
+			Entities: []string{"EvidenceClosure"},
+			Kind:     "history",
+			Shape:    string(types.ShapeValue),
+		},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectStringLiteral},
+		Predicates: types.SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	})
+	ctx := &types.AgentContext{Stage: types.StageAnalyze, Mutable: mut}
+
+	ir, err := buildAnalysisIR(ctx)
+	if err != nil {
+		t.Fatalf("buildAnalysisIR: %v", err)
+	}
+
+	if ir.AnswerContract.CitationReq.Required {
+		t.Error("AnswerContract.CitationReq.Required should be false for history lookup")
+	}
+	if got := ir.AnswerContract.CitationReq.MinCitations; got != 0 {
+		t.Errorf("AnswerContract.CitationReq.MinCitations = %d, want 0", got)
+	}
+	for _, a := range ir.AnswerContract.AcceptanceTests {
+		if a.Kind == types.CritCitationCountGE {
+			t.Errorf("AcceptanceTests still carries CritCitationCountGE: %+v", a)
+		}
+	}
+	for _, n := range ir.TaskGraph.Nodes {
+		for _, c := range n.SuccessCriteria {
+			if c.Kind == types.CritCitationCountGE {
+				t.Errorf("TaskNode %q SuccessCriteria still carries CritCitationCountGE: %+v", n.ID, c)
+			}
+		}
+	}
+}
+
 // TestBuildAnalysisIR_ReturnValueWithoutCountCue_KeepsGates is the
 // negative control — a regular return_value question ("what does
 // function F return") has a file:line to cite, so the carve-out must
@@ -302,6 +346,52 @@ func TestReconcileIntent(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestIsHistoryLookupRequest(t *testing.T) {
+	t.Run("declared history kind", func(t *testing.T) {
+		rm := types.RequestModel{
+			Intent: types.IntentReturnValue,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:  "history",
+				Shape: string(types.ShapeValue),
+			},
+			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
+		}
+		if !isHistoryLookupRequest(rm) {
+			t.Fatal("declared history kind should trigger")
+		}
+	})
+
+	t.Run("vcs noun plus authorship intent fallback", func(t *testing.T) {
+		rm := types.RequestModel{
+			RawRequest: "Who introduced EvidenceClosure in git history?",
+			Intent:     types.IntentReturnValue,
+			AnalyzerHints: types.AnalyzerHints{
+				Keywords: []string{"git", "history", "introduced", "EvidenceClosure"},
+				Shape:    string(types.ShapeValue),
+			},
+			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
+		}
+		if !isHistoryLookupRequest(rm) {
+			t.Fatal("history fallback should trigger on VCS noun + authorship intent")
+		}
+	})
+
+	t.Run("ordinary return value stays citable", func(t *testing.T) {
+		rm := types.RequestModel{
+			RawRequest: "what does Execute return",
+			Intent:     types.IntentReturnValue,
+			AnalyzerHints: types.AnalyzerHints{
+				Keywords: []string{"Execute", "return value"},
+				Shape:    string(types.ShapeValue),
+			},
+			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
+		}
+		if isHistoryLookupRequest(rm) {
+			t.Fatal("ordinary return value should not trigger history lookup")
+		}
+	})
 }
 
 // TestReconcileShape pins the rules in the schema-v4 reconcileShape:

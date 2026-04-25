@@ -2192,6 +2192,10 @@ func TestMidLoopCheck_ParallelCueFiresOnGrepReadPair(t *testing.T) {
 		searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
 		midLoopSerialStreak:   1, // 1 prior serial-ish round
 		midLoopLastResultsLen: 2, // previous iteration had 2 results total
+		// This test is about the parallel batching cue specifically;
+		// suppress the earlier read-without-emit nudge so the serial
+		// streak can be observed in isolation.
+		midLoopNoEmitPushSent: true,
 	}
 	// This iteration adds 2 more results (1 grep + 1 read_file).
 	// batch=2 → still serial-ish → streak bumps to 2.
@@ -3526,7 +3530,7 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		}
 	}
 
-	t.Run("fires once when 3 read_file successes with 0 emit_evidence", func(t *testing.T) {
+	t.Run("fires once when 2 read_file successes with 0 emit_evidence", func(t *testing.T) {
 		eval := &explorerEvaluator{
 			phase:        1,
 			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
@@ -3534,17 +3538,16 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		results := []types.ToolResult{
 			newReadResult("a.go"),
 			newReadResult("b.go"),
-			newReadResult("c.go"),
 		}
 
 		sig := eval.observeMidLoop(LoopObservation{
 			Phase:          PhaseMidLoop,
-			Iteration:      3,
+			Iteration:      2,
 			LastToolResult: &results[len(results)-1],
 			AllToolResults: results,
 		})
 		if !sig.HintRequested {
-			t.Fatalf("read-without-emit nudge should fire at iter=3 reads=3 emits=0, got %+v", sig)
+			t.Fatalf("read-without-emit nudge should fire at iter=2 reads=2 emits=0, got %+v", sig)
 		}
 		if sig.HintKey != "explorer.mid-loop.read-without-emit" {
 			t.Fatalf("HintKey = %q, want explorer.mid-loop.read-without-emit", sig.HintKey)
@@ -3575,13 +3578,12 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		results := []types.ToolResult{
 			newReadResult("a.go"),
 			newReadResult("b.go"),
-			newReadResult("c.go"),
 			{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 2 items"},
 		}
 
 		sig := eval.observeMidLoop(LoopObservation{
 			Phase:          PhaseMidLoop,
-			Iteration:      4,
+			Iteration:      3,
 			LastToolResult: &results[len(results)-1],
 			AllToolResults: results,
 		})
@@ -3595,27 +3597,26 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			phase:        1,
 			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		}
-		// iter=2 < 3: suppressed even with 3 reads.
+		// iter=1 < 2: suppressed even with 2 reads.
 		results := []types.ToolResult{
 			newReadResult("a.go"),
 			newReadResult("b.go"),
-			newReadResult("c.go"),
 		}
 		sig := eval.observeMidLoop(LoopObservation{
 			Phase:          PhaseMidLoop,
-			Iteration:      2,
+			Iteration:      1,
 			LastToolResult: &results[len(results)-1],
 			AllToolResults: results,
 		})
 		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
-			t.Fatalf("nudge must not fire before iter=3, got %+v", sig)
+			t.Fatalf("nudge must not fire before iter=2, got %+v", sig)
 		}
-		// Reset state; reads=2 < 3: suppressed even at iter=5.
+		// Reset state; reads=1 < 2: suppressed even at iter=5.
 		eval = &explorerEvaluator{
 			phase:        1,
 			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
 		}
-		results = []types.ToolResult{newReadResult("a.go"), newReadResult("b.go")}
+		results = []types.ToolResult{newReadResult("a.go")}
 		sig = eval.observeMidLoop(LoopObservation{
 			Phase:          PhaseMidLoop,
 			Iteration:      5,
@@ -3623,7 +3624,26 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			AllToolResults: results,
 		})
 		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
-			t.Fatalf("nudge must not fire below read floor of 3, got %+v", sig)
+			t.Fatalf("nudge must not fire below read floor of 2, got %+v", sig)
+		}
+		// Reset state; last tool is not read_file, so the hint stays quiet.
+		eval = &explorerEvaluator{
+			phase:        1,
+			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		}
+		results = []types.ToolResult{
+			newReadResult("a.go"),
+			newReadResult("b.go"),
+			{ToolName: "grep", Success: true, Summary: "a.go\nb.go"},
+		}
+		sig = eval.observeMidLoop(LoopObservation{
+			Phase:          PhaseMidLoop,
+			Iteration:      2,
+			LastToolResult: &results[len(results)-1],
+			AllToolResults: results,
+		})
+		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("nudge must not fire when the current batch did not end in read_file, got %+v", sig)
 		}
 	})
 }

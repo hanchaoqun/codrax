@@ -91,6 +91,7 @@ var questionKindDescriptions = map[types.RequirementKind]string{
 	types.ReqRegistration:  "the subject is a registration / binding relationship between two entities (which X registers / binds / wires Y)",
 	types.ReqMechanism:     "the subject is the internal mechanism of a named component (how it works, how it is implemented)",
 	types.ReqReturnValue:   "the subject is the return value of a named function / method / expression",
+	types.ReqHistory:       "the subject is repository history / authorship metadata about a named path or symbol (which commit introduced it, when it was added, who changed it)",
 	types.ReqConditional:   "the subject is the guard or condition under which a named behaviour fires",
 	types.ReqConfigMapping: "the subject is a configuration key and the answer describes what the key controls",
 	types.ReqEnumeration:   "the subject is a set of distinct named items; the answer enumerates the set",

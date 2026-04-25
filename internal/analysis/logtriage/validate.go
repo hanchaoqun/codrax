@@ -402,6 +402,48 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 		f.File = ranked[0]
 		return
 	}
+	if (f.Lang == "swift" || isSwiftBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
+		candidates, err := GlobByBasename(repoRoot, f.File)
+		if err != nil || len(candidates) == 0 {
+			f.File = ""
+			return
+		}
+		ranked := ResolveSwiftFile(f.Pkg, f.File, candidates)
+		if len(ranked) == 0 {
+			f.File = ""
+			return
+		}
+		f.File = ranked[0]
+		return
+	}
+	if (f.Lang == "lua" || isLuaBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
+		candidates, err := GlobByBasename(repoRoot, f.File)
+		if err != nil || len(candidates) == 0 {
+			f.File = ""
+			return
+		}
+		ranked := ResolveLuaFile(f.Pkg, f.File, candidates)
+		if len(ranked) == 0 {
+			f.File = ""
+			return
+		}
+		f.File = ranked[0]
+		return
+	}
+	if (f.Lang == "proto" || isProtoBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
+		candidates, err := GlobByBasename(repoRoot, f.File)
+		if err != nil || len(candidates) == 0 {
+			f.File = ""
+			return
+		}
+		ranked := ResolveProtoFile(f.Pkg, f.File, candidates)
+		if len(ranked) == 0 {
+			f.File = ""
+			return
+		}
+		f.File = ranked[0]
+		return
+	}
 	stripped := StripBuildPathPrefix(f.File, repoBase, nil)
 	resolved := ResolveFrameFile(repoRoot, stripped)
 	if resolved == "" {
@@ -565,10 +607,10 @@ func deriveResolvedFiles(errs []types.LogError) []string {
 
 // deriveEntities constructs the keyword list. Sources (in priority):
 //
-//   1. Frame.Func last-dotted segment (bare identifier)
-//   2. Frame.Pkg (package / namespace hint)
-//   3. Error.Type
-//   4. Meta.Signals (as string)
+//  1. Frame.Func last-dotted segment (bare identifier)
+//  2. Frame.Pkg (package / namespace hint)
+//  3. Error.Type
+//  4. Meta.Signals (as string)
 //
 // Each source is filtered by length sanity (>=2 chars for Func tokens;
 // >=3 for Error.Type to suppress 2-char noise). Dedup is case-

@@ -396,8 +396,15 @@ func newLowererRegistry() map[string]Lowerer {
 		repomap.LangPython,
 		repomap.LangJavaScript,
 		repomap.LangTypeScript,
+		repomap.LangArkTS,
+		repomap.LangCangjie,
 		repomap.LangJava,
+		repomap.LangKotlin,
 		repomap.LangRust,
+		repomap.LangRuby,
+		repomap.LangSwift,
+		repomap.LangLua,
+		repomap.LangProto,
 		repomap.LangC,
 		repomap.LangCpp,
 	} {
@@ -408,8 +415,10 @@ func newLowererRegistry() map[string]Lowerer {
 
 func isCommentLine(lang, line string) bool {
 	switch lang {
-	case repomap.LangPython:
+	case repomap.LangPython, repomap.LangRuby:
 		return strings.HasPrefix(line, "#")
+	case repomap.LangLua:
+		return strings.HasPrefix(line, "--")
 	default:
 		return strings.HasPrefix(line, "//") || strings.HasPrefix(line, "/*") || strings.HasPrefix(line, "*")
 	}
@@ -417,9 +426,21 @@ func isCommentLine(lang, line string) bool {
 
 func detectGuard(lang, line string) string {
 	trimmed := strings.TrimSpace(line)
-	for _, prefix := range []string{"if ", "if(", "else if ", "else if(", "switch ", "switch(", "case ", "elif ", "match "} {
+	for _, prefix := range []string{
+		"if ", "if(",
+		"else if ", "else if(",
+		"elseif ", "elseif(",
+		"elif ",
+		"unless ", "unless(",
+		"guard ",
+		"switch ", "switch(",
+		"case ",
+		"when ", "when(",
+		"match ",
+		"until ", "until(",
+	} {
 		if strings.HasPrefix(trimmed, prefix) {
-			return strings.TrimSuffix(strings.TrimSpace(trimmed), "{")
+			return strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(trimmed), "{"))
 		}
 	}
 	if strings.Contains(trimmed, " ? ") && strings.Contains(trimmed, " : ") {
@@ -548,16 +569,32 @@ func detectUnknownEffect(lang, line string) string {
 		if strings.Contains(trimmed, "getattr(") || strings.Contains(trimmed, "setattr(") || strings.Contains(trimmed, "importlib") {
 			return "dynamic attribute or import usage"
 		}
-	case repomap.LangJavaScript, repomap.LangTypeScript:
+	case repomap.LangJavaScript, repomap.LangTypeScript, repomap.LangArkTS:
 		if strings.Contains(trimmed, "require(") && strings.Contains(trimmed, "+") {
 			return "dynamic require/import expression"
 		}
 		if strings.Contains(trimmed, "Reflect.") || strings.Contains(trimmed, "[") && strings.Contains(trimmed, "](") {
 			return "dynamic property dispatch"
 		}
+	case repomap.LangKotlin, repomap.LangCangjie:
+		if strings.Contains(trimmed, "Class.forName(") || strings.Contains(trimmed, "java.lang.reflect") || strings.Contains(trimmed, "::class") {
+			return "dynamic reflection or class loading"
+		}
 	case repomap.LangRust:
 		if strings.Contains(trimmed, "macro_rules!") || strings.Contains(trimmed, "unsafe ") {
 			return "macro or unsafe block"
+		}
+	case repomap.LangRuby:
+		if strings.Contains(trimmed, "send(") || strings.Contains(trimmed, "public_send(") || strings.Contains(trimmed, "const_get(") || strings.Contains(trimmed, "method_missing") {
+			return "dynamic method or constant dispatch"
+		}
+	case repomap.LangSwift:
+		if strings.Contains(trimmed, "Mirror(") || strings.Contains(trimmed, "NSClassFromString(") || strings.Contains(trimmed, "unsafeBitCast(") {
+			return "runtime reflection or unsafe cast"
+		}
+	case repomap.LangLua:
+		if strings.Contains(trimmed, "load(") || strings.Contains(trimmed, "loadfile(") || strings.Contains(trimmed, "loadstring(") || strings.Contains(trimmed, "_G[") {
+			return "dynamic chunk loading or global dispatch"
 		}
 	case repomap.LangC, repomap.LangCpp:
 		if strings.Contains(trimmed, "->") || strings.Contains(trimmed, "*") {

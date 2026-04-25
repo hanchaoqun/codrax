@@ -19,7 +19,7 @@ import (
 // supported single-line markers — safer to err on "reject as comment"
 // for Tier 1 (the recovery tiers have stricter signals anyway).
 //
-// Block comments (`/* ... */`, Python `""" ... """` / `''' ... '''`)
+// Block comments (`/* ... */`, Python `""" ... """` / `”' ... ”'`)
 // are detected by walking backward through the contiguous suffix of
 // fileLines immediately preceding `line`: if an opener occurred with
 // no matching closer on an intervening line, the current line is
@@ -184,7 +184,9 @@ func scanBlockBackward(fileLines map[int]string, line, maxWalk int, open, close 
 func hasCFamilyLineComment(lang string) bool {
 	switch lang {
 	case repomaptypes.LangGo, repomaptypes.LangJavaScript, repomaptypes.LangTypeScript,
-		repomaptypes.LangJava, repomaptypes.LangRust,
+		repomaptypes.LangArkTS, repomaptypes.LangCangjie,
+		repomaptypes.LangJava, repomaptypes.LangKotlin, repomaptypes.LangRust,
+		repomaptypes.LangSwift,
 		repomaptypes.LangC, repomaptypes.LangCpp:
 		return true
 	}
@@ -200,7 +202,7 @@ func hasCFamilyBlockComment(lang string) bool {
 // start of a line as a single-line comment marker.
 func hasHashLineComment(lang string) bool {
 	switch lang {
-	case repomaptypes.LangPython:
+	case repomaptypes.LangPython, repomaptypes.LangRuby:
 		return true
 	}
 	// Unknown extensions (shell, YAML, TOML, Ruby, Makefile, etc.) fall

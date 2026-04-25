@@ -33,35 +33,35 @@ var excludedDirs = tool.ExcludeDirsAnyLevelSet
 
 // specialFiles maps filenames to their special type.
 var specialFiles = map[string]string{
-	"go.mod":         "build_config",
-	"go.sum":         "build_config",
-	"package.json":   "build_config",
-	"tsconfig.json":  "build_config",
-	"jsconfig.json":  "build_config",
-	"pom.xml":        "build_config",
-	"build.gradle":   "build_config",
-	"build.gradle.kts": "build_config",
-	"settings.gradle": "build_config",
+	"go.mod":              "build_config",
+	"go.sum":              "build_config",
+	"package.json":        "build_config",
+	"tsconfig.json":       "build_config",
+	"jsconfig.json":       "build_config",
+	"pom.xml":             "build_config",
+	"build.gradle":        "build_config",
+	"build.gradle.kts":    "build_config",
+	"settings.gradle":     "build_config",
 	"settings.gradle.kts": "build_config",
-	"Cargo.toml":     "build_config",
-	"Cargo.lock":     "build_config",
-	"CMakeLists.txt": "build_config",
-	"Makefile":       "build_config",
-	"Dockerfile":     "dockerfile",
-	"docker-compose.yml": "dockerfile",
+	"Cargo.toml":          "build_config",
+	"Cargo.lock":          "build_config",
+	"CMakeLists.txt":      "build_config",
+	"Makefile":            "build_config",
+	"Dockerfile":          "dockerfile",
+	"docker-compose.yml":  "dockerfile",
 	"docker-compose.yaml": "dockerfile",
-	".github":        "ci",
-	".gitlab-ci.yml": "ci",
-	"Jenkinsfile":    "ci",
+	".github":             "ci",
+	".gitlab-ci.yml":      "ci",
+	"Jenkinsfile":         "ci",
 	// HarmonyOS ArkTS / Cangjie build manifests. Flagging them as
 	// build_config lets the analyzer hints and repomap rank treat
 	// them as first-class project descriptors (same as package.json
 	// / pom.xml for Java/Node), and the verifier's detectRunner
 	// keys off the same filenames for runner dispatch.
-	"oh-package.json5":   "build_config",
+	"oh-package.json5":    "build_config",
 	"build-profile.json5": "build_config",
-	"hvigorfile.ts":      "build_config",
-	"cjpm.toml":          "build_config",
+	"hvigorfile.ts":       "build_config",
+	"cjpm.toml":           "build_config",
 	// Android build descriptor — local.properties holds SDK paths
 	// and is typically git-ignored, so we skip it here to avoid
 	// surfacing operator credentials as "special files".
@@ -105,13 +105,15 @@ func ScanFiles(repoRoot string) ([]FileEntry, error) {
 func applyHarmonyOSPostProcess(repoRoot string, entries []FileEntry) []FileEntry {
 	out := make([]FileEntry, 0, len(entries))
 	for _, e := range entries {
+		relSlash := filepath.ToSlash(e.RelPath)
 		ext := strings.ToLower(filepath.Ext(e.RelPath))
 		if ext == ".cjo" {
 			continue // denied compiled artefact
 		}
-		// Cangjie package manager's build cache — skip wholesale.
-		if strings.Contains(e.RelPath, ".cangjie-cache"+string(filepath.Separator)) ||
-			strings.Contains(e.RelPath, string(filepath.Separator)+".cangjie-cache"+string(filepath.Separator)) {
+		// Cangjie package manager's build cache - skip wholesale.
+		if relSlash == ".cangjie-cache" ||
+			strings.HasPrefix(relSlash, ".cangjie-cache/") ||
+			strings.Contains(relSlash, "/.cangjie-cache/") {
 			continue
 		}
 		if e.Language == types.LangTypeScript && types.IsArkTSProject(repoRoot, e.RelPath) {

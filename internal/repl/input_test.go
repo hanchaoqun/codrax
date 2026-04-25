@@ -71,12 +71,13 @@ func TestHandleSlashDispatchMatchesRegistry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read repl.go: %v", err)
 	}
+	source := strings.ReplaceAll(string(data), "\r\n", "\n")
 	const startMarker = "func (r *REPL) handleSlash("
-	start := strings.Index(string(data), startMarker)
+	start := strings.Index(source, startMarker)
 	if start < 0 {
-		t.Fatalf("could not locate %q in repl.go — refactor?", startMarker)
+		t.Fatalf("could not locate %q in repl.go - refactor?", startMarker)
 	}
-	body := string(data[start:])
+	body := source[start:]
 	end := strings.Index(body, "\n}\n")
 	if end < 0 {
 		t.Fatalf("could not locate end of handleSlash")

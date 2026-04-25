@@ -86,8 +86,8 @@ func (e *verifierEvaluator) BuildInitialInstruction(ctx *types.AgentContext, _ *
 	s.WriteString("## Verify phase\n\n")
 	s.WriteString("The plan on Mutable.ChangePlan has been applied to the worktree. " +
 		"Your job: call run_tests once to execute the project test suite. The tool " +
-		"auto-detects the runner (Go / Node / Python / Rust / Java / Ruby / CMake / " +
-		"Meson / Make) from manifests in the worktree root, runs it, parses the output, " +
+		"auto-detects supported projects (Go / Node / Python / Rust / Java / Kotlin / Ruby / Swift / HarmonyOS ArkTS via hvigor / HarmonyOS Cangjie via cjpm / CMake / " +
+		"Meson / Make), runs the matching suites from their project roots, parses the output, " +
 		"and installs Mutable.ChangeReport. On return the evaluator's ShouldStop fires " +
 		"on ChangeReport presence and the stage completes.\n\n" +
 		"Do NOT emit_change_plan (that was the plan stage; your role is only to verify). " +

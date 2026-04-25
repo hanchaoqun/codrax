@@ -22,18 +22,18 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	}
 
 	ac := &types.AgentContext{
-		AgentName:    agentName,
-		Stage:        stage,
-		Objective:    objective,
-		MissingPiece: bus.TaskState.Missing,
-		Constraints:  bus.Constraints,
-		Preferences:  bus.Preferences,
-		Language:     bus.Language,
-		RepoRoot:     bus.RepoRoot,
-		Branch:       bus.Branch,
-		Commit:       bus.Commit,
-		WorkDir:      bus.WorkDir,
-		Mutable:      bus.Mutable,
+		AgentName:       agentName,
+		Stage:           stage,
+		Objective:       objective,
+		MissingPiece:    bus.TaskState.Missing,
+		Constraints:     bus.Constraints,
+		Preferences:     bus.Preferences,
+		Language:        bus.Language,
+		RepoRoot:        bus.RepoRoot,
+		Branch:          bus.Branch,
+		Commit:          bus.Commit,
+		WorkDir:         bus.WorkDir,
+		Mutable:         bus.Mutable,
 		AnalysisIR:      bus.AnalysisIR,
 		AttachedLog:     bus.AttachedLog,
 		AttachedHitrace: bus.AttachedHitrace,
@@ -601,6 +601,12 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			Content: cfgAbsence,
 		})
 	}
+	if toolValue := formatToolSourcedValueHint(ac); toolValue != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Tool-Sourced Value",
+			Content: toolValue,
+		})
+	}
 
 	// CGEC E4 + E5: Subject Match Summary. Renders the top chains
 	// rankChainsBySubject scored against the expected AnswerSubject
@@ -626,23 +632,24 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// only see structured evidence (emit_evidence items + deterministic
 	// concrete_value scans) and never lay eyes on the explorer's raw
 	// tool results — so a scalar produced by a one-shot command (
-	// `find ... | xargs wc -l`, `grep -c`, `list_files` with 200 hits)
-	// cannot travel to Turn B unless the LLM thought to call
+	// `find ... | xargs wc -l`, `grep -c`, `list_files` with 200 hits,
+	// or a VCS query such as `git log` / `git blame`) cannot travel to
+	// Turn B unless the LLM thought to call
 	// emit_evidence for it. But emit_evidence's schema requires
 	// source + line_start + anchor_kind, which a command-level scalar
 	// doesn't have — physically impossible to emit. Surface the raw
 	// summaries here so the finalizer can pull the literal directly.
 	//
-	// NARROW SCOPE — measurement-scalar questions only. We gate on
+	// NARROW SCOPE — citation-free value questions only. We gate on
 	// AnswerContract.RequiredAnswerShape == ShapeValue AND
-	// CitationReq.Required == false; that pair is set EXCLUSIVELY by
-	// the measurement-scalar carve-out in analyzer.buildAnalysisIR on
-	// "how many X / 统计 / size of Y" questions. For every other
-	// question shape (explanation / step_list / list_of_symbols /
-	// boolean / config_value / value with file:line-citable returns)
-	// the section stays hidden — otherwise the finalizer would quote
-	// raw read_file dumps instead of the curated Structured Evidence
-	// section, and explain-class answers would degrade.
+	// CitationReq.Required == false; today that pair is produced by the
+	// analyzer for measurement scalars and VCS/history value lookups.
+	// For every other question shape (explanation / step_list /
+	// list_of_symbols / boolean / config_value / value with
+	// file:line-citable returns) the section stays hidden — otherwise
+	// the finalizer would quote raw read_file dumps instead of the
+	// curated Structured Evidence section, and explain-class answers
+	// would degrade.
 	//
 	// Explorer-only source: reading TurnAArtifacts.ToolResults scopes
 	// the section to the explore stage's work and excludes the
@@ -1329,30 +1336,14 @@ func formatFlowFindings(findings []types.FlowFindingDigest, limit int) string {
 	return strings.TrimSpace(b.String())
 }
 
-// shouldRenderRawToolOutputs gates the Raw Tool Outputs section to
-// measurement-scalar questions only. The discriminator mirrors the
-// upstream carve-out in analyzer.buildAnalysisIR: ShapeValue +
-// CitationReq.Required == false is the exact pair that carve-out
-// sets, and no other code path sets it. Using the IR state as the
-// gate keeps the rule 1:1 with its producer — there is no prefix
-// regex duplication and no risk of drift.
+// isCitationFreeValueAnswer reports whether the IR says this answer is
+// a scalar value whose authoritative literal can come from tool / VCS /
+// external output rather than from a repo file:line citation.
 //
-// All three conditions must hold:
-//
-//   - Stage is extract OR finalize. Explorer has raw results in its
-//     own transcript; analyzer never reaches this section.
-//   - Mutable + AnalysisIR + AnswerContract are populated. Legacy
-//     test paths (nil Mutable, nil IR) fall through cleanly.
-//   - AnswerContract.RequiredAnswerShape == ShapeValue AND
-//     CitationReq.Required == false. Other shapes (explanation,
-//     step_list, list_of_symbols, boolean, config_value, value-with-
-//     citation) are untouched so the finalizer's citation-grounded
-//     answer construction for deep-investigation questions stays
-//     exactly as it was.
-func shouldRenderRawToolOutputs(ac *types.AgentContext) bool {
-	if ac.Stage != types.StageExtract && ac.Stage != types.StageFinalize {
-		return false
-	}
+// The discriminator mirrors analyzer.buildAnalysisIR's citation-free
+// value carve-out. Using the IR state as the gate keeps the rule 1:1
+// with its producer and avoids a second keyword table here.
+func isCitationFreeValueAnswer(ac *types.AgentContext) bool {
 	if ac.Mutable == nil {
 		return false
 	}
@@ -1367,6 +1358,17 @@ func shouldRenderRawToolOutputs(ac *types.AgentContext) bool {
 		return false
 	}
 	return true
+}
+
+// shouldRenderRawToolOutputs gates the Raw Tool Outputs section to
+// citation-free value questions on extract/finalize only. Explorer
+// already has the live tool transcript; analyzer never reaches this
+// block.
+func shouldRenderRawToolOutputs(ac *types.AgentContext) bool {
+	if ac.Stage != types.StageExtract && ac.Stage != types.StageFinalize {
+		return false
+	}
+	return isCitationFreeValueAnswer(ac)
 }
 
 // Raw Tool Outputs rendering — size knobs.
@@ -1407,14 +1409,14 @@ var rawToolOutputSkipTools = map[string]bool{
 // tool outputs: they are scalar-bearing references, NOT entries in the
 // emit_answer_document.citations[] pool. Without this line the LLM
 // tries to cite "tool:exec_command" as a file — rejected by the
-// path validator — then gets stuck in a retry loop that never produces
-// a valid document. For measurement-scalar questions (shape=value +
-// no citation floor) citation_ref=-1 on the value is the correct
-// answer.
+// path validator — then gets stuck in a retry loop that never
+// produces a valid document. For citation-free value questions
+// (shape=value + no citation floor), citation_ref=-1 on the value is
+// the correct answer.
 const rawToolOutputPreamble = "These are the raw outputs of commands the explorer ran during the investigation. " +
-	"Use them as the source of TRUTH for scalar answers (counts, totals, sizes, version numbers). " +
+	"Use them as the source of TRUTH for citation-free scalar answers whose literal comes from command / VCS output (counts, totals, sizes, version numbers, commit hashes, subject lines). " +
 	"These tool outputs are NOT repo files — they MUST NOT appear in citations[]. " +
-	"For a measurement-scalar answer (shape=value, no citation floor) emit value{literal, citation_ref:-1} " +
+	"For a citation-free value answer (shape=value, no citation floor) emit value{literal, citation_ref:-1} " +
 	"with the scalar taken directly from the tool output tail; -1 is the correct choice because the " +
 	"answer is a command-level measurement with no file:line anchor.\n\n"
 
@@ -2412,6 +2414,24 @@ func formatExactResolutionHint(ac *types.AgentContext) string {
 	}
 	if ac.Stage == types.StageExplore {
 		b.WriteString(" Read same-scope anchors first, then close the investigation with `absence_justification` instead of completing a positive substitute chain if the exact target remains absent.")
+	}
+	return b.String()
+}
+
+func formatToolSourcedValueHint(ac *types.AgentContext) string {
+	if ac == nil || ac.AnalysisIR == nil || !isCitationFreeValueAnswer(ac) {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("This is a citation-free value question: the authoritative literal may come from deterministic tool output or VCS metadata rather than from a repo file:line.\n")
+	switch ac.Stage {
+	case types.StageExplore:
+		b.WriteString("- Treat command / VCS output as authoritative when it directly answers the question.\n")
+		b.WriteString("- Do NOT emit file:line evidence just to mirror a command result. Use `emit_evidence` only for real repo anchors you actually read.\n")
+		b.WriteString("- If one repo anchor is needed to disambiguate the target, read it once; otherwise a tool-only investigation may complete cleanly.\n")
+	case types.StageExtract, types.StageFinalize:
+		b.WriteString("- When the literal comes from command output / VCS metadata rather than repo code, set `citation_ref=-1` and explain the provenance in `summary`.\n")
+		b.WriteString("- Do NOT copy tool outputs into `citations[]`; those entries are reserved for repo file:line anchors.\n")
 	}
 	return b.String()
 }

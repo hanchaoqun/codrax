@@ -3,9 +3,9 @@
 // sub-packages introduced by the Phase 4 three-layer split:
 //
 //   - types/    — structural types (Graph, FileInfo, Symbol, ...)
-//                 and Graph-receiver methods for in-graph navigation
+//     and Graph-receiver methods for in-graph navigation
 //   - index/    — graph construction, cache I/O, scanner, parser,
-//                 per-language extractors and import resolvers
+//     per-language extractors and import resolvers
 //   - retrieve/ — rank scoring, multilingual query tokenizer
 //   - render/   — view data builders and markdown renderer
 //
@@ -51,6 +51,13 @@ const (
 	LangPython     = types.LangPython
 	LangJavaScript = types.LangJavaScript
 	LangTypeScript = types.LangTypeScript
+	LangArkTS      = types.LangArkTS
+	LangCangjie    = types.LangCangjie
+	LangKotlin     = types.LangKotlin
+	LangRuby       = types.LangRuby
+	LangSwift      = types.LangSwift
+	LangLua        = types.LangLua
+	LangProto      = types.LangProto
 	LangJava       = types.LangJava
 	LangRust       = types.LangRust
 	LangC          = types.LangC

@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
 	"github.com/hanchaoqun/codrax/internal/skill"
@@ -80,19 +81,16 @@ func main() { _ = "applied-bytes" }
 	// path (the same path REPL /verify and CLI both rely on).
 	planDir := t.TempDir()
 	planPath := filepath.Join(planDir, "plan.json")
-	planBody := `{
-  "id": "plan-verify-e2e",
-  "request": "verify reuse",
-  "summary": "auto-pickup test",
-  "changes": [{"path": "main.go", "kind": "modify", "rationale": "x"}],
-  "target_paths": ["main.go"],
-  "status": "applied",
-  "worktree_path": "` + preserved + `",
-  "created_at": "2026-01-01T00:00:00Z"
-}`
-	if err := os.WriteFile(planPath, []byte(planBody), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	writePlanJSON(t, planPath, &types.ChangePlan{
+		ID:           "plan-verify-e2e",
+		Request:      "verify reuse",
+		Summary:      "auto-pickup test",
+		Changes:      []types.FileChange{{Path: "main.go", Kind: "modify", Rationale: "x"}},
+		TargetPaths:  []string{"main.go"},
+		Status:       types.PlanStatusApplied,
+		WorktreePath: preserved,
+		CreatedAt:    mustParseRFC3339(t, "2026-01-01T00:00:00Z"),
+	})
 	o.SetPlanPath(planPath)
 
 	busCtx, err := o.Run("/verify plan-verify-e2e", mainRepo, "main")
@@ -134,4 +132,13 @@ func indexOf(haystack, needle string) int {
 		}
 	}
 	return -1
+}
+
+func mustParseRFC3339(t *testing.T, value string) time.Time {
+	t.Helper()
+	ts, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		t.Fatalf("parse time %q: %v", value, err)
+	}
+	return ts
 }

@@ -63,6 +63,13 @@ const (
 	// entity and whose object is a literal value.
 	ReqReturnValue RequirementKind = "return_value"
 
+	// ReqHistory — "which commit introduced X", "when was X added",
+	// "谁提交的", "首次引入". Satisfied primarily by deterministic
+	// tool outputs (git log / blame / history queries) and, when
+	// present, a concrete anchor showing the target entity really exists
+	// at the named file/path/symbol.
+	ReqHistory RequirementKind = "history"
+
 	// ReqConditional — "when does X fire", "under what condition",
 	// "什么时候". Satisfied by EvidenceConditional items.
 	ReqConditional RequirementKind = "conditional"
@@ -95,6 +102,7 @@ var allRequirementKinds = []RequirementKind{
 	ReqRegistration,
 	ReqMechanism,
 	ReqReturnValue,
+	ReqHistory,
 	ReqConditional,
 	ReqConfigMapping,
 	ReqEnumeration,
@@ -141,6 +149,8 @@ func NormalizeRequirementKind(s string) RequirementKind {
 		return ReqMechanism
 	case "return_value", "return-value", "return", "value_of":
 		return ReqReturnValue
+	case "history", "git_history", "git-history", "history_lookup", "history-lookup", "authorship", "commit_lookup", "commit-lookup":
+		return ReqHistory
 	case "conditional", "condition":
 		return ReqConditional
 	case "config_mapping", "config-mapping":
@@ -188,6 +198,7 @@ var RequirementToEvidenceKinds = map[RequirementKind][]EvidenceKind{
 	ReqRegistration:  {EvidenceRegistration, EvidenceConcrete},
 	ReqMechanism:     {EvidenceMechanism, EvidenceRelationship},
 	ReqReturnValue:   {EvidenceConcrete},
+	ReqHistory:       {EvidenceConcrete},
 	ReqConditional:   {EvidenceConditional},
 	ReqConfigMapping: {EvidenceConcrete, EvidenceMechanism},
 	ReqEnumeration:   {EvidenceDirect, EvidenceRegistration},
