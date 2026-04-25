@@ -13,10 +13,20 @@ const (
 	// Failure is non-fatal; the main 4-stage pipeline continues with
 	// bus.LogTriage()==nil.
 	StageLogTriage PipelineStage = "log_triage"
-	StageAnalyze   PipelineStage = "analyze"
-	StageExplore   PipelineStage = "explore"
-	StageExtract   PipelineStage = "extract"
-	StageFinalize  PipelineStage = "finalize"
+
+	// StagePerfTriage is the HarmonyOS-HiTrace / Android-systrace
+	// companion to StageLogTriage. Conditional pre-stage that runs
+	// before analyze when BusContext.AttachedHitrace is non-empty.
+	// Dispatches the perf_triager agent to produce a validated
+	// PerfBundle on MutableState (jank spans + main-thread stalls +
+	// cold-start timing). Failure is non-fatal; main 4-stage
+	// pipeline continues with bus.PerfTrace()==nil.
+	StagePerfTriage PipelineStage = "perf_triage"
+
+	StageAnalyze  PipelineStage = "analyze"
+	StageExplore  PipelineStage = "explore"
+	StageExtract  PipelineStage = "extract"
+	StageFinalize PipelineStage = "finalize"
 
 	// Write-mode stages. Only fire when BusContext.Mode is
 	// ModePlan / ModeApply / ModeVerify; Run()'s Mode switch
@@ -65,6 +75,7 @@ func (s PipelineStage) String() string {
 func AllStages() []PipelineStage {
 	return []PipelineStage{
 		StageLogTriage,
+		StagePerfTriage,
 		StageAnalyze,
 		StageExplore,
 		StageExtract,
@@ -88,11 +99,12 @@ func AllMainStages() []PipelineStage {
 type AgentName string
 
 const (
-	AgentAnalyzer   AgentName = "analyzer"
-	AgentExplorer   AgentName = "explorer"
-	AgentExtractor  AgentName = "extractor"
-	AgentFinalizer  AgentName = "finalizer"
-	AgentLogTriager AgentName = "log_triager"
+	AgentAnalyzer    AgentName = "analyzer"
+	AgentExplorer    AgentName = "explorer"
+	AgentExtractor   AgentName = "extractor"
+	AgentFinalizer   AgentName = "finalizer"
+	AgentLogTriager  AgentName = "log_triager"
+	AgentPerfTriager AgentName = "perf_triager"
 
 	// Write-mode agents. Each pairs with the matching Stage
 	// (StagePlan / StageApply / StageVerify) via pipelineTopology.

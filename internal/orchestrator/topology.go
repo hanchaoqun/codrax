@@ -26,8 +26,9 @@ var pipelineTopology = map[types.PipelineStage]struct {
 	Skill    string
 	Terminal bool
 }{
-	types.StageLogTriage: {Agent: types.AgentLogTriager, Skill: "log-triage-skill"},
-	types.StageAnalyze:   {Agent: types.AgentAnalyzer, Skill: "analysis-skill"},
+	types.StageLogTriage:  {Agent: types.AgentLogTriager, Skill: "log-triage-skill"},
+	types.StagePerfTriage: {Agent: types.AgentPerfTriager, Skill: "perf-triage-skill"},
+	types.StageAnalyze:    {Agent: types.AgentAnalyzer, Skill: "analysis-skill"},
 	types.StageExplore:   {Agent: types.AgentExplorer, Skill: "explore-skill"},
 	types.StageExtract:   {Agent: types.AgentExtractor, Skill: "extract-skill"},
 	types.StageFinalize:  {Agent: types.AgentFinalizer, Skill: "answer-document-skill", Terminal: true},
@@ -68,6 +69,16 @@ var preStages = []preStageEntry{
 		Stage: types.StageLogTriage,
 		Guard: func(bus *types.BusContext) bool {
 			return bus != nil && strings.TrimSpace(bus.AttachedLog) != ""
+		},
+	},
+	{
+		// StagePerfTriage fires when the user attached a HiTrace /
+		// Android systrace payload via --htrace. Mirror of log_triage
+		// for the performance channel — writes bus.Mutable.PerfTrace()
+		// on success. Advisory; main pipeline continues on failure.
+		Stage: types.StagePerfTriage,
+		Guard: func(bus *types.BusContext) bool {
+			return bus != nil && strings.TrimSpace(bus.AttachedHitrace) != ""
 		},
 	},
 }

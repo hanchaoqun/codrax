@@ -8,16 +8,12 @@ import (
 )
 
 // extractCangjie produces a parsed FileInfo for a Cangjie 1.0.0 LTS
-// (cjnative) source file. No tree-sitter grammar exists for Cangjie
-// surface (func / package_clause / extend / match / trait-like
-// interface / operator / foreign), so we use a hand-written Go
-// scanner.
-//
-// The scanner is comment+string-aware (Tier 1) and falls back to a
-// naive regex pass (Tier 2) when Tier 1 produces nothing — that
-// way a broken/partially-truncated source still surfaces some
-// symbols via path-ignorant pattern matching rather than being
-// silently dropped.
+// (cjnative) source file. Tier 1 uses a hand-written tokeniser +
+// recursive-descent parser (cangjie_lexer.go + cangjie_parser.go)
+// that tracks brace depth and enclosing-type stack, so class / struct
+// methods are emitted with Kind=method and Parent set to the
+// enclosing type. Tier 2 falls back to the comment-aware regex scan
+// kept in this file as a safety net for malformed sources.
 //
 // Red line L-Cangjie-2: FileInfo.Package MUST come from the
 // package_clause (first non-comment / non-blank statement). Path
@@ -27,26 +23,28 @@ import (
 // Red line L-Cangjie-1: callers must not feed .cjo compiled
 // artefacts here — scanner.go excludes them at discovery time.
 func extractCangjie(src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation, tier int) {
-	// Phase 1: state-aware tokenised scan.
-	cleaned := stripCangjieCommentsAndStrings(string(src))
-
-	pkg = findCangjiePackage(cleaned)
-	syms = scanCangjieDecls(cleaned, src, file, pkg)
-	imps = scanCangjieImports(cleaned, file)
-
-	// Extend relations: for every `extend Type` block, emit a
-	// structured relation from the file to the extended type. This
-	// lets repomap's subgraph walker follow method calls on extended
-	// types back to the extend block.
-	rels = scanCangjieExtendRelations(cleaned, file)
-
+	// Phase 1: tokeniser + recursive-descent parser (D5/M1 upgrade).
+	pkg, syms, imps, rels = parseCangjie(src, file)
 	if len(syms) > 0 || pkg != "" {
 		tier = 1
 		return
 	}
 
-	// Phase 2: regex-only salvage. No state tracking; may over-match
-	// inside strings/comments but better than dropping the file.
+	// Phase 2: legacy regex salvage — covers pathological sources
+	// where the tokeniser bailed out (nested decorator sequences
+	// that confuse the state machine, or truncated / partial files).
+	cleaned := stripCangjieCommentsAndStrings(string(src))
+	pkg = findCangjiePackage(cleaned)
+	syms = scanCangjieDecls(cleaned, src, file, pkg)
+	imps = scanCangjieImports(cleaned, file)
+	rels = scanCangjieExtendRelations(cleaned, file)
+
+	if len(syms) > 0 || pkg != "" {
+		tier = 2
+		return
+	}
+
+	// Phase 3: raw-regex last-ditch salvage (no comment stripping).
 	salvageSyms, salvageImps, salvagePkg := cangjieRegexSalvage(src, file)
 	if len(salvageSyms) == 0 && len(salvageImps) == 0 && salvagePkg == "" {
 		tier = 3

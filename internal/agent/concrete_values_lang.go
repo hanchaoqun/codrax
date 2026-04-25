@@ -171,9 +171,13 @@ func scanEmbedsPatterns(lines []string, lang string) []concreteValueEntry {
 				}
 			}
 
-		case repotypes.LangJavaScript, repotypes.LangTypeScript:
+		case repotypes.LangJavaScript, repotypes.LangTypeScript, repotypes.LangArkTS:
 			// class Foo extends Bar { ... }
 			// TS also: interface I extends J, K { ... }
+			// ArkTS also: @Observed class X extends Y { ... } and
+			// struct components do NOT extend (ArkUI inheritance
+			// flows via decorator-driven prototype magic, not
+			// `extends`), so the same TS pattern suffices.
 			if strings.Contains(trimmed, " extends ") {
 				if idx := strings.Index(trimmed, " extends "); idx > 0 {
 					rest := strings.TrimSpace(trimmed[idx+len(" extends "):])
@@ -194,8 +198,12 @@ func scanEmbedsPatterns(lines []string, lang string) []concreteValueEntry {
 				}
 			}
 
-		case repotypes.LangJava:
-			// class Foo extends Bar implements ...
+		case repotypes.LangJava, repotypes.LangKotlin:
+			// Java: class Foo extends Bar implements ...
+			// Kotlin: class Foo : Bar, IFace { ... } — the `:` is
+			// the Kotlin inheritance separator and requires a
+			// different extraction path (see the dedicated Kotlin
+			// branch below for colon-based inheritance).
 			if strings.Contains(trimmed, " extends ") {
 				if idx := strings.Index(trimmed, " extends "); idx > 0 {
 					rest := strings.TrimSpace(trimmed[idx+len(" extends "):])
@@ -209,6 +217,73 @@ func scanEmbedsPatterns(lines []string, lang string) []concreteValueEntry {
 						out = append(out, concreteValueEntry{
 							kind: "embeds", value: "extends " + b,
 						})
+					}
+				}
+			}
+			if lang == repotypes.LangKotlin &&
+				(strings.HasPrefix(trimmed, "class ") ||
+					strings.HasPrefix(trimmed, "data class ") ||
+					strings.HasPrefix(trimmed, "sealed class ") ||
+					strings.HasPrefix(trimmed, "object ") ||
+					strings.HasPrefix(trimmed, "interface ")) {
+				// Kotlin inheritance separator: after the class name
+				// `class Foo : Bar, IFace()`. Strip generics and
+				// constructor parens to get the plain type names.
+				if colon := strings.Index(trimmed, " : "); colon > 0 {
+					rest := trimmed[colon+3:]
+					if brace := strings.Index(rest, "{"); brace > 0 {
+						rest = rest[:brace]
+					}
+					if where := strings.Index(rest, " where "); where > 0 {
+						rest = rest[:where]
+					}
+					for _, b := range strings.Split(rest, ",") {
+						b = strings.TrimSpace(b)
+						if paren := strings.Index(b, "("); paren > 0 {
+							b = b[:paren]
+						}
+						if lt := strings.Index(b, "<"); lt > 0 {
+							b = b[:lt]
+						}
+						b = strings.TrimSpace(b)
+						if b != "" {
+							out = append(out, concreteValueEntry{
+								kind: "embeds", value: "inherits " + b,
+							})
+						}
+					}
+				}
+			}
+
+		case repotypes.LangCangjie:
+			// Cangjie inheritance operator is `<:` (the lexer sees
+			// it as `<` immediately followed by `:` — in source
+			// text they are adjacent tokens).
+			if strings.Contains(trimmed, "<:") {
+				if idx := strings.Index(trimmed, "<:"); idx > 0 {
+					rest := strings.TrimSpace(trimmed[idx+2:])
+					if brace := strings.Index(rest, "{"); brace > 0 {
+						rest = rest[:brace]
+					}
+					if where := strings.Index(rest, " where "); where > 0 {
+						rest = rest[:where]
+					}
+					// Cangjie uses `&` to AND multiple bounds.
+					sep := "&"
+					if !strings.Contains(rest, "&") && strings.Contains(rest, ",") {
+						sep = ","
+					}
+					for _, b := range strings.Split(rest, sep) {
+						b = strings.TrimSpace(b)
+						if lt := strings.Index(b, "<"); lt > 0 {
+							b = b[:lt]
+						}
+						b = strings.TrimSpace(b)
+						if b != "" {
+							out = append(out, concreteValueEntry{
+								kind: "embeds", value: "implements " + b,
+							})
+						}
 					}
 				}
 			}
@@ -372,8 +447,10 @@ func scanImplementsPatterns(lines []string, lang string) []concreteValueEntry {
 				}
 			}
 
-		case repotypes.LangTypeScript, repotypes.LangJava:
+		case repotypes.LangTypeScript, repotypes.LangArkTS, repotypes.LangJava:
 			// class Foo implements I, J { ... }
+			// ArkTS also uses `implements` for TS-shaped classes
+			// (non-@Component utility classes).
 			if strings.Contains(trimmed, " implements ") {
 				if idx := strings.Index(trimmed, " implements "); idx > 0 {
 					rest := strings.TrimSpace(trimmed[idx+len(" implements "):])
@@ -390,6 +467,47 @@ func scanImplementsPatterns(lines []string, lang string) []concreteValueEntry {
 					}
 				}
 			}
+
+		case repotypes.LangKotlin:
+			// Kotlin does not distinguish extends / implements at
+			// the keyword level: `class Foo : Base, IFace` handles
+			// both. The embeds pass above already emits `inherits`
+			// entries; to surface explicit interface implementations
+			// we re-scan here for any `: IFace` where `IFace` has
+			// no constructor parens (heuristic — classes use parens
+			// in Kotlin inheritance: `: Base()` vs `: IFace`).
+			if strings.Contains(trimmed, " : ") {
+				if colon := strings.Index(trimmed, " : "); colon > 0 {
+					rest := strings.TrimSpace(trimmed[colon+3:])
+					if brace := strings.Index(rest, "{"); brace > 0 {
+						rest = rest[:brace]
+					}
+					if where := strings.Index(rest, " where "); where > 0 {
+						rest = rest[:where]
+					}
+					for _, b := range strings.Split(rest, ",") {
+						b = strings.TrimSpace(b)
+						if strings.Contains(b, "(") {
+							continue // class super, handled as embeds
+						}
+						if lt := strings.Index(b, "<"); lt > 0 {
+							b = b[:lt]
+						}
+						b = strings.TrimSpace(b)
+						if b != "" {
+							out = append(out, concreteValueEntry{
+								kind: "implements", value: "implements " + b,
+							})
+						}
+					}
+				}
+			}
+
+		case repotypes.LangCangjie:
+			// Cangjie: `extend Type <: Trait` at the source line
+			// already produces an `implements` entry via the
+			// embeds pass above (the `<:` matcher). An explicit
+			// `implements` keyword does not exist in Cangjie.
 
 		case repotypes.LangRust:
 			// impl Trait for Type { ... }
@@ -475,8 +593,9 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				})
 			}
 
-		case repotypes.LangJavaScript, repotypes.LangTypeScript:
+		case repotypes.LangJavaScript, repotypes.LangTypeScript, repotypes.LangArkTS:
 			// throw new Error("...")
+			// ArkTS uses the same throw syntax as TypeScript.
 			if strings.HasPrefix(trimmed, "throw ") {
 				rest := strings.TrimPrefix(trimmed, "throw ")
 				rest = strings.TrimRight(rest, ";")
@@ -488,8 +607,9 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				})
 			}
 
-		case repotypes.LangJava:
-			// throw new XxxException("...")
+		case repotypes.LangJava, repotypes.LangKotlin:
+			// throw new XxxException("...") in Java; `throw
+			// RuntimeException(...)` in Kotlin (no `new` keyword).
 			if strings.HasPrefix(trimmed, "throw ") {
 				rest := strings.TrimPrefix(trimmed, "throw ")
 				rest = strings.TrimRight(rest, ";")
@@ -498,6 +618,25 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 				}
 				out = append(out, concreteValueEntry{
 					kind: "errors", value: "throws " + strings.TrimSpace(rest),
+				})
+			}
+
+		case repotypes.LangCangjie:
+			// Cangjie raises exceptions with `throw Exception(...)`
+			// (similar to Java syntax, no `new` keyword). `panic`
+			// is a function call like Go for unrecoverable errors.
+			if strings.HasPrefix(trimmed, "throw ") {
+				rest := strings.TrimPrefix(trimmed, "throw ")
+				if len(rest) > 60 {
+					rest = rest[:60]
+				}
+				out = append(out, concreteValueEntry{
+					kind: "errors", value: "throws " + strings.TrimSpace(rest),
+				})
+			} else if strings.Contains(trimmed, "panic(") {
+				msg := extractErrorMessage(trimmed)
+				out = append(out, concreteValueEntry{
+					kind: "errors", value: "panic: " + msg,
 				})
 			}
 

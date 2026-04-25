@@ -36,7 +36,8 @@ type Orchestrator struct {
 	emit           render.EventEmitter
 	thinkAloudMap  map[types.AgentName]bool // per-agent think-aloud override
 	blobSessionDir string                   // persistent per-process blob dir; empty = tmpdir fallback
-	attachedLog    string                   // runtime log excerpt attached via --log / /log
+	attachedLog     string                   // runtime log excerpt attached via --log / /log
+	attachedHitrace string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 	// mode controls the B0 write-mode dispatch in Run(). Zero value
 	// ("") is treated as ModeRead by busCtx.Mode.Normalize at Run
 	// entry, so every pre-B0 caller sees identical read-only
@@ -168,6 +169,24 @@ func (o *Orchestrator) SetAttachedLog(log string) {
 // for the REPL's /log show handler.
 func (o *Orchestrator) AttachedLog() string {
 	return o.attachedLog
+}
+
+// SetAttachedHitrace stores a HarmonyOS HiTrace / Android systrace
+// excerpt that every subsequent Run() attaches to
+// BusContext.AttachedHitrace. The StagePerfTriage pre-stage reads it
+// and dispatches perf_triager to extract a PerfBundle (jank spans,
+// main-thread stalls, cold-start timing).
+//
+// Sticky lifetime is identical to SetAttachedLog: CLI sets once from
+// --htrace / --htrace-text before Run(); REPL /htrace can carry it
+// across turns until /htrace clear. Empty string clears.
+func (o *Orchestrator) SetAttachedHitrace(trace string) {
+	o.attachedHitrace = trace
+}
+
+// AttachedHitrace returns the current attached-trace payload.
+func (o *Orchestrator) AttachedHitrace() string {
+	return o.attachedHitrace
 }
 
 // SetMode installs the pipeline mode for subsequent Run() calls. Any
@@ -318,6 +337,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
+	o.busCtx.AttachedHitrace = o.attachedHitrace
 
 	logging.Info("[orchestrator] starting pipeline: trace=%s", o.busCtx.TraceID)
 

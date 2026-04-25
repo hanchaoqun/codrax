@@ -267,6 +267,16 @@ type MutableState struct {
 	// controller unmarshals on read. Nil means either two-step was
 	// not invoked or the segmenter failed.
 	logSegments []byte
+
+	// perfTrace is the validated PerfBundle produced by the
+	// perf_triage pre-stage (the HarmonyOS-HiTrace / Android-
+	// systrace companion to log_triage). Written once by the
+	// perf_triager agent via SetPerfTrace. Nil means either no
+	// --htrace attachment was provided, the stage was skipped, or
+	// emit_perf_trace failed — every reader MUST nil-check. Lives
+	// alongside logTriage so both channels can seed analyzer hints
+	// in the same Run.
+	perfTrace *PerfBundle
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
@@ -534,6 +544,33 @@ func (m *MutableState) SetLogTriage(b *LogBundle) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logTriage = b
+}
+
+// PerfTrace returns the validated PerfBundle produced by the
+// perf_triage pre-stage, or nil when no HiTrace/atrace was attached
+// or the stage degraded. Mirrors LogTriage for the performance
+// channel. Readers MUST nil-check.
+func (m *MutableState) PerfTrace() *PerfBundle {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.perfTrace
+}
+
+// SetPerfTrace stores the validated PerfBundle produced by the
+// perf_triager agent. Called at most once per Run from the
+// perf_triage pre-stage. The orchestrator calls SetPerfTrace(nil)
+// at Run start to clear any stale state so tests that reuse a
+// MutableState do not see yesterday's trace.
+func (m *MutableState) SetPerfTrace(b *PerfBundle) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.perfTrace = b
 }
 
 // SetLogSegments stores the opaque JSON-marshalled segment payload
@@ -1684,6 +1721,17 @@ type BusContext struct {
 	// spurious kindLiteral surfaces.
 	AttachedLog string `json:"attached_log,omitempty"`
 
+	// AttachedHitrace carries a HarmonyOS HiTrace or Android systrace
+	// excerpt (ftrace-compatible text) attached via --htrace /
+	// --htrace-text. Read once by the StagePerfTriage pre-stage's
+	// perf_triager agent; never mirrored into AgentContext because
+	// only that one consumer needs it. Empty string = skip perf_triage.
+	//
+	// Kept separate from AttachedLog so log_triage and perf_triage
+	// can run independently and contribute orthogonal hints — a single
+	// Run may carry both a panic log and a jank trace.
+	AttachedHitrace string `json:"attached_hitrace,omitempty"`
+
 	// Mode is the pipeline's execution mode for this Run(). Zero-value
 	// ("" / ModeRead) preserves pre-B0 read-only behavior byte-
 	// identically — the orchestrator's Mode-dispatch switch falls
@@ -1822,6 +1870,12 @@ type AgentContext struct {
 	// body for narrative context). Empty when no log was attached.
 	AttachedLog string `json:"attached_log,omitempty"`
 
+	// AttachedHitrace mirrors BusContext.AttachedHitrace for the
+	// perf_triager agent. Only the perf_triage stage reads this
+	// field today; other stages rely on the structured PerfTrace
+	// pointer below to avoid flooding prompts with raw ftrace text.
+	AttachedHitrace string `json:"attached_hitrace,omitempty"`
+
 	// LogTriage mirrors Mutable.LogTriage() into the narrowed agent
 	// view, so consumers that want the structured bundle (analyzer's
 	// entity merge, reconcileIntent, RequiredFiles seeding) can read
@@ -1829,6 +1883,12 @@ type AgentContext struct {
 	// attached, the triage stage was skipped, or the stage degraded.
 	// Readers MUST nil-check.
 	LogTriage *LogBundle `json:"-"`
+
+	// PerfTrace mirrors Mutable.PerfTrace() for consumers that want
+	// the validated PerfBundle. Nil when no trace was attached, the
+	// perf_triage stage was skipped, or emit_perf_trace failed.
+	// Readers MUST nil-check.
+	PerfTrace *PerfBundle `json:"-"`
 
 	// PriorConvHidden gates whether the REPL-assembled Prior
 	// Conversation block is HIDDEN from this agent's user prompt.

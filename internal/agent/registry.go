@@ -72,6 +72,7 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, tri
 		types.AgentExtractor,
 		types.AgentFinalizer,
 		types.AgentLogTriager,
+		types.AgentPerfTriager,
 		// Write-mode agents. All three are real LLM-backed agents:
 		// planner emits a structured ChangePlan via emit_change_plan;
 		// coder walks plan.Changes via per-unit apply_patch calls
@@ -90,7 +91,8 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, tri
 		types.AgentExplorer:   func(d *Dependencies) Agent { return NewExplorerAgent(d) },
 		types.AgentExtractor:  func(d *Dependencies) Agent { return NewExtractorAgent(d) },
 		types.AgentFinalizer:  func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
-		types.AgentLogTriager: func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
+		types.AgentLogTriager:  func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
+		types.AgentPerfTriager: func(d *Dependencies) Agent { return NewPerfTriagerAgent(d) },
 		types.AgentPlanner:    func(d *Dependencies) Agent { return NewPlannerAgent(d) },
 		types.AgentCoder:      func(d *Dependencies) Agent { return NewCoderAgent(d) },
 		types.AgentVerifier:   func(d *Dependencies) Agent { return NewVerifierAgent(d) },

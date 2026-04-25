@@ -339,6 +339,17 @@ func rootRun(cmd *cobra.Command, args []string) error {
 		app.orch.SetAttachedLog(attached)
 		logging.Info("[cmd] attached runtime log: %d bytes", len(attached))
 	}
+	// Attach HiTrace / Android systrace separately so the independent
+	// perf_triage pre-stage can consume it without polluting the
+	// log_triage channel.
+	trace, err := loadAttachedTrace()
+	if err != nil {
+		return err
+	}
+	if trace != "" {
+		app.orch.SetAttachedHitrace(trace)
+		logging.Info("[cmd] attached hitrace: %d bytes", len(trace))
+	}
 	if flagLogSourcePrefix != "" {
 		logtriage.SetSourcePrefix(flagLogSourcePrefix)
 		logging.Info("[cmd] log source prefix override: %s", flagLogSourcePrefix)
@@ -350,57 +361,49 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	return runSingleShot(cmd, request)
 }
 
-// loadAttachedLog resolves --log / --log-text / --htrace / --htrace-text
-// into a single payload string. Returns "" when no log or trace was
-// requested. Rules:
+// loadAttachedLog returns the --log / --log-text payload (size-
+// capped). Trace attachments are returned separately by
+// loadAttachedTrace so the orchestrator can feed them into the
+// independent StagePerfTriage pre-stage via SetAttachedHitrace.
 //
+// Rules:
 //   - --log and --log-text are mutually exclusive
-//   - --htrace and --htrace-text are mutually exclusive
-//   - --htrace* and --log* may coexist: the HiTrace body is prepended
-//     to the log body with an inline marker line, so the log_triager
-//     sees both in a single attachment pass (single-channel design,
-//     no perf_triager stage needed — red line: do not reinvent the
-//     log-triage pipeline for HarmonyOS traces)
-//   - --log=- / --htrace=- read from stdin (only one of the two may
-//     consume stdin per run; --htrace=- + --log=- is rejected)
+//   - --log=- reads stdin; only one of --log=- / --htrace=- may
+//     consume stdin per run (enforced in loadAttachedTrace)
 //   - payload is capped at maxAttachedLogBytes; excess bytes are
-//     dropped with a warning so a truncated tail does not silently
-//     hide the actual error frames
+//     dropped with a warning
 func loadAttachedLog() (string, error) {
 	if flagAttachLog != "" && flagAttachLogText != "" {
 		return "", fmt.Errorf("--log and --log-text are mutually exclusive")
 	}
-	if flagAttachHitrace != "" && flagAttachHitraceText != "" {
-		return "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
-	}
 	if flagAttachLog == "-" && flagAttachHitrace == "-" {
 		return "", fmt.Errorf("only one of --log=- / --htrace=- may consume stdin per run")
 	}
-
-	traceBody, err := loadAttachedHitrace()
+	body, err := loadAttachedLogBody()
 	if err != nil {
 		return "", err
 	}
-	logBody, err := loadAttachedLogBody()
-	if err != nil {
-		return "", err
-	}
-
-	if traceBody == "" && logBody == "" {
+	if body == "" {
 		return "", nil
 	}
-	if traceBody == "" {
-		return truncateAttachedLog(logBody), nil
+	return truncateAttachedLog(body), nil
+}
+
+// loadAttachedTrace returns the --htrace / --htrace-text payload
+// (size-capped). Kept as a dedicated loader so cmd/root.go can wire
+// it to orchestrator.SetAttachedHitrace in parallel with SetAttachedLog.
+func loadAttachedTrace() (string, error) {
+	if flagAttachHitrace != "" && flagAttachHitraceText != "" {
+		return "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
 	}
-	if logBody == "" {
-		// Mark the whole payload as HiTrace so the log_triage prompt
-		// can route its parsing. The marker uses a non-conflicting
-		// token (single # header with `codrax:hitrace`) that no
-		// hilog / ftrace line emits organically.
-		return truncateAttachedLog("# codrax:hitrace\n" + traceBody), nil
+	body, err := loadAttachedHitrace()
+	if err != nil {
+		return "", err
 	}
-	combined := "# codrax:hitrace\n" + traceBody + "\n# codrax:end-hitrace\n" + logBody
-	return truncateAttachedLog(combined), nil
+	if body == "" {
+		return "", nil
+	}
+	return truncateAttachedLog(body), nil
 }
 
 // loadAttachedLogBody returns the --log / --log-text body, stripped
@@ -1474,6 +1477,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	toolRegistry.Register(&tool.EmitAnswerDocument{})
 	toolRegistry.Register(&tool.EmitLogTriage{})
 	toolRegistry.Register(&tool.EmitLogSegmentation{})
+	toolRegistry.Register(&tool.EmitPerfTrace{})
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 

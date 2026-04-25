@@ -34,8 +34,9 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 		Commit:       bus.Commit,
 		WorkDir:      bus.WorkDir,
 		Mutable:      bus.Mutable,
-		AnalysisIR:   bus.AnalysisIR,
-		AttachedLog:  bus.AttachedLog,
+		AnalysisIR:      bus.AnalysisIR,
+		AttachedLog:     bus.AttachedLog,
+		AttachedHitrace: bus.AttachedHitrace,
 	}
 	// Mirror the validated log-triage bundle onto the AgentContext so
 	// analyzer / explorer / extractor / finalizer consumers can read
@@ -45,6 +46,7 @@ func BuildAgentContext(bus *types.BusContext, agentName types.AgentName, stage t
 	// a no-op.
 	if bus.Mutable != nil {
 		ac.LogTriage = bus.Mutable.LogTriage()
+		ac.PerfTrace = bus.Mutable.PerfTrace()
 	}
 
 	// Read-mode stage artifact propagation. The explore→extract→
@@ -498,6 +500,18 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	if section := formatAttachedLog(ac.AttachedLog, ac.WorkDir); section != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
 			Title:   "Attached Runtime Log",
+			Content: section,
+		})
+	}
+
+	// Attached HiTrace / atrace — rendered verbatim for the
+	// perf_triager agent only; other stages read the structured
+	// bundle via ac.PerfTrace. The section size follows the same
+	// inline-vs-blob strategy as the log section; a multi-MB trace
+	// would otherwise balloon every prompt.
+	if section := formatAttachedLog(ac.AttachedHitrace, ac.WorkDir); section != "" {
+		pc.UserSections = append(pc.UserSections, types.PromptSection{
+			Title:   "Attached HiTrace / atrace",
 			Content: section,
 		})
 	}

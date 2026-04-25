@@ -232,7 +232,7 @@ Completeness honesty contract for emit_answer_symbol:
 			"Identify every stack frame that names a source file with a line number. For each frame, emit: file (as it appears in the log — do NOT normalize paths; path normalization is automatic), line, func (best available identifier), pkg (module/namespace hint when obvious), lang, raw (the original log line for this frame, required), confidence (0.0-1.0, your certainty the frame is real).",
 			"Group frames under the error they belong to. Emit errors[] with one entry per logical error (per goroutine in a Go panic dump, per exception in a multi-exception traceback). For each error set type (exception class / panic type), message (the human-readable text), and frames[] (the stack for THIS error).",
 			"Chain causal errors via the cause pointer. When the log shows 'Caused by:' (Java), 'during handling of' (Python __cause__ / __context__), or '#[source]' (Rust), nest the upstream error in the cause field. Keep the chain shallow — practical depth 3 or so; depth is capped at 5.",
-			"Set meta.lang to the dominant language (go/java/cpp/python/node/rust/ruby/csharp/kotlin/arkts/cangjie/unknown/other). ArkTS is HarmonyOS UI code in .ets / .ts files with V8-style stack frames; Cangjie is HarmonyOS native code in .cj files with JVM-like frames `at demo.cart.Cart.method(Cart.cj:42)`; Kotlin is JVM code in .kt files with frames `at com.example.Foo$bar(Foo.kt:42)`. Two tag-formatted log families share one parser path: hilog (HarmonyOS) lines look like `01-26 11:01:06.870 1051 1051 W 00201/test: message`; Android logcat lines look like `04-15 14:32:18.421  5821  5821 E JsApp: message` — structurally identical: <timestamp> <pid> <tid> <level> <tag>: <body>. Extract the body portion while keeping the full line in the frame's raw field. If the attached payload starts with `# codrax:hitrace`, it is an hdc-captured HiTrace OR an adb-captured Android systrace (both ftrace-compatible) — inspect `tracing_mark_write: B|<pid>|<tag>` / `E|<pid>` events: span pairs whose delta exceeds ~16.6ms on the UI thread (tags like `H:RenderService:DoFrame` on HarmonyOS or `Choreographer#doFrame` on Android) denote jank frames; emit those as errors with type=`PerfJank` and signals=[`timeout`,`logic`], with the inner (deepest) B| tag's name as the failing function. Set meta.signals from the canonical enum (panic/crash/oom/timeout/permission/db/network/validation/logic/other) by matching the observed symptoms. Multiple signals are OK when the log describes compound failures. Summary is an optional one-line synopsis.",
+			"Set meta.lang to the dominant language (go/java/cpp/python/node/rust/ruby/csharp/kotlin/arkts/cangjie/unknown/other). ArkTS is HarmonyOS UI code in .ets / .ts files with V8-style stack frames; Cangjie is HarmonyOS native code in .cj files with JVM-like frames `at demo.cart.Cart.method(Cart.cj:42)`; Kotlin is JVM code in .kt files with frames `at com.example.Foo$bar(Foo.kt:42)`. Two tag-formatted log families share one parser path: hilog (HarmonyOS) lines look like `01-26 11:01:06.870 1051 1051 W 00201/test: message`; Android logcat lines look like `04-15 14:32:18.421  5821  5821 E JsApp: message` — structurally identical: <timestamp> <pid> <tid> <level> <tag>: <body>. Extract the body portion while keeping the full line in the frame's raw field. Set meta.signals from the canonical enum (panic/crash/oom/timeout/permission/db/network/validation/logic/other) by matching the observed symptoms. Multiple signals are OK when the log describes compound failures. Summary is an optional one-line synopsis. PERFORMANCE traces (HiTrace/atrace/systrace/perfetto) are handled by a SEPARATE perf_triage stage via emit_perf_trace — do NOT attempt to parse trace events here; if the attached text contains `tracing_mark_write: B|pid|tag` events, return an empty errors list with signals=[] and let the perf_triager handle it.",
 			"Log chunks that do NOT structure into an error (build noise, log-level prefixes, unrelated debug output, truncation markers) go into unknown_chunks. Do not punt everything there — only genuinely unparseable pieces. Each chunk capped at 500 chars, at most 8 chunks total.",
 			"Frames with uncertain line numbers or uncertain file paths should be emitted with line=0 or file='' and confidence < 0.5 — such frames stay in the bundle but are NOT added to the repo file list. Zero information loss on partials.",
 		},
@@ -266,6 +266,55 @@ You emit exactly one emit_log_triage call per dispatch. Do NOT write prose — t
 			"do NOT emit fields outside the documented schema (resolved_files, entities, intent_hint, coverage are derived automatically from your emission, not LLM-emitted); the JSON schema rejects unknown fields",
 			"do NOT punt the entire log to unknown_chunks — extract every stack frame you can; unknown_chunks is for genuinely unparseable noise, not a fallback for lazy extraction",
 			"do NOT produce multiple emit_log_triage calls — exactly one emit per dispatch; a second call replaces the first",
+		},
+	})
+
+	// The perf_triage skill. The agent reads the user-attached
+	// HiTrace / Android-systrace / perfetto excerpt and emits ONE
+	// emit_perf_trace call with a structured PerfBundle (jank spans +
+	// main-thread stalls + cold-start timing + frames). Unlike
+	// log_triage there is no recursive cause chain — performance data
+	// is span-centric. The system derives Layer-4 (ResolvedFiles /
+	// Entities / IntentHint / Coverage) automatically.
+	r.Register(&Config{
+		Name: "perf-triage-skill",
+		Goal: "Read the attached HiTrace / atrace / systrace / perfetto text excerpt and emit a structured PerfBundle (frames + janks + stalls + startup) via emit_perf_trace exactly once. Identify janky frames whose duration exceeds ~16.6 ms on the UI thread (the 60-fps frame budget) and attribute them to the innermost tracing_mark_write B|…|tag span that was open at the jank start.",
+		Workflow: []string{
+			"Read the attached trace from the 'Attached HiTrace / atrace' section. If the trace was blobbed (large), use read_file to paginate — head+tail is inline.",
+			"Identify the source: `# ftrace` header or `TASK-PID CPU# TIMESTAMP FUNCTION` header = systrace / atrace / hitrace (all ftrace-compatible). A textual `perfetto` banner = perfetto text dump. Set meta.source accordingly. meta.duration_ms = last_timestamp − first_timestamp (milliseconds).",
+			"Walk every `tracing_mark_write: B|<pid>|<tag>` begin and pair it with its matching `E|<pid>` end. The delta is the span duration. UI-thread span tags typically prefixed with `H:` on HarmonyOS (`H:RenderService:DoFrame`, `H:Layout:measure`, `H:Drawing`, `H:DataLoader:fetchSync`) or use Android conventions (`Choreographer#doFrame`, `performTraversals`, `RenderThread`).",
+			"For every UI-thread span whose duration exceeds the 60-fps frame budget (16.67 ms), emit a PerfFrame with janky=true AND a PerfJank entry: start_ts_ms = B timestamp; duration_ms = delta; trigger_span = the INNERMOST tag active inside the span (whichever B| opened after the outer one and whose E| closed before the outer's E|); reason = best guess (io / lock / sync-call / heavy-compute); tags[] = the stack of tags active at the jank peak (outermost to innermost).",
+			"For main-thread blocking calls longer than 100 ms, emit a PerfStall: kind = io / lock / sync-rpc / native-call (pick the most specific); symbol = the trace tag's identifier portion; file / line = when the tag's format embeds them (e.g. `fetchSync at DataLoader.ets:42`).",
+			"If the trace covers a process cold-start (observable by `ActivityTaskManager`, `AppInit`, `AbilityManagerService`, `WindowStage.loadContent`), emit a PerfStartup: mode=cold (or warm/hot if evidence suggests), app_launch_ms / ability_init_ms / first_frame_ms when measurable. Over 1.2 s app_launch_ms = slow cold start.",
+			"Put any unstructurable chunks into residue[] (≤8 entries, ≤500 chars each). If the trace content genuinely has no jank / stall / startup signal, emit with frames=[] janks=[] stalls=[] AND a meta.summary explaining why — the validator then treats the emission as 'nothing to report' rather than failure.",
+		},
+		ToolSuggestions: []string{
+			"read_file",
+			"emit_perf_trace",
+		},
+		OutputFormat: `You have ONE emit tool: emit_perf_trace. Read-only pagination tool: read_file (for large trace blobs). No grep / repo_map — path resolution is automatic.
+
+Schema in one glance:
+- meta.source        (required) — one of: hitrace / atrace / systrace / perfetto / unknown
+- meta.duration_ms   (optional) — total trace span
+- meta.app_pid       (optional) — dominant foreground PID
+- meta.signals[]     (optional, enum) — jank / cold-start-slow / main-thread-stall / io-block / gc-pause / render-miss
+- meta.summary       (optional, ≤200 chars)
+- frames[]           (optional, ≤200) — { duration_ms (req), frame_no, ts_ms, phase, janky }
+- janks[]            (optional, ≤50)  — { start_ts_ms, duration_ms (req), trigger_span, reason, tags[] }
+- stalls[]           (optional, ≤50)  — { start_ts_ms, duration_ms (req), kind, symbol, file, line }
+- startup            (optional)       — { mode (req: cold/warm/hot), app_launch_ms, ability_init_ms, first_frame_ms }
+- residue[]          (optional, ≤8)   — unstructurable chunks
+
+Layer-4 fields (resolved_files, entities, intent_hint, coverage) are derived automatically — DO NOT include them in your emit; they are not in the schema.
+
+Exactly one emit_perf_trace per dispatch. Prose is ignored — the bundle is the deliverable.`,
+		Prohibitions: []string{
+			"do NOT parse the trace as if it were a panic log — this is span-over-time data, not an exception chain",
+			"do NOT use grep / list_files / repo_map — the stage's tool allowlist excludes them; the perf_triager is structurally identical to log_triager in that respect",
+			"do NOT emit resolved_files / entities / intent_hint / coverage — those are derived automatically from your emission",
+			"do NOT fabricate spans that are not in the trace — every PerfJank entry must correspond to a B|...|tag / E|pid pair observable in the attached trace body",
+			"do NOT produce multiple emit_perf_trace calls — exactly one emit per dispatch; a second call replaces the first",
 		},
 	})
 
