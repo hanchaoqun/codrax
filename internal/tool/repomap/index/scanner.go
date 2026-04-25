@@ -40,6 +40,9 @@ var specialFiles = map[string]string{
 	"jsconfig.json":  "build_config",
 	"pom.xml":        "build_config",
 	"build.gradle":   "build_config",
+	"build.gradle.kts": "build_config",
+	"settings.gradle": "build_config",
+	"settings.gradle.kts": "build_config",
 	"Cargo.toml":     "build_config",
 	"Cargo.lock":     "build_config",
 	"CMakeLists.txt": "build_config",
@@ -50,6 +53,22 @@ var specialFiles = map[string]string{
 	".github":        "ci",
 	".gitlab-ci.yml": "ci",
 	"Jenkinsfile":    "ci",
+	// HarmonyOS ArkTS / Cangjie build manifests. Flagging them as
+	// build_config lets the analyzer hints and repomap rank treat
+	// them as first-class project descriptors (same as package.json
+	// / pom.xml for Java/Node), and the verifier's detectRunner
+	// keys off the same filenames for runner dispatch.
+	"oh-package.json5":   "build_config",
+	"build-profile.json5": "build_config",
+	"hvigorfile.ts":      "build_config",
+	"cjpm.toml":          "build_config",
+	// Android build descriptor — local.properties holds SDK paths
+	// and is typically git-ignored, so we skip it here to avoid
+	// surfacing operator credentials as "special files".
+	// AndroidManifest.xml is flagged so Android projects surface a
+	// recognisable "app entry" descriptor even when Gradle files
+	// live only in sub-modules.
+	"AndroidManifest.xml": "build_config",
 }
 
 // ScanFiles discovers source files in a repository.

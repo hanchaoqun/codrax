@@ -237,6 +237,18 @@ var cangjieFuncDeclRegex = regexp.MustCompile(
 var cangjieMainEntryRegex = regexp.MustCompile(
 	`(?m)^[ \t]*()(main)\s*\(\s*\)\s*(?::\s*\w+)?\s*\{`)
 
+// cangjieInitRegex matches a Cangjie `init` constructor inside a
+// class or struct body. Syntax: `[public|private|...] init(params)`
+// with no `func` keyword. Captured: group 1 = modifier prefix,
+// group 2 = literal "init".
+//
+// We only match lines that START with the modifier set (or with
+// `init` directly after optional whitespace) so that a helper
+// function named `initialise` or a variable named `initialized`
+// doesn't false-match.
+var cangjieInitRegex = regexp.MustCompile(
+	`(?m)^[ \t]*(` + cangjieModifierGroup + `)(init)\s*\(`)
+
 // cangjieOperatorFuncRegex matches `[modifiers] operator func <op>(`.
 //
 // Group 1 = modifiers prefix; group 2 = operator token (e.g. `+`,
@@ -333,6 +345,28 @@ func scanCangjieDecls(cleaned string, _ []byte, file, pkg string) []types.Symbol
 			Line:     line,
 			Exported: true,
 			Doc:      "main entry",
+		})
+		seenLines[line] = true
+	}
+
+	// 3c) Cangjie `init` constructor (no `func` keyword). Common
+	//     forms: `public init(...)`, `init(...)`. Marked Kind=ctor
+	//     so downstream callers can distinguish constructors from
+	//     regular methods — useful for e.g. "show me the constructors"
+	//     queries.
+	for _, m := range cangjieInitRegex.FindAllStringSubmatchIndex(cleaned, -1) {
+		line := byteOffsetToLine(cleaned, m[0])
+		if seenLines[line] {
+			continue
+		}
+		modPrefix := cleaned[m[2]:m[3]]
+		syms = append(syms, types.Symbol{
+			Name:     "init",
+			Kind:     "ctor",
+			File:     file,
+			Line:     line,
+			Exported: hasCangjieExportModifier(modPrefix),
+			Doc:      cangjieModifierList(modPrefix) + " init",
 		})
 		seenLines[line] = true
 	}

@@ -115,8 +115,23 @@ func walkKotlinDecls(node *sitter.Node, src []byte, file, parent string, pkg *st
 		}
 		return
 
-	case "object_declaration":
-		sym := extractKotlinTypeDecl(node, src, file, parent, "object")
+	case "object_declaration", "companion_object":
+		kindHint := "object"
+		if node.Type() == "companion_object" {
+			kindHint = "companion-object"
+		}
+		sym := extractKotlinTypeDecl(node, src, file, parent, kindHint)
+		// companion_object may omit the explicit name (`companion object
+		// { ... }` without a tag); assign a synthetic name tied to the
+		// enclosing class so the graph can still reference it.
+		if sym.Name == "" && kindHint == "companion-object" && parent != "" {
+			sym.Name = "Companion"
+			sym.Line = nodeLine(node)
+			sym.EndLine = nodeEndLine(node)
+			sym.Parent = parent
+			sym.Exported = true
+			sym.Kind = kindHint
+		}
 		if sym.Name != "" {
 			*syms = append(*syms, sym)
 			for i := 0; i < int(node.NamedChildCount()); i++ {
@@ -329,17 +344,56 @@ func kotlinIsExportedByModifiers(mods []string) bool {
 	return true
 }
 
-// firstKotlinIdentifier finds the first `simple_identifier` (or
-// `type_identifier`) direct child of node. Kotlin's class /
-// function / property declarations follow the shape
-// `modifiers? KEYWORD IDENT rest…` so the first identifier child
-// is always the declared name.
+// firstKotlinIdentifier finds the declared name of a Kotlin
+// declaration node.
+//
+// Grammar-specific shape caveats (from the vendored tree-sitter-
+// kotlin grammar):
+//
+//   - function_declaration:    `fun RECEIVER? name(...) ...` — the
+//     receiver (user_type / nullable_type / bare type_identifier)
+//     appears before the name, so we skip it.
+//   - property_declaration:    `val TAG = ...` — the name sits
+//     inside a `variable_declaration` child, not as a direct
+//     identifier.
+//   - class/object/interface:  `class Name` — direct
+//     type_identifier or simple_identifier child is the name.
+//
+// Returning "" means the node has no recognisable name field; the
+// caller drops the symbol.
 func firstKotlinIdentifier(node *sitter.Node, src []byte) string {
+	isFn := node.Type() == "function_declaration"
+	isProp := node.Type() == "property_declaration"
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		ch := node.NamedChild(i)
 		switch ch.Type() {
-		case "simple_identifier", "type_identifier", "identifier":
+		case "simple_identifier", "identifier":
 			return nodeText(ch, src)
+		case "type_identifier":
+			if !isFn {
+				return nodeText(ch, src)
+			}
+			// function receiver via bare type_identifier — skip.
+		case "user_type", "nullable_type":
+			if !isFn {
+				return nodeText(ch, src)
+			}
+			// function receiver — skip.
+		case "variable_declaration":
+			if !isProp {
+				continue
+			}
+			// Descend: the first simple_identifier child carries
+			// the property name. Multi-var declarations like
+			// `val (a, b) = pair` produce multi_variable_declaration
+			// instead, which we intentionally skip (capturing only
+			// the first name would be misleading).
+			for j := 0; j < int(ch.NamedChildCount()); j++ {
+				id := ch.NamedChild(j)
+				if id.Type() == "simple_identifier" || id.Type() == "identifier" {
+					return nodeText(id, src)
+				}
+			}
 		}
 	}
 	return ""
@@ -391,6 +445,21 @@ func collectKotlinImportAlias(node *sitter.Node, src []byte) string {
 
 // kotlinSuperTypes walks the delegation_specifier list and returns
 // parent type names (for inheritance relations).
+//
+// Actual tree-sitter-kotlin shape (verified against the vendored
+// grammar):
+//
+//	class_declaration
+//	  delegation_specifier               ← one per supertype
+//	    constructor_invocation           ← `Foo()` — class super
+//	      user_type → type_identifier "Foo"
+//	    or user_type → type_identifier   ← bare interface ref
+//	    or explicit_delegation           ← `by xxx`
+//
+// We accept both `user_type` direct child and the nested
+// `constructor_invocation > user_type` form so Android Activity
+// subclasses (`: ComponentActivity()`) surface as inheritance
+// edges alongside bare interface implementations.
 func kotlinSuperTypes(node *sitter.Node, src []byte) []string {
 	var out []string
 	for i := 0; i < int(node.NamedChildCount()); i++ {
@@ -398,16 +467,41 @@ func kotlinSuperTypes(node *sitter.Node, src []byte) []string {
 		if ch.Type() != "delegation_specifier" && ch.Type() != "delegation_specifiers" {
 			continue
 		}
+		// Each delegation_specifier may wrap either a user_type
+		// directly (interface inheritance) or a constructor_invocation
+		// (class super). Descend once to handle both.
 		for j := 0; j < int(ch.NamedChildCount()); j++ {
 			sp := ch.NamedChild(j)
+			var ut *sitter.Node
 			switch sp.Type() {
 			case "user_type":
-				name := nodeText(sp, src)
-				name = strings.SplitN(name, "<", 2)[0]
-				name = strings.TrimSpace(name)
-				if name != "" {
-					out = append(out, name)
+				ut = sp
+			case "constructor_invocation":
+				for k := 0; k < int(sp.NamedChildCount()); k++ {
+					inner := sp.NamedChild(k)
+					if inner.Type() == "user_type" {
+						ut = inner
+						break
+					}
 				}
+			case "explicit_delegation":
+				// `by foo` delegation — capture the delegate type.
+				for k := 0; k < int(sp.NamedChildCount()); k++ {
+					inner := sp.NamedChild(k)
+					if inner.Type() == "user_type" {
+						ut = inner
+						break
+					}
+				}
+			}
+			if ut == nil {
+				continue
+			}
+			name := nodeText(ut, src)
+			name = strings.SplitN(name, "<", 2)[0]
+			name = strings.TrimSpace(name)
+			if name != "" {
+				out = append(out, name)
 			}
 		}
 	}
@@ -429,25 +523,33 @@ func hasKotlinInterfaceKeyword(node *sitter.Node, src []byte) bool {
 	return false
 }
 
-// hasKotlinReceiverType reports whether a function_declaration
-// has a receiver type (i.e. it's an extension function). The
-// receiver appears as a `user_type` or `nullable_type` directly
-// inside the function_declaration before the name.
+// hasKotlinReceiverType reports whether a function_declaration is
+// an extension function. Grammar shape (observed from the vendored
+// tree-sitter-kotlin):
+//
+//	function_declaration
+//	  [modifiers]
+//	  user_type          ← ONLY present for extension functions
+//	  simple_identifier  ← function name
+//	  function_value_parameters
+//	  [user_type]        ← return type (optional)
+//	  [function_body]
+//
+// So the rule is: if the first named child (after any `modifiers`)
+// is `user_type` OR `nullable_type`, it is a receiver — the function
+// is an extension function.
 func hasKotlinReceiverType(node *sitter.Node) bool {
-	sawKeyword := false
-	for i := 0; i < int(node.ChildCount()); i++ {
-		ch := node.Child(i)
-		if !ch.IsNamed() {
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		ch := node.NamedChild(i)
+		switch ch.Type() {
+		case "modifiers":
 			continue
-		}
-		if ch.Type() == "user_type" || ch.Type() == "nullable_type" {
-			if !sawKeyword {
-				continue
-			}
+		case "user_type", "nullable_type":
 			return true
-		}
-		if ch.Type() == "simple_identifier" {
-			return false // name came before any receiver — not an extension fn
+		case "simple_identifier", "type_identifier":
+			// Function name reached without a receiver → not an
+			// extension function.
+			return false
 		}
 	}
 	return false
