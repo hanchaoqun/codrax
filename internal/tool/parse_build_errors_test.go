@@ -115,6 +115,84 @@ func TestParseBuildErrors_Cangjie(t *testing.T) {
 	}
 }
 
+// Go compile errors: `./foo.go:5:1: syntax error: unexpected newline`.
+// Generic regex (.go extension added) catches these.
+func TestParseBuildErrors_Go(t *testing.T) {
+	stdout := `# example.com/foo
+./foo.go:5:1: syntax error: unexpected newline
+./bar.go:42:9: error: undefined: Baz
+`
+	errs := parseBuildErrors(stdout)
+	if len(errs) < 1 {
+		t.Fatalf("expected at least 1 Go error; got %d (%v)", len(errs), errs)
+	}
+	// At least one should be foo.go:5
+	found := false
+	for _, e := range errs {
+		if e.File == "./foo.go" && e.Line == 5 {
+			found = true
+			if !strings.Contains(e.Message, "syntax error") {
+				t.Errorf("Go message lost; got %q", e.Message)
+			}
+		}
+	}
+	if !found {
+		t.Errorf("foo.go:5 not found in %v", errs)
+	}
+}
+
+// C/C++ compile errors: gcc/clang `foo.c:42:5: error: 'bar' undeclared`.
+func TestParseBuildErrors_C(t *testing.T) {
+	stdout := `gcc -c foo.c
+foo.c:42:5: error: 'bar' undeclared (first use in this function)
+src/baz.cpp:9:14: error: expected ';' before '}' token
+`
+	errs := parseBuildErrors(stdout)
+	if len(errs) < 2 {
+		t.Fatalf("expected 2 C/C++ errors; got %d (%v)", len(errs), errs)
+	}
+	if errs[0].File != "foo.c" || errs[0].Line != 42 {
+		t.Errorf("foo.c mis-parsed; got %+v", errs[0])
+	}
+}
+
+// Rust block-style errors: error[E0xxx]: ... + --> file:line:col.
+func TestParseBuildErrors_Rust(t *testing.T) {
+	stdout := `error[E0308]: mismatched types
+  --> src/lib.rs:10:5
+   |
+10 |     foo()
+   |     ^^^ expected (), found u32
+`
+	errs := parseBuildErrors(stdout)
+	if len(errs) < 1 {
+		t.Fatalf("expected 1 Rust error; got %d (%v)", len(errs), errs)
+	}
+	if errs[0].File != "src/lib.rs" || errs[0].Line != 10 || errs[0].Column != 5 {
+		t.Errorf("Rust position mis-parsed; got %+v", errs[0])
+	}
+	if errs[0].Symbol != "E0308" {
+		t.Errorf("Rust error code = %q; want E0308", errs[0].Symbol)
+	}
+	if !strings.Contains(errs[0].Message, "mismatched types") {
+		t.Errorf("Rust message lost; got %q", errs[0].Message)
+	}
+}
+
+// Python pylint/mypy-style: `tests/test_foo.py:42: error: <msg>`.
+func TestParseBuildErrors_Python(t *testing.T) {
+	stdout := `tests/test_foo.py:42: error: Argument 1 to "foo" has incompatible type
+src/bar.py:9: error: Cannot find name 'baz'
+`
+	errs := parseBuildErrors(stdout)
+	if len(errs) < 2 {
+		t.Fatalf("expected 2 Python errors; got %d (%v)", len(errs), errs)
+	}
+	if errs[0].File != "tests/test_foo.py" || errs[0].Line != 42 {
+		t.Errorf("Python position mis-parsed; got %+v", errs[0])
+	}
+}
+
 func TestParseBuildErrors_Empty(t *testing.T) {
 	if got := parseBuildErrors(""); got != nil {
 		t.Errorf("empty input should yield nil; got %+v", got)

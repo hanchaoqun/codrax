@@ -744,20 +744,25 @@ func narrativeBuildErrorExcerpt(stdout string) string {
 	return out
 }
 
-// Build-error regexes — five shapes covering the toolchains run_tests
-// supports. Order matters: more-specific patterns must match first so
-// a fragment like "Bar.java:42" doesn't get swallowed by the generic
+// Build-error regexes — covers the toolchains run_tests supports.
+// Order matters: more-specific patterns must match first so a
+// fragment like "Bar.java:42" doesn't get swallowed by the generic
 // fallback.
 //
-//   1. Maven javac: "[ERROR] /path/Foo.java:[42,5] cannot find symbol"
-//   2. Kotlin:      "e: file:///path/Foo.kt:42:5 Unresolved reference"
-//   3. Generic:     "/path/Foo.java:42: error: cannot find symbol"
-//                   (also covers Scala, plain javac/scalac, Gradle
-//                   compileJava task output)
-//   4. TS (paren):  "/path/foo.ts(42,5): error TS2304: …"
-//                   (also "ERROR: /path/foo.ts(42,5): TS2304: …")
-//   5. TS (colon):  "/path/foo.ts:42:5 - error TS2304: …"
-//   6. Cangjie:     "error: /path/Bar.cj:42:5: …"
+//   1. Maven javac:   "[ERROR] /path/Foo.java:[42,5] cannot find symbol"
+//   2. Kotlin:        "e: file:///path/Foo.kt:42:5 Unresolved reference"
+//   3. Generic:       "/path/Foo.{java,scala,kt,kts,ets,ts,tsx,go,
+//                      rs,c,h,cc,cpp,cxx,hpp,hh,py}:42: error: …"
+//                     Covers javac/scalac/Gradle, Go (`./foo.go:5:1:
+//                     syntax error:`), GCC/Clang (`foo.c:42:5: error:`),
+//                     pylint/mypy.
+//   4. TS (paren):    "/path/foo.ts(42,5): error TS2304: …"
+//   5. TS (colon):    "/path/foo.ts:42:5 - error TS2304: …"
+//   6. Cangjie:       "error: /path/Bar.cj:42:5: …"
+//   7. Rust (-->):    "  --> src/lib.rs:10:5"  (block-style; carries
+//                     the location only — rustc puts the error code on
+//                     a preceding `error[E0308]: …` line which
+//                     extractRustErrorCodeAndMessage links back.)
 //
 // Each capture group: file, line, optional col, optional symbol/code,
 // message. parseBuildErrors normalises into BuildError rows and
@@ -768,13 +773,24 @@ var (
 	reBuildKotlin = regexp.MustCompile(
 		`(?m)^\s*e:\s+(?:file://)?(\S+\.(?:kt|kts)):(\d+):(\d+):?\s+(.+)`)
 	reBuildGenericFLine = regexp.MustCompile(
-		`(?m)^\s*(?:\[ERROR\]\s+)?(\S+\.(?:java|scala|kt|kts|ets|ts|tsx)):(\d+):(?:\s*\d+:)?\s*(?:error|ERROR):\s+(.+)`)
+		`(?m)^\s*(?:\[ERROR\]\s+)?(\S+\.(?:java|scala|kt|kts|ets|ts|tsx|go|rs|c|h|cc|cpp|cxx|hpp|hh|py)):(\d+):(?:\s*\d+:)?\s*(?:error|ERROR):\s+(.+)`)
 	reBuildTSParen = regexp.MustCompile(
 		`(?m)^\s*(?:ERROR:\s+)?(\S+\.(?:ts|tsx|ets)):?\((\d+),(\d+)\):\s+(?:error\s+)?(?:(TS\d+):\s+)?(.+)`)
 	reBuildTSColon = regexp.MustCompile(
 		`(?m)^\s*(\S+\.(?:ts|tsx|ets)):(\d+):(\d+)\s+-\s+error\s+(?:(TS\d+):\s+)?(.+)`)
 	reBuildCangjie = regexp.MustCompile(
 		`(?m)^\s*(?:\[ERROR\]\s+|error:\s+)(\S+\.cj):(\d+):(\d+)?:?\s+(.+)`)
+	reBuildRustArrow = regexp.MustCompile(
+		`(?m)^\s*-->\s+(\S+\.rs):(\d+):(\d+)`)
+	reBuildRustErrCode = regexp.MustCompile(
+		`(?m)^error\[(E\d+)\]:\s+(.+)`)
+	// Go errors don't always carry a literal "error:" keyword:
+	// `./foo.go:5:1: syntax error: unexpected newline` is common.
+	// Accept any message after the file:line(:col): prefix on .go
+	// files. Tighter than the generic regex (Go-only file ext)
+	// keeps false positives bounded.
+	reBuildGoLine = regexp.MustCompile(
+		`(?m)^\s*(\S+\.go):(\d+):(?:(\d+):)?\s+(.+)`)
 )
 
 // parseBuildErrors extracts structured BuildError rows from build-
@@ -875,6 +891,54 @@ func parseBuildErrors(stdout string) []types.BuildError {
 			col, _ = strconv.Atoi(m[3])
 		}
 		add(m[1], line, col, "", m[4])
+	}
+	// 7. Rust block-style. The `-->` line carries file:line:col but no
+	// message; we pair each occurrence with the most-recent
+	// `error[Exxxx]: <message>` line above it. Cargo / rustc puts the
+	// error code one or two lines before the location pointer.
+	rustLocs := reBuildRustArrow.FindAllStringSubmatchIndex(stdout, -1)
+	rustCodes := reBuildRustErrCode.FindAllStringSubmatchIndex(stdout, -1)
+	// 8. Go-specific: matches `<file>.go:<line>(:<col>)?: <anything>`.
+	// Run BEFORE rust block to avoid mis-attribution of `.rs:N:M` lines.
+	for _, m := range reBuildGoLine.FindAllStringSubmatch(stdout, -1) {
+		if len(out) >= maxBuildErrors {
+			break
+		}
+		// Skip if the message is empty / whitespace.
+		msg := strings.TrimSpace(m[4])
+		if msg == "" {
+			continue
+		}
+		line, _ := strconv.Atoi(m[2])
+		col := 0
+		if m[3] != "" {
+			col, _ = strconv.Atoi(m[3])
+		}
+		add(m[1], line, col, "", msg)
+	}
+	if len(rustLocs) > 0 {
+		for _, lm := range rustLocs {
+			if len(out) >= maxBuildErrors {
+				break
+			}
+			locStart := lm[0]
+			file := stdout[lm[2]:lm[3]]
+			line, _ := strconv.Atoi(stdout[lm[4]:lm[5]])
+			col, _ := strconv.Atoi(stdout[lm[6]:lm[7]])
+			// Find the closest `error[Exxxx]: ...` BEFORE this loc.
+			var symbol, message string
+			for _, cm := range rustCodes {
+				if cm[0] >= locStart {
+					break
+				}
+				symbol = stdout[cm[2]:cm[3]]
+				message = stdout[cm[4]:cm[5]]
+			}
+			if message == "" {
+				message = "rust compile error"
+			}
+			add(file, line, col, symbol, message)
+		}
 	}
 	if len(out) == 0 {
 		return nil
