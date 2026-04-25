@@ -1,0 +1,26 @@
+# Log-triage — hilog Cangjie panic with JVM-like stack frames
+#
+# Exercises PR-A LangCangjie path. The log contains hilog header
+# lines followed by a Cangjie panic + stack trace pointing at .cj
+# files under src/. The log_triager should:
+#   - identify lang=cangjie
+#   - emit Errors[].Frames[] with file=src/...cj
+#   - mark IntentHint=RootCause
+#
+# Cangjie stack format (public 1.0.0 LTS):
+#   panic: <msg>
+#     at <package>.<func>(<file.cj>:<line>)
+#
+# Ground truth: synthetic; .cj paths do not exist in-repo; os.Stat
+# drops them. LLM must still surface the panic type as Entity.
+ID="hilog_cangjie_panic"
+NAME="log-triage hilog Cangjie panic + JVM-like stack"
+QUESTION="这个仓颉应用 panic 日志显示什么问题？追溯根因。"
+LOG='04-15 14:35:42.108 6128 6128 F A0c0d/CjApp: panic: index out of bounds: index=5, size=3
+04-15 14:35:42.108 6128 6128 F A0c0d/CjApp:     at demo.cart.Cart.itemAt(src/cart/Cart.cj:78)
+04-15 14:35:42.108 6128 6128 F A0c0d/CjApp:     at demo.cart.Cart.checkout(src/cart/Cart.cj:42)
+04-15 14:35:42.108 6128 6128 F A0c0d/CjApp:     at demo.app.entry(src/main.cj:21)
+04-15 14:35:42.108 6128 6128 F A0c0d/CjApp:     at <native>
+'
+EXPECT_CONTAINS="index out of bounds"
+EXPECT_SECTIONS="Cart"

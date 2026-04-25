@@ -1,0 +1,28 @@
+# Log-triage — hilog ArkTS panic with V8-style stack frames
+#
+# Exercises PR-A LangArkTS path. The log contains a hilog header line
+# followed by a JS-style ArkTS stack trace pointing at .ets files
+# under entry/src/main/ets/. The log_triager should:
+#   - identify lang=arkts (or javascript/typescript as Tier-2 fallback)
+#   - emit Errors[].Frames[] with file=entry/src/main/ets/pages/...ets
+#   - mark IntentHint=RootCause (any frame.line>0)
+#
+# hilog format reference: openharmony/hiviewdfx_hilog README.md
+#   MM-DD HH:MM:SS.mmm PID TID LEVEL DOMAIN/TAG: MESSAGE
+#
+# Ground truth: synthetic log against codrax repo; ArkTS frame paths
+# do not exist in-repo, so the system's os.Stat gate will drop them
+# but the LLM should still extract the error type as an Entity.
+ID="hilog_arkts_panic"
+NAME="log-triage hilog ArkTS panic + V8 stack"
+QUESTION="这个 ArkTS 应用崩溃日志显示什么问题？指出根因。"
+LOG='04-15 14:32:18.421 5821 5821 E A0c0d/JsApp: TypeError: Cannot read property "name" of undefined
+04-15 14:32:18.421 5821 5821 E A0c0d/JsApp:     at UserCard.build (entry/src/main/ets/components/UserCard.ets:42:15)
+04-15 14:32:18.421 5821 5821 E A0c0d/JsApp:     at UserCard.__updateChildElement (entry/src/main/ets/components/UserCard.ets:38:5)
+04-15 14:32:18.421 5821 5821 E A0c0d/JsApp:     at IndexPage.build (entry/src/main/ets/pages/Index.ets:128:9)
+04-15 14:32:18.421 5821 5821 E A0c0d/JsApp:     at IndexPage.__updateRoot (entry/src/main/ets/pages/Index.ets:120:3)
+04-15 14:32:18.421 5821 5821 E A0c0d/JsApp:     at __ELEMENT_invoke (native)
+04-15 14:32:18.422 5821 5821 F A0c0d/JsApp: Application crashed; pid=5821 sig=6
+'
+EXPECT_CONTAINS="TypeError"
+EXPECT_SECTIONS="UserCard"

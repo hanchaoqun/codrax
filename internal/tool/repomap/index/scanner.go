@@ -54,12 +54,53 @@ var specialFiles = map[string]string{
 
 // ScanFiles discovers source files in a repository.
 // It uses `git ls-files` when available, falling back to filepath.Walk.
+//
+// Post-processes the raw entries to honour HarmonyOS red lines:
+//   - L-ArkTS-2: `.ts` files inside an ArkTS project (oh-package.json5
+//     present in any ancestor dir within repoRoot) are promoted to
+//     LangArkTS; pure TS projects are not affected.
+//   - L-Cangjie-1: `.cjo` Cangjie compiled artefacts are denied
+//     at discovery time; they never enter the pipeline.
 func ScanFiles(repoRoot string) ([]FileEntry, error) {
 	entries, err := scanGit(repoRoot)
 	if err != nil {
-		return scanWalk(repoRoot)
+		entries, err = scanWalk(repoRoot)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return entries, nil
+	return applyHarmonyOSPostProcess(repoRoot, entries), nil
+}
+
+// applyHarmonyOSPostProcess walks `entries` and applies two rules:
+//  1. Drop .cjo / .cangjie-cache / target/cj-* compiled artefacts
+//     (red line L-Cangjie-1).
+//  2. Promote .ts files to LangArkTS when the project is an ArkTS
+//     project (red line L-ArkTS-2). The detection is per-file so
+//     sub-modules with their own oh-package.json5 get independent
+//     classification; a .ts file outside any ArkTS module stays
+//     LangTypeScript.
+//
+// The result is a new slice (input is not mutated) so callers can
+// snapshot the pre-processed list for diagnostics.
+func applyHarmonyOSPostProcess(repoRoot string, entries []FileEntry) []FileEntry {
+	out := make([]FileEntry, 0, len(entries))
+	for _, e := range entries {
+		ext := strings.ToLower(filepath.Ext(e.RelPath))
+		if ext == ".cjo" {
+			continue // denied compiled artefact
+		}
+		// Cangjie package manager's build cache — skip wholesale.
+		if strings.Contains(e.RelPath, ".cangjie-cache"+string(filepath.Separator)) ||
+			strings.Contains(e.RelPath, string(filepath.Separator)+".cangjie-cache"+string(filepath.Separator)) {
+			continue
+		}
+		if e.Language == types.LangTypeScript && types.IsArkTSProject(repoRoot, e.RelPath) {
+			e.Language = types.LangArkTS
+		}
+		out = append(out, e)
+	}
+	return out
 }
 
 func scanGit(repoRoot string) ([]FileEntry, error) {

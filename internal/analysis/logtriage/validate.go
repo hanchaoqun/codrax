@@ -351,6 +351,57 @@ func validateFrame(f *types.LogFrame, repoRoot, repoBase string, fileIdentifiers
 		f.File = ranked[0]
 		return
 	}
+	// ArkTS basename: HarmonyOS V8-style stack frames occasionally
+	// carry only a bare `Index.ets` when the minifier strips paths.
+	// Glob + rank by entry/src/main/ets/ project layout.
+	if (f.Lang == "arkts" || isArkTSBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
+		candidates, err := GlobByBasename(repoRoot, f.File)
+		if err != nil || len(candidates) == 0 {
+			f.File = ""
+			return
+		}
+		ranked := ResolveArkTSFile(f.File, candidates)
+		if len(ranked) == 0 {
+			f.File = ""
+			return
+		}
+		f.File = ranked[0]
+		return
+	}
+	// Cangjie basename: panic stacks from the cjnative runtime
+	// carry file paths like `src/cart/Cart.cj`; when truncated to
+	// just `Cart.cj`, glob + rank by Cangjie project layout.
+	if (f.Lang == "cangjie" || isCangjieBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
+		candidates, err := GlobByBasename(repoRoot, f.File)
+		if err != nil || len(candidates) == 0 {
+			f.File = ""
+			return
+		}
+		ranked := ResolveCangjieFile(f.Pkg, f.File, candidates)
+		if len(ranked) == 0 {
+			f.File = ""
+			return
+		}
+		f.File = ranked[0]
+		return
+	}
+	// Kotlin basename: Android JVM panic frames truncate file info
+	// to the basename (`MainActivity.kt`). Glob + rank by Android
+	// Gradle / JB multiplatform source roots.
+	if (f.Lang == "kotlin" || isKotlinBasename(f.File)) && !strings.ContainsAny(f.File, "/\\") {
+		candidates, err := GlobByBasename(repoRoot, f.File)
+		if err != nil || len(candidates) == 0 {
+			f.File = ""
+			return
+		}
+		ranked := ResolveKotlinFile(f.Pkg, f.File, candidates)
+		if len(ranked) == 0 {
+			f.File = ""
+			return
+		}
+		f.File = ranked[0]
+		return
+	}
 	stripped := StripBuildPathPrefix(f.File, repoBase, nil)
 	resolved := ResolveFrameFile(repoRoot, stripped)
 	if resolved == "" {

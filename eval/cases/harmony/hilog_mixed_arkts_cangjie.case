@@ -1,0 +1,22 @@
+# Log-triage — hilog mixed ArkTS↔Cangjie crossover crash
+#
+# Exercises PR-A mixed-language detection: ArkTS UI calls Cangjie
+# native via @CJOH FFI; Cangjie panic propagates back to ArkTS
+# rejecting the call. Both .ets and .cj frames appear in one log.
+# The log_triager should emit two stack snapshots OR a single chain
+# whose Cause pointer crosses language boundaries.
+#
+# Ground truth: synthetic; tests log_triage's ability to classify
+# mixed-language logs without losing either frame set.
+ID="hilog_mixed_arkts_cangjie"
+NAME="log-triage hilog mixed ArkTS+Cangjie crossover"
+QUESTION="这个混合栈崩溃涉及 ArkTS 和仓颉两种语言，分别在哪一帧出问题？"
+LOG='04-15 14:40:01.512 6201 6201 E A0c0d/JsApp: Error: Cangjie native call failed: index out of bounds
+04-15 14:40:01.512 6201 6201 E A0c0d/JsApp:     at NativeBridge.invokeOhSum (entry/src/main/ets/bridges/NativeBridge.ets:33:11)
+04-15 14:40:01.512 6201 6201 E A0c0d/JsApp:     at HomePage.computeTotal (entry/src/main/ets/pages/Home.ets:54:7)
+04-15 14:40:01.513 6201 6201 F A0c0d/CjApp: panic: index out of bounds: index=5, size=3
+04-15 14:40:01.513 6201 6201 F A0c0d/CjApp:     at demo.bridge.ohSum(src/bridge/Bridge.cj:18)
+04-15 14:40:01.513 6201 6201 F A0c0d/CjApp:     at demo.bridge.checkout(src/bridge/Bridge.cj:42)
+'
+EXPECT_CONTAINS="index out of bounds"
+EXPECT_SECTIONS="Bridge"

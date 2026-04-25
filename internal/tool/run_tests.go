@@ -67,7 +67,7 @@ func (t *RunTests) Name() string { return "run_tests" }
 // operators reading logs know the scope without reading code.
 func (t *RunTests) Description() string {
 	return "Run the project test suite inside the active worktree and emit a structured ChangeReport. " +
-		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), and raw Makefile (make check/test; pass/fail from exit code)."
+		"Supports Go (go test -json), Node (jest/vitest --json), Python (pytest --json-report plugin required), Rust (cargo test text), Java (Maven/Gradle JUnit XML), Kotlin (via the Java Gradle path — build.gradle.kts recognised), Ruby (RSpec --format json), CMake (ctest --output-junit; requires pre-configured build dir), Meson (meson test --xunit-file), raw Makefile (make check/test; pass/fail from exit code), HarmonyOS ArkTS via hvigor (hvigorw test → JUnit XML), and HarmonyOS Cangjie via cjpm (cjpm test → cargo-style text)."
 }
 
 // Parameters returns the JSON schema.
@@ -195,6 +195,18 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		extraFile = reportDir
 	}
+	if runner == "hvigor" {
+		// HarmonyOS hvigor emits JUnit XML into the same dir shapes
+		// as Gradle; the Java helper works as-is because it scans
+		// for `surefire-reports/` / `test-results/test/` inside any
+		// module sub-tree. A missing report means hvigor's build
+		// failed before the test phase — surface as build failure.
+		reportDir := locateJUnitReportDir(ctx.RepoRoot)
+		if reportDir == "" {
+			return synthesizeBuildFailureReport(ctx, t.Name(), runner, "hvigor-build", "hvigor", output)
+		}
+		extraFile = reportDir
+	}
 	if runner == "cmake" || runner == "meson" {
 		// extraFile is the tmpfile path; check it materialised and is
 		// non-empty. A zero-byte file means ctest/meson exited before
@@ -291,6 +303,15 @@ func detectRunner(repoRoot string) string {
 		runner string
 	}{
 		{"go.mod", "go"},
+		// HarmonyOS ArkTS + Cangjie manifests must be probed before
+		// package.json / build.gradle so a mixed HarmonyOS project
+		// (Stage Model + Cangjie native) is routed to the right
+		// runner. oh-package.json5 (ArkTS) and hvigorfile.ts mark
+		// the project as hvigor; cjpm.toml marks a Cangjie module.
+		{"oh-package.json5", "hvigor"},
+		{"build-profile.json5", "hvigor"},
+		{"hvigorfile.ts", "hvigor"},
+		{"cjpm.toml", "cjpm"},
 		{"package.json", "node"},
 		{"pyproject.toml", "python"},
 		{"pytest.ini", "python"},
@@ -549,6 +570,39 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 			target = filter
 		}
 		return fmt.Sprintf("make %s", target), ""
+	case "hvigor":
+		// HarmonyOS ArkTS projects use hvigorw (wrapper for hvigor,
+		// analogous to ./gradlew). `test` task runs unit + component
+		// tests and emits JUnit XML into test results dirs that the
+		// Java parser's post-exec JUnit walker already picks up.
+		//
+		// Unlike Java's pom.xml/build.gradle, hvigor sometimes only
+		// ships the wrapper at repo root; a missing hvigorw falls
+		// through to `hvigor` directly (PATH). Both are accepted; a
+		// test environment without either still reaches the tool via
+		// exit-code-only failure in Execute.
+		filter := strings.TrimSpace(suite)
+		wrapper := "hvigorw"
+		if _, err := os.Stat(filepath.Join(repoRoot, "hvigorw")); err != nil {
+			wrapper = "hvigor"
+		}
+		if filter == "" {
+			return fmt.Sprintf("%s --no-daemon test", wrapper), ""
+		}
+		return fmt.Sprintf("%s --no-daemon test --tests %q", wrapper, filter), ""
+	case "cjpm":
+		// Cangjie's package manager. cjpm 1.0.0 LTS does not document
+		// a stable `--json` reporter flag, so the runner uses the
+		// default text output; parseCjpmText parses the `test result:
+		// ok. N passed; N failed` footer (reused from cargo parser).
+		// A future cjpm release that adds `--json` can be probed by
+		// parsing `cjpm test --help` at runtime; for now the text
+		// path is the single source of truth.
+		filter := strings.TrimSpace(suite)
+		if filter == "" {
+			return "cjpm test", ""
+		}
+		return fmt.Sprintf("cjpm test --filter %q", filter), ""
 	}
 	return "", ""
 }

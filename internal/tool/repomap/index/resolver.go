@@ -115,9 +115,12 @@ func defaultResolvers() map[string]ImportResolver {
 	return map[string]ImportResolver{
 		types.LangGo:         &goImportResolver{},
 		types.LangJava:       &javaImportResolver{},
+		types.LangKotlin:     &kotlinImportResolver{},
 		types.LangPython:     &pythonImportResolver{},
 		types.LangJavaScript: js,
 		types.LangTypeScript: js,
+		types.LangArkTS:      newArkTSImportResolver(js),
+		types.LangCangjie:    &cangjieImportResolver{},
 		types.LangRust:       &rustImportResolver{},
 		types.LangC:          cpp,
 		types.LangCpp:        cpp,

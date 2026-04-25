@@ -46,6 +46,19 @@ func parseRunnerOutput(runner, stdout, extraFile, cmdStr string, runErr error) (
 		return parseRSpecJSON(stdout)
 	case "make":
 		return parseMakeOutput(stdout, runErr)
+	case "hvigor":
+		// HarmonyOS hvigor emits JUnit XML via the same reporting
+		// mechanism as Gradle; locateJUnitReportDir populates
+		// extraFile with the report root. Reuse the JUnit parser
+		// path without modification — the XML schema is identical.
+		return parseJUnitXMLDir(extraFile, stdout)
+	case "cjpm":
+		// Cangjie's cjpm emits Cargo-shaped text output (`test
+		// result: ok. N passed; N failed`) from its test command.
+		// The cargo parser handles both the exact Cargo line and
+		// the cjpm variant because the result footer grammar is
+		// identical — no dedicated parser required.
+		return parseCargoTestText(stdout)
 	}
 	return nil, fmt.Errorf("parseRunnerOutput: unknown runner %q", runner)
 }

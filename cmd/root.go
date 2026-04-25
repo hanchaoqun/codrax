@@ -90,6 +90,20 @@ var (
 	flagAttachLogText   string
 	flagLogSourcePrefix string
 
+	// HarmonyOS HiTrace attach flag. --htrace reads an hdc-captured
+	// ftrace-compatible trace excerpt from a file path (or "-" for
+	// stdin) or --htrace-text accepts an inline payload. The trace
+	// body is routed through the same log_triage pre-stage as --log
+	// (a single canonical text-attachment channel), so no second
+	// LLM pipeline is spun up — the log-triage-skill prompt has been
+	// taught the HiTrace format so it can identify jank frames and
+	// main-thread stalls in the same emission. Mutually exclusive
+	// with each other and with --log / --log-text if both attach an
+	// anchor for the same run; otherwise they concatenate (trace
+	// first, then log).
+	flagAttachHitrace     string
+	flagAttachHitraceText string
+
 	// Auto chit-chat classifier per-run toggle. When the flag is NOT
 	// passed on the command line, the initApp merge falls back to the
 	// codrax.yaml value (or the code default false). When passed,
@@ -189,6 +203,8 @@ func init() {
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
 	f.StringVar(&flagAttachLog, "log", "", "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin; seeds log-triage entities for the analyzer")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
+	f.StringVar(&flagAttachHitrace, "htrace", "", "attach a HiTrace / ftrace excerpt from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace` AND Android `adb shell atrace` / systrace — both emit ftrace-compatible text. Routed through log-triage with trace-aware prompt to surface jank frames.")
+	f.StringVar(&flagAttachHitraceText, "htrace-text", "", "inline HiTrace / atrace payload (mutually exclusive with --htrace)")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
 
@@ -249,6 +265,8 @@ var compatLongFlagNames = map[string]struct{}{
 	"pipeline-max-stage-visits": {},
 	"log":                       {},
 	"log-text":                  {},
+	"htrace":                    {},
+	"htrace-text":               {},
 	"log-source-prefix":         {},
 	"chitchat-classifier":       {},
 	"mode":                      {},
@@ -332,21 +350,64 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	return runSingleShot(cmd, request)
 }
 
-// loadAttachedLog resolves the --log / --log-text flags into a single
-// payload string. Returns "" when no log was requested. Rules:
+// loadAttachedLog resolves --log / --log-text / --htrace / --htrace-text
+// into a single payload string. Returns "" when no log or trace was
+// requested. Rules:
 //
 //   - --log and --log-text are mutually exclusive
-//   - --log=- reads from stdin (for pipe usage: `kubectl logs ... | codrax --log -`)
-//   - otherwise --log is a filesystem path to read
-//   - payload is capped at maxAttachedLogBytes; excess bytes are dropped
-//     with a warning so a truncated tail does not silently hide the
-//     actual error frames
+//   - --htrace and --htrace-text are mutually exclusive
+//   - --htrace* and --log* may coexist: the HiTrace body is prepended
+//     to the log body with an inline marker line, so the log_triager
+//     sees both in a single attachment pass (single-channel design,
+//     no perf_triager stage needed — red line: do not reinvent the
+//     log-triage pipeline for HarmonyOS traces)
+//   - --log=- / --htrace=- read from stdin (only one of the two may
+//     consume stdin per run; --htrace=- + --log=- is rejected)
+//   - payload is capped at maxAttachedLogBytes; excess bytes are
+//     dropped with a warning so a truncated tail does not silently
+//     hide the actual error frames
 func loadAttachedLog() (string, error) {
 	if flagAttachLog != "" && flagAttachLogText != "" {
 		return "", fmt.Errorf("--log and --log-text are mutually exclusive")
 	}
+	if flagAttachHitrace != "" && flagAttachHitraceText != "" {
+		return "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
+	}
+	if flagAttachLog == "-" && flagAttachHitrace == "-" {
+		return "", fmt.Errorf("only one of --log=- / --htrace=- may consume stdin per run")
+	}
+
+	traceBody, err := loadAttachedHitrace()
+	if err != nil {
+		return "", err
+	}
+	logBody, err := loadAttachedLogBody()
+	if err != nil {
+		return "", err
+	}
+
+	if traceBody == "" && logBody == "" {
+		return "", nil
+	}
+	if traceBody == "" {
+		return truncateAttachedLog(logBody), nil
+	}
+	if logBody == "" {
+		// Mark the whole payload as HiTrace so the log_triage prompt
+		// can route its parsing. The marker uses a non-conflicting
+		// token (single # header with `codrax:hitrace`) that no
+		// hilog / ftrace line emits organically.
+		return truncateAttachedLog("# codrax:hitrace\n" + traceBody), nil
+	}
+	combined := "# codrax:hitrace\n" + traceBody + "\n# codrax:end-hitrace\n" + logBody
+	return truncateAttachedLog(combined), nil
+}
+
+// loadAttachedLogBody returns the --log / --log-text body, stripped
+// of framing but NOT size-capped (the cap applies at combine time).
+func loadAttachedLogBody() (string, error) {
 	if flagAttachLogText != "" {
-		return truncateAttachedLog(flagAttachLogText), nil
+		return flagAttachLogText, nil
 	}
 	if flagAttachLog == "" {
 		return "", nil
@@ -361,7 +422,29 @@ func loadAttachedLog() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("load attached log: %w", err)
 	}
-	return truncateAttachedLog(string(data)), nil
+	return string(data), nil
+}
+
+// loadAttachedHitrace returns the --htrace / --htrace-text body,
+// stripped of framing but NOT size-capped.
+func loadAttachedHitrace() (string, error) {
+	if flagAttachHitraceText != "" {
+		return flagAttachHitraceText, nil
+	}
+	if flagAttachHitrace == "" {
+		return "", nil
+	}
+	var data []byte
+	var err error
+	if flagAttachHitrace == "-" {
+		data, err = io.ReadAll(io.LimitReader(os.Stdin, int64(maxAttachedLogBytes)+1))
+	} else {
+		data, err = os.ReadFile(flagAttachHitrace)
+	}
+	if err != nil {
+		return "", fmt.Errorf("load attached hitrace: %w", err)
+	}
+	return string(data), nil
 }
 
 func truncateAttachedLog(s string) string {

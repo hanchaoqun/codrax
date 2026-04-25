@@ -106,7 +106,19 @@ func buildEmitLogTriageSchema() {
 		signalEnum = append(signalEnum, string(s))
 	}
 
-	langEnum := []string{"go", "java", "cpp", "python", "node", "rust", "ruby", "csharp", "unknown", "other"}
+	// Language enum: canonical list for the Meta.Lang field. New
+	// entries require coordinated changes in:
+	//   - logtriage.ValidateBundle (validate.go switch)
+	//   - the skill's user-facing prompt (see answer / log-triage
+	//     skills for how to teach the LLM a new language)
+	//
+	// `arkts`   — HarmonyOS ArkTS (V8-style stack frames + .ets files)
+	// `cangjie` — HarmonyOS Cangjie 1.0.0 LTS (JVM-like stack frames
+	//             + .cj files; `at demo.cart.Cart.func(Cart.cj:42)`)
+	// `kotlin`  — Kotlin on Android / JVM; frames look like
+	//             `at com.example.Foo$bar(Foo.kt:42)` — same JVM
+	//             shape as Java, different extension
+	langEnum := []string{"go", "java", "cpp", "python", "node", "rust", "ruby", "csharp", "kotlin", "arkts", "cangjie", "unknown", "other"}
 
 	frameSchema := map[string]any{
 		"type":                 "object",

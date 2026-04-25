@@ -198,7 +198,33 @@ func RankGraph(g *types.Graph, query string) {
 			}
 		}
 
+		// Parse-tier discount: ArkTS and Cangjie files may have been
+		// produced by a fallback tier (regex-only salvage, path-only)
+		// with lower confidence. Discount the final score so these
+		// cannot outrank a Tier-1 sibling on identical evidence.
+		// Red line L-Fallback-2 — no anti-incentive for broken parses.
+		if fi.ParseTier >= 2 {
+			score *= parseTierDiscount(fi.ParseTier)
+		}
+
 		g.Scores[fi.RelPath] = score
+	}
+}
+
+// parseTierDiscount returns the rank multiplier for a fallback
+// tier. Mirrors index.TierDiscount (retrieve cannot import index
+// without a cycle, so the constants are duplicated here — keep in
+// sync or the rank test will flag the drift).
+func parseTierDiscount(tier int) float64 {
+	switch tier {
+	case 0, 1:
+		return 1.0
+	case 2:
+		return 0.85
+	case 3:
+		return 0.6
+	default:
+		return 0.3
 	}
 }
 
@@ -250,6 +276,11 @@ func detectEntrypoints(g *types.Graph) map[string]bool {
 		case fi.Language == types.LangJava && hasMainMethod(fi):
 			ep[fi.RelPath] = true
 		case base == "index.js" || base == "index.ts" || base == "index.tsx":
+			ep[fi.RelPath] = true
+		case fi.Language == types.LangArkTS &&
+			(base == "Index.ets" || base == "EntryAbility.ts" || base == "EntryAbility.ets"):
+			ep[fi.RelPath] = true
+		case fi.Language == types.LangCangjie && base == "main.cj":
 			ep[fi.RelPath] = true
 		case fi.IsSpecial && fi.SpecialType == "dockerfile":
 			ep[fi.RelPath] = true

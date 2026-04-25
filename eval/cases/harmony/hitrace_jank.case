@@ -1,0 +1,37 @@
+# Perf-triage — HiTrace jank trace with main-thread stalls
+#
+# Exercises PR-B emit_perf_trace path. The trace excerpt shows a
+# render frame budget violation (>16ms) caused by a synchronous I/O
+# call on the main thread. The perf_triager should emit:
+#   - PerfBundle.Frames[] including the janky frame (Janky=true)
+#   - PerfBundle.JankSpans[] with cause=io / sync-call
+#   - PerfBundle.MainStalls[] pointing at the I/O call site
+#
+# Trace format: hitrace_meter ftrace text output (literal example
+# inspired by openharmony/hiviewdfx_hitrace public docs). Single
+# frame budget = 16.67ms (60fps). The slow frame here is ~85ms.
+#
+# Ground truth: synthetic; tests perf_triager's ability to parse
+# ftrace-style text and produce structured PerfBundle.
+ID="hitrace_jank"
+NAME="perf-triage HiTrace jank with main-thread sync I/O"
+QUESTION="这段 HiTrace 显示哪一帧卡顿，原因是什么？卡顿调用栈位于哪里？"
+LOG='# tracer: nop
+# entries-in-buffer/entries-written: 4096/4096   #P:8
+#
+#                              _-----=> irqs-off
+#                             / _----=> need-resched
+#                            | / _---=> hardirq/softirq
+#                            || / _--=> preempt-depth
+#                            ||| /     delay
+#           TASK-PID   CPU#  ||||    TIMESTAMP  FUNCTION
+#              | |       |   ||||       |         |
+   com.example-5821 [001] ...1 12345.678901: tracing_mark_write: B|5821|H:RenderService:DoFrame
+   com.example-5821 [001] ...1 12345.679512: tracing_mark_write: B|5821|H:Layout:measure
+   com.example-5821 [001] ...1 12345.681203: tracing_mark_write: B|5821|H:DataLoader:fetchSync
+   com.example-5821 [001] ...1 12345.764812: tracing_mark_write: E|5821
+   com.example-5821 [001] ...1 12345.764920: tracing_mark_write: E|5821
+   com.example-5821 [001] ...1 12345.765012: tracing_mark_write: E|5821
+'
+EXPECT_CONTAINS="DataLoader"
+EXPECT_SECTIONS="frame"

@@ -1,0 +1,20 @@
+# Repomap — ArkTS struct + decorators detection
+#
+# Exercises PR-0 extract_arkts. The fixture (PR-0 will provide
+# eval/fixtures/testdata/arkts_minimal/) contains the corpus seeds
+# from internal/thirdparty/tree-sitter-arkts/corpus/sources/. The
+# question forces the analyzer to use repomap to enumerate
+# components and their decorators.
+#
+# PR-0 deliverable: eval/fixtures/testdata/arkts_minimal/ with
+# at least Index.ets + UserCard.ets containing @Entry @Component
+# struct and @Builder.
+#
+# Ground truth: at least 2 @Component declarations + 1 @Entry +
+# 1 @Builder. Question names them so EXPECT_CONTAINS pins concrete
+# symbols rather than vague "ArkTS supports decorators".
+ID="arkts_repomap"
+NAME="repomap ArkTS @Entry @Component struct + @Builder enumeration"
+QUESTION="仓库里有哪些 @Entry 标记的 ArkTS 页面入口，以及哪些 @Builder 复用片段？分别列出文件路径和函数名。"
+EXPECT_CONTAINS="@Entry @Component"
+EXPECT_SECTIONS="Index.ets"

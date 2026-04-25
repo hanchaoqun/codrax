@@ -94,6 +94,48 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		fi.SpecialType = stype
 	}
 
+	// HarmonyOS dual-language dispatch. Both paths own their own
+	// tree-sitter / regex pipelines + tier assignment, so we
+	// short-circuit before the generic tree-sitter block.
+	//
+	//   - ArkTS (LangArkTS): tree-sitter-typescript + ArkTS
+	//     post-pass (see extract_arkts.go). Tier 1 = TS grammar
+	//     parsed successfully; Tier 2 = regex-only salvage;
+	//     Tier 3 = path-only.
+	//   - Cangjie (LangCangjie): Go-native scanner (no tree-sitter
+	//     grammar exists). Tier 1 = state-aware scanner; Tier 2 =
+	//     raw regex salvage; Tier 3 = path-only.
+	//
+	// Tier + reason are recorded on FileInfo via recordFallback so
+	// the retrieve.rank layer can discount lower-confidence parses
+	// and the build log surfaces degradations (red line L-Fallback-1).
+	switch entry.Language {
+	case types.LangArkTS:
+		pkg, syms, imps, rels, tier := extractArkTS(source, entry.RelPath)
+		fi.Package = pkg
+		fi.Symbols = syms
+		fi.Imports = imps
+		fi.Relations = rels
+		if tier > 1 {
+			recordFallback(fi, 1, tier, "arkts extractor downgraded")
+		} else {
+			fi.ParseTier = 1
+		}
+		return fi
+	case types.LangCangjie:
+		pkg, syms, imps, rels, tier := extractCangjie(source, entry.RelPath)
+		fi.Package = pkg
+		fi.Symbols = syms
+		fi.Imports = imps
+		fi.Relations = rels
+		if tier > 1 {
+			recordFallback(fi, 1, tier, "cangjie extractor downgraded")
+		} else {
+			fi.ParseTier = 1
+		}
+		return fi
+	}
+
 	// If language is unsupported, return basic info
 	lang := types.GetSitterLanguage(entry.Language)
 	if lang == nil {
@@ -122,6 +164,8 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractJS(root, source, entry.RelPath, true)
 	case types.LangJava:
 		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractJava(root, source, entry.RelPath)
+	case types.LangKotlin:
+		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractKotlin(root, source, entry.RelPath)
 	case types.LangRust:
 		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractRust(root, source, entry.RelPath)
 	case types.LangC, types.LangCpp:

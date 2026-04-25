@@ -148,6 +148,24 @@ type FileInfo struct {
 	Relations   []Relation `json:"relations,omitempty"`
 	IsSpecial   bool       `json:"is_special,omitempty"`
 	SpecialType string     `json:"special_type,omitempty"` // build_config, dockerfile, ci, etc.
+
+	// ParseTier records which fallback tier produced this FileInfo's
+	// symbols. 1 = primary grammar (best); 2 = secondary grammar
+	// (e.g. ArkTS riding on TS); 3 = regex-only; 4 = path-only (no
+	// symbols at all). Languages with a single grammar (Go, Java,
+	// Rust, …) leave this at 0 (== "not applicable, treat as Tier 1").
+	// Used by retrieve.rank to discount lower-confidence parses so
+	// they cannot outrank fully-parsed Tier-1 files.
+	//
+	// See internal/tool/repomap/index/parse_fallback.go for the
+	// canonical tier assignment + the rank discount weights.
+	ParseTier int `json:"parse_tier,omitempty"`
+
+	// FallbackReason is a single-line free-form note attached to
+	// downgrades (Tier > 1). Empty for Tier 1 files. Surfaced into
+	// the build log at WARN level (red line L-Fallback-1 — no
+	// silent degradation).
+	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 
 // MethodKey is the (package, receiver, name) tuple used to resolve
