@@ -340,7 +340,7 @@ func evalTestsPass(expr string, env Env) Result {
 //   - empty     — check all tests + metrics
 //   - non-empty — substring filter on AssertionID / metric name
 //
-// Design note: pre-apply baseline capture is opt-in (runApplyPhase
+// Design note: pre-apply baseline capture is opt-in (the apply stage hook
 // skips it when codrax.yaml has baseline_capture_enabled: false or
 // no test runner was detected). Absence of a baseline is NOT a
 // regression — if we can't compare, we can't assert regression.

@@ -118,14 +118,19 @@ func (t *EmitTestResults) Execute(ctx *types.BusContext, params json.RawMessage)
 	// Schema-level required-key enforcement. JSON unmarshal accepts
 	// missing keys as zero-value (nil slice); we want the contract
 	// "you sent the array key, even if empty" so the LLM can't ghost
-	// the classification step.
+	// the classification step. Strict: if the raw JSON re-parse fails
+	// (couldn't happen after the typed decode succeeded for any
+	// well-formed object input, but defensive for null/array inputs),
+	// reject — falling through silently would let the contract leak.
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(params), &raw); err == nil {
-		for _, key := range []string{"regression_assertions", "preexisting_assertions", "fixed_assertions"} {
-			if _, present := raw[key]; !present {
-				return errResult(t.Name(),
-					fmt.Sprintf("emit_test_results rejected: required key %q missing — supply an array (empty [] is valid).", key)), nil
-			}
+	if err := json.Unmarshal([]byte(params), &raw); err != nil {
+		return errResult(t.Name(),
+			fmt.Sprintf("emit_test_results rejected: params must be a JSON object: %v", err)), nil
+	}
+	for _, key := range []string{"regression_assertions", "preexisting_assertions", "fixed_assertions"} {
+		if _, present := raw[key]; !present {
+			return errResult(t.Name(),
+				fmt.Sprintf("emit_test_results rejected: required key %q missing — supply an array (empty [] is valid).", key)), nil
 		}
 	}
 

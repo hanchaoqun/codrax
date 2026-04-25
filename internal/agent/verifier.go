@@ -217,9 +217,9 @@ func (e *verifierEvaluator) ParseOutput(
 
 	// Failed verify is NOT an agent-level error — it's a structured
 	// outcome. The verifier returns MissingFacts + an Error so
-	// runVerifyPhase renders the failure for the user. When the
+	// the verify stage hook renders the failure for the user. When the
 	// orchestrator's verify→plan retry loop is enabled
-	// (pipeline_max_verify_retries > 0), runVerifyPhase's caller
+	// (pipeline_write_retry_budget > 0), the verify stage hook's caller
 	// inspects the error and may dispatch a fresh planner round
 	// with PlanningHint seeded from this report; otherwise the Run
 	// terminates cleanly with the failure surfaced in LastError.

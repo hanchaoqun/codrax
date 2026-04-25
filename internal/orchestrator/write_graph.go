@@ -109,11 +109,16 @@ func BuildWriteTaskGraph(mode types.PipelineMode, planPath string, retryBudget i
 		// which the orchestrator's plan-loader populates after
 		// LoadChangePlanFromFile.
 		if planPath != "" {
+			// R8a: user supplied a reviewed plan — plan node skipped.
+			// No verify→apply retry edge: re-applying the SAME reviewed
+			// plan after a verify failure is pointless (deterministic
+			// apply, same diff → same outcome) and would crash because
+			// clearForReplan wipes PlanPath, leaving applyPreHook with
+			// nothing to load. Verify failure here is terminal.
 			apply.EntryConditions = nil
 			nodes = []types.TaskNode{apply, verify}
 			edges = []types.TaskEdge{
 				{From: idApply, To: idVerify, EdgeType: types.EdgeHardDependency},
-				{From: idVerify, To: idApply, EdgeType: types.EdgeValidationFeedback},
 			}
 		} else {
 			nodes = []types.TaskNode{plan, apply, verify}

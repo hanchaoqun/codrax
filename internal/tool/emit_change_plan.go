@@ -15,7 +15,7 @@ import (
 // The LLM emits a ChangePlan describing the code modification it
 // proposes; Execute validates the payload shape, stamps a plan ID
 // + timestamp, and installs it on BusContext.Mutable so
-// runPlanPhase (orchestrator) and cmd/root.go (single-shot disk
+// the plan stage hook (orchestrator) and cmd/root.go (single-shot disk
 // writer) can read it after the agent returns.
 //
 // Classified ReadOnly + NonEvidenceTool following the emit_* family

@@ -46,7 +46,7 @@ type Orchestrator struct {
 	mode types.PipelineMode
 
 	// planPath is the absolute path of an existing ChangePlan
-	// JSON file that runApplyPhase should load before dispatching
+	// JSON file that the apply stage hook should load before dispatching
 	// the coder agent. Populated via SetPlanPath (called by
 	// cmd/root.go from the --plan-file flag value). Empty when
 	// Mode is ModeRead or ModePlan (plan is produced, not consumed,
@@ -54,11 +54,11 @@ type Orchestrator struct {
 	// so the phase functions read a single authoritative source.
 	planPath string
 
-	// worktreeBase is the directory root under which runApplyPhase
+	// worktreeBase is the directory root under which the apply stage hook
 	// asks worktree.Create to provision new worktree sessions.
 	// Typically <CWD>/.codrax/worktrees — cmd/root.go computes it
 	// during initApp and passes it here via SetWorktreeBase.
-	// Empty disables the worktree provisioning path: runApplyPhase
+	// Empty disables the worktree provisioning path: the apply stage hook
 	// refuses to dispatch without a base dir so a misconfigured
 	// install surfaces a clean error rather than silently writing
 	// patches into the main repo.
@@ -77,7 +77,7 @@ type Orchestrator struct {
 
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
-	// is opt-in). When true, runApplyPhase dispatches run_tests
+	// is opt-in). When true, the apply stage hook dispatches run_tests
 	// once before the coder + moves the result to
 	// Mutable.BaselineReport so evalNoRegression can diff against
 	// the post-apply ChangeReport.
@@ -215,7 +215,7 @@ func (o *Orchestrator) Mode() types.PipelineMode {
 
 // SetPlanPath installs the plan file path for subsequent Run()
 // calls. Used when Mode is ModeApply / ModeVerify to tell
-// runApplyPhase where to load the ChangePlan from. Empty string
+// the apply stage hook where to load the ChangePlan from. Empty string
 // clears any prior value (useful for REPL workflows that alternate
 // between modes).
 func (o *Orchestrator) SetPlanPath(path string) {
@@ -227,7 +227,7 @@ func (o *Orchestrator) PlanPath() string {
 	return o.planPath
 }
 
-// SetWorktreeBase installs the directory root runApplyPhase passes
+// SetWorktreeBase installs the directory root the apply stage hook passes
 // to worktree.Create when provisioning per-Run worktree sessions.
 // cmd/root.go computes the path at initApp time from the runtime
 // anchor and calls this once per process.
@@ -317,7 +317,7 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// dispatches to the unchanged runTaskPhase.
 		Mode: o.mode.Normalize(),
 		// PlanPath propagates the --plan-file flag / REPL state into
-		// the bus so runApplyPhase / runVerifyPhase read a single
+		// the bus so the apply stage hook / the verify stage hook read a single
 		// authoritative source. Empty for plan-mode and read-mode
 		// (plan is produced, not consumed, there).
 		PlanPath: o.planPath,
@@ -745,7 +745,7 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 
 // captureBaseline runs the project's test suite against the
 // pre-apply worktree and installs the result on
-// Mutable.BaselineReport. Called from runApplyPhase substep 3b
+// Mutable.BaselineReport. Called from the apply stage hook substep 3b
 // when baselineCaptureEnabled is true.
 //
 // Data flow:
@@ -792,7 +792,7 @@ func (o *Orchestrator) captureBaseline() {
 		return
 	}
 	// Move ChangeReport → BaselineReport. After this, the slot is
-	// empty again and runVerifyPhase populates it fresh from the
+	// empty again and the verify stage hook populates it fresh from the
 	// post-apply test run.
 	o.busCtx.Mutable.SetBaselineReport(baseline)
 	o.busCtx.Mutable.ResetChangeReport()

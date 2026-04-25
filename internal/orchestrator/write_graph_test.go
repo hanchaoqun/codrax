@@ -63,9 +63,12 @@ func TestBuildWriteTaskGraph_ModeApply_FullChain(t *testing.T) {
 }
 
 // R8a: when planPath is set, ModeApply skips the plan node (the user
-// has a reviewed plan; do not regenerate).
+// has a reviewed plan; do not regenerate). And no retry cycle —
+// re-running the same reviewed plan is pointless after a verify
+// failure, plus clearForReplan wipes PlanPath which would crash
+// applyPreHook on retry.
 func TestBuildWriteTaskGraph_ModeApply_PreSuppliedPlanSkipsPlanNode(t *testing.T) {
-	g := BuildWriteTaskGraph(types.ModeApply, "/tmp/plan.json", 0)
+	g := BuildWriteTaskGraph(types.ModeApply, "/tmp/plan.json", 2)
 	if len(g.Nodes) != 2 {
 		t.Fatalf("apply with pre-supplied plan should have 2 nodes (apply, verify); got %d", len(g.Nodes))
 	}
@@ -77,6 +80,12 @@ func TestBuildWriteTaskGraph_ModeApply_PreSuppliedPlanSkipsPlanNode(t *testing.T
 	// dispatch.
 	if len(g.Nodes[0].EntryConditions) != 0 {
 		t.Errorf("pre-supplied-plan apply should have no EntryConditions; got %v", g.Nodes[0].EntryConditions)
+	}
+	// No retry cycle in pre-supplied-plan mode (see comment above).
+	for _, e := range g.Edges {
+		if e.EdgeType == types.EdgeValidationFeedback {
+			t.Errorf("pre-supplied-plan mode should have no validation_feedback edges; got %+v", e)
+		}
 	}
 }
 

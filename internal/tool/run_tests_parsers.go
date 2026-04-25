@@ -252,19 +252,46 @@ func parseGoTestJSONLines(stdout string) (*types.ChangeReport, error) {
 	}
 	// Package-level failures without any test events are still
 	// failures (e.g. compile errors before any test runs).
+	pkgFail := false
 	for _, status := range pkgStatus {
 		if status == "fail" {
 			allPassed = false
+			pkgFail = true
 			break
 		}
 	}
 
+	// Compile-error path: zero per-test events + at least one
+	// package-level fail = the package never compiled. Synthesise a
+	// build-error row so evalTestsPass sees BuildFailed and surfaces
+	// "build failed before tests ran" instead of "0 tests passed".
+	buildFailed := false
+	if len(results) == 0 && pkgFail {
+		buildErrs := parseBuildErrors(stdout)
+		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			Suite:         "build",
+			Passed:        false,
+			FailureDetail: truncateDetail(stdout, 4000),
+			BuildErrors:   buildErrs,
+		})
+		buildFailed = true
+	}
+
 	report := &types.ChangeReport{
 		TestResults: results,
-		Passed:      allPassed && len(results) > 0,
+		Passed:      allPassed && len(results) > 0 && !buildFailed,
+		BuildFailed: buildFailed,
 	}
 	if !report.Passed {
-		report.FailureSummary = buildGoFailureSummary(results, pkgStatus)
+		if buildFailed {
+			report.FailureSummary = renderBuildFailureSummary("Go",
+				results[0].BuildErrors,
+				strings.SplitN(narrativeBuildErrorExcerpt(stdout), "\n", 2)[0])
+		} else {
+			report.FailureSummary = buildGoFailureSummary(results, pkgStatus)
+		}
 	}
 	return report, nil
 }

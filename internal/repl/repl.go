@@ -81,7 +81,7 @@ type modeSetter interface {
 // planPathSetter is the companion capability for /approve: when the
 // REPL triggers a second Run to consume a pending ChangePlan, it
 // must first hand the file path to the orchestrator so
-// runApplyPhase's type.LoadChangePlanFromFile step picks it up.
+// the apply stage hook's type.LoadChangePlanFromFile step picks it up.
 // B1.2 added SetPlanPath to the real Orchestrator; test stubs that
 // omit it make /approve a no-op with a warning.
 type planPathSetter interface {
@@ -1103,8 +1103,8 @@ func (r *REPL) handleSlash(line string) bool {
 // codrax.yaml has write_enabled=true will silently stay local to
 // REPL state — the orchestrator's resolveWriteMode validation runs
 // at initApp time (CLI layer), not per-turn, so REPL-level /mode
-// does NOT re-validate. The orchestrator's runPlanPhase /
-// runApplyPhase / runVerifyPhase dispatch is what eventually
+// does NOT re-validate. The orchestrator's the plan stage hook /
+// the apply stage hook / the verify stage hook dispatch is what eventually
 // surfaces any issue (e.g. "planner agent not wired").
 func (r *REPL) handleModeCmd(line string) {
 	rest := strings.TrimSpace(strings.TrimPrefix(line, "/mode"))
@@ -1292,7 +1292,7 @@ func (r *REPL) collectPlanHistory() []string {
 
 // handleApproveCmd consumes the REPL's pending ChangePlan by triggering
 // a one-shot Run with Mode=ModeApply + PlanPath pre-seeded. The
-// orchestrator's ModeApply branch skips runPlanPhase when PlanPath is
+// orchestrator's ModeApply branch skips the plan stage hook when PlanPath is
 // set (see orchestrator.go:case types.ModeApply), so the saved plan
 // is applied as-is rather than regenerated.
 //

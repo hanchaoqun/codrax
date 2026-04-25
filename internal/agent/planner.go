@@ -15,7 +15,7 @@ import (
 // ChangePlan on BusContext.Mutable. ParseOutput reads the installed
 // plan and returns a success StageOutput; when the LLM fails to emit
 // the plan within the loop cap, a clean error surfaces upstream so
-// runPlanPhase writes a diagnostic to TaskState.LastError instead of
+// the plan stage hook writes a diagnostic to TaskState.LastError instead of
 // a silent no-op.
 //
 // Shape is closest to the finalizer's answerDocumentEvaluator: one

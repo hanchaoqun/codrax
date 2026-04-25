@@ -29,7 +29,7 @@ import (
 //   W4: between two verify retries at least one of (appliedSet,
 //       verifySet, failedAssertions) must change — otherwise apply
 //       is in a repairable failure loop and the scheduler force-
-//       finalizes via the runVerifyPhase retry budget (mirror of I4
+//       finalizes via the the verify stage hook retry budget (mirror of I4
 //       stall detection).
 //
 // B0 scope: WriteClosure carries the shape (fields, mutex, getters)

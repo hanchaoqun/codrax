@@ -340,7 +340,7 @@ type MetricDelta struct {
 
 // WriteChangeReportToFile serialises a ChangeReport as indented
 // JSON to path. Parent directories are created if missing.
-// B1.3 runVerifyPhase calls this after the run_tests parser
+// B1.3 the verify stage hook calls this after the run_tests parser
 // populates the report so operators can inspect outcome post-Run
 // even though the worktree itself is discarded.
 //
@@ -377,7 +377,7 @@ func WriteChangeReportToFile(report *ChangeReport, path string) error {
 
 // UpdatePlanStatusOnDisk reads the plan JSON at path, replaces
 // its Status (and optionally AppliedAt + WorktreePath), and
-// rewrites the file. Used by runApplyPhase / runVerifyPhase to
+// rewrites the file. Used by the apply stage hook / the verify stage hook to
 // record transitions (pending → applied / applied_failed /
 // verify_failed) so /plan list in the REPL shows current lifecycle
 // state; worktreePath is populated when Fix 4's keep-on-success
@@ -421,7 +421,7 @@ func UpdatePlanStatusOnDisk(path, status string, appliedAt *time.Time, worktreeP
 
 // LoadChangePlanFromFile reads a ChangePlan JSON from disk and
 // returns a deserialised *ChangePlan. Called by the orchestrator's
-// runApplyPhase when --mode=apply --plan-file=X needs to install
+// the apply stage hook when --mode=apply --plan-file=X needs to install
 // the plan on Mutable before the coder agent dispatches.
 //
 // Validation is minimal (non-empty ID, non-nil Changes, reasonable

@@ -219,7 +219,7 @@ func (s *PlanStore) List() ([]PlanInfo, error) {
 // UpdateStatus reads the plan JSON, mutates the Status (and
 // optionally AppliedCommitSHA / WorktreePath / AppliedAt when
 // the caller passes non-zero values), and rewrites the file.
-// Used by runApplyPhase + runVerifyPhase to track plan lifecycle
+// Used by the apply stage hook + the verify stage hook to track plan lifecycle
 // so /plan list can show which plans were applied vs failed.
 //
 // Idempotent: calling with the same status re-serialises without

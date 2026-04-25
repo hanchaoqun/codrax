@@ -28,7 +28,7 @@ type PipelineSettings struct {
 	WriteRetryBudget int `yaml:"write_retry_budget"`
 
 	// BaselineCaptureEnabled toggles the pre-apply test snapshot
-	// that feeds CritNoRegression. When true, runApplyPhase runs
+	// that feeds CritNoRegression. When true, the apply stage hook runs
 	// run_tests once BEFORE the coder dispatches (against the fresh
 	// worktree which is still byte-identical to main repo HEAD),
 	// stores the result as Mutable.BaselineReport, and the

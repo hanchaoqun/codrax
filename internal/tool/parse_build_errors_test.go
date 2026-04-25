@@ -188,6 +188,36 @@ func TestRenderBuildFailureSummary_EmptyEverything(t *testing.T) {
 	}
 }
 
+// parseGoTestJSONLines: when go test reports a package-level "fail"
+// with zero per-test events (compile error path), the parser should
+// synthesise a build-error row + set BuildFailed=true so the
+// CritTestsPass evaluator surfaces "build failed before tests ran"
+// instead of "0 tests passed".
+func TestParseGoTest_CompileErrorMapsToBuildFailed(t *testing.T) {
+	// Simulate go test -json output for a package that fails to
+	// compile: only a package-level "fail" event with no per-test
+	// "run"/"pass"/"fail" events.
+	stdout := `{"Time":"2026-04-25T00:00:00Z","Action":"output","Package":"foo","Output":"./foo.go:5:1: syntax error: unexpected newline"}
+{"Time":"2026-04-25T00:00:00Z","Action":"fail","Package":"foo","Elapsed":0.01}
+`
+	report, err := parseGoTestJSONLines(stdout)
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Error("compile-error report should not Pass")
+	}
+	if !report.BuildFailed {
+		t.Error("BuildFailed should be set when package fails with no per-test events")
+	}
+	if len(report.TestResults) != 1 {
+		t.Fatalf("expected exactly one synthetic build-error row; got %d", len(report.TestResults))
+	}
+	if report.TestResults[0].Kind != types.TestResultKindBuildError {
+		t.Errorf("Kind = %q; want build_error", report.TestResults[0].Kind)
+	}
+}
+
 func TestFirstBuildErrorAssertionID(t *testing.T) {
 	if got := firstBuildErrorAssertionID(nil); got != "" {
 		t.Errorf("nil → empty; got %q", got)

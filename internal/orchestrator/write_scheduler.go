@@ -101,17 +101,29 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 
 		stepsUsed++
 		out, dispatchErr := o.dispatchStage(stage)
-		// Post-hook fires regardless of dispatchErr — it persists
-		// status / Result side-effects from whatever happened.
-		runStagePostHook(o, stage, out)
 
 		if dispatchErr != nil {
+			// Hard dispatch failure — agent / runtime crashed before
+			// returning a StageOutput. Skip the post-hook (out may be
+			// nil; post-hooks expect a meaningful StageOutput) and
+			// directly persist a per-stage failure status so the plan
+			// JSON reflects "this run broke at this stage".
 			logging.Error("[orchestrator] %s dispatch: %v", stage, dispatchErr)
+			switch stage {
+			case types.StageApply:
+				o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
+			case types.StageVerify:
+				o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
+			}
 			o.busCtx.TaskState.LastError = dispatchErr.Error()
 			state.markFailed(n.ID)
 			o.emitNodeEnd(n.ID, false, dispatchErr.Error())
 			break
 		}
+		// Soft (StageOutput-level) failures still get the post-hook
+		// because StageOutput is meaningful — the agent declared its
+		// failure mode in a structured form the post-hook can read.
+		runStagePostHook(o, stage, out)
 		// StageOutput.Error is the agent's structured failure
 		// (e.g. coder's "missing path X", verifier's "verify failed:
 		// 3 of 5 tests failed"). Treat it like a SuccessCriteria

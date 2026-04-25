@@ -149,7 +149,7 @@ type Env struct {
 	ChangeReport *types.ChangeReport
 
 	// BaselineReport is the pre-apply test snapshot (captured by
-	// runApplyPhase before the coder agent dispatches) used by
+	// the apply stage hook before the coder agent dispatches) used by
 	// evalNoRegression to detect tests that passed pre-apply but
 	// fail post-apply. Nil when baseline capture was skipped or
 	// the feature is disabled.

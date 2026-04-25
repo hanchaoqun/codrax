@@ -54,6 +54,7 @@ var writeStageHooks = map[types.PipelineStage]stageHooks{
 		Post: applyPostHook,
 	},
 	types.StageVerify: {
+		Pre:  verifyPreHook,
 		Post: verifyPostHook,
 	},
 }
@@ -149,7 +150,7 @@ func applyPreHook(o *Orchestrator) error {
 		o.busCtx.Mutable.SetChangePlan(plan)
 		// Seed PendingApplies so CritPlanReady passes on the first
 		// EntryConditions evaluation. Same shape the legacy
-		// runApplyPhase used.
+		// the apply stage hook used.
 		wc := o.busCtx.Mutable.WriteClosure()
 		for _, c := range plan.Changes {
 			wc.EnqueuePendingApply(types.PendingApply{
@@ -209,6 +210,36 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath))
 	logging.Info("[orchestrator] apply stage: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
+	return nil
+}
+
+// verifyPreHook loads the ChangePlan from disk when ModeVerify runs
+// standalone (`--mode=verify --plan-file=X` or REPL `/verify <id>`).
+// In ModeApply the plan is already on Mutable from the apply pre-hook
+// or the planner stage; only the standalone verify path needs to
+// hydrate it here. The verifier agent's BuildInitialInstruction reads
+// plan.AcceptanceTests, so without this load the prompt sees a nil
+// plan and short-circuits.
+//
+// No-op when ChangePlan is already set or PlanPath is empty.
+func verifyPreHook(o *Orchestrator) error {
+	if o == nil || o.busCtx == nil {
+		return nil
+	}
+	if o.busCtx.Mutable.ChangePlan() != nil {
+		return nil
+	}
+	if o.busCtx.PlanPath == "" {
+		return nil
+	}
+	plan, err := types.LoadChangePlanFromFile(o.busCtx.PlanPath)
+	if err != nil {
+		msg := fmt.Sprintf("verify stage: load plan file failed: %v", err)
+		o.busCtx.Mutable.SetResult(msg)
+		return fmt.Errorf("%s", msg)
+	}
+	o.busCtx.Mutable.SetChangePlan(plan)
+	logging.Info("[orchestrator] verify pre-hook: loaded plan %s from %s", plan.ID, o.busCtx.PlanPath)
 	return nil
 }
 

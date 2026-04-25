@@ -26,7 +26,7 @@ import (
 //     WriteClosure.AppliedSet — rejects out-of-order apply calls.
 //  5. Idempotency: if path is already in AppliedSet, return success
 //     without touching the filesystem (LLM re-emission is a no-op).
-//  6. File I/O against ctx.RepoRoot (which runApplyPhase swapped to
+//  6. File I/O against ctx.RepoRoot (which the apply stage hook swapped to
 //     the worktree directory). create / modify write a full body;
 //     delete removes the file; patch feeds `git apply -` a unified
 //     diff.
@@ -124,7 +124,7 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	plan := ctx.Mutable.ChangePlan()
 	if plan == nil {
 		return errResult(t.Name(),
-			"apply_patch rejected: no ChangePlan on Mutable — orchestrator's runApplyPhase did not load one. "+
+			"apply_patch rejected: no ChangePlan on Mutable — orchestrator's the apply stage hook did not load one. "+
 				"This tool is apply-stage only; calling it from another stage is a skill-configuration bug."), nil
 	}
 
@@ -228,7 +228,7 @@ func (t *ApplyPatch) Execute(ctx *types.BusContext, params json.RawMessage) (typ
 	}
 
 	// Resolve absolute path against the swapped RepoRoot. Day-2
-	// audit confirmed runApplyPhase has set ctx.RepoRoot to the
+	// audit confirmed the apply stage hook has set ctx.RepoRoot to the
 	// worktree checkout, so every write below lands inside the
 	// dry-run copy, not the main repo.
 	if ctx.RepoRoot == "" {

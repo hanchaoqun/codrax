@@ -123,7 +123,7 @@ type MutableState struct {
 
 	// changePlan is the B0 write-mode structured artifact produced
 	// by the planner agent (emit_change_plan tool writes it). Read
-	// by runPlanPhase after dispatchStage returns to render a
+	// by the plan stage hook after dispatchStage returns to render a
 	// human-visible summary into Result and by cmd/root.go to
 	// serialize the plan JSON to disk. Nil in read-mode and
 	// apply-mode (apply consumes a plan file, not this field).
@@ -136,7 +136,7 @@ type MutableState struct {
 	// parse of the language-specific test runner output);
 	// emit_test_results optionally decorates it with an LLM-
 	// authored FailureSummary narrative. Consumed by
-	// runVerifyPhase (writes to Mutable.Result + disk-side JSON
+	// the verify stage hook (writes to Mutable.Result + disk-side JSON
 	// under .codrax/plans/<plan-id>.report.json).
 	//
 	// Lifecycle mirrors changePlan: write-once-read-many, reset
@@ -144,11 +144,11 @@ type MutableState struct {
 	changeReport *ChangeReport
 
 	// baselineReport is the B2 pre-apply test snapshot captured by
-	// runApplyPhase before dispatching the coder agent. Consumed by
+	// the apply stage hook before dispatching the coder agent. Consumed by
 	// CritNoRegression to detect tests that passed before apply but
 	// fail after. Separate from changeReport (post-apply) so the
 	// diff is explicit and never confused. Nil when baseline
-	// capture is disabled via codrax.yaml or when runApplyPhase
+	// capture is disabled via codrax.yaml or when the apply stage hook
 	// skipped it (e.g. no test runner detected).
 	baselineReport *ChangeReport
 
@@ -1020,7 +1020,7 @@ func (m *MutableState) ResetAnswerDocument() {
 // Unlike SetAnswerDocument, the input is stored by pointer without
 // a deep copy — ChangePlan is conceptually write-once-read-many and
 // no caller ever mutates a ChangePlan in place. Downstream readers
-// (runPlanPhase, cmd/root.go's plan-out writer) treat the pointer
+// (the plan stage hook, cmd/root.go's plan-out writer) treat the pointer
 // as immutable.
 func (m *MutableState) SetChangePlan(plan *ChangePlan) {
 	if m == nil {
@@ -1032,7 +1032,7 @@ func (m *MutableState) SetChangePlan(plan *ChangePlan) {
 }
 
 // ChangePlan returns the buffered write-mode plan, or nil when no
-// plan has been emitted. Read by runPlanPhase after the planner
+// plan has been emitted. Read by the plan stage hook after the planner
 // agent completes; cmd/root.go reads it post-Run to serialize
 // JSON to disk via --plan-out.
 func (m *MutableState) ChangePlan() *ChangePlan {
@@ -1074,7 +1074,7 @@ func (m *MutableState) SetChangeReport(report *ChangeReport) {
 
 // ChangeReport returns the buffered verify-stage report, or nil
 // when verify has not run (or when it ran but produced no report
-// — the latter is a bug worth logging). Read by runVerifyPhase
+// — the latter is a bug worth logging). Read by the verify stage hook
 // to render Result + call WriteChangeReportToFile.
 func (m *MutableState) ChangeReport() *ChangeReport {
 	if m == nil {
@@ -1097,7 +1097,7 @@ func (m *MutableState) ResetChangeReport() {
 }
 
 // SetBaselineReport installs the pre-apply test snapshot. Called by
-// runApplyPhase before coder dispatch when baseline capture is
+// the apply stage hook before coder dispatch when baseline capture is
 // enabled. Pointer storage mirrors SetChangeReport.
 func (m *MutableState) SetBaselineReport(report *ChangeReport) {
 	if m == nil {

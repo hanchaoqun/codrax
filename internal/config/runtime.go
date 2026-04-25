@@ -168,7 +168,7 @@ type RuntimeSettings struct {
 	PipelineWriteRetryBudget *int `yaml:"pipeline_write_retry_budget"`
 
 	// PipelineBaselineCaptureEnabled toggles the pre-apply test
-	// snapshot that feeds CritNoRegression. When true, runApplyPhase
+	// snapshot that feeds CritNoRegression. When true, the apply stage hook
 	// runs run_tests BEFORE the coder dispatches so the subsequent
 	// verify stage has a Baseline vs Current diff to compare.
 	// Default false — the extra test run doubles wall time.

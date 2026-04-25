@@ -30,7 +30,7 @@ const (
 
 	// Write-mode stages. Only fire when BusContext.Mode is
 	// ModePlan / ModeApply / ModeVerify; Run()'s Mode switch
-	// dispatches to runPlanPhase / runApplyPhase / runVerifyPhase
+	// dispatches to the plan stage hook / the apply stage hook / the verify stage hook
 	// which set PipelineStage for observability. Each phase calls
 	// dispatchStage directly rather than routing through
 	// runTaskGraph (write mode bypasses the explore scheduler by
