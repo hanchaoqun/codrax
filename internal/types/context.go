@@ -1918,7 +1918,26 @@ type AgentContext struct {
 	// MaxIterOverride, when > 0, overrides the agent's default
 	// MaxIterations for this single dispatch. Used by the orchestrator
 	// to grant extra explorer iterations for multi-topic questions.
+	// This is the OUTER ReAct-loop ceiling (BaseAgent.Execute's
+	// for-loop bound). Distinct from the per-evaluator inner caps
+	// below — agents whose ShouldStop uses a soft/hard pair (planner /
+	// coder / verifier / extractor) have a separate per-dispatch
+	// channel because conflating them would force the outer loop to
+	// terminate at the inner soft cap, eliminating the recovery
+	// window the inner pair was designed to provide.
 	MaxIterOverride int `json:"-"`
+
+	// PlannerSoftIterCapOverride, when > 0, overrides the planner
+	// evaluator's default soft iteration cap for this single
+	// dispatch. The hard cap is derived as soft + the agent-settings
+	// recovery slack (default hard - default soft). Set by the
+	// orchestrator's per-dispatch scaling block based on the
+	// analyzer's complexity + sub-topic signals; the planner reads it
+	// in BuildInitialInstruction. Decoupled from MaxIterOverride
+	// because the planner's outer ReAct ceiling (default 20) MUST
+	// remain a strict superset of the inner soft cap so the
+	// soft→hard recovery window can actually run.
+	PlannerSoftIterCapOverride int `json:"-"`
 
 	// AttachedLog mirrors BusContext.AttachedLog into the narrowed
 	// agent view. Consumed by the log_triager agent and rendered as

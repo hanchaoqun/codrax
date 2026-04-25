@@ -22,6 +22,15 @@ import (
 	"github.com/hanchaoqun/codrax/internal/worktree"
 )
 
+// plannerScaledIterMax is the absolute ceiling on the planner soft
+// cap after the per-dispatch scaling block adds sub-topic + complexity
+// uplifts. The planner is single-emit (one emit_change_plan call per
+// dispatch); legitimate completion never needs more than this many
+// ReAct turns of preparation. Mirrors the explorer's hardcoded 35
+// ceiling — both are runaway-cost guards rather than tuning knobs,
+// hence not exposed via yaml.
+const plannerScaledIterMax = 20
+
 // Orchestrator is the Layer 1 component that drives the pipeline state
 // machine. It walks the hardcoded 4-stage topology (see topology.go),
 // manages BusContext, and dispatches agents.
@@ -2185,20 +2194,89 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 			stage, o.settings.Agent.PriorConvPolicy, priorVisible)
 	}
 
-	// Adaptive explorer iteration scaling for multi-topic questions.
-	if stage == types.StageExplore && o.busCtx.AnalysisIR != nil {
-		if nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics); nSub > 1 {
-			agentCfg := o.settings.Agent
-			base := agentCfg.MaxIterations
-			extra := nSub * agentCfg.SubTopicExplorerBudgetExtra
+	// Per-dispatch iteration budget scaling. Single source of truth
+	// for "how many iterations does THIS dispatch get" — driven by
+	// analyzer-supplied complexity signals (sub-topic count, complexity
+	// classification). Each agent has its own per-dispatch channel so
+	// outer-loop and inner-evaluator budgets stay decoupled:
+	//
+	//   - explorer: AgentContext.MaxIterOverride — outer ReAct loop
+	//     ceiling (BaseAgent.Execute's for-loop bound).
+	//   - planner: AgentContext.PlannerSoftIterCapOverride — inner
+	//     two-stage soft cap (recovery slack added by the evaluator
+	//     on top). Outer loop stays at the agent-settings default
+	//     (currently 20) so the soft→hard recovery window has room
+	//     to run. Conflating these into one field would force the
+	//     outer loop to terminate at the inner soft cap, eliminating
+	//     the recovery window the inner pair was designed to provide.
+	//
+	// The architectural rule: agent iteration budgets are NEVER
+	// hardcoded at construction. The orchestrator owns per-dispatch
+	// budget because it is the only layer that has all the relevant
+	// inputs (AnalysisIR + AgentSettings + stage). Hardcoded inner
+	// caps that ignore the analyzer's complexity signal are the
+	// anti-pattern this block exists to prevent.
+	if o.busCtx.AnalysisIR != nil {
+		nSub := len(o.busCtx.AnalysisIR.RequestModel.SubTopics)
+		complexity := o.busCtx.AnalysisIR.RequestModel.Complexity
+		agentCfg := o.settings.Agent
+		switch stage {
+		case types.StageExplore:
+			if nSub > 1 {
+				base := agentCfg.MaxIterations
+				extra := nSub * agentCfg.SubTopicExplorerBudgetExtra
+				adjusted := base + extra
+				if adjusted > 35 {
+					adjusted = 35
+				}
+				if adjusted > base {
+					agentCtx.MaxIterOverride = adjusted
+					logging.Debug("[orchestrator] multi-topic explorer scaling: %d sub-topics, iterations %d → %d",
+						nSub, base, adjusted)
+				}
+			}
+		case types.StagePlan:
+			// Planner soft-cap scaling. The default soft cap (6) is
+			// calibrated for ComplexitySimple single-topic plans
+			// (e.g. "fix this typo"). Real feature-add tasks are
+			// typically ComplexityModerate or higher with 2-3
+			// sub-topics, and the planner skill's Workflow step 1
+			// ("read and understand the current shape") is open-
+			// ended — it cannot be done in 6 iterations across a
+			// 3-sub-topic surface. Two orthogonal uplifts:
+			//
+			//   - SubTopicPlannerBudgetExtra (yaml:
+			//     agent_subtopic_planner_extra, default 3) per
+			//     sub-topic, applied when nSubTopics > 1.
+			//   - PlannerComplexityBudgetExtra (yaml:
+			//     agent_planner_complexity_extra, default 2) per
+			//     complexity level (Simple=0, Moderate=1, Complex=2)
+			//     so single-topic-but-subtle tasks still get
+			//     headroom.
+			//
+			// Hard cap at plannerScaledIterMax (20) bounds worst-
+			// case cost on a runaway dispatch — the planner is
+			// single-emit so legitimate completion never needs
+			// that many iterations.
+			base := agentCfg.PlannerSoftIterCap
+			extra := 0
+			if nSub > 1 {
+				extra += nSub * agentCfg.SubTopicPlannerBudgetExtra
+			}
+			switch complexity {
+			case types.ComplexityModerate:
+				extra += agentCfg.PlannerComplexityBudgetExtra
+			case types.ComplexityComplex:
+				extra += 2 * agentCfg.PlannerComplexityBudgetExtra
+			}
 			adjusted := base + extra
-			if adjusted > 35 {
-				adjusted = 35
+			if adjusted > plannerScaledIterMax {
+				adjusted = plannerScaledIterMax
 			}
 			if adjusted > base {
-				agentCtx.MaxIterOverride = adjusted
-				logging.Debug("[orchestrator] multi-topic explorer scaling: %d sub-topics, iterations %d → %d",
-					nSub, base, adjusted)
+				agentCtx.PlannerSoftIterCapOverride = adjusted
+				logging.Debug("[orchestrator] planner scaling: complexity=%s sub-topics=%d, soft cap %d → %d",
+					complexity, nSub, base, adjusted)
 			}
 		}
 	}

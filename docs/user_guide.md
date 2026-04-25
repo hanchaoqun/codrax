@@ -468,6 +468,8 @@ llm:
 |---|---|---|
 | `agent_subtopic_prescan_extra` | `1` | 每 2 个 sub-topic 加几轮 pre-scan |
 | `agent_subtopic_explorer_extra` | `3` | 每个 sub-topic 加几轮 explorer 迭代 |
+| `agent_subtopic_planner_extra` | `3` | 每个 sub-topic 加几次 planner soft-cap 迭代（写模式 `--mode=plan`）；硬顶 20 |
+| `agent_planner_complexity_extra` | `2` | analyzer 的 complexity 等级 × 此值额外加给 planner soft-cap：Simple +0、Moderate +2、Complex +4 |
 | `agent_subtopic_pipeline_extra` | `5` | 每个 sub-topic 加几步 pipeline |
 | `agent_subtopic_retry_extra` | `1` | 每 2 个 sub-topic 加几次 retry |
 

@@ -37,25 +37,60 @@ type plannerEvaluator struct {
 	// answerDocumentEvaluator.mu.
 	mu *types.MutableState
 
-	// Iteration caps populated from AgentSettings at construction.
-	// See types.AgentSettings.PlannerSoftIterCap / PlannerHardIterCap
-	// for the streaming-truncation recovery rationale.
-	softIterCap int
-	hardIterCap int
+	// Default iteration caps from AgentSettings — used as the floor
+	// when no per-dispatch override has been computed by the
+	// orchestrator (e.g. unit tests that bypass orchestrator wiring,
+	// or runs where the analyzer's IR is unavailable).
+	defaultSoftIterCap int
+	defaultHardIterCap int
+
+	// Per-dispatch caps captured in BuildInitialInstruction from
+	// ctx.MaxIterOverride. Zero means "no override seen — fall back
+	// to the defaults above." This mirrors the per-dispatch
+	// MaxIterOverride mechanism the explorer already consumes from
+	// AgentContext (see internal/agent/agent.go::maxIter resolution
+	// and orchestrator.go's per-dispatch scaling block). The single
+	// MaxIterOverride channel carries the orchestrator's complexity-
+	// aware budget decision; the planner interprets it as its inner-
+	// cap soft floor (recovery slack added on top).
+	dispatchSoftIterCap int
+	dispatchHardIterCap int
 }
 
-// BuildInitialInstruction captures the Mutable pointer for later
-// ShouldStop inspection and returns the PlanningHint supplement
-// when the orchestrator's verify→plan retry loop (B2.3) has
-// seeded one. The hint carries failure context from the previous
-// ChangeReport so the planner knows what to avoid on this retry.
-// When no hint is set (first attempt, or retry disabled), returns
-// empty string and the skill's Workflow/Goal/Prohibitions drive
-// the dispatch unchanged.
+// BuildInitialInstruction captures the Mutable pointer + per-dispatch
+// iteration cap override for later ShouldStop inspection, and returns
+// the PlanningHint supplement when the orchestrator's verify→plan
+// retry loop (B2.3) has seeded one. The hint carries failure context
+// from the previous ChangeReport so the planner knows what to avoid
+// on this retry. When no hint is set (first attempt, or retry
+// disabled), returns empty string and the skill's Workflow/Goal/
+// Prohibitions drive the dispatch unchanged.
+//
+// PlannerSoftIterCapOverride consumption: the orchestrator's
+// per-dispatch scaling block (orchestrator.go's StagePlan branch)
+// writes the analyzer-complexity-scaled soft cap to
+// ctx.PlannerSoftIterCapOverride. The hard cap is derived as soft +
+// the agent-settings recovery slack (default hard - default soft).
+// Zero override = no analyzer signal available → fall back to
+// agent-settings defaults so unit tests and degraded paths still
+// work. Distinct from MaxIterOverride (outer ReAct loop ceiling) so
+// the outer cap remains a strict superset of the inner soft cap and
+// the soft→hard recovery window can actually run.
 func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *skill.Config) string {
 	_ = sk
 	if ctx != nil {
 		e.mu = ctx.Mutable
+		if ctx.PlannerSoftIterCapOverride > 0 {
+			e.dispatchSoftIterCap = ctx.PlannerSoftIterCapOverride
+			recoverySlack := e.defaultHardIterCap - e.defaultSoftIterCap
+			if recoverySlack < 1 {
+				recoverySlack = 1
+			}
+			e.dispatchHardIterCap = e.dispatchSoftIterCap + recoverySlack
+		} else {
+			e.dispatchSoftIterCap = 0
+			e.dispatchHardIterCap = 0
+		}
 	}
 	if ctx == nil || ctx.Mutable == nil {
 		return ""
@@ -73,15 +108,17 @@ func (e *plannerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk *
 
 // ShouldStop terminates the ReAct loop as soon as a ChangePlan has
 // been installed on Mutable (emit_change_plan's happy path) or when
-// the loop has burned through its defensive iteration cap. The cap
-// is the two-stage soft/hard pair from AgentSettings (default 6/9 —
-// see types/config.go::DefaultAgentSettings); the planner's prompt
-// includes the structured "Analyzer Pre-scan Findings" section so
-// the LLM does not need to spend most of its budget re-discovering
-// entities/files the analyze stage already extracted.
+// the loop has burned through its iteration cap. The cap is the
+// per-dispatch value captured in BuildInitialInstruction; when no
+// per-dispatch override is present (zero value), the agent-settings
+// default takes over.
 func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	if e.mu != nil && e.mu.ChangePlan() != nil {
 		return true
+	}
+	soft, hard := e.dispatchSoftIterCap, e.dispatchHardIterCap
+	if soft <= 0 || hard <= soft {
+		soft, hard = e.defaultSoftIterCap, e.defaultHardIterCap
 	}
 	// Two-stage cap: soft cap is the normal stop; the soft→hard window
 	// spares one extra iteration whenever the LLM is actively calling
@@ -92,7 +129,7 @@ func (e *plannerEvaluator) ShouldStop(resp llm.Response, iteration int) bool {
 	// execution, so a flat soft-cap break would discard that recovery
 	// before it ever runs.
 	return iterationCapShouldStop(resp, iteration,
-		e.softIterCap, e.hardIterCap,
+		soft, hard,
 		emitChangePlanToolName)
 }
 
@@ -157,7 +194,7 @@ func (e *plannerEvaluator) DetermineMissingPiece(_ *types.AgentContext, output *
 // repo_map / exec_command / emit_change_plan).
 func NewPlannerAgent(deps *Dependencies) Agent {
 	return NewBaseAgent(types.AgentPlanner, deps, &plannerEvaluator{
-		softIterCap: deps.AgentSettings.PlannerSoftIterCap,
-		hardIterCap: deps.AgentSettings.PlannerHardIterCap,
+		defaultSoftIterCap: deps.AgentSettings.PlannerSoftIterCap,
+		defaultHardIterCap: deps.AgentSettings.PlannerHardIterCap,
 	})
 }

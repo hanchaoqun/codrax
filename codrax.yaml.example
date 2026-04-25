@@ -429,6 +429,18 @@
 # Extra explorer iterations per sub-topic. Adjusted MaxIterations capped at 35.
 # agent_subtopic_explorer_extra: 3
 
+# Extra planner soft-cap iterations per sub-topic (write mode --mode=plan).
+# Default 3. Adjusted soft cap is hard-capped at 20 (planner is single-emit).
+# Per-dispatch override via AgentContext.MaxIterOverride; consumed by
+# plannerEvaluator.BuildInitialInstruction.
+# agent_subtopic_planner_extra: 3
+
+# Per-complexity-level uplift to the planner soft cap. Multiplied by
+# the analyzer's Complexity classification: Simple = 0×, Moderate = 1×,
+# Complex = 2×. Default 2 → Moderate adds +2, Complex adds +4. Stacks
+# with agent_subtopic_planner_extra.
+# agent_planner_complexity_extra: 2
+
 # Extra pipeline steps per sub-topic. Adjusted step budget capped at 100.
 # agent_subtopic_pipeline_extra: 5
 

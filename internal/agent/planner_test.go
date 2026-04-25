@@ -8,17 +8,39 @@ import (
 )
 
 // newPlannerEvaluatorForTest builds a plannerEvaluator with the
-// resolved AgentSettings caps so the test stays in sync with whatever
-// defaults DefaultAgentSettings declares.
+// resolved AgentSettings defaults so the test stays in sync with
+// whatever DefaultAgentSettings declares. The evaluator's per-
+// dispatch cap fields are left zero — ShouldStop falls back to the
+// defaults when no orchestrator-set PlannerSoftIterCapOverride has been
+// captured via BuildInitialInstruction. Tests that exercise the
+// per-dispatch path call captureOverride() to install one.
 func newPlannerEvaluatorForTest(t *testing.T) *plannerEvaluator {
 	t.Helper()
 	s := types.ResolvedAgentSettings(types.AgentSettings{})
 	mu := types.NewMutableState("obj")
 	return &plannerEvaluator{
-		mu:          mu,
-		softIterCap: s.PlannerSoftIterCap,
-		hardIterCap: s.PlannerHardIterCap,
+		mu:                 mu,
+		defaultSoftIterCap: s.PlannerSoftIterCap,
+		defaultHardIterCap: s.PlannerHardIterCap,
 	}
+}
+
+// effectiveSoftCap returns the cap ShouldStop will compare against —
+// per-dispatch override when present, otherwise the agent-settings
+// default. Mirrors the resolution order in plannerEvaluator.ShouldStop
+// so tests assert on the same value the production code uses.
+func (e *plannerEvaluator) effectiveSoftCap() int {
+	if e.dispatchSoftIterCap > 0 && e.dispatchHardIterCap > e.dispatchSoftIterCap {
+		return e.dispatchSoftIterCap
+	}
+	return e.defaultSoftIterCap
+}
+
+func (e *plannerEvaluator) effectiveHardCap() int {
+	if e.dispatchSoftIterCap > 0 && e.dispatchHardIterCap > e.dispatchSoftIterCap {
+		return e.dispatchHardIterCap
+	}
+	return e.defaultHardIterCap
 }
 
 // TestPlannerShouldStop_PlanInstalledStops pins the happy-path exit:
@@ -39,9 +61,9 @@ func TestPlannerShouldStop_PlanInstalledStops(t *testing.T) {
 func TestPlannerShouldStop_BelowSoftCapContinues(t *testing.T) {
 	e := newPlannerEvaluatorForTest(t)
 
-	for i := 0; i < e.softIterCap; i++ {
+	for i := 0; i < e.effectiveSoftCap(); i++ {
 		if e.ShouldStop(llm.Response{}, i) {
-			t.Fatalf("expected continue at iter=%d (below soft cap %d)", i, e.softIterCap)
+			t.Fatalf("expected continue at iter=%d (below soft cap %d)", i, e.effectiveSoftCap())
 		}
 	}
 }
@@ -55,7 +77,7 @@ func TestPlannerShouldStop_SoftCapStopsWhenIdle(t *testing.T) {
 	resp := llm.Response{ToolCalls: []llm.ToolCall{
 		{Name: "read_file"},
 	}}
-	if !e.ShouldStop(resp, e.softIterCap) {
+	if !e.ShouldStop(resp, e.effectiveSoftCap()) {
 		t.Fatalf("expected stop at soft cap when LLM is not retrying emit_change_plan")
 	}
 }
@@ -71,7 +93,7 @@ func TestPlannerShouldStop_SoftCapAllowsEmitRetry(t *testing.T) {
 	resp := llm.Response{ToolCalls: []llm.ToolCall{
 		{Name: emitChangePlanToolName},
 	}}
-	if e.ShouldStop(resp, e.softIterCap) {
+	if e.ShouldStop(resp, e.effectiveSoftCap()) {
 		t.Fatalf("expected continue at soft cap when LLM is retrying emit_change_plan")
 	}
 }
@@ -85,8 +107,83 @@ func TestPlannerShouldStop_HardCapAlwaysStops(t *testing.T) {
 	resp := llm.Response{ToolCalls: []llm.ToolCall{
 		{Name: emitChangePlanToolName},
 	}}
-	if !e.ShouldStop(resp, e.hardIterCap) {
+	if !e.ShouldStop(resp, e.effectiveHardCap()) {
 		t.Fatalf("expected stop at hard cap regardless of tool calls")
+	}
+}
+
+// TestPlannerShouldStop_DispatchOverrideRaisesCap pins the
+// architectural fix for the cold-start STOP-at-iter=6 failure mode:
+// when the orchestrator computes a per-dispatch cap based on
+// analyzer signals (sub-topic count + complexity), the planner's
+// ShouldStop must respect it instead of the construction-time
+// default. Without this the inner cap stays at 6 regardless of
+// task complexity and feature-add requests fail at iter=6 even
+// when the analyzer correctly classified them as moderate/complex
+// with multiple sub-topics.
+func TestPlannerShouldStop_DispatchOverrideRaisesCap(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+
+	// Simulate orchestrator setting PlannerSoftIterCapOverride based on
+	// "moderate complexity, 3 sub-topics" — the exact shape of the
+	// failing SSH/MCP scenario.
+	ctx := &types.AgentContext{
+		Mutable:         e.mu,
+		PlannerSoftIterCapOverride: 13, // base 6 + 3*3 + moderate +2 = 17 capped — pick a representative value
+	}
+	_ = e.BuildInitialInstruction(ctx, nil)
+
+	if got := e.effectiveSoftCap(); got != 13 {
+		t.Errorf("effective soft cap = %d; want 13 (per-dispatch override)", got)
+	}
+	// Recovery slack from defaults (default hard 9 - default soft 6 = 3).
+	if got := e.effectiveHardCap(); got != 16 {
+		t.Errorf("effective hard cap = %d; want 16 (override + recovery slack)", got)
+	}
+
+	// Old default cap (6) must NOT terminate the loop now.
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, 6) {
+		t.Errorf("ShouldStop fired at iter=6 even though per-dispatch cap is 13 (regression: hardcoded inner cap)")
+	}
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, 12) {
+		t.Errorf("ShouldStop fired at iter=12 even though soft cap is 13")
+	}
+	// At soft cap with a non-recovery tool: stop.
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: "read_file"}}}, 13) {
+		t.Errorf("ShouldStop did NOT fire at soft cap 13 with non-recovery tool")
+	}
+	// At soft cap retrying emit_change_plan: continue.
+	if e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: emitChangePlanToolName}}}, 13) {
+		t.Errorf("ShouldStop fired at soft cap 13 even though LLM is retrying emit_change_plan")
+	}
+	// Hard cap stops unconditionally.
+	if !e.ShouldStop(llm.Response{ToolCalls: []llm.ToolCall{{Name: emitChangePlanToolName}}}, 16) {
+		t.Errorf("ShouldStop did NOT fire at hard cap 16")
+	}
+}
+
+// TestPlannerShouldStop_NoOverrideFallsBackToDefaults locks the
+// degraded path: when no per-dispatch cap has been computed (zero
+// PlannerSoftIterCapOverride — analyzer ran without IR, or unit-test bypass),
+// ShouldStop reverts to the agent-settings defaults.
+func TestPlannerShouldStop_NoOverrideFallsBackToDefaults(t *testing.T) {
+	e := newPlannerEvaluatorForTest(t)
+	d := types.ResolvedAgentSettings(types.AgentSettings{})
+
+	// No BuildInitialInstruction call — dispatch caps stay zero.
+	if got := e.effectiveSoftCap(); got != d.PlannerSoftIterCap {
+		t.Errorf("effective soft cap = %d; want default %d", got, d.PlannerSoftIterCap)
+	}
+	if got := e.effectiveHardCap(); got != d.PlannerHardIterCap {
+		t.Errorf("effective hard cap = %d; want default %d", got, d.PlannerHardIterCap)
+	}
+
+	// Zero override + BuildInitialInstruction = same fallback.
+	ctx := &types.AgentContext{Mutable: e.mu, PlannerSoftIterCapOverride: 0}
+	_ = e.BuildInitialInstruction(ctx, nil)
+	if got := e.effectiveSoftCap(); got != d.PlannerSoftIterCap {
+		t.Errorf("effective soft cap after zero-override BuildInitialInstruction = %d; want default %d",
+			got, d.PlannerSoftIterCap)
 	}
 }
 

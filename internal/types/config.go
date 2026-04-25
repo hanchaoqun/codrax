@@ -310,6 +310,31 @@ type AgentSettings struct {
 	// MaxIterations is capped at 35.
 	SubTopicExplorerBudgetExtra int `yaml:"subtopic_explorer_budget_extra"`
 
+	// SubTopicPlannerBudgetExtra is the number of extra planner
+	// soft-cap iterations granted per sub-topic when
+	// RequestModel.SubTopics > 1, applied on top of PlannerSoftIterCap.
+	// Default 3 — a typical sub-topic is "one new file area to read",
+	// and the planner skill's Workflow step 1 ("read and understand")
+	// needs ~3 iters per area for a real feature-add task. The
+	// orchestrator's per-dispatch scaling block consumes this and
+	// writes the adjusted value to AgentContext.MaxIterOverride; the
+	// planner reads it in BuildInitialInstruction. Adjusted soft cap
+	// is hard-capped at 20 because the planner is single-emit and
+	// any legitimate completion path stays well under that.
+	SubTopicPlannerBudgetExtra int `yaml:"subtopic_planner_budget_extra"`
+
+	// PlannerComplexityBudgetExtra is the per-complexity-level
+	// uplift to the planner soft cap, multiplied by the analyzer's
+	// classification: ComplexitySimple = 0×, ComplexityModerate = 1×,
+	// ComplexityComplex = 2×. Default 2 → Moderate gets +2, Complex
+	// gets +4. Stacks with SubTopicPlannerBudgetExtra so a
+	// "complex + 3 sub-topics" task gets base + 9 + 4 iterations
+	// before the soft cap. This decouples the "how much surface
+	// area" signal (sub-topics) from the "how subtle the change"
+	// signal (complexity); both are real workload drivers and the
+	// analyzer emits both independently.
+	PlannerComplexityBudgetExtra int `yaml:"planner_complexity_budget_extra"`
+
 	// SubTopicPipelineStepsExtra is the number of extra pipeline steps
 	// granted per sub-topic. Default 5. The adjusted step budget is
 	// capped at 100.
@@ -435,6 +460,8 @@ func DefaultAgentSettings() AgentSettings {
 		ExtractorHardIterCap:          5,
 		SubTopicPrescanBudgetExtra:    1,
 		SubTopicExplorerBudgetExtra:   3,
+		SubTopicPlannerBudgetExtra:    3,
+		PlannerComplexityBudgetExtra:  2,
 		SubTopicPipelineStepsExtra:    5,
 		SubTopicRetryBudgetExtra:      1,
 		InvestigationCompletePolicy:   ICPolicySoft,
@@ -532,6 +559,12 @@ func ResolvedAgentSettings(s AgentSettings) AgentSettings {
 	}
 	if s.SubTopicExplorerBudgetExtra == 0 {
 		s.SubTopicExplorerBudgetExtra = d.SubTopicExplorerBudgetExtra
+	}
+	if s.SubTopicPlannerBudgetExtra == 0 {
+		s.SubTopicPlannerBudgetExtra = d.SubTopicPlannerBudgetExtra
+	}
+	if s.PlannerComplexityBudgetExtra == 0 {
+		s.PlannerComplexityBudgetExtra = d.PlannerComplexityBudgetExtra
 	}
 	if s.SubTopicPipelineStepsExtra == 0 {
 		s.SubTopicPipelineStepsExtra = d.SubTopicPipelineStepsExtra

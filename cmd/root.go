@@ -1489,6 +1489,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.AgentSubTopicExplorerExtra != nil {
 			a.SubTopicExplorerBudgetExtra = *rs.AgentSubTopicExplorerExtra
 		}
+		if rs.AgentSubTopicPlannerExtra != nil {
+			a.SubTopicPlannerBudgetExtra = *rs.AgentSubTopicPlannerExtra
+		}
+		if rs.AgentPlannerComplexityExtra != nil {
+			a.PlannerComplexityBudgetExtra = *rs.AgentPlannerComplexityExtra
+		}
 		if rs.AgentSubTopicPipelineExtra != nil {
 			a.SubTopicPipelineStepsExtra = *rs.AgentSubTopicPipelineExtra
 		}
