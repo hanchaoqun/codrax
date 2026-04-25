@@ -480,6 +480,14 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 			})
 		}
 	}
+	if ac.AgentName != types.AgentPerfTriager {
+		if section := formatPerfTriageStructured(ac.PerfTrace); section != "" {
+			pc.UserSections = append(pc.UserSections, types.PromptSection{
+				Title:   "Perf Triage — Validated Extraction",
+				Content: section,
+			})
+		}
+	}
 
 	// Raw attached log body. Kept as a distinct section alongside the
 	// structured Validated Extraction above so the LLM can still read
@@ -1703,6 +1711,145 @@ func formatLogTriageStructured(bundle *types.LogBundle) string {
 		"error type) but do NOT cite their line numbers.\n")
 	b.WriteString("- Each frame carries the `raw:` original log text. Cross-check " +
 		"this against any quote you attribute to that frame in your answer.\n")
+
+	return strings.TrimRight(b.String(), "\n")
+}
+
+// formatPerfTriageStructured renders the validated PerfBundle as an
+// audit-friendly prompt section. Mirrors formatLogTriageStructured
+// for the performance channel: gives downstream agents a structured
+// view of jank windows, main-thread stalls, cold-start timing, and
+// signals without re-parsing the raw HiTrace / atrace text.
+//
+// Returns "" when bundle is nil or carries no actionable content
+// (zero frames + zero janks + zero stalls + nil startup + zero
+// residue). Caller skips the section.
+func formatPerfTriageStructured(bundle *types.PerfBundle) string {
+	if bundle == nil {
+		return ""
+	}
+	if len(bundle.Frames) == 0 && len(bundle.Janks) == 0 &&
+		len(bundle.Stalls) == 0 && bundle.Startup == nil &&
+		len(bundle.Residue) == 0 {
+		return ""
+	}
+
+	var b strings.Builder
+	b.WriteString("The attached performance trace was parsed into the structured view below. " +
+		"Prefer this view for citing jank frames, stall symbols, and cold-start " +
+		"measurements — the full raw trace is still in the next section for " +
+		"context the structured schema did not capture.\n\n")
+
+	// Meta block
+	if bundle.Meta.Source != "" {
+		fmt.Fprintf(&b, "- Source: %s\n", bundle.Meta.Source)
+	}
+	if bundle.Meta.DurationMs > 0 {
+		fmt.Fprintf(&b, "- Duration: %.1fms\n", bundle.Meta.DurationMs)
+	}
+	if bundle.Meta.AppPID != 0 {
+		fmt.Fprintf(&b, "- App PID: %d\n", bundle.Meta.AppPID)
+	}
+	if len(bundle.Meta.Signals) > 0 {
+		fmt.Fprintf(&b, "- Signals: %s\n", strings.Join(bundle.Meta.Signals, ", "))
+	}
+	if bundle.Meta.Summary != "" {
+		fmt.Fprintf(&b, "- Summary: %s\n", bundle.Meta.Summary)
+	}
+	if bundle.IntentHint != "" {
+		fmt.Fprintf(&b, "- Intent hint: %s\n", bundle.IntentHint)
+	}
+	fmt.Fprintf(&b, "- Coverage: %.2f\n\n", bundle.Coverage)
+
+	// Startup envelope
+	if bundle.Startup != nil {
+		fmt.Fprintf(&b, "**Startup**: mode=%s", bundle.Startup.Mode)
+		if bundle.Startup.AppLaunchMs > 0 {
+			fmt.Fprintf(&b, " app_launch=%.1fms", bundle.Startup.AppLaunchMs)
+		}
+		if bundle.Startup.AbilityInitMs > 0 {
+			fmt.Fprintf(&b, " ability_init=%.1fms", bundle.Startup.AbilityInitMs)
+		}
+		if bundle.Startup.FirstFrameMs > 0 {
+			fmt.Fprintf(&b, " first_frame=%.1fms", bundle.Startup.FirstFrameMs)
+		}
+		b.WriteString("\n\n")
+	}
+
+	// Janks — most actionable, list every entry up to schema cap.
+	if len(bundle.Janks) > 0 {
+		fmt.Fprintf(&b, "**Janks** (%d):\n", len(bundle.Janks))
+		for i, j := range bundle.Janks {
+			fmt.Fprintf(&b, "  [%d] start=%.1fms duration=%.1fms",
+				i+1, j.StartTsMs, j.DurationMs)
+			if j.TriggerSpan != "" {
+				fmt.Fprintf(&b, " trigger=`%s`", j.TriggerSpan)
+			}
+			if j.Reason != "" {
+				fmt.Fprintf(&b, " reason=%s", j.Reason)
+			}
+			b.WriteString("\n")
+			if len(j.Tags) > 0 {
+				fmt.Fprintf(&b, "      tags: %s\n", strings.Join(j.Tags, " → "))
+			}
+		}
+		b.WriteString("\n")
+	}
+
+	// Stalls — main-thread blocking calls. file:line is citation-grade.
+	if len(bundle.Stalls) > 0 {
+		fmt.Fprintf(&b, "**Stalls** (%d):\n", len(bundle.Stalls))
+		for i, s := range bundle.Stalls {
+			fmt.Fprintf(&b, "  [%d] start=%.1fms duration=%.1fms",
+				i+1, s.StartTsMs, s.DurationMs)
+			if s.Kind != "" {
+				fmt.Fprintf(&b, " kind=%s", s.Kind)
+			}
+			if s.Symbol != "" {
+				fmt.Fprintf(&b, " symbol=`%s`", s.Symbol)
+			}
+			if s.File != "" {
+				if s.Line > 0 {
+					fmt.Fprintf(&b, " (%s:%d ★ resolved)", s.File, s.Line)
+				} else {
+					fmt.Fprintf(&b, " (%s ★ resolved)", s.File)
+				}
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+
+	// Frames — janky-only summary (full list would flood prompt).
+	jankyFrames := 0
+	for _, f := range bundle.Frames {
+		if f.Janky {
+			jankyFrames++
+		}
+	}
+	if jankyFrames > 0 {
+		fmt.Fprintf(&b, "**Janky frames**: %d / %d (≥ %.1fms 60Hz budget)\n\n",
+			jankyFrames, len(bundle.Frames), types.PerfFrameBudget60HzMs)
+	}
+
+	// Residue
+	if len(bundle.Residue) > 0 {
+		fmt.Fprintf(&b, "**Residue** (%d unstructured chunks):\n", len(bundle.Residue))
+		for i, r := range bundle.Residue {
+			snippet := r
+			if len(snippet) > 160 {
+				snippet = snippet[:160] + "…"
+			}
+			fmt.Fprintf(&b, "  - [%d] %s\n", i+1, snippet)
+		}
+		b.WriteString("\n")
+	}
+
+	// Audit legend
+	b.WriteString("Citation contract:\n")
+	b.WriteString("- Stalls marked `★ resolved` carry a repo-relative path that survived os.Stat verification — those are citation-grade.\n")
+	b.WriteString("- Jank `trigger` and `tags` fields are tracing_mark_write tag literals from the trace — quote them verbatim, do NOT translate or paraphrase.\n")
+	b.WriteString("- Coverage < 1.0 means some trace bytes ended up in residue; treat residue chunks as advisory context, not as primary evidence.\n")
 
 	return strings.TrimRight(b.String(), "\n")
 }

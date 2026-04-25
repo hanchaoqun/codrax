@@ -222,7 +222,7 @@ func TestContextPressureForbiddenPatterns_PerAgentExtension(t *testing.T) {
 	// Shared core must appear for every agent.
 	for _, a := range []types.AgentName{
 		types.AgentAnalyzer, types.AgentExplorer, types.AgentExtractor,
-		types.AgentFinalizer, types.AgentLogTriager,
+		types.AgentFinalizer, types.AgentLogTriager, types.AgentPerfTriager,
 		types.AgentPlanner, types.AgentCoder, types.AgentVerifier,
 	} {
 		p := contextPressureForbiddenPatterns(a)
@@ -560,6 +560,7 @@ func TestToolChoiceForStage(t *testing.T) {
 		{types.StageExtract, "required"},
 		{types.StageFinalize, "required"},
 		{types.StageLogTriage, "required"},
+		{types.StagePerfTriage, "required"},
 		{types.StageExplore, ""},
 	}
 	for _, c := range cases {

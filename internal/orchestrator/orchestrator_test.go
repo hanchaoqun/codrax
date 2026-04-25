@@ -43,6 +43,7 @@ func buildRegistries(agentFns map[types.AgentName]func(*types.AgentContext, *ski
 	ar := agent.NewRegistry()
 	names := []types.AgentName{
 		types.AgentLogTriager,
+		types.AgentPerfTriager,
 		types.AgentAnalyzer,
 		types.AgentExplorer,
 		types.AgentExtractor,

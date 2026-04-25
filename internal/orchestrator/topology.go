@@ -15,12 +15,12 @@ import (
 // orchestrator now walks the DAG produced by the analyzer and only
 // needs agent/skill lookups per stage.
 //
-// Conditional pre-stages (currently only log_triage) live in
+// Conditional pre-stages (log_triage + perf_triage) live in
 // preStages below and are dispatched once each before analyze when
 // their Guard returns true. Pre-stages are ADVISORY: on failure
 // the orchestrator logs a warning and the main pipeline continues
-// with the relevant BusContext side-effect (e.g. bus.Mutable.LogTriage())
-// staying at its zero value.
+// with the relevant BusContext side-effect (e.g. bus.Mutable.LogTriage()
+// or bus.Mutable.PerfTrace()) staying at its zero value.
 var pipelineTopology = map[types.PipelineStage]struct {
 	Agent    types.AgentName
 	Skill    string

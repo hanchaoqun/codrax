@@ -658,17 +658,13 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		return failWithContext("%v", err)
 	}
 
-	// Session-22 follow-up — log-triage coverage gate.
+	// Log-triage coverage gate.
 	//
 	// When the user attached a runtime log and the log_triage
 	// pre-stage extracted structured errors with a Caused-by /
 	// Cause recursion chain, the answer MUST acknowledge every link
 	// in the chain by naming each error Type. A summary that names
-	// none of the real Types is almost certainly a hallucination
-	// (the 2026-04-21 logtri_java trace: LLM invented a servlet-
-	// container stack with fabricated file:line anchors, omitted
-	// both the RuntimeException outer frame and the IOException
-	// root cause from a 3-level Java Caused-by chain).
+	// none of the real Types is almost certainly a hallucination.
 	//
 	// Generalisation: works across every signal family (panic /
 	// crash / oom / timeout / db / network / validation / logic),

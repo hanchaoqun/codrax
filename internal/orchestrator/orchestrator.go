@@ -412,12 +412,12 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 
 	stepsUsed := 0
 
-	// Pre-Phase-1: conditional pre-stages (log_triage today). Each
-	// pre-stage runs at most once. Guard decides whether the stage
-	// fires for this Run. Failure is non-fatal — the main pipeline
-	// continues with the stage's BusContext side-effect at zero
-	// (e.g. bus.Mutable.LogTriage() stays nil, and downstream
-	// nil-checks degrade cleanly to pre-session-20 behaviour).
+	// Pre-Phase-1: conditional pre-stages (log_triage + perf_triage).
+	// Each pre-stage runs at most once. Guard decides whether the
+	// stage fires for this Run. Failure is non-fatal — the main
+	// pipeline continues with the stage's BusContext side-effect at
+	// zero (e.g. bus.Mutable.LogTriage() / .PerfTrace() stays nil,
+	// and downstream nil-checks degrade cleanly).
 	//
 	// Steps consumed by pre-stages count toward the same o.maxSteps
 	// budget as main stages so a runaway pre-stage cannot starve the

@@ -112,3 +112,22 @@ func TestTruncateAttachedToCap_PerChannelLabel(t *testing.T) {
 		t.Errorf("trace truncate failed: got %d", len(out))
 	}
 }
+
+// TestHardCeilingClamp_Constant pins the OOM-protection bound. A
+// drift here would let a misconfigured codrax.yaml allocate
+// arbitrary memory on a single attachment.
+func TestHardCeilingClamp_Constant(t *testing.T) {
+	want := 1 << 30 // 1 GiB
+	if maxAttachedLogHardCeiling != want {
+		t.Errorf("hard ceiling drifted: want %d, got %d", want, maxAttachedLogHardCeiling)
+	}
+}
+
+// TestDefaultsAre50MB pins the user-facing 50 MiB default for both
+// log and trace channels (trace inherits at startup).
+func TestDefaultsAre50MB(t *testing.T) {
+	want := 50 * 1024 * 1024
+	if defaultAttachedLogMaxBytes != want {
+		t.Errorf("log default: want %d, got %d", want, defaultAttachedLogMaxBytes)
+	}
+}
