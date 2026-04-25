@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/hanchaoqun/codrax/internal/tool/repomap"
 	repotypes "github.com/hanchaoqun/codrax/internal/tool/repomap/types"
 )
 
@@ -36,8 +37,16 @@ func TestScanConditionalPatterns(t *testing.T) {
 			`if (user.isAdmin()) {`, "user.isAdmin()"},
 		{"TS/switch", repotypes.LangTypeScript,
 			`switch (action.type) {`, "switch action.type"},
+		{"Kotlin/when", repotypes.LangKotlin,
+			`when (state) {`, "when state"},
 		{"Java/if", repotypes.LangJava,
 			`if (request.getMethod().equals("POST")) {`, `request.getMethod().equals("POST")`},
+		{"Swift/guard", repotypes.LangSwift,
+			`guard route != nil else {`, "guard route != nil"},
+		{"Ruby/unless", repotypes.LangRuby,
+			`unless cache_hit then`, "unless cache_hit"},
+		{"Lua/if-then", repotypes.LangLua,
+			`if route.enabled then`, "route.enabled"},
 		{"Rust/if", repotypes.LangRust,
 			`if self.budget > 0 {`, "self.budget > 0"},
 		{"Rust/match", repotypes.LangRust,
@@ -106,6 +115,18 @@ func TestScanEmbedsPatterns(t *testing.T) {
 		{"Java/extends", repotypes.LangJava,
 			`public class UserService extends AbstractService {`,
 			"extends AbstractService", 1},
+		{"Ruby/class-inherits", repotypes.LangRuby,
+			`class Greeter < BaseGreeter`,
+			"inherits BaseGreeter", 1},
+		{"Swift/class-inherits", repotypes.LangSwift,
+			`final class Greeter: NSObject, Greetable {`,
+			"inherits NSObject", 1},
+		{"Swift/protocol-inherits", repotypes.LangSwift,
+			`protocol Child: ParentA, ParentB {`,
+			"inherits ParentA", 2},
+		{"Lua/metatable-index", repotypes.LangLua,
+			`local Child = setmetatable({}, { __index = BaseHandler })`,
+			"inherits BaseHandler", 1},
 		{"Rust/supertrait", repotypes.LangRust,
 			`pub trait SubAgent: Agent + Send + Sync {`,
 			"supertrait Agent", 3},
@@ -161,6 +182,15 @@ func TestScanImplementsPatterns(t *testing.T) {
 		{"Java/implements", repotypes.LangJava,
 			`public class UserService implements Repository, Closeable {`,
 			"implements Repository", 2},
+		{"Swift/class-conformance", repotypes.LangSwift,
+			`final class Greeter: NSObject, Greetable, Sendable {`,
+			"implements Greetable", 2},
+		{"Swift/struct-conformance", repotypes.LangSwift,
+			`struct User: Codable, Sendable {`,
+			"implements Codable", 2},
+		{"Ruby/include", repotypes.LangRuby,
+			`include Enumerable, Comparable`,
+			"implements Enumerable", 2},
 		{"Rust/impl-for", repotypes.LangRust,
 			`impl SubAgent for SubExplorer {`,
 			"SubExplorer implements SubAgent", 1},
@@ -225,6 +255,18 @@ func TestScanErrorsPatterns(t *testing.T) {
 		{"Java/throw", repotypes.LangJava,
 			`throw new IllegalArgumentException("bad param");`,
 			"throws new IllegalArgumentException"},
+		{"Cangjie/throw", repotypes.LangCangjie,
+			`throw IllegalStateException("bad state")`,
+			"throws IllegalStateException"},
+		{"Ruby/raise", repotypes.LangRuby,
+			`raise ConfigError, "missing route"`,
+			"raises ConfigError"},
+		{"Swift/throw", repotypes.LangSwift,
+			`throw RoutingError.missingHandler`,
+			"throws RoutingError.missingHandler"},
+		{"Lua/error", repotypes.LangLua,
+			`error("route missing")`,
+			`"route missing"`},
 		{"Rust/Err", repotypes.LangRust,
 			`return Err(anyhow!("timeout"))`,
 			"Err"},
@@ -317,6 +359,92 @@ func (t *ExecCommand) Execute() error {
 		case "embeds", "implements", "conditional", "errors":
 			t.Errorf("lang=\"\" should not emit %q, got %+v", e.kind, e)
 		}
+	}
+}
+
+func TestExtractDeclarationConcreteValues(t *testing.T) {
+	t.Run("ruby class ancestry and mixins", func(t *testing.T) {
+		src := `class Greeter < BaseGreeter
+  include Enumerable
+  prepend Trackable
+end`
+		got := extractDeclarationConcreteValues(src, repotypes.LangRuby)
+		want := []string{
+			"embeds inherits BaseGreeter",
+			"implements implements Enumerable",
+			"implements implements Trackable",
+		}
+		for _, needle := range want {
+			found := false
+			for _, item := range got {
+				if item.kind+" "+item.value == needle {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Fatalf("missing %q in %+v", needle, got)
+			}
+		}
+	})
+
+	t.Run("swift inheritance and conformance", func(t *testing.T) {
+		src := `final class Greeter: NSObject, Greetable, Sendable {
+  func greet() -> String { "hi" }
+}`
+		got := extractDeclarationConcreteValues(src, repotypes.LangSwift)
+		if len(got) != 3 {
+			t.Fatalf("expected 3 declaration values, got %+v", got)
+		}
+		if got[0].kind != "embeds" || !strings.Contains(got[0].value, "NSObject") {
+			t.Fatalf("expected embeds NSObject first, got %+v", got)
+		}
+	})
+
+	t.Run("proto rpc contract", func(t *testing.T) {
+		src := `rpc Hello(Greeting) returns (google.protobuf.Empty);`
+		got := extractDeclarationConcreteValues(src, repotypes.LangProto)
+		if len(got) != 2 {
+			t.Fatalf("expected request+response rows, got %+v", got)
+		}
+		if got[0].kind != "maps" || got[0].value != "request => Greeting" {
+			t.Fatalf("unexpected request row: %+v", got[0])
+		}
+		if got[1].kind != "returns" || got[1].value != "google.protobuf.Empty" {
+			t.Fatalf("unexpected response row: %+v", got[1])
+		}
+	})
+}
+
+func TestConcreteValueSymbolKindCoverage(t *testing.T) {
+	for _, kind := range []string{
+		"function", "method", "ctor", "operator", "foreign-func",
+		"builder", "styles", "ui-entry", "suspend-function",
+		"extension-function", "extend",
+	} {
+		if !isConcreteValueBodySymbolKind(kind) {
+			t.Fatalf("body kind %q should be supported", kind)
+		}
+	}
+	for _, kind := range []string{
+		"class", "protocol", "module", "rpc", "service", "component",
+		"actor", "struct", "enum", "object", "companion-object",
+		"data-class", "sealed-class", "annotation",
+	} {
+		if !isConcreteValueDeclarationSymbolKind(kind) {
+			t.Fatalf("declaration kind %q should be supported", kind)
+		}
+	}
+	if isConcreteValueBodySymbolKind("class") {
+		t.Fatal("class should not be treated as body-scanned")
+	}
+}
+
+func TestConcreteValueMatchesFocus_OwnerOnly(t *testing.T) {
+	focus := map[string]bool{"greeter": true}
+	sym := &repomap.Symbol{Name: "Hello", Parent: "Greeter"}
+	if !concreteValueMatchesFocus(sym, focus) {
+		t.Fatal("owner-only focus should include service/class members")
 	}
 }
 

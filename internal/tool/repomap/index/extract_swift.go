@@ -9,11 +9,14 @@ import (
 )
 
 // extractSwift walks tree-sitter-swift output for top-level decls.
-// Swift surface is rich; we extract the structurally-interesting set:
+// Swift's grammar collapses several declaration forms into
+// class_declaration, so the extractor derives the real kind from the
+// source text and child nodes. The supported surface includes:
 //
 //   - function_declaration             → top-level func / method
-//   - class_declaration                → class
+//   - class_declaration                → class / struct / enum / actor / extension
 //   - protocol_declaration             → protocol
+//   - init_declaration                 → ctor
 //   - subscript_declaration            → method
 //   - import_declaration               → import path
 //
@@ -117,18 +120,11 @@ func swiftExtractFunc(node *sitter.Node, src []byte, file, parent string) (types
 }
 
 func swiftExtractType(node *sitter.Node, src []byte, file string) (cls []types.Symbol, methods []types.Symbol, rels []types.Relation) {
-	nameNode := childByType(node, "type_identifier")
-	if nameNode == nil {
-		nameNode = childByType(node, "simple_identifier")
-	}
-	if nameNode == nil {
+	name := swiftTypeName(node, src)
+	if name == "" {
 		return
 	}
-	name := nodeText(nameNode, src)
-	kind := "class"
-	if node.Type() == "protocol_declaration" {
-		kind = "protocol"
-	}
+	kind := swiftDeclKind(node, src)
 	cls = append(cls, types.Symbol{
 		Name:     name,
 		Kind:     kind,
@@ -141,7 +137,7 @@ func swiftExtractType(node *sitter.Node, src []byte, file string) (cls []types.S
 	for i := 0; i < int(node.NamedChildCount()); i++ {
 		ch := node.NamedChild(i)
 		switch ch.Type() {
-		case "type_inheritance_clause":
+		case "type_inheritance_clause", "inheritance_specifier":
 			for j := 0; j < int(ch.NamedChildCount()); j++ {
 				base := ch.NamedChild(j)
 				baseName := strings.TrimSpace(nodeText(base, src))
@@ -156,12 +152,20 @@ func swiftExtractType(node *sitter.Node, src []byte, file string) (cls []types.S
 					Line: nodeLine(base),
 				})
 			}
-		case "class_body", "protocol_body":
+		case "class_body", "protocol_body", "enum_class_body":
 			for j := 0; j < int(ch.NamedChildCount()); j++ {
 				member := ch.NamedChild(j)
 				switch member.Type() {
 				case "function_declaration":
 					if s, ok := swiftExtractFunc(member, src, file, name); ok {
+						methods = append(methods, s)
+					}
+				case "init_declaration":
+					if s, ok := swiftExtractInit(member, src, file, name); ok {
+						methods = append(methods, s)
+					}
+				case "subscript_declaration":
+					if s, ok := swiftExtractSubscript(member, src, file, name); ok {
 						methods = append(methods, s)
 					}
 				case "property_declaration":
@@ -173,6 +177,73 @@ func swiftExtractType(node *sitter.Node, src []byte, file string) (cls []types.S
 		}
 	}
 	return
+}
+
+func swiftTypeName(node *sitter.Node, src []byte) string {
+	if nameNode := childByType(node, "type_identifier"); nameNode != nil {
+		return nodeText(nameNode, src)
+	}
+	if nameNode := childByType(node, "simple_identifier"); nameNode != nil {
+		return nodeText(nameNode, src)
+	}
+	if userType := childByType(node, "user_type"); userType != nil {
+		if nameNode := childByType(userType, "type_identifier"); nameNode != nil {
+			return nodeText(nameNode, src)
+		}
+		if nameNode := childByType(userType, "simple_identifier"); nameNode != nil {
+			return nodeText(nameNode, src)
+		}
+	}
+	return ""
+}
+
+func swiftDeclKind(node *sitter.Node, src []byte) string {
+	if node.Type() == "protocol_declaration" {
+		return "protocol"
+	}
+	text := strings.TrimSpace(nodeText(node, src))
+	switch {
+	case strings.HasPrefix(text, "struct "):
+		return "struct"
+	case strings.HasPrefix(text, "enum "):
+		return "enum"
+	case strings.HasPrefix(text, "actor "):
+		return "actor"
+	case strings.HasPrefix(text, "extension "):
+		return "extend"
+	default:
+		return "class"
+	}
+}
+
+func swiftExtractInit(node *sitter.Node, src []byte, file, parent string) (types.Symbol, bool) {
+	if parent == "" {
+		return types.Symbol{}, false
+	}
+	return types.Symbol{
+		Name:     "init",
+		Kind:     "ctor",
+		File:     file,
+		Line:     nodeLine(node),
+		EndLine:  nodeEndLine(node),
+		Exported: !swiftHasModifier(node, src, "private") && !swiftHasModifier(node, src, "fileprivate"),
+		Parent:   parent,
+	}, true
+}
+
+func swiftExtractSubscript(node *sitter.Node, src []byte, file, parent string) (types.Symbol, bool) {
+	if parent == "" {
+		return types.Symbol{}, false
+	}
+	return types.Symbol{
+		Name:     "subscript",
+		Kind:     "method",
+		File:     file,
+		Line:     nodeLine(node),
+		EndLine:  nodeEndLine(node),
+		Exported: !swiftHasModifier(node, src, "private") && !swiftHasModifier(node, src, "fileprivate"),
+		Parent:   parent,
+	}, true
 }
 
 func swiftExtractProperty(node *sitter.Node, src []byte, file, parent string) (types.Symbol, bool) {

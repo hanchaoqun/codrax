@@ -15,7 +15,8 @@ import (
 // dedup are internal so the caller can unconditionally append.
 //
 // Supported languages (mirrors repomap/types/lang.go):
-//   Go, Python, JavaScript, TypeScript, Java, Rust, C, C++
+//   Go, Python, JavaScript, TypeScript, Java, Rust, C, C++,
+//   ArkTS, Cangjie, Kotlin, Ruby, Swift, Lua, Proto
 
 // ── P0.1: conditional ──────────────────────────────────────────────
 
@@ -41,7 +42,7 @@ func scanConditionalPatterns(lines []string, lang string) []concreteValueEntry {
 		}
 		out = append(out, concreteValueEntry{
 			kind:  "conditional",
-			value: "if " + cond,
+			value: formatConditionalValue(cond),
 		})
 	}
 	return out
@@ -56,6 +57,10 @@ func extractConditionExpr(line, lang string) string {
 		line = strings.TrimSpace(line[idx+len("else"):])
 	} else if idx := strings.Index(line, "elif "); idx >= 0 && (lang == repotypes.LangPython) {
 		line = "if " + strings.TrimSpace(line[idx+len("elif "):])
+	} else if idx := strings.Index(line, "elsif "); idx >= 0 && lang == repotypes.LangRuby {
+		line = "if " + strings.TrimSpace(line[idx+len("elsif "):])
+	} else if idx := strings.Index(line, "elseif "); idx >= 0 && lang == repotypes.LangLua {
+		line = "if " + strings.TrimSpace(line[idx+len("elseif "):])
 	}
 
 	switch {
@@ -64,12 +69,20 @@ func extractConditionExpr(line, lang string) string {
 		return extractBetween(line[3:], lang)
 	case strings.HasPrefix(line, "if("):
 		return extractBetween(line[2:], lang)
+	case strings.HasPrefix(line, "unless ") && lang == repotypes.LangRuby:
+		return "unless " + extractBetween(line[7:], lang)
+	case strings.HasPrefix(line, "guard ") && lang == repotypes.LangSwift:
+		return "guard " + extractGuardCondition(line[6:])
 
 	// switch / match
 	case strings.HasPrefix(line, "switch "):
 		return "switch " + extractBetween(line[7:], lang)
 	case strings.HasPrefix(line, "switch("):
-		return "switch" + extractBetween(line[6:], lang)
+		return "switch " + extractBetween(line[6:], lang)
+	case strings.HasPrefix(line, "case ") && lang == repotypes.LangRuby:
+		return "case " + extractBetween(line[5:], lang)
+	case strings.HasPrefix(line, "when ") && (lang == repotypes.LangKotlin || lang == repotypes.LangRuby):
+		return "when " + extractBetween(line[5:], lang)
 	case strings.HasPrefix(line, "match "):
 		return "match " + extractBetween(line[6:], lang)
 
@@ -89,6 +102,14 @@ func extractBetween(s, lang string) string {
 	switch lang {
 	case repotypes.LangPython:
 		end = strings.LastIndex(s, ":")
+	case repotypes.LangLua:
+		end = strings.LastIndex(s, " then")
+	case repotypes.LangRuby:
+		if idx := strings.LastIndex(s, " then"); idx >= 0 {
+			end = idx
+		} else if idx := strings.LastIndex(s, " do"); idx >= 0 {
+			end = idx
+		}
 	default:
 		end = strings.LastIndex(s, "{")
 	}
@@ -109,6 +130,26 @@ func extractBetween(s, lang string) string {
 		expr = expr[:80]
 	}
 	return strings.TrimSpace(expr)
+}
+
+func formatConditionalValue(cond string) string {
+	for _, prefix := range []string{"switch ", "match ", "case ", "when ", "guard ", "unless "} {
+		if strings.HasPrefix(cond, prefix) {
+			return cond
+		}
+	}
+	return "if " + cond
+}
+
+func extractGuardCondition(s string) string {
+	if idx := strings.Index(s, " else"); idx >= 0 {
+		s = s[:idx]
+	}
+	s = strings.TrimRight(s, " \t{")
+	if len(s) > 80 {
+		s = s[:80]
+	}
+	return strings.TrimSpace(s)
 }
 
 // isTrivialCondition filters conditions that carry zero domain
@@ -138,16 +179,20 @@ func isTrivialCondition(cond string) bool {
 
 // scanEmbedsPatterns detects type embedding / class inheritance.
 //
-// | Language   | Pattern                                    |
-// |------------|--------------------------------------------|
-// | Go         | bare type name in struct/interface body     |
-// | Python     | class Foo(Base1, Base2):                   |
-// | JS/TS      | class Foo extends Bar                      |
-// | TS         | interface I extends J, K                   |
-// | Java       | class Foo extends Bar                      |
-// | Rust       | trait Sub: Super + Super2                  |
-// | C++        | class D : public Base, protected Mixin     |
-// | C          | struct Foo { struct Bar base; }  (heuristic)|
+// | Language   | Pattern                                     |
+// |------------|---------------------------------------------|
+// | Go         | bare type name in struct/interface body      |
+// | Python     | class Foo(Base1, Base2):                    |
+// | JS/TS      | class Foo extends Bar                       |
+// | TS         | interface I extends J, K                    |
+// | Java       | class Foo extends Bar                       |
+// | Kotlin     | class Foo : Bar, IFace                      |
+// | Swift      | class Foo: Base, Proto / protocol P: Q      |
+// | Ruby       | class Foo < Base                            |
+// | Lua        | setmetatable(... { __index = Base })        |
+// | Rust       | trait Sub: Super + Super2                   |
+// | C++        | class D : public Base, protected Mixin      |
+// | C          | struct Foo { struct Bar base; }  (heuristic) |
 func scanEmbedsPatterns(lines []string, lang string) []concreteValueEntry {
 	var out []concreteValueEntry
 	for _, line := range lines {
@@ -253,6 +298,48 @@ func scanEmbedsPatterns(lines []string, lang string) []concreteValueEntry {
 						}
 					}
 				}
+			}
+
+		case repotypes.LangRuby:
+			if strings.HasPrefix(trimmed, "class ") && strings.Contains(trimmed, " < ") {
+				if idx := strings.Index(trimmed, " < "); idx > 0 {
+					base := strings.TrimSpace(trimmed[idx+3:])
+					for _, sep := range []string{";", " do", " {"} {
+						if cut := strings.Index(base, sep); cut > 0 {
+							base = base[:cut]
+						}
+					}
+					base = strings.TrimSpace(base)
+					if base != "" {
+						out = append(out, concreteValueEntry{
+							kind: "embeds", value: "inherits " + base,
+						})
+					}
+				}
+			}
+
+		case repotypes.LangSwift:
+			decl, items := extractSwiftInheritanceClause(trimmed)
+			switch decl {
+			case "class":
+				if len(items) > 0 {
+					out = append(out, concreteValueEntry{
+						kind: "embeds", value: "inherits " + items[0],
+					})
+				}
+			case "protocol":
+				for _, item := range items {
+					out = append(out, concreteValueEntry{
+						kind: "embeds", value: "inherits " + item,
+					})
+				}
+			}
+
+		case repotypes.LangLua:
+			if base := extractLuaMetaBase(trimmed); base != "" {
+				out = append(out, concreteValueEntry{
+					kind: "embeds", value: "inherits " + base,
+				})
 			}
 
 		case repotypes.LangCangjie:
@@ -418,14 +505,17 @@ func isGoEmbeddedField(trimmed string) bool {
 
 // scanImplementsPatterns detects interface implementation declarations.
 //
-// | Language   | Pattern                                    |
-// |------------|--------------------------------------------|
+// | Language   | Pattern                                     |
+// |------------|---------------------------------------------|
 // | Go         | var _ Interface = (*Type)(nil)              |
-// | TS         | class Foo implements I, J                  |
-// | Java       | class Foo implements I, J                  |
-// | Rust       | impl Trait for Type { ... }                |
+// | TS         | class Foo implements I, J                   |
+// | Java       | class Foo implements I, J                   |
+// | Kotlin     | class Foo : Base, IFace                     |
+// | Swift      | struct Foo: Proto / class Foo: Base, Proto  |
+// | Ruby       | include Enumerable / prepend Trackable      |
+// | Rust       | impl Trait for Type { ... }                 |
 // | C++        | (handled via embeds — virtual inheritance)  |
-// | Python/JS/C| — no concept, skip                         |
+// | Python/JS/C| — no concept, skip                          |
 func scanImplementsPatterns(lines []string, lang string) []concreteValueEntry {
 	var out []concreteValueEntry
 	for _, line := range lines {
@@ -534,6 +624,30 @@ func scanImplementsPatterns(lines []string, lang string) []concreteValueEntry {
 					}
 				}
 			}
+
+		case repotypes.LangSwift:
+			decl, items := extractSwiftInheritanceClause(trimmed)
+			switch decl {
+			case "class":
+				for _, item := range items[1:] {
+					out = append(out, concreteValueEntry{
+						kind: "implements", value: "implements " + item,
+					})
+				}
+			case "struct", "enum", "actor", "extension":
+				for _, item := range items {
+					out = append(out, concreteValueEntry{
+						kind: "implements", value: "implements " + item,
+					})
+				}
+			}
+
+		case repotypes.LangRuby:
+			for _, mixin := range extractRubyMixins(trimmed) {
+				out = append(out, concreteValueEntry{
+					kind: "implements", value: "implements " + mixin,
+				})
+			}
 		}
 	}
 	if len(out) > 6 {
@@ -546,15 +660,20 @@ func scanImplementsPatterns(lines []string, lang string) []concreteValueEntry {
 
 // scanErrorsPatterns detects error construction and signaling.
 //
-// | Language   | Pattern                                    |
-// |------------|--------------------------------------------|
-// | Go         | return fmt.Errorf / errors.New / panic     |
-// | Python     | raise XxxError(...)                        |
-// | JS/TS      | throw new Error(...)                       |
-// | Java       | throw new XxxException(...)                |
+// | Language   | Pattern                                     |
+// |------------|---------------------------------------------|
+// | Go         | return fmt.Errorf / errors.New / panic      |
+// | Python     | raise XxxError(...)                         |
+// | JS/TS      | throw new Error(...)                        |
+// | Java       | throw new XxxException(...)                 |
+// | Kotlin     | throw Xxx(...)                              |
+// | Cangjie    | throw Xxx(...) / panic(...)                 |
+// | Ruby       | raise FooError / fail "..."                 |
+// | Swift      | throw FooError / fatalError("...")          |
+// | Lua        | error("...")                                |
 // | Rust       | return Err(...) / panic!(...)               |
-// | C++        | throw std::xxx(...) / throw T{}            |
-// | C          | — no clean pattern, skip                   |
+// | C++        | throw std::xxx(...) / throw T{}             |
+// | C          | — no clean pattern, skip                    |
 func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 	var out []concreteValueEntry
 	const cap = 4
@@ -669,6 +788,206 @@ func scanErrorsPatterns(lines []string, lang string) []concreteValueEntry {
 					kind: "errors", value: "throws " + strings.TrimSpace(rest),
 				})
 			}
+
+		case repotypes.LangRuby:
+			if strings.HasPrefix(trimmed, "raise ") || strings.HasPrefix(trimmed, "fail ") {
+				rest := trimmed
+				rest = strings.TrimPrefix(rest, "raise ")
+				rest = strings.TrimPrefix(rest, "fail ")
+				rest = strings.TrimRight(rest, ";")
+				if len(rest) > 60 {
+					rest = rest[:60]
+				}
+				out = append(out, concreteValueEntry{
+					kind: "errors", value: "raises " + strings.TrimSpace(rest),
+				})
+			}
+
+		case repotypes.LangSwift:
+			switch {
+			case strings.HasPrefix(trimmed, "throw "):
+				rest := strings.TrimPrefix(trimmed, "throw ")
+				rest = strings.TrimRight(rest, ";")
+				if len(rest) > 60 {
+					rest = rest[:60]
+				}
+				out = append(out, concreteValueEntry{
+					kind: "errors", value: "throws " + strings.TrimSpace(rest),
+				})
+			case strings.Contains(trimmed, "fatalError(") || strings.Contains(trimmed, "preconditionFailure("):
+				msg := extractErrorMessage(trimmed)
+				out = append(out, concreteValueEntry{
+					kind: "errors", value: "fatal: " + msg,
+				})
+			}
+
+		case repotypes.LangLua:
+			if strings.Contains(trimmed, "error(") {
+				msg := extractErrorMessage(trimmed)
+				out = append(out, concreteValueEntry{
+					kind: "errors", value: "error: " + msg,
+				})
+			}
+		}
+	}
+	return out
+}
+
+// scanContractPatterns extracts declarative request/response facts from
+// non-executable contract languages. Today this is intentionally narrow:
+// proto RPC declarations map the request type to a lightweight `maps`
+// row and the response type to a `returns` row so the existing concrete-
+// value pipeline can carry API contracts without inventing new kinds.
+func scanContractPatterns(lines []string, lang string) []concreteValueEntry {
+	if lang != repotypes.LangProto {
+		return nil
+	}
+	var out []concreteValueEntry
+	const cap = 4
+	for _, line := range lines {
+		if len(out) >= cap {
+			break
+		}
+		req, resp, ok := extractProtoRPCContract(strings.TrimSpace(line))
+		if !ok {
+			continue
+		}
+		out = append(out, concreteValueEntry{
+			kind:  "maps",
+			value: "request => " + req,
+		})
+		if len(out) >= cap {
+			break
+		}
+		out = append(out, concreteValueEntry{
+			kind:  "returns",
+			value: resp,
+		})
+	}
+	return out
+}
+
+func extractSwiftInheritanceClause(trimmed string) (string, []string) {
+	for _, decl := range []string{"class", "struct", "enum", "actor", "protocol", "extension"} {
+		marker := decl + " "
+		idx := strings.Index(trimmed, marker)
+		if idx < 0 {
+			continue
+		}
+		if idx > 0 && trimmed[idx-1] != ' ' {
+			continue
+		}
+		after := trimmed[idx+len(marker):]
+		colon := strings.Index(after, ":")
+		if colon < 0 {
+			return decl, nil
+		}
+		clause := strings.TrimSpace(after[colon+1:])
+		for _, sep := range []string{" where ", "{", "{"} {
+			if cut := strings.Index(clause, sep); cut >= 0 {
+				clause = clause[:cut]
+			}
+		}
+		var items []string
+		for _, item := range splitCSVTrimmed(clause) {
+			item = strings.TrimPrefix(item, "any ")
+			if paren := strings.Index(item, "("); paren > 0 {
+				item = item[:paren]
+			}
+			if generic := strings.Index(item, "<"); generic > 0 {
+				item = item[:generic]
+			}
+			item = strings.TrimSpace(item)
+			if item != "" {
+				items = append(items, item)
+			}
+		}
+		return decl, items
+	}
+	return "", nil
+}
+
+func extractRubyMixins(trimmed string) []string {
+	for _, prefix := range []string{"include ", "prepend ", "extend "} {
+		if !strings.HasPrefix(trimmed, prefix) {
+			continue
+		}
+		return splitCSVTrimmed(trimmed[len(prefix):])
+	}
+	return nil
+}
+
+func extractLuaMetaBase(trimmed string) string {
+	idx := strings.Index(trimmed, "__index")
+	if idx < 0 {
+		return ""
+	}
+	rest := trimmed[idx+len("__index"):]
+	eq := strings.Index(rest, "=")
+	if eq < 0 {
+		return ""
+	}
+	rest = strings.TrimSpace(rest[eq+1:])
+	end := len(rest)
+	for i, r := range rest {
+		switch {
+		case r == ',' || r == '}' || r == ')' || r == ';' || r == ' ' || r == '\t':
+			end = i
+			goto done
+		}
+	}
+done:
+	base := strings.TrimSpace(rest[:end])
+	if base == "" || base == "self" || base == "nil" {
+		return ""
+	}
+	return base
+}
+
+func extractProtoRPCContract(trimmed string) (request, response string, ok bool) {
+	if !strings.HasPrefix(trimmed, "rpc ") {
+		return "", "", false
+	}
+	open := strings.Index(trimmed, "(")
+	if open < 0 {
+		return "", "", false
+	}
+	close := strings.Index(trimmed[open+1:], ")")
+	if close < 0 {
+		return "", "", false
+	}
+	close += open + 1
+	retIdx := strings.Index(trimmed[close+1:], "returns")
+	if retIdx < 0 {
+		return "", "", false
+	}
+	retIdx += close + 1
+	respOpen := strings.Index(trimmed[retIdx:], "(")
+	if respOpen < 0 {
+		return "", "", false
+	}
+	respOpen += retIdx
+	respClose := strings.Index(trimmed[respOpen+1:], ")")
+	if respClose < 0 {
+		return "", "", false
+	}
+	respClose += respOpen + 1
+	request = strings.TrimSpace(trimmed[open+1 : close])
+	response = strings.TrimSpace(trimmed[respOpen+1 : respClose])
+	request = strings.TrimSpace(strings.TrimPrefix(request, "stream "))
+	response = strings.TrimSpace(strings.TrimPrefix(response, "stream "))
+	if request == "" || response == "" {
+		return "", "", false
+	}
+	return request, response, true
+}
+
+func splitCSVTrimmed(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
 		}
 	}
 	return out

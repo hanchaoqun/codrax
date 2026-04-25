@@ -427,6 +427,24 @@ func TestExtractCallTargets_CapRespected(t *testing.T) {
 	}
 }
 
+func TestExtractCallTargetsWithLang_LuaColonCalls(t *testing.T) {
+	lines := []string{
+		`handler:dispatch(req)`,
+		`router:resolve(path)`,
+		`table.insert(xs, v)`, // stdlib-ish noise head
+	}
+	got := extractCallTargetsWithLang(lines, "lua", 6)
+	want := []string{"handler.dispatch", "router.resolve"}
+	if len(got) != len(want) {
+		t.Fatalf("got %v, want %v", got, want)
+	}
+	for i, item := range want {
+		if got[i] != item {
+			t.Fatalf("got %v, want %v", got, want)
+		}
+	}
+}
+
 // TestExtractConcreteValues_EmitsCallsKind is the end-to-end check
 // that cross-package method calls appear with kind="calls" in the
 // concreteValueEntry list.
@@ -447,6 +465,22 @@ func TestExtractConcreteValues_EmitsCallsKind(t *testing.T) {
 	}
 	if !hasCalls {
 		t.Errorf("expected \"calls → subRuntime.Run\" entry in %v", entries)
+	}
+}
+
+func TestExtractConcreteValues_EmitsLuaColonCallsKind(t *testing.T) {
+	src := `function Router:dispatch(req)
+  self.handler:process(req)
+end`
+	entries := extractConcreteValues(src, "lua")
+	hasCalls := false
+	for _, e := range entries {
+		if e.kind == "calls" && strings.Contains(e.value, "handler.process") {
+			hasCalls = true
+		}
+	}
+	if !hasCalls {
+		t.Errorf("expected Lua colon call to surface in %v", entries)
 	}
 }
 

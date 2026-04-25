@@ -128,6 +128,52 @@ func packagef(): Unit {}
 	}
 }
 
+func TestExtractCangjie_EndLinesPresentForBodies(t *testing.T) {
+	src := []byte(`
+package demo.lines
+
+extend String {
+    operator func >>(n: Int64): String {
+        this
+    }
+}
+
+public class Greeter {
+    init() {
+        println("hi")
+    }
+
+    public func greet(): String {
+        return "hi"
+    }
+}
+
+foreign func native_add(a: Int64, b: Int64): Int64
+`)
+	_, syms, _, _, _ := extractCangjie(src, "lines.cj")
+	assertEndLine := func(name, kind string, wantGreater bool) {
+		t.Helper()
+		for _, s := range syms {
+			if s.Name == name && s.Kind == kind {
+				if wantGreater && s.EndLine <= s.Line {
+					t.Fatalf("%s/%s EndLine=%d should be > Line=%d", name, kind, s.EndLine, s.Line)
+				}
+				if !wantGreater && s.EndLine != s.Line {
+					t.Fatalf("%s/%s EndLine=%d should equal Line=%d", name, kind, s.EndLine, s.Line)
+				}
+				return
+			}
+		}
+		t.Fatalf("missing symbol %s/%s in %+v", name, kind, symKeys(syms))
+	}
+
+	assertEndLine("String", "extend", true)
+	assertEndLine("Greeter", "class", true)
+	assertEndLine("init", "ctor", true)
+	assertEndLine("greet", "method", true)
+	assertEndLine("native_add", "foreign-func", false)
+}
+
 func containsSymbol(syms []types.Symbol, name, kind string) bool {
 	for _, s := range syms {
 		if s.Name == name && s.Kind == kind {

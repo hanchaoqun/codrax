@@ -48,10 +48,16 @@ struct Index {
 			if !s.Exported {
 				t.Errorf("@Entry component must be Exported")
 			}
+			if s.EndLine <= s.Line {
+				t.Errorf("component should carry block EndLine; got %+v", s)
+			}
 		case s.Kind == "ui-entry" && s.Name == "build":
 			foundBuild = true
 			if s.Parent != "Index" {
 				t.Errorf("build() should be parented to Index; got parent=%q", s.Parent)
+			}
+			if s.EndLine <= s.Line {
+				t.Errorf("build() should carry block EndLine; got %+v", s)
 			}
 		case s.Kind == "state-field" && s.Name == "message":
 			foundState = true
@@ -86,17 +92,24 @@ func TestExtractArkTS_BuilderDecorator(t *testing.T) {
 }
 `)
 	_, syms, _, _, _ := extractArkTS(src, "ui/util.ets")
-	kinds := map[string]string{}
+	kindByName := map[string]string{}
+	endLineByName := map[string]int{}
+	lineByName := map[string]int{}
 	for _, s := range syms {
-		kinds[s.Name] = s.Kind
+		kindByName[s.Name] = s.Kind
+		endLineByName[s.Name] = s.EndLine
+		lineByName[s.Name] = s.Line
 	}
 	for _, tc := range []struct{ name, wantKind string }{
 		{"GlobalCard", "builder"},
 		{"commonStyle", "styles"},
 		{"highlight", "extend"},
 	} {
-		if got := kinds[tc.name]; got != tc.wantKind {
+		if got := kindByName[tc.name]; got != tc.wantKind {
 			t.Errorf("symbol %q: want kind=%q, got %q", tc.name, tc.wantKind, got)
+		}
+		if endLineByName[tc.name] <= lineByName[tc.name] {
+			t.Errorf("symbol %q should carry block EndLine; got line=%d end=%d", tc.name, lineByName[tc.name], endLineByName[tc.name])
 		}
 	}
 }

@@ -2265,7 +2265,13 @@ func concreteValueMatchesFocus(sym *repomap.Symbol, focus map[string]bool) bool 
 	if owner == "" {
 		owner = sym.Parent
 	}
-	return owner != "" && focus[strings.ToLower(owner+"."+sym.Name)]
+	if owner == "" {
+		return false
+	}
+	if focus[strings.ToLower(owner)] {
+		return true
+	}
+	return focus[strings.ToLower(owner+"."+sym.Name)]
 }
 
 // buildPrimaryTargetBanner returns a prompt block that names the single
@@ -5739,16 +5745,34 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 		}
 		return strings.Join(lines[startLine-1:endLine], "\n")
 	}
+	getDeclarationSnippet := func(absPath string, startLine, endLine int) string {
+		lines := loadFileLines(absPath)
+		if lines == nil || startLine < 1 || startLine > len(lines) {
+			return ""
+		}
+		start := startLine - 1
+		end := len(lines)
+		if endLine >= startLine && endLine <= len(lines) {
+			end = endLine
+		}
+		if maxEnd := start + 12; end > maxEnd {
+			end = maxEnd
+		}
+		if end <= start {
+			return ""
+		}
+		return strings.Join(lines[start:end], "\n")
+	}
 
-	// Extract concrete values from source code functions. Three tiers:
+	// Extract concrete values from executable symbols. Three tiers:
 	//
-	// 1. Short methods (≤3 lines): full extraction of all patterns.
-	// 2. Registration functions (≤30 lines, name contains Register/Config/...):
+	// 1. Short bodies (≤3 lines): full extraction of all patterns.
+	// 2. Registration-like bodies (≤30 lines, name contains Register/Config/...):
 	//    full extraction but only bindings/maps kept.
-	// 3. Medium functions (4-100 lines): local line scan — only lines
+	// 3. Medium bodies (4-100 lines): local line scan — only lines
 	//    containing return/map/register patterns are extracted with ±1
 	//    line of context. This recovers concrete values from longer
-	//    functions without reading them entirely.
+	//    bodies without reading them entirely.
 	logging.Debug("[explorer] concrete values: scanning %d files (preScanned=%d, scored=%d, readSet=%d)",
 		len(filesToScan), len(e.preScannedFiles), len(e.allScoredFiles), len(readSet))
 	// Log which high-value files are in the scan set
@@ -5784,8 +5808,13 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 			if focus := focusSymbols[strings.TrimPrefix(file, "./")]; len(focus) > 0 && !concreteValueMatchesFocus(&sym, focus) {
 				continue
 			}
-			if sym.Kind != "method" && sym.Kind != "function" {
+			bodyKind := isConcreteValueBodySymbolKind(sym.Kind)
+			declKind := isConcreteValueDeclarationSymbolKind(sym.Kind)
+			if !bodyKind && !declKind {
 				st.symWrongKind++
+				continue
+			}
+			if !bodyKind {
 				continue
 			}
 			if sym.EndLine == 0 {
@@ -5898,6 +5927,41 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 				allValues = append(allValues, concreteValue{
 					file:     file,
 					receiver: owner,
+					method:   qualName,
+					kind:     cv.kind,
+					value:    cv.value,
+					line:     sym.Line,
+				})
+			}
+		}
+	}
+
+	// Declaration-level pass: executable-body scanners miss facts that
+	// live on type / protocol / RPC headers. Keep this pass narrow to
+	// declaration-shaped concrete values so we don't duplicate return /
+	// call rows from method bodies.
+	for file := range filesToScan {
+		fi, ok := graph.FileIndex[file]
+		if !ok {
+			continue
+		}
+		absPath := filepath.Join(repoRoot, fi.RelPath)
+		for _, sym := range fi.Symbols {
+			if focus := focusSymbols[strings.TrimPrefix(file, "./")]; len(focus) > 0 && !concreteValueMatchesFocus(&sym, focus) {
+				continue
+			}
+			if !isConcreteValueDeclarationSymbolKind(sym.Kind) {
+				continue
+			}
+			src := getDeclarationSnippet(absPath, sym.Line, sym.EndLine)
+			if src == "" {
+				continue
+			}
+			receiver, qualName := declarationConcreteValueContext(sym)
+			for _, cv := range extractDeclarationConcreteValues(src, fi.Language) {
+				allValues = append(allValues, concreteValue{
+					file:     file,
+					receiver: receiver,
 					method:   qualName,
 					kind:     cv.kind,
 					value:    cv.value,
@@ -7261,6 +7325,69 @@ type concreteValueEntry struct {
 	value string // the concrete value
 }
 
+func isConcreteValueBodySymbolKind(kind string) bool {
+	switch kind {
+	case "function", "method", "ctor", "operator", "foreign-func", "builder",
+		"styles", "ui-entry", "suspend-function", "extension-function", "extend":
+		return true
+	default:
+		return false
+	}
+}
+
+func isConcreteValueDeclarationSymbolKind(kind string) bool {
+	switch kind {
+	case "class", "module", "interface", "struct", "enum", "trait",
+		"protocol", "object", "data-class", "sealed", "sealed-class",
+		"type", "rpc", "service", "component", "actor",
+		"companion-object", "annotation":
+		return true
+	default:
+		return false
+	}
+}
+
+func extractDeclarationConcreteValues(source, lang string) []concreteValueEntry {
+	if lang == "" {
+		return nil
+	}
+	lines := stripCommentLines(strings.Split(source, "\n"))
+	if len(lines) == 0 {
+		return nil
+	}
+	var out []concreteValueEntry
+	out = append(out, scanContractPatterns(lines, lang)...)
+	out = append(out, scanEmbedsPatterns(lines, lang)...)
+	out = append(out, scanImplementsPatterns(lines, lang)...)
+	return out
+}
+
+func declarationConcreteValueContext(sym repomap.Symbol) (receiver, method string) {
+	if sym.Kind == "rpc" {
+		receiver = sym.Parent
+		if receiver == "" {
+			receiver = sym.Name
+		}
+		method = sym.Name
+		if receiver != "" && receiver != sym.Name {
+			method = receiver + "." + sym.Name
+		}
+		return receiver, method
+	}
+	receiver = sym.Name
+	method = sym.Name
+	if sym.Parent != "" {
+		method = sym.Parent + "." + sym.Name
+	}
+	if receiver == "" {
+		receiver = method
+	}
+	if method == "" {
+		method = receiver
+	}
+	return receiver, method
+}
+
 // extractBridgeLiteralChains produces deterministic
 // `A() binds ONLY NewB(...) → B.Name() returns "literal"` evidence
 // chains via a graph-wide cross-file join. This is the "production"
@@ -7303,7 +7430,7 @@ func extractBridgeLiteralChains(graph *repomap.Graph, repoRoot string, consumerV
 		return nil
 	}
 	// isRegName matches function names from the "registration family"
-	// across supported languages (Go/Java/Python/JS/TS/Rust/C). It is a
+	// across the currently indexed imperative languages. It is a
 	// structural heuristic: any such function MAY contain binding calls.
 	// False positives are filtered downstream because Pass C requires a
 	// paired identity method on the target class — functions named
@@ -7953,12 +8080,11 @@ func stripCommentLines(lines []string) []string {
 
 // extractConcreteValues parses a short source code snippet for patterns
 // that establish concrete values. The universal patterns are language-
-// agnostic (Go, Python, Java, TypeScript, Rust, C, C++ all share
-// enough surface syntax for return-literal / constructor-passing /
-// map-literal detection). Language-specific patterns layer on top
-// via the `lang` parameter — pass `""` for language-agnostic mode
-// (tests / fallback), or `types.LangGo` / `types.LangPython` /
-// ... for the full kind set available in that language.
+// agnostic (return literals, constructor-passing calls, map entries,
+// decorators, cross-component calls). Language-specific patterns layer
+// on top via the `lang` parameter — pass `""` for language-agnostic
+// mode (tests / fallback), or a concrete repomap language name for the
+// full executable/declarative pattern set available in that language.
 //
 // Universal kinds emitted (any language):
 //   - "returns"   — return literal / bool / nil / number
@@ -7968,15 +8094,13 @@ func stripCommentLines(lines []string) []string {
 //   - "maps"      — key:value map/dict literal entries
 //   - "calls"     — cross-component exported method call (T2a)
 //
-// Language-specific kinds emitted (when lang != ""):
-//   - "conditional" — if / switch / match / case guards (P0.1,
-//     8/8 languages)
-//   - "embeds"      — struct embedding / class inheritance (P0.2,
-//     8/8 languages)
-//   - "implements"  — interface implementation declaration (P0.3,
-//     Go / TypeScript / Java / Rust / C++)
-//   - "errors"      — throw / raise / panic / Err / Errorf (P0.4,
-//     7/8 languages, C skipped)
+// Language-aware kinds emitted (when lang != ""):
+//   - "conditional" — control-flow guards (if / switch / match / when / guard)
+//   - "embeds"      — type embedding / inheritance / mixin ancestry
+//   - "implements"  — interface / protocol / mixin conformance
+//   - "errors"      — throw / raise / panic / fatal error construction
+//   - proto contract rows reuse "maps" + "returns" so RPC request /
+//     response types flow through the existing evidence pipeline.
 func extractConcreteValues(source, lang string) []concreteValueEntry {
 	var results []concreteValueEntry
 	// Pre-strip comment-only lines so none of the pattern scanners
@@ -8246,17 +8370,17 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 		})
 	}
 
-	// P0 (4 new kinds, language-aware): conditional, embeds,
-	// implements, errors. Each detector is safe to call with any
-	// language — it either dispatches to a language-specific
-	// scanner or returns nil for "this language has no clean
-	// pattern for this kind" (e.g. implements on JavaScript).
+	// Language-aware structural facts: executable snippets can emit
+	// conditionals / embeds / implements / errors, and declarative
+	// snippets (today: proto RPC headers) can also project request /
+	// response contracts via the existing maps / returns kinds.
 	//
 	// Ordering matters: emit language-specific kinds BEFORE the
 	// universal "calls" detector so the final slice reads
 	// naturally (declarations first, references last) when
 	// rendered into the Concrete Values table.
 	if lang != "" {
+		results = append(results, scanContractPatterns(lines, lang)...)
 		results = append(results, scanConditionalPatterns(lines, lang)...)
 		results = append(results, scanEmbedsPatterns(lines, lang)...)
 		results = append(results, scanImplementsPatterns(lines, lang)...)
@@ -8295,7 +8419,7 @@ func extractConcreteValues(source, lang string) []concreteValueEntry {
 	//     utility package (fmt, strings, log, logging, errors, …).
 	//   - Per-snippet cap: at most 6 calls surface so the concrete-
 	//     values table doesn't flood on long function bodies.
-	if calls := extractCallTargets(lines, 6); len(calls) > 0 {
+	if calls := extractCallTargetsWithLang(lines, lang, 6); len(calls) > 0 {
 		for _, c := range calls {
 			results = append(results, concreteValueEntry{
 				kind:  "calls",
@@ -8390,6 +8514,16 @@ var callTargetNoiseReceivers = map[string]bool{
 	// the common noise shapes on these receivers.
 }
 
+// callTargetNoiseReceiversByLang keeps language-local library heads out
+// of the cross-component call detector without globally blocking the
+// same identifier in unrelated languages.
+var callTargetNoiseReceiversByLang = map[string]map[string]bool{
+	"lua": {
+		"table": true, "string": true, "math": true, "coroutine": true,
+		"utf8": true, "os": true, "io": true, "package": true, "debug": true,
+	},
+}
+
 // callTargetNoiseMethods is the set of method names that should
 // NEVER produce a "calls" entry regardless of receiver. These are
 // value-extraction, formatting, and comparison helpers.
@@ -8421,8 +8555,17 @@ var callTargetNoiseMethods = map[string]bool{
 	"Append": true,
 }
 
-// extractCallTargets scans `lines` for method-call expressions that
-// transfer control to an identifiable cross-component target, and
+// extractCallTargets is the language-agnostic wrapper kept for tests
+// and older call sites. Languages with extra member-call separators
+// (currently Lua's `:`) should use extractCallTargetsWithLang so the
+// detector can normalize them without broadening every language's
+// false-positive surface.
+func extractCallTargets(lines []string, maxCalls int) []string {
+	return extractCallTargetsWithLang(lines, "", maxCalls)
+}
+
+// extractCallTargetsWithLang scans `lines` for method-call expressions
+// that transfer control to an identifiable cross-component target, and
 // returns a deduplicated list of targets in the form "Receiver.Method".
 // The result is capped at `maxCalls` entries so long function bodies
 // don't flood the concrete-values table.
@@ -8430,6 +8573,8 @@ var callTargetNoiseMethods = map[string]bool{
 // Recognition (conservative on purpose):
 //   - Line contains `<receiver>.<Method>(` where Method starts with
 //     an uppercase letter.
+//   - Lua may also use `<receiver>:<method>(`; when lang=="lua" the
+//     `:` form is normalized to the same target shape.
 //   - Receiver chain has >=1 dot. Bare function calls (`Foo(...)`)
 //     are handled by the constructor-passing detector when they are
 //     interesting; a bare call here would flood the output.
@@ -8443,7 +8588,7 @@ var callTargetNoiseMethods = map[string]bool{
 // (e.g. `o.subRuntime.Run` → `subRuntime.Run`, `Reducer.Reduce` →
 // `Reducer.Reduce`). This is the shape the synthesis prompt renders
 // in the Concrete Values table's "Fact" column.
-func extractCallTargets(lines []string, maxCalls int) []string {
+func extractCallTargetsWithLang(lines []string, lang string, maxCalls int) []string {
 	if maxCalls <= 0 {
 		maxCalls = 6
 	}
@@ -8458,7 +8603,7 @@ func extractCallTargets(lines []string, maxCalls int) []string {
 			strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		for _, target := range scanCallTargetsInLine(trimmed) {
+		for _, target := range scanCallTargetsInLineWithLang(trimmed, lang) {
 			if seen[target] {
 				continue
 			}
@@ -8472,6 +8617,10 @@ func extractCallTargets(lines []string, maxCalls int) []string {
 	return out
 }
 
+func scanCallTargetsInLine(line string) []string {
+	return scanCallTargetsInLineWithLang(line, "")
+}
+
 // scanCallTargetsInLine finds all `<chain>.<Method>(` call-open
 // positions on a single line and returns their normalized form.
 // Multiple calls on one line (chained calls like
@@ -8483,7 +8632,7 @@ func extractCallTargets(lines []string, maxCalls int) []string {
 // classification. A proper lexer would be more robust but this is
 // a pattern-sniffer over short snippets, not a compiler — the
 // filtering lists above are the real precision gate.
-func scanCallTargetsInLine(line string) []string {
+func scanCallTargetsInLineWithLang(line, lang string) []string {
 	var targets []string
 	for i := 0; i < len(line); i++ {
 		if line[i] != '(' {
@@ -8507,6 +8656,9 @@ func scanCallTargetsInLine(line string) []string {
 		chain := line[start:end]
 		if chain == "" {
 			continue
+		}
+		if lang == "lua" {
+			chain = strings.ReplaceAll(chain, ":", ".")
 		}
 		// Normalize separators: :: and -> become . so the rest of
 		// the logic works uniformly.
@@ -8545,6 +8697,9 @@ func scanCallTargetsInLine(line string) []string {
 			head = head[:dot]
 		}
 		if callTargetNoiseReceivers[head] {
+			continue
+		}
+		if extra := callTargetNoiseReceiversByLang[lang]; extra != nil && extra[head] {
 			continue
 		}
 		// Normalize receiver to the LAST identifier in the chain.

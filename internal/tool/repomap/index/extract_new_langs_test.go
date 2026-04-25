@@ -121,15 +121,79 @@ class Greeter: NSObject, Greetable {
 func topLevel(x: Int) -> Int { return x + 1 }
 `
 	root := parseSourceFor(t, "swift", src)
-	_, syms, imps, _ := extractSwift(root, []byte(src), "Sources/Greeter/Greeter.swift")
+	_, syms, imps, rels := extractSwift(root, []byte(src), "Sources/Greeter/Greeter.swift")
 	names := symbolNames(syms)
-	for _, want := range []string{"Greetable", "Greeter", "greet", "topLevel"} {
+	for _, want := range []string{"Greetable", "Greeter", "greet", "topLevel", "init"} {
 		if !contains(names, want) {
 			t.Errorf("missing symbol %q in %v", want, names)
 		}
 	}
 	if len(imps) == 0 || imps[0].Path != "Foundation" {
 		t.Errorf("Foundation import missing; got %v", imps)
+	}
+	hasInheritance := false
+	for _, r := range rels {
+		if r.Kind == "inheritance" && (r.To == "NSObject" || r.To == "Greetable") {
+			hasInheritance = true
+			break
+		}
+	}
+	if !hasInheritance {
+		t.Errorf("Greeter inheritance/conformance missing; got %+v", rels)
+	}
+}
+
+func TestExtractSwift_StructExtensionActorKinds(t *testing.T) {
+	src := `struct User: Codable {
+    let name: String
+    init(name: String) {
+        self.name = name
+    }
+}
+
+extension User: CustomStringConvertible {
+    func render() -> String {
+        return name
+    }
+}
+
+actor Loader {
+    func load() async throws -> Int {
+        return 1
+    }
+}
+`
+	root := parseSourceFor(t, "swift", src)
+	_, syms, _, rels := extractSwift(root, []byte(src), "Sources/App/Models.swift")
+
+	hasStruct := false
+	hasExtend := false
+	hasCtor := false
+	hasActor := false
+	for _, s := range syms {
+		switch {
+		case s.Name == "User" && s.Kind == "struct":
+			hasStruct = true
+		case s.Name == "User" && s.Kind == "extend":
+			hasExtend = true
+		case s.Name == "init" && s.Kind == "ctor" && s.Parent == "User":
+			hasCtor = true
+		case s.Name == "Loader" && s.Kind == "actor":
+			hasActor = true
+		}
+	}
+	if !hasStruct || !hasExtend || !hasCtor || !hasActor {
+		t.Fatalf("swift kinds missing: struct=%v extend=%v ctor=%v actor=%v syms=%+v", hasStruct, hasExtend, hasCtor, hasActor, syms)
+	}
+	hasConformance := false
+	for _, r := range rels {
+		if r.Kind == "inheritance" && r.To == "CustomStringConvertible" {
+			hasConformance = true
+			break
+		}
+	}
+	if !hasConformance {
+		t.Errorf("extension conformance missing; got %+v", rels)
 	}
 }
 

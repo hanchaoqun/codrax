@@ -209,7 +209,7 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 			Kind:     kind,
 			File:     file,
 			Line:     line,
-			EndLine:  findStructEndLine(lines, line),
+			EndLine:  findBlockEndLine(lines, line),
 			Exported: exported,
 			Doc:      decoratorsAsDoc(decorators),
 		})
@@ -224,6 +224,7 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 			Kind:     "ui-entry",
 			File:     file,
 			Line:     line,
+			EndLine:  findBlockEndLine(lines, line),
 			Exported: true, // build() is always module-visible to runtime
 			Parent:   parent,
 		})
@@ -234,14 +235,16 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 		name := srcStr[m[2]:m[3]]
 		line := byteOffsetToLine(srcStr, m[0])
 		syms = append(syms, types.Symbol{
-			Name: name, Kind: "builder", File: file, Line: line, Exported: true,
+			Name: name, Kind: "builder", File: file, Line: line,
+			EndLine: findBlockEndLine(lines, line), Exported: true,
 		})
 	}
 	for _, m := range stylesFunctionRegex.FindAllStringSubmatchIndex(srcStr, -1) {
 		name := srcStr[m[2]:m[3]]
 		line := byteOffsetToLine(srcStr, m[0])
 		syms = append(syms, types.Symbol{
-			Name: name, Kind: "styles", File: file, Line: line, Exported: true,
+			Name: name, Kind: "styles", File: file, Line: line,
+			EndLine: findBlockEndLine(lines, line), Exported: true,
 		})
 	}
 	for _, m := range extendFunctionRegex.FindAllStringSubmatchIndex(srcStr, -1) {
@@ -253,6 +256,7 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 			Kind:     "extend",
 			File:     file,
 			Line:     line,
+			EndLine:  findBlockEndLine(lines, line),
 			Parent:   target,
 			Exported: true,
 			Doc:      "extends " + target,
@@ -350,11 +354,11 @@ func walkBackForDecorators(lines []string, targetLine int) []string {
 	return out
 }
 
-// findStructEndLine scans forward from `startLine` until brace
-// balance returns to 0. Returns the 1-based line number of the
-// closing brace, or startLine if no matching brace is found
-// (broken file — Tier 2 salvage path).
-func findStructEndLine(lines []string, startLine int) int {
+// findBlockEndLine scans forward from `startLine` until brace balance
+// returns to 0. It works for component structs and decorator-driven
+// function-like blocks because all of them use the same `{...}` surface
+// in ArkTS source.
+func findBlockEndLine(lines []string, startLine int) int {
 	if startLine <= 0 || startLine > len(lines) {
 		return startLine
 	}

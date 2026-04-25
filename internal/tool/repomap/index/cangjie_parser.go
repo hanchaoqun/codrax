@@ -268,20 +268,20 @@ func (p *cangjieParser) parseTypeDecl(keyword string, mods, decorators []string,
 		Kind:     keyword,
 		File:     p.file,
 		Line:     start.Line,
+		EndLine:  start.Line,
 		Exported: exported,
 		Parent:   parent,
 		Doc:      modifierDoc(mods),
 	}
+	idx := len(p.syms)
 	p.syms = append(p.syms, sym)
 
 	// Descend into body. Body is optional for interface method
-	// declarations without bodies; we still emit end-line by walking.
+	// declarations without bodies; when present we record the
+	// closing-brace line so read-mode scanners can slice the body.
 	if p.cur().Kind == cjTokLBrace {
-		p.parseBody(name)
+		p.syms[idx].EndLine = p.parseBody(name)
 	}
-	// EndLine can't be set precisely here without tracking, but
-	// future consumers can compute it from the closing brace; for
-	// now leave 0 (consistent with cached graph format).
 }
 
 // parseExtendDecl — `extend TargetType [<: Trait]* { ... }`.
@@ -312,10 +312,12 @@ func (p *cangjieParser) parseExtendDecl(mods, decorators []string) {
 		Kind:     "extend",
 		File:     p.file,
 		Line:     start.Line,
+		EndLine:  start.Line,
 		Exported: true,
 		Parent:   p.pkg,
 		Doc:      modifierDoc(mods),
 	})
+	idx := len(p.syms) - 1
 	p.rels = append(p.rels, types.Relation{
 		Kind: "inheritance",
 		From: p.file + ":extend",
@@ -328,7 +330,7 @@ func (p *cangjieParser) parseExtendDecl(mods, decorators []string) {
 	})
 
 	if p.cur().Kind == cjTokLBrace {
-		p.parseBody(target)
+		p.syms[idx].EndLine = p.parseBody(target)
 	}
 }
 
@@ -356,15 +358,17 @@ func (p *cangjieParser) parseFuncDecl(mods, decorators []string, parent string) 
 		Kind:     kind,
 		File:     p.file,
 		Line:     start.Line,
+		EndLine:  start.Line,
 		Exported: hasExportModifier(mods) || parent == "" && len(decorators) > 0,
 		Parent:   parent,
 		Arity:    arity,
 		Doc:      modifierDoc(mods),
 	})
+	idx := len(p.syms) - 1
 
 	// Body may be absent (interface method). If present, skip it.
 	if p.cur().Kind == cjTokLBrace {
-		p.skipBalanced(cjTokLBrace, cjTokRBrace)
+		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
 	}
 }
 
@@ -389,6 +393,7 @@ func (p *cangjieParser) parseForeignFunc(mods, decorators []string) {
 		Kind:     "foreign-func",
 		File:     p.file,
 		Line:     start.Line,
+		EndLine:  start.Line,
 		Exported: true,
 		Doc:      strings.TrimSpace("foreign " + modifierDoc(mods)),
 	})
@@ -443,12 +448,14 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 		Kind:     "operator",
 		File:     p.file,
 		Line:     start.Line,
+		EndLine:  start.Line,
 		Exported: hasExportModifier(mods),
 		Parent:   parent,
 		Doc:      strings.TrimSpace("operator " + modifierDoc(mods)),
 	})
+	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
-		p.skipBalanced(cjTokLBrace, cjTokRBrace)
+		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
 	}
 }
 
@@ -462,12 +469,14 @@ func (p *cangjieParser) parseInit(mods, decorators []string, parent string) {
 		Kind:     "ctor",
 		File:     p.file,
 		Line:     start.Line,
+		EndLine:  start.Line,
 		Exported: hasExportModifier(mods) || parent != "",
 		Parent:   parent,
 		Doc:      strings.TrimSpace(modifierDoc(mods) + " init"),
 	})
+	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
-		p.skipBalanced(cjTokLBrace, cjTokRBrace)
+		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
 	}
 }
 
@@ -485,11 +494,13 @@ func (p *cangjieParser) parseMainEntry() {
 		Kind:     "function",
 		File:     p.file,
 		Line:     start.Line,
+		EndLine:  start.Line,
 		Exported: true,
 		Doc:      "main entry",
 	})
+	idx := len(p.syms) - 1
 	if p.cur().Kind == cjTokLBrace {
-		p.skipBalanced(cjTokLBrace, cjTokRBrace)
+		p.syms[idx].EndLine = p.skipBalancedEndLine(cjTokLBrace, cjTokRBrace)
 	}
 }
 
@@ -497,10 +508,11 @@ func (p *cangjieParser) parseMainEntry() {
 // attaching them to `parent`. The body's own members may be
 // methods, nested types, or property declarations; we handle the
 // first two and opaquely skip the third.
-func (p *cangjieParser) parseBody(parent string) {
+func (p *cangjieParser) parseBody(parent string) int {
 	if p.cur().Kind != cjTokLBrace {
-		return
+		return 0
 	}
+	endLine := p.cur().Line
 	p.advance() // `{`
 
 	for p.cur().Kind != cjTokRBrace && p.cur().Kind != cjTokEOF {
@@ -524,10 +536,13 @@ func (p *cangjieParser) parseBody(parent string) {
 			// will eventually hit the closing brace.
 			p.advance()
 		}
+		endLine = p.cur().Line
 	}
 	if p.cur().Kind == cjTokRBrace {
+		endLine = p.cur().Line
 		p.advance()
 	}
+	return endLine
 }
 
 // collectInheritanceParents consumes the optional `<:` list after a
@@ -712,12 +727,18 @@ func (p *cangjieParser) countAndSkipParams() int {
 // Used for bodies we don't care to descend into (expression blocks,
 // decorator arguments, etc.).
 func (p *cangjieParser) skipBalanced(open, close cangjieTokKind) {
+	_ = p.skipBalancedEndLine(open, close)
+}
+
+func (p *cangjieParser) skipBalancedEndLine(open, close cangjieTokKind) int {
 	if p.cur().Kind != open {
-		return
+		return p.cur().Line
 	}
+	endLine := p.cur().Line
 	p.advance()
 	depth := 1
 	for p.cur().Kind != cjTokEOF && depth > 0 {
+		endLine = p.cur().Line
 		switch p.cur().Kind {
 		case open:
 			depth++
@@ -726,6 +747,7 @@ func (p *cangjieParser) skipBalanced(open, close cangjieTokKind) {
 		}
 		p.advance()
 	}
+	return endLine
 }
 
 // consumeOptionalSemi skips a trailing `;` (rare in Cangjie but legal).
