@@ -180,6 +180,14 @@
       box-shadow: 0 28px 70px var(--shadow-color);
     }
 
+    .mobile-dock {
+      display: none;
+    }
+
+    .mobile-brandline {
+      display: none;
+    }
+
     iframe {
       width: 100%;
       height: 100%;
@@ -221,51 +229,62 @@
       }
 
       body {
-        padding-bottom: calc(env(safe-area-inset-bottom) + 24px);
+        padding-bottom: 0;
       }
 
       .shell {
         height: 100svh;
         min-height: 100svh;
-        grid-template-rows: auto 1fr;
-        padding: 6px 6px calc(env(safe-area-inset-bottom) + 28px);
+        grid-template-rows: auto 1fr auto;
+        padding: 6px 6px calc(env(safe-area-inset-bottom) + 4px);
         gap: 6px;
       }
 
       .topbar {
-        align-items: stretch;
+        display: none;
+      }
+
+      .mobile-brandline {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding-top: 2px;
+      }
+
+      .mobile-brandline .mobile-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.24rem 0.68rem;
+        border-radius: 999px;
+        background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+        color: #fffdf8;
+        font-size: 0.62rem;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        font-weight: 800;
+        box-shadow: 0 8px 18px rgba(217, 119, 6, 0.16);
+      }
+
+      .stage {
+        height: 100%;
         min-height: 0;
-        padding: 5px 8px 7px;
-        gap: 0.3rem;
         border-radius: 14px;
       }
 
-      .brand {
-        display: none;
-      }
-
-      .eyebrow {
-        display: none;
-      }
-
-      h1 {
-        display: none;
-      }
-
-      .actions {
-        width: 100%;
-        align-items: stretch;
+      .mobile-dock {
+        display: grid;
         gap: 0.34rem;
+        padding-bottom: 0;
       }
 
-      .link-actions {
-        width: 100%;
+      .mobile-links {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
         gap: 0.34rem;
       }
 
-      .link-actions .action {
+      .mobile-links .action {
         width: 100%;
         min-width: 0;
         min-height: 36px;
@@ -273,25 +292,22 @@
         font-size: 0.74rem;
       }
 
-      .deck-controls {
-        width: 100%;
+      .mobile-controls {
         display: grid;
         grid-template-columns: repeat(3, minmax(0, 1fr));
-        justify-content: stretch;
         gap: 0.16rem;
         padding: 0.12rem;
+        border: 1px solid var(--border-color);
+        border-radius: 999px;
+        background: rgba(253, 252, 248, 0.88);
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.05);
       }
 
-      .control-btn {
+      .mobile-controls .control-btn {
         min-width: 0;
         padding: 0.42rem 0.18rem;
         min-height: 34px;
         font-size: 0.7rem;
-      }
-
-      .stage {
-        min-height: calc(100svh - 116px - env(safe-area-inset-bottom));
-        border-radius: 14px;
       }
     }
 
@@ -299,46 +315,51 @@
       .shell {
         height: 100svh;
         min-height: 100svh;
-        padding: 4px 4px calc(env(safe-area-inset-bottom) + 32px);
-        gap: 6px;
+        padding: 4px 4px calc(env(safe-area-inset-bottom) + 2px);
+        gap: 5px;
       }
 
-      .topbar {
-        min-height: 0;
-        padding: 4px 6px 5px;
-        border-radius: 12px;
-        gap: 0.24rem;
+      .mobile-brandline {
+        padding-top: 0;
       }
 
-      .eyebrow {
-        display: none;
+      .mobile-brandline .mobile-badge {
+        padding: 0.2rem 0.56rem;
+        font-size: 0.58rem;
       }
 
-      .link-actions {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
+      .mobile-dock {
         gap: 0.28rem;
       }
 
-      .link-actions .action {
+      .mobile-links {
+        gap: 0.28rem;
+      }
+
+      .mobile-links .action {
         min-height: 32px;
         padding: 0.34rem 0.14rem;
         font-size: 0.66rem;
       }
 
-      .action,
-      .control-btn {
-        min-height: 34px;
-        font-size: 0.72rem;
+      .mobile-controls {
+        gap: 0.12rem;
+        padding: 0.1rem;
+      }
+
+      .mobile-controls .control-btn {
+        min-height: 32px;
+        padding: 0.34rem 0.12rem;
+        font-size: 0.66rem;
       }
 
       .stage {
-        min-height: calc(100svh - 108px - env(safe-area-inset-bottom));
         border-radius: 12px;
       }
     }
   </style>
 </head>
-<body>
+  <body>
   <main class="shell">
     <header class="topbar">
       <div class="brand">
@@ -358,6 +379,10 @@
       </div>
     </header>
 
+    <div class="mobile-brandline" aria-hidden="true">
+      <span class="mobile-badge">CODRAX</span>
+    </div>
+
     <section class="stage" aria-label="自动播放演示">
       <iframe
         id="deckFrame"
@@ -367,6 +392,18 @@
         referrerpolicy="no-referrer"
       ></iframe>
     </section>
+
+    <section class="mobile-dock" aria-label="移动端控制">
+      <nav class="mobile-links" aria-label="移动端入口">
+        <a class="action action-primary" href="./download/index.html">下载安装</a>
+        <a class="action" href="./user_guide.html">使用手册</a>
+      </nav>
+      <div class="mobile-controls" role="group" aria-label="移动端演示控制">
+        <button class="control-btn" id="mobileDeckPrevBtn" type="button">上页</button>
+        <button class="control-btn" id="mobileDeckToggleBtn" type="button" aria-pressed="false">暂停</button>
+        <button class="control-btn" id="mobileDeckNextBtn" type="button">下页</button>
+      </div>
+    </section>
   </main>
 
   <script>
@@ -374,6 +411,9 @@
     const deckPrevBtn = document.getElementById("deckPrevBtn");
     const deckToggleBtn = document.getElementById("deckToggleBtn");
     const deckNextBtn = document.getElementById("deckNextBtn");
+    const mobileDeckPrevBtn = document.getElementById("mobileDeckPrevBtn");
+    const mobileDeckToggleBtn = document.getElementById("mobileDeckToggleBtn");
+    const mobileDeckNextBtn = document.getElementById("mobileDeckNextBtn");
     let autoplayActive = true;
 
     function sendDeckAction(action, value) {
@@ -382,11 +422,12 @@
     }
 
     function syncToggleButton() {
-      if (!deckToggleBtn) return;
-      deckToggleBtn.textContent = autoplayActive ? "暂停" : "继续";
-      deckToggleBtn.classList.toggle("is-paused", !autoplayActive);
-      deckToggleBtn.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "继续自动播放");
-      deckToggleBtn.setAttribute("aria-pressed", String(!autoplayActive));
+      [deckToggleBtn, mobileDeckToggleBtn].filter(Boolean).forEach((button) => {
+        button.textContent = autoplayActive ? "暂停" : "继续";
+        button.classList.toggle("is-paused", !autoplayActive);
+        button.setAttribute("aria-label", autoplayActive ? "暂停自动播放" : "继续自动播放");
+        button.setAttribute("aria-pressed", String(!autoplayActive));
+      });
     }
 
     function handleDeckHotkeys(event) {
@@ -408,15 +449,15 @@
       }
     }
 
-    if (deckPrevBtn) {
-      deckPrevBtn.addEventListener("click", () => sendDeckAction("prev"));
-    }
-    if (deckToggleBtn) {
-      deckToggleBtn.addEventListener("click", () => sendDeckAction("toggleAutoplay"));
-    }
-    if (deckNextBtn) {
-      deckNextBtn.addEventListener("click", () => sendDeckAction("next"));
-    }
+    [deckPrevBtn, mobileDeckPrevBtn].filter(Boolean).forEach((button) => {
+      button.addEventListener("click", () => sendDeckAction("prev"));
+    });
+    [deckToggleBtn, mobileDeckToggleBtn].filter(Boolean).forEach((button) => {
+      button.addEventListener("click", () => sendDeckAction("toggleAutoplay"));
+    });
+    [deckNextBtn, mobileDeckNextBtn].filter(Boolean).forEach((button) => {
+      button.addEventListener("click", () => sendDeckAction("next"));
+    });
 
     if (deckFrame) {
       deckFrame.addEventListener("pointerdown", () => sendDeckAction("setAutoplay", false));
