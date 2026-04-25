@@ -170,6 +170,14 @@ func parseOneFile(entry FileEntry) *types.FileInfo {
 		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractRust(root, source, entry.RelPath)
 	case types.LangC, types.LangCpp:
 		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractCCpp(root, source, entry.RelPath, entry.Language)
+	case types.LangRuby:
+		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractRuby(root, source, entry.RelPath)
+	case types.LangSwift:
+		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractSwift(root, source, entry.RelPath)
+	case types.LangLua:
+		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractLua(root, source, entry.RelPath)
+	case types.LangProto:
+		fi.Package, fi.Symbols, fi.Imports, fi.Relations = extractProto(root, source, entry.RelPath)
 	}
 
 	return fi

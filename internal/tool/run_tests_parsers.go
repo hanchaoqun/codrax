@@ -59,6 +59,13 @@ func parseRunnerOutput(runner, stdout, extraFile, cmdStr string, runErr error) (
 		// the cjpm variant because the result footer grammar is
 		// identical — no dedicated parser required.
 		return parseCargoTestText(stdout)
+	case "swift":
+		// Swift Package Manager XCTest output is not cargo-shaped.
+		// We fall back to the make-style exit-code parser for
+		// pass/fail; the build-error regex set picks up Swift
+		// compile errors via the .swift file extension on a generic
+		// regex that covers them via the same path as Java/Kotlin.
+		return parseSwiftOutput(stdout, runErr)
 	}
 	return nil, fmt.Errorf("parseRunnerOutput: unknown runner %q", runner)
 }
@@ -112,6 +119,70 @@ func parseMakeOutput(stdout string, runErr error) (*types.ChangeReport, error) {
 	}
 	return report, nil
 }
+
+// parseSwiftOutput handles Swift Package Manager XCTest output. The
+// SPM verdict shape is:
+//
+//	Test Suite 'All tests' passed at 2024-01-01 00:00:00.
+//	     Executed N tests, with M failures (X unexpected) in T (W) seconds
+//
+// We extract per-test rows from `Test Case '-[Suite testName]' passed/
+// failed` lines (cap to a useful subset) and fall back to exit-code
+// pass/fail when the regex finds nothing. Build errors before tests
+// ran are picked up by parseBuildErrors via the .swift extension on
+// the generic file:line:error: shape.
+func parseSwiftOutput(stdout string, runErr error) (*types.ChangeReport, error) {
+	results := []types.TestResult{}
+	for _, m := range reSwiftTestCase.FindAllStringSubmatch(stdout, -1) {
+		// m: [full, suite, name, status]
+		passed := m[3] == "passed"
+		results = append(results, types.TestResult{
+			Kind:        types.TestResultKindUnit,
+			AssertionID: m[2],
+			Suite:       m[1],
+			Passed:      passed,
+		})
+	}
+	allPassed := runErr == nil
+	for _, r := range results {
+		if !r.Passed {
+			allPassed = false
+		}
+	}
+	// Compile-error path: zero per-test rows + non-nil runErr.
+	buildFailed := false
+	if len(results) == 0 && runErr != nil {
+		buildErrs := parseBuildErrors(stdout)
+		results = append(results, types.TestResult{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   firstBuildErrorAssertionID(buildErrs),
+			Suite:         "build",
+			Passed:        false,
+			FailureDetail: truncateDetail(stdout, 4000),
+			BuildErrors:   buildErrs,
+		})
+		allPassed = false
+		buildFailed = true
+	}
+	report := &types.ChangeReport{
+		TestResults: results,
+		Passed:      allPassed && len(results) > 0 && !buildFailed,
+		BuildFailed: buildFailed,
+	}
+	if !report.Passed {
+		if buildFailed {
+			report.FailureSummary = renderBuildFailureSummary("Swift",
+				results[0].BuildErrors,
+				strings.SplitN(narrativeBuildErrorExcerpt(stdout), "\n", 2)[0])
+		} else {
+			report.FailureSummary = "Swift tests failed (XCTest); see per-test detail."
+		}
+	}
+	return report, nil
+}
+
+var reSwiftTestCase = regexp.MustCompile(
+	`(?m)^Test Case '-\[(\S+) (\S+)\]' (passed|failed)`)
 
 // ── Go: go test -json ────────────────────────────────────────────
 //
@@ -656,61 +727,63 @@ func minInt(a, b int) int {
 // narrativeBuildErrorExcerpt scans build-tool stdout/stderr for lines
 // that plausibly describe a compile or configuration failure and
 // returns a bounded excerpt suitable for embedding in a TestResult's
-// FailureDetail. Used by runners whose build step precedes test
-// execution and can fail without producing a parseable artifact
-// (Maven/Gradle/hvigor/cjpm/cmake/meson/make).
+// FailureDetail.
 //
-// Selection markers are deliberately generic across build tools so
-// one function covers JVM, native, and HarmonyOS toolchains:
+// Two-tier marker priority (the gap closed in 2026-04-25 audit): in
+// large multi-module Maven / Gradle runs the [ERROR] prefix can match
+// hundreds of lines BEFORE the verdict-shape "BUILD FAILURE" / "What
+// went wrong" footer, and the 10-line cap would drop the verdict.
+// We solve this by running TWO passes:
 //
-//   - "[ERROR]"                 — Maven / Gradle log prefix
-//   - "FAILURE:" / "What went wrong"   — Gradle failure sections
-//   - "BUILD FAILURE" / "BUILD FAILED" — either tool's verdict line
-//   - "error:" / "Error:"       — javac / scalac / kotlinc / cjpm
-//   - " e: "                    — kotlinc error line prefix
-//   - "TS"                      — TypeScript error code (TS2304 etc.)
+//   1. Verdict pass — pick up to 3 lines matching the small set of
+//      verdict-shape markers (BUILD FAILURE, BUILD FAILED, FAILURE:,
+//      What went wrong). These ALWAYS land first in the output.
+//   2. Detail pass — fill remaining 7 slots with the per-error
+//      markers ([ERROR], error:, Error:, e: , TS).
 //
 // Pairs with parseBuildErrors which extracts structured file:line:msg
 // rows. The narrative excerpt is the human-readable companion that
 // retains marker-less context (e.g. "Could not resolve dependency
 // foo:bar:1.0").
 //
-// Output bounded to ~1500 chars and at most 10 matched lines.
+// Output bounded to ~1500 chars and at most 10 matched lines total.
 // When no markers match, falls back to the first 5 non-empty lines.
 func narrativeBuildErrorExcerpt(stdout string) string {
 	const (
-		maxLines = 10
-		maxChars = 1500
+		maxLines       = 10
+		maxVerdictRows = 3
+		maxChars       = 1500
 	)
 	if strings.TrimSpace(stdout) == "" {
 		return ""
 	}
-	markers := []string{
-		"[ERROR]",
-		"FAILURE:",
-		"What went wrong",
+	verdictMarkers := []string{
 		"BUILD FAILURE",
 		"BUILD FAILED",
+		"FAILURE:",
+		"What went wrong",
+	}
+	detailMarkers := []string{
+		"[ERROR]",
 		"error:",
 		"Error:",
 		" e: ",
 	}
+	matchAny := func(line string, markers []string) bool {
+		for _, m := range markers {
+			if strings.Contains(line, m) {
+				return true
+			}
+		}
+		return false
+	}
 	seen := make(map[string]struct{})
 	picked := make([]string, 0, maxLines)
 	lines := strings.Split(stdout, "\n")
+	// Pass 1: verdict markers (priority — always retained).
 	for _, raw := range lines {
 		line := strings.TrimRight(raw, "\r\t ")
-		if line == "" {
-			continue
-		}
-		match := false
-		for _, m := range markers {
-			if strings.Contains(line, m) {
-				match = true
-				break
-			}
-		}
-		if !match {
+		if line == "" || !matchAny(line, verdictMarkers) {
 			continue
 		}
 		trimmed := strings.TrimSpace(line)
@@ -719,9 +792,25 @@ func narrativeBuildErrorExcerpt(stdout string) string {
 		}
 		seen[trimmed] = struct{}{}
 		picked = append(picked, trimmed)
+		if len(picked) >= maxVerdictRows {
+			break
+		}
+	}
+	// Pass 2: detail markers fill remaining slots.
+	for _, raw := range lines {
 		if len(picked) >= maxLines {
 			break
 		}
+		line := strings.TrimRight(raw, "\r\t ")
+		if line == "" || !matchAny(line, detailMarkers) {
+			continue
+		}
+		trimmed := strings.TrimSpace(line)
+		if _, dup := seen[trimmed]; dup {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		picked = append(picked, trimmed)
 	}
 	if len(picked) == 0 {
 		// Marker-less fallback: first ~5 non-empty lines of head.
@@ -773,7 +862,7 @@ var (
 	reBuildKotlin = regexp.MustCompile(
 		`(?m)^\s*e:\s+(?:file://)?(\S+\.(?:kt|kts)):(\d+):(\d+):?\s+(.+)`)
 	reBuildGenericFLine = regexp.MustCompile(
-		`(?m)^\s*(?:\[ERROR\]\s+)?(\S+\.(?:java|scala|kt|kts|ets|ts|tsx|go|rs|c|h|cc|cpp|cxx|hpp|hh|py)):(\d+):(?:\s*\d+:)?\s*(?:error|ERROR):\s+(.+)`)
+		`(?m)^\s*(?:\[ERROR\]\s+)?(\S+\.(?:java|scala|kt|kts|ets|ts|tsx|go|rs|c|h|cc|cpp|cxx|hpp|hh|py|swift|rb|lua|m|mm|cu|cuh|proto)):(\d+):(?:\s*\d+:)?\s*(?:error|ERROR):\s+(.+)`)
 	reBuildTSParen = regexp.MustCompile(
 		`(?m)^\s*(?:ERROR:\s+)?(\S+\.(?:ts|tsx|ets)):?\((\d+),(\d+)\):\s+(?:error\s+)?(?:(TS\d+):\s+)?(.+)`)
 	reBuildTSColon = regexp.MustCompile(

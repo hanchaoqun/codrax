@@ -1,0 +1,207 @@
+package index
+
+import (
+	"strings"
+
+	sitter "github.com/smacker/go-tree-sitter"
+
+	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+)
+
+// extractSwift walks tree-sitter-swift output for top-level decls.
+// Swift surface is rich; we extract the structurally-interesting set:
+//
+//   - function_declaration             → top-level func / method
+//   - class_declaration                → class
+//   - protocol_declaration             → protocol
+//   - subscript_declaration            → method
+//   - import_declaration               → import path
+//
+// Inheritance / conformance edges land on `inheritance` Relations
+// keyed by "<file>:<symbol>" → "<base>" same shape as Python.
+func extractSwift(root *sitter.Node, src []byte, file string) (pkg string, syms []types.Symbol, imps []types.Import, rels []types.Relation) {
+	pkg = swiftDerivePackage(file)
+	for i := 0; i < int(root.NamedChildCount()); i++ {
+		ch := root.NamedChild(i)
+		switch ch.Type() {
+		case "import_declaration":
+			if imp, ok := swiftExtractImport(ch, src, file); ok {
+				imps = append(imps, imp)
+			}
+		case "function_declaration":
+			if s, ok := swiftExtractFunc(ch, src, file, ""); ok {
+				syms = append(syms, s)
+			}
+		case "class_declaration":
+			t, methods, classRels := swiftExtractType(ch, src, file)
+			syms = append(syms, t...)
+			syms = append(syms, methods...)
+			rels = append(rels, classRels...)
+		case "protocol_declaration":
+			t, methods, classRels := swiftExtractType(ch, src, file)
+			// Override kind on the head symbol to "protocol".
+			for k := range t {
+				t[k].Kind = "protocol"
+			}
+			syms = append(syms, t...)
+			syms = append(syms, methods...)
+			rels = append(rels, classRels...)
+		case "property_declaration":
+			if s, ok := swiftExtractProperty(ch, src, file, ""); ok {
+				syms = append(syms, s)
+			}
+		}
+	}
+	return
+}
+
+func swiftDerivePackage(file string) string {
+	parts := strings.Split(file, "/")
+	for i, p := range parts {
+		if (p == "Sources" || p == "Tests") && i+1 < len(parts)-1 {
+			return parts[i+1]
+		}
+	}
+	if len(parts) > 1 {
+		return parts[len(parts)-2]
+	}
+	return ""
+}
+
+func swiftExtractImport(node *sitter.Node, src []byte, file string) (types.Import, bool) {
+	// Find the identifier child (the imported module name).
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		ch := node.NamedChild(i)
+		if ch.Type() == "identifier" || ch.Type() == "simple_identifier" {
+			name := strings.TrimSpace(nodeText(ch, src))
+			if name == "" {
+				continue
+			}
+			return types.Import{
+				Raw:  nodeText(node, src),
+				Path: name,
+				File: file,
+				Line: nodeLine(node),
+			}, true
+		}
+	}
+	return types.Import{}, false
+}
+
+func swiftExtractFunc(node *sitter.Node, src []byte, file, parent string) (types.Symbol, bool) {
+	nameNode := childByType(node, "simple_identifier")
+	if nameNode == nil {
+		nameNode = childByType(node, "identifier")
+	}
+	if nameNode == nil {
+		return types.Symbol{}, false
+	}
+	name := nodeText(nameNode, src)
+	if name == "" {
+		return types.Symbol{}, false
+	}
+	kind := "function"
+	if parent != "" {
+		kind = "method"
+	}
+	exported := !swiftHasModifier(node, src, "private") && !swiftHasModifier(node, src, "fileprivate")
+	return types.Symbol{
+		Name:     name,
+		Kind:     kind,
+		File:     file,
+		Line:     nodeLine(node),
+		EndLine:  nodeEndLine(node),
+		Exported: exported,
+		Parent:   parent,
+	}, true
+}
+
+func swiftExtractType(node *sitter.Node, src []byte, file string) (cls []types.Symbol, methods []types.Symbol, rels []types.Relation) {
+	nameNode := childByType(node, "type_identifier")
+	if nameNode == nil {
+		nameNode = childByType(node, "simple_identifier")
+	}
+	if nameNode == nil {
+		return
+	}
+	name := nodeText(nameNode, src)
+	kind := "class"
+	if node.Type() == "protocol_declaration" {
+		kind = "protocol"
+	}
+	cls = append(cls, types.Symbol{
+		Name:     name,
+		Kind:     kind,
+		File:     file,
+		Line:     nodeLine(node),
+		EndLine:  nodeEndLine(node),
+		Exported: !swiftHasModifier(node, src, "private") && !swiftHasModifier(node, src, "fileprivate"),
+	})
+	// Walk body for methods and inherited types.
+	for i := 0; i < int(node.NamedChildCount()); i++ {
+		ch := node.NamedChild(i)
+		switch ch.Type() {
+		case "type_inheritance_clause":
+			for j := 0; j < int(ch.NamedChildCount()); j++ {
+				base := ch.NamedChild(j)
+				baseName := strings.TrimSpace(nodeText(base, src))
+				if baseName == "" {
+					continue
+				}
+				rels = append(rels, types.Relation{
+					Kind: "inheritance",
+					From: file + ":" + name,
+					To:   baseName,
+					File: file,
+					Line: nodeLine(base),
+				})
+			}
+		case "class_body", "protocol_body":
+			for j := 0; j < int(ch.NamedChildCount()); j++ {
+				member := ch.NamedChild(j)
+				switch member.Type() {
+				case "function_declaration":
+					if s, ok := swiftExtractFunc(member, src, file, name); ok {
+						methods = append(methods, s)
+					}
+				case "property_declaration":
+					if s, ok := swiftExtractProperty(member, src, file, name); ok {
+						methods = append(methods, s)
+					}
+				}
+			}
+		}
+	}
+	return
+}
+
+func swiftExtractProperty(node *sitter.Node, src []byte, file, parent string) (types.Symbol, bool) {
+	nameNode := childByType(node, "simple_identifier")
+	if nameNode == nil {
+		nameNode = childByType(node, "identifier")
+	}
+	if nameNode == nil {
+		return types.Symbol{}, false
+	}
+	name := nodeText(nameNode, src)
+	if name == "" {
+		return types.Symbol{}, false
+	}
+	return types.Symbol{
+		Name:     name,
+		Kind:     "field",
+		File:     file,
+		Line:     nodeLine(node),
+		EndLine:  nodeEndLine(node),
+		Exported: !swiftHasModifier(node, src, "private"),
+		Parent:   parent,
+	}, true
+}
+
+func swiftHasModifier(node *sitter.Node, src []byte, modifier string) bool {
+	mods := childByType(node, "modifiers")
+	if mods == nil {
+		return false
+	}
+	return strings.Contains(nodeText(mods, src), modifier)
+}

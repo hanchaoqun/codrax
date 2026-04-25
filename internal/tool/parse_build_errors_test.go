@@ -179,6 +179,75 @@ func TestParseBuildErrors_Rust(t *testing.T) {
 	}
 }
 
+// Swift XCTest output: per-test rows + exit-code verdict.
+func TestParseSwiftOutput_PerTestRows(t *testing.T) {
+	stdout := `Build complete!
+Test Suite 'All tests' started at 2024-01-01 00:00:00.
+Test Case '-[GreeterTests testHello]' passed (0.001 seconds).
+Test Case '-[GreeterTests testGoodbye]' failed (0.002 seconds).
+Test Suite 'GreeterTests' failed at 2024-01-01 00:00:00.
+	 Executed 2 tests, with 1 failure (0 unexpected) in 0.003 (0.005) seconds
+`
+	report, err := parseSwiftOutput(stdout, &fakeExitError{msg: "exit status 1"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if report.Passed {
+		t.Error("verdict should be failed (one test failed)")
+	}
+	if len(report.TestResults) != 2 {
+		t.Fatalf("expected 2 per-test rows; got %d (%v)", len(report.TestResults), report.TestResults)
+	}
+	failed := 0
+	for _, tr := range report.TestResults {
+		if !tr.Passed {
+			failed++
+		}
+	}
+	if failed != 1 {
+		t.Errorf("expected 1 failed; got %d", failed)
+	}
+}
+
+func TestParseSwiftOutput_BuildErrorPath(t *testing.T) {
+	stdout := `src/main/Greeter.swift:42:10: error: cannot find 'badSymbol' in scope
+`
+	report, err := parseSwiftOutput(stdout, &fakeExitError{msg: "exit status 1"})
+	if err != nil {
+		t.Fatalf("parse: %v", err)
+	}
+	if !report.BuildFailed {
+		t.Error("BuildFailed should be set on Swift compile error")
+	}
+	if len(report.TestResults) != 1 {
+		t.Fatalf("expected one synthetic build-error row; got %d", len(report.TestResults))
+	}
+	if report.TestResults[0].Kind != types.TestResultKindBuildError {
+		t.Errorf("Kind = %q; want build_error", report.TestResults[0].Kind)
+	}
+}
+
+// Verdict markers (BUILD FAILURE / What went wrong / FAILURE:)
+// ALWAYS land in the narrative excerpt even when [ERROR] lines
+// fill the 10-line cap before the verdict footer.
+func TestNarrativeExcerpt_VerdictMarkersPriority(t *testing.T) {
+	var sb strings.Builder
+	for i := 0; i < 50; i++ {
+		sb.WriteString("[ERROR] some compile error #")
+		sb.WriteString(strconv.Itoa(i))
+		sb.WriteString("\n")
+	}
+	sb.WriteString("BUILD FAILURE\n")
+	sb.WriteString("FAILURE: Build failed with an exception.\n")
+	sb.WriteString("* What went wrong: Compilation failed.\n")
+	excerpt := narrativeBuildErrorExcerpt(sb.String())
+	for _, want := range []string{"BUILD FAILURE", "FAILURE:", "What went wrong"} {
+		if !strings.Contains(excerpt, want) {
+			t.Errorf("verdict %q should always be retained even with 50 [ERROR] lines; got %q", want, excerpt)
+		}
+	}
+}
+
 // Python pylint/mypy-style: `tests/test_foo.py:42: error: <msg>`.
 func TestParseBuildErrors_Python(t *testing.T) {
 	stdout := `tests/test_foo.py:42: error: Argument 1 to "foo" has incompatible type

@@ -315,6 +315,12 @@ func detectRunner(repoRoot string) string {
 		{"pytest.ini", "python"},
 		{"setup.py", "python"},
 		{"Cargo.toml", "rust"},
+		// Swift / Apple ecosystems via Swift Package Manager. Older
+		// XCode-only projects with .xcodeproj are not auto-detected
+		// here — they typically need `xcodebuild test -scheme X` and
+		// the user wires that via a Makefile target. Package.swift
+		// is the cross-platform path SPM uses.
+		{"Package.swift", "swift"},
 		{"pom.xml", "java"},
 		{"build.gradle", "java"},
 		{"build.gradle.kts", "java"},
@@ -404,42 +410,165 @@ func detectJavaBuildSystem(repoRoot string) string {
 	return ""
 }
 
-// locateJUnitReportDir walks the two well-known JUnit XML output
-// locations and returns the FIRST non-empty directory it finds.
-// Returns "" when neither directory exists or both are empty
-// (build failed before tests ran; caller surfaces a clear error).
+// locateJUnitReportDir walks well-known JUnit XML output locations
+// and returns the FIRST non-empty directory it finds. Returns ""
+// when no candidate directory carries XML (build failed before tests
+// ran; caller surfaces a clear error).
 //
-// Priority: Maven's target/surefire-reports (checked first so
-// Maven projects with a stale build/ dir don't accidentally pick
-// the wrong tree), then Gradle's build/test-results/test.
+// Priority order:
 //
-// Multi-module caveat: polyglot Java repos may have multiple
-// surefire-reports directories under submodules. The parser's
-// XML walk handles that — we return the root "target" /
-// "build/test-results/test" and let parseJUnitXMLDir recurse.
+//  1. Maven's target/surefire-reports (Maven projects with a stale
+//     Gradle build/ dir from an earlier toolchain switch shouldn't
+//     accidentally point us there).
+//  2. Gradle's build/test-results/test.
+//  3. HarmonyOS hvigor commonly drops JUnit XML under one of:
+//     `entry/build/default/intermediates/test/test-results/`
+//     `<module>/build/intermediates/test/test-results/`
+//     The candidate list covers the documented Stage Model layouts
+//     plus a generic fallback at .codrax/test-results/.
+//  4. Final fallback: bounded walk of the worktree looking for any
+//     directory whose name ends in `test-results` / `test-result` /
+//     `surefire-reports` and contains `.xml` files. Walk depth is
+//     capped at 6 levels so we don't traverse node_modules / .git.
+//
+// Multi-module caveat: polyglot Java/Gradle repos may have multiple
+// surefire-reports directories under submodules. The parser's XML
+// walk handles that — we return the highest non-empty match and let
+// parseJUnitXMLDir recurse.
 func locateJUnitReportDir(repoRoot string) string {
 	candidates := []string{
 		filepath.Join(repoRoot, "target", "surefire-reports"),
 		filepath.Join(repoRoot, "build", "test-results", "test"),
+		// HarmonyOS hvigor — Stage Model entry module.
+		filepath.Join(repoRoot, "entry", "build", "default", "intermediates", "test", "test-results"),
+		filepath.Join(repoRoot, "entry", "build", "intermediates", "test", "test-results"),
+		filepath.Join(repoRoot, "build", "intermediates", "test", "test-results"),
+		filepath.Join(repoRoot, ".codrax", "test-results"),
 	}
 	for _, dir := range candidates {
-		info, err := os.Stat(dir)
-		if err != nil || !info.IsDir() {
-			continue
-		}
-		// Peek for at least one .xml entry so an empty dir left
-		// over from a previous half-built run doesn't look valid.
-		entries, err := os.ReadDir(dir)
-		if err != nil {
-			continue
-		}
-		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".xml") {
-				return dir
-			}
+		if dirHasXML(dir) {
+			return dir
 		}
 	}
+	// Bounded fallback walk. Catches non-standard hvigor layouts and
+	// custom test-runner configurations without hardcoding every
+	// possible output dir. Depth-cap 6 keeps the walk cheap on large
+	// monorepos; skip-list excludes common large/unrelated dirs.
+	if found := walkJUnitDir(repoRoot, 6); found != "" {
+		return found
+	}
 	return ""
+}
+
+// dirHasXML reports whether dir exists and contains at least one
+// `*.xml` file at its top level (we don't recurse — a directory with
+// only nested .xml is a hint we're at the wrong level and should
+// keep walking).
+func dirHasXML(dir string) bool {
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(strings.ToLower(e.Name()), ".xml") {
+			return true
+		}
+	}
+	return false
+}
+
+// walkJUnitDir descends from root looking for a directory whose
+// basename matches the JUnit-output convention (`test-results`,
+// `surefire-reports`, `test-report`) AND that contains at least one
+// .xml file. Returns the first match, or "" on no match.
+//
+// Skip list excludes common large dirs that won't carry test
+// reports (node_modules, .git, vendor, dist, etc.) so the walk stays
+// cheap even on monorepos.
+func walkJUnitDir(root string, maxDepth int) string {
+	skip := map[string]struct{}{
+		"node_modules": {},
+		".git":         {},
+		"vendor":       {},
+		"dist":         {},
+		"out":          {},
+		".gradle":      {},
+		".idea":        {},
+		".vscode":      {},
+	}
+	matchNames := []string{"test-results", "surefire-reports", "test-report"}
+	var found string
+	var walk func(dir string, depth int) bool
+	walk = func(dir string, depth int) bool {
+		if depth > maxDepth || found != "" {
+			return false
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return false
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if _, skipped := skip[e.Name()]; skipped {
+				continue
+			}
+			full := filepath.Join(dir, e.Name())
+			for _, m := range matchNames {
+				if strings.HasSuffix(e.Name(), m) {
+					if dirHasXML(full) {
+						found = full
+						return true
+					}
+					// Sometimes the XML is one level deeper (Gradle
+					// puts files under <suite>/ TEST-*.xml). Peek a
+					// single child level for any .xml.
+					if firstXMLDescendant(full, 2) {
+						found = full
+						return true
+					}
+				}
+			}
+			if walk(full, depth+1) {
+				return true
+			}
+		}
+		return false
+	}
+	walk(root, 0)
+	return found
+}
+
+// firstXMLDescendant returns true if any .xml file lives within
+// the given dir, walking up to maxDepth levels (1 = direct children
+// only). Used by walkJUnitDir to detect Gradle-style nested layouts
+// where the test-results dir contains a `test/` subfolder before the
+// XML files.
+func firstXMLDescendant(dir string, maxDepth int) bool {
+	if maxDepth < 0 {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if !e.IsDir() {
+			if strings.HasSuffix(strings.ToLower(e.Name()), ".xml") {
+				return true
+			}
+			continue
+		}
+		if firstXMLDescendant(filepath.Join(dir, e.Name()), maxDepth-1) {
+			return true
+		}
+	}
+	return false
 }
 
 // buildRunCommand assembles the shell command string for a runner.
@@ -480,6 +609,16 @@ func buildRunCommand(runner, suite, repoRoot string) (string, string) {
 			return "cargo test", ""
 		}
 		return fmt.Sprintf("cargo test %q", filter), ""
+	case "swift":
+		// Swift Package Manager. `swift test` emits text output that
+		// the cargo-style parser handles cleanly because both follow
+		// the `test result: ok. N passed; N failed` footer convention.
+		// `--parallel` would break parsing; intentionally omitted.
+		filter := strings.TrimSpace(suite)
+		if filter == "" {
+			return "swift test", ""
+		}
+		return fmt.Sprintf("swift test --filter %q", filter), ""
 	case "java":
 		// Maven + Gradle both write JUnit XML to a fixed
 		// subdirectory; the parser's post-exec hook walks those

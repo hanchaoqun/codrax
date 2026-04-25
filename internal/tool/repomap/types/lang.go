@@ -13,8 +13,12 @@ import (
 	"github.com/smacker/go-tree-sitter/java"
 	"github.com/smacker/go-tree-sitter/javascript"
 	"github.com/smacker/go-tree-sitter/kotlin"
+	"github.com/smacker/go-tree-sitter/lua"
+	"github.com/smacker/go-tree-sitter/protobuf"
 	"github.com/smacker/go-tree-sitter/python"
+	"github.com/smacker/go-tree-sitter/ruby"
 	"github.com/smacker/go-tree-sitter/rust"
+	"github.com/smacker/go-tree-sitter/swift"
 	"github.com/smacker/go-tree-sitter/typescript/typescript"
 )
 
@@ -61,6 +65,27 @@ const (
 	// the box so no new verifier is required — just a skill prompt
 	// addition for Kotlin style and a log_triage dispatch branch.
 	LangKotlin = "kotlin"
+
+	// LangRuby — Ruby (.rb) via tree-sitter-ruby. detectRunner already
+	// handles Gemfile via the rspec runner; this constant pulls Ruby
+	// into repomap so structural search / symbol resolution work.
+	LangRuby = "ruby"
+
+	// LangSwift — Swift (.swift) via tree-sitter-swift. Surfaces
+	// classes/structs/protocols/extensions/funcs for top-level
+	// navigation. Test runner support (Package.swift → swift test)
+	// is shipped alongside in run_tests.go.
+	LangSwift = "swift"
+
+	// LangLua — Lua (.lua) via tree-sitter-lua. Captures top-level
+	// "function ..." and "local function ..." plus "function M.foo()"
+	// table-key forms common in module-pattern Lua.
+	LangLua = "lua"
+
+	// LangProto — Protocol Buffers (.proto) via tree-sitter-protobuf.
+	// Exposes message / enum / service / rpc as Symbols so cross-file
+	// "where is service X defined" navigation works for gRPC repos.
+	LangProto = "proto"
 )
 
 // extToLang maps file extensions to language identifiers.
@@ -87,10 +112,28 @@ var extToLang = map[string]string{
 	".cxx":  LangCpp,
 	".hpp":  LangCpp,
 	".hh":   LangCpp,
-	".ets":  LangArkTS,
-	".cj":   LangCangjie,
-	".kt":   LangKotlin,
-	".kts":  LangKotlin,
+	".ets":   LangArkTS,
+	".cj":    LangCangjie,
+	".kt":    LangKotlin,
+	".kts":   LangKotlin,
+	".rb":    LangRuby,
+	".swift": LangSwift,
+	".lua":   LangLua,
+	".proto": LangProto,
+	// CUDA reuses the tree-sitter-cpp grammar — surface decls
+	// (functions, structs, classes, namespaces) parse identically; the
+	// __global__ / __device__ qualifiers register as identifiers and
+	// don't break the cpp parser. Lossy for kernel-launch syntax
+	// (`<<< >>>`) but that's expression-level, not symbol-level.
+	".cu":  LangCpp,
+	".cuh": LangCpp,
+	// Objective-C / Objective-C++ remap to LangC / LangCpp. The cpp
+	// grammar tolerates `@interface` / `@implementation` blocks
+	// enough for top-level function symbols and class names to land;
+	// `+` / `-` instance methods are a known lossy spot, but the
+	// underlying file is still indexed for grep / structural search.
+	".m":  LangC,
+	".mm": LangCpp,
 	// .cjo is intentionally absent: it is a Cangjie compiled artefact
 	// and must not enter repomap (red line L-Cangjie-1).
 }
@@ -137,6 +180,14 @@ func GetSitterLanguage(lang string) *sitter.Language {
 		return c.GetLanguage()
 	case LangCpp:
 		return cpp.GetLanguage()
+	case LangRuby:
+		return ruby.GetLanguage()
+	case LangSwift:
+		return swift.GetLanguage()
+	case LangLua:
+		return lua.GetLanguage()
+	case LangProto:
+		return protobuf.GetLanguage()
 	default:
 		// LangCangjie + unknowns: nil tells the parser to dispatch to
 		// the Go-native extractor (see parser.go).
@@ -192,6 +243,25 @@ func IsExported(lang, name string) bool {
 		// callers use as a fallback when the extractor did not
 		// populate Symbol.Exported (e.g. regex Tier 2 fallback).
 		return false
+	case LangRuby:
+		// Ruby visibility is method-level (private / protected); top-
+		// level constants and methods are exported by default. The
+		// extractor toggles when it sees a `private` directive.
+		return true
+	case LangSwift:
+		// Swift defaults to internal for top-level decls; explicit
+		// `public` / `open` make a symbol cross-module visible. The
+		// fallback here returns true so undecorated symbols still
+		// surface in module-local navigation.
+		return true
+	case LangLua:
+		// Lua scoping is dynamic (`local function` is module-private).
+		// The extractor sets Exported based on the `local` keyword.
+		return true
+	case LangProto:
+		// Every Protobuf message / service / RPC is module-visible by
+		// the language model — nothing is "private". Default true.
+		return true
 	default:
 		return true
 	}
