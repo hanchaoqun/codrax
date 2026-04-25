@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -464,6 +465,14 @@ type RuntimeSettings struct {
 // as "inherit all defaults". A missing file is signaled by
 // os.ErrNotExist so the caller can decide whether silence (default
 // path) or a loud error (explicit --settings path) is appropriate.
+//
+// Migration warnings: when codrax.yaml carries deprecated/renamed
+// keys (e.g. T4 renamed pipeline_max_verify_retries →
+// pipeline_write_retry_budget), LoadRuntimeSettings prints a single
+// stderr line per recognised legacy key naming the new name. The
+// load itself still succeeds — yaml.Unmarshal silently drops
+// unknown keys — so the user gets a helpful warning instead of a
+// silent ignore.
 func LoadRuntimeSettings(path string) (*RuntimeSettings, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -473,7 +482,36 @@ func LoadRuntimeSettings(path string) (*RuntimeSettings, error) {
 	if err := yaml.Unmarshal(data, &s); err != nil {
 		return nil, fmt.Errorf("parse runtime settings: %w", err)
 	}
+	warnLegacyKeys(path, data)
 	return &s, nil
+}
+
+// warnLegacyKeys scans the raw yaml bytes for deprecated key names
+// and prints a migration hint to stderr. Cheap substring scan;
+// avoids a second yaml unmarshal pass.
+//
+// Add new entries here when renaming an exported yaml field. The
+// stderr-warning channel matches how cmd/root.go surfaces other
+// non-fatal config issues.
+func warnLegacyKeys(path string, data []byte) {
+	type rename struct {
+		old, new string
+	}
+	renames := []rename{
+		{"pipeline_max_verify_retries", "pipeline_write_retry_budget"},
+	}
+	body := string(data)
+	for _, r := range renames {
+		// Match `<key>:` at line start (yaml convention) so a string
+		// literal containing the old name in a comment/value doesn't
+		// false-positive.
+		needle := "\n" + r.old + ":"
+		if strings.Contains("\n"+body, needle) {
+			fmt.Fprintf(os.Stderr,
+				"[config] %s: deprecated yaml key %q renamed to %q (see CHANGELOG); old key is silently ignored\n",
+				path, r.old, r.new)
+		}
+	}
 }
 
 // IsNotExist is re-exported so main.go can keep its runtime-config

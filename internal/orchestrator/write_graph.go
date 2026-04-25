@@ -127,8 +127,14 @@ func BuildWriteTaskGraph(mode types.PipelineMode, planPath string, retryBudget i
 				{From: idApply, To: idVerify, EdgeType: types.EdgeHardDependency},
 				// Verify SuccessCriteria failure requeues the plan
 				// node so the next iteration emits a fresh plan
-				// informed by Mutable.PlanningHint.
+				// informed by Mutable.PlanningHint, AND requeues the
+				// apply node so the freshly-emitted plan actually
+				// gets applied to the worktree. Without the second
+				// edge, apply stays nodeDone, the cleared AppliedSet
+				// (from clearForReplan) never refills, and verify's
+				// CritPatchApplies blocks indefinitely.
 				{From: idVerify, To: idPlan, EdgeType: types.EdgeValidationFeedback},
+				{From: idVerify, To: idApply, EdgeType: types.EdgeValidationFeedback},
 			}
 		}
 	default:

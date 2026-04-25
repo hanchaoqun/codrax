@@ -135,6 +135,32 @@ func TestWriteScheduler_VerifyFails_TerminalWhenBudgetZero(t *testing.T) {
 	}
 }
 
+// On verify SC failure, BOTH plan AND apply must re-run on retry.
+// The bug this test catches: if only `plan` requeues, apply stays
+// nodeDone and never re-applies the freshly-generated plan, so the
+// scheduler stalls (verify CritPatchApplies fails forever — the
+// cleared AppliedSet from clearForReplan can never get refilled).
+func TestWriteScheduler_VerifyRetry_AppliesAlsoRequeue(t *testing.T) {
+	g := BuildWriteTaskGraph(types.ModeApply, "", 2)
+	state := newGraphState(g)
+	// Simulate plan + apply + verify all reaching nodeDone.
+	state.markDone("plan")
+	state.markDone("apply")
+	state.markDone("verify")
+	// Verify SC failure → requeueValidationTargets + clearForReplan.
+	targets := state.requeueValidationTargets("verify")
+	t.Logf("requeueValidationTargets(verify) returned: %v", targets)
+	t.Logf("status[plan]   = %s (want nodeRequeued)", state.status["plan"])
+	t.Logf("status[apply]  = %s (want nodeRequeued — bug if nodeDone)", state.status["apply"])
+	t.Logf("status[verify] = %s", state.status["verify"])
+	if state.status["plan"] != nodeRequeued {
+		t.Errorf("plan should be requeued; got %s", state.status["plan"])
+	}
+	if state.status["apply"] != nodeRequeued {
+		t.Errorf("apply MUST be requeued so the retry cycle re-applies the new plan; got %s", state.status["apply"])
+	}
+}
+
 // TestWriteScheduler_VerifyPlanRetry_BudgetEnforced exercises the
 // EdgeValidationFeedback cycle: verify fails, plan re-fires up to
 // budget+1 times, then loop terminates.

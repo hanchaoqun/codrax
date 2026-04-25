@@ -479,6 +479,15 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		// ran above as a classifier (its IR is on AnalysisIR but its
 		// TaskGraph is replaced here). RetryBudget on the write graph
 		// drives the verify→plan cycle in runWriteSchedulerLoop.
+		//
+		// Defensive nil check: runAnalyzePhase fails-loud + early-
+		// returns on a nil IR, but a misbehaving analyzer mock could
+		// return a clean StageOutput WITHOUT populating the IR.
+		// Surface that fail-loud here rather than panic-derefing.
+		if o.busCtx.AnalysisIR == nil {
+			o.busCtx.TaskState.LastError = "write mode: analyzer returned no AnalysisIR — cannot build write TaskGraph"
+			break
+		}
 		writeGraph := BuildWriteTaskGraph(o.busCtx.Mode, o.planPath, o.writeRetryBudget)
 		o.busCtx.AnalysisIR.TaskGraph = writeGraph
 	default:
