@@ -150,6 +150,15 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				targets := state.requeueValidationTargets(n.ID)
 				if len(targets) > 0 {
 					state.recordRetry()
+					// Clear LastError before the retry — applyStageOutput
+					// set it from the failed verify's StageOutput.Error
+					// (its hot path) and never resets it on subsequent
+					// success. Without this clear, a successful retry
+					// would still leak the previous failure as LastError
+					// to Run()'s caller. The task state Missing is also
+					// reset so the next dispatch sees a clean retry.
+					o.busCtx.TaskState.LastError = ""
+					o.busCtx.TaskState.Missing = types.MissingFacts
 					logging.Info("[orchestrator] verify SC failed; requeued %v for retry %d/%d",
 						targets, state.retryUsed, g.ExecutionPolicy.RetryBudget)
 					o.emit(render.Event{
