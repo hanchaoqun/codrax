@@ -17,11 +17,35 @@ import (
 )
 
 // OpenAIAdapter implements the Adapter interface for OpenAI-compatible APIs.
+//
+// Sizing fields (maxOutputTokens / requestTimeout / retryMaxAttempts)
+// are resolved by the factory layer from providers.yaml + code
+// defaults; the adapter holds NO magic constants for these. This is
+// the symmetry counterpart to ContextWindow on the input side: every
+// cap that operators may want to tune is plumbed through the
+// constructor, so a future deployment that needs a 60 KB output cap
+// or a 30-minute timeout for a slow self-hosted model edits one yaml
+// file instead of patching the adapter.
 type OpenAIAdapter struct {
-	apiKey     string
-	model      string
-	baseURL    string
-	maxTokens  int
+	apiKey  string
+	model   string
+	baseURL string
+
+	// maxOutputTokens is the wire-level `max_tokens` field sent on
+	// every chat completion request. Resolved from
+	// LLMProviderConfig.MaxOutputTokens / MaxOutputFraction /
+	// ContextWindow via config.ResolveTokenBudget.
+	//
+	// Zero means "do NOT send max_tokens" — the server falls back to
+	// the model's own output ceiling (typically 8K-128K depending on
+	// the model). This is the default and the recommended setting:
+	// every other LLM client (sdk, IDE assistant, langchain, etc.)
+	// works this way, and capping output client-side is the root
+	// cause of the emit_change_plan streaming-truncation failures we
+	// observed. Operators set a positive value here only when they
+	// want to bound cost / latency on a specific deploy.
+	maxOutputTokens int
+
 	// contextWindow is the deploy-time-declared max input token window
 	// from providers.yaml :: context_window. Zero means "unknown" and
 	// MaxContextTokens returns the historical 128000 fallback so
@@ -29,8 +53,20 @@ type OpenAIAdapter struct {
 	// pressure watchdog, fraction-form byte cap resolver) degrade
 	// gracefully rather than divide by zero.
 	contextWindow int
-	stream        bool
-	httpClient    *http.Client
+
+	// requestTimeout is the per-call HTTP timeout for chat completion
+	// requests. Honored by httpClient.Timeout. Resolved from
+	// LLMProviderConfig.RequestTimeoutSeconds via
+	// config.ResolveDurationSeconds; always positive post-construction.
+	requestTimeout time.Duration
+
+	// retryMaxAttempts caps the 429/5xx retry loop in Chat. Resolved
+	// from LLMProviderConfig.RetryMaxAttempts via
+	// config.ResolveRetryAttempts; always positive post-construction.
+	retryMaxAttempts int
+
+	stream     bool
+	httpClient *http.Client
 }
 
 // TLSOptions carries the per-provider TLS knobs loaded from
@@ -46,22 +82,56 @@ type TLSOptions struct {
 	InsecureSkipVerify bool
 }
 
+// AdapterOptions bundles the pre-resolved sizing knobs the factory
+// layer hands to NewOpenAIAdapter. Keeping them in a struct (rather
+// than positional args) makes the call site self-documenting and
+// future-proofs the constructor against another sizing parameter
+// being added — callers continue to compile because zero-value
+// fields trip the "must be positive" guard in NewOpenAIAdapter.
+type AdapterOptions struct {
+	Stream           bool
+	ContextWindow    int
+	MaxOutputTokens  int
+	RequestTimeout   time.Duration
+	RetryMaxAttempts int
+	TLS              TLSOptions
+}
+
 // NewOpenAIAdapter creates a new OpenAI adapter. apiKey, model, and
 // baseURL are all required — the factory layer is responsible for
 // rejecting configs that omit any of them. This also works with
 // Azure OpenAI, DeepSeek, Ollama, and other OpenAI-compatible APIs.
-// stream toggles SSE streaming on the chat/completions endpoint.
-// contextWindow is the declared max input token window (0 = unknown);
-// see the struct docblock for the zero-handling rules.
-func NewOpenAIAdapter(apiKey, model, baseURL string, stream bool, contextWindow int, tlsOpts TLSOptions) *OpenAIAdapter {
+//
+// AdapterOptions carries pre-resolved sizing (output cap / HTTP
+// timeout / retry attempts) — the factory plumbs yaml → resolver →
+// here, so the adapter itself owns no magic constants.
+//
+// Field semantics:
+//   - MaxOutputTokens: 0 means "don't send max_tokens on the wire"
+//     (server uses the model's own ceiling — the recommended default).
+//     A positive value is sent verbatim as `max_tokens`.
+//   - RequestTimeout / RetryMaxAttempts: must be positive. Both have
+//     mandatory code defaults applied at the factory layer; a zero
+//     here would silently disable HTTP timeout (= hang forever) or
+//     retries (= one shot, breaks 429 rotation), so we panic to fail
+//     loud at construction.
+func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenAIAdapter {
+	if opts.RequestTimeout <= 0 {
+		panic("llm: AdapterOptions.RequestTimeout must be positive (factory must apply code default)")
+	}
+	if opts.RetryMaxAttempts <= 0 {
+		panic("llm: AdapterOptions.RetryMaxAttempts must be positive (factory must apply code default)")
+	}
 	return &OpenAIAdapter{
-		apiKey:        apiKey,
-		model:         model,
-		baseURL:       baseURL,
-		maxTokens:     4096,
-		contextWindow: contextWindow,
-		stream:        stream,
-		httpClient:    buildHTTPClient(tlsOpts, baseURL),
+		apiKey:           apiKey,
+		model:            model,
+		baseURL:          baseURL,
+		maxOutputTokens:  opts.MaxOutputTokens,
+		contextWindow:    opts.ContextWindow,
+		requestTimeout:   opts.RequestTimeout,
+		retryMaxAttempts: opts.RetryMaxAttempts,
+		stream:           opts.Stream,
+		httpClient:       buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
 	}
 }
 
@@ -72,9 +142,9 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, stream bool, contextWindow 
 // don't stomp each other). Errors loading the CA file surface as
 // startup warnings and fall back to the system trust pool, matching
 // the precedent of "never block on a misconfigured optional field."
-func buildHTTPClient(tlsOpts TLSOptions, baseURL string) *http.Client {
+func buildHTTPClient(tlsOpts TLSOptions, baseURL string, timeout time.Duration) *http.Client {
 	if tlsOpts.CAFile == "" && !tlsOpts.InsecureSkipVerify {
-		return &http.Client{Timeout: 120 * time.Second}
+		return &http.Client{Timeout: timeout}
 	}
 
 	tlsCfg := &tls.Config{}
@@ -102,7 +172,7 @@ func buildHTTPClient(tlsOpts TLSOptions, baseURL string) *http.Client {
 	}
 
 	return &http.Client{
-		Timeout: 120 * time.Second,
+		Timeout: timeout,
 		Transport: &http.Transport{
 			TLSClientConfig: tlsCfg,
 			// Mirror the non-TLS knobs of http.DefaultTransport so a
@@ -133,6 +203,19 @@ func (o *OpenAIAdapter) MaxContextTokens() int {
 	return 128000
 }
 
+// MaxOutputTokens returns the resolved client-side output cap. Zero
+// means "no cap, server uses the model's own ceiling" — the default.
+func (o *OpenAIAdapter) MaxOutputTokens() int { return o.maxOutputTokens }
+
+// RequestTimeout returns the per-call HTTP timeout the adapter was
+// constructed with. Used by cmd/root.go to surface effective values
+// in the startup log so operators can sanity-check yaml resolution.
+func (o *OpenAIAdapter) RequestTimeout() time.Duration { return o.requestTimeout }
+
+// RetryMaxAttempts returns the resolved attempt count for the
+// transient-error retry loop (429 / 5xx).
+func (o *OpenAIAdapter) RetryMaxAttempts() int { return o.retryMaxAttempts }
+
 func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error) {
 	reqBody := o.buildRequest(messages, tools, opts)
 
@@ -148,12 +231,13 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOp
 	// true rate-limit and Azure-style "No deployments available for
 	// selected model" (deployment rotation); the latter can take 30-60s
 	// to clear, which the old 3-attempt × 1s/2s/4s schedule (~7s total)
-	// routinely burned through. Extending to 6 attempts with 2/4/8/16/32s
+	// routinely burned through. The default 6 attempts with 2/4/8/16/32s
 	// backoff buys ~62s of coverage — enough for typical deployment
 	// rotations without tripping into a total stall when something is
-	// genuinely wrong upstream. 5xx errors reuse the same schedule
-	// because a brief server hiccup happily tolerates the longer wait.
-	const maxAttempts = 6
+	// genuinely wrong upstream. Operators can tune via providers.yaml::
+	// retry_max_attempts when their upstream's rotation pattern needs
+	// more / less coverage.
+	maxAttempts := o.retryMaxAttempts
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if o.stream {
 			resp, err = o.doStreamRequest(bodyBytes, opts.OnContentDelta)
@@ -161,6 +245,20 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOp
 			resp, err = o.doRequest(bodyBytes)
 		}
 		if err == nil {
+			// Diagnostic floor: every successful response logs its
+			// finish_reason + completion_tokens at debug, escalating
+			// to a warning when the server hit a length cap. This
+			// closes the diagnostic blind spot that turned the
+			// emit_change_plan truncation into a multi-round
+			// investigation — any future client-side or model-side
+			// output truncation is now visible in one log line.
+			if resp.StopReason == "max_tokens" {
+				logging.Warning("[llm] response: model=%s finish_reason=length output_tokens=%d cap=%d (request hit output cap — set max_output_tokens=0 in providers.yaml to remove client-side cap)",
+					o.model, resp.Usage.OutputTokens, o.maxOutputTokens)
+			} else {
+				logging.Debug("[llm] response: model=%s finish_reason=%s output_tokens=%d cap=%d",
+					o.model, resp.StopReason, resp.Usage.OutputTokens, o.maxOutputTokens)
+			}
 			return resp, nil
 		}
 		lastErr = err
@@ -458,8 +556,12 @@ type openaiUsage struct {
 
 func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opts ChatOptions) openaiRequest {
 	req := openaiRequest{
-		Model:     o.model,
-		MaxTokens: o.maxTokens,
+		Model: o.model,
+		// MaxTokens has `omitempty`, so the zero default (= "no
+		// client-side cap, server picks model ceiling") simply omits
+		// the field on the wire. Operators set MaxOutputTokens > 0
+		// only when they want to bound generation explicitly.
+		MaxTokens: o.maxOutputTokens,
 	}
 
 	// Convert messages

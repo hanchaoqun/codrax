@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -1564,8 +1565,12 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	// consume this same value, so the startup log is the canonical
 	// "what codrax believes the model can take" breadcrumb.
 	if app.defaultLLM != nil {
-		logging.Info("[llm] default adapter: model=%s context_window=%d tokens",
-			app.defaultLLM.ModelID(), app.defaultLLM.MaxContextTokens())
+		logging.Info("[llm] default adapter: model=%s context_window=%d tokens %s timeout=%s retry=%d",
+			app.defaultLLM.ModelID(),
+			app.defaultLLM.MaxContextTokens(),
+			formatOutputCap(app.defaultLLM.MaxOutputTokens()),
+			app.defaultLLM.RequestTimeout(),
+			app.defaultLLM.RetryMaxAttempts())
 	}
 
 	// Memory summarizer adapter routing. When providers.yaml carries
@@ -1980,8 +1985,23 @@ func (p *placeholderAdapter) Chat(messages []llm.Message, tools []llm.ToolSchema
 	}, nil
 }
 
-func (p *placeholderAdapter) ModelID() string       { return "placeholder-v1" }
-func (p *placeholderAdapter) MaxContextTokens() int { return 200000 }
+func (p *placeholderAdapter) ModelID() string                  { return "placeholder-v1" }
+func (p *placeholderAdapter) MaxContextTokens() int            { return 200000 }
+func (p *placeholderAdapter) MaxOutputTokens() int             { return 0 }
+func (p *placeholderAdapter) RequestTimeout() time.Duration    { return 120 * time.Second }
+func (p *placeholderAdapter) RetryMaxAttempts() int            { return 6 }
+
+// formatOutputCap renders the resolved max_output_tokens for the
+// startup log. Zero means "no client-side cap, server uses model
+// ceiling" — surface that intent explicitly so operators don't read
+// "max_output=0" as "broken config." Positive values render as the
+// literal token count.
+func formatOutputCap(n int) string {
+	if n <= 0 {
+		return "max_output=server-default"
+	}
+	return fmt.Sprintf("max_output=%d tokens", n)
+}
 
 func truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {

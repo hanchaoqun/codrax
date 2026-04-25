@@ -238,6 +238,13 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
+	// Convert wire-format emitChangePlanChange → canonical
+	// types.FileChange once. Every validator below operates on
+	// types.FileChange (so the structural emit_plan_skeleton +
+	// emit_plan_change path can reuse them); keeping the conversion
+	// at the top means the rest of Execute is a single-shape pipeline.
+	fcs := emitChangesToFileChanges(p.Changes)
+
 	// B1 Q1 validation — three checks on the changes[] + depends_on
 	// graph. All three run BEFORE any Mutable mutation so a rejected
 	// emit leaves no partial state.
@@ -249,59 +256,19 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    diff). Rejecting duplicates keeps DependsOn unambiguously
 	//    path-identified and removes a whole class of apply-stage
 	//    ordering pathologies.
-	seenPaths := make(map[string]int, len(p.Changes))
-	for i, c := range p.Changes {
-		path := strings.TrimSpace(c.Path)
-		if _, dup := seenPaths[path]; dup {
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("emit_change_plan rejected: duplicate change for path %q (one-change-per-file constraint; combine into a single FileChange)", path),
-				Timestamp: time.Now(),
-			}, nil
-		}
-		seenPaths[path] = i
-	}
-
-	// 2) Unknown-depends_on check. Every DependsOn entry must
-	//    appear as another change's Path. A dangling reference is a
-	//    planner bug that would silently turn into an unapplied
-	//    ordering constraint at apply time.
-	for _, c := range p.Changes {
-		path := strings.TrimSpace(c.Path)
-		for _, dep := range c.DependsOn {
-			dep = strings.TrimSpace(dep)
-			if dep == "" {
-				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   false,
-					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q has an empty depends_on entry", path),
-					Timestamp: time.Now(),
-				}, nil
-			}
-			if dep == path {
-				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   false,
-					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q depends_on itself", path),
-					Timestamp: time.Now(),
-				}, nil
-			}
-			if _, ok := seenPaths[dep]; !ok {
-				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   false,
-					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q depends_on %q but %q is not in changes[]", path, dep, dep),
-					Timestamp: time.Now(),
-				}, nil
-			}
-		}
+	if rej := validatePlanGraphIntegrity(fcs); rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
 	}
 
 	// 3) Cycle detection. A cyclic DependsOn graph has no valid
 	//    apply order — reject with the specific cycle path so the
 	//    planner's retry (B1 fail-loud surface) can fix it.
-	if cycle := detectDepsCycle(p.Changes); cycle != "" {
+	if cycle := detectDepsCycle(fcs); cycle != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -330,94 +297,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	//    container without git). Skipped when RepoRoot is empty
 	//    (unexpected in write mode, but belt-and-suspenders for
 	//    tool-layer unit tests that don't set it).
-	if GitAvailable() && strings.TrimSpace(ctx.RepoRoot) != "" {
-		for _, c := range p.Changes {
-			kind := strings.TrimSpace(c.Kind)
-			if kind != "patch" {
-				continue
-			}
-			if strings.TrimSpace(c.Patch) == "" {
-				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   false,
-					Summary:   fmt.Sprintf("emit_change_plan rejected: change %q has kind=patch but Patch is empty (unified-diff required)", strings.TrimSpace(c.Path)),
-					Timestamp: time.Now(),
-				}, nil
-			}
-			if err := CheckUnifiedDiff(ctx.RepoRoot, c.Patch); err != nil {
-				msg := composePatchRejection(ctx.RepoRoot, strings.TrimSpace(c.Path), err.Error())
-				return types.ToolResult{
-					ToolName:  t.Name(),
-					Success:   false,
-					Summary:   msg,
-					Timestamp: time.Now(),
-				}, nil
-			}
-		}
-	}
-
-	// V1 deps-closure: every external import in a Go new_content
-	// MUST be declared in either (a) the main repo's go.mod or
-	// (b) a go.mod modify entry within the same plan. Catches the
-	// Run #1 failure mode where the LLM writes `import "github.com/
-	// pkg/sftp"` but never adds the require line — apply phase fails
-	// to compile, verify regresses, planner re-plans without context.
-	// Failing here turns the 3-stage failure (plan→apply→verify) into
-	// a single rejection the planner can fix on its next retry within
-	// the same dispatch.
-	if rej := validatePlanDepsClosure(ctx.RepoRoot, p.Changes); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
-	}
-
-	// V3 wiring-closure: a new file under a registered subsystem
-	// (mcp / skill / tool / agent — see wiring_anchors.go) MUST be
-	// accompanied by a modify or patch of the corresponding wiring
-	// file. Otherwise the new code is unreachable from the runtime
-	// (Run #1 + Run #2 both shipped a new mcp.Server impl with no
-	// cmd/root.go modify, leaving dead code).
-	if rej := validatePlanWiringClosure(p.Changes); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
-	}
-
-	// V4 summary-changes consistency: any path-shaped or import-
-	// shaped token mentioned in summary MUST appear in changes[].path
-	// or in the parsed imports of new_content. Catches Run #2's
-	// "summary says ssh.go, changes[] says ssh_server.go" lying and
-	// Run #1's "summary says golang.org/x/crypto/sftp (nonexistent)"
-	// hallucinated package name.
-	if rej := validatePlanSummaryConsistency(p.Summary, p.Changes); rej != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_change_plan rejected: " + rej,
-			Timestamp: time.Now(),
-		}, nil
-	}
-
-	// V2 dry-build: stage every Go change into a scratch dir layered
-	// on top of the main repo (overlay) and run `go vet` on the
-	// impacted packages. Catches compile-level errors (undefined
-	// identifiers like Run #2's `client.Connected()`, type mismatches,
-	// missing-import-but-not-stdlib slip-throughs that V1 may miss).
-	// Rejection embeds the actual `go vet` stderr so the planner sees
-	// the exact line:col, not just "build failed".
-	//
-	// Skipped silently when the repo isn't a Go module (no go.mod) —
-	// the plan touches files we can't validate and the validator has
-	// nothing to assert. This is a real-world degradation (running
-	// codrax against a non-Go repo) not a bypass; V1 already caught
-	// the Go-specific issues.
-	if rej := validatePlanDryBuild(ctx, p.Changes); rej != "" {
+	if rej := validatePlanFullContent(ctx, p.Summary, fcs); rej != "" {
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
@@ -427,65 +307,8 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 	}
 
 	// Build the internal ChangePlan + populate target_paths from
-	// the changes array. Plan IDs embed trace + nano + pid so two
-	// concurrent codrax processes never collide on the same plan
-	// file name even when they run in the same clock-nano.
-	now := time.Now()
-	plan := &types.ChangePlan{
-		ID:            fmt.Sprintf("plan-%d-%d", now.UnixNano(), os.Getpid()),
-		TriggerTurnID: "", // populated by REPL layer in B0.6+ once /plan state wires up
-		SessionID:     "", // same as above
-		Request:       strings.TrimSpace(p.Request),
-		Summary:       strings.TrimSpace(p.Summary),
-		Status:        types.PlanStatusPending,
-		CreatedAt:     now,
-	}
-	paths := make(map[string]struct{})
-	for _, c := range p.Changes {
-		path := strings.TrimSpace(c.Path)
-		kind := strings.TrimSpace(c.Kind)
-		if path == "" {
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   "emit_change_plan rejected: one of the changes has an empty path",
-				Timestamp: time.Now(),
-			}, nil
-		}
-		if !isLegalChangeKind(kind) {
-			return types.ToolResult{
-				ToolName:  t.Name(),
-				Success:   false,
-				Summary:   fmt.Sprintf("emit_change_plan rejected: change %q has illegal kind %q (must be create|modify|delete|patch)", path, kind),
-				Timestamp: time.Now(),
-			}, nil
-		}
-		// Carry DependsOn through to the internal struct, trimming
-		// each entry. Duplicates / unknowns / cycles are already
-		// rejected above, so the slice here is clean.
-		var deps []string
-		if len(c.DependsOn) > 0 {
-			deps = make([]string, 0, len(c.DependsOn))
-			for _, d := range c.DependsOn {
-				deps = append(deps, strings.TrimSpace(d))
-			}
-		}
-		plan.Changes = append(plan.Changes, types.FileChange{
-			Path:       path,
-			Kind:       kind,
-			NewContent: c.NewContent,
-			Patch:      c.Patch,
-			Rationale:  strings.TrimSpace(c.Rationale),
-			DependsOn:  deps,
-		})
-		paths[path] = struct{}{}
-	}
-	for p := range paths {
-		plan.TargetPaths = append(plan.TargetPaths, p)
-	}
-	if len(p.AcceptanceTests) > 0 {
-		plan.AcceptanceTests = append([]string(nil), p.AcceptanceTests...)
-	}
+	// the (already converted + already validated) changes slice.
+	plan := newChangePlanFromChanges(strings.TrimSpace(p.Request), strings.TrimSpace(p.Summary), fcs, p.AcceptanceTests)
 
 	// Record a pending apply entry per file so downstream evaluators
 	// (CritPlanReady) can observe the plan size without needing to
@@ -546,7 +369,7 @@ func isLegalChangeKind(k string) bool {
 // re-verify. If the assumption is violated the worst case is an
 // early return with "" (dep refers to a path not in the graph →
 // the walk just stops at that branch) which is still safe.
-func detectDepsCycle(changes []emitChangePlanChange) string {
+func detectDepsCycle(changes []types.FileChange) string {
 	// Build path -> deps adjacency map.
 	deps := make(map[string][]string, len(changes))
 	for _, c := range changes {
@@ -636,7 +459,7 @@ func detectDepsCycle(changes []emitChangePlanChange) string {
 // "Project module path" (the value of the `module` line in go.mod) is
 // treated as internal — imports starting with `<module-path>/...` need
 // no go.mod entry.
-func validatePlanDepsClosure(repoRoot string, changes []emitChangePlanChange) string {
+func validatePlanDepsClosure(repoRoot string, changes []types.FileChange) string {
 	repoRoot = strings.TrimSpace(repoRoot)
 	if repoRoot == "" {
 		return ""
@@ -854,7 +677,7 @@ func isStdlibImport(imp string) bool {
 // file would itself be a wiring change but the anchors are designed
 // for files that already exist (cmd/root.go, defaults.go) so creates
 // of those files are themselves suspicious and reported.
-func validatePlanWiringClosure(changes []emitChangePlanChange) string {
+func validatePlanWiringClosure(changes []types.FileChange) string {
 	// Collect the set of paths that get modified or patched in this
 	// plan — these are the candidate wiring touches.
 	wired := make(map[string]struct{})
@@ -913,7 +736,7 @@ var importTokenRe = regexp.MustCompile(`(?:github\.com|golang\.org|go\.uber\.org
 //
 // Best-effort — when both checks succeed we return ""; on first
 // violation we return the rejection reason naming the unmatched token.
-func validatePlanSummaryConsistency(summary string, changes []emitChangePlanChange) string {
+func validatePlanSummaryConsistency(summary string, changes []types.FileChange) string {
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
 		return ""
@@ -1112,7 +935,7 @@ func formatImportSet(set map[string]struct{}) string {
 // A non-zero `go vet` exit is treated as a hard rejection — its stderr
 // is embedded in the rejection so the planner sees the line:col of the
 // failure.
-func validatePlanDryBuild(ctx *types.BusContext, changes []emitChangePlanChange) string {
+func validatePlanDryBuild(ctx *types.BusContext, changes []types.FileChange) string {
 	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
 		return ""
 	}

@@ -18,6 +18,19 @@ import (
 	"time"
 )
 
+// testAdapterOpts builds an AdapterOptions with valid sizing defaults
+// for tests that only care about one specific knob. Mirrors what the
+// factory layer would resolve when no yaml override is present.
+func testAdapterOpts(opts AdapterOptions) AdapterOptions {
+	if opts.RequestTimeout == 0 {
+		opts.RequestTimeout = 120 * time.Second
+	}
+	if opts.RetryMaxAttempts == 0 {
+		opts.RetryMaxAttempts = 6
+	}
+	return opts
+}
+
 // TestOpenAIAdapter_MaxContextTokens_Resolution pins the zero-
 // sentinel fallback contract: a zero contextWindow (legacy
 // providers.yaml without the field, or agent that forgot to
@@ -36,12 +49,70 @@ func TestOpenAIAdapter_MaxContextTokens_Resolution(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			a := NewOpenAIAdapter("k", "m", "http://x", false, c.in, TLSOptions{})
+			a := NewOpenAIAdapter("k", "m", "http://x", testAdapterOpts(AdapterOptions{ContextWindow: c.in}))
 			if got := a.MaxContextTokens(); got != c.want {
 				t.Errorf("MaxContextTokens()=%d, want %d", got, c.want)
 			}
 		})
 	}
+}
+
+// TestOpenAIAdapter_MaxOutputTokens_WireOmitWhenZero pins the load-
+// bearing default for output capping: when MaxOutputTokens is zero,
+// the wire payload MUST NOT include a max_tokens field, so the
+// server falls back to the model's own output ceiling (matching
+// every other LLM client). A positive value flows through unchanged.
+func TestOpenAIAdapter_MaxOutputTokens_WireOmitWhenZero(t *testing.T) {
+	msgs := []Message{{Role: "user", Content: "hi"}}
+
+	t.Run("zero_max_output_omits_field", func(t *testing.T) {
+		a := NewOpenAIAdapter("k", "m", "http://x", testAdapterOpts(AdapterOptions{MaxOutputTokens: 0}))
+		b, _ := json.Marshal(a.buildRequest(msgs, nil, ChatOptions{}))
+		if strings.Contains(string(b), `"max_tokens"`) {
+			t.Errorf("zero MaxOutputTokens must omit max_tokens on the wire, got: %s", b)
+		}
+	})
+
+	t.Run("positive_max_output_emits_field", func(t *testing.T) {
+		a := NewOpenAIAdapter("k", "m", "http://x", testAdapterOpts(AdapterOptions{MaxOutputTokens: 8192}))
+		b, _ := json.Marshal(a.buildRequest(msgs, nil, ChatOptions{}))
+		if !strings.Contains(string(b), `"max_tokens":8192`) {
+			t.Errorf("explicit MaxOutputTokens must serialize, got: %s", b)
+		}
+	})
+}
+
+// TestNewOpenAIAdapter_PanicsOnZeroSizing pins the fail-loud guards
+// so a future caller cannot silently construct an adapter with a
+// hung HTTP client (zero timeout) or a degenerate retry loop (zero
+// attempts). The factory must apply the code default explicitly.
+func TestNewOpenAIAdapter_PanicsOnZeroSizing(t *testing.T) {
+	mustPanic := func(t *testing.T, opts AdapterOptions) {
+		t.Helper()
+		defer func() {
+			if r := recover(); r == nil {
+				t.Errorf("expected panic, got none for opts=%+v", opts)
+			}
+		}()
+		NewOpenAIAdapter("k", "m", "http://x", opts)
+	}
+
+	t.Run("zero_request_timeout_panics", func(t *testing.T) {
+		mustPanic(t, AdapterOptions{RetryMaxAttempts: 6})
+	})
+	t.Run("zero_retry_attempts_panics", func(t *testing.T) {
+		mustPanic(t, AdapterOptions{RequestTimeout: 120 * time.Second})
+	})
+	t.Run("zero_max_output_does_NOT_panic", func(t *testing.T) {
+		// MaxOutputTokens = 0 is the recommended default ("don't
+		// cap, server uses model ceiling") — must not panic.
+		defer func() {
+			if r := recover(); r != nil {
+				t.Errorf("zero MaxOutputTokens panicked: %v", r)
+			}
+		}()
+		NewOpenAIAdapter("k", "m", "http://x", testAdapterOpts(AdapterOptions{MaxOutputTokens: 0}))
+	})
 }
 
 // TestBuildRequest_ToolChoiceWire locks the wire-format contract for
@@ -103,14 +174,14 @@ func TestBuildRequest_ToolChoiceWire(t *testing.T) {
 //   - tls_insecure_skip_verify=true → Transport with InsecureSkipVerify=true
 func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 	t.Run("zero_options_uses_stock_client", func(t *testing.T) {
-		c := buildHTTPClient(TLSOptions{}, "https://api.example.com/v1")
+		c := buildHTTPClient(TLSOptions{}, "https://api.example.com/v1", 120*time.Second)
 		if c.Transport != nil {
 			t.Errorf("zero options should leave Transport nil (use DefaultTransport), got %T", c.Transport)
 		}
 	})
 
 	t.Run("insecure_skip_verify_sets_flag", func(t *testing.T) {
-		c := buildHTTPClient(TLSOptions{InsecureSkipVerify: true}, "https://api.example.com/v1")
+		c := buildHTTPClient(TLSOptions{InsecureSkipVerify: true}, "https://api.example.com/v1", 120*time.Second)
 		tr, ok := c.Transport.(*http.Transport)
 		if !ok {
 			t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)
@@ -130,7 +201,7 @@ func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 		if err := os.WriteFile(caPath, pem, 0o600); err != nil {
 			t.Fatalf("write ca.pem: %v", err)
 		}
-		c := buildHTTPClient(TLSOptions{CAFile: caPath}, "https://api.example.com/v1")
+		c := buildHTTPClient(TLSOptions{CAFile: caPath}, "https://api.example.com/v1", 120*time.Second)
 		tr, ok := c.Transport.(*http.Transport)
 		if !ok {
 			t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)
@@ -145,7 +216,7 @@ func TestBuildHTTPClient_TLSOptions(t *testing.T) {
 
 	t.Run("bad_ca_file_path_falls_back_gracefully", func(t *testing.T) {
 		// Missing file → log warning, skip RootCAs override.
-		c := buildHTTPClient(TLSOptions{CAFile: "/does/not/exist/ca.pem"}, "https://api.example.com/v1")
+		c := buildHTTPClient(TLSOptions{CAFile: "/does/not/exist/ca.pem"}, "https://api.example.com/v1", 120*time.Second)
 		tr, ok := c.Transport.(*http.Transport)
 		if !ok {
 			t.Fatalf("Transport type = %T, want *http.Transport", c.Transport)

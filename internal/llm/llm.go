@@ -2,6 +2,7 @@ package llm
 
 import (
 	"encoding/json"
+	"time"
 )
 
 // ToolSchema describes a tool for function calling.
@@ -69,8 +70,20 @@ type ChatOptions struct {
 }
 
 // Adapter defines the interface for LLM backends.
+//
+// Sizing accessors (MaxContextTokens / MaxOutputTokens /
+// RequestTimeout / RetryMaxAttempts) are exposed so the orchestrator
+// can log the effective per-adapter knobs at startup. This makes the
+// "what does codrax actually think the cap is" question answerable
+// from the log alone, without grepping the yaml + adapter source.
+// MaxOutputTokens returns 0 when the operator has chosen "no client-
+// side cap" (the default) — callers must treat 0 as "server uses
+// model ceiling" rather than "infinite local budget."
 type Adapter interface {
 	Chat(messages []Message, tools []ToolSchema, opts ChatOptions) (Response, error)
 	ModelID() string
 	MaxContextTokens() int
+	MaxOutputTokens() int
+	RequestTimeout() time.Duration
+	RetryMaxAttempts() int
 }

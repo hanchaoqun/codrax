@@ -462,7 +462,7 @@ func TestDetectDepsCycle_UnitTable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got := detectDepsCycle(c.changes)
+			got := detectDepsCycle(emitChangesToFileChanges(c.changes))
 			if (got != "") != c.wantCyc {
 				t.Errorf("detectDepsCycle = %q, wantCyc=%v", got, c.wantCyc)
 			}

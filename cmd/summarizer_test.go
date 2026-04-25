@@ -6,6 +6,7 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/hanchaoqun/codrax/internal/llm"
 	"github.com/hanchaoqun/codrax/internal/memory"
@@ -34,8 +35,11 @@ func (s *summarizerStubAdapter) Chat(messages []llm.Message, tools []llm.ToolSch
 	return s.resp, s.err
 }
 
-func (s *summarizerStubAdapter) ModelID() string       { return "stub-v1" }
-func (s *summarizerStubAdapter) MaxContextTokens() int { return 100000 }
+func (s *summarizerStubAdapter) ModelID() string                  { return "stub-v1" }
+func (s *summarizerStubAdapter) MaxContextTokens() int            { return 100000 }
+func (s *summarizerStubAdapter) MaxOutputTokens() int             { return 0 }
+func (s *summarizerStubAdapter) RequestTimeout() time.Duration    { return 120 * time.Second }
+func (s *summarizerStubAdapter) RetryMaxAttempts() int            { return 6 }
 
 func newSummarizerTurn() memory.Turn {
 	return memory.Turn{

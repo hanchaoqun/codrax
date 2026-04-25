@@ -21,6 +21,8 @@ func RegisterDefaults(r *Registry) {
 	// here so their schemas surface to the planner / coder /
 	// verifier skills via ToolSuggestions.
 	r.Register(&EmitChangePlan{})
+	r.Register(&EmitPlanSkeleton{})
+	r.Register(&EmitPlanChange{})
 	r.Register(&ApplyPatch{})
 	r.Register(&RunTests{})
 	r.Register(&EmitTestResults{})

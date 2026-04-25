@@ -114,3 +114,84 @@ func TestLoadProviders_ContextWindow_RoundTrip(t *testing.T) {
 			cfg.LLM.Agents["memory_summarizer"].ContextWindow)
 	}
 }
+
+// TestResolveProvider_OutputAndHTTPSizing_Inheritance covers the four
+// new operator-tunable fields (max_output_tokens, max_output_fraction,
+// request_timeout_seconds, retry_max_attempts). All four follow the
+// non-zero-overrides pattern: an agent that leaves the field absent
+// inherits the default; an agent that sets a positive value overrides.
+// MaxOutputFraction is pointer-typed so absence vs explicit-zero is
+// distinguishable, mirroring BlobMaxInlineFraction.
+func TestResolveProvider_OutputAndHTTPSizing_Inheritance(t *testing.T) {
+	frac := 0.25
+	defaultFrac := 0.10
+	cfg := &types.ProvidersConfig{
+		LLM: types.LLMProvidersConfig{
+			Default: types.LLMProviderConfig{
+				Provider: "openai", APIKey: "k", Model: "big", BaseURL: "u",
+				ContextWindow:         200000,
+				MaxOutputTokens:       8192,
+				MaxOutputFraction:     &defaultFrac,
+				RequestTimeoutSeconds: 120,
+				RetryMaxAttempts:      6,
+			},
+			Agents: map[string]types.LLMProviderConfig{
+				// planner overrides max_output via fraction; otherwise inherits.
+				"planner": {
+					MaxOutputFraction:     &frac,
+					RequestTimeoutSeconds: 600,
+				},
+				// analyzer inherits everything.
+				"analyzer": {Model: "big"},
+			},
+		},
+	}
+
+	t.Run("agent override wins for set fields", func(t *testing.T) {
+		got := ResolveProvider(cfg, "planner")
+		if got.MaxOutputFraction == nil || *got.MaxOutputFraction != 0.25 {
+			t.Errorf("planner.max_output_fraction = %v, want 0.25", got.MaxOutputFraction)
+		}
+		if got.RequestTimeoutSeconds != 600 {
+			t.Errorf("planner.request_timeout_seconds = %d, want 600", got.RequestTimeoutSeconds)
+		}
+		// Unset fields fall through to default.
+		if got.MaxOutputTokens != 8192 {
+			t.Errorf("planner.max_output_tokens fallthrough = %d, want 8192", got.MaxOutputTokens)
+		}
+		if got.RetryMaxAttempts != 6 {
+			t.Errorf("planner.retry_max_attempts fallthrough = %d, want 6", got.RetryMaxAttempts)
+		}
+	})
+
+	t.Run("agent inherits everything when fields absent", func(t *testing.T) {
+		got := ResolveProvider(cfg, "analyzer")
+		if got.MaxOutputTokens != 8192 {
+			t.Errorf("analyzer.max_output_tokens = %d, want 8192", got.MaxOutputTokens)
+		}
+		if got.MaxOutputFraction == nil || *got.MaxOutputFraction != 0.10 {
+			t.Errorf("analyzer.max_output_fraction = %v, want 0.10", got.MaxOutputFraction)
+		}
+		if got.RequestTimeoutSeconds != 120 {
+			t.Errorf("analyzer.request_timeout_seconds = %d, want 120", got.RequestTimeoutSeconds)
+		}
+		if got.RetryMaxAttempts != 6 {
+			t.Errorf("analyzer.retry_max_attempts = %d, want 6", got.RetryMaxAttempts)
+		}
+	})
+
+	t.Run("absent everywhere yields zero sentinels (let factory default)", func(t *testing.T) {
+		bare := &types.ProvidersConfig{
+			LLM: types.LLMProvidersConfig{
+				Default: types.LLMProviderConfig{
+					Provider: "openai", APIKey: "k", Model: "x", BaseURL: "u",
+				},
+			},
+		}
+		got := ResolveProvider(bare, "analyzer")
+		if got.MaxOutputTokens != 0 || got.MaxOutputFraction != nil ||
+			got.RequestTimeoutSeconds != 0 || got.RetryMaxAttempts != 0 {
+			t.Errorf("absent fields should remain zero/nil for factory to apply code defaults; got %+v", got)
+		}
+	})
+}

@@ -131,6 +131,23 @@ type MutableState struct {
 	// stage mutates.
 	changePlan *ChangePlan
 
+	// partialChangePlan is the in-progress write-mode plan being
+	// assembled across multiple LLM rounds via the structural
+	// emit_plan_skeleton + emit_plan_change pattern. The skeleton
+	// tool installs it with placeholder NewContent/Patch; each
+	// emit_plan_change fills one path. When the last placeholder
+	// is filled, emit_plan_change runs the full validator pipeline
+	// and (on success) promotes Partial → ChangePlan, clearing
+	// Partial. This is the structural safety net for plans where a
+	// single-shot emit_change_plan would exceed the model's output
+	// ceiling — see CLAUDE.md for the design.
+	//
+	// Distinct from ChangePlan: a non-nil PartialChangePlan means
+	// "skeleton accepted, awaiting per-file content", while a
+	// non-nil ChangePlan means "complete plan, all validators
+	// passed." The two are never both non-nil simultaneously.
+	partialChangePlan *ChangePlan
+
 	// changeReport is the B1.3 verify-stage structured artifact.
 	// run_tests populates it directly (tool-level deterministic
 	// parse of the language-specific test runner output);
@@ -1048,6 +1065,9 @@ func (m *MutableState) ChangePlan() *ChangePlan {
 // per-task dispatch. Mirror of ResetAnswerDocument so a multi-task
 // Run cannot leak a plan from a prior task into a later one. Safe
 // to call with nil receiver and when no plan has been set.
+//
+// Also clears partialChangePlan: a stale skeleton from a prior task
+// must not persist into the next planner dispatch.
 func (m *MutableState) ResetChangePlan() {
 	if m == nil {
 		return
@@ -1055,6 +1075,50 @@ func (m *MutableState) ResetChangePlan() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.changePlan = nil
+	m.partialChangePlan = nil
+}
+
+// SetPartialChangePlan installs the in-progress skeleton produced by
+// emit_plan_skeleton. Set-replace semantics mirror SetChangePlan;
+// callers using emit_plan_skeleton + emit_plan_change must clear
+// any stale plan via ResetChangePlan first to avoid the "two
+// concurrent plans" pathology.
+func (m *MutableState) SetPartialChangePlan(plan *ChangePlan) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.partialChangePlan = plan
+}
+
+// PartialChangePlan returns the buffered in-progress plan, or nil
+// when no skeleton has been emitted (or the last emit_plan_change
+// has already promoted it to ChangePlan). Read by emit_plan_change
+// to find the slot to fill and by tests to assert intermediate
+// state.
+func (m *MutableState) PartialChangePlan() *ChangePlan {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.partialChangePlan
+}
+
+// PromotePartialToChangePlan atomically moves the partial plan into
+// the final ChangePlan slot and clears Partial. Called by
+// emit_plan_change once all placeholders are filled and all
+// validators pass. Caller is responsible for running validators
+// FIRST — this method is purely a slot transition.
+func (m *MutableState) PromotePartialToChangePlan() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.changePlan = m.partialChangePlan
+	m.partialChangePlan = nil
 }
 
 // SetChangeReport atomically installs the B1.3 verify-stage

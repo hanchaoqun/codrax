@@ -61,4 +61,54 @@ type LLMProviderConfig struct {
 	// prefer TLSCAFile whenever possible. When true, codrax logs a
 	// high-visibility warning on startup so the state is never silent.
 	TLSInsecureSkipVerify bool `yaml:"tls_insecure_skip_verify"`
+
+	// MaxOutputTokens is the upper bound on tokens the server is asked
+	// to generate in a single chat completion (`max_tokens` on the
+	// wire). Symmetric to ContextWindow on the input side. Zero (the
+	// absent / zero-value form) means "fall back to the fraction form,
+	// then the code default." A non-zero value here always wins over
+	// MaxOutputFraction.
+	//
+	// The historical hard-coded 4096 cap silently truncated long
+	// emit_change_plan / write-mode payloads on every model — observed
+	// failure mode: the planner streams `{"changes": ` and stops, the
+	// LLM has no clue why because finish_reason=length never reached
+	// it, and the dispatch loop burns its full retry budget. Making
+	// this configurable closes that hole without coupling the cap to
+	// any specific provider's docs.
+	//
+	// Per-agent override uses the same non-zero-overrides rule as
+	// ContextWindow: an agent-level entry leaving the field at zero
+	// inherits the default. Agents that emit large structured payloads
+	// (planner / coder / verifier) typically declare their own here
+	// or via MaxOutputFraction.
+	MaxOutputTokens int `yaml:"max_output_tokens"`
+
+	// MaxOutputFraction is the fraction-form twin of MaxOutputTokens,
+	// mirroring the BlobMaxInlineFraction / AgentMaxToolHistoryFraction
+	// pattern. When this is positive AND ContextWindow is positive,
+	// the effective output cap is `ContextWindow * fraction` (tokens —
+	// no BytesPerToken multiplier; this is a token budget, not a byte
+	// budget). Falls back to MaxOutputTokens, then the code default.
+	//
+	// Pointer type so the merge logic can distinguish "absent" from
+	// "explicit zero." A nil pointer or zero value disables the
+	// fraction form on this entry.
+	MaxOutputFraction *float64 `yaml:"max_output_fraction"`
+
+	// RequestTimeoutSeconds is the per-call HTTP timeout for chat
+	// completion requests. Long emit_change_plan generations on slow
+	// providers can take several minutes; the legacy hard-coded 120s
+	// was tuned for short single-shot stages and silently aborted long
+	// streams. Zero (the absent form) inherits the code default (120s).
+	// Per-agent override uses the same non-zero-overrides rule.
+	RequestTimeoutSeconds int `yaml:"request_timeout_seconds"`
+
+	// RetryMaxAttempts is the maximum number of HTTP attempts (initial
+	// + retries) for transient 429 / 5xx errors. The retry schedule
+	// itself (exponential backoff base = 2s) is fixed in code; only
+	// the attempt count is operator-tunable. Zero (the absent form)
+	// inherits the code default (6 attempts ≈ 62s of total backoff
+	// coverage).
+	RetryMaxAttempts int `yaml:"retry_max_attempts"`
 }

@@ -61,7 +61,7 @@ func TestValidatePlanDepsClosure_RejectsUndeclaredImport(t *testing.T) {
 			NewContent: "package mcp\n\nimport (\n\t\"fmt\"\n\t\"github.com/pkg/sftp\"\n)\n\nfunc _stub() { _ = fmt.Sprintf; _ = sftp.NewClient }\n",
 		},
 	}
-	got := validatePlanDepsClosure(repo, changes)
+	got := validatePlanDepsClosure(repo, emitChangesToFileChanges(changes))
 	if !strings.Contains(got, "github.com/pkg/sftp") {
 		t.Errorf("expected rejection naming missing import, got: %q", got)
 	}
@@ -84,7 +84,7 @@ func TestValidatePlanDepsClosure_AcceptsOverlaidGoMod(t *testing.T) {
 			NewContent: "module example.com/codrax\n\ngo 1.22\n\nrequire github.com/pkg/sftp v1.13.6\n",
 		},
 	}
-	if got := validatePlanDepsClosure(repo, changes); got != "" {
+	if got := validatePlanDepsClosure(repo, emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected acceptance with overlaid go.mod, got rejection: %q", got)
 	}
 }
@@ -101,7 +101,7 @@ func TestValidatePlanDepsClosure_AcceptsStdlibAndInternal(t *testing.T) {
 			NewContent: "package mcp\n\nimport (\n\t\"fmt\"\n\t\"os\"\n\t\"example.com/codrax/internal/types\"\n)\n\nfunc _stub() { _ = fmt.Sprintf; _ = os.Open; _ = types.RepoFact{} }\n",
 		},
 	}
-	if got := validatePlanDepsClosure(repo, changes); got != "" {
+	if got := validatePlanDepsClosure(repo, emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected acceptance for stdlib+internal-only imports, got rejection: %q", got)
 	}
 }
@@ -115,7 +115,7 @@ func TestValidatePlanWiringClosure_RejectsBareCreate(t *testing.T) {
 	changes := []emitChangePlanChange{
 		{Path: "internal/mcp/ssh.go", Kind: "create", NewContent: "package mcp\n"},
 	}
-	got := validatePlanWiringClosure(changes)
+	got := validatePlanWiringClosure(emitChangesToFileChanges(changes))
 	if !strings.Contains(got, "cmd/root.go") {
 		t.Errorf("expected rejection naming cmd/root.go wiring file, got: %q", got)
 	}
@@ -132,7 +132,7 @@ func TestValidatePlanWiringClosure_AcceptsWithWiringModify(t *testing.T) {
 		{Path: "internal/mcp/ssh.go", Kind: "create", NewContent: "package mcp\n"},
 		{Path: "cmd/root.go", Kind: "modify", NewContent: "package cmd\n"},
 	}
-	if got := validatePlanWiringClosure(changes); got != "" {
+	if got := validatePlanWiringClosure(emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected acceptance with wiring modify, got rejection: %q", got)
 	}
 }
@@ -144,7 +144,7 @@ func TestValidatePlanWiringClosure_AcceptsWithWiringPatch(t *testing.T) {
 		{Path: "internal/skill/foo.go", Kind: "create", NewContent: "package skill\n"},
 		{Path: "internal/skill/defaults.go", Kind: "patch", Patch: "@@\n"},
 	}
-	if got := validatePlanWiringClosure(changes); got != "" {
+	if got := validatePlanWiringClosure(emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected acceptance with wiring patch, got rejection: %q", got)
 	}
 }
@@ -156,7 +156,7 @@ func TestValidatePlanWiringClosure_TestFilesExempt(t *testing.T) {
 	changes := []emitChangePlanChange{
 		{Path: "internal/mcp/ssh_test.go", Kind: "create", NewContent: "package mcp\n"},
 	}
-	if got := validatePlanWiringClosure(changes); got != "" {
+	if got := validatePlanWiringClosure(emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected test files to be exempt, got rejection: %q", got)
 	}
 }
@@ -172,7 +172,7 @@ func TestValidatePlanSummaryConsistency_RejectsPathLie(t *testing.T) {
 	changes := []emitChangePlanChange{
 		{Path: "internal/mcp/ssh_server.go", Kind: "create", NewContent: "package mcp\n"},
 	}
-	got := validatePlanSummaryConsistency(summary, changes)
+	got := validatePlanSummaryConsistency(summary, emitChangesToFileChanges(changes))
 	if !strings.Contains(got, "internal/mcp/ssh.go") {
 		t.Errorf("expected rejection naming the lying path, got: %q", got)
 	}
@@ -191,7 +191,7 @@ func TestValidatePlanSummaryConsistency_RejectsImportHallucination(t *testing.T)
 			NewContent: "package mcp\n\nimport \"github.com/pkg/sftp\"\n\nfunc _stub() { _ = sftp.NewClient }\n",
 		},
 	}
-	got := validatePlanSummaryConsistency(summary, changes)
+	got := validatePlanSummaryConsistency(summary, emitChangesToFileChanges(changes))
 	if !strings.Contains(got, "golang.org/x/crypto/sftp") {
 		t.Errorf("expected rejection naming the hallucinated import, got: %q", got)
 	}
@@ -208,7 +208,7 @@ func TestValidatePlanSummaryConsistency_AcceptsHonestSummary(t *testing.T) {
 			NewContent: "package mcp\n\nimport \"github.com/pkg/sftp\"\n\nfunc _stub() { _ = sftp.NewClient }\n",
 		},
 	}
-	if got := validatePlanSummaryConsistency(summary, changes); got != "" {
+	if got := validatePlanSummaryConsistency(summary, emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected acceptance for honest summary, got rejection: %q", got)
 	}
 }
@@ -222,7 +222,7 @@ func TestValidatePlanSummaryConsistency_AcceptsContextReference(t *testing.T) {
 		{Path: "internal/tool/foo.go", Kind: "create", NewContent: "package tool\n"},
 		{Path: "cmd/root.go", Kind: "modify", NewContent: "package cmd\n"},
 	}
-	if got := validatePlanSummaryConsistency(summary, changes); got != "" {
+	if got := validatePlanSummaryConsistency(summary, emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected acceptance for context-only path reference, got rejection: %q", got)
 	}
 }
@@ -250,7 +250,7 @@ func TestValidatePlanDryBuild_RejectsCompileError(t *testing.T) {
 			NewContent: "package mcp\n\nfunc bad() { undefinedSymbol() }\n",
 		},
 	}
-	got := validatePlanDryBuild(ctx, changes)
+	got := validatePlanDryBuild(ctx, emitChangesToFileChanges(changes))
 	if got == "" {
 		t.Skip("validatePlanDryBuild returned empty (likely go binary unavailable in test env); compile-error path untested here")
 	}
@@ -271,7 +271,7 @@ func TestValidatePlanDryBuild_AcceptsValidCode(t *testing.T) {
 			NewContent: "package mcp\n\nimport \"fmt\"\n\nfunc Hello() { fmt.Println(\"ok\") }\n",
 		},
 	}
-	if got := validatePlanDryBuild(ctx, changes); got != "" {
+	if got := validatePlanDryBuild(ctx, emitChangesToFileChanges(changes)); got != "" {
 		t.Skipf("validatePlanDryBuild returned %q — likely missing go binary or harness mismatch; happy-path untested here", got)
 	}
 }
@@ -286,7 +286,7 @@ func TestValidatePlanDryBuild_SkipsNonGoRepo(t *testing.T) {
 	changes := []emitChangePlanChange{
 		{Path: "foo.go", Kind: "create", NewContent: "garbage"},
 	}
-	if got := validatePlanDryBuild(ctx, changes); got != "" {
+	if got := validatePlanDryBuild(ctx, emitChangesToFileChanges(changes)); got != "" {
 		t.Errorf("expected silent skip on non-Go repo, got rejection: %q", got)
 	}
 }

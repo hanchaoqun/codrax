@@ -3,7 +3,18 @@ package llm
 import (
 	"fmt"
 
+	"github.com/hanchaoqun/codrax/internal/config"
 	"github.com/hanchaoqun/codrax/internal/types"
+)
+
+// Code defaults for the operator-tunable HTTP-side knobs. There is
+// NO code default for max_output_tokens — zero (the absent form) means
+// "let the server use the model's own ceiling", which is what every
+// other LLM client does and what we want by default. Capping output
+// client-side is opt-in via providers.yaml::max_output_tokens.
+const (
+	defaultRequestTimeoutSeconds = 120
+	defaultRetryMaxAttempts      = 6
 )
 
 // NewFromConfig creates an Adapter from a resolved provider config.
@@ -53,8 +64,41 @@ func NewFromConfig(cfg types.LLMProviderConfig) (Adapter, error) {
 	if cfg.Stream != nil {
 		stream = *cfg.Stream
 	}
-	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, stream, cfg.ContextWindow, TLSOptions{
-		CAFile:             cfg.TLSCAFile,
-		InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
+
+	// Resolve the three operator-tunable sizing knobs. Symmetric to
+	// the input-side resolution chain (ContextWindow + fraction-form
+	// blob caps): yaml fraction → yaml absolute → code default.
+	//
+	// max_output_tokens explicitly defaults to ZERO — that means we
+	// do NOT send `max_tokens` on the wire and the server uses the
+	// model's own output ceiling. This is the right default because
+	// every other LLM client (sdk, IDE assistant, langchain, etc.)
+	// works this way; capping output client-side was the root cause
+	// of the emit_change_plan streaming-truncation failures.
+	maxOutputTokens := config.ResolveTokenBudget(
+		cfg.MaxOutputFraction,
+		cfg.MaxOutputTokens,
+		0, // code default = no client-side cap
+		cfg.ContextWindow,
+	)
+	requestTimeout := config.ResolveDurationSeconds(
+		cfg.RequestTimeoutSeconds,
+		defaultRequestTimeoutSeconds,
+	)
+	retryMaxAttempts := config.ResolveRetryAttempts(
+		cfg.RetryMaxAttempts,
+		defaultRetryMaxAttempts,
+	)
+
+	return NewOpenAIAdapter(cfg.APIKey, cfg.Model, cfg.BaseURL, AdapterOptions{
+		Stream:           stream,
+		ContextWindow:    cfg.ContextWindow,
+		MaxOutputTokens:  maxOutputTokens,
+		RequestTimeout:   requestTimeout,
+		RetryMaxAttempts: retryMaxAttempts,
+		TLS: TLSOptions{
+			CAFile:             cfg.TLSCAFile,
+			InsecureSkipVerify: cfg.TLSInsecureSkipVerify,
+		},
 	}), nil
 }

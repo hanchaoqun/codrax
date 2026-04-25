@@ -77,6 +77,23 @@ func merge(dst, src *types.LLMProviderConfig) {
 	if src.TLSInsecureSkipVerify {
 		dst.TLSInsecureSkipVerify = true
 	}
+	// Output-side and HTTP-side sizing fields all use the same
+	// non-zero-overrides pattern as ContextWindow. An agent-level
+	// entry that leaves any field at zero / nil inherits the default;
+	// to opt out (e.g. force a smaller cap on a cheap classifier),
+	// the agent must set the field explicitly to a positive value.
+	if src.MaxOutputTokens != 0 {
+		dst.MaxOutputTokens = src.MaxOutputTokens
+	}
+	if src.MaxOutputFraction != nil {
+		dst.MaxOutputFraction = src.MaxOutputFraction
+	}
+	if src.RequestTimeoutSeconds != 0 {
+		dst.RequestTimeoutSeconds = src.RequestTimeoutSeconds
+	}
+	if src.RetryMaxAttempts != 0 {
+		dst.RetryMaxAttempts = src.RetryMaxAttempts
+	}
 }
 
 // mergeEnv fills empty fields from environment variables.
