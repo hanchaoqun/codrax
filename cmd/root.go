@@ -1507,6 +1507,7 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	toolRegistry.Register(&tool.EmitLogTriage{})
 	toolRegistry.Register(&tool.EmitLogSegmentation{})
 	toolRegistry.Register(&tool.EmitPerfTrace{})
+	toolRegistry.Register(&tool.EmitPerfSegmentation{})
 
 	subAgentRegistry := agent.NewSubAgentRegistry()
 
@@ -1570,8 +1571,37 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Build PerfTriageSettings from codrax.yaml — same overlay
+	// semantics as triageSettings above. Knob shapes are deliberately
+	// parallel to log_triage_* so an operator who already understands
+	// the log triage knobs configures perf without re-learning.
+	perfSettings := agent.DefaultPerfTriageSettings()
+	if rs != nil {
+		if rs.PerfTriageEnabled != nil {
+			perfSettings.Enabled = *rs.PerfTriageEnabled
+		}
+		if rs.PerfTriageMinBytes != nil {
+			perfSettings.MinBytes = *rs.PerfTriageMinBytes
+		}
+		if rs.PerfTriageMaxRetries != nil {
+			perfSettings.MaxRetries = *rs.PerfTriageMaxRetries
+		}
+		if rs.PerfTriageTwoStepEnabled != nil {
+			perfSettings.TwoStepEnabled = *rs.PerfTriageTwoStepEnabled
+		}
+		if rs.PerfTriageTwoStepBytes != nil {
+			perfSettings.TwoStepBytes = *rs.PerfTriageTwoStepBytes
+		}
+		if rs.PerfTriageTwoStepCoverage != nil {
+			perfSettings.TwoStepCoverage = *rs.PerfTriageTwoStepCoverage
+		}
+		if rs.PerfTriageMaxLLMCalls != nil {
+			perfSettings.MaxLLMCalls = *rs.PerfTriageMaxLLMCalls
+		}
+	}
+
 	agentRegistry := agent.NewRegistry()
-	agent.RegisterDefaults(agentRegistry, deps, resolver, triageSettings)
+	agent.RegisterDefaults(agentRegistry, deps, resolver, triageSettings, perfSettings)
 	logging.Info("registered %d agents", len(agentRegistry.List()))
 
 	orch := orchestrator.New(pipelineSettings, agentRegistry, skillRegistry, subAgentRegistry)

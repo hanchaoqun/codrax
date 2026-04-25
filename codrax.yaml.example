@@ -687,6 +687,52 @@
 # log_triage_max_llm_calls: 12
 
 # ---------------------------------------------------------------------------
+# Perf-triage knobs (perf_triage_*)
+# ---------------------------------------------------------------------------
+# Controls the perf_triage pre-stage that fires when --htrace /
+# --htrace-text / REPL /htrace attaches a HiTrace / atrace / systrace /
+# perfetto text excerpt. Mirrors log_triage_* exactly so the same
+# operator mental model transfers; defaults are tuned for typical
+# HarmonyOS hdc + Android adb capture volumes.
+
+# Master toggle. false → perf_triage stage skipped entirely; the
+# attached trace passes through to other consumers untouched.
+# Default true.
+# perf_triage_enabled: true
+
+# Minimum trace size before the stage fires. Below this the cost
+# of an LLM round-trip outweighs what perf_triager could extract.
+# Default 200 bytes.
+# perf_triage_min_bytes: 200
+
+# Fail-loud retry budget when emit_perf_trace rejects (schema or
+# cross-field). 0 = never retry. Default 1.
+# perf_triage_max_retries: 1
+
+# Toggle the two-step fallback (emit_perf_segmentation → per-segment
+# emit_perf_trace → MergePerfBundles). false forces single-shot only.
+# Default true.
+# perf_triage_two_step_enabled: true
+
+# Straight-to-two-step byte threshold. Traces ≥ this size skip the
+# single-shot attempt and go directly to segmentation. 64 KB matches
+# the typical multi-PID hdc/adb capture size; smaller values pay an
+# extra LLM call on traces single-shot would have handled fine.
+# Default 65536 (64 KiB).
+# perf_triage_two_step_bytes: 65536
+
+# Single-shot coverage threshold. When single-shot returns a bundle
+# with Coverage below this float, the controller escalates to two-
+# step. Default 0.3.
+# perf_triage_two_step_coverage: 0.3
+
+# Hard cap on total LLM invocations for one perf_triage pre-stage
+# Run (covers 1 single-shot + 1 segmentation + N per-segment
+# extractions). emit_perf_segmentation caps at 10 segments, so 12
+# = 1 + 1 + 10 covers the full budget. Default 12.
+# perf_triage_max_llm_calls: 12
+
+# ---------------------------------------------------------------------------
 # Log attach cap (log_attach_*)
 # ---------------------------------------------------------------------------
 # Hard ceiling on the byte length of any attached log, applied BEFORE

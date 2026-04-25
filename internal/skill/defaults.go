@@ -357,6 +357,43 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 		},
 	})
 
+	// The perf-segmentation skill mirrors log-segmentation for the
+	// HiTrace / atrace / systrace / perfetto channel. Step A of the
+	// perf two-step fallback. Registered alongside log-segmentation
+	// so the perf_triager's two-step controller can resolve it by
+	// name from the same skill registry.
+	r.Register(&Config{
+		Name: "perf-segmentation-skill",
+		Goal: "Segment the attached HiTrace / atrace / perfetto excerpt into byte-addressed regions by kind (frame_window / jank_region / startup / thread_run / context / noise) so the downstream per-segment extractor can focus on one coherent block at a time. Emit exactly one emit_perf_segmentation call.",
+		Workflow: []string{
+			"Read the attached trace from the 'Attached HiTrace / atrace' section. If the trace was blobbed (large), use read_file to scan the full body — segmentation needs coordinates over the complete text.",
+			"Walk the trace top-to-bottom. Identify byte ranges that contain: a single render-frame envelope worth scrutinising (kind=frame_window — typically a B|...|H:RenderService:DoFrame ... E|... pair); a contiguous run of janky frames or stalls (kind=jank_region); a process / activity startup window (kind=startup — bounded by ActivityTaskManager / AppInit / WindowStage.loadContent on HarmonyOS, ActivityThread / Application#onCreate on Android); a long-running CPU burn or I/O block on one thread (kind=thread_run); the trace header / metadata banner (kind=context); or unrelated noise (kind=noise).",
+			"Emit at most 10 segments. Overlap is NOT allowed — byte_end of segment N must be ≤ byte_start of segment N+1. Segments must be sorted by byte_start.",
+			"Use the hint field for a short (≤80 char) per-segment label so the downstream per-segment extractor knows what it is looking at (e.g. hint='cold-start ActivityTaskManager 1.2s' or hint='LazyForEach jank window 3 frames').",
+			"The system validates byte coordinates against the trace length. Segments that are reversed, zero-length, or out of bounds are silently dropped. context + noise segments are still recorded for diagnostics but Step B skips them.",
+		},
+		ToolSuggestions: []string{
+			"read_file", // for blobbed traces
+			"emit_perf_segmentation",
+		},
+		OutputFormat: `Emit ONE emit_perf_segmentation call with the full segments[] list.
+
+Schema in one glance:
+- segments[] (required, up to 10 entries)
+  - byte_start (required, integer ≥ 0)
+  - byte_end   (required, integer > byte_start)
+  - kind       (required, enum: frame_window | jank_region | startup | thread_run | context | noise)
+  - hint       (optional, ≤ 80 chars)
+
+Do NOT emit any other tool call. Do NOT write prose.`,
+		Prohibitions: []string{
+			"do not call emit_perf_trace — that is Step B, dispatched by the agent after Step A segmentation completes",
+			"do not overlap segments — ranges must be disjoint and sorted",
+			"do not produce more than 10 segments — coarsen the granularity if the trace has more candidate regions",
+			"do not invent kinds outside the enum — the schema rejects unknown values",
+		},
+	})
+
 	// ── B0 write-mode skills ───────────────────────────────────
 	//
 	// Three skills paired with the planner / coder / verifier agents.

@@ -277,6 +277,13 @@ type MutableState struct {
 	// alongside logTriage so both channels can seed analyzer hints
 	// in the same Run.
 	perfTrace *PerfBundle
+
+	// perfSegments is the perf-channel companion to logSegments.
+	// Holds the JSON-marshalled []tool.PerfSegment slice produced by
+	// emit_perf_segmentation in Step A of the perf two-step fallback.
+	// The two-step controller unmarshals on read. Nil means either
+	// two-step was not invoked or the segmenter failed.
+	perfSegments []byte
 }
 
 // ReconcileObservation is one decision the analyzer pipeline made
@@ -605,6 +612,42 @@ func (m *MutableState) LogSegments() []byte {
 	}
 	out := make([]byte, len(m.logSegments))
 	copy(out, m.logSegments)
+	return out
+}
+
+// SetPerfSegments stores the opaque JSON-marshalled
+// []tool.PerfSegment payload from Step A of the perf two-step
+// fallback. Mirrors SetLogSegments exactly so the two-step
+// controllers (one per channel) share a single mental model.
+// Pass nil to clear.
+func (m *MutableState) SetPerfSegments(raw []byte) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if len(raw) == 0 {
+		m.perfSegments = nil
+		return
+	}
+	cp := make([]byte, len(raw))
+	copy(cp, raw)
+	m.perfSegments = cp
+}
+
+// PerfSegments returns the stored perf-segmentation payload, or nil
+// when none exists.
+func (m *MutableState) PerfSegments() []byte {
+	if m == nil {
+		return nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if len(m.perfSegments) == 0 {
+		return nil
+	}
+	out := make([]byte, len(m.perfSegments))
+	copy(out, m.perfSegments)
 	return out
 }
 

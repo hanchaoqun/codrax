@@ -354,6 +354,27 @@ type RuntimeSettings struct {
 	LogTriageTwoStepCoverage *float64 `yaml:"log_triage_two_step_coverage"`
 	LogTriageMaxLLMCalls     *int     `yaml:"log_triage_max_llm_calls"`
 
+	// Perf-triage knobs (perf_triage_*). Exact shape mirror of
+	// log_triage_* so an operator who tuned log triage transfers
+	// every assumption directly. Same nil-pointer semantics for the
+	// "absent vs explicit zero" distinction. Defaults supplied by
+	// agent.DefaultPerfTriageSettings.
+	//
+	//   PerfTriageEnabled         — toggle the perf_triage pre-stage (default true)
+	//   PerfTriageMinBytes        — minimum trace size before the stage fires (default 200)
+	//   PerfTriageMaxRetries      — fail-loud retry budget for emit_perf_trace (default 1)
+	//   PerfTriageTwoStepEnabled  — toggle two-step fallback (default true)
+	//   PerfTriageTwoStepBytes    — straight-to-two-step byte threshold (default 64 KB)
+	//   PerfTriageTwoStepCoverage — single-shot coverage floor before escalating (default 0.3)
+	//   PerfTriageMaxLLMCalls     — hard cap on total LLM calls per stage run (default 12)
+	PerfTriageEnabled         *bool    `yaml:"perf_triage_enabled"`
+	PerfTriageMinBytes        *int     `yaml:"perf_triage_min_bytes"`
+	PerfTriageMaxRetries      *int     `yaml:"perf_triage_max_retries"`
+	PerfTriageTwoStepEnabled  *bool    `yaml:"perf_triage_two_step_enabled"`
+	PerfTriageTwoStepBytes    *int     `yaml:"perf_triage_two_step_bytes"`
+	PerfTriageTwoStepCoverage *float64 `yaml:"perf_triage_two_step_coverage"`
+	PerfTriageMaxLLMCalls     *int     `yaml:"perf_triage_max_llm_calls"`
+
 	// Log-attach knob. `log_attach_*` prefix groups the ingestion
 	// caps that fire BEFORE log_triage sees the payload. Applies to
 	// every attach surface — `--log <file>`, `--log -` (stdin),

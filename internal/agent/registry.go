@@ -61,11 +61,13 @@ type LLMResolver func(name types.AgentName) llm.Adapter
 // non-empty). If resolver is non-nil, each agent gets its own LLM
 // adapter; otherwise all agents share deps.LLM.
 //
-// triageSettings carries the log_triager's per-stage tuning. Pass a
-// zero-value LogTriageSettings to inherit DefaultLogTriageSettings;
-// cmd/root.go merges codrax.yaml's log_triage_* knobs and passes the
-// resolved struct here.
-func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, triageSettings LogTriageSettings) {
+// triageSettings + perfSettings carry the per-stage tuning for
+// log_triager and perf_triager respectively. Pass zero-value structs
+// to inherit DefaultLogTriageSettings / DefaultPerfTriageSettings;
+// cmd/root.go merges codrax.yaml's log_triage_* + perf_triage_* knobs
+// and passes the resolved structs here.
+func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver,
+	triageSettings LogTriageSettings, perfSettings PerfTriageSettings) {
 	agents := []types.AgentName{
 		types.AgentAnalyzer,
 		types.AgentExplorer,
@@ -92,7 +94,7 @@ func RegisterDefaults(r *Registry, deps *Dependencies, resolver LLMResolver, tri
 		types.AgentExtractor:  func(d *Dependencies) Agent { return NewExtractorAgent(d) },
 		types.AgentFinalizer:  func(d *Dependencies) Agent { return NewFinalizerAgent(d) },
 		types.AgentLogTriager:  func(d *Dependencies) Agent { return NewLogTriagerAgent(d, triageSettings) },
-		types.AgentPerfTriager: func(d *Dependencies) Agent { return NewPerfTriagerAgent(d) },
+		types.AgentPerfTriager: func(d *Dependencies) Agent { return NewPerfTriagerAgent(d, perfSettings) },
 		types.AgentPlanner:    func(d *Dependencies) Agent { return NewPlannerAgent(d) },
 		types.AgentCoder:      func(d *Dependencies) Agent { return NewCoderAgent(d) },
 		types.AgentVerifier:   func(d *Dependencies) Agent { return NewVerifierAgent(d) },
