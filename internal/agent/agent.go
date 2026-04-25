@@ -604,7 +604,8 @@ func softNoToolCallMessage(lang string) string {
 // The empty string falls through to the OpenAI default (also "auto").
 func toolChoiceForStage(stage types.PipelineStage) string {
 	switch stage {
-	case types.StageAnalyze, types.StageExtract, types.StageFinalize, types.StageLogTriage:
+	case types.StageAnalyze, types.StageExtract, types.StageFinalize,
+		types.StageLogTriage, types.StagePerfTriage:
 		return "required"
 	}
 	return ""
@@ -674,6 +675,9 @@ func contextPressureFixAndAllowed(name types.AgentName) (string, []hint.Allowed)
 	case types.AgentLogTriager:
 		return "Call `emit_log_triage` with whatever meta, errors and residue you have parsed so far. Incomplete bundles are tolerated by the validator (coverage low but non-zero).",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_log_triage", Hint: "emit best-effort log bundle"}}
+	case types.AgentPerfTriager:
+		return "Call `emit_perf_trace` with whatever meta, frames, janks, stalls and startup you have parsed so far. An empty frames/janks/stalls set with a meta.summary explaining why is acceptable when the trace genuinely has no perf signal.",
+			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_perf_trace", Hint: "emit best-effort perf bundle"}}
 	case types.AgentPlanner:
 		return "Call `emit_change_plan` with the changes already drafted. If kind=patch units need regeneration, narrow the plan to kind=modify (full bodies) — the pre-flight gate still protects kind=patch units but kind=modify skips it.",
 			[]hint.Allowed{{Kind: AllowedTerminalTool, Value: "emit_change_plan", Hint: "close the plan stage with best-effort ChangePlan"}}

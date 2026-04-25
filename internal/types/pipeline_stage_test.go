@@ -26,6 +26,7 @@ func TestPipelineStage_IsWrite(t *testing.T) {
 		{StageExtract, false},
 		{StageFinalize, false},
 		{StageLogTriage, false},
+		{StagePerfTriage, false},
 
 		// Zero value / unknown strings: conservative false — any
 		// future stage must opt in explicitly rather than inherit

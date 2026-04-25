@@ -110,13 +110,20 @@ var arkTSDecoratorWhitelist = []string{
 // argument list, capturing the decorator name in group 1.
 var arkTSDecoratorRegex = regexp.MustCompile(`@(\w+)(?:\s*\([^)]*\))?`)
 
-// componentStructRegex matches `[@Decorator ...]struct Name { ... }`
-// or simpler `struct Name`. Decorators preceding `struct` may be
-// stacked across multiple lines; we capture only the LAST line
-// before `struct` so the post-pass can re-walk preceding lines for
-// the full decorator stack.
+// componentStructRegex matches `struct Name`. Two anchoring shapes
+// are accepted because both occur in real ArkTS source:
+//
+//  1. `struct` at start-of-line (decorators stacked on preceding
+//     lines, the canonical multi-line form). The leading whitespace
+//     plus optional `export` prefix covers indented helpers.
+//  2. `struct` after one or more decorators on the SAME line, e.g.
+//     `@Component struct Card { ... }`. Walks back to the first `@`
+//     so the post-pass picks up the inline decorator stack.
+//
+// `(?m)` is required for the `^` anchor to match at every line
+// boundary inside the source string.
 var componentStructRegex = regexp.MustCompile(
-	`(?m)^[ \t]*(?:export\s+)?struct[ \t]+(\w+)\b`)
+	`(?m)^[ \t]*(?:export\s+)?(?:@\w+(?:\s*\([^)]*\))?\s+)*struct[ \t]+(\w+)\b`)
 
 // builderFunctionRegex matches `@Builder function Foo(...)` or
 // `@Builder Bar(...)` (the latter is the in-struct method form).
@@ -174,10 +181,22 @@ func arkTSPostPass(src []byte, file string) ([]types.Symbol, []types.Import) {
 
 	// 1) Components: scan struct declarations, walk back to find
 	//    the decorator stack, attach each decorator name to Doc.
+	//    Decorators may live on lines BEFORE the struct or be
+	//    stacked INLINE on the same line — both forms are covered
+	//    by combining walkBackForDecorators with an inline scan.
 	for _, m := range componentStructRegex.FindAllStringSubmatchIndex(srcStr, -1) {
 		name := srcStr[m[2]:m[3]]
 		line := byteOffsetToLine(srcStr, m[0])
-		decorators := walkBackForDecorators(lines, line)
+		// Inline decorators: scan the matched range (m[0]..m[1])
+		// for `@Word` tokens before reaching `struct`.
+		inline := arkTSDecoratorRegex.FindAllStringSubmatch(srcStr[m[0]:m[1]], -1)
+		var inlineDecs []string
+		for _, dm := range inline {
+			inlineDecs = append(inlineDecs, dm[1])
+		}
+		// Multi-line stack from preceding lines.
+		stacked := walkBackForDecorators(lines, line)
+		decorators := append(inlineDecs, stacked...)
 		exported := containsAny(decorators, "Component", "Entry", "Preview", "CustomDialog")
 		kind := "component"
 		if !containsAny(decorators, arkTSDecoratorWhitelist...) {

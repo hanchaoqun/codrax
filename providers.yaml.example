@@ -58,14 +58,18 @@ llm:
 
   # --- Per-agent overrides ------------------------------------------------
   # Valid agent keys are `analyzer`, `explorer`, `extractor`,
-  # `finalizer`, `log_triager`. Set only the fields you want to
-  # change; unset fields inherit from default.
+  # `finalizer`, `log_triager`, `perf_triager`, `planner`, `coder`,
+  # `verifier`, plus the optional `memory_summarizer`,
+  # `chitchat_responder`, `chitchat_classifier`. Set only the fields
+  # you want to change; unset fields inherit from default.
   #
   # agents:
   #   analyzer:
   #     model: "stronger-model"           # smarter model for classification
   #   extractor:
   #     model: "cheaper-model"            # cheaper model for structuring
+  #   perf_triager:
+  #     model: "cheaper-model"            # HiTrace parsing is structurally simple
   #   finalizer:
   #     base_url: "http://localhost:11434/v1"
   #     model: "llama3.1:70b"

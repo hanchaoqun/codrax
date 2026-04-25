@@ -613,6 +613,28 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			logBundle.IntentHint)
 	}
 
+	// Perf-triage augmentation. Same shape as log-triage: the
+	// perf_triage pre-stage has already run and written a PerfBundle
+	// onto Mutable.PerfTrace (nil when no --htrace was attached or
+	// the stage degraded). Stall symbols + jank trigger spans
+	// become entity hints; an IntentHint of "performance" is mirrored
+	// onto the analyzer hints so the dual-gate normaliser elevates
+	// performance terms to TermSymbol.
+	var perfBundle *types.PerfBundle
+	if ctx.Mutable != nil {
+		perfBundle = ctx.Mutable.PerfTrace()
+	}
+	if perfBundle != nil && len(perfBundle.Entities) > 0 {
+		before := len(rm.AnalyzerHints.Entities)
+		rm.AnalyzerHints.Entities = logtriage.MergeEntities(
+			rm.AnalyzerHints.Entities, perfBundle.Entities)
+		logging.Info("[analyzer] perf-triage: source=%s frames=%d janks=%d stalls=%d entities +%d intent=%q",
+			perfBundle.Meta.Source, len(perfBundle.Frames), len(perfBundle.Janks),
+			len(perfBundle.Stalls),
+			len(rm.AnalyzerHints.Entities)-before,
+			perfBundle.IntentHint)
+	}
+
 	// Sub-topics post-processing: when the LLM detected multiple
 	// independent sub-topics, force explanation shape and merge entities.
 	if len(rm.SubTopics) > 5 {
@@ -1095,6 +1117,23 @@ func analyzerRequiredFiles(ctx *types.AgentContext, rm types.RequestModel) []str
 			logFiles = bundle.ResolvedFiles
 			logAuthoritative = logBundleAuthoritativeFrames(bundle)
 			externalSource = bundle.IsExternalSource()
+		}
+		// Perf-triage ResolvedFiles (PerfStall.File ∪ Frame.File) join
+		// the same authoritative seed list. A jank stall whose Symbol
+		// resolved to entry/src/main/ets/services/DataLoader.ets is as
+		// load-bearing as a panic frame; both should anchor the file
+		// ceiling. The two seeds union (de-dup on append).
+		if perf := ctx.Mutable.PerfTrace(); perf != nil && len(perf.ResolvedFiles) > 0 {
+			seen := map[string]bool{}
+			for _, f := range logFiles {
+				seen[f] = true
+			}
+			for _, f := range perf.ResolvedFiles {
+				if !seen[f] {
+					seen[f] = true
+					logFiles = append(logFiles, f)
+				}
+			}
 		}
 	}
 

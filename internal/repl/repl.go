@@ -53,6 +53,21 @@ type attachedLogSetter interface {
 	SetAttachedLog(string)
 }
 
+// attachedHitraceSetter is the perf-channel companion to
+// attachedLogSetter. The REPL's /htrace command propagates the
+// captured trace body via this method before each dispatch so the
+// orchestrator's perf_triage pre-stage can pick it up. Stubs that
+// don't implement it cleanly degrade — /htrace becomes a no-op
+// with a warning.
+type attachedHitraceSetter interface {
+	SetAttachedHitrace(string)
+}
+
+// attachedHitraceGetter mirrors attachedLogGetter for the perf channel.
+type attachedHitraceGetter interface {
+	AttachedHitrace() string
+}
+
 // modeSetter is the optional capability the REPL probes on its
 // Runner to propagate the current pipeline Mode before dispatch.
 // Real orchestrators implement SetMode; test stubs that omit it
@@ -179,6 +194,12 @@ type REPL struct {
 	// dispatch.
 	attachedLog string
 
+	// attachedHitrace mirrors attachedLog for the HiTrace channel. Set
+	// by /htrace (sticky across turns until /htrace clear). Sent to the
+	// orchestrator via attachedHitraceSetter before every dispatch so
+	// the perf_triage pre-stage can pick it up.
+	attachedHitrace string
+
 	// attachedLogAutoRouted marks attachedLog as installed by the
 	// splitPastedLog auto-routing path (pasted log body detected
 	// inline in a request), as opposed to the explicit /log or
@@ -289,6 +310,9 @@ func New(cfg Config) *REPL {
 	// first /log show onward.
 	if getter, ok := cfg.Runner.(interface{ AttachedLog() string }); ok {
 		r.attachedLog = getter.AttachedLog()
+	}
+	if getter, ok := cfg.Runner.(attachedHitraceGetter); ok {
+		r.attachedHitrace = getter.AttachedHitrace()
 	}
 	return r
 }
@@ -704,7 +728,9 @@ func (r *REPL) dispatch(line, display string) {
 	// response, unknown decision) routes to the pipeline unchanged,
 	// so a broken classifier cannot silently misroute real questions.
 	if r.chitchatClassifier != nil && r.chitchatResponder != nil &&
-		!r.attachedLogAutoRouted && strings.TrimSpace(r.attachedLog) == "" {
+		!r.attachedLogAutoRouted &&
+		strings.TrimSpace(r.attachedLog) == "" &&
+		strings.TrimSpace(r.attachedHitrace) == "" {
 		if isChat, err := r.chitchatClassifier.Classify(line); err != nil {
 			logging.Warning("[repl/chitchat] classifier error: %v — falling back to pipeline", err)
 		} else if isChat {
@@ -729,6 +755,10 @@ func (r *REPL) dispatch(line, display string) {
 	// SetAttachedLog simply skip this step (tests).
 	if setter, ok := r.runner.(attachedLogSetter); ok {
 		setter.SetAttachedLog(r.attachedLog)
+	}
+	// Same propagation for the perf channel.
+	if setter, ok := r.runner.(attachedHitraceSetter); ok {
+		setter.SetAttachedHitrace(r.attachedHitrace)
 	}
 
 	// Propagate sticky pipeline mode. Runners without SetMode
@@ -893,6 +923,9 @@ func (r *REPL) handleSlash(line string) bool {
 	switch cmd {
 	case "/log":
 		r.handleLogCmd(line)
+		return false
+	case "/htrace":
+		r.handleHitraceCmd(line)
 		return false
 	case "/paste":
 		r.handlePasteCmd()
@@ -1450,6 +1483,57 @@ func (r *REPL) handleLogCmd(line string) {
 		r.handleLogShow()
 	default:
 		r.handleLogLoad(rest)
+	}
+}
+
+// handleHitraceCmd is the perf-channel companion to handleLogCmd.
+// Mirrors the surface for HiTrace / Android-systrace attachments:
+//
+//	/htrace <path>   — load file from disk (sticky)
+//	/htrace clear    — clear the current attachment
+//	/htrace show     — print byte count + head of the attachment
+//	/htrace          — bare invocation prints usage; we do NOT enter
+//	                   paste mode for traces because realistic
+//	                   HiTrace bodies are megabytes and rarely typed
+//	                   by hand. Users who really want inline can
+//	                   `/log` paste instead.
+func (r *REPL) handleHitraceCmd(line string) {
+	rest := strings.TrimSpace(strings.TrimPrefix(line, "/htrace"))
+	switch {
+	case rest == "":
+		r.info("/htrace <path> | clear | show — attach a HiTrace / atrace file")
+	case rest == "clear":
+		if r.attachedHitrace == "" {
+			r.info("no hitrace attached")
+			return
+		}
+		r.attachedHitrace = ""
+		if setter, ok := r.runner.(attachedHitraceSetter); ok {
+			setter.SetAttachedHitrace("")
+		}
+		r.success("attached hitrace cleared")
+	case rest == "show":
+		if r.attachedHitrace == "" {
+			r.info("no hitrace attached")
+			return
+		}
+		head := r.attachedHitrace
+		if len(head) > 800 {
+			head = head[:800] + "…"
+		}
+		r.info(fmt.Sprintf("hitrace: %d bytes\n%s", len(r.attachedHitrace), head))
+	default:
+		data, err := os.ReadFile(rest)
+		if err != nil {
+			r.errorf("load hitrace: %v\n", err)
+			return
+		}
+		if len(data) > r.attachedLogMaxBytes {
+			r.warn("hitrace truncated: %d → %d bytes\n", len(data), r.attachedLogMaxBytes)
+			data = data[:r.attachedLogMaxBytes]
+		}
+		r.attachedHitrace = string(data)
+		r.success(fmt.Sprintf("attached hitrace loaded: %s (%d bytes)", rest, len(data)))
 	}
 }
 

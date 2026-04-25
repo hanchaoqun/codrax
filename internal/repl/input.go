@@ -45,6 +45,7 @@ var slashCommands = []struct {
 	{"/compact", "compact memory"},
 	{"/clear", "wipe conversation memory"},
 	{"/log", "attach/show/clear a runtime log"},
+	{"/htrace", "attach/show/clear a HiTrace / Android atrace file"},
 	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)"},
 	{"/chat", "reply without invoking the analysis pipeline"},
 	{"/mode", "show/set sticky pipeline mode: read | plan | apply | verify"},
@@ -633,7 +634,7 @@ func (m *inputModel) handleSuggestKey(msg tea.KeyMsg) (tea.Cmd, bool) {
 // command whose handler reads a non-empty remainder.
 func needsArg(cmd string) bool {
 	switch cmd {
-	case "/log", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree":
+	case "/log", "/htrace", "/chat", "/mode", "/plan", "/reject", "/verify", "/worktree":
 		return true
 	}
 	return false

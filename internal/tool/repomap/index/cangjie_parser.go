@@ -401,7 +401,12 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 	if p.cur().Kind == cjTokKeyword && p.cur().Text == "func" {
 		p.advance()
 	}
-	// Operator token — may be `+`, `>>`, `==`, or identifier-like.
+	// Operator token — may be `+`, `>>`, `==`, `[]` (subscript), or
+	// an identifier like `call`. The `[]` form is special: the
+	// signature is `operator func [](i: Int64): T` where `[` and
+	// `]` together form the operator NAME, then the `(` opens the
+	// parameter list. Accept any non-paren punctuation tokens
+	// (including the bracket pair) as operator characters.
 	opText := ""
 	for {
 		t := p.cur()
@@ -414,9 +419,12 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 			p.advance()
 			break
 		}
-		// Collect 1-2 punctuation chars as operator.
-		if t.Kind == cjTokOther || t.Kind == cjTokLAngle ||
-			t.Kind == cjTokRAngle || t.Kind == cjTokEq {
+		// Collect punctuation chars as operator. Include brackets
+		// (cjTokLBracket / cjTokRBracket) so `[]` subscript reads
+		// correctly. Cap at 3 chars to avoid runaway.
+		switch t.Kind {
+		case cjTokOther, cjTokLAngle, cjTokRAngle, cjTokEq,
+			cjTokLBracket, cjTokRBracket, cjTokColon, cjTokDot:
 			opText += t.Text
 			p.advance()
 			if len(opText) >= 3 {
@@ -424,6 +432,7 @@ func (p *cangjieParser) parseOperatorFunc(mods, decorators []string, parent stri
 			}
 			continue
 		}
+		// Unknown token shape — advance defensively to avoid stall.
 		p.advance()
 	}
 	p.countAndSkipParams()
