@@ -45,7 +45,7 @@ var slashCommands = []struct {
 	{"/compact", "compact memory"},
 	{"/clear", "wipe conversation memory"},
 	{"/log", "attach/show/clear a runtime log"},
-	{"/htrace", "attach/show/clear a HiTrace / Android atrace file"},
+	{"/htrace", "attach/show/clear an ftrace-compatible trace (HiTrace / atrace / systrace / perfetto). /atrace is an alias."},
 	{"/paste", "capture a paste when bracketed paste is stripped (SSH / tmux)"},
 	{"/chat", "reply without invoking the analysis pipeline"},
 	{"/mode", "show/set sticky pipeline mode: read | plan | apply | verify"},

@@ -933,6 +933,11 @@ func (r *REPL) handleSlash(line string) bool {
 		r.handleLogCmd(line)
 		return false
 	case "/htrace":
+		// /atrace is an Android-flavored alias of /htrace; the
+		// alias is resolved by NormalizeREPLCommandAlias BEFORE
+		// handleSlash runs, so by the time we reach this dispatch
+		// the line has already been canonicalised to /htrace.
+		// Both spellings hit this single case as a result.
 		r.handleHitraceCmd(line)
 		return false
 	case "/paste":

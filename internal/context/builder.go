@@ -511,7 +511,13 @@ func BuildPromptContext(ac *types.AgentContext, sk *skill.Config) *types.PromptC
 	// would otherwise balloon every prompt.
 	if section := formatAttachedLog(ac.AttachedHitrace, ac.WorkDir); section != "" {
 		pc.UserSections = append(pc.UserSections, types.PromptSection{
-			Title:   "Attached HiTrace / atrace",
+			// Title order matches the user-facing CLI flag order:
+			// HiTrace / atrace / systrace / perfetto are all
+			// ftrace-compatible siblings that flow through the
+			// same channel; the prompt section name lists every
+			// supported source so a model that pattern-matches on
+			// section title doesn't bias toward a single platform.
+			Title:   "Attached Performance Trace (HiTrace / atrace / systrace / perfetto)",
 			Content: section,
 		})
 	}

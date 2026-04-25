@@ -103,6 +103,14 @@ var (
 	// first, then log).
 	flagAttachHitrace     string
 	flagAttachHitraceText string
+	// --atrace / --atrace-text: aliases of --htrace / --htrace-text.
+	// Same backing channel; users on Android pipelines can type the
+	// name that matches their muscle memory (`adb shell atrace` →
+	// `--atrace`). The merge step below resolves either-or; passing
+	// both spellings simultaneously is rejected the same way --log
+	// + --log-text is.
+	flagAttachAtrace     string
+	flagAttachAtraceText string
 
 	// Auto chit-chat classifier per-run toggle. When the flag is NOT
 	// passed on the command line, the initApp merge falls back to the
@@ -227,8 +235,14 @@ func init() {
 	f.IntVar(&flagMaxStageVisits, "pipeline-max-stage-visits", 0, "override max entries per stage per Run; 0 = inherit from codrax.yaml")
 	f.StringVar(&flagAttachLog, "log", "", "attach a runtime log excerpt (panic / exception / traceback) from a file path, or '-' for stdin; seeds log-triage entities for the analyzer")
 	f.StringVar(&flagAttachLogText, "log-text", "", "inline runtime log excerpt (mutually exclusive with --log); for scripted / piped usage")
-	f.StringVar(&flagAttachHitrace, "htrace", "", "attach a HiTrace / ftrace excerpt from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace` AND Android `adb shell atrace` / systrace — both emit ftrace-compatible text. Routed through log-triage with trace-aware prompt to surface jank frames.")
-	f.StringVar(&flagAttachHitraceText, "htrace-text", "", "inline HiTrace / atrace payload (mutually exclusive with --htrace)")
+	f.StringVar(&flagAttachHitrace, "htrace", "", "attach an ftrace-compatible trace excerpt from file path (or '-' for stdin). Covers HarmonyOS `hdc shell hitrace`, Android `adb shell atrace`, systrace, and perfetto text dumps — same channel for all four. Use --atrace as an Android-flavored alias.")
+	f.StringVar(&flagAttachHitraceText, "htrace-text", "", "inline trace payload (mutually exclusive with --htrace)")
+	// --atrace / --atrace-text: Android-flavored aliases. Backed by
+	// the same channel as --htrace; the merge in loadAttachedTrace
+	// rejects setting both. No CLI semantic difference — purely a
+	// usability accommodation so `adb` users don't have to translate.
+	f.StringVar(&flagAttachAtrace, "atrace", "", "alias of --htrace (ftrace-compatible trace from file or '-' for stdin). Choose whichever name matches your capture tool — both feed the perf_triage stage identically.")
+	f.StringVar(&flagAttachAtraceText, "atrace-text", "", "alias of --htrace-text (inline trace payload)")
 	f.StringVar(&flagLogSourcePrefix, "log-source-prefix", "", "strip this path prefix from C/C++ stack-frame files before repo lookup (override for build-machine absolute paths)")
 	f.BoolVar(&flagChitchatClassifier, "chitchat-classifier", false, "enable/disable the auto chit-chat classifier for this run (overrides codrax.yaml :: chitchat_classifier_enabled when passed; no-op when omitted)")
 
@@ -291,6 +305,8 @@ var compatLongFlagNames = map[string]struct{}{
 	"log-text":                  {},
 	"htrace":                    {},
 	"htrace-text":               {},
+	"atrace":                    {},
+	"atrace-text":               {},
 	"log-source-prefix":         {},
 	"chitchat-classifier":       {},
 	"mode":                      {},
@@ -413,12 +429,34 @@ func loadAttachedLog() (string, error) {
 	return truncateAttachedLog(body), nil
 }
 
-// loadAttachedTrace returns the --htrace / --htrace-text payload
-// (size-capped). Kept as a dedicated loader so cmd/root.go can wire
-// it to orchestrator.SetAttachedHitrace in parallel with SetAttachedLog.
+// loadAttachedTrace returns the trace payload (size-capped). Accepts
+// any of the four spellings (--htrace / --htrace-text / --atrace /
+// --atrace-text); the four are mutually exclusive in the canonical
+// pairing (file vs text on the SAME flavour) — but for cross-flavour
+// (e.g. --htrace + --atrace) the alias-merge below picks whichever
+// is set, with a hard error if both are set to non-empty distinct
+// values to avoid silent precedence bugs.
 func loadAttachedTrace() (string, error) {
+	// Within-flavour exclusivity (file vs inline-text).
 	if flagAttachHitrace != "" && flagAttachHitraceText != "" {
 		return "", fmt.Errorf("--htrace and --htrace-text are mutually exclusive")
+	}
+	if flagAttachAtrace != "" && flagAttachAtraceText != "" {
+		return "", fmt.Errorf("--atrace and --atrace-text are mutually exclusive")
+	}
+	// Cross-flavour exclusivity (htrace vs atrace are aliases on
+	// the same channel).
+	if (flagAttachHitrace != "" || flagAttachHitraceText != "") &&
+		(flagAttachAtrace != "" || flagAttachAtraceText != "") {
+		return "", fmt.Errorf("--htrace and --atrace are aliases — set only one")
+	}
+	// Promote --atrace* into --htrace* so the rest of the loader
+	// (loadAttachedHitrace, stdin guards) only sees one shape.
+	if flagAttachAtrace != "" {
+		flagAttachHitrace = flagAttachAtrace
+	}
+	if flagAttachAtraceText != "" {
+		flagAttachHitraceText = flagAttachAtraceText
 	}
 	body, err := loadAttachedHitrace()
 	if err != nil {

@@ -57,6 +57,7 @@ var replCommandAliases = map[string]string{
 	"/h":         "/help",
 	"/log":       "/log",
 	"/htrace":    "/htrace",
+	"/atrace":    "/htrace", // alias — Android-flavored spelling
 	"/paste":     "/paste",
 	"/version":   "/version",
 	"/v":         "/version",
@@ -77,6 +78,7 @@ var replCommandAliases = map[string]string{
 	"\\h":        "/help",
 	"\\log":      "/log",
 	"\\htrace":   "/htrace",
+	"\\atrace":   "/htrace", // alias
 	"\\paste":    "/paste",
 	"\\version":  "/version",
 	"\\v":        "/version",
