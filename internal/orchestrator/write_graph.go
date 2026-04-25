@@ -106,15 +106,17 @@ func BuildWriteTaskGraph(mode types.PipelineMode, planPath string, retryBudget i
 		// Skip the plan node when the user supplied a reviewed plan
 		// path (R8a: do not regenerate). Apply's EntryCondition
 		// CritPlanReady still gates on WriteClosure.PendingApplies,
-		// which the orchestrator's plan-loader populates after
+		// which the apply pre-hook populates after
 		// LoadChangePlanFromFile.
 		if planPath != "" {
-			// R8a: user supplied a reviewed plan — plan node skipped.
-			// No verify→apply retry edge: re-applying the SAME reviewed
-			// plan after a verify failure is pointless (deterministic
-			// apply, same diff → same outcome) and would crash because
-			// clearForReplan wipes PlanPath, leaving applyPreHook with
-			// nothing to load. Verify failure here is terminal.
+			// User supplied a reviewed plan — plan node skipped.
+			// No verify→apply retry edge: re-applying the SAME
+			// reviewed plan after a verify failure is pointless
+			// (deterministic apply, same diff → same outcome) and
+			// would crash because clearForReplan wipes PlanPath,
+			// leaving applyPreHook with nothing to load. Verify
+			// failure here is terminal. Users who want retry-replan
+			// should use plan-mode first, NOT pre-supply a plan.
 			apply.EntryConditions = nil
 			nodes = []types.TaskNode{apply, verify}
 			edges = []types.TaskEdge{
@@ -129,10 +131,7 @@ func BuildWriteTaskGraph(mode types.PipelineMode, planPath string, retryBudget i
 				// node so the next iteration emits a fresh plan
 				// informed by Mutable.PlanningHint, AND requeues the
 				// apply node so the freshly-emitted plan actually
-				// gets applied to the worktree. Without the second
-				// edge, apply stays nodeDone, the cleared AppliedSet
-				// (from clearForReplan) never refills, and verify's
-				// CritPatchApplies blocks indefinitely.
+				// gets applied to the worktree.
 				{From: idVerify, To: idPlan, EdgeType: types.EdgeValidationFeedback},
 				{From: idVerify, To: idApply, EdgeType: types.EdgeValidationFeedback},
 			}

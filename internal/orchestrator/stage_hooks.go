@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -213,33 +214,63 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	return nil
 }
 
-// verifyPreHook loads the ChangePlan from disk when ModeVerify runs
-// standalone (`--mode=verify --plan-file=X` or REPL `/verify <id>`).
-// In ModeApply the plan is already on Mutable from the apply pre-hook
-// or the planner stage; only the standalone verify path needs to
-// hydrate it here. The verifier agent's BuildInitialInstruction reads
-// plan.AcceptanceTests, so without this load the prompt sees a nil
-// plan and short-circuits.
+// verifyPreHook prepares the verify stage. Two responsibilities:
 //
-// No-op when ChangePlan is already set or PlanPath is empty.
+//  1. Load the ChangePlan from disk when ModeVerify runs standalone
+//     (`--mode=verify --plan-file=X` or REPL `/verify <id>`). In
+//     ModeApply the plan is already on Mutable from the apply pre-
+//     hook or the planner stage; only standalone verify needs to
+//     hydrate it. Skipped when ChangePlan is already set.
+//
+//  2. Swap busCtx.RepoRoot to a preserved worktree path when
+//     orchestrator.SetReuseWorktreePath was called (REPL `/verify
+//     <plan-id>` against a worktree preserved by
+//     pipeline_keep_worktree_on_success). Without the swap, run_tests
+//     would execute against the main repo HEAD instead of the
+//     applied-bytes worktree — defeating the re-verify intent.
+//
+// The reused path is NOT written to busCtx.WorktreePath so the outer
+// Run() cleanup defer leaves the preserved tree alone.
 func verifyPreHook(o *Orchestrator) error {
 	if o == nil || o.busCtx == nil {
 		return nil
 	}
-	if o.busCtx.Mutable.ChangePlan() != nil {
-		return nil
+	if o.busCtx.Mutable.ChangePlan() == nil && o.busCtx.PlanPath != "" {
+		plan, err := types.LoadChangePlanFromFile(o.busCtx.PlanPath)
+		if err != nil {
+			msg := fmt.Sprintf("verify stage: load plan file failed: %v", err)
+			o.busCtx.Mutable.SetResult(msg)
+			return fmt.Errorf("%s", msg)
+		}
+		o.busCtx.Mutable.SetChangePlan(plan)
+		logging.Info("[orchestrator] verify pre-hook: loaded plan %s from %s", plan.ID, o.busCtx.PlanPath)
+		// CLI auto-pickup: when the loaded plan has a WorktreePath
+		// recorded (preserved via pipeline_keep_worktree_on_success
+		// during the original apply), and the orchestrator wasn't
+		// explicitly told to reuse a different path, use the plan's
+		// own recorded worktree. This makes `--mode=verify
+		// --plan-file=X` work the same way as REPL `/verify <id>`
+		// without forcing the CLI user to discover the worktree
+		// path manually.
+		if o.reuseWorktreePath == "" && plan.WorktreePath != "" {
+			o.reuseWorktreePath = plan.WorktreePath
+			logging.Info("[orchestrator] verify pre-hook: auto-reusing plan's recorded worktree %s", plan.WorktreePath)
+		}
 	}
-	if o.busCtx.PlanPath == "" {
-		return nil
+	// Reuse-worktree swap. Stat the path to fail-loud when the user
+	// supplies a stale plan whose preserved worktree was already
+	// cleaned up by the next-startup reap.
+	if o.reuseWorktreePath != "" {
+		info, err := os.Stat(o.reuseWorktreePath)
+		if err != nil || !info.IsDir() {
+			msg := fmt.Sprintf("verify stage: preserved worktree %q missing or not a directory (was it discarded?)", o.reuseWorktreePath)
+			o.busCtx.Mutable.SetResult(msg)
+			return fmt.Errorf("%s", msg)
+		}
+		o.busCtx.RepoRoot = o.reuseWorktreePath
+		o.busCtx.Mutable.SetRepoRoot(o.reuseWorktreePath)
+		logging.Info("[orchestrator] verify pre-hook: swapped RepoRoot to preserved worktree %s", o.reuseWorktreePath)
 	}
-	plan, err := types.LoadChangePlanFromFile(o.busCtx.PlanPath)
-	if err != nil {
-		msg := fmt.Sprintf("verify stage: load plan file failed: %v", err)
-		o.busCtx.Mutable.SetResult(msg)
-		return fmt.Errorf("%s", msg)
-	}
-	o.busCtx.Mutable.SetChangePlan(plan)
-	logging.Info("[orchestrator] verify pre-hook: loaded plan %s from %s", plan.ID, o.busCtx.PlanPath)
 	return nil
 }
 

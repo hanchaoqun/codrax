@@ -95,6 +95,16 @@ type Orchestrator struct {
 	// misbehaving planner cannot accumulate broken worktrees on
 	// disk. Only the happy path is preserved.
 	keepWorktreeOnSuccess bool
+
+	// reuseWorktreePath, when set, tells the verify pre-hook to swap
+	// busCtx.RepoRoot to this existing path INSTEAD of creating a
+	// fresh worktree. Used by REPL `/verify <plan-id>` to re-verify
+	// against the worktree the original apply preserved
+	// (pipeline_keep_worktree_on_success). The path is NOT mirrored
+	// onto busCtx.WorktreePath — that would cause the outer cleanup
+	// defer to discard the preserved tree on Run exit, defeating the
+	// preservation. Empty disables the override (default).
+	reuseWorktreePath string
 }
 
 // New creates a new Orchestrator.
@@ -273,6 +283,20 @@ func (o *Orchestrator) BaselineCaptureEnabled() bool {
 // of this flag.
 func (o *Orchestrator) SetKeepWorktreeOnSuccess(on bool) {
 	o.keepWorktreeOnSuccess = on
+}
+
+// SetReuseWorktreePath installs an existing worktree directory the
+// verify pre-hook should swap RepoRoot to instead of provisioning a
+// fresh checkout. Used by REPL `/verify <plan-id>` to re-test against
+// the bytes the original apply landed (preserved via
+// pipeline_keep_worktree_on_success). Empty (default) disables the
+// override and falls back to the standard "test the main repo" path.
+//
+// The path is NOT mirrored onto busCtx.WorktreePath — doing so would
+// trigger the outer Run() worktree-cleanup defer, discarding the
+// preserved tree the user explicitly wanted to keep.
+func (o *Orchestrator) SetReuseWorktreePath(path string) {
+	o.reuseWorktreePath = path
 }
 
 // KeepWorktreeOnSuccess returns the current setting.

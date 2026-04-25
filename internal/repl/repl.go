@@ -88,6 +88,16 @@ type planPathSetter interface {
 	SetPlanPath(string)
 }
 
+// reuseWorktreeSetter is the capability `/verify <plan-id>` needs:
+// before kicking off a ModeVerify Run against an applied plan, the
+// REPL hands the orchestrator the preserved worktree path so the
+// verify pre-hook swaps RepoRoot to it instead of running tests
+// against the main repo. Without this, /verify would run tests
+// against unmodified bytes, producing a misleading verdict.
+type reuseWorktreeSetter interface {
+	SetReuseWorktreePath(string)
+}
+
 // ResultRenderer turns a finished BusContext into the user-facing
 // response text. main.go owns the canonical implementation.
 type ResultRenderer func(*types.BusContext) string

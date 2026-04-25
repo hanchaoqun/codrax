@@ -85,9 +85,22 @@ func (r *REPL) handleVerifyCmd(line string) {
 	originalMode := r.currentMode
 	mSetter.SetMode(types.ModeVerify)
 	pSetter.SetPlanPath(planPath)
+	// Hand the preserved worktree path to the orchestrator so the
+	// verify pre-hook swaps RepoRoot to it. Without this the verify
+	// agent's run_tests would execute against the unmodified main
+	// repo, producing a misleading verdict.
+	wSetter, wOK := r.runner.(reuseWorktreeSetter)
+	if wOK {
+		wSetter.SetReuseWorktreePath(plan.WorktreePath)
+	} else {
+		r.warn("/verify: runner doesn't support SetReuseWorktreePath; tests will run against the main repo (stub runner)\n")
+	}
 	defer func() {
 		mSetter.SetMode(originalMode)
 		pSetter.SetPlanPath("")
+		if wOK {
+			wSetter.SetReuseWorktreePath("")
+		}
 	}()
 
 	request := fmt.Sprintf("/verify %s", plan.ID)
