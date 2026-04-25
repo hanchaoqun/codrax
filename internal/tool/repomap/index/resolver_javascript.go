@@ -168,14 +168,26 @@ func (r *jsImportResolver) Resolve(g *types.Graph, fi *types.FileInfo, imp types
 }
 
 // jsExts is the canonical extension probe order, matching what the
-// legacy relative branch already walks.
-var jsExts = []string{".ts", ".tsx", ".d.ts", ".js", ".jsx", ".mjs", ".cjs"}
+// legacy relative branch already walks. `.ets` is included so
+// HarmonyOS ArkTS projects can resolve relative imports across
+// `.ets` siblings — the ArkTS resolver delegates here for the TS-
+// shaped path-resolution logic and we would otherwise silently
+// drop every `import X from './UserCard'` in an ArkTS project.
+// `.ets` is placed right after `.ts*` so in a mixed ArkTS project
+// that coexists with type-declaration helpers the .ts hit still
+// wins when both exist; in pure TypeScript projects the `.ets`
+// probe is cheap misses.
+var jsExts = []string{".ts", ".tsx", ".d.ts", ".ets", ".js", ".jsx", ".mjs", ".cjs"}
 
 // jsIndexFiles is the bare-directory fallback list, mirroring Node
-// and bundler conventions.
+// and bundler conventions. `Index.ets` is an ArkUI page entry
+// convention where each page directory holds an `Index.ets` that
+// the framework loads — so a directory-style import in an ArkTS
+// project resolves to the page entry.
 var jsIndexFiles = []string{
 	"index.ts", "index.tsx", "index.js", "index.jsx",
 	"index.mjs", "index.cjs", "index.d.ts",
+	"Index.ets", "index.ets",
 }
 
 // resolveJsCandidate tries every extension + index variant for a

@@ -154,15 +154,20 @@ func resolveImport(g *types.Graph, fi *types.FileInfo, imp types.Import, pkgToFi
 	if len(path) > 0 && path[0] == '.' {
 		dir := filepath.Dir(fi.RelPath)
 		resolved := filepath.Clean(filepath.Join(dir, path))
-		// try with extensions
-		for _, ext := range []string{"", ".go", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".rs"} {
+		// try with extensions. `.ets` / `.cj` / `.kt` added so
+		// HarmonyOS ArkTS + Cangjie and Android Kotlin relative
+		// imports resolve — the legacy fallback path is the
+		// simplest way to make a `import X from './UserCard'` in
+		// an ArkTS file find UserCard.ets alongside it.
+		for _, ext := range []string{"", ".go", ".py", ".js", ".ts", ".jsx", ".tsx", ".java", ".rs", ".ets", ".cj", ".kt", ".kts"} {
 			candidate := resolved + ext
 			if _, ok := g.FileIndex[candidate]; ok {
 				return []string{candidate}
 			}
 		}
-		// try as directory index
-		for _, idx := range []string{"/index.js", "/index.ts", "/index.tsx", "/__init__.py"} {
+		// try as directory index — HarmonyOS Stage Model convention:
+		// pages/<PageName>/Index.ets is common.
+		for _, idx := range []string{"/index.js", "/index.ts", "/index.tsx", "/__init__.py", "/Index.ets", "/index.ets"} {
 			candidate := resolved + idx
 			if _, ok := g.FileIndex[candidate]; ok {
 				return []string{candidate}

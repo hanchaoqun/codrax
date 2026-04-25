@@ -268,7 +268,7 @@ func (t *GrepTool) Parameters() json.RawMessage {
     "pattern":       {"type": "string",  "description": "Regex pattern to search for"},
     "path":          {"type": "string",  "description": "Directory or file to search (default: current directory)"},
     "include":       {"type": "string",  "description": "File glob filter, e.g. *.go. Prefer file_type when filtering by language."},
-    "file_type":     {"type": "string",  "description": "Language/file type filter: go, py, js, ts, java, rust, ruby, c, cpp, yaml, json, toml, markdown, config, etc. Covers all relevant extensions (e.g. ts matches *.ts and *.tsx). Preferred over include for language filtering."},
+    "file_type":     {"type": "string",  "description": "Language/file type filter: go, py, js, ts, java, kotlin, arkts, cangjie, rust, ruby, c, cpp, yaml, json, toml, markdown, config, etc. Covers all relevant extensions (e.g. ts matches *.ts and *.tsx; kotlin matches *.kt and *.kts; arkts matches *.ets; cangjie matches *.cj). Preferred over include for language filtering."},
     "context_lines": {"type": "integer", "description": "Number of lines to show before and after each match (like grep -C). Use this to see surrounding code without a separate read_file call. Ignored when files_only is true."},
     "ignore_case":   {"type": "boolean", "description": "Case-insensitive match. Omit for smart-case (insensitive iff pattern has no uppercase). Set true/false to force."},
     "files_only":    {"type": "boolean", "description": "If true, return only file paths that contain matches (like grep -l), not the matching lines. Useful for breadth scans to discover which files are relevant without flooding the output."}
@@ -586,6 +586,17 @@ func fileTypeToGlobs(ft string) []string {
 		return []string{"*.ts", "*.tsx"}
 	case "java":
 		return []string{"*.java", "*.jsp", "*.properties"}
+	case "kotlin", "kt":
+		return []string{"*.kt", "*.kts"}
+	case "arkts", "ets":
+		// ArkTS also lives in .ts inside HarmonyOS projects but we
+		// can't distinguish at grep time without a project probe;
+		// returning just .ets is the honest subset. Users who want
+		// every ArkTS file in a mixed project should combine with
+		// type=ts.
+		return []string{"*.ets"}
+	case "cangjie", "cj":
+		return []string{"*.cj"}
 	case "rust", "rs":
 		return []string{"*.rs"}
 	case "ruby", "rb":
