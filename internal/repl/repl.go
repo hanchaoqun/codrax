@@ -159,7 +159,7 @@ type Config struct {
 	// runaway paste cannot balloon the REPL process memory. Mirrors
 	// cmd's maxAttachedLogBytes — both are driven by
 	// codrax.yaml :: log_attach_max_bytes. Zero or negative →
-	// DefaultAttachedLogMaxBytes (1 MB), matching the CLI default.
+	// DefaultAttachedLogMaxBytes (50 MB), matching the CLI default.
 	AttachedLogMaxBytes int
 }
 
@@ -263,7 +263,7 @@ type REPL struct {
 	// surface (/log <path>, /log paste, splitPastedLog auto-route).
 	// Seeded from Config.AttachedLogMaxBytes in New; a non-positive
 	// config value falls back to DefaultAttachedLogMaxBytes so tests
-	// that construct a zero-value Config see the historic 1 MB limit.
+	// that construct a zero-value Config see the documented 50 MB limit.
 	attachedLogMaxBytes int
 }
 
@@ -910,12 +910,20 @@ func (r *REPL) recordTurn(request, expanded, response string, kind memory.Kind) 
 	}
 }
 
-// DefaultAttachedLogMaxBytes is the out-of-the-box 1 MB cap on every
-// REPL attach surface. Consumed by New when Config.AttachedLogMaxBytes
-// is not set; the cmd layer populates Config from codrax.yaml
-// :: log_attach_max_bytes so both CLI and REPL paths honour the same
-// override. Mirrors cmd/root.go :: defaultAttachedLogMaxBytes.
-const DefaultAttachedLogMaxBytes = 1 << 20 // 1 MB
+// DefaultAttachedLogMaxBytes is the out-of-the-box 50 MB cap on
+// every REPL attach surface (/log + /htrace). Consumed by New when
+// Config.AttachedLogMaxBytes is not set; the cmd layer populates
+// Config from codrax.yaml :: log_attach_max_bytes so both CLI and
+// REPL paths honour the same override. Mirrors
+// cmd/root.go :: defaultAttachedLogMaxBytes.
+// DefaultAttachedLogMaxBytes is the REPL-side default cap. Mirrors
+// cmd.defaultAttachedLogMaxBytes — the two constants must agree so
+// a unit test that bypasses initApp sees the same baseline as a
+// real CLI run. Raised from 1 MB → 50 MB in 2026-04 to match real
+// HarmonyOS / Android log + trace volumes (hdc / adb captures
+// commonly exceed 10 MB; the previous 1 MB silently truncated tails
+// where the actual error frames lived).
+const DefaultAttachedLogMaxBytes = 50 * 1024 * 1024 // 50 MB
 
 // handleSlash returns true if the loop should exit.
 func (r *REPL) handleSlash(line string) bool {

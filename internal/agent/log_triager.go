@@ -56,7 +56,15 @@ type LogTriageSettings struct {
 	// MaxLLMCalls caps the total LLM invocations for one log_triage
 	// stage run across both steps (1 single-shot + 1 segment + N
 	// per-segment). Defence against a runaway segmentation that
-	// produces many tiny segments. Default: 8.
+	// produces many tiny segments. Default: 12.
+	//
+	// Default raised from 8 → 12 in 2026-04 alongside the
+	// log_attach_max_bytes default bump (1 MB → 50 MB). Rationale:
+	// the segmenter skill caps emit_log_segmentation at 10 segments,
+	// so a budget of 12 = 1 single-shot + 1 segmentation + 10
+	// per-segment calls covers every segment the LLM is allowed to
+	// emit. The previous 8 capped per-segment to 6, silently dropping
+	// the last 4 segments on big captures.
 	MaxLLMCalls int
 }
 
@@ -71,7 +79,7 @@ func DefaultLogTriageSettings() LogTriageSettings {
 		TwoStepEnabled:  true,
 		TwoStepBytes:    32 * 1024,
 		TwoStepCoverage: 0.3,
-		MaxLLMCalls:     8,
+		MaxLLMCalls:     12,
 	}
 }
 

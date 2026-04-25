@@ -340,7 +340,7 @@ type RuntimeSettings struct {
 	//   LogTriageTwoStepEnabled  — toggle two-step fallback (default true)
 	//   LogTriageTwoStepBytes    — straight-to-two-step byte threshold (default 32 KB)
 	//   LogTriageTwoStepCoverage — single-shot coverage floor before escalating (default 0.3)
-	//   LogTriageMaxLLMCalls     — hard cap on total LLM calls per stage run (default 8)
+	//   LogTriageMaxLLMCalls     — hard cap on total LLM calls per stage run (default 12)
 	//
 	// All tuning knobs are pointer-typed so the merge preserves
 	// "absent vs explicit zero" semantics — cmd/root.go fills missing

@@ -678,8 +678,13 @@
 
 # Hard cap on total LLM invocations for one pre-stage Run (covers
 # 1 single-shot + 1 segmentation + N per-segment extractions).
-# Defence against runaway segmentation. Default 8.
-# log_triage_max_llm_calls: 8
+# Defence against runaway segmentation. Default 12, sized so that
+# the full 10-segment cap of emit_log_segmentation can flow through
+# per-segment extraction (1 + 1 + 10 = 12). For very large captures
+# (50 MB+ hdc / adb dumps) raise to 16-20 if you want more head-
+# room past the segmenter cap; sizes below 8 will silently drop
+# segments because perSegBudget = max - 2.
+# log_triage_max_llm_calls: 12
 
 # ---------------------------------------------------------------------------
 # Log attach cap (log_attach_*)
@@ -694,6 +699,7 @@
 # log line; the tail (often the actual error frames) is lost, so
 # pre-filter with grep before attaching multi-day dumps.
 #
+# Applies to BOTH --log / /log AND --htrace / /htrace, each independently.
 # Fires even when log_triage_enabled=false — this knob is about
 # memory safety, not triage quality. Raising it lets you attach
 # bigger logs but multiplies downstream LLM token cost linearly
@@ -704,10 +710,17 @@
 # rather than degrading to zero-byte truncation, which would
 # silently break every /log surface.
 #
-# Default 1048576 (1 MB). Typical range 256 KB - 8 MB; beyond 8 MB
-# the single-shot + two-step LLM budget is usually the real
-# bottleneck, not this cap.
-# log_attach_max_bytes: 1048576
+# Default 52428800 (50 MiB) — matches typical HarmonyOS / Android
+# capture volumes (hdc shell hilog / hitrace, adb logcat -d /
+# atrace). Hard ceiling 1 GiB enforced by codrax to prevent OOM.
+# Workstations with abundant RAM can go higher, e.g.
+#   log_attach_max_bytes: 209715200   # 200 MiB
+# but be aware: every byte still passes through truncateAttachedLog
+# in memory, and oversized attachments push the LLM into many
+# per-segment two-step calls (capped by log_triage_max_llm_calls).
+# Pre-filter long captures with grep / awk before attaching when you
+# can.
+# log_attach_max_bytes: 52428800
 
 # ---------------------------------------------------------------------------
 # Path to providers config

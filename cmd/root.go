@@ -133,16 +133,40 @@ var (
 	flagPlanFile  string
 )
 
-// defaultAttachedLogMaxBytes is the out-of-the-box 1 MB cap on
-// attached-log payloads. initApp overrides maxAttachedLogBytes from
-// codrax.yaml :: log_attach_max_bytes; this const is both the default
-// when the yaml key is absent and the fallback when the user sets
-// a non-positive value. Rationale for the default: a firehose (e.g.
-// `kubectl logs` for an entire day piped into `--log=-`) would
-// otherwise balloon the orchestrator's memory and inflate LLM token
-// cost, and oversized logs beyond 1 MB are typically aggregated multi-
-// day dumps where the user should pre-filter before attaching.
-const defaultAttachedLogMaxBytes = 1 << 20 // 1 MB
+// defaultAttachedLogMaxBytes is the out-of-the-box cap on attached-
+// log AND attached-hitrace payloads (each, independently). initApp
+// overrides maxAttachedLogBytes from codrax.yaml ::
+// log_attach_max_bytes; this const is both the default when the yaml
+// key is absent and the fallback when the user sets a non-positive
+// value.
+//
+// Rationale for the 50 MB default (raised from 1 MB in 2026-04 to
+// match real HarmonyOS / Android workflows):
+//
+//   - hdc shell hilog typically ships 10-50 MB per crash window
+//   - hdc shell hitrace -t 30 produces 5-30 MB ftrace text
+//   - adb logcat -d can be 20-100 MB on a busy device
+//   - adb shell atrace -t 10 lands 5-20 MB
+//
+// 50 MB inline is comfortable on a workstation; the orchestrator's
+// formatAttachedLog blob-offloads anything > 4 KB so the LLM prompt
+// stays bounded regardless of body size — the cap is purely about
+// in-memory ingestion + truncation point. Users with bigger needs
+// override via codrax.yaml :: log_attach_max_bytes (e.g. 134217728
+// for 128 MB), bounded only by the maxAttachedLogHardCeiling sanity
+// check below.
+const defaultAttachedLogMaxBytes = 50 * 1024 * 1024 // 50 MB
+
+// maxAttachedLogHardCeiling is the upper bound enforced on the
+// resolved cap. A user who sets log_attach_max_bytes: 9999999999
+// would otherwise expose codrax to OOM on a single oversized
+// attachment. 1 GB is generous enough for "anything a human ever
+// pastes or pipes through hdc / adb in one capture" while still
+// fitting in commodity workstation RAM with headroom for the rest
+// of the pipeline. Configurable via codrax.yaml only — there is no
+// CLI flag because changing this is a deployment-policy decision,
+// not a per-run knob.
+const maxAttachedLogHardCeiling = 1 << 30 // 1 GiB
 
 // maxAttachedLogBytes is the live cap read by loadAttachedLog +
 // truncateAttachedLog. Initialised to defaultAttachedLogMaxBytes so
@@ -843,6 +867,11 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		// truncation, which would silently break every /log path.
 		if rs.LogAttachMaxBytes != nil && *rs.LogAttachMaxBytes > 0 {
 			maxAttachedLogBytes = *rs.LogAttachMaxBytes
+			if maxAttachedLogBytes > maxAttachedLogHardCeiling {
+				logging.Warning("[cmd] log_attach_max_bytes=%d clamped to %d (hard ceiling)",
+					maxAttachedLogBytes, maxAttachedLogHardCeiling)
+				maxAttachedLogBytes = maxAttachedLogHardCeiling
+			}
 		}
 		if rs.LogDir != nil {
 			mergedLogDir = *rs.LogDir
