@@ -3,13 +3,45 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"go/parser"
+	"go/token"
+	"io"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
+
+// emitChangePlanSchemaReminder is the canonical "here's what the LLM
+// must send" string injected into every payload-rejection ToolResult.
+// Goal: when streaming truncation or a payload-format hallucination
+// causes the LLM to retry with empty/garbage params (Run #3 failure
+// mode — 5 consecutive empty emit_change_plan calls), the rejection
+// itself re-primes the LLM with the full schema so the next retry has
+// the structural information it needs to recover. Plain text, no JSON
+// formatting, kept short enough to fit in a model's working memory.
+const emitChangePlanSchemaReminder = "REQUIRED schema: {request: string (1-3 sentences restating the user's ask), " +
+	"summary: string (3-10 sentences explaining what + why), " +
+	"changes: array of {path: string, kind: \"create\"|\"modify\"|\"delete\"|\"patch\", " +
+	"new_content: string (full file body for create/modify), patch: string (unified diff for kind=patch), " +
+	"rationale: string (1-3 sentences), depends_on: optional []string of OTHER paths in this plan}}. " +
+	"OPTIONAL: acceptance_tests: array of strings. " +
+	"Do NOT call the tool with empty/null parameters — emit the FULL JSON body as a single function-call argument."
+
+// emitMinPayloadBytes is the threshold below which the params blob is
+// considered empty-or-truncated. A real ChangePlan with one change
+// has request + summary + at least one path/kind/rationale + braces
+// — never under ~150 bytes. We pick 80 as a conservative floor that
+// catches all observed degenerate cases (empty `{}`, `null`, single-
+// field stubs) without false-positiving on a tiny but legitimate
+// "fix typo" plan.
+const emitMinPayloadBytes = 80
 
 // EmitChangePlan is the planner agent's structured exit channel.
 // The LLM emits a ChangePlan describing the code modification it
@@ -153,8 +185,30 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		}, nil
 	}
 
+	// Layer-3 structured rejection: empty / truncated payload guard.
+	// When the LLM hits streaming truncation in the middle of a large
+	// emit_change_plan call (~5 KB JSON payloads are common for plans
+	// with non-trivial new_content), the gateway sometimes returns the
+	// function call with an empty or single-byte params blob. Without
+	// this guard the json.Decoder error is "unexpected EOF" — a useless
+	// hint that drove Run #3's 5-consecutive-empty-payload recovery
+	// failure. Every payload-shape rejection re-primes the LLM with
+	// emitChangePlanSchemaReminder so the next retry has the full
+	// structural information needed to rebuild the JSON.
+	trimmed := strings.TrimSpace(string(params))
+	if len(trimmed) < emitMinPayloadBytes || trimmed == "{}" || trimmed == "null" || trimmed == "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: payload was empty or truncated (got " + fmt.Sprintf("%d", len(trimmed)) + " bytes). " + emitChangePlanSchemaReminder,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
 	// Strict decode — unknown fields fail loudly so a schema drift
-	// surfaces during development, not as silent data loss.
+	// surfaces during development, not as silent data loss. On decode
+	// failure the schema reminder is appended so the LLM can recover
+	// without re-deriving the field set from prose.
 	dec := json.NewDecoder(strings.NewReader(string(params)))
 	dec.DisallowUnknownFields()
 	var p emitChangePlanParams
@@ -162,7 +216,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   fmt.Sprintf("emit_change_plan rejected: invalid params: %v", err),
+			Summary:   fmt.Sprintf("emit_change_plan rejected: invalid params: %v. ", err) + emitChangePlanSchemaReminder,
 			Timestamp: time.Now(),
 		}, err
 	}
@@ -171,7 +225,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_change_plan rejected: summary is required and must be non-empty",
+			Summary:   "emit_change_plan rejected: summary is required and must be non-empty. " + emitChangePlanSchemaReminder,
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -179,7 +233,7 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 		return types.ToolResult{
 			ToolName:  t.Name(),
 			Success:   false,
-			Summary:   "emit_change_plan rejected: changes[] cannot be empty — at least one FileChange is required",
+			Summary:   "emit_change_plan rejected: changes[] cannot be empty — at least one FileChange is required. " + emitChangePlanSchemaReminder,
 			Timestamp: time.Now(),
 		}, nil
 	}
@@ -300,6 +354,76 @@ func (t *EmitChangePlan) Execute(ctx *types.BusContext, params json.RawMessage) 
 				}, nil
 			}
 		}
+	}
+
+	// V1 deps-closure: every external import in a Go new_content
+	// MUST be declared in either (a) the main repo's go.mod or
+	// (b) a go.mod modify entry within the same plan. Catches the
+	// Run #1 failure mode where the LLM writes `import "github.com/
+	// pkg/sftp"` but never adds the require line — apply phase fails
+	// to compile, verify regresses, planner re-plans without context.
+	// Failing here turns the 3-stage failure (plan→apply→verify) into
+	// a single rejection the planner can fix on its next retry within
+	// the same dispatch.
+	if rej := validatePlanDepsClosure(ctx.RepoRoot, p.Changes); rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
+	// V3 wiring-closure: a new file under a registered subsystem
+	// (mcp / skill / tool / agent — see wiring_anchors.go) MUST be
+	// accompanied by a modify or patch of the corresponding wiring
+	// file. Otherwise the new code is unreachable from the runtime
+	// (Run #1 + Run #2 both shipped a new mcp.Server impl with no
+	// cmd/root.go modify, leaving dead code).
+	if rej := validatePlanWiringClosure(p.Changes); rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
+	// V4 summary-changes consistency: any path-shaped or import-
+	// shaped token mentioned in summary MUST appear in changes[].path
+	// or in the parsed imports of new_content. Catches Run #2's
+	// "summary says ssh.go, changes[] says ssh_server.go" lying and
+	// Run #1's "summary says golang.org/x/crypto/sftp (nonexistent)"
+	// hallucinated package name.
+	if rej := validatePlanSummaryConsistency(p.Summary, p.Changes); rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
+	}
+
+	// V2 dry-build: stage every Go change into a scratch dir layered
+	// on top of the main repo (overlay) and run `go vet` on the
+	// impacted packages. Catches compile-level errors (undefined
+	// identifiers like Run #2's `client.Connected()`, type mismatches,
+	// missing-import-but-not-stdlib slip-throughs that V1 may miss).
+	// Rejection embeds the actual `go vet` stderr so the planner sees
+	// the exact line:col, not just "build failed".
+	//
+	// Skipped silently when the repo isn't a Go module (no go.mod) —
+	// the plan touches files we can't validate and the validator has
+	// nothing to assert. This is a real-world degradation (running
+	// codrax against a non-Go repo) not a bypass; V1 already caught
+	// the Go-specific issues.
+	if rej := validatePlanDryBuild(ctx, p.Changes); rej != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_change_plan rejected: " + rej,
+			Timestamp: time.Now(),
+		}, nil
 	}
 
 	// Build the internal ChangePlan + populate target_paths from
@@ -489,3 +613,720 @@ func detectDepsCycle(changes []emitChangePlanChange) string {
 	}
 	return ""
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// V1 deps-closure
+// ─────────────────────────────────────────────────────────────────────
+
+// validatePlanDepsClosure parses every Go new_content for its import
+// list and verifies each non-stdlib import is satisfied by either
+// (a) the existing repo's go.mod require block or (b) a require line
+// added by a go.mod modify entry within the same plan.
+//
+// Returns "" on success or a human-readable rejection reason describing
+// the first unsatisfied import (the planner's next retry only needs to
+// know the first failure to fix; piling up all of them increases prompt
+// noise without improving recovery rate).
+//
+// Degraded behaviour (returns ""):
+//   - repoRoot empty, no go.mod readable: nothing to validate against.
+//   - new_content fails go/parser: handled silently — V2 dry-build will
+//     catch syntax errors with better stderr.
+//
+// "Project module path" (the value of the `module` line in go.mod) is
+// treated as internal — imports starting with `<module-path>/...` need
+// no go.mod entry.
+func validatePlanDepsClosure(repoRoot string, changes []emitChangePlanChange) string {
+	repoRoot = strings.TrimSpace(repoRoot)
+	if repoRoot == "" {
+		return ""
+	}
+	currentModulePath, currentRequires, err := readGoMod(filepath.Join(repoRoot, "go.mod"))
+	if err != nil {
+		// Repo isn't a Go module (or go.mod unreadable). Nothing to
+		// validate; degrade silently — V2 dry-build will catch real
+		// issues, and non-Go repos legitimately have no go.mod.
+		return ""
+	}
+	// Overlay any go.mod modify entry from this plan.
+	planRequires := unionStringSet(currentRequires, nil)
+	planModulePath := currentModulePath
+	for _, c := range changes {
+		if filepath.ToSlash(strings.TrimSpace(c.Path)) != "go.mod" {
+			continue
+		}
+		if c.Kind != "modify" && c.Kind != "create" {
+			continue
+		}
+		if pm, prs, err := parseGoModBytes([]byte(c.NewContent)); err == nil {
+			if pm != "" {
+				planModulePath = pm
+			}
+			for r := range prs {
+				planRequires[r] = struct{}{}
+			}
+		}
+	}
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".go") {
+			continue
+		}
+		if c.Kind == "delete" || c.Kind == "patch" {
+			// patch is validated separately by git apply --check;
+			// delete has no content to inspect.
+			continue
+		}
+		imports, err := parseGoImports(c.NewContent)
+		if err != nil {
+			// Syntax issue — V2 will surface it with `go vet`'s richer
+			// diagnostics. Don't double-report here.
+			continue
+		}
+		for _, imp := range imports {
+			if isStdlibImport(imp) {
+				continue
+			}
+			if planModulePath != "" && (imp == planModulePath || strings.HasPrefix(imp, planModulePath+"/")) {
+				continue
+			}
+			// External import — must be in the (possibly overlaid)
+			// require set.
+			if !requireSatisfies(planRequires, imp) {
+				return fmt.Sprintf("change %q imports %q which is not declared in go.mod. "+
+					"Add a 'modify' entry for go.mod adding `require %s vX.Y.Z` (pick a recent stable version), "+
+					"or remove the import from new_content. The deps-closure validator (V1) catches this so "+
+					"the apply phase doesn't waste a turn failing `go build` on a missing dep.",
+					c.Path, imp, requireRoot(imp))
+			}
+		}
+	}
+	return ""
+}
+
+// readGoMod parses an on-disk go.mod and returns (modulePath,
+// requireSet, err). The requireSet contains the bare module paths
+// (without version) of every direct + indirect require line.
+func readGoMod(path string) (string, map[string]struct{}, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", nil, err
+	}
+	return parseGoModBytes(data)
+}
+
+// parseGoModBytes is the shared parser used for both on-disk go.mod
+// and plan-overlay go.mod content. Tolerant: extracts module path +
+// require lines (single + block form), ignores everything else
+// (replace, exclude, retract — irrelevant to our deps-presence check).
+func parseGoModBytes(data []byte) (string, map[string]struct{}, error) {
+	requires := make(map[string]struct{})
+	var modulePath string
+	scanner := newLineScanner(data)
+	inRequireBlock := false
+	for scanner.scan() {
+		line := strings.TrimSpace(scanner.text())
+		if line == "" || strings.HasPrefix(line, "//") {
+			continue
+		}
+		if !inRequireBlock {
+			if strings.HasPrefix(line, "module ") {
+				modulePath = strings.TrimSpace(strings.TrimPrefix(line, "module"))
+				modulePath = strings.Trim(modulePath, "\"")
+				continue
+			}
+			if line == "require (" {
+				inRequireBlock = true
+				continue
+			}
+			if strings.HasPrefix(line, "require ") {
+				if mod := requireBareModule(strings.TrimSpace(strings.TrimPrefix(line, "require"))); mod != "" {
+					requires[mod] = struct{}{}
+				}
+				continue
+			}
+		} else {
+			if line == ")" {
+				inRequireBlock = false
+				continue
+			}
+			// Strip trailing // indirect comment.
+			if i := strings.Index(line, "//"); i >= 0 {
+				line = strings.TrimSpace(line[:i])
+			}
+			if mod := requireBareModule(line); mod != "" {
+				requires[mod] = struct{}{}
+			}
+		}
+	}
+	return modulePath, requires, nil
+}
+
+// requireBareModule extracts the module path from a "<module> <version>"
+// line, dropping the version. Empty input or single-token input → "".
+func requireBareModule(s string) string {
+	parts := strings.Fields(s)
+	if len(parts) < 2 {
+		return ""
+	}
+	return parts[0]
+}
+
+// requireSatisfies reports whether the given import path is rooted at
+// any module already in the require set. e.g. requires={"github.com/
+// pkg/sftp"} satisfies imp="github.com/pkg/sftp/internal/foo".
+func requireSatisfies(requires map[string]struct{}, imp string) bool {
+	if _, ok := requires[imp]; ok {
+		return true
+	}
+	for mod := range requires {
+		if strings.HasPrefix(imp, mod+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+// requireRoot returns the most likely module-root of an import path
+// for the rejection-message hint. e.g. "github.com/pkg/sftp/internal"
+// → "github.com/pkg/sftp" (3-segment heuristic). Falls back to the
+// full import for short paths.
+func requireRoot(imp string) string {
+	parts := strings.Split(imp, "/")
+	if len(parts) >= 3 && (strings.Contains(parts[0], ".") || parts[0] == "golang.org") {
+		return strings.Join(parts[:3], "/")
+	}
+	return imp
+}
+
+// parseGoImports returns the import paths of a Go source file. Comments
+// and the `import "C"` cgo pseudo-import are skipped.
+func parseGoImports(src string) ([]string, error) {
+	if strings.TrimSpace(src) == "" {
+		return nil, nil
+	}
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "validate.go", src, parser.ImportsOnly)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]string, 0, len(f.Imports))
+	for _, imp := range f.Imports {
+		if imp.Path == nil {
+			continue
+		}
+		val := strings.Trim(imp.Path.Value, "\"")
+		if val == "" || val == "C" {
+			continue
+		}
+		out = append(out, val)
+	}
+	return out, nil
+}
+
+// isStdlibImport reports whether a given import path is part of the
+// Go standard library. The stdlib characteristic: NO dot in the first
+// path segment (stdlib packages live in single-word top-level dirs).
+// External packages live under domains like github.com/, golang.org/x/.
+func isStdlibImport(imp string) bool {
+	if imp == "" {
+		return true
+	}
+	first := imp
+	if i := strings.Index(imp, "/"); i >= 0 {
+		first = imp[:i]
+	}
+	return !strings.Contains(first, ".")
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V3 wiring-closure
+// ─────────────────────────────────────────────────────────────────────
+
+// validatePlanWiringClosure rejects plans that create a new file in a
+// registered subsystem (mcp / skill / tool / agent) without also
+// modifying the corresponding wiring file. Returns "" when every
+// triggered anchor is satisfied; otherwise returns the rejection
+// reason describing the first violation.
+//
+// "Modify" includes both kind=modify and kind=patch — both produce
+// edits to the existing wiring file. Pure kind=create of the wiring
+// file would itself be a wiring change but the anchors are designed
+// for files that already exist (cmd/root.go, defaults.go) so creates
+// of those files are themselves suspicious and reported.
+func validatePlanWiringClosure(changes []emitChangePlanChange) string {
+	// Collect the set of paths that get modified or patched in this
+	// plan — these are the candidate wiring touches.
+	wired := make(map[string]struct{})
+	for _, c := range changes {
+		if c.Kind == "modify" || c.Kind == "patch" {
+			wired[filepath.ToSlash(strings.TrimSpace(c.Path))] = struct{}{}
+		}
+	}
+	for _, c := range changes {
+		if c.Kind != "create" {
+			continue
+		}
+		anchor := MatchWiringAnchor(c.Path)
+		if anchor == nil {
+			continue
+		}
+		if _, ok := wired[anchor.WiringFile]; ok {
+			continue
+		}
+		return fmt.Sprintf("change %q creates a new file under %q but the plan does NOT include a modify/patch entry for %q. %s. "+
+			"Add a 'modify' entry for %s containing the new registration call, then re-emit emit_change_plan.",
+			c.Path, anchor.Dir, anchor.WiringFile, anchor.Reason, anchor.WiringFile)
+	}
+	return ""
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V4 summary-changes consistency
+// ─────────────────────────────────────────────────────────────────────
+
+// pathTokenRe captures path-shaped tokens in plan summary prose.
+// Examples it matches: internal/mcp/ssh.go, cmd/root.go, go.mod.
+// Anchored on `.go` / `.md` / `.yaml` / `.json` / `.toml` / `.mod`
+// suffixes plus a leading directory component to avoid false-positives
+// on bare words like "summary.txt" appearing in mid-sentence.
+var pathTokenRe = regexp.MustCompile(`[\w./_-]*\w+/[\w./_-]+\.(go|md|yaml|yml|json|toml|mod)\b`)
+
+// importTokenRe captures Go import-path-shaped tokens in summary
+// prose. Examples: github.com/pkg/sftp, golang.org/x/crypto/ssh.
+// The leading "github.com/" / "golang.org/" / "go.uber.org/" pattern
+// is a safe filter that avoids matching bare host names.
+var importTokenRe = regexp.MustCompile(`(?:github\.com|golang\.org|go\.uber\.org|google\.golang\.org|gopkg\.in)/[\w./_-]+`)
+
+// validatePlanSummaryConsistency cross-checks the prose summary against
+// the structured changes[]:
+//
+//   - Every path-shaped token in summary MUST appear as a changes[].path
+//     OR be an existing repo file (we don't require the summary to ONLY
+//     name new paths — referencing existing files for context is OK).
+//     The bug we're catching is summary saying "ssh.go" while the plan
+//     creates "ssh_server.go" (Run #2's misleading inconsistency).
+//   - Every import-path-shaped token in summary MUST be importable by
+//     the new Go code (i.e. appear in the parsed imports of any
+//     new_content) OR be in the existing repo's go.mod requires. Catches
+//     Run #1's "uses golang.org/x/crypto/sftp" hallucinated package.
+//
+// Best-effort — when both checks succeed we return ""; on first
+// violation we return the rejection reason naming the unmatched token.
+func validatePlanSummaryConsistency(summary string, changes []emitChangePlanChange) string {
+	summary = strings.TrimSpace(summary)
+	if summary == "" {
+		return ""
+	}
+	declaredPaths := make(map[string]struct{})
+	allImports := make(map[string]struct{})
+	for _, c := range changes {
+		declaredPaths[filepath.ToSlash(strings.TrimSpace(c.Path))] = struct{}{}
+		if strings.HasSuffix(c.Path, ".go") && c.Kind != "delete" && c.Kind != "patch" {
+			if imps, err := parseGoImports(c.NewContent); err == nil {
+				for _, imp := range imps {
+					allImports[imp] = struct{}{}
+				}
+			}
+		}
+	}
+	// Path-token check.
+	for _, tok := range uniqueMatches(pathTokenRe, summary) {
+		clean := filepath.ToSlash(tok)
+		if _, ok := declaredPaths[clean]; ok {
+			continue
+		}
+		// "Plan does not name an existing-file reference" is a softer
+		// bar — we only reject when the summary names a *.go path
+		// that is neither in changes[] NOR in the existing repo. This
+		// avoids false positives on context references like
+		// "internal/types/context.go" that the summary mentions but
+		// doesn't change. For now: only enforce on unique match against
+		// declaredPaths when both summary and changes claim the same
+		// "new file" intent — heuristic: summary token contains a
+		// new-ish word like "新增"/"create"/"new file" nearby. Keep
+		// strict for now and tighten later if false-positive rate
+		// observed in production.
+		if !strings.HasSuffix(clean, ".go") && !strings.HasSuffix(clean, ".mod") {
+			continue
+		}
+		// Skip well-known infrastructure files that summaries often
+		// reference for context (these aren't "we're changing X" claims).
+		if isCommonContextPath(clean) {
+			continue
+		}
+		// Look for evidence the summary is CLAIMING this path is part
+		// of the change (vs just mentioning context). Heuristic: the
+		// path appears within 50 chars of a creation/modification verb.
+		if !mentionedAsChangeTarget(summary, tok) {
+			continue
+		}
+		// Final check: this is the smoking gun — summary asserts
+		// "we're creating/modifying X" but changes[] contains no such
+		// path. Reject.
+		return fmt.Sprintf("summary claims to create/modify %q but no changes[] entry has that path. "+
+			"Either add the path to changes[] or fix the summary to name the actual paths (%s). "+
+			"V4 summary-consistency catches this lying so plan reviewers / approval UI don't see misleading prose.",
+			tok, formatPathSet(declaredPaths))
+	}
+	// Import-token check — strict. An import-shaped token in summary
+	// must either appear in the parsed imports of new_content OR in
+	// the existing go.mod (when readable; we skip the latter check
+	// because we don't have repoRoot here — V1 already caught
+	// missing-from-go.mod cases. So here we verify summary's claimed
+	// packages match the actual code).
+	for _, tok := range uniqueMatches(importTokenRe, summary) {
+		if _, ok := allImports[tok]; ok {
+			continue
+		}
+		// Tolerate prefix relationship: summary says "golang.org/x/crypto"
+		// (umbrella) but code imports "golang.org/x/crypto/ssh" (sub-
+		// package) — accept.
+		matched := false
+		for imp := range allImports {
+			if strings.HasPrefix(imp, tok+"/") || strings.HasPrefix(tok, imp+"/") {
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		return fmt.Sprintf("summary mentions import path %q but no new_content actually imports it. "+
+			"Either add an import in the relevant Go file or remove the false claim from summary "+
+			"(actual imports across this plan: %s). V4 catches summary hallucination so the plan's "+
+			"prose stays honest about what dependencies are being introduced.",
+			tok, formatImportSet(allImports))
+	}
+	return ""
+}
+
+// mentionedAsChangeTarget reports whether the given path token appears
+// near a verb that asserts the plan is changing (not just referencing)
+// that path. Window is ±60 chars. Pure-Chinese cues are weighted equally
+// with English cues since the user's prompt language may be either.
+func mentionedAsChangeTarget(summary, token string) bool {
+	cues := []string{
+		"create", "creates", "creating", "modify", "modifies", "modifying",
+		"add", "adds", "adding", "new file", "delete", "deletes",
+		"新增", "新建", "创建", "修改", "更新", "添加", "删除",
+	}
+	idx := strings.Index(summary, token)
+	if idx < 0 {
+		return false
+	}
+	start := idx - 60
+	if start < 0 {
+		start = 0
+	}
+	end := idx + len(token) + 60
+	if end > len(summary) {
+		end = len(summary)
+	}
+	window := summary[start:end]
+	for _, cue := range cues {
+		if strings.Contains(window, cue) {
+			return true
+		}
+	}
+	return false
+}
+
+// isCommonContextPath returns true for paths that summaries routinely
+// reference for orientation but are never themselves the target of a
+// change (e.g. "internal/types/context.go" mentioned to explain types).
+// Bypasses the V4 reject for those, eliminating noise.
+func isCommonContextPath(path string) bool {
+	commonContexts := []string{
+		"internal/types/context.go",
+		"internal/types/config.go",
+		"internal/types/enums.go",
+		"docs/architecture.md",
+	}
+	for _, c := range commonContexts {
+		if path == c {
+			return true
+		}
+	}
+	return false
+}
+
+// uniqueMatches returns the regex's match list with duplicates removed,
+// preserving insertion order.
+func uniqueMatches(re *regexp.Regexp, src string) []string {
+	matches := re.FindAllString(src, -1)
+	seen := make(map[string]struct{}, len(matches))
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if _, dup := seen[m]; dup {
+			continue
+		}
+		seen[m] = struct{}{}
+		out = append(out, m)
+	}
+	return out
+}
+
+// formatPathSet returns a stable comma-separated list of paths for
+// rejection-message embedding. Sorted for determinism.
+func formatPathSet(set map[string]struct{}) string {
+	out := make([]string, 0, len(set))
+	for p := range set {
+		out = append(out, p)
+	}
+	sort.Strings(out)
+	return strings.Join(out, ", ")
+}
+
+// formatImportSet is the import-set sibling of formatPathSet. Returns
+// "(none)" for empty input so the rejection message reads naturally.
+func formatImportSet(set map[string]struct{}) string {
+	if len(set) == 0 {
+		return "(none)"
+	}
+	return formatPathSet(set)
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// V2 dry-build
+// ─────────────────────────────────────────────────────────────────────
+
+// validatePlanDryBuild stages every Go change into a scratch directory
+// (an overlay of the main repo + the plan's modifications) and runs
+// `go vet` on the impacted packages. Catches compile-level issues that
+// V1's import-presence check can't detect: undefined identifiers (Run
+// #2's `client.Connected()`), type mismatches, function signature
+// drift, etc.
+//
+// Strategy: hardlink the repo into a scratch dir (cheap — just inodes,
+// no data copy), then overlay the plan's new_content / modifications,
+// then `go vet` the union of impacted package directories. Hardlinks
+// keep the staging cost in single-digit ms even for large repos; the
+// scratch dir is rm -rf'd on exit.
+//
+// Skipped silently when:
+//   - ctx.RepoRoot is empty or has no go.mod (not a Go project).
+//   - `go` binary is unavailable on PATH (CI / minimal containers).
+//   - Plan touches zero .go files (nothing to vet).
+//
+// A non-zero `go vet` exit is treated as a hard rejection — its stderr
+// is embedded in the rejection so the planner sees the line:col of the
+// failure.
+func validatePlanDryBuild(ctx *types.BusContext, changes []emitChangePlanChange) string {
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return ""
+	}
+	repoRoot := ctx.RepoRoot
+	goModPath := filepath.Join(repoRoot, "go.mod")
+	if _, err := os.Stat(goModPath); err != nil {
+		return ""
+	}
+	if _, err := exec.LookPath("go"); err != nil {
+		logging.Debug("[emit_change_plan] V2 dry-build skipped: go binary not on PATH")
+		return ""
+	}
+	// Collect impacted Go packages. Skip non-Go changes.
+	impactedPkgs := make(map[string]struct{})
+	hasGoChange := false
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".go") {
+			continue
+		}
+		// Skip kind=patch — git apply is the validator for those, and
+		// staging a patch into the overlay needs git itself.
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		hasGoChange = true
+		dir := filepath.Dir(path)
+		if dir == "" || dir == "." {
+			impactedPkgs["."] = struct{}{}
+		} else {
+			impactedPkgs[dir] = struct{}{}
+		}
+	}
+	if !hasGoChange {
+		return ""
+	}
+
+	scratch, err := os.MkdirTemp(scratchBaseDir(ctx), "codrax-validate-*")
+	if err != nil {
+		logging.Warning("[emit_change_plan] V2 dry-build skipped: mkdir temp: %v", err)
+		return ""
+	}
+	defer os.RemoveAll(scratch)
+
+	// Hardlink the repo into scratch.
+	if err := hardlinkTree(repoRoot, scratch); err != nil {
+		logging.Warning("[emit_change_plan] V2 dry-build skipped: hardlink tree: %v", err)
+		return ""
+	}
+
+	// Overlay the plan's changes.
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if c.Kind == "patch" {
+			continue // V2 doesn't validate patches; emit_change_plan's existing patch-precheck does
+		}
+		dst := filepath.Join(scratch, filepath.FromSlash(path))
+		if c.Kind == "delete" {
+			_ = os.Remove(dst)
+			continue
+		}
+		// create / modify: write new_content over the (possibly hard-
+		// linked) existing file. Remove the hardlink first so we don't
+		// scribble onto the real repo file via the shared inode.
+		_ = os.Remove(dst)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			logging.Warning("[emit_change_plan] V2 dry-build skipped: mkdir %s: %v", filepath.Dir(dst), err)
+			return ""
+		}
+		if err := os.WriteFile(dst, []byte(c.NewContent), 0o644); err != nil {
+			logging.Warning("[emit_change_plan] V2 dry-build skipped: write %s: %v", dst, err)
+			return ""
+		}
+	}
+
+	// Run `go vet` on the impacted packages. Per-package invocation
+	// keeps stderr scoped to the actual problem area.
+	pkgs := make([]string, 0, len(impactedPkgs))
+	for p := range impactedPkgs {
+		pkgs = append(pkgs, "./"+p)
+	}
+	sort.Strings(pkgs)
+	args := append([]string{"vet"}, pkgs...)
+	cmd := exec.Command("go", args...)
+	cmd.Dir = scratch
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod") // tolerate missing go.sum entries for newly-required modules
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		stderr := strings.TrimSpace(string(out))
+		// Truncate so the rejection summary stays prompt-friendly.
+		const maxStderrLen = 2000
+		if len(stderr) > maxStderrLen {
+			stderr = stderr[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", len(out)) + " bytes)"
+		}
+		return fmt.Sprintf("V2 dry-build failed: `go vet %s` returned non-zero exit. "+
+			"This means the new_content has compile-level errors (undefined identifiers, type mismatches, "+
+			"missing imports beyond what V1 caught, etc). Fix the issues and re-emit. Full vet output:\n%s",
+			strings.Join(pkgs, " "), stderr)
+	}
+	logging.Debug("[emit_change_plan] V2 dry-build PASS for packages: %v", pkgs)
+	return ""
+}
+
+// scratchBaseDir returns the parent directory under which V2's
+// scratch dir should be created. Prefers ctx.WorkDir (per-trace temp
+// already in place) so temp files cluster with other codrax artifacts;
+// falls back to os.TempDir() when WorkDir is unset (degraded contexts
+// like unit tests).
+func scratchBaseDir(ctx *types.BusContext) string {
+	if ctx != nil && strings.TrimSpace(ctx.WorkDir) != "" {
+		return ctx.WorkDir
+	}
+	return ""
+}
+
+// hardlinkTree mirrors src into dst by hardlinking every regular file
+// (so disk + write-time overhead are negligible). Symlinks and special
+// files are skipped — they're rare in Go projects and reproducing them
+// adds complexity. Hidden directories (.git, .codrax) are skipped since
+// they're irrelevant to `go vet` and would balloon the inode count.
+func hardlinkTree(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		// Skip noise.
+		base := filepath.Base(rel)
+		if d.IsDir() {
+			if base == ".git" || base == ".codrax" || base == "node_modules" || base == "vendor" {
+				return filepath.SkipDir
+			}
+			return os.MkdirAll(filepath.Join(dst, rel), 0o755)
+		}
+		if !d.Type().IsRegular() {
+			return nil // skip symlinks / sockets / fifos
+		}
+		dstPath := filepath.Join(dst, rel)
+		if err := os.MkdirAll(filepath.Dir(dstPath), 0o755); err != nil {
+			return err
+		}
+		// Try hardlink first (fast); fall back to copy if cross-device.
+		if err := os.Link(path, dstPath); err == nil {
+			return nil
+		}
+		return copyFile(path, dstPath)
+	})
+}
+
+// copyFile is the cross-device fallback for hardlinkTree.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	_, err = io.Copy(out, in)
+	return err
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// helpers shared across validators
+// ─────────────────────────────────────────────────────────────────────
+
+// unionStringSet returns the union of a and b as a fresh set.
+func unionStringSet(a, b map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(a)+len(b))
+	for k := range a {
+		out[k] = struct{}{}
+	}
+	for k := range b {
+		out[k] = struct{}{}
+	}
+	return out
+}
+
+// lineScanner is a minimal byte-buffer line iterator (avoids
+// bufio.Scanner's 64KB default token limit problems on large go.mod).
+type lineScanner struct {
+	data []byte
+	pos  int
+	line string
+}
+
+func newLineScanner(data []byte) *lineScanner { return &lineScanner{data: data} }
+
+func (s *lineScanner) scan() bool {
+	if s.pos >= len(s.data) {
+		return false
+	}
+	start := s.pos
+	for s.pos < len(s.data) && s.data[s.pos] != '\n' {
+		s.pos++
+	}
+	end := s.pos
+	if s.pos < len(s.data) {
+		s.pos++ // consume newline
+	}
+	if end > 0 && s.data[end-1] == '\r' {
+		end--
+	}
+	s.line = string(s.data[start:end])
+	return true
+}
+
+func (s *lineScanner) text() string { return s.line }
