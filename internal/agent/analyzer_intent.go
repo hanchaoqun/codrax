@@ -95,6 +95,39 @@ func isCitationFreeToolValueRequest(rm types.RequestModel) bool {
 	return isMeasurementScalarRequest(rm) || isHistoryLookupRequest(rm)
 }
 
+func isScalarSourceLiteralLookup(rm types.RequestModel) bool {
+	if len(rm.SubTopics) > 1 {
+		return false
+	}
+	if !rm.Predicates.IsScalarAnswer ||
+		rm.Predicates.IsCountQuestion ||
+		rm.Predicates.IsCategoryEnumeration ||
+		rm.Predicates.IsCrossComponent ||
+		rm.Predicates.IsRelationalLookup {
+		return false
+	}
+	switch rm.AnswerSubject.Kind {
+	case types.SubjectFunctionName,
+		types.SubjectTypeName,
+		types.SubjectInterface,
+		types.SubjectHandlerRoute,
+		types.SubjectFilePath,
+		types.SubjectStringLiteral,
+		types.SubjectEnumValue,
+		types.SubjectStructField:
+		return true
+	}
+	return false
+}
+
+func reconcileScenario(rm types.RequestModel) (types.Scenario, string) {
+	if isScalarSourceLiteralLookup(rm) {
+		return types.ScenarioGeneric,
+			"scalar source-literal lookup uses generic scenario (avoid architecture-only diagram/reconcile overhead)"
+	}
+	return rm.Scenario, ""
+}
+
 // reconcileIntent is preserved as a thin sanity check that traps the
 // rare case where the LLM marked is_count_question=true but still
 // picked intent=enumerate. validateSelfConsistency in emit_analysis
@@ -254,7 +287,38 @@ func inferAnswerSubject(rm types.RequestModel) (types.AnswerSubject, string) {
 //     return value) rather than a YAML key.
 //
 // Returns resolved shape + reason; empty reason means no override.
-func reconcileShape(declared types.AnswerShape, subject types.AnswerSubject, preds types.SemanticPredicates) (types.AnswerShape, string) {
+func reconcileShape(rm types.RequestModel, declared types.AnswerShape, subject types.AnswerSubject, preds types.SemanticPredicates) (types.AnswerShape, string) {
+	// Rule 0a: scalar source-literal lookup.
+	//
+	// Questions whose answer is "one named source-code literal" (entry
+	// function, defining type, route path, file path, etc.) should not
+	// drift into explanation/step/list shapes even when the analyzer's
+	// question_kind says mechanism. The answer is still a single token.
+	if isScalarSourceLiteralLookup(rm) && declared != types.ShapeValue {
+		return types.ShapeValue,
+			"scalar source-literal lookup resolves to one named token, not a prose/list shape"
+	}
+
+	// Rule 0b: single exact config-trace question.
+	//
+	// When the request names one exact config key and asks for lineage /
+	// precedence, a symbol set is the wrong carrier. Scalar asks belong
+	// to config_value; non-scalar precedence questions belong to
+	// explanation so the finalizer can render the lineage/diagram
+	// without inventing a symbols[] payload.
+	if subject.Kind == types.SubjectConfigKey &&
+		(rm.Scenario == types.ScenarioConfigTrace || rm.Intent == types.IntentConfigQuery) &&
+		len(types.ExactResolutionTargets(rm)) == 1 {
+		want := types.ShapeExplanation
+		if preds.IsScalarAnswer {
+			want = types.ShapeConfigValue
+		}
+		if declared != want {
+			return want,
+				"single exact config-trace question needs narrative/config-value shape, not a symbol set"
+		}
+	}
+
 	// Rule 1: scalar shapes lifted to list when predicates say the
 	// answer is really a filtered set or a discrete category list.
 	if declared == types.ShapeValue || declared == types.ShapeConfigValue {
@@ -334,9 +398,6 @@ func reconcileDiagramContract(rm types.RequestModel, shape types.AnswerShape, bu
 	if rm.Intent == types.IntentTrace {
 		require("trace_intent", types.DiagramCallDAG, types.DiagramSequence)
 	}
-	if rm.Scenario == types.ScenarioArchitectureExplain {
-		require("architecture_scenario", types.DiagramArchitecture)
-	}
 	if rm.Predicates.IsCrossComponent {
 		require("cross_component", types.DiagramArchitecture)
 	}
@@ -365,10 +426,12 @@ func reconcileDiagramContract(rm types.RequestModel, shape types.AnswerShape, bu
 	case "registration":
 		require("question_kind_registration", types.DiagramArchitecture, types.DiagramCallDAG)
 	}
+	if rm.Scenario == types.ScenarioArchitectureExplain && !isScalarSourceLiteralLookup(rm) {
+		require("architecture_scenario", types.DiagramArchitecture)
+	}
 	if shape == types.ShapeStepList {
 		require("step_list_shape", types.DiagramFlow)
 	}
-
 	if !required {
 		return nil
 	}
@@ -412,15 +475,19 @@ func resolvedLogFrameCount(bundle *types.LogBundle) int {
 	return count
 }
 
-// logSubjectInferred + logShapeReconciled are the structural twins of
-// logIntentReconcile. One warning line per actual override. Silent
-// when the rule did not fire.
 func logSubjectInferred(subject types.AnswerSubject, reason string) {
 	if subject.Kind == types.SubjectUnknown || reason == "" {
 		return
 	}
 	logging.Warning("[CGEC] E1 subject_inferred: kind=%s axes=%v conf=%.2f (%s)",
 		subject.Kind, subject.EntityAxes, subject.Confidence, reason)
+}
+
+func logScenarioReconcile(before, after types.Scenario, reason string) {
+	if reason == "" {
+		return
+	}
+	logging.Warning("[analyzer] scenario reconciled: %s → %s (%s)", before, after, reason)
 }
 
 func logShapeReconciled(before, after types.AnswerShape, reason string) {

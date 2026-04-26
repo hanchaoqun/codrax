@@ -147,6 +147,13 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
 	}
+	if ctx != nil && ctx.AnalysisIR != nil && isScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
+		b.WriteString("## Scalar Lookup Discipline\n\n")
+		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
+		b.WriteString("- Keep `summary` narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
+		b.WriteString("- Do not expand into adjacent helpers, orchestrated stages, or nearby components unless the user explicitly asked how the mechanism works.\n")
+		b.WriteString("- If a related-context evidence item mentions surrounding pipeline pieces, treat that as background noise rather than answer content.\n\n")
+	}
 
 	if shape == string(types.ShapeListOfSymbols) {
 		must := []string(nil)

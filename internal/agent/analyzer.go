@@ -745,6 +745,15 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 			))
 			rm.PredicateAxis = axis
 		}
+		scenarioResolved, scenarioReason := reconcileScenario(rm)
+		if scenarioReason != "" {
+			logScenarioReconcile(rm.Scenario, scenarioResolved, scenarioReason)
+			recordReconcileObservation(ctxMutable(ctx), reconcileEvent(
+				"scenario", string(rm.Scenario), string(scenarioResolved),
+				0, scenarioReason, rm.Predicates,
+			))
+			rm.Scenario = scenarioResolved
+		}
 		// Measurement-scalar signal — captures the reconciled-Intent
 		// case (LLM picked enumerate, reconcileIntent downgraded to
 		// return_value via IsCountQuestion), the LLM-direct case
@@ -831,7 +840,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	}
 
 	// Scenario default.
-	if rm.Scenario == "" || rm.Scenario == types.ScenarioGeneric {
+	if rm.Scenario == "" || (rm.Scenario == types.ScenarioGeneric && !isScalarSourceLiteralLookup(rm)) {
 		rm.Scenario = compiler.InferScenario(rm)
 	}
 
@@ -947,7 +956,7 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	// by reconcile picking a different shape; the two rules are
 	// disjoint in practice (measurement requires count-verb prefix;
 	// reconcile requires source-code-literal subject).
-	reconciledShape, shapeReason := reconcileShape(out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rm.Predicates)
+	reconciledShape, shapeReason := reconcileShape(rm, out.AnswerContract.RequiredAnswerShape, rm.AnswerSubject, rm.Predicates)
 	if reconciledShape != out.AnswerContract.RequiredAnswerShape {
 		before := out.AnswerContract.RequiredAnswerShape
 		logShapeReconciled(before, reconciledShape, shapeReason)

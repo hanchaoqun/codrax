@@ -405,6 +405,7 @@ func TestIsHistoryLookupRequest(t *testing.T) {
 func TestReconcileShape(t *testing.T) {
 	cases := []struct {
 		name     string
+		rm       types.RequestModel
 		declared types.AnswerShape
 		subject  types.AnswerSubject
 		preds    types.SemanticPredicates
@@ -413,63 +414,95 @@ func TestReconcileShape(t *testing.T) {
 	}{
 		// Rule 1a: count + relational lookup lifts value → list_of_symbols.
 		{"value + count + relational → list_of_symbols",
-			types.ShapeValue, types.AnswerSubject{},
+			types.RequestModel{}, types.ShapeValue, types.AnswerSubject{},
 			types.SemanticPredicates{IsCountQuestion: true, IsRelationalLookup: true},
 			types.ShapeListOfSymbols, true},
 		{"config_value + count + relational → list_of_symbols",
-			types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectFunctionName},
+			types.RequestModel{}, types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectFunctionName},
 			types.SemanticPredicates{IsCountQuestion: true, IsRelationalLookup: true},
 			types.ShapeListOfSymbols, true},
 		// Rule 1a: category + relational lookup also lifts.
 		{"value + category + relational → list_of_symbols",
-			types.ShapeValue, types.AnswerSubject{},
+			types.RequestModel{}, types.ShapeValue, types.AnswerSubject{},
 			types.SemanticPredicates{IsCategoryEnumeration: true, IsRelationalLookup: true},
 			types.ShapeListOfSymbols, true},
 		// Rule 1a negatives: count without relational stays value.
 		{"value + count alone stays value",
-			types.ShapeValue, types.AnswerSubject{},
+			types.RequestModel{}, types.ShapeValue, types.AnswerSubject{},
 			types.SemanticPredicates{IsCountQuestion: true},
 			types.ShapeValue, false},
 		{"value + relational alone stays value",
-			types.ShapeValue, types.AnswerSubject{},
+			types.RequestModel{}, types.ShapeValue, types.AnswerSubject{},
 			types.SemanticPredicates{IsRelationalLookup: true},
 			types.ShapeValue, false},
 		// Rule 1b: category enumeration alone (no relational) still lifts.
 		{"value + category alone lifts (Rule 1b)",
-			types.ShapeValue, types.AnswerSubject{Kind: types.SubjectEnumValue},
+			types.RequestModel{}, types.ShapeValue, types.AnswerSubject{Kind: types.SubjectEnumValue},
 			types.SemanticPredicates{IsCategoryEnumeration: true},
 			types.ShapeListOfSymbols, true},
 		{"config_value + category alone lifts",
-			types.ShapeConfigValue, types.AnswerSubject{},
+			types.RequestModel{}, types.ShapeConfigValue, types.AnswerSubject{},
 			types.SemanticPredicates{IsCategoryEnumeration: true},
 			types.ShapeListOfSymbols, true},
 		// Non-value/config_value shapes are untouched by Rules 1a/1b.
 		{"explanation untouched by Rule 1",
-			types.ShapeExplanation, types.AnswerSubject{},
+			types.RequestModel{}, types.ShapeExplanation, types.AnswerSubject{},
 			types.SemanticPredicates{IsCountQuestion: true, IsRelationalLookup: true},
 			types.ShapeExplanation, false},
 		{"list_of_symbols untouched by Rule 1",
-			types.ShapeListOfSymbols, types.AnswerSubject{},
+			types.RequestModel{}, types.ShapeListOfSymbols, types.AnswerSubject{},
 			types.SemanticPredicates{IsCategoryEnumeration: true},
 			types.ShapeListOfSymbols, false},
 		// Rule 2: config_value → value for source-code literal subjects.
 		{"config_value + function subject → value",
-			types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectFunctionName},
+			types.RequestModel{}, types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectFunctionName},
 			types.SemanticPredicates{}, types.ShapeValue, true},
 		{"config_value + type subject → value",
-			types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectTypeName},
+			types.RequestModel{}, types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectTypeName},
 			types.SemanticPredicates{}, types.ShapeValue, true},
 		{"config_value + return subject → value",
-			types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectReturnValue},
+			types.RequestModel{}, types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectReturnValue},
 			types.SemanticPredicates{}, types.ShapeValue, true},
 		// Rule 2 negative: config_value + config_key subject stays.
 		{"config_value + config_key subject stays",
-			types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectConfigKey},
+			types.RequestModel{}, types.ShapeConfigValue, types.AnswerSubject{Kind: types.SubjectConfigKey},
 			types.SemanticPredicates{}, types.ShapeConfigValue, false},
+		{"single exact config trace list lifts to explanation",
+			types.RequestModel{
+				RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+				Intent:   types.IntentConfigQuery,
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
+					ExactTargets:    []string{"explore_mid_loop_hint_budget"},
+				},
+			},
+			types.ShapeListOfSymbols, types.AnswerSubject{Kind: types.SubjectConfigKey},
+			types.SemanticPredicates{IsScalarAnswer: false}, types.ShapeExplanation, true},
+		{"single exact scalar config trace list lifts to config_value",
+			types.RequestModel{
+				RawRequest: "http_timeout_ms 的最终有效值是多少？",
+				Intent:   types.IntentConfigQuery,
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					PrimaryEntities: []string{"http_timeout_ms"},
+					ExactTargets:    []string{"http_timeout_ms"},
+				},
+			},
+			types.ShapeListOfSymbols, types.AnswerSubject{Kind: types.SubjectConfigKey},
+			types.SemanticPredicates{IsScalarAnswer: true}, types.ShapeConfigValue, true},
+		{"scalar source-literal lookup explanation collapses to value",
+			types.RequestModel{
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+			},
+			types.ShapeExplanation, types.AnswerSubject{Kind: types.SubjectFunctionName},
+			types.SemanticPredicates{IsScalarAnswer: true}, types.ShapeValue, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, reason := reconcileShape(c.declared, c.subject, c.preds)
+			c.rm.AnswerSubject = c.subject
+			c.rm.Predicates = c.preds
+			got, reason := reconcileShape(c.rm, c.declared, c.subject, c.preds)
 			if got != c.want {
 				t.Errorf("shape = %q, want %q (reason=%q)", got, c.want, reason)
 			}
@@ -480,6 +513,21 @@ func TestReconcileShape(t *testing.T) {
 				t.Errorf("unexpected fire: reason=%q", reason)
 			}
 		})
+	}
+}
+
+func TestReconcileScenario(t *testing.T) {
+	rm := types.RequestModel{
+		Scenario:      types.ScenarioArchitectureExplain,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+		Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
+	}
+	got, reason := reconcileScenario(rm)
+	if got != types.ScenarioGeneric {
+		t.Fatalf("scenario = %q, want %q", got, types.ScenarioGeneric)
+	}
+	if reason == "" {
+		t.Fatal("reason = empty, want non-empty reconcile reason")
 	}
 }
 
@@ -561,6 +609,16 @@ func TestReconcileDiagramContract(t *testing.T) {
 			name: "plain scalar without structural cues stays nil",
 			rm: types.RequestModel{
 				Intent: types.IntentReturnValue,
+			},
+			shape:   types.ShapeValue,
+			wantNil: true,
+		},
+		{
+			name: "scalar source-literal lookup suppresses architecture-only diagram",
+			rm: types.RequestModel{
+				Scenario:      types.ScenarioArchitectureExplain,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				Predicates:    types.SemanticPredicates{IsScalarAnswer: true},
 			},
 			shape:   types.ShapeValue,
 			wantNil: true,

@@ -314,6 +314,34 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDiscipline(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeValue,
+			},
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioGeneric,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer: true,
+				},
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"## Scalar Lookup Discipline",
+		"one named source-code literal",
+		"Do not expand into adjacent helpers",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateAfterWindowReset(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")

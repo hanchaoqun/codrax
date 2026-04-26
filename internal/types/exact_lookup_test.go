@@ -282,6 +282,22 @@ func TestBuildExactResolutionContract_DoesNotPromoteSecondaryMentionOverPrimaryR
 	}
 }
 
+func TestBuildExactResolutionContract_RequiresExplicitDisambiguationForMultiPrimaryScalarLookup(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "仓库里负责解析用户请求并产出结构化 AnalysisIR 的那个入口函数具体叫什么名字？在哪个文件？",
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"AnalysisIR", "buildAnalysisIR"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil when multiple primary entities remain and analyzer did not set exact_targets", got)
+	}
+}
+
 func TestExactResolutionContextTerms(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,

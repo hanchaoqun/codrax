@@ -48,6 +48,9 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	if targets := exactResolutionSubjectCompatibleCandidates(rm, MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets)); len(targets) > 0 {
 		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), targets)
 	}
+	if exactResolutionNeedsExplicitDisambiguation(rm) {
+		return nil
+	}
 	candidates := exactResolutionSubjectCompatibleCandidates(rm, exactResolutionMentionedCandidates(rm))
 	switch len(candidates) {
 	case 0:
@@ -64,6 +67,21 @@ func ExactResolutionTargets(rm RequestModel) []string {
 		// analyzer explicitly disambiguated via exact_targets.
 		return nil
 	}
+}
+
+func exactResolutionNeedsExplicitDisambiguation(rm RequestModel) bool {
+	if len(rm.AnalyzerHints.ExactTargets) > 0 {
+		return false
+	}
+	switch exactResolutionSubjectLabel(rm) {
+	case "config key", "file path":
+		return false
+	}
+	primary := rm.AnalyzerHints.PrimaryEntities
+	if len(primary) == 0 {
+		primary = rm.AnalyzerHints.Entities
+	}
+	return len(primary) > 1
 }
 
 func exactResolutionMentionedCandidates(rm RequestModel) []string {
