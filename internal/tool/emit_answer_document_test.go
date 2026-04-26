@@ -811,6 +811,7 @@ func TestEmitAnswerDocument_RejectsExactTargetSubstituteFramingAfterAbsence(t *t
 		},
 	}
 	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
 	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
 		Token: missingKey,
 		Kind:  "symbol",
@@ -822,7 +823,7 @@ func TestEmitAnswerDocument_RejectsExactTargetSubstituteFramingAfterAbsence(t *t
 	})
 	res, _ := tool.Execute(ctx, params)
 	if res.Success {
-		t.Fatalf("substitute framing after exact-target absence must reject")
+		t.Fatalf("missing structured exact_resolution must reject")
 	}
 	if !strings.Contains(res.Summary, "exact-resolution contract violated") {
 		t.Fatalf("reject should name exact-resolution contract, got: %q", res.Summary)
@@ -857,6 +858,7 @@ func TestEmitAnswerDocument_AcceptsExactTargetAbsenceWithContextOnlyFraming(t *t
 		},
 	}
 	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
 	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
 		Token: missingKey,
 		Kind:  "symbol",
@@ -866,9 +868,266 @@ func TestEmitAnswerDocument_AcceptsExactTargetAbsenceWithContextOnlyFraming(t *t
 		"shape":   "explanation",
 		"summary": "仓库里不存在 `explore_mid_loop_hint_budget` 这个配置键。相关的同族 explore 启发式默认值在 `DefaultExploreHeuristics()` 中定义，这只是背景上下文，不是该 exact key 的替代项。",
 	})
+	params = mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "Related grounded defaults live in `DefaultExploreHeuristics()` and stay context only.",
+	})
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
 		t.Fatalf("absence-first context-only framing should pass, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsExactMatchFromTestOnlyConfigProof(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Subject:         target,
+		Predicate:       "defines",
+		Source:          "internal/types/exact_lookup_test.go",
+		Snippet:         `const missing = "explore_mid_loop_hint_budget"`,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "exact_match",
+		},
+		"summary": "A test fixture names the token, but there is no production config proof.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("test-only config proof must not satisfy exact_match")
+	}
+	if !strings.Contains(res.Summary, "anchored proof") {
+		t.Fatalf("reject should explain anchored-proof requirement, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsExactMatchFromDocOnlyConfigMention(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Subject:         "analysis_contract example",
+		Predicate:       "documents",
+		Object:          "exact_context_terms example",
+		Source:          "internal/skill/analysis_contract.go",
+		Snippet:         "Examples: if the exact target is `explore_mid_loop_hint_budget`",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "exact_match",
+		},
+		"summary": "The docs mention the token, but there is no production config definition.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("documentation-style mention must not satisfy exact_match")
+	}
+	if !strings.Contains(res.Summary, "anchored proof") {
+		t.Fatalf("reject should explain anchored-proof requirement, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_AllowsAbsenceWhenOnlyTestMentionsExist(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token: target,
+		Kind:  "symbol",
+	})
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Subject:         target,
+		Predicate:       "mentions",
+		Source:          "internal/types/exact_lookup_test.go",
+		Snippet:         `const missing = "explore_mid_loop_hint_budget"`,
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "Related production defaults stay context only.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("test-only mentions should not contradict absence, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_AllowsAbsenceWithProductionContextOnlyMention(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Subject:         "DefaultExploreHeuristics",
+		Predicate:       "defaults_to",
+		Object:          "MidLoopMinIteration=2",
+		Source:          "internal/types/config.go",
+		Summary:         "Related context only: explore_mid_loop_hint_budget is absent from this config family.",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "Related grounded defaults stay context only.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("production context-only mentions should not contradict absence, got: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_AllowsAbsenceWithoutPendingFinding(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "Related grounded context stays context only.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("absence should not require a pending finding once the explorer closed with structured absence, got: %q", res.Summary)
 	}
 }
 

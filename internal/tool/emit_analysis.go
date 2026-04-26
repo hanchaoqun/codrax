@@ -3,6 +3,7 @@ package tool
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -43,16 +44,18 @@ type EmitAnalysis struct {
 }
 
 type emitAnalysisParams struct {
-	Intent        string                  `json:"intent"`
-	Scenario      string                  `json:"scenario"`
-	Complexity    string                  `json:"complexity"`
-	Keywords      []string                `json:"keywords"`
-	Entities      []string                `json:"entities"`
-	QuestionKind  string                  `json:"question_kind"`
-	AnswerShape   string                  `json:"answer_shape"`
-	Language      string                  `json:"language,omitempty"`
-	SubTopics     []types.SubTopic        `json:"sub_topics,omitempty"`
-	AnswerSubject *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
+	Intent            string                  `json:"intent"`
+	Scenario          string                  `json:"scenario"`
+	Complexity        string                  `json:"complexity"`
+	Keywords          []string                `json:"keywords"`
+	Entities          []string                `json:"entities"`
+	QuestionKind      string                  `json:"question_kind"`
+	AnswerShape       string                  `json:"answer_shape"`
+	Language          string                  `json:"language,omitempty"`
+	SubTopics         []types.SubTopic        `json:"sub_topics,omitempty"`
+	AnswerSubject     *emitAnswerSubjectParam `json:"answer_subject,omitempty"`
+	ExactTargets      []string                `json:"exact_targets,omitempty"`
+	ExactContextTerms []string                `json:"exact_context_terms,omitempty"`
 
 	// Schema v4 — confidence + alternatives + LLM semantic predicates +
 	// LLM-emitted predicate axis. These replace the historical prose-cue
@@ -81,6 +84,7 @@ type emitPredicatesParam struct {
 	IsCrossComponent      *bool `json:"is_cross_component"`
 	IsRelationalLookup    *bool `json:"is_relational_lookup"`
 	IsCategoryEnumeration *bool `json:"is_category_enumeration"`
+	IsHistoryLookup       *bool `json:"is_history_lookup"`
 }
 
 // emitAnswerSubjectParam is the wire shape of the optional
@@ -163,6 +167,16 @@ func buildEmitAnalysisSchema() {
 					"required": []string{"summary"},
 				},
 			},
+			"exact_targets": map[string]any{
+				"type":        "array",
+				"description": "Optional exact user-asked targets, copied verbatim from the current request text. Use when the request mentions neighboring context items but asks about one specific key/path/symbol/literal. Every item must be explicitly present in the current request text before downstream stages use it.",
+				"items":       map[string]string{"type": "string"},
+			},
+			"exact_context_terms": map[string]any{
+				"type":        "array",
+				"description": "Optional narrow same-scope terms for exact-resolution questions. Use only alongside exact_targets when nearby context should stay within one identifier family / module subtree. Terms are LLM suggestions; each one must stay grounded in the request-mentioned exact-target lane before downstream stages use it.",
+				"items":       map[string]string{"type": "string"},
+			},
 			"answer_subject": map[string]any{
 				"type":        "object",
 				"description": "Optional. Classifies what kind of source-code literal the answer should be (skill_name, agent_name, config_key, ...). The chain ranker uses this to demote chains whose terminal token is the wrong kind. Leave unset when the answer kind is ambiguous; the system's deterministic fallback infers from question_kind.",
@@ -185,8 +199,9 @@ func buildEmitAnalysisSchema() {
 					"is_cross_component":      map[string]any{"type": "boolean", "description": "True if the question compares or relates two distinct subsystems / components / types."},
 					"is_relational_lookup":    map[string]any{"type": "boolean", "description": "True if filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')."},
 					"is_category_enumeration": map[string]any{"type": "boolean", "description": "True if asking 'what kinds / types / categories of X exist'."},
+					"is_history_lookup":       map[string]any{"type": "boolean", "description": "True when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line."},
 				},
-				"required": []string{"is_scalar_answer", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration"},
+				"required": []string{"is_scalar_answer", "is_count_question", "is_cross_component", "is_relational_lookup", "is_category_enumeration", "is_history_lookup"},
 			},
 			"predicate_axis": map[string]any{
 				"type":        "string",
@@ -388,6 +403,25 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 			Timestamp: time.Now(),
 		}, nil
 	}
+	exactTargets, exactTargetErr := validateExactTargets(raw, p.ExactTargets)
+	if exactTargetErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + exactTargetErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
+	exactContextTerms, exactContextErr := validateExactContextTerms(exactTargets, mentionedEntities, p.ExactContextTerms)
+	if exactContextErr != "" {
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   "emit_analysis rejected: " + exactContextErr,
+			Timestamp: time.Now(),
+		}, nil
+	}
 
 	// Sub-topic summaries sometimes copy chunks of the REPL
 	// conversation prefix verbatim when the LLM is over-eager to
@@ -404,10 +438,14 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		Complexity: complexity,
 		SubTopics:  sanitizedSubTopics,
 		AnalyzerHints: types.AnalyzerHints{
-			Keywords: keywords,
-			Entities: entities,
-			Kind:     kind,
-			Shape:    shape,
+			Keywords:          keywords,
+			Entities:          entities,
+			PrimaryEntities:   append([]string(nil), entities...),
+			MentionedEntities: mentionedEntities,
+			ExactTargets:      exactTargets,
+			ExactContextTerms: exactContextTerms,
+			Kind:              kind,
+			Shape:             shape,
 		},
 		AnswerSubject:        parseAnswerSubject(p.AnswerSubject),
 		IntentConfidence:     p.IntentConfidence,
@@ -438,19 +476,16 @@ func recordConfigTraceNoMatchFindings(ctx *types.BusContext, rm types.RequestMod
 		rm.AnswerSubject.Kind != types.SubjectConfigKey {
 		return
 	}
-	candidates := rm.AnalyzerHints.PrimaryEntities
-	if len(candidates) == 0 {
-		candidates = rm.AnalyzerHints.Entities
-	}
-	if len(candidates) == 0 {
+	targets := types.ExactResolutionTargets(rm)
+	if len(targets) == 0 {
 		return
 	}
 	graph, _ := ctx.Mutable.SearchGraph().(*repomap.Graph)
 	closure := ctx.Mutable.EvidenceClosure()
 	recorded := 0
-	for _, candidate := range candidates {
+	for _, candidate := range targets {
 		token := strings.TrimSpace(candidate)
-		if token == "" || !looksLikeConfigToken(token) {
+		if token == "" {
 			continue
 		}
 		if graphHasExactSymbol(graph, token) {
@@ -608,6 +643,18 @@ func validateSelfConsistency(
 	if preds.IsCategoryEnumeration && preds.IsScalarAnswer {
 		return "is_category_enumeration=true and is_scalar_answer=true are mutually exclusive — a 'what kinds of X' question yields a list, not a scalar"
 	}
+	if preds.IsHistoryLookup {
+		if intent == types.IntentEnumerate {
+			return "is_history_lookup=true is inconsistent with intent=enumerate — repository-history questions yield a single scalar / literal, not a list"
+		}
+		shapeLower := strings.ToLower(strings.TrimSpace(shape))
+		if shapeLower == "list_of_symbols" {
+			return "is_history_lookup=true is inconsistent with answer_shape=list_of_symbols — repository-history questions yield a single scalar / literal; set answer_shape=value"
+		}
+		if !preds.IsScalarAnswer {
+			return "is_history_lookup=true requires is_scalar_answer=true — history / authorship lookups yield a single scalar / literal"
+		}
+	}
 	return ""
 }
 
@@ -624,7 +671,7 @@ func validateSelfConsistency(
 func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) {
 	if p == nil {
 		return types.SemanticPredicates{},
-			"predicates object missing — emit `predicates` with is_scalar_answer / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration each set to true or false"
+			"predicates object missing — emit `predicates` with is_scalar_answer / is_count_question / is_cross_component / is_relational_lookup / is_category_enumeration / is_history_lookup each set to true or false"
 	}
 	missing := []string{}
 	if p.IsScalarAnswer == nil {
@@ -642,6 +689,9 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 	if p.IsCategoryEnumeration == nil {
 		missing = append(missing, "is_category_enumeration")
 	}
+	if p.IsHistoryLookup == nil {
+		missing = append(missing, "is_history_lookup")
+	}
 	if len(missing) > 0 {
 		return types.SemanticPredicates{}, fmt.Sprintf(
 			"predicates missing required field(s): %s — every field must be set explicitly to true or false (no silent default)",
@@ -654,7 +704,84 @@ func parsePredicates(p *emitPredicatesParam) (types.SemanticPredicates, string) 
 		IsCrossComponent:      *p.IsCrossComponent,
 		IsRelationalLookup:    *p.IsRelationalLookup,
 		IsCategoryEnumeration: *p.IsCategoryEnumeration,
+		IsHistoryLookup:       *p.IsHistoryLookup,
 	}, ""
+}
+
+func validateExactTargets(raw string, in []string) ([]string, string) {
+	if len(in) == 0 {
+		return nil, ""
+	}
+	validated := types.MentionedEntitiesFromRawRequest(raw, in)
+	if len(validated) == len(in) {
+		return validated, ""
+	}
+	if len(validated) == 0 {
+		return nil, "exact_targets were provided, but none are explicitly present in the current request text; omit the field when unsure"
+	}
+	var invalid []string
+	seen := make(map[string]bool, len(validated))
+	for _, item := range validated {
+		seen[strings.ToLower(strings.TrimSpace(item))] = true
+	}
+	for _, item := range in {
+		key := strings.ToLower(strings.TrimSpace(item))
+		if key == "" || seen[key] {
+			continue
+		}
+		invalid = append(invalid, strings.TrimSpace(item))
+	}
+	sort.Strings(invalid)
+	return nil, fmt.Sprintf(
+		"exact_targets must be copied verbatim from the current request text; these item(s) were not validated: %s",
+		strings.Join(invalid, ", "),
+	)
+}
+
+func validateExactContextTerms(exactTargets, mentionedEntities, in []string) ([]string, string) {
+	if len(in) == 0 {
+		return nil, ""
+	}
+	if len(exactTargets) == 0 {
+		return nil, "exact_context_terms require exact_targets; omit exact_context_terms when the exact target is ambiguous"
+	}
+	allowed := make(map[string]bool)
+	for _, source := range append(append([]string(nil), exactTargets...), mentionedEntities...) {
+		for _, term := range types.ExactResolutionIdentifierTerms(source) {
+			if len(term) >= 3 {
+				allowed[term] = true
+			}
+		}
+	}
+	if len(allowed) == 0 {
+		return nil, "exact_context_terms require request-grounded exact target terms, but no valid target vocabulary was available"
+	}
+	seen := make(map[string]bool)
+	var out []string
+	var invalid []string
+	for _, item := range in {
+		norm := strings.TrimSpace(strings.ToLower(item))
+		if norm == "" {
+			continue
+		}
+		if !allowed[norm] {
+			invalid = append(invalid, strings.TrimSpace(item))
+			continue
+		}
+		if seen[norm] {
+			continue
+		}
+		seen[norm] = true
+		out = append(out, norm)
+	}
+	if len(invalid) > 0 {
+		sort.Strings(invalid)
+		return nil, fmt.Sprintf(
+			"exact_context_terms must be grounded in the request-mentioned exact target lane; these item(s) were not validated: %s",
+			strings.Join(invalid, ", "),
+		)
+	}
+	return out, ""
 }
 
 // validateConfidenceRange enforces the [0, 1] domain on every
@@ -764,11 +891,20 @@ func buildEmitAnalysisSummary(raw emitAnalysisParams, rm types.RequestModel, val
 		rm.Intent, rm.Scenario, rm.Complexity,
 		len(h.Keywords), len(h.Entities),
 		h.Kind, h.Shape)
+	if len(h.ExactTargets) > 0 {
+		fmt.Fprintf(&b, " exact=%d", len(h.ExactTargets))
+	}
+	if len(h.ExactContextTerms) > 0 {
+		fmt.Fprintf(&b, " exact_ctx=%d", len(h.ExactContextTerms))
+	}
 	if rm.PredicateAxis != types.AxisUnknown {
 		fmt.Fprintf(&b, " axis=%s", rm.PredicateAxis)
 	}
 	if rm.DiagramHint != nil && rm.DiagramHint.Kind != types.DiagramNone {
 		fmt.Fprintf(&b, " diagram_hint=%s", rm.DiagramHint.Kind)
+	}
+	if rm.Predicates.IsHistoryLookup {
+		b.WriteString(" history_lookup=true")
 	}
 
 	// Normalization delta — only fields where raw ≠ canonical get

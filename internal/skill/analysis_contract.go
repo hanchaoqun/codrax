@@ -340,8 +340,8 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString("- intent, scenario, complexity, question_kind, answer_shape — one enum value each (tables below).\n")
 	of.WriteString("- keywords, entities — string arrays (may be empty).\n")
 	of.WriteString("- intent_confidence, complexity_confidence, kind_confidence, shape_confidence — floats in [0.0, 1.0].\n")
-	of.WriteString("- predicates — object with five required booleans (see Semantic predicates below).\n\n")
-	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), language.\n\n")
+	of.WriteString("- predicates — object with six required booleans (see Semantic predicates below).\n\n")
+	of.WriteString("Optional fields: sub_topics (array), answer_subject (object), predicate_axis (enum), diagram_hint (object), exact_targets (array), exact_context_terms (array), language.\n\n")
 	of.WriteString("Everything downstream — the search plan, the evidence plan, the hypothesis set, the quality checks — is derived automatically from your input; do not provide them.\n\n")
 	of.WriteString("Field enums:\n\n")
 	of.WriteString(renderEnumTable("intent", analysisIntents))
@@ -363,18 +363,21 @@ func BuildAnalysisSkill() *Config {
 	of.WriteString(renderEnumTable("diagram_hint.kind", analysisDiagramKinds))
 	of.WriteString("\n")
 	of.WriteString("diagram_hint is OPTIONAL. Use it when the question clearly benefits from a structural diagram: `call_dag` for call chains / dispatch / fan-out, `flow` for branches / guards / fallback / retry, `sequence` for actor-to-actor ordering over time, `architecture` for component / layer / subsystem relationships. The deterministic compiler derives the final diagram contract, so omit the field when unsure.\n\n")
+	of.WriteString("exact_targets is OPTIONAL. Use it when the user is asking about a SPECIFIC named target but the request also mentions nearby context items (for example, a config key plus neighboring files / layers / defaults). Put ONLY the exact user-asked target(s) here, copied verbatim from the current request text. Omit the field when unsure. The system validates every item against the current request before turning it into an exact-resolution contract.\n\n")
+	of.WriteString("exact_context_terms is OPTIONAL. Use it only alongside exact_targets when nearby context should stay within one narrow identifier family / module scope. Examples: if the exact target is `explore_mid_loop_hint_budget`, a good term is `explore`; if the exact target is a path under `internal/tool/...`, good terms are path segments or identifier stems that come from that exact target lane. Do NOT invent new family names. The system validates every term against the request-mentioned exact-target lane before using it downstream.\n\n")
 	of.WriteString("## Confidence\n\n")
 	of.WriteString("For intent / complexity / question_kind / answer_shape, also emit a confidence float in [0.0, 1.0]:\n")
 	of.WriteString("- 0.9+ when the user's wording unambiguously dictates the value\n")
 	of.WriteString("- 0.5-0.7 when a plausible alternative exists\n")
 	of.WriteString("- below 0.5 when you are genuinely guessing\n\n")
-	of.WriteString("## Semantic predicates (REQUIRED, all five fields)\n\n")
-	of.WriteString("In `predicates`, judge the user's question along five language-neutral axes. Every field MUST be present and MUST be true OR false (no missing fields). Read the user's wording in whatever language they wrote it:\n")
+	of.WriteString("## Semantic predicates (REQUIRED, all six fields)\n\n")
+	of.WriteString("In `predicates`, judge the user's question along six language-neutral axes. Every field MUST be present and MUST be true OR false (no missing fields). Read the user's wording in whatever language they wrote it:\n")
 	of.WriteString("- `is_scalar_answer`: true when the answer is a single scalar (a number, a literal, a path), not a set or sequence\n")
 	of.WriteString("- `is_count_question`: true when the answer is a single number that must be computed by aggregating values across multiple source units (counting items, summing lines of code, summing file sizes, totalling bytes across a directory tree). Implies is_scalar_answer. False when the answer is a number that already exists as a single source-code literal (const declaration, default value, enum ordinal) — that case is is_scalar_answer=true without is_count_question\n")
 	of.WriteString("- `is_cross_component`: true when the user is comparing or relating two distinct subsystems / components / types\n")
 	of.WriteString("- `is_relational_lookup`: true when the user is filtering set X by a relationship to Y ('functions that return Z', 'agents that use skill Y')\n")
-	of.WriteString("- `is_category_enumeration`: true when the user is asking 'what kinds / types / categories of X exist'\n\n")
+	of.WriteString("- `is_category_enumeration`: true when the user is asking 'what kinds / types / categories of X exist'\n")
+	of.WriteString("- `is_history_lookup`: true when the literal answer should come from repository history / authorship metadata (git log / blame / commit history), not from a repo file:line\n\n")
 	of.WriteString("These predicates replace the system's old prose-keyword tables. Be honest — `false` is a valid answer. The system uses these to pick the right downstream behaviour; a wrong predicate produces a wrong answer downstream.\n\n")
 	of.WriteString("Entities: CamelCase/snake_case symbol names copied VERBATIM from the user's wording. Do NOT translate, re-case, pluralise, or paraphrase. Generic nouns (count, function, thing, agent, handler, module) MUST NOT appear here — they degrade the downstream evidence search. Leave empty only when the question has no identifier-looking tokens. The pre-scan confirms whether these entities exist; presence in the repo is not a filter, just a sanity check.\n\n")
 	of.WriteString("IMPORTANT — disambiguate from Prior Conversation: if the current request relies on Prior Conversation to resolve a pronoun or demonstrative (\"它\", \"那个\", \"它们\", \"this\", \"them\"), extract the concrete identifier from Prior and write THAT identifier verbatim into the entities array. The analyzer is the only stage that sees Prior Conversation by default; downstream stages only see the fields you emit here, so any Prior-derived disambiguation MUST land in entities or the downstream stages will lose the subject.\n\n")
@@ -406,7 +409,7 @@ func BuildAnalysisSkill() *Config {
 			"Round 2 is allowed at most once, when Round 1 ended ambiguous on either signal: (a) a key entity came back empty → broaden keyword stems / variants (still files_only=true); or (b) classification remains uncertain AND Round 1 surfaced a declarative file (e.g. a name matching topology / defaults / registry / routes / wire / init / manifest / schema / enum patterns) → a single response MAY include up to 3 grep(files_only=false, max_count=20) calls targeting those declarative files, to peek at the literal forms inside map/struct/enum bodies. Then call emit_analysis regardless of the Round 2 result.",
 			"For count / size / total / measurement-scalar questions: Round 1 confirms the subject exists (the directory / file / symbol the question is asking about), then immediately call emit_analysis with intent=return_value + answer_shape=value + predicates.is_count_question=true. Do NOT attempt to compute the answer literal yourself in pre-scan — the explore stage is the one that runs wc / find / grep -c and reads file content. Trying to retrieve full file content via grep(files_only=false) to count lines yourself will exhaust the pre-scan budget and fail-loud the analyze stage.",
 			"If the request spans multiple independent sub-topics, fill sub_topics (at most 5) and set answer_shape=explanation.",
-			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (five booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, language.",
+			"Call emit_analysis exactly once. Required fields: intent, scenario, complexity, keywords, entities, question_kind, answer_shape, the four confidence floats (intent_confidence, complexity_confidence, kind_confidence, shape_confidence), and the predicates object (six booleans: is_scalar_answer, is_count_question, is_cross_component, is_relational_lookup, is_category_enumeration, is_history_lookup). Optional: sub_topics, answer_subject, predicate_axis, diagram_hint, exact_targets, exact_context_terms, language.",
 		},
 		ToolSuggestions: append([]string(nil), AnalysisToolSuggestions...),
 		OutputFormat:    of.String(),

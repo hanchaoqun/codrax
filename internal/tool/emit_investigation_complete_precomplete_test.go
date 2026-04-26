@@ -25,8 +25,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PendingReadsBlocks(t *testin
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "looks complete",
-		"confidence": "high",
+		"reason":      "looks complete",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -53,8 +54,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_NoPendingReads_Allows(t *tes
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "looks complete",
-		"confidence": "high",
+		"reason":      "looks complete",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -92,8 +94,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "thinks done",
-		"confidence": "high",
+		"reason":      "thinks done",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -130,8 +133,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitat
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "external runtime log already explains the failure chain",
-		"confidence": "high",
+		"reason":      "external runtime log already explains the failure chain",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -171,8 +175,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPasses(t *testi
 	}
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "all evidence collected",
-		"confidence": "high",
+		"reason":      "all evidence collected",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -219,8 +224,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_ExplanationFunctionSubject_N
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "traced the mechanism",
-		"confidence": "high",
+		"reason":      "traced the mechanism",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -275,8 +281,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadBlocks(t *testin
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "traced the answer",
-		"confidence": "high",
+		"reason":      "traced the answer",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -343,8 +350,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadSkipsKeywordOnly
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "traced the mechanism",
-		"confidence": "high",
+		"reason":      "traced the mechanism",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -382,8 +390,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadHonorsCanonicalR
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "traced the mechanism",
-		"confidence": "high",
+		"reason":      "traced the mechanism",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -426,8 +435,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_ConfigMappingMu
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "traced the config flow",
-		"confidence": "high",
+		"reason":      "traced the config flow",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -469,8 +479,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorUnreadBlocks(t 
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "traced the mechanism",
-		"confidence": "high",
+		"reason":      "traced the mechanism",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -509,8 +520,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_PrimaryAnchorHonorsDispatchR
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "traced the mechanism",
-		"confidence": "high",
+		"reason":      "traced the mechanism",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -552,8 +564,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_Registration(t 
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "found the registration",
-		"confidence": "high",
+		"reason":      "found the registration",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, _ := tool.Execute(bus, params)
 	if strings.Contains(res.Summary, "DOWNGRADED") {
@@ -590,6 +603,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1Unread_AbsenceBypass(t
 	params, _ := json.Marshal(map[string]any{
 		"reason":                "no such mechanism exists",
 		"confidence":            "high",
+		"result_kind":           "absence",
 		"absence_justification": "grep produced zero hits for the claimed symbol",
 	})
 	res, _ := tool.Execute(bus, params)
@@ -628,8 +642,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_Phase1UnreadLatchFiresOnce(t
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "first attempt",
-		"confidence": "high",
+		"reason":      "first attempt",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 
 	// First call: gate fires, files queued, latch flips.
@@ -730,8 +745,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Bloc
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "compared both paths",
-		"confidence": "high",
+		"reason":      "compared both paths",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -796,8 +812,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Bala
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "compared both paths",
-		"confidence": "high",
+		"reason":      "compared both paths",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -851,7 +868,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_NonB
 		},
 	}
 	tool := &EmitInvestigationComplete{}
-	params, _ := json.Marshal(map[string]any{"reason": "listed all", "confidence": "high"})
+	params, _ := json.Marshal(map[string]any{"reason": "listed all", "confidence": "high", "result_kind": "resolved"})
 	_, err := tool.Execute(bus, params)
 	if err != nil {
 		t.Fatalf("Execute returned error: %v", err)
@@ -891,8 +908,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Conf
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "checked code default and config overlay",
-		"confidence": "high",
+		"reason":      "checked code default and config overlay",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	res, err := tool.Execute(bus, params)
 	if err != nil {
@@ -939,8 +957,9 @@ func TestEmitInvestigationComplete_PreCompleteCheck_MultiPathCoverageParity_Sing
 
 	tool := &EmitInvestigationComplete{}
 	params, _ := json.Marshal(map[string]any{
-		"reason":     "single-subject mechanism",
-		"confidence": "high",
+		"reason":      "single-subject mechanism",
+		"confidence":  "high",
+		"result_kind": "resolved",
 	})
 	_, err := tool.Execute(bus, params)
 	if err != nil {
@@ -970,6 +989,7 @@ func TestEmitInvestigationComplete_PreCompleteCheck_AbsenceWaivesFloor(t *testin
 	params, _ := json.Marshal(map[string]any{
 		"reason":                "the system has no such handler",
 		"confidence":            "high",
+		"result_kind":           "absence",
 		"absence_justification": "no handler with that name exists in the repo",
 	})
 	res, err := tool.Execute(bus, params)

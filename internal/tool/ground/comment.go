@@ -59,6 +59,16 @@ func isLineSoloComment(trimmed, lang string) bool {
 	if hasCFamilyLineComment(lang) && strings.HasPrefix(trimmed, "//") {
 		return true
 	}
+	// Lua single-line: --
+	if hasLuaLineComment(lang) && strings.HasPrefix(trimmed, "--") &&
+		!strings.HasPrefix(trimmed, "--[[") {
+		return true
+	}
+	if hasLuaBlockComment(lang) {
+		if strings.HasPrefix(trimmed, "--[[") || trimmed == "]]" {
+			return true
+		}
+	}
 	// Python / shell / YAML / Ruby / TOML: # at line start
 	if hasHashLineComment(lang) && strings.HasPrefix(trimmed, "#") {
 		return true
@@ -85,6 +95,7 @@ func isLineSoloComment(trimmed, lang string) bool {
 	// recognised single-line marker counts.
 	if lang == "" {
 		if strings.HasPrefix(trimmed, "//") || strings.HasPrefix(trimmed, "#") ||
+			strings.HasPrefix(trimmed, "--") ||
 			strings.HasPrefix(trimmed, "/*") || trimmed == "*" || trimmed == "*/" ||
 			strings.HasPrefix(trimmed, "* ") {
 			return true
@@ -105,6 +116,12 @@ func isInsideBlockComment(fileLines map[int]string, line int, lang string) bool 
 	// C-family `/* ... */`.
 	if hasCFamilyBlockComment(lang) || lang == "" {
 		if scanBlockBackward(fileLines, line, maxWalk, "/*", "*/") {
+			return true
+		}
+	}
+	// Lua long comments.
+	if hasLuaBlockComment(lang) || lang == "" {
+		if scanBlockBackward(fileLines, line, maxWalk, "--[[", "]]") {
 			return true
 		}
 	}
@@ -186,7 +203,7 @@ func hasCFamilyLineComment(lang string) bool {
 	case repomaptypes.LangGo, repomaptypes.LangJavaScript, repomaptypes.LangTypeScript,
 		repomaptypes.LangArkTS, repomaptypes.LangCangjie,
 		repomaptypes.LangJava, repomaptypes.LangKotlin, repomaptypes.LangRust,
-		repomaptypes.LangSwift,
+		repomaptypes.LangSwift, repomaptypes.LangProto,
 		repomaptypes.LangC, repomaptypes.LangCpp:
 		return true
 	}
@@ -209,4 +226,12 @@ func hasHashLineComment(lang string) bool {
 	// through to the empty-lang branch in isLineSoloComment which
 	// permissively recognises `#`.
 	return false
+}
+
+func hasLuaLineComment(lang string) bool {
+	return lang == repomaptypes.LangLua
+}
+
+func hasLuaBlockComment(lang string) bool {
+	return lang == repomaptypes.LangLua
 }

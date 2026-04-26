@@ -89,15 +89,16 @@ func emitAnswerDocumentBooleanDecision(s string) (bool, bool) {
 // Decoding directly into the types.* structs avoids a separate layer
 // of wire-format shims; the only translation step left is Boolean.
 type emitAnswerDocumentParams struct {
-	Shape               string                     `json:"shape"`
-	Summary             string                     `json:"summary"`
-	Steps               []types.AnswerStep         `json:"steps,omitempty"`
-	Symbols             []emitAnswerSymbolItem     `json:"symbols,omitempty"`
-	SymbolsCompleteness string                     `json:"symbols_completeness,omitempty"`
-	Value               *types.AnswerValue         `json:"value,omitempty"`
-	Boolean             *emitAnswerDocumentBoolean `json:"boolean,omitempty"`
-	Citations           []types.Citation           `json:"citations,omitempty"`
-	Caveats             []string                   `json:"caveats,omitempty"`
+	Shape               string                       `json:"shape"`
+	Summary             string                       `json:"summary"`
+	ExactResolution     *types.AnswerExactResolution `json:"exact_resolution,omitempty"`
+	Steps               []types.AnswerStep           `json:"steps,omitempty"`
+	Symbols             []emitAnswerSymbolItem       `json:"symbols,omitempty"`
+	SymbolsCompleteness string                       `json:"symbols_completeness,omitempty"`
+	Value               *types.AnswerValue           `json:"value,omitempty"`
+	Boolean             *emitAnswerDocumentBoolean   `json:"boolean,omitempty"`
+	Citations           []types.Citation             `json:"citations,omitempty"`
+	Caveats             []string                     `json:"caveats,omitempty"`
 }
 
 // emitAnswerDocumentBoolean carries the JSON form of the boolean
@@ -123,6 +124,7 @@ func (t *EmitAnswerDocument) Description() string {
 		"symbols is an integer INDEX into that pool (zero-based), or -1 when no citation backs " +
 		"the entry. Every citation MUST have file (repo-relative), line > 0, and file must NOT live " +
 		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field. " + capGuidance + " " +
+		"When the prompt includes an Exact Resolution Contract, also fill `exact_resolution{status,anchor?,context_mode}` so the system can validate the exact-target disposition structurally instead of inferring it from prose. " +
 		"\n\n" +
 		"IMPORTANT — citation quote field: the quote is OPTIONAL but when provided it MUST be a " +
 		"VERBATIM copy of the characters at file:line from the read_file gutter (exact whitespace " +
@@ -149,6 +151,16 @@ func (t *EmitAnswerDocument) Parameters() json.RawMessage {
   "properties": {
     "shape": {"type": "string", "enum": ["list_of_symbols", "step_list", "value", "boolean", "config_value", "explanation"], "description": "Closed enum of answer shapes. REQUIRED. Choose the shape declared in the prompt's Target answer shape section."},
     "summary": {"type": "string", "description": %q},
+    "exact_resolution": {
+      "type": "object",
+      "description": "Structured exact-target disposition. REQUIRED when the prompt includes an Exact Resolution Contract. The system validates this against the current exact-resolution state; do not try to encode the status only in prose.",
+      "properties": {
+        "status": {"type": "string", "enum": ["exact_match", "alias_match", "absent"], "description": "exact_match = the requested exact target is grounded directly; alias_match = the repo contains explicit grounded alias/parser-mapping proof; absent = the requested exact target is absent and any nearby context is related context only."},
+        "anchor": {"type": "string", "description": "OPTIONAL for exact_match, REQUIRED for alias_match. Name the grounded anchor symbol / key / path that resolves the target."},
+        "context_mode": {"type": "string", "enum": ["none", "grounded_context_only"], "description": "How any nearby grounded context should be framed relative to the exact target. Use grounded_context_only when the summary adds same-family / same-directory context that is NOT itself the exact target."}
+      },
+      "required": ["status"]
+    },
     "steps": {
       "type": "array",
       "description": "Ordered steps for shape=step_list. REQUIRED for step_list; must be empty for all other shapes.",
@@ -449,6 +461,12 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		p.Boolean = nil
 	}
 
+	resolvedExact, resolvedSummary, err := resolveAnswerDocumentExactResolution(strings.TrimSpace(p.Summary), p.ExactResolution, ctx)
+	if err != nil {
+		return failEmit(t.Name(), now, "%s", err.Error())
+	}
+	p.Summary = resolvedSummary
+
 	// Shape-tiered Summary cap. When summary_cap_enabled=false,
 	// SummaryCapFor returns SummaryCapUnlimited and this branch is a
 	// no-op. When enabled, scalar shapes carry fixed ceilings; step_list
@@ -628,9 +646,10 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	}
 
 	doc := &types.AnswerDocument{
-		Shape:     shape,
-		Summary:   strings.TrimSpace(p.Summary),
-		Citations: citations,
+		Shape:           shape,
+		Summary:         strings.TrimSpace(p.Summary),
+		ExactResolution: resolvedExact,
+		Citations:       citations,
 	}
 
 	// Session-22 fix F4.1 — diagram-block literal-grounding gate.
@@ -693,10 +712,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateSummaryCodenameGrounding(p.Summary, citations, groundCtx); err != nil {
 		return failWithContext("%v", err)
 	}
-	if err := validateSummaryExactResolution(p.Summary, ctx); err != nil {
+	if err := validateAnswerDocumentExactResolutionProof(resolvedExact, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
-
 	// Shape-dispatch: each branch validates its own required fields,
 	// rejects fields that do not belong to this shape, and populates
 	// the AnswerDocument slot the renderer will read.
@@ -2008,6 +2026,353 @@ func exactTargetListForError(targets []string) string {
 		quoted = append(quoted, "`"+target+"`")
 	}
 	return strings.Join(quoted, ", ")
+}
+
+func backtickJoin(items []string) string {
+	if len(items) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		out = append(out, "`"+item+"`")
+	}
+	return strings.Join(out, ", ")
+}
+
+func resolveAnswerDocumentExactResolution(summary string, declared *types.AnswerExactResolution, ctx *types.BusContext) (*types.AnswerExactResolution, string, error) {
+	summary = strings.TrimSpace(summary)
+	contract := answerExactResolutionContract(ctx)
+	if contract == nil || len(contract.Targets) == 0 {
+		if declared != nil {
+			return nil, "", fmt.Errorf("exact-resolution contract violated: exact_resolution is only valid when the dispatch includes an Exact Resolution Contract")
+		}
+		return nil, summary, nil
+	}
+	if declared == nil {
+		return nil, "", fmt.Errorf("exact-resolution contract violated: exact_resolution{status,...} is required for this dispatch")
+	}
+
+	resolved := &types.AnswerExactResolution{
+		Status:      normalizeAnswerExactResolutionStatus(declared.Status),
+		Anchor:      strings.TrimSpace(declared.Anchor),
+		ContextMode: normalizeAnswerExactResolutionContextMode(declared.ContextMode),
+	}
+	if resolved.Status == "" {
+		return nil, "", fmt.Errorf("exact-resolution contract violated: exact_resolution.status must be one of exact_match / alias_match / absent")
+	}
+	if declared.ContextMode != "" && resolved.ContextMode == "" {
+		return nil, "", fmt.Errorf("exact-resolution contract violated: exact_resolution.context_mode must be one of none / grounded_context_only")
+	}
+	if resolved.ContextMode == "" {
+		resolved.ContextMode = types.AnswerExactResolutionContextNone
+	}
+
+	switch resolved.Status {
+	case types.AnswerExactResolutionAliasMatch:
+		if resolved.Anchor == "" {
+			return nil, "", fmt.Errorf("exact-resolution contract violated: exact_resolution.status=alias_match requires exact_resolution.anchor naming the grounded alias / mapping anchor")
+		}
+	case types.AnswerExactResolutionAbsent:
+		if ctx == nil || ctx.Mutable == nil {
+			return nil, "", fmt.Errorf("exact-resolution contract violated: status=absent requires mutable exact-resolution state")
+		}
+		if !contract.AllowAbsence || ctx.Mutable.InvestigationResultKind() != "absence" || strings.TrimSpace(ctx.Mutable.AbsenceJustification()) == "" {
+			return nil, "", fmt.Errorf("exact-resolution contract violated: status=absent requires the exploration stage to close with emit_investigation_complete(result_kind=\"absence\", absence_justification=...)")
+		}
+	}
+
+	lead := renderAnswerDocumentExactResolutionLead(contract, resolved, requestedAnswerDocumentLanguage(ctx))
+	return resolved, joinAnswerDocumentLead(lead, summary), nil
+}
+
+func validateAnswerDocumentExactResolutionProof(exact *types.AnswerExactResolution, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) error {
+	if exact == nil {
+		return nil
+	}
+	contract := answerExactResolutionContract(ctx)
+	if contract == nil || len(contract.Targets) == 0 {
+		return nil
+	}
+	label := strings.TrimSpace(contract.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	proof := collectExactResolutionProof(contract, citations, gc, ctx)
+
+	switch exact.Status {
+	case types.AnswerExactResolutionAbsent:
+		if proof.TargetMentionContradictsAbsence {
+			return fmt.Errorf("exact-resolution contract violated: exact_resolution.status=absent contradicts the grounded evidence/citations, which still name the requested exact %s %s", label, exactTargetListForError(contract.Targets))
+		}
+	case types.AnswerExactResolutionExactMatch:
+		if !proof.AnyTarget {
+			return fmt.Errorf("exact-resolution contract violated: exact_resolution.status=exact_match requires at least one grounded evidence item or cited line that explicitly names the requested exact %s %s", label, exactTargetListForError(contract.Targets))
+		}
+		if proof.RequiresProductionProof && !proof.AnyProductionTargetAnchor {
+			return fmt.Errorf("exact-resolution contract violated: exact_resolution.status=exact_match for the requested exact %s %s requires production-grounded anchored proof, not only test/spec/example or documentation-style mentions", label, exactTargetListForError(contract.Targets))
+		}
+	case types.AnswerExactResolutionAliasMatch:
+		if !proof.anyPair(exact.Anchor) {
+			return fmt.Errorf("exact-resolution contract violated: exact_resolution.status=alias_match requires explicit grounded proof that mentions both the requested exact %s %s and the claimed anchor `%s` together", label, exactTargetListForError(contract.Targets), exact.Anchor)
+		}
+		if proof.RequiresProductionProof && !proof.anyProductionPair(exact.Anchor) {
+			return fmt.Errorf("exact-resolution contract violated: exact_resolution.status=alias_match for the requested exact %s %s requires production-grounded proof for anchor `%s`, not only test/spec/example mentions", label, exactTargetListForError(contract.Targets), exact.Anchor)
+		}
+	}
+	return nil
+}
+
+func normalizeAnswerExactResolutionStatus(status types.AnswerExactResolutionStatus) types.AnswerExactResolutionStatus {
+	normalized := types.AnswerExactResolutionStatus(strings.ToLower(strings.TrimSpace(string(status))))
+	switch normalized {
+	case types.AnswerExactResolutionExactMatch, types.AnswerExactResolutionAliasMatch, types.AnswerExactResolutionAbsent:
+		return normalized
+	default:
+		return ""
+	}
+}
+
+func normalizeAnswerExactResolutionContextMode(mode types.AnswerExactResolutionContextMode) types.AnswerExactResolutionContextMode {
+	normalized := types.AnswerExactResolutionContextMode(strings.ToLower(strings.TrimSpace(string(mode))))
+	switch normalized {
+	case types.AnswerExactResolutionContextNone, types.AnswerExactResolutionContextGroundedOnly:
+		return normalized
+	default:
+		return ""
+	}
+}
+
+func joinAnswerDocumentLead(lead, summary string) string {
+	lead = strings.TrimSpace(lead)
+	summary = strings.TrimSpace(summary)
+	if lead == "" {
+		return summary
+	}
+	if summary == "" {
+		return lead
+	}
+	return lead + "\n\n" + summary
+}
+
+func renderAnswerDocumentExactResolutionLead(contract *types.ExactResolutionContract, exact *types.AnswerExactResolution, lang string) string {
+	if contract == nil || exact == nil || len(contract.Targets) == 0 {
+		return ""
+	}
+	label := strings.TrimSpace(contract.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	targets := backtickJoin(contract.Targets)
+	zh := answerDocumentRequiresChinese(lang)
+	switch exact.Status {
+	case types.AnswerExactResolutionAbsent:
+		if zh {
+			lead := fmt.Sprintf("精确%s %s：当前仓库中未找到。", label, targets)
+			if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
+				lead += " 下文若补充同族上下文，只作为相关背景，不是该目标的替代项。"
+			}
+			return lead
+		}
+		lead := fmt.Sprintf("Exact %s %s: not found in this repository.", label, targets)
+		if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
+			lead += " Any nearby grounded context below is related context only, not a substitute for the requested target."
+		}
+		return lead
+	case types.AnswerExactResolutionAliasMatch:
+		if zh {
+			return fmt.Sprintf("精确%s %s：在已引用证据中通过 `%s` 找到明确映射。", label, targets, exact.Anchor)
+		}
+		return fmt.Sprintf("Exact %s %s: explicitly resolves through `%s` in grounded evidence.", label, targets, exact.Anchor)
+	case types.AnswerExactResolutionExactMatch:
+		if zh {
+			return fmt.Sprintf("精确%s %s：已在已引用证据中直接命中。", label, targets)
+		}
+		return fmt.Sprintf("Exact %s %s: grounded directly in the cited evidence.", label, targets)
+	default:
+		return ""
+	}
+}
+
+type exactResolutionProofEntry struct {
+	Text         string
+	Source       string
+	Subject      string
+	AnchorSymbol string
+	Object       string
+	Production   bool
+	FromEvidence bool
+}
+
+type exactResolutionProof struct {
+	Contract                        *types.ExactResolutionContract
+	Entries                         []exactResolutionProofEntry
+	AnyTarget                       bool
+	AnyProductionTarget             bool
+	AnyProductionTargetAnchor       bool
+	TargetMentionContradictsAbsence bool
+	RequiresProductionProof         bool
+}
+
+func (p exactResolutionProof) anyPair(anchor string) bool {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return false
+	}
+	for _, entry := range p.Entries {
+		if !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func (p exactResolutionProof) anyProductionPair(anchor string) bool {
+	anchor = strings.TrimSpace(anchor)
+	if anchor == "" {
+		return false
+	}
+	for _, entry := range p.Entries {
+		if !entry.Production || !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func collectExactResolutionProof(contract *types.ExactResolutionContract, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) exactResolutionProof {
+	proof := exactResolutionProof{
+		Contract:                contract,
+		Entries:                 exactResolutionProofEntries(contract, citations, gc, ctx),
+		RequiresProductionProof: contract != nil && contract.TargetKind == types.SubjectConfigKey,
+	}
+	for _, entry := range proof.Entries {
+		if !entryMentionsAnyTarget(contract, entry) {
+			continue
+		}
+		proof.AnyTarget = true
+		if entry.Production {
+			proof.AnyProductionTarget = true
+			if entryDirectlyAnchorsAnyTarget(contract, entry) {
+				proof.AnyProductionTargetAnchor = true
+			}
+		}
+	}
+	if proof.RequiresProductionProof {
+		proof.TargetMentionContradictsAbsence = proof.AnyProductionTargetAnchor
+	} else {
+		proof.TargetMentionContradictsAbsence = proof.AnyTarget
+	}
+	return proof
+}
+
+func exactResolutionProofEntries(contract *types.ExactResolutionContract, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) []exactResolutionProofEntry {
+	var out []exactResolutionProofEntry
+	if ctx != nil && ctx.Mutable != nil {
+		for _, item := range ctx.Mutable.EmittedEvidence() {
+			out = append(out, exactResolutionProofEntry{
+				Text: strings.Join([]string{
+					item.Subject,
+					item.Predicate,
+					item.Object,
+					item.AnchorSymbol,
+					item.Condition,
+					item.Snippet,
+					item.Summary,
+				}, "\n"),
+				Source:       item.Source,
+				Subject:      item.Subject,
+				AnchorSymbol: item.AnchorSymbol,
+				Object:       item.Object,
+				Production:   exactResolutionProofSourceIsProductionLike(contract, item.Source),
+				FromEvidence: true,
+			})
+		}
+	}
+	if gc == nil {
+		return out
+	}
+	for _, c := range citations {
+		if c.File == "" || c.Line <= 0 {
+			continue
+		}
+		lineText := strings.TrimSpace(c.Quote)
+		if lineText == "" {
+			if fileLines, ok := gc.LineIndex[c.File]; ok {
+				lineText = strings.TrimSpace(fileLines[c.Line])
+			}
+		}
+		if lineText != "" {
+			out = append(out, exactResolutionProofEntry{
+				Text:       lineText,
+				Source:     c.File,
+				Production: exactResolutionProofSourceIsProductionLike(contract, c.File),
+			})
+		}
+	}
+	return out
+}
+
+func entryMentionsAnyTarget(contract *types.ExactResolutionContract, entry exactResolutionProofEntry) bool {
+	if contract == nil {
+		return false
+	}
+	for _, target := range contract.Targets {
+		if types.ExactResolutionTextMentionsTarget(contract, entry.Text, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func entryMentionsAnchor(contract *types.ExactResolutionContract, entry exactResolutionProofEntry, anchor string) bool {
+	if contract == nil {
+		return false
+	}
+	return types.ExactResolutionTextMentionsTarget(contract, entry.Text, anchor)
+}
+
+func entryDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, entry exactResolutionProofEntry) bool {
+	if contract == nil || !entry.FromEvidence {
+		return false
+	}
+	for _, target := range contract.Targets {
+		if types.ExactResolutionTextMentionsTarget(contract, entry.Subject, target) ||
+			types.ExactResolutionTextMentionsTarget(contract, entry.AnchorSymbol, target) ||
+			types.ExactResolutionTextMentionsTarget(contract, entry.Object, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func exactResolutionProofSourceIsProductionLike(contract *types.ExactResolutionContract, source string) bool {
+	if contract == nil || contract.TargetKind != types.SubjectConfigKey {
+		return true
+	}
+	source = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(source), `\`, `/`))
+	if source == "" {
+		return false
+	}
+	if types.LooksLikeTestFilePath(source) {
+		return false
+	}
+	switch {
+	case strings.Contains(source, "/testdata/"),
+		strings.HasPrefix(source, "testdata/"),
+		strings.Contains(source, "/fixtures/"),
+		strings.HasPrefix(source, "fixtures/"),
+		strings.Contains(source, "/examples/"),
+		strings.HasPrefix(source, "examples/"):
+		return false
+	default:
+		return true
+	}
 }
 
 func validateEvidenceSummaryCodenameGrounding(item *types.EvidenceItem, gc *ground.Context) error {

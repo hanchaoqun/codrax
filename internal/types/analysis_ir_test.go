@@ -172,14 +172,14 @@ func TestAnalysisIR_JSONRoundtrip(t *testing.T) {
 }
 
 func TestAnalysisIR_VersionConstant(t *testing.T) {
-	// v6 adds ExactResolutionContract on AnswerContract, making
-	// exact-target resolution a first-class contract independent of
-	// answer shape.
-	if AnalysisIRVersion != "v6" {
+	// v7 adds analyzer-validated exact_context_terms / related_context_terms
+	// so same-scope exact-resolution narrowing is LLM-recommended and
+	// system-validated rather than generated from hardcoded keyword tables.
+	if AnalysisIRVersion != "v7" {
 		t.Fatalf("unexpected AnalysisIRVersion: %q", AnalysisIRVersion)
 	}
 	ir := AnalysisIR{Version: AnalysisIRVersion}
-	if ir.Version != "v6" {
+	if ir.Version != "v7" {
 		t.Fatalf("version not propagated: %q", ir.Version)
 	}
 }

@@ -21,6 +21,10 @@ func TestIsTestFile(t *testing.T) {
 		"foo/module_test.py",
 		"com/acme/MyClassTest.java",
 		"com/acme/MyClassTests.java",
+		"src/test/kotlin/com/acme/MyServiceTest.kt",
+		"spec/models/user_spec.rb",
+		"Tests/AppTests/FeatureTests.swift",
+		"lua/spec/router_spec.lua",
 		"src/components/Button.test.tsx",
 		"src/app.spec.ts",
 		"src/app.test.js",
@@ -37,6 +41,8 @@ func TestIsTestFile(t *testing.T) {
 		"internal/tool/repomap/extract_go.go", // contains "_" + "go"
 		"com/acme/Tester.java",                // not *Test.java
 		"foo/testing.py",                      // not test_* / *_test
+		"app/bin/setup.rb",                    // executable, not test
+		"lua/inspect.lua",                     // lua utility, not test
 	}
 	for _, p := range negative {
 		if isTestFile(p) {
@@ -271,17 +277,17 @@ func TestTokenizeQuery(t *testing.T) {
 // and numeric segments.
 func TestSplitCamel(t *testing.T) {
 	cases := map[string][]string{
-		"":                  nil,
-		"foo":               {"foo"},
-		"Foo":               {"Foo"},
-		"fooBar":            {"foo", "Bar"},
-		"FooBar":            {"Foo", "Bar"},
-		"HTTPServer":        {"HTTP", "Server"},
-		"buildHTTPServer":   {"build", "HTTP", "Server"},
-		"HTTPSConnection":   {"HTTPS", "Connection"},
-		"parseJSONBody":     {"parse", "JSON", "Body"},
-		"v2":                {"v2"},
-		"Foo2Bar":           {"Foo", "2", "Bar"},
+		"":                nil,
+		"foo":             {"foo"},
+		"Foo":             {"Foo"},
+		"fooBar":          {"foo", "Bar"},
+		"FooBar":          {"Foo", "Bar"},
+		"HTTPServer":      {"HTTP", "Server"},
+		"buildHTTPServer": {"build", "HTTP", "Server"},
+		"HTTPSConnection": {"HTTPS", "Connection"},
+		"parseJSONBody":   {"parse", "JSON", "Body"},
+		"v2":              {"v2"},
+		"Foo2Bar":         {"Foo", "2", "Bar"},
 	}
 	for in, want := range cases {
 		got := splitCamel(in)
@@ -295,17 +301,17 @@ func TestSplitCamel(t *testing.T) {
 // inside TokenizeQuery: non-alnum split first, then CamelCase.
 func TestSplitIdentifier(t *testing.T) {
 	cases := map[string][]string{
-		"":                             nil,
-		"foo":                          {"foo"},
-		"foo_bar":                      {"foo", "bar"},
-		"foo-bar":                      {"foo", "bar"},
-		"foo.bar":                      {"foo", "bar"},
-		"foo/bar":                      {"foo", "bar"},
-		"foo::bar":                     {"foo", "bar"},
-		"buildAgentContext":            {"build", "agent", "context"},
-		"parse_HTTP_response":          {"parse", "http", "response"},
-		"internal/tool/repomap":        {"internal", "tool", "repomap"},
-		"a.b.c.d":                      {"a", "b", "c", "d"},
+		"":                      nil,
+		"foo":                   {"foo"},
+		"foo_bar":               {"foo", "bar"},
+		"foo-bar":               {"foo", "bar"},
+		"foo.bar":               {"foo", "bar"},
+		"foo/bar":               {"foo", "bar"},
+		"foo::bar":              {"foo", "bar"},
+		"buildAgentContext":     {"build", "agent", "context"},
+		"parse_HTTP_response":   {"parse", "http", "response"},
+		"internal/tool/repomap": {"internal", "tool", "repomap"},
+		"a.b.c.d":               {"a", "b", "c", "d"},
 	}
 	// Stable iteration for deterministic failure output.
 	keys := make([]string, 0, len(cases))

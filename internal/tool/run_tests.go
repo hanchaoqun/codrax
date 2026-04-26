@@ -111,6 +111,7 @@ var allowedRunners = map[string]struct{}{
 	"rust":   {},
 	"java":   {},
 	"ruby":   {},
+	"swift":  {},
 	"cmake":  {},
 	"meson":  {},
 	"make":   {},
@@ -156,7 +157,7 @@ func (t *RunTests) Parameters() json.RawMessage {
     },
     "runner": {
       "type": "string",
-      "enum": ["go", "node", "python", "rust", "java", "ruby", "cmake", "meson", "make", "hvigor", "cjpm"],
+      "enum": ["go", "node", "python", "rust", "java", "ruby", "swift", "cmake", "meson", "make", "hvigor", "cjpm"],
       "description": "Test runner you have decided to use after inspecting the repo. STRONGLY PREFERRED — if you supply this, the system skips manifest auto-detect and runs your choice directly (works for repos without a canonical manifest, e.g. a bare Python directory with *_test.py files). Empty falls back to manifest auto-detect (brittle; misses bare repos)."
     },
     "working_dir": {

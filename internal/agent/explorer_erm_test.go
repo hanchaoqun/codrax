@@ -745,6 +745,32 @@ func TestExtractEvidenceRequirementsWithHint_RegistrationPerEntity(t *testing.T)
 	}
 }
 
+func TestExtractEvidenceRequirementsWithModel_PrefersStructuredSignals(t *testing.T) {
+	rm := &types.RequestModel{
+		Intent:        types.IntentExplain,
+		Scenario:      types.ScenarioConfigTrace,
+		PredicateAxis: types.AxisConfigure,
+		AnalyzerHints: types.AnalyzerHints{Shape: "step_list"},
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+	}
+
+	reqs := extractEvidenceRequirementsWithModel(
+		"how does the mechanism work?",
+		[]string{"explore_mid_loop_hint_budget"},
+		"unknown",
+		types.SemanticPredicates{},
+		rm,
+	)
+	if len(reqs) == 0 || reqs[0].Kind != types.ReqConfigMapping {
+		t.Fatalf("structured config-trace signals should win, got %+v", reqs)
+	}
+	for _, r := range reqs {
+		if r.Kind == types.ReqMechanism {
+			t.Fatalf("keyword fallback should not add mechanism when structured kind is available: %+v", reqs)
+		}
+	}
+}
+
 // ---------- L0-1: answer chain terminal verification ----------
 
 // TestExtractTerminalSegment covers the arrow-splitting helper that
@@ -1373,7 +1399,6 @@ func TestIdentifyAnswerChains_StableSortDeterministicAcrossRuns(t *testing.T) {
 	}
 }
 
-
 // TestIdentifyAnswerChains_StrictSubsetExcludesDemoted reproduces the
 // df1 run-3 failure mode end-to-end: the constructor-originated
 // NewProposeSubAgents chain must appear in the loose chain list (for
@@ -1614,7 +1639,6 @@ func TestErmAutoSatisfyUnresolvable_NonRegistrationFallback(t *testing.T) {
 		t.Errorf("absent entity should be auto-satisfied by generic fallback, got %q", out[1].Status)
 	}
 }
-
 
 // TestErmAutoSatisfyUnresolvable_NilGraph is the graph-unavailable
 // short-circuit. The function must be a no-op when no graph is

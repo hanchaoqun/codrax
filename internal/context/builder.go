@@ -2412,11 +2412,11 @@ func formatExactResolutionHint(ac *types.AgentContext) string {
 	if hint := strings.TrimSpace(contract.RelatedContextScopeHint); hint != "" {
 		fmt.Fprintf(&b, " When you inspect nearby context, keep it within the %s before jumping to unrelated namespaces.", hint)
 	}
-	if scopeTerms := types.ExactResolutionScopeTerms(contract); len(scopeTerms) > 0 {
+	if scopeTerms := types.ExactResolutionContextTerms(contract); len(scopeTerms) > 0 {
 		fmt.Fprintf(&b, " Useful local-scope terms for focused follow-up: %s.", strings.Join(scopeTerms, ", "))
 	}
 	if ac.Stage == types.StageExplore {
-		b.WriteString(" Read same-scope anchors first, then close the investigation with `absence_justification` instead of completing a positive substitute chain if the exact target remains absent.")
+		b.WriteString(" Read same-scope anchors first, then close the investigation with `emit_investigation_complete(result_kind=\"absence\", absence_justification=...)` instead of completing a positive substitute chain if the exact target remains absent.")
 	}
 	return b.String()
 }

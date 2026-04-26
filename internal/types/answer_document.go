@@ -64,6 +64,13 @@ type AnswerDocument struct {
 	Shape   AnswerShape `json:"shape"`
 	Summary string      `json:"summary,omitempty"`
 
+	// ExactResolution is the structured exact-target disposition for
+	// dispatches whose AnswerContract carries ExactResolution. The
+	// finalizer LLM recommends the status; emit_answer_document
+	// validates it against grounded evidence / absence state and may
+	// synthesize a deterministic lead sentence from it.
+	ExactResolution *AnswerExactResolution `json:"exact_resolution,omitempty"`
+
 	Steps []AnswerStep `json:"steps,omitempty"`
 
 	Symbols             []AnswerSymbol    `json:"symbols,omitempty"`
@@ -335,6 +342,9 @@ func (d *AnswerDocument) IsZero() bool {
 	if d.Summary != "" {
 		return false
 	}
+	if d.ExactResolution != nil {
+		return false
+	}
 	if len(d.Steps) > 0 || len(d.Symbols) > 0 || len(d.Citations) > 0 || len(d.Caveats) > 0 {
 		return false
 	}
@@ -372,5 +382,40 @@ func CloneAnswerDocument(d *AnswerDocument) *AnswerDocument {
 		bl := *d.Boolean
 		out.Boolean = &bl
 	}
+	if d.ExactResolution != nil {
+		ex := *d.ExactResolution
+		out.ExactResolution = &ex
+	}
 	return &out
+}
+
+// AnswerExactResolutionStatus is the finalizer's structured judgment
+// for an exact-target question. The LLM recommends one of these enum
+// values; emit_answer_document validates it against the current
+// AnswerContract + evidence state.
+type AnswerExactResolutionStatus string
+
+const (
+	AnswerExactResolutionExactMatch AnswerExactResolutionStatus = "exact_match"
+	AnswerExactResolutionAliasMatch AnswerExactResolutionStatus = "alias_match"
+	AnswerExactResolutionAbsent     AnswerExactResolutionStatus = "absent"
+)
+
+// AnswerExactResolutionContextMode tells the renderer/validators how
+// any nearby grounded context should be framed relative to the exact
+// target status.
+type AnswerExactResolutionContextMode string
+
+const (
+	AnswerExactResolutionContextNone         AnswerExactResolutionContextMode = "none"
+	AnswerExactResolutionContextGroundedOnly AnswerExactResolutionContextMode = "grounded_context_only"
+)
+
+// AnswerExactResolution is the structured exact-target disposition
+// attached to AnswerDocument. Anchor is optional for exact_match and
+// required for alias_match; absent answers usually leave it empty.
+type AnswerExactResolution struct {
+	Status      AnswerExactResolutionStatus      `json:"status"`
+	Anchor      string                           `json:"anchor,omitempty"`
+	ContextMode AnswerExactResolutionContextMode `json:"context_mode,omitempty"`
 }

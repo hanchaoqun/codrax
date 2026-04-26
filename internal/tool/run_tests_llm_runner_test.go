@@ -53,7 +53,7 @@ func TestResolveLLMRunnerChoice_HappyPath(t *testing.T) {
 // listing of the legal values.
 func TestResolveLLMRunnerChoice_RejectsBadRunner(t *testing.T) {
 	repo := t.TempDir()
-	cases := []string{"pytest", "jest", "kotlin", "swift", "", "invalid"}
+	cases := []string{"pytest", "jest", "kotlin", "", "invalid"}
 	for _, r := range cases {
 		t.Run("runner="+r, func(t *testing.T) {
 			_, rej := resolveLLMRunnerChoice(repo, r, "")
@@ -73,6 +73,10 @@ func TestResolveLLMRunnerChoice_RejectsBadRunner(t *testing.T) {
 // allowed (LLM-decided shell exec on arbitrary host paths).
 func TestResolveLLMRunnerChoice_RejectsTraversal(t *testing.T) {
 	repo := t.TempDir()
+	absRepo, err := filepath.Abs(repo)
+	if err != nil {
+		t.Fatalf("abs repo: %v", err)
+	}
 	cases := []struct {
 		name       string
 		workingDir string
@@ -80,8 +84,8 @@ func TestResolveLLMRunnerChoice_RejectsTraversal(t *testing.T) {
 	}{
 		{"parent escape", "../../etc", "escapes the repository"},
 		{"nested parent escape", "subdir/../../..", "escapes the repository"},
-		{"absolute path", "/etc/passwd", "must be repo-relative"},
-		{"absolute path tmp", "/tmp", "must be repo-relative"},
+		{"absolute path", filepath.Join(absRepo, "outside"), "must be repo-relative"},
+		{"absolute path dir", absRepo, "must be repo-relative"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -116,7 +120,7 @@ func TestResolveLLMRunnerChoice_RejectsMissingDir(t *testing.T) {
 // strings + rejection messages).
 func TestAllowedRunnerList_SortedAndComplete(t *testing.T) {
 	got := allowedRunnerList()
-	want := []string{"cjpm", "cmake", "go", "hvigor", "java", "make", "meson", "node", "python", "ruby", "rust"}
+	want := []string{"cjpm", "cmake", "go", "hvigor", "java", "make", "meson", "node", "python", "ruby", "rust", "swift"}
 	if len(got) != len(want) {
 		t.Fatalf("len = %d, want %d (got=%v)", len(got), len(want), got)
 	}
@@ -126,4 +130,3 @@ func TestAllowedRunnerList_SortedAndComplete(t *testing.T) {
 		}
 	}
 }
-

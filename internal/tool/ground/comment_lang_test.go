@@ -15,7 +15,9 @@ func TestIsLineComment_ExtendedLanguageMarkers(t *testing.T) {
 		{source: "a.ets", lines: map[int]string{1: "// arkts comment"}},
 		{source: "a.cj", lines: map[int]string{1: "// cangjie comment"}},
 		{source: "a.swift", lines: map[int]string{1: "// swift comment"}},
+		{source: "a.proto", lines: map[int]string{1: "// proto comment"}},
 		{source: "a.rb", lines: map[int]string{1: "# ruby comment"}},
+		{source: "a.lua", lines: map[int]string{1: "-- lua comment"}},
 	}
 	for _, c := range cases {
 		if !isLineComment(c.lines, 1, c.source) {
@@ -30,6 +32,7 @@ func TestCommentLanguageHelpers_ExtendedSets(t *testing.T) {
 		repomaptypes.LangArkTS,
 		repomaptypes.LangCangjie,
 		repomaptypes.LangSwift,
+		repomaptypes.LangProto,
 	} {
 		if !hasCFamilyLineComment(lang) {
 			t.Fatalf("hasCFamilyLineComment(%q) = false, want true", lang)
@@ -37,5 +40,22 @@ func TestCommentLanguageHelpers_ExtendedSets(t *testing.T) {
 	}
 	if !hasHashLineComment(repomaptypes.LangRuby) {
 		t.Fatal("hasHashLineComment(ruby) = false, want true")
+	}
+	if !hasLuaLineComment(repomaptypes.LangLua) {
+		t.Fatal("hasLuaLineComment(lua) = false, want true")
+	}
+	if !hasLuaBlockComment(repomaptypes.LangLua) {
+		t.Fatal("hasLuaBlockComment(lua) = false, want true")
+	}
+}
+
+func TestIsInsideBlockComment_LuaLongComment(t *testing.T) {
+	lines := map[int]string{
+		1: "--[[",
+		2: "comment body",
+		3: "]]",
+	}
+	if !isLineComment(lines, 2, "a.lua") {
+		t.Fatal("lua long comment body should be treated as comment")
 	}
 }

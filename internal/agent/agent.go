@@ -1913,6 +1913,9 @@ func isTestFilePath(p string) bool {
 	if p == "" {
 		return false
 	}
+	if types.LooksLikeTestFilePath(p) {
+		return true
+	}
 	// Suffix checks on the full path. Cheaper than filepath.Base +
 	// repeated HasSuffix, and correct because every listed suffix
 	// includes either an underscore / dot boundary or a filename

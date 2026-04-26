@@ -541,7 +541,9 @@ func classifyConfigTraceDiagramRole(ev types.EvidenceItem) (string, int) {
 		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Source,
 	), " "))
 	source := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(ev.Source), `\`, `/`))
-	if strings.HasSuffix(source, "_test.go") || strings.Contains(source, "/testdata/") {
+	if types.LooksLikeTestFilePath(source) ||
+		strings.Contains(source, "/testdata/") || strings.HasPrefix(source, "testdata/") ||
+		strings.Contains(source, "/fixtures/") || strings.HasPrefix(source, "fixtures/") {
 		return "", 0
 	}
 	switch {
@@ -604,30 +606,32 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	}
 	pending := types.ExactResolutionPendingTargets(contract, ctx.UnverifiedAnalyzerFindings)
 	justification := strings.TrimSpace(ctx.Mutable.AbsenceJustification())
-	stateAbsent := contract.AllowAbsence && justification != "" && len(pending) > 0
+	stateAbsent := contract.AllowAbsence &&
+		ctx.Mutable.InvestigationResultKind() == "absence" &&
+		justification != "" &&
+		len(pending) > 0
 
 	var b strings.Builder
 	b.WriteString("## Exact Resolution Contract\n\n")
 	fmt.Fprintf(&b, "- Requested exact %s: %s\n", label, backtickJoin(contract.Targets))
+	b.WriteString("- Set `exact_resolution.status` explicitly: `exact_match`, `alias_match`, or `absent`.\n")
 	b.WriteString("- Resolve the requested exact target directly. Do not answer with a nearby item unless you have explicit alias / synonym / parser-mapping proof.\n")
-	if contract.RequireTargetMention {
-		b.WriteString("- Name the requested exact target explicitly in `summary`.\n")
-	}
+	b.WriteString("- The system renders the exact-resolution lead deterministically from `exact_resolution`; use `summary` for grounded explanation / nearby context, not for ambiguous substitute wording.\n")
 	if contract.AllowAbsence {
-		b.WriteString("- Absence-only is acceptable if the investigation shows the exact target is absent.\n")
+		b.WriteString("- Absence-only is acceptable if the investigation shows the exact target is absent. In that case set `exact_resolution.status=\"absent\"`.\n")
 	}
 	if contract.AliasRequiresProof {
-		b.WriteString("- Any alias / equivalent / substitute claim requires explicit grounded proof, not lexical similarity or \"closest match\" reasoning.\n")
+		b.WriteString("- Any alias / equivalent / substitute claim requires `exact_resolution.status=\"alias_match\"` plus `exact_resolution.anchor`, and explicit grounded proof. Never rely on lexical similarity or \"closest match\" reasoning.\n")
 	}
 	if hint := strings.TrimSpace(contract.RelatedContextScopeHint); hint != "" {
-		fmt.Fprintf(&b, "- If you add related context, keep it within the %s and ground it.\n", hint)
+		fmt.Fprintf(&b, "- If you add related context, keep it within the %s, ground it, and set `exact_resolution.context_mode=\"grounded_context_only\"`.\n", hint)
 	} else {
-		b.WriteString("- If you add related context, keep it grounded and clearly separate it from the exact target resolution.\n")
+		b.WriteString("- If you add related context, keep it grounded and clearly separate it from the exact target resolution by using `exact_resolution.context_mode=\"grounded_context_only\"`.\n")
 	}
 	if stateAbsent {
 		b.WriteString("- Investigation state: the exact target is currently absent in the repo / branch under inspection.\n")
 		fmt.Fprintf(&b, "- Absence justification: %s\n", justification)
-		b.WriteString("- Lead with the exact absence before any related context.\n")
+		b.WriteString("- Emit `exact_resolution.status=\"absent\"`; the renderer will lead with the exact absence before any related context.\n")
 	}
 	b.WriteString("\n")
 	if seeds := renderAnswerDocExactResolutionSeeds(ctx, contract); seeds != "" {
@@ -661,9 +665,8 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 	if ctx == nil || contract == nil {
 		return nil
 	}
-	targetTerms := types.ExactResolutionTerms(contract)
-	scopeTerms := types.ExactResolutionScopeTerms(contract)
-	if len(targetTerms) == 0 && len(scopeTerms) == 0 {
+	contextTerms := types.ExactResolutionContextTerms(contract)
+	if len(contextTerms) == 0 && len(contract.Targets) == 0 {
 		return nil
 	}
 
@@ -676,7 +679,7 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 		if ev.Source == "" {
 			return
 		}
-		score := base + scoreExactResolutionEvidence(ev, contract, targetTerms, scopeTerms)
+		score := base + scoreExactResolutionEvidence(ev, contract, contextTerms)
 		if score < 12 {
 			return
 		}
@@ -721,7 +724,7 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 	return out
 }
 
-func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactResolutionContract, targetTerms, scopeTerms []string) int {
+func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactResolutionContract, contextTerms []string) int {
 	score := 0
 	if contract == nil {
 		return score
@@ -730,7 +733,7 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Source,
 	}, " "))
 	sourceLower := strings.ToLower(ev.Source)
-	isTestLike := strings.HasSuffix(sourceLower, "_test.go") || strings.Contains(sourceLower, "/testdata/") || strings.Contains(sourceLower, "\\testdata\\")
+	isTestLike := types.LooksLikeTestFilePath(ev.Source) || strings.Contains(sourceLower, "/testdata/") || strings.Contains(sourceLower, "\\testdata\\")
 	exactMention := false
 	for _, target := range contract.Targets {
 		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
@@ -745,26 +748,16 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 			score += 18
 		}
 	}
-	targetMatches := 0
-	for _, term := range targetTerms {
+	contextMatches := 0
+	for _, term := range contextTerms {
 		if strings.Contains(text, term) {
-			targetMatches++
+			contextMatches++
 		}
 	}
-	if targetMatches > 3 {
-		targetMatches = 3
+	if contextMatches > 3 {
+		contextMatches = 3
 	}
-	score += targetMatches * 3
-	scopeMatches := 0
-	for _, term := range scopeTerms {
-		if strings.Contains(text, term) {
-			scopeMatches++
-		}
-	}
-	if scopeMatches > 3 {
-		scopeMatches = 3
-	}
-	score += scopeMatches * 4
+	score += contextMatches * 4
 	switch ev.Kind {
 	case types.EvidenceMechanism, types.EvidenceRelationship, types.EvidenceRegistration:
 		score += 6
@@ -945,7 +938,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 	}
 	if strings.Contains(summary, "exact-resolution contract violated:") {
 		reasonKey = "exact-resolution"
-		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with the same grounded answer, but make `summary` explicitly name the requested exact target and resolve it first. If the investigation concluded the exact target is absent, lead with that absence; absence-only is acceptable. Any nearby context must stay clearly labeled as related context, not as an equivalent, alias, or substitute without explicit proof. Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with a valid `exact_resolution{status,anchor?,context_mode}` object that matches the grounded evidence and current absence state for the requested exact target. Use `exact_match` only when a cited line or grounded evidence explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the investigation closed with `result_kind=\"absence\"` (absence-only is acceptable). Any nearby related context must remain `grounded_context_only`, not an equivalent, alias, or substitute. Do not write free-form prose outside the tool call."
 	}
 
 	// Session-22 special-case: the literal-grounding gate on shape=

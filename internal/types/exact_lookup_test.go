@@ -12,6 +12,7 @@ func TestBuildExactResolutionContract_ConfigKey(t *testing.T) {
 		AnalyzerHints: AnalyzerHints{
 			Kind:            "config_mapping",
 			PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
+			ExactTargets:    []string{"explore_mid_loop_hint_budget"},
 		},
 		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
 	}
@@ -55,7 +56,7 @@ func TestBuildExactResolutionContract_PrefersRawRequestMentionedTargets(t *testi
 	}
 }
 
-func TestBuildExactResolutionContract_ConfigKeyIgnoresFileLikeContext(t *testing.T) {
+func TestBuildExactResolutionContract_ConfigKeyStaysNilWithoutExplicitExactTargets(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",
 		Scenario:   ScenarioConfigTrace,
@@ -69,12 +70,106 @@ func TestBuildExactResolutionContract_ConfigKeyIgnoresFileLikeContext(t *testing
 		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
 	}
 
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil when multiple mentioned entities remain and analyzer did not disambiguate exact_targets", got)
+	}
+}
+
+func TestBuildExactResolutionContract_ConfigKeyUsesExplicitExactTargets(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind: "config_mapping",
+			PrimaryEntities: []string{
+				"explore_mid_loop_hint_budget",
+				"codrax.yaml",
+			},
+			ExactTargets: []string{"explore_mid_loop_hint_budget"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
 	got := BuildExactResolutionContract(rm)
 	if got == nil {
 		t.Fatal("contract = nil, want non-nil")
 	}
 	if !reflect.DeepEqual(got.Targets, []string{"explore_mid_loop_hint_budget"}) {
-		t.Fatalf("Targets = %v, want config key only (file-like context excluded)", got.Targets)
+		t.Fatalf("Targets = %v, want exact target only", got.Targets)
+	}
+}
+
+func TestBuildExactResolutionContract_PersistsValidatedContextTerms(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 鐨勬渶缁堟湁鏁堝€兼槸鎬庝箞璁＄畻鍑烘潵鐨勶紵",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind:              "config_mapping",
+			PrimaryEntities:   []string{"explore_mid_loop_hint_budget"},
+			ExactTargets:      []string{"explore_mid_loop_hint_budget"},
+			ExactContextTerms: []string{"explore"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil")
+	}
+	if !reflect.DeepEqual(got.RelatedContextTerms, []string{"explore"}) {
+		t.Fatalf("RelatedContextTerms = %v, want [explore]", got.RelatedContextTerms)
+	}
+}
+
+func TestBuildExactResolutionContract_FallsBackToValidatedKeywordContextTerms(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 鐨勬渶缁堟湁鏁堝€兼槸鎬庝箞璁＄畻鍑烘潵鐨勶紵",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind:            "config_mapping",
+			Keywords:        []string{"explore", "override", "budget"},
+			PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
+			ExactTargets:    []string{"explore_mid_loop_hint_budget"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil")
+	}
+	if !reflect.DeepEqual(got.RelatedContextTerms, []string{"budget", "explore"}) {
+		t.Fatalf("RelatedContextTerms = %v, want keyword-grounded fallback terms", got.RelatedContextTerms)
+	}
+}
+
+func TestBuildExactResolutionContract_DoesNotPromoteUnmentionedPrimaryEntity(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "why is this setting ignored?",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind:            "config_mapping",
+			PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil when target is not explicitly mentioned", got)
+	}
+}
+
+func TestBuildExactResolutionContract_RemainsNilWhenMultipleSubjectCompatibleMentionsRemain(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "Foo 和 Bar 哪个才是最终调用点？",
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"Foo", "Bar"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+	}
+
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil when multiple subject-compatible mentions remain", got)
 	}
 }
 
@@ -150,14 +245,15 @@ func TestBuildExactResolutionContract_DoesNotTriggerOnEnumeration(t *testing.T) 
 	}
 }
 
-func TestExactResolutionScopeTerms(t *testing.T) {
+func TestExactResolutionContextTerms(t *testing.T) {
 	contract := &ExactResolutionContract{
 		TargetKind:           SubjectConfigKey,
 		TargetLabel:          "config key",
 		Targets:              []string{"explore_mid_loop_hint_budget"},
 		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
 	}
-	if got := ExactResolutionScopeTerms(contract); !reflect.DeepEqual(got, []string{"explore"}) {
-		t.Fatalf("scope terms = %v, want [explore]", got)
+	if got := ExactResolutionContextTerms(contract); !reflect.DeepEqual(got, []string{"explore"}) {
+		t.Fatalf("context terms = %v, want [explore]", got)
 	}
 }

@@ -1,8 +1,6 @@
 package agent
 
 import (
-	"strings"
-
 	"github.com/hanchaoqun/codrax/internal/logging"
 	"github.com/hanchaoqun/codrax/internal/types"
 )
@@ -71,14 +69,17 @@ func isMeasurementScalarRequest(rm types.RequestModel) bool {
 //
 // Primary signal: analyzer declared question_kind=history.
 //
-// Fallback: until the analyzer emits a first-class "history source"
-// predicate, detect the stable lexical pattern "VCS/history noun" +
-// "temporal/authorship intent" on a scalar value question. This is
-// intentionally narrower than a generic keyword bag so we do not
-// accidentally strip citations from ordinary code-return questions.
+// Secondary signal: analyzer emitted predicates.is_history_lookup=true.
+// The system then validates that the rest of the classification is
+// structurally coherent for a scalar history lookup before stripping
+// citations. This keeps the semantic judgment in the LLM lane while
+// preserving a deterministic fail-closed validator.
 func isHistoryLookupRequest(rm types.RequestModel) bool {
 	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqHistory {
 		return true
+	}
+	if !rm.Predicates.IsHistoryLookup {
+		return false
 	}
 	shape := mapLegacyAnswerShape(rm.AnalyzerHints.Shape)
 	if shape != types.ShapeValue && rm.Intent != types.IntentReturnValue {
@@ -87,51 +88,7 @@ func isHistoryLookupRequest(rm types.RequestModel) bool {
 	if !rm.Predicates.IsScalarAnswer && shape != types.ShapeValue {
 		return false
 	}
-	var texts []string
-	if raw := strings.TrimSpace(strings.ToLower(rm.RawRequest)); raw != "" {
-		texts = append(texts, raw)
-	}
-	for _, kw := range rm.AnalyzerHints.Keywords {
-		if kw = strings.TrimSpace(strings.ToLower(kw)); kw != "" {
-			texts = append(texts, kw)
-		}
-	}
-	if len(texts) == 0 {
-		return false
-	}
-	hasVCSNoun := false
-	hasHistoryIntent := false
-	vcsTerms := []string{
-		"git", "git log", "git blame", "commit", "history", "revision", "blame",
-		"提交", "历史", "版本", "修订",
-	}
-	intentTerms := []string{
-		"introduced", "first commit", "first added", "when added", "who added", "who changed",
-		"authored", "author", "introduced to", "origin commit",
-		"引入", "首次", "第一次", "添加", "谁提交", "谁改的", "什么时候",
-	}
-	for _, text := range texts {
-		if !hasVCSNoun {
-			for _, term := range vcsTerms {
-				if strings.Contains(text, term) {
-					hasVCSNoun = true
-					break
-				}
-			}
-		}
-		if !hasHistoryIntent {
-			for _, term := range intentTerms {
-				if strings.Contains(text, term) {
-					hasHistoryIntent = true
-					break
-				}
-			}
-		}
-		if hasVCSNoun && hasHistoryIntent {
-			return true
-		}
-	}
-	return false
+	return true
 }
 
 func isCitationFreeToolValueRequest(rm types.RequestModel) bool {

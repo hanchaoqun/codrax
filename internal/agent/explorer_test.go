@@ -734,6 +734,20 @@ func TestEnumerationIntent_NotPollutedByPriorConversation(t *testing.T) {
 	}
 }
 
+func TestEnumerationIntentForContext_PrefersStructuredSignals(t *testing.T) {
+	ctx := &types.AgentContext{
+		Objective: "how does the explorer work?",
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Intent: types.IntentEnumerate,
+			},
+		},
+	}
+	if !enumerationIntentForContext(ctx) {
+		t.Fatal("structured enumerate intent should override raw-question fallback")
+	}
+}
+
 func TestExtractQuestionEntities(t *testing.T) {
 	tests := []struct {
 		question string
@@ -2608,6 +2622,117 @@ func TestBuildPrimaryTargetBanner_NilGraph(t *testing.T) {
 	}
 }
 
+func TestBuildExactResolutionScopeBanner_PrefersAnalyzerKeywordMatchedSymbols(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"config default", "CLI flag", "codrax yaml"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetLabel:             "config key",
+					Targets:                 []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:            true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+		},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token: "explore_mid_loop_hint_budget",
+			Kind:  "symbol",
+		}},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		preScannedFiles: []string{
+			"internal/types/config.go",
+			"internal/config/runtime.go",
+		},
+		fileSymbols: map[string][]string{
+			"internal/types/config.go": {
+				"DefaultExploreHeuristics function:707",
+				"LoopMaxMidLoopInjects field:216",
+			},
+			"internal/config/runtime.go": {
+				"AgentLoopMaxMidLoopInjects field:237",
+			},
+		},
+	}
+
+	banner := eval.buildExactResolutionScopeBanner(ctx, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords)
+	if banner == "" {
+		t.Fatal("expected same-family symbol banner")
+	}
+	if !strings.Contains(banner, "DefaultExploreHeuristics") {
+		t.Fatalf("banner should surface default-family symbol, got: %s", banner)
+	}
+	if !strings.Contains(banner, "internal/types/config.go") {
+		t.Fatalf("banner should cite the owning file, got: %s", banner)
+	}
+}
+
+func TestBuildExactResolutionScopeBanner_SearchesWholeGraphForProductionCandidates(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"explore default"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetLabel:             "config key",
+					Targets:                 []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:            true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+		},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token: "explore_mid_loop_hint_budget",
+			Kind:  "symbol",
+		}},
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/types/config.go": {
+				RelPath: "internal/types/config.go",
+				Symbols: []repomap.Symbol{{Name: "DefaultExploreHeuristics"}, {Name: "ExploreHeuristics"}},
+			},
+			"internal/agent/explorer_test.go": {
+				RelPath: "internal/agent/explorer_test.go",
+				Symbols: []repomap.Symbol{{Name: "TestObserveMidLoop_ExactAbsenceClosureHint"}},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: graph},
+		preScannedFiles: []string{
+			"internal/agent/explorer_test.go",
+		},
+		fileSymbols: map[string][]string{
+			"internal/agent/explorer_test.go": {
+				"TestObserveMidLoop_ExactAbsenceClosureHint function:3770",
+			},
+		},
+	}
+
+	banner := eval.buildExactResolutionScopeBanner(ctx, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords)
+	if banner == "" {
+		t.Fatal("expected same-family symbol banner")
+	}
+	if !strings.Contains(banner, "DefaultExploreHeuristics") {
+		t.Fatalf("banner should surface graph-wide production symbol, got: %s", banner)
+	}
+	if strings.Contains(banner, "explorer_test.go") {
+		t.Fatalf("banner should skip test-file candidates, got: %s", banner)
+	}
+}
+
 // TestFilterEvidenceByPrimaryFiles pins the df3 drift-fix filter
 // contract: items from primary-entity files are kept, items from
 // other files are dropped, and items with no Source are kept
@@ -3702,6 +3827,15 @@ func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 			AllowAbsence: true,
 		},
 		exactPendingTargets: []string{"explore_mid_loop_hint_budget"},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Subject:         "ExploreMidLoopMinIteration",
+			Predicate:       "defaults_to",
+			Object:          "2",
+			Summary:         "ExploreMidLoopMinIteration is related context only for explore_* controls",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}},
 		investigationNotes: []string{
 			"已确认 explore_mid_loop_hint_budget 在仓库中不存在；相关 explore_* 配置仅作为 nearby context。",
 		},

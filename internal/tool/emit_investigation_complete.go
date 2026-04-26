@@ -66,18 +66,24 @@ func (t *EmitInvestigationComplete) Parameters() json.RawMessage {
 				"enum": ["high", "medium"],
 				"description": "Your confidence that the collected evidence is sufficient. 'low' is not accepted — continue investigating instead."
 			},
+			"result_kind": {
+				"type": "string",
+				"enum": ["resolved", "absence"],
+				"description": "Structured terminal disposition for this investigation. Use 'resolved' for ordinary positive/citable answers. Use 'absence' only when the honest terminal answer is zero / no-such-target / nothing found and you are also providing absence_justification."
+			},
 			"absence_justification": {
 				"type": "string",
 				"description": "OPTIONAL. Set this ONLY when the answer is an honest 'zero' / 'no X' / 'nothing found' that has no file:line to cite (e.g. 'how many .py files?' answered 0, 'does handler X exist?' answered no). A single short sentence explaining why the answer is genuinely empty. Leave unset for every non-absence answer. Do NOT set it after emit_evidence has already produced grounded/recovered anchors for the answer — that means you have a positive, citable answer path. This is a declarative claim, not a system override: the framework still audits that at least one investigation-class tool (grep / exec_command / list_files / read_file / repo_map) ran successfully before accepting the waiver."
 			}
 		},
-		"required": ["reason", "confidence"]
+		"required": ["reason", "confidence", "result_kind"]
 	}`)
 }
 
 type emitInvestigationCompleteParams struct {
 	Reason               string `json:"reason"`
 	Confidence           string `json:"confidence"`
+	ResultKind           string `json:"result_kind"`
 	AbsenceJustification string `json:"absence_justification,omitempty"`
 }
 
@@ -110,6 +116,18 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 					"Only 'high' or 'medium' are valid. If you are unsure, continue "+
 					"investigating — read more files, run more greps, collect more evidence.",
 				p.Confidence),
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
+	}
+	resultKind := strings.ToLower(strings.TrimSpace(p.ResultKind))
+	if resultKind != "resolved" && resultKind != "absence" {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary: fmt.Sprintf(
+				"emit_investigation_complete rejected: result_kind=%q is not accepted. "+
+					"Use 'resolved' for ordinary positive/citable answers or 'absence' for honest zero / no-such-target answers.",
+				p.ResultKind),
 			Success:   false,
 			Timestamp: time.Now(),
 		}, nil
@@ -192,13 +210,11 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// the field and re-emit. This runs BEFORE SetInvestigationComplete
 	// so the LLM sees the error and corrects in the same dispatch.
 	if justification != "" {
-		if !looksLikeHonestZeroClaim(reason, justification) {
+		if resultKind != "absence" {
 			return types.ToolResult{
 				ToolName: t.Name(),
-				Summary: "emit_investigation_complete rejected: absence_justification is reserved for honest-zero / not-found answers. " +
-					"Your reason/justification reads like a positive completion claim rather than an absence claim. " +
-					"Remove absence_justification for normal answers, or rewrite it as a real zero-result statement such as " +
-					"'grep found zero matches' or 'no handler with that name exists'.",
+				Summary: "emit_investigation_complete rejected: absence_justification requires result_kind=absence. " +
+					"For ordinary positive/citable answers, set result_kind=resolved and omit absence_justification.",
 				Success:   false,
 				Timestamp: time.Now(),
 			}, nil
@@ -214,6 +230,15 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 				Timestamp: time.Now(),
 			}, nil
 		}
+	}
+	if resultKind == "absence" && justification == "" {
+		return types.ToolResult{
+			ToolName: t.Name(),
+			Summary: "emit_investigation_complete rejected: result_kind=absence requires absence_justification. " +
+				"State in one short sentence what was searched and why the terminal answer is genuinely empty.",
+			Success:   false,
+			Timestamp: time.Now(),
+		}, nil
 	}
 
 	// CGEC E1: pre-complete contract simulation. Before flipping the
@@ -269,7 +294,8 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	}
 
 	ctx.Mutable.SetInvestigationComplete(reason)
-	summary := fmt.Sprintf("Investigation marked complete (confidence=%s): %s", conf, reason)
+	ctx.Mutable.SetInvestigationResultKind(resultKind)
+	summary := fmt.Sprintf("Investigation marked complete (confidence=%s, result_kind=%s): %s", conf, resultKind, reason)
 	if justification != "" {
 		ctx.Mutable.SetAbsenceJustification(justification)
 		summary += fmt.Sprintf(" | absence_justification: %s", justification)
@@ -1288,12 +1314,16 @@ func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justifica
 	if len(subjects) == 0 {
 		return false
 	}
+	contract := answerExactResolutionContract(ctx)
+	if contract == nil {
+		contract = types.BuildExactResolutionContract(rm)
+	}
 	text := reason + "\n" + justification
 	for _, subject := range subjects {
 		if !textMentionsConfigToken(text, subject) {
 			continue
 		}
-		if evidenceMentionsExactConfigToken(evidence, subject) {
+		if evidenceMentionsProductionExactConfigToken(contract, evidence, subject) {
 			continue
 		}
 		return true
@@ -1422,41 +1452,21 @@ func dedupeUnverifiedFindings(in []types.UnverifiedFinding) []types.UnverifiedFi
 }
 
 func configAbsenceSubjects(rm types.RequestModel) []string {
-	candidates := rm.AnalyzerHints.PrimaryEntities
-	if len(candidates) == 0 {
-		candidates = rm.AnalyzerHints.Entities
-	}
-	seen := make(map[string]bool)
-	var out []string
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || !looksLikeConfigToken(candidate) {
-			continue
+	if targets := types.ExactResolutionTargets(rm); len(targets) > 0 {
+		seen := make(map[string]bool, len(targets))
+		var out []string
+		for _, target := range targets {
+			target = strings.TrimSpace(target)
+			key := normalizeConfigToken(target)
+			if key == "" || seen[key] {
+				continue
+			}
+			seen[key] = true
+			out = append(out, target)
 		}
-		key := normalizeConfigToken(candidate)
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, candidate)
+		return out
 	}
-	return out
-}
-
-func looksLikeConfigToken(s string) bool {
-	s = strings.TrimSpace(s)
-	return len(s) >= 3 && (strings.ContainsAny(s, "_.-") || hasCamelBoundary(s))
-}
-
-func hasCamelBoundary(s string) bool {
-	prevLower := false
-	for _, r := range s {
-		if r >= 'A' && r <= 'Z' && prevLower {
-			return true
-		}
-		prevLower = r >= 'a' && r <= 'z'
-	}
-	return false
+	return nil
 }
 
 func evidenceMentionsExactConfigToken(items []types.EvidenceItem, subject string) bool {
@@ -1483,6 +1493,30 @@ func evidenceMentionsExactConfigToken(items []types.EvidenceItem, subject string
 func evidenceMentionsAnyExactConfigToken(items []types.EvidenceItem, subjects []string) bool {
 	for _, subject := range subjects {
 		if evidenceMentionsExactConfigToken(items, subject) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceMentionsProductionExactConfigToken(contract *types.ExactResolutionContract, items []types.EvidenceItem, subject string) bool {
+	for _, it := range items {
+		switch it.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		if !exactResolutionProofSourceIsProductionLike(contract, it.Source) {
+			continue
+		}
+		if textMentionsConfigToken(strings.Join([]string{
+			it.Subject,
+			it.Predicate,
+			it.Object,
+			it.AnchorSymbol,
+			it.Condition,
+			it.Snippet,
+		}, "\n"), subject) {
 			return true
 		}
 	}

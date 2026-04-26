@@ -80,6 +80,19 @@ func extractEvidenceRequirements(question string) []EvidenceRequirement {
 	return extractEvidenceRequirementsWithEntities(question, extractRankingEntitiesWithGraph(question, nil))
 }
 
+// extractEvidenceRequirementsWithModel is the analyzer-driven primary
+// path. Semantic requirement selection should come from the
+// analyzer's structured classification; the legacy keyword tables are
+// a fallback only when no usable structured signal exists.
+func extractEvidenceRequirementsWithModel(question string, entities []string, declaredKindRaw string, preds types.SemanticPredicates, rm *types.RequestModel) []EvidenceRequirement {
+	if rm != nil {
+		if reqs := extractEvidenceRequirementsFromStructuredSignals(entities, *rm); len(reqs) > 0 {
+			return reqs
+		}
+	}
+	return extractEvidenceRequirementsWithHint(question, entities, declaredKindRaw, preds)
+}
+
 // extractEvidenceRequirementsWithHint is the analyzer-aware entry
 // point used by the explorer. When the analyzer declared a concrete
 // question_kind via emit_analysis (analyzer.go contract), we trust
@@ -147,6 +160,155 @@ func extractEvidenceRequirementsWithHint(question string, entities []string, dec
 	}
 
 	return appendSecondaryKinds(reqs, entities, preds)
+}
+
+func extractEvidenceRequirementsFromStructuredSignals(entities []string, rm types.RequestModel) []EvidenceRequirement {
+	declaredKind := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind)
+	if declaredKind == types.ReqUnknown {
+		declaredKind = inferPrimaryRequirementKindFromSignals(rm)
+	}
+	if declaredKind == types.ReqUnknown {
+		return nil
+	}
+	reqs := requirementsForKind(declaredKind, entities, structuredRequirementReason(declaredKind, rm))
+	return appendSecondaryKinds(reqs, entities, rm.Predicates)
+}
+
+func inferPrimaryRequirementKindFromSignals(rm types.RequestModel) types.RequirementKind {
+	if rm.Predicates.IsHistoryLookup {
+		return types.ReqHistory
+	}
+	if rm.Scenario == types.ScenarioConfigTrace ||
+		rm.AnswerSubject.Kind == types.SubjectConfigKey ||
+		rm.PredicateAxis == types.AxisConfigure {
+		return types.ReqConfigMapping
+	}
+	switch rm.PredicateAxis {
+	case types.AxisRegister:
+		return types.ReqRegistration
+	case types.AxisCondition:
+		return types.ReqConditional
+	case types.AxisCall:
+		return types.ReqCallChain
+	case types.AxisReturn:
+		if !rm.Predicates.IsCountQuestion {
+			return types.ReqReturnValue
+		}
+	}
+	if isEnumerationRequestModel(rm) {
+		return types.ReqEnumeration
+	}
+	if rm.Intent == types.IntentReturnValue && !rm.Predicates.IsCountQuestion {
+		return types.ReqReturnValue
+	}
+	switch rm.Intent {
+	case types.IntentTrace:
+		return types.ReqCallChain
+	case types.IntentExplain, types.IntentRootCause:
+		if !rm.Predicates.IsScalarAnswer {
+			return types.ReqMechanism
+		}
+	}
+	return types.ReqUnknown
+}
+
+func structuredRequirementReason(kind types.RequirementKind, rm types.RequestModel) string {
+	parts := []string{}
+	if declared := types.NormalizeRequirementKind(rm.AnalyzerHints.Kind); declared == kind {
+		parts = append(parts, "analyzer declared question_kind="+string(kind))
+	}
+	if rm.PredicateAxis != types.AxisUnknown {
+		switch kind {
+		case types.ReqRegistration:
+			if rm.PredicateAxis == types.AxisRegister {
+				parts = append(parts, "predicate_axis=register")
+			}
+		case types.ReqConditional:
+			if rm.PredicateAxis == types.AxisCondition {
+				parts = append(parts, "predicate_axis=condition")
+			}
+		case types.ReqCallChain:
+			if rm.PredicateAxis == types.AxisCall {
+				parts = append(parts, "predicate_axis=call")
+			}
+		case types.ReqConfigMapping:
+			if rm.PredicateAxis == types.AxisConfigure {
+				parts = append(parts, "predicate_axis=configure")
+			}
+		case types.ReqReturnValue:
+			if rm.PredicateAxis == types.AxisReturn {
+				parts = append(parts, "predicate_axis=return")
+			}
+		}
+	}
+	switch kind {
+	case types.ReqHistory:
+		if rm.Predicates.IsHistoryLookup {
+			parts = append(parts, "predicates.is_history_lookup=true")
+		}
+	case types.ReqEnumeration:
+		if isEnumerationRequestModel(rm) {
+			parts = append(parts, "structured enumeration intent")
+		}
+	case types.ReqConfigMapping:
+		if rm.Scenario == types.ScenarioConfigTrace {
+			parts = append(parts, "scenario=config_trace")
+		}
+		if rm.AnswerSubject.Kind == types.SubjectConfigKey {
+			parts = append(parts, "answer_subject=config_key")
+		}
+	case types.ReqReturnValue:
+		if rm.Intent == types.IntentReturnValue {
+			parts = append(parts, "intent=return_value")
+		}
+	case types.ReqCallChain:
+		if rm.Intent == types.IntentTrace {
+			parts = append(parts, "intent=trace")
+		}
+	case types.ReqMechanism:
+		if rm.Intent == types.IntentExplain || rm.Intent == types.IntentRootCause {
+			parts = append(parts, "intent="+string(rm.Intent))
+		}
+	}
+	if len(parts) == 0 {
+		return "structured analyzer signals"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func requirementsForKind(kind types.RequirementKind, entities []string, reason string) []EvidenceRequirement {
+	var reqs []EvidenceRequirement
+	add := func(kind types.RequirementKind, reason string, ents ...string) {
+		reqs = append(reqs, EvidenceRequirement{
+			Kind:     kind,
+			Entities: append([]string(nil), ents...),
+			Reason:   reason,
+			Status:   "unsatisfied",
+		})
+	}
+	switch kind {
+	case types.ReqRegistration, types.ReqReturnValue, types.ReqHistory:
+		if len(entities) == 0 {
+			add(kind, reason)
+			return reqs
+		}
+		for _, ent := range entities {
+			add(kind, reason+" (per-entity)", ent)
+		}
+	default:
+		add(kind, reason, entities...)
+	}
+	return reqs
+}
+
+func isEnumerationRequestModel(rm types.RequestModel) bool {
+	if types.NormalizeRequirementKind(rm.AnalyzerHints.Kind) == types.ReqEnumeration {
+		return true
+	}
+	if rm.Intent == types.IntentEnumerate || rm.Predicates.IsCategoryEnumeration {
+		return true
+	}
+	return mapLegacyAnswerShape(rm.AnalyzerHints.Shape) == types.ShapeListOfSymbols
 }
 
 // appendSecondaryKinds consults inferSecondaryKinds for structural

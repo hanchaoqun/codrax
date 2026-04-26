@@ -28,6 +28,7 @@ func BuildExactResolutionContract(rm RequestModel) *ExactResolutionContract {
 		RequireTargetMention: true,
 		AliasRequiresProof:   true,
 		RelatedContextPolicy: policy,
+		RelatedContextTerms:  exactResolutionValidatedContextTerms(targets, rm.AnalyzerHints.ExactContextTerms, rm.AnalyzerHints.Keywords),
 	}
 	if hint := exactResolutionScopeHintForPolicy(policy); hint != "" {
 		contract.RelatedContextScopeHint = hint
@@ -44,49 +45,35 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	if !exactResolutionEnabled(rm) {
 		return nil
 	}
-	candidates := rm.AnalyzerHints.MentionedEntities
-	if len(candidates) == 0 {
-		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
+	if targets := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets); len(targets) > 0 {
+		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), targets)
 	}
-	if len(candidates) == 0 {
-		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
+	candidates := exactResolutionMentionedCandidates(rm)
+	switch len(candidates) {
+	case 0:
+		// Provenance-only contract: exact targets must come from the
+		// RawRequest-aligned mention lane (either analyzer-proposed
+		// exact_targets or deterministic recovery of MentionedEntities).
+		// Do NOT promote primary / derived context entities into exact
+		// targets when the current request text never named them.
+		return nil
+	case 1:
+		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), candidates)
+	default:
+		// Multiple raw-request-mentioned entities is ambiguous unless the
+		// analyzer explicitly disambiguated via exact_targets.
+		return nil
 	}
-	if len(candidates) == 0 {
-		candidates = rm.AnalyzerHints.PrimaryEntities
-		if len(candidates) == 0 {
-			candidates = rm.AnalyzerHints.Entities
-		}
-		if len(candidates) == 0 {
-			return nil
-		}
+}
+
+func exactResolutionMentionedCandidates(rm RequestModel) []string {
+	if len(rm.AnalyzerHints.MentionedEntities) > 0 {
+		return append([]string(nil), rm.AnalyzerHints.MentionedEntities...)
 	}
-	kind := exactResolutionFindingKindForRM(rm)
-	label := exactResolutionSubjectLabel(rm)
-	seen := make(map[string]bool)
-	var out []string
-	for _, candidate := range candidates {
-		candidate = strings.TrimSpace(strings.Trim(candidate, "`\"' "))
-		if candidate == "" {
-			continue
-		}
-		switch label {
-		case "config key":
-			if !looksLikeExactConfigToken(candidate) {
-				continue
-			}
-		case "file path":
-			if !looksLikeExactPathToken(candidate) {
-				continue
-			}
-		}
-		key := normalizeExactResolutionToken(kind, candidate)
-		if key == "" || seen[key] {
-			continue
-		}
-		seen[key] = true
-		out = append(out, candidate)
+	if recovered := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities); len(recovered) > 0 {
+		return recovered
 	}
-	return out
+	return MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
 }
 
 func MentionedEntitiesFromRawRequest(raw string, candidates []string) []string {
@@ -156,6 +143,24 @@ func DerivedEntitiesFromMentioned(all, mentioned []string) []string {
 	return out
 }
 
+func dedupeExactResolutionTargets(kind string, candidates []string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(strings.Trim(candidate, "`\"' "))
+		if candidate == "" {
+			continue
+		}
+		key := normalizeExactResolutionToken(kind, candidate)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
 // ExactResolutionPendingTargets returns the subset of contract targets
 // whose primary token remains unresolved in prior stage reports.
 func ExactResolutionPendingTargets(c *ExactResolutionContract, finds []UnverifiedFinding) []string {
@@ -198,65 +203,15 @@ func ExactResolutionTextMentionsTarget(c *ExactResolutionContract, text, target 
 	return strings.Contains(normalizeExactResolutionToken(kind, text), normTarget)
 }
 
-// ExactResolutionTerms returns a deduplicated, sorted token bag built
-// from the contract's targets. Used to surface grounded same-family
-// context without hardcoding repo-specific names.
-func ExactResolutionTerms(c *ExactResolutionContract) []string {
-	if c == nil {
+// ExactResolutionContextTerms returns the validated same-scope term
+// shortlist that the analyzer proposed for nearby-context narrowing.
+// These terms are LLM-recommended, then system-validated against the
+// request-mentioned exact-target lane before the contract is built.
+func ExactResolutionContextTerms(c *ExactResolutionContract) []string {
+	if c == nil || len(c.RelatedContextTerms) == 0 {
 		return nil
 	}
-	seen := make(map[string]bool)
-	var out []string
-	for _, target := range c.Targets {
-		for _, term := range splitExactResolutionTerms(target) {
-			if len(term) < 3 || seen[term] {
-				continue
-			}
-			seen[term] = true
-			out = append(out, term)
-		}
-	}
-	sort.Strings(out)
-	return out
-}
-
-// ExactResolutionScopeTerms returns a small token bag that represents
-// the contract's preferred local scope when nearby context is allowed.
-func ExactResolutionScopeTerms(c *ExactResolutionContract) []string {
-	if c == nil || len(c.Targets) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool)
-	var out []string
-	add := func(term string) {
-		term = strings.TrimSpace(strings.ToLower(term))
-		if len(term) < 3 || seen[term] {
-			return
-		}
-		seen[term] = true
-		out = append(out, term)
-	}
-	switch c.RelatedContextPolicy {
-	case ExactContextSameFamilyGrounded:
-		for _, target := range c.Targets {
-			for _, term := range splitExactResolutionTerms(target) {
-				add(term)
-				break
-			}
-		}
-	case ExactContextSameDirectoryGrounded:
-		for _, target := range c.Targets {
-			dir := filepath.Dir(strings.ReplaceAll(strings.TrimSpace(target), `\`, `/`))
-			if dir == "." || dir == "/" || dir == "" {
-				continue
-			}
-			for _, seg := range strings.Split(dir, "/") {
-				add(seg)
-			}
-		}
-	}
-	sort.Strings(out)
-	return out
+	return append([]string(nil), c.RelatedContextTerms...)
 }
 
 func exactResolutionSubjectLabel(rm RequestModel) string {
@@ -341,12 +296,44 @@ func exactResolutionFindingKindMatches(expected, got string) bool {
 	return got == expected
 }
 
-func looksLikeExactConfigToken(s string) bool {
-	s = strings.TrimSpace(s)
-	if looksLikeFileLikeToken(s) {
-		return false
+func exactResolutionValidatedContextTerms(targets, explicit, keywords []string) []string {
+	if len(targets) == 0 {
+		return nil
 	}
-	return len(s) >= 3 && (strings.ContainsAny(s, "_.-") || hasExactLookupCamelBoundary(s))
+	allowed := make(map[string]bool)
+	for _, target := range targets {
+		for _, term := range ExactResolutionIdentifierTerms(target) {
+			if len(term) >= 3 {
+				allowed[term] = true
+			}
+		}
+	}
+	if len(allowed) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, item := range explicit {
+		term := strings.TrimSpace(strings.ToLower(item))
+		if len(term) < 3 || !allowed[term] || seen[term] {
+			continue
+		}
+		seen[term] = true
+		out = append(out, term)
+	}
+	if len(out) == 0 {
+		for _, keyword := range keywords {
+			for _, term := range ExactResolutionIdentifierTerms(keyword) {
+				if len(term) < 3 || !allowed[term] || seen[term] {
+					continue
+				}
+				seen[term] = true
+				out = append(out, term)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 func looksLikeExactPathToken(s string) bool {
@@ -355,33 +342,6 @@ func looksLikeExactPathToken(s string) bool {
 		return false
 	}
 	return strings.Contains(s, "/") || (filepath.Ext(s) != "" && !strings.Contains(s, " "))
-}
-
-func looksLikeFileLikeToken(s string) bool {
-	s = strings.TrimSpace(strings.ReplaceAll(s, `\`, `/`))
-	if s == "" || strings.Contains(s, "/") {
-		return true
-	}
-	ext := strings.ToLower(filepath.Ext(s))
-	switch ext {
-	case ".yaml", ".yml", ".json", ".toml", ".ini", ".conf", ".cfg",
-		".xml", ".properties", ".env", ".txt", ".md", ".go", ".py",
-		".js", ".ts", ".java", ".kt", ".rs", ".rb", ".swift", ".lua",
-		".proto", ".c", ".cc", ".cpp", ".h", ".hpp":
-		return true
-	}
-	return false
-}
-
-func hasExactLookupCamelBoundary(s string) bool {
-	prevLower := false
-	for _, r := range s {
-		if r >= 'A' && r <= 'Z' && prevLower {
-			return true
-		}
-		prevLower = r >= 'a' && r <= 'z'
-	}
-	return false
 }
 
 func normalizeExactResolutionToken(kind, s string) string {
@@ -403,7 +363,12 @@ func normalizeExactResolutionToken(kind, s string) string {
 	}
 }
 
-func splitExactResolutionTerms(s string) []string {
+// ExactResolutionIdentifierTerms splits an identifier/path-like surface
+// into normalized lowercase alphanumeric terms for validator use. It
+// is intentionally lexical only: downstream consumers may validate an
+// LLM-suggested context term against this set, but they must not treat
+// the returned terms themselves as a semantic recommendation.
+func ExactResolutionIdentifierTerms(s string) []string {
 	s = strings.TrimSpace(strings.ReplaceAll(s, `\`, `/`))
 	if s == "" {
 		return nil

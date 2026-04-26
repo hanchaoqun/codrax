@@ -262,7 +262,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// assignment point so every downstream consumer of the flag
 	// (mid-loop enumeration hint, soft-stop coverage gate, stage
 	// report tag, synthesis prompt) sees the clean signal.
-	e.isEnumerationQuery = detectEnumerationIntent(types.StripConversationPrefix(ctx.Objective))
+	e.isEnumerationQuery = enumerationIntentForContext(ctx)
 	e.structuredEvidence = nil
 	e.flowFindings = nil
 	e.cachedConcreteValues = nil
@@ -442,11 +442,11 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			sr = e.searchResult
 		} else {
 			sr = keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
-				Entities:         analyzerEntities,
+				Entities:          analyzerEntities,
 				MentionedEntities: irMentionedEntities(ctx),
-				PrimaryEntities:  irPrimaryEntities(ctx),
-				DomainHints:      domainHints,
-				MaxFiles:         maxFiles,
+				PrimaryEntities:   irPrimaryEntities(ctx),
+				DomainHints:       domainHints,
+				MaxFiles:          maxFiles,
 			})
 			e.searchResult = sr
 			e.searchFingerprint = fp
@@ -704,11 +704,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// "unknown"; the hint-aware path handles both by falling
 			// back to pure keyword inference).
 			var ermPreds types.SemanticPredicates
+			var ermRM *types.RequestModel
 			if ctx != nil && ctx.AnalysisIR != nil {
 				ermPreds = ctx.AnalysisIR.RequestModel.Predicates
+				ermRM = &ctx.AnalysisIR.RequestModel
 			}
-			e.ermRequirements = extractEvidenceRequirementsWithHint(
-				ermKeywordSource, ermEntities, analyzerKind, ermPreds,
+			e.ermRequirements = extractEvidenceRequirementsWithModel(
+				ermKeywordSource, ermEntities, analyzerKind, ermPreds, ermRM,
 			)
 			// Auto-satisfy requirements whose entities don't match any
 			// symbol in the codebase — prevents generic English words from
@@ -771,6 +773,9 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			// siblings even though f99a727's evidence filter drops their
 			// items. Tracked in the df3 eval at 190611 (2/3 runs drifted).
 			if banner := e.buildPrimaryTargetBanner(); banner != "" {
+				b.WriteString(banner)
+			}
+			if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 				b.WriteString(banner)
 			}
 			if e.shouldStartFocusedDepth(analyzerKind) {
@@ -2412,6 +2417,165 @@ func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
 	return b.String()
 }
 
+type exactResolutionSymbolCandidate struct {
+	File   string
+	Symbol string
+	Score  int
+}
+
+func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentContext, analyzerKeywords []string) string {
+	if ctx == nil || ctx.AnalysisIR == nil || e.searchResult == nil || e.searchResult.Graph == nil {
+		return ""
+	}
+	contract := ctx.AnalysisIR.AnswerContract.ExactResolution
+	if contract == nil || contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
+		return ""
+	}
+	if len(types.ExactResolutionPendingTargets(contract, ctx.UnverifiedAnalyzerFindings)) == 0 {
+		return ""
+	}
+	cands := e.collectExactResolutionSymbolCandidates(contract, analyzerKeywords)
+	if len(cands) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("### Same-Family Repo Symbols\n\n")
+	b.WriteString("If the exact target stays absent, read these same-family symbols before jumping to a different config family. They were ranked from repo_map using the analyzer's current keywords plus the exact-target family terms:\n")
+	for _, cand := range cands {
+		fmt.Fprintf(&b, "- `%s` in `%s`\n", cand.Symbol, cand.File)
+	}
+	b.WriteString("\nTreat any result here as related context unless you find explicit alias / parser-mapping proof for the exact target.\n\n")
+	return b.String()
+}
+
+func (e *explorerEvaluator) collectExactResolutionSymbolCandidates(contract *types.ExactResolutionContract, analyzerKeywords []string) []exactResolutionSymbolCandidate {
+	if contract == nil || e.searchResult == nil || e.searchResult.Graph == nil {
+		return nil
+	}
+	termSet := make(map[string]bool)
+	for _, term := range types.ExactResolutionContextTerms(contract) {
+		term = strings.TrimSpace(strings.ToLower(term))
+		if len(term) >= 3 {
+			termSet[term] = true
+		}
+	}
+	for _, kw := range analyzerKeywords {
+		for _, token := range strings.FieldsFunc(strings.ToLower(kw), func(r rune) bool {
+			return (r < 'a' || r > 'z') && (r < '0' || r > '9')
+		}) {
+			if len(token) >= 3 {
+				termSet[token] = true
+			}
+		}
+	}
+	if len(termSet) == 0 {
+		return nil
+	}
+	terms := make([]string, 0, len(termSet))
+	for term := range termSet {
+		terms = append(terms, term)
+	}
+	sort.Strings(terms)
+
+	var cands []exactResolutionSymbolCandidate
+	seen := make(map[string]bool)
+	candidateFiles := exactResolutionCandidateFiles(e.searchResult.Graph)
+	if len(candidateFiles) == 0 {
+		candidateFiles = append(candidateFiles, e.preScannedFiles...)
+	}
+	for _, file := range candidateFiles {
+		fileLower := strings.ToLower(file)
+		if isExactResolutionNoiseFile(fileLower) {
+			continue
+		}
+		symbols := e.symbolSummariesForFile(file)
+		for _, sym := range symbols {
+			symLower := strings.ToLower(sym)
+			score := 0
+			for _, term := range terms {
+				if strings.Contains(symLower, term) {
+					score += 4
+				}
+				if strings.Contains(fileLower, term) {
+					score += 2
+				}
+			}
+			if score < 6 {
+				continue
+			}
+			key := file + "\x00" + sym
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			cands = append(cands, exactResolutionSymbolCandidate{
+				File:   file,
+				Symbol: sym,
+				Score:  score,
+			})
+		}
+	}
+	if len(cands) == 0 {
+		return nil
+	}
+	sort.SliceStable(cands, func(i, j int) bool {
+		if cands[i].Score != cands[j].Score {
+			return cands[i].Score > cands[j].Score
+		}
+		if cands[i].File != cands[j].File {
+			return cands[i].File < cands[j].File
+		}
+		return cands[i].Symbol < cands[j].Symbol
+	})
+	if len(cands) > 4 {
+		cands = cands[:4]
+	}
+	return cands
+}
+
+func exactResolutionCandidateFiles(graph *repomap.Graph) []string {
+	if graph == nil || len(graph.FileIndex) == 0 {
+		return nil
+	}
+	files := make([]string, 0, len(graph.FileIndex))
+	for path := range graph.FileIndex {
+		files = append(files, path)
+	}
+	sort.Strings(files)
+	return files
+}
+
+func isExactResolutionNoiseFile(lowerPath string) bool {
+	return types.LooksLikeTestFilePath(lowerPath) ||
+		strings.Contains(lowerPath, "/testdata/") ||
+		strings.Contains(lowerPath, "\\testdata\\") ||
+		strings.Contains(lowerPath, "/fixtures/") ||
+		strings.Contains(lowerPath, "\\fixtures\\") ||
+		strings.Contains(lowerPath, "/examples/") ||
+		strings.Contains(lowerPath, "\\examples\\")
+}
+
+func (e *explorerEvaluator) symbolSummariesForFile(path string) []string {
+	if syms := e.fileSymbols[path]; len(syms) > 0 {
+		return syms
+	}
+	if e.searchResult == nil || e.searchResult.Graph == nil {
+		return nil
+	}
+	fi, ok := e.searchResult.Graph.FileIndex[path]
+	if !ok || fi == nil || len(fi.Symbols) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(fi.Symbols))
+	for _, sym := range fi.Symbols {
+		name := strings.TrimSpace(sym.Name)
+		if name != "" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 // filterEvidenceByPrimaryFiles keeps evidence items whose Source is
 // in the primary-file set (empty Source is kept too — items without
 // a location cannot be filtered safely and usually carry general
@@ -2998,7 +3162,7 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 			"MID-LOOP CHECK: you have read %d file(s) this round but have not called `emit_evidence` yet. "+
 				"Facts left only in your prose notes are NOT recorded — downstream stages cannot see any concrete value, definition, call-site, or condition that is not passed through `emit_evidence(items=[...])`. "+
 				"Pick the strongest anchors you have identified in the files you just read and emit them in ONE batch now. Line numbers MUST come verbatim from the `read_file` gutter (copy the leading `N| ` prefix). "+
-				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence)`.",
+				"After the batch succeeds, continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`.",
 			reads),
 		Progress:       true,
 		BypassThrottle: true,
@@ -3059,8 +3223,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 	if reads < 2 || emits == 0 {
 		return LoopSignal{}
 	}
-	text := strings.ToLower(strings.Join(append(append([]string(nil), e.investigationNotes...), obs.Response.Content), "\n"))
-	if !looksLikeExactAbsenceConclusion(e.exactResolution, targets, text) {
+	if !exactAbsenceClosureReady(e.exactResolution, targets, e.structuredEvidence) {
 		return LoopSignal{}
 	}
 	e.midLoopExactAbsenceSent = true
@@ -3073,7 +3236,7 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 		HintKey:       "explorer.mid-loop.exact-absence-close",
 		Hint: fmt.Sprintf(
 			"MID-LOOP CHECK: the requested exact %s already appears resolved as absent / not found, and you already have grounded same-scope context. "+
-				"Do NOT keep expanding nearby knobs / symbols as substitutes. If you do not have explicit alias / parser-mapping proof that names the exact target, close now with `emit_investigation_complete(reason, confidence, absence_justification=...)`. "+
+				"Do NOT keep expanding nearby knobs / symbols as substitutes. If you do not have explicit alias / parser-mapping proof that names the exact target, close now with `emit_investigation_complete(reason, confidence, result_kind=\"absence\", absence_justification=...)`. "+
 				"Any remaining nearby items must stay labeled as related context only, not equivalents.",
 			label),
 		Progress:       true,
@@ -3093,25 +3256,65 @@ func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool
 	return false
 }
 
-func looksLikeExactAbsenceConclusion(contract *types.ExactResolutionContract, targets []string, text string) bool {
-	if contract == nil || strings.TrimSpace(text) == "" || len(targets) == 0 {
+func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets []string, evidence []types.EvidenceItem) bool {
+	if contract == nil || len(targets) == 0 || len(evidence) == 0 {
 		return false
 	}
-	hasTarget := false
+	scopeTerms := types.ExactResolutionContextTerms(contract)
+	hasScopedContext := len(scopeTerms) == 0
 	for _, target := range targets {
-		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
-			hasTarget = true
+		if evidenceMentionsExactResolutionTarget(contract, evidence, target) {
+			return false
+		}
+	}
+	for _, item := range evidence {
+		switch item.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		if evidenceItemMentionsAnyTerm(item, scopeTerms) {
+			hasScopedContext = true
 			break
 		}
 	}
-	if !hasTarget {
+	return hasScopedContext
+}
+
+func evidenceMentionsExactResolutionTarget(contract *types.ExactResolutionContract, items []types.EvidenceItem, target string) bool {
+	for _, item := range items {
+		text := strings.Join([]string{
+			item.Subject,
+			item.Predicate,
+			item.Object,
+			item.AnchorSymbol,
+			item.Condition,
+			item.Snippet,
+			item.Summary,
+		}, "\n")
+		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceItemMentionsAnyTerm(item types.EvidenceItem, terms []string) bool {
+	if len(terms) == 0 {
 		return false
 	}
-	for _, cue := range []string{
-		" absent", " not found", " no exact ", " does not exist", " no such ",
-		" missing", " not present", "不存在", "未找到", "没有", "缺失", "无此",
-	} {
-		if strings.Contains(text, cue) {
+	text := strings.ToLower(strings.Join([]string{
+		item.Subject,
+		item.Predicate,
+		item.Object,
+		item.AnchorSymbol,
+		item.Condition,
+		item.Snippet,
+		item.Summary,
+	}, "\n"))
+	for _, term := range terms {
+		term = strings.ToLower(strings.TrimSpace(term))
+		if term != "" && strings.Contains(text, term) {
 			return true
 		}
 	}
@@ -3704,7 +3907,7 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 				"MID-LOOP CHECK: your emit_evidence batch has been rejected multiple times for including kind=absent items. " +
 					"This kind was deprecated from the emit_evidence channel because the tool's validator requires line_start > 0 + anchor_kind + anchor_symbol for every item — a 'searched and found nothing' claim cannot satisfy these. " +
 					"ACTION: re-emit the batch with kind=absent items REMOVED. " +
-					"If the overall answer is 'zero / no X' (whole-answer absence), declare it on emit_investigation_complete by setting `absence_justification` to a one-sentence explanation of what was searched and not found — that field waives the citation floor by contract. " +
+					"If the overall answer is 'zero / no X' (whole-answer absence), declare it on emit_investigation_complete with `result_kind=\"absence\"` and `absence_justification` describing what was searched and not found — that field waives the citation floor by contract. " +
 					"If the absence is per-fact inside a larger investigation, just omit the item from emit_evidence and describe the absence in your <think> notes (the finalizer's summary can pick it up from there). " +
 					"Do not retry kind=absent — the channel will keep rejecting.\n")
 			e.midLoopAbsentRedirectSent = true
@@ -4018,8 +4221,8 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			Hint: "You wrote evidence-like `[DIRECT]` / `[REGISTRATION]` / `[CONDITIONAL]` lines in text, " +
 				"but those facts are NOT recorded until you call `emit_evidence(items=[...])`. " +
 				"Re-emit those facts now with `source`, exact `line_start`, `anchor_kind`, and `anchor_symbol`. " +
-				"After `emit_evidence` succeeds, either continue investigating or call `emit_investigation_complete(reason, confidence)`. " +
-				"Do NOT use `absence_justification` unless the answer is genuinely zero / no-such-symbol / not found.",
+				"After `emit_evidence` succeeds, either continue investigating or call `emit_investigation_complete(reason, confidence, result_kind)`. " +
+				"Do NOT use `result_kind=\"absence\"` / `absence_justification` unless the answer is genuinely zero / no-such-symbol / not found.",
 			Progress: true,
 		}
 	}
@@ -4456,7 +4659,7 @@ func (e *explorerEvaluator) observeSoftStop(obs LoopObservation) LoopSignal {
 			HintKey:       "explorer.completion-tool-reminder",
 			Hint: "You stopped without calling emit_investigation_complete. " +
 				"Continue the investigation yourself — do not ask the user what to do next. " +
-				"If you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence) now. " +
+				"If you have collected enough evidence to answer the user's question, call emit_investigation_complete(reason, confidence, result_kind) now. " +
 				"If you still need more evidence, keep reading files / running greps, and avoid `Answer:` / `Evidence:` style headings in your notes.",
 			Progress: progress,
 		}
@@ -9579,6 +9782,31 @@ func detectDetailListingIntent(question string) bool {
 	}
 	// Enumeration queries are always detail-listing queries.
 	return detectEnumerationIntent(question)
+}
+
+func enumerationIntentForContext(ctx *types.AgentContext) bool {
+	if rm := requestModelFromContext(ctx); rm != nil {
+		if isEnumerationRequestModel(*rm) {
+			return true
+		}
+	}
+	if ctx == nil {
+		return false
+	}
+	return detectEnumerationIntent(types.StripConversationPrefix(ctx.Objective))
+}
+
+func requestModelFromContext(ctx *types.AgentContext) *types.RequestModel {
+	if ctx == nil {
+		return nil
+	}
+	if ctx.AnalysisIR != nil {
+		return &ctx.AnalysisIR.RequestModel
+	}
+	if ctx.Mutable != nil {
+		return ctx.Mutable.RequestModel()
+	}
+	return nil
 }
 
 // detectEnumerationIntent checks if a question asks to list or enumerate

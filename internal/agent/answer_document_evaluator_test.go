@@ -205,6 +205,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionContract(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	mu.SetInvestigationResultKind("absence")
 	ctx := &types.AgentContext{
 		Mutable: mu,
 		AnalysisIR: &types.AnalysisIR{

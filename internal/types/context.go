@@ -194,7 +194,8 @@ type MutableState struct {
 	// finalizer chose an explanation shape instead of a literal 0 /
 	// false / [] shape. Declarative, not command: the audit
 	// (hasInvestigationEvidence ≥1 investigation tool) still runs.
-	absenceJustification string
+	absenceJustification    string
+	investigationResultKind string
 
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
@@ -309,12 +310,12 @@ type MutableState struct {
 // surface confidence distribution + rule firing rate without each
 // reconcile site reaching into observability state directly.
 type ReconcileObservation struct {
-	Field      string             `json:"field"`           // intent / complexity / shape / subject / axis
-	Before     string             `json:"before"`          // LLM-emitted value (canonical form)
-	After      string             `json:"after"`           // post-reconcile value
-	Confidence float64            `json:"confidence"`      // LLM-emitted confidence on this dimension
-	RuleFired  string             `json:"rule_fired"`      // human-readable rule name (or "none" when no override)
-	Predicates SemanticPredicates `json:"predicates"`      // snapshot of LLM predicates at decision time
+	Field      string             `json:"field"`      // intent / complexity / shape / subject / axis
+	Before     string             `json:"before"`     // LLM-emitted value (canonical form)
+	After      string             `json:"after"`      // post-reconcile value
+	Confidence float64            `json:"confidence"` // LLM-emitted confidence on this dimension
+	RuleFired  string             `json:"rule_fired"` // human-readable rule name (or "none" when no override)
+	Predicates SemanticPredicates `json:"predicates"` // snapshot of LLM predicates at decision time
 }
 
 // TurnAArtifacts is the P2.1 handoff payload from Turn A (explorer)
@@ -1576,6 +1577,7 @@ func (m *MutableState) ResetInvestigationComplete() {
 	m.investigationComplete = false
 	m.investigationCompleteReason = ""
 	m.absenceJustification = ""
+	m.investigationResultKind = ""
 }
 
 // SetAbsenceJustification stores the LLM's declarative claim that
@@ -1599,6 +1601,28 @@ func (m *MutableState) AbsenceJustification() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.absenceJustification
+}
+
+// SetInvestigationResultKind stores the structured terminal
+// disposition emitted by emit_investigation_complete.
+func (m *MutableState) SetInvestigationResultKind(kind string) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.investigationResultKind = strings.TrimSpace(kind)
+}
+
+// InvestigationResultKind returns the structured completion
+// disposition for the current investigation window.
+func (m *MutableState) InvestigationResultKind() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.investigationResultKind
 }
 
 // SetExploreBudget installs a fresh ExploreBudget for the current

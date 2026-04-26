@@ -8,6 +8,7 @@ import (
 
 	"github.com/hanchaoqun/codrax/internal/tool"
 	"github.com/hanchaoqun/codrax/internal/tool/repomap/types"
+	coretypes "github.com/hanchaoqun/codrax/internal/types"
 )
 
 // Ranking weights.
@@ -273,7 +274,19 @@ func detectEntrypoints(g *types.Graph) map[string]bool {
 			ep[fi.RelPath] = true
 		case fi.Language == types.LangRust && base == "main.rs":
 			ep[fi.RelPath] = true
-		case fi.Language == types.LangJava && hasMainMethod(fi):
+		case fi.Language == types.LangJava && hasMainLikeSymbol(fi):
+			ep[fi.RelPath] = true
+		case fi.Language == types.LangKotlin &&
+			(strings.EqualFold(base, "main.kt") || strings.EqualFold(base, "main.kts") || hasMainLikeSymbol(fi)):
+			ep[fi.RelPath] = true
+		case fi.Language == types.LangSwift &&
+			(strings.EqualFold(base, "main.swift") || hasMainLikeSymbol(fi)):
+			ep[fi.RelPath] = true
+		case fi.Language == types.LangRuby &&
+			(base == "main.rb" || strings.HasPrefix(filepath.ToSlash(fi.RelPath), "bin/") || strings.HasPrefix(filepath.ToSlash(fi.RelPath), "exe/")):
+			ep[fi.RelPath] = true
+		case fi.Language == types.LangLua &&
+			(strings.EqualFold(base, "main.lua") || strings.EqualFold(base, "init.lua")):
 			ep[fi.RelPath] = true
 		case base == "index.js" || base == "index.ts" || base == "index.tsx":
 			ep[fi.RelPath] = true
@@ -300,9 +313,13 @@ func detectEntrypoints(g *types.Graph) map[string]bool {
 	return ep
 }
 
-func hasMainMethod(fi *types.FileInfo) bool {
+func hasMainLikeSymbol(fi *types.FileInfo) bool {
 	for _, sym := range fi.Symbols {
-		if sym.Name == "main" && sym.Kind == "method" {
+		if sym.Name != "main" {
+			continue
+		}
+		switch strings.ToLower(sym.Kind) {
+		case "function", "method":
 			return true
 		}
 	}
@@ -375,35 +392,7 @@ func queryMatchScore(fi *types.FileInfo, query string) float64 {
 // qualify, so files that happen to contain "test" as a substring
 // are unaffected.
 func isTestFile(relPath string) bool {
-	lower := strings.ToLower(relPath)
-	base := lower
-	if slash := strings.LastIndex(base, "/"); slash != -1 {
-		base = base[slash+1:]
-	}
-	// Go
-	if strings.HasSuffix(base, "_test.go") {
-		return true
-	}
-	// Python
-	if strings.HasSuffix(base, "_test.py") || strings.HasPrefix(base, "test_") && strings.HasSuffix(base, ".py") {
-		return true
-	}
-	// Rust: crates put unit tests inline and integration tests under tests/
-	if strings.HasSuffix(base, ".rs") &&
-		(strings.Contains(lower, "/tests/") || strings.HasPrefix(lower, "tests/")) {
-		return true
-	}
-	// Java: FooTest.java, FooTests.java
-	if strings.HasSuffix(base, "test.java") || strings.HasSuffix(base, "tests.java") {
-		return true
-	}
-	// JS/TS: *.test.* and *.spec.*
-	for _, ext := range []string{".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"} {
-		if strings.HasSuffix(base, ".test"+ext) || strings.HasSuffix(base, ".spec"+ext) {
-			return true
-		}
-	}
-	return false
+	return coretypes.LooksLikeTestFilePath(relPath)
 }
 
 func itoa(n int) string {

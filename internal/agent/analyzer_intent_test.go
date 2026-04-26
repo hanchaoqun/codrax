@@ -363,18 +363,21 @@ func TestIsHistoryLookupRequest(t *testing.T) {
 		}
 	})
 
-	t.Run("vcs noun plus authorship intent fallback", func(t *testing.T) {
+	t.Run("predicate-driven history lookup", func(t *testing.T) {
 		rm := types.RequestModel{
 			RawRequest: "Who introduced EvidenceClosure in git history?",
 			Intent:     types.IntentReturnValue,
 			AnalyzerHints: types.AnalyzerHints{
-				Keywords: []string{"git", "history", "introduced", "EvidenceClosure"},
+				Keywords: []string{"EvidenceClosure"},
 				Shape:    string(types.ShapeValue),
 			},
-			Predicates: types.SemanticPredicates{IsScalarAnswer: true},
+			Predicates: types.SemanticPredicates{
+				IsScalarAnswer:  true,
+				IsHistoryLookup: true,
+			},
 		}
 		if !isHistoryLookupRequest(rm) {
-			t.Fatal("history fallback should trigger on VCS noun + authorship intent")
+			t.Fatal("history predicate should trigger on scalar history lookup")
 		}
 	})
 

@@ -655,7 +655,7 @@ func declarativeLiteralFallbackRelevant(ctx *types.AgentContext) bool {
 			axis = rm.PredicateAxis
 		}
 	}
-	isEnumeration := isListOfSymbolsShape(ctx) || detectEnumerationIntent(types.StripConversationPrefix(ctx.Objective))
+	isEnumeration := isListOfSymbolsShape(ctx) || enumerationIntentForContext(ctx)
 	if !declarativeFocusRelevant(irQuestionKind(ctx), isEnumeration, axis) {
 		return false
 	}

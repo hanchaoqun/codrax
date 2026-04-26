@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,7 +29,8 @@ const v4DefaultsJSON = `,
 		"is_count_question": false,
 		"is_cross_component": false,
 		"is_relational_lookup": false,
-		"is_category_enumeration": false
+		"is_category_enumeration": false,
+		"is_history_lookup": false
 	}
 `
 
@@ -1044,7 +1046,8 @@ func TestEmitAnalysis_Execute_RejectsMissingPredicateField(t *testing.T) {
 			"is_scalar_answer": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
-			"is_category_enumeration": false
+			"is_category_enumeration": false,
+			"is_history_lookup": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1131,7 +1134,8 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountIntent(t *testing.T) {
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
-			"is_category_enumeration": false
+			"is_category_enumeration": false,
+			"is_history_lookup": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1166,7 +1170,8 @@ func TestEmitAnalysis_Execute_RejectsInconsistentCountShape(t *testing.T) {
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
-			"is_category_enumeration": false
+			"is_category_enumeration": false,
+			"is_history_lookup": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1200,7 +1205,8 @@ func TestEmitAnalysis_Execute_RejectsCountWithoutScalar(t *testing.T) {
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
-			"is_category_enumeration": false
+			"is_category_enumeration": false,
+			"is_history_lookup": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1233,7 +1239,8 @@ func TestEmitAnalysis_Execute_RejectsCategoryEnumerationWithScalar(t *testing.T)
 			"is_count_question": false,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
-			"is_category_enumeration": true
+			"is_category_enumeration": true,
+			"is_history_lookup": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1269,7 +1276,8 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 			"is_count_question": true,
 			"is_cross_component": false,
 			"is_relational_lookup": false,
-			"is_category_enumeration": false
+			"is_category_enumeration": false,
+			"is_history_lookup": false
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
@@ -1291,5 +1299,169 @@ func TestEmitAnalysis_Execute_PersistsV4FieldsOntoRequestModel(t *testing.T) {
 	}
 	if rm.PredicateAxis != types.AxisRegister {
 		t.Errorf("PredicateAxis = %q, want register", rm.PredicateAxis)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("where is explore_mid_loop_hint_budget defined")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "simple",
+		"keywords": ["explore", "hint", "budget"],
+		"entities": ["explore_mid_loop_hint_budget", "codrax.yaml"],
+		"question_kind": "config_mapping",
+		"answer_shape": "value",
+		"exact_targets": ["codrax.yaml"],
+		"intent_confidence": 0.8,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"shape_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("invalid exact_targets must reject")
+	}
+	if !strings.Contains(res.Summary, "exact_targets") {
+		t.Fatalf("reject summary should mention exact_targets, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_RejectsInvalidExactContextTerms(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("where is explore_mid_loop_hint_budget defined")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "simple",
+		"keywords": ["explore", "hint", "budget"],
+		"entities": ["explore_mid_loop_hint_budget"],
+		"question_kind": "config_mapping",
+		"answer_shape": "value",
+		"exact_targets": ["explore_mid_loop_hint_budget"],
+		"exact_context_terms": ["runtime"],
+		"intent_confidence": 0.8,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"shape_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if res.Success {
+		t.Fatal("invalid exact_context_terms must reject")
+	}
+	if !strings.Contains(res.Summary, "exact_context_terms") {
+		t.Fatalf("reject summary should mention exact_context_terms, got %q", res.Summary)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsExactTargetsAndHistoryPredicate(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("Who introduced EvidenceClosure in git history?")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "return_value",
+		"scenario": "generic",
+		"complexity": "simple",
+		"keywords": ["EvidenceClosure", "history", "commit"],
+		"entities": ["EvidenceClosure"],
+		"question_kind": "history",
+		"answer_shape": "value",
+		"exact_targets": ["EvidenceClosure"],
+		"intent_confidence": 0.91,
+		"complexity_confidence": 0.80,
+		"kind_confidence": 0.93,
+		"shape_confidence": 0.88,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": true
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if !rm.Predicates.IsHistoryLookup {
+		t.Fatalf("IsHistoryLookup = false, want true")
+	}
+	if len(rm.AnalyzerHints.ExactTargets) != 1 || rm.AnalyzerHints.ExactTargets[0] != "EvidenceClosure" {
+		t.Fatalf("ExactTargets = %v, want [EvidenceClosure]", rm.AnalyzerHints.ExactTargets)
+	}
+}
+
+func TestEmitAnalysis_Execute_PersistsExactContextTerms(t *testing.T) {
+	prev := CurrentAnalysisLimits()
+	t.Cleanup(func() { SetAnalysisLimits(prev) })
+	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
+	mu := types.NewMutableState("where is explore_mid_loop_hint_budget defined")
+	tool := &EmitAnalysis{}
+	payload := `{
+		"intent": "config_query",
+		"scenario": "config_trace",
+		"complexity": "simple",
+		"keywords": ["explore", "hint", "budget"],
+		"entities": ["explore_mid_loop_hint_budget"],
+		"question_kind": "config_mapping",
+		"answer_shape": "value",
+		"exact_targets": ["explore_mid_loop_hint_budget"],
+		"exact_context_terms": ["explore"],
+		"intent_confidence": 0.8,
+		"complexity_confidence": 0.8,
+		"kind_confidence": 0.8,
+		"shape_confidence": 0.8,
+		"predicates": {
+			"is_scalar_answer": true,
+			"is_count_question": false,
+			"is_cross_component": false,
+			"is_relational_lookup": false,
+			"is_category_enumeration": false,
+			"is_history_lookup": false
+		}
+	}`
+	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
+	if !res.Success {
+		t.Fatalf("Execute should succeed, got %q", res.Summary)
+	}
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if !reflect.DeepEqual(rm.AnalyzerHints.ExactContextTerms, []string{"explore"}) {
+		t.Fatalf("ExactContextTerms = %v, want [explore]", rm.AnalyzerHints.ExactContextTerms)
+	}
+	if !strings.Contains(res.Summary, "exact_ctx=1") {
+		t.Fatalf("summary should mention exact_ctx count, got %q", res.Summary)
 	}
 }

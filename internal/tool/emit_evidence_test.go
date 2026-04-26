@@ -327,11 +327,13 @@ func TestEmitEvidence_ConfigAbsentPrimaryDemotesSubstituteEvidence(t *testing.T)
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
 	ctx.AnalysisIR = &types.AnalysisIR{RequestModel: types.RequestModel{
-		Scenario: types.ScenarioConfigTrace,
+		RawRequest: missingKey + " 在哪里定义？",
+		Scenario:   types.ScenarioConfigTrace,
 		AnalyzerHints: types.AnalyzerHints{
 			Kind:            "config_mapping",
 			PrimaryEntities: []string{missingKey},
 			Entities:        []string{missingKey},
+			ExactTargets:    []string{missingKey},
 		},
 		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 	}}

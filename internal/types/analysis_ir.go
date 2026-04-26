@@ -37,7 +37,7 @@ type AnalysisIR struct {
 // AnalysisIRVersion is the current schema version string. Bump on any
 // breaking change to the wire format so downstream consumers can refuse
 // to parse IRs they do not understand.
-const AnalysisIRVersion = "v6"
+const AnalysisIRVersion = "v7"
 
 // ── RequestModel ────────────────────────────────────────────────────────
 
@@ -313,6 +313,13 @@ type SemanticPredicates struct {
 	// categories of X exist". Drives shape selection toward
 	// list_of_symbols even when declared shape was value/config_value.
 	IsCategoryEnumeration bool `json:"is_category_enumeration"`
+
+	// IsHistoryLookup: the answer is a repository-history / authorship
+	// lookup whose literal should come from VCS metadata (git log /
+	// blame / commit history), not from a repo file:line. Replaces the
+	// old VCS keyword tables with an explicit analyzer judgment that the
+	// system can then validate against the rest of the classification.
+	IsHistoryLookup bool `json:"is_history_lookup"`
 }
 
 // AnalyzerHints is the raw LLM-extracted analyzer output, mirrored onto
@@ -338,8 +345,21 @@ type AnalyzerHints struct {
 	// RawRequest. These may come from analyzer expansion, deterministic
 	// log/perf augmentation, or sub-topic merge.
 	DerivedEntities []string `json:"derived_entities,omitempty"`
-	Kind            string   `json:"kind,omitempty"`
-	Shape           string   `json:"shape,omitempty"`
+	// ExactTargets is the analyzer's optional shortlist of exact
+	// user-asked targets (config keys / file paths / symbols / literals).
+	// The system validates every item against RawRequest provenance
+	// before downstream contracts consume it, so this is an LLM
+	// recommendation lane rather than an authority lane.
+	ExactTargets []string `json:"exact_targets,omitempty"`
+	// ExactContextTerms is the analyzer's optional shortlist of narrow
+	// same-scope terms for exact-resolution questions (for example, the
+	// identifier-family stem that should guide nearby-context reading).
+	// The system validates every term against the request-mentioned
+	// exact target lane before using it downstream, so this remains an
+	// LLM recommendation rather than a source of truth.
+	ExactContextTerms []string `json:"exact_context_terms,omitempty"`
+	Kind              string   `json:"kind,omitempty"`
+	Shape             string   `json:"shape,omitempty"`
 }
 
 type Intent string
@@ -802,6 +822,7 @@ type ExactResolutionContract struct {
 	AliasRequiresProof      bool                         `json:"alias_requires_proof,omitempty"`
 	RelatedContextPolicy    ExactResolutionContextPolicy `json:"related_context_policy,omitempty"`
 	RelatedContextScopeHint string                       `json:"related_context_scope_hint,omitempty"`
+	RelatedContextTerms     []string                     `json:"related_context_terms,omitempty"`
 }
 
 type AnswerShape string

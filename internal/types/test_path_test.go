@@ -1,0 +1,42 @@
+package types
+
+import "testing"
+
+func TestLooksLikeTestFilePath(t *testing.T) {
+	positive := []string{
+		"internal/agent/finalizer_test.go",
+		"tests/foo.rs",
+		"foo/test_something.py",
+		"foo/module_test.py",
+		"com/acme/MyClassTest.java",
+		"com/acme/ITSearch.java",
+		"src/test/kotlin/com/acme/MyServiceTest.kt",
+		"spec/models/user_spec.rb",
+		"test/models/user_test.rb",
+		"Tests/AppTests/FeatureTests.swift",
+		"lua/spec/router_spec.lua",
+		"src/components/Button.test.tsx",
+		"src/app.spec.ts",
+		"native/foo_unittest.cpp",
+	}
+	for _, path := range positive {
+		if !LooksLikeTestFilePath(path) {
+			t.Fatalf("LooksLikeTestFilePath(%q) = false, want true", path)
+		}
+	}
+
+	negative := []string{
+		"internal/agent/tester.go",
+		"src/testimonial/page.tsx",
+		"com/acme/Tester.java",
+		"foo/testing.py",
+		"app/bin/setup.rb",
+		"lua/inspect.lua",
+		"native/test_support.cpp",
+	}
+	for _, path := range negative {
+		if LooksLikeTestFilePath(path) {
+			t.Fatalf("LooksLikeTestFilePath(%q) = true, want false", path)
+		}
+	}
+}
