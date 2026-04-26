@@ -250,23 +250,75 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 			defer os.Remove(extraFile)
 		}
 
+		// Wrap command with platform-appropriate resource caps + run
+		// under the cross-platform process supervisor. Together these
+		// guarantee:
+		//   - context cancel kills the entire descendant tree (Unix:
+		//     SIGKILL on negative pgid; Windows: TerminateJobObject)
+		//   - memory cap (Unix: ulimit -v; Windows: JobMemoryLimit)
+		//     so a runaway test can't OOM the host
+		//   - CPU-time cap (Unix: ulimit -t; Windows:
+		//     PerJobUserTimeLimit) so a CPU burner can't ignore the
+		//     wall-clock timeout on multi-core hosts
+		caps := verifyResourceCaps()
+		wrappedCmd := wrapShellCommandWithCaps(cmdStr, caps)
 		execCtx, cancel := context.WithTimeout(context.Background(), timeout)
-		cmd := NewShellCommandContext(execCtx, cmdStr)
+		cmd := NewShellCommandContext(execCtx, wrappedCmd)
 		cmd.Dir = runnerRoot
 		var buf bytes.Buffer
 		cmd.Stdout = &buf
 		cmd.Stderr = &buf
-		runErr := cmd.Run()
+		supRes := SupervisedRun(execCtx, cmd, caps)
 		cancel()
+		runErr := supRes.Err
 		output := buf.String()
 		combinedOutputs = append(combinedOutputs, renderRunnerOutputSection(plan, output))
 
-		if execCtx.Err() == context.DeadlineExceeded {
+		// Resource-exhaustion exits get classified explicitly so the
+		// verify→plan retry hint surfaces "OOM" / "CPU limit" / "wall
+		// timeout" — not the generic "tests failed" the planner would
+		// otherwise see and re-derive a wrong corrective direction
+		// from. The clearForReplan path consumes ChangeReport.FailureKind
+		// in the heuristic hint.
+		switch supRes.ExitKind {
+		case SupervisedExitTimeout:
 			_, ref := StoreBlob(ctx, t.Name()+"-timeout", strings.Join(combinedOutputs, "\n\n"))
+			report := makeResourceExhaustionReport("timeout", fmt.Sprintf(
+				"command timed out after %v (set timeout_seconds to bump)", timeout))
+			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
 			return types.ToolResult{
 				ToolName:  t.Name(),
 				Success:   false,
 				Summary:   fmt.Sprintf("[run_tests: %s] command timed out after %v (set timeout_seconds to bump)", runnerPlanLabel(ctx.RepoRoot, plan), timeout),
+				RawRef:    ref,
+				Timestamp: time.Now(),
+			}, nil
+		case SupervisedExitOOM:
+			_, ref := StoreBlob(ctx, t.Name()+"-oom", strings.Join(combinedOutputs, "\n\n"))
+			report := makeResourceExhaustionReport("oom", fmt.Sprintf(
+				"command killed by memory cap (limit=%d MiB) — the test code allocated more than the configured ceiling. "+
+					"Either the test fixture has an unbounded allocation (most common cause), the test data is genuinely too large "+
+					"(raise verify_mem_limit_mb in codrax.yaml), or the test harness leaks memory across cases.",
+				caps.MemoryLimitBytes/(1024*1024)))
+			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("[run_tests: %s] killed by memory cap (limit=%d MiB) — see ChangeReport.FailureSummary for retry guidance", runnerPlanLabel(ctx.RepoRoot, plan), caps.MemoryLimitBytes/(1024*1024)),
+				RawRef:    ref,
+				Timestamp: time.Now(),
+			}, nil
+		case SupervisedExitCPULimit:
+			_, ref := StoreBlob(ctx, t.Name()+"-cpu", strings.Join(combinedOutputs, "\n\n"))
+			report := makeResourceExhaustionReport("cpu_limit", fmt.Sprintf(
+				"command killed by CPU-time cap (limit=%ds) — the test code burned more CPU than the configured ceiling. "+
+					"Most common cause is an infinite loop without a sleep or yield; less commonly a quadratic-or-worse algorithm "+
+					"running on a large fixture.", caps.CPULimitSeconds))
+			ctx.Mutable.SetChangeReport(qualifyChangeReport(report, plan, ctx.RepoRoot))
+			return types.ToolResult{
+				ToolName:  t.Name(),
+				Success:   false,
+				Summary:   fmt.Sprintf("[run_tests: %s] killed by CPU-time cap (limit=%ds) — see ChangeReport.FailureSummary for retry guidance", runnerPlanLabel(ctx.RepoRoot, plan), caps.CPULimitSeconds),
 				RawRef:    ref,
 				Timestamp: time.Now(),
 			}, nil
@@ -545,6 +597,35 @@ func renderRunnerOutputSection(plan runnerPlan, output string) string {
 	return b.String()
 }
 
+// isMoreSevereFailureKind orders FailureKind values for the merge
+// rule: a resource-exhaustion exit on any single project should
+// dominate the aggregate FailureKind so the verifier's retry hint
+// calls it out, even when other projects in the same run reported
+// only normal red tests.
+//
+// Order (most → least severe): oom > cpu_limit > timeout > crash >
+// build_failure > tests_failed > "".
+func isMoreSevereFailureKind(candidate, current types.FailureKind) bool {
+	severity := func(k types.FailureKind) int {
+		switch k {
+		case types.FailureKindOOM:
+			return 6
+		case types.FailureKindCPULimit:
+			return 5
+		case types.FailureKindTimeout:
+			return 4
+		case types.FailureKindCrash:
+			return 3
+		case types.FailureKindBuildFailure:
+			return 2
+		case types.FailureKindTestsFailed:
+			return 1
+		}
+		return 0
+	}
+	return severity(candidate) > severity(current)
+}
+
 func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot string) *types.ChangeReport {
 	if report == nil {
 		return nil
@@ -565,6 +646,18 @@ func qualifyChangeReport(report *types.ChangeReport, plan runnerPlan, repoRoot s
 	}
 	if report.FailureSummary != "" {
 		report.FailureSummary = "[" + label + "] " + report.FailureSummary
+	}
+	// Backfill FailureKind for parser-produced reports that didn't
+	// classify themselves. Resource-exhaustion reports already set it
+	// (makeResourceExhaustionReport); this branch covers the
+	// "ordinary red test" / "build failure" cases the per-language
+	// parsers produce.
+	if !report.Passed && report.FailureKind == "" {
+		if report.BuildFailed {
+			report.FailureKind = types.FailureKindBuildFailure
+		} else {
+			report.FailureKind = types.FailureKindTestsFailed
+		}
 	}
 	return report
 }
@@ -596,6 +689,17 @@ func mergeChangeReports(reports []*types.ChangeReport) *types.ChangeReport {
 		}
 		if report.FailureSummary != "" {
 			failureSummaries = append(failureSummaries, report.FailureSummary)
+		}
+		// FailureKind precedence: resource-exhaustion kinds (oom,
+		// cpu_limit, timeout) win over build_failure / tests_failed
+		// because they describe a more specific failure mode the
+		// retry hint must call out. First-set-wins below that, so
+		// build_failure on project A doesn't get masked by
+		// tests_failed on project B.
+		if out.FailureKind == "" || isMoreSevereFailureKind(report.FailureKind, out.FailureKind) {
+			if report.FailureKind != "" {
+				out.FailureKind = report.FailureKind
+			}
 		}
 	}
 	out.RegressionAssertions = dedupStrings(out.RegressionAssertions)
@@ -646,6 +750,46 @@ func makeExecutionFailureReport(suite, detail string, buildFailed bool) *types.C
 		Passed:         false,
 		BuildFailed:    buildFailed,
 		FailureSummary: detail,
+	}
+}
+
+// makeResourceExhaustionReport builds a ChangeReport for a
+// supervisor-classified resource-exhaustion exit (timeout / OOM /
+// cpu_limit). The verifier's heuristic hint (clearForReplan) reads
+// FailureKind to switch the retry narrative away from "tests failed"
+// to a kind-specific corrective direction the planner can act on.
+//
+// Why a synthetic TestResult: ChangeReport consumers (the
+// best-known-good latch + score-based selectFinalReport) iterate over
+// TestResults; an empty slice would let a regression-with-resource-
+// exhaustion silently lose to a previous iteration that had at least
+// one passing test. The synthetic build_error row participates in
+// counts but is intentionally never confused with a unit test
+// (Kind=TestResultKindBuildError).
+func makeResourceExhaustionReport(kind, detail string) *types.ChangeReport {
+	var fk types.FailureKind
+	switch kind {
+	case "timeout":
+		fk = types.FailureKindTimeout
+	case "oom":
+		fk = types.FailureKindOOM
+	case "cpu_limit":
+		fk = types.FailureKindCPULimit
+	default:
+		fk = types.FailureKindCrash
+	}
+	return &types.ChangeReport{
+		TestResults: []types.TestResult{{
+			Kind:          types.TestResultKindBuildError,
+			AssertionID:   string(fk),
+			Suite:         string(fk),
+			Passed:        false,
+			FailureDetail: detail,
+		}},
+		Passed:         false,
+		BuildFailed:    fk == types.FailureKindOOM || fk == types.FailureKindTimeout || fk == types.FailureKindCPULimit,
+		FailureSummary: detail,
+		FailureKind:    fk,
 	}
 }
 

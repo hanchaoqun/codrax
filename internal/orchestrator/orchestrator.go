@@ -820,6 +820,21 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 		fmt.Fprintf(&b, "Previous attempt %d failed without producing a ChangeReport (apply or runner error). ", prevAttempt)
 	} else {
 		fmt.Fprintf(&b, "Previous attempt %d verify failed. ", prevAttempt)
+		// Resource-exhaustion classifications get a kind-specific
+		// header BEFORE the test summary so the planner reads "your
+		// code allocated unboundedly / spun a CPU loop" first, not
+		// the inevitable downstream "tests didn't complete" symptom.
+		// Without this surfacing the planner re-derives the same
+		// wrong corrective direction from buried stderr — the OOM
+		// event that motivated this code is the textbook instance.
+		switch report.FailureKind {
+		case types.FailureKindOOM:
+			b.WriteString("\n\n## Failure mode: out-of-memory\nThe previous plan's tests were killed by the kernel OOM killer (Linux/macOS) or the JobObject memory limit (Windows). The verify-stage memory cap fired because the test code allocated more than the configured ceiling.\n\nMost common causes:\n  1. Unbounded allocation in test fixture (loop appending to a list without exit condition; recursion without depth limit).\n  2. Test data structure sized from input without bounds-check (e.g. `[0]*N` where N comes from an unvalidated argument).\n  3. Memory leak across test cases (objects retained between cases that should be released).\n\nRevise the plan so the test code:\n  - Bounds every allocation to a small constant or a validated input ceiling.\n  - Releases per-case state before the next case begins.\n  - Avoids list/dict comprehensions over unbounded ranges.\nDO NOT raise the memory cap as the fix — that masks the bug. ")
+		case types.FailureKindCPULimit:
+			b.WriteString("\n\n## Failure mode: CPU-time limit exceeded\nThe previous plan's tests were killed by the CPU-time limit (`ulimit -t` on Unix, PerJobUserTimeLimit on Windows) — the test process burned more CPU seconds than the configured ceiling.\n\nMost common causes:\n  1. Infinite loop without a sleep / yield / break condition.\n  2. Quadratic-or-worse algorithm running on a fixture that is large enough to trigger the cap but small enough to LOOK reasonable.\n  3. Recursive call without a base case (would also trip OOM eventually; CPU usually fires first).\n\nRevise the plan to:\n  - Audit every loop and recursion in the new code for an explicit termination condition.\n  - If an algorithm is O(n²) or worse, add a complexity cap or rewrite to lower complexity.\nDO NOT raise the CPU cap as the fix — bounded execution time IS the contract. ")
+		case types.FailureKindTimeout:
+			b.WriteString("\n\n## Failure mode: wall-clock timeout\nThe previous plan's tests were SIGKILLed by the wall-clock timeout — the run did not complete in the allotted seconds. Distinct from CPU-limit: the test wasn't necessarily burning CPU; it may have been blocked on I/O or sleeping.\n\nCommon causes:\n  1. Test waiting on an external resource that never arrives (network call, lock, semaphore).\n  2. Synchronisation deadlock between threads / goroutines.\n  3. CPU-bound algorithm that's slower than expected.\n\nRevise the plan to:\n  - Audit every blocking call (sleep / wait / lock acquire / network / file open) for a finite timeout.\n  - Replace external dependencies in tests with mocks or local fixtures so no test depends on something the supervisor can't bound. ")
+		}
 		if report.FailureSummary != "" {
 			summary := report.FailureSummary
 			if len(summary) > 300 {

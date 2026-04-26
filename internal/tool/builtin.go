@@ -225,7 +225,15 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	execCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	cmd := NewShellCommandContext(execCtx, p.Command)
+	// Wrap exec_command through the same supervisor + resource-cap
+	// path run_tests uses. Two reasons even for a "free-form" tool:
+	//   - process-tree teardown on cancel (the OOM event proved
+	//     timeout-only kill of the sh wrapper leaks grandchildren)
+	//   - memory + CPU caps so an LLM-typed `find / -exec` style
+	//     blunder can't tip a low-RAM host into OOM
+	caps := verifyResourceCaps()
+	wrappedCmd := wrapShellCommandWithCaps(p.Command, caps)
+	cmd := NewShellCommandContext(execCtx, wrappedCmd)
 	// Anchor the shell at the repo root so `find .`, `wc -l *.go`,
 	// `git ls-files` etc. operate on the user's --repo target rather
 	// than the codrax process CWD. exec_command has no path param —
@@ -238,10 +246,12 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
 
-	err := cmd.Run()
+	supRes := SupervisedRun(execCtx, cmd, caps)
+	err := supRes.Err
 	output := buf.String()
 
-	if execCtx.Err() == context.DeadlineExceeded {
+	switch supRes.ExitKind {
+	case SupervisedExitTimeout:
 		preview, ref := StoreBlob(ctx, t.Name()+"-timeout", output)
 		return types.ToolResult{
 			ToolName:  t.Name(),
@@ -250,6 +260,26 @@ func (t *ExecCommand) Execute(ctx *types.BusContext, params json.RawMessage) (ty
 			RawRef:    ref,
 			Timestamp: time.Now(),
 		}, fmt.Errorf("command timed out after %v", timeout)
+	case SupervisedExitOOM:
+		preview, ref := StoreBlob(ctx, t.Name()+"-oom", output)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   banner + fmt.Sprintf("command killed by memory cap (%d MiB) — adjust verify_mem_limit_mb if your repo legitimately needs more RAM\n%s",
+				caps.MemoryLimitBytes/(1024*1024), preview),
+			RawRef:    ref,
+			Timestamp: time.Now(),
+		}, fmt.Errorf("command killed by memory cap")
+	case SupervisedExitCPULimit:
+		preview, ref := StoreBlob(ctx, t.Name()+"-cpu", output)
+		return types.ToolResult{
+			ToolName:  t.Name(),
+			Success:   false,
+			Summary:   banner + fmt.Sprintf("command killed by CPU-time cap (%ds)\n%s",
+				caps.CPULimitSeconds, preview),
+			RawRef:    ref,
+			Timestamp: time.Now(),
+		}, fmt.Errorf("command killed by CPU-time cap")
 	}
 
 	if err != nil {

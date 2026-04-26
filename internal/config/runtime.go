@@ -181,6 +181,30 @@ type RuntimeSettings struct {
 	// paths always discard regardless of this flag. Default false.
 	PipelineKeepWorktreeOnSuccess *bool `yaml:"pipeline_keep_worktree_on_success"`
 
+	// VerifyMemLimitMB caps the resident+virtual memory each
+	// run_tests / exec_command invocation may use. Unix: enforced via
+	// `ulimit -v` shell prefix. Windows: enforced via JobObject
+	// JobMemoryLimit. Default 2048 MiB — large enough for most real
+	// suites, tight enough that a 4 GiB host doesn't OOM the entire
+	// system when an LLM-generated test allocates without bound.
+	// Operators on dev hosts with abundant RAM can raise this; CI
+	// runners often want lower (e.g. 512). Zero = use code default.
+	//
+	// Provenance: 2026-04-26 OOM event — pytest reached RSS 2.47 GiB
+	// in a verify run on a 3.7 GiB host, killing the supervising
+	// claude-code process via the system-wide OOM killer. Without a
+	// memory cap the host has no defence against runaway test code.
+	VerifyMemLimitMB *int `yaml:"verify_mem_limit_mb"`
+
+	// VerifyCPULimitSeconds caps the total CPU seconds each
+	// run_tests / exec_command invocation may consume across every
+	// process in the supervised tree. Unix: `ulimit -t`, fires
+	// SIGXCPU. Windows: PerJobUserTimeLimit on the JobObject.
+	// Default 600 — distinct from the wall-clock timeout (300s) so a
+	// CPU-burner on a multi-core host can't keep all cores at 100%
+	// for the full wall budget. Zero = use code default.
+	VerifyCPULimitSeconds *int `yaml:"verify_cpu_limit_seconds"`
+
 	// PipelineLintEnabled gates the V5 lint validator family
 	// (Python ruff, Go gofmt). When unset → default true; the
 	// validator runs before the planner finalizes a plan and

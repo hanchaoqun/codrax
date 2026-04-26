@@ -1398,6 +1398,20 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineLintEnabled != nil {
 			tool.SetLintEnabled(*rs.PipelineLintEnabled)
 		}
+		// Verify resource caps — applied to every run_tests +
+		// exec_command supervised invocation. Either knob unset =
+		// package default (2048 MiB / 600s); see SetVerifyResourceCaps.
+		// Provenance: 2026-04-26 OOM event (pytest RSS 2.47 GiB on a
+		// 3.7 GiB host); see internal/tool/exec_resource_caps.go.
+		memMB := 0
+		if rs.VerifyMemLimitMB != nil {
+			memMB = *rs.VerifyMemLimitMB
+		}
+		cpuSec := 0
+		if rs.VerifyCPULimitSeconds != nil {
+			cpuSec = *rs.VerifyCPULimitSeconds
+		}
+		tool.SetVerifyResourceCaps(memMB, cpuSec)
 
 		// Gate thresholds → package-global in gate package.
 		var gt gate.Thresholds

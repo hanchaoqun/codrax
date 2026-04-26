@@ -245,9 +245,64 @@ type ChangeReport struct {
 	// signal; not used by any criterion but rendered to the user.
 	FixedAssertions []string `json:"fixed_assertions,omitempty"`
 
+	// FailureKind classifies the terminal state when Passed=false so
+	// the verify→plan retry hint can surface resource exhaustion
+	// distinctly from a normal red test ("tests_failed"). Empty +
+	// Passed=false defaults to "tests_failed". Set by run_tests when
+	// the SupervisedRun exit kind is timeout / OOM / cpu_limit, and
+	// preserved through merge/qualify so the heuristic hint reads it
+	// before the planner re-dispatches.
+	//
+	// Provenance: the OOM-killed pytest event (RSS 2.47 GiB after 9 h
+	// of CPU) demonstrated that a generic "tests failed" hint sends
+	// the planner re-deriving the same bug from the same noisy
+	// stderr; surfacing the resource-exhaustion signal explicitly
+	// gives it a corrective direction the symptoms alone don't.
+	FailureKind FailureKind `json:"failure_kind,omitempty"`
+
 	// GeneratedAt is the verify-stage completion timestamp.
 	GeneratedAt time.Time `json:"generated_at"`
 }
+
+// FailureKind tags ChangeReport.FailureSummary so consumers can route
+// the retry-hint narrative on the cause rather than the symptom.
+type FailureKind string
+
+const (
+	// FailureKindTestsFailed — at least one test reported red but
+	// the run completed within resource budget. Default when
+	// Passed=false and no other kind applies.
+	FailureKindTestsFailed FailureKind = "tests_failed"
+
+	// FailureKindBuildFailure — the build/compile step failed before
+	// any test could run. Same case BuildFailed=true tracks; this
+	// kind exists so Passed=false can be classified by a single field.
+	FailureKindBuildFailure FailureKind = "build_failure"
+
+	// FailureKindTimeout — wall-clock timeout fired before the test
+	// run completed. The supervisor SIGKILLed the entire process
+	// tree.
+	FailureKindTimeout FailureKind = "timeout"
+
+	// FailureKindOOM — kernel OOM-killed a process in the tree
+	// (Unix exit 137 / signal SIGKILL classified by the supervisor)
+	// or a JobObject memory limit fired (Windows). Most common cause
+	// is unbounded allocation in test code; planner retry must
+	// revise the test approach, not the production code.
+	FailureKindOOM FailureKind = "oom"
+
+	// FailureKindCPULimit — RLIMIT_CPU (Unix SIGXCPU) or
+	// PerJobUserTimeLimit (Windows) fired. Distinct from Timeout
+	// because the wall-clock budget may not have been reached;
+	// CPU-time is what burned out. Common cause: infinite loop
+	// without sleep/yield.
+	FailureKindCPULimit FailureKind = "cpu_limit"
+
+	// FailureKindCrash — process exited unexpectedly (segfault,
+	// internal panic) without producing a parseable test report.
+	// Reserved; not yet emitted by run_tests.
+	FailureKindCrash FailureKind = "crash"
+)
 
 // Score returns the (passed, total) test counts for this report,
 // counting only TestResultKindUnit entries (build_error rows are
