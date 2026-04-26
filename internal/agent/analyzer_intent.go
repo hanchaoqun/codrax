@@ -413,7 +413,9 @@ func reconcileDiagramContract(rm types.RequestModel, shape types.AnswerShape, bu
 	case types.AxisRegister:
 		require("axis_register", types.DiagramArchitecture, types.DiagramCallDAG)
 	case types.AxisConfigure:
-		require("axis_configure", types.DiagramArchitecture, types.DiagramFlow)
+		if rm.Scenario == types.ScenarioConfigTrace {
+			require("axis_configure", types.DiagramArchitecture, types.DiagramFlow)
+		}
 	case types.AxisImplement:
 		require("axis_implement", types.DiagramArchitecture)
 	}
@@ -428,9 +430,6 @@ func reconcileDiagramContract(rm types.RequestModel, shape types.AnswerShape, bu
 	}
 	if rm.Scenario == types.ScenarioArchitectureExplain && !isScalarSourceLiteralLookup(rm) {
 		require("architecture_scenario", types.DiagramArchitecture)
-	}
-	if shape == types.ShapeStepList {
-		require("step_list_shape", types.DiagramFlow)
 	}
 	if !required {
 		return nil

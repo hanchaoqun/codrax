@@ -470,8 +470,8 @@ func TestReconcileShape(t *testing.T) {
 		{"single exact config trace list lifts to explanation",
 			types.RequestModel{
 				RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
-				Intent:   types.IntentConfigQuery,
-				Scenario: types.ScenarioConfigTrace,
+				Intent:     types.IntentConfigQuery,
+				Scenario:   types.ScenarioConfigTrace,
 				AnalyzerHints: types.AnalyzerHints{
 					PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
 					ExactTargets:    []string{"explore_mid_loop_hint_budget"},
@@ -482,8 +482,8 @@ func TestReconcileShape(t *testing.T) {
 		{"single exact scalar config trace list lifts to config_value",
 			types.RequestModel{
 				RawRequest: "http_timeout_ms 的最终有效值是多少？",
-				Intent:   types.IntentConfigQuery,
-				Scenario: types.ScenarioConfigTrace,
+				Intent:     types.IntentConfigQuery,
+				Scenario:   types.ScenarioConfigTrace,
 				AnalyzerHints: types.AnalyzerHints{
 					PrimaryEntities: []string{"http_timeout_ms"},
 					ExactTargets:    []string{"http_timeout_ms"},
@@ -551,11 +551,10 @@ func TestReconcileDiagramContract(t *testing.T) {
 		wantScope types.DiagramScope
 	}{
 		{
-			name:      "step_list always requires a diagram",
-			rm:        types.RequestModel{},
-			shape:     types.ShapeStepList,
-			wantKind:  types.DiagramFlow,
-			wantScope: types.DiagramScopeOverall,
+			name:    "step_list without structural cues stays nil",
+			rm:      types.RequestModel{},
+			shape:   types.ShapeStepList,
+			wantNil: true,
 		},
 		{
 			name: "trace intent prefers call dag",
@@ -582,6 +581,26 @@ func TestReconcileDiagramContract(t *testing.T) {
 			},
 			shape:     types.ShapeValue,
 			wantKind:  types.DiagramCallDAG,
+			wantScope: types.DiagramScopeOverall,
+		},
+		{
+			name: "generic configure question does not auto-require diagram",
+			rm: types.RequestModel{
+				PredicateAxis: types.AxisConfigure,
+				Intent:        types.IntentConfigQuery,
+			},
+			shape:   types.ShapeConfigValue,
+			wantNil: true,
+		},
+		{
+			name: "config trace still requires diagram",
+			rm: types.RequestModel{
+				PredicateAxis: types.AxisConfigure,
+				Scenario:      types.ScenarioConfigTrace,
+				Intent:        types.IntentConfigQuery,
+			},
+			shape:     types.ShapeExplanation,
+			wantKind:  types.DiagramArchitecture,
 			wantScope: types.DiagramScopeOverall,
 		},
 		{
