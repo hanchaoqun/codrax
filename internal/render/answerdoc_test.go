@@ -140,11 +140,26 @@ func TestRenderAnswerDocument_Value_EN(t *testing.T) {
 		Citations: []types.Citation{{File: "a.go", Line: 42}},
 	}
 	out := RenderAnswerDocument(doc, "en")
+	if !strings.Contains(out, "The answer is `explorer`") {
+		t.Errorf("value lead missing: %q", out)
+	}
 	if !strings.Contains(out, "`explorer`") {
 		t.Errorf("literal missing: %q", out)
 	}
 	if !strings.Contains(out, "a.go:42") {
 		t.Errorf("citation missing: %q", out)
+	}
+}
+
+func TestRenderAnswerDocument_Value_ZH(t *testing.T) {
+	doc := &types.AnswerDocument{
+		Shape:     types.ShapeValue,
+		Value:     &types.AnswerValue{Literal: "buildAnalysisIR", CitationRef: 0},
+		Citations: []types.Citation{{File: "internal/agent/analyzer.go", Line: 565}},
+	}
+	out := RenderAnswerDocument(doc, "zh")
+	if !strings.Contains(out, "答案是 `buildAnalysisIR`") {
+		t.Errorf("zh value lead missing: %q", out)
 	}
 }
 

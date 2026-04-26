@@ -555,8 +555,12 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 	if len(anchors) < 2 {
 		return ""
 	}
+	rolesPresent := make(map[string]bool, len(anchors))
+	for _, anchor := range anchors {
+		rolesPresent[anchor.Role] = true
+	}
 	var b strings.Builder
-	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. This chain is already ordered from validated `diagram_role_hint` evidence; reuse it verbatim when it matches the evidence, and do NOT rename or reorder its nodes into abstract numbered placeholders:\n\n```\n")
+	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. This fenced chain is already ordered from highest precedence at the top to lowest precedence at the bottom using validated `diagram_role_hint` evidence; reuse it verbatim when it matches the evidence, and do NOT rename or reorder its nodes into abstract numbered placeholders:\n\n```\n")
 	for i, anchor := range anchors {
 		b.WriteString(anchor.Label)
 		b.WriteByte('\n')
@@ -565,6 +569,10 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("```\n")
+	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `yaml` = repo or user config layer, `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
+	if !rolesPresent[string(types.EvidenceDiagramRoleOverride)] {
+		b.WriteString("Current grounded evidence does NOT include an override-layer anchor. Do not add a CLI / override node to the fenced diagram unless you first cite a real repo anchor for it; if you mention generic override semantics in prose, label them as general precedence rules rather than a grounded node in this dispatch.\n")
+	}
 	b.WriteString("The safest valid fenced diagram for this dispatch is an exact copy of that chain, or a strict subsequence made only by deleting unused nodes. Do not invent new node names, aliases, buckets, or tier markers.\n")
 	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to an abstract bucket name (for example a generic step number, the literal `CLI`, or a tier label). Keep each node label as a plain grounded file/path label; do not prepend ordinal-tier wrappers.\n")
 	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. Conceptual layer names requested by the user belong in prose headings or bullets unless those exact file/path labels are themselves cited. If you want to explain semantics such as defaults, YAML load, runtime binding, or CLI override, keep that explanation in prose outside the fenced diagram and cite it there. If you introduce a different file / symbol / path label, ground it first.")
@@ -576,10 +584,10 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 		return nil
 	}
 	roleOrder := []types.EvidenceDiagramRole{
-		types.EvidenceDiagramRoleDefault,
+		types.EvidenceDiagramRoleOverride,
 		types.EvidenceDiagramRoleYAML,
 		types.EvidenceDiagramRoleRuntime,
-		types.EvidenceDiagramRoleOverride,
+		types.EvidenceDiagramRoleDefault,
 	}
 	best := make(map[string]configTraceDiagramAnchor, len(roleOrder))
 	appendCandidate := func(ev types.EvidenceItem) {
@@ -1321,7 +1329,7 @@ func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.Answer
 		baselineRatio = defaultShrinkageRatio
 	}
 	minLen, ratio := shrinkageThresholdsForShape(doc.Shape, baselineMin, baselineRatio)
-	priorProse := findLastPreToolCallDraft(messages)
+	priorProse := sanitizePriorDraftForSummary(findLastPreToolCallDraft(messages))
 	if len(priorProse) < minLen {
 		return
 	}
@@ -1348,6 +1356,75 @@ func (e *answerDocumentEvaluator) salvagePriorDraftIntoSummary(doc *types.Answer
 		caveat = "已保留更丰富的前一轮草稿，替代被压缩的概述"
 	}
 	doc.Caveats = append(doc.Caveats, caveat)
+}
+
+var (
+	priorDraftThinkBlockRe = regexp.MustCompile(`(?is)<think>.*?</think>\s*`)
+	priorDraftToolCallRe   = regexp.MustCompile(`(?is)<(?:minimax:)?tool_call>.*?</(?:minimax:)?tool_call>\s*`)
+	priorDraftInvokeRe     = regexp.MustCompile(`(?is)<invoke\b.*?</invoke>\s*`)
+	priorDraftParameterRe  = regexp.MustCompile(`(?is)<parameter\b.*?</parameter>\s*`)
+	priorDraftJSONFenceRe  = regexp.MustCompile("(?is)```(?:json)?\\s*\\{.*?\"shape\"\\s*:\\s*\"(?:list_of_symbols|step_list|value|config_value|boolean|explanation)\".*?```\\s*")
+	priorDraftParaSplitRe  = regexp.MustCompile(`\n\s*\n+`)
+)
+
+// sanitizePriorDraftForSummary strips model-internal reasoning and
+// tool-scaffolding from a pre-tool-call draft before salvage reuses it
+// as user-visible summary prose. The salvage path is only meant to
+// preserve natural-language answer content; letting scratch JSON,
+// fake tool-call markup, or prompt-following meta prose leak back into
+// Summary degrades answer quality and can expose implementation detail.
+func sanitizePriorDraftForSummary(s string) string {
+	if strings.TrimSpace(s) == "" {
+		return ""
+	}
+	s = priorDraftThinkBlockRe.ReplaceAllString(s, "")
+	s = priorDraftToolCallRe.ReplaceAllString(s, "")
+	s = priorDraftInvokeRe.ReplaceAllString(s, "")
+	s = priorDraftParameterRe.ReplaceAllString(s, "")
+	s = priorDraftJSONFenceRe.ReplaceAllString(s, "")
+	paras := priorDraftParaSplitRe.Split(s, -1)
+	kept := make([]string, 0, len(paras))
+	for _, p := range paras {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		if looksLikeInternalDraftParagraph(p) {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	return strings.TrimSpace(strings.Join(kept, "\n\n"))
+}
+
+func looksLikeInternalDraftParagraph(p string) bool {
+	if strings.TrimSpace(p) == "" {
+		return true
+	}
+	lower := strings.ToLower(p)
+	switch {
+	case strings.Contains(lower, "emit_answer_document"),
+		strings.Contains(lower, "citation_ref"),
+		strings.Contains(lower, "tool call"),
+		strings.Contains(lower, "tool-call"),
+		strings.Contains(lower, "citations array"),
+		strings.Contains(lower, "target shape"),
+		strings.Contains(lower, "response structure"),
+		strings.Contains(lower, "\"shape\":"),
+		strings.Contains(lower, "\"citations\":"),
+		strings.Contains(lower, "\"citation_ref\":"),
+		strings.Contains(lower, "<minimax:tool_call>"),
+		strings.Contains(lower, "<invoke"),
+		strings.Contains(lower, "<parameter"),
+		strings.HasPrefix(lower, "translation:"),
+		strings.HasPrefix(lower, "let me construct the answer"),
+		strings.HasPrefix(lower, "i need to emit"),
+		strings.HasPrefix(lower, "i'm finalizing"),
+		strings.HasPrefix(lower, "the citations array should contain"),
+		strings.HasPrefix(lower, "i'll cite line"):
+		return true
+	}
+	return false
 }
 
 // findLastPreToolCallDraft returns the most recent assistant message

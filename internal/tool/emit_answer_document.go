@@ -2240,27 +2240,27 @@ func renderAnswerDocumentExactResolutionLead(contract *types.ExactResolutionCont
 	switch exact.Status {
 	case types.AnswerExactResolutionAbsent:
 		if zh {
-			lead := fmt.Sprintf("精确%s %s：当前仓库中未找到。", label, targets)
+			lead := fmt.Sprintf("仓库里没有找到精确%s %s。", label, targets)
 			if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
-				lead += " 下文若补充同族上下文，只作为相关背景，不是该目标的替代项。"
+				lead += " 下文如果补充相近的 grounded 上下文，也只作为相关背景，不代表它就是这个目标。"
 			}
 			return lead
 		}
-		lead := fmt.Sprintf("Exact %s %s: not found in this repository.", label, targets)
+		lead := fmt.Sprintf("The repository does not contain the exact %s %s.", label, targets)
 		if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
-			lead += " Any nearby grounded context below is related context only, not a substitute for the requested target."
+			lead += " Any nearby grounded context below is related background only, not a substitute for the requested target."
 		}
 		return lead
 	case types.AnswerExactResolutionAliasMatch:
 		if zh {
-			return fmt.Sprintf("精确%s %s：在已引用证据中通过 `%s` 找到明确映射。", label, targets, exact.Anchor)
+			return fmt.Sprintf("精确%s %s 可通过已引用证据中的 `%s` 明确映射到。", label, targets, exact.Anchor)
 		}
-		return fmt.Sprintf("Exact %s %s: explicitly resolves through `%s` in grounded evidence.", label, targets, exact.Anchor)
+		return fmt.Sprintf("The exact %s %s resolves explicitly through `%s` in grounded evidence.", label, targets, exact.Anchor)
 	case types.AnswerExactResolutionExactMatch:
 		if zh {
-			return fmt.Sprintf("精确%s %s：已在已引用证据中直接命中。", label, targets)
+			return fmt.Sprintf("已在已引用证据中直接找到精确%s %s。", label, targets)
 		}
-		return fmt.Sprintf("Exact %s %s: grounded directly in the cited evidence.", label, targets)
+		return fmt.Sprintf("The exact %s %s is grounded directly in the cited evidence.", label, targets)
 	default:
 		return ""
 	}

@@ -199,6 +199,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"cmd/root.go:1381",
 		"use grounded source labels instead of numbered layers",
 		"validated `diagram_role_hint` evidence",
+		"highest precedence at the top to lowest precedence at the bottom",
+		"`override` = highest-precedence operator / CLI layer",
+		"`runtime` is the binding / merge code path",
 		"do NOT rename or reorder its nodes into abstract numbered placeholders",
 		"The safest valid fenced diagram for this dispatch is an exact copy of that chain",
 		"Conceptual layer names requested by the user belong in prose headings or bullets",
@@ -210,6 +213,36 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhenOverrideAnchorMissing(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+					ScopeHint:      types.DiagramScopeOverall,
+					Reasons:        []string{"config_lineage"},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
+			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleYAML},
+			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "Current grounded evidence does NOT include an override-layer anchor") {
+		t.Fatalf("prompt missing missing-override warning:\n%s", prompt)
 	}
 }
 
@@ -970,6 +1003,33 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage(t *testing.T) {
 	}
 }
 
+func TestSanitizePriorDraftForSummary_StripsInternalScaffolding(t *testing.T) {
+	cleanTail := strings.Repeat("入口函数负责把请求整理成结构化 IR。", 40)
+	in := `<think>internal reasoning</think>
+
+Translation: explain the answer
+
+` + "```json\n{\"shape\":\"value\",\"summary\":\"x\",\"citations\":[]}\n```" + `
+
+I need to emit exactly one emit_answer_document tool call.
+
+<minimax:tool_call>
+<invoke name="emit_answer_document">
+<parameter name="shape">value</parameter>
+</invoke>
+</minimax:tool_call>
+
+` + cleanTail
+	got := sanitizePriorDraftForSummary(in)
+	if strings.Contains(got, "<think>") || strings.Contains(got, "emit_answer_document") ||
+		strings.Contains(got, "\"shape\":") || strings.Contains(got, "<minimax:tool_call>") {
+		t.Fatalf("sanitizePriorDraftForSummary leaked internal scaffolding: %q", got)
+	}
+	if !strings.Contains(got, "结构化 IR") {
+		t.Fatalf("sanitizePriorDraftForSummary dropped user-facing tail: %q", got)
+	}
+}
+
 // TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_AllShapes —
 // positive cross-shape check. Summary is framing text for every
 // shape (the body for explanation; a 1-3-sentence lead-in for
@@ -1189,6 +1249,47 @@ func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_NotShrunk(t *testi
 	got := parseStageDoc(t, out)
 	if got.Summary != origSummary {
 		t.Errorf("Summary was overwritten despite ratio above threshold: len=%d → %d", len(origSummary), len(got.Summary))
+	}
+}
+
+func TestAnswerDocumentEvaluator_ParseOutput_ShrinkageSalvage_SkipsScaffoldingOnlyScalarDraft(t *testing.T) {
+	ctx := &types.AgentContext{Mutable: types.NewMutableState("")}
+	origSummary := "入口函数是 `buildAnalysisIR`，定义在 `internal/agent/analyzer.go:565`。"
+	doc := &types.AnswerDocument{
+		Shape:   types.ShapeValue,
+		Summary: origSummary,
+		Value:   &types.AnswerValue{Literal: "buildAnalysisIR", CitationRef: types.CitationRefUnset},
+	}
+	ctx.Mutable.SetAnswerDocument(doc)
+	prior := "<think>\n" +
+		"The user is asking about the exact entry function.\n" +
+		"</think>\n\n" +
+		"```json\n{\"shape\":\"value\",\"summary\":\"x\",\"citations\":[{\"file\":\"internal/agent/analyzer.go\",\"line\":565}]}\n```\n\n" +
+		"I need to emit exactly one emit_answer_document tool call.\n\n" +
+		"<minimax:tool_call>\n" +
+		"<invoke name=\"emit_answer_document\">\n" +
+		"<parameter name=\"shape\">value</parameter>\n" +
+		"</invoke>\n" +
+		"</minimax:tool_call>\n\n" +
+		"值为 `buildAnalysisIR` (`internal/agent/analyzer.go:565`)."
+	messages := []llm.Message{
+		{Role: "assistant", Content: prior},
+		{Role: "assistant", Content: "", ToolCalls: []llm.ToolCall{{ID: "1", Name: "emit_answer_document"}}},
+	}
+	e := &answerDocumentEvaluator{language: "zh"}
+	out, err := e.ParseOutput(ctx, messages, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput err: %v", err)
+	}
+	got := parseStageDoc(t, out)
+	if got.Summary != origSummary {
+		t.Fatalf("scalar salvage should skip scaffolding-heavy draft: got %q want %q", got.Summary, origSummary)
+	}
+	if len(got.Caveats) != 0 {
+		t.Fatalf("scalar salvage should not append caveat when sanitized draft is too short: %v", got.Caveats)
+	}
+	if strings.Contains(out.FinalAnswer, "<think>") || strings.Contains(out.FinalAnswer, "<minimax:tool_call>") {
+		t.Fatalf("FinalAnswer leaked scaffolding: %q", out.FinalAnswer)
 	}
 }
 

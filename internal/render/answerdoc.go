@@ -271,13 +271,13 @@ func renderAnswerDocValue(b *strings.Builder, doc *types.AnswerDocument, lang an
 		if isConfig && v.Key != "" {
 			fmt.Fprintf(b, "配置项 `%s` 的值为 `%s`", v.Key, v.Literal)
 		} else {
-			fmt.Fprintf(b, "值为 `%s`", v.Literal)
+			fmt.Fprintf(b, "答案是 `%s`", v.Literal)
 		}
 	default:
 		if isConfig && v.Key != "" {
 			fmt.Fprintf(b, "The config key `%s` resolves to `%s`", v.Key, v.Literal)
 		} else {
-			fmt.Fprintf(b, "The value is `%s`", v.Literal)
+			fmt.Fprintf(b, "The answer is `%s`", v.Literal)
 		}
 	}
 	if cite := lookupCitation(doc, v.CitationRef); cite != nil {

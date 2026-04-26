@@ -1338,6 +1338,33 @@ func TestEmitAnswerDocument_AbsenceIgnoresUngroundedProductionMention(t *testing
 	}
 }
 
+func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetLabel: "config key",
+		Targets:     []string{"explore_mid_loop_hint_budget"},
+	}
+	exact := &types.AnswerExactResolution{
+		Status:      types.AnswerExactResolutionAbsent,
+		ContextMode: types.AnswerExactResolutionContextGroundedOnly,
+	}
+
+	gotEN := renderAnswerDocumentExactResolutionLead(contract, exact, "en")
+	if !strings.Contains(gotEN, "does not contain the exact config key") {
+		t.Fatalf("english absence lead too mechanical or missing: %q", gotEN)
+	}
+	if !strings.Contains(gotEN, "related background only") {
+		t.Fatalf("english grounded-context note missing: %q", gotEN)
+	}
+
+	gotZH := renderAnswerDocumentExactResolutionLead(contract, exact, "zh")
+	if !strings.Contains(gotZH, "仓库里没有找到精确config key") {
+		t.Fatalf("chinese absence lead too mechanical or missing: %q", gotZH)
+	}
+	if !strings.Contains(gotZH, "只作为相关背景") {
+		t.Fatalf("chinese grounded-context note missing: %q", gotZH)
+	}
+}
+
 // -------- cross-cutting validators --------
 
 func TestEmitAnswerDocument_RejectsSummaryOverCap(t *testing.T) {
