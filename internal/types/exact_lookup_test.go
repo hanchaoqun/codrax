@@ -282,6 +282,25 @@ func TestBuildExactResolutionContract_DoesNotPromoteSecondaryMentionOverPrimaryR
 	}
 }
 
+func TestBuildExactResolutionContract_DisablesImplicitTargetForLatentReturnLookup(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "仓库里负责解析用户请求并产出结构化 AnalysisIR 的那个入口函数具体叫什么名字？在哪个文件？",
+		AnalyzerHints: AnalyzerHints{
+			Kind:            "return_value",
+			PrimaryEntities: []string{"AnalysisIR"},
+			Entities:        []string{"AnalysisIR"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+		PredicateAxis: AxisReturn,
+		Predicates: SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil for latent role lookup without explicit exact_targets", got)
+	}
+}
+
 func TestBuildExactResolutionContract_RequiresExplicitDisambiguationForMultiPrimaryScalarLookup(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "仓库里负责解析用户请求并产出结构化 AnalysisIR 的那个入口函数具体叫什么名字？在哪个文件？",

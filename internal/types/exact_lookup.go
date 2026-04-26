@@ -45,6 +45,9 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	if !exactResolutionEnabled(rm) {
 		return nil
 	}
+	if exactResolutionImplicitTargetsDisabled(rm) {
+		return nil
+	}
 	if targets := exactResolutionSubjectCompatibleCandidates(rm, MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets)); len(targets) > 0 {
 		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), targets)
 	}
@@ -67,6 +70,39 @@ func ExactResolutionTargets(rm RequestModel) []string {
 		// analyzer explicitly disambiguated via exact_targets.
 		return nil
 	}
+}
+
+func exactResolutionImplicitTargetsDisabled(rm RequestModel) bool {
+	if len(rm.AnalyzerHints.ExactTargets) > 0 {
+		return false
+	}
+	switch rm.AnswerSubject.Kind {
+	case SubjectFunctionName,
+		SubjectTypeName,
+		SubjectFilePath,
+		SubjectHandlerRoute,
+		SubjectStructField,
+		SubjectInterface,
+		SubjectEnumValue,
+		SubjectStringLiteral:
+	default:
+		return false
+	}
+	// Role-locate questions often mention the OUTPUT / context entity
+	// ("which function produces AnalysisIR?") rather than an exact
+	// answer target the user wants resolved. For these latent-answer
+	// lookups, exact-resolution must stay opt-in via explicit
+	// exact_targets; otherwise nearby context entities get promoted into
+	// the exact-target lane and downstream leads / validators become
+	// misleading.
+	if strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "return_value") &&
+		rm.AnswerSubject.Kind != SubjectReturnValue {
+		return true
+	}
+	if rm.PredicateAxis == AxisReturn && rm.AnswerSubject.Kind != SubjectReturnValue {
+		return true
+	}
+	return false
 }
 
 func exactResolutionNeedsExplicitDisambiguation(rm RequestModel) bool {

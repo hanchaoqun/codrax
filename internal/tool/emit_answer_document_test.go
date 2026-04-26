@@ -1196,6 +1196,64 @@ func TestEmitAnswerDocument_AllowsAbsenceWithFunctionAbsenceSupport(t *testing.T
 	}
 }
 
+func TestEmitAnswerDocument_RejectsExactMatchFromProductionAbsenceSupportMention(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Subject:         target,
+		Predicate:       "absent_from",
+		Object:          "RuntimeSettings",
+		Summary:         "RuntimeSettings does not define explore_mid_loop_hint_budget.",
+		Source:          "internal/config/runtime.go",
+		LineStart:       207,
+		LineEnd:         221,
+		GroundingStatus: types.GroundingGrounded,
+		ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    target,
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "exact_match",
+		},
+		"summary": "The repo does not define this config key in production code.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("absence-support production mention must not satisfy exact_match")
+	}
+	if !strings.Contains(res.Summary, "anchored proof") {
+		t.Fatalf("reject should explain production anchored-proof requirement, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_AllowsAbsenceWithoutPendingFinding(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")

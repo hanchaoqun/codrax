@@ -153,6 +153,10 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		b.WriteString("- Keep `summary` narrow: identify the literal, give its grounded file:line location, and add only the minimal role sentence needed to justify why it is the answer.\n")
 		b.WriteString("- Do not expand into adjacent helpers, orchestrated stages, or nearby components unless the user explicitly asked how the mechanism works.\n")
 		b.WriteString("- If a related-context evidence item mentions surrounding pipeline pieces, treat that as background noise rather than answer content.\n\n")
+		if isScalarRoleLocateLookup(ctx.AnalysisIR.RequestModel) {
+			b.WriteString("- This is a role-locate lookup: the question names a clue or output, but the answer is the function / file / symbol that plays that role. Do not promote the clue itself into the exact target lane or the lead sentence.\n")
+			b.WriteString("- For this kind of lookup, answer with the located literal and its file:line first. Mention surrounding pipeline stages only if they are strictly necessary to disambiguate the role.\n\n")
+		}
 	}
 
 	if shape == string(types.ShapeListOfSymbols) {
@@ -232,6 +236,19 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	}
 
 	return b.String()
+}
+
+func isScalarRoleLocateLookup(rm types.RequestModel) bool {
+	if !isScalarSourceLiteralLookup(rm) {
+		return false
+	}
+	if rm.AnswerSubject.Kind == types.SubjectReturnValue {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "return_value") {
+		return true
+	}
+	return rm.PredicateAxis == types.AxisReturn
 }
 
 // extractAnswerDocLang reads the language from AgentContext.Language,

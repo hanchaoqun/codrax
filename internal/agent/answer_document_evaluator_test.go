@@ -375,6 +375,38 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersRoleLocateScalarDiscipline(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeValue,
+			},
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioGeneric,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+				AnalyzerHints: types.AnalyzerHints{
+					Kind: "return_value",
+				},
+				PredicateAxis: types.AxisReturn,
+				Predicates: types.SemanticPredicates{
+					IsScalarAnswer: true,
+				},
+			},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"role-locate lookup",
+		"Do not promote the clue itself into the exact target lane",
+		"answer with the located literal and its file:line first",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
 func TestCollectExactResolutionSeeds_FiltersDifferentConfigFamilies(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetKind:           types.SubjectConfigKey,

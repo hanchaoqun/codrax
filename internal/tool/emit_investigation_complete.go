@@ -1313,16 +1313,31 @@ func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justifica
 		return false
 	}
 	text := reason + "\n" + justification
-	for _, target := range contract.Targets {
+	targets := exactAbsencePendingTargets(ctx)
+	if len(targets) == 0 {
+		targets = append(targets, contract.Targets...)
+	}
+	mentioned := false
+	for _, target := range targets {
 		if !types.ExactResolutionTextMentionsTarget(contract, text, target) {
 			continue
 		}
+		mentioned = true
 		if evidenceHasAnyDefiningExactTargetProof(contract, evidence, []string{target}) {
 			continue
 		}
 		return true
 	}
-	return false
+	if mentioned {
+		return false
+	}
+	// Once the upstream exact-target lane has already established a
+	// pending "not found" target, absence closure may still be valid
+	// even if the reason/justification paraphrases the search outcome
+	// without repeating the literal on every line. In that state,
+	// supporting evidence is allowed as long as no defining proof for
+	// the exact target was emitted.
+	return len(targets) > 0 && !evidenceHasAnyDefiningExactTargetProof(contract, evidence, targets)
 }
 
 func exactAbsencePendingTargets(ctx *types.BusContext) []string {
