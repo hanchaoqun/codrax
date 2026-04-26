@@ -22,6 +22,7 @@ package agent
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -555,6 +556,7 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("```\n")
+	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to `Layer N`, `CLI`, or another abstract bucket. Keep each node label as a plain grounded file/path label; do not prepend `Layer 1:` / `Layer 2:` style wrappers.\n")
 	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new layer labels. If you introduce a different file / symbol / path label, ground it first.")
 	return strings.TrimSpace(b.String())
 }
@@ -563,7 +565,12 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 	if ctx == nil {
 		return nil
 	}
-	roleOrder := []string{"default", "yaml", "runtime", "override"}
+	roleOrder := []types.EvidenceDiagramRole{
+		types.EvidenceDiagramRoleDefault,
+		types.EvidenceDiagramRoleYAML,
+		types.EvidenceDiagramRoleRuntime,
+		types.EvidenceDiagramRoleOverride,
+	}
 	best := make(map[string]configTraceDiagramAnchor, len(roleOrder))
 	appendCandidate := func(ev types.EvidenceItem) {
 		role, score := classifyConfigTraceDiagramRole(ev)
@@ -587,7 +594,7 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 	}
 	var out []configTraceDiagramAnchor
 	for _, role := range roleOrder {
-		if anchor, ok := best[role]; ok {
+		if anchor, ok := best[string(role)]; ok {
 			out = append(out, anchor)
 		}
 	}
@@ -595,24 +602,21 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 }
 
 func classifyConfigTraceDiagramRole(ev types.EvidenceItem) (string, int) {
-	text := strings.ToLower(strings.Join(filterEmptyStrings(
-		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Source,
-	), " "))
-	source := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(ev.Source), `\`, `/`))
-	if types.LooksLikeTestFilePath(source) ||
-		strings.Contains(source, "/testdata/") || strings.HasPrefix(source, "testdata/") ||
-		strings.Contains(source, "/fixtures/") || strings.HasPrefix(source, "fixtures/") {
+	if ev.Source == "" || ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
 		return "", 0
 	}
-	switch {
-	case strings.Contains(text, "default") || strings.HasPrefix(strings.ToLower(strings.TrimSpace(ev.Subject)), "default"):
-		return "default", 16 + configTraceLineScore(ev)
-	case strings.Contains(source, ".yaml") || strings.Contains(source, ".yml") || strings.Contains(text, "yaml"):
-		return "yaml", 14 + configTraceLineScore(ev)
-	case strings.Contains(source, "/cmd/") || strings.Contains(text, "cli") || strings.Contains(text, "flag") || strings.Contains(text, "override"):
-		return "override", 12 + configTraceLineScore(ev)
-	case strings.Contains(source, "/config/") || strings.Contains(text, "runtime") || strings.Contains(text, "bind") || strings.Contains(text, "map"):
-		return "runtime", 10 + configTraceLineScore(ev)
+	if ev.GroundingStatus == types.GroundingUngrounded || ev.Kind == types.EvidenceUnresolved || ev.Kind == types.EvidenceTruncated {
+		return "", 0
+	}
+	switch ev.DiagramRole {
+	case types.EvidenceDiagramRoleDefault:
+		return string(ev.DiagramRole), 16 + configTraceLineScore(ev)
+	case types.EvidenceDiagramRoleYAML:
+		return string(ev.DiagramRole), 14 + configTraceLineScore(ev)
+	case types.EvidenceDiagramRoleOverride:
+		return string(ev.DiagramRole), 12 + configTraceLineScore(ev)
+	case types.EvidenceDiagramRoleRuntime:
+		return string(ev.DiagramRole), 10 + configTraceLineScore(ev)
 	default:
 		return "", 0
 	}
@@ -632,10 +636,6 @@ func formatConfigTraceDiagramAnchorLabel(ev types.EvidenceItem) string {
 	}
 	if ev.LineStart > 0 {
 		label = fmt.Sprintf("%s:%d", label, ev.LineStart)
-	}
-	name := strings.TrimSpace(firstNonEmptyString(ev.AnchorSymbol, ev.Subject))
-	if name != "" && !strings.Contains(label, name) {
-		label += " " + name
 	}
 	return label
 }
@@ -663,7 +663,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		label = "target"
 	}
 	pending := types.ExactResolutionPendingTargets(contract, ctx.UnverifiedAnalyzerFindings)
-	justification := strings.TrimSpace(ctx.Mutable.AbsenceJustification())
+	justification := strings.TrimSpace(sanitizeExactResolutionAbsenceJustification(ctx, contract, ctx.Mutable.AbsenceJustification()))
 	stateAbsent := contract.AllowAbsence &&
 		ctx.Mutable.InvestigationResultKind() == "absence" &&
 		justification != "" &&
@@ -692,6 +692,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Emit `exact_resolution.status=\"absent\"`; the renderer will lead with the exact absence before any related context.\n")
 		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby YAML / struct citation.\n")
+			b.WriteString("- In `step_list`, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
 		}
 	}
 	b.WriteString("\n")
@@ -790,6 +791,12 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 	if contract == nil {
 		return score
 	}
+	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
+		ev.GroundingStatus == types.GroundingUngrounded ||
+		ev.Kind == types.EvidenceUnresolved ||
+		ev.Kind == types.EvidenceTruncated {
+		return math.MinInt / 8
+	}
 	text := strings.ToLower(strings.Join([]string{
 		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Source,
 	}, " "))
@@ -824,6 +831,12 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 		score += 6
 	case types.EvidenceDirect, types.EvidenceConcrete:
 		score += 4
+	}
+	switch ev.ContextRole {
+	case types.EvidenceContextRoleDefining:
+		score += 6
+	case types.EvidenceContextRoleRelatedContext:
+		score += 3
 	}
 	switch strings.TrimSpace(strings.ToLower(ev.Predicate)) {
 	case "maps", "config", "binds", "binds only", "defines", "registers", "wires", "calls", "dispatches", "delegates to", "returns", "constructs":
@@ -860,6 +873,44 @@ func formatExactResolutionSeed(ev types.EvidenceItem) string {
 		}
 	}
 	return text
+}
+
+func sanitizeExactResolutionAbsenceJustification(ctx *types.AgentContext, contract *types.ExactResolutionContract, raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || ctx == nil || contract == nil || !contract.AllowAbsence {
+		return raw
+	}
+	if !hasIllustrativeExactResolutionMention(ctx, contract) {
+		return raw
+	}
+	label := strings.TrimSpace(contract.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	return fmt.Sprintf(
+		"The exact %s was searched across production code/config surfaces and was not found. Any doc/test/example/comment-only mentions are illustrative only and do not define a real %s.",
+		label, label,
+	)
+}
+
+func hasIllustrativeExactResolutionMention(ctx *types.AgentContext, contract *types.ExactResolutionContract) bool {
+	if ctx == nil || contract == nil {
+		return false
+	}
+	for _, ev := range ctx.EvidenceItems {
+		if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly {
+			continue
+		}
+		text := strings.Join([]string{
+			ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Summary, ev.Snippet,
+		}, "\n")
+		for _, target := range contract.Targets {
+			if types.ExactResolutionTextMentionsTarget(contract, text, target) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func filterEmptyStrings(items ...string) []string {

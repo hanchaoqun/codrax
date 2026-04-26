@@ -80,6 +80,30 @@ func emitAnchorKindNames() []string {
 	return names
 }
 
+func emitEvidenceContextRoleNames() []string {
+	roles := types.AllEvidenceContextRoles()
+	names := make([]string, 0, len(roles)-1)
+	for _, r := range roles {
+		if r == types.EvidenceContextRoleUnknown {
+			continue
+		}
+		names = append(names, string(r))
+	}
+	return names
+}
+
+func emitEvidenceDiagramRoleNames() []string {
+	roles := types.AllEvidenceDiagramRoles()
+	names := make([]string, 0, len(roles)-1)
+	for _, r := range roles {
+		if r == types.EvidenceDiagramRoleUnknown {
+			continue
+		}
+		names = append(names, string(r))
+	}
+	return names
+}
+
 type emitEvidenceParams struct {
 	Items []emitEvidenceItem `json:"items"`
 }
@@ -100,6 +124,8 @@ type emitEvidenceItem struct {
 	AnchorKind   string  `json:"anchor_kind"`
 	AnchorSymbol string  `json:"anchor_symbol"`
 	Snippet      string  `json:"snippet,omitempty"`
+	ContextRole  string  `json:"context_role_hint,omitempty"`
+	DiagramRole  string  `json:"diagram_role_hint,omitempty"`
 }
 
 // EmitEvidenceProducer is the Producer string stamped on every item
@@ -135,6 +161,10 @@ func (t *EmitEvidence) Description() string {
 		"the containing function/method and `object` must be the callee on that line. Example: if " +
 		"`outer()` contains `return inner(...)`, emit `subject=\"outer\"`, `predicate=\"calls\"`, " +
 		"`object=\"inner\"`.\n\n" +
+		"Optional hint fields: `context_role_hint` may be `defining`, `related_context`, or `illustrative_only` " +
+		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
+		"`yaml`, `runtime`, or `override` for config-precedence traces. These are recommendations only: the tool " +
+		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
 		"snippet is optional but recommended for conditional / mechanism / registration items: paste " +
 		"1-2 lines of the actual code so the snippet_fuzzy recovery tier can re-anchor if your " +
 		"line_start is off by one.\n\n" +
@@ -150,6 +180,8 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
 	// — hand-editing the schema literal is how the 6-vs-11 drift bug
 	// was born.
 	kindEnumJSON, _ := json.Marshal(emitEvidenceAllowedKindNames())
+	contextRoleEnumJSON, _ := json.Marshal(emitEvidenceContextRoleNames())
+	diagramRoleEnumJSON, _ := json.Marshal(emitEvidenceDiagramRoleNames())
 	anchorEnumJSON, _ := json.Marshal(emitAnchorKindNames())
 	schema := fmt.Sprintf(`{
   "type": "object",
@@ -169,6 +201,8 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "line_end":      {"type": "integer", "description": "Last line of the cited range. Defaults to line_start when omitted."},
           "condition":     {"type": "string", "description": "For conditional items: the exact IF clause that triggers the behaviour."},
           "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals."},
+          "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
+          "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, yaml = repo/user config layer, runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What the line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment, 'import' = import/use/require statement. The grounder dispatches on this so wrong kinds produce confusing ungrounded verdicts."},
           "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias."},
           "snippet":       {"type": "string", "description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by ±15 lines — recommended for conditional / mechanism / registration items."}
@@ -178,7 +212,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
     }
   },
   "required": ["items"]
-}`, string(kindEnumJSON), string(anchorEnumJSON))
+}`, string(kindEnumJSON), string(contextRoleEnumJSON), string(diagramRoleEnumJSON), string(anchorEnumJSON))
 	return json.RawMessage(schema)
 }
 
@@ -290,12 +324,14 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i := range built {
 		r := ground.GroundItem(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
-		if demoteConfigAbsenceSubstituteEvidence(&built[i], configAbsenceSubjects) {
+		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc)
+		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc)
+		if demoteIllustrativeExactConfigEvidence(&built[i], exactResolutionContract, configAbsenceSubjects) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
 		}
-		if demoteDocumentationStyleExactConfigEvidence(&built[i], exactResolutionContract, configAbsenceSubjects) {
+		if demoteConfigAbsenceSubstituteEvidence(&built[i], configAbsenceSubjects) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
@@ -469,6 +505,14 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	condition := strings.TrimSpace(in.Condition)
 	summary := strings.TrimSpace(in.Summary)
 	snippet := strings.TrimSpace(in.Snippet)
+	contextRole, err := parseEvidenceContextRoleHint(index, in.ContextRole)
+	if err != nil {
+		return types.EvidenceItem{}, err
+	}
+	diagramRole, err := parseEvidenceDiagramRoleHint(index, in.DiagramRole)
+	if err != nil {
+		return types.EvidenceItem{}, err
+	}
 	lineStart := lineStartN
 	lineEnd := lineEndN
 	if lineEnd == 0 {
@@ -487,12 +531,148 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 		LineEnd:      lineEnd,
 		Confidence:   0.78, // matches parseEvidenceLine's confidence floor
 		Producer:     EmitEvidenceProducer,
+		ContextRole:  contextRole,
+		DiagramRole:  diagramRole,
 		AnchorKind:   anchorKind,
 		AnchorSymbol: anchorSymbol,
 		Snippet:      snippet,
 	}
 	item.ID = types.StableEvidenceID(item.Kind, item.Subject, item.Predicate, item.Object, item.Condition, item.Source, item.LineStart, item.LineEnd)
 	return item, nil
+}
+
+func parseEvidenceContextRoleHint(index int, raw string) (types.EvidenceContextRole, error) {
+	role := types.EvidenceContextRole(strings.ToLower(strings.TrimSpace(raw)))
+	if role == "" {
+		return types.EvidenceContextRoleUnknown, nil
+	}
+	if role.IsValid() && role != types.EvidenceContextRoleUnknown {
+		return role, nil
+	}
+	return types.EvidenceContextRoleUnknown, fmt.Errorf(
+		"items[%d]: unknown context_role_hint %q (allowed: %s)",
+		index, raw, strings.Join(emitEvidenceContextRoleNames(), ", "))
+}
+
+func parseEvidenceDiagramRoleHint(index int, raw string) (types.EvidenceDiagramRole, error) {
+	role := types.EvidenceDiagramRole(strings.ToLower(strings.TrimSpace(raw)))
+	if role == "" {
+		return types.EvidenceDiagramRoleUnknown, nil
+	}
+	if role.IsValid() && role != types.EvidenceDiagramRoleUnknown {
+		return role, nil
+	}
+	return types.EvidenceDiagramRoleUnknown, fmt.Errorf(
+		"items[%d]: unknown diagram_role_hint %q (allowed: %s)",
+		index, raw, strings.Join(emitEvidenceDiagramRoleNames(), ", "))
+}
+
+func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context) types.EvidenceContextRole {
+	if evidenceLooksIllustrative(ev, gc) {
+		return types.EvidenceContextRoleIllustrativeOnly
+	}
+	switch ev.ContextRole {
+	case types.EvidenceContextRoleDefining:
+		if evidenceCanBeDefining(ev) {
+			return ev.ContextRole
+		}
+	case types.EvidenceContextRoleRelatedContext:
+		if evidenceCanBeRelatedContext(ev) {
+			return ev.ContextRole
+		}
+	case types.EvidenceContextRoleIllustrativeOnly:
+		if evidenceLooksIllustrative(ev, gc) {
+			return ev.ContextRole
+		}
+	}
+	return types.EvidenceContextRoleUnknown
+}
+
+func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context) types.EvidenceDiagramRole {
+	if evidenceLooksIllustrative(ev, gc) {
+		return types.EvidenceDiagramRoleUnknown
+	}
+	switch ev.DiagramRole {
+	case types.EvidenceDiagramRoleYAML:
+		if evidenceLooksYAMLLayer(ev.Source) {
+			return ev.DiagramRole
+		}
+	case types.EvidenceDiagramRoleOverride:
+		if evidenceLooksOverrideLayer(ev.Source) {
+			return ev.DiagramRole
+		}
+	case types.EvidenceDiagramRoleRuntime:
+		if evidenceCanBeRuntimeLayer(ev) {
+			return ev.DiagramRole
+		}
+	case types.EvidenceDiagramRoleDefault:
+		if evidenceCanBeDefining(ev) {
+			return ev.DiagramRole
+		}
+	}
+	switch {
+	case evidenceLooksYAMLLayer(ev.Source):
+		return types.EvidenceDiagramRoleYAML
+	case evidenceLooksOverrideLayer(ev.Source):
+		return types.EvidenceDiagramRoleOverride
+	case evidenceLooksRuntimeLayer(ev.Source):
+		return types.EvidenceDiagramRoleRuntime
+	default:
+		return types.EvidenceDiagramRoleUnknown
+	}
+}
+
+func evidenceLooksIllustrative(ev types.EvidenceItem, gc *ground.Context) bool {
+	if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
+		return true
+	}
+	if gc == nil || len(gc.LineIndex) == 0 || ev.Source == "" || ev.LineStart <= 0 {
+		return false
+	}
+	fileLines, ok := gc.LineIndex[ev.Source]
+	if !ok {
+		return false
+	}
+	return ground.LineLooksCommentOnly(fileLines, ev.LineStart, ev.Source)
+}
+
+func evidenceCanBeDefining(ev types.EvidenceItem) bool {
+	if ev.Source == "" {
+		return false
+	}
+	switch ev.AnchorKind {
+	case types.AnchorDefinition, types.AnchorAssignment, types.AnchorImport, types.AnchorReturn:
+		return true
+	default:
+		return false
+	}
+}
+
+func evidenceCanBeRelatedContext(ev types.EvidenceItem) bool {
+	return ev.Source != ""
+}
+
+func evidenceLooksYAMLLayer(source string) bool {
+	source = strings.ToLower(strings.TrimSpace(source))
+	return strings.HasSuffix(source, ".yaml") || strings.HasSuffix(source, ".yml")
+}
+
+func evidenceLooksOverrideLayer(source string) bool {
+	source = normalizeEvidenceSourcePath(source)
+	return strings.Contains(source, "/cmd/") || strings.HasPrefix(source, "cmd/")
+}
+
+func evidenceLooksRuntimeLayer(source string) bool {
+	source = normalizeEvidenceSourcePath(source)
+	return strings.Contains(source, "/config/") || strings.HasPrefix(source, "config/")
+}
+
+func evidenceCanBeRuntimeLayer(ev types.EvidenceItem) bool {
+	return ev.Source != "" && !evidenceLooksYAMLLayer(ev.Source) && !evidenceLooksOverrideLayer(ev.Source)
+}
+
+func normalizeEvidenceSourcePath(source string) string {
+	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(source), `\`, `/`))
 }
 
 var callLikePredicates = map[string]bool{
@@ -883,6 +1063,9 @@ func demoteConfigAbsenceSubstituteEvidence(ev *types.EvidenceItem, subjects []st
 	if ev == nil || len(subjects) == 0 {
 		return false
 	}
+	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+		return false
+	}
 	for _, subject := range subjects {
 		if evidenceMentionsExactConfigToken([]types.EvidenceItem{*ev}, subject) {
 			return false
@@ -903,12 +1086,11 @@ func demoteConfigAbsenceSubstituteEvidence(ev *types.EvidenceItem, subjects []st
 	return true
 }
 
-func demoteDocumentationStyleExactConfigEvidence(ev *types.EvidenceItem, contract *types.ExactResolutionContract, subjects []string) bool {
+func demoteIllustrativeExactConfigEvidence(ev *types.EvidenceItem, contract *types.ExactResolutionContract, subjects []string) bool {
 	if ev == nil || contract == nil || contract.TargetKind != types.SubjectConfigKey || len(subjects) == 0 {
 		return false
 	}
-	predicate := strings.ToLower(strings.TrimSpace(ev.Predicate))
-	if !strings.HasPrefix(predicate, "documents") {
+	if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly {
 		return false
 	}
 	text := strings.Join([]string{
@@ -930,7 +1112,7 @@ func demoteDocumentationStyleExactConfigEvidence(ev *types.EvidenceItem, contrac
 	if !mentionsExact {
 		return false
 	}
-	note := "documentation-style mention of the exact config key is not defining proof. Use absence_justification plus production anchors; do NOT repair this item."
+	note := "illustrative mention of the exact config key is not defining proof. Use absence_justification plus production anchors; do NOT repair this item."
 	ev.Kind = types.EvidenceUnresolved
 	ev.Confidence = 0
 	ev.GroundingStatus = types.GroundingUngrounded

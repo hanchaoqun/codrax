@@ -47,6 +47,14 @@ func isLineComment(fileLines map[int]string, line int, source string) bool {
 	return false
 }
 
+// LineLooksCommentOnly exposes the comment-only detector to callers
+// outside the ground package that need to distinguish implementation
+// anchors from illustrative doc / comment mentions using the same
+// language-aware logic as Tier 1 grounding.
+func LineLooksCommentOnly(fileLines map[int]string, line int, source string) bool {
+	return isLineComment(fileLines, line, source)
+}
+
 // isLineSoloComment recognises a line whose entire body is a comment.
 // A line like `x := 1 // note` is NOT a solo comment (the anchor could
 // reasonably live in the executable prefix), so this is intentionally

@@ -184,10 +184,10 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 			},
 		},
 		EvidenceItems: []types.EvidenceItem{
-			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect},
-			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect},
-			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect},
-			{Source: "cmd/root.go", LineStart: 1381, Summary: "CLI override applies when non-nil", Kind: types.EvidenceDirect},
+			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
+			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleYAML},
+			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
+			{Source: "cmd/root.go", LineStart: 1381, Summary: "CLI override applies when non-nil", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleOverride},
 		},
 	}
 
@@ -206,6 +206,44 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_SanitizesIllustrativeAbsenceJustification(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAbsenceJustification("searched the repo and found the token only in internal/skill/analysis_contract.go:367 comment examples")
+	mu.SetInvestigationResultKind("absence")
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectConfigKey,
+					TargetLabel:  "config key",
+					Targets:      []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence: true,
+				},
+			},
+		},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token: "explore_mid_loop_hint_budget",
+			Kind:  "symbol",
+		}},
+		EvidenceItems: []types.EvidenceItem{{
+			Source:      "internal/skill/analysis_contract.go",
+			LineStart:   367,
+			Subject:     "explore_mid_loop_hint_budget",
+			Summary:     "comment example only",
+			ContextRole: types.EvidenceContextRoleIllustrativeOnly,
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if strings.Contains(prompt, "internal/skill/analysis_contract.go:367") {
+		t.Fatalf("prompt should not echo illustrative-only source details into absence justification:\n%s", prompt)
+	}
+	if !strings.Contains(prompt, "doc/test/example/comment-only mentions are illustrative only") {
+		t.Fatalf("prompt should carry sanitized absence wording:\n%s", prompt)
 	}
 }
 

@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -11,6 +12,14 @@ import (
 
 func newEmitCtx() *types.BusContext {
 	return &types.BusContext{Mutable: types.NewMutableState("")}
+}
+
+func buildEmitReadResult(path string, startLine int, lines []string, totalLines int) types.ToolResult {
+	body := "[" + path + ": showing lines " + strconv.Itoa(startLine) + "-" + strconv.Itoa(startLine+len(lines)-1) + " of " + strconv.Itoa(totalLines) + "]\n"
+	for i, l := range lines {
+		body += "  " + strconv.Itoa(startLine+i) + "│" + l + "\n"
+	}
+	return types.ToolResult{ToolName: "read_file", Success: true, Summary: body}
 }
 
 func TestEmitEvidence_AcceptsValidBatch(t *testing.T) {
@@ -99,12 +108,13 @@ func TestEmitEvidence_DemotesDocumentationStyleExactConfigMention(t *testing.T) 
 			{
 				"kind": "direct",
 				"subject": "explore_mid_loop_hint_budget",
-				"predicate": "documents",
-				"source": "internal/skill/analysis_contract.go",
+				"predicate": "defines",
+				"source": "docs/analysis_contract.md",
 				"line_start": 367,
-				"summary": "The token appears in documentation text only.",
+				"summary": "The token appears in a comment example only.",
 				"anchor_kind": "definition",
-				"anchor_symbol": "explore_mid_loop_hint_budget"
+				"anchor_symbol": "explore_mid_loop_hint_budget",
+				"context_role_hint": "illustrative_only"
 			}
 		]
 	}`)
@@ -128,8 +138,45 @@ func TestEmitEvidence_DemotesDocumentationStyleExactConfigMention(t *testing.T) 
 	if got[0].GroundingStatus != types.GroundingUngrounded {
 		t.Fatalf("grounding status = %q, want ungrounded", got[0].GroundingStatus)
 	}
+	if got[0].ContextRole != types.EvidenceContextRoleIllustrativeOnly {
+		t.Fatalf("context role = %q, want illustrative_only", got[0].ContextRole)
+	}
 	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
 		t.Fatalf("grounding note should mark the mention non-repairable, got: %s", got[0].GroundingNote)
+	}
+}
+
+func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "rootFlags",
+				"predicate": "config",
+				"source": "cmd/root.go",
+				"line_start": 1381,
+				"summary": "CLI override applies when non-nil.",
+				"anchor_kind": "assignment",
+				"anchor_symbol": "opts",
+				"diagram_role_hint": "override"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleOverride {
+		t.Fatalf("diagram role = %q, want override", got[0].DiagramRole)
 	}
 }
 

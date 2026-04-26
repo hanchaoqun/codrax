@@ -2355,7 +2355,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 				Subject:      item.Subject,
 				AnchorSymbol: item.AnchorSymbol,
 				Object:       item.Object,
-				Production:   exactResolutionProofSourceIsProductionLike(contract, item.Source),
+				Production:   exactResolutionProofSourceIsProductionLike(contract, item.Source) && item.ContextRole != types.EvidenceContextRoleIllustrativeOnly,
 				FromEvidence: true,
 			})
 		}

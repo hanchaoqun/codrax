@@ -168,6 +168,77 @@ func AllAnchorKinds() []AnchorKind {
 	return out
 }
 
+// EvidenceContextRole classifies how an evidence item should be used
+// when the user asked about an exact target. The LLM may recommend a
+// role through emit_evidence, but the system validates and can
+// downgrade the role before storing it on the item.
+type EvidenceContextRole string
+
+const (
+	EvidenceContextRoleUnknown          EvidenceContextRole = ""
+	EvidenceContextRoleDefining         EvidenceContextRole = "defining"
+	EvidenceContextRoleRelatedContext   EvidenceContextRole = "related_context"
+	EvidenceContextRoleIllustrativeOnly EvidenceContextRole = "illustrative_only"
+)
+
+var allEvidenceContextRoles = []EvidenceContextRole{
+	EvidenceContextRoleUnknown,
+	EvidenceContextRoleDefining,
+	EvidenceContextRoleRelatedContext,
+	EvidenceContextRoleIllustrativeOnly,
+}
+
+func AllEvidenceContextRoles() []EvidenceContextRole {
+	out := make([]EvidenceContextRole, len(allEvidenceContextRoles))
+	copy(out, allEvidenceContextRoles)
+	return out
+}
+
+func (r EvidenceContextRole) IsValid() bool {
+	for _, declared := range allEvidenceContextRoles {
+		if r == declared {
+			return true
+		}
+	}
+	return false
+}
+
+// EvidenceDiagramRole classifies where an evidence item sits inside a
+// config-precedence diagram. Like ContextRole, this is an
+// LLM-recommended signal that the system validates structurally.
+type EvidenceDiagramRole string
+
+const (
+	EvidenceDiagramRoleUnknown  EvidenceDiagramRole = ""
+	EvidenceDiagramRoleDefault  EvidenceDiagramRole = "default"
+	EvidenceDiagramRoleYAML     EvidenceDiagramRole = "yaml"
+	EvidenceDiagramRoleRuntime  EvidenceDiagramRole = "runtime"
+	EvidenceDiagramRoleOverride EvidenceDiagramRole = "override"
+)
+
+var allEvidenceDiagramRoles = []EvidenceDiagramRole{
+	EvidenceDiagramRoleUnknown,
+	EvidenceDiagramRoleDefault,
+	EvidenceDiagramRoleYAML,
+	EvidenceDiagramRoleRuntime,
+	EvidenceDiagramRoleOverride,
+}
+
+func AllEvidenceDiagramRoles() []EvidenceDiagramRole {
+	out := make([]EvidenceDiagramRole, len(allEvidenceDiagramRoles))
+	copy(out, allEvidenceDiagramRoles)
+	return out
+}
+
+func (r EvidenceDiagramRole) IsValid() bool {
+	for _, declared := range allEvidenceDiagramRoles {
+		if r == declared {
+			return true
+		}
+	}
+	return false
+}
+
 // GroundingTier names the exact tier that produced a grounded or
 // recovered verdict. Rendered in the per-item feedback the
 // emit_evidence tool returns, so the LLM can tell "my line was right"
@@ -206,6 +277,12 @@ type EvidenceItem struct {
 	DerivedFrom []string     `json:"derived_from,omitempty"`
 	Confidence  float64      `json:"confidence,omitempty"`
 	Producer    string       `json:"producer,omitempty"`
+
+	// Role fields: the system-validated usage lanes for exact-target
+	// and config-trace questions. Populated from optional emit_evidence
+	// hints and/or structural validation after grounding.
+	ContextRole EvidenceContextRole `json:"context_role,omitempty"`
+	DiagramRole EvidenceDiagramRole `json:"diagram_role,omitempty"`
 
 	// Anchor fields: required for LLM-emitted items, let the grounder
 	// dispatch Tier 2 and the recovery tiers without guessing.

@@ -1506,6 +1506,9 @@ func evidenceMentionsProductionExactConfigToken(contract *types.ExactResolutionC
 		default:
 			continue
 		}
+		if it.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+			continue
+		}
 		if !exactResolutionProofSourceIsProductionLike(contract, it.Source) {
 			continue
 		}
