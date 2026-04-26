@@ -6267,6 +6267,26 @@ func filterResolutionChainSection(md string, demoted map[string]bool) string {
 	return out
 }
 
+func (e *explorerEvaluator) filterConcreteValueScanFiles(files map[string]bool) map[string]bool {
+	if len(files) == 0 {
+		return files
+	}
+	if e.exactResolution == nil || !types.ExactResolutionRequiresDefiningPrimaryProof(e.exactResolution) {
+		return files
+	}
+	filtered := make(map[string]bool, len(files))
+	for file := range files {
+		if types.LooksLikeAuxiliaryEvidencePath(file) {
+			continue
+		}
+		filtered[file] = true
+	}
+	if len(filtered) == 0 {
+		return files
+	}
+	return filtered
+}
+
 func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet map[string]bool, closure *types.EvidenceClosure) concreteValuesResult {
 	if e.searchResult == nil || e.searchResult.Graph == nil {
 		return concreteValuesResult{}
@@ -6281,6 +6301,7 @@ func (e *explorerEvaluator) buildConcreteValuesSection(repoRoot string, readSet 
 	// neighbors. Deliberately excludes the whole allScoredFiles tail so
 	// first-round ranking noise does not become second-round scan scope.
 	filesToScan := e.activeFrontierFileSet(readSet, notesJoined)
+	filesToScan = e.filterConcreteValueScanFiles(filesToScan)
 	focusSymbols := e.concreteValueFocusSymbols(graph, filesToScan)
 
 	// Cache file contents to avoid re-opening the same file for each symbol.

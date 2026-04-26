@@ -910,6 +910,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 		if err := validateValueShapeSummary(p.Summary, p.Value); err != nil {
 			return failWithContext("%v", err)
 		}
+		if err := validateValueCitationFocus(ctx, p.Value, citations, groundCtx); err != nil {
+			return failWithContext("%v", err)
+		}
 		if note := scrubForbiddenNonZeroFields(&p, shape, forbidSteps|forbidSymbols|forbidBoolean); note != "" {
 			shapeCorrectionNote = joinNote(shapeCorrectionNote, note)
 		}
@@ -1412,6 +1415,41 @@ func validateValueLiteralGrounding(v *types.AnswerValue, citations []types.Citat
 	return requireCitationCorroboration(v.Literal, cite.File, cite.Line, gc, cfg)
 }
 
+func validateValueCitationFocus(ctx *types.BusContext, v *types.AnswerValue, citations []types.Citation, gc *ground.Context) error {
+	if ctx == nil || v == nil || len(citations) <= 1 {
+		return nil
+	}
+	subjectKind := valueCitationFocusSubjectKind(ctx)
+	if !valueSubjectNeedsCitationFocus(subjectKind) {
+		return nil
+	}
+	literalKey := valueCitationFocusKey(subjectKind, v.Literal)
+	if literalKey == "" {
+		return nil
+	}
+	var emitted []types.EvidenceItem
+	if ctx.Mutable != nil {
+		emitted = ctx.Mutable.EmittedEvidence()
+	}
+	for idx, cite := range citations {
+		if idx == v.CitationRef {
+			continue
+		}
+		matched := matchingEvidenceForCitation(emitted, cite)
+		if valueCitationSupportsLiteral(subjectKind, literalKey, v.Literal, cite, matched, gc) {
+			continue
+		}
+		return newAnswerDocValidationError(
+			"scalar_citation_focus",
+			"shape=value is a scalar lookup answer, so secondary citations must directly support the emitted literal %q. citations[%d] (%s:%d) does not directly define or reference that literal; keep the defining line and, if needed, one direct call/reference, but move broader background into summary without this citation.",
+			v.Literal, idx, cite.File, cite.Line,
+		).
+			WithFields("value.literal", "value.citation_ref", fmt.Sprintf("citations[%d]", idx)).
+			WithHint("Re-emit `emit_answer_document` with `shape=value` still intact, keep the literal's own defining citation, and drop any secondary citation that does not directly define or reference the same literal. Broader background belongs in `summary` without extra citations.")
+	}
+	return nil
+}
+
 // validateSymbolsLiteralGrounding is the ShapeListOfSymbols wrapper.
 // Each items[i] carries its own File/Line (no CitationRef indirection
 // on AnswerSymbol). The Name IS the literal being claimed — the
@@ -1444,6 +1482,85 @@ func validateSymbolsLiteralGrounding(symbols []types.AnswerSymbol, gc *ground.Co
 		}
 	}
 	return nil
+}
+
+func valueCitationFocusSubjectKind(ctx *types.BusContext) types.AnswerSubjectKind {
+	if ctx == nil {
+		return types.SubjectUnknown
+	}
+	if ctx.AnalysisIR != nil {
+		return ctx.AnalysisIR.RequestModel.AnswerSubject.Kind
+	}
+	if ctx.Mutable != nil {
+		if rm := ctx.Mutable.RequestModel(); rm != nil {
+			return rm.AnswerSubject.Kind
+		}
+	}
+	return types.SubjectUnknown
+}
+
+func valueSubjectNeedsCitationFocus(kind types.AnswerSubjectKind) bool {
+	switch kind {
+	case types.SubjectFunctionName,
+		types.SubjectTypeName,
+		types.SubjectHandlerRoute,
+		types.SubjectFilePath,
+		types.SubjectStringLiteral,
+		types.SubjectEnumValue,
+		types.SubjectStructField,
+		types.SubjectInterface:
+		return true
+	default:
+		return false
+	}
+}
+
+func valueCitationFocusKey(kind types.AnswerSubjectKind, literal string) string {
+	if kind == types.SubjectFilePath {
+		return types.ExactResolutionLookupKey("path", literal)
+	}
+	return types.ExactResolutionLookupKey("symbol", literal)
+}
+
+func valueCitationSupportsLiteral(kind types.AnswerSubjectKind, literalKey, literal string, cite types.Citation, matched types.EvidenceItem, gc *ground.Context) bool {
+	if matched.Source != "" {
+		if valueCitationTextMatchesLiteral(kind, literalKey, matched.Subject) ||
+			valueCitationTextMatchesLiteral(kind, literalKey, matched.AnchorSymbol) ||
+			valueCitationTextMatchesLiteral(kind, literalKey, matched.Object) {
+			return true
+		}
+	}
+	if citationLooksCommentOnly(cite, gc) {
+		return false
+	}
+	if kind == types.SubjectFilePath && strings.TrimSpace(cite.File) != "" {
+		return valueCitationTextMatchesLiteral(kind, literalKey, cite.File)
+	}
+	if strings.TrimSpace(cite.Quote) != "" {
+		return valueCitationTextMatchesLiteral(kind, literalKey, cite.Quote)
+	}
+	return false
+}
+
+func citationLooksCommentOnly(cite types.Citation, gc *ground.Context) bool {
+	if gc == nil || cite.File == "" || cite.Line <= 0 {
+		return false
+	}
+	fileLines, ok := gc.LineIndex[cite.File]
+	if !ok {
+		return false
+	}
+	return ground.LineLooksCommentOnly(fileLines, cite.Line, cite.File)
+}
+
+func valueCitationTextMatchesLiteral(kind types.AnswerSubjectKind, literalKey, text string) bool {
+	if literalKey == "" || strings.TrimSpace(text) == "" {
+		return false
+	}
+	if kind == types.SubjectFilePath {
+		return types.ExactResolutionLookupKey("path", text) == literalKey
+	}
+	return strings.Contains(types.ExactResolutionLookupKey("symbol", text), literalKey)
 }
 
 // validateStepsLiteralGrounding is the ShapeStepList wrapper. Each

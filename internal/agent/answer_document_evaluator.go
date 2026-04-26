@@ -157,6 +157,7 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		b.WriteString("- `shape=value` / `shape=config_value` / `shape=boolean` still require a real `summary`. The literal or decision alone is not a complete answer.\n")
 		b.WriteString("- Do not expand into adjacent helpers, orchestrated stages, or nearby components unless the user explicitly asked how the mechanism works.\n")
 		b.WriteString("- For scalar payloads (`value`, `config_value`, `boolean`), every non-negative `citation_ref` must point at a real entry in `citations[]`. Do not emit `citation_ref: 0` with an empty citations pool.\n")
+		b.WriteString("- If you include a secondary citation beyond the defining one, it must still directly name or call/reference the SAME emitted literal. Drop type comments, nearby docstrings, or broad background citations even when they are grounded.\n")
 		b.WriteString("- If a related-context evidence item mentions surrounding pipeline pieces, treat that as background noise rather than answer content.\n\n")
 		if isScalarRoleLocateLookup(ctx.AnalysisIR.RequestModel) {
 			b.WriteString("- This is a role-locate lookup: the question names a clue or output, but the answer is the function / file / symbol that plays that role. Do not promote the clue itself into the exact target lane or the lead sentence.\n")

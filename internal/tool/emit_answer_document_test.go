@@ -3100,6 +3100,150 @@ func TestEmitAnswerDocument_ValueShape_AcceptsFilledSummary(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocument_ValueShape_AcceptsFocusedSecondaryCallsite(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "buildAnalysisIR",
+			Predicate:       "defines",
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			LineEnd:         612,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "ParseOutput",
+			Predicate:       "calls",
+			Object:          "buildAnalysisIR",
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       412,
+			LineEnd:         412,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "ParseOutput",
+		},
+	})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/agent/analyzer.go: showing lines 412-612 of 700 total]\n" +
+			"   412│ return buildAnalysisIR(parsed)\n" +
+			"   612│ func buildAnalysisIR(out ParseOutput) types.AnalysisIR { return types.AnalysisIR{} }\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "value",
+		"summary": "The entry function is `buildAnalysisIR`; the defining line and one direct callsite in `internal/agent/analyzer.go` are enough to justify the lookup.",
+		"value": map[string]interface{}{
+			"literal":      "buildAnalysisIR",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 612, "quote": "func buildAnalysisIR(out ParseOutput) types.AnalysisIR { return types.AnalysisIR{} }"},
+			{"file": "internal/agent/analyzer.go", "line": 412, "quote": "return buildAnalysisIR(parsed)"},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("focused secondary callsite should be accepted, got reject: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_ValueShape_RejectsUnfocusedSecondaryCitation(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+		},
+	}
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "buildAnalysisIR",
+			Predicate:       "defines",
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       612,
+			LineEnd:         612,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildAnalysisIR",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "ParseOutput",
+			Predicate:       "calls",
+			Object:          "buildAnalysisIR",
+			Source:          "internal/agent/analyzer.go",
+			LineStart:       412,
+			LineEnd:         412,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorKind:      types.AnchorCall,
+			AnchorSymbol:    "ParseOutput",
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "AnalysisIR",
+			Predicate:       "documents",
+			Source:          "internal/types/analysis_ir.go",
+			LineStart:       25,
+			LineEnd:         26,
+			GroundingStatus: types.GroundingGrounded,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "AnalysisIR",
+		},
+	})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/agent/analyzer.go: showing lines 412-612 of 700 total]\n" +
+			"   412│ return buildAnalysisIR(parsed)\n" +
+			"   612│ func buildAnalysisIR(out ParseOutput) types.AnalysisIR { return types.AnalysisIR{} }\n",
+	})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/types/analysis_ir.go: showing lines 25-26 of 400 total]\n" +
+			"    25│ // analyzer.go:buildAnalysisIR.\n" +
+			"    26│ // AnalysisIR is the deterministic pipeline working state for the hypothesis planner.\n",
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "value",
+		"summary": "The entry function is `buildAnalysisIR`; the answer should stay focused on the located function instead of drifting into nearby background commentary.",
+		"value": map[string]interface{}{
+			"literal":      "buildAnalysisIR",
+			"citation_ref": 0,
+		},
+		"citations": []map[string]interface{}{
+			{"file": "internal/agent/analyzer.go", "line": 612, "quote": "func buildAnalysisIR(out ParseOutput) types.AnalysisIR { return types.AnalysisIR{} }"},
+			{"file": "internal/agent/analyzer.go", "line": 412, "quote": "return buildAnalysisIR(parsed)"},
+			{"file": "internal/types/analysis_ir.go", "line": 25, "quote": "// analyzer.go:buildAnalysisIR."},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("unfocused background citation should reject, got success")
+	}
+	if !strings.Contains(res.Summary, "shape=value is a scalar lookup answer") {
+		t.Fatalf("reject should explain scalar citation focus, got: %q", res.Summary)
+	}
+	if res.Repair == nil || res.Repair.Code != "scalar_citation_focus" {
+		t.Fatalf("reject should expose scalar_citation_focus repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(strings.Join(res.Repair.Fields, ","), "citations[2]") {
+		t.Fatalf("repair fields should identify the offending secondary citation, got %+v", res.Repair)
+	}
+}
+
 // TestEmitAnswerDocument_KeptZero_EmitsEscapePathBlock pins Fix E:
 // when (a) the call fails for any reason AND (b) every LLM-supplied
 // citation was dropped by grounding (kept=0 out of N>0), the

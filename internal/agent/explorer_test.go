@@ -4063,6 +4063,29 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_BoostsAnchoredFiles(t *
 	}
 }
 
+func TestFilterConcreteValueScanFiles_SkipsAuxiliaryFilesForPrimaryProofExactResolution(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactResolution: &types.ExactResolutionContract{
+			TargetKind:   types.SubjectConfigKey,
+			TargetLabel:  "config key",
+			Targets:      []string{"explore_mid_loop_hint_budget"},
+			AllowAbsence: true,
+		},
+	}
+	files := map[string]bool{
+		"internal/types/config.go":            true,
+		"internal/skill/analysis_contract.go": true,
+		"internal/agent/explorer_test.go":     true,
+	}
+	got := eval.filterConcreteValueScanFiles(files)
+	if !got["internal/types/config.go"] {
+		t.Fatalf("production config file should stay in the concrete-values scan set: %v", got)
+	}
+	if got["internal/skill/analysis_contract.go"] || got["internal/agent/explorer_test.go"] {
+		t.Fatalf("auxiliary/doc/test files should be filtered out for exact-resolution primary-proof tasks: %v", got)
+	}
+}
+
 func TestStructuralCandidateFilesFromPaths_UsesAnalyzerRankedOrder(t *testing.T) {
 	cands := structuralCandidateFilesFromPaths([]string{
 		"internal/config/runtime.go",

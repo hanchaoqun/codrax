@@ -389,6 +389,67 @@ func TestEmitEvidence_ConvertsFreeformExactMentionIntoAbsenceSupport(t *testing.
 	}
 }
 
+func TestEmitEvidence_DowngradesIllustrativeExactTargetMentionWithoutPendingFinding(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "explore_mid_loop_hint_budget",
+				"predicate": "appears_in",
+				"source": "internal/skill/analysis_contract.go",
+				"line_start": 367,
+				"summary": "analysis_contract.go uses explore_mid_loop_hint_budget only as a docstring example",
+				"anchor_kind": "definition",
+				"anchor_symbol": "explore_mid_loop_hint_budget",
+				"context_role_hint": "absence_support"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].ContextRole != types.EvidenceContextRoleIllustrativeOnly {
+		t.Fatalf("context role = %q, want illustrative_only", got[0].ContextRole)
+	}
+	if got[0].Kind != types.EvidenceUnresolved || got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("illustrative exact-target mention should be downgraded to unresolved/ungrounded, got kind=%q grounding=%q", got[0].Kind, got[0].GroundingStatus)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "illustrative mention of the exact") {
+		t.Fatalf("grounding note should explain the downgrade, got: %q", got[0].GroundingNote)
+	}
+}
+
 func TestEmitEvidence_DowngradesCrossFamilyDefiningHintDuringExactAbsence(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

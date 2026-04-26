@@ -1223,7 +1223,7 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, contract *types.Ex
 		return false
 	}
 	changed := false
-	if len(pendingTargets) > 0 && ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly && exactResolutionEvidenceMentionsAnyTarget(contract, *ev) {
+	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly && exactResolutionEvidenceMentionsAnyTarget(contract, *ev) {
 		note := fmt.Sprintf(
 			"illustrative mention of the exact %s is not defining proof. Use absence_justification plus grounded defining anchors; do NOT repair this item.",
 			exactResolutionTargetLabel(contract),
