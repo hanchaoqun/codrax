@@ -385,7 +385,7 @@ llm:
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `pipeline_max_steps` | `50` | 单次 Run 总步数上限(每个 LLM 调用或工具调用 = 1 步) |
-| `pipeline_max_retries_per_stage` | `3` | 某个阶段连续失败多少次后放弃 |
+| `pipeline_max_retries_per_stage` | `2` | 某个阶段连续失败多少次后放弃 |
 | `pipeline_max_stage_visits` | `4` | 同一阶段最多被调度几次(防死循环) |
 
 以上三个都有同名 CLI flag 可临时覆盖。
@@ -594,9 +594,10 @@ llm:
 | 键 | 默认值 | 作用 |
 |---|---|---|
 | `write_enabled` | `false` | 顶层开关。默认关;为 `true` 才允许 `--mode=plan / apply / verify` 或 REPL `/mode plan / apply / verify` 触发。不开启的情况下即使显式传 `--mode=plan` 也会 fail-loud 拒绝(避免误开) |
-| `pipeline_write_retry_budget` | `0` | verify→plan 重试循环上限。`0` 保守(verify 失败直接报告);`>0` 启用重试 —— verify 失败后生成 PlanningHint(失败 summary + 失败测试 + 嫌疑文件)喂给 planner 二次规划。硬上限 5 |
-| `pipeline_baseline_capture_enabled` | `false` | apply 前跑一次测试套件作为 baseline 快照。verifier LLM 据此把失败归类为 REGRESSION / PRE-EXISTING / FIXED。测试墙钟时间翻倍,仓库有已知 pre-existing 失败时打开 |
-| `pipeline_keep_worktree_on_success` | `false` | apply + verify 双双成功时**不销毁** worktree,路径暴露给用户 review 或 cherry-pick。失败路径无条件销毁 |
+| `pipeline_write_retry_budget` | `3` | 测试失败后允许重新规划的次数上限。`0` 表示验证一失败就报告退出;`>0` 启用自动重试 —— 系统会把失败信息整理成精炼的诊断喂给规划阶段,生成新 plan 再次尝试。硬上限 5 |
+| `pipeline_baseline_capture_enabled` | `false` | 修改前先跑一次测试作为基线,后续可把失败归类为新引入 / 已存在 / 已修复。测试时间翻倍,仓库已有 pre-existing 失败时打开 |
+| `pipeline_keep_worktree_on_success` | `false` | 修改并测试通过后**不销毁** worktree,路径暴露给用户 review 或 cherry-pick。失败路径无条件销毁 |
+| `pipeline_lint_enabled` | `true` | 静态检查总开关。新建文件在被采用前会先过一遍当语言的检查工具(Go / C / C++ / Python / JS / TS / Ruby / Rust / Java / Swift / ArkTS / Cangjie 共 12 种,系统按文件后缀和项目结构自动选)。规则只对新建文件强制,避免改动既有文件时引入风格波动。仓库本身有检查债务时可设 `false` 关闭 |
 
 写模式用到的 agent(`planner` / `coder` / `verifier`)和分类器 / 闲聊 / 记忆摘要等辅助 agent 一样,都可以在 `providers.yaml :: agents.*` 下单独路由:
 
@@ -812,11 +813,11 @@ Planner 默认倾向于 `patch`(小改),需要整体重写时选 `modify`。
 
 违规会被工具层直接拒绝,coder 在下一轮看到错误自修正。
 
-#### 可选:verify→plan 重试循环
+#### 测试失败后的自动重新规划
 
-`pipeline_write_retry_budget`(yaml,默认 0,硬上限 5)大于 0 时,verify 失败会清空 plan + 生成一份 PlanningHint(失败 summary + 前 3 条失败测试名 + 每条的 FailureDetail 首行 + 前一 plan 的 `TargetPaths` 嫌疑清单),再 dispatch planner 做第二次规划。如果新 plan 也失败,继续 —— 直到成功或耗尽重试预算。
+`pipeline_write_retry_budget`(yaml,默认 3,硬上限 5)大于 0 时,如果应用后测试失败,系统会自动整理一份精炼的失败诊断(包含失败摘要、前 3 条失败测试的关键错误行、上次改过的文件清单),反喂给规划阶段重写一份新 plan,再次尝试 apply + 测试,直到成功或用尽预算。
 
-默认 0 是为了保守(fail-loud);开启后会花更多 LLM token,适合你相信 planner 能在几轮内收敛的场景。
+默认 3 是常见的甜点值;设 `0` 切换为严格 fail-loud(测试一失败就报告退出),适合需要确定性、不愿额外 LLM 成本的场景。
 
 #### 可选:baseline 测试快照
 
