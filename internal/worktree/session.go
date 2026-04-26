@@ -395,6 +395,80 @@ func signalExitCode(sig os.Signal) int {
 	}
 }
 
+// CommitChanges stages every file (modified, untracked, deleted) in
+// the worktree at path and creates a single commit with the given
+// message. Returns the resulting HEAD SHA on success.
+//
+// Used by the orchestrator's warm-worktree retry loop: each apply
+// iteration's content is committed so a later retry can `ResetHard`
+// back to the best iteration's commit instead of having to discard
+// the whole worktree and rebuild from the original stub.
+//
+// Empty messages get a "codrax retry checkpoint" default. Identity is
+// pinned to a non-attributable codrax-internal author so the commit
+// is obviously not a user authorship signal in case the worktree
+// leaks into a code review surface.
+//
+// `--allow-empty` is set so a no-op apply (nothing changed) still
+// produces a SHA; without it the retry loop would need to special-
+// case "no changes to commit" and the bookkeeping fragments.
+func CommitChanges(path, message string) (string, error) {
+	if path == "" {
+		return "", errors.New("worktree.CommitChanges: path is empty")
+	}
+	if strings.TrimSpace(message) == "" {
+		message = "codrax retry checkpoint"
+	}
+	if out, err := runGitIn(path, "add", "-A"); err != nil {
+		return "", fmt.Errorf("worktree.CommitChanges: git add: %w (output: %s)", err, out)
+	}
+	commitArgs := []string{
+		"-c", "user.email=codrax-retry@local",
+		"-c", "user.name=codrax-retry",
+		"commit", "--allow-empty", "-m", message,
+	}
+	if out, err := runGitIn(path, commitArgs...); err != nil {
+		return "", fmt.Errorf("worktree.CommitChanges: git commit: %w (output: %s)", err, out)
+	}
+	out, err := runGitIn(path, "rev-parse", "HEAD")
+	if err != nil {
+		return "", fmt.Errorf("worktree.CommitChanges: rev-parse HEAD: %w (output: %s)", err, out)
+	}
+	return strings.TrimSpace(out), nil
+}
+
+// ResetHard runs `git reset --hard <sha>` in the worktree at path so
+// the working tree contents match the named commit exactly. Used to
+// rewind a regressed retry iteration back to the best-known-good
+// iteration's content before the next planner dispatch.
+//
+// `--hard` is the right flag here: we INTENTIONALLY want both the
+// index and the working tree restored to <sha>, since the apply
+// stage is about to overwrite them with new content anyway. Soft or
+// mixed reset would leave the regressed-iteration's working-tree
+// state behind, defeating the warmup.
+func ResetHard(path, sha string) error {
+	if path == "" {
+		return errors.New("worktree.ResetHard: path is empty")
+	}
+	if strings.TrimSpace(sha) == "" {
+		return errors.New("worktree.ResetHard: sha is empty")
+	}
+	if out, err := runGitIn(path, "reset", "--hard", sha); err != nil {
+		return fmt.Errorf("worktree.ResetHard: %w (output: %s)", err, out)
+	}
+	return nil
+}
+
+// runGitIn runs `git <args>` with cwd=path and returns combined
+// stdout/stderr. Internal helper for CommitChanges / ResetHard.
+func runGitIn(path string, args ...string) (string, error) {
+	cmd := exec.Command("git", args...)
+	cmd.Dir = path
+	out, err := cmd.CombinedOutput()
+	return strings.TrimSpace(string(out)), err
+}
+
 // runGitPrune runs `git worktree prune` in mainRoot. Errors are
 // silently swallowed — prune is hygiene.
 func runGitPrune(mainRoot string) {

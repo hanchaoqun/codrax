@@ -212,6 +212,23 @@ func applyPostHook(o *Orchestrator, out *agent.StageOutput) error {
 	o.busCtx.Mutable.SetResult(renderApplySummary(plan, applied, o.busCtx.WorktreePath))
 	logging.Info("[orchestrator] apply stage: completed, %d/%d changes applied",
 		len(applied), len(plan.TargetPaths))
+	// Warm-worktree retry checkpoint: commit the applied content as a
+	// git commit inside the worktree, capture the HEAD SHA, and stash
+	// it on the orchestrator. If this iteration turns out to be the
+	// best (clearForReplan promotes it), the SHA becomes the rewind
+	// target for subsequent retries. Failures here log a warning and
+	// degrade gracefully — the fallback is the original "discard +
+	// reset to main" path in clearForReplan, which still works
+	// correctly without the SHA, just less effectively.
+	if o.busCtx.WorktreePath != "" && plan.ID != "" {
+		sha, err := worktree.CommitChanges(o.busCtx.WorktreePath, "codrax apply iter (plan="+plan.ID+")")
+		if err != nil {
+			logging.Warning("[orchestrator] apply post-hook: git commit (warm-retry checkpoint) failed: %v", err)
+		} else {
+			o.currentIterCommitSHA = sha
+			logging.Debug("[orchestrator] apply post-hook: checkpoint committed at %s", sha)
+		}
+	}
 	return nil
 }
 
@@ -348,6 +365,16 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	if prevReport.IsBetterThan(bestReport) {
 		o.busCtx.Mutable.SetBestPlanReport(prevPlan, prevReport)
 		bestPlan, bestReport = prevPlan, prevReport
+		// Pin the warm-worktree rewind target to this iteration's
+		// commit SHA. Subsequent retries that regress will be reset
+		// back to this SHA before the planner re-dispatches, so the
+		// LLM iterates from the running best, not the original stub.
+		// Empty SHA (apply commit failed for some reason) leaves the
+		// previous best SHA intact — a stale-but-still-best target
+		// is better than no target at all.
+		if o.currentIterCommitSHA != "" {
+			o.bestAppliedCommitSHA = o.currentIterCommitSHA
+		}
 	}
 
 	heuristicHint := buildRetryHintWithBest(prevReport, prevPlan, bestReport, bestPlan, attempt)
@@ -367,15 +394,43 @@ func clearForReplan(o *Orchestrator, attempt int) {
 			hint = critique + "\n\n" + heuristicHint
 		}
 	}
-	if o.busCtx.WorktreePath != "" {
-		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
-			logging.Warning("[orchestrator] retry worktree discard failed: %v", err)
+	// Worktree handling — two paths:
+	//
+	//  Warm rewind (preferred): when bestAppliedCommitSHA is set, the
+	//  existing worktree gets `git reset --hard <bestSHA>` so its
+	//  contents match the best iteration's applied state. RepoRoot
+	//  stays pointed at the worktree so the planner's read_file calls
+	//  surface the BEST code as the planner's working baseline. The
+	//  next iteration's coder applies its plan ON TOP, converting the
+	//  retry budget from "N independent from-stub attempts" into "N
+	//  iterative refinements on running best".
+	//
+	//  Cold discard (fallback): when no best SHA is available (apply
+	//  never committed, or commit-checkpoint failed), or when the
+	//  rewind itself errors, we fall back to the historical behavior:
+	//  discard the worktree, reset RepoRoot to MainRepoRoot, fresh
+	//  worktree on next apply pre-hook. Still correct, just less
+	//  effective for retry iteration.
+	rewound := false
+	if o.busCtx.WorktreePath != "" && o.bestAppliedCommitSHA != "" {
+		if err := worktree.ResetHard(o.busCtx.WorktreePath, o.bestAppliedCommitSHA); err != nil {
+			logging.Warning("[orchestrator] warm-retry rewind failed (falling back to cold discard): %v", err)
+		} else {
+			rewound = true
+			logging.Info("[orchestrator] warm-retry rewind: worktree reset to best SHA %s", o.bestAppliedCommitSHA)
 		}
-		o.busCtx.WorktreePath = ""
 	}
-	if o.busCtx.MainRepoRoot != "" {
-		o.busCtx.RepoRoot = o.busCtx.MainRepoRoot
-		o.busCtx.Mutable.SetRepoRoot(o.busCtx.MainRepoRoot)
+	if !rewound {
+		if o.busCtx.WorktreePath != "" {
+			if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
+				logging.Warning("[orchestrator] retry worktree discard failed: %v", err)
+			}
+			o.busCtx.WorktreePath = ""
+		}
+		if o.busCtx.MainRepoRoot != "" {
+			o.busCtx.RepoRoot = o.busCtx.MainRepoRoot
+			o.busCtx.Mutable.SetRepoRoot(o.busCtx.MainRepoRoot)
+		}
 	}
 	o.busCtx.Mutable.ResetChangePlan()
 	o.busCtx.Mutable.ResetChangeReport()
@@ -442,6 +497,20 @@ func restoreBestIfRegressed(o *Orchestrator) {
 	// fallback when busCtx.PlanPath is empty (see saveChangeReport
 	// commentary).
 	o.saveChangeReport(bestReport)
+	// Sync the worktree contents to match the restored best plan so
+	// the on-disk state the user inspects (or that
+	// pipeline_keep_worktree_on_success preserves) matches the
+	// in-memory + disk-report data. Without this, the worktree could
+	// still hold the regressed last-iteration's content while the
+	// rest of the plan/report state had been rolled back. Best-effort
+	// — failures log a warning.
+	if o.busCtx.WorktreePath != "" && o.bestAppliedCommitSHA != "" {
+		if err := worktree.ResetHard(o.busCtx.WorktreePath, o.bestAppliedCommitSHA); err != nil {
+			logging.Warning("[orchestrator] restoreBestIfRegressed: worktree rewind to best SHA failed: %v", err)
+		} else {
+			logging.Info("[orchestrator] restoreBestIfRegressed: worktree reset to best SHA %s", o.bestAppliedCommitSHA)
+		}
+	}
 }
 
 // buildReflectorInput translates the failed iteration's structured

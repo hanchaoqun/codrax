@@ -3,11 +3,13 @@ package orchestrator
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/types"
+	"github.com/hanchaoqun/codrax/internal/worktree"
 )
 
 // TestBuildRetryHint_NilReport verifies that a retry dispatched
@@ -481,6 +483,123 @@ func TestBuildRetryHintWithBest_IncludesDiffOnRegression(t *testing.T) {
 		if !strings.Contains(got, marker) {
 			t.Errorf("hint missing %q in:\n%s", marker, got)
 		}
+	}
+}
+
+// TestClearForReplan_WarmRewindWhenBestSHAAvailable verifies the
+// load-bearing warm-worktree behavior: when a best-known-good SHA
+// is set on the orchestrator and the worktree exists, clearForReplan
+// MUST `git reset --hard <bestSHA>` the existing worktree (not
+// discard + recreate) so the next iteration's planner reads BEST
+// code as its working baseline.
+//
+// The test seeds two commits in a real worktree (best=BEST, regressed
+// =REGRESSED) and confirms clearForReplan rewinds the file content
+// back to BEST without destroying the worktree.
+func TestClearForReplan_WarmRewindWhenBestSHAAvailable(t *testing.T) {
+	// Build a fresh main repo + worktree.
+	mainRoot := filepath.Join(t.TempDir(), "main")
+	if err := os.MkdirAll(mainRoot, 0o755); err != nil {
+		t.Fatalf("mkdir main: %v", err)
+	}
+	gitInit := func(args ...string) {
+		t.Helper()
+		c := exec.Command("git", args...)
+		c.Dir = mainRoot
+		if out, err := c.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	gitInit("init", "-q")
+	gitInit("config", "user.email", "test@local")
+	gitInit("config", "user.name", "test")
+	if err := os.WriteFile(filepath.Join(mainRoot, "seed.txt"), []byte("seed\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitInit("add", ".")
+	gitInit("commit", "-q", "-m", "seed")
+
+	wtBase := filepath.Join(t.TempDir(), "worktrees")
+	sess, err := worktree.Create(wtBase, mainRoot, "trace-warmretry-test")
+	if err != nil {
+		t.Fatalf("worktree.Create: %v", err)
+	}
+	wtPath := sess.Path()
+
+	target := filepath.Join(wtPath, "out.txt")
+	// Best iteration (commit A).
+	if err := os.WriteFile(target, []byte("BEST\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	bestSHA, err := worktree.CommitChanges(wtPath, "iter best")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Regressed iteration (commit B).
+	if err := os.WriteFile(target, []byte("REGRESSED\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := worktree.CommitChanges(wtPath, "iter regressed"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Stand up an orchestrator with the warm-retry slot pre-seeded.
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		MainRepoRoot: mainRoot,
+		RepoRoot:     wtPath,
+		WorktreePath: wtPath,
+		Mutable:      types.NewMutableState("probe"),
+	}
+	o.bestAppliedCommitSHA = bestSHA
+
+	clearForReplan(o, 1)
+
+	// Worktree should still exist (not discarded).
+	if _, err := os.Stat(wtPath); err != nil {
+		t.Errorf("worktree should be preserved across warm rewind; got stat err: %v", err)
+	}
+	// Working-tree file should now match BEST iteration.
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read target: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != "BEST" {
+		t.Errorf("after clearForReplan, file should hold BEST content; got %q", data)
+	}
+	// busCtx.WorktreePath stays populated; RepoRoot stays at worktree
+	// (NOT reset back to MainRepoRoot).
+	if o.busCtx.WorktreePath != wtPath {
+		t.Errorf("WorktreePath should be preserved; got %q", o.busCtx.WorktreePath)
+	}
+	if o.busCtx.RepoRoot != wtPath {
+		t.Errorf("RepoRoot should stay at worktree (not reset to main); got %q", o.busCtx.RepoRoot)
+	}
+
+	_ = worktree.DiscardByPath(wtPath, mainRoot)
+}
+
+// TestClearForReplan_ColdDiscardWhenNoBestSHA verifies the fallback:
+// when bestAppliedCommitSHA is empty (iter 0 hasn't produced any
+// committed checkpoint yet), clearForReplan keeps its historical
+// behavior — discard worktree and reset RepoRoot to MainRepoRoot.
+func TestClearForReplan_ColdDiscardWhenNoBestSHA(t *testing.T) {
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		MainRepoRoot: "/tmp/main-cold",
+		RepoRoot:     "/tmp/worktree-cold",
+		WorktreePath: "/tmp/worktree-cold", // path doesn't exist; DiscardByPath is idempotent
+		Mutable:      types.NewMutableState("probe"),
+	}
+	// bestAppliedCommitSHA empty — fallback path
+
+	clearForReplan(o, 1)
+
+	if o.busCtx.WorktreePath != "" {
+		t.Errorf("cold path: WorktreePath should be cleared; got %q", o.busCtx.WorktreePath)
+	}
+	if o.busCtx.RepoRoot != "/tmp/main-cold" {
+		t.Errorf("cold path: RepoRoot should reset to MainRepoRoot; got %q", o.busCtx.RepoRoot)
 	}
 }
 

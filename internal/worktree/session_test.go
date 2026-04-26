@@ -417,3 +417,137 @@ func TestSanitizeTraceID(t *testing.T) {
 		}
 	}
 }
+
+// TestCommitChanges_RoundTrip verifies the full happy path: create a
+// worktree, write some files, commit them, and confirm the returned
+// SHA matches `git rev-parse HEAD` in that worktree.
+func TestCommitChanges_RoundTrip(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	traceID := makeUniqueTraceID(t)
+	sess, err := Create(base, root, traceID)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// Drop a new file in the worktree.
+	target := filepath.Join(sess.Path(), "iter1.txt")
+	if err := os.WriteFile(target, []byte("hello\n"), 0o644); err != nil {
+		t.Fatalf("write iter1.txt: %v", err)
+	}
+
+	sha, err := CommitChanges(sess.Path(), "iter 1")
+	if err != nil {
+		t.Fatalf("CommitChanges: %v", err)
+	}
+	if len(sha) < 7 {
+		t.Errorf("SHA looks malformed: %q", sha)
+	}
+	// Confirm via independent git rev-parse.
+	cmd := exec.Command("git", "rev-parse", "HEAD")
+	cmd.Dir = sess.Path()
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("rev-parse: %v\n%s", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != sha {
+		t.Errorf("SHA mismatch: CommitChanges=%q rev-parse=%q", sha, got)
+	}
+
+	if err := DiscardByPath(sess.Path(), root); err != nil {
+		t.Errorf("DiscardByPath: %v", err)
+	}
+}
+
+// TestCommitChanges_AllowsEmpty verifies the --allow-empty flag is
+// in effect — a no-op apply (nothing changed) still produces a fresh
+// SHA so the orchestrator's bookkeeping doesn't have to special-case
+// "no changes to commit".
+func TestCommitChanges_AllowsEmpty(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	// First (empty) commit — succeeds because --allow-empty.
+	sha1, err := CommitChanges(sess.Path(), "empty 1")
+	if err != nil {
+		t.Fatalf("first empty commit: %v", err)
+	}
+	// Second (also empty) commit — must produce a DIFFERENT SHA so the
+	// orchestrator's per-iter SHA tracking stays unique even on no-op
+	// retries.
+	sha2, err := CommitChanges(sess.Path(), "empty 2")
+	if err != nil {
+		t.Fatalf("second empty commit: %v", err)
+	}
+	if sha1 == sha2 {
+		t.Errorf("two empty commits produced the same SHA %q (commit metadata should differ)", sha1)
+	}
+
+	_ = DiscardByPath(sess.Path(), root)
+}
+
+// TestResetHard_RewindsWorkingTree drives the warm-retry rewind: make
+// commit A, then commit B (with file modified), then ResetHard back
+// to A's SHA. The on-disk file must match A's content.
+func TestResetHard_RewindsWorkingTree(t *testing.T) {
+	clearActiveSessions(t)
+	root := initTestRepo(t)
+	base := filepath.Join(t.TempDir(), "wts")
+	sess, err := Create(base, root, makeUniqueTraceID(t))
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	wt := sess.Path()
+	target := filepath.Join(wt, "iter.txt")
+
+	// A = "best"
+	if err := os.WriteFile(target, []byte("BEST\n"), 0o644); err != nil {
+		t.Fatalf("write A: %v", err)
+	}
+	shaBest, err := CommitChanges(wt, "iter best")
+	if err != nil {
+		t.Fatalf("commit A: %v", err)
+	}
+
+	// B = "regressed"
+	if err := os.WriteFile(target, []byte("REGRESSED\n"), 0o644); err != nil {
+		t.Fatalf("write B: %v", err)
+	}
+	if _, err := CommitChanges(wt, "iter regressed"); err != nil {
+		t.Fatalf("commit B: %v", err)
+	}
+	// Confirm B is on disk.
+	if data, _ := os.ReadFile(target); strings.TrimSpace(string(data)) != "REGRESSED" {
+		t.Fatalf("after B commit, file should hold REGRESSED, got %q", data)
+	}
+
+	// Rewind.
+	if err := ResetHard(wt, shaBest); err != nil {
+		t.Fatalf("ResetHard: %v", err)
+	}
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read after reset: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != "BEST" {
+		t.Errorf("after ResetHard the file should match BEST iteration content, got %q", data)
+	}
+
+	_ = DiscardByPath(wt, root)
+}
+
+// TestResetHard_RejectsEmptyArgs covers the defensive guards.
+func TestResetHard_RejectsEmptyArgs(t *testing.T) {
+	if err := ResetHard("", "abc123"); err == nil {
+		t.Error("empty path should error")
+	}
+	if err := ResetHard("/tmp", ""); err == nil {
+		t.Error("empty sha should error")
+	}
+}

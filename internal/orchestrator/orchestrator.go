@@ -150,6 +150,35 @@ type Orchestrator struct {
 	// disk. Operators reading runs/<id>.report.json saw a stale
 	// FAIL when the in-memory state reflected a strictly-better PASS.
 	reportDir string
+
+	// currentIterCommitSHA is the worktree-git HEAD SHA captured
+	// after the most recent apply stage committed its changes. Set
+	// by applyPostHook on a successful coder run; cleared at Run
+	// entry. Read by clearForReplan to track the SHA against the
+	// best slot.
+	currentIterCommitSHA string
+
+	// bestAppliedCommitSHA is the worktree-git HEAD SHA of the
+	// best-known-good iteration's applied content. Updated whenever
+	// SetBestPlanReport accepts a new best, in lockstep with
+	// Mutable.bestPlan / Mutable.bestReport.
+	//
+	// Load-bearing for the warm-worktree retry pattern: when the
+	// next iteration's clearForReplan runs, instead of discarding
+	// the worktree and resetting RepoRoot back to the original stub
+	// at MainRepoRoot, it `git reset --hard <bestAppliedCommitSHA>`
+	// the existing worktree so the planner's next dispatch reads
+	// the BEST iteration's applied code as its starting baseline.
+	// This converts a 4-iteration retry budget from "4 independent
+	// from-stub attempts, take max" into "4 iterative refinement
+	// attempts on top of the running best" — the difference between
+	// taking max(LLM tries) and converging by patching.
+	//
+	// Empty when no iteration has produced a verify-eligible
+	// ChangeReport yet (e.g., apply-only failures, mid-iter-0
+	// regressions). In that case clearForReplan falls back to its
+	// historical "discard + reset to main" behavior.
+	bestAppliedCommitSHA string
 }
 
 // New creates a new Orchestrator.
@@ -424,6 +453,13 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	} else {
 		o.reportDir = ""
 	}
+	// Per-Run reset of the warm-worktree retry bookkeeping. Both SHAs
+	// are populated by applyPostHook + clearForReplan once Run() is
+	// underway; cleared here so a previous Run's state cannot leak
+	// into this one through a long-lived Orchestrator instance (REPL
+	// case).
+	o.currentIterCommitSHA = ""
+	o.bestAppliedCommitSHA = ""
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
