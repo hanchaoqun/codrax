@@ -48,6 +48,16 @@ type graphState struct {
 	status    map[string]nodeStatus
 	retryUsed int
 
+	// visitCount tracks how many times each node has been dispatched
+	// (incremented on markRunning). Used by the write scheduler to
+	// honour TaskNode.SkipOnFirstVisit — when true, the FIRST entry
+	// dispatches as a no-op (markDone immediately) and only LATER
+	// entries (post-retry) actually invoke the agent. Read-mode
+	// scheduler ignores this counter; write-mode plan node uses it
+	// to preserve R8a (don't regenerate the user-reviewed plan)
+	// without losing access to retry-driven plan regeneration.
+	visitCount map[string]int
+
 	// Session 11 F5 per-kind retry bookkeeping + yield check
 	// state. retryUsedByKind tracks how many retries each
 	// ViolationKind has consumed (drives the C6 per-kind budget);
@@ -92,8 +102,9 @@ type nodeBlock struct {
 
 func newGraphState(g types.TaskGraph) *graphState {
 	s := &graphState{
-		graph:  g,
-		status: make(map[string]nodeStatus, len(g.Nodes)),
+		graph:      g,
+		status:     make(map[string]nodeStatus, len(g.Nodes)),
+		visitCount: make(map[string]int, len(g.Nodes)),
 	}
 	for _, n := range g.Nodes {
 		s.status[n.ID] = nodePending
@@ -148,11 +159,28 @@ func declOrder(g types.TaskGraph, id string) int {
 }
 
 // markRunning / markDone / markFailed / requeue are unchanged state
-// transitions on the per-node status map.
-func (s *graphState) markRunning(id string) { s.status[id] = nodeRunning }
-func (s *graphState) markDone(id string)    { s.status[id] = nodeDone }
-func (s *graphState) markFailed(id string)  { s.status[id] = nodeFailed }
-func (s *graphState) requeue(id string)     { s.status[id] = nodeRequeued }
+// transitions on the per-node status map. markRunning ALSO bumps the
+// visitCount used by SkipOnFirstVisit logic — keep these in sync if
+// any caller introduces a separate transition into the running state.
+func (s *graphState) markRunning(id string) {
+	s.status[id] = nodeRunning
+	if s.visitCount != nil {
+		s.visitCount[id]++
+	}
+}
+func (s *graphState) markDone(id string)   { s.status[id] = nodeDone }
+func (s *graphState) markFailed(id string) { s.status[id] = nodeFailed }
+func (s *graphState) requeue(id string)    { s.status[id] = nodeRequeued }
+
+// visits returns how many times the node has been dispatched. Zero
+// before the first dispatch, 1 during the first run, etc. Used by
+// the write scheduler to honour TaskNode.SkipOnFirstVisit.
+func (s *graphState) visits(id string) int {
+	if s == nil || s.visitCount == nil {
+		return 0
+	}
+	return s.visitCount[id]
+}
 
 // retryBudgetExhausted reports whether the cumulative cross-window
 // retry count has hit ExecutionPolicy.RetryBudget.

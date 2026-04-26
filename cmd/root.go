@@ -204,6 +204,7 @@ type appContext struct {
 	orch                  *orchestrator.Orchestrator
 	defaultLLM            llm.Adapter
 	memorySummarizerLLM   llm.Adapter // providers.yaml :: agents.memory_summarizer, else defaultLLM
+	reflectorLLM          llm.Adapter // providers.yaml :: agents.reflector, else defaultLLM
 	logger                *logging.Logger
 	memorySettings        types.MemorySettings
 	replPasteFoldMinChars int // 0 → repl.DefaultPasteFoldMinChars
@@ -408,6 +409,24 @@ func rootRun(cmd *cobra.Command, args []string) error {
 	if flagLogSourcePrefix != "" {
 		logtriage.SetSourcePrefix(flagLogSourcePrefix)
 		logging.Info("[cmd] log source prefix override: %s", flagLogSourcePrefix)
+	}
+
+	// Apply / verify single-shot fallback: when --mode=apply or
+	// --mode=verify is supplied with --plan-file but NO --request, the
+	// natural intent is "run apply/verify on this saved plan", not
+	// "open the REPL." Hydrate the request from the plan file so
+	// runSingleShot can dispatch with a meaningful prompt.
+	if request == "" && flagPlanFile != "" {
+		mode := strings.TrimSpace(flagMode)
+		if mode == string(types.ModeApply) || mode == string(types.ModeVerify) {
+			if plan, perr := types.LoadChangePlanFromFile(flagPlanFile); perr == nil && plan != nil {
+				request = strings.TrimSpace(plan.Request)
+				if request == "" {
+					request = "Apply the saved ChangePlan and verify its tests pass."
+				}
+				logging.Info("[cmd] %s mode hydrated request from plan file (no --request given)", mode)
+			}
+		}
 	}
 
 	if request == "" {
@@ -1177,7 +1196,15 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	tool.LogCapabilities()
 
 	// Build pipeline settings from codrax.yaml overrides.
-	var pipelineSettings types.PipelineSettings
+	// Defaults that should NOT be the type's zero value are seeded here
+	// so an empty codrax.yaml gets meaningful behaviour:
+	//   - WriteRetryBudget=3: aligned with Reflexion / Self-Refine /
+	//     AutoCodeRover empirical sweet spot (literature consensus is
+	//     3-5 retries; past 5 marginal lift is negligible). Zero is
+	//     fail-loud, opt-in by setting yaml `pipeline_write_retry_budget: 0`.
+	pipelineSettings := types.PipelineSettings{
+		WriteRetryBudget: 3,
+	}
 	// Default-LLM context window for fraction-form byte budget
 	// resolution. The fallback path in MaxContextTokens guarantees a
 	// positive value (128 000 when providers.yaml didn't declare),
@@ -1591,6 +1618,23 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
+	// Reflector adapter routing. Same opt-in pattern as
+	// memory_summarizer / chitchat_classifier: providers.yaml ::
+	// agents.reflector overrides; absent → default LLM. The reflector
+	// runs once per failed verify→plan retry to produce a Reflexion-
+	// style critique that seeds Mutable.PlanningHint. Cheap-model
+	// routing is recommended: the critique is short (2-4 sentences)
+	// and a smaller model is usually sufficient for the analysis.
+	app.reflectorLLM = app.defaultLLM
+	if _, ok := providersCfg.LLM.Agents["reflector"]; ok {
+		resolved := config.ResolveProvider(providersCfg, "reflector")
+		if adapter, err := llm.NewFromConfig(resolved); err != nil {
+			logging.Warning("[reflector] adapter init failed; falling back to default LLM: %v", err)
+		} else {
+			app.reflectorLLM = adapter
+		}
+	}
+
 	// Initialize registries.
 	mcpRegistry := mcp.NewRegistry()
 	logging.Info("registered %d MCP servers", len(mcpRegistry.List()))
@@ -1728,6 +1772,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	orch.SetBlobSessionDir(blobSessionDir)
 	// B2.3 verify→plan retry cap. Zero keeps B1 fail-loud semantics.
 	orch.SetWriteRetryBudget(pipelineSettings.WriteRetryBudget)
+	// Reflexion-pattern critic. Resolved above; nil-safe inside
+	// orchestrator (clearForReplan falls back to heuristic-only hint
+	// when adapter is missing). Tied to the same retry-budget knob —
+	// reflector only fires when the budget allows another iteration.
+	if app.reflectorLLM != nil {
+		orch.SetReflector(orchestrator.NewReflector(app.reflectorLLM))
+	}
 	// Item 1: baseline capture for CritNoRegression. Default false
 	// (test-suite wall time doubles when enabled).
 	orch.SetBaselineCaptureEnabled(pipelineSettings.BaselineCaptureEnabled)

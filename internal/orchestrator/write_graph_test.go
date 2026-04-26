@@ -62,30 +62,35 @@ func TestBuildWriteTaskGraph_ModeApply_FullChain(t *testing.T) {
 	}
 }
 
-// R8a: when planPath is set, ModeApply skips the plan node (the user
-// has a reviewed plan; do not regenerate). And no retry cycle —
-// re-running the same reviewed plan is pointless after a verify
-// failure, plus clearForReplan wipes PlanPath which would crash
-// applyPreHook on retry.
-func TestBuildWriteTaskGraph_ModeApply_PreSuppliedPlanSkipsPlanNode(t *testing.T) {
+// R8a-revised: when planPath is set, ModeApply still includes the
+// plan node BUT marks it SkipOnFirstVisit. The first iteration is
+// a no-op (applyPreHook will LoadChangePlanFromFile), preserving R8a
+// semantics. On verify failure + retry, the EdgeValidationFeedback
+// edge requeues the plan node which DOES dispatch — clearForReplan
+// wipes PlanPath so the second visit regenerates a fresh plan
+// informed by Mutable.PlanningHint. This preserves both invariants:
+// (a) don't waste a planner call on the user-reviewed plan, and
+// (b) verify→re-plan retry actually fires for --plan-file workflows.
+func TestBuildWriteTaskGraph_ModeApply_PreSuppliedPlanSkipsPlanOnFirstVisit(t *testing.T) {
 	g := BuildWriteTaskGraph(types.ModeApply, "/tmp/plan.json", 2)
-	if len(g.Nodes) != 2 {
-		t.Fatalf("apply with pre-supplied plan should have 2 nodes (apply, verify); got %d", len(g.Nodes))
+	if len(g.Nodes) != 3 {
+		t.Fatalf("apply with pre-supplied plan should have 3 nodes (plan, apply, verify) — plan is skipped on first visit but reused on retry; got %d", len(g.Nodes))
 	}
-	if g.Nodes[0].Type != types.NodeApply || g.Nodes[1].Type != types.NodeVerify {
-		t.Errorf("expected [apply, verify]; got [%s, %s]", g.Nodes[0].Type, g.Nodes[1].Type)
+	if g.Nodes[0].Type != types.NodePlan || g.Nodes[1].Type != types.NodeApply || g.Nodes[2].Type != types.NodeVerify {
+		t.Errorf("expected [plan, apply, verify]; got [%s, %s, %s]", g.Nodes[0].Type, g.Nodes[1].Type, g.Nodes[2].Type)
 	}
-	// apply's EntryCondition (CritPlanReady) is dropped because the
-	// applyPreHook will load the plan + seed PendingApplies before
-	// dispatch.
-	if len(g.Nodes[0].EntryConditions) != 0 {
-		t.Errorf("pre-supplied-plan apply should have no EntryConditions; got %v", g.Nodes[0].EntryConditions)
+	if !g.Nodes[0].SkipOnFirstVisit {
+		t.Errorf("pre-supplied plan: plan node must have SkipOnFirstVisit=true so first apply doesn't waste an LLM call")
 	}
-	// No retry cycle in pre-supplied-plan mode (see comment above).
+	// Retry edge MUST be present so verify→plan can fire on test failure.
+	hasRetry := false
 	for _, e := range g.Edges {
-		if e.EdgeType == types.EdgeValidationFeedback {
-			t.Errorf("pre-supplied-plan mode should have no validation_feedback edges; got %+v", e)
+		if e.EdgeType == types.EdgeValidationFeedback && e.From == "verify" && e.To == "plan" {
+			hasRetry = true
 		}
+	}
+	if !hasRetry {
+		t.Errorf("pre-supplied plan: verify→plan retry edge MUST be present; got edges=%+v", g.Edges)
 	}
 }
 

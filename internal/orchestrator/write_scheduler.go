@@ -1,6 +1,7 @@
 package orchestrator
 
 import (
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/analysis/criterion"
@@ -89,6 +90,21 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 		state.markRunning(n.ID)
 		o.emitNodeStart(n.ID)
 
+		// SkipOnFirstVisit short-circuit: when the node opted into this
+		// flag (write-mode plan node with --plan-file is the canonical
+		// case), the FIRST entry is treated as success without
+		// dispatching the agent. This preserves R8a (don't regenerate
+		// the user-reviewed plan) while keeping the node in the graph
+		// so EdgeValidationFeedback retry can re-dispatch it on a
+		// later iteration. visits() returns >=1 inside markRunning, so
+		// "first visit" means visits()==1.
+		if n.SkipOnFirstVisit && state.visits(n.ID) == 1 {
+			logging.Info("[orchestrator] skipping first visit of %s (SkipOnFirstVisit; plan loaded from disk)", n.ID)
+			state.markDone(n.ID)
+			o.emitNodeEnd(n.ID, true, "skipped on first visit (plan from disk)")
+			continue
+		}
+
 		// Pre-hook: worktree provision, plan load, baseline capture.
 		// A failure terminates the Run.
 		if err := runStagePreHook(o, stage); err != nil {
@@ -103,22 +119,42 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 		out, dispatchErr := o.dispatchStage(stage)
 
 		if dispatchErr != nil {
-			// Hard dispatch failure — agent / runtime crashed before
-			// returning a StageOutput. Skip the post-hook (out may be
-			// nil; post-hooks expect a meaningful StageOutput) and
-			// directly persist a per-stage failure status so the plan
-			// JSON reflects "this run broke at this stage".
+			// Dispatch error path. Two distinct sub-cases:
+			//   (1) Hard runtime crash with out == nil — agent panicked
+			//       before producing a StageOutput. Skip the post-hook
+			//       (it expects a meaningful StageOutput).
+			//   (2) Structured failure with out != nil — the agent's
+			//       evaluator returned an error AND a StageOutput
+			//       describing it (canonical example: verifier's
+			//       ParseOutput emits `out.Error = "verify failed: …"`
+			//       AND a non-nil error). Mutable.ChangeReport is
+			//       installed in this case, so the post-hook MUST run
+			//       (saveChangeReport → report.json on disk; failure
+			//       diagnosis was previously lost because we skipped
+			//       it). Then take the verify→plan retry branch below
+			//       instead of breaking out of the loop, so the
+			//       configured retry budget actually fires.
 			logging.Error("[orchestrator] %s dispatch: %v", stage, dispatchErr)
-			switch stage {
-			case types.StageApply:
-				o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
-			case types.StageVerify:
-				o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
+			if out == nil {
+				switch stage {
+				case types.StageApply:
+					o.persistPlanStatus(types.PlanStatusApplyFailed, nil)
+				case types.StageVerify:
+					o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
+				}
+				o.busCtx.TaskState.LastError = dispatchErr.Error()
+				state.markFailed(n.ID)
+				o.emitNodeEnd(n.ID, false, dispatchErr.Error())
+				break
 			}
-			o.busCtx.TaskState.LastError = dispatchErr.Error()
-			state.markFailed(n.ID)
-			o.emitNodeEnd(n.ID, false, dispatchErr.Error())
-			break
+			// Structured failure: post-hook runs (persists report +
+			// status) and we fall through into the retry-decision
+			// block below by leaving out non-nil and stage-Error
+			// populated. The post-hook itself sets PlanStatusVerifyFailed
+			// on the verify path, so we don't double-persist here.
+			if strings.TrimSpace(out.Error) == "" {
+				out.Error = dispatchErr.Error()
+			}
 		}
 		// Soft (StageOutput-level) failures still get the post-hook
 		// because StageOutput is meaningful — the agent declared its
@@ -134,6 +170,8 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 		if out != nil {
 			stageErrText = out.Error
 		}
+		logging.Debug("[orchestrator] %s post-dispatch eval: ok=%v stageErrText=%q failed=%d retryUsed=%d budget=%d nType=%s",
+			stage, ok, stageErrText, len(failed), state.retryUsed, g.ExecutionPolicy.RetryBudget, n.Type)
 		if ok && stageErrText == "" {
 			state.markDone(n.ID)
 			o.emitNodeEnd(n.ID, true, "")

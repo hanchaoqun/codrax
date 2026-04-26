@@ -84,6 +84,15 @@ type Orchestrator struct {
 	// budget on an unfixable plan.
 	writeRetryBudget int
 
+	// reflector is the optional Reflexion-pattern critic invoked
+	// from clearForReplan between a verify failure and the planner
+	// re-dispatch. Nil = disabled (clearForReplan falls back to the
+	// heuristic PlanningHint built by buildRetryHint). Set via
+	// SetReflector — wired in cmd/root.go from providers.yaml ::
+	// agents.reflector or the default LLM. See reflector.go for
+	// the pattern (mirrors chitchat_classifier / memory_summarizer).
+	reflector Reflector
+
 	// baselineCaptureEnabled gates the pre-apply test snapshot
 	// that feeds CritNoRegression. Default false (test doubling
 	// is opt-in). When true, the apply stage hook dispatches run_tests
@@ -272,6 +281,14 @@ func (o *Orchestrator) SetWriteRetryBudget(n int) {
 // WriteRetryBudget returns the currently configured retry cap.
 func (o *Orchestrator) WriteRetryBudget() int {
 	return o.writeRetryBudget
+}
+
+// SetReflector installs the optional Reflexion-pattern critic. Nil
+// is legal and disables reflection (clearForReplan falls back to the
+// heuristic-only PlanningHint). cmd/root.go wires this from
+// providers.yaml :: agents.reflector or the default LLM.
+func (o *Orchestrator) SetReflector(r Reflector) {
+	o.reflector = r
 }
 
 // SetBaselineCaptureEnabled toggles the pre-apply test snapshot.
@@ -2308,7 +2325,17 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 			Agent:     agentName,
 			Error:     err.Error(),
 		})
-		return nil, fmt.Errorf("agent %s execution: %w", agentName, err)
+		// Return BOTH the structured output AND the error. The
+		// scheduler distinguishes "agent runtime crashed (output ==
+		// nil)" from "agent returned a structured failure (output !=
+		// nil)" to drive the verify→plan retry loop. Discarding the
+		// output here was the bug that made retry budget effectively
+		// dead code: even when the verifier produced a meaningful
+		// StageOutput (test counts + failure summary + ChangeReport
+		// installed on Mutable), scheduler saw nil and bailed out.
+		// Preserving the output lets the post-hook persist
+		// report.json and the SC-fail branch fire the retry path.
+		return output, fmt.Errorf("agent %s execution: %w", agentName, err)
 	}
 
 	// SubAgent decomposition path: replace the original output with

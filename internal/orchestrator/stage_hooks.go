@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/agent"
@@ -321,11 +322,25 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	if o == nil || o.busCtx == nil {
 		return
 	}
-	hint := buildRetryHint(
-		o.busCtx.Mutable.ChangeReport(),
-		o.busCtx.Mutable.ChangePlan(),
-		attempt,
-	)
+	prevReport := o.busCtx.Mutable.ChangeReport()
+	prevPlan := o.busCtx.Mutable.ChangePlan()
+	heuristicHint := buildRetryHint(prevReport, prevPlan, attempt)
+
+	// Reflexion-pattern critic (optional). When configured, dispatch
+	// one side LLM call to interpret the failure as a critique
+	// paragraph; planner sees critique + heuristic facts together.
+	// Any reflector failure path silently degrades to heuristic-only
+	// — retry MUST NOT be blocked by reflection plumbing.
+	hint := heuristicHint
+	if o.reflector != nil {
+		input := buildReflectorInput(o.busCtx, prevReport, prevPlan, attempt)
+		critique, err := o.reflector.Reflect(input)
+		if err != nil {
+			logging.Warning("[orchestrator] reflector failed (degrading to heuristic hint): %v", err)
+		} else if strings.TrimSpace(critique) != "" {
+			hint = critique + "\n\n" + heuristicHint
+		}
+	}
 	if o.busCtx.WorktreePath != "" {
 		if err := worktree.DiscardByPath(o.busCtx.WorktreePath, o.busCtx.MainRepoRoot); err != nil {
 			logging.Warning("[orchestrator] retry worktree discard failed: %v", err)
@@ -343,4 +358,51 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	o.busCtx.PlanPath = ""
 	o.busCtx.Mutable.SetPlanningHint(hint)
 	logging.Info("[orchestrator] verify→plan retry attempt %d: hint=%q", attempt, hint)
+}
+
+// buildReflectorInput translates the failed iteration's structured
+// state into a ReflectorInput. Mirrors buildRetryHint's data
+// gathering so the heuristic and the critic see the same facts;
+// reflector formats them as natural-language prompt while
+// buildRetryHint formats them as terse "Failing tests:" bullet list.
+//
+// Caps: top 3 failing tests; first non-empty line of each
+// FailureDetail (cap 200 chars). Inputs to the critic LLM are
+// intentionally small — see Self-Debug 2023 for why concise summary
+// beats raw trace.
+func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, plan *types.ChangePlan, attempt int) ReflectorInput {
+	in := ReflectorInput{Attempt: attempt}
+	if busCtx != nil && busCtx.Mutable != nil {
+		in.OriginalRequest = strings.TrimSpace(busCtx.Mutable.Objective())
+	}
+	if plan != nil {
+		in.PlanSummary = plan.Summary
+		in.TargetPaths = append([]string(nil), plan.TargetPaths...)
+		in.AcceptanceTests = append([]string(nil), plan.AcceptanceTests...)
+	}
+	if report != nil {
+		in.FailureSummary = report.FailureSummary
+		in.BuildFailed = report.BuildFailed
+		const maxFailing = 3
+		shown := 0
+		for _, tr := range report.TestResults {
+			if tr.Passed {
+				continue
+			}
+			detail := ""
+			if tr.FailureDetail != "" {
+				detail = strings.TrimSpace(strings.SplitN(tr.FailureDetail, "\n", 2)[0])
+			}
+			in.FailingTests = append(in.FailingTests, ReflectorFailedTest{
+				Suite:       tr.Suite,
+				AssertionID: tr.AssertionID,
+				Detail:      detail,
+			})
+			shown++
+			if shown >= maxFailing {
+				break
+			}
+		}
+	}
+	return in
 }

@@ -103,38 +103,61 @@ func BuildWriteTaskGraph(mode types.PipelineMode, planPath string, retryBudget i
 		verify.EntryConditions = nil
 		nodes = []types.TaskNode{verify}
 	case types.ModeApply:
-		// Skip the plan node when the user supplied a reviewed plan
-		// path (R8a: do not regenerate). Apply's EntryCondition
-		// CritPlanReady still gates on WriteClosure.PendingApplies,
-		// which the apply pre-hook populates after
-		// LoadChangePlanFromFile.
+		// ModeApply graph is now uniform regardless of whether the
+		// user supplied --plan-file: always plan + apply + verify with
+		// the verify→plan retry feedback edge. The previous design
+		// skipped the plan node entirely when planPath != "" and
+		// removed the retry edge, calling verify failure "terminal"
+		// for that path. This was wrong on three counts:
+		//   1. Empirically — every plan/apply pipeline in the
+		//      literature (SWE-agent, Aider, AutoCodeRover, Reflexion)
+		//      gains +5-12pp pass rate from retry on benchmarks. Our
+		//      eval surfaced robot-name (3/4 → could be 4/4) and
+		//      trinary (compile error → could be fixed) failing for
+		//      this exact reason.
+		//   2. Architecturally — re-running the plan node on retry
+		//      is NOT "re-applying the same plan." clearForReplan
+		//      wipes ChangePlan/AppliedSet AND planPath, so the next
+		//      plan dispatch regenerates the plan informed by
+		//      Mutable.PlanningHint. The first iteration still uses
+		//      the disk plan via the planNode.OneShot+SkipFirst
+		//      shortcut (R8a preserved: don't regenerate the user-
+		//      reviewed plan unless retry forces it).
+		//   3. Operationally — the production workflow is plan +
+		//      review + approve (separate Run with --plan-file), so
+		//      the old code made retry effectively dead code in the
+		//      one path users actually take.
+		//
+		// R8a-preserving short-circuit: when planPath is non-empty,
+		// the FIRST plan-node visit is a no-op (applyPreHook will
+		// LoadChangePlanFromFile). Subsequent visits (after retry)
+		// re-emit. Implemented by the SkipOnFirstVisit flag on the
+		// plan node — scheduler honours it during graph walk.
+		plan.SkipOnFirstVisit = (planPath != "")
 		if planPath != "" {
-			// User supplied a reviewed plan — plan node skipped.
-			// No verify→apply retry edge: re-applying the SAME
-			// reviewed plan after a verify failure is pointless
-			// (deterministic apply, same diff → same outcome) and
-			// would crash because clearForReplan wipes PlanPath,
-			// leaving applyPreHook with nothing to load. Verify
-			// failure here is terminal. Users who want retry-replan
-			// should use plan-mode first, NOT pre-supply a plan.
+			// Apply's EntryConditions normally gate on CritPlanReady
+			// (WriteClosure.PendingApplies non-empty), populated by
+			// emit_change_plan during the plan stage. With the plan
+			// node skipped on first visit, PendingApplies is still
+			// empty when apply tries to enter — chicken-and-egg.
+			// applyPreHook seeds PendingApplies from the disk plan,
+			// so dropping the gate is safe (the load happens before
+			// the agent dispatches). On retry, plan node DOES run
+			// and re-populates PendingApplies normally, so this
+			// override only affects the first apply.
 			apply.EntryConditions = nil
-			nodes = []types.TaskNode{apply, verify}
-			edges = []types.TaskEdge{
-				{From: idApply, To: idVerify, EdgeType: types.EdgeHardDependency},
-			}
-		} else {
-			nodes = []types.TaskNode{plan, apply, verify}
-			edges = []types.TaskEdge{
-				{From: idPlan, To: idApply, EdgeType: types.EdgeHardDependency},
-				{From: idApply, To: idVerify, EdgeType: types.EdgeHardDependency},
-				// Verify SuccessCriteria failure requeues the plan
-				// node so the next iteration emits a fresh plan
-				// informed by Mutable.PlanningHint, AND requeues the
-				// apply node so the freshly-emitted plan actually
-				// gets applied to the worktree.
-				{From: idVerify, To: idPlan, EdgeType: types.EdgeValidationFeedback},
-				{From: idVerify, To: idApply, EdgeType: types.EdgeValidationFeedback},
-			}
+		}
+		nodes = []types.TaskNode{plan, apply, verify}
+		edges = []types.TaskEdge{
+			{From: idPlan, To: idApply, EdgeType: types.EdgeHardDependency},
+			{From: idApply, To: idVerify, EdgeType: types.EdgeHardDependency},
+			// Verify SuccessCriteria failure requeues the plan
+			// node so the next iteration emits a fresh plan
+			// informed by Mutable.PlanningHint, AND requeues the
+			// apply node so the freshly-emitted plan actually
+			// gets applied to the worktree.
+			{From: idVerify, To: idPlan, EdgeType: types.EdgeValidationFeedback},
+			{From: idVerify, To: idApply, EdgeType: types.EdgeValidationFeedback},
 		}
 	default:
 		// Read mode never reaches this builder; defensive empty.

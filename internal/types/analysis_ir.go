@@ -505,6 +505,22 @@ type TaskNode struct {
 	// pre-T4 yield-on-EntryConditions semantics for read explorer
 	// nodes.
 	OneShot bool `json:"one_shot,omitempty"`
+
+	// SkipOnFirstVisit causes the scheduler to mark the node as done
+	// without dispatching the agent on the FIRST entry, but allows
+	// later visits (triggered via EdgeValidationFeedback retry) to
+	// dispatch normally. Used by the write-mode plan node when the
+	// user supplied --plan-file: the disk plan is loaded into Mutable
+	// by applyPreHook, so re-emitting on the first iteration would be
+	// wasted work. On retry (verify failed → clearForReplan wipes
+	// planPath + ChangePlan), the second visit DOES dispatch and
+	// regenerates the plan informed by Mutable.PlanningHint.
+	//
+	// Implemented in the write scheduler via a per-node visit counter
+	// so the same field works whether or not the node is OneShot.
+	// Defaults to false to preserve pre-existing behaviour for every
+	// node not explicitly opted in.
+	SkipOnFirstVisit bool `json:"skip_on_first_visit,omitempty"`
 }
 
 type TaskNodeType string
