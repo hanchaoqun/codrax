@@ -56,7 +56,7 @@ func TestBuildExactResolutionContract_PrefersRawRequestMentionedTargets(t *testi
 	}
 }
 
-func TestBuildExactResolutionContract_ConfigKeyStaysNilWithoutExplicitExactTargets(t *testing.T) {
+func TestBuildExactResolutionContract_ConfigKeyFiltersOutFileContextWithoutExplicitExactTargets(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",
 		Scenario:   ScenarioConfigTrace,
@@ -70,8 +70,12 @@ func TestBuildExactResolutionContract_ConfigKeyStaysNilWithoutExplicitExactTarge
 		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
 	}
 
-	if got := BuildExactResolutionContract(rm); got != nil {
-		t.Fatalf("contract = %+v, want nil when multiple mentioned entities remain and analyzer did not disambiguate exact_targets", got)
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil after filtering file-context mentions")
+	}
+	if !reflect.DeepEqual(got.Targets, []string{"explore_mid_loop_hint_budget"}) {
+		t.Fatalf("Targets = %v, want only the exact config key target", got.Targets)
 	}
 }
 
@@ -189,6 +193,27 @@ func TestBuildExactResolutionContract_RemainsNilWhenMultipleSubjectCompatibleMen
 
 	if got := BuildExactResolutionContract(rm); got != nil {
 		t.Fatalf("contract = %+v, want nil when multiple subject-compatible mentions remain", got)
+	}
+}
+
+func TestBuildExactResolutionContract_FunctionNameFiltersOutPathContextMention(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "buildAnalysisIR 在 internal/agent/analyzer.go 里定义在哪里？",
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"buildAnalysisIR", "internal/agent/analyzer.go"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil after filtering file-path context")
+	}
+	if !reflect.DeepEqual(got.Targets, []string{"buildAnalysisIR"}) {
+		t.Fatalf("Targets = %v, want only the function target", got.Targets)
 	}
 }
 

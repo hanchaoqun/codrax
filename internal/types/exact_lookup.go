@@ -117,6 +117,16 @@ func exactResolutionNeedsExplicitDisambiguation(rm RequestModel) bool {
 	if len(primary) == 0 {
 		primary = rm.AnalyzerHints.Entities
 	}
+	if len(primary) == 0 {
+		return false
+	}
+	filtered := primary[:0]
+	for _, candidate := range primary {
+		if exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, candidate) {
+			filtered = append(filtered, candidate)
+		}
+	}
+	primary = filtered
 	return len(primary) > 1
 }
 
@@ -136,11 +146,20 @@ func exactResolutionSubjectCompatibleCandidates(rm RequestModel, candidates []st
 	}
 	primary := rm.AnalyzerHints.PrimaryEntities
 	if len(primary) == 0 {
-		return candidates
+		var out []string
+		for _, candidate := range candidates {
+			if exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, candidate) {
+				out = append(out, candidate)
+			}
+		}
+		return out
 	}
 	kind := exactResolutionFindingKindForRM(rm)
 	allowed := make(map[string]bool, len(primary))
 	for _, item := range primary {
+		if !exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, item) {
+			continue
+		}
 		key := normalizeExactResolutionToken(kind, item)
 		if key != "" {
 			allowed[key] = true
@@ -151,12 +170,37 @@ func exactResolutionSubjectCompatibleCandidates(rm RequestModel, candidates []st
 	}
 	var out []string
 	for _, candidate := range candidates {
+		if !exactResolutionCandidateMatchesSubjectKind(rm.AnswerSubject.Kind, candidate) {
+			continue
+		}
 		key := normalizeExactResolutionToken(kind, candidate)
 		if key != "" && allowed[key] {
 			out = append(out, candidate)
 		}
 	}
 	return out
+}
+
+func exactResolutionCandidateMatchesSubjectKind(kind AnswerSubjectKind, candidate string) bool {
+	candidate = strings.TrimSpace(strings.Trim(candidate, "`\"' "))
+	if candidate == "" {
+		return false
+	}
+	switch kind {
+	case SubjectFilePath:
+		return looksLikeExactPathToken(candidate)
+	case SubjectHandlerRoute:
+		return looksLikeRouteLikeToken(candidate)
+	case SubjectConfigKey:
+		if looksLikeExactPathToken(candidate) || looksLikeRouteLikeToken(candidate) {
+			return false
+		}
+		return looksLikeConfigKeyToken(candidate)
+	case SubjectStringLiteral, SubjectNumeric, SubjectUnknown:
+		return true
+	default:
+		return !looksLikeExactPathToken(candidate) && !looksLikeRouteLikeToken(candidate)
+	}
 }
 
 func MentionedEntitiesFromRawRequest(raw string, candidates []string) []string {
@@ -668,6 +712,39 @@ func looksLikeExactPathToken(s string) bool {
 		return false
 	}
 	return strings.Contains(s, "/") || (filepath.Ext(s) != "" && !strings.Contains(s, " "))
+}
+
+func looksLikeRouteLikeToken(s string) bool {
+	s = strings.TrimSpace(strings.ReplaceAll(s, `\`, `/`))
+	if s == "" {
+		return false
+	}
+	if strings.HasPrefix(s, "/") {
+		return true
+	}
+	parts := strings.Fields(strings.ToUpper(s))
+	if len(parts) >= 2 {
+		switch parts[0] {
+		case "GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD":
+			return strings.HasPrefix(parts[1], "/")
+		}
+	}
+	return false
+}
+
+func looksLikeConfigKeyToken(s string) bool {
+	s = strings.TrimSpace(strings.Trim(s, "`\"' "))
+	if s == "" || strings.ContainsAny(s, " \t\r\n") {
+		return false
+	}
+	if strings.Contains(s, "/") || filepath.Ext(strings.ReplaceAll(s, `\`, `/`)) != "" {
+		return false
+	}
+	if strings.ContainsAny(s, "._-") {
+		return true
+	}
+	first := s[0]
+	return first >= 'a' && first <= 'z'
 }
 
 func normalizeExactResolutionToken(kind, s string) string {

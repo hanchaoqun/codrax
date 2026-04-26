@@ -367,7 +367,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	for _, want := range []string{
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
+		"`shape=value` / `shape=config_value` / `shape=boolean` still require a real `summary`",
 		"Do not expand into adjacent helpers",
+		"every non-negative `citation_ref` must point at a real entry in `citations[]`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
