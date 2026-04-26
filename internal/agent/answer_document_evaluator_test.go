@@ -688,6 +688,93 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConf
 	}
 }
 
+func TestRenderRetryDiagramSeedFence_UsesLogSeedForCallDAG(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramCallDAG},
+				},
+			},
+		},
+		LogTriage: &types.LogBundle{
+			Errors: []types.LogError{{
+				Frames: []types.LogFrame{
+					{File: "internal/agent/analyzer.go", Line: 320, Func: "buildAnalysisIR"},
+					{File: "internal/orchestrator/orchestrator.go", Line: 101, Func: "Run"},
+				},
+			}},
+		},
+	}
+	got := renderRetryDiagramSeedFence(ctx)
+	for _, want := range []string{
+		"```",
+		"innermost failure: internal/agent/analyzer.go:320 in buildAnalysisIR",
+		"caller (outermost): internal/orchestrator/orchestrator.go:101 in Run",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("call_dag retry seed missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderRetryDiagramSeedFence_UsesFlowFindingSeedForFlow(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				},
+			},
+		},
+		FlowFindings: []types.FlowFindingDigest{{
+			Path: []string{"config.handlers.explorer", "NewExplorer", "Register"},
+		}},
+	}
+	got := renderRetryDiagramSeedFence(ctx)
+	for _, want := range []string{
+		"```",
+		"config.handlers.explorer",
+		"NewExplorer",
+		"Register",
+		"  ->",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("flow retry seed missing %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestRenderRetryDiagramSeedFence_UsesAnswerChainSeedForArchitecture(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					PreferredKinds: []types.DiagramKind{types.DiagramArchitecture},
+				},
+			},
+		},
+		AnswerChains: []types.AnswerChain{
+			{Item: types.EvidenceItem{Source: "internal/a.go", LineStart: 10, GroundingStatus: types.GroundingGrounded}},
+			{Item: types.EvidenceItem{Source: "internal/b.go", LineStart: 20, GroundingStatus: types.GroundingGrounded}},
+		},
+	}
+	got := renderRetryDiagramSeedFence(ctx)
+	for _, want := range []string{
+		"```",
+		"internal/a.go:10",
+		"internal/b.go:20",
+		"  ->",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("architecture retry seed missing %q:\n%s", want, got)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAction(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2}
 	sig := e.Observe(nil, LoopObservation{

@@ -1183,11 +1183,22 @@ func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext) string {
 }
 
 func renderRetryDiagramSeedFence(ctx *types.AgentContext) string {
-	for _, seed := range []string{
-		renderAnswerDocDiagramConfigTraceSeed(ctx),
-	} {
-		if fence := extractFirstFencedBlock(seed); fence != "" {
+	if ctx == nil {
+		return ""
+	}
+	for _, kind := range retryDiagramKinds(ctx) {
+		if fence := renderRetryDiagramSeedFenceForKind(ctx, kind); fence != "" {
 			return fence
+		}
+	}
+	for _, seed := range []string{
+		extractFirstFencedBlock(renderAnswerDocDiagramConfigTraceSeed(ctx)),
+		extractFirstFencedBlock(renderAnswerDocDiagramLogSeed(ctx.LogTriage)),
+		renderRetryFlowFindingFence(ctx.FlowFindings),
+		renderRetryAnswerChainFence(ctx.AnswerChains),
+	} {
+		if seed != "" {
+			return seed
 		}
 	}
 	return ""
@@ -1204,6 +1215,143 @@ func extractFirstFencedBlock(text string) string {
 		return ""
 	}
 	return strings.TrimSpace(text[start : start+3+end+3])
+}
+
+func retryDiagramKinds(ctx *types.AgentContext) []types.DiagramKind {
+	dc := answerDocDiagramContract(ctx)
+	if dc != nil && len(dc.PreferredKinds) > 0 {
+		return append([]types.DiagramKind(nil), dc.PreferredKinds...)
+	}
+	return []types.DiagramKind{
+		types.DiagramFlow,
+		types.DiagramSequence,
+		types.DiagramCallDAG,
+		types.DiagramArchitecture,
+	}
+}
+
+func renderRetryDiagramSeedFenceForKind(ctx *types.AgentContext, kind types.DiagramKind) string {
+	if ctx == nil {
+		return ""
+	}
+	switch kind {
+	case types.DiagramFlow:
+		for _, seed := range []string{
+			extractFirstFencedBlock(renderAnswerDocDiagramConfigTraceSeed(ctx)),
+			renderRetryFlowFindingFence(ctx.FlowFindings),
+			renderRetryAnswerChainFence(ctx.AnswerChains),
+		} {
+			if seed != "" {
+				return seed
+			}
+		}
+	case types.DiagramSequence, types.DiagramCallDAG:
+		for _, seed := range []string{
+			extractFirstFencedBlock(renderAnswerDocDiagramLogSeed(ctx.LogTriage)),
+			renderRetryFlowFindingFence(ctx.FlowFindings),
+			renderRetryAnswerChainFence(ctx.AnswerChains),
+		} {
+			if seed != "" {
+				return seed
+			}
+		}
+	case types.DiagramArchitecture:
+		for _, seed := range []string{
+			renderRetryFlowFindingFence(ctx.FlowFindings),
+			renderRetryAnswerChainFence(ctx.AnswerChains),
+			extractFirstFencedBlock(renderAnswerDocDiagramConfigTraceSeed(ctx)),
+			extractFirstFencedBlock(renderAnswerDocDiagramLogSeed(ctx.LogTriage)),
+		} {
+			if seed != "" {
+				return seed
+			}
+		}
+	}
+	return ""
+}
+
+func renderRetryFlowFindingFence(findings []types.FlowFindingDigest) string {
+	for _, ff := range findings {
+		nodes := retryFlowFindingNodes(ff)
+		if len(nodes) >= 2 {
+			return buildRetryDiagramFence(nodes)
+		}
+	}
+	return ""
+}
+
+func retryFlowFindingNodes(ff types.FlowFindingDigest) []string {
+	var nodes []string
+	nodes = append(nodes, ff.Path...)
+	if len(nodes) < 2 {
+		for _, hop := range ff.Hops {
+			for _, part := range strings.Split(hop, "->") {
+				nodes = append(nodes, strings.TrimSpace(part))
+			}
+		}
+	}
+	if len(nodes) < 2 {
+		nodes = append(nodes, ff.Sources...)
+		nodes = append(nodes, ff.Sinks...)
+	}
+	return dedupeRetryDiagramNodes(nodes, 6)
+}
+
+func renderRetryAnswerChainFence(chains []types.AnswerChain) string {
+	nodes := make([]string, 0, len(chains))
+	for _, chain := range chains {
+		item := chain.Item
+		label := firstNonEmptyString(
+			item.DisplayLocation(true),
+			strings.TrimSpace(item.Source),
+			strings.TrimSpace(item.Subject),
+			strings.TrimSpace(item.AnchorSymbol),
+		)
+		if label == "" {
+			continue
+		}
+		nodes = append(nodes, label)
+	}
+	nodes = dedupeRetryDiagramNodes(nodes, 5)
+	if len(nodes) < 2 {
+		return ""
+	}
+	return buildRetryDiagramFence(nodes)
+}
+
+func dedupeRetryDiagramNodes(nodes []string, limit int) []string {
+	seen := make(map[string]bool, len(nodes))
+	out := make([]string, 0, len(nodes))
+	for _, node := range nodes {
+		node = strings.TrimSpace(node)
+		if node == "" || seen[node] {
+			continue
+		}
+		seen[node] = true
+		out = append(out, node)
+		if limit > 0 && len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func buildRetryDiagramFence(nodes []string) string {
+	nodes = dedupeRetryDiagramNodes(nodes, 6)
+	if len(nodes) < 2 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("```\n")
+	for i, node := range nodes {
+		b.WriteString(node)
+		b.WriteByte('\n')
+		if i < len(nodes)-1 {
+			b.WriteString("  ->\n")
+		}
+	}
+	b.WriteString("```")
+	return b.String()
 }
 
 func buildLiteralGroundingRetryHint(summary string) string {
