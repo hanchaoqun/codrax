@@ -115,7 +115,7 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 				return fmt.Sprintf("change %q has kind=patch but Patch is empty (unified-diff required)", strings.TrimSpace(c.Path))
 			}
 			if err := CheckUnifiedDiff(ctx.RepoRoot, c.Patch); err != nil {
-				return composePatchRejectionReason(ctx.RepoRoot, strings.TrimSpace(c.Path), err.Error())
+				return composePatchRejectionReason(ctx.RepoRoot, strings.TrimSpace(c.Path), err.Error(), c.Patch)
 			}
 		}
 	}
@@ -146,8 +146,8 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 // applies. Originally composePatchRejection always emitted the
 // emit_change_plan prefix; for the structural path we want
 // emit_plan_change to surface the rejection under its own name.
-func composePatchRejectionReason(repoRoot, path, gitErr string) string {
-	full := composePatchRejection(repoRoot, path, gitErr)
+func composePatchRejectionReason(repoRoot, path, gitErr, patchPayload string) string {
+	full := composePatchRejection(repoRoot, path, gitErr, patchPayload)
 	const prefix = "emit_change_plan rejected: "
 	if strings.HasPrefix(full, prefix) {
 		return full[len(prefix):]

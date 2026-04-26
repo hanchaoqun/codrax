@@ -152,7 +152,7 @@ func TestComposePatchRejection_WithSnippet_IncludesGroundTruth(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	gitErr := "error: patch failed: Main.java:3\nerror: Main.java: patch does not apply"
-	msg := composePatchRejection(dir, "Main.java", gitErr)
+	msg := composePatchRejection(dir, "Main.java", gitErr, "")
 
 	wants := []string{
 		"emit_change_plan rejected",
@@ -179,7 +179,7 @@ func TestComposePatchRejection_WithSnippet_IncludesGroundTruth(t *testing.T) {
 func TestComposePatchRejection_NoSnippet_FallsBackToGenericHint(t *testing.T) {
 	dir := t.TempDir()
 	gitErr := "error: corrupt patch at line 11"
-	msg := composePatchRejection(dir, "foo.go", gitErr)
+	msg := composePatchRejection(dir, "foo.go", gitErr, "")
 
 	if strings.Contains(msg, "Actual file content") {
 		t.Errorf("corrupt-patch error should NOT render a snippet; got:\n%s", msg)
@@ -208,7 +208,7 @@ func TestComposeApplyRejection_IncludesContextWhenAvailable(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 	gitErr := "error: patch failed: foo.go:3"
-	msg := composeApplyRejection(dir, "foo.go", gitErr)
+	msg := composeApplyRejection(dir, "foo.go", gitErr, "")
 	for _, w := range []string{
 		"apply_patch: git apply failed",
 		"foo.go",

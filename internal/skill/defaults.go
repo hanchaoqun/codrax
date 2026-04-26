@@ -427,6 +427,21 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 			"Read the files and identifiers named in the user's request. Use read_file / grep / repo_map to understand the current shape of what the change has to touch.",
 			"Identify the MINIMAL set of files that must be modified to address the request. A good plan touches the fewest files that still completely solves the problem.",
 			"For each target file decide the Kind: create (new file; new_content is the full body), modify (overwrite existing file; new_content is the full body), delete (remove; new_content ignored), or patch (surgical edit via a unified diff; fill the patch field with the diff text and leave new_content empty). Prefer patch for small/surgical edits so git apply validates hunks against the real file; prefer modify when you're rewriting most of the file.",
+			"UNIFIED DIFF SUBSTITUTION RULES (kind=patch) — read carefully, this is the #1 source of patch rejections:\n" +
+				"  - Three line prefixes: ' ' (CONTEXT, line stays), '-' (REMOVAL, line goes away), '+' (ADDITION, line lands).\n" +
+				"  - Context lines must match the file BYTE-FOR-BYTE — same indentation (tabs vs spaces), same trailing whitespace, no edits.\n" +
+				"  - To REPLACE a line, the original goes on a '-' line AND the corrected version goes on a '+' line. Do NOT keep the buggy line in CONTEXT and only add the correction with '+'. That syntactically parses but git refuses to apply because the file would now have BOTH lines.\n" +
+				"  - The @@ hunk header `@@ -OLD_START,OLD_LEN +NEW_START,NEW_LEN @@` declares the file line numbers and total line counts; OLD_LEN counts ' ' + '-' lines; NEW_LEN counts ' ' + '+' lines. Off-by-one here is the second-most-common rejection cause.\n" +
+				"WORKED EXAMPLE — fixing typo `retrun` → `return` on line 25 of main.go (file uses tabs; in the patch text a literal tab is shown as <TAB>):\n" +
+				"  --- a/main.go\n" +
+				"  +++ b/main.go\n" +
+				"  @@ -23,4 +23,4 @@ func greet(name string) string {\n" +
+				"   <TAB><TAB>name = \"world\"\n" +
+				"   <TAB>}\n" +
+				"  -<TAB>retrun fmt.Sprintf(\"Hello, %s!\", name)\n" +
+				"  +<TAB>return fmt.Sprintf(\"Hello, %s!\", name)\n" +
+				"   }\n" +
+				"Notice: the buggy `retrun` line is on a '-' line (NOT in context); the corrected `return` line is on a '+' line; the surrounding `<TAB>}` and `}` are on context lines (' ') because they don't change. In the actual JSON `patch` field every <TAB> is a real \\t character; preserve the file's exact indentation.",
 			"CHOOSE EMISSION MODE: if the WHOLE plan (request + summary + every new_content concatenated) likely fits in a single LLM response, emit it via emit_change_plan in one call. If the plan creates several large files (e.g. 3+ create entries with substantial new_content totalling 5+ KB), use the structural mode instead: call emit_plan_skeleton FIRST (request + summary + per-file metadata only, NO new_content/patch) — then call emit_plan_change once per non-delete file to fill its body. The skeleton path can NEVER truncate (payload is small) and the per-file emits are bounded; the last emit_plan_change runs the full validators and finalizes the plan. Use the structural mode whenever you anticipate output-size pressure — it is the safety net for plans too large for a single shot.",
 			"For SINGLE-SHOT mode: emit exactly one emit_change_plan call. request must restate the user's ask, summary must be 3-10 sentences describing what the plan does and why, and changes[] must include one entry per target file with a Rationale explaining WHY that file needs that change.",
 			"For MULTI-ROUND mode: emit emit_plan_skeleton ONCE (request, summary, changes[] metadata, optional acceptance_tests). Then for EACH change with kind ∈ {create, modify, patch}, emit emit_plan_change once with that change's path and the appropriate new_content (create/modify) or patch (kind=patch). Do not call emit_plan_change for kind=delete entries — the skeleton already declares the deletion. The order of emit_plan_change calls does not matter; the LAST one (when every non-delete slot is filled) automatically runs the V1/V2/V4/patch validators and finalizes the plan. If a finalize-time validator rejects a specific file, just re-emit that ONE file via emit_plan_change to fix it — the partial state is retained.",

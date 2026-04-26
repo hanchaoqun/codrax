@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,27 +26,210 @@ import (
 // wrote". Three retries all made the same mistake because the
 // feedback never contained ground truth.
 //
+// patchPayload is the LLM-emitted unified diff (the FileChange.Patch
+// bytes). When non-empty, we run detectSubstitutionInContextMistake
+// against it: if a `+` line is highly similar to a ` ` (context) line
+// in the same hunk, the LLM almost certainly tried to replace that
+// context line by adding a `+` next to it instead of marking the
+// original with `-`. This is the root cause of the patch_go_typo
+// 2026-04-26 eval failure (LLM left `retrun` in context, fabricated
+// a `\t` removal, and added the corrected `return` line). The
+// existing "stale context / indentation drift" hint is generic
+// enough that the LLM can reread the prompt 7 times without seeing
+// THIS specific mistake; the explicit callout below names it.
+//
 // When the git error does NOT carry a file:line locator (e.g. the
 // "corrupt patch at line N" class — N there is inside the patch body,
 // not the file), the snippet is omitted and the caller's generic
 // hint remains the sole guidance. Those classes are already handled
 // structurally via runGitApply's --recount flag + trailing-newline
 // normalisation, so the generic hint is sufficient.
-func composePatchRejection(repoRoot, path, gitErr string) string {
+func composePatchRejection(repoRoot, path, gitErr, patchPayload string) string {
 	snippet := conflictContextSnippet(repoRoot, gitErr)
 	base := fmt.Sprintf(
 		"emit_change_plan rejected: change %q (kind=patch) would fail `git apply`: %s",
 		path, gitErr,
 	)
+	subsHint := detectSubstitutionInContextMistake(patchPayload)
 	if snippet != "" {
-		return base + "\n\n" + snippet +
+		out := base + "\n\n" + snippet +
 			"\nCompare your hunk's context lines (prefixed with ' ') to the actual file bytes above. " +
 			"Common causes: stale context (a line in your hunk doesn't exist at the claimed position), " +
 			"wrong @@ start line (off by a few lines from the truth), or indentation drift (spaces vs tabs). " +
 			"Regenerate the unified diff using the actual file content, not a remembered version."
+		if subsHint != "" {
+			out += "\n\n" + subsHint
+		}
+		return out
 	}
-	return base +
+	out := base +
 		" — regenerate the unified diff (common causes: wrong @@ hunk line counts, missing trailing newline, stale context lines that no longer match the file)."
+	if subsHint != "" {
+		out += "\n\n" + subsHint
+	}
+	return out
+}
+
+// detectSubstitutionInContextMistake scans an LLM-emitted unified
+// diff for the failure mode "the line you wanted to replace is in
+// CONTEXT (' '), not REMOVAL ('-'); a similar line was added with
+// '+' instead". This is the canonical novice-LLM mistake when asked
+// to fix a typo or one-line bug. The function returns a non-empty
+// hint string when the mistake is detected; "" when the diff looks
+// well-formed.
+//
+// Algorithm: walk each hunk body, collect (kind, content) pairs.
+// For every `+` line, look at every ` ` line in the SAME hunk.
+// Compute a similarity score (longest common prefix / total length).
+// If similarity >= 0.7 AND the lines are not equal AND not trivially
+// short (<5 chars after trim), flag the pair.
+//
+// 0.7 is conservative: a substitution typo like `retrun` → `return`
+// shares 6 / 8 chars of common-prefix-or-suffix → score ≥ 0.75; a
+// one-character typo `name` → `name2` scores 0.8. False positives
+// would require two truly different lines that happen to share a
+// long prefix; rare in practice and the hint is advisory (the LLM
+// still gets the canonical "stale context" guidance above).
+//
+// Generic across all 6 polyglot languages — the algorithm uses no
+// language-specific syntax.
+func detectSubstitutionInContextMistake(patch string) string {
+	if strings.TrimSpace(patch) == "" {
+		return ""
+	}
+	type diffLine struct {
+		kind byte // '+', '-', ' '
+		text string
+	}
+	var hunkLines []diffLine
+	flushHunk := func() ([]diffLine, []diffLine) {
+		var ctx, adds []diffLine
+		for _, dl := range hunkLines {
+			switch dl.kind {
+			case '+':
+				adds = append(adds, dl)
+			case ' ':
+				ctx = append(ctx, dl)
+			}
+		}
+		return ctx, adds
+	}
+
+	type pair struct {
+		ctx string
+		add string
+	}
+	var hits []pair
+
+	processHunk := func() {
+		ctx, adds := flushHunk()
+		for _, a := range adds {
+			at := strings.TrimSpace(a.text)
+			if len(at) < 5 {
+				continue
+			}
+			for _, c := range ctx {
+				ct := strings.TrimSpace(c.text)
+				if len(ct) < 5 || at == ct {
+					continue
+				}
+				if substitutionSimilarity(at, ct) >= 0.7 {
+					hits = append(hits, pair{ctx: c.text, add: a.text})
+				}
+			}
+		}
+		hunkLines = nil
+	}
+
+	scanner := bufio.NewScanner(strings.NewReader(patch))
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	inHunk := false
+	for scanner.Scan() {
+		line := scanner.Text()
+		if strings.HasPrefix(line, "@@") {
+			if inHunk {
+				processHunk()
+			}
+			inHunk = true
+			continue
+		}
+		if !inHunk {
+			continue
+		}
+		if line == "" {
+			hunkLines = append(hunkLines, diffLine{kind: ' ', text: ""})
+			continue
+		}
+		switch line[0] {
+		case '+', '-', ' ':
+			hunkLines = append(hunkLines, diffLine{kind: line[0], text: line[1:]})
+		default:
+			// Diff body should not have other prefixes; ignore.
+		}
+	}
+	if inHunk {
+		processHunk()
+	}
+	if len(hits) == 0 {
+		return ""
+	}
+	first := hits[0]
+	return fmt.Sprintf(
+		"DETECTED LIKELY MISTAKE — substitution-in-context: your hunk has\n"+
+			"   addition  (`+`):  %s\n"+
+			"   context   (` `):  %s\n"+
+			"These two lines look like before/after of the same logical line. To replace a line you MUST mark the ORIGINAL with `-` (removal) AND provide the corrected version with `+` (addition). Do NOT leave the original in CONTEXT (' ') and only add the correction with `+` — git would then expect both lines to exist in the file, which is what just failed. Worked example for fixing `retrun` → `return`:\n"+
+			"   --- a/file.go\n"+
+			"   +++ b/file.go\n"+
+			"   @@ -25,3 +25,3 @@\n"+
+			"    \t}\n"+
+			"   -\tretrun fmt.Sprintf(\"Hello, %%s!\", name)\n"+
+			"   +\treturn fmt.Sprintf(\"Hello, %%s!\", name)\n"+
+			"    }\n"+
+			"Notice: the buggy line is on a `-` line; the corrected line is on a `+` line; surrounding context (` `) lines describe the unchanged region.",
+		strings.TrimRight(first.add, "\r"),
+		strings.TrimRight(first.ctx, "\r"),
+	)
+}
+
+// substitutionSimilarity returns a similarity score in [0, 1] for two
+// strings that are "candidates for substitution typo of each other".
+// Uses max(common-prefix, common-suffix, longest-common-prefix-after-
+// trim) over max(len(a), len(b)). Bounded, monotone, no false 1.0 on
+// distinct strings (because a == b is filtered out by the caller).
+func substitutionSimilarity(a, b string) float64 {
+	if a == b {
+		return 1.0
+	}
+	la, lb := len(a), len(b)
+	if la == 0 || lb == 0 {
+		return 0
+	}
+	min := la
+	if lb < min {
+		min = lb
+	}
+	// Common prefix.
+	prefix := 0
+	for prefix < min && a[prefix] == b[prefix] {
+		prefix++
+	}
+	// Common suffix.
+	suffix := 0
+	for suffix < min-prefix && a[la-1-suffix] == b[lb-1-suffix] {
+		suffix++
+	}
+	score := float64(prefix+suffix) / float64(la)
+	if float64(lb) > 0 {
+		alt := float64(prefix+suffix) / float64(lb)
+		if alt > score {
+			score = alt
+		}
+	}
+	if score > 1.0 {
+		score = 1.0
+	}
+	return score
 }
 
 // conflictContextSnippet parses `patch failed: <file>:<line>` from
@@ -146,12 +330,20 @@ func parseGitConflictLocator(gitErr string) (string, int) {
 // to route retries ("emit_change_plan rejected" vs "apply_patch:
 // git apply failed"). Both call conflictContextSnippet so the
 // snippet-rendering code has one owner.
-func composeApplyRejection(repoRoot, path, gitErr string) string {
+func composeApplyRejection(repoRoot, path, gitErr, patchPayload string) string {
 	snippet := conflictContextSnippet(repoRoot, gitErr)
 	base := fmt.Sprintf("apply_patch: git apply failed for %q: %s", path, gitErr)
+	subsHint := detectSubstitutionInContextMistake(patchPayload)
 	if snippet != "" {
-		return base + "\n\n" + snippet +
+		out := base + "\n\n" + snippet +
 			"\nThe plan's patch did not match the worktree at apply time. If the plan was generated against an older snapshot, the verify→plan retry loop will regenerate against the current file state."
+		if subsHint != "" {
+			out += "\n\n" + subsHint
+		}
+		return out
+	}
+	if subsHint != "" {
+		return base + "\n\n" + subsHint
 	}
 	return base
 }
