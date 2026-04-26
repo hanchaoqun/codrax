@@ -23,3 +23,23 @@ func TestExploreSkillOutputFormatStaysToolFirst(t *testing.T) {
 		t.Fatalf("explore-skill OutputFormat must mention emit_investigation_complete:\n%s", sk.OutputFormat)
 	}
 }
+
+func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	for _, want := range []string{
+		"Even when the Diagram Contract does NOT require one",
+		"3+ hops",
+		"actor/role handoffs",
+		"easier to see than to read in prose",
+	} {
+		if !strings.Contains(sk.OutputFormat, want) {
+			t.Fatalf("finalize-skill OutputFormat missing %q:\n%s", want, sk.OutputFormat)
+		}
+	}
+}
