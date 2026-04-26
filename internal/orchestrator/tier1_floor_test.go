@@ -46,3 +46,31 @@ func TestCountTier1Evidence_AllRecovered(t *testing.T) {
 		t.Errorf("total = %d, want 4", total)
 	}
 }
+
+func TestCountTier1Evidence_SkipsAuxiliaryExactResolutionContext(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			GroundingStatus: types.GroundingUngrounded,
+			ContextRole:     types.EvidenceContextRoleIllustrativeOnly,
+			Kind:            types.EvidenceUnresolved,
+		},
+		{
+			GroundingStatus: types.GroundingUngrounded,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			Kind:            types.EvidenceDirect,
+		},
+		{
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			Kind:            types.EvidenceDirect,
+		},
+	}
+	tier1, total := countTier1Evidence(items)
+	if total != 1 {
+		t.Fatalf("auxiliary illustrative/absence-support items should be excluded from tier1 denominator, got total=%d", total)
+	}
+	if tier1 != 1 {
+		t.Fatalf("remaining grounded related-context item should count, got tier1=%d", tier1)
+	}
+}

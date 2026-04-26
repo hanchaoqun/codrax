@@ -1084,6 +1084,9 @@ type evidenceTally struct {
 func tallyEvidence(evidence []types.EvidenceItem) evidenceTally {
 	var t evidenceTally
 	for _, e := range evidence {
+		if !types.EvidenceCountsTowardTier1Floor(e) {
+			continue
+		}
 		t.total++
 		switch e.GroundingStatus {
 		case types.GroundingGrounded:

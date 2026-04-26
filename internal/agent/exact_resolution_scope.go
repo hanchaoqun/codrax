@@ -286,15 +286,34 @@ func pendingExactResolutionContextCandidates(contract *types.ExactResolutionCont
 	return pending
 }
 
-func exactResolutionContextFilesFromCandidates(candidates []exactResolutionSymbolCandidate) []string {
+func exactResolutionContextFilesFromCandidates(candidates []exactResolutionSymbolCandidate, preferredFiles []string) []string {
 	if len(candidates) == 0 {
 		return nil
+	}
+	preferred := make(map[string]bool)
+	for _, file := range preferredFiles {
+		file = canonicalExactResolutionPath(file)
+		if file != "" {
+			preferred[file] = true
+		}
+	}
+	filterToPreferred := false
+	if len(preferred) > 0 {
+		for _, cand := range candidates {
+			if preferred[canonicalExactResolutionPath(cand.File)] {
+				filterToPreferred = true
+				break
+			}
+		}
 	}
 	seen := make(map[string]bool)
 	var files []string
 	for _, cand := range candidates {
 		file := canonicalExactResolutionPath(cand.File)
 		if file == "" || seen[file] {
+			continue
+		}
+		if filterToPreferred && !preferred[file] {
 			continue
 		}
 		seen[file] = true

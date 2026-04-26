@@ -2707,7 +2707,7 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 		contract.AllowAbsence &&
 		contract.RelatedContextPolicy != types.ExactContextGroundedOnly {
 		pending := pendingExactResolutionContextCandidates(contract, ctx.Mutable.EmittedEvidence(), cands)
-		e.exactContextFiles = exactResolutionContextFilesFromCandidates(pending)
+		e.exactContextFiles = exactResolutionContextFilesFromCandidates(pending, e.requiredFiles)
 		ctx.Mutable.SetExactContextRequiredFiles(e.exactContextFiles)
 	}
 	if contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {

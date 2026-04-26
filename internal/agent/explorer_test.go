@@ -4086,6 +4086,31 @@ func TestFilterConcreteValueScanFiles_SkipsAuxiliaryFilesForPrimaryProofExactRes
 	}
 }
 
+func TestExactResolutionContextFilesFromCandidates_PrefersAnalyzerScopedFiles(t *testing.T) {
+	candidates := []exactResolutionSymbolCandidate{
+		{File: "internal/types/explore_budget.go", Symbol: "ExploreBudget", Score: 12},
+		{File: "internal/types/config.go", Symbol: "DefaultExploreHeuristics", Score: 11},
+	}
+	got := exactResolutionContextFilesFromCandidates(candidates, []string{
+		"internal/types/config.go",
+		"cmd/root.go",
+	})
+	if len(got) != 1 || got[0] != "internal/types/config.go" {
+		t.Fatalf("analyzer-scoped candidate files should win over lexical neighbors, got %v", got)
+	}
+}
+
+func TestExactResolutionContextFilesFromCandidates_FallsBackWhenNoPreferredMatch(t *testing.T) {
+	candidates := []exactResolutionSymbolCandidate{
+		{File: "internal/types/explore_budget.go", Symbol: "ExploreBudget", Score: 12},
+		{File: "internal/types/config.go", Symbol: "DefaultExploreHeuristics", Score: 11},
+	}
+	got := exactResolutionContextFilesFromCandidates(candidates, []string{"internal/other/file.go"})
+	if len(got) != 2 {
+		t.Fatalf("when analyzer-scoped files do not overlap, keep the pending candidate file set, got %v", got)
+	}
+}
+
 func TestStructuralCandidateFilesFromPaths_UsesAnalyzerRankedOrder(t *testing.T) {
 	cands := structuralCandidateFilesFromPaths([]string{
 		"internal/config/runtime.go",

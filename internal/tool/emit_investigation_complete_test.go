@@ -249,6 +249,50 @@ func TestEmitInvestigationComplete_Tier1FloorQueuesTier2GroundedReads(t *testing
 	}
 }
 
+func TestEmitInvestigationComplete_Tier1FloorIgnoresAuxiliaryContextOnlyItems(t *testing.T) {
+	prev := CurrentGroundingPolicy()
+	SetGroundingPolicy(GroundingPolicy{GroundingFloor: 0.5, Tier1Floor: 0.3})
+	t.Cleanup(func() { SetGroundingPolicy(prev) })
+
+	mut := types.NewMutableState("q")
+	mut.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceUnresolved,
+			Source:          "docs/example.go",
+			LineStart:       10,
+			ContextRole:     types.EvidenceContextRoleIllustrativeOnly,
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       214,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "explore_mid_loop_hint_budget",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingUngrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	bus := &types.BusContext{Mutable: mut}
+	tool := &EmitInvestigationComplete{}
+
+	params := json.RawMessage(`{"reason":"done","confidence":"high","result_kind":"resolved"}`)
+	res, _ := tool.Execute(bus, params)
+	if !res.Success {
+		t.Fatalf("auxiliary illustrative/absence-support items should not force a tier1-floor retry, got rejection: %s", res.Summary)
+	}
+}
+
 func TestEmitInvestigationComplete_ConfigAbsenceAllowsContextualEvidence(t *testing.T) {
 	missingKey := "zz_absent_config_" + "knob"
 	mut := types.NewMutableState("q")

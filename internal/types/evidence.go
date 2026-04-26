@@ -299,6 +299,29 @@ type EvidenceItem struct {
 	GroundingNote   string          `json:"grounding_note,omitempty"`
 }
 
+// EvidenceCountsTowardTier1Floor reports whether an evidence item
+// should contribute to the Tier-1 proven-ratio denominator used by
+// explorer completion and the orchestrator's pre-finalize gate.
+//
+// The floor is meant to protect citation-bearing answer anchors:
+// facts the finalizer may actually need to cite. Auxiliary lanes that
+// the system has already classified as non-defining context
+// (illustrative examples, absence-support prose, unresolved exact-hit
+// mentions) should not bloat the denominator and force an otherwise
+// sufficient investigation to reopen just to repair evidence the
+// pipeline itself says must remain context only.
+func EvidenceCountsTowardTier1Floor(ev EvidenceItem) bool {
+	if ev.Kind == EvidenceUnresolved {
+		return false
+	}
+	switch ev.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly, EvidenceContextRoleAbsenceSupport:
+		return false
+	default:
+		return true
+	}
+}
+
 // FlowFindingDigest is the compact, stage-safe output of the dataflow
 // engine. It intentionally omits the full graph and preserves only the
 // user-facing path plus the evidence IDs needed for replay.

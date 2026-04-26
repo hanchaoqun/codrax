@@ -73,6 +73,9 @@ func (o *Orchestrator) checkTier1Floor(ir *types.AnalysisIR, state *graphState) 
 // speculation, and should not push the floor down.
 func countTier1Evidence(evidence []types.EvidenceItem) (tier1, total int) {
 	for _, e := range evidence {
+		if !types.EvidenceCountsTowardTier1Floor(e) {
+			continue
+		}
 		total++
 		switch e.GroundingStatus {
 		case types.GroundingGrounded:
