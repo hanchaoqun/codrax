@@ -15,7 +15,27 @@ var (
 	gitProbeOk    bool
 	gitProbePath  string
 	gitProbeVerOK string // trimmed `git --version` output; "" when probe failed
+
+	// lintEnabled gates the V5 lint validator family. Default true:
+	// the validator is opt-out (operators who want strict-tests-only
+	// behaviour set codrax.yaml :: pipeline_lint_enabled: false). The
+	// individual per-language helpers ALSO short-circuit when their
+	// toolchain (ruff / gofmt) is missing, so the master switch is
+	// the operator's hard veto, not a "is anything installed" probe.
+	lintEnabled = true
 )
+
+// LintEnabled reports whether V5 lint validators should run. See
+// validatePlanLint for the consumer side. Defaults to true; operators
+// set codrax.yaml :: pipeline_lint_enabled: false to disable
+// (typically when a project's existing code carries lint debt and the
+// new-files-only filter still feels too noisy).
+func LintEnabled() bool { return lintEnabled }
+
+// SetLintEnabled installs the operator's yaml override. Called once
+// from cmd/root.go's settings-resolution block alongside the other
+// pipeline knobs.
+func SetLintEnabled(b bool) { lintEnabled = b }
 
 // GitAvailable reports whether `git --version` succeeded during the
 // one-shot startup probe. Cached for the process lifetime so REPL

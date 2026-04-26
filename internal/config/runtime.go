@@ -181,6 +181,15 @@ type RuntimeSettings struct {
 	// paths always discard regardless of this flag. Default false.
 	PipelineKeepWorktreeOnSuccess *bool `yaml:"pipeline_keep_worktree_on_success"`
 
+	// PipelineLintEnabled gates the V5 lint validator family
+	// (Python ruff, Go gofmt). When unset → default true; the
+	// validator runs before the planner finalizes a plan and
+	// rejects any kind=create entry whose new_content carries
+	// dead-variable / unused-import / formatting defects. Operators
+	// set false when their codebase carries lint debt and the
+	// new-files-only filter still feels too noisy.
+	PipelineLintEnabled *bool `yaml:"pipeline_lint_enabled"`
+
 	// Analyzer quality gate thresholds. Flat-prefixed `gate_*`.
 	// All optional; zero/nil → code default in gate.Thresholds.
 	GateCoverageMin           *float64 `yaml:"gate_coverage_min"`

@@ -1391,6 +1391,13 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		if rs.PipelineKeepWorktreeOnSuccess != nil {
 			pipelineSettings.KeepWorktreeOnSuccess = *rs.PipelineKeepWorktreeOnSuccess
 		}
+		// V5 lint master switch (default true; tool.SetLintEnabled
+		// applies the operator override). Falls through to the
+		// per-language toolchain probes inside validatePlanLint —
+		// this knob just lets operators veto the entire family.
+		if rs.PipelineLintEnabled != nil {
+			tool.SetLintEnabled(*rs.PipelineLintEnabled)
+		}
 
 		// Gate thresholds → package-global in gate package.
 		var gt gate.Thresholds

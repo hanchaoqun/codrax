@@ -1228,6 +1228,167 @@ func formatDryBuildRejection(lang, cmdDescr string, stderr []byte, originalLen i
 		cmdDescr, lang, out)
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// V5 lint
+// ─────────────────────────────────────────────────────────────────────
+
+// validatePlanLint catches "code-smell" / unused-symbol / dead-code /
+// style problems that V2's syntax+vet pass cannot see. The Batch E
+// quality audit surfaced two patterns this catches:
+//   - robot-name's reset() forgetting to remove the old name from
+//     `_used_names` (would surface as "unused-attribute" in some
+//     linters; ruff catches the F841 unused-variable family)
+//   - generic dead branches / unreachable returns / over-broad excepts
+//
+// Per-language fan-out symmetric to validatePlanDryBuild. Each helper
+// inspects `changes`, skips when its toolchain is missing, and runs
+// the language-specific linter on a hardlinked overlay so the real
+// repo is never touched. The check is opt-out via yaml — operators
+// who want strict-tests-only mode set `pipeline_lint_enabled: false`.
+//
+// Severity policy: only ERROR-class diagnostics reject (not WARNINGs
+// or stylistic nits). Linting was the lowest-priority validator and
+// must be resilient to noisy projects — over-rejection is worse than
+// under-rejection here. Each language helper picks its severity
+// filter accordingly.
+func validatePlanLint(ctx *types.BusContext, changes []types.FileChange) string {
+	if !LintEnabled() {
+		return ""
+	}
+	if rej := lintPython(ctx, changes); rej != "" {
+		return rej
+	}
+	if rej := lintGoFmt(ctx, changes); rej != "" {
+		return rej
+	}
+	return ""
+}
+
+// lintPython runs `ruff check --select=E,F` on every changed .py
+// file. The E (pycodestyle errors) + F (pyflakes — unused-vars,
+// unused-imports, undefined-names) families are the highest-signal
+// for catching LLM-generated dead code without flooding rejections
+// on style preferences. Skips when ruff is not installed.
+func lintPython(ctx *types.BusContext, changes []types.FileChange) string {
+	ruffBin, err := exec.LookPath("ruff")
+	if err != nil {
+		logging.Debug("[emit_change_plan] V5 Python lint skipped: ruff binary not on PATH")
+		return ""
+	}
+	var pyChanges []string
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".py") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		// Strict rules apply only to NEW files (kind=create) — for
+		// modify, the pre-existing file likely already had the same
+		// patterns and rejecting them would create churn. New files
+		// have no excuse for unused variables / dead imports.
+		if c.Kind != "create" {
+			continue
+		}
+		pyChanges = append(pyChanges, path)
+	}
+	if len(pyChanges) == 0 {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "python-lint")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	sort.Strings(pyChanges)
+	args := append([]string{"check", "--select=E,F", "--no-cache", "--output-format=concise"}, pyChanges...)
+	cmd := exec.Command(ruffBin, args...)
+	cmd.Dir = scratch
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return formatLintRejection("Python", "ruff check --select=E,F", out, len(out))
+	}
+	logging.Debug("[emit_change_plan] V5 Python lint PASS for files: %v", pyChanges)
+	return ""
+}
+
+// lintGoFmt runs `gofmt -l` on every changed .go file. Files with
+// formatting deviations come back on stdout (one path per line);
+// non-empty output = rejection. We don't enforce other Go lint rules
+// here because `go vet` already covers semantic checks in V2 and
+// fancier checks (staticcheck / golangci-lint) would need the
+// operator to install + configure them. gofmt is part of the Go
+// distribution, no extra install.
+func lintGoFmt(ctx *types.BusContext, changes []types.FileChange) string {
+	gofmtBin, err := exec.LookPath("gofmt")
+	if err != nil {
+		logging.Debug("[emit_change_plan] V5 Go gofmt skipped: gofmt binary not on PATH")
+		return ""
+	}
+	var goChanges []string
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".go") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		// Only enforce gofmt on NEW files — same rationale as ruff
+		// (don't churn existing files into a different style).
+		if c.Kind != "create" {
+			continue
+		}
+		goChanges = append(goChanges, path)
+	}
+	if len(goChanges) == 0 {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "go-lint")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	sort.Strings(goChanges)
+	args := append([]string{"-l"}, goChanges...)
+	cmd := exec.Command(gofmtBin, args...)
+	cmd.Dir = scratch
+	out, err := cmd.CombinedOutput()
+	if err != nil || strings.TrimSpace(string(out)) != "" {
+		// gofmt -l: non-empty output = files needing format. Treat
+		// as rejection so the planner re-emits with correct format.
+		// gofmt itself rarely errors; combine stderr+stdout for
+		// completeness.
+		listing := strings.TrimSpace(string(out))
+		if listing == "" {
+			return ""
+		}
+		return formatLintRejection("Go", "gofmt -l <files>",
+			[]byte("Files not gofmt-clean (format with `gofmt -s -w`):\n"+listing), len(out))
+	}
+	logging.Debug("[emit_change_plan] V5 Go gofmt PASS for files: %v", goChanges)
+	return ""
+}
+
+// formatLintRejection mirrors formatDryBuildRejection but with a V5
+// prefix so the planner can distinguish lint failures from
+// build/syntax failures. Same truncation cap (2 KB).
+func formatLintRejection(lang, cmdDescr string, stderr []byte, originalLen int) string {
+	const maxStderrLen = 2000
+	out := strings.TrimSpace(string(stderr))
+	if len(out) > maxStderrLen {
+		out = out[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
+	}
+	return fmt.Sprintf("V5 lint failed: `%s` reported %s code-smell issues. "+
+		"These are not syntax errors — the code likely compiles — but the linter flagged dead variables, "+
+		"unused imports, or other defects that indicate the new_content has unnecessary or buggy code. "+
+		"Fix the issues and re-emit. Full output:\n%s",
+		cmdDescr, lang, out)
+}
+
 // scratchBaseDir returns the parent directory under which V2's
 // scratch dir should be created. Prefers ctx.WorkDir (per-trace temp
 // already in place) so temp files cluster with other codrax artifacts;

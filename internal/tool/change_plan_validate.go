@@ -131,6 +131,9 @@ func validatePlanFullContent(ctx *types.BusContext, summary string, changes []ty
 	if rej := validatePlanDryBuild(ctx, changes); rej != "" {
 		return rej
 	}
+	if rej := validatePlanLint(ctx, changes); rej != "" {
+		return rej
+	}
 	return ""
 }
 
