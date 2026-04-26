@@ -586,6 +586,55 @@ func ConfigTraceGroundedContextAnchorAllowed(contract *ExactResolutionContract, 
 	}
 }
 
+// ExactResolutionAnswerContextAnchorAllowed reports whether an
+// evidence item is strong enough to appear on the user-visible
+// "nearby grounded context" side of an exact-resolution answer.
+// The LLM may recommend surrounding context, but the system decides
+// which items are answer-grade context before the finalizer is allowed
+// to surface them.
+func ExactResolutionAnswerContextAnchorAllowed(c *ExactResolutionContract, scenario Scenario, stableAbsent bool, item EvidenceItem) bool {
+	if c == nil {
+		return false
+	}
+	if stableAbsent && scenario == ScenarioConfigTrace && c.TargetKind == SubjectConfigKey {
+		return ConfigTraceGroundedContextAnchorAllowed(c, item)
+	}
+	if item.ContextRole == EvidenceContextRoleAbsenceSupport {
+		switch item.GroundingStatus {
+		case GroundingGrounded, GroundingRecovered:
+			return true
+		default:
+			return false
+		}
+	}
+	return ExactResolutionEvidenceCanSatisfyRelatedContext(c, item, nil)
+}
+
+// ExactResolutionContextSurfaceRelevant reports whether an evidence
+// item belongs to the exact target's semantic neighborhood strongly
+// enough that surfacing it in the final answer should be an explicit
+// decision. This lets prompt-shaping and answer validators treat
+// nearby same-family/doc-example anchors as first-class candidates
+// rather than relying on free-form prose heuristics.
+func ExactResolutionContextSurfaceRelevant(c *ExactResolutionContract, item EvidenceItem) bool {
+	if c == nil || item.Source == "" {
+		return false
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered:
+	default:
+		return false
+	}
+	if ExactResolutionTextsMentionAnyTarget(c,
+		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		return true
+	}
+	if ExactResolutionSameFamilyMatchScore(c, exactResolutionEvidenceSurface(item)) > 0 {
+		return true
+	}
+	return EvidenceItemMentionsAnyTerm(item, ExactResolutionContextTerms(c))
+}
+
 func exactResolutionValidatedContextTerms(targetKind AnswerSubjectKind, policy ExactResolutionContextPolicy, targets, explicit, keywords []string) []string {
 	if len(targets) == 0 {
 		return nil

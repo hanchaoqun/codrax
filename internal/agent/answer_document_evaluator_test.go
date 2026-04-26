@@ -325,11 +325,12 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_SanitizesIllustrativeAb
 			Kind:  "symbol",
 		}},
 		EvidenceItems: []types.EvidenceItem{{
-			Source:      "internal/skill/analysis_contract.go",
-			LineStart:   367,
-			Subject:     "explore_mid_loop_hint_budget",
-			Summary:     "comment example only",
-			ContextRole: types.EvidenceContextRoleIllustrativeOnly,
+			Source:          "internal/skill/analysis_contract.go",
+			LineStart:       367,
+			Subject:         "explore_mid_loop_hint_budget",
+			Summary:         "comment example only",
+			ContextRole:     types.EvidenceContextRoleIllustrativeOnly,
+			GroundingStatus: types.GroundingGrounded,
 		}},
 	}
 
@@ -445,10 +446,13 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"Absence-only is acceptable",
 		"same namespace / prefix family",
 		"you MUST set `exact_resolution.context_mode=\"grounded_context_only\"`",
+		"Locked exact-resolution output",
 		"Do not speculate about hypothetical parser / runtime behavior",
+		"Do not add a separate paragraph about the effect of supplying the absent target",
 		"only create a separate numbered step when that layer has its own grounded repo anchor",
 		"repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line",
 		"## Allowed Grounded Context Anchors",
+		"## Background-Only Anchors",
 		"## Exact Resolution Seeds",
 		"DefaultExploreHeuristics",
 		"codrax.yaml.example:25",
@@ -457,8 +461,41 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
 	}
-	if strings.Contains(prompt, "ExploreBudget") {
-		t.Fatalf("broad same-family background must not appear in allowed grounded context anchors or exact-resolution seeds:\n%s", prompt)
+	if !strings.Contains(prompt, "ExploreBudget") {
+		t.Fatalf("background-only same-family anchors should be surfaced explicitly in the background-only section:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionLockedRejectUsesMetadata(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:exact_resolution] exact-resolution contract violated: the upstream investigation already closed as absence",
+			Repair: &types.ToolRepair{
+				Code: "exact_resolution",
+				Metadata: map[string]string{
+					"locked_status":          "absent",
+					"preferred_context_mode": "grounded_context_only",
+				},
+			},
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("locked exact-resolution reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"status is already locked by upstream state",
+		"`exact_resolution.status=\"absent\"`",
+		"`exact_resolution.context_mode=\"grounded_context_only\"`",
+		"Do not switch to `exact_match` or `alias_match`",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("locked exact-resolution hint missing %q: %q", want, sig.Hint)
+		}
 	}
 }
 

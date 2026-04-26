@@ -733,6 +733,9 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 	}
 	best := make(map[string]configTraceDiagramAnchor, len(roleOrder))
 	appendCandidate := func(ev types.EvidenceItem) {
+		if !configTraceDiagramAnchorCandidateAllowed(ctx, ev) {
+			return
+		}
 		role, score := classifyConfigTraceDiagramRole(ev)
 		if role == "" || ev.Source == "" {
 			return
@@ -759,6 +762,27 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 		}
 	}
 	return out
+}
+
+func configTraceDiagramAnchorCandidateAllowed(ctx *types.AgentContext, ev types.EvidenceItem) bool {
+	contract := configTraceStableAbsentExactContract(ctx)
+	if contract == nil {
+		return true
+	}
+	return types.ConfigTraceGroundedContextAnchorAllowed(contract, ev)
+}
+
+func configTraceStableAbsentExactContract(ctx *types.AgentContext) *types.ExactResolutionContract {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+		ctx.AnalysisIR.RequestModel.AnswerSubject.Kind != types.SubjectConfigKey ||
+		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
+		return nil
+	}
+	return answerDocExactResolutionContract(ctx)
 }
 
 func classifyConfigTraceDiagramRole(ev types.EvidenceItem) (string, int) {
@@ -853,7 +877,10 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Investigation state: the exact target is currently absent in the repo / branch under inspection.\n")
 		fmt.Fprintf(&b, "- Absence justification: %s\n", justification)
 		b.WriteString("- Emit `exact_resolution.status=\"absent\"`; the renderer will lead with the exact absence before any related context.\n")
+		b.WriteString("- Locked exact-resolution output: if you keep any nearby grounded context, the safest valid object is `{\"status\":\"absent\",\"context_mode\":\"grounded_context_only\"}`. Do not switch to `exact_match` or `alias_match` unless a newly cited grounded anchor explicitly proves the target or an explicit mapping.\n")
 		b.WriteString("- Do not speculate about hypothetical parser / runtime behavior (ignored, warning, error, fallback, etc.) unless a grounded repo anchor explicitly proves that behavior.\n")
+		b.WriteString("- After the opening absence statement, keep the rest of the answer on grounded nearby context / mechanism only. Do not add a separate paragraph about the effect of supplying the absent target unless the user explicitly asked for that behavior and a cited anchor proves it.\n")
+		b.WriteString("- When `context_mode=\"grounded_context_only\"`, keep the exact target name in the opening absence paragraph only. Later paragraphs and diagrams should talk about grounded nearby anchors, not keep reusing the absent target as if it had a runtime path.\n")
 		if types.ExactResolutionTargetIsConfigKey(contract) {
 			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence before any nearby grounded context.\n")
 		}
@@ -868,6 +895,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	b.WriteString("\n")
 	if allowed := renderAnswerDocAllowedExactContextAnchors(ctx, contract); allowed != "" {
 		b.WriteString(allowed)
+	}
+	if forbidden := renderAnswerDocForbiddenExactContextAnchors(ctx, contract); forbidden != "" {
+		b.WriteString(forbidden)
 	}
 	if seeds := renderAnswerDocExactResolutionSeeds(ctx, contract); seeds != "" {
 		b.WriteString(seeds)
@@ -889,6 +919,21 @@ func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract
 	var b strings.Builder
 	b.WriteString("## Allowed Grounded Context Anchors\n\n")
 	b.WriteString("If you keep nearby grounded context, keep `citations[]` and fenced-diagram nodes to these already-validated anchors. Anything outside this list is background only unless it is itself a primary exact-proof source.\n\n")
+	for _, anchor := range anchors {
+		fmt.Fprintf(&b, "- %s\n", anchor.Text)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
+func renderAnswerDocForbiddenExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	anchors := collectForbiddenExactContextAnchors(ctx, contract)
+	if len(anchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Background-Only Anchors\n\n")
+	b.WriteString("These nearby same-family / illustrative anchors are NOT answer-grade context for this dispatch. Do not cite them, do not turn them into diagram nodes, and do not surface them in summary prose unless the investigation is explicitly reopened with new grounded proof.\n\n")
 	for _, anchor := range anchors {
 		fmt.Fprintf(&b, "- %s\n", anchor.Text)
 	}
@@ -922,6 +967,7 @@ func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.
 		return nil
 	}
 	items := ctx.Mutable.EmittedEvidence()
+	items = append(items, ctx.EvidenceItems...)
 	if len(items) == 0 {
 		return nil
 	}
@@ -981,6 +1027,88 @@ func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.
 		anchors = anchors[:6]
 	}
 	return anchors
+}
+
+func collectForbiddenExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+		return nil
+	}
+	stableAbsent := ctx.Mutable.StableInvestigationResultKind() == "absence" &&
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
+	if !stableAbsent {
+		return nil
+	}
+	items := ctx.Mutable.EmittedEvidence()
+	if len(items) == 0 {
+		return nil
+	}
+	var anchors []exactResolutionSeed
+	seen := make(map[string]bool)
+	for _, ev := range items {
+		if !types.ExactResolutionContextSurfaceRelevant(contract, ev) {
+			continue
+		}
+		if types.ExactResolutionAnswerContextAnchorAllowed(contract, ctx.AnalysisIR.RequestModel.Scenario, stableAbsent, ev) {
+			continue
+		}
+		text := formatExactResolutionSeed(ev)
+		if text == "" {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		reason := "background only"
+		switch {
+		case ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly:
+			reason = "illustrative only"
+		case types.LooksLikeAuxiliaryEvidencePath(ev.Source):
+			reason = "auxiliary path"
+		case ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace && ev.DiagramRole == types.EvidenceDiagramRoleUnknown:
+			reason = "no validated precedence role"
+		}
+		anchors = append(anchors, exactResolutionSeed{
+			Key:   key,
+			Text:  fmt.Sprintf("%s [%s]", text, reason),
+			Score: scoreForbiddenExactContextAnchor(ev),
+		})
+	}
+	if len(anchors) == 0 {
+		return nil
+	}
+	sort.SliceStable(anchors, func(i, j int) bool {
+		if anchors[i].Score != anchors[j].Score {
+			return anchors[i].Score > anchors[j].Score
+		}
+		return anchors[i].Text < anchors[j].Text
+	})
+	if len(anchors) > 6 {
+		anchors = anchors[:6]
+	}
+	return anchors
+}
+
+func scoreForbiddenExactContextAnchor(ev types.EvidenceItem) int {
+	score := 0
+	switch ev.ContextRole {
+	case types.EvidenceContextRoleIllustrativeOnly:
+		score += 30
+	case types.EvidenceContextRoleDefining:
+		score += 18
+	case types.EvidenceContextRoleRelatedContext:
+		score += 16
+	case types.EvidenceContextRoleAbsenceSupport:
+		score += 12
+	}
+	if ev.LineStart > 0 {
+		score += 4
+	}
+	if ev.AnchorSymbol != "" {
+		score += 2
+	}
+	return score
 }
 
 func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
@@ -1406,6 +1534,26 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if rejectCode == answerDocRejectCodeExactResolution || strings.Contains(summary, "exact-resolution contract violated:") {
 		reasonKey = "exact-resolution"
 		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with a valid `exact_resolution{status,anchor?,context_mode}` object that matches the grounded evidence and current absence state for the requested exact target. Use `exact_match` only when a cited line or grounded evidence explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the investigation closed with `result_kind=\"absence\"` (absence-only is acceptable). Any nearby related context must remain `grounded_context_only`, not an equivalent, alias, or substitute. Do NOT call `read_file`, `grep`, or any other tool to repair this — decide from the current grounded evidence, citations, and seeds. Do not write free-form prose outside the tool call."
+	}
+	if repair != nil && repair.Code == "exact_resolution" && repair.Metadata != nil {
+		if locked := strings.TrimSpace(repair.Metadata["locked_status"]); locked != "" {
+			reasonKey = "exact-resolution-locked"
+			hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract because the status is already locked by upstream state. Re-emit `emit_answer_document` now with `exact_resolution.status=\"" + locked + "\"`."
+			if mode := strings.TrimSpace(repair.Metadata["preferred_context_mode"]); mode != "" {
+				hint += " If you keep any nearby grounded context, set `exact_resolution.context_mode=\"" + mode + "\"`."
+			}
+			hint += " Do not switch to `exact_match` or `alias_match` unless a newly cited grounded anchor explicitly proves the exact target or an explicit alias mapping. Keep nearby context as background only, not as a substitute. Do NOT call `read_file`, `grep`, or any other tool to repair this — decide from the current grounded evidence, citations, and seeds. Do not write free-form prose outside the tool call."
+		}
+	}
+	if repair != nil && repair.Code == "config_trace_context_citation" {
+		reasonKey = "config-trace-context-citation"
+		hint = strings.TrimSpace(repair.Hint)
+		if repair.Metadata != nil {
+			if allowed := strings.TrimSpace(repair.Metadata["allowed_citations"]); allowed != "" {
+				hint += " Allowed related-context citations for this dispatch: `" + strings.ReplaceAll(allowed, ", ", "`, `") + "`."
+			}
+		}
+		hint = appendRetryDiagramSeedHint(hint, ctx)
 	}
 	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {
 		reasonKey = "absent-config-value-shape"

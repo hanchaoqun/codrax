@@ -2,6 +2,7 @@ package tool
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -1613,6 +1614,9 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectsBroadSameFamilyCitation(t *
 	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
 		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
 	}
+	if res.Repair.Metadata == nil || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/config/runtime.go:231") || !strings.Contains(res.Repair.Metadata["allowed_citations"], "internal/types/config.go:707") {
+		t.Fatalf("reject should enumerate allowed related-context citations, got %+v", res.Repair)
+	}
 }
 
 func TestEmitAnswerDocument_AbsentExactResolutionRequiresGroundedContextModeForNearbyCitations(t *testing.T) {
@@ -1684,6 +1688,140 @@ func TestEmitAnswerDocument_AbsentExactResolutionRequiresGroundedContextModeForN
 	}
 	if !strings.Contains(err.Error(), "grounded_context_only") {
 		t.Fatalf("reject should instruct the caller to set exact_resolution.context_mode=grounded_context_only, got %q", err)
+	}
+}
+
+func TestEmitAnswerDocument_RejectsBackgroundOnlyExactContextSurface(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				AliasRequiresProof:   true,
+				RequireTargetMention: true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/explore_budget.go",
+			LineStart:       40,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreBudget",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "仓库中不存在该键。`ExploreBudget` 只是同前缀的运行时结构，不应进入这个缺失键答案。",
+		"citations": []map[string]interface{}{
+			{"file": "internal/types/config.go", "line": 707},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("background-only same-family anchors should not be allowed into the answer surface")
+	}
+	if res.Repair == nil || res.Repair.Code != "exact_context_surface" {
+		t.Fatalf("reject should expose exact_context_surface repair metadata, got %+v", res.Repair)
+	}
+	if !strings.Contains(res.Repair.Metadata["forbidden_anchors"], "ExploreBudget") {
+		t.Fatalf("reject should name the background-only anchor, got %+v", res.Repair)
+	}
+}
+
+func TestMatchingEvidenceForCitation_PrefersStrongestGroundedMatch(t *testing.T) {
+	items := []types.EvidenceItem{
+		{
+			Source:          "codrax.yaml.example",
+			LineStart:       22,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "Precedence",
+			ContextRole:     types.EvidenceContextRoleIllustrativeOnly,
+			GroundingStatus: types.GroundingRecovered,
+		},
+		{
+			Source:          "codrax.yaml.example",
+			LineStart:       22,
+			AnchorKind:      types.AnchorCondition,
+			AnchorSymbol:    "codrax.yaml",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleYAML,
+			GroundingStatus: types.GroundingRecovered,
+		},
+	}
+	got := matchingEvidenceForCitation(items, types.Citation{File: "codrax.yaml.example", Line: 22})
+	if got.AnchorSymbol != "codrax.yaml" || got.DiagramRole != types.EvidenceDiagramRoleYAML {
+		t.Fatalf("expected strongest grounded match to win, got %+v", got)
+	}
+}
+
+func TestResolveAnswerDocumentExactResolution_StableAbsenceCarriesLockedMetadata(t *testing.T) {
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectConfigKey,
+				TargetLabel:  "config key",
+				Targets:      []string{target},
+				AllowAbsence: true,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	_, _, err := resolveAnswerDocumentExactResolution("", &types.AnswerExactResolution{
+		Status: types.AnswerExactResolutionAliasMatch,
+		Anchor: "explore_midloop_min_iteration",
+	}, ctx)
+	if err == nil {
+		t.Fatal("stable absence should reject non-absent exact_resolution status")
+	}
+	var coded *answerDocValidationError
+	if !errors.As(err, &coded) {
+		t.Fatalf("expected coded validation error, got %T", err)
+	}
+	if coded.metadata["locked_status"] != "absent" {
+		t.Fatalf("expected locked_status metadata, got %+v", coded.metadata)
 	}
 }
 
