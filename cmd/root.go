@@ -1637,18 +1637,26 @@ func initApp(cmd *cobra.Command, _ []string) error {
 		}
 	}
 
-	// Reflector adapter routing. Same opt-in pattern as
-	// memory_summarizer / chitchat_classifier: providers.yaml ::
-	// agents.reflector overrides; absent → default LLM. The reflector
-	// runs once per failed verify→plan retry to produce a Reflexion-
-	// style critique that seeds Mutable.PlanningHint. Cheap-model
-	// routing is recommended: the critique is short (2-4 sentences)
-	// and a smaller model is usually sufficient for the analysis.
+	// Reflector adapter routing + timeout shortening. The reflector
+	// is a side-channel critic dispatched between verify failure and
+	// re-plan; clearForReplan already gracefully degrades to the
+	// heuristic hint on any reflector error. Failure is non-fatal —
+	// what we MUST avoid is the reflector blocking the retry loop
+	// for the full 120 s default HTTP timeout when the upstream LLM
+	// stalls. Observed in eval (pig-latin attempt 2): reflector
+	// waited ~2.5 min on a stalled Chat call before
+	// http.Client.Timeout fired, burning a full retry slot for zero
+	// signal. clampReflectorTimeout enforces 30 s default — 5-10×
+	// headroom over a typical fast critique (1-3 s) while keeping
+	// retry-loop wall time bounded.
 	app.reflectorLLM = app.defaultLLM
-	if _, ok := providersCfg.LLM.Agents["reflector"]; ok {
+	{
+		_, hasExplicit := providersCfg.LLM.Agents["reflector"]
 		resolved := config.ResolveProvider(providersCfg, "reflector")
+		resolved.RequestTimeoutSeconds = clampReflectorTimeout(resolved.RequestTimeoutSeconds, hasExplicit)
 		if adapter, err := llm.NewFromConfig(resolved); err != nil {
-			logging.Warning("[reflector] adapter init failed; falling back to default LLM: %v", err)
+			logging.Warning("[reflector] adapter init failed; falling back to default LLM (will inherit %ds timeout): %v",
+				int(app.defaultLLM.RequestTimeout().Seconds()), err)
 		} else {
 			app.reflectorLLM = adapter
 		}
@@ -2071,6 +2079,34 @@ func formatOutputCap(n int) string {
 		return "max_output=server-default"
 	}
 	return fmt.Sprintf("max_output=%d tokens", n)
+}
+
+// clampReflectorTimeout returns the request_timeout_seconds the
+// reflector LLM adapter should use. The reflector is a side channel
+// (clearForReplan degrades to heuristic on any error), so a slow
+// upstream blocking the retry loop for the default 120s HTTP
+// timeout wastes a full retry slot. 30s gives 5-10× headroom over
+// a typical fast critique (1-3s) while keeping retry-loop wall
+// time bounded.
+//
+// resolvedSeconds is the value config.ResolveProvider returned for
+// the "reflector" agent. hasExplicitConfig is true when the
+// operator declared `agents.reflector` in providers.yaml. Rules:
+//
+//   - explicit config + positive value → operator wins (their
+//     decision; presumed deliberate)
+//   - explicit config + zero/negative → safety clamp (operator
+//     forgot to set request_timeout_seconds)
+//   - no explicit config → safety clamp (default LLM's timeout
+//     would otherwise apply, often 120s)
+//
+// All paths converge on a positive return value, never zero.
+func clampReflectorTimeout(resolvedSeconds int, hasExplicitConfig bool) int {
+	const safetyClampSeconds = 30
+	if hasExplicitConfig && resolvedSeconds > 0 {
+		return resolvedSeconds
+	}
+	return safetyClampSeconds
 }
 
 func truncate(s string, maxLen int) string {
