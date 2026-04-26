@@ -1534,25 +1534,7 @@ func valueCitationFocusSubjectKind(ctx *types.BusContext) types.AnswerSubjectKin
 }
 
 func configTraceAbsenceCitationAllowed(contract *types.ExactResolutionContract, matched types.EvidenceItem) bool {
-	if matched.Source == "" {
-		return false
-	}
-	switch matched.GroundingStatus {
-	case types.GroundingGrounded, types.GroundingRecovered:
-	default:
-		return false
-	}
-	if matched.Kind == types.EvidenceUnresolved || matched.Kind == types.EvidenceTruncated {
-		return false
-	}
-	switch matched.ContextRole {
-	case types.EvidenceContextRoleIllustrativeOnly:
-		return false
-	case types.EvidenceContextRoleAbsenceSupport:
-		return contract != nil && types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, matched.Source)
-	default:
-		return matched.DiagramRole != types.EvidenceDiagramRoleUnknown
-	}
+	return types.ConfigTraceGroundedContextAnchorAllowed(contract, matched)
 }
 
 func valueSubjectNeedsCitationFocus(kind types.AnswerSubjectKind) bool {
@@ -2494,6 +2476,9 @@ func validateAnswerDocumentExactResolutionProof(exact *types.AnswerExactResoluti
 
 	switch exact.Status {
 	case types.AnswerExactResolutionAbsent:
+		if proof.AnyNonPrimaryCitationContext && exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
+			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=absent cites nearby grounded context beyond the primary absence-proof sources, so exact_resolution.context_mode must be \"grounded_context_only\"")
+		}
 		if proof.TargetMentionContradictsAbsence {
 			return newAnswerDocValidationError("exact_resolution", "exact-resolution contract violated: exact_resolution.status=absent contradicts the grounded evidence/citations, which still name the requested exact %s %s", label, exactTargetListForError(contract.Targets))
 		}
@@ -2666,6 +2651,7 @@ type exactResolutionProof struct {
 	AnyProductionTarget             bool
 	AnyProductionTargetAnchor       bool
 	AnyDefiningTargetProof          bool
+	AnyNonPrimaryCitationContext    bool
 	TargetMentionContradictsAbsence bool
 	RequiresProductionProof         bool
 }
@@ -2705,6 +2691,16 @@ func collectExactResolutionProof(contract *types.ExactResolutionContract, citati
 		RequiresProductionProof: types.ExactResolutionRequiresDefiningPrimaryProof(contract),
 	}
 	for _, entry := range proof.Entries {
+		if !entry.FromEvidence && entry.Grounded {
+			switch entry.ContextRole {
+			case types.EvidenceContextRoleRelatedContext, types.EvidenceContextRoleDefining:
+				proof.AnyNonPrimaryCitationContext = true
+			case types.EvidenceContextRoleUnknown:
+				if !entry.Production {
+					proof.AnyNonPrimaryCitationContext = true
+				}
+			}
+		}
 		if !entry.Grounded {
 			continue
 		}
@@ -2754,15 +2750,12 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 			})
 		}
 	}
-	if gc == nil {
-		return out
-	}
 	for _, c := range citations {
 		if c.File == "" || c.Line <= 0 {
 			continue
 		}
 		lineText := strings.TrimSpace(c.Quote)
-		if lineText == "" {
+		if lineText == "" && gc != nil {
 			if fileLines, ok := gc.LineIndex[c.File]; ok {
 				lineText = strings.TrimSpace(fileLines[c.Line])
 			}

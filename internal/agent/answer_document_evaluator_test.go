@@ -346,6 +346,54 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 	mu := types.NewMutableState("")
 	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
 	mu.SetInvestigationResultKind("absence")
+	mu.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "RuntimeSettings",
+			Predicate:       "binds",
+			Object:          "explore_midloop_min_iteration",
+			Summary:         "RuntimeSettings exposes the YAML/runtime binding layer.",
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "DefaultExploreHeuristics",
+			Predicate:       "defines",
+			Object:          "ExploreHeuristics defaults",
+			Summary:         "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "Precedence",
+			Predicate:       "documents",
+			Object:          "code defaults < codrax.yaml < command-line flags",
+			Summary:         "codrax.yaml.example documents the three-layer precedence rule.",
+			Source:          "codrax.yaml.example",
+			LineStart:       25,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleYAML,
+			GroundingStatus: types.GroundingRecovered,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Subject:         "ExploreBudget",
+			Predicate:       "defines",
+			Object:          "runtime budget counter",
+			Summary:         "ExploreBudget is a runtime counter, not a config lineage anchor.",
+			Source:          "internal/types/explore_budget.go",
+			LineStart:       40,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			GroundingStatus: types.GroundingGrounded,
+		},
+	})
 	ctx := &types.AgentContext{
 		Mutable: mu,
 		AnalysisIR: &types.AnalysisIR{
@@ -376,15 +424,16 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		}},
 		EvidenceItems: []types.EvidenceItem{
 			{
-				Kind:        types.EvidenceMechanism,
-				Subject:     "DefaultExploreHeuristics",
-				Predicate:   "defines",
-				Object:      "ExploreHeuristics defaults",
-				Summary:     "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
-				Source:      "internal/types/config.go",
-				LineStart:   520,
-				AnchorKind:  types.AnchorDefinition,
-				DiagramRole: types.EvidenceDiagramRoleDefault,
+				Kind:            types.EvidenceMechanism,
+				Subject:         "DefaultExploreHeuristics",
+				Predicate:       "defines",
+				Object:          "ExploreHeuristics defaults",
+				Summary:         "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
+				Source:          "internal/types/config.go",
+				LineStart:       520,
+				AnchorKind:      types.AnchorDefinition,
+				DiagramRole:     types.EvidenceDiagramRoleDefault,
+				GroundingStatus: types.GroundingGrounded,
 			},
 		},
 	}
@@ -395,14 +444,21 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"explore_mid_loop_hint_budget",
 		"Absence-only is acceptable",
 		"same namespace / prefix family",
+		"you MUST set `exact_resolution.context_mode=\"grounded_context_only\"`",
+		"Do not speculate about hypothetical parser / runtime behavior",
 		"only create a separate numbered step when that layer has its own grounded repo anchor",
 		"repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line",
+		"## Allowed Grounded Context Anchors",
 		"## Exact Resolution Seeds",
 		"DefaultExploreHeuristics",
+		"codrax.yaml.example:25",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
 		}
+	}
+	if strings.Contains(prompt, "ExploreBudget") {
+		t.Fatalf("broad same-family background must not appear in allowed grounded context anchors or exact-resolution seeds:\n%s", prompt)
 	}
 }
 

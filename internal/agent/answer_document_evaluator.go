@@ -848,10 +848,12 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 	} else {
 		b.WriteString("- If you add related context, keep it grounded and clearly separate it from the exact target resolution by using `exact_resolution.context_mode=\"grounded_context_only\"`.\n")
 	}
+	b.WriteString("- If you cite nearby grounded context beyond the primary exact-proof sources, you MUST set `exact_resolution.context_mode=\"grounded_context_only\"`. Leave `context_mode=\"none\"` only when the answer stays on the exact target proof itself.\n")
 	if stateAbsent {
 		b.WriteString("- Investigation state: the exact target is currently absent in the repo / branch under inspection.\n")
 		fmt.Fprintf(&b, "- Absence justification: %s\n", justification)
 		b.WriteString("- Emit `exact_resolution.status=\"absent\"`; the renderer will lead with the exact absence before any related context.\n")
+		b.WriteString("- Do not speculate about hypothetical parser / runtime behavior (ignored, warning, error, fallback, etc.) unless a grounded repo anchor explicitly proves that behavior.\n")
 		if types.ExactResolutionTargetIsConfigKey(contract) {
 			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence before any nearby grounded context.\n")
 		}
@@ -864,6 +866,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("\n")
+	if allowed := renderAnswerDocAllowedExactContextAnchors(ctx, contract); allowed != "" {
+		b.WriteString(allowed)
+	}
 	if seeds := renderAnswerDocExactResolutionSeeds(ctx, contract); seeds != "" {
 		b.WriteString(seeds)
 	}
@@ -874,6 +879,21 @@ type exactResolutionSeed struct {
 	Key   string
 	Text  string
 	Score int
+}
+
+func renderAnswerDocAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
+	anchors := collectAllowedExactContextAnchors(ctx, contract)
+	if len(anchors) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Allowed Grounded Context Anchors\n\n")
+	b.WriteString("If you keep nearby grounded context, keep `citations[]` and fenced-diagram nodes to these already-validated anchors. Anything outside this list is background only unless it is itself a primary exact-proof source.\n\n")
+	for _, anchor := range anchors {
+		fmt.Fprintf(&b, "- %s\n", anchor.Text)
+	}
+	b.WriteString("\n")
+	return b.String()
 }
 
 func renderAnswerDocExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) string {
@@ -889,6 +909,78 @@ func renderAnswerDocExactResolutionSeeds(ctx *types.AgentContext, contract *type
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+func collectAllowedExactContextAnchors(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
+	if ctx == nil || ctx.Mutable == nil || ctx.AnalysisIR == nil || contract == nil {
+		return nil
+	}
+	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+		contract.TargetKind != types.SubjectConfigKey ||
+		ctx.Mutable.StableInvestigationResultKind() != "absence" ||
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
+		return nil
+	}
+	items := ctx.Mutable.EmittedEvidence()
+	if len(items) == 0 {
+		return nil
+	}
+	scoreFor := func(ev types.EvidenceItem) int {
+		switch ev.ContextRole {
+		case types.EvidenceContextRoleAbsenceSupport:
+			return 40
+		}
+		switch ev.DiagramRole {
+		case types.EvidenceDiagramRoleOverride:
+			return 36
+		case types.EvidenceDiagramRoleYAML:
+			return 34
+		case types.EvidenceDiagramRoleRuntime:
+			return 32
+		case types.EvidenceDiagramRoleDefault:
+			return 30
+		default:
+			return 0
+		}
+	}
+	var anchors []exactResolutionSeed
+	seen := make(map[string]bool)
+	for _, ev := range items {
+		if !types.ConfigTraceGroundedContextAnchorAllowed(contract, ev) {
+			continue
+		}
+		text := formatExactResolutionSeed(ev)
+		if text == "" {
+			continue
+		}
+		key := fmt.Sprintf("%s:%d:%s:%s", ev.Source, ev.LineStart, ev.AnchorSymbol, ev.Summary)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		role := "primary absence-proof source"
+		if ev.ContextRole != types.EvidenceContextRoleAbsenceSupport && ev.DiagramRole != types.EvidenceDiagramRoleUnknown {
+			role = string(ev.DiagramRole) + " precedence anchor"
+		}
+		anchors = append(anchors, exactResolutionSeed{
+			Key:   key,
+			Text:  fmt.Sprintf("%s [%s]", text, role),
+			Score: scoreFor(ev),
+		})
+	}
+	if len(anchors) == 0 {
+		return nil
+	}
+	sort.SliceStable(anchors, func(i, j int) bool {
+		if anchors[i].Score != anchors[j].Score {
+			return anchors[i].Score > anchors[j].Score
+		}
+		return anchors[i].Text < anchors[j].Text
+	})
+	if len(anchors) > 6 {
+		anchors = anchors[:6]
+	}
+	return anchors
 }
 
 func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactResolutionContract) []exactResolutionSeed {
@@ -907,9 +999,15 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 	configTraceExactContext := ctx.AnalysisIR != nil &&
 		ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace &&
 		contract.TargetKind == types.SubjectConfigKey
+	stableAbsent := ctx.Mutable != nil &&
+		ctx.Mutable.StableInvestigationResultKind() == "absence" &&
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != ""
 	var candidates []candidate
 	appendCandidate := func(ev types.EvidenceItem, base int) {
 		if ev.Source == "" {
+			return
+		}
+		if configTraceExactContext && stableAbsent && !types.ConfigTraceGroundedContextAnchorAllowed(contract, ev) {
 			return
 		}
 		score := base + scoreExactResolutionEvidence(ev, contract, contextTerms, configTraceExactContext)

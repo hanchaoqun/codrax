@@ -646,6 +646,10 @@ func declarativeLiteralFallbackRelevant(ctx *types.AgentContext) bool {
 	if ctx == nil {
 		return false
 	}
+	requiresSymbolSlate := isListOfSymbolsShape(ctx) || isMultiTopicExplanation(ctx)
+	if !requiresSymbolSlate {
+		return false
+	}
 	axis := types.AxisUnknown
 	if ctx.AnalysisIR != nil {
 		axis = ctx.AnalysisIR.RequestModel.PredicateAxis

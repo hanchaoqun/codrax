@@ -1484,7 +1484,7 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsPrecedenceAnchors(t *testing
 		{
 			Kind:            types.EvidenceDirect,
 			Source:          "internal/config/runtime.go",
-			LineStart:       231,
+			LineStart:       232,
 			AnchorKind:      types.AnchorDefinition,
 			AnchorSymbol:    "ExploreMidLoopMinIteration",
 			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
@@ -1522,7 +1522,7 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceAllowsPrecedenceAnchors(t *testing
 		},
 		"summary": "该精确配置键不存在，下面只保留真实的缺失证明与 precedence 相关上下文。",
 		"citations": []map[string]interface{}{
-			{"file": "internal/config/runtime.go", "line": 231},
+			{"file": "internal/config/runtime.go", "line": 232},
 			{"file": "internal/types/config.go", "line": 707},
 			{"file": "codrax.yaml.example", "line": 22},
 		},
@@ -1612,6 +1612,78 @@ func TestEmitAnswerDocument_ConfigTraceAbsenceRejectsBroadSameFamilyCitation(t *
 	}
 	if res.Repair == nil || res.Repair.Code != "config_trace_context_citation" {
 		t.Fatalf("reject should expose config_trace_context_citation repair metadata, got %+v", res.Repair)
+	}
+}
+
+func TestEmitAnswerDocument_AbsentExactResolutionRequiresGroundedContextModeForNearbyCitations(t *testing.T) {
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				AliasRequiresProof:   true,
+				RequireTargetMention: true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/config/runtime.go",
+			LineStart:       231,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "ExploreMidLoopMinIteration",
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+		{
+			Kind:            types.EvidenceDirect,
+			Source:          "internal/types/config.go",
+			LineStart:       707,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "DefaultExploreHeuristics",
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			DiagramRole:     types.EvidenceDiagramRoleDefault,
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		},
+	})
+	citations := []types.Citation{
+		{File: "internal/config/runtime.go", Line: 232, Quote: "ExploreMidLoopMinIteration      *int     `yaml:\"explore_midloop_min_iteration\"`"},
+		{File: "internal/types/config.go", Line: 707, Quote: "func DefaultExploreHeuristics() ExploreHeuristics {"},
+	}
+	proof := collectExactResolutionProof(ctx.AnalysisIR.AnswerContract.ExactResolution, citations, nil, ctx)
+	if !proof.AnyNonPrimaryCitationContext {
+		t.Fatalf("expected nearby related-context citation to force grounded_context_only, got proof=%+v", proof)
+	}
+	resolvedExact, _, err := resolveAnswerDocumentExactResolution("", &types.AnswerExactResolution{
+		Status: types.AnswerExactResolutionAbsent,
+	}, ctx)
+	if err != nil {
+		t.Fatalf("resolveAnswerDocumentExactResolution: %v", err)
+	}
+	err = validateAnswerDocumentExactResolutionProof(resolvedExact, citations, nil, ctx)
+	if err == nil {
+		t.Fatalf("direct exact-resolution proof validation should require grounded_context_only when nearby citations survive")
+	}
+	if !strings.Contains(err.Error(), "grounded_context_only") {
+		t.Fatalf("reject should instruct the caller to set exact_resolution.context_mode=grounded_context_only, got %q", err)
 	}
 }
 

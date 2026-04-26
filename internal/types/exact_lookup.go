@@ -551,6 +551,41 @@ func exactResolutionFindingKindMatches(expected, got string) bool {
 	return got == expected
 }
 
+// ConfigTraceGroundedContextAnchorAllowed reports whether an evidence
+// item can serve as a grounded nearby-context anchor for an exact-
+// absence config-trace answer. The rule is structural:
+//
+//   - primary absence-proof sources are allowed
+//   - grounded nearby context must already carry a validated
+//     precedence role
+//   - illustrative / unresolved / truncated evidence is never
+//     answer-grade context
+//
+// This helper is shared by the finalizer prompt and the
+// emit_answer_document validator so both stages consume the same
+// contract.
+func ConfigTraceGroundedContextAnchorAllowed(contract *ExactResolutionContract, item EvidenceItem) bool {
+	if item.Source == "" {
+		return false
+	}
+	switch item.GroundingStatus {
+	case GroundingGrounded, GroundingRecovered:
+	default:
+		return false
+	}
+	if item.Kind == EvidenceUnresolved || item.Kind == EvidenceTruncated {
+		return false
+	}
+	switch item.ContextRole {
+	case EvidenceContextRoleIllustrativeOnly:
+		return false
+	case EvidenceContextRoleAbsenceSupport:
+		return contract != nil
+	default:
+		return item.DiagramRole != EvidenceDiagramRoleUnknown
+	}
+}
+
 func exactResolutionValidatedContextTerms(targetKind AnswerSubjectKind, policy ExactResolutionContextPolicy, targets, explicit, keywords []string) []string {
 	if len(targets) == 0 {
 		return nil

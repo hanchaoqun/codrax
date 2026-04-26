@@ -1246,6 +1246,64 @@ func TestExtractor_ParseOutput_EmptySlateFallsBackForGenericRegistrationLists(t 
 	}
 }
 
+func TestExtractor_ParseOutput_DoesNotSynthesizeFallbackSlateForSingleTopicExplanation(t *testing.T) {
+	mu := types.NewMutableState("`explore_mid_loop_hint_budget` 的覆盖优先级是什么？")
+	mu.SetRequestModel(types.RequestModel{
+		PredicateAxis: types.AxisConfigure,
+		AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+	})
+	mu.SetEmittedAnswerSymbols(nil, types.CompletenessUnknown)
+	ctx := &types.AgentContext{
+		Objective: "Explain the precedence for explore_mid_loop_hint_budget",
+		Mutable:   mu,
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario:      types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{Kind: "config_mapping"},
+				PredicateAxis: types.AxisConfigure,
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+			AnswerContract: types.AnswerContract{RequiredAnswerShape: types.ShapeExplanation},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:        types.EvidenceDirect,
+				Subject:     "DefaultExploreHeuristics",
+				Predicate:   "defines",
+				Object:      "ExploreHeuristics defaults",
+				Summary:     "DefaultExploreHeuristics defines the code-default explorer thresholds.",
+				Source:      "internal/types/config.go",
+				LineStart:   707,
+				ContextRole: types.EvidenceContextRoleRelatedContext,
+				DiagramRole: types.EvidenceDiagramRoleDefault,
+			},
+			{
+				Kind:        types.EvidenceDirect,
+				Subject:     "RuntimeSettings",
+				Predicate:   "binds",
+				Object:      "explore_midloop_min_iteration",
+				Summary:     "RuntimeSettings exposes the YAML/runtime binding layer.",
+				Source:      "internal/config/runtime.go",
+				LineStart:   231,
+				ContextRole: types.EvidenceContextRoleRelatedContext,
+				DiagramRole: types.EvidenceDiagramRoleRuntime,
+			},
+		},
+	}
+
+	e := &extractorEvaluator{}
+	out, err := e.ParseOutput(ctx, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("ParseOutput: %v", err)
+	}
+	if len(out.AnswerSymbols) != 0 {
+		t.Fatalf("single-topic explanation must not synthesize a declarative fallback symbol floor, got %+v", out.AnswerSymbols)
+	}
+	if out.AnswerSymbolCompleteness != types.CompletenessUnknown {
+		t.Fatalf("single-topic explanation should keep answer-symbol completeness unknown, got %q", out.AnswerSymbolCompleteness)
+	}
+}
+
 func TestExtractor_ParseOutput_AugmentsDeclarativeSlateFromReadFileLiterals(t *testing.T) {
 	mu := types.NewMutableState("Which skills are registered by default?")
 	mu.SetRequestModel(types.RequestModel{
@@ -1413,7 +1471,7 @@ func TestTrimDeclarativeSlate_CrossFileSameNameSurvives(t *testing.T) {
 	current := []types.AnswerSymbol{
 		{Name: "Run", File: "a.go", Line: 10, Kind: types.KindMethod},
 		{Name: "Run", File: "b.go", Line: 20, Kind: types.KindMethod},
-		{Name: "Helper", File: "c.go", Line: 30, Kind: types.KindMethod}, // not in fallback — drop
+		{Name: "Helper", File: "c.go", Line: 30, Kind: types.KindMethod},       // not in fallback — drop
 		{Name: "InternalStr", File: "c.go", Line: 40, Kind: types.KindLiteral}, // literals always kept
 	}
 	fallback := []types.AnswerSymbol{
