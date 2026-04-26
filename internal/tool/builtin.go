@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -77,15 +78,51 @@ func sanitizeForBanner(s string) string {
 //   - p relative → join under ctx.RepoRoot.
 func resolveToolPath(ctx *types.BusContext, p string) string {
 	if ctx == nil || ctx.RepoRoot == "" {
-		return p
+		return normalizeToolAbsolutePath(p)
 	}
 	if p == "" || p == "." {
 		return ctx.RepoRoot
+	}
+	if normalized, ok := normalizeWindowsPOSIXPath(p); ok {
+		return normalized
 	}
 	if toolPathIsAbs(p) {
 		return p
 	}
 	return filepath.Join(ctx.RepoRoot, p)
+}
+
+func normalizeToolAbsolutePath(p string) string {
+	if normalized, ok := normalizeWindowsPOSIXPath(p); ok {
+		return normalized
+	}
+	return p
+}
+
+func normalizeWindowsPOSIXPath(p string) (string, bool) {
+	if runtime.GOOS != "windows" {
+		return "", false
+	}
+	slash := strings.TrimSpace(strings.ReplaceAll(p, "\\", "/"))
+	if len(slash) >= 4 && slash[0] == '/' && isASCIIDriveLetter(slash[1]) && slash[2] == '/' {
+		return string([]byte{asciiUpper(slash[1]), ':'}) + filepath.FromSlash(slash[2:]), true
+	}
+	lower := strings.ToLower(slash)
+	if strings.HasPrefix(lower, "/mnt/") && len(slash) >= 8 && isASCIIDriveLetter(slash[5]) && slash[6] == '/' {
+		return string([]byte{asciiUpper(slash[5]), ':'}) + filepath.FromSlash(slash[6:]), true
+	}
+	return "", false
+}
+
+func isASCIIDriveLetter(b byte) bool {
+	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func asciiUpper(b byte) byte {
+	if b >= 'a' && b <= 'z' {
+		return b - ('a' - 'A')
+	}
+	return b
 }
 
 func toolPathIsAbs(p string) bool {

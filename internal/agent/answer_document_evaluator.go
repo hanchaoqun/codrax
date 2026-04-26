@@ -81,9 +81,10 @@ type answerDocumentEvaluator struct {
 	// diagramRequired captures the resolved DiagramContract so retry
 	// hints can preserve required diagrams instead of suggesting they
 	// be deleted during summary-cap repair.
-	diagramRequired bool
-	diagramMinimum  int
-	diagramKinds    []types.DiagramKind
+	diagramRequired    bool
+	diagramMinimum     int
+	diagramKinds       []types.DiagramKind
+	configTraceDiagram bool
 }
 
 // BuildInitialInstruction renders ONLY the dynamic per-dispatch data the
@@ -114,8 +115,10 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	e.diagramRequired = false
 	e.diagramMinimum = 0
 	e.diagramKinds = nil
+	e.configTraceDiagram = false
 	if ctx != nil {
 		e.mu = ctx.Mutable
+		e.configTraceDiagram = ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace
 	}
 
 	var b strings.Builder
@@ -337,6 +340,7 @@ func renderAnswerDocDiagramSeeds(ctx *types.AgentContext, dc *types.DiagramContr
 	}
 
 	appendSection("Grounded Labeling", renderAnswerDocDiagramLabelSeed())
+	appendSection("Verbatim File/Path Labels", renderAnswerDocDiagramFileLabelSeed(ctx))
 	appendSection("Config Trace Precedence", renderAnswerDocDiagramConfigTraceSeed(ctx))
 	appendSection("Log Triage", renderAnswerDocDiagramLogSeed(ctx.LogTriage))
 	appendSection("Flow Findings", renderAnswerDocDiagramFlowSeed(ctx.FlowFindings))
@@ -356,6 +360,60 @@ func renderAnswerDocDiagramLabelSeed() string {
 			"- If you need an alternate label, only use it when that exact label appears in citations or log frames.\n" +
 			"- Prefer direct grounded names over abstract buckets such as `Level 1` / `Round 2` / `Step 3`.",
 	)
+}
+
+func renderAnswerDocDiagramFileLabelSeed(ctx *types.AgentContext) string {
+	labels := collectAnswerDocDiagramFileLabels(ctx)
+	if len(labels) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("If your diagram names file or path nodes, copy one of these grounded labels VERBATIM:\n")
+	for _, label := range labels {
+		fmt.Fprintf(&b, "- `%s`\n", label)
+	}
+	b.WriteString("Do not shorten, strip suffixes, or rewrite one grounded label into a nearby alias unless that exact alternate label is independently grounded.")
+	return strings.TrimSpace(b.String())
+}
+
+func collectAnswerDocDiagramFileLabels(ctx *types.AgentContext) []string {
+	if ctx == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var labels []string
+	appendLabel := func(label string) {
+		label = strings.TrimSpace(strings.ReplaceAll(label, `\`, `/`))
+		if label == "" || seen[label] {
+			return
+		}
+		seen[label] = true
+		labels = append(labels, label)
+	}
+	if ctx.LogTriage != nil {
+		for _, err := range ctx.LogTriage.Errors {
+			for _, frame := range err.Frames {
+				appendLabel(frame.File)
+			}
+		}
+		for _, file := range ctx.LogTriage.ResolvedFiles {
+			appendLabel(file)
+		}
+	}
+	for _, chain := range ctx.AnswerChains {
+		appendLabel(chain.Item.Source)
+	}
+	for _, ev := range ctx.EvidenceItems {
+		appendLabel(ev.Source)
+	}
+	if len(labels) == 0 {
+		return nil
+	}
+	sort.Strings(labels)
+	if len(labels) > 10 {
+		labels = labels[:10]
+	}
+	return labels
 }
 
 func renderAnswerDocDiagramLogSeed(bundle *types.LogBundle) string {
@@ -488,7 +546,7 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("For config-precedence questions, prefer a precedence diagram with grounded source labels instead of numbered layers. Reuse this skeleton when it matches the evidence:\n\n```\n")
+	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. Reuse this skeleton verbatim when it matches the evidence, and do NOT rename its nodes into abstract numbered placeholders:\n\n```\n")
 	for i, anchor := range anchors {
 		b.WriteString(anchor.Label)
 		b.WriteByte('\n')
@@ -632,6 +690,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Investigation state: the exact target is currently absent in the repo / branch under inspection.\n")
 		fmt.Fprintf(&b, "- Absence justification: %s\n", justification)
 		b.WriteString("- Emit `exact_resolution.status=\"absent\"`; the renderer will lead with the exact absence before any related context.\n")
+		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
+			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby YAML / struct citation.\n")
+		}
 	}
 	b.WriteString("\n")
 	if seeds := renderAnswerDocExactResolutionSeeds(ctx, contract); seeds != "" {
@@ -930,11 +991,17 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 	}
 	if strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
 		reasonKey = "diagram-grounding"
-		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Verbatim File/Path Labels` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Do not write free-form prose outside the tool call."
+		if e.configTraceDiagram {
+			hint += " For config-precedence diagrams, keep the seeded precedence chain's node labels verbatim; do NOT rewrite them into abstract numbered placeholders."
+		}
 	}
 	if strings.Contains(summary, "summary introduces codename label(s) not present in any citation's") {
 		reasonKey = "diagram-codename"
 		hint = "Your last `emit_answer_document` call was rejected by the CODENAME-GROUNDING gate: the summary introduced abstract enumeration labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but remove invented labels such as `Level 1` / `Round 2` / `Step 3` unless those exact tokens are cited. Label the diagram directly with grounded files, functions, config keys, or other evidenced entities instead. Do not write free-form prose outside the tool call."
+		if e.configTraceDiagram {
+			hint += " In config-precedence diagrams, grounded file/path labels are the node names; numbered layer aliases are never required."
+		}
 	}
 	if strings.Contains(summary, "exact-resolution contract violated:") {
 		reasonKey = "exact-resolution"

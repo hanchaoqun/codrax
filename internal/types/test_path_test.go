@@ -40,3 +40,31 @@ func TestLooksLikeTestFilePath(t *testing.T) {
 		}
 	}
 }
+
+func TestLooksLikeAuxiliaryEvidencePath(t *testing.T) {
+	positive := []string{
+		"internal/agent/finalizer_test.go",
+		"docs/architecture.md",
+		"README.md",
+		"fixtures/config.yaml",
+		"examples/demo/main.go",
+		"testdata/input.json",
+	}
+	for _, path := range positive {
+		if !LooksLikeAuxiliaryEvidencePath(path) {
+			t.Fatalf("LooksLikeAuxiliaryEvidencePath(%q) = false, want true", path)
+		}
+	}
+
+	negative := []string{
+		"internal/config/runtime.go",
+		"cmd/root.go",
+		"internal/types/config.go",
+		"codrax.yaml.example",
+	}
+	for _, path := range negative {
+		if LooksLikeAuxiliaryEvidencePath(path) {
+			t.Fatalf("LooksLikeAuxiliaryEvidencePath(%q) = true, want false", path)
+		}
+	}
+}

@@ -1511,7 +1511,7 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 		return nil
 	}
 	allow := buildSummaryDiagramAllowlist(citations, gc, ctx)
-	if len(allow) == 0 {
+	if allow.empty() {
 		return nil
 	}
 
@@ -1528,7 +1528,7 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 			if !diagramFileExtensions[ext] {
 				continue
 			}
-			if allow[bare] || allow[path.Base(bare)] {
+			if allow.matches(bare) {
 				continue
 			}
 			if seen[bare] {
@@ -1541,42 +1541,92 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 	if len(violations) == 0 {
 		return nil
 	}
+	allowed := allow.render(8)
 	return fmt.Errorf(
 		"summary fenced code block references file(s) not present in citations[] or attached-log frames: %s. "+
 			"ASCII diagrams are structural claims — every filename or path-like label named inside a triple-backtick block "+
 			"must be grounded by a cited repo file, a cited line-text path literal, or an attached-log resolved frame. "+
 			"Either add a citations[] entry for each named file (and reference it from steps / symbols / value as needed), "+
-			"or remove the unsupported file name from the diagram and describe the relationship in prose.",
-		strings.Join(violations, ", "),
+			"or remove the unsupported file name from the diagram and describe the relationship in prose. Allowed grounded labels for this dispatch: %s.",
+		strings.Join(violations, ", "), allowed,
 	)
 }
 
-func buildSummaryDiagramAllowlist(citations []types.Citation, gc *ground.Context, ctx *types.BusContext) map[string]bool {
-	allow := make(map[string]bool, len(citations)*4)
+type summaryDiagramAllowlist struct {
+	exact        map[string]bool
+	short        map[string]bool
+	labels       []string
+	baseOwners   map[string]string
+	baseConflict map[string]bool
+}
+
+func (a summaryDiagramAllowlist) empty() bool {
+	return len(a.exact) == 0
+}
+
+func (a summaryDiagramAllowlist) matches(label string) bool {
+	label = strings.ReplaceAll(strings.TrimSpace(label), `\`, `/`)
+	if label == "" {
+		return false
+	}
+	if a.exact[label] {
+		return true
+	}
+	return a.short[path.Base(label)]
+}
+
+func (a summaryDiagramAllowlist) render(limit int) string {
+	if len(a.labels) == 0 {
+		return "(none)"
+	}
+	labels := a.labels
+	if limit > 0 && len(labels) > limit {
+		labels = labels[:limit]
+	}
+	return backtickJoin(labels)
+}
+
+func buildSummaryDiagramAllowlist(citations []types.Citation, gc *ground.Context, ctx *types.BusContext) summaryDiagramAllowlist {
+	allow := summaryDiagramAllowlist{
+		exact:        make(map[string]bool, len(citations)*4),
+		short:        make(map[string]bool, len(citations)*2),
+		baseOwners:   make(map[string]string, len(citations)*2),
+		baseConflict: make(map[string]bool, len(citations)),
+	}
 	for _, c := range citations {
-		addDiagramAllowToken(allow, c.File)
+		addDiagramAllowToken(&allow, c.File)
 	}
 	if gc != nil && len(gc.LineIndex) > 0 {
 		for _, c := range citations {
-			addDiagramAllowFromCitationWindow(allow, c, gc)
+			addDiagramAllowFromCitationWindow(&allow, c, gc)
 		}
 	}
 	if ctx != nil && ctx.Mutable != nil {
 		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
 			for _, f := range bundle.ResolvedFiles {
-				addDiagramAllowToken(allow, f)
+				addDiagramAllowToken(&allow, f)
 			}
 		}
 	}
+	for base, owner := range allow.baseOwners {
+		if base == "" || allow.baseConflict[base] {
+			continue
+		}
+		if owner == base {
+			continue
+		}
+		allow.short[base] = true
+	}
+	sort.Strings(allow.labels)
 	return allow
 }
 
-func addDiagramAllowFromCitationWindow(allow map[string]bool, c types.Citation, gc *ground.Context) {
-	if len(allow) == 0 && gc == nil {
+func addDiagramAllowFromCitationWindow(allow *summaryDiagramAllowlist, c types.Citation, gc *ground.Context) {
+	if allow == nil || gc == nil {
 		return
 	}
 	file := strings.ReplaceAll(strings.TrimSpace(c.File), `\`, `/`)
-	if file == "" || c.Line <= 0 || gc == nil {
+	if file == "" || c.Line <= 0 {
 		return
 	}
 	fileLines, ok := gc.LineIndex[file]
@@ -1605,14 +1655,24 @@ func addDiagramAllowFromCitationWindow(allow map[string]bool, c types.Citation, 
 	}
 }
 
-func addDiagramAllowToken(allow map[string]bool, token string) {
+func addDiagramAllowToken(allow *summaryDiagramAllowlist, token string) {
+	if allow == nil {
+		return
+	}
 	token = strings.ReplaceAll(strings.TrimSpace(token), `\`, `/`)
 	if token == "" {
 		return
 	}
-	allow[token] = true
+	if !allow.exact[token] {
+		allow.exact[token] = true
+		allow.labels = append(allow.labels, token)
+	}
 	if base := path.Base(token); base != "" && base != "." {
-		allow[base] = true
+		if owner, ok := allow.baseOwners[base]; !ok {
+			allow.baseOwners[base] = token
+		} else if owner != token {
+			allow.baseConflict[base] = true
+		}
 	}
 }
 
@@ -2084,6 +2144,12 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 			return nil, "", fmt.Errorf("exact-resolution contract violated: status=absent requires the exploration stage to close with emit_investigation_complete(result_kind=\"absence\", absence_justification=...)")
 		}
 	}
+	if ctx != nil && ctx.Mutable != nil &&
+		ctx.Mutable.InvestigationResultKind() == "absence" &&
+		strings.TrimSpace(ctx.Mutable.AbsenceJustification()) != "" &&
+		resolved.Status != types.AnswerExactResolutionAbsent {
+		return nil, "", fmt.Errorf("exact-resolution contract violated: the upstream investigation already closed as absence, so finalizer output must keep exact_resolution.status=\"absent\" unless the investigation is reopened with new grounded proof")
+	}
 
 	lead := renderAnswerDocumentExactResolutionLead(contract, resolved, requestedAnswerDocumentLanguage(ctx))
 	return resolved, joinAnswerDocumentLead(lead, summary), nil
@@ -2359,20 +2425,10 @@ func exactResolutionProofSourceIsProductionLike(contract *types.ExactResolutionC
 	if source == "" {
 		return false
 	}
-	if types.LooksLikeTestFilePath(source) {
+	if types.LooksLikeAuxiliaryEvidencePath(source) {
 		return false
 	}
-	switch {
-	case strings.Contains(source, "/testdata/"),
-		strings.HasPrefix(source, "testdata/"),
-		strings.Contains(source, "/fixtures/"),
-		strings.HasPrefix(source, "fixtures/"),
-		strings.Contains(source, "/examples/"),
-		strings.HasPrefix(source, "examples/"):
-		return false
-	default:
-		return true
-	}
+	return true
 }
 
 func validateEvidenceSummaryCodenameGrounding(item *types.EvidenceItem, gc *ground.Context) error {

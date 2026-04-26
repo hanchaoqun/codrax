@@ -2733,6 +2733,43 @@ func TestBuildExactResolutionScopeBanner_SearchesWholeGraphForProductionCandidat
 	}
 }
 
+func TestBuildExactResolutionScopeBanner_DoesNotRequirePendingFinding(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				AnalyzerHints: types.AnalyzerHints{
+					Keywords: []string{"config default", "CLI flag"},
+				},
+			},
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetLabel:             "config key",
+					Targets:                 []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:            true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+		},
+	}
+	eval := &explorerEvaluator{
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+		fileSymbols: map[string][]string{
+			"internal/types/config.go": {
+				"DefaultExploreHeuristics function:707",
+			},
+		},
+	}
+
+	banner := eval.buildExactResolutionScopeBanner(ctx, ctx.AnalysisIR.RequestModel.AnalyzerHints.Keywords)
+	if banner == "" {
+		t.Fatal("expected same-family banner without pending findings")
+	}
+	if !strings.Contains(banner, "DefaultExploreHeuristics") {
+		t.Fatalf("banner should surface same-family production candidate, got: %s", banner)
+	}
+}
+
 // TestFilterEvidenceByPrimaryFiles pins the df3 drift-fix filter
 // contract: items from primary-entity files are kept, items from
 // other files are dropped, and items with no Source are kept
@@ -3126,6 +3163,16 @@ func TestMidLoopCheck_EmitEvidenceRepairBypassesIterationFloor(t *testing.T) {
 	}
 	if !strings.Contains(sig.Hint, "re-emit grounded evidence") {
 		t.Fatalf("repair hint should direct the model to re-emit grounded evidence, got: %s", sig.Hint)
+	}
+}
+
+func TestParseEmitEvidenceRepairTargets_SkipsDropOnlyMentions(t *testing.T) {
+	summary := "emit_evidence accepted 1 item(s)\n\n" +
+		"  [1] direct explore_mid_loop_hint_budget @ internal/skill/analysis_contract.go:367 - documentation-only mention\n" +
+		"      -> ungrounded: documentation-style mention of the exact config key is not defining proof. Use absence_justification plus production anchors; do NOT repair this item.\n" +
+		"        fix: drop the item; do NOT spend read_file budget repairing this non-defining mention\n"
+	if got := parseEmitEvidenceRepairTargets(summary); len(got) != 0 {
+		t.Fatalf("drop-only exact-target mentions should not create repair targets, got %+v", got)
 	}
 }
 
@@ -3860,5 +3907,74 @@ func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 	}
 	if !strings.Contains(sig.Hint, "absence_justification") || !strings.Contains(sig.Hint, "related context only") {
 		t.Fatalf("hint should drive absence closure, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_ExactAbsenceReadsSameFamilyContextBeforeClose(t *testing.T) {
+	eval := &explorerEvaluator{
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+		analyzerKeywords: []string{
+			"config default",
+			"CLI flag",
+		},
+		exactResolution: &types.ExactResolutionContract{
+			TargetLabel:             "config key",
+			Targets:                 []string{"explore_mid_loop_hint_budget"},
+			AllowAbsence:            true,
+			RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+			RelatedContextScopeHint: "same namespace / prefix family",
+		},
+		exactPendingTargets: []string{"explore_mid_loop_hint_budget"},
+		searchResult: &keywordSearchResult{Graph: &repomap.Graph{
+			FileIndex: map[string]*repomap.FileInfo{
+				"internal/types/config.go": {
+					RelPath: "internal/types/config.go",
+					Symbols: []repomap.Symbol{
+						{Name: "DefaultExploreHeuristics", Line: 707},
+						{Name: "LoopMaxMidLoopInjects", Line: 216},
+					},
+				},
+				"internal/agent/explorer_test.go": {
+					RelPath: "internal/agent/explorer_test.go",
+					Symbols: []repomap.Symbol{{Name: "TestObserveMidLoop_ExactAbsenceClosureHint", Line: 3824}},
+				},
+			},
+		}},
+		structuredEvidence: []types.EvidenceItem{{
+			Kind:            types.EvidenceDirect,
+			Subject:         "LoopMaxMidLoopInjects",
+			Predicate:       "defaults_to",
+			Object:          "6",
+			Source:          "internal/types/config.go",
+			Summary:         "LoopMaxMidLoopInjects is related context only for explore_* controls",
+			GroundingStatus: types.GroundingGrounded,
+			GroundingTier:   types.TierLineText,
+		}},
+		investigationNotes: []string{
+			"已确认 explore_mid_loop_hint_budget 在仓库中不存在；相关 explore_* 配置仅作为 nearby context。",
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 200-240 of 900]"},
+		{ToolName: "read_file", Success: true, Summary: "[codrax.yaml.example: showing lines 19-28 of 500]"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 3 item(s)"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		Response:       llm.Response{Content: "The exact key explore_mid_loop_hint_budget is not found in the repo; nearby explore_* settings are related context only."},
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("same-family context hint should fire before closure, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.exact-absence-read-same-family" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.exact-absence-read-same-family", sig.HintKey)
+	}
+	for _, want := range []string{"DefaultExploreHeuristics", "absence_justification", "related context only"} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("hint should surface %q, got: %s", want, sig.Hint)
+		}
 	}
 }

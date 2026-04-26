@@ -153,6 +153,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
 		"## Diagram Seeds",
 		"### Grounded Labeling",
+		"### Verbatim File/Path Labels",
+		"`internal/a.go`",
+		"`internal/b.go`",
 		"### Log Triage",
 		"### Flow Findings",
 		"### Answer Chains",
@@ -194,7 +197,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"codrax.yaml.example:20",
 		"internal/types/config.go:707",
 		"cmd/root.go:1381",
-		"prefer a precedence diagram with grounded source labels instead of numbered layers",
+		"use grounded source labels instead of numbered layers",
+		"do NOT rename its nodes into abstract numbered placeholders",
+		"### Verbatim File/Path Labels",
+		"`codrax.yaml.example`",
+		"`internal/config/runtime.go`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -254,6 +261,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"explore_mid_loop_hint_budget",
 		"Absence-only is acceptable",
 		"same namespace / prefix family",
+		"only create a separate numbered step when that layer has its own grounded repo anchor",
 		"## Exact Resolution Seeds",
 		"DefaultExploreHeuristics",
 	} {
@@ -444,6 +452,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAc
 	for _, want := range []string{
 		"DIAGRAM-GROUNDING",
 		"reuse the exact grounded file / symbol / path labels",
+		"Verbatim File/Path Labels",
 		"Do NOT normalize one grounded label into a different spelling",
 	} {
 		if !strings.Contains(sig.Hint, want) {

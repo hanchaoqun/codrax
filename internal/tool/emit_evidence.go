@@ -237,6 +237,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// ledger so F2 aggregator can weight it.
 	primaryEntity := extractPrimaryEntity(ctx)
 	configAbsenceSubjects := unverifiedPrimaryConfigSubjects(ctx)
+	exactResolutionContract := answerExactResolutionContract(ctx)
 	for i, in := range p.Items {
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped)
 		if perr != nil {
@@ -290,6 +291,11 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		r := ground.GroundItem(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
 		if demoteConfigAbsenceSubstituteEvidence(&built[i], configAbsenceSubjects) {
+			r.Status = built[i].GroundingStatus
+			r.Tier = built[i].GroundingTier
+			r.Note = built[i].GroundingNote
+		}
+		if demoteDocumentationStyleExactConfigEvidence(&built[i], exactResolutionContract, configAbsenceSubjects) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
@@ -766,7 +772,11 @@ func renderEmitSummary(items []types.EvidenceItem, reports []ground.Report, allE
 				note = "no tier accepted the citation"
 			}
 			fmt.Fprintf(&b, "      → ungrounded: %s\n", note)
-			fmt.Fprintf(&b, "        fix: (A) read_file %s near line %d  (B) re-emit with a different anchor_symbol  (C) drop the item if it was speculative\n", it.Source, line)
+			if evidenceRepairShouldDrop(it) {
+				fmt.Fprintf(&b, "        fix: drop the item; do NOT spend read_file budget repairing this non-defining mention\n")
+			} else {
+				fmt.Fprintf(&b, "        fix: (A) read_file %s near line %d  (B) re-emit with a different anchor_symbol  (C) drop the item if it was speculative\n", it.Source, line)
+			}
 		}
 	}
 	// Global tally across this dispatch's accumulated emit_evidence.
@@ -798,6 +808,11 @@ func prefOrDash(s string) string {
 		return s
 	}
 	return "-"
+}
+
+func evidenceRepairShouldDrop(it types.EvidenceItem) bool {
+	note := strings.ToLower(strings.TrimSpace(it.GroundingNote))
+	return strings.Contains(note, "do not repair this item") || strings.Contains(note, "non-defining proof")
 }
 
 func failEmit(name string, now time.Time, format string, args ...interface{}) (types.ToolResult, error) {
@@ -883,6 +898,47 @@ func demoteConfigAbsenceSubstituteEvidence(ev *types.EvidenceItem, subjects []st
 	if strings.TrimSpace(ev.Summary) == "" {
 		ev.Summary = note
 	} else if !strings.Contains(ev.Summary, "context only") {
+		ev.Summary = ev.Summary + " [context only: " + note + "]"
+	}
+	return true
+}
+
+func demoteDocumentationStyleExactConfigEvidence(ev *types.EvidenceItem, contract *types.ExactResolutionContract, subjects []string) bool {
+	if ev == nil || contract == nil || contract.TargetKind != types.SubjectConfigKey || len(subjects) == 0 {
+		return false
+	}
+	predicate := strings.ToLower(strings.TrimSpace(ev.Predicate))
+	if !strings.HasPrefix(predicate, "documents") {
+		return false
+	}
+	text := strings.Join([]string{
+		ev.Subject,
+		ev.Predicate,
+		ev.Object,
+		ev.AnchorSymbol,
+		ev.Condition,
+		ev.Snippet,
+		ev.Summary,
+	}, "\n")
+	mentionsExact := false
+	for _, subject := range subjects {
+		if textMentionsConfigToken(text, subject) {
+			mentionsExact = true
+			break
+		}
+	}
+	if !mentionsExact {
+		return false
+	}
+	note := "documentation-style mention of the exact config key is not defining proof. Use absence_justification plus production anchors; do NOT repair this item."
+	ev.Kind = types.EvidenceUnresolved
+	ev.Confidence = 0
+	ev.GroundingStatus = types.GroundingUngrounded
+	ev.GroundingTier = ""
+	ev.GroundingNote = note
+	if strings.TrimSpace(ev.Summary) == "" {
+		ev.Summary = note
+	} else if !strings.Contains(strings.ToLower(ev.Summary), "context only") {
 		ev.Summary = ev.Summary + " [context only: " + note + "]"
 	}
 	return true

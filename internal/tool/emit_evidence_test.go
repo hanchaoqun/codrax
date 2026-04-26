@@ -68,6 +68,71 @@ func TestEmitEvidence_RejectsUnknownKind(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_DemotesDocumentationStyleExactConfigMention(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectConfigKey,
+				TargetLabel:  "config key",
+				Targets:      []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence: true,
+			},
+		},
+	}
+	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token: "explore_mid_loop_hint_budget",
+		Kind:  "symbol",
+	})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "explore_mid_loop_hint_budget",
+				"predicate": "documents",
+				"source": "internal/skill/analysis_contract.go",
+				"line_start": 367,
+				"summary": "The token appears in documentation text only.",
+				"anchor_kind": "definition",
+				"anchor_symbol": "explore_mid_loop_hint_budget"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success with demotion feedback, got: %s", res.Summary)
+	}
+	if !strings.Contains(strings.ToLower(res.Summary), "do not spend read_file budget") {
+		t.Fatalf("summary should steer the model away from repairing doc mentions, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].Kind != types.EvidenceUnresolved {
+		t.Fatalf("kind = %q, want unresolved", got[0].Kind)
+	}
+	if got[0].GroundingStatus != types.GroundingUngrounded {
+		t.Fatalf("grounding status = %q, want ungrounded", got[0].GroundingStatus)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
+		t.Fatalf("grounding note should mark the mention non-repairable, got: %s", got[0].GroundingNote)
+	}
+}
+
 func TestEmitEvidence_RejectsUnknownTopLevelField(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -946,6 +947,20 @@ func TestResolveToolPath_RootsRelativeAtRepoRoot(t *testing.T) {
 		{"absolute_passthrough", "/etc/hostname", "/etc/hostname"},
 		{"windows_drive_passthrough", `C:\temp\foo.txt`, `C:\temp\foo.txt`},
 		{"unc_passthrough", `\\server\share\foo.txt`, `\\server\share\foo.txt`},
+	}
+	if runtime.GOOS == "windows" {
+		cases = append(cases,
+			struct {
+				name string
+				in   string
+				want string
+			}{"git_bash_drive_path", "/c/Users/tester/repo/internal/foo.go", `C:\Users\tester\repo\internal\foo.go`},
+			struct {
+				name string
+				in   string
+				want string
+			}{"wsl_mnt_drive_path", "/mnt/c/Users/tester/repo/internal/foo.go", `C:\Users\tester\repo\internal\foo.go`},
+		)
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

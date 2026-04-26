@@ -24,47 +24,49 @@ import (
 )
 
 type explorerEvaluator struct {
-	heuristics                 types.ExploreHeuristics
-	tools                      *tool.Registry
-	phase                      int                  // 0 = breadth scan, 1 = depth read
-	broadenAttempts            int                  // times we pushed for broader grep in Phase 0
-	preScannedFiles            []string             // top files from keyword search, for coverage tracking
-	allScoredFiles             []string             // ALL files from keyword search (not just top 8), for supplementary evidence
-	fileSymbols                map[string][]string  // path → symbol summaries from repo_map
-	searchResult               *keywordSearchResult // full search result for cross-reference lookups
-	searchFingerprint          string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
-	exactAnchorFiles           []string             // exact-entity anchor files from keyword search, in rank order
-	declarativeAnchorFiles     []string             // declarative registry/defaults/routes anchors for enumeration questions
-	investigationNotes         []string             // assistant analysis messages from ReAct loop
-	userQuestion               string               // original user question, for focus alignment
-	repoRoot                   string               // repository root path, cached from BuildInitialInstruction
-	preScannedPushCount        int                  // times we pushed for unread pre-scanned files without progress
-	lastPreScannedUnreadCount  int                  // count of unread pre-scanned files at last push
-	grepRedirectedFiles        map[string]bool      // files that already received a large-file grep redirect
-	isEnumerationQuery         bool                 // true if user question asks to list/enumerate all items
-	phase0ExtraRound           bool                 // whether we already gave one extra Phase 0 round for quality gate
-	hasPrescanRepoMap          bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
-	structuredEvidence         []types.EvidenceItem
-	flowFindings               []types.FlowFindingDigest
-	ermRequirements            []EvidenceRequirement // evidence requirement model
-	cachedConcreteValues       *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
-	midLoopLastResultsLen      int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
-	midLoopSerialStreak        int                   // #34: consecutive iters observed as single-call rounds
-	midLoopParallelInjected    bool                  // #34: parallel-batching hint already pushed this dispatch
-	midLoopSymbolRefInjected   bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
-	midLoopPostPrimaryInjected bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
-	midLoopEvidenceRepairSent  bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
-	midLoopIntentWindowSent    bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
-	midLoopRankerCoverageSent  bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
-	midLoopAbsentRedirectSent  bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
-	midLoopExternalLogSent     bool                  // one-shot: external-source log runtime frames redirected this dispatch
-	midLoopExactAbsenceSent    bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
-	midLoopEnumInjected        bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
-	midLoopNoEmitPushSent      bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
-	primaryReadSeen            bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
-	primaryReadIter            int                   // df3-drift: iter at which a primary-entity file first entered readSet
-	notesLenAtPrimaryRead      int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
-	investigationComplete      bool                  // set when emit_investigation_complete tool was observed in MidLoop
+	heuristics                     types.ExploreHeuristics
+	tools                          *tool.Registry
+	phase                          int                  // 0 = breadth scan, 1 = depth read
+	broadenAttempts                int                  // times we pushed for broader grep in Phase 0
+	preScannedFiles                []string             // top files from keyword search, for coverage tracking
+	allScoredFiles                 []string             // ALL files from keyword search (not just top 8), for supplementary evidence
+	fileSymbols                    map[string][]string  // path → symbol summaries from repo_map
+	searchResult                   *keywordSearchResult // full search result for cross-reference lookups
+	searchFingerprint              string               // T1.2: fingerprint of keyword_search inputs; reuses searchResult across explorer redispatches within one Run when inputs are unchanged
+	analyzerKeywords               []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
+	exactAnchorFiles               []string             // exact-entity anchor files from keyword search, in rank order
+	declarativeAnchorFiles         []string             // declarative registry/defaults/routes anchors for enumeration questions
+	investigationNotes             []string             // assistant analysis messages from ReAct loop
+	userQuestion                   string               // original user question, for focus alignment
+	repoRoot                       string               // repository root path, cached from BuildInitialInstruction
+	preScannedPushCount            int                  // times we pushed for unread pre-scanned files without progress
+	lastPreScannedUnreadCount      int                  // count of unread pre-scanned files at last push
+	grepRedirectedFiles            map[string]bool      // files that already received a large-file grep redirect
+	isEnumerationQuery             bool                 // true if user question asks to list/enumerate all items
+	phase0ExtraRound               bool                 // whether we already gave one extra Phase 0 round for quality gate
+	hasPrescanRepoMap              bool                 // keywordSearch (run at BuildInitialInstruction) produced a ranked file list via repo_map; the Phase 0 quality gate treats this as satisfying the structural-discovery half of its requirement, so the LLM isn't penalized for not re-running repo_map at iter=0
+	structuredEvidence             []types.EvidenceItem
+	flowFindings                   []types.FlowFindingDigest
+	ermRequirements                []EvidenceRequirement // evidence requirement model
+	cachedConcreteValues           *concreteValuesResult // T1.1: built once per Execute, reused by gate + synthesis
+	midLoopLastResultsLen          int                   // #34: allResults length at prev observeMidLoop call (used to infer current batch size)
+	midLoopSerialStreak            int                   // #34: consecutive iters observed as single-call rounds
+	midLoopParallelInjected        bool                  // #34: parallel-batching hint already pushed this dispatch
+	midLoopSymbolRefInjected       bool                  // T3b: cross-file-symbol-reference hint already pushed this dispatch
+	midLoopPostPrimaryInjected     bool                  // one-shot: immediate "keep using tools after the first anchor read" hint already pushed this dispatch
+	midLoopEvidenceRepairSent      bool                  // one-shot: recovered/ungrounded emit_evidence repair hint already pushed this dispatch
+	midLoopIntentWindowSent        bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
+	midLoopRankerCoverageSent      bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
+	midLoopAbsentRedirectSent      bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
+	midLoopExternalLogSent         bool                  // one-shot: external-source log runtime frames redirected this dispatch
+	midLoopExactAbsenceContextSent bool                  // one-shot: exact absence still needs one grounded same-family production anchor before closure
+	midLoopExactAbsenceSent        bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
+	midLoopEnumInjected            bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
+	midLoopNoEmitPushSent          bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
+	primaryReadSeen                bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
+	primaryReadIter                int                   // df3-drift: iter at which a primary-entity file first entered readSet
+	notesLenAtPrimaryRead          int                   // df3-drift: snapshot of len(investigationNotes) at primaryReadIter
+	investigationComplete          bool                  // set when emit_investigation_complete tool was observed in MidLoop
 
 	// answerSubject is the AnswerSubject classification copied from
 	// the analyzer's IR at BuildInitialInstruction time. The chain
@@ -371,6 +373,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	analyzerKeywords := irKeywords(ctx)
 	analyzerEntities := irEntities(ctx)
 	analyzerKind := irQuestionKind(ctx)
+	e.analyzerKeywords = append(e.analyzerKeywords[:0], analyzerKeywords...)
 
 	if len(analyzerKeywords) > 0 {
 		display := analyzerKeywords
@@ -381,6 +384,12 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		b.WriteString("Use these for grep (from the analyzer's classification):\n`")
 		b.WriteString(strings.Join(display, "`, `"))
 		b.WriteString("`\n\n")
+	}
+	if e.exactResolution != nil && e.exactResolution.TargetKind == types.SubjectConfigKey {
+		b.WriteString("### Exact-Key Search Discipline\n\n")
+		b.WriteString("- For exact config-key questions, test assertions, documentation examples, and prompt strings that merely mention the token are context only, not defining proof.\n")
+		b.WriteString("- Prefer the built-in `grep` tool for repo-wide token sweeps. It keeps breadth scans path-stable on every OS and avoids shell-specific path drift.\n")
+		b.WriteString("- Spend read_file budget on production config/default/loader/flag-binding surfaces before repairing doc/test mentions.\n\n")
 	}
 
 	// Conditional-enumeration hint: when the question asks "how many X
@@ -1759,6 +1768,9 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 	if banner := e.buildPrimaryTargetBanner(); banner != "" {
 		b.WriteString(banner)
 	}
+	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
+		b.WriteString(banner)
+	}
 	if len(e.requiredFiles) > 0 {
 		// Session-22 F2.2: distinguish log-frame anchors from ranker
 		// candidates so the LLM does not conflate "ranker scored this
@@ -1850,6 +1862,9 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 	if banner := e.buildPrimaryTargetBanner(); banner != "" {
 		b.WriteString(banner)
 	}
+	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
+		b.WriteString(banner)
+	}
 	if len(e.requiredFiles) > 0 {
 		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(e.requiredFiles)
 		writeGroup := func(title, framing string, group []string, cap int) int {
@@ -1937,6 +1952,9 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 	b.WriteString("- If an entry registers a builder or factory call, resolve the builder's stable terminal identity (for example Name / Key / Type / Route) before concluding that the item is known.\n")
 	b.WriteString("- Expand only to builders, factories, or direct neighbors referenced by these surfaces.\n")
 	b.WriteString("- Do NOT broaden to the full keyword-search tail until the declarative surfaces and their direct builder references are exhausted.\n\n")
+	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
+		b.WriteString(banner)
+	}
 	if len(e.requiredFiles) > 0 {
 		// Session-22 F2.2: same split as buildFocusedDepthStartInstruction
 		// — log-frame files get strong framing, ranker files get opt-in
@@ -2417,21 +2435,15 @@ func (e *explorerEvaluator) buildPrimaryTargetBanner() string {
 	return b.String()
 }
 
-type exactResolutionSymbolCandidate struct {
-	File   string
-	Symbol string
-	Score  int
-}
-
 func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentContext, analyzerKeywords []string) string {
-	if ctx == nil || ctx.AnalysisIR == nil || e.searchResult == nil || e.searchResult.Graph == nil {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return ""
 	}
 	contract := ctx.AnalysisIR.AnswerContract.ExactResolution
 	if contract == nil || contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
 		return ""
 	}
-	if len(types.ExactResolutionPendingTargets(contract, ctx.UnverifiedAnalyzerFindings)) == 0 {
+	if len(contract.Targets) == 0 {
 		return ""
 	}
 	cands := e.collectExactResolutionSymbolCandidates(contract, analyzerKeywords)
@@ -2442,6 +2454,10 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 	b.WriteString("### Same-Family Repo Symbols\n\n")
 	b.WriteString("If the exact target stays absent, read these same-family symbols before jumping to a different config family. They were ranked from repo_map using the analyzer's current keywords plus the exact-target family terms:\n")
 	for _, cand := range cands {
+		if cand.Line > 0 {
+			fmt.Fprintf(&b, "- `%s` in `%s:%d`\n", cand.Symbol, cand.File, cand.Line)
+			continue
+		}
 		fmt.Fprintf(&b, "- `%s` in `%s`\n", cand.Symbol, cand.File)
 	}
 	b.WriteString("\nTreat any result here as related context unless you find explicit alias / parser-mapping proof for the exact target.\n\n")
@@ -2449,131 +2465,11 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 }
 
 func (e *explorerEvaluator) collectExactResolutionSymbolCandidates(contract *types.ExactResolutionContract, analyzerKeywords []string) []exactResolutionSymbolCandidate {
-	if contract == nil || e.searchResult == nil || e.searchResult.Graph == nil {
-		return nil
+	var graph *repomap.Graph
+	if e.searchResult != nil {
+		graph = e.searchResult.Graph
 	}
-	termSet := make(map[string]bool)
-	for _, term := range types.ExactResolutionContextTerms(contract) {
-		term = strings.TrimSpace(strings.ToLower(term))
-		if len(term) >= 3 {
-			termSet[term] = true
-		}
-	}
-	for _, kw := range analyzerKeywords {
-		for _, token := range strings.FieldsFunc(strings.ToLower(kw), func(r rune) bool {
-			return (r < 'a' || r > 'z') && (r < '0' || r > '9')
-		}) {
-			if len(token) >= 3 {
-				termSet[token] = true
-			}
-		}
-	}
-	if len(termSet) == 0 {
-		return nil
-	}
-	terms := make([]string, 0, len(termSet))
-	for term := range termSet {
-		terms = append(terms, term)
-	}
-	sort.Strings(terms)
-
-	var cands []exactResolutionSymbolCandidate
-	seen := make(map[string]bool)
-	candidateFiles := exactResolutionCandidateFiles(e.searchResult.Graph)
-	if len(candidateFiles) == 0 {
-		candidateFiles = append(candidateFiles, e.preScannedFiles...)
-	}
-	for _, file := range candidateFiles {
-		fileLower := strings.ToLower(file)
-		if isExactResolutionNoiseFile(fileLower) {
-			continue
-		}
-		symbols := e.symbolSummariesForFile(file)
-		for _, sym := range symbols {
-			symLower := strings.ToLower(sym)
-			score := 0
-			for _, term := range terms {
-				if strings.Contains(symLower, term) {
-					score += 4
-				}
-				if strings.Contains(fileLower, term) {
-					score += 2
-				}
-			}
-			if score < 6 {
-				continue
-			}
-			key := file + "\x00" + sym
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-			cands = append(cands, exactResolutionSymbolCandidate{
-				File:   file,
-				Symbol: sym,
-				Score:  score,
-			})
-		}
-	}
-	if len(cands) == 0 {
-		return nil
-	}
-	sort.SliceStable(cands, func(i, j int) bool {
-		if cands[i].Score != cands[j].Score {
-			return cands[i].Score > cands[j].Score
-		}
-		if cands[i].File != cands[j].File {
-			return cands[i].File < cands[j].File
-		}
-		return cands[i].Symbol < cands[j].Symbol
-	})
-	if len(cands) > 4 {
-		cands = cands[:4]
-	}
-	return cands
-}
-
-func exactResolutionCandidateFiles(graph *repomap.Graph) []string {
-	if graph == nil || len(graph.FileIndex) == 0 {
-		return nil
-	}
-	files := make([]string, 0, len(graph.FileIndex))
-	for path := range graph.FileIndex {
-		files = append(files, path)
-	}
-	sort.Strings(files)
-	return files
-}
-
-func isExactResolutionNoiseFile(lowerPath string) bool {
-	return types.LooksLikeTestFilePath(lowerPath) ||
-		strings.Contains(lowerPath, "/testdata/") ||
-		strings.Contains(lowerPath, "\\testdata\\") ||
-		strings.Contains(lowerPath, "/fixtures/") ||
-		strings.Contains(lowerPath, "\\fixtures\\") ||
-		strings.Contains(lowerPath, "/examples/") ||
-		strings.Contains(lowerPath, "\\examples\\")
-}
-
-func (e *explorerEvaluator) symbolSummariesForFile(path string) []string {
-	if syms := e.fileSymbols[path]; len(syms) > 0 {
-		return syms
-	}
-	if e.searchResult == nil || e.searchResult.Graph == nil {
-		return nil
-	}
-	fi, ok := e.searchResult.Graph.FileIndex[path]
-	if !ok || fi == nil || len(fi.Symbols) == 0 {
-		return nil
-	}
-	out := make([]string, 0, len(fi.Symbols))
-	for _, sym := range fi.Symbols {
-		name := strings.TrimSpace(sym.Name)
-		if name != "" {
-			out = append(out, name)
-		}
-	}
-	return out
+	return collectExactResolutionSymbolCandidatesFromGraph(graph, contract, analyzerKeywords, e.fileSymbols)
 }
 
 // filterEvidenceByPrimaryFiles keeps evidence items whose Source is
@@ -2955,16 +2851,30 @@ func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
 	targets := make(map[string]map[int]bool)
 	currentFile := ""
 	currentLine := 0
+	currentNeedsRepair := false
+	currentDrop := false
+	flushCurrent := func() {
+		if currentFile == "" || currentLine <= 0 || !currentNeedsRepair || currentDrop {
+			return
+		}
+		if targets[currentFile] == nil {
+			targets[currentFile] = make(map[int]bool)
+		}
+		targets[currentFile][currentLine] = true
+	}
 	for _, raw := range strings.Split(summary, "\n") {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
 		}
 		if strings.HasPrefix(line, "[") {
+			flushCurrent()
 			at := strings.Index(line, " @ ")
 			if at < 0 {
 				currentFile = ""
 				currentLine = 0
+				currentNeedsRepair = false
+				currentDrop = false
 				continue
 			}
 			loc := strings.TrimSpace(line[at+3:])
@@ -2977,29 +2887,38 @@ func parseEmitEvidenceRepairTargets(summary string) []evidenceRepairTarget {
 			if colon < 0 {
 				currentFile = ""
 				currentLine = 0
+				currentNeedsRepair = false
+				currentDrop = false
 				continue
 			}
 			n, err := strconv.Atoi(strings.TrimSpace(loc[colon+1:]))
 			if err != nil || n <= 0 {
 				currentFile = ""
 				currentLine = 0
+				currentNeedsRepair = false
+				currentDrop = false
 				continue
 			}
 			currentFile = canonicalExplorerPath(strings.TrimSpace(loc[:colon]))
 			currentLine = n
+			currentNeedsRepair = false
+			currentDrop = false
 			continue
 		}
 		if currentFile == "" || currentLine <= 0 {
 			continue
 		}
+		lower := strings.ToLower(line)
+		if strings.Contains(lower, "do not spend read_file budget") || strings.Contains(lower, "do not repair") {
+			currentDrop = true
+			continue
+		}
 		if !strings.Contains(line, "recovered") && !strings.Contains(line, "ungrounded") {
 			continue
 		}
-		if targets[currentFile] == nil {
-			targets[currentFile] = make(map[int]bool)
-		}
-		targets[currentFile][currentLine] = true
+		currentNeedsRepair = true
 	}
+	flushCurrent()
 	if len(targets) == 0 {
 		return nil
 	}
@@ -3222,6 +3141,35 @@ func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) L
 	}
 	if reads < 2 || emits == 0 {
 		return LoopSignal{}
+	}
+	if !e.midLoopExactAbsenceContextSent {
+		cands := e.collectExactResolutionSymbolCandidates(e.exactResolution, e.analyzerKeywords)
+		if pending := pendingExactResolutionContextCandidates(e.exactResolution, e.structuredEvidence, cands); len(pending) > 0 {
+			e.midLoopExactAbsenceContextSent = true
+			var b strings.Builder
+			b.WriteString("MID-LOOP CHECK: the exact target already looks absent, but before closing you still need one grounded production same-family anchor so the related context stays focused.\n")
+			b.WriteString("Read one or two of these repo_map-ranked symbols next, then emit evidence and only after that close with `emit_investigation_complete(..., result_kind=\"absence\", absence_justification=...)`:\n")
+			limit := len(pending)
+			if limit > 2 {
+				limit = 2
+			}
+			for i := 0; i < limit; i++ {
+				cand := pending[i]
+				if cand.Line > 0 {
+					fmt.Fprintf(&b, "- `%s` in `%s:%d`\n", cand.Symbol, cand.File, cand.Line)
+					continue
+				}
+				fmt.Fprintf(&b, "- `%s` in `%s`\n", cand.Symbol, cand.File)
+			}
+			b.WriteString("Keep every such item labeled as related context only, never as an equivalent or substitute for the exact missing target.")
+			return LoopSignal{
+				HintRequested:  true,
+				HintKey:        "explorer.mid-loop.exact-absence-read-same-family",
+				Hint:           b.String(),
+				Progress:       true,
+				BypassThrottle: true,
+			}
+		}
 	}
 	if !exactAbsenceClosureReady(e.exactResolution, targets, e.structuredEvidence) {
 		return LoopSignal{}

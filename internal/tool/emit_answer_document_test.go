@@ -882,6 +882,60 @@ func TestEmitAnswerDocument_AcceptsExactTargetAbsenceWithContextOnlyFraming(t *t
 	}
 }
 
+func TestEmitAnswerDocument_RejectsAliasMatchAfterAbsenceClosure(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Subject:         "LoopMaxMidLoopInjects",
+		Predicate:       "maps",
+		Object:          "loop_max_midloop_injects",
+		Source:          "internal/types/config.go",
+		Summary:         "Related context only: loop_max_midloop_injects is a different namespace than explore_mid_loop_hint_budget.",
+		GroundingStatus: types.GroundingGrounded,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status": "alias_match",
+			"anchor": "loop_max_midloop_injects",
+		},
+		"summary": "The nearest nearby knob is loop_max_midloop_injects, but the exact key is absent.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("absence-closed investigation must not be upgraded to alias_match")
+	}
+	if !strings.Contains(res.Summary, "already closed as absence") {
+		t.Fatalf("reject should point back to absence-closed investigation, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_RejectsExactMatchFromTestOnlyConfigProof(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
@@ -2118,6 +2172,81 @@ func TestEmitAnswerDocument_DiagramGate_AcceptsCitedFileInFence(t *testing.T) {
 	res, _ := tool.Execute(ctx, params)
 	if !res.Success {
 		t.Fatalf("all-cited fenced block must pass the diagram gate; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_DiagramGate_AcceptsUniqueBasenameAlias(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary:  "[internal/agent/analyzer.go: showing lines 1-5 of 1500 total]\n     1│package agent\n     2│\n     3│import (\n     4│\t\"context\"\n     5│)\n",
+	})
+	summary := "The panic happens inside the analyzer path.\n\n" +
+		"```\n" +
+		"innermost: buildAnalysisIR (analyzer.go:5)\n" +
+		"  -> caller: ParseOutput (analyzer.go:5)\n" +
+		"```\n"
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":     "explanation",
+		"summary":   summary,
+		"citations": []map[string]interface{}{{"file": "internal/agent/analyzer.go", "line": 5}},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("unique basename alias must pass the diagram gate; got Success=false Summary=%q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_DiagramGate_RejectsAmbiguousBasenameAlias(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	graph := newDocGraph(map[string][]docSymbol{
+		"internal/config/runtime.go": {{name: "RuntimeConfig", line: 3, end: 10}},
+		"cmd/runtime.go":             {{name: "RuntimeMain", line: 3, end: 10}},
+	})
+	ctx.Mutable.SetSearchGraph(graph)
+	ctx.Mutable.SetTurnAArtifacts(types.TurnAArtifacts{
+		ReadFiles: []string{"internal/config/runtime.go", "cmd/runtime.go"},
+	})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[internal/config/runtime.go: showing lines 1-3 of 20 total]\n" +
+			"     1│package config\n     2│\n     3│type Runtime struct{}\n",
+	})
+	ctx.Mutable.AppendDispatchToolResult(types.ToolResult{
+		ToolName: "read_file",
+		Success:  true,
+		Summary: "[cmd/runtime.go: showing lines 1-3 of 20 total]\n" +
+			"     1│package cmd\n     2│\n     3│func main() {}\n",
+	})
+	summary := "The dispatch spans two different runtime files.\n\n" +
+		"```\n" +
+		"runtime.go:3\n" +
+		"  -> runtime.go:3\n" +
+		"```\n"
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": summary,
+		"citations": []map[string]interface{}{
+			{"file": "internal/config/runtime.go", "line": 3},
+			{"file": "cmd/runtime.go", "line": 3},
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("ambiguous basename alias must reject, got success")
+	}
+	for _, want := range []string{
+		"runtime.go",
+		"`internal/config/runtime.go`",
+		"`cmd/runtime.go`",
+	} {
+		if !strings.Contains(res.Summary, want) {
+			t.Fatalf("rejection must surface %q for disambiguation, got %q", want, res.Summary)
+		}
 	}
 }
 
