@@ -132,6 +132,23 @@ type Orchestrator struct {
 	// without an explicit retry counter (most stages) keep attempt=0.
 	// Internal field; not part of the public API.
 	emitStageRetryAttempt int
+
+	// reportDir is captured at Run entry from the first non-empty
+	// busCtx.PlanPath (or the orchestrator's planPath flag) and
+	// preserved across the verify→plan retry loop, so
+	// saveChangeReport can persist post-retry reports even after
+	// clearForReplan wipes busCtx.PlanPath. Without this, a
+	// successful retry's ChangeReport never lands on disk and the
+	// authoritative report.json keeps the failed first iteration's
+	// data.
+	//
+	// Bug provenance: Batch L forth-py — Fix 1's restoreBestIfRegressed
+	// correctly restored Mutable.ChangeReport to 51/54 (the best
+	// iteration), but saveChangeReport saw an empty PlanPath and
+	// skipped the write, leaving 48/54 (the FIRST iteration) on
+	// disk. Operators reading runs/<id>.report.json saw a stale
+	// FAIL when the in-memory state reflected a strictly-better PASS.
+	reportDir string
 }
 
 // New creates a new Orchestrator.
@@ -394,6 +411,18 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 	// falls back to the strip-"./" canonicaliser and absolute
 	// paths mismatch the repo-relative CGEC ReadSet.
 	o.busCtx.Mutable.SetRepoRoot(repoRoot)
+
+	// Capture a stable report directory before any retry-loop reset
+	// can wipe busCtx.PlanPath. saveChangeReport reads o.reportDir as
+	// a fallback so post-retry reports still land on disk under the
+	// same dir as the original --plan-file. Empty when no plan-file
+	// path is supplied (plan-mode e2e flow); the existing skip-with-
+	// log behavior in saveChangeReport handles that case.
+	if o.planPath != "" {
+		o.reportDir = filepath.Dir(o.planPath)
+	} else {
+		o.reportDir = ""
+	}
 
 	o.busCtx.Language = o.language
 	o.busCtx.AttachedLog = o.attachedLog
@@ -951,14 +980,20 @@ func (o *Orchestrator) saveChangeReport(report *types.ChangeReport) {
 		logging.Warning("[orchestrator] skipping ChangeReport disk save: PlanID empty")
 		return
 	}
-	// Derive the plan directory: busCtx.PlanPath when provided
-	// (apply-mode from --plan-file), else default under
-	// runtime-anchor. The orchestrator doesn't hold the runtime
-	// anchor directly; fall back to the plan-file directory when
-	// available, otherwise skip the save with a log (rare).
+	// Derive the plan directory in priority order:
+	//  1. busCtx.PlanPath — set on first apply (--plan-file mode)
+	//  2. o.reportDir — captured at Run entry from o.planPath. Survives
+	//     the verify→plan retry loop where clearForReplan wipes
+	//     busCtx.PlanPath but cannot touch this stable orchestrator
+	//     field. This is the load-bearing fallback that lets
+	//     restoreBestIfRegressed persist the restored ChangeReport on
+	//     terminal failure even after multiple retry iterations.
+	//  3. (skip with log) — plan-mode e2e flow with no on-disk artifact.
 	var planDir string
 	if o.busCtx.PlanPath != "" {
 		planDir = filepath.Dir(o.busCtx.PlanPath)
+	} else if o.reportDir != "" {
+		planDir = o.reportDir
 	}
 	if planDir == "" {
 		logging.Warning("[orchestrator] skipping ChangeReport disk save: no plan dir resolvable (plan-mode e2e path)")

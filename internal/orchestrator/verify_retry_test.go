@@ -2,6 +2,8 @@ package orchestrator
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -344,6 +346,149 @@ func TestBuildRetryHintWithBest_RegressionAnnotated(t *testing.T) {
 		if !strings.Contains(got, marker) {
 			t.Errorf("regression hint missing marker %q in:\n%s", marker, got)
 		}
+	}
+}
+
+// TestRestoreBestIfRegressed_PersistsAfterPlanPathCleared verifies
+// the followup-bug fix: clearForReplan wipes busCtx.PlanPath between
+// retry iterations, but saveChangeReport must still be able to
+// persist the restored ChangeReport because o.reportDir was captured
+// at Run entry. Without this fallback the restored 51/54 (from the
+// best iteration) never reaches disk and resummarize tools see only
+// the first iteration's stale report.
+func TestRestoreBestIfRegressed_PersistsAfterPlanPathCleared(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		MainRepoRoot: "/tmp/main",
+		RepoRoot:     "/tmp/main",
+		Mutable:      types.NewMutableState("probe"),
+		// PlanPath is intentionally empty — simulates the post-clearForReplan
+		// state where the retry loop is mid-flight and busCtx.PlanPath
+		// has been wiped.
+		PlanPath: "",
+	}
+	o.reportDir = tmp // captured at Run entry, survives retries
+
+	// Best (the iteration we want preserved on disk).
+	bestPlan := &types.ChangePlan{ID: "plan-best", TargetPaths: []string{"forth.py"}}
+	bestReport := &types.ChangeReport{
+		PlanID: "plan-best",
+		Passed: false, // 51/54 — better than current but still failing
+		TestResults: func() []types.TestResult {
+			out := make([]types.TestResult, 0, 54)
+			for i := 0; i < 51; i++ {
+				out = append(out, types.TestResult{Kind: types.TestResultKindUnit, Passed: true})
+			}
+			for i := 0; i < 3; i++ {
+				out = append(out, types.TestResult{Kind: types.TestResultKindUnit, Passed: false})
+			}
+			return out
+		}(),
+	}
+	o.busCtx.Mutable.SetBestPlanReport(bestPlan, bestReport)
+
+	// Current — last iteration regressed to 0/54.
+	curPlan := &types.ChangePlan{ID: "plan-current", TargetPaths: []string{"forth.py"}}
+	curReport := &types.ChangeReport{
+		PlanID: "plan-current",
+		Passed: false,
+		TestResults: func() []types.TestResult {
+			out := make([]types.TestResult, 0, 54)
+			for i := 0; i < 54; i++ {
+				out = append(out, types.TestResult{Kind: types.TestResultKindUnit, Passed: false})
+			}
+			return out
+		}(),
+	}
+	o.busCtx.Mutable.SetChangePlan(curPlan)
+	o.busCtx.Mutable.SetChangeReport(curReport)
+
+	restoreBestIfRegressed(o)
+
+	// Mutable now holds the best.
+	gotPlan := o.busCtx.Mutable.ChangePlan()
+	if gotPlan == nil || gotPlan.ID != "plan-best" {
+		t.Errorf("Mutable.ChangePlan should be restored to best; got %v", gotPlan)
+	}
+	gotReport := o.busCtx.Mutable.ChangeReport()
+	if gotReport == nil || gotReport.PlanID != "plan-best" {
+		t.Errorf("Mutable.ChangeReport should be restored to best; got %v", gotReport)
+	}
+
+	// The disk artifact MUST exist under the captured reportDir.
+	wantPath := filepath.Join(tmp, "plan-best.report.json")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("restored report not persisted to disk: %v (expected at %s)", err, wantPath)
+	}
+
+	// Mutable.Result reflects the restored (still-failing) verdict, not
+	// a stale "0/54" rendering.
+	result := o.busCtx.Mutable.Result()
+	if !strings.Contains(result, "Verify FAILED") {
+		t.Errorf("Mutable.Result should be re-rendered for restored report; got %q", result)
+	}
+}
+
+// TestRestoreBestIfRegressed_NoOpWhenCurrentIsBest verifies the
+// happy path: when the current ChangeReport is the best (or no
+// retry latch fired), restoreBestIfRegressed is a no-op — Mutable
+// is untouched and no spurious report.json is written.
+func TestRestoreBestIfRegressed_NoOpWhenCurrentIsBest(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("probe"),
+	}
+	o.reportDir = tmp
+
+	curPlan := &types.ChangePlan{ID: "plan-current"}
+	curReport := &types.ChangeReport{
+		PlanID: "plan-current",
+		Passed: true,
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindUnit, Passed: true},
+		},
+	}
+	o.busCtx.Mutable.SetChangePlan(curPlan)
+	o.busCtx.Mutable.SetChangeReport(curReport)
+
+	restoreBestIfRegressed(o)
+
+	if o.busCtx.Mutable.ChangePlan().ID != "plan-current" {
+		t.Error("happy-path no-op: ChangePlan should be untouched")
+	}
+	if o.busCtx.Mutable.ChangeReport().PlanID != "plan-current" {
+		t.Error("happy-path no-op: ChangeReport should be untouched")
+	}
+	// No stray report file should have been written.
+	matches, _ := filepath.Glob(filepath.Join(tmp, "*.report.json"))
+	if len(matches) != 0 {
+		t.Errorf("happy-path no-op: no report file should be written; got %v", matches)
+	}
+}
+
+// TestSaveChangeReport_ReportDirFallback verifies the fallback chain:
+// when busCtx.PlanPath is empty (typical post-retry state) but
+// o.reportDir is set, saveChangeReport persists under reportDir
+// instead of skipping with a "no plan dir" warning.
+func TestSaveChangeReport_ReportDirFallback(t *testing.T) {
+	tmp := t.TempDir()
+	o := New(types.PipelineSettings{}, nil, nil, nil)
+	o.busCtx = &types.BusContext{
+		Mutable: types.NewMutableState("probe"),
+	}
+	o.reportDir = tmp
+
+	report := &types.ChangeReport{
+		PlanID: "plan-fallback",
+		Passed: true,
+	}
+	o.saveChangeReport(report)
+
+	wantPath := filepath.Join(tmp, "plan-fallback.report.json")
+	if _, err := os.Stat(wantPath); err != nil {
+		t.Errorf("reportDir fallback failed: %v (expected at %s)", err, wantPath)
 	}
 }
 

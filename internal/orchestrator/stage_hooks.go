@@ -419,9 +419,28 @@ func restoreBestIfRegressed(o *Orchestrator) {
 		bp, bt, cp, ct)
 	o.busCtx.Mutable.SetChangePlan(bestPlan)
 	o.busCtx.Mutable.SetChangeReport(bestReport)
+	// Re-render Mutable.Result so the user-facing summary reflects
+	// the restored report, not the last-iteration verifyPostHook
+	// rendering. Otherwise the user sees "Verify FAILED 0/54" while
+	// the in-memory + on-disk state actually carries 51/54 — pure
+	// stale-UI confusion that defeats Fix 1's value.
+	//
+	// Render shape mirrors verifyPostHook: when the restored report
+	// passed, render a success banner; otherwise render the failure
+	// summary so the user can see the (better but still failing)
+	// state of the best iteration.
+	if bestReport.Passed {
+		o.busCtx.Mutable.SetResult(renderVerifySuccess(bestReport))
+		now := time.Now()
+		o.persistPlanStatus(types.PlanStatusApplied, &now)
+	} else {
+		o.busCtx.Mutable.SetResult(renderVerifyFailure(bestReport, ""))
+		o.persistPlanStatus(types.PlanStatusVerifyFailed, nil)
+	}
 	// Re-persist the report so the on-disk artifact reflects what is
-	// now in Mutable. Safe to call even when planDir is unavailable —
-	// saveChangeReport logs and returns rather than aborting.
+	// now in Mutable. saveChangeReport now honors o.reportDir as a
+	// fallback when busCtx.PlanPath is empty (see saveChangeReport
+	// commentary).
 	o.saveChangeReport(bestReport)
 }
 
