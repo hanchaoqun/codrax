@@ -111,6 +111,30 @@ func LogCapabilities() {
 	}
 	logging.Info("V5 lint validator: active for %d/%d languages — active=[%s]; missing=[%s]",
 		len(active), len(stats), strings.Join(active, ", "), strings.Join(missing, ", "))
+
+	// V6 project-aware lint snapshot. Same shape as V5 but the
+	// "active" list reflects which language toolchains are on PATH —
+	// the V6 trigger ALSO requires the project to carry the
+	// language's manifest file (oh-package.json5 / cjpm.toml), which
+	// is per-Run state and not knowable at startup. The banner is
+	// purely about toolchain presence so operators know what V6
+	// COULD lint if a matching project shows up.
+	pstats := ProjectLintLanguagesEnabled()
+	var pactive, pmissing []string
+	for _, st := range pstats {
+		if st.Available {
+			pactive = append(pactive, st.Name)
+		} else {
+			pmissing = append(pmissing, st.Name+" ("+st.Binary+")")
+		}
+	}
+	if len(pactive) == 0 {
+		logging.Info("V6 project lint validator: 0/%d toolchains on PATH — missing=[%s]. Install the relevant toolchain (DevEco / Cangjie SDK) when working on a HarmonyOS / Cangjie project.",
+			len(pstats), strings.Join(pmissing, ", "))
+	} else {
+		logging.Info("V6 project lint validator: %d/%d toolchains on PATH — active=[%s]; missing=[%s]. V6 fires only when the repo also contains the matching manifest (oh-package.json5 / cjpm.toml).",
+			len(pactive), len(pstats), strings.Join(pactive, ", "), strings.Join(pmissing, ", "))
+	}
 }
 
 // linterListForLog formats the per-language install hints as a

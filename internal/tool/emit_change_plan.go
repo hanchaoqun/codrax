@@ -1605,6 +1605,223 @@ func formatLintRejection(lang, cmdDescr string, stderr []byte, originalLen int) 
 		cmdDescr, lang, out)
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// V6 project-aware lint
+// ─────────────────────────────────────────────────────────────────────
+
+// validatePlanProjectLint covers languages whose linters require
+// project-level context (manifest files + module resolution + bundle
+// maps) and cannot be sensibly invoked on a single file. ArkTS and
+// Cangjie are the canonical cases — both reach into the project's
+// oh-package.json5 / cjpm.toml respectively to resolve imports and
+// decorators, so V5's single-file overlay pattern returns "no
+// project context" errors instead of useful diagnostics.
+//
+// V6's strategy: run the language's NATIVE project-level lint
+// command from the overlayed project root. The overlay is the same
+// hardlinked scratch dir V5 uses; we just chdir to project root and
+// invoke the command as a project would.
+//
+// Trigger conditions (ALL must hold):
+//   1. Plan touches a file with the language's extension
+//      (e.g. .ets for ArkTS, .cj for Cangjie)
+//   2. Project root contains the language's manifest file
+//      (e.g. oh-package.json5, cjpm.toml) — proves this IS a
+//      ${lang} project, not just a file with that extension
+//   3. Language's lint binary is on PATH
+//   4. SetLintEnabled(true) (same master switch as V5)
+//
+// Same severity policy as V5: kind=create only; modify skipped.
+// Failure routes through formatLintRejection with a "V6 project
+// lint" prefix so the planner can route on category.
+func validatePlanProjectLint(ctx *types.BusContext, changes []types.FileChange) string {
+	if !LintEnabled() {
+		return ""
+	}
+	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
+		return ""
+	}
+	for _, lang := range projectLintRegistry {
+		if rej := runProjectLintForLang(ctx, changes, lang); rej != "" {
+			return rej
+		}
+	}
+	return ""
+}
+
+// ProjectLintLang declares one language's V6 project-aware lint
+// rule. Distinguished from LintLang by the ManifestFiles + project-
+// relative invocation: V5 builds argv from a file list; V6 builds
+// argv from the project root.
+type ProjectLintLang struct {
+	// Name is the human-facing language label. ("ArkTS", "Cangjie")
+	Name string
+
+	// Extensions is the file suffixes (with leading dot) this lang
+	// claims. A change qualifies if its path ends in any of these.
+	// V5 must NOT also claim these — V5 + V6 are mutually exclusive
+	// per language to avoid double-linting.
+	Extensions []string
+
+	// ManifestFiles is the set of project-root files at least one
+	// of which MUST exist for V6 to consider this a real ${lang}
+	// project. Without a manifest the file extension alone is
+	// ambiguous (.ts could be plain TS or ArkTS; the oh-package.json5
+	// is the disambiguator the toolchain uses).
+	ManifestFiles []string
+
+	// Binary is the project-lint command. When missing, V6
+	// silently skips (same convention as V5).
+	Binary string
+
+	// Description is shown in the V6 startup banner.
+	Description string
+
+	// BuildArgs returns the argv to pass to Binary, given the
+	// (overlayed) project root. The cmd's cwd is set to that root
+	// by runProjectLintForLang, so most commands need only their
+	// flags ("lint", "check"...).
+	BuildArgs func(projectRoot string) []string
+
+	// FailedFn parses the linter's combined output + exec error to
+	// decide whether this run is a failure. Same shape as V5's.
+	FailedFn func(combined []byte, execErr error) (failed bool, msg string)
+}
+
+// projectLintRegistry enumerates every language V6 knows. Order
+// matters: rows run sequentially; first failure wins.
+//
+// Coverage status (matches the 2 V5-deferred languages):
+//   ✓ ArkTS   — hvigor lint (HarmonyOS DevEco toolchain)
+//   ✓ Cangjie — cjpm check (Cangjie package manager / build tool)
+//
+// Both are silently inactive on hosts without the toolchain (the
+// LookPath miss + missing-manifest checks both short-circuit). The
+// startup banner emitted by tool.LogCapabilities surfaces which V6
+// languages are active vs deferred.
+var projectLintRegistry = []ProjectLintLang{
+	{
+		Name:          "ArkTS",
+		Extensions:    []string{".ets"},
+		ManifestFiles: []string{"oh-package.json5", "build-profile.json5"},
+		Binary:        "hvigorw",
+		Description:   "hvigor lint (ArkTS project-aware lint via HarmonyOS DevEco toolchain)",
+		BuildArgs:     func(_ string) []string { return []string{"lint", "--no-incremental"} },
+		FailedFn:      defaultExitCodeFailedFn,
+	},
+	{
+		Name:          "Cangjie",
+		Extensions:    []string{".cj"},
+		ManifestFiles: []string{"cjpm.toml"},
+		Binary:        "cjpm",
+		Description:   "cjpm check (Cangjie project parse + type check)",
+		BuildArgs:     func(_ string) []string { return []string{"check"} },
+		FailedFn:      defaultExitCodeFailedFn,
+	},
+}
+
+// runProjectLintForLang dispatches one row of projectLintRegistry.
+// Walks the trigger conditions: extension match → manifest exists
+// → binary on PATH → SetLintEnabled. On match, sets up the overlay
+// + chdirs to project root (the overlay's repo root, since the
+// manifest must already live at that level — sub-project lint is
+// out of scope for V6).
+func runProjectLintForLang(ctx *types.BusContext, changes []types.FileChange, lang ProjectLintLang) string {
+	// 1. Any change in this language?
+	hasLangChange := false
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !hasAnySuffix(path, lang.Extensions) {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		if c.Kind != "create" {
+			continue
+		}
+		hasLangChange = true
+		break
+	}
+	if !hasLangChange {
+		return ""
+	}
+	// 2. Project manifest present in repo root?
+	hasManifest := false
+	for _, m := range lang.ManifestFiles {
+		if _, err := os.Stat(filepath.Join(ctx.RepoRoot, m)); err == nil {
+			hasManifest = true
+			break
+		}
+	}
+	if !hasManifest {
+		logging.Debug("[emit_change_plan] V6 %s lint skipped: project manifest %v not found in %s",
+			lang.Name, lang.ManifestFiles, ctx.RepoRoot)
+		return ""
+	}
+	// 3. Binary on PATH?
+	bin, err := exec.LookPath(lang.Binary)
+	if err != nil {
+		logging.Debug("[emit_change_plan] V6 %s lint skipped: %s binary not on PATH", lang.Name, lang.Binary)
+		return ""
+	}
+	// 4. Stage the overlay + run.
+	scratch, cleanup, ok := stageOverlay(ctx, changes, strings.ToLower(lang.Name)+"-projectlint")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	cmd := exec.Command(bin, lang.BuildArgs(scratch)...)
+	cmd.Dir = scratch
+	out, execErr := cmd.CombinedOutput()
+	failed, msg := lang.FailedFn(out, execErr)
+	if !failed {
+		logging.Debug("[emit_change_plan] V6 %s project lint PASS", lang.Name)
+		return ""
+	}
+	body := []byte(msg)
+	if msg == "" {
+		body = out
+	}
+	cmdDescr := lang.Binary + " " + strings.Join(lang.BuildArgs(scratch), " ")
+	return formatProjectLintRejection(lang.Name, cmdDescr, body, len(body))
+}
+
+// ProjectLintLanguagesEnabled returns the per-language activation
+// status table for V6, mirroring LintLanguagesEnabled but for the
+// project-aware family. cmd/root.go uses this for the startup
+// capability log.
+func ProjectLintLanguagesEnabled() []LintLangStatus {
+	out := make([]LintLangStatus, 0, len(projectLintRegistry))
+	for _, lang := range projectLintRegistry {
+		_, err := exec.LookPath(lang.Binary)
+		out = append(out, LintLangStatus{
+			Name:        lang.Name,
+			Binary:      lang.Binary,
+			Available:   err == nil,
+			Description: lang.Description,
+		})
+	}
+	return out
+}
+
+// formatProjectLintRejection mirrors formatLintRejection but uses
+// "V6 project lint" prefix so the planner can distinguish single-
+// file lint from project-aware lint failures.
+func formatProjectLintRejection(lang, cmdDescr string, stderr []byte, originalLen int) string {
+	const maxStderrLen = 2000
+	out := strings.TrimSpace(string(stderr))
+	if len(out) > maxStderrLen {
+		out = out[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
+	}
+	return fmt.Sprintf("V6 project lint failed: `%s` reported %s project-level errors. "+
+		"The project's native build/lint tool detected issues that single-file checking cannot see "+
+		"(typically: bundle map mismatches, decorator misuse, or module resolution failures). "+
+		"Fix the issues and re-emit. Full output:\n%s",
+		cmdDescr, lang, out)
+}
+
 // scratchBaseDir returns the parent directory under which V2's
 // scratch dir should be created. Prefers ctx.WorkDir (per-trace temp
 // already in place) so temp files cluster with other codrax artifacts;
