@@ -72,6 +72,62 @@ type runTestsParams struct {
 	// TimeoutSeconds overrides the default per-suite timeout
 	// (default 300 = 5 minutes). Operators bump for large suites.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
+
+	// Runner is the LLM-decided test runner choice. Empty = let the
+	// system fall back to manifest-keyword auto-detect (the legacy
+	// path; brittle for repos without a canonical manifest, e.g. a
+	// bare Python directory with `*_test.py` files but no
+	// pyproject.toml — see eval/results: grade-school task).
+	//
+	// Non-empty MUST be one of the whitelisted runners
+	// (allowedRunners). The verifier agent inspects the repo first
+	// (list_files / read_file / repo_map) and supplies its choice
+	// here. The system then short-circuits manifest detection,
+	// validates the choice against the whitelist, and dispatches the
+	// canonical command template — same template the auto-detect
+	// path uses, so safety + determinism are preserved while runner
+	// SELECTION moves from a hard-coded keyword table to LLM
+	// reasoning. Symmetric to log_triage / perf_triage: LLM
+	// extracts, system validates + executes.
+	Runner string `json:"runner,omitempty"`
+
+	// WorkingDir is the LLM-decided test root, repo-relative. Empty
+	// or "." means RepoRoot. A nested module path (e.g. "backend/")
+	// scopes the run to a sub-project. Validated to be inside
+	// RepoRoot (no escapes via ".." or absolute paths) before any
+	// command runs.
+	WorkingDir string `json:"working_dir,omitempty"`
+}
+
+// allowedRunners is the whitelist of runner identifiers the LLM may
+// supply via runTestsParams.Runner. Mirrors the cases handled in
+// buildRunCommand — adding a new runner requires touching both
+// places (and the verifier skill prompt) so the contract stays
+// explicit.
+var allowedRunners = map[string]struct{}{
+	"go":     {},
+	"node":   {},
+	"python": {},
+	"rust":   {},
+	"java":   {},
+	"ruby":   {},
+	"cmake":  {},
+	"meson":  {},
+	"make":   {},
+	"hvigor": {},
+	"cjpm":   {},
+}
+
+// allowedRunnerList returns the sorted runner whitelist for prompt /
+// rejection text. Computed once on demand; tiny enough to skip
+// caching.
+func allowedRunnerList() []string {
+	out := make([]string, 0, len(allowedRunners))
+	for r := range allowedRunners {
+		out = append(out, r)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Name returns the stable tool identifier.
@@ -97,6 +153,15 @@ func (t *RunTests) Parameters() json.RawMessage {
     "timeout_seconds": {
       "type": "integer",
       "description": "Per-suite timeout override (default 300)."
+    },
+    "runner": {
+      "type": "string",
+      "enum": ["go", "node", "python", "rust", "java", "ruby", "cmake", "meson", "make", "hvigor", "cjpm"],
+      "description": "Test runner you have decided to use after inspecting the repo. STRONGLY PREFERRED — if you supply this, the system skips manifest auto-detect and runs your choice directly (works for repos without a canonical manifest, e.g. a bare Python directory with *_test.py files). Empty falls back to manifest auto-detect (brittle; misses bare repos)."
+    },
+    "working_dir": {
+      "type": "string",
+      "description": "Test root, repo-relative path. Empty or \".\" = repo root. Use to scope the run to a sub-project / module dir. Must be inside the worktree."
     }
   }
 }`)
@@ -127,13 +192,37 @@ func (t *RunTests) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		timeout = time.Duration(p.TimeoutSeconds) * time.Second
 	}
 
-	plans := detectRunnerPlans(ctx.RepoRoot)
-	if len(plans) == 0 {
-		return errResult(t.Name(),
-			"run_tests: no supported test runner detected in "+ctx.RepoRoot+
-				" (looked recursively for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / Package.swift / pom.xml / build.gradle[.kts] / Gemfile / CMakeLists.txt / meson.build / Makefile / oh-package.json5 / hvigorfile.ts / cjpm.toml)"), nil
+	// Two paths to a runner plan list:
+	//   (1) LLM supplied `runner` (preferred) — short-circuit
+	//       manifest detection. The verifier agent has already
+	//       inspected the repo (list_files / read_file / repo_map)
+	//       and committed to a runner; the system validates the
+	//       choice against the whitelist + working_dir against the
+	//       worktree boundary, then dispatches.
+	//   (2) Empty `runner` — fall back to legacy manifest keyword
+	//       detect. Brittle for bare-directory repos; kept as a
+	//       backstop so old eval cases / direct CLI calls keep
+	//       working.
+	var plans []runnerPlan
+	if strings.TrimSpace(p.Runner) != "" {
+		choice, rej := resolveLLMRunnerChoice(ctx.RepoRoot, p.Runner, p.WorkingDir)
+		if rej != "" {
+			return errResult(t.Name(), rej), nil
+		}
+		plans = []runnerPlan{choice}
+		logging.Info("[run_tests] LLM-selected runner=%s working_dir=%s (manifest auto-detect bypassed)",
+			choice.Runner, runnerPlanRel(ctx.RepoRoot, choice))
+	} else {
+		plans = detectRunnerPlans(ctx.RepoRoot)
+		if len(plans) == 0 {
+			return errResult(t.Name(),
+				"run_tests: no supported test runner detected in "+ctx.RepoRoot+
+					" — supply the `runner` parameter (one of: "+strings.Join(allowedRunnerList(), ", ")+
+					") after inspecting the repo with list_files / read_file / repo_map. "+
+					"Manifest auto-detect looked recursively for go.mod / package.json / pyproject.toml / pytest.ini / setup.py / Cargo.toml / Package.swift / pom.xml / build.gradle[.kts] / Gemfile / CMakeLists.txt / meson.build / Makefile / oh-package.json5 / hvigorfile.ts / cjpm.toml and found none — common cause: a bare-directory repo (e.g. exercise stub) without a canonical manifest."), nil
+		}
+		logging.Info("[run_tests] manifest auto-detect found %d runnable project(s) in %s", len(plans), ctx.RepoRoot)
 	}
-	logging.Info("[run_tests] detected %d runnable project(s) in %s", len(plans), ctx.RepoRoot)
 
 	var (
 		projectReports  []*types.ChangeReport
@@ -262,6 +351,67 @@ func detectRunner(repoRoot string) string {
 		return ""
 	}
 	return plans[0].Runner
+}
+
+// resolveLLMRunnerChoice validates an LLM-supplied (runner,
+// working_dir) pair and turns it into a runnerPlan. Returns a
+// non-empty rejection string on any of:
+//   - runner not in the whitelist
+//   - working_dir contains a `..` traversal segment after Clean
+//   - working_dir resolved absolute path falls outside RepoRoot
+//   - working_dir does not exist or is not a directory
+//
+// The rejection text is operator-readable so the verifier's retry
+// can correct course (same pattern as the emit_change_plan
+// validators). Manifest existence is NOT checked — that's the whole
+// point of the LLM path: the LLM may run pytest on a bare directory
+// even when `pyproject.toml` is missing.
+func resolveLLMRunnerChoice(repoRoot, runner, workingDir string) (runnerPlan, string) {
+	runner = strings.ToLower(strings.TrimSpace(runner))
+	if _, ok := allowedRunners[runner]; !ok {
+		return runnerPlan{}, fmt.Sprintf(
+			"run_tests rejected: runner=%q is not one of the supported runners (%s)",
+			runner, strings.Join(allowedRunnerList(), ", "))
+	}
+
+	dir := strings.TrimSpace(workingDir)
+	if dir == "" {
+		dir = "."
+	}
+	cleaned := filepath.Clean(dir)
+	if filepath.IsAbs(cleaned) {
+		return runnerPlan{}, fmt.Sprintf(
+			"run_tests rejected: working_dir=%q must be repo-relative, not absolute", workingDir)
+	}
+	for _, seg := range strings.Split(filepath.ToSlash(cleaned), "/") {
+		if seg == ".." {
+			return runnerPlan{}, fmt.Sprintf(
+				"run_tests rejected: working_dir=%q escapes the repository (contains \"..\")", workingDir)
+		}
+	}
+
+	rootAbs, err := filepath.Abs(repoRoot)
+	if err != nil {
+		rootAbs = repoRoot
+	}
+	target := filepath.Join(rootAbs, cleaned)
+	rel, err := filepath.Rel(rootAbs, target)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return runnerPlan{}, fmt.Sprintf(
+			"run_tests rejected: working_dir=%q resolves outside the repository (%s)", workingDir, target)
+	}
+	info, err := os.Stat(target)
+	if err != nil || !info.IsDir() {
+		return runnerPlan{}, fmt.Sprintf(
+			"run_tests rejected: working_dir=%q does not exist or is not a directory", workingDir)
+	}
+
+	return runnerPlan{
+		Runner:   runner,
+		Root:     target,
+		Manifest: "(LLM-selected)",
+		Priority: 0, // LLM choice always wins over auto-detect priorities
+	}, ""
 }
 
 func detectRunnerPlans(repoRoot string) []runnerPlan {

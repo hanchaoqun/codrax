@@ -489,17 +489,21 @@ Do NOT emit any other tool call. Do NOT write prose.`,
 
 	r.Register(&Config{
 		Name: "test-execute-skill",
-		Goal: "Run the project's test suite inside the active worktree and produce a structured ChangeReport. run_tests is deterministic — it auto-detects the runner (Go / Node / Python / Rust), executes the command, parses the output, and installs Mutable.ChangeReport. Your role is optional: call emit_test_results to add a human-readable FailureSummary narrative when failures need context beyond aggregate counts.",
+		Goal: "Inspect the worktree to decide which test runner fits, run the project's test suite via run_tests, and produce a structured ChangeReport. Optionally call emit_test_results to add a human-readable FailureSummary narrative.",
 		Workflow: []string{
-			"Call run_tests with empty suite (run all tests) or a language-appropriate selector. The tool auto-detects the runner from project manifests (go.mod / package.json / pyproject.toml / pytest.ini / Cargo.toml) and uses the corresponding command + parser. One call is usually enough — the full suite outcome lands on Mutable.ChangeReport.",
+			"FIRST: inspect the worktree with list_files (and read_file on any manifest you find: go.mod / package.json / pyproject.toml / Cargo.toml / pom.xml / Gemfile / CMakeLists.txt / meson.build / Makefile / oh-package.json5 / cjpm.toml). Look not just at manifests but also at test file naming patterns (e.g. *_test.py / test_*.py → pytest; *_test.go → go test; *.test.js / *.spec.js → jest/vitest). A bare directory with `*_test.py` files but no pyproject.toml is still a valid Python project — pick `python` based on the test file pattern, do NOT wait for a manifest.",
+			"Call run_tests with the `runner` parameter set to your chosen runner (one of: go, node, python, rust, java, ruby, cmake, meson, make, hvigor, cjpm). Optionally pass `working_dir` (repo-relative, e.g. \"backend/\") to scope the run. Optionally pass `suite` for a language-appropriate selector. The system validates the runner against the whitelist and runs the canonical command + parser; output lands on Mutable.ChangeReport.",
+			"Why pass `runner` explicitly: when the parameter is omitted, run_tests falls back to inspecting manifest filenames in the repo, which fails on repos without a canonical manifest (educational stubs, single-file utilities, polyglot exercises). Always supply `runner` unless you genuinely cannot tell which one fits — omitting it on a manifest-less repo returns a rejection asking you to pick.",
 			"Read the ChangePlan's acceptance_tests[] (rendered in the prompt) for context. Acceptance matching is not automated; the criteria are informational for the narrative you may draft.",
 			"When the prompt includes a 'Pre-existing baseline failures' list, classify each failing test in the post-apply report as REGRESSION (passed in baseline, fails now) or PRE-EXISTING (failed in baseline and still fails). The baseline is an authoritative pre-apply snapshot — a failing test that also failed in baseline is NOT this plan's fault, and your narrative should say so explicitly.",
-			"When all tests pass: return without any tool call. The verify stage automatically promotes the passing report to a success outcome, and the orchestrator renders the summary.",
-			"When tests fail: optionally call emit_test_results with a 1-4 sentence failure_summary narrative explaining the root cause (e.g. 'all failures are in the new handler's error path — the edge-case test expected a wrapped error but got the raw one'). This replaces the parser's auto-generated count summary with your more useful context. Do NOT try to override the Passed verdict — it comes from the parser and the tool ignores LLM overrides.",
-			"Do NOT re-run the tests multiple times or try to 'fix' them from this stage — B1 policy is fail-loud, and verify failures surface to the user to drive a re-plan. Apply/verify does NOT auto-retry in B1.",
+			"When all tests pass: return without any tool call beyond run_tests. The verify stage automatically promotes the passing report to a success outcome, and the orchestrator renders the summary.",
+			"When tests fail: optionally call emit_test_results with a 1-4 sentence failure_summary narrative explaining the root cause. This replaces the parser's auto-generated count summary with your more useful context. Do NOT try to override the Passed verdict — it comes from the parser and the tool ignores LLM overrides.",
+			"Do NOT re-run the tests multiple times or try to 'fix' them from this stage — verify is fail-loud, and failures surface to the user to drive a re-plan.",
 		},
 		ToolSuggestions: []string{
+			"list_files",
 			"read_file",
+			"grep",
 			"run_tests",
 			"emit_test_results",
 			"exec_command", // Q2 red line: preserved for diagnostic commands (git status, ls) — worktree sandbox contains blast radius
