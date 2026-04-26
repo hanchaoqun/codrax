@@ -349,6 +349,141 @@ func TestBuildRetryHintWithBest_RegressionAnnotated(t *testing.T) {
 	}
 }
 
+// TestBuildPlanContentDiff_ShowsLineDelta locks the core regression-
+// hint enrichment: when best and current plans modify the same path
+// with different NewContent, the diff shows the lines that changed.
+// This is what closes the information gap that left forth-py's
+// planner reconstructing from memory.
+func TestBuildPlanContentDiff_ShowsLineDelta(t *testing.T) {
+	best := &types.ChangePlan{Changes: []types.FileChange{{
+		Path:       "forth.py",
+		Kind:       "modify",
+		NewContent: "def lookup(name):\n    return user_words.get(name)\n",
+	}}}
+	current := &types.ChangePlan{Changes: []types.FileChange{{
+		Path:       "forth.py",
+		Kind:       "modify",
+		NewContent: "def lookup(name):\n    return builtins.get(name)\n",
+	}}}
+	got := buildPlanContentDiff(best, current, 4096)
+	if got == "" {
+		t.Fatal("diff should be non-empty when content differs")
+	}
+	for _, marker := range []string{"forth.py", "-", "+", "user_words", "builtins"} {
+		if !strings.Contains(got, marker) {
+			t.Errorf("diff should include %q; got:\n%s", marker, got)
+		}
+	}
+}
+
+// TestBuildPlanContentDiff_NoOverlapReturnsEmpty: plans touching
+// disjoint paths produce no diff (no overlap = no comparison
+// possible).
+func TestBuildPlanContentDiff_NoOverlapReturnsEmpty(t *testing.T) {
+	best := &types.ChangePlan{Changes: []types.FileChange{{Path: "a.go", Kind: "create", NewContent: "package a"}}}
+	current := &types.ChangePlan{Changes: []types.FileChange{{Path: "b.go", Kind: "create", NewContent: "package b"}}}
+	if got := buildPlanContentDiff(best, current, 4096); got != "" {
+		t.Errorf("disjoint paths should yield empty diff; got:\n%s", got)
+	}
+}
+
+// TestBuildPlanContentDiff_IdenticalContentReturnsEmpty: when
+// best and current have the SAME NewContent for the same path,
+// no diff is produced (no signal to surface).
+func TestBuildPlanContentDiff_IdenticalContentReturnsEmpty(t *testing.T) {
+	same := types.FileChange{Path: "x.py", Kind: "modify", NewContent: "x = 1\n"}
+	best := &types.ChangePlan{Changes: []types.FileChange{same}}
+	current := &types.ChangePlan{Changes: []types.FileChange{same}}
+	if got := buildPlanContentDiff(best, current, 4096); got != "" {
+		t.Errorf("identical content should yield empty diff; got:\n%s", got)
+	}
+}
+
+// TestBuildPlanContentDiff_TotalCapTruncation: oversize diffs are
+// truncated to maxBytes with an explicit marker.
+func TestBuildPlanContentDiff_TotalCapTruncation(t *testing.T) {
+	huge := strings.Repeat("line\n", 2000) // ~10 KB
+	best := &types.ChangePlan{Changes: []types.FileChange{{
+		Path:       "big.txt",
+		Kind:       "modify",
+		NewContent: huge,
+	}}}
+	current := &types.ChangePlan{Changes: []types.FileChange{{
+		Path:       "big.txt",
+		Kind:       "modify",
+		NewContent: huge + "trailing\n",
+	}}}
+	got := buildPlanContentDiff(best, current, 512)
+	if got == "" {
+		t.Fatal("oversize diff should still produce output before truncation")
+	}
+	// Total stays well under 1 KB (cap=512 + small overhead).
+	if len(got) > 1024 {
+		t.Errorf("diff length %d exceeds cap with margin; got:\n%s", len(got), got)
+	}
+}
+
+// TestBuildPlanContentDiff_NilPlansReturnsEmpty: defensive — nil
+// best or nil current both short-circuit to empty so callers don't
+// have to nil-check.
+func TestBuildPlanContentDiff_NilPlansReturnsEmpty(t *testing.T) {
+	plan := &types.ChangePlan{Changes: []types.FileChange{{Path: "a", Kind: "create", NewContent: "x"}}}
+	if got := buildPlanContentDiff(nil, plan, 4096); got != "" {
+		t.Errorf("nil best should yield empty; got %s", got)
+	}
+	if got := buildPlanContentDiff(plan, nil, 4096); got != "" {
+		t.Errorf("nil current should yield empty; got %s", got)
+	}
+}
+
+// TestBuildRetryHintWithBest_IncludesDiffOnRegression: end-to-end
+// integration — the full retry hint includes the unified diff
+// section when regression is detected, and the diff carries the
+// content delta the planner should review.
+func TestBuildRetryHintWithBest_IncludesDiffOnRegression(t *testing.T) {
+	bestReport := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindUnit, Passed: true},
+			{Kind: types.TestResultKindUnit, Passed: true},
+			{Kind: types.TestResultKindUnit, Passed: false},
+		},
+	}
+	curReport := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{Kind: types.TestResultKindUnit, Passed: true},
+			{Kind: types.TestResultKindUnit, Passed: false},
+			{Kind: types.TestResultKindUnit, Passed: false},
+		},
+	}
+	bestPlan := &types.ChangePlan{
+		TargetPaths: []string{"forth.py"},
+		Changes: []types.FileChange{{
+			Path:       "forth.py",
+			Kind:       "modify",
+			NewContent: "BEST_VERSION = True\n",
+		}},
+	}
+	curPlan := &types.ChangePlan{
+		TargetPaths: []string{"forth.py"},
+		Changes: []types.FileChange{{
+			Path:       "forth.py",
+			Kind:       "modify",
+			NewContent: "REGRESSED_VERSION = True\n",
+		}},
+	}
+	got := buildRetryHintWithBest(curReport, curPlan, bestReport, bestPlan, 2)
+	for _, marker := range []string{
+		"Regression detected",
+		"```diff",
+		"BEST_VERSION",
+		"REGRESSED_VERSION",
+	} {
+		if !strings.Contains(got, marker) {
+			t.Errorf("hint missing %q in:\n%s", marker, got)
+		}
+	}
+}
+
 // TestRestoreBestIfRegressed_PersistsAfterPlanPathCleared verifies
 // the followup-bug fix: clearForReplan wipes busCtx.PlanPath between
 // retry iterations, but saveChangeReport must still be able to
