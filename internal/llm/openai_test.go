@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -250,7 +251,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 			"data: [DONE]\n"
 		var deltas []string
-		resp, err := parseSSEStream(strings.NewReader(sse), func(d string) { deltas = append(deltas, d) })
+		resp, err := parseSSEStream(strings.NewReader(sse), func(d string) { deltas = append(deltas, d) }, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -274,7 +275,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"function\":{\"arguments\":\":42}\"}}]}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -300,7 +301,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":1,\"function\":{\"arguments\":\"{\\\"f\\\":\\\"a.go\\\"}\"}}]}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -319,7 +320,7 @@ func TestParseSSEStream(t *testing.T) {
 	})
 
 	t.Run("empty stream errors", func(t *testing.T) {
-		_, err := parseSSEStream(strings.NewReader(""), nil)
+		_, err := parseSSEStream(strings.NewReader(""), nil, nil)
 		if err == nil || !strings.Contains(err.Error(), "empty stream") {
 			t.Errorf("expected empty-stream error, got %v", err)
 		}
@@ -330,7 +331,7 @@ func TestParseSSEStream(t *testing.T) {
 			"data: {\"choices\":[{\"delta\":{\"content\":\"ok\"}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -343,7 +344,7 @@ func TestParseSSEStream(t *testing.T) {
 		sse := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" +
 			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":3}}\n\n" +
 			"data: [DONE]\n"
-		resp, err := parseSSEStream(strings.NewReader(sse), nil)
+		resp, err := parseSSEStream(strings.NewReader(sse), nil, nil)
 		if err != nil {
 			t.Fatalf("parseSSEStream: %v", err)
 		}
@@ -451,4 +452,69 @@ func generateTestCAPEM(t *testing.T) []byte {
 		t.Fatalf("create cert: %v", err)
 	}
 	return pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+}
+
+// TestParseSSEStream_ProgressTrackerUpdated pins the contract that
+// the SSE scanner updates the watchdog progress tracker on every
+// scanned line. Without this, the doStreamRequest watchdog would
+// false-positive on a slow-but-progressing stream and abort
+// mid-emission.
+//
+// Bug provenance: eval Batch I+J sgf-parsing — planner LLM stream
+// stalled mid-output and the http.Client.Timeout (120s) fired
+// instead of an earlier stall-specific abort. Watchdog needs the
+// tracker to distinguish "stream still progressing slowly" from
+// "stream silently dead."
+func TestParseSSEStream_ProgressTrackerUpdated(t *testing.T) {
+	sse := "data: {\"choices\":[{\"delta\":{\"content\":\"Hello\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{\"content\":\" world\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: [DONE]\n"
+	var tracker atomic.Int64
+	startNano := time.Now().UnixNano()
+	tracker.Store(0) // start at zero so any update is visible
+	_, err := parseSSEStream(strings.NewReader(sse), nil, &tracker)
+	if err != nil {
+		t.Fatalf("parseSSEStream: %v", err)
+	}
+	got := tracker.Load()
+	if got == 0 {
+		t.Fatal("progress tracker was never updated by SSE scanner — watchdog would falsely trip")
+	}
+	if got < startNano {
+		t.Errorf("tracker timestamp %d earlier than test start %d — clock anomaly?", got, startNano)
+	}
+}
+
+// TestParseSSEStream_NilTrackerStillWorks ensures the
+// progress-tracker arg is nil-safe so parseSSEStream remains usable
+// from contexts without stall detection (e.g. parseResponse's
+// SSE-auto-detect path on a non-streaming endpoint).
+func TestParseSSEStream_NilTrackerStillWorks(t *testing.T) {
+	sse := "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n" +
+		"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n" +
+		"data: [DONE]\n"
+	resp, err := parseSSEStream(strings.NewReader(sse), nil, nil)
+	if err != nil {
+		t.Fatalf("nil tracker should not fail: %v", err)
+	}
+	if resp.Content != "hi" {
+		t.Errorf("Content = %q, want hi", resp.Content)
+	}
+}
+
+// TestStreamStallTimeout_SaneDefaults pins the constants that the
+// watchdog uses. Bumping these silently could either re-introduce
+// the 120s burn (if too long) or false-positive on slow models (if
+// too short).
+func TestStreamStallTimeout_SaneDefaults(t *testing.T) {
+	if streamStallTimeout < 10*time.Second {
+		t.Errorf("streamStallTimeout=%v is too aggressive; thinking-model inter-chunk pauses can hit 5-10s, would false-positive", streamStallTimeout)
+	}
+	if streamStallTimeout > 60*time.Second {
+		t.Errorf("streamStallTimeout=%v is too lax; should bail well before the 120s outer http timeout", streamStallTimeout)
+	}
+	if streamStallTickInterval >= streamStallTimeout {
+		t.Errorf("tick interval %v must be < stall timeout %v so detection has resolution", streamStallTickInterval, streamStallTimeout)
+	}
 }

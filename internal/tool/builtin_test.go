@@ -1071,3 +1071,101 @@ func TestGrep_ResolvesAgainstRepoRoot(t *testing.T) {
 		t.Fatalf("grep should find needle.txt in RepoRoot, got: %s", result.Summary)
 	}
 }
+
+// TestListFiles_NoiseDirsFilteredInBothModes pins the contract that
+// list_files skips the central tool.ExcludeDirsAnyLevelSet noise
+// dirs (.git, .codrax, node_modules, vendor, target, dist, build,
+// __pycache__, .venv, .idea, .vscode, .next, .nuxt, .turbo,
+// .pnpm-store, .pytest_cache, .mypy_cache, .gradle, .cargo, .tox,
+// .hg, .svn, venv) in BOTH recursive and non-recursive paths.
+//
+// Bug provenance: eval Batch I+J surfaced an asymmetry — the
+// non-recursive list_files branch had ZERO filter, returning .git /
+// .codrax / node_modules verbatim. The recursive branch had an
+// inline shorter list missing target / dist / build / __pycache__
+// / .codrax. Centralised on ExcludeDirsAnyLevelSet so both branches
+// agree.
+func TestListFiles_NoiseDirsFilteredInBothModes(t *testing.T) {
+	repo := t.TempDir()
+	// Seed a representative noisy tree.
+	noiseDirs := []string{
+		".git", ".codrax", "node_modules", "vendor", "target",
+		"dist", "build", "__pycache__", ".venv", "venv",
+		".idea", ".vscode", ".next", ".pnpm-store", ".pytest_cache",
+	}
+	for _, d := range noiseDirs {
+		if err := os.MkdirAll(filepath.Join(repo, d, "deep"), 0o755); err != nil {
+			t.Fatalf("seed %s: %v", d, err)
+		}
+		if err := os.WriteFile(filepath.Join(repo, d, "deep", "noise.txt"), []byte("x"), 0o644); err != nil {
+			t.Fatalf("seed file: %v", err)
+		}
+	}
+	// Seed legitimate source files / dirs.
+	legitDirs := []string{"src", "internal", "cmd"}
+	for _, d := range legitDirs {
+		if err := os.MkdirAll(filepath.Join(repo, d), 0o755); err != nil {
+			t.Fatalf("seed %s: %v", d, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(repo, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatalf("seed main.go: %v", err)
+	}
+
+	bus := &types.BusContext{RepoRoot: repo}
+	tool := &ListFiles{}
+
+	t.Run("non-recursive filters noise + keeps legit", func(t *testing.T) {
+		res, _ := tool.Execute(bus, json.RawMessage(`{"path":".","recursive":false}`))
+		out := res.Summary
+		for _, n := range noiseDirs {
+			if strings.Contains(out, n) {
+				t.Errorf("non-recursive list_files leaked noise dir %q in output:\n%s", n, out)
+			}
+		}
+		for _, l := range legitDirs {
+			if !strings.Contains(out, l) {
+				t.Errorf("non-recursive list_files dropped legit dir %q from output:\n%s", l, out)
+			}
+		}
+		if !strings.Contains(out, "main.go") {
+			t.Errorf("non-recursive list_files must include legit file main.go; got:\n%s", out)
+		}
+	})
+
+	t.Run("recursive filters noise + keeps legit", func(t *testing.T) {
+		res, _ := tool.Execute(bus, json.RawMessage(`{"path":".","recursive":true}`))
+		out := res.Summary
+		for _, n := range noiseDirs {
+			// Allow root-level dir name to appear in the listing as
+			// the dir itself (filepath.WalkDir visits the dir before
+			// SkipDir suppresses children) — what matters is its
+			// CONTENTS don't leak. Check no noise/deep/noise.txt.
+			if strings.Contains(out, filepath.Join(n, "deep", "noise.txt")) {
+				t.Errorf("recursive list_files recursed into noise dir %q — saw deep/noise.txt:\n%s", n, out)
+			}
+		}
+		// Legit files / dirs still present.
+		if !strings.Contains(out, "main.go") {
+			t.Errorf("recursive list_files must include main.go; got:\n%s", out)
+		}
+	})
+}
+
+// TestExcludeDirsAnyLevel_Coverage pins the central blocklist
+// against drift. Adding a new noise dir requires updating this
+// assertion explicitly.
+func TestExcludeDirsAnyLevel_Coverage(t *testing.T) {
+	mustHave := []string{
+		".git", ".hg", ".svn", ".codrax",
+		"node_modules", "vendor", "__pycache__", ".tox", ".venv", "venv",
+		".mypy_cache", ".pytest_cache", ".idea", ".vscode",
+		"target", "dist", "build", ".gradle", ".cargo",
+		".next", ".nuxt", ".turbo", ".pnpm-store",
+	}
+	for _, name := range mustHave {
+		if !ExcludeDirsAnyLevelSet[name] {
+			t.Errorf("ExcludeDirsAnyLevelSet missing required entry %q — list_files / grep / repomap will leak it", name)
+		}
+	}
+}

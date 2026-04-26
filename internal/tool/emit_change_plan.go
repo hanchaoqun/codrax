@@ -1122,6 +1122,21 @@ func probePythonDryBuildRunner(runner pythonDryBuildRunner) bool {
 // without executing it. TypeScript files are skipped here because
 // `tsc --noEmit` requires a tsconfig.json + tsc binary that varies
 // per project; we leave TS to the project's own test runner.
+//
+// ESM detection: node --check runs in CommonJS mode by default,
+// which rejects valid ES module syntax (`export`, top-level await,
+// `import.meta`, etc.). When the project's package.json declares
+// `"type": "module"` OR the source is .mjs, those .js files ARE ES
+// modules and should be checked under module semantics. We rename
+// to .mjs in the overlay scratch dir before invoking node --check
+// so the LLM-generated valid ESM isn't falsely rejected. The
+// original LLM-emitted file path is unchanged in the rejection
+// message so the planner sees the right path on retry.
+//
+// Bug provenance: eval Batch I+J binary-js task — LLM emitted
+// valid `export class Binary {...}` but V2 dry-build rejected with
+// "SyntaxError: Unexpected token 'export'", killing the plan
+// without retrying because the validator was wrong.
 func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
 	nodeBin, err := exec.LookPath("node")
 	if err != nil {
@@ -1148,13 +1163,39 @@ func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
 	}
 	defer cleanup()
 
+	// Detect ES module mode by reading scratch/package.json's
+	// "type" field. Errors here degrade to false (CommonJS, the
+	// historical default) so a malformed package.json doesn't break
+	// the validator entirely.
+	esModule := nodePackageJSONIsModule(filepath.Join(scratch, "package.json"))
+
 	// node --check is per-file; concatenate diagnostics from every
 	// failing file so the planner sees the full picture in one shot.
 	sort.Strings(jsChanges)
 	var combinedOut []byte
 	failed := false
 	for _, p := range jsChanges {
-		cmd := exec.Command(nodeBin, "--check", p)
+		// In ESM mode, .js is parsed under module semantics. node
+		// --check on a `.js` file with `type:module` package would
+		// behave correctly... in theory. In practice node 18+
+		// honours type:module for the file's parent package.json
+		// IF the file is invoked relative to that package. Rename
+		// to .mjs in the scratch dir to disambiguate — node always
+		// treats .mjs as module regardless of package.json.
+		checkPath := p
+		if esModule && strings.HasSuffix(p, ".js") {
+			renamed := p + ".__codrax_mjs.mjs"
+			absSrc := filepath.Join(scratch, p)
+			absDst := filepath.Join(scratch, renamed)
+			if err := os.Rename(absSrc, absDst); err == nil {
+				checkPath = renamed
+				// Restore original name AFTER node finishes so
+				// subsequent overlays see expected layout. Defer
+				// in a closure so each iteration cleans its own.
+				defer func(src, dst string) { _ = os.Rename(dst, src) }(absSrc, absDst)
+			}
+		}
+		cmd := exec.Command(nodeBin, "--check", checkPath)
 		cmd.Dir = scratch
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -1167,8 +1208,27 @@ func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
 	if failed {
 		return formatDryBuildRejection("Node.js", "node --check <files>", combinedOut, len(combinedOut))
 	}
-	logging.Debug("[emit_change_plan] V2 Node dry-build PASS for files: %v", jsChanges)
+	logging.Debug("[emit_change_plan] V2 Node dry-build PASS for files: %v (esm=%v)", jsChanges, esModule)
 	return ""
+}
+
+// nodePackageJSONIsModule returns true when the package.json at the
+// given path declares `"type": "module"`. Errors (file missing,
+// malformed JSON, unexpected type) all degrade to false — CommonJS
+// is the safer fallback because it accepts a strict subset of what
+// ESM accepts (no `export` / `import` keywords without a wrapper).
+func nodePackageJSONIsModule(pkgJSONPath string) bool {
+	data, err := os.ReadFile(pkgJSONPath)
+	if err != nil {
+		return false
+	}
+	var manifest struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return false
+	}
+	return manifest.Type == "module"
 }
 
 // dryBuildRuby runs `ruby -c` on every changed .rb file. -c is

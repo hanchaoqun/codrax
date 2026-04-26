@@ -936,6 +936,26 @@ type listFilesParams struct {
 	Recursive bool   `json:"recursive,omitempty"`
 }
 
+// isListFilesNoiseDir reports whether the directory name is on the
+// shared noise-dir blocklist that list_files / grep / repomap
+// already use. The set lives in tool.ExcludeDirsAnyLevelSet
+// (search.go); this wrapper is here so the list_files Execute body
+// stays grep-readable + the inline-vs-central drift that bit us
+// (recursive path filtered, non-recursive path didn't, AND the
+// recursive filter was a SHORTER inline list missing target/dist/
+// build/__pycache__/.codrax) is structurally impossible.
+//
+// `.git`, `.codrax`, `node_modules`, `vendor`, `target`, `dist`,
+// `build`, `.gradle`, `.next`, `.nuxt`, `.turbo`, `.pnpm-store`,
+// `__pycache__`, `.venv`, `venv`, `.tox`, `.mypy_cache`,
+// `.pytest_cache`, `.idea`, `.vscode`, `.hg`, `.svn`, `.cargo` are
+// all skipped — covers VCS noise, dep caches, build outputs, and
+// IDE state across all the languages run_tests + the V5/V6 lint
+// registries can drive.
+func isListFilesNoiseDir(name string) bool {
+	return ExcludeDirsAnyLevelSet[name]
+}
+
 func (t *ListFiles) Name() string { return "list_files" }
 func (t *ListFiles) Description() string {
 	return "List files in a directory. Use this for navigation and discovery only. Do NOT use the result to count files, filter by extension, or sort — for any of those, run a shell pipeline through exec_command (e.g. `find . -name '*.go' | wc -l`) and trust its output."
@@ -988,10 +1008,14 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			}
 			// Skip well-known noise directories that explode the walk
 			// without yielding useful entries (VCS metadata, dependency
-			// caches, hidden tooling). Mirrors RepoMap's behavior.
+			// caches, hidden tooling). Sourced from the central
+			// tool.ExcludeDirsAnyLevelSet so list_files / grep / repomap
+			// agree on the same set — earlier this filter was inline
+			// and SHORTER than the central set, missing target/dist/
+			// build/__pycache__/.codrax which then leaked into LLM
+			// view of the repo.
 			if d.IsDir() && path != fsPath {
-				name := d.Name()
-				if name == ".git" || name == "node_modules" || name == "vendor" || name == ".venv" || strings.HasPrefix(name, ".") {
+				if isListFilesNoiseDir(d.Name()) {
 					return filepath.SkipDir
 				}
 			}
@@ -1012,6 +1036,18 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			return types.ToolResult{ToolName: t.Name(), Success: false, Summary: banner + fmt.Sprintf("readdir failed: %v", err), Timestamp: time.Now()}, nil
 		}
 		for _, e := range entries {
+			// Apply the SAME noise-dir filter to non-recursive listing.
+			// Earlier the non-recursive branch had no filter at all, so
+			// `list_files path=. recursive=false` returned `.git` /
+			// `.codrax` / `node_modules` as legitimate-looking entries
+			// — the LLM then either thought the repo was empty (when
+			// real source files were drowned by noise) or treated
+			// codrax's own state dir as project content. Symmetric
+			// filtering with the recursive path is the load-bearing
+			// fix; the central set drives both.
+			if e.IsDir() && isListFilesNoiseDir(e.Name()) {
+				continue
+			}
 			files = append(files, filepath.Join(displayPath, e.Name()))
 		}
 	}

@@ -3,6 +3,7 @@ package llm
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -11,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -317,7 +319,23 @@ func (o *OpenAIAdapter) doRequest(bodyBytes []byte) (Response, error) {
 // parsed until the stream closes, and mid-stream surfacing would
 // leak broken JSON into logs / UI.
 func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) (Response, error) {
-	req, err := http.NewRequest("POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
+	// Stall-detection scaffold: a request-scoped context lets a
+	// watchdog goroutine cancel the in-flight HTTP body read when
+	// the upstream stops sending bytes for too long. The HTTP
+	// total-timeout (httpClient.Timeout) is the OUTER cap (default
+	// 120 s); the stall timeout is an INNER cap (default 30 s) for
+	// "no progress" specifically.
+	//
+	// Bug provenance: eval Batch I+J sgf-parsing — planner LLM
+	// streamed initial reasoning, then upstream went silent for
+	// >120 s (model stuck mid-emit). The full client timeout fired,
+	// burning the entire plan stage with zero useful output.
+	// Watchdog catches this earlier (30 s of silence vs 120 s of
+	// total) and surfaces a distinct error message so the planner
+	// retry loop can react instead of waiting on the 120 s cap.
+	reqCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, "POST", o.baseURL+"/chat/completions", bytes.NewReader(bodyBytes))
 	if err != nil {
 		return Response{}, fmt.Errorf("create request: %w", err)
 	}
@@ -332,7 +350,6 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 	defer httpResp.Body.Close()
 
 	if httpResp.StatusCode != http.StatusOK {
-		// Non-OK responses are returned as a single JSON body, not SSE.
 		body, _ := io.ReadAll(httpResp.Body)
 		return Response{}, &apiError{
 			StatusCode: httpResp.StatusCode,
@@ -340,8 +357,54 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 		}
 	}
 
-	return parseSSEStream(httpResp.Body, onDelta)
+	// Start the stall watchdog. Tracker stores the Unix-nano time of
+	// the last byte read by the SSE scanner; watchdog ticks every 5 s
+	// and cancels the request context when the gap exceeds
+	// streamStallTimeout. Cancellation closes the response body, so
+	// the scanner's next Read call returns an error and parseSSEStream
+	// exits with a stalled-stream error.
+	var lastReadNano atomic.Int64
+	lastReadNano.Store(time.Now().UnixNano())
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		ticker := time.NewTicker(streamStallTickInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-reqCtx.Done():
+				return
+			case <-ticker.C:
+				idle := time.Since(time.Unix(0, lastReadNano.Load()))
+				if idle > streamStallTimeout {
+					logging.Warning("[llm/stream] stream stalled (no bytes for %v); aborting (outer http timeout was %v)", idle, o.requestTimeout)
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+
+	resp, err := parseSSEStream(httpResp.Body, onDelta, &lastReadNano)
+	cancel()
+	<-watchDone
+	return resp, err
 }
+
+// streamStallTimeout caps the maximum time the SSE scanner may go
+// without receiving a byte before doStreamRequest's watchdog
+// considers the upstream stalled and aborts the request. 30 s is a
+// conservative middle ground: thinking models pause for several
+// seconds between content chunks, so anything below ~10 s would
+// false-positive; >60 s starts to overlap with the outer 120 s HTTP
+// timeout, giving little benefit. 30 s is 4× the longest legitimate
+// inter-chunk pause we have observed and 4× shorter than the outer
+// cap, so the watchdog catches stalls clearly before the outer
+// timeout fires.
+const (
+	streamStallTimeout      = 30 * time.Second
+	streamStallTickInterval = 5 * time.Second
+)
 
 // parseSSEStream reads SSE frames from r and folds them into a single
 // Response. Factored out so the parser is unit-testable without a
@@ -363,7 +426,7 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 //   - finish_reason appears in the last non-DONE chunk
 //   - usage typically ships in a dedicated last chunk (stream_options),
 //     but providers vary; we read it when present
-func parseSSEStream(r io.Reader, onDelta func(string)) (Response, error) {
+func parseSSEStream(r io.Reader, onDelta func(string), progress *atomic.Int64) (Response, error) {
 	br := bufio.NewScanner(r)
 	// Single SSE frames can exceed bufio's default 64 KB line cap when
 	// a provider batches many deltas into one frame; raise to 1 MB to
@@ -378,6 +441,12 @@ func parseSSEStream(r io.Reader, onDelta func(string)) (Response, error) {
 	gotAnyChunk := false
 
 	for br.Scan() {
+		// Update the stall watchdog's progress tracker on every
+		// scanned line. Nil-safe so test-only callers can pass
+		// nil when they don't need stall detection.
+		if progress != nil {
+			progress.Store(time.Now().UnixNano())
+		}
 		line := br.Text()
 		// SSE lines before the data payload are event names / comments
 		// / blank separators. Only "data: <payload>" lines matter for
@@ -624,7 +693,7 @@ func (o *OpenAIAdapter) parseResponse(body []byte) (Response, error) {
 	// because the body is already fully buffered by doRequest.
 	if looksLikeSSEResponse(body) {
 		logging.Debug("[llm] non-streaming request returned SSE; parsing as stream")
-		return parseSSEStream(bytes.NewReader(body), nil)
+		return parseSSEStream(bytes.NewReader(body), nil, nil)
 	}
 
 	var oResp openaiResponse

@@ -93,9 +93,12 @@ func UseNativeGrep() bool {
 // prefer ExcludeDirsAnyLevel + an explicit root-segment check.
 var ExcludeDirsAnyLevel = []string{
 	".git", ".hg", ".svn",
-	"node_modules", "vendor", "__pycache__", ".tox", ".venv", ".mypy_cache",
+	".codrax", // codrax's own per-repo state (logs / blob / worktrees / plans). Showed up in `list_files recursive=false` output and confused LLMs into thinking it was project state.
+	"node_modules", "vendor", "__pycache__", ".tox", ".venv", "venv", ".mypy_cache", ".pytest_cache",
 	".idea", ".vscode",
-	"target", "dist", "build", ".gradle",
+	"target", "dist", "build", ".gradle", ".cargo",
+	".next", ".nuxt", ".turbo", // common JS framework output dirs
+	".pnpm-store",              // alternative to node_modules
 }
 
 // ExcludeDirsRootOnly entries are matched only when they sit at

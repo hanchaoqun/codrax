@@ -121,3 +121,86 @@ func TestDryBuildPython_DeleteIgnored(t *testing.T) {
 		t.Errorf("kind=delete should not run dry-build; got %q", rej)
 	}
 }
+
+// TestDryBuildNodeJS_ESModuleAccepted: when package.json declares
+// `"type": "module"`, the V2 dry-build must NOT reject valid ES
+// module syntax. Bug provenance: eval Batch I+J binary-js task
+// emitted `export class Binary` and was rejected with
+// "SyntaxError: Unexpected token 'export'" because node --check
+// defaulted to CommonJS regardless of package.json type.
+func TestDryBuildNodeJS_ESModuleAccepted(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not on PATH")
+	}
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{"name":"x","type":"module"}`), 0o644); err != nil {
+		t.Fatalf("seed package.json: %v", err)
+	}
+	bus := &types.BusContext{RepoRoot: repo}
+	changes := []types.FileChange{{
+		Path:       "module.js",
+		Kind:       "create",
+		NewContent: "export class Binary {\n  constructor(x) { this.x = x; }\n}\n",
+	}}
+	if rej := dryBuildNodeJS(bus, changes); rej != "" {
+		t.Errorf("ESM-mode (type:module) project must accept `export` syntax; got rejection: %q", rej)
+	}
+}
+
+// TestDryBuildNodeJS_CommonJSRejectsExport: complement test — when
+// package.json has NO type:module (default CommonJS), `export` is
+// genuinely a syntax error and SHOULD be rejected.
+func TestDryBuildNodeJS_CommonJSRejectsExport(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not on PATH")
+	}
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{"name":"x"}`), 0o644); err != nil {
+		t.Fatalf("seed package.json: %v", err)
+	}
+	bus := &types.BusContext{RepoRoot: repo}
+	changes := []types.FileChange{{
+		Path:       "cjs.js",
+		Kind:       "create",
+		NewContent: "export class Binary {\n  constructor(x) { this.x = x; }\n}\n",
+	}}
+	rej := dryBuildNodeJS(bus, changes)
+	if rej == "" {
+		t.Fatal("CommonJS project (no type:module) should reject `export` syntax")
+	}
+	if !strings.Contains(rej, "Node.js") {
+		t.Errorf("rejection should name language; got %q", rej)
+	}
+}
+
+// TestNodePackageJSONIsModule covers the helper's decision matrix.
+func TestNodePackageJSONIsModule(t *testing.T) {
+	dir := t.TempDir()
+	cases := []struct {
+		name     string
+		content  string
+		want     bool
+	}{
+		{"explicit module", `{"type":"module"}`, true},
+		{"explicit commonjs", `{"type":"commonjs"}`, false},
+		{"no type field", `{"name":"foo"}`, false},
+		{"empty json object", `{}`, false},
+		{"malformed json", `{not valid`, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			path := filepath.Join(dir, c.name+".json")
+			if err := os.WriteFile(path, []byte(c.content), 0o644); err != nil {
+				t.Fatalf("seed: %v", err)
+			}
+			if got := nodePackageJSONIsModule(path); got != c.want {
+				t.Errorf("got %v, want %v for content %q", got, c.want, c.content)
+			}
+		})
+	}
+	t.Run("missing file", func(t *testing.T) {
+		if got := nodePackageJSONIsModule(filepath.Join(dir, "absent.json")); got {
+			t.Errorf("missing file should return false (CommonJS default)")
+		}
+	})
+}
