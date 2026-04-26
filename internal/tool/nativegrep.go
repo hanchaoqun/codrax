@@ -109,6 +109,12 @@ func NativeGrep(ctx context.Context, opts NativeGrepOpts) (NativeGrepResult, err
 		if err := ctx.Err(); err != nil {
 			return err
 		}
+		if IsWindowsReservedDevicePath(d.Name()) {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
 		if d.IsDir() {
 			if excludeSet[d.Name()] {
 				return filepath.SkipDir

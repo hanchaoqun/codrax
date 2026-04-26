@@ -477,6 +477,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		for _, dir := range defaultExcludeDirs {
 			args = append(args, "--glob", "!"+dir+"/")
 		}
+		for _, glob := range ReservedDeviceRipgrepGlobs() {
+			args = append(args, "--glob", "!"+glob)
+		}
 		if p.FileType != "" {
 			args = append(args, "--type", p.FileType)
 		}
@@ -501,6 +504,9 @@ func (t *GrepTool) Execute(ctx *types.BusContext, params json.RawMessage) (types
 		}
 		for _, dir := range defaultExcludeDirs {
 			args = append(args, "--exclude-dir="+dir)
+		}
+		for _, glob := range ReservedDeviceGrepExcludes() {
+			args = append(args, "--exclude="+glob)
 		}
 		args = append(args, p.Pattern)
 		// file_type → --include globs for GNU grep (no --type support).
@@ -1018,6 +1024,12 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 				if isListFilesNoiseDir(d.Name()) {
 					return filepath.SkipDir
 				}
+				if IsWindowsReservedDevicePath(d.Name()) {
+					return filepath.SkipDir
+				}
+			}
+			if !d.IsDir() && IsWindowsReservedDevicePath(d.Name()) {
+				return nil
 			}
 			rel, relErr := filepath.Rel(fsPath, path)
 			if relErr != nil || rel == "." {
@@ -1046,6 +1058,9 @@ func (t *ListFiles) Execute(ctx *types.BusContext, params json.RawMessage) (type
 			// filtering with the recursive path is the load-bearing
 			// fix; the central set drives both.
 			if e.IsDir() && isListFilesNoiseDir(e.Name()) {
+				continue
+			}
+			if IsWindowsReservedDevicePath(e.Name()) {
 				continue
 			}
 			files = append(files, filepath.Join(displayPath, e.Name()))

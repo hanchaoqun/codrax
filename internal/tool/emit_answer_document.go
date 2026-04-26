@@ -715,6 +715,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateAnswerDocumentExactResolutionProof(resolvedExact, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
+	if err := validateAbsentConfigTraceShape(shape, resolvedExact, ctx); err != nil {
+		return failWithContext("%v", err)
+	}
 	// Shape-dispatch: each branch validates its own required fields,
 	// rejects fields that do not belong to this shape, and populates
 	// the AnswerDocument slot the renderer will read.
@@ -2193,6 +2196,19 @@ func validateAnswerDocumentExactResolutionProof(exact *types.AnswerExactResoluti
 		}
 	}
 	return nil
+}
+
+func validateAbsentConfigTraceShape(shape types.AnswerShape, exact *types.AnswerExactResolution, ctx *types.BusContext) error {
+	if shape != types.ShapeConfigValue || exact == nil || ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	if exact.Status != types.AnswerExactResolutionAbsent {
+		return nil
+	}
+	if ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace {
+		return nil
+	}
+	return fmt.Errorf("exact absent config-trace answers must not use shape=config_value with a synthetic missing literal; use shape=explanation and keep the exact absence plus any grounded same-family precedence chain in prose")
 }
 
 func normalizeAnswerExactResolutionStatus(status types.AnswerExactResolutionStatus) types.AnswerExactResolutionStatus {

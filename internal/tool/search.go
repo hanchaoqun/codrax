@@ -1,6 +1,9 @@
 package tool
 
 import (
+	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/hanchaoqun/codrax/internal/logging"
@@ -98,7 +101,7 @@ var ExcludeDirsAnyLevel = []string{
 	".idea", ".vscode",
 	"target", "dist", "build", ".gradle", ".cargo",
 	".next", ".nuxt", ".turbo", // common JS framework output dirs
-	".pnpm-store",              // alternative to node_modules
+	".pnpm-store", // alternative to node_modules
 }
 
 // ExcludeDirsRootOnly entries are matched only when they sit at
@@ -139,3 +142,75 @@ var ExcludeDirsRootOnlySet = func() map[string]bool {
 	}
 	return m
 }()
+
+// windowsReservedDeviceNames are DOS device basenames that behave like
+// pseudo-files on Windows (`nul`, `con`, `prn`, `aux`, `com1`...).
+// Repositories can contain these names when authored on other
+// platforms, but ripgrep / grep / WalkDir on Windows will treat them
+// as device handles rather than ordinary source files, causing noisy
+// search failures before the pipeline even reaches grounded reads.
+var windowsReservedDeviceNames = []string{
+	"con", "prn", "aux", "nul",
+	"com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+	"lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+}
+
+var windowsReservedDeviceSet = func() map[string]bool {
+	m := make(map[string]bool, len(windowsReservedDeviceNames))
+	for _, name := range windowsReservedDeviceNames {
+		m[name] = true
+	}
+	return m
+}()
+
+// IsWindowsReservedDevicePath reports whether name resolves to a
+// Windows reserved device basename such as `nul` or `con`.
+//
+// The check is intentionally OS-gated: on Linux/macOS a file literally
+// named `nul` is valid project content and must remain searchable. On
+// Windows, however, these names break external search tools and native
+// walkers alike, so codrax treats them as search/list noise files.
+func IsWindowsReservedDevicePath(name string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	base := strings.ToLower(strings.TrimSpace(filepath.Base(name)))
+	if base == "" || base == "." || base == string(filepath.Separator) {
+		return false
+	}
+	if idx := strings.IndexByte(base, '.'); idx >= 0 {
+		base = base[:idx]
+	}
+	return windowsReservedDeviceSet[base]
+}
+
+// ReservedDeviceRipgrepGlobs returns ripgrep glob patterns that skip
+// Windows reserved device basenames at repo root and nested paths.
+func ReservedDeviceRipgrepGlobs() []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	out := make([]string, 0, len(windowsReservedDeviceNames)*4)
+	for _, name := range windowsReservedDeviceNames {
+		out = append(out,
+			name,
+			name+".*",
+			"**/"+name,
+			"**/"+name+".*",
+		)
+	}
+	return out
+}
+
+// ReservedDeviceGrepExcludes returns GNU grep basename exclude globs
+// for Windows reserved device files.
+func ReservedDeviceGrepExcludes() []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	out := make([]string, 0, len(windowsReservedDeviceNames)*2)
+	for _, name := range windowsReservedDeviceNames {
+		out = append(out, name, name+".*")
+	}
+	return out
+}

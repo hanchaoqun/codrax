@@ -1169,3 +1169,23 @@ func TestExcludeDirsAnyLevel_Coverage(t *testing.T) {
 		}
 	}
 }
+
+func TestIsWindowsReservedDevicePath(t *testing.T) {
+	wantReserved := runtime.GOOS == "windows"
+	for _, name := range []string{
+		"nul",
+		"NUL",
+		"nul.txt",
+		filepath.Join("sub", "con.log"),
+		filepath.Join("nested", "LPT1"),
+	} {
+		if got := IsWindowsReservedDevicePath(name); got != wantReserved {
+			t.Fatalf("IsWindowsReservedDevicePath(%q) = %v, want %v on %s", name, got, wantReserved, runtime.GOOS)
+		}
+	}
+	for _, name := range []string{"null.go", "console.txt", "auxiliary.md", "component.go"} {
+		if IsWindowsReservedDevicePath(name) {
+			t.Fatalf("IsWindowsReservedDevicePath(%q) should be false", name)
+		}
+	}
+}

@@ -1338,6 +1338,57 @@ func TestEmitAnswerDocument_AbsenceIgnoresUngroundedProductionMention(t *testing
 	}
 }
 
+func TestEmitAnswerDocument_RejectsConfigValueForAbsentConfigTrace(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "explore_mid_loop_hint_budget"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario: types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:              types.SubjectConfigKey,
+				TargetLabel:             "config key",
+				Targets:                 []string{target},
+				AllowAbsence:            true,
+				RequireTargetMention:    true,
+				AliasRequiresProof:      true,
+				RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+				RelatedContextScopeHint: "same namespace / prefix family",
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("searched the repo and found no config key named `explore_mid_loop_hint_budget`")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "config_value",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "The exact key is absent; nearby config lineage is related context only.",
+		"value": map[string]interface{}{
+			"key":          target,
+			"literal":      "（不存在）",
+			"citation_ref": -1,
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatal("absent config-trace answer should not be accepted as shape=config_value")
+	}
+	if !strings.Contains(res.Summary, "must not use shape=config_value") {
+		t.Fatalf("missing absent config-trace shape guidance: %q", res.Summary)
+	}
+}
+
 func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
 	contract := &types.ExactResolutionContract{
 		TargetLabel: "config key",

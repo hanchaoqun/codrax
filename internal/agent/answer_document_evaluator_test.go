@@ -415,6 +415,8 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 		"Investigation state: the exact target is currently absent in the repo / branch under inspection.",
 		"no config key named `explore_mid_loop_hint_budget` exists in the repo",
 		"Emit `exact_resolution.status=\"absent\"`",
+		"do NOT force `shape=config_value` with a synthetic literal",
+		"Prefer `shape=explanation`",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q after reset:\n%s", want, prompt)

@@ -139,6 +139,9 @@ func scanGit(repoRoot string) ([]FileEntry, error) {
 		if line == "" {
 			continue
 		}
+		if tool.IsWindowsReservedDevicePath(line) {
+			continue
+		}
 		// skip files inside excluded dirs
 		if isExcludedPath(line) {
 			continue
@@ -163,6 +166,12 @@ func scanWalk(repoRoot string) ([]FileEntry, error) {
 	var entries []FileEntry
 	err := filepath.Walk(repoRoot, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
+			return nil
+		}
+		if tool.IsWindowsReservedDevicePath(info.Name()) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
 			return nil
 		}
 		if info.IsDir() {
@@ -191,6 +200,9 @@ func scanWalk(repoRoot string) ([]FileEntry, error) {
 }
 
 func isExcludedPath(relPath string) bool {
+	if tool.IsWindowsReservedDevicePath(relPath) {
+		return true
+	}
 	parts := strings.Split(relPath, string(os.PathSeparator))
 	if len(parts) > 0 && tool.ExcludeDirsRootOnlySet[parts[0]] {
 		return true
