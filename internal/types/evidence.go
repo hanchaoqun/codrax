@@ -177,6 +177,7 @@ type EvidenceContextRole string
 const (
 	EvidenceContextRoleUnknown          EvidenceContextRole = ""
 	EvidenceContextRoleDefining         EvidenceContextRole = "defining"
+	EvidenceContextRoleAbsenceSupport   EvidenceContextRole = "absence_support"
 	EvidenceContextRoleRelatedContext   EvidenceContextRole = "related_context"
 	EvidenceContextRoleIllustrativeOnly EvidenceContextRole = "illustrative_only"
 )
@@ -184,6 +185,7 @@ const (
 var allEvidenceContextRoles = []EvidenceContextRole{
 	EvidenceContextRoleUnknown,
 	EvidenceContextRoleDefining,
+	EvidenceContextRoleAbsenceSupport,
 	EvidenceContextRoleRelatedContext,
 	EvidenceContextRoleIllustrativeOnly,
 }

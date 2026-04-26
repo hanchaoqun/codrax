@@ -482,7 +482,7 @@ func TestEmitInvestigationComplete_ConfigAbsenceRejectsPositiveSubstituteFromPri
 	if res.Success {
 		t.Fatalf("positive substitute completion must be rejected")
 	}
-	if !strings.Contains(res.Summary, "primary config key") {
+	if !strings.Contains(res.Summary, "primary exact config key") {
 		t.Fatalf("rejection should explain exact-key guard: %s", res.Summary)
 	}
 	if mut.IsInvestigationComplete() {

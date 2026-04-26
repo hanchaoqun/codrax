@@ -143,6 +143,25 @@ func TestBuildExactResolutionContract_FallsBackToValidatedKeywordContextTerms(t 
 	}
 }
 
+func TestBuildExactResolutionContract_FallsBackToTargetIdentifierTerms(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "FooHandler 在哪里定义？",
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities: []string{"FooHandler"},
+			ExactTargets:    []string{"FooHandler"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil")
+	}
+	if !reflect.DeepEqual(got.RelatedContextTerms, []string{"foo", "handler"}) {
+		t.Fatalf("RelatedContextTerms = %v, want lexical fallback terms", got.RelatedContextTerms)
+	}
+}
+
 func TestBuildExactResolutionContract_DoesNotPromoteUnmentionedPrimaryEntity(t *testing.T) {
 	rm := RequestModel{
 		RawRequest: "why is this setting ignored?",
@@ -242,6 +261,24 @@ func TestBuildExactResolutionContract_DoesNotTriggerOnEnumeration(t *testing.T) 
 	}
 	if got := BuildExactResolutionContract(rm); got != nil {
 		t.Fatalf("contract = %+v, want nil for broad enumeration", got)
+	}
+}
+
+func TestBuildExactResolutionContract_DoesNotPromoteSecondaryMentionOverPrimaryRoleEntity(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "仓库里负责解析用户请求并产出结构化 AnalysisIR 的那个入口函数叫什么？",
+		AnalyzerHints: AnalyzerHints{
+			PrimaryEntities:   []string{"buildAnalysisIR"},
+			MentionedEntities: []string{"AnalysisIR"},
+			ExactTargets:      []string{"AnalysisIR"},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectFunctionName},
+		Predicates: SemanticPredicates{
+			IsScalarAnswer: true,
+		},
+	}
+	if got := BuildExactResolutionContract(rm); got != nil {
+		t.Fatalf("contract = %+v, want nil when the mentioned output type is not the primary role entity", got)
 	}
 }
 

@@ -17,7 +17,7 @@ type exactResolutionSymbolCandidate struct {
 	Score  int
 }
 
-func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contract *types.ExactResolutionContract, analyzerKeywords []string, fileSymbols map[string][]string) []exactResolutionSymbolCandidate {
+func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contract *types.ExactResolutionContract, analyzerKeywords []string, fileSymbols map[string][]string, evidence []types.EvidenceItem) []exactResolutionSymbolCandidate {
 	if contract == nil {
 		return nil
 	}
@@ -50,6 +50,7 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 	if len(candidateFiles) == 0 {
 		return nil
 	}
+	anchoredFiles := exactResolutionAnchoredFiles(contract, evidence)
 
 	var cands []exactResolutionSymbolCandidate
 	seen := make(map[string]bool)
@@ -68,6 +69,9 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 				if strings.Contains(fileLower, term) {
 					score += 2
 				}
+			}
+			if anchoredFiles[canonicalExactResolutionPath(file)] {
+				score += 4
 			}
 			if score < 6 {
 				continue
@@ -100,6 +104,31 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 		cands = cands[:4]
 	}
 	return cands
+}
+
+func exactResolutionAnchoredFiles(contract *types.ExactResolutionContract, evidence []types.EvidenceItem) map[string]bool {
+	if contract == nil || len(evidence) == 0 {
+		return nil
+	}
+	out := make(map[string]bool)
+	for _, item := range evidence {
+		switch item.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+			continue
+		}
+		if !exactResolutionSourceIsProductionLike(contract, item.Source) {
+			continue
+		}
+		path := canonicalExactResolutionPath(item.Source)
+		if path != "" {
+			out[path] = true
+		}
+	}
+	return out
 }
 
 func exactResolutionCandidateFiles(graph *repomap.Graph, fileSymbols map[string][]string) []string {
@@ -249,15 +278,5 @@ func canonicalExactResolutionPath(path string) string {
 }
 
 func exactResolutionSourceIsProductionLike(contract *types.ExactResolutionContract, source string) bool {
-	if contract == nil || contract.TargetKind != types.SubjectConfigKey {
-		return true
-	}
-	source = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(source), `\`, `/`))
-	if source == "" {
-		return false
-	}
-	if types.LooksLikeAuxiliaryEvidencePath(source) {
-		return false
-	}
-	return true
+	return types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, source)
 }

@@ -2469,7 +2469,7 @@ func (e *explorerEvaluator) collectExactResolutionSymbolCandidates(contract *typ
 	if e.searchResult != nil {
 		graph = e.searchResult.Graph
 	}
-	return collectExactResolutionSymbolCandidatesFromGraph(graph, contract, analyzerKeywords, e.fileSymbols)
+	return collectExactResolutionSymbolCandidatesFromGraph(graph, contract, analyzerKeywords, e.fileSymbols, e.structuredEvidence)
 }
 
 // filterEvidenceByPrimaryFiles keeps evidence items whose Source is
@@ -3210,8 +3210,8 @@ func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets [
 	}
 	scopeTerms := types.ExactResolutionContextTerms(contract)
 	hasScopedContext := len(scopeTerms) == 0
-	for _, target := range targets {
-		if evidenceMentionsExactResolutionTarget(contract, evidence, target) {
+	for _, item := range evidence {
+		if exactResolutionEvidenceBlocksAbsence(contract, item) {
 			return false
 		}
 	}
@@ -3221,7 +3221,7 @@ func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets [
 		default:
 			continue
 		}
-		if evidenceItemMentionsAnyTerm(item, scopeTerms) {
+		if types.EvidenceItemMentionsAnyTerm(item, scopeTerms) {
 			hasScopedContext = true
 			break
 		}
@@ -3229,44 +3229,26 @@ func exactAbsenceClosureReady(contract *types.ExactResolutionContract, targets [
 	return hasScopedContext
 }
 
-func evidenceMentionsExactResolutionTarget(contract *types.ExactResolutionContract, items []types.EvidenceItem, target string) bool {
-	for _, item := range items {
-		text := strings.Join([]string{
-			item.Subject,
-			item.Predicate,
-			item.Object,
-			item.AnchorSymbol,
-			item.Condition,
-			item.Snippet,
-			item.Summary,
-		}, "\n")
-		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
-			return true
-		}
-	}
-	return false
-}
-
-func evidenceItemMentionsAnyTerm(item types.EvidenceItem, terms []string) bool {
-	if len(terms) == 0 {
+func exactResolutionEvidenceBlocksAbsence(contract *types.ExactResolutionContract, item types.EvidenceItem) bool {
+	switch item.GroundingStatus {
+	case types.GroundingGrounded, types.GroundingRecovered, "":
+	default:
 		return false
 	}
-	text := strings.ToLower(strings.Join([]string{
-		item.Subject,
-		item.Predicate,
-		item.Object,
-		item.AnchorSymbol,
-		item.Condition,
-		item.Snippet,
-		item.Summary,
-	}, "\n"))
-	for _, term := range terms {
-		term = strings.ToLower(strings.TrimSpace(term))
-		if term != "" && strings.Contains(text, term) {
-			return true
-		}
+	switch item.ContextRole {
+	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+		return false
 	}
-	return false
+	if !types.ExactResolutionTextsMentionAnyTarget(contract,
+		item.Subject, item.Predicate, item.Object, item.AnchorSymbol, item.Condition, item.Snippet, item.Summary) {
+		return false
+	}
+	if types.ExactResolutionRequiresDefiningPrimaryProof(contract) &&
+		!types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source) {
+		return false
+	}
+	return item.ContextRole == types.EvidenceContextRoleDefining ||
+		types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object)
 }
 
 func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) LoopSignal {

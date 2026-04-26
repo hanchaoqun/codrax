@@ -178,7 +178,7 @@ func (t *EmitEvidence) Description() string {
 		"the containing function/method and `object` must be the callee on that line. Example: if " +
 		"`outer()` contains `return inner(...)`, emit `subject=\"outer\"`, `predicate=\"calls\"`, " +
 		"`object=\"inner\"`.\n\n" +
-		"Optional hint fields: `context_role_hint` may be `defining`, `related_context`, or `illustrative_only` " +
+		"Optional hint fields: `context_role_hint` may be `defining`, `absence_support`, `related_context`, or `illustrative_only` " +
 		"to recommend how the item should be used for exact-target answers. `diagram_role_hint` may be `default`, " +
 		"`yaml`, `runtime`, or `override` for config-precedence traces. These are recommendations only: the tool " +
 		"validates them structurally and may downgrade or ignore inconsistent hints.\n\n" +
@@ -302,7 +302,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
           "line_end":      {"type": "integer", "description": "Last line of the cited range. Defaults to line_start when omitted."},
           "condition":     {"type": "string", "description": "For conditional items: the exact IF clause that triggers the behaviour."},
           "summary":       {"type": "string", "description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals."},
-          "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
+          "context_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, absence_support = grounded evidence that helps justify why the exact target is absent but does NOT define it, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint."},
           "diagram_role_hint": {"type": "string", "enum": %s, "description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, yaml = repo/user config layer, runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints."},
           "anchor_kind":   {"type": "string", "enum": %s, "description": "REQUIRED. What the line_start points at: 'definition' = symbol declaration, 'call' = function/method call site, 'condition' = if/when/switch/case/guard line, 'return' = return or yield, 'assignment' = := or = assignment, 'import' = import/use/require statement. The grounder dispatches on this so wrong kinds produce confusing ungrounded verdicts."},
           "anchor_symbol": {"type": "string", "description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias."},
@@ -371,8 +371,8 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	// rankers demote it, and we log a ViolSelfRefLiteral to the
 	// ledger so F2 aggregator can weight it.
 	primaryEntity := extractPrimaryEntity(ctx)
-	configAbsenceSubjects := unverifiedPrimaryConfigSubjects(ctx)
 	exactResolutionContract := answerExactResolutionContract(ctx)
+	pendingExactTargets := pendingExactResolutionTargets(ctx, exactResolutionContract)
 	for i, in := range p.Items {
 		ev, perr := buildEmitEvidenceItemWithSwap(&in, i, workDir, &autoSwapped)
 		if perr != nil {
@@ -425,14 +425,9 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 	for i := range built {
 		r := ground.GroundItem(&built[i], gc)
 		normalizeCallEvidenceDirection(&built[i], gc)
-		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc)
-		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc)
-		if demoteIllustrativeExactConfigEvidence(&built[i], exactResolutionContract, configAbsenceSubjects) {
-			r.Status = built[i].GroundingStatus
-			r.Tier = built[i].GroundingTier
-			r.Note = built[i].GroundingNote
-		}
-		if demoteConfigAbsenceSubstituteEvidence(&built[i], configAbsenceSubjects) {
+		built[i].ContextRole = validatedEvidenceContextRole(built[i], gc, exactResolutionContract)
+		built[i].DiagramRole = validatedEvidenceDiagramRole(built[i], gc, exactResolutionContract)
+		if stabilizeExactResolutionEvidence(&built[i], exactResolutionContract, pendingExactTargets) {
 			r.Status = built[i].GroundingStatus
 			r.Tier = built[i].GroundingTier
 			r.Note = built[i].GroundingNote
@@ -707,13 +702,17 @@ func parseEvidenceDiagramRoleHint(index int, raw string) (types.EvidenceDiagramR
 		index, raw, strings.Join(emitEvidenceDiagramRoleNames(), ", "))
 }
 
-func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context) types.EvidenceContextRole {
+func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract) types.EvidenceContextRole {
 	if evidenceLooksIllustrative(ev, gc) {
 		return types.EvidenceContextRoleIllustrativeOnly
 	}
 	switch ev.ContextRole {
 	case types.EvidenceContextRoleDefining:
 		if evidenceCanBeDefining(ev) {
+			return ev.ContextRole
+		}
+	case types.EvidenceContextRoleAbsenceSupport:
+		if evidenceCanBeAbsenceSupport(ev, contract) {
 			return ev.ContextRole
 		}
 	case types.EvidenceContextRoleRelatedContext:
@@ -728,7 +727,7 @@ func validatedEvidenceContextRole(ev types.EvidenceItem, gc *ground.Context) typ
 	return types.EvidenceContextRoleUnknown
 }
 
-func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context) types.EvidenceDiagramRole {
+func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context, contract *types.ExactResolutionContract) types.EvidenceDiagramRole {
 	if evidenceLooksIllustrative(ev, gc) {
 		return types.EvidenceDiagramRoleUnknown
 	}
@@ -738,15 +737,15 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context) typ
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleOverride:
-		if evidenceCanBeDiagramCodeLayer(ev) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleRuntime:
-		if evidenceCanBeDiagramCodeLayer(ev) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleDefault:
-		if evidenceCanBeDefining(ev) && !evidenceSourceHasYAMLExt(ev.Source) {
+		if evidenceCanBeDiagramCodeLayer(ev, contract, ev.DiagramRole) && !evidenceSourceHasYAMLExt(ev.Source) {
 			return ev.DiagramRole
 		}
 	}
@@ -783,19 +782,63 @@ func evidenceCanBeRelatedContext(ev types.EvidenceItem) bool {
 	return ev.Source != ""
 }
 
+func evidenceCanBeAbsenceSupport(ev types.EvidenceItem, contract *types.ExactResolutionContract) bool {
+	if !evidenceCanBeRelatedContext(ev) {
+		return false
+	}
+	if contract == nil {
+		return false
+	}
+	if types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, ev.Subject, ev.AnchorSymbol, ev.Object) {
+		return false
+	}
+	return types.ExactResolutionTextsMentionAnyTarget(contract,
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary)
+}
+
 func evidenceSourceHasYAMLExt(source string) bool {
 	source = strings.ToLower(strings.TrimSpace(source))
 	return strings.HasSuffix(source, ".yaml") || strings.HasSuffix(source, ".yml")
 }
 
-func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem) bool {
+func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem, contract *types.ExactResolutionContract, role types.EvidenceDiagramRole) bool {
 	if ev.Source == "" || evidenceSourceHasYAMLExt(ev.Source) {
 		return false
 	}
 	if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
 		return false
 	}
-	return ev.AnchorKind != ""
+	if ev.AnchorKind == "" {
+		return false
+	}
+	if contract == nil || contract.TargetKind != types.SubjectConfigKey {
+		return true
+	}
+	terms := types.ExactResolutionContextTerms(contract)
+	if !types.ExactResolutionTextsMentionAnyTarget(contract,
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary) &&
+		!types.EvidenceItemMentionsAnyTerm(ev, terms) {
+		return false
+	}
+	contextRole := ev.ContextRole
+	if contextRole == types.EvidenceContextRoleUnknown {
+		switch role {
+		case types.EvidenceDiagramRoleDefault:
+			contextRole = types.EvidenceContextRoleDefining
+		default:
+			contextRole = types.EvidenceContextRoleRelatedContext
+		}
+	}
+	switch role {
+	case types.EvidenceDiagramRoleDefault:
+		return contextRole == types.EvidenceContextRoleDefining
+	case types.EvidenceDiagramRoleRuntime:
+		return contextRole == types.EvidenceContextRoleDefining || contextRole == types.EvidenceContextRoleRelatedContext
+	case types.EvidenceDiagramRoleOverride:
+		return contextRole == types.EvidenceContextRoleDefining || contextRole == types.EvidenceContextRoleRelatedContext
+	default:
+		return false
+	}
 }
 
 var callLikePredicates = map[string]bool{
@@ -1166,108 +1209,121 @@ func extractPrimaryEntity(ctx *types.BusContext) string {
 	return strings.TrimSpace(ctx.AnalysisIR.RequestModel.AnalyzerHints.Entities[0])
 }
 
-func unverifiedPrimaryConfigSubjects(ctx *types.BusContext) []string {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.Mutable == nil {
-		return nil
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
-		return nil
-	}
-	subjects := configAbsenceSubjects(rm)
-	if len(subjects) == 0 {
+func pendingExactResolutionTargets(ctx *types.BusContext, contract *types.ExactResolutionContract) []string {
+	if ctx == nil || ctx.Mutable == nil || contract == nil {
 		return nil
 	}
 	unverified := append(ctx.Mutable.EvidenceClosure().UnverifiedFindings(), unverifiedFindingsFromStageReports(ctx.StageReports)...)
 	unverified = dedupeUnverifiedFindings(unverified)
-	if len(unverified) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool)
-	for _, f := range unverified {
-		if !strings.EqualFold(strings.TrimSpace(f.Kind), "symbol") {
-			continue
-		}
-		key := normalizeConfigToken(f.Token)
-		if key != "" {
-			seen[key] = true
-		}
-	}
-	out := make([]string, 0, len(subjects))
-	for _, subject := range subjects {
-		key := normalizeConfigToken(subject)
-		if key != "" && seen[key] {
-			out = append(out, subject)
-		}
-	}
-	return out
+	return types.ExactResolutionPendingTargets(contract, unverified)
 }
 
-func demoteConfigAbsenceSubstituteEvidence(ev *types.EvidenceItem, subjects []string) bool {
-	if ev == nil || len(subjects) == 0 {
+func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, contract *types.ExactResolutionContract, pendingTargets []string) bool {
+	if ev == nil || contract == nil {
 		return false
 	}
-	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
-		return false
+	changed := false
+	if len(pendingTargets) > 0 && ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly && exactResolutionEvidenceMentionsAnyTarget(contract, *ev) {
+		note := fmt.Sprintf(
+			"illustrative mention of the exact %s is not defining proof. Use absence_justification plus grounded defining anchors; do NOT repair this item.",
+			exactResolutionTargetLabel(contract),
+		)
+		ev.Kind = types.EvidenceUnresolved
+		ev.Confidence = 0
+		ev.GroundingStatus = types.GroundingUngrounded
+		ev.GroundingTier = ""
+		ev.GroundingNote = note
+		appendContextOnlySummary(ev, note)
+		return true
 	}
-	for _, subject := range subjects {
-		if evidenceMentionsExactConfigToken([]types.EvidenceItem{*ev}, subject) {
-			return false
+	if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly &&
+		exactResolutionEvidenceMentionsAnyTarget(contract, *ev) &&
+		!exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract, *ev) {
+		if ev.ContextRole != types.EvidenceContextRoleAbsenceSupport {
+			ev.ContextRole = types.EvidenceContextRoleAbsenceSupport
+			changed = true
+		}
+		note := fmt.Sprintf(
+			"this item names the requested exact %s only in explanatory context, not as a defining anchor. Treat it as absence support / nearby context only; do NOT repair this item.",
+			exactResolutionTargetLabel(contract),
+		)
+		if appendGroundingNoteOnce(ev, note) {
+			changed = true
 		}
 	}
-	key := strings.Join(subjects, ", ")
-	note := fmt.Sprintf("primary config key %q is unverified; this related-key evidence is context only and must not be treated as a substitute", key)
-	ev.Kind = types.EvidenceUnresolved
-	ev.Confidence = 0
-	ev.GroundingStatus = types.GroundingUngrounded
-	ev.GroundingTier = ""
-	ev.GroundingNote = note
-	if strings.TrimSpace(ev.Summary) == "" {
-		ev.Summary = note
-	} else if !strings.Contains(ev.Summary, "context only") {
-		ev.Summary = ev.Summary + " [context only: " + note + "]"
+	if len(pendingTargets) == 0 {
+		return changed
 	}
+	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly || exactResolutionEvidenceMentionsAnyTarget(contract, *ev) {
+		return changed
+	}
+	if ev.ContextRole == types.EvidenceContextRoleUnknown {
+		ev.ContextRole = types.EvidenceContextRoleRelatedContext
+		changed = true
+	}
+	note := fmt.Sprintf(
+		"the primary exact %s %q remains unresolved; this grounded evidence does not define the exact target and must stay context only. Do NOT repair this item.",
+		exactResolutionTargetLabel(contract),
+		strings.Join(pendingTargets, ", "),
+	)
+	if types.EvidenceItemMentionsAnyTerm(*ev, types.ExactResolutionContextTerms(contract)) {
+		note = fmt.Sprintf(
+			"the primary exact %s %q remains unresolved; this grounded same-scope evidence is nearby context only and must not be treated as a substitute. Do NOT repair this item.",
+			exactResolutionTargetLabel(contract),
+			strings.Join(pendingTargets, ", "),
+		)
+	}
+	if appendGroundingNoteOnce(ev, note) {
+		changed = true
+	}
+	appendContextOnlySummary(ev, note)
+	return changed
+}
+
+func exactResolutionEvidenceDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, ev types.EvidenceItem) bool {
+	return types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, ev.Subject, ev.AnchorSymbol, ev.Object)
+}
+
+func exactResolutionEvidenceMentionsAnyTarget(contract *types.ExactResolutionContract, ev types.EvidenceItem) bool {
+	return types.ExactResolutionTextsMentionAnyTarget(contract,
+		ev.Subject, ev.Predicate, ev.Object, ev.AnchorSymbol, ev.Condition, ev.Snippet, ev.Summary)
+}
+
+func appendGroundingNoteOnce(ev *types.EvidenceItem, note string) bool {
+	note = strings.TrimSpace(note)
+	if ev == nil || note == "" {
+		return false
+	}
+	if strings.Contains(strings.ToLower(ev.GroundingNote), strings.ToLower(note)) {
+		return false
+	}
+	if strings.TrimSpace(ev.GroundingNote) == "" {
+		ev.GroundingNote = note
+		return true
+	}
+	ev.GroundingNote = strings.TrimSpace(ev.GroundingNote) + " " + note
 	return true
 }
 
-func demoteIllustrativeExactConfigEvidence(ev *types.EvidenceItem, contract *types.ExactResolutionContract, subjects []string) bool {
-	if ev == nil || contract == nil || contract.TargetKind != types.SubjectConfigKey || len(subjects) == 0 {
-		return false
+func appendContextOnlySummary(ev *types.EvidenceItem, note string) {
+	if ev == nil {
+		return
 	}
-	if ev.ContextRole != types.EvidenceContextRoleIllustrativeOnly {
-		return false
-	}
-	text := strings.Join([]string{
-		ev.Subject,
-		ev.Predicate,
-		ev.Object,
-		ev.AnchorSymbol,
-		ev.Condition,
-		ev.Snippet,
-		ev.Summary,
-	}, "\n")
-	mentionsExact := false
-	for _, subject := range subjects {
-		if textMentionsConfigToken(text, subject) {
-			mentionsExact = true
-			break
-		}
-	}
-	if !mentionsExact {
-		return false
-	}
-	note := "illustrative mention of the exact config key is not defining proof. Use absence_justification plus production anchors; do NOT repair this item."
-	ev.Kind = types.EvidenceUnresolved
-	ev.Confidence = 0
-	ev.GroundingStatus = types.GroundingUngrounded
-	ev.GroundingTier = ""
-	ev.GroundingNote = note
 	if strings.TrimSpace(ev.Summary) == "" {
 		ev.Summary = note
-	} else if !strings.Contains(strings.ToLower(ev.Summary), "context only") {
-		ev.Summary = ev.Summary + " [context only: " + note + "]"
+		return
 	}
-	return true
+	if strings.Contains(strings.ToLower(ev.Summary), strings.ToLower(note)) {
+		return
+	}
+	ev.Summary = strings.TrimSpace(ev.Summary) + " [context only: " + note + "]"
+}
+
+func exactResolutionTargetLabel(contract *types.ExactResolutionContract) string {
+	if contract == nil || strings.TrimSpace(contract.TargetLabel) == "" {
+		return "target"
+	}
+	return strings.TrimSpace(contract.TargetLabel)
 }
 
 // isSelfRefEvidence tests the triple-condition R4 predicate:

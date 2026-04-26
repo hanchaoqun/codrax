@@ -161,15 +161,20 @@ func (t *EmitInvestigationComplete) Execute(ctx *types.BusContext, params json.R
 	// positive evidence to cite.
 	justification := strings.TrimSpace(p.AbsenceJustification)
 	if justification == "" {
-		if subjects := configExactAbsencePendingSubjects(ctx); len(subjects) > 0 {
+		if targets := exactAbsencePendingTargets(ctx); len(targets) > 0 {
 			evidence := ctx.Mutable.EmittedEvidence()
-			if !evidenceMentionsAnyExactConfigToken(evidence, subjects) {
+			contract := answerExactResolutionContract(ctx)
+			if !evidenceHasAnyDefiningExactTargetProof(contract, evidence, targets) {
+				label := "target"
+				if contract != nil && strings.TrimSpace(contract.TargetLabel) != "" {
+					label = strings.TrimSpace(contract.TargetLabel)
+				}
 				return types.ToolResult{
 					ToolName: t.Name(),
-					Summary: "emit_investigation_complete rejected: the primary config key was marked unverified/not-found, " +
-						"and the emitted evidence only supports nearby or related keys. Do not complete a positive substitute chain. " +
-						"Either find an explicit alias/parser mapping that names the exact key and emit that evidence, or re-call " +
-						"emit_investigation_complete with absence_justification explaining that the exact key was searched and not found.",
+					Summary: fmt.Sprintf(
+						"emit_investigation_complete rejected: the primary exact %s was marked unverified/not-found, and the emitted evidence only supports nearby or contextual material. Do not complete a positive substitute chain. Either find an explicit grounded defining anchor (or alias/parser mapping) that names the exact %s, or re-call emit_investigation_complete with absence_justification explaining that the exact %s was searched and not found.",
+						label, label, label,
+					),
 					Success:   false,
 					Timestamp: time.Now(),
 				}, nil
@@ -1303,27 +1308,16 @@ func hasGroundedOrRecovered(items []types.EvidenceItem) bool {
 }
 
 func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justification string, evidence []types.EvidenceItem) bool {
-	if ctx == nil || ctx.AnalysisIR == nil {
+	contract := exactResolutionContractForCompletion(ctx)
+	if contract == nil || !contract.AllowAbsence {
 		return false
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
-		return false
-	}
-	subjects := configAbsenceSubjects(rm)
-	if len(subjects) == 0 {
-		return false
-	}
-	contract := answerExactResolutionContract(ctx)
-	if contract == nil {
-		contract = types.BuildExactResolutionContract(rm)
 	}
 	text := reason + "\n" + justification
-	for _, subject := range subjects {
-		if !textMentionsConfigToken(text, subject) {
+	for _, target := range contract.Targets {
+		if !types.ExactResolutionTextMentionsTarget(contract, text, target) {
 			continue
 		}
-		if evidenceMentionsProductionExactConfigToken(contract, evidence, subject) {
+		if evidenceHasAnyDefiningExactTargetProof(contract, evidence, []string{target}) {
 			continue
 		}
 		return true
@@ -1331,40 +1325,13 @@ func allowsContextualEvidenceForAbsence(ctx *types.BusContext, reason, justifica
 	return false
 }
 
-func configExactAbsencePendingSubjects(ctx *types.BusContext) []string {
-	if ctx == nil || ctx.AnalysisIR == nil {
-		return nil
-	}
-	rm := ctx.AnalysisIR.RequestModel
-	if rm.AnalyzerHints.Kind != "config_mapping" && rm.Scenario != types.ScenarioConfigTrace && rm.AnswerSubject.Kind != types.SubjectConfigKey {
-		return nil
-	}
-	subjects := configAbsenceSubjects(rm)
-	if len(subjects) == 0 {
+func exactAbsencePendingTargets(ctx *types.BusContext) []string {
+	contract := exactResolutionContractForCompletion(ctx)
+	if contract == nil {
 		return nil
 	}
 	unverified := unverifiedFindingsForCompletion(ctx)
-	if len(unverified) == 0 {
-		return nil
-	}
-	seen := make(map[string]bool)
-	for _, f := range unverified {
-		if !strings.EqualFold(strings.TrimSpace(f.Kind), "symbol") {
-			continue
-		}
-		key := normalizeConfigToken(f.Token)
-		if key != "" {
-			seen[key] = true
-		}
-	}
-	var out []string
-	for _, subject := range subjects {
-		key := normalizeConfigToken(subject)
-		if key != "" && seen[key] {
-			out = append(out, subject)
-		}
-	}
-	return out
+	return types.ExactResolutionPendingTargets(contract, unverified)
 }
 
 func unverifiedFindingsForCompletion(ctx *types.BusContext) []types.UnverifiedFinding {
@@ -1451,97 +1418,69 @@ func dedupeUnverifiedFindings(in []types.UnverifiedFinding) []types.UnverifiedFi
 	return out
 }
 
-func configAbsenceSubjects(rm types.RequestModel) []string {
-	if targets := types.ExactResolutionTargets(rm); len(targets) > 0 {
-		seen := make(map[string]bool, len(targets))
-		var out []string
-		for _, target := range targets {
-			target = strings.TrimSpace(target)
-			key := normalizeConfigToken(target)
-			if key == "" || seen[key] {
-				continue
-			}
-			seen[key] = true
-			out = append(out, target)
-		}
-		return out
+func exactResolutionContractForCompletion(ctx *types.BusContext) *types.ExactResolutionContract {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
 	}
-	return nil
+	if c := answerExactResolutionContract(ctx); c != nil {
+		return c
+	}
+	return types.BuildExactResolutionContract(ctx.AnalysisIR.RequestModel)
 }
 
-func evidenceMentionsExactConfigToken(items []types.EvidenceItem, subject string) bool {
-	for _, it := range items {
-		switch it.GroundingStatus {
-		case types.GroundingGrounded, types.GroundingRecovered, "":
-		default:
-			continue
-		}
-		if textMentionsConfigToken(strings.Join([]string{
-			it.Subject,
-			it.Predicate,
-			it.Object,
-			it.AnchorSymbol,
-			it.Condition,
-			it.Snippet,
-		}, "\n"), subject) {
-			return true
-		}
-	}
-	return false
-}
-
-func evidenceMentionsAnyExactConfigToken(items []types.EvidenceItem, subjects []string) bool {
-	for _, subject := range subjects {
-		if evidenceMentionsExactConfigToken(items, subject) {
-			return true
-		}
-	}
-	return false
-}
-
-func evidenceMentionsProductionExactConfigToken(contract *types.ExactResolutionContract, items []types.EvidenceItem, subject string) bool {
-	for _, it := range items {
-		switch it.GroundingStatus {
-		case types.GroundingGrounded, types.GroundingRecovered, "":
-		default:
-			continue
-		}
-		if it.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
-			continue
-		}
-		if !exactResolutionProofSourceIsProductionLike(contract, it.Source) {
-			continue
-		}
-		if textMentionsConfigToken(strings.Join([]string{
-			it.Subject,
-			it.Predicate,
-			it.Object,
-			it.AnchorSymbol,
-			it.Condition,
-			it.Snippet,
-		}, "\n"), subject) {
-			return true
-		}
-	}
-	return false
-}
-
-func textMentionsConfigToken(text, token string) bool {
-	normToken := normalizeConfigToken(token)
-	if normToken == "" {
+func evidenceHasAnyDefiningExactTargetProof(contract *types.ExactResolutionContract, items []types.EvidenceItem, targets []string) bool {
+	if contract == nil || len(items) == 0 {
 		return false
 	}
-	return strings.Contains(normalizeConfigToken(text), normToken)
-}
-
-func normalizeConfigToken(s string) string {
-	var b strings.Builder
-	for _, r := range strings.ToLower(s) {
-		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
-			b.WriteRune(r)
+	for _, it := range items {
+		switch it.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		if it.ContextRole == types.EvidenceContextRoleIllustrativeOnly || it.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+			continue
+		}
+		if !evidenceMentionsAnyListedExactTarget(contract, it, targets) {
+			continue
+		}
+		if !types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, it.Source) {
+			continue
+		}
+		if it.ContextRole == types.EvidenceContextRoleDefining || evidenceDirectlyAnchorsAnyListedExactTarget(contract, it, targets) {
+			return true
 		}
 	}
-	return b.String()
+	return false
+}
+
+func evidenceMentionsAnyListedExactTarget(contract *types.ExactResolutionContract, item types.EvidenceItem, targets []string) bool {
+	text := strings.Join([]string{
+		item.Subject,
+		item.Predicate,
+		item.Object,
+		item.AnchorSymbol,
+		item.Condition,
+		item.Snippet,
+		item.Summary,
+	}, "\n")
+	for _, target := range targets {
+		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func evidenceDirectlyAnchorsAnyListedExactTarget(contract *types.ExactResolutionContract, item types.EvidenceItem, targets []string) bool {
+	for _, target := range targets {
+		if types.ExactResolutionTextMentionsTarget(contract, item.Subject, target) ||
+			types.ExactResolutionTextMentionsTarget(contract, item.AnchorSymbol, target) ||
+			types.ExactResolutionTextMentionsTarget(contract, item.Object, target) {
+			return true
+		}
+	}
+	return false
 }
 
 func looksLikeHonestZeroClaim(reason, justification string) bool {

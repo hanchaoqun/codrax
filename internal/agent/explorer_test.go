@@ -3910,6 +3910,96 @@ func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
 	}
 }
 
+func TestExactAbsenceClosureReady_IgnoresAbsenceSupportForFunctionTargets(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectFunctionName,
+		TargetLabel:          "symbol",
+		Targets:              []string{"FooHandler"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextGroundedOnly,
+		RelatedContextTerms:  []string{"foo", "handler"},
+	}
+	evidence := []types.EvidenceItem{
+		{
+			Kind:            types.EvidenceMechanism,
+			Subject:         "buildFallbackHandlers",
+			Predicate:       "describes",
+			Summary:         "The fallback path explains why FooHandler is absent from the runtime router.",
+			Source:          "internal/agent/router.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildFallbackHandlers",
+		},
+		{
+			Kind:            types.EvidenceMechanism,
+			Subject:         "buildFallbackHandlers",
+			Predicate:       "registers",
+			Object:          "fallback route",
+			Summary:         "Grounded nearby routing context for foo handler lookup.",
+			Source:          "internal/agent/router.go",
+			GroundingStatus: types.GroundingGrounded,
+			ContextRole:     types.EvidenceContextRoleRelatedContext,
+			AnchorKind:      types.AnchorDefinition,
+			AnchorSymbol:    "buildFallbackHandlers",
+		},
+	}
+	if !exactAbsenceClosureReady(contract, contract.Targets, evidence) {
+		t.Fatal("absence_support + related_context should allow exact-absence closure for function lookups")
+	}
+}
+
+func TestCollectExactResolutionSymbolCandidatesFromGraph_BoostsAnchoredFiles(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"budget", "explore", "hint", "loop", "mid"},
+	}
+	graph := &repomap.Graph{
+		FileIndex: map[string]*repomap.FileInfo{
+			"internal/types/config.go": {
+				RelPath: "internal/types/config.go",
+				Symbols: []repomap.Symbol{
+					{Name: "DefaultExploreHeuristics", Line: 707},
+					{Name: "LoopMaxMidLoopInjects", Line: 216},
+				},
+			},
+			"internal/agent/loop_policy.go": {
+				RelPath: "internal/agent/loop_policy.go",
+				Symbols: []repomap.Symbol{
+					{Name: "DefaultLoopPolicy", Line: 118},
+				},
+			},
+		},
+	}
+	evidence := []types.EvidenceItem{{
+		Kind:            types.EvidenceDirect,
+		Subject:         "LoopMaxMidLoopInjects",
+		Predicate:       "defaults_to",
+		Object:          "6",
+		Source:          "internal/types/config.go",
+		GroundingStatus: types.GroundingGrounded,
+		ContextRole:     types.EvidenceContextRoleRelatedContext,
+	}}
+	cands := collectExactResolutionSymbolCandidatesFromGraph(graph, contract, nil, nil, evidence)
+	if len(cands) == 0 {
+		t.Fatal("expected same-family candidates")
+	}
+	found := false
+	for _, cand := range cands {
+		if cand.Symbol == "DefaultExploreHeuristics" && cand.File == "internal/types/config.go" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected anchored-file boost to keep DefaultExploreHeuristics in candidates, got %+v", cands)
+	}
+}
+
 func TestObserveMidLoop_ExactAbsenceReadsSameFamilyContextBeforeClose(t *testing.T) {
 	eval := &explorerEvaluator{
 		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},

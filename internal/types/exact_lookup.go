@@ -45,10 +45,10 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	if !exactResolutionEnabled(rm) {
 		return nil
 	}
-	if targets := MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets); len(targets) > 0 {
+	if targets := exactResolutionSubjectCompatibleCandidates(rm, MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.ExactTargets)); len(targets) > 0 {
 		return dedupeExactResolutionTargets(exactResolutionFindingKindForRM(rm), targets)
 	}
-	candidates := exactResolutionMentionedCandidates(rm)
+	candidates := exactResolutionSubjectCompatibleCandidates(rm, exactResolutionMentionedCandidates(rm))
 	switch len(candidates) {
 	case 0:
 		// Provenance-only contract: exact targets must come from the
@@ -74,6 +74,35 @@ func exactResolutionMentionedCandidates(rm RequestModel) []string {
 		return recovered
 	}
 	return MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
+}
+
+func exactResolutionSubjectCompatibleCandidates(rm RequestModel, candidates []string) []string {
+	if len(candidates) == 0 {
+		return nil
+	}
+	primary := rm.AnalyzerHints.PrimaryEntities
+	if len(primary) == 0 {
+		return candidates
+	}
+	kind := exactResolutionFindingKindForRM(rm)
+	allowed := make(map[string]bool, len(primary))
+	for _, item := range primary {
+		key := normalizeExactResolutionToken(kind, item)
+		if key != "" {
+			allowed[key] = true
+		}
+	}
+	if len(allowed) == 0 {
+		return candidates
+	}
+	var out []string
+	for _, candidate := range candidates {
+		key := normalizeExactResolutionToken(kind, candidate)
+		if key != "" && allowed[key] {
+			out = append(out, candidate)
+		}
+	}
+	return out
 }
 
 func MentionedEntitiesFromRawRequest(raw string, candidates []string) []string {
@@ -203,6 +232,32 @@ func ExactResolutionTextMentionsTarget(c *ExactResolutionContract, text, target 
 	return strings.Contains(normalizeExactResolutionToken(kind, text), normTarget)
 }
 
+// ExactResolutionTextsMentionAnyTarget reports whether any provided text
+// fragment explicitly names one of the contract's exact targets under
+// the same normalization used by pending-target matching.
+func ExactResolutionTextsMentionAnyTarget(c *ExactResolutionContract, texts ...string) bool {
+	if c == nil || len(c.Targets) == 0 {
+		return false
+	}
+	joined := strings.Join(texts, "\n")
+	for _, target := range c.Targets {
+		if ExactResolutionTextMentionsTarget(c, joined, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// ExactResolutionDirectAnchorMatchesAnyTarget reports whether any
+// structured anchor field (subject / anchor symbol / object) explicitly
+// names one of the exact targets. Callers use this to separate genuine
+// defining anchors from free-form summary/snippet mentions.
+func ExactResolutionDirectAnchorMatchesAnyTarget(c *ExactResolutionContract, subject, anchorSymbol, object string) bool {
+	return ExactResolutionTextsMentionAnyTarget(c, subject) ||
+		ExactResolutionTextsMentionAnyTarget(c, anchorSymbol) ||
+		ExactResolutionTextsMentionAnyTarget(c, object)
+}
+
 // ExactResolutionContextTerms returns the validated same-scope term
 // shortlist that the analyzer proposed for nearby-context narrowing.
 // These terms are LLM-recommended, then system-validated against the
@@ -288,6 +343,47 @@ func exactResolutionFindingKind(c *ExactResolutionContract) string {
 	return "symbol"
 }
 
+// ExactResolutionRequiresDefiningPrimaryProof reports whether exact-match
+// and alias-match answers should require a production-like / non-auxiliary
+// defining anchor rather than any grounded mention. Exact file-path
+// lookups remain more permissive because the target itself may live under
+// examples/tests/docs without that making it a substitute answer.
+func ExactResolutionRequiresDefiningPrimaryProof(c *ExactResolutionContract) bool {
+	if c == nil {
+		return false
+	}
+	switch c.TargetKind {
+	case SubjectFilePath:
+		return false
+	case SubjectConfigKey,
+		SubjectFunctionName,
+		SubjectTypeName,
+		SubjectStructField,
+		SubjectInterface,
+		SubjectEnumValue,
+		SubjectHandlerRoute,
+		SubjectStringLiteral:
+		return true
+	default:
+		return false
+	}
+}
+
+// ExactResolutionSourceIsDefiningPrimaryProofLike reports whether a
+// grounded repo-relative source path can serve as a defining proof for
+// the contract's target kind. This is a structural source-role check,
+// not a semantic classifier.
+func ExactResolutionSourceIsDefiningPrimaryProofLike(c *ExactResolutionContract, source string) bool {
+	source = strings.TrimSpace(source)
+	if source == "" {
+		return false
+	}
+	if !ExactResolutionRequiresDefiningPrimaryProof(c) {
+		return true
+	}
+	return !LooksLikeAuxiliaryEvidencePath(source)
+}
+
 func exactResolutionFindingKindMatches(expected, got string) bool {
 	got = strings.TrimSpace(strings.ToLower(got))
 	if got == "" {
@@ -332,6 +428,15 @@ func exactResolutionValidatedContextTerms(targets, explicit, keywords []string) 
 			}
 		}
 	}
+	if len(out) == 0 {
+		for term := range allowed {
+			if seen[term] {
+				continue
+			}
+			seen[term] = true
+			out = append(out, term)
+		}
+	}
 	sort.Strings(out)
 	return out
 }
@@ -361,6 +466,13 @@ func normalizeExactResolutionToken(kind, s string) string {
 		}
 		return b.String()
 	}
+}
+
+// ExactResolutionLookupKey exposes the stable exact-target normalization
+// used by matching / pending-target checks so other stages can reuse the
+// same token equivalence without re-implementing it.
+func ExactResolutionLookupKey(kind, s string) string {
+	return normalizeExactResolutionToken(kind, s)
 }
 
 // ExactResolutionIdentifierTerms splits an identifier/path-like surface

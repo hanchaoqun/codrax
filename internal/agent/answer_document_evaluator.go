@@ -605,7 +605,9 @@ func collectConfigTraceDiagramAnchors(ctx *types.AgentContext) []configTraceDiag
 }
 
 func classifyConfigTraceDiagramRole(ev types.EvidenceItem) (string, int) {
-	if ev.Source == "" || ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly {
+	if ev.Source == "" ||
+		ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
+		ev.ContextRole == types.EvidenceContextRoleAbsenceSupport {
 		return "", 0
 	}
 	if ev.GroundingStatus == types.GroundingUngrounded || ev.Kind == types.EvidenceUnresolved || ev.Kind == types.EvidenceTruncated {
@@ -814,7 +816,9 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 		}
 	}
 	if exactMention {
-		if isTestLike {
+		if ev.ContextRole == types.EvidenceContextRoleAbsenceSupport {
+			score += 1
+		} else if isTestLike {
 			score += 4
 		} else {
 			score += 18
@@ -839,6 +843,8 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 	switch ev.ContextRole {
 	case types.EvidenceContextRoleDefining:
 		score += 6
+	case types.EvidenceContextRoleAbsenceSupport:
+		score += 1
 	case types.EvidenceContextRoleRelatedContext:
 		score += 3
 	}

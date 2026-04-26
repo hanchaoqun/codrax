@@ -204,6 +204,60 @@ func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 	}
 }
 
+func TestEmitEvidence_DropsConfigTraceDiagramRoleForOutOfScopeHelper(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 是怎么生效的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectConfigKey,
+				TargetLabel:  "config key",
+				Targets:      []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence: true,
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "collectConfigTraceDiagramAnchors",
+				"predicate": "assembles",
+				"source": "internal/context/builder.go",
+				"line_start": 1763,
+				"summary": "helper for answer-document prompt assembly",
+				"anchor_kind": "definition",
+				"anchor_symbol": "collectConfigTraceDiagramAnchors",
+				"context_role_hint": "related_context",
+				"diagram_role_hint": "runtime"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
+		t.Fatalf("diagram role = %q, want unknown for out-of-scope helper evidence", got[0].DiagramRole)
+	}
+}
+
 func TestEmitEvidence_DoesNotInferDiagramRoleWithoutHint(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
@@ -277,6 +331,61 @@ func TestEmitEvidence_DropsInconsistentDiagramRoleHint(t *testing.T) {
 	}
 	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
 		t.Fatalf("diagram role = %q, want unknown for inconsistent hint", got[0].DiagramRole)
+	}
+}
+
+func TestEmitEvidence_ConvertsFreeformExactMentionIntoAbsenceSupport(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "FooHandler 在哪里定义？",
+			AnalyzerHints: types.AnalyzerHints{
+				PrimaryEntities: []string{"FooHandler"},
+				ExactTargets:    []string{"FooHandler"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectFunctionName,
+				TargetLabel:  "symbol",
+				Targets:      []string{"FooHandler"},
+				AllowAbsence: true,
+			},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "mechanism",
+				"subject": "buildFallbackHandlers",
+				"predicate": "describes",
+				"source": "internal/agent/router.go",
+				"line_start": 42,
+				"summary": "The fallback path explains why FooHandler is absent from the runtime router.",
+				"anchor_kind": "definition",
+				"anchor_symbol": "buildFallbackHandlers",
+				"context_role_hint": "related_context"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].ContextRole != types.EvidenceContextRoleAbsenceSupport {
+		t.Fatalf("context role = %q, want absence_support", got[0].ContextRole)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
+		t.Fatalf("absence-support evidence should suppress repair loops, got: %q", got[0].GroundingNote)
 	}
 }
 
@@ -534,7 +643,7 @@ func TestEmitEvidence_MajorityRejectFailsEntireBatch(t *testing.T) {
 	}
 }
 
-func TestEmitEvidence_ConfigAbsentPrimaryDemotesSubstituteEvidence(t *testing.T) {
+func TestEmitEvidence_ConfigAbsentPrimaryMarksSubstituteEvidenceContextOnly(t *testing.T) {
 	missingKey := "zz_absent_config_" + "knob"
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()
@@ -571,14 +680,14 @@ func TestEmitEvidence_ConfigAbsentPrimaryDemotesSubstituteEvidence(t *testing.T)
 	if len(got) != 1 {
 		t.Fatalf("want 1 item in buffer, got %d", len(got))
 	}
-	if got[0].Kind != types.EvidenceUnresolved {
-		t.Fatalf("related substitute evidence kind=%q, want unresolved", got[0].Kind)
-	}
-	if got[0].GroundingStatus != types.GroundingUngrounded {
-		t.Fatalf("related substitute evidence grounding=%q, want ungrounded", got[0].GroundingStatus)
+	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
+		t.Fatalf("related substitute evidence context role=%q, want related_context", got[0].ContextRole)
 	}
 	if !strings.Contains(got[0].Summary, "context only") {
 		t.Fatalf("summary should mark context-only evidence: %q", got[0].Summary)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "do not repair this item") {
+		t.Fatalf("grounding note should suppress substitute repair loops: %q", got[0].GroundingNote)
 	}
 }
 

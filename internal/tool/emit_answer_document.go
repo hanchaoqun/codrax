@@ -1412,10 +1412,13 @@ func answerDiagramContract(ctx *types.BusContext) *types.DiagramContract {
 }
 
 func answerExactResolutionContract(ctx *types.BusContext) *types.ExactResolutionContract {
-	if ctx == nil || ctx.AnalysisIR == nil || ctx.AnalysisIR.AnswerContract.ExactResolution == nil {
+	if ctx == nil || ctx.AnalysisIR == nil {
 		return nil
 	}
-	return ctx.AnalysisIR.AnswerContract.ExactResolution
+	if ctx.AnalysisIR.AnswerContract.ExactResolution != nil {
+		return ctx.AnalysisIR.AnswerContract.ExactResolution
+	}
+	return types.BuildExactResolutionContract(ctx.AnalysisIR.RequestModel)
 }
 
 func validateSummaryRequiredDiagram(summary string, ctx *types.BusContext) error {
@@ -2269,8 +2272,10 @@ type exactResolutionProofEntry struct {
 	Subject      string
 	AnchorSymbol string
 	Object       string
+	ContextRole  types.EvidenceContextRole
 	Grounded     bool
 	Production   bool
+	DirectAnchor bool
 	FromEvidence bool
 }
 
@@ -2280,6 +2285,7 @@ type exactResolutionProof struct {
 	AnyTarget                       bool
 	AnyProductionTarget             bool
 	AnyProductionTargetAnchor       bool
+	AnyDefiningTargetProof          bool
 	TargetMentionContradictsAbsence bool
 	RequiresProductionProof         bool
 }
@@ -2316,7 +2322,7 @@ func collectExactResolutionProof(contract *types.ExactResolutionContract, citati
 	proof := exactResolutionProof{
 		Contract:                contract,
 		Entries:                 exactResolutionProofEntries(contract, citations, gc, ctx),
-		RequiresProductionProof: contract != nil && contract.TargetKind == types.SubjectConfigKey,
+		RequiresProductionProof: types.ExactResolutionRequiresDefiningPrimaryProof(contract),
 	}
 	for _, entry := range proof.Entries {
 		if !entry.Grounded {
@@ -2328,23 +2334,24 @@ func collectExactResolutionProof(contract *types.ExactResolutionContract, citati
 		proof.AnyTarget = true
 		if entry.Production {
 			proof.AnyProductionTarget = true
-			if entryDirectlyAnchorsAnyTarget(contract, entry) {
+			if entryCountsAsDefiningTargetProof(contract, entry) {
 				proof.AnyProductionTargetAnchor = true
 			}
 		}
+		if entryCountsAsDefiningTargetProof(contract, entry) {
+			proof.AnyDefiningTargetProof = true
+		}
 	}
-	if proof.RequiresProductionProof {
-		proof.TargetMentionContradictsAbsence = proof.AnyProductionTargetAnchor
-	} else {
-		proof.TargetMentionContradictsAbsence = proof.AnyTarget
-	}
+	proof.TargetMentionContradictsAbsence = proof.AnyDefiningTargetProof
 	return proof
 }
 
 func exactResolutionProofEntries(contract *types.ExactResolutionContract, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) []exactResolutionProofEntry {
 	var out []exactResolutionProofEntry
+	var emitted []types.EvidenceItem
 	if ctx != nil && ctx.Mutable != nil {
-		for _, item := range ctx.Mutable.EmittedEvidence() {
+		emitted = ctx.Mutable.EmittedEvidence()
+		for _, item := range emitted {
 			out = append(out, exactResolutionProofEntry{
 				Text: strings.Join([]string{
 					item.Subject,
@@ -2359,8 +2366,10 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 				Subject:      item.Subject,
 				AnchorSymbol: item.AnchorSymbol,
 				Object:       item.Object,
+				ContextRole:  item.ContextRole,
 				Grounded:     item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered,
-				Production:   exactResolutionProofSourceIsProductionLike(contract, item.Source) && item.ContextRole != types.EvidenceContextRoleIllustrativeOnly,
+				Production:   types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, item.Source) && item.ContextRole != types.EvidenceContextRoleIllustrativeOnly && item.ContextRole != types.EvidenceContextRoleAbsenceSupport,
+				DirectAnchor: types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, item.Subject, item.AnchorSymbol, item.Object),
 				FromEvidence: true,
 			})
 		}
@@ -2379,11 +2388,17 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 			}
 		}
 		if lineText != "" {
+			matched := matchingEvidenceForCitation(emitted, c)
 			out = append(out, exactResolutionProofEntry{
-				Text:       lineText,
-				Source:     c.File,
-				Grounded:   true,
-				Production: exactResolutionProofSourceIsProductionLike(contract, c.File),
+				Text:         lineText,
+				Source:       c.File,
+				Subject:      matched.Subject,
+				Object:       matched.Object,
+				AnchorSymbol: matched.AnchorSymbol,
+				ContextRole:  matched.ContextRole,
+				Grounded:     true,
+				Production:   citationCountsAsPrimaryProofSource(contract, c.File, matched),
+				DirectAnchor: citationDirectlyAnchorsAnyTarget(contract, c, lineText, matched),
 			})
 		}
 	}
@@ -2410,31 +2425,69 @@ func entryMentionsAnchor(contract *types.ExactResolutionContract, entry exactRes
 }
 
 func entryDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, entry exactResolutionProofEntry) bool {
-	if contract == nil || !entry.FromEvidence {
+	return entry.DirectAnchor || types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, entry.Subject, entry.AnchorSymbol, entry.Object)
+}
+
+func entryCountsAsDefiningTargetProof(contract *types.ExactResolutionContract, entry exactResolutionProofEntry) bool {
+	if contract == nil || !entry.Grounded {
 		return false
 	}
-	for _, target := range contract.Targets {
-		if types.ExactResolutionTextMentionsTarget(contract, entry.Subject, target) ||
-			types.ExactResolutionTextMentionsTarget(contract, entry.AnchorSymbol, target) ||
-			types.ExactResolutionTextMentionsTarget(contract, entry.Object, target) {
-			return true
+	if !entryMentionsAnyTarget(contract, entry) {
+		return false
+	}
+	if types.ExactResolutionRequiresDefiningPrimaryProof(contract) && !entry.Production {
+		return false
+	}
+	switch entry.ContextRole {
+	case types.EvidenceContextRoleIllustrativeOnly, types.EvidenceContextRoleAbsenceSupport:
+		return false
+	}
+	if entry.ContextRole == types.EvidenceContextRoleDefining {
+		return true
+	}
+	return entryDirectlyAnchorsAnyTarget(contract, entry)
+}
+
+func matchingEvidenceForCitation(items []types.EvidenceItem, c types.Citation) types.EvidenceItem {
+	for _, item := range items {
+		if item.Source != c.File || item.LineStart <= 0 {
+			continue
+		}
+		lineEnd := item.LineEnd
+		if lineEnd <= 0 {
+			lineEnd = item.LineStart
+		}
+		if c.Line >= item.LineStart && c.Line <= lineEnd {
+			return item
+		}
+	}
+	return types.EvidenceItem{}
+}
+
+func citationCountsAsPrimaryProofSource(contract *types.ExactResolutionContract, source string, matched types.EvidenceItem) bool {
+	if matched.Source != "" {
+		return types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, matched.Source) &&
+			matched.ContextRole != types.EvidenceContextRoleIllustrativeOnly &&
+			matched.ContextRole != types.EvidenceContextRoleAbsenceSupport
+	}
+	return types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, source)
+}
+
+func citationDirectlyAnchorsAnyTarget(contract *types.ExactResolutionContract, c types.Citation, lineText string, matched types.EvidenceItem) bool {
+	if matched.Source != "" {
+		return types.ExactResolutionDirectAnchorMatchesAnyTarget(contract, matched.Subject, matched.AnchorSymbol, matched.Object)
+	}
+	if contract == nil {
+		return false
+	}
+	if contract.TargetKind == types.SubjectFilePath {
+		for _, target := range contract.Targets {
+			if types.ExactResolutionTextMentionsTarget(contract, c.File, target) {
+				return true
+			}
 		}
 	}
 	return false
-}
-
-func exactResolutionProofSourceIsProductionLike(contract *types.ExactResolutionContract, source string) bool {
-	if contract == nil || contract.TargetKind != types.SubjectConfigKey {
-		return true
-	}
-	source = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(source), `\`, `/`))
-	if source == "" {
-		return false
-	}
-	if types.LooksLikeAuxiliaryEvidencePath(source) {
-		return false
-	}
-	return true
 }
 
 func validateEvidenceSummaryCodenameGrounding(item *types.EvidenceItem, gc *ground.Context) error {

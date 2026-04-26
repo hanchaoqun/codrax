@@ -513,12 +513,12 @@ func graphHasExactSymbol(graph *repomap.Graph, token string) bool {
 	if defs := graph.SymbolDefs[token]; len(defs) > 0 {
 		return true
 	}
-	norm := normalizeConfigToken(token)
+	norm := types.ExactResolutionLookupKey("symbol", token)
 	if norm == "" {
 		return false
 	}
 	for name, defs := range graph.SymbolDefs {
-		if len(defs) > 0 && normalizeConfigToken(name) == norm {
+		if len(defs) > 0 && types.ExactResolutionLookupKey("symbol", name) == norm {
 			return true
 		}
 	}

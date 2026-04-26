@@ -1142,6 +1142,60 @@ func TestEmitAnswerDocument_AllowsAbsenceWithProductionContextOnlyMention(t *tes
 	}
 }
 
+func TestEmitAnswerDocument_AllowsAbsenceWithFunctionAbsenceSupport(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	ctx := newDocBusCtx("")
+	target := "FooHandler"
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			AnalyzerHints: types.AnalyzerHints{
+				ExactTargets: []string{target},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectFunctionName},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectFunctionName,
+				TargetLabel:          "symbol",
+				Targets:              []string{target},
+				AllowAbsence:         true,
+				RequireTargetMention: true,
+				AliasRequiresProof:   true,
+				RelatedContextPolicy: types.ExactContextGroundedOnly,
+			},
+		},
+	}
+	ctx.Mutable.SetAbsenceJustification("no function named `FooHandler` exists in the repo")
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.AppendEvidence([]types.EvidenceItem{{
+		Kind:            types.EvidenceMechanism,
+		Subject:         "buildFallbackHandlers",
+		Predicate:       "describes",
+		Summary:         "The fallback path explains why FooHandler is absent from the runtime router.",
+		Source:          "internal/agent/router.go",
+		LineStart:       42,
+		LineEnd:         42,
+		GroundingStatus: types.GroundingGrounded,
+		ContextRole:     types.EvidenceContextRoleAbsenceSupport,
+		AnchorKind:      types.AnchorDefinition,
+		AnchorSymbol:    "buildFallbackHandlers",
+		Producer:        EmitEvidenceProducer,
+	}})
+
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape": "explanation",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+		"summary": "Related grounded routing context stays context only.",
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("absence-support evidence should not contradict absence for symbol lookups, got: %q", res.Summary)
+	}
+}
+
 func TestEmitAnswerDocument_AllowsAbsenceWithoutPendingFinding(t *testing.T) {
 	tool := &EmitAnswerDocument{}
 	ctx := newDocBusCtx("")
