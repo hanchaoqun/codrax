@@ -643,6 +643,30 @@ func TestNewAPIError_ParsesHeadersAndBody(t *testing.T) {
 	}
 }
 
+// TestStreamHTTPClient_HasNoOuterTimeout pins the load-bearing
+// invariant: the streaming client must NOT impose an outer
+// http.Client.Timeout. Streaming cancellation is owned by the
+// per-request context + streamStallTimeout watchdog. Combining the
+// two surfaces caused premature "context deadline exceeded"
+// failures during long emit_change_plan / emit_answer_document
+// streams when the upstream was actively producing bytes for
+// >120 s (Batch L forth-py / sgf-parsing).
+func TestStreamHTTPClient_HasNoOuterTimeout(t *testing.T) {
+	a := NewOpenAIAdapter("k", "m", "http://x", testAdapterOpts(AdapterOptions{
+		RequestTimeout:   120 * time.Second,
+		RetryMaxAttempts: 6,
+	}))
+	if a.streamHTTPClient == nil {
+		t.Fatal("streamHTTPClient must be constructed alongside httpClient")
+	}
+	if a.streamHTTPClient.Timeout != 0 {
+		t.Errorf("streamHTTPClient.Timeout = %v, want 0 (watchdog owns cancellation)", a.streamHTTPClient.Timeout)
+	}
+	if a.httpClient.Timeout != 120*time.Second {
+		t.Errorf("httpClient.Timeout = %v, want 120s (non-stream cap unchanged)", a.httpClient.Timeout)
+	}
+}
+
 func TestStreamStallTimeout_SaneDefaults(t *testing.T) {
 	if streamStallTimeout < 10*time.Second {
 		t.Errorf("streamStallTimeout=%v is too aggressive; thinking-model inter-chunk pauses can hit 5-10s, would false-positive", streamStallTimeout)

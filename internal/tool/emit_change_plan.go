@@ -1163,11 +1163,31 @@ func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
 	}
 	defer cleanup()
 
-	// Detect ES module mode by reading scratch/package.json's
-	// "type" field. Errors here degrade to false (CommonJS, the
-	// historical default) so a malformed package.json doesn't break
-	// the validator entirely.
-	esModule := nodePackageJSONIsModule(filepath.Join(scratch, "package.json"))
+	// Detect ES module mode at TWO levels:
+	//
+	//  1. Project-level: package.json declares "type": "module".
+	//     The simplest, most explicit signal; one flip of one flag.
+	//
+	//  2. Per-file content-level: the file ITSELF uses ESM syntax
+	//     (top-level `import` / `export`). Catches the wide class of
+	//     projects that compile ESM source to CJS at build time —
+	//     Babel, webpack, jest with babel-jest, esbuild, parcel,
+	//     vitest, etc. None of these set type:module on the manifest,
+	//     yet their source files are valid ESM that `node --check`
+	//     rejects under default CJS semantics.
+	//
+	// If either signal fires for a given file, we rename it to .mjs
+	// in the scratch overlay so node treats it as ESM during the
+	// check. The rename is per-file, so a CJS file in a Babel project
+	// (e.g. `jest.config.cjs`) is still checked under CJS.
+	//
+	// Bug provenance: Batch L binary-js + space-age-js — both
+	// projects use Babel/Jest with ESM source but no type:module,
+	// so V2 dry-build false-positively rejected valid LLM output
+	// with "Unexpected token 'export'". The per-file content scan
+	// generalizes the .mjs rename without maintaining an opt-in
+	// list of transformer toolchains.
+	projectESM := nodePackageJSONIsModule(filepath.Join(scratch, "package.json"))
 
 	// node --check is per-file; concatenate diagnostics from every
 	// failing file so the planner sees the full picture in one shot.
@@ -1182,7 +1202,20 @@ func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
 		// IF the file is invoked relative to that package. Rename
 		// to .mjs in the scratch dir to disambiguate — node always
 		// treats .mjs as module regardless of package.json.
+		//
+		// Per-file ESM detection: the .mjs rename also fires when
+		// the file's own contents use top-level import/export
+		// (independent of project type). Covers Babel-transformed
+		// projects whose source is ESM but manifest is CJS.
 		checkPath := p
+		fileESM := projectESM
+		if !fileESM && strings.HasSuffix(p, ".js") {
+			absSrc := filepath.Join(scratch, p)
+			if data, err := os.ReadFile(absSrc); err == nil {
+				fileESM = containsESMSyntax(data)
+			}
+		}
+		esModule := fileESM
 		if esModule && strings.HasSuffix(p, ".js") {
 			renamed := p + ".__codrax_mjs.mjs"
 			absSrc := filepath.Join(scratch, p)
@@ -1208,9 +1241,35 @@ func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
 	if failed {
 		return formatDryBuildRejection("Node.js", "node --check <files>", combinedOut, len(combinedOut))
 	}
-	logging.Debug("[emit_change_plan] V2 Node dry-build PASS for files: %v (esm=%v)", jsChanges, esModule)
+	logging.Debug("[emit_change_plan] V2 Node dry-build PASS for files: %v (project_esm=%v)", jsChanges, projectESM)
 	return ""
 }
+
+// containsESMSyntax returns true when the given JavaScript source
+// uses top-level ESM syntax (`import` / `export` keywords at line
+// start, ignoring leading whitespace and shebang lines). Used by the
+// V2 Node dry-build to auto-detect Babel-style projects whose source
+// is ESM but whose package.json doesn't declare `type:module` — those
+// projects depend on a build-step transformer (Babel, webpack, jest
+// with babel-jest, esbuild, parcel, vitest, etc.) to compile ESM
+// source to CJS at runtime, so `node --check` under default CJS
+// semantics false-positively rejects the valid source.
+//
+// Detection is intentionally conservative: only top-of-line keywords
+// match, so `// example: import x` in a comment doesn't trip it. The
+// regex is anchored at line start (multiline mode) and requires a
+// space after the keyword, ruling out identifiers like `importance`.
+//
+// False-positive cost (treating CJS as ESM): minimal — node accepts
+// CJS-style `require` / `module.exports` under module semantics too,
+// so the renamed .mjs check still passes. False-negative cost (ESM
+// missed): the original Unexpected-token rejection fires, same as
+// before this helper existed.
+func containsESMSyntax(content []byte) bool {
+	return esmSyntaxRegex.Match(content)
+}
+
+var esmSyntaxRegex = regexp.MustCompile(`(?m)^\s*(?:import|export)\s`)
 
 // nodePackageJSONIsModule returns true when the package.json at the
 // given path declares `"type": "module"`. Errors (file missing,

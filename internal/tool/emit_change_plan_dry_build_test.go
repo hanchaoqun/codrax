@@ -147,10 +147,18 @@ func TestDryBuildNodeJS_ESModuleAccepted(t *testing.T) {
 	}
 }
 
-// TestDryBuildNodeJS_CommonJSRejectsExport: complement test — when
-// package.json has NO type:module (default CommonJS), `export` is
-// genuinely a syntax error and SHOULD be rejected.
-func TestDryBuildNodeJS_CommonJSRejectsExport(t *testing.T) {
+// TestDryBuildNodeJS_BabelESMAccepted: when package.json does NOT
+// declare type:module but the file ITSELF uses ESM syntax (top-level
+// `export`), the per-file content scan auto-detects ESM and renames
+// to .mjs in scratch so the check passes. Covers Babel/webpack/jest
+// projects whose source is ESM but whose manifest is CJS — the
+// dominant real-world JS pattern.
+//
+// Bug provenance: Batch L binary-js + space-age-js — both used valid
+// `export class Foo` syntax, project used Babel/Jest, V2 dry-build
+// false-positively rejected. The per-file detection generalizes the
+// .mjs rename without needing to enumerate transformer toolchains.
+func TestDryBuildNodeJS_BabelESMAccepted(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node not on PATH")
 	}
@@ -160,16 +168,73 @@ func TestDryBuildNodeJS_CommonJSRejectsExport(t *testing.T) {
 	}
 	bus := &types.BusContext{RepoRoot: repo}
 	changes := []types.FileChange{{
-		Path:       "cjs.js",
+		Path:       "binary.js",
 		Kind:       "create",
 		NewContent: "export class Binary {\n  constructor(x) { this.x = x; }\n}\n",
 	}}
 	rej := dryBuildNodeJS(bus, changes)
+	if rej != "" {
+		t.Fatalf("file-level ESM should be auto-accepted in CJS project; got rejection:\n%s", rej)
+	}
+}
+
+// TestDryBuildNodeJS_TrueSyntaxErrorStillRejected confirms the
+// auto-ESM detection doesn't mask genuine syntax errors. A file
+// using ESM keywords but with a real syntax error (mismatched
+// brace) is still rejected — file-level detection only changes
+// the parsing MODE, not the validity floor.
+func TestDryBuildNodeJS_TrueSyntaxErrorStillRejected(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node not on PATH")
+	}
+	repo := t.TempDir()
+	if err := os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{"name":"x"}`), 0o644); err != nil {
+		t.Fatalf("seed package.json: %v", err)
+	}
+	bus := &types.BusContext{RepoRoot: repo}
+	changes := []types.FileChange{{
+		Path:       "broken.js",
+		Kind:       "create",
+		NewContent: "export class Bad {\n  constructor(x) { this.x = x;\n}\n",
+	}}
+	rej := dryBuildNodeJS(bus, changes)
 	if rej == "" {
-		t.Fatal("CommonJS project (no type:module) should reject `export` syntax")
+		t.Fatal("ESM file with mismatched brace should still be rejected (real syntax error)")
 	}
 	if !strings.Contains(rej, "Node.js") {
 		t.Errorf("rejection should name language; got %q", rej)
+	}
+}
+
+// TestContainsESMSyntax pins the per-file ESM detection helper. The
+// regex is anchored at line-start (multiline) and requires a space
+// after the keyword so identifiers like `importance` / `exporting`
+// don't false-positive. Comments are not stripped — the detector is
+// a parsing-mode hint, not an authoritative syntax check, so a
+// best-effort pattern match beats a full parser.
+func TestContainsESMSyntax(t *testing.T) {
+	cases := []struct {
+		name string
+		src  string
+		want bool
+	}{
+		{"top_level_export", "export class Foo {}", true},
+		{"top_level_import", "import { x } from 'y';", true},
+		{"export_default", "export default function() {}", true},
+		{"indented_import_in_function", "  import { x } from 'y';", true},
+		{"plain_cjs", "module.exports = 1;\nconst x = require('y');", false},
+		{"identifier_importance", "let importance = 5;", false},
+		{"identifier_exporting", "const exporting = true;", false},
+		{"comment_only", "// import { x } from 'y'\nmodule.exports = 1;", false},
+		{"multi_line_with_export_later", "// header\n\nconst y = 1;\nexport { y };", true},
+		{"empty_file", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := containsESMSyntax([]byte(c.src)); got != c.want {
+				t.Errorf("containsESMSyntax(%q) = %v, want %v", c.src, got, c.want)
+			}
+		})
 	}
 }
 

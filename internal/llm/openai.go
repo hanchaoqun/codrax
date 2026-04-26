@@ -67,8 +67,23 @@ type OpenAIAdapter struct {
 	// config.ResolveRetryAttempts; always positive post-construction.
 	retryMaxAttempts int
 
-	stream     bool
+	stream bool
+	// httpClient is the non-streaming client; honors requestTimeout
+	// as the outer cap on a single round-trip.
 	httpClient *http.Client
+	// streamHTTPClient is the streaming client with NO outer timeout
+	// — cancellation is owned exclusively by the per-request context
+	// + the streamStallTimeout watchdog (which cancels when no bytes
+	// arrive for streamStallTimeout). Mixing an outer http.Client
+	// timeout with watchdog-driven streaming caused premature
+	// "context deadline exceeded" failures during long emit_change_plan
+	// / emit_answer_document streams (Batch L forth-py, sgf-parsing) —
+	// the upstream was actively producing bytes, just slowly enough
+	// that the cumulative wall hit the 120 s cap. Watchdog already
+	// catches the only case the outer timeout is meant to catch
+	// (genuinely stalled connection), so the outer timeout is pure
+	// false-positive risk on the streaming path.
+	streamHTTPClient *http.Client
 }
 
 // TLSOptions carries the per-provider TLS knobs loaded from
@@ -134,6 +149,10 @@ func NewOpenAIAdapter(apiKey, model, baseURL string, opts AdapterOptions) *OpenA
 		retryMaxAttempts: opts.RetryMaxAttempts,
 		stream:           opts.Stream,
 		httpClient:       buildHTTPClient(opts.TLS, baseURL, opts.RequestTimeout),
+		// Streaming client gets NO outer timeout (Duration(0)); the
+		// per-request context + streamStallTimeout watchdog own
+		// cancellation. See struct field commentary for rationale.
+		streamHTTPClient: buildHTTPClient(opts.TLS, baseURL, 0),
 	}
 }
 
@@ -351,7 +370,7 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 	req.Header.Set("Authorization", "Bearer "+o.apiKey)
 	req.Header.Set("Accept", "text/event-stream")
 
-	httpResp, err := o.httpClient.Do(req)
+	httpResp, err := o.streamHTTPClient.Do(req)
 	if err != nil {
 		return Response{}, fmt.Errorf("http request: %w", err)
 	}
