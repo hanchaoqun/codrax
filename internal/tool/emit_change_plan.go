@@ -1322,22 +1322,61 @@ type LintLang struct {
 // is alphabetical by language for predictability — change with care.
 //
 // Coverage status (matches run_tests.go runner whitelist size 12):
-//   ✓ Go        — gofmt -l (bundled with go toolchain)
+//   ✓ C          — gcc -Wall -Wextra -Werror -fsyntax-only (system gcc)
+//   ✓ C++        — g++ -Wall -Wextra -Werror -fsyntax-only -std=c++17 (system g++)
+//   ✓ Go         — gofmt -l (bundled with go toolchain)
+//   ✓ Java       — javac -Xlint:all (bundled with JDK)
 //   ✓ JavaScript — node --check (bundled with node)
-//   ✓ Python    — ruff check (pip install ruff)
-//   ✓ Ruby      — ruby -wc (bundled with ruby)
-//   ✓ Rust      — rustc --edition=2021 --emit=metadata (bundled with rustup)
-//   ✓ Swift     — swift -frontend -typecheck (bundled with swift)
-//   ✓ Java      — javac -Xlint:all (bundled with JDK)
-//   ✗ ArkTS     — hvigor lint? (project-specific config; deferred)
-//   ✗ Cangjie   — cjpm lint? (toolchain still in flux; deferred)
-//   ✗ C / C++   — clang-tidy needs project configure step; deferred
+//   ✓ Python     — ruff check --select=E,F (pip install ruff)
+//   ✓ Ruby       — ruby -wc (bundled with ruby)
+//   ✓ Rust       — rustc --edition=2021 --emit=metadata (bundled with rustup)
+//   ✓ Swift      — swift -frontend -typecheck (bundled with swift)
+//   ✓ TypeScript — tsc --noEmit --strict (single file; npm install -g typescript)
+//   ✗ ArkTS      — hvigor lint requires project-level oh-package.json5; deferred
+//                  to a future "project-aware" V6 layer. Single-file lint is
+//                  not viable for ArkTS by design (decorators reach into the
+//                  project's bundle map).
+//   ✗ Cangjie    — cjpm check requires cjpm.toml + module resolution; same
+//                  project-context constraint as ArkTS. Defer until upstream
+//                  ships a single-file standalone checker (or until we add
+//                  a V6 project-aware lint layer).
+//   ✗ CMake/Meson/Make — these are build-system declarative files, not
+//                  "code" in the lint sense. cmake-lint exists but is a
+//                  style nitpicker; meson has only a formatter. Make has
+//                  no real linter. Adding any of these would generate
+//                  noise without value.
 //
-// 7 of 12 covered with first-class lint. The 3 deferred languages
-// have build/test runners but no portable linter that doesn't
-// require project-level configuration; deferring keeps V5 a
-// strictly-additive validator.
+// 10 of 12 covered with first-class V5 lint. The 2 deferred languages
+// (ArkTS, Cangjie) need project-context awareness that doesn't fit
+// the single-file overlay pattern V5 builds on; the 3 build-system
+// formats are out of scope for "code lint." A future V6 layer can
+// add project-aware lint for the project-context families.
 var lintRegistry = []LintLang{
+	{
+		Name:        "C",
+		Extensions:  []string{".c", ".h"},
+		Binary:      "gcc",
+		Description: "gcc -Wall -Wextra -Werror -fsyntax-only (parse + warning-as-error catch)",
+		BuildArgs: func(files []string) []string {
+			// -fsyntax-only: parse + analyse without codegen (fast).
+			// -Werror: promote warnings (unused-var, dead-branch,
+			// uninitialised-use) to hard fails so V5 routes them to
+			// the planner. Per-file invocation; multi-file gcc would
+			// drag in headers we don't want to require.
+			return []string{"-Wall", "-Wextra", "-Werror", "-fsyntax-only", files[0]}
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+	{
+		Name:        "C++",
+		Extensions:  []string{".cc", ".cpp", ".cxx", ".hpp", ".hh"},
+		Binary:      "g++",
+		Description: "g++ -Wall -Wextra -Werror -fsyntax-only -std=c++17 (parse + warning-as-error catch)",
+		BuildArgs: func(files []string) []string {
+			return []string{"-Wall", "-Wextra", "-Werror", "-fsyntax-only", "-std=c++17", files[0]}
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
 	{
 		Name:        "Go",
 		Extensions:  []string{".go"},
@@ -1427,6 +1466,20 @@ var lintRegistry = []LintLang{
 		Description: "swift -frontend -typecheck (parse + type-check, bundled with swift toolchain)",
 		BuildArgs: func(files []string) []string {
 			return append([]string{"-frontend", "-typecheck"}, files...)
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+	{
+		Name:        "TypeScript",
+		Extensions:  []string{".ts", ".tsx"},
+		Binary:      "tsc",
+		Description: "tsc --noEmit --strict --target=es2020 (single-file type-check; npm install -g typescript)",
+		BuildArgs: func(files []string) []string {
+			// Single-file tsc invocation works without tsconfig.json
+			// for files with no relative imports (the common new-
+			// file case). --skipLibCheck avoids tsc trying to
+			// type-check stdlib types in node_modules.
+			return append([]string{"--noEmit", "--strict", "--target=es2020", "--skipLibCheck"}, files...)
 		},
 		FailedFn: defaultExitCodeFailedFn,
 	},

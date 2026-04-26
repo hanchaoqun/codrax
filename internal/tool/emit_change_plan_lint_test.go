@@ -147,6 +147,106 @@ func TestLintRegistry_JavaScriptParseErrorRejected(t *testing.T) {
 	}
 }
 
+// TestLintRegistry_CUnusedVariableRejected: gcc -Wall -Wextra -Werror
+// promotes -Wunused-variable to an error so dead variables in new C
+// files are caught at plan time.
+func TestLintRegistry_CUnusedVariableRejected(t *testing.T) {
+	if _, err := exec.LookPath("gcc"); err != nil {
+		t.Skip("gcc not on PATH")
+	}
+	repo := t.TempDir()
+	bus := &types.BusContext{RepoRoot: repo}
+	changes := []types.FileChange{{
+		Path:       "noisy.c",
+		Kind:       "create",
+		NewContent: "int main(void){\n    int unused = 42;\n    return 0;\n}\n",
+	}}
+	rej := runLintForName(t, bus, changes, "C")
+	if rej == "" {
+		t.Fatal("gcc -Werror=unused-variable should reject")
+	}
+	if !strings.Contains(rej, "V5 lint failed") {
+		t.Errorf("rejection should carry V5 prefix; got %q", rej)
+	}
+}
+
+// TestLintRegistry_CCleanCodeAccepted: well-formed C with no
+// warnings passes.
+func TestLintRegistry_CCleanCodeAccepted(t *testing.T) {
+	if _, err := exec.LookPath("gcc"); err != nil {
+		t.Skip("gcc not on PATH")
+	}
+	repo := t.TempDir()
+	bus := &types.BusContext{RepoRoot: repo}
+	changes := []types.FileChange{{
+		Path:       "clean.c",
+		Kind:       "create",
+		NewContent: "int main(void){\n    return 0;\n}\n",
+	}}
+	if rej := runLintForName(t, bus, changes, "C"); rej != "" {
+		t.Errorf("clean C should not be rejected; got %q", rej)
+	}
+}
+
+// TestLintRegistry_CppUnusedVariableRejected: same as C but with g++
+// + std=c++17. Pins the C++-specific extension matching (.cc / .cpp /
+// .cxx / .hpp / .hh).
+func TestLintRegistry_CppUnusedVariableRejected(t *testing.T) {
+	if _, err := exec.LookPath("g++"); err != nil {
+		t.Skip("g++ not on PATH")
+	}
+	repo := t.TempDir()
+	bus := &types.BusContext{RepoRoot: repo}
+	changes := []types.FileChange{{
+		Path:       "noisy.cpp",
+		Kind:       "create",
+		NewContent: "int main(){\n    int unused = 42;\n    return 0;\n}\n",
+	}}
+	rej := runLintForName(t, bus, changes, "C++")
+	if rej == "" {
+		t.Fatal("g++ -Werror=unused-variable should reject")
+	}
+	if !strings.Contains(rej, "V5 lint failed") {
+		t.Errorf("rejection should carry V5 prefix; got %q", rej)
+	}
+}
+
+// TestLintRegistry_CppCleanCodeAccepted: clean C++ passes.
+func TestLintRegistry_CppCleanCodeAccepted(t *testing.T) {
+	if _, err := exec.LookPath("g++"); err != nil {
+		t.Skip("g++ not on PATH")
+	}
+	repo := t.TempDir()
+	bus := &types.BusContext{RepoRoot: repo}
+	changes := []types.FileChange{{
+		Path:       "clean.cpp",
+		Kind:       "create",
+		NewContent: "int main(){\n    return 0;\n}\n",
+	}}
+	if rej := runLintForName(t, bus, changes, "C++"); rej != "" {
+		t.Errorf("clean C++ should not be rejected; got %q", rej)
+	}
+}
+
+// TestLintRegistry_TypeScriptToolchainSkipsWhenAbsent: tsc isn't on
+// our test environment's PATH; the registry's silent-skip behaviour
+// must hold (return "" without spawning anything). Documents the
+// "binary missing → noop" contract.
+func TestLintRegistry_TypeScriptToolchainSkipsWhenAbsent(t *testing.T) {
+	if _, err := exec.LookPath("tsc"); err == nil {
+		t.Skip("tsc IS on PATH; this test pins the missing-binary path")
+	}
+	bus := &types.BusContext{RepoRoot: t.TempDir()}
+	changes := []types.FileChange{{
+		Path:       "broken.ts",
+		Kind:       "create",
+		NewContent: "let x: number = \"not a number\";\n", // would reject if tsc ran
+	}}
+	if rej := runLintForName(t, bus, changes, "TypeScript"); rej != "" {
+		t.Errorf("missing tsc must short-circuit silently; got %q", rej)
+	}
+}
+
 // TestValidatePlanLint_DisabledViaSetting: when SetLintEnabled(false)
 // is called, validatePlanLint short-circuits regardless of contents.
 func TestValidatePlanLint_DisabledViaSetting(t *testing.T) {
@@ -169,11 +269,12 @@ func TestValidatePlanLint_DisabledViaSetting(t *testing.T) {
 }
 
 // TestLintRegistry_OrderAndCoverage locks the registry against
-// silent drift. The 7-language coverage was the contract this
-// version delivers; if a future commit drops a language without
-// notice, this test catches it.
+// silent drift. The 10-language coverage was the contract this
+// version delivers (added C, C++, TypeScript on top of the prior
+// 7); if a future commit drops a language without notice, this
+// test catches it.
 func TestLintRegistry_OrderAndCoverage(t *testing.T) {
-	want := []string{"Go", "Java", "JavaScript", "Python", "Ruby", "Rust", "Swift"}
+	want := []string{"C", "C++", "Go", "Java", "JavaScript", "Python", "Ruby", "Rust", "Swift", "TypeScript"}
 	if len(lintRegistry) != len(want) {
 		t.Fatalf("lintRegistry size = %d, want %d", len(lintRegistry), len(want))
 	}
