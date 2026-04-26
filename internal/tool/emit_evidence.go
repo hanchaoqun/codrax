@@ -1257,16 +1257,27 @@ func stabilizeExactResolutionEvidence(ev *types.EvidenceItem, contract *types.Ex
 	if ev.ContextRole == types.EvidenceContextRoleIllustrativeOnly || exactResolutionEvidenceMentionsAnyTarget(contract, *ev) {
 		return changed
 	}
-	if ev.ContextRole == types.EvidenceContextRoleUnknown {
+	if ev.ContextRole == types.EvidenceContextRoleUnknown || ev.ContextRole == types.EvidenceContextRoleDefining {
 		ev.ContextRole = types.EvidenceContextRoleRelatedContext
 		changed = true
 	}
+	familyScore := types.ExactResolutionSameFamilyMatchScore(contract, strings.Join([]string{
+		ev.Subject, ev.AnchorSymbol, ev.Object, ev.Source,
+	}, "\n"))
 	note := fmt.Sprintf(
 		"the primary exact %s %q remains unresolved; this grounded evidence does not define the exact target and must stay context only. Do NOT repair this item.",
 		exactResolutionTargetLabel(contract),
 		strings.Join(pendingTargets, ", "),
 	)
-	if types.EvidenceItemMentionsAnyTerm(*ev, types.ExactResolutionContextTerms(contract)) {
+	if contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded &&
+		contract.TargetKind == types.SubjectConfigKey &&
+		familyScore == 0 {
+		note = fmt.Sprintf(
+			"the primary exact %s %q remains unresolved; this grounded evidence is from a different nearby config family and must stay context only, not the main answer or precedence chain. Do NOT repair this item.",
+			exactResolutionTargetLabel(contract),
+			strings.Join(pendingTargets, ", "),
+		)
+	} else if types.EvidenceItemMentionsAnyTerm(*ev, types.ExactResolutionContextTerms(contract)) || familyScore > 0 {
 		note = fmt.Sprintf(
 			"the primary exact %s %q remains unresolved; this grounded same-scope evidence is nearby context only and must not be treated as a substitute. Do NOT repair this item.",
 			exactResolutionTargetLabel(contract),

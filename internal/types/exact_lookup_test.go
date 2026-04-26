@@ -138,8 +138,8 @@ func TestBuildExactResolutionContract_FallsBackToValidatedKeywordContextTerms(t 
 	if got == nil {
 		t.Fatal("contract = nil, want non-nil")
 	}
-	if !reflect.DeepEqual(got.RelatedContextTerms, []string{"budget", "explore"}) {
-		t.Fatalf("RelatedContextTerms = %v, want keyword-grounded fallback terms", got.RelatedContextTerms)
+	if !reflect.DeepEqual(got.RelatedContextTerms, []string{"explore"}) {
+		t.Fatalf("RelatedContextTerms = %v, want family-root fallback terms", got.RelatedContextTerms)
 	}
 }
 
@@ -308,5 +308,27 @@ func TestExactResolutionContextTerms(t *testing.T) {
 	}
 	if got := ExactResolutionContextTerms(contract); !reflect.DeepEqual(got, []string{"explore"}) {
 		t.Fatalf("context terms = %v, want [explore]", got)
+	}
+}
+
+func TestExactResolutionSameFamilyMatchScore_ConfigKey(t *testing.T) {
+	contract := &ExactResolutionContract{
+		TargetKind:           SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		RelatedContextPolicy: ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	if got := ExactResolutionSameFamilyMatchScore(contract, "DefaultExploreHeuristics internal/types/config.go"); got <= 0 {
+		t.Fatalf("match score for DefaultExploreHeuristics = %d, want > 0", got)
+	}
+	if got := ExactResolutionSameFamilyMatchScore(contract, "DefaultLoopPolicy internal/agent/loop_policy.go"); got != 0 {
+		t.Fatalf("match score for DefaultLoopPolicy = %d, want 0", got)
+	}
+	if got := ExactResolutionSameFamilyMatchScore(contract, "postPrimaryReadMidLoopSignal internal/agent/explorer.go"); got != 0 {
+		t.Fatalf("match score for explorer.go helper = %d, want 0", got)
+	}
+	if got := ExactResolutionSameFamilyMatchScore(contract, "AgentLoopMaxMidLoopInjects internal/config/runtime.go"); got != 0 {
+		t.Fatalf("match score for AgentLoopMaxMidLoopInjects = %d, want 0 for a different config family", got)
 	}
 }

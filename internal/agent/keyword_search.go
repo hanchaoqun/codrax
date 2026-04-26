@@ -98,6 +98,10 @@ type keywordSearchOptions struct {
 	// matches, domain is a coarser sibling signal).
 	DomainHints []string
 	MaxFiles    int
+	// ExactResolution marks searches where the user asked for one
+	// exact target and auxiliary/test/doc mentions must not hijack the
+	// candidate ranking.
+	ExactResolution *types.ExactResolutionContract
 }
 
 // defaultKeywordSearchMaxFiles is the historical cap preserved for
@@ -149,7 +153,7 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 // same Run re-dispatches explorer with identical analyzer output.
 // Order-independent: slices are sorted before joining so keyword
 // permutations produce the same key.
-func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints []string, maxFiles int) string {
+func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints, exactTargets []string, exactPolicy string, maxFiles int) string {
 	cp := func(s []string) []string {
 		if len(s) == 0 {
 			return nil
@@ -169,6 +173,10 @@ func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEnti
 	b.WriteString(strings.Join(cp(primaryEntities), "\x00"))
 	b.WriteByte('|')
 	b.WriteString(strings.Join(cp(domainHints), "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.Join(cp(exactTargets), "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.TrimSpace(strings.ToLower(exactPolicy)))
 	b.WriteByte('|')
 	b.WriteString(strconv.Itoa(maxFiles))
 	return b.String()
@@ -322,8 +330,19 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 		}
 		exactRank := 0
 		if anchor, ok := exactAnchors[f]; ok {
-			hits["exact_entity"] = anchor.Hit
-			exactRank = anchor.Rank
+			if shouldDeprioritizeAuxiliaryExactHit(f, opts.ExactResolution) {
+				hits["exact_entity_aux"] = anchor.Hit
+			} else {
+				hits["exact_entity"] = anchor.Hit
+				exactRank = anchor.Rank
+			}
+		}
+		if shouldDeprioritizeAuxiliaryExactHit(f, opts.ExactResolution) {
+			if combined == 0 {
+				continue
+			}
+			combined *= 0.35
+			hits["auxiliary_exact"] = "1"
 		}
 
 		// Extract symbol summaries from repo_map graph.
@@ -368,6 +387,13 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	logging.Debug("[keyword_search] %d keywords, %d entities → %d files scored (cap=%d)",
 		len(keywords), len(opts.Entities), len(results), maxFiles)
 	return &keywordSearchResult{Files: results, Graph: graph}
+}
+
+func shouldDeprioritizeAuxiliaryExactHit(path string, contract *types.ExactResolutionContract) bool {
+	if contract == nil || !types.ExactResolutionRequiresDefiningPrimaryProof(contract) {
+		return false
+	}
+	return types.LooksLikeAuxiliaryEvidencePath(path)
 }
 
 type exactEntityAnchor struct {

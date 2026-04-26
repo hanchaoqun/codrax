@@ -28,16 +28,17 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 			termSet[term] = true
 		}
 	}
+	keywordSet := make(map[string]bool)
 	for _, kw := range analyzerKeywords {
 		for _, token := range strings.FieldsFunc(strings.ToLower(kw), func(r rune) bool {
 			return (r < 'a' || r > 'z') && (r < '0' || r > '9')
 		}) {
 			if len(token) >= 3 {
-				termSet[token] = true
+				keywordSet[token] = true
 			}
 		}
 	}
-	if len(termSet) == 0 {
+	if len(termSet) == 0 && len(keywordSet) == 0 && contract.RelatedContextPolicy != types.ExactContextSameFamilyGrounded {
 		return nil
 	}
 	terms := make([]string, 0, len(termSet))
@@ -45,6 +46,11 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 		terms = append(terms, term)
 	}
 	sort.Strings(terms)
+	keywords := make([]string, 0, len(keywordSet))
+	for term := range keywordSet {
+		keywords = append(keywords, term)
+	}
+	sort.Strings(keywords)
 
 	candidateFiles := exactResolutionCandidateFiles(graph, fileSymbols)
 	if len(candidateFiles) == 0 {
@@ -62,12 +68,29 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 		for _, sym := range exactResolutionSymbolsForFile(file, graph, fileSymbols) {
 			symLower := strings.ToLower(sym.Symbol)
 			score := 0
-			for _, term := range terms {
+			combinedSurface := sym.Symbol + " " + file
+			familyScore := types.ExactResolutionSameFamilyMatchScore(contract, combinedSurface)
+			if contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded {
+				if familyScore == 0 {
+					continue
+				}
+				score += familyScore
+			} else {
+				for _, term := range terms {
+					if strings.Contains(symLower, term) {
+						score += 4
+					}
+					if strings.Contains(fileLower, term) {
+						score += 2
+					}
+				}
+			}
+			for _, term := range keywords {
 				if strings.Contains(symLower, term) {
-					score += 4
+					score += 2
 				}
 				if strings.Contains(fileLower, term) {
-					score += 2
+					score += 1
 				}
 			}
 			if anchoredFiles[canonicalExactResolutionPath(file)] {

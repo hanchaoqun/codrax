@@ -443,7 +443,14 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// searchFingerprint so a fresh REPL turn still recomputes.
 		domainHints := irDomainHints(ctx)
 		maxFiles := MaxFilesForComplexity(irComplexity(ctx))
-		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, maxFiles)
+		exactContract := irExactResolutionContract(ctx)
+		var exactTargets []string
+		exactPolicy := ""
+		if exactContract != nil {
+			exactTargets = exactContract.Targets
+			exactPolicy = string(exactContract.RelatedContextPolicy)
+		}
+		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, exactTargets, exactPolicy, maxFiles)
 		var sr *keywordSearchResult
 		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
 			logging.Debug("[keyword_search] cache hit fp=%s (%d files, %d keywords)",
@@ -456,6 +463,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				PrimaryEntities:   irPrimaryEntities(ctx),
 				DomainHints:       domainHints,
 				MaxFiles:          maxFiles,
+				ExactResolution:   exactContract,
 			})
 			e.searchResult = sr
 			e.searchFingerprint = fp

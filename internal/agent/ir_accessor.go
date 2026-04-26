@@ -101,6 +101,13 @@ func irComplexity(ctx *types.AgentContext) types.Complexity {
 	return ctx.AnalysisIR.RequestModel.Complexity
 }
 
+func irExactResolutionContract(ctx *types.AgentContext) *types.ExactResolutionContract {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.AnswerContract.ExactResolution
+}
+
 // analyzerRequiredFilesFromIR returns the analyzer's EvidencePlan
 // RequiredFiles list (T3a), or nil when the IR is unavailable. This
 // is a deliberate thin wrapper so the explorer's consumer loop

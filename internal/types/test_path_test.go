@@ -49,6 +49,7 @@ func TestLooksLikeAuxiliaryEvidencePath(t *testing.T) {
 		"fixtures/config.yaml",
 		"examples/demo/main.go",
 		"testdata/input.json",
+		"internal/skill/analysis_contract.go",
 	}
 	for _, path := range positive {
 		if !LooksLikeAuxiliaryEvidencePath(path) {

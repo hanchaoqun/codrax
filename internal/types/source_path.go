@@ -30,6 +30,9 @@ func LooksLikeAuxiliaryEvidencePath(relPath string) bool {
 		return true
 	}
 	base := strings.ToLower(filepath.Base(lower))
+	if (strings.Contains(lower, "/internal/skill/") || strings.HasPrefix(lower, "internal/skill/")) && strings.Contains(base, "contract") {
+		return true
+	}
 	switch {
 	case strings.HasPrefix(base, "readme."),
 		strings.HasPrefix(base, "changelog."),

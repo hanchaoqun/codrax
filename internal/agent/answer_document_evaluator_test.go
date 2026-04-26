@@ -375,6 +375,59 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 	}
 }
 
+func TestCollectExactResolutionSeeds_FiltersDifferentConfigFamilies(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	ctx := &types.AgentContext{
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "DefaultExploreHeuristics",
+				Predicate:       "defines",
+				Object:          "ExploreHeuristics defaults",
+				Summary:         "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
+				Source:          "internal/types/config.go",
+				LineStart:       707,
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "DefaultLoopPolicy",
+				Predicate:       "defines",
+				Object:          "loop policy defaults",
+				Summary:         "DefaultLoopPolicy returns loop-level defaults such as MaxMidLoopInjects=6.",
+				Source:          "internal/agent/loop_policy.go",
+				LineStart:       118,
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	seeds := collectExactResolutionSeeds(ctx, contract)
+	if len(seeds) == 0 {
+		t.Fatal("expected exact-resolution seeds")
+	}
+	joined := make([]string, 0, len(seeds))
+	for _, seed := range seeds {
+		joined = append(joined, seed.Text)
+	}
+	text := strings.Join(joined, "\n")
+	if !strings.Contains(text, "DefaultExploreHeuristics") {
+		t.Fatalf("expected same-family explore seed, got: %s", text)
+	}
+	if strings.Contains(text, "DefaultLoopPolicy") {
+		t.Fatalf("different config family should not survive exact-resolution seeds, got: %s", text)
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateAfterWindowReset(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
@@ -695,6 +748,31 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopUnexpectedReadToolRequestsSynthe
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("unexpected-tool hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "symbols[0].file is required when symbols[0].line is set\nextra detail follows",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("generic reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"symbols[0].file is required when symbols[0].line is set",
+		"emit_answer_document",
+		"Do not write free-form prose outside the tool call",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("generic reject hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }

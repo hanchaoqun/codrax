@@ -389,6 +389,68 @@ func TestEmitEvidence_ConvertsFreeformExactMentionIntoAbsenceSupport(t *testing.
 	}
 }
 
+func TestEmitEvidence_DowngradesCrossFamilyDefiningHintDuringExactAbsence(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+			Scenario:   types.ScenarioConfigTrace,
+			AnalyzerHints: types.AnalyzerHints{
+				Kind:         "config_mapping",
+				ExactTargets: []string{"explore_mid_loop_hint_budget"},
+			},
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+		AnswerContract: types.AnswerContract{
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:           types.SubjectConfigKey,
+				TargetLabel:          "config key",
+				Targets:              []string{"explore_mid_loop_hint_budget"},
+				AllowAbsence:         true,
+				RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+				RelatedContextTerms:  []string{"explore"},
+			},
+		},
+	}
+	ctx.Mutable.EvidenceClosure().AppendUnverifiedFinding(types.UnverifiedFinding{
+		Token: "explore_mid_loop_hint_budget",
+		Kind:  "symbol",
+	})
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "AgentLoopMaxMidLoopInjects",
+				"predicate": "defines",
+				"source": "internal/config/runtime.go",
+				"line_start": 246,
+				"summary": "yaml key agent_loop_max_midloop_injects",
+				"anchor_kind": "definition",
+				"anchor_symbol": "AgentLoopMaxMidLoopInjects",
+				"context_role_hint": "defining"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].ContextRole != types.EvidenceContextRoleRelatedContext {
+		t.Fatalf("context role = %q, want related_context", got[0].ContextRole)
+	}
+	if !strings.Contains(strings.ToLower(got[0].GroundingNote), "different nearby config family") {
+		t.Fatalf("grounding note should call out cross-family context, got: %q", got[0].GroundingNote)
+	}
+}
+
 func TestEmitEvidence_RejectsUnknownTopLevelField(t *testing.T) {
 	tool := &EmitEvidence{}
 	ctx := newEmitCtx()

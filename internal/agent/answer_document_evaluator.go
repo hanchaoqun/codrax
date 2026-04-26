@@ -840,6 +840,17 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 			score += 18
 		}
 	}
+	familyScore := types.ExactResolutionSameFamilyMatchScore(contract, strings.Join([]string{
+		ev.Subject, ev.AnchorSymbol, ev.Object, ev.Source,
+	}, " "))
+	if contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded &&
+		contract.TargetKind == types.SubjectConfigKey &&
+		!exactMention &&
+		ev.ContextRole == types.EvidenceContextRoleRelatedContext &&
+		familyScore == 0 {
+		return math.MinInt / 8
+	}
+	score += familyScore
 	contextMatches := 0
 	for _, term := range contextTerms {
 		if strings.Contains(text, term) {
@@ -1080,6 +1091,9 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 
 	hint := "Your last `emit_answer_document` call was rejected by the tool. Fix the exact validation error from the tool result and re-emit `emit_answer_document` now. Do not write free-form prose outside the tool call."
 	reasonKey := "tool-reject"
+	if detail := compactToolRejectSummary(summary); detail != "" {
+		hint = "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing this exact tool error: " + detail + ". Do not write free-form prose outside the tool call."
+	}
 
 	var summaryLen, cap int
 	var shape string
@@ -1142,6 +1156,16 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 		Progress:       true,
 		BypassThrottle: true,
 	}
+}
+
+func compactToolRejectSummary(summary string) string {
+	for _, line := range strings.Split(summary, "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			return line
+		}
+	}
+	return ""
 }
 
 func buildLiteralGroundingRetryHint(summary string) string {

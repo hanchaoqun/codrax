@@ -28,7 +28,7 @@ func BuildExactResolutionContract(rm RequestModel) *ExactResolutionContract {
 		RequireTargetMention: true,
 		AliasRequiresProof:   true,
 		RelatedContextPolicy: policy,
-		RelatedContextTerms:  exactResolutionValidatedContextTerms(targets, rm.AnalyzerHints.ExactContextTerms, rm.AnalyzerHints.Keywords),
+		RelatedContextTerms:  exactResolutionValidatedContextTerms(rm.AnswerSubject.Kind, policy, targets, rm.AnalyzerHints.ExactContextTerms, rm.AnalyzerHints.Keywords),
 	}
 	if hint := exactResolutionScopeHintForPolicy(policy); hint != "" {
 		contract.RelatedContextScopeHint = hint
@@ -410,16 +410,14 @@ func exactResolutionFindingKindMatches(expected, got string) bool {
 	return got == expected
 }
 
-func exactResolutionValidatedContextTerms(targets, explicit, keywords []string) []string {
+func exactResolutionValidatedContextTerms(targetKind AnswerSubjectKind, policy ExactResolutionContextPolicy, targets, explicit, keywords []string) []string {
 	if len(targets) == 0 {
 		return nil
 	}
 	allowed := make(map[string]bool)
-	for _, target := range targets {
-		for _, term := range ExactResolutionIdentifierTerms(target) {
-			if len(term) >= 3 {
-				allowed[term] = true
-			}
+	for _, term := range exactResolutionAllowedContextTerms(targetKind, policy, targets) {
+		if len(term) >= 3 {
+			allowed[term] = true
 		}
 	}
 	if len(allowed) == 0 {
@@ -457,6 +455,175 @@ func exactResolutionValidatedContextTerms(targets, explicit, keywords []string) 
 	}
 	sort.Strings(out)
 	return out
+}
+
+func exactResolutionAllowedContextTerms(targetKind AnswerSubjectKind, policy ExactResolutionContextPolicy, targets []string) []string {
+	if policy == ExactContextSameFamilyGrounded && targetKind == SubjectConfigKey {
+		return exactResolutionConfigRootTerms(targets)
+	}
+	var out []string
+	for _, target := range targets {
+		out = append(out, ExactResolutionIdentifierTerms(target)...)
+	}
+	return dedupeExactResolutionTerms(out)
+}
+
+func exactResolutionConfigRootTerms(targets []string) []string {
+	var out []string
+	for _, target := range targets {
+		segments := exactResolutionConfigSegments(target)
+		if len(segments) == 0 {
+			segments = ExactResolutionIdentifierTerms(target)
+		}
+		if len(segments) == 0 {
+			continue
+		}
+		if root := strings.TrimSpace(strings.ToLower(segments[0])); len(root) >= 3 {
+			out = append(out, root)
+		}
+	}
+	return dedupeExactResolutionTerms(out)
+}
+
+func exactResolutionConfigSegments(target string) []string {
+	target = strings.TrimSpace(strings.ToLower(strings.ReplaceAll(target, `\`, `/`)))
+	if target == "" {
+		return nil
+	}
+	parts := strings.FieldsFunc(target, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9'))
+	})
+	var out []string
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+func dedupeExactResolutionTerms(items []string) []string {
+	seen := make(map[string]bool)
+	var out []string
+	for _, item := range items {
+		item = strings.TrimSpace(strings.ToLower(item))
+		if len(item) < 3 || seen[item] {
+			continue
+		}
+		seen[item] = true
+		out = append(out, item)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ExactResolutionSameFamilyMatchScore returns a structural same-family
+// match score for an arbitrary candidate surface. It is intentionally
+// deterministic: the LLM may recommend related-context anchors, but the
+// system decides whether a candidate belongs to the exact target's
+// family by validating root/prefix signals derived from the user-named
+// target itself rather than from free-form nearby prose.
+func ExactResolutionSameFamilyMatchScore(c *ExactResolutionContract, surface string) int {
+	if c == nil || c.RelatedContextPolicy != ExactContextSameFamilyGrounded {
+		return 0
+	}
+	terms, compounds := exactResolutionSameFamilySurfaceSets(surface)
+	if len(terms) == 0 && len(compounds) == 0 {
+		return 0
+	}
+	signals := exactResolutionSameFamilySignals(c)
+	if len(signals.roots) == 0 && len(signals.compounds) == 0 {
+		return 0
+	}
+	score := 0
+	for _, root := range signals.roots {
+		if root == "" || !terms[root] {
+			continue
+		}
+		score += exactResolutionSameFamilyRootWeight(root)
+	}
+	for _, compound := range signals.compounds {
+		if compound == "" || !compounds[compound] {
+			continue
+		}
+		score += 5
+	}
+	return score
+}
+
+func exactResolutionSameFamilySurfaceSets(surface string) (map[string]bool, map[string]bool) {
+	tokens := ExactResolutionIdentifierTerms(surface)
+	if len(tokens) == 0 {
+		return nil, nil
+	}
+	termSet := make(map[string]bool)
+	for _, token := range tokens {
+		token = strings.TrimSpace(strings.ToLower(token))
+		if len(token) >= 3 {
+			termSet[token] = true
+		}
+	}
+	compoundSet := make(map[string]bool)
+	for i := 0; i < len(tokens); i++ {
+		for n := 2; n <= 3 && i+n <= len(tokens); n++ {
+			compound := strings.Join(tokens[i:i+n], "")
+			if len(compound) >= 8 {
+				compoundSet[compound] = true
+			}
+		}
+	}
+	return termSet, compoundSet
+}
+
+type exactResolutionFamilySignals struct {
+	roots     []string
+	compounds []string
+}
+
+func exactResolutionSameFamilySignals(c *ExactResolutionContract) exactResolutionFamilySignals {
+	if c == nil {
+		return exactResolutionFamilySignals{}
+	}
+	isConfigKey := c.TargetKind == SubjectConfigKey || strings.EqualFold(strings.TrimSpace(c.TargetLabel), "config key")
+	if !isConfigKey {
+		return exactResolutionFamilySignals{
+			roots: ExactResolutionContextTerms(c),
+		}
+	}
+	roots := exactResolutionConfigRootTerms(c.Targets)
+	compoundSeen := make(map[string]bool)
+	var compounds []string
+	for _, target := range c.Targets {
+		segments := exactResolutionConfigSegments(target)
+		if len(segments) < 2 {
+			continue
+		}
+		for n := 2; n <= 3 && n <= len(segments); n++ {
+			compound := strings.Join(segments[:n], "")
+			if len(compound) < 8 || compoundSeen[compound] {
+				continue
+			}
+			compoundSeen[compound] = true
+			compounds = append(compounds, compound)
+		}
+	}
+	sort.Strings(compounds)
+	return exactResolutionFamilySignals{
+		roots:     roots,
+		compounds: compounds,
+	}
+}
+
+func exactResolutionSameFamilyRootWeight(root string) int {
+	switch {
+	case len(root) >= 7:
+		return 5
+	case len(root) >= 5:
+		return 3
+	default:
+		return 2
+	}
 }
 
 func looksLikeExactPathToken(s string) bool {

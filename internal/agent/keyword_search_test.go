@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/hanchaoqun/codrax/internal/tool/repomap"
+	"github.com/hanchaoqun/codrax/internal/types"
 )
 
 func TestExpandKeywordsAbbreviations(t *testing.T) {
@@ -147,27 +148,44 @@ func TestDomainBoostFactor_BoostSmallerThanEntityBoost(t *testing.T) {
 
 // T1.2 — keywordSearchFingerprint stability + order-independence.
 func TestKeywordSearchFingerprint_StableAndOrderIndependent(t *testing.T) {
-	a := keywordSearchFingerprint([]string{"foo", "bar"}, []string{"Baz"}, nil, nil, []string{"pkg"}, 30)
-	b := keywordSearchFingerprint([]string{"bar", "foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, 30)
+	a := keywordSearchFingerprint([]string{"foo", "bar"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30)
+	b := keywordSearchFingerprint([]string{"bar", "foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30)
 	if a != b {
 		t.Fatalf("fingerprint is sensitive to keyword order: a=%q b=%q", a, b)
 	}
 }
 
 func TestKeywordSearchFingerprint_DistinguishesInputs(t *testing.T) {
-	base := keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, 30)
+	base := keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30)
 	cases := map[string]string{
-		"different keyword":          keywordSearchFingerprint([]string{"qux"}, []string{"Baz"}, nil, nil, []string{"pkg"}, 30),
-		"different entity":           keywordSearchFingerprint([]string{"foo"}, []string{"Other"}, nil, nil, []string{"pkg"}, 30),
-		"different mentioned entity": keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, []string{"Mentioned"}, nil, []string{"pkg"}, 30),
-		"different primary entities": keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, []string{"Primary"}, []string{"pkg"}, 30),
-		"different domain":           keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"other"}, 30),
-		"different maxFiles":         keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, 20),
-		"empty all":                  keywordSearchFingerprint(nil, nil, nil, nil, nil, 0),
+		"different keyword":          keywordSearchFingerprint([]string{"qux"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30),
+		"different entity":           keywordSearchFingerprint([]string{"foo"}, []string{"Other"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30),
+		"different mentioned entity": keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, []string{"Mentioned"}, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30),
+		"different primary entities": keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, []string{"Primary"}, []string{"pkg"}, []string{"target"}, "same_family_grounded", 30),
+		"different domain":           keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"other"}, []string{"target"}, "same_family_grounded", 30),
+		"different exact target":     keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"other"}, "same_family_grounded", 30),
+		"different exact policy":     keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "grounded_only", 30),
+		"different maxFiles":         keywordSearchFingerprint([]string{"foo"}, []string{"Baz"}, nil, nil, []string{"pkg"}, []string{"target"}, "same_family_grounded", 20),
+		"empty all":                  keywordSearchFingerprint(nil, nil, nil, nil, nil, nil, "", 0),
 	}
 	for name, fp := range cases {
 		if fp == base {
 			t.Errorf("%s should change fingerprint but matched base %q", name, fp)
 		}
+	}
+}
+
+func TestShouldDeprioritizeAuxiliaryExactHit(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:   types.SubjectConfigKey,
+		TargetLabel:  "config key",
+		Targets:      []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence: true,
+	}
+	if !shouldDeprioritizeAuxiliaryExactHit("internal/skill/analysis_contract.go", contract) {
+		t.Fatal("analysis_contract auxiliary exact hit should be deprioritized")
+	}
+	if shouldDeprioritizeAuxiliaryExactHit("internal/config/runtime.go", contract) {
+		t.Fatal("production config file should not be deprioritized")
 	}
 }

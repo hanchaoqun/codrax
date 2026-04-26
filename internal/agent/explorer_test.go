@@ -3989,14 +3989,20 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_BoostsAnchoredFiles(t *
 		t.Fatal("expected same-family candidates")
 	}
 	found := false
+	foundLoopPolicy := false
 	for _, cand := range cands {
 		if cand.Symbol == "DefaultExploreHeuristics" && cand.File == "internal/types/config.go" {
 			found = true
-			break
+		}
+		if cand.Symbol == "DefaultLoopPolicy" && cand.File == "internal/agent/loop_policy.go" {
+			foundLoopPolicy = true
 		}
 	}
 	if !found {
 		t.Fatalf("expected anchored-file boost to keep DefaultExploreHeuristics in candidates, got %+v", cands)
+	}
+	if foundLoopPolicy {
+		t.Fatalf("expected unrelated loop_policy symbol to stay out of same-family candidates, got %+v", cands)
 	}
 }
 
