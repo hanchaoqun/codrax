@@ -284,7 +284,13 @@ func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, d
 	if diagramRequired {
 		items = append(items,
 			"`summary` must include at least one grounded triple-backtick diagram for this dispatch.",
+			"When a `Diagram Seeds` section is present, treat it as the grounded template for first-pass repair-resistant output: prefer copying its node labels verbatim instead of renaming them into abstract aliases or numbered layers. Put any uncited conceptual layer names in prose outside the fenced diagram.",
 		)
+		if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
+			items = append(items,
+				"For config-precedence answers, every fenced-diagram node must have its own grounded citation. If a YAML / runtime / CLI layer is missing a grounded anchor in this dispatch, leave that layer in prose only instead of inventing a diagram node for it.",
+			)
+		}
 	}
 	if len(items) == 0 {
 		return ""
@@ -348,7 +354,7 @@ func extractAnswerDocLang(ctx *types.AgentContext) string {
 // both the typed and legacy paths without a per-call coercion.
 func resolveAnswerDocShape(ctx *types.AgentContext) string {
 	if ctx != nil && ctx.AnalysisIR != nil {
-		if shape := ctx.AnalysisIR.AnswerContract.RequiredAnswerShape; shape != "" && shape != types.ShapeNone {
+		if shape := types.EffectiveRequiredAnswerShape(ctx.AnalysisIR, ctx.Mutable); shape != "" && shape != types.ShapeNone {
 			return string(shape)
 		}
 	}
@@ -649,6 +655,12 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 	}
 	b.WriteString("```\n")
 	b.WriteString("Precedence semantics live in prose, not in invented node names: `override` = highest-precedence operator / CLI layer, `yaml` = repo or user config layer, `default` = code-default fallback. `runtime` is the binding / merge code path between those layers, not a standalone user-config tier.\n")
+	if !rolesPresent[string(types.EvidenceDiagramRoleYAML)] {
+		b.WriteString("Current grounded evidence does NOT include a YAML-layer anchor. Do not add `codrax.yaml`, `codrax.yaml.example`, or a generic YAML node to the fenced diagram unless you first cite a real repo anchor for it; if you mention YAML semantics in prose, label them as general precedence rules rather than a grounded node in this dispatch.\n")
+	}
+	if !rolesPresent[string(types.EvidenceDiagramRoleRuntime)] {
+		b.WriteString("Current grounded evidence does NOT include a runtime-binding anchor. Do not add a runtime / merge node to the fenced diagram unless you first cite a real repo anchor for it; if you mention runtime binding semantics in prose, keep them outside the fenced chain.\n")
+	}
 	if !rolesPresent[string(types.EvidenceDiagramRoleOverride)] {
 		b.WriteString("Current grounded evidence does NOT include an override-layer anchor. Do not add a CLI / override node to the fenced diagram unless you first cite a real repo anchor for it; if you mention generic override semantics in prose, label them as general precedence rules rather than a grounded node in this dispatch.\n")
 	}
@@ -789,6 +801,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Investigation state: the exact target is currently absent in the repo / branch under inspection.\n")
 		fmt.Fprintf(&b, "- Absence justification: %s\n", justification)
 		b.WriteString("- Emit `exact_resolution.status=\"absent\"`; the renderer will lead with the exact absence before any related context.\n")
+		if types.ExactResolutionTargetIsConfigKey(contract) {
+			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence before any nearby grounded context.\n")
+		}
 		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence and then explain any grounded same-family precedence chain as related context only.\n")
 			b.WriteString("- For config-trace related context, prefer only grounded lineage anchors that already carry a validated `diagram_role_hint` (`default`, `yaml`, `runtime`, or `override`). Same-family symbols without a validated diagram role are background noise, not answer anchors.\n")
@@ -1174,15 +1189,15 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 	if e.maxRetries > 0 && e.rejectHintsUsed >= e.maxRetries {
 		return LoopSignal{}
 	}
-	summary := strings.TrimSpace(obs.LastToolResult.Summary)
+	rejectCode, summary := parseAnswerDocRejectEnvelope(strings.TrimSpace(obs.LastToolResult.Summary))
 	if summary == "" {
 		return LoopSignal{}
 	}
 
-	hint := "Your last `emit_answer_document` call was rejected by the tool. Fix the exact validation error from the tool result and re-emit `emit_answer_document` now. Do not write free-form prose outside the tool call."
+	hint := "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing ONLY the field(s) named in the tool error. Keep the grounded evidence, citations, and answer shape unchanged unless the tool explicitly says to change them. Do not reopen files or call read/search tools. Do not write free-form prose outside the tool call."
 	reasonKey := "tool-reject"
 	if detail := compactToolRejectSummary(summary); detail != "" {
-		hint = "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing this exact tool error: " + detail + ". Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the tool. Re-emit `emit_answer_document` now after fixing this exact tool error: " + detail + ". Only change the named field(s); keep grounded citations/evidence and do not reopen files. Do not write free-form prose outside the tool call."
 	}
 
 	var summaryLen, cap int
@@ -1196,7 +1211,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 	}
 
-	if strings.Contains(summary, "diagram required for this dispatch") {
+	if rejectCode == answerDocRejectCodeMissingDiagram || strings.Contains(summary, "diagram required for this dispatch") {
 		reasonKey = "missing-diagram"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded diagram in `summary`. Re-emit `emit_answer_document` now with the same answer shape and payload fields, but add at least one grounded triple-backtick diagram to `summary`. This obligation is independent of answer shape. Keep every filename inside the diagram grounded by citations[] or the Log Triage frames; do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
@@ -1204,7 +1219,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx)
 	}
-	if strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
+	if rejectCode == answerDocRejectCodeDiagramGrounding || strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
 		reasonKey = "diagram-grounding"
 		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Verbatim File/Path Labels` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
@@ -1212,7 +1227,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx)
 	}
-	if strings.Contains(summary, "summary introduces codename label(s) not present in any citation's") {
+	if rejectCode == answerDocRejectCodeDiagramCodename || strings.Contains(summary, "summary introduces codename label(s) not present in any citation's") {
 		reasonKey = "diagram-codename"
 		hint = "Your last `emit_answer_document` call was rejected by the CODENAME-GROUNDING gate: the summary introduced abstract enumeration labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but remove invented labels such as `Level 1` / `Round 2` / `Step 3` unless those exact tokens are cited. Label the diagram directly with grounded files, functions, config keys, or other evidenced entities instead. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
@@ -1220,12 +1235,12 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		}
 		hint = appendRetryDiagramSeedHint(hint, ctx)
 	}
-	if strings.Contains(summary, "exact-resolution contract violated:") {
+	if rejectCode == answerDocRejectCodeExactResolution || strings.Contains(summary, "exact-resolution contract violated:") {
 		reasonKey = "exact-resolution"
 		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with a valid `exact_resolution{status,anchor?,context_mode}` object that matches the grounded evidence and current absence state for the requested exact target. Use `exact_match` only when a cited line or grounded evidence explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the investigation closed with `result_kind=\"absence\"` (absence-only is acceptable). Any nearby related context must remain `grounded_context_only`, not an equivalent, alias, or substitute. Do NOT call `read_file`, `grep`, or any other tool to repair this — decide from the current grounded evidence, citations, and seeds. Do not write free-form prose outside the tool call."
 	}
-	if strings.Contains(summary, "exact absent config-trace answers must not use shape=config_value") {
-		reasonKey = "absent-config-trace-shape"
+	if rejectCode == answerDocRejectCodeAbsentExactConfigValueShape || strings.Contains(summary, "must not use shape=config_value") {
+		reasonKey = "absent-config-value-shape"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch is an exact-absent config-trace answer. Do NOT use `shape=config_value` with a synthetic literal like `(missing)` / `(不存在)`. Re-emit now with `shape=explanation`, keep `exact_resolution.status=\"absent\"`, and describe any grounded same-family precedence chain as related context only. Do not write free-form prose outside the tool call."
 	}
 	if requiredFieldHint := buildAnswerDocRequiredFieldRetryHint(summary); requiredFieldHint != "" {
@@ -1266,6 +1281,33 @@ func compactToolRejectSummary(summary string) string {
 		}
 	}
 	return ""
+}
+
+const answerDocRejectPrefix = "[answer_doc_reject:"
+
+const (
+	answerDocRejectCodeMissingDiagram              = "missing_diagram"
+	answerDocRejectCodeDiagramGrounding            = "diagram_grounding"
+	answerDocRejectCodeDiagramCodename             = "diagram_codename"
+	answerDocRejectCodeExactResolution             = "exact_resolution"
+	answerDocRejectCodeAbsentExactConfigValueShape = "absent_exact_config_value_shape"
+)
+
+func parseAnswerDocRejectEnvelope(summary string) (code, detail string) {
+	summary = strings.TrimSpace(summary)
+	if !strings.HasPrefix(summary, answerDocRejectPrefix) {
+		return "", summary
+	}
+	end := strings.Index(summary, "]")
+	if end <= len(answerDocRejectPrefix) {
+		return "", summary
+	}
+	code = strings.TrimSpace(summary[len(answerDocRejectPrefix):end])
+	detail = strings.TrimSpace(summary[end+1:])
+	if detail == "" {
+		detail = summary
+	}
+	return code, detail
 }
 
 func buildAnswerDocRequiredFieldRetryHint(summary string) string {

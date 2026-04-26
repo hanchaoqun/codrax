@@ -798,6 +798,7 @@ func TestEmitAnswerDocument_RejectsExactTargetSubstituteFramingAfterAbsence(t *t
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeConfigValue,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -845,6 +846,7 @@ func TestEmitAnswerDocument_AcceptsExactTargetAbsenceWithContextOnlyFraming(t *t
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeConfigValue,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -896,6 +898,7 @@ func TestEmitAnswerDocument_RejectsAliasMatchAfterAbsenceClosure(t *testing.T) {
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeConfigValue,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -950,6 +953,7 @@ func TestEmitAnswerDocument_RejectsExactMatchFromTestOnlyConfigProof(t *testing.
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeConfigValue,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -1000,6 +1004,7 @@ func TestEmitAnswerDocument_RejectsExactMatchFromDocOnlyConfigMention(t *testing
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeConfigValue,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -1051,6 +1056,7 @@ func TestEmitAnswerDocument_AllowsAbsenceWhenOnlyTestMentionsExist(t *testing.T)
 			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
 		},
 		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeConfigValue,
 			ExactResolution: &types.ExactResolutionContract{
 				TargetKind:              types.SubjectConfigKey,
 				TargetLabel:             "config key",
@@ -1440,9 +1446,9 @@ func TestEmitAnswerDocument_RejectsConfigValueForAbsentConfigTrace(t *testing.T)
 	})
 	res, _ := tool.Execute(ctx, params)
 	if res.Success {
-		t.Fatal("absent config-trace answer should not be accepted as shape=config_value")
+		t.Fatal("absent config-trace answer should not be accepted as shape=config_value without an explicit required-shape contract")
 	}
-	if !strings.Contains(res.Summary, "must not use shape=config_value") {
+	if !strings.Contains(res.Summary, "[answer_doc_reject:absent_exact_config_value_shape]") || !strings.Contains(res.Summary, "must not use shape=config_value") {
 		t.Fatalf("missing absent config-trace shape guidance: %q", res.Summary)
 	}
 }
@@ -2110,6 +2116,38 @@ func TestEmitAnswerDocument_ShapeAutoCorrect_AcceptsCleanFallback(t *testing.T) 
 	}
 	if !strings.Contains(res.Summary, "explanation") {
 		t.Errorf("Summary must name the resolved shape: %q", res.Summary)
+	}
+}
+
+func TestEmitAnswerDocument_ShapeAutoCorrect_StableAbsentConfigKeyUsesExplanation(t *testing.T) {
+	ctx := newDocBusCtx("")
+	ctx.AnalysisIR = &types.AnalysisIR{
+		AnswerContract: types.AnswerContract{
+			RequiredAnswerShape: types.ShapeConfigValue,
+			ExactResolution: &types.ExactResolutionContract{
+				TargetKind:   types.SubjectConfigKey,
+				AllowAbsence: true,
+				Targets:      []string{"explore_mid_loop_hint_budget"},
+			},
+		},
+	}
+	ctx.Mutable.SetInvestigationResultKind("absence")
+	ctx.Mutable.SetAbsenceJustification("repo-wide search found no exact key")
+	tool := &EmitAnswerDocument{}
+	params := mustDocJSON(t, map[string]interface{}{
+		"shape":   "explanation",
+		"summary": "The repository does not contain the config key `explore_mid_loop_hint_budget`.",
+		"exact_resolution": map[string]interface{}{
+			"status":       "absent",
+			"context_mode": "grounded_context_only",
+		},
+	})
+	res, _ := tool.Execute(ctx, params)
+	if !res.Success {
+		t.Fatalf("stable absent exact config-key answer should accept explanation shape: %s", res.Summary)
+	}
+	if got := ctx.Mutable.AnswerDocument(); got == nil || got.Shape != types.ShapeExplanation {
+		t.Fatalf("resolved doc shape = %+v, want explanation", got)
 	}
 }
 

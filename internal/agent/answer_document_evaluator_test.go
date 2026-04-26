@@ -64,6 +64,28 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersResolvedShape(t 
 	}
 }
 
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_ResolvesAbsentConfigValueToExplanation(t *testing.T) {
+	mut := types.NewMutableState("")
+	mut.SetInvestigationResultKind("absence")
+	mut.SetAbsenceJustification("repo-wide search found no exact key")
+	ctx := &types.AgentContext{
+		Mutable: mut,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeConfigValue,
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:   types.SubjectConfigKey,
+					AllowAbsence: true,
+				},
+			},
+		},
+	}
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, string(types.ShapeExplanation)) {
+		t.Fatalf("resolved prompt should target explanation for stable absent exact config key: %q", prompt)
+	}
+}
+
 // TestAnswerDocumentEvaluator_BuildInitialInstruction_SurfacesCardinalityBaseline
 // checks that when MustInclude is populated and the resolved shape
 // is list_of_symbols, the dynamic prompt renders the γ floor so the
@@ -206,6 +228,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"The safest valid fenced diagram for this dispatch is an exact copy of that chain",
 		"Conceptual layer names requested by the user belong in prose headings or bullets",
 		"keep that explanation in prose outside the fenced diagram",
+		"## Submission Checklist",
+		"treat it as the grounded template for first-pass repair-resistant output",
+		"every fenced-diagram node must have its own grounded citation",
 		"### Verbatim File/Path Labels",
 		"`codrax.yaml.example`",
 		"`internal/config/runtime.go`",
@@ -243,6 +268,35 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhe
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	if !strings.Contains(prompt, "Current grounded evidence does NOT include an override-layer anchor") {
 		t.Fatalf("prompt missing missing-override warning:\n%s", prompt)
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_ConfigTraceSeedWarnsWhenYAMLAnchorMissing(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+					ScopeHint:      types.DiagramScopeOverall,
+					Reasons:        []string{"config_lineage"},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
+			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	if !strings.Contains(prompt, "Current grounded evidence does NOT include a YAML-layer anchor") {
+		t.Fatalf("prompt missing missing-yaml warning:\n%s", prompt)
 	}
 }
 
@@ -950,7 +1004,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionRejectSurfacesAct
 		LastToolResult: &types.ToolResult{
 			ToolName: "emit_answer_document",
 			Success:  false,
-			Summary:  "exact-resolution contract violated: summary must explicitly name the requested exact config key and lead with its absence before any nearby context.",
+			Summary:  "[answer_doc_reject:exact_resolution] exact-resolution contract violated: summary must explicitly name the requested exact config key and lead with its absence before any nearby context.",
 		},
 	})
 	if !sig.HintRequested {
@@ -965,6 +1019,31 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionRejectSurfacesAct
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("exact-resolution hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopAbsentExactConfigValueShapeRejectSurfacesAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "[answer_doc_reject:absent_exact_config_value_shape] exact absent config-key answers must not use shape=config_value with a synthetic missing literal; use shape=explanation so the answer can lead with the exact absence",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("absent exact config-value reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"shape=explanation",
+		"exact_resolution.status=\"absent\"",
+		"related context only",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("absent config-value hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }
@@ -1015,6 +1094,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 	for _, want := range []string{
 		"symbols[0].file is required when symbols[0].line is set",
 		"emit_answer_document",
+		"Only change the named field(s)",
 		"Do not write free-form prose outside the tool call",
 	} {
 		if !strings.Contains(sig.Hint, want) {
