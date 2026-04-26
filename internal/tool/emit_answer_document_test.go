@@ -1400,18 +1400,18 @@ func TestRenderExactResolutionLead_UsesNaturalAbsenceWording(t *testing.T) {
 	}
 
 	gotEN := renderAnswerDocumentExactResolutionLead(contract, exact, "en")
-	if !strings.Contains(gotEN, "does not contain the exact config key") {
+	if !strings.Contains(gotEN, "does not contain the config key") {
 		t.Fatalf("english absence lead too mechanical or missing: %q", gotEN)
 	}
-	if !strings.Contains(gotEN, "related background only") {
+	if !strings.Contains(gotEN, "background") || !strings.Contains(gotEN, "requested target itself") {
 		t.Fatalf("english grounded-context note missing: %q", gotEN)
 	}
 
 	gotZH := renderAnswerDocumentExactResolutionLead(contract, exact, "zh")
-	if !strings.Contains(gotZH, "仓库里没有找到精确config key") {
+	if !strings.Contains(gotZH, "仓库里没有找到名为 `explore_mid_loop_hint_budget` 的配置项") {
 		t.Fatalf("chinese absence lead too mechanical or missing: %q", gotZH)
 	}
-	if !strings.Contains(gotZH, "只作为相关背景") {
+	if !strings.Contains(gotZH, "帮助理解背景") {
 		t.Fatalf("chinese grounded-context note missing: %q", gotZH)
 	}
 }

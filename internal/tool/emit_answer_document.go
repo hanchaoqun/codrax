@@ -2247,39 +2247,80 @@ func renderAnswerDocumentExactResolutionLead(contract *types.ExactResolutionCont
 	if contract == nil || exact == nil || len(contract.Targets) == 0 {
 		return ""
 	}
-	label := strings.TrimSpace(contract.TargetLabel)
-	if label == "" {
-		label = "target"
-	}
-	targets := backtickJoin(contract.Targets)
 	zh := answerDocumentRequiresChinese(lang)
+	label := localizedExactResolutionTargetLabel(strings.TrimSpace(contract.TargetLabel), zh)
+	targetRef := formatExactResolutionTargetReference(label, contract.Targets, zh)
 	switch exact.Status {
 	case types.AnswerExactResolutionAbsent:
 		if zh {
-			lead := fmt.Sprintf("仓库里没有找到精确%s %s。", label, targets)
+			lead := fmt.Sprintf("仓库里没有找到%s。", targetRef)
 			if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
-				lead += " 下文如果补充相近的 grounded 上下文，也只作为相关背景，不代表它就是这个目标。"
+				lead += " 下面如果补充同族的已落地线索，也只是帮助理解背景，不表示它就是你问的目标。"
 			}
 			return lead
 		}
-		lead := fmt.Sprintf("The repository does not contain the exact %s %s.", label, targets)
+		lead := fmt.Sprintf("The repository does not contain %s.", targetRef)
 		if exact.ContextMode == types.AnswerExactResolutionContextGroundedOnly {
-			lead += " Any nearby grounded context below is related background only, not a substitute for the requested target."
+			lead += " Any grounded same-family context below is only there to explain the background; it is not the requested target itself."
 		}
 		return lead
 	case types.AnswerExactResolutionAliasMatch:
 		if zh {
-			return fmt.Sprintf("精确%s %s 可通过已引用证据中的 `%s` 明确映射到。", label, targets, exact.Anchor)
+			return fmt.Sprintf("已引用的证据表明，%s明确对应 `%s`。", targetRef, exact.Anchor)
 		}
-		return fmt.Sprintf("The exact %s %s resolves explicitly through `%s` in grounded evidence.", label, targets, exact.Anchor)
+		return fmt.Sprintf("Grounded evidence shows that %s resolves explicitly through `%s`.", targetRef, exact.Anchor)
 	case types.AnswerExactResolutionExactMatch:
 		if zh {
-			return fmt.Sprintf("已在已引用证据中直接找到精确%s %s。", label, targets)
+			return fmt.Sprintf("已在引用证据中直接找到%s。", targetRef)
 		}
-		return fmt.Sprintf("The exact %s %s is grounded directly in the cited evidence.", label, targets)
+		return fmt.Sprintf("%s appears directly in the cited evidence.", targetRef)
 	default:
 		return ""
 	}
+}
+
+func localizedExactResolutionTargetLabel(label string, zh bool) string {
+	label = strings.TrimSpace(label)
+	if !zh {
+		if label == "" {
+			return "target"
+		}
+		return label
+	}
+	switch strings.ToLower(label) {
+	case "", "target":
+		return "目标项"
+	case "config key":
+		return "配置项"
+	case "symbol":
+		return "符号"
+	case "file path":
+		return "文件路径"
+	case "directory":
+		return "目录"
+	case "route":
+		return "路由"
+	case "env var", "environment variable":
+		return "环境变量"
+	case "cli flag", "flag":
+		return "命令行参数"
+	default:
+		return label
+	}
+}
+
+func formatExactResolutionTargetReference(label string, targets []string, zh bool) string {
+	names := backtickJoin(targets)
+	if zh {
+		if len(targets) == 1 {
+			return fmt.Sprintf("名为 %s 的%s", names, label)
+		}
+		return fmt.Sprintf("这些%s：%s", label, names)
+	}
+	if len(targets) == 1 {
+		return fmt.Sprintf("the %s %s", label, names)
+	}
+	return fmt.Sprintf("these %s: %s", label, names)
 }
 
 type exactResolutionProofEntry struct {

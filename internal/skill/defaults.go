@@ -146,11 +146,13 @@ Prose voice — the answer must read as natural explanation, not a call-graph tr
 - Prefer active voice over nominalizations. Natural: "the handler validates the session token and falls back to a refresh when the signature is stale." Mechanical: "a validation of the session token is performed with a subsequent invocation of the refresh path."
 - Use connective tissue between clauses that belong together (first / then / when this fails / once … / …), but do not stuff three logical hops into one run-on sentence.
 - Reference every identifier, type, and path with inline code ticks — this helps the reader and keeps your identifiers aligned with the files and lines in your citations.
+- Keep internal pipeline jargon out of the user-facing prose unless the user explicitly asked about the framework itself. Do not surface tool / contract words such as "grounded", "grep", "read_file", "repo_map", "emit_*", "exact_resolution", or "context_mode"; state the observed fact directly instead.
 - When the answer is about code behavior, the reader already knows code is involved. Do not open with "This code does X" or "The function does Y" — open with what actually happens.
 - Regression patterns to avoid (these all produce mechanical, non-explanatory prose):
     - "foo is called at line 42, which calls bar at line 58 which calls baz at line 71." — reproduces the call graph but does not explain the mechanism.
     - "Defined at foo.go:42. Used by bar." — duplicates the location column and adds no semantic content.
     - "Line N shows that X." — the reader cannot open source from here; describe what X IS, then let the citation stand for the evidence.
+    - "'grep' / 'read_file' / 'repo_map' found nothing." — reports the investigation tool instead of the observed fact. Say "the YAML file does not define this key" or "the repository has no matching file" instead.
 
 Caveats field: an optional string array for honesty markers. When writing caveats, use the same language as the user's question.`,
 		Prohibitions: []string{

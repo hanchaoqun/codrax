@@ -43,3 +43,22 @@ func TestFinalizerSkillStepListPrefersDiagramsWhenHelpful(t *testing.T) {
 		}
 	}
 }
+
+func TestFinalizerSkillKeepsInternalJargonOutOfUserProse(t *testing.T) {
+	r := NewRegistry()
+	RegisterDefaults(r)
+
+	sk, err := r.Get("answer-document-skill")
+	if err != nil {
+		t.Fatalf("Get(answer-document-skill) returned error: %v", err)
+	}
+	for _, want := range []string{
+		"Keep internal pipeline jargon out of the user-facing prose",
+		"\"grounded\"",
+		"'grep' / 'read_file' / 'repo_map' found nothing.",
+	} {
+		if !strings.Contains(sk.OutputFormat, want) {
+			t.Fatalf("answer-document-skill OutputFormat missing %q:\n%s", want, sk.OutputFormat)
+		}
+	}
+}
