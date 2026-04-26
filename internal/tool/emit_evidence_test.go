@@ -69,11 +69,35 @@ func TestEmitEvidence_RejectsUnknownKind(t *testing.T) {
 	if res.Success {
 		t.Fatalf("expected failure, got success: %s", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "unknown kind") {
-		t.Errorf("error msg should mention unknown kind, got: %s", res.Summary)
+	if !strings.Contains(res.Summary, "unknown evidence_kind") {
+		t.Errorf("error msg should mention unknown evidence_kind, got: %s", res.Summary)
 	}
 	if len(ctx.Mutable.EmittedEvidence()) != 0 {
 		t.Errorf("buffer should not be touched on failure")
+	}
+}
+
+func TestEmitEvidence_RejectsEvidenceKindValueInsideAnchorKind(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{"items":[{"evidence_kind":"direct","source":"x.go","line_start":12,"anchor_kind":"direct","anchor_symbol":"Foo"}]}`)
+	res, _ := tool.Execute(ctx, params)
+	if res.Success {
+		t.Fatalf("expected failure, got success: %s", res.Summary)
+	}
+	if !strings.Contains(res.Summary, "belongs to evidence_kind, not anchor_kind") {
+		t.Fatalf("expected targeted anchor_kind guidance, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_ParametersExposeEvidenceKindNotLegacyKind(t *testing.T) {
+	tool := &EmitEvidence{}
+	schema := string(tool.Parameters())
+	if !strings.Contains(schema, `"evidence_kind"`) {
+		t.Fatalf("schema should expose evidence_kind: %s", schema)
+	}
+	if strings.Contains(schema, `"required":["kind"`) || strings.Contains(schema, `"required": ["kind"`) {
+		t.Fatalf("schema should not require legacy kind field: %s", schema)
 	}
 }
 
@@ -177,6 +201,82 @@ func TestEmitEvidence_PreservesValidatedDiagramRoleHint(t *testing.T) {
 	}
 	if got[0].DiagramRole != types.EvidenceDiagramRoleOverride {
 		t.Fatalf("diagram role = %q, want override", got[0].DiagramRole)
+	}
+}
+
+func TestEmitEvidence_DoesNotInferDiagramRoleWithoutHint(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	ctx.AnalysisIR = &types.AnalysisIR{
+		RequestModel: types.RequestModel{
+			Scenario:      types.ScenarioConfigTrace,
+			AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+		},
+	}
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "explore",
+				"predicate": "documents",
+				"source": "codrax.yaml.example",
+				"line_start": 20,
+				"summary": "yaml precedence comment",
+				"anchor_kind": "definition",
+				"anchor_symbol": "explore"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
+		t.Fatalf("diagram role = %q, want unknown without explicit hint", got[0].DiagramRole)
+	}
+	if !strings.Contains(res.Summary, "Config-precedence task detected") {
+		t.Fatalf("summary should nudge explicit diagram_role_hint usage, got: %s", res.Summary)
+	}
+}
+
+func TestEmitEvidence_DropsInconsistentDiagramRoleHint(t *testing.T) {
+	tool := &EmitEvidence{}
+	ctx := newEmitCtx()
+	params := json.RawMessage(`{
+		"items": [
+			{
+				"kind": "direct",
+				"subject": "LoadRuntimeConfig",
+				"predicate": "binds",
+				"source": "internal/config/runtime.go",
+				"line_start": 194,
+				"summary": "runtime binding layer",
+				"anchor_kind": "assignment",
+				"anchor_symbol": "resolved",
+				"diagram_role_hint": "yaml"
+			}
+		]
+	}`)
+	res, err := tool.Execute(ctx, params)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !res.Success {
+		t.Fatalf("expected success, got: %s", res.Summary)
+	}
+	got := ctx.Mutable.EmittedEvidence()
+	if len(got) != 1 {
+		t.Fatalf("want 1 item in buffer, got %d", len(got))
+	}
+	if got[0].DiagramRole != types.EvidenceDiagramRoleUnknown {
+		t.Fatalf("diagram role = %q, want unknown for inconsistent hint", got[0].DiagramRole)
 	}
 }
 

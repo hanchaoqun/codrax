@@ -2002,7 +2002,7 @@ func validateSummaryExactResolution(summary string, ctx *types.BusContext) error
 				label, exactTargetListForError(missing))
 		}
 	}
-	justification := strings.TrimSpace(ctx.Mutable.AbsenceJustification())
+	justification := strings.TrimSpace(ctx.Mutable.StableAbsenceJustification())
 	pending := types.ExactResolutionPendingTargets(contract, unverifiedFindingsForCompletion(ctx))
 	if !contract.AllowAbsence || justification == "" || len(pending) == 0 {
 		return nil
@@ -2140,13 +2140,13 @@ func resolveAnswerDocumentExactResolution(summary string, declared *types.Answer
 		if ctx == nil || ctx.Mutable == nil {
 			return nil, "", fmt.Errorf("exact-resolution contract violated: status=absent requires mutable exact-resolution state")
 		}
-		if !contract.AllowAbsence || ctx.Mutable.InvestigationResultKind() != "absence" || strings.TrimSpace(ctx.Mutable.AbsenceJustification()) == "" {
+		if !contract.AllowAbsence || ctx.Mutable.StableInvestigationResultKind() != "absence" || strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) == "" {
 			return nil, "", fmt.Errorf("exact-resolution contract violated: status=absent requires the exploration stage to close with emit_investigation_complete(result_kind=\"absence\", absence_justification=...)")
 		}
 	}
 	if ctx != nil && ctx.Mutable != nil &&
-		ctx.Mutable.InvestigationResultKind() == "absence" &&
-		strings.TrimSpace(ctx.Mutable.AbsenceJustification()) != "" &&
+		ctx.Mutable.StableInvestigationResultKind() == "absence" &&
+		strings.TrimSpace(ctx.Mutable.StableAbsenceJustification()) != "" &&
 		resolved.Status != types.AnswerExactResolutionAbsent {
 		return nil, "", fmt.Errorf("exact-resolution contract violated: the upstream investigation already closed as absence, so finalizer output must keep exact_resolution.status=\"absent\" unless the investigation is reopened with new grounded proof")
 	}
@@ -2269,6 +2269,7 @@ type exactResolutionProofEntry struct {
 	Subject      string
 	AnchorSymbol string
 	Object       string
+	Grounded     bool
 	Production   bool
 	FromEvidence bool
 }
@@ -2289,7 +2290,7 @@ func (p exactResolutionProof) anyPair(anchor string) bool {
 		return false
 	}
 	for _, entry := range p.Entries {
-		if !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
+		if !entry.Grounded || !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
 			continue
 		}
 		return true
@@ -2303,7 +2304,7 @@ func (p exactResolutionProof) anyProductionPair(anchor string) bool {
 		return false
 	}
 	for _, entry := range p.Entries {
-		if !entry.Production || !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
+		if !entry.Grounded || !entry.Production || !entryMentionsAnchor(p.Contract, entry, anchor) || !entryMentionsAnyTarget(p.Contract, entry) {
 			continue
 		}
 		return true
@@ -2318,6 +2319,9 @@ func collectExactResolutionProof(contract *types.ExactResolutionContract, citati
 		RequiresProductionProof: contract != nil && contract.TargetKind == types.SubjectConfigKey,
 	}
 	for _, entry := range proof.Entries {
+		if !entry.Grounded {
+			continue
+		}
 		if !entryMentionsAnyTarget(contract, entry) {
 			continue
 		}
@@ -2355,6 +2359,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 				Subject:      item.Subject,
 				AnchorSymbol: item.AnchorSymbol,
 				Object:       item.Object,
+				Grounded:     item.GroundingStatus == types.GroundingGrounded || item.GroundingStatus == types.GroundingRecovered,
 				Production:   exactResolutionProofSourceIsProductionLike(contract, item.Source) && item.ContextRole != types.EvidenceContextRoleIllustrativeOnly,
 				FromEvidence: true,
 			})
@@ -2377,6 +2382,7 @@ func exactResolutionProofEntries(contract *types.ExactResolutionContract, citati
 			out = append(out, exactResolutionProofEntry{
 				Text:       lineText,
 				Source:     c.File,
+				Grounded:   true,
 				Production: exactResolutionProofSourceIsProductionLike(contract, c.File),
 			})
 		}

@@ -198,7 +198,11 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagr
 		"internal/types/config.go:707",
 		"cmd/root.go:1381",
 		"use grounded source labels instead of numbered layers",
-		"do NOT rename its nodes into abstract numbered placeholders",
+		"validated `diagram_role_hint` evidence",
+		"do NOT rename or reorder its nodes into abstract numbered placeholders",
+		"The safest valid fenced diagram for this dispatch is an exact copy of that chain",
+		"Conceptual layer names requested by the user belong in prose headings or bullets",
+		"keep that explanation in prose outside the fenced diagram",
 		"### Verbatim File/Path Labels",
 		"`codrax.yaml.example`",
 		"`internal/config/runtime.go`",
@@ -300,11 +304,59 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		"Absence-only is acceptable",
 		"same namespace / prefix family",
 		"only create a separate numbered step when that layer has its own grounded repo anchor",
+		"repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line",
 		"## Exact Resolution Seeds",
 		"DefaultExploreHeuristics",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateAfterWindowReset(t *testing.T) {
+	mu := types.NewMutableState("")
+	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
+	mu.SetInvestigationResultKind("absence")
+	mu.ResetInvestigationComplete()
+	ctx := &types.AgentContext{
+		Mutable: mu,
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				ExactResolution: &types.ExactResolutionContract{
+					TargetKind:              types.SubjectConfigKey,
+					TargetLabel:             "config key",
+					Targets:                 []string{"explore_mid_loop_hint_budget"},
+					AllowAbsence:            true,
+					RequireTargetMention:    true,
+					AliasRequiresProof:      true,
+					RelatedContextPolicy:    types.ExactContextSameFamilyGrounded,
+					RelatedContextScopeHint: "same namespace / prefix family",
+				},
+			},
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+				AnalyzerHints: types.AnalyzerHints{
+					Kind:         "config_mapping",
+					ExactTargets: []string{"explore_mid_loop_hint_budget"},
+				},
+				AnswerSubject: types.AnswerSubject{Kind: types.SubjectConfigKey},
+			},
+		},
+		UnverifiedAnalyzerFindings: []types.UnverifiedFinding{{
+			Token: "explore_mid_loop_hint_budget",
+			Kind:  "symbol",
+		}},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"Investigation state: the exact target is currently absent in the repo / branch under inspection.",
+		"no config key named `explore_mid_loop_hint_budget` exists in the repo",
+		"Emit `exact_resolution.status=\"absent\"`",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q after reset:\n%s", want, prompt)
 		}
 	}
 }
@@ -492,6 +544,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAc
 		"reuse the exact grounded file / symbol / path labels",
 		"Verbatim File/Path Labels",
 		"Do NOT normalize one grounded label into a different spelling",
+		"Do NOT call `read_file`, `grep`, or any other tool",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("diagram-grounding hint missing %q: %q", want, sig.Hint)
@@ -500,7 +553,7 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAc
 }
 
 func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAction(t *testing.T) {
-	e := &answerDocumentEvaluator{maxRetries: 2}
+	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
 	sig := e.Observe(nil, LoopObservation{
 		Phase:     PhaseMidLoop,
 		Iteration: 0,
@@ -517,6 +570,9 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAct
 		"CODENAME-GROUNDING",
 		"Level 1",
 		"Label the diagram directly with grounded files, functions, config keys",
+		"Do NOT call `read_file`, `grep`, or any other tool",
+		"defaults / YAML / runtime / override",
+		"move that explanation into prose outside the fenced diagram",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("diagram-codename hint missing %q: %q", want, sig.Hint)
@@ -543,9 +599,39 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopExactResolutionRejectSurfacesAct
 		"requested exact target",
 		"related context",
 		"equivalent, alias, or substitute",
+		"Do NOT call `read_file`, `grep`, or any other tool",
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("exact-resolution hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopUnexpectedReadToolRequestsSynthesisOnlyRetry(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 3,
+		Response: llm.Response{
+			ToolCalls: []llm.ToolCall{{ID: "1", Name: "read_file"}},
+		},
+		LastToolResult: &types.ToolResult{
+			ToolName: "read_file",
+			Success:  false,
+			Summary:  "invalid params",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("unexpected read tool should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"pure synthesizer",
+		"Do NOT call `read_file`",
+		"emit_answer_document",
+		"Verbatim File/Path Labels",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("unexpected-tool hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }
@@ -589,6 +675,38 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesAc
 	}
 	if !strings.Contains(sig.Hint, "external source") {
 		t.Errorf("hint should surface the 'external source' escape rationale: %q", sig.Hint)
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopLiteralGroundingRejectSurfacesStepAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 3}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  `steps[0].description "searched the repo and found no production definition" is not corroborated by citations[0] (internal/tool/emit_answer_document_test.go:805): the cited line and ±3-line window contain no identifier overlap with the claim. If this step paraphrases an aggregate absence conclusion rather than one corroborated line, set citation_ref=-1 so the renderer drops the suffix.`,
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("step literal-grounding reject should request a correction hint, got %+v", sig)
+	}
+	actionIdx := strings.Index(sig.Hint, "steps[0].citation_ref = -1")
+	diagIdx := strings.Index(sig.Hint, "Full tool error")
+	if actionIdx < 0 || diagIdx < 0 || actionIdx > diagIdx {
+		t.Fatalf("steps[0].citation_ref=-1 action must appear before diagnostic body (action at %d, diagnostic at %d); hint:\n%s",
+			actionIdx, diagIdx, sig.Hint)
+	}
+	for _, want := range []string{
+		"LITERAL-GROUNDING",
+		"`steps[0].description`",
+		"repo-wide search, aggregate absence, test-only proof",
+		"Do NOT try to borrow a nearby file:line",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("step literal-grounding hint missing %q: %q", want, sig.Hint)
+		}
 	}
 }
 

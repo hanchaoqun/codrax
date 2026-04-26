@@ -56,10 +56,10 @@ func TestEmitEvidence_SchemaEnumMatchesCanonical(t *testing.T) {
 	items := props["items"].(map[string]any)
 	itemSchema := items["items"].(map[string]any)
 	itemProps := itemSchema["properties"].(map[string]any)
-	kindField := itemProps["kind"].(map[string]any)
+	kindField := itemProps["evidence_kind"].(map[string]any)
 	enumRaw, ok := kindField["enum"].([]any)
 	if !ok {
-		t.Fatalf("kind.enum is not an array: %T", kindField["enum"])
+		t.Fatalf("evidence_kind.enum is not an array: %T", kindField["enum"])
 	}
 	got := make([]string, len(enumRaw))
 	for i, v := range enumRaw {

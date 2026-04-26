@@ -1,6 +1,7 @@
 package tool
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/parser"
@@ -10,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -71,10 +73,10 @@ type EmitChangePlan struct {
 // in sync with the JSON schema below; Execute uses DisallowUnknownFields
 // so any drift fails loudly rather than silently losing fields.
 type emitChangePlanParams struct {
-	Request         string                  `json:"request"`
-	Summary         string                  `json:"summary"`
-	Changes         []emitChangePlanChange  `json:"changes"`
-	AcceptanceTests []string                `json:"acceptance_tests,omitempty"`
+	Request         string                 `json:"request"`
+	Summary         string                 `json:"summary"`
+	Changes         []emitChangePlanChange `json:"changes"`
+	AcceptanceTests []string               `json:"acceptance_tests,omitempty"`
 }
 
 // emitChangePlanChange mirrors types.FileChange but lives in the tool
@@ -1026,12 +1028,10 @@ func dryBuildGo(ctx *types.BusContext, changes []types.FileChange) string {
 // require). Skips when no python3 binary is available or no .py
 // change is present. Symmetric to the Go path.
 func dryBuildPython(ctx *types.BusContext, changes []types.FileChange) string {
-	pyBin, err := exec.LookPath("python3")
-	if err != nil {
-		if pyBin, err = exec.LookPath("python"); err != nil {
-			logging.Debug("[emit_change_plan] V2 Python dry-build skipped: python binary not on PATH")
-			return ""
-		}
+	pyRunner, ok := resolvePythonDryBuildRunner()
+	if !ok {
+		logging.Debug("[emit_change_plan] V2 Python dry-build skipped: no working python interpreter available")
+		return ""
 	}
 	var pyChanges []string
 	for _, c := range changes {
@@ -1054,15 +1054,67 @@ func dryBuildPython(ctx *types.BusContext, changes []types.FileChange) string {
 	defer cleanup()
 
 	sort.Strings(pyChanges)
-	args := append([]string{"-m", "py_compile"}, pyChanges...)
-	cmd := exec.Command(pyBin, args...)
+	args := append(append([]string{}, pyRunner.FixedArgs...), "-m", "py_compile")
+	args = append(args, pyChanges...)
+	cmd := exec.Command(pyRunner.ExePath, args...)
 	cmd.Dir = scratch
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		return formatDryBuildRejection("Python", "python3 -m py_compile "+strings.Join(pyChanges, " "), out, len(out))
+		displayArgs := append(append([]string{}, pyRunner.DisplayArgs...), "-m", "py_compile")
+		displayArgs = append(displayArgs, pyChanges...)
+		return formatDryBuildRejection("Python", strings.Join(displayArgs, " "), out, len(out))
 	}
 	logging.Debug("[emit_change_plan] V2 Python dry-build PASS for files: %v", pyChanges)
 	return ""
+}
+
+type pythonDryBuildRunner struct {
+	ExePath     string
+	FixedArgs   []string
+	DisplayArgs []string
+}
+
+func resolvePythonDryBuildRunner() (pythonDryBuildRunner, bool) {
+	candidates := []pythonDryBuildRunner{
+		{DisplayArgs: []string{"python3"}},
+		{DisplayArgs: []string{"python"}},
+	}
+	if runtime.GOOS == "windows" {
+		candidates = []pythonDryBuildRunner{
+			{DisplayArgs: []string{"py", "-3"}, FixedArgs: []string{"-3"}},
+			{DisplayArgs: []string{"python"}},
+			{DisplayArgs: []string{"python3"}},
+		}
+	}
+	for _, candidate := range candidates {
+		if len(candidate.DisplayArgs) == 0 {
+			continue
+		}
+		exePath, err := exec.LookPath(candidate.DisplayArgs[0])
+		if err != nil {
+			continue
+		}
+		candidate.ExePath = exePath
+		if probePythonDryBuildRunner(candidate) {
+			return candidate, true
+		}
+	}
+	return pythonDryBuildRunner{}, false
+}
+
+func probePythonDryBuildRunner(runner pythonDryBuildRunner) bool {
+	if strings.TrimSpace(runner.ExePath) == "" {
+		return false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	args := append(append([]string{}, runner.FixedArgs...), "-c", "import sys")
+	cmd := exec.CommandContext(ctx, runner.ExePath, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		logging.Debug("[emit_change_plan] V2 Python dry-build probe failed for %q: %v (out=%q)", strings.Join(runner.DisplayArgs, " "), err, strings.TrimSpace(string(out)))
+		return false
+	}
+	return true
 }
 
 // dryBuildNodeJS runs `node --check` on every changed .js / .mjs /

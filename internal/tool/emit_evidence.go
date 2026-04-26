@@ -47,10 +47,19 @@ type EmitEvidence struct {
 // by construction. Adding a new LLM-emittable kind means flipping
 // IsLLMEmittable in internal/types/evidence.go and nothing else.
 var emitEvidenceAllowedKinds = buildEmitEvidenceAllowedKinds()
+var emitAnchorKinds = buildEmitAnchorKinds()
 
 func buildEmitEvidenceAllowedKinds() map[string]types.EvidenceKind {
 	out := make(map[string]types.EvidenceKind, len(types.LLMEmittableEvidenceKinds()))
 	for _, k := range types.LLMEmittableEvidenceKinds() {
+		out[strings.ToLower(string(k))] = k
+	}
+	return out
+}
+
+func buildEmitAnchorKinds() map[string]types.AnchorKind {
+	out := make(map[string]types.AnchorKind, len(types.AllAnchorKinds()))
+	for _, k := range types.AllAnchorKinds() {
 		out[strings.ToLower(string(k))] = k
 	}
 	return out
@@ -109,11 +118,12 @@ type emitEvidenceParams struct {
 }
 
 type emitEvidenceItem struct {
-	Kind      string `json:"kind"`
-	Subject   string `json:"subject,omitempty"`
-	Predicate string `json:"predicate,omitempty"`
-	Object    string `json:"object,omitempty"`
-	Source    string `json:"source"`
+	EvidenceKind string `json:"evidence_kind,omitempty"`
+	LegacyKind   string `json:"kind,omitempty"`
+	Subject      string `json:"subject,omitempty"`
+	Predicate    string `json:"predicate,omitempty"`
+	Object       string `json:"object,omitempty"`
+	Source       string `json:"source"`
 	// LineStart / LineEnd use FlexInt so LLMs that emit numeric
 	// strings ("42") or floats (42.0) pass strict schema validation
 	// instead of failing the whole batch on format pedantry.
@@ -142,10 +152,15 @@ func (t *EmitEvidence) Description() string {
 		"fact you want the synthesis layer to see. The batched 'items' array preserves the " +
 		"existing 'one tool call per file' write pattern; do not call this tool once per item.\n\n" +
 		"Each item MUST set: source (repo-relative path), line_start (exact gutter line number, " +
-		"never estimated), anchor_kind (one of: " + strings.Join(emitAnchorKindNames(), ", ") + "), " +
-		"anchor_symbol (the identifier the grounder should find on that line), and kind (one of: " +
-		strings.Join(emitEvidenceAllowedKindNames(), ", ") + ").\n\n" +
-		"anchor_kind tells the grounder what KIND of location you are pointing at:\n" +
+		"never estimated), evidence_kind (one of: " + strings.Join(emitEvidenceAllowedKindNames(), ", ") + "), " +
+		"anchor_kind (one of: " + strings.Join(emitAnchorKindNames(), ", ") + "), and anchor_symbol " +
+		"(the identifier the grounder should find on that line).\n\n" +
+		"There are TWO different kind fields with different jobs:\n" +
+		"  - evidence_kind = the SEMANTIC fact shape (direct / conditional / registration / mechanism / relationship)\n" +
+		"  - anchor_kind   = the CODE syntax at source:line_start (definition / call / condition / return / assignment / import)\n" +
+		"Never put `direct` / `conditional` / `registration` / `mechanism` / `relationship` into anchor_kind. " +
+		"Never put `definition` / `call` / `condition` / `return` / `assignment` / `import` into evidence_kind.\n\n" +
+		"anchor_kind tells the grounder what KIND of code location you are pointing at:\n" +
 		"  - definition: the line is a function/type/const/var declaration\n" +
 		"  - call:       the line contains a function/method call (anchor_symbol = callee name)\n" +
 		"  - condition:  the line starts an if / when / unless / switch / case / guard\n" +
@@ -155,7 +170,9 @@ func (t *EmitEvidence) Description() string {
 		"anchor_symbol is the concrete identifier the grounder should see at line_start. For a " +
 		"method call 'x.Execute()' at line 42 the anchor_symbol is 'Execute' and anchor_kind is 'call'. " +
 		"For a struct type declaration 'type Orchestrator struct' the anchor_symbol is 'Orchestrator' " +
-		"and anchor_kind is 'definition'.\n\n" +
+		"and anchor_kind is 'definition'. On that same line the evidence_kind may still be 'direct' " +
+		"because the semantic claim is simply a direct fact about a definition. Likewise a config assignment " +
+		"line can be `evidence_kind=\"direct\"` with `anchor_kind=\"assignment\"`.\n\n" +
 		"For call-like evidence (`predicate` = calls / invokes / dispatches / delegates to) with " +
 		"`anchor_kind=\"call\"`, the semantic direction is ALWAYS caller -> callee: `subject` must be " +
 		"the containing function/method and `object` must be the callee on that line. Example: if " +
@@ -170,16 +187,100 @@ func (t *EmitEvidence) Description() string {
 		"line_start is off by one.\n\n" +
 		"The emit_evidence tool grounds every item synchronously and returns per-item feedback " +
 		"(grounded / recovered / ungrounded) in the same turn, so you can correct line numbers or " +
-		"anchor_symbols on the next call without waiting for a later stage. Unknown kinds and " +
+		"anchor_symbols on the next call without waiting for a later stage. Unknown evidence_kind / anchor_kind values and " +
 		"unknown fields are REJECTED — the tool will not silently coerce."
 }
 
+func emitEvidenceParametersSchema() json.RawMessage {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"items": map[string]any{
+				"type":        "array",
+				"description": "Batch of evidence items extracted from one or more files. Send the full batch in one call 鈥?do not invoke the tool per item.",
+				"items": map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"evidence_kind": map[string]any{
+							"type":        "string",
+							"enum":        emitEvidenceAllowedKindNames(),
+							"description": "REQUIRED. Semantic fact shape, NOT the syntax at line_start. direct = literal fact at file:line. conditional = behaviour gated by an IF clause. registration = something registered/bound with EXACT values. mechanism = how a process works step by step. relationship = link between two symbols (use subject + object). Values like definition/call/assignment belong in anchor_kind, not here. NOTE: for absence claims (searched and found nothing) do NOT emit via this tool 鈥?every evidence_kind requires a concrete file:line anchor, which is unsatisfiable for 'not found'. Use emit_investigation_complete.absence_justification for whole-answer absence, or simply omit the item for per-fact absence.",
+						},
+						"subject": map[string]any{
+							"type":        "string",
+							"description": "Primary semantic symbol the item is about (function name, type, key). For call-like predicates with anchor_kind='call', subject MUST be the caller / containing function at that line.",
+						},
+						"predicate": map[string]any{
+							"type":        "string",
+							"description": "Lowercase verb tying subject to object. PREFER these canonical verbs so the finalizer's deterministic relation-diagram renderer picks the edge up 鈥?anything outside this list is rendered as unstructured prose: calls, invokes, dispatches, delegates to, binds, binds ONLY, registers, wires, provides, returns, yields, constructs, instantiates, defines, implements, extends, embeds, maps, config, decorates. Optional; defaults to the lower-cased evidence_kind.",
+						},
+						"object": map[string]any{
+							"type":        "string",
+							"description": "Secondary symbol or value. Required for relationship; optional otherwise. For call-like predicates with anchor_kind='call', object MUST be the callee symbol on that line.",
+						},
+						"source": map[string]any{
+							"type":        "string",
+							"description": "Repository-relative file path the fact comes from. Required.",
+						},
+						"line_start": map[string]any{
+							"type":        "integer",
+							"description": "Exact gutter line number from read_file 鈥?NEVER estimated. The grounder uses this to verify the claim; wrong numbers are flagged as ungrounded or auto-recovered.",
+						},
+						"line_end": map[string]any{
+							"type":        "integer",
+							"description": "Last line of the cited range. Defaults to line_start when omitted.",
+						},
+						"condition": map[string]any{
+							"type":        "string",
+							"description": "For conditional items: the exact IF clause that triggers the behaviour.",
+						},
+						"summary": map[string]any{
+							"type":        "string",
+							"description": "Free-text rationale describing the fact. Keep concise; do not paraphrase numbers or string literals.",
+						},
+						"context_role_hint": map[string]any{
+							"type":        "string",
+							"enum":        emitEvidenceContextRoleNames(),
+							"description": "OPTIONAL recommendation for exact-target questions. defining = direct defining proof, related_context = grounded nearby context but not the exact target itself, illustrative_only = comment/doc/test/example mention that should NOT be treated as defining proof. The tool validates and may downgrade the hint.",
+						},
+						"diagram_role_hint": map[string]any{
+							"type":        "string",
+							"enum":        emitEvidenceDiagramRoleNames(),
+							"description": "OPTIONAL recommendation for config-precedence traces. default = code defaults, yaml = repo/user config layer, runtime = code/runtime binding layer, override = CLI/high-precedence override layer. The tool validates and may ignore inconsistent hints.",
+						},
+						"anchor_kind": map[string]any{
+							"type":        "string",
+							"enum":        emitAnchorKindNames(),
+							"description": "REQUIRED. Code syntax at line_start, NOT the semantic evidence shape. definition = symbol declaration, call = function/method call site, condition = if/when/switch/case/guard line, return = return or yield, assignment = := or = assignment, import = import/use/require statement. Values like direct/conditional/registration belong in evidence_kind, not here. The grounder dispatches on this so wrong anchor kinds produce confusing ungrounded verdicts.",
+						},
+						"anchor_symbol": map[string]any{
+							"type":        "string",
+							"description": "REQUIRED. The identifier the grounder should find on line_start. For a call like 'x.Execute()' the anchor_symbol is 'Execute'. For a type decl 'type Orchestrator struct' the anchor_symbol is 'Orchestrator'. For an import the anchor_symbol is the package path or local alias.",
+						},
+						"snippet": map[string]any{
+							"type":        "string",
+							"description": "Optional. 1-2 lines of actual code from the cited location. Enables snippet_fuzzy recovery when line_start is off by 卤15 lines 鈥?recommended for conditional / mechanism / registration items.",
+						},
+					},
+					"required": []string{"evidence_kind", "source", "line_start", "anchor_kind", "anchor_symbol"},
+				},
+			},
+		},
+		"required": []string{"items"},
+	}
+	buf, _ := json.Marshal(schema)
+	return json.RawMessage(buf)
+}
+
 func (t *EmitEvidence) Parameters() json.RawMessage {
+	if schema := emitEvidenceParametersSchema(); len(schema) > 0 {
+		return schema
+	}
 	// Build the enum lists as JSON so they stay in lockstep with the
 	// canonical types.LLMEmittableEvidenceKinds / AllAnchorKinds lists
 	// — hand-editing the schema literal is how the 6-vs-11 drift bug
 	// was born.
-	kindEnumJSON, _ := json.Marshal(emitEvidenceAllowedKindNames())
+	evidenceKindEnumJSON, _ := json.Marshal(emitEvidenceAllowedKindNames())
 	contextRoleEnumJSON, _ := json.Marshal(emitEvidenceContextRoleNames())
 	diagramRoleEnumJSON, _ := json.Marshal(emitEvidenceDiagramRoleNames())
 	anchorEnumJSON, _ := json.Marshal(emitAnchorKindNames())
@@ -212,7 +313,7 @@ func (t *EmitEvidence) Parameters() json.RawMessage {
     }
   },
   "required": ["items"]
-}`, string(kindEnumJSON), string(contextRoleEnumJSON), string(diagramRoleEnumJSON), string(anchorEnumJSON))
+}`, string(evidenceKindEnumJSON), string(contextRoleEnumJSON), string(diagramRoleEnumJSON), string(anchorEnumJSON))
 	return json.RawMessage(schema)
 }
 
@@ -384,7 +485,7 @@ func (t *EmitEvidence) Execute(ctx *types.BusContext, params json.RawMessage) (t
 
 	ctx.Mutable.AppendEvidence(built)
 
-	summary := renderEmitSummary(built, reports, ctx.Mutable.EmittedEvidence())
+	summary := renderEmitSummary(ctx, built, reports, ctx.Mutable.EmittedEvidence())
 	if len(rejectedItems) > 0 || len(autoSwapped) > 0 {
 		var b strings.Builder
 		b.WriteString(summary)
@@ -435,7 +536,21 @@ func buildEmitEvidenceItemWithSwap(in *emitEvidenceItem, index int, workDir stri
 // it into a types.EvidenceItem with stable ID and producer stamped.
 // All validation is structural, never wordlist-based.
 func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (types.EvidenceItem, error) {
-	kindKey := strings.ToLower(strings.TrimSpace(in.Kind))
+	kindText := strings.TrimSpace(in.EvidenceKind)
+	if kindText == "" {
+		kindText = strings.TrimSpace(in.LegacyKind)
+	}
+	kindKey := strings.ToLower(kindText)
+	if _, anchorNameCollision := emitAnchorKinds[kindKey]; anchorNameCollision {
+		return types.EvidenceItem{}, fmt.Errorf(
+			"items[%d]: evidence_kind %q is invalid because %q is an anchor_kind, not an evidence_kind. Use evidence_kind in {%s} and anchor_kind in {%s}.",
+			index,
+			kindText,
+			kindText,
+			strings.Join(emitEvidenceAllowedKindNames(), ", "),
+			strings.Join(emitAnchorKindNames(), ", "),
+		)
+	}
 	kind, ok := emitEvidenceAllowedKinds[kindKey]
 	if !ok {
 		// Schema-deprecation redirect (logtri_custom root cause):
@@ -452,7 +567,7 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 				"items[%d]: kind=absent is not emittable via emit_evidence — the tool requires line_start > 0 + anchor_kind + anchor_symbol for every evidence item, which is unsatisfiable for 'searched and found nothing' claims. For whole-answer absence (the user's question resolves to 'no X exists'), set `absence_justification` on emit_investigation_complete with a one-sentence explanation and skip emit_evidence for the zero result. For per-fact absence inside a larger investigation, simply omit the item — the finalizer's summary is the right place to describe what was absent. Allowed kinds via emit_evidence: %s.",
 				index, strings.Join(emitEvidenceAllowedKindNames(), ", "))
 		}
-		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown kind %q (allowed: %s)", index, in.Kind, strings.Join(emitEvidenceAllowedKindNames(), ", "))
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown evidence_kind %q (allowed: %s)", index, kindText, strings.Join(emitEvidenceAllowedKindNames(), ", "))
 	}
 	source := strings.TrimSpace(in.Source)
 	if source == "" {
@@ -467,6 +582,21 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	// ride on isInsideWorkDir from emit_answer_symbol.go.
 	if isInsideWorkDir(source, workDir) {
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: source %q lives inside the per-trace WorkDir (%s) — that is a tool-output blob, not a repo file. Re-cite the original repo path that the blob was extracted from.", index, in.Source, workDir)
+	}
+	preAnchorKindKey := strings.ToLower(strings.TrimSpace(in.AnchorKind))
+	if _, evidenceNameCollision := emitEvidenceAllowedKinds[preAnchorKindKey]; evidenceNameCollision {
+		return types.EvidenceItem{}, fmt.Errorf(
+			"items[%d]: anchor_kind %q is invalid because %q belongs to evidence_kind, not anchor_kind. Use evidence_kind=%q and anchor_kind in {%s}.",
+			index,
+			strings.TrimSpace(in.AnchorKind),
+			strings.TrimSpace(in.AnchorKind),
+			strings.TrimSpace(in.AnchorKind),
+			strings.Join(emitAnchorKindNames(), ", "),
+		)
+	}
+	preAnchorSymbol := strings.TrimSpace(in.AnchorSymbol)
+	if preAnchorSymbol == "" {
+		return types.EvidenceItem{}, fmt.Errorf("items[%d]: anchor_symbol is required 鈥?the identifier the grounder should find at source:line_start (e.g. the callee name for anchor_kind=call, the type name for anchor_kind=definition, the package path for anchor_kind=import)", index)
 	}
 	lineStartN := in.LineStart.Int()
 	lineEndN := in.LineEnd.Int()
@@ -489,6 +619,16 @@ func buildEmitEvidenceItem(in emitEvidenceItem, index int, workDir string) (type
 	}
 	anchorKind, ok := findAnchorKind(anchorKindKey)
 	if !ok {
+		if _, evidenceNameCollision := emitEvidenceAllowedKinds[anchorKindKey]; evidenceNameCollision {
+			return types.EvidenceItem{}, fmt.Errorf(
+				"items[%d]: anchor_kind %q is invalid because %q belongs to evidence_kind, not anchor_kind. Use evidence_kind=%q and anchor_kind in {%s}.",
+				index,
+				strings.TrimSpace(in.AnchorKind),
+				strings.TrimSpace(in.AnchorKind),
+				strings.TrimSpace(in.AnchorKind),
+				strings.Join(emitAnchorKindNames(), ", "),
+			)
+		}
 		return types.EvidenceItem{}, fmt.Errorf("items[%d]: unknown anchor_kind %q (allowed: %s)", index, in.AnchorKind, strings.Join(emitAnchorKindNames(), ", "))
 	}
 	anchorSymbol := strings.TrimSpace(in.AnchorSymbol)
@@ -594,32 +734,23 @@ func validatedEvidenceDiagramRole(ev types.EvidenceItem, gc *ground.Context) typ
 	}
 	switch ev.DiagramRole {
 	case types.EvidenceDiagramRoleYAML:
-		if evidenceLooksYAMLLayer(ev.Source) {
+		if evidenceSourceHasYAMLExt(ev.Source) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleOverride:
-		if evidenceLooksOverrideLayer(ev.Source) {
+		if evidenceCanBeDiagramCodeLayer(ev) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleRuntime:
-		if evidenceCanBeRuntimeLayer(ev) {
+		if evidenceCanBeDiagramCodeLayer(ev) {
 			return ev.DiagramRole
 		}
 	case types.EvidenceDiagramRoleDefault:
-		if evidenceCanBeDefining(ev) {
+		if evidenceCanBeDefining(ev) && !evidenceSourceHasYAMLExt(ev.Source) {
 			return ev.DiagramRole
 		}
 	}
-	switch {
-	case evidenceLooksYAMLLayer(ev.Source):
-		return types.EvidenceDiagramRoleYAML
-	case evidenceLooksOverrideLayer(ev.Source):
-		return types.EvidenceDiagramRoleOverride
-	case evidenceLooksRuntimeLayer(ev.Source):
-		return types.EvidenceDiagramRoleRuntime
-	default:
-		return types.EvidenceDiagramRoleUnknown
-	}
+	return types.EvidenceDiagramRoleUnknown
 }
 
 func evidenceLooksIllustrative(ev types.EvidenceItem, gc *ground.Context) bool {
@@ -652,27 +783,19 @@ func evidenceCanBeRelatedContext(ev types.EvidenceItem) bool {
 	return ev.Source != ""
 }
 
-func evidenceLooksYAMLLayer(source string) bool {
+func evidenceSourceHasYAMLExt(source string) bool {
 	source = strings.ToLower(strings.TrimSpace(source))
 	return strings.HasSuffix(source, ".yaml") || strings.HasSuffix(source, ".yml")
 }
 
-func evidenceLooksOverrideLayer(source string) bool {
-	source = normalizeEvidenceSourcePath(source)
-	return strings.Contains(source, "/cmd/") || strings.HasPrefix(source, "cmd/")
-}
-
-func evidenceLooksRuntimeLayer(source string) bool {
-	source = normalizeEvidenceSourcePath(source)
-	return strings.Contains(source, "/config/") || strings.HasPrefix(source, "config/")
-}
-
-func evidenceCanBeRuntimeLayer(ev types.EvidenceItem) bool {
-	return ev.Source != "" && !evidenceLooksYAMLLayer(ev.Source) && !evidenceLooksOverrideLayer(ev.Source)
-}
-
-func normalizeEvidenceSourcePath(source string) string {
-	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(source), `\`, `/`))
+func evidenceCanBeDiagramCodeLayer(ev types.EvidenceItem) bool {
+	if ev.Source == "" || evidenceSourceHasYAMLExt(ev.Source) {
+		return false
+	}
+	if types.LooksLikeAuxiliaryEvidencePath(ev.Source) {
+		return false
+	}
+	return ev.AnchorKind != ""
 }
 
 var callLikePredicates = map[string]bool{
@@ -912,7 +1035,7 @@ func evidenceSemantic(it types.EvidenceItem) string {
 // allEvidence is the mutable buffer after Append, used for the global
 // tally so the LLM sees cumulative state across multiple emit_evidence
 // calls in the same dispatch.
-func renderEmitSummary(items []types.EvidenceItem, reports []ground.Report, allEvidence []types.EvidenceItem) string {
+func renderEmitSummary(ctx *types.BusContext, items []types.EvidenceItem, reports []ground.Report, allEvidence []types.EvidenceItem) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "emit_evidence accepted %d item(s)\n\n", len(items))
 	for i, it := range items {
@@ -980,7 +1103,28 @@ func renderEmitSummary(items []types.EvidenceItem, reports []ground.Report, allE
 	sort.Strings(srcList)
 	fmt.Fprintf(&b, "\nEvidence so far: %d grounded / %d recovered / %d ungrounded across %d file(s).\n",
 		g, rc, u, len(srcList))
+	if shouldNudgeDiagramRoleHints(ctx, items) {
+		b.WriteString("Config-precedence task detected: when an evidence item represents code defaults, a YAML layer, a runtime binding layer, or a high-precedence override layer, set `diagram_role_hint` on that item so downstream diagram rendering can reuse validated structure instead of inferring roles from prose.\n")
+	}
 	return b.String()
+}
+
+func shouldNudgeDiagramRoleHints(ctx *types.BusContext, items []types.EvidenceItem) bool {
+	if ctx == nil || ctx.AnalysisIR == nil || len(items) == 0 {
+		return false
+	}
+	rm := ctx.AnalysisIR.RequestModel
+	if rm.Scenario != types.ScenarioConfigTrace &&
+		!strings.EqualFold(strings.TrimSpace(rm.AnalyzerHints.Kind), "config_mapping") &&
+		rm.AnswerSubject.Kind != types.SubjectConfigKey {
+		return false
+	}
+	for _, it := range items {
+		if it.DiagramRole != types.EvidenceDiagramRoleUnknown {
+			return false
+		}
+	}
+	return true
 }
 
 func prefOrDash(s string) string {

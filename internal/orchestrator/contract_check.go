@@ -153,7 +153,7 @@ func isJustifiedAbsenceAnswer(mut *types.MutableState) bool {
 	// sentence "There are no Python files in this repo") whose
 	// structural shape would otherwise fail isAbsenceShape and make
 	// the citation-floor gate fire with no possible repair.
-	if strings.TrimSpace(mut.AbsenceJustification()) != "" {
+	if strings.TrimSpace(mut.StableAbsenceJustification()) != "" {
 		return hasAnyInvestigationSuccess(mut)
 	}
 	// Structural path — the finalized document's shape itself reads

@@ -17,10 +17,8 @@ import (
 //
 // Skipped when python3 is not installed (sandbox / minimal CI).
 func TestDryBuildPython_SyntaxErrorRejected(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		if _, err := exec.LookPath("python"); err != nil {
-			t.Skip("python3 not on PATH; skip the Python branch test")
-		}
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no working python interpreter; skip the Python branch test")
 	}
 	repo := t.TempDir()
 	// Seed a tiny Python project — the file content doesn't matter,
@@ -50,10 +48,8 @@ func TestDryBuildPython_SyntaxErrorRejected(t *testing.T) {
 // Python passes (returns "") so the planner moves on to the next
 // validator.
 func TestDryBuildPython_ValidCodeAccepted(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		if _, err := exec.LookPath("python"); err != nil {
-			t.Skip("python3 not on PATH")
-		}
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no working python interpreter")
 	}
 	repo := t.TempDir()
 	if err := os.WriteFile(filepath.Join(repo, "setup.py"), []byte("# stub\n"), 0o644); err != nil {
@@ -116,10 +112,8 @@ func TestDryBuildNodeJS_SyntaxErrorRejected(t *testing.T) {
 // ignored by the dry-build (nothing to syntax-check). Same shape as
 // the existing Go path.
 func TestDryBuildPython_DeleteIgnored(t *testing.T) {
-	if _, err := exec.LookPath("python3"); err != nil {
-		if _, err := exec.LookPath("python"); err != nil {
-			t.Skip("python3 not on PATH")
-		}
+	if _, ok := resolvePythonDryBuildRunner(); !ok {
+		t.Skip("no working python interpreter")
 	}
 	bus := &types.BusContext{RepoRoot: t.TempDir()}
 	changes := []types.FileChange{{Path: "old.py", Kind: "delete"}}

@@ -23,7 +23,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -547,7 +549,7 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. Reuse this skeleton verbatim when it matches the evidence, and do NOT rename its nodes into abstract numbered placeholders:\n\n```\n")
+	b.WriteString("For config-precedence questions, use grounded source labels instead of numbered layers. This chain is already ordered from validated `diagram_role_hint` evidence; reuse it verbatim when it matches the evidence, and do NOT rename or reorder its nodes into abstract numbered placeholders:\n\n```\n")
 	for i, anchor := range anchors {
 		b.WriteString(anchor.Label)
 		b.WriteByte('\n')
@@ -556,8 +558,9 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("```\n")
+	b.WriteString("The safest valid fenced diagram for this dispatch is an exact copy of that chain, or a strict subsequence made only by deleting unused nodes. Do not invent new node names, aliases, buckets, or tier markers.\n")
 	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to an abstract bucket name (for example a generic step number, the literal `CLI`, or a tier label). Keep each node label as a plain grounded file/path label; do not prepend ordinal-tier wrappers.\n")
-	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. If you introduce a different file / symbol / path label, ground it first.")
+	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. Conceptual layer names requested by the user belong in prose headings or bullets unless those exact file/path labels are themselves cited. If you want to explain semantics such as defaults, YAML load, runtime binding, or CLI override, keep that explanation in prose outside the fenced diagram and cite it there. If you introduce a different file / symbol / path label, ground it first.")
 	return strings.TrimSpace(b.String())
 }
 
@@ -663,9 +666,9 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		label = "target"
 	}
 	pending := types.ExactResolutionPendingTargets(contract, ctx.UnverifiedAnalyzerFindings)
-	justification := strings.TrimSpace(sanitizeExactResolutionAbsenceJustification(ctx, contract, ctx.Mutable.AbsenceJustification()))
+	justification := strings.TrimSpace(sanitizeExactResolutionAbsenceJustification(ctx, contract, ctx.Mutable.StableAbsenceJustification()))
 	stateAbsent := contract.AllowAbsence &&
-		ctx.Mutable.InvestigationResultKind() == "absence" &&
+		ctx.Mutable.StableInvestigationResultKind() == "absence" &&
 		justification != "" &&
 		len(pending) > 0
 
@@ -693,6 +696,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby YAML / struct citation.\n")
 			b.WriteString("- In `step_list`, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
+			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
 		}
 	}
 	b.WriteString("\n")
@@ -968,6 +972,9 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 				return LoopSignal{StopRequested: true, StopReason: "emit_answer_document called"}
 			}
 		}
+		if sig := e.unexpectedFinalizerToolSignal(obs); sig.HintRequested {
+			return sig
+		}
 		if sig := e.emitAnswerDocumentRejectSignal(obs); sig.HintRequested {
 			return sig
 		}
@@ -1010,6 +1017,33 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 	}
 }
 
+func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservation) LoopSignal {
+	if obs.Phase != PhaseMidLoop || len(obs.Response.ToolCalls) == 0 {
+		return LoopSignal{}
+	}
+	var unexpected []string
+	for _, tc := range obs.Response.ToolCalls {
+		name := strings.TrimSpace(tc.Name)
+		if name == "" || name == "emit_answer_document" {
+			continue
+		}
+		unexpected = append(unexpected, name)
+	}
+	if len(unexpected) == 0 {
+		return LoopSignal{}
+	}
+	if e.maxRetries > 0 && e.rejectHintsUsed >= e.maxRetries {
+		return LoopSignal{}
+	}
+	e.rejectHintsUsed++
+	toolList := strings.Join(unexpected, ", ")
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       fmt.Sprintf("finalizer.unexpected_tool.%d.%s", obs.Iteration, toolList),
+		Hint:          fmt.Sprintf("This finalizer is a pure synthesizer. Do NOT call `%s` or any other read/search tool. Re-emit `emit_answer_document` using only the already-provided grounded evidence: `citations[]`, Diagram Seeds, Exact Resolution Seeds, and Verbatim File/Path Labels. If a step cannot honestly cite one grounded line, keep that fact in `summary` or set that step's `citation_ref=-1` instead of reopening files. Do not write free-form prose outside the tool call.", toolList),
+	}
+}
+
 func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObservation) LoopSignal {
 	if obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_answer_document" || obs.LastToolResult.Success {
 		return LoopSignal{}
@@ -1042,21 +1076,21 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 	}
 	if strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
 		reasonKey = "diagram-grounding"
-		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Verbatim File/Path Labels` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the DIAGRAM-GROUNDING gate: the fenced diagram renamed or introduced file/path labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but inside the diagram reuse the exact grounded file / symbol / path labels from citations, cited line text, or Log Triage frames. Prefer copying directly from the prompt's `Verbatim File/Path Labels` section or from the tool error's allowed-label list. Do NOT normalize one grounded label into a different spelling unless that alternate label is itself grounded. Prefer direct grounded node names over abstract aliases. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
-			hint += " For config-precedence diagrams, keep the seeded precedence chain's node labels verbatim; do NOT rewrite them into abstract numbered placeholders."
+			hint += " For config-precedence diagrams, keep the seeded precedence chain's node labels verbatim; do NOT rewrite them into abstract numbered placeholders. If the user asked for conceptual layers, explain those layer names in prose outside the fence unless the exact label is grounded."
 		}
 	}
 	if strings.Contains(summary, "summary introduces codename label(s) not present in any citation's") {
 		reasonKey = "diagram-codename"
-		hint = "Your last `emit_answer_document` call was rejected by the CODENAME-GROUNDING gate: the summary introduced abstract enumeration labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but remove invented labels such as `Level 1` / `Round 2` / `Step 3` unless those exact tokens are cited. Label the diagram directly with grounded files, functions, config keys, or other evidenced entities instead. Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the CODENAME-GROUNDING gate: the summary introduced abstract enumeration labels that are not grounded. Re-emit `emit_answer_document` now with the same answer, but remove invented labels such as `Level 1` / `Round 2` / `Step 3` unless those exact tokens are cited. Label the diagram directly with grounded files, functions, config keys, or other evidenced entities instead. Do NOT call `read_file`, `grep`, or any other tool to repair this — use the existing citations / seeds only. Do not write free-form prose outside the tool call."
 		if e.configTraceDiagram {
-			hint += " In config-precedence diagrams, grounded file/path labels are the node names; numbered layer aliases are never required."
+			hint += " In config-precedence diagrams, grounded file/path labels are the node names; numbered layer aliases are never required. If you need semantics like defaults / YAML / runtime / override, move that explanation into prose outside the fenced diagram and keep the fence itself as the seeded chain (or a strict subsequence of it)."
 		}
 	}
 	if strings.Contains(summary, "exact-resolution contract violated:") {
 		reasonKey = "exact-resolution"
-		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with a valid `exact_resolution{status,anchor?,context_mode}` object that matches the grounded evidence and current absence state for the requested exact target. Use `exact_match` only when a cited line or grounded evidence explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the investigation closed with `result_kind=\"absence\"` (absence-only is acceptable). Any nearby related context must remain `grounded_context_only`, not an equivalent, alias, or substitute. Do not write free-form prose outside the tool call."
+		hint = "Your last `emit_answer_document` call was rejected by the exact-resolution contract. Re-emit `emit_answer_document` now with a valid `exact_resolution{status,anchor?,context_mode}` object that matches the grounded evidence and current absence state for the requested exact target. Use `exact_match` only when a cited line or grounded evidence explicitly names the exact target, `alias_match` only with explicit grounded mapping proof plus `anchor`, and `absent` only when the investigation closed with `result_kind=\"absence\"` (absence-only is acceptable). Any nearby related context must remain `grounded_context_only`, not an equivalent, alias, or substitute. Do NOT call `read_file`, `grep`, or any other tool to repair this — decide from the current grounded evidence, citations, and seeds. Do not write free-form prose outside the tool call."
 	}
 
 	// Session-22 special-case: the literal-grounding gate on shape=
@@ -1071,10 +1105,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 	// retry budget on more fabrications.
 	if strings.Contains(summary, "not corroborated by citations[") {
 		reasonKey = "literal-grounding"
-		hint = "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate: the cited file:line does NOT contain `value.literal`, i.e. the citation does not back the answer. " +
-			"The single-action fix: re-emit now with `value.citation_ref = -1` AND add a sentence to `summary` stating the literal is drawn from the attached log / external source (no grounded repo citation). " +
-			"Do NOT try to find a different file:line — if the literal came from an external trace (panic frame, log function name, etc.), no repo citation exists by definition and -1 is the tool-schema-legal escape. " +
-			"Full tool error: " + strings.SplitN(summary, "\n", 2)[0]
+		hint = buildLiteralGroundingRetryHint(summary)
 	}
 
 	e.rejectHintsUsed++
@@ -1085,6 +1116,38 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 		Progress:       true,
 		BypassThrottle: true,
 	}
+}
+
+func buildLiteralGroundingRetryHint(summary string) string {
+	firstLine := strings.TrimSpace(strings.SplitN(summary, "\n", 2)[0])
+	refField := "value.citation_ref"
+	subject := "`value.literal`"
+	context := "the literal is drawn from the attached log / external source (no grounded repo citation)"
+	extra := "Do NOT try to find a different file:line — if the literal came from an external trace (panic frame, log function name, etc.), no repo citation exists by definition and -1 is the tool-schema-legal escape."
+	if idx, ok := parseLiteralGroundingStepIndex(firstLine); ok {
+		refField = fmt.Sprintf("steps[%d].citation_ref", idx)
+		subject = fmt.Sprintf("`steps[%d].description`", idx)
+		context = "that step summarizes a repo-wide search, aggregate absence, test-only proof, or other claim that has no single corroborating repo line"
+		extra = "Do NOT try to borrow a nearby file:line just to satisfy the schema — if the step summarizes an aggregate search result or absence conclusion rather than one corroborated line, `-1` is the tool-schema-legal escape."
+	}
+	return "Your last `emit_answer_document` call was rejected by the LITERAL-GROUNDING gate: the cited file:line does NOT corroborate " + subject + ". " +
+		fmt.Sprintf("The single-action fix: re-emit now with `%s = -1`", refField) +
+		" AND add a sentence to `summary` stating that " + context + ". " +
+		extra + " Full tool error: " + firstLine
+}
+
+var literalGroundingStepRe = regexp.MustCompile(`^steps\[(\d+)\]\.description\b`)
+
+func parseLiteralGroundingStepIndex(firstLine string) (int, bool) {
+	m := literalGroundingStepRe.FindStringSubmatch(strings.TrimSpace(firstLine))
+	if len(m) != 2 {
+		return 0, false
+	}
+	idx, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0, false
+	}
+	return idx, true
 }
 
 // answerDocumentStageData is the JSON payload shape written into

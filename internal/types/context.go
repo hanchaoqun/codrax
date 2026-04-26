@@ -196,6 +196,16 @@ type MutableState struct {
 	// (hasInvestigationEvidence ≥1 investigation tool) still runs.
 	absenceJustification    string
 	investigationResultKind string
+	// retainedAbsenceJustification / retainedInvestigationResultKind
+	// preserve the most recently accepted terminal investigation state
+	// across explore-window retries. ResetInvestigationComplete clears
+	// the per-window latch so a new explorer dispatch starts fresh, but
+	// downstream stages still need the accepted absence / resolved
+	// disposition from the last successful emit_investigation_complete
+	// call. These retained fields survive window resets until the task
+	// itself ends.
+	retainedAbsenceJustification    string
+	retainedInvestigationResultKind string
 
 	// exploreBudget is the ExploreBudget the orchestrator installs
 	// at the top of runTaskGraph. The explorer's ReAct loop reads
@@ -1589,7 +1599,11 @@ func (m *MutableState) SetAbsenceJustification(just string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	just = strings.TrimSpace(just)
 	m.absenceJustification = just
+	if just != "" {
+		m.retainedAbsenceJustification = just
+	}
 }
 
 // AbsenceJustification returns the LLM-declared zero rationale.
@@ -1611,7 +1625,12 @@ func (m *MutableState) SetInvestigationResultKind(kind string) {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.investigationResultKind = strings.TrimSpace(kind)
+	kind = strings.TrimSpace(kind)
+	m.investigationResultKind = kind
+	m.retainedInvestigationResultKind = kind
+	if !strings.EqualFold(kind, "absence") {
+		m.retainedAbsenceJustification = ""
+	}
 }
 
 // InvestigationResultKind returns the structured completion
@@ -1623,6 +1642,45 @@ func (m *MutableState) InvestigationResultKind() string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	return m.investigationResultKind
+}
+
+// StableAbsenceJustification returns the best available accepted
+// absence justification for downstream contract checks. It prefers the
+// current explore window's declarative state, then falls back to the
+// most recently accepted terminal investigation result that survived
+// window resets. Non-absence retained states return "" fail-closed.
+func (m *MutableState) StableAbsenceJustification() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if strings.EqualFold(strings.TrimSpace(m.investigationResultKind), "absence") {
+		if just := strings.TrimSpace(m.absenceJustification); just != "" {
+			return just
+		}
+	}
+	if !strings.EqualFold(strings.TrimSpace(m.retainedInvestigationResultKind), "absence") {
+		return ""
+	}
+	return strings.TrimSpace(m.retainedAbsenceJustification)
+}
+
+// StableInvestigationResultKind returns the accepted terminal
+// investigation disposition that downstream stages should trust across
+// explore-window retries. It prefers the current window's explicit
+// result_kind and falls back to the most recently accepted retained
+// result when the current window has already been reset.
+func (m *MutableState) StableInvestigationResultKind() string {
+	if m == nil {
+		return ""
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if kind := strings.TrimSpace(m.investigationResultKind); kind != "" {
+		return kind
+	}
+	return strings.TrimSpace(m.retainedInvestigationResultKind)
 }
 
 // SetExploreBudget installs a fresh ExploreBudget for the current
