@@ -641,6 +641,53 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesActi
 	}
 }
 
+func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectIncludesConfigTraceSeed(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/types/config.go", LineStart: 707, Summary: "code defaults", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleDefault},
+			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleYAML},
+			{Source: "internal/config/runtime.go", LineStart: 194, Summary: "runtime yaml binding", Kind: types.EvidenceDirect, DiagramRole: types.EvidenceDiagramRoleRuntime},
+		},
+	}
+	e := &answerDocumentEvaluator{maxRetries: 2, configTraceDiagram: true}
+	sig := e.Observe(ctx, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "diagram required for this dispatch (preferred kinds: architecture, flow); summary must include at least 1 grounded triple-backtick diagram block(s). This obligation is independent of answer shape.",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("missing-diagram reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"copying the seeded grounded precedence chain verbatim",
+		"copy this seeded fenced diagram verbatim",
+		"```",
+		"internal/config/runtime.go:194",
+		"internal/types/config.go:707",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("missing-diagram config-trace hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAction(t *testing.T) {
 	e := &answerDocumentEvaluator{maxRetries: 2}
 	sig := e.Observe(nil, LoopObservation{

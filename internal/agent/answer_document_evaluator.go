@@ -995,7 +995,7 @@ func (e *answerDocumentEvaluator) ShouldStop(resp llm.Response, iteration int) b
 // finalizer-specific contract ("try at most N correction prompts
 // before fail-loud"), not a generic loop-wide cap. LoopPolicy's
 // continuation cap still applies as an outer safety net.
-func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObservation) LoopSignal {
+func (e *answerDocumentEvaluator) Observe(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.Phase == PhaseMidLoop {
 		// emit_answer_document is the finalizer's terminal action —
 		// once it fires, stop immediately instead of burning one extra
@@ -1008,7 +1008,7 @@ func (e *answerDocumentEvaluator) Observe(_ *types.AgentContext, obs LoopObserva
 		if sig := e.unexpectedFinalizerToolSignal(obs); sig.HintRequested {
 			return sig
 		}
-		if sig := e.emitAnswerDocumentRejectSignal(obs); sig.HintRequested {
+		if sig := e.emitAnswerDocumentRejectSignal(ctx, obs); sig.HintRequested {
 			return sig
 		}
 		return LoopSignal{}
@@ -1077,7 +1077,7 @@ func (e *answerDocumentEvaluator) unexpectedFinalizerToolSignal(obs LoopObservat
 	}
 }
 
-func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObservation) LoopSignal {
+func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.AgentContext, obs LoopObservation) LoopSignal {
 	if obs.LastToolResult == nil || obs.LastToolResult.ToolName != "emit_answer_document" || obs.LastToolResult.Success {
 		return LoopSignal{}
 	}
@@ -1109,6 +1109,10 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 	if strings.Contains(summary, "diagram required for this dispatch") {
 		reasonKey = "missing-diagram"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch REQUIRES a grounded diagram in `summary`. Re-emit `emit_answer_document` now with the same answer shape and payload fields, but add at least one grounded triple-backtick diagram to `summary`. This obligation is independent of answer shape. Keep every filename inside the diagram grounded by citations[] or the Log Triage frames; do not write free-form prose outside the tool call."
+		if e.configTraceDiagram {
+			hint += " For config-precedence diagrams, do not invent a new box chart or layer aliases on retry; prefer copying the seeded grounded precedence chain verbatim."
+		}
+		hint = appendRetryDiagramSeedHint(hint, ctx)
 	}
 	if strings.Contains(summary, "references file(s) not present in citations[] or attached-log frames") {
 		reasonKey = "diagram-grounding"
@@ -1116,6 +1120,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 		if e.configTraceDiagram {
 			hint += " For config-precedence diagrams, keep the seeded precedence chain's node labels verbatim; do NOT rewrite them into abstract numbered placeholders. If the user asked for conceptual layers, explain those layer names in prose outside the fence unless the exact label is grounded."
 		}
+		hint = appendRetryDiagramSeedHint(hint, ctx)
 	}
 	if strings.Contains(summary, "summary introduces codename label(s) not present in any citation's") {
 		reasonKey = "diagram-codename"
@@ -1123,6 +1128,7 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(obs LoopObserva
 		if e.configTraceDiagram {
 			hint += " In config-precedence diagrams, grounded file/path labels are the node names; numbered layer aliases are never required. If you need semantics like defaults / YAML / runtime / override, move that explanation into prose outside the fenced diagram and keep the fence itself as the seeded chain (or a strict subsequence of it)."
 		}
+		hint = appendRetryDiagramSeedHint(hint, ctx)
 	}
 	if strings.Contains(summary, "exact-resolution contract violated:") {
 		reasonKey = "exact-resolution"
@@ -1166,6 +1172,38 @@ func compactToolRejectSummary(summary string) string {
 		}
 	}
 	return ""
+}
+
+func appendRetryDiagramSeedHint(hint string, ctx *types.AgentContext) string {
+	seed := renderRetryDiagramSeedFence(ctx)
+	if seed == "" {
+		return hint
+	}
+	return hint + " If you need the safest grounded repair, copy this seeded fenced diagram verbatim (or delete unused nodes without renaming the remaining ones):\n\n" + seed
+}
+
+func renderRetryDiagramSeedFence(ctx *types.AgentContext) string {
+	for _, seed := range []string{
+		renderAnswerDocDiagramConfigTraceSeed(ctx),
+	} {
+		if fence := extractFirstFencedBlock(seed); fence != "" {
+			return fence
+		}
+	}
+	return ""
+}
+
+func extractFirstFencedBlock(text string) string {
+	start := strings.Index(text, "```")
+	if start < 0 {
+		return ""
+	}
+	rest := text[start+3:]
+	end := strings.Index(rest, "```")
+	if end < 0 {
+		return ""
+	}
+	return strings.TrimSpace(text[start : start+3+end+3])
 }
 
 func buildLiteralGroundingRetryHint(summary string) string {
