@@ -744,7 +744,7 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 		}
 		const (
 			maxFailingTests = 3
-			maxDetailChars  = 140
+			maxDetailChars  = 600 // upgraded from 140: the previous floor took only the first line, which is pytest's "self = <Test fixture>" header — useless. 600 fits the assertion + expected/actual + 1-2 stack frames.
 		)
 		shown := 0
 		for _, tr := range report.TestResults {
@@ -755,17 +755,15 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 				b.WriteString("Failing tests:")
 			}
 			shown++
-			// First line of FailureDetail — the actual error message
-			// row, no stack trace bloat.
-			detail := ""
-			if tr.FailureDetail != "" {
-				line := strings.SplitN(tr.FailureDetail, "\n", 2)[0]
-				line = strings.TrimSpace(line)
-				if len(line) > maxDetailChars {
-					line = line[:maxDetailChars] + "…"
-				}
-				detail = line
-			}
+			// FailureDetail extraction. ExtractFailureSignal isolates
+			// the actually-error-bearing lines (pytest E-marked lines,
+			// go test "FAIL:" / panic frames, JUnit assertion-failed
+			// messages) instead of the first line, which on most
+			// runners is fixture / setup boilerplate. Bug fix from
+			// Batch E robot-name analysis: previously `SplitN("\n",
+			// 2)[0]` returned `self = <Test fixture>`, leaving the
+			// reflector blind to the actual assertion failure.
+			detail := ExtractFailureSignal(tr.FailureDetail, maxDetailChars)
 			if tr.Suite != "" {
 				fmt.Fprintf(&b, "\n  - %s (%s)", tr.AssertionID, tr.Suite)
 			} else {

@@ -183,9 +183,18 @@ func renderReflectorUserMessage(in ReflectorInput) string {
 		fmt.Fprintf(&b, "Failure summary: %s\n\n", strings.TrimSpace(in.FailureSummary))
 	}
 	if len(in.FailingTests) > 0 {
-		b.WriteString("Failing tests (top entries):\n")
+		b.WriteString("Failing tests (top entries; runner stderr extract):\n")
 		for _, t := range in.FailingTests {
-			fmt.Fprintf(&b, "- %s::%s — %s\n", t.Suite, t.AssertionID, oneLineClamp(t.Detail, 200))
+			fmt.Fprintf(&b, "- %s::%s\n", t.Suite, t.AssertionID)
+			if strings.TrimSpace(t.Detail) != "" {
+				// Multi-line detail rendered as an indented block so
+				// the model sees the assertion + expected/actual rows
+				// together. The signal extractor already stripped
+				// fixture noise — what arrives here is high-density.
+				for _, line := range strings.Split(t.Detail, "\n") {
+					fmt.Fprintf(&b, "    %s\n", strings.TrimRight(line, " \t"))
+				}
+			}
 		}
 		b.WriteString("\n")
 	}

@@ -366,10 +366,14 @@ func clearForReplan(o *Orchestrator, attempt int) {
 // reflector formats them as natural-language prompt while
 // buildRetryHint formats them as terse "Failing tests:" bullet list.
 //
-// Caps: top 3 failing tests; first non-empty line of each
-// FailureDetail (cap 200 chars). Inputs to the critic LLM are
-// intentionally small — see Self-Debug 2023 for why concise summary
-// beats raw trace.
+// Caps: top 3 failing tests; ExtractFailureSignal isolates the
+// error-bearing lines (cap 600 chars per test). Earlier we took the
+// first line only — pytest's first line is `self = <Test fixture>`,
+// hiding the actual `E AssertionError: ...` line that comes 5-15
+// lines later. The Batch E robot-name failure (3 retries, all
+// reflector critiques wrong) was caused by this. Self-Debug 2023
+// argues for "concise summary, not raw trace" — the signal extractor
+// keeps that bound while ensuring the part we keep is informative.
 func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, plan *types.ChangePlan, attempt int) ReflectorInput {
 	in := ReflectorInput{Attempt: attempt}
 	if busCtx != nil && busCtx.Mutable != nil {
@@ -383,16 +387,16 @@ func buildReflectorInput(busCtx *types.BusContext, report *types.ChangeReport, p
 	if report != nil {
 		in.FailureSummary = report.FailureSummary
 		in.BuildFailed = report.BuildFailed
-		const maxFailing = 3
+		const (
+			maxFailing       = 3
+			maxDetailPerTest = 600
+		)
 		shown := 0
 		for _, tr := range report.TestResults {
 			if tr.Passed {
 				continue
 			}
-			detail := ""
-			if tr.FailureDetail != "" {
-				detail = strings.TrimSpace(strings.SplitN(tr.FailureDetail, "\n", 2)[0])
-			}
+			detail := ExtractFailureSignal(tr.FailureDetail, maxDetailPerTest)
 			in.FailingTests = append(in.FailingTests, ReflectorFailedTest{
 				Suite:       tr.Suite,
 				AssertionID: tr.AssertionID,

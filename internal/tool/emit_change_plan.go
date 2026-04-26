@@ -939,29 +939,53 @@ func validatePlanDryBuild(ctx *types.BusContext, changes []types.FileChange) str
 	if ctx == nil || strings.TrimSpace(ctx.RepoRoot) == "" {
 		return ""
 	}
+	// Per-language fan-out. Each helper inspects `changes` for files
+	// of its language, sets up the scratch overlay if there are any,
+	// runs the language-specific syntax/semantic check, and returns
+	// either "" (pass / not-applicable / skipped) or a rejection
+	// string. Helpers run in declaration order — the first failure
+	// wins so the planner sees ONE actionable error per emit. This
+	// is symmetric to the prior Go-only design; each language fix
+	// is additive.
+	if rej := dryBuildGo(ctx, changes); rej != "" {
+		return rej
+	}
+	if rej := dryBuildPython(ctx, changes); rej != "" {
+		return rej
+	}
+	if rej := dryBuildNodeJS(ctx, changes); rej != "" {
+		return rej
+	}
+	if rej := dryBuildRuby(ctx, changes); rej != "" {
+		return rej
+	}
+	return ""
+}
+
+// dryBuildGo runs `go vet ./<pkg>...` on an overlayed scratch dir to
+// catch compile-level errors in plan-emit time. Skips when the repo
+// has no go.mod, the `go` binary is missing, or no Go change is in
+// the plan.
+func dryBuildGo(ctx *types.BusContext, changes []types.FileChange) string {
 	repoRoot := ctx.RepoRoot
-	goModPath := filepath.Join(repoRoot, "go.mod")
-	if _, err := os.Stat(goModPath); err != nil {
+	if _, err := os.Stat(filepath.Join(repoRoot, "go.mod")); err != nil {
 		return ""
 	}
 	if _, err := exec.LookPath("go"); err != nil {
-		logging.Debug("[emit_change_plan] V2 dry-build skipped: go binary not on PATH")
+		logging.Debug("[emit_change_plan] V2 Go dry-build skipped: go binary not on PATH")
 		return ""
 	}
-	// Collect impacted Go packages. Skip non-Go changes.
 	impactedPkgs := make(map[string]struct{})
-	hasGoChange := false
+	hasChange := false
 	for _, c := range changes {
 		path := filepath.ToSlash(strings.TrimSpace(c.Path))
 		if !strings.HasSuffix(path, ".go") {
 			continue
 		}
-		// Skip kind=patch — git apply is the validator for those, and
-		// staging a patch into the overlay needs git itself.
 		if c.Kind == "patch" || c.Kind == "delete" {
 			continue
 		}
-		hasGoChange = true
+		hasChange = true
 		dir := filepath.Dir(path)
 		if dir == "" || dir == "." {
 			impactedPkgs["."] = struct{}{}
@@ -969,50 +993,15 @@ func validatePlanDryBuild(ctx *types.BusContext, changes []types.FileChange) str
 			impactedPkgs[dir] = struct{}{}
 		}
 	}
-	if !hasGoChange {
+	if !hasChange {
 		return ""
 	}
-
-	scratch, err := os.MkdirTemp(scratchBaseDir(ctx), "codrax-validate-*")
-	if err != nil {
-		logging.Warning("[emit_change_plan] V2 dry-build skipped: mkdir temp: %v", err)
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "go")
+	if !ok {
 		return ""
 	}
-	defer os.RemoveAll(scratch)
+	defer cleanup()
 
-	// Hardlink the repo into scratch.
-	if err := hardlinkTree(repoRoot, scratch); err != nil {
-		logging.Warning("[emit_change_plan] V2 dry-build skipped: hardlink tree: %v", err)
-		return ""
-	}
-
-	// Overlay the plan's changes.
-	for _, c := range changes {
-		path := filepath.ToSlash(strings.TrimSpace(c.Path))
-		if c.Kind == "patch" {
-			continue // V2 doesn't validate patches; emit_change_plan's existing patch-precheck does
-		}
-		dst := filepath.Join(scratch, filepath.FromSlash(path))
-		if c.Kind == "delete" {
-			_ = os.Remove(dst)
-			continue
-		}
-		// create / modify: write new_content over the (possibly hard-
-		// linked) existing file. Remove the hardlink first so we don't
-		// scribble onto the real repo file via the shared inode.
-		_ = os.Remove(dst)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			logging.Warning("[emit_change_plan] V2 dry-build skipped: mkdir %s: %v", filepath.Dir(dst), err)
-			return ""
-		}
-		if err := os.WriteFile(dst, []byte(c.NewContent), 0o644); err != nil {
-			logging.Warning("[emit_change_plan] V2 dry-build skipped: write %s: %v", dst, err)
-			return ""
-		}
-	}
-
-	// Run `go vet` on the impacted packages. Per-package invocation
-	// keeps stderr scoped to the actual problem area.
 	pkgs := make([]string, 0, len(impactedPkgs))
 	for p := range impactedPkgs {
 		pkgs = append(pkgs, "./"+p)
@@ -1021,22 +1010,222 @@ func validatePlanDryBuild(ctx *types.BusContext, changes []types.FileChange) str
 	args := append([]string{"vet"}, pkgs...)
 	cmd := exec.Command("go", args...)
 	cmd.Dir = scratch
-	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod") // tolerate missing go.sum entries for newly-required modules
+	cmd.Env = append(os.Environ(), "GOFLAGS=-mod=mod")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		stderr := strings.TrimSpace(string(out))
-		// Truncate so the rejection summary stays prompt-friendly.
-		const maxStderrLen = 2000
-		if len(stderr) > maxStderrLen {
-			stderr = stderr[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", len(out)) + " bytes)"
-		}
-		return fmt.Sprintf("V2 dry-build failed: `go vet %s` returned non-zero exit. "+
-			"This means the new_content has compile-level errors (undefined identifiers, type mismatches, "+
-			"missing imports beyond what V1 caught, etc). Fix the issues and re-emit. Full vet output:\n%s",
-			strings.Join(pkgs, " "), stderr)
+		return formatDryBuildRejection("Go", "go vet "+strings.Join(pkgs, " "), out, len(out))
 	}
-	logging.Debug("[emit_change_plan] V2 dry-build PASS for packages: %v", pkgs)
+	logging.Debug("[emit_change_plan] V2 Go dry-build PASS for packages: %v", pkgs)
 	return ""
+}
+
+// dryBuildPython runs `python3 -m py_compile` on every changed .py
+// file. py_compile catches all syntax errors AND the most common
+// NameError/ImportError that AST validation can detect at parse time
+// (note: full type-check would need mypy, an extra dep we don't
+// require). Skips when no python3 binary is available or no .py
+// change is present. Symmetric to the Go path.
+func dryBuildPython(ctx *types.BusContext, changes []types.FileChange) string {
+	pyBin, err := exec.LookPath("python3")
+	if err != nil {
+		if pyBin, err = exec.LookPath("python"); err != nil {
+			logging.Debug("[emit_change_plan] V2 Python dry-build skipped: python binary not on PATH")
+			return ""
+		}
+	}
+	var pyChanges []string
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".py") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		pyChanges = append(pyChanges, path)
+	}
+	if len(pyChanges) == 0 {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "python")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	sort.Strings(pyChanges)
+	args := append([]string{"-m", "py_compile"}, pyChanges...)
+	cmd := exec.Command(pyBin, args...)
+	cmd.Dir = scratch
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return formatDryBuildRejection("Python", "python3 -m py_compile "+strings.Join(pyChanges, " "), out, len(out))
+	}
+	logging.Debug("[emit_change_plan] V2 Python dry-build PASS for files: %v", pyChanges)
+	return ""
+}
+
+// dryBuildNodeJS runs `node --check` on every changed .js / .mjs /
+// .cjs file. node --check parses the file and reports SyntaxError
+// without executing it. TypeScript files are skipped here because
+// `tsc --noEmit` requires a tsconfig.json + tsc binary that varies
+// per project; we leave TS to the project's own test runner.
+func dryBuildNodeJS(ctx *types.BusContext, changes []types.FileChange) string {
+	nodeBin, err := exec.LookPath("node")
+	if err != nil {
+		logging.Debug("[emit_change_plan] V2 Node dry-build skipped: node binary not on PATH")
+		return ""
+	}
+	var jsChanges []string
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !(strings.HasSuffix(path, ".js") || strings.HasSuffix(path, ".mjs") || strings.HasSuffix(path, ".cjs")) {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		jsChanges = append(jsChanges, path)
+	}
+	if len(jsChanges) == 0 {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "node")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	// node --check is per-file; concatenate diagnostics from every
+	// failing file so the planner sees the full picture in one shot.
+	sort.Strings(jsChanges)
+	var combinedOut []byte
+	failed := false
+	for _, p := range jsChanges {
+		cmd := exec.Command(nodeBin, "--check", p)
+		cmd.Dir = scratch
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			failed = true
+			combinedOut = append(combinedOut, []byte("--- "+p+" ---\n")...)
+			combinedOut = append(combinedOut, out...)
+			combinedOut = append(combinedOut, '\n')
+		}
+	}
+	if failed {
+		return formatDryBuildRejection("Node.js", "node --check <files>", combinedOut, len(combinedOut))
+	}
+	logging.Debug("[emit_change_plan] V2 Node dry-build PASS for files: %v", jsChanges)
+	return ""
+}
+
+// dryBuildRuby runs `ruby -c` on every changed .rb file. -c is
+// "syntax check only" and is part of the standard ruby distribution.
+func dryBuildRuby(ctx *types.BusContext, changes []types.FileChange) string {
+	rubyBin, err := exec.LookPath("ruby")
+	if err != nil {
+		logging.Debug("[emit_change_plan] V2 Ruby dry-build skipped: ruby binary not on PATH")
+		return ""
+	}
+	var rbChanges []string
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if !strings.HasSuffix(path, ".rb") {
+			continue
+		}
+		if c.Kind == "patch" || c.Kind == "delete" {
+			continue
+		}
+		rbChanges = append(rbChanges, path)
+	}
+	if len(rbChanges) == 0 {
+		return ""
+	}
+	scratch, cleanup, ok := stageOverlay(ctx, changes, "ruby")
+	if !ok {
+		return ""
+	}
+	defer cleanup()
+
+	sort.Strings(rbChanges)
+	var combinedOut []byte
+	failed := false
+	for _, p := range rbChanges {
+		cmd := exec.Command(rubyBin, "-c", p)
+		cmd.Dir = scratch
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			failed = true
+			combinedOut = append(combinedOut, []byte("--- "+p+" ---\n")...)
+			combinedOut = append(combinedOut, out...)
+			combinedOut = append(combinedOut, '\n')
+		}
+	}
+	if failed {
+		return formatDryBuildRejection("Ruby", "ruby -c <files>", combinedOut, len(combinedOut))
+	}
+	logging.Debug("[emit_change_plan] V2 Ruby dry-build PASS for files: %v", rbChanges)
+	return ""
+}
+
+// stageOverlay creates a hardlinked scratch dir of the repo and
+// overlays the plan's create/modify changes onto it. Returns the
+// scratch path + cleanup callback + ok flag. Shared by every
+// per-language dry-build helper so the expensive part (hardlink the
+// repo) happens at most once per call but the per-language wrappers
+// stay independent. lang is logged-only (so a Python skip doesn't
+// look like a Go skip in the trace).
+func stageOverlay(ctx *types.BusContext, changes []types.FileChange, lang string) (string, func(), bool) {
+	scratch, err := os.MkdirTemp(scratchBaseDir(ctx), "codrax-validate-"+lang+"-*")
+	if err != nil {
+		logging.Warning("[emit_change_plan] V2 %s dry-build skipped: mkdir temp: %v", lang, err)
+		return "", func() {}, false
+	}
+	cleanup := func() { _ = os.RemoveAll(scratch) }
+	if err := hardlinkTree(ctx.RepoRoot, scratch); err != nil {
+		logging.Warning("[emit_change_plan] V2 %s dry-build skipped: hardlink tree: %v", lang, err)
+		cleanup()
+		return "", func() {}, false
+	}
+	for _, c := range changes {
+		path := filepath.ToSlash(strings.TrimSpace(c.Path))
+		if c.Kind == "patch" {
+			continue
+		}
+		dst := filepath.Join(scratch, filepath.FromSlash(path))
+		if c.Kind == "delete" {
+			_ = os.Remove(dst)
+			continue
+		}
+		_ = os.Remove(dst)
+		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+			logging.Warning("[emit_change_plan] V2 %s dry-build skipped: mkdir %s: %v", lang, filepath.Dir(dst), err)
+			cleanup()
+			return "", func() {}, false
+		}
+		if err := os.WriteFile(dst, []byte(c.NewContent), 0o644); err != nil {
+			logging.Warning("[emit_change_plan] V2 %s dry-build skipped: write %s: %v", lang, dst, err)
+			cleanup()
+			return "", func() {}, false
+		}
+	}
+	return scratch, cleanup, true
+}
+
+// formatDryBuildRejection assembles the rejection text shown to the
+// planner. lang names the language for the planner ("Go" / "Python");
+// cmdDescr is the command form for diagnosis ("go vet ./..." etc).
+// stderr is the captured combined output; truncated at 2 KB so the
+// rejection stays prompt-friendly.
+func formatDryBuildRejection(lang, cmdDescr string, stderr []byte, originalLen int) string {
+	const maxStderrLen = 2000
+	out := strings.TrimSpace(string(stderr))
+	if len(out) > maxStderrLen {
+		out = out[:maxStderrLen] + "\n... (truncated; full output had " + fmt.Sprintf("%d", originalLen) + " bytes)"
+	}
+	return fmt.Sprintf("V2 dry-build failed: `%s` returned non-zero exit (%s). "+
+		"This means the new_content has compile / syntax / type errors. Fix the issues and re-emit. Full output:\n%s",
+		cmdDescr, lang, out)
 }
 
 // scratchBaseDir returns the parent directory under which V2's

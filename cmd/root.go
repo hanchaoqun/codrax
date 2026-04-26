@@ -1203,7 +1203,19 @@ func initApp(cmd *cobra.Command, _ []string) error {
 	//     3-5 retries; past 5 marginal lift is negligible). Zero is
 	//     fail-loud, opt-in by setting yaml `pipeline_write_retry_budget: 0`.
 	pipelineSettings := types.PipelineSettings{
-		WriteRetryBudget: 3,
+		// Defaults that should NOT be the type's zero value (and aren't
+		// owned by the runtime config layer's pointer-typed override
+		// path) are seeded here so an empty codrax.yaml gets meaningful
+		// behaviour:
+		//   - WriteRetryBudget=3: literature consensus (Reflexion /
+		//     Self-Refine / AutoCodeRover all use 3-5).
+		//   - MaxRetriesPerStage=2: Batch E surfaced bowling failing
+		//     because the analyzer occasionally ignores the must-emit
+		//     hint and a single attempt is the whole pipeline. 2
+		//     attempts catches the LLM compliance flake without
+		//     burning tokens on truly broken inputs.
+		WriteRetryBudget:   3,
+		MaxRetriesPerStage: 2,
 	}
 	// Default-LLM context window for fraction-form byte budget
 	// resolution. The fallback path in MaxContextTokens guarantees a

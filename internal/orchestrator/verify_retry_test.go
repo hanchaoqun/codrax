@@ -25,13 +25,14 @@ func TestBuildRetryHint_NilReport(t *testing.T) {
 }
 
 // TestBuildRetryHint_WithFailingTests checks that failing test
-// names + their Suite + their FailureDetail first line show up
-// (bounded) and the list is capped at 3.
+// names + their Suite + the multi-line failure signal surface so the
+// reflector / planner sees the actual assertion (not just the first
+// line, which on real runners is fixture noise). List capped at 3.
 func TestBuildRetryHint_WithFailingTests(t *testing.T) {
 	report := &types.ChangeReport{
 		FailureSummary: "3 of 5 tests failed in handler module",
 		TestResults: []types.TestResult{
-			{AssertionID: "TestA", Suite: "pkg", Passed: false, FailureDetail: "expected 42, got 7\nmore stack…"},
+			{AssertionID: "TestA", Suite: "pkg", Passed: false, FailureDetail: "expected 42, got 7\nmore stack info"},
 			{AssertionID: "TestB", Passed: true},
 			{AssertionID: "TestC", Suite: "pkg", Passed: false, FailureDetail: "nil pointer in handler.go:88"},
 			{AssertionID: "TestD", Passed: false},
@@ -46,27 +47,24 @@ func TestBuildRetryHint_WithFailingTests(t *testing.T) {
 	if !strings.Contains(got, "3 of 5 tests failed") {
 		t.Errorf("hint should include FailureSummary; got %q", got)
 	}
-	// First 3 failing tests should appear.
 	for _, name := range []string{"TestA", "TestC", "TestD"} {
 		if !strings.Contains(got, name) {
 			t.Errorf("hint should include failing test %s; got %q", name, got)
 		}
 	}
-	// TestE / TestF should NOT be named (cap is 3).
 	if strings.Contains(got, "TestF") {
 		t.Errorf("hint should truncate at 3 failing tests; got %q", got)
 	}
-	// FailureDetail first lines surfaced (first-line only, no stack).
+	// New behavior: the multi-line signal extractor returns BOTH the
+	// error line AND any stack frame that fits under the cap. The
+	// Batch E robot-name failure proved that returning only the first
+	// line surfaces fixture noise and hides the actual assertion.
 	if !strings.Contains(got, "expected 42, got 7") {
-		t.Errorf("hint should include FailureDetail first line for TestA; got %q", got)
-	}
-	if strings.Contains(got, "more stack") {
-		t.Errorf("hint should clip after first line of FailureDetail; got %q", got)
+		t.Errorf("hint should include FailureDetail's primary error line for TestA; got %q", got)
 	}
 	if !strings.Contains(got, "nil pointer in handler.go:88") {
 		t.Errorf("hint should include FailureDetail for TestC; got %q", got)
 	}
-	// Suite renders in parens when present.
 	if !strings.Contains(got, "TestA (pkg)") {
 		t.Errorf("hint should render Suite suffix; got %q", got)
 	}
@@ -146,10 +144,10 @@ func TestBuildRetryHint_LongSummaryTruncated(t *testing.T) {
 }
 
 // TestBuildRetryHint_LongDetailTruncated caps each failing test's
-// FailureDetail first line at 140 chars so a verbose stack row
-// doesn't swamp the hint.
+// FailureDetail at 600 chars (upgraded from 140 for the multi-line
+// signal extractor) so a verbose stack doesn't swamp the hint.
 func TestBuildRetryHint_LongDetailTruncated(t *testing.T) {
-	long := strings.Repeat("z", 300)
+	long := strings.Repeat("z", 1000)
 	report := &types.ChangeReport{
 		TestResults: []types.TestResult{
 			{AssertionID: "TestBig", Passed: false, FailureDetail: long},
