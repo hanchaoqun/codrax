@@ -2703,6 +2703,7 @@ func (e *explorerEvaluator) buildExactResolutionScopeBanner(ctx *types.AgentCont
 		return ""
 	}
 	cands := e.collectExactResolutionSymbolCandidates(contract, analyzerKeywords)
+	cands = exactResolutionFilterCandidatesToPreferredFiles(cands, e.requiredFiles)
 	if ctx.Mutable != nil &&
 		contract.AllowAbsence &&
 		contract.RelatedContextPolicy != types.ExactContextGroundedOnly {

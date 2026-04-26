@@ -290,6 +290,27 @@ func exactResolutionContextFilesFromCandidates(candidates []exactResolutionSymbo
 	if len(candidates) == 0 {
 		return nil
 	}
+	candidates = exactResolutionFilterCandidatesToPreferredFiles(candidates, preferredFiles)
+	if len(candidates) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var files []string
+	for _, cand := range candidates {
+		file := canonicalExactResolutionPath(cand.File)
+		if file == "" || seen[file] {
+			continue
+		}
+		seen[file] = true
+		files = append(files, file)
+	}
+	return files
+}
+
+func exactResolutionFilterCandidatesToPreferredFiles(candidates []exactResolutionSymbolCandidate, preferredFiles []string) []exactResolutionSymbolCandidate {
+	if len(candidates) == 0 {
+		return nil
+	}
 	preferred := make(map[string]bool)
 	for _, file := range preferredFiles {
 		file = canonicalExactResolutionPath(file)
@@ -306,20 +327,17 @@ func exactResolutionContextFilesFromCandidates(candidates []exactResolutionSymbo
 			}
 		}
 	}
-	seen := make(map[string]bool)
-	var files []string
-	for _, cand := range candidates {
-		file := canonicalExactResolutionPath(cand.File)
-		if file == "" || seen[file] {
-			continue
-		}
-		if filterToPreferred && !preferred[file] {
-			continue
-		}
-		seen[file] = true
-		files = append(files, file)
+	if !filterToPreferred {
+		return candidates
 	}
-	return files
+	filtered := make([]exactResolutionSymbolCandidate, 0, len(candidates))
+	for _, cand := range candidates {
+		if !preferred[canonicalExactResolutionPath(cand.File)] {
+			continue
+		}
+		filtered = append(filtered, cand)
+	}
+	return filtered
 }
 
 func exactResolutionEvidenceMentionsCandidate(contract *types.ExactResolutionContract, evidence []types.EvidenceItem, cand exactResolutionSymbolCandidate) bool {

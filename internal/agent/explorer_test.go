@@ -4111,6 +4111,20 @@ func TestExactResolutionContextFilesFromCandidates_FallsBackWhenNoPreferredMatch
 	}
 }
 
+func TestExactResolutionFilterCandidatesToPreferredFiles_PrefersAnalyzerScopedFiles(t *testing.T) {
+	candidates := []exactResolutionSymbolCandidate{
+		{File: "internal/types/explore_budget.go", Symbol: "ExploreBudget", Score: 12},
+		{File: "internal/types/config.go", Symbol: "DefaultExploreHeuristics", Score: 11},
+	}
+	got := exactResolutionFilterCandidatesToPreferredFiles(candidates, []string{
+		"internal/types/config.go",
+		"cmd/root.go",
+	})
+	if len(got) != 1 || got[0].File != "internal/types/config.go" || got[0].Symbol != "DefaultExploreHeuristics" {
+		t.Fatalf("banner candidates should stay inside analyzer-scoped files when available, got %+v", got)
+	}
+}
+
 func TestStructuralCandidateFilesFromPaths_UsesAnalyzerRankedOrder(t *testing.T) {
 	cands := structuralCandidateFilesFromPaths([]string{
 		"internal/config/runtime.go",

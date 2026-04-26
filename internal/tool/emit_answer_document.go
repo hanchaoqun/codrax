@@ -823,6 +823,9 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateAnswerDocumentExactResolutionProof(resolvedExact, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
+	if err := validateConfigTraceAbsenceCitationFocus(ctx, resolvedExact, citations); err != nil {
+		return failWithContext("%v", err)
+	}
 	if err := validateAbsentExactConfigValueShape(shape, resolvedExact, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
@@ -1450,6 +1453,37 @@ func validateValueCitationFocus(ctx *types.BusContext, v *types.AnswerValue, cit
 	return nil
 }
 
+func validateConfigTraceAbsenceCitationFocus(ctx *types.BusContext, exact *types.AnswerExactResolution, citations []types.Citation) error {
+	if ctx == nil || exact == nil || len(citations) == 0 {
+		return nil
+	}
+	if exact.Status != types.AnswerExactResolutionAbsent || exact.ContextMode != types.AnswerExactResolutionContextGroundedOnly {
+		return nil
+	}
+	if ctx.AnalysisIR == nil ||
+		ctx.AnalysisIR.RequestModel.Scenario != types.ScenarioConfigTrace ||
+		ctx.AnalysisIR.RequestModel.AnswerSubject.Kind != types.SubjectConfigKey ||
+		ctx.Mutable == nil {
+		return nil
+	}
+	contract := answerExactResolutionContract(ctx)
+	emitted := ctx.Mutable.EmittedEvidence()
+	for idx, cite := range citations {
+		matched := matchingEvidenceForCitation(emitted, cite)
+		if configTraceAbsenceCitationAllowed(contract, matched) {
+			continue
+		}
+		return newAnswerDocValidationError(
+			"config_trace_context_citation",
+			"exact-absent config-trace answers may cite only (a) the grounded absence-proof sources for the missing key or (b) grounded related-context anchors that carry a validated precedence role. citations[%d] (%s:%d) is broad same-family background rather than a precedence-capable lineage anchor; drop it from citations and keep that background out of the answer surface.",
+			idx, cite.File, cite.Line,
+		).
+			WithFields(fmt.Sprintf("citations[%d]", idx), "exact_resolution.context_mode").
+			WithHint("Re-emit `emit_answer_document` with the same exact-absence conclusion, but keep citations only for the missing-key proof sources and for grounded precedence anchors that already carry validated default/yaml/runtime/override roles. Drop broad same-family structs, counters, or helper comments from `citations[]` and from the rendered answer.")
+	}
+	return nil
+}
+
 // validateSymbolsLiteralGrounding is the ShapeListOfSymbols wrapper.
 // Each items[i] carries its own File/Line (no CitationRef indirection
 // on AnswerSymbol). The Name IS the literal being claimed — the
@@ -1497,6 +1531,28 @@ func valueCitationFocusSubjectKind(ctx *types.BusContext) types.AnswerSubjectKin
 		}
 	}
 	return types.SubjectUnknown
+}
+
+func configTraceAbsenceCitationAllowed(contract *types.ExactResolutionContract, matched types.EvidenceItem) bool {
+	if matched.Source == "" {
+		return false
+	}
+	switch matched.GroundingStatus {
+	case types.GroundingGrounded, types.GroundingRecovered:
+	default:
+		return false
+	}
+	if matched.Kind == types.EvidenceUnresolved || matched.Kind == types.EvidenceTruncated {
+		return false
+	}
+	switch matched.ContextRole {
+	case types.EvidenceContextRoleIllustrativeOnly:
+		return false
+	case types.EvidenceContextRoleAbsenceSupport:
+		return contract != nil && types.ExactResolutionSourceIsDefiningPrimaryProofLike(contract, matched.Source)
+	default:
+		return matched.DiagramRole != types.EvidenceDiagramRoleUnknown
+	}
 }
 
 func valueSubjectNeedsCitationFocus(kind types.AnswerSubjectKind) bool {
