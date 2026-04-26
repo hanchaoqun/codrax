@@ -2330,10 +2330,13 @@ func formatAnalyzerPrescanForPlan(ir *types.AnalysisIR) string {
 	hints := rm.AnalyzerHints
 	requiredFiles := ir.EvidencePlan.RequiredFiles
 
-	// Prefer PrimaryEntities (pre-merge user-named) over the merged
-	// Entities; fall back when the analyzer ran without sub-topic
-	// merging (single-topic question).
-	entities := hints.PrimaryEntities
+	// Prefer deterministic MentionedEntities (verbatim RawRequest
+	// surfaces) over the analyzer-authored PrimaryEntities shortlist,
+	// then fall back to the merged breadth list.
+	entities := hints.MentionedEntities
+	if len(entities) == 0 {
+		entities = hints.PrimaryEntities
+	}
 	if len(entities) == 0 {
 		entities = hints.Entities
 	}

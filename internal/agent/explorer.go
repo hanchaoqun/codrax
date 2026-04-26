@@ -57,6 +57,8 @@ type explorerEvaluator struct {
 	midLoopIntentWindowSent    bool                  // session-22: structural-intent-vs-narrow-window hint already pushed this dispatch
 	midLoopRankerCoverageSent  bool                  // session-22: ranker-coverage-too-low hint already pushed this dispatch
 	midLoopAbsentRedirectSent  bool                  // session-22: emit_evidence kind=absent deprecation redirect already pushed this dispatch
+	midLoopExternalLogSent     bool                  // one-shot: external-source log runtime frames redirected this dispatch
+	midLoopExactAbsenceSent    bool                  // one-shot: exact-resolution absence already looks closure-ready this dispatch
 	midLoopEnumInjected        bool                  // session-22: enumeration-coverage hint already pushed this dispatch (was missing → 68 fires / run observed on goroutine_dump)
 	midLoopNoEmitPushSent      bool                  // one-shot: "you have read N files but never called emit_evidence" hint already pushed this dispatch
 	primaryReadSeen            bool                  // df3-drift: whether any primary-entity file has entered readSet this dispatch
@@ -100,6 +102,13 @@ type explorerEvaluator struct {
 	// covered every resolved frame's file — in that state the ranker's
 	// remaining top-K are noise siblings sharing method names.
 	logTriage *types.LogBundle
+
+	// exactResolution caches the analyzer's exact-target contract and
+	// the subset of still-pending targets so mid-loop closure nudges
+	// can recognize "exact absence already proven; stop expanding
+	// nearby context" without re-plumbing AgentContext into Observe.
+	exactResolution     *types.ExactResolutionContract
+	exactPendingTargets []string
 
 	// complexity is a cached copy of the analyzer-classified
 	// Complexity (via irComplexity) captured at
@@ -189,6 +198,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.midLoopIntentWindowSent = false
 		e.midLoopRankerCoverageSent = false
 		e.midLoopAbsentRedirectSent = false
+		e.midLoopExternalLogSent = false
+		e.midLoopExactAbsenceSent = false
 		e.midLoopEnumInjected = false
 		e.midLoopNoEmitPushSent = false
 		e.primaryReadSeen = false
@@ -199,6 +210,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.requiredFiles = nil
 		e.exactAnchorFiles = nil
 		e.declarativeAnchorFiles = nil
+		e.exactResolution = nil
+		e.exactPendingTargets = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
 		// midLoopLastInjectIter) are no longer fields on this struct —
 		// LoopPolicy constructs a fresh loopPolicyState per dispatch,
@@ -220,6 +233,13 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	// LoopObservation, which does not carry the bus context).
 	if ctx.Mutable != nil {
 		e.logTriage = ctx.Mutable.LogTriage()
+	}
+	if ctx.AnalysisIR != nil {
+		e.exactResolution = ctx.AnalysisIR.AnswerContract.ExactResolution
+		e.exactPendingTargets = types.ExactResolutionPendingTargets(e.exactResolution, ctx.UnverifiedAnalyzerFindings)
+	} else {
+		e.exactResolution = nil
+		e.exactPendingTargets = nil
 	}
 	// CGEC: capture the analyzer's AnswerSubject classification so
 	// the chain ranker can score chain terminals against the
@@ -255,6 +275,8 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.midLoopIntentWindowSent = false
 	e.midLoopRankerCoverageSent = false
 	e.midLoopAbsentRedirectSent = false
+	e.midLoopExternalLogSent = false
+	e.midLoopExactAbsenceSent = false
 	e.midLoopEnumInjected = false
 	e.midLoopNoEmitPushSent = false
 	e.primaryReadSeen = false
@@ -412,7 +434,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		// searchFingerprint so a fresh REPL turn still recomputes.
 		domainHints := irDomainHints(ctx)
 		maxFiles := MaxFilesForComplexity(irComplexity(ctx))
-		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irPrimaryEntities(ctx), domainHints, maxFiles)
+		fp := keywordSearchFingerprint(analyzerKeywords, analyzerEntities, irMentionedEntities(ctx), irPrimaryEntities(ctx), domainHints, maxFiles)
 		var sr *keywordSearchResult
 		if e.searchResult != nil && e.searchFingerprint != "" && e.searchFingerprint == fp {
 			logging.Debug("[keyword_search] cache hit fp=%s (%d files, %d keywords)",
@@ -420,16 +442,28 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			sr = e.searchResult
 		} else {
 			sr = keywordSearchWithOptions(analyzerKeywords, ctx.RepoRoot, keywordSearchOptions{
-				Entities:        analyzerEntities,
-				PrimaryEntities: irPrimaryEntities(ctx),
-				DomainHints:     domainHints,
-				MaxFiles:        maxFiles,
+				Entities:         analyzerEntities,
+				MentionedEntities: irMentionedEntities(ctx),
+				PrimaryEntities:  irPrimaryEntities(ctx),
+				DomainHints:      domainHints,
+				MaxFiles:         maxFiles,
 			})
 			e.searchResult = sr
 			e.searchFingerprint = fp
 		}
 		if sr != nil {
 			e.exactAnchorFiles = exactAnchorFilesFromScores(sr.Files)
+			if len(e.exactPendingTargets) > 0 {
+				// An exact target that findings_validator still marks
+				// pending / unverified must NOT hard-focus the
+				// investigation onto a single "exact anchor" file. That
+				// path is exactly how absence-candidate questions drift
+				// into nearby-family files and start treating context as
+				// the answer. Keep the exact-resolution contract active,
+				// but suppress the unique-anchor fast path until
+				// exploration proves the target concretely.
+				e.exactAnchorFiles = nil
+			}
 			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
 			e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
 		}
@@ -886,6 +920,9 @@ func exactAnchorFilesFromScores(results []keywordFileScore) []string {
 }
 
 func (e *explorerEvaluator) uniqueExactAnchorFile() (string, bool) {
+	if len(e.exactPendingTargets) > 0 {
+		return "", false
+	}
 	if len(e.exactAnchorFiles) != 1 {
 		return "", false
 	}
@@ -2925,16 +2962,17 @@ func (e *explorerEvaluator) postEmitEvidenceRepairSignal(obs LoopObservation) Lo
 // one-shot guard prevents repeated firing within a single dispatch.
 //
 // Thresholds are intentionally "early but not first-hop": 2+
-// iterations and 2+ successful read_file calls, with the current
-// iteration ending in a successful read_file. This catches the common
+// iterations and 2+ successful read_file calls, with the CURRENT
+// batch containing a successful read_file. This catches the common
 // drift where the model keeps reading breadth files without ever
-// materializing the first evidence batch, while still avoiding a
-// premature nudge after the very first anchor read.
+// materializing the first evidence batch, even when the batch ends
+// in grep / a failed emit_evidence retry rather than the read_file
+// result itself.
 func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopSignal {
 	if e.midLoopNoEmitPushSent {
 		return LoopSignal{}
 	}
-	if obs.Iteration < 2 || obs.LastToolResult == nil || obs.LastToolResult.ToolName != "read_file" || !obs.LastToolResult.Success {
+	if obs.Iteration < 2 || !currentBatchHasSuccessfulRead(obs.AllToolResults, e.midLoopLastResultsLen) {
 		return LoopSignal{}
 	}
 	var reads, emits int
@@ -2965,6 +3003,119 @@ func (e *explorerEvaluator) postReadWithoutEmitSignal(obs LoopObservation) LoopS
 		Progress:       true,
 		BypassThrottle: true,
 	}
+}
+
+func (e *explorerEvaluator) postExternalLogRedirectSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopExternalLogSent || e.logTriage == nil || !e.logTriage.IsExternalSource() {
+		return LoopSignal{}
+	}
+	for _, r := range obs.AllToolResults {
+		if r.Success || r.ToolName != "emit_evidence" {
+			continue
+		}
+		summary := strings.ToLower(r.Summary)
+		if !strings.Contains(summary, "repo-relative file path") &&
+			!strings.Contains(summary, "runtime log (unresolved)") {
+			continue
+		}
+		e.midLoopExternalLogSent = true
+		return LoopSignal{
+			HintRequested: true,
+			HintKey:       "explorer.mid-loop.external-log-no-anchor",
+			Hint: "MID-LOOP CHECK: the attached log is an external-source trace (resolved_files=0). " +
+				"Runtime frames that do not resolve to repo files cannot go through `emit_evidence`, and reading unrelated repo files just to manufacture citations is wasted work. " +
+				"If the structured Log Triage error chain already answers the question, call `emit_investigation_complete` now and let downstream stages answer from the log semantics. " +
+				"Only continue repo reads if you have identified a real repository file that explains how this repo handles the logged failure.",
+			Progress:       true,
+			BypassThrottle: true,
+		}
+	}
+	return LoopSignal{}
+}
+
+func (e *explorerEvaluator) postExactAbsenceClosureSignal(obs LoopObservation) LoopSignal {
+	if e.midLoopExactAbsenceSent || e.exactResolution == nil || !e.exactResolution.AllowAbsence {
+		return LoopSignal{}
+	}
+	targets := e.exactPendingTargets
+	if len(targets) == 0 {
+		targets = e.exactResolution.Targets
+	}
+	if len(targets) == 0 || obs.Iteration < e.heuristics.MidLoopMinIteration {
+		return LoopSignal{}
+	}
+	reads, emits := 0, 0
+	for _, r := range obs.AllToolResults {
+		if !r.Success {
+			continue
+		}
+		switch r.ToolName {
+		case "read_file":
+			reads++
+		case "emit_evidence":
+			emits++
+		}
+	}
+	if reads < 2 || emits == 0 {
+		return LoopSignal{}
+	}
+	text := strings.ToLower(strings.Join(append(append([]string(nil), e.investigationNotes...), obs.Response.Content), "\n"))
+	if !looksLikeExactAbsenceConclusion(e.exactResolution, targets, text) {
+		return LoopSignal{}
+	}
+	e.midLoopExactAbsenceSent = true
+	label := strings.TrimSpace(e.exactResolution.TargetLabel)
+	if label == "" {
+		label = "target"
+	}
+	return LoopSignal{
+		HintRequested: true,
+		HintKey:       "explorer.mid-loop.exact-absence-close",
+		Hint: fmt.Sprintf(
+			"MID-LOOP CHECK: the requested exact %s already appears resolved as absent / not found, and you already have grounded same-scope context. "+
+				"Do NOT keep expanding nearby knobs / symbols as substitutes. If you do not have explicit alias / parser-mapping proof that names the exact target, close now with `emit_investigation_complete(reason, confidence, absence_justification=...)`. "+
+				"Any remaining nearby items must stay labeled as related context only, not equivalents.",
+			label),
+		Progress:       true,
+		BypassThrottle: true,
+	}
+}
+
+func currentBatchHasSuccessfulRead(results []types.ToolResult, prevLen int) bool {
+	if prevLen < 0 || prevLen > len(results) {
+		prevLen = 0
+	}
+	for _, r := range results[prevLen:] {
+		if r.Success && r.ToolName == "read_file" {
+			return true
+		}
+	}
+	return false
+}
+
+func looksLikeExactAbsenceConclusion(contract *types.ExactResolutionContract, targets []string, text string) bool {
+	if contract == nil || strings.TrimSpace(text) == "" || len(targets) == 0 {
+		return false
+	}
+	hasTarget := false
+	for _, target := range targets {
+		if types.ExactResolutionTextMentionsTarget(contract, text, target) {
+			hasTarget = true
+			break
+		}
+	}
+	if !hasTarget {
+		return false
+	}
+	for _, cue := range []string{
+		" absent", " not found", " no exact ", " does not exist", " no such ",
+		" missing", " not present", "不存在", "未找到", "没有", "缺失", "无此",
+	} {
+		if strings.Contains(text, cue) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *explorerEvaluator) postPrimaryReadMidLoopSignal(obs LoopObservation) LoopSignal {
@@ -3211,6 +3362,12 @@ func (e *explorerEvaluator) observeMidLoop(obs LoopObservation) LoopSignal {
 		return sig
 	}
 	if sig := e.postReadWithoutEmitSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postExternalLogRedirectSignal(obs); sig.HintRequested {
+		return sig
+	}
+	if sig := e.postExactAbsenceClosureSignal(obs); sig.HintRequested {
 		return sig
 	}
 

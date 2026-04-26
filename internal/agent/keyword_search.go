@@ -73,6 +73,11 @@ var searchExcludeDirs = tool.ExcludeDirs
 //     dispatch-path files below the LLM's eyeline.
 type keywordSearchOptions struct {
 	Entities []string
+	// MentionedEntities is the deterministic subset of Entities whose
+	// surfaces are explicitly present in the user's RawRequest. When
+	// non-empty, exactEntityAnchors should prefer this provenance lane
+	// so analyzer-derived context cannot hijack exact-anchor focus.
+	MentionedEntities []string
 	// PrimaryEntities is the pre-merge top-level entity list captured
 	// by the analyzer before sub-topic entities were unioned into
 	// Entities. exactEntityAnchors consumes this when non-empty so the
@@ -144,7 +149,7 @@ func keywordSearch(keywords []string, repoRoot string) *keywordSearchResult {
 // same Run re-dispatches explorer with identical analyzer output.
 // Order-independent: slices are sorted before joining so keyword
 // permutations produce the same key.
-func keywordSearchFingerprint(keywords, entities, primaryEntities, domainHints []string, maxFiles int) string {
+func keywordSearchFingerprint(keywords, entities, mentionedEntities, primaryEntities, domainHints []string, maxFiles int) string {
 	cp := func(s []string) []string {
 		if len(s) == 0 {
 			return nil
@@ -158,6 +163,8 @@ func keywordSearchFingerprint(keywords, entities, primaryEntities, domainHints [
 	b.WriteString(strings.Join(cp(keywords), "\x00"))
 	b.WriteByte('|')
 	b.WriteString(strings.Join(cp(entities), "\x00"))
+	b.WriteByte('|')
+	b.WriteString(strings.Join(cp(mentionedEntities), "\x00"))
 	b.WriteByte('|')
 	b.WriteString(strings.Join(cp(primaryEntities), "\x00"))
 	b.WriteByte('|')
@@ -200,12 +207,14 @@ func keywordSearchWithOptions(keywords []string, repoRoot string, opts keywordSe
 	// --- Phase 1: repo_map structural ranking ---
 	repoMapScores, graph := repoMapRank(keywords, opts.Entities, repoRoot)
 	// exactEntityAnchors wants user-named entities only. When the
-	// analyzer merged sub-topic entities into opts.Entities for breadth
-	// ranking, PrimaryEntities carries the pre-merge snapshot; prefer
-	// it so a planner-added descriptor cannot mis-anchor. Fall back to
-	// opts.Entities when PrimaryEntities is empty (no merge happened,
-	// or tests that pre-date the split).
-	anchorEntities := opts.PrimaryEntities
+	// exactEntityAnchors wants the strongest provenance lane available.
+	// Prefer deterministic MentionedEntities (verbatim RawRequest
+	// surfaces), fall back to analyzer-authored PrimaryEntities, then to
+	// the broadened Entities list only when no narrower lane exists.
+	anchorEntities := opts.MentionedEntities
+	if len(anchorEntities) == 0 {
+		anchorEntities = opts.PrimaryEntities
+	}
 	if len(anchorEntities) == 0 {
 		anchorEntities = opts.Entities
 	}

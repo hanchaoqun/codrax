@@ -107,6 +107,44 @@ func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorBlocks(t *testi
 	}
 }
 
+func TestEmitInvestigationComplete_PreCompleteCheck_ExternalSourceLogWaivesCitationFloor(t *testing.T) {
+	mut := types.NewMutableState("test")
+	mut.SetLogTriage(&types.LogBundle{
+		Errors: []types.LogError{{Type: "NoMethodError"}},
+	})
+	closure := mut.EvidenceClosure()
+	closure.SetReadSet(map[string]bool{"cmd/root.go": true})
+
+	bus := &types.BusContext{
+		Mutable:  mut,
+		RepoRoot: t.TempDir(),
+		AnalysisIR: &types.AnalysisIR{
+			AnswerContract: types.AnswerContract{
+				CitationReq: types.CitationReq{
+					Required:     true,
+					MinCitations: 1,
+				},
+			},
+		},
+	}
+
+	tool := &EmitInvestigationComplete{}
+	params, _ := json.Marshal(map[string]any{
+		"reason":     "external runtime log already explains the failure chain",
+		"confidence": "high",
+	})
+	res, err := tool.Execute(bus, params)
+	if err != nil {
+		t.Fatalf("Execute returned error: %v", err)
+	}
+	if strings.Contains(res.Summary, "DOWNGRADED") {
+		t.Fatalf("external-source log should waive citation preflight, got: %s", res.Summary)
+	}
+	if !mut.IsInvestigationComplete() {
+		t.Fatalf("InvestigationComplete should be set for external-source log closure")
+	}
+}
+
 // TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPasses_WithEligibleEvidence:
 // when ReadSet covers the evidence Source, the floor is satisfied.
 func TestEmitInvestigationComplete_PreCompleteCheck_CitationFloorPasses(t *testing.T) {

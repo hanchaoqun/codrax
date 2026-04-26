@@ -1526,6 +1526,18 @@ func buildOrLoadGraph() {}
 	}
 }
 
+func TestUniqueExactAnchorFile_SuppressedWhenExactTargetPending(t *testing.T) {
+	eval := &explorerEvaluator{
+		exactAnchorFiles: []string{"codrax.yaml.example"},
+		exactPendingTargets: []string{
+			"explore_mid_loop_hint_budget",
+		},
+	}
+	if got, ok := eval.uniqueExactAnchorFile(); ok || got != "" {
+		t.Fatalf("pending exact target should suppress unique exact anchor, got (%q, %v)", got, ok)
+	}
+}
+
 func TestBuildInitialInstruction_DeclarativeAnchorsStartFocusedDepth(t *testing.T) {
 	repo := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(repo, "config"), 0o755); err != nil {
@@ -3626,14 +3638,17 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
 			t.Fatalf("nudge must not fire below read floor of 2, got %+v", sig)
 		}
-		// Reset state; last tool is not read_file, so the hint stays quiet.
+		// Reset state; the current batch includes a read even though the
+		// last tool is grep, so the generalized hint should still fire.
 		eval = &explorerEvaluator{
-			phase:        1,
-			searchResult: &keywordSearchResult{Graph: &repomap.Graph{}},
+			phase:                 1,
+			searchResult:          &keywordSearchResult{Graph: &repomap.Graph{}},
+			midLoopLastResultsLen: 2,
 		}
 		results = []types.ToolResult{
 			newReadResult("a.go"),
 			newReadResult("b.go"),
+			newReadResult("c.go"),
 			{ToolName: "grep", Success: true, Summary: "a.go\nb.go"},
 		}
 		sig = eval.observeMidLoop(LoopObservation{
@@ -3642,8 +3657,74 @@ func TestObserveMidLoop_ReadWithoutEmitNudge(t *testing.T) {
 			LastToolResult: &results[len(results)-1],
 			AllToolResults: results,
 		})
-		if sig.HintRequested && sig.HintKey == "explorer.mid-loop.read-without-emit" {
-			t.Fatalf("nudge must not fire when the current batch did not end in read_file, got %+v", sig)
+		if !sig.HintRequested || sig.HintKey != "explorer.mid-loop.read-without-emit" {
+			t.Fatalf("nudge should fire when the current batch included a read_file, got %+v", sig)
 		}
 	})
+}
+
+func TestObserveMidLoop_ExternalSourceLogRedirect(t *testing.T) {
+	eval := &explorerEvaluator{
+		logTriage: &types.LogBundle{
+			Errors: []types.LogError{{Type: "NoMethodError"}},
+		},
+	}
+	results := []types.ToolResult{
+		{
+			ToolName: "emit_evidence",
+			Success:  false,
+			Summary:  `items[0]: source "runtime log (unresolved)" does not look like a repo-relative file path`,
+		},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      1,
+		LastToolResult: &results[0],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("external-source log redirect should fire, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.external-log-no-anchor" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.external-log-no-anchor", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "resolved_files=0") || !strings.Contains(sig.Hint, "emit_investigation_complete") {
+		t.Fatalf("hint should redirect to external-log closure path, got: %s", sig.Hint)
+	}
+}
+
+func TestObserveMidLoop_ExactAbsenceClosureHint(t *testing.T) {
+	eval := &explorerEvaluator{
+		heuristics: types.ExploreHeuristics{MidLoopMinIteration: 2},
+		exactResolution: &types.ExactResolutionContract{
+			TargetLabel:  "config key",
+			Targets:      []string{"explore_mid_loop_hint_budget"},
+			AllowAbsence: true,
+		},
+		exactPendingTargets: []string{"explore_mid_loop_hint_budget"},
+		investigationNotes: []string{
+			"已确认 explore_mid_loop_hint_budget 在仓库中不存在；相关 explore_* 配置仅作为 nearby context。",
+		},
+	}
+	results := []types.ToolResult{
+		{ToolName: "read_file", Success: true, Summary: "[internal/types/config.go: showing lines 600-680 of 900]"},
+		{ToolName: "read_file", Success: true, Summary: "[codrax.yaml.example: showing lines 280-320 of 500]"},
+		{ToolName: "emit_evidence", Success: true, Summary: "emit_evidence accepted 4 item(s)"},
+	}
+	sig := eval.observeMidLoop(LoopObservation{
+		Phase:          PhaseMidLoop,
+		Iteration:      2,
+		Response:       llm.Response{Content: "The exact key explore_mid_loop_hint_budget is not found in the repo; nearby explore_* settings are related context only."},
+		LastToolResult: &results[len(results)-1],
+		AllToolResults: results,
+	})
+	if !sig.HintRequested {
+		t.Fatalf("exact-absence closure hint should fire, got %+v", sig)
+	}
+	if sig.HintKey != "explorer.mid-loop.exact-absence-close" {
+		t.Fatalf("HintKey = %q, want explorer.mid-loop.exact-absence-close", sig.HintKey)
+	}
+	if !strings.Contains(sig.Hint, "absence_justification") || !strings.Contains(sig.Hint, "related context only") {
+		t.Fatalf("hint should drive absence closure, got: %s", sig.Hint)
+	}
 }

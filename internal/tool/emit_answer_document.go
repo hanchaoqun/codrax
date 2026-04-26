@@ -654,7 +654,7 @@ func (t *EmitAnswerDocument) Execute(ctx *types.BusContext, params json.RawMessa
 	if err := validateSummaryRequiredDiagram(p.Summary, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
-	if err := validateSummaryDiagramGrounding(p.Summary, citations, ctx); err != nil {
+	if err := validateSummaryDiagramGrounding(p.Summary, citations, groundCtx, ctx); err != nil {
 		return failWithContext("%v", err)
 	}
 
@@ -1487,32 +1487,12 @@ func isDiagramLikeFence(body string) bool {
 //   - any diagramFileTokenRe match whose basename and full-path form
 //     are both absent from the allowlist → error naming every
 //     offending token, with escape guidance.
-func validateSummaryDiagramGrounding(summary string, citations []types.Citation, ctx *types.BusContext) error {
+func validateSummaryDiagramGrounding(summary string, citations []types.Citation, gc *ground.Context, ctx *types.BusContext) error {
 	blocks := fencedCodeBlockRe.FindAllStringSubmatch(summary, -1)
 	if len(blocks) == 0 {
 		return nil
 	}
-	allow := make(map[string]bool, len(citations)*2)
-	for _, c := range citations {
-		f := strings.TrimSpace(c.File)
-		if f == "" {
-			continue
-		}
-		allow[f] = true
-		allow[path.Base(f)] = true
-	}
-	if ctx != nil && ctx.Mutable != nil {
-		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
-			for _, f := range bundle.ResolvedFiles {
-				f = strings.TrimSpace(f)
-				if f == "" {
-					continue
-				}
-				allow[f] = true
-				allow[path.Base(f)] = true
-			}
-		}
-	}
+	allow := buildSummaryDiagramAllowlist(citations, gc, ctx)
 	if len(allow) == 0 {
 		return nil
 	}
@@ -1545,12 +1525,77 @@ func validateSummaryDiagramGrounding(summary string, citations []types.Citation,
 	}
 	return fmt.Errorf(
 		"summary fenced code block references file(s) not present in citations[] or attached-log frames: %s. "+
-			"ASCII diagrams are structural claims — every filename named inside a triple-backtick block "+
-			"must be a real repo file you have direct evidence for. "+
+			"ASCII diagrams are structural claims — every filename or path-like label named inside a triple-backtick block "+
+			"must be grounded by a cited repo file, a cited line-text path literal, or an attached-log resolved frame. "+
 			"Either add a citations[] entry for each named file (and reference it from steps / symbols / value as needed), "+
 			"or remove the unsupported file name from the diagram and describe the relationship in prose.",
 		strings.Join(violations, ", "),
 	)
+}
+
+func buildSummaryDiagramAllowlist(citations []types.Citation, gc *ground.Context, ctx *types.BusContext) map[string]bool {
+	allow := make(map[string]bool, len(citations)*4)
+	for _, c := range citations {
+		addDiagramAllowToken(allow, c.File)
+	}
+	if gc != nil && len(gc.LineIndex) > 0 {
+		for _, c := range citations {
+			addDiagramAllowFromCitationWindow(allow, c, gc)
+		}
+	}
+	if ctx != nil && ctx.Mutable != nil {
+		if bundle := ctx.Mutable.LogTriage(); bundle != nil {
+			for _, f := range bundle.ResolvedFiles {
+				addDiagramAllowToken(allow, f)
+			}
+		}
+	}
+	return allow
+}
+
+func addDiagramAllowFromCitationWindow(allow map[string]bool, c types.Citation, gc *ground.Context) {
+	if len(allow) == 0 && gc == nil {
+		return
+	}
+	file := strings.ReplaceAll(strings.TrimSpace(c.File), `\`, `/`)
+	if file == "" || c.Line <= 0 || gc == nil {
+		return
+	}
+	fileLines, ok := gc.LineIndex[file]
+	if !ok || len(fileLines) == 0 {
+		return
+	}
+	for line := c.Line - corroborationWindow; line <= c.Line+corroborationWindow; line++ {
+		if line <= 0 {
+			continue
+		}
+		text, ok := fileLines[line]
+		if !ok || strings.TrimSpace(text) == "" {
+			continue
+		}
+		for _, tok := range diagramFileTokenRe.FindAllString(text, -1) {
+			bare := tok
+			if idx := strings.LastIndex(bare, ":"); idx >= 0 {
+				bare = bare[:idx]
+			}
+			ext := strings.ToLower(path.Ext(bare))
+			if !diagramFileExtensions[ext] {
+				continue
+			}
+			addDiagramAllowToken(allow, bare)
+		}
+	}
+}
+
+func addDiagramAllowToken(allow map[string]bool, token string) {
+	token = strings.ReplaceAll(strings.TrimSpace(token), `\`, `/`)
+	if token == "" {
+		return
+	}
+	allow[token] = true
+	if base := path.Base(token); base != "" && base != "." {
+		allow[base] = true
+	}
 }
 
 // logTriageTypeIdentifierRe picks identifier-shape sub-tokens from

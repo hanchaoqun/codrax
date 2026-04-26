@@ -481,6 +481,17 @@ func preCompleteContractCheck(ctx *types.BusContext, justification string) strin
 		// Absence answer waives the floor by contract; bypass.
 		return ""
 	}
+	if ctx.Mutable != nil {
+		if bundle := ctx.Mutable.LogTriage(); bundle != nil && bundle.IsExternalSource() {
+			// External-source logs (resolved_files=0) are answered from
+			// the structured log semantics, not from repo file:line
+			// anchors. Builder/front-end already teach downstream stages
+			// to use summary prose and citation_ref=-1 where appropriate;
+			// forcing a repo citation floor here only creates pointless
+			// read-more loops against unrelated files.
+			return ""
+		}
+	}
 	ir := ctx.AnalysisIR
 	if ir == nil {
 		return ""

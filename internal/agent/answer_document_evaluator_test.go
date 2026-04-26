@@ -150,10 +150,51 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersDiagramContractA
 		"## Diagram Contract",
 		"Required: yes",
 		"Preferred kinds: call_dag",
+		"Avoid invented enumeration labels like `Level 1`, `Round 2`, or `Step 3`",
 		"## Diagram Seeds",
+		"### Grounded Labeling",
 		"### Log Triage",
 		"### Flow Findings",
 		"### Answer Chains",
+	} {
+		if !strings.Contains(prompt, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, prompt)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersConfigTraceDiagramSeed(t *testing.T) {
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+			AnswerContract: types.AnswerContract{
+				RequiredAnswerShape: types.ShapeExplanation,
+				Diagram: &types.DiagramContract{
+					Required:       true,
+					Minimum:        1,
+					PreferredKinds: []types.DiagramKind{types.DiagramFlow},
+					ScopeHint:      types.DiagramScopeOverall,
+					Reasons:        []string{"config_lineage"},
+				},
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{Source: "internal/types/config.go", LineStart: 707, Subject: "DefaultExploreHeuristics", Summary: "code defaults", Kind: types.EvidenceDirect},
+			{Source: "codrax.yaml.example", LineStart: 20, Summary: "yaml precedence comment", Kind: types.EvidenceDirect},
+			{Source: "internal/config/runtime.go", LineStart: 194, Subject: "ExploreMidLoopMinIteration", Summary: "runtime yaml binding", Kind: types.EvidenceDirect},
+			{Source: "cmd/root.go", LineStart: 1381, Summary: "CLI override applies when non-nil", Kind: types.EvidenceDirect},
+		},
+	}
+
+	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
+	for _, want := range []string{
+		"### Config Trace Precedence",
+		"codrax.yaml.example:20",
+		"internal/types/config.go:707",
+		"cmd/root.go:1381",
+		"prefer a precedence diagram with grounded source labels instead of numbered layers",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("prompt missing %q:\n%s", want, prompt)
@@ -381,6 +422,56 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopMissingDiagramRejectSurfacesActi
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("missing-diagram hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramGroundingRejectSurfacesAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "summary fenced code block references file(s) not present in citations[] or attached-log frames: codrax.yaml. ASCII diagrams are structural claims.",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("diagram-grounding reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"DIAGRAM-GROUNDING",
+		"reuse the exact grounded file / symbol / path labels",
+		"Do NOT normalize one grounded label into a different spelling",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("diagram-grounding hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopDiagramCodenameRejectSurfacesAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  "summary introduces codename label(s) not present in any citation's ±3-line window: Level 1, Level 2.",
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("diagram-codename reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"CODENAME-GROUNDING",
+		"Level 1",
+		"Label the diagram directly with grounded files, functions, config keys",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("diagram-codename hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }

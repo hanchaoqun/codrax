@@ -7,7 +7,8 @@ import (
 
 func TestBuildExactResolutionContract_ConfigKey(t *testing.T) {
 	rm := RequestModel{
-		Scenario: ScenarioConfigTrace,
+		RawRequest: "where is explore_mid_loop_hint_budget defined",
+		Scenario:   ScenarioConfigTrace,
 		AnalyzerHints: AnalyzerHints{
 			Kind:            "config_mapping",
 			PrimaryEntities: []string{"explore_mid_loop_hint_budget"},
@@ -27,6 +28,70 @@ func TestBuildExactResolutionContract_ConfigKey(t *testing.T) {
 	}
 	if got.RelatedContextPolicy != ExactContextSameFamilyGrounded {
 		t.Fatalf("RelatedContextPolicy = %q, want %q", got.RelatedContextPolicy, ExactContextSameFamilyGrounded)
+	}
+}
+
+func TestBuildExactResolutionContract_PrefersRawRequestMentionedTargets(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind: "config_mapping",
+			PrimaryEntities: []string{
+				"explore_mid_loop_hint_budget",
+				"ExploreMidLoopMinIteration",
+				"DefaultExploreHeuristics",
+			},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil")
+	}
+	if !reflect.DeepEqual(got.Targets, []string{"explore_mid_loop_hint_budget"}) {
+		t.Fatalf("Targets = %v, want only raw-request-mentioned target", got.Targets)
+	}
+}
+
+func TestBuildExactResolutionContract_ConfigKeyIgnoresFileLikeContext(t *testing.T) {
+	rm := RequestModel{
+		RawRequest: "explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？给我 code default / codrax.yaml / CLI 三层的覆盖优先级。",
+		Scenario:   ScenarioConfigTrace,
+		AnalyzerHints: AnalyzerHints{
+			Kind: "config_mapping",
+			PrimaryEntities: []string{
+				"explore_mid_loop_hint_budget",
+				"codrax.yaml",
+			},
+		},
+		AnswerSubject: AnswerSubject{Kind: SubjectConfigKey},
+	}
+
+	got := BuildExactResolutionContract(rm)
+	if got == nil {
+		t.Fatal("contract = nil, want non-nil")
+	}
+	if !reflect.DeepEqual(got.Targets, []string{"explore_mid_loop_hint_budget"}) {
+		t.Fatalf("Targets = %v, want config key only (file-like context excluded)", got.Targets)
+	}
+}
+
+func TestMentionedAndDerivedEntitiesFromRawRequest(t *testing.T) {
+	candidates := []string{
+		"explore_mid_loop_hint_budget",
+		"DefaultExploreHeuristics",
+		"ExploreMidLoopMinIteration",
+	}
+	mentioned := MentionedEntitiesFromRawRequest(
+		"explore_mid_loop_hint_budget 的最终有效值是怎么计算出来的？", candidates)
+	if !reflect.DeepEqual(mentioned, []string{"explore_mid_loop_hint_budget"}) {
+		t.Fatalf("mentioned = %v, want only raw-request surface", mentioned)
+	}
+	derived := DerivedEntitiesFromMentioned(candidates, mentioned)
+	if !reflect.DeepEqual(derived, []string{"DefaultExploreHeuristics", "ExploreMidLoopMinIteration"}) {
+		t.Fatalf("derived = %v, want analyzer-derived context only", derived)
 	}
 }
 

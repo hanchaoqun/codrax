@@ -581,6 +581,13 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 	if rm.Language == "" {
 		rm.Language = detectLanguage(rm.RawRequest, ctx.Preferences)
 	}
+	// Capture analyzer-authored top-level entities BEFORE deterministic
+	// augmentation so provenance stays clean: MentionedEntities answers
+	// "did the user say this in RawRequest?" while DerivedEntities later
+	// captures log/perf/sub-topic expansions.
+	rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)
+	rm.AnalyzerHints.MentionedEntities = types.MentionedEntitiesFromRawRequest(
+		rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
 
 	// Log-triage augmentation. The log_triage pre-stage has already
 	// run and written a validated LogBundle onto Mutable.LogTriage
@@ -753,14 +760,9 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		isMeasurementScalar = isMeasurementScalarRequest(rm)
 		isHistoryLookup = isHistoryLookupRequest(rm)
 
-		// Merge sub-topic entities into main entity list. Snapshot the
-		// pre-merge top-level list into PrimaryEntities first: consumers
-		// that need "user-named only" semantics (keyword_search's
-		// exactEntityAnchors) read that so a planner-added descriptor
-		// (e.g. a sub-topic entity "check" that uniquely case-matches
-		// `func Check` in the repo) can't anchor the whole investigation
-		// onto a file the user never named.
-		rm.AnalyzerHints.PrimaryEntities = append([]string(nil), rm.AnalyzerHints.Entities...)
+		// Merge sub-topic entities into main entity list. PrimaryEntities
+		// was already captured before deterministic augmentation so the
+		// provenance split stays stable here.
 		seen := make(map[string]bool, len(rm.AnalyzerHints.Entities))
 		for _, e := range rm.AnalyzerHints.Entities {
 			seen[e] = true
@@ -776,6 +778,8 @@ func buildAnalysisIR(ctx *types.AgentContext) (*types.AnalysisIR, error) {
 		logging.Info("[analyzer] multi-topic: %d sub-topics, primary=%v merged=%v",
 			len(rm.SubTopics), rm.AnalyzerHints.PrimaryEntities, rm.AnalyzerHints.Entities)
 	}
+	rm.AnalyzerHints.DerivedEntities = types.DerivedEntitiesFromMentioned(
+		rm.AnalyzerHints.Entities, rm.AnalyzerHints.MentionedEntities)
 
 	// Normalizer runs unconditionally on the raw objective. When the
 	// repomap graph is available (cache warm from pre-scan or foreground

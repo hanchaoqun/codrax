@@ -36,6 +36,13 @@ func irPrimaryEntities(ctx *types.AgentContext) []string {
 	return ctx.AnalysisIR.RequestModel.AnalyzerHints.PrimaryEntities
 }
 
+func irMentionedEntities(ctx *types.AgentContext) []string {
+	if ctx == nil || ctx.AnalysisIR == nil {
+		return nil
+	}
+	return ctx.AnalysisIR.RequestModel.AnalyzerHints.MentionedEntities
+}
+
 // irDomainHints returns the unique non-empty Domain tags attached to
 // every TermSymbol in the analyzer's TermGraph. Populated by the
 // normalizer's SymbolResolver when a term is repo-grounded; empty when

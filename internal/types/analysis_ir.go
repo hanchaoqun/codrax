@@ -320,16 +320,24 @@ type SemanticPredicates struct {
 type AnalyzerHints struct {
 	Keywords []string `json:"keywords,omitempty"`
 	Entities []string `json:"entities,omitempty"`
-	// PrimaryEntities snapshots the pre-merge top-level Entities list
-	// from the LLM's emit_analysis call, before sub-topic entities
-	// (SubTopics[].Entities) are unioned into Entities for breadth
-	// consumers (normalizer / keyword_search ranker / entity boost).
-	// Consumers that need "user-named entities only" semantics — most
-	// notably keyword_search's exactEntityAnchors, which should never
-	// anchor on a planner-added sub_topic descriptor — read this
-	// instead of Entities. Empty when no sub-topics triggered the
-	// merge, in which case consumers fall back to Entities.
+	// PrimaryEntities snapshots the analyzer LLM's top-level Entities
+	// list before deterministic augmentation (log/perf entities) and
+	// before sub-topic entities are unioned into Entities for breadth
+	// consumers. This preserves the analyzer-authored shortlist even when
+	// downstream stages widen Entities for search breadth.
 	PrimaryEntities []string `json:"primary_entities,omitempty"`
+	// MentionedEntities is the deterministic subset of PrimaryEntities
+	// whose surface forms are explicitly present in RawRequest. This is
+	// the provenance-carrying "user mentioned it" lane: exact-resolution
+	// contracts and exact-anchor ranking should prefer this over broader
+	// entity lists so analyzer-derived context cannot be upgraded into an
+	// exact target accidentally.
+	MentionedEntities []string `json:"mentioned_entities,omitempty"`
+	// DerivedEntities is the complement lane: entities available for
+	// related-context / breadth ranking that are NOT explicitly named in
+	// RawRequest. These may come from analyzer expansion, deterministic
+	// log/perf augmentation, or sub-topic merge.
+	DerivedEntities []string `json:"derived_entities,omitempty"`
 	Kind            string   `json:"kind,omitempty"`
 	Shape           string   `json:"shape,omitempty"`
 }

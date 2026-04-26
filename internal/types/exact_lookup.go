@@ -44,14 +44,22 @@ func ExactResolutionTargets(rm RequestModel) []string {
 	if !exactResolutionEnabled(rm) {
 		return nil
 	}
-	candidates := rm.AnalyzerHints.PrimaryEntities
+	candidates := rm.AnalyzerHints.MentionedEntities
 	if len(candidates) == 0 {
-		candidates = rm.AnalyzerHints.Entities
+		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.PrimaryEntities)
 	}
 	if len(candidates) == 0 {
-		return nil
+		candidates = MentionedEntitiesFromRawRequest(rm.RawRequest, rm.AnalyzerHints.Entities)
 	}
-
+	if len(candidates) == 0 {
+		candidates = rm.AnalyzerHints.PrimaryEntities
+		if len(candidates) == 0 {
+			candidates = rm.AnalyzerHints.Entities
+		}
+		if len(candidates) == 0 {
+			return nil
+		}
+	}
 	kind := exactResolutionFindingKindForRM(rm)
 	label := exactResolutionSubjectLabel(rm)
 	seen := make(map[string]bool)
@@ -77,6 +85,73 @@ func ExactResolutionTargets(rm RequestModel) []string {
 		}
 		seen[key] = true
 		out = append(out, candidate)
+	}
+	return out
+}
+
+func MentionedEntitiesFromRawRequest(raw string, candidates []string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || len(candidates) == 0 {
+		return nil
+	}
+	lowerRaw := strings.ToLower(strings.ReplaceAll(raw, `\`, `/`))
+	normRawSymbol := normalizeExactResolutionToken("symbol", raw)
+	normRawPath := normalizeExactResolutionToken("path", raw)
+	if lowerRaw == "" && normRawSymbol == "" && normRawPath == "" {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var out []string
+	for _, candidate := range candidates {
+		candidate = strings.TrimSpace(strings.Trim(candidate, "`\"' "))
+		if candidate == "" {
+			continue
+		}
+		key := normalizeExactResolutionToken("symbol", candidate)
+		if looksLikeExactPathToken(candidate) {
+			key = normalizeExactResolutionToken("path", candidate)
+		}
+		if key == "" || seen[key] {
+			continue
+		}
+		explicit := strings.Contains(lowerRaw, strings.ToLower(strings.ReplaceAll(candidate, `\`, `/`))) ||
+			strings.Contains(normRawSymbol, normalizeExactResolutionToken("symbol", candidate)) ||
+			strings.Contains(normRawPath, normalizeExactResolutionToken("path", candidate))
+		if !explicit {
+			continue
+		}
+		seen[key] = true
+		out = append(out, candidate)
+	}
+	return out
+}
+
+func DerivedEntitiesFromMentioned(all, mentioned []string) []string {
+	if len(all) == 0 {
+		return nil
+	}
+	seenMentioned := make(map[string]bool, len(mentioned))
+	for _, item := range mentioned {
+		key := normalizeExactResolutionToken("symbol", item)
+		if looksLikeExactPathToken(item) {
+			key = normalizeExactResolutionToken("path", item)
+		}
+		if key != "" {
+			seenMentioned[key] = true
+		}
+	}
+	seenOut := make(map[string]bool)
+	var out []string
+	for _, item := range all {
+		key := normalizeExactResolutionToken("symbol", item)
+		if looksLikeExactPathToken(item) {
+			key = normalizeExactResolutionToken("path", item)
+		}
+		if key == "" || seenMentioned[key] || seenOut[key] {
+			continue
+		}
+		seenOut[key] = true
+		out = append(out, item)
 	}
 	return out
 }
@@ -268,6 +343,9 @@ func exactResolutionFindingKindMatches(expected, got string) bool {
 
 func looksLikeExactConfigToken(s string) bool {
 	s = strings.TrimSpace(s)
+	if looksLikeFileLikeToken(s) {
+		return false
+	}
 	return len(s) >= 3 && (strings.ContainsAny(s, "_.-") || hasExactLookupCamelBoundary(s))
 }
 
@@ -277,6 +355,22 @@ func looksLikeExactPathToken(s string) bool {
 		return false
 	}
 	return strings.Contains(s, "/") || (filepath.Ext(s) != "" && !strings.Contains(s, " "))
+}
+
+func looksLikeFileLikeToken(s string) bool {
+	s = strings.TrimSpace(strings.ReplaceAll(s, `\`, `/`))
+	if s == "" || strings.Contains(s, "/") {
+		return true
+	}
+	ext := strings.ToLower(filepath.Ext(s))
+	switch ext {
+	case ".yaml", ".yml", ".json", ".toml", ".ini", ".conf", ".cfg",
+		".xml", ".properties", ".env", ".txt", ".md", ".go", ".py",
+		".js", ".ts", ".java", ".kt", ".rs", ".rb", ".swift", ".lua",
+		".proto", ".c", ".cc", ".cpp", ".h", ".hpp":
+		return true
+	}
+	return false
 }
 
 func hasExactLookupCamelBoundary(s string) bool {
