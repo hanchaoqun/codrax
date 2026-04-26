@@ -450,3 +450,42 @@ func TestParseRunnerOutput_UnknownRunner(t *testing.T) {
 		t.Error("should error on unknown runner")
 	}
 }
+
+// TestBuildGoFailureSummary_NoMisleadingCompileHintWhenAssertionsFail
+// pins the bug fix from eval Batch G trinary task. Earlier the
+// summary unconditionally appended "typically compile or init
+// errors" whenever Go marked a package as fail — but Go marks the
+// whole package failed even when failure is just a per-test
+// assertion. The misleading text seeded wrong-direction critiques
+// into the reflector pipeline, wasting 3 retries on "signature
+// mismatch" diagnoses while the actual bug was wrong arithmetic.
+func TestBuildGoFailureSummary_NoMisleadingCompileHintWhenAssertionsFail(t *testing.T) {
+	results := []types.TestResult{
+		{AssertionID: "TestParseTrinary", Passed: false, FailureDetail: "got 1, want 3"},
+	}
+	pkgStatus := map[string]string{"trinary": "fail"}
+	got := buildGoFailureSummary(results, pkgStatus)
+	if strings.Contains(got, "typically compile or init errors") {
+		t.Errorf("when per-test failures exist, summary must NOT claim 'compile or init errors' (misleads reflector); got %q", got)
+	}
+	if !strings.Contains(got, "1 test(s) failed") {
+		t.Errorf("summary should report per-test failure count; got %q", got)
+	}
+	if !strings.Contains(got, "package-level fail status") {
+		t.Errorf("summary should clarify the Go package-fail-on-any-test convention; got %q", got)
+	}
+}
+
+// TestBuildGoFailureSummary_TrueCompileErrorPreservesHint covers the
+// reverse path: when the package failed with NO per-test events
+// (genuine compile error before tests run), the "typically compile
+// or init errors" qualifier IS the right diagnostic for the
+// reflector. Don't accidentally remove it.
+func TestBuildGoFailureSummary_TrueCompileErrorPreservesHint(t *testing.T) {
+	results := []types.TestResult{} // no per-test entries
+	pkgStatus := map[string]string{"trinary": "fail"}
+	got := buildGoFailureSummary(results, pkgStatus)
+	if !strings.Contains(got, "typically compile or init errors") {
+		t.Errorf("zero per-test entries + package fail = real compile error; summary should keep the qualifier; got %q", got)
+	}
+}

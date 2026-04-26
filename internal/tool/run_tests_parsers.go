@@ -388,7 +388,23 @@ func buildGoFailureSummary(results []types.TestResult, pkgStatus map[string]stri
 		if b.Len() > 0 {
 			b.WriteString(" ")
 		}
-		fmt.Fprintf(&b, "%d package-level failure(s) — typically compile or init errors.", pkgFails)
+		// Only add the "typically compile or init errors" qualifier
+		// when there are NO per-test failures — that's the genuine
+		// "package failed before tests could run" case (handled by
+		// the BuildErrorPath in parseGoTestJSONLines anyway). When
+		// there ARE per-test failures, the package-level "fail"
+		// status is just Go's standard exit-non-zero behaviour for
+		// any failing test in the package; calling it "typically
+		// compile or init errors" is misleading and was observed
+		// (eval Batch G trinary task) to seed wrong-direction
+		// critiques into the reflector pipeline (3 retries wasted
+		// on "signature mismatch" when the actual bug was wrong
+		// arithmetic).
+		if failed == 0 {
+			fmt.Fprintf(&b, "%d package-level failure(s) — typically compile or init errors.", pkgFails)
+		} else {
+			fmt.Fprintf(&b, "%d package-level fail status (Go marks the whole package failed when any test fails — see per-test rows for assertion details).", pkgFails)
+		}
 	}
 	if b.Len() == 0 {
 		b.WriteString("No tests ran — empty or non-test-containing package.")
