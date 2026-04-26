@@ -9,6 +9,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/json"
 	"encoding/pem"
+	"fmt"
 	"math/big"
 	"net/http"
 	"os"
@@ -507,6 +508,141 @@ func TestParseSSEStream_NilTrackerStillWorks(t *testing.T) {
 // watchdog uses. Bumping these silently could either re-introduce
 // the 120s burn (if too long) or false-positive on slow models (if
 // too short).
+func TestParseRetryAfter(t *testing.T) {
+	now := time.Date(2026, 4, 26, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name string
+		in   string
+		want time.Duration
+	}{
+		{"empty", "", 0},
+		{"unparseable", "garbage", 0},
+		{"integer_seconds", "30", 30 * time.Second},
+		{"zero_seconds", "0", 0},
+		{"large_capped_to_1h", "9999", time.Hour},
+		{"http_date_future", "Sun, 26 Apr 2026 12:01:00 GMT", time.Minute},
+		{"http_date_past_returns_zero", "Sun, 26 Apr 2026 11:59:00 GMT", 0},
+		{"with_whitespace", "  10  ", 10 * time.Second},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := parseRetryAfter(tc.in, now)
+			if got != tc.want {
+				t.Errorf("parseRetryAfter(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestLooksLikeQuotaError(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"anthropic_rate_limit", `{"error":{"type":"rate_limit_error","message":"x"}}`, true},
+		{"openai_insufficient_quota", `{"error":{"code":"insufficient_quota"}}`, true},
+		{"openai_rate_limit_exceeded", `{"error":{"code":"rate_limit_exceeded"}}`, true},
+		{"vendor_token_plan", `{"error":{"message":"Token Plan limit reached"}}`, true},
+		{"chinese_quota_message", `{"error":{"message":"当前请求量较高，请稍后重试"}}`, true},
+		{"chinese_quota_marker", `{"error":{"message":"配额已耗尽"}}`, true},
+		{"deployment_rotation", `{"error":{"message":"No deployments available for selected model"}}`, false},
+		{"empty", ``, false},
+		{"non_quota_error", `{"error":{"message":"internal server error"}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := looksLikeQuotaError([]byte(tc.body))
+			if got != tc.want {
+				t.Errorf("looksLikeQuotaError(%q) = %v, want %v", tc.body, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNextRetryDelay_Precedence(t *testing.T) {
+	cases := []struct {
+		name    string
+		err     error
+		attempt int
+		want    time.Duration
+	}{
+		{
+			name:    "retry_after_takes_precedence",
+			err:     &apiError{StatusCode: 429, RetryAfter: 45 * time.Second, QuotaError: true},
+			attempt: 0,
+			want:    45 * time.Second,
+		},
+		{
+			name:    "quota_error_uses_long_schedule_attempt0",
+			err:     &apiError{StatusCode: 429, QuotaError: true},
+			attempt: 0,
+			want:    8 * time.Second,
+		},
+		{
+			name:    "quota_error_uses_long_schedule_attempt2",
+			err:     &apiError{StatusCode: 429, QuotaError: true},
+			attempt: 2,
+			want:    32 * time.Second,
+		},
+		{
+			name:    "deployment_rotation_uses_short_schedule_attempt0",
+			err:     &apiError{StatusCode: 429, QuotaError: false},
+			attempt: 0,
+			want:    2 * time.Second,
+		},
+		{
+			name:    "5xx_uses_short_schedule_attempt2",
+			err:     &apiError{StatusCode: 503},
+			attempt: 2,
+			want:    8 * time.Second,
+		},
+		{
+			name:    "non_apierror_falls_through_to_default",
+			err:     fmt.Errorf("some random error"),
+			attempt: 0,
+			want:    2 * time.Second,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := nextRetryDelay(tc.err, tc.attempt)
+			if got != tc.want {
+				t.Errorf("nextRetryDelay(%v, attempt=%d) = %v, want %v", tc.err, tc.attempt, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestNewAPIError_ParsesHeadersAndBody(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: 429,
+		Header:     http.Header{"Retry-After": []string{"15"}},
+	}
+	body := []byte(`{"error":{"type":"rate_limit_error","message":"plan limit"}}`)
+	ae := newAPIError(resp, body)
+	if ae.StatusCode != 429 {
+		t.Errorf("StatusCode = %d, want 429", ae.StatusCode)
+	}
+	if ae.RetryAfter != 15*time.Second {
+		t.Errorf("RetryAfter = %v, want 15s", ae.RetryAfter)
+	}
+	if !ae.QuotaError {
+		t.Error("QuotaError should be true for rate_limit_error body")
+	}
+
+	// 5xx with no Retry-After and a generic body — neither header nor
+	// quota classification should fire.
+	resp2 := &http.Response{StatusCode: 502, Header: http.Header{}}
+	ae2 := newAPIError(resp2, []byte(`{"error":"upstream timeout"}`))
+	if ae2.RetryAfter != 0 {
+		t.Errorf("RetryAfter = %v, want 0", ae2.RetryAfter)
+	}
+	if ae2.QuotaError {
+		t.Error("QuotaError should be false for non-429 status")
+	}
+}
+
 func TestStreamStallTimeout_SaneDefaults(t *testing.T) {
 	if streamStallTimeout < 10*time.Second {
 		t.Errorf("streamStallTimeout=%v is too aggressive; thinking-model inter-chunk pauses can hit 5-10s, would false-positive", streamStallTimeout)

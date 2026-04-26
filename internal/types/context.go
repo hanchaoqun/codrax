@@ -169,6 +169,22 @@ type MutableState struct {
 	// skipped it (e.g. no test runner detected).
 	baselineReport *ChangeReport
 
+	// bestPlan / bestReport hold the highest-passing (ChangePlan,
+	// ChangeReport) pair observed across verify→plan retry iterations
+	// in ModeApply. clearForReplan checks every completed iteration's
+	// (passed, total) score against this slot; on regression (next
+	// iteration scored fewer passes than best), clearForReplan
+	// restores the best pair instead of carrying the worse plan
+	// forward. Reset at per-task entry.
+	//
+	// Bug provenance: eval Batch K forth-py — a 3-iteration retry
+	// loop went 49/54 → 46/54 → 46/54, locking in the regression
+	// because each iteration unconditionally overwrote the prior plan.
+	// Without a "best score latch" the LLM's noisy retry trajectory
+	// can permanently lose ground that earlier iterations had won.
+	bestPlan   *ChangePlan
+	bestReport *ChangeReport
+
 	// planningHint carries structured feedback from a failed verify
 	// run back to the planner on B2.3 retry dispatches. Non-empty
 	// only during retry iterations; cleared on first retry entry.
@@ -1171,6 +1187,51 @@ func (m *MutableState) ResetChangeReport() {
 	m.changeReport = nil
 }
 
+// BestPlanReport returns the highest-passing (plan, report) pair
+// observed across verify→plan retry iterations, or (nil, nil) when no
+// iteration has finished yet. Read by clearForReplan to detect
+// regression: when the latest iteration's score is lower than the
+// best, clearForReplan restores the best pair instead of carrying
+// the worse plan into the next retry.
+func (m *MutableState) BestPlanReport() (*ChangePlan, *ChangeReport) {
+	if m == nil {
+		return nil, nil
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return m.bestPlan, m.bestReport
+}
+
+// SetBestPlanReport installs a (plan, report) pair as the new
+// best-known-good across retry iterations. Caller is responsible for
+// the score comparison (see ChangeReportScore); this slot is dumb
+// storage with no internal score check, so a future retry policy
+// could plug in a different selection rule (e.g., prefer plans with
+// no regressions over plans with the highest raw pass count) without
+// touching the storage layer.
+func (m *MutableState) SetBestPlanReport(plan *ChangePlan, report *ChangeReport) {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bestPlan = plan
+	m.bestReport = report
+}
+
+// ResetBestPlanReport clears the best-known-good slot at per-task
+// entry. Called by Run() before each plan→apply→verify cycle so a
+// previous task's high-water mark cannot leak into a new task.
+func (m *MutableState) ResetBestPlanReport() {
+	if m == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.bestPlan = nil
+	m.bestReport = nil
+}
+
 // SetBaselineReport installs the pre-apply test snapshot. Called by
 // the apply stage hook before coder dispatch when baseline capture is
 // enabled. Pointer storage mirrors SetChangeReport.
@@ -2084,6 +2145,32 @@ type AgentContext struct {
 	// remain a strict superset of the inner soft cap so the
 	// soft→hard recovery window can actually run.
 	PlannerSoftIterCapOverride int `json:"-"`
+
+	// EmitStageRetryAttempt is the 0-based retry-attempt counter for
+	// stages whose terminal action is a structured `emit_*` tool call
+	// (analyze / extract / finalize / log_triage / perf_triage). The
+	// orchestrator's per-stage retry loop (runAnalyzePhase et al)
+	// increments this on each re-dispatch after a "tool_choice=required
+	// did not produce a tool call" failure. The value of 0 is the
+	// happy path (first attempt); >= 1 activates terminal forcing in
+	// the agent layer:
+	//
+	//  1. The agent's BuildInitialInstruction prepends a literal
+	//     tool-call template so a model that produced text-only on
+	//     attempt 0 sees the exact JSON shape it must emit.
+	//
+	//  2. agent.go::dispatchOnce switches ChatOptions.ToolChoice from
+	//     the generic "required" string to the named-function form
+	//     `{"type":"function","function":{"name":"<emit_tool>"}}`,
+	//     which some providers honor more reliably than bare
+	//     "required" (observed on certain GLM / MiniMax / DeepSeek
+	//     deploys).
+	//
+	// The pattern is "escalate the protocol AND escalate the prompt"
+	// on every failed retry; together they close the failure mode
+	// where a model acknowledged the requirement in <think> but still
+	// produced no tool call.
+	EmitStageRetryAttempt int `json:"-"`
 
 	// AttachedLog mirrors BusContext.AttachedLog into the narrowed
 	// agent view. Consumed by the log_triager agent and rendered as

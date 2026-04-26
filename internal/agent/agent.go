@@ -611,6 +611,56 @@ func toolChoiceForStage(stage types.PipelineStage) string {
 	return ""
 }
 
+// emitToolForStage returns the canonical structured-emit tool name for
+// stages whose terminal action is a single named tool call. Used by
+// the terminal-forcing escalation: when an emit-required stage retry
+// fires (EmitStageRetryAttempt > 0), the agent layer switches
+// ChatOptions.ToolChoice from the bare "required" string to the
+// named-function form `{"type":"function","function":{"name":"<tool>"}}`
+// because some providers honor the named form more reliably than the
+// "required" string. The empty return falls through to the existing
+// "required" string so non-listed stages are unaffected.
+//
+// Stages with multiple legitimate emit shapes (extract emits both
+// emit_answer_symbol and emit_hypothesis_verdict) are NOT listed: the
+// "required" string already forces ONE of them, and constraining to a
+// single tool would block the other half of the contract. Only
+// single-emit stages benefit from named-function escalation.
+func emitToolForStage(stage types.PipelineStage) string {
+	switch stage {
+	case types.StageAnalyze:
+		return "emit_analysis"
+	case types.StageFinalize:
+		return "emit_answer_document"
+	case types.StageLogTriage:
+		return "emit_log_triage"
+	case types.StagePerfTriage:
+		return "emit_perf_trace"
+	}
+	return ""
+}
+
+// resolveToolChoice picks the tool_choice wire payload for this
+// dispatch. On the happy path it returns the per-stage default from
+// toolChoiceForStage. When ctx.EmitStageRetryAttempt > 0 AND the
+// stage has a single canonical emit tool, it returns the named-
+// function JSON-object form so the model is constrained to that
+// specific tool — terminal forcing for the second-or-later attempt
+// at an emit-required stage. Generalizes the bug-fix pattern across
+// every emit-required single-tool stage rather than analyzer-only.
+func resolveToolChoice(ctx *types.AgentContext) string {
+	stage := ctx.Stage
+	base := toolChoiceForStage(stage)
+	if ctx.EmitStageRetryAttempt <= 0 {
+		return base
+	}
+	emitTool := emitToolForStage(stage)
+	if emitTool == "" {
+		return base
+	}
+	return fmt.Sprintf(`{"type":"function","function":{"name":%q}}`, emitTool)
+}
+
 // Returns true when at least one message was stubbed, so the caller
 // can log the event.
 // contextPressureDirective renders the per-agent body the watchdog
@@ -917,7 +967,7 @@ func (b *BaseAgent) Execute(ctx *types.AgentContext, sk *skill.Config) (*StageOu
 		// per-token events. Non-streaming adapters never call onDelta.
 		streamBuf := newStreamPreviewBuffer(b.deps.Emit, b.name, ctx.Stage, i)
 		resp, err := b.deps.LLM.Chat(messages, toolSchemas, llm.ChatOptions{
-			ToolChoice:     toolChoiceForStage(ctx.Stage),
+			ToolChoice:     resolveToolChoice(ctx),
 			OnContentDelta: streamBuf.onDelta,
 		})
 		streamBuf.flush()

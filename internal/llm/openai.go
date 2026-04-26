@@ -270,11 +270,22 @@ func (o *OpenAIAdapter) Chat(messages []Message, tools []ToolSchema, opts ChatOp
 			return Response{}, err
 		}
 
-		// Exponential backoff: 2s, 4s, 8s, 16s, 32s. The last attempt
-		// fires without a trailing sleep so the total wait matches the
-		// schedule above.
+		// Backoff schedule (last attempt fires without a trailing sleep):
+		//   - default: exponential 2s/4s/8s/16s/32s (~62s coverage,
+		//     matches typical deployment rotation duration)
+		//   - server Retry-After present: honor it (RFC 7231)
+		//   - quota error (rate_limit_error / token plan / 套餐 / 配额):
+		//     4× longer exponential 8s/16s/32s/64s/128s (~4 min) so a
+		//     true quota stall gets a real chance to clear before the
+		//     budget is exhausted
+		// See nextRetryDelay for precedence.
 		if attempt < maxAttempts-1 {
-			time.Sleep(time.Duration(2<<uint(attempt)) * time.Second)
+			delay := nextRetryDelay(err, attempt)
+			if ae, ok := err.(*apiError); ok && (ae.RetryAfter > 0 || ae.QuotaError) {
+				logging.Info("[llm] retry %d/%d after %v (status=%d quota=%v retry_after=%v)",
+					attempt+1, maxAttempts-1, delay, ae.StatusCode, ae.QuotaError, ae.RetryAfter)
+			}
+			time.Sleep(delay)
 		}
 	}
 
@@ -302,10 +313,7 @@ func (o *OpenAIAdapter) doRequest(bodyBytes []byte) (Response, error) {
 	}
 
 	if httpResp.StatusCode != http.StatusOK {
-		return Response{}, &apiError{
-			StatusCode: httpResp.StatusCode,
-			Body:       string(respBody),
-		}
+		return Response{}, newAPIError(httpResp, respBody)
 	}
 
 	return o.parseResponse(respBody)
@@ -351,10 +359,7 @@ func (o *OpenAIAdapter) doStreamRequest(bodyBytes []byte, onDelta func(string)) 
 
 	if httpResp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(httpResp.Body)
-		return Response{}, &apiError{
-			StatusCode: httpResp.StatusCode,
-			Body:       string(body),
-		}
+		return Response{}, newAPIError(httpResp, body)
 	}
 
 	// Start the stall watchdog. Tracker stores the Unix-nano time of
@@ -671,8 +676,23 @@ func (o *OpenAIAdapter) buildRequest(messages []Message, tools []ToolSchema, opt
 	// wire payload identical for callers that pass ChatOptions{}). A
 	// caller that wants the provider's default explicitly can still
 	// set "auto" — nothing breaks, we just don't send the field.
+	//
+	// Two wire shapes per the OpenAI tool_choice spec:
+	//   - bare string (auto / required / none): caller passes the
+	//     keyword and we JSON-quote it.
+	//   - named-function object: caller passes the JSON object literal
+	//     `{"type":"function","function":{"name":"<tool>"}}` (a leading
+	//     `{` is the discriminator). This is the most reliable form
+	//     for "you MUST call THIS specific tool" — some providers
+	//     (GLM / MiniMax / DeepSeek variants) honor named-function
+	//     more reliably than bare "required".
 	if len(req.Tools) > 0 && opts.ToolChoice != "" && opts.ToolChoice != "auto" {
-		req.ToolChoice = json.RawMessage(fmt.Sprintf("%q", opts.ToolChoice))
+		trimmed := strings.TrimSpace(opts.ToolChoice)
+		if strings.HasPrefix(trimmed, "{") {
+			req.ToolChoice = json.RawMessage(trimmed)
+		} else {
+			req.ToolChoice = json.RawMessage(fmt.Sprintf("%q", opts.ToolChoice))
+		}
 	}
 
 	if o.stream {
@@ -742,13 +762,121 @@ func mapFinishReason(reason string) string {
 
 // --- errors ---
 
+// apiError captures the HTTP status, response body, and selected
+// headers from a non-2xx LLM response. RetryAfter is parsed from the
+// `Retry-After` header at construction time; QuotaError flips on when
+// the body looks like a true rate-limit / quota refusal (vs Azure-style
+// deployment rotation), which lets the retry loop back off longer
+// before exhausting the budget.
 type apiError struct {
 	StatusCode int
 	Body       string
+	// RetryAfter is the parsed Retry-After header (RFC 7231): integer
+	// seconds OR HTTP-date. Zero when absent or unparseable. The retry
+	// loop uses this as the next sleep when present, falling back to
+	// exponential when zero.
+	RetryAfter time.Duration
+	// QuotaError flips on when the response body matches a true
+	// rate-limit / quota error pattern (token quota exhausted, plan
+	// limit reached, etc.) — distinguishing it from transient
+	// deployment-rotation 429s that clear in <60 s. The retry loop
+	// uses a longer cap for QuotaError so the budget is not burned in
+	// 62 s on a quota error that needs minutes to clear.
+	QuotaError bool
 }
 
 func (e *apiError) Error() string {
 	return fmt.Sprintf("LLM API error (status %d): %s", e.StatusCode, e.Body)
+}
+
+// newAPIError builds an apiError from an http.Response and the already
+// drained body bytes. Parses Retry-After from the response headers and
+// classifies the body for the QuotaError heuristic. Caller is
+// responsible for the `httpResp.StatusCode != 200` gate; this just
+// packages the error so the retry loop has structured signal.
+func newAPIError(httpResp *http.Response, body []byte) *apiError {
+	ae := &apiError{
+		StatusCode: httpResp.StatusCode,
+		Body:       string(body),
+	}
+	if httpResp.Header != nil {
+		if v := httpResp.Header.Get("Retry-After"); v != "" {
+			ae.RetryAfter = parseRetryAfter(v, time.Now())
+		}
+	}
+	if httpResp.StatusCode == 429 {
+		ae.QuotaError = looksLikeQuotaError(body)
+	}
+	return ae
+}
+
+// parseRetryAfter parses the RFC 7231 Retry-After header. Returns the
+// duration to wait, or zero if the header is empty / unparseable. Two
+// supported forms: an integer number of seconds, or an HTTP-date. The
+// `now` parameter is injected so tests can pin time without mocking
+// time.Now globally.
+func parseRetryAfter(v string, now time.Time) time.Duration {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return 0
+	}
+	// Form 1: integer seconds (most common).
+	var secs int
+	if _, err := fmt.Sscanf(v, "%d", &secs); err == nil && secs >= 0 {
+		// Sanity cap: 1 hour. A larger Retry-After almost always means
+		// the upstream is genuinely down and we should fall through to
+		// the standard error path rather than blocking the agent for
+		// an entire training session.
+		if secs > 3600 {
+			return time.Hour
+		}
+		return time.Duration(secs) * time.Second
+	}
+	// Form 2: HTTP-date. http.ParseTime handles RFC 1123 / RFC 850 /
+	// ANSI C variants in a single call.
+	if t, err := http.ParseTime(v); err == nil {
+		d := t.Sub(now)
+		if d <= 0 {
+			return 0
+		}
+		if d > time.Hour {
+			return time.Hour
+		}
+		return d
+	}
+	return 0
+}
+
+// looksLikeQuotaError scans the response body for tokens that signal a
+// true quota / rate-limit refusal as opposed to a transient deployment
+// rotation. Conservative: only flips on when one of a small set of
+// recognized markers is present, so a deployment-rotation 429 (which
+// uses different language) keeps the existing 62 s exponential schedule.
+//
+// Markers cover the OpenAI / Anthropic / Bytedance / DeepSeek /
+// generic OpenAI-compatible vendor variants we have observed. Adding
+// new vendor markers here is the right surgical fix for "vendor X's
+// 429 message is misclassified" — single-line append, no behavior
+// regression for existing markers.
+func looksLikeQuotaError(body []byte) bool {
+	lower := strings.ToLower(string(body))
+	markers := []string{
+		`"type":"rate_limit_error"`,
+		`"code":"rate_limit_exceeded"`,
+		`"code":"insufficient_quota"`,
+		`token plan`,
+		`quota`,
+		`rate limit`,
+		`套餐`,
+		`配额`,
+		`请求量较高`,
+	}
+	for _, m := range markers {
+		if strings.Contains(lower, m) {
+			return true
+		}
+	}
+	return false
 }
 
 func isRetryable(err error) bool {
@@ -756,6 +884,26 @@ func isRetryable(err error) bool {
 		return ae.StatusCode == 429 || ae.StatusCode >= 500
 	}
 	return false
+}
+
+// nextRetryDelay computes the wait before the next retry attempt.
+// Precedence: server-supplied Retry-After (when present and positive)
+// > quota-error long backoff > standard exponential. The standard
+// schedule (2s/4s/8s/16s/32s) is unchanged for non-429 retries and
+// for 429s that don't look quota-shaped, preserving the original
+// deployment-rotation coverage. Quota errors get a 4× longer schedule
+// (8s/16s/32s/64s/128s ≈ 4 minutes) so the retry budget actually has
+// a chance to outlast a true quota stall before failing loud.
+func nextRetryDelay(err error, attempt int) time.Duration {
+	if ae, ok := err.(*apiError); ok {
+		if ae.RetryAfter > 0 {
+			return ae.RetryAfter
+		}
+		if ae.QuotaError {
+			return time.Duration(8<<uint(attempt)) * time.Second
+		}
+	}
+	return time.Duration(2<<uint(attempt)) * time.Second
 }
 
 // looksLikeSSEResponse reports whether body is formatted as a

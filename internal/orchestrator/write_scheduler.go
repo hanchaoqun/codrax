@@ -211,7 +211,15 @@ func (o *Orchestrator) runWriteSchedulerLoop(stepBudget int) int {
 				logging.Warning("[orchestrator] verify SC failed but no validation_feedback targets; giving up")
 			}
 		}
-		// Terminal failure path.
+		// Terminal failure path. Before surfacing the failure, restore
+		// the best-known-good (plan, report) pair if the current
+		// iteration regressed against an earlier one — without this
+		// guard the user sees the LAST iteration's worse plan instead
+		// of the highest-scoring one the retry loop ever produced.
+		// No-op on the happy path (current is best or no retry latched).
+		if n.Type == types.NodeVerify {
+			restoreBestIfRegressed(o)
+		}
 		errSummary := stageErrText
 		if errSummary == "" && len(failed) > 0 {
 			errSummary = failed[0].Detail

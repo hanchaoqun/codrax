@@ -123,6 +123,15 @@ type Orchestrator struct {
 	// defer to discard the preserved tree on Run exit, defeating the
 	// preservation. Empty disables the override (default).
 	reuseWorktreePath string
+
+	// emitStageRetryAttempt is set by retry-aware phase loops (today:
+	// runAnalyzePhase) before each dispatchStage call so the agent
+	// layer can activate terminal forcing — literal tool-call template
+	// in the prompt + named-function tool_choice on the wire — when
+	// attempt > 0. Read once and cleared by dispatchStage so callers
+	// without an explicit retry counter (most stages) keep attempt=0.
+	// Internal field; not part of the public API.
+	emitStageRetryAttempt int
 }
 
 // New creates a new Orchestrator.
@@ -540,6 +549,10 @@ func (o *Orchestrator) Run(request string, repoRoot string, branch string) (*typ
 		}
 		writeGraph := BuildWriteTaskGraph(o.busCtx.Mode, o.planPath, o.writeRetryBudget)
 		o.busCtx.AnalysisIR.TaskGraph = writeGraph
+		// Per-Run reset: best-known-good plan/report slot tracks
+		// retry-loop state that is per-task; clear it so a previous
+		// task's high-water mark cannot leak into this Run.
+		o.busCtx.Mutable.ResetBestPlanReport()
 	default:
 		logging.Error("[orchestrator] unknown pipeline mode %q", o.busCtx.Mode)
 		o.busCtx.TaskState.LastError = fmt.Sprintf("unknown pipeline mode %q", o.busCtx.Mode)
@@ -591,6 +604,12 @@ func (o *Orchestrator) runAnalyzePhase() (int, error) {
 	used := 0
 	for attempt := 0; attempt < max; attempt++ {
 		used++
+		// Terminal forcing on retry: signal the agent layer that this is
+		// a re-dispatch after a "tool_choice=required produced no tool
+		// call" failure so it can escalate the prompt + tool_choice
+		// shape. Cleared inside dispatchStage so non-retry callers keep
+		// attempt=0.
+		o.emitStageRetryAttempt = attempt
 		out, err := o.dispatchStage(types.StageAnalyze)
 		if err == nil && (out == nil || out.Error == "") && o.busCtx.AnalysisIR != nil {
 			return used, nil
@@ -798,6 +817,45 @@ func buildRetryHint(report *types.ChangeReport, plan *types.ChangePlan, prevAtte
 	}
 	b.WriteString("Revise the plan to address these failures; do not repeat the same changes.")
 	return b.String()
+}
+
+// buildRetryHintWithBest extends buildRetryHint with a "current vs
+// best" delta when an earlier retry iteration produced a strictly-
+// better (passed, total) score than the current iteration. Lets the
+// planner see what it just lost — generic across runners since it
+// only uses the (passed, total) score returned by ChangeReport.Score.
+//
+// When the current iteration IS the best (or no prior iteration was
+// better), the output equals buildRetryHint's exactly so the existing
+// behaviour is preserved on monotonic-improvement trajectories.
+func buildRetryHintWithBest(curReport *types.ChangeReport, curPlan *types.ChangePlan, bestReport *types.ChangeReport, bestPlan *types.ChangePlan, prevAttempt int) string {
+	base := buildRetryHint(curReport, curPlan, prevAttempt)
+	if bestReport == nil || !bestReport.IsBetterThan(curReport) {
+		return base
+	}
+	bp, bt := bestReport.Score()
+	cp, ct := curReport.Score()
+	delta := fmt.Sprintf(
+		"\n\n## Regression detected\nCurrent attempt scored %d/%d; an earlier attempt in this retry loop scored %d/%d. The plan is moving in the WRONG direction. Re-examine which previous edits were correct and preserve them; isolate the change that introduced the regression.",
+		cp, ct, bp, bt,
+	)
+	if bestPlan != nil && len(bestPlan.TargetPaths) > 0 {
+		const maxPaths = 10
+		paths := bestPlan.TargetPaths
+		extra := 0
+		if len(paths) > maxPaths {
+			extra = len(paths) - maxPaths
+			paths = paths[:maxPaths]
+		}
+		delta += "\n\nFiles modified by the best-scoring earlier plan (the better baseline you regressed FROM):\n"
+		for _, p := range paths {
+			delta += fmt.Sprintf("  - %s\n", p)
+		}
+		if extra > 0 {
+			delta += fmt.Sprintf("  - … (+%d more)\n", extra)
+		}
+	}
+	return base + delta
 }
 
 // captureBaseline runs the project's test suite against the
@@ -2193,6 +2251,14 @@ func (o *Orchestrator) dispatchStage(stage types.PipelineStage) (*agent.StageOut
 	if ta, ok := o.thinkAloudMap[agentName]; ok {
 		agentCtx.ThinkAloud = ta
 	}
+	// Consume + clear the per-dispatch emit-retry counter set by retry-
+	// aware phase loops (e.g., runAnalyzePhase). Non-retry callers
+	// always see 0; the agent layer uses attempt > 0 to escalate the
+	// prompt + tool_choice shape (terminal forcing for emit-required
+	// stages). Cleared after read so a single retry counter cannot
+	// leak across stages.
+	agentCtx.EmitStageRetryAttempt = o.emitStageRetryAttempt
+	o.emitStageRetryAttempt = 0
 
 	// Prior Conversation visibility. The Objective always carries the
 	// full prior+current payload so StripConversationPrefix /

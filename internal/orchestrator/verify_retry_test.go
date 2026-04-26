@@ -269,6 +269,84 @@ func TestPlanningHintRoundTrip(t *testing.T) {
 	}
 }
 
+// TestBuildRetryHintWithBest_NoRegressionEqualsPlainHint verifies
+// that when no earlier iteration outscored the current one, the
+// retry hint is byte-for-byte identical to buildRetryHint's output.
+// This preserves the prior behaviour on monotonic-improvement
+// trajectories — the new "Regression detected" section only fires
+// when there is actual ground to lose.
+func TestBuildRetryHintWithBest_NoRegressionEqualsPlainHint(t *testing.T) {
+	cur := &types.ChangeReport{
+		FailureSummary: "1 of 10 tests failed",
+		TestResults: []types.TestResult{
+			{AssertionID: "TestA", Passed: true},
+			{AssertionID: "TestB", Passed: false, FailureDetail: "boom"},
+		},
+	}
+	curPlan := &types.ChangePlan{TargetPaths: []string{"a.go"}}
+
+	// No best at all.
+	plain := buildRetryHint(cur, curPlan, 1)
+	withNilBest := buildRetryHintWithBest(cur, curPlan, nil, nil, 1)
+	if plain != withNilBest {
+		t.Errorf("nil best should equal plain hint;\nplain:\n%s\nwithNilBest:\n%s", plain, withNilBest)
+	}
+
+	// Best equal to current — IsBetterThan returns false on tie.
+	withTieBest := buildRetryHintWithBest(cur, curPlan, cur, curPlan, 1)
+	if plain != withTieBest {
+		t.Errorf("equal-score best should not annotate;\nplain:\n%s\nwithTieBest:\n%s", plain, withTieBest)
+	}
+
+	// Best strictly worse — also no annotation.
+	worseBest := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{AssertionID: "TestA", Passed: false},
+		},
+	}
+	withWorseBest := buildRetryHintWithBest(cur, curPlan, worseBest, curPlan, 1)
+	if plain != withWorseBest {
+		t.Errorf("worse best should not annotate;\nplain:\n%s\nwithWorseBest:\n%s", plain, withWorseBest)
+	}
+}
+
+// TestBuildRetryHintWithBest_RegressionAnnotated verifies that when
+// the best-known-good is strictly better than the current iteration,
+// the hint adds a "Regression detected" section with the score delta
+// and the best plan's TargetPaths so the planner can see what edits
+// to preserve. This is the load-bearing case behind the latch.
+func TestBuildRetryHintWithBest_RegressionAnnotated(t *testing.T) {
+	cur := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{AssertionID: "TestA", Passed: true},
+			{AssertionID: "TestB", Passed: false, FailureDetail: "regression"},
+			{AssertionID: "TestC", Passed: false, FailureDetail: "regression"},
+		},
+	}
+	best := &types.ChangeReport{
+		TestResults: []types.TestResult{
+			{AssertionID: "TestA", Passed: true},
+			{AssertionID: "TestB", Passed: true},
+			{AssertionID: "TestC", Passed: false, FailureDetail: "expected"},
+		},
+	}
+	curPlan := &types.ChangePlan{TargetPaths: []string{"now.go"}}
+	bestPlan := &types.ChangePlan{TargetPaths: []string{"original.go", "shared.go"}}
+
+	got := buildRetryHintWithBest(cur, curPlan, best, bestPlan, 2)
+	for _, marker := range []string{
+		"Regression detected",
+		"1/3", // current passed/total
+		"2/3", // best passed/total
+		"original.go",
+		"shared.go",
+	} {
+		if !strings.Contains(got, marker) {
+			t.Errorf("regression hint missing marker %q in:\n%s", marker, got)
+		}
+	}
+}
+
 // TestBaselineReportRoundTrip locks the MutableState slot behaviour
 // so CritNoRegression can read what runApplyPhase writes.
 func TestBaselineReportRoundTrip(t *testing.T) {

@@ -569,3 +569,49 @@ func TestToolChoiceForStage(t *testing.T) {
 		}
 	}
 }
+
+// TestResolveToolChoice_TerminalForcing pins the retry-attempt
+// escalation. On attempt 0 (happy path), every emit-required stage
+// returns the bare "required" keyword. On attempt > 0, single-emit
+// stages (analyze / finalize / log_triage / perf_triage) escalate to
+// the named-function JSON object form so the model is constrained to
+// the specific tool. Multi-emit stages (extract emits answer_symbol
+// AND hypothesis_verdict) keep "required" because constraining to one
+// tool would block the other half of the contract. Explore stays "".
+func TestResolveToolChoice_TerminalForcing(t *testing.T) {
+	cases := []struct {
+		name    string
+		stage   types.PipelineStage
+		attempt int
+		want    string
+	}{
+		// Happy path: bare "required" or "" as before.
+		{"analyze_attempt0", types.StageAnalyze, 0, "required"},
+		{"finalize_attempt0", types.StageFinalize, 0, "required"},
+		{"extract_attempt0", types.StageExtract, 0, "required"},
+		{"log_triage_attempt0", types.StageLogTriage, 0, "required"},
+		{"perf_triage_attempt0", types.StagePerfTriage, 0, "required"},
+		{"explore_attempt0", types.StageExplore, 0, ""},
+
+		// Terminal forcing: named-function form for single-emit stages.
+		{"analyze_attempt1", types.StageAnalyze, 1, `{"type":"function","function":{"name":"emit_analysis"}}`},
+		{"analyze_attempt2", types.StageAnalyze, 2, `{"type":"function","function":{"name":"emit_analysis"}}`},
+		{"finalize_attempt1", types.StageFinalize, 1, `{"type":"function","function":{"name":"emit_answer_document"}}`},
+		{"log_triage_attempt1", types.StageLogTriage, 1, `{"type":"function","function":{"name":"emit_log_triage"}}`},
+		{"perf_triage_attempt1", types.StagePerfTriage, 1, `{"type":"function","function":{"name":"emit_perf_trace"}}`},
+
+		// Multi-emit stage stays bare "required" even on retry.
+		{"extract_attempt1_keeps_required", types.StageExtract, 1, "required"},
+		// Explore stays "" even on retry — never an emit-required stage.
+		{"explore_attempt1_stays_empty", types.StageExplore, 1, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			ctx := &types.AgentContext{Stage: c.stage, EmitStageRetryAttempt: c.attempt}
+			if got := resolveToolChoice(ctx); got != c.want {
+				t.Errorf("resolveToolChoice(stage=%q attempt=%d) = %q, want %q",
+					c.stage, c.attempt, got, c.want)
+			}
+		})
+	}
+}

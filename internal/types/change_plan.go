@@ -249,6 +249,57 @@ type ChangeReport struct {
 	GeneratedAt time.Time `json:"generated_at"`
 }
 
+// Score returns the (passed, total) test counts for this report,
+// counting only TestResultKindUnit entries (build_error rows are
+// classifications not assertions and would distort comparisons).
+// Used by the verify→plan retry loop's best-known-good latch
+// (clearForReplan) to detect retry regressions.
+//
+// (-1, -1) when the receiver is nil so callers can detect "no report
+// captured yet" without a separate nil check at every call site.
+func (r *ChangeReport) Score() (passed, total int) {
+	if r == nil {
+		return -1, -1
+	}
+	for _, t := range r.TestResults {
+		kind := t.Kind
+		if kind == "" {
+			kind = TestResultKindUnit
+		}
+		if kind != TestResultKindUnit {
+			continue
+		}
+		total++
+		if t.Passed {
+			passed++
+		}
+	}
+	return passed, total
+}
+
+// IsBetterThan returns true when this report has strictly more
+// passing tests than other (or, on a tie, this one has more total
+// tests — defensive against a retry that converges by deleting tests
+// rather than fixing them). A nil receiver loses to any non-nil
+// report; nil-vs-nil returns false.
+//
+// "Strictly more" matters: ties on (passed, total) keep the existing
+// best so the system never thrashes between equivalent plans.
+func (r *ChangeReport) IsBetterThan(other *ChangeReport) bool {
+	if r == nil {
+		return false
+	}
+	if other == nil {
+		return true
+	}
+	rp, rt := r.Score()
+	op, ot := other.Score()
+	if rp != op {
+		return rp > op
+	}
+	return rt > ot
+}
+
 // TestResultKind tags a TestResult so downstream consumers can tell
 // "compile error before tests ran" apart from "unit test failed".
 // Replaces the earlier string convention (AssertionID="java-build" /

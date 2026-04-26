@@ -324,7 +324,33 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	}
 	prevReport := o.busCtx.Mutable.ChangeReport()
 	prevPlan := o.busCtx.Mutable.ChangePlan()
-	heuristicHint := buildRetryHint(prevReport, prevPlan, attempt)
+
+	// Best-known-good latch: track the highest-passing (plan, report)
+	// pair across retry iterations so a regression in iteration N+1
+	// (LLM "fixed" the code but introduced a new failure) does not
+	// permanently lose ground that iteration N had won.
+	//
+	// Bug provenance: eval Batch K forth-py — three retry iterations
+	// scored 49/54 → 46/54 → 46/54. Each iteration unconditionally
+	// overwrote the previous plan, so the final result locked in the
+	// regression even though iteration 1 had a strictly-better plan
+	// in hand.
+	//
+	// On every retry decision we (a) update the best slot if this
+	// iteration improved on it, and (b) seed PlanningHint with a
+	// "current vs best" delta so the planner's next dispatch sees
+	// what it just lost. The actual restoration of the best plan
+	// happens at end-of-budget (selectFinalReport, called from Run)
+	// rather than mid-loop, so the LLM gets a real chance to fix the
+	// regression before we fall back. Mid-loop reset would defeat
+	// the retry budget.
+	bestPlan, bestReport := o.busCtx.Mutable.BestPlanReport()
+	if prevReport.IsBetterThan(bestReport) {
+		o.busCtx.Mutable.SetBestPlanReport(prevPlan, prevReport)
+		bestPlan, bestReport = prevPlan, prevReport
+	}
+
+	heuristicHint := buildRetryHintWithBest(prevReport, prevPlan, bestReport, bestPlan, attempt)
 
 	// Reflexion-pattern critic (optional). When configured, dispatch
 	// one side LLM call to interpret the failure as a critique
@@ -358,6 +384,45 @@ func clearForReplan(o *Orchestrator, attempt int) {
 	o.busCtx.PlanPath = ""
 	o.busCtx.Mutable.SetPlanningHint(hint)
 	logging.Info("[orchestrator] verify→plan retry attempt %d: hint=%q", attempt, hint)
+}
+
+// restoreBestIfRegressed swaps Mutable.ChangePlan + Mutable.ChangeReport
+// to the best-known-good pair captured across retry iterations IFF
+// the current pair scored strictly worse than the best. Called from
+// the verify→plan retry loop's terminal-failure path so the user sees
+// the highest-passing plan on disk + in the result, not the last-
+// (worse) one a regressed retry produced.
+//
+// On success path (current is best, current passed all tests, etc.)
+// this is a no-op — bestReport.IsBetterThan(curReport) returns false
+// and we leave Mutable untouched. Re-persists the report file when
+// swap actually occurs so .codrax/plans/<id>.report.json reflects the
+// restored pair.
+//
+// Bug provenance: eval Batch K forth-py — see clearForReplan
+// commentary above.
+func restoreBestIfRegressed(o *Orchestrator) {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return
+	}
+	curReport := o.busCtx.Mutable.ChangeReport()
+	bestPlan, bestReport := o.busCtx.Mutable.BestPlanReport()
+	if bestReport == nil || !bestReport.IsBetterThan(curReport) {
+		return
+	}
+	bp, bt := bestReport.Score()
+	cp, ct := -1, -1
+	if curReport != nil {
+		cp, ct = curReport.Score()
+	}
+	logging.Warning("[orchestrator] retry-budget exhausted: restoring best-known-good plan (best=%d/%d > current=%d/%d)",
+		bp, bt, cp, ct)
+	o.busCtx.Mutable.SetChangePlan(bestPlan)
+	o.busCtx.Mutable.SetChangeReport(bestReport)
+	// Re-persist the report so the on-disk artifact reflects what is
+	// now in Mutable. Safe to call even when planDir is unavailable —
+	// saveChangeReport logs and returns rather than aborting.
+	o.saveChangeReport(bestReport)
 }
 
 // buildReflectorInput translates the failed iteration's structured

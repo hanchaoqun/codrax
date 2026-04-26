@@ -120,10 +120,50 @@ func (e *analyzerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 			ctx.Mutable.SetSearchGraph(graph)
 		}
 		if overview != "" {
-			return overview
+			return prependEmitRetryDirective(ctx, overview)
 		}
 	}
-	return ""
+	return prependEmitRetryDirective(ctx, "")
+}
+
+// prependEmitRetryDirective prepends a terminal-forcing directive to
+// the analyzer's initial instruction when this dispatch is a retry
+// after a "tool_choice=required produced no tool call" failure
+// (ctx.EmitStageRetryAttempt > 0). On the happy path (attempt 0) the
+// instruction is returned unchanged.
+//
+// The directive carries:
+//
+//   - A loud, explicit acknowledgment that the previous attempt
+//     produced text instead of a tool call.
+//   - The literal JSON shape of the tool call the model must emit,
+//     so a model that "knows" emit_analysis is required but skips
+//     the syntax sees the exact form.
+//
+// Combined with the named-function tool_choice that resolveToolChoice
+// switches to on retry, this closes the failure mode where a model
+// acknowledges the requirement in <think> but produces no tool call.
+// The pattern is reusable for any single-emit stage; analyzer is the
+// first user because robot-sim-go (Batch K) demonstrated the gap.
+func prependEmitRetryDirective(ctx *types.AgentContext, base string) string {
+	if ctx == nil || ctx.EmitStageRetryAttempt <= 0 {
+		return base
+	}
+	directive := fmt.Sprintf(`## TERMINAL FORCING — Retry attempt %d
+
+The previous attempt produced text-only output and FAILED. The analyze stage MUST end with a single emit_analysis tool call. Your next response MUST contain exactly one tool_call to emit_analysis with the fields you already have. Do NOT emit additional thinking or prose. Do NOT call any pre-scan tool (repo_map / grep / list_files). The exact wire shape required:
+
+`+"```json"+`
+{"name": "emit_analysis", "arguments": "<json-encoded fields>"}
+`+"```"+`
+
+If you call any other tool or produce text without a tool call, this dispatch will fail loud and the analyze stage will exit.
+
+`, ctx.EmitStageRetryAttempt)
+	if base == "" {
+		return directive
+	}
+	return directive + base
 }
 
 // buildAnalyzerRepoOverview builds a repo overview for the analyzer's

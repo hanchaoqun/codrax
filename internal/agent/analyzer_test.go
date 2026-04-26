@@ -287,6 +287,51 @@ func TestAnalyzer_BuildInitialInstruction_IsEmpty(t *testing.T) {
 	}
 }
 
+// TestAnalyzer_BuildInitialInstruction_RetryDirective verifies that
+// the "TERMINAL FORCING" directive is emitted when EmitStageRetryAttempt
+// > 0 (terminal forcing on retry). The directive must include the
+// retry-attempt counter, the literal tool name, and a strong NO-prose
+// instruction so a model that produced text-only on the prior attempt
+// is funneled toward the structured emit on the next.
+func TestAnalyzer_BuildInitialInstruction_RetryDirective(t *testing.T) {
+	eval := &analyzerEvaluator{}
+
+	// Attempt 0 — happy path, no directive even with non-nil ctx.
+	got0 := eval.BuildInitialInstruction(&types.AgentContext{
+		Stage:                 types.StageAnalyze,
+		EmitStageRetryAttempt: 0,
+	}, nil)
+	if got0 != "" {
+		t.Errorf("attempt 0: directive should NOT fire, got %d bytes:\n%s", len(got0), got0)
+	}
+
+	// Attempt 1 — directive must fire and include key markers.
+	got1 := eval.BuildInitialInstruction(&types.AgentContext{
+		Stage:                 types.StageAnalyze,
+		EmitStageRetryAttempt: 1,
+	}, nil)
+	required := []string{
+		"TERMINAL FORCING",
+		"Retry attempt 1",
+		"emit_analysis",
+		"fail loud",
+	}
+	for _, marker := range required {
+		if !strings.Contains(got1, marker) {
+			t.Errorf("attempt 1 directive missing marker %q in:\n%s", marker, got1)
+		}
+	}
+
+	// Attempt 2 — counter reflects real attempt number.
+	got2 := eval.BuildInitialInstruction(&types.AgentContext{
+		Stage:                 types.StageAnalyze,
+		EmitStageRetryAttempt: 2,
+	}, nil)
+	if !strings.Contains(got2, "Retry attempt 2") {
+		t.Errorf("attempt 2 directive should report counter 2:\n%s", got2)
+	}
+}
+
 // -----------------------------------------------------------------------------
 // emit_analysis call-count gate — 0 / 1 / N tests
 // -----------------------------------------------------------------------------
