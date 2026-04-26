@@ -1339,7 +1339,7 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactTargets(t *testing.T) {
 	}
 }
 
-func TestEmitAnalysis_Execute_RejectsInvalidExactContextTerms(t *testing.T) {
+func TestEmitAnalysis_Execute_DropsInvalidExactContextTermsWithWarning(t *testing.T) {
 	prev := CurrentAnalysisLimits()
 	t.Cleanup(func() { SetAnalysisLimits(prev) })
 	SetAnalysisLimits(AnalysisLimits{WarnBelowKeywords: 0, RejectBelowKeywords: 0})
@@ -1369,11 +1369,18 @@ func TestEmitAnalysis_Execute_RejectsInvalidExactContextTerms(t *testing.T) {
 		}
 	}`
 	res, _ := tool.Execute(&types.BusContext{Mutable: mu}, json.RawMessage(payload))
-	if res.Success {
-		t.Fatal("invalid exact_context_terms must reject")
+	if !res.Success {
+		t.Fatalf("invalid exact_context_terms should be dropped, not reject: %q", res.Summary)
 	}
-	if !strings.Contains(res.Summary, "exact_context_terms") {
-		t.Fatalf("reject summary should mention exact_context_terms, got %q", res.Summary)
+	rm := mu.RequestModel()
+	if rm == nil {
+		t.Fatal("RequestModel not persisted")
+	}
+	if len(rm.AnalyzerHints.ExactContextTerms) != 0 {
+		t.Fatalf("ExactContextTerms = %v, want empty after drop", rm.AnalyzerHints.ExactContextTerms)
+	}
+	if !strings.Contains(res.Summary, "ignored exact_context_terms") {
+		t.Fatalf("summary should surface drop warning, got %q", res.Summary)
 	}
 }
 

@@ -36,6 +36,7 @@ type explorerEvaluator struct {
 	analyzerKeywords               []string             // analyzer-provided keywords cached from BuildInitialInstruction for exact-resolution scope hints
 	exactAnchorFiles               []string             // exact-entity anchor files from keyword search, in rank order
 	declarativeAnchorFiles         []string             // declarative registry/defaults/routes anchors for enumeration questions
+	declarativeCandidateFiles      []string             // analyzer-ranked structural candidates when no canonical declarative anchors were derived automatically
 	investigationNotes             []string             // assistant analysis messages from ReAct loop
 	userQuestion                   string               // original user question, for focus alignment
 	repoRoot                       string               // repository root path, cached from BuildInitialInstruction
@@ -212,6 +213,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 		e.requiredFiles = nil
 		e.exactAnchorFiles = nil
 		e.declarativeAnchorFiles = nil
+		e.declarativeCandidateFiles = nil
 		e.exactResolution = nil
 		e.exactPendingTargets = nil
 		// Loop-policy counters (idleStreakInDepth, lastToolResultCount,
@@ -285,6 +287,7 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 	e.primaryReadIter = 0
 	e.notesLenAtPrimaryRead = 0
 	e.declarativeAnchorFiles = nil
+	e.declarativeCandidateFiles = nil
 	// Per-dispatch reset of the completion flag. Without this, a
 	// Window 2 explore dispatch inherits Window 1's emit_investigation_complete
 	// state and observeSoftStop immediately accepts the stop even if the
@@ -481,8 +484,15 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				// exploration proves the target concretely.
 				e.exactAnchorFiles = nil
 			}
-			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
 			e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
+			e.declarativeAnchorFiles = declarativeAnchorFilesFromScores(sr.Files, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
+			e.declarativeCandidateFiles = nil
+			if len(e.declarativeAnchorFiles) == 0 && len(e.requiredFiles) > 0 {
+				e.declarativeAnchorFiles = declarativeAnchorFilesFromPaths(e.requiredFiles, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
+				if len(e.declarativeAnchorFiles) == 0 {
+					e.declarativeCandidateFiles = structuralCandidateFilesFromPaths(e.requiredFiles, analyzerKind, e.predicateAxis, e.isEnumerationQuery)
+				}
+			}
 		}
 		results := e.filterKeywordResults(sr.Files)
 		// Publish the graph to MutableState so tools running later in
@@ -800,16 +810,21 @@ func (e *explorerEvaluator) BuildInitialInstruction(ctx *types.AgentContext, sk 
 				e.tightenFocusedFrontier()
 				return e.buildFocusedDepthStartInstruction(ctx, analyzerKeywords)
 			}
+			if e.shouldStartDeclarativeDepth(analyzerKind) {
+				e.phase = 1
+				e.tightenDeclarativeFrontier()
+				return e.buildDeclarativeFocusedStartInstruction(ctx, analyzerKeywords)
+			}
+			if e.shouldStartDeclarativeCandidateDepth(analyzerKind) {
+				e.phase = 1
+				e.tightenDeclarativeCandidateFrontier()
+				return e.buildDeclarativeCandidateStartInstruction(ctx, analyzerKeywords)
+			}
 			if e.shouldStartPrimaryEntityDepth(analyzerKind) {
 				e.phase = 1
 				e.requiredFiles = e.filterRequiredFiles(e.requiredFiles)
 				e.tightenPrimaryEntityFrontier()
 				return e.buildPrimaryEntityDepthStartInstruction(ctx, analyzerKeywords)
-			}
-			if e.shouldStartDeclarativeDepth(analyzerKind) {
-				e.phase = 1
-				e.tightenDeclarativeFrontier()
-				return e.buildDeclarativeFocusedStartInstruction(ctx, analyzerKeywords)
 			}
 		} else {
 			// No hits at any level — list the keywords so the LLM
@@ -955,7 +970,7 @@ func (e *explorerEvaluator) primaryEntityFocusRelevant() bool {
 	if _, ok := e.uniqueExactAnchorFile(); ok {
 		return false
 	}
-	if len(e.declarativeAnchorFiles) > 0 || e.isEnumerationQuery {
+	if len(e.declarativeAnchorFiles) > 0 || len(e.declarativeCandidateFiles) > 0 || e.isEnumerationQuery {
 		return false
 	}
 	_, ok := e.uniquePrimaryEntityFile()
@@ -996,12 +1011,23 @@ func declarativeAnchorFilesFromScores(results []keywordFileScore, questionKind s
 	if len(results) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
 		return nil
 	}
+	paths := make([]string, 0, len(results))
+	for _, result := range results {
+		paths = append(paths, result.Path)
+	}
+	return declarativeAnchorFilesFromPaths(paths, questionKind, axis, isEnumeration)
+}
+
+func declarativeAnchorFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool) []string {
+	if len(paths) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
+		return nil
+	}
 	allowed := declarativeAllowedKinds(questionKind, axis)
 	collect := func(anyDeclarative bool) []string {
 		seen := make(map[string]bool)
 		var out []string
-		for _, result := range results {
-			path := canonicalExplorerPath(result.Path)
+		for _, rawPath := range paths {
+			path := canonicalExplorerPath(rawPath)
 			if path == "" || isNoisePath(path) || seen[path] {
 				continue
 			}
@@ -1023,7 +1049,30 @@ func declarativeAnchorFilesFromScores(results []keywordFileScore, questionKind s
 	if anchors := collect(false); len(anchors) > 0 {
 		return anchors
 	}
-	return collect(true)
+	if anchors := collect(true); len(anchors) > 0 {
+		return anchors
+	}
+	return nil
+}
+
+func structuralCandidateFilesFromPaths(paths []string, questionKind string, axis types.PredicateAxis, isEnumeration bool) []string {
+	if len(paths) == 0 || !declarativeFocusRelevant(questionKind, isEnumeration, axis) {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, min(4, len(paths)))
+	for _, rawPath := range paths {
+		path := canonicalExplorerPath(rawPath)
+		if path == "" || isNoisePath(path) || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+		if len(out) >= 4 {
+			break
+		}
+	}
+	return out
 }
 
 func canonicalExplorerPath(path string) string {
@@ -1225,12 +1274,32 @@ func (e *explorerEvaluator) declarativeAnchorAllowsFile(path string) bool {
 	return sameRepoDirAny(anchors, path)
 }
 
+func (e *explorerEvaluator) declarativeCandidateAllowsFile(path string) bool {
+	path = canonicalExplorerPath(path)
+	if path == "" || isNoisePath(path) {
+		return false
+	}
+	cands := e.declarativeCandidateFiles
+	if len(cands) == 0 {
+		return true
+	}
+	for _, cand := range cands {
+		if path == canonicalExplorerPath(cand) {
+			return true
+		}
+	}
+	return sameRepoDirAny(cands, path)
+}
+
 func (e *explorerEvaluator) activeFocusAllowsFile(path string) bool {
 	if _, ok := e.uniqueExactAnchorFile(); ok {
 		return e.focusedAnchorAllowsFile(path)
 	}
 	if len(e.declarativeAnchorFiles) > 0 {
 		return e.declarativeAnchorAllowsFile(path)
+	}
+	if len(e.declarativeCandidateFiles) > 0 {
+		return e.declarativeCandidateAllowsFile(path)
 	}
 	if e.primaryEntityFocusRelevant() {
 		return e.primaryEntityAllowsFile(path)
@@ -1544,7 +1613,7 @@ func (e *explorerEvaluator) shouldStartPrimaryEntityDepth(questionKind string) b
 	if _, ok := e.uniqueExactAnchorFile(); ok {
 		return false
 	}
-	if len(e.declarativeAnchorFiles) > 0 {
+	if len(e.declarativeAnchorFiles) > 0 || len(e.declarativeCandidateFiles) > 0 {
 		return false
 	}
 	if _, ok := e.uniquePrimaryEntityFile(); !ok {
@@ -1571,6 +1640,19 @@ func (e *explorerEvaluator) shouldStartDeclarativeDepth(questionKind string) boo
 	// misclassification cannot drop the answer-bearing files. Zero
 	// confidence (LLM declined to rate) is treated as low — guard
 	// refuses to narrow.
+	if e.kindConfidence > 0 && e.kindConfidence < kindConfidenceFloorForNarrowing {
+		return false
+	}
+	return declarativeFocusRelevant(questionKind, e.isEnumerationQuery, e.predicateAxis)
+}
+
+func (e *explorerEvaluator) shouldStartDeclarativeCandidateDepth(questionKind string) bool {
+	if _, ok := e.uniqueExactAnchorFile(); ok {
+		return false
+	}
+	if len(e.declarativeAnchorFiles) > 0 || len(e.declarativeCandidateFiles) == 0 {
+		return false
+	}
 	if e.kindConfidence > 0 && e.kindConfidence < kindConfidenceFloorForNarrowing {
 		return false
 	}
@@ -1758,6 +1840,50 @@ func (e *explorerEvaluator) tightenDeclarativeFrontier() {
 	}
 }
 
+func (e *explorerEvaluator) tightenDeclarativeCandidateFrontier() {
+	if len(e.declarativeCandidateFiles) == 0 {
+		return
+	}
+	limit := tool.CurrentAnalysisLimits().Phase1UnreadTopK
+	if limit <= 0 {
+		limit = 3
+	}
+	if limit < len(e.declarativeCandidateFiles) {
+		limit = len(e.declarativeCandidateFiles)
+	}
+	if limit > 4 {
+		limit = 4
+	}
+	seen := make(map[string]bool)
+	var narrowed []string
+	add := func(path string) {
+		path = canonicalExplorerPath(path)
+		if path == "" || seen[path] {
+			return
+		}
+		seen[path] = true
+		narrowed = append(narrowed, path)
+	}
+	for _, file := range e.declarativeCandidateFiles {
+		add(file)
+	}
+	for _, file := range e.requiredFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(file)
+	}
+	for _, file := range e.preScannedFiles {
+		if len(narrowed) >= limit {
+			break
+		}
+		add(file)
+	}
+	if len(narrowed) > 0 {
+		e.preScannedFiles = narrowed
+	}
+}
+
 func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentContext, analyzerKeywords []string) string {
 	anchor, ok := e.uniqueExactAnchorFile()
 	if !ok {
@@ -1779,11 +1905,34 @@ func (e *explorerEvaluator) buildFocusedDepthStartInstruction(ctx *types.AgentCo
 	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 		b.WriteString(banner)
 	}
-	if len(e.requiredFiles) > 0 {
+	requiredForPrompt := e.requiredFiles
+	if len(requiredForPrompt) > 0 {
+		focusedRequired := make([]string, 0, len(requiredForPrompt))
+		for _, f := range requiredForPrompt {
+			canon := canonicalExplorerPath(f)
+			if canon == "" {
+				continue
+			}
+			keep := sameRepoDirAny(e.declarativeAnchorFiles, canon)
+			if !keep {
+				for _, anchor := range e.declarativeAnchorFiles {
+					if canon == canonicalExplorerPath(anchor) {
+						keep = true
+						break
+					}
+				}
+			}
+			if keep {
+				focusedRequired = append(focusedRequired, f)
+			}
+		}
+		requiredForPrompt = focusedRequired
+	}
+	if len(requiredForPrompt) > 0 {
 		// Session-22 F2.2: distinguish log-frame anchors from ranker
 		// candidates so the LLM does not conflate "ranker scored this
 		// high" with "this is part of the failure call chain".
-		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(e.requiredFiles)
+		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(requiredForPrompt)
 		writeGroup := func(title, framing string, group []string, cap int) int {
 			count := 0
 			for _, f := range group {
@@ -1873,8 +2022,31 @@ func (e *explorerEvaluator) buildPrimaryEntityDepthStartInstruction(ctx *types.A
 	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 		b.WriteString(banner)
 	}
-	if len(e.requiredFiles) > 0 {
-		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(e.requiredFiles)
+	requiredForPrompt := e.requiredFiles
+	if len(requiredForPrompt) > 0 {
+		focusedRequired := make([]string, 0, len(requiredForPrompt))
+		for _, f := range requiredForPrompt {
+			canon := canonicalExplorerPath(f)
+			if canon == "" {
+				continue
+			}
+			keep := sameRepoDirAny(e.declarativeAnchorFiles, canon)
+			if !keep {
+				for _, anchor := range e.declarativeAnchorFiles {
+					if canon == canonicalExplorerPath(anchor) {
+						keep = true
+						break
+					}
+				}
+			}
+			if keep {
+				focusedRequired = append(focusedRequired, f)
+			}
+		}
+		requiredForPrompt = focusedRequired
+	}
+	if len(requiredForPrompt) > 0 {
+		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(requiredForPrompt)
 		writeGroup := func(title, framing string, group []string, cap int) int {
 			count := 0
 			for _, f := range group {
@@ -1963,11 +2135,34 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
 		b.WriteString(banner)
 	}
-	if len(e.requiredFiles) > 0 {
+	requiredForPrompt := e.requiredFiles
+	if len(requiredForPrompt) > 0 {
+		focusedRequired := make([]string, 0, len(requiredForPrompt))
+		for _, f := range requiredForPrompt {
+			canon := canonicalExplorerPath(f)
+			if canon == "" {
+				continue
+			}
+			keep := sameRepoDirAny(e.declarativeAnchorFiles, canon)
+			if !keep {
+				for _, anchor := range e.declarativeAnchorFiles {
+					if canon == canonicalExplorerPath(anchor) {
+						keep = true
+						break
+					}
+				}
+			}
+			if keep {
+				focusedRequired = append(focusedRequired, f)
+			}
+		}
+		requiredForPrompt = focusedRequired
+	}
+	if len(requiredForPrompt) > 0 {
 		// Session-22 F2.2: same split as buildFocusedDepthStartInstruction
 		// — log-frame files get strong framing, ranker files get opt-in
 		// framing. Declarative path has no anchor-dedupe so we pass "".
-		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(e.requiredFiles)
+		logFiles, rankerFiles := e.partitionRequiredFilesByLogTriage(requiredForPrompt)
 		writeGroup := func(title, framing string, group []string, cap int) int {
 			count := 0
 			for _, f := range group {
@@ -2036,6 +2231,50 @@ func (e *explorerEvaluator) buildDeclarativeFocusedStartInstruction(ctx *types.A
 	return b.String()
 }
 
+func (e *explorerEvaluator) buildDeclarativeCandidateStartInstruction(ctx *types.AgentContext, analyzerKeywords []string) string {
+	if len(e.declarativeCandidateFiles) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Structural Candidate Start\n\n")
+	b.WriteString("This question likely resolves to declarative registration / defaults / routing / binding surfaces, but no canonical declarative file was derived automatically.\n\n")
+	b.WriteString("Choose the most structurally declarative file from these analyzer-ranked candidates first, read it, and emit evidence before widening:\n")
+	for _, file := range e.declarativeCandidateFiles {
+		b.WriteString("- `" + file + "`\n")
+	}
+	b.WriteString("\nWorkflow:\n")
+	b.WriteString("- Use the file contents, not the path spelling, to decide whether a candidate is the right surface. Prefer files that define schemas, manifests, defaults, registry tables, route tables, or direct binding structs/maps.\n")
+	b.WriteString("- Read ONE candidate first and emit evidence from it before opening generic implementation files.\n")
+	b.WriteString("- Expand only to direct neighbors that the candidate explicitly references or that are already present in the analyzer's required-file list.\n")
+	b.WriteString("- If the first candidate turns out not to be a declarative surface, move to the next candidate instead of broadening repo-wide.\n\n")
+	if banner := e.buildExactResolutionScopeBanner(ctx, analyzerKeywords); banner != "" {
+		b.WriteString(banner)
+	}
+	if len(analyzerKeywords) > 0 {
+		display := analyzerKeywords
+		if len(display) > 12 {
+			display = display[:12]
+		}
+		b.WriteString("### Search Terms\n\n")
+		b.WriteString("Use these terms inside the chosen candidate and its direct neighbors before widening scope:\n`")
+		b.WriteString(strings.Join(display, "`, `"))
+		b.WriteString("`\n\n")
+	}
+	if ctx != nil && ctx.RepoRoot != "" {
+		if preReadInjected := preReadRequiredFiles(ctx.RepoRoot, e.declarativeCandidateFiles, 2, 220); preReadInjected != "" {
+			b.WriteString("### Pre-read File Content (saves you a read_file call)\n\n")
+			b.WriteString(preReadInjected)
+		}
+	}
+	b.WriteString("Evidence format:\n")
+	b.WriteString("- `[DIRECT] symbol line N: <what this declaration establishes>`\n")
+	b.WriteString("- `[REGISTRATION] symbol line N: <what is registered or bound, EXACT values>`\n")
+	b.WriteString("- `[CONDITIONAL] symbol line N: <what happens> IF <condition>`\n")
+	b.WriteString("- `[ABSENT] <what was expected but NOT found>`\n\n")
+	b.WriteString("Read the first structural candidate now and collect evidence before expanding.\n")
+	return b.String()
+}
+
 func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notesJoined string) map[string]bool {
 	files := make(map[string]bool)
 	focused := e.focusedAnchorNeighborhood()
@@ -2058,6 +2297,9 @@ func (e *explorerEvaluator) activeFrontierFileSet(readSet map[string]bool, notes
 		add(file)
 	}
 	for _, file := range e.declarativeAnchorFiles {
+		add(file)
+	}
+	for _, file := range e.declarativeCandidateFiles {
 		add(file)
 	}
 	for file := range focused {

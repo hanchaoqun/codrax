@@ -36,16 +36,16 @@ const plannerScaledIterMax = 20
 // machine. It walks the hardcoded 4-stage topology (see topology.go),
 // manages BusContext, and dispatches agents.
 type Orchestrator struct {
-	settings       types.PipelineSettings
-	agents         *agent.Registry
-	skills         *skill.Registry
-	busCtx         *types.BusContext
-	maxSteps       int
-	subRuntime     *agent.SubAgentRuntime
-	language       string
-	emit           render.EventEmitter
-	thinkAloudMap  map[types.AgentName]bool // per-agent think-aloud override
-	blobSessionDir string                   // persistent per-process blob dir; empty = tmpdir fallback
+	settings        types.PipelineSettings
+	agents          *agent.Registry
+	skills          *skill.Registry
+	busCtx          *types.BusContext
+	maxSteps        int
+	subRuntime      *agent.SubAgentRuntime
+	language        string
+	emit            render.EventEmitter
+	thinkAloudMap   map[types.AgentName]bool // per-agent think-aloud override
+	blobSessionDir  string                   // persistent per-process blob dir; empty = tmpdir fallback
 	attachedLog     string                   // runtime log excerpt attached via --log / /log
 	attachedHitrace string                   // HiTrace / atrace excerpt attached via --htrace / /htrace
 	// mode controls the B0 write-mode dispatch in Run(). Zero value
@@ -1308,6 +1308,58 @@ func (o *Orchestrator) runTaskGraph(stepBudget int) int {
 	return o.runReadSchedulerLoop(stepBudget)
 }
 
+func (o *Orchestrator) investigationStructurallyEmpty() bool {
+	if o == nil || o.busCtx == nil || o.busCtx.Mutable == nil {
+		return false
+	}
+	ta := o.busCtx.Mutable.TurnAArtifacts()
+	if len(o.busCtx.EvidenceItems) > 0 {
+		return false
+	}
+	if ta == nil {
+		return false
+	}
+	return agent.InvestigationStructurallyEmpty(ta, nil)
+}
+
+func (o *Orchestrator) structurallyEmptyInvestigationMessage() string {
+	return "investigation structurally empty: the previous explore attempt produced no successful read/search/evidence results. Re-run exploration and produce at least one grounded investigation result before extract/finalize."
+}
+
+func (o *Orchestrator) handleStructurallyEmptyInvestigation(state *graphState, finID string) (*agent.StageOutput, string, bool) {
+	if !o.investigationStructurallyEmpty() {
+		return nil, "", false
+	}
+	msg := o.structurallyEmptyInvestigationMessage()
+	logging.Warning("[orchestrator] %s", msg)
+	if state != nil && !state.retryBudgetExhausted() && o.busCtx != nil && o.busCtx.AnalysisIR != nil {
+		if finID != "" {
+			state.requeue(finID)
+		}
+		for _, n := range o.busCtx.AnalysisIR.TaskGraph.Nodes {
+			if n.Type == types.NodeFinalize {
+				continue
+			}
+			switch state.status[n.ID] {
+			case nodeDone, nodeFailed:
+				state.requeue(n.ID)
+			}
+		}
+		state.recordRetry()
+		o.emit(render.Event{
+			Kind:      render.EventAgentReasoning,
+			Timestamp: time.Now(),
+			Agent:     "orchestrator",
+			Reasoning: softRetryHintMessage(o.busCtx.Language),
+		})
+		return nil, msg, true
+	}
+	return &agent.StageOutput{
+		FinalAnswer: prependFailLoudWarning(msg, o.busCtx.Mutable, state, "structurally empty investigation", o.settings),
+		Error:       msg,
+	}, "", true
+}
+
 // runReadSchedulerLoop walks the read-mode AnalysisIR.TaskGraph with
 // criterion-aware scheduling. Each round:
 //
@@ -1826,6 +1878,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 			}
 		}
 
+		if out, retryMsg, handled := o.handleStructurallyEmptyInvestigation(state, fin.ID); handled {
+			if out == nil {
+				pendingViolation = retryMsg
+				continue
+			}
+			lastFinalize = out
+			state.markDone(fin.ID)
+			o.emitNodeEnd(fin.ID, true, "")
+			break
+		}
+
 		// Full Turn B extract dispatch — runs once, just before
 		// finalize, with complete accumulated evidence from all
 		// explore windows. Answer-symbol selection + LLM hypothesis
@@ -2053,6 +2116,17 @@ func (o *Orchestrator) runReadSchedulerLoop(stepBudget int) int {
 		// Force one finalize dispatch so the task always terminates
 		// with a Result.
 		logging.Warning("[orchestrator] DAG run produced no finalize output; forcing finalize")
+
+		if out, _, handled := o.handleStructurallyEmptyInvestigation(state, ""); handled {
+			if out != nil {
+				lastFinalize = out
+			}
+		}
+		if lastFinalize != nil {
+			o.recordTaskFinalize(lastFinalize)
+			o.emitCGECSummary()
+			return stepsUsed
+		}
 
 		// Extract before forced finalize.
 		o.busCtx.PipelineStage = types.StageExtract

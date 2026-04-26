@@ -1556,6 +1556,19 @@ func TestEmitAnswerDocument_SchemaAdvertisesCapsWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestEmitAnswerDocument_SchemaAdvertisesScalarSummaryRequirement(t *testing.T) {
+	tool := &EmitAnswerDocument{}
+	combined := tool.Description() + "\n" + string(tool.Parameters())
+	for _, want := range []string{
+		"`shape=value` and `shape=config_value`, that summary is REQUIRED",
+		"REQUIRED for 'explanation', 'value', and 'config_value'",
+	} {
+		if !strings.Contains(combined, want) {
+			t.Fatalf("schema/description missing %q:\n%s", want, combined)
+		}
+	}
+}
+
 // TestEmitAnswerDocument_AcceptsLongSummaryOnExplanation locks in the
 // 2026-04-17 change: explanation shape now accepts summaries up to
 // 2500 chars (multi-paragraph answer body). The old 500-char cap

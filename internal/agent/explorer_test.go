@@ -3973,6 +3973,12 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_BoostsAnchoredFiles(t *
 					{Name: "DefaultLoopPolicy", Line: 118},
 				},
 			},
+			"internal/types/explore_budget.go": {
+				RelPath: "internal/types/explore_budget.go",
+				Symbols: []repomap.Symbol{
+					{Name: "ExploreBudget", Line: 40},
+				},
+			},
 		},
 	}
 	evidence := []types.EvidenceItem{{
@@ -3983,6 +3989,7 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_BoostsAnchoredFiles(t *
 		Source:          "internal/types/config.go",
 		GroundingStatus: types.GroundingGrounded,
 		ContextRole:     types.EvidenceContextRoleRelatedContext,
+		DiagramRole:     types.EvidenceDiagramRoleDefault,
 	}}
 	cands := collectExactResolutionSymbolCandidatesFromGraph(graph, contract, nil, nil, evidence)
 	if len(cands) == 0 {
@@ -3990,6 +3997,7 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_BoostsAnchoredFiles(t *
 	}
 	found := false
 	foundLoopPolicy := false
+	foundExploreBudget := false
 	for _, cand := range cands {
 		if cand.Symbol == "DefaultExploreHeuristics" && cand.File == "internal/types/config.go" {
 			found = true
@@ -3997,12 +4005,56 @@ func TestCollectExactResolutionSymbolCandidatesFromGraph_BoostsAnchoredFiles(t *
 		if cand.Symbol == "DefaultLoopPolicy" && cand.File == "internal/agent/loop_policy.go" {
 			foundLoopPolicy = true
 		}
+		if cand.Symbol == "ExploreBudget" && cand.File == "internal/types/explore_budget.go" {
+			foundExploreBudget = true
+		}
 	}
 	if !found {
 		t.Fatalf("expected anchored-file boost to keep DefaultExploreHeuristics in candidates, got %+v", cands)
 	}
 	if foundLoopPolicy {
 		t.Fatalf("expected unrelated loop_policy symbol to stay out of same-family candidates, got %+v", cands)
+	}
+	if foundExploreBudget {
+		t.Fatalf("expected config-trace shortlist to stay inside diagram-role anchored lineage files, got %+v", cands)
+	}
+}
+
+func TestStructuralCandidateFilesFromPaths_UsesAnalyzerRankedOrder(t *testing.T) {
+	cands := structuralCandidateFilesFromPaths([]string{
+		"internal/config/runtime.go",
+		"internal/types/config.go",
+		"internal/logging/logger.go",
+		"internal/config/runtime.go",
+	}, "config_mapping", types.AxisConfigure, false)
+	if got, want := len(cands), 3; got != want {
+		t.Fatalf("candidate count = %d, want %d (%v)", got, want, cands)
+	}
+	if cands[0] != "internal/config/runtime.go" || cands[1] != "internal/types/config.go" || cands[2] != "internal/logging/logger.go" {
+		t.Fatalf("candidates should preserve analyzer-ranked order after dedupe, got %v", cands)
+	}
+}
+
+func TestBuildDeclarativeCandidateStartInstruction_TellsLLMToChooseByContent(t *testing.T) {
+	e := &explorerEvaluator{
+		declarativeCandidateFiles: []string{
+			"internal/config/runtime.go",
+			"internal/types/config.go",
+			"internal/logging/logger.go",
+		},
+	}
+	got := e.buildDeclarativeCandidateStartInstruction(nil, []string{"explore_mid_loop_hint_budget"})
+	for _, want := range []string{
+		"## Structural Candidate Start",
+		"Choose the most structurally declarative file",
+		"Use the file contents, not the path spelling",
+		"internal/config/runtime.go",
+		"internal/types/config.go",
+		"internal/logging/logger.go",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("prompt missing %q:\n%s", want, got)
+		}
 	}
 }
 

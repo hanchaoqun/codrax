@@ -97,8 +97,8 @@ Required-field dispatch by shape (these are mandatory rules, not examples — se
 
 - shape=list_of_symbols → symbols[] (non-empty) + symbols_completeness ∈ {complete, lower_bound, unknown}
 - shape=step_list       → steps[] (non-empty), each with index + description + citation_ref
-- shape=value           → value{literal, citation_ref} (key omitted)
-- shape=config_value    → value{key, literal, citation_ref}
+- shape=value           → value{literal, citation_ref} + summary (non-empty; names subject + method)
+- shape=config_value    → value{key, literal, citation_ref} + summary (non-empty; names key/subject + method)
 - shape=boolean         → boolean{decision, rationale, citation_ref}
 - shape=explanation     → summary (non-empty, thorough multi-paragraph answer)
 

@@ -123,7 +123,7 @@ func (t *EmitAnswerDocument) Description() string {
 		"SHARED POOL; every steps[].citation_ref / value.citation_ref / boolean.citation_ref / " +
 		"symbols is an integer INDEX into that pool (zero-based), or -1 when no citation backs " +
 		"the entry. Every citation MUST have file (repo-relative), line > 0, and file must NOT live " +
-		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field. " + capGuidance + " " +
+		"inside the per-trace WorkDir. 'summary' is the only LLM-prose field. For `shape=value` and `shape=config_value`, that summary is REQUIRED and must be non-empty; for `shape=explanation`, summary is the full answer body. " + capGuidance + " " +
 		"When the prompt includes an Exact Resolution Contract, also fill `exact_resolution{status,anchor?,context_mode}` so the system can validate the exact-target disposition structurally instead of inferring it from prose. " +
 		"\n\n" +
 		"IMPORTANT — citation quote field: the quote is OPTIONAL but when provided it MUST be a " +
@@ -143,7 +143,7 @@ func (t *EmitAnswerDocument) Description() string {
 
 func (t *EmitAnswerDocument) Parameters() json.RawMessage {
 	summaryDescription := "LLM-authored prose. " + emitAnswerDocumentSummaryCapGuidance(true) +
-		" REQUIRED for 'explanation'; optional for all others."
+		" REQUIRED for 'explanation', 'value', and 'config_value'. For 'step_list', 'list_of_symbols', and 'boolean', summary is the lead-in / framing prose and may also need to carry a required grounded diagram."
 	// symbols[].kind enum is sourced from types.AnswerSymbolKindSchemaEnum
 	// so schema stays in lockstep with emit_answer_symbol's validator.
 	return json.RawMessage(fmt.Sprintf(`{

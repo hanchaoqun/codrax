@@ -147,6 +147,9 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 	if exact := renderAnswerDocExactResolutionContract(ctx); exact != "" {
 		b.WriteString(exact)
 	}
+	if checklist := renderAnswerDocSubmissionChecklist(ctx, shape, e.diagramRequired); checklist != "" {
+		b.WriteString(checklist)
+	}
 	if ctx != nil && ctx.AnalysisIR != nil && isScalarSourceLiteralLookup(ctx.AnalysisIR.RequestModel) {
 		b.WriteString("## Scalar Lookup Discipline\n\n")
 		b.WriteString("- This dispatch asks for one named source-code literal, not for a walkthrough of the surrounding pipeline.\n")
@@ -237,6 +240,63 @@ func (e *answerDocumentEvaluator) BuildInitialInstruction(ctx *types.AgentContex
 		}
 	}
 
+	return b.String()
+}
+
+func renderAnswerDocSubmissionChecklist(ctx *types.AgentContext, shape string, diagramRequired bool) string {
+	var items []string
+	switch shape {
+	case string(types.ShapeListOfSymbols):
+		items = append(items,
+			"Fill non-empty `symbols[]` and set `symbols_completeness` honestly (`complete` / `lower_bound` / `unknown`).",
+			"Use `summary` to frame what the list enumerates; do not let the list stand alone without context when the question needs explanation.",
+		)
+	case string(types.ShapeStepList):
+		items = append(items,
+			"Fill `steps[]` with ordered logical hops. Each step must either cite one grounded line or set `citation_ref=-1` honestly.",
+			"Keep the hop-by-hop detail in `steps[]`; `summary` is only the lead-in and any required diagram.",
+		)
+	case string(types.ShapeValue):
+		items = append(items,
+			"Fill `value.literal` and `value.citation_ref`.",
+			"Fill a real `summary` that names the subject being measured and states how the literal was obtained (lookup / file:line / command / chain).",
+		)
+	case string(types.ShapeConfigValue):
+		items = append(items,
+			"Fill `value.key`, `value.literal`, and `value.citation_ref`.",
+			"Fill a real `summary` that names the config key / subject and states how the literal was obtained (lookup / file:line / chain).",
+		)
+	case string(types.ShapeBoolean):
+		items = append(items,
+			"Fill `boolean{decision,rationale,citation_ref}` with a grounded yes/no result and the mechanism that forces it.",
+			"Use `summary` to set up the decision whenever a short lead-in improves readability.",
+		)
+	case string(types.ShapeExplanation):
+		items = append(items,
+			"`summary` is REQUIRED and is the main answer body for this dispatch.",
+		)
+	}
+	if ctx != nil && ctx.AnalysisIR != nil && ctx.AnalysisIR.AnswerContract.ExactResolution != nil {
+		items = append(items,
+			"Fill `exact_resolution{status,anchor?,context_mode}` to match the current exact-target state; do not leave the status implicit in prose.",
+		)
+	}
+	if diagramRequired {
+		items = append(items,
+			"`summary` must include at least one grounded triple-backtick diagram for this dispatch.",
+		)
+	}
+	if len(items) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("## Submission Checklist\n\n")
+	for _, item := range items {
+		b.WriteString("- ")
+		b.WriteString(item)
+		b.WriteByte('\n')
+	}
+	b.WriteString("\n")
 	return b.String()
 }
 
@@ -731,6 +791,7 @@ func renderAnswerDocExactResolutionContract(ctx *types.AgentContext) string {
 		b.WriteString("- Emit `exact_resolution.status=\"absent\"`; the renderer will lead with the exact absence before any related context.\n")
 		if ctx.AnalysisIR != nil && ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace {
 			b.WriteString("- Because the exact config key is absent, do NOT force `shape=config_value` with a synthetic literal such as `(missing)` / `(不存在)`. Prefer `shape=explanation` so the answer can lead with the exact absence and then explain any grounded same-family precedence chain as related context only.\n")
+			b.WriteString("- For config-trace related context, prefer only grounded lineage anchors that already carry a validated `diagram_role_hint` (`default`, `yaml`, `runtime`, or `override`). Same-family symbols without a validated diagram role are background noise, not answer anchors.\n")
 			b.WriteString("- For config-precedence answers, only create a separate numbered step when that layer has its own grounded repo anchor. If a layer is absent or only inferred from the exact-absence state, keep it in `summary` or set that step's `citation_ref=-1` instead of borrowing a nearby YAML / struct citation.\n")
 			b.WriteString("- In `step_list`, any step with `citation_ref >= 0` must mention at least one identifier that appears on the cited line or its nearby corroboration window. If the step summarizes a whole struct/range/absence conclusion rather than one corroborated line, use `citation_ref=-1` and keep the precise line-backed facts in neighboring steps.\n")
 			b.WriteString("- A repo-wide search result, aggregate absence conclusion, or test-only proof step usually has no single corroborating production line. In `step_list`, default those steps to `citation_ref=-1` unless one cited line literally states the same claim.\n")
@@ -777,12 +838,15 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 		ev    types.EvidenceItem
 		score int
 	}
+	configTraceExactContext := ctx.AnalysisIR != nil &&
+		ctx.AnalysisIR.RequestModel.Scenario == types.ScenarioConfigTrace &&
+		contract.TargetKind == types.SubjectConfigKey
 	var candidates []candidate
 	appendCandidate := func(ev types.EvidenceItem, base int) {
 		if ev.Source == "" {
 			return
 		}
-		score := base + scoreExactResolutionEvidence(ev, contract, contextTerms)
+		score := base + scoreExactResolutionEvidence(ev, contract, contextTerms, configTraceExactContext)
 		if score < 12 {
 			return
 		}
@@ -827,7 +891,7 @@ func collectExactResolutionSeeds(ctx *types.AgentContext, contract *types.ExactR
 	return out
 }
 
-func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactResolutionContract, contextTerms []string) int {
+func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactResolutionContract, contextTerms []string, configTraceExactContext bool) int {
 	score := 0
 	if contract == nil {
 		return score
@@ -867,6 +931,13 @@ func scoreExactResolutionEvidence(ev types.EvidenceItem, contract *types.ExactRe
 		!exactMention &&
 		ev.ContextRole == types.EvidenceContextRoleRelatedContext &&
 		familyScore == 0 {
+		return math.MinInt / 8
+	}
+	if configTraceExactContext &&
+		contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded &&
+		!exactMention &&
+		ev.ContextRole != types.EvidenceContextRoleAbsenceSupport &&
+		ev.DiagramRole == types.EvidenceDiagramRoleUnknown {
 		return math.MinInt / 8
 	}
 	score += familyScore
@@ -1157,6 +1228,10 @@ func (e *answerDocumentEvaluator) emitAnswerDocumentRejectSignal(ctx *types.Agen
 		reasonKey = "absent-config-trace-shape"
 		hint = "Your last `emit_answer_document` call was rejected because this dispatch is an exact-absent config-trace answer. Do NOT use `shape=config_value` with a synthetic literal like `(missing)` / `(不存在)`. Re-emit now with `shape=explanation`, keep `exact_resolution.status=\"absent\"`, and describe any grounded same-family precedence chain as related context only. Do not write free-form prose outside the tool call."
 	}
+	if requiredFieldHint := buildAnswerDocRequiredFieldRetryHint(summary); requiredFieldHint != "" {
+		reasonKey = "required-field"
+		hint = requiredFieldHint
+	}
 
 	// Session-22 special-case: the literal-grounding gate on shape=
 	// value / shape=config_value fires when the cited line has zero
@@ -1189,6 +1264,18 @@ func compactToolRejectSummary(summary string) string {
 		if line != "" {
 			return line
 		}
+	}
+	return ""
+}
+
+func buildAnswerDocRequiredFieldRetryHint(summary string) string {
+	switch {
+	case strings.Contains(summary, "shape=value requires summary to name the subject"):
+		return "Your last `emit_answer_document` call was rejected because `shape=value` is missing the required `summary`. Re-emit the SAME `shape=value` payload, keep the grounded `value.literal` / `value.citation_ref`, and add 1-2 sentences in `summary` that (1) name the measured subject from the question and (2) state how the literal was obtained (lookup / file:line / command / chain). Do NOT reopen files or change the answer shape. Do not write free-form prose outside the tool call."
+	case strings.Contains(summary, "shape=config_value requires summary to name the subject"):
+		return "Your last `emit_answer_document` call was rejected because `shape=config_value` is missing the required `summary`. Re-emit the SAME `shape=config_value` payload, keep the grounded `value.key` / `value.literal` / `value.citation_ref`, and add 1-2 sentences in `summary` that (1) name the config key or measured subject and (2) state how the literal was obtained (lookup / file:line / chain). Do NOT reopen files or change the answer shape. Do not write free-form prose outside the tool call."
+	case strings.Contains(summary, "shape=explanation requires a non-empty summary"):
+		return "Your last `emit_answer_document` call was rejected because `shape=explanation` requires a non-empty `summary`. Re-emit the SAME `shape=explanation` answer with the answer body written into `summary`; do not try to move the explanation into other fields or reopen files. Do not write free-form prose outside the tool call."
 	}
 	return ""
 }

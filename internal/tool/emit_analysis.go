@@ -174,7 +174,7 @@ func buildEmitAnalysisSchema() {
 			},
 			"exact_context_terms": map[string]any{
 				"type":        "array",
-				"description": "Optional narrow same-scope terms for exact-resolution questions. Use only alongside exact_targets when nearby context should stay within one identifier family / module subtree. Terms are LLM suggestions; each one must stay grounded in the request-mentioned exact-target lane before downstream stages use it.",
+				"description": "Optional narrow same-scope terms for exact-resolution questions. Leave this unset by default. Use only alongside exact_targets when nearby context should stay within one identifier family / module subtree, and only when you can copy 1-2 narrow identifier/path stems directly from the exact target lane itself. Do not use layer labels, precedence words, or generic context terms here. The system treats these as LLM suggestions and silently drops any item that is not validated against the request-mentioned exact-target lane.",
 				"items":       map[string]string{"type": "string"},
 			},
 			"answer_subject": map[string]any{
@@ -413,14 +413,9 @@ func (t *EmitAnalysis) Execute(ctx *types.BusContext, params json.RawMessage) (t
 		}, nil
 	}
 	mentionedEntities := types.MentionedEntitiesFromRawRequest(raw, entities)
-	exactContextTerms, exactContextErr := validateExactContextTerms(exactTargets, mentionedEntities, p.ExactContextTerms)
-	if exactContextErr != "" {
-		return types.ToolResult{
-			ToolName:  t.Name(),
-			Success:   false,
-			Summary:   "emit_analysis rejected: " + exactContextErr,
-			Timestamp: time.Now(),
-		}, nil
+	exactContextTerms, exactContextWarn := sanitizeExactContextTerms(exactTargets, mentionedEntities, p.ExactContextTerms)
+	if exactContextWarn != "" {
+		val.Warnings = append(val.Warnings, exactContextWarn)
 	}
 
 	// Sub-topic summaries sometimes copy chunks of the REPL
@@ -738,12 +733,12 @@ func validateExactTargets(raw string, in []string) ([]string, string) {
 	)
 }
 
-func validateExactContextTerms(exactTargets, mentionedEntities, in []string) ([]string, string) {
+func sanitizeExactContextTerms(exactTargets, mentionedEntities, in []string) ([]string, string) {
 	if len(in) == 0 {
 		return nil, ""
 	}
 	if len(exactTargets) == 0 {
-		return nil, "exact_context_terms require exact_targets; omit exact_context_terms when the exact target is ambiguous"
+		return nil, "dropped exact_context_terms because exact_targets were absent or ambiguous"
 	}
 	allowed := make(map[string]bool)
 	for _, source := range append(append([]string(nil), exactTargets...), mentionedEntities...) {
@@ -754,18 +749,18 @@ func validateExactContextTerms(exactTargets, mentionedEntities, in []string) ([]
 		}
 	}
 	if len(allowed) == 0 {
-		return nil, "exact_context_terms require request-grounded exact target terms, but no valid target vocabulary was available"
+		return nil, "dropped exact_context_terms because no request-grounded exact-target vocabulary was available"
 	}
 	seen := make(map[string]bool)
 	var out []string
-	var invalid []string
+	var dropped []string
 	for _, item := range in {
 		norm := strings.TrimSpace(strings.ToLower(item))
 		if norm == "" {
 			continue
 		}
 		if !allowed[norm] {
-			invalid = append(invalid, strings.TrimSpace(item))
+			dropped = append(dropped, strings.TrimSpace(item))
 			continue
 		}
 		if seen[norm] {
@@ -774,14 +769,14 @@ func validateExactContextTerms(exactTargets, mentionedEntities, in []string) ([]
 		seen[norm] = true
 		out = append(out, norm)
 	}
-	if len(invalid) > 0 {
-		sort.Strings(invalid)
-		return nil, fmt.Sprintf(
-			"exact_context_terms must be grounded in the request-mentioned exact target lane; these item(s) were not validated: %s",
-			strings.Join(invalid, ", "),
-		)
+	if len(dropped) == 0 {
+		return out, ""
 	}
-	return out, ""
+	sort.Strings(dropped)
+	return out, fmt.Sprintf(
+		"ignored exact_context_terms outside the request-mentioned exact-target lane: %s",
+		strings.Join(dropped, ", "),
+	)
 }
 
 // validateConfidenceRange enforces the [0, 1] domain on every

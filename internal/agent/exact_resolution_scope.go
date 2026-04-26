@@ -57,12 +57,20 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 		return nil
 	}
 	anchoredFiles := exactResolutionAnchoredFiles(contract, evidence)
+	roleAnchoredFiles := exactResolutionRoleAnchoredFiles(contract, evidence)
+	strictRoleAnchors := contract.TargetKind == types.SubjectConfigKey &&
+		contract.RelatedContextPolicy == types.ExactContextSameFamilyGrounded &&
+		len(roleAnchoredFiles) > 0
 
 	var cands []exactResolutionSymbolCandidate
 	seen := make(map[string]bool)
 	for _, file := range candidateFiles {
 		fileLower := strings.ToLower(file)
 		if isExactResolutionNoiseFile(fileLower) {
+			continue
+		}
+		canonFile := canonicalExactResolutionPath(file)
+		if strictRoleAnchors && roleAnchoredFiles[canonFile] == 0 && !anchoredFiles[canonFile] {
 			continue
 		}
 		for _, sym := range exactResolutionSymbolsForFile(file, graph, fileSymbols) {
@@ -85,16 +93,21 @@ func collectExactResolutionSymbolCandidatesFromGraph(graph *repomap.Graph, contr
 					}
 				}
 			}
-			for _, term := range keywords {
-				if strings.Contains(symLower, term) {
-					score += 2
-				}
-				if strings.Contains(fileLower, term) {
-					score += 1
+			if !strictRoleAnchors {
+				for _, term := range keywords {
+					if strings.Contains(symLower, term) {
+						score += 2
+					}
+					if strings.Contains(fileLower, term) {
+						score += 1
+					}
 				}
 			}
-			if anchoredFiles[canonicalExactResolutionPath(file)] {
+			if anchoredFiles[canonFile] {
 				score += 4
+			}
+			if bonus := roleAnchoredFiles[canonFile]; bonus > 0 {
+				score += bonus
 			}
 			if score < 6 {
 				continue
@@ -150,6 +163,35 @@ func exactResolutionAnchoredFiles(contract *types.ExactResolutionContract, evide
 		if path != "" {
 			out[path] = true
 		}
+	}
+	return out
+}
+
+func exactResolutionRoleAnchoredFiles(contract *types.ExactResolutionContract, evidence []types.EvidenceItem) map[string]int {
+	if contract == nil || len(evidence) == 0 {
+		return nil
+	}
+	out := make(map[string]int)
+	for _, item := range evidence {
+		switch item.GroundingStatus {
+		case types.GroundingGrounded, types.GroundingRecovered, "":
+		default:
+			continue
+		}
+		if item.ContextRole == types.EvidenceContextRoleIllustrativeOnly ||
+			item.DiagramRole == types.EvidenceDiagramRoleUnknown ||
+			!exactResolutionSourceIsProductionLike(contract, item.Source) {
+			continue
+		}
+		path := canonicalExactResolutionPath(item.Source)
+		if path == "" {
+			continue
+		}
+		bonus := 6
+		if item.ContextRole == types.EvidenceContextRoleDefining {
+			bonus += 2
+		}
+		out[path] += bonus
 	}
 	return out
 }

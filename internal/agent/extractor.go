@@ -1278,8 +1278,20 @@ func hasPendingHypotheses(ctx *types.AgentContext) bool {
 // zero-tool zero-read zero-emit run is genuinely empty and the
 // extractor should fail loud.
 func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext) bool {
-	if ta := ctx.Mutable.TurnAArtifacts(); ta != nil {
+	return InvestigationStructurallyEmpty(ctx.Mutable.TurnAArtifacts(), ctx.EvidenceItems)
+}
+
+// InvestigationStructurallyEmpty reports whether Turn A left
+// downstream stages without any real investigation product. Shared by
+// the extractor's fail-loud gate and the orchestrator's pre-finalize
+// backtrack so a zero-read / zero-search / zero-evidence explore
+// window cannot silently flow into finalization.
+func InvestigationStructurallyEmpty(ta *types.TurnAArtifacts, evidence []types.EvidenceItem) bool {
+	if ta != nil {
 		if len(ta.ReadFiles) > 0 {
+			return false
+		}
+		if len(ta.EvidenceItems) > 0 || ta.TerminalEvidenceCount > 0 {
 			return false
 		}
 		for _, r := range ta.ToolResults {
@@ -1291,7 +1303,7 @@ func (e *extractorEvaluator) extractorInvestigationEmpty(ctx *types.AgentContext
 			}
 		}
 	}
-	for _, it := range ctx.EvidenceItems {
+	for _, it := range evidence {
 		switch it.Kind {
 		case types.EvidenceDirect, types.EvidenceRegistration, types.EvidenceMechanism:
 			return false

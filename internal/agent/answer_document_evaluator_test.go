@@ -318,14 +318,15 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersExactResolutionC
 		}},
 		EvidenceItems: []types.EvidenceItem{
 			{
-				Kind:       types.EvidenceMechanism,
-				Subject:    "DefaultExploreHeuristics",
-				Predicate:  "defines",
-				Object:     "ExploreHeuristics defaults",
-				Summary:    "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
-				Source:     "internal/types/config.go",
-				LineStart:  520,
-				AnchorKind: types.AnchorDefinition,
+				Kind:        types.EvidenceMechanism,
+				Subject:     "DefaultExploreHeuristics",
+				Predicate:   "defines",
+				Object:      "ExploreHeuristics defaults",
+				Summary:     "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
+				Source:      "internal/types/config.go",
+				LineStart:   520,
+				AnchorKind:  types.AnchorDefinition,
+				DiagramRole: types.EvidenceDiagramRoleDefault,
 			},
 		},
 	}
@@ -365,6 +366,9 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_RendersScalarLookupDisc
 
 	prompt := (&answerDocumentEvaluator{}).BuildInitialInstruction(ctx, nil)
 	for _, want := range []string{
+		"## Submission Checklist",
+		"Fill `value.literal` and `value.citation_ref`",
+		"Fill a real `summary` that names the subject being measured",
 		"## Scalar Lookup Discipline",
 		"one named source-code literal",
 		"`shape=value` / `shape=config_value` / `shape=boolean` still require a real `summary`",
@@ -462,6 +466,79 @@ func TestCollectExactResolutionSeeds_FiltersDifferentConfigFamilies(t *testing.T
 	}
 }
 
+func TestCollectExactResolutionSeeds_ConfigTraceRequiresDiagramRoleForNearbyContext(t *testing.T) {
+	contract := &types.ExactResolutionContract{
+		TargetKind:           types.SubjectConfigKey,
+		TargetLabel:          "config key",
+		Targets:              []string{"explore_mid_loop_hint_budget"},
+		AllowAbsence:         true,
+		RelatedContextPolicy: types.ExactContextSameFamilyGrounded,
+		RelatedContextTerms:  []string{"explore"},
+	}
+	ctx := &types.AgentContext{
+		AnalysisIR: &types.AnalysisIR{
+			RequestModel: types.RequestModel{
+				Scenario: types.ScenarioConfigTrace,
+			},
+		},
+		EvidenceItems: []types.EvidenceItem{
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "ExploreBudget",
+				Predicate:       "defines",
+				Object:          "runtime budget counter",
+				Summary:         "ExploreBudget is a runtime counter, not a config lineage anchor.",
+				Source:          "internal/types/explore_budget.go",
+				LineStart:       40,
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "DefaultExploreHeuristics",
+				Predicate:       "defines",
+				Object:          "ExploreHeuristics defaults",
+				Summary:         "DefaultExploreHeuristics defines the code defaults for explorer heuristics.",
+				Source:          "internal/types/config.go",
+				LineStart:       707,
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				DiagramRole:     types.EvidenceDiagramRoleDefault,
+				GroundingStatus: types.GroundingGrounded,
+			},
+			{
+				Kind:            types.EvidenceDirect,
+				Subject:         "RuntimeSettings",
+				Predicate:       "binds",
+				Object:          "explore_midloop_min_iteration",
+				Summary:         "RuntimeSettings binds the YAML override layer.",
+				Source:          "internal/config/runtime.go",
+				LineStart:       231,
+				ContextRole:     types.EvidenceContextRoleRelatedContext,
+				DiagramRole:     types.EvidenceDiagramRoleRuntime,
+				GroundingStatus: types.GroundingGrounded,
+			},
+		},
+	}
+
+	seeds := collectExactResolutionSeeds(ctx, contract)
+	if len(seeds) == 0 {
+		t.Fatal("expected exact-resolution seeds")
+	}
+	var joined []string
+	for _, seed := range seeds {
+		joined = append(joined, seed.Text)
+	}
+	text := strings.Join(joined, "\n")
+	if strings.Contains(text, "ExploreBudget") {
+		t.Fatalf("same-family symbol without validated diagram role should be filtered in config-trace, got: %s", text)
+	}
+	for _, want := range []string{"DefaultExploreHeuristics", "RuntimeSettings"} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("expected config-lineage seed %q, got: %s", want, text)
+		}
+	}
+}
+
 func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateAfterWindowReset(t *testing.T) {
 	mu := types.NewMutableState("")
 	mu.SetAbsenceJustification("no config key named `explore_mid_loop_hint_budget` exists in the repo")
@@ -503,6 +580,7 @@ func TestAnswerDocumentEvaluator_BuildInitialInstruction_UsesStableAbsenceStateA
 		"no config key named `explore_mid_loop_hint_budget` exists in the repo",
 		"Emit `exact_resolution.status=\"absent\"`",
 		"do NOT force `shape=config_value` with a synthetic literal",
+		"prefer only grounded lineage anchors that already carry a validated `diagram_role_hint`",
 		"Prefer `shape=explanation`",
 	} {
 		if !strings.Contains(prompt, want) {
@@ -941,6 +1019,32 @@ func TestAnswerDocumentEvaluator_Observe_MidLoopGenericRejectSurfacesToolError(t
 	} {
 		if !strings.Contains(sig.Hint, want) {
 			t.Fatalf("generic reject hint missing %q: %q", want, sig.Hint)
+		}
+	}
+}
+
+func TestAnswerDocumentEvaluator_Observe_MidLoopValueSummaryRejectSurfacesAction(t *testing.T) {
+	e := &answerDocumentEvaluator{maxRetries: 2}
+	sig := e.Observe(nil, LoopObservation{
+		Phase:     PhaseMidLoop,
+		Iteration: 0,
+		LastToolResult: &types.ToolResult{
+			ToolName: "emit_answer_document",
+			Success:  false,
+			Summary:  `shape=value requires summary to name the subject (file path / symbol / directory / measurement target) AND the methodology (command, chain, lookup) that produced the literal — the bare literal "buildAnalysisIR" alone is not a complete answer`,
+		},
+	})
+	if !sig.HintRequested {
+		t.Fatalf("value-summary reject should request a correction hint, got %+v", sig)
+	}
+	for _, want := range []string{
+		"`shape=value`",
+		"missing the required `summary`",
+		"keep the grounded `value.literal` / `value.citation_ref`",
+		"Do NOT reopen files or change the answer shape",
+	} {
+		if !strings.Contains(sig.Hint, want) {
+			t.Fatalf("value-summary hint missing %q: %q", want, sig.Hint)
 		}
 	}
 }
