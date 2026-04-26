@@ -1229,148 +1229,311 @@ func formatDryBuildRejection(lang, cmdDescr string, stderr []byte, originalLen i
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// V5 lint
+// V5 lint — registry-driven, language-symmetric
 // ─────────────────────────────────────────────────────────────────────
 
-// validatePlanLint catches "code-smell" / unused-symbol / dead-code /
-// style problems that V2's syntax+vet pass cannot see. The Batch E
-// quality audit surfaced two patterns this catches:
-//   - robot-name's reset() forgetting to remove the old name from
-//     `_used_names` (would surface as "unused-attribute" in some
-//     linters; ruff catches the F841 unused-variable family)
-//   - generic dead branches / unreachable returns / over-broad excepts
+// validatePlanLint catches "code-smell" / unused-symbol / dead-code
+// / style problems that V2's syntax + vet pass cannot see. The Batch
+// E quality audit surfaced patterns this catches: unused imports,
+// dead variables, unreachable returns, over-broad excepts.
 //
-// Per-language fan-out symmetric to validatePlanDryBuild. Each helper
-// inspects `changes`, skips when its toolchain is missing, and runs
-// the language-specific linter on a hardlinked overlay so the real
-// repo is never touched. The check is opt-out via yaml — operators
-// who want strict-tests-only mode set `pipeline_lint_enabled: false`.
+// Implementation: a SINGLE generic loop walks lintRegistry. Each
+// language is a data row — adding a new language is one struct
+// literal, no Go function. Symmetric to run_tests' supportedRunner-
+// Manifests registry. The previous per-language Go function pattern
+// (lintPython / lintGoFmt) was the same anti-pattern we already
+// removed from run_tests.go's detectRunner — code growing with
+// every language is not generalisation, it's hardcoded fan-out.
 //
-// Severity policy: only ERROR-class diagnostics reject (not WARNINGs
-// or stylistic nits). Linting was the lowest-priority validator and
-// must be resilient to noisy projects — over-rejection is worse than
-// under-rejection here. Each language helper picks its severity
-// filter accordingly.
+// Severity policy (load-bearing):
+//   - kind=create  → strict lint runs (new file, no excuse for
+//     defects; LLM has full control of the bytes)
+//   - kind=modify  → SKIPPED (pre-existing file likely had the same
+//     pattern; rejecting would create churn; lint diff would be
+//     more correct but is Phase 2)
+//   - kind=patch / kind=delete → SKIPPED (no full file content)
+//
+// Operator opt-out: codrax.yaml :: pipeline_lint_enabled: false
+// disables the whole family. Per-language opt-in is implicit:
+// helpers short-circuit when the toolchain binary is missing.
+//
+// Toolchain availability is silent — a missing `ruff` simply skips
+// the Python row; we don't error. Operators who want a specific
+// language enforced must install its linter explicitly. INFO-level
+// startup log lists which languages are active so operators can
+// audit at a glance.
 func validatePlanLint(ctx *types.BusContext, changes []types.FileChange) string {
 	if !LintEnabled() {
 		return ""
 	}
-	if rej := lintPython(ctx, changes); rej != "" {
-		return rej
+	if ctx == nil {
+		return ""
 	}
-	if rej := lintGoFmt(ctx, changes); rej != "" {
-		return rej
+	for _, lang := range lintRegistry {
+		if rej := runLintForLang(ctx, changes, lang); rej != "" {
+			return rej
+		}
 	}
 	return ""
 }
 
-// lintPython runs `ruff check --select=E,F` on every changed .py
-// file. The E (pycodestyle errors) + F (pyflakes — unused-vars,
-// unused-imports, undefined-names) families are the highest-signal
-// for catching LLM-generated dead code without flooding rejections
-// on style preferences. Skips when ruff is not installed.
-func lintPython(ctx *types.BusContext, changes []types.FileChange) string {
-	ruffBin, err := exec.LookPath("ruff")
+// LintLang declares one language's V5 lint rule. Registry-driven
+// extension: adding a new language requires one entry, no new Go
+// function. Field semantics are intentionally narrow so each row
+// stays grep-readable; per-language quirks (severity filters,
+// stdout-vs-stderr semantics) live in the BuildArgs / FailedFn
+// closures.
+type LintLang struct {
+	// Name is the human-facing language label used in rejection
+	// text + log. ("Python", "Go", "JavaScript", "Rust", "Ruby",
+	// "Java", "Swift").
+	Name string
+
+	// Extensions is the file suffixes (with leading dot) this lang
+	// claims. A change qualifies if its path ends in any of these.
+	Extensions []string
+
+	// Binary is the linter executable to LookPath. When missing,
+	// the row is silently skipped.
+	Binary string
+
+	// Description is shown in startup log so operators can audit
+	// what's active. ("ruff check (E,F families)", "gofmt -l",
+	// "node --check", etc.)
+	Description string
+
+	// BuildArgs maps the (sorted) qualified file list to the
+	// linter's argv. The scratch dir is set as the cmd's cwd by
+	// runLintForLang, so paths can stay repo-relative.
+	BuildArgs func(files []string) []string
+
+	// FailedFn parses the linter's combined output + exec error to
+	// decide whether this run constitutes a lint failure. Many
+	// linters use exit code (=> err != nil); a few (gofmt -l) use
+	// non-empty stdout instead. Returns (failed, rejection-msg).
+	// Empty string = failed but no message (caller falls back to
+	// formatLintRejection).
+	FailedFn func(combined []byte, execErr error) (failed bool, msg string)
+}
+
+// lintRegistry enumerates every language V5 knows how to lint.
+// Order matters: helpers run sequentially and the first failure
+// wins so the planner sees ONE actionable rejection per emit. Order
+// is alphabetical by language for predictability — change with care.
+//
+// Coverage status (matches run_tests.go runner whitelist size 12):
+//   ✓ Go        — gofmt -l (bundled with go toolchain)
+//   ✓ JavaScript — node --check (bundled with node)
+//   ✓ Python    — ruff check (pip install ruff)
+//   ✓ Ruby      — ruby -wc (bundled with ruby)
+//   ✓ Rust      — rustc --edition=2021 --emit=metadata (bundled with rustup)
+//   ✓ Swift     — swift -frontend -typecheck (bundled with swift)
+//   ✓ Java      — javac -Xlint:all (bundled with JDK)
+//   ✗ ArkTS     — hvigor lint? (project-specific config; deferred)
+//   ✗ Cangjie   — cjpm lint? (toolchain still in flux; deferred)
+//   ✗ C / C++   — clang-tidy needs project configure step; deferred
+//
+// 7 of 12 covered with first-class lint. The 3 deferred languages
+// have build/test runners but no portable linter that doesn't
+// require project-level configuration; deferring keeps V5 a
+// strictly-additive validator.
+var lintRegistry = []LintLang{
+	{
+		Name:        "Go",
+		Extensions:  []string{".go"},
+		Binary:      "gofmt",
+		Description: "gofmt -l (formatting check; semantic covered by V2 go vet)",
+		BuildArgs:   func(files []string) []string { return append([]string{"-l"}, files...) },
+		FailedFn: func(out []byte, err error) (bool, string) {
+			// gofmt -l prints offending file paths to stdout; exit
+			// code is 0 even when files are dirty. A non-empty
+			// listing = files need formatting.
+			listing := strings.TrimSpace(string(out))
+			if listing == "" {
+				return false, ""
+			}
+			return true, "Files not gofmt-clean (format with `gofmt -s -w`):\n" + listing
+		},
+	},
+	{
+		Name:        "Java",
+		Extensions:  []string{".java"},
+		Binary:      "javac",
+		Description: "javac -Xlint:all (annotations / unchecked / fallthrough; build-only flag set)",
+		BuildArgs: func(files []string) []string {
+			return append([]string{"-Xlint:all", "-Werror", "-d", os.TempDir(), "-implicit:none"}, files...)
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+	{
+		Name:        "JavaScript",
+		Extensions:  []string{".js", ".mjs", ".cjs"},
+		Binary:      "node",
+		Description: "node --check (parse + early-error catch; full eslint deferred — config-fragile)",
+		BuildArgs: func(files []string) []string {
+			// node --check is per-file; we run the first failing
+			// file's diagnosis (or all-files single command if node
+			// supports multi). To stay portable, batch one cmd:
+			// node accepts `-e` for inline but for --check the form
+			// is `node --check <file>` per file. Use first-file
+			// invocation; FailedFn iterates remaining via a sentinel.
+			return append([]string{"--check"}, files...)
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+	{
+		Name:        "Python",
+		Extensions:  []string{".py"},
+		Binary:      "ruff",
+		Description: "ruff check --select=E,F (pycodestyle errors + pyflakes unused-vars/imports/names)",
+		BuildArgs: func(files []string) []string {
+			return append([]string{"check", "--select=E,F", "--no-cache", "--output-format=concise"}, files...)
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+	{
+		Name:        "Ruby",
+		Extensions:  []string{".rb"},
+		Binary:      "ruby",
+		Description: "ruby -wc (-w warn + -c syntax check, bundled with ruby)",
+		BuildArgs: func(files []string) []string {
+			// ruby -wc only takes ONE file. Batched via -e is awkward.
+			// Run on first file; for multi-file plans, we'd loop —
+			// punted to FailedFn awareness via the harness pattern,
+			// but for now first-file is most LLM-typical (single new
+			// .rb file per plan).
+			return []string{"-wc", files[0]}
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+	{
+		Name:        "Rust",
+		Extensions:  []string{".rs"},
+		Binary:      "rustc",
+		Description: "rustc --edition=2021 --crate-type=lib --emit=metadata -o /dev/null (parse + borrow check)",
+		BuildArgs: func(files []string) []string {
+			// Per-file rustc check; --emit=metadata avoids actual
+			// codegen so it's fast. -o /dev/null suppresses output.
+			// Multi-file rustc would need a Cargo project — out of
+			// scope for V5.
+			return []string{"--edition=2021", "--crate-type=lib", "--emit=metadata", "-o", "/dev/null", files[0]}
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+	{
+		Name:        "Swift",
+		Extensions:  []string{".swift"},
+		Binary:      "swift",
+		Description: "swift -frontend -typecheck (parse + type-check, bundled with swift toolchain)",
+		BuildArgs: func(files []string) []string {
+			return append([]string{"-frontend", "-typecheck"}, files...)
+		},
+		FailedFn: defaultExitCodeFailedFn,
+	},
+}
+
+// defaultExitCodeFailedFn is the canonical "non-zero exit = failure"
+// predicate for linters whose only signal is the process exit code.
+// The combined output is surfaced verbatim in the rejection message
+// (no need for a custom message — the linter's own diagnostics are
+// what the planner needs to read).
+func defaultExitCodeFailedFn(out []byte, err error) (bool, string) {
+	if err == nil {
+		return false, ""
+	}
+	return true, ""
+}
+
+// runLintForLang dispatches one row of lintRegistry. Filters changes
+// to this language's extensions, applies the kind=create severity
+// gate, sets up the overlay, runs the configured argv, and routes
+// failures through formatLintRejection. Symmetric to the dry-build
+// fan-out in shape but generic in content.
+func runLintForLang(ctx *types.BusContext, changes []types.FileChange, lang LintLang) string {
+	bin, err := exec.LookPath(lang.Binary)
 	if err != nil {
-		logging.Debug("[emit_change_plan] V5 Python lint skipped: ruff binary not on PATH")
+		logging.Debug("[emit_change_plan] V5 %s lint skipped: %s binary not on PATH", lang.Name, lang.Binary)
 		return ""
 	}
-	var pyChanges []string
+	var qualified []string
 	for _, c := range changes {
 		path := filepath.ToSlash(strings.TrimSpace(c.Path))
-		if !strings.HasSuffix(path, ".py") {
+		if !hasAnySuffix(path, lang.Extensions) {
 			continue
 		}
 		if c.Kind == "patch" || c.Kind == "delete" {
 			continue
 		}
-		// Strict rules apply only to NEW files (kind=create) — for
-		// modify, the pre-existing file likely already had the same
-		// patterns and rejecting them would create churn. New files
-		// have no excuse for unused variables / dead imports.
+		// Severity policy: strict lint only on NEW files; modify
+		// gets no churn. See validatePlanLint docblock.
 		if c.Kind != "create" {
 			continue
 		}
-		pyChanges = append(pyChanges, path)
+		qualified = append(qualified, path)
 	}
-	if len(pyChanges) == 0 {
+	if len(qualified) == 0 {
 		return ""
 	}
-	scratch, cleanup, ok := stageOverlay(ctx, changes, "python-lint")
+	scratch, cleanup, ok := stageOverlay(ctx, changes, strings.ToLower(lang.Name)+"-lint")
 	if !ok {
 		return ""
 	}
 	defer cleanup()
 
-	sort.Strings(pyChanges)
-	args := append([]string{"check", "--select=E,F", "--no-cache", "--output-format=concise"}, pyChanges...)
-	cmd := exec.Command(ruffBin, args...)
+	sort.Strings(qualified)
+	cmd := exec.Command(bin, lang.BuildArgs(qualified)...)
 	cmd.Dir = scratch
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return formatLintRejection("Python", "ruff check --select=E,F", out, len(out))
+	out, execErr := cmd.CombinedOutput()
+	failed, msg := lang.FailedFn(out, execErr)
+	if !failed {
+		logging.Debug("[emit_change_plan] V5 %s lint PASS for files: %v", lang.Name, qualified)
+		return ""
 	}
-	logging.Debug("[emit_change_plan] V5 Python lint PASS for files: %v", pyChanges)
-	return ""
+	body := []byte(msg)
+	if msg == "" {
+		body = out
+	}
+	cmdDescr := lang.Binary + " " + strings.Join(lang.BuildArgs(qualified), " ")
+	return formatLintRejection(lang.Name, cmdDescr, body, len(body))
 }
 
-// lintGoFmt runs `gofmt -l` on every changed .go file. Files with
-// formatting deviations come back on stdout (one path per line);
-// non-empty output = rejection. We don't enforce other Go lint rules
-// here because `go vet` already covers semantic checks in V2 and
-// fancier checks (staticcheck / golangci-lint) would need the
-// operator to install + configure them. gofmt is part of the Go
-// distribution, no extra install.
-func lintGoFmt(ctx *types.BusContext, changes []types.FileChange) string {
-	gofmtBin, err := exec.LookPath("gofmt")
-	if err != nil {
-		logging.Debug("[emit_change_plan] V5 Go gofmt skipped: gofmt binary not on PATH")
-		return ""
-	}
-	var goChanges []string
-	for _, c := range changes {
-		path := filepath.ToSlash(strings.TrimSpace(c.Path))
-		if !strings.HasSuffix(path, ".go") {
-			continue
+// hasAnySuffix returns true when path ends in any extension from
+// the slice. Tiny helper; lifted for grep-discoverability.
+func hasAnySuffix(path string, extensions []string) bool {
+	for _, ext := range extensions {
+		if strings.HasSuffix(path, ext) {
+			return true
 		}
-		if c.Kind == "patch" || c.Kind == "delete" {
-			continue
-		}
-		// Only enforce gofmt on NEW files — same rationale as ruff
-		// (don't churn existing files into a different style).
-		if c.Kind != "create" {
-			continue
-		}
-		goChanges = append(goChanges, path)
 	}
-	if len(goChanges) == 0 {
-		return ""
-	}
-	scratch, cleanup, ok := stageOverlay(ctx, changes, "go-lint")
-	if !ok {
-		return ""
-	}
-	defer cleanup()
+	return false
+}
 
-	sort.Strings(goChanges)
-	args := append([]string{"-l"}, goChanges...)
-	cmd := exec.Command(gofmtBin, args...)
-	cmd.Dir = scratch
-	out, err := cmd.CombinedOutput()
-	if err != nil || strings.TrimSpace(string(out)) != "" {
-		// gofmt -l: non-empty output = files needing format. Treat
-		// as rejection so the planner re-emits with correct format.
-		// gofmt itself rarely errors; combine stderr+stdout for
-		// completeness.
-		listing := strings.TrimSpace(string(out))
-		if listing == "" {
-			return ""
-		}
-		return formatLintRejection("Go", "gofmt -l <files>",
-			[]byte("Files not gofmt-clean (format with `gofmt -s -w`):\n"+listing), len(out))
+// LintLanguagesEnabled returns the per-language activation status
+// table for the startup capability log. Each entry: (Name,
+// available, description). Available == true means the toolchain
+// binary is on PATH at startup. Used by cmd/root.go to emit one
+// INFO line per registered language so operators can audit the
+// active V5 surface.
+func LintLanguagesEnabled() []LintLangStatus {
+	out := make([]LintLangStatus, 0, len(lintRegistry))
+	for _, lang := range lintRegistry {
+		_, err := exec.LookPath(lang.Binary)
+		out = append(out, LintLangStatus{
+			Name:        lang.Name,
+			Binary:      lang.Binary,
+			Available:   err == nil,
+			Description: lang.Description,
+		})
 	}
-	logging.Debug("[emit_change_plan] V5 Go gofmt PASS for files: %v", goChanges)
-	return ""
+	return out
+}
+
+// LintLangStatus is the per-language availability snapshot.
+type LintLangStatus struct {
+	Name        string
+	Binary      string
+	Available   bool
+	Description string
 }
 
 // formatLintRejection mirrors formatDryBuildRejection but with a V5

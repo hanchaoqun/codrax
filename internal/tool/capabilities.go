@@ -4,6 +4,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -75,16 +76,52 @@ func LogCapabilities() {
 	runGitProbe()
 	if gitProbeOk {
 		logging.Info("git backend: %s (%s)", gitProbePath, gitProbeVerOK)
+	} else {
+		switch runtime.GOOS {
+		case "windows":
+			logging.Warning("git not found on PATH — repomap scanning falls back to filesystem walk; git_diff / git_log tools disabled. Install Git for Windows (https://git-scm.com/download/win) to restore.")
+		case "darwin":
+			logging.Warning("git not found on PATH — repomap scanning falls back to filesystem walk; git_diff / git_log tools disabled. Install with `xcode-select --install` or `brew install git`.")
+		default:
+			logging.Warning("git not found on PATH — repomap scanning falls back to filesystem walk; git_diff / git_log tools disabled. Install via your distro package manager (apt/yum/apk install git).")
+		}
+	}
+
+	// V5 lint per-language availability snapshot. One INFO line
+	// summarising which languages are active + which are skipped
+	// (binary missing). Operators audit in-place via the startup
+	// banner; no need to grep emit_change_plan.go.
+	if !LintEnabled() {
+		logging.Info("V5 lint validator: DISABLED via codrax.yaml :: pipeline_lint_enabled")
 		return
 	}
-	switch runtime.GOOS {
-	case "windows":
-		logging.Warning("git not found on PATH — repomap scanning falls back to filesystem walk; git_diff / git_log tools disabled. Install Git for Windows (https://git-scm.com/download/win) to restore.")
-	case "darwin":
-		logging.Warning("git not found on PATH — repomap scanning falls back to filesystem walk; git_diff / git_log tools disabled. Install with `xcode-select --install` or `brew install git`.")
-	default:
-		logging.Warning("git not found on PATH — repomap scanning falls back to filesystem walk; git_diff / git_log tools disabled. Install via your distro package manager (apt/yum/apk install git).")
+	stats := LintLanguagesEnabled()
+	var active, missing []string
+	for _, st := range stats {
+		if st.Available {
+			active = append(active, st.Name)
+		} else {
+			missing = append(missing, st.Name+" ("+st.Binary+")")
+		}
 	}
+	if len(active) == 0 {
+		logging.Warning("V5 lint validator: NO language toolchains found on PATH — all lint checks will silently skip. Install at least one of: %s",
+			strings.Join(linterListForLog(stats), ", "))
+		return
+	}
+	logging.Info("V5 lint validator: active for %d/%d languages — active=[%s]; missing=[%s]",
+		len(active), len(stats), strings.Join(active, ", "), strings.Join(missing, ", "))
+}
+
+// linterListForLog formats the per-language install hints as a
+// short comma-separated list for the WARN-when-nothing-active log
+// line. Kept tiny so the warning stays scannable.
+func linterListForLog(stats []LintLangStatus) []string {
+	out := make([]string, 0, len(stats))
+	for _, st := range stats {
+		out = append(out, st.Name+":"+st.Binary)
+	}
+	return out
 }
 
 // runGitProbe tries `git --version` with a 2s timeout and caches the

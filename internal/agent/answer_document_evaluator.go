@@ -556,8 +556,8 @@ func renderAnswerDocDiagramConfigTraceSeed(ctx *types.AgentContext) string {
 		}
 	}
 	b.WriteString("```\n")
-	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to `Layer N`, `CLI`, or another abstract bucket. Keep each node label as a plain grounded file/path label; do not prepend `Layer 1:` / `Layer 2:` style wrappers.\n")
-	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new layer labels. If you introduce a different file / symbol / path label, ground it first.")
+	b.WriteString("Every node you keep in this diagram must also have a matching citation in `citations[]`. If you cannot cite a node, delete it from the chain instead of renaming it to an abstract bucket name (for example a generic step number, the literal `CLI`, or a tier label). Keep each node label as a plain grounded file/path label; do not prepend ordinal-tier wrappers.\n")
+	b.WriteString("If you only need part of the chain, delete unused nodes rather than inventing new abstract labels. If you introduce a different file / symbol / path label, ground it first.")
 	return strings.TrimSpace(b.String())
 }
 
